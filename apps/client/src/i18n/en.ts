@@ -1274,6 +1274,8 @@ export const en = {
   'branches.timing_help': 'How the kitchen promises and orders work for this branch. The standard values suit most restaurants; change one only when you know why.',
   'branches.timing_minutes_range': 'Use {min} to {max} minutes.',
   'branches.timing_pct_range': 'Use {min} to {max} percent.',
+  // 01a v2.4.3 (03b §4.5 A-2, P15-1): Ready window and KDS offline are typed in seconds.
+  'branches.timing_seconds_range': 'Use {min} to {max} seconds.',
   'form.range.max_minutes': 'Use {max} minutes or less.',
   'form.range.min_minutes': 'Use {min} minutes or more.',
   'form.range.max_percent': 'Use {max} percent or less.',
@@ -1285,6 +1287,7 @@ export const en = {
   'form.amber_below_red': 'Must be below the red level.',
   'branches.timing.unit_min': 'min',
   'branches.timing.unit_pct': '%',
+  'branches.timing.unit_sec': 's',
   'branches.timing.weights': 'Order weight',
   'branches.timing.weights_help': 'How much room an order of each kind takes in the kitchen queue. 100 is a normal dine-in order; a higher number puts that kind ahead.',
   'branches.timing.weight_dine_in_pct': 'Dine-in',
@@ -1725,7 +1728,7 @@ export const en = {
   'branches.timing.slow_item_threshold_ms': 'Mark an item slow after',
   // 01a v2.4.2 (03b v1.0.2 §4.5 B-2): kitchen screens and the pass.
   'branches.timing.kds': 'Kitchen screens and the pass',
-  'branches.timing.kds_help': 'Minutes. Decimals work: 0.5 is 30 seconds.',
+  'branches.timing.kds_help': 'The first two in whole seconds; the served time in minutes.',
   'branches.timing.ready_window_ms': 'Call more people for a ready dish after',
   'branches.timing.kds_offline_ms': 'Treat a kitchen screen as off after',
   'branches.timing.served_estimate_ms': 'Count handed-over food as served after',

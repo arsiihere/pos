@@ -12,11 +12,13 @@ import { formatMinutes, parseMinutes } from '../minutes';
 // 01a v2.3 §5.2a (02b A-1): three more times beside the A-12 fields, now on BranchEngineSettings (task 9).
 // 01a v2.4.2 (03b v1.0.2 §4.5 B-2, owner ruling (a) 2026-11-11): "Kitchen screens and the pass" — the Pass Ready
 // window, the KDS offline threshold and the 02b served estimate (1–30 min, or Off = null on the wire).
+// 01a v2.4.3 (03b v1.0.3 §4.5 A-2, owner ruling P15-1 (a) 2026-11-11): the Ready window (15–300 s) and KDS offline
+// (10–300 s) are typed in whole seconds (10 s is not two-decimal minutes); the served estimate stays in minutes.
 type NumericKey = Exclude<keyof BranchEngineSettings, 'returns_boost' | 'comp_reason_chips' | 'served_estimate_ms'>;
 const storedOf = (base: BranchEngineSettings, key: NumericKey): number => base[key];
 interface Spec {
   key: NumericKey;
-  kind: 'pct' | 'ms';
+  kind: 'pct' | 'ms' | 'sec';
   min: number;
   max: number;
   label: MessageKey;
@@ -51,16 +53,21 @@ const ORDERING: Spec[] = [
   { key: 'zone_undo_ms', kind: 'ms', min: 0, max: 1_800_000, label: 'branches.timing.zone_undo_ms' },
   { key: 'slow_item_threshold_ms', kind: 'ms', min: 60_000, max: 7_200_000, label: 'branches.timing.slow_item_threshold_ms' },
 ];
-// 03b §4.5 A-1: Ready window 15 s–5 min, KDS offline 10 s–5 min (the 0012 CHECKs).
+// 03b §4.5 A-1: Ready window 15 s–5 min, KDS offline 10 s–5 min (the 0012 CHECKs); A-2: typed in seconds.
 const KDS: Spec[] = [
-  { key: 'ready_window_ms', kind: 'ms', min: 15_000, max: 300_000, label: 'branches.timing.ready_window_ms' },
-  { key: 'kds_offline_ms', kind: 'ms', min: 10_000, max: 300_000, label: 'branches.timing.kds_offline_ms' },
+  { key: 'ready_window_ms', kind: 'sec', min: 15_000, max: 300_000, label: 'branches.timing.ready_window_ms' },
+  { key: 'kds_offline_ms', kind: 'sec', min: 10_000, max: 300_000, label: 'branches.timing.kds_offline_ms' },
 ];
 const SPECS: Spec[] = [...WEIGHTS, ...PADDINGS, ...OTHERS, ...ORDERING, ...KDS];
 // 03b §4.5 A-1: the served estimate, 1–30 min, or Off (null).
 const SERVED = { min: 60_000, max: 1_800_000 };
 // Shown in the box when the stored value is Off and the owner turns it On.
 const SERVED_DEFAULT_MS = 180_000;
+
+const SECOND_MS = 1000;
+const formatSeconds = (ms: number): string => String(Math.round(ms / SECOND_MS));
+const formatOf = (spec: Spec, ms: number): string =>
+  spec.kind === 'pct' ? String(ms) : spec.kind === 'sec' ? formatSeconds(ms) : formatMinutes(ms);
 
 export type EngineState = Record<NumericKey, string> & { returns_boost: boolean; served_estimate_ms: string; served_estimate_on: boolean };
 
@@ -70,15 +77,24 @@ export function engineState(base: BranchEngineSettings): EngineState {
     served_estimate_on: base.served_estimate_ms !== null,
     served_estimate_ms: formatMinutes(base.served_estimate_ms ?? SERVED_DEFAULT_MS),
   } as EngineState;
-  for (const spec of SPECS) state[spec.key] = spec.kind === 'pct' ? String(storedOf(base, spec.key)) : formatMinutes(storedOf(base, spec.key));
+  for (const spec of SPECS) state[spec.key] = formatOf(spec, storedOf(base, spec.key));
   return state;
 }
 
 const WHOLE_RE = /^[0-9]+$/;
-// A time whose text was not touched keeps its stored ms, which two-decimal minutes may not round-trip.
+// A time whose text was not touched keeps its stored ms, which two-decimal minutes (or whole seconds) may not
+// round-trip.
 function valueOf(spec: Spec, text: string, stored: number): number | null {
   if (spec.kind === 'pct') return WHOLE_RE.test(text.trim()) ? Number(text.trim()) : null;
-  return text === formatMinutes(stored) ? stored : parseMinutes(text);
+  if (text === formatOf(spec, stored)) return stored;
+  if (spec.kind === 'sec') return WHOLE_RE.test(text.trim()) ? Number(text.trim()) * SECOND_MS : null;
+  return parseMinutes(text);
+}
+
+function rangeMessage(spec: Spec): string {
+  if (spec.kind === 'pct') return fill(t('branches.timing_pct_range'), { min: String(spec.min), max: String(spec.max) });
+  if (spec.kind === 'sec') return fill(t('branches.timing_seconds_range'), { min: formatSeconds(spec.min), max: formatSeconds(spec.max) });
+  return fill(t('branches.timing_minutes_range'), { min: formatMinutes(spec.min), max: formatMinutes(spec.max) });
 }
 
 // The changed fields as a PATCH body part, plus a message per box that is outside its range.
@@ -92,10 +108,7 @@ export function enginePatch(
     const stored = storedOf(base, spec.key);
     const value = valueOf(spec, state[spec.key], stored);
     if (value === null || value < spec.min || value > spec.max) {
-      errors[spec.key] =
-        spec.kind === 'pct'
-          ? fill(t('branches.timing_pct_range'), { min: String(spec.min), max: String(spec.max) })
-          : fill(t('branches.timing_minutes_range'), { min: formatMinutes(spec.min), max: formatMinutes(spec.max) });
+      errors[spec.key] = rangeMessage(spec);
     } else if (value !== stored) patch[spec.key] = value;
   }
   if (state.returns_boost !== base.returns_boost) patch['returns_boost'] = state.returns_boost;
@@ -120,6 +133,12 @@ export const engineFieldLabel = (key: string): string | undefined => {
   return spec === undefined ? undefined : t(spec.label);
 };
 
+const UNIT: Record<Spec['kind'], MessageKey> = {
+  pct: 'branches.timing.unit_pct',
+  ms: 'branches.timing.unit_min',
+  sec: 'branches.timing.unit_sec',
+};
+
 export function KitchenTiming({
   state,
   onChange,
@@ -137,11 +156,11 @@ export function KitchenTiming({
         <input
           className="pos-input pos-input--mono"
           name={spec.key}
-          inputMode={spec.kind === 'pct' ? 'numeric' : 'decimal'}
+          inputMode={spec.kind === 'ms' ? 'decimal' : 'numeric'}
           value={state[spec.key]}
           onChange={(e) => onChange({ ...state, [spec.key]: e.target.value })}
         />
-        <span>{t(spec.kind === 'pct' ? 'branches.timing.unit_pct' : 'branches.timing.unit_min')}</span>
+        <span>{t(UNIT[spec.kind])}</span>
       </span>
       {errors[spec.key] !== undefined && <span className="pos-field__error">{errors[spec.key]}</span>}
     </label>
