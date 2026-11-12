@@ -11,7 +11,7 @@ import { branchConfig } from '../sync/branch-config-holder.js';
 import { currentTableOf } from '../tables/reads.js';
 import { VOID_KIND } from './contracts.js';
 import { voidIdentifier } from './identifier.js';
-import { planVoidEntries, voidDrafts, type PlannedEntry } from './plan.js';
+import { planVoidEntries, voidDrafts, type PlannedEntry, type VoidLineState } from './plan.js';
 
 // 04 §3.5: kind `void_approval`. Defined at the top level of this module; voids/index.ts imports it statically
 // (server.ts -> voids/index.ts), so the kind exists before boot replays the `alerts` projection (01d §3.5 / P-8).
@@ -125,6 +125,21 @@ function tableCode(table_id: string | null): string | null {
   return table_id;
 }
 
+/** §3.5 `lines[].state` order (Q-16): the most advanced first wins. */
+const STATE_RANK: Record<VoidLineState, number> = { not_started: 0, cooking: 1, cooked: 2, served: 3 };
+
+/**
+ * §3.5 (⚠️ 04 v1.0.3, Q-16): a touched line's card state. A **deal** header shows the most advanced state among its
+ * touched parts (`served > cooked > cooking > not_started`), never `not_started` while a part cooks; every other line
+ * its own state from the planner.
+ */
+function cardState(e: PlannedEntry, id: string, kinds: ReadonlyMap<string, string>): VoidLineState {
+  const own = e.states[id]!;
+  if (!e.header_ids.includes(id) || kinds.get(id) !== 'deal') return own;
+  const parts = e.touched_ids.filter((t) => t !== id).map((t) => e.states[t]!);
+  return parts.reduce((best, s) => (STATE_RANK[s] > STATE_RANK[best] ? s : best), 'not_started' as VoidLineState);
+}
+
 /** The request's own fields of §6.1 (the payload's, shared by every entry). */
 export interface VoidRequestMeta {
   reason_code: VoidReasonCode;
@@ -140,6 +155,7 @@ export interface VoidRequestMeta {
 export function voidRaiseInputs(ctx: CommandCtx, order: ReadOrderHead, lines: readonly ReadOrderLine[], planned: readonly PlannedEntry[], meta: VoidRequestMeta): RaiseInput[] {
   const caller = ctx.actor.staffId!;
   const names = new Map(lines.map((l) => [l.order_item_id, l.name]));
+  const kinds = new Map(lines.map((l) => [l.order_item_id, l.line_kind]));
   const identifier = voidIdentifier(ctx.state, order);
   const display: AlertDisplay = {
     kind_label_key: VOID_APPROVAL.labels.lock,
@@ -174,7 +190,7 @@ export function voidRaiseInputs(ctx: CommandCtx, order: ReadOrderHead, lines: re
       reason,
       identifier,
       disposition: `void.disposition.${partly ? 'moved_partly' : e.disposition}`,
-      lines: e.lines.slice(0, 10).map((l) => ({ name: names.get(l.order_item_id) ?? l.order_item_id, quantity: l.units, state: e.states[l.order_item_id]! })),
+      lines: e.lines.slice(0, 10).map((l) => ({ name: names.get(l.order_item_id) ?? l.order_item_id, quantity: l.units, state: cardState(e, l.order_item_id, kinds) })),
     };
     return {
       kind: VOID_KIND,
