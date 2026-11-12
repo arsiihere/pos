@@ -1,6 +1,9 @@
 import type { EventDraft } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
-import { orderLines, ordersOf, seatingTotals } from '../../src/orders/exports';
+import { DomainError } from '@pos/domain';
+import type { CommandCtx } from '../../src/commands/registry';
+import { orderLines, ordersOf, readOrder, seatingTotals } from '../../src/orders/exports';
+import { currentTableOf } from '../../src/tables/reads';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
 import { statementCounter } from '../helpers/statement-counter';
 import { appendOrder, FX, openDay, openSeating } from './fixtures';
@@ -237,5 +240,100 @@ describe('[02b §3.13] live orders', () => {
     expect(seatingTotals(hub.deps.db, 'NOPE')).toEqual({ total_minor: 0, order_count: 0 });
     expect(ordersOf(hub.deps.db, 'NOPE')).toEqual([]);
     expect(orderLines(hub.deps.db, []).size).toBe(0);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- readOrder (04 Q-2)
+
+/** readOrder reads through ctx.tx.db only; a bare ctx inside a writer transaction. */
+function read(order_id: string) {
+  return hub.deps.writer.run((tx) => readOrder({ tx } as unknown as CommandCtx, order_id)).result;
+}
+
+describe('[02b #42 exports] readOrder (04 §4.5 Q-2; G-14, G-16)', () => {
+  it('[02b #42] head carries token, car_number, car_type, business_date and table_ids in 1 statement', async () => {
+    await start();
+    const counter = statementCounter(hub.deps.db);
+    openSeating(hub, { table_id: FX.table, seating_id: 'S1' });
+    const dine = appendOrder(hub, { order_type: 'dine_in', seating_id: 'S1', lines: [{ order_item_id: 'N1', item_id: FX.naan, quantity: 2 }] });
+    const take = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'N2', item_id: FX.naan }] });
+    const park = appendOrder(hub, { order_type: 'parking', car_number: 'LEA-123', lines: [{ order_item_id: 'N3', item_id: FX.naan }] });
+    const placed = (id: string) => hub.deps.db.prepare('SELECT business_date, token FROM orders WHERE order_id = ?').get(id) as { business_date: string; token: number | null };
+
+    const out = hub.deps.writer.run((tx) => {
+      counter.reset();
+      const r = readOrder({ tx } as unknown as CommandCtx, dine.order_id);
+      return { r, statements: counter.count };
+    }).result;
+    expect(out.statements).toBe(1);
+    expect(out.r.order).toMatchObject({
+      order_id: dine.order_id,
+      order_type: 'dine_in',
+      seating_id: 'S1',
+      primary_table_id: FX.table,
+      token: null,
+      car_number: null,
+      car_type: null,
+      business_date: placed(dine.order_id).business_date,
+      table_ids: [FX.table],
+    });
+    expect(out.r.lines.map((l) => [l.order_item_id, l.live_units])).toEqual([['N1', 2]]);
+
+    const t = read(take.order_id).order;
+    expect(t).toMatchObject({ order_type: 'takeaway', seating_id: null, primary_table_id: null, table_ids: [], car_number: null });
+    expect(t.token).toBe(placed(take.order_id).token);
+    expect(typeof t.token).toBe('number');
+    expect(read(park.order_id).order).toMatchObject({ order_type: 'parking', token: null, car_number: 'LEA-123', car_type: 'sedan', table_ids: [] });
+  });
+
+  it('[02b #42] a tie merge (same joined_at) lists table_ids in currentTableOf order (joined_at, then table_id)', async () => {
+    await start();
+    // T2 opened and T1 joined in the same transaction: both rows carry the same joined_at; insertion order is T2, T1.
+    hub.clock.advance(1_000);
+    const now = hub.clock.branchNow();
+    const env = { schema_version: 1, occurred_at: now, actor_id: STAFF, device_id: 'D_FIXTURE' };
+    hub.deps.writer.run((tx) =>
+      tx.append([
+        { ...env, stream_type: 'table', stream_id: FX.table, event_type: 'TableOpened', payload: { table_id: FX.table, seating_id: 'S1', holder_staff_id: STAFF, party_size: null } },
+        {
+          ...env,
+          stream_type: 'table',
+          stream_id: FX.table,
+          event_type: 'TablesMerged',
+          payload: { into_seating_id: 'S1', into_table_id: FX.table, table_ids: [FX.zoneTable], absorbed_seating_id: null, order_ids: [], by_staff_id: STAFF },
+        },
+      ]),
+    );
+    const joined = hub.deps.db.prepare('SELECT DISTINCT joined_at FROM seating_tables WHERE seating_id = ?').all('S1');
+    expect(joined).toHaveLength(1);
+    const o = appendOrder(hub, { order_type: 'dine_in', seating_id: 'S1', lines: [{ order_item_id: 'N1', item_id: FX.naan }] });
+
+    const head = read(o.order_id).order;
+    expect(head.primary_table_id).toBe(FX.table);
+    expect(head.table_ids).toEqual(currentTableOf(hub.deps.db, [o.order_id]).get(o.order_id)!.table_ids);
+    expect(head.table_ids).toEqual([FX.zoneTable, FX.table]);
+  });
+
+  it('[02b #42] a closed (cleaned) seating gives table_ids = [] with a non-null primary_table_id (G-14)', async () => {
+    await start();
+    openSeating(hub, { table_id: FX.table, seating_id: 'S1' });
+    const o = appendOrder(hub, { order_type: 'dine_in', seating_id: 'S1', lines: [{ order_item_id: 'W1', item_id: FX.ready }] });
+    append({ stream_type: 'table', stream_id: FX.table, event_type: 'TableCleaned', payload: { seating_id: 'S1', table_ids: [FX.table], reason: 'cleaned', by_staff_id: STAFF } });
+
+    const head = read(o.order_id).order;
+    expect(head).toMatchObject({ seating_id: 'S1', primary_table_id: FX.table, table_ids: [] });
+    expect(currentTableOf(hub.deps.db, [o.order_id]).has(o.order_id)).toBe(false);
+  });
+
+  it('[02b #42] unknown order → 404 ORDER_NOT_FOUND', async () => {
+    await start();
+    let err: unknown;
+    try {
+      read('NOPE');
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(DomainError);
+    expect((err as DomainError).code).toBe('ORDER_NOT_FOUND');
   });
 });
