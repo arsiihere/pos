@@ -18,8 +18,22 @@ import { createAlertStore, type AlertRow, type AlertStore, type Timers } from '.
 import type { WsAlertClosed } from '@pos/events';
 import { TestAlert } from '../alerts/TestAlert';
 import { FamilyPill, Ico, initial, isRequest, type IconName } from '../alerts/ui';
-import { createStaffApi, type Device, type PageMeta, type RosterPerson, type SignedIn } from './api';
+import { createStaffApi, type Device, type PageMeta, type Resolution, type RosterPerson, type SignedIn } from './api';
 import { SignIn } from './SignIn';
+import { createOrdersApi } from './orders/api';
+import { IdleLock } from './orders/lock/IdleLock';
+import { createEnqueue } from './orders/queue/enqueue';
+import { createShellHooks } from './orders/queue/shell-hooks';
+import { createShellConfig, type BranchConfigReply } from './shell/config';
+import { ShellContext, type Shell } from './shell/hooks';
+import { createLiveBus } from './shell/live';
+import { createPermissions } from './shell/permissions';
+import { matchStaffRoute } from './shell/routes';
+import { isSlotRoute, RouteSlot } from './shell/slots';
+import { createToastBus, ToastView } from './shell/toast';
+import { createTablesApi } from './tables/api';
+import { HandoverLayer } from './tables/cards/HandoverLayer';
+import { createLocalFlags } from './tables/local-flags';
 
 // 01d task 41: the hub-served staff entry /staff/ (spec §8.1; hand-off PROMPT "Staff entry shell"). Maroon 80 px
 // top bar: brand block (mark, branch, device; the third line is the B05 slot, task 42), the segmented nav
@@ -27,13 +41,16 @@ import { SignIn } from './SignIn';
 // chip (sign out). Portrait: the nav on its own row. Kiosk: no browser back, the nav is the way back. Phone: a
 // bottom tab bar Inbox · Sign out, and no Requests screen. The page is 100dvh; only the lists scroll. Dialogs,
 // banners and the toast render inside the .pu root.
+// 02a §8, 02b §8 (W0.6, Q-3): the 02 shell — hash routes to the lane slots (shell/routes.tsx, shell/slots.tsx), the
+// socket's catch_up / event frames on the live bus (shell/live.ts), the branch settings (shell/config.ts), the full
+// effective permissions (§3.15), one toast bus, the queue interface (stub until 25b); all handed down by
+// ShellContext.
 
 const PORTRAIT = '(orientation: portrait) and (min-width: 761px)';
 const PHONE = '(max-width: 760px)';
 const TICK_MS = 15_000;
 const SEEN_FLUSH_MS = 250;
 const SEEN_BATCH = 50;
-const TOAST_MS = 4_000;
 
 function useMedia(query: string): boolean {
   return useSyncExternalStore(
@@ -65,6 +82,8 @@ interface Me {
   staffId: string;
   name: string;
   allowed: ReadonlySet<string>;
+  /** 02a §3.15: the whole Resolution per permission (grant + scope), from /queries/session */
+  permissions: Record<string, Resolution> | null;
 }
 
 
@@ -99,6 +118,14 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   const sessionGen = useRef(0);
 
   const api = useMemo(() => createStaffApi({ device, meta, fetch: hubFetch, onSignedOut: () => signOutRef.current() }), [device, meta, hubFetch]);
+  // 02 shell services (W0.6)
+  const liveBus = useMemo(() => createLiveBus(), []);
+  const toasts = useMemo(() => createToastBus(), []);
+  const tablesApi = useMemo(() => createTablesApi(api), [api]);
+  const ordersApi = useMemo(() => createOrdersApi(api), [api]);
+  const localFlags = useMemo(() => createLocalFlags(), []);
+  const shellConfig = useMemo(() => createShellConfig({ load: () => api.query<BranchConfigReply | null>('/queries/branch-config'), live: liveBus }), [api, liveBus]);
+  useEffect(() => () => shellConfig.dispose(), [shellConfig]);
   const store = useMemo(() => createAlertStore({ sink: sink ?? browserSink, timers: timers ?? browserTimers, alwaysOn: device.type === 'cashier_kiosk' }), [sink, timers, device.type]);
   const [replaced, setReplaced] = useState(false);
   // every alert_closed frame, also for requests the store does not hold (seen only through requests-to-answer)
@@ -127,12 +154,13 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
         timers: timers ?? browserTimers,
         onBindingRoute: setBindingUntil,
         ...(createSocket === undefined ? {} : { createSocket }),
+        onFrame: (frame) => liveBus.frame(frame),
         onEnded: (code, reason) => {
           if (code === 4409 || reason === REPLACED_REASON) setReplaced(true);
           else if (code === 4401) signOutRef.current();
         },
       }),
-    [device, socketStore, timers, createSocket],
+    [device, socketStore, timers, createSocket, liveBus],
   );
   useEffect(() => () => conn.dispose(), [conn]);
   useEffect(() => () => store.dispose(), [store]);
@@ -140,6 +168,13 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   const snap = useSyncExternalStore(store.subscribe, store.snapshot);
   const up = useSyncExternalStore(conn.subscribe, () => conn.isUp());
   const mode = useSyncExternalStore(conn.subscribe, () => conn.mode());
+  // the live bus hears the socket go down and come back (reconnect) and the page become visible again
+  useEffect(() => liveBus.connection(up), [up, liveBus]);
+  useEffect(() => {
+    const onVisibility = () => liveBus.visibility(document.visibilityState);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [liveBus]);
 
   // S47: the hub's clock from the page (no device zone)
   const [clock, setClock] = useState(() => createHubClock({ now_ms: meta.hubNowMs, utc_offset_ms: meta.utcOffsetMs }));
@@ -150,6 +185,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
     return () => clearInterval(timer);
   }, [clock]);
   const offset = clock.utcOffsetMs;
+  const clockRef = useRef(clock);
+  clockRef.current = clock;
+  const enqueue = useMemo(() => createEnqueue({ api, device, clock: () => clockRef.current, live: liveBus }), [api, device, liveBus]);
+  const shellHooks = useMemo(() => createShellHooks(enqueue), [enqueue]);
   const binding = bindingUntil === null ? null : { name: boundName ?? t('bind.someone'), until: bindingUntil };
   // AD-T42-2 (unattended): approximate until 9b. Set at sign-in, moved to hub-now + 2 h by this page's activity
   // (an accepted command), replaced by any binding_route frame.
@@ -239,18 +278,18 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
     setReplaced(false);
     conn.setSession(who.session_token);
     setInboxLoading(true);
-    setMe({ staffId: who.staff_id, name: who.display_name, allowed: new Set() });
+    setMe({ staffId: who.staff_id, name: who.display_name, allowed: new Set(), permissions: null });
     // §3.7: a sign-in refreshes the header; the hub's own deadline (session end + 2 h) replaces this one when it sends it
     setBoundName(who.display_name);
     setBindingUntil(clock.nowMs() + ALERT_CONSTANTS.binding_route_idle_ms);
     navigate('/inbox');
-    const [info, time] = await Promise.all([api.session(), api.hubTime()]);
+    const [info, time] = await Promise.all([api.session(), api.hubTime(), shellConfig.refresh()]);
     if (gen !== sessionGen.current) return;
     // S47: re-sync the hub clock from branch-config hub_time (the page's clock is from when it loaded)
     if (time.ok && time.data !== null) setClock(createHubClock(time.data));
     if (info.ok) {
       const allowed = new Set(Object.entries(info.data.permissions).filter(([, r]) => r.grant === 'allowed').map(([p]) => p));
-      setMe((m) => (m === null || m.staffId !== who.staff_id ? m : { ...m, allowed }));
+      setMe((m) => (m === null || m.staffId !== who.staff_id ? m : { ...m, allowed, permissions: info.data.permissions }));
     }
     void loadInbox(null);
     const people = await api.roster();
@@ -296,12 +335,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   // only the id: the sheet reads the live row on every render (a close, an answer elsewhere, a lock view)
   const [opened, setOpened] = useState<string | null>(null);
   const lastOpened = useRef<AlertRow | RequestView | null>(null);
-  const [toast, setToast] = useState<Toast | null>(null);
-  useEffect(() => {
-    if (toast === null) return;
-    const timer = setTimeout(() => setToast(null), TOAST_MS);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  const setToast = useCallback((t: Toast) => toasts.show(t), [toasts]);
   const [summaries] = useState(() => new Map<string, string>());
 
   const held = useMemo(() => new Map(snap.rows.map((r) => [r.alert_id, r])), [snap.rows]);
@@ -337,6 +371,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
 
   // --------------------------------------------------------------------------------------------- routes
   const receiptsMatch = /^\/receipts\/([^/]+)$/.exec(route);
+  const staffRoute = matchStaffRoute(route, device.type);
   let page: ReactNode;
   let current: 'inbox' | 'requests' | 'test' = 'inbox';
   if (me === null) {
@@ -351,9 +386,12 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
         api={api}
         phone={phone}
         lockPanel={lockRows.length === 0 ? null : <LockPanel rows={lockRows} utcOffsetMs={offset} />}
+        hooks={shellHooks}
         onSignedIn={(who) => void signedIn(who)}
       />
     );
+  } else if (isSlotRoute(staffRoute)) {
+    page = <RouteSlot route={staffRoute} />;
   } else if (route === '/requests' && showRequests) {
     current = 'requests';
     page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={open} />;
@@ -427,7 +465,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   const clockText = <span className="clock">{timeText(nowMs, offset)}</span>;
   const lang = language();
 
-  return (
+  const body = (
     <div className={`pu v-brand staff${phone ? ' phone' : ''}`} lang={lang} dir={lang === 'ur' ? 'rtl' : 'ltr'} data-theme="light">
       {phone ? (
         <header className="ph-top">
@@ -537,17 +575,34 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
         ) : (
           <NoticeSheet row={sheetRow} utcOffsetMs={offset} sheet={phone || portrait} onClose={() => setOpened(null)} />
         ))}
-      {toast !== null && (
-        <div className={`toast toast--${toast.tone ?? 'ok'}`} role="status">
-          <Ico name={toast.tone === 'warn' ? 'warn' : toast.tone === 'info' ? 'info' : 'checkc'} />
-          <div>
-            {toast.text}
-            {toast.sub !== undefined && <small>{toast.sub}</small>}
-          </div>
-        </div>
+      {me !== null && (
+        <>
+          <HandoverLayer />
+          <IdleLock />
+        </>
       )}
+      <ToastView bus={toasts} />
     </div>
   );
+  const shell: Shell = {
+    device,
+    meta,
+    api,
+    tables: tablesApi,
+    orders: ordersApi,
+    live: liveBus,
+    config: shellConfig,
+    permissions: createPermissions(me?.permissions ?? null),
+    toasts,
+    enqueue,
+    localFlags,
+    clock,
+    me: me === null ? null : { staff_id: me.staffId, name: me.name },
+    online: up,
+    phone,
+    portrait,
+  };
+  return <ShellContext.Provider value={shell}>{body}</ShellContext.Provider>;
 }
 
 /** 01d F01 (frames LockKiosk, LockPhone): signed out on a kiosk or phone, up to 3 lock lines, never details. */
