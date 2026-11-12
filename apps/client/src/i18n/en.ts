@@ -7,6 +7,9 @@ export const en = {
   'admin_stock.login.no_admins': 'No one here can count stock',
   'admin_stock.errors.network': 'The hub cannot be reached. Check the Wi-Fi; what you typed is kept.',
   'admin_stock.errors.PERMISSION_DENIED': 'You do not have permission for this. Ask a manager.',
+  // 01a v2.5 §8.2 (04 §4.5 A-1, G-21): Close day refused while void requests are open.
+  'admin_stock.errors.DAY_CLOSE_BLOCKED': '{count} void requests are still open — answer them first',
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_more': 'and {n} more',
   'admin_stock.status.version': 'Menu version {version}',
   'admin_stock.status.no_menu': 'No menu yet',
   'admin_stock.status.checked': ' · checked {minutes} min ago',
