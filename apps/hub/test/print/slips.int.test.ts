@@ -110,6 +110,56 @@ describe('[03c #3, #4] CANCELLED slips', () => {
   });
 });
 
+// 03c v1.0.8 §3.3 (04 Q-15 b): an ItemVoided { disposition: 'moved' } queues the same `cancel` job with slip 'moved'
+// (the field is on the event, 0 extra reads); every other share and every ItemRemoved has no slip field → CANCELLED.
+// The fold reads only the disposition, so these use bare ItemVoided events; the real 04 VoidItems sequence
+// (ItemMovedToStock then ItemVoided) is test/print/moved-slip.int.test.ts.
+describe('[03c #4b] MOVED TO STOCK slip jobs (04 Q-15)', () => {
+  function voidAs(order_id: string, order_item_id: string, units: number, disposition?: string | null): PosEvent {
+    const payload: Record<string, unknown> = { order_item_id, units };
+    if (disposition !== undefined) payload.disposition = disposition;
+    return kdsAppend(hub, [{ stream_type: 'order', stream_id: order_id, event_type: 'ItemVoided', payload }], { actor: 'S_MGR' })[0]!;
+  }
+
+  it('[03c #4b, §3.3] moved void of a printed, not-done line → cancel job with slip "moved", same id and routing', () => {
+    output(FX.station, 'both', 'PR1');
+    const a = order('A', [{ n: 1, quantity: 4 }, { n: 2 }]);
+    fireLines(hub, FX.station, ['A1', 'A2']);
+    const ticket = ticketOf('A1');
+    printed(ticket);
+    const part = voidAs(a, 'A1', 2, 'moved');
+    const whole = voidAs(a, 'A2', 1, 'moved');
+    expect(jobs('cancel')).toEqual([
+      { job_id: `${part.event_id}:cancel:1`, kind: 'cancel', printer_id: null, station_id: FX.station, ticket_id: ticket, order_id: a, payload: { ticket_id: ticket, order_item_id: 'A1', units: 2, slip: 'moved' }, created_at: part.recorded_at },
+      { job_id: `${whole.event_id}:cancel:1`, kind: 'cancel', printer_id: null, station_id: FX.station, ticket_id: ticket, order_id: a, payload: { ticket_id: ticket, order_item_id: 'A2', units: 1, slip: 'moved' }, created_at: whole.recorded_at },
+    ]);
+  });
+
+  it('[03c #4b, §3.3] wastage / staff_meal / other / null / absent disposition and ItemRemoved → no slip field (CANCELLED)', () => {
+    output(FX.station, 'both', 'PR1');
+    const a = order('A', [{ n: 1, quantity: 9 }]);
+    fireLines(hub, FX.station, ['A1']);
+    printed(ticketOf('A1'));
+    for (const d of ['wastage', 'staff_meal', 'other', null, undefined]) voidAs(a, 'A1', 1, d);
+    removeLine(hub, a, 'A1', 1);
+    const cancels = jobs('cancel');
+    expect(cancels).toHaveLength(6);
+    for (const j of cancels) expect(j.payload).toEqual({ ticket_id: ticketOf('A1'), order_item_id: 'A1', units: 1 });
+  });
+
+  it('[03c #4b, §3.3] moved void of a done line, or of a line whose ticket never printed → nothing, as before', () => {
+    output(FX.station, 'both', 'PR1');
+    const a = order('A', [{ n: 1, quantity: 2 }, { n: 2, quantity: 2 }]);
+    fireLines(hub, FX.station, ['A1']);
+    printed(ticketOf('A1'));
+    kdsAppend(hub, [{ stream_type: 'order', stream_id: a, event_type: 'ItemDone', payload: { order_item_id: 'A1', done_at: hub.clock.branchNow(), source: 'tap' } }]);
+    voidAs(a, 'A1', 1, 'moved');
+    fireLines(hub, FX.station, ['A2']); // its kitchen job is queued, never sent
+    voidAs(a, 'A2', 1, 'moved');
+    expect(jobs('cancel')).toEqual([]);
+  });
+});
+
 describe('[03c #5] FIRST slips', () => {
   it('[03c #5, §3.3, P9] boost on a printed ticket at a printer station → FIRST with its not-done lines; both / screen → none', () => {
     printer('PR2');

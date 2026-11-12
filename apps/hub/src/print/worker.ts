@@ -128,6 +128,8 @@ function docOf(row: HeadRow, render: (job: RenderJob) => Doc | null): Doc | null
         order_item_id: p.order_item_id as string,
         units: (p.units as number | null | undefined) ?? null,
         is_reprint,
+        // 03c v1.0.8 §3.3 (04 Q-15): a moved void share; a recovery job copies the payload, so it stays moved (§3.5)
+        ...(p.slip === 'moved' ? { slip: 'moved' as const } : {}),
       });
     case 'first':
       return render({
