@@ -1,6 +1,8 @@
 import { StationOutputSet, draftOf, type BranchConfig, type WsStationNotice } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import type { WriterTx } from '../engine-host/writer.js';
+import { devicePoint } from '../kds/contracts.js';
+import { takeoverStations } from '../kds/presence.js';
 import type { HubDeps } from '../server.js';
 import { onBranchConfigApplied } from '../sync/branch-config-holder.js';
 import { wsHubFor } from '../ws/server.js';
@@ -20,7 +22,9 @@ import { stationsWithPrinter } from './api.js';
 //
 // ⚠️ Changed by v1.0.6 (owner 2026-11-12, Q-20) 03c §3.8, 03b v1.0.6 §3.10: when a commit's StationOutputSet /
 // PrinterSaved changes a station's has_printer, `station_notice { station_id, kind: 'output', has_printer }` goes after
-// commit to that station's sockets, so the KDS shows or hides its Reprint action without a refetch. The set of
+// commit to that station's sockets, so the KDS shows or hides its Reprint action without a refetch. ⚠️ Changed by
+// v1.0.7 (owner 2026-11-12, Q-P22b) 03c §3.8, 03b v1.0.7 §3.10: and to the Pass tablets of the point holding that
+// station's takeover (takeover_stations, memory), which update the takeover's has_printer. The set of
 // printing stations is host memory, read once at server build (after boot's replay) and re-read (1 statement) only
 // after a commit that holds one of those two events; every other commit costs 0 statements.
 
@@ -96,8 +100,14 @@ export function registerPrintConfigHook(app: FastifyInstance, deps: Pick<HubDeps
       if (changed.length === 0) return;
       const ws = wsHubFor(app);
       const sessions = ws.connectedSessions();
+      const takeover = takeoverStations(deps.db);
       for (const station_id of changed) {
-        const to = sessions.filter((s) => s.kind === 'station' && s.stationId === station_id).map((s) => s.sessionId);
+        // ⚠️ Changed by v1.0.7 (owner 2026-11-12, Q-P22b) 03c §3.8, 03b §3.10: also the staff sockets of the point that
+        // holds the station's takeover (takeover_stations, the same audience as the takeover, 03b §6.17). Memory.
+        const point = takeover.has(station_id) ? (takeover.get(station_id) ?? null) : null;
+        const to = sessions
+          .filter((s) => (s.kind === 'station' && s.stationId === station_id) || (s.kind === 'staff' && point !== null && devicePoint(s.deviceId) === point))
+          .map((s) => s.sessionId);
         if (to.length === 0) continue;
         const frame: WsStationNotice = { type: 'station_notice', station_id, kind: 'output', has_printer: after.has(station_id) };
         ws.sendToSessions(to, frame);
