@@ -3,11 +3,14 @@ import { boot } from './lib/boot.js';
 import { flushEngineBootLog, registerEngineBootSteps } from './engine-host/boot-steps.js';
 import { onSigterm } from './engine-host/snapshots.js';
 import { registerRestaurantBootSteps } from './sync/boot-steps.js';
+import { registerPrintBootSteps } from './print/boot.js';
 
 const monoNow = (): number => Number(process.hrtime.bigint() / 1_000_000n);
 
 registerEngineBootSteps(monoNow);
 registerRestaurantBootSteps();
+// 03c §3.7 (G-7): boot step 5 resumes the print queue (a no-op until c16).
+registerPrintBootSteps();
 
 async function start(): Promise<void> {
   const handle = await boot({

@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { HubDeps } from '../server.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import { purgeAlerts } from '../alerts/retention.js';
+import { purgePrint } from '../print/retention.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import { clearExpiredDeliveryTokens } from './pair-requests.js';
 import { activity, endSession, idlePause, type SessionRow } from './session-store.js';
@@ -167,8 +168,8 @@ function purge(deps: HubDeps, now: number): number {
       if (n > 0) more = true;
     }
   }
-  // 01d §5.1 (task 38): the alert projection rows, after 00's own batches
-  return deleted + purgeAlerts(deps, branchId, now);
+  // 01d §5.1 (task 38): the alert projection rows, after 00's own batches; 03c §5 (G-8): print rows (no-op until c22)
+  return deleted + purgeAlerts(deps, branchId, now) + purgePrint(deps, branchId, now);
 }
 
 function localDay(now: number): string {

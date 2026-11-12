@@ -43,6 +43,9 @@ export const ErrorCatalogue = {
   ALERT_NOT_FOUND: { status: 404 },
   POINT_NOT_FOUND: { status: 404 },
   ORDER_NOT_FOUND: { status: 404 },
+  // 03c §9
+  PRINTER_NOT_FOUND: { status: 404 },
+  PRINT_JOB_NOT_FOUND: { status: 404 },
   TABLE_ALREADY_LOCKED: { status: 409 },
   TABLE_LOCK_NOT_HELD: { status: 409 },
   TABLE_NEEDS_CLEANING: { status: 409 },
@@ -87,6 +90,11 @@ export const ErrorCatalogue = {
   COMP_NOT_ALLOWED: { status: 409 },
   COMP_PENDING: { status: 409 },
   ORDER_BILLED: { status: 409 },
+  // 03b §9
+  ITEM_UNDO_WINDOW_CLOSED: { status: 409 },
+  PASS_UNDO_WINDOW_CLOSED: { status: 409 },
+  // 03c §9
+  PRINT_JOB_NOT_PENDING: { status: 409 },
   REGISTRATION_CODE_KIND_UNSUPPORTED: { status: 422 },
   HANDOVER_TARGET_INVALID: { status: 422 },
   CONFIG_REFERENCE_INVALID: { status: 422 },
@@ -96,6 +104,9 @@ export const ErrorCatalogue = {
   REQUEST_PIN_REQUIRED: { status: 422 },
   OPTION_CHOICE_INVALID: { status: 422 },
   ZONE_ITEM_NOT_CONFIGURED: { status: 422 },
+  // 03b §9
+  ITEM_DONE_CONFIRM_REQUIRED: { status: 422 },
+  PASS_RECEIVER_INVALID: { status: 422 },
   CLIENT_UPGRADE_REQUIRED: { status: 426 },
   PIN_LOCKED_OUT: { status: 429 },
   DEVICE_LOCKED_OUT: { status: 429 },

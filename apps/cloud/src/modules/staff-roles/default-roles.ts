@@ -71,5 +71,7 @@ export const DEFAULT_ROLES: readonly DefaultRole[] = [
   },
   // 02a v1.0 B-1: clean-table, not take-order (D-12).
   { default_key: 'waiter', name: 'Waiter', session_idle_ttl_ms: 300_000, grants: [allowed('mark-served'), allowed('clean-table')] },
-  { default_key: 'cook', name: 'Cook', session_idle_ttl_ms: 300_000, grants: [] },
+  // ⚠️ Changed by 03b v1.0.1 B-1 (01b v1.8): run-pass, and reprint-ticket for the Pass card reprint (03c R-6);
+  // overrides M29 / B17 "Cook has no permissions". Existing tenants are re-seeded (R29, G-5: no migration).
+  { default_key: 'cook', name: 'Cook', session_idle_ttl_ms: 300_000, grants: [allowed('run-pass'), allowed('reprint-ticket')] },
 ];

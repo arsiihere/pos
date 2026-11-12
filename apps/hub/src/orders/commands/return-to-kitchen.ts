@@ -1,5 +1,6 @@
 // 02b §6.7 ReturnToKitchen, §3.8 (E-4 order_header, E-7 30-min exit), §3.3 (non-food return), §3.4 (return lines),
-// §3.14 (scope "as MarkServed"); 03a v1.2 §3.8a. Not queueable (§3.12). No lock.
+// §3.14 (scope "as MarkServed"); 03a v1.2 §3.8a. Not queueable (§3.12). No lock. 02b v1.0.8 / 03a v1.2.3 (owner
+// 2026-11-11, B3-4): the return line copies the plain options and the live station-less option children.
 import { DomainError } from '@pos/domain';
 import { isOrderInEngine, planOrder, type EngineState, type ProposedLine, type ProposedOrder } from '@pos/engine';
 import {
@@ -58,6 +59,58 @@ function lineCopy(db: Database.Database, order_item_id: string, return_order_ite
     .get(return_order_item_id, order_item_id) as LineCopy;
 }
 
+/** A live option child of the served line: its first ItemAdded on the order stream (as `lineCopy`). */
+interface ChildCopy {
+  copy: string | null;
+}
+
+/**
+ * 02b v1.0.8 §6.7 (B3-4): one statement, the served line's live option children (`order_lines WHERE
+ * parent_order_item_id = ?`, live units > 0) in their order (added_at, rowid, as 03b buildLineDetails), each with its
+ * ItemAdded copy (order_lines keeps no option_id, option_quantity or station).
+ */
+function optionChildren(db: Database.Database, order_id: string, order_item_id: string): ItemAddedPayload[] {
+  const rows = db
+    .prepare(
+      `SELECT (SELECT e.payload FROM events e
+                WHERE e.stream_type = 'order' AND e.stream_id = c.order_id AND e.event_type = 'ItemAdded'
+                  AND json_extract(e.payload, '$.order_item_id') = c.order_item_id
+                ORDER BY e.seq LIMIT 1) AS copy
+         FROM order_lines c
+        WHERE c.order_id = ? AND c.parent_order_item_id = ? AND c.line_kind = 'option_child'
+          AND c.units - c.removed_units - c.voided_units > 0
+        ORDER BY c.added_at, c.rowid`,
+    )
+    .all(order_id, order_item_id) as ChildCopy[];
+  // Broken-invariant guard, as for the served line: every order_lines row is folded from an ItemAdded on its stream.
+  return rows.map((r) => {
+    if (r.copy === null) throw new Error(`ReturnToKitchen: no ItemAdded for an option child of ${order_item_id}`);
+    return ItemAddedPayload.parse(JSON.parse(r.copy));
+  });
+}
+
+/**
+ * 02b v1.0.8 §3.8 / 03a v1.2.3 §3.8a (owner 2026-11-11, B3-4): the return line's options = the served line's live
+ * option children with no station (their own lines when stationed, so not copied), each as a plain option entry
+ * (`option_id`, the option's `modifier_group_id` from config, `name`, `quantity` = `option_quantity`), then the served
+ * line's plain options; every `price_minor` / `charge_minor` 0. Children first, as the served line's KDS row and ticket
+ * list them (03b §4.4, 03c §3.3). Display data only: the engine ignores options.
+ */
+function returnOptions(copy: ItemAddedPayload, children: readonly ItemAddedPayload[]): ItemAddedPayload['options'] {
+  const groups = new Map((branchConfig()?.modifier_groups ?? []).flatMap((g) => g.options.map((o) => [o.option_id, g.modifier_group_id] as const)));
+  const fromChildren = children
+    .filter((c) => c.station_id === null && c.option_id !== null)
+    .map((c) => ({
+      option_id: c.option_id!,
+      modifier_group_id: groups.get(c.option_id!) ?? '',
+      name: c.name,
+      price_minor: 0,
+      quantity: c.option_quantity ?? 1,
+      charge_minor: 0,
+    }));
+  return [...fromChildren, ...copy.options.map((o) => ({ ...o, price_minor: 0, charge_minor: 0 }))];
+}
+
 /**
  * §3.8 checks in the spec's order, each → 409 with nothing appended: removed / voided (task 17's stages); zone-served
  * (the zone rule before any engine check, as §3.5); the order out of the engine (abandon, or 30 min after its last
@@ -100,8 +153,8 @@ function checkScope(ctx: CommandCtx, order_id: string, order: EngineState['order
 
 /**
  * §3.8 / §6.7. Statements: 1 the line's order + ItemAdded copy + the `return_order_item_id` id check (`lineCopy`),
- * 1 the order's lines (`orderLines`), + the holder (own_tables dine-in) or `currentTableOf` (my_floors dine-in):
- * 2–3. The E-4 header comes from EngineState, no statement. Batch: `OrderLinesAdded` (one return line, planOrder
+ * 1 the order's lines (`orderLines`), + the holder (own_tables dine-in) or `currentTableOf` (my_floors dine-in),
+ * + 1 the served line's option children (`optionChildren`, v1.0.8 B3-4): 3–4. The E-4 header comes from EngineState, no statement. Batch: `OrderLinesAdded` (one return line, planOrder
  * groups and lines, `order_header`) → its `ItemAdded` (the copy except money and links, `return_of`, AD-15) →
  * `ItemReturned` (remake) → `OrderFoodCleared` (a non-food return leaving no live unserved food line, §3.3).
  */
@@ -134,9 +187,10 @@ function returnToKitchen(ctx: CommandCtx, payload: Payload): { events: EventDraf
   }
 
   checkScope(ctx, order_id, order);
+  const options = returnOptions(copy, optionChildren(db, order_id, id));
 
   // 03a §3.8a (G4-1 #11, G4-2 #18): the served line's copy except money (0 / null) and links (a plain `item` line,
-  // `options []`, quantity copied); no stock draw; `return_of` = the returned line (AD-15).
+  // options as `returnOptions` (v1.2.3, B3-4), quantity copied); no stock draw; `return_of` = the returned line (AD-15).
   const { return_of: _ignored, ...base } = copy;
   void _ignored;
   const added: ItemAddedPayload = {
@@ -152,7 +206,7 @@ function returnToKitchen(ctx: CommandCtx, payload: Payload): { events: EventDraf
     extra_price_minor: null,
     allocated_price_minor: null,
     tax_class_id: null,
-    options: [],
+    options,
     line_total_minor: 0,
     stock_draws: [],
     served_from_zone_id: null,

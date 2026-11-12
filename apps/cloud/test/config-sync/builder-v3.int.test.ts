@@ -217,6 +217,8 @@ describe('buildSnapshotBody: schema 3', () => {
       slow_item_threshold_ms: 900000,
       served_estimate_ms: null,
       comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
+      ready_window_ms: 60000, // 03b A-1
+      kds_offline_ms: 30000, // 03b A-1
     });
     await sql(`DELETE FROM branch_engine_settings WHERE tenant_id = $1 AND branch_id = $2`, [a]);
     await expect(raw()).rejects.toThrow(/engine settings/);

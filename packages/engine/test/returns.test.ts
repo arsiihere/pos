@@ -259,6 +259,23 @@ describe('@pos/engine return to kitchen (§3.8a, D28)', () => {
     }
   });
 
+  it('[03a #114 engine, v1.2.3 B3-4] a return line carrying copied options (plain + station-less children, money 0) folds exactly as one with options [] — the engine ignores options', () => {
+    const { log, servedAdded } = servedFromStock();
+    const base = fold([config([{ station_id: 'S1', capacity: 2 }]), ...log]);
+    const bare = aReturnLinesAdded(servedAdded, 'remake', { recorded_at: at(10), target_land_ms: at(30) });
+    const options = [
+      { option_id: 'OP_BUTTER', modifier_group_id: 'G1', name: 'Extra butter', price_minor: 0, quantity: 2, charge_minor: 0 },
+      { option_id: 'OP_NO_ONION', modifier_group_id: 'G2', name: 'No onion', price_minor: 0, quantity: 1, charge_minor: 0 },
+    ];
+    const withOptions = bare.map((e) => (e.event_type === 'ItemAdded' ? { ...e, payload: { ...e.payload, options } } : e));
+    expect(withOptions[1]!.payload).toMatchObject({ options });
+    expect(fold(withOptions, base, { strict: true })).toEqual(fold(bare, base, { strict: true }));
+    // planOrder (02's ReturnToKitchen) places the line the same with or without them.
+    const plain = proposedReturn(servedAdded, 'remake', null);
+    const copied = proposedReturn(servedAdded, 'remake', null, { options });
+    expect(planOrder(base, copied, at(10), { L1R: true })).toEqual(planOrder(base, plain, at(10), { L1R: true }));
+  });
+
   describe('[03a §3.8a] writer bugs (AD-8: strict throws, non-strict invalid_event, never a crash)', () => {
     const { log, servedAdded } = servedFromStock();
     const kitchen = config([{ station_id: 'S1', capacity: 2 }]);

@@ -26,6 +26,8 @@ export const PERMISSIONS = [
   'set-line-weight',
   'manage-zone-stock',
   'view-customer-contact',
+  // ⚠️ Changed by 03b v1.0.1 B-1 (01b v1.8): run the Pass (kitchen group, scope branch; defaults Owner, Manager, Cook).
+  'run-pass',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -95,6 +97,7 @@ const GROUPS: Record<Permission, PermissionGroup> = {
   'set-line-weight': 'orders',
   'manage-zone-stock': 'orders',
   'view-customer-contact': 'orders',
+  'run-pass': 'kitchen',
 };
 
 export const PERMISSION_CATALOGUE: readonly { key: Permission; group: PermissionGroup; scopes: readonly Scope[] }[] =

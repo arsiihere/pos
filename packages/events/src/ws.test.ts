@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { WsAlertsOpen, WsClientMessage, WsServerMessage } from './ws';
+import type { LineDetail } from '@pos/domain';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import type { z } from 'zod';
+import { LineDetailSchema, WsAlertsOpen, WsClientMessage, WsServerMessage } from './ws';
 
 const lockOnlyRow = {
   alert_id: '01JD…',
@@ -163,5 +165,80 @@ describe('ws', () => {
       delete rest[key];
       expect(WsServerMessage.safeParse(rest).success, key).toBe(false);
     }
+  });
+
+  const detail = {
+    order_item_id: 'L1',
+    order_id: 'O1',
+    station_id: 'S1',
+    point_id: 'P1',
+    identifier: { kind: 'table', label: 'T4 + T5' },
+    order_type: 'dine_in',
+    item_name: 'Mutton Karahi',
+    units: 1,
+    line_kind: 'item',
+    for_parent: null,
+    deal_name: null,
+    options: ['Extra spicy'],
+    kitchen_note: null,
+    order_note: null,
+    return_of: null,
+    cook_ms: 600_000,
+    prep_ms: 0,
+    from_stock: false,
+    placed_by_name: 'Ali',
+  };
+
+  it('[03b §4.4] LineDetailSchema infers exactly the @pos/domain LineDetail', () => {
+    expectTypeOf<z.infer<typeof LineDetailSchema>>().toEqualTypeOf<LineDetail>();
+  });
+
+  it('[03b §6.16] kds_lines and point_lines frames carry LineDetail rows', () => {
+    const kds = { type: 'kds_lines', station_id: 'S1', lines: [detail] };
+    const point = { type: 'point_lines', point_id: 'P1', lines: [detail] };
+    expect(WsServerMessage.parse(kds)).toEqual(kds);
+    expect(WsServerMessage.parse(point)).toEqual(point);
+    const returned = { ...detail, return_of: { order_item_id: 'L0', mode: 'remake', item_name: 'Naan', identifier: { kind: 'token', token: 12, date: '2026-11-10' } } };
+    expect(WsServerMessage.safeParse({ ...kds, lines: [returned] }).success).toBe(true);
+    const parking = { ...detail, order_type: 'parking', identifier: { kind: 'parking', car_number: 'LEB 1234', car_type: 'sedan' } };
+    expect(WsServerMessage.safeParse({ ...kds, lines: [parking] }).success).toBe(true);
+    for (const key of Object.keys(detail)) {
+      const rest: Record<string, unknown> = { ...detail };
+      delete rest[key];
+      expect(WsServerMessage.safeParse({ ...kds, lines: [rest] }).success, key).toBe(false);
+    }
+    expect(WsServerMessage.safeParse({ ...kds, lines: [{ ...detail, line_kind: 'deal' }] }).success).toBe(false);
+    expect(WsServerMessage.safeParse({ ...kds, lines: [{ ...detail, identifier: { kind: 'parking', car_number: 'X', car_type: 'van' } }] }).success).toBe(false);
+  });
+
+  it('[03b §3.6, §6.14, §6.16] station_takeover: active with the kds_station body as view, inactive without', () => {
+    const view = {
+      station_id: 'S1',
+      day_open: true,
+      sound_volume: 70,
+      lanes: { lanes_on: null, lane_count: 2 },
+      now: [{ ...detail, stage: 'cooking', fired_at: 1, started_at: 2, mark: 'boost', done_undone: true }], // v1.0.5 B2-3
+      details: [detail],
+    };
+    const start = { type: 'station_takeover', station_id: 'S1', active: true, view };
+    expect(WsServerMessage.parse(start)).toEqual(start);
+    expect(WsServerMessage.parse({ type: 'station_takeover', station_id: 'S1', active: false })).toEqual({ type: 'station_takeover', station_id: 'S1', active: false });
+    expect(WsServerMessage.safeParse({ ...start, view: { ...view, now: [{ ...view.now[0], stage: 'baking' }] } }).success).toBe(false);
+    const noFlag: Record<string, unknown> = { ...view.now[0] };
+    delete noFlag.done_undone;
+    expect(WsServerMessage.safeParse({ ...start, view: { ...view, now: [noFlag] } }).success, 'done_undone is required (v1.0.5 B2-3)').toBe(false);
+  });
+
+  it('[03b §3.10] station_notice { station_id, kind: archived, open_lines }', () => {
+    const notice = { type: 'station_notice', station_id: 'S1', kind: 'archived', open_lines: 3 };
+    expect(WsServerMessage.parse(notice)).toEqual(notice);
+    expect(WsServerMessage.safeParse({ ...notice, kind: 'paused' }).success).toBe(false);
+    expect(WsServerMessage.safeParse({ ...notice, open_lines: -1 }).success).toBe(false);
+  });
+
+  it('[03c §3.8] printed_lines { station_id, order_item_ids }', () => {
+    const printed = { type: 'printed_lines', station_id: 'S1', order_item_ids: ['L1', 'L2'] };
+    expect(WsServerMessage.parse(printed)).toEqual(printed);
+    expect(WsServerMessage.safeParse({ type: 'printed_lines', station_id: 'S1' }).success).toBe(false);
   });
 });

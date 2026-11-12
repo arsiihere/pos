@@ -27,7 +27,7 @@ describe('seed-tenant', () => {
     await pool.end();
   });
 
-  it('[00 §10 #56] seed creates the roles; password and PIN hashes verify; the owner staff holds access-hub-admin and manage-devices; duplicate email refused', async () => {
+  it('[00 §10 #56, 03b #60] seed creates the roles; password and PIN hashes verify; the owner staff holds access-hub-admin and manage-devices; duplicate email refused', async () => {
     const created = await seedTenant(
       new SystemContext(pool),
       {
@@ -105,7 +105,13 @@ describe('seed-tenant', () => {
       'apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'take-order', 'view-customer-contact',
     ]);
     expect((byRole.get('Waiter') ?? []).map((grant) => grant.permission).sort()).toEqual(['clean-table', 'mark-served']);
-    expect(byRole.get('Cook')).toEqual([]);
+    // 03b B-1 (01b v1.8), #60: Cook gets run-pass and reprint-ticket (was: no permissions, M29 / B17).
+    expect((byRole.get('Cook') ?? []).slice().sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
+      { permission: 'reprint-ticket', grant_type: 'allowed', approver: null },
+      { permission: 'run-pass', grant_type: 'allowed', approver: null },
+    ]);
+    expect(ownerGrants.some((grant) => grant.permission === 'run-pass')).toBe(true);
+    expect(managerGrants.some((grant) => grant.permission === 'run-pass')).toBe(true);
 
     const owner = await pool.query<{ password_hash: string; allowed_branch_ids: string[] }>(
       `SELECT password_hash, allowed_branch_ids FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
@@ -226,7 +232,11 @@ describe('seed-tenant', () => {
       { permission: 'clean-table', grant_type: 'allowed', scope: 'branch' },
       { permission: 'mark-served', grant_type: 'allowed', scope: 'branch' },
     ]);
-    expect(of('cook')).toEqual([]);
+    // 03b B-1 (01b v1.8), #60: Cook seeded with run-pass and reprint-ticket by default_key.
+    expect(of('cook').map(({ permission, grant_type, scope }) => ({ permission, grant_type, scope })).sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
+      { permission: 'reprint-ticket', grant_type: 'allowed', scope: 'branch' },
+      { permission: 'run-pass', grant_type: 'allowed', scope: 'branch' },
+    ]);
     const approvers = await pool.query(
       `SELECT role_id, permission, approver_role_id FROM role_permission_approvers WHERE tenant_id = $1`,
       [created.tenant_id],

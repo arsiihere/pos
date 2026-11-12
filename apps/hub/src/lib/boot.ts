@@ -28,6 +28,9 @@ import { registerRestaurantProjections } from '../projections/branch-config.js';
 import { createProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
 import { registerOrdersProjection } from '../orders/index.js';
+import { registerKdsProjections } from '../kds/index.js';
+import { registerPrintProjections } from '../print/index.js';
+import { startPrintWorker } from '../print/boot.js';
 import { registerTablesProjection } from '../tables/index.js';
 import { publisherFor } from '../ws/server.js';
 import { httpCloudClient, type CloudClient } from '../setup/cloud-client.js';
@@ -234,11 +237,14 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     const stopSweep = startSweeper(deps, app.log);
     // 01d §3.5: the hub tick loop starts after step 7 (F §5.8: the server is open, projections are current)
     const stopTick = startTickLoop(deps, app.log);
+    // 03c §3.7, H-11 (G-7): the print worker starts after listen, next to the tick loop (a no-op until c16).
+    const stopPrint = startPrintWorker(deps, app.log);
     beat.stop = () => {
       stopConfirm();
       stopHeart();
       stopSweep();
       stopTick();
+      stopPrint();
     };
     return handle(deps, app, db, readDb, () => current, beat);
   } catch (error) {
@@ -311,6 +317,9 @@ function createDeps(
   registerAlertProjections(projections);
   registerTablesProjection(projections);
   registerOrdersProjection(projections);
+  // 03b §5, 03c §3.3: 02b orders → 03b kds → 03c print (the folds read 02b's rows).
+  registerKdsProjections(projections);
+  registerPrintProjections(projections);
   const authGeneration = createAuthGeneration();
   const ids = ulidGen(clock);
   const deps: HubDeps = {

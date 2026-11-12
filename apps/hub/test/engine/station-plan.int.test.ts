@@ -45,6 +45,9 @@ describe('[03a #83] station_plan catch-up part and frame', () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     hub = await createTestHub();
     unregisterTick('table_locks'); // 02a §3.4: registerTables adds it to every test hub; this file counts the ticks
+    for (const name of ['pass_closures', 'ready_retarget', 'served_estimate']) unregisterTick(name); // 03b §6.18–6.19 (b16), 02b §6.11 (0e): lane B5 adds these to every test hub too
+    // 03b §6.20 (b20): registerKds adds kds_presence to every test hub too; this file counts the ticks
+    unregisterTick('kds_presence');
     await seedDirectory(hub);
     // 01d's no_approver flag: start clean, so its tick is idle (1 SELECT per pass).
     hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
@@ -246,7 +249,7 @@ describe('[03a #83] station_plan catch-up part and frame', () => {
     expect(plans(k1)).toEqual([{ type: 'station_plan', ...(body('S1', hub.deps.writer.lastSeq()) as object) }]);
   });
 
-  it('[03a #83] a commit that changes no line and no station sends no frame; the after-commit frames add 0 statements', async () => {
+  it('[03a #83] a commit that changes no line and no station sends no frame; the station_plan frames add 0 statements (03b kds_lines adds its 2)', async () => {
     kitchen();
     submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }] });
     const staff = await socketOf('staff');
@@ -277,8 +280,10 @@ describe('[03a #83] station_plan catch-up part and frame', () => {
     const framed = windowOf((tx) => fakeSubmitDrafts(tx.state as EngineState, { order_id: 'O2', lines: [{ order_item_id: 'L2' }] }, tx.clock.branchNow()));
     await settle();
     expect(plans(k1).map((p) => p.station_id)).toEqual(['S1']);
-    expect(framed).toBe(quiet);
-    expect(framed).toBe(0);
+    // 03b b18 (§6.16, G-9 class): the window also holds 03b's kds_lines hook, which reads L2's details for the S1
+    // station socket (buildLineDetails, 2 statements); 03a's station_plan hook still adds 0.
+    expect(framed).toBe(quiet + 2);
+    expect(quiet).toBe(0);
   });
 
   it('[03a #83] an alert-mode socket of a staff device gets no station_plan (only the session sockets are sent to)', async () => {

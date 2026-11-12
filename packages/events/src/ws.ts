@@ -88,6 +88,82 @@ export type StationPlanBody = z.infer<typeof StationPlanBody>;
 export const WsStationPlan = StationPlanBody.extend({ type: z.literal('station_plan') });
 export type WsStationPlan = z.infer<typeof WsStationPlan>;
 
+// 03b §4.4 LineDetail on the wire (the @pos/domain type, as a schema); §6.16 frames.
+const IdentifierSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('table'), label: z.string() }),
+  z.object({ kind: z.literal('token'), token: z.number().int(), date: z.string().nullable() }),
+  z.object({ kind: z.literal('parking'), car_number: z.string(), car_type: z.enum(['sedan', 'mini', 'large']) }),
+]);
+export const LineDetailSchema = z.object({
+  order_item_id: Id,
+  order_id: Id,
+  station_id: Id,
+  point_id: Id,
+  identifier: IdentifierSchema,
+  order_type: z.enum(['dine_in', 'takeaway', 'parking']),
+  item_name: z.string(),
+  units: z.number().int(),
+  line_kind: z.enum(['item', 'option_child', 'deal_part']),
+  for_parent: z.string().nullable(),
+  deal_name: z.string().nullable(),
+  options: z.array(z.string()),
+  kitchen_note: z.string().nullable(),
+  order_note: z.string().nullable(),
+  return_of: z
+    .object({ order_item_id: Id, mode: z.enum(['fix', 'remake']), item_name: z.string(), identifier: IdentifierSchema })
+    .nullable(),
+  cook_ms: z.number().int(),
+  prep_ms: z.number().int(),
+  from_stock: z.boolean(),
+  placed_by_name: z.string().nullable(),
+});
+
+// 03b §6.16: details for the line ids a commit gained, per station socket set / per point (Pass) socket set.
+export const WsKdsLines = z.object({ type: z.literal('kds_lines'), station_id: Id, lines: z.array(LineDetailSchema) });
+export type WsKdsLines = z.infer<typeof WsKdsLines>;
+export const WsPointLines = z.object({ type: z.literal('point_lines'), point_id: Id, lines: z.array(LineDetailSchema) });
+export type WsPointLines = z.infer<typeof WsPointLines>;
+
+// 03b §6.14: the `kds_station` catch-up body; the takeover frame's `view` (§3.6) is the same body.
+export const KdsStationBody = z.object({
+  station_id: Id,
+  day_open: z.boolean(),
+  sound_volume: z.number().int().min(0).max(100),
+  lanes: z.object({ lanes_on: z.number().int().min(1).nullable(), lane_count: z.number().int().min(1) }), // null = custom (§5)
+  now: z.array(
+    LineDetailSchema.extend({
+      stage: z.enum(['added', 'cooking', 'done', 'served', 'removed', 'voided', 'returned']),
+      fired_at: z.number().int().nullable(),
+      started_at: z.number().int().nullable(),
+      mark: z.enum(['expedite', 'boost', 'pulled', 'return', 'moved']).nullable(),
+      // ⚠️ Changed by v1.0.5 (owner 2026-11-12, B2-3): from the engine line (03a v1.2.2); the KDS shows "tap Done" (§3.3).
+      done_undone: z.boolean(),
+    }),
+  ),
+  details: z.array(LineDetailSchema),
+});
+export type KdsStationBody = z.infer<typeof KdsStationBody>;
+export const WsStationTakeover = z.object({
+  type: z.literal('station_takeover'),
+  station_id: Id,
+  active: z.boolean(),
+  view: KdsStationBody.optional(),
+});
+export type WsStationTakeover = z.infer<typeof WsStationTakeover>;
+
+// 03b §3.10: an archived station that still has lines in Now / Next.
+export const WsStationNotice = z.object({
+  type: z.literal('station_notice'),
+  station_id: Id,
+  kind: z.literal('archived'),
+  open_lines: z.number().int().min(0),
+});
+export type WsStationNotice = z.infer<typeof WsStationNotice>;
+
+// 03c §3.8: after each ack of a kitchen / reprint job.
+export const WsPrintedLines = z.object({ type: z.literal('printed_lines'), station_id: Id, order_item_ids: z.array(Id) });
+export type WsPrintedLines = z.infer<typeof WsPrintedLines>;
+
 export const WsServerMessage = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('catch_up'),
@@ -117,6 +193,11 @@ export const WsServerMessage = z.discriminatedUnion('type', [
   WsAlertClosed,
   WsBindingRoute,
   WsStationPlan,
+  WsKdsLines,
+  WsPointLines,
+  WsStationTakeover,
+  WsStationNotice,
+  WsPrintedLines,
 ]);
 export type WsServerMessage = z.infer<typeof WsServerMessage>;
 

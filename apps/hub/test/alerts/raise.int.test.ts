@@ -252,7 +252,7 @@ describe('01d alerts.raise / raiseMany', () => {
 
   it('[01d §6.1] AlertRaised payload: request part copied, details stored, envelope device = the raising device', async () => {
     const h = await harness(cleanups);
-    h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_IMRAN', sessionId: 'S1', kind: 'staff' }];
+    h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_IMRAN', sessionId: 'S1', kind: 'staff', stationId: null }];
     const r = h.writer.run((tx) => alerts.raise(cmdCtx(tx), voidInput())).result;
     expect(types(r.events)).toEqual(['AlertRaised', 'AttemptSent']);
     const raised = r.events[0] as EventDraft;
@@ -416,7 +416,7 @@ describe('01d alerts.raise / raiseMany', () => {
     expect(paged.events[1]?.payload).toMatchObject({ routes: [{ staff_id: KAMRAN, route: 'pager', ref: 'P-7' }] });
     // §3.3 rule 5: empty answerers (Kamran's void-item needs no approval, so nobody may answer) → shortcut,
     // even though Kamran himself has a screen route.
-    h.ws.sessions = [{ staffId: KAMRAN, deviceId: 'D_K', sessionId: 'SK', kind: 'staff' }];
+    h.ws.sessions = [{ staffId: KAMRAN, deviceId: 'D_K', sessionId: 'SK', kind: 'staff', stationId: null }];
     const self = h.writer.run((tx) =>
       alerts.raise(cmdCtx(tx), voidInput({ dedupe_key: 'void:self', requester_staff_id: KAMRAN })),
     ).result;
@@ -546,7 +546,7 @@ describe('01d alerts.raise / raiseMany', () => {
 
   it('[01d §3.3 rule 4(d)] a raise through readOnlyTx(tx) (the PIN prepare view) returns drafts and writes nothing', async () => {
     const h = await harness(cleanups);
-    h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_IMRAN', sessionId: 'S1', kind: 'staff' }];
+    h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_IMRAN', sessionId: 'S1', kind: 'staff', stationId: null }];
     const changes = (): number => (h.db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
     const { result, appended } = h.writer.run((tx) => {
       const before = changes();
@@ -583,7 +583,7 @@ describe('01d §3.4.3 "for" rows and alert_inbox (task 17 fix)', () => {
 
   it('[01d §3.4.3] a "for Ali" step: the lead has the inbox row, Ali has none; a later step reaching Ali gives him his', async () => {
     const h = await harness(cleanups);
-    h.ws.sessions = [{ staffId: KAMRAN, deviceId: 'D_K', sessionId: 'SK', kind: 'staff' }];
+    h.ws.sessions = [{ staffId: KAMRAN, deviceId: 'D_K', sessionId: 'SK', kind: 'staff', stationId: null }];
     const { result: r } = h.writer.run((tx) => {
       const out = alerts.raise(cmdCtx(tx, IMRAN), toAli);
       tx.append(out.events);
@@ -598,7 +598,7 @@ describe('01d §3.4.3 "for" rows and alert_inbox (task 17 fix)', () => {
     expect(inbox(h.db, r.alert_id)).toEqual([KAMRAN]);
 
     // a later step (the tick's AttemptSent) reaching Ali directly: Ali signed in now
-    h.ws.sessions = [{ staffId: ALI, deviceId: ALI_DEV, sessionId: 'SA', kind: 'staff' }];
+    h.ws.sessions = [{ staffId: ALI, deviceId: ALI_DEV, sessionId: 'SA', kind: 'staff', stationId: null }];
     const step0 = r.events[1] as EventDraft;
     h.writer.run((tx) => {
       const later = alerts.raise(cmdCtx(tx, IMRAN), { ...toAli, dedupe_key: 'info:ali:probe' });
@@ -629,7 +629,7 @@ describe('01d §3.4.3 "for" rows and alert_inbox (task 17 fix)', () => {
 
   it('[01d §3.4.3] a request kind with no route: no fallback, the person keeps the row and the inbox row', async () => {
     const h = await harness(cleanups);
-    h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_I', sessionId: 'SI', kind: 'staff' }];
+    h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_I', sessionId: 'SI', kind: 'staff', stationId: null }];
     const { result: r } = h.writer.run((tx) => {
       const out = alerts.raise(cmdCtx(tx, IMRAN), {
         kind: 't_accept',

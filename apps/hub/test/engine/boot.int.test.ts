@@ -202,7 +202,7 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
   const lateWall = () => Math.max(WALL, simEvents[simEvents.length - 1]!.recorded_at) + 60_000;
 
   describe('[03a #57] the base of the replay', () => {
-    it('[03a #57] a v3 snapshot is loaded and only the events after its last_seq are replayed; the state equals a full replay', async () => {
+    it('[03a #57] a current-version snapshot is loaded and only the events after its last_seq are replayed; the state equals a full replay', async () => {
       let whole: EngineState = initialEngineState();
       const { booted, logs } = await restart((db, next) => {
         const log = stamped(simEvents, next);
@@ -216,18 +216,19 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       expect(hostFlags.snapshot_loaded).toBe(true);
     });
 
-    it('[03a #57] a v2 snapshot is skipped → the checkpoint → a one-day replay', async () => {
+    // 03a v1.2.2 (owner 2026-11-11, B2-2): ENGINE_STATE_VERSION 4; a stored v3 snapshot is skipped like a v2 one.
+    it.each([2, 3])('[03a #57] a v%i snapshot is skipped → the checkpoint → a one-day replay', async (old) => {
       const opened = aBusinessDayOpened();
       const { booted, logs } = await restart((db, next) => {
         const day1 = stamped([aStockSet({ stream_id: 'K1', payload: { stock_item_id: 'K1', on_hand: 5, unit: 'piece' } })], next);
         insertRaw(db, day1);
         const held = buildEngineState(day1, { strict: false });
         insertCheckpoint(db, { id: 'c1', taken_at: WALL, last_seq: next, body_json: JSON.stringify(toCheckpoint(held, next)) });
-        insertSnapshot(db, { id: 's-old', taken_at: WALL, last_seq: next, engine_version: 2, state_json: '{"stock":{}}' });
+        insertSnapshot(db, { id: 's-old', taken_at: WALL, last_seq: next, engine_version: old, state_json: '{"stock":{}}' });
         insertRaw(db, stamped([opened, aStockAdded({ stream_id: 'K1', payload: { stock_item_id: 'K1', quantity: 2, unit: 'piece' } })], next + 1));
       });
       const logged = logs();
-      expect(skipLines(logged)).toEqual([expect.objectContaining({ table: 'engine_snapshots', id: 's-old', reason: 'engine_version', found: 2 })]);
+      expect(skipLines(logged)).toEqual([expect.objectContaining({ table: 'engine_snapshots', id: 's-old', reason: 'engine_version', found: old })]);
       expect(bootLine(logged, '3')).toMatchObject({ snapshot_seq: null, checkpoint_seq: 2, events_replayed: 2 });
       expect(engine(booted).stock.K1).toMatchObject({ on_hand: 7 });
       expect(engine(booted).business_day?.business_date).toBe(opened.payload.business_date);
@@ -248,22 +249,23 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
     const good = (stock: number): string =>
       stateJson({ ...initialEngineState(), stock: { K9: { on_hand: stock, reserved: 0, set_at: WALL, unit: 'piece' } } });
 
-    it('[03a Review Focus 5] engine_version 4 newest → one log line, the v3 row is used, boot completes', async () => {
+    // 03a v1.2.2 (B2-2): "the future" is ENGINE_STATE_VERSION + 1 (was the literal 4, now the current version).
+    it('[03a Review Focus 5] engine_version current + 1 newest → one log line, the current row is used, boot completes', async () => {
       const { booted, logs } = await restart((db, next) => {
         insertRaw(db, stamped([live], next));
         insertSnapshot(db, { id: 'v3', taken_at: WALL, last_seq: next, state_json: good(3) });
-        insertSnapshot(db, { id: 'v4', taken_at: WALL + 5, last_seq: next, engine_version: 4, state_json: '{"from":"the future"}' });
+        insertSnapshot(db, { id: 'v4', taken_at: WALL + 5, last_seq: next, engine_version: ENGINE_STATE_VERSION + 1, state_json: '{"from":"the future"}' });
       });
-      expect(skipLines(logs())).toEqual([expect.objectContaining({ table: 'engine_snapshots', id: 'v4', reason: 'engine_version', found: 4 })]);
+      expect(skipLines(logs())).toEqual([expect.objectContaining({ table: 'engine_snapshots', id: 'v4', reason: 'engine_version', found: ENGINE_STATE_VERSION + 1 })]);
       expect(engine(booted).stock.K9).toMatchObject({ on_hand: 3 });
       expect(booted.step()).toBe('8');
     });
 
-    it('[03a Review Focus 5] two engine_version 4 rows never hide a v3 row (a statement keeps LIMIT 2)', async () => {
+    it('[03a Review Focus 5] two engine_version current + 1 rows never hide a current row (a statement keeps LIMIT 2)', async () => {
       const db = await migrated();
       insertSnapshot(db, { id: 'v3', taken_at: WALL, last_seq: 0, state_json: good(3) });
-      insertSnapshot(db, { id: 'v4a', taken_at: WALL + 5, last_seq: 0, engine_version: 4, state_json: '{}' });
-      insertSnapshot(db, { id: 'v4b', taken_at: WALL + 6, last_seq: 0, engine_version: 4, state_json: '{}' });
+      insertSnapshot(db, { id: 'v4a', taken_at: WALL + 5, last_seq: 0, engine_version: ENGINE_STATE_VERSION + 1, state_json: '{}' });
+      insertSnapshot(db, { id: 'v4b', taken_at: WALL + 6, last_seq: 0, engine_version: ENGINE_STATE_VERSION + 1, state_json: '{}' });
       const ctx = ctxOf(db);
       engineStep2(ctx);
       engineStep3(ctx);

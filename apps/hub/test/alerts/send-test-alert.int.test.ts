@@ -1,4 +1,4 @@
-import type { DirectoryInput, PosEvent } from '@pos/events';
+import type { BranchConfig, DirectoryInput, PosEvent } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { defineAlertKind, kindOf, TEST_ALERT, TEST_ALERT_AFTER_MS, unregisterAlertKind } from '../../src/alerts/kinds';
@@ -7,14 +7,15 @@ import { alertsTick, startTickLoop, TICK_MS } from '../../src/alerts/tick';
 import { activity } from '../../src/auth/session-store';
 import type { CommandDef } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
+import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { fakePoint, registerFakes, resetFakes } from './fakes';
 
 // 01d task 33: the `test_alert` kind (§3.10, §3.5 `closes_on.after_ms` 600 000) and `SendTestAlert` (§6.5):
-// a manager (`manage-devices`) sends a test to a person, a team (default depth 'direct') or a device; a point
-// is stubbed until 01a (422 points_not_available, §4.4). Tests #17, #52 and Review Focus 5. The receipt view
+// a manager (`manage-devices`) sends a test to a person, a team (default depth 'direct'), a device or a point
+// (03b G-1 registers the point resolver; was 422 points_not_available while stubbed, §4.4). Tests #17, #52 and Review Focus 5. The receipt view
 // (`alert-receipts`) is task 36, so delivery is asserted on the events and the DB only.
 
 const OWNER = 'S_OWNER'; // a lead: S_WAIT reports to the owner, S_CASH to S_WAIT
@@ -23,6 +24,18 @@ const CASH = 'S_CASH'; // R_CASH: no manage-devices
 const WAIT = 'S_WAIT';
 const TENANT = 'tenant-a';
 const BRANCH = 'branch-1';
+
+// 01d v1.2.3 D-4 (03b B1-1): SendTestAlert checks a point id against the active branchConfig().points first.
+// Only the points part of the config is read here; P1 active, P_OLD archived.
+function withPoints(): void {
+  const config = {
+    points: [
+      { point_id: 'P1', name: 'Pass', is_archived: false },
+      { point_id: 'P_OLD', name: 'Old pass', is_archived: true },
+    ],
+  } as unknown as BranchConfig;
+  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: 1, snapshotSchemaVersion: 4, appliedAt: 0 });
+}
 
 async function directory(): Promise<DirectoryInput> {
   const base = await aDirectory({ directory_version: 1 });
@@ -226,16 +239,37 @@ describe('01d SendTestAlert and test_alert (task 33)', () => {
     expect(JSON.parse(alertRow(hub, deviceId).display_json as string)).toMatchObject({ device_name: 'Tablet 3' });
   });
 
-  it('[01d #17] to a point → 422 CONFIG_REFERENCE_INVALID { field: target.point_id, reason: points_not_available }, nothing written', async () => {
+  it('[01d #17, 03b G-1] to a point → raised to the point’s Pass tablets and the staff signed in on them (03b registers the point resolver)', async () => {
+    withPoints();
     const mgr = seat(hub, MGR);
-    const before = counts(hub);
+    const pass = pairDevice(hub, { type: 'tablet', name: 'Pass tablet' });
+    hub.deps.db.prepare("UPDATE devices SET point_id = 'P1' WHERE device_id = ?").run(pass.deviceId);
+    openSession(hub, { kind: 'staff', staffId: WAIT, deviceId: pass.deviceId });
     const res = await send(hub, mgr, { kind: 'point', point_id: 'P1' });
-    expect(res.statusCode).toBe(422);
-    expect(res.json().error).toMatchObject({
-      code: 'CONFIG_REFERENCE_INVALID',
-      details: { field: 'target.point_id', reason: 'points_not_available' },
-    });
+    expect(res.statusCode, res.body).toBe(200);
+    const id = (res.json() as { data: { result: { alert_id: string } } }).data.result.alert_id;
+    const rows = recipientRows(hub, id);
+    expect(rows.map((r) => r.device_id).filter((d) => d !== null)).toEqual([pass.deviceId]);
+    expect(rows.map((r) => r.staff_id).filter((s) => s !== null)).toEqual([WAIT]);
+  });
+
+  it('[01d #17, 01d D-4 (03b B1-1)] an unknown or archived point id (or no config yet) → 404 POINT_NOT_FOUND { point_id }, checked before the resolver; nothing written', async () => {
+    const mgr = seat(hub, MGR);
+    const pass = pairDevice(hub, { type: 'tablet', name: 'Pass tablet' });
+    hub.deps.db.prepare("UPDATE devices SET point_id = 'P_OLD' WHERE device_id = ?").run(pass.deviceId);
+    const before = counts(hub);
+    const noConfig = await send(hub, mgr, { kind: 'point', point_id: 'P1' });
+    expect(noConfig.statusCode).toBe(404);
+    expect(noConfig.json().error).toMatchObject({ code: 'POINT_NOT_FOUND', details: { point_id: 'P1' } });
+    withPoints();
+    for (const point_id of ['P_NOBODY', 'P_OLD']) {
+      const res = await send(hub, mgr, { kind: 'point', point_id });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error).toMatchObject({ code: 'POINT_NOT_FOUND', details: { point_id } });
+    }
     expect(counts(hub)).toEqual(before);
+    // a known point raises
+    expect((await send(hub, mgr, { kind: 'point', point_id: 'P1' })).statusCode).toBe(200);
   });
 
   it('[01d #17] without manage-devices → 403 PERMISSION_DENIED, nothing written', async () => {
@@ -305,6 +339,7 @@ describe('01d SendTestAlert and test_alert (task 33)', () => {
 
   it('[01d §6.5] a point with a registered resolver (once 01a lands; a test fake here) goes through raise to that point', async () => {
     registerFakes();
+    withPoints();
     const mgr = seat(hub, MGR);
     const pointTablet = pairDevice(hub, { type: 'tablet', name: 'Point tablet' });
     fakePoint.devices.set('P1', [pointTablet.deviceId]);
