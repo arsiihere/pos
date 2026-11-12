@@ -102,3 +102,7 @@ K-8 (option a / b / c, §3); Q3 disposition list confirm; Q9 re-asked; Q16.
 |---|---|
 | Q-R1 | A remake / fix (return) line can leave the order: Remove at stage 1, void past it, refund 0; Void all cancels the whole order |
 | Q-DC | Day close is refused while any void request is open (approve / reject / withdraw first) — 01a v2.5 row A-1 |
+
+## 10. Approval (owner, 2026-11-12 11:58 PKT)
+
+Owner: "okay isko approve kar dete aur jo kami hain abhi wo kisi jagah likh do". **04 v1.0 APPROVED** (= v0.11.1 + §12.6), with every §4.5 row. Known gaps, accepted limits and open build risks: spec §12.6 and `docs/OPEN-QUESTIONS.md` §8.

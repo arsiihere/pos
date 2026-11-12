@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Module | 04 Voids + Audit (hub) |
-| Version | **v0.11.1 — Draft, APPROVE-READY (final check `docs/reviews/04_v0.11_final_check.md`); waiting for owner approval** (developer, 2026-11-12) |
+| Version | **v1.0 — APPROVED (owner, 2026-11-12 11:58 PKT)**, with its §4.5 rows (bumps applied at build task 0, next free numbers) |
 | Inherits | Shared Standards from **Foundation v1.12** §6 (envelope, errors, hub HTTP, WS, list cursor, naming, tests, migrations, folders); not redefined here |
 | Depends on | Foundation v1.12; 00 Hub Platform v1.9; 01a v2.4.3 (`CloseBusinessDay`, row A-1); 01b v1.8; 01c v1.1.2; 01d v1.2.4; 02a v1.1.4; 02b v1.0.9; 03a v1.2.3; read-only: 03b v1.0.5, 03c v1.0.5 (merged on `main`, PR #76; their "Exposes" are taken as given). The deltas since v0.8's base (02b v1.0.6–v1.0.9, 01d v1.2.2–v1.2.4, 03a v1.2.1–v1.2.3, 00 v1.9, F v1.12, 01a v2.4–v2.4.3, 01b v1.8) were read for conflicts with 04's rows: none, except 02b v1.0.9's B3-5 lesson (H8-1, row H-2) and main's `details.identifier` (H8-4) ⚠️ Changed by v0.9 (H8-2) |
 | Read by | 05 (pending voids, bill close), 06 (cloud audit view), 07 |
@@ -27,6 +27,7 @@
 | **v0.10** | 2026-11-12 | Fixes the v0.9 targeted check (H9-1–H9-7), each marked "⚠️ Changed by v0.10 (H9-n)". No owner question. H-2 now carries the 00 text it changes (M48, §5.8, boot step 4) and the test helpers it needs (`createTestHub` runs `catchUp`, the big fixture seeds every registered projection, M48 registry test rewritten), plus the setup-path invariant (H9-1, H9-7). T-3 removes `ItemRemoved` / `ItemVoided` from `LINE_EVENTS` and restates 03a rows #125, #133–#135 and R-3 with an `ItemDone` probe (H9-2). Card identifier: 04 builds an `Identifier` and its own `identifierText` copy (as 03c does), `readOrder` gains `table_ids`, `details_schema` picks `identifier` (H9-3). Build table repaired (H9-4); §2 / §12.5 name H-2 (H9-5); D-1 adds 01d's OVERRIDDEN row and decisions row 4 (H9-6). |
 | **v0.11** | 2026-11-12 | Fixes the v0.10 targeted check (H10-1–H10-7, all MINOR / NIT), each marked "⚠️ Changed by v0.11 (H10-n)". No owner question. T-3 probes become `ItemServed { source: 'tap' }`, R-3's accepted warn is gone and its test removed / restated, the host's line ids are noted as unread (H10-1); `table_ids` orders inside the aggregate (H10-2); the identifier is a copy of **03b's** `identifierText` (40-char slice) and `passIdentity`'s dine-in branch with names and the no-seating fallback (H10-3); 00 test #67 seeds a row first (H10-4); one exported `registerHubProjections(registry)` used by `createDeps`, `createTestHub` and the big fixture, which also adds `access_reconcile` (H10-5); `createTestHub` catches up on the writer's branch id (H10-6); test 20b (H10-7). |
 | **v0.11.1** | 2026-11-12 | Final check `docs/reviews/04_v0.11_final_check.md`: **APPROVE-READY** (12 FIXED, 0 BLOCKER / MAJOR / MINOR, 3 NIT; H-2 and T-3 built in scratch worktrees, full hub suite green). The 3 NITs fixed, marked "⚠️ Changed by v0.11.1 (H11-n)": the identifier equality test renumbered **20c** and §3.5 lists its seven fixtures (H11-1); "no current table" keyed as 03b's `currentTableOf` (H11-2); T-3's 03a list adds §3.3 host filter and row Q-3 (H11-3). |
+| **v1.0** | 2026-11-12 | **APPROVED by the owner** ("approve kar dete", 2026-11-12 11:58 PKT) as v0.11.1, with every §4.5 row. Adds §12.6 **Known gaps and accepted limits** (what the pilot will not have, and the risks still open), mirrored in `docs/OPEN-QUESTIONS.md` §8. No rule changed. |
 
 ---
 
@@ -575,6 +576,48 @@ Review owner questions OQ-A–OQ-D: answered 2026-11-12 (changelog v0.2); OQ-E, 
 - Resell a served item (D10 stage 5).
 - Wastage / staff-meal reports — 05 / 07 / 08 read `disposition`.
 - Audit table retention — none until size is measured.
+
+### 12.6 Known gaps and accepted limits (v1.0, owner 2026-11-12)
+
+What 04 v1.0 deliberately does **not** do, and the risks still open. Each line says why and where it would go. Mirrored in `docs/OPEN-QUESTIONS.md` §8.
+
+**Not built in the pilot (owner rulings)**
+
+| # | Gap | Floor impact | Why / ruling | Where it goes |
+|---|---|---|---|---|
+| G-1 | No override of a stuck pending void (F §4.5 OVERRIDDEN, D11 AC4) | If no approver is reachable, that bill **and the day close** stay blocked | Q9: coverage is configuration (`approve-void` grants) | Revisit after the pilot; 01a setting + 04 bump |
+| G-2 | Kitchen sees nothing while a void is pending | The dish may keep cooking; an OQ-F part becomes wastage | Q8: approvals take seconds on the floor | 03b client slot + frame, if the pilot asks |
+| G-3 | Remote / cloud audit view | Owner sees the log only on the restaurant LAN | K-8 revised | **06** (§4.3 To 06); 06's G0 decides milestone A |
+| G-4 | No rejection reason | Audit shows "rejected", not why | 01d `RequestAnswered` has no reason | 01d bump if wanted |
+| G-5 | Reasons are fixed codes, not owner-editable | — | Q4 | 01a setting (R18) when the pilot asks |
+| G-6 | Approver cannot change the disposition at approve | A served-meanwhile `moved` void must be withdrawn and re-asked (or rejected + direct void) | OQ-D | Later 04 bump |
+| G-7 | Resell a served item (D10 stage 5) | — | off by default, never asked | Later |
+| G-8 | Wastage / staff-meal / moved reports | Data is recorded (`ItemVoided.disposition`), no report yet | out of 04 | **05** Z report, 07, 08 |
+
+**Accepted limits (trade-offs written into the rules)**
+
+| # | Limit | Why accepted |
+|---|---|---|
+| L-1 | Audit names are the **last known** name (`staff_names`), not the name at the time | OQ-E; events carry no names |
+| L-2 | A replaced / restored hub shows leavers' ids until 06's restore carries `staff_names` | H-1; 06 restore |
+| L-3 | A third device may show a stale PENDING VOID tag until screen focus | correctness is server-side (bill close, merge, day close refuse) |
+| L-4 | A moved portion is not reserved by a line the same command (partly) voids, nor by a waiting line already on the KDS; it waits in stock for the next order | H5-1, H6-17; avoids over-reserve / stock breach |
+| L-5 | Engine drift on a voided / removed line is silent (no absent-id warn) | T-3; Start / Done / Served still catch drift |
+| L-6 | Dine-in identifier on the card is frozen at raise (stale after a later move / merge) | requests are short-lived |
+| L-7 | Audit log has no retention job; it grows ~1–3 k rows / day | YAGNI until size is measured |
+| L-8 | E6 audit AC2 is partial: Start / Done / Served are events, not audit rows; refund, discount, bill override, clock-in come with 05 (`registerAuditAction`); role / permission changes stay in the cloud `config_audit` | owner Q14 |
+| L-9 | Day close is refused while any void is pending | Q-DC: no food crosses a day; the closing manager answers first |
+
+**Open risks for the build**
+
+| # | Risk | Mitigation |
+|---|---|---|
+| R-1 | Cross-module bumps (F, 00, 01a, 01b, 01d, 02b, 03a) are approved but **not applied**; another branch (e.g. 01e) may take a number or change a section first | Task 0 takes the next free numbers after `main` and every open module branch, re-reads the deltas, and **STOPs on any conflict** |
+| R-2 | Spike assumptions (stock context and engine folds inside a read-only `apply`, partial move releases nothing) are proven by review, not yet by a test on 04's code | Task 1 spike runs before any other 04 task; any failure → STOP and a §4.5 row |
+| R-3 | H-2 (update-only checkpoints) touches every projection's boot path | Built and run in a scratch worktree by the final check (2 239 tests green); P0b re-runs the full suite and 00 #100 |
+| R-4 | 05 must honour four contracts or money / days go wrong: subtract `refund_minor` only, refuse bill close while `pendingVoids`, keep the day-close guard when 05 replaces `CloseBusinessDay`, treat `live_units = 0` lines as never pending-weight | §4.3 To 05 rows; 05's G0 and hostile review check them |
+| R-5 | B-1 backfill runs on existing tenants once | Idempotent, `ON CONFLICT DO NOTHING`, pilot tenants pre-live; test 32 |
+| R-6 | `client-dist` hub test is red on `main` today (client not built in CI-less runs), unrelated to 04 | Not 04's; noted so a red gate is not blamed on 04 |
 
 ### 12.5 Hostile self-review (v0.11)
 

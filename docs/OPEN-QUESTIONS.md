@@ -88,3 +88,20 @@ These work today. Change one only if the owner disagrees.
 |---|---|---|---|
 | 03b-N1 | **Kitchen timing set on the hub, synced both ways.** Ready window, KDS offline and served estimate (03b §4.5 A-1, B-2) are per-branch owner settings: the owner app edits them, the cloud delivers them to the hub (F §3.3, one-way), the hub keeps the last delivered value and falls back to its defaults (60 s / 30 s / 3 min). Wanted later: a manager changes them on the hub too (also offline) and the owner app shows the change. | Keep one-way for the pilot (owner, 2026-11-11); look again after the pilot. | Same design as 02a-N1 (hub → cloud config sync, conflict rule, offline edits, permission) — one foundation bump for both. |
 | 03b-N2 | **Strikethrough reprint** when a line is Done after its ticket already printed (story E3-PRT edge, Z1 GAP G5). | Deferred after the pilot (owner 2026-11-12). | 03c spec row + a print task. |
+
+## 8. From the 04 spec (owner, 2026-11-12) — Voids + Audit known gaps
+
+Full list with reasons: `docs/specs/04_Voids_Audit_Spec_v1.0.md` §12.6.
+
+| # | Item | Decided | Where it goes |
+|---|---|---|---|
+| 04-G1 | **No override of a stuck pending void** — no approver reachable → that bill and the day close stay blocked. | Not in the pilot (owner Q9). | After the pilot: 01a setting + 04 bump. |
+| 04-G2 | **Kitchen sees nothing while a void is pending.** | Not in the pilot (owner Q8). | 03b slot + frame if the pilot asks. |
+| 04-G3 | **Remote / cloud audit view** (owner away from the restaurant). | Moved to 06 (owner K-8). | 06 G0 decides milestone A. |
+| 04-G4 | Rejection reason not captured. | Not built. | 01d bump if wanted. |
+| 04-G5 | Owner-editable void reasons. | Fixed codes for now (owner Q4). | 01a setting when asked. |
+| 04-G6 | Approver cannot change the disposition at approve (withdraw and re-ask instead). | Owner OQ-D. | Later 04 bump. |
+| 04-G8 | Wastage / staff-meal / moved-to-stock reports. | Data recorded; no report. | 05 Z report, 07, 08. |
+| 04-R1 | **Cross-module bumps approved but not applied** (F, 00, 01a, 01b, 01d, 02b, 03a). | Task 0 takes next free numbers, STOPs on conflict. | 04 build task 0. |
+| 04-R4 | **05 must honour 04's four contracts** (refund_minor only, bill close refused while pending, keep the day-close guard, voided pending-weight lines). | §4.3 To 05. | 05 G0 / review. |
+
