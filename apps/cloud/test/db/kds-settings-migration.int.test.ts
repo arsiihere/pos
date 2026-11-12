@@ -55,8 +55,9 @@ describe('[03b §4.5 A-1] cloud migration 0012_kds_settings.sql', () => {
     const { rows } = await q(`SELECT branch_id, config_version FROM branches WHERE branch_id IN ('b0', 'b1', 'b2') ORDER BY branch_id`);
     expect(rows.map((r) => [r.branch_id, Number(r.config_version)])).toEqual([
       ['b0', preVersions.b0],
-      ['b1', preVersions.b1! + 1],
-      ['b2', preVersions.b2! + 1],
+      // + 1 from 0012, + 1 from 0014 (01a v2.4.4 Q-28: these rows hold the 0009 default with "Other")
+      ['b1', preVersions.b1! + 2],
+      ['b2', preVersions.b2! + 2],
     ]);
   });
 
@@ -69,7 +70,7 @@ describe('[03b §4.5 A-1] cloud migration 0012_kds_settings.sql', () => {
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
     const snapshot = result.data.config!.snapshot as { config_version: number; engine_settings: Record<string, unknown> };
-    expect(snapshot.config_version).toBe(preVersions.b1! + 1);
+    expect(snapshot.config_version).toBe(preVersions.b1! + 2); // 0012 + 0014 (01a v2.4.4 Q-28)
     expect(snapshot.engine_settings).toMatchObject({ served_estimate_ms: 180_000, ready_window_ms: 60_000, kds_offline_ms: 30_000 });
   });
 
