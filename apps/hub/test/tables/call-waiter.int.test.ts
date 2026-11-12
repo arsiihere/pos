@@ -4,6 +4,7 @@ import { kindOf } from '../../src/alerts/kinds';
 import { startTickLoop, TICK_MS } from '../../src/alerts/tick';
 import { defineCommand } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
+import { endSession, type SessionRow } from '../../src/auth/session-store';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { cleanTableCommand } from '../../src/tables/commands/bill-clean';
 import { callWaiterCommand } from '../../src/tables/commands/call-waiter';
@@ -26,13 +27,14 @@ function grant(permission: string, scope: 'branch' | 'my_floors' | 'own_tables' 
 }
 
 // S_ALI holds the seatings; S_W1 / S_W2 report to him (W when working); S_BOB is a branch-scope order taker
-// outside the team; S_ZAIN is my_floors (F1), S_OMAR own_tables.
+// outside the team; S_ZAIN is my_floors (F1), S_OMAR own_tables. 02a #63: Ali and Bob carry display names.
+const NAMES: Record<string, string> = { S_ALI: 'Ali', S_BOB: 'Bob' };
 async function directory(): Promise<DirectoryInput> {
   const base = await aDirectory();
   const pin = base.staff[0]!.pin_hash;
   const person = (staff_id: string, role_id: string, lead_staff_id: string | null = null, floor_ids: string[] = []) => ({
     staff_id,
-    display_name: staff_id,
+    display_name: NAMES[staff_id] ?? staff_id,
     pin_hash: pin,
     role_ids: [role_id],
     denied_permissions: [],
@@ -531,7 +533,7 @@ describe('CallWaiter (02a §6.14, §3.13)', () => {
     append(opened('T7', 'S7'));
     const r = await call(bob, 'CallWaiter', { table_id: 'T7', seating_id: 'S7' });
     expect(r.status).toBe(200);
-    expect(JSON.parse(alertRow(r.result?.alert_id as string).display_json)).toEqual({ kind_label_key: 'alert.call_waiter.lock', table_code: 'T7' });
+    expect(JSON.parse(alertRow(r.result?.alert_id as string).display_json)).toEqual({ kind_label_key: 'alert.call_waiter.lock', table_code: 'T7', requester_name: 'Bob' });
   });
 
   it('[02a §6.14] payload: seating_id required, chip from the enum (VALIDATION_FAILED)', async () => {
@@ -560,5 +562,69 @@ describe('CallWaiter (02a §6.14, §3.13)', () => {
     const real = await call(bob, 'CallWaiter', { table_id: 'T2', seating_id: 'S2' }, { queuedAt });
     expect(real.status).toBe(200);
     expect(real.result).toMatchObject({ repeated: false });
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #63 (H7, Q-12)
+
+describe('[02a #63] caller name on the call-waiter display (02a v1.1.6 §6.14, Q-12)', () => {
+  type AlertFrame = { type: string; alert?: { alert_id: string; lock: Record<string, unknown>; card?: Record<string, unknown> } };
+  const alertFrames = (ws: WsClient) => (ws.messages as AlertFrame[]).filter((m) => m.type === 'alert');
+
+  it('[02a #63] CallWaiter by Ali → display.requester_name = Ali in the lock view (alerts_open, alert frame); no chip in the display', async () => {
+    const w1Device = pairDevice(hub, { type: 'tablet' });
+    const w1Session = openSession(hub, { kind: 'staff', staffId: 'S_W1', deviceId: w1Device.deviceId });
+    const w1 = await connectWs(hub.app);
+    clients.push(w1);
+    w1.send({ type: 'auth', device_token: w1Device.token, session_token: w1Session.token });
+    await w1.untilCount(1);
+    const ali = signIn('S_ALI');
+    append(opened('T1', 'S1'));
+
+    counter.reset();
+    const r = await call(ali, 'CallWaiter', { table_id: 'T1', seating_id: 'S1', chip: 'water' });
+    // statements unchanged by the name (in-memory directory): the same call measured before Q-12 cost 41
+    expect(counter.count).toBe(41);
+    expect(r.status).toBe(200);
+    const alertId = r.result?.alert_id as string;
+    const display = { kind_label_key: 'alert.call_waiter.lock', table_code: 'Table 1', requester_name: 'Ali' };
+    expect(JSON.parse(alertRow(alertId).display_json)).toEqual(display);
+    expect(r.events[0]!.payload).toMatchObject({ display, values: { table_id: 'T1', seating_id: 'S1', chip: 'water' } });
+    expect(JSON.stringify((r.events[0]!.payload as { display: unknown }).display)).not.toContain('water');
+
+    // the alert frame on S_W1's staff socket: the lock view carries the caller's name, no chip
+    for (let i = 0; i < 50 && alertFrames(w1).length === 0; i += 1) await w1.untilCount(w1.messages.length + 1);
+    const frame = alertFrames(w1).find((f) => f.alert?.alert_id === alertId)!;
+    expect(frame.alert!.lock).toMatchObject({ kind_label_key: 'alert.call_waiter.lock', table_code: 'Table 1', requester_name: 'Ali' });
+    expect(JSON.stringify(frame.alert!.lock)).not.toContain('water');
+
+    // alerts_open: S_W1's session idles out, the tablet stays bound; its alert-mode socket replays the lock view
+    const row = hub.deps.db.prepare('SELECT * FROM staff_sessions WHERE session_id = ?').get(w1Session.sessionId) as SessionRow;
+    hub.deps.writer.run((tx) => endSession(tx, row, 'idle_timeout', null, null, 'hub'));
+    const alertMode = await connectWs(hub.app);
+    clients.push(alertMode);
+    alertMode.send({ type: 'auth', device_token: w1Device.token });
+    await alertMode.untilCount(1);
+    const open = alertMode.messages[0] as { type: string; alerts: Array<{ alert_id: string; lock: Record<string, unknown> }> };
+    expect(open.type).toBe('alerts_open');
+    const replayed = open.alerts.find((a) => a.alert_id === alertId)!;
+    expect(replayed.lock).toMatchObject({ table_code: 'Table 1', requester_name: 'Ali' });
+    expect(JSON.stringify(replayed.lock)).not.toContain('water');
+
+  });
+
+  it('[02a #63] repeated: true leaves the display unchanged', async () => {
+    const ali = signIn('S_ALI');
+    const bob = signIn('S_BOB');
+    append(opened('T1', 'S1'));
+    const first = await call(ali, 'CallWaiter', { table_id: 'T1', seating_id: 'S1' });
+    const alertId = first.result?.alert_id as string;
+    const before = alertRow(alertId).display_json;
+    expect(JSON.parse(before)).toMatchObject({ requester_name: 'Ali' });
+    const events = eventCount();
+    const repeat = await call(bob, 'CallWaiter', { table_id: 'T1', seating_id: 'S1', chip: 'come' });
+    expect(repeat.result).toEqual({ alert_id: alertId, repeated: true });
+    expect(eventCount()).toBe(events);
+    expect(alertRow(alertId).display_json).toBe(before); // still Ali, not Bob
   });
 });
