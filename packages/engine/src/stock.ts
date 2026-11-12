@@ -279,13 +279,14 @@ function isCandidate(state: EngineState, line: EngineLine, t: number): boolean {
 
 // §3.7 StockAdded "order and reach": the candidates drawing on any of `stock_item_ids`, in deadline order
 // (deadline_ms, then order_item_id), each through claimLine (the submit rule) as far as the stock reaches; a line
-// that does not fit is skipped and the next is tried. `except`: a line that is not a candidate (the moved line).
-function waitingReserve(state: EngineState, stock_item_ids: readonly string[], t: number, ctx: StockCtx, except?: string): StockReservedDraft[] {
+// that does not fit is skipped and the next is tried. `except`: lines that are not candidates — the moved line and
+// every line the stockEffects array ends (⚠️ Changed by 04 (row T-2; G-17), 03a v1.2.4 §3.7; an empty set otherwise).
+function waitingReserve(state: EngineState, stock_item_ids: readonly string[], t: number, ctx: StockCtx, except: ReadonlySet<string>): StockReservedDraft[] {
   const ids = new Set(stock_item_ids);
   const cands: EngineLine[] = [];
   for (const id in state.lines) {
     const l = state.lines[id]!;
-    if (id !== except && l.draws.some((d) => ids.has(d.stock_item_id)) && isCandidate(state, l, t)) cands.push(l);
+    if (!except.has(id) && l.draws.some((d) => ids.has(d.stock_item_id)) && isCandidate(state, l, t)) cands.push(l);
   }
   cands.sort((a, b) => a.deadline_ms - b.deadline_ms || byId(a.order_item_id, b.order_item_id));
   const items = new Map(ctx.stockItems.map((s) => [s.stock_item_id, s]));
@@ -444,8 +445,9 @@ function shareReleases(line: EngineLine, units: number | undefined, reason: Rele
 }
 
 // One cause's drafts, split by where they go in the §4.2 batch: `before` the cause (the releases of a recount or
-// close, the Q14 consumes of a unit-changing StockSet), `after` it (everything else, in order).
-function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefined): { before: StockDraft[]; after: StockDraft[] } {
+// close, the Q14 consumes of a unit-changing StockSet), `after` it (everything else, in order). `ended`: the lines the
+// stockEffects array ends (endedLines), never a waiting-line candidate (04 T-2; empty for one draft).
+function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefined, ended: ReadonlySet<string>): { before: StockDraft[]; after: StockDraft[] } {
   const t = draft.occurred_at;
   const p = draft.payload;
   const none = { before: [], after: [] };
@@ -488,6 +490,7 @@ function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefi
       return line === undefined ? none : { before: [], after: shareReleases(line, p.units as number, 'voided') };
     }
     // §3.7 move to stock (v0.5, G4-1 #13): release + adds, folded in order, then the waiting-line reserve.
+    // ⚠️ Changed by 04 (row T-2; G-17): the reserve skips the moved line and every line the array ends.
     case 'ItemMovedToStock': {
       const c = needCtx(ctx, draft.event_type);
       const line = namedLine(state, p);
@@ -495,12 +498,12 @@ function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefi
       const own = moveDrafts(state, line, p.units as number, c);
       const added = own.filter((d) => d.event_type === 'StockAdded').map((d) => d.payload.stock_item_id);
       if (added.length === 0) return { before: [], after: own };
-      return { before: [], after: [...own, ...waitingReserve(bookAll(state, own, t), added, t, c, line.order_item_id)] };
+      return { before: [], after: [...own, ...waitingReserve(bookAll(state, own, t), added, t, c, new Set([...ended, line.order_item_id]))] };
     }
     // §3.7 StockAdded: on_hand += quantity, then the waiting lines of that stock item are reserved.
     case 'StockAdded': {
       const c = needCtx(ctx, draft.event_type);
-      return { before: [], after: waitingReserve(book(state, draft, t), [p.stock_item_id as string], t, c) };
+      return { before: [], after: waitingReserve(book(state, draft, t), [p.stock_item_id as string], t, c, ended) };
     }
     // §3.7 recount / Q14, then (BF-8) the waiting-line reserve on the count as folded.
     case 'StockSet': {
@@ -509,7 +512,7 @@ function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefi
       const entry = stockOf(state, sid);
       const before: StockDraft[] =
         p.unit !== entry.unit && entry.reserved > 0 ? unitChangeConsumes(state, sid) : recountReleases(state, sid, p.on_hand as number, t);
-      return { before, after: waitingReserve(book(bookAll(state, before, t), draft, t), [sid], t, c) };
+      return { before, after: waitingReserve(book(bookAll(state, before, t), draft, t), [sid], t, c, ended) };
     }
     case 'BusinessDayClosed':
       return { before: closeReleases(state, t), after: [] };
@@ -520,6 +523,17 @@ function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefi
     default:
       return none;
   }
+}
+
+const NONE_ENDED: ReadonlySet<string> = new Set();
+
+// 04 T-2 (G-17): the order_item_ids of every ItemVoided / ItemRemoved in the array.
+function endedLines(drafts: readonly StockCause[]): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const d of drafts) {
+    if ((d.event_type === 'ItemVoided' || d.event_type === 'ItemRemoved') && typeof d.payload.order_item_id === 'string') ids.add(d.payload.order_item_id);
+  }
+  return ids.size === 0 ? NONE_ENDED : ids;
 }
 
 // 03a §6.1f (pure): the StockReleased / StockConsumed / StockAdded / StockReserved drafts a triggering draft needs
@@ -536,17 +550,24 @@ function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefi
 // Proposed (implementer, overnight): a StockSet that changes the unit with reserved > 0 consumes (Q14) instead of the
 // recount releases, and its reserve then runs on the new count; AD-2's re-reserve of the held lines in the new unit
 // (BF-9) is not built (see the task 12b report).
+// ⚠️ Changed by 04 (row T-2; G-17), 03a v1.2.4 §3.7: before its loop the array overload collects every line named by
+// any ItemVoided / ItemRemoved cause anywhere in the array (earlier or later than a move, whole or partial; an
+// ItemRemoved without units counts) and keeps them all out of every waiting-line reserve, so a moved portion never
+// goes to a line the array ends (the scratch `book` folds stock events only, so an ended or partly voided line still
+// looks like a candidate). The single-draft overload excludes only the moved line; an array without such causes
+// passes an empty set (01a / BF-8 unchanged).
 export function stockEffects(state: EngineState, draft: StockCause, stock_ctx?: StockCtx): StockDraft[];
 export function stockEffects<D extends StockCause>(state: EngineState, drafts: readonly D[], stock_ctx?: StockCtx): Array<D | StockDraft>;
 export function stockEffects<D extends StockCause>(state: EngineState, draft: D | readonly D[], stock_ctx?: StockCtx): Array<D | StockDraft> {
   if (!Array.isArray(draft)) {
-    const one = effectsOf(state, draft as D, stock_ctx);
+    const one = effectsOf(state, draft as D, stock_ctx, NONE_ENDED);
     return [...one.before, ...one.after];
   }
+  const ended = endedLines(draft as readonly D[]);
   let scratch = state;
   const out: Array<D | StockDraft> = [];
   for (const d of draft as readonly D[]) {
-    const { before, after } = effectsOf(scratch, d, stock_ctx);
+    const { before, after } = effectsOf(scratch, d, stock_ctx, ended);
     out.push(...before, d, ...after);
     scratch = bookAll(scratch, [...before, d, ...after], d.occurred_at);
   }
