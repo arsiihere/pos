@@ -217,4 +217,8 @@ describe('[02b §9] ordering codes', () => {
     expect(statusOf('PRINT_JOB_NOT_FOUND')).toBe(404);
     expect(statusOf('PRINT_JOB_NOT_PENDING')).toBe(409);
   });
+
+  it('[03c v1.0.6 §9, Q-14] ALERT_ALREADY_CLOSED is 409', () => {
+    expect(statusOf('ALERT_ALREADY_CLOSED')).toBe(409);
+  });
 });

@@ -12,7 +12,7 @@ import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } f
 import { connectWs, type WsClient } from '../helpers/ws-client';
 import { FX, append, appendOrder, fireLines, openDay, pairKds, removeLine, voidLine } from './fixtures';
 
-// 03b §6.14 (`kds_station` catch-up part, 3 statements), §6.16 (`kds_lines` frame, once per id, 2 statements per
+// 03b §6.14 (`kds_station` catch-up part, 4 statements since v1.0.6 Q-20: + has_printer), §6.16 (`kds_lines` frame, once per id, 2 statements per
 // commit that adds lines); tests #65 (kds half), #66; task b18. Real submit batches, fires, removals, voids, moves to
 // stock; real sockets through the hub's /ws.
 
@@ -108,6 +108,7 @@ describe('[03b §6.14] kds_station catch-up part (b18)', () => {
       station_id: FX.station,
       day_open: true,
       sound_volume: 70,
+      has_printer: false,
       lanes: { lanes_on: 1, lane_count: 1 },
       now: [{ ...details.get('A1')!, stage: 'added', fired_at: engine().lines.A1!.fired_at, started_at: null, mark: engine().lines.A1!.mark, done_undone: false }],
       details: view.next.map((l) => details.get(l.order_item_id)!),
@@ -132,7 +133,7 @@ describe('[03b §6.14] kds_station catch-up part (b18)', () => {
     expect(kdsStationBody(hub.deps.db, engine(), FX.station, now())).toMatchObject({ sound_volume: 35, lanes: { lanes_on: null, lane_count: 2 } });
   });
 
-  it('[03b #65] ≤ 3 statements with 50 lines; Now matches stationView after removals, voids and a move to stock', async () => {
+  it('[03b #65, v1.0.6 Q-20] ≤ 4 statements with 50 lines; Now matches stationView after removals, voids and a move to stock', async () => {
     await start();
     const orders: string[] = [];
     const all: string[] = [];
@@ -163,7 +164,7 @@ describe('[03b §6.14] kds_station catch-up part (b18)', () => {
     const part = kdsStationPart(hub.deps);
     const counter = statementCounter(hub.deps.db);
     const body = KdsStationBody.parse(part.build(hub.deps.db, engine(), stationSocket(FX.station)));
-    expect(counter.count).toBeLessThanOrEqual(3);
+    expect(counter.count).toBeLessThanOrEqual(4);
     const view = stationView(engine(), FX.station, now());
     expect(body.now.map((l) => l.order_item_id)).toEqual(view.now.map((l) => l.order_item_id));
     expect(body.now.map((l) => [l.stage, l.fired_at, l.started_at, l.mark])).toEqual(view.now.map((l) => [l.stage, l.fired_at, l.started_at, l.mark]));
@@ -172,7 +173,7 @@ describe('[03b §6.14] kds_station catch-up part (b18)', () => {
     expect(body.now.length + body.details.length).toBeGreaterThan(20);
   });
 
-  it('[03b §3.3, §6.14, v1.0.5 B2-2/B2-3] an undone Done: its Now row carries done_undone true (from the engine line), a normal line false; still 3 statements', async () => {
+  it('[03b §3.3, §6.14, v1.0.5 B2-2/B2-3] an undone Done: its Now row carries done_undone true (from the engine line), a normal line false; 4 statements (v1.0.6 Q-20)', async () => {
     await start();
     const { order_id } = appendOrder(hub, {
       order_type: 'takeaway',
@@ -191,7 +192,7 @@ describe('[03b §6.14] kds_station catch-up part (b18)', () => {
     const part = kdsStationPart(hub.deps);
     const counter = statementCounter(hub.deps.db);
     const body = KdsStationBody.strict().parse(part.build(hub.deps.db, engine(), stationSocket(FX.station)));
-    expect(counter.count).toBeLessThanOrEqual(3);
+    expect(counter.count).toBeLessThanOrEqual(4);
     expect(body.now.map((l) => [l.order_item_id, l.stage, l.done_undone])).toEqual([
       ['A1', 'cooking', true],
       ['A2', 'added', false],
@@ -207,6 +208,45 @@ describe('[03b §6.14] kds_station catch-up part (b18)', () => {
     hub.clock.advance(25 * 3_600_000); // past any order_abandon_ms (≤ 24 h, 01a)
     expect(stationView(engine(), FX.station, now()).now).toEqual([]);
     expect((part.build(hub.deps.db, engine(), stationSocket(FX.station)) as KdsStationBody).now).toEqual([]);
+  });
+});
+
+describe('[03b v1.0.6 §6.14, 03c v1.0.6 §3.8, Q-20] kds_station has_printer (P0.22)', () => {
+  const hubEvent = (event_type: string, payload: Record<string, unknown>) =>
+    append(hub, [{ stream_type: 'hub', stream_id: hub.deps.config.provisioned!.branch_id, event_type, payload }], { actor: null });
+  const printer = (printer_id: string, archived = false) =>
+    hubEvent('PrinterSaved', { printer_id, name: printer_id, connection: 'lan', address: '192.168.1.50:9100', paper_width_mm: 80, archived });
+  const output = (station_id: string, mode: 'screen' | 'both' | 'printer', printer_id: string | null) =>
+    hubEvent('StationOutputSet', { station_id, mode, printer_id, show_taker: true, show_order_id: true });
+  const hasPrinter = (station_id: string) => (kdsStationPart(hub.deps).build(hub.deps.db, engine(), stationSocket(station_id)) as KdsStationBody).has_printer;
+
+  it('[03b §6.14] has_printer: true for both / printer with an active printer; false for no row, screen (even with a fallback printer) and an archived printer; exactly 4 statements', async () => {
+    await start();
+    expect(hasPrinter(FX.station)).toBe(false); // no output row
+    printer('PR1');
+    printer('PR2');
+    output(FX.station, 'both', 'PR1');
+    output(FX.zoneStation, 'printer', 'PR2');
+    expect([hasPrinter(FX.station), hasPrinter(FX.zoneStation)]).toEqual([true, true]);
+    output(FX.station, 'screen', 'PR1');
+    expect(hasPrinter(FX.station)).toBe(false);
+    printer('PR2', true); // as replayed: the archive event itself (SavePrinter refuses it while in use)
+    expect(hasPrinter(FX.zoneStation)).toBe(false);
+    output(FX.station, 'printer', 'PR1');
+    appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'A1', item_id: FX.naan }] });
+    fireLines(hub, FX.station, ['A1']);
+    const counter = statementCounter(hub.deps.db);
+    const body = KdsStationBody.strict().parse(kdsStationPart(hub.deps).build(hub.deps.db, engine(), stationSocket(FX.station)));
+    expect(counter.count).toBe(4);
+    expect(body.has_printer).toBe(true);
+  });
+
+  it('[03b §6.14] the catch-up a station socket receives carries has_printer', async () => {
+    await start();
+    printer('PR1');
+    output(FX.station, 'both', 'PR1');
+    const kds = await socketOf('station');
+    expect(KdsStationBody.parse(catchUpState(kds).kds_station).has_printer).toBe(true);
   });
 });
 

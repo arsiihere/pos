@@ -95,6 +95,8 @@ export const ErrorCatalogue = {
   PASS_UNDO_WINDOW_CLOSED: { status: 409 },
   // 03c §9
   PRINT_JOB_NOT_PENDING: { status: 409 },
+  // 03c v1.0.6 §9 (Q-14)
+  ALERT_ALREADY_CLOSED: { status: 409 },
   REGISTRATION_CODE_KIND_UNSUPPORTED: { status: 422 },
   HANDOVER_TARGET_INVALID: { status: 422 },
   CONFIG_REFERENCE_INVALID: { status: 422 },
