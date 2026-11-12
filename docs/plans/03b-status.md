@@ -8,6 +8,7 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 > - CI needs nothing (fresh `postgres:16` service per run).
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-12: owner "sab Rec" (07:39) — C3-2, C3-3 (c15), C4-1 (c17), B2-3 + P18-1 (P0.21); 03b v1.0.5, 03c v1.0.5, 01d v1.2.4.
 > - 2026-11-11: owner ruling B3-5 (a) — 0016 ab options_json SQL se backfill karti hai (checkpoint delete nahi; 02b v1.0.9).
 > - 2026-11-11: owner rulings B3-3 (a), B3-4 (a) — 03b v1.0.4: units badalne pe KDS details dobara; return line options copy karti hai (03a v1.2.3, 02b v1.0.8; task P0.20).
 > - 2026-11-11: owner rulings C1-2 (a), C1-3 (a), C3-1 (yes) — 03c v1.0.4 (cancel slip 0 left → whole form), c7 test edit approved, c15 / c19 USB child file open.
@@ -56,6 +57,7 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | P0.18 | — | not started — B1-1 `SendTestAlert` point id → 404 `POINT_NOT_FOUND`; B1-2 `always_on` reaches point-bound tablets (01d v1.2.3). Needs: spec batch #42, b6 (#32) |
 | P0.19 | — | not started — P15-1 Ready window / KDS offline boxes in seconds (01a v2.4.3; client only). Needs: spec batch #42 (P0.15 merged) |
 | P0.20 | — | not started — B3-4 return lines copy plain options + no-station option children (02b v1.0.8, 03a v1.2.3). Needs: this spec PR, P0.16 (#47) |
+| P0.21 | — | not started — B2-3 `done_undone` on the KDS line view; P18-1 `always_on` only for active points (03b v1.0.5, 01d v1.2.4). Needs: this spec PR, P0.17, P0.18 |
 
 ## Lanes
 
@@ -109,6 +111,12 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | AD-31 | b18 / P0.16 (B3-3) | `kds_lines` sends a line's details once per id; a partial removal / void or a weight change leaves the scaled options stale. | **ruled (a)** (owner 2026-11-11): details are re-sent whenever live units change (`ItemRemoved` / `ItemVoided` with units, `LineWeightSet`), budget unchanged (03b v1.0.4 §6.16); code in P0.16 (#47), approved edit of `ws/kds-catch-up.ts` |
 | AD-32 | 02b return (B3-4) | A return line had `options: []`, so the remake ticket lost "No onion". | **ruled (a)** (owner 2026-11-11): the return line copies plain options and option children with no station, money 0 (03a v1.2.3 §3.8a, 02b v1.0.8 §3.8, §6.7 3–4 statements); code P0.20 |
 | AD-33 | P0.16 (B3-5) | 0016 deleted the `orders` checkpoint to force a rebuild, but a `ClockAlarm` at boot step 3a recreates it before catch-up (#47 review). | **ruled (a)** (owner 2026-11-11): 0016 backfills `order_lines.options_json` once in SQL from the stored `ItemAdded` events (same JSON as the live fold, `NULL` when none) and leaves the checkpoint alone (02b v1.0.9 §5); code in P0.16 (#47) |
+| AD-34 | c15 #61 (C3-2) | Suspect recovery: which kind when a ticket has both kitchen / reprint and slip suspects? | **ruled (Rec)** (owner 2026-11-12 07:39, "sab Rec"): any suspect kitchen / reprint → one `reprint` of the ticket, plus its FIRST slip again if that slip is also suspect; slips only → the latest slip again (as built) (03c v1.0.5 §3.5) |
+| AD-35 | c15 #61 (C3-3) | `printer_problem { problem: 'ticket_not_built' }`: auto-close and dedupe? | **ruled (Rec)** (owner 2026-11-12 07:39, "sab Rec"): never auto-closed (not at the next ack, not obsolete), only a manager closes it; always its own alert, never absorbed into another open `printer_problem` (03c v1.0.5 §3.7) |
+| AD-36 | P0.17 (B2-3) | An undone `auto_done` line holds its station until a tapped Done. | **ruled (Rec)** (owner 2026-11-12 07:39, "sab Rec"): accepted as built (03a v1.2.2); the KDS line view carries `done_undone: true` for a "tap Done" cue (03b v1.0.5 §3.3, §6.14); code P0.21, client text later |
+| AD-37 | P0.18 (P18-1) | `always_on` and tablets of an archived point. | **ruled (Rec)** (owner 2026-11-12 07:39, "sab Rec"): point-bound tablets join `always_on` only when the point is active in `branchConfig().points` (01d v1.2.4); code P0.21 |
+| AD-38 | c17 #65 (C4-1) | Repeated COMING UP slips on a flapping screen. | **ruled (Rec)** (owner 2026-11-12 07:39, "sab Rec"): at most one COMING UP per station per 5 min; a new outage within 5 min of the last prints none (03c v1.0.5 §3.4 step 2) |
+| AD-39 | P0.18 (review LOW) | 01d §6.5 Errors row lacked `404 POINT_NOT_FOUND`. | done: 01d v1.2.4 |
 
 ## Gate times (CI, for the record)
 
