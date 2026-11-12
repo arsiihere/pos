@@ -1,18 +1,22 @@
-import { VOID_DISPOSITIONS, VOID_REASON_CODES, type VoidReasonCode } from '@pos/domain';
-import { AlertDetailsBase, type AlertDisplay } from '@pos/events';
+import { DomainError, VOID_DISPOSITIONS, VOID_REASON_CODES, type VoidReasonCode } from '@pos/domain';
+import { AlertDetailsBase, type AlertDisplay, type AlertTarget, type EventDraft } from '@pos/events';
 import { z } from 'zod';
-import { APPROVAL_TIER_STEPS, defineAlertKind } from '../alerts/kinds.js';
+import { APPROVAL_TIER_STEPS, defineAlertKind, type AlertApplyCtx, type AnswerFacts } from '../alerts/kinds.js';
 import type { RaiseInput } from '../alerts/raise.js';
 import type { CommandCtx } from '../commands/registry.js';
-import type { ReadOrderHead, ReadOrderLine } from '../orders/exports.js';
+import type { LineChangeDrafts } from '../orders/contracts.js';
+import { readOrder, type ReadOrderHead, type ReadOrderLine } from '../orders/exports.js';
+import { lineChangeDrafts } from '../orders/line-change.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
+import { currentTableOf } from '../tables/reads.js';
 import { VOID_KIND } from './contracts.js';
 import { voidIdentifier } from './identifier.js';
-import type { PlannedEntry } from './plan.js';
+import { planVoidEntries, voidDrafts, type PlannedEntry } from './plan.js';
 
 // 04 §3.5: kind `void_approval`. Defined at the top level of this module; voids/index.ts imports it statically
 // (server.ts -> voids/index.ts), so the kind exists before boot replays the `alerts` projection (01d §3.5 / P-8).
-// Phase 0 (P0.7): nothing raises it until v6; `apply` throws "not built" until v7. Lane V1 owns this file (v6, v7).
+// v6: the raise path (voidRaiseInputs, used by VoidItems step 7). v7: `apply`, `onWithdraw`, `result_also_to` (§6.2).
+// Lane V1 owns this file.
 
 /** §3.5 values: the raise-time plan (`pendingVoids` reads them from `values_json`). */
 export const VoidValues = z.object({
@@ -38,6 +42,56 @@ export const VoidDetails = AlertDetailsBase.pick({ item: true, quantity: true, a
 });
 export type VoidDetails = z.infer<typeof VoidDetails>;
 
+/** Test seam for §10 test 30 (an injected lineChangeDrafts stub); always 02b's own outside that test. */
+export const voidApplyDeps: { lineChangeDrafts: LineChangeDrafts } = { lineChangeDrafts };
+
+/**
+ * §6.2 / §3.4 `apply`, read-only (01d runs it in preRead and in handle). Reject → []. Approve → readOrder (1 statement),
+ * billed → refused; §3.2 rules 1, 4, 5 and the stage part of 7 on the frozen `line_dispositions` (no rule 6: its own
+ * request is the lock; no grant re-check), then voidDrafts in `keep` mode (1 statement) with the requester and the
+ * answerer, the alert_id stamped on every draft (K-1). Statements: 1 + 1.
+ */
+function applyVoid(ctx: AlertApplyCtx<VoidValues, VoidDetails>, answer: AnswerFacts): EventDraft[] {
+  if (answer.decision !== 'approve') return []; // V11
+  const v = ctx.alert.values;
+  const requester = ctx.alert.requester_staff_id;
+  if (requester === null) throw new Error('04 apply: void request without requester');
+  const { order, lines } = readOrder(ctx, v.order_id);
+  if (order.billed_at !== null) throw new DomainError('ORDER_BILLED', { order_id: order.order_id });
+  const planned = planVoidEntries({
+    order_id: order.order_id,
+    lines,
+    state: ctx.state,
+    now: ctx.clock.branchNow(),
+    zone_undo_ms: branchConfig()?.engine_settings.zone_undo_ms ?? 0, // same default as the direct path (void-items.ts)
+    entries: [{ order_item_id: v.order_item_id, units: v.units, disposition: v.disposition }],
+    path: 'apply',
+    open_voids: [],
+    open_comps: [],
+    move_granted: true,
+    frozen: [v.line_dispositions],
+  });
+  const meta = {
+    reason_code: v.reason_code,
+    note: v.note,
+    disposition_note: v.disposition_note,
+    requester_staff_id: requester,
+    approver_staff_id: answer.answerer_staff_id, // V6: the answer's, never actor_id
+    alert_id: ctx.alert.alert_id,
+  };
+  return voidDrafts(ctx, order.order_id, planned, meta, { stale_comps: 'keep', lineChangeDrafts: voidApplyDeps.lineChangeDrafts }).drafts;
+}
+
+/**
+ * §3.5 / row D-2 (G-7, G-14): on a reject, the table team of the order's current primary table (depth owner) also
+ * gets the result; 02a's currentTableOf (1 statement) has no entry for an order with no open seating (takeaway,
+ * parking, a closed seating) → null. 01d drops it when its recipients are only the requester (G-8).
+ */
+function resultAlsoTo(ctx: AlertApplyCtx<VoidValues, VoidDetails>): AlertTarget | null {
+  const seat = currentTableOf(ctx.tx.db, [ctx.alert.values.order_id]).get(ctx.alert.values.order_id);
+  return seat === undefined ? null : { kind: 'table_team', table_id: seat.primary_table_id, depth: 'owner' };
+}
+
 export const VOID_APPROVAL = defineAlertKind({
   kind: VOID_KIND,
   family: 'urgent',
@@ -54,11 +108,9 @@ export const VOID_APPROVAL = defineAlertKind({
     answers: ['approve', 'reject'],
     right: { mode: 'approval', base_permission: 'void-item', range_permission: 'approve-void' },
     needs_pin: 'always',
-    apply: () => {
-      throw new Error('04 void_approval apply: not built (task v7)');
-    },
-    onWithdraw: () => [], // §6.2
-    // result_also_to (row D-2): added by v7 once u7 adds it to 01d's AlertRequestDef
+    apply: (ctx, answer) => applyVoid(ctx, answer),
+    onWithdraw: () => [], // §6.2, V10: as if never asked
+    result_also_to: (ctx) => resultAlsoTo(ctx),
   },
 });
 
