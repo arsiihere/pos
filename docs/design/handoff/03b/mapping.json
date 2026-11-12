@@ -1,0 +1,2037 @@
+{
+ "module": "03b + 03c · Kitchen screens, Pass and Printing",
+ "stacks": {
+  "staff": {
+   "css": [
+    "design/pulse.css",
+    "design/v-brand.css",
+    "design/pulse-01d.css",
+    "design/pulse-02.css",
+    "design/pulse-03.css"
+   ],
+   "root": ".pu.v-brand (KDS: .pu.v-brand.kds)"
+  },
+  "admin": {
+   "css": [
+    "design/ds/pos/tokens.css",
+    "design/ds/pos/components/bundle.css",
+    "design/kit-additions.css",
+    "design/admin-03.css"
+   ],
+   "root": ".pos-root"
+  }
+ },
+ "fonts": "design/ds/pos/fonts/",
+ "viewports": {
+  "kds": "1920x1080",
+  "kds_small": "1280x800",
+  "tablet": "1280x800",
+  "tablet_portrait": "800x1280",
+  "laptop": "1440x900",
+  "phone": "390x844"
+ },
+ "screens": [
+  {
+   "id": "03b-S01",
+   "name": "KDS station view (Now / Next / Later)",
+   "kind": "S",
+   "devices": "W, W-L",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Kds.dc.html",
+     "png": "design/screens/Kds.png",
+     "title": "03b-S01 · KDS — Tandoor lane screen: Now cards in append order, Next, Later, Give me more (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsRush.dc.html",
+     "png": "design/screens/KdsRush.png",
+     "title": "03b-S01 · Rush — Now 12 (scrolls inside), Next 8, Later: 40; header, Next and Give me more stay (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsRush1280.dc.html",
+     "png": "design/screens/KdsRush1280.png",
+     "title": "03b-S01 · Rush on a 1280 wall tablet — 2 columns, compact cards (KDS 1280)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/KdsKarahi.dc.html",
+     "png": "design/screens/KdsKarahi.png",
+     "title": "03b-S01 · Karahi (two taps) — RETURN on top, Done early? (B01), Tap Start first (B02), busy, Expedite, Urdu-script item (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsBatch.dc.html",
+     "png": "design/screens/KdsBatch.png",
+     "title": "03b-S01 · Degh batch — a load of 8 Paye lines before Start (Q-2: no grouping box) (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsBatchStarted.dc.html",
+     "png": "design/screens/KdsBatchStarted.png",
+     "title": "03b-S01 · Degh batch — Start on one line started all 8; changed rows highlighted (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsBatchDone.dc.html",
+     "png": "design/screens/KdsBatchDone.png",
+     "title": "03b-S01 · Degh batch — Done on one line, every line done, Undo shared (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsEmpty.dc.html",
+     "png": "design/screens/KdsEmpty.png",
+     "title": "03b-S01 · Empty — day open, nothing in Now or Next; Give me more stays (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsLockSound.dc.html",
+     "png": "design/screens/KdsLockSound.png",
+     "title": "03b-S01 · 01d lock line on the KDS + “Tap to turn on sound” once after load (Q-5) (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/Kds1280.dc.html",
+     "png": "design/screens/Kds1280.png",
+     "title": "03b-S01 · Normal on a 1280 wall tablet (KDS 1280)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03b-C01",
+   "name": "KDS line row (every stage, mark and cue)",
+   "kind": "C",
+   "devices": "W, T-P (takeover)",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsCards.dc.html",
+     "png": "design/screens/KdsCards.png",
+     "title": "03b-C01 · C03 · C04 · C05 · B05 · Line card — every content case and inline state (component, dark)",
+     "w": 1920,
+     "h": 1640
+    }
+   ]
+  },
+  {
+   "id": "03b-C02",
+   "name": "Identifier block (table, token, parking)",
+   "kind": "C",
+   "devices": "W, T-P, cards",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Kds.dc.html",
+     "png": "design/screens/Kds.png",
+     "title": "(shown inside) 03b-S01 · KDS — Tandoor lane screen: Now cards in append order, Next, Later, Give me more (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/Pass.dc.html",
+     "png": "design/screens/Pass.png",
+     "title": "(shown inside) 03b-S02 · Pass — station strip, cards oldest first, Ready to serve / Hand over (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/KdsCards.dc.html",
+     "png": "design/screens/KdsCards.png",
+     "title": "(shown inside) 03b-C01 · C03 · C04 · C05 · B05 · Line card — every content case and inline state (component, dark)",
+     "w": 1920,
+     "h": 1640
+    }
+   ]
+  },
+  {
+   "id": "03b-C03",
+   "name": "Line timer (waiting / cooking / late / in)",
+   "kind": "C",
+   "devices": "W, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsCards.dc.html",
+     "png": "design/screens/KdsCards.png",
+     "title": "03b-C01 · C03 · C04 · C05 · B05 · Line card — every content case and inline state (component, dark)",
+     "w": 1920,
+     "h": 1640
+    }
+   ]
+  },
+  {
+   "id": "03b-C04",
+   "name": "Mark tag (RETURN, Boost, Expedite, Pulled, Moved)",
+   "kind": "C",
+   "devices": "W, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsCards.dc.html",
+     "png": "design/screens/KdsCards.png",
+     "title": "03b-C01 · C03 · C04 · C05 · B05 · Line card — every content case and inline state (component, dark)",
+     "w": 1920,
+     "h": 1640
+    }
+   ]
+  },
+  {
+   "id": "03b-C05",
+   "name": "Placeholder row (details not yet arrived)",
+   "kind": "C",
+   "devices": "W, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsCards.dc.html",
+     "png": "design/screens/KdsCards.png",
+     "title": "03b-C01 · C03 · C04 · C05 · B05 · Line card — every content case and inline state (component, dark)",
+     "w": 1920,
+     "h": 1640
+    }
+   ]
+  },
+  {
+   "id": "03b-C06",
+   "name": "Coming-up strip",
+   "kind": "C",
+   "devices": "W",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Kds.dc.html",
+     "png": "design/screens/Kds.png",
+     "title": "(shown inside) 03b-S01 · KDS — Tandoor lane screen: Now cards in append order, Next, Later, Give me more (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsRush.dc.html",
+     "png": "design/screens/KdsRush.png",
+     "title": "(shown inside) 03b-S01 · Rush — Now 12 (scrolls inside), Next 8, Later: 40; header, Next and Give me more stay (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "03b-C07",
+   "name": "Give me more button",
+   "kind": "C",
+   "devices": "W, T-P (takeover)",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Kds.dc.html",
+     "png": "design/screens/Kds.png",
+     "title": "(shown inside) 03b-S01 · KDS — Tandoor lane screen: Now cards in append order, Next, Later, Give me more (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsLaneOff.dc.html",
+     "png": "design/screens/KdsLaneOff.png",
+     "title": "(shown inside) 03b-C08 · B08 · Lane Off → “1 of 2 on”: Lane Off hidden at the minimum (Q-3); Give me more found nothing (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "03b-C08",
+   "name": "Lane control (lane KDS and Pass)",
+   "kind": "C",
+   "devices": "W-L, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsLaneOff.dc.html",
+     "png": "design/screens/KdsLaneOff.png",
+     "title": "03b-C08 · B08 · Lane Off → “1 of 2 on”: Lane Off hidden at the minimum (Q-3); Give me more found nothing (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsLaneCustom.dc.html",
+     "png": "design/screens/KdsLaneCustom.png",
+     "title": "03b-C08 · Custom capacity (Q-3): Lane Off sets lane_count − 1, Lane On sets all lanes on (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsLaneStates.dc.html",
+     "png": "design/screens/KdsLaneStates.png",
+     "title": "03b-C08 · Lane control — every state (Q-3 decided) (component, dark)",
+     "w": 1920,
+     "h": 620
+    },
+    {
+     "file": "design/Kds.dc.html",
+     "png": "design/screens/Kds.png",
+     "title": "(shown inside) 03b-S01 · KDS — Tandoor lane screen: Now cards in append order, Next, Later, Give me more (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/Pass.dc.html",
+     "png": "design/screens/Pass.png",
+     "title": "(shown inside) 03b-S02 · Pass — station strip, cards oldest first, Ready to serve / Hand over (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03b-C09",
+   "name": "KDS header bar (station, lanes, connection)",
+   "kind": "C",
+   "devices": "W",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Kds.dc.html",
+     "png": "design/screens/Kds.png",
+     "title": "(shown inside) 03b-S01 · KDS — Tandoor lane screen: Now cards in append order, Next, Later, Give me more (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsLaneOff.dc.html",
+     "png": "design/screens/KdsLaneOff.png",
+     "title": "(shown inside) 03b-C08 · B08 · Lane Off → “1 of 2 on”: Lane Off hidden at the minimum (Q-3); Give me more found nothing (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "03b-B01",
+   "name": "Done early? inline confirm",
+   "kind": "B",
+   "devices": "W, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsKarahi.dc.html",
+     "png": "design/screens/KdsKarahi.png",
+     "title": "(shown inside) 03b-S01 · Karahi (two taps) — RETURN on top, Done early? (B01), Tap Start first (B02), busy, Expedite, Urdu-script item (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsCards.dc.html",
+     "png": "design/screens/KdsCards.png",
+     "title": "(shown inside) 03b-C01 · C03 · C04 · C05 · B05 · Line card — every content case and inline state (component, dark)",
+     "w": 1920,
+     "h": 1640
+    }
+   ]
+  },
+  {
+   "id": "03b-B02",
+   "name": "\"Tap Start first\" inline",
+   "kind": "B",
+   "devices": "W, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsKarahi.dc.html",
+     "png": "design/screens/KdsKarahi.png",
+     "title": "(shown inside) 03b-S01 · Karahi (two taps) — RETURN on top, Done early? (B01), Tap Start first (B02), busy, Expedite, Urdu-script item (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/KdsCards.dc.html",
+     "png": "design/screens/KdsCards.png",
+     "title": "(shown inside) 03b-C01 · C03 · C04 · C05 · B05 · Line card — every content case and inline state (component, dark)",
+     "w": 1920,
+     "h": 1640
+    }
+   ]
+  },
+  {
+   "id": "03b-B03",
+   "name": "Undo Done window (30 s countdown)",
+   "kind": "B",
+   "devices": "W, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsCards.dc.html",
+     "png": "design/screens/KdsCards.png",
+     "title": "(shown inside) 03b-C01 · C03 · C04 · C05 · B05 · Line card — every content case and inline state (component, dark)",
+     "w": 1920,
+     "h": 1640
+    },
+    {
+     "file": "design/KdsBatchDone.dc.html",
+     "png": "design/screens/KdsBatchDone.png",
+     "title": "(shown inside) 03b-S01 · Degh batch — Done on one line, every line done, Undo shared (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "03b-B04",
+   "name": "\"Tap Done\" cue (undone auto-done line)",
+   "kind": "B",
+   "devices": "W, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsFryerTapDone.dc.html",
+     "png": "design/screens/KdsFryerTapDone.png",
+     "title": "03b-B04 · Fryer (auto done) — undone line shows “Tap Done … won’t finish by itself” and holds the station (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "03b-B05",
+   "name": "Inline row error (other codes)",
+   "kind": "B",
+   "devices": "W, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsCards.dc.html",
+     "png": "design/screens/KdsCards.png",
+     "title": "03b-C01 · C03 · C04 · C05 · B05 · Line card — every content case and inline state (component, dark)",
+     "w": 1920,
+     "h": 1640
+    }
+   ]
+  },
+  {
+   "id": "03b-B06",
+   "name": "Reconnecting banner, taps disabled",
+   "kind": "B",
+   "devices": "W",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsReconnecting.dc.html",
+     "png": "design/screens/KdsReconnecting.png",
+     "title": "03b-B06 · Reconnecting — rows stay, every button off (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "03b-B07",
+   "name": "Station archived banner",
+   "kind": "B",
+   "devices": "W, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsArchived.dc.html",
+     "png": "design/screens/KdsArchived.png",
+     "title": "03b-B07 · Station archived — banner, open rows still work (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "03b-B08",
+   "name": "Nothing to pull (Give me more found nothing)",
+   "kind": "B",
+   "devices": "W, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsLaneOff.dc.html",
+     "png": "design/screens/KdsLaneOff.png",
+     "title": "03b-C08 · B08 · Lane Off → “1 of 2 on”: Lane Off hidden at the minimum (Q-3); Give me more found nothing (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "03b-F01",
+   "name": "Day not started",
+   "kind": "F",
+   "devices": "W",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsDayNotStarted.dc.html",
+     "png": "design/screens/KdsDayNotStarted.png",
+     "title": "03b-F01 · Day not started — full screen, no buttons (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "03b-F02",
+   "name": "KDS first load",
+   "kind": "F",
+   "devices": "W",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsLoading.dc.html",
+     "png": "design/screens/KdsLoading.png",
+     "title": "03b-F02 · First load — skeleton header and 3 skeleton rows (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "03b-S02",
+   "name": "Pass screen (assembler view)",
+   "kind": "S",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Pass.dc.html",
+     "png": "design/screens/Pass.png",
+     "title": "03b-S02 · Pass — station strip, cards oldest first, Ready to serve / Hand over (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassRush.dc.html",
+     "png": "design/screens/PassRush.png",
+     "title": "03b-S02 · Rush — 23 orders scroll; a 12-line card folds “+5 more lines” (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassEmpty.dc.html",
+     "png": "design/screens/PassEmpty.png",
+     "title": "03b-S02 · Empty — “No orders at the Pass” (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassLoading.dc.html",
+     "png": "design/screens/PassLoading.png",
+     "title": "03b-S02 · Loading — skeleton cards (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassPortrait.dc.html",
+     "png": "design/screens/PassPortrait.png",
+     "title": "03b-S02 · Tablet portrait — one column, strip wraps (tablet portrait)",
+     "w": 800,
+     "h": 1280
+    },
+    {
+     "file": "design/PassUrdu.dc.html",
+     "png": "design/screens/PassUrdu.png",
+     "title": "03b-S02 · Pass — Urdu RTL; identifiers, quantities and times stay LTR (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03b-C10",
+   "name": "Pass order card",
+   "kind": "C",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassCards.dc.html",
+     "png": "design/screens/PassCards.png",
+     "title": "03b-C10 · C11 · C12 · B13 — card states: busy, errors, table moved, screenless Undo, Not due yet (component)",
+     "w": 1280,
+     "h": 860
+    }
+   ]
+  },
+  {
+   "id": "03b-C11",
+   "name": "Pass line row",
+   "kind": "C",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassCards.dc.html",
+     "png": "design/screens/PassCards.png",
+     "title": "03b-C10 · C11 · C12 · B13 — card states: busy, errors, table moved, screenless Undo, Not due yet (component)",
+     "w": 1280,
+     "h": 860
+    }
+   ]
+  },
+  {
+   "id": "03b-C12",
+   "name": "Readiness mark (Ready / HOLD AT PASS)",
+   "kind": "C",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassCards.dc.html",
+     "png": "design/screens/PassCards.png",
+     "title": "03b-C10 · C11 · C12 · B13 — card states: busy, errors, table moved, screenless Undo, Not due yet (component)",
+     "w": 1280,
+     "h": 860
+    }
+   ]
+  },
+  {
+   "id": "03b-C13",
+   "name": "Station strip on the Pass (stations of the point, lanes, screen offline)",
+   "kind": "C",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Pass.dc.html",
+     "png": "design/screens/Pass.png",
+     "title": "(shown inside) 03b-S02 · Pass — station strip, cards oldest first, Ready to serve / Hand over (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassTakeover.dc.html",
+     "png": "design/screens/PassTakeover.png",
+     "title": "(shown inside) 03b-S03 · Takeover — “Tandoor screen offline” section above the cards, same rows as the KDS (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassPortrait.dc.html",
+     "png": "design/screens/PassPortrait.png",
+     "title": "(shown inside) 03b-S02 · Tablet portrait — one column, strip wraps (tablet portrait)",
+     "w": 800,
+     "h": 1280
+    }
+   ]
+  },
+  {
+   "id": "03b-D01",
+   "name": "Hand over sheet (receiver tiles)",
+   "kind": "D",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassHandOver.dc.html",
+     "png": "design/screens/PassHandOver.png",
+     "title": "03b-D01 · Hand over — receiver tiles, table team first, one tap = handed over (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassHandOverInvalid.dc.html",
+     "png": "design/screens/PassHandOverInvalid.png",
+     "title": "03b-D01 · 422 receiver invalid — list reloaded, “Ali can’t take this order now” (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassHandOverNobody.dc.html",
+     "png": "design/screens/PassHandOverNobody.png",
+     "title": "03b-D01 · Empty list — “Nobody signed in can take this order” (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassHandOverUrdu.dc.html",
+     "png": "design/screens/PassHandOverUrdu.png",
+     "title": "03b-D01 · Hand over — Urdu RTL (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03b-B10",
+   "name": "Ready state on the card with Undo ready (30 s)",
+   "kind": "B",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Pass.dc.html",
+     "png": "design/screens/Pass.png",
+     "title": "(shown inside) 03b-S02 · Pass — station strip, cards oldest first, Ready to serve / Hand over (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassCards.dc.html",
+     "png": "design/screens/PassCards.png",
+     "title": "(shown inside) 03b-C10 · C11 · C12 · B13 — card states: busy, errors, table moved, screenless Undo, Not due yet (component)",
+     "w": 1280,
+     "h": 860
+    }
+   ]
+  },
+  {
+   "id": "03b-B11",
+   "name": "Hand-over result, incl. \"N left\" after 40",
+   "kind": "B",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassHanded.dc.html",
+     "png": "design/screens/PassHanded.png",
+     "title": "03b-B11 · “Handed to Bilal” — lines show handed over; card stays until Served (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassHandedLeft.dc.html",
+     "png": "design/screens/PassHandedLeft.png",
+     "title": "03b-B11 · More than 40 done lines — “40 handed to Ali · 5 left” (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03b-B12",
+   "name": "Pass offline banner, taps disabled",
+   "kind": "B",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassOffline.dc.html",
+     "png": "design/screens/PassOffline.png",
+     "title": "03b-B12 · Pass offline — banner, every button off, cards stay (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03b-B13",
+   "name": "Pass error lines (per code)",
+   "kind": "B",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassCards.dc.html",
+     "png": "design/screens/PassCards.png",
+     "title": "03b-C10 · C11 · C12 · B13 — card states: busy, errors, table moved, screenless Undo, Not due yet (component)",
+     "w": 1280,
+     "h": 860
+    }
+   ]
+  },
+  {
+   "id": "03b-B14",
+   "name": "Read-only Pass (signed-in person has no `run-pass`)",
+   "kind": "B",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassReadOnly.dc.html",
+     "png": "design/screens/PassReadOnly.png",
+     "title": "03b-B14 · Signed in without “run the Pass” — cards visible, actions hidden, one info line (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03b-B15",
+   "name": "Pass point archived",
+   "kind": "B",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassArchived.dc.html",
+     "png": "design/screens/PassArchived.png",
+     "title": "03b-B15 · Pass point archived — danger banner, actions hidden (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03b-S03",
+   "name": "Takeover section \"<Station> screen offline\"",
+   "kind": "S (section of S02)",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassTakeover.dc.html",
+     "png": "design/screens/PassTakeover.png",
+     "title": "03b-S03 · Takeover — “Tandoor screen offline” section above the cards, same rows as the KDS (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassTakeoverUrdu.dc.html",
+     "png": "design/screens/PassTakeoverUrdu.png",
+     "title": "03b-S03 · Takeover — Urdu RTL (rows keep KDS English words, P1) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PassScreenBack.dc.html",
+     "png": "design/screens/PassScreenBack.png",
+     "title": "03b-S03 end — takeover gone at once, ok toast “Tandoor screen is back” (Q-10) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03b-N01",
+   "name": "Ready to serve (alert card + lock line)",
+   "kind": "N",
+   "devices": "P, T, K; Pass tablet and managers at escalation",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassEscalated.dc.html",
+     "png": "design/screens/PassEscalated.png",
+     "title": "03b-N01 · Escalated Ready card reaches the Pass tablet (01d banner over the Pass) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/AlertCards.dc.html",
+     "png": "design/screens/AlertCards.png",
+     "title": "03b-N01 · N02 · N03 · 03c-N01 — the four new cards in every state (01d card, light)",
+     "w": 1600,
+     "h": 1760
+    },
+    {
+     "file": "design/AlertCardsUrdu.dc.html",
+     "png": "design/screens/AlertCardsUrdu.png",
+     "title": "03b-N01 · N02 · N03 · 03c-N01 — Urdu RTL (01d card)",
+     "w": 1600,
+     "h": 1860
+    },
+    {
+     "file": "design/AlertLock.dc.html",
+     "png": "design/screens/AlertLock.png",
+     "title": "03b-N01–N03 · 03c-N01 — lock lines (signed-out pages, kiosk, Pass tablet) (component, light)",
+     "w": 1280,
+     "h": 520
+    },
+    {
+     "file": "design/AlertLockDark.dc.html",
+     "png": "design/screens/AlertLockDark.png",
+     "title": "03b-N01–N03 · 03c-N01 — lock lines on the KDS (component, dark)",
+     "w": 1280,
+     "h": 520
+    },
+    {
+     "file": "design/ReadyPhone.dc.html",
+     "png": "design/screens/ReadyPhone.png",
+     "title": "03b-N01 · Ready to serve on Bilal’s phone — action banner + Inbox row (phone)",
+     "w": 390,
+     "h": 844
+    },
+    {
+     "file": "design/ReadyPhoneUrdu.dc.html",
+     "png": "design/screens/ReadyPhoneUrdu.png",
+     "title": "03b-N01 · Ready to serve — Urdu RTL (phone)",
+     "w": 390,
+     "h": 844
+    }
+   ]
+  },
+  {
+   "id": "03b-N02",
+   "name": "Served card (alert card + lock line)",
+   "kind": "N",
+   "devices": "P, T",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/AlertCards.dc.html",
+     "png": "design/screens/AlertCards.png",
+     "title": "03b-N01 · N02 · N03 · 03c-N01 — the four new cards in every state (01d card, light)",
+     "w": 1600,
+     "h": 1760
+    },
+    {
+     "file": "design/AlertCardsUrdu.dc.html",
+     "png": "design/screens/AlertCardsUrdu.png",
+     "title": "03b-N01 · N02 · N03 · 03c-N01 — Urdu RTL (01d card)",
+     "w": 1600,
+     "h": 1860
+    },
+    {
+     "file": "design/AlertLock.dc.html",
+     "png": "design/screens/AlertLock.png",
+     "title": "03b-N01–N03 · 03c-N01 — lock lines (signed-out pages, kiosk, Pass tablet) (component, light)",
+     "w": 1280,
+     "h": 520
+    },
+    {
+     "file": "design/AlertLockDark.dc.html",
+     "png": "design/screens/AlertLockDark.png",
+     "title": "03b-N01–N03 · 03c-N01 — lock lines on the KDS (component, dark)",
+     "w": 1280,
+     "h": 520
+    },
+    {
+     "file": "design/ServedPhone.dc.html",
+     "png": "design/screens/ServedPhone.png",
+     "title": "03b-N02 · Served card on Bilal’s phone after the hand-over (phone)",
+     "w": 390,
+     "h": 844
+    }
+   ]
+  },
+  {
+   "id": "03b-N03",
+   "name": "Kitchen screen offline (alert card + lock line)",
+   "kind": "N",
+   "devices": "T, K, P (managers)",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/AlertCards.dc.html",
+     "png": "design/screens/AlertCards.png",
+     "title": "03b-N01 · N02 · N03 · 03c-N01 — the four new cards in every state (01d card, light)",
+     "w": 1600,
+     "h": 1760
+    },
+    {
+     "file": "design/AlertCardsUrdu.dc.html",
+     "png": "design/screens/AlertCardsUrdu.png",
+     "title": "03b-N01 · N02 · N03 · 03c-N01 — Urdu RTL (01d card)",
+     "w": 1600,
+     "h": 1860
+    },
+    {
+     "file": "design/AlertLock.dc.html",
+     "png": "design/screens/AlertLock.png",
+     "title": "03b-N01–N03 · 03c-N01 — lock lines (signed-out pages, kiosk, Pass tablet) (component, light)",
+     "w": 1280,
+     "h": 520
+    },
+    {
+     "file": "design/AlertLockDark.dc.html",
+     "png": "design/screens/AlertLockDark.png",
+     "title": "03b-N01–N03 · 03c-N01 — lock lines on the KDS (component, dark)",
+     "w": 1280,
+     "h": 520
+    },
+    {
+     "file": "design/ManagerAlerts.dc.html",
+     "png": "design/screens/ManagerAlerts.png",
+     "title": "03b-N03 · 03c-N01 — two action banners on Imran’s tablet (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03c-N01",
+   "name": "Printer problem (alert card + lock line)",
+   "kind": "N",
+   "devices": "T, K, P (managers)",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/AlertCards.dc.html",
+     "png": "design/screens/AlertCards.png",
+     "title": "03b-N01 · N02 · N03 · 03c-N01 — the four new cards in every state (01d card, light)",
+     "w": 1600,
+     "h": 1760
+    },
+    {
+     "file": "design/AlertCardsUrdu.dc.html",
+     "png": "design/screens/AlertCardsUrdu.png",
+     "title": "03b-N01 · N02 · N03 · 03c-N01 — Urdu RTL (01d card)",
+     "w": 1600,
+     "h": 1860
+    },
+    {
+     "file": "design/AlertLock.dc.html",
+     "png": "design/screens/AlertLock.png",
+     "title": "03b-N01–N03 · 03c-N01 — lock lines (signed-out pages, kiosk, Pass tablet) (component, light)",
+     "w": 1280,
+     "h": 520
+    },
+    {
+     "file": "design/AlertLockDark.dc.html",
+     "png": "design/screens/AlertLockDark.png",
+     "title": "03b-N01–N03 · 03c-N01 — lock lines on the KDS (component, dark)",
+     "w": 1280,
+     "h": 520
+    },
+    {
+     "file": "design/ManagerAlerts.dc.html",
+     "png": "design/screens/ManagerAlerts.png",
+     "title": "03b-N03 · 03c-N01 — two action banners on Imran’s tablet (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03b-S04",
+   "name": "Hub admin \"Kitchen screens\"",
+   "kind": "S",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KitchenScreens.dc.html",
+     "png": "design/screens/KitchenScreens.png",
+     "title": "03b-S04 · Hub admin “Kitchen screens” — stations, screens, lanes, volume, Pass tablets (laptop)",
+     "w": 1440,
+     "h": 1380
+    },
+    {
+     "file": "design/KitchenScreensEmpty.dc.html",
+     "png": "design/screens/KitchenScreensEmpty.png",
+     "title": "03b-S04 · No stations yet — “Add stations in the owner app first” (laptop)",
+     "w": 1440,
+     "h": 900
+    },
+    {
+     "file": "design/KitchenScreensPhone.dc.html",
+     "png": "design/screens/KitchenScreensPhone.png",
+     "title": "03b-S04 · Kitchen screens on the phone — cards stack, dark station first (phone)",
+     "w": 390,
+     "h": 1200
+    },
+    {
+     "file": "design/KitchenScreensUrdu.dc.html",
+     "png": "design/screens/KitchenScreensUrdu.png",
+     "title": "03b-S04 · Kitchen screens — Urdu RTL; device names, IPs and numbers LTR (laptop)",
+     "w": 1440,
+     "h": 1480
+    }
+   ]
+  },
+  {
+   "id": "03b-C14",
+   "name": "Station row (screens, lanes, volume, dark)",
+   "kind": "C",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KitchenScreens.dc.html",
+     "png": "design/screens/KitchenScreens.png",
+     "title": "(shown inside) 03b-S04 · Hub admin “Kitchen screens” — stations, screens, lanes, volume, Pass tablets (laptop)",
+     "w": 1440,
+     "h": 1380
+    },
+    {
+     "file": "design/KitchenScreensWarn.dc.html",
+     "png": "design/screens/KitchenScreensWarn.png",
+     "title": "(shown inside) 03b-B16 · Warnings — Tandoor screen offline (dark), archived station with open tickets; point archived (laptop)",
+     "w": 1440,
+     "h": 1580
+    }
+   ]
+  },
+  {
+   "id": "03b-D02",
+   "name": "Sound volume control",
+   "kind": "D / inline",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KitchenScreensVolume.dc.html",
+     "png": "design/screens/KitchenScreensVolume.png",
+     "title": "03b-D02 · Volume saved — “Saved. Tandoor screens use it on the next sound.” toast (laptop)",
+     "w": 1440,
+     "h": 900
+    }
+   ]
+  },
+  {
+   "id": "03b-D03",
+   "name": "Device role: Pass tablet's point / lane label",
+   "kind": "D",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KitchenScreensBind.dc.html",
+     "png": "design/screens/KitchenScreensBind.png",
+     "title": "03b-D03 · Bind a tablet to a point (picker fed by 00 devices, Q-16) (laptop)",
+     "w": 1440,
+     "h": 900
+    },
+    {
+     "file": "design/KitchenScreensLane.dc.html",
+     "png": "design/screens/KitchenScreensLane.png",
+     "title": "03b-D03 · Lane label for a kitchen screen (laptop)",
+     "w": 1440,
+     "h": 900
+    }
+   ]
+  },
+  {
+   "id": "03b-B16",
+   "name": "Kitchen screens warnings (archived station with open lines, screen offline)",
+   "kind": "B",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KitchenScreensWarn.dc.html",
+     "png": "design/screens/KitchenScreensWarn.png",
+     "title": "03b-B16 · Warnings — Tandoor screen offline (dark), archived station with open tickets; point archived (laptop)",
+     "w": 1440,
+     "h": 1580
+    }
+   ]
+  },
+  {
+   "id": "03b-F03",
+   "name": "Kitchen screens: loading, error, no permission",
+   "kind": "F",
+   "devices": "L, K, P",
+   "note": "Loading / error / no permission: 00 global states",
+   "frames": [
+    {
+     "file": "design/KitchenScreensEmpty.dc.html",
+     "png": "design/screens/KitchenScreensEmpty.png",
+     "title": "(shown inside) 03b-S04 · No stations yet — “Add stations in the owner app first” (laptop)",
+     "w": 1440,
+     "h": 900
+    }
+   ]
+  },
+  {
+   "id": "03b-S05",
+   "name": "Owner app group \"Kitchen screens and the pass\" (built)",
+   "kind": "S (group)",
+   "devices": "L, OP",
+   "note": "Owner app group — already built, not in this hand-off",
+   "frames": []
+  },
+  {
+   "id": "03c-S01",
+   "name": "Hub admin \"Printers\": printers list + status",
+   "kind": "S",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Printers.dc.html",
+     "png": "design/screens/Printers.png",
+     "title": "03c-S01 · S02 · S03 · Hub admin “Printers” — printers, station outputs, print queue (laptop)",
+     "w": 1440,
+     "h": 1640
+    },
+    {
+     "file": "design/PrintersNone.dc.html",
+     "png": "design/screens/PrintersNone.png",
+     "title": "03c-S01 · No printers — every station works on its screen (laptop)",
+     "w": 1440,
+     "h": 900
+    },
+    {
+     "file": "design/PrintersPhone.dc.html",
+     "png": "design/screens/PrintersPhone.png",
+     "title": "03c-S01 · Printers on the phone — cards stack, problems first (phone)",
+     "w": 390,
+     "h": 1840
+    },
+    {
+     "file": "design/PrintersUrdu.dc.html",
+     "png": "design/screens/PrintersUrdu.png",
+     "title": "03c-S01 · Printers — Urdu RTL; addresses, times, sizes LTR (laptop)",
+     "w": 1440,
+     "h": 1800
+    }
+   ]
+  },
+  {
+   "id": "03c-D01",
+   "name": "Add / edit printer",
+   "kind": "D",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PrinterAdd.dc.html",
+     "png": "design/screens/PrinterAdd.png",
+     "title": "03c-D01 · Add / edit printer — LAN address error on the field (laptop)",
+     "w": 1440,
+     "h": 900
+    }
+   ]
+  },
+  {
+   "id": "03c-D02",
+   "name": "Archive printer confirm (+ in use)",
+   "kind": "D",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PrinterArchive.dc.html",
+     "png": "design/screens/PrinterArchive.png",
+     "title": "03c-D02 · Archive — 409 in use: “Tandoor and Fryer still use this printer” (laptop)",
+     "w": 1440,
+     "h": 900
+    }
+   ]
+  },
+  {
+   "id": "03c-D03",
+   "name": "Test print and its result",
+   "kind": "D / inline",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PrinterTest.dc.html",
+     "png": "design/screens/PrinterTest.png",
+     "title": "03c-D03 · Test print — every result (busy, ok, no status, bad status, busy, failed, removed) (laptop)",
+     "w": 1440,
+     "h": 900
+    }
+   ]
+  },
+  {
+   "id": "03c-S02",
+   "name": "Station outputs (section of the Printers page)",
+   "kind": "S",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Printers.dc.html",
+     "png": "design/screens/Printers.png",
+     "title": "03c-S01 · S02 · S03 · Hub admin “Printers” — printers, station outputs, print queue (laptop)",
+     "w": 1440,
+     "h": 1640
+    },
+    {
+     "file": "design/OutputEditor.dc.html",
+     "png": "design/screens/OutputEditor.png",
+     "title": "(shown inside) 03c-D04 · Station output editor — 4 modes, printer required for paper, two ticket toggles (laptop)",
+     "w": 1440,
+     "h": 900
+    }
+   ]
+  },
+  {
+   "id": "03c-D04",
+   "name": "Station output editor",
+   "kind": "D",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/OutputEditor.dc.html",
+     "png": "design/screens/OutputEditor.png",
+     "title": "03c-D04 · Station output editor — 4 modes, printer required for paper, two ticket toggles (laptop)",
+     "w": 1440,
+     "h": 900
+    }
+   ]
+  },
+  {
+   "id": "03c-S03",
+   "name": "Print queue (pending jobs, suspects, no printer)",
+   "kind": "S",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Printers.dc.html",
+     "png": "design/screens/Printers.png",
+     "title": "03c-S01 · S02 · S03 · Hub admin “Printers” — printers, station outputs, print queue (laptop)",
+     "w": 1440,
+     "h": 1640
+    },
+    {
+     "file": "design/PrintersPaperOut.dc.html",
+     "png": "design/screens/PrintersPaperOut.png",
+     "title": "03c-S03 · B01 · During paper out — 6 waiting, suspects, retries, no-printer job, warnings (laptop)",
+     "w": 1440,
+     "h": 2200
+    }
+   ]
+  },
+  {
+   "id": "03c-D05",
+   "name": "Cancel a print job confirm",
+   "kind": "D",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/QueueCancel.dc.html",
+     "png": "design/screens/QueueCancel.png",
+     "title": "03c-D05 · Cancel a print job (laptop)",
+     "w": 1440,
+     "h": 900
+    }
+   ]
+  },
+  {
+   "id": "03c-B01",
+   "name": "Printers page warnings (lossy name, fold skipped, suspect waiting, screen unused, no screen)",
+   "kind": "B",
+   "devices": "L, K, P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PrintersPaperOut.dc.html",
+     "png": "design/screens/PrintersPaperOut.png",
+     "title": "03c-S03 · B01 · During paper out — 6 waiting, suspects, retries, no-printer job, warnings (laptop)",
+     "w": 1440,
+     "h": 2200
+    }
+   ]
+  },
+  {
+   "id": "03c-F01",
+   "name": "Printers page: loading, error, no permission",
+   "kind": "F",
+   "devices": "L, K, P",
+   "note": "Loading / error / no permission: 00 global states",
+   "frames": [
+    {
+     "file": "design/PrintersNone.dc.html",
+     "png": "design/screens/PrintersNone.png",
+     "title": "(shown inside) 03c-S01 · No printers — every station works on its screen (laptop)",
+     "w": 1440,
+     "h": 900
+    }
+   ]
+  },
+  {
+   "id": "03c-C01",
+   "name": "`printed` tag (KDS row, Pass line)",
+   "kind": "C",
+   "devices": "W, T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Kds.dc.html",
+     "png": "design/screens/Kds.png",
+     "title": "(shown inside) 03b-S01 · KDS — Tandoor lane screen: Now cards in append order, Next, Later, Give me more (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/Pass.dc.html",
+     "png": "design/screens/Pass.png",
+     "title": "(shown inside) 03b-S02 · Pass — station strip, cards oldest first, Ready to serve / Hand over (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03c-C02",
+   "name": "Reprint action on the Pass card + result",
+   "kind": "C",
+   "devices": "T-P",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/PassReprint.dc.html",
+     "png": "design/screens/PassReprint.png",
+     "title": "03c-C02 · Reprint on the Pass card (printer + reprint-ticket) → “Reprinting 2 tickets” (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "03c-C03",
+   "name": "Reprint on the KDS (own station's tickets)",
+   "kind": "C",
+   "devices": "W",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/KdsReprint.dc.html",
+     "png": "design/screens/KdsReprint.png",
+     "title": "03c-C03 · KDS with has_printer = true — Reprint on the card; absent when false, never greyed (Q-20) (KDS 1920)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "03c-C04",
+   "name": "Paper preview (on-screen view of a printed layout)",
+   "kind": "C",
+   "devices": "L, K",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Paper80.dc.html",
+     "png": "design/screens/Paper80.png",
+     "title": "03c-P01 · P03–P07 · C04 — paper preview, 80 mm (48 columns), every layout (component)",
+     "w": 1600,
+     "h": 1340
+    },
+    {
+     "file": "design/Paper58.dc.html",
+     "png": "design/screens/Paper58.png",
+     "title": "03c-P02 · C04 — paper preview, 58 mm (32 columns), wrapping (component)",
+     "w": 1440,
+     "h": 880
+    }
+   ]
+  },
+  {
+   "id": "03c-P01",
+   "name": "Kitchen ticket, 80 mm (48 columns)",
+   "kind": "P",
+   "devices": "paper",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Paper80.dc.html",
+     "png": "design/screens/Paper80.png",
+     "title": "03c-P01 · P03–P07 · C04 — paper preview, 80 mm (48 columns), every layout (component)",
+     "w": 1600,
+     "h": 1340
+    }
+   ]
+  },
+  {
+   "id": "03c-P02",
+   "name": "Kitchen ticket, 58 mm (32 columns)",
+   "kind": "P",
+   "devices": "paper",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Paper58.dc.html",
+     "png": "design/screens/Paper58.png",
+     "title": "03c-P02 · C04 — paper preview, 58 mm (32 columns), wrapping (component)",
+     "w": 1440,
+     "h": 880
+    }
+   ]
+  },
+  {
+   "id": "03c-P03",
+   "name": "REPRINT header (any job)",
+   "kind": "P",
+   "devices": "paper",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Paper80.dc.html",
+     "png": "design/screens/Paper80.png",
+     "title": "03c-P01 · P03–P07 · C04 — paper preview, 80 mm (48 columns), every layout (component)",
+     "w": 1600,
+     "h": 1340
+    }
+   ]
+  },
+  {
+   "id": "03c-P04",
+   "name": "CANCELLED slip (partial and whole form)",
+   "kind": "P",
+   "devices": "paper",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Paper80.dc.html",
+     "png": "design/screens/Paper80.png",
+     "title": "03c-P01 · P03–P07 · C04 — paper preview, 80 mm (48 columns), every layout (component)",
+     "w": 1600,
+     "h": 1340
+    }
+   ]
+  },
+  {
+   "id": "03c-P05",
+   "name": "FIRST slip",
+   "kind": "P",
+   "devices": "paper",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Paper80.dc.html",
+     "png": "design/screens/Paper80.png",
+     "title": "03c-P01 · P03–P07 · C04 — paper preview, 80 mm (48 columns), every layout (component)",
+     "w": 1600,
+     "h": 1340
+    }
+   ]
+  },
+  {
+   "id": "03c-P06",
+   "name": "COMING UP slip",
+   "kind": "P",
+   "devices": "paper",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Paper80.dc.html",
+     "png": "design/screens/Paper80.png",
+     "title": "03c-P01 · P03–P07 · C04 — paper preview, 80 mm (48 columns), every layout (component)",
+     "w": 1600,
+     "h": 1340
+    }
+   ]
+  },
+  {
+   "id": "03c-P07",
+   "name": "Test print",
+   "kind": "P",
+   "devices": "paper",
+   "note": null,
+   "frames": [
+    {
+     "file": "design/Paper80.dc.html",
+     "png": "design/screens/Paper80.png",
+     "title": "03c-P01 · P03–P07 · C04 — paper preview, 80 mm (48 columns), every layout (component)",
+     "w": 1600,
+     "h": 1340
+    }
+   ]
+  },
+  {
+   "id": "03c-P08",
+   "name": "Document (05's bill / receipt) — REPRINT header only",
+   "kind": "P",
+   "devices": "paper",
+   "note": "Only the REPRINT header line applies (content is 05)",
+   "frames": [
+    {
+     "file": "design/Paper80.dc.html",
+     "png": "design/screens/Paper80.png",
+     "title": "(shown inside) 03c-P01 · P03–P07 · C04 — paper preview, 80 mm (48 columns), every layout (component)",
+     "w": 1600,
+     "h": 1340
+    }
+   ]
+  }
+ ],
+ "frames": [
+  {
+   "file": "design/Kds.dc.html",
+   "title": "03b-S01 · KDS — Tandoor lane screen: Now cards in append order, Next, Later, Give me more (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds"
+  },
+  {
+   "file": "design/KdsRush.dc.html",
+   "title": "03b-S01 · Rush — Now 12 (scrolls inside), Next 8, Later: 40; header, Next and Give me more stay (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds"
+  },
+  {
+   "file": "design/KdsRush1280.dc.html",
+   "title": "03b-S01 · Rush on a 1280 wall tablet — 2 columns, compact cards (KDS 1280)",
+   "w": 1280,
+   "h": 800,
+   "row": "kds"
+  },
+  {
+   "file": "design/KdsKarahi.dc.html",
+   "title": "03b-S01 · Karahi (two taps) — RETURN on top, Done early? (B01), Tap Start first (B02), busy, Expedite, Urdu-script item (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds"
+  },
+  {
+   "file": "design/KdsFryerTapDone.dc.html",
+   "title": "03b-B04 · Fryer (auto done) — undone line shows “Tap Done … won’t finish by itself” and holds the station (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds"
+  },
+  {
+   "file": "design/KdsBatch.dc.html",
+   "title": "03b-S01 · Degh batch — a load of 8 Paye lines before Start (Q-2: no grouping box) (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds"
+  },
+  {
+   "file": "design/KdsBatchStarted.dc.html",
+   "title": "03b-S01 · Degh batch — Start on one line started all 8; changed rows highlighted (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds"
+  },
+  {
+   "file": "design/KdsBatchDone.dc.html",
+   "title": "03b-S01 · Degh batch — Done on one line, every line done, Undo shared (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds"
+  },
+  {
+   "file": "design/KdsCards.dc.html",
+   "title": "03b-C01 · C03 · C04 · C05 · B05 · Line card — every content case and inline state (component, dark)",
+   "w": 1920,
+   "h": 1640,
+   "row": "comp"
+  },
+  {
+   "file": "design/KdsEmpty.dc.html",
+   "title": "03b-S01 · Empty — day open, nothing in Now or Next; Give me more stays (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds"
+  },
+  {
+   "file": "design/KdsReconnecting.dc.html",
+   "title": "03b-B06 · Reconnecting — rows stay, every button off (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds"
+  },
+  {
+   "file": "design/KdsArchived.dc.html",
+   "title": "03b-B07 · Station archived — banner, open rows still work (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds2"
+  },
+  {
+   "file": "design/KdsDayNotStarted.dc.html",
+   "title": "03b-F01 · Day not started — full screen, no buttons (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds2"
+  },
+  {
+   "file": "design/KdsLoading.dc.html",
+   "title": "03b-F02 · First load — skeleton header and 3 skeleton rows (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds2"
+  },
+  {
+   "file": "design/KdsLaneOff.dc.html",
+   "title": "03b-C08 · B08 · Lane Off → “1 of 2 on”: Lane Off hidden at the minimum (Q-3); Give me more found nothing (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds2"
+  },
+  {
+   "file": "design/KdsLockSound.dc.html",
+   "title": "03b-S01 · 01d lock line on the KDS + “Tap to turn on sound” once after load (Q-5) (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds2"
+  },
+  {
+   "file": "design/KdsLaneCustom.dc.html",
+   "title": "03b-C08 · Custom capacity (Q-3): Lane Off sets lane_count − 1, Lane On sets all lanes on (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds2"
+  },
+  {
+   "file": "design/KdsLaneStates.dc.html",
+   "title": "03b-C08 · Lane control — every state (Q-3 decided) (component, dark)",
+   "w": 1920,
+   "h": 620,
+   "row": "kds2"
+  },
+  {
+   "file": "design/KdsReprint.dc.html",
+   "title": "03c-C03 · KDS with has_printer = true — Reprint on the card; absent when false, never greyed (Q-20) (KDS 1920)",
+   "w": 1920,
+   "h": 1080,
+   "row": "kds2"
+  },
+  {
+   "file": "design/Kds1280.dc.html",
+   "title": "03b-S01 · Normal on a 1280 wall tablet (KDS 1280)",
+   "w": 1280,
+   "h": 800,
+   "row": "kds2"
+  },
+  {
+   "file": "design/Pass.dc.html",
+   "title": "03b-S02 · Pass — station strip, cards oldest first, Ready to serve / Hand over (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass"
+  },
+  {
+   "file": "design/PassTakeover.dc.html",
+   "title": "03b-S03 · Takeover — “Tandoor screen offline” section above the cards, same rows as the KDS (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass"
+  },
+  {
+   "file": "design/PassHandOver.dc.html",
+   "title": "03b-D01 · Hand over — receiver tiles, table team first, one tap = handed over (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass"
+  },
+  {
+   "file": "design/PassHandOverInvalid.dc.html",
+   "title": "03b-D01 · 422 receiver invalid — list reloaded, “Ali can’t take this order now” (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass"
+  },
+  {
+   "file": "design/PassHandOverNobody.dc.html",
+   "title": "03b-D01 · Empty list — “Nobody signed in can take this order” (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass"
+  },
+  {
+   "file": "design/PassHanded.dc.html",
+   "title": "03b-B11 · “Handed to Bilal” — lines show handed over; card stays until Served (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass"
+  },
+  {
+   "file": "design/PassHandedLeft.dc.html",
+   "title": "03b-B11 · More than 40 done lines — “40 handed to Ali · 5 left” (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass"
+  },
+  {
+   "file": "design/PassRush.dc.html",
+   "title": "03b-S02 · Rush — 23 orders scroll; a 12-line card folds “+5 more lines” (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass"
+  },
+  {
+   "file": "design/PassOffline.dc.html",
+   "title": "03b-B12 · Pass offline — banner, every button off, cards stay (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass"
+  },
+  {
+   "file": "design/PassReadOnly.dc.html",
+   "title": "03b-B14 · Signed in without “run the Pass” — cards visible, actions hidden, one info line (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass"
+  },
+  {
+   "file": "design/PassArchived.dc.html",
+   "title": "03b-B15 · Pass point archived — danger banner, actions hidden (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass2"
+  },
+  {
+   "file": "design/PassEmpty.dc.html",
+   "title": "03b-S02 · Empty — “No orders at the Pass” (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass2"
+  },
+  {
+   "file": "design/PassLoading.dc.html",
+   "title": "03b-S02 · Loading — skeleton cards (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass2"
+  },
+  {
+   "file": "design/PassPortrait.dc.html",
+   "title": "03b-S02 · Tablet portrait — one column, strip wraps (tablet portrait)",
+   "w": 800,
+   "h": 1280,
+   "row": "pass2"
+  },
+  {
+   "file": "design/PassUrdu.dc.html",
+   "title": "03b-S02 · Pass — Urdu RTL; identifiers, quantities and times stay LTR (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass2"
+  },
+  {
+   "file": "design/PassHandOverUrdu.dc.html",
+   "title": "03b-D01 · Hand over — Urdu RTL (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass2"
+  },
+  {
+   "file": "design/PassTakeoverUrdu.dc.html",
+   "title": "03b-S03 · Takeover — Urdu RTL (rows keep KDS English words, P1) (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass2"
+  },
+  {
+   "file": "design/PassEscalated.dc.html",
+   "title": "03b-N01 · Escalated Ready card reaches the Pass tablet (01d banner over the Pass) (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass2"
+  },
+  {
+   "file": "design/PassReprint.dc.html",
+   "title": "03c-C02 · Reprint on the Pass card (printer + reprint-ticket) → “Reprinting 2 tickets” (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass2"
+  },
+  {
+   "file": "design/PassScreenBack.dc.html",
+   "title": "03b-S03 end — takeover gone at once, ok toast “Tandoor screen is back” (Q-10) (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "pass2"
+  },
+  {
+   "file": "design/PassCards.dc.html",
+   "title": "03b-C10 · C11 · C12 · B13 — card states: busy, errors, table moved, screenless Undo, Not due yet (component)",
+   "w": 1280,
+   "h": 860,
+   "row": "comp"
+  },
+  {
+   "file": "design/AlertCards.dc.html",
+   "title": "03b-N01 · N02 · N03 · 03c-N01 — the four new cards in every state (01d card, light)",
+   "w": 1600,
+   "h": 1760,
+   "row": "alert"
+  },
+  {
+   "file": "design/AlertCardsUrdu.dc.html",
+   "title": "03b-N01 · N02 · N03 · 03c-N01 — Urdu RTL (01d card)",
+   "w": 1600,
+   "h": 1860,
+   "row": "alert"
+  },
+  {
+   "file": "design/AlertLock.dc.html",
+   "title": "03b-N01–N03 · 03c-N01 — lock lines (signed-out pages, kiosk, Pass tablet) (component, light)",
+   "w": 1280,
+   "h": 520,
+   "row": "alert"
+  },
+  {
+   "file": "design/AlertLockDark.dc.html",
+   "title": "03b-N01–N03 · 03c-N01 — lock lines on the KDS (component, dark)",
+   "w": 1280,
+   "h": 520,
+   "row": "alert"
+  },
+  {
+   "file": "design/ReadyPhone.dc.html",
+   "title": "03b-N01 · Ready to serve on Bilal’s phone — action banner + Inbox row (phone)",
+   "w": 390,
+   "h": 844,
+   "row": "alert"
+  },
+  {
+   "file": "design/ServedPhone.dc.html",
+   "title": "03b-N02 · Served card on Bilal’s phone after the hand-over (phone)",
+   "w": 390,
+   "h": 844,
+   "row": "alert"
+  },
+  {
+   "file": "design/ReadyPhoneUrdu.dc.html",
+   "title": "03b-N01 · Ready to serve — Urdu RTL (phone)",
+   "w": 390,
+   "h": 844,
+   "row": "alert"
+  },
+  {
+   "file": "design/ManagerAlerts.dc.html",
+   "title": "03b-N03 · 03c-N01 — two action banners on Imran’s tablet (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "alert"
+  },
+  {
+   "file": "design/NoticePrinter.dc.html",
+   "title": "03b-N · 01d notice detail (D04) for a printer card, with “Open Printers” on an admin device (Q-13) (tablet)",
+   "w": 1280,
+   "h": 800,
+   "row": "alert"
+  },
+  {
+   "file": "design/KitchenScreens.dc.html",
+   "title": "03b-S04 · Hub admin “Kitchen screens” — stations, screens, lanes, volume, Pass tablets (laptop)",
+   "w": 1440,
+   "h": 1380,
+   "row": "admin"
+  },
+  {
+   "file": "design/KitchenScreensWarn.dc.html",
+   "title": "03b-B16 · Warnings — Tandoor screen offline (dark), archived station with open tickets; point archived (laptop)",
+   "w": 1440,
+   "h": 1580,
+   "row": "admin"
+  },
+  {
+   "file": "design/KitchenScreensBind.dc.html",
+   "title": "03b-D03 · Bind a tablet to a point (picker fed by 00 devices, Q-16) (laptop)",
+   "w": 1440,
+   "h": 900,
+   "row": "admin"
+  },
+  {
+   "file": "design/KitchenScreensLane.dc.html",
+   "title": "03b-D03 · Lane label for a kitchen screen (laptop)",
+   "w": 1440,
+   "h": 900,
+   "row": "admin"
+  },
+  {
+   "file": "design/KitchenScreensVolume.dc.html",
+   "title": "03b-D02 · Volume saved — “Saved. Tandoor screens use it on the next sound.” toast (laptop)",
+   "w": 1440,
+   "h": 900,
+   "row": "admin"
+  },
+  {
+   "file": "design/KitchenScreensEmpty.dc.html",
+   "title": "03b-S04 · No stations yet — “Add stations in the owner app first” (laptop)",
+   "w": 1440,
+   "h": 900,
+   "row": "admin"
+  },
+  {
+   "file": "design/KitchenScreensPhone.dc.html",
+   "title": "03b-S04 · Kitchen screens on the phone — cards stack, dark station first (phone)",
+   "w": 390,
+   "h": 1200,
+   "row": "admin"
+  },
+  {
+   "file": "design/KitchenScreensUrdu.dc.html",
+   "title": "03b-S04 · Kitchen screens — Urdu RTL; device names, IPs and numbers LTR (laptop)",
+   "w": 1440,
+   "h": 1480,
+   "row": "admin"
+  },
+  {
+   "file": "design/AdminHome.dc.html",
+   "title": "00 AdminHome + 03b/03c — two new tiles with a status line (Q-15) (laptop)",
+   "w": 1440,
+   "h": 900,
+   "row": "admin"
+  },
+  {
+   "file": "design/Printers.dc.html",
+   "title": "03c-S01 · S02 · S03 · Hub admin “Printers” — printers, station outputs, print queue (laptop)",
+   "w": 1440,
+   "h": 1640,
+   "row": "printers"
+  },
+  {
+   "file": "design/PrintersPaperOut.dc.html",
+   "title": "03c-S03 · B01 · During paper out — 6 waiting, suspects, retries, no-printer job, warnings (laptop)",
+   "w": 1440,
+   "h": 2200,
+   "row": "printers"
+  },
+  {
+   "file": "design/PrintersNone.dc.html",
+   "title": "03c-S01 · No printers — every station works on its screen (laptop)",
+   "w": 1440,
+   "h": 900,
+   "row": "printers"
+  },
+  {
+   "file": "design/PrinterAdd.dc.html",
+   "title": "03c-D01 · Add / edit printer — LAN address error on the field (laptop)",
+   "w": 1440,
+   "h": 900,
+   "row": "printers"
+  },
+  {
+   "file": "design/PrinterTest.dc.html",
+   "title": "03c-D03 · Test print — every result (busy, ok, no status, bad status, busy, failed, removed) (laptop)",
+   "w": 1440,
+   "h": 900,
+   "row": "printers"
+  },
+  {
+   "file": "design/PrinterArchive.dc.html",
+   "title": "03c-D02 · Archive — 409 in use: “Tandoor and Fryer still use this printer” (laptop)",
+   "w": 1440,
+   "h": 900,
+   "row": "printers"
+  },
+  {
+   "file": "design/OutputEditor.dc.html",
+   "title": "03c-D04 · Station output editor — 4 modes, printer required for paper, two ticket toggles (laptop)",
+   "w": 1440,
+   "h": 900,
+   "row": "printers2"
+  },
+  {
+   "file": "design/QueueCancel.dc.html",
+   "title": "03c-D05 · Cancel a print job (laptop)",
+   "w": 1440,
+   "h": 900,
+   "row": "printers2"
+  },
+  {
+   "file": "design/PrintersPhone.dc.html",
+   "title": "03c-S01 · Printers on the phone — cards stack, problems first (phone)",
+   "w": 390,
+   "h": 1840,
+   "row": "printers2"
+  },
+  {
+   "file": "design/PrintersUrdu.dc.html",
+   "title": "03c-S01 · Printers — Urdu RTL; addresses, times, sizes LTR (laptop)",
+   "w": 1440,
+   "h": 1800,
+   "row": "printers2"
+  },
+  {
+   "file": "design/Paper80.dc.html",
+   "title": "03c-P01 · P03–P07 · C04 — paper preview, 80 mm (48 columns), every layout (component)",
+   "w": 1600,
+   "h": 1340,
+   "row": "paper"
+  },
+  {
+   "file": "design/Paper58.dc.html",
+   "title": "03c-P02 · C04 — paper preview, 58 mm (32 columns), wrapping (component)",
+   "w": 1440,
+   "h": 880,
+   "row": "paper"
+  }
+ ]
+}

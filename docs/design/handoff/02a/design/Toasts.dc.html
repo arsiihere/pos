@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Toasts and the “Needs the hub” disabled state (component)</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="pulse.css">
+<link rel="stylesheet" href="v-brand.css">
+<link rel="stylesheet" href="pulse-01d.css">
+<link rel="stylesheet" href="pulse-02.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Figtree:wght@400..800&display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pu v-brand " lang="en" dir="ltr" data-theme="light" style="width: 1280px; height: 760px;">
+<main class="body" style="align-content: start; padding: 28px; gap: 20px;"><div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start;"><div class="toast" style="position: static;" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg><div>This table changed — refreshed</div></div><div class="toast" style="position: static;" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg><div>Sent to Sara</div></div><div class="toast" style="position: static;" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg><div>Waiter called</div></div><div class="toast" style="position: static;" role="status"><svg class="ico" style="color: #FFC48A;" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg><div>Already called · 2 min ago</div></div><div class="toast" style="position: static;" role="status"><svg class="ico" style="color: #FFC48A;" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.6L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.6L20 16"/><path d="M20 20v-4h-4"/></svg><div>Will be sent when the hub is back<small>Clean F8</small></div></div><div class="toast" style="position: static;" role="status"><svg class="ico" style="color: #FFC48A;" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M5 12.5a10 10 0 0 1 5-2.6"/><path d="M14.5 10.2A10 10 0 0 1 19 12.5"/><path d="M2 8.8A15 15 0 0 1 6.5 6"/><path d="M11 5.1A15 15 0 0 1 22 8.8"/><path d="M12 20h.01"/></svg><div>Needs the hub</div></div><div class="toast" style="position: static;" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg><div>Moved to T4</div></div><div class="toast" style="position: static;" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg><div>2 orders moved to F9</div></div><div class="toast" style="position: static;" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg><div>F8 is free</div></div><div class="toast" style="position: static;" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg><div>Back online</div></div></div><div class="card col" style="padding: 18px; gap: 12px;"><b style="font: 750 18px/1.2 var(--font-display);">“Needs the hub” — dimmed, wifi-off mark, tap shows the toast</b><div class="tv__acts" style="width: 560px;"><button class="btn btn--act"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6"/><path d="M9 12h6"/><path d="M9 16h3"/></svg>Ask for bill</button><button class="btn btn--act off" aria-disabled="true"><svg class="ico hub" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M5 12.5a10 10 0 0 1 5-2.6"/><path d="M14.5 10.2A10 10 0 0 1 19 12.5"/><path d="M2 8.8A15 15 0 0 1 6.5 6"/><path d="M11 5.1A15 15 0 0 1 22 8.8"/><path d="M12 20h.01"/></svg><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 10V4.5a1.5 1.5 0 0 1 3 0V11"/><path d="M14 10.5V6a1.5 1.5 0 0 1 3 0v7.5c0 4-2.5 7-6.5 7-2.5 0-4-1-5.5-3l-2-3.2a1.5 1.5 0 0 1 2.4-1.8L8 15"/></svg>Call waiter</button><button class="btn btn--act off" aria-disabled="true"><svg class="ico hub" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M5 12.5a10 10 0 0 1 5-2.6"/><path d="M14.5 10.2A10 10 0 0 1 19 12.5"/><path d="M2 8.8A15 15 0 0 1 6.5 6"/><path d="M11 5.1A15 15 0 0 1 22 8.8"/><path d="M12 20h.01"/></svg><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="3.5"/><path d="M2.5 20a5.5 5.5 0 0 1 11 0"/><path d="M15 12h6"/><path d="M18.5 9l3 3-3 3"/></svg>Hand over</button><button class="btn btn--act off" aria-disabled="true"><svg class="ico hub" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M5 12.5a10 10 0 0 1 5-2.6"/><path d="M14.5 10.2A10 10 0 0 1 19 12.5"/><path d="M2 8.8A15 15 0 0 1 6.5 6"/><path d="M11 5.1A15 15 0 0 1 22 8.8"/><path d="M12 20h.01"/></svg><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>More</button></div></div></main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":760}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

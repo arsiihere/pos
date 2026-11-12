@@ -1,0 +1,676 @@
+{
+ "module": "02a · Tables",
+ "design_language": "Pulse Chatkhara staff app (Puck+ tiles in a zone grid)",
+ "css": [
+  "design/pulse.css",
+  "design/v-brand.css",
+  "design/pulse-01d.css",
+  "design/pulse-02.css"
+ ],
+ "fonts": "design/ds/pos/fonts/",
+ "viewports": {
+  "tablet": "1280x800",
+  "tablet_portrait": "800x1280",
+  "kiosk": "1920x1080",
+  "phone": "390x844"
+ },
+ "screens": [
+  {
+   "id": "02-S01",
+   "name": "Sign-in: name grid",
+   "kind": "screen",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/SignIn.dc.html",
+     "png": "design/screens/SignIn.png",
+     "state": "Sign-in — name grid, locked person, queue line from 02b (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/SignInOffline.dc.html",
+     "png": "design/screens/SignInOffline.png",
+     "state": "Sign-in — hub offline: names stay, PIN will need the hub (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-S02",
+   "name": "Sign-in: PIN pad",
+   "kind": "screen step",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/SignInPin.dc.html",
+     "png": "design/screens/SignInPin.png",
+     "state": "PIN — wrong PIN, “2 tries left” (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D01",
+   "name": "Someone is signed in here — sign them out?",
+   "kind": "dialog",
+   "devices": "T K",
+   "frames": [
+    {
+     "file": "design/SignInTaken.dc.html",
+     "png": "design/screens/SignInTaken.png",
+     "state": "Someone is signed in here — sign them out? (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-S00",
+   "name": "Pair this screen again (route only)",
+   "kind": "screen (from 00)",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/PairAgain.dc.html",
+     "png": "design/screens/PairAgain.png",
+     "state": "Pairing removed — “This screen must be paired again” (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-C10",
+   "name": "Top bar",
+   "kind": "component",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/TableMap.dc.html",
+     "png": "design/screens/TableMap.png",
+     "state": "Top bar on every frame (also TableMapPortrait, TableMapPhone)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-S03",
+   "name": "Table map (home)",
+   "kind": "screen",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/TableMap.dc.html",
+     "png": "design/screens/TableMap.png",
+     "state": "Table map — Puck+ tiles by zone, Needs you, one New order (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableMapMine.dc.html",
+     "png": "design/screens/TableMapMine.png",
+     "state": "Mine — tables I hold or am assigned (Q2) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableMapLoading.dc.html",
+     "png": "design/screens/TableMapLoading.png",
+     "state": "Loading — first catch-up, skeleton tiles (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableMapEmpty.dc.html",
+     "png": "design/screens/TableMapEmpty.png",
+     "state": "No tables configured (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableMapPortrait.dc.html",
+     "png": "design/screens/TableMapPortrait.png",
+     "state": "Tablet portrait — floors on their own row, Needs you strip, dock (tablet portrait)",
+     "w": 800,
+     "h": 1280
+    },
+    {
+     "file": "design/TableMapKiosk.dc.html",
+     "png": "design/screens/TableMapKiosk.png",
+     "state": "Cashier kiosk — 6 a row, archived group at the end, own Back on every sheet (kiosk)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/TableMapPhone.dc.html",
+     "png": "design/screens/TableMapPhone.png",
+     "state": "Staff phone — floor chips, 2 columns, New order bar, Tables · Orders · Inbox · Me (phone)",
+     "w": 390,
+     "h": 844
+    },
+    {
+     "file": "design/TableMapUrdu.dc.html",
+     "png": "design/screens/TableMapUrdu.png",
+     "state": "Table map — Urdu RTL; tile order and table names stay LTR (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableMapWaiter.dc.html",
+     "png": "design/screens/TableMapWaiter.png",
+     "state": "Waiter (no take-order) — no New order; Needs you = calls and cleaning (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-C01",
+   "name": "Table tile",
+   "kind": "component",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Tiles.dc.html",
+     "png": "design/screens/Tiles.png",
+     "state": "Table tile — every state, lock, holder/assignee, joined, flags (component)",
+     "w": 1280,
+     "h": 820
+    },
+    {
+     "file": "design/TilesUrdu.dc.html",
+     "png": "design/screens/TilesUrdu.png",
+     "state": "Table tile — Urdu RTL; grid order and names stay LTR (component)",
+     "w": 1280,
+     "h": 880
+    }
+   ]
+  },
+  {
+   "id": "02-B01",
+   "name": "Table busy: \"Ali is taking an order here\"",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/TableBusy.dc.html",
+     "png": "design/screens/TableBusy.png",
+     "state": "Table busy — “Bilal is taking an order here”; manager sees Release (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableBusyOwn.dc.html",
+     "png": "design/screens/TableBusyOwn.png",
+     "state": "Your own lock on another screen — Open here (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D12",
+   "name": "Release Ali's lock (force release)",
+   "kind": "dialog",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/ForceRelease.dc.html",
+     "png": "design/screens/ForceRelease.png",
+     "state": "Release Bilal’s lock — reason chips (Q9), danger action (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-S06",
+   "name": "Table sheet (table part of the table view)",
+   "kind": "sheet / screen",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/TableSheet.dc.html",
+     "png": "design/screens/TableSheet.png",
+     "state": "Table sheet — holder: Take order + 4 actions; orders below (02b) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableSheetMore.dc.html",
+     "png": "design/screens/TableSheetMore.png",
+     "state": "More — Move, Join, Split, Release my lock (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableSheetAssignee.dc.html",
+     "png": "design/screens/TableSheetAssignee.png",
+     "state": "Assignee view — your zone, Bilal holds it: Take over (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableSheetOther.dc.html",
+     "png": "design/screens/TableSheetOther.png",
+     "state": "Another order taker — read line; Ask for bill, Call waiter only (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableSheetWaiter.dc.html",
+     "png": "design/screens/TableSheetWaiter.png",
+     "state": "Waiter — no table actions; Mark served (02b) is the main action (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableSheetManager.dc.html",
+     "png": "design/screens/TableSheetManager.png",
+     "state": "Manager — Release lock, Force move; Take order waits for the lock (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableSheetClean.dc.html",
+     "png": "design/screens/TableSheetClean.png",
+     "state": "To clean — one action: Mark clean (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableSheetOffline.dc.html",
+     "png": "design/screens/TableSheetOffline.png",
+     "state": "Offline — Needs-the-hub marks; bill and clean queue (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableSheetPortrait.dc.html",
+     "png": "design/screens/TableSheetPortrait.png",
+     "state": "Tablet portrait — bottom sheet (tablet portrait)",
+     "w": 800,
+     "h": 1280
+    },
+    {
+     "file": "design/TableSheetPhone.dc.html",
+     "png": "design/screens/TableSheetPhone.png",
+     "state": "Staff phone — full screen, 4 actions + More (Q10) (phone)",
+     "w": 390,
+     "h": 844
+    },
+    {
+     "file": "design/TableSheetUrdu.dc.html",
+     "png": "design/screens/TableSheetUrdu.png",
+     "state": "Table sheet — Urdu RTL (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-D22",
+   "name": "Take over this table",
+   "kind": "dialog",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/TakeOver.dc.html",
+     "png": "design/screens/TakeOver.png",
+     "state": "Take over — assignee, no question asked of Bilal (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-D20",
+   "name": "Hand over to… (candidates)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/HandOver.dc.html",
+     "png": "design/screens/HandOver.png",
+     "state": "Hand over — working first, assignee tag; no note field (Q11) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/HandOverGone.dc.html",
+     "png": "design/screens/HandOverGone.png",
+     "state": "Hand over — 409 not working: “Sara isn’t signed in now”, list refreshed (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-D21",
+   "name": "Force move to… (manager)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/ForceMove.dc.html",
+     "png": "design/screens/ForceMove.png",
+     "state": "Force move — “Me” row (Q12), reason required, danger action (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D09",
+   "name": "Move party to another table",
+   "kind": "sheet",
+   "devices": "T K (P subset)",
+   "frames": [
+    {
+     "file": "design/Move.dc.html",
+     "png": "design/screens/Move.png",
+     "state": "Move — free tables only; “Sara’s” marks a hand-over is needed (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D10",
+   "name": "Join / merge tables",
+   "kind": "sheet",
+   "devices": "T K (P subset)",
+   "frames": [
+    {
+     "file": "design/Join.dc.html",
+     "png": "design/screens/Join.png",
+     "state": "Join — a free table, or absorb another party (one bill) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D11",
+   "name": "Split the party",
+   "kind": "sheet",
+   "devices": "T K (P subset)",
+   "frames": [
+    {
+     "file": "design/Split.dc.html",
+     "png": "design/screens/Split.png",
+     "state": "Split — step 2: tick whole orders (or just free the joined table) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-D23",
+   "name": "Call a waiter (chips)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/CallWaiter.dc.html",
+     "png": "design/screens/CallWaiter.png",
+     "state": "Call a waiter — four chips, one tap sends (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CallWaiterNobody.dc.html",
+     "png": "design/screens/CallWaiterNobody.png",
+     "state": "0 recipients — warning toast, “call again in 5 min” (Q18) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-D24",
+   "name": "Ask for the bill",
+   "kind": "inline confirm",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/AskBill.dc.html",
+     "png": "design/screens/AskBill.png",
+     "state": "Ask for bill — confirm in place (no dialog), works offline (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D13",
+   "name": "Mark clean",
+   "kind": "dialog",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Clean.dc.html",
+     "png": "design/screens/Clean.png",
+     "state": "Mark clean (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CleanWhileLocked.dc.html",
+     "png": "design/screens/CleanWhileLocked.png",
+     "state": "Someone is ordering — “Clean anyway?” (Q22) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CleanOpenOrders.dc.html",
+     "png": "design/screens/CleanOpenOrders.png",
+     "state": "409 open orders — “The bill must be paid first” (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-D25",
+   "name": "\"Hand it over to Sara; she moves it\" (other owner)",
+   "kind": "dialog",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/MoveOtherOwner.dc.html",
+     "png": "design/screens/MoveOtherOwner.png",
+     "state": "Other owner — “Hand it over to Sara; she moves it” (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-C02",
+   "name": "Handover request card (receiver) + its answer sheet",
+   "kind": "card / sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/HandoverBanner.dc.html",
+     "png": "design/screens/HandoverBanner.png",
+     "state": "Handover arrives — action banner on Sara’s map (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/HandoverAnswer.dc.html",
+     "png": "design/screens/HandoverAnswer.png",
+     "state": "Answer — Decline / Accept, one tap, no PIN (tablet, 01d Requests)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/HandoverStale.dc.html",
+     "png": "design/screens/HandoverStale.png",
+     "state": "409 stale — “Bill paid, waiting for cleaning”; card stays (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/HandoverAnswerPhone.dc.html",
+     "png": "design/screens/HandoverAnswerPhone.png",
+     "state": "New phone answer sheet — bottom sheet, 72 px Decline / Accept (phone)",
+     "w": 390,
+     "h": 844
+    }
+   ]
+  },
+  {
+   "id": "02a-C03",
+   "name": "Handover waiting card (sender)",
+   "kind": "card",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/HandoverWaiting.dc.html",
+     "png": "design/screens/HandoverWaiting.png",
+     "state": "Sender — waiting card with live count + Withdraw; also in Needs you (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/HandoverWaitingLate.dc.html",
+     "png": "design/screens/HandoverWaitingLate.png",
+     "state": "After 2 min — “ask her in person”, lead told (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-C04",
+   "name": "Handover result notice (sender)",
+   "kind": "card / banner",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/HandoverDeclined.dc.html",
+     "png": "design/screens/HandoverDeclined.png",
+     "state": "Result — “Sara declined”; offers Hand over to someone else (Q13) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/HandoverAccepted.dc.html",
+     "png": "design/screens/HandoverAccepted.png",
+     "state": "Result — “Sara accepted F4 + F5”, info banner, hides after 4 s (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-C05",
+   "name": "Call-waiter card (waiters)",
+   "kind": "card / banner",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/CallWaiterCard.dc.html",
+     "png": "design/screens/CallWaiterCard.png",
+     "state": "Waiter’s phone — “F4 · Call” banner and Inbox rows; no caller or chip (Q14) (phone)",
+     "w": 390,
+     "h": 844
+    }
+   ]
+  },
+  {
+   "id": "02a-B10",
+   "name": "Lock banners: released / opened on another device / table taken by someone else",
+   "kind": "banner",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/LockReleased.dc.html",
+     "png": "design/screens/LockReleased.png",
+     "state": "Order screen — “Your table F7 was released by Imran: Went home”, draft kept (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/LockHolderChanged.dc.html",
+     "png": "design/screens/LockHolderChanged.png",
+     "state": "Order screen — “Ali now has this table. Keep as draft”; Send off (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/LockOtherDevice.dc.html",
+     "png": "design/screens/LockOtherDevice.png",
+     "state": "Order screen — “Opened on another device” (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/LockTimedOut.dc.html",
+     "png": "design/screens/LockTimedOut.png",
+     "state": "Order screen — released after the branch lock time (15 min) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/ForceMovedToMe.dc.html",
+     "png": "design/screens/ForceMovedToMe.png",
+     "state": "Force move — the new holder is told (Q21) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-B02",
+   "name": "Hub offline bar and \"Needs the hub\" disabled state",
+   "kind": "bar / inline",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/TableMapOffline.dc.html",
+     "png": "design/screens/TableMapOffline.png",
+     "state": "Hub offline — last known tables, 2 waiting to send (bill, clean) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02a-T01",
+   "name": "Toasts of this module",
+   "kind": "toast",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Toasts.dc.html",
+     "png": "design/screens/Toasts.png",
+     "state": "Toasts and the “Needs the hub” disabled state (component)",
+     "w": 1280,
+     "h": 760
+    }
+   ]
+  }
+ ],
+ "components": [
+  {
+   "file": "design/Tiles.dc.html",
+   "title": "02a-C01 · Table tile — every state, lock, holder/assignee, joined, flags (component)"
+  },
+  {
+   "file": "design/TilesUrdu.dc.html",
+   "title": "02a-C01 · Table tile — Urdu RTL; grid order and names stay LTR (component)"
+  },
+  {
+   "file": "design/Toasts.dc.html",
+   "title": "02a-T01 · Toasts and the “Needs the hub” disabled state (component)"
+  }
+ ]
+}
