@@ -537,7 +537,7 @@ describe('[03c §3.7, §6.10] printer_problem', () => {
 });
 
 describe('[03c §3.7] when reads happen', () => {
-  it('[03c §3.7] LAN only (USB never, c19); at most once per 10 s; only after an ack, a failure, or while a problem / bad status stands; idle pass = 1 statement', async () => {
+  it('[03c §3.7] LAN, and USB only once its status is proven (c19); at most once per 10 s; only after an ack, a failure, or while a problem / bad status stands; idle pass = 1 statement', async () => {
     printer('PR1');
     printer('PRU', { connection: 'usb' });
     const reads: string[] = [];
@@ -565,7 +565,7 @@ describe('[03c §3.7] when reads happen', () => {
     hub.deps.db.prepare(`UPDATE printer_runtime SET supports_status = 1 WHERE printer_id = 'PRU'`).run();
     s.hooks.pass(now() + 2 * STATUS_INTERVAL_MS + 1);
     await turns();
-    expect(reads.filter((r) => r === 'PRU')).toEqual([]); // USB: no reader until c19 (C3-1), even with proven status
+    expect(reads.filter((r) => r === 'PRU')).toEqual(['PRU']); // c19 (ruling (b) on #72): USB with proven status is read
   });
 
   it('[03c §3.7] end to end on a LAN fake printer: paper out after acks → suspects → paper back → REPRINT jobs printed', async () => {
