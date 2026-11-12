@@ -48,4 +48,4 @@ All test files below are appended by their task only (`apps/hub/test/orders/quer
 - H10: backfill migration 0015 (Q-34, Rec — the owner confirms in the PR; alternative: manual grant in admin on the go-live checklist).
 - H9: case-insensitive match of "Other"; an emptied list falls back to the new default; config bump only for changed branches; migration `0014` because `module-04` holds `0013`.
 - H8: redirect after the success screen is shown (a short delay so the screen is seen), not instantly; ships with or after 20a (m8).
-- Map refetch (review m7, needs owner OK, Q-5 text): client 21a could skip `KITCHEN_PROGRESS_EVENT_TYPES` and `SlipWarned` (they change no tile); until ruled, 21a refetches on them as Q-5 says.
+- Map refetch (review m7) — **ruled Q-35 (owner 2026-11-12, Rec a):** client 21a skips `KITCHEN_PROGRESS_EVENT_TYPES` and `SlipWarned` for the map refetch (they change no tile); 02a v1.1.6 §8.
