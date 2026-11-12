@@ -95,3 +95,10 @@ K-8 (option a / b / c, §3); Q3 disposition list confirm; Q9 re-asked; Q16.
 |---|---|
 | OQ-E | The hub keeps a never-deleted name list (`staff_names`, upserted on every directory apply incl. no-PIN staff); the audit log shows leavers' and no-PIN staff's names — 00 v1.10 row H-1 |
 | OQ-F | A part stored "not started" at raise that the kitchen started before the approve is written as `wastage` at approve; stored `moved` stays frozen (OQ-D) |
+
+## 9. Owner answers on hostile run 4 questions (2026-11-12, both Rec)
+
+| # | Ruling |
+|---|---|
+| Q-R1 | A remake / fix (return) line can leave the order: Remove at stage 1, void past it, refund 0; Void all cancels the whole order |
+| Q-DC | Day close is refused while any void request is open (approve / reject / withdraw first) — 01a v2.5 row A-1 |
