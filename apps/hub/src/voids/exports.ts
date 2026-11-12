@@ -7,11 +7,19 @@ import { movableLine } from './plan.js';
 // 04 §4.2 (task v8): `pendingVoids`, provided to contracts.ts by lanes/V2.ts (callers import it from contracts.ts).
 // Lane V2 owns this file.
 
-const PENDING = `SELECT alert_id, subject_stream_id AS order_id, requester_staff_id, raised_at, values_json
-  FROM alerts
-  WHERE kind = '${VOID_KIND}' AND state = 'open' AND subject_stream_type = 'order'
-    AND subject_stream_id IN (SELECT value FROM json_each(?))
+const COLUMNS = `alert_id, subject_stream_id AS order_id, requester_staff_id, raised_at, values_json`;
+const OPEN = `kind = '${VOID_KIND}' AND state = 'open' AND subject_stream_type = 'order'`;
+
+const PENDING = `SELECT ${COLUMNS} FROM alerts
+  WHERE ${OPEN} AND subject_stream_id IN (SELECT value FROM json_each(?))
   ORDER BY raised_at, raised_seq`;
+
+// §6.4 `?seating_id=`: the seating's orders resolved through seating_orders in the same statement
+const PENDING_OF_SEATING = `SELECT ${COLUMNS} FROM alerts
+  WHERE ${OPEN} AND subject_stream_id IN (SELECT order_id FROM seating_orders WHERE seating_id = ?)
+  ORDER BY raised_at, raised_seq`;
+
+type PendingRow = { alert_id: string; order_id: string; requester_staff_id: string; raised_at: number; values_json: string };
 
 /**
  * §4.2: the open `void_approval` requests of `order_ids` (1 statement, `alerts_open_kind`), oldest first; the map holds
@@ -21,9 +29,17 @@ const PENDING = `SELECT alert_id, subject_stream_id AS order_id, requester_staff
  * so an approve would be refused (0 statements, engine state in memory); without `state`, `null`.
  */
 export function pendingVoids(db: Database.Database, order_ids: readonly string[], state?: EngineState): Map<string, PendingVoid[]> {
+  if (order_ids.length === 0) return new Map();
+  return toPendingVoids(db.prepare(PENDING).all(JSON.stringify(order_ids)) as PendingRow[], state);
+}
+
+/** §6.4 seating form of `pendingVoids` (task v9): the open requests of the seating's orders; 1 statement, same rows. */
+export function pendingVoidsOfSeating(db: Database.Database, seating_id: string, state?: EngineState): Map<string, PendingVoid[]> {
+  return toPendingVoids(db.prepare(PENDING_OF_SEATING).all(seating_id) as PendingRow[], state);
+}
+
+function toPendingVoids(rows: readonly PendingRow[], state: EngineState | undefined): Map<string, PendingVoid[]> {
   const out = new Map<string, PendingVoid[]>();
-  if (order_ids.length === 0) return out;
-  const rows = db.prepare(PENDING).all(JSON.stringify(order_ids)) as Array<{ alert_id: string; order_id: string; requester_staff_id: string; raised_at: number; values_json: string }>;
   for (const r of rows) {
     const v = JSON.parse(r.values_json) as VoidValues;
     const stale = state !== undefined && Object.entries(v.line_dispositions).some(([id, d]) => d === 'moved' && !movableLine(state, id));
