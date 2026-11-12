@@ -51,8 +51,9 @@ export function createProjectionRegistry(): ProjectionRegistry {
       }
       const last = events[events.length - 1];
       if (last === undefined) return;
-      const upsert = checkpointUpsert(tx);
-      for (const projection of projections) upsert.run(branchId, projection.name, last.seq);
+      // 00 M48 (04 §4.5 H-2): only existing rows advance; catchUp writes a projection's first row.
+      const advance = tx.prepare('UPDATE projection_checkpoints SET last_seq = ? WHERE branch_id = ? AND projection = ?');
+      for (const projection of projections) advance.run(last.seq, branchId, projection.name);
     },
     catchUp(db, branchId) {
       const replayed: Record<string, number> = {};
