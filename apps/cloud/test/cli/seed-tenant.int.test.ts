@@ -96,13 +96,16 @@ describe('seed-tenant', () => {
       { permission: 'apply-comp', grant_type: 'requires_approval', approver: 'Manager' },
       { permission: 'apply-discount', grant_type: 'requires_approval', approver: 'Manager' },
       { permission: 'clean-table', grant_type: 'allowed', approver: null },
+      { permission: 'move-item-to-stock', grant_type: 'allowed', approver: null }, // 04 B-1 (01b v1.9)
       { permission: 'reprint-ticket', grant_type: 'allowed', approver: null },
       { permission: 'set-line-weight', grant_type: 'allowed', approver: null },
       { permission: 'take-order', grant_type: 'allowed', approver: null },
       { permission: 'view-customer-contact', grant_type: 'allowed', approver: null },
+      { permission: 'void-item', grant_type: 'requires_approval', approver: 'Manager' }, // 04 B-1 (01b v1.9)
     ]);
     expect((byRole.get('Order taker') ?? []).map((grant) => grant.permission).sort()).toEqual([
-      'apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'take-order', 'view-customer-contact',
+      'apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'move-item-to-stock', 'take-order', 'view-customer-contact',
+      'void-item', // 04 B-1 (01b v1.9)
     ]);
     expect((byRole.get('Waiter') ?? []).map((grant) => grant.permission).sort()).toEqual(['clean-table', 'mark-served']);
     // 03b B-1 (01b v1.8), #60: Cook gets run-pass and reprint-ticket (was: no permissions, M29 / B17).
@@ -212,10 +215,12 @@ describe('seed-tenant', () => {
       { permission: 'apply-comp', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
       { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
       { permission: 'clean-table', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'move-item-to-stock', grant_type: 'allowed', approver_role_id: null }, // 04 B-1 (01b v1.9)
       { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
       { permission: 'set-line-weight', grant_type: 'allowed', approver_role_id: null },
       { permission: 'take-order', grant_type: 'allowed', approver_role_id: null },
       { permission: 'view-customer-contact', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'void-item', grant_type: 'requires_approval', approver_role_id: roleId('manager') }, // 04 B-1 (01b v1.9)
     ]);
     // 01b v1.5/v1.7 §6.15: the seeded grants; scope `branch` except the Order taker's view-customer-contact (`own_tables`).
     const seeded = (key: string) => of(key).map(({ permission, grant_type, scope }) => ({ permission, grant_type, scope })).sort((a, b) => a.permission.localeCompare(b.permission));
@@ -225,8 +230,10 @@ describe('seed-tenant', () => {
       { permission: 'clean-table', grant_type: 'allowed', scope: 'branch' },
       { permission: 'mark-item-returned', grant_type: 'allowed', scope: 'branch' },
       { permission: 'mark-served', grant_type: 'allowed', scope: 'branch' },
+      { permission: 'move-item-to-stock', grant_type: 'allowed', scope: 'branch' }, // 04 B-1 (01b v1.9)
       { permission: 'take-order', grant_type: 'allowed', scope: 'branch' },
       { permission: 'view-customer-contact', grant_type: 'allowed', scope: 'own_tables' },
+      { permission: 'void-item', grant_type: 'requires_approval', scope: 'branch' }, // 04 B-1 (01b v1.9)
     ]);
     expect(seeded('waiter')).toEqual([
       { permission: 'clean-table', grant_type: 'allowed', scope: 'branch' },
@@ -247,6 +254,9 @@ describe('seed-tenant', () => {
         { role_id: roleId('cashier'), permission: 'apply-comp', approver_role_id: roleId('manager') },
         { role_id: roleId('cashier'), permission: 'apply-discount', approver_role_id: roleId('manager') },
         { role_id: roleId('order_taker'), permission: 'apply-comp', approver_role_id: roleId('manager') },
+        // 04 B-1 (01b v1.9)
+        { role_id: roleId('cashier'), permission: 'void-item', approver_role_id: roleId('manager') },
+        { role_id: roleId('order_taker'), permission: 'void-item', approver_role_id: roleId('manager') },
       ].sort((a, b) => approverKey(a).localeCompare(approverKey(b))),
     );
 
@@ -284,6 +294,45 @@ describe('seed-tenant', () => {
       roleId('waiter'),
     ]);
     expect(renamed.rows[0]).toEqual({ default_key: 'waiter' });
+  });
+
+  it('[04 #32 seed half, 01b #108] seed-tenant: Cashier and Order taker get void-item requires_approval by Manager (approver row) and move-item-to-stock allowed, scope branch', async () => {
+    await truncateAll(pool);
+    const created = await seedTenant(
+      new SystemContext(pool),
+      { name: 'Pilot', currency: 'PKR', ownerEmail: 'ada@example.com', ownerName: 'Ada', password: 'password-1', pin: '1234' },
+      { clock: fixedClock(T), ids: testIdGen() },
+    );
+    const rows = await pool.query<{ role: string; permission: string; grant_type: string; scope: string; approver: string | null; approvers: string[] }>(
+      `SELECT r.default_key AS role, rp.permission, rp.grant_type, rp.scope, dual.default_key AS approver,
+              COALESCE(array_agg(a.default_key ORDER BY a.default_key) FILTER (WHERE a.default_key IS NOT NULL), '{}') AS approvers
+         FROM role_permissions rp
+         JOIN roles r ON r.tenant_id = rp.tenant_id AND r.role_id = rp.role_id
+         LEFT JOIN roles dual ON dual.tenant_id = rp.tenant_id AND dual.role_id = rp.approver_role_id
+         LEFT JOIN role_permission_approvers rpa
+                ON rpa.tenant_id = rp.tenant_id AND rpa.role_id = rp.role_id AND rpa.permission = rp.permission
+         LEFT JOIN roles a ON a.tenant_id = rpa.tenant_id AND a.role_id = rpa.approver_role_id
+        WHERE rp.tenant_id = $1 AND rp.permission IN ('void-item', 'move-item-to-stock')
+        GROUP BY r.default_key, rp.permission, rp.grant_type, rp.scope, dual.default_key
+        ORDER BY r.default_key, rp.permission`,
+      [created.tenant_id],
+    );
+    const pick = (role: string) => rows.rows.filter((row) => row.role === role).map(({ permission, grant_type, scope, approver, approvers }) => ({ permission, grant_type, scope, approver, approvers }));
+    for (const role of ['cashier', 'order_taker']) {
+      expect(pick(role), role).toEqual([
+        { permission: 'move-item-to-stock', grant_type: 'allowed', scope: 'branch', approver: null, approvers: [] },
+        { permission: 'void-item', grant_type: 'requires_approval', scope: 'branch', approver: 'manager', approvers: ['manager'] },
+      ]);
+    }
+    // Owner and Manager unchanged: both allowed, no approvers; Waiter and Cook hold neither.
+    for (const role of ['manager', 'owner']) {
+      expect(pick(role), role).toEqual([
+        { permission: 'move-item-to-stock', grant_type: 'allowed', scope: 'branch', approver: null, approvers: [] },
+        { permission: 'void-item', grant_type: 'allowed', scope: 'branch', approver: null, approvers: [] },
+      ]);
+    }
+    expect(pick('waiter')).toEqual([]);
+    expect(pick('cook')).toEqual([]);
   });
 
   it('[01b §6.15] seed-tenant.ts contains no default role name; it looks roles up by default_key', () => {
