@@ -431,7 +431,10 @@ export function raiseVoid(hub: TestHub, r: RaiseVoid): { alert_id: string; dedup
     requester_name: directory.get(r.requester.staffId)?.display_name ?? null,
   };
   const reason = (note === null ? reason_code : `${reason_code}: ${note}`).slice(0, 200);
-  const details = { item: named.name, quantity: units, amount: plan.refund_minor, reason, ...(r.identifier === undefined ? {} : { identifier: r.identifier }) };
+  // §3.5 / G-10: `lines` is required on void_approval details (AD-19: added by v6, the field only)
+  const stage = (hub.deps.state.get() as EngineState).lines[named.order_item_id]?.stage;
+  const state = stage === 'cooking' ? 'cooking' : stage === 'done' ? 'cooked' : stage === 'added' ? 'not_started' : 'served';
+  const details = { item: named.name, quantity: units, amount: plan.refund_minor, reason, lines: [{ name: named.name, quantity: units, state }], ...(r.identifier === undefined ? {} : { identifier: r.identifier }) };
   const raised = hub.deps.writer.run((tx) => {
     const ctx = {
       tx,

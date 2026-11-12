@@ -1,8 +1,8 @@
-// 04 §6.1 VoidItems (task v4: the direct path; v6 adds the approval path, step 7). Permission `void-item`,
+// 04 §6.1 VoidItems (task v4: the direct path; task v6: the approval path, step 7, through kind.ts voidRaiseInputs). Permission `void-item`,
 // `approvable: true`, not queueable (V15), device session. No table lock (V14). Order of checks: payload (Zod: keyed
 // lines C6, notes V12) → readOrder (404) → billed (409) → the two open-request reads → §3.2 per entry (plan.ts) →
 // scope `branch` last (C8). Statements: 1 readOrder + 2 listOpen (`alerts_open_kind`) = 3, + direct 2 (lineChangeDrafts
-// in `close` mode); the append excluded. Engine state, directory and config in memory.
+// in `close` mode) or + 01d's raiseMany bound (request); the append excluded. Engine state, directory and config in memory.
 import { DomainError, VOID_DISPOSITIONS, VOID_REASON_CODES } from '@pos/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -13,6 +13,7 @@ import { readOrder, type ReadOrderHead } from '../../orders/exports.js';
 import { COMP_KIND } from '../../orders/line-change.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 import { VOID_KIND } from '../contracts.js';
+import { voidRaiseInputs } from '../kind.js';
 import { planVoidEntries, voidDrafts } from '../plan.js';
 
 const Entry = z.object({
@@ -80,7 +81,14 @@ function voidItems(ctx: CommandCtx, p: Payload): { events: ReturnType<typeof voi
   });
   // step 5
   checkScope(ctx, order);
-  if (approval) throw new Error('04 VoidItems approval path: not built (task v6)');
+  if (approval) {
+    // step 7: one request per entry, all in ONE raiseMany; a deduped entry rolls the whole command back
+    const meta = { reason_code: p.reason_code, note: p.note ?? null, disposition_note: p.disposition_note ?? null };
+    const raised = alerts.raiseMany(ctx, voidRaiseInputs(ctx, order, lines, planned, meta));
+    const deduped = raised.findIndex((r) => r.deduped);
+    if (deduped >= 0) throw new DomainError('VOID_PENDING', { alert_id: raised[deduped]!.alert_id, order_item_id: planned[deduped]!.order_item_id });
+    return { events: raised.flatMap((r) => r.events), result: { pending: planned.map((e, i) => ({ order_item_id: e.order_item_id, alert_id: raised[i]!.alert_id })) } };
+  }
   // step 6: the direct path
   const out = voidDrafts(
     ctx,
