@@ -32,7 +32,7 @@ const VALUES = {
   comp_voided_minor: 0,
 };
 
-describe('[04 §3.5, §6.6] kind void_approval (phase 0 skeleton)', () => {
+describe('[04 §3.5, §6.6] kind void_approval (definition and wiring)', () => {
   it('[04 §6.6] is registered at module load with every §3.5 setting', () => {
     expect(VOID_KIND).toBe('void_approval');
     const kind = kindOf(VOID_KIND);
@@ -76,10 +76,10 @@ describe('[04 §3.5, §6.6] kind void_approval (phase 0 skeleton)', () => {
     expect(VoidDetails.safeParse({ ...details, lines: undefined }).success).toBe(false);
   });
 
-  it('[04 §3.4, §6.2] request.apply throws "not built" until v7 (nothing raises one before v6); onWithdraw → []', () => {
+  it('[04 §3.4, §6.2] request.apply built (v7): a reject returns [] without reading; onWithdraw → []', () => {
     const ctx = {} as AlertApplyCtx<typeof VALUES, never>;
-    const answer: AnswerFacts = { decision: 'approve', answerer_staff_id: 'M1', method: 'pin', device_id: 'D1', answered_at: 0 };
-    expect(() => VOID_APPROVAL.request?.apply(ctx as never, answer)).toThrow(/not built \(task v7\)/);
+    const answer: AnswerFacts = { decision: 'reject', answerer_staff_id: 'M1', method: 'pin', device_id: 'D1', answered_at: 0 };
+    expect(VOID_APPROVAL.request?.apply(ctx as never, answer)).toEqual([]);
     expect(VOID_APPROVAL.request?.onWithdraw?.(ctx as never)).toEqual([]);
   });
 });

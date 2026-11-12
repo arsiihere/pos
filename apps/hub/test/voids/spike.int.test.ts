@@ -381,8 +381,8 @@ describe('[04 R-2] a read-only apply builds engine + stock drafts', () => {
     expect(before.lines.N4!.units).toBe(4);
     expect(state().lines.N4!.units).toBe(2);
     expect(state()).not.toBe(before);
-    // the kind's own apply is back (v7 builds it)
-    expect(() => VOID_APPROVAL.request!.apply({} as never, {} as never)).toThrow('not built');
+    // the kind's own apply is back (v7 built it: a non-approve answer returns [] without reading)
+    expect(VOID_APPROVAL.request!.apply({} as never, { decision: 'reject' } as never)).toEqual([]);
   });
 
   // T-2 (03a v1.2.4, G-17): the moved portion is never reserved by a line the array ends. Before u4, waitingReserve
