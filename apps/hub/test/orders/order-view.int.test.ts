@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { activity } from '../../src/auth/session-store';
 import { currentDirectory } from '../../src/auth/guards';
 import { ordersOf } from '../../src/orders/exports';
-import { toSeatingOrder, type SeatingOrder } from '../../src/orders/queries/seating-orders';
+import { pendingComps, toSeatingOrder, type SeatingOrder } from '../../src/orders/queries/seating-orders';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -123,7 +123,7 @@ describe('[02b #47] order-view (§6.18a; Q-8, Q-27)', () => {
     expect(r.data).toMatchObject({ order_id: 'T1', placed_by: { staff_id: PLACER, name: 'Usman' }, cancelled: false, billed: false, order_note: null });
     expect(r.data.promise_ms).toBe(engine().orders.T1!.promise_ms);
     const [a, b] = r.data.lines;
-    expect(a).toMatchObject({ order_item_id: 'T1a', stage: 'added', fired: true, options: [{ name: 'No onion', quantity: 1 }, { name: 'Less spicy', quantity: 2 }] });
+    expect(a).toMatchObject({ order_item_id: 'T1a', stage: 'added', fired: true, pending_comp: null, options: [{ name: 'No onion', quantity: 1 }, { name: 'Less spicy', quantity: 2 }] });
     expect(b).toMatchObject({ order_item_id: 'T1b', stage: 'added', fired: false, options: [] });
     expect(JSON.stringify(r.data)).not.toMatch(/customer_name|"phone"/);
   });
@@ -151,7 +151,7 @@ describe('[02b #47] order-view (§6.18a; Q-8, Q-27)', () => {
       expect(r.data.order_id).toBe('D1');
     }
     // the same element as seating-orders gives for the seating
-    const seating = ordersOf(hub.deps.db, 'SEAT1').map((o) => toSeatingOrder(engine(), currentDirectory(hub.app), o, hub.clock.branchNow()));
+    const seating = ordersOf(hub.deps.db, 'SEAT1').map((o) => toSeatingOrder(engine(), currentDirectory(hub.app), o, hub.clock.branchNow(), pendingComps(hub.deps.db, hub.app.log)));
     expect((await view(signIn(OTHER), 'D1')).data).toEqual(seating[0]);
   });
 
@@ -163,7 +163,7 @@ describe('[02b #47] order-view (§6.18a; Q-8, Q-27)', () => {
     expect((await view(who)).error?.code).toBe('VALIDATION_FAILED');
   });
 
-  it('[02b #47] 2 statements before H6, countsAsActivity false', async () => {
+  it('[02b #47] 2 + 1 statements (the order, its lines, the open comp requests of pending_comp; #50), countsAsActivity false', async () => {
     takeaway('T1');
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: PLACER });
     appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'D1', placed_by: PLACER, lines: [{ order_item_id: 'D1a', item_id: FX.naan }] });
@@ -172,7 +172,7 @@ describe('[02b #47] order-view (§6.18a; Q-8, Q-27)', () => {
     for (const id of ['T1', 'D1']) {
       counter.reset();
       expect((await view(placer, id)).status, id).toBe(200);
-      expect(counter.count, id).toBe(2);
+      expect(counter.count, id).toBe(3);
     }
     activity.drain();
     await view(placer, 'T1');
