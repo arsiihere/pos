@@ -7,10 +7,12 @@ import { stationPresence } from '../kds/contracts.js';
 import type { Clock } from '../lib/clock.js';
 import { PRINTER_PROBLEM_KIND } from './kinds.js';
 import { nodeTimers, parseLanAddress, PRINT_WRITE_TIMEOUT_MS, type PrintTimers } from './transport/lan.js';
+import { usbStatus } from './transport/usb.js';
 import type { PrintWorkerHooks, SentJob } from './worker.js';
 
 // 03c §3.5, §3.7, D4, §6.10 (task c15): status reads, suspect marking and recovery, `printer_problem`.
-// - Status reads: LAN only (the USB read-back for a USB printer whose test print proved status is c19's, C3-1), at most once per
+// - Status reads: LAN, and USB once its test print proved status (supports_status = 1; c19, through the worker's own
+//   USB child, usb.ts usbStatus), at most once per
 //   10 s per printer and only when there is something to learn (an ack since the last read, an open problem, a bad
 //   last status), plus right after a failure. DLE EOT 1 + DLE EOT 4 on their own socket, 2 s timeout; no answer =
 //   `unknown`. Never blocks the FIFO: the worker does not wait for it.
@@ -325,7 +327,11 @@ export function createPrintStatus(o: PrintStatusOptions): PrintStatus {
   const read = (p: PassRow): void => {
     reading.add(p.printer_id);
     urgent.delete(p.printer_id);
-    const reader = o.readStatus ?? ((x: StatusPrinter) => readLanStatus(x.address, { timers }));
+    // c19 (integrator ruling (b) on #72): a USB printer is read through the worker's own child (usbStatus, no second open)
+    const reader =
+      o.readStatus ??
+      ((x: StatusPrinter) =>
+        x.connection === 'usb' ? usbStatus(x.address).then((a) => (a === null ? 'unknown' : parseStatus(a.eot1, a.eot4))) : readLanStatus(x.address, { timers }));
     let pending: Promise<PrinterStatus>;
     try {
       pending = reader({ printer_id: p.printer_id, connection: p.connection, address: p.address });
@@ -400,8 +406,8 @@ export function createPrintStatus(o: PrintStatusOptions): PrintStatus {
         }
         const quiet = p.last_status === null || !BAD.has(p.last_status);
         if (open && p.waiting === 0 && quiet && f === undefined) close(p.printer_id, p.problem_alert_id!, 'obsolete', now);
-        // status reads: LAN only; the USB read-back lands with c19 (C3-1), so no USB printer is read yet
-        const capable = p.connection === 'lan';
+        // status reads: LAN, and USB once its test print proved status (§3.7; c19, C3-1: through the worker's child)
+        const capable = p.connection === 'lan' || p.supports_status === 1;
         if (!capable || reading.has(p.printer_id)) return;
         const interval = p.last_status_at === null || now - p.last_status_at >= STATUS_INTERVAL_MS;
         const something = (p.last_ack_at !== null && (p.last_status_at === null || p.last_ack_at > p.last_status_at)) || open || !quiet;
