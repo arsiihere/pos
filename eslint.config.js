@@ -197,4 +197,22 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // 02 client W0.7 (Q-32): the Playwright specs and their config run in Node, not the browser: they may import
+    // node:* and the hub's test helpers (to boot a test hub). The root patterns stay.
+    files: ['apps/client/e2e/**/*.ts', 'apps/client/playwright.config.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            ...dbClientImports.patterns,
+            ...qrcodeImports.patterns,
+            ...credentialLookupImports.patterns,
+            ...systemContextImports.patterns,
+          ],
+        },
+      ],
+    },
+  },
 );
