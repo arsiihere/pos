@@ -1,6 +1,6 @@
 # 04 gap sweep (P0.0, before phase 0)
 
-> Pre-flight of `docs/plans/04-plan.md` (task P0.0). Read against `main` at `23cfa1b` (`spec-04` merged, PR #87). Spec: 04 v1.0. Every line number is on that commit. Part 1 holds the exact names the lanes use. Part 2 lists the real mismatches as G-rows, each with options and a Rec. Part 3 lists risks that need no ruling. **Owner ruling: pending.**
+> Pre-flight of `docs/plans/04-plan.md` (task P0.0). Read against `main` at `23cfa1b` (`spec-04` merged, PR #87). Spec: 04 v1.0. Every line number is on that commit. Part 1 holds the exact names the lanes use. Part 2 lists the real mismatches as G-rows, each with options and a Rec. Part 3 lists risks that need no ruling. **Ruled 2026-11-12 13:17 PKT (owner: "Your calls"): every G-row takes its Rec (G-1 b, G-2 a, G-3 a, G-4 a, G-5 a, G-6 a, G-7 a, G-8 b, G-9 a + c, G-10 a, G-11 a, G-12 a, G-13 a, G-14 a, G-15 a, G-16 a, G-17 a, G-18 a + b, G-19 a, G-20 b, G-21 b, G-22 a, G-23 a).** Plan patched (§ "Gap sweep patches" in `04-plan.md`). Spec text rows (G-1, G-7, G-8, G-11, G-12, G-14, G-17, G-19, G-20, G-21, G-23) land in P0.2: the target bumps carry them, and 04 itself bumps to **v1.0.1** (changelog + "Changed by v1.0.1 (G-n)" markers; v1.0 kept).
 
 Spec numbers for P0.2: no open PR, and no `module-*` / `spec-*` branch adds a spec file that `main` lacks. The plan's numbers stand: **F v1.13, 00 v1.10, 01a v2.5, 01b v1.9, 01d v1.2.5, 02b v1.0.10, 03a v1.2.4**. 01e is not started, so 00 v1.10 is free. Migrations: hub next **0017**, **0018**; cloud next **0013**.
 
