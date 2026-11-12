@@ -58,6 +58,12 @@ export interface RaiseInput {
    * personal notices (pin_use_failed, approval_receipt, answered_on_requester_device).
    */
   hidden_from?: { session_id: string; device_id: string } | null;
+  /**
+   * 01d v1.2.5 D-2 (G-8), internal: when every routed step-0 recipient is this person (or there is none), the
+   * input raises nothing (`events: []`); judged on the real recipients, no extra statement. Used by
+   * AnswerRequest's `result_also_to` raise (= the requester).
+   */
+  drop_if_only?: string;
 }
 
 export interface RaiseResult {
@@ -238,6 +244,14 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
 
     pending.forEach((p, i) => {
       const r = resolved[i] as (typeof resolved)[number];
+      const only = p.input.drop_if_only;
+      if (only !== undefined && r.step0.recipients.every((x) => x.staff_id === only)) {
+        // D-2 (G-8): routes only to that person (or nobody): no alert, and its key is not kept in the tx. The input
+        // still used an id (minted above), so this result's alert_id names no alert; drop_if_only keys must be unique in the call.
+        fresh.delete(dedupeKey(p.input.kind, p.input.dedupe_key));
+        results[p.index] = { alert_id: p.row.alert_id, events: [], deduped: false, requester_staff_id: p.row.requester_staff_id };
+        return;
+      }
       const raised = draftOf(p.input, env, 'AlertRaised', p.payload);
       let events: EventDraft[];
       if (p.escalation !== null && r.escalation !== null && !answererHasRoute(r.step0)) {
@@ -383,6 +397,8 @@ export interface ResultOf {
 export function requestResultInput(
   request: ResultOf,
   outcome: { close_reason: RequestResultValues['close_reason']; decision: RequestDecision | null; by_staff_id: string | null; note?: string | null },
+  // 01d v1.2.5 D-2 (G-8): the `result_also_to` raise's target and dedupe key (default: the requester, `request_result:<id>`)
+  overrides: { target?: AlertTarget; dedupe_key?: string } = {},
 ): RaiseInput {
   const values: RequestResultValues = {
     request_alert_id: request.alert_id,
@@ -395,11 +411,11 @@ export function requestResultInput(
   return {
     kind: 'request_result',
     subject: request.subject,
-    target: { kind: 'person', staff_id: request.requester_staff_id },
+    target: overrides.target ?? { kind: 'person', staff_id: request.requester_staff_id },
     values,
     display: request.display,
     details: note === null || note === '' ? {} : { reason: note.slice(0, 200) },
-    dedupe_key: `request_result:${request.alert_id}`,
+    dedupe_key: overrides.dedupe_key ?? `request_result:${request.alert_id}`,
   };
 }
 
