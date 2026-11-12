@@ -51,10 +51,13 @@ function ordersWithOptions(hub: TestHub): void {
 
 const linesOf = (db: Database.Database) => db.prepare('SELECT order_item_id, options_json FROM order_lines ORDER BY order_item_id').all() as Array<{ order_item_id: string; options_json: string | null }>;
 
-/** Back to a pre-0016 hub: the column gone, 0016 not applied; every projection (and checkpoint) as it was. */
+/** Back to a pre-0016 hub: the column gone, 0016 (and the later 04 0017 / 0018) not applied; every projection (and
+ *  checkpoint) as it was. */
+const LATER = ['0017_staff_names.sql', '0018_audit.sql'];
 function toPre0016(db: Database.Database): void {
   db.exec('ALTER TABLE order_lines DROP COLUMN options_json');
-  db.prepare('DELETE FROM migration_checksums WHERE version = 16').run();
+  db.exec('DROP TABLE staff_names; DROP TABLE audit_entries; DROP TABLE audit_requests; DROP TABLE audit_orders');
+  db.prepare('DELETE FROM migration_checksums WHERE version >= 16').run();
   db.pragma('user_version = 15');
 }
 
@@ -103,7 +106,7 @@ describe('[02b v1.0.7 / v1.0.9 §5] hub migration 0016_order_line_options', () =
     const all = db.prepare('SELECT * FROM order_lines ORDER BY order_item_id').all();
 
     toPre0016(db);
-    expect((await runMigrations(db, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION]);
+    expect((await runMigrations(db, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, ...LATER]);
     expect(linesOf(db)).toEqual(live);
     expect(db.prepare('SELECT * FROM order_lines ORDER BY order_item_id').all(), 'nothing else on the rows changes').toEqual(all);
   });
@@ -129,7 +132,7 @@ describe('[02b v1.0.7 / v1.0.9 §5] hub migration 0016_order_line_options', () =
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(16);
+    expect(db.pragma('user_version', { simple: true })).toBe(18);
     const after = db.prepare('SELECT event_type FROM events WHERE seq > (SELECT MAX(seq) FROM events WHERE recorded_at <= ?) ORDER BY seq').pluck().all(lastRecordedAt);
     expect(after[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(linesOf(db)).toEqual(live);
