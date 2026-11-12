@@ -54,10 +54,11 @@ describe('default roles', () => {
   it('[02p U-4] Cashier and Order taker defaults (01b v1.6 B-1; v1.7 B-1, B-5)', () => {
     const grant = (key: string, permission: string) => DEFAULT_ROLES.find((r) => r.default_key === key)!.grants.find((g) => g.permission === permission);
     expect([...grants('cashier')].sort()).toEqual(
-      ['apply-comp', 'apply-discount', 'clean-table', 'reprint-ticket', 'set-line-weight', 'take-order', 'view-customer-contact'].sort(),
+      // 04 B-1 (01b v1.9): + move-item-to-stock, void-item
+      ['apply-comp', 'apply-discount', 'clean-table', 'move-item-to-stock', 'reprint-ticket', 'set-line-weight', 'take-order', 'view-customer-contact', 'void-item'].sort(),
     );
     expect([...grants('order_taker')].sort()).toEqual(
-      ['apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'take-order', 'view-customer-contact'].sort(),
+      ['apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'move-item-to-stock', 'take-order', 'view-customer-contact', 'void-item'].sort(),
     );
     expect(grants('waiter').sort()).toEqual(['clean-table', 'mark-served']);
     expect(grant('cashier', 'apply-comp')).toMatchObject({ grant_type: 'requires_approval', approver_key: 'manager' });
@@ -70,6 +71,7 @@ describe('default roles', () => {
     for (const role of DEFAULT_ROLES) {
       for (const g of role.grants) {
         if (g.permission === 'apply-comp' || g.permission === 'apply-discount') continue;
+        if (g.permission === 'void-item' && (role.default_key === 'cashier' || role.default_key === 'order_taker')) continue; // 04 B-1, #108
         expect(g.grant_type, `${role.default_key} ${g.permission}`).toBe('allowed');
         if (!(role.default_key === 'order_taker' && g.permission === 'view-customer-contact')) expect(g.scope ?? 'branch').toBe('branch');
       }
@@ -85,6 +87,23 @@ describe('default roles', () => {
     for (const role of DEFAULT_ROLES) {
       expect(role.grants.find((g) => g.permission === 'mark-served')?.scope ?? 'branch').toBe('branch');
     }
+  });
+
+  it('[04 #32 seed half, 01b #108] Cashier and Order taker: void-item requires approval by Manager, move-item-to-stock allowed (branch)', () => {
+    for (const key of ['cashier', 'order_taker']) {
+      const role = DEFAULT_ROLES.find((r) => r.default_key === key)!;
+      expect(role.grants.find((g) => g.permission === 'void-item'), key).toEqual({
+        permission: 'void-item',
+        grant_type: 'requires_approval',
+        approver_key: 'manager',
+      });
+      expect(role.grants.find((g) => g.permission === 'move-item-to-stock'), key).toEqual({
+        permission: 'move-item-to-stock',
+        grant_type: 'allowed',
+      });
+    }
+    expect(holders('void-item')).toEqual(['owner', 'manager', 'cashier', 'order_taker']);
+    expect(holders('move-item-to-stock')).toEqual(['owner', 'manager', 'cashier', 'order_taker']);
   });
 
   it('[01b §6.15] one role per default_key; every approver is named by key and exists', () => {

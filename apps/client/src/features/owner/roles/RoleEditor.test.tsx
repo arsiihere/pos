@@ -4,7 +4,7 @@ import type { CloudAdmin } from '../../../api/cloud-admin';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { GuardProvider } from '../guard';
-import { ROLES } from '../staff/fixtures';
+import { role, ROLES } from '../staff/fixtures';
 import { button, click, fail, fakeApi, mount, ok, setValue, type Call, type Mounted } from '../test-api';
 import { RoleEditor } from './RoleEditor';
 
@@ -119,6 +119,44 @@ describe('[01b §8] role editor', () => {
     await click(button(m.container, t('roles.save')));
     expect(grantRow(t('perm.boost-order')).textContent).toContain(t('roles.approver_required'));
     expect(calls.filter((c) => c.method !== 'GET')).toEqual([]);
+  });
+
+  it('[04 #32, 01b #111] B-2: move-item-to-stock offers Not granted and Allowed only; void-item still offers Requires approval', async () => {
+    const { api } = fakeApi(handler(() => ok({})));
+    await render(api, 'R_LEAD');
+    const options = (permission: Parameters<typeof grantRow>[0]) =>
+      [...grantRow(permission).querySelectorAll<HTMLButtonElement>('.pos-seg__opt')].map((b) => b.textContent);
+
+    expect(options(t('perm.void-item'))).toEqual([t('roles.grant.allowed'), t('roles.grant.requires_approval'), t('roles.grant.not_granted')]);
+    await openGroup('kitchen');
+    expect(options(t('perm.move-item-to-stock'))).toEqual([t('roles.grant.allowed'), t('roles.grant.not_granted')]);
+  });
+
+  it('[04 B-2, 01b #111] a stored move-item-to-stock requires_approval loads as Allowed with no approvers; save sends allowed', async () => {
+    const stale = role({
+      role_id: 'R_STALE',
+      name: 'Runner',
+      grants: [{ permission: 'move-item-to-stock', grant_type: 'requires_approval', approver_role_ids: [ROLES[0]!.role_id], scope: 'branch' }],
+    });
+    const { api, calls } = fakeApi((call) => {
+      if (call.method === 'GET' && call.url === '/v1/admin/roles') return ok({ roles: [...ROLES, stale] });
+      if (call.method === 'PATCH') return ok({ role: stale, changed_versions: { staff: [], roles: [], responsibilities: [] } });
+      throw new Error(`unexpected ${call.method} ${call.url}`);
+    });
+    await render(api, 'R_STALE');
+    await openGroup('kitchen');
+    const row = grantRow(t('perm.move-item-to-stock'));
+    expect(row.querySelector('[aria-label="' + t('roles.approved_by') + '"]')).toBeNull();
+    expect(button(row, t('roles.grant.allowed')).getAttribute('aria-pressed')).toBe('true');
+
+    await click(button(m.container, t('roles.save')));
+    const body = calls.find((c) => c.method === 'PATCH')?.body as { grants: { permission: string }[] };
+    expect(body.grants.find((g) => g.permission === 'move-item-to-stock')).toEqual({
+      permission: 'move-item-to-stock',
+      grant_type: 'allowed',
+      approver_role_ids: [],
+      scope: 'branch',
+    });
   });
 
   it('[01b B-3] the editor lists manage-stations and mark-served in their groups with their scopes', async () => {
