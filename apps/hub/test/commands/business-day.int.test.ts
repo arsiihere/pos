@@ -3,6 +3,7 @@ import { parseEvent, type BranchConfig, type ConfigStockItem, type PosEvent } fr
 import { aBranchConfigItemStock, aFireDispatched, anEngineConfigApplied, anItemStarted, anOrderBatch, aStockSet } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
+import { registerDayCloseGuard, resetDayCloseGuard, type DayCloseGuard } from '../../src/commands/close-business-day';
 import { replayEngine } from '../../src/engine-host/replay';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -14,6 +15,7 @@ const cleanups: Array<() => Promise<void>> = [];
 
 describe('business day commands (§6.18a, §6.18b)', () => {
   afterEach(async () => {
+    resetDayCloseGuard();
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
@@ -381,6 +383,86 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(plain.events).toBe(1);
     expect(withReleases.events).toBe(3);
     expect(withReleases.statements).toBe(plain.statements + 2);
+  });
+
+  describe('[01a v2.5 §6.18b / 04 §4.5 A-1] day-close guard', () => {
+    const processed = (hub: TestHub, id: string) =>
+      hub.deps.db.prepare('SELECT COUNT(*) FROM processed_commands WHERE command_id = ?').pluck().get(id);
+    const closeStatements = async (register?: () => void): Promise<{ statements: number; changed: unknown }> => {
+      const { hub, admin } = await dayToClose();
+      // the boot (registerVoids, from v8) registers the real guard: start from "unregistered", then the case's own
+      resetDayCloseGuard();
+      register?.();
+      const counter = statementCounter(hub.deps.db);
+      const host = hostSnapshotWrites(hub.deps.db);
+      const res = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close');
+      return { statements: counter.count - host.count, changed: res.json().data.result.changed };
+    };
+
+    it('[01a #196] no guard registered → CloseBusinessDay closes as before, 0 extra statements (a guard is asked only through its own reads)', async () => {
+      const plain = await closeStatements();
+      expect(plain.changed).toBe(true);
+      const free = await closeStatements(() => registerDayCloseGuard(() => null));
+      expect(free).toEqual(plain);
+      const oneRead = await closeStatements(() =>
+        registerDayCloseGuard((db) => {
+          db.prepare('SELECT 1').get();
+          return null;
+        }),
+      );
+      expect(oneRead).toEqual({ statements: plain.statements + 1, changed: true });
+    });
+
+    it('[01a #197] a stub guard → 409 DAY_CLOSE_BLOCKED with its details, no event, no processed_commands row, day still open; asked with (db, state) after not_open / opened_recently', async () => {
+      const { hub, admin } = await dayToClose();
+      const details = { reason: 'void_pending', voids: [{ alert_id: 'A1', identifier: 'T12', item: 'Karahi', requester_name: 'Ali' }], count: 1 };
+      const asked: Array<{ business_date: string | undefined; closed_at: number | null | undefined }> = [];
+      const stub: DayCloseGuard = (db, state) => {
+        asked.push({ business_date: state.business_day?.business_date, closed_at: state.business_day?.closed_at });
+        expect(db).toBe(hub.deps.db);
+        return { code: 'DAY_CLOSE_BLOCKED', details };
+      };
+      registerDayCloseGuard(stub);
+      const before = lastSeq(hub);
+      const blocked = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-blocked');
+      expect(blocked.statusCode).toBe(409);
+      expect(blocked.json().error.code).toBe('DAY_CLOSE_BLOCKED');
+      expect(blocked.json().error.details).toEqual(details);
+      expect(asked).toEqual([{ business_date: engine(hub).business_day?.business_date, closed_at: null }]);
+      expect(lastSeq(hub)).toBe(before);
+      expect(eventsOf(hub, 'BusinessDayClosed')).toEqual([]);
+      expect(processed(hub, 'cmd-close-blocked')).toBe(0);
+      expect(engine(hub).business_day?.closed_at).toBeNull();
+
+      // no day open / within the minimum gap: the guard is not asked
+      const fresh = await open();
+      registerDayCloseGuard(stub); // this boot re-registers the real guard (registerVoids, from v8): the stub again
+      withConfig(aBranchConfigItemStock());
+      const admin2 = adminOn(fresh, 'S_MGR');
+      const notOpen = await post(fresh, admin2, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-none');
+      expect(notOpen.statusCode).toBe(200);
+      expect(notOpen.json().data.result).toMatchObject({ changed: false, reason: 'not_open' });
+      await post(fresh, admin2, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open');
+      const recent = await post(fresh, admin2, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-recent');
+      expect(recent.statusCode).toBe(200);
+      expect(recent.json().data.result).toMatchObject({ changed: false, reason: 'opened_recently' });
+      expect(asked).toHaveLength(1);
+    });
+
+    it('[01a #197] a stub guard returning null → the day closes', async () => {
+      const { hub, admin } = await dayToClose();
+      let calls = 0;
+      registerDayCloseGuard(() => {
+        calls += 1;
+        return null;
+      });
+      const res = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-null');
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data.result).toMatchObject({ changed: true, reason: 'closed' });
+      expect(calls).toBe(1);
+      expect(eventsOf(hub, 'BusinessDayClosed')).toHaveLength(1);
+      expect(engine(hub).business_day?.closed_at).not.toBeNull();
+    });
   });
 });
 
