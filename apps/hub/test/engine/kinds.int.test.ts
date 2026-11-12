@@ -339,7 +339,7 @@ describe('03a task 23: the engine alert kinds', () => {
     });
     const raised = stored('AlertRaised').filter((e) => (e.payload as { kind: string }).kind === ENGINE_ALERT_KINDS.slip);
     expect(raised).toHaveLength(1);
-    expect(raised[0]!.schema_version).toBe(3); // 01d v1.2.2 D-2 (03b): AlertRaised v3
+    expect(raised[0]!.schema_version).toBe(4); // 01d v1.2.5 D-3 (04): AlertRaised v4
     expect((raised[0]!.payload as { details: unknown }).details).toEqual(row!.details);
     expect((raised[0]!.payload as { request: unknown }).request).toMatchObject({ right_mode: 'named', receiver_staff_id: WAITER, needs_pin: 'never', answers: ['accept', 'decline'] });
   });

@@ -4,7 +4,7 @@ import {
   type AlertClosedPayload,
   type AlertDetails,
   type AlertDisplay,
-  type AlertRaisedPayloadV3,
+  type AlertRaisedPayloadV4,
   type AlertTarget,
   type EventDraft,
   type PosEvent,
@@ -138,7 +138,7 @@ interface Pending {
   kind: AlertKind;
   input: RaiseInput;
   row: AlertRow;
-  payload: AlertRaisedPayloadV3;
+  payload: AlertRaisedPayloadV4;
   /** the G1-9d candidate: the kind's first escalation step, for approval kinds */
   escalation: number | null;
 }
@@ -200,7 +200,7 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
     const request = requestPart(kind, input);
     const requester = input.requester_staff_id ?? null;
     const valuesOut = values.data as Record<string, unknown>;
-    const payload: AlertRaisedPayloadV3 = {
+    const payload: AlertRaisedPayloadV4 = {
       alert_id,
       kind: kind.kind,
       family: kind.family,
@@ -337,7 +337,7 @@ export function draftOn(
     stream_type: subject.stream_type,
     stream_id: subject.stream_id,
     event_type: eventType,
-    // 01d v1.1.2 D-2: each event at its latest version (AlertRaised v2; every other alert event is v1).
+    // 01d v1.1.2 D-2: each event at its latest version (AlertRaised v4 since 01d v1.2.5 D-3; every other alert event is v1).
     schema_version: latestVersion(eventType),
     payload,
     occurred_at: env.now,
