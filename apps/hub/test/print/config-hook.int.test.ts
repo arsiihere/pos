@@ -254,7 +254,7 @@ describe('[03c v1.0.7 §3.8, 03b v1.0.7 §3.10, Q-P22b] the output notice also r
     expect(outputNotices(p2)).toEqual([]);
   });
 
-  it('[03c §3.8 Q-P22b] before the takeover the point\'s Pass gets no output notice (only the station\'s own sockets do); the takeover adds no statement to the command', async () => {
+  it('[03c §3.8 Q-P22b] before the takeover the point\'s Pass gets no output notice (only the station\'s own sockets do); the command runs exactly the P0.22 statements (26) with and without a takeover', async () => {
     await printer('PR1');
     const p1 = await passSocket('P1');
     const s2 = await stationSocket(FX.zoneStation);
@@ -262,7 +262,10 @@ describe('[03c v1.0.7 §3.8, 03b v1.0.7 §3.10, Q-P22b] the output notice also r
     await output(FX.station, 'both', 'PR1');
     counter.reset();
     await output(FX.station, 'screen', null);
-    const before = counter.count;
+    // P0.22 baseline for this SetStationOutput (route, auth, command, append, projection, and the one
+    // stationsWithPrinter re-read after commit), measured on module-03b @ 54b61c2 before P0.23.
+    const BASELINE = 26;
+    expect(counter.count, 'P0.22 baseline, no takeover').toBe(BASELINE);
     await settle();
     expect(outputNotices(p1)).toEqual([]);
     expect(outputNotices(s2)).toEqual([]);
@@ -271,7 +274,7 @@ describe('[03c v1.0.7 §3.8, 03b v1.0.7 §3.10, Q-P22b] the output notice also r
     await output(FX.station, 'both', 'PR1');
     counter.reset();
     await output(FX.station, 'screen', null);
-    expect(counter.count, 'same statements with and without a takeover (audience is memory: takeoverStations, devicePoint)').toBe(before);
+    expect(counter.count, 'same absolute count with a takeover: the Pass audience is memory (takeoverStations, devicePoint)').toBe(BASELINE);
     await settle();
     expect(outputNotices(p1).map((m) => (m as { has_printer: boolean }).has_printer)).toEqual([true, false]);
     expect(outputNotices(s2)).toEqual([]);
