@@ -18,6 +18,8 @@ export interface LineRowProps {
   onSelect?: (order_item_id: string) => void;
   /** the selected line's actions */
   children?: ReactNode;
+  /** always under the line, full width (the comp waiting card, 27a2, draws its own `.ol__ctrl` row) */
+  below?: ReactNode;
 }
 
 const hasStage = (line: SeatingLine | LineView): line is SeatingLine => 'stage' in line;
@@ -28,7 +30,7 @@ export function weightText(quantity: number, unit: 'g' | 'ml'): string {
   return `${whole.toLocaleString('en-US', { maximumFractionDigits: 3 })} ${unit === 'g' ? t('quantity.kg') : t('line.unit_l')}`;
 }
 
-export function LineRow({ line, mode, utcOffsetMs, selected = false, onSelect, children }: LineRowProps) {
+export function LineRow({ line, mode, utcOffsetMs, selected = false, onSelect, children, below }: LineRowProps) {
   const child = line.line_kind === 'option_child' || line.line_kind === 'deal_part';
   const struck = line.live_units === 0;
   const units = struck ? line.units : line.live_units;
@@ -94,6 +96,7 @@ export function LineRow({ line, mode, utcOffsetMs, selected = false, onSelect, c
           {children}
         </div>
       )}
+      {below}
     </div>
   );
 }

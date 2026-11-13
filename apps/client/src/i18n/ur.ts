@@ -1103,5 +1103,12 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'ov.call': 'کال',
   'ov.boost': 'جلدی کروائیں',
   'ov.total': 'کل',
+  'line.send_back': 'واپس بھیجیں',
+  'return.closed_sub': '30 منٹ سے زیادہ پہلے پیش ہوا۔',
+  'return.closed_line': '{item} نئے آئٹم کے طور پر بھیجیں؟ یہ نئے راؤنڈ میں جائے گا۔ بھیجنے کے بعد مفت کرنے کا پوچھا جائے گا۔',
+  'comp.reason': 'وجہ',
+  'comp.required': 'ضروری',
+  'comp.waiting_plain': 'منظوری کا انتظار',
+  'comp.as_asked': 'مانگی گئی رقم',
   // ---- lane L (02b client) ----
 };

@@ -2232,6 +2232,14 @@ export const en = {
   'ov.call': 'Call',
   'ov.boost': 'Boost',
   'ov.total': 'Total',
+  // 27a2 send back, comp, comp-it (02b §8 Table view E-7; Q-11, Q-19; #129 SendBackClosed copy)
+  'line.send_back': 'Send back',
+  'return.closed_sub': 'Served more than 30 min ago.',
+  'return.closed_line': 'Send {item} as a new item? It goes as a new round. After it is sent you’ll be asked to comp it.',
+  'comp.reason': 'Reason',
+  'comp.required': 'required',
+  'comp.waiting_plain': 'Waiting for approval',
+  'comp.as_asked': 'amount as asked',
   // ---- lane L (02b client) ----
 } as const;
 

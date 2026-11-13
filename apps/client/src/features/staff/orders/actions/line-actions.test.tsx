@@ -9,7 +9,7 @@ import { createPermissions } from '../../shell/permissions';
 import { createToastBus } from '../../shell/toast';
 import type { Enqueue, EnqueueResult } from '../../tables/contracts';
 import type { CatchUpOrder, OrdersApi, SeatingLine } from '../contracts';
-import { LineActions, type LineOrder } from '../view/LineActions';
+import { LineActions, orderErrorKey, type LineOrder } from '../view/LineActions';
 import { LineRow } from '../view/LineRow';
 import { OrderView } from '../view/OrderView';
 import { gramsOf } from './WeightSheet';
@@ -382,5 +382,11 @@ describe('[02b §8 Table view] line actions', () => {
     expect(subs('Karahi')).toEqual(['+ No onion · Less spicy', '“less oil”']);
     // H2 not on the hub yet: no `options` field → no options line
     expect(subs('Naan')).toEqual([]);
+  });
+});
+
+describe('[02b §3.6] weight errors', () => {
+  it('[02b §3.6] LINE_NOT_WEIGHED → "This item is not weighed"', () => {
+    expect(orderErrorKey({ kind: 'api', status: 409, code: 'LINE_NOT_WEIGHED', details: {} })).toBe('line.err.not_weighed');
   });
 });

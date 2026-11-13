@@ -1,19 +1,22 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { HubError } from '../../../../api/hub-admin';
 import { t, type MessageKey } from '../../../../i18n';
 import { Ico } from '../../../alerts/ui';
 import { useShell, type Shell } from '../../shell/hooks';
 import type { EnqueueMeta, EnqueueResult } from '../../tables/contracts';
 import { tableErrorKey } from '../../tables/errors';
+import { CompSheet } from '../actions/CompSheet';
 import { MarkServedSheet, type ServedCandidate } from '../actions/MarkServedSheet';
+import { pendingCompsOf } from '../actions/pending-comps';
 import { RemoveSheet } from '../actions/RemoveSheet';
+import { SendBackSheet } from '../actions/SendBackSheet';
 import { WeightSheet } from '../actions/WeightSheet';
 import type { OrderType, SeatingLine } from '../contracts';
-import { atStageOne, isReady, lineStage, servable } from './stage';
+import { atStageOne, isReady, isServed, isWeightPending, lineStage, servable } from './stage';
 
 // 02b v1.0.11 §8 Table view: the actions of the selected line, from the session's permissions (R5) and the line's
 // stage — Mark served (fired lines, §3.7), Remove (stage 1, §3.5), "Void…" disabled until module 04 (Q-24), Enter
-// weight (§3.6). Shared by the order view (27a1) and the table view's orders part (27a3). The sheet helper, the
+// weight (§3.6), Send back (§3.8, E-7), Comp (§3.9; its waiting card is CompWaiting). Shared by the order view (27a1) and the table view's orders part (27a3). The sheet helper, the
 // error toasts and the Enqueue answer handling live here too, so every line action shows them the same way.
 
 /** One order as the line actions need it. */
@@ -38,6 +41,8 @@ export interface LineActionsProps {
   canTakeOrder?: boolean;
   /** the view reads its orders again */
   onChanged(): void;
+  /** E-7 "Send it as a new item" (dine-in; 27a3 binds 26d's startCompItCart); absent → not offered */
+  onSendAsNew?: (line: SeatingLine) => void;
 }
 
 // ------------------------------------------------------------------------------------------- shared helpers
@@ -134,10 +139,36 @@ export function servedCandidatesOf(lines: readonly SeatingLine[]): ServedCandida
 
 // ---------------------------------------------------------------------------------------------- the actions
 
-type Open = 'served' | 'remove' | 'weight' | null;
+type Open = 'served' | 'remove' | 'weight' | 'send_back' | 'comp' | null;
 
-export function LineActions({ line, order, servedCandidates, canTakeOrder, onChanged }: LineActionsProps) {
+/** §3.9: a zone-served line is not comped while its zone undo is still open (COMP_NOT_ALLOWED). */
+export function inZoneUndo(line: SeatingLine, zoneUndoMs: number | null, nowMs: number): boolean {
+  if (!line.zone_served) return false;
+  // the hub's check: now − added_at <= zone_undo_ms is still inside the window
+  return zoneUndoMs === null || nowMs - line.added_at <= zoneUndoMs;
+}
+
+/** §3.9 Comp is offered: the grant (allowed or requires_approval), online, a free unit, no open request on the line. */
+export function compOffered(shell: Shell, line: SeatingLine, order: Pick<LineOrder, 'billed'>): boolean {
+  const grant = shell.permissions.resolution('apply-comp').grant;
+  return (
+    (grant === 'allowed' || grant === 'requires_approval') &&
+    shell.online &&
+    line.live_units - line.comped_units > 0 &&
+    (line.line_kind === 'item' || line.line_kind === 'deal') &&
+    line.return_of === null &&
+    !isWeightPending(line) &&
+    !order.billed &&
+    pendingCompsOf(shell).forLine(line) === null &&
+    !inZoneUndo(line, shell.config.config()?.zone_undo_ms ?? null, shell.clock.nowMs())
+  );
+}
+
+export function LineActions({ line, order, servedCandidates, canTakeOrder, onChanged, onSendAsNew }: LineActionsProps) {
   const shell = useShell();
+  const comps = pendingCompsOf(shell);
+  // an open request closing (answered, withdrawn) brings Comp back
+  useSyncExternalStore(comps.subscribe, comps.version);
   const [open, setOpen] = useState<Open>(null);
   const may = (p: Parameters<Shell['permissions']['allowed']>[0]) => shell.permissions.allowed(p);
   const takeOrder = canTakeOrder ?? may('take-order');
@@ -156,6 +187,16 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
   // void-item is module 04's; until it is built the button stays disabled (Q-24)
   const voidResolution = shell.permissions.resolution('void-item').grant;
   const showVoid = live && !stageOne && line.line_kind !== 'option_child' && (voidResolution === 'allowed' || voidResolution === 'requires_approval');
+  // §3.8 Return: a whole served line, not zone-served, not already remade (then the replacement has it)
+  const replacement = order.lines.find((l) => l.return_of === line.order_item_id) ?? null;
+  const returned = line.returned_units > 0 || line.stage === 'returned';
+  // a Fix leaves a replacement line open until it is served (RETURN_ALREADY_OPEN): no second Send back meanwhile
+  const openReturn = order.lines.some((l) => l.return_of === line.order_item_id && l.live_units > 0 && !isServed(l));
+  const canReturn =
+    may('mark-item-returned') && shell.online && live && isServed(line) && !line.zone_served && !returned && !openReturn && (line.line_kind === 'item' || line.line_kind === 'deal_part');
+  // the replacement was removed or voided: the dish is ordered again as a new round (E-7, "Comp it?")
+  const againAsNew = onSendAsNew !== undefined && may('take-order') && returned && replacement !== null && replacement.live_units === 0;
+  const canComp = compOffered(shell, line, order);
   const close = () => setOpen(null);
   const done = () => {
     setOpen(null);
@@ -182,6 +223,24 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
           <small>{t('line.void_later')}</small>
         </button>
       )}
+      {canReturn && (
+        <button type="button" className="btn" onClick={() => setOpen('send_back')}>
+          <Ico name="undo" />
+          {t('line.send_back')}
+        </button>
+      )}
+      {againAsNew && (
+        <button type="button" className="btn" onClick={() => onSendAsNew(line)}>
+          <Ico name="repeat" />
+          {t('return.new_item')}
+        </button>
+      )}
+      {canComp && (
+        <button type="button" className="btn" onClick={() => setOpen('comp')}>
+          <Ico name="checkc" />
+          {t('comp.do')}
+        </button>
+      )}
       {may('set-line-weight') && weighable && (
         <button type="button" className="btn" onClick={() => setOpen('weight')}>
           <Ico name="clock" />
@@ -199,6 +258,10 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
         />
       )}
       {open === 'remove' && <RemoveSheet order={order} from={line.order_item_id} onClose={close} onDone={done} onChanged={onChanged} />}
+      {open === 'send_back' && (
+        <SendBackSheet line={line} order={order} {...(onSendAsNew === undefined ? {} : { onSendAsNew })} onClose={close} onDone={done} onChanged={onChanged} />
+      )}
+      {open === 'comp' && <CompSheet line={line} order={order} onClose={close} onDone={done} onChanged={onChanged} />}
       {open === 'weight' && <WeightSheet line={line} ident={order.ident} onClose={close} onDone={done} onChanged={onChanged} />}
     </>
   );
