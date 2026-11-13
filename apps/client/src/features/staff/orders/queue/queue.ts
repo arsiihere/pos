@@ -6,7 +6,7 @@ import type { LiveBus } from '../../shell/live';
 import type { EnqueueMeta, EnqueueResult, QueueableCommand } from '../../tables/contracts';
 import { definitiveRefusal } from '../../tables/errors';
 import type { QueueEntry, QueueStore } from '../contracts';
-import { entryRecord } from './idb-store';
+import { entryRecord, logDetailsRecord } from './idb-store';
 import { createMemoryQueueStore } from './memory-store';
 
 // 02b v1.0.11 §3.12, §8 Queue, §10 #35; 02a §8 Offline; 00 v1.9.1 §8.1, H-1; owner Q-2, Q-3 (25b): the device's one
@@ -17,7 +17,9 @@ import { createMemoryQueueStore } from './memory-store';
 //   send), queued_at (hub clock) and staff_id. The session token is kept in this page's memory only (Q-2).
 // - Sends go in queued_at order (then entry_id), one at a time; a new command waits behind older queued ones. Only the
 //   send its own enqueue() call waits on (online, nothing older in the way) is a plain command; every other send is a
-//   replay with `X-Queued-At` (the hub reads it as "queued": no lock taken, sent_after_reconnect).
+//   replay with `X-Queued-At`. The hub reads that header on queueable commands only (clamped): SubmitOrder gets
+//   `sent_after_reconnect` and never takes or moves the table lock; MarkServed gets `served_at = queued_at`;
+//   RequestBill / CleanTable ignore it.
 // - 2xx → removed, "sent" (never before it). A definitive 4xx → removed and `refused` to a caller still waiting on
 //   its first send, else into the queue log with the hub's code; the next entry is sent. `ORDER_ITEM_ID_IN_USE` for
 //   the device's own pending SubmitOrder = it was already accepted → sent (result undefined: refetch to show it).
@@ -172,8 +174,11 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
     }
     presence?.announceRemoved([id]);
   };
-  const toLog = async (e: QueueEntry, reason: string) => {
+  const toLog = async (e: QueueEntry, reason: string, details?: Record<string, unknown>) => {
     const logged: QueueEntry = { ...e, state: 'log', log_reason: reason };
+    const kept = details === undefined ? undefined : logDetailsRecord(details);
+    if (kept === undefined) delete logged.log_details;
+    else logged.log_details = kept;
     entries = entries.map((x) => (x.entry_id === e.entry_id ? logged : x));
     sessions.delete(e.entry_id);
     manual.delete(e.entry_id);
@@ -239,8 +244,8 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
       await toLog(e, LOG_REASON.noSession);
       return 'next';
     }
-    // plain only for the send its own enqueue() waits on; anything sent later is a replay (X-Queued-At: queued, no
-    // lock taken, sent_after_reconnect — 00 H-1)
+    // plain only for the send its own enqueue() waits on; anything sent later is a replay with X-Queued-At (see the
+    // header: what the hub does with it per command)
     const replay = attempted.has(e.entry_id) || !waiting.has(e.entry_id);
     attempted.add(e.entry_id);
     const opts: CommandOptions = { commandId: e.entry_id, sessionToken: session.token, actorId: session.staff_id, ...(replay ? { queuedAt: e.queued_at } : {}) };
@@ -274,7 +279,7 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
       if (!replay) {
         outcomes.set(e.entry_id, { kind: 'refused', error: refusal });
         await drop(e.entry_id);
-      } else await toLog(e, refusal.code);
+      } else await toLog(e, refusal.code, refusal.details);
       return 'next';
     }
     // not an answer: stays queued, sent again later with the same id
@@ -391,6 +396,7 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
     // the same command_id and payload, as the person signed in now (named on the button); always a replay
     const again: QueueEntry = { ...e, state: 'queued', staff_id };
     delete again.log_reason;
+    delete again.log_details;
     entries = entries.map((x) => (x.entry_id === entry_id ? again : x));
     sessions.set(entry_id, { token, staff_id });
     attempted.add(entry_id);

@@ -166,9 +166,31 @@ describe('[02b §3.12] queue core', () => {
       ['01ENTRY0001', '1000000'],
       ['01ENTRY0002', '1000001'],
     ]);
-    expect(r.queue.log()).toEqual([expect.objectContaining({ entry_id: '01ENTRY0001', state: 'log', log_reason: 'ITEM_SOLD_OUT' })]);
+    expect(r.queue.log()).toEqual([expect.objectContaining({ entry_id: '01ENTRY0001', state: 'log', log_reason: 'ITEM_SOLD_OUT', log_details: { item_id: 'naan' } })]);
     expect(r.queue.pendingCount()).toBe(0);
     expect([...r.backing.values()]).toEqual([expect.objectContaining({ entry_id: '01ENTRY0001', state: 'log' })]);
+  });
+
+  it('[02b §3.12 review #165] the log keeps only the refused item / deal id of the details — never a name', async () => {
+    const backing: MemoryQueueBacking = new Map();
+    const r = rig({ backing });
+    await r.api.signIn('ali', '1234', false);
+    await r.queue.enqueue('SubmitOrder', { ...order('O1'), order_type: 'dine_in', table_id: 'F4', seating_id: 'S1' }, meta1);
+    await r.queue.enqueue('SubmitOrder', order('O2'), meta1);
+    r.h.script.push(err(409, 'TABLE_ALREADY_LOCKED', { table_id: 'F4', locked_by_staff_id: 'bilal', locked_by_name: 'Bilal' }), err(409, 'ITEM_SOLD_OUT', { item_id: 'naan', available: 0 }));
+    await r.queue.drain();
+    const stored = [...backing.values()];
+    expect(stored.map((e) => [e.log_reason, e.log_details])).toEqual([
+      ['TABLE_ALREADY_LOCKED', undefined],
+      ['ITEM_SOLD_OUT', { item_id: 'naan' }],
+    ]);
+    expect(JSON.stringify(stored)).not.toMatch(/Bilal|bilal|locked_by/);
+    expect(JSON.stringify(r.queue.log())).not.toMatch(/Bilal|bilal|locked_by/);
+    // Send again clears the old details while it is queued again
+    r.h.script.push('network');
+    expect(await r.queue.sendAgain('01ENTRY0002')).toEqual({ status: 'queued', entry_id: '01ENTRY0002' });
+    expect(r.queue.queued().find((e) => e.entry_id === '01ENTRY0002')).not.toHaveProperty('log_details');
+    expect(backing.get('01ENTRY0002')).not.toHaveProperty('log_details');
   });
 
   it('[02b §3.12] a 4xx to a first send the caller still waits on is refused to the caller, not logged', async () => {
@@ -519,6 +541,47 @@ describe('[02b §3.12] queue core', () => {
     await flushMicro();
     expect(second.log()).toEqual([]);
     expect(backing.has('01ENTRY0001')).toBe(false);
+  });
+
+  it('[02b §3.12 review #162] second tab load: a removal heard while it writes back the first entry skips the next', async () => {
+    const backing: MemoryQueueBacking = new Map();
+    const r = rig({ backing });
+    await r.api.signIn('ali', '1234', false);
+    await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    await r.queue.enqueue('SubmitOrder', order('O2'), meta1);
+    let removed: ((ids: string[]) => void) | null = null;
+    const inner = createMemoryQueueStore(backing);
+    // the first write-back (E1) is where the first tab's "removed E2" arrives (it sent E2 meanwhile)
+    const store = {
+      ...inner,
+      async put(e: QueueEntry) {
+        await inner.put(e);
+        if (e.entry_id === '01ENTRY0001') {
+          backing.delete('01ENTRY0002');
+          removed!(['01ENTRY0002']);
+        }
+      },
+    };
+    const second = createCommandQueue({
+      api: r.api,
+      device,
+      clock: () => ({ nowMs: () => r.now.ms, utcOffsetMs: 0 }),
+      live: createLiveBus(),
+      store,
+      onDeviceRevoked: () => {},
+      presence: () => ({
+        ownedElsewhere: async () => new Set<string>(),
+        announceRemoved: () => {},
+        onRemoved: (l) => {
+          removed = l;
+          return () => {};
+        },
+        dispose: () => {},
+      }),
+    });
+    await second.ready;
+    expect(second.log().map((e) => e.entry_id)).toEqual(['01ENTRY0001']);
+    expect([...backing.keys()]).toEqual(['01ENTRY0001']);
   });
 
   it('[02b §3.12 review #162] the queue announces every removal to the other tabs', async () => {

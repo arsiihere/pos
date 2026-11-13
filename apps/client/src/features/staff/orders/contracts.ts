@@ -299,6 +299,9 @@ export interface QueueEntry {
   state: 'queued' | 'log';
   /** why it is in the queue log: the hub's code, or 'reloaded' (Q-2: after a reload every entry goes to the log) */
   log_reason?: string;
+  /** of the hub's error `details` with that code, only the refused item / deal id the row names (review #165); never
+   *  a name or another person's id */
+  log_details?: { item_id?: string; deal_id?: string };
 }
 
 /** Q-1: the queue store (IndexedDB `pos-queue` now; SQLite with 01d 9b). No Capacitor import. */
