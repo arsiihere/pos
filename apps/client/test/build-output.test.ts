@@ -88,6 +88,15 @@ describe('client build output', () => {
     }
   });
 
+  it('[03b §8, IR-23] /kds/ body is .pos-root, never .pos-staff: bundle.css defines .pos-staff as the name-tile grid, which squeezed the whole KDS into one 180 px column', () => {
+    const html = readFileSync(fileURLToPath(new URL('../kds/index.html', import.meta.url)), 'utf8');
+    const body = /<body[^>]*\bclass="([^"]*)"/.exec(html)?.[1]?.split(/\s+/) ?? [];
+    expect(body).not.toContain('pos-staff');
+    expect(body).toContain('pos-root');
+    const built = readFileSync(join(DIST, 'kds', 'index.html'), 'utf8');
+    expect(/<body[^>]*\bclass="([^"]*)"/.exec(built)?.[1]?.split(/\s+/) ?? []).not.toContain('pos-staff');
+  });
+
   it('[03b W0.4] vite builds kds, admin-kitchen-screens and admin-printers into dist/<entry>/ with base /kds/, /admin/kitchen-screens/, /admin/printers/', () => {
     const want = { kds: '/kds/', 'admin-kitchen-screens': '/admin/kitchen-screens/', 'admin-printers': '/admin/printers/' };
     // the build script builds each entry (`vite build --mode <entry>`)
