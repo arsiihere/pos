@@ -1,6 +1,9 @@
-// stub (W0.5); owned by lane A, task A2
-// Created in W0.4 so that the admin-printers entry builds. Lane A replaces the body.
 import '../../../app/ui-kit-admin';
 import { mount } from '../../../app/mount';
+import { createPrintersApi } from './api';
+import { PrintersApp } from './Printers';
 
-mount(null);
+// 03c §8 (Q-43): the /admin/printers/ entry. The page shows the roster again on any signed-out answer.
+const api = createPrintersApi({ onSignedOut: () => {} });
+
+mount(<PrintersApp api={api} />);

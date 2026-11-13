@@ -133,6 +133,15 @@ export function createAdminPageApi(options: HubAdminOptions) {
     login: admin.login,
     logout: admin.logout,
     adminName: admin.adminName,
+    /** 00 M89: the admin's stored permissions (shared with /admin); null when not stored. */
+    permission(key: 'manage-devices' | 'manage-staff'): boolean | null {
+      try {
+        const value = (JSON.parse(storage.getItem('admin_permissions') ?? '{}') as Record<string, unknown>)[key];
+        return typeof value === 'boolean' ? value : null;
+      } catch {
+        return null;
+      }
+    },
     query: <T>(resource: string) => request<T>('GET', `/admin/queries/${resource}`),
     post: <T>(path: string, body: unknown) => request<T>('POST', path, body),
     command,
