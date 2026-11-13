@@ -20,7 +20,7 @@
 | **RISK: NORMAL** | Fresh implementer, one fresh reviewer (opus). |
 | **UI** | All tasks here. **Q-39 (owner 2026-11-12):** NORMAL tasks — implementer **Sonnet**; HIGH tasks (W0.5, K1, P1, P3, A2, A3, A4, A5) — implementer **Opus**; reviewers always **Opus**. |
 | **Batch (Q-41, owner 2026-11-12)** | A lane may put **2–3 consecutive small NORMAL tasks** of its own row order into **one PR** (one commit per task kept, one review per PR; branch `lane-<L>/<first>-<last>`). A HIGH task is always its own PR. |
-| **Fix rounds (Q-60, owner 2026-11-13)** | Review fix rounds only for **BLOCKER / MAJOR** findings. MINOR findings go to `docs/plans/03b-client-cleanup.md` (W0.1 creates it) and are fixed in the close tasks (Z). Money MINORs are still fixed before merge (03b / 03c move no money, so none are expected). |
+| **Fix rounds (Q-60, owner 2026-11-13)** | Review fix rounds only for **BLOCKER / MAJOR** findings. MINOR findings go to `docs/plans/03b-client-cleanup.md` (created by W0.1 only; client lanes only — hub MINORs go to `docs/plans/03b-hub-cleanup.md`, `03b-hub-gaps-plan.md`) and are fixed in the close tasks (Z). Money MINORs are still fixed before merge (03b / 03c move no money, so none are expected). |
 | **Needs** | Task ids that must be **merged** into the named branch first (`git fetch`; read only — never cherry-pick or merge them in). |
 
 ## Global constraints (every client task)
@@ -145,7 +145,7 @@ The three lanes share no file; i18n edits only under each lane's marker. P4 impo
 | 03b #70 K2 · #71 K2 · #72 K1, K3 · #73 K4 · #74 P2, P4 · #75 K4 · #76 K1, P1 | — |
 | E3-KDS AC5 client sound test | K5 |
 
-**Rulings → task:** Q-42 W0.4, K1 (+HK4) · Q-43 W0.4, A1, A2 (+HK5) · Q-44 K4, K5, P2 (+HK1) · Q-45 P2, P3 (+HK2) · Q-46 P2 (+HK2) · Q-47 K2, P2, A5 (+HK3) · Q-48 A1, A3 (+HK6) · Q-49 K1, P1 (+HK1 comment) · Q-50 W0.5, K2, P2, P4, A4 · Q-51 A4 · Q-52 A4 · Q-53 W0.3, A5 · Q-54 A1, A2, global constraints · Q-55 K1, P1 · Q-56 P4 · Q-57 W0.3, A5 · Q-58 branches, W0.6 · Q-39 / Q-41 / Q-60 Markers (process) · Q-61 hub plan (HK lanes in parallel with 02) · Q-62 hub plan HK1b (blocked).
+**Rulings → task:** Q-42 W0.4, K1 (+HK4) · Q-43 W0.4, A1, A2 (+HK5) · Q-44 K4, K5, P2 (+HK1) · Q-45 P2, P3 (+HK2) · Q-46 P2 (+HK2) · Q-47 K2, P2, A5 (+HK3) · Q-48 A1, A3 (+HK6) · Q-49 K1, P1 (+HK1 comment) · Q-50 W0.5, K2, P2, P4, A4 · Q-51 A4 · Q-52 A4 · Q-53 W0.3, A5 · Q-54 A1, A2, global constraints · Q-55 K1, P1 · Q-56 P4 · Q-57 W0.3, A5 · Q-58 branches, W0.6 · Q-39 / Q-41 / Q-60 Markers (process) · Q-61 hub plan (HK lanes in parallel with 02) · Q-62 = (a) hub plan HK1b.
 
 ## Prompts
 
