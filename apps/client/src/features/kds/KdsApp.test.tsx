@@ -432,7 +432,7 @@ describe('[03b §8] station socket', () => {
       expect(m.text()).toContain('T-A');
       expect(m.text()).toContain('T-B');
       const buttons = m.container.querySelectorAll<HTMLButtonElement>('main button');
-      expect(buttons.length).toBe(2);
+      expect(buttons.length).toBe(5); // Done + Reprint on each row (K3 stage buttons), Give me more
       for (const b of buttons) expect(b.disabled).toBe(true);
       expect(m.container.querySelectorAll('.kl.s-off')).toHaveLength(2);
 

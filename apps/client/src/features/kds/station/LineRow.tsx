@@ -28,11 +28,13 @@ export interface LineRowProps {
   actions?: ReactNode;
   /** an inline line under the card (K3 row errors) */
   message?: ReactNode;
+  /** K3: changed by a batch tap (`s-hl`) */
+  highlight?: boolean;
 }
 
 const TICK_ICON = 'M7 9V3.5h10V9';
 
-export function LineRow({ row, nowMs, utcOffsetMs, up, compact, stationId, hasPrinter, actions, message }: LineRowProps) {
+export function LineRow({ row, nowMs, utcOffsetMs, up, compact, stationId, hasPrinter, actions, message, highlight }: LineRowProps) {
   const [toast, setToast] = useState<{ text: string; tone: 'mute' | 'danger' } | null>(null);
   const d = row.detail;
   if (d === null) return <Placeholder off={!up} compact={compact} />;
@@ -49,6 +51,7 @@ export function LineRow({ row, nowMs, utcOffsetMs, up, compact, stationId, hasPr
   if (cue) classes.push('s-cue');
   if (!up) classes.push('s-off');
   if (compact) classes.push('kl--c');
+  if (highlight === true) classes.push('s-hl');
 
   const tags = lineTags(d);
   const slotActions = lineActions(d, { station_id: stationId, has_printer: hasPrinter, surface: 'kds' });

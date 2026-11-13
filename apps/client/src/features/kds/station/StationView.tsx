@@ -45,9 +45,11 @@ export interface StationViewProps {
   messageFor?: (row: KdsRow) => ReactNode;
   /** K3: Give me more under Later */
   nextFooter?: ReactNode;
+  /** K3: rows a batch tap just changed (highlighted together) */
+  highlight?: ReadonlySet<string>;
 }
 
-export function StationView({ view, nowMs, utcOffsetMs, up, banner, actionsFor, messageFor, nextFooter }: StationViewProps) {
+export function StationView({ view, nowMs, utcOffsetMs, up, banner, actionsFor, messageFor, nextFooter, highlight }: StationViewProps) {
   const compact = useCompact();
   const [, rerender] = useState(0);
   useEffect(() => onSlotsChanged(() => rerender((n) => n + 1)), []);
@@ -93,6 +95,7 @@ export function StationView({ view, nowMs, utcOffsetMs, up, banner, actionsFor, 
                 compact={compact}
                 stationId={station?.station_id ?? ''}
                 hasPrinter={station?.has_printer ?? false}
+                highlight={highlight?.has(row.order_item_id) ?? false}
                 {...(actionsFor === undefined ? {} : { actions: actionsFor(row) })}
                 {...(messageFor === undefined ? {} : { message: messageFor(row) })}
               />
