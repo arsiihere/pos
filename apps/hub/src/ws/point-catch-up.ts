@@ -4,6 +4,7 @@ import type { KdsStationBody, WsPointLines } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { buildLineDetails, devicePoint, pointOfLine } from '../kds/contracts.js';
+import { screenStations } from '../kds/device-roles.js';
 import { takeoverStations } from '../kds/presence.js';
 import { stationHasPrinter } from '../print/api.js';
 import type { HubDeps } from '../server.js';
@@ -34,13 +35,20 @@ const LIVE = new Set(['added', 'cooking', 'done']);
 /** B3-3: the events that change a line's live units (as ws/kds-catch-up.ts). */
 const UNIT_CHANGES: ReadonlySet<string> = new Set(['ItemRemoved', 'ItemVoided', 'LineWeightSet']);
 
-export type PointLine = LineDetail & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean };
+/** Q-46: the engine line's serve group and mode, so the Pass computes Ready / HOLD (a return or released line is `immediate`). */
+export type ServeFields = { group_id: string; serve_mode: 'sync' | 'immediate' };
+export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean };
 export interface PointViewBody {
   point_id: string;
-  stations: Array<{ station_id: string; name: string; lanes: KdsStationBody['lanes']; dark: boolean }>;
+  stations: Array<{ station_id: string; name: string; lanes: KdsStationBody['lanes']; dark: boolean; screenless: boolean }>;
   orders: Array<{ order_id: string; identifier: LineDetail['identifier']; placed_at: number; lines: PointLine[]; ready: { at: number; by: string | null } | null }>;
   takeovers: KdsStationBody[];
 }
+
+const serveOf = (state: EngineState, id: string): ServeFields => {
+  const l = state.lines[id]!;
+  return { group_id: l.group_id, serve_mode: l.serve_mode };
+};
 
 /** The live lines of `point_id` whose order is in the engine (memory). */
 function pointLineIds(state: EngineState, point_id: string, now: number): string[] {
@@ -137,7 +145,7 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
     const lines = order.line_ids.flatMap((id): PointLine[] => {
       const d = details.get(id);
       if (!lineSet.has(id) || d === undefined) return [];
-      return [{ ...d, stage: state.lines[id]!.stage as PointLine['stage'], handed_over: handed.has(id) }];
+      return [{ ...d, ...serveOf(state, id), stage: state.lines[id]!.stage as PointLine['stage'], handed_over: handed.has(id) }];
     });
     if (lines.length === 0) continue;
     orders.push({ order_id, identifier: lines[0]!.identifier, placed_at: order.placed_at, lines, ready: ready.get(order_id) ?? null });
@@ -156,6 +164,8 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
       name: s.name,
       lanes: lanesOf(settings.get(s.station_id) ?? noSettings),
       dark: takeovers.includes(s.station_id),
+      // Q-45 (§3.1): no paired, unrevoked kds device (memory, 0 statements); refreshed with the device maps.
+      screenless: !screenStations().has(s.station_id),
     })),
     orders,
     takeovers: takeovers.map((station_id): KdsStationBody => {
@@ -274,7 +284,7 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
       if (ids === undefined) continue;
       const lines = ids.flatMap((id) => {
         const d = details.get(id);
-        return d === undefined ? [] : [d];
+        return d === undefined || state.lines[id] === undefined ? [] : [{ ...d, ...serveOf(state, id) }];
       });
       const had = given.get(s.sessionId)!;
       for (const id of ids) had.add(id);
