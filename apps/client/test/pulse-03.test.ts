@@ -42,6 +42,8 @@ describe('Pulse 03 and admin 03 layers (03b + 03c, handoff 03b PROMPT)', () => {
       k('components/bundle.css'),
       k('components/pulse-staff.css'),
       k('components/pulse-03.css'),
+      // IR-14 (lane K, K2): the KDS frames' inline layout as classes
+      k('components/kds-03-additions.css'),
     ]);
     expect(readFileSync(kitDir + 'pulse-staff.css', 'utf8')).toContain('.pu.v-brand.kds {');
 

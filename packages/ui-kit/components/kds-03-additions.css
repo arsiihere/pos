@@ -1,0 +1,23 @@
+/* ==========================================================
+   KDS additions (03b client, lane K; integrator ruling IR-14, 2026-11-13).
+   Only what the 03b handoff frames draw with inline styles (the style prop is banned, S35 d), as classes.
+   pulse-03.css stays a byte copy of the handoff file. Load after pulse-03.css.
+   ========================================================== */
+
+/* Kds1280 / KdsRush1280: the 1280 × 800 wall tablet — 2 card columns, a 340 px Next column */
+.kgrid--1280 { --knx-w: 340px; --kcols: 2; }
+
+/* the timer rings: 84 px (1920 cards), 76 px (1280 compact cards), 120 px (KdsEmpty) */
+:where(.pu) .ring--84 { width: 84px; height: 84px; }
+:where(.pu) .ring--76 { width: 76px; height: 76px; }
+:where(.pu) .ring--120 { width: 120px; height: 120px; }
+
+/* KdsEmpty: the panel in place of Now */
+.kfull--panel { border-radius: 28px; background: var(--surface); }
+.kfull--panel b { font-size: 40px; }
+
+/* KdsLoading / 03b-C05 placeholder card skeletons */
+:where(.pu) .sk--kid { width: 140px; height: 40px; }
+:where(.pu) .sk--kring { width: 76px; height: 76px; border-radius: 50%; flex: none; }
+:where(.pu) .sk--kl1 { width: 80%; height: 30px; }
+:where(.pu) .sk--kl2 { width: 50%; height: 20px; }

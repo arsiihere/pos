@@ -2452,6 +2452,15 @@ export const en = {
   'kds.busy_small': 'Nothing was saved.',
   'kds.page_fault': "This page didn't load right",
   'kds.page_fault_body': 'Reload it. If it happens again, ask a manager.',
+  // K2 (03b §3.3; frames 03b-S01, 03b-C01–C05)
+  'kds.ring.cooking': 'cooking',
+  'kds.ring.waiting': 'waiting',
+  'kds.ring.done': 'done',
+  'kds.ring.min_late': 'min late',
+  'kds.to_fire': 'to fire',
+  'kds.empty_sub': 'New lines show here when they fire.',
+  'kds.mark.moved_time': 'new time {time}',
+  'kds.order_note': 'Order: {note}',
   // ---- lane P (03b client) ----
   // ---- lane A (03b client) ----
   // A1 kitchen screens (frames KitchenScreens*, 03b-S04 / D02 / D03 / B16)
