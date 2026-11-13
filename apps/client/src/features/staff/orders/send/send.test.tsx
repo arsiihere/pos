@@ -59,7 +59,7 @@ interface Sent {
   frozenAtEnqueue: boolean;
 }
 
-function harness(o: { answer: (p: SubmitOrderPayload) => Promise<Answer>; preview?: (d: EtaDraft) => EtaPreviewBody | null; drafts?: DraftStore }) {
+function harness(o: { answer: (p: SubmitOrderPayload) => Promise<Answer>; preview?: (d: EtaDraft) => EtaPreviewBody | null; drafts?: DraftStore; map?: TableMapBody }) {
   const live = createLiveBus();
   const config = cfg();
   const sent: Sent[] = [];
@@ -89,7 +89,7 @@ function harness(o: { answer: (p: SubmitOrderPayload) => Promise<Answer>; previe
     tables: {
       tableMap: async () => {
         mapReads.n += 1;
-        return { ok: true, data: MAP };
+        return { ok: true, data: o.map ?? MAP };
       },
     },
     toasts: { show: (x: { text: string }) => toasts.push(x.text) },
@@ -157,6 +157,28 @@ describe('[02b §8 Ordering screen] Send', () => {
     release({ status: 'sent', result: result(h.sent[0]!.payload) });
     await flush();
     m.unmount();
+  });
+
+  it('[02b §8 Ordering screen; task 28 e2e] the table name: the hub\'s joined_table_names hold the seating\'s tables, itself included ("F4", never "F4 + F4")', async () => {
+    const withTables = (names: string[]): TableMapBody => {
+      const tile = MAP.floors[0]!.zones[0]!.tables[0]!;
+      return { ...MAP, floors: [{ ...MAP.floors[0]!, zones: [{ ...MAP.floors[0]!.zones[0]!, tables: [{ ...tile, joined_table_names: names }] }] }] };
+    };
+    for (const [names, shown] of [
+      [['F4'], 'F4'],
+      [['F4', 'F5'], 'F4 + F5'],
+    ] as const) {
+      const h = harness({ answer: async (p) => ({ status: 'sent', result: result(p) }), map: withTables([...names]) });
+      const m = h.render();
+      await flush();
+      pick(m, 'Sides');
+      m.click(tile(m, 'Naan'));
+      m.click(m.button('Send to kitchen'));
+      await flush();
+      expect(h.sent[0]!.meta.label).toBe(`Order · ${shown}`);
+      expect(m.container.querySelector('.dlg .tcode')?.textContent).toBe(shown);
+      m.unmount();
+    }
   });
 
   it('[02b #35] Sending until the 2xx; never "Sent" before it', async () => {

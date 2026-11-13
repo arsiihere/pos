@@ -87,6 +87,11 @@ function useVersion(subscribe: (l: () => void) => () => void): number {
 }
 
 /** The device draft store (the context's, else 25a's IndexedDB store). */
+/** 02a §6 table-map: `joined_table_names` holds every table of the seating, itself included ("F4 + F5"); one table → its name. */
+function tableCode(tile: { name: string; joined_table_names: readonly string[] }): string {
+  return tile.joined_table_names.length > 1 ? tile.joined_table_names.join(' + ') : tile.name;
+}
+
 export function useDrafts(): DraftStore {
   return useContext(DraftStoreContext) ?? idbDrafts();
 }
@@ -222,7 +227,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         for (const zone of floor.zones)
           for (const tile of zone.tables) {
             if (tile.seating_id !== id || (tile.primary_table_id !== null && tile.primary_table_id !== tile.table_id)) continue;
-            setSeat({ ref: { table_id: tile.table_id, seating_id: id }, zone_id: zone.zone_id, round: (orders.ok ? orders.data.orders.length : 0) + 1, name: [tile.name, ...tile.joined_table_names].join(' + ') });
+            setSeat({ ref: { table_id: tile.table_id, seating_id: id }, zone_id: zone.zone_id, round: (orders.ok ? orders.data.orders.length : 0) + 1, name: tableCode(tile) });
             return true;
           }
       return false;
