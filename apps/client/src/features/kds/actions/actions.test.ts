@@ -67,6 +67,24 @@ describe('[03b §3.2] station commands', () => {
     expect(new Set(ids()).size).toBe(2);
   });
 
+  it('[03c §3.5 IR-15] command() with a given command_id puts exactly that id in the envelope, every time (the caller keeps it across a lost reply)', async () => {
+    const fetch = vi.fn(async (): Promise<Response> => Promise.reject(new TypeError('down')));
+    let n = 0;
+    const api = createKdsApi({ fetch, meta: { tenantId: 'T', branchId: 'B', branchName: '', hubNowMs: 0, utcOffsetMs: 0 }, deviceId: 'D', deviceToken: 'DEV', sessionToken: 'SS', nowMs: () => 0, newCommandId: () => `GEN${++n}` });
+    expect(await api.command('ReprintTicket', { order_id: 'O1' }, 'R-1')).toEqual({ ok: false, error: { kind: 'network' } });
+    fetch.mockImplementationOnce(async () => reply(200, { data: { command_id: 'R-1', event_ids: [], result: { ticket_ids: ['TK'], skipped: [] } } }));
+    expect(await api.command('ReprintTicket', { order_id: 'O1' }, 'R-1')).toEqual({ ok: true, data: { ticket_ids: ['TK'], skipped: [] } });
+    await api.command('ReprintTicket', { order_id: 'O1' }, 'R-2');
+    const sent = fetch.mock.calls.map((c) => JSON.parse((c as unknown as [string, RequestInit])[1].body as string) as { command_id: string; command_type: string });
+    expect(sent.map((b) => [b.command_type, b.command_id])).toEqual([
+      ['ReprintTicket', 'R-1'],
+      ['ReprintTicket', 'R-1'],
+      ['ReprintTicket', 'R-2'],
+    ]);
+    expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('/commands/reprint-ticket');
+    expect(n).toBe(0); // no id minted when one is given
+  });
+
   it('[03b §3.3] one button per card: two_tap Start then Done, single / auto Done only, from-stock Done only, Undo inside UNDO_DONE_MS', () => {
     expect(buttonFor(row({}), 'two_tap', 0)).toBe('start');
     expect(buttonFor(row({}), null, 0)).toBe('start');

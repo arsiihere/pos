@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { readDeviceKey, wipeDeviceKeys } from '../../api/hub-admin';
+import { readDeviceKey, wipeDeviceKeys, type HubResult } from '../../api/hub-admin';
 import { createHubClock, type HubClock } from '../../app/hub-clock';
 import { t } from '../../i18n';
 import { errorKey } from '../../i18n/en';
@@ -7,7 +7,7 @@ import { BACKOFF_MS, MAX_BACKOFF_MS, REPLACED_REASON, type AlertConnection, type
 import { createAlertStore, type Timers } from '../alerts/store';
 import { webAudioSink, type AudioSink, type ToneContext } from '../alerts/sounds';
 import type { PageMeta } from '../staff/api';
-import { createKdsApi, useKdsActions, type CompletionMode } from './actions/actions';
+import { createKdsApi, useKdsActions, type CompletionMode, type KdsStationApi } from './actions/actions';
 import { LOAD_NOTICE_MS, loadNotice, type LoadNotice } from './actions/batch';
 import { RowActions } from './actions/DoneEarly';
 import { GiveMeMore } from './actions/GiveMeMore';
@@ -24,7 +24,9 @@ import { Placeholder } from './station/Placeholder';
 import { StationView } from './station/StationView';
 import { Archived } from './states/Archived';
 import { DayNotStarted } from './states/DayNotStarted';
-import { subscribeFrames } from './slots';
+import { registerPrintSlots, type PrintTransport } from '../print/register';
+import type { OrderTicket } from '../pass/contracts';
+import { notifySlots, subscribeFrames } from './slots';
 import { createKdsStore, type KdsStoreImpl } from './store';
 
 // 03b v1.0.8 §8 (Q-42), §3.3, #72; 00 v1.9.2 §8.2, §8.4 (K1): the /kds/ app.
@@ -78,6 +80,12 @@ export interface KdsAppProps {
   go?: (path: string) => void;
   /** K5: the page's AudioContext (default kdsAudio), for "Tap to turn on sound" */
   audio?: () => ToneContext | null;
+}
+
+/** what the live station session lends the print transport (IR-15) */
+interface LivePrint {
+  api: KdsStationApi;
+  orderTickets: PrintTransport['orderTickets'];
 }
 
 type Screen = 'guest' | 'not_set_up' | 'host' | 'upgrade' | 'busy' | 'meta' | 'error';
@@ -151,6 +159,28 @@ export function KdsApp({ page, fetch, createSocket, timers, sink, readKey, wipeK
   }, [tm]);
 
   const busyRetried = useRef(false);
+
+  // IR-15 (03c §3.5, Q-50, Q-51): 03c's Reprint on KDS rows runs on the live station session. One transport for the
+  // app's whole life, registered once per mount (main.tsx registered the printed tag before the first render), so
+  // 03c's reprinter — and the command_id it keeps open after a lost reply — survives a new station session (4401,
+  // "Use this window", a hub restart): the hub replays by device + command_id (00 M19, M47) and prints once. With no
+  // live session `command` answers like a lost reply, so the id stays open; Reprint shows only while one is live (a
+  // station session reprints its own station's tickets, no grant needed).
+  const livePrint = useRef<LivePrint | null>(null);
+  const transport = useMemo<PrintTransport>(
+    () => ({
+      command: (type, payload, commandId) =>
+        livePrint.current === null ? Promise.resolve({ ok: false, error: { kind: 'network' } }) : livePrint.current.api.command(type, payload, commandId),
+      orderTickets: (order_id) =>
+        livePrint.current === null ? Promise.resolve({ ok: false, error: { kind: 'network' } }) : livePrint.current.orderTickets(order_id),
+      canReprint: () => livePrint.current !== null,
+    }),
+    [],
+  );
+  useEffect(() => {
+    registerPrintSlots(transport);
+    return () => void registerPrintSlots();
+  }, [transport]);
   /** a DeviceRevoked for this device came on the live socket before its close (00 §6.14): 4403 = revoked */
   const revoked = useRef(false);
 
@@ -262,6 +292,10 @@ export function KdsApp({ page, fetch, createSocket, timers, sink, readKey, wipeK
           {...(createSocket === undefined ? {} : { createSocket })}
           onUp={() => (attempt.current = 0)}
           onRevoked={() => (revoked.current = true)}
+          onPrint={(live) => {
+            livePrint.current = live;
+            notifySlots(); // Reprint shows / hides with the live session
+          }}
           onEnded={(code, reason) => {
             const token = phase.token;
             if (code === 4403) {
@@ -348,6 +382,7 @@ function Live({
   onUp,
   onRevoked,
   audio,
+  onPrint,
 }: {
   page: KdsPage;
   session: StationSession;
@@ -361,6 +396,7 @@ function Live({
   onUp: () => void;
   onRevoked: () => void;
   audio: () => ToneContext | null;
+  onPrint: (live: LivePrint | null) => void;
 }) {
   const endedRef = useRef(onEnded);
   endedRef.current = onEnded;
@@ -425,6 +461,18 @@ function Live({
     () => createKdsApi({ fetch, meta: page.meta, deviceId, deviceToken: token, sessionToken: session.session_token, nowMs: () => clock.current.nowMs() }),
     [fetch, page, deviceId, token, session],
   );
+  // IR-15: hand this session's commands to the app-wide print transport (KdsApp), and take them back when it ends
+  const printRef = useRef(onPrint);
+  printRef.current = onPrint;
+  useEffect(() => {
+    printRef.current({
+      api,
+      orderTickets: (order_id) =>
+        stationQuery<{ tickets: OrderTicket[] }>(fetch, token, session.session_token, `/queries/order-tickets?order_id=${encodeURIComponent(order_id)}`),
+    });
+    return () => printRef.current(null);
+  }, [api, fetch, token, session]);
+
   const [load, setLoad] = useState<LoadNotice | null>(null);
   const loadTimer = useRef<unknown>(null);
   useEffect(() => () => void (loadTimer.current !== null && timers.clearTimeout(loadTimer.current)), [timers]);
@@ -594,5 +642,19 @@ function ScreenMessage({ screen, code, onAgain, onReload }: { screen: Screen; co
       );
     case 'error':
       return <Message title={t(errorKey(code ?? 'UNKNOWN'))}>{again}</Message>;
+  }
+}
+
+/** `GET` on the station session (device token + station session token); the reply's `data` */
+async function stationQuery<T>(fetch: (input: string, init?: RequestInit) => Promise<Response>, deviceToken: string, sessionToken: string, path: string): Promise<HubResult<T>> {
+  try {
+    const response = await fetch(path, { method: 'GET', headers: { Authorization: `Bearer ${deviceToken}`, 'X-Session-Token': sessionToken } });
+    const body = (await response.json().catch(() => null)) as { data?: T; error?: { code?: unknown } } | null;
+    if (response.ok && body?.data !== undefined) return { ok: true, data: body.data };
+    if (response.ok) return { ok: false, error: { kind: 'network' } };
+    const code = typeof body?.error?.code === 'string' ? body.error.code : 'INTERNAL_ERROR';
+    return { ok: false, error: { kind: 'api', status: response.status, code, details: {} } };
+  } catch {
+    return { ok: false, error: { kind: 'network' } };
   }
 }

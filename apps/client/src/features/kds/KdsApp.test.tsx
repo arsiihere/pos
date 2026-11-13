@@ -9,8 +9,18 @@ import { flush, mount, reply, type Mounted } from '../../../test/dom';
 import type { SocketLike } from '../alerts/socket';
 import { fakeTimers, recordingSink, type FakeTimers } from '../alerts/test-fakes';
 import { KdsApp } from './KdsApp';
+
+// IR-15: every ULID minted on this page (03c's reprinter and the station api both use app/ulid), so a test can tell
+// whose id an envelope carries
+const ulids = vi.hoisted(() => ({ minted: [] as string[] }));
+vi.mock('../../app/ulid', () => ({
+  newUlid: () => {
+    const id = `ULID-${ulids.minted.length + 1}`;
+    ulids.minted.push(id);
+    return id;
+  },
+}));
 import type { KdsPage } from './session';
-import { registerLineAction } from './slots';
 
 // 03b v1.0.8 §8 (Q-42), §3.3, #72; 00 v1.9.2 §8.2, §8.4, M53 (K1): the /kds/ shell — station session, the device-key
 // rules, the socket states. The pairing store is a real (fake-indexeddb) `pos-device`, so wipes and keeps are proven.
@@ -427,8 +437,8 @@ describe('[03b §8] station socket', () => {
   });
 
   it('[03b #72] socket down → Reconnecting banner, every tap disabled, rows stay', async () => {
-    const off = registerLineAction((_l, ctx) => (ctx.has_printer ? { key: 'reprint', label: 'Reprint', run: async () => {} } : null));
-    try {
+    // IR-15: the Reprint on each row is 03c's, registered by KdsApp with the station transport (has_printer true)
+    {
       start([() => SESSION()]);
       await settle();
       // 03b-F02: the skeleton until the first catch-up
@@ -455,8 +465,85 @@ describe('[03b §8] station socket', () => {
       expect(m.text()).not.toContain('Reconnecting…');
       expect(m.text()).not.toContain('T-A');
       for (const b of m.container.querySelectorAll<HTMLButtonElement>('main button')) expect(b.disabled).toBe(false);
-    } finally {
-      off();
     }
+  });
+
+  it('[03c §3.5 IR-15] Reprint on a KDS row runs ReprintTicket on the station session with 03c\'s command_id; a retry after a lost reply carries the same id (prints once)', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const heads: Array<Record<string, string>> = [];
+    let lose = true;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/auth/station') return SESSION();
+      if (url === '/queries/branch-config') return CONFIG();
+      expect(url).toBe('/commands/reprint-ticket');
+      bodies.push(JSON.parse(init!.body as string) as Record<string, unknown>);
+      heads.push(init!.headers as Record<string, string>);
+      if (lose) throw new TypeError('down');
+      return reply(200, { data: { command_id: 'x', event_ids: [], result: { ticket_ids: ['TK1'], skipped: [] } } });
+    });
+    m = mount();
+    m.render(<KdsApp page={PAGE} fetch={fetch} timers={timers} sink={recordingSink(timers)} createSocket={() => { const s = new FakeSocket(); sockets.push(s); return s; }} />);
+    await settle();
+    sockets[0]!.frame(catchUp(['A']));
+    const row = () => m.container.querySelector('[data-id="A"]')!;
+    const before = ulids.minted.length;
+    m.click(m.button('Reprint', row()));
+    await settle();
+    expect(bodies).toHaveLength(1);
+    // the id is the one 03c minted (exactly one new ULID: the station api minted none of its own)
+    expect(ulids.minted.length).toBe(before + 1);
+    expect(bodies[0]!['command_id']).toBe(ulids.minted[before]);
+    expect(bodies[0]).toMatchObject({ command_type: 'ReprintTicket', payload: { order_id: 'O-A' }, actor_id: null, device_id: 'D-K1' });
+    expect(heads[0]).toMatchObject({ Authorization: 'Bearer DEV-KDS', 'X-Session-Token': 'SS-1' });
+    expect(row().querySelector('.kl__msg')).not.toBeNull(); // the lost reply: the row's own error line
+    lose = false;
+    m.click(m.button('Reprint', row()));
+    await settle();
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]!['command_id']).toBe(bodies[0]!['command_id']);
+    expect(ulids.minted.length).toBe(before + 1);
+    expect(row().querySelector('.kl__msg')?.textContent).toContain('Reprinting 1 tickets');
+    // answered: the next tap is a new reprint with a new id
+    m.click(m.button('Reprint', row()));
+    await settle();
+    expect(bodies[2]!['command_id']).not.toBe(bodies[0]!['command_id']);
+  });
+
+  it('[03c §3.5 IR-15] the open command_id survives a new station session: lost reply → 4401 → new session → Reprint resends the same id', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    let lose = true;
+    let n = 0;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/auth/station') return SESSION((n += 1));
+      if (url === '/queries/branch-config') return CONFIG();
+      bodies.push({ ...(JSON.parse(init!.body as string) as Record<string, unknown>), session: (init!.headers as Record<string, string>)['X-Session-Token'] });
+      if (lose) throw new TypeError('down');
+      return reply(200, { data: { command_id: 'x', event_ids: [], result: { ticket_ids: ['TK1'], skipped: [] } } });
+    });
+    m = mount();
+    m.render(<KdsApp page={PAGE} fetch={fetch} timers={timers} sink={recordingSink(timers)} createSocket={() => { const s = new FakeSocket(); sockets.push(s); return s; }} />);
+    await settle();
+    sockets[0]!.frame(catchUp(['A']));
+    m.click(m.button('Reprint', m.container.querySelector('[data-id="A"]')!));
+    await settle();
+    expect(bodies).toHaveLength(1);
+    // the hub restarts: the session ends, the screen signs in again (after the backoff) and catches up
+    sockets[0]!.drop(4401, 'logout');
+    await settle();
+    expect(m.buttons().some((b) => b.textContent === 'Reprint')).toBe(false);
+    timers.advance(500);
+    await settle();
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.frame(catchUp(['A']));
+    lose = false;
+    m.click(m.button('Reprint', m.container.querySelector('[data-id="A"]')!));
+    await settle();
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]!['session']).toBe('SS-2');
+    expect(bodies[1]!['command_id']).toBe(bodies[0]!['command_id']);
+    // answered: the next tap gets a new id
+    m.click(m.button('Reprint', m.container.querySelector('[data-id="A"]')!));
+    await settle();
+    expect(bodies[2]!['command_id']).not.toBe(bodies[0]!['command_id']);
   });
 });
