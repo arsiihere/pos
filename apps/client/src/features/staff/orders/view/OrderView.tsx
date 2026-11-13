@@ -12,6 +12,7 @@ import { ContactSheet } from '../actions/ContactSheet';
 import { MarkServedSheet, type ServedCandidate } from '../actions/MarkServedSheet';
 import type { CarType, CatchUpOrder, LineView, OpenOrder, OrdersCatchUp, OrderType, SeatingLine, SeatingOrder } from '../contracts';
 import { MONEY_DIR, money } from '../money';
+import { concerns, createLiveReader, idsOf, ORDER_FRAMES, type LiveReader } from '../table-view/refetch';
 import { enqueueMeta, LineActions, servedCandidatesOf, showOrderError, type LineOrder } from './LineActions';
 import { LineRow } from './LineRow';
 import { isServed, readyCount } from './stage';
@@ -79,41 +80,6 @@ function headOfRow(o: OpenOrder): Head {
   };
 }
 
-/** 02b §6.19 order frames the view shows, and the Q-6 stage frames (H1). */
-const ORDER_FRAMES: ReadonlySet<string> = new Set([
-  'OrderPlaced',
-  'ItemAdded',
-  'OrderLinesAdded',
-  'ItemRemoved',
-  'ItemVoided',
-  'ItemServed',
-  'ItemReturned',
-  'ItemsReleased',
-  'OrderBoosted',
-  'OrderCancelled',
-  'OrderFoodServed',
-  'OrderFoodCleared',
-  'OrdersBilled',
-  'LineWeightSet',
-  'LineComped',
-  'OrderContactSet',
-  'ItemStarted',
-  'ItemDone',
-  'ItemDoneUndone',
-  'FireDispatched',
-]);
-const DEBOUNCE_MS = 250;
-
-const ids = (v: unknown): string[] => (typeof v === 'string' ? [v] : Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-
-/** A frame names this order (order_id / order_ids) or one of its lines; a frame naming neither may be about it. */
-export function concernsOrder(payload: Record<string, unknown>, order_id: string, lineIds: ReadonlySet<string>): boolean {
-  const orders = [...ids(payload['order_id']), ...ids(payload['order_ids'])];
-  const lines = [...ids(payload['order_item_id']), ...ids(payload['order_item_ids'])];
-  if (orders.length === 0 && lines.length === 0) return true;
-  return orders.includes(order_id) || lines.some((l) => lineIds.has(l));
-}
-
 export const identOf = (h: Pick<Head, 'token' | 'car_number'>): string => (h.car_number ?? (h.token === null ? '—' : String(h.token)));
 
 export function OrderView({ order_id }: OrderViewProps) {
@@ -124,48 +90,35 @@ export function OrderView({ order_id }: OrderViewProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [open, setOpen] = useState<'call' | 'boost' | 'served' | null>(null);
 
-  /** Q-6 / IR-6: only the newest read answers, and a reply is dropped when a triggering frame came after its request */
-  const generation = useRef(0);
-  const triggers = useRef(0);
+  /** Q-6 / IR-6 (table-view/refetch.ts): frame-driven re-reads; only the newest read answers */
   const lineIds = useRef<ReadonlySet<string>>(new Set((caught?.lines ?? []).map((l) => l.order_item_id)));
-  const load = useCallback(async () => {
-    const gen = ++generation.current;
-    const at = triggers.current;
-    const answer = await shell.orders.orderView(order_id);
-    if (gen !== generation.current || at !== triggers.current) return; // the follow-up read answers
-    if (answer.ok) {
-      if (answer.data.kind === 'order') lineIds.current = new Set(answer.data.order.lines.map((l) => l.order_item_id));
-      setView(answer.data.kind === 'order' ? { kind: 'order', order: answer.data.order } : { kind: 'fallback' });
-    } else if (answer.error.kind === 'api' && answer.error.code === 'ORDER_NOT_FOUND') setView({ kind: 'gone' });
-    else showOrderError(shell, answer.error, () => {});
-  }, [shell, order_id]);
   /** the fallback has no read to repeat: lines served since the catch-up, from ItemServed frames */
   const [servedSince, setServedSince] = useState<ReadonlySet<string>>(new Set());
+  const reader = useRef<LiveReader | null>(null);
+  const load = useCallback(async () => {
+    await reader.current?.read();
+  }, []);
 
   useEffect(() => {
-    void load();
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const later = () => {
-      if (timer !== null) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        void load();
-      }, DEBOUNCE_MS);
-    };
-    const off = shell.live.subscribe((m) => {
-      if (m.kind === 'reconnect' || m.kind === 'visible') {
-        triggers.current += 1;
-        later();
-        return;
-      }
-      if (m.kind !== 'event' || !ORDER_FRAMES.has(m.event.event_type) || !concernsOrder(m.event.payload, order_id, lineIds.current)) return;
-      triggers.current += 1;
-      if (m.event.event_type === 'ItemServed') {
-        const served = ids(m.event.payload['order_item_ids']);
+    const r = createLiveReader({
+      live: shell.live,
+      query: () => shell.orders.orderView(order_id),
+      relevant: (e) => ORDER_FRAMES.has(e.event_type) && concerns(e.payload, new Set([order_id]), lineIds.current),
+      onFrame: (e) => {
+        if (e.event_type !== 'ItemServed') return;
+        const served = idsOf(e.payload['order_item_ids']);
         setServedSince((cur) => new Set([...cur, ...served]));
-      }
-      later();
+      },
+      onAnswer: (answer) => {
+        if (answer.ok) {
+          if (answer.data.kind === 'order') lineIds.current = new Set(answer.data.order.lines.map((l) => l.order_item_id));
+          setView(answer.data.kind === 'order' ? { kind: 'order', order: answer.data.order } : { kind: 'fallback' });
+        } else if (answer.error.kind === 'api' && answer.error.code === 'ORDER_NOT_FOUND') setView({ kind: 'gone' });
+        else showOrderError(shell, answer.error, () => {});
+      },
     });
+    reader.current = r;
+    void r.read();
     let alive = true;
     if (caught === null) {
       // placed after this page's catch-up: its token / plate from open-orders (one read)
@@ -176,10 +129,9 @@ export function OrderView({ order_id }: OrderViewProps) {
     }
     return () => {
       alive = false;
-      off();
-      if (timer !== null) clearTimeout(timer);
+      r.dispose();
     };
-    // one subscription per order
+    // one reader per order
   }, [order_id]);
 
   const close = () => navigate(shell.device.type === 'cashier_kiosk' ? '/' : '/orders');
