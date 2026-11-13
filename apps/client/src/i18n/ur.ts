@@ -1017,6 +1017,14 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'signin.pin_needs_hub': 'سائن اِن کے لیے ہب چاہیے',
   'pair.wipe_failed': 'اس سکرین کو ری سیٹ نہیں کیا جا سکا۔ مینیجر سے پوچھیں۔',
   // ---- lane B (02a client) ----
+  'tables.ny.bill': 'بل مانگا',
+  'tables.ny.yours_ago': 'آپ کی · {n} منٹ پہلے',
+  'tables.ny.ordering': '{name} آرڈر لے رہے ہیں',
+  'tables.ny.ordering_sub': 'آپ کا زون · ان کی میز',
+  'tables.ny.clean': 'صفائی',
+  'tables.flag.late': '{n} منٹ دیر',
+  'tables.tile.min': '· {n} منٹ',
+  'tables.held': 'رکے ہوئے',
   // ---- lane C (02a client) ----
   // ---- lane D (02a client) ----
   // ---- lane Q (02b client) ----
