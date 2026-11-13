@@ -1181,4 +1181,15 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // ---- lane K (03b client) ----
   // ---- lane P (03b client) ----
   // ---- lane A (03b client) ----
+  // A1 kitchen screens (from KitchenScreensUrdu; the rest is in docs/design/handoff/03b/urdu-todo.md, lane A)
+  'kitchen_screens.stations': 'اسٹیشن',
+  'kitchen_screens.stations_help': 'ہر اسٹیشن کی اسکرینیں، لین اور آواز۔ 0 خاموش۔',
+  'kitchen_screens.pass_tablets_help': 'پوائنٹ سے جڑے ٹیبلٹ سائن اِن کے بعد پاس دکھاتے ہیں۔',
+  'kitchen_screens.tablet_sub': 'پاس ٹیبلٹ · ہمیشہ الرٹ',
+  'kitchen_screens.lane': 'لین: {label}',
+  'kitchen_screens.no_lane_label': 'لین لیبل نہیں',
+  'kitchen_screens.change': 'بدلیں',
+  'kitchen_screens.use_tablet': 'ٹیبلٹ کو پاس ٹیبلٹ بنائیں',
+  'kitchen_screens.play': 'اس ڈیوائس پر چلائیں',
+  'admin_03.nav.other_jobs': 'دوسرے کام',
 };
