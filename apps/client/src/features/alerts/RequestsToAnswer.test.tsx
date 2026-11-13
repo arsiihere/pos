@@ -65,3 +65,25 @@ describe('[01d §8.1 S02] Requests to answer', () => {
     expect(onOpen.mock.calls[0]![0]).toMatchObject({ alert_id: 'R1', can_answer: true });
   });
 });
+
+describe('[02a §8 Table sheet] Requests for the 02 kinds (23b)', () => {
+  it('[02a §8 Table sheet] a handover card reads "3 orders · Rs 14,250" with the running total at the end; Answer opens it', () => {
+    const onOpen = vi.fn();
+    const handover = requestRow({
+      alert_id: 'H1',
+      kind: 'table_handover',
+      family: 'action',
+      answers: ['accept', 'decline'],
+      needs_pin: 'never',
+      lock: { kind_label_key: 'alert.table_handover.lock', table_code: 'F4 + F5', point_code: null, requester_name: 'Ali' },
+      card: { kind_label_key: 'alert.table_handover.card', table_code: 'F4 + F5', point_code: null, requester_name: 'Ali', device_name: null, details: { quantity: 3, amount: 1_425_000 } },
+    });
+    m = mount();
+    m.render(<RequestsToAnswer rows={requestViews([handover], new Map())} nowMs={NOW} utcOffsetMs={0} onOpen={onOpen} />);
+    const card = m.container.querySelector('[data-alert="H1"]')!;
+    expect(card.querySelector('.ac__det')?.textContent).toBe('3 orders');
+    expect(card.querySelector('.ac__amt')?.textContent).toBe('Rs 14,250');
+    m.click(card);
+    expect(onOpen.mock.calls[0]![0]).toMatchObject({ alert_id: 'H1' });
+  });
+});
