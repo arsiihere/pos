@@ -15,6 +15,9 @@ import type { ShellHooks } from './shell/hooks';
 
 export const ROSTER_RETRY_MS = 5_000;
 
+// 02a §8 Login (Q-13): the hub does not know this device any more; the shell wipes the pairing (PairAgain).
+const UNPAIRED_CODES = new Set(['DEVICE_TOKEN_INVALID', 'DEVICE_REVOKED']);
+
 /** 02b §8 Queue (W0.6): without a queue there is nothing to drain and no line. */
 const NO_HOOKS: ShellHooks = { beforeSignIn: async () => {}, queueLine: () => null, subscribe: () => () => {} };
 
@@ -30,11 +33,33 @@ function errorOf(error: HubError): PinError {
   return { text: answerErrorText(error.code, error.details), tone: 'danger', icon: locked ? 'lock' : 'warn' };
 }
 
+/** 02a §8 Login (frame SignInOffline): the hub is away; the names stay and the roster is read again. */
+function OfflineLine() {
+  return (
+    <div className="warnbar" role="status">
+      <Ico name="wifioff" />
+      {t('alerts.signin.offline')}
+    </div>
+  );
+}
+
+/** 02b §8 Queue (frame SignIn): the queue line under the grid. */
+function QueueLine({ text }: { text: string | null }) {
+  if (text === null) return null;
+  return (
+    <div className="warnbar" role="status">
+      <Ico name="info" />
+      {text}
+    </div>
+  );
+}
+
 export function SignIn({
   api,
   phone,
   lockPanel,
   hooks = NO_HOOKS,
+  onUnpaired,
   onSignedIn,
 }: {
   api: Pick<StaffApi, 'roster' | 'signIn'>;
@@ -43,6 +68,8 @@ export function SignIn({
   lockPanel: ReactNode;
   /** 02b §8 Queue: the queue drains before POST /auth/pin and shows its line here (25c) */
   hooks?: ShellHooks;
+  /** 02a §8 Login: staff-roster answered 401 DEVICE_TOKEN_INVALID / 403 DEVICE_REVOKED */
+  onUnpaired?: () => void;
   onSignedIn: (who: SignedIn) => void;
 }) {
   const queueLine = useSyncExternalStore(hooks.subscribe, hooks.queueLine);
@@ -58,13 +85,17 @@ export function SignIn({
   const load = useCallback(async () => {
     const answer = await api.roster();
     if (!answer.ok) {
+      if (answer.error.kind === 'api' && UNPAIRED_CODES.has(answer.error.code)) {
+        onUnpaired?.();
+        return;
+      }
       setOffline(answer.error.kind === 'network');
       if (answer.error.kind !== 'network') setStaff([]);
       return;
     }
     setOffline(false);
     setStaff(answer.data.staff);
-  }, [api]);
+  }, [api, onUnpaired]);
 
   useEffect(() => {
     void load();
@@ -101,6 +132,8 @@ export function SignIn({
       onSignedIn(answer.data);
       return;
     }
+    // 02a §8 Login: the hub went away while the names were on screen — they stay, the roster is read again
+    if (answer.error.kind === 'network') setOffline(true);
     const e = errorOf(answer.error);
     setError(e);
     if (answer.error.kind === 'api' && answer.error.code === 'DEVICE_SESSION_ACTIVE') setTakeover(true);
@@ -116,10 +149,12 @@ export function SignIn({
     setLocked(false);
   };
 
+  // 02a §8 Login (frame SignInOffline): the names stay; the pad says it needs the hub and is off until the roster is back
+  const NEEDS_HUB: PinError = { text: t('signin.pin_needs_hub'), tone: 'warn', icon: 'wifioff' };
   const keys = (
     <PinKeys
       length={pin.length}
-      disabled={busy || locked}
+      disabled={busy || locked || offline}
       actionLabel={t('alerts.signin.submit')}
       onDigit={(d) => {
         setError((e) => (e?.tone === 'warn' ? e : null));
@@ -127,20 +162,16 @@ export function SignIn({
       }}
       onBack={() => setPin((p) => p.slice(0, -1))}
       onSubmit={() => void submit()}
-      error={error}
+      error={offline ? NEEDS_HUB : error}
       narrow={phone}
     />
   );
 
-  if (offline) {
+  if (offline && staff === null) {
     return (
       <main className="body body--signin">
         {lockPanel}
-        {queueLine !== null && (
-          <p className="muted signin__p" role="status">
-            {queueLine}
-          </p>
-        )}
+        <QueueLine text={queueLine} />
         <div className="msg c-danger" role="alert">
           <Ico name="wifioff" />
           <span>{t('alerts.signin.offline')}</span>
@@ -157,12 +188,9 @@ export function SignIn({
     return (
       <main className="ph-body">
         {lockPanel}
-        {queueLine !== null && (
-          <p className="muted signin__p" role="status">
-            {queueLine}
-          </p>
-        )}
+        {offline && <OfflineLine />}
         <div className="card col signin__phone">{keys}</div>
+        <QueueLine text={queueLine} />
       </main>
     );
   }
@@ -170,11 +198,7 @@ export function SignIn({
   return (
     <main className="body body--signin">
       {lockPanel}
-      {queueLine !== null && (
-        <p className="muted signin__p" role="status">
-          {queueLine}
-        </p>
-      )}
+      {offline && <OfflineLine />}
       <div>
         <h1 className="signin__h1">{t('alerts.signin.who')}</h1>
         <p className="muted signin__p">{t('alerts.signin.pick')}</p>
@@ -214,6 +238,7 @@ export function SignIn({
           })}
         </div>
       )}
+      <QueueLine text={queueLine} />
       {selected !== null && (
         <Dialog sheet={phone} labelledBy="dt" onClose={closePin}>
           <div className="dlg__h">

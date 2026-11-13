@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { wipeDeviceKeys } from '../../api/hub-admin';
 import { createHubClock } from '../../app/hub-clock';
 import { navigate, useHashRoute } from '../../app/router';
 import { language, t } from '../../i18n';
@@ -33,6 +34,7 @@ import { isSlotRoute, RouteSlot } from './shell/slots';
 import { createToastBus, ToastView } from './shell/toast';
 import { createTablesApi } from './tables/api';
 import { HandoverLayer } from './tables/cards/HandoverLayer';
+import { PairAgain } from './tables/PairAgain';
 import { createLocalFlags } from './tables/local-flags';
 
 // 01d task 41: the hub-served staff entry /staff/ (spec §8.1; hand-off PROMPT "Staff entry shell"). Maroon 80 px
@@ -94,9 +96,13 @@ export interface StaffAppProps {
   createSocket?: (url: string) => SocketLike;
   sink?: AudioSink;
   timers?: Timers;
+  /** 02a §8 Login (tests): forget the pairing keys; default `wipeDeviceKeys` of the pairing store */
+  wipeKeys?: () => Promise<void>;
+  /** 02a §8 Login (tests): where PairAgain's button goes; default `location.assign` */
+  goToPair?: (path: string) => void;
 }
 
-export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: StaffAppProps) {
+export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipeKeys, goToPair }: StaffAppProps) {
   const phone = useMedia(PHONE);
   const portrait = useMedia(PORTRAIT);
   const route = useHashRoute();
@@ -104,6 +110,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   const meRef = useRef<Me | null>(null);
   meRef.current = me;
   const signOutRef = useRef<() => void>(() => {});
+  // 02a §8 Login (Q-13): the hub no longer knows this device (roster 401 / 403, socket close 4403)
+  const unpairRef = useRef<() => void>(() => {});
+  const [unpaired, setUnpaired] = useState(false);
+  const [wipe, setWipe] = useState<'pending' | 'done' | 'failed'>('pending');
   // the hub counts every accepted command as session activity (commands/route.ts); queries never (§6.7–6.10)
   const activityRef = useRef<() => void>(() => {});
   const hubFetch = useMemo(() => {
@@ -158,6 +168,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
         onEnded: (code, reason) => {
           if (code === 4409 || reason === REPLACED_REASON) setReplaced(true);
           else if (code === 4401) signOutRef.current();
+          else if (code === 4403) unpairRef.current();
         },
       }),
     [device, socketStore, timers, createSocket, liveBus],
@@ -314,6 +325,26 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
     [api, conn],
   );
   signOutRef.current = () => signOut(false);
+  // the pairing keys go (the command queue and the drafts stay), the session and the socket end, PairAgain shows
+  unpairRef.current = () => {
+    if (unpaired) return;
+    sessionGen.current += 1;
+    setOpened(null);
+    setCloses(new Map());
+    setRequests([]);
+    setCursor(null);
+    setMe(null);
+    setBindingUntil(null);
+    api.drop();
+    conn.dispose();
+    setUnpaired(true);
+    setWipe('pending');
+    (wipeKeys ?? wipeDeviceKeys)().then(
+      () => setWipe('done'),
+      () => setWipe('failed'),
+    );
+  };
+  const onUnpaired = useCallback(() => unpairRef.current(), []);
 
   const sender = useMemo(
     () =>
@@ -374,7 +405,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   const staffRoute = matchStaffRoute(route, device.type);
   let page: ReactNode;
   let current: 'inbox' | 'requests' | 'test' = 'inbox';
-  if (me === null) {
+  if (unpaired) {
+    page = <PairAgain wipe={wipe} {...(goToPair === undefined ? {} : { go: goToPair })} />;
+  } else if (me === null) {
     // F01 (frames LockKiosk, LockPhone): urgent lines first, then newest first (the store's order); up to 3
     const openRows = snap.rows.filter((r) => r.state === 'open');
     const lockRows =
@@ -387,6 +420,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
         phone={phone}
         lockPanel={lockRows.length === 0 ? null : <LockPanel rows={lockRows} utcOffsetMs={offset} />}
         hooks={shellHooks}
+        onUnpaired={onUnpaired}
         onSignedIn={(who) => void signedIn(who)}
       />
     );
