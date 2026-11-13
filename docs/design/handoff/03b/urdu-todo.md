@@ -289,3 +289,11 @@ Appended by lane K (KDS English only in P1, brief §6.1).
 | Key | English | Note |
 |---|---|---|
 | `print.reprinting_queued` | Reprinting {n} tickets. It prints when the printer is back. | Pass card / takeover toast (brief §3.6 03c-C02) |
+
+## Lane P (Pass)
+
+Appended by task P2 under the lane P marker of `en.ts`; no Urdu frame text for these.
+
+| Key | English | Note |
+|---|---|---|
+| `pass.empty_sub` | Orders show here when their first line fires. | PassEmpty |

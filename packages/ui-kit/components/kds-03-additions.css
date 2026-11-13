@@ -33,3 +33,21 @@
 .lockp__r--kds { flex: 1; min-height: 72px; background: #3A0E0B; color: #FFE3DE; font-size: 22px; border-radius: 20px; box-shadow: inset 0 0 0 2px #E05A4F; }
 .lockp__r--kds .ac__time { color: #F4B9A8; }
 .kbn--sound { flex: 0.7; font-size: 22px; }
+
+/* Pass (lane P), IR-18 */
+/* PassPortrait: the 800 × 1280 tablet — one card column (landscape keeps pulse-03's default 3) */
+.pcards--1 { --pcols: 1; }
+/* PassLoading: skeleton cards */
+.pc--sk { padding: 16px; gap: 12px; }
+:where(.pu) .sk--pid { width: 50%; height: 32px; }
+:where(.pu) .sk--pl1 { height: 18px; }
+:where(.pu) .sk--pl2 { height: 18px; width: 70%; }
+:where(.pu) .sk--pbtn { height: 72px; }
+/* PassPortrait: the station strip wraps */
+.pstrip--wrap { flex-wrap: wrap; }
+/* PassEmpty: the empty panel fills the card area; its 96 px ring */
+.empty--pass { flex: 1; }
+:where(.pu) .ring--96 { width: 96px; height: 96px; }
+.empty--pass .ico--36 { width: 36px; height: 36px; color: var(--ok); }
+/* Pass line: the slot tags and the stage chip side by side (the frames' inline gap on .row) */
+.pl > .row { gap: 6px; }

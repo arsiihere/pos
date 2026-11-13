@@ -30,6 +30,11 @@ export interface PrintTransport {
   orderTickets(order_id: string): Promise<HubResult<{ tickets: OrderTicket[] }>>;
   /** the session's `reprint-ticket` grant (a station session reprints its own station: true) */
   canReprint(): boolean;
+  /**
+   * IR-19 (optional): who the session is (the Pass: the signed-in staff id). A PERMISSION_DENIED hides Reprint only
+   * while `session()` answers the same value; without it (the KDS) a denial lasts as before.
+   */
+  session?(): string | null;
 }
 
 export class ReprintUnanswered extends Error {}
@@ -46,12 +51,14 @@ export function createReprinter(transport: PrintTransport, onDenied: () => void)
   const running = new Map<string, Promise<{ toast?: string }>>();
   // takeover key → the tickets not answered yet and how many the hub queued so far
   const partial = new Map<string, { left: string[]; n: number }>();
-  let denied = false;
+  /** IR-19: denied, and for which session (`transport.session()` at the 403; undefined when it has none) */
+  let denied: { session: string | null | undefined } | null = null;
+  const sessionNow = (): string | null | undefined => transport.session?.();
 
   const refusal = (answer: Refused, n = 0): { toast?: string } => {
     if (answer.error.kind !== 'api') throw new ReprintUnanswered(answer.error.kind);
     if (answer.error.code === 'PERMISSION_DENIED') {
-      denied = true;
+      denied = { session: sessionNow() };
       onDenied();
       return n > 0 ? queued(n) : {};
     }
@@ -88,7 +95,8 @@ export function createReprinter(transport: PrintTransport, onDenied: () => void)
     });
 
   return {
-    available: () => !denied && transport.canReprint(),
+    // the open command ids are kept whatever the session; only the denial is scoped to it (IR-19)
+    available: () => (denied === null || (transport.session !== undefined && denied.session !== sessionNow())) && transport.canReprint(),
 
     /**
      * KDS row (`surface: 'kds'`, a station session): the hub reprints only this station's tickets of the order (§3.5),
