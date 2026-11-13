@@ -34,11 +34,11 @@ Plan: `docs/plans/02a-plan.md` (26 tasks; hub built in **parallel waves 0–3**,
 | 17 | `RequestBill`, `CleanTable` (queueable) | 17 | 4 | NORMAL | **done (wave 2)** | `4215c31`, `5c97400` |
 | 18 | Kind `call_waiter`, `CallWaiter` | 18 | 4 | NORMAL | **done (wave 2)** | `49b6686`, `90886f4` |
 | 19 | Queries, catch-up, audiences | 19 | 4 | NORMAL | **done (wave 3)** | `2357164` |
-| 20 | Client: login resume | 20 | 5 | UI | **blocked (design handoff)** | |
-| 21 | Client: table map | 20 | 5 | UI | **blocked (design handoff)** | |
-| 22 | Client: table sheet and dialogs | 20 | 5 | UI | **blocked (design handoff)** | |
-| 23 | Client: banners, handover cards, offline | 20 | 5 | UI | **blocked (design handoff)** | |
-| 24 | Client: Playwright flows | 20 | 5 | UI | **blocked (design handoff)** | |
+| 20 | Client: login resume (+ top bar, phone tabs) | 20 | 5 | UI | **done (client 20a, 20b; `module-02a-client`)** — Z1: §8 Login, Top bar green; H8 on `main` (#173) | #157 `4fdada38`, #163 `b9dbaec8` |
+| 21 | Client: table map | 20 | 5 | UI | **done (client 21a, 21b + IR-3 / IR-5 wiring)** — Z1: §8 Table map (Q-5, Q-17, Q-25, Q-35) green | #160 `8426dccc`, `f856fc4f`; #170 `770d2c38` |
+| 22 | Client: table sheet and dialogs | 20 | 5 | UI | **done (client 22a, 22b, 22c + IR-4)** — Z1: §8 Open, Table sheet, Offline (Bill / Clean on "Needs the hub" until 02b, Q-3), Rules green | #161 `a409c02b`, #166 `08b873ad`, #172 `f8a3d805`, #175 `58f620d7` |
+| 23 | Client: banners, handover cards, offline | 20 | 5 | UI | **done (client 23a, 23b, 23c)** — Z1: §8 Order screen, Banners (unit only; e2e in task 28), Handover waiting card, Offline green; H7 on `main` (#173) | #159 `a9ca9ebd`, #168 `0e33f406`, #176 `f07d8e84`, #169 `2a0cc096` |
+| 24 | Client: Playwright flows | 20 | 5 | UI | **done** — §12.1: 65 passed at 5 viewports × en + ur (`docs/reviews/02a-client-e2e.md`, `pnpm test:e2e`, not in the gate); gaps → task 28 | #186 `38e19ef2` |
 
 ## SG rows (spec gaps)
 
@@ -83,6 +83,16 @@ Full text: plan §"Spec gaps SG-1–SG-6 — ruled".
 | AD-24 | 19 | `handover-candidates`: §6.7 receiver rule, working first, then name, then `staff_id`; a FREE configured table is valid; 404 only when neither configured nor seated; **`tables_held` counts open seatings** (a merged T7+T8 = 1) | — | as read | **ruled (owner, 2026-11-10)** |
 | AD-25 | 19 | `BillClosed` gets no audience in 02a (§6.19 table does not list it; 05 owns it, SG-2): NEEDS_CLEANING reaches clients only via the next map read or catch-up until 05 registers one | — | accepted; 05 must register the `BillClosed` audience (OPEN-QUESTIONS §5 02a-N3) | **ruled (owner, 2026-11-10)** |
 | AD-26 | 19 | Catch-up part `tables` limited to the map's device types (tablet, phone, cashier kiosk); the audience still sends table frames to a staff session on a KDS device, which gets no `tables` catch-up | (a) accept the difference; (b) align the audience to the same device types | (a) accepted as read | **ruled (owner, 2026-11-10)** |
+| AD-27 | client 20–23 (plan) | Q-3 (G2a-8, G2a-9): shell / contracts task first, then 02a and 02b lanes in parallel; Bill / Clean offline "Needs the hub" behind one `enqueue()` until 02b's queue flips them to queued; 02a exports `useTableLock` + `LockBanner` | (a) wait for 02b; (b) interface now; (c) own queue | (b); spec v1.1.6 §8 | **accepted (owner 2026-11-12)** |
+| AD-28 | 21 | Q-5 (G2a-1): map refresh from live frames, no timer (debounced `table-map` read on the listed triggers, stale replies dropped); handoff's 30 s refetch struck; AD-25 stays | (a) frames; (b) + `BillClosed` audience now | (a); spec v1.1.6 §8 | **accepted (owner 2026-11-12)** |
+| AD-29 | hub gap batch + 23 | Q-12 (G2a-2): `call_waiter` display carries `requester_name`; chip not shown; TableMapWaiter copy without chip | (a) generic; (b) + caller name; (c) + chip | (b); spec v1.1.6 §6.14, test 63 | **accepted (owner 2026-11-12)** |
+| AD-30 | 20 + hub gap batch | Q-13 (G2a-11): `401`/`403` from `staff-roster` and WS `4403` → wipe token / device id / type → Pair again → `/pair`; pair page sends non-KDS devices to `/staff/` | (a) client; (b) + pair-page redirect | (b); spec v1.1.6 §8, 00 v1.9.1 §8.2 | **accepted (owner 2026-11-12)** |
+| AD-31 | 23 | Q-14 (G2a-3): device remembers its handover sends; after reload "Waiting for an answer"; result frame → `my-requests` diff; 01d fields deferred | (a) client; (b) 01d bump | (a); spec v1.1.6 §8; OPEN-QUESTIONS §9 | **accepted (owner 2026-11-12)** |
+| AD-32 | 22 | Q-15 (G2a-4): buttons by grant only; `403 outside_scope` → "This table is outside your floors"; `floor_ids` deferred | (a) / (b) / (c) | (a); spec v1.1.6 §8 | **accepted (owner 2026-11-12)** |
+| AD-33 | 22 | Q-16 (G2a-5): "Call sent" on the calling device only, sub line without names, repeat toast without time | (a) client; (b) hub tile field | (a); spec v1.1.6 §3.13 | **accepted (owner 2026-11-12)** |
+| AD-34 | 21 | Q-17 (G2a-6): late flag from the holder's open `slip_warning` rows; void-waiting / bill-paid hidden until 04 / 05; "Waiting to send" once the queue exists | (a) / (b) drop all | (a); spec v1.1.6 §8 | **accepted (owner 2026-11-12)** |
+| AD-35 | 22 | Q-18 (G2a-13): reason = `<chip_token>` or `<chip_token>: <note>`, ≤ 120; known tokens localised on display, else raw | (a) English label; (b) token; (c) localised | (b); spec v1.1.6 §8 | **accepted (owner 2026-11-12)** |
+| AD-36 | 20–23 | Q-25 (G2a-7, 10, 12, 14, 15): no device name in TableBusyOwn; plan file list widened (alerts edits in one task); `{requester}` in `alert.table_handover.lock`; zone heading assignee from tiles; `other_owner` preset only when `assigned_staff_id` set and ≠ me | — | yes to all; spec v1.1.6 §8 (heading, preset) | **accepted (owner 2026-11-12)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -207,6 +217,10 @@ Collected text fixes (owner, 2026-11-10); none changes behaviour already built. 
 4. §6.17: the archived pseudo-floor `{ floor_id: '', name: null, archived: true, zones: [{ zone_id: null, name: null, tables }] }`; configured floors `archived: false`; sent even under a `floor_id` filter (AD-23).
 
 **Next platform batch:** 03a §10.5 "16 statements" → "9 + one checkpoint upsert per registered projection" (AD-14).
+
+## Client close — Z1 acceptance (2026-11-13)
+
+Tasks 20–24 were built as client tasks 20a–24 on `module-02a-client` (plan `docs/plans/02-client-plan.md`, board `docs/plans/02-client-status.md`). The full map of 02a v1.1.6 §8 bullets and the §12.1 row to green test names, the H tasks and the gaps is in `docs/plans/02-client-status.md` → "Z1 — 02a acceptance map". Manual checks on the pilot hardware: `docs/plans/02-client-manual-checks.md`. Deferred minors: `docs/plans/02-client-cleanup.md`.
 
 ## Next
 

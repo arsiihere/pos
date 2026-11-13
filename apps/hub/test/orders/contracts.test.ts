@@ -62,6 +62,7 @@ describe('[02b §4.2] contracts', () => {
       served_source: 'tap' | 'estimated' | 'zone' | null;
       is_food: boolean;
       kitchen_note: string | null;
+      options: Array<{ name: string; quantity: number }>; // 02b v1.0.11 §4.2 (Q-7)
     }>();
     // plan "02b exports" OrderView, plus the §5 orders columns (no contact values: has_phone only, O17).
     expectTypeOf<OrderView>().toEqualTypeOf<{

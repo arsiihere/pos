@@ -465,7 +465,7 @@ describe('zone-stock (§6.17)', () => {
 // ------------------------------------------------------------------------------------------- #33 counts
 
 describe('statement counts (§6.15–§6.18, catch-up)', () => {
-  it('[02b #33 queries] seating-orders 2, open-orders 2, zone-stock 1, order-contact 1; catch-up part `orders` 3 (orders, lines, zone_stock)', async () => {
+  it('[02b #33 queries] seating-orders 3, open-orders 2, zone-stock 1, order-contact 1; catch-up part `orders` 4 (orders, lines, zone_stock, open_slips)', async () => {
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
     for (let n = 1; n <= 6; n += 1) {
       appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: `D${n}`, lines: [{ order_item_id: `D${n}a`, item_id: FX.naan }, { order_item_id: `D${n}b`, item_id: FX.piece }] });
@@ -481,7 +481,7 @@ describe('statement counts (§6.15–§6.18, catch-up)', () => {
       expect(r.status, path).toBe(200);
       return counter.count;
     };
-    expect(await count(mgr, 'seating-orders?seating_id=SEAT1')).toBe(2);
+    expect(await count(mgr, 'seating-orders?seating_id=SEAT1')).toBe(3); // ⚠️ 02b v1.0.11 §6.15 (Q-11): + the open comp requests (G-2)
     expect(await count(mgr, 'open-orders')).toBe(2);
     expect(await count(mgr, 'open-orders?abandoned=true')).toBe(2);
     expect(await count(mgr, 'zone-stock')).toBe(1);
@@ -495,7 +495,7 @@ describe('statement counts (§6.15–§6.18, catch-up)', () => {
     const part = ordersCatchUpPart();
     const db = statementCounter(hub.deps.db);
     const built = part.build(hub.deps.db, engine(), socketCtx({ staffId: OT1 })) as { orders: Array<{ lines: unknown[] }>; zone_stock: unknown };
-    expect(db.count).toBe(3);
+    expect(db.count).toBe(4); // 02b v1.0.11 (Q-10, #49): + open_slips (one alerts.listOpen)
     expect(built.orders).toHaveLength(12);
     expect(built.orders.every((o) => o.lines.length === 2)).toBe(true);
 
@@ -686,5 +686,301 @@ describe('zone audience and 02a readers (AD-24, AD-6)', () => {
     expect(rows()).toEqual(before);
     const mapAfter = (await query<{ as_of_seq: number }>(who, 'table-map')).data;
     expect({ ...mapAfter, as_of_seq: 0 }).toEqual({ ...mapBefore, as_of_seq: 0 });
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #48 (H4, Q-9)
+
+describe('[02b #48] open-orders placed_by and table_id (§6.16 v1.0.11, Q-9)', () => {
+  it('[02b #48] rows carry placed_by { staff_id, name }', async () => {
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', placed_by: OT1, lines: [{ order_item_id: 'TA1', item_id: FX.naan }] });
+    appendOrder(hub, { order_type: 'parking', order_id: 'PC', placed_by: CASHIER, lines: [{ order_item_id: 'PC1', item_id: FX.naan }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TX', placed_by: 'S_GONE', lines: [{ order_item_id: 'TX1', item_id: FX.naan }] });
+    const rows = (await query<Open>(signIn(CASHIER), 'open-orders')).data.orders;
+    expect(rows.find((o) => o.order_id === 'TA')!.placed_by).toEqual({ staff_id: OT1, name: 'Usman' });
+    expect(rows.find((o) => o.order_id === 'PC')!.placed_by).toEqual({ staff_id: CASHIER, name: 'Hina' });
+    // a placer no longer in the directory: the id stays, the name is null
+    expect(rows.find((o) => o.order_id === 'TX')!.placed_by).toEqual({ staff_id: 'S_GONE', name: null });
+    // non-table rows carry no table
+    for (const o of rows) expect(o.table_id).toBeNull();
+  });
+
+  it('[02b #48] an abandoned dine-in row carries table_id = the current primary table, after a MoveTable the new one', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'DI', placed_by: OT1, lines: [{ order_item_id: 'DI1', item_id: FX.piece }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', lines: [{ order_item_id: 'TA1', item_id: FX.piece }] });
+    fire('DI1', 'TA1');
+    hub.clock.advance(5 * 3_600_000); // fired, never tapped: both abandoned
+    const mgr = signIn(MGR);
+    const before = (await query<Open>(mgr, 'open-orders?abandoned=true')).data.orders;
+    expect(before.find((o) => o.order_id === 'DI')).toMatchObject({ abandoned: true, table_id: FX.table, placed_by: { staff_id: OT1, name: 'Usman' } });
+    expect(before.find((o) => o.order_id === 'TA')).toMatchObject({ abandoned: true, table_id: null });
+    // 02a moves the seating: the row follows the seating's current primary table
+    append(draft('table', FX.table, 'TableMoved', { seating_id: 'SEAT1', from_table_id: FX.table, to_table_id: FX.zoneTable, by_staff_id: 'S_WAIT' }));
+    const after = (await query<Open>(mgr, 'open-orders?abandoned=true')).data.orders;
+    expect(after.find((o) => o.order_id === 'DI')!.table_id).toBe(FX.zoneTable);
+  });
+
+  it('[02b #48] statements: 2 with no dine-in row, 3 with one', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'DI', lines: [{ order_item_id: 'DI1', item_id: FX.piece }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', placed_by: OT1, lines: [{ order_item_id: 'TA1', item_id: FX.naan }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TB', placed_by: OT2, lines: [{ order_item_id: 'TB1', item_id: FX.naan }] });
+    let mgr = signIn(MGR);
+    const counter = statementCounter(hub.deps.readDb);
+    const count = async (path: string): Promise<{ n: number; rows: Open['orders'] }> => {
+      counter.reset();
+      const r = await query<Open>(mgr, path);
+      expect(r.status, path).toBe(200);
+      return { n: counter.count, rows: r.data.orders };
+    };
+    // the dine-in DI is open but not abandoned (unfired, still in the engine): no dine-in row is listed
+    expect(await count('open-orders')).toMatchObject({ n: 2 });
+    const quiet = await count('open-orders?abandoned=true');
+    expect(quiet.rows.map((o) => o.order_type)).not.toContain('dine_in');
+    expect(quiet.n).toBe(2);
+    fire('DI1');
+    hub.clock.advance(5 * 3_600_000);
+    mgr = signIn(MGR); // the earlier session went idle over the 5 h
+    const loud = await count('open-orders?abandoned=true');
+    expect(loud.rows.filter((o) => o.order_type === 'dine_in').map((o) => o.order_id)).toEqual(['DI']);
+    expect(loud.n).toBe(3);
+    expect(await count('open-orders')).toMatchObject({ n: 2 }); // without the flag no dine-in row is ever listed
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #45 kitchen progress (H1)
+
+// 02b v1.0.11 §6.19 (Q-6): ItemStarted, ItemDone, ItemDoneUndone, FireDispatched → staff sockets and cashier kiosks too
+// (audiences OR-ed with 03b §6.17, G-10). Imports stay inside the block (this file is append-only per lane).
+describe('[02b #45] kitchen progress frames to staff and kiosks (§6.19, Q-6)', () => {
+  const PROGRESS = ['FireDispatched', 'ItemDone', 'ItemDoneUndone', 'ItemStarted'];
+  const progressOf = (ws: WsClient) => [...new Set(typesOf(ws).filter((t) => PROGRESS.includes(t)))].sort();
+
+  /** Fire, start, done, undo on one S1 line of a takeaway placed by OT1. */
+  function progress(): void {
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'KP1', placed_by: OT1, lines: [{ order_item_id: 'KP1a', item_id: FX.piece }] });
+    fire('KP1a');
+    start('KP1', 'KP1a');
+    done('KP1', 'KP1a');
+    append(draft('order', 'KP1', 'ItemDoneUndone', { order_item_id: 'KP1a' }));
+  }
+
+  it('[02b #45] ItemStarted, ItemDone, ItemDoneUndone, FireDispatched reach a point-less ordering tablet and a cashier kiosk', async () => {
+    const tabletWs = await authed(signIn(OT1));
+    const kioskWs = await authed(signIn(CASHIER, 'cashier_kiosk'));
+    progress();
+    await settle();
+    expect(progressOf(tabletWs)).toEqual(PROGRESS);
+    expect(progressOf(kioskWs)).toEqual(PROGRESS);
+
+    // the audience is memory only: 0 statements
+    const counter = statementCounter(hub.deps.db);
+    const ev = (event_type: string) => ({ event_type, actor_id: null, payload: { order_item_id: 'KP1a', station_id: FX.station, order_item_ids: ['KP1a'] } }) as unknown as PosEvent;
+    for (const t of PROGRESS) {
+      expect(audienceAllows(ev(t), socketCtx({ staffId: WAITER })), t).toBe(true);
+      expect(audienceAllows(ev(t), socketCtx({ deviceType: 'cashier_kiosk', staffId: CASHIER })), t).toBe(true);
+    }
+    expect(counter.count).toBe(0);
+  });
+
+  it('[02b #45] station and Pass sockets still get them (03b sets unchanged); a signed-out kiosk (alert mode) does not', async () => {
+    const { loadDeviceMaps } = await import('../../src/kds/device-roles');
+    const station = await stationSocket();
+    const passDevice = pairDevice(hub, { type: 'tablet' });
+    hub.deps.db.prepare("UPDATE devices SET point_id = 'P1' WHERE device_id = ?").run(passDevice.deviceId);
+    loadDeviceMaps(hub.deps.db);
+    const pass = await authed({ token: passDevice.token, sessionToken: openSession(hub, { kind: 'staff', staffId: WAITER, deviceId: passDevice.deviceId }).token });
+    const signedOut = await connectWs(hub.app);
+    sockets.push(signedOut);
+    signedOut.send({ type: 'auth', device_token: pairDevice(hub, { type: 'cashier_kiosk' }).token });
+    await signedOut.untilCount(1);
+    progress();
+    await settle();
+    expect(progressOf(station)).toEqual(PROGRESS);
+    expect(progressOf(pass)).toEqual(PROGRESS);
+    expect(signedOut.messages.map((m) => (m as { type: string }).type)).toEqual(['alerts_open']);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #49 slips (H5)
+
+// 02b v1.0.11 §6.19, catch-up `orders` (Q-10): SlipWarned → staff sockets and cashier kiosks; catch-up `open_slips`.
+// The slip_warning is raised by the real fires_alerts tick (03a §6.2a) at the engine's own due time.
+describe('[02b #49] slip warnings to staff and open_slips (§6.19, catch-up, Q-10)', () => {
+  async function lateSeating(): Promise<{ order_id: string; alert_id: string }> {
+    const { firesAlertsTick, ENGINE_ALERT_KINDS } = await import('../../src/engine-host/fires-alerts-tick');
+    const { readOnlyDb } = await import('../../src/engine-host/read-only-tx');
+    openSeating(hub, { table_id: FX.table, seating_id: 'SLIP1', holder_staff_id: OT1 });
+    const { order_id } = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SLIP1', order_id: 'SL1', lines: [{ order_item_id: 'SL1a', item_id: FX.naan }, { order_item_id: 'SL1b', item_id: FX.naan }] });
+    fire('SL1a', 'SL1b');
+    const due = engine().next_alert_due_at;
+    expect(due).not.toBeNull();
+    hub.clock.set(Math.max(hub.clock.branchNow(), due!) + 1_000);
+    const now = hub.clock.branchNow();
+    expect(firesAlertsTick.due(readOnlyDb(hub.deps.db), engine(), now)).toBe(true);
+    hub.deps.writer.run((tx) => tx.append(firesAlertsTick.intents(tx, engine(), now)));
+    const row = hub.deps.db.prepare(`SELECT alert_id FROM alerts WHERE kind = ? AND state = 'open'`).get(ENGINE_ALERT_KINDS.slip) as { alert_id: string } | undefined;
+    expect(row).toBeDefined();
+    return { order_id, alert_id: row!.alert_id };
+  }
+
+  it('[02b #49] SlipWarned reaches staff sockets and cashier kiosks; never KDS stations', async () => {
+    const tabletWs = await authed(signIn(WAITER));
+    const kioskWs = await authed(signIn(CASHIER, 'cashier_kiosk'));
+    const kdsWs = await stationSocket();
+    const { order_id, alert_id } = await lateSeating();
+    await settle();
+    for (const ws of [tabletWs, kioskWs]) {
+      expect(frames(ws).find((f) => f.event_type === 'SlipWarned')?.payload).toMatchObject({ alert_id, order_ids: [order_id] });
+    }
+    expect(typesOf(kdsWs)).not.toContain('SlipWarned');
+    const counter = statementCounter(hub.deps.db);
+    const ev = { event_type: 'SlipWarned', actor_id: null, payload: { order_ids: [order_id], alert_id } } as unknown as PosEvent;
+    expect(audienceAllows(ev, socketCtx({ staffId: WAITER }))).toBe(true);
+    expect(audienceAllows(ev, socketCtx({ deviceType: 'cashier_kiosk', staffId: CASHIER }))).toBe(true);
+    expect(audienceAllows(ev, socketCtx({ deviceType: 'kds', kind: 'station', staffId: null, stationId: FX.station }))).toBe(false);
+    expect(counter.count).toBe(0);
+  });
+
+  it('[02b #49] catch-up orders.open_slips lists each open slip_warning with its order_ids; gone after the alert closes', async () => {
+    const before = catchUpOrders(await authed(signIn(OT1))) as unknown as { open_slips: unknown };
+    expect(before.open_slips).toEqual([]);
+    const { order_id, alert_id } = await lateSeating();
+    const open = catchUpOrders(await authed(signIn(OT2))) as unknown as { open_slips: unknown };
+    expect(open.open_slips).toEqual([{ alert_id, order_ids: [order_id] }]);
+    const kioskPart = catchUpOrders(await authed(signIn(CASHIER, 'cashier_kiosk'))) as unknown as { open_slips: unknown };
+    expect(kioskPart.open_slips).toEqual([{ alert_id, order_ids: [order_id] }]);
+    const { alerts } = await import('../../src/alerts/raise');
+    hub.deps.writer.run((tx) => tx.append(alerts.close(alerts.tickCtx(tx, hub.clock.branchNow()), alert_id, 'obsolete')));
+    const after = catchUpOrders(await authed(signIn(WAITER))) as unknown as { open_slips: unknown };
+    expect(after.open_slips).toEqual([]);
+  });
+
+  it('[02b #49] catch-up orders statements 3 → 4', async () => {
+    const { order_id, alert_id } = await lateSeating();
+    const part = ordersCatchUpPart();
+    const db = statementCounter(hub.deps.db);
+    const built = part.build(hub.deps.db, engine(), socketCtx({ staffId: OT1 })) as { open_slips: unknown };
+    expect(db.count).toBe(4);
+    expect(built.open_slips).toEqual([{ alert_id, order_ids: [order_id] }]);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #46 (H2, lane HB)
+
+describe('[02b #46] line options and order note in reads (§4.2, §6.15; Q-7)', () => {
+  // append-only shared file (lane rule): this block imports its own export inside the tests
+  const exportsOf = () => import('../../src/orders/exports');
+  const plain = (name: string, quantity: number, n: number) => ({ option_id: `OPT_${n}`, modifier_group_id: 'M_PLAIN', name, price_minor: 0, quantity, charge_minor: 0 });
+
+  it('[02b #46] a line with [No onion ×1, Less spicy ×2] → seating-orders / orderLines options in payload order; none → []', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
+    appendOrder(hub, {
+      order_type: 'dine_in',
+      seating_id: 'SEAT1',
+      order_id: 'O1',
+      placed_by: OT1,
+      lines: [
+        { order_item_id: 'A1', item_id: FX.piece, item: { options: [plain('No onion', 1, 1), plain('Less spicy', 2, 2)] } },
+        { order_item_id: 'A2', item_id: FX.naan },
+      ],
+    });
+    const r = await query<Seating>(signIn(WAITER), 'seating-orders?seating_id=SEAT1');
+    expect(r.status).toBe(200);
+    const lines = new Map(r.data.orders[0]!.lines.map((l) => [l.order_item_id, l] as const));
+    expect(lines.get('A1')!.options).toEqual([
+      { name: 'No onion', quantity: 1 },
+      { name: 'Less spicy', quantity: 2 },
+    ]);
+    expect(lines.get('A2')!.options).toEqual([]);
+    const { orderLines } = await exportsOf();
+    const read = orderLines(hub.deps.db, ['O1']).get('O1')!;
+    expect(read.map((l) => l.options)).toEqual([[{ name: 'No onion', quantity: 1 }, { name: 'Less spicy', quantity: 2 }], []]);
+  });
+
+  it('[02b #46] the order carries order_note', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
+    const ot = signIn(OT1);
+    const line = (order_item_id: string) => ({ order_item_id, item_id: FX.naan, quantity: 1 });
+    const noted = await command(ot, 'submit-order', 'SubmitOrder', {
+      order_id: 'O1',
+      order_type: 'dine_in',
+      table_id: FX.table,
+      seating_id: 'SEAT1',
+      order_note: 'birthday, bring together',
+      lines: [line('N1')],
+    });
+    expect(noted.status).toBe(200);
+    hub.clock.advance(1_000);
+    expect((await command(ot, 'submit-order', 'SubmitOrder', { order_id: 'O2', order_type: 'dine_in', table_id: FX.table, seating_id: 'SEAT1', lines: [line('N2')] })).status).toBe(200);
+    const r = await query<Seating>(signIn(WAITER), 'seating-orders?seating_id=SEAT1');
+    expect(r.data.orders.map((o) => [o.order_id, o.order_note])).toEqual([
+      ['O1', 'birthday, bring together'],
+      ['O2', null],
+    ]);
+  });
+
+  it('[02b #46] statement counts unchanged by these fields: seating-orders (3 with #50), orderLines 1, catch-up orders 4 (with #49 open_slips)', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
+    for (let n = 1; n <= 4; n += 1) {
+      appendOrder(hub, {
+        order_type: 'dine_in',
+        seating_id: 'SEAT1',
+        order_id: `D${n}`,
+        lines: [{ order_item_id: `D${n}a`, item_id: FX.piece, item: { options: [plain('No onion', 1, 1), plain('Less spicy', 2, 2)] } }, { order_item_id: `D${n}b`, item_id: FX.naan }],
+      });
+      appendOrder(hub, { order_type: 'takeaway', order_id: `T${n}`, placed_by: OT1, lines: [{ order_item_id: `T${n}a`, item_id: FX.piece, item: { options: [plain('Less spicy', 1, 2)] } }] });
+    }
+    const mgr = signIn(MGR);
+    const counter = statementCounter(hub.deps.readDb);
+    const r = await query<Seating>(mgr, 'seating-orders?seating_id=SEAT1');
+    expect(r.status).toBe(200);
+    expect(counter.count).toBe(3); // the H2 fields add none; 3 = H6's open comp requests (#50, G-2)
+    expect(r.data.orders.every((o) => o.lines[0]!.options.length === 2 && o.order_note === null)).toBe(true);
+
+    const { orderLines } = await exportsOf();
+    const db = statementCounter(hub.deps.db);
+    const read = orderLines(hub.deps.db, ['D1', 'T1']);
+    expect(db.count).toBe(1);
+    expect(read.get('T1')![0]!.options).toEqual([{ name: 'Less spicy', quantity: 1 }]);
+
+    db.reset();
+    const built = ordersCatchUpPart().build(hub.deps.db, engine(), socketCtx({ staffId: OT1 })) as { orders: Array<{ order_id: string; lines: Array<{ options: unknown }> }> };
+    expect(db.count).toBe(4); // orders, lines, zone_stock, open_slips (#49)
+    expect(built.orders.find((o) => o.order_id === 'T2')!.lines[0]!.options).toEqual([{ name: 'Less spicy', quantity: 1 }]);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #50 (H6, lane HB)
+
+describe('[02b #50] pending_comp statement counts (§6.15, §6.18a; Q-11)', () => {
+  it('[02b #50] seating-orders 3 statements, order-view 2 + 1', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
+    for (let n = 1; n <= 4; n += 1) {
+      appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: `D${n}`, lines: [{ order_item_id: `D${n}a`, item_id: FX.naan }, { order_item_id: `D${n}b`, item_id: FX.piece }] });
+    }
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'T1', placed_by: OT1, lines: [{ order_item_id: 'T1a', item_id: FX.naan }] });
+    // open comp requests on several lines of several orders (OT1: apply-comp with approval), one on another order
+    const ot = signIn(OT1);
+    for (const id of ['D1a', 'D2b', 'D3a', 'T1a']) {
+      const r = await command(ot, 'comp-line', 'CompLine', { order_item_id: id, units: 1, reason_code: 'quality' });
+      expect(r.status, id).toBe(200);
+    }
+    const mgr = signIn(MGR);
+    const counter = statementCounter(hub.deps.readDb);
+    counter.reset();
+    const seated = await query<Seating>(mgr, 'seating-orders?seating_id=SEAT1');
+    expect(seated.status).toBe(200);
+    expect(counter.count).toBe(3);
+    const marked = seated.data.orders.flatMap((o) => o.lines.filter((l) => l.pending_comp !== null).map((l) => l.order_item_id));
+    expect(marked.sort()).toEqual(['D1a', 'D2b', 'D3a']);
+    for (const id of ['T1', 'D1']) {
+      counter.reset();
+      const v = await query<Seating['orders'][number]>(mgr, `order-view?order_id=${id}`);
+      expect(v.status, id).toBe(200);
+      expect(counter.count, id).toBe(3);
+      expect(v.data.lines[0]!.pending_comp, id).toMatchObject({ units: 1 });
+    }
   });
 });

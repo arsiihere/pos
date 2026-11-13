@@ -1,11 +1,11 @@
 import type { EngineState } from '@pos/engine';
 import type { BranchConfig, PosEvent } from '@pos/events';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
 import { loadDeviceMaps } from '../../src/kds/device-roles';
 import { kdsPresenceTick } from '../../src/kds/presence';
 import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
-import { audienceAllows } from '../../src/ws/audience';
+import { audienceAllows, type Audience } from '../../src/ws/audience';
 import type { SocketCtx } from '../../src/ws/catch-up';
 import { createTestHub, openSession, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
@@ -13,8 +13,25 @@ import { FX, append, appendOrder, fireLines, fixtureMenu, openDay, pairDevice, p
 
 // 03b §6.17 (task b22): event audiences. Station sockets of the line's station, Pass sockets of the line's point, Pass
 // sockets of the station's point while it is under takeover; Pass events to the payload's point. G-10: exact only for
-// ItemStarted, ItemDone, ItemDoneUndone, FireDispatched and 03b's events (02b / 03a send the others wider).
+// 03b's Pass events (02b / 03a send the line events wider; since 02b v1.0.11 Q-6 also ItemStarted, ItemDone,
+// ItemDoneUndone, FireDispatched → every staff socket and cashier kiosk, so among stations 03b's set stays exact).
 // Config: S1 (Karahi) and S2 (Counter) on P1, S3 (Grill) on P2.
+
+// Pass-through mock of ws/audience: records every registered predicate by event type, then delegates, so
+// audienceAllows behaves as before. 02b registers at module load and 03b per server (registerKdsAudiences), so the last
+// predicate for a line event after createTestHub is 03b's own lineAudience — the takeover test checks it alone, since
+// 02b v1.0.11 (Q-6) sends these frames to every staff socket anyway.
+const registered = vi.hoisted(() => new Map<string, Audience[]>());
+vi.mock('../../src/ws/audience', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/ws/audience')>();
+  return {
+    ...real,
+    registerEventAudience: (eventType: string, audience: Audience) => {
+      registered.set(eventType, [...(registered.get(eventType) ?? []), audience]);
+      return real.registerEventAudience(eventType, audience);
+    },
+  };
+});
 
 let hub: TestHub;
 const sockets: WsClient[] = [];
@@ -95,6 +112,13 @@ function ev(event_type: string, stream_type: PosEvent['stream_type'], stream_id:
 const who = (seats: Seats, event: PosEvent): string[] =>
   (Object.entries(seats) as Array<[string, SocketCtx]>).filter(([, s]) => audienceAllows(event, s)).map(([k]) => k).sort();
 
+/** The seats 03b's own predicate admits (the last one registered for the event type: 03b's, per server). */
+const who03b = (seats: Seats, event: PosEvent): string[] => {
+  const own = registered.get(event.event_type)?.at(-1);
+  expect(own, event.event_type).toBeDefined();
+  return (Object.entries(seats) as Array<[string, SocketCtx]>).filter(([, s]) => own!(event, s)).map(([k]) => k).sort();
+};
+
 /** An order with A1 on S1 (P1) and G1 on S3 (P2). */
 function order(): string {
   const { order_id } = appendOrder(hub, {
@@ -108,17 +132,19 @@ function order(): string {
 }
 
 describe('[03b §6.17] event audiences (b22)', () => {
-  it('[03b §6.17] ItemStarted / ItemDone / ItemDoneUndone / FireDispatched reach exactly the line station socket and its point Pass', async () => {
+  it('[03b §6.17] ItemStarted / ItemDone / ItemDoneUndone / FireDispatched reach exactly the line station socket among stations; its point Pass still; staff and kiosks through 02b (v1.0.11 Q-6)', async () => {
     const seats = await start();
     const o = order();
+    // 02b v1.0.11 §6.19 (Q-6): every staff socket (p1, p2, plain) and the kiosk get them too (G-10, OR-ed)
+    const staff = ['kiosk', 'p1', 'p2', 'plain'];
     for (const type of ['ItemStarted', 'ItemDone', 'ItemDoneUndone']) {
       const payload = { order_item_id: 'A1', started_at: 0, done_at: 0, source: 'tap' };
-      expect(who(seats, ev(type, 'order', o, payload)), type).toEqual(['p1', 's1']);
-      expect(who(seats, ev(type, 'order', o, { ...payload, order_item_id: 'G1' })), type).toEqual(['p2', 's3']);
+      expect(who(seats, ev(type, 'order', o, payload)), type).toEqual([...staff, 's1']);
+      expect(who(seats, ev(type, 'order', o, { ...payload, order_item_id: 'G1' })), type).toEqual([...staff, 's3']);
     }
-    expect(who(seats, ev('FireDispatched', 'station', FX.station, { station_id: FX.station, order_item_ids: ['A1'], load_id: null, due_at: 0, reason: 'pulled' }))).toEqual(['p1', 's1']);
-    // an unknown line: nobody
-    expect(who(seats, ev('ItemStarted', 'order', o, { order_item_id: 'NOPE', started_at: 0, source: 'tap' }))).toEqual([]);
+    expect(who(seats, ev('FireDispatched', 'station', FX.station, { station_id: FX.station, order_item_ids: ['A1'], load_id: null, due_at: 0, reason: 'pulled' }))).toEqual([...staff, 's1']);
+    // an unknown line: no station
+    expect(who(seats, ev('ItemStarted', 'order', o, { order_item_id: 'NOPE', started_at: 0, source: 'tap' }))).toEqual(staff);
   });
 
   it('[03b §6.17] every listed line event reaches the line station socket and its point Pass (02b / 03a may add more, G-10)', async () => {
@@ -164,16 +190,21 @@ describe('[03b §6.17] event audiences (b22)', () => {
       appliedAt: hub.clock.branchNow(),
     });
     fireLines(hub, FX.station, ['A1']);
+    // 02b v1.0.11 §6.19 (Q-6): every staff socket and the kiosk get ItemStarted anyway (G-10), so p2 is in the set
+    // before the takeover too; among stations the set stays s1
     const started = ev('ItemStarted', 'order', o, { order_item_id: 'A1', started_at: 0, source: 'tap' });
-    expect(who(seats, started)).toEqual(['p1', 's1']);
+    expect(who(seats, started)).toEqual(['kiosk', 'p1', 'p2', 'plain', 's1']);
+    expect(who03b(seats, started)).toEqual(['p1', 's1']); // 03b's own set: the line's point only
     const t0 = hub.clock.branchNow();
     kdsPresenceTick.due(readOnlyDb(hub.deps.db), engine(), t0);
     expect(kdsPresenceTick.due(readOnlyDb(hub.deps.db), engine(), t0 + 30_000)).toBe(true);
     hub.deps.writer.run((tx) => tx.append(kdsPresenceTick.intents(tx, tx.state as EngineState, t0 + 30_000)));
-    expect(who(seats, ev('ItemStarted', 'order', o, { order_item_id: 'A1', started_at: 0, source: 'tap' }))).toEqual(['p1', 'p2', 's1']);
+    const takenOver = ev('ItemStarted', 'order', o, { order_item_id: 'A1', started_at: 0, source: 'tap' });
+    expect(who(seats, takenOver)).toEqual(['kiosk', 'p1', 'p2', 'plain', 's1']);
+    expect(who03b(seats, takenOver)).toEqual(['p1', 'p2', 's1']); // §3.6: + the station point's Pass under takeover
   });
 
-  it('[03b §6.17] end to end: a real Pass socket and station socket get the published ItemStarted / FireDispatched; a point-less tablet does not', async () => {
+  it('[03b §6.17] end to end: a real Pass socket and station socket get the published ItemStarted / FireDispatched; a point-less tablet gets them through 02b (v1.0.11 Q-6)', async () => {
     // its own hub: test secrets repeat after 8 tokens, so start()'s six devices leave no room for sessions
     hub = await createTestHub({ provisioned: true });
     const cook = await signInCook(hub, { pointId: 'P1' });
@@ -200,6 +231,6 @@ describe('[03b §6.17] event audiences (b22)', () => {
     });
     expect(types(station)).toEqual(expect.arrayContaining(['FireDispatched', 'ItemStarted']));
     expect(types(pass)).toEqual(expect.arrayContaining(['FireDispatched', 'ItemStarted']));
-    expect(types(plain).filter((t) => t === 'FireDispatched' || t === 'ItemStarted')).toEqual([]);
+    expect(types(plain)).toEqual(expect.arrayContaining(['FireDispatched', 'ItemStarted'])); // 02b §6.19 (Q-6)
   });
 });
