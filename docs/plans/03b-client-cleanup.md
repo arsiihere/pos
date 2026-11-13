@@ -8,6 +8,7 @@ Owner ruling Q-60: fix rounds only for BLOCKER / MAJOR; MINOR findings land here
 
 | # | PR | Finding → action |
 |---|---|---|
+| W-1 | #191 | `T/build-output.test.ts` `[03b W0.4]`: the manifest entry check's `${name}/index.html` branch never matches (vite's `root` is the entry folder, so the entry chunk's `src` is `index.html`); match `src === 'index.html' && isEntry` only. |
 
 ## Lane K (KDS)
 
