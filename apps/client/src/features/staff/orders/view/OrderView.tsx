@@ -7,6 +7,7 @@ import { timeText } from '../../../alerts/labels';
 import { Ico } from '../../../alerts/ui';
 import { useShell } from '../../shell/hooks';
 import { BoostConfirm } from '../actions/BoostConfirm';
+import { CompWaiting } from '../actions/CompWaiting';
 import { ContactSheet } from '../actions/ContactSheet';
 import { MarkServedSheet, type ServedCandidate } from '../actions/MarkServedSheet';
 import type { CarType, CatchUpOrder, LineView, OpenOrder, OrdersCatchUp, OrderType, SeatingLine, SeatingOrder } from '../contracts';
@@ -323,6 +324,7 @@ export function OrderView({ order_id }: OrderViewProps) {
                   utcOffsetMs={offset}
                   selected={selected === line.order_item_id}
                   {...(lineOrder === null ? {} : { onSelect: (id: string) => setSelected(selected === id ? null : id) })}
+                  below={<CompWaiting line={line} onChanged={() => void load()} />}
                 >
                   {lineOrder !== null && seatingLine(line) !== null && (
                     <LineActions line={seatingLine(line)!} order={lineOrder} onChanged={() => void load()} />
