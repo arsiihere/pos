@@ -3,3 +3,5 @@
 import '../../../../packages/ui-kit/tokens.css';
 import '../../../../packages/ui-kit/components/bundle.css';
 import '../../../../packages/ui-kit/components/admin-03.css';
+// IR-25: the printer card anchors its menu (admin-03.css stays a byte copy of the handoff)
+import '../../../../packages/ui-kit/components/admin-03-additions.css';
