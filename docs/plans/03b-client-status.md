@@ -91,6 +91,12 @@ Paths: `K/` = `apps/client/src/features/kds/`, `P/` = `…/pass/`, `PR/` = `…/
 | AD-K1 | A4's `order-tickets` cache key is the order id (Q-52), invalidated only by a `FireDispatched` naming one of its lines. | plan A4, Self-review | proposed |
 | AD-K2 | P2's fallback without HK2 (`group_id` / `serve_mode` absent) shows no HOLD AT PASS hint; each done line is green alone. | plan P2, Self-review | proposed |
 | AD-K3 | W0.5 renames nothing in `K/slots.ts`: `PassCardAction.run` becomes async in place (`Promise<{ toast?: string } \| void>`). | plan W0.5, Self-review | proposed |
+| AD-K4 | `apps/client/src/app/ui-kit-admin.ts` (tokens, bundle, `admin-03.css`) is the admin kit of the two 03b / 03c admin entries; `admin-03.css` is unscoped, so it is never in `ui-kit.ts`, the staff or the KDS kit. | W0.2 (#190) | proposed (integrator, review #190 accepted) |
+| AD-K5 | The brief §6.6 print-queue keys `queue.*` are `print_queue.*` (02b owns `queue.*`, the queue log, `queue.title` "Not sent"). | W0.3 (#190) | proposed (integrator, review #190 accepted) |
+| AD-K6 | The brief's `{m:ss}` placeholders are `{time}` (`kds.undo`, `kds.waiting`, `kds.cooking`, `kds.in`, `pass.undo_ready`): `fill()` takes `\w+` names (as 02 W0.3). `kds.changed` = "Already {stage}" + `kds.changed.served` / `.removed`. | W0.3 (#190) | proposed |
+| AD-K7 | W0.4 creates the three entry stubs `K/main.tsx`, `AK/main.tsx`, `AP/main.tsx` (header "stub (W0.5)") because each `index.html` needs a module to build; W0.5 keeps them. | W0.4 (#191) | proposed |
+| AD-K8 | W0.5 contracts: `KdsStore` / `PassStore` add `snapshot()` to the plan's `hold(ids)`, `apply(frame)`, `subscribe`; `hold(ids)` returns the held subset (Q-49). The Pass's Start / Done / Undo / Give me more / Lane use `KdsApi` on the staff session. `PR/register.ts` exports `registerPrintSlots()`, called once at module scope by each 03b screen entry (KDS: K1; Pass: P1). The catch-up part list is K1's / P1's (no shared constant). A catch-up replaces a store whole (`arrived_at` / `seen_at` emptied); `PointLinesFrame` is built on `WsPointLines`. | W0.5 | proposed |
+| AD-K9 | `K/slots.ts` readers skip a slot function that throws, and `publishFrame` isolates a throwing subscriber; `runSlotAction(action)` is 03b's one caller of `run()` (`{}` when no toast; a throw → rejected promise). | W0.5 | proposed |
 
 ## STOPs / needs-ruling
 
