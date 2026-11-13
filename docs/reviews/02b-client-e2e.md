@@ -17,7 +17,7 @@ passed through the command's environment only, and no machine path is committed:
 `PLAYWRIGHT_BROWSERS_PATH=<dir> TMPDIR=/dev/shm pnpm exec playwright test`. One worker, one test hub for the whole run.
 
 **Result: 161 passed, 0 failed, 14 skipped** (15.8 min, one clean full run after the fixes below).
-That is 96 02b runs (10 flows; takeaway runs only at the kiosk viewport and parking only at the two phone sizes: those are the
+That is 96 02b runs (11 tests in 9 spec files × 5 viewports × en + ur = 110, less 14 skips; takeaway runs only at the kiosk viewport and parking only at the two phone sizes: those are the
 14 skips) + 60 02a runs (6 flows × 5 viewports × en + ur, `02a-offline` now with the real queue) + 5 W0.7 smoke. Two earlier
 full runs on the way failed 14 and then 5 tests; those failures led to the fixes below (the plate clash, the phone floor, the
 fold race, and bug 2), and none was left open.
