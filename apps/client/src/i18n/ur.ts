@@ -1185,6 +1185,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.cooking': 'پک رہا ہے',
   'pass.lanes': '{on} میں سے {count} لین',
   'pass.group_no_screen': '{station} · اسکرین نہیں',
+  // P3 (from PassHandOverUrdu; pass.handed_waiting is in docs/design/handoff/03b/urdu-todo.md, lane P)
+  'pass.hand_over_sub': 'ایک ٹیپ سے یہاں کی ہر تیار لائن حوالے۔',
   // ---- lane A (03b client) ----
   // A1 kitchen screens (from KitchenScreensUrdu; the rest is in docs/design/handoff/03b/urdu-todo.md, lane A)
   'kitchen_screens.stations': 'اسٹیشن',

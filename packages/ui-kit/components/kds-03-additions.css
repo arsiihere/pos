@@ -51,3 +51,5 @@
 .empty--pass .ico--36 { width: 36px; height: 36px; color: var(--ok); }
 /* Pass line: the slot tags and the stage chip side by side (the frames' inline gap on .row) */
 .pl > .row { gap: 6px; }
+/* PassCards: a line with one action (Done, Undo) — one column */
+.pl__a--1 { grid-template-columns: 1fr; }
