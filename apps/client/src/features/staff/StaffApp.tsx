@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { wipeDeviceKeys } from '../../api/hub-admin';
 import { createHubClock } from '../../app/hub-clock';
 import { navigate, useHashRoute } from '../../app/router';
 import { language, t } from '../../i18n';
@@ -9,7 +10,7 @@ import { AnswerSheet, NoticeSheet, type Toast } from '../alerts/AnswerSheet';
 import { Banners } from '../alerts/Banner';
 import { BindingHeader } from '../alerts/BindingHeader';
 import { Inbox } from '../alerts/Inbox';
-import { badgeText, lockText, timeText } from '../alerts/labels';
+import { lockText, timeText } from '../alerts/labels';
 import { Receipts } from '../alerts/Receipts';
 import { RequestsToAnswer, requestViews, type RequestRow, type RequestView } from '../alerts/RequestsToAnswer';
 import { createAlertConnection, hubSocketUrl, REPLACED_REASON, type SocketLike } from '../alerts/socket';
@@ -17,7 +18,7 @@ import { webAudioSink, type AudioSink, type ToneContext } from '../alerts/sounds
 import { createAlertStore, type AlertRow, type AlertStore, type Timers } from '../alerts/store';
 import type { WsAlertClosed } from '@pos/events';
 import { TestAlert } from '../alerts/TestAlert';
-import { FamilyPill, Ico, initial, isRequest, type IconName } from '../alerts/ui';
+import { FamilyPill, Ico, isRequest } from '../alerts/ui';
 import { createStaffApi, type Device, type PageMeta, type Resolution, type RosterPerson, type SignedIn } from './api';
 import { SignIn } from './SignIn';
 import { createOrdersApi } from './orders/api';
@@ -33,7 +34,12 @@ import { isSlotRoute, RouteSlot } from './shell/slots';
 import { createToastBus, ToastView } from './shell/toast';
 import { createTablesApi } from './tables/api';
 import { HandoverLayer } from './tables/cards/HandoverLayer';
+import { floorHref, floorOf } from './tables/map/filters';
+import { sharedMapStore } from './tables/map/map-store';
+import { PairAgain } from './tables/PairAgain';
 import { createLocalFlags } from './tables/local-flags';
+import { MeTab, PhoneTabs, type PhoneTab } from './tables/PhoneTabs';
+import { TopBar } from './tables/TopBar';
 
 // 01d task 41: the hub-served staff entry /staff/ (spec §8.1; hand-off PROMPT "Staff entry shell"). Maroon 80 px
 // top bar: brand block (mark, branch, device; the third line is the B05 slot, task 42), the segmented nav
@@ -94,9 +100,13 @@ export interface StaffAppProps {
   createSocket?: (url: string) => SocketLike;
   sink?: AudioSink;
   timers?: Timers;
+  /** 02a §8 Login (tests): forget the pairing keys; default `wipeDeviceKeys` of the pairing store */
+  wipeKeys?: () => Promise<void>;
+  /** 02a §8 Login (tests): where PairAgain's button goes; default `location.assign` */
+  goToPair?: (path: string) => void;
 }
 
-export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: StaffAppProps) {
+export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipeKeys, goToPair }: StaffAppProps) {
   const phone = useMedia(PHONE);
   const portrait = useMedia(PORTRAIT);
   const route = useHashRoute();
@@ -104,6 +114,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   const meRef = useRef<Me | null>(null);
   meRef.current = me;
   const signOutRef = useRef<() => void>(() => {});
+  // 02a §8 Login (Q-13): the hub no longer knows this device (roster 401 / 403, socket close 4403)
+  const unpairRef = useRef<() => void>(() => {});
+  const [unpaired, setUnpaired] = useState(false);
+  const [wipe, setWipe] = useState<'pending' | 'done' | 'failed'>('pending');
   // the hub counts every accepted command as session activity (commands/route.ts); queries never (§6.7–6.10)
   const activityRef = useRef<() => void>(() => {});
   const hubFetch = useMemo(() => {
@@ -158,6 +172,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
         onEnded: (code, reason) => {
           if (code === 4409 || reason === REPLACED_REASON) setReplaced(true);
           else if (code === 4401) signOutRef.current();
+          else if (code === 4403) unpairRef.current();
         },
       }),
     [device, socketStore, timers, createSocket, liveBus],
@@ -282,7 +297,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
     // §3.7: a sign-in refreshes the header; the hub's own deadline (session end + 2 h) replaces this one when it sends it
     setBoundName(who.display_name);
     setBindingUntil(clock.nowMs() + ALERT_CONSTANTS.binding_route_idle_ms);
-    navigate('/inbox');
+    // 02a §8 / handoff 02-S03: the staff app lands on the table map; the cashier kiosk on its home (#/ = KioskHome)
+    navigate(device.type === 'cashier_kiosk' ? '/' : '/tables');
     const [info, time] = await Promise.all([api.session(), api.hubTime(), shellConfig.refresh()]);
     if (gen !== sessionGen.current) return;
     // S47: re-sync the hub clock from branch-config hub_time (the page's clock is from when it loaded)
@@ -314,6 +330,26 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
     [api, conn],
   );
   signOutRef.current = () => signOut(false);
+  // the pairing keys go (the command queue and the drafts stay), the session and the socket end, PairAgain shows
+  unpairRef.current = () => {
+    if (unpaired) return;
+    sessionGen.current += 1;
+    setOpened(null);
+    setCloses(new Map());
+    setRequests([]);
+    setCursor(null);
+    setMe(null);
+    setBindingUntil(null);
+    api.drop();
+    conn.dispose();
+    setUnpaired(true);
+    setWipe('pending');
+    (wipeKeys ?? wipeDeviceKeys)().then(
+      () => setWipe('done'),
+      () => setWipe('failed'),
+    );
+  };
+  const onUnpaired = useCallback(() => unpairRef.current(), []);
 
   const sender = useMemo(
     () =>
@@ -373,8 +409,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   const receiptsMatch = /^\/receipts\/([^/]+)$/.exec(route);
   const staffRoute = matchStaffRoute(route, device.type);
   let page: ReactNode;
-  let current: 'inbox' | 'requests' | 'test' = 'inbox';
-  if (me === null) {
+  if (unpaired) {
+    page = <PairAgain wipe={wipe} {...(goToPair === undefined ? {} : { go: goToPair })} />;
+  } else if (me === null) {
     // F01 (frames LockKiosk, LockPhone): urgent lines first, then newest first (the store's order); up to 3
     const openRows = snap.rows.filter((r) => r.state === 'open');
     const lockRows =
@@ -387,16 +424,17 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
         phone={phone}
         lockPanel={lockRows.length === 0 ? null : <LockPanel rows={lockRows} utcOffsetMs={offset} />}
         hooks={shellHooks}
+        onUnpaired={onUnpaired}
         onSignedIn={(who) => void signedIn(who)}
       />
     );
+  } else if (staffRoute.name === 'me') {
+    page = <MeTab name={me.name} onSignOut={() => signOut(true)} />;
   } else if (isSlotRoute(staffRoute)) {
-    page = <RouteSlot route={staffRoute} />;
+    page = <RouteSlot route={staffRoute} alertRows={snap.rows} />;
   } else if (route === '/requests' && showRequests) {
-    current = 'requests';
     page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={open} />;
   } else if (route === '/test-alert' && showTest) {
-    current = 'test';
     page = (
       <TestAlert
         people={roster}
@@ -413,7 +451,6 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
       />
     );
   } else if (receiptsMatch !== null && showTest) {
-    current = 'test';
     const id = decodeURIComponent(receiptsMatch[1]!);
     page = <Receipts alertId={id} load={api.receipts} summary={summaries.get(id) ?? null} utcOffsetMs={offset} />;
   } else {
@@ -431,23 +468,6 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
     );
   }
 
-  const nav: Array<{ id: typeof current; icon: IconName; label: string; count: string | null; to: string }> = [
-    { id: 'inbox', icon: 'tray', label: t('alerts.nav.inbox'), count: badgeText(snap.unseen), to: '/inbox' },
-    ...(showRequests ? [{ id: 'requests' as const, icon: 'shield' as const, label: t('alerts.nav.requests'), count: badgeText(answerable), to: '/requests' }] : []),
-    ...(showTest ? [{ id: 'test' as const, icon: 'pulse' as const, label: t('alerts.nav.test'), count: null, to: '/test-alert' }] : []),
-  ];
-  const seg = (fill: boolean) => (
-    <div className={`seg${fill ? ' seg--fill' : ''}`} role="tablist" aria-label={t('alerts.nav.inbox')}>
-      {nav.map((n) => (
-        <button key={n.id} type="button" role="tab" aria-pressed={current === n.id} aria-selected={current === n.id} onClick={() => navigate(n.to)}>
-          <Ico name={n.icon} />
-          {n.label}
-          {n.count !== null && <span className="n num n--hot">{n.count}</span>}
-        </button>
-      ))}
-    </div>
-  );
-
   const noApprover = me !== null && snap.rows.some((r) => r.kind === 'no_approver' && r.state === 'open');
   const deviceWord = t(`alerts.device.${device.type}`);
   const live =
@@ -462,60 +482,53 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
         {t('alerts.hub_offline')}
       </span>
     );
-  const clockText = <span className="clock">{timeText(nowMs, offset)}</span>;
   const lang = language();
 
+  // 02a §8 Top bar (IR-3): the floor control lists the map store's floors with their table counts; the choice is the hash
+  // query #/tables?floor=<id> (absent = all). Shown on the map and its sheet (phone: the map draws floor chips itself).
+  const mapStore = useMemo(() => sharedMapStore(tablesApi, liveBus), [tablesApi, liveBus]);
+  const mapNow = useSyncExternalStore(mapStore.subscribe, mapStore.current);
+  const lastFloor = useRef<string | null>(null);
+  if (route.startsWith('/tables') && !route.startsWith('/tables/')) lastFloor.current = floorOf(route);
+  const floors =
+    me !== null && !phone && (staffRoute.name === 'tables' || staffRoute.name === 'table')
+      ? {
+          choices: (mapNow?.floors ?? []).filter((f) => !f.archived).map((f) => ({ floor_id: f.floor_id, name: f.name ?? '', count: f.zones.reduce((n, z) => n + z.tables.length, 0) })),
+          selected: lastFloor.current,
+          onSelect: (floor_id: string) => navigate(floorHref(floor_id)),
+        }
+      : null;
+  const phoneTab = phoneTabOf(staffRoute);
+  const phoneTitle = phoneTab === 'tables' ? t('tabs.tables') : phoneTab === 'orders' ? t('tabs.orders') : phoneTab === 'me' ? t('tabs.me') : t('alerts.nav.inbox');
   const body = (
     <div className={`pu v-brand staff${phone ? ' phone' : ''}`} lang={lang} dir={lang === 'ur' ? 'rtl' : 'ltr'} data-theme="light">
-      {phone ? (
-        <header className="ph-top">
-          <div>
-            <h1>{me === null ? meta.branchName : t('alerts.nav.inbox')}</h1>
-            <span className="sub">
-              {me === null ? (
-                `${meta.branchName} · ${deviceWord}`
-              ) : (
-                <>
-                  <Ico name={up ? 'wifi' : 'wifioff'} className={`ico--15 ${up ? 'ico--ok' : 'ico--danger'}`} />
-                  {t(up ? 'alerts.live' : 'alerts.hub_offline')} · <span className="num">{timeText(nowMs, offset)}</span>
-                </>
-              )}
-            </span>
-          </div>
-          {me !== null && (
-            <div className="end">
-              <span className="av av--me av--48">{initial(me.name)}</span>
-            </div>
-          )}
-        </header>
-      ) : (
-        <header className="top">
-          <div className="brand">
-            <div className="mark" aria-hidden="true">
-              {initial(meta.branchName)}
-            </div>
-            <div>
-              <b>{meta.branchName}</b>
-              <span>
-                {meta.branchName} · {deviceWord}
-              </span>
-              {device.type === 'tablet' && <BindingHeader binding={binding} nowMs={clock.nowMs} utcOffsetMs={offset} timers={timers ?? browserTimers} sink={sink ?? browserSink} />}
-            </div>
-          </div>
-          {me !== null && <div className="staff__nav">{seg(false)}</div>}
-          <div className="end">
-            {live}
-            {clockText}
-            {me !== null && (
-              <button type="button" className="me" aria-label={fill(t('alerts.sign_out'), { name: me.name })} onClick={() => signOut(true)}>
-                <span className="av av--sm av--me">{initial(me.name)}</span>
-                {me.name}
-              </button>
-            )}
-          </div>
-        </header>
-      )}
-      {!phone && me !== null && <div className="navrow staff__navrow">{seg(true)}</div>}
+      <TopBar
+        phone={phone}
+        portrait={portrait}
+        brandName={meta.branchName}
+        deviceLine={`${meta.branchName} · ${deviceWord}`}
+        bind={device.type === 'tablet' ? <BindingHeader binding={binding} nowMs={clock.nowMs} utcOffsetMs={offset} timers={timers ?? browserTimers} sink={sink ?? browserSink} /> : null}
+        floors={floors}
+        live={live}
+        clock={timeText(nowMs, offset)}
+        person={me === null ? null : { name: me.name }}
+        requests={showRequests ? answerable : null}
+        inbox={snap.unseen}
+        testAlert={showTest}
+        title={me === null ? meta.branchName : phoneTitle}
+        phoneSub={
+          me === null ? (
+            `${meta.branchName} · ${deviceWord}`
+          ) : (
+            <>
+              <Ico name={up ? 'wifi' : 'wifioff'} className={`ico--15 ${up ? 'ico--ok' : 'ico--danger'}`} />
+              {t(up ? 'alerts.live' : 'alerts.hub_offline')} · <span className="num">{timeText(nowMs, offset)}</span>
+            </>
+          )
+        }
+        onNavigate={navigate}
+        onSignOut={() => signOut(true)}
+      />
       {replaced && (
         <div className="staff__warn">
           <div className="warnbar" role="status">
@@ -537,19 +550,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
         </div>
       )}
       {page}
-      {phone && me !== null && (
-        <nav className="tabbar tabbar--2">
-          <a className="tab" href="#/inbox" aria-current="page">
-            <Ico name="tray" />
-            {t('alerts.nav.inbox')}
-            {badgeText(snap.unseen) !== null && <span className="badge">{badgeText(snap.unseen)}</span>}
-          </a>
-          <button type="button" className="tab" onClick={() => signOut(true)}>
-            <Ico name="signout" />
-            {t('alerts.sign_out_short')}
-          </button>
-        </nav>
-      )}
+      {phone && me !== null && <PhoneTabs current={phoneTab} inbox={snap.unseen} />}
       {me !== null && opened === null && (
         <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} onOpen={open} onOpenInbox={() => navigate('/inbox')} />
       )}
@@ -623,4 +624,26 @@ function LockPanel({ rows, utcOffsetMs }: { rows: readonly AlertRow[]; utcOffset
       ))}
     </section>
   );
+}
+
+/** 02a §8 Top bar, phone: which tab a route belongs to. */
+function phoneTabOf(route: ReturnType<typeof matchStaffRoute>): PhoneTab {
+  switch (route.name) {
+    case 'tables':
+    case 'table':
+      return 'tables';
+    case 'order':
+      return route.order_type === 'dine_in' ? 'tables' : 'orders';
+    case 'orders':
+    case 'order_view':
+    case 'held':
+    case 'zones':
+    case 'queue':
+    case 'kiosk_home':
+      return 'orders';
+    case 'me':
+      return 'me';
+    default:
+      return 'inbox';
+  }
 }

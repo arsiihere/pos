@@ -174,6 +174,12 @@
 | Z2 | Manual checks on pilot hardware (Android browser tablet sleeping past the TTL; kiosk restart with a queued order → someone sees it in the queue log (Q-2); IndexedDB survives reload; site data / storage cleared → the device shows the queue is gone; Urdu on the device) | `docs/plans/02-client-manual-checks.md` | Z1 |
 | Z3 | PR `module-02a-client` → `main`, then PR `module-02b-client` → `main` (owner merges, in that order; both before the pilot — 02a alone leaves offline Bill / Clean on "Needs the hub"); then run the `@combined` e2e specs on `main` | — | Z1 |
 
+### Close notes (integrator, 2026-11-13; rows above are kept as written)
+
+- **23b, phone answer sheet:** the phone Decline / Accept buttons are **64 px**, not 72 px (`pulse-02.css` `.pu.phone .acts .btn`, the handoff's byte copy; spec floor 56 px). Ruled IR-10 (board AD-C16); tablets and the kiosk stay ≥ 72 px. Measured in `docs/reviews/02a-client-e2e.md`.
+- **27a2, files:** the PR (#183) also edited `S/orders/view/{LineActions.tsx, LineRow.tsx, OrderView.tsx}` (outside the row's file list) to mount the send-back / comp actions.
+- **26c2 (new task) · Deal part options · HIGH (money) · lane O:** each deal part gets an "Options" button that reuses the options sheet at the child position (owner ruling Q-64). Spec basis 01c V9 (parts already offer options; the handoff Deal frame differs), so no spec bump. **Needs:** 26c. PR #180 (`module-02b-client`).
+
 ---
 
 ## Coverage

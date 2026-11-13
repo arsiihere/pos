@@ -13,11 +13,13 @@ import {
   detailsText,
   familyText,
   fromDayText,
+  handoverDetailsText,
   inPersonTitle,
   lockText,
   stepTag,
   tableLabel,
   timeText,
+  titleText,
   waitingText,
 } from './labels';
 import { view } from './test-fakes';
@@ -221,5 +223,36 @@ describe('[01d v1.2.1 P-1] table chip', () => {
     const text = alertText(view({ alert_id: 'P1', kind: 'void_approval', lock }));
     expect(text).toContain('Patio 3');
     expect(text).not.toContain('TPatio');
+  });
+});
+
+describe('[02a §8, 02b §3.9] 02 kinds (23b)', () => {
+  const handoverLock = { kind_label_key: 'alert.table_handover.lock', table_code: 'F4 + F5', point_code: null, requester_name: 'Ali' };
+
+  it('[02a Q-25] alert.table_handover.lock fills {requester}', () => {
+    expect(lockText(view({ alert_id: 'H1', kind: 'table_handover', family: 'action', lock: handoverLock }))).toBe('F4 + F5 · Table handover · Ali');
+  });
+
+  it('[02a §6.15] a handover card reads "3 orders · Rs 14,250"; no live order → nothing', () => {
+    expect(handoverDetailsText({ quantity: 3, amount: 1_425_000 })).toBe('3 orders · Rs 14,250');
+    expect(handoverDetailsText({})).toBeNull();
+    expect(handoverDetailsText(null)).toBeNull();
+  });
+
+  it('[02a §8 Table sheet] TABLE_HANDOVER_STALE → "Bill paid, waiting for cleaning"', () => {
+    expect(answerErrorText('TABLE_HANDOVER_STALE', {})).toContain('Bill paid, waiting for cleaning');
+  });
+
+  it('[02b Q-25] a comp without a table reads "Comp · Takeaway order"; with a table the 01d text', () => {
+    const takeaway = view({
+      alert_id: 'C1',
+      kind: 'comp',
+      lock: { kind_label_key: 'alert.comp.lock', table_code: null, point_code: null, requester_name: 'Bilal' },
+      card: { kind_label_key: 'alert.comp.card', table_code: null, point_code: null, requester_name: 'Bilal', device_name: null, details: null },
+    });
+    expect(titleText(takeaway)).toBe('Comp · Takeaway order');
+    expect(alertText(takeaway)).toBe('Comp · Takeaway order');
+    const dineIn = view({ alert_id: 'C2', kind: 'comp', lock: { kind_label_key: 'alert.comp.lock', table_code: 'F4', point_code: null, requester_name: 'Bilal' } });
+    expect(lockText(dineIn)).toBe('F4 · Comp · Bilal');
   });
 });
