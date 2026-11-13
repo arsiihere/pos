@@ -349,6 +349,27 @@ describe('[02a §8] seating change — review #185 round 2', () => {
     );
     expect(s.m.container.querySelector('.ol')).toBeNull();
   });
+
+  it('[02b §8 Table view; task 28 e2e] a new shell object (StaffApp renders one each time) keeps the read and the selected line', async () => {
+    const s = part({ body: { orders: [sorder('O2', at(20, 10), [sline('Naan', { stage: 'added' })])], total_minor: 0 } });
+    await flush();
+    s.select('Naan');
+    expect(s.ctrl()).not.toBeNull();
+    const reads = s.orders.seatingOrders.mock.calls.length;
+    // the shell's parts are the same objects; only the wrapper is new (a clock tick, a socket frame, a toast)
+    s.m.render(
+      <ShellContext.Provider value={{ ...s.shell }}>
+        <LateAlertsContext.Provider value={[]}>
+          <div className="tv__b">
+            <OrdersPart seating_id="S4" table_ids={['F4', 'F5']} primary_table_id="F4" holder_staff_id="ST-ALI" mine />
+          </div>
+        </LateAlertsContext.Provider>
+      </ShellContext.Provider>,
+    );
+    await flush();
+    expect(s.orders.seatingOrders.mock.calls.length).toBe(reads);
+    expect(s.ctrl()).not.toBeNull();
+  });
 });
 
 describe('[02b §8 Table view E-7] 26d binding', () => {
