@@ -1016,6 +1016,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // ---- lane A (02a client) ----
   'signin.pin_needs_hub': 'سائن اِن کے لیے ہب چاہیے',
   'pair.wipe_failed': 'اس سکرین کو ری سیٹ نہیں کیا جا سکا۔ مینیجر سے پوچھیں۔',
+  'topbar.floor': 'فلور',
+  'tabs.tables': 'میزیں',
+  'tabs.orders': 'آرڈر',
+  'tabs.me': 'میں',
   // ---- lane B (02a client) ----
   'tables.ny.bill': 'بل مانگا',
   'tables.ny.yours_ago': 'آپ کی · {n} منٹ پہلے',
