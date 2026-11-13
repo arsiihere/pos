@@ -48,7 +48,7 @@ describe('Pulse 03 and admin 03 layers (03b + 03c, handoff 03b PROMPT)', () => {
     expect(readFileSync(kitDir + 'pulse-staff.css', 'utf8')).toContain('.pu.v-brand.kds {');
 
     // admin kit (the two 03b / 03c admin entries): the owner stack, then admin-03
-    expect(importsOf('ui-kit-admin.ts')).toEqual([k('tokens.css'), k('components/bundle.css'), k('components/admin-03.css')]);
+    expect(importsOf('ui-kit-admin.ts')).toEqual([k('tokens.css'), k('components/bundle.css'), k('components/admin-03.css'), k('components/admin-03-additions.css')]);
     // admin-03 is unscoped: it never reaches the kit every entry loads, nor the staff / kds kits
     for (const f of ['ui-kit.ts', 'ui-kit-staff.ts', 'ui-kit-kds.ts']) expect(importsOf(f), f).not.toContain(k('components/admin-03.css'));
   });
