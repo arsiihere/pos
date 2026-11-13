@@ -2240,6 +2240,15 @@ export const en = {
   'comp.required': 'required',
   'comp.waiting_plain': 'Waiting for approval',
   'comp.as_asked': 'amount as asked',
+  // 27a3 table view orders part, late cards (02b §8 Table view, Late cards)
+  'tv.n_orders': '{n} orders',
+  'tv.queued_served': 'Queued — sent when the hub is back',
+  'late.title_unknown': '{table} — running late',
+  'late.groups': '{n} late groups on this table · one send for all',
+  'late.send': 'Send',
+  'late.send_now': 'Send now',
+  'late.goes_with': 'Goes with the {item} · hurry it',
+  'late.hurry': 'Hurry it',
   // ---- lane L (02b client) ----
   'orders.filter_all': 'All',
   'orders.placed': 'Placed {time}',
