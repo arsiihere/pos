@@ -29,14 +29,23 @@ export interface StationApiOptions {
  * result, or any error code); the next tap after that gets a new id. (KdsApi in contracts.ts has no command_id
  * parameter, so the api holds it.)
  */
-export function createKdsApi(o: StationApiOptions): KdsApi {
+export interface KdsStationApi extends KdsApi {
+  /**
+   * IR-15: any command on the station session (03c's `ReprintTicket`). With `commandId` the envelope carries exactly
+   * that id — the caller keeps it across a lost reply (03c's reprinter, 00 M47), so a retry prints once; without it,
+   * the id is kept per command type + payload until the hub answers, as for the station commands.
+   */
+  command<T>(commandType: string, payload: Record<string, unknown>, commandId?: string): Promise<HubResult<T>>;
+}
+
+export function createKdsApi(o: StationApiOptions): KdsStationApi {
   const pending = new Map<string, string>();
-  async function command<T>(commandType: string, payload: object): Promise<HubResult<T>> {
+  async function command<T>(commandType: string, payload: object, given?: string): Promise<HubResult<T>> {
     const key = `${commandType} ${JSON.stringify(payload)}`;
-    let commandId = pending.get(key);
+    let commandId = given ?? pending.get(key);
     if (commandId === undefined) pending.set(key, (commandId = (o.newCommandId ?? newUlid)()));
     const answered = <R,>(r: HubResult<R>): HubResult<R> => {
-      if (r.ok || r.error.kind !== 'network') pending.delete(key);
+      if (given === undefined && (r.ok || r.error.kind !== 'network')) pending.delete(key);
       return r;
     };
     let response: Response;
@@ -70,6 +79,7 @@ export function createKdsApi(o: StationApiOptions): KdsApi {
     return answered({ ok: false, error: { kind: 'api', status: response.status, code, details } });
   }
   return {
+    command: (commandType, payload, commandId) => command(commandType, payload, commandId),
     startItem: (p) => command('StartItem', p),
     doneItem: (p) => command('DoneItem', p),
     undoDone: (p) => command('UndoDone', p),

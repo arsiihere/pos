@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../app/ui-kit-kds';
 import { initLanguage } from '../../i18n';
+import { registerPrintSlots } from '../print/register';
 import { KdsApp } from './KdsApp';
 import { readKdsPage } from './session';
 
@@ -10,6 +11,8 @@ import { readKdsPage } from './session';
 // hub serves with /staff/; the app reads the device token itself and calls POST /auth/station.
 
 initLanguage({ search: '?lang=en', storage: null, navigatorLanguage: 'en' });
+// IR-15: 03c's printed tag before the first render; KdsApp adds Reprint with the station session's transport
+registerPrintSlots();
 const container = document.getElementById('root');
 if (!container) throw new Error('#root missing');
 createRoot(container).render(
