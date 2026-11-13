@@ -9,7 +9,7 @@ Owner ruling Q-60: fix rounds only for BLOCKER / MAJOR; MINOR findings land here
 | # | PR | Finding → action |
 |---|---|---|
 | W-1 | #150 | StrictMode (dev only): the config effect's cleanup disposes the kept instance, so no re-read on `BranchConfigApplied` / reconnect in dev (prod fine). Fix with the StrictMode sweep (P-1). |
-| W-2 | #150 | The `Shell` object is rebuilt on every `StaffApp` render (15 s tick), so every `useShell()` screen re-renders. Memoize it. |
+| W-2 | #150 | The `Shell` object is rebuilt on every `StaffApp` render (15 s tick), so every `useShell()` screen re-renders. Memoize it. (Task 28 found the worst effect: `OrdersPart`'s reader depended on the whole `shell` and reset on each render; fixed in #201 by depending on `shell.live` / `shell.orders`. No other 02 screen depends on the whole `shell`. Memoizing the object itself is still open.) |
 | W-3 | #150 | Add a test that a real `visibilitychange` in `StaffApp` reaches the live bus. |
 | W-4 | #150 | `e2e/global-setup.ts` imports hub source (branch-config holder) beyond the test helpers; e2e files and `playwright.config.ts` are not typechecked. Add an e2e tsconfig to the typecheck or move the import behind a helper. |
 
@@ -35,7 +35,7 @@ Owner ruling Q-60: fix rounds only for BLOCKER / MAJOR; MINOR findings land here
 | A-16 | lane D | Receiver's wide fact "Table · zone · guests · seats" missing (hub does not send it); call card has no zone / time; Inbox rows for handover / call unchanged; zone alert opened from the Inbox not marked seen (`StaffApp` `onSeen`); `forTable` seating guard optional; add the F01 real lock panel test. **Owner?** the "Handover … closed: the table changed" banner has no frame. |
 | A-17 | lane C | `release.note` / `tables.reason.note` key overlap; "{n} orders moved" has the plural only; lane C Urdu strings need a native review (M6). |
 | A-18 | — | **Owner?** the `ForceMovedToMe` frame shows the manager's name, time, reason and order total, but the W0.4 `LockBannerState` carries the table only, so 23b shows table + "Open table". Extend the contract? |
-| A-19 | — | **Task 28 decision:** `Enqueue` answers `queued` even when the entry went to the queue log (session ended), so the caller's toast "Will be sent when the hub is back" is wrong. Needs an additive field on W0.4 `EnqueueResult` (`S/tables/contracts.ts`). |
+| A-19 | — | **Done in #193 (IR-12, AD-C20):** ~~**Task 28 decision:** `Enqueue` answers `queued` even when the entry went to the queue log (session ended), so the caller's toast "Will be sent when the hub is back" is wrong. Needs an additive field on W0.4 `EnqueueResult` (`S/tables/contracts.ts`).~~ |
 | A-20 | #186 | The e2e doc lacks the browser-install note (sandbox Chromium one revision behind Playwright 1.65 → symlink workaround); the e2e `signOut` helper swallows errors; online Bill / Clean flows → task 28. |
 
 ## 02b (ordering client)
@@ -58,6 +58,8 @@ Owner ruling Q-60: fix rounds only for BLOCKER / MAJOR; MINOR findings land here
 | B-14 | #181 | Permission refusal always says "This zone is not one of yours" (even when the grant was revoked); "Couldn't load the orders" alert shows over a stale list. |
 | B-15 | #183 | Until H6 is on the module branch, a `COMP_PENDING` card for another's request clears only on `LineComped` (goes away once H6 arrives from `main`); the Q-11 test lacks a hub ≠ preview case; a denied-grant comp-it entry stays in memory. |
 | B-16 | #185 | `ReleaseSheet` loses the pinned attempt on Cancel + reopen (hub skips released lines); no tests for catch-up seeding of known orders or the `ReleaseSheet` tick lock. |
+| B-17 | #201 | `S/orders/order-screen/OrderScreen.tsx` (~line 89): the new `tableCode` helper sits between the draft-store doc comment and `useDrafts`, so `useDrafts` lost its comment and `tableCode` carries a stale one. Move `tableCode` above that comment. |
+| B-18 | #201 | `S/orders/table-view/OrdersPart.test.tsx` (the new shell re-render test) asserts the selected line survives, not that an opened served round stays open (`Round.tsx` `open` state). Add that assertion at the next change to the file. |
 
 ## 03b hub (hub-gaps lanes)
 
