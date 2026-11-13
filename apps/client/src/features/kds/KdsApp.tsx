@@ -17,6 +17,8 @@ import { branchConfigLoader, createKdsConfig } from './config';
 import { ComingUp } from './header/ComingUp';
 import { Header } from './header/Header';
 import { createKdsLive } from './live';
+import { createKdsSound, kdsAudio } from './sound/sound';
+import { LockLines, soundBlocked, TapForSound } from './sound/TapForSound';
 import { startStationSession, type KdsPage, type StationAuth, type StationSession } from './session';
 import { Placeholder } from './station/Placeholder';
 import { StationView } from './station/StationView';
@@ -74,6 +76,8 @@ export interface KdsAppProps {
   wipeKeys?: () => Promise<void>;
   /** navigation (default location.assign) */
   go?: (path: string) => void;
+  /** K5: the page's AudioContext (default kdsAudio), for "Tap to turn on sound" */
+  audio?: () => ToneContext | null;
 }
 
 type Screen = 'guest' | 'not_set_up' | 'host' | 'upgrade' | 'busy' | 'meta' | 'error';
@@ -126,17 +130,9 @@ const browserTimers: Timers = {
   clearTimeout: (handle) => window.clearTimeout(handle as number),
 };
 
-let audio: AudioContext | null = null;
-const browserSink = webAudioSink(() => {
-  try {
-    audio ??= new AudioContext();
-    return audio as unknown as ToneContext;
-  } catch {
-    return null;
-  }
-});
+const browserSink = webAudioSink(kdsAudio);
 
-export function KdsApp({ page, fetch, createSocket, timers, sink, readKey, wipeKeys, go }: KdsAppProps) {
+export function KdsApp({ page, fetch, createSocket, timers, sink, readKey, wipeKeys, go, audio }: KdsAppProps) {
   const fetchFn = useMemo(() => fetch ?? ((input: string, init?: RequestInit) => window.fetch(input, init)), [fetch]);
   const tm = timers ?? browserTimers;
   const [phase, setPhase] = useState<Phase>({ k: 'starting', offline: false });
@@ -262,6 +258,7 @@ export function KdsApp({ page, fetch, createSocket, timers, sink, readKey, wipeK
           fetch={fetchFn}
           timers={tm}
           sink={sink ?? browserSink}
+          audio={audio ?? kdsAudio}
           {...(createSocket === undefined ? {} : { createSocket })}
           onUp={() => (attempt.current = 0)}
           onRevoked={() => (revoked.current = true)}
@@ -350,6 +347,7 @@ function Live({
   onEnded,
   onUp,
   onRevoked,
+  audio,
 }: {
   page: KdsPage;
   session: StationSession;
@@ -362,6 +360,7 @@ function Live({
   onEnded: (code: number, reason: string) => void;
   onUp: () => void;
   onRevoked: () => void;
+  audio: () => ToneContext | null;
 }) {
   const endedRef = useRef(onEnded);
   endedRef.current = onEnded;
@@ -399,6 +398,14 @@ function Live({
   useEffect(() => {
     if (up) upRef.current();
   }, [up]);
+
+  // K5: the chime / strong sound for lines entering Now live, at the station's volume; 01d lock lines
+  const sound = useMemo(() => createKdsSound(sink), [sink]);
+  useEffect(() => sound.onView(view), [sound, view]);
+  const alertSnap = useSyncExternalStore(alerts.subscribe, alerts.snapshot);
+  // checked once after load: shown once, gone for good after the tap
+  const [blocked, setBlocked] = useState(() => soundBlocked(audio));
+  const locks = alertSnap.rows.some((r) => r.state === 'open');
 
   // display tick (no hub read): the timers count on the hub clock, Done rows leave after their undo window
   const [nowMs, setNowMs] = useState(() => clock.current.nowMs());
@@ -462,6 +469,12 @@ function Live({
   return (
     <Ctx.Provider value={ctx}>
       <Header name={cfg.station?.name ?? ''} lanes={station.lanes} stationId={session.station_id} api={api} up={up} showLanes={station.day_open} />
+      {(locks || blocked) && (
+        <div className="krow">
+          <LockLines rows={alertSnap.rows} utcOffsetMs={clock.current.utcOffsetMs} />
+          {blocked && <TapForSound audio={audio} onTurnedOn={() => setBlocked(false)} />}
+        </div>
+      )}
       {!station.day_open ? (
         <DayNotStarted />
       ) : (

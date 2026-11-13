@@ -2465,6 +2465,8 @@ export const en = {
   'kds.screen': 'Kitchen screen',
   'kds.lanes_failed': "Can't change lanes now",
   'kds.day_not_started_sub': 'This screen fills when the manager opens the day.',
+  // K5 (03b §8; frame KdsLockSound)
+  'kds.tap_for_sound': 'Tap to turn on sound',
   // ---- lane P (03b client) ----
   // ---- lane A (03b client) ----
   // A1 kitchen screens (frames KitchenScreens*, 03b-S04 / D02 / D03 / B16)
