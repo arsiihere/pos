@@ -448,6 +448,8 @@ Failure modes the spec implies; each line names the pinning test and task.
 
 ## Batch 5 — client (§11 step 20) · **BLOCKED on the design handoff**
 
+⚠️ Superseded by docs/plans/02-client-plan.md (owner 2026-11-12)
+
 There is no `docs/design/handoff/02a/` yet; only the inventory `docs/design/inventory/02-ordering-tables.md`. The hub tasks are **not** blocked by this. The design can be made in parallel from this list (§8; inventory IDs in brackets). Files: `apps/client/src/features/staff/tables/`, append-only lines in `StaffApp.tsx`, `SignIn.tsx`, `api.ts`, `i18n/{en,ur}.ts`.
 
 **Screens §8 needs (for the design brief):**
