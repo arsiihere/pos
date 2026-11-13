@@ -11,7 +11,8 @@ import { defineQuery, queryRegistry, type QueryCtx } from './registry.js';
 // 03b §6.12, §3.8 (task b23): GET /admin/queries/kds-config — admin session, `manage-devices` checked inside handle
 // (queries have no permission field). Statements 3 (devices, settings, lanes) + memory: the config's stations, the
 // socket lists (connected = a session socket on the device; signed_out = an alert-mode socket, 00 H-1; else offline),
-// stationPresence() for dark (b20) and the engine for archived stations with open lines (§3.10).
+// stationPresence() for dark (b20) and the engine for archived stations with open lines (§3.10). v1.0.8 (Q-48): + points[]
+// and `name` on every warning, from the branch config (memory); statements unchanged.
 
 type ScreenState = 'connected' | 'signed_out' | 'offline';
 
@@ -88,11 +89,14 @@ export function registerKdsConfigQuery(app: FastifyInstance): void {
         const pass_tablets = devices
           .filter((d) => d.device_type === 'tablet')
           .map((d) => ({ device_id: d.device_id, name: d.device_name, point_id: d.point_id!, state: stateOf(d.device_id) }));
-        const warnings: Array<{ station_id: string; kind: 'archived_open_lines' | 'dark' }> = [
-          ...archivedOpen(ctx.state, config, ctx.now).map((a) => ({ station_id: a.station_id, kind: 'archived_open_lines' as const })),
-          ...stations.filter((s) => s.dark).map((s) => ({ station_id: s.station_id, kind: 'dark' as const })),
+        // Q-48: every point of the config (archived included) and the station name on each warning (archived stations included).
+        const points = (config?.points ?? []).map((p) => ({ point_id: p.point_id, name: p.name, is_archived: p.is_archived }));
+        const stationNames = new Map((config?.stations ?? []).map((s) => [s.station_id, s.name]));
+        const warnings: Array<{ station_id: string; kind: 'archived_open_lines' | 'dark'; name: string }> = [
+          ...archivedOpen(ctx.state, config, ctx.now).map((a) => ({ station_id: a.station_id, kind: 'archived_open_lines' as const, name: stationNames.get(a.station_id) ?? a.station_id })),
+          ...stations.filter((s) => s.dark).map((s) => ({ station_id: s.station_id, kind: 'dark' as const, name: s.name })),
         ];
-        return { data: { stations, pass_tablets, warnings } };
+        return { data: { stations, pass_tablets, points, warnings } };
       },
     }),
   );
