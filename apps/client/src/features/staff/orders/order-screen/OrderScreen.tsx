@@ -1,6 +1,6 @@
 import { inAvailabilityWindows, localTimeOfDayMs, type Unit } from '@pos/domain';
 import type { BranchConfig, ConfigItem } from '@pos/events';
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { navigate } from '../../../../app/router';
 import { language, t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
@@ -19,7 +19,9 @@ import { createIdbDraftStore } from '../drafts/idb-drafts';
 import { newUlid } from '../../../../app/ulid';
 import {
   EMPTY_CART,
+  addLine,
   addTap,
+  replaceLine,
   cartCount,
   cartTotal,
   groupCart,
@@ -38,6 +40,9 @@ import { Cart, CartList, SendBar } from './Cart';
 import type { LineView } from './CartLine';
 import { MenuPills, MenuRail, type RailCategory } from './MenuRail';
 import { MenuTiles, itemSub, variantsSub, type TileModel } from './MenuTiles';
+import { DealSheet } from '../sheets/DealSheet';
+import { NoteSheet, ORDER_NOTE_MAX } from '../sheets/NoteSheet';
+import { OptionsSheet } from '../sheets/OptionsSheet';
 import { createPreview, type PreviewState } from './preview';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
@@ -86,6 +91,26 @@ function needsSheet(item: ConfigItem, unit: Unit | null): boolean {
   return item.modifier_group_ids.length > 0 || item.requires_weighing || unit !== 'piece' || item.variant_group_id !== null;
 }
 
+/** The sheet's item / deal is still on the menu (an edited line still in the cart and on the menu). */
+function sheetTargetPresent(sheet: SheetRequest, config: BranchConfig, cart: CartModel): boolean {
+  const item = (id: string | undefined) => id !== undefined && config.items.some((i) => i.item_id === id);
+  const deal = (id: string | undefined) => id !== undefined && config.deals.some((d) => d.deal_id === id);
+  switch (sheet.kind) {
+    case 'item':
+      return item(sheet.item_id);
+    case 'variants':
+      return config.items.some((i) => i.variant_group_id === sheet.variant_group_id);
+    case 'deal':
+      return deal(sheet.deal_id);
+    case 'edit': {
+      const line = cart.lines.find((l) => l.key === sheet.key);
+      return line !== undefined && (line.deal_id !== undefined ? deal(line.deal_id) : item(line.item_id));
+    }
+    case 'order_note':
+      return true;
+  }
+}
+
 /** The variant group tile: orderable when any variant is; else the first variant's state. */
 function bestOf(states: ItemAvailability[]): ItemAvailability {
   return states.find((s) => s.orderable) ?? states[0]!;
@@ -105,7 +130,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const ur = language() === 'ur';
 
   // ------------------------------------------------------------------------------------- live inputs
-  useVersion(shell.config.subscribe);
+  const configVersion = useVersion(shell.config.subscribe);
   const config: BranchConfig | null = shell.config.snapshot();
   const mirror = useMemo(() => createStockMirror({ live: shell.live, snapshot: () => shellRef.current.config.snapshot(), hubNow: () => shellRef.current.clock.nowMs() }), [shell.live]);
   const availability = useMemo(
@@ -214,14 +239,11 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const draftId = useRef<string>(id);
   const staffId = shell.me?.staff_id ?? null;
   const deviceId = shell.device.id;
-  // #35: the stored draft comes back once per (person, order) — never again on a re-render (the shell builds a new
-  // `me` object on every render) — and never over lines typed meanwhile; a store that cannot be read still saves.
-  const restoredFor = useRef<string | null>(null);
+  // #35: the stored draft is read once per (person, order): the effect's deps are strings, so a re-render with a new
+  // `me` object (the shell builds one on every render) reads nothing; a StrictMode remount reads again, which is
+  // harmless. It never lands over lines typed meanwhile, and a store that cannot be read still saves.
   useEffect(() => {
     if (staffId === null) return;
-    const key = `${staffId}|${order_type}|${id}`;
-    if (restoredFor.current === key) return;
-    restoredFor.current = key;
     setRestored(false);
     let live = true;
     const done = (d: Draft | undefined) => {
@@ -268,7 +290,13 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   }, [preview, draftJson]);
 
   const [sheet, setSheet] = useState<SheetRequest | null>(null);
-  void sheet; // 26c renders the sheets
+  // a menu change (BranchConfigApplied) that removed the open sheet's item or deal closes it: "pick again"
+  useEffect(() => {
+    const c = shellRef.current.config.snapshot();
+    if (sheet === null || c === null || sheetTargetPresent(sheet, c, cartRef.current)) return;
+    setSheet(null);
+    shellRef.current.toasts.show({ text: t('sheet.changed'), tone: 'warn' });
+  }, [sheet, configVersion]);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -340,7 +368,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       id: item.item_id,
       kind: 'item',
       name: item.name,
-      sub: itemSub(item),
+      sub: itemSub(item, unitOf(item.item_id)),
       price_minor: item.price_minor,
       from: false,
       per: unitOf(item.item_id) === 'g' ? 'kg' : unitOf(item.item_id) === 'ml' ? 'l' : null,
@@ -454,6 +482,62 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       {order_type === 'dine_in' && <LockBanner state={lock.banner} onKeepDraft={keepDraft} />}
     </>
   );
+  // 26c: the sheet a tile, Edit or Order note asked for
+  const closeSheet = () => setSheet(null);
+  const onAdd = (line: CartModel['lines'][number]) => {
+    setCart((c) => (c.lines.some((l) => l.key === line.key) ? replaceLine(c, line) : addLine(c, line)));
+    setSheet(null);
+  };
+  const sheetAsBottom = shell.phone || shell.portrait;
+  let sheetView: ReactNode = null;
+  if (sheet !== null && sheetTargetPresent(sheet, config, cart)) {
+    const editing = sheet.kind === 'edit' ? (cart.lines.find((l) => l.key === sheet.key) ?? null) : null;
+    const variantsOf = (item_id: string) => {
+      const item = config.items.find((i) => i.item_id === item_id);
+      if (item?.variant_group_id == null) return [item_id];
+      return config.items.filter((i) => i.variant_group_id === item.variant_group_id).sort((a, b) => a.sort_order - b.sort_order).map((i) => i.item_id);
+    };
+    const common = { config, inputs, unitOf, sheet: sheetAsBottom, newKey, onAdd, onClose: closeSheet };
+    // O15: what is left for this line once the cart's other lines of the item are counted
+    const sheetCap = (item_id: string) => {
+      const cap = capOf(item_id);
+      if (cap === null) return null;
+      const mine = editing?.item_id === item_id ? (editing.quantity ?? 0) : 0;
+      return Math.max(0, cap - (unitsOf(cart, item_id) - mine));
+    };
+    if (sheet.kind === 'order_note')
+      sheetView = (
+        <NoteSheet
+          title={t('note.order_title')}
+          max={ORDER_NOTE_MAX}
+          initial={cart.order_note}
+          sheet={sheetAsBottom}
+          onSave={(note) => {
+            setCart((c) => {
+              const { order_note: _drop, ...rest } = c;
+              void _drop;
+              return note === undefined ? rest : { ...rest, order_note: note };
+            });
+            setSheet(null);
+          }}
+          onClose={closeSheet}
+        />
+      );
+    else if (sheet.kind === 'deal' || editing?.deal_id !== undefined)
+      sheetView = <DealSheet {...common} deal_id={sheet.kind === 'deal' ? sheet.deal_id : editing!.deal_id!} initial={editing} />;
+    else if (sheet.kind === 'variants')
+      sheetView = (
+        <OptionsSheet
+          {...common}
+          item_ids={config.items.filter((i) => i.variant_group_id === sheet.variant_group_id).sort((a, b) => a.sort_order - b.sort_order).map((i) => i.item_id)}
+          initial={null}
+          capOf={sheetCap}
+        />
+      );
+    else if (sheet.kind === 'item') sheetView = <OptionsSheet {...common} item_ids={[sheet.item_id]} initial={null} from_zone={sheet.from_zone} capOf={sheetCap} />;
+    else if (editing?.item_id !== undefined) sheetView = <OptionsSheet {...common} item_ids={variantsOf(editing.item_id)} initial={editing} capOf={sheetCap} />;
+  }
+
   const draftBack =
     back === null ? null : (
       <div className="abns">
@@ -504,6 +588,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         </div>
         <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} onSend={onSend} />
         {draftBack}
+        {sheetView}
       </div>
     );
   }
@@ -516,6 +601,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         <Cart {...cartProps} />
       </div>
       {draftBack}
+      {sheetView}
     </div>
   );
 }
