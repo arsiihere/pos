@@ -1019,6 +1019,24 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // ---- lane D (02a client) ----
   // ---- lane Q (02b client) ----
   // ---- lane O (02b client) ----
+  'menu.sections': 'مینیو کے حصے',
+  'menu.items_n': '{n} آئٹم',
+  'menu.deals_n': '{n} ڈیل',
+  'menu.from': 'سے',
+  'menu.by_weight': 'وزن کے حساب سے',
+  'menu.in_order': 'آرڈر میں {n}',
+  'order.tab.menu': 'مینیو',
+  'order.tab.cart': 'آرڈر',
+  'cart.quantity': 'تعداد',
+  'cart.less': 'ایک کم',
+  'cart.more': 'ایک اور',
+  'cart.edit': 'بدلیں',
+  'cart.remove': 'ہٹائیں',
+  'cart.weight_pending': 'وزن باقی ہے',
+  'cart.send_short': 'بھیجیں',
+  'cart.prob.not_now': 'ابھی نہیں',
+  'order.seating_missing': 'یہ ٹیبل بدل گئی ہے۔ آرڈر لینے کے لیے ٹیبلز پر واپس جائیں۔',
+  'draft.ok': 'ٹھیک ہے',
   // ---- lane T (02b client) ----
   // ---- lane L (02b client) ----
 };

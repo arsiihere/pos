@@ -1,3 +1,4 @@
+import type { Unit } from '@pos/domain';
 import type { BranchConfig, ConfigItem, ConfigStockItem, PosEvent } from '@pos/events';
 import {
   applyEvent,
@@ -55,6 +56,11 @@ export interface StockMirrorOptions {
 export interface DeviceStockMirror extends StockMirror {
   /** true once a catch-up `stock` part was folded in; until then every read is null (unknown, not sold out) */
   ready(): boolean;
+  /**
+   * 01c V20 (hub build-submit.ts:145-147): the item's sale unit frozen for the open day (dayDraws over the mirror's
+   * BusinessDay), the config's until the mirror is seeded; null when the item is not on the menu.
+   */
+  saleUnit(item_id: string): Unit | null;
   dispose(): void;
 }
 
@@ -215,6 +221,12 @@ export function createStockMirror(o: StockMirrorOptions): DeviceStockMirror {
 
   return {
     ready: () => state !== null,
+    saleUnit(item_id) {
+      const config = o.snapshot();
+      const item = config?.items.find((i) => i.item_id === item_id);
+      if (config === null || item === undefined) return null;
+      return state === null ? item.sale_unit : dayDraws(state, item, unitsOf(config)).sale_unit;
+    },
     available(item_id) {
       const t = tracked(item_id);
       if (t === null) return null;

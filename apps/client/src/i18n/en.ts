@@ -2118,6 +2118,24 @@ export const en = {
   // ---- lane D (02a client) ----
   // ---- lane Q (02b client) ----
   // ---- lane O (02b client) ----
+  'menu.sections': 'Menu sections',
+  'menu.items_n': '{n} items',
+  'menu.deals_n': '{n} deals',
+  'menu.from': 'from',
+  'menu.by_weight': 'By weight',
+  'menu.in_order': '{n} in order',
+  'order.tab.menu': 'Menu',
+  'order.tab.cart': 'Cart',
+  'cart.quantity': 'Quantity',
+  'cart.less': 'One less',
+  'cart.more': 'One more',
+  'cart.edit': 'Edit',
+  'cart.remove': 'Remove',
+  'cart.weight_pending': 'Weight pending',
+  'cart.send_short': 'Send',
+  'cart.prob.not_now': 'Not now',
+  'order.seating_missing': 'This table changed. Go back to the tables to take the order.',
+  'draft.ok': 'OK',
   // ---- lane T (02b client) ----
   // ---- lane L (02b client) ----
 } as const;
