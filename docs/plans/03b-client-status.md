@@ -16,12 +16,12 @@ Plan: `03b-client-plan.md`. Gaps + rulings: `03b-client-gaps.md` (Q-42…Q-58; p
 
 | Task | Title | RISK | Needs | PR | State |
 |---|---|---|---|---|---|
-| W0.1 | Branch, labels, board | — | 02 W0 on `main` | | in progress |
-| W0.2 | `pulse-03.css`, `admin-03.css` into ui-kit + KDS kit | NORMAL | W0.1 | | todo |
-| W0.3 | Strings, both modules | NORMAL | W0.1 | | todo |
-| W0.4 | Entries `kds`, `admin-kitchen-screens`, `admin-printers` | NORMAL | W0.1 | | todo |
-| W0.5 | Contracts, slots extension, stubs | **HIGH** | W0.4 | | todo |
-| W0.6 | Pass route in the 02 shell + alerts labels hook | NORMAL | W0.5; 02 W0.6 + 02a 23b on `main` | | todo |
+| W0.1 | Branch, labels, board | — | 02 W0 on `main` | #190 | **merged** |
+| W0.2 | `pulse-03.css`, `admin-03.css` into ui-kit + KDS kit | NORMAL | W0.1 | #190 | **merged** |
+| W0.3 | Strings, both modules | NORMAL | W0.1 | #190 | **merged** |
+| W0.4 | Entries `kds`, `admin-kitchen-screens`, `admin-printers` | NORMAL | W0.1 | #191 | **merged** |
+| W0.5 | Contracts, slots extension, stubs | **HIGH** | W0.4 | #194 | **merged** |
+| W0.6 | Pass route in the 02 shell + alerts labels hook (+ Q-66, IR-17, IR-17b, IR-22) | NORMAL | W0.5; 02b on `main` (#209); A5 (#210, IR-20b) | (this PR) | in review |
 
 **W0 done** = W0.1–W0.6 merged into `module-03b-client`, CI green. Lanes K and A (A1–A4) start after W0.5; lane P and task A5 after W0.6.
 
@@ -97,7 +97,10 @@ Paths: `K/` = `apps/client/src/features/kds/`, `P/` = `…/pass/`, `PR/` = `…/
 | AD-K7 | W0.4 creates the three entry stubs `K/main.tsx`, `AK/main.tsx`, `AP/main.tsx` (header "stub (W0.5)") because each `index.html` needs a module to build; W0.5 keeps them. | W0.4 (#191) | proposed |
 | AD-K8 | W0.5 contracts: `KdsStore` / `PassStore` add `snapshot()` to the plan's `hold(ids)`, `apply(frame)`, `subscribe`; `hold(ids)` returns the held subset (Q-49). The Pass's Start / Done / Undo / Give me more / Lane use `KdsApi` on the staff session. `PR/register.ts` exports `registerPrintSlots()`, called once at module scope by each 03b screen entry (KDS: K1; Pass: P1). The catch-up part list is K1's / P1's (no shared constant). A catch-up replaces a store whole (`arrived_at` / `seen_at` emptied); `PointLinesFrame` is built on `WsPointLines`. | W0.5 | proposed |
 | AD-K9 | `K/slots.ts` readers skip a slot function that throws, and `publishFrame` isolates a throwing subscriber; `runSlotAction(action)` is 03b's one caller of `run()` (`{}` when no toast; a throw → rejected promise). | W0.5 | proposed |
-
+| AD-K10 | **Q-66 (owner 2026-11-13 17:24 PKT, = (a)):** W0.6 edits, all additive: `S/shell/routes.tsx` (`{ name: 'pass' }`, `'/pass'`), `S/shell/slots.tsx` (one case → `P/PassScreen.tsx`), `S/tables/TopBar.tsx` (optional `pass` prop → "Pass" first in the nav), `S/StaffApp.tsx` (Pass live, nav state, landing on `#/pass`, the print-skip sender), `A/labels.ts` (import + `text03b` / `title03b` in `textOf` / `titleText`, `closedText03b` first in `closedText` with optional `kind` / `problem` / `moved_to`), `A/ui.tsx` (`PrintSkipContext`, card help line + Dismiss / "Stays until day close", closed line for the 03b kinds, `kind` / `problem` to `closedText`), `A/AnswerSheet.tsx` (`kind` / `problem` to `closedText`), `A/Banner.tsx` (IR-22 who line). No `A/labels-03b.ts` stub: A5 (#210) ships the real file first (IR-20b). | W0.6 | proposed (owner ruled Q-66) |
+| AD-K11 | **IR-17 / IR-17b:** `StaffApp` makes the page's one `passLiveOf({ live, clock, api })` before the socket (its `useMemo` precedes the connection's), so the Pass sees the first catch-up; the socket's `onFrame` feeds `liveBus.frame(f)` then `pass.frame(f)` (point_lines, station_takeover, station_notice, station_plan, printed_lines). Clock and api are read at call time. | W0.6 | proposed (integrator) |
+| AD-K12 | The landing on `#/pass` (handoff Q-6): a tablet's socket opens with the session, so its catch-up comes after sign-in's `navigate('/tables')`; the first `point_view` of the session moves the page to `#/pass` only while it is still on the `#/tables` landing (never away from a screen the person chose). | W0.6 | proposed |
+| AD-K13 | `createPrintSkipDismiss` is made once per signed-in session (memo keyed on `api` + the session token); its refresh re-reads the inbox. A 03b / 03c action alert's closed row shows its closed line (`RowCard` showed it for requests only). | W0.6 | proposed |
 ## STOPs / needs-ruling
 
 None yet.

@@ -7,6 +7,8 @@ import { fakeTimers, recordingSink } from '../alerts/test-fakes';
 import type { Device, PageMeta } from './api';
 import { readPageMeta } from './api';
 import { StaffApp } from './StaffApp';
+import { subscribeFrames } from '../kds/slots';
+import type { WsServerMessage } from '@pos/events';
 
 // 01d task 41, §8.1: the /staff/ shell. Sign-in (roster tiles → PIN, POST /auth/pin) opens the staff socket;
 // the nav shows Requests to approvers and Test alert only with manage-devices; AnswerRequest goes with the
@@ -54,6 +56,8 @@ function hub(
     inbox?: Array<() => Response | Promise<Response>>;
     /** the hub clock branch-config reports (S47 re-sync) */
     hubNow?: number;
+    /** 03b W0.6: more routes, `METHOD /path` → reply (checked first) */
+    extra?: Record<string, () => Response | Promise<Response>>;
   } = {},
 ) {
   const inbox = [...(o.inbox ?? [])];
@@ -62,6 +66,8 @@ function hub(
     const path = url.split('?')[0]!;
     const method = init?.method ?? 'GET';
     calls.push({ method, path, headers: (init?.headers ?? {}) as Record<string, string>, body: init?.body === undefined ? undefined : JSON.parse(init.body as string) });
+    const extra = o.extra?.[`${method} ${path}`];
+    if (extra !== undefined) return extra();
     switch (`${method} ${path}`) {
       case 'GET /queries/staff-roster':
         return reply(200, { data: { staff: [{ staff_id: 'S-IMRAN', display_name: 'Imran', locked_until: null }], active_session: null } });
@@ -485,5 +491,147 @@ describe('[02a §8 Top bar] map wiring', () => {
     });
     await flush(6);
     expect(m.container.querySelector('.side2')?.textContent).toContain('T2');
+  });
+});
+
+// 03b W0.6 (Q-58, Q-66; IR-17, IR-17b): the Pass in the staff shell — route + nav item on a device whose catch-up has a
+// point_view, the page's one Pass live fed by the socket, and the printer card's Dismiss sender once per session.
+describe('[03b W0.6] Pass in the staff shell', () => {
+  const POINT_VIEW = { point_id: 'PT-1', stations: [], orders: [], takeovers: [] };
+  const LINE = {
+    order_item_id: 'L1',
+    order_id: 'O1',
+    station_id: 'ST-1',
+    point_id: 'PT-1',
+    identifier: { kind: 'table', label: 'T4' },
+    order_type: 'dine_in',
+    item_name: 'Naan',
+    units: 2,
+    line_kind: 'item',
+    for_parent: null,
+    deal_name: null,
+    options: [],
+    kitchen_note: null,
+    order_note: null,
+    return_of: null,
+    cook_ms: 60_000,
+    prep_ms: 0,
+    from_stock: false,
+    placed_by_name: null,
+  };
+
+  it('[03b W0.6] with point_view in catch-up the staff shell shows Pass · Inbox · Requests and opens #/pass after sign-in; without it no Pass item', async () => {
+    render(TABLET, hub({ requests: [requestRow({ alert_id: 'R1' })] }).fetch);
+    await signIn();
+    expect(window.location.hash).toBe('#/tables');
+    sockets[0]!.frame({ type: 'catch_up', as_of_seq: 3, state: { point_view: POINT_VIEW } });
+    await flush(4);
+    expect(window.location.hash).toBe('#/pass');
+    const top = m.container.querySelector('header.top')!;
+    const labels = [...top.querySelectorAll('.end button .sr')].map((s) => s.textContent);
+    expect(labels).toEqual(['Pass', 'Requests', 'Inbox']);
+    m.click(m.button('Inbox', top));
+    await flush();
+    expect(window.location.hash).toBe('#/inbox');
+    m.click(m.button('Pass', top));
+    expect(window.location.hash).toBe('#/pass');
+    m.unmount();
+
+    window.location.hash = '';
+    render(TABLET, hub().fetch);
+    await signIn();
+    sockets[0]!.frame(UP);
+    await flush(4);
+    expect(window.location.hash).toBe('#/tables');
+    expect([...m.container.querySelectorAll('header.top .end button .sr')].map((s) => s.textContent)).not.toContain('Pass');
+  });
+
+  it('[03b IR-17b] the Pass live exists before the first catch_up; point_lines, station_takeover, station_notice, station_plan and printed_lines reach the Pass', async () => {
+    const seen: WsServerMessage[] = [];
+    const off = subscribeFrames((f) => seen.push(f));
+    try {
+      render(TABLET, hub().fetch);
+      await signIn();
+      const frames = [
+        { type: 'catch_up', as_of_seq: 1, state: { point_view: POINT_VIEW } },
+        { type: 'point_lines', point_id: 'PT-1', lines: [{ ...LINE, group_id: 'G1', serve_mode: 'sync' }] },
+        { type: 'station_takeover', station_id: 'ST-1', active: false },
+        { type: 'station_notice', station_id: 'ST-1', kind: 'output', has_printer: true },
+        { type: 'station_plan', station_id: 'ST-1', as_of_seq: 1, lines: [] },
+        { type: 'printed_lines', station_id: 'ST-1', order_item_ids: ['L1'] },
+      ];
+      for (const f of frames) sockets[0]!.frame(f);
+      await flush(4);
+      // the first frame the page ever got (the catch-up) reached the Pass: its live was there before the socket opened
+      expect(seen.map((f) => f.type)).toEqual(['catch_up', 'point_lines', 'station_takeover', 'station_notice', 'station_plan', 'printed_lines']);
+    } finally {
+      off();
+    }
+  });
+
+  it('[03c §6.12 Q-66] the printer card Dismiss sender is made once per signed-in session: a lost reply keeps its command_id for the next tap', async () => {
+    const sends: Array<{ command_id: string }> = [];
+    let lose = true;
+    const dismiss = async () => {
+      if (lose) {
+        lose = false;
+        throw new TypeError('network');
+      }
+      return reply(200, { data: { command_id: 'x', event_ids: [], result: { dismissed: true } } });
+    };
+    const h = hub({ permissions: { 'force-release-table-lock': { grant: 'allowed', scope: 'branch' } as never }, extra: { 'POST /commands/dismiss-print-skip': dismiss } });
+    render(TABLET, h.fetch);
+    await signIn();
+    sockets[0]!.frame(UP);
+    sockets[0]!.frame({
+      type: 'alert',
+      alert: {
+        alert_id: 'P1',
+        kind: 'printer_problem',
+        family: 'action',
+        step: 0,
+        escalation: false,
+        set: 'answerer',
+        for_staff_id: null,
+        lock: { kind_label_key: 'alert.printer_problem.lock', table_code: null, point_code: null, requester_name: null, device_name: null },
+        card: {
+          kind_label_key: 'alert.printer_problem.card',
+          table_code: null,
+          point_code: null,
+          requester_name: null,
+          device_name: null,
+          details: { printer_name: 'Tandoor printer', problem: 'ticket_not_built' },
+        },
+        raised_at: NOW - 60_000,
+      },
+    });
+    await flush(4);
+    window.location.hash = '#/inbox';
+    await flush(4);
+    const tap = async () => {
+      m.click([...m.container.querySelectorAll('button')].find((b) => b.textContent === 'Dismiss'));
+      await flush(6);
+    };
+    await tap(); // no answer
+    // force StaffApp to re-render between the taps (a new alert row): the sender must survive it
+    sockets[0]!.frame({
+      type: 'alert',
+      alert: {
+        alert_id: 'P2',
+        kind: 'printer_problem',
+        family: 'action',
+        step: 0,
+        escalation: false,
+        set: 'answerer',
+        for_staff_id: null,
+        lock: { kind_label_key: 'alert.printer_problem.lock', table_code: null, point_code: null, requester_name: null, device_name: null },
+        raised_at: NOW - 30_000,
+      },
+    });
+    await flush(4);
+    await tap(); // the same sender, the same id
+    for (const c of h.calls.filter((c) => c.path === '/commands/dismiss-print-skip')) sends.push(c.body as { command_id: string });
+    expect(sends.length).toBe(2);
+    expect(sends[1]!.command_id).toBe(sends[0]!.command_id);
   });
 });
