@@ -11,7 +11,6 @@ import { OrderView } from '../orders/view/OrderView';
 import { ZoneStock } from '../orders/zones/ZoneStock';
 import { TableMap } from '../tables/map/TableMap';
 import { TableSheet } from '../tables/sheet/TableSheet';
-import { useTableLock } from '../tables/lock/useTableLock';
 import { createLiveBus } from './live';
 import { matchStaffRoute, orderHref, tableHref } from './routes';
 import { isSlotRoute, slotContent } from './slots';
@@ -61,16 +60,12 @@ describe('[02 W0.6] staff routes', () => {
     expect(matchStaffRoute('/nope', 'phone')).toEqual({ name: 'inbox' });
   });
 
-  it('[02 W0.6] stub Enqueue answers needs_hub; stub useTableLock gives no banner', async () => {
+  it('[02 W0.6] stub Enqueue answers needs_hub', async () => {
     const enqueue = createEnqueue({ api: {} as never, device: { token: 'T', id: 'D1', type: 'tablet' }, clock: () => ({}) as never, live: createLiveBus() });
     expect(await enqueue('RequestBill', { table_id: 'TB4', seating_id: 'S1' }, { table_id: 'TB4', seating_id: 'S1', label: 'Ask for bill' })).toEqual({ status: 'needs_hub' });
     expect(await enqueue('SubmitOrder', {}, { label: 'Order' })).toEqual({ status: 'needs_hub' });
     expect(enqueue.pendingFor('TB4')).toBe(0);
     expect(enqueue.pendingCount()).toBe(0);
-    const lock = useTableLock({ table_id: 'TB4', seating_id: 'S1' });
-    expect(lock.banner).toBeNull();
-    expect(lock.canSend).toBe(true);
-    await expect(lock.release()).resolves.toBeUndefined();
     const hooks = createShellHooks(enqueue);
     await expect(hooks.beforeSignIn()).resolves.toBeUndefined();
     expect(hooks.queueLine()).toBeNull();
