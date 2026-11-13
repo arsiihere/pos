@@ -2480,6 +2480,8 @@ export const en = {
   // P4 (03b §3.6; frames PassTakeover, PassScreenBack)
   'pass.takeover_sub': 'Its Now and Next are here. Tap for the cooks until the screen is back.',
   'pass.screen_back': '{station} screen is back',
+  // P5 (03b §8; frame PassOffline)
+  'pass.offline_sub': 'Buttons are off; taps are not saved',
   // ---- lane A (03b client) ----
   // A1 kitchen screens (frames KitchenScreens*, 03b-S04 / D02 / D03 / B16)
   'kitchen_screens.stations': 'Stations',
