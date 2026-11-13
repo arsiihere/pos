@@ -1321,4 +1321,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'kitchen_screens.use_tablet': 'ٹیبلٹ کو پاس ٹیبلٹ بنائیں',
   'kitchen_screens.play': 'اس ڈیوائس پر چلائیں',
   'admin_03.nav.other_jobs': 'دوسرے کام',
+  // A5 alert cards (written without a frame text: listed under "Needs native review" in 03b/urdu-todo.md)
+  'alerts.closed.moved_plain': 'منتقل',
+  'alerts.closed.served': 'پیش ہو گیا',
+  'alert.served_card.help': 'میز پر رکھ کر ”پیش“ ٹیپ کریں',
+  'alert.ready_to_serve.escalated': '{point} · {n} منٹ سے کوئی نہیں آیا',
 };

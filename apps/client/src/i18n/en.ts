@@ -2708,6 +2708,11 @@ export const en = {
   'paper.preview': 'Paper preview · {width} mm',
   // A4 reprint (brief §3.6 03c-C02: queued while the printer is down)
   'print.reprinting_queued': 'Reprinting {n} tickets. It prints when the printer is back.',
+  // A5 alert cards (03b-N01–N03, 03c-N01; frames AlertCards, PassEscalated)
+  'alerts.closed.moved_plain': 'Moved',
+  'alerts.closed.served': 'Served',
+  'alert.served_card.help': "Tap Served when it's on the table",
+  'alert.ready_to_serve.escalated': '{point} · nobody came for {n} min',
 } as const;
 
 export type MessageKey = keyof typeof en;

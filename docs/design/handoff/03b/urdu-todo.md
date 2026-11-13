@@ -164,6 +164,8 @@ Every `alert.*` / `alerts.*` key must be in `ur.ts` (the `[01d §3.12]` labels t
 - printers.last_printed
 - printers.checked
 - kitchen_screens.lanes
+- alerts.closed.moved_plain (A5)
+- alert.ready_to_serve.escalated (A5, frame PassEscalated)
 
 ## Lane A (03b client) — A1 kitchen screens
 
