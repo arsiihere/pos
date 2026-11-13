@@ -149,3 +149,18 @@ export function createMapStore(deps: MapStoreDeps): MapStore & { dispose(): void
     },
   };
 }
+
+const shared = new WeakMap<LiveBus, ReturnType<typeof createMapStore>>();
+
+/**
+ * The page's one map store (per live bus): the map, the table sheet and the top bar read the same tiles and the same
+ * debounced read. Lives as long as the page.
+ */
+export function sharedMapStore(tables: Pick<TablesApi, 'tableMap'>, live: LiveBus): MapStore {
+  let store = shared.get(live);
+  if (store === undefined) {
+    store = createMapStore({ tables, live });
+    shared.set(live, store);
+  }
+  return store;
+}

@@ -2114,6 +2114,21 @@ export const en = {
   'order.toast.some_not_sent': '{n} not sent — see the queue log',
   // ---- lane A (02a client) ----
   // ---- lane B (02a client) ----
+  // 02a v1.1.6 §8 Table map (21b): Needs-you rows, flags, empty state (frames TableMap*, Tiles)
+  'tables.ny.bill': 'Bill asked',
+  'tables.ny.yours_ago': 'Yours · {n} min ago',
+  'tables.ny.by_ago': '{name} · {n} min ago',
+  'tables.ny.ago': '{n} min ago',
+  'tables.ny.ordering': '{name} is ordering',
+  'tables.ny.ordering_sub': 'Your zone · his table',
+  'tables.ny.call': 'Call',
+  'tables.ny.clean': 'To clean',
+  'tables.flag.late': '{n} min late',
+  'tables.flag.late_unknown': 'Late',
+  'tables.tile.min': '· {n} min',
+  'tables.empty_sub': 'Ask the owner to add floors and tables.',
+  'tables.held': 'Held',
+  'tables.loading': 'Loading tables…',
   // ---- lane C (02a client) ----
   // ---- lane D (02a client) ----
   // ---- lane Q (02b client) ----
