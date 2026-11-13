@@ -2233,6 +2233,18 @@ export const en = {
   'ov.boost': 'Boost',
   'ov.total': 'Total',
   // ---- lane L (02b client) ----
+  'orders.filter_all': 'All',
+  'orders.placed': 'Placed {time}',
+  'orders.placed_by': 'Placed {time} · {who}',
+  'orders.named': '{name} · placed {time}',
+  'orders.dine_in': 'Dine-in · abandoned',
+  'orders.table': 'Table',
+  'orders.opens_table': 'opens the table',
+  'orders.empty': 'No open orders',
+  'orders.load_failed': "Couldn't load the orders.",
+  'orders.retry': 'Try again',
+  'kiosk.tables': 'Tables',
+  'kiosk.held': 'Held',
 } as const;
 
 export type MessageKey = keyof typeof en;
