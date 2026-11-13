@@ -39,7 +39,7 @@ import { registerSetStationCapacity } from './commands/set-station-capacity.js';
 import { registerSetStationPause } from './commands/set-station-pause.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { hubTime } from './lib/hub-time.js';
-import { CLIENT_DIST_DIR, registerClientDist, STAFF_DIST_DIR } from './lib/client-dist.js';
+import { CLIENT_DIST_DIR, KDS_DIST_DIR, registerClientDist, STAFF_DIST_DIR } from './lib/client-dist.js';
 import { registerAdminPage } from './admin/routes.js';
 import { Semaphore } from './lib/semaphore.js';
 import { registerUiAssets } from './lib/ui-assets.js';
@@ -216,23 +216,21 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerClientDist(app, { prefix: '/admin/stock/', dir: CLIENT_DIST_DIR, routeConfig: { group: 'admin-page' } });
   // 01d task 41: the staff entry, the same way. Its commands need the envelope ids, which no device route
   // returns, and its 12-hour times the hub clock (S47), so index.html carries them (proposed AD).
-  registerClientDist(app, {
-    prefix: '/staff/',
-    dir: STAFF_DIST_DIR,
-    routeConfig: { group: 'admin-page' },
-    indexMeta: () => {
-      const provisioned = deps.config.provisioned;
-      if (provisioned === undefined) return null;
-      const time = hubTime(deps.clock);
-      return {
-        'pos-tenant-id': provisioned.tenant_id,
-        'pos-branch-id': provisioned.branch_id,
-        'pos-branch-name': provisioned.branch_name,
-        'pos-hub-now-ms': String(time.now_ms),
-        'pos-hub-utc-offset-ms': String(time.utc_offset_ms),
-      };
-    },
-  });
+  const pageMeta = (): Record<string, string> | null => {
+    const provisioned = deps.config.provisioned;
+    if (provisioned === undefined) return null;
+    const time = hubTime(deps.clock);
+    return {
+      'pos-tenant-id': provisioned.tenant_id,
+      'pos-branch-id': provisioned.branch_id,
+      'pos-branch-name': provisioned.branch_name,
+      'pos-hub-now-ms': String(time.now_ms),
+      'pos-hub-utc-offset-ms': String(time.utc_offset_ms),
+    };
+  };
+  registerClientDist(app, { prefix: '/staff/', dir: STAFF_DIST_DIR, routeConfig: { group: 'admin-page' }, indexMeta: pageMeta });
+  // 00 v1.9.2 §8.2 (Q-42): the 03b KDS entry, with the same page meta; it signs in as its station itself (M53).
+  registerClientDist(app, { prefix: '/kds/', dir: KDS_DIST_DIR, routeConfig: { group: 'admin-page' }, indexMeta: pageMeta });
   installCors(app, deps.config.cors_origins);
   bindConfigPoller(
     app,
