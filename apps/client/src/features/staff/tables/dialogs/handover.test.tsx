@@ -7,6 +7,7 @@ import { createLiveBus } from '../../shell/live';
 import { createPermissions } from '../../shell/permissions';
 import { createToastBus } from '../../shell/toast';
 import type { HandoverCandidate, MapTile, TableMapBody, TablesApi } from '../contracts';
+import { pendingHandovers } from '../cards/pending-handovers';
 import { createLocalFlags } from '../local-flags';
 import { TableSheet } from '../sheet/TableSheet';
 
@@ -88,7 +89,10 @@ let m: Mounted;
 beforeEach(() => {
   window.location.hash = '/tables/TB2?seating_id=S2';
 });
-afterEach(() => m?.unmount());
+afterEach(() => {
+  m?.unmount();
+  pendingHandovers.disconnect();
+});
 
 async function render(shell: Shell) {
   m = mount();
@@ -132,6 +136,26 @@ describe('[02a §8 Table sheet] hand over and force move', () => {
     expect(calls.find((c) => c.name === 'requestTableHandover')?.payload).toEqual({ table_id: 'TB2', seating_id: 'S2', to_staff_id: 'ST-SAR' });
     expect(shell.toasts.current()?.text).toBe('Sent to Sara');
     expect(dlg()).toBeNull();
+  });
+
+  it('[02a §8 Handover waiting card] IR-4: a sent handover is remembered (alert_id → table, seating, receiver) and the sheet shows the waiting card above the actions', async () => {
+    pendingHandovers.connect({ staff_id: ME, load: async () => ({ ok: true, data: { requests: [] } }), now: () => NOW });
+    const { shell } = fakeShell({ perms: ['take-order'], answers: { requestTableHandover: [{ ok: true, data: { alert_id: 'AL1' } }] } });
+    await render(shell);
+    expect(m.text()).not.toContain('Waiting for');
+    m.click(m.button('Hand over'));
+    await flush();
+    m.click(row('Sara'));
+    m.click(m.button('Send request', dlg()!));
+    await flush();
+    expect(pendingHandovers.forTable('TB2', null)).toMatchObject({ alert_id: 'AL1', table_id: 'TB2', seating_id: 'S2', receiver_name: 'Sara' });
+    const head = m.container.querySelector('.tv__h')!;
+    expect(head.textContent).toContain('Waiting for Sara');
+    // above the action grid
+    const card = [...head.children].findIndex((c) => (c.textContent ?? '').includes('Waiting for Sara'));
+    const acts = [...head.children].findIndex((c) => c.classList.contains('tv__acts'));
+    expect(card).toBeGreaterThanOrEqual(0);
+    expect(card).toBeLessThan(acts);
   });
 
   it('[02a §8 Table sheet] 409 HANDOVER_TARGET_UNAVAILABLE not_working → HandOverGone, list refreshed', async () => {
