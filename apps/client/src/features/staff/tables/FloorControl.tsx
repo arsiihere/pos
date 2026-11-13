@@ -2,25 +2,13 @@ import { t } from '../../../i18n';
 
 // 02a §8 Top bar (frame 02a-C10): the floor segmented control with table counts. The floor list comes from
 // `TableMapBody.floors`; the choice lives in the hash query `#/tables?floor=<floor_id>` (absent = all floors), written
-// by the shell (`floorHref`) and read by the map. Names are isolated per name: a Latin name stays LTR in an Urdu
+// by this control (`floorHref` of map/filters.ts) and read by the map (`floorOf`). Names are isolated per name: a Latin name stays LTR in an Urdu
 // page, an Urdu name reads RTL; counts are Latin digits.
 
 export interface FloorChoice {
   floor_id: string;
   name: string;
   count: number;
-}
-
-/** `#/tables?floor=<id>` */
-export function floorHref(floor_id: string): string {
-  return `/tables?floor=${encodeURIComponent(floor_id)}`;
-}
-
-/** The floor chosen in a hash route, or null (all floors). */
-export function floorFromRoute(route: string): string | null {
-  const [path, search = ''] = route.split('?');
-  if (path !== '/tables') return null;
-  return new URLSearchParams(search).get('floor');
 }
 
 function nameDir(name: string): 'ltr' | 'rtl' {

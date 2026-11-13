@@ -440,3 +440,50 @@ describe('[02a §8 Top bar] staff shell', () => {
     }
   });
 });
+
+// 02a §8 Top bar / Table map wiring (IR-3, IR-5)
+describe('[02a §8 Top bar] map wiring', () => {
+  const tile = (table_id: string, name: string) => ({
+    table_id, name, seats: 4, archived: false, state: 'FREE', seating_id: null, party_size: null, primary_table_id: null,
+    joined_table_names: [], holder: null, assignee: null, lock: null, opened_at: null, bill_requested_at: null, live_order_count: 0,
+  });
+  const MAP = {
+    as_of_seq: 1,
+    floors: [
+      { floor_id: 'FL1', name: 'Ground floor', archived: false, zones: [{ zone_id: 'Z1', name: 'A', tables: [tile('T1', 'T1'), tile('T2', 'T2')] }] },
+      { floor_id: 'FL2', name: 'Rooftop', archived: false, zones: [{ zone_id: 'Z2', name: 'B', tables: [tile('T3', 'T3')] }] },
+      { floor_id: 'FLX', name: 'Old', archived: true, zones: [] },
+    ],
+  };
+
+  it('[02a §8 Top bar] the floor control lists the map store floors with counts and writes #/tables?floor=', async () => {
+    render(TABLET, hub().fetch);
+    await signIn();
+    sockets[0]!.frame({ type: 'catch_up', as_of_seq: 1, state: { tables: MAP } });
+    await flush(6);
+    const seg = m.container.querySelector('header.top .seg')!;
+    expect([...seg.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Ground floor2', 'Rooftop1']);
+    m.click(m.button('Rooftop', seg));
+    await flush();
+    expect(window.location.hash).toBe('#/tables?floor=FL2');
+    expect(m.container.querySelector('header.top .seg button[aria-pressed="true"]')?.textContent).toContain('Rooftop');
+    // not on the inbox
+    act(() => {
+      window.location.hash = '#/inbox';
+    });
+    await flush();
+    expect(m.container.querySelector('header.top .seg')).toBeNull();
+  });
+
+  it('[02a §8 Table map] the alert store rows reach the map (a call_waiter row shows in Needs you)', async () => {
+    render(TABLET, hub().fetch);
+    await signIn();
+    sockets[0]!.frame({ type: 'catch_up', as_of_seq: 1, state: { tables: MAP } });
+    sockets[0]!.frame({
+      type: 'alert',
+      alert: { alert_id: 'C1', kind: 'call_waiter', family: 'info', step: 0, escalation: false, set: 'recipient', for_staff_id: null, lock: { kind_label_key: 'alert.call_waiter.lock', table_code: 'T2', requester_name: 'Ali' }, raised_at: NOW - 120_000 },
+    });
+    await flush(6);
+    expect(m.container.querySelector('.side2')?.textContent).toContain('T2');
+  });
+});
