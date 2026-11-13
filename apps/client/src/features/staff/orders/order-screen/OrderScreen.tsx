@@ -44,6 +44,10 @@ import { DealSheet } from '../sheets/DealSheet';
 import { NoteSheet, ORDER_NOTE_MAX } from '../sheets/NoteSheet';
 import { OptionsSheet } from '../sheets/OptionsSheet';
 import { createPreview, type PreviewState } from './preview';
+import { DayNotStarted, canStartDay } from './DayNotStarted';
+import { NewOrderSheet } from '../new-order/NewOrderSheet';
+import { SendDialog, type SendView } from '../send/SendDialog';
+import { announceCompIt, freezeSubmit, refusalText, sendOrder, timeUpdated, toCart, zoneEmpty } from '../send/send';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
 // Menu / Cart tabs + sticky Send; 02-B03 draft back, B04 offline, B05 / B07 line problems), 02a §8 Order screen (the
@@ -82,8 +86,14 @@ function useVersion(subscribe: (l: () => void) => () => void): number {
   return v;
 }
 
-function isCart(v: unknown): v is CartModel {
-  return typeof v === 'object' && v !== null && Array.isArray((v as { lines?: unknown }).lines);
+/** The device draft store (the context's, else 25a's IndexedDB store). */
+export function useDrafts(): DraftStore {
+  return useContext(DraftStoreContext) ?? idbDrafts();
+}
+
+/** A cart with nothing to keep: no lines, no takeaway / parking details, not a queue-log copy. */
+function blank(c: CartModel): boolean {
+  return c.lines.length === 0 && c.takeaway === undefined && c.parking === undefined && c.from_entry_id === undefined && c.order_note === undefined;
 }
 
 /** A tile tap adds a line straight away only for a plain piece item; anything with a choice opens a sheet (26c). */
@@ -125,8 +135,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const shell = useShell();
   const shellRef = useRef(shell);
   shellRef.current = shell;
-  const given = useContext(DraftStoreContext);
-  const drafts = given ?? idbDrafts();
+  const drafts = useDrafts();
   const ur = language() === 'ur';
 
   // ------------------------------------------------------------------------------------- live inputs
@@ -197,10 +206,12 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   }, [shell.live]);
 
   // ------------------------------------------------------------------------------------ the seating
-  const [seat, setSeat] = useState<{ ref: SeatingRef; zone_id: string | null; round: number } | null>(null);
+  const [seat, setSeat] = useState<{ ref: SeatingRef; zone_id: string | null; round: number; name: string } | null>(null);
   // dine-in: the seating on the current map; not found (moved, closed) → "This table changed — refreshed", one more
   // read, then Send stays off with a message (Global constraints, TABLE_SEATING_CHANGED rule)
   const [seatMissing, setSeatMissing] = useState(false);
+  // a Send refused with TABLE_SEATING_CHANGED reads the map once more (its toast is shown by Send)
+  const [seatReload, setSeatReload] = useState(0);
   useEffect(() => {
     if (order_type !== 'dine_in') return;
     let live = true;
@@ -211,12 +222,17 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         for (const zone of floor.zones)
           for (const tile of zone.tables) {
             if (tile.seating_id !== id || (tile.primary_table_id !== null && tile.primary_table_id !== tile.table_id)) continue;
-            setSeat({ ref: { table_id: tile.table_id, seating_id: id }, zone_id: zone.zone_id, round: (orders.ok ? orders.data.orders.length : 0) + 1 });
+            setSeat({ ref: { table_id: tile.table_id, seating_id: id }, zone_id: zone.zone_id, round: (orders.ok ? orders.data.orders.length : 0) + 1, name: [tile.name, ...tile.joined_table_names].join(' + ') });
             return true;
           }
       return false;
     };
     void (async () => {
+      if (seatReload > 0) {
+        setSeat(null);
+        if (!(await find()) && live) setSeatMissing(true);
+        return;
+      }
       if (await find()) return;
       if (!live) return;
       shellRef.current.toasts.show({ text: t('tables.changed'), tone: 'info' });
@@ -225,7 +241,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     return () => {
       live = false;
     };
-  }, [order_type, id]);
+  }, [order_type, id, seatReload]);
   const lock = useTableLock(order_type === 'dine_in' ? (seat?.ref ?? null) : null);
   const target: DraftTarget | null = order_type !== 'dine_in' ? { order_type } : seat === null ? null : { order_type, table_id: seat.ref.table_id, seating_id: id };
 
@@ -242,6 +258,8 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   // #35: the stored draft is read once per (person, order): the effect's deps are strings, so a re-render with a new
   // `me` object (the shell builds one on every render) reads nothing; a StrictMode remount reads again, which is
   // harmless. It never lands over lines typed meanwhile, and a store that cannot be read still saves.
+  /** Hold / Send: the screen is leaving with its draft written; no save may undo that */
+  const leaving = useRef(false);
   useEffect(() => {
     if (staffId === null) return;
     setRestored(false);
@@ -249,12 +267,16 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     const done = (d: Draft | undefined) => {
       if (!live) return;
       draftId.current = d?.draft_id ?? (order_type === 'dine_in' ? newUlid() : id);
-      if (d !== undefined && isCart(d.cart) && d.cart.lines.length > 0) {
-        // typed before the read answered: keep it (it is saved next), no banner
-        if (cartRef.current.lines.length === 0) {
-          setCart(d.cart);
-          setBack(d.updated_at);
-        }
+      // IR-7 / IR-8: a queue-log copy ({ copy_of, from_entry_id }) becomes a cart with fresh ids
+      const stored = d === undefined ? null : toCart(d.cart, newUlid);
+      const isCopy = d !== undefined && !Array.isArray((d.cart as { lines?: unknown } | null)?.lines);
+      // typed before the read answered: keep it (it is saved next), no banner
+      if (stored !== null && !blank(stored) && cartRef.current.lines.length === 0) {
+        setCart({ ...stored, ...cartRef.current, lines: stored.lines });
+        // E-7 / Q-7 "Send it as a new item": the item comes with its options sheet open (nothing ticked for it)
+        const pickLine = stored.lines.find((l) => l.pick_options === true);
+        if (pickLine !== undefined) setSheet({ kind: 'edit', key: pickLine.key });
+        else if (stored.lines.length > 0 && !isCopy) setBack(d!.updated_at);
       }
       setRestored(true);
     };
@@ -268,8 +290,8 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   }, [drafts, deviceId, staffId, id, order_type]);
   const seatTable = seat?.ref.table_id ?? null;
   useEffect(() => {
-    if (!restored || staffId === null) return;
-    const saved = cart.lines.length === 0 ? drafts.remove(draftId.current) : drafts.put({
+    if (!restored || staffId === null || leaving.current) return;
+    const saved = blank(cart) ? drafts.remove(draftId.current) : drafts.put({
       draft_id: draftId.current,
       device_id: deviceId,
       staff_id: staffId,
@@ -297,6 +319,14 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     setSheet(null);
     shellRef.current.toasts.show({ text: t('sheet.changed'), tone: 'warn' });
   }, [sheet, configVersion]);
+  const [send, setSend] = useState<SendView | null>(null);
+  const [newOrder, setNewOrder] = useState<'takeaway' | 'parking' | null>(null);
+  // #36 day not started: Send answered BUSINESS_DAY_NOT_OPEN; the next BusinessDayOpened lets Send try again
+  const [dayClosed, setDayClosed] = useState(false);
+  // a BusinessDayOpened frame, or a catch-up after a reconnect (a frame may have been missed), lets Send try again
+  useEffect(() => shell.live.subscribe((m) => ((m.kind === 'event' && m.event.event_type === 'BusinessDayOpened') || m.kind === 'catch_up' ? setDayClosed(false) : undefined)), [shell.live]);
+  /** #35: one Send at a time — a ref, so two taps inside one render cannot both enqueue */
+  const sending = useRef(false);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -394,6 +424,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   }
   const newKey = () => newUlid();
   const onTap = (tile: TileModel) => {
+    if (sending.current) return; // #35: the cart is frozen while it is sent (a ref: a same-tick tap is refused too)
     if (tile.kind === 'deal') return setSheet({ kind: 'deal', deal_id: tile.id });
     if (tile.kind === 'variants') return setSheet({ kind: 'variants', variant_group_id: tile.id });
     const item = config.items.find((i) => i.item_id === tile.id)!;
@@ -427,14 +458,15 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     ),
   }));
   const actions = {
-    toggle: (key: string) => setOpenKey((k) => (k === key ? null : key)),
+    toggle: (key: string) => (sending.current ? undefined : setOpenKey((k) => (k === key ? null : key))),
     setUnits: (key: string, units: number) => {
+      if (sending.current) return; // the cart is frozen while it is sent
       const line = cart.lines.find((l) => l.key === key);
       const cap = line?.item_id === undefined ? null : lineCap(key, line.item_id);
       setCart((c) => setUnits(c, key, units, cap === null ? null : Math.max(1, cap)));
     },
-    remove: (key: string) => setCart((c) => removeLine(c, key)),
-    edit: (key: string) => setSheet({ kind: 'edit', key }),
+    remove: (key: string) => (sending.current ? undefined : setCart((c) => removeLine(c, key))),
+    edit: (key: string) => (sending.current ? undefined : setSheet({ kind: 'edit', key })),
   };
   const utcOffsetMs = shell.clock.utcOffsetMs;
   const count = cartCount(cart, unitOf);
@@ -443,9 +475,77 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   // dine-in: Send waits for the seating on the map, and follows the table lock
   const canSend = order_type !== 'dine_in' || (seat !== null && lock.canSend);
   const blocked = order_type === 'dine_in' && seatMissing ? t('order.seating_missing') : null;
-  const onSend = () => {
-    // 26d: SendDialog (freeze, enqueue first, then submit)
+  // 26d: Send freezes the cart (#35), enqueues it first (stored before the first send, 25b), then the queue submits
+  const onSend = async () => {
+    // the button's state is not the only guard: lock, line problems and the day are checked here too
+    if (sending.current || target === null || cart.lines.length === 0 || !canSend || problems.size > 0 || dayClosed) return;
+    sending.current = true;
+    const frozen = cart;
+    const before = body;
+    const payload = freezeSubmit(frozen, target, newUlid());
+    const title = order_type === 'dine_in' ? (seat?.name ?? null) : null;
+    const label =
+      order_type === 'dine_in'
+        ? fill(t('send.label_table'), { table: title ?? '' })
+        : order_type === 'takeaway'
+          ? t('order.takeaway') + (frozen.takeaway?.customer_name === undefined ? '' : ` · ${frozen.takeaway.customer_name}`)
+          : `${t('order.parking')} · ${frozen.parking?.car_number ?? ''}`;
+    setSend({ kind: 'sending', sub: [title, fill(t('cart.items'), { n: String(count) })].filter((x) => x !== null).join(' · ') });
+    let outcome: Awaited<ReturnType<typeof sendOrder>>;
+    try {
+      outcome = await sendOrder(shellRef.current.enqueue, payload, label);
+    } catch {
+      // the queue never rejects by contract; if it does, "Sending…" does not stay up — the cart is kept
+      sending.current = false;
+      setSend(null);
+      shellRef.current.toasts.show({ text: t('send.failed'), tone: 'warn' });
+      return;
+    }
+    if (outcome.kind === 'sent') {
+      announceCompIt(payload, frozen);
+      const r = outcome.result;
+      setSend({ kind: 'sent', result: r, cart: frozen, updated: r === undefined ? null : timeUpdated(config, frozen, before, r), zone_empty: r === undefined ? [] : zoneEmpty(config, frozen, r) });
+      setCart(EMPTY_CART);
+    } else if (outcome.kind === 'queued') {
+      // lane T (27a2): a queued comp-it round is announced too; the prompt waits for its ItemAdded frame
+      announceCompIt(payload, frozen, { queued: true });
+      setSend({ kind: 'queued' });
+      setCart(EMPTY_CART);
+    } else if (outcome.kind === 'day_not_open') {
+      sending.current = false;
+      setSend(null);
+      setDayClosed(true);
+    } else {
+      // refused: the cart is kept; the reason by its code
+      sending.current = false;
+      setSend(null);
+      shellRef.current.toasts.show({ text: refusalText(config, outcome), tone: 'warn' });
+      if (outcome.kind === 'refused' && outcome.error.code === 'TABLE_SEATING_CHANGED') setSeatReload((n) => n + 1);
+      // a line refusal: the preview runs again so the line shows its problem (B05 / B07)
+      else if (target !== null) preview.set(toEtaDraft(frozen, target));
+    }
   };
+  const goBack = () => navigate(order_type === 'dine_in' ? (seat === null ? '/tables' : tableHref(seat.ref.table_id, id)) : '/orders');
+  // Hold (02-S08): the draft stays on this device, held for this person; the screen goes back
+  const onHold = async () => {
+    if (sending.current || staffId === null || cart.lines.length === 0) return;
+    leaving.current = true;
+    await drafts
+      .put({
+        draft_id: draftId.current,
+        device_id: deviceId,
+        staff_id: staffId,
+        order_type,
+        ...(order_type !== 'dine_in' ? {} : { seating_id: id, ...(seatTable === null ? {} : { table_id: seatTable }) }),
+        cart,
+        updated_at: Math.floor(shellRef.current.clock.nowMs()),
+        held: true,
+      })
+      .catch(() => undefined);
+    goBack();
+  };
+  const compItLine = cart.lines.find((l) => l.comp_it === true);
+  const compItInfo = () => fill(t('compit.cart_info'), { item: config.items.find((i) => i.item_id === compItLine?.item_id)?.name ?? '', table: seat?.name ?? '' });
   const cartProps = {
     config,
     utcOffsetMs,
@@ -459,11 +559,11 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     blocked,
     unitOf,
     actions,
-    onNote: () => setSheet({ kind: 'order_note' }),
-    onHold: () => {
-      // 26d: Hold keeps a device draft
-    },
-    onSend,
+    onNote: () => (sending.current ? undefined : setSheet({ kind: 'order_note' })),
+    onHold: () => void onHold(),
+    onSend: () => void onSend(),
+    day: dayClosed ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
+    info: cart.lines.find((l) => l.comp_it === true) === undefined ? null : compItInfo(),
   };
   const keepDraft = () => navigate(seat === null ? '/tables' : tableHref(seat.ref.table_id, id));
 
@@ -538,6 +638,31 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     else if (editing?.item_id !== undefined) sheetView = <OptionsSheet {...common} item_ids={variantsOf(editing.item_id)} initial={editing} capOf={sheetCap} />;
   }
 
+  const sendView =
+    send === null ? null : (
+      <SendDialog
+        view={send}
+        config={config}
+        order_type={order_type}
+        utcOffsetMs={utcOffsetMs}
+        title={order_type === 'dine_in' ? (seat?.name ?? null) : null}
+        sheet={shell.phone || shell.portrait}
+        onDone={() => {
+          if (send.kind === 'sending') return;
+          leaving.current = true;
+          sending.current = false;
+          setSend(null);
+          goBack();
+        }}
+        onNew={() => {
+          sending.current = false;
+          setSend(null);
+          setNewOrder(order_type === 'parking' ? 'parking' : 'takeaway');
+        }}
+      />
+    );
+  const newOrderView = newOrder === null ? null : <NewOrderSheet initial={newOrder} onClose={() => setNewOrder(null)} />;
+
   const draftBack =
     back === null ? null : (
       <div className="abns">
@@ -576,6 +701,12 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
             <span>{blocked}</span>
           </div>
         )}
+        {cartProps.info !== null && (
+          <div className="msg cart__msg c-info" role="status">
+            <Ico name="info" />
+            <span>{cartProps.info}</span>
+          </div>
+        )}
         <div className="ph-body">
           {tab === 'menu' ? (
             <>
@@ -586,9 +717,12 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
             <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} />
           )}
         </div>
-        <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} onSend={onSend} />
+        {cartProps.day}
+        {!dayClosed && <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} onSend={() => void onSend()} />}
         {draftBack}
         {sheetView}
+        {sendView}
+        {newOrderView}
       </div>
     );
   }
@@ -602,6 +736,8 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       </div>
       {draftBack}
       {sheetView}
+      {sendView}
+      {newOrderView}
     </div>
   );
 }

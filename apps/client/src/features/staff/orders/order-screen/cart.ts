@@ -1,6 +1,6 @@
 import { childQuantity, optionChargeMinor, orderLineTotalMinor, type Unit } from '@pos/domain';
 import type { BranchConfig, ConfigDeal, ConfigItem, ConfigModifierOption } from '@pos/events';
-import type { EtaDraft, EtaPreviewBody, OrderType, SubmitLine } from '../contracts';
+import type { CarType, EtaDraft, EtaPreviewBody, OrderType, SubmitLine } from '../contracts';
 
 // 02b §8 Ordering screen (02-S05; #36 cart sorted by ETA): the cart the order screen keeps (and the device draft
 // stores, Draft.cart), its money from @pos/domain exactly as the hub's buildSubmit computes ItemAdded.line_total_minor
@@ -34,11 +34,20 @@ export interface CartLine {
   kitchen_note?: string;
   /** a zone tile tap (§8 Zone items) */
   from_zone?: boolean;
+  /** E-7 "Send it as a new item": the screen asks "Comp it?" once it is sent (badge "Sent again · asks to comp") */
+  comp_it?: boolean;
+  /** E-7 / Q-7: the line arrived without its choices; the screen opens its options sheet once (the sheet clears it) */
+  pick_options?: boolean;
 }
 
 export interface Cart {
   lines: CartLine[];
   order_note?: string;
+  /** 02b §8 Types: a takeaway's name / phone, a parking order's plate / type / phone (the new-order sheets) */
+  takeaway?: { customer_name?: string; phone?: string };
+  parking?: { car_number: string; car_type: CarType; phone?: string };
+  /** IR-8: the queue log entry this cart was copied from (25c shows that row as "Copied") */
+  from_entry_id?: string;
 }
 
 export const EMPTY_CART: Cart = { lines: [] };
@@ -205,6 +214,8 @@ export function toEtaDraft(cart: Cart, target: DraftTarget): EtaDraft {
     ...(target.table_id === undefined ? {} : { table_id: target.table_id }),
     ...(target.seating_id === undefined ? {} : { seating_id: target.seating_id }),
     ...(cart.order_note === undefined ? {} : { order_note: cart.order_note }),
+    ...(target.order_type === 'takeaway' && cart.takeaway !== undefined ? { takeaway: { ...cart.takeaway } } : {}),
+    ...(target.order_type === 'parking' && cart.parking !== undefined ? { parking: { ...cart.parking } } : {}),
     lines: cart.lines.map((l) => ({
       key: l.key,
       ...(l.item_id === undefined ? {} : { item_id: l.item_id }),

@@ -1,4 +1,5 @@
 import type { BranchConfig } from '@pos/events';
+import type { ReactNode } from 'react';
 import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
 import { Ico, Ring } from '../../../alerts/ui';
@@ -26,6 +27,10 @@ export interface CartProps {
   canSend: boolean;
   /** why Send is off besides problems (dine-in seating not found), or null */
   blocked: string | null;
+  /** #36 day not started: replaces the footer (02b-B11) */
+  day: ReactNode;
+  /** an info line over the cart (E-7 CompItCart: "…After Send you'll be asked to comp it") */
+  info: string | null;
   actions: LineActions;
   onNote(): void;
   onHold(): void;
@@ -97,6 +102,12 @@ export function Cart(p: CartProps) {
         </h2>
         <span>{fill(t('cart.items'), { n: String(p.count) })}</span>
       </div>
+      {p.info !== null && (
+        <div className="msg cart__msg c-info" role="status">
+          <Ico name="info" />
+          <span>{p.info}</span>
+        </div>
+      )}
       {p.blocked !== null && (
         <div className="msg cart__msg c-warn" role="alert">
           <Ico name="warn" />
@@ -111,6 +122,10 @@ export function Cart(p: CartProps) {
       )}
       <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} />
       <div className="cart__foot">
+        {p.day !== null ? (
+          p.day
+        ) : (
+          <>
         <div className="total">
           <div className="total__ready">
             <Ring size={56} pct={null} tone={p.ready_by === null ? 'mute' : 'ok'}>
@@ -139,6 +154,8 @@ export function Cart(p: CartProps) {
           <Ico name="send" />
           {sendLabel(p)}
         </button>
+          </>
+        )}
       </div>
     </aside>
   );
