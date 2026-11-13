@@ -61,12 +61,9 @@ describe('[02 W0.6] staff routes', () => {
     expect(matchStaffRoute('/nope', 'phone')).toEqual({ name: 'inbox' });
   });
 
-  it('[02 W0.6] stub Enqueue answers needs_hub; stub useTableLock gives no banner', async () => {
+  // lane note #150-3: the Enqueue stub assertions left with 25b (the real queue); the other lanes' stubs stay
+  it('[02 W0.6] stub useTableLock gives no banner; stub shell hooks wait for nothing', async () => {
     const enqueue = createEnqueue({ api: {} as never, device: { token: 'T', id: 'D1', type: 'tablet' }, clock: () => ({}) as never, live: createLiveBus() });
-    expect(await enqueue('RequestBill', { table_id: 'TB4', seating_id: 'S1' }, { table_id: 'TB4', seating_id: 'S1', label: 'Ask for bill' })).toEqual({ status: 'needs_hub' });
-    expect(await enqueue('SubmitOrder', {}, { label: 'Order' })).toEqual({ status: 'needs_hub' });
-    expect(enqueue.pendingFor('TB4')).toBe(0);
-    expect(enqueue.pendingCount()).toBe(0);
     const lock = useTableLock({ table_id: 'TB4', seating_id: 'S1' });
     expect(lock.banner).toBeNull();
     expect(lock.canSend).toBe(true);
