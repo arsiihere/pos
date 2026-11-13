@@ -2145,6 +2145,7 @@ export const en = {
   'queue.item': 'an item',
   'queue.copied': 'Copied',
   'queue.copy_failed': 'Could not keep the copy on this screen',
+  'idle.sub_none': 'Your order is kept.',
   // ---- lane O (02b client) ----
   'menu.sections': 'Menu sections',
   'menu.items_n': '{n} items',
