@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { AlertRow } from '../../alerts/store';
+import { PassScreen } from '../../pass/PassScreen';
 import { Held } from '../orders/order-screen/Held';
 import { OrderScreen } from '../orders/order-screen/OrderScreen';
 import { KioskHome } from '../orders/lists/KioskHome';
@@ -61,6 +62,8 @@ export function slotContent(route: SlotRoute, props: SlotProps = {}): ReactNode 
       return null;
     case 'kiosk_home':
       return <KioskHome />;
+    case 'pass':
+      return <PassScreen />; // 03b W0.6 (Q-58)
   }
 }
 

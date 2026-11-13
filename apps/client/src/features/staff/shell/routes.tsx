@@ -16,6 +16,7 @@ export type StaffRoute =
   | { name: 'queue' }
   | { name: 'me' }
   | { name: 'kiosk_home' }
+  | { name: 'pass' } // 03b W0.6: the Pass screen (a device with a point)
   | { name: 'inbox' }
   | { name: 'requests' }
   | { name: 'test_alert' }
@@ -28,6 +29,7 @@ const FIXED: Record<string, StaffRoute> = {
   '/zones': { name: 'zones' },
   '/queue': { name: 'queue' },
   '/me': { name: 'me' },
+  '/pass': { name: 'pass' },
   '/inbox': { name: 'inbox' },
   '/requests': { name: 'requests' },
   '/test-alert': { name: 'test_alert' },
