@@ -77,9 +77,31 @@ function requestLine(row: SheetRow): ReactNode {
   );
 }
 
+/** 02a §6.15 (02a-C02 HandoverAnswer): a handover's facts are its orders and running total. */
+function HandoverFacts({ d }: { d: NonNullable<NonNullable<SheetRow['card']>['details']> }) {
+  if (d.quantity === undefined && d.amount === undefined) return null;
+  return (
+    <div className="facts">
+      {d.quantity !== undefined && (
+        <div className="fact">
+          <span>{t('handover.fact.orders')}</span>
+          <b className="num">{d.quantity}</b>
+        </div>
+      )}
+      {d.amount !== undefined && (
+        <div className="fact fact--amt">
+          <span>{t('handover.fact.total')}</span>
+          <b className="num">{amountText(d.amount)}</b>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Facts({ row }: { row: SheetRow }) {
   const d = row.card?.details;
   if (d === null || d === undefined) return null;
+  if (row.kind === 'table_handover') return <HandoverFacts d={d} />;
   return (
     <div className="facts">
       {d.item !== undefined && (
@@ -149,6 +171,8 @@ export function AnswerSheet({
   const [pinError, setPinError] = useState<PinError | null>(null);
   const [locked, setLocked] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 02a §8 Table sheet: a stale handover (bill paid) stays open with a warning; it closes when the table is cleaned
+  const [stale, setStale] = useState(false);
   const [approvers, setApprovers] = useState<Approver[] | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -203,6 +227,10 @@ export function AnswerSheet({
         return;
       case 'NETWORK':
         return; // B03 shows from the socket state; the PIN is already cleared
+      case 'TABLE_HANDOVER_STALE':
+        setStale(true);
+        setMessage(outcome.message);
+        return;
       case 'STAFF_NOT_FOUND':
         if (where === 'herepin') {
           go({ k: 'pick' });
@@ -310,7 +338,7 @@ export function AnswerSheet({
       : row.set === 'informed'
         ? fill(t('answer.ro_informed'), { name: t('answer.an_approver') })
         : fill(t('answer.ro_team'), { name: t('answer.an_approver') });
-    const off = !up || busy;
+    const off = !up || busy || stale;
     body = (
       <>
         <div className="dlg__h">
@@ -333,7 +361,7 @@ export function AnswerSheet({
         </div>
         <div className="dlg__body">
           <Facts row={row} />
-          {!up ? <Msg tone="danger" icon="wifioff" text={t('answer.error.offline')} /> : message !== null && <Msg tone="danger" icon="warn" text={message} />}
+          {!up ? <Msg tone="danger" icon="wifioff" text={t('answer.error.offline')} /> : message !== null && <Msg tone={stale ? 'warn' : 'danger'} icon="warn" text={message} />}
           {closed && (
             <div className="ro ro--result" role="status">
               <Ico name={row.close_reason === 'withdrawn' ? 'undo' : row.decision === 'reject' || row.decision === 'decline' ? 'x' : 'check'} />

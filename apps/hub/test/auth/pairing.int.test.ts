@@ -440,3 +440,131 @@ async function pairingToken(
 function pair(hub: TestHub, payload: Record<string, unknown>, headers: Record<string, string> = {}, remoteAddress?: string) {
   return hub.app.inject({ method: 'POST', url: '/devices/pair', headers, payload, remoteAddress });
 }
+
+// ------------------------------------------------------------------------------------------- 00 v1.9.1 §8.2 (H8)
+
+describe('pair page opens the staff entry (00 v1.9.1 §8.2; Q-13, Q-29)', () => {
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
+
+  type Page = Awaited<ReturnType<typeof runPage>>;
+  /** Runs every pending timer (the page's own countdowns stop once paired); bounded. */
+  async function drain(page: Page): Promise<void> {
+    for (let i = 0; i < 60 && (await page.advance()); i += 1);
+  }
+  async function pairHtml(search = ''): Promise<string> {
+    const hub = await open();
+    return (await hub.app.inject({ method: 'GET', url: `/pair${search}` })).body;
+  }
+
+  it('[00 §8.2 v1.9.1] an approved tablet / cashier_kiosk / phone request → /staff/; kds stays and calls /auth/station', async () => {
+    const html = await pairHtml();
+    for (const device_type of ['tablet', 'cashier_kiosk', 'phone', 'kds'] as const) {
+      const urls: string[] = [];
+      const page = await runPage(html, {
+        fetch: (url) => {
+          urls.push(url);
+          if (url === '/pair/requests') {
+            return Promise.resolve(jsonResponse(200, { data: { request_id: 'R1', poll_secret: 'p', display_code: 'ABCDEF', approve_qr_svg: '<svg></svg>', expires_at: Date.now() + 600_000 } }));
+          }
+          if (url === '/pair/requests/R1') {
+            return Promise.resolve(jsonResponse(200, { data: { status: 'approved', device_id: 'D1', device_token: 'tok', device_type, station_id: 'T', station_name: 'Tandoor' } }));
+          }
+          if (url === '/auth/station') return Promise.resolve(jsonResponse(200, { data: { session_token: 's', session_id: 'x', station_id: 'T' } }));
+          throw new Error(`unexpected ${url}`);
+        },
+      });
+      for (let i = 0; i < 40 && page.store.get('token') === undefined; i += 1) await page.advance();
+      expect(page.store.get('device_type'), device_type).toBe(device_type);
+      // the success screen is shown first; the page moves on only after it has been seen
+      expect(textOf(page.screen), device_type).toContain(EN['pairing.approved_title']);
+      expect(page.assigned, device_type).toEqual([]);
+      await drain(page);
+      if (device_type === 'kds') {
+        expect(page.assigned, device_type).toEqual([]);
+        expect(urls, device_type).toContain('/auth/station');
+      } else {
+        expect(page.assigned, device_type).toEqual(['/staff/']);
+        expect(urls, device_type).not.toContain('/auth/station');
+      }
+    }
+  });
+
+  it('[00 §8.2 v1.9.1] a later load with a stored token: non-KDS → /staff/, kds → /auth/station', async () => {
+    const html = await pairHtml();
+    for (const device_type of ['tablet', 'cashier_kiosk', 'phone', 'kds'] as const) {
+      const urls: string[] = [];
+      const page = await runPage(html, {
+        store: { token: 'stored', device_id: 'D1', device_type },
+        fetch: (url) => {
+          urls.push(url);
+          if (url === '/auth/station') return Promise.resolve(jsonResponse(200, { data: { session_token: 's', session_id: 'x', station_id: 'T' } }));
+          throw new Error(`unexpected ${url}`);
+        },
+      });
+      expect(textOf(page.screen), device_type).toContain(EN['pairing.approved_title']);
+      await drain(page);
+      expect(urls, device_type).not.toContain('/pair/requests'); // no new request on a stored token
+      if (device_type === 'kds') {
+        expect(urls, device_type).toEqual(['/auth/station']);
+        expect(page.assigned, device_type).toEqual([]);
+      } else {
+        expect(urls, device_type).toEqual([]);
+        expect(page.assigned, device_type).toEqual(['/staff/']);
+      }
+      expect(page.store.get('token'), device_type).toBe('stored');
+    }
+    // a revoked kds token still wipes and starts a new request (§8.4), never /staff/
+    const revoked = await runPage(html, {
+      store: { token: 'stored', device_id: 'D1', device_type: 'kds' },
+      fetch: (url) => {
+        if (url === '/auth/station') return Promise.resolve(jsonResponse(403, { error: { code: 'DEVICE_REVOKED', details: {} } }));
+        if (url === '/pair/requests') return Promise.resolve(jsonResponse(200, { data: { request_id: 'R1', poll_secret: 'p', display_code: 'ABCDEF', approve_qr_svg: '<svg></svg>', expires_at: Date.now() + 600_000 } }));
+        return Promise.resolve(jsonResponse(200, { data: { status: 'pending' } }));
+      },
+    });
+    expect(revoked.store.get('token')).toBeUndefined();
+    for (let i = 0; i < 5; i += 1) await revoked.advance();
+    expect(revoked.assigned).toEqual([]);
+  });
+
+  it('[00 §8.2 v1.9.1 Q-29] /pair?t= → POST /devices/pair 200 → /staff/; an already-paired phone opening /pair?t= → /staff/', async () => {
+    const html = await pairHtml('?t=tok');
+    const urls: string[] = [];
+    const phone = await runPage(html, {
+      search: '?t=tok',
+      fetch: (url) => {
+        urls.push(url);
+        return Promise.resolve(jsonResponse(200, { data: { device_id: 'P1', device_token: 'phone-tok', device_type: 'phone', owner_staff_id: 'S_WAIT', owner_name: 'Bilal' } }));
+      },
+    });
+    phone.find('device_name')!.value = 'Bilal phone';
+    await phone.submit(phone.findAll((child) => child.tagName === 'form')[0]!);
+    expect(urls).toEqual(['/devices/pair']);
+    expect(phone.store.get('token')).toBe('phone-tok');
+    expect(textOf(phone.screen)).toContain(EN['pairing.paired_title']);
+    expect(phone.assigned).toEqual([]);
+    await drain(phone);
+    expect(phone.assigned).toEqual(['/staff/']);
+
+    // a failed pair (401, expired QR) stays on the page
+    const expired = await runPage(html, { search: '?t=tok', fetch: () => Promise.resolve(jsonResponse(401, { error: { code: 'PAIRING_TOKEN_INVALID', details: {} } })) });
+    expired.find('device_name')!.value = 'Bilal phone';
+    await expired.submit(expired.findAll((child) => child.tagName === 'form')[0]!);
+    await drain(expired);
+    expect(expired.assigned).toEqual([]);
+
+    // phone rule 1: already paired → the token in the URL is ignored and the page opens /staff/
+    const again = await runPage(html, {
+      search: '?t=tok',
+      store: { token: 'phone-tok', device_id: 'P1', device_type: 'phone' },
+      fetch: (url) => {
+        throw new Error(`unexpected ${url}`);
+      },
+    });
+    expect(textOf(again.screen)).toContain(EN['pairing.paired_title']);
+    await drain(again);
+    expect(again.assigned).toEqual(['/staff/']);
+  });
+});

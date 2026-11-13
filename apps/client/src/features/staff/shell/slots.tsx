@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { AlertRow } from '../../alerts/store';
 import { Held } from '../orders/order-screen/Held';
 import { OrderScreen } from '../orders/order-screen/OrderScreen';
 import { KioskHome } from '../orders/lists/KioskHome';
@@ -20,15 +21,20 @@ export function isSlotRoute(route: StaffRoute): route is SlotRoute {
   return !['inbox', 'requests', 'test_alert', 'receipts'].includes(route.name);
 }
 
-export function slotContent(route: SlotRoute): ReactNode {
+/** What the shell hands the slots beyond the route (02a IR-5): the 01d alert store's rows, for the map's flags. */
+export interface SlotProps {
+  alertRows?: readonly AlertRow[];
+}
+
+export function slotContent(route: SlotRoute, props: SlotProps = {}): ReactNode {
   switch (route.name) {
     case 'tables':
-      return <TableMap />;
+      return <TableMap {...(props.alertRows === undefined ? {} : { alertRows: props.alertRows })} />;
     case 'table':
       // the sheet opens over the map
       return (
         <>
-          <TableMap />
+          <TableMap {...(props.alertRows === undefined ? {} : { alertRows: props.alertRows })} />
           <TableSheet table_id={route.table_id} seating_id={route.seating_id} />
         </>
       );
@@ -52,6 +58,6 @@ export function slotContent(route: SlotRoute): ReactNode {
   }
 }
 
-export function RouteSlot({ route }: { route: SlotRoute }) {
-  return <>{slotContent(route)}</>;
+export function RouteSlot({ route, ...props }: { route: SlotRoute } & SlotProps) {
+  return <>{slotContent(route, props)}</>;
 }

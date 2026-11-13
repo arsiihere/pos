@@ -315,6 +315,11 @@ describe('[01d task 41 fixes] live sheet, inbox retry, sessions, clock', () => {
     const h = hub({ inbox: [() => reply(503, { error: { code: 'SERVICE_UNAVAILABLE', details: {} } })] });
     render(TABLET, h.fetch);
     await signIn();
+    // the app lands on the map (02a §8): look at the inbox to see its skeleton stop
+    act(() => {
+      window.location.hash = '#/inbox';
+    });
+    await flush();
     expect(m.container.querySelectorAll('.sk').length).toBe(0);
     const reads = () => h.calls.filter((c) => c.path === '/queries/alerts-inbox').length;
     expect(reads()).toBe(1);
@@ -377,3 +382,108 @@ describe('[01d task 41 fixes] live sheet, inbox retry, sessions, clock', () => {
   });
 });
 
+
+// 02a §8 Top bar (20b; frame 02a-C10)
+describe('[02a §8 Top bar] staff shell', () => {
+  function phoneMedia() {
+    const real = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: q.includes('max-width: 760px'), media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    return () => {
+      window.matchMedia = real;
+    };
+  }
+
+  it('[02a §8 Top bar] after sign-in the app lands on #/tables (kiosk: #/); Requests (n) only from the hub list, Inbox, person chip', async () => {
+    render(TABLET, hub({ requests: [requestRow({ alert_id: 'R1' })] }).fetch);
+    await signIn();
+    expect(window.location.hash).toBe('#/tables');
+    const top = m.container.querySelector('header.top')!;
+    expect(m.button('Requests', top).querySelector('.badge')?.textContent).toBe('1');
+    expect(m.button('Inbox', top)).toBeTruthy();
+    expect(m.button('Imran — sign out', top)).toBeTruthy();
+    // no floors until the map store is wired: no floor control
+    expect(top.querySelector('.seg')).toBeNull();
+    m.unmount();
+
+    render(KIOSK, hub().fetch);
+    await signIn();
+    expect(window.location.hash).toBe('#/');
+    expect(m.container.querySelector('header.top .bind')).toBeNull();
+    expect(m.text()).not.toContain('Requests');
+  });
+
+  it('[02a §8 Top bar] phone: top bar + tabs Tables · Orders · Inbox · Me; Me holds sign out', async () => {
+    const restore = phoneMedia();
+    try {
+      const h = hub();
+      render({ ...TABLET, type: 'phone' }, h.fetch);
+      await flush();
+      // the phone signs in its owner only: the roster has one person, the pad opens at once
+      const keys = m.container.querySelector('.pin__keys')!;
+      for (const d of '1234') m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === d));
+      m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === 'Sign in'));
+      await flush(8);
+      expect(m.container.querySelector('header.ph-top h1')?.textContent).toBe('Tables');
+      expect([...m.container.querySelectorAll('nav.tabbar a.tab')].map((a) => a.textContent)).toEqual(['Tables', 'Orders', 'Inbox', 'Me']);
+      expect(m.container.querySelector('nav.tabbar a[aria-current="page"]')?.textContent).toBe('Tables');
+      act(() => {
+        window.location.hash = '#/me';
+      });
+      await flush();
+      expect(m.container.querySelector('header.ph-top h1')?.textContent).toBe('Me');
+      m.click(m.button('Sign out'));
+      await flush();
+      expect(h.calls.some((c) => c.path === '/auth/logout')).toBe(true);
+      expect(m.container.querySelector('nav.tabbar')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
+// 02a §8 Top bar / Table map wiring (IR-3, IR-5)
+describe('[02a §8 Top bar] map wiring', () => {
+  const tile = (table_id: string, name: string) => ({
+    table_id, name, seats: 4, archived: false, state: 'FREE', seating_id: null, party_size: null, primary_table_id: null,
+    joined_table_names: [], holder: null, assignee: null, lock: null, opened_at: null, bill_requested_at: null, live_order_count: 0,
+  });
+  const MAP = {
+    as_of_seq: 1,
+    floors: [
+      { floor_id: 'FL1', name: 'Ground floor', archived: false, zones: [{ zone_id: 'Z1', name: 'A', tables: [tile('T1', 'T1'), tile('T2', 'T2')] }] },
+      { floor_id: 'FL2', name: 'Rooftop', archived: false, zones: [{ zone_id: 'Z2', name: 'B', tables: [tile('T3', 'T3')] }] },
+      { floor_id: 'FLX', name: 'Old', archived: true, zones: [] },
+    ],
+  };
+
+  it('[02a §8 Top bar] the floor control lists the map store floors with counts and writes #/tables?floor=', async () => {
+    render(TABLET, hub().fetch);
+    await signIn();
+    sockets[0]!.frame({ type: 'catch_up', as_of_seq: 1, state: { tables: MAP } });
+    await flush(6);
+    const seg = m.container.querySelector('header.top .seg')!;
+    expect([...seg.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Ground floor2', 'Rooftop1']);
+    m.click(m.button('Rooftop', seg));
+    await flush();
+    expect(window.location.hash).toBe('#/tables?floor=FL2');
+    expect(m.container.querySelector('header.top .seg button[aria-pressed="true"]')?.textContent).toContain('Rooftop');
+    // not on the inbox
+    act(() => {
+      window.location.hash = '#/inbox';
+    });
+    await flush();
+    expect(m.container.querySelector('header.top .seg')).toBeNull();
+  });
+
+  it('[02a §8 Table map] the alert store rows reach the map (a call_waiter row shows in Needs you)', async () => {
+    render(TABLET, hub().fetch);
+    await signIn();
+    sockets[0]!.frame({ type: 'catch_up', as_of_seq: 1, state: { tables: MAP } });
+    sockets[0]!.frame({
+      type: 'alert',
+      alert: { alert_id: 'C1', kind: 'call_waiter', family: 'info', step: 0, escalation: false, set: 'recipient', for_staff_id: null, lock: { kind_label_key: 'alert.call_waiter.lock', table_code: 'T2', requester_name: 'Ali' }, raised_at: NOW - 120_000 },
+    });
+    await flush(6);
+    expect(m.container.querySelector('.side2')?.textContent).toContain('T2');
+  });
+});

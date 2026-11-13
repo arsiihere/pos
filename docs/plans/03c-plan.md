@@ -33,6 +33,8 @@
 
 ## 03c client — BLOCKED on the design handoff
 
+⚠️ Superseded by docs/plans/03b-client-plan.md (owner 2026-11-13, Q-42…Q-58); hub gaps in docs/plans/03b-hub-gaps-plan.md
+
 | Lane | Tasks | Files | Spec |
 |---|---|---|---|
 | CU1 | Hub admin "Printers": printers + test, outputs, queue + suspects + cancel, warnings | `apps/client/src/features/admin/printers/` | §8 |

@@ -11,7 +11,6 @@ import { OrderView } from '../orders/view/OrderView';
 import { ZoneStock } from '../orders/zones/ZoneStock';
 import { TableMap } from '../tables/map/TableMap';
 import { TableSheet } from '../tables/sheet/TableSheet';
-import { useTableLock } from '../tables/lock/useTableLock';
 import { createLiveBus } from './live';
 import { matchStaffRoute, orderHref, tableHref } from './routes';
 import { isSlotRoute, slotContent } from './slots';
@@ -61,13 +60,9 @@ describe('[02 W0.6] staff routes', () => {
     expect(matchStaffRoute('/nope', 'phone')).toEqual({ name: 'inbox' });
   });
 
-  // lane note #150-3: the Enqueue stub assertions left with 25b (the real queue); the other lanes' stubs stay
-  it('[02 W0.6] stub useTableLock gives no banner; stub shell hooks wait for nothing', async () => {
+  // lane note #150-3: the Enqueue stub left with 25b (the real queue) and the useTableLock stub with 02a 22a; the shell hooks stay
+  it('[02 W0.6] shell hooks with an empty queue wait for nothing', async () => {
     const enqueue = createEnqueue({ api: {} as never, device: { token: 'T', id: 'D1', type: 'tablet' }, clock: () => ({}) as never, live: createLiveBus() });
-    const lock = useTableLock({ table_id: 'TB4', seating_id: 'S1' });
-    expect(lock.banner).toBeNull();
-    expect(lock.canSend).toBe(true);
-    await expect(lock.release()).resolves.toBeUndefined();
     const hooks = createShellHooks(enqueue);
     await expect(hooks.beforeSignIn()).resolves.toBeUndefined();
     expect(hooks.queueLine()).toBeNull();

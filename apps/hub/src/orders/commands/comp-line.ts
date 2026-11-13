@@ -188,7 +188,8 @@ function compLine(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: 
       request: { approver_role_ids: ctx.permission.approver_role_ids },
     });
     if (raised.deduped) throw new DomainError('COMP_PENDING', { alert_id: raised.alert_id });
-    return { events: raised.events, result: { alert_id: raised.alert_id, pending: true } };
+    // ⚠️ 02b v1.0.11 §6.8 (Q-11): the pending result carries the request's amount (details.amount), 0 statements.
+    return { events: raised.events, result: { alert_id: raised.alert_id, pending: true, value_minor: comp.value_minor } };
   }
 
   // Grant `allowed`: the comp now, then the requests it leaves stale (§3.9).

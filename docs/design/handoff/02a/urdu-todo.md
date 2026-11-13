@@ -147,3 +147,11 @@ Needs native review as well: the 02a entries of `ur.ts` that are not on a frame 
 - `tables.reason.bigger_table`
 - `tables.reason.guest_asked`
 - `tables.reason.other`
+
+<!-- lane B (21b): keys added to en.ts without an Urdu text yet -->
+- `tables.ny.by_ago`
+- `tables.ny.ago`
+- `tables.ny.call`
+- `tables.flag.late_unknown`
+- `tables.empty_sub`
+- `tables.loading`

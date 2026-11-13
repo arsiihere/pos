@@ -1,5 +1,6 @@
+import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createHubAdmin } from './hub-admin';
+import { createHubAdmin, readDeviceKey, wipeDeviceKeys } from './hub-admin';
 
 interface Call {
   url: string;
@@ -211,5 +212,64 @@ describe('hub-admin client', () => {
     await api.logout();
     expect(sessionStorage.getItem('admin_session_token')).toBeNull();
     expect(sessionStorage.getItem('admin_name')).toBeNull();
+  });
+});
+
+// 02a §8 Login (20a; 00 N3, §8.2): a device the hub no longer knows forgets its pairing, and nothing else.
+describe('[02a §8 Login] wipeDeviceKeys', () => {
+  function open(name: string, store: string): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(name, 1);
+      request.onupgradeneeded = () => request.result.createObjectStore(store);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+  async function put(db: IDBDatabase, store: string, key: string, value: unknown): Promise<void> {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(value, key);
+    await new Promise<void>((resolve) => (tx.oncomplete = () => resolve()));
+  }
+  async function get(db: IDBDatabase, store: string, key: string): Promise<unknown> {
+    return new Promise((resolve) => {
+      const read = db.transaction(store).objectStore(store).get(key);
+      read.onsuccess = () => resolve(read.result);
+    });
+  }
+
+  it('[02a §8 Login] deletes token, device_id and device_type of pos-device and leaves every other key and database', async () => {
+    const device = await open('pos-device', 'device');
+    await put(device, 'device', 'token', 'DEV-TOK');
+    await put(device, 'device', 'device_id', 'D-1');
+    await put(device, 'device', 'device_type', 'tablet');
+    await put(device, 'device', 'other', 'kept');
+    const queue = await open('pos-queue', 'entries');
+    await put(queue, 'entries', 'E1', { command_id: 'C1' });
+
+    await wipeDeviceKeys();
+
+    expect(await readDeviceKey('token')).toBeNull();
+    expect(await readDeviceKey('device_id')).toBeNull();
+    expect(await readDeviceKey('device_type')).toBeNull();
+    expect(await get(device, 'device', 'other')).toBe('kept');
+    expect(await get(queue, 'entries', 'E1')).toEqual({ command_id: 'C1' });
+    device.close();
+    queue.close();
+  });
+
+  it('[02a §8 Login] resolves when there is no pos-device database yet', async () => {
+    indexedDB.deleteDatabase('pos-device');
+    await expect(wipeDeviceKeys()).resolves.toBeUndefined();
+  });
+
+  it('[02a §8 Login] rejects when the keys cannot be deleted (the caller must not send the device to /pair)', async () => {
+    const open = vi.spyOn(indexedDB, 'open').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    try {
+      await expect(wipeDeviceKeys()).rejects.toThrow('blocked');
+    } finally {
+      open.mockRestore();
+    }
   });
 });

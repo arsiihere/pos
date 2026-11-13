@@ -9,6 +9,7 @@ import { withStockEffects } from '../../commands/set-precooked-stock.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 import { requireLock } from '../../tables/lock.js';
 import type { LineView, OrderType } from '../contracts.js';
+import { lineOptions } from '../exports.js';
 import { billedMinor, gmlDealPartPartial, liveUnits, planRemove } from '../ledger.js';
 import { changeDrafts, type LineChange } from '../line-change.js';
 import { zoneAlertDrafts } from '../zone-alerts.js';
@@ -60,7 +61,7 @@ const READ = `SELECT o.order_id, o.order_type, o.placed_by, o.billed_at,
        l.order_item_id, l.parent_order_item_id, l.line_kind, l.item_id, l.deal_id, l.name, l.sale_unit, l.quantity,
        l.units, l.comped_units, l.removed_units, l.voided_units, l.returned_units, l.refundable_minor, l.comp_minor,
        l.comp_voided_minor, l.removed_minor, l.refund_minor, l.line_total_minor, l.return_of, l.served_from_zone_id,
-       l.added_at, l.served_at, l.served_source, l.is_food, l.kitchen_note, zs.on_hand AS zone_on_hand
+       l.added_at, l.served_at, l.served_source, l.is_food, l.kitchen_note, l.options_json, zs.on_hand AS zone_on_hand
   FROM orders o
   LEFT JOIN seating_orders so ON so.order_id = o.order_id
   LEFT JOIN seatings s ON s.seating_id = so.seating_id
@@ -69,7 +70,12 @@ const READ = `SELECT o.order_id, o.order_type, o.placed_by, o.billed_at,
  WHERE o.order_id = ?
  ORDER BY l.added_at, l.rowid`;
 
-type Row = OrderHead & Omit<Line, 'order_id' | 'live_units' | 'billed_minor' | 'zone_served' | 'is_food' | 'order_item_id'> & { order_item_id: string | null; is_food: number };
+type Row = OrderHead &
+  Omit<Line, 'order_id' | 'live_units' | 'billed_minor' | 'zone_served' | 'is_food' | 'order_item_id' | 'options'> & {
+    order_item_id: string | null;
+    is_food: number;
+    options_json: string | null;
+  };
 
 function readOrder(ctx: CommandCtx, order_id: string): { order: OrderHead; lines: Line[] } {
   const rows = ctx.tx.db.prepare(READ).all(order_id) as Row[];
@@ -109,6 +115,7 @@ function readOrder(ctx: CommandCtx, order_id: string): { order: OrderHead; lines
       served_source: r.served_source,
       is_food: r.is_food === 1,
       kitchen_note: r.kitchen_note,
+      options: lineOptions(r.options_json), // 02b v1.0.11 §4.2 LineView (Q-7)
       zone_on_hand: r.zone_on_hand,
     }));
   // §3.4 billed_minor (the ledger's rule; a deal from its parts)

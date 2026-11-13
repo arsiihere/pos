@@ -34,11 +34,11 @@ Plan: `docs/plans/02a-plan.md` (26 tasks; hub built in **parallel waves 0–3**,
 | 17 | `RequestBill`, `CleanTable` (queueable) | 17 | 4 | NORMAL | **done (wave 2)** | `4215c31`, `5c97400` |
 | 18 | Kind `call_waiter`, `CallWaiter` | 18 | 4 | NORMAL | **done (wave 2)** | `49b6686`, `90886f4` |
 | 19 | Queries, catch-up, audiences | 19 | 4 | NORMAL | **done (wave 3)** | `2357164` |
-| 20 | Client: login resume | 20 | 5 | UI | **blocked (design handoff)** | |
-| 21 | Client: table map | 20 | 5 | UI | **blocked (design handoff)** | |
-| 22 | Client: table sheet and dialogs | 20 | 5 | UI | **blocked (design handoff)** | |
-| 23 | Client: banners, handover cards, offline | 20 | 5 | UI | **blocked (design handoff)** | |
-| 24 | Client: Playwright flows | 20 | 5 | UI | **blocked (design handoff)** | |
+| 20 | Client: login resume (+ top bar, phone tabs) | 20 | 5 | UI | **done (client 20a, 20b; `module-02a-client`)** — Z1: §8 Login, Top bar green; H8 on `main` (#173) | #157 `4fdada38`, #163 `b9dbaec8` |
+| 21 | Client: table map | 20 | 5 | UI | **done (client 21a, 21b + IR-3 / IR-5 wiring)** — Z1: §8 Table map (Q-5, Q-17, Q-25, Q-35) green | #160 `8426dccc`, `f856fc4f`; #170 `770d2c38` |
+| 22 | Client: table sheet and dialogs | 20 | 5 | UI | **done (client 22a, 22b, 22c + IR-4)** — Z1: §8 Open, Table sheet, Offline (Bill / Clean on "Needs the hub" until 02b, Q-3), Rules green | #161 `a409c02b`, #166 `08b873ad`, #172 `f8a3d805`, #175 `58f620d7` |
+| 23 | Client: banners, handover cards, offline | 20 | 5 | UI | **done (client 23a, 23b, 23c)** — Z1: §8 Order screen, Banners (unit only; e2e in task 28), Handover waiting card, Offline green; H7 on `main` (#173) | #159 `a9ca9ebd`, #168 `0e33f406`, #176 `f07d8e84`, #169 `2a0cc096` |
+| 24 | Client: Playwright flows | 20 | 5 | UI | **done** — §12.1: 65 passed at 5 viewports × en + ur (`docs/reviews/02a-client-e2e.md`, `pnpm test:e2e`, not in the gate); gaps → task 28 | #186 `38e19ef2` |
 
 ## SG rows (spec gaps)
 
@@ -217,6 +217,10 @@ Collected text fixes (owner, 2026-11-10); none changes behaviour already built. 
 4. §6.17: the archived pseudo-floor `{ floor_id: '', name: null, archived: true, zones: [{ zone_id: null, name: null, tables }] }`; configured floors `archived: false`; sent even under a `floor_id` filter (AD-23).
 
 **Next platform batch:** 03a §10.5 "16 statements" → "9 + one checkpoint upsert per registered projection" (AD-14).
+
+## Client close — Z1 acceptance (2026-11-13)
+
+Tasks 20–24 were built as client tasks 20a–24 on `module-02a-client` (plan `docs/plans/02-client-plan.md`, board `docs/plans/02-client-status.md`). The full map of 02a v1.1.6 §8 bullets and the §12.1 row to green test names, the H tasks and the gaps is in `docs/plans/02-client-status.md` → "Z1 — 02a acceptance map". Manual checks on the pilot hardware: `docs/plans/02-client-manual-checks.md`. Deferred minors: `docs/plans/02-client-cleanup.md`.
 
 ## Next
 

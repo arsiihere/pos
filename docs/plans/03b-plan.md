@@ -118,6 +118,8 @@ Everything any two lanes would both touch is written here, once. Each task is st
 
 ## 03b client — BLOCKED on `docs/design/handoff/03b/`
 
+⚠️ Superseded by docs/plans/03b-client-plan.md (owner 2026-11-13, Q-42…Q-58); hub gaps in docs/plans/03b-hub-gaps-plan.md
+
 | Lane | Tasks | Files | Spec |
 |---|---|---|---|
 | BU1 KDS | shell + session, station view, line row + timers, marks / moved / placeholders, Start / Done / Undo / Give me more, sounds, banners + config refetch, coming-up strip, lane screen | `apps/client/src/features/kds/` | §3.3, §8; #70–#73, #75 |
