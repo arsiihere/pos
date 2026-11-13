@@ -2,3 +2,4 @@
 import '../../../../packages/ui-kit/tokens.css';
 import '../../../../packages/ui-kit/components/pulse-staff.css';
 import '../../../../packages/ui-kit/components/pulse-02.css';
+import '../../../../packages/ui-kit/components/pulse-03.css';
