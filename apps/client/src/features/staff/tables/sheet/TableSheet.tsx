@@ -12,6 +12,8 @@ import type { MapTile, OpenTablePayload, SeatingRef, TableMapBody } from '../con
 import { AskBill } from '../dialogs/AskBill';
 import { CallWaiter } from '../dialogs/CallWaiter';
 import { Clean } from '../dialogs/Clean';
+import { pendingHandovers } from '../cards/pending-handovers';
+import { WaitingCard } from '../cards/WaitingCard';
 import { ForceMove } from '../dialogs/ForceMove';
 import { ForceRelease } from '../dialogs/ForceRelease';
 import { HandOver } from '../dialogs/HandOver';
@@ -471,6 +473,7 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
                 <span>{t('sheet.offline')}</span>
               </div>
             )}
+            {tile.seating_id !== null && <WaitingCard table_id={table_id} seating_id={tile.seating_id} table_code={code} />}
             {model.note !== null && (
               <div className="ro" role="status">
                 <Ico name="info" />
@@ -571,6 +574,8 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
           preset={dialog.preset}
           onClose={() => setDialog(null)}
           onSent={(to) => {
+            // IR-4 (Q-14): the device remembers the request for the waiting card (memory only)
+            pendingHandovers.remember({ alert_id: to.alert_id, table_id: dialog.seating.table_id, seating_id: dialog.seating.seating_id, receiver_name: to.name });
             toasts.show({ text: fill(t('tables.toast.sent_to'), { name: to.name }), tone: 'ok' });
             done();
           }}
