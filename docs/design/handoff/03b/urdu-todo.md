@@ -283,3 +283,9 @@ Appended by lane K (KDS English only in P1, brief §6.1).
 | `print_queue.cancel_ticket` | Cancel ticket |  |
 | `print_queue.printer_total` | {printer}: {waiting} waiting · {suspect} may not have printed |  |
 | `paper.preview` | Paper preview · {width} mm |  |
+
+## Lane A (03b client) — A4 reprint
+
+| Key | English | Note |
+|---|---|---|
+| `print.reprinting_queued` | Reprinting {n} tickets. It prints when the printer is back. | Pass card / takeover toast (brief §3.6 03c-C02) |

@@ -2541,6 +2541,8 @@ export const en = {
   'print_queue.cancel_ticket': 'Cancel ticket',
   'print_queue.printer_total': '{printer}: {waiting} waiting · {suspect} may not have printed',
   'paper.preview': 'Paper preview · {width} mm',
+  // A4 reprint (brief §3.6 03c-C02: queued while the printer is down)
+  'print.reprinting_queued': 'Reprinting {n} tickets. It prints when the printer is back.',
 } as const;
 
 export type MessageKey = keyof typeof en;
