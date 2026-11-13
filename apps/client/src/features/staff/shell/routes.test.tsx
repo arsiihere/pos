@@ -60,12 +60,9 @@ describe('[02 W0.6] staff routes', () => {
     expect(matchStaffRoute('/nope', 'phone')).toEqual({ name: 'inbox' });
   });
 
-  it('[02 W0.6] stub Enqueue answers needs_hub', async () => {
+  // lane note #150-3: the Enqueue stub left with 25b (the real queue) and the useTableLock stub with 02a 22a; the shell hooks stay
+  it('[02 W0.6] shell hooks with an empty queue wait for nothing', async () => {
     const enqueue = createEnqueue({ api: {} as never, device: { token: 'T', id: 'D1', type: 'tablet' }, clock: () => ({}) as never, live: createLiveBus() });
-    expect(await enqueue('RequestBill', { table_id: 'TB4', seating_id: 'S1' }, { table_id: 'TB4', seating_id: 'S1', label: 'Ask for bill' })).toEqual({ status: 'needs_hub' });
-    expect(await enqueue('SubmitOrder', {}, { label: 'Order' })).toEqual({ status: 'needs_hub' });
-    expect(enqueue.pendingFor('TB4')).toBe(0);
-    expect(enqueue.pendingCount()).toBe(0);
     const hooks = createShellHooks(enqueue);
     await expect(hooks.beforeSignIn()).resolves.toBeUndefined();
     expect(hooks.queueLine()).toBeNull();

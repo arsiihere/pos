@@ -40,7 +40,7 @@ export function AskBill({ code, seating, onClose, onFailed }: AskBillProps) {
     setBusy(false);
     onClose();
     if (r.status === 'refused') onFailed(r.error);
-    else if (r.status === 'queued') toasts.show({ text: t('tables.toast.queued'), tone: 'info' });
+    else if (r.status === 'queued') toasts.show(r.logged === true ? { text: t('queue.in_log'), tone: 'warn' } : { text: t('tables.toast.queued'), tone: 'info' });
     else if (r.status === 'needs_hub') toasts.show({ text: t('tables.toast.needs_hub'), tone: 'warn' });
     else toasts.show({ text: r.result.requested ? t('bill.asked') : t('tables.toast.already_asked'), tone: r.result.requested ? 'ok' : 'info' });
   }

@@ -61,9 +61,9 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | 22 | Queued replays (02b's use) | 18 | 3B | HIGH | **done (wave 3)** | `39452dc`, `84859dc` |
 | 23 | Handover card amount | — | 3C | NORMAL | **done (wave 3)** | `b3e984f` |
 | 24 | Perf file, acceptance map, README rows | 22 | 4 | NORMAL | **done (wave 4); perf file not run (AD-4)** | |
-| 25 | Client: queue and drafts | 19 | 5 | UI | **blocked (design handoff)** | |
-| 26 | Client: ordering screen, options, preview | 20 | 5 | UI | **blocked (design handoff)** | |
-| 27 | Client: table view orders, comp, zone stock, open orders, contact | 21 | 5 | UI | **blocked (design handoff)** | |
+| 25 | Client: queue and drafts | 19 | 5 | UI | **done (client 25a–25d; `module-02b-client`)**; wiring #193 (IR-7, IR-12); e2e task 28 | #156, #162, #165, #171 |
+| 26 | Client: ordering screen, options, preview | 20 | 5 | UI | **done (client 26a–26d, 26c2)**; e2e task 28 | #158, #164, #167, #180, #174 |
+| 27 | Client: table view orders, comp, zone stock, open orders, contact | 21 | 5 | UI | **done (client 27a1–27a3, 27b1 + 27b2)**; wiring #193 (IR-5, IR-11); e2e task 28 (#201: 161 passed, 0 failed, 14 skipped) | #178, #183, #185, #181 |
 
 ## G rows (gaps, owner ruling needed)
 
