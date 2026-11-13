@@ -328,14 +328,14 @@ describe('CompLine (02b §6.8, §3.9)', () => {
     expect(eventCount()).toBe(n);
   });
 
-  it('[02b #26] approval: requires_approval passes the registry (approvable) → kind comp raised with approver_role_ids; result { alert_id, pending }; no LineComped', async () => {
+  it('[02b #26] approval: requires_approval passes the registry (approvable) → kind comp raised with approver_role_ids; result { alert_id, pending, value_minor }; no LineComped', async () => {
     await start();
     const omar = signIn('S_OMAR');
     const order_id = takeaway([NAANS]);
     const r = await compLine(omar, { order_item_id: 'N1', units: 2, reason_code: 'other', note: 'birthday' });
     expect(r.status).toBe(200);
     const alert_id = r.result!.alert_id as string;
-    expect(r.result).toEqual({ alert_id, pending: true });
+    expect(r.result).toEqual({ alert_id, pending: true, value_minor: 6_666 }); // ⚠️ 02b v1.0.11 §6.8 (Q-11): + value_minor
     expect(types(r)).not.toContain('LineComped');
     const raised = ofType(r, 'AlertRaised')[0]!;
     expect(raised).toMatchObject({
@@ -369,7 +369,7 @@ describe('CompLine (02b §6.8, §3.9)', () => {
     expect(eventCount()).toBe(n);
   });
 
-  it('[02b #26] D32 on the approval path: the same command_id → the same { alert_id, pending }, no second raise, not 409', async () => {
+  it('[02b #26] D32 on the approval path: the same command_id → the same { alert_id, pending, value_minor }, no second raise, not 409', async () => {
     await start();
     const omar = signIn('S_OMAR');
     takeaway([NAANS]);
@@ -711,3 +711,104 @@ function ctxOf(tx: Parameters<Parameters<TestHub['deps']['writer']['run']>[0]>[0
     queuedAt: null,
   } as unknown as CommandCtx;
 }
+
+// ------------------------------------------------------------------------------------------- #50 (H6, lane HB)
+
+describe('[02b #50] pending comp value and marker (§6.8, §6.15; Q-11)', () => {
+  type Marked = { order_item_id: string; pending_comp: { alert_id: string; units: number; value_minor: number } | null };
+  async function seatingLines(who: Who, seating_id = 'SEAT1'): Promise<Map<string, Marked['pending_comp']>> {
+    const res = await hub.app.inject({ method: 'GET', url: `/queries/seating-orders?seating_id=${seating_id}`, headers: { authorization: `Bearer ${who.token}`, 'x-session-token': who.sessionToken } });
+    expect(res.statusCode).toBe(200);
+    const orders = (res.json() as { data: { orders: Array<{ lines: Marked[] }> } }).data.orders;
+    return new Map(orders.flatMap((o) => o.lines.map((l) => [l.order_item_id, l.pending_comp] as const)));
+  }
+  const withdraw = (who: Who, alert_id: string) => post(who, 'withdraw-request', 'WithdrawRequest', { alert_id });
+
+  it('[02b #50] requires_approval comp → { alert_id, pending: true, value_minor } equal to LineComped.value_minor on approve; ledger unchanged', async () => {
+    await start();
+    const omar = signIn('S_OMAR');
+    const mgr = signIn('S_MGR');
+    const order_id = takeaway([...karahiWithRaita('K1', 2)]);
+    const before = orderLines(hub.deps.db, [order_id]).get(order_id)!;
+    const req = await compLine(omar, quality('K1', 1));
+    expect(req.status).toBe(200);
+    const alert_id = req.result!.alert_id as string;
+    const value_minor = req.result!.value_minor as number;
+    expect(req.result).toEqual({ alert_id, pending: true, value_minor });
+    expect(value_minor).toBeGreaterThan(0);
+    // the request's amount is the same value (§3.9)
+    expect((ofType(req, 'AlertRaised')[0]!.details as { amount: number }).amount).toBe(value_minor);
+    // ledger unchanged while pending
+    expect(orderLines(hub.deps.db, [order_id]).get(order_id)).toEqual(before);
+    expect(compEvents()).toEqual([]);
+
+    const a = await answer(mgr, alert_id, 'approve');
+    expect(a.status).toBe(200);
+    const comped = ofType(a, 'LineComped') as Array<{ order_item_id: string; value_minor: number }>;
+    // the line and its option child, each its own share; their sum is what the pending result promised
+    expect(comped.map((c) => c.order_item_id).sort()).toEqual(['K1', 'K1r']);
+    expect(comped.reduce((n, c) => n + c.value_minor, 0)).toBe(value_minor);
+  });
+
+  it('[02b #50] a comp request with no amount gives pending_comp null, never 0', async () => {
+    await start();
+    const omar = signIn('S_OMAR');
+    const ali = signIn('S_ALI');
+    dineIn([NAANS, { order_item_id: 'P1', item_id: FX.piece }]);
+    const n1 = (await compLine(omar, quality('N1', 1))).result!.alert_id as string;
+    const p1 = (await compLine(omar, quality('P1', 1))).result!.alert_id as string;
+    // test-only: a stored request whose details lost the amount (the read must not trust it)
+    hub.deps.db.prepare(`UPDATE alerts SET details_json = json_remove(details_json, '$.amount') WHERE alert_id = ?`).run(n1);
+    const marks = await seatingLines(ali);
+    expect(marks.get('N1')).toBeNull();
+    expect(marks.get('P1')).toMatchObject({ alert_id: p1, units: 1 }); // the other line keeps its marker; the view did not break
+    const warned = hub.logs().split('\n').filter((l) => l.includes('comp request without amount'));
+    expect(warned).toHaveLength(1);
+    expect(JSON.parse(warned[0]!)).toMatchObject({ alert_id: n1, order_item_id: 'N1' });
+    expect(warned[0]).not.toMatch(/Naan|quality|"amount"/);
+  });
+
+  it('[02b #50] seating-orders: pending_comp on that line only; null after approve / reject / withdraw / obsolete', async () => {
+    await start();
+    const omar = signIn('S_OMAR');
+    const ali = signIn('S_ALI');
+    const mgr = signIn('S_MGR');
+    const { order_id } = dineIn([NAANS, { order_item_id: 'P1', item_id: FX.piece }]);
+    const ask = async (units = 1): Promise<{ alert_id: string; value_minor: number }> => {
+      const r = await compLine(omar, quality('N1', units));
+      expect(r.status).toBe(200);
+      return { alert_id: r.result!.alert_id as string, value_minor: r.result!.value_minor as number };
+    };
+    expect([...(await seatingLines(ali)).values()].every((p) => p === null)).toBe(true);
+
+    // approve
+    let req = await ask(1);
+    let marks = await seatingLines(ali);
+    expect(marks.get('N1')).toEqual({ alert_id: req.alert_id, units: 1, value_minor: 3_333 });
+    expect(req.value_minor).toBe(3_333);
+    expect(marks.get('P1')).toBeNull();
+    expect((await answer(mgr, req.alert_id, 'approve')).status).toBe(200);
+    expect((await seatingLines(ali)).get('N1')).toBeNull();
+
+    // reject
+    req = await ask(1);
+    expect((await seatingLines(ali)).get('N1')).toMatchObject({ alert_id: req.alert_id, units: 1, value_minor: 3_333 });
+    expect((await answer(mgr, req.alert_id, 'reject')).status).toBe(200);
+    expect((await seatingLines(ali)).get('N1')).toBeNull();
+
+    // withdraw (the requester)
+    req = await ask(1);
+    expect((await seatingLines(ali)).get('N1')).not.toBeNull();
+    expect((await withdraw(omar, req.alert_id)).status).toBe(200);
+    expect((await seatingLines(ali)).get('N1')).toBeNull();
+
+    // obsolete: a remove leaves fewer free units than requested (2 left uncomped, request 2, remove 1)
+    req = await ask(2);
+    marks = await seatingLines(ali);
+    expect(marks.get('N1')).toEqual({ alert_id: req.alert_id, units: 2, value_minor: req.value_minor });
+    const removed = await post(ali, 'remove-items', 'RemoveItems', { order_id, seating_id: 'SEAT1', lines: [{ order_item_id: 'N1', units: 1 }] });
+    expect(removed.status).toBe(200);
+    expect(alertRow(req.alert_id)).toMatchObject({ state: 'closed', close_reason: 'obsolete' });
+    expect((await seatingLines(ali)).get('N1')).toBeNull();
+  });
+});

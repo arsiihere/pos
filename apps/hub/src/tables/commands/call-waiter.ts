@@ -37,7 +37,13 @@ function callWaiter(ctx: CommandCtx, payload: CallWaiterPayload): { events: Even
   if (seating.state === 'NEEDS_CLEANING') throw new DomainError('TABLE_NEEDS_CLEANING', { table_id: payload.table_id });
   checkTakeOrderScope(ctx, payload.table_id, seating.holder_staff_id);
 
-  const display: AlertDisplay = { kind_label_key: callWaiterKind.labels.lock, table_code: tableCode(seating.primary_table_id) };
+  // 02a v1.1.6 §6.14 (Q-12): the caller's display name (in-memory directory, 0 statements; lock-safe, 01d §3.12).
+  // The chip stays in `values` only, never in the display.
+  const display: AlertDisplay = {
+    kind_label_key: callWaiterKind.labels.lock,
+    table_code: tableCode(seating.primary_table_id),
+    requester_name: ctx.actor.staffId === null ? null : (ctx.directory.get(ctx.actor.staffId)?.display_name ?? null),
+  };
   const raised = alerts.raise(ctx, {
     kind: callWaiterKind.kind,
     subject: { stream_type: 'table', stream_id: seating.primary_table_id },
