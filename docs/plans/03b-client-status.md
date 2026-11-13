@@ -63,7 +63,7 @@ Paths: `K/` = `apps/client/src/features/kds/`, `P/` = `…/pass/`, `PR/` = `…/
 | A1 | Kitchen screens page | NORMAL | W0.5 | HK6 → ids; HK5 → open by URL | | todo |
 | A2 | Printers page: printers, add / edit, archive, test | **HIGH** | A1 | HK5 → open by URL | | todo |
 | A3 | Station outputs, print queue, warnings, paper preview | **HIGH** | A2 | HK6 → id | | todo |
-| A4 | `printed` tag and Reprint through the slots | **HIGH** | A3; W0.5 slots | — | | todo |
+| A4 | `printed` tag and Reprint through the slots (+ test helper `PR/test-fakes.ts`) | **HIGH** | A3; W0.5 slots | — | | todo |
 | A5 | Alert cards and lock lines for 03b / 03c kinds | **HIGH** | A4; W0.6 | HK3 → "Moved" | | todo |
 
 ## Close (integrator)
@@ -88,7 +88,7 @@ Paths: `K/` = `apps/client/src/features/kds/`, `P/` = `…/pass/`, `PR/` = `…/
 
 | AD | Reading | Where | State |
 |---|---|---|---|
-| AD-K1 | A4's `order-tickets` cache key is the order id (Q-52), invalidated only by a `FireDispatched` naming one of its lines. | plan A4, Self-review | proposed |
+| AD-K1 | A4's `order-tickets` cache key is the order id (Q-52). An order is re-read on a `FireDispatched` naming one of its lines. A catch-up (every reconnect) clears the whole cache, because fires can be missed while offline: each visible card then reads once more, an accepted burst. No timer. Entries are kept until the next catch-up (day scale). | plan A4, Self-review | proposed |
 | AD-K2 | P2's fallback without HK2 (`group_id` / `serve_mode` absent) shows no HOLD AT PASS hint; each done line is green alone. | plan P2, Self-review | proposed |
 | AD-K3 | W0.5 renames nothing in `K/slots.ts`: `PassCardAction.run` becomes async in place (`Promise<{ toast?: string } \| void>`). | plan W0.5, Self-review | proposed |
 | AD-K4 | `apps/client/src/app/ui-kit-admin.ts` (tokens, bundle, `admin-03.css`) is the admin kit of the two 03b / 03c admin entries; `admin-03.css` is unscoped, so it is never in `ui-kit.ts`, the staff or the KDS kit. | W0.2 (#190) | proposed (integrator, review #190 accepted) |
