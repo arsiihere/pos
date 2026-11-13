@@ -1035,6 +1035,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'lock.kept_other_device': 'یہ آرڈر یہاں ڈرافٹ میں رہے گا۔',
   'lock.kept_ttl': 'آپ کا آرڈر محفوظ ہے۔ میز خالی ہو تو بھیجنے پر واپس مل جائے گی۔',
   'lock.ok': 'ٹھیک ہے',
+  // 02a §8 Offline, 02b §8 Queue (02-B02 OrderOffline bar) (23c)
+  'offline.bar_orders': 'دوبارہ جُڑ رہا ہے… {n} آرڈر بھیجنے کے انتظار میں',
+  'offline.bar_orders_one': 'دوبارہ جُڑ رہا ہے… 1 آرڈر بھیجنے کے انتظار میں',
+  'offline.bar_reconnecting': 'دوبارہ جُڑ رہا ہے…',
+  'offline.bar_order_hint': 'بھیجیں اب بھی کام کرتا ہے — آرڈر یہیں انتظار کرے گا',
   // ---- lane Q (02b client) ----
   // ---- lane O (02b client) ----
   // ---- lane T (02b client) ----
