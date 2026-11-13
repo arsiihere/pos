@@ -3,6 +3,7 @@
 Plan: `02-client-plan.md`. Gaps + rulings: `02-client-gaps.md`. Hub gaps: `02-hub-gaps-plan.md` (H1–H10, branch `module-02-hub-gaps`). Specs: 02a v1.1.6 §8, 02b v1.0.11 §8 / §3.12 / §10. Only the integrator edits this file.
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-13: 02b close — release branch `merge/02b-to-main` (02b + `main` with 02a), wiring #193, task 28 #201 (e2e 161 pass, 0 fail). Ab 02b → `main` PR, owner merge karega (merge commit).
 > - 2026-11-12: W0 shuru — `module-02-client-shell` (= `main` @ `1961adf`) pe W0.1 board. Labels `needs-ruling`, `lane:W0`, `lane:A…D`, `lane:Q/O/T/L`, `lane:HA…HD` pehle se bane hue hain.
 
 ## Branches
@@ -11,7 +12,7 @@ Plan: `02-client-plan.md`. Gaps + rulings: `02-client-gaps.md`. Hub gaps: `02-hu
 |---|---|---|---|---|
 | `module-02-client-shell` | `origin/main` @ `1961adf` | `lane-W0/<task>` | `main`, right after W0.7 | open |
 | `module-02a-client` | the shell tip (#153, Q-40 / Q-59) | `lane-{A,B,C,D}/<task>` | `main`, first | 20a–24 merged; → `main` PR from `merge/02a-to-main` (Z3) |
-| `module-02b-client` | the same `main` | `lane-{Q,O,T,L}/<task>` | `main`, after `module-02a-client` | not cut |
+| `module-02b-client` | the shell tip (#154, Q-40 / Q-59) | `lane-{Q,O,T,L}/<task>` | `main`, after `module-02a-client` | 25a–27b2 merged; release branch `merge/02b-to-main` (module + `main` with 02a #187 and H1–H8 #173; wiring #193, task 28 #201) → `main` PR (Z3) |
 | `module-02-hub-gaps` | `origin/main` | `lane-H{A,B,C,D}/<task>` | `main` (any time) | — |
 
 ## Wave 0 (integrator, `module-02-client-shell`)
@@ -60,28 +61,29 @@ Plan: `02-client-plan.md`. Gaps + rulings: `02-client-gaps.md`. Hub gaps: `02-hu
 
 | Task | Title | RISK | Lane | Needs | PR | State |
 |---|---|---|---|---|---|---|
-| 25a | Queue and draft stores (IndexedDB + memory) | HIGH | Q | W0 (incl. W0.7) | | todo |
-| 25b | Queue core, replay and Enqueue | HIGH | Q | 25a | | todo |
-| 25c | Queue log, sign-in line, shell hooks | HIGH | Q | 25b | | todo |
-| 25d | Device idle lock and pending logout | HIGH | Q | 25c | | todo |
-| 26a | Stock mirror and availability | NORMAL | O | W0 | | todo |
-| 26b | Order screen, cart, live times | HIGH | O | 26a; (02a) 23a | | todo |
-| 26c | Options, deal, weight, note sheets | HIGH | O | 26b | | todo |
-| 26d | New order, Send, Hold, day not started | HIGH | O | 26c; (02b) 25b (H2 hub) | | todo |
-| 27a1 | Order view, line rows, simple line actions | HIGH | T | W0 (H2, H3, H10 hub) | | todo |
-| 27a2 | Send back, comp, "Comp it?", waiting card | HIGH | T | 27a1; (02b) 26d (H6, H9 hub) | | todo |
-| 27a3 | Table view orders part, zone undo, late cards | HIGH | T | 27a2; (02a) 22a (H1, H2, H5 hub) | | todo |
-| 27b1 | Open orders and kiosk home | NORMAL | L | W0 (H1, H4 hub) | | todo |
-| 27b2 | Zone stock | NORMAL | L | 27b1 | | todo |
-| 28 | 02b flows (Playwright, combined worktree) | NORMAL | integrator | 25a–27b2, 20a–23c | | todo |
+| 25a | Queue and draft stores (IndexedDB + memory) | HIGH | Q | W0 (incl. W0.7) | #156 | **merged** |
+| 25b | Queue core, replay and Enqueue | HIGH | Q | 25a | #162 | **merged** |
+| 25c | Queue log, sign-in line, shell hooks | HIGH | Q | 25b | #165 | **merged** |
+| 25d | Device idle lock and pending logout | HIGH | Q | 25c | #171 | **merged** |
+| 26a | Stock mirror and availability | NORMAL | O | W0 | #158 | **merged** |
+| 26b | Order screen, cart, live times | HIGH | O | 26a; (02a) 23a | #164 | **merged** |
+| 26c | Options, deal, weight, note sheets | HIGH | O | 26b | #167 | **merged** |
+| 26c2 | Deal part options (01c V9, Q-64) | HIGH | O | 26c | #180 | **merged** |
+| 26d | New order, Send, Hold, day not started | HIGH | O | 26c; (02b) 25b (H2 hub) | #174 | **merged** |
+| 27a1 | Order view, line rows, simple line actions | HIGH | T | W0 (H2, H3, H10 hub) | #178 | **merged** |
+| 27a2 | Send back, comp, "Comp it?", waiting card | HIGH | T | 27a1; (02b) 26d (H6, H9 hub) | #183 | **merged** |
+| 27a3 | Table view orders part, zone undo, late cards | HIGH | T | 27a2; (02a) 22a (H1, H2, H5 hub) | #185 | **merged** |
+| 27b1 | Open orders and kiosk home | NORMAL | L | W0 (H1, H4 hub) | #181 (with 27b2) | **merged** |
+| 27b2 | Zone stock | NORMAL | L | 27b1 | #181 | **merged** |
+| 28 | 02b flows (Playwright, combined worktree) | NORMAL | integrator | 25a–27b2, 20a–23c | wiring #193 (HIGH, IR-5, IR-7, IR-11, IR-12); flows #201 | **merged** into `merge/02b-to-main` |
 
 ## Close (integrator)
 
 | Task | What | Needs | State |
 |---|---|---|---|
-| Z1 | Acceptance map (§8 bullets, §10 #35 / #36, 02a §12.1, H tasks or fallback) | 24, 28 | 02a done (below); 02b at its close |
-| Z2 | Manual checks on pilot hardware (`02-client-manual-checks.md`) | Z1 | list written (02a + 02b); owner runs it on the pilot hardware |
-| Z3 | PR `module-02a-client` → `main`, then `module-02b-client` → `main` (owner merges); `@combined` e2e on `main` | Z1 | 02a PR open (`merge/02a-to-main`); 02b after it |
+| Z1 | Acceptance map (§8 bullets, §10 #35 / #36, 02a §12.1, H tasks or fallback) | 24, 28 | 02a done; 02b: task 28 result below |
+| Z2 | Manual checks on pilot hardware (`02-client-manual-checks.md`) | Z1 | list written (02a + 02b, M1–M11); owner runs it on the pilot hardware |
+| Z3 | PR `module-02a-client` → `main`, then `module-02b-client` → `main` (owner merges); `@combined` e2e on `main` | Z1 | 02a on `main` (#187); 02b: `merge/02b-to-main` → `main` PR (owner merges, merge commit) |
 
 ## Z1 — 02a acceptance map (02a v1.1.6 §8, §12.1; integrator, 2026-11-13)
 
@@ -106,6 +108,25 @@ Green = passes in the normal gate at the `merge/02a-to-main` tip (vitest), or in
 | "§8 flows pass on a tablet and a phone" | task 24: 6 flows × 1280×800, 800×1280, 1920×1080, 390×844, 360×740 × en + ur = 60 + 5 smoke = **65 passed** (`docs/reviews/02a-client-e2e.md`, #186) | Phone answer-sheet buttons are 64 px (IR-10, accepted). 1920×1080 runs a tablet-type device (a paired kiosk lands on 02b's KioskHome). Online Bill / Clean, lock banners, Pair again → task 28 + manual checks. Not run on real devices yet → `02-client-manual-checks.md`. |
 
 **H tasks:** H1–H8 are on `main` (#173) and reach `module-02a-client` with this merge; 02a uses H7 (call card name) and H8 (pair page → `/staff/`), both with the fallbacks of the plan still correct when the field is absent. H9 / H10 are parked until module-04 is on `main` (Q-37); 02a does not need them.
+
+## Z1 — 02b result (task 28; integrator, 2026-11-13)
+
+`pnpm test:e2e` on `merge/02b-to-main` (#201; `docs/reviews/02b-client-e2e.md`; not in the gate, never in CI or the cloud): **161 passed, 0 failed, 14 skipped**. That is 96 02b runs (11 tests in 9 `02b-*.spec.ts` files × 5 viewports × en + ur = 110, less 14 skips: takeaway runs at the kiosk viewport only and parking at the two phone sizes only) + 60 02a runs (`02a-offline` now with the real queue: Bill / Clean queued, then sent) + 5 W0.7 smoke. Local gate on the #201 head: 530 files, 5153 tests passed.
+
+| Plan 28 flow | Spec | Result |
+|---|---|---|
+| dine-in order + Send + lock banners | 02b §8 Ordering screen, Send; 02a §8 Banners (02a gap) | `02b-order.spec.ts` (released-by banner on the real order screen) |
+| takeaway token (kiosk) | 02b §8 Types, 02-D07 | `02b-takeaway.spec.ts` |
+| parking (phone) | 02b §8 Types; IR-5 | `02b-parking.spec.ts` (via the map's New order) |
+| offline Send → queued → reconnect → sticky token | 02b §3.12, §8 Queue; §10 #35; IR-7 | `02b-queue.spec.ts` |
+| queue log Send again | 02b §3.12 Q-2 | `02b-queue.spec.ts` (a reloaded entry) |
+| idle lock offline | 02b §8 Device idle lock, Q-21 | `02b-idle.spec.ts` |
+| comp with approval + Comp it? | 02b §8 Table view, 02b-D33, E-7 | comp with approval: `02b-comp.spec.ts`. **Comp it? not driven** (needs a Void, disabled until 04, or the hub clock 30 min on) → unit tests + manual M11 |
+| zone undo; zone refill | 02b §8 Table view (02b-C04), Zone stock (02b-S12) | `02b-zone.spec.ts` |
+| open orders | 02b §8 Open orders (02-S07) | `02b-open-orders.spec.ts` |
+| Bill / Clean queued (02a); online Ask for bill / Clean (02a gaps) | 02a §8 Offline, §3.13 | `02a-offline.spec.ts` (queued, then sent), `02b-bill.spec.ts` (online) |
+
+Bugs found by task 28 and fixed in #201 (02b files, failing-first tests): the order screen's table name doubled ("R001 + R001"); the table view's orders part reset on every `StaffApp` render (whole-`shell` effect deps), losing the selected line and re-folding an opened served round.
 
 ## Hub gaps (`02-hub-gaps-plan.md`, branch `module-02-hub-gaps`)
 
@@ -145,6 +166,11 @@ Green = passes in the normal gate at the `merge/02a-to-main` tip (vitest), or in
 | AD-C17 | **IR-11:** `LateAlertsContext` (open + closed alert rows) is wired by lane A in the task-28 `StaffApp` wiring; covers slips closed without `ItemsReleased`. | 02b 27a3, task 28 | proposed (integrator) |
 | AD-C18 | **Process (second approvals):** for a HIGH PR where both first reviewers asked for changes (or one approved and one asked for changes), the "second approval" was a fresh re-check reviewer who mutation-verified every MAJOR of both reviews (#156, #159, #161, #162, #164, #165, #168, #171). | review process (Q-60) | proposed (integrator) |
 | AD-C19 | **Process (gate in cloud sessions):** when the cloud VM's pnpm self-switch leaves a half-installed `~/.local/share/pnpm/.tools/pnpm/<v>` (turbo: "Exec format error"), the gate is run with `npm_config_manage_package_manager_versions=false` (the installed pnpm already is the pinned version). Environment only; nothing in the repo changes. | close lane, 2026-11-13 | proposed (integrator) |
+| AD-C20 | **IR-12:** `EnqueueResult` `queued` gains additive `logged?: true` when the entry went straight to the queue log (session ended, or a 4xx the log keeps); 02a / 02b callers show "Not sent — see the queue log" instead of "Will be sent when the hub is back" (closes cleanup A-19). | wiring #193 | proposed (integrator) |
+| AD-C21 | **Shell (additive, task 28 wiring):** `Shell` gains optional `idleTtlMs` (the login reply's `idle_ttl_ms`; the `GET /queries/session` read stays the fallback, IR-9) and `signOut()` (local sign-out, no hub call). The idle lock's Sign in waits at most 5 s (`SIGN_IN_WAIT_MS`) for drain + owed logout, then signs the page out; the owed logout stays in memory for the sign-in hooks. 02b §8 is silent on a limit ("drains first, then logout"): confirm at the next 02b bump. Unpair is guarded by a ref (one wipe) and closes New order. | wiring #193 (reviews) | proposed (integrator) |
+| AD-C22 | **Queue revoke path:** the queue's `onDeviceRevoked` is the shell's unpair path (hub-admin `wipeDeviceKeys`, Pair again); queue.ts's own `wipePosDeviceKeys` copy is gone. `maxAgeMs` = the shell config's `queue_auto_send_max_ms` (null until read → the 01a default). | wiring #193 | proposed (integrator) |
+| AD-C23 | **IR-13 (process):** PRs into `merge/02b-to-main` use the local full gate (summary posted on the PR); CI's `gate` (main / `module-*` only, not dispatchable from the lane token) runs on the final `merge/02b-to-main` → `main` PR. | close lane | proposed (integrator) |
+| AD-C24 | **e2e fixture (task 28):** `global-setup.ts` uses the hub's 02b `fixtureMenu` + `openDay`, zone Cola, a paired kiosk and Ali's phone, `apply-comp` requiring the manager's approval; `FLOOR_SIZE` 120 and four flows appended to `FLOWS` (02a's table pairs unchanged). Two-device flows run a second browser context; the comp flow has a 90 s budget. | #201 | proposed (integrator) |
 
 ## STOPs / needs-ruling
 

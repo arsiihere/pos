@@ -175,10 +175,13 @@ export interface EnqueueMeta {
  *   on a 2xx or a 4xx, §3.12) and is sent again with the same command_id.
  * - `needs_hub`: the same non-answers with no queue registered (the W0.6 stub until 25b; 02a Ask for bill / Clean
  *   show "Needs the hub").
+ * - `logged: true` on `queued` (integrator ruling IR-12, additive): the entry went straight to the queue log (its
+ *   session ended, or a 4xx the log keeps): it waits for "Send again", never for the hub — the caller shows the
+ *   queue-log wording, not "Will be sent when the hub is back".
  */
 export type EnqueueResult<R = unknown> =
   | { status: 'sent'; result: R }
-  | { status: 'queued'; entry_id: string }
+  | { status: 'queued'; entry_id: string; logged?: true }
   | { status: 'needs_hub' }
   | { status: 'refused'; error: Extract<HubError, { kind: 'api' }> };
 

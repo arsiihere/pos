@@ -21,20 +21,26 @@ export function isSlotRoute(route: StaffRoute): route is SlotRoute {
   return !['inbox', 'requests', 'test_alert', 'receipts'].includes(route.name);
 }
 
-/** What the shell hands the slots beyond the route (02a IR-5): the 01d alert store's rows, for the map's flags. */
+/** What the shell hands the slots beyond the route (02a IR-5): the 01d alert store's rows, for the map's flags, and
+ *  the map's New order (02b's New order sheet, opened by the shell). */
 export interface SlotProps {
   alertRows?: readonly AlertRow[];
+  onNewOrder?: () => void;
+}
+
+function mapProps(props: SlotProps): { alertRows?: readonly AlertRow[]; onNewOrder?: () => void } {
+  return { ...(props.alertRows === undefined ? {} : { alertRows: props.alertRows }), ...(props.onNewOrder === undefined ? {} : { onNewOrder: props.onNewOrder }) };
 }
 
 export function slotContent(route: SlotRoute, props: SlotProps = {}): ReactNode {
   switch (route.name) {
     case 'tables':
-      return <TableMap {...(props.alertRows === undefined ? {} : { alertRows: props.alertRows })} />;
+      return <TableMap {...mapProps(props)} />;
     case 'table':
       // the sheet opens over the map
       return (
         <>
-          <TableMap {...(props.alertRows === undefined ? {} : { alertRows: props.alertRows })} />
+          <TableMap {...mapProps(props)} />
           <TableSheet table_id={route.table_id} seating_id={route.seating_id} />
         </>
       );
