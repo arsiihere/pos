@@ -1187,6 +1187,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.group_no_screen': '{station} · اسکرین نہیں',
   // P3 (from PassHandOverUrdu; pass.handed_waiting is in docs/design/handoff/03b/urdu-todo.md, lane P)
   'pass.hand_over_sub': 'ایک ٹیپ سے یہاں کی ہر تیار لائن حوالے۔',
+  // P4 (from PassTakeoverUrdu; pass.screen_back is in docs/design/handoff/03b/urdu-todo.md, lane P)
+  'pass.takeover_sub': 'اس کا ناؤ اور اگلا یہاں ہے۔ اسکرین واپس آنے تک یہاں ٹیپ کریں۔',
   // ---- lane A (03b client) ----
   // A1 kitchen screens (from KitchenScreensUrdu; the rest is in docs/design/handoff/03b/urdu-todo.md, lane A)
   'kitchen_screens.stations': 'اسٹیشن',

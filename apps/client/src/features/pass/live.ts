@@ -5,6 +5,7 @@ import type { RosterPerson } from '../staff/api';
 import type { LiveBus } from '../staff/shell/live';
 import { createPassNames, type PassNames } from './names';
 import { createPassStore, type PassStoreImpl } from './store';
+import { createTakeovers, type Takeovers } from './takeover/takeover';
 
 // 03b v1.0.8 §3.4, §8 (P1; Q-50, Q-55): the Pass's live layer on the staff page. A Pass tablet is a staff socket, so
 // the Pass reads the staff shell's live bus: its `catch_up` and seq-ordered `event` messages go to the Pass store and
@@ -20,6 +21,8 @@ import { createPassStore, type PassStoreImpl } from './store';
 export interface PassLive {
   store: PassStoreImpl;
   names: PassNames;
+  /** P4: the takeover sections, each a KDS store of its dark station fed by the same frames */
+  takeovers: Takeovers;
   /** a socket frame the live bus does not carry; `catch_up` / `event` are ignored here (the bus delivers them) */
   frame(frame: WsServerMessage): void;
   dispose(): void;
@@ -35,11 +38,13 @@ export interface PassLiveDeps {
 export function createPassLive(deps: PassLiveDeps): PassLive {
   const store = createPassStore({ now: deps.now });
   const names = createPassNames(deps.roster);
+  const takeovers = createTakeovers({ now: deps.now });
   let alive = true;
 
   const feed = (frame: WsServerMessage) => {
     if (!alive) return;
     store.apply(frame);
+    takeovers.apply(frame);
     publishFrame(frame);
     if (frame.type === 'catch_up' && frame.state['point_view'] !== undefined) names.refresh();
   };
@@ -52,6 +57,7 @@ export function createPassLive(deps: PassLiveDeps): PassLive {
   return {
     store,
     names,
+    takeovers,
     frame(frame) {
       if (frame.type === 'catch_up' || frame.type === 'event') return;
       feed(frame);

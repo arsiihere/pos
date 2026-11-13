@@ -2477,6 +2477,9 @@ export const en = {
   // P3 (03b §3.5; frames PassHandOver, PassHanded)
   'pass.hand_over_sub': 'One tap hands over every done line here.',
   'pass.handed_waiting': 'Handed to {name} · waiting for Served',
+  // P4 (03b §3.6; frames PassTakeover, PassScreenBack)
+  'pass.takeover_sub': 'Its Now and Next are here. Tap for the cooks until the screen is back.',
+  'pass.screen_back': '{station} screen is back',
   // ---- lane A (03b client) ----
   // A1 kitchen screens (frames KitchenScreens*, 03b-S04 / D02 / D03 / B16)
   'kitchen_screens.stations': 'Stations',

@@ -12,6 +12,7 @@ import { createPassApi, createReadyActions, readyBand, retrying, type CardMessag
 import { ScreenlessActions } from './actions/ScreenlessActions';
 import { PassCard } from './cards/PassCard';
 import { readiness } from './cards/readiness';
+import { TakeoverSection } from './takeover/TakeoverSection';
 import { StationStrip } from './cards/StationStrip';
 import { registerPrintSlots, type PrintTransport } from '../print/register';
 import { passLiveOf } from './live';
@@ -21,7 +22,8 @@ import { passLiveOf } from './live';
 // (placed_at), one column in portrait (`pcards--1`, `pstrip--wrap`, IR-18), "No orders at the Pass" when empty.
 // Buttons need `run-pass`. P3: per card Hand over (a done line here) and Ready to serve (no open Ready), the Ready
 // band ("Ready · time · name", count-up, Undo for 30 s), the card's line (B13, hand-over results), the Hand over sheet,
-// Start / Done / Undo on screenless lines (Q-45). P4 the takeover sections, P5 the states.
+// Start / Done / Undo on screenless lines (Q-45). P4: the takeover sections above the cards (§3.6) and the
+// "{Station} screen is back" toast (Q-56). P5 the states.
 // IR-15 (03c §3.5, Q-50, Q-52): 03c's `printed` tag is registered when this module loads (the staff page imports it
 // with its routes, before the socket's first catch-up). Its Pass card Reprint runs on ONE transport for the page's
 // whole life (`PASS_TRANSPORT`), forwarding to the shell of the mounted Pass (`passShell`, a ref). Leaving the Pass
@@ -78,6 +80,9 @@ export function sendersOf(api: Shell['api']): { kds: KdsApi; pass: PassApi } {
 /** a display tick for the Ready count-up and the Undo times (no hub read) */
 const TICK_MS = 1_000;
 
+/** K3's inline row lines and Give me more's line fade on these (display only) */
+const BROWSER_TIMERS = { setTimeout: (fn: () => void, ms: number): unknown => setTimeout(fn, ms), clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>) };
+
 export function PassScreen() {
   const shell = useShell();
   const pass = passLiveOf(shell);
@@ -96,6 +101,8 @@ export function PassScreen() {
   const [handed, setHanded] = useState<ReadonlyMap<string, Handed>>(new Map());
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [sheet, setSheet] = useState<string | null>(null);
+  const toastRef = useRef((text: string) => shell.toasts.show({ text, tone: 'ok' }));
+  toastRef.current = (text: string) => shell.toasts.show({ text, tone: 'ok' });
 
   useEffect(() => {
     me.current = shell.me;
@@ -121,9 +128,12 @@ export function PassScreen() {
   );
   useEffect(() => {
     setNow(shell.clock.nowMs());
-    const timer = setInterval(() => setNow(shell.clock.nowMs()), TICK_MS);
+    const timer = setInterval(() => {
+      setNow(shell.clock.nowMs());
+      pass.takeovers.prune();
+    }, TICK_MS);
     return () => clearInterval(timer);
-  }, [shell.clock]);
+  }, [shell.clock, pass]);
   useEffect(() => {
     passShell.current = shell;
     // the same transport object every time: 03c keeps its reprinter and open command ids (register.ts); the cards
@@ -135,6 +145,18 @@ export function PassScreen() {
     };
     // mount only: re-registering on each new shell object would churn the slots (shell is read through the ref)
   }, []);
+
+  useSyncExternalStore(pass.takeovers.subscribe, pass.takeovers.version);
+  // Q-56: "{Station} screen is back" only when the section still held rows (else the takeover ended quietly)
+  useEffect(
+    () =>
+      pass.takeovers.onEnded((e) => {
+        if (e.rows === 0) return;
+        const name = pass.store.snapshot().view?.stations.find((st) => st.station_id === e.station_id)?.name ?? '';
+        toastRef.current(fill(t('pass.screen_back'), { station: name }));
+      }),
+    [pass],
+  );
 
   const view = snap.view;
   if (view === null) return null;
@@ -189,6 +211,20 @@ export function PassScreen() {
     <main className="pass">
       <StationStrip stations={view.stations} api={canRun ? kds : null} up={up} wrap={shell.portrait} />
       <div className="pscroll">
+        {[...pass.takeovers.stores()].map(([station_id, store]) => (
+          <TakeoverSection
+            key={station_id}
+            store={store}
+            name={view.stations.find((st) => st.station_id === station_id)?.name ?? ''}
+            api={kds}
+            canRun={canRun}
+            up={up}
+            nowMs={nowMs}
+            utcOffsetMs={shell.clock.utcOffsetMs}
+            timers={BROWSER_TIMERS}
+            onToast={onToast}
+          />
+        ))}
         {orders.length === 0 ? (
           <div className="empty empty--pass">
             <Ring size={96} pct={100} tone="ok">
