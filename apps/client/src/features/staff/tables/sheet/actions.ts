@@ -1,3 +1,4 @@
+import type { TableState } from '@pos/domain';
 import type { MessageKey } from '../../../../i18n';
 import type { Permissions } from '../../shell/permissions';
 import type { MapTile } from '../contracts';
@@ -123,3 +124,15 @@ export function sheetModel(tile: MapTile, me: string | null, perms: Permissions,
   const note: SheetModel['note'] = !takeOrder ? 'waiter' : assignee || primary !== null ? null : 'read_only';
   return model(title, primary, [...bill, ...call, ...clean], [], note);
 }
+
+/** 02a §3.1: the CSS / string word of a state (`s-<word>`, `c-<word>`, `tables.state.<word>`). */
+export const STATE_WORD: Record<TableState, 'free' | 'seated' | 'ordered' | 'eating' | 'bill' | 'clean'> = {
+  FREE: 'free',
+  SEATED: 'seated',
+  ORDERED: 'ordered',
+  FOOD_ON_TABLE: 'eating',
+  BILL_REQUESTED: 'bill',
+  NEEDS_CLEANING: 'clean',
+};
+
+export const stateKey = (state: TableState): MessageKey => `tables.state.${STATE_WORD[state]}`;
