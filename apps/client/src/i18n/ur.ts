@@ -1057,4 +1057,16 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'weight.rounds': '50 {unit} تک گول',
   // ---- lane T (02b client) ----
   // ---- lane L (02b client) ----
+  'orders.filter_all': 'سب',
+  'orders.placed': 'آرڈر {time} پر',
+  'orders.placed_by': 'آرڈر {time} پر · {who}',
+  'orders.named': '{name} · آرڈر {time} پر',
+  'orders.dine_in': 'ڈائن اِن · چھوڑا ہوا',
+  'orders.table': 'ٹیبل',
+  'orders.opens_table': 'ٹیبل کھلتی ہے',
+  'orders.empty': 'کوئی کھلا آرڈر نہیں',
+  'orders.load_failed': 'آرڈر لوڈ نہیں ہو سکے۔',
+  'orders.retry': 'دوبارہ کوشش کریں',
+  'kiosk.tables': 'ٹیبلز',
+  'kiosk.held': 'روکے ہوئے',
 };
