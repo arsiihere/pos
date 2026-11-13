@@ -2145,6 +2145,11 @@ export const en = {
   'lock.kept_other_device': 'This order stays here as a draft.',
   'lock.kept_ttl': 'Your order is kept. Send takes the table back if it’s still free.',
   'lock.ok': 'OK',
+  // 02a §8 Offline, 02b §8 Queue (02-B02 OrderOffline bar) (23c)
+  'offline.bar_orders': 'Reconnecting… {n} orders waiting to send',
+  'offline.bar_orders_one': 'Reconnecting… 1 order waiting to send',
+  'offline.bar_reconnecting': 'Reconnecting…',
+  'offline.bar_order_hint': 'Send still works — it waits here',
   // ---- lane Q (02b client) ----
   // ---- lane O (02b client) ----
   // ---- lane T (02b client) ----
