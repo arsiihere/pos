@@ -2197,6 +2197,18 @@ export const en = {
   'orders.retry': 'Try again',
   'kiosk.tables': 'Tables',
   'kiosk.held': 'Held',
+  'zone.live': 'Live',
+  'zone.empty_list': 'No zones to show',
+  'zone.load_failed': "Couldn't load the zone counts.",
+  'zone.add': 'Add',
+  'zone.now_store': 'Now {n} · moves stock from the store',
+  'zone.count_title': 'Count {item} in {zone}',
+  'zone.now_count': 'Now {n} · sets the count',
+  'zone.counted_is': 'Count is',
+  'zone.counted': 'Counted · {n} now',
+  'zone.err.my_zones': 'This zone is not one of yours',
+  'zone.err.stock': 'The store has only {n} — not enough to add that many',
+  'zone.err.day': "The day hasn't started",
 } as const;
 
 export type MessageKey = keyof typeof en;
