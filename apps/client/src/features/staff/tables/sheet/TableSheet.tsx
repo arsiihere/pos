@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { TableState } from '@pos/domain';
 import { t, type MessageKey } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
 import type { HubError } from '../../../../api/hub-admin';
@@ -10,11 +9,17 @@ import { OrdersPart } from '../../orders/table-view/OrdersPart';
 import { useShell, type Shell } from '../../shell/hooks';
 import { orderHref } from '../../shell/routes';
 import type { MapTile, OpenTablePayload, SeatingRef, TableMapBody } from '../contracts';
+import { ForceMove } from '../dialogs/ForceMove';
 import { ForceRelease } from '../dialogs/ForceRelease';
+import { HandOver } from '../dialogs/HandOver';
+import { Join } from '../dialogs/Join';
+import { Move } from '../dialogs/Move';
+import { MoveOtherOwner, otherOwnerOf, type OtherOwner } from '../dialogs/MoveOtherOwner';
+import { Split } from '../dialogs/Split';
 import { TableBusy, TableBusyOwn } from '../dialogs/TableBusy';
 import { TakeOver } from '../dialogs/TakeOver';
 import { tableErrorKey } from '../errors';
-import { sheetModel, type ActionId, type SheetAction } from './actions';
+import { STATE_WORD, sheetModel, stateKey, type ActionId, type SheetAction } from './actions';
 
 // 02a §8 Open, Table sheet, Offline, Rules (02-S06 TableSheet*): one table's actions for the seating it shows,
 // over the dimmed map (a side panel; a bottom sheet on portrait / phone). Every command sends the shown
@@ -59,15 +64,6 @@ const REFRESH_ON: ReadonlySet<string> = new Set([
   'BillClosed',
 ]);
 const DEBOUNCE_MS = 250;
-
-const STATE: Record<TableState, string> = {
-  FREE: 'free',
-  SEATED: 'seated',
-  ORDERED: 'ordered',
-  FOOD_ON_TABLE: 'eating',
-  BILL_REQUESTED: 'bill',
-  NEEDS_CLEANING: 'clean',
-};
 
 const ICON: Partial<Record<ActionId, IconName>> = {
   bill: 'receipt',
@@ -134,13 +130,16 @@ function useSheetMap(shell: Shell): { body: TableMapBody | null; read: boolean; 
   return { body, read, refresh };
 }
 
-/** Release and Take over keep the seating they showed when they opened (T18): a change answers 409 on the hub. */
+/** Every dialog keeps the seating it showed when it opened (T18): a change answers 409 on the hub. */
 type Dialog =
   /** the seating the busy dialog opened on: the tile's on the tap path, the one the 409'd OpenTable sent; null = unknown */
   | { kind: 'busy'; name: string; seating: SeatingRef | null }
   | { kind: 'own' }
   | { kind: 'release'; name: string; seating: SeatingRef }
   | { kind: 'takeover'; name: string; seating: SeatingRef }
+  | { kind: 'hand'; preset: string | null; seating: SeatingRef }
+  | { kind: 'force_move' | 'move' | 'join' | 'split'; seating: SeatingRef }
+  | { kind: 'owner'; owner: OtherOwner; seating: SeatingRef }
   | null;
 
 export function TableSheet({ table_id, seating_id }: TableSheetProps) {
@@ -187,12 +186,12 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
   const ref: SeatingRef | null = seat === null ? null : { table_id, seating_id: seat };
   const seatingTiles = tile.seating_id === null ? [tile] : all.filter((x) => x.seating_id === tile.seating_id);
   const seats = seatingTiles.reduce((n, x) => n + (x.seats ?? 0), 0);
-  const word = STATE[tile.state];
+  const word = STATE_WORD[tile.state];
 
   const toast = (key: MessageKey, tone: 'ok' | 'info' | 'warn' = 'warn') => toasts.show({ text: fill(t(key), { name: '', table: code }), tone });
 
-  /** `sent`: the seating_id the refused command sent (null = none), so TableBusy → Release acts on that one */
-  function failed(error: HubError, sent: string | null = null): void {
+  /** `sent`: the seating the refused command sent or the dialog showed (null = none) */
+  function failed(error: HubError, sent: SeatingRef | null = null): void {
     if (error.kind === 'api' && error.code === 'TABLE_SEATING_CHANGED') {
       toast('tables.changed', 'info');
       void refresh();
@@ -200,14 +199,37 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
     }
     if (error.kind === 'api' && error.code === 'TABLE_ALREADY_LOCKED') {
       const name = error.details['locked_by_name'];
-      setDialog({ kind: 'busy', name: typeof name === 'string' ? name : (model.lockedBy?.name ?? ''), seating: sent === null ? null : { table_id, seating_id: sent } });
+      setDialog({ kind: 'busy', name: typeof name === 'string' ? name : (model.lockedBy?.name ?? ''), seating: sent });
       void refresh();
+      return;
+    }
+    if (error.kind === 'api' && error.code === 'PERMISSION_DENIED' && error.details['reason'] === 'other_owner') {
+      // 02a-D25 (Q-25): Move / Join / Split onto someone else's table or party
+      const shown = sent ?? ref;
+      if (shown !== null) setDialog({ kind: 'owner', seating: shown, owner: otherOwnerOf(error.details, me?.staff_id ?? null, nameOf, (id) => all.find((x) => x.table_id === id)?.name ?? id) });
       return;
     }
     toast(tableErrorKey(error));
   }
 
-  async function run<T>(send: () => Promise<{ ok: true; data: T } | { ok: false; error: HubError }>, sent: string | null = null): Promise<T | null> {
+  /** a staff name from the map (holder, assignee or lock of any tile) */
+  function nameOf(staff_id: string): string {
+    for (const x of all) for (const p of [x.holder, x.assignee, x.lock]) if (p !== null && p.staff_id === staff_id && p.name !== null) return p.name;
+    return '';
+  }
+
+  /** a dialog's command was refused: close it, then the usual handling */
+  const refused = (error: HubError) => {
+    const shown = dialog !== null && 'seating' in dialog ? dialog.seating : null;
+    setDialog(null);
+    failed(error, shown);
+  };
+  const done = () => {
+    setDialog(null);
+    void refresh();
+  };
+
+  async function run<T>(send: () => Promise<{ ok: true; data: T } | { ok: false; error: HubError }>, sent: SeatingRef | null = null): Promise<T | null> {
     if (inflight.current) return null;
     inflight.current = true;
     setBusy(true);
@@ -222,7 +244,7 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
 
   async function openHere(shown: string | null = seat): Promise<void> {
     const payload: OpenTablePayload = shown === null ? { table_id } : { table_id, seating_id: shown };
-    const opened = await run(() => tables.openTable(payload), shown);
+    const opened = await run(() => tables.openTable(payload), shown === null ? null : { table_id, seating_id: shown });
     if (opened !== null) navigate(orderHref('dine_in', opened.seating_id));
   }
 
@@ -282,8 +304,16 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
       case 'more':
         setMoreOpen((v) => !v);
         return;
+      case 'hand':
+      case 'force_move':
+      case 'move':
+      case 'join':
+      case 'split':
+        setMoreOpen(false);
+        if (ref !== null) setDialog(a.id === 'hand' ? { kind: 'hand', preset: null, seating: ref } : { kind: a.id, seating: ref });
+        return;
       default:
-        // hand over, force move, move, join, split (22b); ask for bill, call waiter, clean (22c)
+        // ask for bill, call waiter, clean (22c)
         return;
     }
   }
@@ -387,7 +417,7 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
               <div className="tv__t">
                 <h2>{title}</h2>
                 <div className="tv__m">
-                  <span className={`st c-${word}`}>{t(`tables.state.${word}` as MessageKey)}</span>
+                  <span className={`st c-${word}`}>{t(stateKey(tile.state))}</span>
                   {minutes !== null && tile.opened_at !== null && (
                     <span className="i">
                       <Ico name="clock" />
@@ -511,6 +541,53 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
             failed(error);
           }}
         />
+      )}
+      {dialog?.kind === 'hand' && (
+        <HandOver
+          code={code}
+          seating={dialog.seating}
+          preset={dialog.preset}
+          onClose={() => setDialog(null)}
+          onSent={(to) => {
+            toasts.show({ text: fill(t('tables.toast.sent_to'), { name: to.name }), tone: 'ok' });
+            done();
+          }}
+          onFailed={refused}
+        />
+      )}
+      {dialog?.kind === 'force_move' && <ForceMove code={code} seating={dialog.seating} onClose={() => setDialog(null)} onMoved={done} onFailed={refused} />}
+      {dialog?.kind === 'move' && (
+        <Move
+          code={code}
+          seating={dialog.seating}
+          body={body}
+          onClose={() => setDialog(null)}
+          onMoved={(to) => {
+            toasts.show({ text: fill(t('tables.toast.moved'), { table: to.name }), tone: 'ok' });
+            done();
+          }}
+          onFailed={refused}
+        />
+      )}
+      {dialog?.kind === 'join' && <Join code={code} seating={dialog.seating} body={body} onClose={() => setDialog(null)} onJoined={done} onFailed={refused} />}
+      {dialog?.kind === 'split' && (
+        <Split
+          code={code}
+          seating={dialog.seating}
+          body={body}
+          onClose={() => setDialog(null)}
+          onSplit={({ to, moved }) => {
+            toasts.show({
+              text: moved === 0 ? fill(t('tables.toast.free'), { table: to.name }) : fill(t('tables.toast.orders_moved'), { n: String(moved), table: to.name }),
+              tone: 'ok',
+            });
+            done();
+          }}
+          onFailed={refused}
+        />
+      )}
+      {dialog?.kind === 'owner' && (
+        <MoveOtherOwner code={code} owner={dialog.owner} onClose={() => setDialog(null)} onHandOver={(staff_id) => setDialog({ kind: 'hand', preset: staff_id, seating: dialog.seating })} />
       )}
       {dialog?.kind === 'takeover' && (
         <TakeOver code={code} name={dialog.name} busy={busy} onClose={() => setDialog(null)} onConfirm={() => void takeOver(dialog.seating)} />

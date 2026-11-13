@@ -13,11 +13,15 @@ export interface DialogFrameProps {
   /** the table chip ("F7", "F4 + F5") */
   code: string;
   title: string;
+  /** the muted line under the title */
+  sub?: string;
+  /** the wide list dialogs (dlg--w: hand over, force move, move, join, split) */
+  wide?: boolean;
   onClose(): void;
   children: ReactNode;
 }
 
-export function DialogFrame({ code, title, onClose, children }: DialogFrameProps) {
+export function DialogFrame({ code, title, sub, wide = false, onClose, children }: DialogFrameProps) {
   const { phone, portrait } = useShell();
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -26,7 +30,7 @@ export function DialogFrame({ code, title, onClose, children }: DialogFrameProps
   return (
     <div className={phone || portrait ? 'scrim scrim--sheet' : 'scrim'}>
       <div
-        className="dlg"
+        className={wide ? 'dlg dlg--w' : 'dlg'}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -45,6 +49,7 @@ export function DialogFrame({ code, title, onClose, children }: DialogFrameProps
           </span>
           <div className="dlg__t">
             <h2>{title}</h2>
+            {sub !== undefined && <div className="ac__who">{sub}</div>}
           </div>
           <button type="button" className="btn btn--icon dlg__x" aria-label={t('common.close')} onClick={onClose}>
             <Ico name="x" />
