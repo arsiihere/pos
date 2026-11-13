@@ -1,6 +1,6 @@
 # 03b KDS / Pass + 03c Printing — CLIENT gap record (owner rulings 2026-11-13 (all Rec (a)))
 
-Read-only gap sweep of `origin/main` @ `1961adf3` (2026-11-13). Specs then: 03b v1.0.7, 03c v1.0.7, foundation v1.12, 00 v1.9.1; handoff `docs/design/handoff/03b/` (71 frames, CHANGES Q-1…Q-20) and brief `docs/design/inventory/03b-03c-design-brief.md`. Rulings: **Q-42…Q-58**, every one = Rec (a) (owner "Sab rec", 2026-11-13 06:02 PKT). Spec text: 03b **v1.0.8**, 03c **v1.0.9** (v1.0.8 is module-04's), 00 **v1.9.2**. Tasks: hub `docs/plans/03b-hub-gaps-plan.md` (HK1–HK6), client `docs/plans/03b-client-plan.md`. The task split of the sweep (its §4) is replaced by those two plans. Spec wins over this record.
+Read-only gap sweep of `origin/main` @ `1961adf3` (2026-11-13). Specs then: 03b v1.0.7, 03c v1.0.7, foundation v1.12, 00 v1.9.1; handoff `docs/design/handoff/03b/` (71 frames, CHANGES Q-1…Q-20) and brief `docs/design/inventory/03b-03c-design-brief.md`. Rulings: **Q-42…Q-58**, every one = Rec (a) (owner "Sab rec", 2026-11-13 06:02 PKT). Spec text: 03b **v1.0.8**, 03c **v1.0.9** (v1.0.8 is module-04's), 00 **v1.9.2**. Tasks: hub `docs/plans/03b-hub-gaps-plan.md` (HK1–HK6), client `docs/plans/03b-client-plan.md`. The task split of the sweep (its §4) is replaced by those two plans. Process rulings that also apply: Q-39, Q-41 (owner 2026-11-12) and Q-60, Q-61 (owner 2026-11-13 06:13 PKT) — see the client plan's Markers. Spec wins over this record.
 
 ## 0) Rulings
 
@@ -26,7 +26,6 @@ Read-only gap sweep of `origin/main` @ `1961adf3` (2026-11-13). Specs then: 03b 
 
 **Notes on the inputs:**
 - The 03b client contract is **§8** (v1.0.7 lines 484–490). §5 is the hub data model. I used §8 + §3.3/§3.4/§3.6/§3.10.
-- **Q-39–Q-41 do not exist** on `origin/main`, `origin/docs/02-client-plan`, `origin/docs/02-client-specs` or `origin/docs/m3-m6-rulings` (git grep finds nothing). The shared patterns used below are the ones that are in `docs/plans/02-client-plan.md`: wave 0 contracts and stubs (:54–66), the "absent field / 404 = not there yet" hub-gap fallback (:8), the global constraints (:24–35), lane file ownership (:26), and Q-5 no-timer (:7).
 - Hub gap H1 (`lane-HA/h1` @ `006e0704`, kitchen-progress frames to staff) is **not merged** into main. G3b-1 assumes it lands.
 
 ## 1) Exact names (need → name, file:line)
