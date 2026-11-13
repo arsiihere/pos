@@ -2426,6 +2426,32 @@ export const en = {
   'errors.ITEM_UNDO_WINDOW_CLOSED': 'Too late to undo',
   'errors.PASS_UNDO_WINDOW_CLOSED': 'Too late to undo',
   // ---- lane K (03b client) ----
+  // K1 (00 v1.9.2 §8.4, M53; 03b §8 B06): station session states and the reconnecting banner
+  'kds.live': 'Live',
+  'kds.reconnecting_banner': 'Reconnecting… buttons are off until the hub is back',
+  'kds.reconnecting_note': 'Taps are not saved — tap again after',
+  'kds.hub_unreachable': "Can't reach the hub — retrying…",
+  'kds.replaced': 'This screen is open in another window',
+  'kds.use_this_window': 'Use this window',
+  'kds.not_kitchen_screen': "This device isn't a kitchen screen",
+  'kds.not_kitchen_screen_sub': 'It is paired as another kind of device.',
+  'kds.open_staff': 'Open the staff screen',
+  'kds.pair_again_sub': 'Ask a manager to pair this screen again.',
+  // 00 §8.4 screens for /auth/station (texts of the hub's 00-F03…F07 global states, lib/strings.ts)
+  'kds.try_again': 'Try again',
+  'kds.reload': 'Reload',
+  'kds.wifi_title': 'Connect to the staff Wi-Fi',
+  'kds.wifi_body': 'This screen is on the customer Wi-Fi. Switch it to the staff Wi-Fi. It opens by itself when it can reach the hub.',
+  'kds.not_set_up_title': 'The hub is being set up',
+  'kds.not_set_up_body': 'This screen opens by itself when setup is done.',
+  'kds.wrong_host_title': 'Open the hub by its address',
+  'kds.wrong_host_body': 'Type the number address in the browser, not a name.',
+  'kds.update_title': 'Update the app',
+  'kds.update_body': 'The hub has a newer version. Reload to get it.',
+  'kds.busy': 'Hub busy, try again.',
+  'kds.busy_small': 'Nothing was saved.',
+  'kds.page_fault': "This page didn't load right",
+  'kds.page_fault_body': 'Reload it. If it happens again, ask a manager.',
   // ---- lane P (03b client) ----
   // ---- lane A (03b client) ----
   // A1 kitchen screens (frames KitchenScreens*, 03b-S04 / D02 / D03 / B16)

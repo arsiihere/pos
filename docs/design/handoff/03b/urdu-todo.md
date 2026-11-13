@@ -205,3 +205,34 @@ Appended by task A1 under the lane A marker of `en.ts`; no Urdu frame text for t
 | `printers.sign_in` | Sign in to set up printers |  |
 | `printers.no_admins` | No one here can set up printers |  |
 | `printers.test_in_use` | The printer is busy printing tickets. Try again in a moment. | frame PrinterTest (#197 review) |
+
+## Lane K (03b client, KDS)
+
+Appended by lane K (KDS English only in P1, brief §6.1).
+
+| Key | English | Note |
+|---|---|---|
+| `kds.live` | Live | K1 |
+| `kds.reconnecting_banner` | Reconnecting… buttons are off until the hub is back | K1, 03b-B06 |
+| `kds.reconnecting_note` | Taps are not saved — tap again after | K1, 03b-B06 |
+| `kds.hub_unreachable` | Can't reach the hub — retrying… | K1 |
+| `kds.replaced` | This screen is open in another window | K1, 00 M53 |
+| `kds.use_this_window` | Use this window | K1, 00 M53 |
+| `kds.not_kitchen_screen` | This device isn't a kitchen screen | K1 |
+| `kds.not_kitchen_screen_sub` | It is paired as another kind of device. | K1 |
+| `kds.open_staff` | Open the staff screen | K1 |
+| `kds.pair_again_sub` | Ask a manager to pair this screen again. | K1 |
+| `kds.try_again` | Try again | K1 |
+| `kds.reload` | Reload | K1 |
+| `kds.wifi_title` | Connect to the staff Wi-Fi | K1, 00-F03 |
+| `kds.wifi_body` | This screen is on the customer Wi-Fi. Switch it to the staff Wi-Fi. It opens by itself when it can reach the hub. | K1, 00-F03 |
+| `kds.not_set_up_title` | The hub is being set up | K1, 00-F06 |
+| `kds.not_set_up_body` | This screen opens by itself when setup is done. | K1, 00-F06 |
+| `kds.wrong_host_title` | Open the hub by its address | K1, 00-F07 |
+| `kds.wrong_host_body` | Type the number address in the browser, not a name. | K1, 00-F07 |
+| `kds.update_title` | Update the app | K1, 00-F04 |
+| `kds.update_body` | The hub has a newer version. Reload to get it. | K1, 00-F04 |
+| `kds.busy` | Hub busy, try again. | K1, 00-F05 |
+| `kds.busy_small` | Nothing was saved. | K1, 00-F05 |
+| `kds.page_fault` | This page didn't load right | K1 |
+| `kds.page_fault_body` | Reload it. If it happens again, ask a manager. | K1 |
