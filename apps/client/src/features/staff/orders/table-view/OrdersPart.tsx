@@ -54,19 +54,24 @@ export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine }: Or
   const known = useRef<{ orders: ReadonlySet<string>; lines: ReadonlySet<string> }>({ orders: new Set(), lines: new Set() });
   const reader = useRef<LiveReader | null>(null);
   const reread = useCallback(() => void reader.current?.read(), []);
+  // task 28 e2e: StaffApp hands a new shell object on every render (a clock tick, a frame, a toast); the reader below
+  // depends on its stable parts only, or each render would drop the read, the selected line and the folds
+  const shellRef = useRef(shell);
+  shellRef.current = shell;
+  const { live, orders: ordersApi } = shell;
 
   useEffect(() => {
     // another seating (split, merge): nothing of the old one stays on screen or is acted on
     setRead(null);
     setReadAt(null);
     setSelected(null);
-    const caughtNow = shell.live.part('orders') as OrdersCatchUp | undefined;
+    const caughtNow = live.part('orders') as OrdersCatchUp | undefined;
     const seeded = (caughtNow?.orders ?? []).filter((o) => o.table_key === `dine_in:${seating_id}`);
     known.current = { orders: new Set(seeded.map((o) => o.order_id)), lines: new Set(seeded.flatMap((o) => o.lines.map((l) => l.order_item_id))) };
     let answered = false;
     const r = createLiveReader({
-      live: shell.live,
-      query: () => shell.orders.seatingOrders(seating_id),
+      live,
+      query: () => ordersApi.seatingOrders(seating_id),
       // a new order of this seating names an order this view does not know yet: OrderPlaced always counts
       relevant: (e) =>
         e.event_type === 'OrderPlaced' ||
@@ -81,14 +86,14 @@ export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine }: Or
           lines: new Set(answer.data.orders.flatMap((o) => o.lines.map((l) => l.order_item_id))),
         };
         setRead({ seating_id, body: answer.data });
-        setReadAt(shell.clock.nowMs());
+        setReadAt(shellRef.current.clock.nowMs());
       },
     });
     reader.current = r;
     void r.read();
     // H5 (Q-10): SlipWarned frames add late warnings between catch-ups; an ItemsReleased frame carrying a warning's
     // alert_id closes it (accept or ReleaseItems); a new catch-up's open_slips replaces what the frames added
-    const offSlips = shell.live.subscribe((m) => {
+    const offSlips = live.subscribe((m) => {
       if (m.kind === 'catch_up') {
         setLiveSlips(null);
         setGone(new Set());
@@ -109,7 +114,7 @@ export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine }: Or
       r.dispose();
       offSlips();
     };
-  }, [seating_id, shell]);
+  }, [seating_id, live, ordersApi]);
 
   // the queue (offline rounds, queued Mark served) and the clock-driven lines repaint the part
   useEffect(() => shell.enqueue.subscribe(bump), [shell.enqueue]);
