@@ -2474,6 +2474,9 @@ export const en = {
   'pass.lanes': '{on} of {count} lanes',
   'pass.group_no_screen': '{station} · no screen',
   'pass.empty_sub': 'Orders show here when their first line fires.',
+  // P3 (03b §3.5; frames PassHandOver, PassHanded)
+  'pass.hand_over_sub': 'One tap hands over every done line here.',
+  'pass.handed_waiting': 'Handed to {name} · waiting for Served',
   // ---- lane A (03b client) ----
   // A1 kitchen screens (frames KitchenScreens*, 03b-S04 / D02 / D03 / B16)
   'kitchen_screens.stations': 'Stations',
