@@ -34,6 +34,8 @@ import { isSlotRoute, RouteSlot } from './shell/slots';
 import { createToastBus, ToastView } from './shell/toast';
 import { createTablesApi } from './tables/api';
 import { HandoverLayer } from './tables/cards/HandoverLayer';
+import { floorHref, floorOf } from './tables/map/filters';
+import { sharedMapStore } from './tables/map/map-store';
 import { PairAgain } from './tables/PairAgain';
 import { createLocalFlags } from './tables/local-flags';
 import { MeTab, PhoneTabs, type PhoneTab } from './tables/PhoneTabs';
@@ -429,7 +431,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   } else if (staffRoute.name === 'me') {
     page = <MeTab name={me.name} onSignOut={() => signOut(true)} />;
   } else if (isSlotRoute(staffRoute)) {
-    page = <RouteSlot route={staffRoute} />;
+    page = <RouteSlot route={staffRoute} alertRows={snap.rows} />;
   } else if (route === '/requests' && showRequests) {
     page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={open} />;
   } else if (route === '/test-alert' && showTest) {
@@ -482,6 +484,20 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     );
   const lang = language();
 
+  // 02a §8 Top bar (IR-3): the floor control lists the map store's floors with their table counts; the choice is the hash
+  // query #/tables?floor=<id> (absent = all). Shown on the map and its sheet (phone: the map draws floor chips itself).
+  const mapStore = useMemo(() => sharedMapStore(tablesApi, liveBus), [tablesApi, liveBus]);
+  const mapNow = useSyncExternalStore(mapStore.subscribe, mapStore.current);
+  const lastFloor = useRef<string | null>(null);
+  if (route.startsWith('/tables') && !route.startsWith('/tables/')) lastFloor.current = floorOf(route);
+  const floors =
+    me !== null && !phone && (staffRoute.name === 'tables' || staffRoute.name === 'table')
+      ? {
+          choices: (mapNow?.floors ?? []).filter((f) => !f.archived).map((f) => ({ floor_id: f.floor_id, name: f.name ?? '', count: f.zones.reduce((n, z) => n + z.tables.length, 0) })),
+          selected: lastFloor.current,
+          onSelect: (floor_id: string) => navigate(floorHref(floor_id)),
+        }
+      : null;
   const phoneTab = phoneTabOf(staffRoute);
   const phoneTitle = phoneTab === 'tables' ? t('tabs.tables') : phoneTab === 'orders' ? t('tabs.orders') : phoneTab === 'me' ? t('tabs.me') : t('alerts.nav.inbox');
   const body = (
@@ -492,8 +508,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         brandName={meta.branchName}
         deviceLine={`${meta.branchName} · ${deviceWord}`}
         bind={device.type === 'tablet' ? <BindingHeader binding={binding} nowMs={clock.nowMs} utcOffsetMs={offset} timers={timers ?? browserTimers} sink={sink ?? browserSink} /> : null}
-        // 02a §8 Top bar: the floors come from the map store (21a) once it is wired; until then no control
-        floors={null}
+        floors={floors}
         live={live}
         clock={timeText(nowMs, offset)}
         person={me === null ? null : { name: me.name }}
