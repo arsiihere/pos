@@ -161,6 +161,33 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `order.toast.refilled` | Refilled · {n} now |  |
 | `order.toast.all_sent` | All sent |  |
 | `order.toast.some_not_sent` | {n} not sent — see the queue log |  |
+| `queue.reloaded` | Not sent: this screen was restarted |  |
+| `queue.too_old` | Not sent: it waited too long |  |
+| `queue.refused` | Not sent: {reason} |  |
+| `queue.sent_card_sub` | Queued at {time} · call the token |  |
+| `queue.ok` | OK |  |
+| `queue.why.ITEM_SOLD_OUT` | {item} sold out |  |
+| `queue.why.ITEM_UNAVAILABLE` | {item} is not available |  |
+| `queue.why.ITEM_OUT_OF_HOURS` | {item} is not served now |  |
+| `queue.why.STATION_PAUSED` | a kitchen station is paused |  |
+| `queue.why.BUSINESS_DAY_NOT_OPEN` | the day hasn’t started |  |
+| `queue.why.MENU_ITEM_NOT_FOUND` | an item is no longer on the menu |  |
+| `queue.why.DEAL_NOT_FOUND` | a deal is no longer on the menu |  |
+| `queue.why.OPTION_CHOICE_INVALID` | the choices of an item changed |  |
+| `queue.why.ORDER_ITEM_ID_IN_USE` | it clashed with another order |  |
+| `queue.why.ORDER_NOT_FOUND` | the order is no longer open |  |
+| `queue.why.ORDER_BILLED` | the bill is already closed |  |
+| `queue.why.ITEM_WRONG_STAGE` | the item was not ready to serve |  |
+| `queue.why.TABLE_NEEDS_CLEANING` | the table needs cleaning |  |
+| `queue.why.TABLE_ALREADY_LOCKED` | someone else is ordering at the table |  |
+| `queue.why.TABLE_NO_ORDERS` | the table has no orders |  |
+| `queue.why.TABLE_HAS_OPEN_ORDERS` | the bill must be paid first |  |
+| `queue.why.PERMISSION_DENIED` | not allowed for that person |  |
+| `queue.why.VALIDATION_FAILED` | the order was not complete |  |
+| `queue.why.other` | the hub refused it |  |
+| `queue.item` | an item |  |
+| `queue.copied` | Copied |  |
+| `queue.copy_failed` | Could not keep the copy on this screen |  |
 
 ## In `ur.ts` but not on a frame (needs native review)
 

@@ -119,7 +119,22 @@ export function entryRecord(e: QueueEntry): QueueEntry {
   if (e.table_id !== undefined) out.table_id = e.table_id;
   if (e.seating_id !== undefined) out.seating_id = e.seating_id;
   if (e.log_reason !== undefined) out.log_reason = e.log_reason;
+  if (e.log_details !== undefined) {
+    const kept = logDetailsRecord(e.log_details);
+    if (kept !== undefined) out.log_details = kept;
+  }
   return out;
+}
+
+/**
+ * Review #165: of the hub's error `details` only what the queue log row reads is kept — the refused menu item or deal
+ * id. Everything else (e.g. `locked_by_name` / `locked_by_staff_id` of TABLE_ALREADY_LOCKED) is never stored.
+ */
+export function logDetailsRecord(details: Record<string, unknown>): QueueEntry['log_details'] {
+  const out: { item_id?: string; deal_id?: string } = {};
+  if (typeof details['item_id'] === 'string') out.item_id = details['item_id'];
+  if (typeof details['deal_id'] === 'string') out.deal_id = details['deal_id'];
+  return out.item_id === undefined && out.deal_id === undefined ? undefined : out;
 }
 
 /** §3.12 replay order: queued_at, then entry_id. */
