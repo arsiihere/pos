@@ -52,4 +52,13 @@ describe('Pulse 03 and admin 03 layers (03b + 03c, handoff 03b PROMPT)', () => {
     // admin-03 is unscoped: it never reaches the kit every entry loads, nor the staff / kds kits
     for (const f of ['ui-kit.ts', 'ui-kit-staff.ts', 'ui-kit-kds.ts']) expect(importsOf(f), f).not.toContain(k('components/admin-03.css'));
   });
+
+  it('[03b IR-18, IR-18b] the staff kit loads kds-03-additions.css after pulse-03.css; it holds the Pass portrait / empty / skeleton classes', () => {
+    const staff = importsOf('ui-kit-staff.ts');
+    expect(staff.indexOf(k('components/kds-03-additions.css'))).toBe(staff.indexOf(k('components/pulse-03.css')) + 1);
+    const css = readFileSync(kitDir + 'kds-03-additions.css', 'utf8');
+    const pass = css.slice(css.indexOf('/* Pass (lane P), IR-18 */'));
+    expect(pass.length).toBeGreaterThan(30);
+    for (const sel of ['.pcards--1 { --pcols: 1; }', '.pstrip--wrap', '.empty--pass', '.ring--96', '.pc--sk', '.sk--pid', '.sk--pl1', '.sk--pl2', '.sk--pbtn', '.empty--pass .ico--36', '.pl > .row { gap: 6px; }']) expect(pass, sel).toContain(sel);
+  });
 });

@@ -2468,6 +2468,12 @@ export const en = {
   // K5 (03b §8; frame KdsLockSound)
   'kds.tap_for_sound': 'Tap to turn on sound',
   // ---- lane P (03b client) ----
+  // P2 (03b §3.4; frames Pass, PassEmpty, PassCards)
+  'pass.placed': 'placed {time}',
+  'pass.cooking': 'Cooking',
+  'pass.lanes': '{on} of {count} lanes',
+  'pass.group_no_screen': '{station} · no screen',
+  'pass.empty_sub': 'Orders show here when their first line fires.',
   // ---- lane A (03b client) ----
   // A1 kitchen screens (frames KitchenScreens*, 03b-S04 / D02 / D03 / B16)
   'kitchen_screens.stations': 'Stations',

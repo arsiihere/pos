@@ -1180,6 +1180,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'admin.pr.output_released': 'کوئی پرنٹر نہیں — آرکائیو پر چھوڑ دیا',
   // ---- lane K (03b client) ----
   // ---- lane P (03b client) ----
+  // P2 (from PassUrdu; pass.empty_sub is in docs/design/handoff/03b/urdu-todo.md, lane P)
+  'pass.placed': 'آرڈر {time}',
+  'pass.cooking': 'پک رہا ہے',
+  'pass.lanes': '{on} میں سے {count} لین',
+  'pass.group_no_screen': '{station} · اسکرین نہیں',
   // ---- lane A (03b client) ----
   // A1 kitchen screens (from KitchenScreensUrdu; the rest is in docs/design/handoff/03b/urdu-todo.md, lane A)
   'kitchen_screens.stations': 'اسٹیشن',
