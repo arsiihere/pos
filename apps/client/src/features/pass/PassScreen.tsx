@@ -12,6 +12,9 @@ import { createPassApi, createReadyActions, readyBand, retrying, type CardMessag
 import { ScreenlessActions } from './actions/ScreenlessActions';
 import { PassCard } from './cards/PassCard';
 import { readiness } from './cards/readiness';
+import { Loading, Offline } from './states/Offline';
+import { PointArchived, watchPoint } from './states/PointArchived';
+import { ReadOnly } from './states/ReadOnly';
 import { TakeoverSection } from './takeover/TakeoverSection';
 import { StationStrip } from './cards/StationStrip';
 import { registerPrintSlots, type PrintTransport } from '../print/register';
@@ -23,7 +26,8 @@ import { passLiveOf } from './live';
 // Buttons need `run-pass`. P3: per card Hand over (a done line here) and Ready to serve (no open Ready), the Ready
 // band ("Ready · time · name", count-up, Undo for 30 s), the card's line (B13, hand-over results), the Hand over sheet,
 // Start / Done / Undo on screenless lines (Q-45). P4: the takeover sections above the cards (§3.6) and the
-// "{Station} screen is back" toast (Q-56). P5 the states.
+// "{Station} screen is back" toast (Q-56). P5: the offline warn bar (buttons off), the read-only line (no run-pass),
+// the archived point (404 POINT_NOT_FOUND → actions hidden until the next catch-up), the loading skeleton.
 // IR-15 (03c §3.5, Q-50, Q-52): 03c's `printed` tag is registered when this module loads (the staff page imports it
 // with its routes, before the socket's first catch-up). Its Pass card Reprint runs on ONE transport for the page's
 // whole life (`PASS_TRANSPORT`), forwarding to the shell of the mounted Pass (`passShell`, a ref). Leaving the Pass
@@ -88,11 +92,14 @@ export function PassScreen() {
   const pass = passLiveOf(shell);
   const snap = useSyncExternalStore(pass.store.subscribe, pass.store.snapshot);
   useSyncExternalStore(pass.names.subscribe, () => pass.names);
-  const { kds, pass: passApi } = sendersOf(shell.api);
+  const { kds, pass: pageApi } = sendersOf(shell.api);
   // the shell object is new on every StaffApp render (its clock tick): only the ref follows it
   useEffect(() => {
     passShell.current = shell;
   });
+  // P5: a Pass command answered 404 POINT_NOT_FOUND → the point is archived (until the next catch-up)
+  const [archived, setArchived] = useState(false);
+  const passApi = useMemo(() => watchPoint(pageApi, () => setArchived(true)), [pageApi]);
   const me = useRef(shell.me);
   const ready = useMemo(() => createReadyActions({ api: passApi, store: pass.store, names: pass.names, me: () => me.current }), [passApi, pass]);
   const doneAt = useRef(new Map<string, number>()).current;
@@ -158,9 +165,12 @@ export function PassScreen() {
     [pass],
   );
 
+  useEffect(() => shell.live.subscribe((msg) => msg.kind === 'catch_up' && setArchived(false)), [shell.live]);
+
   const view = snap.view;
-  if (view === null) return null;
-  const canRun = shell.permissions.allowed('run-pass');
+  if (view === null) return <Loading />;
+  const allowed = shell.permissions.allowed('run-pass');
+  const canRun = allowed && !archived;
   const up = shell.online;
   const orders = [...view.orders].sort((a, b) => a.placed_at - b.placed_at);
   const onToast = (text: string, tone: 'ok' | 'warn' = 'ok') => shell.toasts.show({ text, tone });
@@ -209,6 +219,8 @@ export function PassScreen() {
 
   return (
     <main className="pass">
+      {!up && <Offline />}
+      {archived ? <PointArchived /> : !allowed && <ReadOnly />}
       <StationStrip stations={view.stations} api={canRun ? kds : null} up={up} wrap={shell.portrait} />
       <div className="pscroll">
         {[...pass.takeovers.stores()].map(([station_id, store]) => (

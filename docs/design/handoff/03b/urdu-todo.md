@@ -299,3 +299,4 @@ Appended by task P2 under the lane P marker of `en.ts`; no Urdu frame text for t
 | `pass.empty_sub` | Orders show here when their first line fires. | PassEmpty |
 | `pass.handed_waiting` | Handed to {name} · waiting for Served | PassHanded |
 | `pass.screen_back` | {station} screen is back | PassScreenBack |
+| `pass.offline_sub` | Buttons are off; taps are not saved | PassOffline |
