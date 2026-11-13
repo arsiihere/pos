@@ -1,3 +1,4 @@
+import type { ErrorCode } from '@pos/domain';
 import type { HubResult } from '../../../api/hub-admin';
 import type { CommandOptions } from '../api';
 import type { EtaDraft, EtaPreviewBody, MarkServedPayload, OrdersApi, OrderViewAnswer, OrderViewBody, SubmitOrderPayload, SubmitResult } from './contracts';
@@ -15,6 +16,9 @@ export interface StaffTransport {
 export const ETA_DRAFT_MAX_BYTES = 8_192;
 
 const q = (v: string) => encodeURIComponent(v);
+
+const VALIDATION_FAILED = 'VALIDATION_FAILED' satisfies ErrorCode;
+const ROUTE_NOT_FOUND = 'ROUTE_NOT_FOUND' satisfies ErrorCode;
 
 export function createOrdersApi(staff: StaffTransport): OrdersApi {
   const cmd =
@@ -37,7 +41,11 @@ export function createOrdersApi(staff: StaffTransport): OrdersApi {
       const json = JSON.stringify(draft);
       // the hub answers 400 over 8 KB; refused here before the call (no request leaves the device)
       if (new TextEncoder().encode(json).length > ETA_DRAFT_MAX_BYTES)
-        return { ok: false, error: { kind: 'api', status: 400, code: 'VALIDATION_FAILED', details: { path: 'draft', reason: 'over_8kb', local: true } } };
+        return {
+          ok: false,
+          // the hub's VALIDATION_FAILED details shape (`issues: [{ path, message }]`), marked as a local answer
+          error: { kind: 'api', status: 400, code: VALIDATION_FAILED, details: { issues: [{ path: 'draft', message: 'draft over 8 KB' }], local: true } },
+        };
       return staff.query<EtaPreviewBody>(`/queries/eta-preview?draft=${q(json)}`);
     },
     seatingOrders: (seating_id) => staff.query(`/queries/seating-orders?seating_id=${q(seating_id)}`),
@@ -54,9 +62,10 @@ export function createOrdersApi(staff: StaffTransport): OrdersApi {
     async orderView(order_id: string): Promise<HubResult<OrderViewAnswer>> {
       const answer = await staff.query<OrderViewBody>(`/queries/order-view?order_id=${q(order_id)}`);
       if (answer.ok) return { ok: true, data: { kind: 'order', order: answer.data } };
-      // H3 fallback switch (Q-8): the hub without the route answers 404 ROUTE_NOT_FOUND; ORDER_NOT_FOUND is a real answer
+      // H3 fallback switch (Q-8): only the hub without the route (404 ROUTE_NOT_FOUND) is "not there yet"; every other
+      // answer (404 ORDER_NOT_FOUND, 403 outside_scope, …) passes through
       const e = answer.error;
-      if (e.kind === 'api' && e.status === 404 && e.code !== 'ORDER_NOT_FOUND') return { ok: true, data: { kind: 'missing' } };
+      if (e.kind === 'api' && e.status === 404 && e.code === ROUTE_NOT_FOUND) return { ok: true, data: { kind: 'missing' } };
       return answer;
     },
   };
