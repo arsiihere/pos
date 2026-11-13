@@ -27,7 +27,7 @@ export interface Shell {
   /** the signed-in person's effective permissions (full Resolution, §3.15) */
   permissions: Permissions;
   toasts: ToastBus;
-  /** the one queue interface (stub answers needs_hub until 25b) */
+  /** the one queue interface (25b) */
   enqueue: Enqueue;
   localFlags: LocalFlags;
   /** the hub clock (S47); never Date.now() for business time */
@@ -37,11 +37,15 @@ export interface Shell {
   online: boolean;
   phone: boolean;
   portrait: boolean;
+  /** 02b §8 Device idle lock (IR-9, task 28 wiring): the login reply's `idle_ttl_ms`; null / absent = not known */
+  idleTtlMs?: number | null;
+  /** sign the page out locally (no hub call; the idle lock's Sign in, task 28 wiring); absent outside StaffApp */
+  signOut?: () => void;
 }
 
 /**
  * 02b §8 Queue (25c): the sign-in screen asks the queue to drain first and shows its line ("2 orders waiting to
- * send"). The stub (orders/queue/shell-hooks.ts) waits for nothing and shows nothing.
+ * send"). orders/queue/shell-hooks.ts drains the queue and the idle lock's pending logout.
  */
 export interface ShellHooks {
   /** awaited before POST /auth/pin */

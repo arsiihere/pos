@@ -232,6 +232,19 @@ describe('[02b §8 Ordering screen] Send', () => {
     m.unmount();
   });
 
+  it('[02b §3.12; IR-12] Send that went straight to the queue log (session ended) → "Not sent — see the queue log", not "when the hub is back"', async () => {
+    const h = harness({ answer: async () => ({ status: 'queued', entry_id: 'Q1', logged: true }) });
+    const m = h.render('takeaway', 'D1');
+    await flush();
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    m.click(m.button('Send to kitchen'));
+    await flush();
+    expect(m.text()).toContain('Not sent — see the queue log');
+    expect(m.text()).not.toContain('when the hub is back');
+    m.unmount();
+  });
+
   it('[02b §8 Ordering screen] 409 own pending ORDER_ITEM_ID_IN_USE → shown as Sent', async () => {
     // the queue (25b) answers `sent` with no result for the device's own pending SubmitOrder the hub already had
     const h = harness({ answer: async () => ({ status: 'sent', result: undefined }) });

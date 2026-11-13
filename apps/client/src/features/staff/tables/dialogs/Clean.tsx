@@ -53,7 +53,7 @@ export function Clean({ code, seating, lockedBy, onClose, onCleaned, onFailed }:
       onFailed(r.error);
       return;
     }
-    if (r.status === 'queued') toasts.show({ text: t('tables.toast.queued'), tone: 'info' });
+    if (r.status === 'queued') toasts.show(r.logged === true ? { text: t('queue.in_log'), tone: 'warn' } : { text: t('tables.toast.queued'), tone: 'info' });
     else if (r.status === 'needs_hub') toasts.show({ text: t('tables.toast.needs_hub'), tone: 'warn' });
     else {
       // the party left: this device's "Call sent" (Q-16, keyed by table) must not stick to the next party

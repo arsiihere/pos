@@ -78,7 +78,7 @@ export function showEnqueued(shell: Shell, result: EnqueueResult, sentKey: Messa
       shell.toasts.show({ text: t(sentKey) });
       return true;
     case 'queued':
-      shell.toasts.show({ text: t('tables.toast.queued'), tone: 'info' });
+      shell.toasts.show(result.logged === true ? { text: t('queue.in_log'), tone: 'warn' } : { text: t('tables.toast.queued'), tone: 'info' });
       return true;
     case 'needs_hub':
       shell.toasts.show({ text: t('tables.toast.needs_hub'), tone: 'warn' });

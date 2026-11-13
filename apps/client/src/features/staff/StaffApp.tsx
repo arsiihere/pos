@@ -22,7 +22,11 @@ import { FamilyPill, Ico, isRequest } from '../alerts/ui';
 import { createStaffApi, type Device, type PageMeta, type Resolution, type RosterPerson, type SignedIn } from './api';
 import { SignIn } from './SignIn';
 import { createOrdersApi } from './orders/api';
+import { pendingCompsOf } from './orders/actions/pending-comps';
+import { LateAlertsContext, type LateAlertRow } from './orders/late/late-groups';
 import { IdleLock } from './orders/lock/IdleLock';
+import { NewOrderSheet } from './orders/new-order/NewOrderSheet';
+import { QueuedSentCard } from './orders/queue/QueuedSentCard';
 import { createEnqueue } from './orders/queue/enqueue';
 import { createShellHooks } from './orders/queue/shell-hooks';
 import { createShellConfig, type BranchConfigReply } from './shell/config';
@@ -49,8 +53,11 @@ import { TopBar } from './tables/TopBar';
 // banners and the toast render inside the .pu root.
 // 02a §8, 02b §8 (W0.6, Q-3): the 02 shell — hash routes to the lane slots (shell/routes.tsx, shell/slots.tsx), the
 // socket's catch_up / event frames on the live bus (shell/live.ts), the branch settings (shell/config.ts), the full
-// effective permissions (§3.15), one toast bus, the queue interface (stub until 25b); all handed down by
-// ShellContext.
+// effective permissions (§3.15), one toast bus, the queue (25b); all handed down by ShellContext.
+// 02 combined wiring (task 28; IR-5, IR-7, IR-11, IR-12): the queue takes the branch auto-send window and the shell's
+// unpair path; the queued-and-sent token card sits at the root (also over the sign-in screen, so a sign-in drain is
+// caught); the idle lock gets the login's TTL and signs the page out; the late cards get every alert row (open and
+// closed); a request_result row is told to the pending-comp store; the map's New order opens 02b's New order sheet.
 
 const PORTRAIT = '(orientation: portrait) and (min-width: 761px)';
 const PHONE = '(max-width: 760px)';
@@ -90,6 +97,8 @@ interface Me {
   allowed: ReadonlySet<string>;
   /** 02a §3.15: the whole Resolution per permission (grant + scope), from /queries/session */
   permissions: Record<string, Resolution> | null;
+  /** 02b §8 Device idle lock: the login reply's idle_ttl_ms */
+  idleTtlMs: number;
 }
 
 
@@ -202,7 +211,20 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const offset = clock.utcOffsetMs;
   const clockRef = useRef(clock);
   clockRef.current = clock;
-  const enqueue = useMemo(() => createEnqueue({ api, device, clock: () => clockRef.current, live: liveBus }), [api, device, liveBus]);
+  // 02b §3.12 (task 28 wiring): the branch auto-send window from the shell config (null until read → the 01a default);
+  // 403 DEVICE_REVOKED → the shell's unpair path (hub-admin wipeDeviceKeys, PairAgain; the queue is kept)
+  const enqueue = useMemo(
+    () =>
+      createEnqueue({
+        api,
+        device,
+        clock: () => clockRef.current,
+        live: liveBus,
+        maxAgeMs: () => shellConfig.config()?.queue_auto_send_max_ms ?? null,
+        onDeviceRevoked: () => unpairRef.current(),
+      }),
+    [api, device, liveBus, shellConfig],
+  );
   const shellHooks = useMemo(() => createShellHooks(enqueue), [enqueue]);
   const binding = bindingUntil === null ? null : { name: boundName ?? t('bind.someone'), until: bindingUntil };
   // AD-T42-2 (unattended): approximate until 9b. Set at sign-in, moved to hub-now + 2 h by this page's activity
@@ -286,6 +308,18 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     }, SEEN_FLUSH_MS);
   };
 
+  // 02b §8 Table view (task 28 wiring, as 23b's handovers): a request_result row reaching the page makes the pending-comp
+  // store read my-requests once per alert (a comp answered elsewhere leaves its waiting card)
+  const resultIds = me === null ? '' : snap.rows.filter((r) => r.kind === 'request_result').map((r) => r.alert_id).join(',');
+  const resultsTold = useRef(new Set<string>());
+  useEffect(() => {
+    if (resultIds === '') return;
+    const fresh = resultIds.split(',').filter((id) => !resultsTold.current.has(id));
+    if (fresh.length === 0) return;
+    for (const id of fresh) resultsTold.current.add(id);
+    void pendingCompsOf({ orders: ordersApi, live: liveBus }).resultSeen();
+  }, [resultIds, ordersApi, liveBus]);
+
   // ------------------------------------------------------------------------------------------ session
   const signedIn = async (who: SignedIn) => {
     sessionGen.current += 1;
@@ -293,7 +327,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     setReplaced(false);
     conn.setSession(who.session_token);
     setInboxLoading(true);
-    setMe({ staffId: who.staff_id, name: who.display_name, allowed: new Set(), permissions: null });
+    setMe({ staffId: who.staff_id, name: who.display_name, allowed: new Set(), permissions: null, idleTtlMs: who.idle_ttl_ms });
     // §3.7: a sign-in refreshes the header; the hub's own deadline (session end + 2 h) replaces this one when it sends it
     setBoundName(who.display_name);
     setBindingUntil(clock.nowMs() + ALERT_CONSTANTS.binding_route_idle_ms);
@@ -316,6 +350,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     (callHub: boolean) => {
       sessionGen.current += 1;
       setOpened(null);
+      setNewOrder(false);
       setCloses(new Map());
       setRequests([]);
       setCursor(null);
@@ -331,10 +366,14 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   );
   signOutRef.current = () => signOut(false);
   // the pairing keys go (the command queue and the drafts stay), the session and the socket end, PairAgain shows
+  // review #193: a ref, not the state — a queue revoke and a socket 4403 in the same tick wipe once
+  const unpairedRef = useRef(false);
   unpairRef.current = () => {
-    if (unpaired) return;
+    if (unpairedRef.current) return;
+    unpairedRef.current = true;
     sessionGen.current += 1;
     setOpened(null);
+    setNewOrder(false);
     setCloses(new Map());
     setRequests([]);
     setCursor(null);
@@ -370,6 +409,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // --------------------------------------------------------------------------------------------- ui state
   // only the id: the sheet reads the live row on every render (a close, an answer elsewhere, a lock view)
   const [opened, setOpened] = useState<string | null>(null);
+  // 02a §8 Table map (IR-5): the map's New order opens 02b's New order sheet (Takeaway · Parking)
+  const [newOrder, setNewOrder] = useState(false);
   const lastOpened = useRef<AlertRow | RequestView | null>(null);
   const setToast = useCallback((t: Toast) => toasts.show(t), [toasts]);
   const [summaries] = useState(() => new Map<string, string>());
@@ -431,7 +472,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   } else if (staffRoute.name === 'me') {
     page = <MeTab name={me.name} onSignOut={() => signOut(true)} />;
   } else if (isSlotRoute(staffRoute)) {
-    page = <RouteSlot route={staffRoute} alertRows={snap.rows} />;
+    page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
   } else if (route === '/requests' && showRequests) {
     page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={open} />;
   } else if (route === '/test-alert' && showTest) {
@@ -579,9 +620,12 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       {me !== null && (
         <>
           <HandoverLayer />
-          <IdleLock />
+          <IdleLock {...(fetch === undefined ? {} : { fetch })} />
+          {newOrder && <NewOrderSheet onClose={() => setNewOrder(false)} />}
         </>
       )}
+      {/* IR-7: at the root, above the sign-in screen: a sign-in drain or a reconnect send shows its token here */}
+      <QueuedSentCard />
       <ToastView bus={toasts} />
     </div>
   );
@@ -602,8 +646,15 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     online: up,
     phone,
     portrait,
+    idleTtlMs: me?.idleTtlMs ?? null,
+    signOut: () => signOut(false),
   };
-  return <ShellContext.Provider value={shell}>{body}</ShellContext.Provider>;
+  // IR-11: the late cards read every alert row the page holds, open and closed (a slip closed without ItemsReleased)
+  return (
+    <ShellContext.Provider value={shell}>
+      <LateAlertsContext.Provider value={snap.rows as readonly LateAlertRow[]}>{body}</LateAlertsContext.Provider>
+    </ShellContext.Provider>
+  );
 }
 
 /** 01d F01 (frames LockKiosk, LockPhone): signed out on a kiosk or phone, up to 3 lock lines, never details. */

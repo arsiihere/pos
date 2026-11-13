@@ -163,6 +163,15 @@ describe('[02b §8 Table view] line actions', () => {
     await flush();
     expect(s.send).toHaveBeenCalledWith('MarkServed', { lines: [{ order_id: 'O1', order_item_ids: ['Naan'] }] }, { label: 'Mark served · F4 + F5', table_id: 'F4', seating_id: 'S4' });
     expect(s.shell.toasts.current()?.text).toBe('Will be sent when the hub is back');
+    s.m.unmount();
+
+    // IR-12: straight to the queue log (the session ended) → the queue-log wording
+    const l = setup(order, { enqueue: { status: 'queued', entry_id: 'E2', logged: true } });
+    l.select('Kebab');
+    l.m.click(l.m.button('Mark served', l.ctrl()!));
+    l.m.click(l.m.button('Mark 1 served'));
+    await flush();
+    expect(l.shell.toasts.current()?.text).toBe('Not sent — see the queue log');
     expect(s.m.container.querySelector('.dlg')).toBeNull();
   });
 

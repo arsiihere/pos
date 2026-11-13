@@ -5,7 +5,8 @@ import type { LiveBus } from '../../shell/live';
 import type { Enqueue, EnqueueMeta, EnqueueResult, QueueableCommand } from '../../tables/contracts';
 import type { QueueStore } from '../contracts';
 import { createIdbQueueStore } from './idb-store';
-import { createBroadcastPresence, createCommandQueue, wipePosDeviceKeys, type CommandQueue, type Presence } from './queue';
+import { wipeDeviceKeys } from '../../../../api/hub-admin';
+import { createBroadcastPresence, createCommandQueue, type CommandQueue, type Presence } from './queue';
 
 // 02b v1.0.11 §3.12, §8 Queue; 02a §8 Offline (Q-3): the one queue behind the `Enqueue` interface 02a and 02b send
 // queueable commands through (queue.ts has the rules). The shell builds it once (StaffApp); the queue log and the
@@ -17,9 +18,9 @@ export interface EnqueueDeps {
   live: LiveBus;
   /** default: IndexedDB `pos-queue` (Q-1) */
   store?: QueueStore;
-  /** branch `queue_auto_send_max_ms` (shell config); default: the 01a default until the shell passes it */
+  /** branch `queue_auto_send_max_ms` (the shell passes its config's); null / absent = the 01a default */
   maxAgeMs?: () => number | null;
-  /** default: wipe the pos-device keys (20a's path), keep pos-queue */
+  /** the shell: wipe the pairing keys and show Pair again (StaffApp). Default: hub-admin `wipeDeviceKeys` (20a's path), pos-queue kept */
   onDeviceRevoked?: () => void;
   /** default: BroadcastChannel `pos-queue` (one tab sends its own entries) */
   presence?: (mine: () => string[]) => Presence;
@@ -40,7 +41,7 @@ export const createEnqueue: (deps: EnqueueDeps) => Enqueue = (deps) => {
     live: deps.live,
     store: deps.store ?? createIdbQueueStore(),
     ...(deps.maxAgeMs === undefined ? {} : { maxAgeMs: deps.maxAgeMs }),
-    onDeviceRevoked: deps.onDeviceRevoked ?? (() => void wipePosDeviceKeys()),
+    onDeviceRevoked: deps.onDeviceRevoked ?? (() => void wipeDeviceKeys().catch(() => {})),
     presence: deps.presence ?? ((mine) => createBroadcastPresence(mine)),
   });
   const send = <R>(type: QueueableCommand, payload: unknown, meta: EnqueueMeta): Promise<EnqueueResult<R>> => queue.enqueue<R>(type, payload, meta);
