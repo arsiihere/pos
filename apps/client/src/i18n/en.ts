@@ -2133,6 +2133,14 @@ export const en = {
   'tables.loading': 'Loading tables…',
   // ---- lane C (02a client) ----
   // ---- lane D (02a client) ----
+  // 02a §8 Banners (02a-B10) detail lines and fallbacks (23a)
+  'lock.released': 'Your table {table} was released',
+  'lock.someone': 'Someone else',
+  'lock.kept': 'Your order is kept as a draft.',
+  'lock.kept_hold': 'Your order is kept as a draft. Hold it or discard it.',
+  'lock.kept_other_device': 'This order stays here as a draft.',
+  'lock.kept_ttl': 'Your order is kept. Send takes the table back if it’s still free.',
+  'lock.ok': 'OK',
   // ---- lane Q (02b client) ----
   // ---- lane O (02b client) ----
   // ---- lane T (02b client) ----

@@ -1027,6 +1027,14 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'tables.held': 'رکے ہوئے',
   // ---- lane C (02a client) ----
   // ---- lane D (02a client) ----
+  // 02a §8 Banners (02a-B10) detail lines and fallbacks (23a)
+  'lock.released': 'آپ کی میز {table} چھوڑ دی گئی',
+  'lock.someone': 'کوئی اور',
+  'lock.kept': 'آپ کا آرڈر ڈرافٹ میں محفوظ ہے۔',
+  'lock.kept_hold': 'آپ کا آرڈر ڈرافٹ میں محفوظ ہے۔ اسے روکیں یا ختم کریں۔',
+  'lock.kept_other_device': 'یہ آرڈر یہاں ڈرافٹ میں رہے گا۔',
+  'lock.kept_ttl': 'آپ کا آرڈر محفوظ ہے۔ میز خالی ہو تو بھیجنے پر واپس مل جائے گی۔',
+  'lock.ok': 'ٹھیک ہے',
   // ---- lane Q (02b client) ----
   // ---- lane O (02b client) ----
   // ---- lane T (02b client) ----
