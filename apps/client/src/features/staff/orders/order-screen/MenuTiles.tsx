@@ -1,4 +1,4 @@
-import type { AvailabilityWindow } from '@pos/domain';
+import type { AvailabilityWindow, Unit } from '@pos/domain';
 import type { BranchConfig, ConfigItem } from '@pos/events';
 import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
@@ -140,9 +140,9 @@ export function MenuTiles({ tiles, onTap }: { tiles: TileModel[]; onTap(tile: Ti
   );
 }
 
-/** The sub line of an item tile: "By weight" for a weighed item, else its description. */
-export function itemSub(item: ConfigItem): string | null {
-  if (item.requires_weighing || item.sale_unit !== 'piece') return t('menu.by_weight');
+/** The sub line of an item tile: "By weight" for an item weighed today (01c V20: the day-frozen unit), else its description. */
+export function itemSub(item: ConfigItem, unit: Unit | null): string | null {
+  if (item.requires_weighing || (unit ?? item.sale_unit) !== 'piece') return t('menu.by_weight');
   return item.description;
 }
 

@@ -1,6 +1,6 @@
 import type { BranchConfig } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
-import { act } from 'react';
+import { StrictMode, act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLanguage } from '../../../../i18n';
 import { flush, mount } from '../../../../../test/dom';
@@ -91,6 +91,8 @@ interface RenderOptions {
   /** a draft store of the test's own (failing reads) */
   store?: DraftStore;
   map?: TableMapBody;
+  /** React StrictMode (dev builds mount effects twice) */
+  strict?: boolean;
 }
 
 interface Harness {
@@ -98,12 +100,15 @@ interface Harness {
   previews: EtaDraft[];
   toasts: string[];
   reply: { current: (d: EtaDraft) => EtaPreviewBody | null };
+  /** a BranchConfigApplied: the shell's config read answers with a new snapshot */
+  setConfig(c: BranchConfig): void;
   render(o?: RenderOptions): ReturnType<typeof mount> & { again(o?: Partial<RenderOptions>): void };
 }
 
 function harness(): Harness {
   const live = createLiveBus();
-  const config = cfg();
+  let config = cfg();
+  const configListeners = new Set<() => void>();
   const previews: EtaDraft[] = [];
   const toasts: string[] = [];
   const reply: Harness['reply'] = { current: () => null };
@@ -112,6 +117,12 @@ function harness(): Harness {
     previews,
     toasts,
     reply,
+    setConfig(c) {
+      config = c;
+      act(() => {
+        for (const l of [...configListeners]) l();
+      });
+    },
     render(first = {}) {
       const drafts = first.store ?? createMemoryDraftStore();
       for (const d of first.drafts ?? []) void drafts.put(d);
@@ -120,7 +131,16 @@ function harness(): Harness {
         ({
           device: { token: 'tok', id: 'DV1', type: o.phone === true ? 'phone' : 'tablet' },
           live,
-          config: { config: () => null, snapshot: () => config, refresh: async () => {}, subscribe: () => () => {}, dispose: () => {} },
+          config: {
+            config: () => null,
+            snapshot: () => config,
+            refresh: async () => {},
+            subscribe: (l: () => void) => {
+              configListeners.add(l);
+              return () => void configListeners.delete(l);
+            },
+            dispose: () => {},
+          },
           orders: {
             etaPreview: async (d: EtaDraft) => {
               previews.push(d);
@@ -138,14 +158,16 @@ function harness(): Harness {
           portrait: false,
         }) as unknown as Shell;
       const m = mount();
-      const draw = (o: RenderOptions) =>
-        m.render(
+      const draw = (o: RenderOptions) => {
+        const tree = (
           <ShellContext.Provider value={shellOf(o)}>
             <DraftStoreContext.Provider value={drafts}>
               <OrderScreen order_type={o.order_type ?? 'dine_in'} id={o.id ?? 'SE1'} />
             </DraftStoreContext.Provider>
-          </ShellContext.Provider>,
+          </ShellContext.Provider>
         );
+        m.render(o.strict === true ? <StrictMode>{tree}</StrictMode> : tree);
+      };
       draw(first);
       return Object.assign(m, { again: (o: Partial<RenderOptions> = {}) => draw({ ...first, ...o }) });
     },
@@ -418,6 +440,55 @@ describe('[02b §8 Ordering screen] order screen', () => {
     pick(m, 'Sides');
     m.click(tile(m, 'Naan'));
     expect(m.button('Send to kitchen').hasAttribute('disabled')).toBe(true);
+    m.unmount();
+  });
+
+  it('[02b #35] under StrictMode (dev) the draft still comes back and later changes are saved', async () => {
+    const h = harness();
+    const store = createMemoryDraftStore();
+    await store.put({ draft_id: 'D5', device_id: 'DV1', staff_id: 'ST1', order_type: 'takeaway', cart: { lines: [{ key: 'L1', item_id: 'I5', quantity: 2, options: [] }] }, updated_at: T, held: false });
+    const m = h.render({ order_type: 'takeaway', id: 'D5', store, strict: true });
+    await flush();
+    expect(m.text()).toContain('Your unsent order is back');
+    expect(m.container.querySelector('.ln__q')?.textContent).toBe('2×');
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    await flush();
+    expect((await store.list('DV1', 'ST1'))[0]!.cart).toMatchObject({ lines: [{ item_id: 'I5', quantity: 3 }] });
+    m.unmount();
+  });
+
+  it('[02b §8 Ordering screen] the screen prices and weighs by the day-frozen sale unit from the stock mirror (01c V20)', async () => {
+    const h = harness();
+    // the open day froze Naan (a piece item in the config, Rs 40) in g
+    const day = { business_date: '2025-10-20', opened_at: T - HOUR, closed_at: null, stock_units: {}, draws: { I5: { sale_unit: 'g', stock_draws: [] } } };
+    h.live.frame({ type: 'catch_up', as_of_seq: 1, state: { stock: { business_day: day, business_day_started_at: T - HOUR, items: {} } } });
+    const m = h.render({ order_type: 'takeaway', id: 'D6' });
+    await flush();
+    pick(m, 'Sides');
+    expect(tile(m, 'Naan').textContent).toContain('By weight');
+    expect(tile(m, 'Naan').textContent).toContain('/ kg');
+    m.click(tile(m, 'Naan')); // a weighed item opens the options sheet (26c)
+    for (const k of ['0', '.', '5']) m.click([...m.container.querySelectorAll<HTMLElement>('.wpad button')].find((b) => b.textContent === k)!);
+    m.click(m.button('Add to order'));
+    // lineTotalMinor(4 000, 500, 'g') = Rs 20 on the line and in the total
+    expect(m.container.querySelector('.ln__q')?.textContent).toBe('500 g');
+    expect(m.container.querySelector('.ln__p')?.textContent).toBe('Rs 20');
+    expect(m.container.querySelector('.cart__foot strong')?.textContent).toBe('Rs 20');
+    m.unmount();
+  });
+
+  it('[02b §8 Ordering screen] a menu change removing the open sheet\'s item closes it: "This item changed — pick again"', async () => {
+    const h = harness();
+    const m = h.render({ order_type: 'takeaway', id: 'D9' });
+    await flush();
+    m.click(tile(m, 'Chicken Karahi')); // the variants sheet
+    expect(m.container.querySelector('.dlg')).not.toBeNull();
+    const c = cfg();
+    h.setConfig({ ...c, items: c.items.filter((i) => i.variant_group_id === null) });
+    await flush();
+    expect(m.container.querySelector('.dlg')).toBeNull();
+    expect(h.toasts).toEqual(['This item changed — pick again']);
     m.unmount();
   });
 });
