@@ -11,28 +11,22 @@ import { fill } from '../../../i18n/en';
 import type { HubError } from '../kitchen-screens/api';
 import { AdminShell, AdminSignIn, errorText, Toast, useToast } from '../kitchen-screens/KitchenScreens';
 import { Glyph } from '../kitchen-screens/StationRow';
-import type { ConfigPrinter, OutputMode, PrintConfig, PrintersApi, PrintQueue, PrinterStatus, QueuePrinter, StationOutput } from './api';
+import type { ConfigPrinter, PrintConfig, PrintersApi, PrintQueue, PrinterStatus, QueueJob, QueuePrinter, StationOutput } from './api';
 import { ArchiveDialog } from './ArchiveDialog';
+import { CancelDialog } from './CancelDialog';
+import { OutputEditor } from './OutputEditor';
+import { OPTION_KEY, optionOf } from './output-modes';
+import { OUTPUTS_SECTION_ID, Outputs } from './Outputs';
 import { PrinterDialog } from './PrinterDialog';
+import { jobWhat, Queue } from './Queue';
+import { Warnings } from './Warnings';
 import { STATUS_KEY, TestPrint, printerErrorText, type TestState } from './TestPrint';
 
 // 03c §3.2, §6.2, §6.4, §6.6, §6.7, §8 (task A2; frames 03c-S01 Printers, PrintersPhone, PrintersUrdu, F01
 // PrintersNone, D01–D03): the hub admin "Printers" page at /admin/printers/ (Q-43). Q-54: no timer — print-config and
-// print-queue are read together on open, on Reload and once after each own command (save, archive, test).
+// print-queue are read together on open, on Reload / Refresh and once after each own command (save, archive, test,
+// station output, cancel). Task A3 adds the warnings, Station outputs and Print queue sections.
 
-export const OUTPUTS_SECTION_ID = 'station-outputs';
-
-const MODE_KEY = {
-  screen: 'outputs.mode.screen',
-  fallback: 'outputs.mode.fallback',
-  both: 'outputs.mode.both',
-  printer: 'outputs.mode.printer',
-} as const;
-
-/** 03c §3.2 read back: `screen` with a printer = "screen, paper if the screen is off". */
-export function outputOption(o: { mode: OutputMode; printer_id: string | null }): keyof typeof MODE_KEY {
-  return o.mode === 'screen' && o.printer_id !== null ? 'fallback' : o.mode;
-}
 
 function inSentence(text: string): string {
   return text.charAt(0).toLowerCase() + text.slice(1);
@@ -68,7 +62,7 @@ function PrinterCard({
   const archived = printer.archived_at !== null;
   const status: PrinterStatus = live?.status ?? printer.last_status ?? 'unknown';
   const bad = !archived && (status === 'paper_out' || status === 'offline');
-  const usedBy = users.length === 0 ? t('printers.used_by_nothing') : users.map((u) => `${u.name ?? u.station_id} (${inSentence(t(MODE_KEY[outputOption(u)]))})`).join(', ');
+  const usedBy = users.length === 0 ? t('printers.used_by_nothing') : users.map((u) => `${u.name ?? u.station_id} (${inSentence(t(OPTION_KEY[optionOf(u)]))})`).join(', ');
   const [usedBefore, usedAfter] = t('printers.used_by').split('{stations}');
   return (
     <article className={`pos-card pr${archived ? ' pr--off' : bad ? ' pr--bad' : ''}`}>
@@ -128,7 +122,13 @@ export function PrintersApp({ api }: { api: PrintersApi }) {
   return <Printers api={api} onSignedOut={() => setSignedIn(false)} />;
 }
 
-type Open = { kind: 'add' } | { kind: 'edit'; printer: ConfigPrinter } | { kind: 'archive'; printer: ConfigPrinter } | null;
+type Open =
+  | { kind: 'add' }
+  | { kind: 'edit'; printer: ConfigPrinter }
+  | { kind: 'archive'; printer: ConfigPrinter }
+  | { kind: 'output'; output: StationOutput }
+  | { kind: 'cancel'; job: QueueJob }
+  | null;
 
 function Printers({ api, onSignedOut }: { api: PrintersApi; onSignedOut: () => void }) {
   const phone = usePhone();
@@ -187,6 +187,24 @@ function Printers({ api, onSignedOut }: { api: PrintersApi; onSignedOut: () => v
     setOpen({ kind, printer: fresh });
   };
 
+  // The output editor too starts from a fresh print-config read: SetStationOutput carries no version and sends the whole
+  // row, so a stale page must not overwrite another admin's change or bind a printer to a station archived since (Q-18).
+  const openFreshOutput = async (stationId: string) => {
+    const answer = await api.printConfig();
+    if (!answer.ok) {
+      if (answer.error.kind === 'signed_out') onSignedOut();
+      else showToast(errorText(answer.error));
+      return;
+    }
+    setConfig(answer.data);
+    const fresh = answer.data.station_outputs.find((o) => o.station_id === stationId);
+    if (fresh === undefined || fresh.archived) {
+      showToast(t('errors.STATION_NOT_FOUND'));
+      return;
+    }
+    setOpen({ kind: 'output', output: fresh });
+  };
+
   const runTest = async (printer: ConfigPrinter) => {
     const suspect = queue?.printers.find((p) => p.printer_id === printer.printer_id)?.suspect ?? 0;
     setTests((m) => new Map(m).set(printer.printer_id, { kind: 'busy' }));
@@ -231,6 +249,7 @@ function Printers({ api, onSignedOut }: { api: PrintersApi; onSignedOut: () => v
           <Banner tone="danger" text={problem} />
         </div>
       )}
+      {config !== null && <Warnings config={config} />}
       <main className="pos-content">
         {config === null ? (
           problem === null && <Skeleton lines={4} />
@@ -247,29 +266,35 @@ function Printers({ api, onSignedOut }: { api: PrintersApi; onSignedOut: () => v
             )}
           </div>
         ) : (
-          <section className="ad-stack">
-            <div className="ad-sec__h">
-              <div>
-                <h2>{t('printers.title')}</h2>
-                <p>{t('printers.section_help')}</p>
+          <>
+            <section className="ad-stack">
+              <div className="ad-sec__h">
+                <div>
+                  <h2>{t('printers.title')}</h2>
+                  <p>{t('printers.section_help')}</p>
+                </div>
               </div>
-            </div>
-            <div className={phone ? 'ad-stack' : 'ad-grid2'}>
-              {printers.map((p) => (
-                <PrinterCard
-                  key={p.printer_id}
-                  printer={p}
-                  live={live(p.printer_id)}
-                  users={outputsOf(p.printer_id)}
-                  test={tests.get(p.printer_id) ?? null}
-                  readOnly={readOnly}
-                  onTest={() => void runTest(p)}
-                  onEdit={() => void openFresh(p.printer_id, 'edit')}
-                  onArchive={() => void openFresh(p.printer_id, 'archive')}
-                />
-              ))}
-            </div>
-          </section>
+              <div className={phone ? 'ad-stack' : 'ad-grid2'}>
+                {printers.map((p) => (
+                  <PrinterCard
+                    key={p.printer_id}
+                    printer={p}
+                    live={live(p.printer_id)}
+                    users={outputsOf(p.printer_id)}
+                    test={tests.get(p.printer_id) ?? null}
+                    readOnly={readOnly}
+                    onTest={() => void runTest(p)}
+                    onEdit={() => void openFresh(p.printer_id, 'edit')}
+                    onArchive={() => void openFresh(p.printer_id, 'archive')}
+                  />
+                ))}
+              </div>
+            </section>
+            <Outputs outputs={config.station_outputs} printers={config.printers} onEdit={readOnly ? undefined : (output) => void openFreshOutput(output.station_id)} />
+          </>
+        )}
+        {queue !== null && (config === null || config.printers.length > 0 || queue.jobs.length > 0) && (
+          <Queue queue={queue} config={config} onRefresh={() => void load()} onCancel={readOnly ? undefined : (job) => setOpen({ kind: 'cancel', job })} />
         )}
       </main>
       {(open?.kind === 'add' || open?.kind === 'edit') && (
@@ -296,6 +321,24 @@ function Printers({ api, onSignedOut }: { api: PrintersApi; onSignedOut: () => v
           onGoOutputs={() => {
             setOpen(null);
             document.getElementById(OUTPUTS_SECTION_ID)?.scrollIntoView();
+          }}
+        />
+      )}
+      {open?.kind === 'output' && config !== null && (
+        <OutputEditor
+          output={open.output}
+          printers={config.printers.filter((p) => p.archived_at === null)}
+          save={async (payload, commandId) => settle(await api.setStationOutput(payload, commandId))}
+          onClose={() => setOpen(null)}
+        />
+      )}
+      {open?.kind === 'cancel' && (
+        <CancelDialog
+          what={jobWhat(config, open.job)}
+          cancel={async () => settle(await api.cancelJob(open.job.job_id))}
+          onClose={(refusal) => {
+            setOpen(null);
+            if (refusal !== null) showToast(refusal);
           }}
         />
       )}

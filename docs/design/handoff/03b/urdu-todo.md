@@ -248,3 +248,38 @@ Appended by lane K (KDS English only in P1, brief §6.1).
 | `kds.lanes_failed` | Can't change lanes now | K4 |
 | `kds.day_not_started_sub` | This screen fills when the manager opens the day. | K4, KdsDayNotStarted |
 | `kds.tap_for_sound` | Tap to turn on sound | K5, KdsLockSound |
+
+## Lane A (03b client) — A3 station outputs, print queue, paper preview
+
+| Key | English | Note |
+|---|---|---|
+| `outputs.help` | Where each station’s tickets go. |  |
+| `outputs.col.station` | Station |  |
+| `outputs.col.output` | Output |  |
+| `outputs.col.printer` | Printer |  |
+| `outputs.col.ticket` | On the ticket |  |
+| `outputs.ticket_taker` | taker |  |
+| `outputs.ticket_order_no` | order no. |  |
+| `outputs.read_only` | read-only | archived station row |
+| `outputs.editor_title` | {station} · output |  |
+| `outputs.mode.screen_help` | No paper ever |  |
+| `outputs.mode.fallback_help` | Paper only while the screen is off |  |
+| `outputs.mode.both_help` | Every ticket prints and shows |  |
+| `outputs.mode.printer_help` | For a station with no screen |  |
+| `outputs.printer` | Printer |  |
+| `outputs.pick_printer` | Pick a printer |  |
+| `print_queue.help` | One queue per printer, in order. Waiting is normal during an outage — it retries by itself. |  |
+| `print_queue.refresh` | Refresh |  |
+| `print_queue.col.time` | Time |  |
+| `print_queue.col.what` | What |  |
+| `print_queue.col.where` | Station · printer |  |
+| `print_queue.col.state` | State |  |
+| `print_queue.waiting` | waiting |  |
+| `print_queue.sending` | sending |  |
+| `print_queue.suspect` | may not have printed |  |
+| `print_queue.no_printer_short` | no printer |  |
+| `print_queue.reprint_tag` | REPRINT | stays English (paper word) |
+| `print_queue.keep` | Keep |  |
+| `print_queue.cancel_ticket` | Cancel ticket |  |
+| `print_queue.printer_total` | {printer}: {waiting} waiting · {suspect} may not have printed |  |
+| `paper.preview` | Paper preview · {width} mm |  |

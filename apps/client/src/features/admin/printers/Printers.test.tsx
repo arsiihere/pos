@@ -7,8 +7,15 @@ import { PrintersApp } from './Printers';
 import { PRINT_CONFIG, PRINT_QUEUE } from './test-data';
 
 let m: Mounted;
+// jsdom has no scrollIntoView ("Go to Station outputs" scrolls to #station-outputs)
+const scrolled = vi.fn();
+const realScroll = Element.prototype.scrollIntoView;
 
 beforeEach(() => {
+  scrolled.mockClear();
+  Element.prototype.scrollIntoView = function (this: Element) {
+    scrolled(this.id);
+  } as Element['scrollIntoView'];
   sessionStorage.clear();
   sessionStorage.setItem('admin_session_token', 'S1');
   sessionStorage.setItem('admin_staff_id', 'ST1');
@@ -18,6 +25,7 @@ beforeEach(() => {
 afterEach(() => {
   m.unmount();
   vi.useRealTimers();
+  Element.prototype.scrollIntoView = realScroll;
 });
 
 function setup(routes: Record<string, Route | Response> = {}, config: PrintConfig = PRINT_CONFIG) {
@@ -93,6 +101,7 @@ describe('printers page (03c-S01)', () => {
     await flush();
     m.click(m.button('Go to Station outputs', dialog()));
     expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+    expect(scrolled.mock.calls).toEqual([['station-outputs']]);
   });
 
   it('[03c §6.2] archive with no station using it → saved, one re-read; the card becomes archived', async () => {
