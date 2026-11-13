@@ -1016,6 +1016,24 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // ---- lane A (02a client) ----
   // ---- lane B (02a client) ----
   // ---- lane C (02a client) ----
+  // 22a: needs native review (not on an Urdu frame except the guests / seats line of TableSheetUrdu)
+  'sheet.guests_seats': '{n} مہمان · {m} نشستیں',
+  'sheet.seats': '{m} نشستیں',
+  'sheet.ordering': '{name} آرڈر لے رہے ہیں',
+  'sheet.take_order_busy': 'آرڈر لیں — {name} آرڈر لے رہے ہیں',
+  'sheet.clean_title': 'بل ادا ہو گیا · صفائی کا انتظار',
+  'sheet.split_first': 'پہلے الگ کریں — {table} جڑی ہوئی ہے',
+  'sheet.join_sub': 'خالی میز یا دوسری پارٹی',
+  'sheet.split_sub': 'پورے آرڈر منتقل کریں یا {table} خالی کریں',
+  'sheet.split_sub_one': 'پورے آرڈر دوسری میز پر منتقل کریں',
+  'busy.own_line': '{table} پر آپ کا آرڈر دوسری اسکرین پر کھلا ہے۔ یہاں کھولیں؟ وہ اسکرین اپنا ڈرافٹ رکھے گی۔',
+  'release.required': 'ضروری',
+  'release.note': 'نوٹ',
+  'release.note_hint': 'اختیاری — 120 تک',
+  'release.go': 'چھوڑیں',
+  'takeover.title': '{table} کو {name} سے لیں؟',
+  'takeover.line': 'یہ آپ کا زون ہے۔ {name} کا نہ بھیجا گیا آرڈر ان کی اسکرین پر رہے گا۔',
+  'takeover.go': 'لے لیں',
   // ---- lane D (02a client) ----
   // ---- lane Q (02b client) ----
   // ---- lane O (02b client) ----
