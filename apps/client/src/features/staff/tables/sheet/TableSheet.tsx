@@ -9,6 +9,9 @@ import { OrdersPart } from '../../orders/table-view/OrdersPart';
 import { useShell, type Shell } from '../../shell/hooks';
 import { orderHref } from '../../shell/routes';
 import type { MapTile, OpenTablePayload, SeatingRef, TableMapBody } from '../contracts';
+import { AskBill } from '../dialogs/AskBill';
+import { CallWaiter } from '../dialogs/CallWaiter';
+import { Clean } from '../dialogs/Clean';
 import { ForceMove } from '../dialogs/ForceMove';
 import { ForceRelease } from '../dialogs/ForceRelease';
 import { HandOver } from '../dialogs/HandOver';
@@ -140,6 +143,8 @@ type Dialog =
   | { kind: 'hand'; preset: string | null; seating: SeatingRef }
   | { kind: 'force_move' | 'move' | 'join' | 'split'; seating: SeatingRef }
   | { kind: 'owner'; owner: OtherOwner; seating: SeatingRef }
+  | { kind: 'call'; seating: SeatingRef }
+  | { kind: 'clean'; seating: SeatingRef; lockedBy: string | null }
   | null;
 
 export function TableSheet({ table_id, seating_id }: TableSheetProps) {
@@ -148,6 +153,8 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
   const { body, read, refresh } = useSheetMap(shell);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  /** 02a-D24: the Ask for bill confirm in place of the action grid, for the seating it opened on */
+  const [billConfirm, setBillConfirm] = useState<SeatingRef | null>(null);
   const [busy, setBusy] = useState(false);
   /** one command at a time: a ref, so two taps before the re-render cannot both send */
   const inflight = useRef(false);
@@ -312,8 +319,17 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
         setMoreOpen(false);
         if (ref !== null) setDialog(a.id === 'hand' ? { kind: 'hand', preset: null, seating: ref } : { kind: a.id, seating: ref });
         return;
-      default:
-        // ask for bill, call waiter, clean (22c)
+      case 'bill':
+        setMoreOpen(false);
+        if (ref !== null) setBillConfirm(ref);
+        return;
+      case 'call':
+        if (ref !== null) setDialog({ kind: 'call', seating: ref });
+        return;
+      case 'clean':
+      case 'mark_clean':
+        setMoreOpen(false);
+        if (ref !== null) setDialog({ kind: 'clean', seating: ref, lockedBy: model.lockedBy?.name ?? null });
         return;
     }
   }
@@ -474,7 +490,13 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
                 </button>
               </div>
             )}
-            {model.acts.length > 0 && <div className={`tv__acts${model.acts.length === 3 ? ' tv__acts--3' : ''}`}>{model.acts.map(actButton)}</div>}
+            {billConfirm !== null ? (
+              <div className="tv__acts">
+                <AskBill code={code} seating={billConfirm} onClose={() => setBillConfirm(null)} onFailed={(error) => failed(error, billConfirm)} />
+              </div>
+            ) : (
+              model.acts.length > 0 && <div className={`tv__acts${model.acts.length === 3 ? ' tv__acts--3' : ''}`}>{model.acts.map(actButton)}</div>
+            )}
             {moreOpen && model.more.length > 0 && (
               <div className="needs" role="group" aria-label={t('sheet.act.more')}>
                 {model.more.map((a) => {
@@ -585,6 +607,10 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
           }}
           onFailed={refused}
         />
+      )}
+      {dialog?.kind === 'call' && <CallWaiter code={code} seating={dialog.seating} onClose={() => setDialog(null)} onFailed={refused} />}
+      {dialog?.kind === 'clean' && (
+        <Clean code={code} seating={dialog.seating} lockedBy={dialog.lockedBy} onClose={() => setDialog(null)} onCleaned={done} onFailed={refused} />
       )}
       {dialog?.kind === 'owner' && (
         <MoveOtherOwner code={code} owner={dialog.owner} onClose={() => setDialog(null)} onHandOver={(staff_id) => setDialog({ kind: 'hand', preset: staff_id, seating: dialog.seating })} />

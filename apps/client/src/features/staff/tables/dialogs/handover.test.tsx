@@ -45,14 +45,19 @@ const HAMZA: HandoverCandidate = { staff_id: 'ST-HAM', name: 'Hamza', is_assigne
 const MUHAMMAD: HandoverCandidate = { staff_id: 'ST-MUH', name: 'Muhammad', is_assignee: false, working: false, tables_held: 0 };
 
 type Call = { name: keyof TablesApi; payload: unknown };
-function fakeShell(o: { perms: string[] | Record<string, Resolution>; tile?: MapTile; candidates?: HandoverCandidate[][]; answers?: Partial<Record<keyof TablesApi, Array<HubResult<unknown>>>>; online?: boolean }) {
+function fakeShell(o: { perms: string[] | Record<string, Resolution>; tile?: MapTile; candidates?: HandoverCandidate[][]; answers?: Partial<Record<keyof TablesApi, Array<HubResult<unknown>>>>; online?: boolean; candidatesFail?: number }) {
   const calls: Call[] = [];
   const answers = o.answers ?? {};
   const lists = [...(o.candidates ?? [[MUHAMMAD, SARA, HAMZA]])];
+  let fails = o.candidatesFail ?? 0;
   const tables = new Proxy({} as TablesApi, {
     get: (_t, name: keyof TablesApi) => async (payload: unknown) => {
       calls.push({ name, payload });
       if (name === 'tableMap') return { ok: true, data: mapOf(o.tile ?? tile()) };
+      if (name === 'handoverCandidates' && fails > 0) {
+        fails -= 1;
+        return { ok: false, error: { kind: 'network' } };
+      }
       if (name === 'handoverCandidates') return { ok: true, data: { staff: lists.length > 1 ? lists.shift() : lists[0] } };
       return answers[name]?.shift() ?? { ok: false, error: { kind: 'network' } };
     },
@@ -161,6 +166,19 @@ describe('[02a §8 Table sheet] hand over and force move', () => {
     await flush();
     expect(shell.toasts.current()?.text).toBe('A handover is already waiting for an answer');
     expect(dlg()).toBeNull();
+  });
+
+  it('[02a §8 Table sheet] a failed handover-candidates read shows an error with Try again, never "Loading…" forever (review #166)', async () => {
+    const { shell, calls } = fakeShell({ perms: ['take-order'], candidatesFail: 1 });
+    await render(shell);
+    m.click(m.button('Hand over'));
+    await flush();
+    expect(dlg()!.textContent).toContain('That did not work. Try again.');
+    expect(dlg()!.textContent).not.toContain('Loading');
+    m.click(m.button('Try again', dlg()!));
+    await flush();
+    expect(calls.filter((c) => c.name === 'handoverCandidates')).toHaveLength(2);
+    expect(rows().map((r) => r.querySelector('b')?.textContent)).toEqual(['Sara', 'Hamza', 'Muhammad']);
   });
 
   it('[02a §8 Table sheet] Force move: "Me" row only with take-order covering the floor; reason token required', async () => {
