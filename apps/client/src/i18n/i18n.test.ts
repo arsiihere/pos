@@ -10,6 +10,9 @@ import changes02a from '../../../../docs/design/handoff/02a/CHANGES.md?raw';
 import changes02b from '../../../../docs/design/handoff/02b/CHANGES.md?raw';
 import todo02a from '../../../../docs/design/handoff/02a/urdu-todo.md?raw';
 import todo02b from '../../../../docs/design/handoff/02b/urdu-todo.md?raw';
+import brief03b from '../../../../docs/design/inventory/03b-03c-design-brief.md?raw';
+import changes03b from '../../../../docs/design/handoff/03b/CHANGES.md?raw';
+import todo03b from '../../../../docs/design/handoff/03b/urdu-todo.md?raw';
 import enSource from './en.ts?raw';
 
 function memoryStorage(initial: Record<string, string> = {}): Storage {
@@ -242,7 +245,7 @@ function changesKeys(md: string): { keys: string[]; prefixes: string[] } {
 }
 
 /** Keys of one W0.3 block of en.ts (`// ---- 02a client (W0.3)` up to the next `// ----` block). */
-function blockKeys(module: '02a' | '02b'): string[] {
+function blockKeys(module: '02a' | '02b' | '03b'): string[] {
   const start = enSource.indexOf(`// ---- ${module} client (W0.3)`);
   expect(start, module).toBeGreaterThan(0);
   const end = enSource.indexOf('// ----', start + 10);
@@ -303,5 +306,79 @@ describe('[02a §8 Rules; 02b §8 Rules] client strings (W0.3, R20)', () => {
     }
     expect(en['tables.reason.went_home']).toBe('Went home');
     expect(en['tables.reason.shift_ended']).toBe('Shift ended');
+  });
+});
+
+// 03b client W0.3: the brief §6.1–§6.6 key tables and handoff 03b CHANGES §5, expanded as above (`a.b_c` / `_d` too).
+function keys03b(): string[] {
+  const from = (md: string, head: string, until: string) => {
+    const s = md.indexOf(head);
+    expect(s, head).toBeGreaterThanOrEqual(0);
+    return md.slice(s, md.indexOf(until, s));
+  };
+  const part = from(brief03b, '### 6.1', '### 6.7') + from(changes03b, '## 5.', '## 6.');
+  const keys: string[] = [];
+  for (const line of part.split('\n')) {
+    if (!line.startsWith('| `')) continue;
+    let base: string | null = null;
+    for (const [, tok] of (line.split('|')[1] ?? '').matchAll(/`([^`]+)`/g)) {
+      if (tok!.startsWith('.')) keys.push(base!.slice(0, base!.lastIndexOf('.')) + tok);
+      else if (tok!.startsWith('_')) keys.push(base!.slice(0, base!.lastIndexOf('_')) + tok);
+      else if (tok!.includes('.')) keys.push((base = tok!));
+    }
+  }
+  return keys;
+}
+// Q-53: CHANGES §5 alert.dismiss / alert.dismissed are void (the brief's printer_problem keys are used).
+const VOID_03B = ['alert.dismiss', 'alert.dismissed'];
+// 02b owns queue.* (the queue log, "Not sent"); the brief's 03c print-queue keys are print_queue.*.
+const key03b = (k: string) => (k.startsWith('queue.') ? 'print_' + k : k);
+
+describe('[03b §8 Rules; 03c §8] client strings (W0.3)', () => {
+  it('[03b §8 Rules] every brief §6 / CHANGES §5 key is in en, and in ur or 03b/urdu-todo.md', () => {
+    const listed = keys03b();
+    expect(listed.length).toBeGreaterThan(200);
+    const all = new Set([...listed.filter((k) => !VOID_03B.includes(k)).map(key03b), ...blockKeys('03b')]);
+    // §6.7: the two undo-window codes have texts of their own; the other §6.7 codes map to kds.* / pass.* keys
+    for (const k of ['errors.ITEM_UNDO_WINDOW_CLOSED', 'errors.PASS_UNDO_WINDOW_CLOSED', 'alert.printer_problem.stays']) all.add(k);
+    for (const key of all) {
+      expect(key in en, key).toBe(true);
+      const urText = (ur as Record<string, string | undefined>)[key];
+      expect(urText !== undefined || todo03b.includes(`| \`${key}\` |`), key).toBe(true);
+      if (urText !== undefined) {
+        expect(todo03b.includes(`| \`${key}\` |`), key).toBe(false);
+        expect(holes(urText), key).toBe(holes((en as Record<string, string>)[key]!));
+      }
+    }
+    // the 02b queue log keeps its own texts
+    expect(en['queue.title']).toBe('Not sent');
+    expect(en['print_queue.title' as keyof typeof en]).toBe('Print queue');
+  });
+
+  it('[03b Q-53] alert.printer_problem.dismiss, alerts.closed.dismissed (no {name}), alert.printer_problem.stays exist; alert.dismiss / alert.dismissed do not', () => {
+    const e = en as Record<string, string | undefined>;
+    const u = ur as Record<string, string | undefined>;
+    expect(e['alert.printer_problem.dismiss']).toBe('Dismiss');
+    expect(e['alerts.closed.dismissed']).toBe('Dismissed');
+    expect(e['alert.printer_problem.stays']).toBe('Stays until day close');
+    for (const text of [e['alerts.closed.dismissed'], u['alerts.closed.dismissed']]) {
+      expect(text).toBeTruthy();
+      expect(text).not.toMatch(/\{\w+\}/);
+    }
+    for (const k of VOID_03B) {
+      expect(k in en, k).toBe(false);
+      expect(k in ur, k).toBe(false);
+    }
+  });
+
+  it('[03c Q-57] alert.printer_problem.card has no {waiting}', () => {
+    const e = en as Record<string, string | undefined>;
+    const u = ur as Record<string, string | undefined>;
+    expect(e['alert.printer_problem.card']).toBe('{printer} · {problem}');
+    expect(u['alert.printer_problem.card']).toBeTruthy();
+    for (const text of [e['alert.printer_problem.card']!, u['alert.printer_problem.card']!]) {
+      expect(text).not.toContain('{waiting}');
+      expect(text).not.toMatch(/waiting|انتظار/);
+    }
   });
 });
