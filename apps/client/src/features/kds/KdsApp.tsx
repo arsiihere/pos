@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { readDeviceKey, wipeDeviceKeys } from '../../api/hub-admin';
-import type { HubClock } from '../../app/hub-clock';
+import { createHubClock, type HubClock } from '../../app/hub-clock';
 import { t } from '../../i18n';
 import { errorKey } from '../../i18n/en';
 import { BACKOFF_MS, MAX_BACKOFF_MS, REPLACED_REASON, type AlertConnection, type SocketLike } from '../alerts/socket';
@@ -13,10 +13,16 @@ import { RowActions } from './actions/DoneEarly';
 import { GiveMeMore } from './actions/GiveMeMore';
 import { InlineError } from './actions/InlineError';
 import type { KdsApi } from './contracts';
+import { branchConfigLoader, createKdsConfig } from './config';
+import { ComingUp } from './header/ComingUp';
+import { Header } from './header/Header';
 import { createKdsLive } from './live';
 import { startStationSession, type KdsPage, type StationAuth, type StationSession } from './session';
 import { Placeholder } from './station/Placeholder';
 import { StationView } from './station/StationView';
+import { Archived } from './states/Archived';
+import { DayNotStarted } from './states/DayNotStarted';
+import { subscribeFrames } from './slots';
 import { createKdsStore, type KdsStoreImpl } from './store';
 
 // 03b v1.0.8 §8 (Q-42), §3.3, #72; 00 v1.9.2 §8.2, §8.4 (K1): the /kds/ app.
@@ -363,7 +369,9 @@ function Live({
   upRef.current = onUp;
   const revokedRef = useRef(onRevoked);
   revokedRef.current = onRevoked;
-  const store = useMemo(() => createKdsStore({ stationId: session.station_id, now: () => page.clock.nowMs() }), [session.station_id, page]);
+  // S47: the hub clock from the page meta, re-synced from branch-config `hub_time` (K4)
+  const clock = useRef<HubClock>(page.clock);
+  const store = useMemo(() => createKdsStore({ stationId: session.station_id, now: () => clock.current.nowMs() }), [session.station_id]);
   const alerts = useMemo(() => createAlertStore({ sink, timers, alwaysOn: true }), [sink, timers]);
   useEffect(() => () => alerts.dispose(), [alerts]);
   const [conn, setConn] = useState<AlertConnection | null>(null);
@@ -393,21 +401,21 @@ function Live({
   }, [up]);
 
   // display tick (no hub read): the timers count on the hub clock, Done rows leave after their undo window
-  const [nowMs, setNowMs] = useState(() => page.clock.nowMs());
+  const [nowMs, setNowMs] = useState(() => clock.current.nowMs());
   useEffect(() => {
     let handle: unknown = null;
     const tick = () => {
-      setNowMs(page.clock.nowMs());
+      setNowMs(clock.current.nowMs());
       store.prune();
       handle = timers.setTimeout(tick, TICK_MS);
     };
     handle = timers.setTimeout(tick, TICK_MS);
     return () => timers.clearTimeout(handle);
-  }, [store, timers, page]);
+  }, [store, timers]);
 
   // K3: the station commands on this session, the row states, the batch notice
   const api = useMemo(
-    () => createKdsApi({ fetch, meta: page.meta, deviceId, deviceToken: token, sessionToken: session.session_token, nowMs: () => page.clock.nowMs() }),
+    () => createKdsApi({ fetch, meta: page.meta, deviceId, deviceToken: token, sessionToken: session.session_token, nowMs: () => clock.current.nowMs() }),
     [fetch, page, deviceId, token, session],
   );
   const [load, setLoad] = useState<LoadNotice | null>(null);
@@ -421,46 +429,74 @@ function Live({
       setLoad(null);
     }, LOAD_NOTICE_MS);
   });
-  /** 03b §3.3 completion mode of this station: from branch-config (K4); null until then (Start, then Done) */
-  const mode: CompletionMode = null;
+  // K4: the station's config (name, completion mode, type), read on open, catch-up and BranchConfigApplied (#75)
+  const config = useMemo(
+    () => createKdsConfig({ stationId: session.station_id, load: branchConfigLoader({ fetch, deviceToken: token, sessionToken: session.session_token }) }),
+    [session, fetch, token],
+  );
+  useEffect(() => {
+    const off = subscribeFrames((f) => config.onFrame(f));
+    return () => {
+      off();
+      config.dispose();
+    };
+  }, [config]);
+  const cfg = useSyncExternalStore(config.subscribe, config.state);
+  useEffect(() => {
+    if (cfg.hub_time !== null) clock.current = createHubClock(cfg.hub_time);
+  }, [cfg.hub_time]);
+  /** 03b §3.3: null until the config is read (Start, then Done) */
+  const mode: CompletionMode = cfg.station?.completion_mode ?? null;
 
-  const ctx = useMemo<KdsCtx>(() => ({ meta: page.meta, clock: page.clock, deviceToken: token, session, store, up, fetch, api }), [page, token, session, store, up, fetch, api]);
+  // the clock ref follows cfg.hub_time (a dependency on purpose)
+  const ctx = useMemo<KdsCtx>(
+    () => ({ meta: page.meta, clock: clock.current, deviceToken: token, session, store, up, fetch, api }),
+    [page, token, session, store, up, fetch, api, cfg.hub_time],
+  );
 
   if (view.station === null) return <Loading offline={false} />;
+  const station = view.station;
+  const empty = view.rows.length === 0 && (view.plan?.lines.some((l) => l.frozen) ?? false) === false;
+  // §3.10: the archived banner while the station still has lines (the notice's count; else the archived config's)
+  const archived = empty ? null : (view.archived?.open_lines ?? (cfg.station?.is_archived === true ? view.rows.length : null));
   return (
     <Ctx.Provider value={ctx}>
-      <header className="kbar">
-        {/* the station name and lanes come with the header task (K4, branch-config) */}
-        <div className="kbar__st" />
-        <div className="end">
-          <span className={up ? 'live' : 'live off'}>{up ? t('kds.live') : t('kds.reconnecting')}</span>
-        </div>
-      </header>
-      {/* K2: the station view (Now / Next / Later) */}
-      <StationView
-        view={view}
-        nowMs={nowMs}
-        utcOffsetMs={page.clock.utcOffsetMs}
-        up={up}
-        banner={
-          !up ? (
-            <div className="kbn c-danger" role="status">
-              {t('kds.reconnecting_banner')}
-              <small>{t('kds.reconnecting_note')}</small>
-            </div>
-          ) : load !== null ? (
-            <div className="kbn c-info" role="status">
-              {load.text}
-            </div>
-          ) : undefined
-        }
-        {...(load === null ? {} : { highlight: load.ids })}
-        actionsFor={(row) => (
-          <RowActions row={row} mode={mode} nowMs={nowMs} up={up} state={actions.stateOf(row.order_item_id)} onTap={(a, confirm) => void actions.tap(row, a, confirm)} />
-        )}
-        messageFor={(row) => <InlineError msg={actions.stateOf(row.order_item_id).msg} />}
-        nextFooter={<GiveMeMore api={api} stationId={session.station_id} up={up} timers={timers} />}
-      />
+      <Header name={cfg.station?.name ?? ''} lanes={station.lanes} stationId={session.station_id} api={api} up={up} showLanes={station.day_open} />
+      {!station.day_open ? (
+        <DayNotStarted />
+      ) : (
+        <>
+          <ComingUp view={view} />
+          {/* K2: the station view (Now / Next / Later) */}
+          <StationView
+            view={view}
+            nowMs={nowMs}
+            utcOffsetMs={clock.current.utcOffsetMs}
+            up={up}
+            batch={cfg.station?.station_type === 'batch'}
+            banner={
+              !up ? (
+                <div className="kbn c-danger" role="status">
+                  {t('kds.reconnecting_banner')}
+                  <small>{t('kds.reconnecting_note')}</small>
+                </div>
+              ) : archived !== null ? (
+                <Archived open={archived} />
+              ) : load !== null ? (
+                <div className="kbn c-info" role="status">
+                  {load.text}
+                </div>
+              ) : undefined
+            }
+            {...(load === null ? {} : { highlight: load.ids })}
+            actionsFor={(row) => (
+              <RowActions row={row} mode={mode} nowMs={nowMs} up={up} state={actions.stateOf(row.order_item_id)} onTap={(a, confirm) => void actions.tap(row, a, confirm)} />
+            )}
+            messageFor={(row) => <InlineError msg={actions.stateOf(row.order_item_id).msg} />}
+            nextFooter={<GiveMeMore api={api} stationId={session.station_id} up={up} timers={timers} />}
+          />
+        </>
+      )}
     </Ctx.Provider>
   );
 }

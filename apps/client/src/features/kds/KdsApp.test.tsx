@@ -105,6 +105,15 @@ function putDeviceKeys(keys: Record<string, string>): Promise<void> {
 
 const PAIRED = { token: 'DEV-KDS', device_id: 'D-K1', device_type: 'kds' };
 const SESSION = (n = 1) => reply(200, { data: { session_token: `SS-${n}`, session_id: `SID-${n}`, station_id: ST } });
+const CONFIG = () =>
+  reply(200, {
+    data: {
+      config_version: 1,
+      snapshot_hash: 'h',
+      snapshot: { stations: [{ station_id: ST, name: 'Tandoor', completion_mode: 'single_tap', station_type: 'slot', is_archived: false }] },
+      hub_time: { now_ms: 1_000_000, utc_offset_ms: 0 },
+    },
+  });
 const ERR = (status: number, code: string) => reply(status, { error: { code, message: 'x' } });
 
 let m: Mounted;
@@ -129,11 +138,14 @@ afterEach(async () => {
 /** replies to POST /auth/station in order (the last one repeats) */
 function start(replies: Array<() => Response | Promise<Response>>, o: { page?: KdsPage | null; strict?: boolean } = {}) {
   const queue = [...replies];
-  const fetch = vi.fn(async (url: string) => {
+  /** POST /auth/station only (the returned spy) */
+  const auth = vi.fn(async (url: string) => {
     expect(url).toBe('/auth/station');
     const next = queue.length > 1 ? queue.shift()! : queue[0]!;
     return next();
   });
+  // K4: the live screen reads branch-config on open and on each catch-up
+  const fetch = async (url: string) => (url === '/queries/branch-config' ? CONFIG() : auth(url));
   m = mount();
   const app = (
     <KdsApp
@@ -150,7 +162,7 @@ function start(replies: Array<() => Response | Promise<Response>>, o: { page?: K
     />
   );
   m.render(o.strict === true ? <StrictMode>{app}</StrictMode> : app);
-  return fetch;
+  return auth;
 }
 
 async function settle(): Promise<void> {
@@ -322,14 +334,14 @@ describe('[00 §8.4] device keys', () => {
       if (reads === 1) throw new Error('IDB broken');
       return readDeviceKey(key);
     });
-    const fetch = vi.fn(async () => SESSION());
+    const fetch = vi.fn(async (url: string) => (url === '/auth/station' ? SESSION() : CONFIG()));
     m = mount();
     m.render(<KdsApp page={PAGE} fetch={fetch} timers={timers} sink={recordingSink(timers)} readKey={readKey} createSocket={() => new FakeSocket()} />);
     await settle();
     expect(fetch).not.toHaveBeenCalled();
     timers.advance(500);
     await settle();
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls.filter(([url]) => url === '/auth/station')).toHaveLength(1);
     expect(await readDeviceKey('token')).toBe('DEV-KDS');
   });
 

@@ -21,3 +21,9 @@
 :where(.pu) .sk--kring { width: 76px; height: 76px; border-radius: 50%; flex: none; }
 :where(.pu) .sk--kl1 { width: 80%; height: 30px; }
 :where(.pu) .sk--kl2 { width: 50%; height: 20px; }
+
+/* KdsBatch / KdsBatchStarted / KdsBatchDone: a batch station at 1920 — 4 columns of compact cards */
+.kgrid--batch { --kcols: 4; }
+
+/* KdsDayNotStarted: the 140 px ring */
+:where(.pu) .ring--140 { width: 140px; height: 140px; }
