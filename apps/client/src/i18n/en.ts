@@ -2136,6 +2136,24 @@ export const en = {
   'tables.held': 'Held',
   'tables.loading': 'Loading tables…',
   // ---- lane C (02a client) ----
+  // 22a table sheet (02-S06), busy (02-B01), force release (02-D12), take over (02a-D22): copy from the frames
+  'sheet.guests_seats': '{n} guests · {m} seats',
+  'sheet.seats': '{m} seats',
+  'sheet.ordering': '{name} is ordering',
+  'sheet.take_order_busy': 'Take order — {name} is ordering',
+  'sheet.clean_title': 'Bill paid · waiting for cleaning',
+  'sheet.split_first': 'Split first — {table} is joined',
+  'sheet.join_sub': 'Free table or another party',
+  'sheet.split_sub': 'Move whole orders or free {table}',
+  'sheet.split_sub_one': 'Move whole orders to another table',
+  'busy.own_line': 'Your order on {table} is open on another screen. Open it here? That screen keeps its draft.',
+  'release.required': 'required',
+  'release.note': 'Note',
+  'release.note_hint': 'Optional — up to 120',
+  'release.go': 'Release',
+  'takeover.title': 'Take over {table} from {name}?',
+  'takeover.line': "It's in your zone. {name}'s unsent order stays on his screen.",
+  'takeover.go': 'Take over',
   // ---- lane D (02a client) ----
   // 02a §8 Banners (02a-B10) detail lines and fallbacks (23a)
   'lock.released': 'Your table {table} was released',
