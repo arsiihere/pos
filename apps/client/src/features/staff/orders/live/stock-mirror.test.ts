@@ -146,4 +146,15 @@ describe('[02b Q-22] stock mirror', () => {
     expect(mirror.level('I1')).toBe('not_counted');
     expect(mirror.available('I1')).toBe(0);
   });
+
+  it('[02b §8 Ordering screen] saleUnit: the open day\'s frozen unit (01c V20), the config\'s until seeded; null off the menu', () => {
+    const live = createLiveBus();
+    const mirror = createStockMirror({ live, snapshot: () => config, hubNow: () => T });
+    expect(mirror.saleUnit('I1')).toBe('piece'); // not seeded: the config's
+    expect(mirror.saleUnit('NOPE')).toBeNull();
+    const day = { business_date: '2025-10-21', opened_at: DAY, closed_at: null, stock_units: { K1: 'g' }, draws: { I1: { sale_unit: 'g', stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 1 }] } } };
+    live.frame({ type: 'catch_up', as_of_seq: 1, state: { stock: { business_day: day, business_day_started_at: DAY, items: {} } } });
+    expect(mirror.saleUnit('I1')).toBe('g');
+    expect(mirror.saleUnit('I2')).toBe('piece'); // nothing frozen for it
+  });
 });
