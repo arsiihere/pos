@@ -2452,6 +2452,23 @@ export const en = {
   'kitchen_screens.sign_in': 'Sign in to set up kitchen screens',
   'kitchen_screens.no_admins': 'No one here can set up kitchen screens',
   'admin_03.nav.other_jobs': 'Other jobs',
+  // A2 printers (frames Printers*, PrinterAdd, PrinterArchive, PrinterTest)
+  'printers.section_help': 'Optional. Paper jobs never block the till or the kitchen screens.',
+  'printers.none_title': 'No printers',
+  'printers.archived': 'Archived',
+  'printers.used_by_nothing': 'nothing',
+  'printers.edit_title': 'Edit {name}',
+  'printers.name_help': '1–40 letters, different from your other printers',
+  'printers.name_required': 'Give the printer a name',
+  'printers.name_taken': 'Another printer has this name',
+  'printers.address_error_lan': 'Use a private network address like 192.168.1.50:9100',
+  'printers.address_error_usb': 'Use /dev/usb/lp0 or /dev/pos-printer-… from the install guide',
+  'printers.paper_mm': '{n} mm',
+  'printers.test_busy_detail': 'Up to 8 seconds. It does not wait for the queue.',
+  'printers.go_outputs': 'Go to Station outputs',
+  'printers.sign_in': 'Sign in to set up printers',
+  'printers.no_admins': 'No one here can set up printers',
+  'printers.test_in_use': 'The printer is busy printing tickets. Try again in a moment.',
 } as const;
 
 export type MessageKey = keyof typeof en;
