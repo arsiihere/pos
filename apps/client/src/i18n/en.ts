@@ -2113,6 +2113,8 @@ export const en = {
   'order.toast.all_sent': 'All sent',
   'order.toast.some_not_sent': '{n} not sent — see the queue log',
   // ---- lane A (02a client) ----
+  'signin.pin_needs_hub': 'Signing in needs the hub',
+  'pair.wipe_failed': 'Could not reset this screen. Ask a manager.',
   // ---- lane B (02a client) ----
   // ---- lane C (02a client) ----
   // ---- lane D (02a client) ----

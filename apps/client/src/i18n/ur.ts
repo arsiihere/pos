@@ -1014,6 +1014,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'alert.zone_stock_out.card': 'زون کا ایک آئٹم ختم ہو گیا',
   'alert.zone_stock_out.lock': 'زون کا ایک آئٹم ختم ہو گیا',
   // ---- lane A (02a client) ----
+  'signin.pin_needs_hub': 'سائن اِن کے لیے ہب چاہیے',
+  'pair.wipe_failed': 'اس سکرین کو ری سیٹ نہیں کیا جا سکا۔ مینیجر سے پوچھیں۔',
   // ---- lane B (02a client) ----
   // ---- lane C (02a client) ----
   // ---- lane D (02a client) ----
