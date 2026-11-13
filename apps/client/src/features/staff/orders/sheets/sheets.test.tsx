@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mount } from '../../../../../test/dom';
 import type { AvailabilityInputs } from '../live/availability';
 import type { StockLevel, StockMirror } from '../contracts';
-import { configUnits, type CartLine } from '../order-screen/cart';
+import { cartLineMoney, configUnits, toSubmitLines, type CartLine } from '../order-screen/cart';
 import { DealSheet } from './DealSheet';
 import { NoteSheet, clamp } from './NoteSheet';
 import { OptionsSheet } from './OptionsSheet';
@@ -237,27 +237,92 @@ describe('[02b §8 Ordering screen] sheets', () => {
     m.unmount();
   });
 
-  it('[02b §8 Ordering screen] deal parts are checked as the hub checks them (child position, V9; Q-64 open)', () => {
+  it('[02b Q-64] a deal part offers its plain options (01c V9): a required group with no default opens the picker; the deal bills them', () => {
     const base = cfg();
-    // I3 Full needs a gravy (G3, plain, no default): a deal part cannot pick it → off with the reason.
-    // I1 Half's only required group is all-linked (G4): not offered in a child position → the hub takes it.
+    // I3 Full needs a sauce (G3, plain, no default; Red +Rs 50). I1 Half's only required group is all-linked (G4): it is
+    // not offered in a child position, so the hub takes Half with no options.
     const config: BranchConfig = {
       ...base,
       modifier_groups: [
         ...base.modifier_groups,
-        { modifier_group_id: 'G3', name: 'Sauce', min_choices: 1, max_choices: 1, sort_order: 3, has_plain_options: true, options: [{ option_id: 'S1', name: 'Red', price_minor: 0, max_quantity: 1, is_default: false, linked_item_id: null, sort_order: 1 }] },
+        {
+          modifier_group_id: 'G3',
+          name: 'Sauce',
+          min_choices: 1,
+          max_choices: 1,
+          sort_order: 3,
+          has_plain_options: true,
+          options: [
+            { option_id: 'S1', name: 'Red', price_minor: 5_000, max_quantity: 1, is_default: false, linked_item_id: null, sort_order: 1 },
+            { option_id: 'S2', name: 'Green', price_minor: 0, max_quantity: 1, is_default: false, linked_item_id: null, sort_order: 2 },
+          ],
+        },
         { modifier_group_id: 'G4', name: 'Side', min_choices: 1, max_choices: 1, sort_order: 4, has_plain_options: false, options: [{ option_id: 'L1', name: 'Naan side', price_minor: 4_000, max_quantity: 1, is_default: false, linked_item_id: 'I4', sort_order: 1 }] },
       ],
       items: base.items.map((i) => (i.item_id === 'I3' ? { ...i, modifier_group_ids: ['G3'] } : i.item_id === 'I1' ? { ...i, modifier_group_ids: ['G4'] } : i)),
     };
+    const added: CartLine[] = [];
     const m = mount();
-    m.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={() => {}} onClose={() => {}} />);
-    expect(m.button('Chicken Karahi — Full · needs a choice a deal can’t make').hasAttribute('disabled')).toBe(true);
-    const half = m.button('Chicken Karahi — Half');
-    expect(half.hasAttribute('disabled')).toBe(false);
-    m.click(half);
+    m.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={(l) => added.push(l)} onClose={() => {}} />);
+    m.click(m.button('One more')); // 2 deals
     m.click(m.button('Naan'));
-    expect(m.button('Add to order').hasAttribute('disabled')).toBe(false);
+    m.click(m.button('Chicken Karahi — Full'));
+    // the picker opened by itself: the part's plain groups only, the charge for this deal (piece part: 1 × 2 deals)
+    expect(m.container.querySelector('#part-t')?.textContent).toBe('Chicken Karahi — Full');
+    expect(m.button('Red').textContent).toContain('+Rs 100');
+    expect(m.button('Choose 1 in Sauce').hasAttribute('disabled')).toBe(true);
+    m.click(m.button('Cancel'));
+    // back on the deal: the part asks for its options, Add says so
+    expect([...m.container.querySelectorAll('.dsh__h .rule')].map((r) => r.textContent)).toEqual(['Choose options', 'Done']);
+    expect(m.button('Choose options for Part 1').hasAttribute('disabled')).toBe(true);
+    m.click(m.button('Options'));
+    m.click(m.button('Red'));
+    m.click(m.button('Done', m.container.querySelector('.acts')!));
+    expect(m.container.querySelector('.dsh')?.textContent).toContain('+ Red');
+    // the hub's bill (build-submit.ts dealLines :281-286, :330-340): 2 × Rs 3,200 + Full extra Rs 300 × 1 × 2
+    // + Red optionChargeMinor(5 000, 1, part qty 1 × 2 deals, 'piece') = 640 000 + 60 000 + 10 000
+    const HUB_DEAL = 710_000;
+    expect(m.container.querySelector('.qline .pv strong')?.textContent).toBe('Rs 7,100');
+    m.click(m.button('Add to order'));
+    expect(cartLineMoney(config, added[0]!, configUnits(config))).toEqual({ kind: 'ok', minor: HUB_DEAL });
+    // the payload carries the part's options exactly as dealLines reads them: deal_choices[].options [{ option_id, quantity }]
+    expect(toSubmitLines({ lines: added })[0]!.deal_choices).toEqual([
+      { deal_part_id: 'P1', item_id: 'I3', order_item_id: expect.any(String), options: [{ option_id: 'S1', quantity: 1 }] },
+      { deal_part_id: 'P2', item_id: 'I4', order_item_id: expect.any(String) },
+    ]);
+    m.unmount();
+    // Half (all-linked required group) is accepted in the child position with no options
+    const h = mount();
+    h.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={() => {}} onClose={() => {}} />);
+    h.click(h.button('Chicken Karahi — Half'));
+    h.click(h.button('Naan'));
+    expect(h.button('Add to order').hasAttribute('disabled')).toBe(false);
+    expect(h.container.querySelector('.dsh button.btn--quiet')).toBeNull(); // nothing plain to offer → no Options button
+    h.unmount();
+  });
+
+  it('[02b Q-64] a g / ml part takes its option charge once per deal (B2)', () => {
+    const base = cfg();
+    const config: BranchConfig = {
+      ...base,
+      modifier_groups: [...base.modifier_groups, { modifier_group_id: 'G5', name: 'Masala', min_choices: 0, max_choices: 1, sort_order: 5, has_plain_options: true, options: [{ option_id: 'M1', name: 'Extra masala', price_minor: 3_000, max_quantity: 1, is_default: false, linked_item_id: null, sort_order: 1 }] }],
+      items: base.items.map((i) => (i.item_id === 'I3' ? { ...i, sale_unit: 'g' as const, modifier_group_ids: ['G5'] } : i)),
+    };
+    const added: CartLine[] = [];
+    const m = mount();
+    m.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={(l) => added.push(l)} onClose={() => {}} />);
+    m.click(m.button('One more'));
+    m.click(m.button('One more')); // 3 deals
+    m.click(m.button('Chicken Karahi — Full'));
+    m.click(m.button('Naan'));
+    m.click(m.button('Options'));
+    expect(m.button('Extra masala').textContent).toContain('+Rs 90'); // once per deal (× 3 deals), never per gram
+    m.click(m.button('Extra masala'));
+    m.click(m.button('Done', m.container.querySelector('.acts')!));
+    m.click(m.button('Add to order'));
+    // hub: g part → optionChargeMinor(3 000, 1, dealQty 3, 'piece') = 9 000; extra 300 × deal qty 3 (g part, B2)
+    const HUB = 3 * 320_000 + 30_000 * 3 + 9_000;
+    expect(cartLineMoney(config, added[0]!, configUnits(config))).toEqual({ kind: 'ok', minor: HUB });
     m.unmount();
   });
 
@@ -363,6 +428,213 @@ describe('[02b §8 Ordering screen] sheets', () => {
     m.click(m.button('Extra naan'));
     m.click(m.button('Extra naan'));
     expect(m.container.querySelector('.qline .pv strong')?.textContent).toBe('Rs 2,560');
+    m.unmount();
+  });
+
+  it('[02b §8 Ordering screen] a deal part item whose only required group is linked to a sold-out item is still taken (child position, V9)', () => {
+    const base = cfg();
+    // Half's required group G4 is all-linked to Raita (I5), and Raita is sold out: the line position refuses Half,
+    // the child position does not offer G4 at all, so the hub takes Half as a deal part
+    const config: BranchConfig = {
+      ...base,
+      modifier_groups: [...base.modifier_groups, { modifier_group_id: 'G4', name: 'Side', min_choices: 1, max_choices: 1, sort_order: 4, has_plain_options: false, options: [{ option_id: 'L1', name: 'Raita side', price_minor: 8_000, max_quantity: 1, is_default: false, linked_item_id: 'I5', sort_order: 1 }] }],
+      items: base.items.map((i) => (i.item_id === 'I1' ? { ...i, modifier_group_ids: ['G4'] } : i)),
+    };
+    const soldOut = inputs(config, stock({ I5: 0 }, { I5: 'out' }));
+    const m = mount();
+    m.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={soldOut} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={() => {}} onClose={() => {}} />);
+    expect(m.button('Chicken Karahi — Half').hasAttribute('disabled')).toBe(false);
+    m.click(m.button('Chicken Karahi — Half'));
+    m.click(m.button('Naan'));
+    expect(m.button('Add to order').hasAttribute('disabled')).toBe(false);
+    m.unmount();
+  });
+
+  it('[02b §8 Ordering screen] at deal qty 2 a choice that cannot cover part qty × 2 reads "sold out"', () => {
+    const config = cfg();
+    const m = mount();
+    // Raita: 6 left → 4× Bread fits 1 deal (4), not 2 (8)
+    m.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config, stock({ I5: 6 }, { I5: 'ok' }))} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={() => {}} onClose={() => {}} />);
+    expect(m.button('Raita').hasAttribute('disabled')).toBe(false);
+    m.click(m.button('One more'));
+    const raita = m.button('Raita · sold out');
+    expect(raita.hasAttribute('disabled')).toBe(true);
+    m.unmount();
+  });
+
+  // --- #180 fix round 1 ------------------------------------------------------------------------------------------
+
+  it('[02b Q-64] B2 pinned: a piece part of qty 4 with an option ×2 at 2 deals is charged per piece of the part', () => {
+    const base = cfg();
+    // Naan (I4, piece) in the 4× Bread part gets a plain group: Butter Rs 10, up to 2
+    const config: BranchConfig = {
+      ...base,
+      modifier_groups: [...base.modifier_groups, { modifier_group_id: 'G6', name: 'Butter', min_choices: 0, max_choices: 2, sort_order: 6, has_plain_options: true, options: [{ option_id: 'B1', name: 'Butter', price_minor: 1_000, max_quantity: 2, is_default: false, linked_item_id: null, sort_order: 1 }] }],
+      items: base.items.map((i) => (i.item_id === 'I4' ? { ...i, modifier_group_ids: ['G6'] } : i)),
+    };
+    const added: CartLine[] = [];
+    const m = mount();
+    m.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={(l) => added.push(l)} onClose={() => {}} />);
+    m.click(m.button('One more')); // 2 deals
+    m.click(m.button('Chicken Karahi — Half'));
+    m.click(m.button('Naan'));
+    m.click(m.button('Options', m.container.querySelectorAll('.dsh')[1]!)); // the Bread part's
+    // one Butter on 4 naan × 2 deals = 8 pieces → Rs 80 (once per deal would be Rs 20)
+    expect(m.button('Butter').textContent).toContain('+Rs 80');
+    m.click(m.button('Butter'));
+    m.click(m.button('Butter')); // ×2
+    m.click(m.button('Done', m.container.querySelector('.acts')!));
+    // hub (build-submit.ts :281-286, :330-340): 2 × 320 000 + optionChargeMinor(1 000, 2, 4 × 2, 'piece') = 640 000 + 16 000
+    // (once per deal: 640 000 + 4 000; per option qty 1: 640 000 + 8 000)
+    const HUB = 656_000;
+    expect(m.container.querySelector('.qline .pv strong')?.textContent).toBe('Rs 6,560');
+    m.click(m.button('Add to order'));
+    expect(cartLineMoney(config, added[0]!, configUnits(config))).toEqual({ kind: 'ok', minor: HUB });
+    expect(toSubmitLines({ lines: added })[0]!.deal_choices![1]).toEqual({ deal_part_id: 'P2', item_id: 'I4', order_item_id: expect.any(String), options: [{ option_id: 'B1', quantity: 2 }] });
+    m.unmount();
+  });
+
+  it('[02b Q-64] B2 pinned: a g part weighing 500 takes its option once per deal, never per gram; shown and sent', () => {
+    const base = cfg();
+    const config: BranchConfig = {
+      ...base,
+      modifier_groups: [...base.modifier_groups, { modifier_group_id: 'G5', name: 'Masala', min_choices: 0, max_choices: 1, sort_order: 5, has_plain_options: true, options: [{ option_id: 'M1', name: 'Extra masala', price_minor: 3_000, max_quantity: 1, is_default: false, linked_item_id: null, sort_order: 1 }] }],
+      items: base.items.map((i) => (i.item_id === 'I3' ? { ...i, sale_unit: 'g' as const, modifier_group_ids: ['G5'] } : i)),
+      deals: base.deals.map((d) => ({ ...d, parts: d.parts.map((part) => (part.deal_part_id === 'P1' ? { ...part, quantity: 500 } : part)) })),
+    };
+    const added: CartLine[] = [];
+    const m = mount();
+    m.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={(l) => added.push(l)} onClose={() => {}} />);
+    m.click(m.button('One more'));
+    m.click(m.button('One more')); // 3 deals
+    m.click(m.button('Chicken Karahi — Full'));
+    m.click(m.button('Naan'));
+    m.click(m.button('Options'));
+    // the picker names the part's weight, and its chip the charge for this deal: once per deal × 3 → Rs 90 (per gram: Rs 45,000)
+    expect(m.container.querySelector('.ac__who')?.textContent).toBe('For 1500 g in this deal');
+    expect(m.button('Extra masala').textContent).toContain('+Rs 90');
+    m.click(m.button('Extra masala'));
+    m.click(m.button('Done', m.container.querySelector('.acts')!));
+    // hub: g part extra 30 000 × deal qty 3 (not × 500 g); option optionChargeMinor(3 000, 1, dealQty 3, 'piece') = 9 000
+    // (per gram it would be 3 000 × 1 500 = 4 500 000)
+    const HUB = 3 * 320_000 + 30_000 * 3 + 9_000;
+    expect(HUB).toBe(1_059_000);
+    expect(m.container.querySelector('.qline .pv strong')?.textContent).toBe('Rs 10,590');
+    m.click(m.button('Add to order'));
+    expect(cartLineMoney(config, added[0]!, configUnits(config))).toEqual({ kind: 'ok', minor: HUB });
+    expect(toSubmitLines({ lines: added })[0]).toMatchObject({ deal_id: 'D1', quantity: 3, deal_choices: [{ deal_part_id: 'P1', item_id: 'I3', options: [{ option_id: 'M1', quantity: 1 }] }, { deal_part_id: 'P2', item_id: 'I4' }] });
+    m.unmount();
+  });
+
+  it('[02b Q-64] a part option a menu change removed is dropped in the picker, with a notice; the part can be finished', () => {
+    const config = cfg();
+    const added: CartLine[] = [];
+    const m = mount();
+    const draw = (c: BranchConfig) =>
+      m.render(<DealSheet config={c} unitOf={configUnits(c)} inputs={inputs(c)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={(l) => added.push(l)} onClose={() => {}} />);
+    draw(config);
+    m.click(m.button('Chicken Karahi — Half'));
+    m.click(m.button('Naan'));
+    m.click(m.button('Options'));
+    m.click(m.button('Thick'));
+    m.click(m.button('Done', m.container.querySelector('.acts')!));
+    expect(m.container.querySelector('.dsh')?.textContent).toContain('+ Thick');
+    // the menu drops Thick
+    const without: BranchConfig = { ...config, modifier_groups: config.modifier_groups.map((g) => (g.modifier_group_id === 'G1' ? { ...g, options: g.options.filter((o) => o.option_id !== 'THK') } : g)) };
+    draw(without);
+    expect(m.container.querySelector('.dsh')?.textContent).not.toContain('+ ');
+    expect(m.button('Choose options for Part 1').hasAttribute('disabled')).toBe(true);
+    m.click(m.button('Options'));
+    expect(m.text()).toContain('Some options are no longer on the menu — pick again');
+    m.click(m.button('Regular'));
+    m.click(m.button('Done', m.container.querySelector('.acts')!));
+    m.click(m.button('Add to order'));
+    expect(added[0]!.deal_choices![0]!.options).toEqual([{ option_id: 'REG', quantity: 1 }]);
+    m.unmount();
+  });
+
+  it('[02b Q-64] tapping the chosen item again keeps its (paid) options and the total', () => {
+    const base = cfg();
+    const config: BranchConfig = { ...base, modifier_groups: base.modifier_groups.map((g) => (g.modifier_group_id === 'G1' ? { ...g, options: g.options.map((o) => (o.option_id === 'THK' ? { ...o, price_minor: 5_000 } : o)) } : g)) };
+    const m = mount();
+    m.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={() => {}} onClose={() => {}} />);
+    m.click(m.button('Chicken Karahi — Half'));
+    m.click(m.button('Naan'));
+    m.click(m.button('Options'));
+    m.click(m.button('Thick'));
+    m.click(m.button('Done', m.container.querySelector('.acts')!));
+    expect(m.container.querySelector('.qline .pv strong')?.textContent).toBe('Rs 3,250');
+    m.click(m.button('Chicken Karahi — Half'));
+    expect(m.container.querySelector('#part-t')).toBeNull(); // filled: no picker
+    expect(m.container.querySelector('.dsh')?.textContent).toContain('+ Thick');
+    expect(m.container.querySelector('.qline .pv strong')?.textContent).toBe('Rs 3,250');
+    m.unmount();
+  });
+
+  it('[02b Q-64] a part that auto-picks its only choice with an unfilled required group opens the picker', () => {
+    const base = cfg();
+    const config: BranchConfig = {
+      ...base,
+      modifier_groups: base.modifier_groups.map((g) => (g.modifier_group_id === 'G1' ? { ...g, options: g.options.map((o) => ({ ...o, is_default: false })) } : g)),
+      deals: base.deals.map((d) => ({ ...d, parts: d.parts.map((part) => (part.deal_part_id === 'P1' ? { ...part, choices: part.choices.filter((c) => c.item_id === 'I1') } : part)) })),
+    };
+    const m = mount();
+    m.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={() => {}} onClose={() => {}} />);
+    expect(m.container.querySelector('#part-t')?.textContent).toBe('Chicken Karahi — Half');
+    expect(m.button('Choose 1 in Gravy').hasAttribute('disabled')).toBe(true);
+    m.unmount();
+  });
+
+  it('[02b Q-64] the picker item leaves the menu while it is open: back to the deal (kept), with a notice', () => {
+    const config = cfg();
+    const notices: string[] = [];
+    const m = mount();
+    const draw = (c: BranchConfig) =>
+      m.render(<DealSheet config={c} unitOf={configUnits(c)} inputs={inputs(c)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={() => {}} onClose={() => {}} onNotice={(x) => notices.push(x)} />);
+    draw(config);
+    m.click(m.button('Chicken Karahi — Half'));
+    m.click(m.button('Naan'));
+    m.click(m.button('Options'));
+    expect(m.container.querySelector('#part-t')).not.toBeNull();
+    const gone: BranchConfig = { ...config, items: config.items.filter((i) => i.item_id !== 'I1') };
+    draw(gone);
+    expect(m.container.querySelector('#deal-t')?.textContent).toBe('Family Deal');
+    expect(notices).toEqual(['This item changed — pick again']);
+    expect(m.container.querySelectorAll('.dsh')[1]!.textContent).toContain('Done'); // the rest of the deal is kept
+    // picking Full later does not reopen a picker it does not need (Regular is its default)
+    m.click(m.button('Chicken Karahi — Full'));
+    expect(m.container.querySelector('#part-t')).toBeNull();
+    m.unmount();
+  });
+
+  it('[02b Q-64] a full multi-choice group refuses one more, with the group limit', () => {
+    const base = cfg();
+    const config: BranchConfig = {
+      ...base,
+      modifier_groups: [
+        ...base.modifier_groups,
+        {
+          modifier_group_id: 'G7',
+          name: 'Toppings',
+          min_choices: 0,
+          max_choices: 2,
+          sort_order: 7,
+          has_plain_options: true,
+          options: ['A', 'B', 'C'].map((x, k) => ({ option_id: `T${x}`, name: `Top ${x}`, price_minor: 0, max_quantity: 1, is_default: false, linked_item_id: null, sort_order: k })),
+        },
+      ],
+      items: base.items.map((i) => (i.item_id === 'I4' ? { ...i, modifier_group_ids: ['G7'] } : i)),
+    };
+    const m = mount();
+    m.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={() => {}} onClose={() => {}} />);
+    m.click(m.button('Naan'));
+    m.click(m.button('Options'));
+    m.click(m.button('Top A'));
+    m.click(m.button('Top B'));
+    m.click(m.button('Top C'));
+    expect(m.button('Top C').getAttribute('aria-pressed')).toBe('false');
+    expect(m.text()).toContain('Up to 2 in Toppings');
+    expect(m.button('Done', m.container.querySelector('.acts')!).hasAttribute('disabled')).toBe(false);
     m.unmount();
   });
 });
