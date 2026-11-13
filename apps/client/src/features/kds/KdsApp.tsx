@@ -7,6 +7,12 @@ import { BACKOFF_MS, MAX_BACKOFF_MS, REPLACED_REASON, type AlertConnection, type
 import { createAlertStore, type Timers } from '../alerts/store';
 import { webAudioSink, type AudioSink, type ToneContext } from '../alerts/sounds';
 import type { PageMeta } from '../staff/api';
+import { createKdsApi, useKdsActions, type CompletionMode } from './actions/actions';
+import { LOAD_NOTICE_MS, loadNotice, type LoadNotice } from './actions/batch';
+import { RowActions } from './actions/DoneEarly';
+import { GiveMeMore } from './actions/GiveMeMore';
+import { InlineError } from './actions/InlineError';
+import type { KdsApi } from './contracts';
 import { createKdsLive } from './live';
 import { startStationSession, type KdsPage, type StationAuth, type StationSession } from './session';
 import { Placeholder } from './station/Placeholder';
@@ -38,6 +44,8 @@ export interface KdsCtx {
   /** the socket is up: buttons work */
   up: boolean;
   fetch: (input: string, init?: RequestInit) => Promise<Response>;
+  /** the station commands on this session (K3) */
+  api: KdsApi;
 }
 
 const Ctx = createContext<KdsCtx | null>(null);
@@ -66,7 +74,7 @@ type Screen = 'guest' | 'not_set_up' | 'host' | 'upgrade' | 'busy' | 'meta' | 'e
 
 type Phase =
   | { k: 'starting'; offline: boolean }
-  | { k: 'live'; session: StationSession; token: string }
+  | { k: 'live'; session: StationSession; token: string; deviceId: string }
   | { k: 'replaced'; token: string }
   | { k: 'unpaired'; wipe: 'none' | 'pending' | 'done' | 'failed' }
   | { k: 'not_kds' }
@@ -172,8 +180,10 @@ export function KdsApp({ page, fetch, createSocket, timers, sink, readKey, wipeK
       const my = gen.current;
       const stale = () => !alive.current || gen.current !== my;
       let token: string | null;
+      let deviceId: string | null;
       try {
-        token = known ?? (await (readKey ?? readDeviceKey)('token'));
+        const read = readKey ?? readDeviceKey;
+        [token, deviceId] = await Promise.all([known === undefined ? read('token') : Promise.resolve(known), read('device_id')]);
       } catch {
         // the pairing store could not be read (IndexedDB error): nothing is wiped; read it again
         if (stale()) return;
@@ -182,7 +192,7 @@ export function KdsApp({ page, fetch, createSocket, timers, sink, readKey, wipeK
         return;
       }
       if (stale()) return;
-      if (token === null) {
+      if (token === null || deviceId === null) {
         setPhase({ k: 'unpaired', wipe: 'none' });
         return;
       }
@@ -197,7 +207,7 @@ export function KdsApp({ page, fetch, createSocket, timers, sink, readKey, wipeK
         case 'ok':
           busyRetried.current = false;
           revoked.current = false;
-          setPhase({ k: 'live', session: result.session, token });
+          setPhase({ k: 'live', session: result.session, token, deviceId });
           return;
         case 'unpaired':
           unpair();
@@ -242,6 +252,7 @@ export function KdsApp({ page, fetch, createSocket, timers, sink, readKey, wipeK
           page={page!}
           session={phase.session}
           token={phase.token}
+          deviceId={phase.deviceId}
           fetch={fetchFn}
           timers={tm}
           sink={sink ?? browserSink}
@@ -325,6 +336,7 @@ function Live({
   page,
   session,
   token,
+  deviceId,
   fetch,
   timers,
   sink,
@@ -336,6 +348,7 @@ function Live({
   page: KdsPage;
   session: StationSession;
   token: string;
+  deviceId: string;
   fetch: (input: string, init?: RequestInit) => Promise<Response>;
   timers: Timers;
   sink: AudioSink;
@@ -392,7 +405,26 @@ function Live({
     return () => timers.clearTimeout(handle);
   }, [store, timers, page]);
 
-  const ctx = useMemo<KdsCtx>(() => ({ meta: page.meta, clock: page.clock, deviceToken: token, session, store, up, fetch }), [page, token, session, store, up, fetch]);
+  // K3: the station commands on this session, the row states, the batch notice
+  const api = useMemo(
+    () => createKdsApi({ fetch, meta: page.meta, deviceId, deviceToken: token, sessionToken: session.session_token, nowMs: () => page.clock.nowMs() }),
+    [fetch, page, deviceId, token, session],
+  );
+  const [load, setLoad] = useState<LoadNotice | null>(null);
+  const loadTimer = useRef<unknown>(null);
+  useEffect(() => () => void (loadTimer.current !== null && timers.clearTimeout(loadTimer.current)), [timers]);
+  const actions = useKdsActions(api, timers, (r) => {
+    if (loadTimer.current !== null) timers.clearTimeout(loadTimer.current);
+    setLoad(loadNotice(r));
+    loadTimer.current = timers.setTimeout(() => {
+      loadTimer.current = null;
+      setLoad(null);
+    }, LOAD_NOTICE_MS);
+  });
+  /** 03b §3.3 completion mode of this station: from branch-config (K4); null until then (Start, then Done) */
+  const mode: CompletionMode = null;
+
+  const ctx = useMemo<KdsCtx>(() => ({ meta: page.meta, clock: page.clock, deviceToken: token, session, store, up, fetch, api }), [page, token, session, store, up, fetch, api]);
 
   if (view.station === null) return <Loading offline={false} />;
   return (
@@ -411,13 +443,23 @@ function Live({
         utcOffsetMs={page.clock.utcOffsetMs}
         up={up}
         banner={
-          up ? undefined : (
+          !up ? (
             <div className="kbn c-danger" role="status">
               {t('kds.reconnecting_banner')}
               <small>{t('kds.reconnecting_note')}</small>
             </div>
-          )
+          ) : load !== null ? (
+            <div className="kbn c-info" role="status">
+              {load.text}
+            </div>
+          ) : undefined
         }
+        {...(load === null ? {} : { highlight: load.ids })}
+        actionsFor={(row) => (
+          <RowActions row={row} mode={mode} nowMs={nowMs} up={up} state={actions.stateOf(row.order_item_id)} onTap={(a, confirm) => void actions.tap(row, a, confirm)} />
+        )}
+        messageFor={(row) => <InlineError msg={actions.stateOf(row.order_item_id).msg} />}
+        nextFooter={<GiveMeMore api={api} stationId={session.station_id} up={up} timers={timers} />}
       />
     </Ctx.Provider>
   );
