@@ -2115,6 +2115,10 @@ export const en = {
   // ---- lane A (02a client) ----
   'signin.pin_needs_hub': 'Signing in needs the hub',
   'pair.wipe_failed': 'Could not reset this screen. Ask a manager.',
+  'topbar.floor': 'Floor',
+  'tabs.tables': 'Tables',
+  'tabs.orders': 'Orders',
+  'tabs.me': 'Me',
   // ---- lane B (02a client) ----
   // 02a v1.1.6 §8 Table map (21b): Needs-you rows, flags, empty state (frames TableMap*, Tiles)
   'tables.ny.bill': 'Bill asked',

@@ -315,6 +315,11 @@ describe('[01d task 41 fixes] live sheet, inbox retry, sessions, clock', () => {
     const h = hub({ inbox: [() => reply(503, { error: { code: 'SERVICE_UNAVAILABLE', details: {} } })] });
     render(TABLET, h.fetch);
     await signIn();
+    // the app lands on the map (02a §8): look at the inbox to see its skeleton stop
+    act(() => {
+      window.location.hash = '#/inbox';
+    });
+    await flush();
     expect(m.container.querySelectorAll('.sk').length).toBe(0);
     const reads = () => h.calls.filter((c) => c.path === '/queries/alerts-inbox').length;
     expect(reads()).toBe(1);
@@ -377,3 +382,61 @@ describe('[01d task 41 fixes] live sheet, inbox retry, sessions, clock', () => {
   });
 });
 
+
+// 02a §8 Top bar (20b; frame 02a-C10)
+describe('[02a §8 Top bar] staff shell', () => {
+  function phoneMedia() {
+    const real = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: q.includes('max-width: 760px'), media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    return () => {
+      window.matchMedia = real;
+    };
+  }
+
+  it('[02a §8 Top bar] after sign-in the app lands on #/tables (kiosk: #/); Requests (n) only from the hub list, Inbox, person chip', async () => {
+    render(TABLET, hub({ requests: [requestRow({ alert_id: 'R1' })] }).fetch);
+    await signIn();
+    expect(window.location.hash).toBe('#/tables');
+    const top = m.container.querySelector('header.top')!;
+    expect(m.button('Requests', top).querySelector('.badge')?.textContent).toBe('1');
+    expect(m.button('Inbox', top)).toBeTruthy();
+    expect(m.button('Imran — sign out', top)).toBeTruthy();
+    // no floors until the map store is wired: no floor control
+    expect(top.querySelector('.seg')).toBeNull();
+    m.unmount();
+
+    render(KIOSK, hub().fetch);
+    await signIn();
+    expect(window.location.hash).toBe('#/');
+    expect(m.container.querySelector('header.top .bind')).toBeNull();
+    expect(m.text()).not.toContain('Requests');
+  });
+
+  it('[02a §8 Top bar] phone: top bar + tabs Tables · Orders · Inbox · Me; Me holds sign out', async () => {
+    const restore = phoneMedia();
+    try {
+      const h = hub();
+      render({ ...TABLET, type: 'phone' }, h.fetch);
+      await flush();
+      // the phone signs in its owner only: the roster has one person, the pad opens at once
+      const keys = m.container.querySelector('.pin__keys')!;
+      for (const d of '1234') m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === d));
+      m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === 'Sign in'));
+      await flush(8);
+      expect(m.container.querySelector('header.ph-top h1')?.textContent).toBe('Tables');
+      expect([...m.container.querySelectorAll('nav.tabbar a.tab')].map((a) => a.textContent)).toEqual(['Tables', 'Orders', 'Inbox', 'Me']);
+      expect(m.container.querySelector('nav.tabbar a[aria-current="page"]')?.textContent).toBe('Tables');
+      act(() => {
+        window.location.hash = '#/me';
+      });
+      await flush();
+      expect(m.container.querySelector('header.ph-top h1')?.textContent).toBe('Me');
+      m.click(m.button('Sign out'));
+      await flush();
+      expect(h.calls.some((c) => c.path === '/auth/logout')).toBe(true);
+      expect(m.container.querySelector('nav.tabbar')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
