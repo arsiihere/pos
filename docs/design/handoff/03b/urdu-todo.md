@@ -164,3 +164,23 @@ Every `alert.*` / `alerts.*` key must be in `ur.ts` (the `[01d §3.12]` labels t
 - printers.last_printed
 - printers.checked
 - kitchen_screens.lanes
+
+## Lane A (03b client) — A1 kitchen screens
+
+Appended by task A1 under the lane A marker of `en.ts`; no Urdu frame text for these.
+
+| Key | English | Note |
+|---|---|---|
+| `kitchen_screens.lane_label_for` | Lane label · {screen} | dialog title |
+| `kitchen_screens.lane_label_limits` | 1–20 letters. Empty = not a lane. |  |
+| `kitchen_screens.remove_label` | Remove label |  |
+| `kitchen_screens.lane_label_kds_only` | Lane labels are only for kitchen screens | brief §3.4 |
+| `kitchen_screens.tablet` | Tablet |  |
+| `kitchen_screens.pick_tablet` | Pick a tablet |  |
+| `kitchen_screens.bind_body` | “{name}” will show the Pass after sign-in and get always-on alerts. |  |
+| `kitchen_screens.point_archived_short` | Point archived | bind picker tile |
+| `kitchen_screens.save` | Save |  |
+| `kitchen_screens.warn.dark_detail` | Its tickets are on the Pass tablet. |  |
+| `kitchen_screens.warn.archived_detail` | They finish on its screen. |  |
+| `kitchen_screens.sign_in` | Sign in to set up kitchen screens |  |
+| `kitchen_screens.no_admins` | No one here can set up kitchen screens |  |
