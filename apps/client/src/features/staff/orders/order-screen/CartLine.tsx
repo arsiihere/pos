@@ -103,6 +103,12 @@ export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions }: { vi
           </span>
         )}
         {line.quantity === null && <span>{t('cart.weight_pending')}</span>}
+        {line.comp_it === true && (
+          <span className="bd c-info">
+            <Ico name="repeat" />
+            {t('compit.badge')}
+          </span>
+        )}
       </div>
       <div className="ln__s">
         <span className="ln__p" dir={MONEY_DIR}>

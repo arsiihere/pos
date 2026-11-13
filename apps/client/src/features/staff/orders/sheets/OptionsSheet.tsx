@@ -100,6 +100,8 @@ export function OptionsSheet(p: OptionsSheetProps) {
     options: options.filter((o) => groupOf(o.option_id) !== undefined),
     ...(note === undefined ? {} : { kitchen_note: note }),
     ...(p.from_zone === true || p.initial?.from_zone === true ? { from_zone: true } : {}),
+    // an edited E-7 line stays a comp-it line (its "Comp it?" after Send); `pick_options` is done once the sheet adds
+    ...(p.initial?.comp_it === true ? { comp_it: true } : {}),
   };
   const m = cartLineMoney(p.config, line, p.unitOf);
   // a pending weight: its linked add-ons are billed now (as the cart line shows), the rest after weighing
