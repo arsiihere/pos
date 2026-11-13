@@ -524,7 +524,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         />
       );
     else if (sheet.kind === 'deal' || editing?.deal_id !== undefined)
-      sheetView = <DealSheet {...common} deal_id={sheet.kind === 'deal' ? sheet.deal_id : editing!.deal_id!} initial={editing} />;
+      sheetView = <DealSheet {...common} deal_id={sheet.kind === 'deal' ? sheet.deal_id : editing!.deal_id!} initial={editing} onNotice={(text) => shell.toasts.show({ text, tone: 'warn' })} />;
     else if (sheet.kind === 'variants')
       sheetView = (
         <OptionsSheet

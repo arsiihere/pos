@@ -1,6 +1,7 @@
+import { checkOptionChoices, type Violation } from '@pos/domain';
 import type { BranchConfig, ConfigItem, ConfigModifierGroup } from '@pos/events';
 import type { LineOption } from '../contracts';
-import type { CartOption } from '../order-screen/cart';
+import type { CartOption, UnitOf } from '../order-screen/cart';
 
 // 02b §8 Ordering screen (options sheet: "defaults visible"), Q-7 ("Send it as a new item" opens the options sheet
 // preselected by option **name** match; storing option_id is deferred unless name match fails, OPEN-QUESTIONS §9).
@@ -38,4 +39,27 @@ export function preselect(config: BranchConfig, item: ConfigItem, stored: readon
     out.push(match.linked_item_id === null ? { option_id: match.option_id, quantity } : { option_id: match.option_id, quantity, order_item_id: newKey() });
   }
   return out;
+}
+
+/**
+ * 01c V9, owner Q-64 (a): a deal part offers its item's **plain** options; the hub checks them with
+ * `checkOptionChoices(groups, choice.options, 'child', { quantity: part qty × deal qty, sale_unit })` (build-submit.ts
+ * dealLines). The same check here; a linked option is never offered in a child position.
+ */
+export function partViolations(config: BranchConfig, unitOf: UnitOf, item_id: string, quantity: number, options: readonly CartOption[]): Violation[] {
+  const item = config.items.find((i) => i.item_id === item_id);
+  if (item === undefined) return [{ reason: 'not_effective', modifier_group_id: '', option_id: null }];
+  const groups = groupsOf(config, item);
+  const groupsById = Object.fromEntries(config.modifier_groups.map((g) => [g.modifier_group_id, g]));
+  const itemsById = Object.fromEntries(config.items.map((i) => [i.item_id, i]));
+  const chosen = options.map((o) => ({ modifier_group_id: groups.find((x) => x.options.some((y) => y.option_id === o.option_id))?.modifier_group_id ?? '', option_id: o.option_id, quantity: o.quantity }));
+  const unit = unitOf(item_id) ?? item.sale_unit;
+  // plain options only: the stock of a linked item is never read here (linked_in_child refuses one)
+  return checkOptionChoices(groups, chosen, 'child', { quantity, sale_unit: unit }, groupsById, itemsById, () => true);
+}
+
+/** The part's item has plain options to offer (a group with plain options, V9). */
+export function offersOptions(config: BranchConfig, item_id: string): boolean {
+  const item = config.items.find((i) => i.item_id === item_id);
+  return item !== undefined && groupsOf(config, item).some((g) => g.has_plain_options && g.options.some((o) => o.linked_item_id === null));
 }
