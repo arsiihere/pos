@@ -10,7 +10,7 @@ import { stationHasPrinter } from '../print/api.js';
 import type { HubDeps } from '../server.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import { registerCatchUp, type CatchUpPart } from './catch-up.js';
-import { DEFAULT_SOUND_VOLUME, doneUndone } from './kds-catch-up.js';
+import { DEFAULT_SOUND_VOLUME, doneUndone, heldOfOrders, tableMovedOrderIds } from './kds-catch-up.js';
 import { wsHubFor } from './server.js';
 
 // 03b §6.15, §6.16 (task b21): the `point_view` catch-up part (staff sockets on a device with a point, §3.4) and the
@@ -25,7 +25,8 @@ import { wsHubFor } from './server.js';
 //   the Now / planned lines of its takeover stations) that this socket has not been given yet (catch-up, an earlier
 //   frame or a takeover start view): once per id per socket, and again when a held line's live units change (B3-3:
 //   ItemRemoved / ItemVoided with units, LineWeightSet). One buildLineDetails (2 statements) per commit that adds or
-//   changes lines; 0 otherwise. Registered after b18's kds_lines hook (lane order B3 → B6).
+//   changes lines; 0 otherwise. ⚠️ Changed by v1.0.8 (owner 2026-11-13, Q-47): the lines of a moved / merged / split
+//   seating are sent again (the table identifier), +1 statement in a commit with a table event. Registered after b18's kds_lines hook (lane order B3 → B6).
 
 const isEngineState = (s: unknown): s is EngineState =>
   typeof s === 'object' && s !== null && typeof (s as Partial<EngineState>).stations === 'object' && typeof (s as Partial<EngineState>).lines === 'object';
@@ -254,6 +255,9 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
       if (UNIT_CHANGES.has(e.event_type)) changed.add((e.payload as { order_item_id: string }).order_item_id);
     }
 
+    // Q-47 (§6.16): the orders of the seatings a table event of this commit touched (1 statement, only with such an event).
+    const moved = tableMovedOrderIds(deps.db, appended);
+
     const byPoint = new Map<string, Set<string>>();
     const missing = new Map<string, string[]>();
     const all = new Set<string>();
@@ -270,7 +274,7 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
       const gained = [...shown].filter((id) => !had.has(id));
       // Held and still shown (pruned above) with changed units → sent again.
       const resend = [...changed].filter((id) => had.has(id));
-      const send = [...gained, ...resend].sort();
+      const send = [...new Set([...gained, ...resend, ...heldOfOrders(state, had, moved)])].sort();
       if (send.length === 0) continue;
       missing.set(s.sessionId, send);
       for (const id of send) all.add(id);
