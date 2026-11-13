@@ -1,4 +1,3 @@
-import type { Identifier } from '@pos/domain';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { readDeviceKey, wipeDeviceKeys } from '../../api/hub-admin';
 import type { HubClock } from '../../app/hub-clock';
@@ -10,8 +9,9 @@ import { webAudioSink, type AudioSink, type ToneContext } from '../alerts/sounds
 import type { PageMeta } from '../staff/api';
 import { createKdsLive } from './live';
 import { startStationSession, type KdsPage, type StationAuth, type StationSession } from './session';
-import { lineActions, onSlotsChanged } from './slots';
-import { createKdsStore, type KdsRow, type KdsStoreImpl, type KdsView } from './store';
+import { Placeholder } from './station/Placeholder';
+import { StationView } from './station/StationView';
+import { createKdsStore, type KdsStoreImpl } from './store';
 
 // 03b v1.0.8 §8 (Q-42), §3.3, #72; 00 v1.9.2 §8.2, §8.4 (K1): the /kds/ app.
 // 1. Reads the device token of the pairing store and calls POST /auth/station (the session token stays in memory).
@@ -379,16 +379,18 @@ function Live({
     if (up) upRef.current();
   }, [up]);
 
-  // display tick (no hub read): Done rows leave after their undo window
+  // display tick (no hub read): the timers count on the hub clock, Done rows leave after their undo window
+  const [nowMs, setNowMs] = useState(() => page.clock.nowMs());
   useEffect(() => {
     let handle: unknown = null;
     const tick = () => {
+      setNowMs(page.clock.nowMs());
       store.prune();
       handle = timers.setTimeout(tick, TICK_MS);
     };
     handle = timers.setTimeout(tick, TICK_MS);
     return () => timers.clearTimeout(handle);
-  }, [store, timers]);
+  }, [store, timers, page]);
 
   const ctx = useMemo<KdsCtx>(() => ({ meta: page.meta, clock: page.clock, deviceToken: token, session, store, up, fetch }), [page, token, session, store, up, fetch]);
 
@@ -402,73 +404,22 @@ function Live({
           <span className={up ? 'live' : 'live off'}>{up ? t('kds.live') : t('kds.reconnecting')}</span>
         </div>
       </header>
-      <main className={up ? 'kgrid' : 'kgrid kgrid--bar'}>
-        {!up && (
-          <div className="kbn c-danger" role="status">
-            {t('kds.reconnecting_banner')}
-            <small>{t('kds.reconnecting_note')}</small>
-          </div>
-        )}
-        <NowRows view={view} up={up} />
-      </main>
+      {/* K2: the station view (Now / Next / Later) */}
+      <StationView
+        view={view}
+        nowMs={nowMs}
+        utcOffsetMs={page.clock.utcOffsetMs}
+        up={up}
+        banner={
+          up ? undefined : (
+            <div className="kbn c-danger" role="status">
+              {t('kds.reconnecting_banner')}
+              <small>{t('kds.reconnecting_note')}</small>
+            </div>
+          )
+        }
+      />
     </Ctx.Provider>
-  );
-}
-
-function identifierText(id: Identifier): string {
-  switch (id.kind) {
-    case 'table':
-      return id.label;
-    case 'token':
-      return `#${id.token}`;
-    case 'parking':
-      return id.car_number;
-  }
-}
-
-/** K1's plain Now list (K2 replaces it with the station view): rows in order, placeholders, slot actions. */
-function NowRows({ view, up }: { view: KdsView; up: boolean }) {
-  const [, rerender] = useState(0);
-  useEffect(() => onSlotsChanged(() => rerender((n) => n + 1)), []);
-  return (
-    <section className="ksec">
-      <div className="ksec__h">{t('kds.now')}</div>
-      <div className="kcards">
-        {view.rows.map((row) => (
-          <Row key={row.order_item_id} row={row} up={up} hasPrinter={view.station?.has_printer ?? false} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function Row({ row, up, hasPrinter }: { row: KdsRow; up: boolean; hasPrinter: boolean }) {
-  const d = row.detail;
-  if (d === null) {
-    return <article className={up ? 'kl s-ph' : 'kl s-ph s-off'} aria-label={t('kds.loading')} data-id={row.order_item_id} />;
-  }
-  const actions = lineActions(d, { station_id: d.station_id, has_printer: hasPrinter, surface: 'kds' });
-  return (
-    <article className={up ? 'kl' : 'kl s-off'} data-id={row.order_item_id}>
-      <div className="kl__top">
-        <div className="kl__id">
-          <span className="kl__n">{identifierText(d.identifier)}</span>
-        </div>
-      </div>
-      <div className="kl__it">
-        <span className="q">{d.units} x</span>
-        <span>{d.item_name}</span>
-      </div>
-      {actions.length > 0 && (
-        <div className="kl__acts">
-          {actions.map((a) => (
-            <button key={a.key} type="button" className="btn" disabled={!up} onClick={() => void a.run().catch(() => {})}>
-              {a.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </article>
   );
 }
 
@@ -478,7 +429,7 @@ function Loading({ offline }: { offline: boolean }) {
     <>
       <header className="kbar">
         <div className="kbar__st">
-          <span className="sk sk--l1" />
+          <span className="sk sk--kid" />
         </div>
       </header>
       <main className={offline ? 'kgrid kgrid--bar' : 'kgrid'}>
@@ -491,10 +442,7 @@ function Loading({ offline }: { offline: boolean }) {
           <div className="ksec__h">{t('kds.loading')}</div>
           <div className="kcards">
             {[0, 1, 2].map((i) => (
-              <article key={i} className="kl s-ph" aria-label={t('kds.loading')}>
-                <span className="sk sk--l1" />
-                <span className="sk sk--l2" />
-              </article>
+              <Placeholder key={i} off={false} compact={false} />
             ))}
           </div>
         </section>

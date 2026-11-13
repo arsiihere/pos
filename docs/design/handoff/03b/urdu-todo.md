@@ -236,3 +236,11 @@ Appended by lane K (KDS English only in P1, brief §6.1).
 | `kds.busy_small` | Nothing was saved. | K1, 00-F05 |
 | `kds.page_fault` | This page didn't load right | K1 |
 | `kds.page_fault_body` | Reload it. If it happens again, ask a manager. | K1 |
+| `kds.ring.cooking` | cooking | K2 |
+| `kds.ring.waiting` | waiting | K2 |
+| `kds.ring.done` | done | K2 |
+| `kds.ring.min_late` | min late | K2 |
+| `kds.to_fire` | to fire | K2 |
+| `kds.empty_sub` | New lines show here when they fire. | K2, KdsEmpty |
+| `kds.mark.moved_time` | new time {time} | K2 |
+| `kds.order_note` | Order: {note} | K2 |
