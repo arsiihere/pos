@@ -1,5 +1,6 @@
 import type { HubResult } from '../../../api/hub-admin';
 import type { CommandOptions } from '../api';
+import type { QueueableCommand } from '../tables/contracts';
 
 // 02b client contracts (W0.5, owner Q-1, Q-3): the shapes the 02b lanes and 02a's queue use. They mirror the hub
 // exactly (apps/hub/src/orders/contracts.ts LineView :19-56; queries/seating-orders.ts SeatingOrder; queries/
@@ -285,7 +286,7 @@ export interface OrdersCatchUp {
 export interface QueueEntry {
   /** the command_id, the same on every replay */
   entry_id: string;
-  command_type: 'RequestBill' | 'CleanTable' | 'SubmitOrder' | 'MarkServed';
+  command_type: QueueableCommand;
   /** frozen at enqueue (the cart is frozen, #35) */
   payload: unknown;
   /** hub-clock ms (device clock + the hub_time offset) */

@@ -6,6 +6,7 @@ import { MONEY_DIR, money, nextShareMinor } from './money';
 afterEach(() => setLanguage('en'));
 
 const line = (refundable_minor: number, units: number, out: { comped?: number; removed?: number; voided?: number } = {}) => ({
+  line_kind: 'item' as const,
   refundable_minor,
   units,
   comped_units: out.comped ?? 0,
@@ -51,5 +52,15 @@ describe('[02b §3.4] share rule', () => {
     expect(nextShareMinor(line(10000, 3), -1)).toBeNull();
     expect(nextShareMinor(line(10000, 0), 0)).toBeNull();
     expect(nextShareMinor(line(10000, 2), 0)).toBe(0);
+    // each counter on its own (a negative one does not hide behind the sum), a non-integer amount: null, no throw
+    expect(nextShareMinor(line(10000, 3, { comped: -1, removed: 1 }), 1)).toBeNull();
+    expect(nextShareMinor(line(100.5, 3), 1)).toBeNull();
+    expect(nextShareMinor(line(10000, 3), 1.5)).toBeNull();
+  });
+
+  it('[02b §3.4] a deal header has no share of its own: null, never "Rs 0 comp"', () => {
+    expect(nextShareMinor({ ...line(0, 2), line_kind: 'deal' }, 1)).toBeNull();
+    expect(nextShareMinor({ ...line(150000, 2), line_kind: 'deal_part' }, 1)).toBe(75000);
+    expect(nextShareMinor({ ...line(30000, 2), line_kind: 'option_child' }, 1)).toBe(15000);
   });
 });
