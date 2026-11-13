@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
 import { navigate } from '../../../../app/router';
@@ -10,7 +10,7 @@ import { pendingHandovers, type HandoverResult } from './pending-handovers';
 
 // 02a §8 Table sheet / Handover waiting card, Q-14 (02a-C04 HandoverDeclined, HandoverAccepted): the sender's
 // result cards, info family, newest on top. Declined → "Hand over to someone else" (the table sheet, where Hand
-// over is); accepted → OK, hidden by the store after 4 s; closed by the table (obsolete) → OK. §8 Banners
+// over is); accepted → OK, hidden by the store 4 s after it first got a slot; closed by the table (obsolete) → OK. §8 Banners
 // (ForceMovedToMe): "A manager gave you F2" + Open table. They render inside the one 01d banner stack
 // (alerts/Banner.tsx: its phone / wide variant, at most 2 cards), never in a second stack of their own.
 
@@ -19,12 +19,16 @@ export type ForceMoveNotice = Extract<LockBannerState, { kind: 'force_moved_to_m
 
 export const forceMoveNotice = (() => {
   let current: ForceMoveNotice | null = null;
+  let since = 0;
   const listeners = new Set<() => void>();
   return {
     get: (): ForceMoveNotice | null => current,
-    set(next: ForceMoveNotice | null) {
+    /** hub ms it was raised (the banner stack's newest-first order) */
+    at: (): number => since,
+    set(next: ForceMoveNotice | null, at = 0) {
       if (next === current) return;
       current = next;
+      since = at;
       for (const l of [...listeners]) l();
     },
     subscribe(listener: () => void) {
@@ -43,6 +47,8 @@ function tileOf(map: TableMapBody | undefined, r: HandoverResult): MapTile | nul
 
 export function ResultCard({ r }: { r: HandoverResult }) {
   const shell = useShell();
+  // on screen now: an accepted one hides 4 s from here (02a-C04)
+  useEffect(() => pendingHandovers.shown(r.id), [r.id]);
   const table = r.table_code ?? '';
   const name = r.name ?? t('lock.someone');
   const handOverAgain = () => {
@@ -129,11 +135,11 @@ export function ForceMovedCard({ state }: { state: ForceMoveNotice }) {
   );
 }
 
-/** The handover cards for the banner stack, newest first: the force-move notice, then the results. */
-export function handoverCards(): Array<{ key: string; node: ReactNode }> {
+/** The handover cards for the banner stack, each with the hub ms it arrived (the stack orders newest first). */
+export function handoverCards(): Array<{ key: string; at: number; node: ReactNode }> {
   const notice = forceMoveNotice.get();
   return [
-    ...(notice === null ? [] : [{ key: 'force-move', node: <ForceMovedCard state={notice} /> }]),
-    ...[...pendingHandovers.results()].reverse().map((r) => ({ key: `handover-${r.id}`, node: <ResultCard r={r} /> })),
+    ...(notice === null ? [] : [{ key: 'force-move', at: forceMoveNotice.at(), node: <ForceMovedCard state={notice} /> }]),
+    ...pendingHandovers.results().map((r) => ({ key: `handover-${r.id}`, at: r.at, node: <ResultCard r={r} /> })),
   ];
 }
