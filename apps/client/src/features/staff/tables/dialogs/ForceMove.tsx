@@ -5,7 +5,7 @@ import type { HubError } from '../../../../api/hub-admin';
 import { useShell } from '../../shell/hooks';
 import type { SeatingRef } from '../contracts';
 import { FORCE_MOVE_REASONS, encodeReason, reasonLabel, type ReasonToken } from '../sheet/reasons';
-import { CandidatePick, candidateSub, useCandidates, type CandidateRow } from './HandOver';
+import { CandidatePick, CandidatesPending, candidateSub, useCandidates, type CandidateRow } from './HandOver';
 import { DialogFrame } from './TableBusy';
 
 // 02a §6.8 (02a-D21 ForceMove): `ForceMoveTable { table_id, seating_id, to_staff_id, reason }` — the receiver is
@@ -23,7 +23,7 @@ export interface ForceMoveProps {
 
 export function ForceMove({ code, seating, onClose, onMoved, onFailed }: ForceMoveProps) {
   const { tables, permissions, me } = useShell();
-  const { list, reload } = useCandidates(seating.table_id);
+  const { list, failed, reload } = useCandidates(seating.table_id);
   const [picked, setPicked] = useState<string | null>(null);
   const [token, setToken] = useState<ReasonToken | null>(null);
   const [gone, setGone] = useState<string | null>(null);
@@ -76,7 +76,7 @@ export function ForceMove({ code, seating, onClose, onMoved, onFailed }: ForceMo
           <span>{fill(t('handover.gone'), { name: gone })}</span>
         </div>
       )}
-      {list === null ? <p className="dlg__line">{t('common.loading')}</p> : <CandidatePick rows={rows} picked={chosen?.staff_id ?? null} onPick={setPicked} />}
+      {list === null ? <CandidatesPending failed={failed} onRetry={() => void reload()} /> : <CandidatePick rows={rows} picked={chosen?.staff_id ?? null} onPick={setPicked} />}
       <div className="fld" role="group" aria-label={t('release.reason')}>
         <span className="fld__l">
           {t('release.reason')}

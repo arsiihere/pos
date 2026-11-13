@@ -1066,6 +1066,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'split.items': '{n} آئٹم',
   'tables.back': 'واپس',
   'tables.ok': 'ٹھیک ہے',
+  // 22c: needs native review
+  'bill.asked': 'بل مانگ لیا',
+  'clean.label': 'صفائی',
+  'clean.open_orders': '{table} پر ابھی {n} آرڈر ہیں۔ پہلے بل ادا ہونا چاہیے۔',
+  'tables.retry': 'دوبارہ کوشش کریں',
   // ---- lane D (02a client) ----
   // 02a §8 Banners (02a-B10) detail lines and fallbacks (23a)
   'lock.released': 'آپ کی میز {table} چھوڑ دی گئی',

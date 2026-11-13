@@ -2172,6 +2172,11 @@ export const en = {
   'split.items': '{n} items',
   'tables.back': 'Back',
   'tables.ok': 'OK',
+  // 22c call waiter (02a-D23), ask for bill (02a-D24), clean (02-D13)
+  'bill.asked': 'Bill asked',
+  'clean.label': 'Clean',
+  'clean.open_orders': '{table} still has {n} orders. The bill must be paid first.',
+  'tables.retry': 'Try again',
   // ---- lane D (02a client) ----
   // 02a §8 Banners (02a-B10) detail lines and fallbacks (23a)
   'lock.released': 'Your table {table} was released',

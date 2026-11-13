@@ -63,18 +63,34 @@ export function CandidatePick({ rows, picked, onPick }: { rows: CandidateRow[]; 
   );
 }
 
-/** Reads `handover-candidates` for the table; `reload()` reads again (HandOverGone). */
-export function useCandidates(table_id: string): { list: HandoverCandidate[] | null; reload: () => Promise<void> } {
+/** Reads `handover-candidates` for the table; `reload()` reads again (HandOverGone, Try again). */
+export function useCandidates(table_id: string): { list: HandoverCandidate[] | null; failed: boolean; reload: () => Promise<void> } {
   const { tables } = useShell();
   const [list, setList] = useState<HandoverCandidate[] | null>(null);
+  const [failed, setFailed] = useState(false);
   const reload = useCallback(async () => {
+    setFailed(false);
     const answer = await tables.handoverCandidates(table_id);
     if (answer.ok) setList(workingFirst(answer.data.staff));
+    else setFailed(true);
   }, [tables, table_id]);
   useEffect(() => {
     void reload();
   }, [reload]);
-  return { list, reload };
+  return { list, failed, reload };
+}
+
+/** The list's place while it is not there: loading, or a failed read with Try again (never "Loading…" forever). */
+export function CandidatesPending({ failed, onRetry }: { failed: boolean; onRetry(): void }) {
+  if (!failed) return <p className="dlg__line">{t('common.loading')}</p>;
+  return (
+    <div className="msg c-danger" role="alert">
+      <span>{t('tables.err.unknown')}</span>
+      <button type="button" className="btn" onClick={onRetry}>
+        {t('tables.retry')}
+      </button>
+    </div>
+  );
 }
 
 export interface HandOverProps {
@@ -89,7 +105,7 @@ export interface HandOverProps {
 
 export function HandOver({ code, seating, preset = null, onClose, onSent, onFailed }: HandOverProps) {
   const { tables } = useShell();
-  const { list, reload } = useCandidates(seating.table_id);
+  const { list, failed, reload } = useCandidates(seating.table_id);
   const [picked, setPicked] = useState<string | null>(preset);
   const [gone, setGone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -126,7 +142,7 @@ export function HandOver({ code, seating, preset = null, onClose, onSent, onFail
         </div>
       )}
       {list === null ? (
-        <p className="dlg__line">{t('common.loading')}</p>
+        <CandidatesPending failed={failed} onRetry={() => void reload()} />
       ) : (
         <CandidatePick rows={list.map((c) => ({ staff_id: c.staff_id, name: c.name, sub: candidateSub(c), pickable: c.working }))} picked={chosen?.staff_id ?? null} onPick={setPicked} />
       )}
