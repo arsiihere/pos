@@ -247,3 +247,4 @@ Appended by lane K (KDS English only in P1, brief §6.1).
 | `kds.screen` | Kitchen screen | K4 |
 | `kds.lanes_failed` | Can't change lanes now | K4 |
 | `kds.day_not_started_sub` | This screen fills when the manager opens the day. | K4, KdsDayNotStarted |
+| `kds.tap_for_sound` | Tap to turn on sound | K5, KdsLockSound |
