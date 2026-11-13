@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RequestToAnswerRow, WsAlertClosed } from '@pos/events';
 import { t } from '../../i18n';
+import { fill } from '../../i18n/en';
+import { HANDOVER_KIND } from '../staff/tables/cards/pending-handovers';
 import type { AlertRow } from './store';
 import { Ico, OpenCard, Ring, RowCard } from './ui';
 
@@ -55,6 +57,17 @@ export function requestViews(
     }
     return view;
   });
+}
+
+/**
+ * 02a §6.15 (02a-C02 HandoverAnswer): a handover card's detail line is "3 orders" and its amount (the running
+ * total) at the card's end; the card shows `details.item`, so the order count is put there for the card only.
+ */
+function cardRow(r: RequestView): RequestView {
+  const d = r.card?.details;
+  if (r.kind !== HANDOVER_KIND || r.card === undefined || d === null || d === undefined || d.quantity === undefined) return r;
+  const { quantity, ...rest } = d;
+  return { ...r, card: { ...r.card, details: { ...rest, item: fill(t('handover.det.orders'), { n: String(quantity) }) } } };
 }
 
 const oldestFirst = (a: RequestView, b: RequestView) => a.raised_at - b.raised_at || (a.alert_id < b.alert_id ? -1 : 1);
@@ -115,7 +128,7 @@ export function RequestsToAnswer({
     r.state === 'closed' ? (
       <RowCard key={r.alert_id} row={r} utcOffsetMs={utcOffsetMs} onOpen={() => {}} className="is-leaving" />
     ) : (
-      <OpenCard key={r.alert_id} row={r} nowMs={nowMs} utcOffsetMs={utcOffsetMs} readOnly={readOnly} onOpen={() => onOpen(r)} />
+      <OpenCard key={r.alert_id} row={cardRow(r)} nowMs={nowMs} utcOffsetMs={utcOffsetMs} readOnly={readOnly} onOpen={() => onOpen(r)} />
     );
 
   return (

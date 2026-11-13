@@ -2150,6 +2150,16 @@ export const en = {
   'offline.bar_orders_one': 'Reconnecting… 1 order waiting to send',
   'offline.bar_reconnecting': 'Reconnecting…',
   'offline.bar_order_hint': 'Send still works — it waits here',
+  // 02a §8 Handover waiting card / Table sheet, 02a-C02–C05 (23b)
+  'handover.sent': 'Hand over sent {time}',
+  'handover.waiting_answer_late': 'Waiting for an answer — {n} min · ask in person',
+  'handover.result.stays_yours': 'The table stays yours.',
+  'handover.result.theirs': 'It’s {name}’s table now.',
+  'handover.fact.orders': 'Orders',
+  'handover.fact.total': 'Running total',
+  'handover.det.orders': '{n} orders',
+  'handover.stale': 'Bill paid, waiting for cleaning. This request closes when the table is cleaned.',
+  'forcemove.open_table': 'Open table',
   // ---- lane Q (02b client) ----
   // ---- lane O (02b client) ----
   // ---- lane T (02b client) ----

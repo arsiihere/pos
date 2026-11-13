@@ -251,3 +251,78 @@ describe('[01d §8.1 D01] AnswerSheet', () => {
   });
 });
 
+
+describe('[02a §8 Table sheet, 02b §3.9] AnswerSheet for the 02 kinds (23b)', () => {
+  const HANDOVER = {
+    kind: 'table_handover',
+    family: 'action' as const,
+    answers: ['accept', 'decline'] as ('accept' | 'decline')[],
+    needs_pin: 'never' as const,
+    lock: { kind_label_key: 'alert.table_handover.lock', table_code: 'F4 + F5', point_code: null, requester_name: 'Ali' },
+    card: { kind_label_key: 'alert.table_handover.card', table_code: 'F4 + F5', point_code: null, requester_name: 'Ali', device_name: null, details: { quantity: 3, amount: 1_425_000 } },
+  };
+  const ACCEPTED = { data: { result: { alert_id: 'R1', decision: 'accept', answered_at: NOW } } };
+
+  it('[02a §8 Table sheet] handover Accept / Decline, one tap, no PIN', async () => {
+    const s = setup({ row: HANDOVER, replies: [reply(200, ACCEPTED)] });
+    const facts = m.container.querySelector('.facts')!.textContent ?? '';
+    expect(facts).toContain('Orders');
+    expect(facts).toContain('3');
+    expect(facts).toContain('Running total');
+    expect(facts).toContain('Rs 14,250');
+    expect(facts).not.toContain('Quantity');
+    expect(m.container.querySelector('.fact--amt')?.textContent).toContain('Rs 14,250');
+    const acts = [...m.container.querySelectorAll('.acts .btn')].map((b) => b.textContent);
+    expect(acts).toEqual(['Decline', 'Accept']);
+    m.click(m.button('Accept'));
+    await flush();
+    expect(m.container.querySelector('.pin__keys')).toBeNull();
+    expect(s.bodies()[0]!.payload).toEqual({ alert_id: 'R1', decision: 'accept', method: 'session' });
+  });
+
+  it('[02a §8 Table sheet] Accept 409 TABLE_HANDOVER_STALE → "Bill paid, waiting for cleaning"; card stays', async () => {
+    const s = setup({ row: HANDOVER, replies: [reply(409, { error: { code: 'TABLE_HANDOVER_STALE', message: 'stale', details: {} } })] });
+    m.click(m.button('Accept'));
+    await flush();
+    const msg = m.container.querySelector('.msg.c-warn');
+    expect(msg?.textContent).toContain('Bill paid, waiting for cleaning');
+    expect(s.onClose).not.toHaveBeenCalled();
+    expect(s.onToast).not.toHaveBeenCalled();
+    // the request closes when the table is cleaned: no second try from here
+    for (const b of m.container.querySelectorAll<HTMLButtonElement>('.acts .btn')) expect(b.disabled).toBe(true);
+  });
+
+  it('[02a §8 Table sheet] phone: banner / Inbox row → bottom answer sheet, 72 px Decline / Accept', () => {
+    const hub = link(true);
+    const sender = createAnswerSender({ link: hub, context: () => CTX, fetch: vi.fn(), newCommandId: () => '01JCMD' });
+    m = mount();
+    m.render(
+      <AnswerSheet
+        row={requestRow({ alert_id: 'R1', ...HANDOVER })}
+        canAnswer
+        deviceId="D9"
+        me={{ staffId: 'S-SARA', name: 'Sara' }}
+        sender={sender}
+        link={hub}
+        loadApprovers={async () => []}
+        nowMs={NOW}
+        utcOffsetMs={0}
+        sheet
+        onClose={() => {}}
+        onToast={() => {}}
+      />,
+    );
+    expect(m.container.querySelector('.scrim.scrim--sheet .dlg .dlg__grip')).not.toBeNull();
+    expect([...m.container.querySelectorAll('.acts .btn')].map((b) => b.textContent)).toEqual(['Decline', 'Accept']);
+    // `.acts .btn` is the kit's 72 px answer button (pulse-staff.css)
+    expect(m.container.querySelector('.dlg .acts')?.children).toHaveLength(2);
+  });
+
+  it('[02b Q-19] approver comp card shows details.reason as sent; answer sheet then PIN', async () => {
+    const card = { kind_label_key: 'alert.comp.card', table_code: 'F4', point_code: null, requester_name: 'Bilal', device_name: null, details: { item: 'Chicken Karahi', quantity: 1, amount: 220_000, reason: 'Cold food: sent back twice' } };
+    setup({ row: { kind: 'comp', family: 'action', card, lock: { kind_label_key: 'alert.comp.lock', table_code: 'F4', point_code: null, requester_name: 'Bilal' } } });
+    expect(m.text()).toContain('“Cold food: sent back twice”');
+    m.click(m.button('Approve'));
+    expect(m.container.querySelector('.pin__keys')).not.toBeNull();
+  });
+});

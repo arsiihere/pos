@@ -1044,6 +1044,16 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'offline.bar_orders_one': 'دوبارہ جُڑ رہا ہے… 1 آرڈر بھیجنے کے انتظار میں',
   'offline.bar_reconnecting': 'دوبارہ جُڑ رہا ہے…',
   'offline.bar_order_hint': 'بھیجیں اب بھی کام کرتا ہے — آرڈر یہیں انتظار کرے گا',
+  // 02a §8 Handover waiting card / Table sheet, 02a-C02–C05 (23b)
+  'handover.sent': 'میز دینے کی درخواست {time} پر بھیجی',
+  'handover.waiting_answer_late': 'جواب کا انتظار — {n} منٹ · خود جا کر پوچھیں',
+  'handover.result.stays_yours': 'میز آپ ہی کی رہے گی۔',
+  'handover.result.theirs': 'اب یہ میز {name} کی ہے۔',
+  'handover.fact.orders': 'آرڈر',
+  'handover.fact.total': 'اب تک کا بل',
+  'handover.det.orders': '{n} آرڈر',
+  'handover.stale': 'بل ادا ہو گیا، صفائی کا انتظار ہے۔ میز صاف ہونے پر یہ درخواست بند ہو جائے گی۔',
+  'forcemove.open_table': 'میز کھولیں',
   // ---- lane Q (02b client) ----
   // ---- lane O (02b client) ----
   // ---- lane T (02b client) ----
