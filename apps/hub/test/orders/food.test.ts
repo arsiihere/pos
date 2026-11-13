@@ -43,6 +43,7 @@ function line(over: Partial<LineView> = {}): LineView {
     served_source: null,
     is_food: false,
     kitchen_note: null,
+    options: [], // 02b v1.0.11 §4.2 (Q-7)
     ...over,
   };
 }
