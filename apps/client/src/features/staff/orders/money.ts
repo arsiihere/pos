@@ -17,6 +17,7 @@ export const MONEY_DIR = 'ltr' as const;
 
 /** The §3.4 counters a share needs (a LineView has them). */
 export interface ShareLine {
+  line_kind: 'item' | 'option_child' | 'deal' | 'deal_part';
   refundable_minor: number;
   units: number;
   comped_units: number;
@@ -28,13 +29,18 @@ export interface ShareLine {
  * 02b §3.4 ledger (the hub's `lineShares`, orders/ledger.ts): shares = allocateDealMinor(refundable, [1 × units]) —
  * every share floor(refundable / units), the last one the remainder too. Units leave billing in order: the k-th unit
  * (k = comped + removed + voided) takes shares[k]. The amount `n` more units would take now (a comp's value), or
- * null when the line has fewer than `n` free units or no units (a pending weight has units 1, refundable 0 → 0).
- * One line only: a deal's money lives in its parts and a parent's options in their child lines (§3.4 cascades).
+ * null when the line has fewer than `n` free units, no units, or a counter that is not a whole number ≥ 0 (as the
+ * hub's `count()` guards; a pending weight has units 1, refundable 0 → 0). One line only: a `deal` header gives null
+ * (its money lives in its parts, so a comp preview sums the parts — never "Rs 0 comp"), and a parent's option
+ * charges are in its child lines (§3.4 cascades).
  */
 export function nextShareMinor(line: ShareLine, n: number): number | null {
-  if (!Number.isSafeInteger(n) || n < 0 || !Number.isSafeInteger(line.units) || line.units < 1) return null;
+  if (line.line_kind === 'deal') return null;
+  const whole = (x: number) => Number.isSafeInteger(x) && x >= 0;
+  if (![n, line.refundable_minor, line.comped_units, line.removed_units, line.voided_units].every(whole)) return null;
+  if (!Number.isSafeInteger(line.units) || line.units < 1) return null;
   const out = line.comped_units + line.removed_units + line.voided_units;
-  if (out < 0 || out + n > line.units || line.refundable_minor < 0) return null;
+  if (out + n > line.units) return null;
   const shares = allocateDealMinor(line.refundable_minor, Array.from({ length: line.units }, () => 1));
   let total = 0;
   for (let k = out; k < out + n; k += 1) total += shares[k] as number;

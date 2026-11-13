@@ -87,8 +87,24 @@ describe('[02b §6] Orders api', () => {
     expect(JSON.stringify(big).length).toBeLessThan(8192);
     const refused = setup();
     const r = await refused.orders.etaPreview(big);
-    expect(r).toMatchObject({ ok: false, error: { kind: 'api', status: 400, code: 'VALIDATION_FAILED' } });
+    expect(r).toMatchObject({ ok: false, error: { kind: 'api', status: 400, code: 'VALIDATION_FAILED', details: { issues: [{ path: 'draft' }], local: true } } });
     expect(refused.calls).toHaveLength(0);
+  });
+
+  it('[02b §6.14] the 8 KB limit is exact: 8 192 bytes are sent, 8 193 refused', async () => {
+    const sized = (bytes: number): EtaDraft => {
+      // padded through the order note (the size check is the device's; the hub's ≤ 200 rule is not in play here)
+      const base: EtaDraft = { order_type: 'takeaway', order_note: '', lines: [{ key: 'k', item_id: 'I1' }] };
+      const pad = bytes - new TextEncoder().encode(JSON.stringify(base)).length;
+      return { ...base, order_note: 'x'.repeat(pad) };
+    };
+    for (const [bytes, sent] of [[8192, 1], [8193, 0]] as const) {
+      const draft = sized(bytes);
+      expect(new TextEncoder().encode(JSON.stringify(draft)).length).toBe(bytes);
+      const s = setup(200, { data: { as_of_seq: 1, groups: [], lines: [] } });
+      await s.orders.etaPreview(draft);
+      expect(s.calls, String(bytes)).toHaveLength(sent);
+    }
   });
 
   it('[02b §6] orderView(order_id) → 404 maps to { kind: "missing" } (H3 fallback switch)', async () => {
@@ -98,6 +114,11 @@ describe('[02b §6] Orders api', () => {
     // a real answer: the order is gone
     const gone = setup(404, { error: { code: 'ORDER_NOT_FOUND', details: { order_id: 'O1' } } });
     expect(await gone.orders.orderView('O1')).toMatchObject({ ok: false, error: { code: 'ORDER_NOT_FOUND' } });
+    // any other answer passes through unchanged: a 403 outside_scope (§6.18a), another 404 code
+    const scope = setup(403, { error: { code: 'PERMISSION_DENIED', details: { reason: 'outside_scope' } } });
+    expect(await scope.orders.orderView('O1')).toEqual({ ok: false, error: { kind: 'api', status: 403, code: 'PERMISSION_DENIED', details: { reason: 'outside_scope' } } });
+    const other404 = setup(404, { error: { code: 'TABLE_NOT_FOUND', details: {} } });
+    expect(await other404.orders.orderView('O1')).toMatchObject({ ok: false, error: { code: 'TABLE_NOT_FOUND' } });
     const order = { order_id: 'O1', placed_by: { staff_id: 'ST1', name: 'Ali' }, placed_at: 1, follow_up: false, cancelled: false, billed: false, has_phone: false, promise_ms: null, lines: [] };
     const found = setup(200, { data: order });
     expect(await found.orders.orderView('O1')).toEqual({ ok: true, data: { kind: 'order', order } });
