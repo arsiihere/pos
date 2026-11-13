@@ -39,7 +39,14 @@ import { registerSetStationCapacity } from './commands/set-station-capacity.js';
 import { registerSetStationPause } from './commands/set-station-pause.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { hubTime } from './lib/hub-time.js';
-import { CLIENT_DIST_DIR, KDS_DIST_DIR, registerClientDist, STAFF_DIST_DIR } from './lib/client-dist.js';
+import {
+  ADMIN_KITCHEN_SCREENS_DIST_DIR,
+  ADMIN_PRINTERS_DIST_DIR,
+  CLIENT_DIST_DIR,
+  KDS_DIST_DIR,
+  registerClientDist,
+  STAFF_DIST_DIR,
+} from './lib/client-dist.js';
 import { registerAdminPage } from './admin/routes.js';
 import { Semaphore } from './lib/semaphore.js';
 import { registerUiAssets } from './lib/ui-assets.js';
@@ -231,6 +238,9 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerClientDist(app, { prefix: '/staff/', dir: STAFF_DIST_DIR, routeConfig: { group: 'admin-page' }, indexMeta: pageMeta });
   // 00 v1.9.2 §8.2 (Q-42): the 03b KDS entry, with the same page meta; it signs in as its station itself (M53).
   registerClientDist(app, { prefix: '/kds/', dir: KDS_DIST_DIR, routeConfig: { group: 'admin-page' }, indexMeta: pageMeta });
+  // 00 v1.9.2 §8.2 (Q-43): the 03b / 03c admin entries, like /admin/stock/ (no meta, no credentials).
+  registerClientDist(app, { prefix: '/admin/kitchen-screens/', dir: ADMIN_KITCHEN_SCREENS_DIST_DIR, routeConfig: { group: 'admin-page' } });
+  registerClientDist(app, { prefix: '/admin/printers/', dir: ADMIN_PRINTERS_DIST_DIR, routeConfig: { group: 'admin-page' } });
   installCors(app, deps.config.cors_origins);
   bindConfigPoller(
     app,
