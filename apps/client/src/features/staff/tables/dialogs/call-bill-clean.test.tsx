@@ -186,6 +186,23 @@ describe('[02a §3.13] call waiter, ask for bill, clean', () => {
     await flush();
     expect(sent(clean.calls)).toEqual([{ name: 'enqueue:CleanTable', payload: { table_id: 'TB4', seating_id: 'S1' }, meta: { table_id: 'TB4', seating_id: 'S1', label: 'Clean · F4' } }]);
     expect(toast(clean.shell)?.text).toBe('Will be sent when the hub is back');
+    m.unmount();
+
+    // IR-12: an entry that went straight to the queue log (its session ended) says so
+    const logged = fakeShell({ online: false, tile: tile(), queue: [{ status: 'queued', entry_id: 'Q3', logged: true }] });
+    await render(logged.shell);
+    m.click(m.button('Ask for bill'));
+    m.click(m.button('Ask', m.container.querySelector('.confirm')!));
+    await flush();
+    expect(toast(logged.shell)?.text).toBe('Not sent — see the queue log');
+    m.unmount();
+    const loggedClean = fakeShell({ online: false, tile: seated, queue: [{ status: 'queued', entry_id: 'Q4', logged: true }] });
+    await render(loggedClean.shell);
+    m.click(m.button('More'));
+    m.click(m.button('Mark clean'));
+    m.click(m.button('Mark clean', dlg()!));
+    await flush();
+    expect(toast(loggedClean.shell)?.text).toBe('Not sent — see the queue log');
   });
 
   it('[02a §3.13] Ask bill confirms in place; 409 TABLE_NO_ORDERS → toast; requested: false → "Already asked"', async () => {

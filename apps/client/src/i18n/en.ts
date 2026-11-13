@@ -2207,6 +2207,8 @@ export const en = {
   'queue.refused': 'Not sent: {reason}',
   'queue.sent_card_sub': 'Queued at {time} · call the token',
   'queue.ok': 'OK',
+  // IR-12: an entry that went straight to the queue log (its session ended): Send again there
+  'queue.in_log': 'Not sent — see the queue log',
   // queue log reasons ('Not sent: {reason}'); {item} = the menu name from the branch config
   'queue.why.ITEM_SOLD_OUT': '{item} sold out',
   'queue.why.ITEM_UNAVAILABLE': '{item} is not available',

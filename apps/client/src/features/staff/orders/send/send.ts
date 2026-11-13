@@ -48,7 +48,7 @@ export function freezeSubmit(cart: Cart, target: DraftTarget, order_id: string):
 export type SendOutcome =
   /** a 2xx; `result` undefined = the hub had it already (own pending ORDER_ITEM_ID_IN_USE, 25b) */
   | { kind: 'sent'; result: SubmitResult | undefined }
-  | { kind: 'queued'; entry_id: string }
+  | { kind: 'queued'; entry_id: string; logged?: true }
   | { kind: 'day_not_open' }
   | { kind: 'refused'; error: Extract<HubError, { kind: 'api' }> }
   /** the queue would not take it (no session / person on this page): sign in again */
@@ -62,7 +62,7 @@ export async function sendOrder(enqueue: Enqueue, payload: SubmitOrderPayload, l
     case 'sent':
       return { kind: 'sent', result: answer.result };
     case 'queued':
-      return { kind: 'queued', entry_id: answer.entry_id };
+      return answer.logged === true ? { kind: 'queued', entry_id: answer.entry_id, logged: true } : { kind: 'queued', entry_id: answer.entry_id };
     case 'refused':
       if (answer.error.code === 'BUSINESS_DAY_NOT_OPEN') return { kind: 'day_not_open' };
       return { kind: 'refused', error: answer.error };

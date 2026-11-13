@@ -509,7 +509,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     } else if (outcome.kind === 'queued') {
       // lane T (27a2): a queued comp-it round is announced too; the prompt waits for its ItemAdded frame
       announceCompIt(payload, frozen, { queued: true });
-      setSend({ kind: 'queued' });
+      setSend(outcome.logged === true ? { kind: 'queued', logged: true } : { kind: 'queued' });
       setCart(EMPTY_CART);
     } else if (outcome.kind === 'day_not_open') {
       sending.current = false;

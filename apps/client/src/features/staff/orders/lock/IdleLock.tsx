@@ -9,13 +9,15 @@ import { createIdleLock, type DeviceIdleLock, type IdleTimers } from './idle-loc
 import { createPendingLogout, pendingLogoutOf } from './pending-logout';
 
 // 02b v1.0.11 §8 Device idle lock (02-B09), 00 H-1, #35 (m-9, S-4), owner Q-21, Q-2 (25d). Mounted by the shell while
-// someone is signed in. It reads the session's idle TTL (`GET /queries/session`, not activity), then:
+// someone is signed in. It takes the idle TTL from the login reply (`Shell.idleTtlMs`), else reads it from the
+// session (`GET /queries/session`, not activity), then:
 // - every tap / key is checked first (capture phase, before any screen sees it): past the TTL on the wall clock the
 //   tap is swallowed and the lock shows — nothing is sent as the old person (m-9); `visibilitychange` checks too;
 // - at the lock: the queue drains first (as the person who queued, within this page's life), then the logout. The
 //   session token moves to the page's pending logout (memory only) and the staff api forgets it; the logout is sent
 //   now, else on reconnect, on the lock's Sign in, or by the sign-in hooks before the next login (S-4). The hub ends
-//   the session and closes the staff socket (4401): the shell signs the page out and offers the login.
+//   the session and closes the staff socket (4401): the shell signs the page out and offers the login. The lock's
+//   Sign in tries the drain + logout once more and then signs the page out itself (`Shell.signOut`), offline too.
 // - the draft is kept: the lock never touches the draft store ("Your order is kept").
 
 export interface IdleLockProps {
@@ -34,10 +36,10 @@ export function IdleLock({ now, timers, fetch }: IdleLockProps = {}) {
   if (lastTap.current === null) lastTap.current = wall();
   const lockRef = useRef<DeviceIdleLock | null>(null);
   const [lock, setLock] = useState<DeviceIdleLock | null>(null);
-  const [ttlMs, setTtl] = useState<number | null>(null);
+  const [ttlMs, setTtl] = useState<number | null>(typeof shell.idleTtlMs === 'number' ? shell.idleTtlMs : null);
 
-  // the session's idle TTL (`GET /queries/session`, not activity). The login reply's idle_ttl_ms is not reachable
-  // here without changing S/api.ts (W0): read again on reconnect and on resume until a read succeeds.
+  // fallback (IR-9) when the shell has no login TTL: the session's idle TTL (`GET /queries/session`, not activity),
+  // read again on reconnect and on resume until a read succeeds.
   useEffect(() => {
     if (ttlMs !== null) return;
     let alive = true;
@@ -175,7 +177,7 @@ export function IdleLock({ now, timers, fetch }: IdleLockProps = {}) {
       <h1>{fill(t('idle.title'), { n: String(minutes) })}</h1>
       <p>{sentFirst > 0 ? fill(t('idle.sub'), { n: String(sentFirst) }) : t('idle.sub_none')}</p>
       {failed && <p>{t('tables.toast.needs_hub')}</p>}
-      <button type="button" className="btn btn--primary btn--lg" onClick={() => void settle()}>
+      <button type="button" className="btn btn--primary btn--lg" onClick={() => void settle().finally(() => shell.signOut?.())}>
         <Ico name="user" />
         {t('alerts.signin.submit')}
       </button>

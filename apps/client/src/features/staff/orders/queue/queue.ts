@@ -369,7 +369,8 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
       const o = await settle(entry.entry_id);
       if (o?.kind === 'sent') return { status: 'sent', result: o.result as R };
       if (o?.kind === 'refused') return { status: 'refused', error: o.error };
-      // queued, or kept in the log for "Send again" (a session that ended)
+      // kept in the log for "Send again" (a session that ended, a 4xx the log keeps): IR-12 `logged`
+      if (o?.kind === 'log') return { status: 'queued', entry_id: entry.entry_id, logged: true };
       return { status: 'queued', entry_id: entry.entry_id };
     } finally {
       waiting.delete(entry.entry_id);
@@ -438,49 +439,6 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
       presence?.dispose();
     },
   };
-}
-
-/**
- * 02a §8 Login / 02b §3.12 (20a's wipe path, run 4 m-7, W-4): a revoked device forgets its pairing — `token`,
- * `device_id`, `device_type` of IndexedDB `pos-device` / `device` — and keeps every `pos-queue` entry.
- */
-export function wipePosDeviceKeys(factory: IDBFactory | undefined = (globalThis as { indexedDB?: IDBFactory }).indexedDB): Promise<void> {
-  return new Promise((resolve) => {
-    if (factory === undefined) {
-      resolve();
-      return;
-    }
-    let request: IDBOpenDBRequest;
-    try {
-      request = factory.open('pos-device', 1);
-    } catch {
-      resolve();
-      return;
-    }
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains('device')) request.result.createObjectStore('device');
-    };
-    request.onsuccess = () => {
-      const db = request.result;
-      try {
-        const tx = db.transaction('device', 'readwrite');
-        const s = tx.objectStore('device');
-        for (const key of ['token', 'device_id', 'device_type']) s.delete(key);
-        tx.oncomplete = () => {
-          db.close();
-          resolve();
-        };
-        tx.onerror = () => {
-          db.close();
-          resolve();
-        };
-      } catch {
-        db.close();
-        resolve();
-      }
-    };
-    request.onerror = () => resolve();
-  });
 }
 
 /**

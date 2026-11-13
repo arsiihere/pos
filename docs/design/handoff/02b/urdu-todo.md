@@ -188,6 +188,7 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `queue.item` | an item |  |
 | `queue.copied` | Copied |  |
 | `queue.copy_failed` | Could not keep the copy on this screen |  |
+| `queue.in_log` | Not sent — see the queue log |  |
 | `idle.sub_none` | Your order is kept. |  |
 
 ## In `ur.ts` but not on a frame (needs native review)

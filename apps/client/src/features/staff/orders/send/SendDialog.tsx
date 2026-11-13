@@ -15,7 +15,8 @@ import type { Cart } from '../order-screen/cart';
 export type SendView =
   | { kind: 'sending'; sub: string }
   | { kind: 'sent'; result: SubmitResult | undefined; cart: Cart; updated: { name: string; eta_ms: number } | null; zone_empty: string[] }
-  | { kind: 'queued' };
+  /** `logged`: it went straight to the queue log (IR-12) — "Send again" there, not when the hub is back */
+  | { kind: 'queued'; logged?: true };
 
 export interface SendDialogProps {
   view: SendView;
@@ -59,8 +60,8 @@ export function SendDialog(p: SendDialogProps) {
           <Ring size={110} pct={null} tone="warn">
             <Ico name="wifioff" />
           </Ring>
-          <strong id="send-t">{t('send.not_yet')}</strong>
-          <span>{t('send.not_yet_sub')}</span>
+          <strong id="send-t">{t(p.view.logged === true ? 'queue.title' : 'send.not_yet')}</strong>
+          <span>{t(p.view.logged === true ? 'queue.in_log' : 'send.not_yet_sub')}</span>
         </div>
         <div className="acts acts--1">
           <button type="button" className="btn btn--primary" onClick={p.onDone}>
