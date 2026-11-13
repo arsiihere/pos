@@ -33,7 +33,7 @@ export function HandoverLayer() {
   // the map's lock listener: a force move of any table to me
   const lock = useTableLock(null);
   const notice = lock.banner !== null && lock.banner.kind === 'force_moved_to_me' ? lock.banner : null;
-  useEffect(() => forceMoveNotice.set(notice), [notice]);
+  useEffect(() => forceMoveNotice.set(notice, shellRef.current.clock.nowMs()), [notice]);
 
   useEffect(() => {
     if (staff_id === null) return;

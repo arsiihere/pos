@@ -196,7 +196,7 @@ describe('[02a §8 Handover waiting card] sender', () => {
     h.render(<Layer />);
     pendingHandovers.remember({ alert_id: 'H1', table_id: 'TB-F4', seating_id: 'SE-4', receiver_name: 'Sara' });
     await flush();
-    await pendingHandovers.resultSeen('RES-1', 'F4 + F5');
+    await pendingHandovers.resultSeen('RES-1', 'F4 + F5', NOW);
     await flush();
     const declined = h.m.container.querySelector('.abn.abn--info.abn--stack.c-mute')!;
     expect(declined.querySelector('.ac__title b')?.textContent).toBe('Sara declined F4 + F5');
@@ -205,7 +205,7 @@ describe('[02a §8 Handover waiting card] sender', () => {
     expect(window.location.hash).toBe('#/tables/TB-F4?seating_id=SE-4');
     expect(h.m.container.querySelector('.abn')).toBeNull();
 
-    await pendingHandovers.resultSeen('RES-2', 'F2');
+    await pendingHandovers.resultSeen('RES-2', 'F2', NOW);
     await flush();
     const accepted = h.m.container.querySelector('.abn.abn--info.c-ok')!;
     expect(accepted.querySelector('.ac__title b')?.textContent).toBe('Sara accepted F2');

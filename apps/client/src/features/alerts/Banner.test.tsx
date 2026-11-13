@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MIN, NOW, VOID_CARD, row } from '../../../test/alert-rows';
 import { mount, type Mounted } from '../../../test/dom';
 import { Banners } from './Banner';
+import type { AlertRow } from './store';
 import { pendingHandovers } from '../staff/tables/cards/pending-handovers';
+import { forceMoveNotice } from '../staff/tables/cards/ResultBanner';
+import { ShellContext, type Shell } from '../staff/shell/hooks';
+import { createLiveBus } from '../staff/shell/live';
+import { flush } from '../../../test/dom';
 
 // 01d §8.1 (B01), DQ3: at most 2 banners, newest on top, then "{n} more new · Open inbox"; Open is the tinted
 // button; no close and no snooze; lock text only on an always-on screen with nobody signed in.
@@ -125,5 +130,122 @@ describe('[02a §8, 02b §3.9] Banners for the 02 kinds (23b)', () => {
     expect([...m.container.querySelectorAll('.abn')].map((a) => a.getAttribute('data-alert'))).toEqual(['RR2']);
     seen.mockRestore();
     mine.mockRestore();
+  });
+});
+
+
+describe('[01d §8.1 B01, 02a Q-14] one stack for 01d banners and handover cards (23b follow-up)', () => {
+  const shell = { live: createLiveBus() } as unknown as Shell;
+  const declined = (id: string) => ({ alert_id: id, kind: 'table_handover', state: 'rejected' as const, close_reason: 'answered' as const, decision: 'decline' as const, answerer_name: 'Sara', raised_at: 0, waiting_ms: 0, ask_in_person: false, lock: { kind_label_key: 'alert.table_handover.lock', table_code: id } });
+  const pending = (id: string) => ({ ...declined(id), state: 'pending' as const, decision: null, close_reason: null, answerer_name: null });
+
+  /** two handover results, the newer at `NOW` */
+  async function twoResults(): Promise<void> {
+    const times = [NOW - MIN, NOW];
+    const replies = [[pending('F1'), pending('F2')], [declined('F1'), pending('F2')], [declined('F2')]];
+    pendingHandovers.connect({ staff_id: `ST-STACK-${Math.random()}`, load: async () => ({ ok: true, data: { requests: replies.shift() ?? [] } }), now: () => times.shift() ?? NOW });
+    await pendingHandovers.refresh();
+    await pendingHandovers.refresh();
+    await pendingHandovers.refresh();
+  }
+  afterEach(() => {
+    pendingHandovers.disconnect();
+    forceMoveNotice.set(null);
+  });
+
+  it('[01d §8.1 B01] without handover cards the store order is kept exactly (not urgent-first, not by raised_at)', () => {
+    const olderAction = row({ alert_id: 'A', family: 'action', kind: 'test_alert', raised_at: NOW - 5 * MIN });
+    const newerUrgent = row({ alert_id: 'U', raised_at: NOW - MIN });
+    m = mount();
+    m.render(
+      <ShellContext.Provider value={shell}>
+        <Banners banners={[olderAction, newerUrgent]} nowMs={NOW} lockOnly={false} onOpen={() => {}} onOpenInbox={() => {}} />
+      </ShellContext.Provider>,
+    );
+    expect([...m.container.querySelectorAll('.abns > .abn')].map((c) => c.getAttribute('data-alert'))).toEqual(['A', 'U']);
+  });
+
+  it('[01d §8.1 B01] shared limit of 2: a card takes the slot of an older non-urgent banner, never one an urgent banner holds; hidden handover cards are not counted in "{n} more new"', async () => {
+    await twoResults();
+    const urgent = row({ alert_id: 'U', raised_at: NOW - 10 * MIN });
+    const action = row({ alert_id: 'A', family: 'action', kind: 'test_alert', raised_at: NOW - MIN / 2 });
+    m = mount();
+    m.render(
+      <ShellContext.Provider value={shell}>
+        <Banners banners={[action, urgent]} nowMs={NOW} lockOnly={false} onOpen={() => {}} onOpenInbox={() => {}} />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    const cards = [...m.container.querySelectorAll('.abns > .abn')];
+    // the store order was A, U: the newest card takes A's slot (A is older and not urgent) and sits above the older U
+    expect(cards.map((c) => c.getAttribute('data-alert') ?? c.getAttribute('data-handover'))).toEqual(['F2', 'U']);
+    // only the 01d action row is hidden and reachable from the Inbox; the hidden handover card is not counted
+    expect(m.text()).toContain('1 more new');
+  });
+
+  it('[01d §8.1 B01] two handover cards and no urgent row: the two newest, newest first', async () => {
+    await twoResults();
+    const older = row({ alert_id: 'A', family: 'action', kind: 'test_alert', raised_at: NOW - 5 * MIN });
+    m = mount();
+    m.render(
+      <ShellContext.Provider value={shell}>
+        <Banners banners={[older]} nowMs={NOW} lockOnly={false} onOpen={() => {}} onOpenInbox={() => {}} />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    const cards = [...m.container.querySelectorAll('.abns > .abn')];
+    expect(cards.map((c) => c.getAttribute('data-alert') ?? c.getAttribute('data-handover'))).toEqual(['F2', 'F1']);
+    expect(m.text()).toContain('1 more new');
+  });
+
+  it('[01d §8.1 F01] the lock screen never shows handover cards or the force-move notice', async () => {
+    await twoResults();
+    forceMoveNotice.set({ kind: 'force_moved_to_me', table: 'F2' }, NOW);
+    const urgent = row({ alert_id: 'U', raised_at: NOW - MIN });
+    m = mount();
+    m.render(
+      <ShellContext.Provider value={shell}>
+        <Banners banners={[urgent]} nowMs={NOW} lockOnly onOpen={() => {}} onOpenInbox={() => {}} />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    expect(m.container.querySelectorAll('.abns > .abn')).toHaveLength(1);
+    expect(m.text()).not.toMatch(/declined|gave you/);
+  });
+  const ids = () => [...m.container.querySelectorAll('.abns > .abn')].map((c) => c.getAttribute('data-alert') ?? c.getAttribute('data-handover'));
+  const inShell = (banners: AlertRow[]) => (
+    <ShellContext.Provider value={shell}>
+      <Banners banners={banners} nowMs={NOW} lockOnly={false} onOpen={() => {}} onOpenInbox={() => {}} />
+    </ShellContext.Provider>
+  );
+
+  it('[02a Q-14] a request_result raised after a handover result was learnt (a later void on the same table) keeps its own banner: Banners passes the row\'s raised_at', async () => {
+    await twoResults();
+    const voidResult = row({ alert_id: 'RV', kind: 'request_result', family: 'info', outcome: 'rejected', raised_at: NOW + MIN, lock: { kind_label_key: 'alert.request_result.lock', table_code: 'F2', point_code: null, requester_name: null } });
+    m = mount();
+    m.render(inShell([voidResult]));
+    await flush();
+    m.render(inShell([voidResult]));
+    expect(pendingHandovers.isHandoverResult('RV')).toBe(false);
+    expect(ids()).toEqual(['RV', 'F2']);
+  });
+
+  it('[01d §8.1 B01] a card never takes the slot of a NEWER non-urgent banner', async () => {
+    await twoResults();
+    const a = row({ alert_id: 'A', family: 'action', kind: 'test_alert', raised_at: NOW + MIN });
+    const b = row({ alert_id: 'B', family: 'action', kind: 'test_alert', raised_at: NOW + 2 * MIN });
+    m = mount();
+    m.render(inShell([b, a]));
+    await flush();
+    expect(ids()).toEqual(['B', 'A']);
+  });
+
+  it('[01d §8.1 B01] a card older than a shown banner sits below it (cards are not always on top)', async () => {
+    await twoResults();
+    const b = row({ alert_id: 'B', family: 'action', kind: 'test_alert', raised_at: NOW + MIN });
+    m = mount();
+    m.render(inShell([b]));
+    await flush();
+    expect(ids()).toEqual(['B', 'F2']);
   });
 });

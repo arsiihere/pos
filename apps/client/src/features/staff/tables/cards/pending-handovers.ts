@@ -13,7 +13,7 @@ export type MyRequest = ReturnType<(typeof MyRequestRow)['parse']>;
 
 export const HANDOVER_KIND = 'table_handover';
 
-/** An accepted result hides after this long (02a-C04 HandoverAccepted), whether or not it is on screen. */
+/** An accepted result hides this long after it was first shown (02a-C04 HandoverAccepted). */
 export const RESULT_HIDE_MS = 4_000;
 
 /** A request_result not matched yet is tried on this many reads (a read already in flight may not show the close). */
@@ -43,6 +43,8 @@ export interface HandoverResult {
   table_code: string | null;
   table_id: string | null;
   seating_id: string | null;
+  /** hub ms the device learnt it (the read), for the banner stack's newest-first order */
+  at: number;
 }
 
 export interface HandoverDeps {
@@ -62,9 +64,13 @@ export interface PendingHandovers {
   refresh(): Promise<void>;
   /**
    * a `request_result` alert arrived (the 01d banner rows): read my-requests and map it to the handover it closed —
-   * only a handover of the same table_code (a comp result of another table is never taken for it)
+   * only a handover result of the same table_code that the device learnt at or after the result was raised
+   * (`raised_at`, hub ms), the first such one: a comp of another table, or a later void on the same table, is
+   * never taken for it
    */
-  resultSeen(result_alert_id: string, table_code: string | null): Promise<void>;
+  resultSeen(result_alert_id: string, table_code: string | null, raised_at: number | null): Promise<void>;
+  /** the banner stack showed this result: an accepted one hides 4 s later (never before it was seen) */
+  shown(id: string): void;
   /** the waiting handover of a tile: by table_id (remembered), else by table_code */
   forTable(table_id: string, table_code: string | null): PendingHandover | null;
   results(): readonly HandoverResult[];
@@ -85,8 +91,10 @@ export function createPendingHandovers(): PendingHandovers {
   let listed = new Set<string>();
   let results: HandoverResult[] = [];
   let handoverResults = new Set<string>();
+  /** results a request_result has been matched to (each takes one) */
+  let claimed = new Set<string>();
   /** request_result alerts not mapped yet: id, its table_code, reads left */
-  let waitingResults: Array<{ id: string; table_code: string | null; left: number }> = [];
+  let waitingResults: Array<{ id: string; table_code: string | null; raised_at: number | null; left: number }> = [];
   const hideTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let inFlight: Promise<void> | null = null;
   const listeners = new Set<() => void>();
@@ -103,6 +111,22 @@ export function createPendingHandovers(): PendingHandovers {
     if (!results.some((r) => r.id === id)) return;
     results = results.filter((r) => r.id !== id);
     changed();
+  };
+
+  /**
+   * Maps request_result `id` to the first unclaimed result of `table_code` the device learnt at or after `raised_at`
+   * (the answer's hub time); false when there is none.
+   */
+  const claim = (id: string, table_code: string | null, raised_at: number | null): boolean => {
+    if (table_code === null) return false;
+    const same = results
+      .filter((r) => r.table_code === table_code && !claimed.has(r.id) && (raised_at === null || r.at >= raised_at))
+      .sort((a, b) => a.at - b.at);
+    const first = same[0];
+    if (first === undefined) return false;
+    claimed = new Set(claimed).add(first.id);
+    handoverResults = new Set(handoverResults).add(id);
+    return true;
   };
 
   const read = async (): Promise<void> => {
@@ -141,25 +165,24 @@ export function createPendingHandovers(): PendingHandovers {
         table_code: r.lock.table_code ?? known.table_code,
         table_id: known.table_id,
         seating_id: known.seating_id,
+        at: d.now(),
       });
     }
     const ids = new Set(rows.map((r) => r.alert_id));
     for (const id of [...next.keys()]) if (!ids.has(id) && listed.has(id)) next.delete(id);
     for (const id of ids) listed.add(id);
-    // a waiting request_result is the result of the one closed handover of its table_code
-    const mapped = new Set(handoverResults);
-    for (const c of candidates) {
-      const same = c.table_code === null ? [] : closed.filter((r) => r.table_code === c.table_code);
-      if (same.length === 1) mapped.add(c.id);
-    }
-    handoverResults = mapped;
-    const tried = new Set(candidates.map((c) => c.id));
-    waitingResults = waitingResults
-      .map((c) => (tried.has(c.id) ? { ...c, left: c.left - 1 } : c))
-      .filter((c) => !mapped.has(c.id) && !(tried.has(c.id) && (closed.length > 0 || c.left <= 0)));
     pending = next;
     results = [...results, ...closed];
-    for (const r of closed) if (r.outcome === 'accepted') hideTimers.set(r.id, setTimeout(() => dismiss(r.id), RESULT_HIDE_MS));
+    // a waiting request_result is the result of the one unclaimed handover result of its table_code (this read's
+    // closes, or one an earlier read already showed while the request_result travelled)
+    const tried = new Set(candidates.map((c) => c.id));
+    // oldest raised_at first (null last): each request_result takes the earliest result learnt at or after it, so a
+    // later request's result (a void on the same table) never takes an earlier handover's
+    const byRaised = [...candidates].sort((a, b) => (a.raised_at ?? Number.POSITIVE_INFINITY) - (b.raised_at ?? Number.POSITIVE_INFINITY));
+    for (const c of byRaised) claim(c.id, c.table_code, c.raised_at);
+    waitingResults = waitingResults
+      .map((c) => (tried.has(c.id) ? { ...c, left: c.left - 1 } : c))
+      .filter((c) => !handoverResults.has(c.id) && !(tried.has(c.id) && c.left <= 0));
     changed();
   };
 
@@ -170,6 +193,7 @@ export function createPendingHandovers(): PendingHandovers {
     listed = new Set();
     results = [];
     handoverResults = new Set();
+    claimed = new Set();
     waitingResults = [];
     changed();
   };
@@ -203,9 +227,14 @@ export function createPendingHandovers(): PendingHandovers {
       });
       return inFlight;
     },
-    async resultSeen(id, table_code) {
+    async resultSeen(id, table_code, raised_at) {
       if (handoverResults.has(id) || waitingResults.some((c) => c.id === id)) return;
-      waitingResults = [...waitingResults, { id, table_code, left: CANDIDATE_READS }];
+      // its result is already on screen (the read in flight had the close): matched now, no read
+      if (claim(id, table_code, raised_at)) {
+        changed();
+        return;
+      }
+      waitingResults = [...waitingResults, { id, table_code, raised_at, left: CANDIDATE_READS }];
       await inFlight;
       await this.refresh();
     },
@@ -217,6 +246,11 @@ export function createPendingHandovers(): PendingHandovers {
     },
     results: () => results,
     dismiss,
+    shown(id) {
+      const r = results.find((x) => x.id === id);
+      if (r === undefined || r.outcome !== 'accepted' || hideTimers.has(id)) return;
+      hideTimers.set(id, setTimeout(() => dismiss(id), RESULT_HIDE_MS));
+    },
     withdrawn(alert_id) {
       const next = new Map(pending);
       if (!next.delete(alert_id)) return;
