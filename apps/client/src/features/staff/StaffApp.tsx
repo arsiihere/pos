@@ -366,10 +366,14 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   );
   signOutRef.current = () => signOut(false);
   // the pairing keys go (the command queue and the drafts stay), the session and the socket end, PairAgain shows
+  // review #193: a ref, not the state — a queue revoke and a socket 4403 in the same tick wipe once
+  const unpairedRef = useRef(false);
   unpairRef.current = () => {
-    if (unpaired) return;
+    if (unpairedRef.current) return;
+    unpairedRef.current = true;
     sessionGen.current += 1;
     setOpened(null);
+    setNewOrder(false);
     setCloses(new Map());
     setRequests([]);
     setCursor(null);

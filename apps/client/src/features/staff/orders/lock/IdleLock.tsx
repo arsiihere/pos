@@ -17,8 +17,18 @@ import { createPendingLogout, pendingLogoutOf } from './pending-logout';
 //   session token moves to the page's pending logout (memory only) and the staff api forgets it; the logout is sent
 //   now, else on reconnect, on the lock's Sign in, or by the sign-in hooks before the next login (S-4). The hub ends
 //   the session and closes the staff socket (4401): the shell signs the page out and offers the login. The lock's
-//   Sign in tries the drain + logout once more and then signs the page out itself (`Shell.signOut`), offline too.
+//   Sign in tries the drain + logout once more and then signs the page out itself (`Shell.signOut`), offline too;
+//   it waits at most SIGN_IN_WAIT_MS (review #193: a stalled drain / logout never keeps the page locked; the owed
+//   logout stays in memory for the sign-in hooks), busy meanwhile.
 // - the draft is kept: the lock never touches the draft store ("Your order is kept").
+
+/** the lock's Sign in waits this long for the drain + logout, then signs the page out anyway (review #193) */
+export const SIGN_IN_WAIT_MS = 5_000;
+
+const browserTimers: IdleTimers = {
+  setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+  clearTimeout: (handle) => window.clearTimeout(handle as number),
+};
 
 export interface IdleLockProps {
   /** wall clock (Q-21); default Date.now */
@@ -72,6 +82,7 @@ export function IdleLock({ now, timers, fetch }: IdleLockProps = {}) {
   const pending = useMemo(() => pendingLogoutOf(enqueue, () => createPendingLogout({ device, ...(fetch === undefined ? {} : { fetch }) })), [enqueue, device, fetch]);
   const [sentFirst, setSentFirst] = useState(0);
   const [failed, setFailed] = useState(false);
+  const [leaving, setLeaving] = useState(false);
 
   // drain first, then the logout(s) owed
   const settle = useMemo(
@@ -167,6 +178,25 @@ export function IdleLock({ now, timers, fetch }: IdleLockProps = {}) {
     });
   }, [locked, live, settle]);
 
+  // the lock's Sign in: drain + logout once more, at most SIGN_IN_WAIT_MS, then the page signs out (busy meanwhile)
+  const signIn = () => {
+    if (leaving) return;
+    setLeaving(true);
+    const t = timers ?? browserTimers;
+    void new Promise<void>((resolve) => {
+      const handle = t.setTimeout(resolve, SIGN_IN_WAIT_MS);
+      void settle()
+        .catch(() => false)
+        .finally(() => {
+          t.clearTimeout(handle);
+          resolve();
+        });
+    }).then(() => {
+      setLeaving(false);
+      shell.signOut?.();
+    });
+  };
+
   if (!locked || ttlMs === null) return null;
   const minutes = Math.max(0, Math.round(ttlMs / 60_000));
   return (
@@ -177,7 +207,7 @@ export function IdleLock({ now, timers, fetch }: IdleLockProps = {}) {
       <h1>{fill(t('idle.title'), { n: String(minutes) })}</h1>
       <p>{sentFirst > 0 ? fill(t('idle.sub'), { n: String(sentFirst) }) : t('idle.sub_none')}</p>
       {failed && <p>{t('tables.toast.needs_hub')}</p>}
-      <button type="button" className="btn btn--primary btn--lg" onClick={() => void settle().finally(() => shell.signOut?.())}>
+      <button type="button" className="btn btn--primary btn--lg" disabled={leaving} aria-busy={leaving} onClick={signIn}>
         <Ico name="user" />
         {t('alerts.signin.submit')}
       </button>

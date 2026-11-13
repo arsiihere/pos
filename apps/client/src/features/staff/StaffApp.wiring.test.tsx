@@ -6,6 +6,7 @@ import type { SocketLike } from '../alerts/socket';
 import { fakeTimers, recordingSink } from '../alerts/test-fakes';
 import type { Device, PageMeta } from './api';
 import { pendingCompsOf } from './orders/actions/pending-comps';
+import { queueOf } from './orders/queue/enqueue';
 import { LateAlertsContext, type LateAlertRow } from './orders/late/late-groups';
 import { useShell, type Shell } from './shell/hooks';
 import { StaffApp } from './StaffApp';
@@ -217,16 +218,33 @@ describe('[02 wiring] queue', () => {
     await until(() => probe.shell!.enqueue.pendingCount() === 0);
     expect(h.calls.filter((c) => c.path === '/commands/submit-order')).toEqual([]);
     expect(probe.shell!.enqueue.pendingCount()).toBe(0);
+    // review #193: it is in the queue log as too old, for "Send again"
+    expect(queueOf(probe.shell!.enqueue)!.log().map((e) => [e.command_type, e.log_reason])).toEqual([['SubmitOrder', 'too_old']]);
   });
 
-  it('[02a §8 Login; 02b §3.12; Task 28 wiring] DEVICE_REVOKED from a queued send wipes the pairing keys (hub-admin) and shows Pair again', async () => {
-    const h = hub({ submit: () => reply(403, { error: { code: 'DEVICE_REVOKED', message: 'revoked', details: {} } }) });
+  it('[02a §8 Login; 02b §3.12; Task 28 wiring] DEVICE_REVOKED from a queued send wipes the pairing keys (hub-admin) once, keeps both queued entries, shows Pair again', async () => {
+    let revoked = false;
+    const h = hub({ submit: () => (revoked ? reply(403, { error: { code: 'DEVICE_REVOKED', message: 'revoked', details: {} } }) : 'down') });
     render(KIOSK, h.fetch);
     await signIn();
-    await enqueueOrder();
+    expect((await enqueueOrder()).status).toBe('queued');
+    expect((await probe.shell!.enqueue('SubmitOrder', { ...ORDER, order_id: 'O-2' }, { label: 'Takeaway 2' })).status).toBe('queued');
+    const enqueue = probe.shell!.enqueue;
+    // the hub is back and says the device is revoked: the drain stops at the first entry
+    revoked = true;
+    sock().frame({ type: 'catch_up', as_of_seq: 0, state: {} });
+    sock().onclose?.({ code: 1006, reason: '' });
+    sock().frame({ type: 'catch_up', as_of_seq: 0, state: {} });
+    await until(() => wiped > 0);
+    // review #193: the socket's 4403 after the revoke (twice) is no second wipe (StaffApp guards with a ref, so a 4403 in
+    // the same tick as the revoke is one wipe too; that tick is not reachable from here)
+    sock().onclose?.({ code: 4403, reason: 'revoked' });
+    sock().onclose?.({ code: 4403, reason: 'revoked' });
     await flush(6);
     expect(wiped).toBe(1);
     expect(m.text()).toContain('This screen must be paired again');
+    expect(enqueue.pendingCount()).toBe(2);
+    expect(queueOf(enqueue)!.queued().map((e) => (e.payload as { order_id: string }).order_id)).toEqual(['O-1', 'O-2']);
   });
 
   it('[02b §3.12; IR-12] an entry that went straight to the queue log answers queued with logged: true', async () => {
@@ -308,5 +326,10 @@ describe('[02 wiring] table map', () => {
     expect(dialog).not.toBeNull();
     expect(m.button('Takeaway', dialog as HTMLElement)).toBeTruthy();
     expect(m.button('Parking', dialog as HTMLElement)).toBeTruthy();
+    // review #193: unpairing closes it (Pair again only)
+    sock().onclose?.({ code: 4403, reason: 'revoked' });
+    await flush(6);
+    expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+    expect(m.text()).toContain('This screen must be paired again');
   });
 });

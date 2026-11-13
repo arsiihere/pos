@@ -10,7 +10,7 @@ import { createIdbDraftStore } from '../drafts/idb-drafts';
 import { createEnqueue } from '../queue/enqueue';
 import { createMemoryQueueStore, type MemoryQueueBacking } from '../queue/memory-store';
 import { createShellHooks } from '../queue/shell-hooks';
-import { IdleLock } from './IdleLock';
+import { IdleLock, SIGN_IN_WAIT_MS } from './IdleLock';
 import type { IdleTimers } from './idle-lock';
 import { peekPendingLogout } from './pending-logout';
 
@@ -298,5 +298,43 @@ describe('[02b §8 Device idle lock] lock screen', () => {
     await flush(6);
     expect(s.calls.at(-1)).toEqual({ path: '/auth/logout', token: 'TOK-ali' });
     expect(view!.container.querySelector('.idle')?.textContent).not.toContain('Needs the hub');
+  });
+
+  it('[02b §8 Device idle lock; review #193] Sign in signs the page out even when the logout stalls: busy, then out after SIGN_IN_WAIT_MS', async () => {
+    const s = setup();
+    await s.api.signIn('ali', '1', false);
+    const signOut = vi.fn();
+    (s.shell as { signOut?: () => void }).signOut = signOut;
+    // the hub takes the logout and never answers
+    const base = s.fetch.getMockImplementation()!;
+    s.fetch.mockImplementation((input: string, init?: RequestInit) => (input === '/auth/logout' ? new Promise<Response>(() => {}) : base(input, init)));
+    const waits: Array<{ fn: () => void; ms: number; cleared: boolean }> = [];
+    const timers: IdleTimers = {
+      setTimeout: (fn, ms) => waits.push({ fn, ms, cleared: false }),
+      clearTimeout: (h) => {
+        if (typeof h === 'number' && waits[h - 1] !== undefined) waits[h - 1]!.cleared = true;
+      },
+    };
+    view = mount();
+    view.render(
+      <ShellContext.Provider value={s.shell}>
+        <IdleLock now={s.now} timers={timers} fetch={s.fetch} />
+      </ShellContext.Provider>,
+    );
+    await flush(6);
+    s.wall.ms += TTL;
+    resume();
+    await flush(6);
+    const button = view.button('Sign in') as HTMLButtonElement;
+    view.click(button);
+    await flush(6);
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    expect(signOut).not.toHaveBeenCalled();
+    const wait = waits.find((w) => w.ms === SIGN_IN_WAIT_MS && !w.cleared)!;
+    expect(wait).toBeDefined();
+    act(() => wait.fn());
+    await flush(4);
+    expect(signOut).toHaveBeenCalledTimes(1);
   });
 });
