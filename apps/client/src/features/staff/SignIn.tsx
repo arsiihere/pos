@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { HubError } from '../../api/hub-admin';
 import { t } from '../../i18n';
 import { fill } from '../../i18n/en';
@@ -6,6 +6,7 @@ import { answerErrorText } from '../alerts/labels';
 import { PinKeys, type PinError } from '../alerts/PinStep';
 import { CloseX, Dialog, Ico, initial } from '../alerts/ui';
 import type { RosterPerson, SignedIn, StaffApi } from './api';
+import type { ShellHooks } from './shell/hooks';
 
 // 01d S00 (frames SignIn, SignInPaused, LockKiosk, LockPhone): the admin-stock staff PIN flow (name tiles → PIN;
 // AdminLogin), on the device route (00 `GET /queries/staff-roster`, `POST /auth/pin`) and in the Pulse tiles
@@ -13,6 +14,9 @@ import type { RosterPerson, SignedIn, StaffApi } from './api';
 // The PIN stays in this component until the answer, then it is dropped, also on an error.
 
 export const ROSTER_RETRY_MS = 5_000;
+
+/** 02b §8 Queue (W0.6): without a queue there is nothing to drain and no line. */
+const NO_HOOKS: ShellHooks = { beforeSignIn: async () => {}, queueLine: () => null, subscribe: () => () => {} };
 
 function errorOf(error: HubError): PinError {
   if (error.kind === 'network') return { text: t('answer.error.offline'), tone: 'danger', icon: 'wifioff' };
@@ -30,14 +34,18 @@ export function SignIn({
   api,
   phone,
   lockPanel,
+  hooks = NO_HOOKS,
   onSignedIn,
 }: {
   api: Pick<StaffApi, 'roster' | 'signIn'>;
   phone: boolean;
   /** F01: lock text above the tiles (kiosk and phone, signed out) */
   lockPanel: ReactNode;
+  /** 02b §8 Queue: the queue drains before POST /auth/pin and shows its line here (25c) */
+  hooks?: ShellHooks;
   onSignedIn: (who: SignedIn) => void;
 }) {
+  const queueLine = useSyncExternalStore(hooks.subscribe, hooks.queueLine);
   const [staff, setStaff] = useState<RosterPerson[] | null>(null);
   const [offline, setOffline] = useState(false);
   const [selected, setSelected] = useState<RosterPerson | null>(null);
@@ -85,6 +93,8 @@ export function SignIn({
     setPin('');
     setBusy(true);
     setError(null);
+    // 02b §3.12: the queue is drained before a new login (a failed drain does not block it)
+    await hooks.beforeSignIn().catch(() => {});
     const answer = await api.signIn(who.staff_id, typed, takeover);
     setBusy(false);
     if (answer.ok) {
@@ -126,6 +136,11 @@ export function SignIn({
     return (
       <main className="body body--signin">
         {lockPanel}
+        {queueLine !== null && (
+          <p className="muted signin__p" role="status">
+            {queueLine}
+          </p>
+        )}
         <div className="msg c-danger" role="alert">
           <Ico name="wifioff" />
           <span>{t('alerts.signin.offline')}</span>
@@ -142,6 +157,11 @@ export function SignIn({
     return (
       <main className="ph-body">
         {lockPanel}
+        {queueLine !== null && (
+          <p className="muted signin__p" role="status">
+            {queueLine}
+          </p>
+        )}
         <div className="card col signin__phone">{keys}</div>
       </main>
     );
@@ -150,6 +170,11 @@ export function SignIn({
   return (
     <main className="body body--signin">
       {lockPanel}
+      {queueLine !== null && (
+        <p className="muted signin__p" role="status">
+          {queueLine}
+        </p>
+      )}
       <div>
         <h1 className="signin__h1">{t('alerts.signin.who')}</h1>
         <p className="muted signin__p">{t('alerts.signin.pick')}</p>
