@@ -2461,6 +2461,10 @@ export const en = {
   'kds.empty_sub': 'New lines show here when they fire.',
   'kds.mark.moved_time': 'new time {time}',
   'kds.order_note': 'Order: {note}',
+  // K4 (03b §3.3, §3.7; frames 03b-C08, C09, F01)
+  'kds.screen': 'Kitchen screen',
+  'kds.lanes_failed': "Can't change lanes now",
+  'kds.day_not_started_sub': 'This screen fills when the manager opens the day.',
   // ---- lane P (03b client) ----
   // ---- lane A (03b client) ----
   // A1 kitchen screens (frames KitchenScreens*, 03b-S04 / D02 / D03 / B16)

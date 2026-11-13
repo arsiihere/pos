@@ -47,10 +47,13 @@ export interface StationViewProps {
   nextFooter?: ReactNode;
   /** K3: rows a batch tap just changed (highlighted together) */
   highlight?: ReadonlySet<string>;
+  /** K4: a batch station (frames KdsBatch*): four compact columns at 1920 (`kgrid--batch`, IR-14) */
+  batch?: boolean;
 }
 
-export function StationView({ view, nowMs, utcOffsetMs, up, banner, actionsFor, messageFor, nextFooter, highlight }: StationViewProps) {
-  const compact = useCompact();
+export function StationView({ view, nowMs, utcOffsetMs, up, banner, actionsFor, messageFor, nextFooter, highlight, batch }: StationViewProps) {
+  const narrow = useCompact();
+  const compact = narrow || batch === true;
   const [, rerender] = useState(0);
   useEffect(() => onSlotsChanged(() => rerender((n) => n + 1)), []);
   const station = view.station;
@@ -58,7 +61,8 @@ export function StationView({ view, nowMs, utcOffsetMs, up, banner, actionsFor, 
   const empty = rows.length === 0 && nextOf(view.plan).next.length === 0;
   const classes = ['kgrid'];
   if (banner !== undefined && banner !== null && banner !== false) classes.push('kgrid--bar');
-  if (compact) classes.push('kgrid--1280');
+  if (narrow) classes.push('kgrid--1280');
+  else if (batch === true) classes.push('kgrid--batch');
   return (
     <main className={classes.join(' ')}>
       {banner}

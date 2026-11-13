@@ -244,3 +244,6 @@ Appended by lane K (KDS English only in P1, brief §6.1).
 | `kds.empty_sub` | New lines show here when they fire. | K2, KdsEmpty |
 | `kds.mark.moved_time` | new time {time} | K2 |
 | `kds.order_note` | Order: {note} | K2 |
+| `kds.screen` | Kitchen screen | K4 |
+| `kds.lanes_failed` | Can't change lanes now | K4 |
+| `kds.day_not_started_sub` | This screen fills when the manager opens the day. | K4, KdsDayNotStarted |
