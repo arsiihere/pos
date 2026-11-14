@@ -114,7 +114,7 @@ describe('[03b §3.4] Pass card', () => {
     store.apply({ type: 'catch_up', as_of_seq: 1, state: { point_view: view } });
     card(store.snapshot().view!.orders[0]!);
     expect(m.container.querySelector('.pc__n')?.textContent).toBe('T4');
-    store.apply({ type: 'point_lines', point_id: 'PT', lines: [detail('A', { identifier: { kind: 'table', label: 'T9' } })] });
+    store.apply({ type: 'point_lines', point_id: 'PT', lines: [{ ...detail('A', { identifier: { kind: 'table', label: 'T9' } }), group_id: 'G-A', serve_mode: 'immediate' }] });
     card(store.snapshot().view!.orders[0]!);
     expect(m.container.querySelector('.pc__n')?.textContent).toBe('T9');
   });

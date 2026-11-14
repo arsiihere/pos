@@ -74,12 +74,12 @@ describe('order-tickets cache (Q-52)', () => {
     publishFrame(fireDispatched(['L7']));
     await flush();
     expect(transport.reads).toEqual(['O1']);
-    publishFrame({ type: 'point_lines', point_id: 'P-PASS', lines: [line('L7', 'O1')] });
+    publishFrame({ type: 'point_lines', point_id: 'P-PASS', lines: [{ ...line('L7', 'O1'), group_id: 'G-O1', serve_mode: 'immediate' }] });
     await flush();
     expect(transport.reads).toEqual(['O1', 'O1']);
     // an uncached order's lines: nothing to re-read
     publishFrame(fireDispatched(['L8']));
-    publishFrame({ type: 'point_lines', point_id: 'P-PASS', lines: [line('L8', 'O5')] });
+    publishFrame({ type: 'point_lines', point_id: 'P-PASS', lines: [{ ...line('L8', 'O5'), group_id: 'G-O5', serve_mode: 'immediate' }] });
     await flush();
     expect(transport.reads).toEqual(['O1', 'O1']);
   });
