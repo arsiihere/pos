@@ -195,7 +195,7 @@ describe('ws', () => {
 
   it('[03b §6.16] kds_lines and point_lines frames carry LineDetail rows', () => {
     const kds = { type: 'kds_lines', station_id: 'S1', lines: [detail] };
-    const point = { type: 'point_lines', point_id: 'P1', lines: [detail] };
+    const point = { type: 'point_lines', point_id: 'P1', lines: [{ ...detail, group_id: 'O1:0', serve_mode: 'sync' }] };
     expect(WsServerMessage.parse(kds)).toEqual(kds);
     expect(WsServerMessage.parse(point)).toEqual(point);
     const returned = { ...detail, return_of: { order_item_id: 'L0', mode: 'remake', item_name: 'Naan', identifier: { kind: 'token', token: 12, date: '2026-11-10' } } };
@@ -209,6 +209,16 @@ describe('ws', () => {
     }
     expect(WsServerMessage.safeParse({ ...kds, lines: [{ ...detail, line_kind: 'deal' }] }).success).toBe(false);
     expect(WsServerMessage.safeParse({ ...kds, lines: [{ ...detail, identifier: { kind: 'parking', car_number: 'X', car_type: 'van' } }] }).success).toBe(false);
+  });
+
+  it('[03b #67] point_lines lines carry group_id and serve_mode (Q-46); kds_lines lines do not', () => {
+    const frame = (line: Record<string, unknown>) => ({ type: 'point_lines', point_id: 'P1', lines: [line] });
+    const full = { ...detail, group_id: 'O1:0', serve_mode: 'immediate' };
+    expect(WsServerMessage.parse(frame(full))).toEqual(frame(full));
+    expect(WsServerMessage.safeParse(frame(detail)).success).toBe(false);
+    expect(WsServerMessage.safeParse(frame({ ...full, serve_mode: 'later' })).success).toBe(false);
+    expect(WsServerMessage.safeParse(frame({ ...detail, serve_mode: 'sync' })).success).toBe(false);
+    expect(WsServerMessage.safeParse({ type: 'kds_lines', station_id: 'S1', lines: [detail] }).success).toBe(true);
   });
 
   it('[03b §3.6, §6.14, §6.16] station_takeover: active with the kds_station body as view, inactive without', () => {

@@ -4,12 +4,13 @@ import type { KdsStationBody, WsPointLines } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { buildLineDetails, devicePoint, pointOfLine } from '../kds/contracts.js';
+import { screenStations } from '../kds/device-roles.js';
 import { takeoverStations } from '../kds/presence.js';
 import { stationHasPrinter } from '../print/api.js';
 import type { HubDeps } from '../server.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import { registerCatchUp, type CatchUpPart } from './catch-up.js';
-import { DEFAULT_SOUND_VOLUME, doneUndone } from './kds-catch-up.js';
+import { DEFAULT_SOUND_VOLUME, doneUndone, heldOfOrders, tableMovedOrderIds } from './kds-catch-up.js';
 import { wsHubFor } from './server.js';
 
 // 03b §6.15, §6.16 (task b21): the `point_view` catch-up part (staff sockets on a device with a point, §3.4) and the
@@ -24,7 +25,8 @@ import { wsHubFor } from './server.js';
 //   the Now / planned lines of its takeover stations) that this socket has not been given yet (catch-up, an earlier
 //   frame or a takeover start view): once per id per socket, and again when a held line's live units change (B3-3:
 //   ItemRemoved / ItemVoided with units, LineWeightSet). One buildLineDetails (2 statements) per commit that adds or
-//   changes lines; 0 otherwise. Registered after b18's kds_lines hook (lane order B3 → B6).
+//   changes lines; 0 otherwise. ⚠️ Changed by v1.0.8 (owner 2026-11-13, Q-47): the lines of a moved / merged / split
+//   seating are sent again (the table identifier), +1 statement in a commit with a table event. Registered after b18's kds_lines hook (lane order B3 → B6).
 
 const isEngineState = (s: unknown): s is EngineState =>
   typeof s === 'object' && s !== null && typeof (s as Partial<EngineState>).stations === 'object' && typeof (s as Partial<EngineState>).lines === 'object';
@@ -34,13 +36,20 @@ const LIVE = new Set(['added', 'cooking', 'done']);
 /** B3-3: the events that change a line's live units (as ws/kds-catch-up.ts). */
 const UNIT_CHANGES: ReadonlySet<string> = new Set(['ItemRemoved', 'ItemVoided', 'LineWeightSet']);
 
-export type PointLine = LineDetail & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean };
+/** Q-46: the engine line's serve group and mode, so the Pass computes Ready / HOLD (a return or released line is `immediate`). */
+export type ServeFields = { group_id: string; serve_mode: 'sync' | 'immediate' };
+export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean };
 export interface PointViewBody {
   point_id: string;
-  stations: Array<{ station_id: string; name: string; lanes: KdsStationBody['lanes']; dark: boolean }>;
+  stations: Array<{ station_id: string; name: string; lanes: KdsStationBody['lanes']; dark: boolean; screenless: boolean }>;
   orders: Array<{ order_id: string; identifier: LineDetail['identifier']; placed_at: number; lines: PointLine[]; ready: { at: number; by: string | null } | null }>;
   takeovers: KdsStationBody[];
 }
+
+const serveOf = (state: EngineState, id: string): ServeFields => {
+  const l = state.lines[id]!;
+  return { group_id: l.group_id, serve_mode: l.serve_mode };
+};
 
 /** The live lines of `point_id` whose order is in the engine (memory). */
 function pointLineIds(state: EngineState, point_id: string, now: number): string[] {
@@ -137,7 +146,7 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
     const lines = order.line_ids.flatMap((id): PointLine[] => {
       const d = details.get(id);
       if (!lineSet.has(id) || d === undefined) return [];
-      return [{ ...d, stage: state.lines[id]!.stage as PointLine['stage'], handed_over: handed.has(id) }];
+      return [{ ...d, ...serveOf(state, id), stage: state.lines[id]!.stage as PointLine['stage'], handed_over: handed.has(id) }];
     });
     if (lines.length === 0) continue;
     orders.push({ order_id, identifier: lines[0]!.identifier, placed_at: order.placed_at, lines, ready: ready.get(order_id) ?? null });
@@ -156,6 +165,8 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
       name: s.name,
       lanes: lanesOf(settings.get(s.station_id) ?? noSettings),
       dark: takeovers.includes(s.station_id),
+      // Q-45 (§3.1): no paired, unrevoked kds device (memory, 0 statements); refreshed with the device maps.
+      screenless: !screenStations().has(s.station_id),
     })),
     orders,
     takeovers: takeovers.map((station_id): KdsStationBody => {
@@ -244,6 +255,9 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
       if (UNIT_CHANGES.has(e.event_type)) changed.add((e.payload as { order_item_id: string }).order_item_id);
     }
 
+    // Q-47 (§6.16): the orders of the seatings a table event of this commit touched (1 statement, only with such an event).
+    const moved = tableMovedOrderIds(deps.db, appended);
+
     const byPoint = new Map<string, Set<string>>();
     const missing = new Map<string, string[]>();
     const all = new Set<string>();
@@ -260,7 +274,7 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
       const gained = [...shown].filter((id) => !had.has(id));
       // Held and still shown (pruned above) with changed units → sent again.
       const resend = [...changed].filter((id) => had.has(id));
-      const send = [...gained, ...resend].sort();
+      const send = [...new Set([...gained, ...resend, ...heldOfOrders(state, had, moved)])].sort();
       if (send.length === 0) continue;
       missing.set(s.sessionId, send);
       for (const id of send) all.add(id);
@@ -274,7 +288,7 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
       if (ids === undefined) continue;
       const lines = ids.flatMap((id) => {
         const d = details.get(id);
-        return d === undefined ? [] : [d];
+        return d === undefined || state.lines[id] === undefined ? [] : [{ ...d, ...serveOf(state, id) }];
       });
       const had = given.get(s.sessionId)!;
       for (const id of ids) had.add(id);

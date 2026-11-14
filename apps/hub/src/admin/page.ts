@@ -5,8 +5,14 @@ import { clientPrelude, pageHead, scriptJson } from '../lib/page.js';
 
 // 00-S16 … S20 and D01 … D03 (docs/design/handoff/00/00-design.md §1), M86: the hub admin home and its shell.
 // Static like /admin/approve (M79): no credentials in the page; the script signs in an admin in this tab and calls
-// only §6.7, §6.14–§6.18c. Lists refresh on open and after each action (no WebSocket).
-export function adminPage(ctx: { tenant_id: string; branch_id: string; branch_name: string; links: { stock: boolean } }): string {
+// only §6.7, §6.14–§6.18c. Lists refresh on open and after each action (no WebSocket). 00 v1.9.2 §8.2 (Q-43): also
+// 03b's kds-config and 03c's print-queue, once each when home opens, for the Kitchen screens and Printers tiles.
+export function adminPage(ctx: {
+  tenant_id: string;
+  branch_id: string;
+  branch_name: string;
+  links: { stock: boolean; kitchenScreens: boolean; printers: boolean };
+}): string {
   return `${pageHead({ title: 'admin.title', theme: 'light' })}
 <body class="pos-root">
 <div class="pos-page" id="screen"></div>
@@ -19,7 +25,7 @@ const ctx = ${scriptJson(ctx)};
 const screen = document.getElementById('screen');
 const KDS_SILENT_MS = 120000; // Q8: a kitchen screen unseen for 2 min gets a warning
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const state = { auth: null, deviceId: null, data: {}, loadedAt: null, offline: false, notice: null, showRemoved: false, devicesWithRemoved: false, removedCount: null, lockoutsOpen: false, stopReconnect: null };
+const state = { auth: null, deviceId: null, data: {}, tiles: {}, loadedAt: null, offline: false, notice: null, showRemoved: false, devicesWithRemoved: false, removedCount: null, lockoutsOpen: false, stopReconnect: null };
 function phone() {
   return typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches;
 }
@@ -258,9 +264,10 @@ function nav(current) {
   item('devices', 'screen', 'admin.nav_devices');
   item('sessions', 'user', 'admin.nav_sessions');
   item('lockouts', 'lock', 'admin.nav_lockouts');
-  if (ctx.links.stock) {
+  const others = otherLinks('pos-sidenav__item');
+  if (others.length > 0) {
     box.appendChild(node('span', 'caption', t('admin.nav_other')));
-    box.appendChild(stockLink('pos-sidenav__item'));
+    for (const other of others) box.appendChild(other);
   }
   // 00-S20 (Pulse): the signed-in name and "Branch hub · {host}" sit in the side-nav foot.
   const foot = node('div', 'pos-sidenav__foot');
@@ -282,6 +289,61 @@ function stockLink(className) {
   stock.appendChild(icon('box'));
   stock.appendChild(document.createTextNode(t('admin.nav_stock')));
   return stock;
+}
+// 00 v1.9.2 §8.2 (Q-43): the 03b / 03c admin pages, shown when the hub serves the build and the admin has
+// manage-devices (both pages need it).
+const MODULE_PAGES = [
+  { name: 'kitchenScreens', href: '/admin/kitchen-screens/', icon: 'screen', key: 'admin.nav_kitchen_screens', query: '/admin/queries/kds-config' },
+  { name: 'printers', href: '/admin/printers/', icon: 'printer', key: 'admin.nav_printers', query: '/admin/queries/print-queue' },
+];
+function modulePages() {
+  return MODULE_PAGES.filter((p) => ctx.links[p.name] && can('manage-devices'));
+}
+function otherLinks(className) {
+  const links = ctx.links.stock ? [stockLink(className)] : [];
+  for (const p of modulePages()) {
+    const a = node('a', className);
+    a.href = p.href;
+    a.appendChild(icon(p.icon));
+    a.appendChild(document.createTextNode(t(p.key)));
+    links.push(a);
+  }
+  return links;
+}
+// Each tile reads its query once when home opens; a 404 / 403 / no answer → the tile without a status line.
+async function loadTiles() {
+  const pages = modulePages();
+  const results = await Promise.all(pages.map((p) => call(p.query, { headers: headers() }).catch(() => null)));
+  state.tiles = {};
+  pages.forEach((p, i) => {
+    const res = results[i];
+    state.tiles[p.name] = res && res.status === 200 ? res.body.data : null;
+  });
+}
+function plural(key, n) {
+  return n === 1 ? t(key + '_one') : t(key, { n });
+}
+// Status line: Kitchen screens = screens · Pass tablets, chip offline screens (else warnings); Printers = printers ·
+// waiting, chip the first printer out of paper or offline.
+// A malformed reply (a 200 without the expected fields) → the tile without a status line, never a broken page.
+const NO_LINE = { num: null, small: null, chipNode: null };
+function tileLine(name, data) {
+  try {
+    if (name === 'kitchenScreens') {
+      const screens = data.stations.reduce((all, s) => all.concat(s.screens), []);
+      const offline = screens.filter((s) => s.state === 'offline').length;
+      const pass = data.pass_tablets.length;
+      const chipNode = offline > 0 ? chip('danger', 'screen', plural('admin.kitchen_offline', offline))
+        : data.warnings.length > 0 ? chip('warn', 'alert', plural('admin.kitchen_warnings', data.warnings.length)) : null;
+      return { num: String(screens.length), small: pass === 1 ? t('admin.tile_kitchen_one') : t('admin.tile_kitchen', { pass }), chipNode };
+    }
+    const waiting = data.printers.reduce((sum, p) => sum + p.waiting, 0);
+    const problem = data.printers.find((p) => p.status === 'paper_out' || p.status === 'offline');
+    const chipNode = problem ? chip('danger', 'printer', t('admin.printer_problem', { name: problem.name, problem: t(problem.status === 'paper_out' ? 'admin.printer_paper_out' : 'admin.printer_offline') })) : null;
+    return { num: String(data.printers.length), small: t('admin.tile_printers', { waiting }), chipNode };
+  } catch {
+    return NO_LINE;
+  }
 }
 function lockoutCount() {
   const l = state.data.lockouts;
@@ -573,13 +635,19 @@ function home() {
   const signed = countWords('admin.tile_sessions', state.data.sessions ? state.data.sessions.sessions.length : 0);
   tile('sessions', 'user', 'admin.nav_sessions', signed.num, signed.words);
   if (can('manage-devices')) tile('add-phone', 'qr', 'admin.tile_add_phone_title', null, t('admin.tile_add_phone'));
+  for (const p of modulePages()) {
+    const data = state.tiles[p.name];
+    const line = data ? tileLine(p.name, data) : NO_LINE;
+    tile(p.href, p.icon, p.key, line.num, line.small, line.chipNode);
+  }
   const parts = [tiles];
   // A phone has no side nav: the other jobs, the hub line and Sign out stay under the tiles.
   if (phone()) {
-    if (ctx.links.stock) {
+    const others = otherLinks('pos-btn pos-btn--block');
+    if (others.length > 0) {
       const other = node('section', 'pos-admin__section');
       other.appendChild(node('h2', 'heading', t('admin.nav_other')));
-      other.appendChild(stockLink('pos-btn pos-btn--block'));
+      for (const link of others) other.appendChild(link);
       parts.push(other);
     }
     parts.push(mixed('p', 'caption pos-admin__host', 'admin.branch_line', { host: location.host || '' }, 'host'));
@@ -696,6 +764,12 @@ function deviceRow(d, manage) {
   const seenText = ago(d.last_seen_at);
   const notSeen = silent ? chip('warn', 'clock', t('devices.not_seen', { n: d.last_seen_at === null ? '—' : Math.floor((Date.now() - d.last_seen_at) / 60000) })) : null;
   const who = d.active_session ? (d.active_session.kind === 'station' ? t('devices.kitchen_session') : d.active_session.display_name || '—') : t('devices.nobody');
+  // 00 v1.9.2 §8.2 (Q-43): a tablet can become a Pass tablet on the Kitchen screens page (its bind dialog).
+  let passLink = null;
+  if (!removed && d.device_type === 'tablet' && modulePages().some((p) => p.name === 'kitchenScreens')) {
+    passLink = node('a', 'pos-link', t('devices.use_as_pass'));
+    passLink.href = '/admin/kitchen-screens/#bind=' + encodeURIComponent(d.device_id);
+  }
   // ⋯ holds the rare facts (paired, how) and Remove; read-only admins get no menu (frame DevicesReadOnly).
   const more = removed || !can('manage-devices') ? null : moreMenu(li, {
     name: 'more_' + d.device_id,
@@ -707,6 +781,7 @@ function deviceRow(d, manage) {
   if (phone()) {
     const lines = [deviceType(d)];
     if (!removed && !notSeen) lines.push(seenText + ' · ' + who);
+    if (passLink) lines.push(passLink);
     if (notSeen) tags.push(notSeen);
     if (removedChip) tags.push(removedChip);
     const row = node('div', 'pos-row pos-admin__phonerow');
@@ -715,7 +790,7 @@ function deviceRow(d, manage) {
     li.appendChild(row);
     return li;
   }
-  li.appendChild(nameBlock(TYPE_ICON[d.device_type], d.device_name, [deviceType(d)], tags));
+  li.appendChild(nameBlock(TYPE_ICON[d.device_type], d.device_name, passLink ? [deviceType(d), passLink] : [deviceType(d)], tags));
   if (removed) {
     const box = node('div', 'pos-list__tags pos-admin__span3');
     box.appendChild(removedChip);
@@ -1130,8 +1205,8 @@ function paint() {
 }
 async function render() {
   paint();
-  if (await load(NEEDS[view()])) paint();
-  else paint();
+  if ((await load(NEEDS[view()])) && view() === 'home') await loadTiles();
+  paint();
 }
 function signIn() {
   sessionStorage.removeItem('admin_session_token');
