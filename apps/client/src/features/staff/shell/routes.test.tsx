@@ -11,6 +11,7 @@ import { OrderView } from '../orders/view/OrderView';
 import { ZoneStock } from '../orders/zones/ZoneStock';
 import { TableMap } from '../tables/map/TableMap';
 import { TableSheet } from '../tables/sheet/TableSheet';
+import { PassScreen } from '../../pass/PassScreen';
 import { createLiveBus } from './live';
 import { matchStaffRoute, orderHref, tableHref } from './routes';
 import { isSlotRoute, slotContent } from './slots';
@@ -66,5 +67,15 @@ describe('[02 W0.6] staff routes', () => {
     const hooks = createShellHooks(enqueue);
     await expect(hooks.beforeSignIn()).resolves.toBeUndefined();
     expect(hooks.queueLine()).toBeNull();
+  });
+});
+
+describe('[03b W0.6] the Pass route', () => {
+  it('[03b §8 Pass screen; Q-58] #/pass mounts the Pass screen on every staff device', () => {
+    for (const d of ['tablet', 'cashier_kiosk', 'phone'] as const) {
+      const s = slot('/pass', d);
+      expect(s.route).toEqual({ name: 'pass' });
+      expect(s.mounts).toEqual([PassScreen]);
+    }
   });
 });

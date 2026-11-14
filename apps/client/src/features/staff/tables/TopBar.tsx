@@ -31,6 +31,8 @@ export interface TopBarProps {
   inbox: number;
   /** manage-devices (01d Test alert) */
   testAlert: boolean;
+  /** 03b W0.6: the catch-up has a point_view (a Pass tablet) → Pass first in the nav */
+  pass?: boolean;
   /** phone top bar */
   title: string;
   phoneSub: ReactNode;
@@ -88,6 +90,7 @@ export function TopBar(p: TopBarProps) {
           <span className="clock">{p.clock}</span>
           {p.person !== null && (
             <>
+              {p.pass === true && <IconButton icon="hand" label={t('nav.pass')} count={null} onClick={() => p.onNavigate('/pass')} />}
               {p.testAlert && <IconButton icon="pulse" label={t('alerts.nav.test')} count={null} onClick={() => p.onNavigate('/test-alert')} />}
               {p.requests !== null && <IconButton icon="shield" label={t('alerts.nav.requests')} count={p.requests} onClick={() => p.onNavigate('/requests')} />}
               <IconButton icon="tray" label={t('alerts.nav.inbox')} count={p.inbox} onClick={() => p.onNavigate('/inbox')} />

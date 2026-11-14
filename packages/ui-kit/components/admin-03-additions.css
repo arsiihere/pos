@@ -1,0 +1,4 @@
+/* 03c v1.0.9 §8, IR-25: rules the admin pages need that admin-03.css (a byte copy of the handoff) does not carry. */
+/* The printer card is the anchor of its ⋯ menu: `.pos-menu` is position: absolute against the nearest positioned
+   ancestor, and with none it opened above the viewport (y = -56 at 1280 x 800), out of reach of a tap. */
+.pr { position: relative; }
