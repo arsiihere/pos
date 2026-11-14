@@ -9,6 +9,7 @@ import { ShellContext } from '../staff/shell/hooks';
 import type { AlertRow } from './store';
 import { FromLine, Ico, Tags, WaitRing, detailLine, tableOf, toneOf } from './ui';
 import { handoverDetailsText, titleText } from './labels';
+import { escalatedWho03b } from './labels-03b';
 
 // 01d §8.1 B01 (frames BannerUrgent, BannerStack, BannerResult, BannerKiosk, BannerPhone, BannerPortrait, DQ1, DQ3):
 // floating cards at the top-end under the top bar, at most 2 (newest on top), then the maroon "{n} more new ·
@@ -97,6 +98,7 @@ export function Banners({
     const table = tableOf(row);
     const det = row.kind === HANDOVER_KIND ? handoverDetailsText(row.card?.details) : detailLine(row.card, true);
     const open = ZONE_KINDS.has(row.kind) ? () => navigate('/zones') : () => onOpen(b);
+    const who03b = escalatedWho03b(row, nowMs);
     return (
       <div key={b.alert_id} className={`abn c-${tone}${row.family === 'info' ? ' abn--info' : ''}`} role="alert" data-alert={b.alert_id}>
         <WaitRing row={row} nowMs={nowMs} size={56} />
@@ -106,7 +108,8 @@ export function Banners({
             {table !== null && <span className="tcode tcode--sm">{table}</span>}
             <b>{titleText(row)}</b>
           </div>
-          <FromLine row={row} utcOffsetMs={0} time={false} />
+          {/* IR-22 (frame PassEscalated): an escalated Ready's who line reads "Pass · nobody came for 2 min" */}
+          {who03b === null ? <FromLine row={row} utcOffsetMs={0} time={false} /> : <div className="ac__who">{who03b}</div>}
           {det !== null && <div className="ac__det">{det}</div>}
         </div>
         <button type="button" className={`btn btn--tone c-${tone}`} onClick={open}>

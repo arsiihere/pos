@@ -44,6 +44,9 @@ import { PairAgain } from './tables/PairAgain';
 import { createLocalFlags } from './tables/local-flags';
 import { MeTab, PhoneTabs, type PhoneTab } from './tables/PhoneTabs';
 import { TopBar } from './tables/TopBar';
+import { createPrintSkipDismiss } from '../alerts/labels-03b';
+import { PrintSkipContext, type PrintSkipCtx } from '../alerts/ui';
+import { passLiveOf } from '../pass/live';
 
 // 01d task 41: the hub-served staff entry /staff/ (spec §8.1; hand-off PROMPT "Staff entry shell"). Maroon 80 px
 // top bar: brand block (mark, branch, device; the third line is the B05 slot, task 42), the segmented nav
@@ -143,6 +146,13 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const api = useMemo(() => createStaffApi({ device, meta, fetch: hubFetch, onSignedOut: () => signOutRef.current() }), [device, meta, hubFetch]);
   // 02 shell services (W0.6)
   const liveBus = useMemo(() => createLiveBus(), []);
+  // 03b W0.6 IR-17 / IR-17b: the page's one Pass live, made before the socket opens so it sees the first catch-up;
+  // the socket's other frames (point_lines, station_takeover, station_notice, station_plan, printed_lines) reach it
+  // through onFrame. Clock and api are read at call time (the clock is re-synced at sign-in).
+  const apiRef = useRef(api);
+  const landOnPass = useRef(false);
+  apiRef.current = api;
+  const pass = useMemo(() => passLiveOf({ live: liveBus, clock: { nowMs: () => clockRef.current.nowMs() }, api: { roster: () => apiRef.current.roster() } }), [liveBus]);
   const toasts = useMemo(() => createToastBus(), []);
   const tablesApi = useMemo(() => createTablesApi(api), [api]);
   const ordersApi = useMemo(() => createOrdersApi(api), [api]);
@@ -177,14 +187,17 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         timers: timers ?? browserTimers,
         onBindingRoute: setBindingUntil,
         ...(createSocket === undefined ? {} : { createSocket }),
-        onFrame: (frame) => liveBus.frame(frame),
+        onFrame: (frame) => {
+          liveBus.frame(frame);
+          pass.frame(frame);
+        },
         onEnded: (code, reason) => {
           if (code === 4409 || reason === REPLACED_REASON) setReplaced(true);
           else if (code === 4401) signOutRef.current();
           else if (code === 4403) unpairRef.current();
         },
       }),
-    [device, socketStore, timers, createSocket, liveBus],
+    [device, socketStore, timers, createSocket, liveBus, pass],
   );
   useEffect(() => () => conn.dispose(), [conn]);
   useEffect(() => () => store.dispose(), [store]);
@@ -261,6 +274,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     },
     [api, store],
   );
+  const inboxRefresh = useRef<() => void>(() => {});
+  inboxRefresh.current = () => void loadInbox(null);
   const loadRequests = useCallback(async () => {
     const gen = sessionGen.current;
     const answer = await api.requests();
@@ -332,7 +347,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     setBoundName(who.display_name);
     setBindingUntil(clock.nowMs() + ALERT_CONSTANTS.binding_route_idle_ms);
     // 02a §8 / handoff 02-S03: the staff app lands on the table map; the cashier kiosk on its home (#/ = KioskHome)
-    navigate(device.type === 'cashier_kiosk' ? '/' : '/tables');
+    // 03b W0.6 (handoff Q-6): a Pass tablet (point_view in the catch-up) lands on the Pass; the socket opens with the
+    // session, so its catch-up usually comes after this: the effect below moves the landing then
+    landOnPass.current = device.type !== 'cashier_kiosk';
+    navigate(device.type === 'cashier_kiosk' ? '/' : pass.store.snapshot().view !== null ? '/pass' : '/tables');
     const [info, time] = await Promise.all([api.session(), api.hubTime(), shellConfig.refresh()]);
     if (gen !== sessionGen.current) return;
     // S47: re-sync the hub clock from branch-config hub_time (the page's clock is from when it loaded)
@@ -423,6 +441,26 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // AD-T41-10 (review fix): from the hub's own list, never from a permission name
   const showRequests = !phone && requests.length > 0;
   const showTest = !phone && allowed.has('manage-devices');
+  // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
+  const hasPoint = useSyncExternalStore(pass.store.subscribe, () => pass.store.snapshot().view !== null);
+  useEffect(() => {
+    if (!hasPoint || me === null || !landOnPass.current) return;
+    landOnPass.current = false;
+    if (route === '/tables') navigate('/pass'); // only from the landing, never away from a screen the person chose
+  }, [hasPoint, me, route]);
+  // 03c §6.12 (Q-66): ONE DismissPrintSkip sender per signed-in session (keyed on its token), never per render, so a
+  // send with no answer keeps its command_id for the next tap and a double tap shares one send; a 404 / 409 / 403
+  // re-reads the inbox (the card shows its new state).
+  const sessionToken = me === null ? null : api.sessionToken();
+  const printSkipDismiss = useMemo(
+    () => (sessionToken === null ? null : createPrintSkipDismiss((type, payload, id) => api.command(type, payload, { commandId: id }), () => void inboxRefresh.current())),
+    [api, sessionToken],
+  );
+  const grantRelease = me?.permissions?.['force-release-table-lock'];
+  const printSkip = useMemo<PrintSkipCtx | null>(
+    () => (printSkipDismiss === null ? null : { grant: grantRelease, dismiss: printSkipDismiss, toast: (text) => toasts.show({ text, tone: 'warn' }) }),
+    [printSkipDismiss, grantRelease, toasts],
+  );
 
   const open = (row: AlertRow | RequestView) => {
     store.open(row.alert_id);
@@ -556,6 +594,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         requests={showRequests ? answerable : null}
         inbox={snap.unseen}
         testAlert={showTest}
+        pass={me !== null && hasPoint}
         title={me === null ? meta.branchName : phoneTitle}
         phoneSub={
           me === null ? (
@@ -652,7 +691,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // IR-11: the late cards read every alert row the page holds, open and closed (a slip closed without ItemsReleased)
   return (
     <ShellContext.Provider value={shell}>
-      <LateAlertsContext.Provider value={snap.rows as readonly LateAlertRow[]}>{body}</LateAlertsContext.Provider>
+      <LateAlertsContext.Provider value={snap.rows as readonly LateAlertRow[]}>
+        <PrintSkipContext.Provider value={printSkip}>{body}</PrintSkipContext.Provider>
+      </LateAlertsContext.Provider>
     </ShellContext.Provider>
   );
 }
