@@ -146,7 +146,7 @@ describe('[03b §8 Q-50] Pass live', () => {
     offs.push(subscribeFrames((f) => seen.push(f.type === 'event' ? f.event.event_type : f.type)));
 
     live.frame({ type: 'catch_up', as_of_seq: 50, state: { point_view: view() } });
-    pass.frame({ type: 'point_lines', point_id: PT, lines: [detail('B')] });
+    pass.frame({ type: 'point_lines', point_id: PT, lines: [{ ...detail('B'), group_id: 'G-B', serve_mode: 'immediate' }] });
     live.frame(ev('ItemStarted', { order_item_id: 'B' }));
     pass.frame({ type: 'station_takeover', station_id: 'ST-TANDOOR', active: false });
     // the bus's frames given to frame() again are ignored there (the bus already delivered them)
