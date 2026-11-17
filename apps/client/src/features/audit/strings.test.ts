@@ -13,12 +13,13 @@ const todoKeys = new Set([...todo.matchAll(/^\| `([^`]+)` \|/gm)].map((m) => m[1
 const keys = Object.keys(en).filter((k) => k.startsWith('audit.'));
 
 describe('[04 §8 Rules] audit strings', () => {
-  it('[04 O5] every AUDIT_ACTIONS value has an en label and one of the groups; every outcome has a label', () => {
+  it('[04 O5] every AUDIT_ACTIONS value has an en label and one of the groups; every group and outcome has a label', () => {
     expect(Object.keys(ACTION_META).sort()).toEqual([...AUDIT_ACTIONS].sort());
     for (const a of AUDIT_ACTIONS) {
       expect(en, a).toHaveProperty(`audit.action.${a}`);
       expect(AUDIT_GROUPS).toContain(ACTION_META[a].group);
     }
+    for (const g of AUDIT_GROUPS) expect(en, g).toHaveProperty(`audit.actions.group.${g}`);
     for (const o of OUTCOMES) expect(en, o).toHaveProperty(`audit.out.${o}`);
   });
 

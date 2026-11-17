@@ -1368,4 +1368,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'audit.reason.other': 'دیگر',
   'audit.method.in_person': 'خود آ کر',
   'audit.end_today': 'آج کے سب اندراج',
+  // the full month names are the 01d `alerts.months` Urdu list (integrator O12)
+  'audit.range.month_title': '{month} {y}',
+  'audit.months_long': 'جنوری,فروری,مارچ,اپریل,مئی,جون,جولائی,اگست,ستمبر,اکتوبر,نومبر,دسمبر',
 };

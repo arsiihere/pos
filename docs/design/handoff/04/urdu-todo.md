@@ -10,7 +10,7 @@ Keys in `apps/client/src/i18n/en.ts` added by lane VU2 with no entry in `ur.ts`;
 
 Needs native review as well: the `audit.*` entries of `ur.ts` (from AuditUrdu; the date formats `audit.date`, `audit.date_short`, `audit.date_long` are only the order "day month", month names from `alerts.months`, integrator O12).
 
-85 keys.
+109 keys.
 
 | Key | English | Note |
 |---|---|---|
@@ -99,3 +99,27 @@ Needs native review as well: the `audit.*` entries of `ur.ts` (from AuditUrdu; t
 | `audit.range.yesterday` | Yesterday |  |
 | `audit.range.last7` | Last 7 days |  |
 | `audit.range.month` | This month |  |
+| `audit.staff.find` | Find a name |  |
+| `audit.staff.left` | left |  |
+| `audit.staff.hint` | Matches what they did and what they approved. "left" = no longer on the staff list. |  |
+| `audit.staff.failed` | Couldn't load the names |  |
+| `audit.actions.group.voids_comps` | Voids and comps |  |
+| `audit.actions.group.requests` | Requests |  |
+| `audit.actions.group.orders_tables` | Orders and tables |  |
+| `audit.actions.group.day_stock` | Day and stock |  |
+| `audit.actions.group.kitchen` | Kitchen and menu |  |
+| `audit.actions.group.screens_pins` | Screens and PINs |  |
+| `audit.actions.all` | All |  |
+| `audit.actions.clear` | Clear |  |
+| `audit.actions.show` | Show {n} actions |  |
+| `audit.actions.show_one` | Show 1 action |  |
+| `audit.actions.show_all` | Show all actions |  |
+| `audit.range.from` | From |  |
+| `audit.range.to` | To (whole day) |  |
+| `audit.range.limit` | Up to 31 days. Days later than that can't be picked. |  |
+| `audit.range.cancel` | Cancel |  |
+| `audit.range.show` | Show {n} days |  |
+| `audit.range.show_one` | Show 1 day |  |
+| `audit.range.prev` | Previous month |  |
+| `audit.range.next` | Next month |  |
+| `audit.range.weekheads` | M,T,W,T,F,S,S |  |
