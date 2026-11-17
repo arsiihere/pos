@@ -93,7 +93,7 @@ These work today. Change one only if the owner disagrees.
 
 ## 8. From the 04 spec (owner, 2026-11-12) — Voids + Audit known gaps
 
-Full list with reasons: `docs/specs/04_Voids_Audit_Spec_v1.0.2.md` §12.6.
+Full list with reasons: `docs/specs/04_Voids_Audit_Spec_v1.0.3.md` §12.6.
 
 | # | Item | Decided | Where it goes |
 |---|---|---|---|
