@@ -409,6 +409,29 @@ describe('[03b §8] station socket', () => {
     expect(sockets[1]!.sent[0]).toEqual({ type: 'auth', device_token: 'DEV-KDS', session_token: 'SS-2' });
   });
 
+  it('[00 v1.11 §6.21, §8.4; Q-70] offline while replaced: the reconnect auth closes 4401 `replaced` → "Open in another window", no /auth/station of its own', async () => {
+    const fetch = start([() => SESSION(1), () => SESSION(2)]);
+    await settle();
+    sockets[0]!.frame(catchUp(['A']));
+    sockets[0]!.drop(1006); // offline; meanwhile a newer window takes the station session
+    await settle();
+    timers.advance(5_000);
+    await settle();
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.open();
+    expect(sockets[1]!.sent[0]).toEqual({ type: 'auth', device_token: 'DEV-KDS', session_token: 'SS-1' });
+    sockets[1]!.drop(4401, 'replaced'); // the hub answers the auth: this session was replaced
+    await settle();
+    expect(m.text()).toContain('This screen is open in another window');
+    timers.advance(60_000);
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(1); // never takes the session back by itself
+    expect(sockets).toHaveLength(2);
+    m.click(m.button('Use this window'));
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('[00 §8.4] another 4401 (the session ended) → a new station session after the backoff; repeated closes never loop', async () => {
     const fetch = start([() => SESSION(1), () => SESSION(2), () => SESSION(3), () => SESSION(4)]);
     await settle();

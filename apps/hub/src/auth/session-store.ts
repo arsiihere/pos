@@ -17,6 +17,8 @@ export interface SessionRow {
   last_activity_at: number;
   ended_at: number | null;
   token_hash: string;
+  /** 00 v1.11 §6.21 (Q-70): read by this file's lookups (SESSION_COLUMNS); other modules' own column lists leave it out */
+  end_reason?: SessionEndReason | null;
 }
 
 const touches = new Map<string, number>();
@@ -288,7 +290,7 @@ export function isIdleExpired(s: SessionRow, now: number): boolean {
 }
 
 const SESSION_COLUMNS =
-  'session_id, kind, staff_id, station_id, device_id, idle_ttl_ms, started_at, last_activity_at, ended_at, token_hash';
+  'session_id, kind, staff_id, station_id, device_id, idle_ttl_ms, started_at, last_activity_at, ended_at, token_hash, end_reason';
 
 function sessionEvent(
   eventType: 'SessionStarted',

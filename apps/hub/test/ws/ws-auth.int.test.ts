@@ -1,6 +1,7 @@
 import type { EventDraft } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { registerCatchUp } from '../../src/ws/catch-up';
+import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, endSessionNow, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs } from '../helpers/ws-client';
 
@@ -66,6 +67,99 @@ describe('websocket auth', () => {
     revokedDevice.send({ type: 'auth', device_token: revoked.token, session_token: staff.token });
     expect((await revokedDevice.untilClose()).code).toBe(4403);
     expect(revokedDevice.messages).toEqual([]);
+  });
+
+  it("[00 v1.11 §10 #166] auth with a session ended by replacement closes 4401 with reason 'replaced'; a session ended another way closes 4401 with no reason", async () => {
+    const hub = await open(cleanups);
+    await seedDirectory(hub);
+    // Q-70: the old KDS window has no socket while a newer window takes the station session over.
+    const kds = pairDevice(hub, { type: 'kds', stationId: 'station-1' });
+    const first = await station(hub, kds.token);
+    const second = await station(hub, kds.token);
+    expect(second.statusCode).toBe(200);
+    const stale = await connect(hub);
+    stale.send({ type: 'auth', device_token: kds.token, session_token: first.session_token });
+    expect(await stale.untilClose()).toEqual({ code: 4401, reason: 'replaced' });
+    expect(stale.messages).toEqual([]);
+
+    // a staff session ended by replacement too (the rule reads end_reason, not the kind)
+    const tablet = pairDevice(hub, { type: 'tablet' });
+    const replacedStaff = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: tablet.deviceId });
+    endSessionNow(hub, replacedStaff.sessionId, 'replaced');
+    const staffWs = await connect(hub);
+    staffWs.send({ type: 'auth', device_token: tablet.token, session_token: replacedStaff.token });
+    expect(await staffWs.untilClose()).toEqual({ code: 4401, reason: 'replaced' });
+    expect(staffWs.messages).toEqual([]);
+
+    // the kind check: an admin session ended `replaced` → no reason
+    const replacedAdmin = openSession(hub, { kind: 'admin', staffId: 'S_MGR', deviceId: tablet.deviceId });
+    endSessionNow(hub, replacedAdmin.sessionId, 'replaced');
+    const adminWs = await connect(hub);
+    adminWs.send({ type: 'auth', device_token: tablet.token, session_token: replacedAdmin.token });
+    expect(await adminWs.untilClose()).toEqual({ code: 4401, reason: '' });
+    expect(adminWs.messages).toEqual([]);
+
+    // a still-active session past its idle limit (M46; not ended yet) → no reason
+    const idleTablet = pairDevice(hub, { type: 'tablet' });
+    const stale2 = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: idleTablet.deviceId });
+    const ttl = hub.deps.db.prepare('SELECT idle_ttl_ms FROM staff_sessions WHERE session_id = ?').pluck().get(stale2.sessionId) as number;
+    hub.deps.db
+      .prepare('UPDATE staff_sessions SET last_activity_at = ? WHERE session_id = ?')
+      .run(hub.clock.branchNow() - ttl - 3_600_000, stale2.sessionId);
+    const idleWs = await connect(hub);
+    idleWs.send({ type: 'auth', device_token: idleTablet.token, session_token: stale2.token });
+    expect(await idleWs.untilClose()).toEqual({ code: 4401, reason: '' });
+    expect(idleWs.messages).toEqual([]);
+    expect(hub.deps.db.prepare('SELECT ended_at FROM staff_sessions WHERE session_id = ?').pluck().get(stale2.sessionId)).toBeNull();
+
+    // ended another way: logout, forced (station), idle_timeout → no reason
+    const loggedOut = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: tablet.deviceId });
+    endSessionNow(hub, loggedOut.sessionId, 'logout');
+    const idled = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: tablet.deviceId });
+    endSessionNow(hub, idled.sessionId, 'idle_timeout');
+    const forced = await station(hub, kds.token);
+    const forcedId = forced.session_id;
+    endSessionNow(hub, forcedId, 'forced');
+    for (const [deviceToken, sessionToken] of [
+      [tablet.token, loggedOut.token],
+      [tablet.token, idled.token],
+      [kds.token, forced.session_token],
+    ] as const) {
+      const ws = await connect(hub);
+      ws.send({ type: 'auth', device_token: deviceToken, session_token: sessionToken });
+      expect(await ws.untilClose()).toEqual({ code: 4401, reason: '' });
+      expect(ws.messages).toEqual([]);
+    }
+
+    // a replaced session presented from another device leaks nothing: no reason
+    const otherDevice = await connect(hub);
+    otherDevice.send({ type: 'auth', device_token: tablet.token, session_token: first.session_token });
+    expect(await otherDevice.untilClose()).toEqual({ code: 4401, reason: '' });
+    expect(otherDevice.messages).toEqual([]);
+
+    // the reason comes from the one session lookup: a replaced auth runs no more statements than an unknown token,
+    // which stops right after that lookup (no second SELECT for end_reason)
+    const counter = statementCounter(hub.deps.db);
+    const countAuth = async (sessionToken: string): Promise<number> => {
+      const ws = await connect(hub);
+      counter.reset();
+      ws.send({ type: 'auth', device_token: tablet.token, session_token: sessionToken });
+      await ws.untilClose();
+      return counter.count;
+    };
+    const unknown = await countAuth('no-such-session');
+    expect(await countAuth(replacedStaff.token)).toBe(unknown);
+    expect(await countAuth(loggedOut.token)).toBe(unknown);
+
+    // the device check comes first: a revoked device presenting its replaced session closes 4403
+    const revokedKds = pairDevice(hub, { type: 'kds', stationId: 'station-1' });
+    const revokedFirst = await station(hub, revokedKds.token);
+    expect((await station(hub, revokedKds.token)).statusCode).toBe(200);
+    hub.deps.db.prepare('UPDATE devices SET revoked_at = ? WHERE device_id = ?').run(hub.clock.branchNow(), revokedKds.deviceId);
+    const revoked = await connect(hub);
+    revoked.send({ type: 'auth', device_token: revokedKds.token, session_token: revokedFirst.session_token });
+    expect((await revoked.untilClose()).code).toBe(4403);
+    expect(revoked.messages).toEqual([]);
   });
 
   it('[00 §10 #50] tokens in the query string are ignored and the auth frame is still required', async () => {
@@ -190,6 +284,15 @@ async function open(cleanups: Array<() => Promise<void>>): Promise<TestHub> {
 async function connect(hub: TestHub, o?: { path?: string; headers?: Record<string, string>; remoteAddress?: string }) {
   const ws = await connectWs(hub.app, o);
   return ws;
+}
+
+function station(hub: TestHub, token: string) {
+  return hub.app
+    .inject({ method: 'POST', url: '/auth/station', headers: { authorization: `Bearer ${token}` } })
+    .then((response) => {
+      const body = response.json() as { data?: { session_token: string; session_id: string } };
+      return { statusCode: response.statusCode, session_token: body.data?.session_token ?? '', session_id: body.data?.session_id ?? '' };
+    });
 }
 
 function clockAlarm(wallMs: number, last: number): EventDraft {
