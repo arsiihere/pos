@@ -20,6 +20,7 @@ Spec: `docs/specs/04_Voids_Audit_Spec_v1.0.3.md` §8 and §9. Plan: `docs/plans/
 - New for 04: `pulse-04.css`, `pulse-04-admin.css` and `fonts.css`.
 
 ## Paths
+- ui-kit copy renames `.ptag` → `.vptag` (collides with 03 Pass tag)
 - The frames link `css/*.css` relative to `design/`, so they open straight from disk.
 - `./support.js`: the frames reference the canvas helper script, but it is **not shipped**, the same as in 01d. The frames are static and render without it.
 - **Fonts:** `css/fonts.css` keeps the canvas `/_blob/<id>` URLs exactly as the canvas has them, so those fonts do not load from disk.
