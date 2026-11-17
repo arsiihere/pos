@@ -1,0 +1,7 @@
+/* 04 · owner-kit additions for the hub admin Stock page (lane VU1): the DayCloseBlocked / DayCloseBlockedMore frames'
+   inline layout as classes (components may not carry a style prop, S35 d). pulse-04-admin.css stays a byte copy. */
+
+/* the banner's text block next to its icon */
+.pos-banner__body { flex: 1; min-width: 0; font-weight: 700; }
+/* a long list scrolls inside the banner (max 196 px, faded); "and N more" stays visible under it */
+.pos-banner__list--scroll { max-height: 196px; overflow-y: auto; -webkit-mask-image: linear-gradient(black 80%, transparent); mask-image: linear-gradient(black 80%, transparent); }

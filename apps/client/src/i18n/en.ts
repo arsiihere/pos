@@ -9,6 +9,8 @@ export const en = {
   'admin_stock.errors.PERMISSION_DENIED': 'You do not have permission for this. Ask a manager.',
   // 01a v2.5 §8.2 (04 §4.5 A-1, G-21): Close day refused while void requests are open.
   'admin_stock.errors.DAY_CLOSE_BLOCKED': '{count} void requests are still open — answer them first',
+  // 04 v1.0.4 §8 Day close blocked (O9): count 1
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_one': '1 void request is still open — answer it first',
   'admin_stock.errors.DAY_CLOSE_BLOCKED_more': 'and {n} more',
   'admin_stock.status.version': 'Menu version {version}',
   'admin_stock.status.no_menu': 'No menu yet',

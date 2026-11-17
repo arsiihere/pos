@@ -31,19 +31,32 @@ const ICONS: Record<BannerTone, ReactNode> = {
 };
 
 // `icon` replaces the tone's icon where a frame draws a specific one (cloud unreachable: wifi, 01a B04).
-// `items` (01a v2.5 §8.2, G-21): a list under the text, e.g. the open void requests that block a day close.
+// `items` (01a v2.5 §8.2, G-21): a list under the text, e.g. the open void requests that block a day close
+// (04 B03, frames DayCloseBlocked / DayCloseBlockedMore: `.pos-banner__list`, an `ltr` part as a `.pos-ltr` island; a
+// long list scrolls inside the banner; a `more` row stays visible under it).
+export interface BannerItem {
+  /** shown left to right inside RTL (an identifier) */
+  ltr?: string;
+  text: string;
+}
+
+/** Past this many rows the list scrolls inside the banner (pulse-04-admin-additions.css, 196 px). */
+const SCROLL_FROM = 9;
+
 export function Banner({
   tone,
   text,
   detail,
   icon,
   items,
+  more,
 }: {
   tone: BannerTone;
   text: string;
   detail?: string;
   icon?: IconName;
-  items?: readonly string[];
+  items?: readonly BannerItem[];
+  more?: string;
 }) {
   const body = (
     <p>
@@ -63,15 +76,27 @@ export function Banner({
       {items === undefined || items.length === 0 ? (
         body
       ) : (
-        <div>
+        <div className="pos-banner__body">
           {body}
-          <ul className="pos-banner__items">
+          <ul className={items.length >= SCROLL_FROM ? 'pos-banner__list pos-banner__list--scroll' : 'pos-banner__list'}>
             {items.map((row, i) => (
               <li key={i}>
-                <small>{row}</small>
+                {row.ltr === undefined ? (
+                  row.text
+                ) : (
+                  <>
+                    <span className="pos-ltr">{row.ltr}</span>
+                    {row.text === '' ? '' : ` · ${row.text}`}
+                  </>
+                )}
               </li>
             ))}
           </ul>
+          {more !== undefined && (
+            <ul className="pos-banner__list">
+              <li className="more">{more}</li>
+            </ul>
+          )}
         </div>
       )}
     </div>

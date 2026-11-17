@@ -371,6 +371,10 @@ describe('/admin/stock business day', () => {
       '#12 · Paye · Sara',
     ]);
     expect(banner!.textContent).not.toContain('more');
+    // 04 B03 (frame DayCloseBlocked): .pos-banner__list, the identifier an LTR island, no scroll for a short list
+    const list = banner!.querySelector('ul.pos-banner__list')!;
+    expect(list.classList.contains('pos-banner__list--scroll')).toBe(false);
+    expect([...list.querySelectorAll('li .pos-ltr')].map((x) => x.textContent)).toEqual(['T4', '#12']);
     expect(commands(sent).map((c) => c.url)).toEqual(['/admin/commands/close-business-day']);
   });
 
@@ -396,6 +400,12 @@ describe('/admin/stock business day', () => {
     expect(rows).toHaveLength(41);
     expect(rows[0]).toBe('T1 · Paye · Ali');
     expect(rows[40]).toBe('and 1 more');
+    // 04 B03 (frame DayCloseBlockedMore): the 40 rows scroll inside the banner; "and N more" stays under the list
+    const lists = [...banner!.querySelectorAll('ul.pos-banner__list')];
+    expect(lists).toHaveLength(2);
+    expect(lists[0]!.classList.contains('pos-banner__list--scroll')).toBe(true);
+    expect(lists[0]!.querySelectorAll('li')).toHaveLength(40);
+    expect(lists[1]!.querySelector('li.more')?.textContent).toBe('and 1 more');
   });
 
   it.each([
@@ -428,7 +438,9 @@ describe('/admin/stock business day', () => {
 
     await tap(button(container.querySelector<HTMLElement>('[data-stale-prompt]')!, t('admin_stock.stale.close_and_start')));
     expect(commands(sent).map((c) => c.url)).toEqual(['/admin/commands/close-business-day']);
-    expect(container.textContent).toContain('1 void requests are still open — answer them first');
+    // 04 v1.0.4 §8 Day close blocked (O9): the singular for count 1
+    expect(container.textContent).toContain('1 void request is still open — answer it first');
+    expect(container.textContent).not.toContain('1 void requests');
     expect([...container.querySelectorAll('.pos-banner li')].map((li) => li.textContent)).toEqual(['T4 + T5 · Paye · Ali']);
   });
 
