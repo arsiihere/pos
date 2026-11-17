@@ -1,3 +1,5 @@
+// 04 B03 (01a v2.5 G-21): the DAY_CLOSE_BLOCKED banner list (owner kit addition, Stock page only)
+import '../../../../../../packages/ui-kit/components/pulse-04-admin.css';
 import { createHubAdmin } from '../../../api/hub-admin';
 import { mount } from '../../../app/mount';
 import { StockApp } from './StockApp';
