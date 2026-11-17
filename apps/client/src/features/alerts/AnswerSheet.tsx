@@ -6,6 +6,7 @@ import { createPinPad, type AnswerInput, type AnswerOutcome, type AnswerSender, 
 import { InPersonPick, type Approver } from './InPerson';
 import { alertText, closedText, inPersonTitle, timeText, titleText, waitingText } from './labels';
 import { PinStep, type PinError } from './PinStep';
+import { VoidFacts } from '../voids/VoidFacts';
 import { CloseX, Dialog, FamilyPill, FromLine, Ico, Msg, Ring, Tag, Tags, amountText, tableOf, toneOf, type RowLike } from './ui';
 
 // 01d §8.1, §6.2 (D01–D03, B02–B04; frames Answer, AnswerAccept, AnswerDone, AnswerPortrait, AnswerKiosk,
@@ -102,6 +103,7 @@ function Facts({ row }: { row: SheetRow }) {
   const d = row.card?.details;
   if (d === null || d === undefined) return null;
   if (row.kind === 'table_handover') return <HandoverFacts d={d} />;
+  const voidKind = row.kind === 'void_approval';
   return (
     <div className="facts">
       {d.item !== undefined && (
@@ -132,6 +134,8 @@ function Facts({ row }: { row: SheetRow }) {
           </b>
         </div>
       )}
+      {/* 04 §8 (§3.5 details, owner Q16, D-3): where it goes and each line's stage, shown separately */}
+      {voidKind && <VoidFacts disposition={d.disposition} lines={d.lines} />}
     </div>
   );
 }
@@ -173,6 +177,8 @@ export function AnswerSheet({
   const [busy, setBusy] = useState(false);
   // 02a §8 Table sheet: a stale handover (bill paid) stays open with a warning; it closes when the table is cleaned
   const [stale, setStale] = useState(false);
+  // 04 v1.0.4 §8: a void approve refused because the line was served meanwhile: Approve off, Reject stays
+  const [served, setServed] = useState(false);
   const [approvers, setApprovers] = useState<Approver[] | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -231,6 +237,9 @@ export function AnswerSheet({
         setStale(true);
         setMessage(outcome.message);
         return;
+      case 'VOID_NOT_ALLOWED':
+        if (outcome.details['hint'] === 'withdraw_and_reask') setServed(true);
+        break;
       case 'STAFF_NOT_FOUND':
         if (where === 'herepin') {
           go({ k: 'pick' });
@@ -361,7 +370,7 @@ export function AnswerSheet({
         </div>
         <div className="dlg__body">
           <Facts row={row} />
-          {!up ? <Msg tone="danger" icon="wifioff" text={t('answer.error.offline')} /> : message !== null && <Msg tone={stale ? 'warn' : 'danger'} icon="warn" text={message} />}
+          {!up ? <Msg tone="danger" icon="wifioff" text={t('answer.error.offline')} /> : message !== null && <Msg tone={stale || served ? 'warn' : 'danger'} icon="warn" text={message} />}
           {closed && (
             <div className="ro ro--result" role="status">
               <Ico name={row.close_reason === 'withdrawn' ? 'undo' : row.decision === 'reject' || row.decision === 'decline' ? 'x' : 'check'} />
@@ -381,7 +390,13 @@ export function AnswerSheet({
               <Ico name="x" />
               {t(LABEL[no] as 'answer.reject')}
             </button>
-            <button type="button" className="btn btn--primary" disabled={off || closed} onClick={() => choose(yes)}>
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={off || closed}
+              aria-disabled={served ? 'true' : undefined}
+              onClick={() => (served ? undefined : choose(yes))}
+            >
               <Ico name="check" />
               {t(LABEL[yes] as 'answer.approve')}
             </button>
@@ -393,6 +408,7 @@ export function AnswerSheet({
             </button>
           )
         )}
+        {canAnswer && open && !closed && row.kind === 'void_approval' && <p className="muted pinboth">{t('void.answer.pin_both')}</p>}
         {here && open && (
           <button type="button" className="here" disabled={!up} onClick={openHere}>
             <Ico name="userlock" />

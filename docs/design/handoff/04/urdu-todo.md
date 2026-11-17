@@ -139,7 +139,7 @@ Needs native review as well: the `audit.*` entries of `ur.ts` (from AuditUrdu; t
 
 Keys in `apps/client/src/i18n/en.ts` added by lane VU1 (handoff 04 CHANGES §2.1–§2.8) with no entry in `ur.ts`. They show in English on an Urdu page until translated (01a S49 fallback). The Urdu that frames `VoidSheetUrdu`, `VoidPendingUrdu` and `AnswerVoidUrdu` show is in `ur.ts`. `apps/client/test/voids-i18n.test.ts` checks that every VU1 key is either in `ur.ts` or listed here.
 
-91 keys.
+93 keys.
 
 | Key | English | Note |
 |---|---|---|
@@ -230,6 +230,8 @@ Keys in `apps/client/src/i18n/en.ts` added by lane VU1 (handoff 04 CHANGES §2.1
 | `void_all.sub` | {rounds} · removes what the kitchen hasn't started, voids the rest |  |
 | `void_all.child` | + {name} ×{n} |  |
 | `void_all.disposition_note` | What happens to the Other lines? |  |
+| `void.answer.served_meanwhile` | Served meanwhile — ask the requester to withdraw and ask again as wastage; if they are not here, reject it and void it yourself (or anyone allowed to void) |  |
+| `void.answer.pin_both` | Approve and Reject ask for your PIN. |  |
 | `comp.needs_manager` | Needs a manager's approval · online only | Frame VoidSheetUrdu: مینیجر کی منظوری چاہیے · صرف آن لائن (02b key, listed in 02b/urdu-todo.md) |
 | `comp.units` | Units | Frame VoidSheetUrdu: تعداد (02b key, listed in 02b/urdu-todo.md) |
 | `comp.ask` | Ask for approval | Frame VoidSheetUrdu: منظوری مانگیں (02b key, listed in 02b/urdu-todo.md) |

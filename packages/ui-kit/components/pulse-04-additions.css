@@ -12,3 +12,5 @@
 :is(.dlg--v, .dlg--all) .dlg__h .tcode { font-size: 22px; }
 /* Cancel table: one block per round (its label, Remove and Void groups), stacked as the single-order sheet's groups */
 .vround { display: flex; flex-direction: column; gap: 10px; }
+/* approver card: "Approve and Reject ask for your PIN." under the buttons (frame AnswerVoid inline style) */
+.dlg .pinboth { text-align: center; font-size: 14px; margin-top: -4px; }

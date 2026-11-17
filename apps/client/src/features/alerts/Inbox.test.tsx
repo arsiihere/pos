@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MIN, NOW, VOID_CARD, row } from '../../../test/alert-rows';
 import { mount, type Mounted } from '../../../test/dom';
 import { Inbox, inboxSections } from './Inbox';
+import { lockText } from './labels';
 
 // 01d §8.1, §6.7 (S01): the inbox lists the alerts-inbox rows; open action alerts first, then newest; a lead's
 // "For <name>" groups; details only on a signed-in card (§3.12).
@@ -60,7 +61,11 @@ describe('[01d §8.1 S01] Inbox', () => {
     expect(card.textContent).toContain('from Hamza · 2:02 PM');
     const lockOnly = m.container.querySelector('[data-alert="V2"]')!;
     expect(lockOnly.textContent).not.toMatch(/2,200|Karahi|changed/);
-    expect(lockOnly.textContent).toContain('Request');
+    // 04 §8: the kind's own lock text (alert.void_approval.lock); the row draws its parts (chip, title, from)
+    expect(lockText(voidLock)).toBe('T12 · Void · Hamza');
+    expect(lockOnly.textContent).toMatch(/T12.*Void.*from Hamza/);
+    // the row's title element is the kind's own word
+    expect(lockOnly.querySelector('.ac__title > b')?.textContent).toBe('Void');
     expect(m.container.querySelector('[data-alert="C1"]')!.textContent).toContain('Approved by Sana');
     expect(text).toContain('For Ali · 1 · no device');
     expect(m.container.querySelector('[data-alert="H1"]')!.textContent).toContain('Action');

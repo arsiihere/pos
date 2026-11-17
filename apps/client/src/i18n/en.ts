@@ -3004,6 +3004,13 @@ export const en = {
   'void_all.list_and': ' and ',
   'void_all.child': '+ {name} ×{n}',
   'void_all.disposition_note': 'What happens to the Other lines?',
+  // 04 §8 Approver card (01d D01, kind void_approval; VU1; handoff 04 CHANGES §2.6). Served meanwhile: 04 v1.0.4 §8 (owner O1 = a).
+  'alert.void_approval.card': 'Void request',
+  'alert.void_approval.name': 'Void request',
+  'alert.void_approval.lock': '{table} · Void · {requester}',
+  'void.answer.lines': 'Lines and stage',
+  'void.answer.served_meanwhile': 'Served meanwhile — ask the requester to withdraw and ask again as wastage; if they are not here, reject it and void it yourself (or anyone allowed to void)',
+  'void.answer.pin_both': 'Approve and Reject ask for your PIN.',
 } as const;
 
 export type MessageKey = keyof typeof en;
