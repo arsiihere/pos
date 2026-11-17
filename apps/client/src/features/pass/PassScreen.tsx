@@ -230,6 +230,7 @@ export function PassScreen() {
             name={view.stations.find((st) => st.station_id === station_id)?.name ?? ''}
             api={kds}
             canRun={canRun}
+            archived={archived || snap.archived.has(station_id)}
             up={up}
             nowMs={nowMs}
             utcOffsetMs={shell.clock.utcOffsetMs}

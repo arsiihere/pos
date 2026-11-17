@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { registerLineAction } from '../../kds/slots';
 import type { HubResult } from '../../../api/hub-admin';
 import { flush, mount, type Mounted } from '../../../../test/dom';
 import { ShellContext, type Shell } from '../../staff/shell/hooks';
@@ -47,7 +48,7 @@ const VIEW: PointViewBody = {
   orders: [{ order_id: 'O1', identifier: { kind: 'table', label: 'T4' }, placed_at: 0, ready: null, lines: [line('NAAN', 'done'), line('RAITA', 'added', 'ST-C')] }],
 };
 
-function setup(o: { online?: boolean; runPass?: boolean; answers?: Record<string, Array<HubResult<unknown>>>; catchUp?: boolean } = {}) {
+function setup(o: { online?: boolean; runPass?: boolean; answers?: Record<string, Array<HubResult<unknown>>>; catchUp?: boolean; view?: PointViewBody } = {}) {
   const live = createLiveBus();
   const sent: string[] = [];
   const shell = {
@@ -68,7 +69,7 @@ function setup(o: { online?: boolean; runPass?: boolean; answers?: Record<string
     me: { staff_id: 'S1', name: 'Asif' },
   } as unknown as Shell;
   passLiveOf(shell);
-  if (o.catchUp !== false) live.frame({ type: 'catch_up', as_of_seq: 1, state: { point_view: VIEW } });
+  if (o.catchUp !== false) live.frame({ type: 'catch_up', as_of_seq: 1, state: { point_view: o.view ?? VIEW } });
   return { shell, live, sent };
 }
 
@@ -119,6 +120,36 @@ describe('[03b §8] Pass states', () => {
     await flush();
     expect(m.container.querySelector('.msg.c-danger')).toBeNull();
     expect(m.buttons().length).toBeGreaterThan(0);
+  });
+
+  it('[03b §3.10; #208 P-7] point archived → a takeover row\'s Reprint goes too, the rows stay', async () => {
+    const off = registerLineAction((_line, ctx) => (ctx.surface === 'takeover' && ctx.has_printer ? { key: 'reprint', label: 'Reprint', run: () => Promise.resolve({ toast: 'x' }) } : null));
+    try {
+      const withTakeover: PointViewBody = {
+        ...VIEW,
+        takeovers: [
+          {
+            station_id: 'ST-T',
+            day_open: true,
+            sound_volume: 70,
+            has_printer: true,
+            lanes: { lanes_on: 2, lane_count: 2 },
+            now: [{ ...line('NAAN', 'added'), stage: 'added', fired_at: 1, started_at: null, mark: null, done_undone: false }],
+            details: [],
+          },
+        ],
+      };
+      const s = setup({ answers: { MarkReadyToServe: [{ ok: false, error: { kind: 'api', status: 404, code: 'POINT_NOT_FOUND', details: {} } }] }, view: withTakeover });
+      show(s.shell);
+      expect(m.buttons().some((b) => b.textContent === 'Reprint')).toBe(true);
+      m.click(m.button('Ready to serve'));
+      await flush();
+      expect(m.container.querySelector('main.pass > .msg.c-danger')).not.toBeNull();
+      expect(m.container.querySelectorAll('section.tko article.kl')).toHaveLength(1);
+      expect(m.buttons().some((b) => b.textContent === 'Reprint')).toBe(false);
+    } finally {
+      off();
+    }
   });
 
   it('[03b §8] before the first catch-up → skeleton cards (PassLoading)', () => {

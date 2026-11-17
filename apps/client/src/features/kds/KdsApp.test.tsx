@@ -8,7 +8,18 @@ import { createHubClock } from '../../app/hub-clock';
 import { flush, mount, reply, type Mounted } from '../../../test/dom';
 import type { SocketLike } from '../alerts/socket';
 import { fakeTimers, recordingSink, type FakeTimers } from '../alerts/test-fakes';
+import { registerPrintSlots, type PrintTransport } from '../print/register';
 import { KdsApp } from './KdsApp';
+
+// #202 K-3 / K-4: the test reads the transport the app hands to the print slots (the real registration still runs)
+vi.mock('../print/register', async (original) => {
+  const actual = await original<typeof import('../print/register')>();
+  return { ...actual, registerPrintSlots: vi.fn(actual.registerPrintSlots) };
+});
+const lastTransport = (): PrintTransport => {
+  const withTransport = vi.mocked(registerPrintSlots).mock.calls.map((c) => c[0]).filter((x): x is PrintTransport => x !== undefined);
+  return withTransport[withTransport.length - 1]!;
+};
 
 // IR-15: every ULID minted on this page (03c's reprinter and the station api both use app/ulid), so a test can tell
 // whose id an envelope carries
@@ -131,6 +142,7 @@ let sockets: FakeSocket[];
 let timers: FakeTimers;
 let goes: string[];
 beforeEach(async () => {
+  vi.mocked(registerPrintSlots).mockClear();
   sockets = [];
   goes = [];
   timers = fakeTimers();
@@ -545,5 +557,52 @@ describe('[03b §8] station socket', () => {
     m.click(m.button('Reprint', m.container.querySelector('[data-id="A"]')!));
     await settle();
     expect(bodies[2]!['command_id']).not.toBe(bodies[0]!['command_id']);
+  });
+  it('[03c §3.5 IR-15; #202 K-4] canReprint follows the live station session; with none, command answers network and sends nothing', async () => {
+    const sent: string[] = [];
+    let n = 0;
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/auth/station') return SESSION((n += 1));
+      if (url === '/queries/branch-config') return CONFIG();
+      sent.push(url);
+      return reply(200, { data: { command_id: 'x', event_ids: [], result: { ticket_ids: ['TK1'], skipped: [] } } });
+    });
+    m = mount();
+    m.render(<KdsApp page={PAGE} fetch={fetch} timers={timers} sink={recordingSink(timers)} createSocket={() => { const s = new FakeSocket(); sockets.push(s); return s; }} />);
+    // before the first session answers: none live
+    expect(lastTransport().canReprint()).toBe(false);
+    expect(await lastTransport().command('ReprintTicket', { order_id: 'O-A' }, 'C1')).toEqual({ ok: false, error: { kind: 'network' } });
+    await settle();
+    sockets[0]!.frame(catchUp(['A']));
+    expect(lastTransport().canReprint()).toBe(true);
+    // the session ends (4401): none live again, the command is not sent
+    sockets[0]!.drop(4401, 'logout');
+    await settle();
+    expect(lastTransport().canReprint()).toBe(false);
+    expect(await lastTransport().command('ReprintTicket', { order_id: 'O-A' }, 'C1')).toEqual({ ok: false, error: { kind: 'network' } });
+    expect(sent).toEqual([]);
+    // a new session: live again, and the command goes out on it
+    timers.advance(500);
+    await settle();
+    sockets[1]!.frame(catchUp(['A']));
+    expect(lastTransport().canReprint()).toBe(true);
+    expect((await lastTransport().command('ReprintTicket', { order_id: 'O-A' }, 'C1')).ok).toBe(true);
+    expect(sent).toEqual(['/commands/reprint-ticket']);
+  });
+
+  it('[03c §3.10; #202 K-3] orderTickets on the station transport is a fixed refusal: the staff-only query is never called', async () => {
+    const urls: string[] = [];
+    const fetch = vi.fn(async (url: string) => {
+      urls.push(url);
+      if (url === '/auth/station') return SESSION();
+      if (url === '/queries/branch-config') return CONFIG();
+      return reply(200, { data: { tickets: [] } });
+    });
+    m = mount();
+    m.render(<KdsApp page={PAGE} fetch={fetch} timers={timers} sink={recordingSink(timers)} createSocket={() => { const s = new FakeSocket(); sockets.push(s); return s; }} />);
+    await settle();
+    sockets[0]!.frame(catchUp(['A']));
+    expect(await lastTransport().orderTickets('O-A')).toEqual({ ok: false, error: { kind: 'api', status: 403, code: 'PERMISSION_DENIED', details: { session_kind: 'station' } } });
+    expect(urls.some((u) => u.startsWith('/queries/order-tickets'))).toBe(false);
   });
 });

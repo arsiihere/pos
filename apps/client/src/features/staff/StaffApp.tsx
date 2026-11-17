@@ -190,6 +190,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         onFrame: (frame) => {
           liveBus.frame(frame);
           pass.frame(frame);
+          // AD-K12 / W-3: the landing is for arrival only; a first catch-up with no point_view ends it
+          if (frame.type === 'catch_up' && pass.store.snapshot().view === null) landOnPass.current = false;
         },
         onEnded: (code, reason) => {
           if (code === 4409 || reason === REPLACED_REASON) setReplaced(true);
@@ -443,6 +445,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const showTest = !phone && allowed.has('manage-devices');
   // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
   const hasPoint = useSyncExternalStore(pass.store.subscribe, () => pass.store.snapshot().view !== null);
+  // AD-K12 / W-3: leaving the landing route ends the landing too (a late catch-up never moves a person mid-task)
+  useEffect(() => {
+    if (route !== '/tables') landOnPass.current = false;
+  }, [route]);
   useEffect(() => {
     if (!hasPoint || me === null || !landOnPass.current) return;
     landOnPass.current = false;
