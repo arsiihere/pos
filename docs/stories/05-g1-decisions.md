@@ -126,6 +126,6 @@ Added decision:
 
 Open owner facts (not blocking the spec): M-4 tax 24 %, and whether today's receipts carry a PRA invoice number / QR (Q1 was taken on that assumption).
 
-## 6. Next
+## 8. Next
 
 On "go spec": `docs/specs/05_Billing_Spec_v0.1.md` with `anthropic-skills:backend-spec-writer` (foundation §6 Shared Standards; §4.5 bumps for F, 01a, 01b, 01d, 02a, 02b, 03c, 04 at the next free numbers; new error codes in F §6.2; README row 05 and the R13 amendment), then STOP for the owner.
