@@ -7,6 +7,7 @@ import { money, MONEY_DIR } from '../staff/orders/money';
 import { useShell } from '../staff/shell/hooks';
 import type { AuditEntryView, AuditQuery } from './api';
 import { dayCount, dayStart, dayText, presetOf, rangeInSentence, rangeText, todayRange, type DayRange } from './days';
+import { ActionsPopover, DatePopover, StaffPopover } from './Filters';
 import { AIco, type AuditIconName } from './icons';
 import { actionMeta, actionText, detailOf, methodOf, outcomeOf, reasonText, shortId, targetOf, VOIDS_PRESET, type AuditTone } from './labels';
 
@@ -72,6 +73,22 @@ export function AuditLog() {
   const defaults = useCallback((): AuditFilters => ({ range: todayRange(shell.clock.nowMs(), off), staff: null, actions: [] }), [shell.clock, off]);
   const [filters, setFilters] = useState<AuditFilters>(defaults);
   const [list, setList] = useState<ListState>({ status: 'loading' });
+  // one filter popover at a time (04-C04–C06); closing gives the focus back to its filter
+  const [open, setOpen] = useState<'date' | 'staff' | 'actions' | null>(null);
+  const fltRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const close = useCallback(() => {
+    setOpen((was) => {
+      if (was !== null) fltRefs.current[was]?.focus();
+      return null;
+    });
+  }, []);
+  const apply = useCallback((next: Partial<AuditFilters>) => {
+    setOpen((was) => {
+      if (was !== null) fltRefs.current[was]?.focus();
+      return null;
+    });
+    setFilters((f) => ({ ...f, ...next }));
+  }, []);
   const gen = useRef(0);
   // one next page in flight at a time (the observer and Try again can both ask before a render)
   const moreInFlight = useRef(false);
@@ -135,9 +152,43 @@ export function AuditLog() {
 
   const bar = (
     <div className="au__bar">
-      <FilterButton icon="cal" label={t('audit.f.date')} value={rangeText(filters.range, nowMs, off)} set={!isToday} />
-      <FilterButton icon="user" label={t('audit.f.staff')} value={filters.staff?.name ?? t('audit.f.everyone')} set={filters.staff !== null} />
-      <FilterButton icon="filter" label={t('audit.f.actions')} value={actionsValue(filters.actions)} set={filters.actions.length > 0} count={filters.actions.length > 1 ? filters.actions.length : null} />
+      <FilterButton
+        id="date"
+        refs={fltRefs.current}
+        open={open === 'date'}
+        onToggle={() => setOpen((o) => (o === 'date' ? null : 'date'))}
+        icon="cal"
+        label={t('audit.f.date')}
+        value={rangeText(filters.range, nowMs, off)}
+        set={!isToday}
+      >
+        {open === 'date' && <DatePopover range={filters.range} nowMs={nowMs} utcOffsetMs={off} onApply={(range) => apply({ range })} onClose={close} />}
+      </FilterButton>
+      <FilterButton
+        id="staff"
+        refs={fltRefs.current}
+        open={open === 'staff'}
+        onToggle={() => setOpen((o) => (o === 'staff' ? null : 'staff'))}
+        icon="user"
+        label={t('audit.f.staff')}
+        value={filters.staff?.name ?? t('audit.f.everyone')}
+        set={filters.staff !== null}
+      >
+        {open === 'staff' && <StaffPopover api={api} selected={filters.staff?.staff_id ?? null} onPick={(staff) => apply({ staff })} onClose={close} />}
+      </FilterButton>
+      <FilterButton
+        id="actions"
+        refs={fltRefs.current}
+        open={open === 'actions'}
+        onToggle={() => setOpen((o) => (o === 'actions' ? null : 'actions'))}
+        icon="filter"
+        label={t('audit.f.actions')}
+        value={actionsValue(filters.actions)}
+        set={filters.actions.length > 0}
+        count={filters.actions.length > 1 ? filters.actions.length : null}
+      >
+        {open === 'actions' && <ActionsPopover selected={filters.actions} onApply={(actions) => apply({ actions })} onClose={close} />}
+      </FilterButton>
       <div className="end">
         <span className="cap">{t('audit.caption')}</span>
         <button type="button" className="btn" aria-disabled={exportOff ? 'true' : undefined}>
@@ -278,19 +329,53 @@ export function AuditLog() {
 
 // ------------------------------------------------------------------------------------------------ parts
 
-function FilterButton({ icon, label, value, set, count = null }: { icon: AuditIconName; label: string; value: string; set: boolean; count?: number | null }) {
+function FilterButton({
+  id,
+  refs,
+  open,
+  onToggle,
+  icon,
+  label,
+  value,
+  set,
+  count = null,
+  children,
+}: {
+  id: string;
+  refs: Record<string, HTMLButtonElement | null>;
+  open: boolean;
+  onToggle: () => void;
+  icon: AuditIconName;
+  label: string;
+  value: string;
+  set: boolean;
+  count?: number | null;
+  children?: ReactNode;
+}) {
   return (
-    <button type="button" className={`flt${set ? ' is-set' : ''}`} aria-haspopup="dialog">
-      <AIco name={icon} />
-      <span>
-        <small>{label}</small>
-        <b>
-          {value}
-          {count !== null && <span className="n">{count}</span>}
-        </b>
-      </span>
-      <AIco name="down" />
-    </button>
+    <div className="flt-w">
+      <button
+        type="button"
+        ref={(el) => {
+          refs[id] = el;
+        }}
+        className={`flt${set ? ' is-set' : ''}${open ? ' is-open' : ''}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <AIco name={icon} />
+        <span>
+          <small>{label}</small>
+          <b>
+            {value}
+            {count !== null && <span className="n">{count}</span>}
+          </b>
+        </span>
+        <AIco name="down" />
+      </button>
+      {children}
+    </div>
   );
 }
 

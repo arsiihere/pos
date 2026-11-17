@@ -25,3 +25,29 @@
 .aur--sk .sk:nth-child(6) { height: 22px; width: 80px; border-radius: 999px; }
 .aur--sk .sk:nth-child(7) { margin-inline-start: auto; }
 .aur--sk .sk:nth-child(8) { width: 70px; }
+
+/* VU2b popovers (frames AuditStaff, AuditActions, AuditRange): anchored under their filter (the frames place them with
+   inline inset/top/width), their inline styles as classes, and the parts that are interactive here (search input,
+   calendar days as buttons, group "All" as a button) */
+.au__bar .flt-w { position: relative; }
+.au__bar .flt-w > .pop { top: calc(100% + 8px); inset-inline-start: 0; }
+.pop__r { width: 100%; }
+.cal button { display: grid; place-items: center; height: 32px; border-radius: 10px; font: inherit; color: inherit; }
+.cal button.out { color: var(--muted); opacity: 0.5; }
+.cal button.in { background: var(--accent-bg); border-radius: 0; }
+.cal button.a { background: var(--accent); color: var(--on-accent); border-radius: 10px; }
+.cal button.fut { color: var(--muted); opacity: 0.45; }
+.pop__s input { flex: 1; min-width: 0; font: inherit; color: var(--ink); background: transparent; }
+.au__bar .flt-w > .pop { width: 380px; }
+.au__bar .flt-w > .pop.pop--w { width: 400px; }
+.pop__list { display: flex; flex-direction: column; gap: 4px; max-height: min(560px, calc(100dvh - 300px)); overflow-y: auto; }
+.pop__n { display: flex; align-items: center; gap: 10px; }
+.pop__g button { font: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.pop .act--pop { font-weight: 650; }
+.chips--pop { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; }
+.chips--pop .chip { min-height: 44px; padding: 0 14px; font-size: 14px; }
+.pop .sk--pop { display: block; height: 42px; margin: 4px 10px; }
+.pop__g .pop__gt { text-transform: uppercase; }
+.pu[lang="ur"] .pop__g .pop__gt { text-transform: none; }
+.pop .pop__s input, .pop .pop__s input:focus, .pop .pop__s input:focus-visible { appearance: none; border: 0; box-shadow: none; outline: none; padding: 0; min-height: 0; }
+.pop .pop__s:focus-within { box-shadow: inset 0 0 0 2px var(--accent); }
