@@ -1,0 +1,402 @@
+{
+ "v": 3,
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-11-17T12:22:11Z"
+ },
+ "title": "04 Voids + Audit — frames",
+ "launch": {
+  "view": "canvas"
+ },
+ "pages": [],
+ "boards": {
+  "VoidAction.dc.html": {
+   "x": 0,
+   "y": 240,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidAction · 04-A01 · Void on a line past stage 1 — Karahi is cooking: Void (with “Needs approval”) and Comp; the Seekh line, still at stage 1, keeps 02b’s Remove (tablet)"
+  },
+  "VoidActionStage1.dc.html": {
+   "x": 1360,
+   "y": 240,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidActionStage1 · 04-A01 · Stage-1 line (Sent to kitchen, not started) — no Void; 02b Remove stays 2 taps (tablet)"
+  },
+  "Main.dc.html": {
+   "x": 2720,
+   "y": 240,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidSheet · 04-D02 · Void sheet — order taker (needs approval): moved pre-selected, Karahi to stock, its Extra naan (not started) released, reason picked → Ask for approval (tablet)"
+  },
+  "VoidSheetOpen.dc.html": {
+   "x": 4080,
+   "y": 240,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidSheetOpen · 04-D02 · Void sheet as it opens — moved pre-selected, no reason yet: the button reads “Pick a reason” (tablet)"
+  },
+  "VoidSheetAllowed.dc.html": {
+   "x": 0,
+   "y": 1160,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidSheetAllowed · 04-D02 · Void sheet — manager (void-item allowed): 2 of 6 Naan, “Move to ready stock” off — Stock not tracked for this item; wastage selected → Void (tablet)"
+  },
+  "VoidDeal.dc.html": {
+   "x": 1360,
+   "y": 1160,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidDeal · 04-D02 · Deal partly movable — “Cooked parts to stock, the rest released”: Handi (cooking) to stock, Roghni naan (not started) released, the deal header has no disposition (tablet)"
+  },
+  "VoidWeighed.dc.html": {
+   "x": 2720,
+   "y": 1160,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidWeighed · 04-D02 · Weighed (kg) line, weight pending — units fixed ×1 (no stepper), refund Rs 0 (V18) (tablet)"
+  },
+  "VoidSheetOther.dc.html": {
+   "x": 4080,
+   "y": 1160,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidSheetOther · 04-D02 · Other reason needs a note (empty → inline error, button off); Other disposition needs its own note (filled) (tablet)"
+  },
+  "VoidCompPending.dc.html": {
+   "x": 0,
+   "y": 2080,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidCompPending · 04-B02 · comp_pending on the approval path — “A comp is waiting on this item — decide it first”; Ask for approval off (tablet)"
+  },
+  "VoidPending.dc.html": {
+   "x": 1360,
+   "y": 2080,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidPending · 04-B01 · Requester (Ali) — line and its child show PENDING VOID, price struck, total excludes Rs 2,280; “Void pending · Withdraw” (tablet)"
+  },
+  "VoidPendingOther.dc.html": {
+   "x": 2720,
+   "y": 2080,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidPendingOther · 04-B01 · Anyone else (Bilal) — “Void pending”, no Withdraw, no line actions while locked (tablet)"
+  },
+  "VoidBlocked.dc.html": {
+   "x": 4080,
+   "y": 2080,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidBlocked · 04-B01 · Requester row blocked — served meanwhile: “Can’t be approved as stock any more — withdraw and ask again” (tablet)"
+  },
+  "VoidWrongStage.dc.html": {
+   "x": 0,
+   "y": 3000,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidWrongStage · 04-B02 · ITEM_WRONG_STAGE {stage: added} — “Not started — use Remove” with a Remove button (02b-D31) (tablet)"
+  },
+  "CancelOrder.dc.html": {
+   "x": 1360,
+   "y": 3000,
+   "w": 1280,
+   "h": 800,
+   "title": "CancelOrder · 04-D08 · Cancel order (Void all) — one void-preview: Remove group (stage 1) + Void group with per-line defaults (moved when enabled, else wastage); one reason for all (tablet)"
+  },
+  "CancelOrderWasteAll.dc.html": {
+   "x": 2720,
+   "y": 3000,
+   "w": 1280,
+   "h": 800,
+   "title": "CancelOrderWasteAll · 04-D08 · “Waste all” on — every void line set to Wastage (each can still be changed) (tablet)"
+  },
+  "CancelOrderRemoveFailed.dc.html": {
+   "x": 4080,
+   "y": 3000,
+   "w": 1280,
+   "h": 800,
+   "title": "CancelOrderRemoveFailed · 04-D08 · RemoveItems failed (TABLE_ALREADY_LOCKED / TABLE_SEATING_CHANGED / no take-order) — flow stops, void-preview reloaded, nothing voided (tablet)"
+  },
+  "CancelOrderRetry.dc.html": {
+   "x": 0,
+   "y": 3920,
+   "w": 1280,
+   "h": 800,
+   "title": "CancelOrderRetry · 04-D08 · Second command (VoidItems) failed with COMP_PENDING — removals stay, sheet reloads what is left, Try again (tablet)"
+  },
+  "VoidKiosk.dc.html": {
+   "x": 0,
+   "y": 5160,
+   "w": 1920,
+   "h": 1080,
+   "title": "VoidKiosk · 04-D02 · Cashier kiosk — takeaway 57: Sana voids 1 of 2 Biryani, Ready → to stock; cashier grant needs approval (kiosk)"
+  },
+  "VoidPortrait.dc.html": {
+   "x": 2000,
+   "y": 5160,
+   "w": 800,
+   "h": 1280,
+   "title": "VoidPortrait · 04-D02 · Tablet portrait — the sheet becomes a bottom sheet, one column; Ask for approval at the thumb (tablet portrait)"
+  },
+  "VoidPhone.dc.html": {
+   "x": 2880,
+   "y": 5160,
+   "w": 390,
+   "h": 844,
+   "title": "VoidPhone · 04-D02 · Phone — full-height bottom sheet; units, lines, where it goes, reason, amount, Ask for approval (phone)"
+  },
+  "AnswerVoid.dc.html": {
+   "x": 0,
+   "y": 6880,
+   "w": 1280,
+   "h": 800,
+   "title": "AnswerVoid · 04-D06 · Approver card in 01d’s Answer sheet — item, quantity, amount, reason; “Where it goes” and each line’s stage shown separately (tablet)"
+  },
+  "AnswerVoidServed.dc.html": {
+   "x": 1360,
+   "y": 6880,
+   "w": 1280,
+   "h": 800,
+   "title": "AnswerVoidServed · 04-D06 · Approve refused before the PIN (preRead) — VOID_NOT_ALLOWED not_movable_stage + withdraw_and_reask: “Served meanwhile — …”; Approve off, Reject stays (tablet)"
+  },
+  "AnswerVoidPhone.dc.html": {
+   "x": 2720,
+   "y": 6880,
+   "w": 390,
+   "h": 844,
+   "title": "AnswerVoidPhone · 04-D06 · Manager on the floor (phone) — deal: “Cooked parts to stock, the rest released”; deal line shows its most advanced part (Q-16) (phone)"
+  },
+  "AnswerVoidPortrait.dc.html": {
+   "x": 3190,
+   "y": 6880,
+   "w": 800,
+   "h": 1280,
+   "title": "AnswerVoidPortrait · 04-D06 · Tablet portrait — Answer as a bottom sheet with Where it goes + Lines and stage (tablet portrait)"
+  },
+  "DayCloseBlocked.dc.html": {
+   "x": 0,
+   "y": 8600,
+   "w": 1280,
+   "h": 800,
+   "title": "DayCloseBlocked · 04-B03 · Close day refused — DAY_CLOSE_BLOCKED: “3 void requests are still open — answer them first” + identifier · item · requester per line; Open is not sent (tablet)"
+  },
+  "DayCloseBlockedMore.dc.html": {
+   "x": 1360,
+   "y": 8600,
+   "w": 1280,
+   "h": 800,
+   "title": "DayCloseBlockedMore · 04-B03 · 43 open, 40 listed — the list scrolls inside the banner; “and 3 more” stays visible under it (tablet)"
+  },
+  "VoidParts.dc.html": {
+   "x": 0,
+   "y": 9840,
+   "w": 1440,
+   "h": 1180,
+   "title": "VoidParts · 04-C03 · Components — disposition rows in every state, outcomes, PENDING VOID tag, Void action, errors, toasts (component)"
+  },
+  "VoidSheetUrdu.dc.html": {
+   "x": 0,
+   "y": 11460,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidSheetUrdu · 04-D02 · Void sheet — Urdu RTL; amounts, units, table code LTR (tablet)"
+  },
+  "VoidPendingUrdu.dc.html": {
+   "x": 1360,
+   "y": 11460,
+   "w": 1280,
+   "h": 800,
+   "title": "VoidPendingUrdu · 04-B01 · PENDING VOID tag and Void pending · Withdraw — Urdu RTL; total excludes the pending refund (tablet)"
+  },
+  "AnswerVoidUrdu.dc.html": {
+   "x": 2720,
+   "y": 11460,
+   "w": 1280,
+   "h": 800,
+   "title": "AnswerVoidUrdu · 04-D06 · Approver card — Urdu RTL: where it goes and line stages on their own lines (tablet)"
+  },
+  "Audit.dc.html": {
+   "x": 0,
+   "y": 12700,
+   "w": 1440,
+   "h": 900,
+   "title": "Audit · 04-S03 · Audit log — today by default, newest first; who, action, target, reason, outcome, amount, approver + method; next page loads at the bottom (laptop)"
+  },
+  "AuditStaff.dc.html": {
+   "x": 1520,
+   "y": 12700,
+   "w": 1440,
+   "h": 900,
+   "title": "AuditStaff · 04-C04 · Staff picker from audit-staff — everyone ever named, leavers marked “left”; one person (actor or approver) (laptop)"
+  },
+  "AuditActions.dc.html": {
+   "x": 3040,
+   "y": 12700,
+   "w": 1440,
+   "h": 900,
+   "title": "AuditActions · 04-C05 · Action multi-select — grouped, ticks; “Voids” preset of 4 actions; Clear / Show (laptop)"
+  },
+  "AuditRange.dc.html": {
+   "x": 4560,
+   "y": 12700,
+   "w": 1440,
+   "h": 900,
+   "title": "AuditRange · 04-C06 · Date range — presets + calendar, whole days on the hub clock, at most 31 days (laptop)"
+  },
+  "AuditExport.dc.html": {
+   "x": 0,
+   "y": 13720,
+   "w": 1440,
+   "h": 900,
+   "title": "AuditExport · 04-D09 · Export CSV — pages through the same query (same filters, ≤ 31 days) and saves in the browser; progress, Stop; toast “Saved audit-gulberg-2026-11-11-to-17.csv” (laptop)"
+  },
+  "AuditLoading.dc.html": {
+   "x": 1520,
+   "y": 13720,
+   "w": 1440,
+   "h": 900,
+   "title": "AuditLoading · 04-S03 · First load — skeleton rows; filters already usable (laptop)"
+  },
+  "AuditEmpty.dc.html": {
+   "x": 3040,
+   "y": 13720,
+   "w": 1440,
+   "h": 900,
+   "title": "AuditEmpty · 04-S03 · Empty — no entries for the filters; Export off; one way out (Clear filters) (laptop)"
+  },
+  "AuditError.dc.html": {
+   "x": 4560,
+   "y": 13720,
+   "w": 1440,
+   "h": 900,
+   "title": "AuditError · 04-S03 · Error — hub unreachable (or any refused query): calm message, filters kept, Try again; a failed next page keeps the rows and shows “Couldn’t load more · Try again” at the bottom "
+  },
+  "AuditTablet.dc.html": {
+   "x": 0,
+   "y": 15060,
+   "w": 1280,
+   "h": 800,
+   "title": "AuditTablet · 04-S03 · Tablet — two-line rows (what / who / outcome), day headers for a multi-day range; staff = Hamza shows his acts and none he approved (tablet)"
+  },
+  "AuditUrdu.dc.html": {
+   "x": 0,
+   "y": 16300,
+   "w": 1440,
+   "h": 900,
+   "title": "AuditUrdu · 04-S03 · Audit rows — Urdu RTL; times, amounts, table codes LTR; method “in person” as a tag (laptop)"
+  }
+ },
+ "order": [
+  "Main.dc.html",
+  "VoidAction.dc.html",
+  "VoidActionStage1.dc.html",
+  "VoidSheetOpen.dc.html",
+  "VoidSheetAllowed.dc.html",
+  "VoidDeal.dc.html",
+  "VoidWeighed.dc.html",
+  "VoidSheetOther.dc.html",
+  "VoidCompPending.dc.html",
+  "VoidPending.dc.html",
+  "VoidPendingOther.dc.html",
+  "VoidBlocked.dc.html",
+  "VoidWrongStage.dc.html",
+  "CancelOrder.dc.html",
+  "CancelOrderWasteAll.dc.html",
+  "CancelOrderRemoveFailed.dc.html",
+  "CancelOrderRetry.dc.html",
+  "VoidKiosk.dc.html",
+  "VoidPortrait.dc.html",
+  "VoidPhone.dc.html",
+  "AnswerVoid.dc.html",
+  "AnswerVoidServed.dc.html",
+  "AnswerVoidPhone.dc.html",
+  "AnswerVoidPortrait.dc.html",
+  "DayCloseBlocked.dc.html",
+  "DayCloseBlockedMore.dc.html",
+  "VoidParts.dc.html",
+  "VoidSheetUrdu.dc.html",
+  "VoidPendingUrdu.dc.html",
+  "AnswerVoidUrdu.dc.html",
+  "Audit.dc.html",
+  "AuditStaff.dc.html",
+  "AuditActions.dc.html",
+  "AuditRange.dc.html",
+  "AuditExport.dc.html",
+  "AuditLoading.dc.html",
+  "AuditEmpty.dc.html",
+  "AuditError.dc.html",
+  "AuditTablet.dc.html",
+  "AuditUrdu.dc.html"
+ ],
+ "notes": {
+  "g0": {
+   "x": 0,
+   "y": 0,
+   "text": "VU1 · Void (tablet 1280×800)",
+   "kind": "title1",
+   "maxW": 6000
+  },
+  "g1": {
+   "x": 0,
+   "y": 4920,
+   "text": "VU1 · Void on kiosk, portrait, phone",
+   "kind": "title1",
+   "maxW": 6000
+  },
+  "g2": {
+   "x": 0,
+   "y": 6640,
+   "text": "VU1 · Approver (01d Answer sheet, kind void_approval)",
+   "kind": "title1",
+   "maxW": 6000
+  },
+  "g3": {
+   "x": 0,
+   "y": 8360,
+   "text": "VU1 · Day close blocked (hub admin Stock page, owner kit)",
+   "kind": "title1",
+   "maxW": 6000
+  },
+  "g4": {
+   "x": 0,
+   "y": 9600,
+   "text": "VU1 · Components and copy",
+   "kind": "title1",
+   "maxW": 6000
+  },
+  "g5": {
+   "x": 0,
+   "y": 11220,
+   "text": "VU1 · Urdu (RTL, Latin digits)",
+   "kind": "title1",
+   "maxW": 6000
+  },
+  "g6": {
+   "x": 0,
+   "y": 12460,
+   "text": "VU2 · Audit log (laptop 1440×900)",
+   "kind": "title1",
+   "maxW": 6000
+  },
+  "g7": {
+   "x": 0,
+   "y": 14820,
+   "text": "VU2 · Audit log (tablet 1280×800)",
+   "kind": "title1",
+   "maxW": 6000
+  },
+  "g8": {
+   "x": 0,
+   "y": 16060,
+   "text": "VU2 · Urdu",
+   "kind": "title1",
+   "maxW": 6000
+  }
+ },
+ "designSystems": []
+}

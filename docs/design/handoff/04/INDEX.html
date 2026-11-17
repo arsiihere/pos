@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>04 Voids + Audit — design hand-off frames</title>
+<style>
+body{margin:0;padding:24px 32px;font:15px/1.4 system-ui,sans-serif;background:#F8F1E7;color:#2B130E}
+h1{font-size:24px;margin:0 0 4px}p{margin:0 0 20px;color:#6E5549}h2{font-size:17px;margin:28px 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.card{display:flex;flex-direction:column;gap:4px;padding:10px;border-radius:14px;background:#fff;color:inherit;text-decoration:none;box-shadow:0 1px 0 #ECDFCF,0 8px 22px rgb(110 20 14 / .06)}
+.card img{width:100%;height:190px;object-fit:contain;object-position:top;background:#F1E7DA;border-radius:8px}
+.card span{font-size:12px;color:#8A7266}.card small{font-size:12.5px;color:#6E5549}
+</style>
+</head>
+<body>
+<h1>04 Voids + Audit — frames</h1>
+<p>40 frames from the owner’s design canvas (2026-11-17). Click a card to open the frame. Thumbnails are <code>design/screens/*.png</code>. See README.md, MAPPING.md and CHANGES.md.</p>
+<h2>VU1 · Void (tablet 1280×800)</h2>
+<div class="grid">
+<a class="card" href="design/VoidAction.dc.html"><img src="design/screens/VoidAction__1280x800__en.png" alt="" loading="lazy"><b>VoidAction</b><span>1280×800 · en</span><small>VoidAction · 04-A01 · Void on a line past stage 1 — Karahi is cooking: Void (with “Needs approval”) and Comp; the Seekh line, still at stage 1, keeps 02b’s Remove (tablet)</small></a>
+<a class="card" href="design/VoidActionStage1.dc.html"><img src="design/screens/VoidActionStage1__1280x800__en.png" alt="" loading="lazy"><b>VoidActionStage1</b><span>1280×800 · en</span><small>VoidActionStage1 · 04-A01 · Stage-1 line (Sent to kitchen, not started) — no Void; 02b Remove stays 2 taps (tablet)</small></a>
+<a class="card" href="design/Main.dc.html"><img src="design/screens/Main__1280x800__en.png" alt="" loading="lazy"><b>Main</b><span>1280×800 · en</span><small>VoidSheet · 04-D02 · Void sheet — order taker (needs approval): moved pre-selected, Karahi to stock, its Extra naan (not started) released, reason picked → Ask for approval (tablet)</small></a>
+<a class="card" href="design/VoidSheetOpen.dc.html"><img src="design/screens/VoidSheetOpen__1280x800__en.png" alt="" loading="lazy"><b>VoidSheetOpen</b><span>1280×800 · en</span><small>VoidSheetOpen · 04-D02 · Void sheet as it opens — moved pre-selected, no reason yet: the button reads “Pick a reason” (tablet)</small></a>
+<a class="card" href="design/VoidSheetAllowed.dc.html"><img src="design/screens/VoidSheetAllowed__1280x800__en.png" alt="" loading="lazy"><b>VoidSheetAllowed</b><span>1280×800 · en</span><small>VoidSheetAllowed · 04-D02 · Void sheet — manager (void-item allowed): 2 of 6 Naan, “Move to ready stock” off — Stock not tracked for this item; wastage selected → Void (tablet)</small></a>
+<a class="card" href="design/VoidDeal.dc.html"><img src="design/screens/VoidDeal__1280x800__en.png" alt="" loading="lazy"><b>VoidDeal</b><span>1280×800 · en</span><small>VoidDeal · 04-D02 · Deal partly movable — “Cooked parts to stock, the rest released”: Handi (cooking) to stock, Roghni naan (not started) released, the deal header has no disposition (tablet)</small></a>
+<a class="card" href="design/VoidWeighed.dc.html"><img src="design/screens/VoidWeighed__1280x800__en.png" alt="" loading="lazy"><b>VoidWeighed</b><span>1280×800 · en</span><small>VoidWeighed · 04-D02 · Weighed (kg) line, weight pending — units fixed ×1 (no stepper), refund Rs 0 (V18) (tablet)</small></a>
+<a class="card" href="design/VoidSheetOther.dc.html"><img src="design/screens/VoidSheetOther__1280x800__en.png" alt="" loading="lazy"><b>VoidSheetOther</b><span>1280×800 · en</span><small>VoidSheetOther · 04-D02 · Other reason needs a note (empty → inline error, button off); Other disposition needs its own note (filled) (tablet)</small></a>
+<a class="card" href="design/VoidCompPending.dc.html"><img src="design/screens/VoidCompPending__1280x800__en.png" alt="" loading="lazy"><b>VoidCompPending</b><span>1280×800 · en</span><small>VoidCompPending · 04-B02 · comp_pending on the approval path — “A comp is waiting on this item — decide it first”; Ask for approval off (tablet)</small></a>
+<a class="card" href="design/VoidPending.dc.html"><img src="design/screens/VoidPending__1280x800__en.png" alt="" loading="lazy"><b>VoidPending</b><span>1280×800 · en</span><small>VoidPending · 04-B01 · Requester (Ali) — line and its child show PENDING VOID, price struck, total excludes Rs 2,280; “Void pending · Withdraw” (tablet)</small></a>
+<a class="card" href="design/VoidPendingOther.dc.html"><img src="design/screens/VoidPendingOther__1280x800__en.png" alt="" loading="lazy"><b>VoidPendingOther</b><span>1280×800 · en</span><small>VoidPendingOther · 04-B01 · Anyone else (Bilal) — “Void pending”, no Withdraw, no line actions while locked (tablet)</small></a>
+<a class="card" href="design/VoidBlocked.dc.html"><img src="design/screens/VoidBlocked__1280x800__en.png" alt="" loading="lazy"><b>VoidBlocked</b><span>1280×800 · en</span><small>VoidBlocked · 04-B01 · Requester row blocked — served meanwhile: “Can’t be approved as stock any more — withdraw and ask again” (tablet)</small></a>
+<a class="card" href="design/VoidWrongStage.dc.html"><img src="design/screens/VoidWrongStage__1280x800__en.png" alt="" loading="lazy"><b>VoidWrongStage</b><span>1280×800 · en</span><small>VoidWrongStage · 04-B02 · ITEM_WRONG_STAGE {stage: added} — “Not started — use Remove” with a Remove button (02b-D31) (tablet)</small></a>
+<a class="card" href="design/CancelOrder.dc.html"><img src="design/screens/CancelOrder__1280x800__en.png" alt="" loading="lazy"><b>CancelOrder</b><span>1280×800 · en</span><small>CancelOrder · 04-D08 · Cancel order (Void all) — one void-preview: Remove group (stage 1) + Void group with per-line defaults (moved when enabled, else wastage); one reason for all (tablet)</small></a>
+<a class="card" href="design/CancelOrderWasteAll.dc.html"><img src="design/screens/CancelOrderWasteAll__1280x800__en.png" alt="" loading="lazy"><b>CancelOrderWasteAll</b><span>1280×800 · en</span><small>CancelOrderWasteAll · 04-D08 · “Waste all” on — every void line set to Wastage (each can still be changed) (tablet)</small></a>
+<a class="card" href="design/CancelOrderRemoveFailed.dc.html"><img src="design/screens/CancelOrderRemoveFailed__1280x800__en.png" alt="" loading="lazy"><b>CancelOrderRemoveFailed</b><span>1280×800 · en</span><small>CancelOrderRemoveFailed · 04-D08 · RemoveItems failed (TABLE_ALREADY_LOCKED / TABLE_SEATING_CHANGED / no take-order) — flow stops, void-preview reloaded, nothing voided (tablet)</small></a>
+<a class="card" href="design/CancelOrderRetry.dc.html"><img src="design/screens/CancelOrderRetry__1280x800__en.png" alt="" loading="lazy"><b>CancelOrderRetry</b><span>1280×800 · en</span><small>CancelOrderRetry · 04-D08 · Second command (VoidItems) failed with COMP_PENDING — removals stay, sheet reloads what is left, Try again (tablet)</small></a>
+</div>
+<h2>VU1 · Void on kiosk, portrait, phone</h2>
+<div class="grid">
+<a class="card" href="design/VoidKiosk.dc.html"><img src="design/screens/VoidKiosk__1920x1080__en.png" alt="" loading="lazy"><b>VoidKiosk</b><span>1920×1080 · en</span><small>VoidKiosk · 04-D02 · Cashier kiosk — takeaway 57: Sana voids 1 of 2 Biryani, Ready → to stock; cashier grant needs approval (kiosk)</small></a>
+<a class="card" href="design/VoidPortrait.dc.html"><img src="design/screens/VoidPortrait__800x1280__en.png" alt="" loading="lazy"><b>VoidPortrait</b><span>800×1280 · en</span><small>VoidPortrait · 04-D02 · Tablet portrait — the sheet becomes a bottom sheet, one column; Ask for approval at the thumb (tablet portrait)</small></a>
+<a class="card" href="design/VoidPhone.dc.html"><img src="design/screens/VoidPhone__390x844__en.png" alt="" loading="lazy"><b>VoidPhone</b><span>390×844 · en</span><small>VoidPhone · 04-D02 · Phone — full-height bottom sheet; units, lines, where it goes, reason, amount, Ask for approval (phone)</small></a>
+</div>
+<h2>VU1 · Approver (01d Answer sheet, kind void_approval)</h2>
+<div class="grid">
+<a class="card" href="design/AnswerVoid.dc.html"><img src="design/screens/AnswerVoid__1280x800__en.png" alt="" loading="lazy"><b>AnswerVoid</b><span>1280×800 · en</span><small>AnswerVoid · 04-D06 · Approver card in 01d’s Answer sheet — item, quantity, amount, reason; “Where it goes” and each line’s stage shown separately (tablet)</small></a>
+<a class="card" href="design/AnswerVoidServed.dc.html"><img src="design/screens/AnswerVoidServed__1280x800__en.png" alt="" loading="lazy"><b>AnswerVoidServed</b><span>1280×800 · en</span><small>AnswerVoidServed · 04-D06 · Approve refused before the PIN (preRead) — VOID_NOT_ALLOWED not_movable_stage + withdraw_and_reask: “Served meanwhile — …”; Approve off, Reject stays (tablet)</small></a>
+<a class="card" href="design/AnswerVoidPhone.dc.html"><img src="design/screens/AnswerVoidPhone__390x844__en.png" alt="" loading="lazy"><b>AnswerVoidPhone</b><span>390×844 · en</span><small>AnswerVoidPhone · 04-D06 · Manager on the floor (phone) — deal: “Cooked parts to stock, the rest released”; deal line shows its most advanced part (Q-16) (phone)</small></a>
+<a class="card" href="design/AnswerVoidPortrait.dc.html"><img src="design/screens/AnswerVoidPortrait__800x1280__en.png" alt="" loading="lazy"><b>AnswerVoidPortrait</b><span>800×1280 · en</span><small>AnswerVoidPortrait · 04-D06 · Tablet portrait — Answer as a bottom sheet with Where it goes + Lines and stage (tablet portrait)</small></a>
+</div>
+<h2>VU1 · Day close blocked (hub admin Stock page, owner kit)</h2>
+<div class="grid">
+<a class="card" href="design/DayCloseBlocked.dc.html"><img src="design/screens/DayCloseBlocked__1280x800__en.png" alt="" loading="lazy"><b>DayCloseBlocked</b><span>1280×800 · en</span><small>DayCloseBlocked · 04-B03 · Close day refused — DAY_CLOSE_BLOCKED: “3 void requests are still open — answer them first” + identifier · item · requester per line; Open is not sent (tablet)</small></a>
+<a class="card" href="design/DayCloseBlockedMore.dc.html"><img src="design/screens/DayCloseBlockedMore__1280x800__en.png" alt="" loading="lazy"><b>DayCloseBlockedMore</b><span>1280×800 · en</span><small>DayCloseBlockedMore · 04-B03 · 43 open, 40 listed — the list scrolls inside the banner; “and 3 more” stays visible under it (tablet)</small></a>
+</div>
+<h2>VU1 · Components and copy</h2>
+<div class="grid">
+<a class="card" href="design/VoidParts.dc.html"><img src="design/screens/VoidParts__1440x1180__en.png" alt="" loading="lazy"><b>VoidParts</b><span>1440×1180 · en</span><small>VoidParts · 04-C03 · Components — disposition rows in every state, outcomes, PENDING VOID tag, Void action, errors, toasts (component)</small></a>
+</div>
+<h2>VU1 · Urdu (RTL, Latin digits)</h2>
+<div class="grid">
+<a class="card" href="design/VoidSheetUrdu.dc.html"><img src="design/screens/VoidSheetUrdu__1280x800__ur.png" alt="" loading="lazy"><b>VoidSheetUrdu</b><span>1280×800 · ur</span><small>VoidSheetUrdu · 04-D02 · Void sheet — Urdu RTL; amounts, units, table code LTR (tablet)</small></a>
+<a class="card" href="design/VoidPendingUrdu.dc.html"><img src="design/screens/VoidPendingUrdu__1280x800__ur.png" alt="" loading="lazy"><b>VoidPendingUrdu</b><span>1280×800 · ur</span><small>VoidPendingUrdu · 04-B01 · PENDING VOID tag and Void pending · Withdraw — Urdu RTL; total excludes the pending refund (tablet)</small></a>
+<a class="card" href="design/AnswerVoidUrdu.dc.html"><img src="design/screens/AnswerVoidUrdu__1280x800__ur.png" alt="" loading="lazy"><b>AnswerVoidUrdu</b><span>1280×800 · ur</span><small>AnswerVoidUrdu · 04-D06 · Approver card — Urdu RTL: where it goes and line stages on their own lines (tablet)</small></a>
+</div>
+<h2>VU2 · Audit log (laptop 1440×900)</h2>
+<div class="grid">
+<a class="card" href="design/Audit.dc.html"><img src="design/screens/Audit__1440x900__en.png" alt="" loading="lazy"><b>Audit</b><span>1440×900 · en</span><small>Audit · 04-S03 · Audit log — today by default, newest first; who, action, target, reason, outcome, amount, approver + method; next page loads at the bottom (laptop)</small></a>
+<a class="card" href="design/AuditStaff.dc.html"><img src="design/screens/AuditStaff__1440x900__en.png" alt="" loading="lazy"><b>AuditStaff</b><span>1440×900 · en</span><small>AuditStaff · 04-C04 · Staff picker from audit-staff — everyone ever named, leavers marked “left”; one person (actor or approver) (laptop)</small></a>
+<a class="card" href="design/AuditActions.dc.html"><img src="design/screens/AuditActions__1440x900__en.png" alt="" loading="lazy"><b>AuditActions</b><span>1440×900 · en</span><small>AuditActions · 04-C05 · Action multi-select — grouped, ticks; “Voids” preset of 4 actions; Clear / Show (laptop)</small></a>
+<a class="card" href="design/AuditRange.dc.html"><img src="design/screens/AuditRange__1440x900__en.png" alt="" loading="lazy"><b>AuditRange</b><span>1440×900 · en</span><small>AuditRange · 04-C06 · Date range — presets + calendar, whole days on the hub clock, at most 31 days (laptop)</small></a>
+<a class="card" href="design/AuditExport.dc.html"><img src="design/screens/AuditExport__1440x900__en.png" alt="" loading="lazy"><b>AuditExport</b><span>1440×900 · en</span><small>AuditExport · 04-D09 · Export CSV — pages through the same query (same filters, ≤ 31 days) and saves in the browser; progress, Stop; toast “Saved audit-gulberg-2026-11-11-to-17.csv” (laptop)</small></a>
+<a class="card" href="design/AuditLoading.dc.html"><img src="design/screens/AuditLoading__1440x900__en.png" alt="" loading="lazy"><b>AuditLoading</b><span>1440×900 · en</span><small>AuditLoading · 04-S03 · First load — skeleton rows; filters already usable (laptop)</small></a>
+<a class="card" href="design/AuditEmpty.dc.html"><img src="design/screens/AuditEmpty__1440x900__en.png" alt="" loading="lazy"><b>AuditEmpty</b><span>1440×900 · en</span><small>AuditEmpty · 04-S03 · Empty — no entries for the filters; Export off; one way out (Clear filters) (laptop)</small></a>
+<a class="card" href="design/AuditError.dc.html"><img src="design/screens/AuditError__1440x900__en.png" alt="" loading="lazy"><b>AuditError</b><span>1440×900 · en</span><small>AuditError · 04-S03 · Error — hub unreachable (or any refused query): calm message, filters kept, Try again; a failed next page keeps the rows and shows “Couldn’t load more · Try again” at the bottom </small></a>
+</div>
+<h2>VU2 · Audit log (tablet 1280×800)</h2>
+<div class="grid">
+<a class="card" href="design/AuditTablet.dc.html"><img src="design/screens/AuditTablet__1280x800__en.png" alt="" loading="lazy"><b>AuditTablet</b><span>1280×800 · en</span><small>AuditTablet · 04-S03 · Tablet — two-line rows (what / who / outcome), day headers for a multi-day range; staff = Hamza shows his acts and none he approved (tablet)</small></a>
+</div>
+<h2>VU2 · Urdu</h2>
+<div class="grid">
+<a class="card" href="design/AuditUrdu.dc.html"><img src="design/screens/AuditUrdu__1440x900__ur.png" alt="" loading="lazy"><b>AuditUrdu</b><span>1440×900 · ur</span><small>AuditUrdu · 04-S03 · Audit rows — Urdu RTL; times, amounts, table codes LTR; method “in person” as a tag (laptop)</small></a>
+</div>
+</body>
+</html>

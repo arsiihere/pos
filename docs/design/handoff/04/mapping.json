@@ -1,0 +1,791 @@
+{
+ "module": "04 · Voids + Audit",
+ "spec": "docs/specs/04_Voids_Audit_Spec_v1.0.3.md",
+ "plan_rows": [
+  "VU1",
+  "VU2"
+ ],
+ "design_language": "Pulse (Chatkhara brand default); 04-B03 uses the owner kit (bundle.css + kit-additions.css)",
+ "source": {
+  "artifact_slug": "0cc43196-6531-4725-a859-ad6cfd9a6150",
+  "made": "2026-11-17",
+  "owner": "Arslan"
+ },
+ "design_system": {
+  "pulse": [
+   "design/css/pulse.css",
+   "design/css/v-brand.css",
+   "design/css/pulse-01d.css",
+   "design/css/pulse-02.css",
+   "design/css/pulse-04.css"
+  ],
+  "kit": [
+   "design/css/tokens.css",
+   "design/css/bundle.css",
+   "design/css/kit-additions.css",
+   "design/css/pulse-04-admin.css"
+  ],
+  "fonts_css": "design/css/fonts.css (canvas blob URLs; bundled fonts in design/ds/pos/fonts/)",
+  "fonts": "design/ds/pos/fonts/",
+  "tokens_with_fonts": "design/ds/pos/tokens.css"
+ },
+ "viewports": {
+  "tablet": "1280x800",
+  "tablet_portrait": "800x1280",
+  "kiosk": "1920x1080",
+  "phone": "390x844",
+  "laptop": "1440x900",
+  "component": "1440x1180"
+ },
+ "screens": [
+  {
+   "id": "04-A01",
+   "plan": "VU1",
+   "name": "Void action on an order line",
+   "where": "table view / order view line controls (02 / 02b) · T K P",
+   "spec": "§8 bullet 1",
+   "frames": [
+    {
+     "file": "design/VoidAction.dc.html",
+     "png": "design/screens/VoidAction__1280x800__en.png",
+     "state": "Void on a line past stage 1 — Karahi is cooking: Void (with “Needs approval”) and Comp; the Seekh line, still at stage 1, keeps 02b’s Remove (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidActionStage1.dc.html",
+     "png": "design/screens/VoidActionStage1__1280x800__en.png",
+     "state": "Stage-1 line (Sent to kitchen, not started) — no Void; 02b Remove stays 2 taps (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidSheetAllowed.dc.html",
+     "png": "design/screens/VoidSheetAllowed__1280x800__en.png",
+     "state": "Void sheet — manager (void-item allowed): 2 of 6 Naan, “Move to ready stock” off — Stock not tracked for this item; wastage selected → Void (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en",
+     "also_shows": true
+    },
+    {
+     "file": "design/VoidParts.dc.html",
+     "png": "design/screens/VoidParts__1440x1180__en.png",
+     "state": "Components — disposition rows in every state, outcomes, PENDING VOID tag, Void action, errors, toasts (component)",
+     "w": 1440,
+     "h": 1180,
+     "lang": "en",
+     "also_shows": true
+    }
+   ],
+   "components": "Selected line `.ol.sel` + `.ol__ctrl`; Void button `.btn.btn--void` (+ `.ntag` “Needs approval” when the grant is requires_approval; plain when allowed); Comp `.btn`; stage-1 lines keep 02b Remove + Mark served; Cancel order entry in More (VoidParts)",
+   "classes": [
+    ".btn--void",
+    ".btn .ntag",
+    ".ol.sel",
+    ".ol__ctrl",
+    ".stg"
+   ],
+   "api": "No 04 query. Session grant `void-item` (allowed / requires_approval, R5) and the line `stage` from the 02 order read model: past stage 1 → Void, stage 1 → 02b Remove."
+  },
+  {
+   "id": "04-D02",
+   "plan": "VU1",
+   "name": "Void sheet",
+   "where": "over the table / order view · T K P (portrait and phone: bottom sheet)",
+   "spec": "§8 bullet 2; V3, V12, V18",
+   "frames": [
+    {
+     "file": "design/Main.dc.html",
+     "png": "design/screens/Main__1280x800__en.png",
+     "state": "Void sheet — order taker (needs approval): moved pre-selected, Karahi to stock, its Extra naan (not started) released, reason picked → Ask for approval (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidSheetOpen.dc.html",
+     "png": "design/screens/VoidSheetOpen__1280x800__en.png",
+     "state": "Void sheet as it opens — moved pre-selected, no reason yet: the button reads “Pick a reason” (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidSheetAllowed.dc.html",
+     "png": "design/screens/VoidSheetAllowed__1280x800__en.png",
+     "state": "Void sheet — manager (void-item allowed): 2 of 6 Naan, “Move to ready stock” off — Stock not tracked for this item; wastage selected → Void (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidDeal.dc.html",
+     "png": "design/screens/VoidDeal__1280x800__en.png",
+     "state": "Deal partly movable — “Cooked parts to stock, the rest released”: Handi (cooking) to stock, Roghni naan (not started) released, the deal header has no disposition (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidWeighed.dc.html",
+     "png": "design/screens/VoidWeighed__1280x800__en.png",
+     "state": "Weighed (kg) line, weight pending — units fixed ×1 (no stepper), refund Rs 0 (V18) (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidSheetOther.dc.html",
+     "png": "design/screens/VoidSheetOther__1280x800__en.png",
+     "state": "Other reason needs a note (empty → inline error, button off); Other disposition needs its own note (filled) (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidKiosk.dc.html",
+     "png": "design/screens/VoidKiosk__1920x1080__en.png",
+     "state": "Cashier kiosk — takeaway 57: Sana voids 1 of 2 Biryani, Ready → to stock; cashier grant needs approval (kiosk)",
+     "w": 1920,
+     "h": 1080,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidPortrait.dc.html",
+     "png": "design/screens/VoidPortrait__800x1280__en.png",
+     "state": "Tablet portrait — the sheet becomes a bottom sheet, one column; Ask for approval at the thumb (tablet portrait)",
+     "w": 800,
+     "h": 1280,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidPhone.dc.html",
+     "png": "design/screens/VoidPhone__390x844__en.png",
+     "state": "Phone — full-height bottom sheet; units, lines, where it goes, reason, amount, Ask for approval (phone)",
+     "w": 390,
+     "h": 844,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidSheetUrdu.dc.html",
+     "png": "design/screens/VoidSheetUrdu__1280x800__ur.png",
+     "state": "Void sheet — Urdu RTL; amounts, units, table code LTR (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "ur"
+    }
+   ],
+   "components": "Dialog `.dlg.dlg--v` (940 px; kiosk 1000 px) with `.dlg__h` (table chip, title, approval line); two columns `.vgrid` / `.vcol`. Left: units `.qline` + 01d `.step` stepper (`.of` “of N”; weighed line `.fix` ×1 + note), “What happens” `.vts` / `.vt` (`.child`) with stage `.stg` and outcome `.vout`, “Where it goes” `.pick.pick--d` radios (`.pick__r`, `.ar__ic`, `.pre` Suggested, disabled rows `[aria-disabled]` + `.why`; Other row holds an `.inp`). Right: reason `.chips--r` (V12), Other note `.vnote` (`.lbl`, `.cnt` 0/200, `.inp.err`, `.fld__e`), amount `.vsum` (+ `.appr` approval line), `.acts` Cancel + primary (`.btn--primary` Ask for approval / `.btn--danger` Void; `[aria-disabled]` with the missing-step label). Portrait / phone: `.scrim--sheet` + `.dlg__grip`; phone splits `.vbody` (scrolls) and `.vfoot` (sticky amount + buttons).",
+   "classes": [
+    ".dlg--v",
+    ".vgrid",
+    ".vcol",
+    ".vlab",
+    ".vts",
+    ".vt",
+    ".vout",
+    ".pick--d",
+    ".pick__r",
+    ".why",
+    ".pre",
+    ".chips--r",
+    ".vnote",
+    ".vsum",
+    ".appr",
+    ".qline .fix",
+    ".qline .of",
+    ".vbody",
+    ".vfoot",
+    ".btn[aria-disabled]"
+   ],
+   "api": "void-preview → previews[]: order_item_id, group ('remove' | 'void'), refund_minor, comp_voided_minor, touched[{order_item_id, name, units, stage, refund_minor, comp_voided_minor}], stage, dispositions[{disposition, enabled, block, line_dispositions}], needs_approval, pending {alert_id} | null, comp_pending {alert_id} | null; submit VoidItems {order_id, lines:[{order_item_id, units}], reason_code, note, disposition, disposition_note} (not queueable, V15)."
+  },
+  {
+   "id": "04-C03",
+   "plan": "VU1",
+   "name": "Where-it-goes row (disposition radio), every state",
+   "where": "component in 04-D02 / 04-D08",
+   "spec": "§8 bullet 2 (disabled reasons)",
+   "frames": [
+    {
+     "file": "design/VoidParts.dc.html",
+     "png": "design/screens/VoidParts__1440x1180__en.png",
+     "state": "Components — disposition rows in every state, outcomes, PENDING VOID tag, Void action, errors, toasts (component)",
+     "w": 1440,
+     "h": 1180,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidSheetAllowed.dc.html",
+     "png": "design/screens/VoidSheetAllowed__1280x800__en.png",
+     "state": "Void sheet — manager (void-item allowed): 2 of 6 Naan, “Move to ready stock” off — Stock not tracked for this item; wastage selected → Void (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en",
+     "also_shows": true
+    },
+    {
+     "file": "design/VoidWeighed.dc.html",
+     "png": "design/screens/VoidWeighed__1280x800__en.png",
+     "state": "Weighed (kg) line, weight pending — units fixed ×1 (no stepper), refund Rs 0 (V18) (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en",
+     "also_shows": true
+    },
+    {
+     "file": "design/VoidDeal.dc.html",
+     "png": "design/screens/VoidDeal__1280x800__en.png",
+     "state": "Deal partly movable — “Cooked parts to stock, the rest released”: Handi (cooking) to stock, Roghni naan (not started) released, the deal header has no disposition (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en",
+     "also_shows": true
+    },
+    {
+     "file": "design/VoidSheetOther.dc.html",
+     "png": "design/screens/VoidSheetOther__1280x800__en.png",
+     "state": "Other reason needs a note (empty → inline error, button off); Other disposition needs its own note (filled) (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en",
+     "also_shows": true
+    }
+   ],
+   "components": "`.pick__r` enabled + pre-selected (`.pre` Suggested), disabled (`[aria-disabled]`, `.why` lock icon + reason per `block`), deal moved_partly label, Other with required note",
+   "classes": [
+    ".pick__r",
+    ".pick__r[aria-disabled=\"true\"]",
+    ".pick__r .why",
+    ".pick__r .pre",
+    ".pick__r .inp"
+   ],
+   "api": "dispositions[].enabled / .block (stock_not_tracked | not_movable_stage | move_not_granted | day_closed); moved_partly when a non-header touched line is not moved."
+  },
+  {
+   "id": "04-C02",
+   "plan": "VU1",
+   "name": "Line outcome chips and PENDING VOID tag",
+   "where": "component",
+   "spec": "§8 bullets 2, 4",
+   "frames": [
+    {
+     "file": "design/VoidParts.dc.html",
+     "png": "design/screens/VoidParts__1440x1180__en.png",
+     "state": "Components — disposition rows in every state, outcomes, PENDING VOID tag, Void action, errors, toasts (component)",
+     "w": 1440,
+     "h": 1180,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidPending.dc.html",
+     "png": "design/screens/VoidPending__1280x800__en.png",
+     "state": "Requester (Ali) — line and its child show PENDING VOID, price struck, total excludes Rs 2,280; “Void pending · Withdraw” (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en",
+     "also_shows": true
+    }
+   ],
+   "components": "`.vout.c-ok|c-danger|c-info|c-brand|c-mute` (To stock, Wastage, Released, Staff meal, Other, Parts below); `.ptag` (uppercase via CSS, Urdu sentence case)",
+   "classes": [
+    ".vout",
+    ".ptag"
+   ],
+   "api": "line_dispositions (null → Released, or Parts below for a header)."
+  },
+  {
+   "id": "04-B01",
+   "plan": "VU1",
+   "name": "Pending void on the line (requester, others, blocked)",
+   "where": "table view / order view · T K P",
+   "spec": "§8 bullets 2, 4, 5",
+   "frames": [
+    {
+     "file": "design/VoidPending.dc.html",
+     "png": "design/screens/VoidPending__1280x800__en.png",
+     "state": "Requester (Ali) — line and its child show PENDING VOID, price struck, total excludes Rs 2,280; “Void pending · Withdraw” (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidPendingOther.dc.html",
+     "png": "design/screens/VoidPendingOther__1280x800__en.png",
+     "state": "Anyone else (Bilal) — “Void pending”, no Withdraw, no line actions while locked (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidBlocked.dc.html",
+     "png": "design/screens/VoidBlocked__1280x800__en.png",
+     "state": "Requester row blocked — served meanwhile: “Can’t be approved as stock any more — withdraw and ask again” (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidPendingUrdu.dc.html",
+     "png": "design/screens/VoidPendingUrdu__1280x800__ur.png",
+     "state": "PENDING VOID tag and Void pending · Withdraw — Urdu RTL; total excludes the pending refund (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "ur"
+    }
+   ],
+   "components": "Line `.ol.pend` (+ `.child`; price struck), `.ptag`; total line `.tv__sec .xp` (“Rs X pending void not counted”); status card `.wcard.c-danger` with waiting `.ring` + Withdraw `.btn--tone.c-danger` (requester) or empty slot (others); blocked card `.wcard--blocked` + `.btn--tone.c-warn` Withdraw",
+   "classes": [
+    ".ol.pend",
+    ".ptag",
+    ".tv__sec .xp",
+    ".wcard.c-danger",
+    ".wcard--blocked",
+    ".lockln"
+   ],
+   "api": "pending-voids → orders[].voids[]: alert_id, order_item_id, units, touched_ids, refund_minor, comp_voided_minor, requester_staff_id, raised_at, blocked ('not_movable_stage' | null); Withdraw = 01d WithdrawRequest(alert_id)."
+  },
+  {
+   "id": "04-B02",
+   "plan": "VU1",
+   "name": "Void errors and refusals",
+   "where": "in 04-D02 / 04-D08 · T K P",
+   "spec": "§8 bullet 6; §9",
+   "frames": [
+    {
+     "file": "design/VoidCompPending.dc.html",
+     "png": "design/screens/VoidCompPending__1280x800__en.png",
+     "state": "comp_pending on the approval path — “A comp is waiting on this item — decide it first”; Ask for approval off (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidWrongStage.dc.html",
+     "png": "design/screens/VoidWrongStage__1280x800__en.png",
+     "state": "ITEM_WRONG_STAGE {stage: added} — “Not started — use Remove” with a Remove button (02b-D31) (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/VoidParts.dc.html",
+     "png": "design/screens/VoidParts__1440x1180__en.png",
+     "state": "Components — disposition rows in every state, outcomes, PENDING VOID tag, Void action, errors, toasts (component)",
+     "w": 1440,
+     "h": 1180,
+     "lang": "en"
+    }
+   ],
+   "components": "`.msg.c-danger` / `.msg.c-warn` inline in the sheet (+ action button inside for Remove); Comp-pending disables the primary button",
+   "classes": [
+    ".msg",
+    ".msg small",
+    ".msg .btn"
+   ],
+   "api": "VOID_PENDING {alert_id, order_item_id}; COMP_PENDING (and preview comp_pending); ITEM_WRONG_STAGE {stage:'added'}; ORDER_BILLED; 403 PERMISSION_DENIED {reason:'move_not_granted'}; VOID_NOT_ALLOWED {reason} at submit; network / hub down."
+  },
+  {
+   "id": "04-D08",
+   "plan": "VU1",
+   "name": "Cancel order (Void all)",
+   "where": "table view More menu and order view · T K (void-item holders)",
+   "spec": "§8 bullet 3",
+   "frames": [
+    {
+     "file": "design/CancelOrder.dc.html",
+     "png": "design/screens/CancelOrder__1280x800__en.png",
+     "state": "Cancel order (Void all) — one void-preview: Remove group (stage 1) + Void group with per-line defaults (moved when enabled, else wastage); one reason for all (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/CancelOrderWasteAll.dc.html",
+     "png": "design/screens/CancelOrderWasteAll__1280x800__en.png",
+     "state": "“Waste all” on — every void line set to Wastage (each can still be changed) (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/CancelOrderRemoveFailed.dc.html",
+     "png": "design/screens/CancelOrderRemoveFailed__1280x800__en.png",
+     "state": "RemoveItems failed (TABLE_ALREADY_LOCKED / TABLE_SEATING_CHANGED / no take-order) — flow stops, void-preview reloaded, nothing voided (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/CancelOrderRetry.dc.html",
+     "png": "design/screens/CancelOrderRetry__1280x800__en.png",
+     "state": "Second command (VoidItems) failed with COMP_PENDING — removals stay, sheet reloads what is left, Try again (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    }
+   ],
+   "components": "`.dlg--all` (1000 px) with Remove group and Void group (`.vgroup`, `.vgh`, `.vrow`, `.amt`), per-line disposition select `.dsel` (`.is-set` after Waste all), group toggle `.tgl[role=switch]`, one reason for all, `.msg.c-ok` / `.msg.c-danger` results, buttons Keep order / “Remove n · ask to void m”",
+   "classes": [
+    ".dlg--all",
+    ".vgroup",
+    ".vgh",
+    ".vrow",
+    ".vrow.done",
+    ".dsel",
+    ".dsel.is-set",
+    ".tgl",
+    ".msg.c-ok"
+   ],
+   "api": "One void-preview with every live parent line (group per line); then RemoveItems (02b, stage-1 lines, needs take-order + table lock), then one VoidItems with parents only. Failures: TABLE_ALREADY_LOCKED / TABLE_SEATING_CHANGED / no take-order (stop, reload preview); COMP_PENDING on VoidItems (removals stay, reload, retry)."
+  },
+  {
+   "id": "04-D06",
+   "plan": "VU1",
+   "name": "Approver card (01d D01, kind void_approval)",
+   "where": "01d Requests / Inbox answer sheet · T K P",
+   "spec": "§8 bullets 6–7; §3.5 details",
+   "frames": [
+    {
+     "file": "design/AnswerVoid.dc.html",
+     "png": "design/screens/AnswerVoid__1280x800__en.png",
+     "state": "Approver card in 01d’s Answer sheet — item, quantity, amount, reason; “Where it goes” and each line’s stage shown separately (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/AnswerVoidServed.dc.html",
+     "png": "design/screens/AnswerVoidServed__1280x800__en.png",
+     "state": "Approve refused before the PIN (preRead) — VOID_NOT_ALLOWED not_movable_stage + withdraw_and_reask: “Served meanwhile — …”; Approve off, Reject stays (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/AnswerVoidPhone.dc.html",
+     "png": "design/screens/AnswerVoidPhone__390x844__en.png",
+     "state": "Manager on the floor (phone) — deal: “Cooked parts to stock, the rest released”; deal line shows its most advanced part (Q-16) (phone)",
+     "w": 390,
+     "h": 844,
+     "lang": "en"
+    },
+    {
+     "file": "design/AnswerVoidPortrait.dc.html",
+     "png": "design/screens/AnswerVoidPortrait__800x1280__en.png",
+     "state": "Tablet portrait — Answer as a bottom sheet with Where it goes + Lines and stage (tablet portrait)",
+     "w": 800,
+     "h": 1280,
+     "lang": "en"
+    },
+    {
+     "file": "design/AnswerVoidUrdu.dc.html",
+     "png": "design/screens/AnswerVoidUrdu__1280x800__ur.png",
+     "state": "Approver card — Urdu RTL: where it goes and line stages on their own lines (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "ur"
+    }
+   ],
+   "components": "01d `.dlg` + `.facts` / `.fact`; new `.fact--disp` (Where it goes, icon + label) and `.fact--wide .stl` (Lines and stage, one row per line with `.stg`); served-meanwhile `.msg.c-warn` + Approve `[aria-disabled]`",
+   "classes": [
+    ".fact--disp",
+    ".fact .stl",
+    ".stg",
+    ".msg.c-warn"
+   ],
+   "api": "alert details: item, quantity, amount, reason, identifier, disposition (void.disposition.<moved|wastage|staff_meal|other|moved_partly>), lines[{name, quantity, state}] (≤ 10, deal header = most advanced part, Q-16); approve refusal VOID_NOT_ALLOWED {reason:'not_movable_stage', hint:'withdraw_and_reask'}."
+  },
+  {
+   "id": "04-B03",
+   "plan": "VU1",
+   "name": "Day close blocked (hub admin Stock page, owner kit)",
+   "where": "/admin/stock (01a StockApp) · laptop / tablet",
+   "spec": "§4.5 row A-1; §9 DAY_CLOSE_BLOCKED",
+   "frames": [
+    {
+     "file": "design/DayCloseBlocked.dc.html",
+     "png": "design/screens/DayCloseBlocked__1280x800__en.png",
+     "state": "Close day refused — DAY_CLOSE_BLOCKED: “3 void requests are still open — answer them first” + identifier · item · requester per line; Open is not sent (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/DayCloseBlockedMore.dc.html",
+     "png": "design/screens/DayCloseBlockedMore__1280x800__en.png",
+     "state": "43 open, 40 listed — the list scrolls inside the banner; “and 3 more” stays visible under it (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    }
+   ],
+   "components": "Kit `.pos-banner.pos-banner--danger` with `.pos-banner__list` (pulse-04-admin.css) and `li.more` “and N more”; identifiers in `.pos-ltr`",
+   "classes": [
+    ".pos-banner__list",
+    ".pos-banner__list li.more"
+   ],
+   "api": "409 DAY_CLOSE_BLOCKED {reason:'void_pending', voids:[{alert_id, identifier, item, requester_name}] (≤ 40), count}."
+  },
+  {
+   "id": "04-T01",
+   "plan": "VU1",
+   "name": "Toasts",
+   "where": "after VoidItems / WithdrawRequest / Cancel order",
+   "spec": "§8 (refresh after own commands)",
+   "frames": [
+    {
+     "file": "design/VoidParts.dc.html",
+     "png": "design/screens/VoidParts__1440x1180__en.png",
+     "state": "Components — disposition rows in every state, outcomes, PENDING VOID tag, Void action, errors, toasts (component)",
+     "w": 1440,
+     "h": 1180,
+     "lang": "en"
+    }
+   ],
+   "components": "01d `.toast` (static here): Void asked, Voided, Request withdrawn, Order cancelled",
+   "classes": [
+    ".toast"
+   ],
+   "api": "VoidItems result (direct vs approval), WithdrawRequest result."
+  },
+  {
+   "id": "04-S03",
+   "plan": "VU2",
+   "name": "Audit log",
+   "where": "staff entry, Audit log tab · laptop 1440×900, tablet 1280×800 (view-audit-log)",
+   "spec": "§8 bullet 8; §6.5; V17",
+   "frames": [
+    {
+     "file": "design/Audit.dc.html",
+     "png": "design/screens/Audit__1440x900__en.png",
+     "state": "Audit log — today by default, newest first; who, action, target, reason, outcome, amount, approver + method; next page loads at the bottom (laptop)",
+     "w": 1440,
+     "h": 900,
+     "lang": "en"
+    },
+    {
+     "file": "design/AuditLoading.dc.html",
+     "png": "design/screens/AuditLoading__1440x900__en.png",
+     "state": "First load — skeleton rows; filters already usable (laptop)",
+     "w": 1440,
+     "h": 900,
+     "lang": "en"
+    },
+    {
+     "file": "design/AuditEmpty.dc.html",
+     "png": "design/screens/AuditEmpty__1440x900__en.png",
+     "state": "Empty — no entries for the filters; Export off; one way out (Clear filters) (laptop)",
+     "w": 1440,
+     "h": 900,
+     "lang": "en"
+    },
+    {
+     "file": "design/AuditError.dc.html",
+     "png": "design/screens/AuditError__1440x900__en.png",
+     "state": "Error — hub unreachable (or any refused query): calm message, filters kept, Try again; a failed next page keeps the rows and shows “Couldn’t load more · Try again” at the bottom ",
+     "w": 1440,
+     "h": 900,
+     "lang": "en"
+    },
+    {
+     "file": "design/AuditTablet.dc.html",
+     "png": "design/screens/AuditTablet__1280x800__en.png",
+     "state": "Tablet — two-line rows (what / who / outcome), day headers for a multi-day range; staff = Hamza shows his acts and none he approved (tablet)",
+     "w": 1280,
+     "h": 800,
+     "lang": "en"
+    },
+    {
+     "file": "design/AuditUrdu.dc.html",
+     "png": "design/screens/AuditUrdu__1440x900__ur.png",
+     "state": "Audit rows — Urdu RTL; times, amounts, table codes LTR; method “in person” as a tag (laptop)",
+     "w": 1440,
+     "h": 900,
+     "lang": "ur"
+    }
+   ],
+   "components": "Top-bar seg tab “Audit log”; filter bar `.au__bar` with `.flt` buttons (`.is-set` + count `.n`, `.is-open`), caption `.cap`, Export `.btn`; list card `.aul` with header `.aur.th` and rows `.aur` (`.t`, `.who` + `.av` / `.id`, `.act` icon tile, `.tg` + `.tcode--sm`, `.rs`, `.oc`, `.am`, `.ap` + method `.atag.c-info`, `.dash`); tablet two-line rows `.aur--t` (`.stack`, `.sub`, `.sub2`, `.rgt`) and day headers `.au__day`; end row `.au__end` (spinner / everything loaded); skeleton `.sk`; `.empty` with `.ring`",
+   "classes": [
+    ".au",
+    ".au__bar",
+    ".flt",
+    ".aul",
+    ".aur",
+    ".aur--t",
+    ".act",
+    ".oc",
+    ".ap",
+    ".au__day",
+    ".au__end",
+    ".dash",
+    ".left"
+   ],
+   "api": "audit-log?from&to&staff_id&action&cursor&limit → entries[AuditEntryView: seq, recorded_at, action, actor_staff_id, actor_name, approver_staff_id, approver_name, method ('session'|'pin'|'in_person'), device_id, subject_type, subject_id, order_id, table_code, table_id, table_name, reason, outcome, amount_minor, detail_json (on_requester_device, item, units …)], meta.next_cursor."
+  },
+  {
+   "id": "04-C04",
+   "plan": "VU2",
+   "name": "Staff picker",
+   "where": "popover from the Staff filter",
+   "spec": "§8 bullet 8; §6.5b",
+   "frames": [
+    {
+     "file": "design/AuditStaff.dc.html",
+     "png": "design/screens/AuditStaff__1440x900__en.png",
+     "state": "Staff picker from audit-staff — everyone ever named, leavers marked “left”; one person (actor or approver) (laptop)",
+     "w": 1440,
+     "h": 900,
+     "lang": "en"
+    }
+   ],
+   "components": "`.pop` with search `.pop__s`, radio rows `.pop__r[role=radio]` (Everyone + people, `.av`, role or `.left`), `.hint`",
+   "classes": [
+    ".pop",
+    ".pop__s",
+    ".pop__r",
+    ".left",
+    ".pop .hint"
+   ],
+   "api": "audit-staff → staff[{staff_id, display_name, in_directory}] (in_directory false → “left”); role text from the hub directory when present."
+  },
+  {
+   "id": "04-C05",
+   "plan": "VU2",
+   "name": "Action multi-select",
+   "where": "popover from the Actions filter",
+   "spec": "§8 bullet 8; §6.5 action",
+   "frames": [
+    {
+     "file": "design/AuditActions.dc.html",
+     "png": "design/screens/AuditActions__1440x900__en.png",
+     "state": "Action multi-select — grouped, ticks; “Voids” preset of 4 actions; Clear / Show (laptop)",
+     "w": 1440,
+     "h": 900,
+     "lang": "en"
+    }
+   ],
+   "components": "`.pop` with group heads `.pop__g` (+ All), checkbox rows `.pop__r[role=checkbox]` + `.chk`, footer `.pop__f` Clear / Show n actions",
+   "classes": [
+    ".pop__g",
+    ".pop__r[role=checkbox]",
+    ".chk",
+    ".pop__f"
+   ],
+   "api": "action = comma list ⊆ AUDIT_ACTIONS (built-in list only, AD-14), de-duplicated."
+  },
+  {
+   "id": "04-C06",
+   "plan": "VU2",
+   "name": "Date range",
+   "where": "popover from the Date filter",
+   "spec": "§8 bullet 8; §6.5 from / to",
+   "frames": [
+    {
+     "file": "design/AuditRange.dc.html",
+     "png": "design/screens/AuditRange__1440x900__en.png",
+     "state": "Date range — presets + calendar, whole days on the hub clock, at most 31 days (laptop)",
+     "w": 1440,
+     "h": 900,
+     "lang": "en"
+    }
+   ],
+   "components": "`.pop` with preset `.chips`, month header `.calh`, calendar `.cal` (`span.a` ends, `.in` range, `.fut` disabled, `.out` other month), From / To `.dr`, `.hint`, `.pop__f` Cancel / Show n days",
+   "classes": [
+    ".cal",
+    ".calh",
+    ".dr",
+    ".pop .hint"
+   ],
+   "api": "from / to Unix ms on the hub clock, whole days, half-open [from, to) (AD-15), to − from ≤ 31 days."
+  },
+  {
+   "id": "04-D09",
+   "plan": "VU2",
+   "name": "Export CSV",
+   "where": "Audit log toolbar",
+   "spec": "§8 bullet 8; V17",
+   "frames": [
+    {
+     "file": "design/AuditExport.dc.html",
+     "png": "design/screens/AuditExport__1440x900__en.png",
+     "state": "Export CSV — pages through the same query (same filters, ≤ 31 days) and saves in the browser; progress, Stop; toast “Saved audit-gulberg-2026-11-11-to-17.csv” (laptop)",
+     "w": 1440,
+     "h": 900,
+     "lang": "en"
+    }
+   ],
+   "components": "Progress bar `.xbar` (`.trk i` width = progress) + Stop; Export button `[aria-disabled]` “Exporting…”",
+   "classes": [
+    ".xbar",
+    ".xbar .trk"
+   ],
+   "api": "Pages the same audit-log query (same filters, ≤ 31 days) by meta.next_cursor and builds the CSV in the browser."
+  }
+ ],
+ "gaps": [
+  {
+   "screen": "04-D02",
+   "state": "Void sheet loading (void-preview in flight) and void-preview failure (404 / ORDER_BILLED / network) as whole-sheet states"
+  },
+  {
+   "screen": "04-D02",
+   "state": "Staff meal chosen; Other chosen without a reason note; units stepper at a mid value on a deal (portions > 1)"
+  },
+  {
+   "screen": "04-D02",
+   "state": "Disabled reasons “Not cooking or cooked”, “You can’t move to stock”, “Business day closed” inside a full sheet (only the 04-C03 component sheet shows them)"
+  },
+  {
+   "screen": "04-D02",
+   "state": "Submit in progress (button busy) and submit refusals VOID_PENDING / 403 move_not_granted / VOID_NOT_ALLOWED / hub down inside a sheet (component rows only, VoidParts)"
+  },
+  {
+   "screen": "04-A01 / 04-B01",
+   "state": "Void action and PENDING VOID tag in the order view and the bill view (05); every frame uses the 02 table view (Your table side panel)"
+  },
+  {
+   "screen": "04-B01",
+   "state": "Requester blocked row and other-staff row on kiosk, portrait and phone; blocked row in Urdu"
+  },
+  {
+   "screen": "04-D08",
+   "state": "Allowed path (void-item allowed: “Remove n · void m”, no approval line); kiosk, portrait, phone and Urdu versions"
+  },
+  {
+   "screen": "04-D08",
+   "state": "RemoveItems refused for TABLE_SEATING_CHANGED and for no take-order (only TABLE_ALREADY_LOCKED text is drawn); a parent with a started child in the Void group (V1 d′); return lines"
+  },
+  {
+   "screen": "04-D06",
+   "state": "Approver card on the cashier kiosk; reject flow (reuses 01d D02)"
+  },
+  {
+   "screen": "04-B03",
+   "state": "Urdu; count = 1 (singular)"
+  },
+  {
+   "screen": "04-S03",
+   "state": "Failed next page: rows kept + “Couldn’t load more · Try again” (named in the AuditError title, not drawn)"
+  },
+  {
+   "screen": "04-S03",
+   "state": "Range over 31 days refused (400) and other refused-query text; phone layout (not required by §8)"
+  },
+  {
+   "screen": "04-S03",
+   "state": "Audit row detail / expanded detail_json (04-S04 in the inventory; not in §8)"
+  },
+  {
+   "screen": "04-D09",
+   "state": "Export stopped, export failed, and the done toast “Saved audit-gulberg-2026-11-11-to-17.csv” (named in the AuditExport title, not drawn)"
+  },
+  {
+   "screen": "04-C04 / 04-C05 / 04-C06",
+   "state": "Urdu popovers; tablet popovers"
+  }
+ ]
+}
