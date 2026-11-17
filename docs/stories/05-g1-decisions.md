@@ -132,3 +132,21 @@ Q1 re-asked after M-15 and confirmed **live from day 1** (G1-16); no open owner 
 ## 8. Next
 
 On "go spec": `docs/specs/05_Billing_Spec_v0.1.md` with `anthropic-skills:backend-spec-writer` (foundation §6 Shared Standards; §4.5 bumps for F, 01a, 01b, 01d, 02a, 02b, 03c, 04 at the next free numbers; new error codes in F §6.2; README row 05 and the R13 amendment), then STOP for the owner.
+
+## 9. Owner answers on spec v0.1 OQs (2026-11-17 23:15 PKT)
+
+Answers given 23:11–23:15 PKT on `docs/specs/05_Billing_Spec_v0.1.md` §12.3; folded into `docs/specs/05_Billing_Spec_v0.2.md` with "⚠️ Changed in v0.2 (OQ-n)" markers.
+
+| # | Owner said | Ruling (v0.2) |
+|---|---|---|
+| OQ-1 | (a) | Reopen writes a new 02b event `OrdersUnbilled` (02b bump row Q-2); the orders return to unbilled; 02b adds and changes lines normally; the day-close guard sees them as unbilled. |
+| OQ-2 | (b) | One spec, two plan phases (05-1 bills / payments / close / reopen / fiscal; 05-2 shifts / petty cash / drawer / day close / X / Z); no 05a / 05b split. The >30 endpoint budget exception is README **R38** with this reason. |
+| OQ-3 | (b) | PRA token entered in a **hub admin page field** (`/admin/fiscal/`, `SetFiscalToken`), not a CLI. Gated by the new permission `manage-fiscal-settings` (Owner only by default, 01b bump row B-1 / B-2); write-only — never returned by any query or shown again (the page shows "set on <date>" only); replace = enter a new one; stored only on the hub (table `fiscal_credentials`; never synced, never logged, never in events); audit row `fiscal_token_changed` from `FiscalTokenSet`, ids only. |
+| OQ-4 | (b) | Discount on the **whole bill only**, never per split. A bill with any closed split refuses a new discount (and its removal) with `409 BILL_PARTLY_PAID`; the discount must be set before the first split closes; spread pro rata over the lines (G0-5) before splitting. |
+| OQ-5 | (a) | Amount / equal split = one invoice per split with lines allocated proportionally (`allocateDealMinor`, remainder to the last); stays subject to A8. |
+| OQ-6 | owner rule (= (b) made simple) | A closed (paid) split is frozen; the bill's unpaid remainder stays open; any new line ordered after a split closed joins the open remainder automatically (no staff action); if every split is closed the bill is closed and a new item on that seating opens a **new bill** automatically; changing a closed split = reopen (Q8). Invariants: Σ closed splits + open remainder = bill lines; no line unit in two splits; a void / comp / remove / weight on units of a closed split → `409 LINE_IN_CLOSED_SPLIT` unless reopened (02b row Q-3, 04 row V-1). |
+| OQ-7 | (a) | Approver for over-limit petty cash and shift variance = holders of `close-shift-for-others` (Manager, Owner by default); no separate setting. |
+| OQ-8 | (a) | Buyer ID kept as long as the invoice; hub-only, never synced. |
+| S-1–S-4 | no objection | Proposed bumps kept as written, marked "proposed, owner to confirm at approval". S-5–S-8 unchanged. |
+
+New in v0.2: **STOP S-9** — 02a refuses a new round on a seating in NEEDS_CLEANING (after `BillClosed`), so "a new item on that seating opens a new bill" happens in practice only on a new seating, unless the owner asks for a 02a bump.
