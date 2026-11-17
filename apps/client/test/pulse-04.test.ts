@@ -31,11 +31,19 @@ describe('Pulse 04 layers (04 §8; handoff 04 PROMPT step 1, O7)', () => {
     }
   });
 
+  it('[04 VU1] pulse-04-additions.css only holds the frames\' inline layout: no network, no fonts, no new colours', () => {
+    const css = readFileSync(kitDir + 'pulse-04-additions.css', 'utf8');
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(rules).not.toMatch(/https?:\/\/|@import|url\(|@font-face|#[0-9a-f]{3,8}\b|rgb\(/i);
+    for (const sel of ['.qline .qv', '.dlg--v.dlg--kiosk', '.vfoot .vsum', '.vfoot .vsum strong', ':is(.dlg--v, .dlg--all) .dlg__h .tcode']) expect(rules, sel).toContain(sel);
+  });
+
   it('[04 VU1] the staff kit loads pulse-04.css after pulse-02.css; only the Stock page loads pulse-04-admin.css', () => {
     const staff = importsOf(app + 'ui-kit-staff.ts');
     const p02 = staff.indexOf(k('components/pulse-02.css'));
     expect(p02).toBeGreaterThanOrEqual(0);
     expect(staff.indexOf(k('components/pulse-04.css'))).toBeGreaterThan(p02);
+    expect(staff.indexOf(k('components/pulse-04-additions.css'))).toBe(staff.indexOf(k('components/pulse-04.css')) + 1);
     for (const f of ['ui-kit.ts', 'ui-kit-kds.ts', 'ui-kit-admin.ts']) expect(importsOf(app + f), f).not.toContain(k('components/pulse-04.css'));
     // the 01a hub admin Stock page (owner kit) gets the banner list; no other entry
     const stock = importsOf(root + 'apps/client/src/features/admin/stock/main.tsx');
