@@ -60,6 +60,7 @@ Owner ruling Q-60: fix rounds only for BLOCKER / MAJOR; MINOR findings land here
 | B-16 | #185 | `ReleaseSheet` loses the pinned attempt on Cancel + reopen (hub skips released lines); no tests for catch-up seeding of known orders or the `ReleaseSheet` tick lock. |
 | B-17 | #201 | `S/orders/order-screen/OrderScreen.tsx` (~line 89): the new `tableCode` helper sits between the draft-store doc comment and `useDrafts`, so `useDrafts` lost its comment and `tableCode` carries a stale one. Move `tableCode` above that comment. |
 | B-18 | #201 | `S/orders/table-view/OrdersPart.test.tsx` (the new shell re-render test) asserts the selected line survives, not that an opened served round stays open (`Round.tsx` `open` state). Add that assertion at the next change to the file. |
+| B-19 | #207 | **Done on `cleanup/02-03-pilot`:** ~~the contact fixtures used `03217654321`, which looks like a real mobile number~~; `line-actions.test.tsx` and `OrderView.test.tsx` now use `03000000001` (the design frames and the 02b brief keep their sample "0321 7654321"). |
 
 ## 03b hub (hub-gaps lanes)
 
