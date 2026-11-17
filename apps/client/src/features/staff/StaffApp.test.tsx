@@ -546,6 +546,47 @@ describe('[03b W0.6] Pass in the staff shell', () => {
     expect([...m.container.querySelectorAll('header.top .end button .sr')].map((s) => s.textContent)).not.toContain('Pass');
   });
 
+  it('[03b W0.6 AD-K12; W-3] the landing happens on arrival only: a point_view after the person left #/tables never moves them, not even back on #/tables', async () => {
+    render(TABLET, hub().fetch);
+    await signIn();
+    expect(window.location.hash).toBe('#/tables');
+    act(() => {
+      window.location.hash = '#/inbox'; // the person opens another screen before the catch-up arrives
+    });
+    await flush(4);
+    sockets[0]!.frame({ type: 'catch_up', as_of_seq: 3, state: { point_view: POINT_VIEW } });
+    await flush(4);
+    expect(window.location.hash).toBe('#/inbox');
+    m.unmount();
+
+    // the late catch-up finds them on the tables again after a visit elsewhere: still no move
+    window.location.hash = '';
+    render(TABLET, hub().fetch);
+    await signIn();
+    act(() => {
+      window.location.hash = '#/inbox';
+    });
+    await flush(4);
+    act(() => {
+      window.location.hash = '#/tables';
+    });
+    await flush(4);
+    sockets[sockets.length - 1]!.frame({ type: 'catch_up', as_of_seq: 3, state: { point_view: POINT_VIEW } });
+    await flush(4);
+    expect(window.location.hash).toBe('#/tables');
+  });
+
+  it('[03b W0.6 AD-K12; W-3] a first catch-up without a point_view ends the landing: a point_view in a later catch-up does not move the person', async () => {
+    render(TABLET, hub().fetch);
+    await signIn();
+    sockets[0]!.frame(UP);
+    await flush(4);
+    expect(window.location.hash).toBe('#/tables');
+    sockets[0]!.frame({ type: 'catch_up', as_of_seq: 5, state: { point_view: POINT_VIEW } });
+    await flush(4);
+    expect(window.location.hash).toBe('#/tables');
+  });
+
   it('[03b IR-17b] the Pass live exists before the first catch_up; point_lines, station_takeover, station_notice, station_plan and printed_lines reach the Pass', async () => {
     const seen: WsServerMessage[] = [];
     const off = subscribeFrames((f) => seen.push(f));
@@ -633,5 +674,82 @@ describe('[03b W0.6] Pass in the staff shell', () => {
     for (const c of h.calls.filter((c) => c.path === '/commands/dismiss-print-skip')) sends.push(c.body as { command_id: string });
     expect(sends.length).toBe(2);
     expect(sends[1]!.command_id).toBe(sends[0]!.command_id);
+  });
+  it('[03c §6.12 Q-66; W-2] the Dismiss sender is made again when a different person signs in: a 403 for D does not hide Dismiss for E', async () => {
+    let pins = 0;
+    const h = hub({
+      permissions: { 'force-release-table-lock': { grant: 'allowed', scope: 'branch' } as never },
+      extra: {
+        'GET /queries/staff-roster': () =>
+          reply(200, {
+            data: {
+              staff: [
+                { staff_id: 'S-D', display_name: 'Dana', locked_until: null },
+                { staff_id: 'S-E', display_name: 'Eli', locked_until: null },
+              ],
+              active_session: null,
+            },
+          }),
+        'POST /auth/pin': () => {
+          pins += 1;
+          const who = pins === 1 ? { id: 'S-D', name: 'Dana' } : { id: 'S-E', name: 'Eli' };
+          return reply(200, { data: { session_token: `SESS-${who.id}`, session_id: `X${pins}`, staff_id: who.id, display_name: who.name, role_ids: [], idle_ttl_ms: 600_000 } });
+        },
+        'POST /commands/dismiss-print-skip': () => reply(403, { error: { code: 'PERMISSION_DENIED', message: 'no' } }),
+      },
+    });
+    const alertFrame = {
+      type: 'alert',
+      alert: {
+        alert_id: 'P1',
+        kind: 'printer_problem',
+        family: 'action',
+        step: 0,
+        escalation: false,
+        set: 'answerer',
+        for_staff_id: null,
+        lock: { kind_label_key: 'alert.printer_problem.lock', table_code: null, point_code: null, requester_name: null, device_name: null },
+        card: {
+          kind_label_key: 'alert.printer_problem.card',
+          table_code: null,
+          point_code: null,
+          requester_name: null,
+          device_name: null,
+          details: { printer_name: 'Tandoor printer', problem: 'ticket_not_built' },
+        },
+        raised_at: NOW - 60_000,
+      },
+    };
+    const signInAs = async (name: string) => {
+      await flush();
+      m.click(m.button(name));
+      const keys = m.container.querySelector('.pin__keys')!;
+      for (const d of '1234') m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === d));
+      m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === 'Sign in'));
+      await flush(8);
+      const sock = sockets[sockets.length - 1]!;
+      sock.frame(UP);
+      sock.frame(alertFrame);
+      await flush(4);
+      act(() => {
+        window.location.hash = '#/inbox';
+      });
+      await flush(4);
+    };
+    const dismissButton = () => [...m.container.querySelectorAll('button')].find((b) => b.textContent === 'Dismiss');
+
+    render(TABLET, h.fetch);
+    await signInAs('Dana');
+    expect(dismissButton()).toBeDefined();
+    m.click(dismissButton());
+    await flush(6);
+    // the hub refused D: the card now says "Stays until day close"
+    expect(dismissButton()).toBeUndefined();
+    expect(m.container.textContent).toContain('Stays until day close');
+
+    m.click(m.button('Dana — sign out'));
+    await flush(4);
+    await signInAs('Eli');
+    expect(dismissButton()).toBeDefined();
   });
 });

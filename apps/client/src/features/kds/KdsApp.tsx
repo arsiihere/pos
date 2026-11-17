@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { readDeviceKey, wipeDeviceKeys, type HubResult } from '../../api/hub-admin';
+import { readDeviceKey, wipeDeviceKeys } from '../../api/hub-admin';
 import { createHubClock, type HubClock } from '../../app/hub-clock';
 import { t } from '../../i18n';
 import { errorKey } from '../../i18n/en';
@@ -25,7 +25,6 @@ import { StationView } from './station/StationView';
 import { Archived } from './states/Archived';
 import { DayNotStarted } from './states/DayNotStarted';
 import { registerPrintSlots, type PrintTransport } from '../print/register';
-import type { OrderTicket } from '../pass/contracts';
 import { notifySlots, subscribeFrames } from './slots';
 import { createKdsStore, type KdsStoreImpl } from './store';
 
@@ -85,7 +84,6 @@ export interface KdsAppProps {
 /** what the live station session lends the print transport (IR-15) */
 interface LivePrint {
   api: KdsStationApi;
-  orderTickets: PrintTransport['orderTickets'];
 }
 
 type Screen = 'guest' | 'not_set_up' | 'host' | 'upgrade' | 'busy' | 'meta' | 'error';
@@ -171,8 +169,9 @@ export function KdsApp({ page, fetch, createSocket, timers, sink, readKey, wipeK
     () => ({
       command: (type, payload, commandId) =>
         livePrint.current === null ? Promise.resolve({ ok: false, error: { kind: 'network' } }) : livePrint.current.api.command(type, payload, commandId),
-      orderTickets: (order_id) =>
-        livePrint.current === null ? Promise.resolve({ ok: false, error: { kind: 'network' } }) : livePrint.current.orderTickets(order_id),
+      // 03c §3.10: `order-tickets` is a staff-session query (`reprint-ticket`); a station session never calls it (the
+      // KDS Reprint is by order, so nothing here reads it): the same refusal the hub gives a station on a staff route
+      orderTickets: () => Promise.resolve({ ok: false, error: { kind: 'api', status: 403, code: 'PERMISSION_DENIED', details: { session_kind: 'station' } } }),
       canReprint: () => livePrint.current !== null,
     }),
     [],
@@ -465,13 +464,9 @@ function Live({
   const printRef = useRef(onPrint);
   printRef.current = onPrint;
   useEffect(() => {
-    printRef.current({
-      api,
-      orderTickets: (order_id) =>
-        stationQuery<{ tickets: OrderTicket[] }>(fetch, token, session.session_token, `/queries/order-tickets?order_id=${encodeURIComponent(order_id)}`),
-    });
+    printRef.current({ api });
     return () => printRef.current(null);
-  }, [api, fetch, token, session]);
+  }, [api]);
 
   const [load, setLoad] = useState<LoadNotice | null>(null);
   const loadTimer = useRef<unknown>(null);
@@ -642,19 +637,5 @@ function ScreenMessage({ screen, code, onAgain, onReload }: { screen: Screen; co
       );
     case 'error':
       return <Message title={t(errorKey(code ?? 'UNKNOWN'))}>{again}</Message>;
-  }
-}
-
-/** `GET` on the station session (device token + station session token); the reply's `data` */
-async function stationQuery<T>(fetch: (input: string, init?: RequestInit) => Promise<Response>, deviceToken: string, sessionToken: string, path: string): Promise<HubResult<T>> {
-  try {
-    const response = await fetch(path, { method: 'GET', headers: { Authorization: `Bearer ${deviceToken}`, 'X-Session-Token': sessionToken } });
-    const body = (await response.json().catch(() => null)) as { data?: T; error?: { code?: unknown } } | null;
-    if (response.ok && body?.data !== undefined) return { ok: true, data: body.data };
-    if (response.ok) return { ok: false, error: { kind: 'network' } };
-    const code = typeof body?.error?.code === 'string' ? body.error.code : 'INTERNAL_ERROR';
-    return { ok: false, error: { kind: 'api', status: response.status, code, details: {} } };
-  } catch {
-    return { ok: false, error: { kind: 'network' } };
   }
 }

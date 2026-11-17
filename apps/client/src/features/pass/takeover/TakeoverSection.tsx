@@ -27,6 +27,8 @@ export interface TakeoverSectionProps {
   name: string;
   api: KdsApi;
   canRun: boolean;
+  /** §3.10 (#208 P-7): the point (404 POINT_NOT_FOUND) or this station is archived: the rows stay, the slot actions (Reprint) go */
+  archived?: boolean;
   up: boolean;
   nowMs: number;
   utcOffsetMs: number;
@@ -34,7 +36,7 @@ export interface TakeoverSectionProps {
   onToast(text: string, tone?: 'ok' | 'warn'): void;
 }
 
-export function TakeoverSection({ store, name, api, canRun, up, nowMs, utcOffsetMs, timers, onToast }: TakeoverSectionProps) {
+export function TakeoverSection({ store, name, api, canRun, archived = false, up, nowMs, utcOffsetMs, timers, onToast }: TakeoverSectionProps) {
   const view = useSyncExternalStore(store.subscribe, store.snapshot);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => onSlotsChanged(rerender), []);
@@ -82,7 +84,7 @@ export function TakeoverSection({ store, name, api, canRun, up, nowMs, utcOffset
         <div className="kcards">
           {nowOrder(view.rows).map((row) => {
             const state = actions.stateOf(row.order_item_id);
-            const slot = row.detail === null ? [] : lineActions(row.detail, { station_id: station.station_id, has_printer: station.has_printer, surface: 'takeover' });
+            const slot = row.detail === null || archived ? [] : lineActions(row.detail, { station_id: station.station_id, has_printer: station.has_printer, surface: 'takeover' });
             return (
               <LineRow
                 key={row.order_item_id}

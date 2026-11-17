@@ -109,7 +109,7 @@ function setup(o: { answer?: 'order' | 'missing'; perms?: Record<string, Resolut
   const orders = {
     orderView: vi.fn(o.orderView ?? (async () => ({ ok: true as const, data: o.answer === 'order' ? { kind: 'order' as const, order: VIEW } : { kind: 'missing' as const } }))),
     openOrders: vi.fn(async () => ({ ok: true as const, data: { orders: [] } })),
-    orderContact: vi.fn(async () => ({ ok: true as const, data: { customer_name: 'Usman', phone: '03217654321' } })),
+    orderContact: vi.fn(async () => ({ ok: true as const, data: { customer_name: 'Usman', phone: '03000000001' } })),
     boostOrder: vi.fn(async () => ({ ok: true as const, data: {} })),
   };
   const enqueue = Object.assign(vi.fn(async () => ({ status: 'sent' as const, result: { served: 1, skipped: [] } })), {

@@ -74,7 +74,7 @@ function makeShell(o: { perms?: Record<string, Resolution>; enqueue?: EnqueueRes
   const orders = {
     removeItems: vi.fn(async () => ok({ removed: [], cancelled: false, comp_requests_closed: [] })),
     setLineWeight: vi.fn(async () => ok({ line_total_minor: 350_000 })),
-    orderContact: vi.fn(async () => ok({ customer_name: 'Usman', phone: '03217654321' })),
+    orderContact: vi.fn(async () => ok({ customer_name: 'Usman', phone: '03000000001' })),
     orderView: vi.fn(async () => ok({ kind: 'missing' as const })),
     openOrders: vi.fn(async () => ok({ orders: [] })),
     boostOrder: vi.fn(async () => ok({})),
@@ -377,7 +377,7 @@ describe('[02b §8 Table view] line actions', () => {
     expect(dlg.textContent).toContain('Parking · LEB 1234 · this look is logged');
     expect(dlg.textContent).toContain('Usman');
     expect(dlg.querySelector('.fact--amt b')?.getAttribute('dir')).toBe('ltr');
-    expect(dlg.textContent).toContain('03217654321');
+    expect(dlg.textContent).toContain('03000000001');
   });
 
   it('[02b Q-7] plain options under the line ("+ No onion · Less spicy"); none shown when the hub sends none', () => {
