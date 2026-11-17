@@ -1,0 +1,7 @@
+/* Pulse · 04 additions (lane VU1): the 04 frames' inline layout as classes (the kds-03-additions IR-14 precedent;
+   components may not carry a style prop, S35 d). pulse-04.css stays a byte copy of the handoff. Tokens only. */
+
+/* Void sheet units line: the stepper and its "of N" side by side (frames Main, VoidKiosk: inline flex, gap 12px) */
+.qline .qv { display: flex; align-items: center; gap: 12px; }
+/* cashier kiosk: the Void sheet is 1000 px wide (frame VoidKiosk inline width) */
+.dlg--v.dlg--kiosk { width: 1000px; }

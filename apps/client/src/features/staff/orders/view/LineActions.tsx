@@ -11,11 +11,13 @@ import { pendingCompsOf } from '../actions/pending-comps';
 import { RemoveSheet } from '../actions/RemoveSheet';
 import { SendBackSheet } from '../actions/SendBackSheet';
 import { WeightSheet } from '../actions/WeightSheet';
+import { VoidSheet } from '../../../voids/VoidSheet';
+import { VIco } from '../../../voids/icons';
 import type { OrderType, SeatingLine } from '../contracts';
 import { atStageOne, isReady, isServed, isWeightPending, lineStage, servable } from './stage';
 
 // 02b v1.0.11 §8 Table view: the actions of the selected line, from the session's permissions (R5) and the line's
-// stage — Mark served (fired lines, §3.7), Remove (stage 1, §3.5), "Void…" disabled until module 04 (Q-24), Enter
+// stage — Mark served (fired lines, §3.7), Remove (stage 1, §3.5), Void past stage 1 (04 §8, features/voids), Enter
 // weight (§3.6), Send back (§3.8, E-7), Comp (§3.9; its waiting card is CompWaiting). Shared by the order view (27a1) and the table view's orders part (27a3). The sheet helper, the
 // error toasts and the Enqueue answer handling live here too, so every line action shows them the same way.
 
@@ -139,7 +141,7 @@ export function servedCandidatesOf(lines: readonly SeatingLine[]): ServedCandida
 
 // ---------------------------------------------------------------------------------------------- the actions
 
-type Open = 'served' | 'remove' | 'weight' | 'send_back' | 'comp' | null;
+type Open = 'served' | 'remove' | 'weight' | 'send_back' | 'comp' | 'void' | null;
 
 /** §3.9: a zone-served line is not comped while its zone undo is still open (COMP_NOT_ALLOWED). */
 export function inZoneUndo(line: SeatingLine, zoneUndoMs: number | null, nowMs: number): boolean {
@@ -170,6 +172,8 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
   // an open request closing (answered, withdrawn) brings Comp back
   useSyncExternalStore(comps.subscribe, comps.version);
   const [open, setOpen] = useState<Open>(null);
+  /** 04 §8: the line the Void sheet is for (this line, or one picked in the Remove sheet) */
+  const [voidOf, setVoidOf] = useState<SeatingLine>(line);
   const may = (p: Parameters<Shell['permissions']['allowed']>[0]) => shell.permissions.allowed(p);
   const takeOrder = canTakeOrder ?? may('take-order');
   const live = line.live_units > 0;
@@ -184,9 +188,16 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
     live &&
     line.comped_units + line.removed_units + line.voided_units === 0 &&
     !order.billed;
-  // void-item is module 04's; until it is built the button stays disabled (Q-24)
+  // 04 §8 (R5): Void past stage 1 for a void-item holder (any grant; "Needs approval" when requires_approval); not on an
+  // option child or deal part (a void cascades to them), not on a billed order, not while a comp request is open
   const voidResolution = shell.permissions.resolution('void-item').grant;
-  const showVoid = live && !stageOne && line.line_kind !== 'option_child' && (voidResolution === 'allowed' || voidResolution === 'requires_approval');
+  const showVoid =
+    live &&
+    !stageOne &&
+    !order.billed &&
+    (line.line_kind === 'item' || line.line_kind === 'deal') &&
+    (voidResolution === 'allowed' || voidResolution === 'requires_approval') &&
+    comps.forLine(line) === null;
   // §3.8 Return: a whole served line, not zone-served, not already remade (then the replacement has it)
   const replacement = order.lines.find((l) => l.return_of === line.order_item_id) ?? null;
   const returned = line.returned_units > 0 || line.stage === 'returned';
@@ -218,9 +229,17 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
         </button>
       )}
       {showVoid && (
-        <button type="button" className="btn btn--quiet" disabled aria-disabled="true" title={t('line.void_later')}>
+        <button
+          type="button"
+          className="btn btn--void"
+          onClick={() => {
+            setVoidOf(line);
+            setOpen('void');
+          }}
+        >
+          <VIco name="bin" />
           {t('line.void')}
-          <small>{t('line.void_later')}</small>
+          {voidResolution === 'requires_approval' && <span className="ntag">{t('staff.grant.requires_approval')}</span>}
         </button>
       )}
       {canReturn && (
@@ -257,7 +276,24 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
           onChanged={onChanged}
         />
       )}
-      {open === 'remove' && <RemoveSheet order={order} from={line.order_item_id} onClose={close} onDone={done} onChanged={onChanged} />}
+      {open === 'remove' && (
+        <RemoveSheet
+          order={order}
+          from={line.order_item_id}
+          onClose={close}
+          onDone={done}
+          onChanged={onChanged}
+          onVoid={
+            voidResolution === 'allowed' || voidResolution === 'requires_approval'
+              ? (l) => {
+                  setVoidOf(l);
+                  setOpen('void');
+                }
+              : undefined
+          }
+        />
+      )}
+      {open === 'void' && <VoidSheet line={voidOf} order={order} onClose={close} onDone={done} onChanged={onChanged} onRemove={takeOrder ? () => setOpen('remove') : undefined} />}
       {open === 'send_back' && (
         <SendBackSheet line={line} order={order} {...(onSendAsNew === undefined ? {} : { onSendAsNew })} onClose={close} onDone={done} onChanged={onChanged} />
       )}

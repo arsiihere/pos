@@ -7,3 +7,5 @@ import '../../../../packages/ui-kit/components/pulse-03.css';
 import '../../../../packages/ui-kit/components/kds-03-additions.css';
 // 04 (VU1 / VU2): voids, pending void, approver card and audit log layer, after pulse-02 (handoff 04 O7)
 import '../../../../packages/ui-kit/components/pulse-04.css';
+// lane VU1: the 04 frames' inline layout as classes (pulse-04.css stays a byte copy)
+import '../../../../packages/ui-kit/components/pulse-04-additions.css';
