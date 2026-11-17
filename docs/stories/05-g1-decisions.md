@@ -106,7 +106,7 @@ Screenshots shown in chat; **not committed** (they show customer phone numbers; 
 | M-1 | Owner: "Split Order" exists today and staff use it → "agar is mein hai to rakhte hain split order" | **Splits are in the pilot** = G0 Q3 (a): split by items, by amount, and "equally into N"; each split paid (mixed modes allowed), numbered, fiscalized and printed on its own; no seats at ordering. Restores K-3 (a) and the G0 split stories. |
 | M-2 | Owner: options come **all pre-checked**; staff untick everything except what they want | 01c already has per-option `is_default` (V6) set by the owner, default **false**; only options the owner marks default are preselected (01c §4.4 02, G3 5). No 05 change; the pilot menu setup must leave `is_default` off unless truly default (setup checklist note for 01c data entry). |
 | M-3 | Owner: delivery charge (and other charges) are **re-applied every time the bill is opened**; staff remove them again and again | **Charges are applied once, by rule, when the bill is created; a removal is an event that sticks.** Opening, viewing, printing a check bill, splitting, a 02a merge / move or a reopen (Q8) never re-applies a removed charge; re-adding is an explicit action (audited). Applies to the service charge now (Q5) and to the delivery charge when delivery ships (P2). Test: remove → reopen / reprint / split → still removed. (G1-14) |
-| M-4 | Checkout: sub total Rs 5,710, tax Rs 1,370.40 (= 24 %) | **Owner to check with the accountant** (PRA cash 16 %, card 5 %). 05 shows tax by class with its rate and payment class, never one unexplained number. |
+| M-4 | Checkout: sub total Rs 5,710, tax Rs 1,370.40 (= 24 %). Owner (21:52): every tax class configured (e.g. 5 %, 3 %, 16 %, 8 %) is **applied to every bill by default**; staff remove the ones not wanted | 24 % is most likely 16 % + 8 % stacked. **05 never stacks classes and staff never pick tax at the bill (G1-15).** Tax by class shown with its rate and payment class. |
 | M-5 | Grand total Rs 7,080.40, rounding Rs 0.00 | Rounding step per branch (Rs 1 default), applied once to each split total (G0 rule); never a paisa total on a cash receipt. |
 | M-6 | Received amount pre-filled with the grand total | The cashier enters the tendered amount; change is computed and goes into the shift's expected cash (blind count relies on it). |
 | M-7 | One tax number before the payment mode is chosen | Choosing / switching a mode recomputes tax (K-15, Q4) and the total on the same screen, so the customer sees the digital rate. |
@@ -116,15 +116,17 @@ Screenshots shown in chat; **not committed** (they show customer phone numbers; 
 | M-11 | Modes Cash, Credit Card, Jazz Cash | R7 owner list; online modes may require a reference (K-7). |
 | M-12 | "Check Bill" on the checkout screen | Q2 check bill (G1-1). |
 | M-13 | Availability screen (item struck out) | To confirm in spec task 0 which module marks an item unavailable by hand (01c `isAvailable` input / 03a stock); not 05. |
+| M-15 | Owner (21:52): **Mutfak is not integrated with PRA** | Q1 re-asked (§8 open facts). |
 | M-14 | Delivery customer list mixes names and addresses ("BAKWAS", "!!!...CHINAR BAGH"); Call History | Delivery is P2: customer as name / phone / address fields, dedupe by phone; caller ID later. Not 05. |
 
 Added decision:
 
 | # | Decision |
 |---|---|
+| G1-15 | **Tax is never chosen at the bill (M-4).** Each menu item has exactly one `tax_class_id` (01a S31, copied to the line, K-4); the rate comes from the authority table by (class, payment class, integration status, date) (K-15). The checkout screen has **no tax buttons**; nothing is pre-applied for staff to remove. A class's rate applies only to lines of that class; two classes are never added onto one line. Tax-exempt sale (if ever needed) is a menu / order-type setting, not a cashier action. Test: a bill with lines in two classes shows two tax rows, each on its own lines' base only. |
 | G1-14 | **Sticky charges (M-3):** a bill-level charge (service charge now; delivery charge later) is written once by rule at bill creation (`ChargeApplied`) and removed by `ChargeRemoved` (permission + reason); the bill projection folds both; no read path, print, split, merge or reopen recomputes it from the rule. |
 
-Open owner facts (not blocking the spec): M-4 tax 24 %, and whether today's receipts carry a PRA invoice number / QR (Q1 was taken on that assumption).
+Open owner fact: **Q1 re-asked** — Q1 (b) was taken on the condition that today's billing posts to PRA; the owner says it does not (M-15).
 
 ## 8. Next
 
