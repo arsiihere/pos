@@ -3,9 +3,9 @@ import { badgeText } from '../../alerts/labels';
 import { Ico, initial } from '../../alerts/ui';
 
 // 02a §8 Top bar, phone (frame TableMapPhone; handoff Q8): tabs Tables · Orders · Inbox · Me (60 px). Plain hash
-// links: the routes are #/tables, #/orders, #/inbox, #/me. Orders holds open orders and New order (02b).
+// links: the routes are #/tables, #/orders, #/requests (approvers only, Q-73), #/inbox, #/me. Orders holds open orders and New order (02b).
 
-export type PhoneTab = 'tables' | 'orders' | 'inbox' | 'me';
+export type PhoneTab = 'tables' | 'orders' | 'requests' | 'inbox' | 'me';
 
 function TabIcon({ name }: { name: 'tables' | 'orders' }) {
   return (
@@ -27,7 +27,8 @@ function TabIcon({ name }: { name: 'tables' | 'orders' }) {
   );
 }
 
-export function PhoneTabs({ current, inbox }: { current: PhoneTab; inbox: number }) {
+/** `requests`: answerable requests; null = not an approver / nothing to answer: no tab (Q-73, same condition as the tablet button). */
+export function PhoneTabs({ current, inbox, requests = null }: { current: PhoneTab; inbox: number; requests?: number | null }) {
   const badge = badgeText(inbox);
   const link = (id: PhoneTab, icon: ReactIcon, label: string, count: string | null = null) => (
     <a className="tab" href={`#/${id}`} {...(current === id ? { 'aria-current': 'page' as const } : {})}>
@@ -37,9 +38,10 @@ export function PhoneTabs({ current, inbox }: { current: PhoneTab; inbox: number
     </a>
   );
   return (
-    <nav className="tabbar" aria-label={t('tabs.tables')}>
+    <nav className={requests !== null ? 'tabbar tabbar--5' : 'tabbar'} aria-label={t('tabs.tables')}>
       {link('tables', <TabIcon name="tables" />, t('tabs.tables'))}
       {link('orders', <TabIcon name="orders" />, t('tabs.orders'))}
+      {requests !== null && link('requests', <Ico name="shield" />, t('alerts.nav.requests'), badgeText(requests))}
       {link('inbox', <Ico name="tray" />, t('alerts.nav.inbox'), badge)}
       {link('me', <Ico name="user" />, t('tabs.me'))}
     </nav>

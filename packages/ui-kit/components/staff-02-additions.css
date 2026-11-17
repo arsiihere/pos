@@ -1,0 +1,5 @@
+/* 02 staff additions (Q-73): rules the 02 handoff files (pulse-staff.css, pulse-02.css, byte copies) do not have.
+   Same pattern as kds-03-additions.css (IR-14). Scoped like the kit: :where(.pu). */
+
+/* Phone tab bar with a Requests tab for approvers: five tabs on one row (pulse-staff .tabbar is 4 columns). */
+:where(.pu) .tabbar--5 { grid-template-columns: repeat(5, 1fr); }

@@ -23,6 +23,14 @@ describe('Pulse 02 layer (02a + 02b, handoff PROMPT step 2)', () => {
     expect(rules).not.toMatch(/@font-face/);
   });
 
+  it('[Q-73] staff-02-additions.css holds the five-tab phone bar and the staff entry loads it last (after the 02 and 03 layers)', () => {
+    const css = readFileSync(root + 'packages/ui-kit/components/staff-02-additions.css', 'utf8');
+    expect(css).toMatch(/:where\(\.pu\) \.tabbar--5 \{ grid-template-columns: repeat\(5, 1fr\); \}/);
+    const entry = readFileSync(root + 'apps/client/src/app/ui-kit-staff.ts', 'utf8');
+    const imports = [...entry.matchAll(/^import\s+['"]([^'"]+)['"];/gm)].map((m) => m[1] as string);
+    expect(imports.at(-1)).toBe('../../../../packages/ui-kit/components/staff-02-additions.css');
+  });
+
   it('[02 W0.2] the staff entry imports pulse-02.css after pulse-staff.css', () => {
     const entry = readFileSync(root + 'apps/client/src/app/ui-kit-staff.ts', 'utf8');
     const imports = [...entry.matchAll(/^import\s+['"]([^'"]+)['"];/gm)].map((m) => m[1] as string);

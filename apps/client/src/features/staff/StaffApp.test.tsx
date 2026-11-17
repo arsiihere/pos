@@ -445,6 +445,53 @@ describe('[02a §8 Top bar] staff shell', () => {
       restore();
     }
   });
+
+  async function phoneSignIn(h: ReturnType<typeof hub>) {
+    render({ ...TABLET, type: 'phone' }, h.fetch);
+    await flush();
+    const keys = m.container.querySelector('.pin__keys')!;
+    for (const d of '1234') m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === d));
+    m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === 'Sign in'));
+    await flush(8);
+  }
+
+  it('[02a §8 Top bar; Q-73] phone approver: a Requests tab with the count, opening the Requests page', async () => {
+    const restore = phoneMedia();
+    try {
+      await phoneSignIn(hub({ requests: [requestRow({ alert_id: 'R1' })] }));
+      const tabs = [...m.container.querySelectorAll('nav.tabbar a.tab')];
+      expect(tabs.map((a) => a.textContent)).toEqual(['Tables', 'Orders', 'Requests1', 'Inbox', 'Me']);
+      // five tabs fit one row at phone width: the bar carries the five-column modifier (staff-02-additions.css)
+      expect(m.container.querySelector('nav.tabbar')?.classList.contains('tabbar--5')).toBe(true);
+      const req = tabs.find((a) => a.textContent?.startsWith('Requests'))!;
+      expect(req.getAttribute('href')).toBe('#/requests');
+      expect(req.querySelector('.badge')?.textContent).toBe('1');
+      act(() => {
+        window.location.hash = '#/requests';
+      });
+      await flush();
+      expect(m.container.querySelector('header.ph-top h1')?.textContent).toBe('Requests');
+      expect(m.container.querySelector('nav.tabbar a[aria-current="page"]')?.textContent).toContain('Requests');
+    } finally {
+      restore();
+    }
+  });
+
+  it('[02a §8 Top bar; Q-73] phone non-approver (the hub lists no requests): no Requests tab, #/requests falls back to the inbox', async () => {
+    const restore = phoneMedia();
+    try {
+      await phoneSignIn(hub());
+      expect([...m.container.querySelectorAll('nav.tabbar a.tab')].map((a) => a.textContent)).toEqual(['Tables', 'Orders', 'Inbox', 'Me']);
+      expect(m.container.querySelector('nav.tabbar')?.classList.contains('tabbar--5')).toBe(false);
+      act(() => {
+        window.location.hash = '#/requests';
+      });
+      await flush();
+      expect(m.container.querySelector('header.ph-top h1')?.textContent).toBe('Inbox');
+    } finally {
+      restore();
+    }
+  });
 });
 
 // 02a §8 Top bar / Table map wiring (IR-3, IR-5)
