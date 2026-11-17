@@ -35,8 +35,14 @@ describe('default roles', () => {
     expect(holders('manage-stations')).toEqual(['owner', 'manager']);
   });
 
-  it('[01b B-2] mark-served defaults to Owner, Manager, Order taker and Waiter', () => {
-    expect(holders('mark-served')).toEqual(['owner', 'manager', 'order_taker', 'waiter']);
+  it('[01b B-2] mark-served defaults to Owner, Manager, Cashier, Order taker and Waiter (01b v1.8.1 Q-23: Cashier)', () => {
+    expect(holders('mark-served')).toEqual(['owner', 'manager', 'cashier', 'order_taker', 'waiter']);
+  });
+
+  it('[01b v1.8.1] Cashier gains mark-served (allowed, branch), not boost-order', () => {
+    const cashier = DEFAULT_ROLES.find((r) => r.default_key === 'cashier')!;
+    expect(cashier.grants.find((g) => g.permission === 'mark-served')).toEqual({ permission: 'mark-served', grant_type: 'allowed' }); // scope absent = branch
+    expect(grants('cashier')).not.toContain('boost-order');
   });
 
   it('[01b B-5] mark-item-returned defaults to Owner, Manager and Order taker', () => {
@@ -54,7 +60,7 @@ describe('default roles', () => {
   it('[02p U-4] Cashier and Order taker defaults (01b v1.6 B-1; v1.7 B-1, B-5)', () => {
     const grant = (key: string, permission: string) => DEFAULT_ROLES.find((r) => r.default_key === key)!.grants.find((g) => g.permission === permission);
     expect([...grants('cashier')].sort()).toEqual(
-      ['apply-comp', 'apply-discount', 'clean-table', 'reprint-ticket', 'set-line-weight', 'take-order', 'view-customer-contact'].sort(),
+      ['apply-comp', 'apply-discount', 'clean-table', 'mark-served', 'reprint-ticket', 'set-line-weight', 'take-order', 'view-customer-contact'].sort(), // + mark-served, 01b v1.8.1 Q-23
     );
     expect([...grants('order_taker')].sort()).toEqual(
       ['apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'take-order', 'view-customer-contact'].sort(),

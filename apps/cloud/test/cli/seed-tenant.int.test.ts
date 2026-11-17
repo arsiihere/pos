@@ -96,6 +96,7 @@ describe('seed-tenant', () => {
       { permission: 'apply-comp', grant_type: 'requires_approval', approver: 'Manager' },
       { permission: 'apply-discount', grant_type: 'requires_approval', approver: 'Manager' },
       { permission: 'clean-table', grant_type: 'allowed', approver: null },
+      { permission: 'mark-served', grant_type: 'allowed', approver: null }, // 01b v1.8.1 Q-23
       { permission: 'reprint-ticket', grant_type: 'allowed', approver: null },
       { permission: 'set-line-weight', grant_type: 'allowed', approver: null },
       { permission: 'take-order', grant_type: 'allowed', approver: null },
@@ -212,6 +213,7 @@ describe('seed-tenant', () => {
       { permission: 'apply-comp', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
       { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
       { permission: 'clean-table', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'mark-served', grant_type: 'allowed', approver_role_id: null }, // 01b v1.8.1 Q-23
       { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
       { permission: 'set-line-weight', grant_type: 'allowed', approver_role_id: null },
       { permission: 'take-order', grant_type: 'allowed', approver_role_id: null },

@@ -112,8 +112,9 @@ describe('[01a §5.2a] cloud migration 0007_engine_config.sql', () => {
   it('[01a §5.2a] a migration is not an owner write: no audit rows, config_version and updated_at untouched', async () => {
     expect((await pool.query(`SELECT count(*)::int AS n FROM config_audit`)).rows[0]).toEqual({ n: 0 });
     const { rows } = await pool.query(`SELECT DISTINCT config_version::int AS v FROM branches WHERE tenant_id = $1`, [TN]);
-    // 0007 bumps nothing; the whole folder runs, and 0012 (03b A-1, AD-9 owner 2026-11-11) bumps once → 2.
-    expect(rows).toEqual([{ v: 2 }]);
+    // 0007 bumps nothing; the whole folder runs, and 0012 (03b A-1, AD-9 owner 2026-11-11) bumps once, and 0014
+    // (01a v2.4.4 Q-28) once more for these rows, which hold the 0009 default with "Other" → 3.
+    expect(rows).toEqual([{ v: 3 }]);
     const { rows: stations } = await pool.query(
       `SELECT DISTINCT updated_at::text AS u FROM stations WHERE tenant_id = $1 AND station_id = 'fryer-b1'`,
       [TN],

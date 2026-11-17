@@ -53,6 +53,9 @@ export const DEFAULT_ROLES: readonly DefaultRole[] = [
       allowed('set-line-weight'),
       approvedByManager('apply-comp'),
       allowed('view-customer-contact'),
+      // ⚠️ Changed by 01b v1.8.1 (owner ruling 2026-11-12, Q-23): the kiosk serves its counter takeaways; not boost-order.
+      // Existing tenants get it from 0015_cashier_mark_served.sql (Q-34).
+      allowed('mark-served'),
     ],
   },
   {
