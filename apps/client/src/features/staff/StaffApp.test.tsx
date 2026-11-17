@@ -546,6 +546,47 @@ describe('[03b W0.6] Pass in the staff shell', () => {
     expect([...m.container.querySelectorAll('header.top .end button .sr')].map((s) => s.textContent)).not.toContain('Pass');
   });
 
+  it('[03b W0.6 AD-K12; W-3] the landing happens on arrival only: a point_view after the person left #/tables never moves them, not even back on #/tables', async () => {
+    render(TABLET, hub().fetch);
+    await signIn();
+    expect(window.location.hash).toBe('#/tables');
+    act(() => {
+      window.location.hash = '#/inbox'; // the person opens another screen before the catch-up arrives
+    });
+    await flush(4);
+    sockets[0]!.frame({ type: 'catch_up', as_of_seq: 3, state: { point_view: POINT_VIEW } });
+    await flush(4);
+    expect(window.location.hash).toBe('#/inbox');
+    m.unmount();
+
+    // the late catch-up finds them on the tables again after a visit elsewhere: still no move
+    window.location.hash = '';
+    render(TABLET, hub().fetch);
+    await signIn();
+    act(() => {
+      window.location.hash = '#/inbox';
+    });
+    await flush(4);
+    act(() => {
+      window.location.hash = '#/tables';
+    });
+    await flush(4);
+    sockets[sockets.length - 1]!.frame({ type: 'catch_up', as_of_seq: 3, state: { point_view: POINT_VIEW } });
+    await flush(4);
+    expect(window.location.hash).toBe('#/tables');
+  });
+
+  it('[03b W0.6 AD-K12; W-3] a first catch-up without a point_view ends the landing: a point_view in a later catch-up does not move the person', async () => {
+    render(TABLET, hub().fetch);
+    await signIn();
+    sockets[0]!.frame(UP);
+    await flush(4);
+    expect(window.location.hash).toBe('#/tables');
+    sockets[0]!.frame({ type: 'catch_up', as_of_seq: 5, state: { point_view: POINT_VIEW } });
+    await flush(4);
+    expect(window.location.hash).toBe('#/tables');
+  });
+
   it('[03b IR-17b] the Pass live exists before the first catch_up; point_lines, station_takeover, station_notice, station_plan and printed_lines reach the Pass', async () => {
     const seen: WsServerMessage[] = [];
     const off = subscribeFrames((f) => seen.push(f));
