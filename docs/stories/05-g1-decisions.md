@@ -4,7 +4,7 @@
 |---|---|
 | Status | **G1 COMPLETE (owner, 2026-11-17 21:39 PKT, "all rec" on the re-asked items). Waiting for "go spec".** Working record of the G1 session (developer, 2026-11-17). §1 holds the owner's answers on G0 §6 (Q1–Q18) as given 2026-11-17 21:03 PKT; §2 the re-asked items and their final rulings (21:39 PKT); §3 the K rulings (all Rec, with the changes the Q answers force); §4 the decisions that follow; §5 the authority questions (A1–A7, open). |
 | Base | `spec-05` rebased on `origin/main` @ `ea0ee00` (04 is on `main` via #220; 00 v1.11 via #224, Q-70). G0 = `docs/stories/05-g0.md` (`caf6289`, `4c1314b` after the rebase). Fiscal research = `docs/stories/05-fiscal-research.md`. |
-| Supersedes in G0 | K-10 and K-11 are **stale** (04 is on `main`): spec task 0 takes the next free version numbers from `main` and every open branch, and bases on the 04 version on `main` (§3). Q3's "split by items / amount" and K-3's split model are replaced (§1 Q3, §3 K-3). Q8 (a) is replaced by (b) reopen. Q13 (a) is replaced by zone printing (§2). |
+| Supersedes in G0 | K-10 and K-11 are **stale** (04 is on `main`): spec task 0 takes the next free version numbers from `main` and every open branch, and bases on the 04 version on `main` (§3). Q3 was first narrowed to mixed payments, then **restored to G0 (a) splits** on 2026-11-17 21:48 PKT (§7). Q8 (a) is replaced by (b) reopen. Q13 (a) is replaced by zone printing (§2). |
 
 ## 1. Owner answers on G0 §6 (2026-11-17 21:03 PKT)
 
@@ -12,7 +12,7 @@
 |---|---|---|
 | Q1 | b | **PRA adapter ships in the pilot** (Arif Chatkhara, Lahore). Port, outbox, rate table and adapter `none` are built either way (K-14). The owner registers the POS ID(s) with PRA and keeps the token outside the repo (§4 G1-12). |
 | Q2 | "fixed nahi; banda call par takeaway kar deta 'main aa raha hoon'; check bill jo final nahi hota par us par sab hota hai; band bill ko reopen bhi karna parta hai" | **(a) widened.** (1) A takeaway / parking bill may close at any time after Send — before the food, after it, or when a phone-order customer arrives. (2) **Check bill** (pro-forma): prints items, prices, discount, service charge, tax and total at any time, any number of times, marked **"PROVISIONAL – NOT A TAX INVOICE"**; no invoice number, no fiscal call, no money event (an audit row only). (3) Reopen → Q8. |
-| Q3 | "split payment ka matlab half bill cash, half online transfer" | **No bill split in the pilot.** One bill per seating (dine-in) or per order (takeaway / parking), paid by **one or more payments in different modes** (cash + online, cash + card, …). Splits by item / amount / "equally into N" move to a later version (§12 Deferred in the spec). Mixed-class tax → Q4. |
+| Q3 | "split payment ka matlab half bill cash, half online transfer" | **Superseded by §7 (21:48 PKT): splits are in the pilot.** First reading kept for the record: one bill paid by **one or more payments in different modes** (cash + online, cash + card, …) — this stays true inside every split. Mixed-class tax → Q4. |
 | Q4 | "best solution batana" | Explained (§2); final ruling there. |
 | Q5 | a | Service charge per order type (0 = off), removable with `remove-service-charge` + reason; **no tips** in the pilot. |
 | Q6 | a | Discount on the bill only (amount or %), fixed reason buttons + note for Other, approval as the role's grant says; a free item is a comp (02b). |
@@ -46,9 +46,9 @@
 
 | # | Ruling |
 |---|---|
-| K-1 | (a) 05's own money event **per invoice** (`InvoiceIssued`: number, lines, discount, service charge, tax by class, rounding, payments with `taken_by`, change); at close also `OrdersBilled` + (dine-in) `BillClosed`, one transaction. With Q3 there is one invoice per bill close; with Q8 a reopen writes `InvoiceCredited` (the credit) and, at the next close, a new `InvoiceIssued`. Foundation text: BILLED = `OrdersBilled`; reopen's effect on BILLED is decided in the spec (§4 G1-3). |
+| K-1 | (a) 05's own money event **per invoice** (`InvoiceIssued`: number, lines, discount, service charge, tax by class, rounding, payments with `taken_by`, change); at the bill's last split also `OrdersBilled` + (dine-in) `BillClosed`, one transaction. One invoice per closed split (§7); with Q8 a reopen writes `InvoiceCredited` (the credit) and, at the next close, a new `InvoiceIssued`. Foundation text: BILLED = `OrdersBilled`; reopen's effect on BILLED is decided in the spec (§4 G1-3). |
 | K-2 | (a) `bill` stream (stream id = `bill_id`) for bill / payment / invoice / reopen / credit events; shift, petty cash, blind count on `shift`. Foundation bump + Zod enum. |
-| K-3 | (a) **narrowed by Q3**: one bill per seating (dine-in) or per order (takeaway / parking), **no splits**; several payments per bill. 02a text row "last open bill" → "the bill closes" (text only). |
+| K-3 | (a) as in G0 (restored by §7): one bill per seating (dine-in) or per order (takeaway / parking); splits are parts of it, each paid (1..n payments, any modes), numbered and printed on its own; `OrdersBilled` + `BillClosed` once, at the last split. 02a text row "last open bill" → "the bill's last split" (text only). |
 | K-4 | (a) 02b bump: `order_lines.tax_class_id` + `LineView.tax_class_id`, hub migration with `orders` refold. |
 | K-5 | (a) keep 01a's day commands; 05 registers day-close guards and a Z appender (`ZReportIssued` before `BusinessDayClosed`, same transaction); close moves to `close-business-day`, also on the staff app. |
 | K-6 | → Q11 (a). |
@@ -70,14 +70,14 @@
 | # | Decision |
 |---|---|
 | G1-1 | **Check bill** (Q2, Q13) is a print, not a money event: built from the live bill projection by a pure `Doc` builder in `@pos/domain`; banner "PROVISIONAL – NOT A TAX INVOICE"; never carries an invoice number, fiscal number or QR; an audit row (`check_bill_printed`, ids and counts only). Its total is the total the bill would close at **with the default payment class** (cash, Q4 `higher_rate`), stated on the slip. |
-| G1-2 | **Payments** (Q3): a bill holds 1..n payments, each `{ mode_id, amount_minor, reference?, taken_by_staff_id, shift_id }`; Σ payments − change = bill total at close; change only from cash; a payment may be removed before close (permission + audit). |
+| G1-2 | **Payments** (Q3, §7): a split (a bill without splits is one split) holds 1..n payments, each `{ mode_id, amount_minor, reference?, taken_by_staff_id, shift_id }`; Σ payments − change = split total at its close; change only from cash; a payment may be removed before close (permission + audit). |
 | G1-3 | **Reopen** (Q8): `ReopenBill { bill_id, reason_code, note }` → `InvoiceCredited { credit_no, ref_invoice_no, … }` (a full credit of the original, queued in the fiscal outbox as PRA `InvoiceType 3` with `RefUSIN` once the original has a fiscal number — if the original is still pending, the credit waits behind it in order) and the bill is open again for edits (lines through 02b / 04 as usual, discount, payments). The next close issues a **new invoice number**. Credits are numbered in their own gap-free series. Money already paid stays on the bill as payments; any difference is paid or given back at the next close (a negative balance is paid out from the closer's shift). Reopen of a bill from an earlier business day is allowed; the credit and the new invoice belong to **today's** Z. 02b BILLED: the spec decides whether reopen writes an `OrdersUnbilled` (02b bump) or 05 keeps reopened orders outside 02b's billed set — STOP-level design point for the spec's §4.5. |
 | G1-4 | **Takeaway close** (Q2): `CloseBill` for an order-scoped bill is allowed any time after the first Send; 04 then refuses a void on its lines (closed) — a later problem is a reopen (G1-3). |
 | G1-5 | **Mixed-class tax** (Q4): rule `mixed_class_rule ∈ { higher_rate, pro_rata }` per authority row set, default `higher_rate`. Pro rata needs the digital share before payment: the cashier enters the digital amount(s) first, the system recomputes tax and total and shows them; cash then pays the rest. Rounding once, at the bill total (G0 rule). Property test: Σ tax by class = printed tax; pro rata and higher rate agree when one class only. |
 | G1-6 | **Taken-by vs shift** (Q10): payment events carry both `taken_by_staff_id` (who) and `shift_id` (whose money). Cash on a kiosk with a drawer always lands in that drawer's open shift; a kiosk without an open drawer shift refuses cash (`SHIFT_NOT_OPEN`). A person taking payments on their own device (order taker, Q9) uses their own shift. Optional `HandoverCount` on the drawer shift (counted, variance recorded, shift stays open). |
 | G1-7 | **Remove comp** (Q7): command and request kind `remove_comp` on an unbilled line; on approve writes 02b's new `LineCompRemoved` (02b bump, 02b owns the event and the ledger fold); 04's audit list gains the action. |
 | G1-8 | **Petty cash** (Q15): events on the `shift` stream — `PettyCashAdvanced`, `PettyCashSettled`, `PettyCashOut`, `PettyCashIn`; categories in branch settings (01a bump); limit approval via kind `petty_cash`; open advances block nothing but are listed at shift close and on X / Z. Expected cash = float + cash payments − change − cash refunds / payouts − advances + settled change − cash-out + cash-in. |
-| G1-9 | **Buyer ID** (Q18): threshold per authority as data (PRA Rs 50,000 excl. tax); applies to the bill's pre-tax total after discount; above it close needs `{ buyer_name, buyer_cnic_or_ntn }` or `buyer_id_refused` with an approved `close-without-buyer-id`; CNIC / NTN stored only in the invoice record handed to the adapter, redacted from every log, alert body, audit row and Z. No feature splits a sale to stay under the threshold. |
+| G1-9 | **Buyer ID** (Q18): threshold per authority as data (PRA Rs 50,000 excl. tax); applies to the **whole bill's** pre-tax total after discount, never per split (a split cannot take a sale under the threshold); above it close needs `{ buyer_name, buyer_cnic_or_ntn }` or `buyer_id_refused` with an approved `close-without-buyer-id`; CNIC / NTN stored only in the invoice record handed to the adapter, redacted from every log, alert body, audit row and Z. No feature splits a sale to stay under the threshold. |
 | G1-10 | **Zone printing for the check bill** (Q13): `RequestBill` prints at the floor / zone receipt printer by 03c routing; on a failed job the staff app shows "Print to: [printer]" and re-queues with a target override (03c bump if its queue lacks a per-job override). No 01d notice. |
 | G1-11 | **Receipt QR** (K-12, Q1): 03c's `Doc` gains a QR block (ESC/POS `GS ( k`), payload = the PRA verification string from the stored answer; 03c bump. Raast payment QR is separate and not in the pilot. |
 | G1-12 | **PRA adapter in the pilot** (Q1): cloud API over HTTPS from the hub (K-16); sandbox and production base URLs and the Bearer token are **branch fiscal settings / hub secrets, never in the repo or docs**; sandbox token used only in local / owner tests, never in CI. Adapter fixture tests from the research's request / response shapes; the live sandbox run is a manual owner step (CLAUDE.md: no network checks in CI). |
@@ -96,6 +96,35 @@ Until answered the spec keeps each one **OPEN** and takes the strictest / safest
 | A5 | Do delivery-platform orders get fiscalized by the restaurant? | not fiscalized (Q17 flag off) |
 | A6 | Rate on a bill paid partly cash, partly card | `higher_rate` (Q4) |
 | **A7** | **New.** A customer above the Rs 50,000 threshold refuses to give CNIC / NTN: may the invoice be issued, and what goes in the buyer fields? | close with manager approval, `buyer_id_refused = true`, buyer fields empty (G1-9) |
+
+## 7. Current POS (Mutfak) — owner's screenshots and pain points (2026-11-17 21:43–21:48 PKT)
+
+Screenshots shown in chat; **not committed** (they show customer phone numbers; the repo is public).
+
+| # | Seen / said | What 05 (or another module) does |
+|---|---|---|
+| M-1 | Owner: "Split Order" exists today and staff use it → "agar is mein hai to rakhte hain split order" | **Splits are in the pilot** = G0 Q3 (a): split by items, by amount, and "equally into N"; each split paid (mixed modes allowed), numbered, fiscalized and printed on its own; no seats at ordering. Restores K-3 (a) and the G0 split stories. |
+| M-2 | Owner: options come **all pre-checked**; staff untick everything except what they want | 01c already has per-option `is_default` (V6) set by the owner, default **false**; only options the owner marks default are preselected (01c §4.4 02, G3 5). No 05 change; the pilot menu setup must leave `is_default` off unless truly default (setup checklist note for 01c data entry). |
+| M-3 | Owner: delivery charge (and other charges) are **re-applied every time the bill is opened**; staff remove them again and again | **Charges are applied once, by rule, when the bill is created; a removal is an event that sticks.** Opening, viewing, printing a check bill, splitting, a 02a merge / move or a reopen (Q8) never re-applies a removed charge; re-adding is an explicit action (audited). Applies to the service charge now (Q5) and to the delivery charge when delivery ships (P2). Test: remove → reopen / reprint / split → still removed. (G1-14) |
+| M-4 | Checkout: sub total Rs 5,710, tax Rs 1,370.40 (= 24 %) | **Owner to check with the accountant** (PRA cash 16 %, card 5 %). 05 shows tax by class with its rate and payment class, never one unexplained number. |
+| M-5 | Grand total Rs 7,080.40, rounding Rs 0.00 | Rounding step per branch (Rs 1 default), applied once to each split total (G0 rule); never a paisa total on a cash receipt. |
+| M-6 | Received amount pre-filled with the grand total | The cashier enters the tendered amount; change is computed and goes into the shift's expected cash (blind count relies on it). |
+| M-7 | One tax number before the payment mode is chosen | Choosing / switching a mode recomputes tax (K-15, Q4) and the total on the same screen, so the customer sees the digital rate. |
+| M-8 | Table P=21 open **5,175 min** (~3.6 days) | Confirms Q11 (day close refuses unbilled orders); X report and cashier list flag bills open longer than a set age (setting). |
+| M-9 | Discount buttons 5 / 10 / 15 / 20 % + "Special Discount", no visible approval | Q6: owner-edited reason buttons; approval by grant; every discount audited. |
+| M-10 | "Long press for mass cancellation" | 04: every void with reason + approval; no mass cancel without it. |
+| M-11 | Modes Cash, Credit Card, Jazz Cash | R7 owner list; online modes may require a reference (K-7). |
+| M-12 | "Check Bill" on the checkout screen | Q2 check bill (G1-1). |
+| M-13 | Availability screen (item struck out) | To confirm in spec task 0 which module marks an item unavailable by hand (01c `isAvailable` input / 03a stock); not 05. |
+| M-14 | Delivery customer list mixes names and addresses ("BAKWAS", "!!!...CHINAR BAGH"); Call History | Delivery is P2: customer as name / phone / address fields, dedupe by phone; caller ID later. Not 05. |
+
+Added decision:
+
+| # | Decision |
+|---|---|
+| G1-14 | **Sticky charges (M-3):** a bill-level charge (service charge now; delivery charge later) is written once by rule at bill creation (`ChargeApplied`) and removed by `ChargeRemoved` (permission + reason); the bill projection folds both; no read path, print, split, merge or reopen recomputes it from the rule. |
+
+Open owner facts (not blocking the spec): M-4 tax 24 %, and whether today's receipts carry a PRA invoice number / QR (Q1 was taken on that assumption).
 
 ## 6. Next
 
