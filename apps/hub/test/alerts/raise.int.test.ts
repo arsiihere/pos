@@ -291,6 +291,24 @@ describe('01d alerts.raise / raiseMany', () => {
     });
   });
 
+  it('[04 §4.5 D-3] AlertRaised is appended at v4 and the stored details_json keeps disposition', async () => {
+    const h = await harness(cleanups);
+    const details = { item: 'Naan', quantity: 2, amount: 4_000, reason: 'quality', disposition: 'void.disposition.wastage' };
+    const r = h.writer.run((tx) => {
+      const out = alerts.raise(cmdCtx(tx), voidInput({ details }));
+      tx.append(out.events);
+      return out;
+    }).result;
+    const raised = r.events[0] as EventDraft;
+    expect(raised.schema_version).toBe(4);
+    expect((raised.payload as { details: unknown }).details).toEqual(details);
+    const row = h.db.prepare('SELECT details_json FROM alerts WHERE alert_id = ?').get(r.alert_id) as { details_json: string };
+    expect(JSON.parse(row.details_json)).toEqual(details);
+    const stored = h.db.prepare("SELECT schema_version, payload FROM events WHERE event_type = 'AlertRaised'").get() as { schema_version: number; payload: string };
+    expect(stored.schema_version).toBe(4);
+    expect((JSON.parse(stored.payload) as { details: unknown }).details).toEqual(details);
+  });
+
   it('[01d §6.1] a tick ctx (no actor) raises with device_id hub and actor null', async () => {
     const h = await harness(cleanups);
     const r = h.writer.run((tx) =>

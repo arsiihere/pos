@@ -77,12 +77,18 @@ export const AlertDetailsBaseV2 = AlertDetailsBaseV1.extend({
   lines: z.array(z.object({ name: z.string().min(1), quantity: int.min(1), state: z.string().min(1) })).optional(),
 });
 // ⚠️ Changed by 03b v1.0.1 D-2 (01d v1.2.2): + identifier, station_name, printer_name, problem (each ≤ 40) for 03b's
-// ready_to_serve / served_card / kds_offline and 03c's printer_problem cards. Kinds use AlertDetailsBase.pick(...).
-export const AlertDetailsBase = AlertDetailsBaseV2.extend({
+// ready_to_serve / served_card / kds_offline and 03c's printer_problem cards.
+// ⚠️ Changed by 04 (row D-3, 01d v1.2.5): frozen as V3, so AlertRaised v3 keeps the shape it was stored with (F D46).
+export const AlertDetailsBaseV3 = AlertDetailsBaseV2.extend({
   identifier: z.string().max(40).optional(),
   station_name: z.string().max(40).optional(),
   printer_name: z.string().max(40).optional(),
   problem: z.string().max(40).optional(),
+});
+// ⚠️ Changed by 04 (row D-3, 01d v1.2.5): + disposition (an i18n label key, ≤ 60) for 04's void_approval card.
+// Kinds use AlertDetailsBase.pick(...).
+export const AlertDetailsBase = AlertDetailsBaseV3.extend({
+  disposition: z.string().max(60).optional(),
 });
 export type AlertDetails = z.infer<typeof AlertDetailsBase>;
 

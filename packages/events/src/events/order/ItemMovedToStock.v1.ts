@@ -5,6 +5,8 @@ import { defineEvent } from '../../registry.js';
 export const ItemMovedToStockPayload = z.object({
   order_item_id: z.string(),
   units: z.number().int().min(1),
+  // ⚠️ Changed by 04 (row T-1, 03a v1.2.4 §4.2): stamped by 04's writer inside an approval; never by stockEffects.
+  alert_id: z.string().optional(),
 });
 export type ItemMovedToStockPayload = z.infer<typeof ItemMovedToStockPayload>;
 

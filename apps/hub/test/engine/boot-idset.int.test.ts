@@ -206,11 +206,8 @@ describe('03a boot step 3: the engine-lane id sets', () => {
       for (const id of ['Z0', 'Z1', 'H1', 'O2']) expect(r.ids.has(id), id).toBe(true);
     });
 
-    it('[03a R-3] a line older than H (two readable checkpoints) logs one warn line; with one checkpoint it is silent', async () => {
-      const older = (): PosEvent[][] => [[voided('O0', 'Z0')]];
-      expect((await restart('two readable', older)).warns).toEqual([expect.objectContaining({ event_type: 'ItemVoided', order_id: 'O0', order_item_id: 'Z0' })]);
-      expect((await restart('one', older)).warns).toEqual([]);
-    });
+    // ⚠️ Changed by 04 (row T-3): the R-3 test is removed — no line event reads the set's line ids any more, so R-3's
+    // accepted warn is gone (the boot read and the line ids stay, test 130).
   });
 
   it('[03a #125, §3.12] a snapshot older than H: the replayed ItemAdded rows fill the set (the read starts at C0)', async () => {
@@ -252,49 +249,52 @@ describe('03a boot step 3: the engine-lane id sets', () => {
   });
   // ---- 03a v1.2 §3.3 E-4, §3.12 (02p task 15b): the order header row in the id set at boot ----------------------------
   describe('[03a E-4] drinks first, food later across a restart', () => {
-    const unknownVoid = (): PosEvent[][] => [[voided('O2', 'X9')]];
+    // ⚠️ Changed by 04 (row T-3; G-18), 03a v1.2.4: the probe is an ItemServed { source: 'tap' } on an unknown line of
+    // the order (order-level quiet still applies to it, so its warn proves the order left the set); an ItemVoided never logs.
+    const unknownServed = (): PosEvent[][] => [[served('O2', ['X9'], 'tap')]];
+    const servedWarn = (order_id: string, id: string) => expect.objectContaining({ event_type: 'ItemServed', order_id, order_item_id: id });
 
     it('[03a #133] the empty OrderPlaced is before C; restart; then the food OrderLinesAdded → the order is created and leaves the id set', async () => {
-      const r = await restart('one', () => [foodAdded('O2', ['F1', 'F2']), [voided('O2', 'X9')]]);
+      const r = await restart('one', () => [foodAdded('O2', ['F1', 'F2']), [served('O2', ['X9'], 'tap')]]);
       expect(r.boot_ids.has('O2')).toBe(true);
       expect(r.state.orders.O2).toMatchObject({ table_key: 'dine_in:T-O2', line_ids: ['F1', 'F2'] });
       expect(r.ids.has('O2')).toBe(false);
-      expect(r.warns).toEqual([expect.objectContaining({ event_type: 'ItemVoided', order_id: 'O2', order_item_id: 'X9' })]);
+      expect(r.warns).toEqual([servedWarn('O2', 'X9')]);
     });
 
-    it('[03a #133] the food OrderLinesAdded after C, then restart: the replay hook and the read remove the id; a later ItemVoided on an unknown line of that order is logged', async () => {
+    it('[03a #133] the food OrderLinesAdded after C, then restart: the replay hook and the read remove the id; a later ItemServed { source: tap } on an unknown line of that order is logged', async () => {
       for (const kind of ['one', 'two readable'] as const) {
-        const r = await restart(kind, unknownVoid, undefined, { afterC: foodAdded('O2', ['F1']) });
+        const r = await restart(kind, unknownServed, undefined, { afterC: foodAdded('O2', ['F1']) });
         expect(r.booted.orders.O2, kind).toBeDefined();
         expect(r.boot_ids.has('O2'), kind).toBe(false);
-        expect(r.warns, kind).toEqual([expect.objectContaining({ event_type: 'ItemVoided', order_id: 'O2', order_item_id: 'X9' })]);
+        expect(r.warns, kind).toEqual([servedWarn('O2', 'X9')]);
       }
     });
 
     it('[03a #133, §3.12] a snapshot older than H: the replay hook alone sees the empty order and its food (before C0); the id is added, then removed', async () => {
       const dayBefore = [emptyOrder('O3', T), ...foodAdded('O3', ['F3'])];
-      const r = await restart('two readable', () => [[voided('O3', 'X3')]], 2, { beforeC0: dayBefore });
+      const r = await restart('two readable', () => [[served('O3', ['X3'], 'tap')]], 2, { beforeC0: dayBefore });
       expect(r.step3.filter((s) => s.method === 'iterate').map((s) => s.args[2])).toEqual([2, 2, 2, 2]);
       expect(r.read[0]!.args).toEqual([BRANCH, r.c0]);
       expect(r.boot_ids.has('O3')).toBe(false);
-      expect(r.warns).toEqual([expect.objectContaining({ event_type: 'ItemVoided', order_id: 'O3', order_item_id: 'X3' })]);
+      expect(r.warns).toEqual([servedWarn('O3', 'X3')]);
     });
 
     it('[03a #134] the newer of two checkpoints torn: the read starts at seq 0, the empty-order id is added then removed by the order_header row; later absent ids of that order are logged', async () => {
-      const r = await restart('newer torn', unknownVoid, undefined, { afterC: foodAdded('O2', ['F1']) });
+      const r = await restart('newer torn', unknownServed, undefined, { afterC: foodAdded('O2', ['F1']) });
       expect(r.read[0]!.args).toEqual([BRANCH, 0]);
       const rows = r.db.prepare(r.read[0]!.sql).all(...r.read[0]!.args) as Array<{ event_type: string; id: string }>;
       expect(rows.filter((row) => row.id === 'O2').map((row) => row.event_type)).toEqual(['OrderPlaced', 'OrderLinesAdded']);
       expect(r.boot_ids.has('O2')).toBe(false);
-      expect(r.warns).toEqual([expect.objectContaining({ event_type: 'ItemVoided', order_id: 'O2', order_item_id: 'X9' })]);
+      expect(r.warns).toEqual([servedWarn('O2', 'X9')]);
     });
 
     it('[03a #135] a refused OrderLinesAdded with order_header (group_id_invalid) older than the replay removes the id through the read', async () => {
       // Two readable checkpoints: the replay starts at C, the read at C0, so only the read sees the refused row.
-      const r = await restart('two readable', unknownVoid, undefined, { beforeClose: foodAdded('O2', ['F1'], { group: 5 }) });
+      const r = await restart('two readable', unknownServed, undefined, { beforeClose: foodAdded('O2', ['F1'], { group: 5 }) });
       expect(r.step3.filter((s) => s.method === 'iterate').map((s) => s.args[2])).toEqual([r.c, r.c, r.c, r.c]);
       expect(r.boot_ids.has('O2')).toBe(false);
-      expect(r.warns).toEqual([expect.objectContaining({ event_type: 'ItemVoided', order_id: 'O2', order_item_id: 'X9' })]);
+      expect(r.warns).toEqual([servedWarn('O2', 'X9')]);
     });
 
     it('[03a #135] an empty addition (with and without order_header) keeps the order in the id set after a restart: the read does not return it', async () => {

@@ -158,6 +158,7 @@ const PRINTED = `EXISTS (SELECT 1 FROM print_jobs j WHERE j.ticket_id = t.ticket
 // §3.3 ItemRemoved { order_item_id, units? } / ItemVoided { order_item_id, units } on a not-done line of a printed
 // ticket (1 read) → a `cancel` job `{ ticket_id, order_item_id, units: p.units ?? null }` (null = the whole line). Units
 // left are rendered at send from order_lines (D2), so the fold never reads order_lines and fold order never changes them.
+// v1.0.8 (04 Q-15): a moved void share adds `slip: 'moved'` to the payload (0 extra reads: the field is on the event).
 function applyCancel(tx: Database.Database, event: PosEvent, skip: Skip): void {
   const p = event.payload as ItemRemovedPayload | ItemVoidedPayload;
   const ticket = tx
@@ -167,6 +168,9 @@ function applyCancel(tx: Database.Database, event: PosEvent, skip: Skip): void {
     )
     .get(p.order_item_id) as { ticket_id: string; station_id: string; order_id: string } | undefined;
   if (ticket === undefined) return;
+  // 03c v1.0.8 §3.3 (04 Q-15 b): the share 04 moved to stock (ItemVoided { disposition: 'moved' }) → the same cancel job
+  // with slip 'moved' (MOVED TO STOCK, §3.5); every other share and every ItemRemoved → no slip field → CANCELLED.
+  const moved = event.event_type === 'ItemVoided' && (p as ItemVoidedPayload).disposition === 'moved';
   insertJobs(skip, ticket.station_id, () =>
     tx
       .prepare(
@@ -178,7 +182,11 @@ function applyCancel(tx: Database.Database, event: PosEvent, skip: Skip): void {
         ticket.station_id,
         ticket.ticket_id,
         ticket.order_id,
-        JSON.stringify({ ticket_id: ticket.ticket_id, order_item_id: p.order_item_id, units: p.units ?? null }),
+        JSON.stringify(
+          moved
+            ? { ticket_id: ticket.ticket_id, order_item_id: p.order_item_id, units: p.units ?? null, slip: 'moved' }
+            : { ticket_id: ticket.ticket_id, order_item_id: p.order_item_id, units: p.units ?? null },
+        ),
         event.recorded_at,
       ),
   );

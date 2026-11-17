@@ -2,12 +2,13 @@
 // The host's absent-id log skips zone lines, deal headers and (AD-E18) ready-items-only orders through the host id set.
 import { initialEngineState, type Diagnostic, type EngineState } from '@pos/engine';
 import type { EventDraft, PosEvent } from '@pos/events';
-import { aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied } from '@pos/events/testing';
+import { aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied, anItemStarted } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { hostFlags, resetHostFlags } from '../../src/engine-host/host-flags';
 import { replayEngine } from '../../src/engine-host/replay';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
-import { ABSENT_ID, dealOrder, DIAGNOSTIC, emptyOrder, foodAdded, readyAdded, readyShapes, removed, served, voided, zoneAdded, zoneAndDealShapes } from './q3-lines';
+import { FX, fireLines, openSeating, removeLine, servedColdDrink, startVoids, VX, voidLine, waitingT4 } from '../voids/fixtures';
+import { ABSENT_ID, dealOrder, DIAGNOSTIC, emptyOrder, foodAdded, readyAdded, readyShapes, served, zoneAdded, zoneAndDealShapes } from './q3-lines';
 
 const T0 = 1_761_000_000_000;
 
@@ -67,16 +68,18 @@ describe('[03a #125] Q-3 host filter: live and full replay', () => {
     expect([...hostFlags.untrackedLineIds].sort()).toEqual(['H1', 'O2', 'Z1', 'Z2']);
   });
 
-  it('[03a #125, AD-E17] control (live only): the same events on an unknown id log one line each', async () => {
+  // ⚠️ Changed by 04 (row T-3; G-18), 03a v1.2.4 #125, #142: ItemRemoved / ItemVoided never log an absent id, so the
+  // control's void and remove rows are gone; ItemStarted and ItemMovedToStock on an unknown id still warn.
+  it('[03a #125, AD-E17; 04 T-3] control (live only): ItemServed tap, ItemStarted and ItemMovedToStock on an unknown id log one line each', async () => {
     await open();
     seed();
-    append([removed('O1', 'X1')]);
-    append([voided('O1', 'X2')]);
     append([served('O1', ['X3'], 'tap')]);
+    append([{ ...anItemStarted({ stream_id: 'O1' }), payload: { order_item_id: 'X4', started_at: T0, source: 'tap' } }]);
+    append([{ ...anItemStarted({ stream_id: 'O1' }), event_type: 'ItemMovedToStock', payload: { order_item_id: 'X5', units: 1 } } as PosEvent]);
     expect(absent()).toEqual([
-      expect.objectContaining({ event_type: 'ItemRemoved', order_id: 'O1', order_item_id: 'X1' }),
-      expect.objectContaining({ event_type: 'ItemVoided', order_id: 'O1', order_item_id: 'X2' }),
       expect.objectContaining({ event_type: 'ItemServed', order_id: 'O1', order_item_id: 'X3' }),
+      expect.objectContaining({ event_type: 'ItemStarted', order_id: 'O1', order_item_id: 'X4' }),
+      expect.objectContaining({ event_type: 'ItemMovedToStock', order_id: 'O1', order_item_id: 'X5' }),
     ]);
   });
 
@@ -91,6 +94,54 @@ describe('[03a #125] Q-3 host filter: live and full replay', () => {
     expect(reported.filter((d) => d.kind === 'invalid_event')).toEqual([]);
     const live = hub.deps.state.get() as EngineState;
     expect({ ...out.state, diagnostics: [] }).toEqual({ ...live, diagnostics: [] });
+  });
+});
+
+// ⚠️ Changed by 04 (row T-3), 03a v1.2.4 test 142: ItemVoided / ItemRemoved never log an absent line id (their writers check
+// the id against order_lines in the same transaction); every other line event keeps the warn. Real 04 fixtures.
+describe('[03a #142, 04 T-3] host: voids and removes of non-engine lines are quiet', () => {
+  let hub: TestHub;
+  afterEach(async () => {
+    await hub?.close();
+  });
+  const absent = (): LogLine[] =>
+    hub
+      .logs()
+      .split('\n')
+      .filter((l) => l !== '')
+      .map((l) => JSON.parse(l) as LogLine)
+      .filter((l) => l.msg === ABSENT_ID);
+  const engine = (): EngineState => hub.deps.state.get() as EngineState;
+
+  it('[03a #142, 04 T-3] a station-less drink voided in an in-engine order → no absent id', async () => {
+    resetHostFlags();
+    hub = await startVoids();
+    const d = servedColdDrink(hub, { hold: true }); // + a VX.slow engine line, so the order is in the engine
+    expect(engine().orders[d.order_id]).toBeDefined();
+    expect(engine().lines[d.drink]).toBeUndefined();
+    // Setup only: the drink's ItemServed { tap } names non-engine lines, a warn T-3 does not touch.
+    const before = absent().length;
+    voidLine(hub, d.order_id, d.drink, 1);
+    voidLine(hub, d.order_id, d.option, 1);
+    expect(absent().slice(before)).toEqual([]);
+  });
+
+  it('[03a #142, 04 T-3] a line of an abandoned order voided or removed → no absent id; ItemStarted on an unknown id → one warn', async () => {
+    resetHostFlags();
+    hub = await startVoids();
+    openSeating(hub, { table_id: VX.tables.T5, seating_id: 'SEAT_AB' });
+    const t = waitingT4(hub, { prefix: 'AB', seating_id: 'SEAT_AB' }); // AB_K + AB_HOLD
+    fireLines(hub, FX.station, [t.line, `AB_HOLD`]);
+    // Never tapped: past order_abandon_ms (default 4 h) and the planned land the order is out of the engine (03a AD-13).
+    hub.clock.advance(6 * 3_600_000);
+    voidLine(hub, t.order_id, t.line, 1);
+    removeLine(hub, t.order_id, 'AB_HOLD');
+    expect(engine().orders[t.order_id]).toBeUndefined();
+    expect(absent()).toEqual([]);
+    hub.deps.writer.run((tx) =>
+      tx.append([{ stream_type: 'order', stream_id: t.order_id, event_type: 'ItemStarted', schema_version: 1, payload: { order_item_id: t.line, started_at: hub.clock.branchNow(), source: 'tap' }, occurred_at: hub.clock.branchNow(), actor_id: 'S_WAIT', device_id: 'D_FIXTURE' }]),
+    );
+    expect(absent()).toEqual([expect.objectContaining({ event_type: 'ItemStarted', order_id: t.order_id, order_item_id: t.line })]);
   });
 });
 

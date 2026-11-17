@@ -103,6 +103,10 @@ const GROUPS: Record<Permission, PermissionGroup> = {
 export const PERMISSION_CATALOGUE: readonly { key: Permission; group: PermissionGroup; scopes: readonly Scope[] }[] =
   PERMISSIONS.map((key) => ({ key, group: GROUPS[key], scopes: PERMISSION_SCOPES[key] }));
 
+// ⚠️ Changed by 04 (row B-2), 01b v1.9 §3.3: permissions that can only be `allowed`, never `requires_approval`
+// (owner OQ-A). The roles API refuses the grant (422) and the roles editor does not offer it.
+export const ALLOWED_ONLY_PERMISSIONS = ['move-item-to-stock'] as const satisfies readonly Permission[];
+
 // 01b B17: stable handles of the default roles (roles.default_key).
 export const DEFAULT_KEYS = ['owner', 'manager', 'cashier', 'order_taker', 'waiter', 'cook'] as const;
 export type DefaultKey = (typeof DEFAULT_KEYS)[number];

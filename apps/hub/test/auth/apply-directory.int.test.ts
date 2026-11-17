@@ -810,7 +810,93 @@ describe('applyStaffDirectory', () => {
     expect(db.prepare('SELECT staff_id FROM staff').pluck().all()).toEqual(['S_BOTH']);
   });
 
-  async function open(hooks?: { beforeCommit?: () => void }): Promise<{ db: Database.Database; writer: Writer }> {
+  describe('[00 v1.10 §5 / 04 §4.5 H-1] staff_names upsert (00 #159)', () => {
+    const names = (db: Database.Database) =>
+      db.prepare('SELECT staff_id, display_name, updated_at FROM staff_names ORDER BY staff_id').all();
+
+    it('[00 #159] [04 §4.5 H-1] every input person is named at the hub clock; a later apply without a leaver keeps the leaver\'s row and name (never deletes)', async () => {
+      const { db, writer, clock } = await open();
+      const hash = await pinHash('1234');
+      const v1 = dir(1, hash, [], ['S_ALI', 'S_GONE']);
+      v1.no_pin_staff = [{ staff_id: 'S_SANA', display_name: 'Sana', lead_staff_id: null }];
+      writer.run((tx) => applyStaffDirectory(tx, v1, () => undefined));
+      expect(names(db)).toEqual([
+        { staff_id: 'S_ALI', display_name: 'S_ALI', updated_at: T },
+        { staff_id: 'S_GONE', display_name: 'S_GONE', updated_at: T },
+        { staff_id: 'S_SANA', display_name: 'Sana', updated_at: T },
+      ]);
+      clock.advance(60_000);
+      const v2 = dir(2, hash, [], ['S_ALI']);
+      v2.staff[0]!.display_name = 'Ali Khan';
+      writer.run((tx) => applyStaffDirectory(tx, v2, () => undefined));
+      expect(db.prepare('SELECT staff_id FROM staff').pluck().all()).toEqual(['S_ALI']);
+      expect(db.prepare('SELECT COUNT(*) FROM no_pin_staff').pluck().get()).toBe(0);
+      expect(names(db)).toEqual([
+        { staff_id: 'S_ALI', display_name: 'Ali Khan', updated_at: T + 60_000 },
+        { staff_id: 'S_GONE', display_name: 'S_GONE', updated_at: T },
+        { staff_id: 'S_SANA', display_name: 'Sana', updated_at: T },
+      ]);
+    });
+
+    it('[00 #159] [04 §4.5 H-1] a staff row skipped for a bad pin_hash (M52) is still named', async () => {
+      const { db, writer } = await open();
+      const hash = await pinHash('1234');
+      const input = dir(1, hash, [], ['S_OK']);
+      input.staff.push(staffRow('S_BAD', 'not-a-hash', ['R1'], { display_name: 'Bad Hash' }));
+      writer.run((tx) => applyStaffDirectory(tx, input, () => undefined));
+      expect(db.prepare('SELECT staff_id FROM staff').pluck().all()).toEqual(['S_OK']);
+      expect(events(db).filter((event) => event.event_type === 'StaffDirectoryApplied').at(-1)?.payload.skipped).toEqual([
+        { kind: 'staff', id: 'S_BAD', reason: 'malformed pin_hash' },
+      ]);
+      expect(names(db)).toEqual([
+        { staff_id: 'S_BAD', display_name: 'Bad Hash', updated_at: T },
+        { staff_id: 'S_OK', display_name: 'S_OK', updated_at: T },
+      ]);
+    });
+
+    it('[00 #159] [04 §4.5 H-1 G-2] an id repeated, or in both lists, keeps the first (staff before no-pin), as the cache', async () => {
+      const { db, writer } = await open();
+      const hash = await pinHash('1234');
+      const input = dir(1, hash, [], []);
+      input.staff = [
+        staffRow('S_A', hash, ['R1'], { display_name: 'A first' }),
+        staffRow('S_A', hash, ['R1'], { display_name: 'A second' }),
+      ];
+      input.no_pin_staff = [
+        { staff_id: 'S_A', display_name: 'A no-pin', lead_staff_id: null },
+        { staff_id: 'S_B', display_name: 'B first', lead_staff_id: null },
+        { staff_id: 'S_B', display_name: 'B second', lead_staff_id: null },
+      ];
+      writer.run((tx) => applyStaffDirectory(tx, input, () => undefined));
+      expect(db.prepare('SELECT staff_id, display_name FROM staff').all()).toEqual([{ staff_id: 'S_A', display_name: 'A first' }]);
+      expect(db.prepare('SELECT staff_id, display_name FROM no_pin_staff').all()).toEqual([{ staff_id: 'S_B', display_name: 'B first' }]);
+      expect(names(db)).toEqual([
+        { staff_id: 'S_A', display_name: 'A first', updated_at: T },
+        { staff_id: 'S_B', display_name: 'B first', updated_at: T },
+      ]);
+    });
+
+    it('[00 #159] [00 M51] an equal or older directory version is not an apply and writes no staff_names row; the upsert runs in the apply\'s transaction', async () => {
+      const { db, writer } = await open();
+      const hash = await pinHash('1234');
+      writer.run((tx) => applyStaffDirectory(tx, dir(2, hash, [], ['S1']), () => undefined));
+      const older = dir(1, hash, [], ['S_OTHER']);
+      older.no_pin_staff = [{ staff_id: 'S_NP', display_name: 'NP', lead_staff_id: null }];
+      expect(writer.run((tx) => applyStaffDirectory(tx, older, () => undefined)).result).toEqual({ applied: false });
+      expect(names(db)).toEqual([{ staff_id: 'S1', display_name: 'S1', updated_at: T }]);
+      expect(() =>
+        writer.run((tx) => {
+          applyStaffDirectory(tx, dir(3, hash, [], ['S_ROLLED']), () => undefined);
+          throw new Error('rollback');
+        }),
+      ).toThrow('rollback');
+      expect(names(db)).toEqual([{ staff_id: 'S1', display_name: 'S1', updated_at: T }]);
+    });
+  });
+
+  async function open(
+    hooks?: { beforeCommit?: () => void },
+  ): Promise<{ db: Database.Database; writer: Writer; clock: ReturnType<typeof fixedClock> }> {
     const fx = freshDb();
     cleanups.push(fx.cleanup);
     const clock = fixedClock(T);
@@ -829,7 +915,7 @@ describe('applyStaffDirectory', () => {
       publish: () => undefined,
       testHooks: hooks,
     });
-    return { db: fx.db, writer };
+    return { db: fx.db, writer, clock };
   }
 });
 

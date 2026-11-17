@@ -194,7 +194,7 @@ describe('POST /commands/set-station-pause (03a §6.7)', () => {
     expect(counts(hub)).toEqual(before);
   });
 
-  it('[03a §10.5] statements: a pause costs exactly the pipeline of a staff command with one event (TestNoop); the handler reads nothing', async () => {
+  it('[03a §10.5] statements: a pause costs exactly the pipeline of a staff command with one event (TestNoop) + the 04 audit fold insert; the handler reads nothing', async () => {
     const hub = await open();
     const manager = staffOn(hub, 'S_MGR');
     const counter = statementCounter(hub.deps.db);
@@ -209,7 +209,9 @@ describe('POST /commands/set-station-pause (03a §6.7)', () => {
       payload: { command_id: 'cmd-base', tenant_id: 'tenant-a', branch_id: 'branch-1', command_type: 'TestNoop', payload: {}, occurred_at: hub.clock.branchNow(), actor_id: 'S_MGR', device_id: manager.device.deviceId },
     });
     expect(baseline.statusCode, baseline.body).toBe(200);
-    expect(ours).toBe(counter.count);
+    // + 1: 04's `audit` fold inserts one audit_entries row for the StationPauseSet (`station_paused`, 04 §3.6); TestNoop's
+    // event is not mapped.
+    expect(ours).toBe(counter.count + 1);
   });
 });
 

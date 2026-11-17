@@ -280,7 +280,8 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
       directory.roles.find((role) => role.role_id === roleId)!.permissions.map((g) => g.permission);
     // 01b v1.5 / v1.6 / v1.7 §6.15: the seeded default grants come along with the added ones.
     expect(permissionsOf(orderTaker)).toEqual([
-      'apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'take-order', 'take-order-anywhere', 'view-customer-contact',
+      'apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'move-item-to-stock', 'take-order', 'take-order-anywhere',
+      'view-customer-contact', 'void-item', // 04 B-1 (01b v1.9)
     ]);
     expect(permissionsOf(waiter)).toEqual(['clean-table', 'mark-served', 'reprint-ticket']);
   });

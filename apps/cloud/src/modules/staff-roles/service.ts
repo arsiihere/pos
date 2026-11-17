@@ -1,5 +1,5 @@
 import { Algorithm, hash, Version } from '@node-rs/argon2';
-import { DomainError, PERMISSION_SCOPES } from '@pos/domain';
+import { ALLOWED_ONLY_PERMISSIONS, DomainError, PERMISSION_SCOPES, type Permission } from '@pos/domain';
 import type { BranchRenameBody, BranchSettingsPatchBody, BranchWire, ChangedVersions, GrantWire, PinBody, ResponsibilitiesPutBody, ResponsibilityWire, RoleCreateBody, RolePatchBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire, TeamNode } from '@pos/events';
 import type { z } from 'zod';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
@@ -751,9 +751,15 @@ async function checkResponsibilities(repo: TenantLevelRepository, branchId: stri
 // §6.6 rules: one grant per permission; approvers non-empty iff requires_approval (AD-13: `field` only, as
 // 01a's reason-less references); approvers active roles of the tenant; scope in the permission's row (§3.3).
 // `selfId`: the role being written; it may approve its own grant (§3.3) and counts as active here.
+// ⚠️ Changed by 04 (row B-2, G-19), 01b v1.9: an allowed-only permission with requires_approval → grants.N.grant_type,
+// runs first, before the duplicate and approver checks, so the field does not depend on the approvers sent.
+const ALLOWED_ONLY: ReadonlySet<Permission> = new Set(ALLOWED_ONLY_PERMISSIONS);
 async function checkGrants(repo: TenantLevelRepository, grants: RoleCreateInput['grants'], selfId?: string): Promise<GrantWire[]> {
   const seen = new Set<string>();
   grants.forEach((grant, i) => {
+    if (grant.grant_type === 'requires_approval' && ALLOWED_ONLY.has(grant.permission)) {
+      throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `grants.${i}.grant_type` });
+    }
     if (seen.has(grant.permission)) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `grants.${i}.permission` });
     seen.add(grant.permission);
     if ((grant.grant_type === 'requires_approval') !== (grant.approver_role_ids.length > 0)) {

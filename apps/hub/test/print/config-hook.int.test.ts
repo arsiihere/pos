@@ -254,17 +254,21 @@ describe('[03c v1.0.7 §3.8, 03b v1.0.7 §3.10, Q-P22b] the output notice also r
     expect(outputNotices(p2)).toEqual([]);
   });
 
-  it('[03c §3.8 Q-P22b] before the takeover the point\'s Pass gets no output notice (only the station\'s own sockets do); the command runs exactly the P0.22 statements (26) with and without a takeover', async () => {
+  it('[03c §3.8 Q-P22b] before the takeover the point\'s Pass gets no output notice (only the station\'s own sockets do); the command runs exactly the P0.22 statements (12 + one checkpoint per projection) with and without a takeover', async () => {
     await printer('PR1');
     const p1 = await passSocket('P1');
     const s2 = await stationSocket(FX.zoneStation);
+    // read before the counter exists, so it is not counted (04 P0.7)
+    const checkpoints = hub.deps.db.prepare('SELECT COUNT(*) FROM projection_checkpoints WHERE branch_id = ?').pluck().get(branch()) as number;
     const counter = statementCounter(hub.deps.db);
     await output(FX.station, 'both', 'PR1');
     counter.reset();
     await output(FX.station, 'screen', null);
     // P0.22 baseline for this SetStationOutput (route, auth, command, append, projection, and the one
-    // stationsWithPrinter re-read after commit), measured on module-03b @ 54b61c2 before P0.23.
-    const BASELINE = 26;
+    // stationsWithPrinter re-read after commit), measured on module-03b @ 54b61c2 before P0.23: 26 with 14
+    // registered projections, i.e. 12 fixed + one checkpoint advance per projection (04 P0.7: derived, so a new
+    // projection such as `audit` moves it by one).
+    const BASELINE = 12 + checkpoints;
     expect(counter.count, 'P0.22 baseline, no takeover').toBe(BASELINE);
     await settle();
     expect(outputNotices(p1)).toEqual([]);

@@ -132,6 +132,15 @@ function ok(result: unknown): Response {
 const DAY_NOT_OPEN = () =>
   json(409, { error: { code: 'BUSINESS_DAY_NOT_OPEN', message: 'x', details: {}, request_id: 'R' } });
 
+// 04 §9: `{ reason: 'void_pending', voids (≤ 40), count }`.
+const dayCloseBlocked = (
+  count: number,
+  voids: { alert_id: string; identifier: string; item: string; requester_name: string }[],
+) =>
+  json(409, {
+    error: { code: 'DAY_CLOSE_BLOCKED', message: 'x', details: { reason: 'void_pending', voids, count }, request_id: 'R' },
+  });
+
 interface Sent {
   url: string;
   body: Record<string, unknown> | undefined;
@@ -339,6 +348,88 @@ describe('/admin/stock business day', () => {
     await tap(button(container.querySelector('[data-stale-prompt]')!, t('admin_stock.stale.keep')));
     expect(container.querySelector('[data-stale-prompt]')).toBeNull();
     expect(commands(sent)).toHaveLength(2);
+  });
+
+  it('[01a §10 #198, 04 §4.5 A-1, G-21] a 409 DAY_CLOSE_BLOCKED on Close day shows the count text and one list row per void (identifier · item · requester)', async () => {
+    const blocked = dayCloseBlocked(2, [
+      { alert_id: 'A1', identifier: 'T4', item: 'Chicken Karahi', requester_name: 'Ali' },
+      { alert_id: 'A2', identifier: '#12', item: 'Paye', requester_name: 'Sara' },
+    ]);
+    const { api, sent } = fakeHub([answer()], () => blocked);
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+
+    await openMore();
+    await tap(button(container.querySelector('[role="menu"]')!, t('admin_stock.day.close')));
+    await tap(button(container.querySelector('[role="dialog"]')!, t('admin_stock.day.close')));
+    const banner = [...container.querySelectorAll<HTMLElement>('.pos-banner')].find((b) =>
+      b.textContent?.includes('2 void requests are still open — answer them first'),
+    );
+    expect(banner).toBeDefined();
+    expect([...banner!.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'T4 · Chicken Karahi · Ali',
+      '#12 · Paye · Sara',
+    ]);
+    expect(banner!.textContent).not.toContain('more');
+    expect(commands(sent).map((c) => c.url)).toEqual(['/admin/commands/close-business-day']);
+  });
+
+  it('[01a §8.2, 04 §9, G-21] DAY_CLOSE_BLOCKED with count larger than the list (41 open, 40 listed) adds "and N more"', async () => {
+    const voids = Array.from({ length: 40 }, (_, i) => ({
+      alert_id: `A${i}`,
+      identifier: `T${i + 1}`,
+      item: 'Paye',
+      requester_name: 'Ali',
+    }));
+    const { api } = fakeHub([answer()], () => dayCloseBlocked(41, voids));
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+
+    await openMore();
+    await tap(button(container.querySelector('[role="menu"]')!, t('admin_stock.day.close')));
+    await tap(button(container.querySelector('[role="dialog"]')!, t('admin_stock.day.close')));
+    const banner = [...container.querySelectorAll<HTMLElement>('.pos-banner')].find((b) =>
+      b.textContent?.includes('41 void requests are still open — answer them first'),
+    );
+    expect(banner).toBeDefined();
+    const rows = [...banner!.querySelectorAll('li')].map((li) => li.textContent);
+    expect(rows).toHaveLength(41);
+    expect(rows[0]).toBe('T1 · Paye · Ali');
+    expect(rows[40]).toBe('and 1 more');
+  });
+
+  it.each([
+    ['no details', {}],
+    ['voids: [null]', { reason: 'void_pending', voids: [null], count: 1 }],
+    ["count: 'x'", { reason: 'void_pending', voids: [], count: 'x' }],
+  ])('[01a §8.2, 04 §9] DAY_CLOSE_BLOCKED with malformed details (%s) shows the generic error and no list', async (_, details) => {
+    const blocked = json(409, { error: { code: 'DAY_CLOSE_BLOCKED', message: 'x', details, request_id: 'R' } });
+    const { api } = fakeHub([answer()], () => blocked);
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+
+    await openMore();
+    await tap(button(container.querySelector('[role="menu"]')!, t('admin_stock.day.close')));
+    await tap(button(container.querySelector('[role="dialog"]')!, t('admin_stock.day.close')));
+    expect(container.textContent).toContain(t('errors.UNKNOWN'));
+    expect(container.textContent).not.toContain('void requests are still open');
+    expect(container.querySelectorAll('.pos-banner li')).toHaveLength(0);
+  });
+
+  it('[01a §10 #198, 04 §4.5 A-1] Close it and start today: a 409 DAY_CLOSE_BLOCKED on Close sends no OpenBusinessDay and shows the list', async () => {
+    const stale = answer({ day_stale: true, hub_time: { now_ms: hubAt(26, 1, 1), utc_offset_ms: OFFSET } });
+    const { api, sent } = fakeHub([stale], (name) =>
+      name === 'open-business-day'
+        ? ok(OPENED)
+        : dayCloseBlocked(1, [{ alert_id: 'A1', identifier: 'T4 + T5', item: 'Paye', requester_name: 'Ali' }]),
+    );
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+
+    await tap(button(container.querySelector<HTMLElement>('[data-stale-prompt]')!, t('admin_stock.stale.close_and_start')));
+    expect(commands(sent).map((c) => c.url)).toEqual(['/admin/commands/close-business-day']);
+    expect(container.textContent).toContain('1 void requests are still open — answer them first');
+    expect([...container.querySelectorAll('.pos-banner li')].map((li) => li.textContent)).toEqual(['T4 + T5 · Paye · Ali']);
   });
 
   it('[01a S45] Add sends AddPrecookedStock for one row with the parsed quantity', async () => {

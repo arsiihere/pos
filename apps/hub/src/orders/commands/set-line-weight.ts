@@ -5,12 +5,15 @@ import { z } from 'zod';
 import { defineCommand, type CommandCtx } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { hasUnitOutOfBilling } from '../ledger.js';
+import { requireNoVoidPending } from '../line-guard.js';
 
 // 02b §6.3 SetLineWeight, §3.6 (pending, correction, total from the ItemAdded copy, 01c M7), §3.4 Weights
 // (LINE_ALREADY_SETTLED; the LineWeightSet fold sets refundable_minor), §3.14 (scope `branch`). Not queueable (§3.12).
 // Order of checks: payload (Zod: S59 steps of 50, 50–50 000) → line (404) → billed → weighed (not a return line, owner
-// S-1) → settled → scope last (C8). An unknown line → 404 ORDER_NOT_FOUND { order_item_id } (owner S-2).
-// Statements: 1 (the line, its order and its ItemAdded copy); the append excluded.
+// S-1) → settled → line guard with the line itself (⚠️ 04 row Q-3: 409 VOID_PENDING) → scope last (C8). An unknown
+// line → 404 ORDER_NOT_FOUND { order_item_id } (owner S-2).
+// Statements: 1 (the line, its order and its ItemAdded copy), +1 line guard when registered (04 Q-3, G-23); the append
+// excluded.
 
 export const SetLineWeightPayload = z.object({
   order_item_id: z.string().min(1),
@@ -51,6 +54,8 @@ function setLineWeight(ctx: CommandCtx, p: Payload): { events: EventDraft[]; res
   if (copy.return_of !== undefined) throw new DomainError('LINE_NOT_WEIGHED', { order_item_id: p.order_item_id });
   // §3.4 Weights / §3.6: a correction is refused once any unit left billing (comped, removed or voided).
   if (hasUnitOutOfBilling(row)) throw new DomainError('LINE_ALREADY_SETTLED', { order_item_id: p.order_item_id });
+  // §3.4 line guard (⚠️ 04 row Q-3): the line itself, after LINE_ALREADY_SETTLED, before scope.
+  requireNoVoidPending(ctx.tx.db, row.order_id, [p.order_item_id]);
 
   checkScope(ctx, row.order_id);
 

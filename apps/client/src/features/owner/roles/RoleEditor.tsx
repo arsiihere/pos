@@ -1,4 +1,4 @@
-import { PERMISSION_CATALOGUE, PERMISSIONS, type Permission, type PermissionGroup, type Scope } from '@pos/domain';
+import { ALLOWED_ONLY_PERMISSIONS, PERMISSION_CATALOGUE, PERMISSIONS, type Permission, type PermissionGroup, type Scope } from '@pos/domain';
 import type { RolePatchRequest } from '@pos/events';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { CloudAdmin, CloudError, Role } from '../../../api/cloud-admin';
@@ -42,7 +42,8 @@ type Grants = Record<Permission, GrantDraft>;
 const GROUPS: PermissionGroup[] = ['orders', 'kitchen', 'bills', 'menu_stock', 'people', 'reports'];
 const ADMIN: Permission[] = ['access-hub-admin', 'manage-devices'];
 
-function grantsOf(role: Role | null): Grants {
+// `stored: true` keeps the grants exactly as stored (the save diff), so a normalised stale grant is sent.
+function grantsOf(role: Role | null, stored = false): Grants {
   return Object.fromEntries(
     PERMISSIONS.map((p) => {
       const found = role?.grants.find((g) => g.permission === p);
@@ -50,7 +51,11 @@ function grantsOf(role: Role | null): Grants {
         p,
         found === undefined
           ? { grant_type: 'not_granted', scope: 'branch', approvers: [] }
-          : { grant_type: found.grant_type, scope: found.scope, approvers: [...found.approver_role_ids] },
+          : // ⚠️ Changed by 04 (row B-2): a stale requires_approval of an allowed-only permission loads as allowed,
+            // as backfill 0013 rewrites it, so the row is not broken and its save is not refused.
+            !stored && found.grant_type === 'requires_approval' && (ALLOWED_ONLY_PERMISSIONS as readonly Permission[]).includes(p)
+            ? { grant_type: 'allowed', scope: found.scope, approvers: [] }
+            : { grant_type: found.grant_type, scope: found.scope, approvers: [...found.approver_role_ids] },
       ];
     }),
   ) as Grants;
@@ -196,7 +201,7 @@ function Editor({
   if (stored !== null) {
     if (name.trim() !== stored.name) patch.name = name.trim();
     if (idleValue !== stored.idle_minutes) patch.idle_minutes = idleValue;
-    if (JSON.stringify(wire(grants)) !== JSON.stringify(wire(grantsOf(stored)))) patch.grants = wire(grants);
+    if (JSON.stringify(wire(grants)) !== JSON.stringify(wire(grantsOf(stored, true)))) patch.grants = wire(grants);
   }
   const fieldLabel: Record<string, string> = { name: t('roles.name'), idle_minutes: t('roles.idle'), grants: t('roles.approved_by') };
   const changed =
@@ -443,6 +448,7 @@ function GrantControl({
   const label = t(`perm.${permission}`);
   const granted = grant.grant_type !== 'not_granted';
   const where = granted && scopes.length > 1;
+  const allowedOnly = (ALLOWED_ONLY_PERMISSIONS as readonly Permission[]).includes(permission);
   return (
     <li className={`pos-grant${stack ? ' pos-grant--stack' : ''}${error !== undefined ? ' is-error' : ''}${snapped ? ' is-snapped' : ''}`}>
       <div className="pos-grant__label">
@@ -455,7 +461,8 @@ function GrantControl({
         onChange={(grant_type) => onChange({ grant_type })}
         options={[
           { value: 'allowed', label: t('roles.grant.allowed') },
-          { value: 'requires_approval', label: t('roles.grant.requires_approval') },
+          // ⚠️ Changed by 04 (row B-2), 01b v1.9 §8: an allowed-only permission does not offer "Requires approval".
+          ...(allowedOnly ? [] : [{ value: 'requires_approval' as const, label: t('roles.grant.requires_approval') }]),
           { value: 'not_granted', label: t('roles.grant.not_granted') },
         ]}
       />

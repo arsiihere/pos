@@ -53,6 +53,9 @@ export const DEFAULT_ROLES: readonly DefaultRole[] = [
       allowed('set-line-weight'),
       approvedByManager('apply-comp'),
       allowed('view-customer-contact'),
+      // ⚠️ Changed by 04 (row B-1), 01b v1.9: void with the Manager's approval; move-item-to-stock is allowed-only (B-2).
+      approvedByManager('void-item'),
+      allowed('move-item-to-stock'),
     ],
   },
   {
@@ -67,6 +70,9 @@ export const DEFAULT_ROLES: readonly DefaultRole[] = [
       allowed('boost-order'),
       allowed('view-customer-contact', 'own_tables'),
       approvedByManager('apply-comp'),
+      // ⚠️ Changed by 04 (row B-1), 01b v1.9: as Cashier.
+      approvedByManager('void-item'),
+      allowed('move-item-to-stock'),
     ],
   },
   // 02a v1.0 B-1: clean-table, not take-order (D-12).

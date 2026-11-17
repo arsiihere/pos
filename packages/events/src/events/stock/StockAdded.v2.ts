@@ -9,6 +9,8 @@ export const StockAddedPayloadV2 = z.object({
   unit: z.enum(['piece', 'g', 'ml']),
   // 03a §4.5 A-19: additive within v2; absent = a manual add (S45), 'moved' = a portion moved to stock (§3.7).
   reason: z.literal('moved').optional(),
+  // ⚠️ Changed by 04 (row T-1, 03a v1.2.4 §4.2): stamped by 04's writer inside an approval; never by stockEffects.
+  alert_id: z.string().optional(),
 });
 export type StockAddedPayloadV2 = z.infer<typeof StockAddedPayloadV2>;
 

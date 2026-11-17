@@ -30,9 +30,22 @@ export type RenderJob =
    * §3.3 payload `{ ticket_id, order_item_id, units: p.units ?? null }` (null = whole line) + the row's job_id /
    * created_at (to find the earlier cancel jobs of the line).
    */
-  | { kind: 'cancel'; job_id: string; created_at: number; ticket_id: string; order_item_id: string; units: number | null; is_reprint: boolean }
+  | {
+      kind: 'cancel';
+      job_id: string;
+      created_at: number;
+      ticket_id: string;
+      order_item_id: string;
+      units: number | null;
+      is_reprint: boolean;
+      /** 03c v1.0.8 §3.3 (04 Q-15): `payload.slip = 'moved'` → the MOVED TO STOCK slip; absent → CANCELLED */
+      slip?: 'moved';
+    }
   | { kind: 'first'; ticket_id: string; order_item_ids: string[]; reason: 'boost' | 'expedite'; is_reprint: boolean }
   | { kind: 'coming_up'; station_id: string; created_at: number; is_reprint: boolean };
+
+/** 03c v1.0.8 §3.5 text key `print.slip.moved_to_stock` ("moved to stock — finish cooking, keep"); paper text per 04 Q-17. */
+export const MOVED_TO_STOCK = 'MOVED TO STOCK - FINISH & KEEP';
 
 /** §3.5: a COMING UP older than this at send is stale. */
 export const COMING_UP_STALE_MS = 600_000;
@@ -367,13 +380,15 @@ export function renderJob(ctx: RenderCtx, job: RenderJob): Doc | null {
     // names the units still to cancel = ordered units − the units of the line's earlier cancel jobs (02b M-5).
     // C1-2 (a), 03c v1.0.4 §3.5: a cancel with units that leaves no live units at send prints the whole form with
     // the job's units (a removal before the print made no cancel job, so "ordered − earlier" would overcount).
-    const text =
+    const body =
       job.units === null
-        ? `CANCELLED  ${ident}  ${Math.max(0, l.units - l.earlier_cancelled)} x ${l.name}`
+        ? `${ident}  ${Math.max(0, l.units - l.earlier_cancelled)} x ${l.name}`
         : l.live_units === 0
-          ? `CANCELLED  ${ident}  ${job.units} x ${l.name}`
-          : `CANCELLED  ${ident}  - ${job.units} x ${l.name}  ${l.live_units} left`;
-    return slipDoc(t, [text], ctx, job.is_reprint);
+          ? `${ident}  ${job.units} x ${l.name}`
+          : `${ident}  - ${job.units} x ${l.name}  ${l.live_units} left`;
+    // v1.0.8 §3.5 (04 Q-15, Q-17): a moved share prints the bold MOVED TO STOCK line (`print.slip.moved_to_stock`,
+    // English ASCII on paper), then the CANCELLED line's body without the word CANCELLED, same unit forms.
+    return slipDoc(t, job.slip === 'moved' ? [MOVED_TO_STOCK, body] : [`CANCELLED  ${body}`], ctx, job.is_reprint);
   }
   const ids = new Set(job.order_item_ids);
   const lines = t.lines.filter((l) => ids.has(l.order_item_id) && !l.done && l.live_units > 0);

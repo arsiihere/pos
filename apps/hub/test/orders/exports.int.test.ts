@@ -1,6 +1,9 @@
 import type { EventDraft } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
-import { orderLines, ordersOf, seatingTotals } from '../../src/orders/exports';
+import { DomainError } from '@pos/domain';
+import type { CommandCtx } from '../../src/commands/registry';
+import { orderLines, ordersOf, readOrder, seatingTotals } from '../../src/orders/exports';
+import { currentTableOf } from '../../src/tables/reads';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
 import { statementCounter } from '../helpers/statement-counter';
 import { appendOrder, FX, openDay, openSeating } from './fixtures';
@@ -240,6 +243,164 @@ describe('[02b §3.13] live orders', () => {
   });
 });
 
+// ------------------------------------------------------------------------------------------- readOrder (04 Q-2)
+
+/** readOrder reads through ctx.tx.db only; a bare ctx inside a writer transaction. */
+function read(order_id: string) {
+  return hub.deps.writer.run((tx) => readOrder({ tx } as unknown as CommandCtx, order_id)).result;
+}
+
+describe('[02b #42 exports] readOrder (04 §4.5 Q-2; G-14, G-16)', () => {
+  it('[02b #42] head carries token, car_number, car_type, business_date and table_ids in 1 statement', async () => {
+    await start();
+    const counter = statementCounter(hub.deps.db);
+    openSeating(hub, { table_id: FX.table, seating_id: 'S1' });
+    const dine = appendOrder(hub, { order_type: 'dine_in', seating_id: 'S1', lines: [{ order_item_id: 'N1', item_id: FX.naan, quantity: 2 }] });
+    const take = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'N2', item_id: FX.naan }] });
+    const park = appendOrder(hub, { order_type: 'parking', car_number: 'LEA-123', lines: [{ order_item_id: 'N3', item_id: FX.naan }] });
+    const placed = (id: string) => hub.deps.db.prepare('SELECT business_date, token FROM orders WHERE order_id = ?').get(id) as { business_date: string; token: number | null };
+
+    const out = hub.deps.writer.run((tx) => {
+      counter.reset();
+      const r = readOrder({ tx } as unknown as CommandCtx, dine.order_id);
+      return { r, statements: counter.count };
+    }).result;
+    expect(out.statements).toBe(1);
+    expect(out.r.order).toMatchObject({
+      order_id: dine.order_id,
+      order_type: 'dine_in',
+      seating_id: 'S1',
+      primary_table_id: FX.table,
+      token: null,
+      car_number: null,
+      car_type: null,
+      business_date: placed(dine.order_id).business_date,
+      table_ids: [FX.table],
+    });
+    expect(out.r.lines.map((l) => [l.order_item_id, l.live_units])).toEqual([['N1', 2]]);
+
+    const t = read(take.order_id).order;
+    expect(t).toMatchObject({ order_type: 'takeaway', seating_id: null, primary_table_id: null, table_ids: [], car_number: null });
+    expect(t.token).toBe(placed(take.order_id).token);
+    expect(typeof t.token).toBe('number');
+    expect(read(park.order_id).order).toMatchObject({ order_type: 'parking', token: null, car_number: 'LEA-123', car_type: 'sedan', table_ids: [] });
+  });
+
+  it('[02b #42] a tie merge (same joined_at) lists table_ids in currentTableOf order (joined_at, then table_id)', async () => {
+    await start();
+    // T2 opened and T1 joined in the same transaction: both rows carry the same joined_at; insertion order is T2, T1.
+    hub.clock.advance(1_000);
+    const now = hub.clock.branchNow();
+    const env = { schema_version: 1, occurred_at: now, actor_id: STAFF, device_id: 'D_FIXTURE' };
+    hub.deps.writer.run((tx) =>
+      tx.append([
+        { ...env, stream_type: 'table', stream_id: FX.table, event_type: 'TableOpened', payload: { table_id: FX.table, seating_id: 'S1', holder_staff_id: STAFF, party_size: null } },
+        {
+          ...env,
+          stream_type: 'table',
+          stream_id: FX.table,
+          event_type: 'TablesMerged',
+          payload: { into_seating_id: 'S1', into_table_id: FX.table, table_ids: [FX.zoneTable], absorbed_seating_id: null, order_ids: [], by_staff_id: STAFF },
+        },
+      ]),
+    );
+    const joined = hub.deps.db.prepare('SELECT DISTINCT joined_at FROM seating_tables WHERE seating_id = ?').all('S1');
+    expect(joined).toHaveLength(1);
+    const o = appendOrder(hub, { order_type: 'dine_in', seating_id: 'S1', lines: [{ order_item_id: 'N1', item_id: FX.naan }] });
+
+    const head = read(o.order_id).order;
+    expect(head.primary_table_id).toBe(FX.table);
+    expect(head.table_ids).toEqual(currentTableOf(hub.deps.db, [o.order_id]).get(o.order_id)!.table_ids);
+    expect(head.table_ids).toEqual([FX.zoneTable, FX.table]);
+  });
+
+  it('[02b #42] a closed (cleaned) seating gives table_ids = [] with a non-null primary_table_id (G-14)', async () => {
+    await start();
+    openSeating(hub, { table_id: FX.table, seating_id: 'S1' });
+    const o = appendOrder(hub, { order_type: 'dine_in', seating_id: 'S1', lines: [{ order_item_id: 'W1', item_id: FX.ready }] });
+    append({ stream_type: 'table', stream_id: FX.table, event_type: 'TableCleaned', payload: { seating_id: 'S1', table_ids: [FX.table], reason: 'cleaned', by_staff_id: STAFF } });
+
+    const head = read(o.order_id).order;
+    expect(head).toMatchObject({ seating_id: 'S1', primary_table_id: FX.table, table_ids: [] });
+    expect(currentTableOf(hub.deps.db, [o.order_id]).has(o.order_id)).toBe(false);
+  });
+
+  it('[02b #42] unknown order → 404 ORDER_NOT_FOUND', async () => {
+    await start();
+    let err: unknown;
+    try {
+      read('NOPE');
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(DomainError);
+    expect((err as DomainError).code).toBe('ORDER_NOT_FOUND');
+  });
+});
+
+// ------------------------------------------------------------------------------------- station_id (04 Q-14, 02b #51)
+
+/** order_lines.station_id and each line's ItemAdded.station_id (first copy by seq), keyed by order_item_id. */
+function stationsOf(order_id: string): { column: Record<string, string | null>; payload: Record<string, string | null> } {
+  const db = hub.deps.db;
+  const rows = db.prepare('SELECT order_item_id, station_id FROM order_lines WHERE order_id = ? ORDER BY order_item_id').all(order_id) as Array<{ order_item_id: string; station_id: string | null }>;
+  const added = db
+    .prepare("SELECT json_extract(payload, '$.order_item_id') AS id, json_extract(payload, '$.station_id') AS station_id FROM events WHERE event_type = 'ItemAdded' AND stream_id = ? ORDER BY seq")
+    .all(order_id) as Array<{ id: string; station_id: string | null }>;
+  const payload: Record<string, string | null> = {};
+  for (const a of added) if (!(a.id in payload)) payload[a.id] = a.station_id;
+  return { column: Object.fromEntries(rows.map((r) => [r.order_item_id, r.station_id])), payload };
+}
+
+describe('[02b #51] order_lines.station_id (02b v1.0.12 §5, §4.2; 04 §4.5 Q-14)', () => {
+  it('[02b #51] the ItemAdded fold writes ItemAdded.station_id: item, option child with its own station, deal parts, zone-routed line; a deal header NULL', async () => {
+    await start();
+    openSeating(hub, { table_id: FX.zoneTable, seating_id: 'SZ' }); // zone Z1 routes naan to S2
+    const o = appendOrder(hub, {
+      order_type: 'dine_in',
+      seating_id: 'SZ',
+      lines: [
+        { order_item_id: 'K', item_id: FX.piece },
+        { order_item_id: 'R', option_id: FX.option, parent_order_item_id: 'K' },
+        { order_item_id: 'N', item_id: FX.naan },
+        { order_item_id: 'D', deal_id: FX.deal },
+        { order_item_id: 'P1', deal_part_id: FX.dealParts[0], parent_order_item_id: 'D' },
+        { order_item_id: 'P2', deal_part_id: FX.dealParts[1], parent_order_item_id: 'D' },
+      ],
+    });
+    const s = stationsOf(o.order_id);
+    expect(s.column).toEqual(s.payload);
+    expect(s.column).toEqual({ K: FX.station, R: FX.station, N: FX.zoneStation, D: null, P1: FX.station, P2: FX.zoneStation });
+  });
+
+  it('[02b #51] [02b #39] readOrder returns station_id and option_quantity per line, still 1 statement', async () => {
+    await start();
+    const o = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'K', item_id: FX.piece },
+        { order_item_id: 'R', option_id: FX.option, parent_order_item_id: 'K' },
+        { order_item_id: 'RN', option_id: FX.option, parent_order_item_id: 'K', item: { option_quantity: null, quantity: 1, line_total_minor: 10_000 } }, // later child (04 Q-19)
+        { order_item_id: 'D', deal_id: FX.deal },
+        { order_item_id: 'P1', deal_part_id: FX.dealParts[0], parent_order_item_id: 'D' },
+        { order_item_id: 'P2', deal_part_id: FX.dealParts[1], parent_order_item_id: 'D' },
+        { order_item_id: 'L', item_id: FX.naan, item: { station_id: null } }, // synthetic station-less line (04 Q-13)
+      ],
+    });
+    const counter = statementCounter(hub.deps.db);
+    const out = hub.deps.writer.run((tx) => {
+      counter.reset();
+      const r = readOrder({ tx } as unknown as CommandCtx, o.order_id);
+      return { r, statements: counter.count };
+    }).result;
+    expect(out.statements).toBe(1);
+    expect(Object.fromEntries(out.r.lines.map((l) => [l.order_item_id, l.station_id]))).toEqual({ K: FX.station, R: FX.station, RN: FX.station, D: null, P1: FX.station, P2: FX.station, L: null });
+    expect(Object.fromEntries(out.r.lines.map((l) => [l.order_item_id, l.station_id]))).toEqual(stationsOf(o.order_id).column);
+    // ⚠️ 02b v1.0.13 (04 Q-19): option_quantity per line from the same row read (set on a placed child only)
+    expect(Object.fromEntries(out.r.lines.map((l) => [l.order_item_id, l.option_quantity]))).toEqual({ K: null, R: 1, RN: null, D: null, P1: null, P2: null, L: null });
+  });
+});
+
 describe('[02b #46] options on LineView (§4.2; Q-7)', () => {
   it('[02b #46] orderLines / ordersOf: options parsed from options_json in payload order; NULL → []; 1 statement each', async () => {
     await start();
@@ -265,5 +426,13 @@ describe('[02b #46] options on LineView (§4.2; Q-7)', () => {
     const orders = ordersOf(hub.deps.db, 'S1');
     expect(counter.count).toBe(1);
     expect(orders[0]!.lines.map((l) => l.options)).toEqual(lines.map((l) => l.options));
+    // merge 04 → main: the shared readOrder (04 Q-2) carries LineView.options too, still 1 statement
+    const out = hub.deps.writer.run((tx) => {
+      counter.reset();
+      const r = readOrder({ tx } as unknown as CommandCtx, o.order_id);
+      return { r, statements: counter.count };
+    }).result;
+    expect(out.statements).toBe(1);
+    expect(out.r.lines.map((l) => l.options)).toEqual(lines.map((l) => l.options));
   });
 });

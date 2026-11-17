@@ -90,7 +90,7 @@ describe('[03b #53, 03c #54] 03b / 03c alert kinds', () => {
         const raised = hub.deps.db
           .prepare("SELECT schema_version, payload FROM events WHERE event_type = 'AlertRaised' AND json_extract(payload, '$.alert_id') = ?")
           .get(alert_id) as { schema_version: number; payload: string };
-        expect(raised.schema_version, c.kind).toBe(3);
+        expect(raised.schema_version, c.kind).toBe(4); // 01d v1.2.5 D-3 (04): AlertRaised v4
         expect((JSON.parse(raised.payload) as { details: unknown }).details, c.kind).toEqual(c.details);
         const row = alerts.listOpen(hub.deps.db, { kind: c.kind })[0];
         expect(row?.details, c.kind).toEqual(c.details);

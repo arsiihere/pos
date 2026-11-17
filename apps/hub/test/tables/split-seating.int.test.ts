@@ -81,6 +81,8 @@ function installConfig(): void {
 
 beforeEach(async () => {
   hub = await createTestHub();
+  // 04 v8 registers the real void merge guard at boot (registerVoids); these tests count without it (AD-12 pattern)
+  resetMergeGuard();
   await seedDirectory(hub, await directory());
   installConfig();
   // The repo's pattern (set-presence.int.test.ts countHandle): count the statements of each `handle` call.

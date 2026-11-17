@@ -306,6 +306,7 @@ describe('[03c #10] registration order', () => {
     const kdsNames = Object.keys(kds.catchUp(hub.deps.db, branch()).replayed);
     const from = order.indexOf('orders');
     expect(from).toBeGreaterThanOrEqual(0);
-    expect(order.slice(from)).toEqual([...kdsNames, 'print_config', 'kitchen_tickets']);
+    // 04 P0.7 (04 §6.6): later modules' projections (04 `audit`) may follow; kitchen_tickets is last among 03c's.
+    expect(order.slice(from, from + kdsNames.length + 2)).toEqual([...kdsNames, 'print_config', 'kitchen_tickets']);
   });
 });

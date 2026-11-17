@@ -24,6 +24,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'menu.per.piece': '/ عدد',
   'menu.per.kg': '/ کلو',
   'admin_stock.title': 'اسٹاک',
+  // 01a v2.5 §8.2 (04 §4.5 A-1, G-21).
+  'admin_stock.errors.DAY_CLOSE_BLOCKED': '{count} آئٹم ہٹانے کی درخواستیں ابھی کھلی ہیں — پہلے ان کا جواب دیں',
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_more': 'اور {n} مزید',
   'admin_stock.filter.to_count': 'گننا باقی',
   'admin_stock.badge.low': 'کم',
   'admin_stock.filter.all': 'سب',

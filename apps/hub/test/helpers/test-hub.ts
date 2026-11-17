@@ -16,21 +16,16 @@ import { engineReducer, foldEngineBatch } from '../../src/engine-host/reducer';
 import { createStateHolder } from '../../src/engine-host/state-holder';
 import { createWriter } from '../../src/engine-host/writer';
 import type { HubConfig } from '../../src/config/schema';
+import { registerHubProjections } from '../../src/lib/boot';
 import { fixedClock } from '../../src/lib/clock';
 import { sha256hex } from '../../src/lib/hash';
 import { testIdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
-import { registerAlertProjections } from '../../src/projections/alerts';
-import { registerRestaurantProjections } from '../../src/projections/branch-config';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import type { ConfigClient } from '../../src/sync/config-client';
 import { noteCommitted, setStockVersion } from '../../src/sync/stock-version';
 import { buildHubServer, type HubDeps } from '../../src/server';
-import { registerOrdersProjection } from '../../src/orders/index';
-import { registerKdsProjections } from '../../src/kds/index';
-import { registerPrintProjections } from '../../src/print/index';
-import { registerTablesProjection } from '../../src/tables/index';
 import { publisherFor } from '../../src/ws/server';
 import { freshDb } from './db';
 import { aDirectory } from './fixtures';
@@ -68,13 +63,11 @@ export async function createTestHub(o?: {
   const state = createStateHolder<EngineState>(initialEngineState());
   state.setReducer(engineReducer, (s, events) => foldEngineBatch(s, events, () => clock.branchNow()));
   const projections = createProjectionRegistry();
-  registerRestaurantProjections(projections);
-  registerAlertProjections(projections);
-  registerTablesProjection(projections);
-  registerOrdersProjection(projections);
-  // 03b §5, 03c §3.3: as boot's createDeps (02b orders → 03b kds → 03c print).
-  registerKdsProjections(projections);
-  registerPrintProjections(projections);
+  registerHubProjections(projections);
+  // 04 §4.5 H-2: as boot step 4, catchUp writes every projection's first checkpoint row on the writer's branch.
+  // It runs before any projection a test registers later (e.g. access_reconcile): applyAll only updates existing
+  // rows, so such a test must call catchUp again, or live appends will not advance that projection's checkpoint.
+  projections.catchUp(fx.db, config.provisioned?.branch_id ?? 'branch-unset');
   const authGeneration = createAuthGeneration();
   const ids = testIdGen();
   const published: PosEvent[][] = [];

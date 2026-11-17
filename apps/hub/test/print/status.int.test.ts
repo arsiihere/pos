@@ -231,6 +231,38 @@ describe('[03c #25] suspect window', () => {
     expect(recoverSuspects(hub.deps.db, 'PR1', now() + 4)).toEqual({ queued: 0, resolved: 0 });
   });
 
+  it('[03c #25, #4b] a lost MOVED TO STOCK slip comes back as a MOVED TO STOCK slip with the REPRINT header (the recovery copies the payload, 04 Q-15)', async () => {
+    printer('PR1');
+    output(FX.station, 'both', 'PR1');
+    const a = order('A', [{ n: 1, quantity: 4 }]);
+    fireLines(hub, FX.station, ['A1']);
+    const ta = ticketOf('A1');
+    const s = statusOf();
+    hub.deps.db.prepare('UPDATE print_jobs SET sent_at = ?, sent_printer_id = ?, acked_at = ? WHERE job_id = ?').run(now() - 200_000, 'PR1', now() - 200_000, `${ta}:kitchen`);
+    s.applyStatus('PR1', 'clean', now() - 100_000);
+    const [v] = kdsAppend(hub, [{ stream_type: 'order', stream_id: a, event_type: 'ItemVoided', payload: { order_item_id: 'A1', units: 2, disposition: 'moved' } }], { actor: 'S_MGR' });
+    const slip = `${v!.event_id}:cancel:1`;
+    acked(slip, now());
+    s.applyStatus('PR1', 'paper_out', now() + 1);
+    expect(suspects()).toEqual([slip]);
+    s.applyStatus('PR1', 'clean', now() + 2);
+    const clean = runtime()!.last_clean_at!;
+    expect(recoveries()).toEqual([
+      { job_id: `${ta}:recover:${clean}`, kind: 'cancel', ticket_id: ta, payload: { ticket_id: ta, order_item_id: 'A1', units: 2, slip: 'moved' }, is_reprint: 1 },
+    ]);
+    // the real worker sends the recovery job: REPRINT header + the MOVED TO STOCK slip, not CANCELLED
+    const sent: string[] = [];
+    workerWith(s, { send: (bytes) => (sent.push(Buffer.from(bytes).toString('latin1')), Promise.resolve({ ok: true })), close: () => undefined }).pass();
+    await turns();
+    expect(sent).toHaveLength(1);
+    const printedLines = sent[0]!.split('\n');
+    expect(printedLines.some((l) => l.endsWith('** REPRINT **'))).toBe(true);
+    expect(printedLines.some((l) => l.endsWith('MOVED TO STOCK - FINISH & KEEP'))).toBe(true);
+    expect(printedLines.some((l) => l.endsWith('#1  - 2 x Naan  2 left'))).toBe(true);
+    expect(sent[0]).not.toContain('CANCELLED');
+    expect(hub.deps.db.prepare('SELECT acked_at FROM print_jobs WHERE job_id = ?').pluck().get(`${ta}:recover:${clean}`)).not.toBeNull();
+  });
+
   it('[03c #25, review] recovery does not depend on the reading before: bad → unknown → clean recovers all 3', () => {
     const ids = threeTickets();
     const s = statusOf();

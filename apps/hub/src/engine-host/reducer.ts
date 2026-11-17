@@ -144,11 +144,13 @@ export function noteUntrackedId(event: PosEvent): void {
 }
 
 // AD-E18: on an order of ready items only, these events log nothing.
-const QUIET_ON_UNTRACKED_ORDER: ReadonlySet<string> = new Set(['ItemAdded', 'ItemServed', 'ItemRemoved', 'ItemVoided']);
-// §3.3 Q-3: these log nothing when their line id is a zone line or a deal header.
-const QUIET_ON_UNTRACKED_LINE: ReadonlySet<string> = new Set(['ItemRemoved', 'ItemVoided']);
+const QUIET_ON_UNTRACKED_ORDER: ReadonlySet<string> = new Set(['ItemAdded', 'ItemServed']);
 
-const LINE_EVENTS: ReadonlySet<string> = new Set(['ItemStarted', 'ItemDone', 'ItemDoneUndone', 'ItemRemoved', 'ItemVoided', 'ItemMovedToStock', 'ItemReturned']);
+// ⚠️ Changed by 04 (row T-3), 03a v1.2.4 §3.3 Q-3 / Q-v1.2-2: ItemRemoved and ItemVoided never log an absent line id —
+// their writers (02b RemoveItems, 04 VoidItems / apply) check the id against order_lines in the same transaction, so an
+// absent id there is a station-less line, a header or an order out of the engine, never a fault. Every other line
+// event keeps the warn (an absent ItemMovedToStock stays one). The id set's line ids are kept but read by nothing.
+const LINE_EVENTS: ReadonlySet<string> = new Set(['ItemStarted', 'ItemDone', 'ItemDoneUndone', 'ItemMovedToStock', 'ItemReturned']);
 const ORDER_EVENTS: ReadonlySet<string> = new Set(['OrderBoosted', 'ItemsReleased']);
 
 // §3.3 Absent ids: one line per id per event. proposed (implementer): "logged once" is read as live only: a replay
@@ -181,7 +183,6 @@ function logAbsentIds(note: FoldNote, events: readonly PosEvent[], log: WarnLog)
     if (QUIET_ON_UNTRACKED_ORDER.has(type) && untracked.has(p.order_id ?? event.stream_id)) continue;
     if (type === 'ItemAdded' && p.served_from_zone_id != null) continue;
     if (type === 'ItemServed' && p.source === 'zone') continue;
-    if (QUIET_ON_UNTRACKED_LINE.has(type) && p.order_item_id !== undefined && untracked.has(p.order_item_id)) continue;
     if (type === 'OrderPlaced' || type === 'OrderLinesAdded') {
       // An OrderPlaced counts as creating its order. E-4: an OrderLinesAdded that creates one is in note.next; a refused
       // one is not, so the batch's ItemAdded events are logged as absent ids (unless the order is in the id set).

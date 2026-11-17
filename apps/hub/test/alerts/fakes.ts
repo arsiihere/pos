@@ -80,12 +80,45 @@ function runFake(fn: 'apply' | 'onWithdraw', ctx: AlertApplyCtx<unknown, unknown
 
 function fakeRequest<V, D>(
   part: Pick<AlertRequestDef<V, D>, 'answers' | 'right' | 'needs_pin'>,
+  o: { alsoTo?: boolean } = {},
 ): AlertRequestDef<V, D> {
-  return {
+  const request: AlertRequestDef<V, D> = {
     ...part,
     apply: (ctx, answer) => runFake('apply', ctx as AlertApplyCtx<unknown, unknown>, answer),
     onWithdraw: (ctx) => runFake('onWithdraw', ctx as AlertApplyCtx<unknown, unknown>, null),
   };
+  if (o.alsoTo === true) request.result_also_to = (ctx) => runAlsoTo(ctx as AlertApplyCtx<unknown, unknown>);
+  return request;
+}
+
+/**
+ * 01d v1.2.5 D-2 (test 67): the fake `result_also_to` of `t_approval_also` — one read statement (as 04's
+ * `currentTableOf`), then `{ table_team, table_id, depth: 'owner' }`, or null when `table_id` is null. Each
+ * call records whether its tx was the read-only view (`append` throws there).
+ */
+export const fakeAlsoTo: {
+  table_id: string | null;
+  /** 'throw' → a DomainError (fakeApply.throwCode); 'write' → a write on the read-only view (refused, a plain Error) */
+  mode: 'ok' | 'throw' | 'write';
+  calls: Array<{ alert_id: string; read_only: boolean }>;
+} = {
+  table_id: 'T12',
+  mode: 'ok',
+  calls: [],
+};
+
+function runAlsoTo(ctx: AlertApplyCtx<unknown, unknown>): AlertTarget | null {
+  const row = ctx.tx.db.prepare('SELECT ? AS table_id').get(fakeAlsoTo.table_id) as { table_id: string | null };
+  let read_only = false;
+  try {
+    ctx.tx.append([]);
+  } catch {
+    read_only = true;
+  }
+  fakeAlsoTo.calls.push({ alert_id: ctx.alert.alert_id, read_only });
+  if (fakeAlsoTo.mode === 'throw') throw new DomainError(fakeApply.throwCode, { reason: 'fake_also_to' });
+  if (fakeAlsoTo.mode === 'write') ctx.tx.db.prepare('UPDATE alerts SET step = step + 100 WHERE alert_id = ?').run(ctx.alert.alert_id);
+  return row.table_id === null ? null : { kind: 'table_team', table_id: row.table_id, depth: 'owner' };
 }
 
 type TableTeamTarget = Extract<AlertTarget, { kind: 'table_team' }>;
@@ -93,9 +126,16 @@ type PointTarget = Extract<AlertTarget, { kind: 'point' }>;
 type ZoneTarget = Extract<AlertTarget, { kind: 'zone_order_taker' }>;
 
 /** 02-like `tableOwner` (§3.4, §4.4): table_id → owner, set by the test; one statement per call. */
-export const fakeTableOwner: { owners: Map<string, string>; reports: Map<string, string[]>; calls: TableTeamTarget[][] } = {
+export const fakeTableOwner: {
+  owners: Map<string, string>;
+  reports: Map<string, string[]>;
+  /** table_id → device ids the resolver also returns (device recipient rows, staff_id null) */
+  devices: Map<string, string[]>;
+  calls: TableTeamTarget[][];
+} = {
   owners: new Map(),
   reports: new Map(),
+  devices: new Map(),
   calls: [],
 };
 
@@ -148,7 +188,7 @@ function fakeTableOwnerResolver(tx: WriterTx, targets: TableTeamTarget[]): Map<s
     const holder = holders.get(t.table_id);
     if (holder === undefined) continue;
     const staff_ids = t.depth === 'owner' ? [holder] : [holder, ...(fakeTableOwner.reports.get(holder) ?? [])];
-    out.set(targetKey(t), { staff_ids, device_ids: [], owner_staff_id: holder });
+    out.set(targetKey(t), { staff_ids, device_ids: fakeTableOwner.devices.get(t.table_id) ?? [], owner_staff_id: holder });
   }
   return out;
 }
@@ -170,6 +210,7 @@ const labels = (kind: string) => ({ card: `alert.${kind}.card`, lock: `alert.${k
 
 const FAKE_KINDS = [
   't_approval',
+  't_approval_also',
   't_accept',
   't_action',
   't_info',
@@ -220,6 +261,29 @@ export function registerFakes(): void {
       right: { mode: 'approval', base_permission: 'void-item', range_permission: 'approve-void' },
       needs_pin: ALERT_CONSTANTS.needs_pin.money,
     }),
+  });
+
+  // 04-like void approval with 01d v1.2.5 D-2's `result_also_to` (test 67): t_approval plus the hook.
+  defineAlertKind({
+    kind: 't_approval_also',
+    family: 'urgent',
+    subject: 'order',
+    steps: APPROVAL_TIER_STEPS,
+    closes_on: 'owner',
+    values_schema: z.object({ order_id: z.string() }),
+    details_schema: AlertDetailsBase.required({ item: true, quantity: true, amount: true, reason: true }),
+    lead_fallback: false,
+    expires_at_day_close: true,
+    silent: false,
+    labels: labels('t_approval_also'),
+    request: fakeRequest(
+      {
+        answers: ['approve', 'reject'],
+        right: { mode: 'approval', base_permission: 'void-item', range_permission: 'approve-void' },
+        needs_pin: ALERT_CONSTANTS.needs_pin.money,
+      },
+      { alsoTo: true },
+    ),
   });
 
   // Named accept kind, no PIN (pilot accept kinds).
@@ -399,10 +463,14 @@ export function resetFakes(): void {
   fakePager.sent.length = 0;
   fakeTableOwner.owners.clear();
   fakeTableOwner.reports.clear();
+  fakeTableOwner.devices.clear();
   fakeTableOwner.calls.length = 0;
   fakePoint.devices.clear();
   fakePoint.calls.length = 0;
   fakeApply.mode = 'ok';
   fakeApply.throwCode = 'ITEM_WRONG_STAGE';
   fakeApply.calls.length = 0;
+  fakeAlsoTo.table_id = 'T12';
+  fakeAlsoTo.mode = 'ok';
+  fakeAlsoTo.calls.length = 0;
 }

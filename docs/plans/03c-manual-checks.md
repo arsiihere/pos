@@ -173,6 +173,21 @@ Needed once after this merge if the laptop's test database applied an older `001
 
 Done by / date:
 
+## Check 10. MOVED TO STOCK slip on the pilot printer; how the moved line looks on the KDS (03c v1.0.8 §3.3, §3.5, §11 task 28; 04 Q-15, Q-17)
+
+**Owner, on the pilot hardware.** **BLOCKED (orders)** for the void screen (04 client); the hub half is built (04 task p1). Station Tandoor on `both` with LAN-P and its KDS screen on. A stock-tracked Chicken Karahi (it draws stock, so Move to stock is offered).
+
+| ☐ | Step | Expected | Notes |
+|---|---|---|---|
+| [ ] | Dine-in T7: **2 x Chicken Karahi**. Send it; the cook taps Start, so it is cooking. After the ticket printed, void **both** with **Move to stock**. | One slip: bold `MOVED TO STOCK - FINISH & KEEP`, then `T7  2 x Chicken Karahi`. No `CANCELLED` slip. | |
+| [ ] | Same with **4**, void **2** with Move to stock. | `MOVED TO STOCK - FINISH & KEEP`, then `T7  - 2 x Chicken Karahi  2 left`. | |
+| [ ] | A Karahi combo deal, both parts cooking: void the deal with Move to stock. | MOVED slip for the karahi part; `CANCELLED` slip for the naan part (it has no stock, so wastage). | |
+| [ ] | Void a printed, cooking line as **Wastage**. | `CANCELLED  T7  …`, as before. | |
+| [ ] | Look at the KDS right after the moved void. | 03b drops a voided line, so the karahi leaves the ticket on the screen while the slip says keep cooking. Ask the cook: does he read the slip right (finish it, keep it for stock), or does the vanished line make him stop? Write what he says in Notes. | |
+| [ ] | Paper out just after a MOVED slip printed (as check 6), then paper back. | The lost slip comes back as a MOVED TO STOCK slip with the **REPRINT** header, not as CANCELLED. | |
+
+Done by / date:
+
 ---
 
 ## Summary
@@ -188,3 +203,4 @@ Done by / date:
 | 7 KDS cable → paper fallback, COMING UP rule | | BU1, orders |
 | 8 Restart mid-print → REPRINT | | orders |
 | 9 `pos-pg-test` DB reset | | — |
+| 10 MOVED TO STOCK slip; moved line on the KDS (pilot) | | orders (04 void screen) |

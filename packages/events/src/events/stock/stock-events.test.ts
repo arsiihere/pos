@@ -86,3 +86,22 @@ describe('StockTransferredOut (03a §4.2 Q-5)', () => {
   });
 });
 
+
+// 04 §4.5 T-1 (03a v1.2.4 §4.2, test 140): optional alert_id, stamped by 04's writer inside an approval.
+describe('[04 §4.5 T-1] alert_id on stock-stream events (04 #49)', () => {
+  const cases: Array<[string, number, Record<string, unknown>]> = [
+    ['StockReleased', 1, { stock_item_id: 'K1', order_item_id: 'L1', quantity: 2, reason: 'moved' }],
+    ['StockAdded', 2, { stock_item_id: 'K1', quantity: 2, unit: 'piece', reason: 'moved' }],
+    ['StockReserved', 1, { stock_item_id: 'K1', order_item_id: 'L2', quantity: 2 }],
+  ];
+
+  it('[04 #49] StockReleased, StockAdded v2, StockReserved keep alert_id and parse without it', () => {
+    for (const [type, version, payload] of cases) {
+      const schema = payloadSchema(type, version);
+      expect(schema.parse({ ...payload, alert_id: 'A1' }), type).toEqual({ ...payload, alert_id: 'A1' });
+      expect(schema.parse(payload), type).toEqual(payload);
+      expect(schema.safeParse({ ...payload, alert_id: null }).success, type).toBe(false);
+      expect(schema.safeParse({ ...payload, alert_id: 7 }).success, type).toBe(false);
+    }
+  });
+});

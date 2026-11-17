@@ -1,5 +1,13 @@
 import { ALERT_CONSTANTS, REQUEST_DECISIONS, type AlertFamily, type Permission, type RECIPIENT_SETS } from '@pos/domain';
-import { AlertDetailsBase, type AlertDetails, type AlertDisplay, type AlertStepTarget, type EventDraft, type PosEvent } from '@pos/events';
+import {
+  AlertDetailsBase,
+  type AlertDetails,
+  type AlertDisplay,
+  type AlertStepTarget,
+  type AlertTarget,
+  type EventDraft,
+  type PosEvent,
+} from '@pos/events';
 import { z } from 'zod';
 import type { CommandCtx } from '../commands/registry.js';
 
@@ -71,6 +79,12 @@ export interface AlertRequestDef<V, D> {
   needs_pin: 'always' | 'never';
   apply(ctx: AlertApplyCtx<V, D>, answer: AnswerFacts): EventDraft[];
   onWithdraw?(ctx: AlertApplyCtx<V, D>): EventDraft[];
+  /**
+   * 01d v1.2.5 D-2 (04 §4.5; G-7): on a **reject** only, AnswerRequest's `handle` calls it on a read-only view
+   * (never in `preRead`, never on approve / withdraw); a non-null target gets one more `request_result`
+   * (dedupe `request_result:<alert_id>:also`), dropped when it routes only to the requester (G-8).
+   */
+  result_also_to?(ctx: AlertApplyCtx<V, D>): AlertTarget | null;
 }
 
 /** §3.5 / §4.2 `defineAlertKind(def)`. */

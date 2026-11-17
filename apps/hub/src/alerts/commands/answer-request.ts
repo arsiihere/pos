@@ -234,19 +234,25 @@ function handle(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; resu
   // (7) A4: in the answer's transaction; a DomainError reaches the answerer, nothing is written
   events.push(...runApply(ctx, c, factsOf(payload, c, ctx.actor.deviceId, now)));
   // (8)–(9): one raiseMany (dedupe 1, the fixed reads once, one call per resolver / route over the three),
-  // drafts in this order: request_result, approval_receipt, the notice
+  // drafts in this order: request_result, approval_receipt, the notice, the reject's `:also` request_result (8b)
   const raises: RaiseInput[] = [];
+  const requester = c.record.requester_staff_id;
+  const about = { alert_id: c.record.alert_id, kind: c.record.kind, subject, requester_staff_id: requester ?? '', display: c.record.display };
+  const outcome = { close_reason: 'answered' as const, decision: payload.decision, by_staff_id: c.answerer };
   // (8) request_result to the requester (§3.10)
-  if (c.record.requester_staff_id !== null) {
-    raises.push(
-      requestResultInput(
-        { alert_id: c.record.alert_id, kind: c.record.kind, subject, requester_staff_id: c.record.requester_staff_id, display: c.record.display },
-        { close_reason: 'answered', decision: payload.decision, by_staff_id: c.answerer },
-      ),
-    );
-  }
+  if (requester !== null) raises.push(requestResultInput(about, outcome));
   // (8a), (9): the personal notices to the answerer, hidden from this session and device (§3.10, v1.0 #2)
   raises.push(...noticeInputs(c, payload, answered, ctx.actor));
+  // (8b) 01d v1.2.5 D-2 (G-7, G-8): on a reject, the kind's `result_also_to` on a read-only view (here, never in
+  // preRead); a non-null target → one more request_result in this same raiseMany. 01d's own raise, so it is
+  // not passed to checkAlertIds; dropped inside raiseMany when it routes only to the requester.
+  if (payload.decision === 'reject' && c.request.result_also_to !== undefined) {
+    const target = c.request.result_also_to({ ...ctx, tx: readOnlyTx(ctx.tx), alert: c.record });
+    if (target !== null) {
+      const also = requestResultInput(about, outcome, { target, dedupe_key: `request_result:${c.record.alert_id}:also` });
+      raises.push(requester === null ? also : { ...also, drop_if_only: requester });
+    }
+  }
   if (raises.length > 0) {
     for (const raised of alerts.raiseMany(ctx, raises)) events.push(...raised.events);
   }

@@ -221,7 +221,28 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
     const grantsAfter = await pool.query(
       `SELECT tenant_id, role_id, permission, grant_type, approver_role_id FROM role_permissions ORDER BY role_id, permission`,
     );
-    expect(grantsAfter.rows).toEqual(grantsBefore.rows);
+    // 0005 changes no grant. The same migrate run also applies 0013 (04 B-1), which only adds the cashier /
+    // order_taker void defaults (its own test: void-defaults-backfill.int.test.ts); every earlier row is kept as it was.
+    const key = (row: object) => JSON.stringify(row);
+    const before = new Set(grantsBefore.rows.map(key));
+    expect(grantsAfter.rows.filter((row) => before.has(key(row)))).toEqual(grantsBefore.rows);
+    const added = await pool.query<{ line: string }>(
+      `SELECT concat_ws(':', r.default_key, rp.permission, rp.grant_type) AS line
+         FROM role_permissions rp JOIN roles r ON r.tenant_id = rp.tenant_id AND r.role_id = rp.role_id
+        WHERE (rp.tenant_id, rp.role_id, rp.permission) NOT IN (SELECT * FROM unnest($1::text[], $2::text[], $3::text[]))
+        ORDER BY 1`,
+      [
+        grantsBefore.rows.map((row: { tenant_id: string }) => row.tenant_id),
+        grantsBefore.rows.map((row: { role_id: string }) => row.role_id),
+        grantsBefore.rows.map((row: { permission: string }) => row.permission),
+      ],
+    );
+    expect(added.rows.map((row) => row.line)).toEqual([
+      'cashier:move-item-to-stock:allowed',
+      'cashier:void-item:requires_approval',
+      'order_taker:move-item-to-stock:allowed',
+      'order_taker:void-item:requires_approval',
+    ]);
     await expect(
       pool.query(
         `INSERT INTO roles (tenant_id, role_id, name, session_idle_ttl_ms, default_key) VALUES ($1, 'r-dup', 'Boss', 3600000, 'owner')`,

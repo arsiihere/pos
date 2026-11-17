@@ -10,12 +10,15 @@ import { commandRegistry } from '../../src/commands/route';
 import { readOnlyTx } from '../../src/engine-host/read-only-tx';
 import { compLineCommand } from '../../src/orders/commands/comp-line';
 import { orderLines } from '../../src/orders/exports';
+import { changeDrafts, lineChangeDrafts } from '../../src/orders/line-change';
 import { lineShares, planVoid } from '../../src/orders/ledger';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
+import { registerLineGuard, resetLineGuard } from '../../src/orders/line-guard';
 import { aDirectory, PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { appendOrder, FX, fixtureMenu, openDay, openSeating, type FixtureLine } from './fixtures';
+import { withOptionQuantity } from '../helpers/ledger-refs';
 
 // 02b §6.8 CompLine, §6.12 kind `comp`, §3.9, §3.4 (comp, deal actions, cascades), §3.14; §11 step 14. Orders are seeded
 // with the shared fixtures; every other event (voids, remakes, bills) is a real event through the writer. The stale
@@ -26,6 +29,7 @@ let counter: ReturnType<typeof statementCounter>;
 let lastStatements = -1;
 
 afterEach(async () => {
+  resetLineGuard();
   swapBranchConfig(null);
   await hub.close();
 });
@@ -67,6 +71,8 @@ async function directory(): Promise<DirectoryInput> {
 /** A fresh hub: directory, the menu applied, the day open (K1 stock 10 000), the counted copy of CompLine. */
 async function start(o: { menu?: BranchConfig } = {}): Promise<void> {
   hub = await createTestHub();
+  // counts below mean "no line guard registered": clear any guard boot registered (v8 registers 04's through registerVoids)
+  resetLineGuard();
   await seedDirectory(hub, await directory());
   openDay(hub, { stock: { [FX.stock]: 10_000 }, ...(o.menu === undefined ? {} : { menu: o.menu }) });
   // The real handler under a test-only name, so its own statements are counted (02a SG-3 pattern).
@@ -143,7 +149,7 @@ function voidUnits(order_id: string, id: string, units: number): void {
   const lines = orderLines(hub.deps.db, [order_id]).get(order_id)!;
   const parent = lines.find((l) => l.order_item_id === id)!;
   const kids = lines.filter((l) => l.parent_order_item_id === id);
-  const plan = planVoid(parent, kids, units);
+  const plan = planVoid(parent, withOptionQuantity(hub.deps.db, kids), units);
   append(plan.lines.map((p) => on(order_id, 'ItemVoided', p.payload)));
 }
 
@@ -532,6 +538,133 @@ describe('CompLine (02b §6.8, §3.9)', () => {
   });
 });
 
+// ------------------------------------------------------------------------------------------- #43 (04 Q-3)
+
+/** 04 row Q-3 stub line guard: 1 statement per ask; locks `locked` under alert A_VOID; records every ask. */
+function lockLines(locked: string[]): Array<{ order_id: string; touched: string[] }> {
+  const asks: Array<{ order_id: string; touched: string[] }> = [];
+  registerLineGuard((db, order_id, touched_ids) => {
+    db.prepare('SELECT 1 AS one').get();
+    asks.push({ order_id, touched: [...touched_ids] });
+    const hit = touched_ids.find((id) => locked.includes(id));
+    return hit === undefined ? null : { alert_id: 'A_VOID', order_item_id: hit };
+  });
+  return asks;
+}
+
+describe('[02b #43] CompLine and applyComp ask the line guard (04 §4.5 Q-3; G-12)', () => {
+  it('[02b #43] unregistered → never blocks, 2 statements; registered and not hit → asked with the plan ids, exactly +1 (3)', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([...deal('D1'), ...deal('D2')]);
+    const free = await compLine(ali, quality('D1', 1), { counted: true });
+    expect(free.status).toBe(200);
+    expect(lastStatements).toBe(2);
+
+    const asks = lockLines(['D1a']);
+    const r = await compLine(ali, quality('D2', 1), { counted: true });
+    expect(r.status).toBe(200);
+    expect(lastStatements).toBe(3);
+    expect(asks).toEqual([{ order_id, touched: ['D2', 'D2a', 'D2b'] }]);
+  });
+
+  it('[02b #43] a locked deal part blocks CompLine of the deal: allowed and requires-approval grants → 409 VOID_PENDING, nothing written', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const omar = signIn('S_OMAR');
+    takeaway(deal('D1'));
+    lockLines(['D1b']);
+    const n = eventCount();
+    for (const who of [ali, omar]) {
+      const r = await compLine(who, quality('D1', 1), { counted: true });
+      expect(r.status).toBe(409);
+      expect(r.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'D1b' } });
+      expect(lastStatements).toBe(2); // the line read + the guard; no comp listOpen, no raise
+    }
+    expect(eventCount()).toBe(n);
+    expect(alerts.listOpen(hub.deps.db, { kind: 'comp' })).toEqual([]);
+  });
+
+  it('[02b #43] guard before scope: a caller outside scope on a locked line gets VOID_PENDING; unlocked → PERMISSION_DENIED', async () => {
+    await start();
+    const zain = signIn('S_ZAIN');
+    takeaway([NAANS]);
+    lockLines(['N1']);
+    const r = await compLine(zain, quality('N1', 1));
+    expect(r.error?.code).toBe('VOID_PENDING');
+    resetLineGuard();
+    expect((await compLine(zain, quality('N1', 1))).error?.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('[02b #43] a 0-unit cascade child is not asked (the plan drops it)', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway(deal('D1'));
+    voidUnits(order_id, 'D1b', 2); // both bread units (part quantity 2): the cascade gives D1b 0 units
+    const asks = lockLines(['D1b']);
+    const r = await compLine(ali, quality('D1', 1));
+    expect(r.error).toBeUndefined();
+    expect(r.status).toBe(200);
+    expect(asks).toEqual([{ order_id, touched: ['D1', 'D1a'] }]);
+    expect(ofType(r, 'LineComped').map((p) => p.order_item_id)).toEqual(['D1', 'D1a']);
+  });
+
+  it('[02b #43] a locked option child blocks CompLine of its item (the option-child cascade) → VOID_PENDING', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway(karahiWithRaita('K1', 2));
+    const asks = lockLines(['K1r']);
+    const r = await compLine(ali, quality('K1', 2));
+    expect(r.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'K1r' } });
+    expect(asks).toEqual([{ order_id, touched: ['K1', 'K1r'] }]);
+    expect(compEvents()).toEqual([]);
+  });
+
+  it('[02b #43] requires-approval, not blocked: the raise path costs exactly +1 statement with a registered guard', async () => {
+    await start();
+    const omar = signIn('S_OMAR');
+    takeaway([NAANS, { order_item_id: 'N2', item_id: FX.naan, quantity: 3 }]);
+    const free = await compLine(omar, quality('N1', 1), { counted: true });
+    expect(free.result).toMatchObject({ pending: true });
+    const unregistered = lastStatements;
+    expect(unregistered).toBeGreaterThan(0);
+
+    const asks = lockLines(['X9']);
+    const guarded = await compLine(omar, quality('N2', 1), { counted: true });
+    expect(guarded.result).toMatchObject({ pending: true });
+    expect(lastStatements).toBe(unregistered + 1);
+    expect(asks.map((a) => a.touched)).toEqual([['N2']]);
+  });
+
+  it('[02b #43] applyComp (the approve) asks with the plan ids: a lock → VOID_PENDING refuses the approve; 1 → 2 statements', async () => {
+    await start();
+    const omar = signIn('S_OMAR');
+    const mgr = signIn('S_MGR');
+    takeaway(deal('D1'));
+    const alert_id = (await compLine(omar, quality('D1', 1))).result!.alert_id as string;
+    const record = alerts.listOpen(hub.deps.db, { kind: 'comp' }).find((x) => x.alert_id === alert_id)!;
+    const kind = kindOf('comp')!;
+    const applyStatements = (): { statements: number; out: unknown } =>
+      hub.deps.writer.run((tx) => {
+        const ctx = { ...ctxOf(tx), tx: readOnlyTx(tx), alert: record } as unknown as AlertApplyCtx<Record<string, unknown>, never>;
+        counter.reset();
+        const out = kind.request!.apply(ctx, { decision: 'approve', answerer_staff_id: 'S_MGR', method: 'pin', device_id: 'D_MGR', answered_at: hub.clock.branchNow() });
+        return { statements: counter.count, out };
+      }).result;
+    expect(applyStatements().statements).toBe(1);
+    const asks = lockLines([]);
+    expect(applyStatements().statements).toBe(2);
+    expect(asks.map((a) => a.touched)).toEqual([['D1', 'D1a', 'D1b']]);
+
+    lockLines(['D1a']);
+    const a = await answer(mgr, alert_id, 'approve');
+    expect(a.status).toBe(409);
+    expect(a.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'D1a' } });
+    expect(compEvents()).toEqual([]);
+    expect(alertRow(alert_id)).toMatchObject({ state: 'open' });
+  });
+});
+
 // ------------------------------------------------------------------------------------------- #27
 
 describe('CompLine stale requests and notes (02b §3.9)', () => {
@@ -684,6 +817,33 @@ describe('CompLine with deals, remakes and children (02b §3.4)', () => {
     ]);
   });
 
+  it('[02b #39 comp] [01c §3.4.8 Q4] a null-option_quantity child: comping 1 of 2 karahis leaves it alone (2 statements), an approved last karahi comps it with the alert id', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const omar = signIn('S_OMAR');
+    const mgr = signIn('S_MGR');
+    const order_id = takeaway([...karahiWithRaita('K1', 2), { order_item_id: 'K1n', option_id: FX.option, parent_order_item_id: 'K1', quantity: 1, item: { option_quantity: null, quantity: 1, line_total_minor: 10_000 } }]);
+    const one = await compLine(ali, quality('K1', 1), { counted: true });
+    expect(one.status, JSON.stringify(one.error)).toBe(200);
+    expect(ofType(one, 'LineComped').map((p) => [p.order_item_id, p.units])).toEqual([
+      ['K1', 1],
+      ['K1r', 1],
+    ]);
+    expect(lastStatements).toBe(2);
+    expect(lineView(order_id, 'K1n')).toMatchObject({ comped_units: 0, comp_minor: 0 });
+    // the last uncomped karahi, through the approval (applyComp reads option_quantity in its own line read)
+    const req = await compLine(omar, quality('K1', 1));
+    const alert_id = req.result!.alert_id as string;
+    const a = await answer(mgr, alert_id, 'approve');
+    expect(a.status, JSON.stringify(a.error)).toBe(200);
+    expect(ofType(a, 'LineComped').map((p) => [p.order_item_id, p.units, p.value_minor, p.alert_id])).toEqual([
+      ['K1', 1, expect.any(Number), alert_id],
+      ['K1r', 1, expect.any(Number), alert_id],
+      ['K1n', 1, 10_000, alert_id],
+    ]);
+    expect(lineView(order_id, 'K1n')).toMatchObject({ comped_units: 1, comp_minor: 10_000, billed_minor: 0 });
+  });
+
   it('[02b §3.9] approve after the line was billed → the re-check refuses (ORDER_BILLED), nothing comped', async () => {
     await start();
     const omar = signIn('S_OMAR');
@@ -695,6 +855,86 @@ describe('CompLine with deals, remakes and children (02b §3.4)', () => {
     expect(a.status).toBe(409);
     expect(a.error?.code).toBe('ORDER_BILLED');
     expect(compEvents()).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #44 (04 Q-4)
+
+describe('[02b #44] line change judges changed lines only; stale_comps mode (04 §4.5 Q-4; G-15)', () => {
+  /** N1 × 3 with an open comp request on 2 units, then 2 units voided outside 02b: the request is stale but open. */
+  async function staleOnN1(): Promise<{ order_id: string; alert_id: string; ali: Who }> {
+    await start();
+    const omar = signIn('S_OMAR');
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([NAANS, { order_item_id: 'N2', item_id: FX.naan, quantity: 2 }]);
+    const alert_id = (await compLine(omar, quality('N1', 2))).result!.alert_id as string;
+    voidUnits(order_id, 'N1', 2);
+    expect(lineView(order_id, 'N1')).toMatchObject({ live_units: 1, comped_units: 0 });
+    expect(alertRow(alert_id)).toMatchObject({ state: 'open' });
+    return { order_id, alert_id, ali };
+  }
+
+  it('[02b #44] RemoveItems of line N2 leaves the already-stale comp request on N1 open', async () => {
+    const { order_id, alert_id, ali } = await staleOnN1();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'N2', units: 1 }] });
+    expect(r.status).toBe(200);
+    expect(r.result).toMatchObject({ comp_requests_closed: [] });
+    expect(types(r)).not.toContain('AlertClosed');
+    expect(alertRow(alert_id)).toMatchObject({ state: 'open' });
+
+    // the request left open cannot be approved into a wrong comp: applyComp's re-check refuses it (1 free < 2)
+    const mgr = signIn('S_MGR');
+    const a = await answer(mgr, alert_id, 'approve');
+    expect(a.status).toBe(400);
+    expect(a.error?.code).toBe('VALIDATION_FAILED');
+    expect(compEvents()).toEqual([]);
+    expect(lineView(order_id, 'N1')).toMatchObject({ live_units: 1, comped_units: 0, comp_minor: 0 });
+  });
+
+  it("[02b #44] lineChangeDrafts { stale_comps: 'keep' } on the stale line: 1 statement; its drafts = 'close' minus the comp-request closes", async () => {
+    const { order_id, alert_id } = await staleOnN1();
+    // empties the order: N1's last unit and both N2 units → OrderCancelled in either mode
+    const change = [
+      { order_item_id: 'N1', units_out: 1 },
+      { order_item_id: 'N2', units_out: 2 },
+    ];
+    const kept = hub.deps.writer.run((tx) => {
+      counter.reset();
+      const drafts = lineChangeDrafts(ctxOf(tx), order_id, change, { stale_comps: 'keep' });
+      return { drafts, statements: counter.count };
+    }).result;
+    expect(kept.statements).toBe(1);
+    expect(kept.drafts.map((d) => d.event_type)).toEqual(['OrderCancelled']);
+
+    const closed = hub.deps.writer.run((tx) => lineChangeDrafts(ctxOf(tx), order_id, change)).result;
+    expect(closed.filter((d) => d.event_type === 'AlertClosed').map((d) => d.payload)).toEqual([expect.objectContaining({ alert_id, reason: 'obsolete' })]);
+    // the only difference is 01d's closeMany output: AlertClosed + the request_result to the requester (AlertRaised,
+    // AttemptSent); OrderCancelled is the same draft in both modes
+    const CLOSE_MANY = new Set(['AlertClosed', 'AlertRaised', 'AttemptSent']);
+    const closeManyDraft = (d: EventDraft): boolean => CLOSE_MANY.has(d.event_type);
+    expect(kept.drafts).toEqual(closed.filter((d) => !closeManyDraft(d)));
+  });
+
+  it("[02b #44] changeDrafts { stale_comps: 'keep' }: no AlertClosed, no comp listOpen (0 statements over the lines given)", async () => {
+    const { order_id } = await staleOnN1();
+    const before = orderLines(hub.deps.db, [order_id]).get(order_id)!;
+    const change = [{ order_item_id: 'N1', units_out: 1 }];
+    const kept = hub.deps.writer.run((tx) => {
+      counter.reset();
+      const out = changeDrafts(ctxOf(tx), order_id, before, change, { stale_comps: 'keep' });
+      return { out, statements: counter.count };
+    }).result;
+    expect(kept.statements).toBe(0);
+    expect(kept.out.comp_requests_closed).toEqual([]);
+    expect(kept.out.drafts.map((d) => d.event_type)).not.toContain('AlertClosed');
+
+    const closing = hub.deps.writer.run((tx) => {
+      counter.reset();
+      const out = changeDrafts(ctxOf(tx), order_id, before, [{ order_item_id: 'N2', units_out: 1 }]);
+      return { out, statements: counter.count };
+    }).result;
+    expect(closing.statements).toBe(1); // default 'close': the comp listOpen; N1 not in changes → not judged
+    expect(closing.out.comp_requests_closed).toEqual([]);
   });
 });
 

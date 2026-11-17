@@ -31,7 +31,26 @@ const ICONS: Record<BannerTone, ReactNode> = {
 };
 
 // `icon` replaces the tone's icon where a frame draws a specific one (cloud unreachable: wifi, 01a B04).
-export function Banner({ tone, text, detail, icon }: { tone: BannerTone; text: string; detail?: string; icon?: IconName }) {
+// `items` (01a v2.5 §8.2, G-21): a list under the text, e.g. the open void requests that block a day close.
+export function Banner({
+  tone,
+  text,
+  detail,
+  icon,
+  items,
+}: {
+  tone: BannerTone;
+  text: string;
+  detail?: string;
+  icon?: IconName;
+  items?: readonly string[];
+}) {
+  const body = (
+    <p>
+      {text}
+      {detail !== undefined && <small>{detail}</small>}
+    </p>
+  );
   return (
     <div className={`pos-banner pos-banner--${tone}`} role={tone === 'danger' ? 'alert' : 'status'}>
       {icon !== undefined ? (
@@ -41,10 +60,20 @@ export function Banner({ tone, text, detail, icon }: { tone: BannerTone; text: s
           {ICONS[tone]}
         </svg>
       )}
-      <p>
-        {text}
-        {detail !== undefined && <small>{detail}</small>}
-      </p>
+      {items === undefined || items.length === 0 ? (
+        body
+      ) : (
+        <div>
+          {body}
+          <ul className="pos-banner__items">
+            {items.map((row, i) => (
+              <li key={i}>
+                <small>{row}</small>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
