@@ -36,6 +36,9 @@ describe('Pulse 04 layers (04 §8; handoff 04 PROMPT step 1, O7)', () => {
     const rules = css.replace(/\/\*[\s\S]*?\*\//g, '');
     expect(rules).not.toMatch(/https?:\/\/|@import|url\(|@font-face|#[0-9a-f]{3,8}\b|rgb\(/i);
     for (const sel of ['.qline .qv', '.dlg--v.dlg--kiosk', '.vfoot .vsum', '.vfoot .vsum strong', ':is(.dlg--v, .dlg--all) .dlg__h .tcode', '.vround', '.dlg .pinboth']) expect(rules, sel).toContain(sel);
+    const admin = readFileSync(kitDir + 'pulse-04-admin-additions.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(admin).not.toMatch(/https?:\/\/|@import|url\(|@font-face|#[0-9a-f]{3,8}\b|rgb\(/i);
+    for (const sel of ['.pos-banner__body', '.pos-banner__list--scroll']) expect(admin, sel).toContain(sel);
   });
 
   it('[04 VU1] the staff kit loads pulse-04.css after pulse-02.css; only the Stock page loads pulse-04-admin.css', () => {
@@ -51,6 +54,7 @@ describe('Pulse 04 layers (04 §8; handoff 04 PROMPT step 1, O7)', () => {
     const stockText = readFileSync(root + 'apps/client/src/features/admin/stock/main.tsx', 'utf8');
     expect(stockText.indexOf("from '../../../app/mount'")).toBeLessThan(stockText.indexOf('pulse-04-admin.css'));
     expect(stock).toContain('../../../../../../packages/ui-kit/components/pulse-04-admin.css');
+    expect(stock.indexOf('../../../../../../packages/ui-kit/components/pulse-04-admin-additions.css')).toBe(stock.indexOf('../../../../../../packages/ui-kit/components/pulse-04-admin.css') + 1);
     for (const f of ['ui-kit.ts', 'ui-kit-staff.ts', 'ui-kit-kds.ts', 'ui-kit-admin.ts']) expect(importsOf(app + f), f).not.toContain(k('components/pulse-04-admin.css'));
   });
 });

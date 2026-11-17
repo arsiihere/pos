@@ -26,6 +26,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'admin_stock.title': 'اسٹاک',
   // 01a v2.5 §8.2 (04 §4.5 A-1, G-21).
   'admin_stock.errors.DAY_CLOSE_BLOCKED': '{count} آئٹم ہٹانے کی درخواستیں ابھی کھلی ہیں — پہلے ان کا جواب دیں',
+  // 04 v1.0.4 §8 Day close blocked (O9): count 1
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_one': '1 آئٹم ہٹانے کی درخواست ابھی کھلی ہے — پہلے اس کا جواب دیں',
   'admin_stock.errors.DAY_CLOSE_BLOCKED_more': 'اور {n} مزید',
   'admin_stock.filter.to_count': 'گننا باقی',
   'admin_stock.badge.low': 'کم',
