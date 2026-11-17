@@ -10,3 +10,5 @@
 .vfoot .vsum strong { font-size: 24px; }
 /* the table code in the void dialogs' header (frames Main, CancelOrder: inline 22px) */
 :is(.dlg--v, .dlg--all) .dlg__h .tcode { font-size: 22px; }
+/* Cancel table: one block per round (its label, Remove and Void groups), stacked as the single-order sheet's groups */
+.vround { display: flex; flex-direction: column; gap: 10px; }

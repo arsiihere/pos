@@ -512,3 +512,29 @@ describe('[04 §8] pending void on the table view', () => {
     expect(s.m.container.querySelector('.vptag')).toBeNull();
   });
 });
+
+describe('[04 v1.0.5 §8] Cancel table rounds (row S-1)', () => {
+  it('[04 #59b] the orders part hands the live rounds (not cancelled, not billed: O2 cancelled and O4 billed are left out) with the table view\'s round numbers', async () => {
+    const live1 = sorder('O1', at(20, 0), [sline('A', { stage: 'done' })]);
+    const gone = sorder('O2', at(20, 5), [sline('B', { stage: 'done' })], { cancelled: true });
+    const live3 = sorder('O3', at(20, 10), [sline('C', { stage: 'added' })]);
+    const billed = sorder('O4', at(20, 15), [sline('D', { stage: 'done' })], { billed: true });
+    const s = part({ body: { orders: [live3, billed, gone, live1], total_minor: 0 } });
+    await s.flush();
+    const got: Array<Array<{ n: number; order: { order_id: string; seating_id?: string } }>> = [];
+    s.m.render(
+      <ShellContext.Provider value={s.shell}>
+        <LateAlertsContext.Provider value={[]}>
+          <div className="tv__b">
+            <OrdersPart seating_id="S4" table_ids={['F4', 'F5']} primary_table_id="F4" holder_staff_id="ST-ALI" mine onRounds={(r) => got.push(r)} />
+          </div>
+        </LateAlertsContext.Provider>
+      </ShellContext.Provider>,
+    );
+    await s.flush();
+    expect(got.at(-1)!.map((r) => [r.n, r.order.order_id, r.order.seating_id])).toEqual([
+      [1, 'O1', 'S4'],
+      [3, 'O3', 'S4'],
+    ]);
+  });
+});

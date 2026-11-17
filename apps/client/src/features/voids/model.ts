@@ -1,5 +1,5 @@
 import { VOID_REASON_CODES, type VoidDisposition, type VoidReasonCode } from '@pos/domain';
-import type { MessageKey } from '../../i18n';
+import { t, type MessageKey } from '../../i18n';
 import type { SeatingLine } from '../staff/orders/contracts';
 import type { VoidItemsPayload, VoidPreview, VoidPreviewTouched } from './contracts';
 
@@ -117,4 +117,10 @@ export function voidPayload(o: { order_id: string; order_item_id: string; units:
 /** §8: g/ml items are voided whole (units fixed 1); piece lines and deal portions get the stepper. */
 export function weighedWhole(line: Pick<SeatingLine, 'line_kind' | 'sale_unit'>): boolean {
   return line.line_kind !== 'deal' && line.sale_unit !== 'piece';
+}
+
+/** A list as words: "Round 2 and Round 3", "a, b and c" (ur: ، / اور), from keys, never a hardcoded join. */
+export function listText(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return items.slice(0, -1).join(t('void_all.list_sep')) + t('void_all.list_and') + items[items.length - 1]!;
 }

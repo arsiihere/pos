@@ -39,7 +39,7 @@ const tilesOf = (body: unknown): MapTile[] => {
   return Array.isArray(map?.floors) ? map.floors.flatMap((f) => f.zones.flatMap((z) => z.tables)) : [];
 };
 
-export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine }: OrdersPartProps) => {
+export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine, onRounds }: OrdersPartProps) => {
   const shell = useShell();
   const rows = useContext(LateAlertsContext);
   const drafts = useDrafts();
@@ -150,6 +150,21 @@ export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine }: Or
     table_id: primary_table_id,
   });
   const lineOrders = orders.map(lineOrderOf);
+  // 04 v1.0.5 §8 Cancel table (row S-1): the live rounds of this read, with the table view's round numbers
+  const roundsRef = useRef(onRounds);
+  roundsRef.current = onRounds;
+  const liveKey = body === null ? '' : orders.map((o) => `${o.order_id}:${o.cancelled}:${o.billed}:${o.lines.map((l) => l.live_units).join('.')}`).join('|');
+  useEffect(() => {
+    if (body === null) return;
+    roundsRef.current?.(
+      orders.flatMap((o, i) =>
+        o.cancelled || o.billed || !o.lines.some((l) => l.live_units > 0)
+          ? []
+          : [{ n: i + 1, order: { order_id: o.order_id, order_type: 'dine_in' as const, ident, billed: o.billed, lines: o.lines, seating_id, table_id: primary_table_id } }],
+      ),
+    );
+    // liveKey names every order's state; ident and the seating change with seating_id
+  }, [liveKey, ident, seating_id, onRounds === undefined]);
   const candidates = orders.flatMap((o, i) => servedCandidatesOf(o.lines).map((c) => ({ ...c, round: fill(t('order.round'), { n: String(i + 1) }) })));
   const cards = lateCards({
     orders,

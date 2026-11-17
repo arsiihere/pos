@@ -139,7 +139,7 @@ Needs native review as well: the `audit.*` entries of `ur.ts` (from AuditUrdu; t
 
 Keys in `apps/client/src/i18n/en.ts` added by lane VU1 (handoff 04 CHANGES §2.1–§2.8) with no entry in `ur.ts`. They show in English on an Urdu page until translated (01a S49 fallback). The Urdu that frames `VoidSheetUrdu`, `VoidPendingUrdu` and `AnswerVoidUrdu` show is in `ur.ts`. `apps/client/test/voids-i18n.test.ts` checks that every VU1 key is either in `ur.ts` or listed here.
 
-48 keys.
+91 keys.
 
 | Key | English | Note |
 |---|---|---|
@@ -187,6 +187,49 @@ Keys in `apps/client/src/i18n/en.ts` added by lane VU1 (handoff 04 CHANGES §2.1
 | `void.pending.blocked_why` | It was served while the void waited. |  |
 | `void.toast.withdrawn` | Request withdrawn |  |
 | `void.toast.withdrawn.sub` | {item} is back on the bill |  |
+| `void.cancel_order` | Cancel order |  |
+| `void_all.title` | Cancel the order? |  |
+| `void_all.sub_one` | Removes what the kitchen hasn't started, voids the rest |  |
+| `void_all.remove_group` | Remove |  |
+| `void_all.remove_group.sub` | · not started · free, no approval |  |
+| `void_all.lines` | {n} line |  |
+| `void_all.lines_n` | {n} lines |  |
+| `void_all.void_group` | Void |  |
+| `void_all.void_group.sub` | · kitchen started · a manager answers each line |  |
+| `void_all.void_group.sub_direct` | · kitchen started · off the bill at once |  |
+| `void_all.waste_all` | Waste all |  |
+| `void_all.with_child` | · with {child} |  |
+| `void_all.dsel.moved` | To ready stock |  |
+| `void_all.dsel.moved_partly` | Cooked parts to stock |  |
+| `void_all.dsel.label` | Where {item} goes |  |
+| `void_all.reason_sub` | required · one for all lines |  |
+| `void_all.removed_now` | Removed lines go at once. |  |
+| `void_all.each_waits` | Each voided line waits for a manager. |  |
+| `void_all.keep` | Keep order |  |
+| `void_all.go.remove` | Remove {n} |  |
+| `void_all.go.ask` | ask to void {m} |  |
+| `void_all.go.ask_first` | Ask to void {m} |  |
+| `void_all.go.void` | void {m} |  |
+| `void_all.go.void_first` | Void {m} |  |
+| `void_all.nothing_cancelled` | {error} — nothing was cancelled |  |
+| `void_all.reloaded` | The list is reloaded. Try again when the table is free. |  |
+| `void_all.removed` | {item} ×{n} removed |  |
+| `void_all.voids_not_sent` | The voids were not sent: {error} |  |
+| `void_all.left_below` | What is left is below. Answer or withdraw the comp, then try again. |  |
+| `void_all.retry` | Try again · void {m} |  |
+| `void.toast.cancelled` | Order cancelled |  |
+| `void.toast.cancelled.sub` | {removed} removed · {voids} voids waiting for approval |  |
+| `void.toast.cancelled.sub_direct` | {removed} removed · {voids} voided |  |
+| `void_table.menu` | Cancel table |  |
+| `void_table.title` | Cancel the table? |  |
+| `void_table.round` | Round {n} |  |
+| `void_table.round_done` | Round {n} cancelled |  |
+| `void_table.toast.cancelled` | Table cancelled |  |
+| `void_table.toast.asked` | Voids asked |  |
+| `void_table.toast.sub` | {removed} removed · {voided} voided · {asked} waiting for approval |  |
+| `void_all.sub` | {rounds} · removes what the kitchen hasn't started, voids the rest |  |
+| `void_all.child` | + {name} ×{n} |  |
+| `void_all.disposition_note` | What happens to the Other lines? |  |
 | `comp.needs_manager` | Needs a manager's approval · online only | Frame VoidSheetUrdu: مینیجر کی منظوری چاہیے · صرف آن لائن (02b key, listed in 02b/urdu-todo.md) |
 | `comp.units` | Units | Frame VoidSheetUrdu: تعداد (02b key, listed in 02b/urdu-todo.md) |
 | `comp.ask` | Ask for approval | Frame VoidSheetUrdu: منظوری مانگیں (02b key, listed in 02b/urdu-todo.md) |

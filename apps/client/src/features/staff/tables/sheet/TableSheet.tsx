@@ -1,3 +1,4 @@
+import { CancelOrderSheet } from '../../../voids/CancelOrderSheet';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { t, type MessageKey } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
@@ -8,7 +9,7 @@ import { timeText } from '../../../alerts/labels';
 import { OrdersPart } from '../../orders/table-view/OrdersPart';
 import { useShell, type Shell } from '../../shell/hooks';
 import { orderHref } from '../../shell/routes';
-import type { MapTile, OpenTablePayload, SeatingRef, TableMapBody } from '../contracts';
+import type { MapTile, OpenTablePayload, SeatingRef, SeatingRound, TableMapBody } from '../contracts';
 import { AskBill } from '../dialogs/AskBill';
 import { CallWaiter } from '../dialogs/CallWaiter';
 import { Clean } from '../dialogs/Clean';
@@ -155,6 +156,10 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
   const { body, read, refresh } = useSheetMap(shell);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  // 04 v1.0.5 §8 Cancel table (row S-1, owner Q-VU1-1 (a)): the live rounds the orders part read, and the sheet
+  const [rounds, setRounds] = useState<SeatingRound[]>([]);
+  /** the rounds as they were when Cancel table was tapped (the sheet works on that snapshot) */
+  const [cancelRounds, setCancelRounds] = useState<SeatingRound[] | null>(null);
   /** 02a-D24: the Ask for bill confirm in place of the action grid, for the seating it opened on */
   const [billConfirm, setBillConfirm] = useState<SeatingRef | null>(null);
   const [busy, setBusy] = useState(false);
@@ -187,7 +192,21 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
     );
   }
 
-  const model = sheetModel(tile, me?.staff_id ?? null, permissions, online);
+  const base = sheetModel(tile, me?.staff_id ?? null, permissions, online);
+  // 04 v1.0.5 §8 (R5): Cancel table under More for a void-item holder (any grant) while the seating has a live round
+  const voidGrant = permissions.resolution('void-item').grant;
+  const cancelTable: SheetAction | null =
+    tile.seating_id !== null && rounds.length > 0 && (voidGrant === 'allowed' || voidGrant === 'requires_approval')
+      ? { id: 'cancel_table', off: online ? null : 'tables.toast.needs_hub', needsHub: true }
+      : null;
+  const model =
+    cancelTable === null
+      ? base
+      : {
+          ...base,
+          more: [...base.more, cancelTable],
+          acts: base.acts.some((a) => a.id === 'more') ? base.acts : [...base.acts, { id: 'more' as const, off: null, needsHub: false }],
+        };
   const code = tile.joined_table_names.length > 1 ? tile.joined_table_names.join(' + ') : tile.name;
   /** the seating this sheet shows (T18): always the drawn tile's (null = free → OpenTable opens a new one) */
   const seat = tile.seating_id;
@@ -328,6 +347,10 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
       case 'call':
         if (ref !== null) setDialog({ kind: 'call', seating: ref });
         return;
+      case 'cancel_table':
+        setMoreOpen(false);
+        setCancelRounds(rounds);
+        return;
       case 'clean':
       case 'mark_clean':
         setMoreOpen(false);
@@ -370,6 +393,8 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
         return t('sheet.act.split');
       case 'clean':
         return t('sheet.mark_clean');
+      case 'cancel_table':
+        return t('void_table.menu');
     }
   };
 
@@ -534,11 +559,15 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
                 primary_table_id={tile.primary_table_id}
                 holder_staff_id={tile.holder.staff_id}
                 mine={me !== null && tile.holder.staff_id === me.staff_id}
+                onRounds={setRounds}
               />
             </div>
           )}
         </section>
       </div>
+      {cancelRounds !== null && cancelRounds.length > 0 && (
+        <CancelOrderSheet rounds={cancelRounds} mode="table" onClose={() => setCancelRounds(null)} onDone={() => setCancelRounds(null)} onChanged={() => {}} />
+      )}
       {dialog?.kind === 'busy' && (
         <TableBusy
           code={code}
