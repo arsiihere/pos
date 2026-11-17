@@ -4,14 +4,15 @@ import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
 import { Ico } from '../../../alerts/ui';
 import { useShell } from '../../shell/hooks';
-import type { RemoveItemsPayload } from '../contracts';
+import type { RemoveItemsPayload, SeatingLine } from '../contracts';
 import { definitiveRefusal } from '../../tables/errors';
-import { showOrderError, Sheet, type LineOrder } from '../view/LineActions';
+import { showOrderError, Sheet, voidOffered, type LineOrder } from '../view/LineActions';
+import { VoidButton } from '../../../voids/ui';
 import { atStageOne, lineStage, stageText } from '../view/stage';
 
 // 02b v1.0.11 §8 Table view, §3.5, §6.2 (frame 02b-D31 Remove): remove units of one order's lines before the kitchen
-// starts (stage 1), free, no approval. A line past stage 1 points to Void, which stays disabled until module 04 is
-// built (Q-24). RemoveItems is online only (not queueable, §3.12); a dine-in order sends its seating_id.
+// starts (stage 1), free, no approval. A line past stage 1 points to Void (04 §8: the line's own Void sheet, for the
+// line the sheet was opened from). RemoveItems is online only (not queueable, §3.12); a dine-in order sends its seating_id.
 // One submission = one command_id (D32 / M19): after a lost reply (network, 5xx) the payload is frozen and "Remove"
 // sends it again with the SAME command_id, so a removal the hub already committed is answered from its stored
 // response, never applied twice; the id is dropped on a 2xx or a definitive refusal (then the ticks start over).
@@ -23,9 +24,11 @@ export interface RemoveSheetProps {
   onClose(): void;
   onDone(): void;
   onChanged(): void;
+  /** 04 §8: open the Void sheet of a line past stage 1 (absent: no Void offered) */
+  onVoid?: ((line: SeatingLine) => void) | undefined;
 }
 
-export function RemoveSheet({ order, from, onClose, onDone, onChanged }: RemoveSheetProps) {
+export function RemoveSheet({ order, from, onClose, onDone, onChanged, onVoid }: RemoveSheetProps) {
   const shell = useShell();
   // top-level lines only: a remove cascades to option children and deal parts (§3.4)
   const rows = order.lines.filter((l) => l.parent_order_item_id === null && l.live_units > 0);
@@ -33,8 +36,7 @@ export function RemoveSheet({ order, from, onClose, onDone, onChanged }: RemoveS
   const [busy, setBusy] = useState(false);
   /** a sent submission whose answer was lost: retried as it is */
   const [pending, setPending] = useState<{ commandId: string; payload: RemoveItemsPayload } | null>(null);
-  const voidGrant = shell.permissions.resolution('void-item').grant;
-  const showVoid = voidGrant === 'allowed' || voidGrant === 'requires_approval';
+  const approval = shell.permissions.resolution('void-item').grant === 'requires_approval';
   const set = (id: string, n: number | null) => {
     if (pending !== null) return;
     setUnits((cur) => {
@@ -103,11 +105,8 @@ export function RemoveSheet({ order, from, onClose, onDone, onChanged }: RemoveS
                   <b>{line.name}</b>
                   <small>{t('remove.use_void')}</small>
                 </span>
-                {showVoid ? (
-                  <button type="button" className="btn btn--quiet" disabled title={t('line.void_later')}>
-                    {t('line.void')}
-                    <small>{t('line.void_later')}</small>
-                  </button>
+                {onVoid !== undefined && voidOffered(shell, line, order) ? (
+                  <VoidButton approval={approval} onClick={() => onVoid(line)} />
                 ) : (
                   <span />
                 )}
