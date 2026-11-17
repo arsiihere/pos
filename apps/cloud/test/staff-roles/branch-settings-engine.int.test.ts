@@ -28,7 +28,7 @@ const DEFAULTS = {
   queue_auto_send_max_ms: 14_400_000,
   zone_undo_ms: 300_000,
   slow_item_threshold_ms: 900_000,
-  comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
+  comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest'], // 01a v2.4.4 (Q-19): 0014 drops "Other"
   // 03b v1.0.2 §4.5 A-1 / B-2 (01b v1.8, owner ruling (a) 2026-11-11): on the owner wire, writable. A row written after
   // 0012 takes served_estimate_ms null (Off).
   served_estimate_ms: null,

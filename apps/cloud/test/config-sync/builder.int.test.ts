@@ -197,7 +197,7 @@ describe('buildSnapshot', () => {
         zone_undo_ms: 300000,
         slow_item_threshold_ms: 900000,
         served_estimate_ms: null,
-        comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
+        comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest'], // 01a v2.4.4 (Q-19): 0014 drops "Other"
         ready_window_ms: 60000, // 03b A-1
         kds_offline_ms: 30000, // 03b A-1
       },
