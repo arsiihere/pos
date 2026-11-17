@@ -11,3 +11,5 @@ import '../../../../packages/ui-kit/components/pulse-04.css';
 import '../../../../packages/ui-kit/components/pulse-04-additions.css';
 // 04 VU2 (Audit log, 04-S03): VU2's additions, after VU1's pulse-04.css (which holds the frames' audit rules)
 import '../../../../packages/ui-kit/components/pulse-04-audit.css';
+// Q-73: the five-tab phone bar (handoff files are byte copies, so 02 additions live here)
+import '../../../../packages/ui-kit/components/staff-02-additions.css';

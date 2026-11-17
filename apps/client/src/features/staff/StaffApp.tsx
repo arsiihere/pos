@@ -54,7 +54,7 @@ import { passLiveOf } from '../pass/live';
 // top bar: brand block (mark, branch, device; the third line is the B05 slot, task 42), the segmented nav
 // Inbox · Requests (approvers) · Test alert (manage-devices), then Live / Hub offline, the clock and the person
 // chip (sign out). Portrait: the nav on its own row. Kiosk: no browser back, the nav is the way back. Phone: a
-// bottom tab bar Inbox · Sign out, and no Requests screen. The page is 100dvh; only the lists scroll. Dialogs,
+// bottom tab bar Tables · Orders · Requests (approvers, Q-73) · Inbox · Me. The page is 100dvh; only the lists scroll. Dialogs,
 // banners and the toast render inside the .pu root.
 // 02a §8, 02b §8 (W0.6, Q-3): the 02 shell — hash routes to the lane slots (shell/routes.tsx, shell/slots.tsx), the
 // socket's catch_up / event frames on the live bus (shell/live.ts), the branch settings (shell/config.ts), the full
@@ -454,7 +454,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
 
   const allowed = me?.allowed ?? new Set<string>();
   // AD-T41-10 (review fix): from the hub's own list, never from a permission name
-  const showRequests = !phone && requests.length > 0;
+  const showRequests = requests.length > 0;
   const showTest = !phone && allowed.has('manage-devices');
   // 04 §8 (VU2, R5): the audit log with view-audit-log granted outright (the hub refuses anything else), laptop and tablet
   const showAudit = !phone && allowed.has('view-audit-log');
@@ -600,8 +600,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
           onSelect: (floor_id: string) => navigate(floorHref(floor_id)),
         }
       : null;
-  const phoneTab = phoneTabOf(staffRoute);
-  const phoneTitle = phoneTab === 'tables' ? t('tabs.tables') : phoneTab === 'orders' ? t('tabs.orders') : phoneTab === 'me' ? t('tabs.me') : t('alerts.nav.inbox');
+  const routedTab = phoneTabOf(staffRoute);
+  // no Requests tab without requests to answer: #/requests then shows the inbox, so the tab and title say Inbox
+  const phoneTab: PhoneTab = routedTab === 'requests' && !showRequests ? 'inbox' : routedTab;
+  const phoneTitle = phoneTab === 'tables' ? t('tabs.tables') : phoneTab === 'orders' ? t('tabs.orders') : phoneTab === 'me' ? t('tabs.me') : phoneTab === 'requests' ? t('alerts.nav.requests') : t('alerts.nav.inbox');
   const body = (
     <div className={`pu v-brand staff${phone ? ' phone' : ''}`} lang={lang} dir={lang === 'ur' ? 'rtl' : 'ltr'} data-theme="light">
       <TopBar
@@ -654,7 +656,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         </div>
       )}
       {page}
-      {phone && me !== null && <PhoneTabs current={phoneTab} inbox={snap.unseen} />}
+      {phone && me !== null && <PhoneTabs current={phoneTab} inbox={snap.unseen} requests={showRequests ? answerable : null} />}
       {me !== null && opened === null && (
         <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} onOpen={open} onOpenInbox={() => navigate('/inbox')} />
       )}
@@ -758,6 +760,8 @@ function phoneTabOf(route: ReturnType<typeof matchStaffRoute>): PhoneTab {
     case 'queue':
     case 'kiosk_home':
       return 'orders';
+    case 'requests':
+      return 'requests';
     case 'me':
       return 'me';
     default:

@@ -46,10 +46,14 @@ describe('[04 §8 Rules] audit strings', () => {
 
 describe('[04 handoff PROMPT step 1] pulse-04-audit.css', () => {
   // (vitest hands CSS to tests empty, so the rules themselves are checked in the browser: VU2 PR screenshots)
-  it('the staff kit imports the VU2 additions last (after pulse-04.css once VU1 lands)', () => {
+  // merge 04-client → main: main's Q-73 staff-02-additions.css (only .tabbar--5, no 04 selector) is the kit's last
+  // import, pinned by test/pulse-02.test.ts; the VU2 additions are the last of the 04 layers
+  it('the staff kit imports the VU2 additions last of the 04 layers (after pulse-04.css and pulse-04-additions.css)', () => {
     const imports = [...kit.matchAll(/^import\s+['"]([^'"]+)['"];/gm)].map((m) => m[1]);
     const at = imports.indexOf('../../../../packages/ui-kit/components/pulse-04-audit.css');
     expect(at).toBeGreaterThan(imports.indexOf('../../../../packages/ui-kit/components/pulse-02.css'));
-    expect(at).toBe(imports.length - 1);
+    expect(at).toBeGreaterThan(imports.indexOf('../../../../packages/ui-kit/components/pulse-04.css'));
+    expect(at).toBe(imports.indexOf('../../../../packages/ui-kit/components/pulse-04-additions.css') + 1);
+    expect(imports.slice(at + 1)).toEqual(['../../../../packages/ui-kit/components/staff-02-additions.css']);
   });
 });
