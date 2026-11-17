@@ -88,16 +88,16 @@ C=$(git commit-tree "$TREE" -p origin/main -p origin/<module> -m "merge <module>
 git branch merge/<module>-to-main "$C"
 ```
 
-The commit has the module's tree and two parents: `main` and the module tip. Check before pushing: `git diff origin/<module> merge/<module>-to-main` must be empty and `git merge-base --is-ancestor origin/main merge/<module>-to-main` must succeed. Push the branch and open the PR into `main`. Examples: `merge/02a-to-main`, `merge/02b-to-main`, `merge/03b-client-to-main`.
+The commit has the module's tree and two parents: `main` and the module tip. **Only valid when the module tree already contains all of `main`**, i.e. `main` has not moved since the last sync into the module (`git log origin/<module>..origin/main` shows only merge commits whose trees the module already has). If `main` moved, sync first (7.2); otherwise this commit silently drops main's newer changes. Check before pushing: `git diff origin/<module> merge/<module>-to-main` must be empty and `git merge-base --is-ancestor origin/main merge/<module>-to-main` must succeed. Push the branch and open the PR into `main`. Examples: `merge/02a-to-main`, `merge/02b-to-main`, `merge/03b-client-to-main`.
 
 ### 7.2 Linear sync of main into a module branch
 
 ```
-TREE=<the tree you want the module to have after the sync>
+TREE=$(git merge-tree --write-tree origin/<module> origin/main)   # resolve conflicts in a scratch worktree if it fails
 C=$(git commit-tree "$TREE" -p origin/<module> -m "sync main into <module> [spec refs]")
 ```
 
-One parent only: the module tip. Use it when the module has nothing `main` lacks, or after you have merged in a scratch worktree and want the result as one linear commit. Check the tree with `git diff` against the expected result before pushing. The sync goes in by PR like any other change (IR-13 in section 8).
+One parent only: the module tip, because the module ruleset is rebase-only and `main` has merge commits. The tree is main merged into the module; when the merge base is too old (add/add conflicts on rebased copies), apply `git diff <last sync commit> origin/<module>` onto `origin/main` with `git apply -3` instead (as #209 did). Check the tree with `git diff` against the expected result before pushing. The sync goes in by PR like any other change (IR-13 in section 8).
 
 ## 8. CI and the local gate (IR-13)
 
