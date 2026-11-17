@@ -10,7 +10,7 @@
 
 | # | Owner said | Ruling |
 |---|---|---|
-| Q1 | b | **PRA adapter ships in the pilot** (Arif Chatkhara, Lahore). Port, outbox, rate table and adapter `none` are built either way (K-14). The owner registers the POS ID(s) with PRA and keeps the token outside the repo (§4 G1-12). |
+| Q1 | b (re-confirmed after M-15: live from day 1, G1-16) | **PRA adapter ships in the pilot** (Arif Chatkhara, Lahore). Port, outbox, rate table and adapter `none` are built either way (K-14). The owner registers the POS ID(s) with PRA and keeps the token outside the repo (§4 G1-12). |
 | Q2 | "fixed nahi; banda call par takeaway kar deta 'main aa raha hoon'; check bill jo final nahi hota par us par sab hota hai; band bill ko reopen bhi karna parta hai" | **(a) widened.** (1) A takeaway / parking bill may close at any time after Send — before the food, after it, or when a phone-order customer arrives. (2) **Check bill** (pro-forma): prints items, prices, discount, service charge, tax and total at any time, any number of times, marked **"PROVISIONAL – NOT A TAX INVOICE"**; no invoice number, no fiscal call, no money event (an audit row only). (3) Reopen → Q8. |
 | Q3 | "split payment ka matlab half bill cash, half online transfer" | **Superseded by §7 (21:48 PKT): splits are in the pilot.** First reading kept for the record: one bill paid by **one or more payments in different modes** (cash + online, cash + card, …) — this stays true inside every split. Mixed-class tax → Q4. |
 | Q4 | "best solution batana" | Explained (§2); final ruling there. |
@@ -116,17 +116,18 @@ Screenshots shown in chat; **not committed** (they show customer phone numbers; 
 | M-11 | Modes Cash, Credit Card, Jazz Cash | R7 owner list; online modes may require a reference (K-7). |
 | M-12 | "Check Bill" on the checkout screen | Q2 check bill (G1-1). |
 | M-13 | Availability screen (item struck out) | To confirm in spec task 0 which module marks an item unavailable by hand (01c `isAvailable` input / 03a stock); not 05. |
-| M-15 | Owner (21:52): **Mutfak is not integrated with PRA** | Q1 re-asked (§8 open facts). |
+| M-15 | Owner (21:52): **Mutfak is not integrated with PRA** | Q1 re-asked; owner (2026-11-17 ~21:55 PKT): **build PRA and run it live from day 1** on the POS floor (G1-16). |
 | M-14 | Delivery customer list mixes names and addresses ("BAKWAS", "!!!...CHINAR BAGH"); Call History | Delivery is P2: customer as name / phone / address fields, dedupe by phone; caller ID later. Not 05. |
 
 Added decision:
 
 | # | Decision |
 |---|---|
+| G1-16 | **PRA live from day 1 (Q1 re-asked, M-15).** The pilot branch's fiscal setting is `PRA` at go-live, not `none`. Go-live preconditions (owner tasks, in the plan's pilot checklist, not code): PRA registration of the POS ID(s) for the POS floor (A1 decides how many), production token, a sandbox run passed, and the owner's / accountant's acceptance that only the POS floor reports to PRA while the rest of the restaurant stays on Mutfak (R20). If any precondition is missing on go-live day the branch runs on `none` and switches by setting later (no code change); the switch date is recorded with the setting change (audited). |
 | G1-15 | **Tax is never chosen at the bill (M-4).** Each menu item has exactly one `tax_class_id` (01a S31, copied to the line, K-4); the rate comes from the authority table by (class, payment class, integration status, date) (K-15). The checkout screen has **no tax buttons**; nothing is pre-applied for staff to remove. A class's rate applies only to lines of that class; two classes are never added onto one line. Tax-exempt sale (if ever needed) is a menu / order-type setting, not a cashier action. Test: a bill with lines in two classes shows two tax rows, each on its own lines' base only. |
 | G1-14 | **Sticky charges (M-3):** a bill-level charge (service charge now; delivery charge later) is written once by rule at bill creation (`ChargeApplied`) and removed by `ChargeRemoved` (permission + reason); the bill projection folds both; no read path, print, split, merge or reopen recomputes it from the rule. |
 
-Open owner fact: **Q1 re-asked** — Q1 (b) was taken on the condition that today's billing posts to PRA; the owner says it does not (M-15).
+Q1 re-asked after M-15 and confirmed **live from day 1** (G1-16); no open owner facts.
 
 ## 8. Next
 
