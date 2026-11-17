@@ -117,6 +117,8 @@ interface Setup {
   config?: Record<string, unknown>;
   command?: (type: string, payload: unknown, opts?: { commandId?: string }) => Promise<unknown>;
   live?: LiveBus;
+  /** 04 §6.4 pending-voids answer (orders[].voids[]) */
+  pendingVoids?: () => unknown;
 }
 
 let current: Mounted | null = null;
@@ -149,7 +151,11 @@ function part(o: Setup = {}) {
     device: { token: 'D', id: 'DEV', type: 'tablet' },
     live,
     orders: orders as unknown as OrdersApi,
-    api: { command },
+    api: {
+      command,
+      query: vi.fn(async (path: string) => (path.startsWith('/queries/pending-voids') ? ok(o.pendingVoids?.() ?? { orders: [] }) : ok({}))),
+      roster: vi.fn(async () => ok({ staff: [{ staff_id: 'ST-ALI', display_name: 'Ali' }, { staff_id: 'ST-BILAL', display_name: 'Bilal' }], active_session: null })),
+    },
     tables: { tableMap: vi.fn(async () => ok(map)), releaseTableLock },
     permissions: createPermissions(o.perms ?? TAKER),
     toasts: createToastBus(),
@@ -407,5 +413,102 @@ describe('[02b §8 Table view E-7] 26d binding', () => {
     // the round was sent: 26d announces the comp-it line → "Comp the new …?"
     act(() => announceCompIt({ order_id: 'O5', order_type: 'dine_in', table_id: 'F4', seating_id: 'S4', lines: [] }, { lines: [{ key: 'N', item_id: 'KARAHI', quantity: 1, options: [], comp_it: true }] }));
     expect(s.m.container.querySelector('.dlg')?.textContent).toContain('Comp the new Chicken Karahi?');
+  });
+});
+
+// 04 §8 Pending tag (handoff 04-B01: VoidPending, VoidPendingOther, VoidBlocked; §10 #58).
+describe('[04 §8] pending void on the table view', () => {
+  const VOIDER: Record<string, Resolution> = { ...TAKER, 'void-item': { grant: 'requires_approval', approver_role_ids: ['R'], scope: 'branch' } };
+  const lines = () => [
+    sline('Karahi', { name: 'Chicken Karahi — Full', stage: 'cooking', billed_minor: 220_000 }),
+    sline('Extra', { name: 'Extra naan', line_kind: 'option_child', parent_order_item_id: 'Karahi', stage: null, units: 2, live_units: 2, billed_minor: 8_000 }),
+    sline('Naan', { stage: 'done', units: 6, live_units: 6, billed_minor: 24_000 }),
+  ];
+  const pv = (over: Record<string, unknown> = {}) => ({
+    alert_id: 'AV1',
+    order_item_id: 'Karahi',
+    units: 1,
+    touched_ids: ['Karahi', 'Extra'],
+    refund_minor: 228_000,
+    comp_voided_minor: 5_000,
+    requester_staff_id: 'ST-ALI',
+    raised_at: NOW - 60_000,
+    blocked: null,
+    ...over,
+  });
+  const body = { orders: [sorder('O2', at(20, 10), lines())], total_minor: 995_000 };
+  const pendingBody = (over: Record<string, unknown> = {}) => ({ orders: [{ order_id: 'O2', voids: [pv(over)] }] });
+
+  it('[04 #58] the line and its child show PENDING VOID struck on red; the total excludes refund_minor only, and says so', async () => {
+    const s = part({ body, perms: VOIDER, pendingVoids: () => pendingBody() });
+    await s.flush();
+    const k = s.m.container.querySelector('.ol[data-line="Karahi"]')!;
+    expect(k.classList.contains('pend')).toBe(true);
+    expect(k.querySelector('.vptag')?.textContent).toBe('Pending void');
+    const child = s.m.container.querySelector('.ol[data-line="Extra"]')!;
+    expect(child.classList.contains('pend')).toBe(true);
+    expect(child.querySelector('.vptag')).toBeNull();
+    expect(s.m.container.querySelector('.ol[data-line="Naan"]')!.classList.contains('pend')).toBe(false);
+    const sec = s.m.container.querySelector('.tv__sec')!;
+    // 995,000 − 228,000 (refund_minor; comp_voided_minor is not subtracted again)
+    expect(sec.querySelector('b.num')?.textContent).toBe('Rs 7,670');
+    expect(sec.querySelector('.xp')?.textContent).toBe('Rs 2,280 pending void not counted');
+    expect((s.shell.api.query as ReturnType<typeof vi.fn>).mock.calls.some((c) => c[0] === '/queries/pending-voids?order_ids=O2')).toBe(true);
+  });
+
+  it('[04 #58] the requester: "Void pending" + Withdraw (WithdrawRequest), no line actions while locked; withdraw toasts and reads again', async () => {
+    let open = true;
+    const s = part({ body, perms: VOIDER, pendingVoids: () => (open ? pendingBody() : { orders: [] }), command: async () => ok({}) });
+    await s.flush();
+    const card = s.m.container.querySelector('.wcard.c-danger')!;
+    expect(card.querySelector(':scope > div > b')?.textContent).toBe('Void pending');
+    expect(card.querySelector(':scope > div > small')?.textContent).toBe('×1');
+    s.select('Karahi');
+    expect(s.m.container.querySelector('.ol[data-line="Karahi"] .ol__ctrl button.btn--void')).toBeNull();
+    open = false;
+    s.m.click(s.m.button('Withdraw', card));
+    await s.flush();
+    expect(s.command).toHaveBeenCalledWith('WithdrawRequest', { alert_id: 'AV1' });
+    expect(s.shell.toasts.current()).toEqual({ text: 'Request withdrawn', sub: 'Chicken Karahi — Full is back on the bill' });
+    await s.flush();
+    expect(s.m.container.querySelector('.vptag')).toBeNull();
+    expect(s.m.container.querySelector('.tv__sec .xp')).toBeNull();
+  });
+
+  it('[04 §8] anyone else: "Asked by Bilal · time · waiting for a manager", no Withdraw', async () => {
+    const s = part({ body, perms: VOIDER, pendingVoids: () => pendingBody({ requester_staff_id: 'ST-BILAL' }) });
+    await s.flush();
+    const card = s.m.container.querySelector('.wcard.c-danger')!;
+    expect(card.querySelector(':scope > div > small')?.textContent).toMatch(/^Asked by Bilal · \d{1,2}:\d{2} (AM|PM) · waiting for a manager$/);
+    expect(card.querySelector('button')).toBeNull();
+  });
+
+  it('[04 §8] a requester the roster does not know: "Asked at {time} · waiting for a manager", never a staff id', async () => {
+    const s = part({ body, perms: VOIDER, pendingVoids: () => pendingBody({ requester_staff_id: 'ST-ZED' }) });
+    await s.flush();
+    const sub = s.m.container.querySelector('.wcard.c-danger > div > small')?.textContent ?? '';
+    expect(sub).toMatch(/^Asked at \d{1,2}:\d{2} (AM|PM) · waiting for a manager$/);
+    expect(sub).not.toContain('ST-ZED');
+  });
+
+  it('[04 §8] blocked (served meanwhile): the requester sees "Can\'t be approved as stock any more — withdraw and ask again" and keeps Withdraw', async () => {
+    const s = part({ body, perms: VOIDER, pendingVoids: () => pendingBody({ blocked: 'not_movable_stage' }) });
+    await s.flush();
+    const card = s.m.container.querySelector('.wcard--blocked')!;
+    expect(card.querySelector('b')?.textContent).toBe("Can't be approved as stock any more — withdraw and ask again");
+    expect(s.m.button('Withdraw', card)).toBeDefined();
+  });
+
+  it('[04 §8] pending-voids is read again with every read of the orders (an ItemVoided frame)', async () => {
+    let open = true;
+    const s = part({ body, perms: VOIDER, pendingVoids: () => (open ? pendingBody() : { orders: [] }) });
+    await s.flush();
+    expect(s.m.container.querySelector('.vptag')).not.toBeNull();
+    open = false;
+    s.setBody({ ...body });
+    s.frame(5, 'ItemVoided', { order_id: 'O2', order_item_id: 'Karahi' });
+    await new Promise((r) => setTimeout(r, 300));
+    await s.flush();
+    expect(s.m.container.querySelector('.vptag')).toBeNull();
   });
 });

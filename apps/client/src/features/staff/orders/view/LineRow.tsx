@@ -3,6 +3,8 @@ import { t } from '../../../../i18n';
 import { Ico } from '../../../alerts/ui';
 import type { LineView, SeatingLine } from '../contracts';
 import { MONEY_DIR, money } from '../money';
+import { useLinePendingVoid } from '../../../voids/pending';
+import { VIco } from '../../../voids/icons';
 import { isServed, isWeightPending, lineBadges, lineStage, optionsText, stageText } from './stage';
 
 // 02b v1.0.11 §8 Table view (frames TableView, OrderView, Stages): one order line `.ol` — units, name, the plain
@@ -52,7 +54,9 @@ export function LineRow({ line, mode, utcOffsetMs, selected = false, onSelect, c
       select();
     }
   };
-  const cls = ['ol', child ? 'child' : null, struck ? 'struck' : null, selected ? 'sel' : null].filter((c) => c !== null).join(' ');
+  // 04 §8 Pending tag: a line locked by an open void request is struck on red; the named line shows PENDING VOID
+  const pend = useLinePendingVoid(line.order_item_id);
+  const cls = ['ol', child ? 'child' : null, struck ? 'struck' : null, pend !== null ? 'pend' : null, selected ? 'sel' : null].filter((c) => c !== null).join(' ');
   return (
     <div
       className={cls}
@@ -62,6 +66,12 @@ export function LineRow({ line, mode, utcOffsetMs, selected = false, onSelect, c
       <span className="ol__q num">{units}×</span>
       <span className="ol__n">
         <b>{child && line.line_kind === 'option_child' ? `+ ${line.name}` : line.name}</b>
+        {pend !== null && pend.order_item_id === line.order_item_id && (
+          <span className="vptag">
+            <VIco name="hourglass" />
+            {t('void.pending.tag')}
+          </span>
+        )}
         {subs.map((s, i) => (
           <span key={i} dir="auto">
             {s}

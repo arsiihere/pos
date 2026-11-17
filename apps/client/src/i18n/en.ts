@@ -2944,6 +2944,18 @@ export const en = {
   'void.toast.voided': 'Voided',
   'void.toast.voided.sub': '{item} ×{n} · {amount} off the bill',
   'void.err.VALIDATION_FAILED': 'This line changed — check the units and try again.',
+  // 04 §8 Pending tag (VU1; handoff 04 CHANGES §2.3, §2.8).
+  'void.pending.tag': 'Pending void',
+  'void.pending.not_counted': '{amount} pending void not counted',
+  'void.pending.title': 'Void pending',
+  'void.pending.mine': '×{units} · {reason} · {disposition}',
+  'void.pending.units': '×{units}',
+  'void.pending.other': 'Asked by {name} · {time} · waiting for a manager',
+  'void.pending.other_noname': 'Asked at {time} · waiting for a manager',
+  'void.pending.blocked': "Can't be approved as stock any more — withdraw and ask again",
+  'void.pending.blocked_why': 'It was served while the void waited.',
+  'void.toast.withdrawn': 'Request withdrawn',
+  'void.toast.withdrawn.sub': '{item} is back on the bill',
 } as const;
 
 export type MessageKey = keyof typeof en;

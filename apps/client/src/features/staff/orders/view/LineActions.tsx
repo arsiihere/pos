@@ -13,6 +13,7 @@ import { SendBackSheet } from '../actions/SendBackSheet';
 import { WeightSheet } from '../actions/WeightSheet';
 import { VoidSheet } from '../../../voids/VoidSheet';
 import { VoidButton } from '../../../voids/ui';
+import { useLinePendingVoid } from '../../../voids/pending';
 import type { OrderType, SeatingLine } from '../contracts';
 import { atStageOne, isReady, isServed, isWeightPending, lineStage, servable } from './stage';
 
@@ -182,6 +183,8 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
   // an open request closing (answered, withdrawn) brings Comp back
   useSyncExternalStore(comps.subscribe, comps.version);
   const [open, setOpen] = useState<Open>(null);
+  // 04 §8 / handoff decision 9: no line actions while a void request locks the line
+  const locked = useLinePendingVoid(line.order_item_id) !== null;
   /** 04 §8: the line the Void sheet is for (this line, or one picked in the Remove sheet) */
   const [voidOf, setVoidOf] = useState<SeatingLine>(line);
   const may = (p: Parameters<Shell['permissions']['allowed']>[0]) => shell.permissions.allowed(p);
@@ -216,6 +219,7 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
     onChanged();
   };
 
+  if (locked && open === null) return null;
   return (
     <>
       {may('mark-served') && servable(line) && (

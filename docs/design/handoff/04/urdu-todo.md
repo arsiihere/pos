@@ -139,7 +139,7 @@ Needs native review as well: the `audit.*` entries of `ur.ts` (from AuditUrdu; t
 
 Keys in `apps/client/src/i18n/en.ts` added by lane VU1 (handoff 04 CHANGES §2.1–§2.8) with no entry in `ur.ts`. They show in English on an Urdu page until translated (01a S49 fallback). The Urdu that frames `VoidSheetUrdu`, `VoidPendingUrdu` and `AnswerVoidUrdu` show is in `ur.ts`. `apps/client/test/voids-i18n.test.ts` checks that every VU1 key is either in `ur.ts` or listed here.
 
-42 keys.
+48 keys.
 
 | Key | English | Note |
 |---|---|---|
@@ -181,6 +181,12 @@ Keys in `apps/client/src/i18n/en.ts` added by lane VU1 (handoff 04 CHANGES §2.1
 | `void.toast.voided` | Voided |  |
 | `void.toast.voided.sub` | {item} ×{n} · {amount} off the bill |  |
 | `void.err.VALIDATION_FAILED` | This line changed — check the units and try again. |  |
+| `void.pending.other` | Asked by {name} · {time} · waiting for a manager |  |
+| `void.pending.other_noname` | Asked at {time} · waiting for a manager |  |
+| `void.pending.blocked` | Can't be approved as stock any more — withdraw and ask again |  |
+| `void.pending.blocked_why` | It was served while the void waited. |  |
+| `void.toast.withdrawn` | Request withdrawn |  |
+| `void.toast.withdrawn.sub` | {item} is back on the bill |  |
 | `comp.needs_manager` | Needs a manager's approval · online only | Frame VoidSheetUrdu: مینیجر کی منظوری چاہیے · صرف آن لائن (02b key, listed in 02b/urdu-todo.md) |
 | `comp.units` | Units | Frame VoidSheetUrdu: تعداد (02b key, listed in 02b/urdu-todo.md) |
 | `comp.ask` | Ask for approval | Frame VoidSheetUrdu: منظوری مانگیں (02b key, listed in 02b/urdu-todo.md) |

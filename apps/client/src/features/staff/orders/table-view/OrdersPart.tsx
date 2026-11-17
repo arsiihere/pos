@@ -7,6 +7,8 @@ import { useShell } from '../../shell/hooks';
 import type { MapTile, OrdersPartProps, TableMapBody } from '../../tables/contracts';
 import { CompItPrompt } from '../actions/CompItPrompt';
 import { CompWaiting } from '../actions/CompWaiting';
+import { usePendingRefund, usePendingVoidsRead } from '../../../voids/pending';
+import { VoidWaiting } from '../../../voids/VoidWaiting';
 import type { CompItSource } from '../actions/pending-comps';
 import { sendAsNewItem } from '../actions/SendBackSheet';
 import { useDrafts } from '../order-screen/OrderScreen';
@@ -130,6 +132,10 @@ export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine }: Or
   const slips = caught?.open_slips === undefined && liveSlips === null ? undefined : [...(caught?.open_slips ?? []).filter((s) => !(liveSlips ?? []).some((x) => x.alert_id === s.alert_id)), ...(liveSlips ?? [])];
 
   const orders = useMemo(() => [...(body?.orders ?? [])].sort((a, b) => a.placed_at - b.placed_at), [body]);
+  // 04 §8 Pending tag: pending-voids with every read of the seating's orders; the total leaves their refund_minor out
+  const orderIds = orders.map((o) => o.order_id);
+  usePendingVoidsRead(orderIds, body);
+  const pendingRefund = usePendingRefund(orderIds);
   const may = shell.permissions.allowed;
   // the hub's RemoveItems needs take-order; the lock is the holder's, or take-order-anywhere's
   const canTakeOrder = may('take-order') && (mine || may('take-order-anywhere'));
@@ -171,7 +177,12 @@ export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine }: Or
       {queuedServed.has(line.order_item_id) && <span className="muted">{t('tv.queued_served')}</span>}
     </>
   );
-  const below = (line: SeatingLine) => <CompWaiting line={line} onChanged={reread} />;
+  const below = (line: SeatingLine) => (
+    <>
+      <CompWaiting line={line} onChanged={reread} />
+      <VoidWaiting line={line} onChanged={reread} />
+    </>
+  );
   const select = (id: string) => setSelected(selected === id ? null : id);
   const toWeigh = orders.flatMap((o) => o.lines).filter((l) => isWeightPending(l) && l.live_units > 0).length;
   const numberOf = new Map(orders.map((o, i) => [o.order_id, i + 1]));
@@ -200,9 +211,12 @@ export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine }: Or
             <>
               {fill(t('tv.n_orders'), { n: String(orders.length) })} ·{' '}
               <b className="num" dir={MONEY_DIR}>
-                {money(body.total_minor)}
+                {money(body.total_minor - pendingRefund)}
               </b>
               {toWeigh > 0 && <small>{fill(t('tv.to_weigh'), { n: String(toWeigh) })}</small>}
+              {pendingRefund > 0 && (
+                <span className="xp">{fill(t('void.pending.not_counted'), { amount: money(pendingRefund) })}</span>
+              )}
             </>
           ) : null}
         </span>
