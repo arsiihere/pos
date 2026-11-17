@@ -38,7 +38,7 @@ export function PhoneTabs({ current, inbox, requests = null }: { current: PhoneT
     </a>
   );
   return (
-    <nav className="tabbar" aria-label={t('tabs.tables')}>
+    <nav className={requests !== null ? 'tabbar tabbar--5' : 'tabbar'} aria-label={t('tabs.tables')}>
       {link('tables', <TabIcon name="tables" />, t('tabs.tables'))}
       {link('orders', <TabIcon name="orders" />, t('tabs.orders'))}
       {requests !== null && link('requests', <Ico name="shield" />, t('alerts.nav.requests'), badgeText(requests))}

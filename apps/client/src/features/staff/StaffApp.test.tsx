@@ -461,6 +461,8 @@ describe('[02a §8 Top bar] staff shell', () => {
       await phoneSignIn(hub({ requests: [requestRow({ alert_id: 'R1' })] }));
       const tabs = [...m.container.querySelectorAll('nav.tabbar a.tab')];
       expect(tabs.map((a) => a.textContent)).toEqual(['Tables', 'Orders', 'Requests1', 'Inbox', 'Me']);
+      // five tabs fit one row at phone width: the bar carries the five-column modifier (staff-02-additions.css)
+      expect(m.container.querySelector('nav.tabbar')?.classList.contains('tabbar--5')).toBe(true);
       const req = tabs.find((a) => a.textContent?.startsWith('Requests'))!;
       expect(req.getAttribute('href')).toBe('#/requests');
       expect(req.querySelector('.badge')?.textContent).toBe('1');
@@ -480,6 +482,7 @@ describe('[02a §8 Top bar] staff shell', () => {
     try {
       await phoneSignIn(hub());
       expect([...m.container.querySelectorAll('nav.tabbar a.tab')].map((a) => a.textContent)).toEqual(['Tables', 'Orders', 'Inbox', 'Me']);
+      expect(m.container.querySelector('nav.tabbar')?.classList.contains('tabbar--5')).toBe(false);
       act(() => {
         window.location.hash = '#/requests';
       });
