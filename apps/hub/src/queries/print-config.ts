@@ -19,7 +19,7 @@ import { defineQuery, queryRegistry, type QueryCtx } from './registry.js';
 // - `fold_skipped`   every print_fold_skips row (§3.3: "the print-config page lists every skip");
 // - `suspect_waiting` per station (or without one: a document) with suspect jobs not yet resolved.
 
-export type PrintConfigWarning = { station_id?: string | null; item_id?: string; kind: 'lossy_name' | 'fold_skipped' | 'suspect_waiting' | 'screen_unused' | 'no_screen' };
+export type PrintConfigWarning = { station_id?: string | null; item_id?: string; name?: string; kind: 'lossy_name' | 'fold_skipped' | 'suspect_waiting' | 'screen_unused' | 'no_screen' };
 
 const PRINTERS_SQL = `
 SELECT p.printer_id, p.name, p.connection, p.address, p.paper_width_mm, p.archived_at, p.updated_at,
@@ -57,15 +57,15 @@ function lossyNames(config: QueryCtx['branchConfig'], printing: ReadonlySet<stri
     const targets = [item.station_id, ...(alternates.get(item.station_id) ?? []), ...(routed.get(item.item_id) ?? [])];
     if (!targets.some((t) => printing.has(t))) continue;
     prints.add(item.item_id);
-    if (lossy(item.name)) out.push({ station_id: item.station_id, item_id: item.item_id, kind: 'lossy_name' });
+    if (lossy(item.name)) out.push({ station_id: item.station_id, item_id: item.item_id, kind: 'lossy_name', name: item.name });
   }
   const groups = new Set(config.items.filter((i) => prints.has(i.item_id)).flatMap((i) => i.modifier_group_ids));
   for (const g of config.modifier_groups) {
     if (!groups.has(g.modifier_group_id)) continue;
-    for (const o of g.options) if (lossy(o.name)) out.push({ station_id: null, item_id: o.option_id, kind: 'lossy_name' });
+    for (const o of g.options) if (lossy(o.name)) out.push({ station_id: null, item_id: o.option_id, kind: 'lossy_name', name: o.name });
   }
   for (const d of config.deals) {
-    if (d.parts.some((p) => p.choices.some((c) => prints.has(c.item_id))) && lossy(d.name)) out.push({ station_id: null, item_id: d.deal_id, kind: 'lossy_name' });
+    if (d.parts.some((p) => p.choices.some((c) => prints.has(c.item_id))) && lossy(d.name)) out.push({ station_id: null, item_id: d.deal_id, kind: 'lossy_name', name: d.name });
   }
   return out;
 }

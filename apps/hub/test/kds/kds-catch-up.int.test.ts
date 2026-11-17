@@ -1,5 +1,5 @@
 import { stationView, type EngineState } from '@pos/engine';
-import { KdsStationBody, WsKdsLines } from '@pos/events';
+import { KdsStationBody, WsKdsLines, type BranchConfig } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildLineDetails } from '../../src/kds/contracts';
@@ -10,7 +10,7 @@ import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
-import { FX, append, appendOrder, fireLines, openDay, pairKds, removeLine, voidLine } from './fixtures';
+import { FX, append, appendOrder, fireLines, fixtureMenu, openDay, openSeating, pairKds, removeLine, voidLine } from './fixtures';
 
 // 03b §6.14 (`kds_station` catch-up part, 4 statements since v1.0.6 Q-20: + has_printer), §6.16 (`kds_lines` frame, once per id, 2 statements per
 // commit that adds lines); tests #65 (kds half), #66; task b18. Real submit batches, fires, removals, voids, moves to
@@ -377,5 +377,121 @@ describe('[03b §6.16] kds_lines frame (b18)', () => {
     const counter = detailsCounter(hub.deps.db);
     appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'A1', item_id: FX.naan }] });
     expect(counter.count).toBe(0);
+  });
+});
+
+describe('[03b #68] table moves re-send the held lines (HK3, Q-47) - KDS station sockets', () => {
+  const tableMenu = (): BranchConfig => {
+    const m = fixtureMenu();
+    const floor = m.floors[0]!;
+    return { ...m, floors: [{ ...floor, tables: ['4', '5', '9', '10', '11'].map((n, i) => ({ table_id: `T${n}`, name: n, seats: 4, sort_order: i, zone_id: null })) }] };
+  };
+  const startTables = async (): Promise<void> => {
+    hub = await createTestHub({ provisioned: true });
+    await seedDirectory(hub, await aDirectory());
+    openDay(hub, { menu: tableMenu() });
+  };
+  const tableEvent = (stream: string, event_type: string, payload: Record<string, unknown>) => append(hub, [{ stream_type: 'table', stream_id: stream, event_type, payload: { ...payload, by_staff_id: 'S_WAIT' } }]);
+  const move = (seating_id: string, from_table_id: string, to_table_id: string) => tableEvent(from_table_id, 'TableMoved', { seating_id, from_table_id, to_table_id });
+  const dineIn = (table_id: string, seating_id: string, line: string): string => {
+    openSeating(hub, { table_id, seating_id });
+    return appendOrder(hub, { order_type: 'dine_in', seating_id, lines: [{ order_item_id: line, item_id: FX.piece }] }).order_id;
+  };
+  const labelOf = (frames: Array<{ lines: Array<{ order_item_id: string; identifier: { kind: string; label?: string } }> }>, id: string): string | undefined =>
+    frames.flatMap((f) => f.lines).filter((l) => l.order_item_id === id).map((l) => l.identifier.label).at(-1);
+  const lineIds = (frames: Array<{ lines: Array<{ order_item_id: string }> }>): string[][] => frames.map((f) => f.lines.map((l) => l.order_item_id));
+  /** Counts the table-event read (Q-47) only. */
+  function seatingReads(db: Database.Database): { readonly count: number; reset(): void } {
+    let count = 0;
+    const prepare = db.prepare.bind(db);
+    db.prepare = ((sql: string) => {
+      const statement = prepare(sql);
+      if (sql.includes('SELECT order_id FROM seating_orders WHERE seating_id IN')) {
+        const all = statement.all.bind(statement);
+        statement.all = ((...args: unknown[]) => {
+          count += 1;
+          return all(...(args as []));
+        }) as typeof statement.all;
+      }
+      return statement;
+    }) as typeof db.prepare;
+    return { get count() { return count; }, reset() { count = 0; } };
+  }
+
+  it('[03b #68] TableMoved T4 → T9: one kds_lines and one point_lines frame re-send the held lines with identifier T9', async () => {
+    await startTables();
+    dineIn('T4', 'SE4', 'D1');
+    dineIn('T5', 'SE5', 'D2');
+    const ws = await socketOf('station');
+    await settle();
+    expect(kdsLines(ws)).toEqual([]);
+    move('SE4', 'T4', 'T9');
+    await settle();
+    expect(lineIds(kdsLines(ws))).toEqual([['D1']]);
+    expect(kdsLines(ws)[0]!.lines[0]!.identifier).toEqual({ kind: 'table', label: 'T9' });
+  });
+
+  it('[03b #68] TablesMerged absorbing the seating → "T9 + T10"; SeatingSplit moving an order → its lines re-sent with the new table', async () => {
+    await startTables();
+    dineIn('T9', 'SE9', 'D1');
+    const o10 = dineIn('T10', 'SE10', 'D2');
+    const ws = await socketOf('station');
+    await settle();
+    tableEvent('T9', 'TablesMerged', { into_seating_id: 'SE9', into_table_id: 'T9', table_ids: ['T10'], absorbed_seating_id: 'SE10', order_ids: [o10] });
+    await settle();
+    expect(lineIds(kdsLines(ws))).toEqual([['D1', 'D2']]);
+    expect(labelOf(kdsLines(ws), 'D1')).toBe('T9 + T10');
+    expect(labelOf(kdsLines(ws), 'D2')).toBe('T9 + T10');
+
+    tableEvent('T9', 'SeatingSplit', { from_seating_id: 'SE9', new_seating_id: 'SE11', to_table_id: 'T11', order_ids: [o10] });
+    await settle();
+    expect(lineIds(kdsLines(ws))).toEqual([['D1', 'D2'], ['D1', 'D2']]);
+    expect(labelOf(kdsLines(ws), 'D2')).toBe('T11');
+    expect(labelOf(kdsLines(ws), 'D1')).toBe('T9 + T10');
+  });
+
+  it('[03b #68] lines of other seatings are not re-sent; a commit without a table event sends nothing extra', async () => {
+    await startTables();
+    dineIn('T4', 'SE4', 'D1');
+    dineIn('T5', 'SE5', 'D2');
+    const ws = await socketOf('station');
+    await settle();
+    move('SE4', 'T4', 'T9');
+    await settle();
+    expect(lineIds(kdsLines(ws))).toEqual([['D1']]);
+
+    appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'X1', item_id: FX.piece }] });
+    fireLines(hub, FX.station, ['D1', 'D2']);
+    await settle();
+    expect(lineIds(kdsLines(ws))).toEqual([['D1'], ['X1']]);
+  });
+
+  it('[03b #68] statements ≤ 2 + 1 per hook (KDS and Pass each), only in a commit with a table event', async () => {
+    await startTables();
+    dineIn('T4', 'SE4', 'D1');
+    const counter = statementCounter(hub.deps.db);
+    const reads = seatingReads(hub.deps.db);
+    // the same commit shape with no socket connected: the hooks return before any read
+    counter.reset();
+    move('SE4', 'T4', 'T9');
+    const bare = counter.count;
+    expect(reads.count, 'no socket: no read').toBe(0);
+
+    const ws = await socketOf('station');
+    await settle();
+    counter.reset();
+    reads.reset();
+    move('SE4', 'T9', 'T4');
+    const hooked = counter.count - bare;
+    expect(hooked, 'buildLineDetails 2 + the seating_orders read 1').toBeLessThanOrEqual(3);
+    expect(reads.count).toBe(1);
+    await settle();
+    expect(lineIds(kdsLines(ws))).toEqual([['D1']]);
+
+    // a commit with no table event: no seating_orders read; the commit holding no new line reads nothing at all
+    counter.reset();
+    reads.reset();
+    fireLines(hub, FX.station, ['D1']);
+    expect(reads.count).toBe(0);
   });
 });

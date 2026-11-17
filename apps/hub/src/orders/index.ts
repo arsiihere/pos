@@ -21,6 +21,7 @@ import { registerLineCompedAudience } from './audiences.js'; // §6.19: its fixe
 import { registerOrdersCatchUp } from './catch-up.js';
 import { registerOpenOrdersQuery } from './queries/open-orders.js';
 import { registerOrderContactQuery } from './queries/order-contact.js';
+import { registerOrderViewQuery } from './queries/order-view.js';
 import { registerSeatingOrdersQuery } from './queries/seating-orders.js';
 import { registerZoneStockQuery } from './queries/zone-stock.js';
 import { registeredTicks, registerTick } from '../alerts/tick.js';
@@ -60,6 +61,7 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
   registerOpenOrdersQuery(app); // §6.16
   registerZoneStockQuery(app); // §6.17
   registerOrderContactQuery(app); // §6.18 (countsAsActivity true)
+  registerOrderViewQuery(app); // ⚠️ 02b v1.0.11 §6.18a (Q-8; countsAsActivity false)
   const stopOrdersCatchUp = registerOrdersCatchUp(); // catch-up part `orders`; removed when this server closes
   const stopCompAudience = registerLineCompedAudience(app); // §6.19 LineComped (directory per server)
   app.addHook('onClose', async () => {

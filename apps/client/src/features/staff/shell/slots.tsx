@@ -1,0 +1,72 @@
+import type { ReactNode } from 'react';
+import type { AlertRow } from '../../alerts/store';
+import { PassScreen } from '../../pass/PassScreen';
+import { Held } from '../orders/order-screen/Held';
+import { OrderScreen } from '../orders/order-screen/OrderScreen';
+import { KioskHome } from '../orders/lists/KioskHome';
+import { OpenOrders } from '../orders/lists/OpenOrders';
+import { QueueLog } from '../orders/queue/QueueLog';
+import { OrderView } from '../orders/view/OrderView';
+import { ZoneStock } from '../orders/zones/ZoneStock';
+import { TableMap } from '../tables/map/TableMap';
+import { TableSheet } from '../tables/sheet/TableSheet';
+import type { StaffRoute } from './routes';
+
+// 02a §8, 02b §8 (W0.6): which lane's screen a 02 route mounts, as a direct child of the .pu root (the frames'
+// .map / .order layouts are flex children of it, so no wrapper). The lane replaces the component body (W0.6 stubs
+// render nothing), never this table.
+
+export type SlotRoute = Exclude<StaffRoute, { name: 'inbox' } | { name: 'requests' } | { name: 'test_alert' } | { name: 'receipts' }>;
+
+export function isSlotRoute(route: StaffRoute): route is SlotRoute {
+  return !['inbox', 'requests', 'test_alert', 'receipts'].includes(route.name);
+}
+
+/** What the shell hands the slots beyond the route (02a IR-5): the 01d alert store's rows, for the map's flags, and
+ *  the map's New order (02b's New order sheet, opened by the shell). */
+export interface SlotProps {
+  alertRows?: readonly AlertRow[];
+  onNewOrder?: () => void;
+}
+
+function mapProps(props: SlotProps): { alertRows?: readonly AlertRow[]; onNewOrder?: () => void } {
+  return { ...(props.alertRows === undefined ? {} : { alertRows: props.alertRows }), ...(props.onNewOrder === undefined ? {} : { onNewOrder: props.onNewOrder }) };
+}
+
+export function slotContent(route: SlotRoute, props: SlotProps = {}): ReactNode {
+  switch (route.name) {
+    case 'tables':
+      return <TableMap {...mapProps(props)} />;
+    case 'table':
+      // the sheet opens over the map
+      return (
+        <>
+          <TableMap {...mapProps(props)} />
+          <TableSheet table_id={route.table_id} seating_id={route.seating_id} />
+        </>
+      );
+    case 'order':
+      return <OrderScreen order_type={route.order_type} id={route.id} />;
+    case 'orders':
+      return <OpenOrders />;
+    case 'order_view':
+      return <OrderView order_id={route.order_id} />;
+    case 'held':
+      return <Held />;
+    case 'zones':
+      return <ZoneStock />;
+    case 'queue':
+      return <QueueLog />;
+    case 'me':
+      // 20b (lane A): the phone's Me tab (person, sign out); the shell draws nothing here yet
+      return null;
+    case 'kiosk_home':
+      return <KioskHome />;
+    case 'pass':
+      return <PassScreen />; // 03b W0.6 (Q-58)
+  }
+}
+
+export function RouteSlot({ route, ...props }: { route: SlotRoute } & SlotProps) {
+  return <>{slotContent(route, props)}</>;
+}

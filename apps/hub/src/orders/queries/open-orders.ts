@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { StaffDirectory } from '../../auth/staff-directory.js';
 import { defineQuery, queryRegistry } from '../../queries/registry.js';
+import { currentTableOf } from '../../tables/reads.js';
 import type { CarType, LineView, OrderType, OrderView } from '../contracts.js';
 import { orderLines } from '../exports.js';
 
@@ -22,6 +23,11 @@ import { orderLines } from '../exports.js';
 // `abandoned: true` still adds the abandoned orders of every type (owner R12). Ready = a live line (deal
 // headers left out, §3.4) served (`served_at`) or at engine stage done / served. promise_ms = the EngineOrder's
 // promise while the order is in the engine (the predicate, 03a §3.3), else null (sorted last).
+//
+// v1.0.11 §6.16 (Q-9, #48): each row carries `placed_by { staff_id, name }` (the in-memory staff directory, 0
+// statements; a placer no longer in it → name null) and `table_id`: for a dine-in row (only the abandoned list has
+// them) the seating's current primary table (02a `currentTableOf`, one batched read, only when a dine-in row is
+// listed; after a 02a move the new table), else null. Statements: 2, or 3 with a dine-in row.
 
 /** The §5 `orders` columns of an open order (OrderView's) plus the contact columns, which only the catch-up may emit. */
 export interface OpenOrderRow {
@@ -93,6 +99,10 @@ export interface OpenOrder {
   car_type: CarType | null;
   has_phone: boolean;
   placed_at: number;
+  /** §6.16 v1.0.11 (Q-9): the placer; name from the staff directory, null when the placer is no longer in it */
+  placed_by: { staff_id: string; name: string | null };
+  /** §6.16 v1.0.11 (Q-9): a dine-in row's current primary table (02a `currentTableOf`); null for takeaway / parking */
+  table_id: string | null;
   business_date: string;
   /** "from <date>": the order's business date when it is not the open day's date (a carried order); every order while no day is open (§6.16 R5) */
   from_date: string | null;
@@ -103,7 +113,13 @@ export interface OpenOrder {
 
 export type OpenOrdersFilter = { order_type: 'takeaway' | 'parking' | 'all'; abandoned: boolean };
 
-export function openOrdersBody(db: Database.Database, state: Readonly<EngineState>, filter: OpenOrdersFilter, now: number): { orders: OpenOrder[] } {
+export function openOrdersBody(
+  db: Database.Database,
+  state: Readonly<EngineState>,
+  directory: StaffDirectory,
+  filter: OpenOrdersFilter,
+  now: number,
+): { orders: OpenOrder[] } {
   const types: OrderType[] = filter.order_type === 'all' ? ['takeaway', 'parking'] : [filter.order_type];
   const rows = openOrderRows(db, filter.abandoned ? 'all' : types);
   const lines = orderLines(db, rows.map((r) => r.order_id));
@@ -131,12 +147,20 @@ export function openOrdersBody(db: Database.Database, state: Readonly<EngineStat
       car_type: r.car_type,
       has_phone: r.has_phone === 1,
       placed_at: r.placed_at,
+      placed_by: { staff_id: r.placed_by, name: directory.get(r.placed_by)?.display_name ?? null },
+      table_id: null,
       business_date: r.business_date,
       from_date: r.business_date === today ? null : r.business_date,
       ready: { n: ready, m: live.length },
       promise_ms: inEngine ? state.orders[r.order_id]!.promise_ms : null,
       abandoned,
     });
+  }
+  // §6.16 v1.0.11 (Q-9): one batched 02a read, only when a dine-in row is listed
+  const dineIn = out.filter((o) => o.order_type === 'dine_in');
+  if (dineIn.length > 0) {
+    const tables = currentTableOf(db, dineIn.map((o) => o.order_id));
+    for (const o of dineIn) o.table_id = tables.get(o.order_id)?.primary_table_id ?? null;
   }
   // by promise; no promise last; then placement
   out.sort(
@@ -168,7 +192,7 @@ export function registerOpenOrdersQuery(app: FastifyInstance): void {
       handle(ctx, q) {
         const abandoned = q.abandoned === 'true';
         if (abandoned) requireManager(ctx.directory, ctx.session?.staff_id ?? null);
-        return { data: openOrdersBody(ctx.db, ctx.state, { order_type: q.order_type ?? 'all', abandoned }, ctx.now) };
+        return { data: openOrdersBody(ctx.db, ctx.state, ctx.directory, { order_type: q.order_type ?? 'all', abandoned }, ctx.now) };
       },
     }),
   );

@@ -24,13 +24,20 @@ const LINE_COLUMNS = `l.order_item_id AS l_order_item_id, l.order_id AS l_order_
   l.item_id, l.deal_id, l.name, l.sale_unit, l.quantity, l.units, l.comped_units, l.removed_units, l.voided_units,
   l.returned_units, l.refundable_minor, l.comp_minor, l.comp_voided_minor, l.removed_minor, l.refund_minor,
   l.line_total_minor, ${BILLED} AS billed_minor, l.return_of, l.served_from_zone_id, l.added_at, l.served_at,
-  l.served_source, l.is_food, l.kitchen_note`;
+  l.served_source, l.is_food, l.kitchen_note, l.options_json`;
 
-type LineRow = Omit<LineView, 'order_item_id' | 'order_id' | 'live_units' | 'zone_served' | 'is_food'> & {
+type LineRow = Omit<LineView, 'order_item_id' | 'order_id' | 'live_units' | 'zone_served' | 'is_food' | 'options'> & {
   l_order_item_id: string;
   l_order_id: string;
   is_food: number;
+  /** migration 0016: `[{ name, quantity }]` in payload order, NULL = none */
+  options_json: string | null;
 };
+
+/** ⚠️ 02b v1.0.11 §4.2 (Q-7): `order_lines.options_json` → `LineView.options`, in memory (0 statements); NULL → []. */
+export function lineOptions(options_json: string | null): LineView['options'] {
+  return options_json === null ? [] : (JSON.parse(options_json) as LineView['options']);
+}
 
 function toLine(r: LineRow): LineView {
   return {
@@ -64,6 +71,7 @@ function toLine(r: LineRow): LineView {
     served_source: r.served_source,
     is_food: r.is_food === 1,
     kitchen_note: r.kitchen_note,
+    options: lineOptions(r.options_json),
   };
 }
 
@@ -200,7 +208,7 @@ const READ_ORDER = `SELECT o.order_id, o.order_type, o.placed_by, o.billed_at, o
        l.order_item_id, l.parent_order_item_id, l.line_kind, l.item_id, l.deal_id, l.name, l.sale_unit, l.quantity,
        l.units, l.comped_units, l.removed_units, l.voided_units, l.returned_units, l.refundable_minor, l.comp_minor,
        l.comp_voided_minor, l.removed_minor, l.refund_minor, l.line_total_minor, l.return_of, l.served_from_zone_id,
-       l.added_at, l.served_at, l.served_source, l.is_food, l.kitchen_note, l.station_id, l.option_quantity, zs.on_hand AS zone_on_hand
+       l.added_at, l.served_at, l.served_source, l.is_food, l.kitchen_note, l.options_json, l.station_id, l.option_quantity, zs.on_hand AS zone_on_hand
   FROM orders o
   LEFT JOIN seating_orders so ON so.order_id = o.order_id
   LEFT JOIN seatings s ON s.seating_id = so.seating_id
@@ -211,8 +219,8 @@ const READ_ORDER = `SELECT o.order_id, o.order_type, o.placed_by, o.billed_at, o
 
 type ReadOrderRow = Omit<ReadOrderHead, 'table_ids'> & { table_ids_json: string | null } & Omit<
     ReadOrderLine,
-    'order_id' | 'live_units' | 'billed_minor' | 'zone_served' | 'is_food' | 'order_item_id'
-  > & { order_item_id: string | null; is_food: number };
+    'order_id' | 'live_units' | 'billed_minor' | 'zone_served' | 'is_food' | 'order_item_id' | 'options'
+  > & { order_item_id: string | null; is_food: number; options_json: string | null };
 
 /**
  * 02b §4.2 (04 row Q-2; G-14, G-16): the order head and its lines, 1 statement, through `ctx.tx.db`; throws
@@ -258,6 +266,7 @@ export function readOrder(ctx: CommandCtx, order_id: string): { order: ReadOrder
       served_source: r.served_source,
       is_food: r.is_food === 1,
       kitchen_note: r.kitchen_note,
+      options: lineOptions(r.options_json), // 02b v1.0.11 §4.2 LineView (Q-7)
       zone_on_hand: r.zone_on_hand,
       station_id: r.station_id,
       option_quantity: r.option_quantity,

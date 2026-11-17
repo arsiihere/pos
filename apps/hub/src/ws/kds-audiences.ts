@@ -13,8 +13,12 @@ import type { SocketCtx } from './catch-up.js';
 //   (pointOfLine, §3.1); the staff sockets of the station's point while that station is under takeover (§3.6).
 // - Pass events (ReadyToServe, ReadyToServeUndone, Handover, ReadyRetargeted) → the staff sockets of the payload's point.
 // G-10: audiences are OR-ed (ws/audience.ts), so 03b only adds sockets; 02b / 03a already send ItemRemoved, ItemVoided,
-// ItemServed, OrderBoosted, ItemsReleased and StationCapacitySet wider — accepted. The sets are exact for ItemStarted,
-// ItemDone, ItemDoneUndone, FireDispatched and 03b's events.
+// ItemServed, OrderBoosted, ItemsReleased and StationCapacitySet wider — accepted. The sets above are 03b's minimum,
+// not exact: 02b v1.0.11 H1 also sends ItemStarted, ItemDone, ItemDoneUndone, FireDispatched to every staff socket and
+// kiosk (03b v1.0.8 §6.17, Q-49).
+// Config frames (Q-44, 03b v1.0.8 §6.17): LanesSet → every staff and station socket; StationScreenSet → the station
+// sockets of its station; BusinessDayOpened / BusinessDayClosed → also the station sockets, additive to 01a's staff
+// audience (owner ruling Q-62 = a; 01a §4.5 / test 73 contradicted on purpose). DeviceRoleSet has no audience (§3.8).
 // The line → (station, point) facts come from a memory map refreshed after every commit from the engine state (before
 // that commit's publish), so a line the same commit removed from the state (an order that left the engine) still finds
 // its station; an entry missing from the state is dropped one commit later (its events have been published by then).
@@ -107,6 +111,10 @@ export function registerKdsAudiences(app: FastifyInstance, deps: Pick<HubDeps, '
   const stops = [
     ...KDS_LINE_EVENT_TYPES.map((t) => registerEventAudience(t, lineAudience)),
     ...KDS_PASS_EVENT_TYPES.map((t) => registerEventAudience(t, passAudience)),
+    registerEventAudience('LanesSet', (_e, s) => s.kind === 'staff' || s.kind === 'station'),
+    registerEventAudience('StationScreenSet', (e, s) => s.kind === 'station' && s.stationId === (e.payload as { station_id?: unknown }).station_id),
+    registerEventAudience('BusinessDayOpened', (_e, s) => s.kind === 'station'),
+    registerEventAudience('BusinessDayClosed', (_e, s) => s.kind === 'station'),
   ];
   app.addHook('onClose', async () => {
     for (const stop of stops) stop();

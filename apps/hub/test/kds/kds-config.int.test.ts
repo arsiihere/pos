@@ -92,11 +92,30 @@ describe('[03b §6.12] GET /admin/queries/kds-config (b23)', () => {
         { device_id: cook.deviceId, name: 'tablet', point_id: 'P1', state: 'connected' },
         { device_id: signedOut.deviceId, name: 'Pass 2', point_id: 'P1', state: 'signed_out' },
       ],
+      points: branchConfig()!.points.map((pt) => ({ point_id: pt.point_id, name: pt.name, is_archived: pt.is_archived })),
       warnings: [],
     });
   });
 
-  it('[03b §6.12] the handler runs exactly 3 statements; a dark station is flagged with a dark warning', async () => {
+  it('[03b #55] kds-config lists points with name and is_archived, an archived point included', async () => {
+    hub = await createTestHub({ provisioned: true });
+    await seedDirectory(hub, await cookDirectory());
+    openDay(hub);
+    const a = admin();
+    const config = branchConfig()!;
+    swapBranchConfig({
+      config: { ...config, points: [...config.points, { point_id: 'P_OLD', name: 'Old pass', sort_order: 9, is_archived: true }] },
+      snapshotHash: 'c'.repeat(64),
+      configVersion: config.config_version,
+      snapshotSchemaVersion: 4,
+      appliedAt: hub.clock.branchNow(),
+    });
+    const points = (await kdsConfig(a)).data!.points;
+    expect(points).toEqual([...config.points.map((pt) => ({ point_id: pt.point_id, name: pt.name, is_archived: pt.is_archived })), { point_id: 'P_OLD', name: 'Old pass', is_archived: true }]);
+    expect(config.points.length).toBeGreaterThan(0);
+  });
+
+  it('[03b #55] a dark warning carries the station name; the handler runs exactly 3 statements; a dark station is flagged', async () => {
     hub = await createTestHub({ provisioned: true });
     await seedDirectory(hub, await cookDirectory());
     openDay(hub);
@@ -125,7 +144,7 @@ describe('[03b §6.12] GET /admin/queries/kds-config (b23)', () => {
     expect(handlerStatements).toBe(3);
     const data = reply.data as { stations: Array<{ station_id: string; dark: boolean }>; warnings: unknown[] };
     expect(data.stations.find((s) => s.station_id === FX.station)!.dark).toBe(true);
-    expect(data.warnings).toEqual([{ station_id: FX.station, kind: 'dark' }]);
+    expect(data.warnings).toEqual([{ station_id: FX.station, kind: 'dark', name: 'Karahi' }]);
   });
 
   it('[03b §3.9] without manage-devices → 403 PERMISSION_DENIED { permission: manage-devices }', async () => {
@@ -140,7 +159,7 @@ describe('[03b §6.12] GET /admin/queries/kds-config (b23)', () => {
 });
 
 describe('[03b §3.10] archived station config reaction (b23)', () => {
-  it('[03b #52] archived with open lines: station_notice to its sockets and its Pass; lines still render; the warning clears when the lines are gone', async () => {
+  it('[03b #52] [03b #55] archived with open lines: station_notice to its sockets and its Pass; lines still render; the archived_open_lines warning carries the archived station name (not in stations[]) and clears when the lines are gone', async () => {
     hub = await createTestHub({ provisioned: true });
     const cook = await signInCook(hub, { pointId: 'P1' });
     openDay(hub);
@@ -164,7 +183,7 @@ describe('[03b §3.10] archived station config reaction (b23)', () => {
     expect(notices(kioskWs)).toEqual([]);
     // the KDS still renders its lines
     expect(kdsStationBody(hub.deps.db, engine(), FX.station, hub.clock.branchNow()).now.map((l) => l.order_item_id)).toEqual(['A1']);
-    expect((await kdsConfig(a)).data!.warnings).toEqual([{ station_id: FX.station, kind: 'archived_open_lines' }]);
+    expect((await kdsConfig(a)).data!.warnings).toEqual([{ station_id: FX.station, kind: 'archived_open_lines', name: 'Karahi' }]);
     // archived stations are not listed as active stations
     expect(((await kdsConfig(a)).data!.stations as Array<{ station_id: string }>).map((s) => s.station_id)).toEqual([FX.zoneStation]);
 

@@ -121,7 +121,13 @@ export const LineDetailSchema = z.object({
 // 03b §6.16: details for the line ids a commit gained, per station socket set / per point (Pass) socket set.
 export const WsKdsLines = z.object({ type: z.literal('kds_lines'), station_id: Id, lines: z.array(LineDetailSchema) });
 export type WsKdsLines = z.infer<typeof WsKdsLines>;
-export const WsPointLines = z.object({ type: z.literal('point_lines'), point_id: Id, lines: z.array(LineDetailSchema) });
+// ⚠️ Changed by v1.0.8 (owner 2026-11-13, Q-46): a Pass line also carries its serve group and serve mode (engine line), so the Pass
+// computes Ready / HOLD itself; `kds_lines` is unchanged.
+export const WsPointLines = z.object({
+  type: z.literal('point_lines'),
+  point_id: Id,
+  lines: z.array(LineDetailSchema.extend({ group_id: Id, serve_mode: z.enum(['sync', 'immediate']) })),
+});
 export type WsPointLines = z.infer<typeof WsPointLines>;
 
 // 03b §6.14: the `kds_station` catch-up body; the takeover frame's `view` (§3.6) is the same body.

@@ -53,6 +53,11 @@ export interface LineView {
   /** §3.3 food line: engine line ∧ not zone-served ∧ ¬is_ready_item */
   is_food: boolean;
   kitchen_note: string | null;
+  /**
+   * ⚠️ 02b v1.0.11 §4.2 (Q-7): the line's plain options, parsed from `order_lines.options_json` (ItemAdded.options as
+   * `[{ name, quantity }]`, payload order); `[]` when NULL.
+   */
+  options: Array<{ name: string; quantity: number }>;
 }
 
 /**

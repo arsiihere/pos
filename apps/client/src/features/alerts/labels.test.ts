@@ -13,15 +13,18 @@ import {
   detailsText,
   familyText,
   fromDayText,
+  handoverDetailsText,
   inPersonTitle,
   lockText,
   stepTag,
   tableLabel,
   timeText,
+  titleText,
   waitingText,
 } from './labels';
 import { view } from './test-fakes';
 import { tableOf } from './ui';
+import { text03b, title03b } from './labels-03b';
 
 afterEach(() => setLanguage('en'));
 
@@ -221,5 +224,62 @@ describe('[01d v1.2.1 P-1] table chip', () => {
     const text = alertText(view({ alert_id: 'P1', kind: 'void_approval', lock }));
     expect(text).toContain('Patio 3');
     expect(text).not.toContain('TPatio');
+  });
+});
+
+describe('[02a §8, 02b §3.9] 02 kinds (23b)', () => {
+  const handoverLock = { kind_label_key: 'alert.table_handover.lock', table_code: 'F4 + F5', point_code: null, requester_name: 'Ali' };
+
+  it('[02a Q-25] alert.table_handover.lock fills {requester}', () => {
+    expect(lockText(view({ alert_id: 'H1', kind: 'table_handover', family: 'action', lock: handoverLock }))).toBe('F4 + F5 · Table handover · Ali');
+  });
+
+  it('[02a §6.15] a handover card reads "3 orders · Rs 14,250"; no live order → nothing', () => {
+    expect(handoverDetailsText({ quantity: 3, amount: 1_425_000 })).toBe('3 orders · Rs 14,250');
+    expect(handoverDetailsText({})).toBeNull();
+    expect(handoverDetailsText(null)).toBeNull();
+  });
+
+  it('[02a §8 Table sheet] TABLE_HANDOVER_STALE → "Bill paid, waiting for cleaning"', () => {
+    expect(answerErrorText('TABLE_HANDOVER_STALE', {})).toContain('Bill paid, waiting for cleaning');
+  });
+
+  it('[02b Q-25] a comp without a table reads "Comp · Takeaway order"; with a table the 01d text', () => {
+    const takeaway = view({
+      alert_id: 'C1',
+      kind: 'comp',
+      lock: { kind_label_key: 'alert.comp.lock', table_code: null, point_code: null, requester_name: 'Bilal' },
+      card: { kind_label_key: 'alert.comp.card', table_code: null, point_code: null, requester_name: 'Bilal', device_name: null, details: null },
+    });
+    expect(titleText(takeaway)).toBe('Comp · Takeaway order');
+    expect(alertText(takeaway)).toBe('Comp · Takeaway order');
+    const dineIn = view({ alert_id: 'C2', kind: 'comp', lock: { kind_label_key: 'alert.comp.lock', table_code: 'F4', point_code: null, requester_name: 'Bilal' } });
+    expect(lockText(dineIn)).toBe('F4 · Comp · Bilal');
+  });
+});
+
+// 03b W0.6 (Q-58, Q-66): labels.ts consults lane A's labels-03b.ts for the 03b / 03c kinds; other kinds are unchanged.
+describe('[03b W0.6] labels hook', () => {
+  it('[03b W0.6] labels.ts consults labels-03b.ts kinds; an 01d / 02 card is unchanged', () => {
+    const ready = {
+      kind: 'ready_to_serve',
+      family: 'action' as const,
+      lock: { kind_label_key: 'alert.ready_to_serve.lock', table_code: '4', point_code: 'Pass' },
+      card: { kind_label_key: 'alert.ready_to_serve.card', table_code: '4', point_code: 'Pass', requester_name: null, device_name: null, details: { identifier: '#12' } },
+    };
+    expect(alertText(ready)).toBe(text03b(ready, 'card'));
+    expect(alertText(ready)).toBe('Ready to serve · #12 · Pass');
+    expect(lockText(ready)).toBe(text03b(ready, 'lock'));
+    expect(lockText(ready)).toBe('Ready to serve · T4 · Pass');
+    expect(titleText(ready)).toBe(title03b(ready));
+    // the closed line: the 03b text for its kind and reason, else the 01d default
+    expect(closedText({ close_reason: 'undone', kind: 'ready_to_serve' }, 0)).toBe('Pass took it back');
+    expect(closedText({ close_reason: 'done', kind: 'printer_problem', problem: 'ticket_not_built' }, 0)).toBe('Dismissed');
+    expect(closedText({ close_reason: 'expired', kind: 'ready_to_serve' }, 0)).toBe('Expired');
+    expect(closedText({ close_reason: 'done', kind: 'void_approval' }, 0)).toBe('Closed');
+    expect(closedText({ close_reason: 'done' }, 0)).toBe('Closed');
+    // an 01d kind reads as before
+    const test = { kind: 'test_alert', family: 'info' as const, lock: { kind_label_key: 'alert.test_alert.lock', requester_name: 'Arif' } };
+    expect(alertText(test)).toBe(en['alert.test_alert.lock'].replace('{requester}', 'Arif'));
   });
 });

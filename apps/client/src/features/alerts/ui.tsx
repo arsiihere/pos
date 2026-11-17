@@ -1,10 +1,12 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import type { AlertFamily } from '@pos/domain';
 import type { AlertCard, AlertLock, RequestOutcome } from '@pos/events';
 import { t } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { shownRupees } from '../owner/money';
+import type { Resolution } from '../staff/api';
 import { closedText, familyText, fromDayText, stepTag, tableLabel, timeText, titleText } from './labels';
+import { helpText03b, is03bKind, printSkipAction, type PrintSkipDismiss } from './labels-03b';
 import { isSilent } from './sounds';
 import type { AlertRow } from './store';
 
@@ -320,6 +322,45 @@ const activate = (fn: () => void) => (e: KeyboardEvent) => {
   }
 };
 
+/**
+ * 03c §6.12 (Q-53, Q-66, W0.6): what the open printer card's action needs from the signed-in page — the session's
+ * `force-release-table-lock` Resolution, the page's one `createPrintSkipDismiss` of this session (its command_id reuse
+ * and double-tap guard live in it, so it is never made per render) and the toast for an error text. No provider (lock
+ * screens, the owner app): no Dismiss, the note only.
+ */
+export interface PrintSkipCtx {
+  grant: Resolution | undefined;
+  dismiss: PrintSkipDismiss;
+  toast: (text: string) => void;
+}
+export const PrintSkipContext = createContext<PrintSkipCtx | null>(null);
+
+/** 03b / 03c card extras (Q-66): the help line and the printer card's Dismiss / "Stays until day close". */
+function Card03b({ row }: { row: RowLike }) {
+  const ps = useContext(PrintSkipContext);
+  const help = helpText03b(row);
+  const act = printSkipAction(row, { open: row.state !== 'closed', grant: ps?.grant, denied: ps?.dismiss.denied() });
+  if (help === null && act === null) return null;
+  const dismiss = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (ps === null) return;
+    void ps.dismiss.dismiss(row.alert_id).then((o) => {
+      if (!o.ok && o.text !== undefined) ps.toast(o.text);
+    });
+  };
+  return (
+    <>
+      {help !== null && <div className="ac__det">{help}</div>}
+      {act?.kind === 'stays' && <div className="ac__det">{act.label}</div>}
+      {act?.kind === 'dismiss' && (
+        <button type="button" className="btn" onClick={dismiss} onKeyDown={(e) => e.stopPropagation()}>
+          {act.label}
+        </button>
+      )}
+    </>
+  );
+}
+
 /** C01 open card (.ac): open requests and action alerts. The whole card is the tap target. */
 export function OpenCard({
   row,
@@ -360,6 +401,7 @@ export function OpenCard({
         </div>
         <FromLine row={row} utcOffsetMs={utcOffsetMs} />
         {det !== null && <div className="ac__det">{det}</div>}
+        <Card03b row={row} />
       </div>
       <div className="ac__end">
         {amount !== undefined && <span className="ac__amt num">{amountText(amount)}</span>}
@@ -424,10 +466,11 @@ export function RowCard({ row, utcOffsetMs, onOpen, className }: { row: RowLike;
           <span>{titleText(row)}</span>
         </span>
         <span className="ar__s">
-          {closed && isRequest(row) ? (
+          {/* 03b W0.6 (Q-66): the 03b / 03c kinds are action alerts with a closed line of their own (A5) */}
+          {closed && (isRequest(row) || is03bKind(row.kind)) ? (
             <span className="ar__res">
               <Ico name={resultIcon(row)} />
-              {closedText({ close_reason: row.close_reason ?? null, decision: row.decision ?? undefined, by_name: row.by_name }, utcOffsetMs)}
+              {closedText({ close_reason: row.close_reason ?? null, decision: row.decision ?? undefined, by_name: row.by_name, kind: row.kind, problem: row.card?.details?.problem }, utcOffsetMs)}
             </span>
           ) : det !== null ? (
             <>

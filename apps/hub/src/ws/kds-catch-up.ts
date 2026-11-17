@@ -76,6 +76,40 @@ export function kdsStationBody(db: Database.Database, state: EngineState, statio
 /** B3-3: the events that change a line's live units (02b §3.4: units − removed − voided; LineWeightSet re-reads it). */
 const UNIT_CHANGES: ReadonlySet<string> = new Set(['ItemRemoved', 'ItemVoided', 'LineWeightSet']);
 
+/**
+ * ⚠️ Changed by v1.0.8 (owner 2026-11-13, Q-47) §6.16: a table move changes the identifier a line shows (02a currentTableOf), so
+ * the lines of the moved seatings are sent again to the sockets that hold them. The seatings come from the commit's TableMoved /
+ * TablesMerged / SeatingSplit payloads (memory); the orders of those seatings are one `seating_orders` read (`orders` has no
+ * seating id), made only in a commit with such an event: 1 statement, else 0. Shared with the Pass hook (point-catch-up.ts).
+ */
+export function tableMovedOrderIds(db: Database.Database, appended: readonly { event_type: string; payload: unknown }[]): Set<string> {
+  const seatings = new Set<string>();
+  for (const e of appended) {
+    const p = e.payload as Record<string, string | null | undefined>;
+    const ids =
+      e.event_type === 'TableMoved'
+        ? [p.seating_id]
+        : e.event_type === 'TablesMerged'
+          ? [p.into_seating_id, p.absorbed_seating_id]
+          : e.event_type === 'SeatingSplit'
+            ? [p.from_seating_id, p.new_seating_id]
+            : [];
+    for (const id of ids) if (typeof id === 'string') seatings.add(id);
+  }
+  if (seatings.size === 0) return new Set();
+  const rows = db.prepare('SELECT order_id FROM seating_orders WHERE seating_id IN (SELECT value FROM json_each(?))').all(JSON.stringify([...seatings])) as Array<{ order_id: string }>;
+  return new Set(rows.map((r) => r.order_id));
+}
+
+/** The held ids (still shown) whose engine line belongs to one of `orders`: sent again after a table move. */
+export function heldOfOrders(state: EngineState, had: ReadonlySet<string>, orders: ReadonlySet<string>): string[] {
+  if (orders.size === 0) return [];
+  return [...had].filter((id) => {
+    const l = state.lines[id];
+    return l !== undefined && orders.has(l.order_id);
+  });
+}
+
 /** The lines a station shows or will show: Now and every planned (unfired) line, in memory. */
 function stationLineIds(state: EngineState, station_id: string): Set<string> {
   const ids = new Set<string>();
@@ -128,6 +162,9 @@ export function registerKdsCatchUp(app: FastifyInstance, deps: HubDeps): void {
       if (UNIT_CHANGES.has(e.event_type)) changed.add((e.payload as { order_item_id: string }).order_item_id);
     }
 
+    // Q-47: the orders of the seatings a table event of this commit touched (1 statement, only with such an event).
+    const moved = tableMovedOrderIds(deps.db, appended);
+
     const byStation = new Map<string, Set<string>>();
     const missing = new Map<string, string[]>(); // sessionId → ids to send
     const all = new Set<string>();
@@ -142,7 +179,7 @@ export function registerKdsCatchUp(app: FastifyInstance, deps: HubDeps): void {
       const gained = [...shown].filter((id) => !had.has(id));
       // Held and still shown (pruned above) with changed units → sent again.
       const resend = [...changed].filter((id) => had.has(id));
-      const send = [...gained, ...resend].sort();
+      const send = [...new Set([...gained, ...resend, ...heldOfOrders(state, had, moved)])].sort();
       if (send.length === 0) continue;
       missing.set(s.sessionId, send);
       for (const id of send) all.add(id);

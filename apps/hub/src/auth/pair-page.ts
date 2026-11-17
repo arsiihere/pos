@@ -106,27 +106,30 @@ async function json(res) {
 function global(error, device) {
   return globalScreen(error, { device, loaded: false, authed: false }, { pairAgain: () => location.reload(), wall: WALL });
 }
+// 00 v1.9.1 §8.2 (Q-13, Q-29): every non-KDS device goes on to the staff entry (01d) once the success screen
+// has been seen. 00 v1.9.2 §8.2 (Q-42): a KDS goes on to the KDS entry (03b), which signs in as its station
+// itself, so one page owns the station session (M53); this page never does.
+const STAFF_ENTRY = '/staff/';
+const KDS_ENTRY = '/kds/';
+const ENTRY_AFTER_MS = 1500;
+function openStaffEntry() {
+  setTimeout(() => location.assign(STAFF_ENTRY), ENTRY_AFTER_MS);
+}
+function openKdsEntry() {
+  setTimeout(() => location.assign(KDS_ENTRY), ENTRY_AFTER_MS);
+}
 // 00-S10 approved / resumed.
 function showPaired(deviceType, stationName) {
   // M92: the approved poll names the station; a resumed screen does not know it.
   const kds = stationName ? t('pairing.approved_body', { station: stationName }) : t('pairing.approved_body_kds');
   const body = deviceType === 'kds' ? kds : t('pairing.approved_body_cashier');
   show(stateScreen('ok', 'check', t('pairing.approved_title'), body));
+  if (deviceType === 'kds') openKdsEntry();
+  else openStaffEntry();
 }
-async function wipe(db) {
-  for (const key of ['token', 'device_id', 'device_type']) await deleteKey(db, key);
-}
-async function resumePaired(db, deviceToken) {
-  const deviceType = await readKey(db, 'device_type');
-  if (deviceType === 'kds') {
-    const res = await fetchRetry('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + deviceToken }, body: '{}' });
-    if (res.status === 401 || res.status === 403) {
-      await wipe(db);
-      return false;
-    }
-  }
-  showPaired(deviceType);
-  return true;
+// A stored token: no new request and no hub call here; the entry's own requests meet a revoked token (§8.4).
+async function resumePaired(db) {
+  showPaired(await readKey(db, 'device_type'));
 }
 // 00-S11: expired (warn, clock), too many (danger, lock), hub busy (warn, sync); the 72 px button (88 on the wall) asks again.
 function askAgain(start, body, waitMs, kind, iconName) {
@@ -213,9 +216,6 @@ function pairScreen(db) {
             await writeKey(db, 'token', update.data.device_token);
             await writeKey(db, 'device_id', update.data.device_id);
             await writeKey(db, 'device_type', update.data.device_type);
-            if (update.data.device_type === 'kds') {
-              await fetchRetry('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + update.data.device_token }, body: '{}' });
-            }
             showPaired(update.data.device_type, update.data.station_name);
             return;
           }
@@ -324,7 +324,8 @@ async function pairPhone(db, pairingToken) {
         await writeKey(db, 'device_type', body.data.device_type);
         await deleteKey(db, 'pair_request_id');
         const who = body.data.owner_name ? t('pairing.paired_body', { owner: body.data.owner_name }) : t('pairing.paired_body_any');
-        return show(stateScreen('ok', 'check', t('pairing.paired_title'), who));
+        show(stateScreen('ok', 'check', t('pairing.paired_title'), who));
+        return openStaffEntry();
       }
       // M14: a 503 is retried once with the same pair_request_id.
       if (res.status === 503 && !retried) return finish(await send(), true);
@@ -348,13 +349,16 @@ openDeviceDb().then(async (db) => {
   if (!pairingToken) {
     // Kiosk and kitchen screens fit the screen: no page scroll, no scrollbars.
     screen.classList.add('pos-page--fit');
-    if (deviceToken && (await resumePaired(db, deviceToken))) return;
+    if (deviceToken) return await resumePaired(db);
     return pairScreen(db);
   }
   // Phones use the light floor theme (frames Phone*); /pair is served dark for screens (M82).
   if (document.documentElement && document.documentElement.setAttribute) document.documentElement.setAttribute('data-theme', 'light');
-  // Phone rule 1: already paired → the token in the URL is ignored.
-  if (deviceToken) return show(stateScreen('ok', 'check', t('pairing.paired_title'), t('pairing.paired_body_any')));
+  // Phone rule 1: already paired → the token in the URL is ignored; on to the staff entry (00 v1.9.1, Q-29).
+  if (deviceToken) {
+    show(stateScreen('ok', 'check', t('pairing.paired_title'), t('pairing.paired_body_any')));
+    return openStaffEntry();
+  }
   if (/iPhone|iPad/.test(navigator.userAgent) && navigator.standalone !== true) return iosSteps();
   pairPhone(db, pairingToken);
 });

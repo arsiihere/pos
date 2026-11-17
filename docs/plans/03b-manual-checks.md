@@ -12,7 +12,7 @@ How to report it: `tools/local/checks-report.sh <PR> docs/plans/03b-manual-check
 
 ### 0.1 What can run today
 
-The hub half of 03b is built and green (acceptance map in `docs/plans/03b-status.md`). The screens are client lanes that are **not built yet**:
+The hub half of 03b is built and green (acceptance map in `docs/plans/03b-status.md`). ⚠️ Update at 03b client close (2026-11-13, Z2): the KDS (`/kds/`), the Pass (`#/pass` in `/staff/`), the Kitchen screens and Printers admin pages are **built** on `module-03b-client` (board `03b-client-status.md`); the "BLOCKED (BU1 / BU2)" marks below now only mean "needs the owner's merge and the pilot hardware". They run after `module-03b-client` and `module-03b-hub-gaps` are on `main` and shipped to the mini PC (`ship-client.sh` ships the three new builds: HK7). The table below is the original plan:
 
 | Needs | Client lane | Checks that wait for it |
 |---|---|---|
@@ -157,6 +157,45 @@ Done by / date:
 
 Done by / date:
 
+
+## Check 7. KDS old-window takeover edge: close 4401 with no reason (03b §8; 00 v1.9.2 §8.4 M53; `03b-client-gaps.md` G3b-19)
+
+Hand check on the real KDS screen KDS-T and a laptop browser (LAPTOP) paired as the same screen (copy the pairing keys, or pair LAPTOP to Tandoor too). The e2e (`03b-takeover`) covers the clean case; this is the edge it cannot make.
+
+| ☐ | Step | Expected | Notes |
+|---|---|---|---|
+| [ ] | KDS-T shows Tandoor lines. Open `http://<hub>/kds/` on LAPTOP with the same device token. | LAPTOP shows the lines. KDS-T shows **"This screen is open in another window"** and a **Use this window** button; no lines. | |
+| [ ] | Cut KDS-T's network (Ethernet out) for 2 minutes, then put it back. | KDS-T reconnects. Record what it shows: the replaced message (right) or the lines again (the edge: the hub closed it with 4401 and no reason, so the client signed in again and took the session back). | what KDS-T showed: |
+| [ ] | If KDS-T took the session back: look at LAPTOP. | LAPTOP shows "open in another window" (replaced in turn). Two windows must not take it back from each other more than once. | ping-pong seen? |
+| [ ] | Tap **Use this window** on the window that is showing the message. | That window shows the lines; the other shows the message. One tap, no loop. | |
+
+Done by / date:
+
+## Check 8. Paper fallback when a screen drops (03c §3.4; 03b §3.6) — KDS side
+
+Needs a printer on the pilot LAN (03c) and Tandoor set to **Screen, paper if the screen is off** (Printers → Station outputs). Pairs with check 1 and `03c-manual-checks.md` check 7.
+
+| ☐ | Step | Expected | Notes |
+|---|---|---|---|
+| [ ] | With KDS-T live, send a Tandoor order. | The line shows on KDS-T. **Nothing** prints (the screen is the surface). | |
+| [ ] | Pull KDS-T's cable and wait for the screen to go dark (30–60 s, §0.5). Send another Tandoor order. | The new line prints on paper; PASS shows the takeover section; the Printers page shows the printer Ready. | |
+| [ ] | Put KDS-T back. | KDS-T shows the lines that printed with the **Printed** tag. The takeover ends. | |
+| [ ] | On a `both` station, tap **Reprint** on a KDS card. | One ticket for that line's order prints, for this station only (03c §3.5). A Reprint with the printer off answers "It prints when the printer is back". | |
+
+Done by / date:
+
+## Check 9. Urdu native review (02a, 02b and 03b / 03c strings)
+
+Needs a native Urdu reader. The e2e runs every admin and Pass screen in `ur` and proves they render, RTL, with Latin digits, but not that the wording is right. The KDS is English only (brief §6.1): nothing to review there.
+
+| ☐ | Step | Expected | Notes |
+|---|---|---|---|
+| [ ] | Open `/admin/kitchen-screens/?lang=ur` and `/admin/printers/?lang=ur` on LAPTOP and on a phone; read every card, dialog, error and toast (save a lane label, change the volume, add a printer, refuse a loopback address, test print, archive). | The words are natural Urdu a manager would use; the layout is right to left; numbers, IPs, device paths and `80 mm` stay left to right with Latin digits. Write the bad strings in Notes with the key. | |
+| [ ] | Open `/staff/?lang=ur` on the Pass tablet; read the Pass cards, the Ready / Hand over bar, the receiver sheet, the takeover section and the new alert cards (Ready to serve, Served, Kitchen screen offline, Printer problem). | Same. Keys not yet translated fall back to English (`docs/design/handoff/03b/urdu-todo.md`): list the ones that matter. | |
+| [ ] | Gendered copy: three 02 strings say "she" / "her" (#129). | Decide whether they stay. | |
+
+Done by / date:
+
 ---
 
 ## Summary
@@ -169,3 +208,6 @@ Done by / date:
 | 4 Lanes, day open | | BU1 (buttons) |
 | 5 Pass Ready / Handover / Served card | | BU2, orders |
 | 6 "Tap Done" cue at `auto_done` | | BU1, orders |
+| 7 KDS old-window takeover edge (4401, no reason) | | owner ruling G3b-19 |
+| 8 Paper fallback, KDS side | | pilot printer |
+| 9 Urdu native review | | a native reader |

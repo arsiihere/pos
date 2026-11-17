@@ -1,11 +1,38 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { listRouteGuards } from '../src/auth/guards';
-import { CSP as HUB_CSP, registerClientDist as registerHubClientDist, STAFF_DIST_DIR } from '../src/lib/client-dist';
+import {
+  ADMIN_KITCHEN_SCREENS_DIST_DIR,
+  ADMIN_PRINTERS_DIST_DIR,
+  CSP as HUB_CSP,
+  KDS_DIST_DIR,
+  registerClientDist as registerHubClientDist,
+  STAFF_DIST_DIR,
+} from '../src/lib/client-dist';
 import { CSP as CLOUD_CSP, registerClientDist as registerCloudClientDist } from '../../cloud/src/lib/client-dist';
 import { createTestHub } from './helpers/test-hub';
+
+// 00 v1.9.2 #163: the server reads KDS_DIST_DIR at build time; a test may point it at a stand-in build or a
+// missing directory (the client's kds entry lands with 03b K1). Undefined = the real directory.
+// 00 v1.9.2 #164: the same for the two admin entries (03b / 03c client lanes A1, A2).
+const dist = vi.hoisted(() => ({ kds: undefined as string | undefined, kitchen: undefined as string | undefined, printers: undefined as string | undefined }));
+vi.mock('../src/lib/client-dist', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../src/lib/client-dist')>();
+  return {
+    ...real,
+    get KDS_DIST_DIR() {
+      return dist.kds ?? real.KDS_DIST_DIR;
+    },
+    get ADMIN_KITCHEN_SCREENS_DIST_DIR() {
+      return dist.kitchen ?? real.ADMIN_KITCHEN_SCREENS_DIST_DIR;
+    },
+    get ADMIN_PRINTERS_DIST_DIR() {
+      return dist.printers ?? real.ADMIN_PRINTERS_DIST_DIR;
+    },
+  };
+});
 
 const EXPECTED_CSP = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
@@ -166,5 +193,106 @@ describe('client-dist', () => {
     const denied = await guest.app.inject({ method: 'GET', url: '/staff/', remoteAddress: '10.9.0.5' });
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe('GUEST_NETWORK_FORBIDDEN');
+  });
+
+  it('[00 §10 #163] GET /kds/ serves the kds build with pos-tenant-id, pos-branch-id and hub-clock meta, admin-page guards; no build dir → the route stays registered and answers 404 ROUTE_NOT_FOUND', async () => {
+    expect(KDS_DIST_DIR.endsWith('/client/dist/kds/')).toBe(true);
+    const build = buildDir({
+      'index.html': '<!doctype html><head><title>kds</title></head><script type="module" src="/kds/assets/k1.js"></script>',
+      'assets/k1.js': 'kds();',
+    });
+    cleanups.push(() => rmSync(build, { recursive: true, force: true }));
+    cleanups.push(() => {
+      dist.kds = undefined;
+    });
+    dist.kds = build;
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    await hub.app.ready();
+    const staff = await hub.app.inject({ method: 'GET', url: '/staff/' });
+    const page = await hub.app.inject({ method: 'GET', url: '/kds/' });
+    expect(page.statusCode).toBe(200);
+    for (const header of ['content-security-policy', 'cache-control', 'content-type']) {
+      expect(page.headers[header], header).toBe(staff.headers[header]);
+    }
+    expect(page.body).toContain('/kds/assets/k1.js');
+    const provisioned = hub.deps.config.provisioned!;
+    expect(page.body).toContain(`<meta name="pos-tenant-id" content="${provisioned.tenant_id}">`);
+    expect(page.body).toContain(`<meta name="pos-branch-id" content="${provisioned.branch_id}">`);
+    expect(page.body).toContain(`<meta name="pos-branch-name" content="${provisioned.branch_name}">`);
+    expect(page.body).toMatch(/<meta name="pos-hub-now-ms" content="\d+">/);
+    expect(page.body).toMatch(/<meta name="pos-hub-utc-offset-ms" content="-?\d+">/);
+    // the same page meta as /staff/ (one source), ids and clock only: no token or secret
+    const metaOf = (html: string) => [...html.matchAll(/<meta name="(pos-[^"]+)"/g)].map((m) => m[1]);
+    expect(metaOf(page.body)).toEqual(metaOf(staff.body));
+    expect(page.body).not.toMatch(/token|secret|api_key/i);
+    const js = await hub.app.inject({ method: 'GET', url: '/kds/assets/k1.js' });
+    expect(js.statusCode).toBe(200);
+    expect(js.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+    expect(js.body).toBe('kds();');
+    expect(listRouteGuards(hub.app).filter((r) => r.url.startsWith('/kds/') && r.method === 'GET')).toEqual([
+      { method: 'GET', url: '/kds/', guards: ['host', 'provisioned', 'guest'] },
+      { method: 'GET', url: '/kds/*', guards: ['host', 'provisioned', 'guest'] },
+    ]);
+
+    const guest = await createTestHub({ config: { guest_network_cidrs: ['10.9.0.0/16'] } });
+    cleanups.push(() => guest.close());
+    const denied = await guest.app.inject({ method: 'GET', url: '/kds/', remoteAddress: '10.9.0.5' });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe('GUEST_NETWORK_FORBIDDEN');
+
+    dist.kds = join(tmpdir(), 'client-dist-kds-missing-does-not-exist');
+    const bare = await createTestHub();
+    cleanups.push(() => bare.close());
+    await bare.app.ready();
+    expect(listRouteGuards(bare.app).filter((r) => r.url.startsWith('/kds/') && r.method === 'GET').map((r) => r.url)).toEqual(['/kds/', '/kds/*']);
+    for (const url of ['/kds/', '/kds/index.html', '/kds/assets/k1.js']) {
+      const res = await bare.app.inject({ method: 'GET', url });
+      expect(res.statusCode, url).toBe(404);
+      expect(res.json().error.code, url).toBe('ROUTE_NOT_FOUND');
+    }
+  });
+
+  it('[00 §10 #164] /admin/kitchen-screens/ and /admin/printers/ serve their builds under admin-page guards, no credentials in the page; guest IP → 403', async () => {
+    expect(ADMIN_KITCHEN_SCREENS_DIST_DIR.endsWith('/client/dist/admin-kitchen-screens/')).toBe(true);
+    expect(ADMIN_PRINTERS_DIST_DIR.endsWith('/client/dist/admin-printers/')).toBe(true);
+    const builds = {
+      '/admin/kitchen-screens/': buildDir({ 'index.html': '<!doctype html><head></head><script type="module" src="/admin/kitchen-screens/assets/ks1.js"></script>', 'assets/ks1.js': 'ks();' }),
+      '/admin/printers/': buildDir({ 'index.html': '<!doctype html><head></head><script type="module" src="/admin/printers/assets/pr1.js"></script>', 'assets/pr1.js': 'pr();' }),
+    };
+    for (const dir of Object.values(builds)) cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => {
+      dist.kitchen = undefined;
+      dist.printers = undefined;
+    });
+    dist.kitchen = builds['/admin/kitchen-screens/'];
+    dist.printers = builds['/admin/printers/'];
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    await hub.app.ready();
+    const stock = await hub.app.inject({ method: 'GET', url: '/admin/stock/' });
+    const guest = await createTestHub({ config: { guest_network_cidrs: ['10.9.0.0/16'] } });
+    cleanups.push(() => guest.close());
+    for (const [prefix, asset, body] of [['/admin/kitchen-screens/', 'assets/ks1.js', 'ks();'], ['/admin/printers/', 'assets/pr1.js', 'pr();']] as const) {
+      const page = await hub.app.inject({ method: 'GET', url: prefix });
+      expect(page.statusCode, prefix).toBe(200);
+      for (const header of ['content-security-policy', 'cache-control', 'content-type']) {
+        expect(page.headers[header], `${prefix} ${header}`).toBe(stock.headers[header]);
+      }
+      expect(page.body, prefix).toContain(`${prefix}${asset}`);
+      // like /admin/stock/: no page meta, no credentials (the page signs in on its own requests)
+      expect(page.body, prefix).not.toContain('<meta name="pos-');
+      expect(page.body, prefix).not.toMatch(/token|secret|api_key|Bearer/i);
+      const js = await hub.app.inject({ method: 'GET', url: `${prefix}${asset}` });
+      expect(js.body, prefix).toBe(body);
+      expect(js.headers['cache-control'], prefix).toBe('public, max-age=31536000, immutable');
+      expect(listRouteGuards(hub.app).filter((r) => r.url.startsWith(prefix) && r.method === 'GET'), prefix).toEqual([
+        { method: 'GET', url: prefix, guards: ['host', 'provisioned', 'guest'] },
+        { method: 'GET', url: `${prefix}*`, guards: ['host', 'provisioned', 'guest'] },
+      ]);
+      const denied = await guest.app.inject({ method: 'GET', url: prefix, remoteAddress: '10.9.0.5' });
+      expect(denied.statusCode, prefix).toBe(403);
+      expect(denied.json().error.code, prefix).toBe('GUEST_NETWORK_FORBIDDEN');
+    }
   });
 });

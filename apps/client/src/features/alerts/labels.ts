@@ -4,6 +4,8 @@ import { t, type MessageKey } from '../../i18n';
 import { en, fill } from '../../i18n/en';
 import { shownRupees } from '../owner/money';
 import { isSilent } from './sounds';
+// 03b W0.6 (Q-58, Q-66): the 03b / 03c kinds' texts (lane A's file; it imports nothing from here)
+import { closedText03b, is03bKind, text03b, title03b } from './labels-03b';
 
 // 01d §3.12: alert texts from the client string tables. Each kind has `alert.<kind>.card` (signed in) and
 // `alert.<kind>.lock` (session-less); the parameters come from `display` (lock-safe) and, on the card only,
@@ -60,8 +62,18 @@ function fillLine(template: string, values: Record<string, string | null>): stri
   return filled.join(' · ').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * 02b Q-25 (frame 02b-C03 CompRequests): a comp request has no table on a takeaway or parking order; its card
+ * reads "Comp · Takeaway order" instead of the 01d kind text without a table.
+ */
+function compTakeaway(a: Labelled, display: AlertLock): boolean {
+  return a.kind === 'comp' && (display.table_code === null || display.table_code === undefined || display.table_code === '');
+}
+
 function textOf(a: Labelled, level: 'card' | 'lock'): string {
+  if (is03bKind(a.kind)) return text03b(a, level);
   const display: AlertLock = level === 'card' && a.card !== undefined ? a.card : a.lock;
+  if (compTakeaway(a, display)) return t('comp.takeaway_card');
   // AD-82: a request_result reads by its outcome (lock-safe, so on both levels)
   const outcomeKey = a.kind === 'request_result' && a.outcome != null ? `alert.request_result.${a.outcome}` : null;
   const key = outcomeKey ?? display.kind_label_key;
@@ -81,8 +93,10 @@ export function alertText(a: Labelled): string {
  * "from <name>"), e.g. "Void request", "Test alert". Card text when the row has a card, else lock text.
  */
 export function titleText(a: Labelled): string {
+  if (is03bKind(a.kind)) return title03b(a);
   const level = a.card !== undefined ? 'card' : 'lock';
   const display: AlertLock = level === 'card' && a.card !== undefined ? a.card : a.lock;
+  if (compTakeaway(a, display)) return t('comp.takeaway_card');
   const outcomeKey = a.kind === 'request_result' && a.outcome != null ? `alert.request_result.${a.outcome}` : null;
   const key = outcomeKey ?? display.kind_label_key;
   const template = isKey(key)
@@ -106,6 +120,18 @@ export function detailsText(details: AlertDetails | null | undefined): string | 
   if (details.item !== undefined) parts.push(details.quantity !== undefined ? `${details.item} ×${details.quantity}` : details.item);
   if (details.amount !== undefined) parts.push(fill(t('alerts.amount'), { amount: shownRupees(details.amount) }));
   if (details.reason !== undefined && details.reason !== '') parts.push(`“${details.reason}”`);
+  return parts.length === 0 ? null : parts.join(' · ');
+}
+
+/**
+ * 02a §6.15 (02a-C02 HandoverBanner, HandoverAnswer): the handover card's `{ quantity: orders, amount: running
+ * total }` read "3 orders · Rs 14,250"; both are absent with no live order.
+ */
+export function handoverDetailsText(details: Pick<AlertDetails, 'quantity' | 'amount'> | null | undefined): string | null {
+  if (details === null || details === undefined) return null;
+  const parts: string[] = [];
+  if (details.quantity !== undefined) parts.push(fill(t('handover.det.orders'), { n: String(details.quantity) }));
+  if (details.amount !== undefined) parts.push(fill(t('alerts.amount'), { amount: shownRupees(details.amount) }));
   return parts.length === 0 ? null : parts.join(' · ');
 }
 
@@ -173,9 +199,15 @@ export function closedText(
     decision?: WsAlertClosed['decision'] | undefined;
     by_name?: string | null | undefined;
     at?: number | undefined;
+    /** 03b W0.6 (Q-66): the row's kind, its printer problem and a re-targeted Ready's table, for the 03b / 03c lines */
+    kind?: string | undefined;
+    problem?: string | null | undefined;
+    moved_to?: string | null | undefined;
   },
   utcOffsetMs: number,
 ): string {
+  const own = c.kind === undefined ? null : closedText03b(c.kind, c);
+  if (own !== null) return own;
   switch (c.close_reason) {
     case 'answered': {
       const approved = c.decision === 'approve' || c.decision === 'accept';
@@ -234,6 +266,9 @@ export function answerErrorText(
     }
     case 'ALERT_NOT_FOUND':
       return t('answer.error.not_found');
+    // 02a §8 Table sheet (G4-2 #19): the bill was paid; the handover closes when the table is cleaned
+    case 'TABLE_HANDOVER_STALE':
+      return t('handover.stale');
     case 'STAFF_NOT_FOUND':
       return t('answer.error.staff_not_found');
     case 'SERVICE_UNAVAILABLE':

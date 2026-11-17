@@ -95,6 +95,48 @@ export function readDeviceKey(key: string): Promise<string | null> {
   });
 }
 
+/** The pairing keys of `pos-device` (apps/hub/src/auth/pair-page.ts); nothing else in that store is the pairing. */
+const PAIRING_KEYS = ['token', 'device_id', 'device_type'] as const;
+
+/**
+ * 02a §8 Login (Q-13): the hub no longer knows this device (401 DEVICE_TOKEN_INVALID, 403 DEVICE_REVOKED, WS 4403):
+ * forget the pairing so the device can be paired again. Only the three keys go; other keys of the store and every
+ * other database (the command queue, drafts: "unsent orders stay on this screen") are not touched. Rejects when the
+ * keys could not be deleted, so the caller never sends a still-paired device to the pair page (which would send it
+ * straight back to /staff/).
+ */
+export function wipeDeviceKeys(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let request: IDBOpenDBRequest;
+    try {
+      request = indexedDB.open('pos-device', 1);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('device')) request.result.createObjectStore('device');
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction('device', 'readwrite');
+      const store = tx.objectStore('device');
+      for (const key of PAIRING_KEYS) store.delete(key);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      const failed = () => {
+        db.close();
+        reject(tx.error ?? new Error('wipe failed'));
+      };
+      tx.onerror = failed;
+      tx.onabort = failed;
+    };
+    request.onerror = () => reject(request.error ?? new Error('wipe failed'));
+  });
+}
+
 export function createHubAdmin(options: HubAdminOptions) {
   const fetchFn = options.fetch ?? ((input: string, init?: RequestInit) => fetch(input, init));
   const base = options.baseUrl ?? '';

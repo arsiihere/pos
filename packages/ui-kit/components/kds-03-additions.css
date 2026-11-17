@@ -1,0 +1,55 @@
+/* ==========================================================
+   KDS additions (03b client, lane K; integrator ruling IR-14, 2026-11-13).
+   Only what the 03b handoff frames draw with inline styles (the style prop is banned, S35 d), as classes.
+   pulse-03.css stays a byte copy of the handoff file. Load after pulse-03.css.
+   ========================================================== */
+
+/* Kds1280 / KdsRush1280: the 1280 × 800 wall tablet — 2 card columns, a 340 px Next column */
+.kgrid--1280 { --knx-w: 340px; --kcols: 2; }
+
+/* the timer rings: 84 px (1920 cards), 76 px (1280 compact cards), 120 px (KdsEmpty) */
+:where(.pu) .ring--84 { width: 84px; height: 84px; }
+:where(.pu) .ring--76 { width: 76px; height: 76px; }
+:where(.pu) .ring--120 { width: 120px; height: 120px; }
+
+/* KdsEmpty: the panel in place of Now */
+.kfull--panel { border-radius: 28px; background: var(--surface); }
+.kfull--panel b { font-size: 40px; }
+
+/* KdsLoading / 03b-C05 placeholder card skeletons */
+:where(.pu) .sk--kid { width: 140px; height: 40px; }
+:where(.pu) .sk--kring { width: 76px; height: 76px; border-radius: 50%; flex: none; }
+:where(.pu) .sk--kl1 { width: 80%; height: 30px; }
+:where(.pu) .sk--kl2 { width: 50%; height: 20px; }
+
+/* KdsBatch / KdsBatchStarted / KdsBatchDone: a batch station at 1920 — 4 columns of compact cards */
+.kgrid--batch { --kcols: 4; }
+
+/* KdsDayNotStarted: the 140 px ring */
+:where(.pu) .ring--140 { width: 140px; height: 140px; }
+
+/* KdsLockSound: the row under the header with the 01d lock lines and "Tap to turn on sound" */
+.krow { display: flex; gap: 16px; padding: 14px 24px 0; }
+.lockp__r--kds { flex: 1; min-height: 72px; background: #3A0E0B; color: #FFE3DE; font-size: 22px; border-radius: 20px; box-shadow: inset 0 0 0 2px #E05A4F; }
+.lockp__r--kds .ac__time { color: #F4B9A8; }
+.kbn--sound { flex: 0.7; font-size: 22px; }
+
+/* Pass (lane P), IR-18 */
+/* PassPortrait: the 800 × 1280 tablet — one card column (landscape keeps pulse-03's default 3) */
+.pcards--1 { --pcols: 1; }
+/* PassLoading: skeleton cards */
+.pc--sk { padding: 16px; gap: 12px; }
+:where(.pu) .sk--pid { width: 50%; height: 32px; }
+:where(.pu) .sk--pl1 { height: 18px; }
+:where(.pu) .sk--pl2 { height: 18px; width: 70%; }
+:where(.pu) .sk--pbtn { height: 72px; }
+/* PassPortrait: the station strip wraps */
+.pstrip--wrap { flex-wrap: wrap; }
+/* PassEmpty: the empty panel fills the card area; its 96 px ring */
+.empty--pass { flex: 1; }
+:where(.pu) .ring--96 { width: 96px; height: 96px; }
+.empty--pass .ico--36 { width: 36px; height: 36px; color: var(--ok); }
+/* Pass line: the slot tags and the stage chip side by side (the frames' inline gap on .row) */
+.pl > .row { gap: 6px; }
+/* PassCards: a line with one action (Done, Undo) — one column */
+.pl__a--1 { grid-template-columns: 1fr; }

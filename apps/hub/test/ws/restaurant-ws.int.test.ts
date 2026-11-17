@@ -19,7 +19,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  it('[01a §10 #73] StockSet, StockAdded, BusinessDayOpened and ItemMade* reach staff sockets, not station sockets; BranchConfigApplied reaches both', async () => {
+  it('[01a §10 #73] StockSet, StockAdded and ItemMade* reach staff sockets, not station sockets; BusinessDayOpened reaches both (03b v1.0.8 §6.17, Q-62); BranchConfigApplied reaches both', async () => {
     const hub = await open(at(25, 6));
     withConfig(aBranchConfigItemStock());
     const admin = adminOn(hub);
@@ -35,11 +35,12 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
 
     const staffTypes = ['BusinessDayOpened', 'StockSet', 'StockAdded', 'ItemMadeUnavailable', 'ItemMadeAvailable', 'BranchConfigApplied'];
     await staff.untilCount(1 + staffTypes.length);
-    await station.untilCount(2);
+    await station.untilCount(3);
     await settle();
     expect(eventTypes(staff)).toEqual(staffTypes);
-    expect(eventTypes(station)).toEqual(['BranchConfigApplied']);
-    expect(eventFrames(station)[0]).toMatchObject({ event: { payload: { config_version: 2, snapshot_hash: HASH } } });
+    // Q-62 = (a): 03b's additive station audience adds BusinessDayOpened; StockSet, StockAdded, ItemMade* still do not reach it.
+    expect(eventTypes(station)).toEqual(['BusinessDayOpened', 'BranchConfigApplied']);
+    expect(eventFrames(station)[1]).toMatchObject({ event: { payload: { config_version: 2, snapshot_hash: HASH } } });
     // 01c §6.18 (A7): the stock frames name the stock item.
     const stockFrames = eventFrames(staff).filter((frame) => frame.event.event_type === 'StockSet' || frame.event.event_type === 'StockAdded');
     expect(stockFrames.map((frame) => frame.event.payload)).toEqual([
@@ -48,7 +49,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     ]);
   });
 
-  it('[01a §4.5] BusinessDayClosed reaches staff sockets, not station sockets (#145 push clause)', async () => {
+  it('[01a §4.5] BusinessDayClosed reaches staff sockets and, since 03b v1.0.8 §6.17 (Q-62), station sockets (#145 push clause)', async () => {
     const hub = await open(at(25, 6));
     withConfig(aBranchConfigItemStock());
     const admin = adminOn(hub);
@@ -60,9 +61,10 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     const closed = await command(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close');
     expect(closed.result.reason).toBe('closed');
     await staff.untilCount(2);
+    await station.untilCount(2);
     await settle();
     expect(eventTypes(staff)).toEqual(['BusinessDayClosed']);
-    expect(eventTypes(station)).toEqual([]);
+    expect(eventTypes(station)).toEqual(['BusinessDayClosed']);
   });
 
   it('[01a §10 #89] a new stock-tracked item with no StockSet reads 0 in the stock query, availableStock and the catch-up stock part', async () => {

@@ -7,6 +7,10 @@ const ENTRIES: Record<string, string> = {
   'admin-stock': '/admin/stock/',
   // 01d task 41: the staff entry (inbox, requests, answer sheet, test alert)
   staff: '/staff/',
+  // 03b W0.4 (00 v1.9.2 §8.2; Q-42, Q-43): the KDS (station session) and the 03b / 03c hub admin pages
+  kds: '/kds/',
+  'admin-kitchen-screens': '/admin/kitchen-screens/',
+  'admin-printers': '/admin/printers/',
 };
 
 export default defineConfig(({ mode }) => {

@@ -400,3 +400,39 @@ describe('[02b #51] order_lines.station_id (02b v1.0.12 §5, §4.2; 04 §4.5 Q-1
     expect(Object.fromEntries(out.r.lines.map((l) => [l.order_item_id, l.option_quantity]))).toEqual({ K: null, R: 1, RN: null, D: null, P1: null, P2: null, L: null });
   });
 });
+
+describe('[02b #46] options on LineView (§4.2; Q-7)', () => {
+  it('[02b #46] orderLines / ordersOf: options parsed from options_json in payload order; NULL → []; 1 statement each', async () => {
+    await start();
+    openSeating(hub, { table_id: FX.table, seating_id: 'S1' });
+    const plain = (name: string, quantity: number) => ({ option_id: `OPT_${name}`, modifier_group_id: 'M_PLAIN', name, price_minor: 0, quantity, charge_minor: 0 });
+    const o = appendOrder(hub, {
+      order_type: 'dine_in',
+      seating_id: 'S1',
+      lines: [
+        { order_item_id: 'L1', item_id: FX.piece, item: { options: [plain('No onion', 1), plain('Less spicy', 2)] } },
+        { order_item_id: 'L2', item_id: FX.naan },
+      ],
+    });
+    expect(lineRow('L2').options_json).toBeNull();
+    const counter = statementCounter(hub.deps.db);
+    const lines = orderLines(hub.deps.db, [o.order_id]).get(o.order_id)!;
+    expect(counter.count).toBe(1);
+    expect(lines.map((l) => [l.order_item_id, l.options])).toEqual([
+      ['L1', [{ name: 'No onion', quantity: 1 }, { name: 'Less spicy', quantity: 2 }]],
+      ['L2', []],
+    ]);
+    counter.reset();
+    const orders = ordersOf(hub.deps.db, 'S1');
+    expect(counter.count).toBe(1);
+    expect(orders[0]!.lines.map((l) => l.options)).toEqual(lines.map((l) => l.options));
+    // merge 04 → main: the shared readOrder (04 Q-2) carries LineView.options too, still 1 statement
+    const out = hub.deps.writer.run((tx) => {
+      counter.reset();
+      const r = readOrder({ tx } as unknown as CommandCtx, o.order_id);
+      return { r, statements: counter.count };
+    }).result;
+    expect(out.statements).toBe(1);
+    expect(out.r.lines.map((l) => l.options)).toEqual(lines.map((l) => l.options));
+  });
+});

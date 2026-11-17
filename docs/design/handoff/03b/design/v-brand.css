@@ -1,0 +1,80 @@
+/* Pulse · Chatkhara — Arif Chatkhara maroon chrome, cream ground, saffron primary. Bricolage Grotesque + Figtree. */
+.pu.v-brand {
+  --font: "Figtree", system-ui, sans-serif; --font-display: "Bricolage Grotesque", "Figtree", system-ui, sans-serif; --font-num: "Bricolage Grotesque", "Figtree", system-ui, sans-serif; --font-urdu: "Noto Nastaliq Urdu", serif;
+  --num-track: -0.02em; --tb-n-weight: 800;
+  --bg: #F8F1E7; --surface: #FFFFFF; --surface-2: #FBF6EF; --surface-3: #F1E7DA; --line: #ECDFCF;
+  --ink: #2B130E; --ink-2: #5A3F36; --muted: #7A6157;
+  --primary: #F4A321; --on-primary: #3A0E07; --primary-shadow: 0 10px 24px rgb(176 92 0 / 0.28), inset 0 -3px 0 rgb(122 50 0 / 0.22);
+  --accent: #8E1F16; --on-accent: #FFF4E6; --accent-bg: #FBE7E3; --accent-ink: #8E1F16; --accent-text: #8E1F16;
+  --r-sm: 10px; --r-md: 16px; --r-lg: 20px; --r-xl: 26px; --r-tb: 20px; --r-mark: 50%;
+  --btn-bg: #FFFFFF; --btn-ink: #2B130E; --btn-ring: inset 0 0 0 1.5px #E6D5C2;
+  --cnt-bg: #F1E4D4; --cnt-ink: #5A3F36;
+  --seg-bg: #F1E4D4; --seg-ink: #5A3F36; --seg-on: #FFFFFF; --seg-on-ink: #2B130E; --seg-shadow: 0 1px 0 #E6D5C2, 0 4px 10px rgb(110 20 14 / 0.08); --seg-on-n-bg: #8E1F16; --seg-on-n-ink: #FFF4E6;
+  --chrome-bg: #6E140E; --chrome-ink: #FFF3E6; --chrome-muted: #EBC3A6; --chrome-edge: none; --chrome-btn: rgb(255 255 255 / 0.10); --chrome-btn-ring: none;
+  --rail-bg: #5A100B; --rail-ink: #EBC3A6; --rail-on: #F4A321; --rail-on-ink: #3A0E07; --rail-edge: none;
+  --mark-bg: #F4A321; --mark-ink: #4A0F09;
+  --av-bg: #F1E4D4; --av-ink: #5A3F36;
+  --ring-track: #F1E4D4; --per-track: rgb(90 16 11 / 0.07);
+  --s-free: #B9A595; --s-free-bg: #FBF6EF; --s-free-ink: #6E5549;
+  --s-seated: #2563C9; --s-seated-bg: #E8F0FC; --s-seated-ink: #1D4F9F;
+  --s-ordered: #6D46D9; --s-ordered-bg: #EFEAFC; --s-ordered-ink: #5534B6;
+  --s-eating: #198754; --s-eating-bg: #E3F3E9; --s-eating-ink: #136A42;
+  --s-bill: #C8262E; --s-bill-bg: #FCE6E4; --s-bill-ink: #A81D25;
+  --s-clean: #9A8B80; --s-clean-bg: #F4EDE5; --s-clean-ink: #6E5549;
+  --ok: #198754; --ok-bg: #E3F3E9; --ok-ink: #136A42;
+  --warn: #D9660A; --warn-bg: #FFEEDC; --warn-ink: #9C4700;
+  --danger: #C8262E; --danger-bg: #FCE6E4; --danger-ink: #A81D25;
+  --info: #2563C9; --info-bg: #E8F0FC; --info-ink: #1D4F9F;
+  --floor-bg: #FFFBF5; --floor-ring: 0 1px 0 #ECDFCF, 0 10px 30px rgb(110 20 14 / 0.06); --floor-dot: #EFE3D3; --wall: #E0CDB8; --win: #C9DCEB; --zone-bg: #F6ECDF; --zone-ink: #7A6157; --chair: #E8D9C7;
+  --tb-bg: #FFFFFF; --tb-edge: #E6D5C2; --tb-shadow: 0 1px 0 #ECDFCF, 0 8px 18px rgb(110 20 14 / 0.08); --free-n: #5A3F36; --clean-fill: repeating-linear-gradient(135deg, #F6EEE4 0 8px, #FCF7F1 8px 16px);
+  --sum-bg: #FFFFFF; --sum-ring: inset 0 0 0 1px #ECDFCF;
+  --tile-bg: #FFFFFF; --tile-shadow: 0 1px 0 #ECDFCF, 0 6px 16px rgb(110 20 14 / 0.06);
+  --photo-bg: #3B1E14; --photo-none-bg: #F6ECDF; --photo-none-ink: #8E1F16; --plate: #FFF8EE; --plate-rim: #EADBC6;
+  --input-bg: #FFFFFF; --input-ring: inset 0 0 0 1.5px #E6D5C2;
+  --cart-bg: #FFFFFF; --cart-edge: -1px 0 0 #ECDFCF; --line-open: #FFF4E3;
+  --ident-bg: #F4A321; --ident-ink: #3A0E07;
+  --side-bg: #4A0D09; --side-ink: #F7DCC6; --side-muted: #D2A68A; --side-icon: #D9AC8F; --side-on: #F4A321; --side-on-ink: #3A0E07; --side-line: #6A1A12; --side-edge: none;
+  --card-shadow: 0 1px 0 #ECDFCF, 0 8px 22px rgb(110 20 14 / 0.05); --th-bg: #FCF7F0; --role-bg: #F6ECDF; --role-ink: #5A3F36; --warnrow-bg: #FFF8EE; --attn-bg: #FFF1DF; --attn-ring: inset 0 0 0 1.5px #F6CFA0;
+  --chart-1: #8E1F16; --chart-2: #B9A595;
+  --tab-bg: #FFFFFF; --tab-edge: 0 -1px 0 #ECDFCF; --tab-on-bg: #FBE7E3; --tab-on-ink: #8E1F16;
+  --ident-ring: none;
+}
+.pu.v-brand .ts-halo .tb:not(.s-free):not(.s-clean) { background: var(--c-bg); --tb-edge: var(--c); --tb-edge-w: 2.5px; }
+.pu.v-brand .ts-halo .tb.s-bill.c-bill { background: #C8262E; color: #fff; --c-ink: #FFE3E0; --tb-edge: #C8262E; }
+.pu.v-brand .ts-halo .tb.s-bill.c-bill .tb__t { color: #FFD5D0; }
+.pu.v-brand .gt:not(.s-free):not(.s-clean) { background: var(--c-bg); --tb-edge: color-mix(in srgb, var(--c) 35%, transparent); }
+.pu.v-brand .gt { --tb-edge: transparent; }
+.pu.v-brand .ts-halo .gt.s-bill.c-bill { background: #C8262E; color: #fff; --c-ink: #FFE3E0; --c-bg: rgb(255 255 255 / 0.18); }
+.pu.v-brand .ts-halo .gt.s-bill .gt__seats, .pu.v-brand .ts-halo .gt.s-bill .gt__who { color: #FFE3E0; }
+.pu.v-brand .ts-halo .gt.s-bill .ring { --ring-track: rgb(255 255 255 / 0.25); --c: #fff; }
+.pu.v-brand .tb__flag.c-warn { --c-solid: #D9660A; --c-solid-ink: #fff; }
+.pu.v-brand .tb__flag.c-danger { --c-solid: #2B130E; --c-solid-ink: #FFD7D3; }
+.pu.v-brand .tb__flag.c-ok { --c-solid: #198754; --c-solid-ink: #fff; }
+.pu.v-brand .top .live { background: rgb(255 255 255 / 0.12); color: #C7F5D5; }
+.pu.v-brand .top .me { background: rgb(255 255 255 / 0.10); }
+.pu.v-brand .top .ident small { color: #EBC3A6; }
+.pu.v-brand .mi .tag { --c-tag-bg: #FFFFFF; --tag-shadow: 0 2px 8px rgb(40 0 0 / 0.18); }
+.pu.v-brand .rail__item .badge { box-shadow: 0 0 0 2px #5A100B; }
+.pu.v-brand .hero-card { background: #6E140E; color: #FFF3E6; box-shadow: none; }
+/* KDS in brand family: warm near-black */
+.pu.v-brand.kds {
+  --bg: #120A08; --surface: #1C1210; --surface-2: #261915; --line: #33231E; --ink: #FFF3E8; --ink-2: #D9C1B4; --muted: #A88D80;
+  --primary: #F4A321; --on-primary: #3A0E07; --accent: #F4A321; --on-accent: #3A0E07; --accent-text: #F8BE5C; --accent-bg: rgb(244 163 33 / 0.16); --accent-ink: #F8BE5C;
+  --btn-bg: #2A1C17; --btn-ink: #FFF3E8; --btn-ring: inset 0 0 0 1px #3E2B24;
+  --chrome-bg: #4A0D09; --chrome-ink: #FFF3E6; --chrome-muted: #EBC3A6; --chrome-btn: rgb(255 255 255 / 0.10);
+  --ring-track: #3A2822; --kt-bg: #1C1210; --kt-shadow: inset 0 0 0 1px #2E201B; --cnt-bg: #3A2822; --cnt-ink: #E8D3C6;
+  --ok: #42D392; --ok-bg: rgb(66 211 146 / 0.14); --ok-ink: #82E8B9; --warn: #FF9A3C; --warn-bg: rgb(255 154 60 / 0.15); --warn-ink: #FFB877;
+  --danger: #FF5A55; --danger-bg: rgb(255 90 85 / 0.16); --danger-ink: #FF9A96; --info: #6AAEFF; --info-bg: rgb(106 174 255 / 0.14); --info-ink: #9CCAFF;
+  --note-bg: rgb(255 154 60 / 0.14); --note-ink: #FFC08A; --plate-bg: #F5F1E6; --plate-ink: #111; --plate-ring: #111;
+}
+.pu.v-brand.kds .kflag.c-brand { --c-solid: #F4A321; --c-solid-ink: #3A0E07; }
+.pu.v-brand.kds .kflag.c-warn { --c-solid: #FF9A3C; --c-solid-ink: #1E1003; }
+.pu.v-brand.kds .kflag.c-danger { --c-solid: #FF5A55; --c-solid-ink: #1E0505; }
+.pu.v-brand.kds .kflag.c-info { --c-solid: #6AAEFF; --c-solid-ink: #04111F; }
+.pu.v-brand.kds .kbar .live { background: rgb(255 255 255 / 0.12); color: #C7F5D5; }
+.pu.v-brand.kds .lane { border-radius: 28px; background: #170E0B; box-shadow: inset 0 0 0 1px #2A1C17; padding: 16px; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.pu.v-brand .on-light { --seg-bg: #F1E4D4; --seg-ink: #5A3F36; --seg-on: #FFFFFF; --seg-on-ink: #2B130E; --seg-shadow: 0 1px 0 #E6D5C2, 0 4px 10px rgb(110 20 14 / 0.08); --seg-on-n-bg: #8E1F16; }
+.pu.v-brand { --cat-ink: #FFF3E6; }
+.pu.v-brand .top { --seg-bg: rgb(255 255 255 / 0.10); --seg-ink: #F4D8BF; --seg-on: #FFF6EC; --seg-on-ink: #5C120C; --seg-shadow: 0 4px 12px rgb(40 0 0 / 0.25); --cnt-bg: rgb(255 255 255 / 0.16); --cnt-ink: #FFE7D2; }
+.pu.v-brand .hero-card { --chart-1: #F4A321; --chart-2: #E2B597; --line: rgb(255 255 255 / 0.14); --muted: #EBC3A6; --ink-2: #F7DCC6; --surface: #6E140E; --ok-bg: rgb(199 245 213 / 0.16); --ok-ink: #C7F5D5; }
+.pu.v-brand { --solid-ink: #FFFFFF; --wood: #F6ECDF; }

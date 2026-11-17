@@ -12,7 +12,7 @@ import { pointViewBody, type PointViewBody } from '../../src/ws/point-catch-up';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
-import { COOK, FX, append, appendOrder, fireLines, openDay, pairDevice, pairKds, removeLine, serveLines, signInCook, voidLine } from './fixtures';
+import { COOK, FX, append, appendOrder, fireLines, fixtureMenu, openDay, openSeating, pairDevice, pairKds, removeLine, serveLines, signInCook, voidLine } from './fixtures';
 
 // 03b §6.15 (`point_view` catch-up part, 4 statements + takeovers), §6.16 (`point_lines` frame, once per id); tests #65
 // (point half), #29; task b21. Real submit batches and fires, real Ready / Handover events, real sockets.
@@ -48,6 +48,8 @@ const catchUpState = (ws: WsClient): Record<string, unknown> => (ws.messages[0] 
 const pointLines = (ws: WsClient): WsPointLines[] => ws.messages.filter((m) => (m as { type?: string }).type === 'point_lines') as WsPointLines[];
 const ids = (frames: WsPointLines[]): string[][] => frames.map((f) => f.lines.map((l) => l.order_item_id));
 const body = (point = 'P1'): PointViewBody => pointViewBody(hub.deps.db, engine(), point, now());
+/** Q-46: the engine line's serve group and mode. */
+const serve = (id: string): { group_id: string; serve_mode: 'sync' | 'immediate' } => ({ group_id: engine().lines[id]!.group_id, serve_mode: engine().lines[id]!.serve_mode });
 
 /** Counts only buildLineDetails' two statements (its line read and 02a currentTableOf), as test/kds/kds-catch-up's. */
 function detailsCounter(db: Database.Database): { readonly count: number; reset(): void } {
@@ -86,8 +88,8 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
     expect(view).toEqual({
       point_id: 'P1',
       stations: [
-        { station_id: FX.station, name: 'Karahi', lanes: { lanes_on: 1, lane_count: 1 }, dark: false },
-        { station_id: FX.zoneStation, name: 'Counter', lanes: { lanes_on: 1, lane_count: 1 }, dark: false },
+        { station_id: FX.station, name: 'Karahi', lanes: { lanes_on: 1, lane_count: 1 }, dark: false, screenless: true },
+        { station_id: FX.zoneStation, name: 'Counter', lanes: { lanes_on: 1, lane_count: 1 }, dark: false, screenless: true },
       ],
       orders: [
         {
@@ -95,12 +97,12 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
           identifier: details.get('A1')!.identifier,
           placed_at: engine().orders[a]!.placed_at,
           lines: [
-            { ...details.get('A1')!, stage: 'added', handed_over: false },
-            { ...details.get('A2')!, stage: 'added', handed_over: false },
+            { ...details.get('A1')!, ...serve('A1'), stage: 'added', handed_over: false },
+            { ...details.get('A2')!, ...serve('A2'), stage: 'added', handed_over: false },
           ],
           ready: null,
         },
-        { order_id: b, identifier: details.get('B1')!.identifier, placed_at: engine().orders[b]!.placed_at, lines: [{ ...details.get('B1')!, stage: 'added', handed_over: false }], ready: null },
+        { order_id: b, identifier: details.get('B1')!.identifier, placed_at: engine().orders[b]!.placed_at, lines: [{ ...details.get('B1')!, ...serve('B1'), stage: 'added', handed_over: false }], ready: null },
       ],
       takeovers: [],
     });
@@ -159,6 +161,82 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
     expect(body('P2').stations.map((s) => s.station_id)).toEqual([FX.station]);
   });
 
+  it('[03b #67] point_view.stations[]: a station with a paired kds device screenless false, one without true; refreshed at the next catch-up after a DeviceRevoked', async () => {
+    const cook = await start();
+    const flags = (): Array<[string, boolean]> => body().stations.map((s) => [s.station_id, s.screenless]);
+    expect(flags()).toEqual([[FX.station, true], [FX.zoneStation, true]]);
+    const kds = pairKds(hub, { stationId: FX.station });
+    expect(flags()).toEqual([[FX.station, false], [FX.zoneStation, true]]);
+    const pass = await connect(cook.token, cook.sessionToken);
+    expect((catchUpState(pass).point_view as PointViewBody).stations.map((s) => s.screenless)).toEqual([false, true]);
+
+    const branch = hub.deps.config.provisioned!.branch_id;
+    hub.deps.db.prepare('UPDATE devices SET revoked_at = ? WHERE device_id = ?').run(now(), kds.deviceId);
+    append(hub, [{ stream_type: 'hub', stream_id: branch, event_type: 'DeviceRevoked', payload: { device_id: kds.deviceId, reason: null, cause: 'manual' } }], { actor: null });
+    const again = await connect(cook.token, cook.sessionToken);
+    expect((catchUpState(again).point_view as PointViewBody).stations.map((s) => s.screenless)).toEqual([true, true]);
+  });
+
+  it('[03b #67] every point_view line and every point_lines line carries group_id and serve_mode equal to the engine line; a return line and a released line are immediate', async () => {
+    const cook = await start();
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'N1', item_id: FX.naan }, { order_item_id: 'G1', item_id: FX.piece }, { order_item_id: 'G2', item_id: FX.piece }] });
+    const station_id = engine().lines.N1!.station_id;
+    const on = (event_type: string, payload: Record<string, unknown>) => ({ stream_type: 'order' as const, stream_id: order_id, event_type, payload });
+    append(hub, [{ stream_type: 'station', stream_id: station_id, event_type: 'FireDispatched', payload: { station_id, order_item_ids: ['N1'], load_id: null, due_at: now(), reason: 'pulled' } }]);
+    append(hub, [on('ItemStarted', { order_item_id: 'N1', started_at: now(), source: 'tap' })]);
+    append(hub, [on('ItemDone', { order_item_id: 'N1', done_at: now(), source: 'tap' })]);
+    append(hub, [on('ItemServed', { order_item_ids: ['N1'], source: 'tap' })]);
+    append(hub, [on('ItemsReleased', { order_id, alert_id: null, released: ['G1'], expedite: [] })]);
+    expect(engine().lines.G1!.serve_mode).toBe('immediate');
+    expect(engine().lines.G2!.serve_mode).toBe('sync');
+
+    const pass = await connect(cook.token, cook.sessionToken);
+    const view = catchUpState(pass).point_view as PointViewBody;
+    const viewLines = view.orders.flatMap((o) => o.lines);
+    expect(viewLines.map((l) => l.order_item_id).sort()).toEqual(['G1', 'G2']);
+    for (const l of viewLines) expect({ group_id: l.group_id, serve_mode: l.serve_mode }, l.order_item_id).toEqual(serve(l.order_item_id));
+    expect(viewLines.find((l) => l.order_item_id === 'G1')!.serve_mode).toBe('immediate');
+
+    const device = pairDevice(hub, { type: 'tablet' });
+    const session = openSession(hub, { kind: 'staff', staffId: 'S_OWNER', deviceId: device.deviceId });
+    const res = await hub.app.inject({
+      method: 'POST',
+      url: '/commands/return-to-kitchen',
+      headers: { authorization: `Bearer ${device.token}`, 'x-session-token': session.token },
+      payload: {
+        command_id: 'cmd-return-1',
+        tenant_id: 'tenant-a',
+        branch_id: 'branch-1',
+        command_type: 'ReturnToKitchen',
+        payload: { order_item_id: 'N1', return_order_item_id: 'R1', mode: 'remake' },
+        occurred_at: now(),
+        actor_id: 'S_OWNER',
+        device_id: device.deviceId,
+      },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'C1', item_id: FX.piece }] });
+    await settle();
+    const framed = pointLines(pass).flatMap((f) => f.lines);
+    expect(framed.map((l) => l.order_item_id).sort()).toEqual(['C1', 'R1']);
+    for (const l of framed) expect({ group_id: l.group_id, serve_mode: l.serve_mode }, l.order_item_id).toEqual(serve(l.order_item_id));
+    expect(framed.find((l) => l.order_item_id === 'R1')!.serve_mode).toBe('immediate');
+    expect(framed.find((l) => l.order_item_id === 'C1')!.serve_mode).toBe('sync');
+    for (const f of pointLines(pass)) WsPointLines.parse(f);
+  });
+
+  it('[03b #67] statements unchanged: point_view 4 (+1 per takeover), point_lines hook 2', async () => {
+    const cook = await start();
+    appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'A1', item_id: FX.piece }] });
+    const counter = statementCounter(hub.deps.db);
+    body();
+    expect(counter.count).toBe(4);
+    await connect(cook.token, cook.sessionToken);
+    const detail = detailsCounter(hub.deps.db);
+    appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'B1', item_id: FX.piece }, { order_item_id: 'B2', item_id: FX.naan }] });
+    expect(detail.count, 'the point_lines hook: one buildLineDetails').toBe(2);
+  });
+
   it('[03b #65, v1.0.6 Q-20] point_view ≤ 4 statements with 50 lines; a takeover adds its kds_station body and exactly 1 statement (has_printer) → 5', async () => {
     await start();
     for (let o = 0; o < 10; o += 1) {
@@ -215,7 +293,7 @@ describe('[03b §6.16] point_lines frame (b21)', () => {
     await settle();
     const frames = pointLines(pass);
     expect(ids(frames)).toEqual([['B1', 'B2']]);
-    expect(WsPointLines.parse(frames[0])).toEqual({ type: 'point_lines', point_id: 'P1', lines: [...buildLineDetails(hub.deps.db, engine(), ['B1', 'B2']).values()] });
+    expect(WsPointLines.parse(frames[0])).toEqual({ type: 'point_lines', point_id: 'P1', lines: [...buildLineDetails(hub.deps.db, engine(), ['B1', 'B2']).values()].map((d) => ({ ...d, ...serve(d.order_item_id) })) });
   });
 
   it('[03b v1.0.4 §6.16] a held line whose live units change (partial remove / void) is re-sent; one buildLineDetails per commit (B3-3)', async () => {
@@ -283,5 +361,122 @@ describe('[03b §6.16] point_lines frame (b21)', () => {
     appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'C1', item_id: FX.piece }] });
     await settle();
     expect(ids(pointLines(pass))).toEqual([['C1']]);
+  });
+});
+
+describe('[03b #68] table moves re-send the held lines (HK3, Q-47) - Pass sockets', () => {
+  const tableMenu = (): BranchConfig => {
+    const m = fixtureMenu();
+    const floor = m.floors[0]!;
+    return { ...m, floors: [{ ...floor, tables: ['4', '5', '9', '10', '11'].map((n, i) => ({ table_id: `T${n}`, name: n, seats: 4, sort_order: i, zone_id: null })) }] };
+  };
+  const startTables = async (): Promise<{ deviceId: string; token: string; sessionToken: string }> => {
+    hub = await createTestHub({ provisioned: true });
+    const cook = await signInCook(hub, { pointId: 'P1' });
+    openDay(hub, { menu: tableMenu() });
+    return cook;
+  };
+  const tableEvent = (stream: string, event_type: string, payload: Record<string, unknown>) => append(hub, [{ stream_type: 'table', stream_id: stream, event_type, payload: { ...payload, by_staff_id: 'S_WAIT' } }]);
+  const move = (seating_id: string, from_table_id: string, to_table_id: string) => tableEvent(from_table_id, 'TableMoved', { seating_id, from_table_id, to_table_id });
+  const dineIn = (table_id: string, seating_id: string, line: string): string => {
+    openSeating(hub, { table_id, seating_id });
+    return appendOrder(hub, { order_type: 'dine_in', seating_id, lines: [{ order_item_id: line, item_id: FX.piece }] }).order_id;
+  };
+  const labelOf = (frames: Array<{ lines: Array<{ order_item_id: string; identifier: { kind: string; label?: string } }> }>, id: string): string | undefined =>
+    frames.flatMap((f) => f.lines).filter((l) => l.order_item_id === id).map((l) => l.identifier.label).at(-1);
+  const lineIds = (frames: Array<{ lines: Array<{ order_item_id: string }> }>): string[][] => frames.map((f) => f.lines.map((l) => l.order_item_id));
+  /** Counts the table-event read (Q-47) only. */
+  function seatingReads(db: Database.Database): { readonly count: number; reset(): void } {
+    let count = 0;
+    const prepare = db.prepare.bind(db);
+    db.prepare = ((sql: string) => {
+      const statement = prepare(sql);
+      if (sql.includes('SELECT order_id FROM seating_orders WHERE seating_id IN')) {
+        const all = statement.all.bind(statement);
+        statement.all = ((...args: unknown[]) => {
+          count += 1;
+          return all(...(args as []));
+        }) as typeof statement.all;
+      }
+      return statement;
+    }) as typeof db.prepare;
+    return { get count() { return count; }, reset() { count = 0; } };
+  }
+
+  it('[03b #68] TableMoved T4 → T9: one kds_lines and one point_lines frame re-send the held lines with identifier T9', async () => {
+    const cook = await startTables();
+    dineIn('T4', 'SE4', 'D1');
+    dineIn('T5', 'SE5', 'D2');
+    const ws = await connect(cook.token, cook.sessionToken);
+    await settle();
+    expect(pointLines(ws)).toEqual([]);
+    move('SE4', 'T4', 'T9');
+    await settle();
+    expect(lineIds(pointLines(ws))).toEqual([['D1']]);
+    expect(pointLines(ws)[0]!.lines[0]!.identifier).toEqual({ kind: 'table', label: 'T9' });
+  });
+
+  it('[03b #68] TablesMerged absorbing the seating → "T9 + T10"; SeatingSplit moving an order → its lines re-sent with the new table', async () => {
+    const cook = await startTables();
+    dineIn('T9', 'SE9', 'D1');
+    const o10 = dineIn('T10', 'SE10', 'D2');
+    const ws = await connect(cook.token, cook.sessionToken);
+    await settle();
+    tableEvent('T9', 'TablesMerged', { into_seating_id: 'SE9', into_table_id: 'T9', table_ids: ['T10'], absorbed_seating_id: 'SE10', order_ids: [o10] });
+    await settle();
+    expect(lineIds(pointLines(ws))).toEqual([['D1', 'D2']]);
+    expect(labelOf(pointLines(ws), 'D1')).toBe('T9 + T10');
+    expect(labelOf(pointLines(ws), 'D2')).toBe('T9 + T10');
+
+    tableEvent('T9', 'SeatingSplit', { from_seating_id: 'SE9', new_seating_id: 'SE11', to_table_id: 'T11', order_ids: [o10] });
+    await settle();
+    expect(lineIds(pointLines(ws))).toEqual([['D1', 'D2'], ['D1', 'D2']]);
+    expect(labelOf(pointLines(ws), 'D2')).toBe('T11');
+    expect(labelOf(pointLines(ws), 'D1')).toBe('T9 + T10');
+  });
+
+  it('[03b #68] lines of other seatings are not re-sent; a commit without a table event sends nothing extra', async () => {
+    const cook = await startTables();
+    dineIn('T4', 'SE4', 'D1');
+    dineIn('T5', 'SE5', 'D2');
+    const ws = await connect(cook.token, cook.sessionToken);
+    await settle();
+    move('SE4', 'T4', 'T9');
+    await settle();
+    expect(lineIds(pointLines(ws))).toEqual([['D1']]);
+
+    appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'X1', item_id: FX.piece }] });
+    fireLines(hub, FX.station, ['D1', 'D2']);
+    await settle();
+    expect(lineIds(pointLines(ws))).toEqual([['D1'], ['X1']]);
+  });
+
+  it('[03b #68] statements ≤ 2 + 1 per hook (KDS and Pass each), only in a commit with a table event', async () => {
+    const cook = await startTables();
+    dineIn('T4', 'SE4', 'D1');
+    const counter = statementCounter(hub.deps.db);
+    const reads = seatingReads(hub.deps.db);
+    // the same commit shape with no socket connected: the hooks return before any read
+    counter.reset();
+    move('SE4', 'T4', 'T9');
+    const bare = counter.count;
+    expect(reads.count, 'no socket: no read').toBe(0);
+
+    const ws = await connect(cook.token, cook.sessionToken);
+    await settle();
+    counter.reset();
+    reads.reset();
+    move('SE4', 'T9', 'T4');
+    const hooked = counter.count - bare;
+    expect(hooked, 'buildLineDetails 2 + the seating_orders read 1').toBeLessThanOrEqual(3);
+    expect(reads.count).toBe(1);
+    await settle();
+    expect(lineIds(pointLines(ws))).toEqual([['D1']]);
+
+    // a commit with no table event: no seating_orders read; the commit holding no new line reads nothing at all
+    counter.reset();
+    reads.reset();
+    fireLines(hub, FX.station, ['D1']);
+    expect(reads.count).toBe(0);
   });
 });

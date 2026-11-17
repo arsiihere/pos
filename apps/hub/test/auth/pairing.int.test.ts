@@ -180,31 +180,29 @@ describe('device pairing', () => {
     const html = (await hub.app.inject({ method: 'GET', url: '/pair' })).body;
     const unreachable = () => Promise.reject(new TypeError('fetch failed'));
 
+    // 00 v1.9.2 (Q-42): a stored kds token no longer calls the hub here, so the first request of a screen shows it.
     let down = 6;
-    const kds = await runPage(html, {
-      store: { token: 'kds-token', device_id: 'kds-1', device_type: 'kds' },
+    const first = await runPage(html, {
       fetch: (url) => {
-        if (url !== '/auth/station') throw new Error(`unexpected ${url}`);
+        if (url !== '/pair/requests') return Promise.resolve(jsonResponse(200, { data: { status: 'pending' } }));
         if (down > 0) {
           down -= 1;
           return unreachable();
         }
-        return Promise.resolve(jsonResponse(200, { data: { session_token: 's', session_id: 'x', station_id: 'ST' } }));
+        return Promise.resolve(
+          jsonResponse(200, { data: { request_id: 'R1', poll_secret: 'p', display_code: 'ABCDEF', approve_qr_svg: '<svg></svg>', expires_at: Date.now() + 581_000 } }),
+        );
       },
     });
-    expect(textOf(kds.byId('pair_status'))).toContain(EN['pairing.hub_unreachable']);
-    expect(kds.byId('pair_status').hidden).toBe(false);
-    while (down > 0 || !textOf(kds.screen).includes(EN['pairing.approved_title'])) {
-      if (!(await kds.advance())) break;
+    expect(textOf(first.byId('pair_status'))).toContain(EN['pairing.hub_unreachable']);
+    expect(first.byId('pair_status').hidden).toBe(false);
+    while (down > 0 || !textOf(first.screen).includes('ABCDEF')) {
+      if (!(await first.advance())) break;
     }
-    expect(textOf(kds.screen)).toContain(EN['pairing.approved_title']);
-    expect(textOf(kds.screen)).toContain(EN['pairing.approved_body_kds']);
-    expect(kds.store.get('token')).toBe('kds-token');
-    expect(kds.delays.length).toBeGreaterThanOrEqual(6);
-    expect(Math.max(...kds.delays)).toBe(5_000);
-    expect(kds.delays.slice(0, 3)).toEqual([500, 1_000, 2_000]);
-    expect(textOf(kds.byId('pair_status'))).not.toContain(EN['pairing.hub_unreachable']);
-    expect(kds.byId('pair_status').hidden).toBe(true);
+    expect(textOf(first.screen)).toContain('ABCDEF');
+    expect(first.delays.slice(0, 6)).toEqual([500, 1_000, 2_000, 4_000, 5_000, 5_000]);
+    expect(textOf(first.byId('pair_status'))).not.toContain(EN['pairing.hub_unreachable']);
+    expect(first.byId('pair_status').hidden).toBe(true);
 
     let pollsDown = 2;
     const screen = await runPage(html, {
@@ -353,19 +351,14 @@ describe('device pairing', () => {
     const logoutAt = html.indexOf('/admin/auth/logout');
     expect(html.slice(logoutAt, logoutAt + 400)).toContain('authorization');
     const noToken = html.match(/if \(!pairingToken\) \{[\s\S]*?return pairScreen\(db\);\s*\}/)?.[0] ?? '';
-    expect(noToken.indexOf('await resumePaired(db, deviceToken)')).toBeGreaterThan(-1);
+    expect(noToken.indexOf('await resumePaired(db)')).toBeGreaterThan(-1);
     const screenBlock = html.match(/function pairScreen\(db\) \{[\s\S]*?\n\}/)?.[0] ?? '';
     expect(screenBlock).toContain("fetchRetry('/pair/requests'");
     expect(screenBlock).toContain('retry_after_ms');
-    const resume = html.match(/async function resumePaired[\s\S]*?\n\}/)?.[0] ?? '';
-    expect(resume).toMatch(/status === 401 \|\| \w+\.status === 403/);
-    expect(resume).toContain('await wipe(db)');
-    expect(html).toContain("for (const key of ['token', 'device_id', 'device_type']) await deleteKey(db, key);");
     expect(html.match(/writeKey\(db, 'device_id'/g)?.length).toBe(2);
-    expect(screenBlock).toContain('/auth/station');
     expect(screenBlock).toContain('res.status !== 200');
-    const stationAt = html.indexOf('/auth/station');
-    expect(html.slice(stationAt, stationAt + 400)).toContain('authorization');
+    // 00 v1.9.2 §8.2 (Q-42, M53): the KDS entry owns the station session; this page never signs a station in.
+    expect(html).not.toContain('/auth/station');
     expect(html).toContain('status === 404');
     expect(html).toContain('Ask a manager');
     expect(html).toContain('pairing.ios_title');
@@ -440,3 +433,158 @@ async function pairingToken(
 function pair(hub: TestHub, payload: Record<string, unknown>, headers: Record<string, string> = {}, remoteAddress?: string) {
   return hub.app.inject({ method: 'POST', url: '/devices/pair', headers, payload, remoteAddress });
 }
+
+// ------------------------------------------------------------------------------------------- 00 v1.9.1 §8.2 (H8)
+
+describe('pair page opens the staff or KDS entry (00 v1.9.1 / v1.9.2 §8.2; Q-13, Q-29, Q-42)', () => {
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
+
+  type Page = Awaited<ReturnType<typeof runPage>>;
+  /** Runs every pending timer (the page's own countdowns stop once paired); bounded. */
+  async function drain(page: Page): Promise<void> {
+    for (let i = 0; i < 60 && (await page.advance()); i += 1);
+  }
+  async function pairHtml(search = ''): Promise<string> {
+    const hub = await open();
+    return (await hub.app.inject({ method: 'GET', url: `/pair${search}` })).body;
+  }
+
+  it('[00 §8.2 v1.9.1] an approved tablet / cashier_kiosk / phone request → /staff/; kds → /kds/ (v1.9.2)', async () => {
+    const html = await pairHtml();
+    for (const device_type of ['tablet', 'cashier_kiosk', 'phone', 'kds'] as const) {
+      const urls: string[] = [];
+      const page = await runPage(html, {
+        fetch: (url) => {
+          urls.push(url);
+          if (url === '/pair/requests') {
+            return Promise.resolve(jsonResponse(200, { data: { request_id: 'R1', poll_secret: 'p', display_code: 'ABCDEF', approve_qr_svg: '<svg></svg>', expires_at: Date.now() + 600_000 } }));
+          }
+          if (url === '/pair/requests/R1') {
+            return Promise.resolve(jsonResponse(200, { data: { status: 'approved', device_id: 'D1', device_token: 'tok', device_type, station_id: 'T', station_name: 'Tandoor' } }));
+          }
+          throw new Error(`unexpected ${url}`);
+        },
+      });
+      for (let i = 0; i < 40 && page.store.get('token') === undefined; i += 1) await page.advance();
+      expect(page.store.get('device_type'), device_type).toBe(device_type);
+      // the success screen is shown first; the page moves on only after it has been seen
+      expect(textOf(page.screen), device_type).toContain(EN['pairing.approved_title']);
+      expect(page.assigned, device_type).toEqual([]);
+      await drain(page);
+      expect(page.assigned, device_type).toEqual([device_type === 'kds' ? '/kds/' : '/staff/']);
+      expect(urls, device_type).not.toContain('/auth/station');
+    }
+  });
+
+  // A revoked / invalid stored kds token is no longer seen here (the page makes no hub call on a stored token). The
+  // KDS entry owns "401 / 403 → wipe the device keys → /pair": 03b client plan K1,
+  // it('[00 §8.4] 401 DEVICE_TOKEN_INVALID, 403 DEVICE_REVOKED and WS 4403 wipe the device keys → /pair; …').
+  it('[00 §8.2 v1.9.1] a later load with a stored token: non-KDS → /staff/, kds → /kds/ (v1.9.2)', async () => {
+    const html = await pairHtml();
+    for (const device_type of ['tablet', 'cashier_kiosk', 'phone', 'kds'] as const) {
+      const urls: string[] = [];
+      const page = await runPage(html, {
+        store: { token: 'stored', device_id: 'D1', device_type },
+        fetch: (url) => {
+          urls.push(url);
+          throw new Error(`unexpected ${url}`);
+        },
+      });
+      expect(textOf(page.screen), device_type).toContain(EN['pairing.approved_title']);
+      await drain(page);
+      expect(urls, device_type).toEqual([]); // no new request on a stored token, and no station sign-in (v1.9.2)
+      expect(page.assigned, device_type).toEqual([device_type === 'kds' ? '/kds/' : '/staff/']);
+      expect(page.store.get('token'), device_type).toBe('stored');
+    }
+  });
+
+  it('[00 §8.2 v1.9.1 Q-29] /pair?t= → POST /devices/pair 200 → /staff/; an already-paired phone opening /pair?t= → /staff/', async () => {
+    const html = await pairHtml('?t=tok');
+    const urls: string[] = [];
+    const phone = await runPage(html, {
+      search: '?t=tok',
+      fetch: (url) => {
+        urls.push(url);
+        return Promise.resolve(jsonResponse(200, { data: { device_id: 'P1', device_token: 'phone-tok', device_type: 'phone', owner_staff_id: 'S_WAIT', owner_name: 'Bilal' } }));
+      },
+    });
+    phone.find('device_name')!.value = 'Bilal phone';
+    await phone.submit(phone.findAll((child) => child.tagName === 'form')[0]!);
+    expect(urls).toEqual(['/devices/pair']);
+    expect(phone.store.get('token')).toBe('phone-tok');
+    expect(textOf(phone.screen)).toContain(EN['pairing.paired_title']);
+    expect(phone.assigned).toEqual([]);
+    await drain(phone);
+    expect(phone.assigned).toEqual(['/staff/']);
+
+    // a failed pair (401, expired QR) stays on the page
+    const expired = await runPage(html, { search: '?t=tok', fetch: () => Promise.resolve(jsonResponse(401, { error: { code: 'PAIRING_TOKEN_INVALID', details: {} } })) });
+    expired.find('device_name')!.value = 'Bilal phone';
+    await expired.submit(expired.findAll((child) => child.tagName === 'form')[0]!);
+    await drain(expired);
+    expect(expired.assigned).toEqual([]);
+
+    // phone rule 1: already paired → the token in the URL is ignored and the page opens /staff/
+    const again = await runPage(html, {
+      search: '?t=tok',
+      store: { token: 'phone-tok', device_id: 'P1', device_type: 'phone' },
+      fetch: (url) => {
+        throw new Error(`unexpected ${url}`);
+      },
+    });
+    expect(textOf(again.screen)).toContain(EN['pairing.paired_title']);
+    await drain(again);
+    expect(again.assigned).toEqual(['/staff/']);
+  });
+
+  // ----------------------------------------------------------------------------------------- 00 v1.9.2 §8.2 (HK4)
+
+  it('[00 §10 #163] an approved kds request → /kds/; the pair page never calls /auth/station', async () => {
+    const html = await pairHtml();
+    const urls: string[] = [];
+    const page = await runPage(html, {
+      fetch: (url) => {
+        urls.push(url);
+        if (url === '/pair/requests') {
+          return Promise.resolve(jsonResponse(200, { data: { request_id: 'R1', poll_secret: 'p', display_code: 'ABCDEF', approve_qr_svg: '<svg></svg>', expires_at: Date.now() + 600_000 } }));
+        }
+        if (url === '/pair/requests/R1') {
+          return Promise.resolve(jsonResponse(200, { data: { status: 'approved', device_id: 'K1', device_token: 'kds-tok', device_type: 'kds', station_id: 'T', station_name: 'Tandoor' } }));
+        }
+        throw new Error(`unexpected ${url}`);
+      },
+    });
+    for (let i = 0; i < 40 && page.store.get('token') === undefined; i += 1) await page.advance();
+    expect(page.store.get('token')).toBe('kds-tok');
+    expect(page.store.get('device_id')).toBe('K1');
+    expect(page.store.get('device_type')).toBe('kds');
+    // the paired screen (with its station) is shown first, then the KDS entry opens
+    expect(textOf(page.screen)).toContain(EN['pairing.approved_body'].replace('{station}', 'Tandoor'));
+    expect(page.assigned).toEqual([]);
+    await drain(page);
+    expect(page.assigned).toEqual(['/kds/']);
+    expect(urls.filter((url) => url !== '/pair/requests/R1')).toEqual(['/pair/requests']);
+    expect(urls).not.toContain('/auth/station');
+    expect(html).not.toContain('/auth/station');
+  });
+
+  it('[00 §10 #163] a later load with a stored kds token → /kds/; tablet / cashier_kiosk / phone still → /staff/', async () => {
+    const html = await pairHtml();
+    for (const device_type of ['kds', 'tablet', 'cashier_kiosk', 'phone'] as const) {
+      const page = await runPage(html, {
+        store: { token: 'stored', device_id: 'D1', device_type },
+        fetch: (url) => {
+          throw new Error(`unexpected ${url}`);
+        },
+      });
+      const body = device_type === 'kds' ? EN['pairing.approved_body_kds'] : EN['pairing.approved_body_cashier'];
+      expect(textOf(page.screen), device_type).toContain(body);
+      expect(page.assigned, device_type).toEqual([]);
+      await drain(page);
+      expect(page.assigned, device_type).toEqual([device_type === 'kds' ? '/kds/' : '/staff/']);
+      expect(page.store.get('token'), device_type).toBe('stored');
+    }
+  });
+});

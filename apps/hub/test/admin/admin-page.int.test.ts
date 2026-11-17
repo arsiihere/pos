@@ -1,9 +1,27 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EN } from '../../src/lib/strings';
 import { jsonResponse, runPage, textOf, type PageSandbox, type StubElement } from '../helpers/page-sandbox';
 import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 // 00 v1.3 M86: the hub admin page (00-S16 … S20, D01 … D03).
+// 00 v1.9.2 (Q-43): GET /admin links the 03b / 03c admin entries only when their build exists. Each test starts
+// with no such build (whatever the client has built), and #165 points the dirs at a stand-in build.
+const dist = vi.hoisted(() => ({ kitchen: '/nonexistent/admin-kitchen-screens/', printers: '/nonexistent/admin-printers/' }));
+vi.mock('../../src/lib/client-dist', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/lib/client-dist')>();
+  return {
+    ...real,
+    get ADMIN_KITCHEN_SCREENS_DIST_DIR() {
+      return dist.kitchen;
+    },
+    get ADMIN_PRINTERS_DIST_DIR() {
+      return dist.printers;
+    },
+  };
+});
 const cleanups: Array<() => Promise<void>> = [];
 const NOW = Date.now();
 
@@ -45,10 +63,11 @@ interface Hub {
   sent: Array<{ url: string; body: Record<string, unknown> }>;
   down: boolean;
   answers: Record<string, () => unknown>;
+  queried: string[];
 }
 
 function fakeHub(): Hub & { fetch: (url: string, init?: unknown) => Promise<unknown> } {
-  const hub: Hub = { sent: [], down: false, answers: {} };
+  const hub: Hub = { sent: [], down: false, answers: {}, queried: [] };
   const data: Record<string, unknown> = {
     '/admin/queries/devices': DEVICES,
     '/admin/queries/devices?include_revoked=true': DEVICES,
@@ -64,6 +83,9 @@ function fakeHub(): Hub & { fetch: (url: string, init?: unknown) => Promise<unkn
       if (url === '/health') return Promise.resolve(jsonResponse(200, {}));
       if (url.startsWith('/admin/queries/')) {
         expect(request?.headers?.['x-admin-session']).toBe('adm');
+        hub.queried.push(url);
+        const answer = hub.answers[url];
+        if (answer) return Promise.resolve(answer());
         return Promise.resolve(jsonResponse(200, { data: data[url] }));
       }
       if (url.startsWith('/admin/commands/')) {
@@ -104,7 +126,8 @@ describe('hub admin page (M86)', () => {
     expect(guest.statusCode).toBe(403);
     const script = page.body.slice(page.body.indexOf('<script>'));
     const urls = new Set([...script.matchAll(/'(\/(?:admin|auth|queries|commands)[a-z/_-]*)/g)].map((m) => m[1]));
-    expect([...urls].sort()).toEqual(['/admin/approve', '/admin/auth', '/admin/auth/logout', '/admin/commands/', '/admin/login-roster', '/admin/queries/devices', '/admin/queries/lockouts', '/admin/queries/sessions', '/admin/queries/staff', '/admin/queries/stations', '/admin/stock/'].sort());
+    // 00 v1.9.2 (Q-43): plus 03b's kds-config and 03c's print-queue for the two home tiles, and the two pages' links
+    expect([...urls].sort()).toEqual(['/admin/approve', '/admin/auth', '/admin/auth/logout', '/admin/commands/', '/admin/kitchen-screens/', '/admin/login-roster', '/admin/printers/', '/admin/queries/devices', '/admin/queries/kds-config', '/admin/queries/lockouts', '/admin/queries/print-queue', '/admin/queries/sessions', '/admin/queries/staff', '/admin/queries/stations', '/admin/stock/'].sort());
     expect([...script.matchAll(/command\('([a-z-]+)'/g)].map((m) => m[1]).sort()).toEqual(['clear-pin-lockout', 'force-logout-session', 'generate-device-pairing-token', 'revoke-device']);
   });
 
@@ -363,5 +386,136 @@ describe('hub admin page (M86)', () => {
     expect(page.findAll((el) => el.className.split(' ').includes('pos-pin__key'), page.screen).length).toBe(12);
     const stranger = await runPage(source, { fetch: () => Promise.reject(new Error('no request expected')) });
     expect(textOf(stranger.body)).toContain(EN['approve.needs_admin_title']);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- 00 v1.9.2 §8.2 (HK5)
+
+describe('hub admin page: kitchen screens and printers entries (00 v1.9.2 §8.2, M86; Q-43)', () => {
+  const builds: string[] = [];
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
+    for (const dir of builds.splice(0)) rmSync(dir, { recursive: true, force: true });
+    dist.kitchen = '/nonexistent/admin-kitchen-screens/';
+    dist.printers = '/nonexistent/admin-printers/';
+  });
+  function build(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'admin-entry-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html>');
+    builds.push(dir);
+    return dir;
+  }
+  const KDS_CONFIG = {
+    stations: [
+      { station_id: 'TN', name: 'Tandoor', screens: [{ device_id: 'K1', name: 'Tandoor 1', lane_label: null, state: 'connected' }, { device_id: 'K2', name: 'Tandoor 2', lane_label: null, state: 'offline' }] },
+      { station_id: 'DG', name: 'Degh', screens: [{ device_id: 'K3', name: 'Degh', lane_label: null, state: 'connected' }] },
+    ],
+    pass_tablets: [{ device_id: 'T1', name: 'Pass', point_id: 'P1', state: 'connected' }, { device_id: 'T2', name: 'Pass 2', point_id: 'P1', state: 'offline' }],
+    warnings: [{ station_id: 'TN', kind: 'dark' }],
+  };
+  const PRINT_QUEUE = {
+    printers: [
+      { printer_id: 'PR1', name: 'Degh printer', status: 'clean', waiting: 2, suspect: 0, head_error: null, last_ack_at: null },
+      { printer_id: 'PR2', name: 'Tandoor printer', status: 'paper_out', waiting: 7, suspect: 0, head_error: null, last_ack_at: null },
+    ],
+    jobs: [],
+    no_printer: 0,
+  };
+  const TABLET = { device_id: 'D4', device_name: 'Pass tablet', device_type: 'tablet', station_id: null, owner_staff_id: null, owner_name: null, pairing_source: 'request', paired_at: NOW, paired_by_name: 'Arif', last_seen_at: NOW, revoked_at: null, revoked_by_name: null, revoked_reason: null, active_session: null };
+  const sideNav = (page: PageSandbox) => page.findAll((el) => el.className === 'pos-sidenav')[0]!;
+  const tileOf = (page: PageSandbox, href: string) => page.findAll((el) => el.className === 'pos-tile' && el.href === href)[0];
+
+  it('[00 §10 #165] with manage-devices the side-nav and home show Kitchen screens and Printers, each tile reads its query once on open; 404 / 403 → no status line; without manage-devices nothing', async () => {
+    dist.kitchen = build();
+    dist.printers = build();
+    const source = await html();
+    const hub = fakeHub();
+    hub.answers['/admin/queries/kds-config'] = () => jsonResponse(200, { data: KDS_CONFIG });
+    hub.answers['/admin/queries/print-queue'] = () => jsonResponse(200, { data: PRINT_QUEUE });
+    const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch });
+    const nav = sideNav(page);
+    const navLinks = page.findAll((el) => el.tagName === 'a' && el.className === 'pos-sidenav__item', nav).map((el) => [el.href, textOf(el)]);
+    expect(navLinks).toContainEqual(['/admin/kitchen-screens/', EN['admin.nav_kitchen_screens']]);
+    expect(navLinks).toContainEqual(['/admin/printers/', EN['admin.nav_printers']]);
+    expect(textOf(nav)).toContain(EN['admin.nav_other']);
+    expect(hub.queried.filter((u) => u === '/admin/queries/kds-config')).toHaveLength(1);
+    expect(hub.queried.filter((u) => u === '/admin/queries/print-queue')).toHaveLength(1);
+    const kitchen = tileOf(page, '/admin/kitchen-screens/')!;
+    expect(textOf(kitchen)).toContain(EN['admin.nav_kitchen_screens']);
+    expect(page.findAll((el) => el.className === 'pos-tile__num', kitchen).map((el) => el.textContent)).toEqual(['3']);
+    expect(textOf(kitchen)).toContain(EN['admin.tile_kitchen'].replace('{pass}', '2'));
+    expect(textOf(kitchen)).toContain(EN['admin.kitchen_offline_one']);
+    const printers = tileOf(page, '/admin/printers/')!;
+    expect(page.findAll((el) => el.className === 'pos-tile__num', printers).map((el) => el.textContent)).toEqual(['2']);
+    expect(textOf(printers)).toContain(EN['admin.tile_printers'].replace('{waiting}', '9'));
+    expect(textOf(printers)).toContain(EN['admin.printer_problem'].replace('{name}', 'Tandoor printer').replace('{problem}', EN['admin.printer_paper_out']));
+    // the M86 tiles are unchanged
+    expect(page.findAll((el) => el.className === 'pos-tile__num').map((el) => el.textContent)).toEqual(['3', '2', '3', '3', '2']);
+
+    // no lines: kds-config 404 (not on this hub yet), print-queue 403 (no sign-in prompt for a tile)
+    const bare = fakeHub();
+    bare.answers['/admin/queries/kds-config'] = () => jsonResponse(404, { error: { code: 'ROUTE_NOT_FOUND', details: {} } });
+    bare.answers['/admin/queries/print-queue'] = () => jsonResponse(403, { error: { code: 'PERMISSION_DENIED', details: { permission: 'manage-devices' } } });
+    const lineless = await runPage(source, { store: STORE, session: SESSION, fetch: bare.fetch });
+    for (const href of ['/admin/kitchen-screens/', '/admin/printers/']) {
+      const tile = tileOf(lineless, href)!;
+      expect(tile, href).toBeDefined();
+      expect(lineless.findAll((el) => el.className === 'pos-tile__num' || el.tagName === 'small' || el.className === 'pos-tile__foot', tile), href).toHaveLength(0);
+    }
+    expect(bare.queried.filter((u) => u === '/admin/queries/kds-config')).toHaveLength(1);
+    expect(bare.queried.filter((u) => u === '/admin/queries/print-queue')).toHaveLength(1);
+    expect(textOf(lineless.screen)).toContain(EN['admin.tile_devices'].replace('{n}', '3'));
+    expect(bare.sent).toHaveLength(0);
+
+    // a malformed 200 (fields missing) → the tile without a status line; the rest of home still renders
+    const odd = fakeHub();
+    odd.answers['/admin/queries/kds-config'] = () => jsonResponse(200, { data: { stations: [{ station_id: 'TN' }] } });
+    odd.answers['/admin/queries/print-queue'] = () => jsonResponse(200, { data: {} });
+    const malformed = await runPage(source, { store: STORE, session: SESSION, fetch: odd.fetch });
+    for (const href of ['/admin/kitchen-screens/', '/admin/printers/']) {
+      const tile = tileOf(malformed, href)!;
+      expect(tile, href).toBeDefined();
+      expect(malformed.findAll((el) => el.className === 'pos-tile__num' || el.tagName === 'small' || el.className === 'pos-tile__foot', tile), href).toHaveLength(0);
+    }
+    expect(textOf(malformed.screen)).toContain(EN['admin.tile_devices'].replace('{n}', '3'));
+
+    // without manage-devices: no items, no tiles, no reads
+    const viewerHub = fakeHub();
+    const viewer = await runPage(source, { store: STORE, session: { ...SESSION, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': true }) }, fetch: viewerHub.fetch });
+    expect(textOf(viewer.screen)).not.toContain(EN['admin.nav_kitchen_screens']);
+    expect(textOf(viewer.screen)).not.toContain(EN['admin.nav_printers']);
+    expect(viewerHub.queried.filter((u) => u.includes('kds-config') || u.includes('print-queue'))).toEqual([]);
+    // the stock link still decides "Other jobs" alone
+    expect(textOf(sideNav(viewer)).includes(EN['admin.nav_other'])).toBe(textOf(sideNav(viewer)).includes(EN['admin.nav_stock']));
+
+    // no builds → no items, no tiles, no reads, even with manage-devices
+    dist.kitchen = '/nonexistent/admin-kitchen-screens/';
+    dist.printers = '/nonexistent/admin-printers/';
+    const plain = await html();
+    const plainHub = fakeHub();
+    const none = await runPage(plain, { store: STORE, session: SESSION, fetch: plainHub.fetch });
+    expect(textOf(none.screen)).not.toContain(EN['admin.nav_kitchen_screens']);
+    expect(textOf(none.screen)).not.toContain(EN['admin.nav_printers']);
+    expect(plainHub.queried.filter((u) => u.includes('kds-config') || u.includes('print-queue'))).toEqual([]);
+  });
+
+  it('[00 §10 #165] a tablet Devices row links /admin/kitchen-screens/#bind=<device_id>; a kds / phone row does not', async () => {
+    dist.kitchen = build();
+    const source = await html();
+    const hub = fakeHub();
+    hub.answers['/admin/queries/devices'] = () => jsonResponse(200, { data: { devices: [...DEVICES.devices, TABLET] } });
+    const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#devices' });
+    const bindLinks = (root: StubElement) => page.findAll((el) => el.tagName === 'a' && String(el.href).startsWith('/admin/kitchen-screens/'), root);
+    const tablet = bindLinks(page.find('device_D4')!);
+    expect(tablet.map((el) => el.href)).toEqual(['/admin/kitchen-screens/#bind=D4']);
+    expect(textOf(tablet[0]!)).toBe(EN['devices.use_as_pass']);
+    for (const id of ['D1', 'D2', 'D3']) expect(bindLinks(page.find(`device_${id}`)!), id).toHaveLength(0);
+
+    // read-only admins and a hub without the build get no link
+    const viewer = await runPage(source, { store: STORE, session: { ...SESSION, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': true }) }, fetch: hub.fetch, hash: '#devices' });
+    expect(bindLinks(viewer.find('device_D4')!)).toHaveLength(0);
+    dist.kitchen = '/nonexistent/admin-kitchen-screens/';
+    const plain = await runPage(await html(), { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#devices' });
+    expect(bindLinks(plain.find('device_D4')!)).toHaveLength(0);
   });
 });

@@ -85,7 +85,7 @@ describe('[03c §6.6] GET /admin/queries/print-config (c20)', () => {
       { station_id: FX.station, kind: 'screen_unused' },
       { station_id: FX.station, kind: 'lossy_name' },
       { station_id: FX.zoneStation, kind: 'no_screen' },
-      { station_id: FX.station, item_id: FX.naan, kind: 'lossy_name' },
+      { station_id: FX.station, item_id: FX.naan, kind: 'lossy_name', name: 'Naan ★' },
       { station_id: FX.zoneStation, kind: 'fold_skipped' },
       { station_id: FX.station, kind: 'suspect_waiting' },
     ]);
@@ -102,7 +102,7 @@ describe('[03c §6.6] GET /admin/queries/print-config (c20)', () => {
     expect(data.warnings).toEqual([]);
   });
 
-  it('[03c §3.2] lossy_name covers every printable name: a zone-routed item (S1 → S2 printer), modifier options, deals', async () => {
+  it('[03c #55] print-config lossy_name warnings for an item, an option and a deal carry their config name; other kinds no name; statements still 4 — [03c §3.2] lossy_name covers every printable name: a zone-routed item (S1 → S2 printer), modifier options, deals', async () => {
     printer('PR1');
     output(FX.zoneStation, 'both', 'PR1'); // only S2 prints; Naan's home S1 has no printer, Z1 routes it to S2
     const config = branchConfig()!;
@@ -121,14 +121,14 @@ describe('[03c §6.6] GET /admin/queries/print-config (c20)', () => {
     const lossyOf = async () => ((await get('print-config')).data as { warnings: Array<{ kind: string }> }).warnings.filter((w) => w.kind === 'lossy_name');
     // Naan prints at S2 through the zone route; the deal has a Naan part; Karahi (the option's item) is S1-only
     expect(await lossyOf()).toEqual([
-      { station_id: FX.station, item_id: FX.naan, kind: 'lossy_name' },
-      { station_id: null, item_id: FX.deal, kind: 'lossy_name' },
+      { station_id: FX.station, item_id: FX.naan, kind: 'lossy_name', name: 'Naan ★' },
+      { station_id: null, item_id: FX.deal, kind: 'lossy_name', name: 'Combo ✓' },
     ]);
     output(FX.station, 'both', 'PR1'); // now Karahi prints too: its option's Urdu name cannot
     expect(await lossyOf()).toEqual([
-      { station_id: FX.station, item_id: FX.naan, kind: 'lossy_name' },
-      { station_id: null, item_id: FX.option, kind: 'lossy_name' },
-      { station_id: null, item_id: FX.deal, kind: 'lossy_name' },
+      { station_id: FX.station, item_id: FX.naan, kind: 'lossy_name', name: 'Naan ★' },
+      { station_id: null, item_id: FX.option, kind: 'lossy_name', name: 'رائتہ' },
+      { station_id: null, item_id: FX.deal, kind: 'lossy_name', name: 'Combo ✓' },
     ]);
   });
 

@@ -6,10 +6,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
-// 01d task 41 (01a S39 d): ship-client.sh ships admin-stock and staff, and refuses before any ssh when either
-// build is missing. The script has no other test, so it runs in a throwaway git checkout with a fake `ssh`
+// 01d task 41 (01a S39 d), HK7: ship-client.sh ships admin-stock, staff, kds, admin-kitchen-screens and
+// admin-printers, and refuses before any ssh when any build is missing. The script has no other test, so it runs in a throwaway git checkout with a fake `ssh`
 // that fails the test if it is ever called.
 const SCRIPT = fileURLToPath(new URL('../../deploy/ship-client.sh', import.meta.url));
+
+const ALL = ['admin-stock', 'staff', 'kds', 'admin-kitchen-screens', 'admin-printers'];
 
 function git(cwd: string, ...args: string[]): void {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -81,7 +83,7 @@ describe('ship-client.sh', () => {
   });
 
   it('[01d task 41] refuses when dist/staff/index.html is missing, before any ssh', () => {
-    const dir = checkout(['admin-stock']);
+    const dir = checkout(ALL.filter((b) => b !== 'staff'));
     dirs.push(dir);
     const r = run(dir);
     expect(r.status).toBe(1);
@@ -90,23 +92,23 @@ describe('ship-client.sh', () => {
   });
 
   it('[01a S39 d] still refuses when dist/admin-stock/index.html is missing', () => {
-    const dir = checkout(['staff']);
+    const dir = checkout(ALL.filter((b) => b !== 'admin-stock'));
     dirs.push(dir);
     const r = run(dir);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('build output missing: apps/client/dist/admin-stock/index.html');
   });
 
-  it('[01d task 41] with both builds it goes on to the hub check (the fake ssh answers)', () => {
-    const dir = checkout(['admin-stock', 'staff']);
+  it('[01d task 41] with all five builds it goes on to the hub check (the fake ssh answers)', () => {
+    const dir = checkout(ALL);
     dirs.push(dir);
     const r = run(dir);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('ssh must not run');
   });
 
-  it('[01d task 41] stages both builds, then swaps both', () => {
-    const dir = checkout(['admin-stock', 'staff']);
+  it('[01d task 41] stages all five builds, then swaps all five', () => {
+    const dir = checkout(ALL);
     dirs.push(dir);
     const log = recordingSsh(dir);
     const r = run(dir, { LOCAL_HEAD: head(dir), FAIL_BUILD: '' });
@@ -114,11 +116,25 @@ describe('ship-client.sh', () => {
     expect(r.status).toBe(0);
     const calls = readFileSync(log, 'utf8').trim().split('\n');
     const kinds = calls.map((c) => (c.includes('tar -C') ? 'stage' : c.includes("mv '") ? 'swap' : 'other'));
-    expect(kinds).toEqual(['stage', 'stage', 'swap', 'swap']);
+    expect(kinds).toEqual([...ALL.map(() => 'stage'), ...ALL.map(() => 'swap')]);
+  });
+
+  it('[HK7] BUILDS in the script names exactly the five client builds the hub serves', () => {
+    const m = /^BUILDS=\(([^)]*)\)/m.exec(readFileSync(SCRIPT, 'utf8'));
+    expect(m?.[1]?.trim().split(/\s+/)).toEqual(ALL);
+  });
+
+  it.each(['kds', 'admin-kitchen-screens', 'admin-printers'])('[HK7] refuses when dist/%s/index.html is missing, before any ssh', (name) => {
+    const dir = checkout(ALL.filter((b) => b !== name));
+    dirs.push(dir);
+    const r = run(dir);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain(`build output missing: apps/client/dist/${name}/index.html`);
+    expect(r.stderr).not.toContain('ssh must not run');
   });
 
   it('[01d task 41] a failed staging copy swaps nothing', () => {
-    const dir = checkout(['admin-stock', 'staff']);
+    const dir = checkout(ALL);
     dirs.push(dir);
     const log = recordingSsh(dir);
     const r = run(dir, { LOCAL_HEAD: head(dir), FAIL_BUILD: 'staff' });
