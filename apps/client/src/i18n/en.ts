@@ -2869,6 +2869,17 @@ export const en = {
   'audit.range.month_title': '{month} {y}',
   'audit.range.weekheads': 'M,T,W,T,F,S,S',
   'audit.months_long': 'January,February,March,April,May,June,July,August,September,October,November,December',
+  'audit.export.running': 'Exporting…',
+  'audit.export.rows': 'Exporting… {n} rows',
+  'audit.export.stop': 'Stop',
+  'audit.export.saved': 'Saved {file}',
+  'audit.export.stopped': 'Export stopped',
+  'audit.export.failed': "Export stopped — the hub can't be reached",
+  'audit.export.refused': 'Export stopped — the hub refused the search',
+  'audit.csv.table': 'Table',
+  'audit.csv.item': 'Item',
+  'audit.csv.units': 'Units',
+  'audit.csv.method': 'Method',
 } as const;
 
 export type MessageKey = keyof typeof en;

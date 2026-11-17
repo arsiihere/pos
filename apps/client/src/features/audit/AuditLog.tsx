@@ -7,6 +7,7 @@ import { money, MONEY_DIR } from '../staff/orders/money';
 import { useShell } from '../staff/shell/hooks';
 import type { AuditEntryView, AuditQuery } from './api';
 import { dayCount, dayStart, dayText, presetOf, rangeInSentence, rangeText, todayRange, type DayRange } from './days';
+import { collect, csvOf, exportFileName, saveInBrowser } from './export';
 import { ActionsPopover, DatePopover, StaffPopover } from './Filters';
 import { AIco, type AuditIconName } from './icons';
 import { actionMeta, actionText, detailOf, methodOf, outcomeOf, reasonText, shortId, targetOf, VOIDS_PRESET, type AuditTone } from './labels';
@@ -64,7 +65,12 @@ function emptyActionsWord(actions: readonly string[]): string {
   return fill(t('audit.empty.n_actions'), { n: String(actions.length) });
 }
 
-export function AuditLog() {
+export interface AuditLogProps {
+  /** tests: where the CSV goes; default a browser download */
+  save?: (name: string, text: string) => void;
+}
+
+export function AuditLog({ save = saveInBrowser }: AuditLogProps = {}) {
   const shell = useShell();
   const off = shell.clock.utcOffsetMs;
   const tablet = useMedia(TABLET);
@@ -144,11 +150,48 @@ export function AuditLog() {
     return () => io.disconnect();
   }, [ready]);
 
+  // 04-D09 Export CSV (V17): rows so far and the share of the range they reach back to (newest first)
+  const [exporting, setExporting] = useState<{ rows: number; pct: number } | null>(null);
+  const stopRef = useRef<{ stopped: boolean } | null>(null);
+  useEffect(() => () => {
+    if (stopRef.current !== null) stopRef.current.stopped = true;
+  }, []);
+  const runExport = async () => {
+    if (exporting !== null || list.status !== 'ready' || list.entries.length === 0) return;
+    const run = { stopped: false };
+    stopRef.current = run;
+    const f = filters;
+    const span = f.range.to - f.range.from;
+    setExporting({ rows: 0, pct: 0 });
+    const result = await collect(
+      api,
+      queryOf(f),
+      (rows, oldest) => !run.stopped && setExporting({ rows, pct: oldest === null ? 100 : Math.min(100, Math.max(0, ((f.range.to - oldest) / span) * 100)) }),
+      () => run.stopped,
+    );
+    if (stopRef.current === run) stopRef.current = null;
+    if (result.kind === 'stopped') return;
+    setExporting(null);
+    if (result.kind === 'failed') {
+      shell.toasts.show({ text: t(result.network ? 'audit.export.failed' : 'audit.export.refused'), tone: 'warn' });
+      return;
+    }
+    const name = exportFileName(shell.meta.branchName, f.range, off);
+    save(name, csvOf(result.entries, off));
+    shell.toasts.show({ text: fill(t('audit.export.saved'), { file: name }) });
+  };
+  const stopExport = () => {
+    if (stopRef.current !== null) stopRef.current.stopped = true;
+    stopRef.current = null;
+    setExporting(null);
+    shell.toasts.show({ text: t('audit.export.stopped'), tone: 'info' });
+  };
+
   if (!shell.permissions.allowed('view-audit-log')) return null;
 
   const nowMs = shell.clock.nowMs();
   const isToday = presetOf(filters.range, nowMs, off) === 'today';
-  const exportOff = list.status !== 'ready' || list.entries.length === 0;
+  const exportOff = exporting !== null || list.status !== 'ready' || list.entries.length === 0;
 
   const bar = (
     <div className="au__bar">
@@ -191,13 +234,14 @@ export function AuditLog() {
       </FilterButton>
       <div className="end">
         <span className="cap">{t('audit.caption')}</span>
-        <button type="button" className="btn" aria-disabled={exportOff ? 'true' : undefined}>
+        <button type="button" className="btn" aria-disabled={exportOff ? 'true' : undefined} onClick={() => void runExport()}>
           <AIco name="download" />
-          {t('audit.export')}
+          {exporting === null ? t('audit.export') : t('audit.export.running')}
         </button>
       </div>
     </div>
   );
+  const xbar = exporting === null ? null : <ExportBar rows={exporting.rows} pct={exporting.pct} onStop={stopExport} />;
 
   const head = tablet ? (
     <div className="aur aur--t th">
@@ -319,6 +363,7 @@ export function AuditLog() {
   return (
     <main className="au" aria-label={t('audit.tab')}>
       {bar}
+      {xbar}
       <div className="aul">
         {head}
         {content}
@@ -375,6 +420,31 @@ function FilterButton({
         <AIco name="down" />
       </button>
       {children}
+    </div>
+  );
+}
+
+/** Frame AuditExport: "Exporting… 1,250 rows", the progress track, Stop. */
+function ExportBar({ rows, pct, onStop }: { rows: number; pct: number; onStop: () => void }) {
+  const [before, after = ''] = t('audit.export.rows').split('{n}');
+  return (
+    <div className="xbar" role="status">
+      <AIco name="download" />
+      <span>
+        {before}
+        <span className="num">{rows.toLocaleString('en-US')}</span>
+        {after}
+      </span>
+      <span className="trk" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
+        <i
+          ref={(el) => {
+            if (el !== null) el.style.width = `${pct.toFixed(1)}%`;
+          }}
+        />
+      </span>
+      <button type="button" className="btn" onClick={onStop}>
+        {t('audit.export.stop')}
+      </button>
     </div>
   );
 }
