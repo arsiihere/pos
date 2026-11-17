@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import type { DeviceType } from '@pos/domain';
+import type { DeviceType, SessionEndReason } from '@pos/domain';
 import {
   WS_CLOSE,
   WsClientMessage,
@@ -343,7 +343,7 @@ function accept(
     }
     const auth = authenticate(deps, parsed.data.device_token, parsed.data.session_token);
     if ('code' in auth) {
-      socket.close(auth.code);
+      socket.close(auth.code, auth.reason);
       return;
     }
     const asOfSeq = deps.writer.lastSeq();
@@ -454,13 +454,24 @@ function authenticate(
   deps: HubDeps,
   deviceToken: string,
   sessionToken: string,
-): Omit<SocketCtx, 'asOfSeq'> | { code: number } {
+): Omit<SocketCtx, 'asOfSeq'> | { code: number; reason?: string } {
   const device = findDevice(deps.db, deviceToken);
   if (device === undefined) return { code: WS_CLOSE.CREDENTIALS };
   if (device.revoked_at !== null) return { code: WS_CLOSE.FORBIDDEN };
   // 00 M95: a socket connect is contact; the shift runs before M46's idle check below.
   idlePause.contact(deps.db, device.device_id, deps.clock.branchNow());
   const session = findSessionByToken(deps.db, sessionToken);
+  // 00 v1.11 §6.21 step 3 (Q-70): this device's own session, ended by replacement (a window that was offline when a
+  // newer one took it over, M53) → 4401 with reason `replaced`, as the live close; every other failure has no reason.
+  if (
+    session !== undefined &&
+    session.device_id === device.device_id &&
+    (session.kind === 'staff' || session.kind === 'station') &&
+    session.ended_at !== null &&
+    session.end_reason === 'replaced'
+  ) {
+    return { code: WS_CLOSE.CREDENTIALS, reason: REPLACED_CLOSE_REASON };
+  }
   if (
     session === undefined ||
     session.device_id !== device.device_id ||
@@ -479,6 +490,8 @@ function authenticate(
     stationId: session.station_id,
   };
 }
+
+const REPLACED_CLOSE_REASON: SessionEndReason = 'replaced';
 
 interface DeviceRow {
   device_id: string;
