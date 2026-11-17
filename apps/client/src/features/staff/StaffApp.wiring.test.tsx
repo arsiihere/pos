@@ -5,6 +5,7 @@ import { flush, mount, reply, type Mounted } from '../../../test/dom';
 import type { SocketLike } from '../alerts/socket';
 import { fakeTimers, recordingSink } from '../alerts/test-fakes';
 import type { Device, PageMeta } from './api';
+import { pendingVoidsOf } from '../voids/pending';
 import { pendingCompsOf } from './orders/actions/pending-comps';
 import { queueOf } from './orders/queue/enqueue';
 import { LateAlertsContext, type LateAlertRow } from './orders/late/late-groups';
@@ -305,6 +306,38 @@ describe('[02 wiring] alerts into 02b', () => {
     sock().frame({ type: 'alert', alert: slip('SW2') });
     await flush(4);
     expect(seen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('[04 §8 Pending tag] wiring (ruling Q1 (a) on #232)', () => {
+  it('[04 §8] a void_approval / request_result alert frame and every alert_closed frame make the pending-voids store read its orders again', async () => {
+    render(KIOSK, hub().fetch);
+    await signIn();
+    const reload = vi.spyOn(pendingVoidsOf(probe.shell!), 'reload');
+    sock().frame({ type: 'catch_up', as_of_seq: 0, state: {} });
+    sock().frame({
+      type: 'alert',
+      alert: { alert_id: 'RR1', kind: 'request_result', family: 'info', step: 0, escalation: false, set: 'recipient', for_staff_id: 'S-IMRAN', lock: { kind_label_key: 'alert.request_result.lock', table_code: 'F4', requester_name: null }, raised_at: NOW },
+    });
+    await flush(4);
+    expect(reload).toHaveBeenCalledTimes(1);
+    // another kind's alert is not about voids
+    sock().frame({
+      type: 'alert',
+      alert: { alert_id: 'SW3', kind: 'slip_warning', family: 'action', step: 0, escalation: false, set: 'recipient', for_staff_id: null, lock: { kind_label_key: 'alert.slip_warning.lock', table_code: 'F4', requester_name: null }, raised_at: NOW - 60_000 },
+    });
+    await flush(4);
+    expect(reload).toHaveBeenCalledTimes(1);
+    // a void request raised (another device's, or this one's)
+    sock().frame({
+      type: 'alert',
+      alert: { alert_id: 'AV1', kind: 'void_approval', family: 'urgent', step: 0, escalation: false, set: 'answerer', for_staff_id: null, lock: { kind_label_key: 'alert.void_approval.lock', table_code: 'F4', requester_name: 'Ali' }, raised_at: NOW },
+    });
+    await flush(4);
+    expect(reload).toHaveBeenCalledTimes(2);
+    sock().frame({ type: 'alert_closed', alert_id: 'AV1', reason: 'withdrawn', decision: null, by_name: null });
+    await flush(4);
+    expect(reload).toHaveBeenCalledTimes(3);
   });
 });
 

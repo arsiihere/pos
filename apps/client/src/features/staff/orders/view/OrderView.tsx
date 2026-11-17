@@ -8,6 +8,8 @@ import { Ico } from '../../../alerts/ui';
 import { useShell } from '../../shell/hooks';
 import { BoostConfirm } from '../actions/BoostConfirm';
 import { CompWaiting } from '../actions/CompWaiting';
+import { usePendingRefund, usePendingVoidsRead } from '../../../voids/pending';
+import { VoidWaiting } from '../../../voids/VoidWaiting';
 import { ContactSheet } from '../actions/ContactSheet';
 import { MarkServedSheet, type ServedCandidate } from '../actions/MarkServedSheet';
 import type { CarType, CatchUpOrder, LineView, OpenOrder, OrdersCatchUp, OrderType, SeatingLine, SeatingOrder } from '../contracts';
@@ -148,7 +150,10 @@ export function OrderView({ order_id }: OrderViewProps) {
   const placedAt = order?.placed_at ?? head?.placed_at ?? null;
   const placer = order?.placed_by.name ?? null;
   const seatingLine = (l: LineView): SeatingLine | null => order?.lines.find((x) => x.order_item_id === l.order_item_id) ?? null;
-  const total = lines.reduce((sum, l) => sum + l.billed_minor, 0);
+  // 04 §8 Pending tag: pending-voids with every read of the order; the total leaves their refund_minor out
+  usePendingVoidsRead(order === null ? [] : [order_id], order);
+  const pendingRefund = usePendingRefund([order_id]);
+  const total = lines.reduce((sum, l) => sum + l.billed_minor, 0) - pendingRefund;
 
   const title =
     head === null
@@ -276,7 +281,12 @@ export function OrderView({ order_id }: OrderViewProps) {
                   utcOffsetMs={offset}
                   selected={selected === line.order_item_id}
                   {...(lineOrder === null ? {} : { onSelect: (id: string) => setSelected(selected === id ? null : id) })}
-                  below={<CompWaiting line={line} onChanged={() => void load()} />}
+                  below={
+                    <>
+                      <CompWaiting line={line} onChanged={() => void load()} />
+                      <VoidWaiting line={line} onChanged={() => void load()} />
+                    </>
+                  }
                 >
                   {lineOrder !== null && seatingLine(line) !== null && (
                     <LineActions line={seatingLine(line)!} order={lineOrder} onChanged={() => void load()} />
@@ -292,6 +302,7 @@ export function OrderView({ order_id }: OrderViewProps) {
                 <b className="num" dir={MONEY_DIR}>
                   {money(total)}
                 </b>
+                {pendingRefund > 0 && <span className="xp">{fill(t('void.pending.not_counted'), { amount: money(pendingRefund) })}</span>}
               </span>
             </div>
           )}

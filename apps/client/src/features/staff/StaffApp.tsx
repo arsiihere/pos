@@ -33,6 +33,7 @@ import { createShellConfig, type BranchConfigReply } from './shell/config';
 import { ShellContext, type Shell } from './shell/hooks';
 import { createLiveBus } from './shell/live';
 import { createPermissions } from './shell/permissions';
+import { pendingVoidsOf } from '../voids/pending';
 import { matchStaffRoute } from './shell/routes';
 import { isSlotRoute, RouteSlot } from './shell/slots';
 import { createToastBus, ToastView } from './shell/toast';
@@ -164,12 +165,23 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const [replaced, setReplaced] = useState(false);
   // every alert_closed frame, also for requests the store does not hold (seen only through requests-to-answer)
   const [closes, setCloses] = useState<ReadonlyMap<string, WsAlertClosed>>(new Map());
+  // 04 §8 Pending tag (ruling Q1 (a) on #232): a void request raised, answered, withdrawn or closed reaches this page as
+  // an 01d `alert` / `alert_closed` frame; the pending-voids store reads its orders again (the page's latest shell)
+  const voidShell = useRef<Shell | null>(null);
+  const reloadVoids = () => {
+    if (voidShell.current !== null) void pendingVoidsOf(voidShell.current).reload();
+  };
   const socketStore = useMemo<AlertStore>(
     () => ({
       ...store,
+      onAlert(view) {
+        store.onAlert(view);
+        if (view.kind === 'void_approval' || view.kind === 'request_result') reloadVoids();
+      },
       onClosed(frame) {
         store.onClosed(frame);
         setCloses((m) => new Map(m).set(frame.alert_id, frame));
+        reloadVoids();
       },
     }),
     [store],
@@ -700,6 +712,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     idleTtlMs: me?.idleTtlMs ?? null,
     signOut: () => signOut(false),
   };
+  voidShell.current = shell;
   // IR-11: the late cards read every alert row the page holds, open and closed (a slip closed without ItemsReleased)
   return (
     <ShellContext.Provider value={shell}>

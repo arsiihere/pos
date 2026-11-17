@@ -122,7 +122,7 @@ function setup(o: { answer?: 'order' | 'missing'; perms?: Record<string, Resolut
     live,
     orders: orders as unknown as OrdersApi,
     tables: { tableMap: vi.fn() },
-    api: { command: vi.fn(async () => ({ ok: true as const, data: { removed: [] } })) },
+    api: { command: vi.fn(async () => ({ ok: true as const, data: { removed: [] } })), query: vi.fn(async () => ({ ok: true as const, data: { orders: [] } })) /* 04 pending-voids */ },
     permissions: createPermissions(o.perms ?? ALL),
     toasts: createToastBus(),
     enqueue: enqueue as unknown as Enqueue,

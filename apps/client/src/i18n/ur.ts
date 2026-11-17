@@ -1397,4 +1397,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'void.stage.not_started': 'شروع نہیں ہوا',
   'void.stage.cooking': 'پک رہا ہے',
   'void.stage.served': 'پیش',
+  // 04 §8 Pending tag (VU1), from frame VoidPendingUrdu.
+  'void.pending.tag': 'ووئڈ زیرِ التوا',
+  'void.pending.not_counted': '{amount} زیرِ التوا ووئڈ شامل نہیں',
+  'void.pending.title': 'ووئڈ زیرِ التوا',
+  'void.pending.mine': '×{units} · {reason} · {disposition}',
+  'void.pending.units': '×{units}',
 };
