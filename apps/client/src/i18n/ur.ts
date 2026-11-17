@@ -1405,4 +1405,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'void.pending.units': '×{units}',
   'void_all.list_sep': '، ',
   'void_all.list_and': ' اور ',
+  // 04 §8 Approver card (VU1), from frame AnswerVoidUrdu.
+  'alert.void_approval.card': 'ووئڈ کی درخواست',
+  'alert.void_approval.name': 'ووئڈ کی درخواست',
+  // no frame: the 02b comp lock pattern with the frames' word ووئڈ (04 urdu-todo: needs native review)
+  'alert.void_approval.lock': '{table} · ووئڈ · {requester}',
+  'void.answer.lines': 'لائنیں اور مرحلہ',
 };

@@ -124,7 +124,7 @@ describe('[01d §8.1 D01] AnswerSheet', () => {
     typePin('1234');
     m.click(m.button('Approve', m.container.querySelector('.pin__keys')!));
     await flush();
-    expect(s.onToast).toHaveBeenCalledWith({ text: 'Already approved by Sana.', sub: 'Request · T12', tone: 'ok' });
+    expect(s.onToast).toHaveBeenCalledWith({ text: 'Already approved by Sana.', sub: 'Void request · T12', tone: 'ok' });
     expect(s.onClose).toHaveBeenCalled();
   });
 
@@ -247,7 +247,7 @@ describe('[01d §8.1 D01] AnswerSheet', () => {
     typePin('1234');
     m.click(m.button('Approve', m.container.querySelector('.pin__keys')!));
     await flush();
-    expect(s.onToast).toHaveBeenCalledWith({ text: 'This request is no longer there.', sub: 'Request · T12', tone: 'warn' });
+    expect(s.onToast).toHaveBeenCalledWith({ text: 'This request is no longer there.', sub: 'Void request · T12', tone: 'warn' });
   });
 });
 
@@ -324,5 +324,69 @@ describe('[02a §8 Table sheet, 02b §3.9] AnswerSheet for the 02 kinds (23b)', 
     expect(m.text()).toContain('“Cold food: sent back twice”');
     m.click(m.button('Approve'));
     expect(m.container.querySelector('.pin__keys')).not.toBeNull();
+  });
+});
+
+// 04 v1.0.4 §8 Approver card (handoff 04-D06: AnswerVoid, AnswerVoidServed, AnswerVoidUrdu; §3.5 details, owner Q16).
+describe('[04 §8] AnswerSheet for kind void_approval', () => {
+  const card = {
+    ...VOID_CARD,
+    details: {
+      ...VOID_CARD.details!,
+      amount: 228_000,
+      disposition: 'void.disposition.moved',
+      lines: [
+        { name: 'Chicken Karahi — Full', quantity: 1, state: 'cooking' },
+        { name: '+ Extra naan', quantity: 2, state: 'not_started' },
+      ],
+    },
+  };
+
+  it('[04 §8] the 01d facts plus "Where it goes" (icon + label) and "Lines and stage", one row per line with its stage', () => {
+    setup({ row: { card } });
+    const disp = m.container.querySelector('.fact--disp')!;
+    expect(disp.classList.contains('fact--wide')).toBe(true);
+    expect(disp.querySelector('span')?.textContent).toBe('Where it goes');
+    expect(disp.querySelector('b')?.textContent).toBe('Move to ready stock');
+    const rows = [...m.container.querySelectorAll('.fact .stl > span')].map((r) => [r.firstElementChild?.textContent, r.querySelector('.stg')?.textContent]);
+    expect(rows).toEqual([
+      ['Chicken Karahi — Full ×1', 'Cooking'],
+      ['+ Extra naan ×2', 'Not started'],
+    ]);
+    expect(m.text()).toContain('Lines and stage');
+    expect(m.text()).toContain('Approve and Reject ask for your PIN.');
+    expect(m.container.querySelector('h2')?.textContent).toBe('Void request');
+  });
+
+  it('[04 §8] an unknown disposition key is never shown raw', () => {
+    setup({ row: { card: { ...card, details: { ...card.details, disposition: 'void.disposition.later' } } } });
+    expect(m.container.querySelector('.fact--disp')).toBeNull();
+    expect(m.text()).not.toContain('void.disposition');
+  });
+
+  it('[04 v1.0.4 §8] served meanwhile (VOID_NOT_ALLOWED + withdraw_and_reask, before the PIN): the §8 text, Approve off, Reject stays; the PIN step is 01d\'s', async () => {
+    const s = setup({
+      row: { card },
+      replies: [reply(409, { error: { code: 'VOID_NOT_ALLOWED', message: 'server words', details: { order_item_id: 'K1', reason: 'not_movable_stage', hint: 'withdraw_and_reask' } } })],
+    });
+    m.click(m.button('Approve'));
+    typePin('1234');
+    m.click(m.button('Approve', m.container.querySelector('.pin__keys')!));
+    await flush();
+    const msg = m.container.querySelector('.msg')!;
+    expect(msg.className).toContain('c-warn');
+    expect(msg.textContent).toBe(
+      'Served meanwhile — ask the requester to withdraw and ask again as wastage; if they are not here, reject it and void it yourself (or anyone allowed to void)',
+    );
+    expect(m.text()).not.toContain('server words');
+    const approve = m.button('Approve');
+    expect(approve.getAttribute('aria-disabled')).toBe('true');
+    m.click(approve);
+    expect(m.container.querySelector('.pin__keys')).toBeNull();
+    const reject = m.button('Reject');
+    expect(reject.hasAttribute('disabled')).toBe(false);
+    m.click(reject);
+    expect(m.text()).toContain('Imran, enter your PIN to reject');
+    expect(s.fetch).toHaveBeenCalledTimes(1);
   });
 });
