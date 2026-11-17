@@ -186,6 +186,26 @@ describe('[03b §3.6] Pass takeover sections', () => {
     }
   });
 
+  it('[03b §3.10; #208 P-7] a takeover row of an archived station has no Reprint', async () => {
+    const off = registerLineAction((line, ctx) => (ctx.surface === 'takeover' && ctx.has_printer ? { key: 'reprint', label: 'Reprint', run: () => Promise.resolve({ toast: 'x' }) } : null));
+    try {
+      const s = setup();
+      s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view({ takeovers: [body({ has_printer: true, now: [nowLine('A')] })] }) } });
+      show(s.shell);
+      expect(m.buttons().some((b) => b.textContent === 'Reprint')).toBe(true);
+      s.raw({ type: 'station_notice', station_id: ST, kind: 'archived', open_lines: 1 });
+      await flush();
+      expect(m.container.querySelectorAll('section.tko article.kl')).toHaveLength(1); // the rows stay (§3.10)
+      expect(m.buttons().some((b) => b.textContent === 'Reprint')).toBe(false);
+      // the next catch-up (bound again, or the station back) brings it back
+      s.raw({ type: 'catch_up', as_of_seq: 9, state: { point_view: view({ takeovers: [body({ has_printer: true, now: [nowLine('A')] })] }) } });
+      await flush();
+      expect(m.buttons().some((b) => b.textContent === 'Reprint')).toBe(true);
+    } finally {
+      off();
+    }
+  });
+
   it('[03b Q-56] takeover end with rows still in the section → toast "Tandoor screen is back"; end with an empty section → no toast', async () => {
     const s = setup();
     s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view() } });
