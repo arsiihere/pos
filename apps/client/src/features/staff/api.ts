@@ -3,6 +3,7 @@ import { AlertReceiptsResponse, AlertsInboxResponse, RequestsToAnswerResponse, t
 import type { HubError, HubResult } from '../../api/hub-admin';
 import { newUlid } from '../../app/ulid';
 import type { ReceiptsData } from '../alerts/Receipts';
+import { auditLogPath, AuditLogResponse, AuditStaffResponse, type AuditPage, type AuditQuery, type AuditStaffRow } from '../audit/api';
 import type { RequestRow } from '../alerts/RequestsToAnswer';
 
 // 01d task 41: the staff entry's hub client on the device routes (00 §6.3): the device token as
@@ -249,6 +250,17 @@ export function createStaffApi(o: StaffApiOptions) {
       const answer = await send<InboxPage>('GET', `/queries/alerts-inbox?limit=50${query}`, undefined, true, AlertsInboxResponse);
       if (!answer.ok) return answer;
       return { ok: true, data: { alerts: answer.data.data.alerts, next_cursor: answer.data.meta.next_cursor } };
+    },
+    /** 04 v1.0.4 §6.5 (VU2): a page of the audit log, with the cursor of the next page. */
+    async auditLog(q: AuditQuery, cursor: string | null, limit?: number): Promise<HubResult<AuditPage>> {
+      const answer = await send('GET', auditLogPath(q, cursor, limit), undefined, true, AuditLogResponse);
+      if (!answer.ok) return answer;
+      return { ok: true, data: { entries: answer.data.data.entries, next_cursor: answer.data.meta.next_cursor } };
+    },
+    /** 04 v1.0.4 §6.5b (VU2): everyone in staff_names, leavers marked by in_directory false. */
+    async auditStaff(): Promise<HubResult<AuditStaffRow[]>> {
+      const answer = await send('GET', '/queries/audit-staff', undefined, true, AuditStaffResponse);
+      return answer.ok ? { ok: true, data: answer.data.data.staff } : answer;
     },
     async requests(): Promise<HubResult<{ requests: RequestRow[] }>> {
       const answer = await send('GET', '/queries/requests-to-answer', undefined, true, RequestsToAnswerResponse);

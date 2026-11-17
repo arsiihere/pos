@@ -3,6 +3,7 @@ import { t } from '../../../i18n';
 import { fill } from '../../../i18n/en';
 import { badgeText } from '../../alerts/labels';
 import { Ico, initial, type IconName } from '../../alerts/ui';
+import { AIco } from '../../audit/icons';
 import { FloorControl, type FloorChoice } from './FloorControl';
 
 // 02a §8 Top bar (frame 02a-C10; TableMap, TableMapPortrait, TableMapKiosk, TableMapPhone; 01d AD-168): 80 px maroon.
@@ -33,6 +34,8 @@ export interface TopBarProps {
   testAlert: boolean;
   /** 03b W0.6: the catch-up has a point_view (a Pass tablet) → Pass first in the nav */
   pass?: boolean;
+  /** 04 §8 (VU2): view-audit-log allowed → "Audit log" (list icon) after Inbox and Requests */
+  audit?: boolean;
   /** phone top bar */
   title: string;
   phoneSub: ReactNode;
@@ -94,6 +97,12 @@ export function TopBar(p: TopBarProps) {
               {p.testAlert && <IconButton icon="pulse" label={t('alerts.nav.test')} count={null} onClick={() => p.onNavigate('/test-alert')} />}
               {p.requests !== null && <IconButton icon="shield" label={t('alerts.nav.requests')} count={p.requests} onClick={() => p.onNavigate('/requests')} />}
               <IconButton icon="tray" label={t('alerts.nav.inbox')} count={p.inbox} onClick={() => p.onNavigate('/inbox')} />
+              {p.audit === true && (
+                <button type="button" className="btn btn--icon" onClick={() => p.onNavigate('/audit')}>
+                  <AIco name="list" />
+                  <span className="sr">{t('audit.tab')}</span>
+                </button>
+              )}
               <button type="button" className="me" aria-label={fill(t('alerts.sign_out'), { name: p.person.name })} onClick={p.onSignOut}>
                 <span className="av av--sm av--me">{initial(p.person.name)}</span>
                 {p.person.name}

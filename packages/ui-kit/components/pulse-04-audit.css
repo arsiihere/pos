@@ -1,0 +1,27 @@
+/* Pulse · 04 audit additions (lane VU2; 04-S03). Only what VU2 adds on top of pulse-04.css (VU1's byte copy of the
+   hand-off file, which holds every audit rule of the frames): the frames' inline styles as classes (components may not
+   carry a style prop, S35 d) and the list scrolling. Loads after pulse-04.css. Tokens only. */
+
+/* the list scrolls (infinite scroll); the frame draws a still page with `.au__body { overflow: hidden }` */
+.au__body { overflow-y: auto; }
+
+/* frames Audit, AuditTablet: right-aligned Amount / Outcome · amount heads; the tablet head row */
+.aur.th .r { text-align: end; }
+.aur--t.th { align-items: center; padding-block: 0; }
+/* frame AuditTablet: the approver's name in ink inside the muted approver line */
+.aur--t .sub2 b { color: var(--ink); }
+/* frames AuditEmpty, AuditError: the 88 px ring */
+.ring--88 { width: 88px; height: 88px; }
+
+/* frame AuditLoading: skeleton cell sizes */
+.aur--sk .sk { height: 14px; }
+.aur--sk .sk:nth-child(1), .aur--sk .sk:nth-child(7) { width: 60px; }
+.aur--sk .sk:nth-child(2) { width: 90px; }
+.aur--sk .sk:nth-child(3) { width: 140px; }
+.aur--sk .sk:nth-child(4) { width: 197px; }
+.aur--sk:nth-child(3n + 1) .sk:nth-child(4) { width: 160px; }
+.aur--sk:nth-child(3n + 2) .sk:nth-child(4) { width: 228px; }
+.aur--sk .sk:nth-child(5) { width: 100px; }
+.aur--sk .sk:nth-child(6) { height: 22px; width: 80px; border-radius: 999px; }
+.aur--sk .sk:nth-child(7) { margin-inline-start: auto; }
+.aur--sk .sk:nth-child(8) { width: 70px; }

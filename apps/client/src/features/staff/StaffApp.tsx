@@ -45,6 +45,7 @@ import { createLocalFlags } from './tables/local-flags';
 import { MeTab, PhoneTabs, type PhoneTab } from './tables/PhoneTabs';
 import { TopBar } from './tables/TopBar';
 import { createPrintSkipDismiss } from '../alerts/labels-03b';
+import { AuditLog } from '../audit/AuditLog';
 import { PrintSkipContext, type PrintSkipCtx } from '../alerts/ui';
 import { passLiveOf } from '../pass/live';
 
@@ -443,6 +444,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // AD-T41-10 (review fix): from the hub's own list, never from a permission name
   const showRequests = !phone && requests.length > 0;
   const showTest = !phone && allowed.has('manage-devices');
+  // 04 §8 (VU2, R5): the audit log with view-audit-log granted outright (the hub refuses anything else), laptop and tablet
+  const showAudit = !phone && allowed.has('view-audit-log');
   // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
   const hasPoint = useSyncExternalStore(pass.store.subscribe, () => pass.store.snapshot().view !== null);
   // AD-K12 / W-3: leaving the landing route ends the landing too (a late catch-up never moves a person mid-task)
@@ -517,6 +520,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     page = <MeTab name={me.name} onSignOut={() => signOut(true)} />;
   } else if (isSlotRoute(staffRoute)) {
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
+  } else if (route === '/audit' && showAudit) {
+    page = <AuditLog />;
   } else if (route === '/requests' && showRequests) {
     page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={open} />;
   } else if (route === '/test-alert' && showTest) {
@@ -601,6 +606,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         inbox={snap.unseen}
         testAlert={showTest}
         pass={me !== null && hasPoint}
+        audit={showAudit}
         title={me === null ? meta.branchName : phoneTitle}
         phoneSub={
           me === null ? (
