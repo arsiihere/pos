@@ -10,7 +10,7 @@ Keys in `apps/client/src/i18n/en.ts` added by lane VU2 with no entry in `ur.ts`;
 
 Needs native review as well: the `audit.*` entries of `ur.ts` (from AuditUrdu; the date formats `audit.date`, `audit.date_short`, `audit.date_long` are only the order "day month", month names from `alerts.months`, integrator O12).
 
-109 keys.
+120 keys.
 
 | Key | English | Note |
 |---|---|---|
@@ -123,3 +123,14 @@ Needs native review as well: the `audit.*` entries of `ur.ts` (from AuditUrdu; t
 | `audit.range.prev` | Previous month |  |
 | `audit.range.next` | Next month |  |
 | `audit.range.weekheads` | M,T,W,T,F,S,S |  |
+| `audit.export.running` | Exporting… |  |
+| `audit.export.rows` | Exporting… {n} rows |  |
+| `audit.export.stop` | Stop |  |
+| `audit.export.saved` | Saved {file} |  |
+| `audit.export.stopped` | Export stopped |  |
+| `audit.export.failed` | Export stopped — the hub can't be reached |  |
+| `audit.export.refused` | Export stopped — the hub refused the search |  |
+| `audit.csv.table` | Table |  |
+| `audit.csv.item` | Item |  |
+| `audit.csv.units` | Units |  |
+| `audit.csv.method` | Method |  |
