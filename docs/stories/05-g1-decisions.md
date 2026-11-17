@@ -150,3 +150,15 @@ Answers given 23:11–23:15 PKT on `docs/specs/05_Billing_Spec_v0.1.md` §12.3; 
 | S-1–S-4 | no objection | Proposed bumps kept as written, marked "proposed, owner to confirm at approval". S-5–S-8 unchanged. |
 
 New in v0.2: **STOP S-9** — 02a refuses a new round on a seating in NEEDS_CLEANING (after `BillClosed`), so "a new item on that seating opens a new bill" happens in practice only on a new seating, unless the owner asks for a 02a bump.
+
+## 10. Owner answers on hostile run 1 (2026-11-17 23:49 PKT)
+
+Questions Q-1–Q-5 of `docs/reviews/05_v0.2_hostile_run1.md`; applied to `docs/specs/05_Billing_Spec_v0.3.md` ("⚠️ Changed in v0.3 (H1-n, owner R-n)").
+
+| # | Finding | Ruling |
+|---|---|---|
+| R1 | H1-1 (Q-1) | 01d bump (code): holders of `close-shift-for-others` (Manager, Owner by default) can answer `shift_variance` and every `petty_cash` request, whatever the requester's grant; never the requester. Row D-1 is a code row ("no 01d code change" was wrong); 01b row B-3 dropped; tests incl. the approver matrix. |
+| R2 | H1-10 + S-9 (Q-2) | **Open** — the owner wants alternative solutions for what a reopened dine-in bill may change and for new items after a bill closes. `TODO(owner)` anchors kept. |
+| R3 | H1-5 (Q-3) | After any void / comp / remove the open part's frozen discount is capped to the open part's current pre-discount total (never above it, never negative), re-spread with the capped allocator; closed splits never change. |
+| R4 | H1-9 (Q-4) | Day close is allowed with a carried-over bill that has payments; X and Z show a separate line "payments on open bills"; `RemovePayment` on a reopened bill may not touch a payment whose shift is closed or counted — money back comes from today's (the actor's) shift as an `out` payment; Z invariant: Σ takings = Z net + payments on open bills − paid earlier. |
+| R5 | H1-16 (Q-5) | When the whole bill crosses the threshold after a split closed without buyer data, the buyer ID (or the approved waiver) is required from the next split close on; closed splits untouched. |
