@@ -14,7 +14,7 @@ const todo = readFileSync(root + 'docs/design/handoff/04/urdu-todo.md', 'utf8');
 const start = todo.search(/^## VU1/m);
 const next = todo.indexOf('\n## ', start + 5);
 const section = todo.slice(start, next < 0 ? undefined : next);
-const PREFIXES = ['void.', 'void_all.', 'answer.void.', 'alert.void_approval.', 'admin_stock.errors.DAY_CLOSE_BLOCKED', 'line.void'];
+const PREFIXES = ['void.', 'void_all.', 'void_table.', 'answer.void.', 'alert.void_approval.', 'admin_stock.errors.DAY_CLOSE_BLOCKED', 'line.void'];
 const holes = (text: string) => [...text.matchAll(/\{\w+\}/g)].map((m) => m[0]).sort().join();
 const E = en as Record<string, string>;
 const U = ur as Record<string, string | undefined>;

@@ -1,6 +1,7 @@
 import type { TableState } from '@pos/domain';
 import type { HubError, HubResult } from '../../../api/hub-admin';
 import type { CommandOptions } from '../api';
+import type { SeatingLine } from '../orders/contracts';
 
 // 02a client contracts (W0.4, owner Q-3): the types every 02a lane and 02b reach 02a through. Shapes mirror the hub
 // exactly (apps/hub/src/tables/queries.ts MapTile / TableMapBody :23-44, HandoverCandidate :200-206; command
@@ -235,6 +236,15 @@ export interface OrdersPartProps {
   holder_staff_id: string;
   /** I hold the seating */
   mine: boolean;
+  /** 04 v1.0.5 §8 Cancel table (row S-1): the seating's live rounds (not cancelled, not billed, by placed_at), from this read */
+  onRounds?: (rounds: SeatingRound[]) => void;
+}
+
+/** 04 v1.0.5 §8 Cancel table (row S-1): one live round of the seating, as the orders part read it (02b seating-orders). */
+export interface SeatingRound {
+  /** the table view's round number */
+  n: number;
+  order: { order_id: string; order_type: 'dine_in'; ident: string; billed: boolean; lines: SeatingLine[]; seating_id: string; table_id: string };
 }
 
 // ------------------------------------------------------------------------------------ device-local flags

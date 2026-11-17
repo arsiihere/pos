@@ -1403,4 +1403,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'void.pending.title': 'ووئڈ زیرِ التوا',
   'void.pending.mine': '×{units} · {reason} · {disposition}',
   'void.pending.units': '×{units}',
+  'void_all.list_sep': '، ',
+  'void_all.list_and': ' اور ',
 };
