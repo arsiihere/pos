@@ -2,7 +2,7 @@
 
 ### Changes in v1.3 (notification deep links; DRAFT, awaiting owner approval; owner request and rulings 2026-11-18)
 
-**v1.3 — 2026-11-18 — notification deep links** (`docs/stories/dl-deeplinks.md`; branch `module-deeplinks` @ `049f6ce`). The owner's request: "notification par click karo to os jaga le jae aur wo highlight ho". His rulings: the staff app and the Windows cashier kiosk, not the KDS; every kind that has a staff-app place; **Q1 (a)** kinds with no staff-app screen keep today's tap; **Q2 (a)** existing notifications only, "food ready" to waiters is a later feature; a tap opens the place, scrolls to it and glows it for 2 s, or shows "This item is no longer open." and stays; a folded served round unfolds. Integrator ruling: the tap still calls `MarkAlertsSeen`. Each changed place carries a "⚠️ Changed by v1.3 (L-n)" marker. **Owner rulings DL Q-1 (a) and Q-2 (a)** (2026-11-18 09:18) are written in as settled text (owner 2026-11-18, DL Q-1 (a) / Q-2 (a)); see §12.8.
+**v1.3 — 2026-11-18 — notification deep links** (`docs/stories/deeplinks-refined.md`; branch `module-deeplinks` @ `049f6ce`). The owner's request: "notification par click karo to os jaga le jae aur wo highlight ho". His rulings: the staff app and the Windows cashier kiosk, not the KDS; every kind that has a staff-app place; **DL Q-0a (a)** kinds with no staff-app screen keep today's tap; **DL Q-0b (a)** existing notifications only, "food ready" to waiters is a later feature; a tap opens the place, scrolls to it and glows it for 2 s, or shows "This item is no longer open." and stays; a folded served round unfolds. Integrator ruling: the tap still calls `MarkAlertsSeen` (for the owner to confirm at approval). Each changed place carries a "⚠️ Changed by v1.3 (L-n)" marker. **Owner rulings DL Q-1 (a) and DL Q-2 (a)** (2026-11-18 09:18) are settled text, each marked with the ruling that applies. **DL Q-3** (what a notice tap shows) **awaits the owner**; §3.13.2 rule 5 is written as the integrator's Rec. The hostile review `docs/reviews/dl-deeplinks-hostile-review.md` (3 BLOCKER, 6 MAJOR, 13 MINOR, 5 NIT) is fixed in this version (row L-7). See §12.8.
 
 | Row | Change | Where |
 |---|---|---|
@@ -10,9 +10,11 @@
 | L-1 | `defineAlertKind` takes an optional **`link?: (values: V) => AlertLinkTarget \| null`** (pure). Every view (`lockView`) gains **`target`**, computed from `values_json`, which every view statement already selects. **No statement added on any path; no migration; `AlertRaised` stays v4.** | §3.5, §4.2, §5.4, §6 batch 3 |
 | L-2 | The four copy kinds (`request_result` + `:also`, `approval_receipt`, `answered_on_requester_device`, `pin_use_failed`) gain the optional **`values.link`**: the request's target, set at raise from the request's values. `closeMany`'s alert read adds `values_json` to its same `SELECT`. | §3.10, §6.1, §6.2 |
 | L-3 | §8.1's tap ("tapping opens the detail and calls `MarkAlertsSeen`") applies only to `target: null`. A set target follows §3.13.2. §8.2: a 9b notification tap opens `#/inbox?focus=alert:<id>`. | §8.1, §8.2 |
-| L-4 | Rows for the owning modules, applied as patch bumps with one pointer line each: 02a v1.1.7, 02b v1.0.15, 03a v1.2.5, 03b v1.0.9, 04 v1.0.6. 03c is unchanged (`printer_problem` keeps today's tap, Q1 (a)). | §4.6 |
-| L-5 | Tests 69–80. | §10.9d |
-| L-6 | Deferred: "food ready" to waiters (Q2 (a)). Ruled: DL Q-1 (a) (a tap on an answerable request opens the place, glows it, then `AnswerSheet` on top); DL Q-2 (a) (only `ready_to_serve` treats served as not open). | §12.4, §12.8 |
+| L-4 | Rows for the owning modules, applied as patch bumps: 02a v1.1.7, 02b v1.0.15 (with a real `order-view` contract change, B1), 03a v1.2.5, 03b v1.0.9, 04 v1.0.6. 03c is unchanged (`printer_problem` keeps today's tap, DL Q-0a (a)). | §4.6 |
+| L-5 | Tests 69–97. | §10.9d |
+| L-6 | Deferred: "food ready" to waiters (DL Q-0b (a)). Ruled: DL Q-1 (a) (a tap on an answerable request opens the place, glows it, then `AnswerSheet` on top); DL Q-2 (a) (only `ready_to_serve` treats served as not open). | §12.4, §12.8 |
+
+| L-7 | Hostile review fixes. **B1:** `order-view` returns `order_type` and the current `seating_id` (02b v1.0.15); the client never uses `table_key`. **B2:** only "request closed" stops `AnswerSheet`; any other check result opens it over the current screen. **B3:** DL Q-3 Rec, `NoticeSheet` on top. **M1:** `table` target = `{ table_id, seating_id }`, and an absorbed seating resolves to the survivor. **M2:** `target` is optional and `.catch(null)`. **M3:** a takeaway slip gets `AnswerSheet`, and a dine-in slip glows its LateCard. **M4:** `safeLink` guards every `link` call. **M5:** dialogs block navigation, drafts are kept, the kiosk gets a Back chip. **M6:** tests 81–97. The minors and nits are fixed in place. | §3.5, §3.10, §3.13, §5.4, §10.9d, §12.8 |
 
 **Foundation:** no bump. Foundation §6.5 names the alert frame types and their transport rules only. The frame and view bodies are 01d's (§5.4, §6 batch 3). An optional field on the `alert` body changes no §6.5 text, as AD-4's `binding_route_until` did not.
 
@@ -53,7 +55,7 @@
 | | |
 |---|---|
 | Module | 01d Notifications and requests |
-| Version | **v1.3 DRAFT, awaiting owner approval** (owner request and rulings 2026-11-18: notification deep links, §3.13; DL Q-1 (a), Q-2 (a) ruled 2026-11-18, §12.8; see "Changes in v1.3"). **v1.2.5 APPROVED** (owner, 2026-11-12, with 04 v1.0 and its gap rulings: 04 §4.5 D-1–D-3, see "Changes in v1.2.5"); v1.2.4, v1.2.3, v1.2.2 APPROVED (owner, 2026-11-11 / 12, with 03b / 03c, see their changes sections). **v1.2.1 APPROVED (owner, 2026-11-08; 02p task 0; checks `docs/reviews/02p_task0_targeted_check.md`, `02p_task0_recheck.md`)** — v1.2 + v1.1.2: the two v1.1.2 rows (`AlertDetailsBase` gains `minutes_late` and `lines`; `AlertRaised` schema version 2 with an identity upcaster; 03a AD-36) carried onto v1.2, with their "⚠️ Changed by 03a v1.0 (03a AD-36), 01d v1.1.2" markers; plus one client display row **P-1** (owner ruling 2026-11-08: the table chip shows `T{table_code}` only for an all-digit value; built in 02p task 18, owner ruling 2026-11-09 E-6). v1.1.2 is **built** (`module-03a`, merged in `3f78a44`); the v1.2 rows are built in 02p (task 13). v1.2 and v1.1.2 kept as history. **v1.2 APPROVED (developer as the owner's proxy, 2026-11-07, with 02a Tables v1.0)** — 02a §4.5 rows D-1 (the `table_team` resolver is the full recipient set, keyed by depth), D-2 (Served card → 03b), D-3 (kind flag `skip_requester`), "⚠️ Changed by 02a v1.0 (D-n)" markers; **not yet built: built in 02p** (02p §11 task 13 changes `alerts/targets.ts` and `alerts/kinds.ts` with their tests; 02p task 0, m-8: was "the 02a build changes …"). **v1.1.1 APPROVED (developer as the owner's proxy, 2026-11-03) — editorial patch from 03a Timing Engine v1.0** (03a §4.5 "01d v1.1 → v1.1.1", rows N-1, N-2; "⚠️ Changed by 03a v1.0 (N-n)" markers): no rule, code, contract or test change; v1.1 kept as history. **v1.1 APPROVED (developer, 2026-11-02) — as built; v1.0 kept as history.** All folded rows (ruled, proposed and unattended) were approved by the developer on 2026-11-02. v1.1 folds in what the `module-01d` branch built: BF-1–BF-8 (§12.6) as built, the developer's planning decisions AD-1–AD-9, and the build rows AD-10–AD-168 plus the batch 9a rows of `docs/reviews/01d-auto-decisions.md`. Each folded row is marked **ruled** (a developer decision or ruling), **proposed** (an implementer or controller reading, not yet ruled), or **unattended — developer to confirm** (the batch 9a rows); these markers are kept as history. Rows not folded, and why, are in `docs/reviews/01d_v1.1_asbuilt_draft_notes.md`. The contract changes other modules read are listed below; they were approved on 2026-11-02 and applied as 00 v1.6.1, 01a v2.0.1 and 01b v1.4.1. **v1.1 supersedes v1.0**, which is kept as history; the README module map row 01d is v1.1, Implemented. **v1.0 — APPROVED** (developer, 2026-11-01). v1.0 = v0.5 + G4 hostile review run 3 (the last, `docs/reviews/01d_v0.5_hostile_run3.md`: 0 BLOCKER, 2 MAJOR, 16 MINOR, FIX THEN APPROVE, no run 4): R1 and R2 fixed, MINORs m3, m4, m5, m7, m11, m13, m15, m16 fixed, the other eight MINORs listed as build-time fixes BF-1–BF-8 (§12.6). The §4.5 changes are applied by version bump (R26): README, CLAUDE.md, foundation v1.8, 00 v1.6, 01b v1.4. v0.5: G4 hostile review run 2 applied (`docs/reviews/01d_v0.4_hostile_run2.md`, 0 BLOCKER, 6 MAJOR, 12 MINOR). v0.4: G4 hostile review run 1 applied. v0.3: G2 completeness check applied. v0.2: developer review of v0.1. v0.1: first draft from G0 + G1. |
+| Version | **v1.3 DRAFT, awaiting owner approval** (owner request and rulings 2026-11-18: notification deep links, §3.13; DL Q-1 (a), Q-2 (a) ruled 2026-11-18; **DL Q-3 awaiting the owner**, §12.8; see "Changes in v1.3"). **v1.2.5 APPROVED** (owner, 2026-11-12, with 04 v1.0 and its gap rulings: 04 §4.5 D-1–D-3, see "Changes in v1.2.5"); v1.2.4, v1.2.3, v1.2.2 APPROVED (owner, 2026-11-11 / 12, with 03b / 03c, see their changes sections). **v1.2.1 APPROVED (owner, 2026-11-08; 02p task 0; checks `docs/reviews/02p_task0_targeted_check.md`, `02p_task0_recheck.md`)** — v1.2 + v1.1.2: the two v1.1.2 rows (`AlertDetailsBase` gains `minutes_late` and `lines`; `AlertRaised` schema version 2 with an identity upcaster; 03a AD-36) carried onto v1.2, with their "⚠️ Changed by 03a v1.0 (03a AD-36), 01d v1.1.2" markers; plus one client display row **P-1** (owner ruling 2026-11-08: the table chip shows `T{table_code}` only for an all-digit value; built in 02p task 18, owner ruling 2026-11-09 E-6). v1.1.2 is **built** (`module-03a`, merged in `3f78a44`); the v1.2 rows are built in 02p (task 13). v1.2 and v1.1.2 kept as history. **v1.2 APPROVED (developer as the owner's proxy, 2026-11-07, with 02a Tables v1.0)** — 02a §4.5 rows D-1 (the `table_team` resolver is the full recipient set, keyed by depth), D-2 (Served card → 03b), D-3 (kind flag `skip_requester`), "⚠️ Changed by 02a v1.0 (D-n)" markers; **not yet built: built in 02p** (02p §11 task 13 changes `alerts/targets.ts` and `alerts/kinds.ts` with their tests; 02p task 0, m-8: was "the 02a build changes …"). **v1.1.1 APPROVED (developer as the owner's proxy, 2026-11-03) — editorial patch from 03a Timing Engine v1.0** (03a §4.5 "01d v1.1 → v1.1.1", rows N-1, N-2; "⚠️ Changed by 03a v1.0 (N-n)" markers): no rule, code, contract or test change; v1.1 kept as history. **v1.1 APPROVED (developer, 2026-11-02) — as built; v1.0 kept as history.** All folded rows (ruled, proposed and unattended) were approved by the developer on 2026-11-02. v1.1 folds in what the `module-01d` branch built: BF-1–BF-8 (§12.6) as built, the developer's planning decisions AD-1–AD-9, and the build rows AD-10–AD-168 plus the batch 9a rows of `docs/reviews/01d-auto-decisions.md`. Each folded row is marked **ruled** (a developer decision or ruling), **proposed** (an implementer or controller reading, not yet ruled), or **unattended — developer to confirm** (the batch 9a rows); these markers are kept as history. Rows not folded, and why, are in `docs/reviews/01d_v1.1_asbuilt_draft_notes.md`. The contract changes other modules read are listed below; they were approved on 2026-11-02 and applied as 00 v1.6.1, 01a v2.0.1 and 01b v1.4.1. **v1.1 supersedes v1.0**, which is kept as history; the README module map row 01d is v1.1, Implemented. **v1.0 — APPROVED** (developer, 2026-11-01). v1.0 = v0.5 + G4 hostile review run 3 (the last, `docs/reviews/01d_v0.5_hostile_run3.md`: 0 BLOCKER, 2 MAJOR, 16 MINOR, FIX THEN APPROVE, no run 4): R1 and R2 fixed, MINORs m3, m4, m5, m7, m11, m13, m15, m16 fixed, the other eight MINORs listed as build-time fixes BF-1–BF-8 (§12.6). The §4.5 changes are applied by version bump (R26): README, CLAUDE.md, foundation v1.8, 00 v1.6, 01b v1.4. v0.5: G4 hostile review run 2 applied (`docs/reviews/01d_v0.4_hostile_run2.md`, 0 BLOCKER, 6 MAJOR, 12 MINOR). v0.4: G4 hostile review run 1 applied. v0.3: G2 completeness check applied. v0.2: developer review of v0.1. v0.1: first draft from G0 + G1. |
 | Inherits | Shared Standards from **Foundation v1.8** §6 (envelope, error naming, hub HTTP and WS conventions, naming, tests, migrations, folders). Not redefined here. Written against v1.7; v1.8 is the bump this spec makes (§4.5 C-F). |
 | Depends on | Foundation v1.8; **00 Hub Platform & Access v1.6** (command and query registry, writer, WS, sessions, PIN check, directory; v1.6 = v1.5 + this spec's C-00 rows); **01b Staff and Roles v1.4** (effective permission with scope and approvers, `leadOf`, `teamOf`; v1.4 = v1.3 + this spec's C-01b rows); **01a Restaurant Setup v2.0** (business day events only; v1.0 changed nothing in 01a. *As built (AD-123, ruled):* the build adds `stuck_alerts` to 01a §6.21 `config-status`, see "Contract changes" below; applied as **01a v2.0.1**). *v1.1:* the as-built 00 and 01b rows are applied as **00 v1.6.1** and **01b v1.4.1** (approved 2026-11-02) |
 | Inputs | `docs/stories/01d-g0-decisions.md` (G0 register, with G1 markers), `docs/stories/01d-g1-decisions.md` (G1 record, G1-1 … G1-24), `docs/stories/01d-notifications-teams-refined.md` (2026-10-27 owner record). v1.1 also: `docs/reviews/01d-auto-decisions.md`, `docs/plans/01d-plan.md`, `docs/plans/01d-status.md`, the final review `.superpowers/sdd/01d-plan/final-review-report.md` |
@@ -507,7 +509,7 @@ defineAlertKind({
 });
 ```
 
-> ⚠️ Changed by v1.3 (L-1): **`link`** (optional, unlike AD-37's explicit fields, so kinds with no staff-app place need no change, Q1 (a)) is a pure function of the alert's `values` → `AlertLinkTarget | null` (§3.13.1). No `ctx`, `db` or clock. It runs when a view is built, never at raise, and a throw gives `null`. Not a startup error: a kind without it has `target: null`.
+> ⚠️ Changed by v1.3 (L-1): **`link`** (optional, unlike AD-37's explicit fields, so kinds with no staff-app place need no change, DL Q-0a (a)) is a pure function of the alert's `values` → `AlertLinkTarget | null` (§3.13.1). No `ctx`, `db` or clock. It must be pure and total. It runs when a view is built and, for the copy kinds, once at raise on the request's values. Both calls go through 01d's guard `safeLink` (§3.13.1): a throw or a result outside `AlertLinkTargetSchema` gives `null` and never aborts the surrounding transaction (M4). Not a startup error: a kind without it has `target: null`.
 
 > As built (AD-37, AD-39, proposed): `values_schema` is a Zod object (its keys are checked). Every field is required except `onWithdraw`; each kind states its flags explicitly. The subject of `request_result` and the personal notices is the request's subject, so the kind type accepts `subject: 'request'` (AD-72, proposed).
 
@@ -723,7 +725,7 @@ For each permission that some role grants with `requires_approval` at this branc
 
 > As built (AD-101, AD-104, AD-147, proposed): the personal notices' values are the card facts (ids, kind, decision, `device_id`, and `on_requester_device` on the receipt), no secrets; `requester_staff_id` is null on them (they are not requests). Their `display.device_name` is the answering (or PIN-sending) device, read in the answer's existing alert statement, so "at Hamza's tablet" needs no extra read.
 
-> ⚠️ Changed by v1.3 (L-2): `request_result` (and its `:also` variant), `approval_receipt`, `answered_on_requester_device` and `pin_use_failed` gain an optional **`values.link: AlertLinkTarget | null`**: the request's target, `requestKind.link(request.values)` (null when the request kind has no `link`). It is set by the raise from the request record the raise already reads (`AlertRecord.values` in `AnswerRequest`; `RequestRow.values_json` for `pin_use_failed`; `closeMany`'s alert read, which adds `values_json` to its same `SELECT`). Their `link` is `(v) => v.link ?? null`, so a result or a notice opens its request's place (§3.13.1 rows 14–17). Rows raised before v1.3 have no `link` → `target: null`.
+> ⚠️ Changed by v1.3 (L-2): `request_result` (and its `:also` variant), `approval_receipt`, `answered_on_requester_device` and `pin_use_failed` gain an optional **`values.link: AlertLinkTarget | null`**: the request's target, `safeLink(requestKind, request.values)` (null when the request kind has no `link`, when it throws, or when its result is invalid; checked before `values_schema`, so it never fails the raise, M4). It is set by the raise from the request record the raise already reads (`AlertRecord.values` in `AnswerRequest`; `RequestRow.values_json` for `pin_use_failed`; `closeMany`'s alert read, which adds `values_json` to its same `SELECT`). Their `link` is `(v) => v.link ?? null`, so a result or a notice opens its request's place (§3.13.1 rows 14–17). Rows raised before v1.3 have no `link` → `target: null`.
 
 **Personal notices** (`answered_on_requester_device`, `approval_receipt`, `pin_use_failed`; v0.5 #2, N2; v1.0 #2, R2): `lead_fallback: false` and `expires_at_day_close: false`. They go only to the person's own routes and inbox (never a "for X" copy on a lead's device, §3.4.3); with no route at raise, the inbox row waits. They are **not expired at day close** and close `done` **only** when that person sees them while signed in (§3.5 `closes_on: 'seen'`); the person's next sign-in shows them (the `alerts` catch-up; `alerts-inbox` lists open personal notices of earlier days, §6.7, §12.4). Not requests, so no answer can be faked through them; a person who did not do it tells the manager. **A person removed from the directory** has their open personal notices closed `obsolete` by the next tick (BF-7, §3.9).
 
@@ -756,60 +758,94 @@ Each kind registers label keys in the client string tables (`EN` and `UR`, 00 M8
 
 ### 3.13 Deep links: notification targets (v1.3, owner 2026-11-18)
 
-> ⚠️ Changed by v1.3 (owner request 2026-11-18, `docs/stories/dl-deeplinks.md`: "notification par click karo to os jaga le jae aur wo highlight ho"; rulings Q1 (a), Q2 (a), integrator ruling on seen). New section. Was: a tap only opened the detail card over the current screen (§8.1); no view carried an entity id (`ws-frames.ts` `lockView` / `signedInView` read `values_json` only for AD-82's `outcome`).
+> ⚠️ Changed by v1.3 (owner request 2026-11-18, `docs/stories/deeplinks-refined.md`: "notification par click karo to os jaga le jae aur wo highlight ho"). Rulings: DL Q-0a (a), DL Q-0b (a), DL Q-1 (a), DL Q-2 (a); DL Q-3 awaits the owner; the integrator ruling on seen (§12.8). Review fixes from `docs/reviews/dl-deeplinks-hostile-review.md` (B1–B3, M1–M6, m1–m13, n1–n5). New section. Was: a tap only opened the detail card over the current screen (§8.1). No view carried an entity id: `ws-frames.ts` `lockView` / `signedInView` read `values_json` only for AD-82's `outcome`.
 
-**Scope.** The staff app (`/staff/`: waiter, cashier, manager on tablet and phone) and the Windows cashier kiosk. The KDS (`/kds/`) is out of scope: it never reads `target`. Deep links apply to the **existing** kinds only; a "food ready" notice to waiters is a separate future feature (§12.4, `docs/OPEN-QUESTIONS.md` §11).
+**Rulings named here.**
+- **DL Q-0a (a):** kinds with no staff-app screen keep today's tap.
+- **DL Q-0b (a):** deep links cover existing kinds only; "food ready" to waiters is a later feature.
+- **DL Q-1 (a):** answerable requests open the place, glow it, then open `AnswerSheet` on top.
+- **DL Q-2 (a):** only `ready_to_serve` treats "served" as not open.
+- **DL Q-3:** what a notice tap shows. It awaits the owner; this section is written as its Rec (§12.8).
+
+All were given on 2026-11-18. §12.8 lists them.
+
+**Scope.** The staff app (`/staff/`: waiter, cashier, manager on tablet and phone) and the Windows cashier kiosk. The KDS (`/kds/`) is out of scope: it never reads `target`. Deep links apply to the **existing** kinds only (DL Q-0b (a)). A "food ready" notice to waiters is a separate future feature (§12.4, `docs/OPEN-QUESTIONS.md` §11).
 
 #### 3.13.1 The target contract
 
-Every alert view gains **`target: AlertLinkTarget | null`** (§5.4): the place in the staff app the alert is about. Ids only, so it is lock-safe (G1-13e: no amount, item name or reason) and goes on **every** view, lock and card alike.
+Every alert view the hub builds carries **`target: AlertLinkTarget | null`** (§5.4): the place in the staff app the alert is about. It holds ids only, so it is lock-safe (G1-13e: no amount, item name or reason), and it goes on every view, lock and card alike, from the one builder (`lockView`).
+- On alert-mode frames and `alerts_open` nothing reads it today: the lock panel is not tappable, and a 9b notification tap goes to `#/inbox?focus=`.
+- It is carried there only because there is one builder. It is harmless (n3).
 
 ```typescript
 // packages/events/src/alerts.ts (§5.4)
 export const AlertLinkTargetSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('order_line'), order_id: Id, order_item_id: Id }).strict(), // a line of an order
   z.object({ type: z.literal('order'), order_id: Id }).strict(),                         // one order (a round of a seating, or a takeaway / parking order)
-  z.object({ type: z.literal('table'), seating_id: Id }).strict(),                       // a seated table (the seating, wherever it sits now)
+  z.object({ type: z.literal('table'), table_id: Id, seating_id: Id }).strict(),         // a seated table: the seating at raise, and its table at raise (M1)
   z.object({ type: z.literal('zone_item'), zone_id: Id, item_id: Id }).strict(),         // a zone stock row
 ]);
 export type AlertLinkTarget = z.infer<typeof AlertLinkTargetSchema>;
-// AlertViewSchema gains: target: AlertLinkTargetSchema.nullable()   (required on every view the hub builds)
+
+// On the wire (AlertViewSchema and every view / row schema that extends it), forward- and backward-compatible (M2):
+target: AlertLinkTargetSchema.nullable().optional().catch(null)
+// - absent (a hub before v1.3)       -> undefined, read as null
+// - an unknown `type` or a bad shape -> null; the frame still parses, so its banner, sound and inbox row are kept
+// The hub's own build uses the strict schema (safeParse, else null), so it never emits an unknown type (test 70).
 ```
 
-- **Names.** The field is `target` on the wire, as asked. On the kind it is **`link`**, because `target` already names the recipient target of `raise` and `AlertRaised` (§3.4, §4.2). `Id` is `z.string().min(1)` (AD-11).
-- **Minimal ids.** The client needs no more than these. The seating, order type and current table of an order come from the existing `order-view` read the tap does anyway (§3.13.3). A table target carries the **seating**, not the table: after `TableMoved` or a merge the seating's current tile is found in the table map, so a target never names an old table (unlike `table_code`, inventory §3).
-- **Where it comes from: the kind's `link`.** `defineAlertKind` takes an optional **`link?: (values: V) => AlertLinkTarget | null`** (§3.5): a pure function of the alert's own `values`. No `ctx`, no `db`, no clock. A kind without `link` has `target: null`. The hub builds `target` in `lockView` (`ws-frames.ts`), the one builder that every view goes through (step frames, `alerts_open`, the `alerts` catch-up part, `alerts-inbox`, `requests-to-answer`; `my-requests` rows keep only `lock` and get no target, because the requester's waiting card is not a notification), as `link(JSON.parse(values_json))`, checked with `AlertLinkTargetSchema.safeParse`. A throw, unreadable values or a result that fails the schema give `target: null`. Nothing is logged, as with AD-82's `outcome`.
-- **Fixed at raise, frozen.** `values` is validated by the kind's `values_schema` at raise, copied into `AlertRaised`, and written to `alerts.values_json` **only** by the projection's `AlertRaised` insert. No later event updates it (`apps/hub/src/projections/alerts.ts`). So the target is fixed by data written at raise: every view of one alert, live, after a reconnect, a restart or a projection replay, gives the same target. Nothing about the target is read again when the alert is viewed. Whether the place is still open is the client's check at tap time (§3.13.3), never the hub's.
-- **Copy kinds (`request_result` and its `:also` variant, `approval_receipt`, `answered_on_requester_device`, `pin_use_failed`).** Their values hold only `request_alert_id`, so they cannot work out a place from their own values. At raise, 01d computes the **request's** target, `requestKind.link(request.values)` (null when that kind has no `link`), and stores it as **`values.link`** in the new optional field of these four 01d values schemas (`link: AlertLinkTargetSchema.nullable().optional()`, §3.10). Their kinds' `link` is `(v) => v.link ?? null`. So a result or a personal notice links back to its request's subject (the line of a void or comp, the table of a handover), fixed at the moment it is raised.
-- **No migration, no event version.** `AlertRaised.values` is `z.record(z.string(), z.unknown())` in every version (v1–v4). The added `values.link` key is valid in the shipped schema, and `alerts.values_json` already stores it. No column is needed, because every view builder already selects `values_json` (below). `AlertRaised` stays at v4.
+- **Names.** The field is `target` on the wire. On the kind it is **`link`**, because `target` already names the recipient target of `raise` and `AlertRaised` (§3.4, §4.2). `Id` is `z.string().min(1)` (AD-11).
+- **Ids, and how the client resolves them.** The client needs no more than these ids:
+  - The order type and the **current** seating of an order come from 02b's `order-view`, which v1.3 widens with `order_type` and `seating_id` in its same statement (02b v1.0.15 §6.18a, row L-4b, B1). The client never reads an order's `table_key`: that is written at placement and is stale after `TablesMerged` or `SeatingSplit`.
+  - A table target carries the seating **and** its table at raise. The client finds the seating's current tile, or, after a merge, the seating that absorbed it (§3.13.3, M1).
+- **Where it comes from: the kind's `link`.** `defineAlertKind` takes an optional **`link?: (values: V) => AlertLinkTarget | null`** (§3.5).
+  - It must be **pure and total**: a function of the alert's own `values` only, with no `ctx`, no `db`, no clock and no I/O.
+  - A kind without `link` has `target: null`.
+  - 01d **never lets a `link` error escape** (M4). Every call goes through one guard, `safeLink(kind, values) = try { r = kind.link?.(values); return AlertLinkTargetSchema.safeParse(r).success ? r : null } catch { return null }`. No log line, as with AD-82's `outcome`.
+- **Two call sites, both guarded:**
+  1. **View build:** `lockView` (`ws-frames.ts`), the one builder every view goes through (step frames, `alerts_open`, the `alerts` catch-up part, `alerts-inbox`, `requests-to-answer`), computes `safeLink(kind, JSON.parse(values_json))`. Unreadable values also give null. `my-requests` rows keep only `lock` and get no target, because the requester's waiting card is not a notification.
+  2. **Raise of a copy kind** (below): once, on the request's values, inside `AnswerRequest`, `pinFailed` and `close` / `closeMany`. A throw there gives `values.link = null`. It **never aborts** the answer, or the merge, split, bill or clean whose transaction runs `closeMany` (M4, test 72).
+- **Fixed at raise, frozen.**
+  - `values` is validated by the kind's `values_schema` at raise and copied into `AlertRaised`. The projection writes `alerts.values_json` **only** in its `AlertRaised` insert (`apps/hub/src/projections/alerts.ts:218`; no event updates it).
+  - So the target is fixed by data written at raise. Every view of one alert gives the same target: live, after a reconnect, after a restart and after a projection replay.
+  - Whether the place is **still open** is the client's check at tap time (§3.13.3), never the hub's.
+- **Copy kinds (`request_result` and its `:also` variant, `approval_receipt`, `answered_on_requester_device`, `pin_use_failed`).**
+  - Their values hold only `request_alert_id`.
+  - At raise, 01d computes the **request's** target with `safeLink(requestKind, request.values)`. It stores the result as **`values.link`**, the new optional field of these four 01d values schemas (`link: AlertLinkTargetSchema.nullable().optional()`, §3.10).
+  - The guard runs before `values_schema` validation, so a bad result can never become `VALIDATION_FAILED { issue: 'values_invalid' }`.
+  - Their kinds' `link` is `(v) => v.link ?? null`.
+- **No migration, no event version.**
+  - `AlertRaised.values` is `z.record(z.string(), z.unknown())` in every version (v1–v4), so the added `values.link` key is valid in the shipped schema, and `alerts.values_json` already stores it.
+  - No column is needed: every view builder already selects `values_json`.
+  - `AlertRaised` stays at v4.
 
-**Per-kind targets.** This table is the contract. Each owning module's kind registration implements its row, and each module spec carries a one-line pointer to it (§4.6).
+**Per-kind targets.** This table is the contract. Each owning module's kind registration implements its row; each module spec carries a pointer to it (§4.6).
 
 | # | Kind | Owner | `target` | Ids from | Place in the staff app | Not open when (§3.13.3) |
 |---|---|---|---|---|---|---|
-| 1 | `void_approval` | 04 §3.5 | `order_line` | `values.order_id`, `values.order_item_id` (04 `VoidValues`) | the line in its round (dine-in table sheet) or in `#/orders/<id>` | order gone, cancelled or billed; line has no live units; the request is closed |
+| 1 | `void_approval` | 04 §3.5 | `order_line` | `values.order_id`, `values.order_item_id` (04 `VoidValues`) | the line in its round (dine-in table sheet) or in `#/orders/<id>` | order gone, cancelled or billed; line missing or `live_units = 0`; the request is closed. A **served** line stays open ⚠️ (owner 2026-11-18, DL Q-2 (a)) |
 | 2 | `comp` | 02b §6.12 | `order_line` | `values.order_id`, `values.order_item_id` (`CompValues`) | as 1 | as 1 |
-| 3 | `table_handover` | 02a §6.15 | `table` | `values.seating_id` | the table sheet | the seating is on no tile; the request is closed |
-| 4 | `call_waiter` | 02a §6.14 | `table` | `values.seating_id` | the table sheet | the seating is on no tile |
-| 5 | `zone_stock_low` | 02b §6.13 | `zone_item` | `values.zone_id`, `values.item_id` | the row on `#/zones` | `zone-stock` has no such row |
+| 3 | `table_handover` | 02a §6.15 | `table` | `values.table_id`, `values.seating_id` | the table sheet | the seating resolves to no tile (§3.13.3, M1); the request is closed |
+| 4 | `call_waiter` | 02a §6.14 | `table` | `values.table_id`, `values.seating_id` | the table sheet | the seating resolves to no tile (§3.13.3, M1) |
+| 5 | `zone_stock_low` | 02b §6.13 | `zone_item` | `values.zone_id`, `values.item_id` | the row on `#/zones` | `zone-stock` lists no such zone or item |
 | 6 | `zone_stock_out` | 02b §6.13 | `zone_item` | as 5 | as 5 | as 5 |
-| 7 | `slip_warning` | 03a §3.8 | `order` | `values.order_ids[0]` (the oldest order of the group, = the subject) | the round in the table sheet, with its LateCard in the same orders part; `#/orders/<id>` for a non-dine-in key | order gone, cancelled or billed; the request is closed |
-| 8 | `station_overload` | 03a §3.10 | `null` (Q1 (a)) | — | none: no staff-app station screen | — |
-| 9 | `engine_line_dropped` | 03a §4.2 (AD-8) | `order_line` | `values.order_id`, `values.order_item_id` | as 1 | order gone, cancelled or billed; line missing or with no live units |
-| 10 | `ready_to_serve` | 03b §6.21 | `order` | `values.order_id` | the round (dine-in) or `#/orders/<id>`; on a Pass tablet, its Pass card | order gone, cancelled or billed; **every line served** ⚠️ (owner 2026-11-18, DL Q-1 (a) / Q-2 (a)) |
-| 11 | `served_card` | 03b §6.21 | `order` | `values.order_id` | the round, unfolded (it is fully served) | order gone, cancelled or billed (served stays open, DL Q-2 (a)) |
-| 12 | `kds_offline` | 03b §6.21 | `null` (Q1 (a)) | — | none (hub-admin page) | — |
-| 13 | `printer_problem` | 03c §6.10 | `null` (Q1 (a)) | — | none (hub-admin page) | — |
-| 14 | `request_result` (+ `:also`) | 01d §3.10 | the request's target | `values.link` (set at raise from the request's values) | the request's place | as the request kind's row, except "the request is closed", which never applies (the result is about a closed request) |
+| 7 | `slip_warning` | 03a §3.8 | `order` | `values.order_ids[0]` (the oldest order of the group, = the subject) | dine-in: the LateCard in the table sheet's orders part; takeaway / parking: `#/orders/<id>` with `AnswerSheet` on top (M3) | the request is closed. While it is open, the client takes the group's first still-open order (m5, §3.13.3) |
+| 8 | `station_overload` | 03a §3.10 | `null` (DL Q-0a (a)) | — | none: no staff-app station screen | — |
+| 9 | `engine_line_dropped` | 03a §4.2 (AD-8) | `order_line` | `values.order_id`, `values.order_item_id` | as 1 | order gone, cancelled or billed; line missing or `live_units = 0` |
+| 10 | `ready_to_serve` | 03b §6.21 | `order` | `values.order_id` (also on the `ready_retarget` re-raise, which is a new alert with the same values) | the round (dine-in) or `#/orders/<id>`; on a Pass tablet, its Pass card | order gone, cancelled or billed; **every counted line served** ⚠️ (owner 2026-11-18, DL Q-2 (a)) |
+| 11 | `served_card` | 03b §6.21 | `order` | `values.order_id` | the round, unfolded (it is fully served) | order gone, cancelled or billed (a served order stays open, DL Q-2 (a)) |
+| 12 | `kds_offline` | 03b §6.21 | `null` (DL Q-0a (a)) | — | none (hub-admin page) | — |
+| 13 | `printer_problem` | 03c §6.10 | `null` (DL Q-0a (a)) | — | none (hub-admin page) | — |
+| 14 | `request_result` (+ `:also`) | 01d §3.10 | the request's target | `values.link` (set at raise, guarded) | the request's place, then the notice card on top (DL Q-3 Rec, §3.13.2 rule 5) | as the request kind's row, without "the request is closed" (the result is about a closed request) |
 | 15 | `approval_receipt` | 01d §3.10 | the request's target | `values.link` | as 14 | as 14 |
 | 16 | `answered_on_requester_device` | 01d §3.10 | the request's target | `values.link` | as 14 | as 14 |
-| 17 | `pin_use_failed` | 01d §3.10 | the request's target | `values.link` | as 14 | as 14, and "the request is closed" applies (the request may still be open) |
-| 18 | `no_approver` | 01d §3.9 | `null` (Q1 (a)) | — | none | — |
+| 17 | `pin_use_failed` | 01d §3.10 | the request's target | `values.link` | as 14 | as 14 |
+| 18 | `no_approver` | 01d §3.9 | `null` (DL Q-0a (a)) | — | none | — |
 | 19 | `test_alert` | 01d §3.10 | `null` | — | none: the card itself is the place (the sender's receipts are `#/receipts/<id>`, unchanged) | — |
 
-No kind needs data the hub does not store. Every id in the table is already in the kind's `values` today (verified against `voids/kind.ts`, `orders/commands/comp-line.ts`, `tables/kinds.ts`, `tables/call-waiter-kind.ts`, `orders/zone-kinds.ts`, `engine-host/kinds.ts`, `kds/kinds.ts` on `module-deeplinks` @ `049f6ce`). The `subject_*` columns are not needed: where the subject is an order it equals `values.order_id` (or `order_ids[0]`), and the `table` / `zone:` subjects name a primary table or a zone that the values already carry more exactly.
+No kind needs data the hub does not store. Every id in the table is in the kind's `values` today, as verified against `voids/kind.ts`, `orders/commands/comp-line.ts`, `tables/kinds.ts`, `tables/call-waiter-kind.ts`, `orders/zone-kinds.ts`, `engine-host/kinds.ts` and `kds/kinds.ts` on `module-deeplinks` @ `049f6ce`. The `subject_*` columns are not needed. Where the subject is an order it equals `values.order_id` (or `order_ids[0]`). The `table` / `zone:` subjects name a primary table or a zone that the values already carry more exactly.
 
-**Statement counts (unchanged).** `target` is computed in memory from a column that every view statement **already selects**:
+**Statement counts.** `target` is computed in memory from a column that every view statement **already selects**. The one hub contract change the client check needs is in 02b's `order-view`, inside its existing statement.
 
 | Path | Statement (file on `module-deeplinks`) | Statements before → v1.3 |
 |---|---|---|
@@ -818,113 +854,158 @@ No kind needs data the hub does not store. Every id in the table is already in t
 | `alerts` catch-up part | `catch-up.ts:56` (`COLUMNS`) | 2 → 2 |
 | `GET /queries/alerts-inbox` (§6.7) | `queries/alerts-inbox.ts:53` | 2 → 2 |
 | `GET /queries/requests-to-answer` (§6.9) | `queries/requests-to-answer.ts:29` | 2 → 2 |
-| `AnswerRequest` raises (`request_result`, `:also`, receipt, notice) | the request record (`commands/request-row.ts:36` selects `values_json`; `AlertRecord.values`) | unchanged (7 within the bound of 9; reject with `result_also_to` +2, as v1.2.5) |
+| `AnswerRequest` raises (`request_result`, `:also`, receipt, notice) | the request record (`commands/request-row.ts:36` selects `values_json`; `AlertRecord.values`) | unchanged (7 within the bound of 9; a reject with `result_also_to` +2, as in v1.2.5) |
 | `pin_use_failed` raise | `RequestRow` (same statement) | unchanged |
 | `alerts.close` / `closeMany` → `request_result` | `raise.ts:454` gains the column `values_json` in its **same** `SELECT` | 1 alert read → 1 |
-| `raise` of an owning kind | none: `link` is not run at raise | ≤ 6 + R + T → unchanged |
+| `raise` of an owning kind | none: `link` is not run when an owning kind raises | ≤ 6 + R + T → unchanged |
+| 02b `GET /queries/order-view` (02b §6.18a) | the `ORDER` statement gains `order_type` in the body and `LEFT JOIN seating_orders` for `seating_id` (same statement) | 3 → 3 |
 
-So no hub path gains a statement, and test 71 pins this. The CPU cost is one `JSON.parse` of `values_json` per view, which `lockView` already does for `request_result`. It is in memory and bounded by the rows the statement returned.
+So no hub path gains a statement; test 71 and 02b test 52 pin this. The CPU cost is one `JSON.parse` of `values_json` per view, which `lockView` already does for `request_result`.
 
 #### 3.13.2 Client tap rule (staff app and kiosk)
 
-One rule for every place a staff-app alert can be tapped: an Inbox card (`OpenCard`, `RowCard`, a "For <name>" group card), a `requests-to-answer` row, a banner's **Open** button (`Banner.tsx`), and the call banner (`CallCard`). The lock panel (signed out) stays not tappable.
+One rule covers every place a staff-app alert can be tapped: an Inbox card (`OpenCard`, `RowCard`, a "For <name>" group card), a `requests-to-answer` row, a banner's **Open** button (`Banner.tsx`) and the call banner (`CallCard`). The lock panel (signed out) stays not tappable. A **Pass tablet signed out** shows only that panel, so nothing there navigates (m12).
 
-1. **`target` is null** (kinds 8, 12, 13, 18, 19; a copy kind whose request had no target; a copy-kind row raised before v1.3, §3.13.4): **today's tap**. The client opens `AnswerSheet` or `NoticeSheet` over the current screen and calls `MarkAlertsSeen` (§8.1 as in v1.2.5). Nothing below applies.
-2. **`target` is set:** the client runs the **open check** of §3.13.3 with existing reads only, then:
-   - **open** → navigate to the place (§3.13.5), scroll the target into view (`scrollIntoView({ block: 'center' })` inside the sheet or page that scrolls; `behavior: 'smooth'` unless reduced motion), and give the target element the **glow** for 2 s (§3.13.6). A folded round (every line served, 02b `Round` `allServed`) that holds the target **unfolds** first (`open = true`), so the target is visible.
-   - **not open** → stay on the current screen (no navigation) and show **"This item is no longer open."** (key `alerts.target_closed`, EN and UR) on the existing toast bus (`staff/shell/toast.tsx`: one at a time, 4 s, `role="status"`).
-   - **the check cannot run**: the socket is down or the read fails with `NETWORK`, `PERMISSION_DENIED` or `5xx`. The client stays and shows the existing text for that error (`NETWORK` → "No connection to the hub"; `PERMISSION_DENIED { reason: 'outside_scope' }` → 02b's outside-scope text). It never navigates on a guess.
-3. **Seen, in every case** (integrator ruling 2026-11-18): the tap calls `MarkAlertsSeen { alert_ids: [alert_id] }` exactly as today (§6.4), whether the client navigates, finds the place not open, or cannot check. One call per tap. A repeated tap on the same row sends nothing new, as today (the store's `opened` set).
-4. **Requests the viewer can answer** (`answers` present on the signed-in view, or `can_answer` on a `requests-to-answer` row) ⚠️ Changed by v1.3 (owner 2026-11-18, DL Q-1 (a) / Q-2 (a)): After step 2 navigates and starts the glow, the client opens `AnswerSheet` over the place, as today (Approve / Reject, Accept / Decline, PIN pad for money kinds). The glow runs behind the sheet's scrim and the place stays under it, so closing the sheet shows the glowing line or table. **Exception: `slip_warning`**: its LateCard in the table sheet's orders part answers in place ("Send what's ready" / "Wait"), so the tap opens no AnswerSheet. If the request is **not open** (step 2, including "the request is closed"), no AnswerSheet opens; the toast shows and the client stays. A viewer who may not answer (lock-only kiosk rows, `informed` rows, the requester) only navigates.
-5. **Re-notify, sound and receipts are unchanged** (§8.1, §8.3). Only the tap changes. Banners hide on tap as today (`open(row)` dismisses the banner).
+1. **`target` is null or absent** (kinds 8, 12, 13, 18, 19; a copy kind whose request had no target; a copy-kind row raised before v1.3; any target the client cannot parse, M2): **today's tap**. The client opens `AnswerSheet` or `NoticeSheet` over the current screen and calls `MarkAlertsSeen` (§8.1 as in v1.2.5). The rules below do not apply.
+2. **`target` is set:** the client runs the **open check** of §3.13.3 with existing reads, then:
+   - **open:** it navigates to the place (§3.13.5) and scrolls the target into view (`scrollIntoView({ block: 'center' })` inside the sheet or page that scrolls; `behavior: 'smooth'` unless reduced motion). It gives the target element the **glow** (§3.13.6) and puts the place's name in a polite live region (§3.13.6, n4). A folded round (every line served, 02b `Round` `allServed`) that holds the target **unfolds** first, through the round's new `forceOpen` prop (02b v1.0.15 §8, m6). A served line or round stays reachable, unfolds and glows ⚠️ (owner 2026-11-18, DL Q-2 (a)).
+   - **not open:** it stays on the current screen and shows **"This item is no longer open."** (key `alerts.target_closed`; EN; UR "یہ آئٹم اب کھلا نہیں ہے۔", to be checked by the Urdu translator in `docs/design/handoff/01d/urdu-todo.md`) on the existing toast bus (`staff/shell/toast.tsx`: one at a time, 4 s, `role="status"`).
+   - **the check cannot run** (`NETWORK` with the socket down, `PERMISSION_DENIED`, a `5xx`, any other read error): it stays and shows the existing text for that error. `NETWORK` gives "No connection to the hub"; `PERMISSION_DENIED { reason: 'outside_scope' }` gives 02b's outside-scope text. It never navigates on a guess.
+   - Rules 4 and 5 override the last two outcomes for requests and notices: the sheet still opens.
+3. **Seen, in every case** (integrator ruling 2026-11-18, for the owner to confirm at approval, §12.8, m13). The tap calls `MarkAlertsSeen { alert_ids: [alert_id] }` exactly as today (§6.4), whether the client navigates, finds the place not open, or cannot check. It is one call per alert. A **repeated tap** on the same row navigates and glows again, but sends no second `MarkAlertsSeen` (the store's `opened` set, as today; m10).
+4. **Requests the viewer can answer** (`answers` present on the signed-in view, or `can_answer` on a `requests-to-answer` row) ⚠️ Changed by v1.3 (owner 2026-11-18, DL Q-1 (a)). After rule 2 navigates and starts the glow, the client opens `AnswerSheet` on top, as today (Approve / Reject, Accept / Decline, the PIN pad for money kinds). The glow runs behind the sheet's scrim and the place stays under it.
+   - **Only "the request is closed" stops the sheet** (B2). Then the client shows the toast and stays. For **every other** check result (not open, `403`, `NETWORK`, `5xx`, a read error) it opens `AnswerSheet` **over the current screen exactly as today**, with no navigation and no glow, and with no extra toast for "not open". So an approver whose `mark-served` scope does not cover a takeaway order, or whose read fails, can still answer. The hub's `AnswerRequest` decides, as today.
+   - **`slip_warning` (M3).**
+     - **Dine-in:** its LateCard in the table sheet's orders part answers in place ("Send what's ready" / "Wait"). The glow and scroll go to that LateCard: the element whose `data-alerts` comma list (`LateCard.tsx`, `ids.join()`) contains this `alert_id`, not the round. No `AnswerSheet` opens.
+     - **Takeaway / parking (no LateCard on `OrderView`):** the client navigates to `#/orders/<order_id>`, glows the order block and opens `AnswerSheet` on top.
+     - **No LateCard rendered** for the alert after the sheet loads: `AnswerSheet` opens on top.
+   - A viewer who may not answer only navigates: a kiosk's lock-only row, an `informed` row, the requester.
+5. **Notices and results** (copy kinds 14–17) **— DL Q-3, awaiting the owner, written as the integrator's Rec** ⚠️ Changed by v1.3 (DL Q-3 Rec) (B3).
+   - After rule 2 navigates and starts the glow, the client opens **`NoticeSheet` on top** with all of today's facts: the device name and time of an in-person answer or a failed PIN use, the **"Not you?"** warning (`answered_on_requester_device`, `pin_use_failed`), the closer's note on a rejected or closed `request_result` (`details.reason`), and the receipt's amount and device (`approval_receipt`).
+   - If the place is **not open** or **cannot be checked**, the client opens `NoticeSheet` **over the current screen** instead of the toast, so no notice ever loses its facts. An approved full void, whose line has no live units, therefore opens its result card where the person is.
+   - The integrator's Rec names `pin_use_failed`, `answered_on_requester_device` and a rejected `request_result`. The same reason holds for the approved and closed `request_result`, the `:also` result and `approval_receipt`, so the Rec covers all of kinds 14–17.
+6. **Unfinished work (M5)**, following 02b's existing pattern. There is no leave-confirm guard anywhere in the staff app: 02b §3.12 "Drafts in progress" stores the cart as it is edited, and `#/held` lists it.
+   - **A dialog is open on the page** (any element with `aria-modal="true"`: the Send dialog, the PIN pad, the remove / void / comp / mark-served sheets, an open `AnswerSheet` or `NoticeSheet`): a banner's **Open** does **not** navigate. It behaves as in v1.2.5 and opens the detail over the current screen, so no dialog is torn down by a banner. Inbox and Requests taps come from their own routes, where no page dialog is open.
+   - **From `OrderScreen`** (a dine-in or takeaway draft): navigation is allowed. The draft is kept (02b §3.12), and the person comes back to it from the table sheet or `#/held`. The table lock follows 02a's existing rules for leaving the order screen. Nothing is released by the deep link itself, and the lock's idle TTL runs as for any other screen change (02a §3.3, §3.4).
+   - **Kiosk (no browser back):** after a deep-link navigation the top bar shows a **"Back"** chip that returns to the hash the tap left (one level; the chip goes at the next navigation of any kind). Its key is `alerts.back`.
+7. **Re-notify, sound and receipts are unchanged** (§8.1, §8.3); only the tap changes. Banners hide on tap as today (`open(row)` dismisses the banner).
 
 #### 3.13.3 The open check (existing reads only)
 
-No new endpoint, query parameter or hub statement. The check uses reads the target screen makes anyway, so a tap costs at most one extra read before the screen's own load:
+There is no new endpoint and no new query parameter. 02b's `order-view` gains two body fields inside its existing statement (02b v1.0.15 §6.18a, B1). The check uses reads that the target screen makes anyway, and hands their results to that screen.
+
+**A request's own state is checked first** (kinds 1, 2, 3, 7 on their own alert). Use the row's `state` (inbox, `requests-to-answer`), or an `alert_closed` frame already received. A closed request is not open (rule 4). An open one goes on to the place check below, except `slip_warning`, whose open request is open by itself (m5, below).
 
 | `target.type` | Read | Open when | Then |
 |---|---|---|---|
-| `order_line` | `GET /queries/order-view?order_id=` (02b §6.18a, 3 statements; dine-in: any staff session; takeaway / parking: `mark-served` scope) | the order exists (not `404 ORDER_NOT_FOUND`), `cancelled` and `billed` are false, its `lines` hold `order_item_id` with `live_units > 0`. A **served** line is open, because voids and comps are often asked after the food is served ⚠️ (owner 2026-11-18, DL Q-1 (a) / Q-2 (a)) | dine-in (`order_type = 'dine_in'`): `seating_id` = `table_key` after `dine_in:`, then the tile from the table map (row `table`); takeaway / parking: `#/orders/<order_id>` |
-| `order` | the same `order-view` read | the order exists, `cancelled` and `billed` are false; for **`ready_to_serve` only**, not every live line is served (`served_at !== null` or stage `served` on every counted line) ⚠️ (owner 2026-11-18, DL Q-1 (a) / Q-2 (a)) | as `order_line` |
-| `table` | `GET /queries/table-map` with no `floor_id` (02a §6.17; every floor; the map loads it anyway) | some tile has `seating_id` = the target's. The place is the seating's **primary** tile: the tile whose `primary_table_id` is null or equals its own `table_id` | `#/tables/<that table_id>?seating_id=<seating_id>` |
-| `zone_item` | `GET /queries/zone-stock?zone_id=` (02b, what `#/zones` loads) | the zone lists `item_id` | `#/zones` |
-| any, for a **request** kind's own alert (1, 2, 3, 7) and for 17 | the alert's own state on the client: the row's `state` (inbox), or an `alert_closed` frame already received | the alert is open | as above |
+| `order_line` | `GET /queries/order-view?order_id=` (02b §6.18a, 3 statements; dine-in: any staff session; takeaway / parking: `mark-served` scope) | the order exists (not `404 ORDER_NOT_FOUND`); `cancelled` and `billed` are false; its `lines` hold `order_item_id` with `live_units > 0`. A served line is open (DL Q-2 (a)). After a **partial** void the line keeps its other units and stays open (m4) | `order_type = 'dine_in'`: the body's **`seating_id`** (the seating the order is in **now**, after any merge or split, B1), then that seating's tile (row `table`, step 1); no tile → not open. Takeaway / parking: `#/orders/<order_id>` |
+| `order` | the same `order-view` read | the order exists; `cancelled` and `billed` are false; for **`ready_to_serve` only**, not every counted line is served (`served_at !== null` or stage `served` on every line that `allServed` counts) (DL Q-2 (a)) | as `order_line` |
+| `table` | the table map the client holds, or else `GET /queries/table-map` with no `floor_id` (02a §6.17; every floor) | resolved below | `#/tables/<primary table_id>?seating_id=<resolved seating>` |
+| `zone_item` | `GET /queries/zone-stock` with **no** `zone_id`, the same read `#/zones` makes (`ZoneStock.tsx:42`) | the result lists `zone_id` with `item_id`; an archived zone is not listed, so it is not open. A `404 ZONE_NOT_FOUND` (only possible with a `zone_id` parameter) is also read as not open (m3) | `#/zones` |
 
-- The client keeps the read's result and passes it to the target screen. The screen then makes no second identical read for its first render, so a dine-in line tap costs `order-view` plus the table sheet's usual `seating-orders`.
-- A merged table: the seating's tiles share one `seating_id`, and the primary tile is chosen as above.
-- The check runs against the hub's state now. A target that was open at the check and closes before the screen renders (a race of milliseconds) shows the screen without a glow. No toast, because the next frame updates the screen as today.
+**Resolving a `table` target (M1, m2):**
+1. A tile with `seating_id` = the target's seating → that seating.
+2. Else, a merge may have absorbed the seating. 02a `MergeTables` closes the absorbed seating (`close_reason = 'merged'`) and moves its tables and orders into the surviving seating. The client takes the tile with `table_id` = the target's table and checks two things: it is seated (`seating_id` not null), and that seating's `opened_at` ≤ the alert's `raised_at`. If both hold, the seating that holds the table now is the one that absorbed it, and the target resolves to it. A seating opened **after** the alert is a new party, so the target is not open. The rule uses only existing map fields (`seating_id`, `opened_at`) and the view's `raised_at`.
+3. Else → not open.
+4. **The place is the seating's primary tile:** the tile whose `primary_table_id` equals its own `table_id`. A seated tile always has `primary_table_id`, so a null value means a free tile (m2). If that tile is in the table map's **archived** group (`floor_id ''`, its table archived mid-day), the sheet still opens by its table id, the map shows the first floor, and the tile glow is skipped.
+
+**`slip_warning` while open (m5).** Its group's orders come from the `orders` catch-up part's `open_slips: [{ alert_id, order_ids }]` (02b §6.18a, catch-up part `orders`, held by the client). The client uses the **first** of those orders whose `order-view` is not cancelled or billed. It falls back to `target.order_id` when `open_slips` does not list the alert.
+
+**Reads per tap (m3, corrected).** A dine-in `order` / `order_line` tap costs `order-view` + the table map (no read when the client already holds a fresh map from the Tables screen and its live frames; else one `table-map`) + the table sheet's own `seating-orders`. A takeaway tap costs `order-view` only: the client hands the body to `OrderView`, which then makes no second `order-view` for its first render. A zone tap costs one `zone-stock`, which `#/zones` reuses. A table tap costs at most one `table-map`. Test 97 checks this with a fetch spy.
+
+The check runs against the hub's state now. A target that was open at the check and closes before the screen renders (a race of milliseconds) shows the screen without a glow and with no toast; the next frame updates the screen as today.
 
 #### 3.13.4 Errors and edge cases
 
 | Case | Behaviour |
 |---|---|
-| A row raised before v1.3, owning kind (1–13) | The target comes from the values stored at raise (§3.13.1), so an old `call_waiter`, `comp` or `void_approval` row **links like a new one**. Its ids were written at raise and never change. |
+| A row raised before v1.3, owning kind (1–13) | The target comes from the values stored at raise, so an old `call_waiter`, `comp` or `void_approval` row **links like a new one**. |
 | A row raised before v1.3, copy kind (14–17) | Its stored values have no `link` key → `target: null` → today's tap (rule 1). |
-| A copy kind whose request kind has no `link` (none today; a future kind) | `values.link = null` → `target: null` → today's tap. |
-| `link` throws, values unreadable, the result fails `AlertLinkTargetSchema` | `target: null` on that view, no log line (§3.13.1). Today's tap. |
-| A void approved (line voided) or comp-voided line | The requester's `request_result` "Void approved" tap → the line has no live units → "This item is no longer open." (as the owner ruled: "line … voided"). The rejected result opens the line. |
-| A table handed over and accepted | The sender's `request_result` (a hidden `ResultCard`, 02a §8) is unchanged. Its tap and "Hand over to someone else" keep 02a's own behaviour. |
-| A `call_waiter` after the guests left (seating closed) | "This item is no longer open." |
-| The target is on another floor | The table route shows the map on the tile's floor (the floor that holds the tile in the table map). This is the "floor tile" place: there is no separate map-only route. |
-| The target element is not rendered after the screen's data loads (a line filtered out by a view filter, say) | No glow and no toast. The screen is shown. The check already said the target is open. |
-| The kiosk gets lock-only rows (device target, §6 batch 3) | `target` is on lock views, so the kiosk navigates. It cannot answer (rule 4 does not apply). |
-| A phone with no Requests tab, or a role without `#/zones` | The route is opened as any other hash; the screen's own permission rules apply (02b `#/zones` actions need `manage-zone-stock`; the list is readable). |
-| Offline (socket down) | The check cannot run → "No connection to the hub", stay (rule 2). `MarkAlertsSeen` follows §8.1's queue rules as today. |
+| A hub before v1.3 (rolled back) | Views carry no `target` → `optional()` → today's tap. Alerts still banner and sound (M2). |
+| A later target type on a client bundle that predates it | `.catch(null)` → `target: null`, today's tap. The frame is never dropped (M2). |
+| A copy kind whose request kind has no `link`, or whose `link` throws at raise | `values.link = null` → `target: null` → today's tap. The answer, merge, split, bill or clean still commits (M4). |
+| `link` throws, values unreadable, or the result fails `AlertLinkTargetSchema` at view time | `target: null` on that view, no log line; today's tap. |
+| A **full** void approved | Its line has no live units, so its `request_result` place is not open: `NoticeSheet` opens over the current screen (rule 5). |
+| A **partial** void approved | The line keeps live units: navigate, glow, then `NoticeSheet` (m4). |
+| A table handed over and accepted | The sender's `request_result` is a hidden `ResultCard` (02a §8). It is unchanged: its tap and "Hand over to someone else" keep 02a's behaviour. |
+| A `call_waiter` after the guests left (seating closed, and no newer-than-raise seating on the table) | "This item is no longer open." |
+| A `call_waiter` / `table_handover` whose seating was absorbed by a merge | Resolves to the surviving seating (§3.13.3 step 2) and opens it (M1). |
+| An order moved by `TablesMerged` or `SeatingSplit` | `order-view.seating_id` is the seating it is in now, and that seating opens (B1). |
+| A `slip_warning` whose `order_ids[0]` was cancelled or billed while the slip is open | The first still-open order of the group (m5). |
+| A `ready_to_serve` re-raised by `ready_retarget` | A new alert with the same `values.order_id` → the same target. The old alert closed `obsolete` keeps its target too. |
+| The target is on another floor | The map shows the tile's floor (§3.13.5, m7). |
+| The target element is not rendered after the screen's data loads (a line hidden by a filter, say) | No glow and no toast; the screen is shown. For an answerable request, `AnswerSheet` still opens (rule 4). |
+| A kiosk's lock-only rows (device target, §6 batch 3) | It navigates and glows, but never answers. |
+| A phone, or a role without `#/zones` actions | The route opens as any other hash. The screen's own permission rules apply: 02b `#/zones` actions need `manage-zone-stock`, and the list is readable by anyone. |
+| Offline (socket down) | The check cannot run → "No connection to the hub", stay. A request still gets `AnswerSheet`, whose PIN pad is disabled offline as today (§8.1). A notice still gets `NoticeSheet` (rules 4, 5). |
+| A 9b notification tap while signed out | The app opens at `#/inbox?focus=alert:<id>`. The sign-in screen comes first, and the `focus` parameter is **kept** through the sign-in (the hash is not changed by it), so after sign-in the Inbox glows that card (if it is in this person's inbox; else nothing). |
 | `test_alert` | `target: null`, today's tap. |
 
 #### 3.13.5 Client routes (staff app)
 
-The minimal route parameters the places need. They are additive on today's hash router (`staff/shell/routes.tsx`). One optional query parameter, **`focus`**, names the element that gets the glow. It is consumed once: after the glow starts, the client replaces the hash without `focus` (`history.replaceState`, no new history entry), so a re-render, a reload or a back step never glows again. An unknown or malformed `focus` is ignored.
+These are the minimal route parameters the places need, additive on today's hash router (`staff/shell/routes.tsx`).
+- One optional query parameter, **`focus`**, names the element that glows. It is parsed by `matchStaffRoute`'s `?` split, and it is **valid only on the routes in this table** (m11). The raw route checks in `StaffApp.tsx` (`/audit`, `/requests`, `/test-alert`, `/receipts/<id>`) never get a `focus`.
+- `focus` is consumed once. After the glow starts, the client replaces the hash without `focus` (`history.replaceState`, no new history entry), so a re-render, a reload or a back step never glows again.
+- An unknown or malformed `focus` is ignored.
 
 | Place | Hash | `focus` | Element that glows (data attribute) |
 |---|---|---|---|
-| Table sheet (a seated table), with its floor tile | `#/tables/<table_id>?seating_id=<id>&focus=table` (today's `tableHref` + `focus`; the map behind the sheet shows the tile's floor, as `#/tables?floor=<floor_id>` does) | `table` | the tile `[data-table="<table_id>"]` (**new** attribute on `map/Tile.tsx`); on phone and portrait, where the bottom sheet covers the map, the sheet's header `[data-seating="<seating_id>"]` (**new** attribute on `TableSheet`) instead |
-| An order within a seating | `#/tables/<table_id>?seating_id=<id>&focus=order:<order_id>` | `order:<order_id>` | the round `div.rnd[data-order="<order_id>"]` (exists, `table-view/Round.tsx`), unfolded first if folded |
-| A line in a seating | `#/tables/<table_id>?seating_id=<id>&focus=line:<order_item_id>` | `line:<order_item_id>` | the line `div.ol[data-line="<order_item_id>"]` (exists, `view/LineRow.tsx`); its round unfolds first if folded |
-| A takeaway / parking order, or a line in it | `#/orders/<order_id>?focus=order:<order_id>` / `…?focus=line:<order_item_id>` | as above | `OrderView`'s order block `[data-order="<order_id>"]` (**new** on `OrderView`'s root) / the line `div.ol[data-line]` |
-| A zone stock row | `#/zones?focus=item:<zone_id>:<item_id>` | `item:<zone_id>:<item_id>` | the row `div.zs[data-zone-item="<zone_id>:<item_id>"]` (**new** attribute on `ZoneStock.tsx` rows) |
-| Inbox with a card selected | `#/inbox?focus=alert:<alert_id>` | `alert:<alert_id>` | the card `[data-alert="<alert_id>"]` (exists, `alerts/ui.tsx`). It glows only; it opens no sheet. Used by 9b's notification tap (§8.2). No v1.3 kind links here, because a target-null kind keeps today's tap |
+| Table sheet (a seated table) with its floor tile | `#/tables/<table_id>?seating_id=<id>&focus=table` (today's `tableHref` + `focus`) | `table` | the tile `[data-table="<table_id>"]` (**new**, 02a v1.1.7 §8); on phone and portrait the sheet's header `[data-seating="<seating_id>"]` (**new**, 02a v1.1.7 §8), because the bottom sheet covers the map |
+| An order within a seating | `#/tables/<table_id>?seating_id=<id>&focus=order:<order_id>` | `order:<order_id>` | the round `div.rnd[data-order="<order_id>"]` (exists, `table-view/Round.tsx`), unfolded through `forceOpen` (02b v1.0.15 §8) |
+| A line in a seating | `#/tables/<table_id>?seating_id=<id>&focus=line:<order_item_id>` | `line:<order_item_id>` | `div.ol[data-line="<order_item_id>"]` (exists, `view/LineRow.tsx`); its round unfolds first |
+| A dine-in slip | `#/tables/<table_id>?seating_id=<id>&focus=late:<alert_id>` | `late:<alert_id>` | the LateCard whose `data-alerts` list contains `<alert_id>` (exists, `late/LateCard.tsx`) |
+| A takeaway / parking order, or a line in it | `#/orders/<order_id>?focus=order:<order_id>` / `…?focus=line:<order_item_id>` | as above | `OrderView`'s root `[data-order="<order_id>"]` (**new**, 02b v1.0.15 §8) / `div.ol[data-line]` |
+| A zone stock row | `#/zones?focus=item:<zone_id>:<item_id>` | `item:<zone_id>:<item_id>` | `div.zs[data-zone-item="<zone_id>:<item_id>"]` (**new**, 02b v1.0.15 §8) |
+| A Pass card (point tablet on `#/pass`) | `#/pass?focus=order:<order_id>` | `order:<order_id>` | `article.pc[data-order="<order_id>"]` (exists, `PassCard.tsx`) |
+| Inbox with a card selected | `#/inbox?focus=alert:<alert_id>` | `alert:<alert_id>` | `[data-alert="<alert_id>"]` (exists, `alerts/ui.tsx`). It only glows; it opens no sheet. Used by 9b's notification tap (§8.2). No v1.3 kind links here |
+
+**The map floor and the tile (m7).**
+- The table route has no floor parameter today. On a `table` route with `focus`, the map selects the floor that holds the tile in the table map's `floors[]`. This is the same floor `#/tables?floor=<floor_id>` would show, and it is then the map's current floor as if picked by the floor control.
+- On a landscape tablet the map's scroll area is the part beside the side panel. The client scrolls the tile into it (`scrollIntoView({ block: 'center', inline: 'center' })` on the map scroller, whose inline end is inset by the panel's width).
+- If the tile is still covered, for example on a narrow landscape screen, the sheet header glows instead, as on portrait.
 
 **Device differences:**
 
 | Device | Difference |
 |---|---|
-| Tablet, landscape | The table sheet is a side panel over the dimmed map (`scrim--side`). For a `table` target, the tile glows (visible beside the panel). For an order or line, the round or line in the panel's scroll area glows. `AnswerSheet` (rule 4) is the centred dialog. |
-| Tablet, portrait | The table sheet is a bottom sheet (`scrim--sheet`). A `table` target glows the sheet header (the tile is covered). Orders and lines scroll inside the sheet. `AnswerSheet` is a bottom sheet over it. |
-| Phone (≤ 760 px) | As portrait. The bottom tab follows the route (`phoneTabOf`): a table or dine-in order or line → **Tables**; `#/orders/<id>` → **Orders**; `#/inbox` → **Inbox**; `#/zones` has no tab, so no tab is marked (as today). The floor control is the map's own chips. |
-| Cashier kiosk | The same routes. There is no browser back: the kiosk's home control (`#/` KioskHome) stays one tap away and is not changed. Device-target rows are lock-only, so the kiosk navigates and glows but never opens `AnswerSheet` from them. Signed out, the lock panel is not tappable (unchanged). |
-| Point tablet on `#/pass` (03b) | An `order` target whose order is on the Pass screen (`article.pc[data-order="<order_id>"]`, exists, `PassCard.tsx`) glows in place with no navigation (`#/pass?focus=order:<order_id>`). Otherwise the general rule applies. |
+| Tablet, landscape | The table sheet is a side panel over the dimmed map (`scrim--side`). A `table` target glows the tile, kept in view beside the panel (m7). An order, line or LateCard glows in the panel's scroll area. `AnswerSheet` / `NoticeSheet` (rules 4, 5) is the centred dialog. |
+| Tablet, portrait | The table sheet is a bottom sheet (`scrim--sheet`). A `table` target glows the sheet header. `AnswerSheet` / `NoticeSheet` is a bottom sheet over it. |
+| Phone (≤ 760 px) | As portrait. The bottom tab follows the route (`phoneTabOf`, as today): a table, or a dine-in order, line or slip → **Tables**; `#/orders/<id>` and `#/zones` → **Orders** (m1); `#/inbox` → **Inbox**. The floor control is the map's own chips. |
+| Cashier kiosk | The same routes, plus the "Back" chip (rule 6). Device-target rows are lock-only: the kiosk navigates and glows but never opens `AnswerSheet` from them. Signed out, the lock panel is not tappable (unchanged). |
+| Point tablet on `#/pass` (03b) | An `order` target whose Pass card is on the screen glows in place, with no navigation and no `order-view` read: a card on the Pass is open by definition (m12). The escalation row it gets as a `point` target is lock-only, so no sheet opens. Otherwise the general rule applies. Signed out, nothing is tappable. |
 
 #### 3.13.6 The glow (Pulse token and keyframe)
 
-New tokens in `packages/ui-kit/tokens.css` (and `tokens.json`), in the **DERIVED** layer, because the colour is the restaurant's brand:
+New tokens go in `packages/ui-kit/tokens.css` and `tokens.json`, in the **DERIVED** layer, because the colour is the restaurant's brand:
 
 ```css
 :root, [data-theme="light"], [data-theme="dark"] {
-  --glow-brand: color-mix(in oklab, var(--brand-primary) 45%, transparent); /* soft brand glow */
-  --glow-brand-ring: var(--brand-primary);                                  /* reduced-motion static ring */
-  --motion-glow: 2000ms;                                                    /* deep-link highlight length */
+  --glow-brand: color-mix(in oklab, var(--brand-primary) 45%, transparent); /* soft brand halo */
+  --glow-brand-ring: var(--brand-primary);                                  /* static ring, reduced motion */
+  --glow-edge: var(--ink);                                                  /* thin contrast edge, every mode (m9) */
+  --motion-glow: 2000ms;                                                    /* the one source of the length (n5) */
 }
 ```
 
-New keyframe and class in `packages/ui-kit/components/bundle.css` (the `pos-*` kit, next to `pos-pulse`):
+A new keyframe and class go in `packages/ui-kit/components/bundle.css` (the `pos-*` kit, next to `pos-pulse`):
 
 ```css
 @keyframes pos-glow {
-  0%   { box-shadow: 0 0 0 0 var(--glow-brand); }
-  15%  { box-shadow: 0 0 0 4px var(--glow-brand), 0 0 18px 6px var(--glow-brand); }
+  0%   { box-shadow: 0 0 0 2px var(--glow-edge), 0 0 0 2px var(--glow-brand); }
+  15%  { box-shadow: 0 0 0 2px var(--glow-edge), 0 0 0 6px var(--glow-brand), 0 0 18px 6px var(--glow-brand); }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 .pos-glow { animation: pos-glow var(--motion-glow) ease-out 1; }
 @media (prefers-reduced-motion: reduce) {
-  .pos-glow { animation: none; box-shadow: 0 0 0 3px var(--glow-brand-ring); }
+  .pos-glow { animation: none; box-shadow: 0 0 0 2px var(--glow-edge), 0 0 0 5px var(--glow-brand-ring); }
 }
 ```
 
-- The client adds `pos-glow` to the target element and removes it after `--motion-glow` (a 2 000 ms timer, the same with or without reduced motion, so the static ring also lasts 2 s and then goes).
-- The glow uses the element's `box-shadow` for 2 s, so a selected line's inset ring (`.ol.sel`) is hidden for that time and returns after.
-- Brand colour, not semantic: `--brand-primary` (default amber `#F4A321`) is the owner's colour. It has no meaning and does not use the `--warn` "late" colour. In the dark theme it is the same variable.
-- No sound and no focus move. Keyboard focus stays where it was. The glow is not an ARIA live region; the toast is.
+- **Length, one source (n5).** The client adds `pos-glow` to the target element and removes it after the length read from the element's computed `--motion-glow` (`parseFloat(getComputedStyle(el).getPropertyValue('--motion-glow'))`, else 2 000 ms). The same timer runs with or without reduced motion, so the static ring also lasts the token's length.
+- The glow uses the element's `box-shadow` for that time, so a selected line's inset ring (`.ol.sel`) is hidden and then comes back.
+- **Colour (m9, softened).** The halo is the owner's `--brand-primary` and has no meaning of its own. With the default amber brand it can look close to the "late" colours (`--warn` / `--warn-fill`, especially in the dark theme), and an owner-chosen red brand could look like an error. The thin `--glow-edge` ring (`--ink`: dark in light mode, light in dark mode) and the short, one-off animation keep it apart from the steady status colours. No status colour is used.
+- **Screen readers (n4).** The deep link moves no keyboard focus. The client writes "Opened <place>" (keys `alerts.opened.table`, `.order`, `.line`, `.late`, `.zone_item`, `.pass`, `.inbox`, with the table chip or item name the screen shows) into one visually hidden `role="status"` `aria-live="polite"` element of the staff shell. It is not the toast.
+- No sound.
 
 #### 3.13.7 Inbox, toast and banner behaviour
 
@@ -932,11 +1013,10 @@ New keyframe and class in `packages/ui-kit/components/bundle.css` (the `pos-*` k
 |---|---|
 | Inbox `OpenCard` / `RowCard` / "For <name>" cards | Tap → §3.13.2. The cards look as today. |
 | `requests-to-answer` rows (`#/requests`) | Tap → §3.13.2 (rule 4 for `can_answer` rows). |
-| Banners (`Banner.tsx` "Open", `CallCard`) | "Open" → §3.13.2. The zone banner's special `navigate('/zones')` (`Banner.tsx:25, :100`) is replaced by the general rule (`#/zones?focus=item:…`), so it now lands on the row. Banner timing and stacking are unchanged (§8.1). |
+| Banners (`Banner.tsx` "Open", `CallCard`) | "Open" → §3.13.2, except while a page dialog is open (rule 6). The zone banner's special `navigate('/zones')` (`Banner.tsx:100`) is replaced by the general rule (`#/zones?focus=item:…`), so it lands on the row. Banner timing and stacking are unchanged (§8.1). |
 | Toasts | Still **no alert becomes a toast**. The toast bus gains one alert-related text, "This item is no longer open." (§3.13.2). |
-| Lock panel (signed out, kiosk / phone) | Unchanged: not tappable. |
-| 9b Android notification (§8.2) | Tap opens the app at `#/inbox?focus=alert:<alert_id>`. The card is then tapped as any Inbox card. |
-
+| Lock panel (signed out, kiosk / phone / Pass) | Unchanged: not tappable. |
+| 9b Android notification (§8.2) | Its tap opens the app at `#/inbox?focus=alert:<alert_id>` (kept through a sign-in, §3.13.4). The card is then tapped like any Inbox card. |
 ---
 
 ## §4. Contracts
@@ -1127,18 +1207,21 @@ Not in this bump: `tap-for-station`, `mark-served`, zone assignment, `manage-zon
 
 **C-01a:** none (v0.2 #3: pilot values are constants, A14). *As built (AD-123, ruled):* the build adds `stuck_alerts` to 01a §6.21 `config-status` (§4.3 To 01a); approved 2026-11-02, applied as 01a v2.0.1.
 
-### 4.6 Changes to other specs (v1.3, R26): deep-link pointers
+### 4.6 Changes to other specs (v1.3, R26): deep-link rows
 
-The per-kind targets live in §3.13.1. Each owning module gets **one pointer line** in its kind section, plus a changelog row and a patch version. Its rules do not change: its kind registration adds `link`, a pure function of the values the module already raises. No values, display, details, steps, endpoint, event or migration changes. Each row is applied in its own new version file, with a "⚠️ Changed by 01d v1.3 (L-4)" marker.
+The per-kind targets live in §3.13.1. Each owning module gets its pointer lines, a changelog row and a patch version, in its own new version file, with "⚠️ Changed by 01d v1.3 (L-4x)" markers.
+- Each kind registration adds `link`, a pure function of the values the module already raises. No values, display, details, steps, event or migration change.
+- **One real contract change** (review B1): 02b `order-view` gains two body fields in its existing statement, with a test.
+- The client rows name the data attributes and props the places need (review m6).
 
-| Row | Spec | Version | Kind section | Pointer |
+| Row | Spec | Version | Where | Change |
 |---|---|---|---|---|
-| L-4a | 02a Tables | v1.1.6 → **v1.1.7** | §6.14 `call_waiter`, §6.15 `table_handover` | `link: (v) => ({ type: 'table', seating_id: v.seating_id })` (01d v1.3 §3.13.1 rows 3, 4) |
-| L-4b | 02b Ordering | v1.0.14 → **v1.0.15** | §6.12 `comp`, §6.13 `zone_stock_low` / `zone_stock_out` | comp: `{ type: 'order_line', order_id, order_item_id }`; zone kinds: `{ type: 'zone_item', zone_id, item_id }` (rows 2, 5, 6); §8 `#/zones` rows carry `data-zone-item` (§3.13.5) |
-| L-4c | 03a Timing Engine | v1.2.4 → **v1.2.5** | §4.2 Hub kinds | `slip_warning`: `{ type: 'order', order_id: v.order_ids[0] }`; `engine_line_dropped`: `{ type: 'order_line', order_id, order_item_id }`; `station_overload`: no `link` (rows 7–9) |
-| L-4d | 03b KDS + Pass | v1.0.8 → **v1.0.9** | §6.21 Kinds | `ready_to_serve`, `served_card`: `{ type: 'order', order_id: v.order_id }`; `kds_offline`: no `link` (rows 10–12); the Pass tablet glows its Pass card (§3.13.5) |
-| L-4e | 04 Voids + Audit | v1.0.5 → **v1.0.6** | §3.5 Kind `void_approval` | `{ type: 'order_line', order_id: v.order_id, order_item_id: v.order_item_id }` (row 1); the rejected-void `:also` result links the same line (§3.10 `values.link`) |
-| — | 03c Printing | unchanged (v1.0.10) | §6.10 `printer_problem` | none: no `link`, today's tap (Q1 (a)) |
+| L-4a | 02a Tables | v1.1.6 → **v1.1.7** | §6.14 `call_waiter`, §6.15 `table_handover`, §8 | `link: (v) => ({ type: 'table', table_id: v.table_id, seating_id: v.seating_id })` (01d §3.13.1 rows 3, 4). The resolution after a merge uses the map's `seating_id` / `opened_at` (§3.13.3, M1). §8: tiles carry `data-table`; the table sheet header carries `data-seating`; a `table` route with `focus` selects the tile's floor and keeps the tile in view beside the side panel (m7) |
+| L-4b | 02b Ordering | v1.0.14 → **v1.0.15** | §6.12 `comp`, §6.13 zone kinds, **§6.18a `order-view`**, §8, test 52 | comp → `order_line`; zone kinds → `zone_item` (rows 2, 5, 6). **§6.18a rule:** the body gains `order_type` and `seating_id` (the order's **current** seating from `seating_orders`, null for takeaway / parking), read in the same `ORDER` statement through `LEFT JOIN seating_orders` (3 → 3 statements; B1). §8: `Round` gets a `forceOpen` prop; the `OrderView` root carries `data-order`; zone rows carry `data-zone-item` |
+| L-4c | 03a Timing Engine | v1.2.4 → **v1.2.5** | §4.2 Hub kinds | `slip_warning` → `{ type: 'order', order_id: v.order_ids[0] }`: a dine-in slip glows its LateCard, a takeaway slip gets `AnswerSheet` on `#/orders/<id>` (M3); `engine_line_dropped` → `order_line`; `station_overload` none (rows 7–9) |
+| L-4d | 03b KDS + Pass | v1.0.8 → **v1.0.9** | §6.21 Kinds | `ready_to_serve`, `served_card` → `{ type: 'order', order_id: v.order_id }`; `kds_offline` none (rows 10–12); the Pass card glows in place with no read (m12) |
+| L-4e | 04 Voids + Audit | v1.0.5 → **v1.0.6** | §3.5 Kind `void_approval` | `{ type: 'order_line', order_id, order_item_id }` (row 1). The approver always gets `AnswerSheet`; a failed check only skips the glow (B2) |
+| — | 03c Printing | unchanged (v1.0.10) | §6.10 `printer_problem` | none: no `link`, today's tap (DL Q-0a (a)) |
 
 ---
 
@@ -1301,7 +1384,7 @@ No 01d table and no cloud schema change (v0.3: `pager_ids` moved to 01e). Cloud 
 
 `AlertTargetSchema` (discriminated union, §3.4), `AlertStepTargetSchema` (step targets incl. `from_value` and `requester_lead`, §3.5), `AlertDisplaySchema` (`{ table_code?, point_code?, requester_name?, device_name?, kind_label_key }`, lock-safe), `AlertDetailsBase` (`{ item?, quantity?, amount?, reason?, minutes_late?, lines? }`, signed-in only, §3.12; ⚠️ Changed by 04 (row D-3): + `identifier?`, `station_name?`, `printer_name?`, `problem?` (03b, frozen as `AlertDetailsBaseV3`) + `disposition?` (≤ 60); ⚠️ 02p task 0, text only: `minutes_late`, `lines` per v1.1.2, was the four fields), `AlertViewSchema` (§6.3 frame body; `card` with `details` only under the card rule, §6 batch 3), `ALERT_CONSTANTS` (A14, `@pos/domain`), command payloads (§6.2–6.6).
 
-> ⚠️ Changed by v1.3 (L-1): **`AlertLinkTargetSchema`** (discriminated union on `type`: `order_line { order_id, order_item_id }`, `order { order_id }`, `table { seating_id }`, `zone_item { zone_id, item_id }`, each `.strict()`; §3.13.1). `AlertViewSchema` gains **`target: AlertLinkTargetSchema.nullable()`** on every view, lock and card, so `alerts_open`, catch-up, inbox and `requests-to-answer` rows too (`MyRequestRow` keeps `lock` only, unchanged). The strict lock picks (AD-17, AD-81) allow it. `AlertRaised` is unchanged (v4; `values` is a free record).
+> ⚠️ Changed by v1.3 (L-1): **`AlertLinkTargetSchema`** (discriminated union on `type`: `order_line { order_id, order_item_id }`, `order { order_id }`, `table { table_id, seating_id }`, `zone_item { zone_id, item_id }`, each `.strict()`; §3.13.1). `AlertViewSchema` gains **`target: AlertLinkTargetSchema.nullable().optional().catch(null)`** (M2: absent, or an unknown or invalid value, reads as null and never drops the frame; the hub emits only the strict schema) on every view, lock and card, so `alerts_open`, catch-up, inbox and `requests-to-answer` rows too (`MyRequestRow` keeps `lock` only, unchanged). The strict lock picks (AD-17, AD-81) allow it. `AlertRaised` is unchanged (v4; `values` is a free record).
 
 > As built (v1.1): the shapes as built, all additive.
 > - (AD-11, proposed) ids in payloads and views are `z.string().min(1)`, not ULID-checked, because directory staff ids are not ULIDs (e.g. `S_OWNER`); the convention of `packages/events/src/admin/staff.ts`. "`ulid`" in §6.2–§6.6 reads as this.
@@ -1682,18 +1765,35 @@ Test files under `apps/hub/test/alerts/`; a **test kind** `t_approval` (approval
 
 ### 10.9d Added in v1.3 (deep links, §3.13) ⚠️ Changed by v1.3 (L-5)
 
-69. **Per-kind `link` (pure):** for each of the 19 kinds, a fixture of its `values_schema` gives exactly the §3.13.1 target, or `null` for kinds 8, 12, 13, 18, 19. A `link` that throws, values that fail to parse, and a result that fails `AlertLinkTargetSchema` each give `target: null`, the view is still built, and nothing is logged.
-70. **`target` on every view:** an `alert` lock frame, a card frame, an `alerts_open` row, an `alerts` catch-up row, `alerts-inbox` and `requests-to-answer` rows all carry `target` with the same value for one alert. The strict lock schemas accept `target` and still refuse `card`, `details`, `answers`, `needs_pin`, `silent` and `raised_device_id` (AD-81). `AlertLinkTargetSchema` refuses extra keys and unknown `type`s.
+69. **Per-kind `link` (pure):** for each of the 19 kinds, a fixture of its `values_schema` gives exactly the §3.13.1 target, or `null` for kinds 8, 12, 13, 18 and 19. A `link` that throws, values that fail to parse, and a result that fails `AlertLinkTargetSchema` each give `target: null`. The view is still built, and nothing is logged.
+70. **`target` on every view, and wire compatibility (M2):** (a) an `alert` lock frame, a card frame, an `alerts_open` row, an `alerts` catch-up row, and `alerts-inbox` and `requests-to-answer` rows all carry the same `target` for one alert. (b) The strict lock schemas accept `target` and still refuse `card`, `details`, `answers`, `needs_pin`, `silent` and `raised_device_id` (AD-81). (c) The hub never emits a `target` outside `AlertLinkTargetSchema`. (d) **Forward compatibility:** a client parse of a frame whose `target` has an unknown `type` (`{ type: 'station', station_id }`), and of a frame with a malformed `target`, gives `target: null`; the frame is kept, and its banner, sound and inbox row appear. (e) **Backward compatibility:** a frame with no `target` key (a v1.2.5 hub) parses and taps as today.
 71. **Statement counts unchanged (`statementCounter`):** step frames, `alerts_open`, the catch-up part, `alerts-inbox`, `requests-to-answer`, `AnswerRequest` (approve; reject with and without `result_also_to`), `closeMany` with a `request_result` raise, and `raise` of an owning kind each cost the same number of statements as at v1.2.5.
-72. **Copy kinds:** `request_result` (answer approve; reject + `:also`; close `obsolete` through `closeMany`), `approval_receipt`, `answered_on_requester_device` and `pin_use_failed` raised for a `void_approval` request carry `values.link` = `{ type: 'order_line', … }` of that request, and their views show it as `target`. A request kind with no `link` gives `values.link: null`.
-73. **Frozen and old rows:** (a) a `call_waiter` alert's `target` is unchanged after a `TableMoved` and after a projection reset and replay; (b) an `AlertRaised` v4 fixture of a `request_result` without `values.link` (a pre-v1.3 row) replays to `target: null`; (c) a pre-v1.3 `comp` row replays with its `order_line` target.
-74. **Client tap, open target:** an Inbox card, a banner "Open" and a `CallCard` for a linked kind each navigate to the §3.13.5 hash, scroll the target element into view, add `pos-glow` and remove it after 2 000 ms (fake timers), call `MarkAlertsSeen` once, and drop `focus` from the hash with `replaceState` (no new history entry).
-75. **Client tap, not open:** `order-view` `404`; `cancelled`; `billed`; the line missing or with `live_units: 0`; a `ready_to_serve` order with every line served; the table map without the seating; `zone-stock` without the item; a closed request (row `state: 'closed'` or an `alert_closed` frame seen). Each shows "This item is no longer open." on the toast bus, leaves the route unchanged, opens no sheet and still calls `MarkAlertsSeen`. A served line of a `comp` or `void_approval` is open (DL Q-2 (a)).
-76. **Folded round:** a `served_card` (`order`) target and a `comp` (`order_line`) target in a fully served round unfold that round and glow the round or line.
-77. **Reduced motion:** with `prefers-reduced-motion: reduce`, `.pos-glow` has no animation and shows the static `--glow-brand-ring` ring, removed after 2 000 ms. The tokens `--glow-brand`, `--glow-brand-ring` and `--motion-glow` exist in `tokens.css` and `tokens.json` for both themes.
-78. **`target: null` keeps today's tap:** `station_overload`, `kds_offline`, `printer_problem`, `no_approver`, `test_alert` and a pre-v1.3 `request_result` open `NoticeSheet` / `AnswerSheet` over the current screen with no navigation and no read, and call `MarkAlertsSeen`.
-79. **Devices:** phone: a dine-in line target marks the Tables tab, glows the line in the bottom sheet, and a `table` target glows the sheet header; landscape tablet: a `table` target glows the tile beside the side panel; kiosk: a lock-only `void_approval` row navigates and glows with no `AnswerSheet`; Pass tablet on `#/pass`: a `ready_to_serve` target glows its `article.pc[data-order]` with no navigation; a merged table's target opens the primary tile.
-80. **Answerable request (DL Q-1 (a)):** an approver's `void_approval` tap navigates to the line, glows it, then opens `AnswerSheet` over it; a `table_handover` receiver's tap opens the table sheet then Accept / Decline; a `slip_warning` tap opens the table sheet with its LateCard and **no** `AnswerSheet`; the check failing (closed request) opens no sheet. A route parse test: `focus=table`, `order:<id>`, `line:<id>`, `item:<zone>:<item>`, `alert:<id>` parse on their routes; an unknown or malformed `focus` is ignored.
+72. **Copy kinds, and a throwing `link` at raise (M4):** (a) `request_result` (answer approve; reject + `:also`; close `obsolete` through `closeMany`), `approval_receipt`, `answered_on_requester_device` and `pin_use_failed` raised for a `void_approval` request carry `values.link` = that request's `order_line` target, and their views show it. (b) A request kind with no `link` gives `values.link: null`. (c) A fake request kind whose `link` **throws**, and one whose `link` returns `{ type: 'nope' }`, each: `AnswerRequest` commits (200, `RequestAnswered` and the result written) with `values.link: null`; a `MergeTables` / bill transaction that `closeMany`s such a request commits; no `VALIDATION_FAILED`.
+73. **Frozen and old rows:** (a) a `call_waiter` alert's `target` is unchanged after `TableMoved`, and after a projection reset and replay. (b) An `AlertRaised` v4 fixture of a `request_result` without `values.link` (a pre-v1.3 row) replays to `target: null`. (c) A pre-v1.3 `comp` row replays with its `order_line` target. (d) A `ready_to_serve` closed and re-raised by `ready_retarget` gives the new alert the same `order` target.
+74. **Client tap, open target:** an Inbox card, a banner "Open" and a `CallCard` for a linked kind each: navigate to the §3.13.5 hash; scroll the target element into view; add `pos-glow` and remove it after the computed `--motion-glow` (fake timers; with the CSS variable set to `1500ms`, removal is at 1 500 ms, n5); write "Opened …" into the polite live region; call `MarkAlertsSeen` once; and drop `focus` from the hash with `replaceState` (no new history entry).
+75. **Client tap, not open:** `order-view` `404`; `cancelled`; `billed`; the line missing or with `live_units: 0`; a `ready_to_serve` order with every counted line served; a `table` target whose seating and table both resolve to nothing; a `zone-stock` result without the item; a closed request (row `state: 'closed'`, or an `alert_closed` frame seen). Each, for a non-request, non-notice kind, shows "This item is no longer open." on the toast bus, leaves the route unchanged, opens no sheet and still calls `MarkAlertsSeen`. A served line of a `comp` or `void_approval` is open (DL Q-2 (a)).
+76. **Folded round:** a `served_card` (`order`) target and a `comp` (`order_line`) target in a fully served round unfold that round through `forceOpen`, and glow the round or the line.
+77. **Reduced motion and tokens:** with `prefers-reduced-motion: reduce`, `.pos-glow` has no animation and shows the static `--glow-edge` + `--glow-brand-ring` ring, removed after `--motion-glow`. The tokens `--glow-brand`, `--glow-brand-ring`, `--glow-edge` and `--motion-glow` exist in `tokens.css` and `tokens.json` for both themes.
+78. **`target: null` keeps today's tap:** `station_overload`, `kds_offline`, `printer_problem`, `no_approver`, `test_alert` and a pre-v1.3 `request_result` open `NoticeSheet` / `AnswerSheet` over the current screen, with no navigation and no read, and call `MarkAlertsSeen`.
+79. **Devices:** phone: a dine-in line target marks the Tables tab and glows the line in the bottom sheet; a `table` target glows the sheet header; landscape tablet: a `table` target glows the tile, kept in view beside the side panel, on the tile's floor; kiosk: a lock-only `void_approval` row navigates and glows with no `AnswerSheet`; Pass tablet on `#/pass`: a `ready_to_serve` target whose card is on the screen glows it with no navigation and no `order-view` read; a merged table's target opens its primary tile; a seating whose primary table is archived opens the sheet with no tile glow.
+80. **Answerable request (DL Q-1 (a)):** (a) an approver's `void_approval` tap navigates to the line, glows it, then opens `AnswerSheet` on top; (b) a `table_handover` receiver's tap opens the table sheet, then Accept / Decline; (c) a closed request opens no sheet and shows the toast.
+81. **B2, the sheet is never lost:** an approver whose `order-view` returns `403 PERMISSION_DENIED { reason: 'outside_scope' }` (a takeaway void, with `mark-served` `own_tables`), a `5xx`, a `NETWORK` failure, or "not open" (cancelled order) gets `AnswerSheet` **over the current screen**, with no navigation, no glow and no "no longer open" toast, and can answer.
+82. **B1, current seating:** `order-view` for an order moved by `TablesMerged` returns the surviving `seating_id`, and the tap opens that seating's table. An order moved by `SeatingSplit` opens the new seating (not the old one, which is still open). A takeaway order returns `order_type: 'takeaway'` and `seating_id: null` and opens `#/orders/<id>`. The client never reads `table_key` (a spy on the order body).
+83. **B3, notices keep their facts (DL Q-3 Rec):** taps on `pin_use_failed`, `answered_on_requester_device`, a rejected `request_result` with a note, an approved `request_result` and `approval_receipt` each navigate and glow, then show `NoticeSheet` on top with the device name, the time, "Not you?" (the first two) and the closer's note. A full void's approved result, and a notice whose `order-view` fails, open `NoticeSheet` over the current screen, with no toast.
+84. **M1, merge:** a `call_waiter` raised on seating S5 (table T5); then T4's seating S4 absorbs S5 → the tap opens S4's table sheet (tile T5 seated in S4, `opened_at` ≤ `raised_at`). The same for an open `table_handover`. Guests leave, and a new party is seated at T5 after the call (`opened_at` > `raised_at`) → "This item is no longer open."
+85. **M3, slip_warning:** (a) a dine-in slip glows the LateCard whose `data-alerts` contains the alert id (not the round) and opens no `AnswerSheet`; (b) a takeaway slip navigates to `#/orders/<id>`, glows the order block and opens `AnswerSheet` (Send what's ready / Wait), and the answer works; (c) a dine-in slip whose LateCard is not rendered opens `AnswerSheet`.
+86. **M5, unfinished work:** (a) with the Send dialog (or any `aria-modal="true"` element) open, a banner "Open" does not navigate and opens the detail as in v1.2.5; (b) a tap from `OrderScreen` with a cart navigates, and the draft is then listed in `#/held` and reopened intact; (c) the table lock is not released by the tap itself; (d) on the kiosk the "Back" chip returns to the previous hash, and goes at the next navigation.
+87. **m3, zone archived:** `zone-stock` that no longer lists the zone (archived) → not open; a `404 ZONE_NOT_FOUND` → not open.
+88. **m4, partial void:** a void of 1 of 3 units approved → the requester's result opens the line (2 live units), glows it, then shows `NoticeSheet`.
+89. **m5, slip first order cancelled:** a slip over `order_ids = [O1, O2]`; O1 is cancelled while the slip is open → the tap targets O2's round / LateCard; the request is open, so it is open.
+90. **m10, repeated tap:** a second tap on the same Inbox row navigates and glows again and sends no second `MarkAlertsSeen`.
+91. **9b notification tap while signed out:** the app opens at `#/inbox?focus=alert:<id>` behind the sign-in screen; after sign-in the card glows once and `focus` is dropped; for a person whose inbox lacks the card, nothing glows and nothing breaks.
+92. **m1, phone tabs:** `#/zones?focus=…` and `#/orders/<id>?focus=…` mark **Orders**; a dine-in line or slip marks **Tables**.
+93. **UR text:** `alerts.target_closed`, `alerts.back` and the `alerts.opened.*` keys exist in EN and UR; the UR strings are listed in `docs/design/handoff/01d/urdu-todo.md` for checking.
+94. **m11, focus only where valid:** `focus` on `#/audit`, `#/requests`, `#/test-alert` or `#/receipts/<id>` is ignored, and those routes still match.
+95. **m12, Pass:** a signed-out Pass tablet shows the lock panel with nothing tappable; a signed-in Pass tablet's lock-only `ready_to_serve` row glows the card in place with no sheet.
+96. **M2 again, client store:** an alert whose frame carried an unknown target type still re-notifies on reconnect and is answerable from its sheet (today's tap).
+97. **m3, reads per tap (fetch spy):** a takeaway `order_line` tap makes exactly one `order-view` call, and `OrderView`'s first render makes none; a zone tap makes one `zone-stock` call, reused by `#/zones`; a dine-in tap with a fresh held map makes `order-view` + `seating-orders` and no `table-map`.
 
 ### 10.10 Acceptance table
 
@@ -1712,7 +1812,7 @@ Test files under `apps/hub/test/alerts/`; a **test kind** `t_approval` (approval
 | E-REQ AC5 right checked on arrival | §3.3 rule 6 | 8, 9 |
 | E-REQ AC6 first answer wins | §6.2 race | 6 |
 | E-REQ AC7 no auto-cancel | §3.3 | 24, 51 |
-| DL (owner 2026-11-18) tap opens the place and glows it | §3.13 | 69–80 |
+| DL (owner 2026-11-18) tap opens the place and glows it | §3.13 | 69–97 |
 
 ---
 
@@ -1805,7 +1905,7 @@ Open for the owner: none (Q3 confirmed, G1-20 kept, 2026-11-01). *v1.1:* the dev
 - **APK rollout beyond the pilot minimum** (percentages, per-device history, owner-page release controls); pilot: §8.4, H-5.
 - `pager_ids` directory map and its sync bound — 01e's 01b bump (§4.3).
 - Snooze — decided **no** (G1-14e), listed so it is not re-asked.
-- **"Food ready" to waiters** (owner Q2 (a), 2026-11-18; ⚠️ Changed by v1.3 (L-6)). A new notice to the table's waiters when a line or order is ready would be a new kind with its own steps. Deep links cover existing kinds only. When it is specced, it uses `link` (an `order_line` or `order` target), and "served" closes it (DL Q-2 (a)). `docs/OPEN-QUESTIONS.md` §11.
+- **"Food ready" to waiters** (owner DL Q-0b (a), 2026-11-18; ⚠️ Changed by v1.3 (L-6)). A new notice to the table's waiters when a line or order is ready would be a new kind with its own steps. Deep links cover existing kinds only. When it is specced, it can use `link` (an `order_line` or `order` target); how it closes is for that spec. `docs/OPEN-QUESTIONS.md` §11.
 
 ### 12.5 Self-check (developer, v1.0, after G4 run 3)
 
@@ -1879,9 +1979,17 @@ None of these blocks the 01d merge (the approvals of (d) were given on 2026-11-0
 
 **Done at approval (2026-11-02):** the README module map row 01d moved to v1.1 APPROVED, Implemented; 00, 01a and 01b got their as-built patch bumps (v1.6.1, v2.0.1, v1.4.1). The merge is the developer's.
 
-### 12.8 Deep-link rulings (v1.3) ⚠️ Changed by v1.3 (L-6) (owner 2026-11-18, DL Q-1 (a) / Q-2 (a))
+### 12.8 Deep-link rulings (v1.3) ⚠️ Changed by v1.3 (L-6)
 
-Both questions raised by the v1.3 draft were ruled by the owner on 2026-11-18 at 09:18. They are settled, and §3.13 states them as rules.
+The owner gave these rulings on 2026-11-18. §3.13 states the settled ones as rules, each marked with the ruling it applies.
 
-- **DL Q-1 = (a). A tap on a request the viewer can answer** (`void_approval`, `comp`, `table_handover` for its receiver) opens the target place, scrolls to the target and glows it, then opens `AnswerSheet` on top. `slip_warning` answers in its LateCard, so it opens no sheet. §3.13.2 rule 4, test 80.
-- **DL Q-2 = (a). "Served" as not open:** only `ready_to_serve` treats a fully served order as "no longer open". Everywhere else a served line or a served round stays reachable: its folded round unfolds and the target glows. This applies to void, comp, `engine_line_dropped` and `served_card` targets, and to the results and notices that copy them. The future "food ready" kind (§12.4) will close on served the same way. §3.13.1 "Not open when", §3.13.3, tests 75, 76.
+- **DL Q-0a = (a)** (owner, 2026-11-18). Kinds with no staff-app screen (`station_overload`, `kds_offline`, `printer_problem`, `no_approver`) keep today's tap, with no deep link.
+- **DL Q-0b = (a)** (owner, 2026-11-18). Deep links apply to existing notifications only. "Food ready" to waiters is a separate future feature (§12.4).
+- **DL Q-1 = (a)** (owner 2026-11-18 09:18). A tap on a request the viewer can answer (`void_approval`, `comp`, `table_handover` for its receiver; a takeaway `slip_warning`) opens the target place, scrolls to the target and glows it, then opens `AnswerSheet` on top. A dine-in `slip_warning` answers in its LateCard. Only "the request is closed" stops the sheet; any other check failure opens it over the current screen as today (review B2). §3.13.2 rule 4, tests 80, 81, 85.
+- **DL Q-2 = (a)** (owner 2026-11-18 09:18). Only `ready_to_serve` treats a fully served order as "no longer open". Everywhere else a served line or round stays reachable: its folded round unfolds and the target glows. §3.13.1 "Not open when", §3.13.3, tests 75, 76.
+- **DL Q-3: awaiting the owner** (raised by review B3; the integrator asked him on 2026-11-18). What does a tap on a notice show: `pin_use_failed`, `answered_on_requester_device`, `request_result`?
+  - **(a) Rec (integrator).** Glow the place first, then show the notice card (`NoticeSheet`) on top with all its facts: the device name, "Not you?", the rejection note. When the place is not open or cannot be checked, the card opens over the current screen, with no toast. The spec applies the same rule to the remaining copy kinds (the approved or closed `request_result`, `:also`, `approval_receipt`), so no notice loses its facts.
+  - **(b)** Notices keep today's tap (no `link` on kinds 14–17); only owning kinds deep-link.
+  - **(c)** Navigate and glow only; the facts are reachable from the Inbox card's detail.
+  - The spec is written as (a). Rows: §3.13.2 rule 5, §3.13.4, tests 83, 88.
+- **Seen on every tap: integrator ruling (2026-11-18), for the owner to confirm at approval** (review m13). Every tap calls `MarkAlertsSeen`, including a "no longer open" tap. §3.13.2 rule 3.
