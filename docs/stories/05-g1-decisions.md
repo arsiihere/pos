@@ -372,3 +372,11 @@ Run 15 (`docs/reviews/05_v0.8_targeted_check.md`: 3 major and 1 minor regression
 | Q-2 | H15-5 (not a finding) | **owner Rec** | Keep the cash-only-rounding rule: the coins cover what they can and **the card covers the last sub-coin amount**. Pakistan (round every bill) is unaffected. |
 | H17-2–H17-4 | tests, text | developer (review fixes) | The 20 unassigned tests are assigned to build tasks, with a closing check that every test is in exactly one task; two stale text fixes. |
 | Process | review stop rule | **owner, 16:00 PKT** | Apply the fixes, then **another review run** — not approval yet. |
+
+## 29. Approval (owner, 2026-11-18 16:33 PKT)
+
+Run 18 (`docs/reviews/05_v0.8.3_targeted_check.md`) — verdict **APPROVE** (0 blocker, 0 major; H18-1, H18-2 minor; H18-3, H18-4 nit). **The owner approved 05 Billing at 16:33 PKT.** `docs/specs/05_Billing_Spec_v1.0.md` = v0.8.3 + H18-1–H18-4 + run-18 Q-1 (a), which the owner accepted with the approval: under cash-only rounding a split whose cash total is below one coin closes at 0 and a card payment for it is refused.
+
+**Known gaps at approval** (04 §10 precedent): spec §12.7 — (a) out of v1.0 scope, specified later (pro rata mixed-payment tax for v1.1 with A6; per-rate rounding; client money formatters outside 05; weighed-line step; other adapters; cross-tenant owner view; the Windows-only authority path); (b) authority questions A1–A14, open, with the defaults built; (c) provisional rulings to confirm (§19–§28 developer calls and provisional owner Recs still standing, S-1–S-4, S-7); (d) provisional version and migration numbers, re-taken at 05's phase 0 after `module-deeplinks` reaches `main` (H5-1); (e) build-time STOPs (PRA adapter task 30 until A13 and PRA's spec v1.2); (f) areas not modelled by runs 16–18 (merges, amount-split re-basing, shifts and petty-cash advances, `RemovePayment`, four-tax profiles, deals and weighed lines, Appendix P), each covered by named build tests.
+
+Review history: hostile runs 1, 2, 6, 9, 16 (full) and targeted checks 3–5, 7, 8, 10–15, 17, 18 (`docs/reviews/05_*`). The §4.5 bumps stay **proposed** and are applied by 05's phase 0 after `module-deeplinks` reaches `main`.
