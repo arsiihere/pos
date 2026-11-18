@@ -13,6 +13,7 @@ import todo02b from '../../../../docs/design/handoff/02b/urdu-todo.md?raw';
 import brief03b from '../../../../docs/design/inventory/03b-03c-design-brief.md?raw';
 import changes03b from '../../../../docs/design/handoff/03b/CHANGES.md?raw';
 import todo03b from '../../../../docs/design/handoff/03b/urdu-todo.md?raw';
+import todo01d from '../../../../docs/design/handoff/01d/urdu-todo.md?raw';
 import enSource from './en.ts?raw';
 
 function memoryStorage(initial: Record<string, string> = {}): Storage {
@@ -379,6 +380,41 @@ describe('[03b §8 Rules; 03c §8] client strings (W0.3)', () => {
     for (const text of [e['alert.printer_problem.card']!, u['alert.printer_problem.card']!]) {
       expect(text).not.toContain('{waiting}');
       expect(text).not.toMatch(/waiting|انتظار/);
+    }
+  });
+});
+
+describe('[01d v1.3 §3.13.2, §3.13.6] deep-link texts', () => {
+  const DL_KEYS = [
+    'alerts.target_closed',
+    'alerts.back',
+    'alerts.opened.table',
+    'alerts.opened.order',
+    'alerts.opened.line',
+    'alerts.opened.late',
+    'alerts.opened.zone_item',
+    'alerts.opened.pass',
+    'alerts.opened.inbox',
+  ] as const;
+
+  it('[01d #93] alerts.target_closed, alerts.back and alerts.opened.* exist in EN and UR; the UR strings are listed in 01d/urdu-todo.md', () => {
+    const enMap = en as Record<string, string>;
+    const urMap = ur as Record<string, string | undefined>;
+    for (const key of DL_KEYS) {
+      expect(enMap[key], key).toBeTruthy();
+      expect(urMap[key], key).toBeTruthy();
+      expect(holes(urMap[key]!), key).toBe(holes(enMap[key]!));
+      // listed for the Urdu translator with its draft, so the line can be checked (§3.13.2 rule 2)
+      expect(todo01d.includes(`| \`${key}\` | ${enMap[key]!} | ${urMap[key]!} |`), key).toBe(true);
+    }
+    expect(en['alerts.target_closed']).toBe('This item is no longer open.');
+    expect(ur['alerts.target_closed']).toBe('یہ آئٹم اب کھلا نہیں ہے۔');
+  });
+
+  it('[01d §3.13.6 n4] each "Opened …" text fills {name} (the table chip or item name the screen shows)', () => {
+    for (const key of DL_KEYS.filter((k) => k.startsWith('alerts.opened.'))) {
+      expect(en[key], key).toContain('{name}');
+      expect(fill(en[key], { name: 'T12' }), key).toContain('T12');
     }
   });
 });
