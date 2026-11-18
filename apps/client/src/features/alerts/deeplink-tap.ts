@@ -12,9 +12,8 @@ import { tableOf } from './ui';
 // group card, a requests-to-answer row, a banner's Open, the call banner). Rule 1: no target → today's tap. Rule 2:
 // the open check (§3.13.3), then navigate + scroll + glow + "Opened …", or the toast and stay. Rule 3: seen in every
 // case. Rule 7: the banner hides as today (the store's open). Rules 4 (requests), 5 (notices) and 6 (unfinished work)
-// are the hook points below (dl cs8, cs9, cs11). Until they land, a request the viewer can answer and a notice keep
-// today's tap (their sheet over the current screen), so an approver never loses AnswerSheet (B2) and no notice
-// loses its facts (B3); a viewer who may not answer (a kiosk's lock-only row, informed, the requester) navigates.
+// are below (rule 4: dl cs8; rule 5: cs9, until then a notice keeps today's sheet so it never loses its facts, B3;
+// rule 6: cs11).
 
 /** What a tap needs of a row: any of AlertRow, RequestView, an inbox row. */
 export interface TapRow {
@@ -53,6 +52,24 @@ export interface TapDeps extends CheckDeps {
   isCurrent?: () => boolean;
   /** the row's state now (the live row, or a held alert_closed), re-read after the check (§3.13.3) */
   stateNow?: () => 'open' | 'closed' | undefined;
+  /** rule 4 (B2): how long an answerable tap waits for the check before AnswerSheet opens anyway */
+  checkTimeoutMs?: number;
+}
+
+/** Rule 4 (B2): the check's longest wait for a request the viewer can answer. The spec names no number; 3 s (review
+ *  of #255). Past it the sheet opens over the current screen, as for a failed check. */
+export const CHECK_TIMEOUT_MS = 3_000;
+
+const TIMED_OUT = Symbol('timed out');
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(TIMED_OUT), ms);
+    p.then(
+      (v) => (clearTimeout(timer), resolve(v)),
+      (e: unknown) => (clearTimeout(timer), reject(e instanceof Error ? e : new Error(String(e)))),
+    );
+  });
 }
 
 export type TapOutcome = 'sheet' | 'navigated' | 'not_open' | 'cannot_check' | 'stale';
@@ -192,22 +209,40 @@ export async function tapAlert(row: TapRow, deps: TapDeps): Promise<TapOutcome> 
   deps.seen(); // rule 3: seen in every case, before any read (rule 7: the banner hides)
   const target = row.target ?? null;
   // rule 1: a kind with no place (8, 12, 13, 18, 19), a copy kind without a link, a pre-v1.3 row, an unknown type.
-  // Hook points for rule 4 (cs8) and rule 5 (cs9): today's sheet for now.
-  if (target === null || canAnswer(row) || NOTICE_KINDS.has(row.kind)) {
+  // Hook point for rule 5 (cs9): a notice keeps today's sheet for now.
+  if (target === null || NOTICE_KINDS.has(row.kind)) {
     deps.openSheet();
     return 'sheet';
   }
-  const checked: CheckResult = await checkTarget({ alert_id: row.alert_id, kind: row.kind, raised_at: row.raised_at, state: row.state, target }, deps);
+  const answerable = canAnswer(row);
+  const check = checkTarget({ alert_id: row.alert_id, kind: row.kind, raised_at: row.raised_at, state: row.state, target }, deps);
+  // rule 4 (B2): a read that hangs never keeps the approver from the sheet: past the timeout, AnswerSheet opens over
+  // the current screen (as for any other failed check) and the late result is dropped
+  const checked = answerable ? await withTimeout(check, deps.checkTimeoutMs ?? CHECK_TIMEOUT_MS) : await check;
   // a newer tap, a session change or a route change during the check: this tap is over
   if (deps.isCurrent?.() === false) return 'stale';
+  if (checked === TIMED_OUT) {
+    deps.openSheet();
+    return 'sheet';
+  }
   // §3.13.3: the request's own state first, also when it closed while the check ran (the live row, or alert_closed)
   const result: CheckResult = REQUEST_KINDS.has(row.kind) && deps.stateNow?.() === 'closed' ? { kind: 'request_closed' } : checked;
+  if (answerable && result.kind !== 'open' && result.kind !== 'request_closed') {
+    // rule 4 (B2): not open, 403, NETWORK, 5xx, any read error → AnswerSheet over the current screen exactly as
+    // today: no navigation, no glow, no "not open" toast. The hub's AnswerRequest decides, as today.
+    deps.openSheet();
+    return 'sheet';
+  }
   switch (result.kind) {
     case 'open': {
       const moving = window.location.hash !== `#${result.href}`;
       deps.navigate(result.href);
       const label = openedText(row, result.focus);
       (deps.arrive ?? ((href, focus, text) => void glowOnArrival(href, focus, text, { moving })))(result.href, result.focus, label);
+      // rule 4 (DL Q-1 (a)): after the navigation and the glow start, AnswerSheet on top (the glow runs behind its
+      // scrim). It opens even when the place's element never renders (§3.13.4). A viewer who may not answer (a
+      // kiosk's lock-only row, informed, the requester) only navigates.
+      if (answerable) deps.openSheet();
       return 'navigated';
     }
     case 'no_place':

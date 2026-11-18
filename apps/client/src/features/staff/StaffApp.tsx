@@ -505,6 +505,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     store.open(row.alert_id);
     markSeen(row.alert_id);
   };
+  // the sheet opens only through tap() (rule 1 or rules 4 / 5): a tap's generation guard (tapGen) already stops a
+  // stale tap from opening one over a newer tap's sheet, so no second counter is needed (#255 review 2)
   const openSheet = (row: AlertRow | RequestView) => {
     lastOpened.current = views.find((v) => v.alert_id === row.alert_id) ?? row;
     setOpened(row.alert_id);
@@ -706,6 +708,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       {me !== null && sheetRow !== null &&
         (isRequest(sheetRow) ? (
           <AnswerSheet
+            key={sheetRow.alert_id}
             row={sheetRow}
             canAnswer={'can_answer' in sheetRow ? sheetRow.can_answer : sheetRow.set === 'answerer' && (sheetRow.answers?.length ?? 0) > 0}
             deviceId={device.id}
@@ -723,7 +726,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
             onToast={setToast}
           />
         ) : (
-          <NoticeSheet row={sheetRow} utcOffsetMs={offset} sheet={phone || portrait} onClose={() => setOpened(null)} />
+          <NoticeSheet key={sheetRow.alert_id} row={sheetRow} utcOffsetMs={offset} sheet={phone || portrait} onClose={() => setOpened(null)} />
         ))}
       {me !== null && (
         <>
