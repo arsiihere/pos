@@ -2,11 +2,13 @@ import {
   AlertCardSchema,
   AlertDetailsBase,
   AlertLockSchema,
+  AlertLinkTargetSchema,
   AlertViewSchema,
   WsAlertClosed,
   WsAlertSeen,
   type AlertDetails,
   type AlertDisplay,
+  type AlertLinkTarget,
   type AlertLock,
   type AlertView,
   type RequestOutcome,
@@ -20,7 +22,7 @@ import type Database from 'better-sqlite3';
 import { z, ZodError } from 'zod';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { ConnectedSession, WsHub } from '../ws/server.js';
-import { kindOf, REQUEST_RESULT, type AlertKind } from './kinds.js';
+import { kindOf, REQUEST_RESULT, safeLink, type AlertKind } from './kinds.js';
 import { registeredRoutes } from './routes.js';
 import { mayAnswer, type AlertRequestPart } from './targets.js';
 import { cachedPrepare } from './statements.js';
@@ -42,6 +44,11 @@ const StrictLock = AlertLockSchema.strict();
 // 01d v1.1.2 D-1: the widened details (minutes_late, lines) pass; an unknown key, also inside a line, is refused.
 const StrictDetails = AlertDetailsBase.extend({ lines: z.array(AlertDetailsBase.shape.lines.unwrap().element.strict()).optional() }).strict();
 const StrictCard = AlertCardSchema.extend({ details: StrictDetails.nullable() }).strict();
+// 01d v1.3 §3.13.1 / §5.4: the emit side uses the strict target (no `.catch(null)`): `lockView` builds it through
+// `safeLink`, so anything else here is a hub bug and throws instead of leaving the hub (test 70 (c)). Required on
+// every view the hub builds (null when the kind has no place); the wire schema's `.optional().catch(null)` is the
+// reader's side (M2).
+const StrictTarget = AlertLinkTargetSchema.nullable();
 // Built from the named lock-safe view fields (pick, not omit): a field later added to the signed-in view
 // (AD-23's answers / needs_pin / silent) stays refused here (AD-81). AD-82's `outcome` is lock-safe.
 /** The lock-only view (alert-mode sockets, device-target sockets, routes, a station's catch-up rows). */
@@ -56,10 +63,10 @@ export const StrictLockView = AlertViewSchema.pick({
   raised_at: true,
   outcome: true,
 })
-  .extend({ lock: StrictLock })
+  .extend({ lock: StrictLock, target: StrictTarget }) // 01d v1.3 §3.13.1: ids only, lock-safe (G1-13e, AD-81)
   .strict();
 /** The signed-in view (the person's own staff sockets, inbox, catch-up): card with details and the AD-23 fields. */
-export const StrictCardView = AlertViewSchema.extend({ lock: StrictLock, card: StrictCard }).strict();
+export const StrictCardView = AlertViewSchema.extend({ lock: StrictLock, card: StrictCard, target: StrictTarget }).strict();
 const LockAlertFrame = z.object({ type: z.literal('alert'), alert: StrictLockView }).strict();
 const CardAlertFrame = z.object({ type: z.literal('alert'), alert: StrictCardView }).strict();
 const SeenFrame = WsAlertSeen.strict();
@@ -340,24 +347,42 @@ function outcomeOf(row: LockViewRow): RequestOutcome | null {
   }
 }
 
+/** The fields `lockView` builds: v1.3 adds `target`, always present (null when the kind has no place). */
+export type LockViewFields = Pick<AlertView, 'alert_id' | 'kind' | 'family' | 'step' | 'lock' | 'raised_at' | 'outcome'> & {
+  target: AlertLinkTarget | null;
+};
+
+/** 01d v1.3 §3.13.1: the kind's `link` on the stored values, guarded; unreadable values_json → null. */
+function targetOf(row: LockViewRow, kind: AlertKind): AlertLinkTarget | null {
+  let values: unknown;
+  try {
+    values = JSON.parse(row.values_json);
+  } catch {
+    return null;
+  }
+  if (values === null || typeof values !== 'object' || Array.isArray(values)) return null;
+  return safeLink(kind, values as Record<string, unknown>);
+}
+
 /**
  * The one lock-view builder (§3.12, G1-13 e): the fields shared by every `alert` frame (lock and card), every
  * `alerts_open` row (alert-sockets.ts), every inbox and catch-up row. AD-82's `outcome` is added here, on a
- * `request_result` only (absent on every other kind).
+ * `request_result` only (absent on every other kind). 01d v1.3 §3.13.1: `target` too, on every view.
  */
 export function lockView(
   row: LockViewRow,
   kind: AlertKind,
   step: number,
-): Pick<AlertView, 'alert_id' | 'kind' | 'family' | 'step' | 'lock' | 'raised_at' | 'outcome'> {
+): LockViewFields {
   const lock = displayParams(JSON.parse(row.display_json) as AlertDisplay, kind.labels.lock);
-  const view: Pick<AlertView, 'alert_id' | 'kind' | 'family' | 'step' | 'lock' | 'raised_at' | 'outcome'> = {
+  const view: LockViewFields = {
     alert_id: row.alert_id,
     kind: row.kind,
     family: row.family,
     step,
     lock,
     raised_at: row.raised_at,
+    target: targetOf(row, kind),
   };
   if (row.kind === REQUEST_RESULT_KIND) view.outcome = outcomeOf(row);
   return view;
