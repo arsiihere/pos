@@ -247,3 +247,11 @@ The product is a SaaS sold across Pakistani provinces **and other countries**. P
 | — | **YAGNI:** only shape and data now; no second adapter, no locale / translation work, no multi-currency per branch beyond one currency per branch. Endpoint count kept (32 hub + 3 cloud). | §1.3, §12.2 |
 
 Questions this raised (spec v0.7 §12.3, Rec applied provisionally until the owner answers): **OQ-9** currency per tenant (foundation §6 today) vs per branch — Rec keep per tenant, a branch's jurisdiction must match; **OQ-10** service-charge base under inclusive prices — Rec the back-calculated pre-tax net; **OQ-11** cash-only rounding with a mixed split — Rec round whenever any cash is involved.
+
+**Answers on OQ-9–OQ-11 (owner delegated, 2026-11-18 11:59 PKT, "your calls") — developer call, owner delegated;** applied in `docs/specs/05_Billing_Spec_v0.7.1.md` ("⚠️ Changed in v0.7.1 (OQ-n)"):
+
+| # | Ruling |
+|---|---|
+| OQ-9 | **Currency per branch**, not per tenant: one owner may run branches in different countries under one tenant. Cloud `branches.currency_code` (backfilled from `tenants.currency_code`, which stays as the default for new branches; 01a row A-6, foundation row F-6); each branch's jurisdiction must use that branch's currency; owner-level / cross-branch money views (06 / 07) group by currency and never sum across currencies. |
+| OQ-10 | With tax-inclusive prices, the service charge is computed on the back-calculated pre-tax net (Rec). |
+| OQ-11 | With a cash-only rounding rule, a split is rounded whenever any cash is involved (any cash payment, or none yet); only an all-digital split stays exact (Rec). |
