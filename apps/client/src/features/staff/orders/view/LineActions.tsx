@@ -16,6 +16,7 @@ import { VoidButton } from '../../../voids/ui';
 import { useLinePendingVoid } from '../../../voids/pending';
 import type { OrderType, SeatingLine } from '../contracts';
 import { atStageOne, isReady, isServed, isWeightPending, lineStage, servable } from './stage';
+import { PopupLayer } from '../../shell/popup-layer';
 
 // 02b v1.0.11 §8 Table view: the actions of the selected line, from the session's permissions (R5) and the line's
 // stage — Mark served (fired lines, §3.7), Remove (stage 1, §3.5), Void past stage 1 (04 §8, features/voids), Enter
@@ -112,26 +113,28 @@ export function Sheet({ title, sub, ident, wide = false, onClose, children, acti
   const shell = useShell();
   const id = useId();
   return (
-    <div className={shell.phone || shell.portrait ? 'scrim scrim--sheet' : 'scrim'}>
-      <div className={wide ? 'dlg dlg--w' : 'dlg'} role="dialog" aria-modal="true" aria-labelledby={id}>
-        <div className="dlg__h">
-          {ident !== undefined && (
-            <span className={ident.includes('+') ? 'tcode j' : 'tcode'} dir="ltr">
-              {ident}
-            </span>
-          )}
-          <div className="dlg__t">
-            <h2 id={id}>{title}</h2>
-            {sub !== undefined && <div className="ac__who">{sub}</div>}
+    <PopupLayer>
+      <div className={shell.phone || shell.portrait ? 'scrim scrim--sheet' : 'scrim'}>
+        <div className={wide ? 'dlg dlg--w' : 'dlg'} role="dialog" aria-modal="true" aria-labelledby={id}>
+          <div className="dlg__h">
+            {ident !== undefined && (
+              <span className={ident.includes('+') ? 'tcode j' : 'tcode'} dir="ltr">
+                {ident}
+              </span>
+            )}
+            <div className="dlg__t">
+              <h2 id={id}>{title}</h2>
+              {sub !== undefined && <div className="ac__who">{sub}</div>}
+            </div>
+            <button type="button" className="btn btn--icon dlg__x" aria-label={t('common.close')} onClick={onClose}>
+              <Ico name="x" />
+            </button>
           </div>
-          <button type="button" className="btn btn--icon dlg__x" aria-label={t('common.close')} onClick={onClose}>
-            <Ico name="x" />
-          </button>
+          {children}
+          <div className="acts">{actions}</div>
         </div>
-        {children}
-        <div className="acts">{actions}</div>
       </div>
-    </div>
+    </PopupLayer>
   );
 }
 

@@ -41,8 +41,6 @@ export interface TopBarProps {
   phoneSub: ReactNode;
   onNavigate: (path: string) => void;
   onSignOut: () => void;
-  /** 01d v1.3 §3.13.2 rule 6 (kiosk, DL-K1): after a deep-link navigation, one level back to the hash the tap left */
-  onBack?: (() => void) | null;
 }
 
 function IconButton({ icon, label, count, onClick }: { icon: IconName; label: string; count: number | null; onClick: () => void }) {
@@ -91,12 +89,6 @@ export function TopBar(p: TopBarProps) {
         </div>
         {!p.portrait && floorControl}
         <div className="end">
-          {p.onBack != null && p.person !== null && (
-            <button type="button" className="chip" onClick={p.onBack}>
-              <Ico name="back" />
-              {t('alerts.back')}
-            </button>
-          )}
           {p.live}
           <span className="clock">{p.clock}</span>
           {p.person !== null && (

@@ -48,6 +48,7 @@ import { MeTab, PhoneTabs, type PhoneTab } from './tables/PhoneTabs';
 import { TopBar } from './tables/TopBar';
 import { createPrintSkipDismiss } from '../alerts/labels-03b';
 import { AuditLog } from '../audit/AuditLog';
+import { checkTarget } from '../alerts/deeplink-check';
 import { tapAlert } from '../alerts/deeplink-tap';
 import { dropHandover } from './orders/preload';
 import type { OrdersCatchUp } from './orders/contracts';
@@ -541,19 +542,86 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     lastOpened.current = views.find((v) => v.alert_id === row.alert_id) ?? row;
     setOpened(row.alert_id);
   };
-  // 01d v1.3 §3.13.2 rule 6 (DL-K1): the kiosk has no browser back; after a deep-link navigation the top bar shows a
-  // one-level Back chip to the hash the tap left. It goes at the next navigation of any kind.
-  const [back, setBack] = useState<{ from: string; to: string } | null>(null);
+  // 01d v1.3.3 §3.13.2 rule 6 "Close returns" (DL Q-K (c)): the return record of the last deep-link navigation, on
+  // every device: `from` the route the tap started on, `to` the route it landed on (both without focus). It goes at the
+  // next navigation of any kind, on a session change and on a close return. The kiosk shows the Back chip while it is
+  // set. For a dine-in OrderScreen start, `seat` is that seating's table and the time (merge resolution on return).
+  type ReturnRecord = { from: string; to: string; seat: { table_id: string; seating_id: string; at: number } | null };
+  const [back, setBack] = useState<ReturnRecord | null>(null);
   const deepNavigate = (href: string) => {
     ownRoute.current = href;
-    // no chip when the tap lands on the screen the person is already on (#257 review)
-    if (device.type === 'cashier_kiosk' && withoutFocus(href) !== withoutFocus(route)) setBack({ from: route, to: withoutFocus(href) });
+    const from = withoutFocus(route);
+    // no record when the tap lands on the screen the person is already on (#257 review)
+    if (withoutFocus(href) !== from) {
+      const start = matchStaffRoute(from, device.type);
+      let seat: ReturnRecord['seat'] = null;
+      if (start.name === 'order' && start.order_type === 'dine_in') {
+        const tile = sharedMapStore(tablesApi, liveBus).current()?.floors.flatMap((f) => f.zones.flatMap((z) => z.tables)).find((x) => x.seating_id === start.id && x.primary_table_id === x.table_id);
+        seat = { table_id: tile?.table_id ?? '', seating_id: start.id, at: clock.nowMs() };
+      }
+      setBack({ from, to: withoutFocus(href), seat });
+    }
     navigate(href);
   };
   const routeNow = withoutFocus(route);
   useEffect(() => {
     if (back !== null && routeNow !== back.to) setBack(null);
   }, [back, routeNow]);
+  const meId = me?.staffId ?? null;
+  useEffect(() => setBack(null), [meId]); // a session change (sign-in, sign-out, another person, unpair)
+
+  /**
+   * §3.13.7 "Where a return lands": the hash a close return and the Back chip go to, or null when the start route can
+   * no longer be shown (rule 6): no staff route, or its gate is now false for this person.
+   */
+  const returnTarget = async (rec: ReturnRecord): Promise<string | null> => {
+    const path = routePath(rec.from);
+    if (path === '/audit') return showAudit ? rec.from : null;
+    if (path === '/requests') return showRequests ? rec.from : null;
+    if (path === '/test-alert') return showTest ? rec.from : null;
+    if (/^\/receipts\/[^/]+$/.test(path)) return showTest ? rec.from : null;
+    const start = matchStaffRoute(rec.from, device.type);
+    if (start.name === 'pass') return hasPoint ? rec.from : null;
+    if (start.name === 'inbox' && path !== '/inbox' && path !== '/' && path !== '') return null; // no staff route
+    if (start.name === 'order' && start.order_type === 'dine_in') {
+      // never back onto a dine-in OrderScreen without the lock: that table's sheet (Add items takes it again)
+      const seat = rec.seat ?? { table_id: '', seating_id: start.id, at: clock.nowMs() };
+      const r = await checkTarget(
+        { alert_id: '', kind: 'call_waiter', raised_at: seat.at, target: { type: 'table', table_id: seat.table_id === '' ? '-' : seat.table_id, seating_id: seat.seating_id } },
+        { orders: ordersApi, tables: tablesApi, heldMap: () => sharedMapStore(tablesApi, liveBus).current() },
+      );
+      return r.kind === 'open' ? withoutFocus(r.href) : '/tables';
+    }
+    return rec.from;
+  };
+  /**
+   * A return waits for returnTarget (a dine-in start runs the open check): its result is dropped when the route
+   * changed meanwhile (#273 review). A second close / Back tap always changes it: the first tap consumed the
+   * record, so the second is the sheet's own close (an immediate navigate).
+   */
+  const landWhenStill = (target: Promise<string | null>, orElse: string) => {
+    const at = withoutFocus(window.location.hash.replace(/^#/, ''));
+    void target.then((to) => {
+      if (withoutFocus(window.location.hash.replace(/^#/, '')) !== at) return;
+      navigate(to ?? orElse);
+    });
+  };
+  /** §3.13.2 rule 6: TableSheet / OrderView closed by the person (its close button, Escape on TableSheet). */
+  const closeRouteSheet = (fallback: string) => {
+    const rec = back;
+    if (rec === null || routeNow !== rec.to) return navigate(fallback); // a sheet opened normally: today's close
+    setBack(null);
+    landWhenStill(returnTarget(rec), fallback);
+  };
+  /** The kiosk Back chip: the same returnTarget; a start that can no longer be shown → that sheet's own close. */
+  const goBack = () => {
+    const rec = back;
+    if (rec === null) return;
+    setBack(null);
+    const here = matchStaffRoute(routeNow, device.type);
+    const sheetFallback = here.name === 'table' ? '/tables' : here.name === 'order_view' ? (device.type === 'cashier_kiosk' ? '/' : '/orders') : null;
+    landWhenStill(returnTarget(rec), sheetFallback ?? rec.from);
+  };
   // 01d v1.3 §3.13.2: every tappable surface (Inbox cards, requests-to-answer rows, banners, the call banner) goes
   // through the one tap rule: no target → today's tap (seen, then the AnswerSheet / NoticeSheet over the current
   // screen, §8.1); a target → the open check, then the place or the toast
@@ -728,15 +796,16 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         }
         onNavigate={navigate}
         onSignOut={() => signOut(true)}
-        onBack={
-          back === null || me === null
-            ? null
-            : () => {
-                setBack(null);
-                navigate(back.from);
-              }
-        }
       />
+      {/* 01d v1.3.3 §3.13.6a: the kiosk Back chip in the alert layer (top-start, above route sheets), not in the top bar */}
+      {device.type === 'cashier_kiosk' && back !== null && me !== null && (
+        <div className="abk">
+          <button type="button" className="chip" onClick={goBack}>
+            <Ico name="back" />
+            {t('alerts.back')}
+          </button>
+        </div>
+      )}
       {replaced && (
         <div className="staff__warn">
           <div className="warnbar" role="status">
@@ -818,6 +887,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     portrait,
     idleTtlMs: me?.idleTtlMs ?? null,
     signOut: () => signOut(false),
+    closeRouteSheet,
   };
   voidShell.current = shell;
   // IR-11: the late cards read every alert row the page holds, open and closed (a slip closed without ItemsReleased)
