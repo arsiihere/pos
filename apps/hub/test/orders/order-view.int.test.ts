@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { activity } from '../../src/auth/session-store';
 import { currentDirectory } from '../../src/auth/guards';
 import { ordersOf } from '../../src/orders/exports';
+import type { OrderViewBody } from '../../src/orders/queries/order-view';
 import { pendingComps, toSeatingOrder, type SeatingOrder } from '../../src/orders/queries/seating-orders';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
@@ -82,7 +83,8 @@ function signIn(staffId: string): Who {
   return { staffId, sessionId: session.sessionId, token: device.token, sessionToken: session.token };
 }
 
-type OrderViewData = SeatingOrder & { order_type: string; seating_id: string | null };
+// the route's body type (order_type: 'dine_in' | 'takeaway' | 'parking'; seating_id: string | null)
+type OrderViewData = OrderViewBody;
 
 async function view(who: Who, order_id?: string): Promise<{ status: number; data: OrderViewData; error?: { code: string; details: Record<string, unknown> } }> {
   const res = await hub.app.inject({
@@ -233,6 +235,39 @@ describe('[02b #52] order-view carries order_type and the current seating_id (§
     const who = signIn(BRANCH);
     expect((await view(who, 'D2')).data).toMatchObject({ order_id: 'D2', order_type: 'dine_in', seating_id: 'S_NEW' });
     expect((await view(who, 'D1')).data).toMatchObject({ order_id: 'D1', order_type: 'dine_in', seating_id: 'S_T1' });
+  });
+
+  it('[02b #52] after TableMoved (a table transfer) → the same seating_id (the seating moves, not the order)', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'S_T2', holder_staff_id: PLACER });
+    dineIn('S_T2', 'D1');
+    append('TableMoved', 'table', FX.table, { seating_id: 'S_T2', from_table_id: FX.table, to_table_id: FX.zoneTable, by_staff_id: PLACER });
+    const r = await view(signIn(BRANCH), 'D1');
+    expect(r.status).toBe(200);
+    expect(r.data).toMatchObject({ order_id: 'D1', order_type: 'dine_in', seating_id: 'S_T2' });
+  });
+
+  it('[02b #52] dine-in with no open seating → seating_id null', async () => {
+    // 02a's applyPlaced (tables/projection.ts) writes no seating_orders row when table_key names no open seating. The
+    // shared appendOrder refuses that case, so a minimal OrderPlaced is appended as bill-clean.int.test.ts `placed()` does.
+    const T = hub.clock.branchNow();
+    const day = JSON.parse(hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'BusinessDayOpened' ORDER BY seq DESC LIMIT 1`).pluck().get() as string) as { business_date: string };
+    append('OrderPlaced', 'order', 'D1', {
+      order_id: 'D1',
+      business_date: day.business_date,
+      order_type: 'dine_in',
+      table_id: null,
+      table_key: 'dine_in:S_NOT_OPEN',
+      follow_up: false,
+      pickup_at_ms: null,
+      order_item_ids: ['D1a'],
+      groups: [{ group_id: 'D1:0', target_land_ms: T + 600_000, promise_ms: T + 900_000, order_item_ids: ['D1a'] }],
+      lines: [],
+    });
+    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM orders WHERE order_id = ?').pluck().get('D1')).toBe(1);
+    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM seating_orders WHERE order_id = ?').pluck().get('D1')).toBe(0);
+    const r = await view(signIn(BRANCH), 'D1');
+    expect(r.status).toBe(200);
+    expect(r.data).toMatchObject({ order_id: 'D1', order_type: 'dine_in', seating_id: null });
   });
 
   it('[02b #52] takeaway / parking → seating_id null and their order_type', async () => {
