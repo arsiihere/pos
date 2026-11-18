@@ -351,3 +351,13 @@ Run 15 (`docs/reviews/05_v0.8_targeted_check.md`: 3 major and 1 minor regression
 | Kept | §25's rounding model: the rounding is an untaxed restaurant line in no payment class; every bill rounds where the jurisdiction says (Pakistan: every bill, Rs 1); refunds "jitna liya utna wapas", per payment type. |
 | Fixes | H15-5: under cash-only rounding the shown cash due and cash refund due are rounded down to the coin step. H15-6: the refund-due fields are defined exactly. H15-7: stale text. |
 | Approval | Endpoints: 25 commands + 6 queries = **31 hub** + 3 cloud = **34**. Per the §21 stop rule v0.8.1 is the **approval candidate**; no review run follows. |
+
+## 27. Run 16 (final full hostile of v0.8.1) — provisional owner Recs (2026-11-18)
+
+`docs/reviews/05_v0.8.1_hostile_run16.md` (0 blocker, 2 major, 11 minor, 2 nit); applied in `docs/specs/05_Billing_Spec_v0.8.2.md` ("⚠️ Changed in v0.8.2 (H16-n)") with the review's tested fixes. Q-1 and Q-2 are the review's Recs, applied **provisionally — the owner may veto**.
+
+| # | Finding | Who | Ruling |
+|---|---|---|---|
+| Q-1 | reopen after a rate / jurisdiction change | provisional owner Rec (owner may veto) | A bill reopened after a tax-rate change or a jurisdiction switch (e.g. `PK` → `PK-PB`) gets **today's rate on the new invoice**; the customer pays or gets back the difference like any reopen; the credit uses the original invoice's snapshot. The no-change-reopen property excludes such reopens; test #14 covers them. |
+| Q-2 | cash-only rounding, cash total rounds to 0 | provisional owner Rec (owner may veto) | Under cash-only rounding (other jurisdictions), a split whose cash total rounds to 0 (e.g. 0.02 with a 0.05 coin) **closes at 0 with no payment**; the rounding line is the whole amount. Pakistan (round every bill) is unaffected. |
+| H16-1–H16-15 | dues, frozen rounding, privacy, audiences, text | developer (review's tested fixes) | Each shown due is computed as if the next payment of that type were added (an unpaid Rs 5,710 Punjab bill shows card 5,996, cash 6,624); the rounding rule is frozen on the bill like the price mode; the Z event carries staff ids only; WS audiences are registered for 05's events; payment references and free text are never hashed; the go-live fallback is `PK`; the rest as listed in the spec's §1.23. |
