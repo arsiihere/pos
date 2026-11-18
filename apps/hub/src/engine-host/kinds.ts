@@ -151,6 +151,8 @@ export const SLIP_WARNING = defineAlertKind<SlipWarningValues, SlipWarningDetail
   silent: false,
   // "Send what's ready" / "Wait" are the client's answer texts for this kind (01d: accept kinds use the kind's labels)
   labels: { card: 'alert.slip_warning.card', lock: 'alert.slip_warning.lock' },
+  // ⚠️ Changed by 01d v1.3 (L-4c), 03a v1.2.5 §4.2: the deep-link target, the group's oldest order = the subject (§3.13.1 row 7)
+  link: (v) => ({ type: 'order', order_id: v.order_ids[0]! }),
   request: {
     answers: ['accept', 'decline'],
     right: { mode: 'named' },
@@ -226,5 +228,7 @@ export const ENGINE_LINE_DROPPED = defineAlertKind<EngineLineDroppedValues>({
   expires_at_day_close: true,
   silent: false,
   labels: { card: 'alert.engine_line_dropped.card', lock: 'alert.engine_line_dropped.lock' },
+  // ⚠️ Changed by 01d v1.3 (L-4c), 03a v1.2.5 §4.2: the deep-link target, the dropped line (§3.13.1 row 9)
+  link: (v) => ({ type: 'order_line', order_id: v.order_id, order_item_id: v.order_item_id }),
   request: null,
 });
