@@ -306,13 +306,8 @@ describe('[01d v1.3 §3.13.2] tapAlert', () => {
     }
   });
 
-  it('[01d §3.13.2 rules 4, 5] hook points: an answerable request and a notice keep today\'s sheet (cs8, cs9 add the place)', async () => {
-    for (const r of [
-      tapRow('void_approval', LINE_T, { answers: ['approve', 'reject'] }),
-      tapRow('table_handover', TABLE_T, { can_answer: true }),
-      tapRow('request_result', LINE_T),
-      tapRow('pin_use_failed', LINE_T),
-    ]) {
+  it('[01d §3.13.2 rule 5] hook point: a notice keeps today\'s sheet (cs9 adds the place)', async () => {
+    for (const r of [tapRow('request_result', LINE_T), tapRow('pin_use_failed', LINE_T)]) {
       const { deps, log } = fakes();
       expect(await tapAlert(r, deps), r.kind).toBe('sheet');
       expect(log, r.kind).toMatchObject({ seen: 1, sheet: 1, navigated: [], reads: [] });
