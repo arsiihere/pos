@@ -264,3 +264,14 @@ Questions Q-1 / Q-2 of `docs/reviews/05_v0.7.1_hostile_run9.md`; applied in `doc
 |---|---|---|
 | Q-1 | H9-1, H9-10 | **Currency per tenant again: one tenant = one country / currency.** Supersedes the §17 OQ-9 developer call (its text kept, marked). 05's row A-6 and its backfill are dropped; foundation row F-6 says the currency is per tenant, with the minor-unit exponent taken from the currency; every branch's jurisdiction must use the tenant's currency (checked when a jurisdiction is chosen). An owner with branches in two countries opens a second tenant; a cross-tenant owner view is a later item (deferred, not 05). |
 | Q-2 | H9-2 | Under a cash-only rounding rule **only the cash part is rounded**; card / digital parts are exact. Pakistan (round every bill to Rs 1) is unchanged. Supersedes the §17 OQ-11 call. |
+
+## 19. Run 10 (targeted check of v0.7.2) — cash-only rounding dues (2026-11-18)
+
+`docs/reviews/05_v0.7.2_targeted_check.md`; applied in `docs/specs/05_Billing_Spec_v0.7.3.md` ("⚠️ Changed in v0.7.3 (H10-n)").
+
+| # | Finding | Who | Ruling |
+|---|---|---|---|
+| Q-1 | H10-1, H10-2 | **developer call following the owner's §18 Q-2 ruling ("card parts exact"); owner may veto** | Option (a). Under cash-only rounding the screen shows **two dues — the card (exact) due and the cash (rounded) due**. A card always pays exact amounts; rounding applies only to the cash part, and only once cash is paid, so an all-card split has no rounding line. Any payment order works: cash first, then the exact card balance; or card first, then the rounded cash balance. Cash amounts are multiples of the rounding step. Test #20b becomes a property test over random partial cash / card amounts and orders. Pakistan (round every bill to Rs 1) is unchanged. |
+| H10-3, H10-4 | defaults | developer (review fix) | A `NULL` rounding step = no rounding in the catalog text too; with no billing settings the hub uses built-in rules equal to the `PK` seed for a PKR tenant and to the `none` seed (no rounding) otherwise. |
+| H10-5, H10-6 | adapter config | developer (review fix) | No secret in `adapter_settings` (public config only); an adapter's keys and tokens are named credentials in the hub-only `fiscal_credentials`, like the PRA token. `base_urls` are keyed by adapter; pending rows and credits use the adapter recorded on the invoice. |
+| H10-7, H10-8 | text | developer (review fix) | `seed-tenant` refuses an unknown ISO 4217 code (00 row H-5); stale text fixed. |
