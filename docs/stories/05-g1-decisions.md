@@ -162,3 +162,15 @@ Questions Q-1–Q-5 of `docs/reviews/05_v0.2_hostile_run1.md`; applied to `docs/
 | R3 | H1-5 (Q-3) | After any void / comp / remove the open part's frozen discount is capped to the open part's current pre-discount total (never above it, never negative), re-spread with the capped allocator; closed splits never change. |
 | R4 | H1-9 (Q-4) | Day close is allowed with a carried-over bill that has payments; X and Z show a separate line "payments on open bills"; `RemovePayment` on a reopened bill may not touch a payment whose shift is closed or counted — money back comes from today's (the actor's) shift as an `out` payment; Z invariant: Σ takings = Z net + payments on open bills − paid earlier. |
 | R5 | H1-16 (Q-5) | When the whole bill crosses the threshold after a split closed without buyer data, the buyer ID (or the approved waiver) is required from the next split close on; closed splits untouched. |
+
+## 11. Answers on hostile run 2 (2026-11-18 08:38 PKT)
+
+Questions Q-1–Q-5 of `docs/reviews/05_v0.3_hostile_run2.md`; applied to `docs/specs/05_Billing_Spec_v0.4.md` ("⚠️ Changed in v0.4"). Q-1 is the owner's own ruling; Q-2–Q-5 the owner answered "your call", so the developer took the review's Rec (**developer call, owner delegated**).
+
+| # | Finding | Who | Ruling |
+|---|---|---|---|
+| Q-1 | H2-8 | owner | The frozen discount covers only the lines that were on the bill when the first split closed; lines that join later are full price. R3's cap and re-spread use only those lines still in the open part; B7 and R3 agree. |
+| Q-2 | H2-13 | developer call, owner delegated | A round queued offline and replayed after the bill closed is refused (`TABLE_NEEDS_CLEANING`, as today); the device shows "bill closed — send again?"; a fresh resend is accepted and opens a new bill (S-9). |
+| Q-3 | earlier-day takeaway reopen | developer call, owner delegated | Reopening an earlier-business-day takeaway (or parking) bill is corrections only; an addition is a new order today with its own bill. |
+| Q-4 | H2-21 | developer call, owner delegated | A parking bill is keyed per plate per business day (`bill_key = 'parking:' + plate + ':' + business_date`); 02b's slip `table_key` is unchanged. |
+| Q-5 | H2-5 | developer call, owner delegated | While a newer bill is open on the same takeaway / parking key, a reopen of the older bill is corrections only (the provisional v0.4 rule made final). |
