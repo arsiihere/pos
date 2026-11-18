@@ -183,7 +183,7 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
   if (tile === null) {
     return (
       <div className={scrim}>
-        <section className="tv" role="dialog" aria-modal="true" aria-label={t('common.loading')}>
+        <section className="tv" role="dialog" aria-modal="true" data-route-sheet="" aria-label={t('common.loading')}>
           <div className="tv__h">
             <p className="dlg__line">{t('common.loading')}</p>
           </div>
@@ -447,6 +447,8 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
           className="tv"
           role="dialog"
           aria-modal="true"
+          // 01d v1.3.2 §3.13.2 rule 6 (owner Q-A (a)): a route-level screen, not a popup: a banner deep-links from it
+          data-route-sheet=""
           aria-label={`${code} · ${title}`}
           onKeyDown={(e) => {
             if (e.key === 'Escape' && dialog === null) close();
