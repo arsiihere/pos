@@ -34,6 +34,7 @@ import { ShellContext, type Shell } from './shell/hooks';
 import { createLiveBus } from './shell/live';
 import { createPermissions } from './shell/permissions';
 import { pendingVoidsOf } from '../voids/pending';
+import { PHONE_QUERY, PORTRAIT_QUERY } from './shell/layout';
 import { matchStaffRoute, routePath, withoutFocus } from './shell/routes';
 import { isSlotRoute, RouteSlot } from './shell/slots';
 import { createToastBus, ToastView } from './shell/toast';
@@ -67,8 +68,6 @@ import { passLiveOf } from '../pass/live';
 // caught); the idle lock gets the login's TTL and signs the page out; the late cards get every alert row (open and
 // closed); a request_result row is told to the pending-comp store; the map's New order opens 02b's New order sheet.
 
-const PORTRAIT = '(orientation: portrait) and (min-width: 761px)';
-const PHONE = '(max-width: 760px)';
 const TICK_MS = 15_000;
 const SEEN_FLUSH_MS = 250;
 const SEEN_BATCH = 50;
@@ -124,8 +123,8 @@ export interface StaffAppProps {
 }
 
 export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipeKeys, goToPair }: StaffAppProps) {
-  const phone = useMedia(PHONE);
-  const portrait = useMedia(PORTRAIT);
+  const phone = useMedia(PHONE_QUERY);
+  const portrait = useMedia(PORTRAIT_QUERY);
   const route = useHashRoute();
   const [me, setMe] = useState<Me | null>(null);
   const meRef = useRef<Me | null>(null);

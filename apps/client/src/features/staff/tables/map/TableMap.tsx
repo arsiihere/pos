@@ -4,7 +4,7 @@ import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
 import type { AlertRow } from '../../../alerts/store';
 import { useShell } from '../../shell/hooks';
-import { tableHref } from '../../shell/routes';
+import { matchStaffRoute, tableHref } from '../../shell/routes';
 import type { MapTile } from '../contracts';
 import {
   callsOf,
@@ -61,6 +61,14 @@ export function TableMap({ alertRows = NONE, onNewOrder }: TableMapProps = {}) {
   // the sheet's route has no ?floor=: keep the floor the map was showing
   const lastFloor = useRef<string | null>(null);
   if (route.startsWith('/tables') && !route.startsWith('/tables/')) lastFloor.current = floorOf(route);
+  // 01d v1.3 §3.13.5 (m7), 02a v1.1.7 §8: a deep link to a table shows the floor that holds its tile, as if picked by
+  // the floor control (and it stays picked once `focus` is dropped). A tile in the archived group has no floor: the
+  // map keeps its floor (the phone its first one) and the sheet header glows instead (table-place.ts, G-4).
+  const deep = matchStaffRoute(route, shell.device.type);
+  if (deep.name === 'table' && deep.focus !== null && map !== null) {
+    const holder = map.floors.find((f) => !f.archived && f.zones.some((z) => z.tables.some((x) => x.table_id === deep.table_id)));
+    if (holder !== undefined && (lastFloor.current !== null || shell.phone)) lastFloor.current = holder.floor_id;
+  }
   const selected = lastFloor.current;
   useChanged(shell.enqueue.subscribe, shell.localFlags.subscribe);
   const [filter, setFilter] = useReducer((_: MapFilter, next: MapFilter) => next, 'all' as MapFilter);
