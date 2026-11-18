@@ -275,3 +275,13 @@ Questions Q-1 / Q-2 of `docs/reviews/05_v0.7.1_hostile_run9.md`; applied in `doc
 | H10-3, H10-4 | defaults | developer (review fix) | A `NULL` rounding step = no rounding in the catalog text too; with no billing settings the hub uses built-in rules equal to the `PK` seed for a PKR tenant and to the `none` seed (no rounding) otherwise. |
 | H10-5, H10-6 | adapter config | developer (review fix) | No secret in `adapter_settings` (public config only); an adapter's keys and tokens are named credentials in the hub-only `fiscal_credentials`, like the PRA token. `base_urls` are keyed by adapter; pending rows and credits use the adapter recorded on the invoice. |
 | H10-7, H10-8 | text | developer (review fix) | `seed-tenant` refuses an unknown ISO 4217 code (00 row H-5); stale text fixed. |
+
+## 20. Run 11 (targeted check of v0.7.3) — cash refunds and the close rule (2026-11-18)
+
+`docs/reviews/05_v0.7.3_targeted_check.md`; applied in `docs/specs/05_Billing_Spec_v0.7.4.md` ("⚠️ Changed in v0.7.4 (H11-n)").
+
+| # | Finding | Who | Ruling |
+|---|---|---|---|
+| Q-1 | H11-3 | **developer call, owner may veto** | Option (a): **cash refunds round like a sale.** Under a cash-only rounding rule a cash refund is a multiple of the rounding step, rounded with the jurisdiction's mode (on its size), so a reopened bill never stays open at a sub-step amount (5.01 owed back → 5.00 in cash, 0.01 is the new invoice's rounding line). Card refunds stay exact. Pakistan (round every bill to Rs 1) is unchanged. |
+| H11-1, H11-2 | close rule, `pro_rata` | developer (review's tested fix) | The split closes on balance 0, and a paid split shows card due 0. Under `pro_rata` the card due is the declared digital part minus card paid, and a declaration whose cash part rounds to 0 is refused. §16's "payment order never matters" still holds. |
+| H11-4, H11-5 | credentials, text | developer (review fix) | One write-only admin field and one `fiscal-status` entry per credential name (PRA unchanged: one token). One shared seed constant; "card only" on the pad. |
