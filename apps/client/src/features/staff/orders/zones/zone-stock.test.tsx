@@ -94,6 +94,13 @@ async function open(v: Mounted, row: HTMLElement, label: 'Refill' | 'Count') {
 }
 
 describe('[02b §8 Zone stock screen] zone stock', () => {
+  it('[02b §8] every stock row carries data-zone-item="<zone_id>:<item_id>" (01d v1.3 §3.13.5)', async () => {
+    const v = await show(setup());
+    expect(zsRows(v).map((r) => r.dataset.zoneItem)).toEqual(['FH:raita', 'FH:water', 'FH:salad', 'CB:raita']);
+    // the same item in two zones is two rows, each found by its own key
+    expect(v.container.querySelector('[data-zone-item="CB:raita"] .n')?.textContent).toBe('12');
+  });
+
   it('[02b §8 Zone stock screen] all zones in floor order; counts; Low / Empty icon + word', async () => {
     const v = await show(setup());
     expect([...v.container.querySelectorAll('.grp__h')].map((h) => h.textContent)).toEqual(['Family hall', 'Cabins']);

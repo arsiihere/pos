@@ -47,6 +47,15 @@ function show(t: MapTile, extra: Partial<Parameters<typeof Tile>[0]> = {}) {
 }
 
 describe('[02a §8 Table map] tile', () => {
+  it('[02a §8] every tile carries data-table="<table_id>" (01d v1.3 §3.13.5), free, seated and archived', () => {
+    for (const t of [tile(), tile({ table_id: 'TB7', state: 'SEATED', seating_id: 'S7', opened_at: OPENED, primary_table_id: 'TB7' }), tile({ table_id: 'TB9', archived: true })]) {
+      const { button } = show(t);
+      expect(button.dataset.table).toBe(t.table_id);
+      m.unmount();
+    }
+    m = mount();
+  });
+
   it('[02a §8 Table map] tile: icon + word per state, "T4 + T5", holder initials, hollow assignee only when ≠ holder, padlock + name, time open, party size', () => {
     const states = [
       ['FREE', 'Free', 's-free'],

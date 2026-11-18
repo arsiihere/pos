@@ -198,7 +198,7 @@ export function OrderView({ order_id }: OrderViewProps) {
 
   return (
     <div className={shell.phone ? 'scrim scrim--sheet' : 'scrim scrim--side'}>
-      <section className="tv" role="dialog" aria-modal="true" aria-label={title}>
+      <section className="tv" role="dialog" aria-modal="true" aria-label={title} data-order={order_id}>
         <div className="tv__h">
           <div className="tv__hd">
             {head?.car_number !== null && head?.car_number !== undefined ? (

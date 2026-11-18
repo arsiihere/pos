@@ -226,7 +226,7 @@ export function Tile({ tile, staffId, nowMs, late, waiting = false, callSentAt =
     .join(', ');
 
   return (
-    <button type="button" className={classes} aria-label={label} onClick={() => onTap(tile)}>
+    <button type="button" className={classes} aria-label={label} data-table={tile.table_id} onClick={() => onTap(tile)}>
       <span className="tt__top">
         <span className="tt__puck">
           <Ring percent={percent} tone={isLate ? 'warn' : tone} state={tile.state} />
