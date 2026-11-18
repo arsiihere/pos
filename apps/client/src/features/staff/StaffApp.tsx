@@ -35,7 +35,7 @@ import { createLiveBus } from './shell/live';
 import { createPermissions } from './shell/permissions';
 import { pendingVoidsOf } from '../voids/pending';
 import { PHONE_QUERY, PORTRAIT_QUERY } from './shell/layout';
-import { matchStaffRoute, routePath, withoutFocus } from './shell/routes';
+import { consumeFocus, matchStaffRoute, routePath, withoutFocus } from './shell/routes';
 import { isSlotRoute, RouteSlot } from './shell/slots';
 import { createToastBus, ToastView } from './shell/toast';
 import { createTablesApi } from './tables/api';
@@ -49,6 +49,7 @@ import { TopBar } from './tables/TopBar';
 import { createPrintSkipDismiss } from '../alerts/labels-03b';
 import { AuditLog } from '../audit/AuditLog';
 import { tapAlert } from '../alerts/deeplink-tap';
+import { dropHandover } from './orders/preload';
 import type { OrdersCatchUp } from './orders/contracts';
 import { LiveRegion } from '../alerts/LiveRegion';
 import { PrintSkipContext, type PrintSkipCtx } from '../alerts/ui';
@@ -374,6 +375,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     sessionGen.current += 1;
     closedSeen.current.clear();
     seenSent.current.clear();
+    dropHandover(); // dl cp6: a held tap read never outlives the session
     const gen = sessionGen.current;
     setReplaced(false);
     conn.setSession(who.session_token);
@@ -385,8 +387,12 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     // 02a §8 / handoff 02-S03: the staff app lands on the table map; the cashier kiosk on its home (#/ = KioskHome)
     // 03b W0.6 (handoff Q-6): a Pass tablet (point_view in the catch-up) lands on the Pass; the socket opens with the
     // session, so its catch-up usually comes after this: the effect below moves the landing then
-    landOnPass.current = device.type !== 'cashier_kiosk';
-    navigate(device.type === 'cashier_kiosk' ? '/' : pass.store.snapshot().view !== null ? '/pass' : '/tables');
+    // 01d v1.3.2 §3.13.4 (9b, test 91): only the 9b form, #/inbox?focus=alert:<id> (a notification tap while signed
+    // out), is kept through the sign-in: no landing, so the Inbox glows that card. Any other focus lands as today.
+    const landing = matchStaffRoute(window.location.hash.replace(/^#/, ''), device.type);
+    const keepFocus = landing.name === 'inbox' && landing.focus?.kind === 'alert';
+    landOnPass.current = device.type !== 'cashier_kiosk' && !keepFocus;
+    if (!keepFocus) navigate(device.type === 'cashier_kiosk' ? '/' : pass.store.snapshot().view !== null ? '/pass' : '/tables');
     const [info, time] = await Promise.all([api.session(), api.hubTime(), shellConfig.refresh()]);
     if (gen !== sessionGen.current) return;
     // S47: re-sync the hub clock from branch-config hub_time (the page's clock is from when it loaded)
@@ -405,6 +411,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       sessionGen.current += 1;
       closedSeen.current.clear();
       seenSent.current.clear();
+      dropHandover(); // dl cp6: a held tap read never outlives the session
+      consumeFocus(); // §3.13.4 (#264 review): no focus of this person's carries into the next sign-in
       setOpened(null);
       setNewOrder(false);
       setCloses(new Map());
@@ -430,6 +438,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     sessionGen.current += 1;
     closedSeen.current.clear();
     seenSent.current.clear();
+    dropHandover(); // dl cp6: a held tap read never outlives the session
+    consumeFocus(); // §3.13.4 (#264 review): no focus of this person's carries into the next sign-in
     setOpened(null);
     setNewOrder(false);
     setCloses(new Map());
