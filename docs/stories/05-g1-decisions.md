@@ -297,3 +297,12 @@ Questions Q-1 / Q-2 of `docs/reviews/05_v0.7.1_hostile_run9.md`; applied in `doc
 | Q-3 | H12-1 | provisional owner Rec (owner may veto) | Under `pro_rata` with whole-bill rounding (Punjab) or no rounding, the card pays exactly its declared part (card due = declared part − card paid); any rounding line sits on the cash part; a declaration that leaves no cash after rounding is refused. |
 | H12-2, H12-4, H12-6 | rounding line, re-check, fields | developer (review's tested fixes) | The cash rounding stays on while any cash payment is live; the "cash part rounds to 0" check re-runs after every new round or reopen; payment dues and refund dues are separate fields, and the pad shows "refund card / cash" on a negative balance. A property test mirrors the review's model (sales and refunds, six setups). |
 | Stop rule | review process | **owner, 2026-11-18 13:07 PKT** | **Run 13 is the last targeted check.** If it finds 0 blocker and 0 major, the remaining minors / nits are fixed in v1.0 and listed as known gaps in a §12.x "Known gaps at approval" section (04 v1.0 §12.6 precedent), and the spec goes to the owner for approval without another review run. If it finds a major, one more fix round and check. |
+
+## 22. Run 13 (targeted check of v0.7.5) — all-card bills under pro rata (2026-11-18)
+
+`docs/reviews/05_v0.7.5_targeted_check.md` (0 blocker, 1 major, 2 minor, 1 nit); applied in `docs/specs/05_Billing_Spec_v0.7.6.md` ("⚠️ Changed in v0.7.6 (H13-n)"). Run 13 found a major, so per the §21 stop rule this is one more fix round, followed by a final check.
+
+| # | Finding | Who | Ruling |
+|---|---|---|---|
+| Q-1 | H13-1 | provisional owner Rec (owner may veto) | Option (a): under `pro_rata` with whole-bill rounding (Punjab), **a bill paid entirely by card pays the rounded total** (Rs 2 100.40 → Rs 2 100.00, or Rs 2 101.00 when rounding up), as every Pakistan bill does today; that amount is recorded as the declared card part at close, so a later reopen starts from what the card paid. The review's tested fix, applied exactly. |
+| H13-2–H13-4 | text | developer (review fixes) | "Already paid" in the re-declaration rule is net of refunds; two named test cases match the per-type refund rule; the declaration check covers `'cash'` and `'all'`; two text fixes. |
