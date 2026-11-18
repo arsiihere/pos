@@ -174,3 +174,17 @@ Questions Q-1–Q-5 of `docs/reviews/05_v0.3_hostile_run2.md`; applied to `docs/
 | Q-3 | earlier-day takeaway reopen | developer call, owner delegated | Reopening an earlier-business-day takeaway (or parking) bill is corrections only; an addition is a new order today with its own bill. |
 | Q-4 | H2-21 | developer call, owner delegated | A parking bill is keyed per plate per business day (`bill_key = 'parking:' + plate + ':' + business_date`); 02b's slip `table_key` is unchanged. |
 | Q-5 | H2-5 | developer call, owner delegated | While a newer bill is open on the same takeaway / parking key, a reopen of the older bill is corrections only (the provisional v0.4 rule made final). |
+
+## 12. Run 3 (targeted check of v0.4) — owner answer and notes (2026-11-18)
+
+`docs/reviews/05_v0.4_targeted_check.md` (FIX: 0 blocker, 3 major, 3 minor, 3 nit); applied in `docs/specs/05_Billing_Spec_v0.5.md` ("⚠️ Changed in v0.5 (H3-n)").
+
+| # | Finding | Who | Ruling / note |
+|---|---|---|---|
+| H3-1 (Q-1) | takeaway add-on token | owner, 2026-11-18 09:26 PKT, option (a) | A takeaway add-on **keeps the first (root) order's token**, as R2 said. 02b row Q-6: `orders_token` becomes the non-unique index `orders_token_day (business_date, token)` in hub migration `0021_orders_billing.sql`; `nextToken` stays `MAX + 1` for root orders only; the add-on keeps its own `table_key` (03a slip grouping unchanged) and the root's `bill_key`. The "adds to #<root token>" print is dropped. **Rule:** the token is a display identifier only; no code resolves token → order today (03b `kds/commands/ready.ts`, 03c `print/render/jobs.ts`, client Pass card, open-orders row, order view all read it by `order_id`); any future token search returns the bill or the latest open order of that token. |
+| H3-2 | reopened PARTLY_PAID bill had no `bill_orders` | developer (review fix) | `BillReopened` carries the bill's `order_ids`, folded into `bill_orders`, so the reopen is full edit and keeps every line. |
+| H3-3 | Z invariant for a carried PARTLY_PAID bill | developer (review fix) | Brought / carried forward count payments on **open splits** only; property test on both days. |
+| H3-4 | residual base after comp + void | developer (review fix) | Line guard gets `comped_after` and `base_after_minor` from every caller and refuses a residual. |
+| H3-5 | free text in events / alert values | developer (review fix) | `bill_texts(subject_id, …)` keyed by an id the command mints (`entry_id`, `payment_id`, `note_id`); written at raise on the approval path; no text in any event or `AlertRaised.values`. |
+| H3-6 – H3-8 | dine-in `bill_key`, parking key text, `discount_line_ids` | developer (review fix) | `bill_key` takeaway / parking only (dine-in via `seating_orders`); parking `table_key || ':' || business_date`; `InvoiceIssued.discount_line_ids`. |
+| H3-9 | rebase | developer | `spec-05` rebased on `origin/main` @ `049f6ce` (PR #236 merged; 04 at v1.0.5 on `main`); 05's version and migration numbers unchanged (04 → v1.0.6). |
