@@ -7,6 +7,7 @@ import { Ico } from '../../../alerts/ui';
 import { useShell } from '../../shell/hooks';
 import type { OrdersCatchUp, ZoneStockBody } from '../contracts';
 import { useLiveRefetch } from '../lists/OpenOrders';
+import { onHandover, peekZoneStock, takeZoneStock } from '../preload';
 import { CountSheet } from './CountSheet';
 import { RefillSheet } from './RefillSheet';
 
@@ -30,7 +31,12 @@ export function ZoneStock() {
   const shell = useShell();
   const shellRef = useRef(shell);
   shellRef.current = shell;
-  const [zones, setZones] = useState<ZoneStockBody[] | null>(() => seed(shell.live.part('orders')));
+  // 01d v1.3 §3.13.3 (m3), 02b v1.0.15 §8: a zone deep link hands over the zone-stock result its tap read
+  // (orders/preload.ts). The first render draws it (peek: pure), the mount effect takes it and skips its read; a
+  // screen already on #/zones is told of a new handover and applies it. Frames still read again as before.
+  const [zones, setZones] = useState<ZoneStockBody[] | null>(() => peekZoneStock() ?? seed(shell.live.part('orders')));
+  /** the result this screen took (StrictMode runs the effect twice; the second run must not read) */
+  const handed = useRef<ZoneStockBody[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [pick, setPick] = useState<Pick | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,7 +55,19 @@ export function ZoneStock() {
     setZones(answer.data);
   }, []);
   useEffect(() => {
-    void load();
+    const pre = takeZoneStock() ?? handed.current;
+    handed.current = pre;
+    if (pre !== null) {
+      request.current += 1; // a read already in flight is older than the tap's
+      setZones(pre);
+    } else void load();
+    return onHandover(() => {
+      const next = takeZoneStock();
+      if (next === null) return;
+      handed.current = next;
+      request.current += 1;
+      setZones(next);
+    });
   }, [load]);
   useLiveRefetch(shell.live, () => void load(), ZONE_FRAMES);
 

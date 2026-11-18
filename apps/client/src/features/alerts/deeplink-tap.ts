@@ -3,6 +3,7 @@ import type { HubError } from '../../api/hub-admin';
 import { t, type MessageKey } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { orderErrorKey } from '../staff/orders/view/LineActions';
+import { handOver } from '../staff/orders/preload';
 import { consumeFocus, matchStaffRoute, type StaffFocus } from '../staff/shell/routes';
 import { checkTarget, REQUEST_KINDS, type CheckDeps, type CheckResult } from './deeplink-check';
 import { focusPlace } from './glow';
@@ -253,6 +254,7 @@ export async function tapAlert(row: TapRow, deps: TapDeps): Promise<TapOutcome> 
   switch (result.kind) {
     case 'open': {
       const moving = window.location.hash !== `#${result.href}`;
+      if (result.preload !== undefined) handOver(result.preload); // §3.13.3 m3: the screen reuses this read (dl cp6)
       deps.navigate(result.href);
       const label = openedText(row, result.focus);
       (deps.arrive ?? ((href, focus, text) => void glowOnArrival(href, focus, text, { moving })))(result.href, result.focus, label);
