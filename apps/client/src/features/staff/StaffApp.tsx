@@ -523,7 +523,12 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const tapGen = useRef(0);
   const liveRows = useRef({ views, held });
   liveRows.current = { views, held };
+  // the deep link's own navigation (and its consumeFocus) is not a route change that makes its tap stale: a dine-in
+  // slip still opens AnswerSheet when no LateCard renders (dl cs10, M3)
+  const ownRoute = useRef<string | null>(null);
   useEffect(() => {
+    if (ownRoute.current !== null && withoutFocus(route) === withoutFocus(ownRoute.current)) return;
+    ownRoute.current = null;
     tapGen.current += 1;
   }, [route]);
   const seenHere = (row: AlertRow | RequestView) => {
@@ -540,6 +545,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // one-level Back chip to the hash the tap left. It goes at the next navigation of any kind.
   const [back, setBack] = useState<{ from: string; to: string } | null>(null);
   const deepNavigate = (href: string) => {
+    ownRoute.current = href;
     // no chip when the tap lands on the screen the person is already on (#257 review)
     if (device.type === 'cashier_kiosk' && withoutFocus(href) !== withoutFocus(route)) setBack({ from: route, to: withoutFocus(href) });
     navigate(href);
@@ -567,6 +573,11 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       seen: () => seenHere(row),
       openSheet: () => openSheet(row),
       navigate: deepNavigate,
+      settled: () => {
+        // this tap's deep link is done: any later route change ends nothing of it. Only the current tap's: a stale
+        // tap settling late (its arrival cancelled by a newer tap) must not clear the newer tap's own route (#263 review 2)
+        if (tapGen.current === gen) ownRoute.current = null;
+      },
       toast: (text) => toasts.show({ text, tone: 'warn' }),
     });
   };
