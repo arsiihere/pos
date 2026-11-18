@@ -36,6 +36,13 @@
   --accent-tint: color-mix(in oklab, var(--brand-secondary) 9%, #FFFFFF);
   --accent-ink: var(--brand-secondary);
 }
+/* deep-link glow (01d v1.3 §3.13.6): the brand, never a status colour; set on every theme so --ink resolves per theme */
+:root, [data-theme="light"], [data-theme="dark"] {
+  --glow-brand: color-mix(in oklab, var(--brand-primary) 45%, transparent); /* soft brand halo */
+  --glow-brand-ring: var(--brand-primary);                                  /* static ring, reduced motion */
+  --glow-edge: var(--ink);                                                  /* thin contrast edge, every mode (m9) */
+  --motion-glow: 2000ms;                                                    /* the one source of the length (n5) */
+}
 
 /* ---------- 3. SEMANTIC — light (floor: tablet, kiosk, laptop, phone) ---------- */
 :root, [data-theme="light"] {

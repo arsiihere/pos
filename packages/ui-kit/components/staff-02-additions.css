@@ -3,3 +3,16 @@
 
 /* Phone tab bar with a Requests tab for approvers: five tabs on one row (pulse-staff .tabbar is 4 columns). */
 :where(.pu) .tabbar--5 { grid-template-columns: repeat(5, 1fr); }
+
+/* Deep-link glow (01d v1.3.1 §3.13.6): the staff entry loads this file last and never loads bundle.css, so the glow
+   lives here, after the box-shadow rules of pulse-02 / pulse-03 on .rnd, .ol, .pc, .lc. The client adds .pos-glow
+   and removes it after --motion-glow (tokens.css). The reduced-motion ring is an outline: no target class sets one. */
+@keyframes pos-glow {
+  0%   { box-shadow: 0 0 0 2px var(--glow-edge), 0 0 0 2px var(--glow-brand); }
+  15%  { box-shadow: 0 0 0 2px var(--glow-edge), 0 0 0 6px var(--glow-brand), 0 0 18px 6px var(--glow-brand); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.pos-glow { animation: pos-glow var(--motion-glow) ease-out 1; }
+@media (prefers-reduced-motion: reduce) {
+  .pos-glow { animation: none; outline: 2px solid var(--glow-brand-ring); outline-offset: 2px; }
+}
