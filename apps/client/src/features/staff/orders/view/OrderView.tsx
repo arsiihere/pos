@@ -178,7 +178,9 @@ export function OrderView({ order_id }: OrderViewProps) {
     // one reader per order
   }, [order_id]);
 
-  const close = () => navigate(shell.device.type === 'cashier_kiosk' ? '/' : '/orders');
+  const fallback = shell.device.type === 'cashier_kiosk' ? '/' : '/orders';
+  // 01d v1.3.3 §3.13.2 rule 6: a deep-linked view's close returns where the tap started (the shell decides)
+  const close = () => (shell.closeRouteSheet === undefined ? navigate(fallback) : shell.closeRouteSheet(fallback));
   const offset = shell.clock.utcOffsetMs;
   const order = view.kind === 'order' && view.order.order_id === order_id ? view.order : null;
   const nowMs = shell.clock.nowMs();
@@ -237,7 +239,7 @@ export function OrderView({ order_id }: OrderViewProps) {
   const acts = [showCall, showBoost, showServed, showCancel].filter(Boolean).length;
 
   return (
-    <div className={shell.phone ? 'scrim scrim--sheet' : 'scrim scrim--side'}>
+    <div className={shell.phone ? 'scrim scrim--sheet scrim--route' : 'scrim scrim--side scrim--route'}>
       {/* 01d v1.3.2 §3.13.2 rule 6 (owner Q-A (a)): a route-level screen, not a popup (data-route-sheet) */}
       <section className="tv" role="dialog" aria-modal="true" data-route-sheet="" aria-label={title} data-order={order_id}>
         <div className="tv__h">

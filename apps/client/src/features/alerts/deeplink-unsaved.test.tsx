@@ -266,25 +266,25 @@ describe('[01d v1.3 §3.13.2 rule 6] the order screen and the kiosk Back chip', 
     const { m } = await shell([SERVED], () => reply(200, { data: body() }));
     window.location.hash = '#/inbox';
     await flush(8);
-    expect(m.container.querySelector('header .chip')).toBeNull();
+    expect(m.container.querySelector('.abk .chip')).toBeNull();
     m.click(m.container.querySelector('[data-alert="A-SERVED"]'));
     await flush(8);
     await wait(40);
     await flush(4);
     expect(window.location.hash).toMatch(/^#\/tables\/T4\?seating_id=S4(&|$)/);
-    m.click(m.button('Back'));
+    m.click(m.container.querySelector('.abk .chip'));
     await flush(8);
     expect(window.location.hash).toBe('#/inbox');
-    expect(m.container.querySelector('header .chip')).toBeNull();
+    expect(m.container.querySelector('.abk .chip')).toBeNull();
     // again, then any other navigation drops the chip
     m.click(m.container.querySelector('[data-alert="A-SERVED"]'));
     await flush(8);
     await wait(40);
     await flush(4);
-    expect(m.button('Back')).toBeTruthy();
+    expect(m.container.querySelector('.abk .chip')?.textContent).toContain('Back');
     window.location.hash = '#/tables';
     await flush(8);
-    expect(m.container.querySelector('header .chip')).toBeNull();
+    expect(m.container.querySelector('.abk .chip')).toBeNull();
   });
 
   it('[01d #86] (a) in the shell: a banner Open while a real popup is open is held back (the detail opens over it, no navigation)', async () => {
@@ -334,7 +334,7 @@ describe('[01d v1.3 §3.13.2 rule 6] the order screen and the kiosk Back chip', 
     await flush(8);
     await wait(60);
     expect(window.location.hash).toMatch(/^#\/tables\/T4\?seating_id=S4(&|$)/);
-    expect(tablet.m.container.querySelector('header .chip')).toBeNull();
+    expect(tablet.m.container.querySelector('.abk .chip')).toBeNull();
     tablet.m.unmount();
     mm = null;
     const kiosk = await shell([], () => reply(200, { data: body() }));
@@ -346,6 +346,6 @@ describe('[01d v1.3 §3.13.2 rule 6] the order screen and the kiosk Back chip', 
     await flush(8);
     await wait(60);
     expect(window.location.hash).toMatch(/^#\/tables\/T4\?seating_id=S4(&|$)/);
-    expect(kiosk.m.container.querySelector('header .chip')).toBeNull();
+    expect(kiosk.m.container.querySelector('.abk .chip')).toBeNull();
   });
 });

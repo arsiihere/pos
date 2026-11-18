@@ -76,22 +76,6 @@ describe('[02a §8 Top bar] TopBar', () => {
     expect(m.text()).toContain('8:15 PM');
   });
 
-  it('[01d v1.3 §3.13.2 rule 6; DL-K1] the kiosk Back chip: shown only with onBack and a person; one tap calls it', () => {
-    const onBack = vi.fn();
-    m = mount();
-    m.render(<TopBar {...props({ deviceLine: 'Gulberg · Cashier kiosk', bind: null, onBack })} />);
-    m.click(m.button('Back'));
-    expect(onBack).toHaveBeenCalledTimes(1);
-    m.unmount();
-    m = mount();
-    m.render(<TopBar {...props({ onBack: null })} />);
-    expect(names(m.container).some((n) => n.includes('Back'))).toBe(false);
-    m.unmount();
-    m = mount();
-    m.render(<TopBar {...props({ person: null, onBack })} />);
-    expect(names(m.container).some((n) => n.includes('Back'))).toBe(false);
-  });
-
   it('[02a §8 Top bar] Test alert stays reachable for manage-devices (01d), after Requests', () => {
     m = mount();
     m.render(<TopBar {...props({ testAlert: true })} />);

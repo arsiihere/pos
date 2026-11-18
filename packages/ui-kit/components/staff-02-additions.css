@@ -16,3 +16,9 @@
 @media (prefers-reduced-motion: reduce) {
   .pos-glow { animation: none; outline: 2px solid var(--glow-brand-ring); outline-offset: 2px; }
 }
+
+/* 01d v1.3.3 §3.13.6a (DL Q-K (c)): the shell's layers. Route sheets (TableSheet, OrderView; their wrapper carries
+   scrim--route) sit at 10, under the alert layer (banners .abns and the kiosk Back chip .abk, 20); popups keep the
+   plain .scrim at 30, above the banners. Same specificity as :where(.pu) .scrim, later in the cascade, so it wins. */
+:where(.pu) .scrim--route { z-index: 10; }
+:where(.pu) .abk { position: absolute; inset-block-start: 16px; inset-inline-start: 20px; z-index: 20; }
