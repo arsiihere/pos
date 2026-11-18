@@ -122,7 +122,7 @@ function setup(o: { answer?: 'order' | 'missing'; perms?: Record<string, Resolut
     live,
     orders: orders as unknown as OrdersApi,
     tables: { tableMap: vi.fn() },
-    api: { command: vi.fn(async () => ({ ok: true as const, data: { removed: [] } })) },
+    api: { command: vi.fn(async () => ({ ok: true as const, data: { removed: [] } })), query: vi.fn(async () => ({ ok: true as const, data: { orders: [] } })) /* 04 pending-voids */ },
     permissions: createPermissions(o.perms ?? ALL),
     toasts: createToastBus(),
     enqueue: enqueue as unknown as Enqueue,
@@ -343,5 +343,38 @@ describe('[02b Q-6] order view live refresh', () => {
     await flush();
     expect(s.enqueue).toHaveBeenCalledTimes(1);
     expect(s.orders.orderView).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('[04 §8] order view: Cancel order and the pending total', () => {
+  const VOIDER: Record<string, Resolution> = { ...ALL, 'void-item': { grant: 'requires_approval', approver_role_ids: ['R'], scope: 'branch' } };
+
+  it('[04 §8 R5] Cancel order shows for a void-item holder (any grant) and opens the Void all sheet; not without the grant', async () => {
+    const s = setup({ answer: 'order', perms: VOIDER });
+    current = s.m;
+    await flush();
+    expect([...s.m.container.querySelectorAll('.tv__acts .btn')].map((b) => b.textContent)).toContain('Cancel order');
+    s.m.click(s.m.button('Cancel order'));
+    expect(s.m.container.querySelector('.dlg--all h2')?.textContent).toBe('Cancel the order?');
+    s.m.unmount();
+    const n = setup({ answer: 'order' });
+    current = n.m;
+    await flush();
+    expect(n.m.text()).not.toContain('Cancel order');
+  });
+
+  it('[04 #58] the order total leaves the pending void refund out and says so', async () => {
+    const s = setup({ answer: 'order', perms: VOIDER });
+    current = s.m;
+    (s.shell.api.query as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) =>
+      path.startsWith('/queries/pending-voids')
+        ? { ok: true as const, data: { orders: [{ order_id: 'O57', voids: [{ alert_id: 'AV', order_item_id: VIEW.lines[0]!.order_item_id, units: 1, touched_ids: [VIEW.lines[0]!.order_item_id], refund_minor: 10_000, comp_voided_minor: 0, requester_staff_id: 'ST-SANA', raised_at: PROMISE, blocked: null }] }] } }
+        : { ok: true as const, data: { previews: [] } },
+    );
+    await flush();
+    const before = VIEW.lines.reduce((s2, l) => s2 + l.billed_minor, 0);
+    const sec = [...s.m.container.querySelectorAll('.tv__sec')].at(-1)!;
+    expect(sec.querySelector('b.num')?.textContent).toBe(`Rs ${((before - 10_000) / 100).toLocaleString('en-US')}`);
+    expect(sec.querySelector('.xp')?.textContent).toBe('Rs 100 pending void not counted');
   });
 });

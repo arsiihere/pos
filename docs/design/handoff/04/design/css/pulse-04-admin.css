@@ -1,0 +1,6 @@
+/* 04 · owner-kit addition for the hub admin Stock page (01a): DAY_CLOSE_BLOCKED banner with its list (01a v2.5, G-21 `Message.items`). */
+.pos-banner__list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pos-banner__list li { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.pos-banner__list li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.6; flex: none; }
+.pos-banner__list li.more { font-weight: 700; }
+.pos-banner__list li.more::before { display: none; }

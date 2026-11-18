@@ -33,6 +33,7 @@ import { createShellConfig, type BranchConfigReply } from './shell/config';
 import { ShellContext, type Shell } from './shell/hooks';
 import { createLiveBus } from './shell/live';
 import { createPermissions } from './shell/permissions';
+import { pendingVoidsOf } from '../voids/pending';
 import { matchStaffRoute } from './shell/routes';
 import { isSlotRoute, RouteSlot } from './shell/slots';
 import { createToastBus, ToastView } from './shell/toast';
@@ -45,6 +46,7 @@ import { createLocalFlags } from './tables/local-flags';
 import { MeTab, PhoneTabs, type PhoneTab } from './tables/PhoneTabs';
 import { TopBar } from './tables/TopBar';
 import { createPrintSkipDismiss } from '../alerts/labels-03b';
+import { AuditLog } from '../audit/AuditLog';
 import { PrintSkipContext, type PrintSkipCtx } from '../alerts/ui';
 import { passLiveOf } from '../pass/live';
 
@@ -163,12 +165,23 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const [replaced, setReplaced] = useState(false);
   // every alert_closed frame, also for requests the store does not hold (seen only through requests-to-answer)
   const [closes, setCloses] = useState<ReadonlyMap<string, WsAlertClosed>>(new Map());
+  // 04 §8 Pending tag (ruling Q1 (a) on #232): a void request raised, answered, withdrawn or closed reaches this page as
+  // an 01d `alert` / `alert_closed` frame; the pending-voids store reads its orders again (the page's latest shell)
+  const voidShell = useRef<Shell | null>(null);
+  const reloadVoids = () => {
+    if (voidShell.current !== null) void pendingVoidsOf(voidShell.current).reload();
+  };
   const socketStore = useMemo<AlertStore>(
     () => ({
       ...store,
+      onAlert(view) {
+        store.onAlert(view);
+        if (view.kind === 'void_approval' || view.kind === 'request_result') reloadVoids();
+      },
       onClosed(frame) {
         store.onClosed(frame);
         setCloses((m) => new Map(m).set(frame.alert_id, frame));
+        reloadVoids();
       },
     }),
     [store],
@@ -443,6 +456,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // AD-T41-10 (review fix): from the hub's own list, never from a permission name
   const showRequests = requests.length > 0;
   const showTest = !phone && allowed.has('manage-devices');
+  // 04 §8 (VU2, R5): the audit log with view-audit-log granted outright (the hub refuses anything else), laptop and tablet
+  const showAudit = !phone && allowed.has('view-audit-log');
   // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
   const hasPoint = useSyncExternalStore(pass.store.subscribe, () => pass.store.snapshot().view !== null);
   // AD-K12 / W-3: leaving the landing route ends the landing too (a late catch-up never moves a person mid-task)
@@ -517,6 +532,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     page = <MeTab name={me.name} onSignOut={() => signOut(true)} />;
   } else if (isSlotRoute(staffRoute)) {
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
+  } else if (route === '/audit' && showAudit) {
+    page = <AuditLog />;
   } else if (route === '/requests' && showRequests) {
     page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={open} />;
   } else if (route === '/test-alert' && showTest) {
@@ -603,6 +620,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         inbox={snap.unseen}
         testAlert={showTest}
         pass={me !== null && hasPoint}
+        audit={showAudit}
         title={me === null ? meta.branchName : phoneTitle}
         phoneSub={
           me === null ? (
@@ -696,6 +714,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     idleTtlMs: me?.idleTtlMs ?? null,
     signOut: () => signOut(false),
   };
+  voidShell.current = shell;
   // IR-11: the late cards read every alert row the page holds, open and closed (a slip closed without ItemsReleased)
   return (
     <ShellContext.Provider value={shell}>

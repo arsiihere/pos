@@ -271,6 +271,22 @@ export function answerErrorText(
       return t('handover.stale');
     case 'STAFF_NOT_FOUND':
       return t('answer.error.staff_not_found');
+    // 04 v1.0.4 §8: an approve refused before the PIN because a stored `moved` line was served meanwhile
+    case 'VOID_NOT_ALLOWED':
+      if (details.hint === 'withdraw_and_reask') return t('void.answer.served_meanwhile');
+      // any other refusal names its reason (§9: not_movable_stage, stock_not_tracked, day_closed)
+      switch (details.reason) {
+        case 'not_movable_stage':
+          return t('void.block.not_movable_stage');
+        case 'stock_not_tracked':
+          return t('void.block.stock_not_tracked');
+        case 'day_closed':
+          return t('void.block.day_closed');
+        default:
+          return t('errors.UNKNOWN');
+      }
+    case 'ORDER_BILLED':
+      return t('void.err.ORDER_BILLED');
     case 'SERVICE_UNAVAILABLE':
       return t('answer.error.busy');
     case 'NETWORK':

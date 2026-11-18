@@ -24,7 +24,9 @@ export type ActionId =
   | 'move'
   | 'join'
   | 'split'
-  | 'clean';
+  | 'clean'
+  // 04 v1.0.5 §8 Cancel table (row S-1): added under More by TableSheet, never by sheetModel
+  | 'cancel_table';
 
 export interface SheetAction {
   id: ActionId;

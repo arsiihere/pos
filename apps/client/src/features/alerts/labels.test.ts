@@ -61,7 +61,7 @@ describe('[01d §3.12] labels', () => {
   it('[01d §3.12] the card text fills the display parameters; the lock text never shows details', () => {
     const v = view({ alert_id: 'A1', kind: 'test_alert', family: 'info', lock: { kind_label_key: 'alert.test_alert.lock', requester_name: 'Imran' } });
     expect(alertText(v)).toBe('Test alert · from Imran');
-    expect(lockText(view({ alert_id: 'A2', card: voidCard }))).toBe('T12 · Request · Hamza');
+    expect(lockText(view({ alert_id: 'A2', card: voidCard }))).toBe('T12 · Void · Hamza'); // 04 §8: alert.void_approval.lock
     expect(lockText(view({ alert_id: 'A2', card: voidCard }))).not.toMatch(/2,200|Karahi|changed/);
   });
 
@@ -91,7 +91,8 @@ describe('[01d §3.12] labels', () => {
     expect(alertText({ ...noApprover, card: { kind_label_key: 'alert.no_approver.card', details: null } })).toBe(
       'No one can approve requests right now',
     );
-    const unknown = view({ alert_id: 'U1', kind: 'void_approval', lock: { kind_label_key: 'alert.void_approval.lock', table_code: '12', requester_name: 'Hamza' } });
+    // a kind this client has no text for (void_approval has its own since 04 §8)
+    const unknown = view({ alert_id: 'U1', kind: 'future_request', lock: { kind_label_key: 'alert.future_request.lock', table_code: '12', requester_name: 'Hamza' } });
     expect(alertText(unknown)).toBe('T12 · Request · Hamza');
     for (const text of [alertText(noTable), alertText(noApprover), alertText(unknown)]) {
       expect(text).not.toMatch(/alert\.|approve-|manage-|\{/);
@@ -204,8 +205,8 @@ describe('[01d review fix round 1] labels', () => {
   it('[01d §3.12] notice.in_person_title is filled from a label, never from a kind key', () => {
     const lock = { kind_label_key: 'alert.answered_on_requester_device.lock', table_code: '12', point_code: null, requester_name: 'Hamza' };
     const text = inPersonTitle({ kind: 'void_approval', lock });
-    expect(text).toBe('You approved the request on T12 at Hamza’s tablet');
-    expect(text).not.toContain('void');
+    expect(text).toBe('You approved the Void request on T12 at Hamza’s tablet'); // 04 §8: the kind's card label
+    expect(text).not.toMatch(/void_approval|alert\./);
     expect(text).not.toContain('_');
   });
 });
@@ -281,5 +282,14 @@ describe('[03b W0.6] labels hook', () => {
     // an 01d kind reads as before
     const test = { kind: 'test_alert', family: 'info' as const, lock: { kind_label_key: 'alert.test_alert.lock', requester_name: 'Arif' } };
     expect(alertText(test)).toBe(en['alert.test_alert.lock'].replace('{requester}', 'Arif'));
+  });
+});
+
+describe('[04 §8, §9] answer errors of a void request', () => {
+  it('[04 §9] VOID_NOT_ALLOWED: served meanwhile with the hint, else the §8 reason text', () => {
+    expect(answerErrorText('VOID_NOT_ALLOWED', { reason: 'not_movable_stage', hint: 'withdraw_and_reask' })).toContain('Served meanwhile — ask the requester');
+    expect(answerErrorText('VOID_NOT_ALLOWED', { reason: 'not_movable_stage' })).toBe('Not cooking or cooked');
+    expect(answerErrorText('VOID_NOT_ALLOWED', { reason: 'stock_not_tracked' })).toBe('Stock not tracked for this item');
+    expect(answerErrorText('VOID_NOT_ALLOWED', { reason: 'day_closed' })).toBe('Business day closed');
   });
 });

@@ -146,7 +146,7 @@ function part(o: Setup = {}) {
     device: { token: 'D', id: 'DEV', type: 'tablet' },
     live,
     orders: orders as unknown as OrdersApi,
-    api: { command },
+    api: { command, query: vi.fn(async () => ({ ok: true as const, data: { orders: [] } })) /* 04 pending-voids */ },
     tables: { tableMap: vi.fn(async () => ok(map)), releaseTableLock },
     permissions: createPermissions(o.perms ?? TAKER),
     toasts: createToastBus(),

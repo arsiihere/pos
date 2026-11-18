@@ -6,7 +6,7 @@ import { createHubClock, hubTimeText, type HubClock } from '../../../app/hub-clo
 import { usePhone } from '../../../app/phone';
 import { newUlid } from '../../../app/ulid';
 import { AppBar } from '../../../components/AppBar';
-import { Banner } from '../../../components/Banner';
+import { Banner, type BannerItem } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Dialog } from '../../../components/Dialog';
 import { Icon } from '../../../components/Icon';
@@ -39,7 +39,7 @@ export function StockApp({ api }: { api: HubAdmin }) {
   return <StockView api={api} onSignedOut={signedOut} />;
 }
 
-type Message = { tone: 'ok' | 'warn' | 'danger' | 'info'; text: string; detail?: string; items?: string[] };
+type Message = { tone: 'ok' | 'warn' | 'danger' | 'info'; text: string; detail?: string; items?: BannerItem[]; more?: string };
 
 // A save or Add refused with 409 BUSINESS_DAY_NOT_OPEN, re-sent with the same command_id after Start day.
 type Blocked = { kind: 'save' } | { kind: 'add'; stockItemId: string; quantity: number };
@@ -65,9 +65,15 @@ function dayCloseBlocked(details: Record<string, unknown>): Message {
   // The hub lists up to 40 of `count`, so a blocked close always lists at least one.
   if (voids.length === 0) return generic;
   const text = (v: unknown) => (typeof v === 'string' ? v : '');
-  const items = voids.map((v) => [text(v['identifier']), text(v['item']), text(v['requester_name'])].join(' · '));
-  if (count > voids.length) items.push(fill(t('admin_stock.errors.DAY_CLOSE_BLOCKED_more'), { n: String(count - voids.length) }));
-  return { tone: 'danger', text: fill(t('admin_stock.errors.DAY_CLOSE_BLOCKED'), { count: String(count) }), items };
+  const items = voids.map((v) => ({ ltr: text(v['identifier']), text: [text(v['item']), text(v['requester_name'])].join(' · ') }));
+  // 04 v1.0.4 §8 Day close blocked (O9): the singular for count 1
+  const sentence = count === 1 ? t('admin_stock.errors.DAY_CLOSE_BLOCKED_one') : fill(t('admin_stock.errors.DAY_CLOSE_BLOCKED'), { count: String(count) });
+  return {
+    tone: 'danger',
+    text: sentence,
+    items,
+    ...(count > voids.length ? { more: fill(t('admin_stock.errors.DAY_CLOSE_BLOCKED_more'), { n: String(count - voids.length) }) } : {}),
+  };
 }
 
 function errorMessage(error: HubError): Message {
@@ -622,7 +628,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
           </div>
         )}
         {queryError !== null && <Banner tone={queryError.tone} text={queryError.text} />}
-        {message !== null && <Banner tone={message.tone} text={message.text} detail={message.detail} items={message.items} />}
+        {message !== null && <Banner tone={message.tone} text={message.text} detail={message.detail} items={message.items} more={message.more} />}
         {kept !== null && (
           <div className="pos-banner pos-banner--ok" role="status" data-kept="">
             <Icon name="check" />

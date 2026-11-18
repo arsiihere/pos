@@ -197,7 +197,7 @@ describe('[01d task 41] staff entry', () => {
     await flush();
     const panel = m.container.querySelector('.lockp')!;
     expect(panel.textContent).toContain('Sign in to see details');
-    expect(panel.textContent).toContain('T12 · Request · Hamza');
+    expect(panel.textContent).toContain('T12 · Void · Hamza');
     expect(m.text()).not.toMatch(/2,200|Karahi/);
   });
 
@@ -221,8 +221,8 @@ describe('[01d task 41] staff entry', () => {
     await flush();
     const lines = [...m.container.querySelectorAll('.lockp .lockp__r')].map((r) => r.textContent ?? '');
     expect(lines.length).toBe(3);
-    expect(lines[0]).toContain('T12 · Request · Hamza');
-    expect(lines[1]).toContain('T4 · Request · Ali');
+    expect(lines[0]).toContain('T12 · Void · Hamza');
+    expect(lines[1]).toContain('T4 · Void · Ali');
     expect(lines[2]).toContain('Test alert · from Imran');
     expect(m.container.querySelector('.lockp')!.textContent).not.toContain('Sana');
   });

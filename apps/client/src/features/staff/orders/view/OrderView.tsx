@@ -8,6 +8,10 @@ import { Ico } from '../../../alerts/ui';
 import { useShell } from '../../shell/hooks';
 import { BoostConfirm } from '../actions/BoostConfirm';
 import { CompWaiting } from '../actions/CompWaiting';
+import { usePendingRefund, usePendingVoidsRead } from '../../../voids/pending';
+import { VoidWaiting } from '../../../voids/VoidWaiting';
+import { CancelOrderSheet } from '../../../voids/CancelOrderSheet';
+import { VIco } from '../../../voids/icons';
 import { ContactSheet } from '../actions/ContactSheet';
 import { MarkServedSheet, type ServedCandidate } from '../actions/MarkServedSheet';
 import type { CarType, CatchUpOrder, LineView, OpenOrder, OrdersCatchUp, OrderType, SeatingLine, SeatingOrder } from '../contracts';
@@ -88,7 +92,7 @@ export function OrderView({ order_id }: OrderViewProps) {
   const [head, setHead] = useState<Head | null>(caught === null ? null : headOfCatchUp(caught));
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [selected, setSelected] = useState<string | null>(null);
-  const [open, setOpen] = useState<'call' | 'boost' | 'served' | null>(null);
+  const [open, setOpen] = useState<'call' | 'boost' | 'served' | 'cancel' | null>(null);
 
   /** Q-6 / IR-6 (table-view/refetch.ts): frame-driven re-reads; only the newest read answers */
   const lineIds = useRef<ReadonlySet<string>>(new Set((caught?.lines ?? []).map((l) => l.order_item_id)));
@@ -148,7 +152,10 @@ export function OrderView({ order_id }: OrderViewProps) {
   const placedAt = order?.placed_at ?? head?.placed_at ?? null;
   const placer = order?.placed_by.name ?? null;
   const seatingLine = (l: LineView): SeatingLine | null => order?.lines.find((x) => x.order_item_id === l.order_item_id) ?? null;
-  const total = lines.reduce((sum, l) => sum + l.billed_minor, 0);
+  // 04 §8 Pending tag: pending-voids with every read of the order; the total leaves their refund_minor out
+  usePendingVoidsRead(order === null ? [] : [order_id], order);
+  const pendingRefund = usePendingRefund([order_id]);
+  const total = lines.reduce((sum, l) => sum + l.billed_minor, 0) - pendingRefund;
 
   const title =
     head === null
@@ -172,8 +179,6 @@ export function OrderView({ order_id }: OrderViewProps) {
   const showCall = head !== null && head.order_type !== 'dine_in' && head.has_phone && may('view-customer-contact');
   const showBoost = may('boost-order') && !billed && view.kind !== 'gone';
   const showServed = may('mark-served') && candidates.length > 0;
-  const acts = [showCall, showBoost, showServed].filter(Boolean).length;
-
   const lineOrder: LineOrder | null =
     order === null || head === null
       ? null
@@ -186,6 +191,10 @@ export function OrderView({ order_id }: OrderViewProps) {
           // a dine-in RemoveItems names the seating (§6.2); the hub answers TABLE_SEATING_CHANGED if it moved
           ...(head.order_type === 'dine_in' && head.table_key.startsWith('dine_in:') ? { seating_id: head.table_key.slice('dine_in:'.length) } : {}),
         };
+  // 04 §8 Cancel order ("Void all"): a void-item holder (any grant, R5), an open order with a live line
+  const voidGrant = shell.permissions.resolution('void-item').grant;
+  const showCancel = lineOrder !== null && !billed && (voidGrant === 'allowed' || voidGrant === 'requires_approval') && lineOrder.lines.some((l) => l.live_units > 0);
+  const acts = [showCall, showBoost, showServed, showCancel].filter(Boolean).length;
 
   return (
     <div className={shell.phone ? 'scrim scrim--sheet' : 'scrim scrim--side'}>
@@ -249,6 +258,12 @@ export function OrderView({ order_id }: OrderViewProps) {
                   {t('served.title')}
                 </button>
               )}
+              {showCancel && (
+                <button type="button" className="btn btn--act" onClick={() => setOpen('cancel')}>
+                  <VIco name="bin" />
+                  {t('void.cancel_order')}
+                </button>
+              )}
             </div>
           )}
           {open === 'boost' && <BoostConfirm order_id={order_id} ident={ident} onClose={() => setOpen(null)} onChanged={() => void load()} />}
@@ -276,7 +291,12 @@ export function OrderView({ order_id }: OrderViewProps) {
                   utcOffsetMs={offset}
                   selected={selected === line.order_item_id}
                   {...(lineOrder === null ? {} : { onSelect: (id: string) => setSelected(selected === id ? null : id) })}
-                  below={<CompWaiting line={line} onChanged={() => void load()} />}
+                  below={
+                    <>
+                      <CompWaiting line={line} onChanged={() => void load()} />
+                      <VoidWaiting line={line} onChanged={() => void load()} />
+                    </>
+                  }
                 >
                   {lineOrder !== null && seatingLine(line) !== null && (
                     <LineActions line={seatingLine(line)!} order={lineOrder} onChanged={() => void load()} />
@@ -292,12 +312,25 @@ export function OrderView({ order_id }: OrderViewProps) {
                 <b className="num" dir={MONEY_DIR}>
                   {money(total)}
                 </b>
+                {pendingRefund > 0 && <span className="xp">{fill(t('void.pending.not_counted'), { amount: money(pendingRefund) })}</span>}
               </span>
             </div>
           )}
         </div>
       </section>
       {open === 'call' && <ContactSheet order_id={order_id} what={what} onClose={() => setOpen(null)} />}
+      {open === 'cancel' && lineOrder !== null && (
+        <CancelOrderSheet
+          rounds={[{ n: 1, order: lineOrder }]}
+          mode="order"
+          onClose={() => setOpen(null)}
+          onDone={() => {
+            setOpen(null);
+            void load();
+          }}
+          onChanged={() => void load()}
+        />
+      )}
       {open === 'served' && (
         <MarkServedSheet
           ident={ident}

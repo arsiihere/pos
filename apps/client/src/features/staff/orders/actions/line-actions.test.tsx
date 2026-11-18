@@ -87,7 +87,7 @@ function makeShell(o: { perms?: Record<string, Resolution>; enqueue?: EnqueueRes
     device: { token: 'D', id: 'DEV', type: 'tablet' },
     live,
     orders: orders as unknown as OrdersApi,
-    api: { command },
+    api: { command, query: vi.fn(async () => ok({ previews: [] })) },
     tables: { tableMap: vi.fn(async () => ok({ as_of_seq: 1, floors: [] })) },
     permissions: createPermissions(o.perms ?? ALL),
     toasts: createToastBus(),
@@ -264,16 +264,20 @@ describe('[02b §8 Table view] line actions', () => {
     expect(s.m.container.querySelector('.dlg .ckr[data-line="Drink"]')?.getAttribute('role')).toBe('checkbox');
   });
 
-  it('[02b Q-24] "Void…" disabled "Comes with module 04"', () => {
+  it('[02b Q-24 → 04 §8] Void is live past stage 1 (module 04); a stage-1 line has Remove, no Void; the Remove sheet opens Void', () => {
     const order = dineIn([sline('Karahi', { stage: 'cooking', fired: true }), sline('Seekh', { stage: 'added' })]);
     const s = setup(order);
     s.select('Karahi');
-    const v = s.m.button('Void…', s.ctrl()!) as HTMLButtonElement;
-    expect(v.disabled).toBe(true);
-    expect(v.textContent).toContain('Comes with module 04');
+    const v = s.m.button('Void', s.ctrl()!) as HTMLButtonElement;
+    expect(v.disabled).toBe(false);
+    expect(v.textContent).not.toContain('Comes with module 04');
     // a stage-1 line has Remove, no Void
     s.select('Seekh');
     expect(s.ctrlText().some((x) => x?.includes('Void'))).toBe(false);
+    // the Remove sheet's past-stage-1 row offers its Void (04 §8)
+    s.m.click(s.m.button('Remove', s.ctrl()!));
+    s.m.click(s.m.button('Void', s.m.container.querySelector('.dlg .ckr[data-line="Karahi"]')!));
+    expect(s.m.container.querySelector('.dlg--v')).not.toBeNull();
     // without the void permission the button is not drawn (R5)
     current?.unmount();
     const w = setup(order, { perms: { 'take-order': { grant: 'allowed', scope: 'branch' } } });

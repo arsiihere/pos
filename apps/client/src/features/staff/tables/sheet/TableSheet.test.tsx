@@ -290,7 +290,7 @@ describe('[02a §8 Table sheet] table sheet', () => {
   it('[02a §8 Table sheet] the orders part mounts OrdersPart with seating_id, table_ids, holder, mine', async () => {
     const { shell } = fakeShell({});
     await render(shell);
-    expect(parts.at(-1)).toEqual({ seating_id: 'S1', table_ids: ['TB4', 'TB5'], primary_table_id: 'TB4', holder_staff_id: ME, mine: true });
+    expect(parts.at(-1)).toEqual({ seating_id: 'S1', table_ids: ['TB4', 'TB5'], primary_table_id: 'TB4', holder_staff_id: ME, mine: true, onRounds: expect.any(Function) });
     m.unmount();
     parts.length = 0;
     const theirs = fakeShell({ maps: [mapOf([tile({ holder: { staff_id: 'ST-BIL', name: 'Bilal' }, joined_table_names: ['F4'] })])] });
@@ -349,5 +349,51 @@ describe('[02a §8 Table sheet] table sheet', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// 04 v1.0.5 §8 Cancel table (row S-1, owner Q-VU1-1 (a); §10 #59b): under More for void-item (any grant), while the
+// seating has a live round (from the orders part's seating-orders read).
+describe('[04 v1.0.5 §8] Cancel table in the More menu', () => {
+  const round = { n: 2, order: { order_id: 'O2', order_type: 'dine_in' as const, ident: 'F4 + F5', billed: false, lines: [], seating_id: 'S1', table_id: 'TB4' } };
+  const withVoid = (grant: 'allowed' | 'requires_approval') => {
+    const { shell } = fakeShell({ perms: ['take-order'] });
+    const perms = { 'take-order': allow, 'void-item': grant === 'allowed' ? allow : { grant, approver_role_ids: ['R'], scope: 'branch' as const } };
+    return { ...shell, permissions: createPermissions(perms as Record<string, Resolution>), api: { query: vi.fn(async () => ({ ok: true, data: { previews: [] } })) } as never };
+  };
+  const moreItems = () => [...m.container.querySelectorAll('.needs .ny__t')].map((x) => x.textContent);
+
+  it.each(['allowed', 'requires_approval'] as const)('[04 #59b] void-item %s + a live round: More lists Cancel table, which opens "Cancel the table?"', async (grant) => {
+    await render(withVoid(grant));
+    act(() => parts.at(-1)!.onRounds!([round]));
+    m.click(m.button('More'));
+    expect(moreItems()).toContain('Cancel table');
+    m.click(m.button('Cancel table'));
+    await flush();
+    expect(m.container.querySelector('.dlg--all h2')?.textContent).toBe('Cancel the table?');
+  });
+
+  it('[04 §8] the sheet works on the rounds as they were when tapped: a later read with no live round does not close or change it', async () => {
+    await render(withVoid('allowed'));
+    act(() => parts.at(-1)!.onRounds!([round]));
+    m.click(m.button('More'));
+    m.click(m.button('Cancel table'));
+    await flush();
+    act(() => parts.at(-1)!.onRounds!([]));
+    await flush();
+    expect(m.container.querySelector('.dlg--all .ac__who')?.textContent).toContain('Round 2');
+  });
+
+  it('[04 #59b] not for take-order alone, and not on a seating with no live round', async () => {
+    const { shell } = fakeShell({ perms: ['take-order'] });
+    await render(shell);
+    act(() => parts.at(-1)!.onRounds!([round]));
+    m.click(m.button('More'));
+    expect(moreItems()).not.toContain('Cancel table');
+    m.unmount();
+    await render(withVoid('allowed'));
+    act(() => parts.at(-1)!.onRounds!([]));
+    if (m.buttons().some((b) => b.textContent === 'More')) m.click(m.button('More'));
+    expect(moreItems()).not.toContain('Cancel table');
   });
 });
