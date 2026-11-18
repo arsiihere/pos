@@ -209,3 +209,13 @@ Questions Q-1–Q-3 of `docs/reviews/05_v0.5.2_hostile_run6.md`; applied to `doc
 | Q-1 | H6-5 | (a) The full CNIC / NTN prints **only on that customer's receipt** (the original and reprints of that invoice) when the authority requires it above the threshold; never on screens, check bills, X / Z, logs, events, alerts, audit rows or hashes; reprint access stays today's permission (`take-payment`). |
 | Q-2 | H6-3 (owner's simpler model; changes the shift model) | **Counting closes the shift immediately and frees the drawer** (`CountShift` writes `ShiftCounted` + `ShiftClosed`). A variance above the threshold is recorded on the closed shift and raises a `shift_variance` request that only **signs it off**: approve → `approved`, reject → `disputed` (shown on X / Z); no recount, no reopen of the shift. The drawer is never held by a pending variance, and a pending sign-off never blocks the day close (it carries as "pending sign-off" on the Z). Approvers stay the holders of `close-shift-for-others`. The COUNTED state, reason `shift_counted`, `SHIFT_VARIANCE_PENDING` and `SHIFT_NOT_COUNTED` are dropped; `CloseShift` is only the `skip-blind-count` close. |
 | Q-3 | H6-6 | (a) A fully refunded bill (reopened, every line voided / removed, Rs 0) closes with **no new invoice**: event `BillClosedEmpty`, state CLOSED, no `OrdersBilled`, no fiscal row, no receipt; the credit alone records it. Z: the credit counts as usual (Z net −its total), the money given back is `out` in takings, and a "full refunds" line shows the count and value. |
+
+## 15. Owner answers on run 7 (2026-11-18 11:21 PKT, all Rec)
+
+Questions of `docs/reviews/05_v0.6_targeted_check.md`; applied in `docs/specs/05_Billing_Spec_v0.6.1.md` ("⚠️ Changed in v0.6.1"). Run-7 Q-1 (add §14) is **moot**: §14 was already in this file at `7e35656`.
+
+| # | Finding | Ruling |
+|---|---|---|
+| Q-2 | H7-2 | `print_jobs.payload` stores the CNIC / NTN masked to the **last 4** digits; the full number is filled in only when the job is sent (03c worker, 05 filler, never written back); a reprint of the receipt rebuilds the full number from the hub-only invoice record (`invoice_buyers`), not from the print queue. |
+| Q-3 | H7-2 | The **credit note prints the last 4 only**; the full number goes to the authority inside the credit submission (read from the original's `invoice_buyers` row). |
+| Q-4 | H7-1 | `disputed` is a **record only** — shown on X / Z and the shift history (who, when); no automatic deduction, block or follow-up. |
