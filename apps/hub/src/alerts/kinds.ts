@@ -1,7 +1,9 @@
 import { ALERT_CONSTANTS, REQUEST_DECISIONS, type AlertFamily, type Permission, type RECIPIENT_SETS } from '@pos/domain';
 import {
   AlertDetailsBase,
+  AlertLinkTargetSchema,
   type AlertDetails,
+  type AlertLinkTarget,
   type AlertDisplay,
   type AlertStepTarget,
   type AlertTarget,
@@ -107,6 +109,12 @@ export interface AlertKindDef<V = Record<string, unknown>, D = AlertDetails> {
   expires_at_day_close: boolean;
   silent: boolean;
   labels: AlertLabels;
+  /**
+   * 01d v1.3 §3.5 / §3.13.1: the place in the staff app the alert is about, from the alert's own `values` only (pure
+   * and total: no ctx, db, clock or I/O). Absent → `target: null`. Named `link` because `target` is the raise's
+   * recipient target. Always called through `safeLink`, so a throw or a bad result is `null`, never an error.
+   */
+  link?(values: V): AlertLinkTarget | null;
   request: AlertRequestDef<V, D> | null;
 }
 
@@ -176,6 +184,20 @@ export function unregisterAlertKind(kind: string): void {
   kinds.delete(kind);
 }
 
+/**
+ * 01d v1.3 §3.13.1 (M4): the one guard around a kind's `link`. A throw, or a result that is not a strict
+ * `AlertLinkTarget`, gives null; no log line (as AD-82's `outcome`). Never lets an error escape.
+ */
+export function safeLink(kind: AlertKind, values: Record<string, unknown>): AlertLinkTarget | null {
+  try {
+    const result = kind.link?.(values);
+    const parsed = AlertLinkTargetSchema.safeParse(result);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
 /** §3.5: absolute due time of a step for an alert (raised_at + offset). */
 export function stepAt(step: StepDef, alert: { raised_at: number; values: Record<string, unknown> }): number {
   if ('ms' in step.at) return alert.raised_at + step.at.ms;
@@ -240,6 +262,8 @@ export const RequestResultValues = z.object({
   close_reason: z.enum(['answered', 'obsolete', 'overridden']),
   decision: z.enum(REQUEST_DECISIONS).nullable(),
   by_staff_id: z.string().min(1).nullable(),
+  // 01d v1.3 §3.10 note / §3.13.1: the request's target, set once at raise (guarded); null when it has none
+  link: AlertLinkTargetSchema.nullable().optional(),
 });
 export type RequestResultValues = z.infer<typeof RequestResultValues>;
 
@@ -260,6 +284,7 @@ export const REQUEST_RESULT = defineAlertKind<RequestResultValues, RequestResult
   expires_at_day_close: true, // not a personal notice (§3.10): day close expires it like any info alert
   silent: false,
   labels: { card: 'alert.request_result.card', lock: 'alert.request_result.lock' },
+  link: (v) => v.link ?? null, // 01d v1.3 §3.13.1: the request's place, stored as values.link
   request: null,
 });
 
@@ -269,6 +294,8 @@ export const PinUseFailedValues = z.object({
   request_kind: z.string().min(1),
   error_code: z.string().min(1),
   device_id: z.string().min(1),
+  // 01d v1.3 §3.10 note / §3.13.1: the request's target, set once at raise (guarded); null when it has none
+  link: AlertLinkTargetSchema.nullable().optional(),
 });
 export type PinUseFailedValues = z.infer<typeof PinUseFailedValues>;
 
@@ -289,6 +316,7 @@ export const PIN_USE_FAILED = defineAlertKind<PinUseFailedValues>({
   expires_at_day_close: false,
   silent: false,
   labels: { card: 'alert.pin_use_failed.card', lock: 'alert.pin_use_failed.lock' },
+  link: (v) => v.link ?? null, // 01d v1.3 §3.13.1: the request's place, stored as values.link
   request: null,
 });
 
@@ -302,6 +330,8 @@ export const ApprovalReceiptValues = z.object({
   decision: z.enum(REQUEST_DECISIONS),
   device_id: z.string().min(1),
   on_requester_device: z.boolean(),
+  // 01d v1.3 §3.10 note / §3.13.1: the request's target, set once at raise (guarded); null when it has none
+  link: AlertLinkTargetSchema.nullable().optional(),
 });
 export type ApprovalReceiptValues = z.infer<typeof ApprovalReceiptValues>;
 
@@ -324,6 +354,7 @@ export const APPROVAL_RECEIPT = defineAlertKind<ApprovalReceiptValues, AlertDeta
   expires_at_day_close: false,
   silent: true,
   labels: { card: 'alert.approval_receipt.card', lock: 'alert.approval_receipt.lock' },
+  link: (v) => v.link ?? null, // 01d v1.3 §3.13.1: the request's place, stored as values.link
   request: null,
 });
 
@@ -333,6 +364,8 @@ export const AnsweredOnRequesterDeviceValues = z.object({
   request_kind: z.string().min(1),
   decision: z.enum(REQUEST_DECISIONS),
   device_id: z.string().min(1),
+  // 01d v1.3 §3.10 note / §3.13.1: the request's target, set once at raise (guarded); null when it has none
+  link: AlertLinkTargetSchema.nullable().optional(),
 });
 export type AnsweredOnRequesterDeviceValues = z.infer<typeof AnsweredOnRequesterDeviceValues>;
 
@@ -354,6 +387,7 @@ export const ANSWERED_ON_REQUESTER_DEVICE = defineAlertKind<AnsweredOnRequesterD
   expires_at_day_close: false,
   silent: false,
   labels: { card: 'alert.answered_on_requester_device.card', lock: 'alert.answered_on_requester_device.lock' },
+  link: (v) => v.link ?? null, // 01d v1.3 §3.13.1: the request's place, stored as values.link
   request: null,
 });
 
