@@ -94,7 +94,9 @@ export interface SeatingOrdersBody {
 }
 
 /** 02b §6.18a (H3, Q-8): one order in the SeatingOrder shape. */
-export type OrderViewBody = SeatingOrder;
+/** 02b v1.0.15 §6.18a (row L-4b, B1): + `order_type` and the seating the order is in **now** (after any merge or split;
+ *  null for takeaway / parking), from the same statement. The order's `table_key` is not exposed. */
+export type OrderViewBody = SeatingOrder & { order_type: OrderType; seating_id: string | null };
 
 /** `orderView`: `missing` = the route is not there yet (404 without ORDER_NOT_FOUND) → the Served / Not served fallback. */
 export type OrderViewAnswer = { kind: 'order'; order: OrderViewBody } | { kind: 'missing' };
