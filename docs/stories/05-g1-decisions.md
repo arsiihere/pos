@@ -340,3 +340,14 @@ Applied in `docs/specs/05_Billing_Spec_v0.8.md` ("⚠️ Changed in v0.8 (§25)"
 | 4 | **Close:** Σ payments − change = the rounded total; under `pro_rata`, Σ digital payments must lie within the rounding tolerance of `d` (\|Σ digital − `d`\| ≤ \|rounding line\|), and the rounding line is settled by whichever payments cover the total. No other class check. |
 | 5 | **Refunds — "jitna liya utna wapas":** a full refund returns exactly what was taken, per payment type (card to card, cash to cash), rounding included. A partial refund (reopen, lines removed): the bill is re-rounded; amount back = paid − new rounded total, per payment type up to what that type paid. The tax of what was already paid is never re-computed by the refund's type. |
 | 6 | **Fiscal:** the rounding line goes to the authority only as the adapter maps it (Appendix P: PRA placement; new authority question A14), never inside taxable value. |
+
+## 26. Owner ruling — `pro_rata` out of v1.0 (2026-11-18 14:40 PKT)
+
+Run 15 (`docs/reviews/05_v0.8_targeted_check.md`: 3 major and 1 minor regression, all in `pro_rata`; 2 minor and 1 nit elsewhere). Applied in `docs/specs/05_Billing_Spec_v0.8.1.md` ("⚠️ Changed in v0.8.1 (§26)").
+
+| # | Ruling |
+|---|---|
+| Scope | **`pro_rata` is out of v1.0 entirely.** v1.0 supports only `higher_rate`: a split paid only digitally is taxed at the digital rate; any cash payment → the cash rate on the whole split. The data shape stays (the mixed-class rule accepts only `higher_rate` in v1.0; `pro_rata` is refused by settings validation with the existing `422 CONFIG_REFERENCE_INVALID` pattern). `DeclareClassShares`, `d`, the class-share caps and tolerances and every `pro_rata`-only rule, error, test and pad field leave the live text (history kept). Listed in Known gaps and Deferred: **"pro rata mixed-payment tax — v1.1, when an authority requires it (A6)"**, starting from the run 12–15 reviews and models. H15-1–H15-4 are resolved by this scope. Supersedes the `pro_rata` parts of §16, §21, §22, §24 and §25 rule 4 for v1.0 (their text kept). |
+| Kept | §25's rounding model: the rounding is an untaxed restaurant line in no payment class; every bill rounds where the jurisdiction says (Pakistan: every bill, Rs 1); refunds "jitna liya utna wapas", per payment type. |
+| Fixes | H15-5: under cash-only rounding the shown cash due and cash refund due are rounded down to the coin step. H15-6: the refund-due fields are defined exactly. H15-7: stale text. |
+| Approval | Endpoints: 25 commands + 6 queries = **31 hub** + 3 cloud = **34**. Per the §21 stop rule v0.8.1 is the **approval candidate**; no review run follows. |
