@@ -334,13 +334,26 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // MarkAlertsSeen, batched (§6.4: up to 50 ids)
   const seenQueue = useRef<string[]>([]);
   const seenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 01d v1.3 §3.13.2 rule 3 (m10, G-1): one MarkAlertsSeen per alert per session; a repeated tap (it navigates and
+  // glows again) sends none while the first send is queued, in flight or answered ok. A failed send removes the id,
+  // so the next tap sends it again. Cleared with the session (sign-in, sign-out, unpair), as store.reset
+  const seenSent = useRef(new Set<string>());
   const markSeen = (id: string) => {
+    if (seenSent.current.has(id)) return;
+    seenSent.current.add(id);
     if (!seenQueue.current.includes(id)) seenQueue.current.push(id);
     if (seenTimer.current !== null) return;
     seenTimer.current = setTimeout(() => {
       seenTimer.current = null;
       const ids = seenQueue.current.splice(0);
-      for (let i = 0; i < ids.length; i += SEEN_BATCH) void api.markSeen(ids.slice(i, i + SEEN_BATCH));
+      for (let i = 0; i < ids.length; i += SEEN_BATCH) {
+        const batch = ids.slice(i, i + SEEN_BATCH);
+        const gen = sessionGen.current;
+        // a failed send leaves the set, so a later tap sends it again; an ok reply keeps it (once per alert)
+        void api.markSeen(batch).then((answer) => {
+          if (!answer.ok && gen === sessionGen.current) for (const id of batch) seenSent.current.delete(id);
+        });
+      }
     }, SEEN_FLUSH_MS);
   };
 
@@ -360,6 +373,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const signedIn = async (who: SignedIn) => {
     sessionGen.current += 1;
     closedSeen.current.clear();
+    seenSent.current.clear();
     const gen = sessionGen.current;
     setReplaced(false);
     conn.setSession(who.session_token);
@@ -390,6 +404,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     (callHub: boolean) => {
       sessionGen.current += 1;
       closedSeen.current.clear();
+      seenSent.current.clear();
       setOpened(null);
       setNewOrder(false);
       setCloses(new Map());
@@ -414,6 +429,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     unpairedRef.current = true;
     sessionGen.current += 1;
     closedSeen.current.clear();
+    seenSent.current.clear();
     setOpened(null);
     setNewOrder(false);
     setCloses(new Map());
