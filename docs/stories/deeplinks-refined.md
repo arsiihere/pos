@@ -13,7 +13,7 @@
 - **Tap:** opens the target's place, scrolls the target into view, and gives it a soft brand-colour glow for 2 s. If the target no longer exists or is no longer open (order cancelled or billed, line voided or removed, request closed), show "This item is no longer open." and stay put. A target inside a folded (fully served) round unfolds that round.
 - **DL Q-1 (a)** (09:18): a request the viewer can answer opens the place, glows it, then the answer sheet on top. Only a closed request stops the sheet.
 - **DL Q-2 (a)** (09:18): only `ready_to_serve` treats a served order as no longer open; elsewhere served lines and rounds stay reachable, unfold and glow.
-- **DL Q-3** (awaiting the owner; Rec): a notice tap (`pin_use_failed`, `answered_on_requester_device`, `request_result`) glows the place, then shows the notice card with all its facts on top.
+- **DL Q-3 (a)** (10:05, "Theak ha jaise tm kaho"): a notice tap (all six notice kinds) glows the place, then shows the notice card with all its facts on top. The owner also accepted the kiosk "Back" chip and seen on every tap, and approved the spec set.
 - **Integrator ruling:** after navigating, the tap still marks the alert seen (`MarkAlertsSeen`, 01d §8.1).
 
 ## Acceptance
@@ -24,4 +24,4 @@
 4. Every tap marks the alert seen.
 5. The same on tablet (landscape and portrait), phone and the cashier kiosk; never on the KDS.
 
-Spec: `docs/specs/01d_Notifications_Requests_Spec_v1.3.md` §3.13 (rulings DL Q-0a, Q-0b, Q-1, Q-2; DL Q-3 awaiting the owner; §12.8). Review: `docs/reviews/dl-deeplinks-hostile-review.md`.
+Spec: `docs/specs/01d_Notifications_Requests_Spec_v1.3.md` §3.13 (rulings DL Q-0a, Q-0b, Q-1, Q-2, Q-3, the Back chip and the seen rule; approved 2026-11-18; §12.8). Review: `docs/reviews/dl-deeplinks-hostile-review.md`.
