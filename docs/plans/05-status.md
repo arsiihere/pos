@@ -3,6 +3,7 @@
 Plan: `05-plan.md`. Prompts: `05-parallel-prompts.md`. Gaps: `05-gaps.md` (written in P0.G, phase 0b). Spec: `05_Billing_Spec_v1.0.md` (`v1.0.1` after P0.1). Integration branch: `module-05`. Cleanup: `05-cleanup.md`. Only the integrator edits this file.
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-18: P0.B (#265) aur task 1 shared types (#266) merged → `module-05` @ `57336af`. 0a lanes M, F, P khol do (prompts §2, §3, §4); PRA (§5) tab jab 28a ka PR khule. Phase 0b abhi bhi ruki: `module-deeplinks` ke 29 commits `main` par nahi.
 > - 2026-11-18: G0.1 met (#219 `main` par, `5d25a3a`). `module-05` cut ho gayi `main` @ `5d25a3a` se; ruleset `module branches (03b onward)` pehle se `module-*` cover karta hai (W-1 wala hi). Labels ban gaye. Ye board + cleanup file (P0.B). Task 1 (shared types) chal raha hai; uska PR khulte hi 0a lanes (M, F, P) khol do. Phase 0b `module-deeplinks` ke `main` par aane tak ruki hai.
 
 ## Gates
@@ -10,7 +11,7 @@ Plan: `05-plan.md`. Prompts: `05-parallel-prompts.md`. Gaps: `05-gaps.md` (writt
 | Check | State |
 |---|---|
 | G0.1 spec-05 on `main` | **met** — PR #219 merged, `main` @ `5d25a3a` (merge commit; second parent = `spec-05` @ `ed2365a`); `git merge-base --is-ancestor origin/spec-05 origin/main` succeeds (2026-11-18) |
-| G0.2 `module-deeplinks` on `main` | open |
+| G0.2 `module-deeplinks` on `main` | open — 2026-11-18: `module-deeplinks` @ `4f1542c` has 29 non-merge commits not on `main` |
 | G0.3 claims scan (numbers found) | open — runs when G0.2 holds |
 | G0.4 `main` synced into `module-05` | open |
 
@@ -38,8 +39,8 @@ Plan decision log D-1…D-8: `05-plan.md` §0.
 
 | Task | Lane | Tier | Needs | Branch | PR | Reviewers (R1 / R2 verdict) | State |
 |---|---|---|---|---|---|---|---|
-| P0.B | I | NORMAL | G0.1 | `lane-05I/05-p0.b` | — | — | in review |
-| 1 | I | NORMAL | P0.B | `lane-05I/05-1` | — | — | in progress |
+| P0.B | I | NORMAL | G0.1 | `lane-05I/05-p0.b` | #265 | docs (integrator, W-3) | merged `d2075f2` |
+| 1 | I | NORMAL | P0.B | `lane-05I/05-1` | #266 | R1 Sonnet APPROVE (2 MINOR → cleanup C-1, C-2) | merged `57336af` |
 | P0.3a | M | HIGH | — | `lane-05M/05-p0.3a` | — | — | waiting lane |
 | 2 | M | HIGH | 1, P0.3a | `lane-05M/05-2` | — | — | waiting lane |
 | 3a | M | HIGH | 2 | `lane-05M/05-3a` | — | — | waiting lane |
@@ -158,7 +159,7 @@ Seeded with the phase-0a halves (plan §7, §2A.3). Test names and states are fi
 
 | §10 test | Task (half) | Test name | State |
 |---|---|---|---|
-| §4.4 constants | 1 | `[05 §4.4] …` | open |
+| §4.4 constants | 1 | `[05 §4.4] …` (16 tests, `packages/domain/src/billing/types.test.ts`) | green |
 | #14c | P0.3a (exponent half) | | open |
 | #10, #11, #11b, #12, #13, #20, #20b | 2 | | open |
 | #13b | 2 (blocks half; close half in 17) | | open |

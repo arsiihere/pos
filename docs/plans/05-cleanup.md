@@ -8,3 +8,5 @@ Owner ruling Q-60: fix rounds only for BLOCKER / MAJOR; MINOR findings land here
 
 | # | PR | File:line | Finding → action | Who fixes |
 |---|---|---|---|---|
+| C-1 | #266 | `packages/domain/src/billing/types.test.ts` | Runtime values only: dropping `as const` (type widens to `string[]`) still passes. Add an `expectTypeOf` pin per constant. | next change to the file / Z |
+| C-2 | #266 | `packages/domain/src/billing/types.test.ts` | No test reaches the constants through the `@pos/domain` root barrel; a dropped re-export line shows only when a later task imports it. | next change to the file / Z |
