@@ -188,3 +188,12 @@ Questions Q-1–Q-5 of `docs/reviews/05_v0.3_hostile_run2.md`; applied to `docs/
 | H3-5 | free text in events / alert values | developer (review fix) | `bill_texts(subject_id, …)` keyed by an id the command mints (`entry_id`, `payment_id`, `note_id`); written at raise on the approval path; no text in any event or `AlertRaised.values`. |
 | H3-6 – H3-8 | dine-in `bill_key`, parking key text, `discount_line_ids` | developer (review fix) | `bill_key` takeaway / parking only (dine-in via `seating_orders`); parking `table_key || ':' || business_date`; `InvoiceIssued.discount_line_ids`. |
 | H3-9 | rebase | developer | `spec-05` rebased on `origin/main` @ `049f6ce` (PR #236 merged; 04 at v1.0.5 on `main`); 05's version and migration numbers unchanged (04 → v1.0.6). |
+
+## 13. Run 4 (targeted check of v0.5) — version numbers (2026-11-18)
+
+`docs/reviews/05_v0.5_targeted_check.md` (FIX: 0 blocker, 2 major, 3 minor, 2 nit); applied in `docs/specs/05_Billing_Spec_v0.5.1.md`.
+
+| # | Finding | Who | Ruling |
+|---|---|---|---|
+| H4-2 (review Q-1) | PR #237 (notification deep links) holds 02a v1.1.7, 02b v1.0.15, 03a v1.2.5, 04 v1.0.6, 01d v1.3 | **developer call, owner may veto** | **PR #237 lands first.** 05 takes the next free numbers after it: **02a v1.1.8, 02b v1.0.16, 03a v1.2.6, 04 v1.0.7, 01d v1.3.1** (re-scanned 2026-11-18: 4 open PRs and every branch; no other claim). F v1.14, 00 v1.12, 01a v2.6, 01b v1.10, 03c v1.0.11 and the migrations (hub 0021–0023, cloud 0016–0017) are unchanged. If the owner reverses the order, #237 renumbers instead (review option (b)). |
+| H4-1, H4-3–H4-7 | reopen mode with the bill's own orders excluded; split guard on reopened bills; note keys; token call sites and the migration test; text | developer (review fixes) | as the review's smallest fixes; see spec §1.8. The README's R13 / milestone C "Amended by R37" markers are intended. |
