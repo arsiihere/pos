@@ -11,3 +11,4 @@ export * from './kds.js';
 export * from './print.js';
 export * from './voids.js';
 export * from './audit.js';
+export * from './billing/index.js';
