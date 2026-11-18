@@ -385,7 +385,11 @@ const CALL = row({
 
 const hubRequests: { rows: unknown[] } = { rows: [] };
 
-function shellHub(inbox: unknown[], orderView: (url: string) => Response | Promise<Response> = () => reply(200, { data: body() })) {
+function shellHub(
+  inbox: unknown[],
+  orderView: (url: string) => Response | Promise<Response> = () => reply(200, { data: body() }),
+  seenReplies: Array<() => Response> = [],
+) {
   const calls: Array<{ method: string; path: string; body: unknown }> = [];
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const path = url.split('?')[0]!;
@@ -411,7 +415,7 @@ function shellHub(inbox: unknown[], orderView: (url: string) => Response | Promi
       case 'GET /queries/order-view':
         return orderView(url);
       case 'POST /commands/mark-alerts-seen':
-        return reply(200, { data: { command_id: 'C', event_ids: [], result: { seen: [] } } });
+        return (seenReplies.shift() ?? (() => reply(200, { data: { command_id: 'C', event_ids: [], result: { seen: [] } } })))();
       default:
         return reply(404, { error: { code: 'NOT_FOUND', message: `${method} ${path}`, details: {} } });
     }
@@ -430,10 +434,10 @@ afterEach(() => {
   hubRequests.rows = [];
 });
 
-async function signedInShell(inbox: unknown[], orderView?: (url: string) => Response | Promise<Response>) {
+async function signedInShell(inbox: unknown[], orderView?: (url: string) => Response | Promise<Response>, seenReplies?: Array<() => Response>) {
   sockets = [];
   window.location.hash = '';
-  const h = shellHub(inbox, orderView);
+  const h = shellHub(inbox, orderView, seenReplies);
   const timers = fakeTimers();
   shellMount = mount();
   shellMount.render(
@@ -657,6 +661,63 @@ describe('[01d v1.3 §3.13.7] the staff shell\'s surfaces use the tap rule', () 
     await flush(4);
     expect(unfoldedAtScroll).toEqual(['true']);
     expect(mm.container.querySelector('.rnd[data-order="O1"]')?.classList.contains('pos-glow')).toBe(true);
+  });
+
+  it('[01d #90] m10: a second tap on the same Inbox row after the 250 ms flush navigates and glows again, and sends no second MarkAlertsSeen', async () => {
+    const { h, mm } = await signedInShell([DROPPED]);
+    for (let n = 0; n < 2; n += 1) {
+      window.location.hash = '#/inbox';
+      await flush(4);
+      mm.click(mm.container.querySelector('[data-alert="A-DROP"]'));
+      await flush(8);
+      await wait(40);
+      await flush(4);
+      expect(window.location.hash, `tap ${n + 1}`).toBe('#/tables/T4?seating_id=S4');
+      const line = mm.container.querySelector<HTMLElement>('[data-line="L1"]');
+      expect(line?.classList.contains('pos-glow'), `tap ${n + 1}`).toBe(true);
+      await wait(300); // past the 250 ms flush
+    }
+    expect(scrolled.length).toBeGreaterThanOrEqual(2);
+    expect(seenCalls(h)).toHaveLength(1);
+  });
+
+  it('[01d §3.13.2 rule 3] a failed MarkAlertsSeen is sent again by the next tap; after an ok reply, never again', async () => {
+    const { h, mm } = await signedInShell([DROPPED], undefined, [() => reply(500, { error: { code: 'INTERNAL', message: 'x', details: {} } })]);
+    for (let n = 0; n < 3; n += 1) {
+      window.location.hash = '#/inbox';
+      await flush(4);
+      mm.click(mm.container.querySelector('[data-alert="A-DROP"]'));
+      await flush(8);
+      await wait(300); // past the 250 ms flush and the reply
+      await flush(4);
+    }
+    // tap 1: sent, 500 → tap 2: sent again, ok → tap 3: nothing
+    expect(seenCalls(h)).toHaveLength(2);
+  });
+
+  it('[01d §3.13.2 rule 3] the once-per-alert set is per session: after a sign-out and a sign-in the same alert is sent again', async () => {
+    const { h, mm } = await signedInShell([DROPPED]);
+    window.location.hash = '#/inbox';
+    await flush(4);
+    mm.click(mm.container.querySelector('[data-alert="A-DROP"]'));
+    await flush(8);
+    await wait(300);
+    expect(seenCalls(h)).toHaveLength(1);
+    mm.click(mm.button('Imran — sign out'));
+    await flush(8);
+    mm.click(mm.button('Imran'));
+    const keys = mm.container.querySelector('.pin__keys')!;
+    for (const d of '1234') mm.click([...keys.querySelectorAll('button')].find((b) => b.textContent === d));
+    mm.click([...keys.querySelectorAll('button')].find((b) => b.textContent === 'Sign in'));
+    await flush(8);
+    for (const s of sockets) s.frame({ type: 'catch_up', as_of_seq: 0, state: {} });
+    await flush(4);
+    window.location.hash = '#/inbox';
+    await flush(8);
+    mm.click(mm.container.querySelector('[data-alert="A-DROP"]'));
+    await flush(8);
+    await wait(300);
+    expect(seenCalls(h)).toHaveLength(2);
   });
 
   it('[01d #74] a banner Open and the CallCard go through the same rule', async () => {
