@@ -252,6 +252,15 @@ Questions this raised (spec v0.7 §12.3, Rec applied provisionally until the own
 
 | # | Ruling |
 |---|---|
-| OQ-9 | **Currency per branch**, not per tenant: one owner may run branches in different countries under one tenant. Cloud `branches.currency_code` (backfilled from `tenants.currency_code`, which stays as the default for new branches; 01a row A-6, foundation row F-6); each branch's jurisdiction must use that branch's currency; owner-level / cross-branch money views (06 / 07) group by currency and never sum across currencies. |
+| OQ-9 | ~~**Currency per branch**~~ — **superseded by §18 Q-1 (owner, 2026-11-18 12:18 PKT): currency per tenant.** Original call kept: **Currency per branch**, not per tenant: one owner may run branches in different countries under one tenant. Cloud `branches.currency_code` (backfilled from `tenants.currency_code`, which stays as the default for new branches; 01a row A-6, foundation row F-6); each branch's jurisdiction must use that branch's currency; owner-level / cross-branch money views (06 / 07) group by currency and never sum across currencies. |
 | OQ-10 | With tax-inclusive prices, the service charge is computed on the back-calculated pre-tax net (Rec). |
-| OQ-11 | With a cash-only rounding rule, a split is rounded whenever any cash is involved (any cash payment, or none yet); only an all-digital split stays exact (Rec). |
+| OQ-11 | ~~superseded by §18 Q-2: only the cash part is rounded.~~ Original call kept: With a cash-only rounding rule, a split is rounded whenever any cash is involved (any cash payment, or none yet); only an all-digital split stays exact (Rec). |
+
+## 18. Owner answers on hostile run 9 (2026-11-18 12:18 PKT, all Rec)
+
+Questions Q-1 / Q-2 of `docs/reviews/05_v0.7.1_hostile_run9.md`; applied in `docs/specs/05_Billing_Spec_v0.7.2.md` ("⚠️ Changed in v0.7.2 (H9-n)").
+
+| # | Finding | Ruling |
+|---|---|---|
+| Q-1 | H9-1, H9-10 | **Currency per tenant again: one tenant = one country / currency.** Supersedes the §17 OQ-9 developer call (its text kept, marked). 05's row A-6 and its backfill are dropped; foundation row F-6 says the currency is per tenant, with the minor-unit exponent taken from the currency; every branch's jurisdiction must use the tenant's currency (checked when a jurisdiction is chosen). An owner with branches in two countries opens a second tenant; a cross-tenant owner view is a later item (deferred, not 05). |
+| Q-2 | H9-2 | Under a cash-only rounding rule **only the cash part is rounded**; card / digital parts are exact. Pakistan (round every bill to Rs 1) is unchanged. Supersedes the §17 OQ-11 call. |
