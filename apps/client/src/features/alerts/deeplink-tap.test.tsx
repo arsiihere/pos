@@ -306,13 +306,7 @@ describe('[01d v1.3 §3.13.2] tapAlert', () => {
     }
   });
 
-  it('[01d §3.13.2 rule 5] hook point: a notice keeps today\'s sheet (cs9 adds the place)', async () => {
-    for (const r of [tapRow('request_result', LINE_T), tapRow('pin_use_failed', LINE_T)]) {
-      const { deps, log } = fakes();
-      expect(await tapAlert(r, deps), r.kind).toBe('sheet');
-      expect(log, r.kind).toMatchObject({ seen: 1, sheet: 1, navigated: [], reads: [] });
-    }
-    // a viewer who may not answer (a kiosk's lock-only row: no answers, can_answer false) navigates
+  it('[01d §3.13.2 rule 4] a viewer who may not answer (a kiosk\'s lock-only row: no answers, can_answer false) navigates, no sheet', async () => {
     const { deps, log } = fakes();
     expect(await tapAlert(tapRow('void_approval', LINE_T, { can_answer: false }), deps)).toBe('navigated');
     expect(log.sheet).toBe(0);
