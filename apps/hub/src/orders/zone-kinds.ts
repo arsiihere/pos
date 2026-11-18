@@ -36,6 +36,8 @@ function zoneStockKind(kind: 'zone_stock_low' | 'zone_stock_out'): AlertKindDef<
     expires_at_day_close: true,
     silent: false,
     labels: { card: `alert.${kind}.card`, lock: `alert.${kind}.lock` },
+    // ⚠️ Changed by 01d v1.3 (L-4b), 02b v1.0.15 §6.13: the deep-link target, the zone stock row (§3.13.1 rows 5, 6)
+    link: (v) => ({ type: 'zone_item', zone_id: v.zone_id, item_id: v.item_id }),
     request: null,
   };
 }

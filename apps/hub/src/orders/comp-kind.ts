@@ -26,6 +26,8 @@ export const COMP = defineAlertKind({
   expires_at_day_close: true,
   silent: false,
   labels: { card: COMP_LABELS.card, lock: COMP_LABELS.lock },
+  // ⚠️ Changed by 01d v1.3 (L-4b), 02b v1.0.15 §6.12: the deep-link target, the comped line (§3.13.1 row 2)
+  link: (v) => ({ type: 'order_line', order_id: v.order_id, order_item_id: v.order_item_id }),
   request: {
     answers: ['approve', 'reject'],
     right: { mode: 'approval', base_permission: 'apply-comp' },

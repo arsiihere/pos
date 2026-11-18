@@ -45,6 +45,8 @@ export const READY_TO_SERVE = defineAlertKind<ReadyToServeValues, ReadyToServeDe
   expires_at_day_close: true,
   silent: false,
   labels: { card: 'alert.ready_to_serve.card', lock: 'alert.ready_to_serve.lock' },
+  // ⚠️ Changed by 01d v1.3 (L-4d), 03b v1.0.9 §6.21: the deep-link target, the ready order; the same on a ready_retarget re-raise (§3.13.1 row 10)
+  link: (v) => ({ type: 'order', order_id: v.order_id }),
   request: null,
 });
 
@@ -65,6 +67,8 @@ export const SERVED_CARD = defineAlertKind<ServedCardValues, ServedCardDetails>(
   expires_at_day_close: true,
   silent: false,
   labels: { card: 'alert.served_card.card', lock: 'alert.served_card.lock' },
+  // ⚠️ Changed by 01d v1.3 (L-4d), 03b v1.0.9 §6.21: the deep-link target, the served order (§3.13.1 row 11)
+  link: (v) => ({ type: 'order', order_id: v.order_id }),
   request: null,
 });
 
