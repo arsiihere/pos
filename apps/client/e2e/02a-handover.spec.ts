@@ -17,11 +17,12 @@ async function handOver(page: Page, lang: Lang, table: string): Promise<void> {
 /**
  * Sara's side: the banner, its Open, the answer sheet (measured), then the answer.
  * ⚠️ 01d v1.3.2 §3.13.2 rule 4 (DL Q-1 (a)): Open now navigates to the table's sheet (#/tables/<table>) and puts the
- * answer sheet on top of it. Afterwards Sara closes the table sheet, as a person does to get back to the map: while it
- * is open its scrim covers the next banner.
+ * answer sheet on top of it. Afterwards Sara closes the table sheet, as a person does, and lands back where the tap
+ * started (01d v1.3.3, DL Q-K (c): close returns).
  */
 async function answer(page: Page, lang: Lang, table: string, choice: 'accept' | 'decline'): Promise<{ accept: number; decline: number }> {
   const banner = page.locator('.abn', { hasText: table });
+  const start = await page.evaluate(() => window.location.hash);
   await banner.getByRole('button', { name: tr(lang, 'alerts.open') }).click();
   await expect(page).toHaveURL(new RegExp(`#/tables/${table}\\?seating_id=`));
   await expect(sheet(page)).toBeVisible();
@@ -39,6 +40,8 @@ async function answer(page: Page, lang: Lang, table: string, choice: 'accept' | 
   await expect(page.locator('.dlg[role="dialog"]')).toHaveCount(0);
   await sheet(page).getByRole('button', { name: tr(lang, 'common.close') }).click();
   await expect(sheet(page)).toHaveCount(0);
+  // 01d v1.3.3 (DL Q-K (c)): closing the sheet a deep link opened returns to where the tap started
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(start);
   return sizes;
 }
 

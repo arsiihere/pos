@@ -276,7 +276,7 @@ function seedOfflineTables(hub: TestHub): void {
  * dl t1 (01d v1.3 §3.13): the deep-link runs take their table pairs after the 02a / 02b pairs (TABLE_POOL[200 …]),
  * one pair per (scenario, viewport). English only.
  */
-export const DL_SCENARIOS = ["void", "closed", "call", "motion"] as const;
+export const DL_SCENARIOS = ["void", "closed", "call", "layers"] as const;
 export type DlScenario = (typeof DL_SCENARIOS)[number];
 export function dlTables(scenario: DlScenario, project: string): [string, string] {
   const base = FLOWS.length * PROJECTS.length * LANG_CODES.length * 2;
@@ -294,11 +294,11 @@ export const dlLine = (table: string): string => `L-dl-${table}`;
 
 /**
  * dl t1: a void needs a line the kitchen has started (04 V1: a line at `added` is removed, not voided), and the test
- * hub has no engine fires tick and no cook. So, as 03b's fixture does, the 'void' and 'closed' tables are seated
+ * hub has no engine fires tick and no cook. So, as 03b's fixture does, the 'void', 'closed' and 'layers' tables are seated
  * by Ali with one Naan the kitchen has started (04's toStage: a real FireDispatched, then ItemStarted).
  */
 function dlSeedTables(hub: TestHub): void {
-  for (const scenario of ["void", "closed"] as const)
+  for (const scenario of ["void", "closed", "layers"] as const)
     for (const project of PROJECTS) {
       const [table] = dlTables(scenario, project);
       const seating_id = `seat-dl-${table}`;
