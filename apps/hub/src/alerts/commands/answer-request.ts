@@ -2,6 +2,7 @@ import { DomainError } from '@pos/domain';
 import {
   AnswerRequestPayload,
   type AlertDisplay,
+  type AlertLinkTarget,
   type EventDraft,
   type PosCommand,
   type PosEvent,
@@ -19,6 +20,7 @@ import type { WriterTx } from '../../engine-host/writer.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { SecretGen } from '../../lib/secrets.js';
 import {
+  safeLink,
   type AlertKind,
   type AlertRecord,
   type AnsweredOnRequesterDeviceValues,
@@ -26,7 +28,7 @@ import {
   type ApprovalReceiptValues,
   type PinUseFailedValues,
 } from '../kinds.js';
-import { alerts, requestResultInput, type RaiseInput } from '../raise.js';
+import { alerts, requestResultInput, storedRequestLink, type RaiseInput } from '../raise.js';
 import { mayAnswer } from '../targets.js';
 import { checkAlertIds, pendingRequest, readAlert, recordOf, requestKindOf, sessionStaff, type RequestRow } from './request-row.js';
 
@@ -158,7 +160,7 @@ function preRead(db: Database.Database, payload: Payload, ctx: PreReadCtx): void
  * the receipt copies the request's `details` (signed-in card only, §3.12). `hidden_from` = the answering
  * session and device.
  */
-function noticeInputs(c: Checked, payload: Payload, answered: RequestAnsweredPayload, actor: CommandCtx['actor']): RaiseInput[] {
+function noticeInputs(c: Checked, payload: Payload, answered: RequestAnsweredPayload, actor: CommandCtx['actor'], link: AlertLinkTarget | null): RaiseInput[] {
   const subject = c.record.subject as RaiseInput['subject'];
   const hidden_from = { session_id: actor.sessionId, device_id: actor.deviceId };
   const target = { kind: 'person', staff_id: c.answerer } as const;
@@ -172,6 +174,7 @@ function noticeInputs(c: Checked, payload: Payload, answered: RequestAnsweredPay
       decision: payload.decision,
       device_id: answered.device_id,
       on_requester_device: answered.on_requester_device,
+      link, // 01d v1.3 §3.10 note: the request's place
     };
     inputs.push({
       kind: 'approval_receipt',
@@ -190,6 +193,7 @@ function noticeInputs(c: Checked, payload: Payload, answered: RequestAnsweredPay
       request_kind: c.record.kind,
       decision: payload.decision,
       device_id: answered.device_id,
+      link, // 01d v1.3 §3.10 note: the request's place
     };
     inputs.push({
       kind: 'answered_on_requester_device',
@@ -237,12 +241,15 @@ function handle(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; resu
   // drafts in this order: request_result, approval_receipt, the notice, the reject's `:also` request_result (8b)
   const raises: RaiseInput[] = [];
   const requester = c.record.requester_staff_id;
-  const about = { alert_id: c.record.alert_id, kind: c.record.kind, subject, requester_staff_id: requester ?? '', display: c.record.display };
+  // 01d v1.3 §3.10 note / §3.13.1 (M4): the request's target, once, guarded (a throw → null, never aborts the answer);
+  // every copy kind raised below stores it as `values.link`. Computed before their values_schema validation.
+  const link = safeLink(c.kind, c.record.values as Record<string, unknown>);
+  const about = { alert_id: c.record.alert_id, kind: c.record.kind, subject, requester_staff_id: requester ?? '', display: c.record.display, link };
   const outcome = { close_reason: 'answered' as const, decision: payload.decision, by_staff_id: c.answerer };
   // (8) request_result to the requester (§3.10)
   if (requester !== null) raises.push(requestResultInput(about, outcome));
   // (8a), (9): the personal notices to the answerer, hidden from this session and device (§3.10, v1.0 #2)
-  raises.push(...noticeInputs(c, payload, answered, ctx.actor));
+  raises.push(...noticeInputs(c, payload, answered, ctx.actor, link));
   // (8b) 01d v1.2.5 D-2 (G-7, G-8): on a reject, the kind's `result_also_to` on a read-only view (here, never in
   // preRead); a non-null target → one more request_result in this same raiseMany. 01d's own raise, so it is
   // not passed to checkAlertIds; dropped inside raiseMany when it routes only to the requester.
@@ -315,6 +322,7 @@ function pinUseFailedInput(row: RequestRow, pinOwner: string, errorCode: string,
     request_kind: row.kind,
     error_code: errorCode,
     device_id: ctx.actor.deviceId,
+    link: storedRequestLink(row.kind, row.values_json), // 01d v1.3 §3.10 note: from the same RequestRow, guarded
   };
   return {
     kind: 'pin_use_failed',
