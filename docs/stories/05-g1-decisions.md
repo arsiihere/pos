@@ -361,3 +361,14 @@ Run 15 (`docs/reviews/05_v0.8_targeted_check.md`: 3 major and 1 minor regression
 | Q-1 | reopen after a rate / jurisdiction change | provisional owner Rec (owner may veto) | A bill reopened after a tax-rate change or a jurisdiction switch (e.g. `PK` → `PK-PB`) gets **today's rate on the new invoice**; the customer pays or gets back the difference like any reopen; the credit uses the original invoice's snapshot. The no-change-reopen property excludes such reopens; test #14 covers them. |
 | Q-2 | cash-only rounding, cash total rounds to 0 | provisional owner Rec (owner may veto) | Under cash-only rounding (other jurisdictions), a split whose cash total rounds to 0 (e.g. 0.02 with a 0.05 coin) **closes at 0 with no payment**; the rounding line is the whole amount. Pakistan (round every bill) is unaffected. |
 | H16-1–H16-15 | dues, frozen rounding, privacy, audiences, text | developer (review's tested fixes) | Each shown due is computed as if the next payment of that type were added (an unpaid Rs 5,710 Punjab bill shows card 5,996, cash 6,624); the rounding rule is frozen on the bill like the price mode; the Z event carries staff ids only; WS audiences are registered for 05's events; payment references and free text are never hashed; the go-live fallback is `PK`; the rest as listed in the spec's §1.23. |
+
+## 28. Run 17 (targeted check of v0.8.2) — owner (2026-11-18 16:00 PKT)
+
+`docs/reviews/05_v0.8.2_targeted_check.md` (0 blocker, 1 major, 1 minor, 2 nit; every H16 row FIXED); applied in `docs/specs/05_Billing_Spec_v0.8.3.md` ("⚠️ Changed in v0.8.3 (H17-n)").
+
+| # | Finding | Who | Ruling |
+|---|---|---|---|
+| Q-1 | H17-1 | review's tested fix (Rec (a)) | Once a split is paid (or owes a refund), **both payment dues are 0 and no further payment is accepted**; only the refund dues show; any change goes through a reopen. (A card-paid Rs 5,710 Punjab bill no longer shows "cash due Rs 628".) |
+| Q-2 | H15-5 (not a finding) | **owner Rec** | Keep the cash-only-rounding rule: the coins cover what they can and **the card covers the last sub-coin amount**. Pakistan (round every bill) is unaffected. |
+| H17-2–H17-4 | tests, text | developer (review fixes) | The 20 unassigned tests are assigned to build tasks, with a closing check that every test is in exactly one task; two stale text fixes. |
+| Process | review stop rule | **owner, 16:00 PKT** | Apply the fixes, then **another review run** — not approval yet. |
