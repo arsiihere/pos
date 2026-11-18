@@ -34,7 +34,7 @@ import { ShellContext, type Shell } from './shell/hooks';
 import { createLiveBus } from './shell/live';
 import { createPermissions } from './shell/permissions';
 import { pendingVoidsOf } from '../voids/pending';
-import { matchStaffRoute } from './shell/routes';
+import { matchStaffRoute, routePath } from './shell/routes';
 import { isSlotRoute, RouteSlot } from './shell/slots';
 import { createToastBus, ToastView } from './shell/toast';
 import { createTablesApi } from './tables/api';
@@ -506,7 +506,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   }
 
   // --------------------------------------------------------------------------------------------- routes
-  const receiptsMatch = /^\/receipts\/([^/]+)$/.exec(route);
+  // 01d v1.3 §3.13.5 (m11): the raw checks below take no `focus`; compare the path, so a stray query never unmatches them
+  const path = routePath(route);
+  const receiptsMatch = /^\/receipts\/([^/]+)$/.exec(path);
   const staffRoute = matchStaffRoute(route, device.type);
   let page: ReactNode;
   if (unpaired) {
@@ -532,11 +534,11 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     page = <MeTab name={me.name} onSignOut={() => signOut(true)} />;
   } else if (isSlotRoute(staffRoute)) {
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
-  } else if (route === '/audit' && showAudit) {
+  } else if (path === '/audit' && showAudit) {
     page = <AuditLog />;
-  } else if (route === '/requests' && showRequests) {
+  } else if (path === '/requests' && showRequests) {
     page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={open} />;
-  } else if (route === '/test-alert' && showTest) {
+  } else if (path === '/test-alert' && showTest) {
     page = (
       <TestAlert
         people={roster}
@@ -745,8 +747,9 @@ function LockPanel({ rows, utcOffsetMs }: { rows: readonly AlertRow[]; utcOffset
   );
 }
 
-/** 02a §8 Top bar, phone: which tab a route belongs to. */
-function phoneTabOf(route: ReturnType<typeof matchStaffRoute>): PhoneTab {
+/** 02a §8 Top bar, phone: which tab a route belongs to. 01d v1.3 §3.13.5 (m1): a `focus` keeps its route's tab (a
+ *  table, or a dine-in order, line or slip → Tables; `#/orders/<id>` and `#/zones` → Orders; `#/inbox` → Inbox). */
+export function phoneTabOf(route: ReturnType<typeof matchStaffRoute>): PhoneTab {
   switch (route.name) {
     case 'tables':
     case 'table':
