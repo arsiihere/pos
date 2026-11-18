@@ -306,3 +306,13 @@ Questions Q-1 / Q-2 of `docs/reviews/05_v0.7.1_hostile_run9.md`; applied in `doc
 |---|---|---|---|
 | Q-1 | H13-1 | provisional owner Rec (owner may veto) | Option (a): under `pro_rata` with whole-bill rounding (Punjab), **a bill paid entirely by card pays the rounded total** (Rs 2 100.40 → Rs 2 100.00, or Rs 2 101.00 when rounding up), as every Pakistan bill does today; that amount is recorded as the declared card part at close, so a later reopen starts from what the card paid. The review's tested fix, applied exactly. |
 | H13-2–H13-4 | text | developer (review fixes) | "Already paid" in the re-declaration rule is net of refunds; two named test cases match the per-type refund rule; the declaration check covers `'cash'` and `'all'`; two text fixes. |
+
+## 23. Run 14 (final targeted check of v0.7.6) — owner scope ruling (2026-11-18 13:51 PKT)
+
+`docs/reviews/05_v0.7.6_targeted_check.md` (0 blocker, 2 major, 1 minor, 1 nit); applied in `docs/specs/05_Billing_Spec_v0.7.7.md` ("⚠️ Changed in v0.7.7").
+
+| # | Finding | Who | Ruling |
+|---|---|---|---|
+| Scope | H14-1, H14-2 | **owner, 2026-11-18 13:51 PKT** | **The combination `pro_rata` + whole-bill rounding (`applies_to: 'all'`) is out of v1.0.** The billing / jurisdiction settings refuse it (`422 CONFIG_REFERENCE_INVALID { field, reason: 'pro_rata_with_whole_bill_rounding' }`, an existing code); no seed contains it; `pro_rata` stays supported with cash-only and no rounding (0 failures in runs 12–14). The text that served only this combination (v0.7.5's whole-bill part of H12-1, v0.7.6's all-card `d*` rule, §22 Q-1) leaves the core rules and is listed in §12.7 "Known gaps at approval" and Deferred: "pro rata with whole-bill rounding — specified and reviewed in v1.1 once the authority answers A6 (and its rounding rule)". H14-1 and H14-2 are resolved by this scope. |
+| H14-3, H14-4 | text | developer (review fixes) | The declaration check compares with the all-digital total `T_d`, not `G`; one named test case and one rule sentence corrected. |
+| Approval | §21 stop rule | — | Run 14 was the final check. With the scope ruling no review finding is open in v1.0 scope; the spec goes to the owner for approval with the §12.7 known gaps (open authority questions A1–A13 with defaults, provisional rulings to confirm, provisional version numbers). |
