@@ -243,6 +243,7 @@ describe('[01d v1.2.5 §3.5 / §6.2 (8b), D-2] request.result_also_to (01d #67)'
       close_reason: 'answered',
       decision: 'reject',
       by_staff_id: MGR,
+      link: null, // ⚠️ 01d v1.3 §3.10 note (dl h3): the request's place; the fake kind has no link
     });
     // a raise of 01d's own: its alert_id is not the request's, so checkAlertIds would have refused it (500)
     expect(also?.payload.alert_id).not.toBe(r.alertId);
@@ -315,7 +316,7 @@ describe('[01d v1.2.5 §3.5 / §6.2 (8b), D-2] request.result_also_to (01d #67)'
     const requester = seat(hub, WAIT);
     fakeTableOwner.owners.set('T_SELF', WAIT);
     fakeTableOwner.owners.set('T_OTHER', HOLDER);
-    const about = { alert_id: 'A1', kind: 't_approval', subject: { stream_type: 'order' as const, stream_id: 'O1' }, requester_staff_id: WAIT, display };
+    const about = { alert_id: 'A1', kind: 't_approval', subject: { stream_type: 'order' as const, stream_id: 'O1' }, requester_staff_id: WAIT, display, link: null }; // ⚠️ 01d v1.3 (dl h3): ResultOf.link
     const outcome = { close_reason: 'answered' as const, decision: 'reject' as const, by_staff_id: MGR };
     const plain = requestResultInput(about, outcome);
     expect(plain).toMatchObject({ target: { kind: 'person', staff_id: WAIT }, dedupe_key: 'request_result:A1' });
@@ -378,7 +379,7 @@ describe('[01d v1.2.5 §3.5 / §6.2 (8b), D-2] request.result_also_to (01d #67)'
     fakeTableOwner.owners.set('T_DEVICE', WAIT);
     fakeTableOwner.devices.set('T_DEVICE', [holderDevice.deviceId]);
     markAbsent(hub, [HOLDER]);
-    const about = { alert_id: 'A1', kind: 't_approval', subject: { stream_type: 'order' as const, stream_id: 'O1' }, requester_staff_id: WAIT, display };
+    const about = { alert_id: 'A1', kind: 't_approval', subject: { stream_type: 'order' as const, stream_id: 'O1' }, requester_staff_id: WAIT, display, link: null }; // ⚠️ 01d v1.3 (dl h3): ResultOf.link
     const outcome = { close_reason: 'answered' as const, decision: 'reject' as const, by_staff_id: MGR };
     const also = (table: string): RaiseInput => ({
       ...requestResultInput(about, outcome, { target: { kind: 'table_team', table_id: table, depth: 'owner' }, dedupe_key: `also:${table}` }),
