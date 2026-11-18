@@ -29,6 +29,7 @@
 | T4 | Lock-task / device-owner provisioning runbook and policy: app whitelisted from battery optimisation, lock-task allowlist, boot start | NORMAL | §8.2, R33 (G0 D1) | manual on the tablet |
 | T5 | Silent update client: `GET /app/android/latest` after each reconnect and hourly; download when `version_code` is higher; verify `sha256`; install with `PackageInstaller` only when no session is signed in, the business day is closed, or in the M66 maintenance hour; `426 CLIENT_UPGRADE_REQUIRED` as the hard trigger | HIGH (installs code) | §8.4, H-5 | JS: the install-window and version decision (`app-update.ts`, pure); native: `sha256` mismatch refuses install |
 | T6 | Manual checks on the real tablet (`docs/plans/01d-tablet-manual-checks.md`) | — | §12.1 DoD | below |
+| T7 | Notification tap deep link (dl-plan G-2): tapping an alert's Android notification opens the app at `#/inbox?focus=alert:<id>`; the page half (focus kept through sign-in, the card glows once) is built (dl cs12 #264). **Not built; owned here** | NORMAL | 01d v1.3.2 §3.13.4 row "9b notification tap while signed out", §3.13.7, §8.2 (L-3) | `[01d #91]` native half: the tap's intent lands on that hash |
 
 **T6 manual checks:**
 1. **Screen off:** a session-less tablet bound to Ali, screen off → a `test_alert` to Ali from a manager's device gives an Android notification with the `lock` text and sound; `alert-receipts` shows delivered, then seen after Ali opens it (01d §12.1 DoD, first half).
