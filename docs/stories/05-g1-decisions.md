@@ -313,6 +313,17 @@ Questions Q-1 / Q-2 of `docs/reviews/05_v0.7.1_hostile_run9.md`; applied in `doc
 
 | # | Finding | Who | Ruling |
 |---|---|---|---|
-| Scope | H14-1, H14-2 | **owner, 2026-11-18 13:51 PKT** | **The combination `pro_rata` + whole-bill rounding (`applies_to: 'all'`) is out of v1.0.** The billing / jurisdiction settings refuse it (`422 CONFIG_REFERENCE_INVALID { field, reason: 'pro_rata_with_whole_bill_rounding' }`, an existing code); no seed contains it; `pro_rata` stays supported with cash-only and no rounding (0 failures in runs 12–14). The text that served only this combination (v0.7.5's whole-bill part of H12-1, v0.7.6's all-card `d*` rule, §22 Q-1) leaves the core rules and is listed in §12.7 "Known gaps at approval" and Deferred: "pro rata with whole-bill rounding — specified and reviewed in v1.1 once the authority answers A6 (and its rounding rule)". H14-1 and H14-2 are resolved by this scope. |
+| Scope | H14-1, H14-2 | **owner, 2026-11-18 13:51 PKT** — ⚠️ **superseded by §24 (13:55 PKT): handled now, not deferred.** Original text kept: | **The combination `pro_rata` + whole-bill rounding (`applies_to: 'all'`) is out of v1.0.** The billing / jurisdiction settings refuse it (`422 CONFIG_REFERENCE_INVALID { field, reason: 'pro_rata_with_whole_bill_rounding' }`, an existing code); no seed contains it; `pro_rata` stays supported with cash-only and no rounding (0 failures in runs 12–14). The text that served only this combination (v0.7.5's whole-bill part of H12-1, v0.7.6's all-card `d*` rule, §22 Q-1) leaves the core rules and is listed in §12.7 "Known gaps at approval" and Deferred: "pro rata with whole-bill rounding — specified and reviewed in v1.1 once the authority answers A6 (and its rounding rule)". H14-1 and H14-2 are resolved by this scope. |
 | H14-3, H14-4 | text | developer (review fixes) | The declaration check compares with the all-digital total `T_d`, not `G`; one named test case and one rule sentence corrected. |
 | Approval | §21 stop rule | — | Run 14 was the final check. With the scope ruling no review finding is open in v1.0 scope; the spec goes to the owner for approval with the §12.7 known gaps (open authority questions A1–A13 with defaults, provisional rulings to confirm, provisional version numbers). |
+
+## 24. Owner reverses §23's deferral (2026-11-18 13:55 PKT)
+
+Applied in `docs/specs/05_Billing_Spec_v0.7.8.md` ("⚠️ Changed in v0.7.8 (§24)"). **Supersedes §23's scope ruling** (its text is kept, marked).
+
+| # | Ruling |
+|---|---|
+| Scope | **`pro_rata` + whole-bill rounding (`applies_to: 'all'`) is handled now**, in v1.0. v0.7.7's settings refusal (`pro_rata_with_whole_bill_rounding`) and its known-gap / deferred entries are removed. |
+| Fix | Run 14's tested fix (`fix3` in `docs/reviews/05_v0.7.6_targeted_check.md`: 0 failures in every setup, both seeds, sales, refunds and no-change reopens), applied exactly: H14-1 (a split closed all-digital stays all-digital; the re-declaration rule uses the effective digital part); H14-2 (cash refunds go back to cash's share of the new total, the card due covers the rest); H14-3 / H14-4 kept. Run 14's named cases go into test #20b, its no-change-reopen sweep into #20c. |
+| Q-1 (run 14) | Owner Rec (a): **an all-card bill stays all-card when reopened** — the new rounded total goes on the card, and an unchanged reopen keeps the same tax. |
+| Fallback | **If the next narrow check finds any MAJOR in this corner, the combination is refused by settings and deferred to v1.1 (the v0.7.7 text), without another loop.** |
