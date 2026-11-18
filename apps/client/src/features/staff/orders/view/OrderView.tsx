@@ -14,8 +14,9 @@ import { CancelOrderSheet } from '../../../voids/CancelOrderSheet';
 import { VIco } from '../../../voids/icons';
 import { ContactSheet } from '../actions/ContactSheet';
 import { MarkServedSheet, type ServedCandidate } from '../actions/MarkServedSheet';
-import type { CarType, CatchUpOrder, LineView, OpenOrder, OrdersCatchUp, OrderType, SeatingLine, SeatingOrder } from '../contracts';
+import type { CarType, CatchUpOrder, LineView, OpenOrder, OrdersCatchUp, OrderType, OrderViewBody, SeatingLine, SeatingOrder } from '../contracts';
 import { MONEY_DIR, money } from '../money';
+import { onHandover, peekOrderView, takeOrderView } from '../preload';
 import { concerns, createLiveReader, idsOf, ORDER_FRAMES, type LiveReader } from '../table-view/refetch';
 import { enqueueMeta, LineActions, servedCandidatesOf, showOrderError, type LineOrder } from './LineActions';
 import { LineRow } from './LineRow';
@@ -90,7 +91,20 @@ export function OrderView({ order_id }: OrderViewProps) {
   const shell = useShell();
   const caught = (shell.live.part('orders') as OrdersCatchUp | undefined)?.orders.find((o) => o.order_id === order_id) ?? null;
   const [head, setHead] = useState<Head | null>(caught === null ? null : headOfCatchUp(caught));
-  const [view, setView] = useState<View>({ kind: 'loading' });
+  // 01d v1.3 §3.13.3 (m3), 02b v1.0.15 §8: a deep link hands over the order-view body its tap read (orders/preload.ts).
+  // The first render draws it (peek: pure), the [order_id] effect takes it and skips its read; a view already on this
+  // order is told of a new handover and applies it. Always tied to order_id: another order's body is never shown.
+  // Frames still read again as before.
+  const [view, setView] = useState<View>(() => {
+    const peeked = peekOrderView(order_id);
+    return peeked === null ? { kind: 'loading' } : { kind: 'order', order: peeked };
+  });
+  /** the body this view took for order_id (StrictMode runs the effect twice; the second run must not read) */
+  const handed = useRef<OrderViewBody | null>(null);
+  /** reads asked, the read answering now, and the last read asked before a handover was applied */
+  const asked = useRef(0);
+  const answering = useRef(0);
+  const appliedAt = useRef(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [open, setOpen] = useState<'call' | 'boost' | 'served' | 'cancel' | null>(null);
 
@@ -106,7 +120,13 @@ export function OrderView({ order_id }: OrderViewProps) {
   useEffect(() => {
     const r = createLiveReader({
       live: shell.live,
-      query: () => shell.orders.orderView(order_id),
+      // each read is numbered; a read asked before a handover was applied is older than it and is dropped
+      query: async () => {
+        const n = ++asked.current;
+        const answer = await shell.orders.orderView(order_id);
+        answering.current = n;
+        return answer;
+      },
       relevant: (e) => ORDER_FRAMES.has(e.event_type) && concerns(e.payload, new Set([order_id]), lineIds.current),
       onFrame: (e) => {
         if (e.event_type !== 'ItemServed') return;
@@ -114,6 +134,7 @@ export function OrderView({ order_id }: OrderViewProps) {
         setServedSince((cur) => new Set([...cur, ...served]));
       },
       onAnswer: (answer) => {
+        if (answering.current <= appliedAt.current) return;
         if (answer.ok) {
           if (answer.data.kind === 'order') lineIds.current = new Set(answer.data.order.lines.map((l) => l.order_item_id));
           setView(answer.data.kind === 'order' ? { kind: 'order', order: answer.data.order } : { kind: 'fallback' });
@@ -122,7 +143,25 @@ export function OrderView({ order_id }: OrderViewProps) {
       },
     });
     reader.current = r;
-    void r.read();
+    const pre = takeOrderView(order_id) ?? (handed.current?.order_id === order_id ? handed.current : null);
+    handed.current = pre;
+    if (pre !== null) {
+      lineIds.current = new Set(pre.lines.map((l) => l.order_item_id));
+      setView({ kind: 'order', order: pre });
+    } else {
+      // another order in the same view (slots reuse it): nothing of the old one shows while this one is read
+      setView((v) => (v.kind === 'order' && v.order.order_id !== order_id ? { kind: 'loading' } : v));
+      void r.read();
+    }
+    // the tap landed on this order while it was open: apply its read
+    const offHandover = onHandover(() => {
+      const next = takeOrderView(order_id);
+      if (next === null) return;
+      appliedAt.current = asked.current; // a read in flight now answers older data than the tap's
+      handed.current = next;
+      lineIds.current = new Set(next.lines.map((l) => l.order_item_id));
+      setView({ kind: 'order', order: next });
+    });
     let alive = true;
     if (caught === null) {
       // placed after this page's catch-up: its token / plate from open-orders (one read)
@@ -133,6 +172,7 @@ export function OrderView({ order_id }: OrderViewProps) {
     }
     return () => {
       alive = false;
+      offHandover();
       r.dispose();
     };
     // one reader per order
@@ -140,7 +180,7 @@ export function OrderView({ order_id }: OrderViewProps) {
 
   const close = () => navigate(shell.device.type === 'cashier_kiosk' ? '/' : '/orders');
   const offset = shell.clock.utcOffsetMs;
-  const order = view.kind === 'order' ? view.order : null;
+  const order = view.kind === 'order' && view.order.order_id === order_id ? view.order : null;
   const nowMs = shell.clock.nowMs();
   const fallbackLines: LineView[] =
     view.kind === 'fallback' ? (caught?.lines ?? []).map((l) => (l.served_at === null && servedSince.has(l.order_item_id) ? { ...l, served_at: nowMs } : l)) : [];
