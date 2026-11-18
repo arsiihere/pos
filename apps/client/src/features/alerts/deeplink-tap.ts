@@ -48,7 +48,7 @@ export interface TapDeps extends CheckDeps {
   navigate(href: string): void;
   toast(text: string): void;
   /** the glow once the place is on screen (default: `glowOnArrival`) */
-  arrive?: (href: string, focus: StaffFocus, label: string) => void;
+  arrive?: (href: string, focus: StaffFocus, label: string) => Promise<boolean> | void;
   /** false once this tap is stale: a newer tap, a sign-in or sign-out, or a route change happened during the check.
    *  A stale tap does nothing more (no navigation, no toast, no sheet). Default: always current. */
   isCurrent?: () => boolean;
@@ -56,6 +56,9 @@ export interface TapDeps extends CheckDeps {
   stateNow?: () => 'open' | 'closed' | undefined;
   /** rule 4 (B2): how long an answerable tap waits for the check before AnswerSheet opens anyway */
   checkTimeoutMs?: number;
+  /** the deep link no longer waits on its route: at once after a navigation, or for a dine-in slip once its wait for
+   *  the LateCard is over (found, or the sheet loaded without it) */
+  settled?: () => void;
   /** rule 6: where the tap came from; a banner's Open does not navigate while a page dialog is open */
   source?: 'banner' | 'list';
   /** rule 6: any element with aria-modal="true" on the page (default: a DOM query) */
@@ -215,6 +218,42 @@ export function glowOnArrival(href: string, focus: StaffFocus, label: string, op
   });
 }
 
+/** M3: the late order's round (`.rnd[data-order]`) is on the new screen, a frame later still with no LateCard for the
+ *  alert: the sheet has loaded without one. False when the round does not come within the arrival wait. */
+function sheetLoadedWithoutCard(order_id: string, alert_id: string, opts: { moving: boolean }): Promise<boolean> {
+  return new Promise((resolve) => {
+    let done = false;
+    let observer: MutationObserver | null = null;
+    const card = () => findPlace('', { kind: 'late', alert_id }, document) !== null;
+    const end = (v: boolean) => {
+      if (done) return;
+      done = true;
+      observer?.disconnect();
+      clearTimeout(timer);
+      window.removeEventListener('hashchange', onHash);
+      resolve(v);
+    };
+    const check = () => {
+      if (document.querySelector(`.rnd[data-order="${cssId(order_id)}"]`) === null) return;
+      nextFrame(() => end(!card()));
+    };
+    const start = () =>
+      nextFrame(() => {
+        if (done) return;
+        check();
+        observer = new MutationObserver(check);
+        observer.observe(document.body, { childList: true, subtree: true });
+      });
+    const onHash = () => {
+      window.removeEventListener('hashchange', onHash);
+      start();
+    };
+    const timer = setTimeout(() => end(false), ARRIVAL_MS);
+    if (opts.moving) window.addEventListener('hashchange', onHash);
+    else start();
+  });
+}
+
 /** §3.13.2: a tap on an alert row, from any surface. */
 export async function tapAlert(row: TapRow, deps: TapDeps): Promise<TapOutcome> {
   deps.seen(); // rule 3: seen in every case, before any read (rule 7: the banner hides)
@@ -269,12 +308,37 @@ export async function tapAlert(row: TapRow, deps: TapDeps): Promise<TapOutcome> 
       if (result.preload !== undefined) handOver(result.preload); // §3.13.3 m3: the screen reuses this read (dl cp6)
       deps.navigate(result.href);
       const label = openedText(row, result.focus);
-      (deps.arrive ?? ((href, focus, text) => void glowOnArrival(href, focus, text, { moving })))(result.href, result.focus, label);
+      const arrival = (deps.arrive ?? ((href, focus, text) => glowOnArrival(href, focus, text, { moving })))(result.href, result.focus, label);
+      if (answerable && result.focus.kind === 'late') {
+        // rule 4 "slip_warning" (M3): a dine-in slip answers in place, in its LateCard (Send what's ready / Wait): no
+        // AnswerSheet. Only when no LateCard is rendered for it once the sheet has loaded (its round of the order is on
+        // screen, or the arrival wait ended) does AnswerSheet open on top, and then only if this tap is still current,
+        // the request is still open (else the toast) and no popup was opened meanwhile (rule 6: none is torn down).
+        const alert_id = result.focus.alert_id;
+        let settled = false;
+        const decide = (cardFound: boolean) => {
+          if (settled) return;
+          settled = true;
+          deps.settled?.();
+          if (cardFound || deps.isCurrent?.() === false) return;
+          if (deps.stateNow?.() === 'closed') return void deps.toast(t('alerts.target_closed'));
+          if ((deps.dialogOpen ?? pageDialogOpen)()) return; // the person's own dialog: the slip stays answerable from its row
+          deps.openSheet();
+        };
+        // Assumed (#263 review 2): the round and its LateCard come from the same seating-orders read and render in the
+        // same pass (OrdersPart), so "round on screen, no LateCard a frame later" means none will come. If a LateCard
+        // could ever render after its round, the card would both glow (arrival) and get AnswerSheet.
+        void Promise.resolve(arrival).then((found) => decide(found === true));
+        const order_id = result.preload !== undefined && 'order_view' in result.preload ? result.preload.order_view.order_id : null;
+        if (order_id !== null) void sheetLoadedWithoutCard(order_id, alert_id, { moving }).then((none) => none && decide(false));
+        return 'navigated';
+      }
       // rule 4 (DL Q-1 (a)): after the navigation and the glow start, AnswerSheet on top (the glow runs behind its
       // scrim). It opens even when the place's element never renders (§3.13.4). A viewer who may not answer (a
       // kiosk's lock-only row, informed, the requester) only navigates.
       // rule 5 (DL Q-3 (a)): a notice the same way, NoticeSheet on top with all of today's facts.
       if (answerable || notice) deps.openSheet();
+      deps.settled?.(); // nothing waits on this deep link's route (only a dine-in slip does, above)
       return 'navigated';
     }
     case 'no_place':
