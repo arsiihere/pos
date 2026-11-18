@@ -263,7 +263,7 @@ Questions Q-1 / Q-2 of `docs/reviews/05_v0.7.1_hostile_run9.md`; applied in `doc
 | # | Finding | Ruling |
 |---|---|---|
 | Q-1 | H9-1, H9-10 | **Currency per tenant again: one tenant = one country / currency.** Supersedes the §17 OQ-9 developer call (its text kept, marked). 05's row A-6 and its backfill are dropped; foundation row F-6 says the currency is per tenant, with the minor-unit exponent taken from the currency; every branch's jurisdiction must use the tenant's currency (checked when a jurisdiction is chosen). An owner with branches in two countries opens a second tenant; a cross-tenant owner view is a later item (deferred, not 05). |
-| Q-2 | H9-2 | Under a cash-only rounding rule **only the cash part is rounded**; card / digital parts are exact. Pakistan (round every bill to Rs 1) is unchanged. Supersedes the §17 OQ-11 call. |
+| Q-2 | H9-2 | ⚠️ *superseded by §25; text kept:* Under a cash-only rounding rule **only the cash part is rounded**; card / digital parts are exact. Pakistan (round every bill to Rs 1) is unchanged. Supersedes the §17 OQ-11 call. |
 
 ## 19. Run 10 (targeted check of v0.7.2) — cash-only rounding dues (2026-11-18)
 
@@ -271,7 +271,7 @@ Questions Q-1 / Q-2 of `docs/reviews/05_v0.7.1_hostile_run9.md`; applied in `doc
 
 | # | Finding | Who | Ruling |
 |---|---|---|---|
-| Q-1 | H10-1, H10-2 | **developer call following the owner's §18 Q-2 ruling ("card parts exact"); owner may veto** | Option (a). Under cash-only rounding the screen shows **two dues — the card (exact) due and the cash (rounded) due**. A card always pays exact amounts; rounding applies only to the cash part, and only once cash is paid, so an all-card split has no rounding line. Any payment order works: cash first, then the exact card balance; or card first, then the rounded cash balance. Cash amounts are multiples of the rounding step. Test #20b becomes a property test over random partial cash / card amounts and orders. Pakistan (round every bill to Rs 1) is unchanged. |
+| Q-1 | H10-1, H10-2 | **developer call following the owner's §18 Q-2 ruling ("card parts exact"); owner may veto** — ⚠️ *rounding attribution superseded by §25; text kept* | Option (a). Under cash-only rounding the screen shows **two dues — the card (exact) due and the cash (rounded) due**. A card always pays exact amounts; rounding applies only to the cash part, and only once cash is paid, so an all-card split has no rounding line. Any payment order works: cash first, then the exact card balance; or card first, then the rounded cash balance. Cash amounts are multiples of the rounding step. Test #20b becomes a property test over random partial cash / card amounts and orders. Pakistan (round every bill to Rs 1) is unchanged. |
 | H10-3, H10-4 | defaults | developer (review fix) | A `NULL` rounding step = no rounding in the catalog text too; with no billing settings the hub uses built-in rules equal to the `PK` seed for a PKR tenant and to the `none` seed (no rounding) otherwise. |
 | H10-5, H10-6 | adapter config | developer (review fix) | No secret in `adapter_settings` (public config only); an adapter's keys and tokens are named credentials in the hub-only `fiscal_credentials`, like the PRA token. `base_urls` are keyed by adapter; pending rows and credits use the adapter recorded on the invoice. |
 | H10-7, H10-8 | text | developer (review fix) | `seed-tenant` refuses an unknown ISO 4217 code (00 row H-5); stale text fixed. |
@@ -282,7 +282,7 @@ Questions Q-1 / Q-2 of `docs/reviews/05_v0.7.1_hostile_run9.md`; applied in `doc
 
 | # | Finding | Who | Ruling |
 |---|---|---|---|
-| Q-1 | H11-3 | **developer call, owner may veto** | Option (a): **cash refunds round like a sale.** Under a cash-only rounding rule a cash refund is a multiple of the rounding step, rounded with the jurisdiction's mode (on its size), so a reopened bill never stays open at a sub-step amount (5.01 owed back → 5.00 in cash, 0.01 is the new invoice's rounding line). Card refunds stay exact. Pakistan (round every bill to Rs 1) is unchanged. |
+| Q-1 | H11-3 | **developer call, owner may veto** — ⚠️ *superseded by §25 (refunds: re-rounded total, per type up to what it paid); text kept* | Option (a): **cash refunds round like a sale.** Under a cash-only rounding rule a cash refund is a multiple of the rounding step, rounded with the jurisdiction's mode (on its size), so a reopened bill never stays open at a sub-step amount (5.01 owed back → 5.00 in cash, 0.01 is the new invoice's rounding line). Card refunds stay exact. Pakistan (round every bill to Rs 1) is unchanged. |
 | H11-1, H11-2 | close rule, `pro_rata` | developer (review's tested fix) | The split closes on balance 0, and a paid split shows card due 0. Under `pro_rata` the card due is the declared digital part minus card paid, and a declaration whose cash part rounds to 0 is refused. §16's "payment order never matters" still holds. |
 | H11-4, H11-5 | credentials, text | developer (review fix) | One write-only admin field and one `fiscal-status` entry per credential name (PRA unchanged: one token). One shared seed constant; "card only" on the pad. |
 
@@ -293,8 +293,8 @@ Questions Q-1 / Q-2 of `docs/reviews/05_v0.7.1_hostile_run9.md`; applied in `doc
 | # | Finding | Who | Ruling |
 |---|---|---|---|
 | Q-2 | H12-5 | provisional owner Rec (owner may veto) | **Refunds go back per payment type, up to what that type paid on the bill:** card money back to the card, exact; cash back in cash, rounded like a sale. A refund in a type the bill was not paid with is refused. A refund never re-computes the tax of what was already paid (the payment class comes from the payments taken). This replaces §20's example of cash back on a card bill; §20's "cash refunds round like a sale" stands for cash-paid bills. |
-| Q-1 | H12-3 | provisional owner Rec (owner may veto) | On a `pro_rata` branch a card bill's refund goes back on the card, exact: the declared card part follows a smaller bill, and the card refund due = card paid − card refunded, capped by the amount owed back. |
-| Q-3 | H12-1 | provisional owner Rec (owner may veto) | Under `pro_rata` with whole-bill rounding (Punjab) or no rounding, the card pays exactly its declared part (card due = declared part − card paid); any rounding line sits on the cash part; a declaration that leaves no cash after rounding is refused. |
+| Q-1 | H12-3 | provisional owner Rec (owner may veto) — ⚠️ *rounding parts superseded by §25; the card-refund-to-card rule stands* | On a `pro_rata` branch a card bill's refund goes back on the card, exact: the declared card part follows a smaller bill, and the card refund due = card paid − card refunded, capped by the amount owed back. |
+| Q-3 | H12-1 | provisional owner Rec (owner may veto) — ⚠️ *superseded by §25 (rounding in no class; tolerance close); text kept* | Under `pro_rata` with whole-bill rounding (Punjab) or no rounding, the card pays exactly its declared part (card due = declared part − card paid); any rounding line sits on the cash part; a declaration that leaves no cash after rounding is refused. |
 | H12-2, H12-4, H12-6 | rounding line, re-check, fields | developer (review's tested fixes) | The cash rounding stays on while any cash payment is live; the "cash part rounds to 0" check re-runs after every new round or reopen; payment dues and refund dues are separate fields, and the pad shows "refund card / cash" on a negative balance. A property test mirrors the review's model (sales and refunds, six setups). |
 | Stop rule | review process | **owner, 2026-11-18 13:07 PKT** | **Run 13 is the last targeted check.** If it finds 0 blocker and 0 major, the remaining minors / nits are fixed in v1.0 and listed as known gaps in a §12.x "Known gaps at approval" section (04 v1.0 §12.6 precedent), and the spec goes to the owner for approval without another review run. If it finds a major, one more fix round and check. |
 
@@ -304,7 +304,7 @@ Questions Q-1 / Q-2 of `docs/reviews/05_v0.7.1_hostile_run9.md`; applied in `doc
 
 | # | Finding | Who | Ruling |
 |---|---|---|---|
-| Q-1 | H13-1 | provisional owner Rec (owner may veto) | Option (a): under `pro_rata` with whole-bill rounding (Punjab), **a bill paid entirely by card pays the rounded total** (Rs 2 100.40 → Rs 2 100.00, or Rs 2 101.00 when rounding up), as every Pakistan bill does today; that amount is recorded as the declared card part at close, so a later reopen starts from what the card paid. The review's tested fix, applied exactly. |
+| Q-1 | H13-1 | provisional owner Rec (owner may veto) — ⚠️ *superseded by §25; text kept* | Option (a): under `pro_rata` with whole-bill rounding (Punjab), **a bill paid entirely by card pays the rounded total** (Rs 2 100.40 → Rs 2 100.00, or Rs 2 101.00 when rounding up), as every Pakistan bill does today; that amount is recorded as the declared card part at close, so a later reopen starts from what the card paid. The review's tested fix, applied exactly. |
 | H13-2–H13-4 | text | developer (review fixes) | "Already paid" in the re-declaration rule is net of refunds; two named test cases match the per-type refund rule; the declaration check covers `'cash'` and `'all'`; two text fixes. |
 
 ## 23. Run 14 (final targeted check of v0.7.6) — owner scope ruling (2026-11-18 13:51 PKT)
@@ -324,6 +324,19 @@ Applied in `docs/specs/05_Billing_Spec_v0.7.8.md` ("⚠️ Changed in v0.7.8 (§
 | # | Ruling |
 |---|---|
 | Scope | **`pro_rata` + whole-bill rounding (`applies_to: 'all'`) is handled now**, in v1.0. v0.7.7's settings refusal (`pro_rata_with_whole_bill_rounding`) and its known-gap / deferred entries are removed. |
-| Fix | Run 14's tested fix (`fix3` in `docs/reviews/05_v0.7.6_targeted_check.md`: 0 failures in every setup, both seeds, sales, refunds and no-change reopens), applied exactly: H14-1 (a split closed all-digital stays all-digital; the re-declaration rule uses the effective digital part); H14-2 (cash refunds go back to cash's share of the new total, the card due covers the rest); H14-3 / H14-4 kept. Run 14's named cases go into test #20b, its no-change-reopen sweep into #20c. |
+| Fix | ⚠️ *superseded by §25 (`fix3` removed); text kept:* Run 14's tested fix (`fix3` in `docs/reviews/05_v0.7.6_targeted_check.md`: 0 failures in every setup, both seeds, sales, refunds and no-change reopens), applied exactly: H14-1 (a split closed all-digital stays all-digital; the re-declaration rule uses the effective digital part); H14-2 (cash refunds go back to cash's share of the new total, the card due covers the rest); H14-3 / H14-4 kept. Run 14's named cases go into test #20b, its no-change-reopen sweep into #20c. |
 | Q-1 (run 14) | Owner Rec (a): **an all-card bill stays all-card when reopened** — the new rounded total goes on the card, and an unchanged reopen keeps the same tax. |
 | Fallback | **If the next narrow check finds any MAJOR in this corner, the combination is refused by settings and deferred to v1.1 (the v0.7.7 text), without another loop.** |
+
+## 25. Owner rounding model (2026-11-18 14:04–14:06 PKT)
+
+Applied in `docs/specs/05_Billing_Spec_v0.8.md` ("⚠️ Changed in v0.8 (§25)"). **Supersedes the rounding-attribution parts of §18 Q-2 and §19–§24** (their text is kept, marked). It replaces `fix3`'s card / cash rounding attribution with a simpler model.
+
+| # | Ruling |
+|---|---|
+| 1 | **Rounding is never part of tax.** Tax is always computed on the exact (unrounded) amounts; under `pro_rata` on the declared exact class shares (`d` digital, the rest cash); under `higher_rate` as today. |
+| 2 | **Rounding is a separate, untaxed "rounding adjustment" line owned by the restaurant**, belonging to **no payment class** (neither card nor cash). It never enters a class share, `d`, `d*` or any tax base. `d*` and all text that moves rounding into the card or cash class are removed. |
+| 3 | **Every bill rounds** where the jurisdiction says so (Pakistan seed: `applies_to: 'all'`, step Rs 1, card bills included — the owner chose "har bill round ho"). `cash`-only and `none` stay as data for other jurisdictions under rules 1–2 (under cash-only, the rounding line exists only when cash is involved). |
+| 4 | **Close:** Σ payments − change = the rounded total; under `pro_rata`, Σ digital payments must lie within the rounding tolerance of `d` (\|Σ digital − `d`\| ≤ \|rounding line\|), and the rounding line is settled by whichever payments cover the total. No other class check. |
+| 5 | **Refunds — "jitna liya utna wapas":** a full refund returns exactly what was taken, per payment type (card to card, cash to cash), rounding included. A partial refund (reopen, lines removed): the bill is re-rounded; amount back = paid − new rounded total, per payment type up to what that type paid. The tax of what was already paid is never re-computed by the refund's type. |
+| 6 | **Fiscal:** the rounding line goes to the authority only as the adapter maps it (Appendix P: PRA placement; new authority question A14), never inside taxable value. |
