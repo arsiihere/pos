@@ -43,7 +43,7 @@ export type CheckResult =
   | { kind: 'no_place' };
 
 /** §3.13.3: kinds 1, 2, 3, 7 are requests on their own alert; their state is checked first. */
-const REQUEST_KINDS: ReadonlySet<string> = new Set(['void_approval', 'comp', 'table_handover', 'slip_warning']);
+export const REQUEST_KINDS: ReadonlySet<string> = new Set(['void_approval', 'comp', 'table_handover', 'slip_warning']);
 
 /** G-3: a hub without the order-view route. Cannot happen with a v1.3 hub (the route exists since 02b v1.0.11). */
 const ROUTE_MISSING: HubError = { kind: 'api', status: 404, code: 'ROUTE_NOT_FOUND', details: {} };

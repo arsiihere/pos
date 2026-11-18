@@ -47,6 +47,9 @@ import { MeTab, PhoneTabs, type PhoneTab } from './tables/PhoneTabs';
 import { TopBar } from './tables/TopBar';
 import { createPrintSkipDismiss } from '../alerts/labels-03b';
 import { AuditLog } from '../audit/AuditLog';
+import { tapAlert } from '../alerts/deeplink-tap';
+import type { OrdersCatchUp } from './orders/contracts';
+import { LiveRegion } from '../alerts/LiveRegion';
 import { PrintSkipContext, type PrintSkipCtx } from '../alerts/ui';
 import { passLiveOf } from '../pass/live';
 
@@ -144,6 +147,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   }, [fetch]);
   // a session counter: replies still in flight from an earlier session are dropped
   const sessionGen = useRef(0);
+  // 01d v1.3.2 §3.13.3 (#253 review): every alert id seen closed by an alert_closed frame in this session, read
+  // synchronously by a tap's state re-read (a request known only from requests-to-answer leaves that list on close)
+  const closedSeen = useRef(new Set<string>());
 
   const api = useMemo(() => createStaffApi({ device, meta, fetch: hubFetch, onSignedOut: () => signOutRef.current() }), [device, meta, hubFetch]);
   // 02 shell services (W0.6)
@@ -179,6 +185,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         if (view.kind === 'void_approval' || view.kind === 'request_result') reloadVoids();
       },
       onClosed(frame) {
+        closedSeen.current.add(frame.alert_id);
         store.onClosed(frame);
         setCloses((m) => new Map(m).set(frame.alert_id, frame));
         reloadVoids();
@@ -353,6 +360,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // ------------------------------------------------------------------------------------------ session
   const signedIn = async (who: SignedIn) => {
     sessionGen.current += 1;
+    closedSeen.current.clear();
     const gen = sessionGen.current;
     setReplaced(false);
     conn.setSession(who.session_token);
@@ -382,6 +390,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const signOut = useCallback(
     (callHub: boolean) => {
       sessionGen.current += 1;
+      closedSeen.current.clear();
       setOpened(null);
       setNewOrder(false);
       setCloses(new Map());
@@ -405,6 +414,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     if (unpairedRef.current) return;
     unpairedRef.current = true;
     sessionGen.current += 1;
+    closedSeen.current.clear();
     setOpened(null);
     setNewOrder(false);
     setCloses(new Map());
@@ -483,11 +493,42 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     [printSkipDismiss, grantRelease, toasts],
   );
 
-  const open = (row: AlertRow | RequestView) => {
+  // 01d v1.3.1 §3.13.2: a tap is current until the next tap, a session change (sessionGen) or a route change; a
+  // stale tap's late check does nothing. The rows as of the last render, for the state re-read after the check.
+  const tapGen = useRef(0);
+  const liveRows = useRef({ views, held });
+  liveRows.current = { views, held };
+  useEffect(() => {
+    tapGen.current += 1;
+  }, [route]);
+  const seenHere = (row: AlertRow | RequestView) => {
     store.open(row.alert_id);
     markSeen(row.alert_id);
+  };
+  const openSheet = (row: AlertRow | RequestView) => {
     lastOpened.current = views.find((v) => v.alert_id === row.alert_id) ?? row;
     setOpened(row.alert_id);
+  };
+  // 01d v1.3 §3.13.2: every tappable surface (Inbox cards, requests-to-answer rows, banners, the call banner) goes
+  // through the one tap rule: no target → today's tap (seen, then the AnswerSheet / NoticeSheet over the current
+  // screen, §8.1); a target → the open check, then the place or the toast
+  const tap = (row: AlertRow | RequestView) => {
+    tapGen.current += 1;
+    const gen = tapGen.current;
+    const session = sessionGen.current;
+    void tapAlert(row, {
+      isCurrent: () => tapGen.current === gen && sessionGen.current === session,
+      stateNow: () =>
+        closedSeen.current.has(row.alert_id) ? 'closed' : (liveRows.current.views.find((v) => v.alert_id === row.alert_id) ?? liveRows.current.held.get(row.alert_id))?.state,
+      orders: ordersApi,
+      tables: tablesApi,
+      heldMap: () => sharedMapStore(tablesApi, liveBus).current(),
+      openSlips: () => (liveBus.part('orders') as OrdersCatchUp | undefined)?.open_slips,
+      seen: () => seenHere(row),
+      openSheet: () => openSheet(row),
+      navigate,
+      toast: (text) => toasts.show({ text, tone: 'warn' }),
+    });
   };
 
   // the open sheet's row, live: the requests view (latest view wins), else the store's row; a row that left both
@@ -537,7 +578,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   } else if (path === '/audit' && showAudit) {
     page = <AuditLog />;
   } else if (path === '/requests' && showRequests) {
-    page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={open} />;
+    page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={tap} />;
   } else if (path === '/test-alert' && showTest) {
     page = (
       <TestAlert
@@ -565,7 +606,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         offlineAt={offlineAt}
         nowMs={nowMs}
         utcOffsetMs={offset}
-        onOpen={open}
+        onOpen={tap}
         hasMore={cursor !== null}
         onMore={() => void loadInbox(cursor)}
       />
@@ -660,7 +701,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       {page}
       {phone && me !== null && <PhoneTabs current={phoneTab} inbox={snap.unseen} requests={showRequests ? answerable : null} />}
       {me !== null && opened === null && (
-        <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} onOpen={open} onOpenInbox={() => navigate('/inbox')} />
+        <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} onOpen={tap} onOpenInbox={() => navigate('/inbox')} />
       )}
       {me !== null && sheetRow !== null &&
         (isRequest(sheetRow) ? (
@@ -694,6 +735,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       {/* IR-7: at the root, above the sign-in screen: a sign-in drain or a reconnect send shows its token here */}
       <QueuedSentCard />
       <ToastView bus={toasts} />
+      {/* 01d v1.3 §3.13.6 (n4): the one polite live region of the staff shell ("Opened …"; not the toast) */}
+      <LiveRegion />
     </div>
   );
   const shell: Shell = {
