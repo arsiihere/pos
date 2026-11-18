@@ -140,3 +140,13 @@ Full list with reasons: `docs/specs/04_Voids_Audit_Spec_v1.0.3.md` §12.6.
 | Q-62 | = 03-Q1 above: **(a)** — no 01a bump now; 03b v1.0.8 §6.17 records the station-socket audience for `BusinessDayOpened` / `BusinessDayClosed`; HK1b edits 01a test 73's assertion; 01a markers in the next 01a bump | 2026-11-13 06:53 PKT | owner in integrator chat |
 | Q-63 | **01c V20 frozen `sale_unit` × live `price_minor`:** an order freezes a stock item's sale unit but prices it at the live price, so changing an item's sale unit mid-day charges wrong. **(a)** no code change now; **pilot rule: don't change an item's sale unit while the day is open** (`docs/plans/02-client-manual-checks.md`); fix in the next 01c bump; the client follows the hub (frozen unit) | 2026-11-13 10:45 PKT | owner in integrator chat |
 | Q-64 | **Deal part plain options** (01c V9 vs the handoff Deal frame): **(a)** follow 01c V9 — each deal part gets an "Options" button reusing the options sheet at the child position; no spec bump (the spec already says so; the handoff differs); built as task 26c2 (lane O, HIGH money, PR #180) | 2026-11-13 10:58 PKT | owner in integrator chat |
+
+## 11. From the notification deep links spec (owner, 2026-11-18) — 01d v1.3 §3.13
+
+Full text: `docs/specs/01d_Notifications_Requests_Spec_v1.3.md` §3.13, §12.4, §12.8. Story: `docs/stories/dl-deeplinks.md`.
+
+| # | Item | Decided | Where it goes |
+|---|---|---|---|
+| DL-F1 | **"Food ready" to waiters.** Tell the table's waiters when their food is ready, with a deep link to the line or order. A new alert kind, not a deep link on an existing one. | Not now (owner Q2 (a), 2026-11-18): deep links cover existing notifications only. | A later spec: a new 03b kind with `link` (`order_line` / `order`). "Served" closes its target (01d §12.8 Q-2). |
+| DL-Q1 | **Tap on a request the viewer can answer** (void, comp, handover receiver). | **Ruled (a)** (owner 2026-11-18 09:18): open the place and glow it, then `AnswerSheet` on top; `slip_warning` answers in its LateCard. | 01d v1.3 §3.13.2 rule 4, §12.8 |
+| DL-Q2 | **"Line served" as not open.** | **Ruled (a)** (owner 2026-11-18 09:18): only `ready_to_serve` treats a served order as not open; elsewhere served lines and rounds stay reachable, unfold and glow. | 01d v1.3 §3.13.1, §3.13.3, §12.8 |
