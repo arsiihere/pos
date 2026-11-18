@@ -494,6 +494,15 @@ export function NoticeSheet({ row, utcOffsetMs, sheet, onClose }: { row: RowLike
               </b>
             </div>
           )}
+          {/* 01d v1.3.1 §3.13.2 rule 5 (B3; #256 ruling): the closer's note on a rejected or closed result */}
+          {d?.reason !== undefined && d.reason !== '' && (
+            <div className="fact">
+              <span>{t('answer.reason')}</span>
+              <b>
+                <bdi>{d.reason}</bdi>
+              </b>
+            </div>
+          )}
         </div>
         {notYou && (
           <div className="ro" role="status">
