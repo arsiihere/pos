@@ -1,7 +1,6 @@
 import { Fragment, useContext, useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { t } from '../../i18n';
 import { fill } from '../../i18n/en';
-import { navigate } from '../../app/router';
 import { CALL_KIND, CallCard } from '../staff/tables/cards/CallCard';
 import { HANDOVER_KIND, pendingHandovers } from '../staff/tables/cards/pending-handovers';
 import { forceMoveNotice, handoverCards } from '../staff/tables/cards/ResultBanner';
@@ -16,13 +15,11 @@ import { escalatedWho03b } from './labels-03b';
 // Open inbox" bar. Open is the tinted button, so the screen keeps one primary. No close and no snooze: the store
 // hides action banners after 6 s and info after 4 s; urgent stays until opened or seen.
 // 02 kinds (23b): a handover reads "3 orders · Rs 14,250" (02a-C02); a call is the call card (Q-12, 02a-C05); a
-// zone stock alert opens #/zones (02b-C05); a request_result is reported to the pending-handover store (Q-14),
+// zone stock alert opens its row on #/zones through the general tap rule (02b-C05; 01d v1.3 §3.13.7); a request_result is reported to the pending-handover store (Q-14),
 // and one it shows as a handover result is not shown again here. The handover cards (results, the force-move
 // notice; staff/tables/cards/ResultBanner.tsx) share this one stack and its limit of 2, in the store's order; a
 // card never takes an urgent row's slot, and a hidden card is not counted in "{n} more new" (no Inbox row).
 // They follow the stack's phone / wide variant and never show on lock text (signed in, staff shell only).
-
-const ZONE_KINDS: ReadonlySet<string> = new Set(['zone_stock_low', 'zone_stock_out']);
 
 export const MAX_BANNERS = 2;
 
@@ -97,7 +94,9 @@ export function Banners({
     const tone = toneOf(row);
     const table = tableOf(row);
     const det = row.kind === HANDOVER_KIND ? handoverDetailsText(row.card?.details) : detailLine(row.card, true);
-    const open = ZONE_KINDS.has(row.kind) ? () => navigate('/zones') : () => onOpen(b);
+    // 01d v1.3 §3.13.7: the zone banner's special navigate('/zones') is replaced by the general tap rule (onOpen),
+    // which lands on its row (#/zones?focus=item:…)
+    const open = () => onOpen(b);
     const who03b = escalatedWho03b(row, nowMs);
     return (
       <div key={b.alert_id} className={`abn c-${tone}${row.family === 'info' ? ' abn--info' : ''}`} role="alert" data-alert={b.alert_id}>
