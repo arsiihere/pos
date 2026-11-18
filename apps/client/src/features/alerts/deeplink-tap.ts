@@ -7,6 +7,7 @@ import { handOver } from '../staff/orders/preload';
 import { consumeFocus, matchStaffRoute, type StaffFocus } from '../staff/shell/routes';
 import { checkTarget, REQUEST_KINDS, type CheckDeps, type CheckResult } from './deeplink-check';
 import { passOpenedText, passPlace } from '../pass/pass-place';
+import { tablePlace } from '../staff/tables/map/table-place';
 import { focusPlace } from './glow';
 import { tableOf } from './ui';
 
@@ -119,7 +120,7 @@ function findPlace(href: string, focus: StaffFocus, root: ParentNode): HTMLEleme
     case 'table': {
       const route = matchStaffRoute(href, 'tablet');
       if (route.name !== 'table') return null;
-      return q(`[data-table="${cssId(route.table_id)}"]`) ?? (route.seating_id === null ? null : q(`[data-seating="${cssId(route.seating_id)}"]`));
+      return tablePlace(route.table_id, route.seating_id, root); // dl cp5: the tile or the sheet header, per device (§3.13.5)
     }
     case 'order':
       return q(`[data-order="${cssId(focus.order_id)}"]`);
