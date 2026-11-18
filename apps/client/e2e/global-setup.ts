@@ -7,11 +7,14 @@ import type { DirectoryInput, EventDraft } from "@pos/events";
 import { cryptoSecrets } from "../../hub/src/lib/secrets";
 import { aDirectory } from "../../hub/test/helpers/fixtures";
 import {
+  appendOrder,
   fixtureMenu,
   FX,
   openDay,
+  openSeating,
   setZoneStock,
 } from "../../hub/test/orders/fixtures";
+import { toStage } from "../../hub/test/voids/fixtures";
 import {
   createTestHub,
   pairDevice,
@@ -131,6 +134,8 @@ async function directory(): Promise<DirectoryInput> {
       grant("mark-served"),
       grant("manage-zone-stock"),
       comp,
+      // dl t1 (01d v1.3 §3.13.2 rule 4): a void needs the manager too, so a Manager can tap Ali's void request
+      { ...comp, permission: "void-item" as const },
     ],
   };
   const waiter = {
@@ -267,6 +272,48 @@ function seedOfflineTables(hub: TestHub): void {
   }
 }
 
+/**
+ * dl t1 (01d v1.3 §3.13): the deep-link runs take their table pairs after the 02a / 02b pairs (TABLE_POOL[200 …]),
+ * one pair per (scenario, viewport). English only.
+ */
+export const DL_SCENARIOS = ["void", "closed", "call", "motion"] as const;
+export type DlScenario = (typeof DL_SCENARIOS)[number];
+export function dlTables(scenario: DlScenario, project: string): [string, string] {
+  const base = FLOWS.length * PROJECTS.length * LANG_CODES.length * 2;
+  const slot =
+    DL_SCENARIOS.indexOf(scenario) * PROJECTS.length +
+    PROJECTS.indexOf(project as (typeof PROJECTS)[number]);
+  const a = TABLE_POOL[base + slot * 2];
+  const b = TABLE_POOL[base + slot * 2 + 1];
+  if (a === undefined || b === undefined)
+    throw new Error(`dl e2e: no table pair for ${scenario} on ${project}`);
+  return [a, b];
+}
+/** the seeded Naan line of a deep-link table (dlSeedTables) */
+export const dlLine = (table: string): string => `L-dl-${table}`;
+
+/**
+ * dl t1: a void needs a line the kitchen has started (04 V1: a line at `added` is removed, not voided), and the test
+ * hub has no engine fires tick and no cook. So, as 03b's fixture does, the 'void' and 'closed' tables are seated
+ * by Ali with one Naan the kitchen has started (04's toStage: a real FireDispatched, then ItemStarted).
+ */
+function dlSeedTables(hub: TestHub): void {
+  for (const scenario of ["void", "closed"] as const)
+    for (const project of PROJECTS) {
+      const [table] = dlTables(scenario, project);
+      const seating_id = `seat-dl-${table}`;
+      openSeating(hub, { table_id: table, seating_id, holder_staff_id: "S_ALI" });
+      appendOrder(hub, {
+        order_type: "dine_in",
+        seating_id,
+        order_id: `order-dl-${table}`,
+        placed_by: "S_ALI",
+        lines: [{ order_item_id: dlLine(table), item_id: FX.naan }],
+      });
+      toStage(hub, `order-dl-${table}`, [dlLine(table)], "cooking");
+    }
+}
+
 /** A free local port: the hub checks Host = advertised_host:http_port (00 host guard), so it is fixed before boot. */
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -298,6 +345,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   for (const zone of ["Z-FL-G", "Z-FL-R"])
     setZoneStock(hub, zone, FX.zoneItem, 500);
   seedOfflineTables(hub);
+  dlSeedTables(hub);
   const { printer, devices: devices03 } = await seed03(hub);
   const tablet = pairDevice(hub, { type: "tablet", name: "Tablet e2e" });
   const tablet2 = pairDevice(hub, { type: "tablet", name: "Tablet e2e 2" });
