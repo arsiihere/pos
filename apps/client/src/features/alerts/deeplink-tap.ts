@@ -5,6 +5,7 @@ import { fill } from '../../i18n/en';
 import { orderErrorKey } from '../staff/orders/view/LineActions';
 import { consumeFocus, matchStaffRoute, type StaffFocus } from '../staff/shell/routes';
 import { checkTarget, REQUEST_KINDS, type CheckDeps, type CheckResult } from './deeplink-check';
+import { passOpenedText, passPlace } from '../pass/pass-place';
 import { focusPlace } from './glow';
 import { tableOf } from './ui';
 
@@ -220,6 +221,16 @@ export async function tapAlert(row: TapRow, deps: TapDeps): Promise<TapOutcome> 
   if (target === null) {
     deps.openSheet();
     return 'sheet';
+  }
+  // §3.13.5 m12 (dl cp7, integrator ruling (a)): on #/pass, an order whose Pass card is on the screen glows in place:
+  // no read, no navigation. Seen above, once (rule 3); a stale tap does nothing. Rule 4 (DL Q-1 (a)): a row this viewer
+  // can answer then gets AnswerSheet on top; a lock-only or not answerable row (the Pass escalation) gets no sheet.
+  const onPass = passPlace(target);
+  if (onPass !== null) {
+    if (deps.isCurrent?.() === false) return 'stale';
+    focusPlace(onPass, passOpenedText(target.type === 'order' ? target.order_id : ''));
+    if (canAnswer(row)) deps.openSheet();
+    return 'navigated';
   }
   const answerable = canAnswer(row);
   const notice = NOTICE_KINDS.has(row.kind);
