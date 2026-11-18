@@ -106,12 +106,24 @@ export const REQUEST_OUTCOMES = ['approved', 'rejected', 'withdrawn', 'obsolete'
 export const RequestOutcomeSchema = z.enum(REQUEST_OUTCOMES);
 export type RequestOutcome = z.infer<typeof RequestOutcomeSchema>;
 
+// 01d v1.3 §3.13.1 / §5.4: the place in the staff app an alert is about. Ids only, so lock-safe (G1-13e, AD-81).
+// The hub builds it with the strict schema (safeParse, else null) and never emits anything else.
+export const AlertLinkTargetSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('order_line'), order_id: Id, order_item_id: Id }).strict(), // a line of an order
+  z.object({ type: z.literal('order'), order_id: Id }).strict(), // one order (a round of a seating, or a takeaway / parking order)
+  z.object({ type: z.literal('table'), table_id: Id, seating_id: Id }).strict(), // a seated table: the seating and its table at raise (M1)
+  z.object({ type: z.literal('zone_item'), zone_id: Id, item_id: Id }).strict(), // a zone stock row
+]);
+export type AlertLinkTarget = z.infer<typeof AlertLinkTargetSchema>;
+
 // §6 batch 3 `alert` frame body; §3.8 route `send(alert: AlertView, …)`.
 // AD-23 (additive): `answers`, `needs_pin`, `silent` belong to the signed-in view only (they travel with `card`);
 // lock text and alert-mode frames never carry them (G1-13 e; the hub's strict lock schemas refuse them).
 // AD-82 (additive): `outcome` on a `request_result`, absent on every other kind.
 // AD-165 (additive): `raised_device_id` on the signed-in view of a request only (the client compares it with its
 // own device id to show "Approve here", §8.1); never on lock frames, alert-mode frames or `alerts_open`.
+// v1.3 §3.13.1 (additive, M2): `target` on every view, lock and card alike. Absent (a hub before v1.3) → undefined,
+// read as null; an unknown `type` or a bad shape → null, and the frame still parses (its banner, sound, row kept).
 export const AlertViewSchema = z.object({
   alert_id: Id,
   kind: z.string().min(1),
@@ -128,6 +140,7 @@ export const AlertViewSchema = z.object({
   needs_pin: z.enum(['always', 'never']).nullable().optional(),
   silent: z.boolean().optional(),
   raised_device_id: Id.optional(),
+  target: AlertLinkTargetSchema.nullable().optional().catch(null),
 });
 export type AlertView = z.infer<typeof AlertViewSchema>;
 
