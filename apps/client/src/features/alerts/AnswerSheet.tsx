@@ -4,7 +4,7 @@ import { t } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { createPinPad, type AnswerInput, type AnswerOutcome, type AnswerSender, type HubLink } from './answer';
 import { InPersonPick, type Approver } from './InPerson';
-import { alertText, closedText, inPersonTitle, timeText, titleText, waitingText } from './labels';
+import { alertText, closedText, inPersonTitle, reasonText, timeText, titleText, waitingText } from './labels';
 import { PinStep, type PinError } from './PinStep';
 import { VoidFacts } from '../voids/VoidFacts';
 import { CloseX, Dialog, FamilyPill, FromLine, Ico, Msg, Ring, Tag, Tags, amountText, tableOf, toneOf, type RowLike } from './ui';
@@ -126,11 +126,11 @@ function Facts({ row }: { row: SheetRow }) {
           <b className="num">{amountText(d.amount)}</b>
         </div>
       )}
-      {d.reason !== undefined && d.reason !== '' && (
+      {reasonText(d.reason, row.card) !== null && (
         <div className="fact">
           <span>{t('answer.reason')}</span>
           <b>
-            <bdi>“{d.reason}”</bdi>
+            <bdi>“{reasonText(d.reason, row.card)}”</bdi>
           </b>
         </div>
       )}
@@ -495,11 +495,11 @@ export function NoticeSheet({ row, utcOffsetMs, sheet, onClose }: { row: RowLike
             </div>
           )}
           {/* 01d v1.3.1 §3.13.2 rule 5 (B3; #256 ruling): the closer's note on a rejected or closed result */}
-          {d?.reason !== undefined && d.reason !== '' && (
+          {reasonText(d?.reason, row.card) !== null && (
             <div className="fact">
               <span>{t('answer.reason')}</span>
               <b>
-                <bdi>{d.reason}</bdi>
+                <bdi>{reasonText(d?.reason, row.card)}</bdi>
               </b>
             </div>
           )}
