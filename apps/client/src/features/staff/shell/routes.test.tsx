@@ -22,6 +22,7 @@ import {
   orderViewHref,
   passHref,
   routePath,
+  withoutFocus,
   tableHref,
   zonesHref,
 } from './routes';
@@ -155,6 +156,12 @@ describe('[01d v1.3 §3.13.5] the `focus` parameter', () => {
     expect(routePath('/test-alert?focus=x')).toBe('/test-alert');
     expect(routePath('/receipts/A1?focus=alert:A1')).toBe('/receipts/A1');
     expect(routePath('/audit')).toBe('/audit');
+  });
+
+  it('[01d §3.13.2 rule 6] withoutFocus: the hash as consumeFocus leaves it', () => {
+    expect(withoutFocus('/tables/T5?seating_id=S5&focus=line%3AL1')).toBe('/tables/T5?seating_id=S5');
+    expect(withoutFocus('/zones?focus=item%3AZ1%3AI1')).toBe('/zones');
+    expect(withoutFocus('/inbox')).toBe('/inbox');
   });
 
   it('[01d §3.13.5] consumeFocus drops focus with replaceState: no new history entry, other parameters kept', () => {

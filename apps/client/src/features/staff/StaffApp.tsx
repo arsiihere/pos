@@ -34,7 +34,7 @@ import { ShellContext, type Shell } from './shell/hooks';
 import { createLiveBus } from './shell/live';
 import { createPermissions } from './shell/permissions';
 import { pendingVoidsOf } from '../voids/pending';
-import { matchStaffRoute, routePath } from './shell/routes';
+import { matchStaffRoute, routePath, withoutFocus } from './shell/routes';
 import { isSlotRoute, RouteSlot } from './shell/slots';
 import { createToastBus, ToastView } from './shell/toast';
 import { createTablesApi } from './tables/api';
@@ -511,14 +511,27 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     lastOpened.current = views.find((v) => v.alert_id === row.alert_id) ?? row;
     setOpened(row.alert_id);
   };
+  // 01d v1.3 §3.13.2 rule 6 (DL-K1): the kiosk has no browser back; after a deep-link navigation the top bar shows a
+  // one-level Back chip to the hash the tap left. It goes at the next navigation of any kind.
+  const [back, setBack] = useState<{ from: string; to: string } | null>(null);
+  const deepNavigate = (href: string) => {
+    // no chip when the tap lands on the screen the person is already on (#257 review)
+    if (device.type === 'cashier_kiosk' && withoutFocus(href) !== withoutFocus(route)) setBack({ from: route, to: withoutFocus(href) });
+    navigate(href);
+  };
+  const routeNow = withoutFocus(route);
+  useEffect(() => {
+    if (back !== null && routeNow !== back.to) setBack(null);
+  }, [back, routeNow]);
   // 01d v1.3 §3.13.2: every tappable surface (Inbox cards, requests-to-answer rows, banners, the call banner) goes
   // through the one tap rule: no target → today's tap (seen, then the AnswerSheet / NoticeSheet over the current
   // screen, §8.1); a target → the open check, then the place or the toast
-  const tap = (row: AlertRow | RequestView) => {
+  const tap = (row: AlertRow | RequestView, source: 'banner' | 'list' = 'list') => {
     tapGen.current += 1;
     const gen = tapGen.current;
     const session = sessionGen.current;
     void tapAlert(row, {
+      source,
       isCurrent: () => tapGen.current === gen && sessionGen.current === session,
       stateNow: () =>
         closedSeen.current.has(row.alert_id) ? 'closed' : (liveRows.current.views.find((v) => v.alert_id === row.alert_id) ?? liveRows.current.held.get(row.alert_id))?.state,
@@ -528,7 +541,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       openSlips: () => (liveBus.part('orders') as OrdersCatchUp | undefined)?.open_slips,
       seen: () => seenHere(row),
       openSheet: () => openSheet(row),
-      navigate,
+      navigate: deepNavigate,
       toast: (text) => toasts.show({ text, tone: 'warn' }),
     });
   };
@@ -679,6 +692,14 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         }
         onNavigate={navigate}
         onSignOut={() => signOut(true)}
+        onBack={
+          back === null || me === null
+            ? null
+            : () => {
+                setBack(null);
+                navigate(back.from);
+              }
+        }
       />
       {replaced && (
         <div className="staff__warn">
@@ -703,7 +724,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       {page}
       {phone && me !== null && <PhoneTabs current={phoneTab} inbox={snap.unseen} requests={showRequests ? answerable : null} />}
       {me !== null && opened === null && (
-        <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} onOpen={tap} onOpenInbox={() => navigate('/inbox')} />
+        <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} onOpen={(r) => tap(r, 'banner')} onOpenInbox={() => navigate('/inbox')} />
       )}
       {me !== null && sheetRow !== null &&
         (isRequest(sheetRow) ? (

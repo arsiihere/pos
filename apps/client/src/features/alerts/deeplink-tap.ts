@@ -12,7 +12,7 @@ import { tableOf } from './ui';
 // group card, a requests-to-answer row, a banner's Open, the call banner). Rule 1: no target → today's tap. Rule 2:
 // the open check (§3.13.3), then navigate + scroll + glow + "Opened …", or the toast and stay. Rule 3: seen in every
 // case. Rule 7: the banner hides as today (the store's open). Rules 4 (requests), 5 (notices) and 6 (unfinished work)
-// are below (rule 6: dl cs11).
+// are below.
 
 /** What a tap needs of a row: any of AlertRow, RequestView, an inbox row. */
 export interface TapRow {
@@ -53,6 +53,10 @@ export interface TapDeps extends CheckDeps {
   stateNow?: () => 'open' | 'closed' | undefined;
   /** rule 4 (B2): how long an answerable tap waits for the check before AnswerSheet opens anyway */
   checkTimeoutMs?: number;
+  /** rule 6: where the tap came from; a banner's Open does not navigate while a page dialog is open */
+  source?: 'banner' | 'list';
+  /** rule 6: any element with aria-modal="true" on the page (default: a DOM query) */
+  dialogOpen?: () => boolean;
 }
 
 /** Rule 4 (B2): the check's longest wait for a request the viewer can answer. The spec names no number; 3 s (review
@@ -70,6 +74,11 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT
     );
   });
 }
+
+/** Rule 6 (M5): a real popup is open: the Send dialog, the PIN pad, the remove / void / comp / mark-served sheets,
+ *  AnswerSheet, NoticeSheet. The route-level screens TableSheet and OrderView carry aria-modal too, but they are no
+ *  popups (owner Q-A (a), 01d v1.3.2): they are marked `data-route-sheet`, and a banner deep-links from them. */
+export const pageDialogOpen = (): boolean => document.querySelector('[aria-modal="true"]:not([data-route-sheet])') !== null;
 
 export type TapOutcome = 'sheet' | 'navigated' | 'not_open' | 'cannot_check' | 'stale';
 
@@ -220,6 +229,13 @@ export async function tapAlert(row: TapRow, deps: TapDeps): Promise<TapOutcome> 
   const checked = answerable || notice ? await withTimeout(check, deps.checkTimeoutMs ?? CHECK_TIMEOUT_MS) : await check;
   // a newer tap, a session change or a route change during the check: this tap is over
   if (deps.isCurrent?.() === false) return 'stale';
+  // rule 6 (M5): a banner's Open while a popup is open (now, after the check: one that opened meanwhile counts too)
+  // behaves as in v1.2.5 (the detail over the current screen), so no dialog is torn down by a banner. Inbox and
+  // Requests taps come from their own routes. One check, after the read (#257 review 2: no second, earlier one).
+  if (deps.source === 'banner' && (deps.dialogOpen ?? pageDialogOpen)()) {
+    deps.openSheet();
+    return 'sheet';
+  }
   if (checked === TIMED_OUT) {
     deps.openSheet();
     return 'sheet';

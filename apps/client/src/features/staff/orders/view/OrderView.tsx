@@ -198,7 +198,8 @@ export function OrderView({ order_id }: OrderViewProps) {
 
   return (
     <div className={shell.phone ? 'scrim scrim--sheet' : 'scrim scrim--side'}>
-      <section className="tv" role="dialog" aria-modal="true" aria-label={title} data-order={order_id}>
+      {/* 01d v1.3.2 §3.13.2 rule 6 (owner Q-A (a)): a route-level screen, not a popup (data-route-sheet) */}
+      <section className="tv" role="dialog" aria-modal="true" data-route-sheet="" aria-label={title} data-order={order_id}>
         <div className="tv__h">
           <div className="tv__hd">
             {head?.car_number !== null && head?.car_number !== undefined ? (

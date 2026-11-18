@@ -133,6 +133,15 @@ export function routePath(hash: string): string {
   return hash.split('?')[0] ?? hash;
 }
 
+/** The hash with its `focus` parameter dropped (the form `consumeFocus` leaves). */
+export function withoutFocus(hash: string): string {
+  const [path = '/', search = ''] = hash.split('?');
+  const params = new URLSearchParams(search);
+  params.delete('focus');
+  const rest = params.toString();
+  return rest === '' ? path : `${path}?${rest}`;
+}
+
 /** §3.13.5: `focus` is consumed once: the hash is replaced without it (no history entry, no hashchange). */
 export function consumeFocus(): void {
   const hash = window.location.hash.replace(/^#/, '');
