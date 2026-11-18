@@ -219,3 +219,14 @@ Questions of `docs/reviews/05_v0.6_targeted_check.md`; applied in `docs/specs/05
 | Q-2 | H7-2 | `print_jobs.payload` stores the CNIC / NTN masked to the **last 4** digits; the full number is filled in only when the job is sent (03c worker, 05 filler, never written back); a reprint of the receipt rebuilds the full number from the hub-only invoice record (`invoice_buyers`), not from the print queue. |
 | Q-3 | H7-2 | The **credit note prints the last 4 only**; the full number goes to the authority inside the credit submission (read from the original's `invoice_buyers` row). |
 | Q-4 | H7-1 | `disputed` is a **record only** — shown on X / Z and the shift history (who, when); no automatic deduction, block or follow-up. |
+
+## 16. Run 8 (targeted check of v0.6.1) — owner `pro_rata` ruling and notes (2026-11-18)
+
+`docs/reviews/05_v0.6.1_targeted_check.md`; applied in `docs/specs/05_Billing_Spec_v0.6.2.md` ("⚠️ Changed in v0.6.2").
+
+| # | Finding | Who | Ruling |
+|---|---|---|---|
+| Q-2 | H8-2 (+ H6-12, H7-7) | **owner, 2026-11-18 11:36 PKT** | **Keep `pro_rata` and fix it now.** A split's tax under `pro_rata` depends **only on the amounts per payment class** (the declared / actual cash vs digital shares of the pre-tax base), **never on payment order, timing or any shift's state**. The cashier declares the digital share before the first payment (`DeclareClassShares`; a single-class first payment declares that class); once a payment is taken the declaration may move only within the unpaid part. At close Σ digital payments must match the declared digital part (with its tax), else `409 BILL_CLASS_SHARE_MISMATCH`, resolved by changing the unpaid part or adding / removing payments on still-open shifts; a payment on a closed shift is never removed or re-taxed. Card-then-cash and cash-then-card give the same tax; counting a shift changes nothing; a reopen re-taxes nothing already paid unless lines change. Property test: permuting payment order and closing shifts never changes tax. `BILL_PAYMENT_ORDER` dropped. |
+| Q-1 | H8-1 | developer call per §14 / §15 intent | A sign-off shows on the X / Z of the day it is signed off ("variance sign-offs"); still-pending variances are listed as "pending sign-offs" on every X / Z until signed. |
+| Q-3 | H8-3 | review Rec | Only payments on fiscalized order types need a PRA code (checked at `AddPayment` and at close); non-fiscalized order types take any mode. |
+| Q-4 | label | — | The run-6 full-refund ruling (§14 Q-3) is "no new invoice" — the owner's words and what the spec built; in run 6 that was option **(b)**, so §14's "(a)" label is a slip; the spec's labels now read "Q-3 (b)". Behaviour unchanged. |
