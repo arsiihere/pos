@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { BranchConfig } from '@pos/events';
 import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
@@ -25,6 +25,9 @@ export interface RoundProps {
   controls(line: SeatingLine): ReactNode;
   /** always under a line (the comp waiting card) */
   below(line: SeatingLine): ReactNode;
+  /** 02b v1.0.15 §8 (01d v1.3 §3.13.2 rule 2, m6): a deep link to this round or one of its lines opens a folded
+   *  (all served) round; the person can still fold it again. Each change to true opens it once. */
+  forceOpen?: boolean;
 }
 
 /** Parents first, each followed by its option children / deal parts, in the hub's order. */
@@ -42,9 +45,12 @@ export const allServed = (order: SeatingOrder): boolean => {
   return counted.length > 0 && counted.every((l) => isServed(l));
 };
 
-export function Round({ order, n, utcOffsetMs, selected, onSelect, controls, below }: RoundProps) {
+export function Round({ order, n, utcOffsetMs, selected, onSelect, controls, below, forceOpen = false }: RoundProps) {
   const done = allServed(order);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(forceOpen);
+  useEffect(() => {
+    if (forceOpen) setOpen(true);
+  }, [forceOpen]);
   const folded = done && !open;
   const items = order.lines.filter((l) => l.parent_order_item_id === null && l.live_units > 0).length;
   const note = order.order_note ?? null;

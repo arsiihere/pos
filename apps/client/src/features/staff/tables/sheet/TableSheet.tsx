@@ -452,7 +452,7 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
             if (e.key === 'Escape' && dialog === null) close();
           }}
         >
-          <div className="tv__h">
+          <div className="tv__h" {...(tile.seating_id === null ? {} : { 'data-seating': tile.seating_id })}>
             <div className="tv__hd">
               <span className={`tcode${code.includes('+') ? ' j' : ''}`} dir="ltr">
                 {code}

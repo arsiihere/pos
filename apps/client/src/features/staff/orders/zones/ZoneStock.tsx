@@ -148,7 +148,7 @@ export function ZoneStock() {
               const low = !out && i.on_hand <= i.threshold;
               const name = i.name ?? i.item_id;
               return (
-                <div key={i.item_id} className={`zs${low ? ' low' : ''}${out ? ' out' : ''}`}>
+                <div key={i.item_id} className={`zs${low ? ' low' : ''}${out ? ' out' : ''}`} data-zone-item={`${z.zone_id}:${i.item_id}`}>
                   <span>
                     <b>{name}</b>
                     <small>{fill(t('zone.warn_at'), { n: String(i.threshold) })}</small>

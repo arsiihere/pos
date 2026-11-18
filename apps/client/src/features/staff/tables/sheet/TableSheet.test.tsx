@@ -105,6 +105,21 @@ async function render(shell: Shell, seating_id: string | null = 'S1', table_id =
 const toast = (shell: Shell) => shell.toasts.current()?.text;
 
 describe('[02a §8 Table sheet] table sheet', () => {
+  it('[02a §8] the sheet header carries data-seating="<seating_id>" (01d v1.3 §3.13.5); a free table has none', async () => {
+    const { shell } = fakeShell({});
+    await render(shell);
+    const head = m.container.querySelectorAll('[data-seating]');
+    expect(head.length).toBe(1);
+    expect((head[0] as HTMLElement).dataset.seating).toBe('S1');
+    expect((head[0] as HTMLElement).classList.contains('tv__h')).toBe(true);
+    m.unmount();
+    const free = tile({ state: 'FREE', seating_id: null, holder: null, live_order_count: 0, opened_at: null, joined_table_names: ['F4'], party_size: null });
+    const f = fakeShell({ maps: [mapOf([free])] });
+    await render(f.shell, null);
+    expect(m.container.querySelector('.tv__h')).not.toBeNull();
+    expect(m.container.querySelector('[data-seating]')).toBeNull();
+  });
+
   it('[02a §8 Table sheet] header: joined names, state, open time, guests / seats; the holder\'s view', async () => {
     const { shell } = fakeShell({});
     await render(shell);
