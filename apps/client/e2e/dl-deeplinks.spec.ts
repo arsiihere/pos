@@ -151,6 +151,9 @@ async function coveredByPanel(page: Page, table: string): Promise<boolean> {
   return w > 0 && h > 0;
 }
 
+/** The kiosk Back chip, in its own slot of the alert layer (01d v1.3.3 §3.13.6a: `div.abk`, above route sheets). */
+const backChip = (page: Page): Locator => page.locator('div.abk button.chip', { hasText: tr(LANG, 'alerts.back') });
+
 const phoneTab = (page: Page): Locator => page.locator('a.tab[aria-current="page"]');
 const toast = (page: Page): Locator => page.getByText(tr(LANG, 'alerts.target_closed'));
 
@@ -266,14 +269,11 @@ test('[01d §3.13.2 rules 2, 4; dl t1] Manager taps a void request: sheet, line 
 });
 
 // ------------------------------------------------------------------------------------------------------------------
-// 1b. §3.13.2 rule 6 (DL-K1, test 86): after a deep link to a table place on the cashier kiosk, the Back chip is in the
-//     top bar, but the table sheet's side panel (full height, scrim--side) is drawn over the bar's end, so the chip
-//     cannot be tapped while the place is open; closing the sheet is itself a navigation, and the chip goes with it.
-//     Expected to fail until the STOP in the t1 PR (Q-1) is ruled and fixed; the zone flow (test 4) shows the chip
-//     working where no sheet covers it.
+// 1b. §3.13.2 rule 6, §3.13.6a (DL Q-K (c), 01d v1.3.3; tests 86, 100–105 end to end): after a deep link to a table
+//     place on the cashier kiosk, the Back chip (`div.abk`, z 20) sits above the table sheet (`scrim--route`, z 10):
+//     a real click (hit-tested by the browser) reaches it and returns to the hash the tap left; the chip goes.
 test('[01d §3.13.2 rule 6; dl t1] kiosk: the Back chip can be tapped over a table place', async ({ browser }, info) => {
   test.skip(!isKiosk(info), 'the Back chip is the cashier kiosk\'s');
-  test.fail(true, 'Q-1 (t1 PR): the table side panel covers the Back chip on the kiosk');
   test.setTimeout(120_000);
   const h = hub();
   const [table] = dlPair('closed', info);
@@ -291,11 +291,14 @@ test('[01d §3.13.2 rule 6; dl t1] kiosk: the Back chip can be tapped over a tab
     await expect(sheet(mgr)).toBeVisible();
     await mgr.keyboard.press('Escape'); // AnswerSheet: the person only wants to go back
     await expect(dialog(mgr)).toHaveCount(0);
-    const back = mgr.locator('header.top .chip', { hasText: tr(LANG, 'alerts.back') });
+    const back = backChip(mgr);
     await expect(back).toBeVisible();
-    await shot(mgr, info, 'kiosk-back-chip-covered');
+    expect(await onTop(mgr, back), 'the Back chip is above the table sheet').toBe(true);
+    await shot(mgr, info, 'kiosk-back-chip-over-sheet');
     await back.click({ timeout: 5_000 });
     await expect.poll(() => hash(mgr)).toBe('#/requests');
+    await expect(sheet(mgr)).toHaveCount(0);
+    await expect(back).toHaveCount(0);
   } finally {
     await withdrawLeftover(ali);
     await close(mgr, info);
@@ -307,7 +310,7 @@ test('[01d §3.13.2 rule 6; dl t1] kiosk: the Back chip can be tapped over a tab
 // 2. §3.13.2 rule 2, §3.13.3 M1, §3.13.5 m7 (tests 75, 79, 84): Ali calls a waiter; Bilal (his waiter) taps the call
 //    banner's Open → his table: the tile glows on a landscape screen, the sheet header on portrait and phone (the
 //    bottom sheet covers the map). Then Ali joins that table into another one (MergeTables): Bilal's tap on the same
-//    call in his Inbox opens the surviving seating.
+//    call in his Inbox opens the surviving seating; closing that sheet returns to his Inbox (v1.3.3 close returns).
 test('[01d §3.13.3 M1, §3.13.5 m7; dl t1] call_waiter: the tile or the header glows; after MergeTables the survivor opens', async ({ browser }, info) => {
   test.setTimeout(120_000);
   const h = hub();
@@ -376,6 +379,12 @@ test('[01d §3.13.3 M1, §3.13.5 m7; dl t1] call_waiter: the tile or the header 
     await expect(sheet(bilal)).toContainText(joined);
     await glowOf(bilal, 'the survivor', (x) => x.data['seating'] === survivor || x.data['table'] !== undefined, before);
     await shot(bilal, info, 'call-after-merge');
+
+    // (c) close returns (01d v1.3.3 §3.13.2 rule 6, K-2): the sheet this tap opened closes back to the route the tap
+    // started on, #/inbox, not to the sheet's own fallback (#/tables)
+    await sheet(bilal).getByRole('button', { name: tr(LANG, 'common.close') }).click();
+    await expect(sheet(bilal)).toHaveCount(0);
+    await expect.poll(() => hash(bilal)).toBe('#/inbox');
   } finally {
     await close(bilal, info);
     await close(ali, info);
@@ -451,7 +460,7 @@ test('[01d §3.13.5, §3.13.6, §3.13.7; dl t1] zone banner → #/zones row glow
     await expect.poll(() => hash(ali)).toBe('#/zones');
     if (isPhone(info)) await expect(phoneTab(ali)).toHaveAttribute('href', '#/orders');
     if (isKiosk(info)) {
-      const back = ali.locator('header.top .chip', { hasText: tr(LANG, 'alerts.back') });
+      const back = backChip(ali);
       await expect(back).toBeVisible();
       await back.click();
       await expect.poll(() => hash(ali)).toBe(home);
@@ -522,6 +531,150 @@ test('[01d §3.13.5 m12, §3.13.3; dl t1] a Pass card glows in place; a served o
   } finally {
     await close(ali, info);
     await close(pass, info);
+  }
+});
+
+// ------------------------------------------------------------------------------------------------------------------
+// 7. §3.13.6a layers (DL Q-K (c), 01d v1.3.3): real clicks, hit-tested by the browser (what jsdom cannot check). Ali has
+//    a table sheet open (opened normally); Sara counts the Rooftop Cola down, so a zone banner arrives over it.
+
+/** Ali on his screen with the layers table's sheet open; returns its hash. */
+async function layersSheet(ali: Page, info: TestInfo): Promise<string> {
+  const h = hub();
+  const [table] = dlPair('layers', info);
+  await signInAt(ali, isKiosk(info) ? h.kiosk : h.device, 'Ali');
+  if (isKiosk(info)) await go(ali, '#/tables'); // the kiosk lands on its home
+  await tapTile(ali, table);
+  await expect(sheet(ali)).toBeVisible();
+  return hash(ali);
+}
+
+async function zoneBanner(ali: Page, request: APIRequestContext): Promise<Locator> {
+  await staffCommand(request, hub().device3, 'S_SARA', 'SetZoneStock', { zone_id: ZONE, item_id: COLA, on_hand: 1 });
+  const banner = ali.locator('.abn[data-alert]', { hasText: tr(LANG, 'alert.zone_stock_low.card') }).first();
+  await expect(banner).toBeVisible({ timeout: 20_000 });
+  return banner.getByRole('button', { name: tr(LANG, 'alerts.open') });
+}
+
+// 7a. (a) Only the route sheet (`scrim--route`, z 10) is under the banner (z 20): a real click on Open reaches it and
+//     deep-links to #/zones. Kiosk: the Back chip then returns to the table sheet it left.
+test('[01d §3.13.6a, §3.13.2 rule 6; dl t1] layers: a banner Open is tappable over an open TableSheet', async ({ browser, request }, info) => {
+  test.skip(!['tablet-landscape', 'kiosk'].includes(info.project.name), 'the side-panel layouts: landscape tablet and kiosk');
+  test.setTimeout(120_000);
+  const ali = await screen(browser, info);
+  try {
+    const sheetHash = await layersSheet(ali, info);
+    const open = await zoneBanner(ali, request);
+    expect(await onTop(ali, open), 'the banner is above the route sheet').toBe(true);
+    await shot(ali, info, 'layers-banner-over-sheet');
+    await open.click({ timeout: 5_000 });
+    await expect.poll(() => hash(ali)).toMatch(/^#\/zones/);
+    await glowOf(ali, 'the Cola row', (x) => x.data['zoneItem'] === `${ZONE}:${COLA}`);
+    if (isKiosk(info)) {
+      // the Back chip returns to the hash the tap left: the table sheet, opened normally before
+      const back = backChip(ali);
+      await expect(back).toBeVisible();
+      await back.click({ timeout: 5_000 });
+      await expect.poll(() => hash(ali)).toBe(sheetHash);
+      await expect(sheet(ali)).toBeVisible();
+      await expect(back).toHaveCount(0);
+    }
+  } finally {
+    await staffCommand(request, hub().device3, 'S_SARA', 'SetZoneStock', { zone_id: ZONE, item_id: COLA, on_hand: 500 });
+    await close(ali, info);
+  }
+});
+
+// 7d. (d) A popup opened from a route sheet (plain `.scrim`, z 30; cs14 portals it into `.pu.staff`) still covers the
+//     banners: the banner's Open is not on top, the hit at its centre lands on the popup's scrim, a real click cannot
+//     reach it, and the route stays. Three popups: Void and Comp from the TableSheet, Mark served from OrderView.
+
+/** The popup is open over the route sheet; a zone banner arrives; nothing of the banner can be clicked through it. */
+async function popupCoversBanner(ali: Page, request: APIRequestContext, info: TestInfo, popup: Locator, name: string): Promise<void> {
+  const route = await hash(ali);
+  // the popup is a child of the shell root, not of the route sheet (its z 30 is not capped by the sheet's z 10)
+  expect(await popup.evaluate((el) => el.closest('.scrim--route') === null && el.closest('.pu.staff') !== null), `${name}: portalled into .pu.staff`).toBe(true);
+  const open = await zoneBanner(ali, request);
+  await shot(ali, info, `layers-${name}-over-banner`);
+  const box = (await open.boundingBox())!;
+  const hit = await ali.evaluate(([x, y]) => document.elementFromPoint(x as number, y as number)?.closest('.scrim, .abns')?.className ?? null, [
+    box.x + box.width / 2,
+    box.y + box.height / 2,
+  ] as const);
+  expect(hit, `${name}: the hit at the banner Open lands on the popup scrim`).toMatch(/\bscrim\b/);
+  expect(hit).not.toMatch(/scrim--route/);
+  expect(await onTop(ali, open), `${name}: the popup covers the banner`).toBe(false);
+  await expect(open.click({ timeout: 2_000 }), `${name}: a real click cannot reach the banner Open`).rejects.toThrow();
+  expect(await hash(ali)).toBe(route);
+  await expect(popup).toBeVisible();
+}
+
+/** The layers table's Naan line, open (its actions shown). */
+async function layersLine(ali: Page): Promise<Locator> {
+  const line = sheet(ali).locator('[aria-expanded]', { hasText: 'Naan' }).first();
+  if ((await line.getAttribute('aria-expanded')) !== 'true') await line.click();
+  return line;
+}
+
+const LAYER_VIEWPORTS = ['tablet-landscape', 'kiosk'];
+
+test('[01d §3.13.6a; dl t1] layers: the Void popup from the TableSheet covers the banners', async ({ browser, request }, info) => {
+  test.skip(!LAYER_VIEWPORTS.includes(info.project.name), 'the side-panel layouts: landscape tablet and kiosk');
+  test.setTimeout(120_000);
+  const ali = await screen(browser, info);
+  try {
+    await layersSheet(ali, info);
+    const line = await layersLine(ali);
+    await line.getByRole('button', { name: new RegExp(`^${tr(LANG, 'line.void')}\\b`) }).click();
+    const popup = ali.locator('.dlg[role="dialog"]').last();
+    await expect(popup).toContainText(tr(LANG, 'comp.needs_manager'));
+    await popupCoversBanner(ali, request, info, popup, 'void');
+  } finally {
+    await staffCommand(request, hub().device3, 'S_SARA', 'SetZoneStock', { zone_id: ZONE, item_id: COLA, on_hand: 500 });
+    await close(ali, info);
+  }
+});
+
+test('[01d §3.13.6a; dl t1] layers: the Comp sheet from the TableSheet covers the banners', async ({ browser, request }, info) => {
+  test.skip(!LAYER_VIEWPORTS.includes(info.project.name), 'the side-panel layouts: landscape tablet and kiosk');
+  test.setTimeout(120_000);
+  const ali = await screen(browser, info);
+  try {
+    await layersSheet(ali, info);
+    const line = await layersLine(ali);
+    await line.getByRole('button', { name: tr(LANG, 'comp.do'), exact: true }).click();
+    const popup = ali.locator('.dlg[role="dialog"]').last();
+    await expect(popup).toContainText(tr(LANG, 'comp.needs_manager'));
+    await popupCoversBanner(ali, request, info, popup, 'comp');
+  } finally {
+    await staffCommand(request, hub().device3, 'S_SARA', 'SetZoneStock', { zone_id: ZONE, item_id: COLA, on_hand: 500 });
+    await close(ali, info);
+  }
+});
+
+// OrderView (a route sheet too, `scrim--route`): a takeaway order of the 03b fixture whose lines the kitchen has been
+// sent (FireDispatched), placed by Ali; the keys `pass-phone-*` are unused (03b's Pass flow runs on tablets only).
+test('[01d §3.13.6a; dl t1] layers: the Mark served sheet from OrderView covers the banners', async ({ browser, request }, info) => {
+  test.skip(!LAYER_VIEWPORTS.includes(info.project.name), 'the side-panel layouts: landscape tablet and kiosk');
+  test.setTimeout(120_000);
+  const h = hub();
+  const order = `O3-pass-${isKiosk(info) ? 'phone-360' : 'phone-390'}-en`;
+  const ali = await screen(browser, info);
+  try {
+    await signInAt(ali, isKiosk(info) ? h.kiosk : h.device, 'Ali');
+    await go(ali, `#/orders/${order}`);
+    const view = ali.locator(`[data-order="${order}"]`).first();
+    await expect(view).toBeVisible();
+    expect(await view.evaluate((el) => el.closest('.scrim--route') !== null), 'OrderView is a route sheet').toBe(true);
+    const line = view.locator('[aria-expanded]').first();
+    if ((await line.getAttribute('aria-expanded')) !== 'true') await line.click();
+    await line.getByRole('button', { name: tr(LANG, 'served.title') }).click();
+    const popup = ali.locator('.dlg[role="dialog"]').last();
+    await expect(popup).toBeVisible();
+    await popupCoversBanner(ali, request, info, popup, 'mark-served');
+  } finally {
+    await staffCommand(request, h.device3, 'S_SARA', 'SetZoneStock', { zone_id: ZONE, item_id: COLA, on_hand: 500 });
+    await close(ali, info);
   }
 });
 
