@@ -629,3 +629,54 @@ describe('[03b §8] station socket', () => {
     expect(urls.some((u) => u.startsWith('/queries/order-tickets'))).toBe(false);
   });
 });
+
+// dl h5 — 01d v1.3.2 §3.13 Scope ("The KDS (`/kds/`) is out of scope: it never reads `target`"), story AC 5 ("never on
+// the KDS"). A station socket's alert carrying a deep-link `target` renders exactly as the same alert without one: the
+// same lock line, no tap handler, no navigation, no glow, and tapping the line does nothing.
+describe('[01d §3.13 Scope; story AC5] the KDS ignores target', () => {
+  const view = (alert_id: string, target?: unknown) => ({
+    alert_id,
+    kind: 'ready_to_serve',
+    family: 'action',
+    step: 0,
+    escalation: false,
+    set: 'recipient',
+    for_staff_id: null,
+    lock: { kind_label_key: 'alert.ready_to_serve.lock', table_code: '12', point_code: 'Pass', requester_name: null },
+    raised_at: 1_000_000,
+    ...(target === undefined ? {} : { target }),
+  });
+
+  it('[01d §3.13 Scope; story AC5] an alert frame with a target renders the same lock line as one without; no navigation, no glow, no tap handler', async () => {
+    window.location.hash = '#/kds-start';
+    start([() => SESSION()]);
+    await settle();
+    sockets[0]!.frame(catchUp(['A']));
+    sockets[0]!.frame({ type: 'alert', alert: view('AL-PLAIN') });
+    sockets[0]!.frame({ type: 'alert', alert: view('AL-LINKED', { type: 'order', order_id: 'O-A' }) });
+    sockets[0]!.frame({ type: 'alert', alert: view('AL-TABLE', { type: 'table', table_id: 'T12', seating_id: 'S12' }) });
+    sockets[0]!.frame({ type: 'alert', alert: view('AL-UNKNOWN', { type: 'station', station_id: ST }) });
+    await settle();
+
+    const lines = [...m.container.querySelectorAll<HTMLElement>('.lockp__r.lockp__r--kds')];
+    expect(lines).toHaveLength(4);
+    // exactly as before: every linked line has the plain line's markup
+    for (const line of lines.slice(1)) expect(line.outerHTML).toBe(lines[0]!.outerHTML);
+    // no tap handler: nothing focusable or clickable on a lock line, no data attribute naming a place
+    for (const line of lines) {
+      expect(line.querySelector('button, a, [role="button"], [tabindex]')).toBeNull();
+      expect(line.hasAttribute('tabindex')).toBe(false);
+      expect(line.outerHTML).not.toMatch(/data-(order|table|seating|zone-item|focus)|O-A|S12/);
+    }
+    for (const line of lines) act(() => line.click());
+    timers.advance(3_000);
+    await settle();
+    // no navigation, no glow, the lines still there
+    expect(window.location.hash).toBe('#/kds-start');
+    expect(goes).toEqual([]);
+    expect(m.container.querySelector('.pos-glow')).toBeNull();
+    expect(document.querySelector('.pos-glow')).toBeNull();
+    expect(m.container.querySelectorAll('.lockp__r.lockp__r--kds')).toHaveLength(4);
+    window.location.hash = '';
+  });
+});
