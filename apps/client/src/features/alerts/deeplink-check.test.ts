@@ -331,3 +331,128 @@ describe('[01d v1.3 §3.13.3] a request\'s own state first', () => {
     }
   });
 });
+
+describe('[01d v1.3 §3.13.3] open check: table targets (M1)', () => {
+  const CALL_T: AlertLinkTarget = { type: 'table', table_id: 'T5', seating_id: 'S5' };
+
+  it('[01d §3.13.3] the seating\'s tile on the held map → #/tables/<primary>?seating_id=…&focus=table; no read', async () => {
+    const own = mapOf([tile({ table_id: 'T5', seating_id: 'S5', primary_table_id: 'T5', opened_at: 500 })]);
+    const d = deps({ held: own });
+    expect(await checkTarget(row('call_waiter', CALL_T), d)).toEqual({ kind: 'open', href: '/tables/T5?seating_id=S5&focus=table', focus: { kind: 'table' } });
+    expect(d.calls).toEqual({ orderView: [], zoneStock: [], tableMap: [] });
+  });
+
+  it('[01d #84] M1: S4 absorbs S5 → S4\'s sheet (T5 seated in S4, opened_at ≤ raised_at); the same for an open table_handover; a party seated after the call → not open', async () => {
+    // T4's seating S4 (opened at 500) absorbed S5: T5 is now in S4, primary T4; the call was raised at 1 000
+    const merged = mapOf([
+      tile({ table_id: 'T4', seating_id: 'S4', primary_table_id: 'T4', opened_at: 500, joined_table_names: ['T5'] }),
+      tile({ table_id: 'T5', seating_id: 'S4', primary_table_id: 'T4', opened_at: 500 }),
+    ]);
+    for (const kind of ['call_waiter', 'table_handover']) {
+      const d = deps({ held: null, map: { ok: true, data: merged } });
+      expect(await checkTarget(row(kind, CALL_T, { raised_at: 1_000 }), d), kind).toEqual({
+        kind: 'open',
+        href: '/tables/T4?seating_id=S4&focus=table',
+        focus: { kind: 'table' },
+      });
+      expect(d.calls.tableMap, kind).toEqual([undefined]); // at most one table-map, every floor
+    }
+    // the guests left; a new party S7 sat at T5 after the call (opened_at 2 000 > raised_at 1 000)
+    const newParty = mapOf([tile({ table_id: 'T5', seating_id: 'S7', primary_table_id: 'T5', opened_at: 2_000 })]);
+    expect(await checkTarget(row('call_waiter', CALL_T, { raised_at: 1_000 }), deps({ held: newParty }))).toEqual({ kind: 'not_open' });
+    // the guests left and the table is free
+    const free = mapOf([tile({ table_id: 'T5', state: 'FREE', seating_id: null, primary_table_id: null, opened_at: null })]);
+    expect(await checkTarget(row('call_waiter', CALL_T), deps({ held: free }))).toEqual({ kind: 'not_open' });
+    // the table is gone from the map altogether
+    expect(await checkTarget(row('call_waiter', CALL_T), deps({ held: mapOf([]) }))).toEqual({ kind: 'not_open' });
+  });
+
+  it('[01d §3.13.3 step 2; #247 review] a seating opened in the same millisecond as the alert (opened_at === raised_at) counts as the absorbing one', async () => {
+    const merged = mapOf([
+      tile({ table_id: 'T4', seating_id: 'S4', primary_table_id: 'T4', opened_at: 1_000 }),
+      tile({ table_id: 'T5', seating_id: 'S4', primary_table_id: 'T4', opened_at: 1_000 }),
+    ]);
+    expect(await checkTarget(row('call_waiter', CALL_T, { raised_at: 1_000 }), deps({ held: merged }))).toMatchObject({ kind: 'open', href: '/tables/T4?seating_id=S4&focus=table' });
+    // one ms later is a new party
+    const later = mapOf([tile({ table_id: 'T5', seating_id: 'S7', primary_table_id: 'T5', opened_at: 1_001 })]);
+    expect(await checkTarget(row('call_waiter', CALL_T, { raised_at: 1_000 }), deps({ held: later }))).toEqual({ kind: 'not_open' });
+  });
+
+  it('[01d §3.13.3 step 4; G-4] the place is the primary tile; a primary in the archived group (floor_id \'\') still opens the sheet', async () => {
+    const archived: TableMapBody = {
+      as_of_seq: 1,
+      floors: [
+        { floor_id: 'F1', name: 'Main', archived: false, zones: [{ zone_id: null, name: null, tables: [tile({ table_id: 'T5', seating_id: 'S5', primary_table_id: 'T9', opened_at: 500 })] }] },
+        { floor_id: '', name: null, archived: true, zones: [{ zone_id: null, name: null, tables: [tile({ table_id: 'T9', archived: true, seating_id: 'S5', primary_table_id: 'T9', opened_at: 500 })] }] },
+      ],
+    };
+    expect(await checkTarget(row('call_waiter', CALL_T), deps({ held: archived }))).toMatchObject({ kind: 'open', href: '/tables/T9?seating_id=S5&focus=table' });
+  });
+
+  it('[01d §3.13.3] a failed table-map read → cannot check', async () => {
+    expect(await checkTarget(row('call_waiter', CALL_T), deps({ held: null, map: apiError(503, 'SERVICE_UNAVAILABLE') }))).toEqual({
+      kind: 'cannot_check',
+      error: { kind: 'api', status: 503, code: 'SERVICE_UNAVAILABLE', details: {} },
+    });
+  });
+});
+
+describe('[01d v1.3 §3.13.3] open check: slip_warning while open (m5)', () => {
+  const SLIP_T: AlertLinkTarget = { type: 'order', order_id: 'O1' };
+  const byId = (bodies: Record<string, OrderViewBody>) => (id: string): HubResult<OrderViewAnswer> =>
+    bodies[id] === undefined ? apiError(404, 'ORDER_NOT_FOUND') : ok(bodies[id]);
+
+  it('[01d #89] a slip over [O1, O2], O1 cancelled while the slip is open → O2\'s round / LateCard; the request is open, so it is open', async () => {
+    const d = {
+      ...deps({
+        held: MERGED,
+        view: byId({ O1: order({ order_id: 'O1', cancelled: true }), O2: order({ order_id: 'O2', seating_id: 'S4' }) }),
+      }),
+      openSlips: () => [{ alert_id: 'A1', order_ids: ['O1', 'O2'] }],
+    };
+    const r = await checkTarget(row('slip_warning', SLIP_T), d);
+    expect(r).toMatchObject({ kind: 'open', href: '/tables/T4?seating_id=S4&focus=late%3AA1', focus: { kind: 'late', alert_id: 'A1' } });
+    expect(d.calls.orderView).toEqual(['O1', 'O2']);
+  });
+
+  it('[01d §3.13.3 m5] the open slip is open by itself: every counted line served still opens it; not listed in open_slips → target.order_id', async () => {
+    const served = order({ lines: [line({ served_at: 5_000, stage: 'served' })] });
+    const d = { ...deps({ held: MERGED, view: ok(served) }), openSlips: () => [{ alert_id: 'OTHER', order_ids: ['O8'] }] };
+    expect(await checkTarget(row('slip_warning', SLIP_T), d)).toMatchObject({ kind: 'open', href: '/tables/T4?seating_id=S4&focus=late%3AA1' });
+    expect(d.calls.orderView).toEqual(['O1']);
+    // no catch-up open_slips held at all (H5 absent) → target.order_id
+    expect(await checkTarget(row('slip_warning', SLIP_T), deps({ held: MERGED }))).toMatchObject({ kind: 'open' });
+  });
+
+  it('[02b §6.18a; h4 review; #247 review] a slip whose first open order is dine-in with seating_id null: that order is the open one (not skipped); no place → no_place (today\'s tap), never not open', async () => {
+    const d = {
+      ...deps({ held: MERGED, view: byId({ O1: order({ order_id: 'O1', seating_id: null }), O2: order({ order_id: 'O2' }) }) }),
+      openSlips: () => [{ alert_id: 'A1', order_ids: ['O1', 'O2'] }],
+    };
+    expect(await checkTarget(row('slip_warning', SLIP_T), d)).toEqual({ kind: 'no_place' });
+    expect(d.calls.orderView).toEqual(['O1']);
+  });
+
+  it('[01d §3.13.5] a takeaway / parking slip → #/orders/<id>?focus=order:<id> (M3), the body handed over', async () => {
+    const takeaway = order({ order_type: 'takeaway', seating_id: null });
+    expect(await checkTarget(row('slip_warning', SLIP_T), deps({ view: ok(takeaway) }))).toEqual({
+      kind: 'open',
+      href: '/orders/O1?focus=order%3AO1',
+      focus: { kind: 'order', order_id: 'O1' },
+      preload: { order_view: takeaway },
+    });
+  });
+
+  it('[01d §3.13.3 m5; #247 review] the slip is open by itself: every order cancelled or billed, or no tile → no_place (today\'s tap), never not open; a read error → cannot check', async () => {
+    const gone = { ...deps({ held: MERGED, view: byId({ O1: order({ cancelled: true }), O2: order({ order_id: 'O2', billed: true }) }) }), openSlips: () => [{ alert_id: 'A1', order_ids: ['O1', 'O2'] }] };
+    expect(await checkTarget(row('slip_warning', SLIP_T), gone)).toEqual({ kind: 'no_place' });
+    const noTile = mapOf([tile({ table_id: 'T9', seating_id: 'S9', primary_table_id: 'T9' })]);
+    expect(await checkTarget(row('slip_warning', SLIP_T), deps({ held: noTile }))).toEqual({ kind: 'no_place' });
+    // a closed slip is still "the request is closed"
+    expect(await checkTarget(row('slip_warning', SLIP_T, { state: 'closed' }), deps({ held: MERGED }))).toEqual({ kind: 'request_closed' });
+    expect(await checkTarget(row('slip_warning', SLIP_T), deps({ held: MERGED, view: { ok: false, error: { kind: 'network' } } }))).toEqual({
+      kind: 'cannot_check',
+      error: { kind: 'network' },
+    });
+  });
+});
