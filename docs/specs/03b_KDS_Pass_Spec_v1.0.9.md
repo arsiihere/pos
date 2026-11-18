@@ -456,7 +456,7 @@ defineAlertKind({
 });                                                                 // dedupe_key 'kds_offline:' + station_id
 ```
 
-⚠️ Changed by 01d v1.3 (L-4d): **Targets** — `ready_to_serve` and `served_card` `link: (v) => ({ type: 'order', order_id: v.order_id })` (01d v1.3 §3.13.1 rows 10, 11). `ready_to_serve` is no longer open once every line is served (owner 2026-11-18, DL Q-2 (a)). `served_card` opens the folded, served round, unfolded. `kds_offline` has no `link` and keeps today's tap (row 12). On a Pass tablet on `#/pass`, an `order` target on the screen glows its Pass card in place.
+⚠️ Changed by 01d v1.3 (L-4d): **Targets** — `ready_to_serve` and `served_card` `link: (v) => ({ type: 'order', order_id: v.order_id })` (01d v1.3 §3.13.1 rows 10, 11). `ready_to_serve` is no longer open once every line is served (owner 2026-11-18, DL Q-2 (a)). `served_card` opens the folded, served round, unfolded. `kds_offline` has no `link` and keeps today's tap (row 12). On a Pass tablet on `#/pass`, an `order` target whose card is on the screen glows that card in place, with no navigation and no `order-view` read. The escalation row a Pass tablet gets as a `point` target is lock-only, so no sheet opens, and a signed-out Pass tablet shows only the non-tappable lock panel (01d v1.3 §3.13.5; review m12).
 
 ### 6.22 Events (`schema_version` 1; `@pos/events/src/events/{order,hub}/`)
 

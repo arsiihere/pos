@@ -143,10 +143,14 @@ Full list with reasons: `docs/specs/04_Voids_Audit_Spec_v1.0.3.md` §12.6.
 
 ## 11. From the notification deep links spec (owner, 2026-11-18) — 01d v1.3 §3.13
 
-Full text: `docs/specs/01d_Notifications_Requests_Spec_v1.3.md` §3.13, §12.4, §12.8. Story: `docs/stories/dl-deeplinks.md`.
+Full text: `docs/specs/01d_Notifications_Requests_Spec_v1.3.md` §3.13, §12.4, §12.8. Story: `docs/stories/deeplinks-refined.md`.
 
 | # | Item | Decided | Where it goes |
 |---|---|---|---|
-| DL-F1 | **"Food ready" to waiters.** Tell the table's waiters when their food is ready, with a deep link to the line or order. A new alert kind, not a deep link on an existing one. | Not now (owner Q2 (a), 2026-11-18): deep links cover existing notifications only. | A later spec: a new 03b kind with `link` (`order_line` / `order`). "Served" closes its target (01d §12.8 Q-2). |
+| DL-Q0a | **Kinds with no staff-app screen** (`station_overload`, `kds_offline`, `printer_problem`, `no_approver`). | **Ruled (a)** (owner 2026-11-18): today's tap, no deep link. | 01d v1.3 §3.13.1, §12.8 |
+| DL-Q0b | **Which notifications.** | **Ruled (a)** (owner 2026-11-18): existing ones only; "food ready" is DL-F1. | 01d v1.3 §3.13, §12.8 |
+| DL-F1 | **"Food ready" to waiters.** Tell the table's waiters when their food is ready, with a deep link to the line or order. This is a new alert kind, not a deep link on an existing one. | Not now (owner DL Q-0b (a), 2026-11-18): deep links cover existing notifications only. | A later spec: a new 03b kind that can use `link` (`order_line` / `order`); how it closes is for that spec. |
 | DL-Q1 | **Tap on a request the viewer can answer** (void, comp, handover receiver). | **Ruled (a)** (owner 2026-11-18 09:18): open the place and glow it, then `AnswerSheet` on top; `slip_warning` answers in its LateCard. | 01d v1.3 §3.13.2 rule 4, §12.8 |
 | DL-Q2 | **"Line served" as not open.** | **Ruled (a)** (owner 2026-11-18 09:18): only `ready_to_serve` treats a served order as not open; elsewhere served lines and rounds stay reachable, unfold and glow. | 01d v1.3 §3.13.1, §3.13.3, §12.8 |
+| DL-Q3 | **What a notice tap shows** (`pin_use_failed`, `answered_on_requester_device`, `request_result`): (a) glow the place, then the notice card with all its facts on top (device, "Not you?", rejection note); not open or uncheckable → the card over the current screen; (b) notices keep today's tap; (c) glow only. | **Open — awaiting the owner.** Rec (a) (integrator); the spec is written as (a), for all copy kinds. | 01d v1.3 §3.13.2 rule 5, §12.8 |
+| DL-S1 | **Seen on every tap** (also a "no longer open" tap). | Integrator ruling 2026-11-18; **for the owner to confirm at approval**. | 01d v1.3 §3.13.2 rule 3, §12.8 |
