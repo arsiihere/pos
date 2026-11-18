@@ -5,7 +5,7 @@ import { t } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { shownRupees } from '../owner/money';
 import type { Resolution } from '../staff/api';
-import { closedText, familyText, fromDayText, stepTag, tableLabel, timeText, titleText } from './labels';
+import { closedText, familyText, fromDayText, reasonText, stepTag, tableLabel, timeText, titleText } from './labels';
 import { helpText03b, is03bKind, printSkipAction, type PrintSkipDismiss } from './labels-03b';
 import { isSilent } from './sounds';
 import type { AlertRow } from './store';
@@ -306,7 +306,8 @@ export function detailLine(card: AlertCard | undefined, withAmount: boolean): Re
     );
   }
   if (withAmount && d.amount !== undefined) parts.push(<span key="a" className="num">{amountText(d.amount)}</span>);
-  if (!withAmount && d.reason !== undefined && d.reason !== '') parts.push(<bdi key="r">“{d.reason}”</bdi>);
+  const reason = withAmount ? null : reasonText(d.reason, card);
+  if (reason !== null) parts.push(<bdi key="r">“{reason}”</bdi>);
   if (parts.length === 0) return null;
   return parts.flatMap((p, i) => (i === 0 ? [p] : [' · ', p]));
 }
