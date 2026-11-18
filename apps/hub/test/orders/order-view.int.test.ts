@@ -82,13 +82,15 @@ function signIn(staffId: string): Who {
   return { staffId, sessionId: session.sessionId, token: device.token, sessionToken: session.token };
 }
 
-async function view(who: Who, order_id?: string): Promise<{ status: number; data: SeatingOrder; error?: { code: string; details: Record<string, unknown> } }> {
+type OrderViewData = SeatingOrder & { order_type: string; seating_id: string | null };
+
+async function view(who: Who, order_id?: string): Promise<{ status: number; data: OrderViewData; error?: { code: string; details: Record<string, unknown> } }> {
   const res = await hub.app.inject({
     method: 'GET',
     url: order_id === undefined ? '/queries/order-view' : `/queries/order-view?order_id=${order_id}`,
     headers: { authorization: `Bearer ${who.token}`, 'x-session-token': who.sessionToken },
   });
-  const body = res.json() as { data: SeatingOrder; error?: { code: string; details: Record<string, unknown> } };
+  const body = res.json() as { data: OrderViewData; error?: { code: string; details: Record<string, unknown> } };
   return { status: res.statusCode, data: body.data, error: body.error };
 }
 
@@ -118,7 +120,8 @@ describe('[02b #47] order-view (§6.18a; Q-8, Q-27)', () => {
     appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'D1', placed_by: PLACER, lines: [{ order_item_id: 'D1a', item_id: FX.naan }] });
     const res = await hub.app.inject({ method: 'GET', url: '/queries/seating-orders?seating_id=SEAT1', headers: { authorization: `Bearer ${who.token}`, 'x-session-token': who.sessionToken } });
     const seated = (res.json() as { data: { orders: SeatingOrder[] } }).data.orders[0]!;
-    expect(Object.keys(r.data).sort()).toEqual(Object.keys(seated).sort());
+    // ⚠️ 01d v1.3 (L-4b): order-view = the seating-orders element + order_type and seating_id (02b v1.0.15 §6.18a)
+    expect(Object.keys(r.data).sort()).toEqual([...Object.keys(seated), 'order_type', 'seating_id'].sort());
     expect(Object.keys(r.data.lines[0]!).sort()).toEqual(Object.keys(seated.lines[0]!).sort());
     expect(r.data).toMatchObject({ order_id: 'T1', placed_by: { staff_id: PLACER, name: 'Usman' }, cancelled: false, billed: false, order_note: null });
     expect(r.data.promise_ms).toBe(engine().orders.T1!.promise_ms);
@@ -152,7 +155,8 @@ describe('[02b #47] order-view (§6.18a; Q-8, Q-27)', () => {
     }
     // the same element as seating-orders gives for the seating
     const seating = ordersOf(hub.deps.db, 'SEAT1').map((o) => toSeatingOrder(engine(), currentDirectory(hub.app), o, hub.clock.branchNow(), pendingComps(hub.deps.db, hub.app.log)));
-    expect((await view(signIn(OTHER), 'D1')).data).toEqual(seating[0]);
+    // ⚠️ 01d v1.3 (L-4b): plus order_type and the current seating_id (02b v1.0.15 §6.18a)
+    expect((await view(signIn(OTHER), 'D1')).data).toEqual({ ...seating[0], order_type: 'dine_in', seating_id: 'SEAT1' });
   });
 
   it('[02b #47] unknown order_id → 404 ORDER_NOT_FOUND', async () => {
@@ -177,5 +181,105 @@ describe('[02b #47] order-view (§6.18a; Q-8, Q-27)', () => {
     activity.drain();
     await view(placer, 'T1');
     expect(activity.get(placer.sessionId)).toBeUndefined();
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #52
+
+describe('[02b #52] order-view carries order_type and the current seating_id (§6.18a; 01d v1.3 L-4b, review B1)', () => {
+  // T1 = FX.zoneTable (seating S_T1), T2 = FX.table (seating S_T2); merge and split are 02a's real events through the
+  // hub writer, so the seating_orders rows are rewritten by 02a's fold (projection.ts applyMerged / applySplit).
+  const dineIn = (seating_id: string, order_id: string) =>
+    appendOrder(hub, { order_type: 'dine_in', seating_id, order_id, placed_by: PLACER, lines: [{ order_item_id: `${order_id}a`, item_id: FX.naan }] });
+
+  it('[02b #52] a dine-in order → order_type dine_in and its seating', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'S_T2', holder_staff_id: PLACER });
+    dineIn('S_T2', 'D1');
+    const r = await view(signIn(BRANCH), 'D1');
+    expect(r.status).toBe(200);
+    expect(r.data).toMatchObject({ order_id: 'D1', order_type: 'dine_in', seating_id: 'S_T2' });
+    expect(r.data).not.toHaveProperty('table_key');
+  });
+
+  it('[02b #52] after TablesMerged absorbs its seating → the surviving seating_id', async () => {
+    openSeating(hub, { table_id: FX.zoneTable, seating_id: 'S_T1', holder_staff_id: PLACER });
+    openSeating(hub, { table_id: FX.table, seating_id: 'S_T2', holder_staff_id: PLACER });
+    dineIn('S_T2', 'D2');
+    append('TablesMerged', 'table', FX.zoneTable, {
+      into_seating_id: 'S_T1',
+      into_table_id: FX.zoneTable,
+      table_ids: [FX.table],
+      absorbed_seating_id: 'S_T2',
+      order_ids: ['D2'],
+      by_staff_id: PLACER,
+    });
+    const r = await view(signIn(OTHER), 'D2');
+    expect(r.status).toBe(200);
+    expect(r.data).toMatchObject({ order_id: 'D2', order_type: 'dine_in', seating_id: 'S_T1' });
+    expect(r.data).not.toHaveProperty('table_key');
+  });
+
+  it('[02b #52] after SeatingSplit moves it → the new seating; the order left behind keeps its seating', async () => {
+    openSeating(hub, { table_id: FX.zoneTable, seating_id: 'S_T1', holder_staff_id: PLACER });
+    dineIn('S_T1', 'D1');
+    dineIn('S_T1', 'D2');
+    append('SeatingSplit', 'table', FX.zoneTable, {
+      from_seating_id: 'S_T1',
+      new_seating_id: 'S_NEW',
+      to_table_id: FX.table,
+      order_ids: ['D2'],
+      by_staff_id: PLACER,
+    });
+    const who = signIn(BRANCH);
+    expect((await view(who, 'D2')).data).toMatchObject({ order_id: 'D2', order_type: 'dine_in', seating_id: 'S_NEW' });
+    expect((await view(who, 'D1')).data).toMatchObject({ order_id: 'D1', order_type: 'dine_in', seating_id: 'S_T1' });
+  });
+
+  it('[02b #52] takeaway / parking → seating_id null and their order_type', async () => {
+    takeaway('T1');
+    appendOrder(hub, { order_type: 'parking', order_id: 'P1', placed_by: PLACER, lines: [{ order_item_id: 'P1a', item_id: FX.naan }] });
+    const who = signIn(BRANCH);
+    expect((await view(who, 'T1')).data).toMatchObject({ order_id: 'T1', order_type: 'takeaway', seating_id: null });
+    expect((await view(who, 'P1')).data).toMatchObject({ order_id: 'P1', order_type: 'parking', seating_id: null });
+  });
+
+  it('[02b #52] still 3 statements (dine-in after a merge, takeaway); 403 / 404 unchanged', async () => {
+    openSeating(hub, { table_id: FX.zoneTable, seating_id: 'S_T1', holder_staff_id: PLACER });
+    openSeating(hub, { table_id: FX.table, seating_id: 'S_T2', holder_staff_id: PLACER });
+    dineIn('S_T2', 'D2');
+    append('TablesMerged', 'table', FX.zoneTable, {
+      into_seating_id: 'S_T1',
+      into_table_id: FX.zoneTable,
+      table_ids: [FX.table],
+      absorbed_seating_id: 'S_T2',
+      order_ids: ['D2'],
+      by_staff_id: PLACER,
+    });
+    takeaway('T1');
+    const placer = signIn(PLACER);
+    const counter = statementCounter(hub.deps.readDb);
+    for (const id of ['D2', 'T1']) {
+      counter.reset();
+      const r = await view(placer, id);
+      expect(r.status, id).toBe(200);
+      expect(counter.count, id).toBe(3);
+    }
+    const other = await view(signIn(OTHER), 'T1');
+    expect(other.status).toBe(403);
+    expect(other.error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope', order_ids: ['T1'] } });
+    const missing = await view(placer, 'NOPE');
+    expect(missing.status).toBe(404);
+    expect(missing.error).toMatchObject({ code: 'ORDER_NOT_FOUND', details: { order_id: 'NOPE' } });
+  });
+
+  it('[02b #52] seating-orders rows keep their keys (no order_type, seating_id or table_key; risk R-1)', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'S_T2', holder_staff_id: PLACER });
+    dineIn('S_T2', 'D1');
+    const who = signIn(BRANCH);
+    const res = await hub.app.inject({ method: 'GET', url: '/queries/seating-orders?seating_id=S_T2', headers: { authorization: `Bearer ${who.token}`, 'x-session-token': who.sessionToken } });
+    const seated = (res.json() as { data: { orders: SeatingOrder[] } }).data.orders[0]!;
+    expect(Object.keys(seated).sort()).toEqual(
+      ['billed', 'cancelled', 'follow_up', 'has_phone', 'lines', 'order_id', 'order_note', 'placed_at', 'placed_by', 'promise_ms'].sort(),
+    );
   });
 });
