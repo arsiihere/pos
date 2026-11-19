@@ -4,11 +4,12 @@ import {
   AUDIT_ACTIONS,
   auditEventTypes,
   registerAuditAction,
+  registerRequestAction,
   resetAuditActions,
   sealAuditActions,
   toAuditEntry,
 } from './audit';
-import { ENV_ACTOR, ev, fixtures, L, raised } from './audit.fixtures';
+import { ENV_ACTOR, ev, FROM_05, fixtures, L, raised } from './audit.fixtures';
 
 // 04 §3.6, §10 tests 50, 53, 56: the pure map with events-only lookups.
 
@@ -24,6 +25,13 @@ describe('AUDIT_ACTIONS', () => {
         'table_holder_changed', 'pin_locked_out', 'device_pin_locked_out', 'pin_lockout_cleared', 'device_paired',
         'device_revoked', 'pairing_token_generated', 'station_paused', 'station_capacity_set', 'item_availability_set',
         'request_closed', 'stock_set', 'stock_added', 'zone_stock_set', 'zone_stock_added', 'stock_transferred_out',
+        // 05 rows V-3 (04 v1.0.7 §3.6)
+        'fiscal_token_changed', 'bill_opened', 'check_bill_printed', 'bill_requested', 'splits_set', 'discount_requested',
+        'discount_answered', 'discount_applied', 'discount_removed', 'service_charge_removed', 'service_charge_applied',
+        'payment_added', 'payment_removed', 'buyer_id_waived', 'invoice_issued', 'bill_reopened', 'invoice_credited',
+        'fiscal_rejected', 'comp_removed', 'money_request_raised', 'money_request_answered', 'shift_opened', 'shift_counted',
+        'shift_count_skipped', 'handover_counted', 'shift_closed', 'shift_variance_signed_off', 'bill_closed_empty',
+        'petty_cash', 'drawer_opened', 'orders_carried_over', 'z_report_issued',
       ].sort(),
     );
   });
@@ -48,7 +56,7 @@ describe('toAuditEntry', () => {
       // §3.6: the envelope actor is always kept.
       expect(entry?.detail.envelope_actor_id, action).toBe(event.actor_id);
     }
-    expect(new Set(all.map((f) => f.action))).toStrictEqual(new Set(AUDIT_ACTIONS));
+    expect(new Set(all.map((f) => f.action))).toStrictEqual(new Set(AUDIT_ACTIONS.filter((a) => !FROM_05.includes(a))));
   });
 
   it('[04 #50] every mapped event type is in auditEventTypes(); the fixtures cover them all', () => {
@@ -210,5 +218,43 @@ describe('registerAuditAction', () => {
   it('[04 #53] a registered map cannot drop the envelope actor', () => {
     registerAuditAction('TicketReprinted', () => ({ action: 'ticket_reprinted', subject_type: 'order', subject_id: 'O7', detail: { envelope_actor_id: 'forged' } }));
     expect(toAuditEntry(ev('TicketReprinted', {}), L)!.detail.envelope_actor_id).toBe(ENV_ACTOR);
+  });
+});
+
+describe('registerRequestAction [05 row V-3, G-19]', () => {
+  const pair = { requested: 'discount_requested', answered: 'discount_answered' } as const;
+
+  it('[05 P0.15] is exported from the domain index', () => {
+    expect(domain.registerRequestAction).toBe(registerRequestAction);
+  });
+
+  it('[05 P0.15] a registered kind maps its AlertRaised to `requested` and its RequestAnswered to `answered`', () => {
+    registerRequestAction('discount', pair);
+    const r = toAuditEntry(ev('AlertRaised', raised('discount', true)), L);
+    expect(r).toMatchObject({ action: 'discount_requested' });
+    const lookups = { ...L, requestOf: () => ({ kind: 'discount', requester_staff_id: 's1', order_id: null, table_code: null, answerer_staff_id: null }) };
+    const a = toAuditEntry(ev('RequestAnswered', { alert_id: 'al-1', decision: 'approve', method: 'pin', answerer_staff_id: 's2' }), lookups);
+    expect(a).toMatchObject({ action: 'discount_answered', outcome: 'approved' });
+  });
+
+  it('[05 P0.15] a kind not registered keeps the generic answer', () => {
+    const lookups = { ...L, requestOf: () => ({ kind: 'discount', requester_staff_id: 's1', order_id: null, table_code: null, answerer_staff_id: null }) };
+    expect(toAuditEntry(ev('RequestAnswered', { alert_id: 'al-1', decision: 'approve', method: 'pin', answerer_staff_id: 's2' }), lookups)!.action).toBe('request_answered');
+  });
+
+  it('[05 P0.15] a duplicate kind throws (registered twice, or one of 04\'s own)', () => {
+    registerRequestAction('discount', pair);
+    expect(() => registerRequestAction('discount', pair)).toThrow(/discount/);
+    expect(() => registerRequestAction('void_approval', pair)).toThrow(/void_approval/);
+    expect(() => registerRequestAction('comp', pair)).toThrow(/comp/);
+  });
+
+  it('[05 P0.15] after sealAuditActions() a registration throws; resetAuditActions unseals and forgets', () => {
+    sealAuditActions();
+    expect(() => registerRequestAction('discount', pair)).toThrow(/startup only/);
+    resetAuditActions();
+    expect(() => registerRequestAction('discount', pair)).not.toThrow();
+    resetAuditActions();
+    expect(() => registerRequestAction('discount', pair)).not.toThrow();
   });
 });

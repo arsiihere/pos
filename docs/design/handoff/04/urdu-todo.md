@@ -236,6 +236,7 @@ Keys in `apps/client/src/i18n/en.ts` added by lane VU1 (handoff 04 CHANGES §2.1
 | `comp.units` | Units | Frame VoidSheetUrdu: تعداد (02b key, listed in 02b/urdu-todo.md) |
 | `comp.ask` | Ask for approval | Frame VoidSheetUrdu: منظوری مانگیں (02b key, listed in 02b/urdu-todo.md) |
 | `comp.withdraw` | Withdraw | Frame VoidPendingUrdu: واپس لیں (02b key, listed in 02b/urdu-todo.md) |
+| `void.reason.walk_out` | Walked out without paying | void sheet reason chip (04 §4.4 V12, 05 row V-2) |
 
 Needs native review as well (in `ur.ts`, no frame shows them):
 
@@ -243,3 +244,49 @@ Needs native review as well (in `ur.ts`, no frame shows them):
 - `alert.void_approval.lock` ({table} · ووئڈ · {requester}, the 02b comp lock pattern; 01d's labels test needs every `alert.*` key in `ur.ts` or the 01d to-do list).
 - `admin_stock.errors.DAY_CLOSE_BLOCKED_one` (the singular of the 01a plural, 04 v1.0.4 §8).
 - `admin_stock.errors.DAY_CLOSE_BLOCKED` and `_one`: the 01a Urdu says آئٹم ہٹانے کی درخواستیں ("requests to remove an item") where the 04 frames say ووئڈ (void). One word for both, after native review.
+
+## 05 P0.15
+
+Audit actions, groups and the `walk_out` void reason (05 rows V-2, V-3; owner ruling R-28, 2026-11-19).
+
+Keys in `apps/client/src/i18n/en.ts` added by 05 task P0.15 with no entry in `ur.ts`; they show in English on an Urdu page until translated (01a S49 fallback). `strings.test.ts` checks that every `audit.*` key is either in `ur.ts` or listed here (not both).
+
+36 keys.
+
+| Key | English | Note |
+|---|---|---|
+| `audit.action.fiscal_token_changed` | Fiscal token changed |  |
+| `audit.action.bill_opened` | Bill opened |  |
+| `audit.action.check_bill_printed` | Check bill printed |  |
+| `audit.action.bill_requested` | Bill asked for |  |
+| `audit.action.splits_set` | Bill split set |  |
+| `audit.action.discount_requested` | Discount asked |  |
+| `audit.action.discount_answered` | Discount answered |  |
+| `audit.action.discount_applied` | Discount applied |  |
+| `audit.action.discount_removed` | Discount removed |  |
+| `audit.action.service_charge_applied` | Service charge applied |  |
+| `audit.action.service_charge_removed` | Service charge removed |  |
+| `audit.action.payment_added` | Payment added |  |
+| `audit.action.payment_removed` | Payment removed |  |
+| `audit.action.buyer_id_waived` | Buyer ID waived |  |
+| `audit.action.invoice_issued` | Invoice issued |  |
+| `audit.action.bill_reopened` | Bill reopened |  |
+| `audit.action.invoice_credited` | Invoice credited |  |
+| `audit.action.fiscal_rejected` | Fiscal rejected |  |
+| `audit.action.comp_removed` | Comp removed |  |
+| `audit.action.bill_closed_empty` | Empty bill closed |  |
+| `audit.action.money_request_raised` | Money request asked |  |
+| `audit.action.money_request_answered` | Money request answered |  |
+| `audit.action.shift_opened` | Shift opened |  |
+| `audit.action.shift_counted` | Shift counted |  |
+| `audit.action.shift_count_skipped` | Shift count skipped |  |
+| `audit.action.handover_counted` | Handover counted |  |
+| `audit.action.shift_closed` | Shift closed |  |
+| `audit.action.shift_variance_signed_off` | Shift variance signed off |  |
+| `audit.action.petty_cash` | Petty cash |  |
+| `audit.action.drawer_opened` | Drawer opened |  |
+| `audit.action.orders_carried_over` | Orders carried over |  |
+| `audit.action.z_report_issued` | Z report issued |  |
+| `audit.actions.group.bills_payments` | Bills and payments |  |
+| `audit.actions.group.shifts_cash` | Shifts and cash |  |
+| `audit.reason.walk_out` | Walked out without paying | reason shown on an audit row |

@@ -119,6 +119,39 @@ export const AUDIT_ACTIONS = [
   'zone_stock_set',
   'zone_stock_added',
   'stock_transferred_out',
+  // 05 row V-3 (04 v1.0.7 §3.6): mapped by 05 through registerAuditAction / registerRequestAction; subject types `bill`, `shift`
+  'fiscal_token_changed',
+  'bill_opened',
+  'check_bill_printed',
+  'bill_requested',
+  'splits_set',
+  'discount_requested',
+  'discount_answered',
+  'discount_applied',
+  'discount_removed',
+  'service_charge_removed',
+  'service_charge_applied',
+  'payment_added',
+  'payment_removed',
+  'buyer_id_waived',
+  'invoice_issued',
+  'bill_reopened',
+  'invoice_credited',
+  'fiscal_rejected',
+  'comp_removed',
+  'money_request_raised',
+  'money_request_answered',
+  'shift_opened',
+  'shift_counted',
+  'shift_count_skipped',
+  'handover_counted',
+  'shift_closed',
+  'shift_variance_signed_off',
+  'bill_closed_empty',
+  'petty_cash',
+  'drawer_opened',
+  'orders_carried_over',
+  'z_report_issued',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -173,10 +206,18 @@ const order = (e: AuditEvent): { subject_type: string; subject_id: string } => (
 
 const DECISION_OUTCOME: Record<string, string> = { approve: 'approved', reject: 'rejected', accept: 'accepted', decline: 'declined' };
 
-const REQUEST_ACTIONS: Record<string, { requested: AuditAction; answered: AuditAction }> = {
-  void_approval: { requested: 'void_requested', answered: 'void_answered' },
-  comp: { requested: 'comp_requested', answered: 'comp_answered' },
-};
+/** The audit actions of one request kind (04 §3.6): `AlertRaised` → `requested`, `RequestAnswered` → `answered`. */
+export interface RequestActionPair {
+  requested: AuditAction;
+  answered: AuditAction;
+}
+
+// 04's own kinds; a later module adds its kinds through registerRequestAction (05 row V-3, G-19).
+const REQUEST_ACTIONS = new Map<string, RequestActionPair>([
+  ['void_approval', { requested: 'void_requested', answered: 'void_answered' }],
+  ['comp', { requested: 'comp_requested', answered: 'comp_answered' }],
+]);
+const BUILT_IN_REQUEST_KINDS: readonly string[] = [...REQUEST_ACTIONS.keys()];
 
 // ------------------------------------------------------------------------------------------------ the map
 
@@ -186,7 +227,7 @@ const BUILT_IN: Record<string, AuditMap> = {
     const p = e.payload;
     const kind = str(p, 'kind');
     if (p['request'] == null || kind === null) return null;
-    const action = REQUEST_ACTIONS[kind]?.requested;
+    const action = REQUEST_ACTIONS.get(kind)?.requested;
     if (action === undefined) return null;
     const values = rec(p, 'values');
     const details = rec(p, 'details');
@@ -220,7 +261,7 @@ const BUILT_IN: Record<string, AuditMap> = {
     const decision = str(p, 'decision');
     return {
       ...cols,
-      action: (req !== null ? REQUEST_ACTIONS[req.kind]?.answered : undefined) ?? 'request_answered',
+      action: (req !== null ? REQUEST_ACTIONS.get(req.kind)?.answered : undefined) ?? 'request_answered',
       ...requestSubject(e, req),
       actor_staff_id: req?.requester_staff_id ?? null,
       approver_staff_id: str(p, 'answerer_staff_id'),
@@ -563,6 +604,17 @@ export function registerAuditAction(event_type: string, map: AuditMap): void {
   registered.set(event_type, map);
 }
 
+/**
+ * 05 row V-3 (G-19): a later module adds a request kind's audit actions (startup only, before the seal, at module load
+ * through a static import, G-20). A duplicate kind (registered twice, or one of 04's) is a startup error, and so is a
+ * registration after `sealAuditActions()`.
+ */
+export function registerRequestAction(kind: string, actions: RequestActionPair): void {
+  if (sealed) throw new Error(`audit: request kind ${kind} registered after the audit projection was built (startup only)`);
+  if (REQUEST_ACTIONS.has(kind)) throw new Error(`audit: request kind ${kind} is already registered`);
+  REQUEST_ACTIONS.set(kind, actions);
+}
+
 /** Called when the `audit` projection takes its event types: from then on `registerAuditAction` throws. */
 export function sealAuditActions(): void {
   sealed = true;
@@ -571,6 +623,7 @@ export function sealAuditActions(): void {
 /** Tests only: drops every registered action and unseals (merge-guard precedent, `resetMergeGuard`). */
 export function resetAuditActions(): void {
   registered.clear();
+  for (const k of [...REQUEST_ACTIONS.keys()]) if (!BUILT_IN_REQUEST_KINDS.includes(k)) REQUEST_ACTIONS.delete(k);
   sealed = false;
 }
 

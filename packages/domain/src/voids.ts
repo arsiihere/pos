@@ -1,6 +1,6 @@
 // Shared void types, browser-safe [04 §4.4].
 
-export const VOID_REASON_CODES = ['customer_changed_mind', 'wrong_order_taken', 'too_late', 'quality', 'other'] as const;
+export const VOID_REASON_CODES = ['customer_changed_mind', 'wrong_order_taken', 'too_late', 'quality', 'other', 'walk_out'] as const; // 'walk_out': 05 row V-2
 export type VoidReasonCode = (typeof VOID_REASON_CODES)[number];
 export const VOID_DISPOSITIONS = ['moved', 'wastage', 'staff_meal', 'other'] as const;
 export type VoidDisposition = (typeof VOID_DISPOSITIONS)[number];

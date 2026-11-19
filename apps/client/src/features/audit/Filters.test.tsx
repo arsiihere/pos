@@ -138,8 +138,8 @@ describe('[04 §8; VU2b] audit filters', () => {
     await flush();
     mm.click(flt(mm, 2));
     const groups = [...pop(mm)!.querySelectorAll('.pop__g')].map((g) => g.firstChild?.textContent);
-    expect(groups).toEqual(['Voids and comps', 'Requests', 'Orders and tables', 'Day and stock', 'Kitchen and menu', 'Screens and PINs']);
-    expect(pop(mm)!.querySelectorAll('.pop__r[role="checkbox"]').length).toBe(34);
+    expect(groups).toEqual(['Voids and comps', 'Requests', 'Orders and tables', 'Day and stock', 'Kitchen and menu', 'Screens and PINs', 'Bills and payments', 'Shifts and cash']);
+    expect(pop(mm)!.querySelectorAll('.pop__r[role="checkbox"]').length).toBe(66);
     const box = (label: string) => [...pop(mm)!.querySelectorAll<HTMLElement>('.pop__r')].find((r) => r.textContent === label)!;
     for (const a of ['Void asked', 'Void answered', 'Item voided', 'Moved to ready stock']) mm.click(box(a));
     expect(box('Void asked').getAttribute('aria-checked')).toBe('true');

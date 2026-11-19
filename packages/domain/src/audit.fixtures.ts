@@ -3,6 +3,17 @@
 // the hub's `test/audit/fixtures-parse.int.test.ts`, which parses every fixture with the @pos/events registry first.
 import type { AuditEvent, AuditLookups, AuditRequestRef } from './audit.js';
 
+
+// 05's actions (row V-3): mapped by 05 through registerAuditAction / registerRequestAction, so 04 has no event fixture.
+export const FROM_05 = [
+  'fiscal_token_changed', 'bill_opened', 'check_bill_printed', 'bill_requested', 'splits_set', 'discount_requested',
+  'discount_answered', 'discount_applied', 'discount_removed', 'service_charge_removed', 'service_charge_applied',
+  'payment_added', 'payment_removed', 'buyer_id_waived', 'invoice_issued', 'bill_reopened', 'invoice_credited',
+  'fiscal_rejected', 'comp_removed', 'money_request_raised', 'money_request_answered', 'shift_opened', 'shift_counted',
+  'shift_count_skipped', 'handover_counted', 'shift_closed', 'shift_variance_signed_off', 'bill_closed_empty',
+  'petty_cash', 'drawer_opened', 'orders_carried_over', 'z_report_issued',
+];
+
 export const ENV_ACTOR = 'st-env';
 let seq = 0;
 

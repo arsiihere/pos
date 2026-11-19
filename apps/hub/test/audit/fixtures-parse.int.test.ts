@@ -1,7 +1,7 @@
 import { AUDIT_ACTIONS, toAuditEntry } from '@pos/domain';
 import { latestVersion, parseEvent } from '@pos/events';
 import { describe, expect, it } from 'vitest';
-import { fixtures, L } from '../../../../packages/domain/src/audit.fixtures';
+import { FROM_05, fixtures, L } from '../../../../packages/domain/src/audit.fixtures';
 
 // 04 §10 test 50, the schema half: every toAuditEntry fixture of @pos/domain is a real event. Each one is parsed with
 // the @pos/events registry (latest version) before it is mapped, so a renamed or stripped payload field fails here
@@ -10,7 +10,7 @@ import { fixtures, L } from '../../../../packages/domain/src/audit.fixtures';
 describe('[04 #50] audit fixtures parse as real events', () => {
   it('[04 #50] every fixture parses unchanged, and its parsed event maps to the same entry', () => {
     const all = fixtures();
-    expect(new Set(all.map((f) => f.action))).toStrictEqual(new Set(AUDIT_ACTIONS));
+    expect(new Set(all.map((f) => f.action))).toStrictEqual(new Set(AUDIT_ACTIONS.filter((a) => !FROM_05.includes(a))));
     for (const { action, event } of all) {
       const parsed = parseEvent({
         ...event,
