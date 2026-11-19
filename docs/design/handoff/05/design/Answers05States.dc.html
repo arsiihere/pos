@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Approved / rejected / withdrawn / can no longer apply / closed obsolete (bill, day, shift); approver errors</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/pulse.css">
+<link rel="stylesheet" href="css/v-brand.css">
+<link rel="stylesheet" href="css/pulse-01d.css">
+<link rel="stylesheet" href="css/pulse-02.css">
+<link rel="stylesheet" href="css/pulse-04.css">
+<link rel="stylesheet" href="css/pulse-05.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pu v-brand " lang="en" dir="ltr" data-theme="light" style="width: 1280px; height: 1000px;">
+<main class="b5-board" style="grid-template-columns:1fr 1fr;gap:28px;padding:32px;align-content:start;height:100%"><div class="col" style="gap:12px"><span class="lbl">Requester side — result (01d N04 banner)</span><div class="b5-ban c-ok"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><div><b>Approved by Imran <span class="num">1:44 PM</span></b><span>Discount 10 % · Regular customer — totals updated</span></div></div><div class="b5-ban c-danger"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg><div><b>Rejected by Imran <span class="num">1:44 PM</span></b><span>Discount — nothing changed</span></div></div><div class="b5-ban c-mute" style="--c:var(--muted);--c-bg:var(--surface-3);--c-ink:var(--ink-2)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14.5L4 9.5l5-5"/><path d="M4 9.5h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><div><b>Withdrawn</b><span>Nothing changed</span></div></div><div class="b5-ban c-ok"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="10" rx="2"/><path d="M3 10h18"/><path d="M5 14v5.5h14V14"/><path d="M10 7h4"/></svg><div><b>Approved — open the drawer to take the cash</b><span>Petty cash · Cash out Rs 6,500.00</span></div></div><div class="b5-ban c-mute" style="--c:var(--muted);--c-bg:var(--surface-3);--c-ink:var(--ink-2)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg><div><b>Closed: bill closed</b><span>The discount request on T7</span></div></div><div class="b5-ban c-mute" style="--c:var(--muted);--c-bg:var(--surface-3);--c-ink:var(--ink-2)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><div><b>Closed: day closed</b><span>Every open request except shift variance</span></div></div><div class="b5-ban c-mute" style="--c:var(--muted);--c-bg:var(--surface-3);--c-ink:var(--ink-2)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v.01"/><path d="M18 14.5v.01"/></svg><div><b>Closed: shift closed</b><span>Petty cash requests of that shift</span></div></div></div><div class="col" style="gap:12px"><span class="lbl">Approver side — after Approve / Reject (01d B02, B03, B04)</span><div class="b5-ban c-ok"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><div><b>Approved</b><span>Toast after the PIN step</span></div></div><div class="b5-ban c-info"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></svg><div><b>Usman answered first</b><span>Someone else answered — toast who</span></div></div><div class="b5-ban c-danger"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg><div><b>This can’t be approved any more: the bill changed — ask again</b><span>Can no longer apply (per kind: “the charge is already removed”, “the invoices changed since the ask”, “the order is billed now”, “the bill is not open”, “the shift is closed”, “already signed off elsewhere”). Reject still works.</span></div></div><div class="b5-ban c-danger"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg><div><b>You can’t approve your own request</b><span>Own request</span></div></div><div class="b5-ban c-mute" style="--c:var(--muted);--c-bg:var(--surface-3);--c-ink:var(--ink-2)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg><div><b>Not your team — for your information</b><span>01d read-only line</span></div></div><div class="b5-ban c-warn"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M8 8a5 5 0 0 0-1 9.9V18h10.5"/><path d="M11 6.2A5.5 5.5 0 0 1 17.6 10 4 4 0 0 1 20 17"/></svg><div><b>Needs the hub</b><span>Hub down</span></div></div></div></main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
