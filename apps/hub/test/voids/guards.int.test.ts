@@ -131,11 +131,11 @@ describe('[04 §6.6] merge guard (02a §3.11 / §3.12)', () => {
     openSeating(hub, { table_id: VX.tables.T4, seating_id: 'SEAT_T4' });
     const s = stagedOrder(hub, { seating_id: 'SEAT_T4' });
     const free = counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_T4'] }));
-    expect(free).toEqual({ value: { blocked: false, order_item_ids: [] }, statements: 1 });
+    expect(free).toEqual({ value: null, statements: 1 });
     await ask(cashier, s.order_id, [{ order_item_id: s.cooking, disposition: 'wastage' }, { order_item_id: s.done, disposition: 'wastage' }]);
-    expect(counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_T4', 'SEAT_X'] }))).toEqual({ value: { blocked: true, order_item_ids: [s.cooking, s.done] }, statements: 1 });
-    expect(counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_T4'], order_ids: ['OTHER'] }))).toEqual({ value: { blocked: false, order_item_ids: [] }, statements: 1 });
-    expect(counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_X'], order_ids: [s.order_id] }))).toEqual({ value: { blocked: true, order_item_ids: [s.cooking, s.done] }, statements: 1 });
+    expect(counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_T4', 'SEAT_X'] }))).toEqual({ value: { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: [s.cooking, s.done] } }, statements: 1 });
+    expect(counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_T4'], order_ids: ['OTHER'] }))).toEqual({ value: null, statements: 1 });
+    expect(counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_X'], order_ids: [s.order_id] }))).toEqual({ value: { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: [s.cooking, s.done] } }, statements: 1 });
   });
 });
 

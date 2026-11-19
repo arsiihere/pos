@@ -4,6 +4,7 @@ import type {
   OrderFoodClearedPayload,
   OrderPlacedPayload,
   PosEvent,
+  SeatingReopenedPayload,
   SeatingSplitPayload,
   TableCleanedPayload,
   TableHolderChangedPayload,
@@ -21,7 +22,7 @@ import type { SeatingRow } from './contracts.js';
 // so every fold sees all four tables as of that event, live and in catch-up. Times are the envelope recorded_at.
 // Each event runs its own fold (state and lock rows), then the §3.3 activity refresh of its seating's lock.
 
-// §6.19: the ten `table` stream events.
+// §6.19: the eleven `table` stream events (⚠️ 02a v1.1.8, 05 row T-3 (1): SeatingReopened).
 const TABLE_EVENTS = [
   'TableOpened',
   'TableLocked',
@@ -33,9 +34,11 @@ const TABLE_EVENTS = [
   'SeatingSplit',
   'BillRequested',
   'TableCleaned',
+  'SeatingReopened',
 ] as const;
 
-// §5 (P-1, P-1c, P-1d): 02b's order events and 05's BillClosed. Not ItemServed (AD-4).
+// §5 (P-1, P-1c, P-1d): 02b's order events and 05's BillClosed. Not ItemServed (AD-4). ⚠️ 02a v1.1.8 (05 row T-3 (7)):
+// and 05's BillClosedEmpty (05 §6.29), folded like BillClosed only when its seating_id is non-null.
 const FOLDED_EVENTS = [
   'OrderPlaced',
   'OrderLinesAdded',
@@ -46,6 +49,7 @@ const FOLDED_EVENTS = [
   'LineWeightSet',
   'LineComped',
   'BillClosed',
+  'BillClosedEmpty',
 ] as const;
 
 export const TABLES_EVENT_TYPES: readonly string[] = [...TABLE_EVENTS, ...FOLDED_EVENTS];
@@ -182,7 +186,21 @@ function applyState(tx: Database.Database, event: PosEvent, log: (line: UnknownS
     }
     case 'BillClosed': {
       const p = event.payload as BillClosedPayload;
-      tx.prepare(`UPDATE seatings SET bill_closed = 1 WHERE seating_id = ? AND state <> 'CLOSED'`).run(p.seating_id);
+      return applyBillClosed(tx, p.seating_id);
+    }
+    case 'BillClosedEmpty': {
+      // ⚠️ 02a v1.1.8 (05 row T-3 (7), H8-5): 05 §6.29 `{ bill_id, seating_id: string | null, … }` (05 owns the
+      // schema) folds like BillClosed only when 05 set its seating_id; null → no table effect.
+      const seatingId = (event.payload as Record<string, unknown>).seating_id;
+      if (typeof seatingId === 'string') applyBillClosed(tx, seatingId);
+      return;
+    }
+    case 'SeatingReopened': {
+      // ⚠️ 02a v1.1.8 §3.1 (05 row T-3 (1)): bill_closed = 0 and the bill request cleared, only while not CLOSED; re-fold.
+      const p = event.payload as SeatingReopenedPayload;
+      tx.prepare(`UPDATE seatings SET bill_closed = 0, bill_requested_at = NULL WHERE seating_id = ? AND state <> 'CLOSED'`).run(
+        p.seating_id,
+      );
       refold(tx, p.seating_id);
       return;
     }
@@ -266,7 +284,14 @@ function applyPlaced(tx: Database.Database, event: PosEvent, log: (line: Unknown
     seatingId,
     p.has_food === false ? 0 : 1,
   );
-  tx.prepare('UPDATE seatings SET bill_requested_at = NULL WHERE seating_id = ?').run(seatingId);
+  // ⚠️ 02a v1.1.8 §3.1 (05 row T-3 (2), S-9 (b)): an order placed on a seating with bill_closed = 1 clears it.
+  tx.prepare('UPDATE seatings SET bill_requested_at = NULL, bill_closed = 0 WHERE seating_id = ?').run(seatingId);
+  refold(tx, seatingId);
+}
+
+// §3.1 BillClosed (and 05's BillClosedEmpty with a seating): sticky NEEDS_CLEANING, only while the seating is open.
+function applyBillClosed(tx: Database.Database, seatingId: string): void {
+  tx.prepare(`UPDATE seatings SET bill_closed = 1 WHERE seating_id = ? AND state <> 'CLOSED'`).run(seatingId);
   refold(tx, seatingId);
 }
 
@@ -379,6 +404,7 @@ function activitySeating(tx: Database.Database, event: PosEvent): string | null 
     case 'TableMoved':
     case 'BillRequested':
     case 'TableCleaned':
+    case 'SeatingReopened':
       return (event.payload as { seating_id: string }).seating_id;
     case 'TablesMerged':
       return (event.payload as TablesMergedPayload).into_seating_id;

@@ -373,6 +373,28 @@ describe('CleanTable (02a §6.13, §3.13)', () => {
     expect(tableRows()).toEqual([]);
   });
 
+  it('[05 row T-3 (5)] [02a #64] [05 #37d 02a half] reopen then CleanTable → 409 TABLE_HAS_OPEN_ORDERS (unchanged rule); RequestBill works again; the re-close → NEEDS_CLEANING, Clean passes', async () => {
+    const ali = signIn('S_ALI');
+    append(opened('T1', 'S1'), placed('O1', 'S1'), billRequested('S1', 'T1'), billClosed('S1', 'T1'));
+    expect(seating('S1').state).toBe('NEEDS_CLEANING');
+    append(ev('table', 'T1', 'SeatingReopened', { seating_id: 'S1', bill_id: 'B1' }));
+    expect(seating('S1')).toMatchObject({ state: 'ORDERED', bill_requested_at: null });
+
+    const before = eventCount();
+    const clean = await call(ali, 'CleanTable', { table_id: 'T1', seating_id: 'S1' });
+    expect(clean.status).toBe(409);
+    expect(clean.error).toEqual({ code: 'TABLE_HAS_OPEN_ORDERS', details: { table_id: 'T1', order_count: 1 } });
+    expect(eventCount()).toBe(before);
+
+    const bill = await call(ali, 'RequestBill', { table_id: 'T1', seating_id: 'S1' });
+    expect(bill.status).toBe(200);
+    expect(seating('S1').state).toBe('BILL_REQUESTED');
+
+    append(billClosed('S1', 'T1'));
+    expect(seating('S1').state).toBe('NEEDS_CLEANING');
+    expect((await call(ali, 'CleanTable', { table_id: 'T1', seating_id: 'S1' })).result).toEqual({ reason: 'cleaned' });
+  });
+
   it('[02a #33] every order cancelled → SEATED → Clean gives left_without_order; a never-ordered SEATED table too', async () => {
     const ali = signIn('S_ALI');
     append(opened('T1', 'S1'), placed('O1', 'S1'), billRequested('S1', 'T1'), cancelled('O1'), opened('T2', 'S2'));

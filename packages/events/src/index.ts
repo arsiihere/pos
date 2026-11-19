@@ -91,6 +91,7 @@ export * from './events/table/SeatingSplit.v1.js';
 export * from './events/table/BillRequested.v1.js';
 export * from './events/table/TableCleaned.v1.js';
 export * from './events/table/BillClosed.v1.js';
+export * from './events/table/SeatingReopened.v1.js';
 export * from './events/table/ZoneStockAdded.v1.js';
 export * from './events/table/ZoneStockSet.v1.js';
 

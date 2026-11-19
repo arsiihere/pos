@@ -15,10 +15,10 @@ import { covers } from './move-table.js';
 // 02a v1.1.3 §3.11, §6.10 `MergeTables` (T6, T17, T18, §3.14, §3.15, §4.1 row 04, C8).
 // `table_id` FREE → joins S; `table_id` with seating S2 → S2 is absorbed (orders and tables move to S, S2 closes
 // `merged`, its lock ends in the fold). Merge takes no lock.
-// Statements: 3 reads (S + lock, the other side + lock, S2's orders; a join needs only 2) + the 04 guard
+// Statements: 3 reads (S + lock, the other side + lock, S2's orders; a join needs only 2) + the guard list's own
 // + 2 `byDedupeKey` (1 for a join: there is no S2) + one `alerts.closeMany` when a handover is pending.
 // Order of checks: S (T18, NEEDS_CLEANING), holder or force, the other side (T18, NEEDS_CLEANING, FREE and archived),
-// R23, locks on either side, the 04 guard, scope last over every table.
+// R23, locks on either side, the guard list (04 then 05, T-1), scope last over every table.
 // §3.11 / §6.10: the pending handovers of S and S2 close `obsolete` in the same transaction, drafts after TablesMerged.
 
 const MergeTablesPayload = z
@@ -126,10 +126,11 @@ function handle(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: Re
   checkLock(ctx, actor, into, p.into_table_id);
   if (other !== undefined) checkLock(ctx, actor, other, p.table_id);
 
-  // §4.1 row 04: a pending void on either seating blocks the merge.
+  // §4.1 row 04, ⚠️ 02a v1.1.8 (05 row T-1): the guard list over either seating (04's pending void →
+  // MERGE_BLOCKED_BY_VOID; 05's bill → BILL_HAS_PAYMENTS); the first non-null result is thrown.
   const seatingIds = other === undefined ? [into.seating_id] : [into.seating_id, other.seating_id];
-  const verdict = checkMergeGuard(db, { seating_ids: seatingIds });
-  if (verdict.blocked) throw new DomainError('MERGE_BLOCKED_BY_VOID', { order_item_ids: verdict.order_item_ids });
+  const blocked = checkMergeGuard(db, { seating_ids: seatingIds });
+  if (blocked !== null) throw new DomainError(blocked.code, blocked.details);
 
   // Scope last (C8) over every table of both sides, for the take-order grant and for the force grant when it was used.
   // `own_tables` covers S's tables and a FREE table joining S when the caller holds S, and S2's when he holds S2.

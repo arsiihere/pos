@@ -6,6 +6,9 @@ import type { RequireLock } from './contracts.js';
 
 // 02a v1.1.1 §4.2 requireLock (+ P-1b), §2 (holder-only re-acquire, G4-3 #2, N-3), §3.15, T15, T18.
 // One statement: the named table's open seating and its lock (stored under the primary table, §3.2).
+// ⚠️ 02a v1.1.8 (05 row T-3 (3), H2-13): `{ allowBillClosed: true }` — passed by SubmitOrder only — lets a live call
+// (`ctx.queuedAt === null`) through a NEEDS_CLEANING seating; a queued replay keeps TABLE_NEEDS_CLEANING. A cleaned
+// seating has no seating_tables row, so it stays TABLE_SEATING_CHANGED (T18, H2-14: no new code).
 
 interface SeatingLockRow {
   seating_id: string;
@@ -16,7 +19,7 @@ interface SeatingLockRow {
   lock_device_id: string | null;
 }
 
-export const requireLock: RequireLock = (tx, ref, ctx) => {
+export const requireLock: RequireLock = (tx, ref, ctx, opts) => {
   const row = tx.db
     .prepare(
       `SELECT s.seating_id AS seating_id, s.primary_table_id AS primary_table_id, s.state AS state,
@@ -31,13 +34,15 @@ export const requireLock: RequireLock = (tx, ref, ctx) => {
   if (row === undefined || row.seating_id !== ref.seating_id) {
     throw new DomainError('TABLE_SEATING_CHANGED', { table_id: ref.table_id, seating_id: ref.seating_id });
   }
-  if (row.state === 'NEEDS_CLEANING') throw new DomainError('TABLE_NEEDS_CLEANING', { table_id: ref.table_id });
+  // P-1b (AD-1) + owner AD-8: a queued replay never takes AND never moves a lock; the submit proceeds without it.
+  const queued = ctx.queuedAt !== null;
+  if (row.state === 'NEEDS_CLEANING' && !(opts?.allowBillClosed === true && !queued)) {
+    throw new DomainError('TABLE_NEEDS_CLEANING', { table_id: ref.table_id });
+  }
 
   const actor = ctx.actor.staffId;
   const device = ctx.actor.deviceId;
   const heldByMe = row.lock_staff_id === actor && row.lock_device_id === device;
-  // P-1b (AD-1) + owner AD-8: a queued replay never takes AND never moves a lock; the submit proceeds without it.
-  const queued = ctx.queuedAt !== null;
 
   if (actor !== null && row.holder_staff_id === actor) {
     if (heldByMe) return [];

@@ -1,4 +1,4 @@
-import type { TableState } from '@pos/domain';
+import type { ErrorCode, TableState } from '@pos/domain';
 import type { EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
@@ -73,14 +73,23 @@ describe('[02a §4.2] contracts', () => {
       (table_id: string) => { floor_id: string; zone_id: string | null; zone_order_taker_staff_id: string | null }
     >();
     // §4.2 requireLock.
+    // ⚠️ 02a v1.1.8 (05 row T-3): `{ allowBillClosed }`, passed by a live SubmitOrder only.
     expectTypeOf<RequireLock>().toEqualTypeOf<
-      (tx: WriterTx, ref: { table_id: string; seating_id: string }, ctx: CommandCtx) => EventDraft[]
+      (
+        tx: WriterTx,
+        ref: { table_id: string; seating_id: string },
+        ctx: CommandCtx,
+        opts?: { allowBillClosed?: boolean },
+      ) => EventDraft[]
     >();
     // §3.9 closeHandover.
     expectTypeOf<CloseHandover>().toEqualTypeOf<(ctx: CommandCtx, seating_id: string, note: string) => EventDraft[]>();
-    // §4.1 row 04: the merge guard.
+    // §4.1 row 04, ⚠️ 02a v1.1.8 (05 row T-1): a merge guard returns `{ code, details } | null`.
     expectTypeOf<MergeGuard>().toEqualTypeOf<
-      (db: Database.Database, q: { seating_ids: string[]; order_ids?: string[] }) => { blocked: boolean; order_item_ids: string[] }
+      (
+        db: Database.Database,
+        q: { seating_ids: string[]; order_ids?: string[] },
+      ) => { code: ErrorCode; details: Record<string, unknown> } | null
     >();
     // §3.5 waiterTeam.
     expectTypeOf<WaiterTeam>().toEqualTypeOf<
