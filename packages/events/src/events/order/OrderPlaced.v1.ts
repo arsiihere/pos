@@ -59,6 +59,9 @@ export const OrderPlacedPayload = z
     sent_after_reconnect: z.boolean().optional(),
     has_phone: z.boolean().optional(),
     has_food: z.boolean().optional(),
+    // ⚠️ Changed by 05 (row S-1), 03a v1.2.6 §4.2: a takeaway addition names the order it adds to (02b §3.2 step 2);
+    // additive at v1 (R29), absent otherwise, never null; the engine and every 03a fold ignore it.
+    adds_to_order_id: z.string().optional(),
   })
   .superRefine(checkGroupIds);
 export type OrderPlacedPayload = z.infer<typeof OrderPlacedPayload>;

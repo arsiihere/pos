@@ -254,6 +254,28 @@ describe('[02b §8 Open orders] open orders list', () => {
     expect(v.text()).not.toContain('Updated');
   });
 
+  it('[05 rows Q-2, Q-4, Q-5, G-26] OrdersUnbilled re-reads the list; LineCompRemoved (as LineComped) and OrdersCarriedOver do not', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    await show(s);
+    expect(s.openOrders).toHaveBeenCalledTimes(1);
+    const frame = (seq: number, event_type: string) =>
+      s.live.frame({ type: 'event', seq, event: { event_id: `E${seq}`, event_type, schema_version: 1, payload: {} } } as never);
+    frame(2, 'LineComped');
+    frame(3, 'LineCompRemoved');
+    frame(4, 'OrdersCarriedOver');
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(s.openOrders).toHaveBeenCalledTimes(1);
+    frame(5, 'OrdersUnbilled');
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+    });
+    await flush();
+    expect(s.openOrders).toHaveBeenCalledTimes(2);
+  });
+
   it('[02b Q-6] offline: the list stays, "Updated {time}" shows', async () => {
     const v = await show(setup({ online: false }));
     expect(v.text()).toContain('Updated 8:15 PM');

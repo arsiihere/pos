@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { currentDirectory } from '../auth/guards.js';
 import { registerEventAudience } from '../ws/audience.js';
+import type { SocketCtx } from '../ws/catch-up.js';
 import { seesContact } from './catch-up.js';
 
 // 02b v1.0.3 §6.19 Audiences (no catch-all on `order`, 01d To 02). Never to KDS station sockets: they get 03a / 03b
@@ -22,6 +23,7 @@ export const ORDER_EVENT_TYPES = [
   'OrderFoodServed',
   'OrderFoodCleared',
   'OrdersBilled',
+  'OrdersUnbilled', // ⚠️ Changed by 05 (row Q-2), 02b v1.0.16 §6.19: the audience of OrdersBilled
   'LineWeightSet',
 ] as const;
 
@@ -47,13 +49,20 @@ registerEventAudience('OrderContactSet', (event, socket) => event.actor_id !== n
 
 /**
  * LineComped → cashier kiosks and sockets whose staff hold `apply-comp` (granted, with or without approval), resolved
- * through the hub's StaffDirectory in memory. Returns the unregister function.
+ * through the hub's StaffDirectory in memory. ⚠️ Changed by 05 (row Q-4; 05-gaps G-26): 05's LineCompRemoved, the
+ * comp's undo, goes to the same audience, so every view that saw a comp sees it go. Returns the unregister function.
  */
+export const COMP_EVENT_TYPES = ['LineComped', 'LineCompRemoved'] as const;
+
 export function registerLineCompedAudience(app: FastifyInstance): () => void {
-  return registerEventAudience('LineComped', (_event, socket) => {
+  const audience = (_event: unknown, socket: SocketCtx): boolean => {
     if (socket.deviceType === 'cashier_kiosk') return true;
     if (socket.kind !== 'staff' || socket.staffId === null) return false;
     const grant = currentDirectory(app).resolve(socket.staffId, 'apply-comp').grant;
     return grant === 'allowed' || grant === 'requires_approval';
-  });
+  };
+  const offs = COMP_EVENT_TYPES.map((eventType) => registerEventAudience(eventType, audience));
+  return () => {
+    for (const off of offs) off();
+  };
 }

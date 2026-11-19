@@ -9,7 +9,11 @@ import type { LiveBus } from '../../shell/live';
 
 export const REFETCH_DEBOUNCE_MS = 250;
 
-/** 02b §6.19 order frames the views show, and the Q-6 stage frames (H1). */
+/**
+ * 02b §6.19 order frames the views show, and the Q-6 stage frames (H1). ⚠️ 02b v1.0.16 (05 rows Q-2, Q-4, G-26):
+ * OrdersUnbilled and LineCompRemoved join (the order is editable again; a comp comes off a line). 05's OrdersCarriedOver
+ * does not: it changes no row a view shows.
+ */
 export const ORDER_FRAMES: ReadonlySet<string> = new Set([
   'OrderPlaced',
   'ItemAdded',
@@ -24,8 +28,10 @@ export const ORDER_FRAMES: ReadonlySet<string> = new Set([
   'OrderFoodServed',
   'OrderFoodCleared',
   'OrdersBilled',
+  'OrdersUnbilled',
   'LineWeightSet',
   'LineComped',
+  'LineCompRemoved',
   'OrderContactSet',
   'ItemStarted',
   'ItemDone',

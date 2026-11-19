@@ -28,7 +28,9 @@ const TABLE_FRAMES: ReadonlySet<string> = new Set([
 /**
  * The order frames of orders/audiences.ts (ORDER_EVENT_TYPES, OrderContactSet, LineComped) minus the kitchen-progress
  * frames ItemStarted, ItemDone, ItemDoneUndone, FireDispatched and SlipWarned, which change no tile (Q-35; they are
- * not in the list at all). Zone stock frames are no order frames.
+ * not in the list at all). Zone stock frames are no order frames. ⚠️ 02b v1.0.16 (05 rows Q-2, Q-4, G-26): OrdersUnbilled
+ * and LineCompRemoved join, as OrdersBilled and LineComped are here; 05's OrdersCarriedOver does not (it changes no
+ * tile).
  */
 const ORDER_FRAMES: ReadonlySet<string> = new Set([
   'OrderPlaced',
@@ -44,9 +46,11 @@ const ORDER_FRAMES: ReadonlySet<string> = new Set([
   'OrderFoodServed',
   'OrderFoodCleared',
   'OrdersBilled',
+  'OrdersUnbilled',
   'LineWeightSet',
   'OrderContactSet',
   'LineComped',
+  'LineCompRemoved',
 ]);
 
 export const MAP_REFRESH_DEBOUNCE_MS = 250;

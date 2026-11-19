@@ -20,7 +20,12 @@ import { OpenOrdersRow, type RowFacts } from './OpenOrdersRow';
 
 export const REFETCH_MS = 250;
 
-/** Order frames (02b §6.19) plus the kitchen stage frames Q-6 registers for staff sockets: each refreshes open views. */
+/**
+ * Order frames (02b §6.19) plus the kitchen stage frames Q-6 registers for staff sockets: each refreshes open views.
+ * ⚠️ 02b v1.0.16 (05 row Q-2, G-26): OrdersUnbilled joins (a reopened bill's order is open again). LineCompRemoved is
+ * left out as LineComped is (a comp changes no open-orders row); 05's OrdersCarriedOver too (it changes no row; the
+ * close that keeps the order open changes nothing either).
+ */
 const ORDER_FRAMES = new Set([
   'OrderPlaced',
   'ItemAdded',
@@ -35,6 +40,7 @@ const ORDER_FRAMES = new Set([
   'OrderFoodServed',
   'OrderFoodCleared',
   'OrdersBilled',
+  'OrdersUnbilled',
   'LineWeightSet',
   'ItemStarted',
   'ItemDone',
