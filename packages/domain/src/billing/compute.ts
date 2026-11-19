@@ -206,6 +206,12 @@ export interface ComputeBillResult {
   splits: ComputeSplitResult[];
   /** The open remainder as one unpaid split at the default class (cash): the check bill and the amount-plan total. */
   totals_default: ComputeTotals;
+  /**
+   * The same open remainder at the digital class (§3.5 (5), all digital → digital): the check bill's "total if paid
+   * by card" line (§6.3, B17; 05-gaps G-25). Rounded by the bill's frozen rule (§3.5 (7)): under `applies_to: 'cash'`
+   * it is not rounded, under `'all'` it is.
+   */
+  totals_default_digital: ComputeTotals;
   /** Σ the open lines' discount shares. */
   discount_minor: number;
   lines: Array<{ order_item_id: string; discount_minor: number; tags: Array<'tax_unresolved'> }>;
@@ -923,9 +929,11 @@ export function computeBill(input: ComputeBillInput): ComputeBillResult {
     payments: input.payments.filter((p) => p.split_no === split_no),
   });
 
-  // The open remainder as one unpaid split; its cash totals are the default-class totals (check bill, amount plan).
+  // The open remainder as one unpaid split; its cash totals are the default-class totals (check bill, amount plan),
+  // its digital totals the check bill's "total if paid by card" (§6.3, G-25).
   const whole = splitResult({ ...splitInput(nos[0] as number, lineRows), payments: [] }, res);
   const totalsDefault = whole.totals.cash;
+  const totalsDefaultDigital = whole.totals.digital;
   const blocks: ComputeBlock[] = [...whole.blocks];
 
   const perSplit = new Map<number, ComputeSplitLine[]>(nos.map((n) => [n, []]));
@@ -968,6 +976,7 @@ export function computeBill(input: ComputeBillInput): ComputeBillResult {
   return {
     splits,
     totals_default: totalsDefault,
+    totals_default_digital: totalsDefaultDigital,
     discount_minor: lineRows.reduce((a, l) => a + l.discount_minor, 0),
     lines: lineRows.map((l) => ({
       order_item_id: l.order_item_id,
