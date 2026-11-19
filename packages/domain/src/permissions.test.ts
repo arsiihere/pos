@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ALLOWED_ONLY_PERMISSIONS,
   DEFAULT_KEYS,
   PERMISSIONS,
   PERMISSION_CATALOGUE,
@@ -10,6 +11,20 @@ import {
 
 const FIVE = ['take-order', 'clean-table', 'set-line-weight', 'manage-zone-stock', 'view-customer-contact'];
 const WIDENED = ['boost-order', 'mark-item-returned'];
+// ⚠️ Changed by 05 (row B-1), 01b v1.10 §3.3, §4.2: the eleven new permissions of group `bills`, in the row's order.
+const BILLS = [
+  'take-payment',
+  'manage-own-shift',
+  'close-shift-for-others',
+  'skip-blind-count',
+  'record-petty-cash',
+  'remove-service-charge',
+  'close-business-day',
+  'open-cash-drawer',
+  'remove-comp',
+  'close-without-buyer-id',
+  'manage-fiscal-settings',
+];
 
 describe('permissions', () => {
   it('[00 §10 #74] a command declaring an unknown permission fails', () => {
@@ -19,7 +34,7 @@ describe('permissions', () => {
     expect(() => assertKnownPermissions(['manage-devices', 'access-hub-admin'])).not.toThrow();
   });
 
-  it('[00 §3.6, 01a S18, 01b B-1, B-2] catalogue has 28 unique entries (03b B-1: + run-pass)', () => {
+  it('[00 §3.6, 01a S18, 01b B-1, B-2] catalogue has 39 unique entries (03b B-1: + run-pass; 05 row B-1: + 11 bills)', () => {
     expect([...PERMISSIONS]).toEqual([
       'void-item',
       'move-item-to-stock',
@@ -49,8 +64,9 @@ describe('permissions', () => {
       'manage-zone-stock',
       'view-customer-contact',
       'run-pass',
+      ...BILLS,
     ]);
-    expect(new Set(PERMISSIONS).size).toBe(28);
+    expect(new Set(PERMISSIONS).size).toBe(39);
   });
 
   it('[01b §3.3] PERMISSION_SCOPES', () => {
@@ -63,7 +79,7 @@ describe('permissions', () => {
     expect(PERMISSION_SCOPES['mark-served']).toEqual(['branch', 'own_tables', 'my_floors']);
     const special = ['take-order-anywhere', 'force-release-table-lock', 'approve-void', 'manage-stock', 'manage-stations', 'mark-served'];
     for (const permission of PERMISSIONS) {
-      if (!special.includes(permission) && !FIVE.includes(permission) && !WIDENED.includes(permission))
+      if (!special.includes(permission) && !FIVE.includes(permission) && !WIDENED.includes(permission) && permission !== 'take-payment')
         expect(PERMISSION_SCOPES[permission]).toEqual(['branch']);
     }
     expect(Object.keys(PERMISSION_SCOPES).sort()).toEqual([...PERMISSIONS].sort());
@@ -90,7 +106,8 @@ describe('permissions', () => {
 
   it('[02p U-4] own_tables is offered by exactly take-order, mark-served, boost-order, mark-item-returned, view-customer-contact', () => {
     const offering = PERMISSIONS.filter((p) => PERMISSION_SCOPES[p].includes('own_tables')).sort();
-    expect(offering).toEqual(['boost-order', 'mark-item-returned', 'mark-served', 'take-order', 'view-customer-contact']);
+    // ⚠️ Changed by 05 (row B-1): + take-payment (01b v1.10 §3.3)
+    expect(offering).toEqual(['boost-order', 'mark-item-returned', 'mark-served', 'take-order', 'take-payment', 'view-customer-contact']);
     const zones = PERMISSIONS.filter((p) => PERMISSION_SCOPES[p].includes('my_zones'));
     expect(zones).toEqual(['manage-zone-stock']);
   });
@@ -118,6 +135,39 @@ describe('permissions', () => {
       group: 'orders',
       scopes: ['branch', 'own_tables', 'my_floors'],
     });
+  });
+
+  it('[05 row B-1, 01b v1.10 §3.3, §4.2] the eleven bills permissions: group bills; take-payment branch / my_floors / own_tables, the rest branch', () => {
+    for (const key of BILLS) {
+      expect(PERMISSIONS, key).toContain(key);
+      expect(PERMISSION_CATALOGUE.find((row) => row.key === key)?.group, key).toBe('bills');
+      expect(PERMISSION_SCOPES[key as (typeof PERMISSIONS)[number]], key).toEqual(key === 'take-payment' ? ['branch', 'my_floors', 'own_tables'] : ['branch']);
+    }
+    // 01b v1.10 §4.2: bills = apply-discount, apply-refund, apply-comp, reopen-bill + the eleven
+    expect(PERMISSION_CATALOGUE.filter((row) => row.group === 'bills').map((row) => row.key)).toEqual([
+      'apply-discount',
+      'apply-refund',
+      'apply-comp',
+      'reopen-bill',
+      ...BILLS,
+    ]);
+  });
+
+  it('[05 row B-1, 01b v1.10 §3.3] ALLOWED_ONLY_PERMISSIONS = move-item-to-stock + seven bills permissions; the approvable bills permissions are not in it', () => {
+    expect([...ALLOWED_ONLY_PERMISSIONS]).toEqual([
+      'move-item-to-stock',
+      'take-payment',
+      'manage-own-shift',
+      'close-shift-for-others',
+      'skip-blind-count',
+      'close-business-day',
+      'open-cash-drawer',
+      'manage-fiscal-settings',
+    ]);
+    const allowedOnly: readonly string[] = ALLOWED_ONLY_PERMISSIONS;
+    for (const key of ['apply-discount', 'remove-service-charge', 'reopen-bill', 'remove-comp', 'close-without-buyer-id', 'record-petty-cash', 'apply-refund']) {
+      expect(allowedOnly, key).not.toContain(key);
+    }
   });
 
   it('[01b B17] DEFAULT_KEYS is the six keys in order', () => {

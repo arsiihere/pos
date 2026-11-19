@@ -5,7 +5,7 @@ import {
   type AlertDetails,
   type AlertDisplay,
   type AlertLinkTarget,
-  type AlertRaisedPayloadV4,
+  type AlertRaisedPayloadV5,
   type AlertTarget,
   type EventDraft,
   type PosEvent,
@@ -135,6 +135,11 @@ function requestPart(kind: AlertKind, input: RaiseInput): AlertRequestPart | nul
       receiver_staff_id: null,
     };
   }
+  // ⚠️ Changed by 05 (row D-1), 01d v1.3.4 §3.3 rule 6: the holders permission is stored in `base_permission`
+  // (AlertRaised v5 `right_mode: 'holders'`); no approver roles (the requester's grant is not read), no receiver.
+  if (request.right.mode === 'holders') {
+    return { ...base, right_mode: 'holders', base_permission: request.right.permission, range_permission: null, approver_role_ids: [], receiver_staff_id: null };
+  }
   const receiver = input.request?.receiver_staff_id;
   if (receiver === undefined || receiver === '') throw new Error(`alerts.raise('${kind.kind}'): request.receiver_staff_id is required for a named kind`);
   return { ...base, right_mode: 'named', base_permission: null, range_permission: null, approver_role_ids: [], receiver_staff_id: receiver };
@@ -145,7 +150,7 @@ interface Pending {
   kind: AlertKind;
   input: RaiseInput;
   row: AlertRow;
-  payload: AlertRaisedPayloadV4;
+  payload: AlertRaisedPayloadV5;
   /** the G1-9d candidate: the kind's first escalation step, for approval kinds */
   escalation: number | null;
 }
@@ -207,7 +212,7 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
     const request = requestPart(kind, input);
     const requester = input.requester_staff_id ?? null;
     const valuesOut = values.data as Record<string, unknown>;
-    const payload: AlertRaisedPayloadV4 = {
+    const payload: AlertRaisedPayloadV5 = {
       alert_id,
       kind: kind.kind,
       family: kind.family,
@@ -352,7 +357,7 @@ export function draftOn(
     stream_type: subject.stream_type,
     stream_id: subject.stream_id,
     event_type: eventType,
-    // 01d v1.1.2 D-2: each event at its latest version (AlertRaised v4 since 01d v1.2.5 D-3; every other alert event is v1).
+    // 01d v1.1.2 D-2: each event at its latest version (AlertRaised v5 since 05 row D-1, G-16; every other alert event is v1).
     schema_version: latestVersion(eventType),
     payload,
     occurred_at: env.now,

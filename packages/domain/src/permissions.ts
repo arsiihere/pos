@@ -28,6 +28,18 @@ export const PERMISSIONS = [
   'view-customer-contact',
   // ⚠️ Changed by 03b v1.0.1 B-1 (01b v1.8): run the Pass (kitchen group, scope branch; defaults Owner, Manager, Cook).
   'run-pass',
+  // ⚠️ Changed by 05 (row B-1), 01b v1.10 §3.3, §4.2: eleven permissions in group `bills` (05 Billing).
+  'take-payment',
+  'manage-own-shift',
+  'close-shift-for-others',
+  'skip-blind-count',
+  'record-petty-cash',
+  'remove-service-charge',
+  'close-business-day',
+  'open-cash-drawer',
+  'remove-comp',
+  'close-without-buyer-id',
+  'manage-fiscal-settings',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -60,6 +72,8 @@ const WIDER_SCOPES: Partial<Record<Permission, readonly Scope[]>> = {
   'mark-item-returned': ['branch', 'own_tables', 'my_floors'],
   'manage-zone-stock': ['branch', 'my_zones'],
   'view-customer-contact': ['branch', 'my_floors', 'own_tables'],
+  // ⚠️ Changed by 05 (row B-1), 01b v1.10 §3.3: the other ten bills permissions take `branch` only.
+  'take-payment': ['branch', 'my_floors', 'own_tables'],
 };
 
 export const PERMISSION_SCOPES: Record<Permission, readonly Scope[]> = Object.fromEntries(
@@ -98,6 +112,18 @@ const GROUPS: Record<Permission, PermissionGroup> = {
   'manage-zone-stock': 'orders',
   'view-customer-contact': 'orders',
   'run-pass': 'kitchen',
+  // ⚠️ Changed by 05 (row B-1), 01b v1.10 §4.2
+  'take-payment': 'bills',
+  'manage-own-shift': 'bills',
+  'close-shift-for-others': 'bills',
+  'skip-blind-count': 'bills',
+  'record-petty-cash': 'bills',
+  'remove-service-charge': 'bills',
+  'close-business-day': 'bills',
+  'open-cash-drawer': 'bills',
+  'remove-comp': 'bills',
+  'close-without-buyer-id': 'bills',
+  'manage-fiscal-settings': 'bills',
 };
 
 export const PERMISSION_CATALOGUE: readonly { key: Permission; group: PermissionGroup; scopes: readonly Scope[] }[] =
@@ -105,7 +131,19 @@ export const PERMISSION_CATALOGUE: readonly { key: Permission; group: Permission
 
 // ⚠️ Changed by 04 (row B-2), 01b v1.9 §3.3: permissions that can only be `allowed`, never `requires_approval`
 // (owner OQ-A). The roles API refuses the grant (422) and the roles editor does not offer it.
-export const ALLOWED_ONLY_PERMISSIONS = ['move-item-to-stock'] as const satisfies readonly Permission[];
+// ⚠️ Changed by 05 (row B-1), 01b v1.10 §3.3: + seven bills permissions. The approvable bills permissions are
+// apply-discount, remove-service-charge, reopen-bill, remove-comp, close-without-buyer-id, record-petty-cash
+// (apply-refund stays, unused in the pilot): every permission not listed here may be `requires_approval`.
+export const ALLOWED_ONLY_PERMISSIONS = [
+  'move-item-to-stock',
+  'take-payment',
+  'manage-own-shift',
+  'close-shift-for-others',
+  'skip-blind-count',
+  'close-business-day',
+  'open-cash-drawer',
+  'manage-fiscal-settings',
+] as const satisfies readonly Permission[];
 
 // 01b B17: stable handles of the default roles (roles.default_key).
 export const DEFAULT_KEYS = ['owner', 'manager', 'cashier', 'order_taker', 'waiter', 'cook'] as const;
