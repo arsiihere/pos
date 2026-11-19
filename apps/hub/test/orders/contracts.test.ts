@@ -63,6 +63,8 @@ describe('[02b §4.2] contracts', () => {
       is_food: boolean;
       kitchen_note: string | null;
       options: Array<{ name: string; quantity: number }>; // 02b v1.0.11 §4.2 (Q-7)
+      tax_profile_id: string | null; // ⚠️ 02b v1.0.16 §4.2 (05 row Q-1)
+      unit_price_minor: number | null; // ⚠️ 02b v1.0.16 §4.2 (05 R-7, R-17)
     }>();
     // plan "02b exports" OrderView, plus the §5 orders columns (no contact values: has_phone only, O17).
     expectTypeOf<OrderView>().toEqualTypeOf<{

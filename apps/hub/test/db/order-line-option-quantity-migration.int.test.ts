@@ -46,8 +46,13 @@ const quantities = (db: Database.Database) =>
   );
 const checkpoint = (db: Database.Database, projection: string) => db.prepare('SELECT last_seq FROM projection_checkpoints WHERE projection = ?').pluck().get(projection) as number | undefined;
 
-/** Back to a pre-0020 hub: the column gone, 0020 not applied; every projection and checkpoint as it was. */
+/** Back to a pre-0020 hub: the column (and 0021's) gone, 0020 / 0021 not applied; every projection and checkpoint as it was. */
 function toPre0020(db: Database.Database): void {
+  // 0021 (02b v1.0.16, 05 Q-1 / Q-5 / Q-6, R-7 / R-17) re-adds these and orders_token_day / orders_bill_key
+  db.exec('DROP INDEX orders_bill_key; DROP INDEX orders_token_day');
+  db.exec('CREATE UNIQUE INDEX orders_token ON orders (business_date, token) WHERE token IS NOT NULL');
+  db.exec('ALTER TABLE orders DROP COLUMN bill_key; ALTER TABLE orders DROP COLUMN carried_over');
+  db.exec('ALTER TABLE order_lines DROP COLUMN unit_price_minor; ALTER TABLE order_lines DROP COLUMN tax_profile_id');
   db.exec('ALTER TABLE order_lines DROP COLUMN option_quantity');
   db.prepare('DELETE FROM migration_checksums WHERE version >= 20').run();
   db.pragma('user_version = 19');
@@ -103,7 +108,7 @@ describe('[02b #39] hub migration 0020_order_line_option_quantity (02b v1.0.13 Â
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(20);
+    expect(db.pragma('user_version', { simple: true })).toBe(21); // 02b v1.0.16: 0021 runs after it
     expect(db.prepare('SELECT event_type FROM events WHERE seq > ? ORDER BY seq').pluck().all(maxSeq)[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(rowsOf(db), 'every old line has its option_quantity; rows equal the fresh fold').toEqual(live);
     expect(checkpoint(db, 'orders')).toBeGreaterThanOrEqual(maxSeq);
