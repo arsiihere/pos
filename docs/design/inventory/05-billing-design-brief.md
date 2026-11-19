@@ -2,9 +2,9 @@
 
 For the designer. This one file is everything you need to design every **staff** screen, state, sheet and alert card of module **05 (Billing)**: the cashier screen, the bill and its payment pad, splits, the bill sheets, print status, shifts, petty cash, the cash drawer, day close, X / Z reports and the approval cards. All behaviour is already decided by the approved spec. Your job is the look and the layout only.
 
-**Sources, in order of authority:** `docs/specs/05_Billing_Spec_v1.0.4.md` (APPROVED; cited "05 §n"; its decisions B1–B32 are cited "05 B-n"). Then the build board `docs/plans/05-status.md` and `docs/plans/05-gaps.md` (owner rulings R-1 … R-14, gaps G-1 … G-27; later rulings R-15 … R-21 are already in the spec text as "Changed in v1.0.3 / v1.0.4"), the plan `docs/plans/05-plan.md` (client rows C1 tasks 34–38 and C2 tasks 39–42; reading PL-12 = owner ruling D-3), and the specs 05 leans on: 01d Alerts v1.3.4 (cards, PIN, holders right), 02a / 02b (table view, line tags, Ask for bill), 04 (PENDING VOID, day-close void block), 03c v1.0.12 (printers and document jobs), 01b (permissions). What is already built is cited by file: `packages/domain/src/billing/{types,compute,docs}.ts`, `packages/domain/src/errors.ts`, `apps/client/src/i18n/en.ts`, and the hand-offs `docs/design/handoff/{01d,02a,02b,04}/`.
+**Sources, in order of authority:** `docs/specs/05_Billing_Spec_v1.0.6.md` (APPROVED; cited "05 §n"; its decisions B1–B32 are cited "05 B-n"; ⚠️ Changed for 05 v1.0.6: the bill view's `lines[].added_after_close`, pinned `blocks` and `reopen_count` (R-29, Q-4 / Q-5 / Q-18), the table-tile marks (R-30, Q-11, 02a v1.1.9) and `prints[].printer_name` (R-35)). Then the build board `docs/plans/05-status.md` and `docs/plans/05-gaps.md` (owner rulings R-1 … R-14, gaps G-1 … G-27; later rulings R-15 … R-21 are already in the spec text as "Changed in v1.0.3 / v1.0.4"), the plan `docs/plans/05-plan.md` (client rows C1 tasks 34–38 and C2 tasks 39–42; reading PL-12 = owner ruling D-3), and the specs 05 leans on: 01d Alerts v1.3.4 (cards, PIN, holders right), 02a v1.1.9 / 02b (table view and tile marks, line tags, Ask for bill), 04 (PENDING VOID, day-close void block), 03c v1.0.12 (printers and document jobs), 01b (permissions). What is already built is cited by file: `packages/domain/src/billing/{types,compute,docs}.ts`, `packages/domain/src/errors.ts`, `apps/client/src/i18n/en.ts`, and the hand-offs `docs/design/handoff/{01d,02a,02b,04}/`.
 
-**One owner-approved addition not yet in the spec text:** the **Print to** picker reads a new staff query `GET /queries/bill-printers` (`take-order`, any grant — the same permission as `RetargetBillPrint`; result `[{ printer_id, name }]` of active printers). The owner approved it on 2026-11-19 as gap **G-28** and amended the permission in ruling **R-27**; it is 05 **v1.0.5 §6.23a** (PR #317). Everything that depends on it is marked **"05 v1.0.5 (G-28)"**.
+**Print to picker (now in the spec):** the **Print to** picker reads the staff query `GET /queries/bill-printers` (`take-order`, any grant — the same permission as `RetargetBillPrint`; result `[{ printer_id, name }]` of active printers). The owner approved it on 2026-11-19 as gap **G-28** and amended the permission in ruling **R-27**; it is 05 **v1.0.5 §6.23a** (PR #317), kept in v1.0.6. Everything that depends on it is marked **"05 v1.0.5 (G-28)"**.
 
 **This file replaces nothing.** `docs/design/inventory/05-billing.md` is the pre-spec inventory (36 screens). Much of it is outdated (tips, split by person, refund screen, reopen day, owner settings screens). Where it disagrees with this file, this file wins, because this file follows the approved spec. A mapping of every old ID is in §2.3.
 
@@ -286,16 +286,16 @@ The line has **no action** for a cashier (`RetryFiscalNow` is `close-business-da
 | Field | Shown as |
 |---|---|
 | `identifier`, `order_type`, `scope` | header ("T7 · Dine-in") |
-| `state` (`OPEN` / `PARTLY_PAID` / `CLOSED`; reopened = OPEN with history) | header chip with icon + word: Open / Partly paid / Closed; "Reopened" when `invoice` history exists on an OPEN bill (a split with a credited invoice; spec silent on the exact cue → designer choice) |
-| `lines[]` `{ name, options, units, base_minor, tags }` | 05-C04 rows (§3.2.3) |
+| `state` (`OPEN` / `PARTLY_PAID` / `CLOSED`) and `reopen_count` (int ≥ 0) | header chip with icon + word: Open / Partly paid / Closed; **"Reopened" while `reopen_count ≥ 1` and the bill is not CLOSED** (05 v1.0.6 §6.1, §8; R-29, Q-18) |
+| `lines[]` `{ order_item_id, name, options, units, base_minor, tags, added_after_close }` | 05-C04 rows (§3.2.3); `added_after_close` drives the **New** mark (05 v1.0.6 §6.1; R-29, Q-4) |
 | `service_charge: { rate_bp, removed }` | 05-C03 service charge row (§3.2.4); hidden when `rate_bp` is 0 and not removed |
 | `discount` | 05-C03 discount row; reason word (owner label, never the code) |
 | `splits[]` `{ split_no, state, plan, payments[], totals: { cash, digital, as_paid }, balance_minor, invoice }` | the splits strip and each split's totals and payments |
 | `totals_default` | the bill total at the default class (cash) when no split exists or for the whole-bill line |
 | `buyer: { required, threshold_minor, waived }` | buyer row (§3.5.3) |
-| `blocks[]` `{ reason, ids }` | the Close button's reason text (§3.2.8) |
+| `blocks[]` `{ reason, split_no, details }` (05 v1.0.6 §6.1; R-29, Q-5) | the Close button's reason lines, one copy key per pinned `reason`, filled from `details` (§3.2.8) |
 | `open_requests[]` `{ kind, alert_id }` | the waiting cards in the sheets (§3.5) |
-| `prints[]` `{ job_id, doc_kind, state, printer_name, last_error }` | 05-C02 (§3.4) |
+| `prints[]` `{ job_id, doc_kind, state, printer_name, last_error }` | 05-C02 (§3.4); `printer_name` comes from 03c `documentJobsStatus` (05 v1.0.6 R-35) |
 | `check_printed_at` | "Check bill printed 1:32 PM" in the header |
 | `currency: { code, exponent }` | every amount's format |
 | `prices_include_tax` | one small line under the totals: "Prices include tax" / no line when exclusive (spec silent on the wording → designer copy; §6.2) |
@@ -309,7 +309,7 @@ The line has **no action** for a cashier (`RetryFiscalNow` is `close-business-da
 |---|---|
 | `Bill` | Table 7 unpaid; one split; no payments; dues side by side "Cash Rs 6,624.00 · Card Rs 5,996.00"; pad idle; Close disabled with "Take Rs 6,624.00 in cash or Rs 5,996.00 by card" (the balance reason, §3.2.8). |
 | `BillPadCard` | Card chosen on the pad: amount pre-set to the card due 5,996.00 (the server's due for that class, 05 §3.5 (7), M-7) — "Total by card Rs 5,996.00 · tax 5 % · rounding +0.50". |
-| `BillPadCash` | Cash chosen: "Total in cash Rs 6,624.00"; **tendered field empty** (never pre-filled, M-6); Sana types 7,000 → "Change due Rs 376.00" (from the `AddPayment` result `change_due_minor`, shown after Add; before Add the screen may preview tendered − amount only as typed digits, §7 Q-3). |
+| `BillPadCash` | Cash chosen: "Total in cash Rs 6,624.00"; **tendered field empty** (never pre-filled, M-6); Sana types 7,000; **no change is shown while typing**; after **Add payment** the pad shows "Change due Rs 376.00" from the `AddPayment` result `change_due_minor` (server only, no client arithmetic; §7 Q-3 Decided). |
 | `BillMixed` | Card 3,000.00 taken; payments list shows it; dues now "Cash Rs 3,624.00 · Card Rs 2,996.00" (whatever the server returns; the card due after one digital payment is at the digital rate while no cash `in` exists, 05 §3.5 (7)); note "Any cash makes the whole bill cash rate" (05 B6; copy §6.2). |
 | `BillReadyToClose` | Balance 0; both payment dues hidden (05 §3.5 (7): dues are 0 while balance ≤ 0); Close enabled, primary. |
 | `BillCloseBlocked` | Lines with PENDING VOID (Raita, Ali's request) and WEIGHT NEEDED (Fish 1 kg); Close disabled with the `blocks` text as a list (§3.2.8). |
@@ -356,7 +356,7 @@ From `lines[]` (05 §6.1): `units` × `name`, `options` beneath (02b style), `ba
 | `pending_void` | 04 **PENDING VOID** tag, price struck; the line is out of the totals; Close blocked | from 04 `pendingVoids` (05 §3.1 line base) |
 | `weight_needed` | **WEIGHT NEEDED** (warn); base 0.00; Close blocked | 04 R-4; weight is entered in 02b's order view |
 | `tax_unresolved` | **Tax not set** (danger); Close blocked; text "Ask the owner to set the tax for this item" | 05 §3.3 3a, §3.4 |
-| new (later line in the open remainder) | small **New** tag on lines that are in the open split but were added after a split closed (05 §8) | spec silent on how the client knows "later" → §7 Q-4 |
+| new (later line in the open remainder) | small **New** tag on a line of an **open** split when `lines[].added_after_close` is `true` (05 v1.0.6 §6.1, §8; R-29) | the server's flag only; never on a line of a closed split |
 | in a closed split | lock icon, no line actions | 05 B15 |
 
 No line price editing, no line discount (05 §1.3).
@@ -376,7 +376,7 @@ When `splits.length > 1`: one tab per `split_no` ("Split 1 · Closed · AC1-S000
 4. **Add payment** → `AddPayment { bill_ref, split_no, mode_id, direction: 'in', amount_minor, tendered_minor?, reference? }`. The result's dues, rounding and `change_due_minor` replace the screen's numbers (05 §6.9 result).
 5. Refund (balance < 0): the pad shows only modes of the types with a refund due, labelled **Give back**, amount pre-set to that type's refund due; `direction: 'out'`; a card / online give-back takes a reference ("Reversal ref"), per the mode's `reference_required`.
 
-**The pad never computes tax, rounding or change** (05 §8). The only client arithmetic allowed is echoing typed digits.
+**The pad never computes tax, rounding or change** (05 §8). No client arithmetic at all: typed digits are echoed as typed, and no figure is derived from them (no change preview, §7 Q-3; no running sums, §3.8). Change due appears only from the `AddPayment` result.
 
 #### 3.2.6 Close
 
@@ -390,19 +390,20 @@ A zero-total split (everything comped, or a 0 cash total under cash rounding) cl
 
 #### 3.2.8 Close blocked text (`blocks[]`)
 
-The Close button stays visible, **disabled, with the server's reasons listed under it** (05 §8). One line per `blocks[].reason`, in the server's order (§3.3 order):
+The Close button stays visible, **disabled, with the server's reasons listed under it** (05 §8). One line per `blocks[]` entry, in the server's order (§3.3 rule order, then `split_no`). ⚠️ Changed for 05 v1.0.6 (R-29, Q-5): each entry is `{ reason, split_no, details }` with one **pinned** `reason` per §3.3 rule; `details` is exactly the §9 error's details. One copy key per reason:
 
-| `reason` (05 §3.3) | Line |
-|---|---|
-| `void_pending` | "{n} item(s) waiting for void approval" + the item names from `ids` |
-| `weight_pending` | "{n} item(s) need a weight" |
-| `tax_unresolved` | "Tax is not set for {items}" / for `'service_charge'`: "Tax is not set for the service charge" (R-1) — "Ask the owner" |
-| discount request open | "A discount is waiting for approval" |
-| buyer required | "Buyer details needed above {threshold}" + **Add buyer** |
-| balance due | "Take Rs {cash} in cash or Rs {card} by card" |
-| amount shares below 1 minor unit | "Split amounts no longer add up — edit the split" + **Edit split** |
+| `reason` (05 §6.1) | `split_no` | `details` | Line (`billing.blocks.<reason>`) |
+|---|---|---|---|
+| `bill_not_open` | `null` | `{ bill_id, state }` | "This bill is already closed" (refresh) |
+| `void_pending` | `null` | `{ reason, order_item_ids }` | "{n} item(s) waiting for void approval: {items}" — names from `lines[]` by `order_item_id` |
+| `weight_pending` | the split | `{ reason, order_item_ids }` | "{n} item(s) need a weight: {items}" |
+| `tax_unresolved` | the split | `{ reason, order_item_ids }` (may hold `'service_charge'`, R-1) | "Tax is not set for {items} — ask the owner" / "Tax is not set for the service charge — ask the owner" |
+| `discount_pending` | `null` | `{ alert_id }` | "A discount is waiting for approval" |
+| `buyer_id_required` | `null` | `{ threshold_minor, net_minor, accepted_types }` | "Buyer details needed above {threshold}" + **Add buyer** |
+| `balance_due` | the split | `{ split_no, balance_minor }` | "Take {cash} in cash or {card} by card" — the two dues of that split from the view (§3.2.2), never computed |
+| `shares_sum` | the last open split | `{ reason: 'shares_sum' }` | "Split amounts no longer add up — edit the split" + **Edit split** |
 
-The `blocks` reason values are the §3.3 rule names; the exact wire values for rules 4, 6, 8 and 8a in `blocks` are listed in §7 Q-5 for the builder. Each line's text comes from §6.
+Rules 5, 7 and 9 never appear in `blocks` (05 §6.1). With more than one open split, a split rule's line names its split ("Split 2: …"). Each line's text comes from §6.
 
 #### 3.2.9 Partly paid and locked splits
 
@@ -466,12 +467,12 @@ When `buyer.required` (whole bill net > `threshold_minor`, 05 §3.3 (6), B19): a
 
 | `state` | Shown as |
 |---|---|
-| waiting | info icon + "Printing on {printer_name}…" |
+| waiting | info icon + "Printing on {printer_name}…" (`printer_name` from the bill view's `prints[]`, 05 v1.0.6 R-35) |
 | printed | ok icon + "Printed on {printer_name}" |
 | failed | danger icon + "Didn't print on {printer_name}" + `last_error` as a word from 03c's list (`printers.error.*`: "Can't reach the printer", "Out of paper", …; never raw) |
 | no printer | "No bill printer set up" (05 §3.16: the command still succeeds) |
 
-**Print to** (05 §8, B18): shown on **failed**, or when **waiting more than 10 s** (client timer from when the status first showed waiting; spec §8). A picker lists the active printers from **`GET /queries/bill-printers` → `[{ printer_id, name }]` — 05 v1.0.5 §6.23a (G-28, R-27)**, the current one marked; picking one sends `RetargetBillPrint { job_id, printer_id }` → the job's new status. Errors: `PRINT_JOB_NOT_PENDING` "Already printed or cancelled" (refresh), `PRINTER_NOT_FOUND` "This printer was removed — pick another", `PRINT_JOB_NOT_FOUND` "This print is no longer there". Nothing prints twice (B18). **Anyone who can retarget sees the picker:** the query and `RetargetBillPrint` both need `take-order` (any grant), so an order taker with the read-only bill (`BillReadOnly`) or on the phone gets the same picker as the cashier (R-27; §7 Q-7). There is no state without the picker.
+**Print to** (05 §8, B18): shown on **failed**, or when **waiting more than 10 s** (client timer from when the status first showed waiting; spec §8). A picker lists the active printers by **name** from **`GET /queries/bill-printers` → `{ printers: [{ printer_id, name }] }`** (sorted by name, read when the picker opens; `take-order`, any grant) **— 05 v1.0.5 §6.23a (G-28, R-27)**; the job's current printer is the one whose `name` equals the status row's `printer_name`, marked; picking one sends `RetargetBillPrint { job_id, printer_id }` → the job's new status. Errors: `PRINT_JOB_NOT_PENDING` "Already printed or cancelled" (refresh), `PRINTER_NOT_FOUND` "This printer was removed — pick another", `PRINT_JOB_NOT_FOUND` "This print is no longer there". Nothing prints twice (B18). **Anyone who can retarget sees the picker:** the query and `RetargetBillPrint` both need `take-order` (any grant), so an order taker with the read-only bill (`BillReadOnly`) or on the phone gets the same picker as the cashier (R-27; §7 Q-7). There is no state without the picker.
 
 Frames: `PrintStatus` (component: three states for each doc kind, the 10 s waiting with Print to), `PrintTo` (K, picker open over `BillClosed`: "Counter" failed "Out of paper" → pick "First floor bill"), `PrintToPhone` (P, Hamza's check bill for Table 9 failed on "First floor bill" → the picker as a bottom sheet → pick "Counter").
 
@@ -590,7 +591,7 @@ Frames: `ShiftClose`, `ShiftCountResult`, `ShiftVariancePending`, `ShiftSkip`, `
 
 **No check against the cash in the drawer** (H6-15: a refusal would let a cashier find the expected cash); draw no "not enough cash" state.
 
-**Open advances (`PettyAdvances`):** list "Ali · Rs 1,000.00 · 2 h ago · Settle" (from the shift's `petty[]` with kind advance and `settled: false`; settling may happen on another shift). **Settle (`PettySettle`):** Spent + Returned, which must add up to the advance ("Rs 1,000.00 = spent 760.00 + returned 240.00"; the form may show the running sum of the two typed fields; the server checks) → `SettlePettyAdvance { entry_id, spent_minor, returned_minor, note? }` (`record-petty-cash` allowed); the returned cash lands in the settler's shift.
+**Open advances (`PettyAdvances`):** list "Ali · Rs 1,000.00 · 2 h ago · Settle" (from the shift's `petty[]` with kind advance and `settled: false`; settling may happen on another shift). **Settle (`PettySettle`):** Spent + Returned, which must add up to the advance ("Rs 1,000.00 = spent 760.00 + returned 240.00"; **no running sum on the form** — the client adds nothing; the server checks and a mismatch answers `PETTY_SETTLE_MISMATCH { amount_minor }`, shown inline) → `SettlePettyAdvance { entry_id, spent_minor, returned_minor, note? }` (`record-petty-cash` allowed); the returned cash lands in the settler's shift.
 
 **Errors:** `SHIFT_NOT_OPEN` "Open your shift first"; `CONFIG_REFERENCE_INVALID category_id` "This category was removed — pick another"; `… advance_staff_id` "Pick who takes the advance"; `PETTY_CASH_NOT_FOUND` "This advance can't be found"; `PETTY_ADVANCE_SETTLED` "Already settled"; `PETTY_SETTLE_MISMATCH { amount_minor }` "Spent and returned must add up to Rs {amount}".
 
@@ -615,7 +616,7 @@ Frames: `Petty` (cash out, Rs 600.00, Supplies → Record), `PettyAdvance` (adva
 | `DayCloseShifts` | `shift_open` | `shifts[] { staff_name, opened_at, is_drawer }` + `count` — "{count} shifts are still open — close them first" | **Close this shift** → 05-S04 for that `shift_id` (`close-shift-for-others`; §7 Q-10) |
 | `DayCloseUnbilled` | `unbilled_orders` | `orders[] { identifier, total_minor, placed_at, open_minutes }` + `count` — "{count} orders are not billed — bill them or carry them over" | tick rows → **Carry over** (`CarryOver`); open the bill (05-S02) |
 | `CarryOver` | — | sheet: the ticked orders (1–40), reason `CARRY_OVER_REASONS` (Table still seated · Customer will pay later · Other) + note → `CarryOverOrders { order_ids, reason_code, note? }` → rows leave the list; "Carried to tomorrow" | — |
-| `DayCloseDone` | success | "Day closed · Z 0042 printed on Counter" and the Z shown on screen (§3.11 content); Print again (`PrintReport { doc: 'z_report' }`) | — |
+| `DayCloseDone` | success | "Day closed · Z 0043" and the Z shown on screen (§3.11 content). **The Z number and content come from `GET /queries/z-reports?business_date=<the closed date>`** read after the close succeeds (05 §6.26), never from the `CloseBusinessDay` result. The Z prints by itself (05 §6.25); **Print again** (`PrintReport { doc: 'z_report', ref_id }`) shows its status in 05-C02 | — |
 
 A carried order may already have payments; the close is allowed and the Z shows them as carried forward (05 §6.24). A pending variance sign-off never blocks (05 §6.25); draw no such row. **Errors:** `ORDER_BILLED` on carry-over "Already billed — refresh"; 01a's own refusals as 01a's copy; hub down "Needs the hub".
 
@@ -648,14 +649,14 @@ Draw only the change on the 02a / 02b screens (02a hand-off `Tiles`, `TableSheet
 
 | What | Where | Rule |
 |---|---|---|
-| Check bill printed | tile: small printer mark on a Bill-red tile; table sheet: "Check bill printed 1:32 PM" | from `check_printed_at` = max(05's check bill, 02a `bill_requested_at`) (05 §6.2, H6-9) — on the tile only if 02a's table-map gives it (§7 Q-11) |
+| Check bill printed | **tile: small printer mark** while `MapTile.check_printed_at` is set; table sheet: "Check bill printed 1:32 PM" | 02a v1.1.9 `table-map` `MapTile.check_printed_at` (05 v1.0.6 §6.4a, row T-4; R-30, Q-11 Decided) = max(05's check bill, 02a `bill_requested_at`); live refresh on `TableMarksChanged` |
 | Bill closed → To clean | tile goes To clean grey (02a NEEDS_CLEANING on `BillClosed`) | 02a; no 05 visual beyond it |
 | New order after close (before clean) | tile back to Ordered (02a fold); the new bill is separate | 05 §3.10 S-9 (b) |
-| Reopened seating | tile back to Ordered / Eating with a small **Reopened** mark (spec silent → designer choice) | 02a `SeatingReopened` (05 §3.10) |
+| Reopened bill | tile keeps its 02a state (Ordered / Eating) with a small **Reopened** mark while `MapTile.reopened` is `true` | 02a v1.1.9 `MapTile.reopened` (05 v1.0.6 §6.4a: an open bill of the seating with `reopen_count ≥ 1`; R-30); `SeatingReopened` / `TableMarksChanged` refresh it |
 | **Bill** action on the table sheet | for `take-payment` (scope) → 05-S02; for `take-order` only → 05-S02 read-only (§3.2.1) | owner 2026-11-19 (§7 Q-1); Ask for bill stays as 02a drew it |
 | Corrections-only reopen | table sheet: "Bill reopened for corrections — new items go on a new bill" | 05 §3.10; `SubmitOrder` on that seating → 02a's `TABLE_SEATING_CHANGED` copy (existing) |
 
-Frames: `TableBillStates` (T: tiles in each state), `TableSheetBill` (T: Bill action + check bill printed + reopened line), `TableSheetBillPhone` (P).
+Frames: `TableBillStates` (T: tiles in each state, both marks on the tile, alone and together), `TableSheetBill` (T: Bill action + check bill printed + reopened line), `TableSheetBillPhone` (P).
 
 ---
 
@@ -750,7 +751,7 @@ Proposed English. Keys follow the client's existing pattern (`apps/client/src/i1
 
 | Key | English | Intent |
 |---|---|---|
-| `billing.state.open` / `.partly_paid` / `.closed` / `.reopened` | Open / Partly paid / Closed / Reopened | header chip |
+| `billing.state.open` / `.partly_paid` / `.closed` / `.reopened` | Open / Partly paid / Closed / Reopened | header chip; Reopened while `reopen_count ≥ 1` and not CLOSED |
 | `billing.prices_include_tax` | Prices include tax | `prices_include_tax` |
 | `billing.totals.subtotal` / `.discount` / `.service_charge` / `.rounding` / `.total` | Subtotal / Discount · {reason} / Service charge {rate} / Rounding adjustment / Total | 05-C03 |
 | `billing.totals.tax_row` | {label} {rate} | tax row |
@@ -766,13 +767,14 @@ Proposed English. Keys follow the client's existing pattern (`apps/client/src/i1
 | `pad.add` / `pad.give_back` | Add payment / Give back | pad buttons |
 | `pad.payment.in` / `.out` / `.tendered_change` / `.has_reference` / `.by` | In / Back / Given {tendered} · Change {change} / Has reference / by {name} | payments list |
 | `billing.close` | Close bill / Close split {n} | primary |
+| `billing.blocks.bill_not_open` | This bill is already closed | §3.2.8 (pinned reasons, 05 v1.0.6) |
 | `billing.blocks.void_pending` | {n} items waiting for void approval: {items} | §3.2.8 |
 | `billing.blocks.weight_pending` | {n} items need a weight: {items} | |
 | `billing.blocks.tax_unresolved` / `.tax_unresolved_sc` | Tax is not set for {items} — ask the owner / Tax is not set for the service charge — ask the owner | R-1 |
 | `billing.blocks.discount_pending` | A discount is waiting for approval | |
-| `billing.blocks.buyer` | Buyer details needed above {threshold} | |
-| `billing.blocks.balance` | Take {cash} in cash or {card} by card | |
-| `billing.blocks.shares` | Split amounts no longer add up — edit the split | |
+| `billing.blocks.buyer_id_required` | Buyer details needed above {threshold} | |
+| `billing.blocks.balance_due` | Take {cash} in cash or {card} by card | |
+| `billing.blocks.shares_sum` | Split amounts no longer add up — edit the split | |
 | `billing.closed` | Closed · Invoice {invoice_ref} · {amount} | `BillClosed` |
 | `billing.closed_empty` | Closed · nothing billed · money given back | empty close |
 | `billing.give_change` | Give change {amount} | change > 0 |
@@ -844,7 +846,7 @@ Proposed English. Keys follow the client's existing pattern (`apps/client/src/i1
 | `dayclose.blocked.voids` | reuse `admin_stock.errors.DAY_CLOSE_BLOCKED`, `_one`, `_more` | `void_pending` |
 | `dayclose.close_shift` / `.carry_over` / `.carried` | Close this shift / Carry over / Carried to tomorrow | actions |
 | `carry.reason.table_still_seated` / `.customer_will_pay_later` / `.other` | Table still seated / Customer will pay later / Other | CARRY_OVER_REASONS |
-| `dayclose.done` | Day closed · Z {z_no} printed on {printer} | done |
+| `dayclose.done` | Day closed · Z {z_no} | done; `z_no` from `GET /queries/z-reports?business_date` (05 §6.26) |
 | `reports.nav` / `.x` / `.z` / `.print` / `.retry_fiscal` | Reports / Today (X) / Z reports / Print / Retry fiscal now | 05-S06 |
 | `reports.rounding` / `.brought_forward` / `.carried_forward` / `.net_after_credits` | Rounding / Brought forward / Carried forward / Net after credits | report lines |
 | `reports.signoff.pending` / `.approved` / `.disputed` | Pending sign-off / Approved / Disputed | shift rows |
@@ -918,23 +920,23 @@ Only what the spec leaves to design, or where a screen would need data the API d
 |---|---|---|
 | Q-1 | Where the cashier screen, shift, petty cash, day close and reports sit in the staff nav, and how a waiter reaches a bill. Spec silent. | **Decided** (owner 2026-11-19): kiosk home = Bills for `take-payment` holders; 02b Open orders stays a tab; the table sheet gets a **Bill** action by scope; My shift, Petty cash, Close day and Reports are nav items by permission; the shift strip on Bills holds My shift / Petty cash / Open drawer. |
 | Q-2 | `open-bills` totals are "before pending voids" (05 §6.2); the bill screen subtracts them. Show a note on the row? | No note: the PENDING VOID tag and Close block on the bill screen explain it; the row stays short. |
-| Q-3 | Change preview before Add: the server returns `change_due_minor` only after `AddPayment`. Show "Change {tendered − amount}" while typing? | Show it while typing (plain subtraction of two typed numbers, not tax), then replace it with the server's `change_due_minor`. If the owner wants zero client arithmetic: show change only after Add. |
-| Q-4 | The "New" mark for lines added after a split closed (05 §8): the bill view's `lines[]` carries no "added after" flag. | Builder reads it from the closed splits: a line in the open remainder whose `order_item_id` is in no closed split's invoice lines while another split is closed. If that is not derivable from §6.1, it is a data gap → spec question before build. |
-| Q-5 | `blocks[].reason` values for §3.3 rules 4, 6, 8, 8a are not named in §6.1 (only `void_pending`, `weight_pending`, `tax_unresolved` are named in §9). | Builder uses the §9 code names lower-cased (`discount_pending`, `buyer_id_required`, `balance_due`, `shares_sum`) **only after** checking the merged hub code (task 16); if they differ, the copy keys follow the code. Design is unaffected. |
+| Q-3 | Change preview before Add: the server returns `change_due_minor` only after `AddPayment`. | **Decided** (reviewer MINOR, owner 2026-11-20): **server only.** No change figure while typing; "Change due" shows after Add from `change_due_minor`. The client does no arithmetic on money, not even a subtraction of two typed numbers (05 §8). |
+| Q-4 | The "New" mark for lines added after a split closed (05 §8). | **Decided** (owner ruling R-29, 05 v1.0.6 §6.1): the bill view carries `lines[].added_after_close`; the New mark shows on a line of an open split when it is `true`. |
+| Q-5 | `blocks[].reason` values for §3.3 rules 4, 6, 8, 8a. | **Decided** (owner ruling R-29, 05 v1.0.6 §6.1): `blocks = [{ reason, split_no, details }]`, one pinned reason per §3.3 rule (`bill_not_open`, `void_pending`, `weight_pending`, `tax_unresolved`, `discount_pending`, `buyer_id_required`, `balance_due`, `shares_sum`); one copy key per reason (§3.2.8, §6.2). |
 | Q-6 | Keypad size on the kiosk for amounts. | 64 px keys, the number display in Bricolage at the total's size; physical keyboard digits work too. |
 | Q-7 | `GET /queries/bill-printers` permission vs `RetargetBillPrint` (`take-order`, 05 §6.23). | **Decided** (owner ruling R-27, 2026-11-19; 05 v1.0.5 §6.23a, PR #317): the query uses `take-order` (any grant), the same as `RetargetBillPrint`. Anyone who can retarget sees the Print to picker; no "ask the cashier" state. Frame `PrintToPhone` added. |
-| Q-8 | A discount preview ("Rs 571.00") before sending: the server computes it (`applied: Totals`). | No preview amount for percent; for an amount discount, the typed amount is the preview. The new totals show after the answer. |
+| Q-8 | A discount preview ("Rs 571.00") before sending: the server computes it (`applied: Totals`). | No preview line and no computed amount: the field shows only what was typed ("10 %" / "Rs 500.00"); the discount amount and new totals show after the server answers. |
 | Q-9 | Default of the "use this drawer" switch on Open shift. | On for a cashier kiosk, off for a tablet; hidden on a phone (it can't hold a drawer). |
 | Q-10 | Opening another person's shift (for `close-shift-for-others`): the only list of open shifts is `DAY_CLOSE_BLOCKED shift_open`. A staff picker for shifts has no API. | Reach another person's shift only from the day-close list (`DayCloseShifts` → Close this shift). No separate picker (it would need a new query). |
-| Q-11 | Check-bill-printed mark on the 02a tile: is `check_printed_at` in `table-map`? 05 §6.2 has it in `open-bills` only; 02a has `bill_requested_at`. | Tile uses 02a's existing Bill-requested state only; the "printed" mark shows on the table sheet and the cashier list, not the tile, unless 02a's table-map already carries it. |
+| Q-11 | Check-bill-printed mark on the 02a tile. | **Decided** (owner ruling R-30 (b), 05 v1.0.6 §6.4a row T-4, 02a v1.1.9): `MapTile.check_printed_at` and `MapTile.reopened`; the tile shows a small printer mark and a small Reopened mark (both may show together); `TableMarksChanged` refreshes them. |
 | Q-12 | Source of the "Who takes it" staff picker for a petty advance (`advance_staff_id`). Spec silent. | Use the existing sign-in roster `GET /queries/staff-roster` (device session, lists staff). |
 | Q-13 | Buyer ID on screen. | **Decided** (owner 2026-11-19): typed value visible only while editing, fake sample `00000-0000000-0`, cleared after send, never shown again. |
 | Q-14 | Petty cash button label. | **Decided** (owner 2026-11-19): "Record" under the limit; "Needs approval" / "Ask for approval" over it or on a `requires_approval` grant; the server decides. |
 | Q-15 | Day close blockers all at once or one by one. | **Decided** (owner 2026-11-19): one by one, in guard order (05 §3.13, §6.25). |
 | Q-16 | Print to printer list. | **Decided** (owner 2026-11-19): `GET /queries/bill-printers`, 05 v1.0.5 §6.23a (G-28; permission `take-order` per R-27). |
 | Q-17 | Dropped old-inventory screens (tips, by person, refund screen, reopen day, QR share, PDF / CSV, denominations). | **Decided** (owner 2026-11-19): dropped; §2.3 rows say why. |
-| Q-18 | How the "Reopened" chip is known on an OPEN bill: §6.1 has no `reopen_count`. | Show "Reopened" when any split's `invoice` history shows a credit, or drop the chip if not derivable; the mode sentence shows only right after the reopen result. Builder checks task 10's view. |
+| Q-18 | How the "Reopened" chip is known on an OPEN bill. | **Decided** (owner ruling R-29, 05 v1.0.6 §6.1): `reopen_count`; the chip shows while `reopen_count ≥ 1` and the bill is not CLOSED. |
 
 ---
 
-*Written 2026-11-19 from `module-05` @ `6bc87c4` (05 v1.0.4). Nothing in this file changes a spec.*
+*Written 2026-11-19 from `module-05` @ `6bc87c4` (05 v1.0.4); updated 2026-11-20 to `module-05` @ `4fcc615` (05 v1.0.6, 02a v1.1.9; PR #321). Nothing in this file changes a spec.*
