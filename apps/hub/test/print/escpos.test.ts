@@ -146,3 +146,77 @@ describe('[03c §3.6] wrap to 32 / 48; long words break', () => {
     expect(wrapText(' '.repeat(40), 32), 'whitespace only → one empty line').toEqual(['']);
   });
 });
+
+// 03c v1.0.11 §3.6 (⚠️ 05 row P-3; 05 §10 #86 QR half; owner ruling R-26, 2026-11-19): `{ qr, size? }` → ESC/POS
+// GS ( k, model 2, error correction M, module size `size`, else 6 on 80 mm (48 columns) and 4 on 58 mm (32 columns).
+describe('[05 #86] QR block → GS ( k', () => {
+  const K = [GS, 0x28, 0x6b]; // GS ( k
+  const qrBytes = (payload: string, size: number): number[] => {
+    const data = [...Buffer.from(payload, 'utf8')];
+    const len = data.length + 3;
+    return [
+      ...K, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00, // fn 165: model 2
+      ...K, 0x03, 0x00, 0x31, 0x43, size, // fn 167: module size
+      ...K, 0x03, 0x00, 0x31, 0x45, 0x31, // fn 169: error correction M (49)
+      ...K, len & 0xff, len >> 8, 0x31, 0x50, 0x30, ...data, // fn 180: store data, pL pH = k + 3
+      ...K, 0x03, 0x00, 0x31, 0x51, 0x30, // fn 181: print
+    ];
+  };
+  const URL = 'https://reg.pra.punjab.gov.pk/IMSFiscalReport/SearchPOSInvoice_Report.aspx?PRAInvNo=123';
+
+  it('[05 #86] 80 mm (48 columns): default module size 6; exact bytes', () => {
+    expect(bytes({ blocks: [{ qr: URL }] }, 48)).toEqual([ESC, 0x40, ...qrBytes(URL, 6)]);
+  });
+
+  it('[05 #86] 58 mm (32 columns): default module size 4; exact bytes', () => {
+    expect(bytes({ blocks: [{ qr: URL }] }, 32)).toEqual([ESC, 0x40, ...qrBytes(URL, 4)]);
+  });
+
+  it('[05 #86] an explicit size (3–8) wins over the paper default, on either paper', () => {
+    expect(bytes({ blocks: [{ qr: 'AB', size: 3 }] }, 48)).toEqual([ESC, 0x40, ...qrBytes('AB', 3)]);
+    expect(bytes({ blocks: [{ qr: 'AB', size: 8 }] }, 32)).toEqual([ESC, 0x40, ...qrBytes('AB', 8)]);
+  });
+
+  it('[05 #86] the default follows the printer paper, not doc.width_cols', () => {
+    expect(bytes({ width_cols: 48, blocks: [{ qr: 'AB' }] }, 32)).toEqual([ESC, 0x40, ...qrBytes('AB', 4)]);
+  });
+
+  it('[05 #86] a 400-character payload: pL / pH carry k + 3 = 403 (0x93, 0x01)', () => {
+    const out = bytes({ blocks: [{ qr: 'x'.repeat(400) }] }, 48);
+    expect(out).toEqual([ESC, 0x40, ...qrBytes('x'.repeat(400), 6)]);
+    expect(out.slice(2 + 9 + 8 + 8, 2 + 9 + 8 + 8 + 5)).toEqual([...K, 0x93, 0x01]);
+  });
+
+  it('[05 #86, 03c §3.6] the fiscal number line beside the QR is ordinary text: a printer that ignores GS ( k still prints it', () => {
+    const out = bytes({ blocks: [{ text: 'PRA invoice no. 123' }, { qr: 'AB' }, { text: 'Thank you' }] }, 48);
+    expect(out).toEqual([ESC, 0x40, ...ascii('PRA invoice no. 123'), LF, ...qrBytes('AB', 6), ...ascii('Thank you'), LF]);
+  });
+
+  it('[05 #86, R-26] a multi-byte payload: pL pH = its UTF-8 bytes + 3, the bytes stored as UTF-8 (literal bytes)', () => {
+    // 'é€' = 2 code points, 2 UTF-16 units, 5 UTF-8 bytes (C3 A9, E2 82 AC) → pL pH = 8, 0
+    expect(bytes({ blocks: [{ qr: 'é€' }] }, 48)).toEqual([
+      ESC, 0x40,
+      ...K, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00,
+      ...K, 0x03, 0x00, 0x31, 0x43, 0x06,
+      ...K, 0x03, 0x00, 0x31, 0x45, 0x31,
+      ...K, 0x08, 0x00, 0x31, 0x50, 0x30, 0xc3, 0xa9, 0xe2, 0x82, 0xac,
+      ...K, 0x03, 0x00, 0x31, 0x51, 0x30,
+    ]);
+  });
+
+  it('[05 #86, R-26] the 400 limit counts code points, not UTF-16 units or bytes', () => {
+    // '😀' = 1 code point, 2 UTF-16 units, 4 UTF-8 bytes: 400 of them pass (1 600 bytes → pL pH = 1 603 = 0x43, 0x06)
+    const out = bytes({ blocks: [{ qr: '😀'.repeat(400) }] }, 48);
+    expect(out.slice(2 + 9 + 8 + 8, 2 + 9 + 8 + 8 + 5)).toEqual([...K, 0x43, 0x06]);
+    expect(() => encodeDoc({ blocks: [{ qr: '😀'.repeat(401) }] }, 48)).toThrow(/qr/);
+    expect(() => encodeDoc({ blocks: [{ qr: 'é'.repeat(400) }] }, 48), '400 two-byte characters pass').not.toThrow();
+  });
+
+  it('[05 #86, 03c §3.6] refused at encode: a payload over 400 characters, an empty payload, or a size outside 3–8', () => {
+    expect(() => encodeDoc({ blocks: [{ qr: 'x'.repeat(401) }] }, 48)).toThrow(/qr/);
+    expect(() => encodeDoc({ blocks: [{ qr: '' }] }, 48)).toThrow(/qr/);
+    for (const size of [2, 9, 4.5]) {
+      expect(() => encodeDoc({ blocks: [{ qr: 'AB', size: size as 3 }] }, 48)).toThrow(/qr/);
+    }
+  });
+});

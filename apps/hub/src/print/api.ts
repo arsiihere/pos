@@ -5,7 +5,7 @@ import type { WriterTx } from '../engine-host/writer.js';
 // 03c §3.9, §4.2 (task c18): the print API for 05. A `document` job in the caller's transaction (bill close), so it
 // commits or rolls back with it; the worker prints it later on that printer (it keeps its own printer_id, §3.2), and
 // a printer outage never blocks the caller (R8). Payload `{ doc, kind_label? }` (what the worker renders at send).
-// Drawer kick = a Doc with `{ drawer: true }`; preview = renderText(doc, width). Statements 2.
+// Drawer kick = a Doc with `{ drawer: true }`; preview = renderText(doc, width) from @pos/domain (05 row P-4). Statements 2.
 
 export function printDocument(tx: WriterTx, printer_id: string, doc: Doc, meta?: { kind_label: string }): { job_id: string } {
   const active = tx.db.prepare('SELECT 1 FROM printers WHERE printer_id = ? AND archived_at IS NULL').pluck().get(printer_id);

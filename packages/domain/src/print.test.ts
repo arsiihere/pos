@@ -28,4 +28,14 @@ describe('[03c §3.6] Doc type', () => {
     const huge: DocBlock = { text: 'x', size: 3 };
     expect([wide, huge]).toHaveLength(2);
   });
+
+  it('[05 #86, row P-3] the QR block: { qr: string, size?: 3–8 }', () => {
+    expectTypeOf<Extract<DocBlock, { qr: string }>>().toEqualTypeOf<{ qr: string; size?: 3 | 4 | 5 | 6 | 7 | 8 }>();
+    const qr: Doc = { blocks: [{ qr: 'https://example.test/?n=1' }, { qr: 'A', size: 3 }, { qr: 'B', size: 8 }] };
+    // @ts-expect-error a module size above 8
+    const big: DocBlock = { qr: 'x', size: 9 };
+    // @ts-expect-error a module size below 3
+    const small: DocBlock = { qr: 'x', size: 2 };
+    expect([qr, big, small]).toHaveLength(3);
+  });
 });

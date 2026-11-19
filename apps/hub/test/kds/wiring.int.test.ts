@@ -75,7 +75,7 @@ describe('[03b §4.2, 03c §4.2] contracts and hooks before their tasks', () => 
   it('[03c §4.2] printDocument throws "not built"; the boot-step registration is once-guarded; retention is a no-op', async () => {
     const print = await import('../../src/print/contracts');
     void print; // printDocument: built by c18, provided by lane C4's register (test/print/api.int.test.ts).
-    // renderText: built by c10 (test/print/render.int.test.ts).
+    // renderText: moved to @pos/domain (03c v1.0.11 §3.6, 05 row P-4; packages/domain/src/print-render.test.ts).
     const hooks = await import('../../src/print/boot');
     // resumePrintQueue, startPrintWorker: built by c16 (test/print/boot.int.test.ts).
     expect(() => {

@@ -1,6 +1,6 @@
-import type { Doc } from '@pos/domain';
+import { renderText, type Doc } from '@pos/domain';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { printDocument, renderText } from '../../src/print/contracts';
+import { printDocument } from '../../src/print/contracts';
 import { createPrintWorker, type PrinterTransport } from '../../src/print/worker';
 import type { SendResult } from '../../src/print/transport/lan';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
