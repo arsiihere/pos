@@ -29,7 +29,8 @@ export const AdminAuthResponse = z.object({
     display_name: z.string(),
     idle_ttl_ms: int,
     // 00 v1.3 M89
-    permissions: z.object({ 'manage-devices': z.boolean(), 'manage-staff': z.boolean() }),
+    // 05 R-37: plus manage-fiscal-settings (/admin/fiscal/) and close-business-day (Stock page, P0.6)
+    permissions: z.object({ 'manage-devices': z.boolean(), 'manage-staff': z.boolean(), 'manage-fiscal-settings': z.boolean(), 'close-business-day': z.boolean() }),
   }),
 });
 

@@ -11,6 +11,8 @@ const ENTRIES: Record<string, string> = {
   kds: '/kds/',
   'admin-kitchen-screens': '/admin/kitchen-screens/',
   'admin-printers': '/admin/printers/',
+  // 05 row H-2: the fiscal admin shell (task 31a fills the page)
+  'admin-fiscal': '/admin/fiscal/',
 };
 
 export default defineConfig(({ mode }) => {

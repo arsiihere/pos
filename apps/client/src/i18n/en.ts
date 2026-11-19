@@ -2706,6 +2706,10 @@ export const en = {
   'printers.sign_in': 'Sign in to set up printers',
   'printers.no_admins': 'No one here can set up printers',
   'printers.test_in_use': 'The printer is busy printing tickets. Try again in a moment.',
+  // hub admin Fiscal shell (05 row H-2; the page body is task 31a's)
+  'fiscal.title': 'Fiscal',
+  'fiscal.sign_in': 'Sign in to manage fiscal settings',
+  'fiscal.no_admins': 'No one here can manage fiscal settings',
   // A3 station outputs, print queue, warnings (frames OutputEditor, QueueCancel, PrintersPaperOut)
   'outputs.help': 'Where each station’s tickets go.',
   'outputs.col.station': 'Station',

@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
 // 01d task 41 (01a S39 d), HK7: ship-client.sh ships admin-stock, staff, kds, admin-kitchen-screens and
-// admin-printers, and refuses before any ssh when any build is missing. The script has no other test, so it runs in a throwaway git checkout with a fake `ssh`
+// admin-printers and admin-fiscal (05 row H-2), and refuses before any ssh when any build is missing. The script has no other test, so it runs in a throwaway git checkout with a fake `ssh`
 // that fails the test if it is ever called.
 const SCRIPT = fileURLToPath(new URL('../../deploy/ship-client.sh', import.meta.url));
 
-const ALL = ['admin-stock', 'staff', 'kds', 'admin-kitchen-screens', 'admin-printers'];
+const ALL = ['admin-stock', 'staff', 'kds', 'admin-kitchen-screens', 'admin-printers', 'admin-fiscal'];
 
 function git(cwd: string, ...args: string[]): void {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -107,7 +107,7 @@ describe('ship-client.sh', () => {
     expect(r.stderr).toContain('ssh must not run');
   });
 
-  it('[01d task 41] stages all five builds, then swaps all five', () => {
+  it('[01d task 41] stages all six builds, then swaps all six', () => {
     const dir = checkout(ALL);
     dirs.push(dir);
     const log = recordingSsh(dir);
@@ -119,12 +119,12 @@ describe('ship-client.sh', () => {
     expect(kinds).toEqual([...ALL.map(() => 'stage'), ...ALL.map(() => 'swap')]);
   });
 
-  it('[HK7] BUILDS in the script names exactly the five client builds the hub serves', () => {
+  it('[HK7] BUILDS in the script names exactly the six client builds the hub serves', () => {
     const m = /^BUILDS=\(([^)]*)\)/m.exec(readFileSync(SCRIPT, 'utf8'));
     expect(m?.[1]?.trim().split(/\s+/)).toEqual(ALL);
   });
 
-  it.each(['kds', 'admin-kitchen-screens', 'admin-printers'])('[HK7] refuses when dist/%s/index.html is missing, before any ssh', (name) => {
+  it.each(['kds', 'admin-kitchen-screens', 'admin-printers', 'admin-fiscal'])('[HK7] refuses when dist/%s/index.html is missing, before any ssh', (name) => {
     const dir = checkout(ALL.filter((b) => b !== name));
     dirs.push(dir);
     const r = run(dir);

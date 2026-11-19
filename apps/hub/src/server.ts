@@ -43,6 +43,7 @@ import { registerCommandRoutes } from './commands/route.js';
 import { hubTime } from './lib/hub-time.js';
 import {
   ADMIN_KITCHEN_SCREENS_DIST_DIR,
+  ADMIN_FISCAL_DIST_DIR,
   ADMIN_PRINTERS_DIST_DIR,
   CLIENT_DIST_DIR,
   KDS_DIST_DIR,
@@ -245,6 +246,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   // 00 v1.9.2 §8.2 (Q-43): the 03b / 03c admin entries, like /admin/stock/ (no meta, no credentials).
   registerClientDist(app, { prefix: '/admin/kitchen-screens/', dir: ADMIN_KITCHEN_SCREENS_DIST_DIR, routeConfig: { group: 'admin-page' } });
   registerClientDist(app, { prefix: '/admin/printers/', dir: ADMIN_PRINTERS_DIST_DIR, routeConfig: { group: 'admin-page' } });
+  registerClientDist(app, { prefix: '/admin/fiscal/', dir: ADMIN_FISCAL_DIST_DIR, routeConfig: { group: 'admin-page' } });
   installCors(app, deps.config.cors_origins);
   bindConfigPoller(
     app,
