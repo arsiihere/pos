@@ -1,11 +1,11 @@
-import type { PrinterSavedPayload, StationOutputSetPayload } from '@pos/events';
+import type { BillRouteSetPayload, PrinterSavedPayload, StationOutputSetPayload } from '@pos/events';
 import type { Projection } from '../projections/registry.js';
 
-// 03c §3.2, §5 (task c4): projection `print_config` (reset) over `printers` and `station_outputs`. Hub-local config:
+// 03c §3.2, §5 (task c4): projection `print_config` (reset) over `printers`, `station_outputs` and (05 row P-1) `bill_routes`. Hub-local config:
 // events on `hub` / branch_id. `printer_runtime` is worker-owned and outside the projection, so a rebuild keeps it.
 export const printConfigProjection: Projection = {
   name: 'print_config',
-  eventTypes: ['PrinterSaved', 'StationOutputSet'],
+  eventTypes: ['PrinterSaved', 'StationOutputSet', 'BillRouteSet'],
   apply(tx, event) {
     if (event.event_type === 'PrinterSaved') {
       const p = event.payload as PrinterSavedPayload;
@@ -21,6 +21,18 @@ export const printConfigProjection: Projection = {
       ).run(p.printer_id, p.name, p.connection, p.address, p.paper_width_mm, p.archived ? event.recorded_at : null, event.recorded_at);
       return;
     }
+    if (event.event_type === 'BillRouteSet') {
+      // 03c §5 (05 row P-1, R-22): one row per (scope, ref_id); a null printer removes it
+      const b = event.payload as BillRouteSetPayload;
+      if (b.printer_id === null) tx.prepare('DELETE FROM bill_routes WHERE scope = ? AND ref_id = ?').run(b.scope, b.ref_id);
+      else {
+        tx.prepare(
+          `INSERT INTO bill_routes (scope, ref_id, printer_id) VALUES (?, ?, ?)
+           ON CONFLICT (scope, ref_id) DO UPDATE SET printer_id = excluded.printer_id`,
+        ).run(b.scope, b.ref_id, b.printer_id);
+      }
+      return;
+    }
     const s = event.payload as StationOutputSetPayload;
     tx.prepare(
       `INSERT INTO station_outputs (station_id, mode, printer_id, show_taker, show_order_id)
@@ -33,5 +45,6 @@ export const printConfigProjection: Projection = {
   reset(tx) {
     tx.prepare('DELETE FROM printers').run();
     tx.prepare('DELETE FROM station_outputs').run();
+    tx.prepare('DELETE FROM bill_routes').run();
   },
 };

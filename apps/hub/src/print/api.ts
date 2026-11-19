@@ -2,6 +2,9 @@ import { DomainError, type Doc } from '@pos/domain';
 import type Database from 'better-sqlite3';
 import type { WriterTx } from '../engine-host/writer.js';
 
+// 03c §4.2 (05 row P-1): the bill printer resolver, exported for 05 next to printDocument.
+export { billPrinterFor } from './bill-routes.js';
+
 // 03c §3.9, §4.2 (task c18): the print API for 05. A `document` job in the caller's transaction (bill close), so it
 // commits or rolls back with it; the worker prints it later on that printer (it keeps its own printer_id, §3.2), and
 // a printer outage never blocks the caller (R8). Payload `{ doc, kind_label? }` (what the worker renders at send).

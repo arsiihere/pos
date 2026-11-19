@@ -7,7 +7,7 @@ import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { FX, appendOrder, append as kdsAppend, fireLines, openDay, pairDevice, pairKds } from '../kds/fixtures';
 
-// 03c §6.6, §6.7, §3.2, §3.10 (task c20): GET /admin/queries/print-config (warnings per kind; 4 statements) and
+// 03c §6.6, §6.7, §3.2, §3.10 (task c20): GET /admin/queries/print-config (warnings per kind; 5 statements, 05 row P-1 R-22) and
 // GET /admin/queries/print-queue (2 statements), through the real admin query route. fixtureMenu stations: S1 Tandoor-
 // like (FX.station), S2 "Counter" (FX.zoneStation).
 
@@ -57,7 +57,7 @@ function rename(item_id: string, name: string, station_name?: string): void {
 }
 
 describe('[03c §6.6] GET /admin/queries/print-config (c20)', () => {
-  it('[03c §6.6, §3.2] printers, station outputs (no row = screen) and every warning kind; 4 statements', async () => {
+  it('[03c §6.6, §3.2] printers, station outputs (no row = screen) and every warning kind; 5 statements (03c R-22: +1 for bill_routes)', async () => {
     printer('PR1');
     printer('PR_OLD', true);
     pairKds(hub, { stationId: FX.station }); // S1 has a screen
@@ -69,7 +69,7 @@ describe('[03c §6.6] GET /admin/queries/print-config (c20)', () => {
     hub.deps.db.prepare(`INSERT INTO print_jobs (job_id, kind, printer_id, payload, created_at, acked_at, suspect_at, suspect_resolved_at) VALUES ('J2', 'document', 'PR1', '{}', 1, 1, 2, 3)`).run();
     const counter = statementCounter(hub.deps.readDb);
     const r = await get('print-config');
-    expect(counter.count).toBe(4);
+    expect(counter.count).toBe(5);
     expect(r.status).toBe(200);
     const data = r.data as { printers: Array<Record<string, unknown>>; station_outputs: Array<Record<string, unknown>>; warnings: unknown[] };
     expect(data.printers.map((p) => [p.printer_id, p.archived_at === null])).toEqual([
@@ -102,7 +102,7 @@ describe('[03c §6.6] GET /admin/queries/print-config (c20)', () => {
     expect(data.warnings).toEqual([]);
   });
 
-  it('[03c #55] print-config lossy_name warnings for an item, an option and a deal carry their config name; other kinds no name; statements still 4 — [03c §3.2] lossy_name covers every printable name: a zone-routed item (S1 → S2 printer), modifier options, deals', async () => {
+  it('[03c #55] print-config lossy_name warnings for an item, an option and a deal carry their config name; other kinds no name; statements still 5 — [03c §3.2] lossy_name covers every printable name: a zone-routed item (S1 → S2 printer), modifier options, deals', async () => {
     printer('PR1');
     output(FX.zoneStation, 'both', 'PR1'); // only S2 prints; Naan's home S1 has no printer, Z1 routes it to S2
     const config = branchConfig()!;

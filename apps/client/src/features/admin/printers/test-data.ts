@@ -51,6 +51,22 @@ export const PRINT_CONFIG: PrintConfig = {
     { station_id: 'S-C', name: 'Cold', mode: 'printer', printer_id: 'P2', show_taker: true, show_order_id: true, screen_paired: false, archived: false },
     { station_id: 'S-G', name: 'Grill', mode: 'screen', printer_id: null, show_taker: true, show_order_id: true, screen_paired: false, archived: true },
   ],
+  bill_routes: [
+    { scope: 'default', ref_id: '', printer_id: 'P1' },
+    { scope: 'zone', ref_id: 'Z-GARDEN', printer_id: 'P2' },
+    { scope: 'zone', ref_id: 'Z-OLD', printer_id: 'P1' },
+  ],
+  zones: [
+    { zone_id: 'Z-GARDEN', floor_id: 'F-1', name: 'Garden', archived: false },
+    { zone_id: 'Z-ROOF', floor_id: 'F-2', name: 'Patio', archived: false },
+    { zone_id: 'Z-PATIO', floor_id: 'F-1', name: 'Patio', archived: false },
+    { zone_id: 'Z-OLD', floor_id: 'F-1', name: 'Old patio', archived: true },
+    { zone_id: 'Z-GONE', floor_id: 'F-1', name: 'Gone patio', archived: true },
+  ],
+  floors: [
+    { floor_id: 'F-1', name: 'Ground', archived: false },
+    { floor_id: 'F-2', name: 'Roof', archived: false },
+  ],
   warnings: [],
 };
 
@@ -63,3 +79,11 @@ export const PRINT_QUEUE: PrintQueue = {
   jobs: [],
   no_printer: 0,
 };
+
+/** 00 §6.14 devices (test-only): a cashier kiosk, a tablet, a KDS screen (no bills) and a revoked tablet. */
+export const BILL_DEVICES = [
+  { device_id: 'D-K', device_name: 'Counter kiosk', device_type: 'cashier_kiosk', revoked_at: null },
+  { device_id: 'D-T', device_name: 'Waiter tablet', device_type: 'tablet', revoked_at: null },
+  { device_id: 'D-S', device_name: 'Tandoor screen', device_type: 'kds', revoked_at: null },
+  { device_id: 'D-X', device_name: 'Lost tablet', device_type: 'tablet', revoked_at: 5 },
+];
