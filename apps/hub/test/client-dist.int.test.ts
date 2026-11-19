@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { listRouteGuards } from '../src/auth/guards';
 import {
   ADMIN_KITCHEN_SCREENS_DIST_DIR,
+  ADMIN_FISCAL_DIST_DIR,
   ADMIN_PRINTERS_DIST_DIR,
   CSP as HUB_CSP,
   KDS_DIST_DIR,
@@ -17,7 +18,7 @@ import { createTestHub } from './helpers/test-hub';
 // 00 v1.9.2 #163: the server reads KDS_DIST_DIR at build time; a test may point it at a stand-in build or a
 // missing directory (the client's kds entry lands with 03b K1). Undefined = the real directory.
 // 00 v1.9.2 #164: the same for the two admin entries (03b / 03c client lanes A1, A2).
-const dist = vi.hoisted(() => ({ kds: undefined as string | undefined, kitchen: undefined as string | undefined, printers: undefined as string | undefined }));
+const dist = vi.hoisted(() => ({ kds: undefined as string | undefined, kitchen: undefined as string | undefined, printers: undefined as string | undefined, fiscal: undefined as string | undefined }));
 vi.mock('../src/lib/client-dist', async (importOriginal) => {
   const real = await importOriginal<typeof import('../src/lib/client-dist')>();
   return {
@@ -30,6 +31,9 @@ vi.mock('../src/lib/client-dist', async (importOriginal) => {
     },
     get ADMIN_PRINTERS_DIST_DIR() {
       return dist.printers ?? real.ADMIN_PRINTERS_DIST_DIR;
+    },
+    get ADMIN_FISCAL_DIST_DIR() {
+      return dist.fiscal ?? real.ADMIN_FISCAL_DIST_DIR;
     },
   };
 });
@@ -253,27 +257,31 @@ describe('client-dist', () => {
     }
   });
 
-  it('[00 §10 #164] /admin/kitchen-screens/ and /admin/printers/ serve their builds under admin-page guards, no credentials in the page; guest IP → 403', async () => {
+  it('[00 §10 #164] [05 row H-2] /admin/kitchen-screens/, /admin/printers/ and /admin/fiscal/ serve their builds under admin-page guards, no credentials in the page; guest IP → 403', async () => {
     expect(ADMIN_KITCHEN_SCREENS_DIST_DIR.endsWith('/client/dist/admin-kitchen-screens/')).toBe(true);
     expect(ADMIN_PRINTERS_DIST_DIR.endsWith('/client/dist/admin-printers/')).toBe(true);
+    expect(ADMIN_FISCAL_DIST_DIR.endsWith('/client/dist/admin-fiscal/')).toBe(true);
     const builds = {
       '/admin/kitchen-screens/': buildDir({ 'index.html': '<!doctype html><head></head><script type="module" src="/admin/kitchen-screens/assets/ks1.js"></script>', 'assets/ks1.js': 'ks();' }),
       '/admin/printers/': buildDir({ 'index.html': '<!doctype html><head></head><script type="module" src="/admin/printers/assets/pr1.js"></script>', 'assets/pr1.js': 'pr();' }),
+      '/admin/fiscal/': buildDir({ 'index.html': '<!doctype html><head></head><script type="module" src="/admin/fiscal/assets/fi1.js"></script>', 'assets/fi1.js': 'fi();' }),
     };
     for (const dir of Object.values(builds)) cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     cleanups.push(() => {
       dist.kitchen = undefined;
       dist.printers = undefined;
+      dist.fiscal = undefined;
     });
     dist.kitchen = builds['/admin/kitchen-screens/'];
     dist.printers = builds['/admin/printers/'];
+    dist.fiscal = builds['/admin/fiscal/'];
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
     await hub.app.ready();
     const stock = await hub.app.inject({ method: 'GET', url: '/admin/stock/' });
     const guest = await createTestHub({ config: { guest_network_cidrs: ['10.9.0.0/16'] } });
     cleanups.push(() => guest.close());
-    for (const [prefix, asset, body] of [['/admin/kitchen-screens/', 'assets/ks1.js', 'ks();'], ['/admin/printers/', 'assets/pr1.js', 'pr();']] as const) {
+    for (const [prefix, asset, body] of [['/admin/kitchen-screens/', 'assets/ks1.js', 'ks();'], ['/admin/printers/', 'assets/pr1.js', 'pr();'], ['/admin/fiscal/', 'assets/fi1.js', 'fi();']] as const) {
       const page = await hub.app.inject({ method: 'GET', url: prefix });
       expect(page.statusCode, prefix).toBe(200);
       for (const header of ['content-security-policy', 'cache-control', 'content-type']) {

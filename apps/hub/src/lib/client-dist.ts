@@ -14,6 +14,8 @@ export const KDS_DIST_DIR = fileURLToPath(new URL('../../../client/dist/kds/', i
 // 00 v1.9.2 §8.2 (Q-43): the built 03b Kitchen screens and 03c Printers admin entries, served like admin-stock.
 export const ADMIN_KITCHEN_SCREENS_DIST_DIR = fileURLToPath(new URL('../../../client/dist/admin-kitchen-screens/', import.meta.url));
 export const ADMIN_PRINTERS_DIST_DIR = fileURLToPath(new URL('../../../client/dist/admin-printers/', import.meta.url));
+// 05 row H-2 (00 v1.12): the built fiscal admin entry (/admin/fiscal/), served like the other admin pages.
+export const ADMIN_FISCAL_DIST_DIR = fileURLToPath(new URL('../../../client/dist/admin-fiscal/', import.meta.url));
 // S21: the same header on every file served from a build, on the hub and on the cloud.
 export const CSP = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 

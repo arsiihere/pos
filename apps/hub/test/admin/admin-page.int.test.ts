@@ -9,7 +9,7 @@ import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub'
 // 00 v1.3 M86: the hub admin page (00-S16 … S20, D01 … D03).
 // 00 v1.9.2 (Q-43): GET /admin links the 03b / 03c admin entries only when their build exists. Each test starts
 // with no such build (whatever the client has built), and #165 points the dirs at a stand-in build.
-const dist = vi.hoisted(() => ({ kitchen: '/nonexistent/admin-kitchen-screens/', printers: '/nonexistent/admin-printers/' }));
+const dist = vi.hoisted(() => ({ kitchen: '/nonexistent/admin-kitchen-screens/', printers: '/nonexistent/admin-printers/', fiscal: '/nonexistent/admin-fiscal/' }));
 vi.mock('../../src/lib/client-dist', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../src/lib/client-dist')>();
   return {
@@ -19,6 +19,9 @@ vi.mock('../../src/lib/client-dist', async (importOriginal) => {
     },
     get ADMIN_PRINTERS_DIST_DIR() {
       return dist.printers;
+    },
+    get ADMIN_FISCAL_DIST_DIR() {
+      return dist.fiscal;
     },
   };
 });
@@ -127,7 +130,7 @@ describe('hub admin page (M86)', () => {
     const script = page.body.slice(page.body.indexOf('<script>'));
     const urls = new Set([...script.matchAll(/'(\/(?:admin|auth|queries|commands)[a-z/_-]*)/g)].map((m) => m[1]));
     // 00 v1.9.2 (Q-43): plus 03b's kds-config and 03c's print-queue for the two home tiles, and the two pages' links
-    expect([...urls].sort()).toEqual(['/admin/approve', '/admin/auth', '/admin/auth/logout', '/admin/commands/', '/admin/kitchen-screens/', '/admin/login-roster', '/admin/printers/', '/admin/queries/devices', '/admin/queries/kds-config', '/admin/queries/lockouts', '/admin/queries/print-queue', '/admin/queries/sessions', '/admin/queries/staff', '/admin/queries/stations', '/admin/stock/'].sort());
+    expect([...urls].sort()).toEqual(['/admin/approve', '/admin/auth', '/admin/auth/logout', '/admin/commands/', '/admin/fiscal/', '/admin/kitchen-screens/', '/admin/login-roster', '/admin/printers/', '/admin/queries/devices', '/admin/queries/kds-config', '/admin/queries/lockouts', '/admin/queries/print-queue', '/admin/queries/sessions', '/admin/queries/staff', '/admin/queries/stations', '/admin/stock/'].sort());
     expect([...script.matchAll(/command\('([a-z-]+)'/g)].map((m) => m[1]).sort()).toEqual(['clear-pin-lockout', 'force-logout-session', 'generate-device-pairing-token', 'revoke-device']);
   });
 
@@ -398,6 +401,7 @@ describe('hub admin page: kitchen screens and printers entries (00 v1.9.2 §8.2,
     for (const dir of builds.splice(0)) rmSync(dir, { recursive: true, force: true });
     dist.kitchen = '/nonexistent/admin-kitchen-screens/';
     dist.printers = '/nonexistent/admin-printers/';
+    dist.fiscal = '/nonexistent/admin-fiscal/';
   });
   function build(): string {
     const dir = mkdtempSync(join(tmpdir(), 'admin-entry-'));
@@ -497,6 +501,35 @@ describe('hub admin page: kitchen screens and printers entries (00 v1.9.2 §8.2,
     expect(textOf(none.screen)).not.toContain(EN['admin.nav_kitchen_screens']);
     expect(textOf(none.screen)).not.toContain(EN['admin.nav_printers']);
     expect(plainHub.queried.filter((u) => u.includes('kds-config') || u.includes('print-queue'))).toEqual([]);
+  });
+
+  it('[05 row H-2] [05 P0.G G-17] /admin/fiscal/ shows in the side-nav and on home only with manage-fiscal-settings and a build; a missing key or false is hidden, never fail-open', async () => {
+    dist.fiscal = build();
+    const source = await html();
+    const withPerm = (perms: Record<string, boolean>) => ({ ...SESSION, admin_permissions: JSON.stringify(perms) });
+    const navHas = (page: PageSandbox) => page.findAll((el) => el.tagName === 'a' && el.className === 'pos-sidenav__item' && el.href === '/admin/fiscal/', sideNav(page));
+    // holder: nav item + tile, no status query (the page body is task 31a's)
+    const holderHub = fakeHub();
+    const holder = await runPage(source, { store: STORE, session: withPerm({ 'manage-devices': true, 'manage-staff': true, 'manage-fiscal-settings': true }), fetch: holderHub.fetch });
+    expect(navHas(holder).map((el) => textOf(el))).toEqual([EN['admin.nav_fiscal']]);
+    expect(tileOf(holder, '/admin/fiscal/')).toBeDefined();
+    expect(textOf(tileOf(holder, '/admin/fiscal/')!)).toContain(EN['admin.nav_fiscal']);
+    expect(holderHub.queried.filter((u) => u.includes('fiscal'))).toEqual([]);
+    // a holder without manage-devices sees the fiscal entry and not the device pages
+    const fiscalOnly = await runPage(source, { store: STORE, session: withPerm({ 'manage-devices': false, 'manage-staff': false, 'manage-fiscal-settings': true }), fetch: fakeHub().fetch });
+    expect(navHas(fiscalOnly)).toHaveLength(1);
+    expect(tileOf(fiscalOnly, '/admin/fiscal/')).toBeDefined();
+    // not a holder: false, and a session whose permissions lack the key (an older sign-in) → no item, no tile
+    for (const perms of [{ 'manage-devices': true, 'manage-staff': true, 'manage-fiscal-settings': false }, { 'manage-devices': true, 'manage-staff': true }, {}] as Array<Record<string, boolean>>) {
+      const page = await runPage(source, { store: STORE, session: withPerm(perms), fetch: fakeHub().fetch });
+      expect(navHas(page), JSON.stringify(perms)).toHaveLength(0);
+      expect(tileOf(page, '/admin/fiscal/'), JSON.stringify(perms)).toBeUndefined();
+      expect(textOf(page.screen)).not.toContain(EN['admin.nav_fiscal']);
+    }
+    // no build → hidden even for a holder
+    dist.fiscal = '/nonexistent/admin-fiscal/';
+    const none = await runPage(await html(), { store: STORE, session: withPerm({ 'manage-fiscal-settings': true }), fetch: fakeHub().fetch });
+    expect(textOf(none.screen)).not.toContain(EN['admin.nav_fiscal']);
   });
 
   it('[00 §10 #165] a tablet Devices row links /admin/kitchen-screens/#bind=<device_id>; a kds / phone row does not', async () => {

@@ -418,10 +418,13 @@ export class StaffDirectory {
   }
 
   // M89: what the admin pages may show; the command pipeline stays the authority.
-  adminPermissions(staffId: string): { 'manage-devices': boolean; 'manage-staff': boolean } {
+  // 05 row H-2: `manage-fiscal-settings` decides the /admin/fiscal/ entry; R-37: `close-business-day` for the Stock page.
+  adminPermissions(staffId: string): { 'manage-devices': boolean; 'manage-staff': boolean; 'manage-fiscal-settings': boolean; 'close-business-day': boolean } {
     return {
       'manage-devices': this.resolve(staffId, 'manage-devices').grant === 'allowed',
       'manage-staff': this.resolve(staffId, 'manage-staff').grant === 'allowed',
+      'manage-fiscal-settings': this.resolve(staffId, 'manage-fiscal-settings').grant === 'allowed',
+      'close-business-day': this.resolve(staffId, 'close-business-day').grant === 'allowed',
     };
   }
 

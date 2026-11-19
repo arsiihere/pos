@@ -189,6 +189,8 @@ export const EN = {
   // 00 v1.9.2 §8.2 (Q-43): the 03b / 03c admin pages, their home tiles and the tablet row link.
   'admin.nav_kitchen_screens': 'Kitchen screens',
   'admin.nav_printers': 'Printers',
+  // 05 row H-2: the fiscal admin entry (shell; the page is task 31a's)
+  'admin.nav_fiscal': 'Fiscal',
   'admin.tile_kitchen': 'screens · {pass} Pass tablets',
   'admin.tile_kitchen_one': 'screens · 1 Pass tablet',
   'admin.kitchen_offline': '{n} screens offline',
@@ -452,6 +454,8 @@ export const UR: Partial<Record<StringKey, string>> = {
   // Urdu draft — needs native review (00 v1.9.2, Q-43).
   'admin.nav_kitchen_screens': 'کچن اسکرینیں',
   'admin.nav_printers': 'پرنٹر',
+  // Urdu draft — needs native review (05 row H-2).
+  'admin.nav_fiscal': 'مالیاتی',
   'admin.tile_kitchen': 'اسکرینیں · {pass} پاس ٹیبلٹ',
   'admin.tile_kitchen_one': 'اسکرینیں · 1 پاس ٹیبلٹ',
   'admin.kitchen_offline': '{n} اسکرینیں آف لائن',

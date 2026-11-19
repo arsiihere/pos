@@ -15,6 +15,8 @@ const ENTRIES = [
   { name: 'kds', base: '/kds/', otherFeatures: 'src/features/owner/' },
   { name: 'admin-kitchen-screens', base: '/admin/kitchen-screens/', otherFeatures: 'src/features/owner/' },
   { name: 'admin-printers', base: '/admin/printers/', otherFeatures: 'src/features/owner/' },
+  // 05 row H-2 (G-17): the fiscal admin shell
+  { name: 'admin-fiscal', base: '/admin/fiscal/', otherFeatures: 'src/features/owner/' },
 ] as const;
 // A data: URL (`data:image/svg+xml,…`, `data:font/woff2;base64,…`), not a minified `{data:null}` property.
 const DATA_URL_RE = /data:[a-z]+\/[a-z0-9.+-]+[;,]/i;
@@ -97,8 +99,8 @@ describe('client build output', () => {
     expect(/<body[^>]*\bclass="([^"]*)"/.exec(built)?.[1]?.split(/\s+/) ?? []).not.toContain('pos-staff');
   });
 
-  it('[03b W0.4] vite builds kds, admin-kitchen-screens and admin-printers into dist/<entry>/ with base /kds/, /admin/kitchen-screens/, /admin/printers/', () => {
-    const want = { kds: '/kds/', 'admin-kitchen-screens': '/admin/kitchen-screens/', 'admin-printers': '/admin/printers/' };
+  it('[03b W0.4] [05 row H-2] vite builds kds, admin-kitchen-screens, admin-printers and admin-fiscal into dist/<entry>/ with base /kds/, /admin/kitchen-screens/, /admin/printers/, /admin/fiscal/', () => {
+    const want = { kds: '/kds/', 'admin-kitchen-screens': '/admin/kitchen-screens/', 'admin-printers': '/admin/printers/', 'admin-fiscal': '/admin/fiscal/' };
     // the build script builds each entry (`vite build --mode <entry>`)
     const pkg = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')) as { scripts: { build: string } };
     const modes = [...pkg.scripts.build.matchAll(/vite build --mode (\S+)/g)].map((m) => m[1]);
