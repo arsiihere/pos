@@ -13,6 +13,7 @@ import {
   liveUnits,
   moneyOutMinor,
   planComp,
+  planCompRemoval,
   planRemove,
   planVoid,
   removeUnits,
@@ -46,6 +47,72 @@ const itemBilled = (l: LedgerLine): number => billedMinor({ line_kind: 'item', l
 const sum = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0);
 
 const meta = { reason_code: 'quality', note: null, requester_staff_id: 'S1', alert_id: null, approver_staff_id: null };
+
+describe('[05 row Q-4] planCompRemoval (02b v1.0.16 §3.9)', () => {
+  it('[05 #84] the inverse of planComp per unit: a comped remainder share comes back first; units ≤ comped_units', () => {
+    // 10 001 over 3: shares 3333, 3333, 3335. Comp all 3, then take them back one at a time.
+    const k = parent('K', 'item', 'piece', compUnits(fresh(10001, 3), 3).after);
+    expect(planCompRemoval(k, 1)).toMatchObject({ units: 1, comp_minor: 3335 });
+    expect(planCompRemoval(k, 3)).toMatchObject({ units: 3, comp_minor: 10001 });
+    // one comped unit (share 3333): it gives back exactly what it took
+    const one = parent('K', 'item', 'piece', compUnits(fresh(10001, 3), 1).after);
+    expect(planCompRemoval(one, 1)).toMatchObject({ units: 1, comp_minor: 3333 });
+    expect(planCompRemoval(one, 1).lines).toEqual([
+      { order_item_id: 'K', units: 1, after: { ...fresh(10001, 3) }, payload: { order_item_id: 'K', units: 1, comp_minor: 3333 } },
+    ]);
+    // a comp after a removal took the remainder: it comes back with it
+    const late = parent('K', 'item', 'piece', compUnits(removeUnits(fresh(10001, 3), 2).after, 1).after);
+    expect(planCompRemoval(late, 1).comp_minor).toBe(3335);
+    expect(() => planCompRemoval(one, 2)).toThrow();
+    expect(() => planCompRemoval(parent('K', 'item', 'piece', fresh(10001, 3)), 1)).toThrow();
+    expect(() => planCompRemoval(one, 0)).toThrow();
+  });
+
+  it('[05 #84] cascades as the comp did (01c §3.4.8): option children and deal parts per parent unit, capped at their comped units; the last comped parent unit takes the rest; a later child only with the whole', () => {
+    // karahi ×2 with 3 raita per karahi (placed) and 1 later raita; comp both karahi (the cascade comps every child).
+    const k2 = parent('K', 'item', 'piece', fresh(440000, 2));
+    const placed = opt('C', fresh(18000, 6), 3);
+    const later = ref('RN', fresh(10000, 1));
+    const comped = planComp(k2, [placed, later], 2, meta).lines;
+    const after = (id: string) => comped.find((l) => l.order_item_id === id)!.after;
+    const kc = parent('K', 'item', 'piece', after('K'));
+    const kids = [opt('C', after('C'), 3), ref('RN', after('RN'))];
+    const r1 = planCompRemoval(kc, 1, kids);
+    expect(r1.lines.map((l) => l.payload)).toEqual([
+      { order_item_id: 'K', units: 1, comp_minor: 220000 },
+      { order_item_id: 'C', units: 3, comp_minor: 9000 },
+    ]);
+    expect([r1.units, r1.comp_minor]).toEqual([1, 229000]);
+    const r2 = planCompRemoval(kc, 2, kids);
+    expect(r2.lines.map((l) => [l.order_item_id, l.units, l.payload.comp_minor])).toEqual([['K', 2, 440000], ['C', 6, 18000], ['RN', 1, 10000]]);
+    expect([r2.units, r2.comp_minor]).toEqual([2, 468000]);
+    for (const l of r2.lines) expect([l.after.comped_units, l.after.comp_minor], l.order_item_id).toEqual([0, 0]);
+    // capped at the child's comped units, not its live units: 6 raita live, only 2 comped → 1 of 2 karahi gives back 2
+    const capped = opt('C', compUnits(fresh(18000, 6), 2).after, 3);
+    expect([liveUnits(capped), capped.comped_units]).toEqual([6, 2]);
+    expect(cascadeUnits('uncomp', kc, 1, capped)).toBe(2);
+    // a partly comped parent: 1 of 2 karahi comped (its 3 raita with it; the later raita not) → uncomp 1 = K 1, C 3, no RN
+    const half = planComp(k2, [placed, later], 1, meta).lines;
+    const hAfter = (id: string) => half.find((l) => l.order_item_id === id)?.after ?? (id === 'RN' ? later : placed);
+    const kHalf = parent('K', 'item', 'piece', hAfter('K'));
+    const hKids = [opt('C', hAfter('C'), 3), ref('RN', hAfter('RN'))];
+    const r3 = planCompRemoval(kHalf, 1, hKids);
+    expect(r3.lines.map((l) => [l.order_item_id, l.units, l.payload.comp_minor])).toEqual([['K', 1, 220000], ['C', 3, 9000]]);
+    expect(r3.comp_minor).toBe(229000);
+    // the last comped parent unit takes every comped child unit: a raita comped alone afterwards (C comped 4) comes back too
+    const c4 = opt('C', compUnits(hAfter('C'), 1).after, 3);
+    expect(c4.comped_units).toBe(4);
+    const r4 = planCompRemoval(kHalf, 1, [c4, ref('RN', hAfter('RN'))]);
+    expect(r4.lines.map((l) => [l.order_item_id, l.units, l.payload.comp_minor])).toEqual([['K', 1, 220000], ['C', 4, 12000]]);
+    // a deal: 1 of 2 comped deals comes back with its portion of each part
+    const deal = parent('D', 'deal', 'piece', fresh(0, 2));
+    const parts = [ref('Pa', fresh(128000, 2)), ref('Pb', fresh(512000, 8))];
+    const dc = planComp(deal, parts, 2, meta).lines;
+    const dAfter = (id: string) => dc.find((l) => l.order_item_id === id)!.after;
+    const back = planCompRemoval(parent('D', 'deal', 'piece', dAfter('D')), 1, [ref('Pa', dAfter('Pa')), ref('Pb', dAfter('Pb'))]);
+    expect(back.lines.map((l) => [l.order_item_id, l.units, l.payload.comp_minor])).toEqual([['D', 1, 0], ['Pa', 1, 64000], ['Pb', 4, 256000]]);
+  });
+});
 
 describe('02b ledger (§3.4)', () => {
   it('[02b §3.4] lineShares: shares k … k+n−1 of allocateDealMinor(refundable, [1 × units]); k counts every unit out', () => {

@@ -103,6 +103,14 @@ describe('[02b Q-6] live re-read', () => {
     expect(ORDER_FRAMES.has('BillClosed')).toBe(false);
   });
 
+  it('[05 rows Q-2, Q-4, Q-5, G-26] OrdersUnbilled and LineCompRemoved are order frames; OrdersCarriedOver is not (it changes nothing a view shows)', () => {
+    expect(ORDER_FRAMES.has('OrdersUnbilled')).toBe(true);
+    expect(ORDER_FRAMES.has('LineCompRemoved')).toBe(true);
+    expect(ORDER_FRAMES.has('OrdersCarriedOver')).toBe(false);
+    expect(concerns({ order_ids: ['O1'], bill_id: 'BL1' }, new Set(['O1']), new Set())).toBe(true);
+    expect(concerns({ order_item_id: 'L1', units: 1, comp_minor: 100 }, new Set(), new Set(['L1']))).toBe(true);
+  });
+
   it('[02b Q-6] concerns: by order id, line id, or a frame that names neither', () => {
     const o = new Set(['O1']);
     const l = new Set(['L1']);

@@ -857,3 +857,91 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     expect(r.events.map((e) => e.event_type)).not.toContain('ItemServed');
   });
 });
+
+// 05 §4.5 row Q-6 (02b v1.0.16 §3.1, §3.2 steps 2 and 9, §3.11, §5, §6.1) and 03a v1.2.6 row S-1.
+describe('[05 row Q-6] takeaway addition (adds_to_order_id)', () => {
+  const billKey = (order_id: string) => (hub.deps.db.prepare('SELECT bill_key FROM orders WHERE order_id = ?').get(order_id) as { bill_key: string | null }).bill_key;
+
+  it('[05 row Q-6] keeps the root order\'s token, gets its own table_key and the root\'s bill_key; OrderPlaced carries adds_to_order_id (S-1); 3 statements; nextToken unchanged for roots', async () => {
+    const day = await setUp();
+    const cashier = signIn('S_CASHIER');
+    const root = await submit(cashier, takeaway('T1', [item('L1', FX.naan)]));
+    expect(root.events[0]!.payload).not.toHaveProperty('adds_to_order_id');
+    await submit(cashier, takeaway('T2', [item('L2', FX.naan)]));
+    const counted = countHandle();
+    const add = await submit(cashier, takeaway('T3', [item('L3', FX.naan)], { adds_to_order_id: 'T1' }));
+    // an addition to the addition: same root, same token
+    const add2 = await submit(cashier, takeaway('T4', [item('L4', FX.naan)], { adds_to_order_id: 'T3' }));
+    counted.restore();
+    // takeaway addition: 1 ids + 1 addition check (in place of the token) + 1 item_availability.
+    expect(counted.calls).toEqual([3, 3]);
+    expect(add.status).toBe(200);
+    expect(add.result!.token).toBe(1);
+    expect(add.events[0]!.payload).toMatchObject({ token: 1, table_key: 'takeaway:T3', adds_to_order_id: 'T1', business_date: day.business_date });
+    expect(add2.result!.token).toBe(1);
+    expect(add2.events[0]!.payload).toMatchObject({ token: 1, table_key: 'takeaway:T4', adds_to_order_id: 'T3' });
+    expect(orderRow('T3')).toMatchObject({ token: 1, table_key: 'takeaway:T3' });
+    expect([billKey('T1'), billKey('T2'), billKey('T3'), billKey('T4')]).toEqual(['takeaway:T1', 'takeaway:T2', 'takeaway:T1', 'takeaway:T1']);
+    expect(engine().orders.T3).toMatchObject({ table_key: 'takeaway:T3' });
+    // the next root still takes MAX + 1
+    const next = await submit(cashier, takeaway('T5', [item('L5', FX.naan)]));
+    expect(next.result!.token).toBe(3);
+  });
+
+  it('[05 row Q-6] unknown → 404 ORDER_NOT_FOUND; dine-in / parking target, cancelled target, earlier-day target → 422 CONFIG_REFERENCE_INVALID; nothing written', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const cashier = signIn('S_CASHIER');
+    await submit(signIn('S_ALI'), dineIn('D1', [item('LD', FX.naan)]));
+    await submit(cashier, { order_id: 'P1', order_type: 'parking', parking: { car_number: 'ABC 1', car_type: 'sedan' }, lines: [item('LP', FX.naan)] });
+    await submit(cashier, takeaway('TC', [item('LC', FX.naan)]));
+    append({ stream_type: 'order', stream_id: 'TC', event_type: 'ItemRemoved', payload: { order_item_id: 'LC' }, actor_id: 'S_ALI' });
+    append({ stream_type: 'order', stream_id: 'TC', event_type: 'OrderCancelled', payload: { order_id: 'TC' }, actor_id: 'S_ALI' });
+    await submit(cashier, takeaway('TY', [item('LY', FX.naan)]));
+    const before = eventCount();
+    const unknown = await submit(cashier, takeaway('N1', [item('N1L', FX.naan)], { adds_to_order_id: 'NOPE' }));
+    expect(unknown.status).toBe(404);
+    expect(unknown.error!.code).toBe('ORDER_NOT_FOUND');
+    for (const target of ['D1', 'P1', 'TC']) {
+      const r = await submit(cashier, takeaway(`N${target}`, [item(`N${target}L`, FX.naan)], { adds_to_order_id: target }));
+      expect(r.status, target).toBe(422);
+      expect(r.error, target).toEqual({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'adds_to_order_id' } });
+    }
+    expect(eventCount()).toBe(before);
+    // an earlier-day order is never a target
+    closeDay();
+    hub.clock.advance(86_400_000);
+    openDay(hub);
+    const late = await submit(signIn('S_CASHIER'), takeaway('NL', [item('NLL', FX.naan)], { adds_to_order_id: 'TY' }));
+    expect(late.status).toBe(422);
+    expect(late.error).toEqual({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'adds_to_order_id' } });
+  });
+
+  it('[05 row Q-6, R-34] an addition carries only its own payload\'s customer fields: with none, nothing is copied from the root', async () => {
+    await setUp();
+    const cashier = signIn('S_CASHIER');
+    const root = await submit(cashier, takeaway('T1', [item('L1', FX.naan)], { takeaway: { customer_name: 'Ahmed', phone: '03001234567' } }));
+    expect(root.events.map((e) => e.event_type)).toContain('OrderContactSet');
+    const add = await submit(cashier, takeaway('T2', [item('L2', FX.naan)], { adds_to_order_id: 'T1' }));
+    expect(add.status).toBe(200);
+    expect(add.events.map((e) => e.event_type)).toEqual(['OrderPlaced', 'ItemAdded']);
+    expect(add.events[0]!.payload).toMatchObject({ has_phone: false, adds_to_order_id: 'T1' });
+    expect(orderRow('T2')).toMatchObject({ customer_name: null, phone: null });
+    expect(orderRow('T1')).toMatchObject({ customer_name: 'Ahmed', phone: '03001234567' });
+    // its own fields are its own
+    const own = await submit(cashier, takeaway('T3', [item('L3', FX.naan)], { adds_to_order_id: 'T1', takeaway: { customer_name: 'Sara' } }));
+    expect(own.events.find((e) => e.event_type === 'OrderContactSet')!.payload).toEqual({ order_id: 'T3', customer_name: 'Sara', phone: null });
+  });
+
+  it('[05 row Q-6] adds_to_order_id only on takeaway: dine-in / parking with it → 400 at its path', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const cashier = signIn('S_CASHIER');
+    await submit(cashier, takeaway('T1', [item('L1', FX.naan)]));
+    const dine = await submit(signIn('S_ALI'), dineIn('D1', [item('LD', FX.naan)], { adds_to_order_id: 'T1' }));
+    expect(dine.status).toBe(400);
+    expect(dine.error!.details).toMatchObject({ issues: [{ path: 'adds_to_order_id' }] });
+    const park = await submit(cashier, { order_id: 'P1', order_type: 'parking', parking: { car_number: 'ABC 1', car_type: 'sedan' }, adds_to_order_id: 'T1', lines: [item('LP', FX.naan)] });
+    expect(park.status).toBe(400);
+  });
+});

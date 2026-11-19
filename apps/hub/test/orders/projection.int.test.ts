@@ -424,7 +424,7 @@ function dump(): Record<string, unknown[]> {
 }
 
 // A fixture day touching every folded event (§5 list).
-function fixtureDay(): void {
+function fixtureDay(): { t: string; ta: string } {
   setZoneStock(hub, FX.zone, FX.zoneItem, 6);
   openSeating(hub, { table_id: FX.table, seating_id: 'SEAT2' });
   const a = appendOrder(hub, {
@@ -446,6 +446,8 @@ function fixtureDay(): void {
   });
   const b = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT2', lines: [{ order_item_id: 'B1', item_id: FX.naan, quantity: 2 }, { order_item_id: 'B2', item_id: FX.ready }] });
   const t = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'T1', item_id: FX.naan }] });
+  // ⚠️ 05 row Q-6: a takeaway addition (its bill_key is read from the target's row during the fold, replay included)
+  const ta = appendOrder(hub, { order_type: 'takeaway', adds_to_order_id: t.order_id, lines: [{ order_item_id: 'TA1', item_id: FX.naan }] });
   const p = appendOrder(hub, {
     order_type: 'parking',
     lines: [
@@ -457,6 +459,20 @@ function fixtureDay(): void {
   append(on(t.order_id, 'OrderContactSet', { order_id: t.order_id, customer_name: 'Sara', phone: '03211234567' }));
   append(on(a.order_id, 'LineWeightSet', { order_item_id: 'A2', quantity: 1_000, line_total_minor: 400_000 }));
   append(comped(a.order_id, 'A3', 2, 6_666));
+  // ⚠️ 05 row Q-4: one comped unit back (its share 3 333)
+  append(
+    on(a.order_id, 'LineCompRemoved', {
+      order_item_id: 'A3',
+      units: 1,
+      comp_minor: 3_333,
+      reason_code: 'wrong_line',
+      has_note: false,
+      note_id: null,
+      requester_staff_id: STAFF,
+      approver_staff_id: null,
+      alert_id: null,
+    }),
+  );
   append(removed(a.order_id, 'A3', 1));
   append(removed(a.order_id, 'AZ', 1));
   append(voided(a.order_id, 'A1', 1, { refund_minor: 1_000 }));
@@ -472,17 +488,33 @@ function fixtureDay(): void {
   append({ stream_type: 'table', stream_id: `zone:${FX.zone}`, event_type: 'ZoneStockSet', payload: { zone_id: FX.zone, item_id: FX.zoneItem, on_hand: 7, previous: 9 } });
   append(removed(b.order_id, 'B1'), removed(b.order_id, 'B2'), on(b.order_id, 'OrderCancelled', { order_id: b.order_id }));
   append(served(p.order_id, ['Da', 'Db']));
+  // ⚠️ 05 row Q-2: a reopened bill unbills its order (here the takeaway, billed then unbilled)
+  append(billed([t.order_id]));
+  append(on(t.order_id, 'OrdersUnbilled', { order_ids: [t.order_id], bill_id: 'B1' }));
   append(billed([a.order_id]));
+  // ⚠️ 05 row Q-5: the addition (all served, so it would leave) is carried over this close; the fold clears the flag
+  append(served(ta.order_id, ['TA1']));
+  append({
+    stream_type: 'hub',
+    stream_id: branch(),
+    event_type: 'OrdersCarriedOver',
+    payload: { order_ids: [ta.order_id], business_date: '2026-11-19', reason_code: 'customer_will_pay_later', has_note: false, note_id: null },
+  });
   append(dayClosed());
+  return { t: t.order_id, ta: ta.order_id };
 }
 
 describe('[02b #28] replay', () => {
   it('[02b #28] live projection = replayed projection over a fixture day, orders registered before and after tables', async () => {
     await dineIn();
-    fixtureDay();
+    const ids = fixtureDay();
     const live = dump();
-    expect(live.orders.length).toBe(4);
-    expect(live.order_lines.length).toBe(12);
+    expect(live.orders.length).toBe(5);
+    expect(live.order_lines.length).toBe(13);
+    // 05 rows Q-5, Q-6: the addition kept its target's token and bill_key; the carry kept it open and was cleared
+    const row = (id: string) => live.orders.find((o) => (o as { order_id: string }).order_id === id) as Record<string, unknown>;
+    expect(row(ids.t)).toMatchObject({ bill_key: `takeaway:${ids.t}` });
+    expect(row(ids.ta)).toMatchObject({ bill_key: `takeaway:${ids.t}`, token: row(ids.t).token, carried_over: 0, day_closed_at: null });
     expect(live.order_lines.find((l) => (l as { order_item_id: string }).order_item_id === 'A1r')).toMatchObject({ return_of: 'A1', refundable_minor: 0 });
     const byId = (id: string) => live.order_lines.find((l) => (l as { order_item_id: string }).order_item_id === id);
     expect(byId('A1')).toMatchObject({ options_json: '[{"name":"No onion","quantity":2}]' });

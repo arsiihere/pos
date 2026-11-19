@@ -67,6 +67,8 @@ describe('[02a §8 Table map] map store', () => {
       'SeatingReopened', 'BillClosedEmpty',
       'OrderPlaced', 'ItemAdded', 'OrderLinesAdded', 'ItemRemoved', 'ItemVoided', 'ItemServed', 'ItemReturned', 'ItemsReleased', 'OrderBoosted',
       'OrderCancelled', 'OrderFoodServed', 'OrderFoodCleared', 'OrdersBilled', 'LineWeightSet', 'OrderContactSet', 'LineComped', 'BillClosed',
+      // ⚠️ 02b v1.0.16 (05 rows Q-2, Q-4, G-26)
+      'OrdersUnbilled', 'LineCompRemoved',
     ];
     for (const type of types) {
       const { live, reads, timers } = setup();
@@ -78,6 +80,13 @@ describe('[02a §8 Table map] map store', () => {
       timers.advance(1);
       expect(reads, type).toHaveLength(1);
     }
+  });
+
+  it('[05 row Q-5, G-26] 05\'s OrdersCarriedOver triggers no read (it changes no tile)', () => {
+    const { live, reads, timers } = setup();
+    live.frame(ev(11, 'OrdersCarriedOver'));
+    timers.advance(10_000);
+    expect(reads).toHaveLength(0);
   });
 
   it('[02a Q-5] TableLockTouched triggers no read', () => {

@@ -23,6 +23,8 @@ export * from './events/hub/BranchConfigApplied.v1.js';
 export * from './events/hub/BusinessDayOpened.v1.js';
 export * from './events/hub/BusinessDayOpened.v2.js';
 export * from './events/hub/BusinessDayClosed.v1.js';
+// 05 §6.29 (row Q-5; integrator ruling S-A (a))
+export * from './events/hub/OrdersCarriedOver.v1.js';
 export * from './events/stock/StockSet.v1.js';
 export * from './events/stock/StockSet.v2.js';
 export * from './events/stock/StockAdded.v1.js';
@@ -72,6 +74,9 @@ export * from './events/order/LineWeightSet.v1.js';
 export * from './events/order/LineComped.v1.js';
 export * from './events/order/OrderContactSet.v1.js';
 export * from './events/order/OrdersBilled.v1.js';
+// ⚠️ Changed by 05 (rows Q-2, Q-4), 02b v1.0.16 §6.19
+export * from './events/order/OrdersUnbilled.v1.js';
+export * from './events/order/LineCompRemoved.v1.js';
 export * from './events/station/FireDispatched.v1.js';
 export * from './events/station/ReservationsShifted.v1.js';
 export * from './events/station/EngineConfigApplied.v1.js';

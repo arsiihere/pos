@@ -620,6 +620,7 @@ const ORDER_EVENTS = [
   'OrderFoodServed',
   'OrderFoodCleared',
   'OrdersBilled',
+  'OrdersUnbilled', // 05 row Q-2
   'LineWeightSet',
 ];
 
@@ -652,6 +653,16 @@ describe('audiences (§6.19)', () => {
     expect(audienceAllows(ev('LineComped'), socketCtx({ staffId: OT2 }))).toBe(true); // with approval
     expect(audienceAllows(ev('LineComped'), staff)).toBe(false); // the waiter has no apply-comp
     expect(audienceAllows(ev('LineComped'), station)).toBe(false);
+  });
+
+  it('[05 row Q-4, G-26] LineCompRemoved → the LineComped audience exactly (kiosks, apply-comp holders); [05 row Q-2] OrdersUnbilled → staff and kiosks', () => {
+    for (const who of [kiosk, socketCtx({ staffId: MGR }), socketCtx({ staffId: OT2 }), staff, station]) {
+      expect(audienceAllows(ev('LineCompRemoved'), who)).toBe(audienceAllows(ev('LineComped'), who));
+    }
+    expect(audienceAllows(ev('LineCompRemoved'), kiosk)).toBe(true);
+    expect(audienceAllows(ev('LineCompRemoved'), staff)).toBe(false);
+    expect(audienceAllows(ev('OrdersUnbilled'), staff)).toBe(audienceAllows(ev('OrdersBilled'), staff));
+    expect(audienceAllows(ev('OrdersUnbilled'), station)).toBe(false);
   });
 });
 
