@@ -2,6 +2,8 @@
 // the hub's writer; requests through VoidItems / 02b CompLine; the queries over HTTP as the client calls them.
 import type { DirectoryInput } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
+import { orderLines } from '../../src/orders/exports';
+import { registerLineGuard, resetLineGuard, type LineGuardEntry, type LineGuardResult } from '../../src/orders/line-guard';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -28,6 +30,7 @@ import {
 let hub: TestHub;
 
 afterEach(async () => {
+  resetLineGuard(); // a guard a test registered; the next test hub re-registers 04's (registerVoids)
   swapBranchConfig(null);
   await hub?.close();
   hub = undefined as unknown as TestHub;
@@ -195,6 +198,93 @@ describe('[04 §6.3] void-preview', () => {
     const s = order();
     const denied = await preview(cashier, s.order_id, [s.cooking]);
     expect([denied.status, denied.error?.code]).toEqual([403, 'PERMISSION_DENIED']);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- 05 #32 (05 row V-1)
+
+describe('[05 #32 guard-list half] [05 row V-1] void-preview asks the line guard list once with every judged line', () => {
+  function recordGuard(result: LineGuardResult = null): LineGuardEntry[][] {
+    const asks: LineGuardEntry[][] = [];
+    registerLineGuard((db, _order_id, touched) => {
+      db.prepare('SELECT 1 AS one').get();
+      asks.push(touched.map((t) => ({ ...t })));
+      return result;
+    });
+    return asks;
+  }
+
+  it('[05 row V-1] one ask for all ids (not per id), each id\'s wastage plan against the order as read; a stage-1 id adds nothing; 3 + 1 statements', async () => {
+    hub = await startVoids();
+    const manager = signIn(hub, STAFF.manager);
+    const s = order();
+    const dl = dealX2(hub);
+    toStage(hub, dl.order_id, [dl.karahiPart], 'cooking');
+    const asks = recordGuard();
+    const r = await preview(manager, s.order_id, [s.cooking, s.done]);
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(asks).toEqual([
+      [
+        { order_item_id: s.cooking, units_after: 0, comped_after: 0, base_after_minor: 0, money_changes: false },
+        { order_item_id: s.done, units_after: 0, comped_after: 0, base_after_minor: 0, money_changes: false },
+      ],
+    ]);
+    // a deal portion: the deal and its parts, as VoidItems would leave them
+    const half = await preview(manager, dl.order_id, [dl.deal], 1);
+    expect(half.status).toBe(200);
+    const live = new Map(orderLines(hub.deps.db, [dl.order_id]).get(dl.order_id)!.map((l) => [l.order_item_id, l.live_units]));
+    expect(asks[1]!.map((t) => [t.order_item_id, t.units_after])).toEqual(previews(half)[0]!.touched.map((t) => [t.order_item_id, live.get(t.order_item_id)! - t.units]));
+    expect(asks[1]!.map((t) => t.order_item_id)).toEqual([dl.deal, dl.karahiPart, dl.naanPart]);
+    expect(asks[1]![0]!.units_after).toBe(1);
+    expect(await handlerStatements(manager, 'void-preview', { order_id: s.order_id, order_item_ids: `${s.cooking},${s.done},${s.served}` })).toBe(3 + 1);
+    expect(asks).toHaveLength(3); // the probe fails at Zod: only the real call asks, once
+    // the deal portion's entries = the fold after VoidItems runs the same plan: units, comped and base_after_minor
+    // against the folded billed_minor (the deal's from its parts)
+    const done = await post(hub, manager, 'void-items', 'VoidItems', { order_id: dl.order_id, reason_code: 'quality', note: null, disposition_note: null, lines: [{ order_item_id: dl.deal, units: 1, disposition: 'wastage' }] });
+    expect(done.status, JSON.stringify(done.error)).toBe(200);
+    const after = new Map(orderLines(hub.deps.db, [dl.order_id]).get(dl.order_id)!.map((l) => [l.order_item_id, l]));
+    expect(asks[1]).toEqual(asks[1]!.map((t) => {
+      const l = after.get(t.order_item_id)!;
+      return { order_item_id: t.order_item_id, units_after: l.live_units, comped_after: l.comped_units, base_after_minor: l.billed_minor, money_changes: false };
+    }));
+    expect(asks[1]![0]!.base_after_minor).toBeGreaterThan(0);
+  });
+
+  it('[05 row V-1] [R-33] a deal and one of its parts judged together: ids repeat (the deal\'s run, then the part\'s with its parent deal), each run against the order as read', async () => {
+    hub = await startVoids();
+    const manager = signIn(hub, STAFF.manager);
+    const dl = dealX2(hub);
+    toStage(hub, dl.order_id, [dl.karahiPart], 'cooking');
+    const read = new Map(orderLines(hub.deps.db, [dl.order_id]).get(dl.order_id)!.map((l) => [l.order_item_id, l]));
+    const asks = recordGuard();
+    const r = await preview(manager, dl.order_id, [dl.deal, dl.karahiPart]);
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(asks).toHaveLength(1);
+    const ask = asks[0]!;
+    expect(ask.map((t) => t.order_item_id)).toEqual([dl.deal, dl.karahiPart, dl.naanPart, dl.karahiPart, dl.deal]);
+    // the deal's own run: every unit voided
+    expect(ask[0]).toEqual({ order_item_id: dl.deal, units_after: 0, comped_after: 0, base_after_minor: 0, money_changes: false });
+    // the part's run against the order as read (not after the deal's run): the deal untouched in units, its base less
+    // only the part's money
+    const deal = read.get(dl.deal)!;
+    const part = previews(r)[1]!;
+    expect(ask[3]).toMatchObject({ order_item_id: dl.karahiPart, units_after: 0, base_after_minor: 0, money_changes: false });
+    expect(ask[4]).toEqual({ order_item_id: dl.deal, units_after: deal.live_units, comped_after: deal.comped_units, base_after_minor: deal.billed_minor - part.refund_minor, money_changes: true });
+    expect(ask[4]!.base_after_minor).toBeGreaterThan(0);
+  });
+
+  it('[05 row V-1] LINE_IN_CLOSED_SPLIT fails the call (409); ORDER_BILLED first, the guard not asked; only 04\'s guard → 3 statements', async () => {
+    hub = await startVoids();
+    const manager = signIn(hub, STAFF.manager);
+    const s = order();
+    expect(await handlerStatements(manager, 'void-preview', { order_id: s.order_id, order_item_ids: s.cooking })).toBe(3);
+    const closed: LineGuardResult = { code: 'LINE_IN_CLOSED_SPLIT', details: { order_item_id: s.cooking, bill_id: 'B1', split_no: 1 } };
+    const asks = recordGuard(closed);
+    const r = await preview(manager, s.order_id, [s.cooking]);
+    expect([r.status, r.error]).toEqual([409, closed]);
+    hub.deps.db.prepare('UPDATE orders SET billed_at = ? WHERE order_id = ?').run(hub.clock.branchNow(), s.order_id); // 05's bill: fixture
+    expect((await preview(manager, s.order_id, [s.cooking])).error?.code).toBe('ORDER_BILLED');
+    expect(asks).toHaveLength(1);
   });
 });
 

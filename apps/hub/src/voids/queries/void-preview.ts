@@ -2,8 +2,11 @@
 // without writing, each id as its own entry against the order as read (no working copy across ids), through the same
 // planner VoidItems uses (plan.ts). Only malformed input, an unknown order (404), a billed order (409 ORDER_BILLED) and a
 // foreign id (rule 1, 400) fail the call; rule 4 is `group`, rule 5 (`units`, single id only) a 400, rules 6–7 are
-// `pending` / `comp_pending` (approval path only) / `dispositions`. Statements: 3 (readOrder + the two listOpen by kind) for any number of
-// ids; the planning is pure. Lane V2 owns this file.
+// `pending` / `comp_pending` (approval path only) / `dispositions`. ⚠️ 05 row V-1 (R-16): after the previews, 02b's line
+// guard list is asked ONCE with every touched line of every judged id (each id's wastage plan against the order as
+// read; 04's own guard skipped, rule 6 (b) is `pending`); a hit fails the call (409 LINE_IN_CLOSED_SPLIT). Statements:
+// 3 (readOrder + the two listOpen by kind) for any number of ids, +1 per other registered line guard (05's; +0
+// otherwise); the planning is pure. Lane V2 owns this file.
 import { DomainError, VOID_DISPOSITIONS, type VoidBlock, type VoidDisposition } from '@pos/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -11,8 +14,9 @@ import { alerts } from '../../alerts/raise.js';
 import type { CommandCtx } from '../../commands/registry.js';
 import { readOrder, type ReadOrderLine } from '../../orders/exports.js';
 import { COMP_KIND } from '../../orders/line-change.js';
+import { plannedLineGuardEntries, requireLineGuard } from '../../orders/line-guard.js';
 import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registry.js';
-import { VOID_KIND } from '../contracts.js';
+import { VOID_KIND, voidLineGuard } from '../contracts.js';
 import { planVoidEntries, type PlanInput, type PlannedEntry, type VoidLineState } from '../plan.js';
 
 const issue = (path: string, message: string) => ({ path: [path], message });
@@ -51,7 +55,7 @@ const isCode = (e: unknown, code: string): e is DomainError => e instanceof Doma
 /** readOrder reads only `ctx.tx.db` (02b orders/exports.ts); a query has no command ctx (order-contact.ts precedent). */
 const readCtx = (ctx: QueryCtx): CommandCtx => ({ tx: { db: ctx.db } }) as unknown as CommandCtx;
 
-function previewOne(base: Omit<PlanInput, 'entries' | 'path'>, line: ReadOrderLine, units: number | undefined, needs_approval: boolean, names: ReadonlyMap<string, string>, opens: { voids: PlanInput['open_voids']; comps: PlanInput['open_comps'] }): VoidPreview {
+function previewOne(base: Omit<PlanInput, 'entries' | 'path'>, line: ReadOrderLine, units: number | undefined, needs_approval: boolean, names: ReadonlyMap<string, string>, opens: { voids: PlanInput['open_voids']; comps: PlanInput['open_comps'] }): { preview: VoidPreview; planned: PlannedEntry | null } {
   const id = line.order_item_id;
   const plan = (disposition: VoidDisposition, o: Partial<PlanInput> = {}): PlannedEntry =>
     planVoidEntries({ ...base, entries: [units === undefined ? { order_item_id: id, disposition } : { order_item_id: id, units, disposition }], path: 'direct', ...o })[0]!;
@@ -61,7 +65,8 @@ function previewOne(base: Omit<PlanInput, 'entries' | 'path'>, line: ReadOrderLi
   } catch (e) {
     // rule 4 → group remove (a return line at stage 1 too, Q-R1); the other fields empty
     if (isCode(e, 'ITEM_WRONG_STAGE')) {
-      return { order_item_id: id, group: 'remove', refund_minor: 0, comp_voided_minor: 0, touched: [], stage: 'not_started', dispositions: [], needs_approval, pending: null, comp_pending: null };
+      const preview: VoidPreview = { order_item_id: id, group: 'remove', refund_minor: 0, comp_voided_minor: 0, touched: [], stage: 'not_started', dispositions: [], needs_approval, pending: null, comp_pending: null };
+      return { preview, planned: null };
     }
     // rule 5 → the query's `units` (a 400 for the whole call)
     if (isCode(e, 'VALIDATION_FAILED')) throw invalid('units', ((e.details.issues as Array<{ message: string }> | undefined)?.[0]?.message ?? 'units').slice(0, 40));
@@ -95,7 +100,7 @@ function previewOne(base: Omit<PlanInput, 'entries' | 'path'>, line: ReadOrderLi
       throw e;
     }
   });
-  return {
+  const preview: VoidPreview = {
     order_item_id: id,
     group: 'void',
     refund_minor: wastage.refund_minor,
@@ -114,6 +119,7 @@ function previewOne(base: Omit<PlanInput, 'entries' | 'path'>, line: ReadOrderLi
     pending,
     comp_pending,
   };
+  return { preview, planned: wastage };
 }
 
 function voidPreview(ctx: QueryCtx, q: VoidPreviewQuery): { previews: VoidPreview[] } {
@@ -139,7 +145,11 @@ function voidPreview(ctx: QueryCtx, q: VoidPreviewQuery): { previews: VoidPrevie
     move_granted: ctx.directory.resolve(staffId!, 'move-item-to-stock').grant === 'allowed', // B-2: allowed only
   };
   const names = new Map(lines.map((l) => [l.order_item_id, l.name]));
-  return { previews: q.order_item_ids.map((id) => previewOne(base, byId.get(id)!, q.units, grant === 'requires_approval', names, opens)) };
+  const judged = q.order_item_ids.map((id) => previewOne(base, byId.get(id)!, q.units, grant === 'requires_approval', names, opens));
+  // ⚠️ 05 row V-1 (R-16): one ask of the list for every judged id (never per id), after ORDER_BILLED and the touched lines
+  const runs = judged.flatMap((j) => (j.planned === null ? [] : [j.planned.lines]));
+  requireLineGuard(ctx.db, order.order_id, plannedLineGuardEntries(lines, runs), voidLineGuard);
+  return { previews: judged.map((j) => j.preview) };
 }
 
 export function registerVoidPreviewQuery(app: FastifyInstance): void {

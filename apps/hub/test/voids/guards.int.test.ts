@@ -30,6 +30,9 @@ import {
   type Who,
 } from './fixtures';
 
+/** 02b row Q-3 guard input from ids (04's guard reads only the ids). */
+const touched = (ids: string[]) => ids.map((order_item_id) => ({ order_item_id, units_after: 0, comped_after: 0, base_after_minor: 0, money_changes: false }));
+
 let hub: TestHub;
 
 afterEach(async () => {
@@ -142,17 +145,17 @@ describe('[04 §6.6] merge guard (02a §3.11 / §3.12)', () => {
 // ------------------------------------------------------------------------------------------- line guard (02b Q-3)
 
 describe('[04 §6.6, row Q-3] line guard', () => {
-  it('[04 §6.6] an open void request of the order whose touched ids meet the given ids → { alert_id, order_item_id: the first locked given id }; other orders / ids → null; 1 statement', async () => {
+  it('[04 §6.6] an open void request of the order whose touched ids meet the given ids → VOID_PENDING { alert_id, order_item_id: the first locked given id } (⚠️ 05 row Q-3 result shape); other orders / ids → null; 1 statement', async () => {
     hub = await startVoids();
     const cashier = signIn(hub, STAFF.cashier);
     const d = dealX2(hub);
     const other = stagedOrder(hub);
     toStage(hub, d.order_id, [d.karahiPart], 'cooking');
     const [alert_id] = await ask(cashier, d.order_id, [{ order_item_id: d.karahiPart, units: 1, disposition: 'wastage' }]);
-    expect(counted(() => checkLineGuard(hub.deps.db, d.order_id, [d.deal, d.naanPart]))).toEqual({ value: null, statements: 1 });
-    expect(counted(() => checkLineGuard(hub.deps.db, d.order_id, [d.deal, d.naanPart, d.karahiPart]))).toEqual({ value: { alert_id, order_item_id: d.karahiPart }, statements: 1 });
-    expect(checkLineGuard(hub.deps.db, other.order_id, [d.karahiPart])).toBeNull();
-    expect(checkLineGuard(hub.deps.db, d.order_id, [])).toBeNull();
+    expect(counted(() => checkLineGuard(hub.deps.db, d.order_id, touched([d.deal, d.naanPart])))).toEqual({ value: null, statements: 1 });
+    expect(counted(() => checkLineGuard(hub.deps.db, d.order_id, touched([d.deal, d.naanPart, d.karahiPart])))).toEqual({ value: { code: 'VOID_PENDING', details: { alert_id, order_item_id: d.karahiPart } }, statements: 1 });
+    expect(checkLineGuard(hub.deps.db, other.order_id, touched([d.karahiPart]))).toBeNull();
+    expect(checkLineGuard(hub.deps.db, d.order_id, touched([]))).toBeNull();
   });
 
   it('[04 §6.6] two given ids locked by different requests, given in the reverse of their raise order → the first GIVEN id (and its request) is named', async () => {
@@ -161,8 +164,8 @@ describe('[04 §6.6, row Q-3] line guard', () => {
     const s = stagedOrder(hub);
     const [first] = await ask(cashier, s.order_id, [{ order_item_id: s.cooking, disposition: 'wastage' }]);
     const [second] = await ask(cashier, s.order_id, [{ order_item_id: s.done, disposition: 'wastage' }]);
-    expect(checkLineGuard(hub.deps.db, s.order_id, [s.done, s.cooking])).toEqual({ alert_id: second, order_item_id: s.done });
-    expect(checkLineGuard(hub.deps.db, s.order_id, [s.served, s.cooking, s.done])).toEqual({ alert_id: first, order_item_id: s.cooking });
+    expect(checkLineGuard(hub.deps.db, s.order_id, touched([s.done, s.cooking]))).toEqual({ code: 'VOID_PENDING', details: { alert_id: second, order_item_id: s.done } });
+    expect(checkLineGuard(hub.deps.db, s.order_id, touched([s.served, s.cooking, s.done]))).toEqual({ code: 'VOID_PENDING', details: { alert_id: first, order_item_id: s.cooking } });
   });
 });
 
@@ -255,7 +258,7 @@ describe('[04 §6.6, §4.2] index', () => {
     }) as typeof db.prepare;
     checkMergeGuard(db, { seating_ids: ['S'] });
     checkMergeGuard(db, { seating_ids: ['S'], order_ids: ['O'] });
-    checkLineGuard(db, 'O', ['L']);
+    checkLineGuard(db, 'O', touched(['L']));
     checkDayCloseGuard(db, state());
     pendingVoids(db, ['O'], state());
     db.prepare = prepare;
