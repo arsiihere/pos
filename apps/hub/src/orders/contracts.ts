@@ -137,6 +137,19 @@ export type LineChangeDrafts = (
 ) => EventDraft[];
 
 /**
+ * ⚠️ 02b v1.0.17 §3.5 (05 row Q-7): `registerOrderCancelledHook(fn)` (a list, registered at startup). `changeDrafts`
+ * calls every hook when it emits `OrderCancelled` (RemoveItems and `lineChangeDrafts`, so 04's void `apply` too) and
+ * appends the drafts returned. `alert_id` = `ctx.alert.alert_id` inside an `apply` (`AlertApplyCtx`), else `null`;
+ * `changeDrafts` stamps it on every returned draft's payload (absent when null), for 01d `checkAlertIds`. Inside an
+ * `apply` `ctx.tx` is 01d's read-only view. On every path a hook only reads and returns drafts; it must be pure and
+ * mint no ids (01d AnswerRequest runs `apply` twice, the first time in `preRead`, drafts discarded). It sees the
+ * database as it was before this command: none of the command's events (`OrderCancelled`, `ItemRemoved` /
+ * `ItemVoided`) are folded yet, so it must treat `order_id` as already cancelled (two orders of one bill emptied in
+ * one transaction each look live to the other — 05 task 19). 05's hook returns `BillClosedEmpty`.
+ */
+export type OrderCancelledHook = (ctx: CommandCtx, order_id: string, alert_id: string | null) => EventDraft[];
+
+/**
  * §3.3 / §3.5 (pure): OrderFoodServed / OrderFoodCleared for an order's lines after a serve, a change or a return.
  * `lines` = the order's lines AFTER the change (served_at set, the return line included).
  * AD-13: for `served`, `OrderFoodServed` only when `order_item_ids` (the lines this ItemServed served) include a
