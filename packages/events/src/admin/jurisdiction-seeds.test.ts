@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MIXED_CLASS_RULES } from '@pos/domain';
 import { JURISDICTION_SEEDS } from './jurisdiction-seeds.js';
 
-// 05 §4.5 row A-1 (2), H9-3, H11-5: one constant holds the `none` and `PK` rule values; the 0016 seed (P0.9b)
+// 05 §4.5 row A-1 (2), H9-3, H11-5: one constant holds the `none` and `PK` rule values; the 0014 seed (P0.9b)
 // and apps/hub/src/billing/defaults.ts both read it.
 describe('jurisdiction seeds', () => {
   it('[05 #14c seed half] none: adapter none, tenant currency, exclusive, no rounding, nearest, all, higher_rate', () => {

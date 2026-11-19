@@ -6,9 +6,9 @@ import type {
 } from '@pos/domain';
 
 // 05 §4.5 row A-1 (2), H9-3, H11-5: the `none` and `PK` jurisdiction rule values, in one exported constant. The
-// cloud `0016` seed and the hub's built-in defaults (apps/hub/src/billing/defaults.ts) both take their values from
+// cloud `0014` seed and the hub's built-in defaults (apps/hub/src/billing/defaults.ts) both take their values from
 // here, and a cloud test asserts the seeded rows equal it (P0.9b). Browser-safe (types only from @pos/domain).
-// `effective_from`, `ref` and the jurisdiction's display name are the 0016 seed's columns, not rule values.
+// `effective_from`, `ref` and the jurisdiction's display name are the 0014 seed's columns, not rule values.
 
 export interface BuyerIdType {
   type: string;

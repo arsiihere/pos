@@ -262,10 +262,22 @@ export const ProgramResponse = z.object({
 // §3.3: rate_bp 0 … 10 000.
 const RateBp = z.number().int().min(0).max(10_000);
 
-export const CreateTaxClassBody = z.object({ name: Name, rate_bp: RateBp });
+// ⚠️ R-31 (01a v2.7 §6.12; 05 row A-1 (1)): the class's fiscal category (05 tax profile mapping),
+// `^[a-z][a-z0-9_]{0,39}$` or null (the 0014 CHECK is the same pattern).
+const FiscalCategory = z
+  .string()
+  .regex(/^[a-z][a-z0-9_]{0,39}$/)
+  .nullable();
+
+export const CreateTaxClassBody = z.object({ name: Name, rate_bp: RateBp, fiscal_category: FiscalCategory.default(null) });
 
 export const PatchTaxClassBody = z
-  .object({ name: Name.optional(), rate_bp: RateBp.optional(), archived: z.boolean().optional() })
+  .object({
+    name: Name.optional(),
+    rate_bp: RateBp.optional(),
+    fiscal_category: FiscalCategory.optional(),
+    archived: z.boolean().optional(),
+  })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
 
 // §3.3, S47: 0–4 windows; minutes of the day 0 … 86 340 000, multiples of 60 000, start ≠ end.
@@ -334,6 +346,7 @@ export const TaxClassResponse = z.object({
       tax_class_id: z.string(),
       name: z.string(),
       rate_bp: z.number(),
+      fiscal_category: z.string().nullable(),
       archived_at: z.number().nullable(),
     }),
   }),
@@ -568,7 +581,13 @@ export const MenuResponse = z.object({
   data: z.object({
     can_edit_tenant: z.boolean(),
     tax_classes: z.array(
-      z.object({ tax_class_id: z.string(), name: z.string(), rate_bp: z.number(), archived_at: z.number().nullable() }),
+      z.object({
+        tax_class_id: z.string(),
+        name: z.string(),
+        rate_bp: z.number(),
+        fiscal_category: z.string().nullable(),
+        archived_at: z.number().nullable(),
+      }),
     ),
     categories: z.array(
       z.object({

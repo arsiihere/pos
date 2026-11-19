@@ -96,6 +96,7 @@ export interface TaxClassRow {
   tax_class_id: string;
   name: string;
   rate_bp: number;
+  fiscal_category: string | null; // ⚠️ R-31 (01a v2.7)
   archived_at: number | null;
 }
 
@@ -971,19 +972,19 @@ export async function programRouteItemIds(
   return rows.map((row) => row.item_id);
 }
 
-const TAX_CLASS_COLUMNS = 'tax_class_id, name, rate_bp, archived_at';
+const TAX_CLASS_COLUMNS = 'tax_class_id, name, rate_bp, fiscal_category, archived_at';
 const CATEGORY_COLUMNS = 'category_id, name, sort_order, archived_at';
 
 // Tenant-level rows insert through the tenant row (TenantLevelRepository needs tenant_id = $1).
 export async function insertTaxClass(
   repo: TenantLevelRepository,
-  input: { taxClassId: string; name: string; rateBp: number; now: number },
+  input: { taxClassId: string; name: string; rateBp: number; fiscalCategory: string | null; now: number },
 ): Promise<TaxClassRow> {
   const rows = await repo.query<Raw<TaxClassRow>>(
-    `INSERT INTO tax_classes (tenant_id, tax_class_id, name, rate_bp, created_at, updated_at)
-     SELECT tenant_id, $2, $3, $4, $5, $5 FROM tenants WHERE tenant_id = $1
+    `INSERT INTO tax_classes (tenant_id, tax_class_id, name, rate_bp, fiscal_category, created_at, updated_at)
+     SELECT tenant_id, $2, $3, $4, $5, $6, $6 FROM tenants WHERE tenant_id = $1
      RETURNING ${TAX_CLASS_COLUMNS}`,
-    [input.taxClassId, input.name, input.rateBp, input.now],
+    [input.taxClassId, input.name, input.rateBp, input.fiscalCategory, input.now],
   );
   return withArchivedAt(rows[0]!);
 }
@@ -998,10 +999,10 @@ export async function lockTaxClass(repo: TenantLevelRepository, taxClassId: stri
 
 export async function updateTaxClass(repo: TenantLevelRepository, row: TaxClassRow, now: number): Promise<TaxClassRow> {
   const rows = await repo.query<Raw<TaxClassRow>>(
-    `UPDATE tax_classes SET name = $3, rate_bp = $4, archived_at = $5, updated_at = $6
+    `UPDATE tax_classes SET name = $3, rate_bp = $4, archived_at = $5, updated_at = $6, fiscal_category = $7
       WHERE tenant_id = $1 AND tax_class_id = $2
       RETURNING ${TAX_CLASS_COLUMNS}`,
-    [row.tax_class_id, row.name, row.rate_bp, row.archived_at, now],
+    [row.tax_class_id, row.name, row.rate_bp, row.archived_at, now, row.fiscal_category],
   );
   return withArchivedAt(rows[0]!);
 }

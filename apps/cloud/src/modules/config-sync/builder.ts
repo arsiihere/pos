@@ -2,6 +2,7 @@ import { BranchConfigSnapshotSchemaV4, SNAPSHOT_SCHEMA_VERSION } from '@pos/even
 import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
+import { buildBillingSnapshot } from '../billing-settings/service.js';
 import { effectiveGroupIds, type LinkRow } from '../menu-variants/effective-set.js';
 
 export interface SnapshotHeader {
@@ -82,7 +83,7 @@ interface DrawRow {
   quantity_per_sale_unit: number;
 }
 
-// §6.1 step 3, §4.3 (01c §6.17, §4.6): 22 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
+// §6.1 step 3, §4.3 (01c §6.17, §4.6): 23 fixed statements (⚠️ 05 row A-1 (5): + the billing key), one builder (S28): 01a's 7 + variant groups, stock
 // items with this branch's rows, draws, modifier groups with options, this branch's option rows, links, this
 // branch's deal rows, the deals sold here with their active parts and choices, deal windows, schema 3's points,
 // alternates, carry times, engine settings, goes-with (01b v1.5 B-8), and schema 4's zones with their lists (01a v2.2
@@ -166,10 +167,20 @@ export async function buildSnapshotBody(
       ORDER BY s.name, s.station_id, p.name, p.program_id`,
     [branchId],
   );
-  const taxClasses = await level.query<{ tax_class_id: string; name: string; rate_bp: number; is_archived: boolean }>(
-    `SELECT tax_class_id, name, rate_bp, archived_at IS NOT NULL AS is_archived FROM tax_classes
+  // ⚠️ R-31 (01a v2.7; 05 row A-1 (1)): + fiscal_category.
+  const taxClasses = await level.query<{
+    tax_class_id: string;
+    name: string;
+    rate_bp: number;
+    is_archived: boolean;
+    fiscal_category: string | null;
+  }>(
+    `SELECT tax_class_id, name, rate_bp, archived_at IS NOT NULL AS is_archived, fiscal_category FROM tax_classes
       WHERE tenant_id = $1 ORDER BY name, tax_class_id`,
   );
+  // ⚠️ Changed by 05 (row A-1 (5), 01a v2.6 §4.3): the optional `billing` key, + 1 statement; absent when the branch
+  // has saved no billing settings (the hub then uses its built-in defaults).
+  const billing = await buildBillingSnapshot(client, { tenantId: tenant.tenantId, branchId, taxClasses });
   const categories = await level.query<{ category_id: string; name: string; sort_order: number }>(
     `SELECT category_id, name, sort_order FROM categories
       WHERE tenant_id = $1 AND archived_at IS NULL ORDER BY sort_order, category_id`,
@@ -532,6 +543,7 @@ export async function buildSnapshotBody(
     deals: deals.filter((deal) => deal.parts.every((part) => part.choices.length > 0)),
     engine_settings: engineSettings,
     goes_with: goesWith,
+    ...(billing !== undefined ? { billing } : {}),
   };
 }
 

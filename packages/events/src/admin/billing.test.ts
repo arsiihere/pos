@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
+import { aBranchConfig } from '../../testing/index';
+import { BranchConfigSnapshotSchemaV4 } from '../config.js';
 import {
   BillingSettings,
   billingSettingsConfigIssue,
   billingSettingsDocument,
+  billingSettingsReferenceIssue,
+  defaultBillingSettings,
   FISCAL_ADAPTER_SETTINGS_SCHEMAS,
   putBillingSettingsBody,
+  RATE_BP_TAX_CODE,
   roundingStepMaxMinor,
+  snapshotReceipt,
 } from './billing.js';
 import { NoneAdapterSettings } from './fiscal-adapters/none.js';
 import { PraAdapterSettings } from './fiscal-adapters/pra.js';
@@ -345,5 +351,277 @@ describe('billing settings document — 422 CONFIG_REFERENCE_INVALID rules (A-2)
     expect(FISCAL_ADAPTER_SETTINGS_SCHEMAS.none).toBe(NoneAdapterSettings);
     expect(FISCAL_ADAPTER_SETTINGS_SCHEMAS.PRA).toBe(PraAdapterSettings);
     expect(Object.keys(FISCAL_ADAPTER_SETTINGS_SCHEMAS).sort()).toEqual(['PRA', 'none']);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// P0.9b: the built-in default document, the A-2 checks that read the catalog, the snapshot `billing` key.
+// ---------------------------------------------------------------------------------------------------------------
+
+describe('[05 P0.9b] built-in default document (A-1 (5); R-10, R-14, R-15)', () => {
+  it('[05 row A-1 (5) R-10 R-15] minimal discount_reasons and petty_categories lists from the §4.4 examples', () => {
+    const d = defaultBillingSettings({ currency_code: 'PKR', currency_exponent: 2 });
+    expect(d.discount_reasons.map((r) => r.code)).toEqual(['regular_customer', 'staff', 'owner_guest', 'complaint', 'other']);
+    expect(d.petty_categories.map((c) => c.category_id)).toEqual(['supplies', 'utilities', 'staff_advance', 'transport', 'other']);
+    expect(d.petty_categories.every((c) => c.is_active)).toBe(true);
+  });
+
+  it('[05 row A-1 (5) R-14] invoice_prefix and receipt header / footer empty; the A-1 (3) defaults', () => {
+    const d = defaultBillingSettings({ currency_code: 'PKR', currency_exponent: 2 });
+    expect(d.receipt.invoice_prefix).toBe('');
+    expect(d.receipt.header_lines).toEqual([]);
+    expect(d.receipt.footer_lines).toEqual([]);
+    expect(d.receipt.show).toEqual({ tax_reg_no: true, address: true, phone: true, cashier: true, order_no: true, bill_no: true });
+    expect(d.max_discount_pct).toBe(100);
+    expect(d.open_bill_flag_minutes).toBe(240);
+    expect(d.fiscal.stuck_after_ms).toBe(1_800_000);
+    expect(d.variance_threshold_minor).toBe(10_000);
+    expect(d.petty_cash_limit_minor).toBe(500_000);
+    expect(d.fiscal.fiscalize_by_order_type.delivery).toBe(false);
+    expect(d.rate_overrides).toEqual([]);
+  });
+
+  it('[05 row A-1 (3)] jurisdiction PK for a PKR tenant, none otherwise; thresholds scale by the exponent', () => {
+    expect(defaultBillingSettings({ currency_code: 'PKR', currency_exponent: 2 }).jurisdiction_id).toBe('PK');
+    const jpy = defaultBillingSettings({ currency_code: 'JPY', currency_exponent: 0 });
+    expect(jpy.jurisdiction_id).toBe('none');
+    expect(jpy.variance_threshold_minor).toBe(100);
+    expect(jpy.petty_cash_limit_minor).toBe(5_000);
+  });
+
+  it('[05 row A-2] the default document is a valid document with no A-2 config issue', () => {
+    for (const currency of [
+      { currency_code: 'PKR', currency_exponent: 2 },
+      { currency_code: 'KWD', currency_exponent: 3 },
+    ]) {
+      const d = defaultBillingSettings(currency);
+      expect(billingSettingsDocument(currency.currency_exponent).safeParse(d).success).toBe(true);
+      expect(billingSettingsConfigIssue(d)).toBeNull();
+    }
+  });
+});
+
+describe('[05 P0.9b] A-2 checks that read the catalog (billingSettingsReferenceIssue)', () => {
+  const PK_PB = {
+    jurisdiction_id: 'PK-PB',
+    adapter_key: 'PRA',
+    currency_code: 'PKR',
+    tax_reg_codes: ['NTN'],
+    profile_taxes: [{ fiscal_category: 'restaurant_service', tax_code: 'PST' }],
+    rate_integration_statuses: ['integrated'] as const,
+  };
+  const PK = { jurisdiction_id: 'PK', adapter_key: 'none', currency_code: 'PKR', tax_reg_codes: [], profile_taxes: [], rate_integration_statuses: [] };
+  const classes = [
+    { tax_class_id: 'tc1', is_archived: false, fiscal_category: 'restaurant_service' },
+    { tax_class_id: 'tc2', is_archived: true, fiscal_category: null },
+  ];
+  const ctx = (o: Partial<Parameters<typeof billingSettingsReferenceIssue>[1]> = {}) => ({
+    tenant_currency_code: 'PKR',
+    jurisdiction: PK_PB,
+    tax_classes: classes,
+    ...o,
+  });
+  const valid = (): BillingSettings => PKR.parse({ ...doc(), jurisdiction_id: 'PK-PB' });
+
+  it('[05 row A-2] a valid PK-PB document has no issue', () => {
+    expect(billingSettingsReferenceIssue(valid(), ctx())).toBeNull();
+  });
+
+  it('[05 row A-2 C1] unknown jurisdiction_id → not_found', () => {
+    expect(billingSettingsReferenceIssue(valid(), ctx({ jurisdiction: null }))).toEqual({ field: 'jurisdiction_id', reason: 'not_found' });
+  });
+
+  it('[05 #14c] a jurisdiction whose currency is not the tenant’s → currency_mismatch; none (NULL) never mismatches', () => {
+    expect(billingSettingsReferenceIssue(valid(), ctx({ tenant_currency_code: 'EUR' }))).toEqual({
+      field: 'jurisdiction_id',
+      reason: 'currency_mismatch',
+    });
+    const none = { jurisdiction_id: 'none', adapter_key: 'none', currency_code: null, tax_reg_codes: [], profile_taxes: [], rate_integration_statuses: [] };
+    const d = PKR.parse({ ...doc(), jurisdiction_id: 'none', receipt: { ...doc().receipt, tax_registrations: [] } });
+    expect(billingSettingsReferenceIssue(d, ctx({ tenant_currency_code: 'EUR', jurisdiction: none }))).toBeNull();
+  });
+
+  it('[05 row A-2] the DB-free config issues come after the jurisdiction checks', () => {
+    const d = valid();
+    d.payment_modes[0]!.payment_class = 'digital';
+    expect(billingSettingsReferenceIssue(d, ctx())).toEqual({ field: 'payment_modes.0.payment_class' });
+    expect(billingSettingsReferenceIssue(d, ctx({ jurisdiction: null }))).toEqual({ field: 'jurisdiction_id', reason: 'not_found' });
+  });
+
+  it('[05 row A-2 R-13 G-11] adapter ≠ none without default_pos_id → fiscal.default_pos_id; adapter none may omit it', () => {
+    const d = valid();
+    d.fiscal.default_pos_id = null;
+    expect(billingSettingsReferenceIssue(d, ctx())).toEqual({ field: 'fiscal.default_pos_id' });
+    const pk = PKR.parse({ ...doc(), receipt: { ...doc().receipt, tax_registrations: [] } });
+    pk.fiscal.default_pos_id = null;
+    expect(billingSettingsReferenceIssue(pk, ctx({ jurisdiction: PK }))).toBeNull();
+  });
+
+  it('[05 row A-1 (3) J-5] adapter ≠ none: an active mode on a fiscalized order type needs a code for that adapter', () => {
+    const d = valid();
+    d.payment_modes[1]!.authority_codes = [{ adapter_key: 'OTHER', code: '9' }];
+    expect(billingSettingsReferenceIssue(d, ctx())).toEqual({ field: 'payment_modes.1.authority_codes' });
+    d.payment_modes[1]!.is_active = false;
+    expect(billingSettingsReferenceIssue(d, ctx())).toBeNull();
+    const off = valid();
+    off.payment_modes[1]!.authority_codes = [];
+    off.fiscal.fiscalize_by_order_type = { dine_in: false, takeaway: false, parking: false, delivery: false };
+    expect(billingSettingsReferenceIssue(off, ctx())).toBeNull();
+  });
+
+  it('[05 row A-2 R-36] fiscal.integration_status with no rate rows in the jurisdiction’s catalog → fiscal.integration_status', () => {
+    const d = valid();
+    d.fiscal.integration_status = 'not_integrated';
+    expect(billingSettingsReferenceIssue(d, ctx())).toEqual({ field: 'fiscal.integration_status' });
+    // after the R-13 / J-5 fiscal checks, before the registration / tax-class references
+    d.fiscal.default_pos_id = null;
+    expect(billingSettingsReferenceIssue(d, ctx())).toEqual({ field: 'fiscal.default_pos_id' });
+    const later = valid();
+    later.fiscal.integration_status = 'not_integrated';
+    later.receipt.tax_registrations = [{ code: 'STRN', number: '2' }];
+    expect(billingSettingsReferenceIssue(later, ctx())).toEqual({ field: 'fiscal.integration_status' });
+    // a status the catalog has rows for passes
+    expect(billingSettingsReferenceIssue(later, ctx({ jurisdiction: { ...PK_PB, rate_integration_statuses: ['integrated', 'not_integrated'] } }))).toEqual({
+      field: 'receipt.tax_registrations.0.code',
+      reason: 'not_found',
+    });
+    // no profile rows (none, PK): one tax at rate_bp, synthesized for both statuses (G-23) → never refused
+    const pk = PKR.parse({ ...doc(), receipt: { ...doc().receipt, tax_registrations: [] } });
+    pk.fiscal.integration_status = 'not_integrated';
+    expect(billingSettingsReferenceIssue(pk, ctx({ jurisdiction: PK }))).toBeNull();
+  });
+
+  it('[05 row A-2 H9-5] a tax_registrations code not in the jurisdiction’s labels → not_found', () => {
+    const d = valid();
+    d.receipt.tax_registrations = [{ code: 'NTN', number: '1' }, { code: 'STRN', number: '2' }];
+    expect(billingSettingsReferenceIssue(d, ctx())).toEqual({ field: 'receipt.tax_registrations.1.code', reason: 'not_found' });
+  });
+
+  it('[05 row A-2 C1] unknown service_charge_tax_profile_id → not_found', () => {
+    const d = valid();
+    d.service_charge_tax_profile_id = 'tc-x';
+    expect(billingSettingsReferenceIssue(d, ctx())).toEqual({ field: 'service_charge_tax_profile_id', reason: 'not_found' });
+    d.service_charge_tax_profile_id = 'tc1';
+    expect(billingSettingsReferenceIssue(d, ctx())).toBeNull();
+  });
+
+  it('[05 row A-2 C1] an override with an unknown tax_class_id, or a tax_code not in that class’s profile list → not_found', () => {
+    const override = { tax_class_id: 'tc1', tax_code: 'PST', payment_class: 'cash', integration_status: 'integrated', rate_bp: 1500, effective_from: '2026-03-01', notification_ref: null } as const;
+    const d = valid();
+    d.rate_overrides = [override];
+    expect(billingSettingsReferenceIssue(d, ctx())).toBeNull();
+    d.rate_overrides = [override, { ...override, tax_class_id: 'tc-x' }];
+    expect(billingSettingsReferenceIssue(d, ctx())).toEqual({ field: 'rate_overrides.1.tax_class_id', reason: 'not_found' });
+    d.rate_overrides = [{ ...override, tax_code: 'TAX' }];
+    expect(billingSettingsReferenceIssue(d, ctx())).toEqual({ field: 'rate_overrides.0.tax_code', reason: 'not_found' });
+    // a jurisdiction with no profile rows (none, PK): every class has the one rate_bp tax
+    const pk = PKR.parse({ ...doc(), receipt: { ...doc().receipt, tax_registrations: [] } });
+    pk.rate_overrides = [{ ...override, tax_code: RATE_BP_TAX_CODE }];
+    expect(billingSettingsReferenceIssue(pk, ctx({ jurisdiction: PK }))).toBeNull();
+    pk.rate_overrides = [{ ...override, tax_code: 'PST' }];
+    expect(billingSettingsReferenceIssue(pk, ctx({ jurisdiction: PK }))).toEqual({ field: 'rate_overrides.0.tax_code', reason: 'not_found' });
+  });
+
+  it('[05 row A-2] an active tax class whose fiscal_category has no profile row there → profile_missing with ids', () => {
+    const many = [
+      ...classes,
+      { tax_class_id: 'tc4', is_archived: false, fiscal_category: null },
+      { tax_class_id: 'tc3', is_archived: false, fiscal_category: 'alcohol' },
+    ];
+    expect(billingSettingsReferenceIssue(valid(), ctx({ tax_classes: many }))).toEqual({
+      field: 'jurisdiction_id',
+      reason: 'profile_missing',
+      ids: ['tc3', 'tc4'],
+    });
+    // PK has no profile rows: one tax per class at rate_bp, nothing is missing
+    const pk = PKR.parse({ ...doc(), receipt: { ...doc().receipt, tax_registrations: [] } });
+    expect(billingSettingsReferenceIssue(pk, ctx({ jurisdiction: PK, tax_classes: many }))).toBeNull();
+  });
+});
+
+describe('[05 P0.9b] snapshot receipt (G-3)', () => {
+  it('[05 G-3] a null seed receipt_fiscal maps to a receipt with a null label and empty lists', () => {
+    expect(snapshotReceipt(null)).toEqual({
+      fiscal_number_label: null,
+      tax_reg_labels: [],
+      show_qr: false,
+      qr_url_template: null,
+      buyer_id_on_receipt: false,
+    });
+  });
+
+  it('[05 G-3] a non-null receipt_fiscal is copied (fresh arrays)', () => {
+    const r = { fiscal_number_label: 'PRA invoice no.', tax_reg_labels: [{ code: 'NTN', label: 'NTN' }], show_qr: true, qr_url_template: 'https://x/{fiscal_number}', buyer_id_on_receipt: true };
+    const out = snapshotReceipt(r);
+    expect(out).toEqual(r);
+    expect(out.tax_reg_labels).not.toBe(r.tax_reg_labels);
+  });
+});
+
+describe('[05 P0.9b] snapshot V4 optional `billing` key (A-1 (5))', () => {
+  function billingKey() {
+    const settings = defaultBillingSettings({ currency_code: 'PKR', currency_exponent: 2 });
+    return {
+      ...settings,
+      jurisdiction: {
+        jurisdiction_id: 'PK',
+        adapter_key: 'none',
+        currency_code: 'PKR',
+        currency_exponent: 2,
+        rules: [
+          {
+            effective_from: '2000-01-01',
+            prices_include_tax: false,
+            rounding_step_minor: 100,
+            rounding_mode: 'nearest',
+            rounding_applies_to: 'all',
+            mixed_class_rule: 'higher_rate',
+            buyer_id: { threshold_minor: null, accepted_types: [] },
+            receipt: snapshotReceipt(null),
+            catch_up_window_ms: null,
+            credit_support: 'credit_invoice',
+            ref: null,
+          },
+        ],
+      },
+      tax_profiles: [
+        {
+          tax_class_id: 'tc1',
+          taxes: [
+            {
+              seq: 1,
+              tax_code: 'TAX',
+              label: 'Sales tax',
+              compound: false,
+              rates: [{ payment_class: 'cash', integration_status: 'integrated', effective_from: '2000-01-01', rate_bp: 1600, ref: null }],
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('[05 row A-1 (5) R29] a snapshot without `billing` parses (the hub uses its built-in defaults)', () => {
+    const parsed = BranchConfigSnapshotSchemaV4.parse(aBranchConfig());
+    expect(parsed.billing).toBeUndefined();
+  });
+
+  it('[05 row A-1 (5)] a snapshot with `billing` (settings, jurisdiction, tax_profiles) parses and keeps them', () => {
+    const parsed = BranchConfigSnapshotSchemaV4.parse({ ...aBranchConfig(), billing: billingKey() });
+    expect(parsed.billing?.jurisdiction.rules[0]?.rounding_step_minor).toBe(100);
+    expect(parsed.billing?.tax_profiles[0]?.taxes[0]?.rates[0]?.rate_bp).toBe(1600);
+    expect(parsed.billing?.discount_reasons).toHaveLength(5);
+  });
+
+  it('[05 row A-2 H16-10 #15] the snapshot parser accepts only higher_rate', () => {
+    const b = billingKey();
+    const proRata = { ...b, jurisdiction: { ...b.jurisdiction, rules: [{ ...b.jurisdiction.rules[0]!, mixed_class_rule: 'pro_rata' }] } };
+    expect(BranchConfigSnapshotSchemaV4.safeParse({ ...aBranchConfig(), billing: proRata }).success).toBe(false);
+  });
+
+  it('[05 G-3] the snapshot rule carries `receipt` (label nullable), not the seed’s nullable receipt_fiscal', () => {
+    const b = billingKey();
+    const nullReceipt = { ...b, jurisdiction: { ...b.jurisdiction, rules: [{ ...b.jurisdiction.rules[0]!, receipt: null }] } };
+    expect(BranchConfigSnapshotSchemaV4.safeParse({ ...aBranchConfig(), billing: nullReceipt }).success).toBe(false);
   });
 });
