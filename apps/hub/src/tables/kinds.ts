@@ -35,6 +35,8 @@ export const TABLE_HANDOVER = defineAlertKind<HandoverValues, HandoverDetails>({
   expires_at_day_close: true, // required field; no effect on a request kind (01d:148)
   silent: false,
   labels: { card: 'alert.table_handover.card', lock: 'alert.table_handover.lock' },
+  // ⚠️ Changed by 01d v1.3 (L-4a), 02a v1.1.7 §6.15: the deep-link target, the seating and its table at raise (§3.13.1 row 3, M1)
+  link: (v) => ({ type: 'table', table_id: v.table_id, seating_id: v.seating_id }),
   request: {
     answers: ['accept', 'decline'],
     right: { mode: 'named' },

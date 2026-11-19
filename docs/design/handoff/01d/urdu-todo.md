@@ -143,3 +143,19 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `receipts.not_found` | This alert is no longer there. | task 41 (staff entry) |
 | `receipts.for` | for {name} | task 41 (staff entry) |
 | `bind.someone` | Someone | task 42 (tablet header; name unknown after a reload) |
+
+## v1.3 deep links — Urdu drafted, to check
+
+01d v1.3 §3.13.2 rules 2 and 6, §3.13.6 n4 (dl cs2). These keys **have** a draft in `ur.ts` (the spec gives `alerts.target_closed`; the rest are drafts). A native speaker checks each line; `{name}` is the table chip or item name the screen shows and stays as is. `apps/client/src/i18n/i18n.test.ts` (test 93) checks every line below matches `en.ts` and `ur.ts`.
+
+| Key | English | Urdu draft |
+|---|---|---|
+| `alerts.target_closed` | This item is no longer open. | یہ آئٹم اب کھلا نہیں ہے۔ |
+| `alerts.back` | Back | واپس |
+| `alerts.opened.table` | Opened table {name} | ٹیبل {name} کھولی گئی |
+| `alerts.opened.order` | Opened order {name} | آرڈر {name} کھولا گیا |
+| `alerts.opened.line` | Opened item {name} | آئٹم {name} کھولا گیا |
+| `alerts.opened.late` | Opened late order {name} | تاخیر والا آرڈر {name} کھولا گیا |
+| `alerts.opened.zone_item` | Opened stock row {name} | اسٹاک {name} کھولا گیا |
+| `alerts.opened.pass` | Opened Pass card {name} | پاس کارڈ {name} کھولا گیا |
+| `alerts.opened.inbox` | Opened alert {name} | الرٹ {name} کھولا گیا |

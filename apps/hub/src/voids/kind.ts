@@ -104,6 +104,8 @@ export const VOID_APPROVAL = defineAlertKind({
   expires_at_day_close: true, // no effect on requests (02b `comp` precedent)
   silent: false,
   labels: { card: 'alert.void_approval.card', lock: 'alert.void_approval.lock' },
+  // ⚠️ Changed by 01d v1.3 (04 v1.0.6 §3.5, L-4e): the deep-link target, the line the void is about (§3.13.1 row 1)
+  link: (v) => ({ type: 'order_line', order_id: v.order_id, order_item_id: v.order_item_id }),
   request: {
     answers: ['approve', 'reject'],
     right: { mode: 'approval', base_permission: 'void-item', range_permission: 'approve-void' },

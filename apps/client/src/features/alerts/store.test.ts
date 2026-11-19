@@ -1,7 +1,9 @@
+import { AlertInboxRow, WsServerMessage } from '@pos/events';
 import { describe, expect, it } from 'vitest';
 import { createAlertStore, REMINDER_MS, URGENT_REPEAT_MS } from './store';
 import { BASE_GAIN, STEP_UP_GAIN } from './sounds';
 import { fakeTimers, recordingSink, view } from './test-fakes';
+import { isRequest } from './ui';
 
 function setup(o: { alwaysOn?: boolean } = {}) {
   const timers = fakeTimers();
@@ -342,5 +344,67 @@ describe('[01d review fix round 1] store', () => {
     store.onCatchUp([{ ...view({ alert_id: 'A1' }), seen_by_me: false, from_business_day: null }]);
     expect(sink.played).toHaveLength(1);
     expect(store.snapshot().rows[0]).toMatchObject({ alert_id: 'A1', seen_by_me: false });
+  });
+});
+
+describe('[01d v1.3 §3.13.1] the row keeps `target` (M2)', () => {
+  const lineTarget = { type: 'order_line', order_id: 'O1', order_item_id: 'L1' } as const;
+
+  it('[01d §5.4] a frame, catch-up or inbox row keeps its target; the latest view wins; a pre-v1.3 row has none', () => {
+    const { store } = setup();
+    store.onAlert(view({ alert_id: 'A1', target: lineTarget }));
+    expect(store.snapshot().rows[0]?.target).toEqual(lineTarget);
+    // a lock-only catch-up row (no card) still carries the target: it is lock-safe and is not dropped with the card
+    store.onCatchUp([{ ...view({ alert_id: 'A1', target: lineTarget }), seen_by_me: false, from_business_day: null }]);
+    expect(store.snapshot().rows[0]?.target).toEqual(lineTarget);
+    // the latest server view wins: a later null replaces it
+    store.onInbox([{ ...view({ alert_id: 'A1', target: null }), seen_by_me: false, moved_to_name: null, for_staff_name: null, state: 'open', close_reason: null }]);
+    expect(store.snapshot().rows[0]?.target).toBeNull();
+    // a row from a hub before v1.3 carries no key: nothing is invented
+    store.onAlert(view({ alert_id: 'A2' }));
+    expect(store.snapshot().rows.find((r) => r.alert_id === 'A2')?.target).toBeUndefined();
+  });
+
+  it('[01d #96] an alert whose frame carried an unknown target type re-notifies once on reconnect and opens its sheet with today\'s tap', () => {
+    const { sink, store } = setup();
+    const station = { type: 'station', station_id: 'K1' };
+    // the live frame, through the client's parse: kept, target null, banner and sound (#70 (d), client half)
+    const frame = WsServerMessage.parse({ type: 'alert', alert: { ...view({ alert_id: 'A1', answers: ['approve', 'reject'] }), target: station } });
+    if (frame.type !== 'alert') throw new Error('not an alert frame');
+    expect(frame.alert.target).toBeNull();
+    store.onAlert(frame.alert);
+    expect(sink.played.map((p) => p.sound)).toEqual(['urgent']);
+    expect(store.snapshot().banners.map((b) => b.alert_id)).toEqual(['A1']);
+    expect(store.snapshot().rows[0]).toMatchObject({ alert_id: 'A1', target: null });
+
+    // a reload (fresh store, empty shown set): the alerts_open row with the same unknown target re-notifies once
+    const again = setup();
+    const open = WsServerMessage.parse({
+      type: 'alerts_open',
+      alerts: [{ ...view({ alert_id: 'A1' }), target: station, seen_by_me: false }],
+      binding_route_until: null,
+    });
+    if (open.type !== 'alerts_open') throw new Error('not alerts_open');
+    again.store.onCatchUp(open.alerts);
+    again.store.onCatchUp(open.alerts); // a second reconnect: not again
+    expect(again.sink.played.map((p) => p.sound)).toEqual(['urgent']);
+    expect(again.store.snapshot().banners.map((b) => b.alert_id)).toEqual(['A1']);
+
+    // its inbox row appears, and the tap is today's (rule 1: target null → the request's own sheet)
+    const inbox = AlertInboxRow.parse({
+      ...view({ alert_id: 'A1', answers: ['approve', 'reject'] }),
+      target: station,
+      seen_by_me: false,
+      moved_to_name: null,
+      for_staff_name: null,
+      state: 'open',
+      close_reason: null,
+    });
+    again.store.onInbox([inbox]);
+    const row = again.store.snapshot().rows[0]!;
+    expect(row).toMatchObject({ alert_id: 'A1', state: 'open', target: null, answers: ['approve', 'reject'] });
+    expect(isRequest(row)).toBe(true);
+    again.store.open('A1');
+    expect(again.store.snapshot().rows[0]?.seen_by_me).toBe(true);
   });
 });

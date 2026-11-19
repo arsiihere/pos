@@ -204,7 +204,7 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
       dedupe_key: `request_result:${req}`,
       requester_staff_id: null,
       target: { kind: 'person', staff_id: ALI },
-      values: { request_alert_id: req, request_kind: 't_approval', close_reason: 'obsolete', decision: null, by_staff_id: IMRAN },
+      values: { request_alert_id: req, request_kind: 't_approval', close_reason: 'obsolete', decision: null, by_staff_id: IMRAN, link: null }, // ⚠️ 01d v1.3 §3.10 note (dl h3): the request's place; the fake kind has no link
       display,
       details: { reason: 'stale at day close' },
       hidden_from: null,

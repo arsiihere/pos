@@ -303,7 +303,7 @@ describe('01d personal notices: approval_receipt, answered_on_requester_device, 
       dedupe_key: `approval_receipt:${id}`,
       requester_staff_id: null,
       target: { kind: 'person', staff_id: MGR },
-      values: { request_alert_id: id, request_kind: 't_approval', decision: 'approve', device_id: imran.deviceId, on_requester_device: false },
+      values: { request_alert_id: id, request_kind: 't_approval', decision: 'approve', device_id: imran.deviceId, on_requester_device: false, link: null }, // ⚠️ 01d v1.3 §3.10 note (dl h3): the request's place; the fake kind has no link
       display: { ...display, device_name: 'Imran tablet' }, // the request's lock-safe display + the answering device (§3.12, task 34 fix)
       details: DETAILS, // signed-in card only (§3.12)
       hidden_from: { session_id: imran.sessionId, device_id: imran.deviceId },
@@ -340,7 +340,7 @@ describe('01d personal notices: approval_receipt, answered_on_requester_device, 
       dedupe_key: `on_requester_device:${id}`,
       requester_staff_id: null,
       target: { kind: 'person', staff_id: MGR },
-      values: { request_alert_id: id, request_kind: 't_approval', decision: 'approve', device_id: hamza.deviceId },
+      values: { request_alert_id: id, request_kind: 't_approval', decision: 'approve', device_id: hamza.deviceId, link: null }, // ⚠️ 01d v1.3 §3.10 note (dl h3): the request's place; the fake kind has no link
       display: { ...display, device_name: 'Hamza tablet' }, // the answering device (§3.12, task 34 fix)
       details: null,
       hidden_from: hidden,
@@ -402,7 +402,7 @@ describe('01d personal notices: approval_receipt, answered_on_requester_device, 
       alerts.raise(
         ctxOf(hub, tx, there),
         requestResultInput(
-          { alert_id: 'other', kind: 't_approval', subject: { stream_type: 'order', stream_id: 'O9' }, requester_staff_id: WAIT, display },
+          { alert_id: 'other', kind: 't_approval', subject: { stream_type: 'order', stream_id: 'O9' }, requester_staff_id: WAIT, display, link: null }, // ⚠️ 01d v1.3 (dl h3): ResultOf.link
           { close_reason: 'answered', decision: 'approve', by_staff_id: MGR },
         ),
       );

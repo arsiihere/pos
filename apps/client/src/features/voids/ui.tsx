@@ -5,6 +5,7 @@ import { Ico, type IconName } from '../alerts/ui';
 import { useShell } from '../staff/shell/hooks';
 import type { Outcome } from './model';
 import { VIco, type VoidIconName } from './icons';
+import { PopupLayer } from '../staff/shell/popup-layer';
 
 // 04 §8 shared parts of the void screens (handoff 04 VoidParts): the dialog frame (centred dialog; bottom sheet on
 // a phone or a portrait tablet), the inline message, the disposition and outcome words and icons.
@@ -103,26 +104,28 @@ export function VoidDialog({ title, sub, ident, variant, onClose, children }: Vo
   };
   const kiosk = variant === 'v' && !sheet && shell.device.type === 'cashier_kiosk';
   return (
-    <div className={sheet ? 'scrim scrim--sheet' : 'scrim'}>
-      <div ref={ref} className={kiosk ? `dlg dlg--${variant} dlg--kiosk` : `dlg dlg--${variant}`} role="dialog" aria-modal="true" aria-labelledby={id} tabIndex={-1} onKeyDown={onKey}>
-        {sheet && <span className="dlg__grip" />}
-        <div className="dlg__h">
-          {ident !== undefined && (
-            <span className={ident.includes('+') ? 'tcode j' : 'tcode'} dir="ltr">
-              {ident}
-            </span>
-          )}
-          <div className="dlg__t">
-            <h2 id={id}>{title}</h2>
-            {sub !== undefined && <div className="ac__who">{sub}</div>}
+    <PopupLayer>
+      <div className={sheet ? 'scrim scrim--sheet' : 'scrim'}>
+        <div ref={ref} className={kiosk ? `dlg dlg--${variant} dlg--kiosk` : `dlg dlg--${variant}`} role="dialog" aria-modal="true" aria-labelledby={id} tabIndex={-1} onKeyDown={onKey}>
+          {sheet && <span className="dlg__grip" />}
+          <div className="dlg__h">
+            {ident !== undefined && (
+              <span className={ident.includes('+') ? 'tcode j' : 'tcode'} dir="ltr">
+                {ident}
+              </span>
+            )}
+            <div className="dlg__t">
+              <h2 id={id}>{title}</h2>
+              {sub !== undefined && <div className="ac__who">{sub}</div>}
+            </div>
+            <button type="button" className="btn btn--icon dlg__x" aria-label={t('common.close')} onClick={onClose}>
+              <Ico name="x" />
+            </button>
           </div>
-          <button type="button" className="btn btn--icon dlg__x" aria-label={t('common.close')} onClick={onClose}>
-            <Ico name="x" />
-          </button>
+          {children}
         </div>
-        {children}
       </div>
-    </div>
+    </PopupLayer>
   );
 }
 
