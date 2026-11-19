@@ -17,3 +17,10 @@ Owner ruling Q-60: fix rounds only for BLOCKER / MAJOR; MINOR findings land here
 | C-7 | #280 | `apps/hub/src/billing/fiscal/port.ts` `findSecret` | Credential-name collision check misses keys of `z.record(z.enum(['token']), …)` (`propertyNames.enum`); a marked field is still caught. | next change / Z |
 | C-8 | #280 | `apps/hub/src/billing/fiscal/none.ts` | Switch to the shared `@pos/events` `fiscal-adapters/none.ts` schema once P0.9a (#276) merges (R-28a-9). | after #276 |
 | C-9 | #283 | `apps/hub/src/billing/fiscal/worker.ts` | Statements prepared per row; prepare once per pass (count fixed, no N+1). | next change / Z |
+| C-10 | #282 | `apps/hub/test/auth/pin.int.test.ts:436` (+ `onMatch` twin) | Asserts `hub.logs()` lacks the PIN `'1234'`; the pino line's `"pid":12343` makes it fail whenever the pid contains 1234. Assert on parsed `msg` / `err`, or use a PIN no pid can contain. | Owner? (01d / auth, not 05) |
+| C-11 | #282 | task 13 / §6.9 `AddPayment` | Should refuse a payment while the split has a `tax_unresolved` block (compute counts such lines as untaxed in the dues). | task 13 |
+| C-12 | #276 | `packages/events/src/admin/billing.ts` `documentShape`, `Fiscal` | Unknown keys are stripped, not refused; `.strict()` on `fiscal` would tell the owner. | P0.9b |
+| C-13 | #276 | `billing.ts` (`max_discount_pct`, `variance_threshold_minor`, `petty_cash_limit_minor`, `open_bill_flag_minutes`, `stuck_after_ms`) | Negatives accepted (no floor stated, R-4). | P0.9b after 01a v2.6 |
+| C-14 | #276 | `billing.ts` `AdapterSettings` | 4 KB over the whole map vs per adapter (R-3); same for `none` / `PRA` (`{}`). | P0.9b |
+| C-15 | #279 | `packages/domain/src/billing/docs.ts` `headerBlocks` | `show.tax_reg_no` on and `{tax_reg_no}` in a header line prints registrations twice; proposal: toggle controls only the fixed block (state it in 01a v2.6). | 4b |
+| C-16 | #279 | `docs.ts` `spread` | Widths in UTF-16 units, not printer columns (Urdu / combining marks approximate), as 03c. | Owner? (receipt languages, later) |

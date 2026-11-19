@@ -3,6 +3,7 @@
 Plan: `05-plan.md`. Prompts: `05-parallel-prompts.md`. Gaps: `05-gaps.md` (written in P0.G, phase 0b). Spec: `05_Billing_Spec_v1.0.md` (`v1.0.1` after P0.1). Integration branch: `module-05`. Cleanup: `05-cleanup.md`. Only the integrator edits this file.
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-19: Owner ne 4 rulings diye (sab Rec: Q-A a, Q-B a, S-1 a, S-2 a). P0.9a (#276), task 2 + 3a (#284), 4a (#279) merged → `module-05` @ `8284919e`. Ab 0a mein sirf P0.Sa (spike) baaki hai, woh chal raha hai; 30a optional. Phase 0b owner ke "start 0b" ka intezar.
 > - 2026-11-19: P0.3a (#281) aur poora fiscal stack 6a, 5a, 28a, 29a (#283) merged → `module-05` @ `89843a2d`. Task 2 (#282) aur P0.9a (#276) needs-ruling par: 4 sawal (Q-A, Q-B, S-1, S-2) owner ke paas. 3a (#284) task 2 ke saath merge hoga; 4a (#279) task 2 ka intezar kar raha hai.
 > - 2026-11-19: **G0.2 met** — `module-deeplinks` #274 se `main` par aa gayi (`main` @ `cec8591b`). G0.3 scan ho gaya: hub migrations 0021+ free, cloud 0014 / 0015 ko #121 / #126 (`module-02-hub-gaps`) claim karte hain → 05 cloud 0016–0017 (plan wala hi); 01d `main` par v1.3.3 tak, to agla v1.3.4. Phase 0b tayyar hai, owner ke "start 0b" ka intezar. 0a lanes ka abhi tak koi PR nahi aaya.
 > - 2026-11-18: P0.B (#265) aur task 1 shared types (#266) merged → `module-05` @ `57336af`. 0a lanes M, F, P khol do (prompts §2, §3, §4); PRA (§5) tab jab 28a ka PR khule. Phase 0b abhi bhi ruki: `module-deeplinks` ke 29 commits `main` par nahi.
@@ -57,6 +58,11 @@ Plan decision log D-1…D-8: `05-plan.md` §0.
 
 | # | Ruling | When | Where it landed |
 |---|---|---|---|
+| R-1 | S-2 / **Q-A (a)**: an unresolved service-charge tax profile blocks close with `BILL_CLOSE_BLOCKED { reason: 'tax_unresolved' }` whose `order_item_ids` holds the literal `'service_charge'` while the split's charge > 0; never billed untaxed | 2026-11-19 | code #284 (`compute.ts` `SERVICE_CHARGE_ID`); spec sentence → 05 v1.0.2 (after P0.1) |
+| R-2 | S-3 / **Q-B (a)**: the frozen discount is re-spread over the open `bill_discount_lines` on every read; a ±1 minor-unit move after a sibling close is accepted for v1.0 (screen recomputes, `expected_total_minor` from that view). Holding closed parts at `share_minor` may come later without a contract change | 2026-11-19 | code #284; note in §3.5 (2) → 05 v1.0.2 |
+| R-3 | S-4 / **S-1 (a)**: A-1 (3) wire names `discount_reasons`, `petty_categories`, `receipt` (container) + `show` (toggles), `rate_overrides` | 2026-11-19 | code #276 (`packages/events/src/admin/billing.ts`); text → 01a v2.6 (P0.2c) |
+| R-4 | S-5 / **S-2 (a)**: kind 'cash' ⇒ class 'cash' only (A-2 as written); a cash-class mode of another kind is allowed but is not "the cash mode" | 2026-11-19 | code #276; §4.4 comment ("⇔") corrected → 05 v1.0.2 |
+| R-5 | Integrator rebases stopped lanes' stacks (additive export-line conflicts only) | 2026-11-19 | #284, #279 (union of `packages/domain/src/billing/index.ts` lines) |
 
 ## Phase 0a (05's own work)
 
@@ -65,16 +71,16 @@ Plan decision log D-1…D-8: `05-plan.md` §0.
 | P0.B | I | NORMAL | G0.1 | `lane-05I/05-p0.b` | #265 | docs (integrator, W-3) | merged `d2075f2` |
 | 1 | I | NORMAL | P0.B | `lane-05I/05-1` | #266 | R1 Sonnet APPROVE (2 MINOR → cleanup C-1, C-2) | merged `57336af` |
 | P0.3a | M | HIGH | — | `lane-05M/05-p0.3a` | #281 | R1 Opus CHANGES (1 MAJOR, closed) / R2 Opus APPROVE; re-check Opus APPROVE | merged `81c381e1` |
-| 2 | M | HIGH | 1, P0.3a | `lane-05M/05-2` | #282 | R1 Opus CHANGES (1 MAJOR, closed) / R2 Opus CHANGES (MINORs fixed); re-check Opus APPROVE | **needs-ruling** S-2, S-3 |
-| 3a | M | HIGH | 2 | `lane-05M/05-3a` | #284 | R1 Opus APPROVE / R2 Opus APPROVE | reviewed; waits for 2 (stacked on #282) |
+| 2 | M | HIGH | 1, P0.3a | `lane-05M/05-2` | #282 (closed, in #284) | R1 Opus CHANGES (1 MAJOR, closed) / R2 Opus CHANGES (MINORs fixed); re-check Opus APPROVE | merged via #284 (ruled R-1, R-2) |
+| 3a | M | HIGH | 2 | `lane-05M/05-3a` | #284 | R1 Opus APPROVE / R2 Opus APPROVE | merged `455fdde3` (with 2; rebased by integrator, R-5) |
 | 5a | F | HIGH | 1 | `lane-05F/05-5a` | #277 (closed, in #283) | R1 / R2 Opus CHANGES (MAJORs closed); re-check Opus APPROVE | merged via #283 |
 | 6a | F | HIGH | — | `lane-05F/05-6a` | #278 (closed, in #283) | R1 Opus CHANGES (2 MAJOR, closed) / R2 Opus APPROVE; re-check Opus APPROVE | merged via #283 |
 | 28a | F | HIGH | 5a, 6a | `lane-05F/05-28a` | #280 (closed, in #283) | R1 Opus APPROVE / R2 Opus CHANGES (1 MAJOR, closed); re-check Opus APPROVE | merged via #283 |
 | 29a | F | HIGH | 28a | `lane-05F/05-29a` | #283 | R1 / R2 Opus CHANGES (MAJORs closed); re-check Opus APPROVE | merged `89843a2d` (with 6a, 5a, 28a) |
-| P0.9a | P | NORMAL | 1, P0.3a | `lane-05P/05-p0.9a` | #276 | R1 Sonnet APPROVE | **needs-ruling** S-4, S-5 |
-| 4a | P | NORMAL | 1, 2, 5a | `lane-05P/05-4a` | #279 | R1 Sonnet APPROVE | reviewed; waits for 2; rebase onto `module-05` asked |
+| P0.9a | P | NORMAL | 1, P0.3a | `lane-05P/05-p0.9a` | #276 | R1 Sonnet APPROVE | merged `4d3796ad` (ruled R-3, R-4) |
+| 4a | P | NORMAL | 1, 2, 5a | `lane-05P/05-4a` | #279 | R1 Sonnet APPROVE | merged `8284919e` (rebased by integrator, R-5) |
 | 30a (optional) | PRA | HIGH | 28a | `lane-05PRA/05-30a` | — | — | waiting lane (opens once 28a's PR is open) |
-| P0.Sa | I | HIGH | 2, 4a, 6a, 28a, 29a, P0.9a | `lane-05I/05-p0.sa` | — | — | waiting |
+| P0.Sa | I | HIGH | 2, 4a, 6a, 28a, 29a, P0.9a | `lane-05I/05-p0.sa` | — | — | in progress (Opus implementer) |
 
 ## Phase 0b (bumps, base, spike)
 
@@ -146,10 +152,10 @@ Waits for G0.2–G0.4 (plan §2B.1). Rows in plan order (§2B.2–§2B.6).
 | # | Task | Finding | Options + Rec | State |
 |---|---|---|---|---|
 | S-1 | 30 | PRA task 30 waits for A13 / A14 answers and PRA spec v1.2 in the repo (spec Appendix P.5; O1, O2) | — | waiting A13 / A14 / PRA spec v1.2 |
-| S-2 | 2 (#282) | **Q-A** service charge whose tax profile does not resolve: §3.3 3a / §3.4 define `tax_unresolved` for lines only (`order_item_ids`); §3.3 3a "a config gap is never billed as untaxed". Code adds the literal id `'service_charge'` to the block while the charge > 0 | (a) keep, 05 v1.0.x adds one sentence that `order_item_ids` may hold `'service_charge'`; (b) new reason `service_charge_tax_unresolved` (contract value); (c) rely on A-2 and bill untaxed. **Rec (a)** | asked 2026-11-19 |
-| S-3 | 2 (#282) | **Q-B** frozen discount re-spread on every read: `bill_discount_lines` stores ids, not shares; ~2 % of cases a sibling close moves an open line's share ±1 minor (e.g. bases [504, 928, 412, 648], D 758, line 2 closed: [153, _, 126, 197] → [154, _, 125, 197]); with different rates the open split's tax can move 1 | (a) accept, note in §3.5 (2); (b) store shares at first close (contract change); (c) spread with closed parts held at `share_minor` (later, no contract change). **Rec (a)** | asked 2026-11-19 |
-| S-4 | P0.9a (#276) | **S-1** wire names A-1 (3) gives in prose only (spec line 790): discount reasons, petty categories, receipt template toggles, owner rate overrides | (a) `discount_reasons`, `petty_categories`, `receipt` + `show`, `rate_overrides`, written into 01a v2.6 by P0.2c; (b) other names. **Rec (a)** | asked 2026-11-19 |
-| S-5 | P0.9a (#276) | **S-2** §4.4 comment (line 751) kind 'cash' ⇔ class 'cash'; A-2 (line 791) only ⇒ | (a) ⇒ only; (b) ⇔. **Rec (a)** | asked 2026-11-19 |
+| S-2 | 2 (#282) | **Q-A** service charge whose tax profile does not resolve: §3.3 3a / §3.4 define `tax_unresolved` for lines only (`order_item_ids`); §3.3 3a "a config gap is never billed as untaxed". Code adds the literal id `'service_charge'` to the block while the charge > 0 | (a) keep, 05 v1.0.x adds one sentence that `order_item_ids` may hold `'service_charge'`; (b) new reason `service_charge_tax_unresolved` (contract value); (c) rely on A-2 and bill untaxed. **Rec (a)** | **ruled (a)** 2026-11-19 → R-1 |
+| S-3 | 2 (#282) | **Q-B** frozen discount re-spread on every read: `bill_discount_lines` stores ids, not shares; ~2 % of cases a sibling close moves an open line's share ±1 minor (e.g. bases [504, 928, 412, 648], D 758, line 2 closed: [153, _, 126, 197] → [154, _, 125, 197]); with different rates the open split's tax can move 1 | (a) accept, note in §3.5 (2); (b) store shares at first close (contract change); (c) spread with closed parts held at `share_minor` (later, no contract change). **Rec (a)** | **ruled (a)** 2026-11-19 → R-2 |
+| S-4 | P0.9a (#276) | **S-1** wire names A-1 (3) gives in prose only (spec line 790): discount reasons, petty categories, receipt template toggles, owner rate overrides | (a) `discount_reasons`, `petty_categories`, `receipt` + `show`, `rate_overrides`, written into 01a v2.6 by P0.2c; (b) other names. **Rec (a)** | **ruled (a)** 2026-11-19 → R-3 |
+| S-5 | P0.9a (#276) | **S-2** §4.4 comment (line 751) kind 'cash' ⇔ class 'cash'; A-2 (line 791) only ⇒ | (a) ⇒ only; (b) ⇔. **Rec (a)** | **ruled (a)** 2026-11-19 → R-4 |
 
 ## Readings (AD rows; IR-n numbers continue from the last board, handbook §11)
 
@@ -183,6 +189,10 @@ AD-0 … AD-20 are the plan readings PL-0 … PL-20 (`05-plan.md` §10, text the
 | AD-24 | #278 6a: R-6a-1 … R-6a-3 (task 6 edits only `outbox-db.ts`; worker queries write literal `state = 'pending'` for the partial index; `INSERT OR IGNORE` swallows CHECK failures, so 28a validates first) | proposed |
 | AD-25 | #280 28a: R-28a-1 … R-28a-9 (one `fiscal.required` flag; credit row from the original's row; `queued_at = issued_at`; fiscalized sale with null `pos_id` throws — task 17 must refuse at the command; `duplicate_no_number`; "secret" = `.meta({ secret })` on both JSON-Schema sides + credential-name collision; `canCredit` on the original's snapshot; own `none` settings schema until P0.9a) | proposed |
 | AD-26 | #283 29a: R-29a-1 … R-29a-5 (strict order grouped by (`adapter_key`, `pos_id`); core short codes list; token-missing / load-failed rows re-checked without counting; 1 s loop, adapter owns timeouts — task 31's `RetryFiscalNow` must not await `runOnce`; 29b seam contract) | proposed |
+| AD-27 | #276 P0.9a: R-1 … R-7 (table-free A-2 rules as `billingSettingsConfigIssue` → 422 `CONFIG_REFERENCE_INVALID`, shape stays Zod 400; cash mode = kind 'cash' (ruled R-4); adapter_settings ≤ 4 KB over the whole map; no invented bounds; `fiscal.switched_at` in the document, unknown keys stripped; `builtInBillingDefaults` takes the exponent from the caller; seed holds rule values only) | proposed |
+| AD-28 | #282 / #284 task 2: RD-M1 … RD-M6 (`none` = no rounding, Rs 1 numbers under `PK`; `tax_unresolved` when either class lacks a rate; amount D capped at Σ bases before first close; amount plan uses `totals_default.total_minor`; per-line tax spreading is task 17's via `apportionMinor`; unknown `order_item_id` in an item plan ignored) | proposed |
+| AD-29 | #284 3a: RD-M7 (shift halves of #15e / #23 and #10b / #10c are task 3b), RD-M8 (compound printed base incl. earlier full tax; rate row = latest `effective_from` ≤ business date; amount plan's last share re-based on the rounded default-class total) | proposed |
+| AD-30 | #279 4a: R-1 … R-7 (`CheckBillDocInput` / `ReportDocInput` docs-local, hub maps `computeBill` Totals (task 12) and 26a's report onto them — **P0.G checks both shapes**; one "Total if paid by card" line; invoice number always prints; fiscal block only when `fiscal.required`; no buyer block until 4b; rounding line only when ≠ 0; "Closed by" label) | proposed |
 | AD-21 (IR-26) | P0.B: no new ruleset for `module-05` — ruleset 27021396 already targets `refs/heads/module-*` with every W-1 rule. `module-05` was created by `git push origin 5d25a3a:refs/heads/module-05` (the REST `git/refs` POST is refused by the session proxy); same commit as `origin/main`, no content pushed | proposed |
 
 ## Acceptance map (Z1)
