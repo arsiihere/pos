@@ -9,6 +9,7 @@ export const StreamTypeSchema = z.enum([
   'audit',
   'hub',
   'staff',
+  'bill', // 05 row F-1 (Foundation v1.14 §4.1): stream id = bill_id
 ]);
 
 export const PosEventSchema = z.object({
