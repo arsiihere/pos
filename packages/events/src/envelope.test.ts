@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PosCommandSchema, PosEventSchema } from './envelope';
+import { PosCommandSchema, PosEventSchema, StreamTypeSchema } from './envelope';
 
 const validEvent = {
   event_id: '01JBF3Q8ZK4M2N6P7R9S0T1V2W',
@@ -31,6 +31,13 @@ const validCommand = {
 describe('envelope', () => {
   it('[F §4.1] PosEventSchema rejects an unknown stream_type', () => {
     expect(PosEventSchema.safeParse({ ...validEvent, stream_type: 'device' }).success).toBe(false);
+  });
+
+  it('[F §4.1, 05 row F-1] bill stream parses: stream_type bill, stream id = bill_id', () => {
+    const parsed = PosEventSchema.safeParse({ ...validEvent, stream_type: 'bill', stream_id: 'B1', event_type: 'BillOpened' });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.stream_type).toBe('bill');
+    expect(StreamTypeSchema.options).toEqual(['order', 'table', 'station', 'stock', 'shift', 'audit', 'hub', 'staff', 'bill']);
   });
 
   it('[F §4.1] PosCommandSchema requires command_id and device_id', () => {

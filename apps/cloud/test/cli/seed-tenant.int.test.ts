@@ -335,6 +335,49 @@ describe('seed-tenant', () => {
     expect(pick('cook')).toEqual([]);
   });
 
+  it('[00 row H-5] PKX is refused before any write, nothing written', async () => {
+    await truncateAll(pool);
+    const counts = async () => {
+      const result = await pool.query<{ tenants: string; roles: string; grants: string; approvers: string; staff: string; staff_roles: string; owners: string }>(
+        `SELECT (SELECT count(*) FROM tenants) AS tenants, (SELECT count(*) FROM roles) AS roles,
+                (SELECT count(*) FROM role_permissions) AS grants, (SELECT count(*) FROM role_permission_approvers) AS approvers,
+                (SELECT count(*) FROM staff) AS staff, (SELECT count(*) FROM staff_roles) AS staff_roles,
+                (SELECT count(*) FROM owner_users) AS owners`,
+      );
+      return result.rows[0];
+    };
+    const before = await counts();
+    expect(before).toEqual({ tenants: '0', roles: '0', grants: '0', approvers: '0', staff: '0', staff_roles: '0', owners: '0' });
+    // PKX passes 0001_platform.sql's ^[A-Z]{3}$ CHECK; only currencyExponent refuses it.
+    const sys = new SystemContext(pool);
+    let txCalls = 0;
+    const tx = sys.tx.bind(sys);
+    sys.tx = ((fn) => {
+      txCalls += 1;
+      return tx(fn);
+    }) as typeof sys.tx;
+    await expect(
+      seedTenant(
+        sys,
+        { name: 'Pilot', currency: 'PKX', ownerEmail: 'ada@example.com', ownerName: 'Ada', password: 'password-1', pin: '1234' },
+        { clock: fixedClock(T), ids: testIdGen() },
+      ),
+    ).rejects.toThrow('--currency PKX is not an ISO 4217 currency code');
+    expect(txCalls).toBe(0);
+    expect(await counts()).toEqual(before);
+  });
+
+  it('[00 row H-5] PKR is seeded with currency_code PKR', async () => {
+    await truncateAll(pool);
+    const created = await seedTenant(
+      new SystemContext(pool),
+      { name: 'Pilot', currency: 'PKR', ownerEmail: 'ada@example.com', ownerName: 'Ada', password: 'password-1', pin: '1234' },
+      { clock: fixedClock(T), ids: testIdGen() },
+    );
+    const tenant = await pool.query(`SELECT currency_code FROM tenants WHERE tenant_id = $1`, [created.tenant_id]);
+    expect(tenant.rows).toEqual([{ currency_code: 'PKR' }]);
+  });
+
   it('[01b §6.15] seed-tenant.ts contains no default role name; it looks roles up by default_key', () => {
     const source = readFileSync(fileURLToPath(new URL('../../src/cli/seed-tenant.ts', import.meta.url)), 'utf8');
     for (const name of ['Owner', 'Manager', 'Cashier', 'Order taker', 'Waiter', 'Cook']) {
