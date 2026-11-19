@@ -3,6 +3,7 @@
 Plan: `05-plan.md`. Prompts: `05-parallel-prompts.md`. Gaps: `05-gaps.md` (written in P0.G, phase 0b). Spec: `05_Billing_Spec_v1.0.md` (`v1.0.1` after P0.1). Integration branch: `module-05`. Cleanup: `05-cleanup.md`. Only the integrator edits this file.
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-19: **G0.2 met** — `module-deeplinks` #274 se `main` par aa gayi (`main` @ `cec8591b`). G0.3 scan ho gaya: hub migrations 0021+ free, cloud 0014 / 0015 ko #121 / #126 (`module-02-hub-gaps`) claim karte hain → 05 cloud 0016–0017 (plan wala hi); 01d `main` par v1.3.3 tak, to agla v1.3.4. Phase 0b tayyar hai, owner ke "start 0b" ka intezar. 0a lanes ka abhi tak koi PR nahi aaya.
 > - 2026-11-18: P0.B (#265) aur task 1 shared types (#266) merged → `module-05` @ `57336af`. 0a lanes M, F, P khol do (prompts §2, §3, §4); PRA (§5) tab jab 28a ka PR khule. Phase 0b abhi bhi ruki: `module-deeplinks` ke 29 commits `main` par nahi.
 > - 2026-11-18: G0.1 met (#219 `main` par, `5d25a3a`). `module-05` cut ho gayi `main` @ `5d25a3a` se; ruleset `module branches (03b onward)` pehle se `module-*` cover karta hai (W-1 wala hi). Labels ban gaye. Ye board + cleanup file (P0.B). Task 1 (shared types) chal raha hai; uska PR khulte hi 0a lanes (M, F, P) khol do. Phase 0b `module-deeplinks` ke `main` par aane tak ruki hai.
 
@@ -11,9 +12,30 @@ Plan: `05-plan.md`. Prompts: `05-parallel-prompts.md`. Gaps: `05-gaps.md` (writt
 | Check | State |
 |---|---|
 | G0.1 spec-05 on `main` | **met** — PR #219 merged, `main` @ `5d25a3a` (merge commit; second parent = `spec-05` @ `ed2365a`); `git merge-base --is-ancestor origin/spec-05 origin/main` succeeds (2026-11-18) |
-| G0.2 `module-deeplinks` on `main` | open — 2026-11-18: `module-deeplinks` @ `4f1542c` has 29 non-merge commits not on `main` |
-| G0.3 claims scan (numbers found) | open — runs when G0.2 holds |
-| G0.4 `main` synced into `module-05` | open |
+| G0.2 `module-deeplinks` on `main` | **met** — 2026-11-19: PR #274 merged (`main` @ `cec8591b`); `git log origin/main..origin/module-deeplinks` is empty (`module-deeplinks` @ `6b96c98f` is an ancestor of `main`) |
+| G0.3 claims scan (numbers found) | **done** 2026-11-19 (see "G0.3 scan" below) — no branch or open PR claims a number 05 needs beyond what the plan already expects |
+| G0.4 `main` synced into `module-05` | open — first 0b step, after the owner's "start 0b" |
+
+## G0.3 scan (2026-11-19)
+
+Scanned: all 319 `origin/*` heads (`git ls-tree` under `docs/specs/`, `apps/hub/src/db/migrations/`, `apps/cloud/src/db/migrations/`) and every open PR (#121, #126; nothing else open).
+
+| Item | Highest taken (`main` @ `cec8591b`) | Claimed off `main` | Next free for P0.1 |
+|---|---|---|---|
+| Hub migrations | `0020_order_line_option_quantity` | none | **0021** (provisional 0021–0023 hold) |
+| Cloud migrations | `0013_void_defaults_backfill` | `0014_comp_chips_no_other` (#121 `lane-HD/h9`, #126 `lane-HD/h10`), `0015_cashier_mark_served` (#126) — both PRs into `module-02-hub-gaps`, open, last updated 2026-11-12 | **0016** (provisional 0016–0017 hold) |
+| F `00_Foundation` | v1.13 | none | after v1.13 |
+| 00 `00_Hub_Platform_Access` | v1.11 | only older files on `module-00` (v1.1) / `module-01` (v1.2.1) | after v1.11 |
+| `01_Restaurant_Setup` | v2.5.1 | only older v1.0.2 on `module-01` | after v2.5.1 |
+| 01b | v1.9.1 | none | after v1.9.1 |
+| 01d | **v1.3.3** (from `module-deeplinks`) | none | **v1.3.4** (plan expected "v1.3.3 or later") |
+| 02a | v1.1.7 | none | after v1.1.7 |
+| 02b | v1.0.15 | none | after v1.0.15 |
+| 03a | v1.2.5 | none | after v1.2.5 |
+| 03c | v1.0.10 | none | after v1.0.10 |
+| 04 | v1.0.6 | none | after v1.0.6 |
+
+P0.1 re-checks these at its own commit (patch vs minor is P0.1's call per spec §4.5 / §11).
 
 ## Owner rulings on how the build runs
 
