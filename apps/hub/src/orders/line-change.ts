@@ -1,11 +1,13 @@
 // 02b §3.5 Drafts / Export, §3.9 Stale requests, §3.3 (P-1d): what follows when units of an order's lines leave billing
 // (RemoveItems here; 04's voids through `lineChangeDrafts`, To 04). In §3.5 order: the stale comp-request closes, then
 // OrderFoodCleared (the order keeps a live line but no live unserved food line) or OrderCancelled (no live line left).
-// AD-9: the caller's CommandCtx, so the closes carry the caller's actor and device.
+// AD-9: the caller's CommandCtx, so the closes carry the caller's actor and device. ⚠️ 02b v1.0.16 §3.5 (05 row Q-7):
+// after OrderCancelled, the registered order-cancelled hooks' drafts, alert_id stamped.
 import type { EventDraft, OrderCancelledPayload } from '@pos/events';
+import type { AlertApplyCtx } from '../alerts/kinds.js';
 import { alerts, type CloseItem } from '../alerts/raise.js';
 import type { CommandCtx } from '../commands/registry.js';
-import type { LineChangeDrafts, LineChangeOptions, LineView } from './contracts.js';
+import type { LineChangeDrafts, LineChangeOptions, LineView, OrderCancelledHook } from './contracts.js';
 import { orderLines } from './exports.js';
 import { foodDrafts } from './food.js';
 import { liveUnits, removeUnits } from './ledger.js';
@@ -14,6 +16,44 @@ import { liveUnits, removeUnits } from './ledger.js';
 export interface LineChange {
   order_item_id: string;
   units_out: number;
+}
+
+// ⚠️ 02b v1.0.16 §3.5 (05 row Q-7): an ordered list of order-cancelled hooks (the order of registration), the
+// tables/merge-guard.ts pattern: none registered → no change (0 statements); a hook already in the list is not appended
+// again (registration runs once per server).
+const cancelledHooks: OrderCancelledHook[] = [];
+
+/** Startup only: appends `fn` to the list (a hook already in it is ignored). */
+export function registerOrderCancelledHook(fn: OrderCancelledHook): void {
+  if (!cancelledHooks.includes(fn)) cancelledHooks.push(fn);
+}
+
+/** Tests only: back to "no hook registered". */
+export function resetOrderCancelledHooks(): void {
+  cancelledHooks.length = 0;
+}
+
+/** The request's alert_id inside a kind's `apply` (01d passes `AlertApplyCtx` = CommandCtx & { alert }), else null. */
+function applyAlertId(ctx: CommandCtx): string | null {
+  const alert = (ctx as Partial<AlertApplyCtx<unknown, unknown>>).alert;
+  return alert === undefined ? null : alert.alert_id;
+}
+
+/**
+ * Every registered hook's drafts, in list order, each payload stamped with `alert_id` (01d `checkAlertIds`); with
+ * `null` (outside an `apply`) the payload carries no `alert_id` (the events' `alert_id?: string`, never null).
+ */
+function orderCancelledDrafts(ctx: CommandCtx, order_id: string): EventDraft[] {
+  if (cancelledHooks.length === 0) return [];
+  const alert_id = applyAlertId(ctx);
+  return cancelledHooks.flatMap((hook) =>
+    hook(ctx, order_id, alert_id).map((d) => {
+      const payload: Record<string, unknown> = { ...d.payload };
+      if (alert_id === null) delete payload.alert_id;
+      else payload.alert_id = alert_id;
+      return { ...d, payload };
+    }),
+  );
 }
 
 /** §3.9: the comp request kind (defined in orders/comp-kind.ts, §6.12); a string here, as zone-alerts.ts does. */
@@ -93,6 +133,8 @@ export function changeDrafts(
   if (cancelled) {
     const payload: OrderCancelledPayload = { order_id };
     drafts.push({ stream_type: 'order', stream_id: order_id, event_type: 'OrderCancelled', schema_version: 1, payload, ...envelope });
+    // ⚠️ 05 row Q-7: the registered order-cancelled hooks' drafts, after OrderCancelled
+    drafts.push(...orderCancelledDrafts(ctx, order_id));
   } else {
     // AD-10: foodDrafts has no envelope; the caller adds it.
     for (const d of foodDrafts(order_id, after, 'change')) drafts.push({ ...d, ...envelope });

@@ -9,7 +9,10 @@ import { removeItemsCommand } from '../../src/orders/commands/remove-items';
 import { orderLines, seatingTotals } from '../../src/orders/exports';
 import { registerOrdersProjection } from '../../src/orders/index';
 import { lineShares, planComp, planVoid } from '../../src/orders/ledger';
-import { lineChangeDrafts } from '../../src/orders/line-change';
+import { lineChangeDrafts, registerOrderCancelledHook, resetOrderCancelledHooks } from '../../src/orders/line-change';
+import type { OrderCancelledHook } from '../../src/orders/contracts';
+import { checkAlertIds } from '../../src/alerts/commands/request-row';
+import type { AlertRecord } from '../../src/alerts/kinds';
 import { registerLineGuard, resetLineGuard, type LineGuard, type LineGuardEntry, type LineGuardResult } from '../../src/orders/line-guard';
 import { zoneAlertDrafts } from '../../src/orders/zone-alerts';
 import { createProjectionRegistry } from '../../src/projections/registry';
@@ -1090,5 +1093,89 @@ describe('lineChangeDrafts (02b §3.5 Export, To 04)', () => {
     expect(seatingTotals(hub.deps.db, d.seating_id).total_minor).toBe(20_000);
     expect((await remove(ali, { order_id: d.order_id, seating_id: d.seating_id, lines: [{ order_item_id: 'N1', units: 1 }] })).status).toBe(200);
     expect(seatingTotals(hub.deps.db, d.seating_id).total_minor).toBe(10_000);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- order-cancelled hook
+
+describe('[05 row Q-7] registerOrderCancelledHook (02b v1.0.16 §3.5)', () => {
+  afterEach(() => resetOrderCancelledHooks());
+
+  const AL = 'AL_VOID_1';
+  /** 04's void `apply` passes its AlertApplyCtx (CommandCtx & { alert }) straight to lineChangeDrafts. */
+  const applyCtxOf = (tx: WriterTx) => ({ ...ctxOf(tx), alert: { alert_id: AL, kind: 'void' } }) as unknown as CommandCtx;
+  const record = { alert_id: AL, kind: 'void' } as unknown as AlertRecord;
+
+  interface Call {
+    order_id: string;
+    alert_id: string | null;
+  }
+  /** A stub hook: one OrdersUnbilled draft per call (a real event type, so a direct command can append it). */
+  function stubHook(calls: Call[], bill_id = 'B_STUB'): OrderCancelledHook {
+    return (ctx, order_id, alert_id) => {
+      calls.push({ order_id, alert_id });
+      return [
+        {
+          stream_type: 'order',
+          stream_id: order_id,
+          event_type: 'OrdersUnbilled',
+          schema_version: 1,
+          // a stale alert_id the stamp must overwrite inside an apply and drop outside one
+          payload: { order_ids: [order_id], bill_id, alert_id: 'AL_WRONG' },
+          occurred_at: ctx.clock.branchNow(),
+          actor_id: ctx.actor.staffId,
+          device_id: ctx.actor.deviceId,
+        },
+      ];
+    };
+  }
+
+  it('[05 row Q-7] unregistered → no change: the emptied order gives OrderCancelled only', async () => {
+    await start();
+    const order_id = takeaway([{ order_item_id: 'N1', item_id: FX.naan, quantity: 1 }]);
+    const drafts = hub.deps.writer.run((tx) => lineChangeDrafts(applyCtxOf(tx), order_id, [{ order_item_id: 'N1', units_out: 1 }], { stale_comps: 'keep' })).result;
+    expect(drafts.map((d) => [d.event_type, d.payload])).toEqual([['OrderCancelled', { order_id }]]);
+  });
+
+  it('[05 row Q-7] inside an apply: the hook gets the alert id; its drafts follow OrderCancelled with alert_id stamped; checkAlertIds passes', async () => {
+    await start();
+    const order_id = takeaway([{ order_item_id: 'N1', item_id: FX.naan, quantity: 2 }]);
+    const calls: Call[] = [];
+    const hook = stubHook(calls);
+    registerOrderCancelledHook(hook);
+    registerOrderCancelledHook(hook); // a duplicate registration is ignored
+    registerOrderCancelledHook(stubHook(calls, 'B_SECOND')); // list order = registration order
+
+    // not emptied → the hook is not called
+    const partial = hub.deps.writer.run((tx) => lineChangeDrafts(applyCtxOf(tx), order_id, [{ order_item_id: 'N1', units_out: 1 }], { stale_comps: 'keep' })).result;
+    expect(partial.map((d) => d.event_type)).not.toContain('OrdersUnbilled');
+    expect(calls).toEqual([]);
+
+    const drafts = hub.deps.writer.run((tx) => lineChangeDrafts(applyCtxOf(tx), order_id, [{ order_item_id: 'N1', units_out: 2 }], { stale_comps: 'keep' })).result;
+    expect(calls).toEqual([
+      { order_id, alert_id: AL },
+      { order_id, alert_id: AL },
+    ]);
+    expect(drafts.map((d) => [d.event_type, d.payload])).toEqual([
+      ['OrderCancelled', { order_id }],
+      ['OrdersUnbilled', { order_ids: [order_id], bill_id: 'B_STUB', alert_id: AL }],
+      ['OrdersUnbilled', { order_ids: [order_id], bill_id: 'B_SECOND', alert_id: AL }],
+    ]);
+    const hookDrafts = drafts.filter((d) => d.event_type === 'OrdersUnbilled');
+    expect(() => checkAlertIds('AnswerRequest', 'apply', record, hookDrafts)).not.toThrow();
+  });
+
+  it('[05 row Q-7] outside an apply (RemoveItems, direct): the hook gets null; its drafts carry no alert_id and are written', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'N1', item_id: FX.naan, quantity: 1 }]);
+    const calls: Call[] = [];
+    registerOrderCancelledHook(stubHook(calls));
+
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'N1', units: 1 }] });
+    expect(r.status).toBe(200);
+    expect(calls).toEqual([{ order_id, alert_id: null }]);
+    expect(types(r).slice(-2)).toEqual(['OrderCancelled', 'OrdersUnbilled']);
+    expect(ofType(r, 'OrdersUnbilled')).toEqual([{ order_ids: [order_id], bill_id: 'B_STUB' }]);
   });
 });
