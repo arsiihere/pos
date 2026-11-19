@@ -1,5 +1,5 @@
 // 05 §3.15 (B20, H9-4, H10-5): the fiscal port — the only thing the core knows about an authority.
-// The types below are §3.15's text exactly. The core never branches on an adapter key.
+// The types below are §3.15's text exactly (05 v1.0.3). The core never branches on an adapter key.
 import { z, type ZodType } from 'zod';
 
 // ---- §3.15 text, verbatim (formatting included) ----
@@ -17,7 +17,7 @@ export interface FiscalAdapter {
 }
 export type FiscalSubmission = {
   idempotency_key: string;                         // = invoice_ref (AC1-S000123 / AC1-C000007); resent unchanged after a crash
-  pos_id: string; credentials: Record<string, string>;   // v0.7.3 (H10-5): the adapter's credentialNames read from fiscal_credentials at send, never logged
+  pos_id: string | null; credentials: Record<string, string>;   // ⚠️ Changed in v1.0.2 (P0.1b, R-9 / G-7): null when the row has none, never ''   // v0.7.3 (H10-5): the adapter's credentialNames read from fiscal_credentials at send, never logged
   jurisdiction_id: string; currency_code: string; currency_exponent: number; prices_include_tax: boolean;
   seller: { branch_id: string; tax_registrations: { code: string; number: string }[] };   // v0.7.2 (H9-4, H9-5): from the invoice's snapshot
   config: { environment: 'sandbox' | 'production'; base_url: string | null; settings: unknown };
@@ -25,16 +25,17 @@ export type FiscalSubmission = {
   invoice: {                                       // neutral, from InvoiceIssued / InvoiceCredited (§6.29); amounts _minor
     invoice_ref: string; issued_at: number; order_type: string;
     lines: { order_item_id: string; item_id: string | null; tax_profile_id: string | null; fiscal_category: string | null;   // v0.7.2 (H9-4)
-             name: string; units: number; unit_price_minor: number; base_minor: number; discount_minor: number;
-             taxes: { tax_code: string; payment_class: 'cash' | 'digital'; rate_bp: number; base_minor: number; tax_minor: number }[] }[];
+             name: string; units: number; unit_price_minor: number; base_minor: number; discount_minor: number;   // ⚠️ Changed in v1.0.3 (R-17): unit_price_minor = round_half_up(line base ÷ units), weighed line = whole total, deal_part = 0 (§6.12 step 6)
+             taxes: { tax_code: string; payment_class: 'cash' | 'digital'; rate_bp: number; base_minor: number; tax_minor: number }[] }[];   // ⚠️ Changed in v1.0.3 (R-19): taxes[].base_minor per §6.12 step 6 (R-19); Σ `tax_minor` per tax over the lines + the service-charge tax = the invoice row (R-18)
     service_charge: { amount_minor: number; taxes: { tax_code: string; payment_class: 'cash' | 'digital'; rate_bp: number; base_minor: number; tax_minor: number }[] } | null;   // v0.7.3 (H10-8)
-    subtotal_minor: number; discount_minor: number; tax_minor: number; rounding_minor: number; total_minor: number;
+    subtotal_minor: number; discount_minor: number; tax_minor: number; rounding_minor: number; total_minor: number;   // ⚠️ Changed in v1.0.2 (P0.1b, R-12 / G-5): tax_minor = Σ the invoice tax rows incl. service-charge taxes
     taxes: { tax_profile_id: string; tax_code: string; payment_class: 'cash' | 'digital'; rate_bp: number; base_minor: number; tax_minor: number }[];
-    payments: { authority_code: string; payment_class: 'cash' | 'digital'; direction: 'in' | 'out'; amount_minor: number }[];
+    payments: { authority_code: string | null; payment_class: 'cash' | 'digital'; direction: 'in' | 'out'; amount_minor: number }[];
     buyer: { name: string; tax_id: { type: string; value: string } } | null;   // from invoice_buyers; a credit reads its original's row
     buyer_id_refused: boolean;
   };
 };
+// ⚠️ Changed in v1.0.2 (P0.1b, R-9 / G-4): payments[].authority_code is null when the mode has no code for this adapter; the adapter answers `rejected` (`mode_unmapped`) on null
 export type FiscalAnswer =
   | { outcome: 'ok'; fiscal_number: string; qr_payload: string | null }
   | { outcome: 'retry'; error_code: string }                       // short code only ('timeout', 'http_503', …)

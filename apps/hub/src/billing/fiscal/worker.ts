@@ -278,7 +278,7 @@ async function pass(deps: FiscalWorkerDeps, stopped: () => boolean): Promise<num
     const sub: FiscalSubmission = {
       ...loaded.submission,
       idempotency_key: loaded.submission.invoice.invoice_ref,
-      pos_id: row.pos_id ?? '',
+      pos_id: row.pos_id, // §3.15 v1.0.2 (R-9 / G-7): null stays null, never ''
       jurisdiction_id: row.jurisdiction_id,
       credentials,
     };
