@@ -631,3 +631,160 @@ describe('[02p U-6] 01d D-1 table_team full set, D-3 skip_requester', () => {
     });
   });
 });
+
+// ⚠️ Changed by 05 (row D-1; H1-1, owner R1), 01d v1.3.4 §3.3 rule 6, 05 test #53b: the holders right
+// `{ mode: 'holders', permission }` — the answerer holds `permission` `allowed` read now with a scope covering the
+// requester; never the requester; the requester's own grant plays no part. Stored as `right_mode: 'holders'`,
+// `base_permission` = the permission (AlertRaised v5).
+describe('[05 #53b, 01d v1.3.4 §3.3 rule 6] holders right', () => {
+  // Tree: H_OWNER ← H_MGR ← H_LEAD ← H_CASH1 (requester); H_LEAD2 (my_team, nobody below); H_CASH2 a peer cashier;
+  // H_PENDING holds close-shift-for-others only as requires_approval (approver Owner); H_NOGRANT holds nothing.
+  // The cloud offers close-shift-for-others only at `branch` (01b §3.3) and refuses requires_approval for it
+  // (allowed-only); the my_team and requires_approval grants here exercise the general holders mode of 01d §3.3
+  // rule 6 (any permission, any scope), not a directory the cloud would send.
+  const H_OWNER = 'H_OWNER';
+  const H_MGR = 'H_MGR';
+  const H_LEAD = 'H_LEAD';
+  const H_LEAD2 = 'H_LEAD2';
+  const H_CASH1 = 'H_CASH1';
+  const H_CASH2 = 'H_CASH2';
+  const H_DENIED = 'H_DENIED';
+  const H_PENDING = 'H_PENDING';
+  const H_NOGRANT = 'H_NOGRANT';
+  const close = (scope: Scope): Grant => ({ permission: 'close-shift-for-others', grant_type: 'allowed', scope });
+  const own: Grant = { permission: 'manage-own-shift', grant_type: 'allowed', scope: 'branch' };
+  const holdersDirectory = (pettyGrant: 'allowed' | 'requires_approval'): StaffDirectory =>
+    StaffDirectory.fromInput({
+      directory_version: 1,
+      roles: [
+        role('RH_OWNER', [own, close('branch')]),
+        role('RH_MGR', [own, close('branch')]),
+        role('RH_LEAD', [own, close('my_team')]),
+        role('RH_PENDING', [
+          own,
+          { permission: 'close-shift-for-others', grant_type: 'requires_approval', approver_role_ids: ['RH_OWNER'], scope: 'branch' },
+        ]),
+        role('RH_NONE', []),
+        role('RH_CASH', [
+          own,
+          pettyGrant === 'allowed'
+            ? { permission: 'record-petty-cash', grant_type: 'allowed', scope: 'branch' }
+            : { permission: 'record-petty-cash', grant_type: 'requires_approval', approver_role_ids: ['RH_CASH'], scope: 'branch' },
+        ]),
+      ],
+      staff: [
+        person(H_OWNER, ['RH_OWNER'], null),
+        person(H_MGR, ['RH_MGR'], H_OWNER),
+        person(H_LEAD, ['RH_LEAD'], H_MGR),
+        person(H_LEAD2, ['RH_LEAD'], H_MGR),
+        person(H_CASH1, ['RH_CASH'], H_LEAD),
+        person(H_CASH2, ['RH_CASH'], H_LEAD),
+        person(H_DENIED, ['RH_MGR'], H_OWNER, ['close-shift-for-others']),
+        person(H_PENDING, ['RH_PENDING'], H_OWNER),
+        person(H_NOGRANT, ['RH_NONE'], H_OWNER),
+      ],
+      responsibilities: [],
+      no_pin_staff: [{ staff_id: 'H_RUNNER', display_name: 'Runner', lead_staff_id: H_MGR }],
+    });
+  const HOLDERS: AlertRequestPart = {
+    answers: ['approve', 'reject'],
+    right_mode: 'holders',
+    base_permission: 'close-shift-for-others',
+    range_permission: null,
+    approver_role_ids: [],
+    receiver_staff_id: null,
+    needs_pin: 'always',
+  };
+
+  it('[05 #53b] matrix: requester grant allowed / requires_approval × answerer Owner / Manager / Cashier / self', () => {
+    for (const grant of ['allowed', 'requires_approval'] as const) {
+      const dir = holdersDirectory(grant);
+      expect(mayAnswer(dir, HOLDERS, H_CASH1, H_OWNER), grant).toEqual({ ok: true });
+      expect(mayAnswer(dir, HOLDERS, H_CASH1, H_MGR), grant).toEqual({ ok: true });
+      // a cashier holds no close-shift-for-others; with requires_approval he is even in the grant's approver roles
+      expect(mayAnswer(dir, HOLDERS, H_CASH1, H_CASH2), grant).toEqual({ ok: false, reason: 'not_approver' });
+      expect(mayAnswer(dir, HOLDERS, H_CASH1, H_CASH1), grant).toEqual({ ok: false, reason: 'self' });
+    }
+  });
+
+  it('[05 #53b] scope: my_team covers a requester below the holder; a holder above nobody → out_of_range; denied → not_approver', () => {
+    const dir = holdersDirectory('allowed');
+    expect(mayAnswer(dir, HOLDERS, H_CASH1, H_LEAD)).toEqual({ ok: true });
+    expect(mayAnswer(dir, HOLDERS, H_CASH1, H_LEAD2)).toEqual({ ok: false, reason: 'out_of_range' });
+    expect(mayAnswer(dir, HOLDERS, H_CASH1, H_DENIED)).toEqual({ ok: false, reason: 'not_approver' });
+    // a no_pin_staff person and someone not in the directory never answer
+    expect(mayAnswer(dir, HOLDERS, H_CASH1, 'H_RUNNER')).toEqual({ ok: false, reason: 'not_approver' });
+    expect(mayAnswer(dir, HOLDERS, H_CASH1, 'H_GONE')).toEqual({ ok: false, reason: 'not_approver' });
+  });
+
+  it('[05 #53b] the permission is read now: a holder whose grant was removed after raise → not_approver', () => {
+    const before = holdersDirectory('allowed');
+    expect(mayAnswer(before, HOLDERS, H_CASH1, H_MGR)).toEqual({ ok: true });
+    const after = StaffDirectory.fromInput({
+      directory_version: 2,
+      roles: [role('RH_MGR', [own]), role('RH_CASH', [own])],
+      staff: [person(H_MGR, ['RH_MGR'], null), person(H_CASH1, ['RH_CASH'], H_MGR)],
+      responsibilities: [],
+      no_pin_staff: [],
+    });
+    expect(mayAnswer(after, HOLDERS, H_CASH1, H_MGR)).toEqual({ ok: false, reason: 'not_approver' });
+  });
+
+  it('[05 #53b] a holder whose grant is requires_approval (not allowed) → not_approver, for every requester', () => {
+    for (const grant of ['allowed', 'requires_approval'] as const) {
+      const dir = holdersDirectory(grant);
+      expect(mayAnswer(dir, HOLDERS, H_CASH1, H_PENDING), grant).toEqual({ ok: false, reason: 'not_approver' });
+      expect(mayAnswer(dir, HOLDERS, H_NOGRANT, H_PENDING), grant).toEqual({ ok: false, reason: 'not_approver' });
+      expect(mayAnswer(dir, HOLDERS, null, H_PENDING), grant).toEqual({ ok: false, reason: 'not_approver' });
+    }
+  });
+
+  it('[05 #53b] a requester with no grant at all: holders answer, a non-holder does not', () => {
+    const dir = holdersDirectory('allowed');
+    expect(mayAnswer(dir, HOLDERS, H_NOGRANT, H_OWNER)).toEqual({ ok: true });
+    expect(mayAnswer(dir, HOLDERS, H_NOGRANT, H_MGR)).toEqual({ ok: true });
+    expect(mayAnswer(dir, HOLDERS, H_NOGRANT, H_CASH2)).toEqual({ ok: false, reason: 'not_approver' });
+    expect(mayAnswer(dir, HOLDERS, H_NOGRANT, H_LEAD)).toEqual({ ok: false, reason: 'out_of_range' });
+  });
+
+  it('[05 #53b] a null requester (as built; the spec does not say): branch scope → ok; my_team → out_of_range', () => {
+    const dir = holdersDirectory('allowed');
+    expect(mayAnswer(dir, HOLDERS, null, H_MGR)).toEqual({ ok: true });
+    expect(mayAnswer(dir, HOLDERS, null, H_OWNER)).toEqual({ ok: true });
+    expect(mayAnswer(dir, HOLDERS, null, H_LEAD)).toEqual({ ok: false, reason: 'out_of_range' });
+    expect(mayAnswer(dir, HOLDERS, null, H_LEAD2)).toEqual({ ok: false, reason: 'out_of_range' });
+  });
+
+  it('[05 #53b] the permission is read now: staff granted it after the raise may answer', () => {
+    const roles = (cash2: Grant[]) => [role('RH_MGR', [own, close('branch')]), role('RH_CASH', [own]), role('RH_CASH2', [own, ...cash2])];
+    const staff = [person(H_MGR, ['RH_MGR'], null), person(H_CASH1, ['RH_CASH'], H_MGR), person(H_CASH2, ['RH_CASH2'], H_MGR)];
+    const at = (version: number, cash2: Grant[]) =>
+      StaffDirectory.fromInput({ directory_version: version, roles: roles(cash2), staff, responsibilities: [], no_pin_staff: [] });
+    expect(mayAnswer(at(1, []), HOLDERS, H_CASH1, H_CASH2)).toEqual({ ok: false, reason: 'not_approver' });
+    expect(mayAnswer(at(2, [close('branch')]), HOLDERS, H_CASH1, H_CASH2)).toEqual({ ok: true });
+  });
+
+  it('[05 #53b, 01d §3.4] answerers resolve the holders in range (requester excluded); holders_informed the out-of-range holders', () => {
+    const step: StepDef = {
+      at: { ms: 0 },
+      to: [
+        { target: { kind: 'answerers' }, set: 'answerer' },
+        { target: { kind: 'holders_informed' }, set: 'informed' },
+      ],
+    };
+    for (const grant of ['allowed', 'requires_approval'] as const) {
+      const out = resolveStep(step, alert({ requester_staff_id: H_CASH1, request: HOLDERS }), reads(), holdersDirectory(grant), ws);
+      // directory order (by staff_id); never H_CASH1 (requester), H_CASH2 (no permission), H_DENIED (denied),
+      // H_PENDING (requires_approval only, in neither set) or H_NOGRANT
+      expect(out, grant).toEqual([
+        { staff_id: H_LEAD, device_id: null, set: 'answerer' },
+        { staff_id: H_MGR, device_id: null, set: 'answerer' },
+        { staff_id: H_OWNER, device_id: null, set: 'answerer' },
+        { staff_id: H_LEAD2, device_id: null, set: 'informed' },
+      ]);
+    }
+    // a holder raising his own request is not his own answerer
+    const self = resolveStep(one({ kind: 'answerers' }, 'answerer'), alert({ requester_staff_id: H_MGR, request: HOLDERS }), reads(), holdersDirectory('allowed'), ws);
+    expect(staffOf(self)).toEqual([H_OWNER]);
+  });
+});

@@ -753,15 +753,22 @@ async function checkResponsibilities(repo: TenantLevelRepository, branchId: stri
 // `selfId`: the role being written; it may approve its own grant (§3.3) and counts as active here.
 // ⚠️ Changed by 04 (row B-2, G-19), 01b v1.9: an allowed-only permission with requires_approval → grants.N.grant_type,
 // runs first, before the duplicate and approver checks, so the field does not depend on the approvers sent.
+// ⚠️ Changed by 05 (row B-1), 01b v1.10 §6.6: a role granting close-shift-for-others without manage-own-shift →
+// grants.N.permission (N = the close-shift-for-others grant), because the shift commands' registry permission is
+// manage-own-shift.
 const ALLOWED_ONLY: ReadonlySet<Permission> = new Set(ALLOWED_ONLY_PERMISSIONS);
 async function checkGrants(repo: TenantLevelRepository, grants: RoleCreateInput['grants'], selfId?: string): Promise<GrantWire[]> {
   const seen = new Set<string>();
+  const ownShift = grants.some((grant) => grant.permission === 'manage-own-shift');
   grants.forEach((grant, i) => {
     if (grant.grant_type === 'requires_approval' && ALLOWED_ONLY.has(grant.permission)) {
       throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `grants.${i}.grant_type` });
     }
     if (seen.has(grant.permission)) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `grants.${i}.permission` });
     seen.add(grant.permission);
+    if (grant.permission === 'close-shift-for-others' && !ownShift) {
+      throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `grants.${i}.permission` });
+    }
     if ((grant.grant_type === 'requires_approval') !== (grant.approver_role_ids.length > 0)) {
       throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `grants.${i}.approver_role_ids` });
     }

@@ -953,6 +953,18 @@ export const en = {
   'perm.view-customer-contact': 'See a customer’s name and phone',
   // 03b B-1 (01b v1.8), G-6
   'perm.run-pass': 'Run the Pass: mark orders ready and hand them over',
+  // ⚠️ Changed by 05 (row B-1, owner ruling R-23 2026-11-19), 01b v1.10 §4.2: the eleven bills permissions.
+  'perm.take-payment': 'Take payment',
+  'perm.manage-own-shift': 'Open and close own shift',
+  'perm.close-shift-for-others': 'Close another cashier’s shift',
+  'perm.skip-blind-count': 'Skip the blind cash count',
+  'perm.record-petty-cash': 'Record petty cash',
+  'perm.remove-service-charge': 'Remove service charge',
+  'perm.close-business-day': 'Close the business day',
+  'perm.open-cash-drawer': 'Open the cash drawer',
+  'perm.remove-comp': 'Remove a comp',
+  'perm.close-without-buyer-id': 'Close a bill without buyer ID',
+  'perm.manage-fiscal-settings': 'Change fiscal settings',
   'errors.ROLE_NOT_FOUND': 'This role no longer exists. The page is refreshed.',
   'errors.STAFF_NAME_TAKEN': 'Someone working at this branch already has this name. Add a surname or an initial.',
   'errors.LAST_ADMIN_REQUIRED': 'Each branch needs someone who can sign in to the hub admin. Give that to someone else first.',

@@ -223,7 +223,7 @@ describe('[01d #73] frozen and old rows', () => {
   it('[01d #73] (b) an AlertRaised v4 request_result without values.link (a pre-v1.3 row) replays to target null', async () => {
     seed('A_RES', 'request_result', 'info', { request_alert_id: 'A_REQ', request_kind: 'void_approval', close_reason: 'answered', decision: 'approve', by_staff_id: MGR });
     const raised = hub.deps.db.prepare(`SELECT schema_version FROM events WHERE event_type = 'AlertRaised' ORDER BY seq DESC LIMIT 1`).pluck().get();
-    expect(raised).toBe(4);
+    expect(raised).toBe(5); // ⚠️ Changed by 05 (row D-1, G-16): the raise appends the latest, v5
     expect(await inboxTarget('A_RES')).toBeNull();
     resetAndReplay();
     expect(await inboxTarget('A_RES')).toBeNull();

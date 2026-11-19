@@ -72,7 +72,11 @@ export type AlertApplyCtx<V, D> = CommandCtx & { alert: AlertRecord<V, D> };
 
 export type AlertRight =
   | { mode: 'approval'; base_permission: Permission; range_permission?: Permission }
-  | { mode: 'named' };
+  | { mode: 'named' }
+  // ⚠️ Changed by 05 (row D-1), 01d v1.3.4 §3.3 rule 6: whoever holds `permission` `allowed` with a scope covering
+  // the requester answers (never the requester; the requester's own grant is not read). 05's petty_cash and
+  // shift_variance use `close-shift-for-others`.
+  | { mode: 'holders'; permission: Permission };
 
 /** §3.5 request part. `apply` / `onWithdraw` only read and return drafts (read-only contract). */
 export interface AlertRequestDef<V, D> {

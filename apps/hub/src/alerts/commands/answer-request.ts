@@ -71,7 +71,8 @@ function answererOf(actor: CommandCtx['actor'], payload: Payload): string {
  * §3.3 rule 4 (b) order (= §6.2 Processing (1)–(5)): rule 1 (404 / 409), the decision in the kind's answers
  * (400), rule 3 (422), in person: the named answerer in the directory (404 STAFF_NOT_FOUND) and the raising
  * device (403 in_person_elsewhere), rule 5 (403 self), rule 6 (403 not_approver / out_of_range /
- * not_receiver). Directory in memory; no statement.
+ * not_receiver). Directory in memory; no statement. ⚠️ Changed by 05 (row D-1), 01d v1.3.4 §3.3 rule 6: rule 6
+ * also covers the `holders` right (targets.ts `mayAnswer`: not_approver / out_of_range, never self).
  */
 function check(
   found: RequestRow | undefined,
