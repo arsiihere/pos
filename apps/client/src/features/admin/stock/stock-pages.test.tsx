@@ -123,10 +123,12 @@ interface Sent {
 
 type Route = (sent: Sent) => Response | 'offline' | undefined;
 
-function signIn(staffId = 'S_MGR', name = 'Imran'): void {
+// ⚠️ 01a v2.7.1 §8.2 (05 row A-5, R-37): the sign-in `permissions` decide Close day; a manager may close the day.
+function signIn(staffId = 'S_MGR', name = 'Imran', permissions: Record<string, boolean> = { 'close-business-day': true }): void {
   sessionStorage.setItem('admin_session_token', 'AS1');
   sessionStorage.setItem('admin_staff_id', staffId);
   sessionStorage.setItem('admin_name', name);
+  sessionStorage.setItem('admin_permissions', JSON.stringify(permissions));
 }
 
 function fakeHub(stock: () => HubStockAnswer | 'offline', route: Route = () => undefined) {
@@ -497,7 +499,7 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     stubPhone(false);
     // A session written by /admin: the keys only, no stock-page login.
     signIn('S_MGR', 'Imran');
-    sessionStorage.setItem('admin_permissions', '{"manage-devices":true}');
+    sessionStorage.setItem('admin_permissions', '{"manage-devices":true,"close-business-day":true}');
     sessionStorage.setItem('admin_bootstrap', '0');
     const { api, sent } = fakeHub(() => answer());
     await mount(api);
@@ -594,7 +596,7 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
   const noDay = { business_day: null, business_day_started_at: null };
 
   it('[01b #71 page part] my_stations hides Start day, Close day and the stale-day prompt; branch scope keeps them', async () => {
-    signIn('S_USMAN', 'Usman');
+    signIn('S_USMAN', 'Usman', {});
     await mount(fakeHub(() => answer({ manage_stock_scope: 'my_stations', ...staleDay })).api);
     await openMore();
     expect(hasButton(t('admin_stock.day.close'))).toBe(false);
@@ -621,8 +623,25 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
     expect(container.querySelector('[data-start-day="rows"]')).not.toBeNull();
   });
 
+  it('[05 row A-5, R-37] [01b #71 page part] a my_stations counter who holds close-business-day sees Close day, but no stale prompt and no Start day (D-6)', async () => {
+    signIn('S_USMAN', 'Usman', { 'close-business-day': true });
+    await mount(fakeHub(() => answer({ manage_stock_scope: 'my_stations', ...staleDay })).api);
+    await openMore();
+    expect(hasButton(t('admin_stock.day.close'))).toBe(true);
+    await openMore();
+    expect(container.querySelector('[data-stale-prompt]')).toBeNull();
+    expect(container.textContent).not.toContain(t('admin_stock.stale.close_and_start'));
+    expect(hasButton(t('admin_stock.day.start'))).toBe(false);
+    expect(container.querySelector('[data-start-day]')).toBeNull();
+
+    // No day open: still no Start day for the counter (OpenBusinessDay needs manage-stock scope branch).
+    await remount(fakeHub(() => answer({ manage_stock_scope: 'my_stations', ...noDay })).api);
+    expect(hasButton(t('admin_stock.day.start'))).toBe(false);
+    expect(container.querySelector('[data-start-day]')).toBeNull();
+  });
+
   it('[01b #71 page part] under my_stations a 409 BUSINESS_DAY_NOT_OPEN asks for someone who can start the day', async () => {
-    signIn('S_USMAN', 'Usman');
+    signIn('S_USMAN', 'Usman', {});
     const { api, sent } = fakeHub(
       () => answer({ manage_stock_scope: 'my_stations' }),
       (s) => (s.url === '/admin/commands/set-precooked-stock' ? refused(409, 'BUSINESS_DAY_NOT_OPEN') : undefined),
@@ -637,7 +656,7 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
   });
 
   it('[01b §4.4 row 11] with my_stations and no day open, a row’s Selling switch still sends set-item-availability', async () => {
-    signIn('S_USMAN', 'Usman');
+    signIn('S_USMAN', 'Usman', {});
     const { api, sent } = fakeHub(() => answer({ manage_stock_scope: 'my_stations', ...noDay }));
     await mount(api);
     const sw = rowOf('I1').querySelector<HTMLElement>('[role="switch"]');
@@ -648,7 +667,7 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
   });
 
   it('[01b §4.4 rows 11, 13; S33] with my_stations and yesterday’s day closed: rows stay, Selling switch works, a save asks for someone who can start the day', async () => {
-    signIn('S_USMAN', 'Usman');
+    signIn('S_USMAN', 'Usman', {});
     const closedDay = {
       business_day: { business_date: '2026-10-24', opened_at: OPENED, closed_at: OPENED + 12 * 3_600_000 },
       business_day_started_at: null,
@@ -682,7 +701,7 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
 
   it('[01b §4.4 row 13] (review N-6) a refused save or Add with the no-day banner showing adds no second warning; the banner takes focus', async () => {
     stubPhone(true);
-    signIn('S_USMAN', 'Usman');
+    signIn('S_USMAN', 'Usman', {});
     const { api } = fakeHub(
       () => answer({ manage_stock_scope: 'my_stations', ...noDay }),
       (s) =>
@@ -714,7 +733,7 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
   });
 
   it('[01b §4.4 row 11] a change outside the counter’s stations shows the outside_scope text and refreshes', async () => {
-    signIn('S_USMAN', 'Usman');
+    signIn('S_USMAN', 'Usman', {});
     let reads = 0;
     const { api } = fakeHub(
       () => {

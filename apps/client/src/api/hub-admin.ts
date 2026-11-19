@@ -241,6 +241,18 @@ export function createHubAdmin(options: HubAdminOptions) {
     },
 
     adminName: (): string | null => storage.getItem(NAME_KEY),
+    /**
+     * 00 v1.12.1 M89 (R-37): one key of the admin's stored sign-in `permissions` (shared with /admin); null when not
+     * stored or not a boolean. The hub's own 403 stays the authority.
+     */
+    permission(key: keyof HubAdminLogin['permissions']): boolean | null {
+      try {
+        const value = (JSON.parse(storage.getItem(PERMISSIONS_KEY) ?? '{}') as Record<string, unknown>)[key];
+        return typeof value === 'boolean' ? value : null;
+      } catch {
+        return null;
+      }
+    },
     staffId: (): string | null => storage.getItem(STAFF_KEY),
 
     // Q3, S54 e: best effort; the keys go either way.

@@ -3,7 +3,14 @@ import { parseEvent, type BranchConfig, type ConfigStockItem, type PosEvent } fr
 import { aBranchConfigItemStock, aFireDispatched, anEngineConfigApplied, anItemStarted, anOrderBatch, aStockSet } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
-import { registerDayCloseGuard, resetDayCloseGuard, type DayCloseGuard } from '../../src/commands/close-business-day';
+import {
+  registerDayCloseAppender,
+  registerDayCloseGuard,
+  resetDayCloseAppenders,
+  resetDayCloseGuards,
+  type DayCloseAppender,
+  type DayCloseGuard,
+} from '../../src/commands/close-business-day';
 import { replayEngine } from '../../src/engine-host/replay';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -15,7 +22,8 @@ const cleanups: Array<() => Promise<void>> = [];
 
 describe('business day commands (§6.18a, §6.18b)', () => {
   afterEach(async () => {
-    resetDayCloseGuard();
+    resetDayCloseGuards();
+    resetDayCloseAppenders();
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
@@ -192,9 +200,10 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe('PERMISSION_DENIED');
     const owner = adminOn(hub, 'S_OWNER');
-    const noStock = await post(hub, owner, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-no-stock', 'S_OWNER');
-    expect(noStock.statusCode).toBe(403);
-    expect(noStock.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'manage-stock' } });
+    // ⚠️ 01a v2.7 §6.18b (05 row A-5): the close's own permission is close-business-day, not manage-stock
+    const noClose = await post(hub, owner, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-no-stock', 'S_OWNER');
+    expect(noClose.statusCode).toBe(403);
+    expect(noClose.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'close-business-day' } });
     expect(engine(hub).business_day?.closed_at).toBeNull();
 
     fail = true;
@@ -391,7 +400,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     const closeStatements = async (register?: () => void): Promise<{ statements: number; changed: unknown }> => {
       const { hub, admin } = await dayToClose();
       // the boot (registerVoids, from v8) registers the real guard: start from "unregistered", then the case's own
-      resetDayCloseGuard();
+      resetDayCloseGuards();
       register?.();
       const counter = statementCounter(hub.deps.db);
       const host = hostSnapshotWrites(hub.deps.db);
@@ -462,6 +471,263 @@ describe('business day commands (§6.18a, §6.18b)', () => {
       expect(calls).toBe(1);
       expect(eventsOf(hub, 'BusinessDayClosed')).toHaveLength(1);
       expect(engine(hub).business_day?.closed_at).not.toBeNull();
+    });
+
+    it('[01a #199] [05 #79 day-close half] [05 row A-3] two guards, both refuse → the first registered wins; the second is not asked', async () => {
+      const { hub, admin } = await dayToClose();
+      resetDayCloseGuards();
+      const asked: string[] = [];
+      const first: DayCloseGuard = () => {
+        asked.push('first');
+        return { code: 'DAY_CLOSE_BLOCKED', details: { reason: 'void_pending', voids: [], count: 0 } };
+      };
+      const second: DayCloseGuard = () => {
+        asked.push('second');
+        return { code: 'DAY_CLOSE_BLOCKED', details: { reason: 'shift_open', shifts: [], count: 0 } };
+      };
+      registerDayCloseGuard(first);
+      registerDayCloseGuard(second);
+      const blocked = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-two');
+      expect(blocked.statusCode).toBe(409);
+      expect(blocked.json().error).toMatchObject({ code: 'DAY_CLOSE_BLOCKED', details: { reason: 'void_pending', voids: [], count: 0 } });
+      expect(asked).toEqual(['first']);
+      expect(eventsOf(hub, 'BusinessDayClosed')).toEqual([]);
+    });
+
+    it('[05 #79 day-close half] [05 row A-3] a null first guard → the second answers; a guard registered twice is asked once', async () => {
+      const { hub, admin } = await dayToClose();
+      resetDayCloseGuards();
+      const asked: string[] = [];
+      const first: DayCloseGuard = () => {
+        asked.push('first');
+        return null;
+      };
+      const details = { reason: 'unbilled_orders', orders: [], count: 0 };
+      const second: DayCloseGuard = () => {
+        asked.push('second');
+        return { code: 'DAY_CLOSE_BLOCKED', details };
+      };
+      registerDayCloseGuard(first);
+      registerDayCloseGuard(second);
+      // every test hub's boot re-registers 04's guard: a repeat keeps the list (and its order) as it is
+      registerDayCloseGuard(first);
+      const blocked = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-second');
+      expect(blocked.statusCode).toBe(409);
+      expect(blocked.json().error.details).toEqual(details);
+      expect(asked).toEqual(['first', 'second']);
+    });
+
+    it("[05 #79 day-close half] 04's void guard (registered at boot) still answers first with a later guard appended", async () => {
+      const { hub, admin } = await dayToClose();
+      const later: DayCloseGuard = () => ({ code: 'DAY_CLOSE_BLOCKED', details: { reason: 'shift_open', shifts: [], count: 0 } });
+      registerDayCloseGuard(later);
+      // no void request open: 04's guard answers null, so the later guard refuses
+      const blocked = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-later');
+      expect(blocked.statusCode).toBe(409);
+      expect(blocked.json().error.details).toMatchObject({ reason: 'shift_open' });
+    });
+  });
+
+  describe('[01a v2.7 §6.18b / 05 row A-4] day-close appenders', () => {
+    // A StockSet draft on the stock stream: a real event the fold accepts, told apart in the log by its on_hand.
+    const stockSetDraft =
+      (on_hand: number): DayCloseAppender =>
+      (ctx) => [
+        {
+          stream_type: 'stock',
+          stream_id: 'I3',
+          event_type: 'StockSet',
+          schema_version: 1,
+          payload: { item_id: 'I3', on_hand, unit: 'g' },
+          occurred_at: ctx.clock.branchNow(),
+          actor_id: ctx.actor.staffId,
+          device_id: ctx.actor.deviceId,
+        },
+      ];
+
+    it('[05 row A-4] the appenders\' drafts, in registration order, land before 03a\'s releases and BusinessDayClosed, in the one transaction', async () => {
+      const { hub, admin } = await dayToClose();
+      counted(hub, 'I1', 9);
+      hidden(hub, 'O1', [{ id: 'H', draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true }]);
+      const seen: Array<{ staffId: string | null; closedAt: number | null | undefined }> = [];
+      registerDayCloseAppender((ctx) => {
+        seen.push({ staffId: ctx.actor.staffId, closedAt: ctx.state.business_day?.closed_at });
+        return stockSetDraft(111)(ctx);
+      });
+      registerDayCloseAppender(stockSetDraft(222));
+      const before = lastSeq(hub);
+      const res = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-app');
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json().data.result).toMatchObject({ changed: true, reason: 'closed' });
+      expect(logAfter(hub, before)).toEqual([
+        { type: 'StockSet', id: 'I3', on_hand: 111, unit: 'g' },
+        { type: 'StockSet', id: 'I3', on_hand: 222, unit: 'g' },
+        { type: 'StockReleased', id: 'I1', line: 'H', q: 1, reason: 'day_closed' },
+        { type: 'BusinessDayClosed' },
+      ]);
+      // the result's closed_at is BusinessDayClosed's recorded_at, not an appender draft's
+      const closedRow = rowsAfter(hub, before).find((row) => row.event_type === 'BusinessDayClosed')!;
+      expect(res.json().data.result.closed_at).toBe(closedRow.recorded_at);
+      expect(new Set(rowsAfter(hub, before).map((row) => row.recorded_at)).size).toBe(1);
+      expect(seen).toEqual([{ staffId: 'S_MGR', closedAt: null }]);
+    });
+
+    it('[05 row A-4] a refusing guard → no appender is asked; a duplicate registration is ignored; a forced COMMIT failure writes no draft', async () => {
+      let fail = false;
+      const { hub, admin } = await dayToClose({
+        beforeCommit() {
+          if (fail) throw new Error('forced commit failure');
+        },
+      });
+      let calls = 0;
+      const appender: DayCloseAppender = (ctx) => {
+        calls += 1;
+        return stockSetDraft(333)(ctx);
+      };
+      registerDayCloseAppender(appender);
+      registerDayCloseAppender(appender);
+      let refuse = true;
+      registerDayCloseGuard(() => (refuse ? { code: 'DAY_CLOSE_BLOCKED', details: { reason: 'shift_open', shifts: [], count: 0 } } : null));
+      const before = lastSeq(hub);
+      expect((await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-refused')).statusCode).toBe(409);
+      expect(calls).toBe(0);
+      refuse = false;
+      fail = true;
+      expect((await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-fail')).statusCode).toBe(500);
+      expect(rowsAfter(hub, before)).toEqual([]);
+      fail = false;
+      calls = 0;
+      expect((await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-fail')).statusCode).toBe(200);
+      expect(calls).toBe(1);
+      expect(logAfter(hub, before)).toEqual([{ type: 'StockSet', id: 'I3', on_hand: 333, unit: 'g' }, { type: 'BusinessDayClosed' }]);
+    });
+  });
+
+  describe('[01a v2.7 §6.18b / 05 row A-5] close-business-day, both session kinds', () => {
+    it("[05 #68] close-business-day closes on the staff app (row H-1 'both') and on /admin/stock; manage-stock alone no longer closes", async () => {
+      // S_STK: hub admin + manage-stock only; S_CLOSE: hub admin + close-business-day only (no manage-stock).
+      const hub = await createTestHub();
+      cleanups.push(() => hub.close());
+      hub.clock.set(at(0));
+      const directory = await aDirectory();
+      for (const role of directory.roles) role.session_idle_ttl_ms = 7 * 86_400_000;
+      const grant = (permission: string) => ({ permission, grant_type: 'allowed' as const, approver_role_id: null, approver_role_ids: [], scope: 'branch' as const });
+      directory.roles.push(
+        { role_id: 'R_STK', name: 'Stock', session_idle_ttl_ms: 7 * 86_400_000, permissions: [grant('access-hub-admin'), grant('manage-stock')] as never },
+        { role_id: 'R_CLOSE', name: 'Closer', session_idle_ttl_ms: 7 * 86_400_000, permissions: [grant('access-hub-admin'), grant('close-business-day')] as never },
+      );
+      const cashier = directory.staff.find((staff) => staff.staff_id === 'S_CASH')!;
+      directory.staff.push({ ...cashier, staff_id: 'S_STK', display_name: 'Stock', role_ids: ['R_STK'] }, { ...cashier, staff_id: 'S_CLOSE', display_name: 'Closer', role_ids: ['R_CLOSE'] });
+      await seedDirectory(hub, directory);
+      withConfig(aBranchConfigItemStock());
+      const day = async (id: string) => {
+        const opened = await post(hub, adminOn(hub, 'S_MGR'), 'open-business-day', 'OpenBusinessDay', {}, `cmd-open-${id}`);
+        expect(opened.json().data.result).toMatchObject({ changed: true });
+        hub.clock.advance(5 * 3_600_000);
+      };
+
+      await day('1');
+      const stockOnly = await post(hub, adminOn(hub, 'S_STK'), 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-stk', 'S_STK');
+      expect(stockOnly.statusCode).toBe(403);
+      expect(stockOnly.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'close-business-day' } });
+      expect(engine(hub).business_day?.closed_at).toBeNull();
+
+      // /admin/stock route, a close-business-day holder without manage-stock
+      const onAdmin = await post(hub, adminOn(hub, 'S_CLOSE'), 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-admin', 'S_CLOSE');
+      expect(onAdmin.statusCode, onAdmin.body).toBe(200);
+      expect(onAdmin.json().data.result).toMatchObject({ changed: true, reason: 'closed' });
+
+      // staff app (device route, staff session)
+      await day('2');
+      const device = pairDevice(hub, { type: 'tablet' });
+      const staff = openSession(hub, { kind: 'staff', staffId: 'S_MGR', deviceId: device.deviceId });
+      const onDevice = await hub.app.inject({
+        method: 'POST',
+        url: '/commands/close-business-day',
+        headers: { authorization: `Bearer ${device.token}`, 'x-session-token': staff.token },
+        payload: {
+          command_id: 'cmd-close-device',
+          tenant_id: 'tenant-a',
+          branch_id: 'branch-1',
+          command_type: 'CloseBusinessDay',
+          payload: {},
+          occurred_at: hub.clock.branchNow(),
+          actor_id: 'S_MGR',
+          device_id: device.deviceId,
+        },
+      });
+      expect(onDevice.statusCode, onDevice.body).toBe(200);
+      expect(onDevice.json().data.result).toMatchObject({ changed: true, reason: 'closed' });
+      expect(eventsOf(hub, 'BusinessDayClosed')).toHaveLength(2);
+    });
+
+    it('[05 row A-5] [01b B20] a close-business-day grant with scope my_stations → 403 outside_scope, required_scope branch; no event, no processed_commands row', async () => {
+      // The cloud grants close-business-day with scope `branch` only (PERMISSION_SCOPES); the hub check is defence in
+      // depth, so the directory here is seeded past that rule.
+      const hub = await createTestHub();
+      cleanups.push(() => hub.close());
+      hub.clock.set(at(0));
+      const directory = await aDirectory();
+      for (const role of directory.roles) role.session_idle_ttl_ms = 7 * 86_400_000;
+      const grant = (permission: string, scope: string) => ({ permission, grant_type: 'allowed' as const, approver_role_id: null, approver_role_ids: [], scope });
+      directory.roles.push({
+        role_id: 'R_NARROW',
+        name: 'Narrow closer',
+        session_idle_ttl_ms: 7 * 86_400_000,
+        permissions: [grant('access-hub-admin', 'branch'), grant('close-business-day', 'my_stations')] as never,
+      });
+      const cashier = directory.staff.find((staff) => staff.staff_id === 'S_CASH')!;
+      directory.staff.push({ ...cashier, staff_id: 'S_NARROW', display_name: 'Narrow', role_ids: ['R_NARROW'] });
+      await seedDirectory(hub, directory);
+      withConfig(aBranchConfigItemStock());
+      await post(hub, adminOn(hub, 'S_MGR'), 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-narrow');
+      hub.clock.advance(5 * 3_600_000);
+      const narrow = adminOn(hub, 'S_NARROW');
+      const before = lastSeq(hub);
+      const refused = await post(hub, narrow, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-narrow', 'S_NARROW');
+      expect(refused.statusCode, refused.body).toBe(403);
+      expect(refused.json().error).toEqual(
+        expect.objectContaining({
+          code: 'PERMISSION_DENIED',
+          details: { permission: 'close-business-day', reason: 'outside_scope', required_scope: 'branch' },
+        }),
+      );
+      expect(lastSeq(hub)).toBe(before);
+      expect(hub.deps.db.prepare("SELECT COUNT(*) FROM processed_commands WHERE command_id = 'cmd-close-narrow'").pluck().get()).toBe(0);
+      expect(engine(hub).business_day?.closed_at).toBeNull();
+    });
+
+    it('[05 row A-5] [00 H-1] a close on /admin/commands and one on /commands at once (different command_ids): one closed, the other not_open; the appender runs once', async () => {
+      const { hub, admin } = await dayToClose();
+      let calls = 0;
+      registerDayCloseAppender(() => {
+        calls += 1;
+        return [];
+      });
+      const device = pairDevice(hub, { type: 'tablet' });
+      const staff = openSession(hub, { kind: 'staff', staffId: 'S_MGR', deviceId: device.deviceId });
+      const onDevice = () =>
+        hub.app.inject({
+          method: 'POST',
+          url: '/commands/close-business-day',
+          headers: { authorization: `Bearer ${device.token}`, 'x-session-token': staff.token },
+          payload: {
+            command_id: 'cmd-race-device',
+            tenant_id: 'tenant-a',
+            branch_id: 'branch-1',
+            command_type: 'CloseBusinessDay',
+            payload: {},
+            occurred_at: hub.clock.branchNow(),
+            actor_id: 'S_MGR',
+            device_id: device.deviceId,
+          },
+        });
+      const [a, b] = await Promise.all([post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-race-admin'), onDevice()]);
+      expect([a.statusCode, b.statusCode]).toEqual([200, 200]);
+      const reasons = [a.json().data.result.reason, b.json().data.result.reason].sort();
+      expect(reasons).toEqual(['closed', 'not_open']);
+      expect(calls).toBe(1);
+      expect(eventsOf(hub, 'BusinessDayClosed')).toHaveLength(1);
     });
   });
 });
@@ -547,8 +813,9 @@ async function open(testHooks?: { beforeCommit?: () => void }): Promise<TestHub>
   // These tests move the clock by hours; long idle TTLs keep the admin sessions alive.
   const directory = await aDirectory();
   for (const role of directory.roles) role.session_idle_ttl_ms = 7 * 86_400_000;
-  // S_OWNER keeps access-hub-admin but not manage-stock, so the command's own 403 is reached.
-  for (const staff of directory.staff) if (staff.staff_id === 'S_OWNER') staff.denied_permissions = ['manage-stock'];
+  // S_OWNER keeps access-hub-admin but not manage-stock (OpenBusinessDay) nor close-business-day (CloseBusinessDay,
+  // ⚠️ 01a v2.7 row A-5), so each command's own 403 is reached.
+  for (const staff of directory.staff) if (staff.staff_id === 'S_OWNER') staff.denied_permissions = ['manage-stock', 'close-business-day'];
   await seedDirectory(hub, directory);
   return hub;
 }

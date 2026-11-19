@@ -12,7 +12,7 @@ import { Dialog } from '../../../components/Dialog';
 import { Icon } from '../../../components/Icon';
 import { MoreMenu, type MoreMenuItem } from '../../../components/MoreMenu';
 import { SideNav } from '../../../components/SideNav';
-import { t } from '../../../i18n';
+import { t, type MessageKey } from '../../../i18n';
 import { adminErrorKey, fill } from '../../../i18n/en';
 import { AdminLogin } from './AdminLogin';
 import { pageRows } from './badges';
@@ -53,26 +53,61 @@ function outsideScope(error: HubError): boolean {
   return error.kind === 'api' && error.code === 'PERMISSION_DENIED' && error.details['reason'] === 'outside_scope';
 }
 
-// 01a v2.5 §8.2 (04 §4.5 A-1, G-21): 409 DAY_CLOSE_BLOCKED { reason, voids (≤ 40), count } → the count
-// text and one row per void (identifier · item · requester), plus "and N more" when count > the list.
-// Missing or malformed details (an old hub) → the generic error text, no list.
+// 01a v2.5 §8.2 (04 §4.5 A-1, G-21): 409 DAY_CLOSE_BLOCKED { reason, <list> (≤ 40), count } → the count text and one
+// row per listed entry, plus "and N more" when count > the list. ⚠️ 01a v2.7 §8.2 (05 row A-5; 05 §3.13): besides 04's
+// `void_pending` (voids: identifier · item · requester), 05's `shift_open` (shifts: staff name [· drawer]) and
+// `unbilled_orders` (orders: identifier · open N min). Missing or malformed details, or another reason → the generic
+// error text, no list.
+type BlockedReason = {
+  list: string;
+  row: (entry: Record<string, unknown>) => BannerItem;
+  one: MessageKey;
+  many: MessageKey;
+};
+
+const asText = (v: unknown) => (typeof v === 'string' ? v : '');
+
+const BLOCKED_REASONS: Record<string, BlockedReason> = {
+  void_pending: {
+    list: 'voids',
+    row: (v) => ({ ltr: asText(v['identifier']), text: [asText(v['item']), asText(v['requester_name'])].join(' · ') }),
+    // 04 v1.0.4 §8 Day close blocked (O9): the singular for count 1
+    one: 'admin_stock.errors.DAY_CLOSE_BLOCKED_one',
+    many: 'admin_stock.errors.DAY_CLOSE_BLOCKED',
+  },
+  shift_open: {
+    list: 'shifts',
+    row: (s) => ({ text: s['is_drawer'] === true ? [asText(s['staff_name']), t('admin_stock.day_close.drawer')].join(' · ') : asText(s['staff_name']) }),
+    one: 'admin_stock.errors.DAY_CLOSE_BLOCKED_shift_open_one',
+    many: 'admin_stock.errors.DAY_CLOSE_BLOCKED_shift_open',
+  },
+  unbilled_orders: {
+    list: 'orders',
+    row: (o) => ({
+      ltr: asText(o['identifier']),
+      text: fill(t('admin_stock.day_close.open_minutes'), { n: typeof o['open_minutes'] === 'number' ? String(o['open_minutes']) : '?' }),
+    }),
+    one: 'admin_stock.errors.DAY_CLOSE_BLOCKED_unbilled_orders_one',
+    many: 'admin_stock.errors.DAY_CLOSE_BLOCKED_unbilled_orders',
+  },
+};
+
 function dayCloseBlocked(details: Record<string, unknown>): Message {
-  const raw: unknown = details['voids'];
-  const count: unknown = details['count'];
   const generic: Message = { tone: 'danger', text: t(adminErrorKey('DAY_CLOSE_BLOCKED')) };
-  if (!Array.isArray(raw) || typeof count !== 'number' || !Number.isInteger(count) || count < 0) return generic;
-  const voids = raw.filter((v): v is Record<string, unknown> => typeof v === 'object' && v !== null);
+  const reason = details['reason'];
+  const shape = typeof reason === 'string' && Object.hasOwn(BLOCKED_REASONS, reason) ? BLOCKED_REASONS[reason]! : null;
+  const raw: unknown = shape === null ? undefined : details[shape.list];
+  const count: unknown = details['count'];
+  if (shape === null || !Array.isArray(raw) || typeof count !== 'number' || !Number.isInteger(count) || count < 0) return generic;
+  const entries = raw.filter((v): v is Record<string, unknown> => typeof v === 'object' && v !== null);
   // The hub lists up to 40 of `count`, so a blocked close always lists at least one.
-  if (voids.length === 0) return generic;
-  const text = (v: unknown) => (typeof v === 'string' ? v : '');
-  const items = voids.map((v) => ({ ltr: text(v['identifier']), text: [text(v['item']), text(v['requester_name'])].join(' · ') }));
-  // 04 v1.0.4 §8 Day close blocked (O9): the singular for count 1
-  const sentence = count === 1 ? t('admin_stock.errors.DAY_CLOSE_BLOCKED_one') : fill(t('admin_stock.errors.DAY_CLOSE_BLOCKED'), { count: String(count) });
+  if (entries.length === 0) return generic;
+  const sentence = count === 1 ? t(shape.one) : fill(t(shape.many), { count: String(count) });
   return {
     tone: 'danger',
     text: sentence,
-    items,
-    ...(count > voids.length ? { more: fill(t('admin_stock.errors.DAY_CLOSE_BLOCKED_more'), { n: String(count - voids.length) }) } : {}),
+    items: entries.map(shape.row),
+    ...(count > entries.length ? { more: fill(t('admin_stock.errors.DAY_CLOSE_BLOCKED_more'), { n: String(count - entries.length) }) } : {}),
   };
 }
 
@@ -541,7 +576,10 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   // The bar's help line (01c-B02 "Count the pot once…"); the other states carry their own second line.
   const note = !offline && !(kept !== null && restored.size > 0) && savedLine === null;
 
-  const canCloseDay = clock !== null && !counter && day !== null && day.closed_at === null;
+  // ⚠️ 01a v2.7.1 §6.18b / §8.2 (05 row A-5, R-37): Close day follows the sign-in `close-business-day` key, not the
+  // manage-stock scope; false, missing or not stored → hidden. The command's 403 stays the authority.
+  const mayCloseDay = api.permission('close-business-day') === true;
+  const canCloseDay = clock !== null && mayCloseDay && day !== null && day.closed_at === null;
   const signOutNow = () => (touched > 0 ? setAskSignOut(true) : void signOut('none'));
   const moreItems: MoreMenuItem[] = [
     ...(canCloseDay ? [{ label: t('admin_stock.day.close'), icon: 'archive' as const, danger: true, disabled: dayBusy, onSelect: () => setAskCloseDay(true) }] : []),
@@ -646,7 +684,8 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
             </div>
           </div>
         )}
-        {clock !== null && !counter && stale && !keepOpen && day !== null && (
+        {/* the stale prompt's one action closes the day: shown only with close-business-day (R-37); a counter can't start the day (D-6) */}
+        {clock !== null && !counter && mayCloseDay && stale && !keepOpen && day !== null && (
           <StalePrompt
             openedAt={day.opened_at}
             clock={clock}

@@ -12,6 +12,13 @@ export const en = {
   // 04 v1.0.4 §8 Day close blocked (O9): count 1
   'admin_stock.errors.DAY_CLOSE_BLOCKED_one': '1 void request is still open — answer it first',
   'admin_stock.errors.DAY_CLOSE_BLOCKED_more': 'and {n} more',
+  // ⚠️ 01a v2.7 §8.2 (05 row A-5; 05 §3.13): Close day refused while shifts are open or orders are not billed.
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_shift_open': '{count} shifts are still open — close them first',
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_shift_open_one': '1 shift is still open — close it first',
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_unbilled_orders': '{count} orders are not billed yet — bill, cancel or carry them over first',
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_unbilled_orders_one': '1 order is not billed yet — bill, cancel or carry it over first',
+  'admin_stock.day_close.drawer': 'drawer',
+  'admin_stock.day_close.open_minutes': 'open {n} min',
   'admin_stock.status.version': 'Menu version {version}',
   'admin_stock.status.no_menu': 'No menu yet',
   'admin_stock.status.checked': ' · checked {minutes} min ago',

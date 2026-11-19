@@ -147,7 +147,11 @@ interface Sent {
 }
 
 // Stock answers in order (the last repeats); `command` answers each command by path.
-function fakeHub(stock: HubStockAnswer[], command: (name: string, n: number) => Response) {
+// ⚠️ 01a v2.7.1 §8.2 (05 row A-5, R-37): the admin sign-in `permissions` as /admin or the stock login stored them;
+// `null` = no stored permissions. Default: a manager who may close the day.
+const MAY_CLOSE = '{"manage-devices":true,"manage-staff":true,"manage-fiscal-settings":false,"close-business-day":true}';
+
+function fakeHub(stock: HubStockAnswer[], command: (name: string, n: number) => Response, permissions: string | null = MAY_CLOSE) {
   const sent: Sent[] = [];
   let commands = 0;
   const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
@@ -160,6 +164,7 @@ function fakeHub(stock: HubStockAnswer[], command: (name: string, n: number) => 
   });
   sessionStorage.setItem('admin_session_token', 'AS1');
   sessionStorage.setItem('admin_staff_id', 'S_MGR');
+  if (permissions !== null) sessionStorage.setItem('admin_permissions', permissions);
   const api = createHubAdmin({ fetch: fetchFn, readDeviceToken: async () => 'DT1', readDeviceId: async () => 'D1', onSignedOut: () => {} });
   return { api, sent };
 }
@@ -424,6 +429,110 @@ describe('/admin/stock business day', () => {
     expect(container.textContent).toContain(t('errors.UNKNOWN'));
     expect(container.textContent).not.toContain('void requests are still open');
     expect(container.querySelectorAll('.pos-banner li')).toHaveLength(0);
+  });
+
+  // ⚠️ 01a v2.7 §8.2 (05 row A-5; 05 §3.13): 05's guard refuses with `shift_open` / `unbilled_orders`, listed like void_pending.
+  const blockedWith = (details: Record<string, unknown>) =>
+    json(409, { error: { code: 'DAY_CLOSE_BLOCKED', message: 'x', details, request_id: 'R' } });
+  const closeDay = async () => {
+    await openMore();
+    await tap(button(container.querySelector('[role="menu"]')!, t('admin_stock.day.close')));
+    await tap(button(container.querySelector('[role="dialog"]')!, t('admin_stock.day.close')));
+  };
+  const bannerWith = (text: string) => [...container.querySelectorAll<HTMLElement>('.pos-banner')].find((b) => b.textContent?.includes(text));
+
+  it('[05 row A-5] [01a §8.2] DAY_CLOSE_BLOCKED shift_open lists one row per open shift (staff name, drawer); the singular for one', async () => {
+    const shifts = [
+      { shift_id: 'SH1', staff_name: 'Ali', opened_at: hubAt(25, 9), is_drawer: true },
+      { shift_id: 'SH2', staff_name: 'Sara', opened_at: hubAt(25, 12), is_drawer: false },
+    ];
+    const answers = [blockedWith({ reason: 'shift_open', shifts, count: 2 }), blockedWith({ reason: 'shift_open', shifts: shifts.slice(0, 1), count: 1 })];
+    const { api } = fakeHub([answer()], (_, n) => answers[n]!);
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+
+    await closeDay();
+    const banner = bannerWith('2 shifts are still open — close them first');
+    expect(banner).toBeDefined();
+    expect([...banner!.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Ali · drawer', 'Sara']);
+    await closeDay();
+    expect(container.textContent).toContain('1 shift is still open — close it first');
+    expect([...container.querySelectorAll('.pos-banner li')].map((li) => li.textContent)).toEqual(['Ali · drawer']);
+  });
+
+  it('[05 row A-5] [01a §8.2] DAY_CLOSE_BLOCKED unbilled_orders lists one row per order (identifier LTR, open minutes) and "and N more"', async () => {
+    const orders = [
+      { order_id: 'O1', identifier: 'T4', total_minor: 125_000, placed_at: hubAt(25, 20), open_minutes: 95 },
+      { order_id: 'O2', identifier: '#12', total_minor: 40_000, placed_at: hubAt(25, 21), open_minutes: 30 },
+    ];
+    const { api } = fakeHub([answer()], () => blockedWith({ reason: 'unbilled_orders', orders, count: 3 }));
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+
+    await closeDay();
+    const banner = bannerWith('3 orders are not billed yet — bill, cancel or carry them over first');
+    expect(banner).toBeDefined();
+    expect([...banner!.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['T4 · open 95 min', '#12 · open 30 min', 'and 1 more']);
+    expect([...banner!.querySelectorAll('li .pos-ltr')].map((x) => x.textContent)).toEqual(['T4', '#12']);
+  });
+
+  it.each([
+    ['an unknown reason', { reason: 'something_else', voids: [{ alert_id: 'A1', identifier: 'T1', item: 'Paye', requester_name: 'Ali' }], count: 1 }],
+    ['shift_open without shifts', { reason: 'shift_open', count: 1 }],
+    ['unbilled_orders with an empty list', { reason: 'unbilled_orders', orders: [], count: 1 }],
+  ])('[05 row A-5] DAY_CLOSE_BLOCKED with %s shows the generic error and no list', async (_, details) => {
+    const { api } = fakeHub([answer()], () => blockedWith(details));
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+
+    await closeDay();
+    expect(container.textContent).toContain(t('errors.UNKNOWN'));
+    expect(container.querySelectorAll('.pos-banner li')).toHaveLength(0);
+  });
+
+  describe('[05 row A-5, R-37] [01a v2.7.1 §6.18b / §6.19 / §8.2] Close day follows the sign-in permission close-business-day', () => {
+    const stale = () => answer({ day_stale: true, hub_time: { now_ms: hubAt(26, 1, 1), utc_offset_ms: OFFSET } });
+    const shown = async () => {
+      await openMore();
+      const menu = container.querySelector('[role="menu"]');
+      const closeDay = menu === null ? 0 : buttons(menu as HTMLElement, t('admin_stock.day.close')).length;
+      await openMore();
+      return { closeDay, closeAndStart: container.querySelector('[data-stale-prompt]') !== null };
+    };
+
+    it('[05 #68 page part] close-business-day true → Close day and "Close it and start today" are shown', async () => {
+      const { api } = fakeHub([stale()], () => ok({}));
+      act(() => root.render(<StockApp api={api} />));
+      await flush();
+      expect(await shown()).toEqual({ closeDay: 1, closeAndStart: true });
+    });
+
+    it.each([
+      ['false', '{"manage-devices":true,"manage-staff":true,"manage-fiscal-settings":false,"close-business-day":false}'],
+      ['missing', '{"manage-devices":true,"manage-staff":true}'],
+      ['not stored', null],
+    ])('[05 #68 page part] close-business-day %s → no Close day and no "Close it and start today"', async (_, permissions) => {
+      const { api } = fakeHub([stale()], () => ok({}), permissions);
+      act(() => root.render(<StockApp api={api} />));
+      await flush();
+      expect(await shown()).toEqual({ closeDay: 0, closeAndStart: false });
+      // the rows and Start day logic are untouched: the page still works
+      expect(rowOf('I1')).not.toBeNull();
+    });
+
+    it('[05 #68 page part] a stored true but a hub 403 PERMISSION_DENIED (permissions changed mid-session) → the permission error text, day unchanged', async () => {
+      const denied = json(403, {
+        error: { code: 'PERMISSION_DENIED', message: 'x', details: { permission: 'close-business-day', grant: 'not_granted' }, request_id: 'R' },
+      });
+      const { api, sent } = fakeHub([answer()], () => denied);
+      act(() => root.render(<StockApp api={api} />));
+      await flush();
+      await openMore();
+      await tap(button(container.querySelector('[role="menu"]')!, t('admin_stock.day.close')));
+      await tap(button(container.querySelector('[role="dialog"]')!, t('admin_stock.day.close')));
+      expect(container.textContent).toContain(t('admin_stock.errors.PERMISSION_DENIED'));
+      expect(commands(sent).map((c) => c.url)).toEqual(['/admin/commands/close-business-day']);
+    });
   });
 
   it('[01a §10 #198, 04 §4.5 A-1] Close it and start today: a 409 DAY_CLOSE_BLOCKED on Close sends no OpenBusinessDay and shows the list', async () => {

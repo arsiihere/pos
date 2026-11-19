@@ -29,6 +29,13 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // 04 v1.0.4 §8 Day close blocked (O9): count 1
   'admin_stock.errors.DAY_CLOSE_BLOCKED_one': '1 آئٹم ہٹانے کی درخواست ابھی کھلی ہے — پہلے اس کا جواب دیں',
   'admin_stock.errors.DAY_CLOSE_BLOCKED_more': 'اور {n} مزید',
+  // ⚠️ 01a v2.7 §8.2 (05 row A-5; 05 §3.13).
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_shift_open': '{count} شفٹیں ابھی کھلی ہیں — پہلے انہیں بند کریں',
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_shift_open_one': '1 شفٹ ابھی کھلی ہے — پہلے اسے بند کریں',
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_unbilled_orders': '{count} آرڈرز کا ابھی بل نہیں بنا — پہلے بل بنائیں، منسوخ کریں یا اگلے دن میں لے جائیں',
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_unbilled_orders_one': '1 آرڈر کا ابھی بل نہیں بنا — پہلے بل بنائیں، منسوخ کریں یا اگلے دن میں لے جائیں',
+  'admin_stock.day_close.drawer': 'کیش دراز',
+  'admin_stock.day_close.open_minutes': '{n} منٹ سے کھلا',
   'admin_stock.filter.to_count': 'گننا باقی',
   'admin_stock.badge.low': 'کم',
   'admin_stock.filter.all': 'سب',

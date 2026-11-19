@@ -149,19 +149,22 @@ describe('manage-stock scope my_stations on the stock page and its item commands
     expect((await query(hub, counter, fourth)).json().data.unchanged).toBe(true);
   });
 
-  it('[01b #68] my_stations: OpenBusinessDay and CloseBusinessDay → 403 outside_scope with required_scope branch, no event; scope branch opens and closes as in 01a', async () => {
+  it('[01b #68] my_stations: OpenBusinessDay → 403 outside_scope with required_scope branch, CloseBusinessDay → 403 close-business-day (01a v2.7 row A-5), no event; scope branch opens as in 01a', async () => {
     const hub = await open();
     const manager = adminOn(hub, 'S_MGR');
     const counter = adminOn(hub, 'S_CNT');
     const before = hubEvents(hub);
-    for (const [name, type, id] of [['open-business-day', 'OpenBusinessDay', 'cmd-open-cnt'], ['close-business-day', 'CloseBusinessDay', 'cmd-close-cnt-1']] as const) {
-      const refused = await command(hub, counter, name, type, {}, id);
-      expect(refused.statusCode, refused.body).toBe(403);
-      expect(refused.json().error).toMatchObject({
-        code: 'PERMISSION_DENIED',
-        details: { permission: 'manage-stock', reason: 'outside_scope', required_scope: 'branch' },
-      });
-    }
+    const refused = await command(hub, counter, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-cnt');
+    expect(refused.statusCode, refused.body).toBe(403);
+    expect(refused.json().error).toMatchObject({
+      code: 'PERMISSION_DENIED',
+      details: { permission: 'manage-stock', reason: 'outside_scope', required_scope: 'branch' },
+    });
+    // ⚠️ 01a v2.7 §6.18b (05 row A-5): CloseBusinessDay asks close-business-day (scope branch only), which the counter
+    // does not hold: refused at the permission step, whatever its manage-stock scope.
+    const refusedNoDay = await command(hub, counter, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-cnt-1');
+    expect(refusedNoDay.statusCode, refusedNoDay.body).toBe(403);
+    expect(refusedNoDay.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'close-business-day' } });
     expect(hubEvents(hub)).toBe(before);
 
     // Scope branch: opens; the counter still cannot close the open day.
@@ -171,7 +174,7 @@ describe('manage-stock scope my_stations on the stock page and its item commands
     const afterOpen = hubEvents(hub);
     const refusedClose = await command(hub, counter, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-cnt-2');
     expect(refusedClose.statusCode).toBe(403);
-    expect(refusedClose.json().error.details).toMatchObject({ reason: 'outside_scope', required_scope: 'branch' });
+    expect(refusedClose.json().error.details).toMatchObject({ permission: 'close-business-day' });
     expect(hubEvents(hub)).toBe(afterOpen);
     expect(processed(hub, ['cmd-open-cnt', 'cmd-close-cnt-1', 'cmd-close-cnt-2'])).toBe(0);
   });
