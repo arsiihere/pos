@@ -2,7 +2,7 @@ import type { Permission, SessionKind } from '@pos/domain';
 import type Database from 'better-sqlite3';
 import type { EngineState } from '@pos/engine';
 import type { EventDraft, PosCommand } from '@pos/events';
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { HubConfig } from '../config/schema.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { Clock } from '../lib/clock.js';
@@ -61,6 +61,18 @@ export interface CommandDef<P extends z.ZodType = z.ZodType> {
   stationScoped?: boolean;
   /** 00 v1.8 H-1 (c): only a queueable command reads `X-Queued-At` as `ctx.queuedAt` (default false). */
   queueable?: boolean;
+  /**
+   * 00 v1.12 §3.7 / §4.2 (05 row H-4): dotted payload paths removed before `payload_hash`, beside the `pinCheck`
+   * field. A secret, a government ID, a payment reference or free text is never hashed, stored or echoed: a
+   * `VALIDATION_FAILED` issue at, under or above a listed path carries its path and Zod code only.
+   * Each path must resolve to an object field of `payloadSchema` (through optional / nullable / default; no
+   * array step): `register` refuses any other.
+   * - A refine must not set an issue `path` off an omitted path (e.g. a refine on the payload root reporting at a
+   *   sibling field while echoing an omitted value): that issue keeps its message and the value would be echoed.
+   * - Changing `hashOmit` on a deployed command changes its `payload_hash`: a retry in flight across the upgrade
+   *   (first try stored under the old list) is then refused as `command_id already used`.
+   */
+  hashOmit?: readonly string[];
   /** 00 v1.6 §3.5 / §4.2 H-3: read-only check after payload Zod, before the PIN step; `db` is the read-only view. */
   preRead?(db: Database.Database, payload: z.infer<P>, ctx: PreReadCtx): void;
   /** 00 v1.6 §3.5 H-3: the PIN to verify; `field` is also omitted from `payload_hash` (H-9). */
@@ -97,10 +109,35 @@ export function createCommandRegistry(): {
           `${d.commandType}: permission 'checked-in-handler' is allowed only for HANDLER_CHECKED_COMMANDS (${HANDLER_CHECKED_COMMANDS.join(', ')})`,
         );
       }
+      // 00 v1.12 §3.7 (05 row H-4): a path that is not a payload field (typo, array step) would omit nothing.
+      for (const path of d.hashOmit ?? []) {
+        if (!resolvesToField(d.payloadSchema, path.split('.'))) {
+          throw new Error(`${d.commandType}: hashOmit path '${path}' is not an object field of payloadSchema`);
+        }
+      }
       byName.set(toKebab(d.commandType), d);
     },
     byPath(name) {
       return byName.get(name);
     },
   };
+}
+
+function unwrapped(schema: unknown): unknown {
+  let current = schema;
+  while (current instanceof z.ZodOptional || current instanceof z.ZodNullable || current instanceof z.ZodDefault) {
+    current = current.unwrap();
+  }
+  return current;
+}
+
+/** 05 row H-4: every segment is a key of a (wrapped) `z.object` shape. */
+function resolvesToField(schema: z.ZodType, segments: readonly string[]): boolean {
+  let current: unknown = schema;
+  for (const segment of segments) {
+    const object = unwrapped(current);
+    if (segment.length === 0 || !(object instanceof z.ZodObject) || !Object.hasOwn(object.shape, segment)) return false;
+    current = (object.shape as Record<string, unknown>)[segment];
+  }
+  return segments.length > 0;
 }
