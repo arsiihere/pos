@@ -44,8 +44,9 @@ Binding for the 05 v1.0.2 and P0.2c writers.
 | G-25 | Minor | 4a, compute | No |
 | G-26 | Major | P0.13, client lanes | No |
 | G-27 | Minor | various | No |
+| G-28 | Major | 27, 38 | 05 v1.0.5 (§6.23a `GET /queries/bill-printers`, owner ruling R-27) |
 
-Counts: Blocker 5, Major 12, Minor 10 (27 rows).
+Counts: Blocker 5, Major 12, Minor 10 (27 rows). G-28 (Major) added 2026-11-19 after the sweep: Blocker 5, Major 13, Minor 10 (28 rows).
 
 ## G-1 When a snapshot counts as fiscalized
 Severity: Major. Tasks: 5, 10, 17, 29a/b, 4a.
@@ -164,6 +165,10 @@ Severity: Minor.
 
 Checked and found consistent: `Message.items` (StockApp.tsx:42), the audit seal API, `defineAlertKind` options, hub migrations ending at 0020, `changeDrafts` as sole `OrderCancelled` emitter (`line-change.ts:94-95`), `ReportDocInput` vs 6.26, `PRINT_JOB_NOT_PENDING`, `'shift'` stream type, `hubTime(clock)` utc_offset, `StreamTypeSchema` reuse.
 
+## G-28 No staff read for the Print to picker
+Severity: Major. Tasks: 27 (hub), 38 (client). Found after the sweep (2026-11-19).
+The staff Print to picker (05 §8 Print status, B18, `RetargetBillPrint` §6.23) has to list active printers, but no staff-session read gives that list: 03c's `GET /admin/queries/print-config` and `GET /admin/queries/print-queue` are admin only, and 05 §6.1 `prints[]` carries only `printer_name`. Fix (owner ruling R-27): one staff read in 05, `GET /queries/bill-printers` (05 v1.0.5 §6.23a): `take-order` (any grant; same as `RetargetBillPrint`, R-27 amended), staff session, the branch's active (not archived) printers `{ printers: [{ printer_id, name }] }` ordered by name, 1 statement, no new error code; test #60b. Built with task 27; task 38's picker uses it.
+
 ## Owner rulings on P0.G (2026-11-19, every Rec; board R-6 … R-12)
 
 | Board | Row | Ruling | Lands in |
@@ -179,6 +184,12 @@ Checked and found consistent: `Message.items` (StockApp.tsx:42), the audit seal 
 | R-14 | G-23 (rest) | Built-in `invoice_prefix` = empty; receipt `header_lines` / `footer_lines` = empty; every other built-in default takes its A-1 (3) value: `max_discount_pct` 100, `open_bill_flag_minutes` 240, `stuck_after_ms` 1 800 000, `variance_threshold_minor` 100 major units, `petty_cash_limit_minor` 5 000 major units, receipt show toggles per K-12 (`tax_reg_no`, `address`, `phone`, `cashier`, `order_no`, `bill_no`). | 05 v1.0.2 (A-1 defaults sentence, P0.1b); P0.9b |
 
 Note: R-5 is a board ruling about the integrator rebasing stopped lanes; it is not a P0.G ruling.
+
+## Owner rulings after P0.G
+
+| Board | Row | Ruling | Lands in |
+|---|---|---|---|
+| R-27 | G-28 | (2026-11-19 19:40 PKT) Add one staff read to 05, **`GET /queries/bill-printers`**: permission `take-order` (amended 2026-11-19: permission take-order, same as RetargetBillPrint; was `take-payment`), staff session; the branch's active (not archived) printers as `{ printers: [{ printer_id, name }] }`, ordered by name; 1 statement, no N+1; no new error code beyond the foundation's auth / permission errors. Built with task 27 (hub); client task 38 uses it. | 05 v1.0.5 §6.23a (§8, #60b, §11, §12.2); plan tasks 27, 38 |
 
 ## Owner questions (all settled 2026-11-19)
 
