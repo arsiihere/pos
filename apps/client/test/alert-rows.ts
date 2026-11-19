@@ -9,7 +9,7 @@ export const VOID_CARD: AlertCard = {
   point_code: null,
   requester_name: 'Hamza',
   device_name: null,
-  details: { item: 'Chicken Karahi — Full', quantity: 1, amount: 220_000, reason: 'Customer changed mind' },
+  details: { item: 'Chicken Karahi — Full', quantity: 1, amount: 220_000, reason: 'customer_changed_mind' }, // the hub's form: reason_code[: note] (04 §3.5)
 };
 
 export const MIN = 60_000;

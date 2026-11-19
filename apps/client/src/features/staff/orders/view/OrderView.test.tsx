@@ -150,6 +150,17 @@ afterEach(() => {
 });
 
 describe('[02b §8 Open orders] order view', () => {
+  it('[02b §8] the OrderView block carries data-order="<order_id>" (01d v1.3 §3.13.5), from the first render, once', async () => {
+    const v = setup({ answer: 'order' });
+    current = v.m;
+    // before the read answers: the place exists already
+    const first = v.m.container.querySelectorAll('[data-order="O57"]');
+    expect(first.length).toBe(1);
+    expect((first[0] as HTMLElement).matches('section.tv[role="dialog"]')).toBe(true);
+    await flush();
+    expect(v.m.container.querySelectorAll('[data-order="O57"]').length).toBe(1);
+  });
+
   it('[02b Q-8] order view reads order-view; a 404 route → Served / Not served from the catch-up lines', async () => {
     const fallback = setup({ answer: 'missing' });
     current = fallback.m;

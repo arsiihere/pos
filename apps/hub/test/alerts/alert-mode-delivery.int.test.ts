@@ -244,6 +244,7 @@ describe('01d alert-mode delivery (task 32)', () => {
           lock: { kind_label_key: 'alert.t_info.lock', table_code: '12', point_code: null, requester_name: 'Order taker' },
           raised_at: hub.clock.branchNow(),
           seen_by_me: false, // §8.3 (task 34): a device-target row with no person
+          target: null, // ⚠️ 01d v1.3 §3.13.1 (dl h1): every view carries target; t_info has no link
         },
       ],
       binding_route_until: null,
@@ -441,6 +442,7 @@ describe('01d alert-mode delivery (task 32)', () => {
       lock: { kind_label_key: 'alert.t_approval.lock', table_code: '12', point_code: null, requester_name: 'Order taker' },
       raised_at: hub.clock.branchNow(),
       seen_by_me: false, // §8.3 (task 34): the bound approver has not seen it
+      target: null, // ⚠️ 01d v1.3 §3.13.1 (dl h1): every view carries target; t_approval has no link
     });
     const kWs = await alertSocket(kds);
     expect(ids(kWs)).toEqual(['A_KDS']);

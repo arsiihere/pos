@@ -167,10 +167,12 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
   const inflight = useRef(false);
   const warned = useRef(false);
 
-  const close = () => navigate('/tables');
+  // 01d v1.3.3 §3.13.2 rule 6: a deep-linked sheet's close returns where the tap started (the shell decides)
+  const close = () => (shell.closeRouteSheet === undefined ? navigate('/tables') : shell.closeRouteSheet('/tables'));
   const all = tilesOf(body);
   const tile = all.find((x) => x.table_id === table_id) ?? null;
-  const scrim = phone || portrait ? 'scrim scrim--sheet' : 'scrim scrim--side';
+  // 01d v1.3.3 §3.13.6a: scrim--route puts the sheet under the alert layer (banners, the kiosk Back chip)
+  const scrim = phone || portrait ? 'scrim scrim--sheet scrim--route' : 'scrim scrim--side scrim--route';
   const shownSeating = tile?.seating_id ?? null;
   // T18: the tap carried the tile's seating; once the sheet's own read shows another one, say so (the sheet then
   // acts on what it shows, never on the tap's old seating)
@@ -183,7 +185,7 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
   if (tile === null) {
     return (
       <div className={scrim}>
-        <section className="tv" role="dialog" aria-modal="true" aria-label={t('common.loading')}>
+        <section className="tv" role="dialog" aria-modal="true" data-route-sheet="" aria-label={t('common.loading')}>
           <div className="tv__h">
             <p className="dlg__line">{t('common.loading')}</p>
           </div>
@@ -447,12 +449,14 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
           className="tv"
           role="dialog"
           aria-modal="true"
+          // 01d v1.3.2 §3.13.2 rule 6 (owner Q-A (a)): a route-level screen, not a popup: a banner deep-links from it
+          data-route-sheet=""
           aria-label={`${code} · ${title}`}
           onKeyDown={(e) => {
             if (e.key === 'Escape' && dialog === null) close();
           }}
         >
-          <div className="tv__h">
+          <div className="tv__h" {...(tile.seating_id === null ? {} : { 'data-seating': tile.seating_id })}>
             <div className="tv__hd">
               <span className={`tcode${code.includes('+') ? ' j' : ''}`} dir="ltr">
                 {code}

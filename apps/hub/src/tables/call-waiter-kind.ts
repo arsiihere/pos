@@ -24,5 +24,7 @@ export const callWaiterKind = defineAlertKind({
   silent: false,
   skip_requester: true, // D-3: the caller's own tablet does not ring
   labels: { card: 'alert.call_waiter.card', lock: 'alert.call_waiter.lock' },
+  // ⚠️ Changed by 01d v1.3 (L-4a), 02a v1.1.7 §6.14: the deep-link target, the seating and its table at raise (§3.13.1 row 4, M1)
+  link: (v) => ({ type: 'table', table_id: v.table_id, seating_id: v.seating_id }),
   request: null,
 });

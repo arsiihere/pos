@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dialog, hub, isPhone, LANGS, myTables, pairAs, sheetAct, signIn, signOut, takeOrder, tapTile, tr, type Lang } from './02a-support';
+import { dialog, hub, isPhone, LANGS, myTables, pairAs, sheet, sheetAct, signIn, signOut, takeOrder, tapTile, tr, type Lang } from './02a-support';
 
 // §12.1 "§8 flows pass on a tablet and a phone" — flow 3: Ali hands a table to Sara, who is signed in on another
 // tablet. Sara accepts one table and declines the other; Ali's page shows the answer. Two pages. The answer
@@ -14,17 +14,34 @@ async function handOver(page: Page, lang: Lang, table: string): Promise<void> {
   await expect(dialog(page)).toHaveCount(0);
 }
 
-/** Sara's side: the banner, its Open, the answer sheet (measured), then the answer. */
+/**
+ * Sara's side: the banner, its Open, the answer sheet (measured), then the answer.
+ * ⚠️ 01d v1.3.2 §3.13.2 rule 4 (DL Q-1 (a)): Open now navigates to the table's sheet (#/tables/<table>) and puts the
+ * answer sheet on top of it. Afterwards Sara closes the table sheet, as a person does, and lands back where the tap
+ * started (01d v1.3.3, DL Q-K (c): close returns).
+ */
 async function answer(page: Page, lang: Lang, table: string, choice: 'accept' | 'decline'): Promise<{ accept: number; decline: number }> {
   const banner = page.locator('.abn', { hasText: table });
+  const start = await page.evaluate(() => window.location.hash);
   await banner.getByRole('button', { name: tr(lang, 'alerts.open') }).click();
-  const sheetBox = page.locator('[role="dialog"]').filter({ hasText: table });
+  await expect(page).toHaveURL(new RegExp(`#/tables/${table}\\?seating_id=`));
+  await expect(sheet(page)).toBeVisible();
+  // the answer sheet (the `.dlg` popup), not the table sheet route behind it, which is a dialog too
+  const sheetBox = page.locator('.dlg[role="dialog"]').filter({ hasText: table });
   const accept = sheetBox.getByRole('button', { name: tr(lang, 'answer.accept') });
   const decline = sheetBox.getByRole('button', { name: tr(lang, 'answer.decline') });
   await expect(accept).toBeVisible();
   const height = async (b: typeof accept): Promise<number> => (await b.boundingBox())?.height ?? 0;
   const sizes = { accept: await height(accept), decline: await height(decline) };
   await (choice === 'accept' ? accept : decline).click();
+  // the answer is sent once its buttons are gone; then any answered sheet, then the table sheet, are closed
+  await expect(accept).toHaveCount(0);
+  if ((await page.locator('.dlg[role="dialog"]').count()) > 0) await page.keyboard.press('Escape');
+  await expect(page.locator('.dlg[role="dialog"]')).toHaveCount(0);
+  await sheet(page).getByRole('button', { name: tr(lang, 'common.close') }).click();
+  await expect(sheet(page)).toHaveCount(0);
+  // 01d v1.3.3 (DL Q-K (c)): closing the sheet a deep link opened returns to where the tap started
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(start);
   return sizes;
 }
 

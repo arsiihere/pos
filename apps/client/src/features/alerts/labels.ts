@@ -1,8 +1,9 @@
-import type { AlertFamily } from '@pos/domain';
+import { VOID_REASON_CODES, type AlertFamily, type VoidReasonCode } from '@pos/domain';
 import type { AlertCard, AlertDetails, AlertLock, RequestOutcome, WsAlertClosed } from '@pos/events';
 import { t, type MessageKey } from '../../i18n';
 import { en, fill } from '../../i18n/en';
 import { shownRupees } from '../owner/money';
+import { REASON_KEY } from '../voids/model';
 import { isSilent } from './sounds';
 // 03b W0.6 (Q-58, Q-66): the 03b / 03c kinds' texts (lane A's file; it imports nothing from here)
 import { closedText03b, is03bKind, text03b, title03b } from './labels-03b';
@@ -111,15 +112,33 @@ export function lockText(a: Labelled): string {
   return textOf(a, 'lock');
 }
 
+/**
+ * 04 v1.0.5 §8 / §3.5 (dl cs13): `details.reason` is `reason_code[: note]` on a void card. A V12 code reads through
+ * the existing `void.reason.*` labels, the note after it; an unknown code on a void card reads as the generic
+ * "Other" (never the raw string). Any other reason (a comp's chip text, 02b Q-19; a closer's note) is shown as stored.
+ */
+export function reasonText(reason: string | null | undefined, card: { kind_label_key: string } | null | undefined): string | null {
+  if (reason === null || reason === undefined || reason === '') return null;
+  const at = reason.indexOf(': ');
+  const code = at < 0 ? reason : reason.slice(0, at);
+  const note = at < 0 ? null : reason.slice(at + 2);
+  const known = (VOID_REASON_CODES as readonly string[]).includes(code);
+  const voidCard = card?.kind_label_key.startsWith('alert.void_approval.') === true;
+  if (!known && !voidCard) return reason;
+  const words = t(known ? REASON_KEY[code as VoidReasonCode] : 'void.reason.other');
+  return note === null || note === '' ? words : fill(t('audit.reason.with_note'), { reason: words, note });
+}
+
 /** §3.12 card only: "Chicken Karahi — Full ×1 · Rs 2,200 · “Customer changed mind”". */
-export function detailsText(details: AlertDetails | null | undefined): string | null {
+export function detailsText(details: AlertDetails | null | undefined, card?: { kind_label_key: string } | null): string | null {
   if (details === null || details === undefined) return null;
   const parts: string[] = [];
   // 03a §3.8 slip_warning (AD-37 (3)): "≈ N min late", against the engine target
   if (details.minutes_late !== undefined) parts.push(fill(t('alerts.minutes_late'), { n: String(details.minutes_late) }));
   if (details.item !== undefined) parts.push(details.quantity !== undefined ? `${details.item} ×${details.quantity}` : details.item);
   if (details.amount !== undefined) parts.push(fill(t('alerts.amount'), { amount: shownRupees(details.amount) }));
-  if (details.reason !== undefined && details.reason !== '') parts.push(`“${details.reason}”`);
+  const reason = reasonText(details.reason, card);
+  if (reason !== null) parts.push(`“${reason}”`);
   return parts.length === 0 ? null : parts.join(' · ');
 }
 
