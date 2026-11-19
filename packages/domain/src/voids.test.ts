@@ -9,13 +9,14 @@ import {
 } from './voids';
 
 describe('void constants', () => {
-  it('[04 §4.4] VOID_REASON_CODES holds the five reasons exactly', () => {
+  it('[04 §4.4] VOID_REASON_CODES holds the six reasons exactly (+ walk_out, 05 row V-2)', () => {
     expect(VOID_REASON_CODES).toStrictEqual([
       'customer_changed_mind',
       'wrong_order_taken',
       'too_late',
       'quality',
       'other',
+      'walk_out',
     ]);
   });
 
@@ -25,7 +26,7 @@ describe('void constants', () => {
 
   it('[04 §4.4] the types are the literal unions of §4.4', () => {
     expectTypeOf<VoidReasonCode>().toEqualTypeOf<
-      'customer_changed_mind' | 'wrong_order_taken' | 'too_late' | 'quality' | 'other'
+      'customer_changed_mind' | 'wrong_order_taken' | 'too_late' | 'quality' | 'other' | 'walk_out'
     >();
     expectTypeOf<VoidDisposition>().toEqualTypeOf<'moved' | 'wastage' | 'staff_meal' | 'other'>();
     expectTypeOf<VoidBlock>().toEqualTypeOf<

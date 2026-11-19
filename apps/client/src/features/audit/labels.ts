@@ -11,9 +11,9 @@ import type { AuditIconName } from './icons';
 
 export type AuditTone = 'danger' | 'info' | 'ok' | 'warn' | 'mute' | 'brand';
 
-export type AuditGroup = 'voids_comps' | 'requests' | 'orders_tables' | 'day_stock' | 'kitchen' | 'screens_pins';
+export type AuditGroup = 'voids_comps' | 'requests' | 'orders_tables' | 'day_stock' | 'kitchen' | 'screens_pins' | 'bills_payments' | 'shifts_cash';
 
-export const AUDIT_GROUPS: readonly AuditGroup[] = ['voids_comps', 'requests', 'orders_tables', 'day_stock', 'kitchen', 'screens_pins'];
+export const AUDIT_GROUPS: readonly AuditGroup[] = ['voids_comps', 'requests', 'orders_tables', 'day_stock', 'kitchen', 'screens_pins', 'bills_payments', 'shifts_cash'];
 
 interface ActionMeta {
   group: AuditGroup;
@@ -62,6 +62,40 @@ export const ACTION_META: Record<AuditAction, ActionMeta> = {
   device_paired: { group: 'screens_pins', tone: 'info', icon: 'tablet' },
   device_revoked: { group: 'screens_pins', tone: 'danger', icon: 'tablet' },
   pairing_token_generated: { group: 'screens_pins', tone: 'info', icon: 'tablet' },
+  // Bills and payments (05 row V-3, R-28)
+  bill_opened: { group: 'bills_payments', tone: 'info', icon: 'list' },
+  check_bill_printed: { group: 'bills_payments', tone: 'mute', icon: 'list' },
+  bill_requested: { group: 'bills_payments', tone: 'info', icon: 'hourglass' },
+  splits_set: { group: 'bills_payments', tone: 'info', icon: 'list' },
+  discount_requested: { group: 'bills_payments', tone: 'brand', icon: 'hourglass' },
+  discount_answered: { group: 'bills_payments', tone: 'info', icon: 'shield' },
+  discount_applied: { group: 'bills_payments', tone: 'brand', icon: 'check' },
+  discount_removed: { group: 'bills_payments', tone: 'warn', icon: 'undo' },
+  service_charge_applied: { group: 'bills_payments', tone: 'info', icon: 'check' },
+  service_charge_removed: { group: 'bills_payments', tone: 'warn', icon: 'undo' },
+  payment_added: { group: 'bills_payments', tone: 'ok', icon: 'check' },
+  payment_removed: { group: 'bills_payments', tone: 'danger', icon: 'trashx' },
+  buyer_id_waived: { group: 'bills_payments', tone: 'warn', icon: 'shield' },
+  invoice_issued: { group: 'bills_payments', tone: 'ok', icon: 'list' },
+  bill_reopened: { group: 'bills_payments', tone: 'warn', icon: 'undo' },
+  invoice_credited: { group: 'bills_payments', tone: 'danger', icon: 'undo' },
+  fiscal_rejected: { group: 'bills_payments', tone: 'danger', icon: 'x' },
+  fiscal_token_changed: { group: 'bills_payments', tone: 'warn', icon: 'lock' },
+  comp_removed: { group: 'bills_payments', tone: 'warn', icon: 'gift' },
+  bill_closed_empty: { group: 'bills_payments', tone: 'mute', icon: 'x' },
+  money_request_raised: { group: 'bills_payments', tone: 'brand', icon: 'hourglass' },
+  money_request_answered: { group: 'bills_payments', tone: 'info', icon: 'shield' },
+  // Shifts and cash (05 row V-3, R-28)
+  shift_opened: { group: 'shifts_cash', tone: 'ok', icon: 'clock' },
+  shift_counted: { group: 'shifts_cash', tone: 'info', icon: 'check' },
+  shift_count_skipped: { group: 'shifts_cash', tone: 'warn', icon: 'x' },
+  handover_counted: { group: 'shifts_cash', tone: 'info', icon: 'user' },
+  shift_closed: { group: 'shifts_cash', tone: 'mute', icon: 'clock' },
+  shift_variance_signed_off: { group: 'shifts_cash', tone: 'warn', icon: 'shield' },
+  petty_cash: { group: 'shifts_cash', tone: 'warn', icon: 'box' },
+  drawer_opened: { group: 'shifts_cash', tone: 'warn', icon: 'box' },
+  orders_carried_over: { group: 'shifts_cash', tone: 'info', icon: 'cal' },
+  z_report_issued: { group: 'shifts_cash', tone: 'ok', icon: 'list' },
 };
 
 /** The actions of a group, in AUDIT_ACTIONS order except the two drawn groups (frame order). */
