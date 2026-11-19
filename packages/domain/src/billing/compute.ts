@@ -414,6 +414,8 @@ interface ExactTotals {
   discount: bigint;
   net: bigint;
   sc: bigint;
+  /** The profile the charge is taxed under; null = untaxed (none, tax disabled or unresolved). */
+  scProfile: string | null;
   taxes: Array<Omit<ComputeTaxRow, 'base_minor' | 'tax_minor'> & { base: bigint; tax: bigint }>;
   exact: bigint;
 }
@@ -510,7 +512,7 @@ function exactAt(
     });
   }
   const exact = net + scAmount + rows.reduce((s, x) => s + x.tax, 0n);
-  return { subtotal, discount, net, sc: scAmount, taxes: rows, exact };
+  return { subtotal, discount, net, sc: scAmount, scProfile, taxes: rows, exact };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -669,6 +671,135 @@ export function computeSplit(input: ComputeSplitInput): ComputeSplitResult {
   checkPayments(input.payments);
   const res = resolveProfiles(input.tax_profiles, input.rules, input.business_date);
   return splitResult(input, res);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Per-line tax spread (§6.12 step 6, J-2; 05-gaps G-8)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** One tax of a line or of the service charge (§6.12 `InvoiceIssued.lines[].taxes[]`, `service_charge.taxes[]`). */
+export interface ComputeSpreadTax {
+  tax_code: string;
+  payment_class: PaymentClass;
+  rate_bp: number;
+  /** R-19: the line's (or the charge's) taxable base for this tax. */
+  base_minor: number;
+  tax_minor: number;
+}
+
+export interface ComputeLineTaxes {
+  /** The split's class (§3.5 (5)); every tax below is at its rates. */
+  payment_class: PaymentClass;
+  /** One entry per input line, in input order; an untaxed, unresolved or deal-part line has no taxes. */
+  lines: Array<{ order_item_id: string; taxes: ComputeSpreadTax[] }>;
+  /**
+   * Null when there is no applied charge or its amount is 0 (R-21). `tax_profile_id` is the profile the charge is taxed under: null (no taxes)
+   * when it is untaxed, tax is disabled, or its profile is unresolved (then the close is blocked, #13b).
+   */
+  service_charge: null | { amount_minor: number; tax_profile_id: string | null; taxes: ComputeSpreadTax[] };
+}
+
+/**
+ * §6.12 step 6 (J-2), owner rulings R-18 / R-19 (2026-11-19, 05-gaps G-8). Per (profile, tax) row of the split's
+ * as-paid totals:
+ * - the service charge's part (R-18) is rounded on its own: `round_half_up(B × r / 10000)`, B = the charge amount
+ *   for a simple tax, plus the charge's earlier parts of the profile for a compound one; it is `service_charge.taxes`,
+ *   never in the lines;
+ * - the lines get the row − the charge's part, spread over the profile's lines by line net (base − discount share)
+ *   with `apportionMinor`; Σ lines + the charge = the row exactly;
+ * - R-20, inclusive mode: the rows are spread in seq order with `allocateCappedMinor` over each line's headroom
+ *   (line net − its taxes of the profile so far), so a line's taxes never exceed its net.
+ * Bases (R-19): exclusive → line net; inclusive → line net − Σ the line's taxes of the profile; compound → plus the
+ * line's earlier taxes of the profile (seq order). The charge is never tax-inclusive (§3.5 (4)): its base is its
+ * amount, plus its earlier parts for a compound tax. Σ bases + the charge's = the row's base. Pure.
+ */
+export function spreadLineTaxes(input: ComputeSplitInput): ComputeLineTaxes {
+  const split = computeSplit(input);
+  const k = split.payment_class;
+  const { rules, lines, service_charge: sc } = input;
+  const res = resolveProfiles(input.tax_profiles, rules, input.business_date);
+  const e = exactAt(k, lines, sc, rules, res);
+  const out: ComputeLineTaxes['lines'] = lines.map((l) => ({ order_item_id: l.order_item_id, taxes: [] }));
+  const scTaxes: ComputeSpreadTax[] = [];
+
+  const profiles: string[] = [];
+  for (const row of e.taxes) if (!profiles.includes(row.tax_profile_id)) profiles.push(row.tax_profile_id);
+  for (const profile of profiles) {
+    const rows = e.taxes.filter((row) => row.tax_profile_id === profile);
+    const idx: number[] = [];
+    lines.forEach((l, i) => {
+      if (lineProfile(l, rules) === profile) idx.push(i);
+    });
+    const nets = idx.map((i) => BigInt((lines[i] as ComputeSplitLine).base_minor) - BigInt((lines[i] as ComputeSplitLine).discount_minor));
+    const charged = e.sc > 0n && profile === e.scProfile;
+
+    // R-18: the charge's part per row, rounded on its own; the lines' taxes = the rest, spread by line net.
+    // R-20: in inclusive mode a line's taxes of the profile never exceed its net — each row (seq order) is spread
+    // with the capped allocator over each line's headroom (net − its taxes of the profile so far).
+    let chargeEarlier = 0n;
+    const chargeParts: bigint[] = [];
+    const lineTaxes: bigint[][] = []; // [row][line]
+    const headroom = [...nets];
+    for (const row of rows) {
+      const r = BigInt(row.rate_bp);
+      const part = charged ? halfUp((e.sc + (row.compound ? chargeEarlier : 0n)) * r, BP) : 0n;
+      // Dead invariant: the charge's own rounding on a part of the row's base never exceeds the row (part ≤ row).
+      if (part > row.tax) fail(`spreadLineTaxes: the charge part exceeds the ${profile}/${row.tax_code} row`);
+      chargeParts.push(part);
+      chargeEarlier += part;
+      if (idx.length === 0) {
+        lineTaxes.push([]);
+        continue;
+      }
+      if (!rules.prices_include_tax) {
+        lineTaxes.push(apportionBig(row.tax - part, nets));
+        continue;
+      }
+      // Invariant: Σ headroom ≥ the lines' part, because Σ the lines' parts over the rows = TI_p ≤ A_p (§3.5 (3)).
+      const room = headroom.reduce((a, b) => a + b, 0n);
+      if (row.tax - part > room) fail(`spreadLineTaxes: invariant — the ${profile}/${row.tax_code} lines' tax exceeds their headroom`);
+      const shares = cappedBig(row.tax - part, headroom);
+      shares.forEach((x, j) => (headroom[j] = (headroom[j] as bigint) - x));
+      lineTaxes.push(shares);
+    }
+
+    // R-19: bases.
+    const spread = (base: bigint, tax: bigint, row: (typeof rows)[number]): ComputeSpreadTax => {
+      // Dead invariant: R-20 keeps a line's inclusive taxes ≤ its net, so no base is negative.
+      if (base < 0n) fail(`spreadLineTaxes: a negative base on ${profile}/${row.tax_code}`);
+      return {
+        tax_code: row.tax_code,
+        payment_class: k,
+        rate_bp: row.rate_bp,
+        base_minor: toSafe('spread base', base),
+        tax_minor: toSafe('spread tax', tax),
+      };
+    };
+    idx.forEach((i, j) => {
+      const own = lineTaxes.map((t) => t[j] as bigint);
+      const net = (nets[j] as bigint) - (rules.prices_include_tax ? own.reduce((a, b) => a + b, 0n) : 0n);
+      let earlier = 0n;
+      rows.forEach((row, q) => {
+        const tax = own[q] as bigint;
+        (out[i] as ComputeLineTaxes['lines'][number]).taxes.push(spread(net + (row.compound ? earlier : 0n), tax, row));
+        earlier += tax;
+      });
+    });
+    if (charged) {
+      let earlier = 0n;
+      rows.forEach((row, q) => {
+        const tax = chargeParts[q] as bigint;
+        scTaxes.push(spread(e.sc + (row.compound ? earlier : 0n), tax, row));
+        earlier += tax;
+      });
+    }
+  }
+  return {
+    payment_class: k,
+    lines: out,
+    // R-21: an applied charge of 0 (rate 0 or net 0) is no charge, as removed / absent.
+    service_charge: e.sc > 0n ? { amount_minor: toSafe('service charge', e.sc), tax_profile_id: e.scProfile, taxes: scTaxes } : null,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
