@@ -51,6 +51,11 @@ const checkpoint = (db: Database.Database, projection: string) => db.prepare('SE
 
 /** Back to a pre-0019 hub: the column gone, 0019 not applied; every projection and checkpoint as it was. */
 function toPre0019(db: Database.Database): void {
+  // 0021 (02b v1.0.16, 05 Q-1 / Q-5 / Q-6, R-7 / R-17) re-adds these and orders_token_day / orders_bill_key
+  db.exec('DROP INDEX orders_bill_key; DROP INDEX orders_token_day');
+  db.exec('CREATE UNIQUE INDEX orders_token ON orders (business_date, token) WHERE token IS NOT NULL');
+  db.exec('ALTER TABLE orders DROP COLUMN bill_key; ALTER TABLE orders DROP COLUMN carried_over');
+  db.exec('ALTER TABLE order_lines DROP COLUMN unit_price_minor; ALTER TABLE order_lines DROP COLUMN tax_profile_id');
   db.exec('ALTER TABLE order_lines DROP COLUMN option_quantity'); // 0020 (02b v1.0.13, 04 Q-19) re-adds it
   db.exec('ALTER TABLE order_lines DROP COLUMN station_id');
   db.prepare('DELETE FROM migration_checksums WHERE version >= 19').run();
@@ -104,8 +109,8 @@ describe('[02b #51] hub migration 0019_order_line_station (02b v1.0.12 §5; 04 Q
     expect(checkpoint(copy, 'orders')).toBe(maxSeq);
     expect(checkpoint(copy, 'kitchen_tickets')).toBe(maxSeq);
     // 0019 applied on the copy before boot: the orders row is gone, the forward-only kitchen_tickets row is still there.
-    // (02b v1.0.13: 0020 runs after it, and deletes the orders row too)
-    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0020_order_line_option_quantity.sql']);
+    // (02b v1.0.13: 0020 runs after it, and deletes the orders row too; 02b v1.0.16: so does 0021)
+    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0020_order_line_option_quantity.sql', '0021_orders_billing.sql']);
     expect(checkpoint(copy, 'orders')).toBeUndefined();
     expect(checkpoint(copy, 'kitchen_tickets'), '0019 keeps the kitchen_tickets checkpoint row').toBe(maxSeq);
     copy.close();
@@ -114,7 +119,7 @@ describe('[02b #51] hub migration 0019_order_line_station (02b v1.0.12 §5; 04 Q
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(20);
+    expect(db.pragma('user_version', { simple: true })).toBe(21);
     const after = db.prepare('SELECT event_type FROM events WHERE seq > ? ORDER BY seq').pluck().all(maxSeq);
     expect(after[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(rowsOf(db), 'every old line has its station_id; rows equal the fresh fold').toEqual(live);

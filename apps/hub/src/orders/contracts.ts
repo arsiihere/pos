@@ -58,6 +58,13 @@ export interface LineView {
    * `[{ name, quantity }]`, payload order); `[]` when NULL.
    */
   options: Array<{ name: string; quantity: number }>;
+  /** ⚠️ 02b v1.0.16 §4.2 (05 row Q-1): `order_lines.tax_profile_id` (= ItemAdded.tax_class_id); NULL = untaxed item */
+  tax_profile_id: string | null;
+  /**
+   * ⚠️ 02b v1.0.16 §4.2 (05 R-7, R-17): `order_lines.unit_price_minor` = round_half_up(line_total_minor ÷ units);
+   * NULL while a weight is pending; 0 on a deal_part
+   */
+  unit_price_minor: number | null;
 }
 
 /**

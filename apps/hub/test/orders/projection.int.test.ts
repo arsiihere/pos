@@ -105,6 +105,8 @@ describe('[02b §5] orders projection folds', () => {
       billed_at: null,
       day_closed_at: null,
       sent_after_reconnect: 0,
+      bill_key: null, // ⚠️ 02b v1.0.16 (05 row Q-6, migration 0021); folded by P0.13
+      carried_over: 0, // ⚠️ 02b v1.0.16 (05 row Q-5, migration 0021)
     });
     expect(order(take.order_id)).toMatchObject({ order_type: 'takeaway', table_key: `takeaway:${take.order_id}`, token: 1, placed_by: 'S_CASH', follow_up: 0 });
     expect(order(park.order_id)).toMatchObject({ order_type: 'parking', table_key: 'parking:LEB77', car_number: 'leb-77', car_type: 'sedan', token: null });

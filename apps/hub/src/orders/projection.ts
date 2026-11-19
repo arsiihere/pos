@@ -85,14 +85,14 @@ function applyOrders(tx: Database.Database, event: PosEvent): void {
       return;
     }
     case 'LineWeightSet': {
-      // §3.4 Weights / §6.19: the weighed line starts at 0; refundable_minor = line_total_minor.
+      // §3.4 Weights / §6.19: the weighed line starts at 0; refundable_minor = line_total_minor. ⚠️ Changed by 05
+      // (R-7, R-17): unit_price_minor = round_half_up(line_total_minor ÷ units); only item lines are weighed
+      // (set-line-weight) and a weighed line has 1 unit, so it is the weighed total (§3.4; same statement).
       const p = event.payload as LineWeightSetPayload;
-      tx.prepare('UPDATE order_lines SET quantity = ?, line_total_minor = ?, refundable_minor = ? WHERE order_item_id = ?').run(
-        p.quantity,
-        p.line_total_minor,
-        p.line_total_minor,
-        p.order_item_id,
-      );
+      tx.prepare(
+        `UPDATE order_lines SET quantity = ?, line_total_minor = ?, refundable_minor = ?, unit_price_minor = ?
+         WHERE order_item_id = ?`,
+      ).run(p.quantity, p.line_total_minor, p.line_total_minor, p.line_total_minor, p.order_item_id);
       return;
     }
     case 'LineComped': {
@@ -181,8 +181,8 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
   const inserted = tx.prepare(
     `INSERT INTO order_lines (order_item_id, order_id, parent_order_item_id, line_kind, item_id, deal_id, name, sale_unit,
                               quantity, units, line_total_minor, refundable_minor, return_of, served_from_zone_id, added_at,
-                              is_food, kitchen_note, options_json, station_id, option_quantity)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              is_food, kitchen_note, options_json, station_id, option_quantity, tax_profile_id, unit_price_minor)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (order_item_id) DO NOTHING`,
   ).run(
     p.order_item_id,
@@ -208,6 +208,10 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
     p.station_id,
     // ⚠️ Changed by v1.0.13 (owner 2026-11-12, 04 Q-19): the §3.4 cascade's null-quantity child rule reads it.
     p.option_quantity,
+    // ⚠️ Changed by 05 (row Q-1): the item's tax profile (the event field keeps its name); NULL = untaxed.
+    p.tax_class_id,
+    // ⚠️ Changed by 05 (R-7, R-17): per line kind from its own line_total_minor and units; NULL while a weight is pending.
+    unitPriceMinor(p.line_total_minor, units),
   );
   if (inserted.changes === 1 && zoneServed && p.item_id !== null) {
     tx.prepare('UPDATE zone_stock SET on_hand = on_hand - ? WHERE zone_id = ? AND item_id = ?').run(units, p.served_from_zone_id, p.item_id);
@@ -223,6 +227,18 @@ function lineUnits(tx: Database.Database, p: ItemAddedPayload): number {
   }
   if (p.sale_unit !== 'piece' || p.quantity === null) return 1;
   return p.quantity;
+}
+
+// ⚠️ Changed by 05 (R-7, R-17), 02b v1.0.16 §5: round_half_up(line_total_minor ÷ units) in integers,
+// floor((2 × t + u) ÷ (2 × u)) (BigInt, as shareOf). NULL while a weight is pending (no total); a deal_part (total 0) = 0;
+// item, deal and option_child lines from their own total and units. Totals are never negative (01c §3.4.4).
+function unitPriceMinor(line_total_minor: number | null, units: number): number | null {
+  // units < 1 never reaches the fold (the command schema has quantity ≥ 1); NULL rather than a BigInt RangeError, so a
+  // seq-0 refold can never stop the hub at boot.
+  if (line_total_minor === null || units < 1) return null;
+  const t = BigInt(line_total_minor);
+  const u = BigInt(units);
+  return Number((2n * t + u) / (2n * u));
 }
 
 // §3.4 Refundable amount: line_total_minor for item / option_child (0 while a weight is pending, LineWeightSet sets
