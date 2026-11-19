@@ -153,8 +153,8 @@ describe('owner menu read', () => {
       },
     ]);
     expect(first.tax_classes).toEqual([
-      { tax_class_id: 'TX-0', name: 'Old', rate_bp: 500, archived_at: 7 },
-      { tax_class_id: 'TX-1', name: 'Standard', rate_bp: 1600, archived_at: null },
+      { tax_class_id: 'TX-0', name: 'Old', rate_bp: 500, fiscal_category: null, archived_at: 7 }, // R-31
+      { tax_class_id: 'TX-1', name: 'Standard', rate_bp: 1600, fiscal_category: null, archived_at: null },
     ]);
     expect(first.categories).toEqual([
       { category_id: 'CT-0', name: 'Old', sort_order: 0, archived_at: 9, availability_windows: [], goes_with: [] },

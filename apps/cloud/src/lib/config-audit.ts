@@ -24,7 +24,8 @@ export type AuditEntity =
   | 'stock_item_branch'
   | 'modifier_group'
   | 'deal'
-  | 'deal_branch';
+  | 'deal_branch'
+  | 'billing_settings'; // 05 row A-1 (4), 01a v2.6 §6.25 (0014)
 export type AuditAction =
   | 'create'
   | 'update'

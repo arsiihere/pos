@@ -107,13 +107,13 @@ describe('tax classes and categories', () => {
     const created = await post('/v1/admin/tax-classes', { name: ' GST ', rate_bp: 1600 });
     expect(created.statusCode).toBe(201);
     const gst = created.json().data.tax_class;
-    expect(gst).toEqual({ tax_class_id: expect.any(String), name: 'GST', rate_bp: 1600, archived_at: null });
+    expect(gst).toEqual({ tax_class_id: expect.any(String), name: 'GST', rate_bp: 1600, fiscal_category: null, archived_at: null }); // R-31
     expect(await versions()).toEqual(before.map((v) => v + 1));
     expect(await auditRows('tax_class')).toEqual([
       { entity_id: gst.tax_class_id, branch_id: null, action: 'create', before: null, after: gst },
     ]);
     for (const snapshot of await snapshots()) {
-      expect(snapshot.tax_classes).toEqual([{ tax_class_id: gst.tax_class_id, name: 'GST', rate_bp: 1600, is_archived: false }]);
+      expect(snapshot.tax_classes).toEqual([{ tax_class_id: gst.tax_class_id, name: 'GST', rate_bp: 1600, is_archived: false, fiscal_category: null }]); // R-31
     }
 
     const patched = await patch(`/v1/admin/tax-classes/${gst.tax_class_id}`, { rate_bp: 1800 });

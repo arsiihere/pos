@@ -107,7 +107,7 @@ const PAYE: MenuItem = {
   ],
 };
 const CATEGORY = { category_id: 'C1', name: 'Breakfast', sort_order: 1, archived_at: null, availability_windows: [], goes_with: [] };
-const TAX = { tax_class_id: 'X1', name: 'PRA cash', rate_bp: 1600, archived_at: null };
+const TAX = { tax_class_id: 'X1', name: 'PRA cash', rate_bp: 1600, fiscal_category: null, archived_at: null };
 const SLOT = {
   station_id: 'S1',
   name: 'Tandoor',

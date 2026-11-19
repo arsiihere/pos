@@ -1,3 +1,5 @@
+import { defaultBillingSettings } from '@pos/events';
+
 // Tenant B's ids that a ROUTE_CASES entry may name in its path or payload.
 export interface BIds {
   tenantId: string;
@@ -196,6 +198,13 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   'PATCH /v1/admin/branches/:branch_id': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}`, payload: { name: 'Gulberg' } }),
   'GET /v1/admin/branches/:branch_id/settings': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/settings` }),
   'PATCH /v1/admin/branches/:branch_id/settings': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/settings`, payload: { expected_version: 'v', tax_enabled: true } }),
+  // 05 row A-1 (4) (01a v2.6 §6.25, §6.26; C7): a schema-valid document, so the branch guard answers.
+  'GET /v1/admin/branches/:branch_id/billing': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/billing` }),
+  'PUT /v1/admin/branches/:branch_id/billing': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/billing`,
+    payload: { expected_version: 'v', ...defaultBillingSettings({ currency_code: 'PKR', currency_exponent: 2 }) },
+  }),
+  'GET /v1/admin/jurisdictions': () => ({ url: '/v1/admin/jurisdictions?jurisdiction_id=PK' }),
   'GET /v1/admin/branches/:branch_id/responsibilities': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/responsibilities` }),
   'GET /v1/admin/branches/:branch_id/team-tree': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/team-tree` }),
   'PUT /v1/admin/branches/:branch_id/responsibilities': (ids) => ({

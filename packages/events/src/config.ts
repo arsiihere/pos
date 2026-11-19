@@ -1,5 +1,15 @@
-import type { MenuLineDeal, MenuLineGroup, MenuLineItem } from '@pos/domain';
+import {
+  CREDIT_SUPPORT,
+  MIXED_CLASS_RULES,
+  PAYMENT_CLASSES,
+  ROUNDING_APPLIES_TO,
+  ROUNDING_METHODS,
+  type MenuLineDeal,
+  type MenuLineGroup,
+  type MenuLineItem,
+} from '@pos/domain';
 import { z } from 'zod';
+import { BillingSettings } from './admin/billing.js';
 import { DirectorySchema } from './directory.js';
 
 // 01a §4.3 (Changed by 03a v1.0, 02a v1.0 A-1, 02b v1.0 A-1), 01c §4.6 (V12): the branch config snapshot is schema 4.
@@ -60,6 +70,8 @@ const TaxClassesSchema = z.array(
     name: z.string(),
     rate_bp: int,
     is_archived: z.boolean(),
+    // ⚠️ R-31 (01a v2.7; 05 row A-1 (1)): optional within schema 4 (R29); the cloud builder always sends it.
+    fiscal_category: z.string().nullable().optional(),
   }),
 );
 
@@ -293,7 +305,7 @@ const BranchConfigSnapshotSchemaV3Shape = SnapshotBase.extend({
 // schema (S28 b).
 const v3Shape = BranchConfigSnapshotSchemaV3Shape.shape;
 
-export const BranchConfigSnapshotSchemaV4 = BranchConfigSnapshotSchemaV3Shape.extend({
+const BranchConfigSnapshotSchemaV4Base = BranchConfigSnapshotSchemaV3Shape.extend({
   floors: z.array(
     baseShape.floors.element.extend({
       zones: z.array(
@@ -321,6 +333,78 @@ export const BranchConfigSnapshotSchemaV4 = BranchConfigSnapshotSchemaV3Shape.ex
     ready_window_ms: int.optional(),
     kds_offline_ms: int.optional(),
   }),
+});
+
+// ⚠️ Changed by 05 (row A-1 (5), 01a v2.6 §4.3): the optional `billing` key, no snapshot version bump (R29):
+// the branch billing settings document (A-1 (3)), `jurisdiction` (every effective_from rule row, the branch
+// overrides applied) and `tax_profiles` (per tax class, catalog + rate overrides resolved, every effective_from row;
+// under a jurisdiction with no profile rows one tax at the class's rate_bp). Absent → the hub's built-in defaults
+// (apps/hub/src/billing/defaults.ts). The rule's `receipt` is the catalog's receipt_fiscal with null mapped
+// (G-3). Only `higher_rate` parses (row A-2, H16-10).
+const isoDate = z.iso.date();
+
+export const SnapshotBillingRuleSchema = z.object({
+  effective_from: isoDate,
+  prices_include_tax: z.boolean(),
+  rounding_step_minor: int.min(1).nullable(),
+  rounding_mode: z.enum(ROUNDING_METHODS),
+  rounding_applies_to: z.enum(ROUNDING_APPLIES_TO),
+  mixed_class_rule: z.enum(MIXED_CLASS_RULES),
+  buyer_id: z.object({
+    threshold_minor: int.min(0).nullable(),
+    accepted_types: z.array(z.object({ type: z.string(), label: z.string(), pattern: z.string(), strip: z.string() })),
+  }),
+  receipt: z.object({
+    fiscal_number_label: z.string().nullable(),
+    tax_reg_labels: z.array(z.object({ code: z.string(), label: z.string() })),
+    show_qr: z.boolean(),
+    qr_url_template: z.string().nullable(),
+    buyer_id_on_receipt: z.boolean(),
+  }),
+  catch_up_window_ms: int.min(0).nullable(),
+  credit_support: z.enum(CREDIT_SUPPORT),
+  ref: z.string().nullable(),
+});
+
+export const SnapshotBillingSchema = BillingSettings.extend({
+  jurisdiction: z.object({
+    jurisdiction_id: z.string(),
+    adapter_key: z.string(),
+    currency_code: z.string(),
+    currency_exponent: int.min(0),
+    rules: z.array(SnapshotBillingRuleSchema),
+  }),
+  tax_profiles: z.array(
+    z.object({
+      tax_class_id: z.string(),
+      taxes: z
+        .array(
+          z.object({
+            seq: int.min(1).max(4),
+            tax_code: z.string(),
+            label: z.string(),
+            compound: z.boolean(),
+            rates: z.array(
+              z.object({
+                payment_class: z.enum(PAYMENT_CLASSES),
+                integration_status: z.enum(['integrated', 'not_integrated']),
+                effective_from: isoDate,
+                rate_bp: int.min(0).max(10_000),
+                ref: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .max(4),
+    }),
+  ),
+});
+
+export type SnapshotBillingRule = z.infer<typeof SnapshotBillingRuleSchema>;
+export type SnapshotBilling = z.infer<typeof SnapshotBillingSchema>;
+
+export const BranchConfigSnapshotSchemaV4 = BranchConfigSnapshotSchemaV4Base.extend({
+  billing: SnapshotBillingSchema.optional(),
 });
 
 // 03b §4.5 A-1: the hub defaults of the optional engine_settings keys (the cloud columns default to the same values).

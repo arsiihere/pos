@@ -155,8 +155,8 @@ describe('buildSnapshot', () => {
         },
       ],
       tax_classes: [
-        { tax_class_id: 'TX-X', name: 'Old tax', rate_bp: 500, is_archived: true },
-        { tax_class_id: 'TX-1', name: 'Standard', rate_bp: 1600, is_archived: false },
+        { tax_class_id: 'TX-X', name: 'Old tax', rate_bp: 500, is_archived: true, fiscal_category: null }, // R-31
+        { tax_class_id: 'TX-1', name: 'Standard', rate_bp: 1600, is_archived: false, fiscal_category: null },
       ],
       categories: [
         { category_id: 'CT-1', name: 'Karahi', sort_order: 1, availability_windows: [] },
@@ -359,7 +359,7 @@ describe('buildSnapshot', () => {
     expect(slot).toMatchObject({ program_id: null, stock_program_id: null });
   });
 
-  it('[01a §10 #5] snapshot query count is fixed (≤ 22, 01c §4.5) for 10 and 300 items', async () => {
+  it('[01a §10 #5] snapshot query count is fixed (≤ 23, 01c §4.5; 05 row A-1 (5)) for 10 and 300 items', async () => {
     const counter = pgCounter(cloud.pool);
     const countFor = async (items: number) => {
       f = await restaurantFixture(cloud);
@@ -376,12 +376,12 @@ describe('buildSnapshot', () => {
     };
     const ten = await countFor(10);
     const threeHundred = await countFor(300);
-    expect(ten).toBe(22); // 01c tasks 27, 28, 31: + modifier groups with options, this branch's option rows, links, deals with parts and choices, deal windows, deal branch rows; 03a C6: + points, alternates, carry times, engine settings, goes-with; 01a v2.2 A-1 (02p task 4): + zones
+    expect(ten).toBe(23); // 05 row A-1 (5): + billing; // 01c tasks 27, 28, 31: + modifier groups with options, this branch's option rows, links, deals with parts and choices, deal windows, deal branch rows; 03a C6: + points, alternates, carry times, engine settings, goes-with; 01a v2.2 A-1 (02p task 4): + zones
     expect(threeHundred).toBe(ten);
-    expect(ten).toBeLessThanOrEqual(22);
+    expect(ten).toBeLessThanOrEqual(23);
   });
 
-  it('[01a §10 #140, 01c §4.5] the builder alone on a 5 000-item branch: ≤ 22 statements (transaction control excluded)', async () => {
+  it('[01a §10 #140, 01c §4.5] the builder alone on a 5 000-item branch: ≤ 23 statements (transaction control excluded; 05 row A-1 (5) + billing)', async () => {
     const counter = pgCounter(cloud.pool);
     await seedMenu(cloud.pool, f, { items: 5_000, archived: true });
     const client = await cloud.pool.connect();
@@ -389,7 +389,7 @@ describe('buildSnapshot', () => {
       counter.reset();
       const snapshot = await buildSnapshot(client, tenant(), f.branches[0], HEADER);
       expect(snapshot.items).toHaveLength(5_000);
-      expect(counter.count).toBeLessThanOrEqual(22); // 22 (01c tasks 27, 28, 31; 03a C6; 02p task 4): 01a's 7 + variant groups, stock items, draws, modifier groups with options, option rows, links, deals with parts and choices, deal windows, deal branch rows, points, alternates, carry times, engine settings, goes-with, zones
+      expect(counter.count).toBeLessThanOrEqual(23); // 23 (05 row A-1 (5): + billing); 22 (01c tasks 27, 28, 31; 03a C6; 02p task 4): 01a's 7 + variant groups, stock items, draws, modifier groups with options, option rows, links, deals with parts and choices, deal windows, deal branch rows, points, alternates, carry times, engine settings, goes-with, zones
     } finally {
       client.release();
     }

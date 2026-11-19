@@ -1187,7 +1187,13 @@ export async function createTaxClass(
     async (client) => {
       const level = new TenantLevelRepository(req.tenant, client);
       const taxClass = await nameTaken('tax_classes_active_name', 'tax_class', body.name, () =>
-        insertTaxClass(level, { taxClassId: deps.ids.next(), name: body.name, rateBp: body.rate_bp, now: deps.clock.branchNow() }),
+        insertTaxClass(level, {
+          taxClassId: deps.ids.next(),
+          name: body.name,
+          rateBp: body.rate_bp,
+          fiscalCategory: body.fiscal_category,
+          now: deps.clock.branchNow(),
+        }),
       );
       await writeConfigAudit(
         level,
@@ -1225,6 +1231,7 @@ export async function patchTaxClass(
       ...before,
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.rate_bp !== undefined ? { rate_bp: body.rate_bp } : {}),
+      ...(body.fiscal_category !== undefined ? { fiscal_category: body.fiscal_category } : {}), // R-31
       ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
     };
     if (unchangedRow(before, merged)) return { tax_class: before };
