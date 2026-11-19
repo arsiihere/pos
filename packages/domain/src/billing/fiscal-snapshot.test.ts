@@ -1,5 +1,5 @@
-import { describe, expectTypeOf, it } from 'vitest';
-import type * as domain from '../index.js';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import * as domain from '../index.js';
 import type {
   FiscalCapabilities,
   FiscalCreditInvoiceFields,
@@ -12,6 +12,7 @@ import type {
   FiscalSnapshot,
   FiscalInvoiceTax,
 } from './fiscal-snapshot.js';
+import { isFiscalized } from './fiscal-snapshot.js';
 
 // Keys that would carry a buyer ID, a secret or free text. None may exist on the snapshot or on the
 // invoice fields the neutral submission reads (05 §6.29 "no buyer tax ID, ever"; B19, B22; §6.29 "no
@@ -237,5 +238,24 @@ describe('[05 task 5a] invoice fiscal snapshot types', () => {
   it('[05 task 5a] exported from @pos/domain', () => {
     expectTypeOf<domain.FiscalSnapshot>().toEqualTypeOf<FiscalSnapshot>();
     expectTypeOf<domain.FiscalInvoiceFields>().toEqualTypeOf<FiscalInvoiceFields>();
+  });
+});
+
+describe('[05 P0.19a] isFiscalized (§3.1 "Fiscalized", §3.15, R-8 / G-1)', () => {
+  it('[05 §3.1, R-8] fiscalized iff required && adapter_key !== none (truth table)', () => {
+    const cases: [boolean, string, boolean][] = [
+      [true, 'TEST', true],
+      [false, 'TEST', false],
+      [true, 'none', false],
+      [false, 'none', false],
+    ];
+    for (const [required, adapter_key, want] of cases) {
+      expect(isFiscalized({ ...sampleSnapshot, required, adapter_key }), `${String(required)} × ${adapter_key}`).toBe(want);
+    }
+  });
+
+  it('[05 P0.19a] exported from @pos/domain', () => {
+    expect(typeof domain.isFiscalized).toBe('function');
+    expect(domain.isFiscalized).toBe(isFiscalized);
   });
 });

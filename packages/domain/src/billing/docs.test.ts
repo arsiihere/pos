@@ -44,6 +44,9 @@ function ctx(width_cols: 32 | 48 = 48, over: Partial<DocContext['template']> = {
   };
 }
 
+/** A test-only adapter key (not `none`, not PRA): a `required` snapshot under it is fiscalized (§3.1). */
+const TEST_ADAPTER = 'TEST';
+
 function snapshot(over: Partial<FiscalSnapshot> = {}): FiscalSnapshot {
   return {
     adapter_key: 'none',
@@ -367,6 +370,22 @@ describe('receipt (#34, #20, #61 doc halves)', () => {
     expect(joined(plain)).not.toContain('FISCAL');
   });
 
+  it('[05 P0.19a §3.1, §3.15, §6.12 step 7, G-1] fiscal block only when fiscalized: required + adapter none → none; required + a real adapter → PENDING', () => {
+    // §3.15 "Not fiscalized (adapter none …)": the receipt has no fiscal block, whatever `required` says.
+    const noneRequired = sale({ fiscal: snapshot({ adapter_key: 'none', required: true }) });
+    const plain = buildReceiptDoc(receiptInput({ invoice: noneRequired }), ctx());
+    expect(joined(plain)).not.toContain('FISCAL');
+    expect(joined(buildReceiptDoc(receiptInput({ invoice: noneRequired, fiscal_number: 'N9' }), ctx()))).not.toContain('N9');
+    const noneCredit = { ...noneRequired, series: 'credit' as const, invoice_id: 'cr1', invoice_ref: 'AC1C000007', ref_invoice_id: 'inv1', ref_invoice_ref: 'AC1S000123' };
+    expect(joined(buildCreditNoteDoc({ invoice: noneCredit, buyer_id: null, fiscal_number: null, is_reprint: false, cashier_name: null }, ctx()))).not.toContain('FISCAL');
+    // A required snapshot under a real (test) adapter is fiscalized: PENDING until the answer.
+    const testRequired = sale({ fiscal: snapshot({ adapter_key: TEST_ADAPTER, pos_id: 'P1', required: true }) });
+    expect(texts(buildReceiptDoc(receiptInput({ invoice: testRequired }), ctx()))).toContain('FISCAL NUMBER PENDING');
+    // Not required under a real adapter (fiscalize: false order type): no block.
+    const testNotRequired = sale({ fiscal: snapshot({ adapter_key: TEST_ADAPTER, pos_id: 'P1', required: false }) });
+    expect(joined(buildReceiptDoc(receiptInput({ invoice: testNotRequired }), ctx()))).not.toContain('FISCAL');
+  });
+
   it('[05 #61 doc half] a reprint after the answer shows REPRINT and the fiscal number with its label; before it, PENDING', () => {
     const fiscalized = sale({
       fiscal: snapshot({ adapter_key: 'PRA', pos_id: 'P1', required: true, receipt: { ...snapshot().receipt, fiscal_number_label: 'PRA invoice no.' } }),
@@ -378,7 +397,7 @@ describe('receipt (#34, #20, #61 doc halves)', () => {
     expect(lineWith(after, 'PRA invoice no.')).toContain('1234ABC');
     expect(joined(after)).not.toContain('PENDING');
     // no label in the snapshot → a neutral label
-    const unlabelled = sale({ fiscal: snapshot({ required: true }) });
+    const unlabelled = sale({ fiscal: snapshot({ adapter_key: TEST_ADAPTER, pos_id: 'P1', required: true }) });
     expect(lineWith(buildReceiptDoc(receiptInput({ invoice: unlabelled, fiscal_number: 'N9' }), ctx()), 'N9')).toBe(
       lineWith(buildReceiptDoc(receiptInput({ invoice: unlabelled, fiscal_number: 'N9' }), ctx()), 'Fiscal no.'),
     );
@@ -387,7 +406,7 @@ describe('receipt (#34, #20, #61 doc halves)', () => {
   });
 
   it('[05 #61 doc half] no QR block in 4a even when the snapshot asks for one (row P-3 is 4b)', () => {
-    const fiscalized = sale({ fiscal: snapshot({ required: true, receipt: { ...snapshot().receipt, show_qr: true, qr_url_template: 'https://x/{fiscal_number}' } }) });
+    const fiscalized = sale({ fiscal: snapshot({ adapter_key: TEST_ADAPTER, pos_id: 'P1', required: true, receipt: { ...snapshot().receipt, show_qr: true, qr_url_template: 'https://x/{fiscal_number}' } }) });
     const doc = buildReceiptDoc(receiptInput({ invoice: fiscalized, fiscal_number: 'N9' }), ctx());
     expect(doc.blocks.every((b) => 'text' in b || 'rule' in b || 'feed' in b || 'cut' in b || 'drawer' in b)).toBe(true);
     expect(joined(doc)).not.toContain('https://x/');
@@ -424,7 +443,7 @@ describe('credit note', () => {
   });
 
   it('[05 B21] fiscalized credit: PENDING before the answer, the number after; no buyer line without a buyer', () => {
-    const invoice = credit({ fiscal: snapshot({ required: true, receipt: { ...snapshot().receipt, fiscal_number_label: 'PRA invoice no.' } }) });
+    const invoice = credit({ fiscal: snapshot({ adapter_key: TEST_ADAPTER, pos_id: 'P1', required: true, receipt: { ...snapshot().receipt, fiscal_number_label: 'PRA invoice no.' } }) });
     const before = buildCreditNoteDoc({ invoice, buyer_id: null, fiscal_number: null, is_reprint: false, cashier_name: null }, ctx());
     expect(texts(before)).toContain('FISCAL NUMBER PENDING');
     const after = buildCreditNoteDoc({ invoice, buyer_id: null, fiscal_number: 'C55', is_reprint: true, cashier_name: null }, ctx());

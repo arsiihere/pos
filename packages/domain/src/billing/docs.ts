@@ -5,6 +5,7 @@ import type {
   FiscalInvoiceTax,
   FiscalSaleInvoiceFields,
 } from './fiscal-snapshot.js';
+import { isFiscalized } from './fiscal-snapshot.js';
 import type { PAYMENT_CLASSES } from './types.js';
 
 // 05 §3.16, B17, B21, B29, §6.26; §11 task 4a: pure Doc builders over 03c's Doc / DocBlock (print.ts, unchanged).
@@ -181,7 +182,7 @@ function totalBlocks(t: Totals, { cols, m }: Money): DocBlock[] {
 
 /** B21: the fiscal block of a fiscalized invoice; nothing when the invoice is not fiscalized. */
 function fiscalBlocks(invoice: FiscalInvoiceFields, fiscal_number: string | null, cols: number): DocBlock[] {
-  if (!invoice.fiscal.required) return [];
+  if (!isFiscalized(invoice.fiscal)) return [];
   if (fiscal_number === null) return [{ rule: true }, center('FISCAL NUMBER PENDING', true)];
   return [{ rule: true }, ...spread(invoice.fiscal.receipt.fiscal_number_label ?? 'Fiscal no.', fiscal_number, cols, true)];
 }

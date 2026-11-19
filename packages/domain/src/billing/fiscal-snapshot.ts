@@ -32,7 +32,12 @@ export type FiscalReceiptSnapshot = {
 export type FiscalSnapshot = {
   adapter_key: string;
   pos_id: string | null;
-  /** The invoice is fiscalized (H8-3 `fiscal.required`): its outbox row is `pending`, its receipt has a fiscal block. */
+  /**
+   * H8-3 `fiscal.required`: the bill's order type has `fiscalize: true` and the invoice was issued at or after
+   * the jurisdiction's `switched_at` (the close decides it). On its own it does **not** mean fiscalized: an
+   * invoice is fiscalized iff `required && adapter_key !== 'none'` (05 §3.1, R-8) — always ask
+   * {@link isFiscalized}, never this field alone. Fiscalized: outbox row `pending`, receipt fiscal block.
+   */
   required: boolean;
   capabilities: FiscalCapabilities;
   credit_support: (typeof CREDIT_SUPPORT)[number];
@@ -46,6 +51,17 @@ export type FiscalSnapshot = {
   seller_registrations: { code: string; number: string }[];
   payment_codes: { payment_id: string; authority_code: string | null }[];
 };
+
+/** §3.15: the adapter key that is never called; its invoices are never fiscalized. */
+const NONE_ADAPTER = 'none';
+
+/**
+ * 05 §3.1 "Fiscalized" (v1.0.2, R-8 / G-1), defined once: `required && adapter_key !== 'none'`. Every
+ * "fiscalized" test (outbox row, receipt fiscal block, and the later close, worker and schema checks) uses this.
+ */
+export function isFiscalized(snapshot: FiscalSnapshot): boolean {
+  return snapshot.required && snapshot.adapter_key !== NONE_ADAPTER;
+}
 
 /** One per-(profile, tax) row spread onto a line or the service charge (§6.12 step 6, J-2). */
 export type FiscalLineTax = {
