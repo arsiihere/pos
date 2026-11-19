@@ -3,6 +3,7 @@
 Plan: `05-plan.md`. Prompts: `05-parallel-prompts.md`. Gaps: `05-gaps.md` (written in P0.G, phase 0b). Spec: `05_Billing_Spec_v1.0.md` (`v1.0.1` after P0.1). Integration branch: `module-05`. Cleanup: `05-cleanup.md`. Only the integrator edits this file.
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-19: P0.3a (#281) aur poora fiscal stack 6a, 5a, 28a, 29a (#283) merged → `module-05` @ `89843a2d`. Task 2 (#282) aur P0.9a (#276) needs-ruling par: 4 sawal (Q-A, Q-B, S-1, S-2) owner ke paas. 3a (#284) task 2 ke saath merge hoga; 4a (#279) task 2 ka intezar kar raha hai.
 > - 2026-11-19: **G0.2 met** — `module-deeplinks` #274 se `main` par aa gayi (`main` @ `cec8591b`). G0.3 scan ho gaya: hub migrations 0021+ free, cloud 0014 / 0015 ko #121 / #126 (`module-02-hub-gaps`) claim karte hain → 05 cloud 0016–0017 (plan wala hi); 01d `main` par v1.3.3 tak, to agla v1.3.4. Phase 0b tayyar hai, owner ke "start 0b" ka intezar. 0a lanes ka abhi tak koi PR nahi aaya.
 > - 2026-11-18: P0.B (#265) aur task 1 shared types (#266) merged → `module-05` @ `57336af`. 0a lanes M, F, P khol do (prompts §2, §3, §4); PRA (§5) tab jab 28a ka PR khule. Phase 0b abhi bhi ruki: `module-deeplinks` ke 29 commits `main` par nahi.
 > - 2026-11-18: G0.1 met (#219 `main` par, `5d25a3a`). `module-05` cut ho gayi `main` @ `5d25a3a` se; ruleset `module branches (03b onward)` pehle se `module-*` cover karta hai (W-1 wala hi). Labels ban gaye. Ye board + cleanup file (P0.B). Task 1 (shared types) chal raha hai; uska PR khulte hi 0a lanes (M, F, P) khol do. Phase 0b `module-deeplinks` ke `main` par aane tak ruki hai.
@@ -63,15 +64,15 @@ Plan decision log D-1…D-8: `05-plan.md` §0.
 |---|---|---|---|---|---|---|---|
 | P0.B | I | NORMAL | G0.1 | `lane-05I/05-p0.b` | #265 | docs (integrator, W-3) | merged `d2075f2` |
 | 1 | I | NORMAL | P0.B | `lane-05I/05-1` | #266 | R1 Sonnet APPROVE (2 MINOR → cleanup C-1, C-2) | merged `57336af` |
-| P0.3a | M | HIGH | — | `lane-05M/05-p0.3a` | — | — | waiting lane |
-| 2 | M | HIGH | 1, P0.3a | `lane-05M/05-2` | — | — | waiting lane |
-| 3a | M | HIGH | 2 | `lane-05M/05-3a` | — | — | waiting lane |
-| 5a | F | HIGH | 1 | `lane-05F/05-5a` | — | — | waiting lane |
-| 6a | F | HIGH | — | `lane-05F/05-6a` | — | — | waiting lane |
-| 28a | F | HIGH | 5a, 6a | `lane-05F/05-28a` | — | — | waiting lane |
-| 29a | F | HIGH | 28a | `lane-05F/05-29a` | — | — | waiting lane |
-| P0.9a | P | NORMAL | 1, P0.3a | `lane-05P/05-p0.9a` | — | — | waiting lane |
-| 4a | P | NORMAL | 1, 2, 5a | `lane-05P/05-4a` | — | — | waiting lane |
+| P0.3a | M | HIGH | — | `lane-05M/05-p0.3a` | #281 | R1 Opus CHANGES (1 MAJOR, closed) / R2 Opus APPROVE; re-check Opus APPROVE | merged `81c381e1` |
+| 2 | M | HIGH | 1, P0.3a | `lane-05M/05-2` | #282 | R1 Opus CHANGES (1 MAJOR, closed) / R2 Opus CHANGES (MINORs fixed); re-check Opus APPROVE | **needs-ruling** S-2, S-3 |
+| 3a | M | HIGH | 2 | `lane-05M/05-3a` | #284 | R1 Opus APPROVE / R2 Opus APPROVE | reviewed; waits for 2 (stacked on #282) |
+| 5a | F | HIGH | 1 | `lane-05F/05-5a` | #277 (closed, in #283) | R1 / R2 Opus CHANGES (MAJORs closed); re-check Opus APPROVE | merged via #283 |
+| 6a | F | HIGH | — | `lane-05F/05-6a` | #278 (closed, in #283) | R1 Opus CHANGES (2 MAJOR, closed) / R2 Opus APPROVE; re-check Opus APPROVE | merged via #283 |
+| 28a | F | HIGH | 5a, 6a | `lane-05F/05-28a` | #280 (closed, in #283) | R1 Opus APPROVE / R2 Opus CHANGES (1 MAJOR, closed); re-check Opus APPROVE | merged via #283 |
+| 29a | F | HIGH | 28a | `lane-05F/05-29a` | #283 | R1 / R2 Opus CHANGES (MAJORs closed); re-check Opus APPROVE | merged `89843a2d` (with 6a, 5a, 28a) |
+| P0.9a | P | NORMAL | 1, P0.3a | `lane-05P/05-p0.9a` | #276 | R1 Sonnet APPROVE | **needs-ruling** S-4, S-5 |
+| 4a | P | NORMAL | 1, 2, 5a | `lane-05P/05-4a` | #279 | R1 Sonnet APPROVE | reviewed; waits for 2; rebase onto `module-05` asked |
 | 30a (optional) | PRA | HIGH | 28a | `lane-05PRA/05-30a` | — | — | waiting lane (opens once 28a's PR is open) |
 | P0.Sa | I | HIGH | 2, 4a, 6a, 28a, 29a, P0.9a | `lane-05I/05-p0.sa` | — | — | waiting |
 
@@ -145,6 +146,10 @@ Waits for G0.2–G0.4 (plan §2B.1). Rows in plan order (§2B.2–§2B.6).
 | # | Task | Finding | Options + Rec | State |
 |---|---|---|---|---|
 | S-1 | 30 | PRA task 30 waits for A13 / A14 answers and PRA spec v1.2 in the repo (spec Appendix P.5; O1, O2) | — | waiting A13 / A14 / PRA spec v1.2 |
+| S-2 | 2 (#282) | **Q-A** service charge whose tax profile does not resolve: §3.3 3a / §3.4 define `tax_unresolved` for lines only (`order_item_ids`); §3.3 3a "a config gap is never billed as untaxed". Code adds the literal id `'service_charge'` to the block while the charge > 0 | (a) keep, 05 v1.0.x adds one sentence that `order_item_ids` may hold `'service_charge'`; (b) new reason `service_charge_tax_unresolved` (contract value); (c) rely on A-2 and bill untaxed. **Rec (a)** | asked 2026-11-19 |
+| S-3 | 2 (#282) | **Q-B** frozen discount re-spread on every read: `bill_discount_lines` stores ids, not shares; ~2 % of cases a sibling close moves an open line's share ±1 minor (e.g. bases [504, 928, 412, 648], D 758, line 2 closed: [153, _, 126, 197] → [154, _, 125, 197]); with different rates the open split's tax can move 1 | (a) accept, note in §3.5 (2); (b) store shares at first close (contract change); (c) spread with closed parts held at `share_minor` (later, no contract change). **Rec (a)** | asked 2026-11-19 |
+| S-4 | P0.9a (#276) | **S-1** wire names A-1 (3) gives in prose only (spec line 790): discount reasons, petty categories, receipt template toggles, owner rate overrides | (a) `discount_reasons`, `petty_categories`, `receipt` + `show`, `rate_overrides`, written into 01a v2.6 by P0.2c; (b) other names. **Rec (a)** | asked 2026-11-19 |
+| S-5 | P0.9a (#276) | **S-2** §4.4 comment (line 751) kind 'cash' ⇔ class 'cash'; A-2 (line 791) only ⇒ | (a) ⇒ only; (b) ⇔. **Rec (a)** | asked 2026-11-19 |
 
 ## Readings (AD rows; IR-n numbers continue from the last board, handbook §11)
 
@@ -173,6 +178,11 @@ AD-0 … AD-20 are the plan readings PL-0 … PL-20 (`05-plan.md` §10, text the
 | AD-18 | PL-18 — 29a owns `worker.ts`; P0.18 edits only `lib/boot.ts` | proposed |
 | AD-19 | PL-19 — spike halves P0.Sa / P0.Sb | proposed |
 | AD-20 | PL-20 — lane branches `lane-05<L>/05-<task>` | proposed |
+| AD-22 | #281 P0.3a: the table is ISO 4217 list one at amendment 180 (BGN withdrawn 2026-01-01; XCG, ZWG, SLE replace ANG, ZWL, SLL; CUC left out); an unknown code is refused, never mis-scaled | proposed |
+| AD-23 | #277 5a: R-5a-1 … R-5a-5 (`fiscal.required` = this invoice is fiscalized; credit fields copied from the original; unstated nullability; line `name` kept; derived submission fields built by 29b) — text in the PR body | proposed |
+| AD-24 | #278 6a: R-6a-1 … R-6a-3 (task 6 edits only `outbox-db.ts`; worker queries write literal `state = 'pending'` for the partial index; `INSERT OR IGNORE` swallows CHECK failures, so 28a validates first) | proposed |
+| AD-25 | #280 28a: R-28a-1 … R-28a-9 (one `fiscal.required` flag; credit row from the original's row; `queued_at = issued_at`; fiscalized sale with null `pos_id` throws — task 17 must refuse at the command; `duplicate_no_number`; "secret" = `.meta({ secret })` on both JSON-Schema sides + credential-name collision; `canCredit` on the original's snapshot; own `none` settings schema until P0.9a) | proposed |
+| AD-26 | #283 29a: R-29a-1 … R-29a-5 (strict order grouped by (`adapter_key`, `pos_id`); core short codes list; token-missing / load-failed rows re-checked without counting; 1 s loop, adapter owns timeouts — task 31's `RetryFiscalNow` must not await `runOnce`; 29b seam contract) | proposed |
 | AD-21 (IR-26) | P0.B: no new ruleset for `module-05` — ruleset 27021396 already targets `refs/heads/module-*` with every W-1 rule. `module-05` was created by `git push origin 5d25a3a:refs/heads/module-05` (the REST `git/refs` POST is refused by the session proxy); same commit as `origin/main`, no content pushed | proposed |
 
 ## Acceptance map (Z1)
@@ -182,7 +192,7 @@ Seeded with the phase-0a halves (plan §7, §2A.3). Test names and states are fi
 | §10 test | Task (half) | Test name | State |
 |---|---|---|---|
 | §4.4 constants | 1 | `[05 §4.4] …` (16 tests, `packages/domain/src/billing/types.test.ts`) | green |
-| #14c | P0.3a (exponent half) | | open |
+| #14c | P0.3a (exponent half) | `packages/domain/src/currency.test.ts` | green |
 | #10, #11, #11b, #12, #13, #20, #20b | 2 | | open |
 | #13b | 2 (blocks half; close half in 17) | | open |
 | #14 | 2 (rate-by-date half; P0.9b, 19 extend) | | open |
@@ -191,15 +201,15 @@ Seeded with the phase-0a halves (plan §7, §2A.3). Test names and states are fi
 | #10, #10d, #11c, #15e, #20c | 3a | | open |
 | #16b, #16c | 3a (compute halves; 3b extends) | | open |
 | #23 | 3a (payments half; 3b extends) | | open |
-| 5a type tests | 5a | | open |
-| 6a schema test | 6a | | open |
-| #74 | 28a | | open |
-| #69 | 28a (outbox-row half; 17 extends) | | open |
-| #78, #78b | 28a (credit-rule halves; 19 extends) | | open |
-| #70 | 29a (same-key half; 29b extends) | | open |
-| #71 | 29a (re-run in 29b) | | open |
-| #72 | 29a (back-off half; 31 extends) | | open |
-| #77 | 29a (worker half; 31 extends) | | open |
+| 5a type tests | 5a | `fiscal-snapshot.test.ts` | green |
+| 6a schema test | 6a | `apps/hub/test/billing/fiscal/outbox.test.ts` | green |
+| #74 | 28a | `port.test.ts` | green |
+| #69 | 28a (outbox-row half; 17 extends) | `outbox.test.ts` | green (half) |
+| #78, #78b | 28a (credit-rule halves; 19 extends) | `outbox.test.ts` | green (half) |
+| #70 | 29a (same-key half; 29b extends) | `worker.test.ts` | green (half) |
+| #71 | 29a (re-run in 29b) | `worker.test.ts` | green |
+| #72 | 29a (back-off half; 31 extends) | `worker.test.ts` | green (half) |
+| #77 | 29a (worker half; 31 extends) | `worker.test.ts` | green (half) |
 | #34, #59, #61 | 4a (doc halves without QR / filler; 4b, 11, 17, 27 extend) | | open |
 | #20 | 4a (rounding line on the receipt) | | open |
 | #14c | P0.9a (defaults half) | | open |
