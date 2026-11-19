@@ -69,10 +69,13 @@ export function pendingVoids(db: Database.Database, order_ids: readonly string[]
   return fn(db, order_ids, state);
 }
 
-/** §6.6: registered by registerVoids (voids/index.ts); delegates to the guard lanes/V2.ts provides (voids/guards.ts, 1 statement). */
+/**
+ * §6.6: registered by registerVoids (voids/index.ts); delegates to the guard lanes/V2.ts provides (voids/guards.ts,
+ * 1 statement). ⚠️ 02a v1.1.8 (05 row T-1): `null` = not blocked, else MERGE_BLOCKED_BY_VOID { order_item_ids }.
+ */
 export const voidMergeGuard: MergeGuard = (db, q) => {
   const fn = built.mergeGuard;
-  return fn === undefined ? { blocked: false, order_item_ids: [] } : fn(db, q);
+  return fn === undefined ? null : fn(db, q);
 };
 
 /** Row Q-3: registered by lanes/V2.ts; delegates to the provided guard (voids/guards.ts, 1 statement). */

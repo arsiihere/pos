@@ -21,7 +21,8 @@ const BY_SEATINGS = `SELECT values_json FROM alerts
 /**
  * §6.6 merge guard (02a §3.11 / §3.12): open void requests whose order is in `order_ids` when given (split: only the
  * orders that move, H6-7), else in the seatings (merge, via `seating_orders`) → blocked with their touched ids (in
- * request order, de-duplicated). 1 statement.
+ * request order, de-duplicated). 1 statement. ⚠️ 02a v1.1.8 (05 row T-1): blocked → `MERGE_BLOCKED_BY_VOID
+ * { order_item_ids }` (unchanged code and details), else `null`.
  */
 export const mergeGuard: MergeGuard = (db, q) => {
   const rows = (q.order_ids === undefined ? db.prepare(BY_SEATINGS).all(JSON.stringify(q.seating_ids)) : db.prepare(BY_ORDERS).all(JSON.stringify(q.order_ids))) as Array<{
@@ -29,7 +30,7 @@ export const mergeGuard: MergeGuard = (db, q) => {
   }>;
   const ids = new Set<string>();
   for (const r of rows) for (const id of (JSON.parse(r.values_json) as { touched_ids: string[] }).touched_ids) ids.add(id);
-  return { blocked: ids.size > 0, order_item_ids: [...ids] };
+  return ids.size === 0 ? null : { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: [...ids] } };
 };
 
 const LINE = `SELECT a.alert_id AS alert_id, g.value AS order_item_id

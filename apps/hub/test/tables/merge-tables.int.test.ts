@@ -495,7 +495,7 @@ describe('02a MergeTables (§3.11, §6.10)', () => {
     const calls: Array<Parameters<MergeGuard>[1]> = [];
     registerMergeGuard((_db, q) => {
       calls.push(q);
-      return { blocked: true, order_item_ids: ['O2-L1'] };
+      return { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['O2-L1'] } };
     });
     opened('T1', 'SEAT1', 'S_ALI');
     opened('T2', 'SEAT2', 'S_ALI');
@@ -515,7 +515,7 @@ describe('02a MergeTables (§3.11, §6.10)', () => {
     const ali = signIn('S_ALI');
     registerMergeGuard((db) => {
       db.prepare('SELECT 1').get();
-      return { blocked: false, order_item_ids: [] };
+      return null;
     });
     opened('T1', 'SEAT1', 'S_ALI');
     opened('T2', 'SEAT2', 'S_ALI');
@@ -526,11 +526,71 @@ describe('02a MergeTables (§3.11, §6.10)', () => {
 
   it('[02a #27] unregistered guard → never blocked; resetMergeGuard removes a stub', async () => {
     const ali = signIn('S_ALI');
-    registerMergeGuard(() => ({ blocked: true, order_item_ids: ['X'] }));
+    registerMergeGuard(() => ({ code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['X'] } }));
     resetMergeGuard();
     opened('T1', 'SEAT1', 'S_ALI');
     opened('T2', 'SEAT2', 'S_ALI');
     expect((await merge(ali, mg('T1', 'SEAT1', 'T2', 'SEAT2'))).status).toBe(200);
+  });
+
+  // ⚠️ 02a v1.1.8 (05 row T-1): an ordered list (04 first, then 05); the first non-null `{ code, details }` is thrown.
+  // The second stub stands in for 05's guard (its BILL_HAS_PAYMENTS is appended by P0.3c); TABLE_NOT_FREE is a 409 code.
+  it('[05 #79 merge half] [05 row T-1] two guards registered: the first non-null wins, in registration order; a later guard is not asked', async () => {
+    const ali = signIn('S_ALI');
+    const asked: string[] = [];
+    const first: MergeGuard = (_db, q) => {
+      asked.push(`04:${q.seating_ids.join(',')}`);
+      return null;
+    };
+    const second: MergeGuard = (db, q) => {
+      asked.push(`05:${q.seating_ids.join(',')}`);
+      db.prepare('SELECT 1').get();
+      return { code: 'TABLE_NOT_FREE', details: { bill_id: 'B1' } };
+    };
+    registerMergeGuard(first);
+    registerMergeGuard(second);
+    opened('T1', 'SEAT1', 'S_ALI');
+    opened('T2', 'SEAT2', 'S_ALI');
+    const r = await merge(ali, mg('T1', 'SEAT1', 'T2', 'SEAT2'));
+    expect(r.status).toBe(409);
+    expect(r.body.error).toEqual({ code: 'TABLE_NOT_FREE', details: { bill_id: 'B1' } });
+    expect(asked).toEqual(['04:SEAT1,SEAT2', '05:SEAT1,SEAT2']);
+    expect(seatingRow('SEAT2')).toMatchObject({ state: 'SEATED' });
+
+    // 04 first: its MERGE_BLOCKED_BY_VOID { order_item_ids } wins over 05's, and 05's guard is not asked
+    resetMergeGuard();
+    asked.length = 0;
+    registerMergeGuard((_db, q) => {
+      asked.push(`04:${q.seating_ids.join(',')}`);
+      return { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['O2-L1'] } };
+    });
+    registerMergeGuard(second);
+    const blocked = await merge(ali, mg('T1', 'SEAT1', 'T2', 'SEAT2'));
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error).toEqual({ code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['O2-L1'] } });
+    expect(asked).toEqual(['04:SEAT1,SEAT2']);
+  });
+
+  it('[05 row T-1] every guard null → merged; statements 3 reads + each guard\'s own + 2 byDedupeKey; a guard registered twice is asked once', async () => {
+    const ali = signIn('S_ALI');
+    let asked = 0;
+    const g: MergeGuard = (db) => {
+      asked += 1;
+      db.prepare('SELECT 1').get();
+      return null;
+    };
+    registerMergeGuard(g);
+    registerMergeGuard(g); // registerVoids runs once per server: the same guard is not appended twice
+    registerMergeGuard((db) => {
+      db.prepare('SELECT 1').get();
+      return null;
+    });
+    opened('T1', 'SEAT1', 'S_ALI');
+    opened('T2', 'SEAT2', 'S_ALI');
+    const r = await merge(ali, mg('T1', 'SEAT1', 'T2', 'SEAT2'));
+    expect(r.status).toBe(200);
+    expect(asked).toBe(1);
+    expect(r.statements).toBe(3 + 2 + 2);
   });
 
   it('[02a #27] other side locked by another device → 409 TABLE_ALREADY_LOCKED { table_id, locked_by_staff_id, locked_by_name }', async () => {
@@ -753,7 +813,7 @@ describe('02a MergeTables (§3.11, §6.10)', () => {
     const zain = signIn('S_ZAIN');
     opened('T2', 'SEAT2', 'S_ZAIN');
     expect((await merge(zain, mg('T2', 'SEAT2', 'T5', null))).body.error?.details).toMatchObject({ reason: 'other_owner' });
-    registerMergeGuard(() => ({ blocked: true, order_item_ids: ['L'] }));
+    registerMergeGuard(() => ({ code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['L'] } }));
     expect((await merge(zain, mg('T2', 'SEAT2', 'T7', null))).body.error?.code).toBe('MERGE_BLOCKED_BY_VOID');
     resetMergeGuard();
     expect((await merge(flo, mg('T1', 'SEAT1', 'T3', null))).status).toBe(200);

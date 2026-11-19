@@ -1,5 +1,5 @@
 // 02a v1.1.1 contracts (§4.2, §3.9, §3.5, §4.1 row 04, §5). Types only: the wave-1 lanes implement against them.
-import type { TableState } from '@pos/domain';
+import type { ErrorCode, TableState } from '@pos/domain';
 import type { EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { StaffDirectory } from '../auth/staff-directory.js';
@@ -48,17 +48,30 @@ export type SeatingOf = (
 /** §4.2: 0 statements; zone_order_taker_staff_id = directory.assignedOrderTaker(table_id) (SG-1). */
 export type ZoneOf = (table_id: string) => { floor_id: string; zone_id: string | null; zone_order_taker_staff_id: string | null };
 
-/** §4.2: throws TABLE_SEATING_CHANGED / TABLE_NEEDS_CLEANING / TABLE_ALREADY_LOCKED / PERMISSION_DENIED; returns the lock drafts. */
-export type RequireLock = (tx: WriterTx, ref: { table_id: string; seating_id: string }, ctx: CommandCtx) => EventDraft[];
+/**
+ * §4.2: throws TABLE_SEATING_CHANGED / TABLE_NEEDS_CLEANING / TABLE_ALREADY_LOCKED / PERMISSION_DENIED; returns the lock
+ * drafts. ⚠️ 02a v1.1.8 (05 row T-3 (3)): `allowBillClosed` (SubmitOrder only) lets a **live** call (`ctx.queuedAt ===
+ * null`, 05 H2-13) through a NEEDS_CLEANING seating; a queued replay keeps TABLE_NEEDS_CLEANING.
+ */
+export type RequireLock = (
+  tx: WriterTx,
+  ref: { table_id: string; seating_id: string },
+  ctx: CommandCtx,
+  opts?: { allowBillClosed?: boolean },
+) => EventDraft[];
 
 /** §3.9: closes the seating's pending table_handover `obsolete`; the drafts go in the same transaction. */
 export type CloseHandover = (ctx: CommandCtx, seating_id: string, note: string) => EventDraft[];
 
-/** §4.1 row 04: registered by 04 through registerMergeGuard; unregistered → never blocked. */
+/**
+ * §4.1 row 04, ⚠️ 02a v1.1.8 (05 row T-1): one guard of the ordered list registerMergeGuard appends to (04 first, then
+ * 05). `null` = not blocked; else the `{ code, details }` merge / split throws (04's: MERGE_BLOCKED_BY_VOID
+ * { order_item_ids }). None registered → never blocked.
+ */
 export type MergeGuard = (
   db: Database.Database,
   q: { seating_ids: string[]; order_ids?: string[] },
-) => { blocked: boolean; order_item_ids: string[] };
+) => { code: ErrorCode; details: Record<string, unknown> } | null;
 
 /** §3.5: the waiter team W of a seating (A = assignee); waiter alerts go to W ∪ {holder}. */
 export type WaiterTeam = (

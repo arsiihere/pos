@@ -106,7 +106,7 @@ describe('[04 §4.2, §6.6] contracts and guards (built by v8)', () => {
 
   it('[04 §6.6] the guards are real (v8): with no open request never blocked, 1 statement each', () => {
     const counter = statementCounter(hub.deps.db);
-    expect(voidMergeGuard(hub.deps.db, { seating_ids: ['S1'], order_ids: ['O1'] })).toEqual({ blocked: false, order_item_ids: [] });
+    expect(voidMergeGuard(hub.deps.db, { seating_ids: ['S1'], order_ids: ['O1'] })).toBeNull();
     expect(voidLineGuard(hub.deps.db, 'O1', ['L1'])).toBeNull();
     expect(voidDayCloseGuard(hub.deps.db, {} as EngineState)).toBeNull();
     expect(counter.count).toBe(3);
@@ -114,7 +114,7 @@ describe('[04 §4.2, §6.6] contracts and guards (built by v8)', () => {
 
   it('[04 §6.6] registerVoids registers the merge, line and day-close guards: each is asked through its 02a / 02b / 01a check', () => {
     const counter = statementCounter(hub.deps.db);
-    expect(checkMergeGuard(hub.deps.db, { seating_ids: ['S1', 'S2'] })).toEqual({ blocked: false, order_item_ids: [] });
+    expect(checkMergeGuard(hub.deps.db, { seating_ids: ['S1', 'S2'] })).toBeNull();
     expect(checkLineGuard(hub.deps.db, 'O1', ['L1'])).toBeNull();
     expect(checkDayCloseGuard(hub.deps.db, {} as EngineState)).toBeNull();
     expect(counter.count).toBe(3);
@@ -122,10 +122,10 @@ describe('[04 §4.2, §6.6] contracts and guards (built by v8)', () => {
     provideVoids({
       mergeGuard: (_db, q) => {
         calls.push(q);
-        return { blocked: true, order_item_ids: ['L1'] };
+        return { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['L1'] } };
       },
     });
-    expect(checkMergeGuard(hub.deps.db, { seating_ids: ['S1'], order_ids: ['O1'] })).toEqual({ blocked: true, order_item_ids: ['L1'] });
+    expect(checkMergeGuard(hub.deps.db, { seating_ids: ['S1'], order_ids: ['O1'] })).toEqual({ code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['L1'] } });
     expect(calls).toEqual([{ seating_ids: ['S1'], order_ids: ['O1'] }]);
   });
 });

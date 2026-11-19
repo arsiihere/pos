@@ -1,9 +1,11 @@
-import type { BranchConfig, DirectoryInput, EventDraft, PosEvent } from '@pos/events';
+import { defineEvent, latestVersion, type BranchConfig, type DirectoryInput, type EventDraft, type PosEvent } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { currentDirectory } from '../../src/auth/guards';
 import { activity } from '../../src/auth/session-store';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
+import { TABLE_EVENT_TYPES } from '../../src/tables/audiences';
 import { audienceAllows } from '../../src/ws/audience';
 import type { SocketCtx } from '../../src/ws/catch-up';
 import { tableMapBody } from '../../src/tables/queries';
@@ -11,6 +13,21 @@ import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
+
+// 05 §6.29 `BillClosedEmpty` is 05's own event (its schema file lands with 05's events, not in P0.11): until it is
+// registered, this file registers the §6.29 payload so the writer can append it. 05's stream `bill` lands with P0.3b
+// (F-1); the 02a fold reads only the payload, so these tests append it on stream `table`.
+try {
+  latestVersion('BillClosedEmpty');
+} catch {
+  defineEvent({
+    eventType: 'BillClosedEmpty',
+    version: 1,
+    payload: z
+      .object({ bill_id: z.string(), seating_id: z.string().nullable(), credit_invoice_ids: z.array(z.string()), alert_id: z.string().optional() })
+      .strict(),
+  });
+}
 
 // 02a v1.1.3 §6.17 table-map, §6.18 handover-candidates, catch-up part `tables`, §6.19 audiences, 00 M59, SG-4.
 // Seatings, locks and orders are seeded with real events appended through the hub writer (the `tables` projection).
@@ -490,6 +507,31 @@ describe('audiences and catch-up (§6.19, catch-up part `tables`)', () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(eventTypes(staffWs).filter((t) => t.startsWith('Table'))).toEqual(['TableOpened', 'TableMoved']);
     expect(eventTypes(stationWs)).toEqual(['TableMoved']);
+  });
+
+  it('[05 row T-3 (6)] [02a #64] [05 #37b 02a half] SeatingReopened, BillClosed and BillClosedEmpty join TABLE_EVENT_TYPES: staff sockets and cashier kiosks, not KDS stations; the frames reach a staff socket', async () => {
+    expect(TABLE_EVENT_TYPES).toEqual(expect.arrayContaining(['SeatingReopened', 'BillClosed', 'BillClosedEmpty']));
+    const staff = socketCtx({});
+    const kiosk = socketCtx({ deviceType: 'cashier_kiosk', staffId: CASH });
+    const station = socketCtx({ deviceType: 'kds', kind: 'station', staffId: null, stationId: 'S1' });
+    for (const event_type of ['SeatingReopened', 'BillClosed', 'BillClosedEmpty']) {
+      const event = { event_type, payload: {} } as unknown as PosEvent;
+      expect(audienceAllows(event, staff), event_type).toBe(true);
+      expect(audienceAllows(event, kiosk), event_type).toBe(true);
+      expect(audienceAllows(event, station), event_type).toBe(false);
+    }
+
+    const ali = signIn(ALI);
+    const staffWs = await authed(ali.token, ali.sessionToken);
+    open('T1', 'SEAT-1', ali, { locked: false });
+    append(
+      ev('table', 'T1', 'BillClosed', { seating_id: 'SEAT-1' }, ali),
+      ev('table', 'T1', 'SeatingReopened', { seating_id: 'SEAT-1', bill_id: 'B1' }, ali),
+      ev('table', 'B1', 'BillClosedEmpty', { bill_id: 'B1', seating_id: 'SEAT-1', credit_invoice_ids: [] }, ali),
+    );
+    await staffWs.untilCount(5);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(eventTypes(staffWs)).toEqual(expect.arrayContaining(['TableOpened', 'BillClosed', 'SeatingReopened', 'BillClosedEmpty']));
   });
 
   it('[02a §6.19 catch-up] catch-up `tables` = the map builder for the socket\'s (staff, device); staff sockets of map devices only; 3 statements at the catch-up seq', async () => {
