@@ -1128,3 +1128,111 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     expectSumsToRows(roundedZero);
   });
 });
+
+describe('check bill digital total (05 §6.3, §3.5 (5) / (7), B17; P0.19d, 05-gaps G-25)', () => {
+  const openSplit = (b: ComputeBillInput, lines: ComputeSplitLine[]): ComputeSplitResult =>
+    computeSplit({ split_no: 1, business_date: b.business_date, rules: b.rules, tax_profiles: b.tax_profiles, lines, service_charge: b.service_charge, payments: [] });
+  const asLines = (b: ComputeBillInput): ComputeSplitLine[] => {
+    const r = computeBill(b);
+    return b.lines.map((l, i) => ({ ...l, discount_minor: (r.lines[i] as { discount_minor: number }).discount_minor }));
+  };
+
+  it('[05 P0.G G-25] PK-PB Table 7 (§6.31 step 1): total if paid in cash 6,624.00, card / wallet / QR 5,996.00', () => {
+    const b = bill();
+    const r = computeBill(b);
+    expect(money(r.totals_default)).toEqual(PK_REGRESSION.pk_pb.cash);
+    expect(money(r.totals_default_digital)).toEqual(PK_REGRESSION.pk_pb.digital);
+    expect(r.totals_default_digital.total_minor).toBe(599_600);
+    expect(r.totals_default_digital.taxes.map((t) => [t.payment_class, t.rate_bp, t.base_minor, t.tax_minor])).toEqual([['digital', 500, 571_000, 28_550]]);
+    // the plan row's check: the digital-class total equals computeSplit of the same lines at the digital rate
+    const s = openSplit(b, asLines(b));
+    expect(r.totals_default_digital).toEqual(s.totals.digital);
+    expect(r.totals_default).toEqual(s.totals.cash);
+    // and equals the open remainder paid all by card (§3.5 (5): all digital → digital)
+    const paidByCard = computeSplit({ split_no: 1, business_date: TODAY, rules: b.rules, tax_profiles: b.tax_profiles, service_charge: null, lines: asLines(b), payments: [card(599_600)] });
+    expect(r.totals_default_digital).toEqual(paidByCard.totals.as_paid);
+  });
+
+  it('[05 P0.G G-25] frozen rounding rule: applies_to cash → the digital total is not rounded; all → it is', () => {
+    const lines = [line('L1', 571_003, 'restaurant')];
+    // cash 16 %: 91 360.48 → 91 360, G 662 363; digital 5 %: 28 550.15 → 28 550, G 599 553; step 5 nearest
+    // (the default cashStepRules has applies_to: 'cash')
+    const onlyCash = computeBill(bill({ lines, rules: cashStepRules() }));
+    expect(money(onlyCash.totals_default)).toEqual({ tax_minor: 91_360, exact_total_minor: 662_363, rounding_minor: 2, total_minor: 662_365 });
+    expect(money(onlyCash.totals_default_digital)).toEqual({ tax_minor: 28_550, exact_total_minor: 599_553, rounding_minor: 0, total_minor: 599_553 });
+    const all = computeBill(bill({ lines, rules: cashStepRules({ rounding: { step_minor: 5, mode: 'nearest', applies_to: 'all' } }) }));
+    expect(money(all.totals_default)).toEqual(money(onlyCash.totals_default));
+    expect(money(all.totals_default_digital)).toEqual({ tax_minor: 28_550, exact_total_minor: 599_553, rounding_minor: 2, total_minor: 599_555 });
+    // step NULL: no rounding at either class
+    const none = computeBill(bill({ lines, rules: { ...PK_PB_RULES, rounding: { step_minor: null, mode: 'nearest', applies_to: 'all' } } }));
+    expect(none.totals_default_digital.rounding_minor).toBe(0);
+    expect(none.totals_default_digital.total_minor).toBe(599_553);
+  });
+
+  it('[05 P0.G G-25] a split bill: the digital total is the open remainder as one split, whatever the plan and payments', () => {
+    // open bases after a closed split (H2-2), a frozen discount re-spread over the open lines (R-2), a service charge
+    const lines = [line('A', 120_000, 'restaurant', { units: 2 }), line('B', 45_500, 'restaurant'), line('C', 20_000, null)];
+    const base = bill({
+      lines,
+      discount: { kind: 'amount', value: 0, frozen: { amount_minor: 10_000, closed_discount_minor: 4_000, line_ids: ['A', 'B'] } },
+      service_charge: { rate_bp: 500, removed: false, tax_profile_id: 'restaurant' },
+    });
+    const plans: ComputeBillInput['plan'][] = [
+      { mode: 'none', split_no: 2 },
+      { mode: 'equal', splits: [{ split_no: 2 }, { split_no: 3 }] },
+      { mode: 'items', splits: [{ split_no: 2, lines: [{ order_item_id: 'A', units: 1 }] }, { split_no: 3, lines: [] }] },
+      { mode: 'amount', splits: [{ split_no: 2, share_minor: 50_000 }, { split_no: 3, share_minor: 0 }] },
+    ];
+    const expected = openSplit(base, asLines(base));
+    for (const plan of plans) {
+      const r = computeBill({ ...base, plan, payments: [card(10_000, 2)] });
+      expect(r.totals_default_digital).toEqual(expected.totals.digital);
+      expect(r.totals_default).toEqual(expected.totals.cash);
+    }
+    expect(expected.totals.digital.total_minor).toBeLessThan(expected.totals.cash.total_minor);
+    expect(expected.totals.digital.discount_minor).toBe(6_000);
+  });
+
+  it('[05 P0.G G-25] inclusive prices with a compound pair: the digital total is the open remainder at the digital class', () => {
+    // VAT 10 % cash / 5 % digital simple + levy 2 % compound, prices include tax, a discount and a service charge
+    const w = {
+      tax_profile_id: 'w',
+      taxes: [
+        { seq: 1, tax_code: 'VAT', label: 'VAT', compound: false, rates: rates(1000, 500) },
+        { seq: 2, tax_code: 'LEVY', label: 'Levy', compound: true, rates: rates(200, 200) },
+      ],
+    };
+    const b = bill({
+      rules: cashStepRules({ prices_include_tax: true }),
+      tax_profiles: [w],
+      lines: [line('A', 1000, 'w'), line('B', 499, 'w')],
+      discount: { kind: 'amount', value: 100, frozen: null },
+      service_charge: { rate_bp: 500, removed: false, tax_profile_id: 'w' },
+    });
+    const r = computeBill(b);
+    const s = openSplit(b, asLines(b));
+    expect(r.totals_default_digital).toEqual(s.totals.digital);
+    expect(r.totals_default).toEqual(s.totals.cash);
+    expect(r.totals_default_digital.taxes.map((t) => [t.payment_class, t.tax_code])).toEqual([
+      ['digital', 'VAT'],
+      ['digital', 'LEVY'],
+    ]);
+    expect(r.totals_default_digital.total_minor).not.toBe(r.totals_default.total_minor);
+    expect(r.totals_default_digital.rounding_minor).toBe(0); // applies_to 'cash': the digital total is never rounded
+  });
+
+  it('[05 P0.G G-25] same digital and cash rates → the two totals are equal (the check bill prints one line, §6.3)', () => {
+    const r = computeBill(bill({ rules: PK_RULES, tax_profiles: [rateBpProfile('restaurant', 'GST', 1600)] }));
+    expect(money(r.totals_default)).toEqual(PK_REGRESSION.pk_rate_bp_1600.cash);
+    expect(money(r.totals_default_digital)).toEqual(PK_REGRESSION.pk_rate_bp_1600.digital);
+    expect(r.totals_default_digital.total_minor).toBe(r.totals_default.total_minor);
+  });
+
+  it('[05 P0.G G-25] an unresolved profile: blocks unchanged, the line untaxed at the digital class as at the cash class', () => {
+    const b = bill({ lines: [line('L1', 100_000, 'restaurant'), line('X', 5_000, 'missing')], tax_profiles: [pkPbProfile(), { tax_profile_id: 'missing', taxes: [] }] });
+    const r = computeBill(b);
+    expect(r.blocks).toEqual([{ reason: 'tax_unresolved', ids: ['X'] }]);
+    expect(r.totals_default_digital).toEqual(openSplit(b, asLines(b)).totals.digital);
+    expect(r.totals_default_digital.taxes.map((t) => t.base_minor)).toEqual([100_000]);
+  });
+});
