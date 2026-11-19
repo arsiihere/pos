@@ -11,8 +11,9 @@ import { fill } from '../../../i18n/en';
 import type { HubError } from '../kitchen-screens/api';
 import { AdminShell, AdminSignIn, errorText, Toast, useToast } from '../kitchen-screens/KitchenScreens';
 import { Glyph } from '../kitchen-screens/StationRow';
-import type { ConfigPrinter, PrintConfig, PrintersApi, PrintQueue, PrinterStatus, QueueJob, QueuePrinter, StationOutput } from './api';
+import type { BillDevice, ConfigPrinter, PrintConfig, PrintersApi, PrintQueue, PrinterStatus, QueueJob, QueuePrinter, StationOutput } from './api';
 import { ArchiveDialog } from './ArchiveDialog';
+import { BILL_SECTION_ID, BillPrinters, routeLabel } from './BillPrinters';
 import { CancelDialog } from './CancelDialog';
 import { OutputEditor } from './OutputEditor';
 import { OPTION_KEY, optionOf } from './output-modes';
@@ -141,6 +142,8 @@ function Printers({ api, onSignedOut }: { api: PrintersApi; onSignedOut: () => v
   const [readOnly, setReadOnly] = useState(() => api.permission('manage-devices') === false);
   const [toast, showToast] = useToast();
   const latest = useRef(0);
+  // the devices the Bill printers section read (names for the archive dialog's route list)
+  const billDevices = useRef<readonly BillDevice[]>([]);
 
   const load = useCallback(async () => {
     const request = ++latest.current;
@@ -291,6 +294,20 @@ function Printers({ api, onSignedOut }: { api: PrintersApi; onSignedOut: () => v
               </div>
             </section>
             <Outputs outputs={config.station_outputs} printers={config.printers} onEdit={readOnly ? undefined : (output) => void openFreshOutput(output.station_id)} />
+            <BillPrinters
+              routes={config.bill_routes}
+              printers={config.printers}
+              zones={config.zones}
+              floors={config.floors}
+              readOnly={readOnly}
+              loadDevices={async () => {
+                const answer = await api.devices();
+                if (!answer.ok || !Array.isArray(answer.data?.devices)) return null;
+                billDevices.current = answer.data.devices;
+                return answer.data.devices;
+              }}
+              save={async (payload, commandId) => settle(await api.setBillRoute(payload, commandId))}
+            />
           </>
         )}
         {queue !== null && (config === null || config.printers.length > 0 || queue.jobs.length > 0) && (
@@ -308,6 +325,7 @@ function Printers({ api, onSignedOut }: { api: PrintersApi; onSignedOut: () => v
         <ArchiveDialog
           printer={open.printer}
           stationName={stationName}
+          routeName={(id) => routeLabel(id, billDevices.current, config?.zones, config?.floors)}
           archive={async (commandId) => {
             const p = open.printer;
             return settle(
@@ -321,6 +339,10 @@ function Printers({ api, onSignedOut }: { api: PrintersApi; onSignedOut: () => v
           onGoOutputs={() => {
             setOpen(null);
             document.getElementById(OUTPUTS_SECTION_ID)?.scrollIntoView();
+          }}
+          onGoBillPrinters={() => {
+            setOpen(null);
+            document.getElementById(BILL_SECTION_ID)?.scrollIntoView();
           }}
         />
       )}

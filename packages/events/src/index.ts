@@ -111,6 +111,7 @@ export * from './events/station/LanesSet.v1.js';
 export * from './events/hub/StationScreenSet.v1.js';
 export * from './events/hub/DeviceRoleSet.v1.js';
 export * from './events/order/TicketReprinted.v1.js';
+export * from './events/hub/BillRouteSet.v1.js';
 export * from './events/hub/PrinterSaved.v1.js';
 export * from './events/hub/StationOutputSet.v1.js';
 export * from './admin/billing.js';

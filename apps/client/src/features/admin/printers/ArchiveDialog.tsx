@@ -11,7 +11,8 @@ import type { ConfigPrinter } from './api';
 
 // 03c §3.2, §6.2; 03c-D02 (frame PrinterArchive): archive = SavePrinter { …the printer, archived: true }. Refused
 // 409 CONFIG_IN_USE while an active station's output uses it (Q-18: an archived station already released it): the
-// dialog names those stations (`used_by.ids`) and offers "Go to Station outputs".
+// dialog names those stations (`used_by.ids`) and offers "Go to Station outputs"; ⚠️ 05 row P-1 (R-22): when only bill
+// routes hold it (`used_by.entity: 'bill_route'`) it names the routes and offers "Go to Bill printers".
 
 /** "Tandoor", "Tandoor and Fryer", "Tandoor, Fryer and Cold". */
 export function joinNames(names: readonly string[]): string {
@@ -19,28 +20,39 @@ export function joinNames(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')} ${t('common.and')} ${names.at(-1)!}`;
 }
 
-function inUseIds(error: HubError): string[] | null {
+// 03c v1.0.13 §6.2 (05 row P-1, R-22): `used_by` is the stations, or else the bill routes as `<scope>:<ref_id>`.
+interface InUse {
+  entity: 'station' | 'bill_route';
+  ids: string[];
+}
+
+function inUseOf(error: HubError): InUse | null {
   if (error.kind !== 'api' || error.code !== 'CONFIG_IN_USE') return null;
-  const ids = (error.details['used_by'] as { ids?: unknown } | undefined)?.ids;
-  return Array.isArray(ids) ? ids.map(String) : [];
+  const used = error.details['used_by'] as { entity?: unknown; ids?: unknown } | undefined;
+  return { entity: used?.entity === 'bill_route' ? 'bill_route' : 'station', ids: Array.isArray(used?.ids) ? used.ids.map(String) : [] };
 }
 
 export function ArchiveDialog({
   printer,
   stationName,
+  routeName,
   archive,
   onClose,
   onGoOutputs,
+  onGoBillPrinters,
 }: {
   printer: ConfigPrinter;
   stationName: (stationId: string) => string;
+  /** a bill route id `<scope>:<ref_id>` as the section's row label */
+  routeName: (routeId: string) => string;
   /** sends the archive with this command_id; resolves with the refusal, or null when archived */
   archive: (commandId: string) => Promise<HubError | null>;
   onClose: () => void;
   onGoOutputs: () => void;
+  onGoBillPrinters: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [inUse, setInUse] = useState<string[] | null>(null);
+  const [inUse, setInUse] = useState<InUse | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   // 00 M47: a retry after a network failure resends the same command_id.
   const commandId = useRef<string | null>(null);
@@ -56,8 +68,8 @@ export function ArchiveDialog({
       onClose();
       return;
     }
-    const ids = inUseIds(refused);
-    if (ids !== null) setInUse(ids);
+    const used = inUseOf(refused);
+    if (used !== null) setInUse(used);
     else setBanner(errorText(refused));
   };
 
@@ -81,14 +93,23 @@ export function ArchiveDialog({
             <button type="button" className="pos-btn" onClick={onClose}>
               {t('common.close')}
             </button>
-            <button type="button" className="pos-btn pos-btn--primary" onClick={onGoOutputs}>
-              {t('printers.go_outputs')}
+            <button type="button" className="pos-btn pos-btn--primary" onClick={inUse.entity === 'bill_route' ? onGoBillPrinters : onGoOutputs}>
+              {inUse.entity === 'bill_route' ? t('printers.go_bill_printers') : t('printers.go_outputs')}
             </button>
           </>
         )
       }
     >
-      {inUse !== null && <Banner tone="danger" text={fill(t('printers.in_use'), { stations: joinNames(inUse.map(stationName)) })} />}
+      {inUse !== null && (
+        <Banner
+          tone="danger"
+          text={
+            inUse.entity === 'bill_route'
+              ? fill(t('printers.in_use_routes'), { routes: joinNames(inUse.ids.map(routeName)) })
+              : fill(t('printers.in_use'), { stations: joinNames(inUse.ids.map(stationName)) })
+          }
+        />
+      )}
       {banner !== null && <Banner tone="danger" text={banner} />}
     </Dialog>
   );

@@ -41,6 +41,8 @@ const CASES: Array<[string, string, string, Record<string, unknown>]> = [
     { printer_id: 'PR1', name: 'Kitchen 1', connection: 'lan', address: '192.168.1.50:9100', paper_width_mm: 80, archived: false },
   ],
   ['StationOutputSet', 'hub', 'B1', { station_id: 'S1', mode: 'both', printer_id: 'PR1', show_taker: true, show_order_id: false }],
+  // 03c v1.0.13 §6.11, §3.2 (05 row P-1, R-22): one route per (scope, ref_id); '' for report / default; printer_id null removes it
+  ['BillRouteSet', 'hub', 'B1', { scope: 'zone', ref_id: 'Z1', printer_id: 'PR1' }],
 ];
 
 describe('[03b §6.22, 03c §6.11] 03b and 03c events', () => {
@@ -88,5 +90,18 @@ describe('[03b §6.22, 03c §6.11] 03b and 03c events', () => {
     expect(parseEvent(configSet)).toEqual(configSet);
     expect(() => parseEvent(envelope('StationOutputSet', 'hub', 'B1', { ...CASES[9]![3], source: 'cloud' }))).toThrow();
     bad({ ...printer, archived: 'no' });
+  });
+
+  it('[03c §6.11, §3.2; 05 #85] BillRouteSet: scope zone | floor | device | report | default; printer_id null removes; ref_id is a string (\'\' for report / default)', () => {
+    const route = CASES[10]![3];
+    const bad = (payload: Record<string, unknown>) => expect(() => parseEvent(envelope('BillRouteSet', 'hub', 'B1', payload)), JSON.stringify(payload)).toThrow();
+    const good = (payload: Record<string, unknown>) => expect(() => parseEvent(envelope('BillRouteSet', 'hub', 'B1', payload)), JSON.stringify(payload)).not.toThrow();
+    for (const scope of ['zone', 'floor', 'device']) good({ ...route, scope });
+    for (const scope of ['report', 'default']) good({ scope, ref_id: '', printer_id: 'PR1' });
+    good({ ...route, printer_id: null });
+    bad({ ...route, scope: 'table' });
+    bad({ ...route, ref_id: null });
+    bad({ ...route, printer_id: '' });
+    bad({ ...route, printer_id: 7 });
   });
 });

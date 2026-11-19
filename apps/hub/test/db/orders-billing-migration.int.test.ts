@@ -42,6 +42,7 @@ const billing = (db: Database.Database) =>
 
 /** Back to a pre-0021 hub: 0021's columns and indexes gone, orders_token back, 0021 not applied; checkpoints as they were. */
 function toPre0021(db: Database.Database): void {
+  db.exec('DROP TABLE bill_routes'); // 0022 (03c v1.0.13, 05 row P-1) runs after 0021 at boot
   db.exec('DROP INDEX orders_bill_key; DROP INDEX orders_token_day');
   db.exec('CREATE UNIQUE INDEX orders_token ON orders (business_date, token) WHERE token IS NOT NULL');
   db.exec('ALTER TABLE orders DROP COLUMN bill_key; ALTER TABLE orders DROP COLUMN carried_over');
@@ -181,7 +182,7 @@ describe('[05 #82] hub migration 0021_orders_billing (02b v1.0.16 §5; 05 rows Q
     toPre0021(copy);
     expect(checkpoint(copy, 'orders')).toBe(maxSeq);
     expect(checkpoint(copy, 'kitchen_tickets')).toBe(maxSeq);
-    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION]);
+    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0022_bill_routes.sql']);
     expect(checkpoint(copy, 'orders')).toBeUndefined();
     expect(checkpoint(copy, 'kitchen_tickets'), '0021 keeps the kitchen_tickets checkpoint row').toBe(maxSeq);
     expect(copy.prepare("SELECT COUNT(*) FROM order_lines WHERE tax_profile_id IS NOT NULL OR unit_price_minor IS NOT NULL").pluck().get(), 'no UPDATE: the refold fills them').toBe(0);
@@ -191,7 +192,7 @@ describe('[05 #82] hub migration 0021_orders_billing (02b v1.0.16 §5; 05 rows Q
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(21);
+    expect(db.pragma('user_version', { simple: true })).toBe(22);
     expect(db.prepare('SELECT event_type FROM events WHERE seq > ? ORDER BY seq').pluck().all(maxSeq)[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(rowsOf(db), 'every old line has tax_profile_id and unit_price_minor; rows equal the live fold').toEqual(liveLines);
     expect(ordersOf(db), 'orders rows equal the live fold').toEqual(liveOrders);
