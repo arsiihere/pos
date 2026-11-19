@@ -10,7 +10,7 @@ import { orderLines, seatingTotals } from '../../src/orders/exports';
 import { registerOrdersProjection } from '../../src/orders/index';
 import { lineShares, planComp, planVoid } from '../../src/orders/ledger';
 import { lineChangeDrafts } from '../../src/orders/line-change';
-import { registerLineGuard, resetLineGuard } from '../../src/orders/line-guard';
+import { registerLineGuard, resetLineGuard, type LineGuard, type LineGuardEntry, type LineGuardResult } from '../../src/orders/line-guard';
 import { zoneAlertDrafts } from '../../src/orders/zone-alerts';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import { swapBranchConfig, branchConfig } from '../../src/sync/branch-config-holder';
@@ -849,11 +849,12 @@ describe('RemoveItems (02b §6.2, §3.5)', () => {
 /** 04 row Q-3 stub line guard: 1 statement per ask; locks `locked` under alert A_VOID; records every ask. */
 function lockLines(locked: string[]): Array<{ order_id: string; touched: string[] }> {
   const asks: Array<{ order_id: string; touched: string[] }> = [];
-  registerLineGuard((db, order_id, touched_ids) => {
+  registerLineGuard((db, order_id, touched) => {
     db.prepare('SELECT 1 AS one').get();
-    asks.push({ order_id, touched: [...touched_ids] });
-    const hit = touched_ids.find((id) => locked.includes(id));
-    return hit === undefined ? null : { alert_id: 'A_VOID', order_item_id: hit };
+    const ids = touched.map((t) => t.order_item_id);
+    asks.push({ order_id, touched: ids });
+    const hit = ids.find((id) => locked.includes(id));
+    return hit === undefined ? null : { code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: hit } };
   });
   return asks;
 }
@@ -903,6 +904,135 @@ describe('[02b #43] RemoveItems asks the line guard with its planRemove ids (04 
     expect((await remove(signIn('S_ASIF'), { order_id: omars, lines: [{ order_item_id: 'D2' }] })).error?.code).toBe('VOID_PENDING');
     resetLineGuard();
     expect((await remove(signIn('S_ASIF'), { order_id: omars, lines: [{ order_item_id: 'D2' }] })).error?.code).toBe('PERMISSION_DENIED');
+  });
+});
+
+// ------------------------------------------------------------------------------------------- 05 #32, #79 (05 row Q-3)
+
+/** 05 row Q-3 recording guard: 1 statement per ask; every ask's `touched` list as given; answers `result`. */
+function recordGuard(result: LineGuardResult = null, tag = 'g', log: string[] = []): LineGuardEntry[][] {
+  const asks: LineGuardEntry[][] = [];
+  registerLineGuard((db, _order_id, touched) => {
+    db.prepare('SELECT 1 AS one').get();
+    log.push(tag);
+    asks.push(touched.map((t) => ({ ...t })));
+    return result;
+  });
+  return asks;
+}
+
+/** The touched entries as the fold leaves them: live units, comped units and billed_minor (02b §3.4) after the command. */
+function folded(order_id: string, ids: string[], money_changes = false): LineGuardEntry[] {
+  return ids.map((id) => {
+    const l = lineView(order_id, id);
+    return { order_item_id: id, units_after: l.live_units, comped_after: l.comped_units, base_after_minor: l.billed_minor, money_changes };
+  });
+}
+
+const CLOSED_SPLIT: LineGuardResult = { code: 'LINE_IN_CLOSED_SPLIT', details: { order_item_id: 'L1', bill_id: 'B1', split_no: 1 } };
+
+describe('[05 #32 guard-list half] [05 row Q-3] RemoveItems asks the line guard list with { order_item_id, units_after, comped_after, base_after_minor, money_changes }', () => {
+  it('[05 #32 guard-list half] one ask with every planned line; each entry = the line as the fold leaves it (deal + parts, a comped item), money_changes false', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([...deal('D1'), { order_item_id: 'L1', item_id: FX.naan, quantity: 3 }]);
+    comp(order_id, 'L1', 1);
+    const asks = recordGuard();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'D1' }, { order_item_id: 'L1', units: 1 }] }, { counted: true });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(lastStatements).toBe(3);
+    expect(asks).toEqual([folded(order_id, ['D1', 'D1a', 'D1b', 'L1'])]);
+    expect(asks[0]!.find((t) => t.order_item_id === 'L1')).toMatchObject({ units_after: 2, comped_after: 1 });
+  });
+
+  it('[05 #32 guard-list half] [R-33] a deal_part removed alone → its entry, then the parent deal\'s: units/comped unchanged, base folded from its parts, money_changes true', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway(deal('D1'));
+    const before = lineView(order_id, 'D1');
+    const asks = recordGuard();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'D1a' }] });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    const after = lineView(order_id, 'D1');
+    expect(after.billed_minor).toBeLessThan(before.billed_minor); // the part's money left the deal's billed_minor
+    expect(asks).toEqual([[...folded(order_id, ['D1a']), ...folded(order_id, ['D1'], true)]]);
+    expect(asks[0]![1]).toMatchObject({ units_after: before.live_units, comped_after: before.comped_units, base_after_minor: after.billed_minor });
+  });
+
+  it('[05 #32 guard-list half] [R-33] the deal itself in the payload → no extra parent entry (the deal\'s own entry is folded)', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway(deal('D1', 2));
+    const asks = recordGuard();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'D1', units: 1 }] });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(asks).toEqual([folded(order_id, ['D1', 'D1a', 'D1b'])]);
+  });
+
+  it('[05 #32 guard-list half] a guard answering LINE_IN_CLOSED_SPLIT → 409 with its details, nothing written', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    recordGuard(CLOSED_SPLIT);
+    const n = eventCount();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1', units: 1 }] });
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual(CLOSED_SPLIT);
+    expect(eventCount()).toBe(n);
+  });
+});
+
+describe('[05 #79 line half] [05 row Q-3] the line guard list: ordered, first non-null wins, 04\'s results unchanged', () => {
+  it('[05 #79 line half] two guards: 04 null then 05 non-null → 05\'s { code, details }; each guard +1 statement', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    const log: string[] = [];
+    recordGuard(null, '04', log);
+    recordGuard(CLOSED_SPLIT, '05', log);
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1' }] }, { counted: true });
+    expect(r.error).toEqual(CLOSED_SPLIT);
+    expect(log).toEqual(['04', '05']);
+    expect(lastStatements).toBe(1 + 2); // readOrder, then each guard (refused before the comp-request read)
+  });
+
+  it('[05 #79 line half] 04 first and non-null: its VOID_PENDING { alert_id, order_item_id } wins and 05\'s guard is not asked', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    const log: string[] = [];
+    lockLines(['L1']);
+    recordGuard(CLOSED_SPLIT, '05', log);
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1' }] });
+    expect(r.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'L1' } });
+    expect(log).toEqual([]);
+  });
+
+  it('[05 #79 line half] every guard null → removed; a guard registered twice is asked once (registerVoids re-runs per test hub)', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    let asked = 0;
+    const g: LineGuard = (db) => {
+      asked += 1;
+      db.prepare('SELECT 1').get();
+      return null;
+    };
+    registerLineGuard(g);
+    registerLineGuard(g);
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1' }] }, { counted: true });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(asked).toBe(1);
+    expect(lastStatements).toBe(3);
+  });
+
+  it('[05 #79 line half] none registered → never blocked, +0 statements', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1' }] }, { counted: true });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(lastStatements).toBe(2);
   });
 });
 

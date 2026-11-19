@@ -17,6 +17,9 @@ import { VOID_APPROVAL, VoidDetails, VoidValues } from '../../src/voids/kind';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
 
+/** 02b row Q-3 guard input from ids (04's guard reads only the ids). */
+const touched = (ids: string[]) => ids.map((order_item_id) => ({ order_item_id, units_after: 0, comped_after: 0, base_after_minor: 0, money_changes: false }));
+
 // 04 phase 0 P0.7 (04 §4.2, §3.5, §6.6): the module skeleton. Kind `void_approval` exists from module load with every
 // §3.5 setting. The §4.2 exports threw "not built" and the guards were no-ops from P0.7 until v8; v8 restates the
 // second describe: they are built, and registerVoids registers all three guards at boot.
@@ -107,7 +110,7 @@ describe('[04 §4.2, §6.6] contracts and guards (built by v8)', () => {
   it('[04 §6.6] the guards are real (v8): with no open request never blocked, 1 statement each', () => {
     const counter = statementCounter(hub.deps.db);
     expect(voidMergeGuard(hub.deps.db, { seating_ids: ['S1'], order_ids: ['O1'] })).toBeNull();
-    expect(voidLineGuard(hub.deps.db, 'O1', ['L1'])).toBeNull();
+    expect(voidLineGuard(hub.deps.db, 'O1', touched(['L1']))).toBeNull();
     expect(voidDayCloseGuard(hub.deps.db, {} as EngineState)).toBeNull();
     expect(counter.count).toBe(3);
   });
@@ -115,7 +118,7 @@ describe('[04 §4.2, §6.6] contracts and guards (built by v8)', () => {
   it('[04 §6.6] registerVoids registers the merge, line and day-close guards: each is asked through its 02a / 02b / 01a check', () => {
     const counter = statementCounter(hub.deps.db);
     expect(checkMergeGuard(hub.deps.db, { seating_ids: ['S1', 'S2'] })).toBeNull();
-    expect(checkLineGuard(hub.deps.db, 'O1', ['L1'])).toBeNull();
+    expect(checkLineGuard(hub.deps.db, 'O1', touched(['L1']))).toBeNull();
     expect(checkDayCloseGuard(hub.deps.db, {} as EngineState)).toBeNull();
     expect(counter.count).toBe(3);
     const calls: unknown[] = [];

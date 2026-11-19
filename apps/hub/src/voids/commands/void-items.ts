@@ -1,8 +1,10 @@
 // 04 §6.1 VoidItems (task v4: the direct path; task v6: the approval path, step 7, through kind.ts voidRaiseInputs). Permission `void-item`,
 // `approvable: true`, not queueable (V15), device session. No table lock (V14). Order of checks: payload (Zod: keyed
 // lines C6, notes V12) → readOrder (404) → billed (409) → the two open-request reads → §3.2 per entry (plan.ts) →
-// scope `branch` last (C8). Statements: 1 readOrder + 2 listOpen (`alerts_open_kind`) = 3, + direct 2 (lineChangeDrafts
-// in `close` mode) or + 01d's raiseMany bound (request); the append excluded. Engine state, directory and config in memory.
+// 4b 02b's line guard list once with every touched line (⚠️ 05 row V-1, R-16: 409 LINE_IN_CLOSED_SPLIT; 04's own guard
+// is skipped, rule 6 (b) is that lock) → scope `branch` last (C8). Statements: 1 readOrder + 2 listOpen
+// (`alerts_open_kind`) = 3, + direct 2 (lineChangeDrafts in `close` mode) or + 01d's raiseMany bound (request), +1 per
+// other registered line guard (05's; +0 otherwise); the append excluded. Engine state, directory and config in memory.
 import { DomainError, VOID_DISPOSITIONS, VOID_REASON_CODES } from '@pos/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -11,8 +13,9 @@ import { defineCommand, type CommandCtx } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { readOrder, type ReadOrderHead } from '../../orders/exports.js';
 import { COMP_KIND } from '../../orders/line-change.js';
+import { plannedLineGuardEntries, requireLineGuard } from '../../orders/line-guard.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
-import { VOID_KIND } from '../contracts.js';
+import { VOID_KIND, voidLineGuard } from '../contracts.js';
 import { voidRaiseInputs } from '../kind.js';
 import { planVoidEntries, voidDrafts } from '../plan.js';
 
@@ -79,6 +82,8 @@ function voidItems(ctx: CommandCtx, p: Payload): { events: ReturnType<typeof voi
     open_comps,
     move_granted: staffId !== null && ctx.directory.resolve(staffId, 'move-item-to-stock').grant === 'allowed',
   });
+  // step 4b (⚠️ 05 row V-1, R-16): the line guard list once, every touched line as the plan leaves it
+  requireLineGuard(ctx.tx.db, order.order_id, plannedLineGuardEntries(lines, [planned.flatMap((e) => e.lines)]), voidLineGuard);
   // step 5
   checkScope(ctx, order);
   if (approval) {

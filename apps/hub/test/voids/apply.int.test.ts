@@ -34,6 +34,9 @@ import {
   type Who,
 } from './fixtures';
 
+/** 02b row Q-3 guard input from ids (04's guard reads only the ids). */
+const touched = (ids: string[]) => ids.map((order_item_id) => ({ order_item_id, units_after: 0, comped_after: 0, base_after_minor: 0, money_changes: false }));
+
 
 let hub: TestHub;
 
@@ -139,11 +142,11 @@ describe('[04 §3.4, §6.2] approve', () => {
     const d = dealX2(hub);
     toStage(hub, d.order_id, [d.karahiPart], 'cooking');
     const { alert_ids } = await ask(cashier, d.order_id, [{ order_item_id: d.deal, units: 1, disposition: 'wastage' }]);
-    for (const id of [d.deal, d.karahiPart, d.naanPart]) expect(checkLineGuard(hub.deps.db, d.order_id, [id])).toEqual({ alert_id: alert_ids[0], order_item_id: id });
+    for (const id of [d.deal, d.karahiPart, d.naanPart]) expect(checkLineGuard(hub.deps.db, d.order_id, touched([id]))).toEqual({ code: 'VOID_PENDING', details: { alert_id: alert_ids[0], order_item_id: id } });
     const r = await answer(hub, manager, alert_ids[0]!, 'approve');
     expect(r.status, JSON.stringify(r.error)).toBe(200);
     expect(ofType(r, 'ItemVoided').map((e) => e.payload.order_item_id)).toEqual([d.deal, d.karahiPart, d.naanPart]);
-    expect(checkLineGuard(hub.deps.db, d.order_id, [d.deal, d.karahiPart, d.naanPart])).toBeNull();
+    expect(checkLineGuard(hub.deps.db, d.order_id, touched([d.deal, d.karahiPart, d.naanPart]))).toBeNull();
   });
 
   it('[04 #47] with the guard live the approved refund = the raise-time refund (details.amount = Σ applied refund_minor); a comp tried in between is refused, so the plan cannot drift', async () => {

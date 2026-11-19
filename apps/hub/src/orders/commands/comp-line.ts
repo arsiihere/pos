@@ -10,7 +10,7 @@ import { branchConfig } from '../../sync/branch-config-holder.js';
 import type { LineView } from '../contracts.js';
 import { liveUnits, planComp, type CompMeta, type LedgerParent, type LedgerRef } from '../ledger.js';
 import { COMP_KIND, staleCompCloses } from '../line-change.js';
-import { requireNoVoidPending } from '../line-guard.js';
+import { lineGuardEntries, requireLineGuard, type LineGuardEntry } from '../line-guard.js';
 
 // 02b §6.8 CompLine, §3.9 (rules, value, approval, stale requests), §3.4 (comp takes the next free shares; deal actions;
 // cascades capped; one LineComped per line), §3.14 (scope `branch`). `approvable: true` (00 :470); online only (§3.12).
@@ -19,7 +19,7 @@ import { requireNoVoidPending } from '../line-guard.js';
 // every grant (⚠️ 04 row Q-3; G-12: 409 VOID_PENDING) → scope last (C8). Then: grant `allowed` → LineComped per line +
 // stale request closes; `requires_approval` → alerts.raise of kind `comp` (deduped → 409 COMP_PENDING).
 // Statements: 1 (the line, its order, its current table, its children) + 1 open comp requests of the order
-// (alerts.listOpen, on the `allowed` path, where the comp is written), +1 line guard when registered (G-23); 01d's own
+// (alerts.listOpen, on the `allowed` path, where the comp is written), +1 per registered line guard (G-23; 05 Q-3); 01d's own
 // bounds (raise, closeMany) and the append excluded. The kind's `apply` (`applyComp` below) re-runs the same read and
 // checks, read-only.
 
@@ -69,6 +69,7 @@ type LineRow = Pick<
   | 'comp_voided_minor'
   | 'removed_minor'
   | 'refund_minor'
+  | 'line_total_minor'
   | 'return_of'
   | 'served_from_zone_id'
   | 'added_at'
@@ -82,7 +83,7 @@ type Row = LineRow & { billed_at: number | null; primary_table_id: string | null
 // billed_at and its current table (02a seating_orders → seatings, read-only join, P-1c) for the request's display.
 const READ = `SELECT l.order_item_id, l.order_id, l.parent_order_item_id, l.line_kind, l.name, l.sale_unit, l.quantity, l.units,
        l.comped_units, l.removed_units, l.voided_units, l.refundable_minor, l.comp_minor, l.comp_voided_minor,
-       l.removed_minor, l.refund_minor, l.return_of, l.served_from_zone_id, l.added_at, l.option_quantity,
+       l.removed_minor, l.refund_minor, l.line_total_minor, l.return_of, l.served_from_zone_id, l.added_at, l.option_quantity,
        o.billed_at, s.primary_table_id
   FROM order_lines t
   JOIN orders o ON o.order_id = t.order_id
@@ -146,7 +147,7 @@ function compDrafts(
   r: Read,
   units: number,
   meta: CompMeta,
-): { events: EventDraft[]; value_minor: number; after: Map<string, LineRow>; touched_ids: string[] } {
+): { events: EventDraft[]; value_minor: number; after: Map<string, LineRow>; touched: LineGuardEntry[] } {
   const plan = planComp(r.line, r.children, units, meta);
   const envelope = { occurred_at: ctx.clock.branchNow(), actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
   const events: EventDraft[] = plan.lines.map((p) => {
@@ -156,7 +157,8 @@ function compDrafts(
   const after = new Map<string, LineRow>([r.line, ...r.children].map((l) => [l.order_item_id, l]));
   for (const p of plan.lines) after.set(p.order_item_id, { ...after.get(p.order_item_id)!, ...p.after });
   // the plan's lines: 0-unit cascade lines are already dropped (ledger.ts targets)
-  return { events, value_minor: plan.value_minor, after, touched_ids: plan.lines.map((p) => p.order_item_id) };
+  // ⚠️ 05 row Q-3: each touched line as the plan leaves it (comped_after, base_after_minor)
+  return { events, value_minor: plan.value_minor, after, touched: lineGuardEntries(after, plan.lines.map((p) => p.order_item_id)) };
 }
 
 
@@ -179,7 +181,7 @@ function compLine(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: 
   const note = p.note ?? null;
   const meta: CompMeta = { reason_code: p.reason_code, note, requester_staff_id: caller, alert_id: null, approver_staff_id: null };
   const comp = compDrafts(ctx, r, p.units, meta);
-  requireNoVoidPending(ctx.tx.db, r.line.order_id, comp.touched_ids); // §3.4 line guard (⚠️ 04 row Q-3)
+  requireLineGuard(ctx.tx.db, r.line.order_id, comp.touched); // §3.4 line guard (⚠️ 04 row Q-3; ⚠️ 05 row Q-3: the list)
   checkScope(ctx, r.line.order_id);
 
   if (ctx.permission !== null && ctx.permission.grant === 'requires_approval') {
@@ -234,7 +236,7 @@ export function applyComp(ctx: AlertApplyCtx<CompValues, AlertDetails>, answer: 
   check(ctx, r, v.units);
   const meta: CompMeta = { reason_code: v.reason_code, note: v.note, requester_staff_id: requester, alert_id: ctx.alert.alert_id, approver_staff_id: answer.answerer_staff_id };
   const comp = compDrafts(ctx, r, v.units, meta);
-  requireNoVoidPending(ctx.tx.db, r.line.order_id, comp.touched_ids); // §3.4 line guard (⚠️ 04 row Q-3)
+  requireLineGuard(ctx.tx.db, r.line.order_id, comp.touched); // §3.4 line guard (⚠️ 04 row Q-3; ⚠️ 05 row Q-3: the list)
   return comp.events;
 }
 
