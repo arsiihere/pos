@@ -100,7 +100,8 @@ async function runCommand(
     stored === undefined || commandDef.pinCheck === undefined
       ? undefined
       : peekPinField(commandDef, command, peekSession(request, deps, routeKind), preCtxFor);
-  const early = earlyField === UNDECIDED ? undefined : decide(stored, command, deviceId, request.session, routeKind, earlyField);
+  const early =
+    earlyField === UNDECIDED ? undefined : decide(stored, command, deviceId, request.session, routeKind, hashOmitOf(commandDef, earlyField));
   if (early?.kind === 'replay') return sendReplay(reply, early.stored);
   if (early?.kind === 'conflict') throw commandIdUsed();
   const session = routeKind === 'device' ? requireCommandSession(request, deps) : request.session;
@@ -109,13 +110,14 @@ async function runCommand(
   const actorId = session.kind === 'station' ? null : session.staff_id;
   if (command.actor_id !== actorId) invalid('actor_id', 'actor_id does not match the session');
   const payload = commandDef.payloadSchema.safeParse(command.payload);
-  if (!payload.success) throw new DomainError('VALIDATION_FAILED', { issues: zodIssues(payload.error) });
   // 00 v1.6 §3.5 "Commands with a PIN" (a), §3.7 H-3: read-only, before any PIN is verified.
   const preCtx = preCtxFor(session);
+  // 00 v1.12 §3.7 (05 row H-4): an issue near a hashOmit path or the pinCheck field never carries the received value.
+  if (!payload.success) throw new DomainError('VALIDATION_FAILED', { issues: redactedIssues(commandDef, command, payload.error, preCtx) });
   commandDef.preRead?.(preCtx.db, payload.data, preCtx);
   const pin = commandDef.pinCheck?.(payload.data, preCtx) ?? null;
-  // 00 v1.6 H-9: the command's pinCheck field, left out of payload_hash.
-  const pinField = pin?.field;
+  // 00 v1.6 H-9: the command's pinCheck field, left out of payload_hash; 00 v1.12 H-4: with its hashOmit paths.
+  const omit = hashOmitOf(commandDef, pin?.field);
   await deps.testHooks?.betweenGuardAndWriter?.();
 
   const queuedAt = queuedAtOf(request, commandDef, session, deps.clock.branchNow());
@@ -136,7 +138,7 @@ async function runCommand(
   // Idempotency re-check, M39 re-check, permission, `handle`: drafts only (00 §3.7).
   type Prepared = { beforeSeq: number; handled: { events: EventDraft[]; result: unknown } };
   const prepare = (tx: WriterTx): Prepared => {
-    const again = decide(readStored(tx.db, command.command_id), command, deviceId, session, routeKind, pinField);
+    const again = decide(readStored(tx.db, command.command_id), command, deviceId, session, routeKind, omit);
     if (again?.kind === 'replay') throw new IdempotentReplay(again.stored);
     if (again?.kind === 'conflict') throw commandIdUsed();
     if (deps.authGeneration.current() !== authGen) recheckAuth(tx, deviceId, session.session_id);
@@ -173,7 +175,7 @@ async function runCommand(
         deviceId,
         session.session_id,
         command.command_type,
-        payloadHash(command.payload, pinField),
+        payloadHash(command.payload, omit),
         JSON.stringify({ status: 200, body: response }),
         deps.clock.branchNow(),
       );
@@ -218,6 +220,12 @@ async function runCommand(
 }
 
 const UNDECIDED = Symbol('undecided');
+
+/** 00 v1.12 §3.7 (05 row H-4): the paths left out of `payload_hash` — the `hashOmit` list and the `pinCheck` field. */
+function hashOmitOf(def: CommandDef, pinField: string | undefined): readonly string[] {
+  const paths = def.hashOmit ?? [];
+  return pinField === undefined ? paths : [...paths, pinField];
+}
 
 function peekPinField(
   def: CommandDef,
@@ -290,11 +298,11 @@ function decide(
   deviceId: string,
   session: SessionRow | undefined,
   routeKind: 'device' | 'admin',
-  pinField: string | undefined,
+  omit: readonly string[],
 ): { kind: 'replay'; stored: { status: number; body: unknown } } | { kind: 'conflict' } | undefined {
   if (row === undefined) return undefined;
   const identity = routeKind === 'admin' ? session !== undefined && row.session_id === session.session_id : row.device_id === deviceId;
-  if (identity && row.command_type === command.command_type && row.payload_hash === payloadHash(command.payload, pinField)) {
+  if (identity && row.command_type === command.command_type && row.payload_hash === payloadHash(command.payload, omit)) {
     return { kind: 'replay', stored: JSON.parse(row.response_json) as { status: number; body: unknown } };
   }
   return { kind: 'conflict' };
@@ -456,17 +464,56 @@ function registerTestCommands(registry: ReturnType<typeof createCommandRegistry>
       },
     }),
   );
+  // 00 v1.12 H-4 (05 row H-4): test-only 'both' command with dotted hashOmit paths; `tax_id.type` stays hashed.
+  // The value's custom message echoes the input on purpose: the error mapper must drop it.
+  registry.register(
+    defineCommand({
+      commandType: 'TestHashOmit',
+      payloadSchema: z.object({
+        split_id: z.string(),
+        buyer: z
+          .object({
+            name: z.string(),
+            tax_id: z
+              .object({
+                type: z.enum(['CNIC', 'NTN']),
+                value: z.string().max(16, { error: (issue) => `bad tax id ${String(issue.input)}` }),
+              })
+              // As a jurisdiction pattern check on CloseSplit would be: an issue above the omitted `value`.
+              .superRefine((taxId, refine) => {
+                const pattern = taxId.type === 'CNIC' ? /^\d{13}$/ : /^[A-Za-z0-9]{7,9}$/;
+                if (!pattern.test(taxId.value)) refine.addIssue({ code: 'custom', message: `tax id ${taxId.value} does not match` });
+              }),
+          })
+          .optional(),
+        note: z.string().optional(),
+      }),
+      sessionKind: 'both',
+      permission: 'manage-roles',
+      hashOmit: ['buyer.name', 'buyer.tax_id.value', 'note'],
+      handle(ctx, _payload, cmd) {
+        return { events: [testEvent(ctx, cmd)], result: { ok: true } };
+      },
+    }),
+  );
   // 00 v1.6 H-3 / 01d task 6: a PIN-bearing command through checkPin (test harness only).
   registry.register(
     defineCommand({
       commandType: 'TestPinChecked',
-      payloadSchema: z.object({ staff_id: z.string(), pin: z.string(), refuse: z.enum(['pre', 'prepare']).optional() }),
+      // The pin's length message echoes the input on purpose (05 row H-4): the error mapper must drop it.
+      payloadSchema: z.object({
+        staff_id: z.string(),
+        pin: z.string().max(12, { error: (issue) => `bad pin ${String(issue.input)}` }),
+        refuse: z.enum(['pre', 'prepare']).optional(),
+      }),
       sessionKind: 'device',
       permission: 'reprint-ticket',
       preRead(_db, payload) {
         if (payload.refuse === 'pre') throw new DomainError('STAFF_NOT_FOUND');
       },
       pinCheck(payload) {
+        // 05 row H-4 fail-closed test: a raw (unparsed) payload carrying `throw_pin` makes pinCheck throw.
+        if ((payload as { throw_pin?: unknown }).throw_pin === true) throw new Error('pinCheck cannot read this payload');
         return { staff_id: payload.staff_id, pin: payload.pin, field: 'pin' };
       },
       pinHooks: {
@@ -534,11 +581,39 @@ function parseCommand(body: unknown): PosCommand {
   return parsed.data;
 }
 
-function zodIssues(error: ZodError): Array<{ path: string; message: string }> {
-  return error.issues.map((issue) => ({
-    path: issue.path.map(String).join('.'),
-    message: issue.message,
-  }));
+/**
+ * 00 v1.12 §3.7 (05 row H-4): the redaction list for a payload that failed Zod — the `hashOmit` paths and the
+ * `pinCheck` field. The field is asked of `pinCheck` on the raw payload (it cannot be parsed); if `pinCheck`
+ * throws on it, every issue is redacted (fail closed).
+ */
+function redactedIssues(def: CommandDef, command: PosCommand, error: ZodError, ctx: PreReadCtx): Array<{ path: string; message: string }> {
+  if (def.pinCheck === undefined) return zodIssues(error, def.hashOmit);
+  let field: string | undefined;
+  try {
+    field = def.pinCheck(command.payload, ctx)?.field;
+  } catch {
+    return zodIssues(error, ['']);
+  }
+  return zodIssues(error, hashOmitOf(def, field));
+}
+
+/**
+ * 00 §7.1 Zod → `VALIDATION_FAILED`: `{ path, message }` only (never `input`). 00 v1.12 §3.7 (05 row H-4): an issue
+ * at, under or above a `hashOmit` path gets the Zod `code` as its message, so no received value (a custom message
+ * may echo the input) reaches `issues`; the path still names the field (`buyer.tax_id.value`).
+ */
+function zodIssues(error: ZodError, omit: readonly string[] = []): Array<{ path: string; message: string }> {
+  // `''` (fail closed) is the root: every path is under it.
+  const omitted = omit.map((path) => (path === '' ? [] : path.split('.')));
+  return error.issues.map((issue) => {
+    const path = issue.path.map(String);
+    const near = omitted.some((o) => isPrefix(o, path) || isPrefix(path, o));
+    return { path: path.join('.'), message: near ? issue.code : issue.message };
+  });
+}
+
+function isPrefix(prefix: readonly string[], of: readonly string[]): boolean {
+  return prefix.length <= of.length && prefix.every((segment, i) => segment === of[i]);
 }
 
 function invalid(path: string, message: string): never {
