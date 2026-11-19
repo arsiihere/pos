@@ -50,7 +50,11 @@ export interface PreReadCtx {
 export interface CommandDef<P extends z.ZodType = z.ZodType> {
   commandType: string;
   payloadSchema: P;
-  sessionKind: 'device' | 'admin';
+  /**
+   * 00 v1.12 §3.7 / §4.2 (05 row H-1): `'both'` is registered on `/commands/<name>` and `/admin/commands/<name>`:
+   * one `command_id` space, the same `handle`, permission resolved from the staff of the request's session.
+   */
+  sessionKind: 'device' | 'admin' | 'both';
   /** `'checked-in-handler'` only for HANDLER_CHECKED_COMMANDS (00 v1.6 §3.7 H-3); `ctx.permission` is then null. */
   permission: Permission | null | 'checked-in-handler';
   approvable?: boolean;

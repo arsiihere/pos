@@ -66,7 +66,11 @@ async function runCommand(
 ): Promise<unknown> {
   const name = routeName(request);
   const commandDef = registry.byPath(name);
-  if (commandDef === undefined || commandDef.sessionKind !== routeKind) throw new DomainError('ROUTE_NOT_FOUND');
+  // 00 v1.12 §3.7 (05 row H-1): a 'both' command answers on either route; the rest of the pipeline is the
+  // route's own (session, M47 replay identity, permission from that session's staff).
+  if (commandDef === undefined || (commandDef.sessionKind !== routeKind && commandDef.sessionKind !== 'both')) {
+    throw new DomainError('ROUTE_NOT_FOUND');
+  }
   const command = parseCommand(request.body);
   if (toKebab(command.command_type) !== name) invalid('command_type', 'command_type does not match the path');
   const deviceId = commandDeviceId(request, routeKind);
@@ -423,6 +427,21 @@ function registerTestCommands(registry: ReturnType<typeof createCommandRegistry>
       permission: 'access-hub-admin',
       handle(ctx, _payload, cmd) {
         return { events: [testEvent(ctx, cmd)], result: { ok: true } };
+      },
+    }),
+  );
+  // 00 v1.12 H-1 (05 #80): test-only 'both' command; echoes the session it ran under.
+  registry.register(
+    defineCommand({
+      commandType: 'TestBoth',
+      payloadSchema: z.object({}),
+      sessionKind: 'both',
+      permission: 'manage-roles',
+      handle(ctx, _payload, cmd) {
+        return {
+          events: [testEvent(ctx, cmd)],
+          result: { kind: ctx.actor.kind, staff_id: ctx.actor.staffId, session_id: ctx.actor.sessionId },
+        };
       },
     }),
   );
