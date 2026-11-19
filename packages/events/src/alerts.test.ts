@@ -17,6 +17,7 @@ import {
   AlertStepTargetSchema,
   AlertTargetSchema,
   AlertInboxRow,
+  AlertLinkTargetSchema,
   AlertsCatchUpPart,
   AlertViewSchema,
   AnswerRequestPayload,
@@ -30,6 +31,7 @@ import {
 import { parseEvent } from './codecs';
 import './index';
 import { payloadSchema } from './registry';
+import { WsAlertsOpenRow, WsServerMessage } from './ws';
 
 const ALERT_EVENTS = [
   ['AlertRaised', 'hub'],
@@ -550,5 +552,122 @@ describe('[04 §4.5 D-3] AlertDetailsBase + disposition, AlertRaised v4', () => 
     const v4 = parseEvent(fixtureAt('AlertRaised', 4));
     expect(v4.schema_version).toBe(4);
     expect(v4.payload).toEqual(fixtureAt('AlertRaised', 4).payload);
+  });
+});
+
+describe('[01d v1.3 §5.4] AlertLinkTargetSchema and the view `target` (§3.13.1, M2)', () => {
+  const view = {
+    alert_id: ULID,
+    kind: 'void_approval',
+    family: 'urgent',
+    step: 0,
+    escalation: false,
+    set: 'answerer',
+    for_staff_id: null,
+    lock: { kind_label_key: 'alert.void_approval.lock', table_code: '12' },
+    raised_at: 1_761_900_000_000,
+  };
+  const members = [
+    { type: 'order_line', order_id: 'O1', order_item_id: 'L1' },
+    { type: 'order', order_id: 'O1' },
+    { type: 'table', table_id: 'T5', seating_id: 'S5' },
+    { type: 'zone_item', zone_id: 'Z1', item_id: 'I1' },
+  ] as const;
+
+  it('[01d §5.4] each of the four members parses, and each is strict (an extra key is refused)', () => {
+    for (const m of members) {
+      expect(AlertLinkTargetSchema.parse(m)).toEqual(m);
+      expect(AlertLinkTargetSchema.safeParse({ ...m, amount: 500 }).success).toBe(false);
+    }
+  });
+
+  it('[01d §5.4] ids are non-empty strings (AD-11); a missing id or an unknown type is refused by the strict schema', () => {
+    expect(AlertLinkTargetSchema.safeParse({ type: 'order', order_id: '' }).success).toBe(false);
+    expect(AlertLinkTargetSchema.safeParse({ type: 'order_line', order_id: 'O1' }).success).toBe(false);
+    expect(AlertLinkTargetSchema.safeParse({ type: 'table', table_id: 'T5' }).success).toBe(false);
+    expect(AlertLinkTargetSchema.safeParse({ type: 'station', station_id: 'K1' }).success).toBe(false);
+    expect(AlertLinkTargetSchema.safeParse(null).success).toBe(false);
+  });
+
+  it('[01d §5.4] on the view: a valid target is kept, null stays null, absent stays absent (a v1.2.5 hub)', () => {
+    for (const m of members) expect(AlertViewSchema.parse({ ...view, target: m }).target).toEqual(m);
+    expect(AlertViewSchema.parse({ ...view, target: null }).target).toBeNull();
+    const absent = AlertViewSchema.parse(view);
+    expect(absent.target).toBeUndefined();
+    expect(absent).not.toHaveProperty('target');
+  });
+
+  it('[01d §5.4] on the view: an unknown type or a malformed target reads as null, and the row still parses (M2)', () => {
+    for (const bad of [
+      { type: 'station', station_id: 'K1' },
+      { type: 'order' },
+      { type: 'order', order_id: 'O1', extra: 1 },
+      'order:O1',
+      42,
+    ]) {
+      const r = AlertViewSchema.safeParse({ ...view, target: bad });
+      expect(r.success).toBe(true);
+      expect(r.success && r.data.target).toBeNull();
+    }
+  });
+
+  it('[01d §5.4] every view row inherits it: inbox, catch-up, requests-to-answer, alerts_open; MyRequestRow does not', () => {
+    const target = { type: 'order_line', order_id: 'O1', order_item_id: 'L1' };
+    const bad = { type: 'station', station_id: 'K1' };
+    const inbox = {
+      ...view,
+      seen_by_me: false,
+      moved_to_name: null,
+      for_staff_name: null,
+      state: 'open',
+      close_reason: null,
+    };
+    expect(AlertInboxRow.parse({ ...inbox, target }).target).toEqual(target);
+    expect(AlertInboxRow.parse({ ...inbox, target: bad }).target).toBeNull();
+    const catchUp = { ...view, seen_by_me: false, from_business_day: null };
+    expect(AlertsCatchUpPart.parse({ alerts: [{ ...catchUp, target }] }).alerts[0]?.target).toEqual(target);
+    expect(AlertsCatchUpPart.parse({ alerts: [{ ...catchUp, target: bad }] }).alerts[0]?.target).toBeNull();
+    const toAnswer = { ...view, can_answer: true, seen_by_me: false, from_business_day: null };
+    const answered = RequestsToAnswerResponse.safeParse({ data: { requests: [{ ...toAnswer, target }] } });
+    expect(answered.success).toBe(true);
+    expect(answered.success && answered.data.data.requests[0]?.target).toEqual(target);
+    // alerts_open is strict and lock-only (AD-81), but `target` is lock-safe (ids only), so it is allowed
+    expect(WsAlertsOpenRow.parse({ ...view, target }).target).toEqual(target);
+    expect(WsAlertsOpenRow.parse({ ...view, target: bad }).target).toBeNull();
+    expect(WsAlertsOpenRow.safeParse({ ...view, target, card: { kind_label_key: 'k', details: null } }).success).toBe(false);
+    expect(WsAlertsOpenRow.safeParse({ ...view, target, answers: ['approve'] }).success).toBe(false);
+    // MyRequestRow keeps `lock` only: the requester's waiting card is not a notification (§3.13.1)
+    const myRow = {
+      alert_id: ULID,
+      kind: 'void_approval',
+      state: 'pending',
+      close_reason: null,
+      decision: null,
+      answerer_name: null,
+      raised_at: 0,
+      waiting_ms: 0,
+      ask_in_person: false,
+      lock: { kind_label_key: 'alert.void_approval.lock' },
+    };
+    const mine = MyRequestsResponse.parse({ data: { requests: [{ ...myRow, target }] } });
+    expect(mine.data.requests[0]).not.toHaveProperty('target');
+  });
+
+  it('[01d #70 (d)/(e)] a WsServerMessage alert frame with an unknown or malformed target is kept with target null; one with none parses', () => {
+    for (const bad of [{ type: 'station', station_id: 'K1' }, { type: 'zone_item', zone_id: 'Z1' }]) {
+      const r = WsServerMessage.safeParse({ type: 'alert', alert: { ...view, target: bad } });
+      expect(r.success).toBe(true);
+      expect(r.success && r.data.type === 'alert' && r.data.alert.target).toBeNull();
+    }
+    const old = WsServerMessage.safeParse({ type: 'alert', alert: view });
+    expect(old.success).toBe(true);
+    expect(old.success && old.data.type === 'alert' && old.data.alert.target).toBeUndefined();
+    const open = WsServerMessage.safeParse({
+      type: 'alerts_open',
+      alerts: [{ ...view, target: { type: 'station', station_id: 'K1' } }],
+      binding_route_until: null,
+    });
+    expect(open.success).toBe(true);
+    expect(open.success && open.data.type === 'alerts_open' && open.data.alerts[0]?.target).toBeNull();
   });
 });

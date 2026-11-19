@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { matchStaffRoute } from '../staff/shell/routes';
+import { glowOnArrival } from './deeplink-tap';
 import { t } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { timeText } from './labels';
 import { isSilent } from './sounds';
 import type { AlertRow } from './store';
-import { Ico, OpenCard, Ring, RowCard, initial, isRequest } from './ui';
+import { Ico, OpenCard, Ring, RowCard, initial, isRequest, tableOf } from './ui';
 
 // 01d §8.1, §6.7 (S01, frames Inbox, InboxLead, InboxEmpty, InboxLoading, InboxOffline): two list cards, Open
 // (big cards: open requests and action alerts) and Today (rows, newest first). A lead sees one "For <name>"
@@ -91,6 +93,24 @@ export function Inbox({
   hasMore?: boolean;
   onMore?: () => void;
 }) {
+  // 01d v1.3 §3.13.5, §3.13.7 (dl cp7): `#/inbox?focus=alert:<id>` comes only through the URL, with no tap behind it (a
+  // 9b notification, kept through the sign-in, §3.13.4). It glows that card through the tap's own arrival helper
+  // (integrator ruling (a): the one glow path; it drops `focus`), and opens nothing. No card here → nothing glows.
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  useEffect(() => {
+    const ask = () => {
+      const hash = window.location.hash.replace(/^#/, '');
+      const route = matchStaffRoute(hash, 'tablet');
+      if (route.name !== 'inbox' || route.focus?.kind !== 'alert') return;
+      const id = route.focus.alert_id;
+      const r = rowsRef.current.find((x) => x.alert_id === id);
+      void glowOnArrival(hash, route.focus, fill(t('alerts.opened.inbox'), { name: r === undefined ? '' : (tableOf(r) ?? '') }).trim());
+    };
+    ask();
+    window.addEventListener('hashchange', ask);
+    return () => window.removeEventListener('hashchange', ask);
+  }, []);
   const offline =
     offlineAt === null ? null : (
       <div className="body__full">

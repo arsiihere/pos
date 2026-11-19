@@ -1,5 +1,5 @@
 import type { AlertFamily } from '@pos/domain';
-import type { AlertCard, AlertLock, AlertView, RequestOutcome, WsAlertClosed } from '@pos/events';
+import type { AlertCard, AlertLinkTarget, AlertLock, AlertView, RequestOutcome, WsAlertClosed } from '@pos/events';
 import { BASE_GAIN, STEP_UP_GAIN, isSilent, soundFor, type AudioSink } from './sounds';
 
 // 01d §8.1 / §8.3: the client's alert state: inbox rows, banners, the badge count and the sounds. Pure: the
@@ -45,6 +45,8 @@ export interface IncomingRow {
   needs_pin?: AlertView['needs_pin'];
   silent?: boolean | undefined;
   raised_device_id?: string | undefined;
+  /** v1.3 §3.13.1: the place the alert is about (lock-safe); null or absent → today's tap */
+  target?: AlertLinkTarget | null | undefined;
   seen_by_me?: boolean | undefined;
   from_business_day?: string | null | undefined;
   moved_to_name?: string | null | undefined;
@@ -172,6 +174,9 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
     if (silent !== undefined) next.silent = silent;
     const raisedDevice = row.raised_device_id ?? old?.raised_device_id;
     if (raisedDevice !== undefined) next.raised_device_id = raisedDevice;
+    // v1.3 §3.13.1: lock-safe, so a lock-only replace keeps it; the latest view that carries the key wins
+    const target = row.target !== undefined ? row.target : old?.target;
+    if (target !== undefined) next.target = target;
     rows.set(row.alert_id, next);
     return next;
   }

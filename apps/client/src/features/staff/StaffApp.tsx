@@ -34,7 +34,8 @@ import { ShellContext, type Shell } from './shell/hooks';
 import { createLiveBus } from './shell/live';
 import { createPermissions } from './shell/permissions';
 import { pendingVoidsOf } from '../voids/pending';
-import { matchStaffRoute } from './shell/routes';
+import { PHONE_QUERY, PORTRAIT_QUERY } from './shell/layout';
+import { consumeFocus, matchStaffRoute, routePath, withoutFocus } from './shell/routes';
 import { isSlotRoute, RouteSlot } from './shell/slots';
 import { createToastBus, ToastView } from './shell/toast';
 import { createTablesApi } from './tables/api';
@@ -47,6 +48,11 @@ import { MeTab, PhoneTabs, type PhoneTab } from './tables/PhoneTabs';
 import { TopBar } from './tables/TopBar';
 import { createPrintSkipDismiss } from '../alerts/labels-03b';
 import { AuditLog } from '../audit/AuditLog';
+import { checkTarget } from '../alerts/deeplink-check';
+import { tapAlert } from '../alerts/deeplink-tap';
+import { dropHandover } from './orders/preload';
+import type { OrdersCatchUp } from './orders/contracts';
+import { LiveRegion } from '../alerts/LiveRegion';
 import { PrintSkipContext, type PrintSkipCtx } from '../alerts/ui';
 import { passLiveOf } from '../pass/live';
 
@@ -64,8 +70,6 @@ import { passLiveOf } from '../pass/live';
 // caught); the idle lock gets the login's TTL and signs the page out; the late cards get every alert row (open and
 // closed); a request_result row is told to the pending-comp store; the map's New order opens 02b's New order sheet.
 
-const PORTRAIT = '(orientation: portrait) and (min-width: 761px)';
-const PHONE = '(max-width: 760px)';
 const TICK_MS = 15_000;
 const SEEN_FLUSH_MS = 250;
 const SEEN_BATCH = 50;
@@ -121,8 +125,8 @@ export interface StaffAppProps {
 }
 
 export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipeKeys, goToPair }: StaffAppProps) {
-  const phone = useMedia(PHONE);
-  const portrait = useMedia(PORTRAIT);
+  const phone = useMedia(PHONE_QUERY);
+  const portrait = useMedia(PORTRAIT_QUERY);
   const route = useHashRoute();
   const [me, setMe] = useState<Me | null>(null);
   const meRef = useRef<Me | null>(null);
@@ -144,6 +148,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   }, [fetch]);
   // a session counter: replies still in flight from an earlier session are dropped
   const sessionGen = useRef(0);
+  // 01d v1.3.2 §3.13.3 (#253 review): every alert id seen closed by an alert_closed frame in this session, read
+  // synchronously by a tap's state re-read (a request known only from requests-to-answer leaves that list on close)
+  const closedSeen = useRef(new Set<string>());
 
   const api = useMemo(() => createStaffApi({ device, meta, fetch: hubFetch, onSignedOut: () => signOutRef.current() }), [device, meta, hubFetch]);
   // 02 shell services (W0.6)
@@ -179,6 +186,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         if (view.kind === 'void_approval' || view.kind === 'request_result') reloadVoids();
       },
       onClosed(frame) {
+        closedSeen.current.add(frame.alert_id);
         store.onClosed(frame);
         setCloses((m) => new Map(m).set(frame.alert_id, frame));
         reloadVoids();
@@ -328,13 +336,26 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // MarkAlertsSeen, batched (§6.4: up to 50 ids)
   const seenQueue = useRef<string[]>([]);
   const seenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 01d v1.3 §3.13.2 rule 3 (m10, G-1): one MarkAlertsSeen per alert per session; a repeated tap (it navigates and
+  // glows again) sends none while the first send is queued, in flight or answered ok. A failed send removes the id,
+  // so the next tap sends it again. Cleared with the session (sign-in, sign-out, unpair), as store.reset
+  const seenSent = useRef(new Set<string>());
   const markSeen = (id: string) => {
+    if (seenSent.current.has(id)) return;
+    seenSent.current.add(id);
     if (!seenQueue.current.includes(id)) seenQueue.current.push(id);
     if (seenTimer.current !== null) return;
     seenTimer.current = setTimeout(() => {
       seenTimer.current = null;
       const ids = seenQueue.current.splice(0);
-      for (let i = 0; i < ids.length; i += SEEN_BATCH) void api.markSeen(ids.slice(i, i + SEEN_BATCH));
+      for (let i = 0; i < ids.length; i += SEEN_BATCH) {
+        const batch = ids.slice(i, i + SEEN_BATCH);
+        const gen = sessionGen.current;
+        // a failed send leaves the set, so a later tap sends it again; an ok reply keeps it (once per alert)
+        void api.markSeen(batch).then((answer) => {
+          if (!answer.ok && gen === sessionGen.current) for (const id of batch) seenSent.current.delete(id);
+        });
+      }
     }, SEEN_FLUSH_MS);
   };
 
@@ -353,6 +374,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // ------------------------------------------------------------------------------------------ session
   const signedIn = async (who: SignedIn) => {
     sessionGen.current += 1;
+    closedSeen.current.clear();
+    seenSent.current.clear();
+    dropHandover(); // dl cp6: a held tap read never outlives the session
     const gen = sessionGen.current;
     setReplaced(false);
     conn.setSession(who.session_token);
@@ -364,8 +388,12 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     // 02a §8 / handoff 02-S03: the staff app lands on the table map; the cashier kiosk on its home (#/ = KioskHome)
     // 03b W0.6 (handoff Q-6): a Pass tablet (point_view in the catch-up) lands on the Pass; the socket opens with the
     // session, so its catch-up usually comes after this: the effect below moves the landing then
-    landOnPass.current = device.type !== 'cashier_kiosk';
-    navigate(device.type === 'cashier_kiosk' ? '/' : pass.store.snapshot().view !== null ? '/pass' : '/tables');
+    // 01d v1.3.2 §3.13.4 (9b, test 91): only the 9b form, #/inbox?focus=alert:<id> (a notification tap while signed
+    // out), is kept through the sign-in: no landing, so the Inbox glows that card. Any other focus lands as today.
+    const landing = matchStaffRoute(window.location.hash.replace(/^#/, ''), device.type);
+    const keepFocus = landing.name === 'inbox' && landing.focus?.kind === 'alert';
+    landOnPass.current = device.type !== 'cashier_kiosk' && !keepFocus;
+    if (!keepFocus) navigate(device.type === 'cashier_kiosk' ? '/' : pass.store.snapshot().view !== null ? '/pass' : '/tables');
     const [info, time] = await Promise.all([api.session(), api.hubTime(), shellConfig.refresh()]);
     if (gen !== sessionGen.current) return;
     // S47: re-sync the hub clock from branch-config hub_time (the page's clock is from when it loaded)
@@ -382,6 +410,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const signOut = useCallback(
     (callHub: boolean) => {
       sessionGen.current += 1;
+      closedSeen.current.clear();
+      seenSent.current.clear();
+      dropHandover(); // dl cp6: a held tap read never outlives the session
+      consumeFocus(); // §3.13.4 (#264 review): no focus of this person's carries into the next sign-in
       setOpened(null);
       setNewOrder(false);
       setCloses(new Map());
@@ -405,6 +437,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     if (unpairedRef.current) return;
     unpairedRef.current = true;
     sessionGen.current += 1;
+    closedSeen.current.clear();
+    seenSent.current.clear();
+    dropHandover(); // dl cp6: a held tap read never outlives the session
+    consumeFocus(); // §3.13.4 (#264 review): no focus of this person's carries into the next sign-in
     setOpened(null);
     setNewOrder(false);
     setCloses(new Map());
@@ -483,11 +519,135 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     [printSkipDismiss, grantRelease, toasts],
   );
 
-  const open = (row: AlertRow | RequestView) => {
+  // 01d v1.3.1 §3.13.2: a tap is current until the next tap, a session change (sessionGen) or a route change; a
+  // stale tap's late check does nothing. The rows as of the last render, for the state re-read after the check.
+  const tapGen = useRef(0);
+  const liveRows = useRef({ views, held });
+  liveRows.current = { views, held };
+  // the deep link's own navigation (and its consumeFocus) is not a route change that makes its tap stale: a dine-in
+  // slip still opens AnswerSheet when no LateCard renders (dl cs10, M3)
+  const ownRoute = useRef<string | null>(null);
+  useEffect(() => {
+    if (ownRoute.current !== null && withoutFocus(route) === withoutFocus(ownRoute.current)) return;
+    ownRoute.current = null;
+    tapGen.current += 1;
+  }, [route]);
+  const seenHere = (row: AlertRow | RequestView) => {
     store.open(row.alert_id);
     markSeen(row.alert_id);
+  };
+  // the sheet opens only through tap() (rule 1 or rules 4 / 5): a tap's generation guard (tapGen) already stops a
+  // stale tap from opening one over a newer tap's sheet, so no second counter is needed (#255 review 2)
+  const openSheet = (row: AlertRow | RequestView) => {
     lastOpened.current = views.find((v) => v.alert_id === row.alert_id) ?? row;
     setOpened(row.alert_id);
+  };
+  // 01d v1.3.3 §3.13.2 rule 6 "Close returns" (DL Q-K (c)): the return record of the last deep-link navigation, on
+  // every device: `from` the route the tap started on, `to` the route it landed on (both without focus). It goes at the
+  // next navigation of any kind, on a session change and on a close return. The kiosk shows the Back chip while it is
+  // set. For a dine-in OrderScreen start, `seat` is that seating's table and the time (merge resolution on return).
+  type ReturnRecord = { from: string; to: string; seat: { table_id: string; seating_id: string; at: number } | null };
+  const [back, setBack] = useState<ReturnRecord | null>(null);
+  const deepNavigate = (href: string) => {
+    ownRoute.current = href;
+    const from = withoutFocus(route);
+    // no record when the tap lands on the screen the person is already on (#257 review)
+    if (withoutFocus(href) !== from) {
+      const start = matchStaffRoute(from, device.type);
+      let seat: ReturnRecord['seat'] = null;
+      if (start.name === 'order' && start.order_type === 'dine_in') {
+        const tile = sharedMapStore(tablesApi, liveBus).current()?.floors.flatMap((f) => f.zones.flatMap((z) => z.tables)).find((x) => x.seating_id === start.id && x.primary_table_id === x.table_id);
+        seat = { table_id: tile?.table_id ?? '', seating_id: start.id, at: clock.nowMs() };
+      }
+      setBack({ from, to: withoutFocus(href), seat });
+    }
+    navigate(href);
+  };
+  const routeNow = withoutFocus(route);
+  useEffect(() => {
+    if (back !== null && routeNow !== back.to) setBack(null);
+  }, [back, routeNow]);
+  const meId = me?.staffId ?? null;
+  useEffect(() => setBack(null), [meId]); // a session change (sign-in, sign-out, another person, unpair)
+
+  /**
+   * §3.13.7 "Where a return lands": the hash a close return and the Back chip go to, or null when the start route can
+   * no longer be shown (rule 6): no staff route, or its gate is now false for this person.
+   */
+  const returnTarget = async (rec: ReturnRecord): Promise<string | null> => {
+    const path = routePath(rec.from);
+    if (path === '/audit') return showAudit ? rec.from : null;
+    if (path === '/requests') return showRequests ? rec.from : null;
+    if (path === '/test-alert') return showTest ? rec.from : null;
+    if (/^\/receipts\/[^/]+$/.test(path)) return showTest ? rec.from : null;
+    const start = matchStaffRoute(rec.from, device.type);
+    if (start.name === 'pass') return hasPoint ? rec.from : null;
+    if (start.name === 'inbox' && path !== '/inbox' && path !== '/' && path !== '') return null; // no staff route
+    if (start.name === 'order' && start.order_type === 'dine_in') {
+      // never back onto a dine-in OrderScreen without the lock: that table's sheet (Add items takes it again)
+      const seat = rec.seat ?? { table_id: '', seating_id: start.id, at: clock.nowMs() };
+      const r = await checkTarget(
+        { alert_id: '', kind: 'call_waiter', raised_at: seat.at, target: { type: 'table', table_id: seat.table_id === '' ? '-' : seat.table_id, seating_id: seat.seating_id } },
+        { orders: ordersApi, tables: tablesApi, heldMap: () => sharedMapStore(tablesApi, liveBus).current() },
+      );
+      return r.kind === 'open' ? withoutFocus(r.href) : '/tables';
+    }
+    return rec.from;
+  };
+  /**
+   * A return waits for returnTarget (a dine-in start runs the open check): its result is dropped when the route
+   * changed meanwhile (#273 review). A second close / Back tap always changes it: the first tap consumed the
+   * record, so the second is the sheet's own close (an immediate navigate).
+   */
+  const landWhenStill = (target: Promise<string | null>, orElse: string) => {
+    const at = withoutFocus(window.location.hash.replace(/^#/, ''));
+    void target.then((to) => {
+      if (withoutFocus(window.location.hash.replace(/^#/, '')) !== at) return;
+      navigate(to ?? orElse);
+    });
+  };
+  /** §3.13.2 rule 6: TableSheet / OrderView closed by the person (its close button, Escape on TableSheet). */
+  const closeRouteSheet = (fallback: string) => {
+    const rec = back;
+    if (rec === null || routeNow !== rec.to) return navigate(fallback); // a sheet opened normally: today's close
+    setBack(null);
+    landWhenStill(returnTarget(rec), fallback);
+  };
+  /** The kiosk Back chip: the same returnTarget; a start that can no longer be shown → that sheet's own close. */
+  const goBack = () => {
+    const rec = back;
+    if (rec === null) return;
+    setBack(null);
+    const here = matchStaffRoute(routeNow, device.type);
+    const sheetFallback = here.name === 'table' ? '/tables' : here.name === 'order_view' ? (device.type === 'cashier_kiosk' ? '/' : '/orders') : null;
+    landWhenStill(returnTarget(rec), sheetFallback ?? rec.from);
+  };
+  // 01d v1.3 §3.13.2: every tappable surface (Inbox cards, requests-to-answer rows, banners, the call banner) goes
+  // through the one tap rule: no target → today's tap (seen, then the AnswerSheet / NoticeSheet over the current
+  // screen, §8.1); a target → the open check, then the place or the toast
+  const tap = (row: AlertRow | RequestView, source: 'banner' | 'list' = 'list') => {
+    tapGen.current += 1;
+    const gen = tapGen.current;
+    const session = sessionGen.current;
+    void tapAlert(row, {
+      source,
+      isCurrent: () => tapGen.current === gen && sessionGen.current === session,
+      stateNow: () =>
+        closedSeen.current.has(row.alert_id) ? 'closed' : (liveRows.current.views.find((v) => v.alert_id === row.alert_id) ?? liveRows.current.held.get(row.alert_id))?.state,
+      orders: ordersApi,
+      tables: tablesApi,
+      heldMap: () => sharedMapStore(tablesApi, liveBus).current(),
+      openSlips: () => (liveBus.part('orders') as OrdersCatchUp | undefined)?.open_slips,
+      seen: () => seenHere(row),
+      openSheet: () => openSheet(row),
+      navigate: deepNavigate,
+      settled: () => {
+        // this tap's deep link is done: any later route change ends nothing of it. Only the current tap's: a stale
+        // tap settling late (its arrival cancelled by a newer tap) must not clear the newer tap's own route (#263 review 2)
+        if (tapGen.current === gen) ownRoute.current = null;
+      },
+      toast: (text) => toasts.show({ text, tone: 'warn' }),
+    });
   };
 
   // the open sheet's row, live: the requests view (latest view wins), else the store's row; a row that left both
@@ -506,7 +666,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   }
 
   // --------------------------------------------------------------------------------------------- routes
-  const receiptsMatch = /^\/receipts\/([^/]+)$/.exec(route);
+  // 01d v1.3 §3.13.5 (m11): the raw checks below take no `focus`; compare the path, so a stray query never unmatches them
+  const path = routePath(route);
+  const receiptsMatch = /^\/receipts\/([^/]+)$/.exec(path);
   const staffRoute = matchStaffRoute(route, device.type);
   let page: ReactNode;
   if (unpaired) {
@@ -532,11 +694,11 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     page = <MeTab name={me.name} onSignOut={() => signOut(true)} />;
   } else if (isSlotRoute(staffRoute)) {
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
-  } else if (route === '/audit' && showAudit) {
+  } else if (path === '/audit' && showAudit) {
     page = <AuditLog />;
-  } else if (route === '/requests' && showRequests) {
-    page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={open} />;
-  } else if (route === '/test-alert' && showTest) {
+  } else if (path === '/requests' && showRequests) {
+    page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={tap} />;
+  } else if (path === '/test-alert' && showTest) {
     page = (
       <TestAlert
         people={roster}
@@ -563,7 +725,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         offlineAt={offlineAt}
         nowMs={nowMs}
         utcOffsetMs={offset}
-        onOpen={open}
+        onOpen={tap}
         hasMore={cursor !== null}
         onMore={() => void loadInbox(cursor)}
       />
@@ -635,6 +797,15 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         onNavigate={navigate}
         onSignOut={() => signOut(true)}
       />
+      {/* 01d v1.3.3 §3.13.6a: the kiosk Back chip in the alert layer (top-start, above route sheets), not in the top bar */}
+      {device.type === 'cashier_kiosk' && back !== null && me !== null && (
+        <div className="abk">
+          <button type="button" className="chip" onClick={goBack}>
+            <Ico name="back" />
+            {t('alerts.back')}
+          </button>
+        </div>
+      )}
       {replaced && (
         <div className="staff__warn">
           <div className="warnbar" role="status">
@@ -658,11 +829,12 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       {page}
       {phone && me !== null && <PhoneTabs current={phoneTab} inbox={snap.unseen} requests={showRequests ? answerable : null} />}
       {me !== null && opened === null && (
-        <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} onOpen={open} onOpenInbox={() => navigate('/inbox')} />
+        <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} onOpen={(r) => tap(r, 'banner')} onOpenInbox={() => navigate('/inbox')} />
       )}
       {me !== null && sheetRow !== null &&
         (isRequest(sheetRow) ? (
           <AnswerSheet
+            key={sheetRow.alert_id}
             row={sheetRow}
             canAnswer={'can_answer' in sheetRow ? sheetRow.can_answer : sheetRow.set === 'answerer' && (sheetRow.answers?.length ?? 0) > 0}
             deviceId={device.id}
@@ -680,7 +852,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
             onToast={setToast}
           />
         ) : (
-          <NoticeSheet row={sheetRow} utcOffsetMs={offset} sheet={phone || portrait} onClose={() => setOpened(null)} />
+          <NoticeSheet key={sheetRow.alert_id} row={sheetRow} utcOffsetMs={offset} sheet={phone || portrait} onClose={() => setOpened(null)} />
         ))}
       {me !== null && (
         <>
@@ -692,6 +864,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       {/* IR-7: at the root, above the sign-in screen: a sign-in drain or a reconnect send shows its token here */}
       <QueuedSentCard />
       <ToastView bus={toasts} />
+      {/* 01d v1.3 §3.13.6 (n4): the one polite live region of the staff shell ("Opened …"; not the toast) */}
+      <LiveRegion />
     </div>
   );
   const shell: Shell = {
@@ -713,6 +887,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     portrait,
     idleTtlMs: me?.idleTtlMs ?? null,
     signOut: () => signOut(false),
+    closeRouteSheet,
   };
   voidShell.current = shell;
   // IR-11: the late cards read every alert row the page holds, open and closed (a slip closed without ItemsReleased)
@@ -745,8 +920,9 @@ function LockPanel({ rows, utcOffsetMs }: { rows: readonly AlertRow[]; utcOffset
   );
 }
 
-/** 02a §8 Top bar, phone: which tab a route belongs to. */
-function phoneTabOf(route: ReturnType<typeof matchStaffRoute>): PhoneTab {
+/** 02a §8 Top bar, phone: which tab a route belongs to. 01d v1.3 §3.13.5 (m1): a `focus` keeps its route's tab (a
+ *  table, or a dine-in order, line or slip → Tables; `#/orders/<id>` and `#/zones` → Orders; `#/inbox` → Inbox). */
+export function phoneTabOf(route: ReturnType<typeof matchStaffRoute>): PhoneTab {
   switch (route.name) {
     case 'tables':
     case 'table':

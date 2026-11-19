@@ -93,7 +93,7 @@ describe('[02a §8, 02b §3.9] Banners for the 02 kinds (23b)', () => {
     expect(m.container.querySelector('.abn .ac__title b')?.textContent).toBe('Call · Ali');
   });
 
-  it('[02b Q-25] takeaway comp card "Comp · Takeaway order"; zone_stock_low / _out card generic, tap → #/zones', () => {
+  it('[02b Q-25] takeaway comp card "Comp · Takeaway order"; zone_stock_low / _out card generic, tap → the general tap rule (01d v1.3 §3.13.7)', () => {
     const onOpen = vi.fn();
     const comp = row({
       alert_id: 'C1',
@@ -110,8 +110,8 @@ describe('[02a §8, 02b §3.9] Banners for the 02 kinds (23b)', () => {
     expect(z!.querySelector('.ac__title b')?.textContent).toBe('A zone item is running low');
     expect(z!.querySelector('.tcode')).toBeNull();
     m.click(m.button('Open', z!));
-    expect(window.location.hash).toBe('#/zones');
-    expect(onOpen).not.toHaveBeenCalled();
+    // 01d v1.3 §3.13.7: no special navigate('/zones') any more; the shell's tap lands on the row (#/zones?focus=item:…)
+    expect(onOpen).toHaveBeenCalledWith(low);
     m.unmount();
     const out = row({ alert_id: 'Z2', kind: 'zone_stock_out', family: 'action', lock: { kind_label_key: 'alert.zone_stock_out.lock', table_code: null, point_code: null, requester_name: null } });
     m = mount();

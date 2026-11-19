@@ -41,6 +41,12 @@ export interface Shell {
   idleTtlMs?: number | null;
   /** sign the page out locally (no hub call; the idle lock's Sign in, task 28 wiring); absent outside StaffApp */
   signOut?: () => void;
+  /**
+   * 01d v1.3.3 §3.13.2 rule 6 "Close returns": a route sheet (TableSheet, OrderView) is closed by the person. A sheet a
+   * deep link opened returns to where the tap started (returnTarget); any other closes to `fallback`, today's target.
+   * Absent outside StaffApp: the sheet navigates to `fallback` itself.
+   */
+  closeRouteSheet?: (fallback: string) => void;
 }
 
 /**

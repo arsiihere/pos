@@ -4,6 +4,7 @@ import {
   type AlertClosedPayload,
   type AlertDetails,
   type AlertDisplay,
+  type AlertLinkTarget,
   type AlertRaisedPayloadV4,
   type AlertTarget,
   type EventDraft,
@@ -15,7 +16,7 @@ import type { CommandCtx } from '../commands/registry.js';
 import { rawDbOf } from '../engine-host/read-only-tx.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { WsHub } from '../ws/server.js';
-import { kindOf, type AlertKind, type AlertRecord, type RequestResultValues } from './kinds.js';
+import { kindOf, safeLink, type AlertKind, type AlertRecord, type RequestResultValues } from './kinds.js';
 import { askRoutes, routeAsk, routeRecipients, type RouteRow } from './routes.js';
 import { alertTxCache, batchReads, resolveStep, type AlertRequestPart, type AlertRow, type Recipient, type RecipientRow } from './targets.js';
 import { recordReceipt } from './receipts.js';
@@ -387,6 +388,26 @@ export interface ResultOf {
   subject: RaiseInput['subject'];
   requester_staff_id: string;
   display: AlertDisplay;
+  /** 01d v1.3 §3.10 note / §3.13.1: the request's target (`safeLink` on its values), stored as `values.link` */
+  link: AlertLinkTarget | null;
+}
+
+/**
+ * 01d v1.3 §3.13.1 (M4): a stored request's target, from its kind's `link` on its `values_json`, guarded: an unknown
+ * kind, unreadable values, a throwing `link` or a result outside the schema → null. Never throws, no log, no statement.
+ * Computed before the copy kind's `values_schema` validation, so a bad result can never become `VALIDATION_FAILED`.
+ */
+export function storedRequestLink(kind: string, values_json: string): AlertLinkTarget | null {
+  const def = kindOf(kind);
+  if (def === undefined) return null;
+  let values: unknown;
+  try {
+    values = JSON.parse(values_json);
+  } catch {
+    return null;
+  }
+  if (values === null || typeof values !== 'object' || Array.isArray(values)) return null;
+  return safeLink(def, values as Record<string, unknown>);
 }
 
 /**
@@ -406,6 +427,7 @@ export function requestResultInput(
     close_reason: outcome.close_reason,
     decision: outcome.decision,
     by_staff_id: outcome.by_staff_id,
+    link: request.link, // 01d v1.3 §3.10 note: the request's place
   };
   const note = outcome.note ?? null;
   return {
@@ -427,6 +449,8 @@ interface CloseRow {
   subject_stream_id: string;
   requester_staff_id: string | null;
   display_json: string;
+  /** 01d v1.3 §3.13.1: in the same SELECT, for the request_result's `values.link` (no statement added) */
+  values_json: string;
   is_request: 0 | 1;
 }
 
@@ -451,7 +475,7 @@ function closeMany(ctx: AlertCtx, items: readonly CloseItem[]): EventDraft[] {
 
   const rows = cachedPrepare(
     tx.db,
-    `SELECT alert_id, kind, state, subject_stream_type, subject_stream_id, requester_staff_id, display_json,
+    `SELECT alert_id, kind, state, subject_stream_type, subject_stream_id, requester_staff_id, display_json, values_json,
             request_json IS NOT NULL AS is_request
      FROM alerts WHERE alert_id IN (SELECT value FROM json_each(?))`,
   ).all(JSON.stringify(wanted.map((i) => i.alert_id))) as CloseRow[];
@@ -473,7 +497,15 @@ function closeMany(ctx: AlertCtx, items: readonly CloseItem[]): EventDraft[] {
       result = results.length;
       results.push(
         requestResultInput(
-          { alert_id: row.alert_id, kind: row.kind, subject, requester_staff_id: row.requester_staff_id, display: JSON.parse(row.display_json) as AlertDisplay },
+          {
+            alert_id: row.alert_id,
+            kind: row.kind,
+            subject,
+            requester_staff_id: row.requester_staff_id,
+            display: JSON.parse(row.display_json) as AlertDisplay,
+            // 01d v1.3 §3.13.1 (M4): guarded; a throw never aborts the merge / split / bill / clean that closes it
+            link: storedRequestLink(row.kind, row.values_json),
+          },
           { close_reason: item.reason, decision: null, by_staff_id: by, note: item.note ?? null },
         ),
       );

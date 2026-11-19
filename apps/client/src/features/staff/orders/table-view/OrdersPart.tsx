@@ -4,6 +4,7 @@ import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
 import { timeText } from '../../../alerts/labels';
 import { useShell } from '../../shell/hooks';
+import { matchStaffRoute } from '../../shell/routes';
 import type { MapTile, OrdersPartProps, TableMapBody } from '../../tables/contracts';
 import { CompItPrompt } from '../actions/CompItPrompt';
 import { CompWaiting } from '../actions/CompWaiting';
@@ -48,6 +49,27 @@ export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine, onRo
   const body = read !== null && read.seating_id === seating_id ? read.body : null;
   const [readAt, setReadAt] = useState<number | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  // 01d v1.3 §3.13.2 rule 2, §3.13.5 (02b v1.0.15 §8, m6): a deep link to a round or a line unfolds the round that
+  // holds it. Each hash with such a `focus` is one request: at mount, and at every `hashchange` (the focus nonce, `n`),
+  // read from the hash at that moment. A repeat tap of the very same place lands on the same hash string, which the
+  // tap's replaceState hid without a render, so the hash route's snapshot would not change; the event still fires.
+  // The request is passed to that round as forceOpen for one commit and then dropped, so the next link turns it
+  // false → true and opens it again even if the person folded it. The tap owns the glow and drops `focus`
+  // (integrator ruling, Cs #253): this part only makes the place render.
+  const [unfold, setUnfold] = useState<{ key: string; n: number } | null>(null);
+  const deviceType = shell.device.type;
+  useEffect(() => {
+    const ask = () => {
+      const route = matchStaffRoute(window.location.hash.replace(/^#/, ''), deviceType);
+      const f = route.name === 'table' ? route.focus : null;
+      if (f === null || (f.kind !== 'order' && f.kind !== 'line')) return;
+      const key = f.kind === 'order' ? `order:${f.order_id}` : `line:${f.order_item_id}`;
+      setUnfold((cur) => ({ key, n: (cur?.n ?? 0) + 1 }));
+    };
+    ask();
+    window.addEventListener('hashchange', ask);
+    return () => window.removeEventListener('hashchange', ask);
+  }, [deviceType]);
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
   const [liveSlips, setLiveSlips] = useState<SlipRef[] | null>(null);
   /** warnings closed by an ItemsReleased frame since the catch-up */
@@ -203,6 +225,18 @@ export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine, onRo
   const numberOf = new Map(orders.map((o, i) => [o.order_id, i + 1]));
   const open = orders.filter((o) => !allServed(o));
   const served = orders.filter((o) => allServed(o)).reverse();
+  const [unfoldKind = '', unfoldId = ''] = unfold === null ? [] : [unfold.key.slice(0, unfold.key.indexOf(':')), unfold.key.slice(unfold.key.indexOf(':') + 1)];
+  const forced =
+    unfold === null || body === null
+      ? null
+      : unfoldKind === 'order'
+        ? unfoldId
+        : (orders.find((o) => o.lines.some((l) => l.order_item_id === unfoldId))?.order_id ?? null);
+  // the request is cleared after the first answered read: the round got forceOpen in this commit (its own effect
+  // opened it), so the next focus turns forceOpen false → true again
+  useEffect(() => {
+    if (unfold !== null && body !== null) setUnfold(null);
+  }, [unfold, body]);
 
   return (
     <>
@@ -257,6 +291,7 @@ export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine, onRo
           onSelect={select}
           controls={controls(o)}
           below={below}
+          forceOpen={forced === o.order_id}
         />
       ))}
       <CompItPrompt seating_id={seating_id} orders={lineOrders} source={COMP_IT_SOURCE} onChanged={reread} />

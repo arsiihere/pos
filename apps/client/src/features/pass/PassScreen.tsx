@@ -19,6 +19,10 @@ import { TakeoverSection } from './takeover/TakeoverSection';
 import { StationStrip } from './cards/StationStrip';
 import { registerPrintSlots, type PrintTransport } from '../print/register';
 import { passLiveOf } from './live';
+import { glowOnArrival } from '../alerts/deeplink-tap';
+import { identifierText } from '../kds/station/Identifier';
+import { matchStaffRoute } from '../staff/shell/routes';
+import { passOpenedText } from './pass-place';
 
 // 03b v1.0.8 §3.4, §8 Pass screen (`/staff/` `#/pass` on a device with a point; W0.6 mounts it; P2). The page's Pass
 // live (P1, `passLiveOf`) holds the point's view; the screen draws the station strip and the cards oldest first
@@ -114,6 +118,22 @@ export function PassScreen() {
   useEffect(() => {
     me.current = shell.me;
   }, [shell.me]);
+  // 01d v1.3 §3.13.5 (dl cp7): `#/pass?focus=order:<id>` comes only through the URL, with no tap behind it (a tap on
+  // #/pass glows the card in place, pass-place.ts). It glows that card through the tap's own arrival helper
+  // (integrator ruling (a): the one glow path; it drops `focus`).
+  useEffect(() => {
+    const ask = () => {
+      const hash = window.location.hash.replace(/^#/, '');
+      const route = matchStaffRoute(hash, 'tablet');
+      if (route.name !== 'pass' || route.focus?.kind !== 'order') return;
+      const id = route.focus.order_id;
+      const card = pass.store.snapshot().view?.orders.find((o) => o.order_id === id);
+      void glowOnArrival(hash, route.focus, passOpenedText(id, card === undefined ? '' : identifierText(card.identifier)));
+    };
+    ask();
+    window.addEventListener('hashchange', ask);
+    return () => window.removeEventListener('hashchange', ask);
+  }, [pass]);
   // IR-6: a newer Handover of another tablet (or a catch-up) wins over this tablet's older hand-over reply
   useEffect(
     () =>
