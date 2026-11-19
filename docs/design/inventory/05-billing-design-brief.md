@@ -4,7 +4,7 @@ For the designer. This one file is everything you need to design every **staff**
 
 **Sources, in order of authority:** `docs/specs/05_Billing_Spec_v1.0.4.md` (APPROVED; cited "05 §n"; its decisions B1–B32 are cited "05 B-n"). Then the build board `docs/plans/05-status.md` and `docs/plans/05-gaps.md` (owner rulings R-1 … R-14, gaps G-1 … G-27; later rulings R-15 … R-21 are already in the spec text as "Changed in v1.0.3 / v1.0.4"), the plan `docs/plans/05-plan.md` (client rows C1 tasks 34–38 and C2 tasks 39–42; reading PL-12 = owner ruling D-3), and the specs 05 leans on: 01d Alerts v1.3.4 (cards, PIN, holders right), 02a / 02b (table view, line tags, Ask for bill), 04 (PENDING VOID, day-close void block), 03c v1.0.12 (printers and document jobs), 01b (permissions). What is already built is cited by file: `packages/domain/src/billing/{types,compute,docs}.ts`, `packages/domain/src/errors.ts`, `apps/client/src/i18n/en.ts`, and the hand-offs `docs/design/handoff/{01d,02a,02b,04}/`.
 
-**One owner-approved addition not yet in the spec text:** the **Print to** picker reads a new staff query `GET /queries/bill-printers` (`take-payment`, result `[{ printer_id, name }]` of active printers). The owner approved it on 2026-11-19 as gap **G-28**; the integrator bumps the spec to **05 v1.0.5**. Everything that depends on it is marked **"05 v1.0.5 (G-28)"**.
+**One owner-approved addition not yet in the spec text:** the **Print to** picker reads a new staff query `GET /queries/bill-printers` (`take-order`, any grant — the same permission as `RetargetBillPrint`; result `[{ printer_id, name }]` of active printers). The owner approved it on 2026-11-19 as gap **G-28** and amended the permission in ruling **R-27**; it is 05 **v1.0.5 §6.23a** (PR #317). Everything that depends on it is marked **"05 v1.0.5 (G-28)"**.
 
 **This file replaces nothing.** `docs/design/inventory/05-billing.md` is the pre-spec inventory (36 screens). Much of it is outdated (tips, split by person, refund screen, reopen day, owner settings screens). Where it disagrees with this file, this file wins, because this file follows the approved spec. A mapping of every old ID is in §2.3.
 
@@ -20,7 +20,7 @@ You design, for the **staff entry** (`apps/client`, light Pulse staff theme):
 2. **Bill screen (05-S02)** with its **payment pad (05-C01)** — lines, server totals, dues, tendered and change, refunds, close, every block. 05 §3.2–§3.7, §6.1, §6.9–§6.12, §8.
 3. **Split editor (05-D01)** — items / amount / equal; locked splits. 05 §3.8, §6.5, §8.
 4. **Bill sheets** — discount (05-D02), service charge (05-D03), buyer (05-D04), reopen (05-D05), remove comp (05-D06), remove payment (05-D07). 05 §6.6–§6.8, §6.10, §6.11, §6.13, §6.14.
-5. **Print status and Print to (05-C02)**. 05 §3.16, §6.22, §6.23, B18; picker data 05 v1.0.5 (G-28).
+5. **Print status and Print to (05-C02)**. 05 §3.16, §6.22, §6.23, B18; picker data 05 v1.0.5 §6.23a (G-28, R-27).
 6. **Shift screens** — open (05-S03), my shift / close / blind count / handover (05-S04). 05 §3.11, §6.15–§6.19.
 7. **Petty cash (05-D08)** and **Open cash drawer (05-D09)**. 05 §3.12, §6.20, §6.21.
 8. **Day close in the staff app (05-S05)** — blockers, carry over, close, the Z shown. 05 §3.13, §6.24, §6.25.
@@ -137,7 +137,7 @@ Kinds: **S** screen, **C** component, **D** dialog or sheet, **B** banner or inl
 | **05-D05** | Reopen bill | D | K | `reopen-bill` | 05 §3.10, §6.13 | `Reopen` (K) · `ReopenWaiting` (K) · `ReopenCorrections` (K) · `ReopenNotSupported` (K) |
 | **05-D06** | Remove comp | D | T | `remove-comp` | 05 §6.14, B27 | `RemoveComp` (T) · `RemoveCompWaiting` (T) |
 | **05-D07** | Remove payment | D | K | `take-payment` (+ `close-shift-for-others` for another person's payment) | 05 §6.10 | `RemovePayment` (K) · `RemovePaymentShiftClosed` (K) |
-| **05-C02** | Print status + Print to picker | C | K T P | status: everyone who sees the bill; picker: `take-payment` | 05 §3.16, §6.1 `prints`, §6.22, §6.23, B18; 05 v1.0.5 (G-28) | `PrintStatus` (K, component) · `PrintTo` (K) |
+| **05-C02** | Print status + Print to picker | C | K T P | status and picker: everyone who sees the bill (`take-order`, any grant, R-27; `take-payment` holders hold it by default) | 05 §3.16, §6.1 `prints`, §6.22, §6.23, B18; 05 v1.0.5 §6.23a (G-28, R-27) | `PrintStatus` (K, component) · `PrintTo` (K) · `PrintToPhone` (P) |
 | **05-S03** | Open shift | S | K P | `manage-own-shift` | 05 §3.11, §6.15 | `ShiftOpen` (K) · `ShiftOpenErrors` (K, component) · `ShiftOpenPhone` (P) |
 | **05-S04** | My shift / close (blind count, result, sign-off, skip, handover, another person's shift) | S | K T P | `manage-own-shift`; `skip-blind-count`; `close-shift-for-others` | 05 §3.11, §6.16–§6.19, B23 | `ShiftClose` (K) · `ShiftCountResult` (K) · `ShiftVariancePending` (K) · `ShiftSkip` (K) · `ShiftHandover` (K) · `ShiftHandoverResult` (K) · `ShiftOther` (T) · `ShiftPhone` (P) · `ShiftUrdu` (K) |
 | **05-D08** | Petty cash (advance / out / in; open advances; Settle) | D | K | `record-petty-cash` | 05 §3.12, §6.20, B24 | `Petty` (K) · `PettyAdvance` (K) · `PettyWaiting` (K) · `PettyAdvances` (K) · `PettySettle` (K) · `PettyUrdu` (K) |
@@ -156,7 +156,7 @@ Kinds: **S** screen, **C** component, **D** dialog or sheet, **B** banner or inl
 | **05-X01** | Table tile / map delta (check bill printed, To clean after close, reopened) | X | T | as 02a | 05 §3.10, §6.2, 02a `BillClosed`, `SeatingReopened` | `TableBillStates` (T) |
 | **05-X02** | Table sheet delta (Bill entry, bill states) | X | T P | `take-payment` / `take-order` | 05 §6.1, §6.3, §8 | `TableSheetBill` (T) · `TableSheetBillPhone` (P) |
 
-**Frame count: 94** — K 60 · T 26 · TP 2 · P 6. Urdu frames (7, inside the count): `OpenBillsUrdu`, `BillUrdu`, `BuyerUrdu`, `ShiftUrdu`, `PettyUrdu`, `DayCloseUrdu`, `AnswerUrdu05`.
+**Frame count: 95** — K 60 · T 26 · TP 2 · P 7. Urdu frames (7, inside the count): `OpenBillsUrdu`, `BillUrdu`, `BuyerUrdu`, `ShiftUrdu`, `PettyUrdu`, `DayCloseUrdu`, `AnswerUrdu05`.
 
 ### 2.2 Reused, not redesigned (draw only if a frame needs it for context)
 
@@ -471,9 +471,9 @@ When `buyer.required` (whole bill net > `threshold_minor`, 05 §3.3 (6), B19): a
 | failed | danger icon + "Didn't print on {printer_name}" + `last_error` as a word from 03c's list (`printers.error.*`: "Can't reach the printer", "Out of paper", …; never raw) |
 | no printer | "No bill printer set up" (05 §3.16: the command still succeeds) |
 
-**Print to** (05 §8, B18): shown on **failed**, or when **waiting more than 10 s** (client timer from when the status first showed waiting; spec §8). A picker lists the active printers from **`GET /queries/bill-printers` → `[{ printer_id, name }]` — 05 v1.0.5 (G-28)**, the current one marked; picking one sends `RetargetBillPrint { job_id, printer_id }` → the job's new status. Errors: `PRINT_JOB_NOT_PENDING` "Already printed or cancelled" (refresh), `PRINTER_NOT_FOUND` "This printer was removed — pick another", `PRINT_JOB_NOT_FOUND` "This print is no longer there". Nothing prints twice (B18). The picker needs `take-payment` (G-28 query); a `take-order`-only person sees the status without the picker (§7 Q-7).
+**Print to** (05 §8, B18): shown on **failed**, or when **waiting more than 10 s** (client timer from when the status first showed waiting; spec §8). A picker lists the active printers from **`GET /queries/bill-printers` → `[{ printer_id, name }]` — 05 v1.0.5 §6.23a (G-28, R-27)**, the current one marked; picking one sends `RetargetBillPrint { job_id, printer_id }` → the job's new status. Errors: `PRINT_JOB_NOT_PENDING` "Already printed or cancelled" (refresh), `PRINTER_NOT_FOUND` "This printer was removed — pick another", `PRINT_JOB_NOT_FOUND` "This print is no longer there". Nothing prints twice (B18). **Anyone who can retarget sees the picker:** the query and `RetargetBillPrint` both need `take-order` (any grant), so an order taker with the read-only bill (`BillReadOnly`) or on the phone gets the same picker as the cashier (R-27; §7 Q-7). There is no state without the picker.
 
-Frames: `PrintStatus` (component: three states for each doc kind, the 10 s waiting with Print to), `PrintTo` (picker open over `BillClosed`: "Counter" failed "Out of paper" → pick "First floor bill").
+Frames: `PrintStatus` (component: three states for each doc kind, the 10 s waiting with Print to), `PrintTo` (K, picker open over `BillClosed`: "Counter" failed "Out of paper" → pick "First floor bill"), `PrintToPhone` (P, Hamza's check bill for Table 9 failed on "First floor bill" → the picker as a bottom sheet → pick "Counter").
 
 Reprints: **Reprint receipt** / **Reprint credit note** on a closed split (`PrintBillDocument { doc, ref_id }`, `take-payment`, 05 §6.22) → the same status row. The printed text is fixed by the builder ("REPRINT", fiscal number or "FISCAL NUMBER PENDING" / "FISCAL NUMBER NOT ISSUED", 05 §6.22, R-11); not drawn here. `INVOICE_NOT_FOUND` → "This invoice can't be found".
 
@@ -922,7 +922,7 @@ Only what the spec leaves to design, or where a screen would need data the API d
 | Q-4 | The "New" mark for lines added after a split closed (05 §8): the bill view's `lines[]` carries no "added after" flag. | Builder reads it from the closed splits: a line in the open remainder whose `order_item_id` is in no closed split's invoice lines while another split is closed. If that is not derivable from §6.1, it is a data gap → spec question before build. |
 | Q-5 | `blocks[].reason` values for §3.3 rules 4, 6, 8, 8a are not named in §6.1 (only `void_pending`, `weight_pending`, `tax_unresolved` are named in §9). | Builder uses the §9 code names lower-cased (`discount_pending`, `buyer_id_required`, `balance_due`, `shares_sum`) **only after** checking the merged hub code (task 16); if they differ, the copy keys follow the code. Design is unaffected. |
 | Q-6 | Keypad size on the kiosk for amounts. | 64 px keys, the number display in Bricolage at the total's size; physical keyboard digits work too. |
-| Q-7 | `GET /queries/bill-printers` is `take-payment` (G-28), but `RetargetBillPrint` is `take-order` (05 §6.23). An order taker with `take-order` only sees a failed check bill but gets no picker list. | Show the failed status with "Ask the cashier to print it elsewhere" for `take-order`-only people. If the owner wants them to retarget too, G-28's permission should be `take-order` (spec edit by the integrator, not here). |
+| Q-7 | `GET /queries/bill-printers` permission vs `RetargetBillPrint` (`take-order`, 05 §6.23). | **Decided** (owner ruling R-27, 2026-11-19; 05 v1.0.5 §6.23a, PR #317): the query uses `take-order` (any grant), the same as `RetargetBillPrint`. Anyone who can retarget sees the Print to picker; no "ask the cashier" state. Frame `PrintToPhone` added. |
 | Q-8 | A discount preview ("Rs 571.00") before sending: the server computes it (`applied: Totals`). | No preview amount for percent; for an amount discount, the typed amount is the preview. The new totals show after the answer. |
 | Q-9 | Default of the "use this drawer" switch on Open shift. | On for a cashier kiosk, off for a tablet; hidden on a phone (it can't hold a drawer). |
 | Q-10 | Opening another person's shift (for `close-shift-for-others`): the only list of open shifts is `DAY_CLOSE_BLOCKED shift_open`. A staff picker for shifts has no API. | Reach another person's shift only from the day-close list (`DayCloseShifts` → Close this shift). No separate picker (it would need a new query). |
@@ -931,7 +931,7 @@ Only what the spec leaves to design, or where a screen would need data the API d
 | Q-13 | Buyer ID on screen. | **Decided** (owner 2026-11-19): typed value visible only while editing, fake sample `00000-0000000-0`, cleared after send, never shown again. |
 | Q-14 | Petty cash button label. | **Decided** (owner 2026-11-19): "Record" under the limit; "Needs approval" / "Ask for approval" over it or on a `requires_approval` grant; the server decides. |
 | Q-15 | Day close blockers all at once or one by one. | **Decided** (owner 2026-11-19): one by one, in guard order (05 §3.13, §6.25). |
-| Q-16 | Print to printer list. | **Decided** (owner 2026-11-19): `GET /queries/bill-printers`, 05 v1.0.5 (G-28). |
+| Q-16 | Print to printer list. | **Decided** (owner 2026-11-19): `GET /queries/bill-printers`, 05 v1.0.5 §6.23a (G-28; permission `take-order` per R-27). |
 | Q-17 | Dropped old-inventory screens (tips, by person, refund screen, reopen day, QR share, PDF / CSV, denominations). | **Decided** (owner 2026-11-19): dropped; §2.3 rows say why. |
 | Q-18 | How the "Reopened" chip is known on an OPEN bill: §6.1 has no `reopen_count`. | Show "Reopened" when any split's `invoice` history shows a credit, or drop the chip if not derivable; the mode sentence shows only right after the reopen result. Builder checks task 10's view. |
 
