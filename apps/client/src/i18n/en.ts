@@ -3082,6 +3082,9 @@ export const en = {
   'void.answer.lines': 'Lines and stage',
   'void.answer.served_meanwhile': 'Served meanwhile — ask the requester to withdraw and ask again as wastage; if they are not here, reject it and void it yourself (or anyone allowed to void)',
   'void.answer.pin_both': 'Approve and Reject ask for your PIN.',
+  // ---- 05 client (02a v1.1.9, 05 row T-4; frame TableBillStates, 05-X01): the two table tile marks; no Urdu frame yet, so no ur text (falls back to English) ----
+  'tables.mark.reopened': 'Reopened',
+  'tables.mark.check_printed': 'Check bill printed',
 } as const;
 
 export type MessageKey = keyof typeof en;

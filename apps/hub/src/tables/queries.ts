@@ -9,6 +9,7 @@ import { defineQuery, queryRegistry } from '../queries/registry.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import { registerCatchUp, type CatchUpPart } from '../ws/catch-up.js';
 import { floorOf, scopeCoversFloor } from './handover.js';
+import { tileMarksOf } from './tile-marks.js';
 
 // 02a v1.1.3 §6.17 table-map, §6.18 handover-candidates, catch-up part `tables` (the §6.17 builder for the
 // socket's (staff, device)). Both queries are polled: countsAsActivity false (00 M59).
@@ -36,6 +37,10 @@ export interface MapTile {
   opened_at: number | null;
   bill_requested_at: number | null;
   live_order_count: number;
+  /** ⚠️ 02a v1.1.9 (05 row T-4): the open seating's bill was reopened; false on a free tile and with no registered reader */
+  reopened: boolean;
+  /** Unix ms of the open seating's check bill print; null on a free tile and with no registered reader */
+  check_printed_at: number | null;
 }
 
 export interface TableMapBody {
@@ -74,7 +79,7 @@ const LIVE_ORDER_COUNTS = `SELECT so.seating_id AS seating_id, COUNT(*) AS n
 const LAST_SEQ = `SELECT COALESCE(MAX(seq), 0) AS seq FROM events WHERE branch_id = ?`;
 
 /**
- * §6.17 builder: 3 statements. `mine` = the lock is the asking staff's on the asking device. Configured tables by
+ * §6.17 builder: 3 statements (⚠️ 02a v1.1.9, 05 row T-4: + 1 per registered tile-marks reader). `mine` = the lock is the asking staff's on the asking device. Configured tables by
  * floor (sort order), zone (sort order, then the no-zone group), table (sort order); a seated table the config no
  * longer lists (archived, AD-2) goes to a last "Archived tables" group (SG-4): floor_id '', name null, zone null,
  * name = table_id, seats null, archived true — until it is cleaned. A FREE archived table is not shown (§3.14).
@@ -103,6 +108,8 @@ export function tableMapBody(
     bySeating.set(row.seating_id, list);
     seatedByTable.set(row.table_id, row);
   }
+  // ⚠️ 02a v1.1.9 (05 row T-4): one ask for every open seating of the answer (0 statements with no reader; 1 per reader)
+  const marks = tileMarksOf(db, [...bySeating.keys()]);
   const lockBySeating = new Map(locks.map((l) => [l.seating_id, l]));
   const countBySeating = new Map(counts.map((c) => [c.seating_id, c.n]));
 
@@ -125,6 +132,8 @@ export function tableMapBody(
         opened_at: null,
         bill_requested_at: null,
         live_order_count: 0,
+        reopened: false,
+        check_printed_at: null,
       };
     }
     const lock = lockBySeating.get(seated.seating_id);
@@ -148,6 +157,8 @@ export function tableMapBody(
       opened_at: seated.opened_at,
       bill_requested_at: seated.bill_requested_at,
       live_order_count: countBySeating.get(seated.seating_id) ?? 0,
+      reopened: marks.get(seated.seating_id)?.reopened ?? false,
+      check_printed_at: marks.get(seated.seating_id)?.check_printed_at ?? null,
     };
   };
 

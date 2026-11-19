@@ -73,6 +73,21 @@ export type MergeGuard = (
   q: { seating_ids: string[]; order_ids?: string[] },
 ) => { code: ErrorCode; details: Record<string, unknown> } | null;
 
+/**
+ * §4.2, ⚠️ 02a v1.1.9 (05 row T-4): the two marks of one open seating's tile. The meaning and the source are the
+ * registering module's (05 §6.4a); 02a shows them only. `check_printed_at` is Unix ms, like `bill_requested_at`.
+ */
+export interface TileMarks {
+  reopened: boolean;
+  check_printed_at: number | null;
+}
+
+/**
+ * §4.2, ⚠️ 02a v1.1.9 (05 row T-4): one reader of the ordered list registerTileMarks appends to. Answers the whole
+ * list of open seating ids in 1 statement; a seating it leaves out has no marks.
+ */
+export type TileMarksReader = (db: Database.Database, seating_ids: string[]) => Map<string, TileMarks>;
+
 /** §3.5: the waiter team W of a seating (A = assignee); waiter alerts go to W ∪ {holder}. */
 export type WaiterTeam = (
   seating: { assignee: string | null; holder_staff_id: string },

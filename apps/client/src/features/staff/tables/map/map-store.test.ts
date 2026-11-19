@@ -60,7 +60,7 @@ describe('[02a §8 Table map] map store', () => {
     expect(store.tile('T2')).not.toBeNull();
   });
 
-  it('[02a Q-5] [05 row T-3 (6)] any table frame except TableLockTouched (SeatingReopened, BillClosed, BillClosedEmpty included), any order frame of orders/audiences.ts → one table-map read, debounced 250 ms', () => {
+  it('[02a Q-5] [05 row T-3 (6)] [02a #66] [05 row T-4] any table frame except TableLockTouched (SeatingReopened, BillClosed, BillClosedEmpty included), any order frame of orders/audiences.ts → one table-map read, debounced 250 ms', () => {
     const types = [
       'TableOpened', 'TableLocked', 'TableLockReleased', 'TableHolderChanged', 'TableMoved', 'TablesMerged', 'SeatingSplit', 'BillRequested', 'TableCleaned',
       // ⚠️ 02a v1.1.8 (05 row T-3 (6), H2-7): the table frames SeatingReopened, BillClosed and 05's BillClosedEmpty
@@ -69,6 +69,8 @@ describe('[02a §8 Table map] map store', () => {
       'OrderCancelled', 'OrderFoodServed', 'OrderFoodCleared', 'OrdersBilled', 'LineWeightSet', 'OrderContactSet', 'LineComped', 'BillClosed',
       // ⚠️ 02b v1.0.16 (05 rows Q-2, Q-4, G-26)
       'OrdersUnbilled', 'LineCompRemoved',
+      // ⚠️ 02a v1.1.9 (05 row T-4): the frame that makes the map re-read a tile mark
+      'TableMarksChanged',
     ];
     for (const type of types) {
       const { live, reads, timers } = setup();
