@@ -145,4 +145,27 @@ describe('[05 task 28a] fiscal port, registry, none adapter (§3.15, B20)', () =
       | 'invoice'
     >();
   });
+
+  it('[05 §3.15 v1.0.2 R-9 / G-4, G-7] pos_id and payments[].authority_code are string | null', () => {
+    expectTypeOf<FiscalSubmission['pos_id']>().toEqualTypeOf<string | null>();
+    expectTypeOf<FiscalSubmission['invoice']['payments'][number]['authority_code']>().toEqualTypeOf<string | null>();
+    const sub: FiscalSubmission = aSubmission({ pos_id: null });
+    sub.invoice.payments = [{ authority_code: null, payment_class: 'cash', direction: 'in', amount_minor: 1 }];
+    expect(sub.pos_id).toBeNull();
+  });
+
+  it('[05 §3.15 Payment codes] the fake adapter, scripted, answers rejected / mode_unmapped on a null authority_code', async () => {
+    const fake = fakeAdapter();
+    fake.rejectNullAuthorityCode();
+    fake.script({ outcome: 'ok', fiscal_number: 'F-1', qr_payload: null });
+    const unmapped = aSubmission();
+    unmapped.invoice.payments = [
+      { authority_code: '1', payment_class: 'cash', direction: 'in', amount_minor: 100_000 },
+      { authority_code: null, payment_class: 'digital', direction: 'in', amount_minor: 16_000 },
+    ];
+    await expect(fake.submitSale(unmapped)).resolves.toEqual({ outcome: 'rejected', error_code: 'mode_unmapped', http_status: null });
+    // the script is untouched: a mapped submission still gets the scripted answer
+    await expect(fake.submitSale(aSubmission())).resolves.toEqual({ outcome: 'ok', fiscal_number: 'F-1', qr_payload: null });
+    expect(fake.calls).toHaveLength(2);
+  });
 });

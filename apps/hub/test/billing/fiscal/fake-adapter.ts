@@ -20,6 +20,11 @@ export type FakeAdapter = FiscalAdapter & {
   /** Answer used once the script is empty (default `{ outcome: 'retry', error_code: 'unscripted' }`). */
   setDefault(answer: FakeScript): void;
   setHealth(h: 'ok' | 'failing'): void;
+  /**
+   * §3.15 "Payment codes" (v1.0.2 R-9 / G-4): when on, a submission with a null `authority_code` answers
+   * `rejected` / `mode_unmapped` (as a real adapter must), before the script and without consuming it.
+   */
+  rejectNullAuthorityCode(on?: boolean): void;
 };
 
 export function fakeAdapter(o?: {
@@ -32,7 +37,11 @@ export function fakeAdapter(o?: {
   const queue: FakeScript[] = [];
   let fallback: FakeScript = { outcome: 'retry', error_code: 'unscripted' };
   let health: 'ok' | 'failing' = 'ok';
-  const next = async (): Promise<FiscalAnswer> => {
+  let rejectNull = false;
+  const next = async (sub: FiscalSubmission): Promise<FiscalAnswer> => {
+    if (rejectNull && sub.invoice.payments.some((p) => p.authority_code === null)) {
+      return { outcome: 'rejected', error_code: 'mode_unmapped', http_status: null };
+    }
     const s = queue.length > 0 ? queue.shift()! : fallback;
     if ('throws' in s) throw new Error(s.throws);
     return s;
@@ -46,11 +55,11 @@ export function fakeAdapter(o?: {
     healthCalls: 0,
     async submitSale(sub) {
       adapter.calls.push({ kind: 'sale', sub: structuredClone(sub) });
-      return next();
+      return next(sub);
     },
     async submitCredit(sub) {
       adapter.calls.push({ kind: 'credit', sub: structuredClone(sub) });
-      return next();
+      return next(sub);
     },
     async health() {
       adapter.healthCalls += 1;
@@ -64,6 +73,9 @@ export function fakeAdapter(o?: {
     },
     setHealth(h) {
       health = h;
+    },
+    rejectNullAuthorityCode(on = true) {
+      rejectNull = on;
     },
   };
   return adapter;

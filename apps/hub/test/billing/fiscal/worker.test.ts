@@ -433,6 +433,52 @@ describe('[05 task 29a] fiscal worker skeleton (§3.15, B20, B21)', () => {
     expect(fake.calls[0]!.sub).toMatchObject({ pos_id: 'POS-1', jurisdiction_id: 'J-ROW', credentials: { token: TOKEN } });
   });
 
+  it('[05 §3.15 Payment codes, R-9 / G-4] a null authority_code → the adapter rejects (mode_unmapped): row rejected, sent once, the pos_id is not held', async () => {
+    const fake = fakeAdapter({ key: 'FAKE' });
+    fake.rejectNullAuthorityCode();
+    const h = await harness([fake]);
+    h.setToken('POS-1');
+    h.add({ invoice_id: 'a1', ord: 1 });
+    h.add({ invoice_id: 'a2', ord: 2 });
+    fake.setDefault({ outcome: 'ok', fiscal_number: 'F-2', qr_payload: null });
+    const real = h.deps.loadSubmission;
+    h.deps.loadSubmission = (row) => {
+      const l = real(row) as LoadedSubmission;
+      if (!l.ok || row.invoice_id !== 'a1') return l;
+      const payments = [{ authority_code: null, payment_class: 'digital' as const, direction: 'in' as const, amount_minor: 116_000 }];
+      return { ...l, submission: { ...l.submission, invoice: { ...l.submission.invoice, payments } } };
+    };
+    await runOnce(h.deps);
+    expect(sentKeys(fake)).toEqual(['REF-a1', 'REF-a2']);
+    expect(fake.calls[0]!.sub.invoice.payments[0]!.authority_code).toBeNull();
+    expect(h.row('a1')).toMatchObject({ state: 'rejected', last_error: 'mode_unmapped', attempts: 0, in_flight_at: null });
+    expect(h.row('a2')).toMatchObject({ state: 'acked', last_error: null });
+    expect(h.committed.map((c) => c.answer)).toEqual([
+      { outcome: 'rejected', error_code: 'mode_unmapped', http_status: null },
+      { outcome: 'ok', fiscal_number: 'F-2', qr_payload: null },
+    ]);
+    for (let i = 0; i < 3; i += 1) {
+      h.clock.advance(BACKOFF_MS[3]);
+      await runOnce(h.deps);
+    }
+    expect(fake.calls).toHaveLength(2); // never resent
+    const text = h.logs();
+    expect(text).toContain('mode_unmapped');
+    for (const bad of [TOKEN, BUYER_NAME, BUYER_ID, 'buyer', 'tax_id', 'credentials']) expect(text, bad).not.toContain(bad);
+  });
+
+  it('[05 §3.15 v1.0.2 R-9 / G-7] a row with a null pos_id reaches the adapter as null, never \'\'', async () => {
+    const fake = fakeAdapter({ key: 'FAKE', credentialNames: [] });
+    const h = await harness([fake]);
+    h.add({ invoice_id: 'a1', ord: 1, pos_id: null });
+    fake.setDefault({ outcome: 'ok', fiscal_number: 'F', qr_payload: null });
+    await runOnce(h.deps);
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0]!.sub.pos_id).toBeNull();
+    expect(fake.calls[0]!.sub.credentials).toEqual({});
+    expect(h.row('a1')).toMatchObject({ state: 'acked' });
+  });
+
   it('[05 #72 back-off half] next_try_at counts from the answer, not the send', async () => {
     const fake = fakeAdapter({ key: 'FAKE' });
     const h = await harness([fake]);
