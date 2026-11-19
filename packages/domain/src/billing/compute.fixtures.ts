@@ -110,3 +110,13 @@ export const PK_REGRESSION = {
     digital: { tax_minor: 91_360, exact_total_minor: 662_360, rounding_minor: 40, total_minor: 662_400 },
   },
 } as const;
+
+/**
+ * P0.19c (G-8): the Table 7 Rs 5,710 of §6.31 as four lines whose nets sum to `PK_REGRESSION.net_minor`; the
+ * PK-PB row (91 360 cash / 28 550 digital) spread by line net gives the per-line taxes below.
+ */
+export const TABLE7_LINES = {
+  bases_minor: [240_000, 180_000, 60_000, 91_000],
+  cash_tax_minor: [38_400, 28_800, 9_600, 14_560],
+  digital_tax_minor: [12_000, 9_000, 3_000, 4_550],
+} as const;

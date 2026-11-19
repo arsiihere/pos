@@ -9,6 +9,9 @@ import {
   type ComputeSplitResult,
   type ComputeTotals,
   SERVICE_CHARGE_ID,
+  spreadLineTaxes,
+  type ComputeSplitInput,
+  type ComputeSplitLine,
 } from './compute.js';
 import {
   cashStepRules,
@@ -21,6 +24,7 @@ import {
   rateBpProfile,
   rates,
   stackedProfile,
+  TABLE7_LINES,
   TODAY,
 } from './compute.fixtures.js';
 
@@ -803,5 +807,324 @@ describe('splits (05 §3.8) and bill invariants (#10 compute half)', () => {
     expect(() => computeBill(bill({ payments: [card(1, 9)] }))).toThrow();
     expect(() => computeBill(bill({ lines: [line('A', 1, null), line('A', 2, null)] }))).toThrow();
     expect(() => computeBill(bill({ rules: { ...PK_PB_RULES, rounding: { step_minor: 0, mode: 'nearest', applies_to: 'all' } } }))).toThrow();
+  });
+});
+
+describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () => {
+  const sl = (order_item_id: string, base_minor: number, tax_profile_id: string | null, discount_minor = 0): ComputeSplitLine => ({
+    order_item_id,
+    line_kind: 'item',
+    units: 1,
+    unit_price_minor: base_minor,
+    base_minor,
+    discount_minor,
+    tax_profile_id,
+  });
+  const split = (over: Partial<ComputeSplitInput> = {}): ComputeSplitInput => ({
+    split_no: 1,
+    business_date: TODAY,
+    rules: PK_PB_RULES,
+    tax_profiles: [pkPbProfile()],
+    lines: [],
+    service_charge: null,
+    payments: [],
+    ...over,
+  });
+  const taxOf = (r: ReturnType<typeof spreadLineTaxes>, code: string) =>
+    r.lines.map((l) => l.taxes.find((t) => t.tax_code === code)?.tax_minor ?? 0);
+  const baseOf = (r: ReturnType<typeof spreadLineTaxes>, code: string) =>
+    r.lines.map((l) => l.taxes.find((t) => t.tax_code === code)?.base_minor ?? 0);
+  /**
+   * Per (profile, tax) row of computeSplit's as-paid totals: Σ the lines' + the charge's tax = the row's tax and
+   * Σ their bases = the row's base (R-18, R-19), and no base or tax is negative.
+   */
+  function expectSumsToRows(input: ComputeSplitInput): void {
+    const rows = computeSplit(input).totals.as_paid.taxes;
+    const r = spreadLineTaxes(input);
+    const profileOf = new Map(input.lines.map((l) => [l.order_item_id, l.tax_profile_id]));
+    for (const row of rows) {
+      let tax = 0;
+      let base = 0;
+      const add = (ts: ReadonlyArray<{ tax_code: string; base_minor: number; tax_minor: number }>) => {
+        for (const t of ts) {
+          if (t.tax_code !== row.tax_code) continue;
+          expect(t.base_minor).toBeGreaterThanOrEqual(0);
+          expect(t.tax_minor).toBeGreaterThanOrEqual(0);
+          tax += t.tax_minor;
+          base += t.base_minor;
+        }
+      };
+      for (const l of r.lines) if (profileOf.get(l.order_item_id) === row.tax_profile_id) add(l.taxes);
+      if (r.service_charge !== null && r.service_charge.tax_profile_id === row.tax_profile_id) add(r.service_charge.taxes);
+      expect(tax, `${row.tax_profile_id}/${row.tax_code} tax`).toBe(row.tax_minor);
+      expect(base, `${row.tax_profile_id}/${row.tax_code} base`).toBe(row.base_minor);
+    }
+  }
+
+  it('[05 P0.G G-8] Pakistan Table 7 (#11, §6.31): four lines of Rs 5,710 → [384, 288, 96, 145.60] at 16 %, [120, 90, 30, 45.50] at 5 %', () => {
+    const lines = TABLE7_LINES.bases_minor.map((b, i) => sl(`L${i + 1}`, b, 'restaurant'));
+    const cashSplit = split({ lines });
+    const c = spreadLineTaxes(cashSplit);
+    expect(c.payment_class).toBe('cash');
+    expect(c.lines.map((l) => l.order_item_id)).toEqual(['L1', 'L2', 'L3', 'L4']);
+    expect(taxOf(c, 'PST')).toEqual([...TABLE7_LINES.cash_tax_minor]);
+    expect(c.lines[0]?.taxes).toEqual([{ tax_code: 'PST', payment_class: 'cash', rate_bp: 1600, base_minor: 240_000, tax_minor: 38_400 }]);
+    expect(c.service_charge).toBeNull();
+    expect(TABLE7_LINES.cash_tax_minor.reduce((a, b) => a + b, 0)).toBe(PK_REGRESSION.pk_pb.cash.tax_minor);
+    expectSumsToRows(cashSplit);
+    const cardSplit = split({ lines, payments: [card(PK_REGRESSION.pk_pb.digital.total_minor)] });
+    const d = spreadLineTaxes(cardSplit);
+    expect(d.payment_class).toBe('digital');
+    expect(taxOf(d, 'PST')).toEqual([...TABLE7_LINES.digital_tax_minor]);
+    expect(d.lines[3]?.taxes).toEqual([{ tax_code: 'PST', payment_class: 'digital', rate_bp: 500, base_minor: 91_000, tax_minor: 4_550 }]);
+    expect(TABLE7_LINES.digital_tax_minor.reduce((a, b) => a + b, 0)).toBe(PK_REGRESSION.pk_pb.digital.tax_minor);
+    expectSumsToRows(cardSplit);
+  });
+
+  it('[05 P0.G G-8] non-even: one rounded row spread with apportionMinor — the left-over unit to the larger fraction, ties to the earlier line', () => {
+    const p = [rateBpProfile('p', 'GST', 2500)];
+    // row = round_half_up(20 × 25 %) = 5 (per-line rounding would give 3 + 3 = 6); 2.5 / 2.5 → tie → the earlier line
+    const tie = split({ rules: noneRules(), tax_profiles: p, lines: [sl('A', 10, 'p'), sl('B', 10, 'p')] });
+    expect(taxOf(spreadLineTaxes(tie), 'TAX')).toEqual([3, 2]);
+    expectSumsToRows(tie);
+    // row = round_half_up(3 × 50 %) = 2; exact shares 1.33 / 0.67 → the later line has the larger fraction
+    const later = split({ rules: noneRules(), tax_profiles: [rateBpProfile('p', 'GST', 5000)], lines: [sl('A', 2, 'p'), sl('B', 1, 'p')] });
+    expect(taxOf(spreadLineTaxes(later), 'TAX')).toEqual([1, 1]);
+    expectSumsToRows(later);
+  });
+
+  it('[05 P0.G G-8] a bill discount: the weights are line net (base − discount share), not base; a line discounted to 0 carries 0', () => {
+    // nets 1 000 / 1 000 / 0 → row 320 at 16 % → [160, 160, 0]; by base (2 000 / 1 000 / 500) it would be [183, 91, 46]
+    const s = split({ lines: [sl('A', 2_000, 'restaurant', 1_000), sl('B', 1_000, 'restaurant'), sl('C', 500, 'restaurant', 500)] });
+    expect(computeSplit(s).totals.as_paid.taxes.map((t) => t.tax_minor)).toEqual([320]);
+    expect(taxOf(spreadLineTaxes(s), 'PST')).toEqual([160, 160, 0]);
+    expect(baseOf(spreadLineTaxes(s), 'PST')).toEqual([1_000, 1_000, 0]); // R-19 exclusive: base = line net
+    expectSumsToRows(s);
+  });
+
+  it('[05 P0.G G-8] several profiles: each row spread over its own lines only; untaxed and deal-part lines carry no taxes', () => {
+    const s = split({
+      tax_profiles: [pkPbProfile('food'), rateBpProfile('bev', 'GST', 1000)],
+      lines: [
+        sl('A1', 1_000, 'food'),
+        sl('B1', 500, 'bev'),
+        sl('U', 700, null),
+        { ...sl('DP', 0, 'food'), line_kind: 'deal_part' },
+        sl('A2', 3_000, 'food'),
+      ],
+    });
+    const r = spreadLineTaxes(s);
+    expect(r.lines.map((l) => [l.order_item_id, l.taxes.map((t) => [t.tax_code, t.tax_minor])])).toEqual([
+      ['A1', [['PST', 160]]],
+      ['B1', [['TAX', 50]]],
+      ['U', []],
+      ['DP', []],
+      ['A2', [['PST', 480]]],
+    ]);
+    expectSumsToRows(s);
+  });
+
+  it('[05 P0.G G-8] a stacked compound pair: every (profile, tax) row is spread by line net; Σ per tax = the row', () => {
+    // N 3 001: FED round(150.05) = 150 → [50, 100]; PROV compound round(3 151 × 9.5 %) = 299 → [100, 199]
+    const s = split({ rules: noneRules(), tax_profiles: [stackedProfile('st', 500, 950, true)], lines: [sl('A', 1_000, 'st'), sl('B', 2_001, 'st')] });
+    expect(computeSplit(s).totals.as_paid.taxes.map((t) => t.tax_minor)).toEqual([150, 299]);
+    const r = spreadLineTaxes(s);
+    expect(taxOf(r, 'FED')).toEqual([50, 100]);
+    expect(taxOf(r, 'PROV')).toEqual([100, 199]);
+    expect(baseOf(r, 'FED')).toEqual([1_000, 2_001]);
+    expect(baseOf(r, 'PROV')).toEqual([1_050, 2_101]); // R-19 compound: line net + the line's earlier taxes
+    expectSumsToRows(s);
+  });
+
+  it('[05 P0.G G-8] inclusive: the included tax of the profile (one rounding) is spread by line net; Σ = the row', () => {
+    // A 2 500 at 16 % inclusive → TI = round(344.83) = 345 → [138.14, 137.86, 69] → [138, 138, 69]
+    const s = split({ rules: { ...PK_PB_RULES, prices_include_tax: true }, lines: [sl('A', 1_001, 'restaurant'), sl('B', 999, 'restaurant'), sl('C', 500, 'restaurant')] });
+    expect(computeSplit(s).totals.as_paid.taxes.map((t) => t.tax_minor)).toEqual([345]);
+    expect(taxOf(spreadLineTaxes(s), 'PST')).toEqual([138, 138, 69]);
+    expect(baseOf(spreadLineTaxes(s), 'PST')).toEqual([863, 861, 431]); // R-19 inclusive: line net − the line's tax; Σ 2 155 = N_p
+    expectSumsToRows(s);
+  });
+
+  it('[05 P0.G G-8] inclusive compound (R-19): base = line net − the line\'s taxes of the profile, plus its earlier taxes', () => {
+    // #11b: 11 497.50 inclusive at 5 % + 9.5 % compound → [500.00, 997.50]; pre-tax 10 000.00
+    const prof = [stackedProfile('st', 500, 950, true)];
+    const incl = { ...noneRules(), prices_include_tax: true };
+    const one = split({ rules: incl, tax_profiles: prof, lines: [sl('A', 1_149_750, 'st')] });
+    expect(spreadLineTaxes(one).lines[0]?.taxes.map((t) => [t.tax_code, t.base_minor, t.tax_minor])).toEqual([
+      ['FED', 1_000_000, 50_000],
+      ['PROV', 1_050_000, 99_750],
+    ]);
+    expectSumsToRows(one);
+    const two = split({ rules: incl, tax_profiles: prof, lines: [sl('A', 700_001, 'st'), sl('B', 449_749, 'st'), sl('C', 3, 'st')] });
+    expectSumsToRows(two);
+    // the charge is never tax-inclusive (§3.5 (4)): in inclusive mode its base is its amount (+ its earlier part if compound)
+    const withSc = split({ ...one, service_charge: { rate_bp: 1000, removed: false, tax_profile_id: 'st' } });
+    const w = spreadLineTaxes(withSc);
+    expect(w.service_charge?.taxes.map((t) => [t.tax_code, t.base_minor, t.tax_minor])).toEqual([
+      ['FED', 100_000, 5_000],
+      ['PROV', 105_000, 9_975],
+    ]);
+    expect(w.lines[0]?.taxes.map((t) => [t.tax_code, t.base_minor, t.tax_minor])).toEqual([
+      ['FED', 1_000_000, 50_000],
+      ['PROV', 1_050_000, 99_750],
+    ]);
+    expectSumsToRows(withSc);
+  });
+
+  it('[05 P0.G G-8] service-charge taxes are the invoice service_charge.taxes, never in the lines (own profile; inclusive shared profile)', () => {
+    // exclusive, the charge under its own profile: the lines carry only the food row
+    const own = split({
+      tax_profiles: [pkPbProfile(), rateBpProfile('svc', 'Service tax', 1000)],
+      lines: [sl('A', 100_000, 'restaurant'), sl('B', 50_000, 'restaurant')],
+      service_charge: { rate_bp: 1000, removed: false, tax_profile_id: 'svc' },
+    });
+    const o = spreadLineTaxes(own);
+    expect(taxOf(o, 'PST')).toEqual([16_000, 8_000]);
+    expect(o.lines.flatMap((l) => l.taxes.map((t) => t.tax_code))).toEqual(['PST', 'PST']);
+    expect(o.service_charge).toEqual({
+      amount_minor: 15_000,
+      tax_profile_id: 'svc',
+      taxes: [{ tax_code: 'TAX', payment_class: 'cash', rate_bp: 1000, base_minor: 15_000, tax_minor: 1_500 }],
+    });
+    expectSumsToRows(own);
+    // inclusive, the charge on the lines' profile: row 2 640 = included 2 400 (the lines) + exclusive part 240 (the charge)
+    const shared = split({
+      rules: { ...PK_PB_RULES, prices_include_tax: true },
+      lines: [sl('A', 11_600, 'restaurant'), sl('B', 5_800, 'restaurant')],
+      service_charge: { rate_bp: 1000, removed: false, tax_profile_id: 'restaurant' },
+    });
+    expect(computeSplit(shared).totals.as_paid.taxes.map((t) => t.tax_minor)).toEqual([2_640]);
+    const sh = spreadLineTaxes(shared);
+    expect(taxOf(sh, 'PST')).toEqual([1_600, 800]);
+    expect(baseOf(sh, 'PST')).toEqual([10_000, 5_000]); // row base 16 500 = 15 000 (lines) + 1 500 (the charge)
+    expect(sh.service_charge).toEqual({
+      amount_minor: 1_500,
+      tax_profile_id: 'restaurant',
+      taxes: [{ tax_code: 'PST', payment_class: 'cash', rate_bp: 1600, base_minor: 1_500, tax_minor: 240 }],
+    });
+    expectSumsToRows(shared);
+    // untaxed and removed charges
+    const untaxed = spreadLineTaxes({ ...own, service_charge: { rate_bp: 1000, removed: false, tax_profile_id: null } });
+    expect(untaxed.service_charge).toEqual({ amount_minor: 15_000, tax_profile_id: null, taxes: [] });
+    expect(spreadLineTaxes({ ...own, service_charge: { rate_bp: 1000, removed: true, tax_profile_id: 'svc' } }).service_charge).toBeNull();
+  });
+
+  it('[05 P0.G G-8] R-18 exclusive, the charge on the lines\' profile: its part rounded on its own; the lines get row − part; Σ = the row', () => {
+    const p = [rateBpProfile('p', 'GST', 2500)];
+    // N 10, SC 2 (20 %): row round(12 × 25 %) = 3; charge round(0.5) = 1; lines 3 − 1 = 2 → [1, 1]
+    // (the lines alone would round 2.5 → 3: the lines' part is the rest of the row, not their own rounding)
+    const s = split({ rules: noneRules(), tax_profiles: p, lines: [sl('A', 5, 'p'), sl('B', 5, 'p')], service_charge: { rate_bp: 2000, removed: false, tax_profile_id: 'p' } });
+    expect(computeSplit(s).totals.as_paid.taxes.map((t) => [t.base_minor, t.tax_minor])).toEqual([[12, 3]]);
+    const r = spreadLineTaxes(s);
+    expect(r.lines.map((l) => l.taxes.map((t) => [t.base_minor, t.tax_minor]))).toEqual([[[5, 1]], [[5, 1]]]);
+    expect(r.service_charge).toEqual({
+      amount_minor: 2,
+      tax_profile_id: 'p',
+      taxes: [{ tax_code: 'TAX', payment_class: 'cash', rate_bp: 2500, base_minor: 2, tax_minor: 1 }],
+    });
+    expectSumsToRows(s);
+    // Pakistan shape: Rs 1,000 + 10 % charge on PK-PB at 16 % → row 176.00 = 160.00 (line) + 16.00 (charge)
+    const pk = split({ lines: [sl('A', 100_000, 'restaurant')], service_charge: { rate_bp: 1000, removed: false, tax_profile_id: 'restaurant' } });
+    const pr = spreadLineTaxes(pk);
+    expect(pr.lines[0]?.taxes).toEqual([{ tax_code: 'PST', payment_class: 'cash', rate_bp: 1600, base_minor: 100_000, tax_minor: 16_000 }]);
+    expect(pr.service_charge?.taxes).toEqual([{ tax_code: 'PST', payment_class: 'cash', rate_bp: 1600, base_minor: 10_000, tax_minor: 1_600 }]);
+    expectSumsToRows(pk);
+  });
+
+  it('[05 P0.G G-8] R-18 + R-19 exclusive compound, the charge shared: the charge\'s compound base is its amount + its earlier part', () => {
+    // N 3 001, SC round(300.1) = 300. FED: row round(3 301 × 5 %) = 165, charge round(15) = 15, lines 150 → [50, 100].
+    // PROV: row round(3 466 × 9.5 %) = 329, charge round(315 × 9.5 % = 29.925) = 30, lines 299 → [100, 199].
+    const s = split({
+      rules: noneRules(),
+      tax_profiles: [stackedProfile('st', 500, 950, true)],
+      lines: [sl('A', 1_000, 'st'), sl('B', 2_001, 'st')],
+      service_charge: { rate_bp: 1000, removed: false, tax_profile_id: 'st' },
+    });
+    expect(computeSplit(s).totals.as_paid.taxes.map((t) => [t.tax_code, t.base_minor, t.tax_minor])).toEqual([
+      ['FED', 3_301, 165],
+      ['PROV', 3_466, 329],
+    ]);
+    const r = spreadLineTaxes(s);
+    expect(taxOf(r, 'FED')).toEqual([50, 100]);
+    expect(taxOf(r, 'PROV')).toEqual([100, 199]);
+    expect(baseOf(r, 'PROV')).toEqual([1_050, 2_101]);
+    expect(r.service_charge?.taxes.map((t) => [t.tax_code, t.base_minor, t.tax_minor])).toEqual([
+      ['FED', 300, 15],
+      ['PROV', 315, 30],
+    ]);
+    expectSumsToRows(s);
+  });
+
+  it('[05 P0.G G-8] tax disabled or an unresolved charge profile: the charge carries no taxes and tax_profile_id null', () => {
+    const base = split({ lines: [sl('A', 100_000, 'restaurant')], service_charge: { rate_bp: 1000, removed: false, tax_profile_id: 'restaurant' } });
+    const off = spreadLineTaxes({ ...base, rules: { ...PK_PB_RULES, tax_enabled: false } });
+    expect(off.lines[0]?.taxes).toEqual([]);
+    expect(off.service_charge).toEqual({ amount_minor: 10_000, tax_profile_id: null, taxes: [] });
+    const unresolved = spreadLineTaxes({ ...base, service_charge: { rate_bp: 1000, removed: false, tax_profile_id: 'missing' } });
+    expect(unresolved.service_charge).toEqual({ amount_minor: 10_000, tax_profile_id: null, taxes: [] });
+    expect(unresolved.lines[0]?.taxes.map((t) => t.tax_minor)).toEqual([16_000]);
+  });
+
+  /** Σ = the rows (tax and base), nothing negative, and in inclusive mode no line's taxes of its profile above its net (R-20). */
+  function expectSound(input: ComputeSplitInput): void {
+    expectSumsToRows(input);
+    if (!input.rules.prices_include_tax) return;
+    const r = spreadLineTaxes(input);
+    input.lines.forEach((l, i) => {
+      const own = (r.lines[i]?.taxes ?? []).reduce((a, t) => a + t.tax_minor, 0);
+      expect(own, `${l.order_item_id} taxes ≤ net`).toBeLessThanOrEqual(l.base_minor - l.discount_minor);
+    });
+  }
+  const inclNone = { ...noneRules(), prices_include_tax: true };
+  const fourTaxes = (bp: number) => ({
+    tax_profile_id: 'q',
+    taxes: [1, 2, 3, 4].map((seq) => ({ seq, tax_code: `T${seq}`, label: `Tax ${seq}`, compound: false, rates: rates(bp, bp) })),
+  });
+
+  it('[05 P0.G G-8] R-20 review crash: inclusive 13 % + 5 %, 10 lines of 50 000, amount split [499 990, 10] → split 2 via computeBill', () => {
+    const prof = [stackedProfile('st', 1300, 500, false)];
+    const lines = Array.from({ length: 10 }, (_, i) => line(`L${i}`, 50_000, 'st'));
+    const b = computeBill(
+      bill({ rules: inclNone, tax_profiles: prof, lines, plan: { mode: 'amount', splits: [{ split_no: 1, share_minor: 499_990 }, { split_no: 2, share_minor: 10 }] } }),
+    );
+    const s2 = b.splits.find((x) => x.split_no === 2) as ComputeSplitResult;
+    expectSound(split({ split_no: 2, rules: inclNone, tax_profiles: prof, lines: s2.lines }));
+  });
+
+  it('[05 P0.G G-8] R-20 review crashes: nets of 1 under stacked and compound profiles (both modes)', () => {
+    const cases: Array<[ComputeSplitInput['tax_profiles'], number[]]> = [
+      [[stackedProfile('q', 1300, 500, false)], Array.from({ length: 10 }, () => 1)],
+      [[stackedProfile('q', 10_000, 10_000, true)], [1, 1, 1]],
+      [[stackedProfile('q', 10_000, 10_000, true)], [1, 1, 4]],
+      [[fourTaxes(3000)], [1, 2, 2]],
+    ];
+    for (const [tax_profiles, nets] of cases) {
+      for (const rules of [inclNone, noneRules()]) {
+        expectSound(split({ rules, tax_profiles, lines: nets.map((n, i) => sl(`L${i}`, n, 'q')) }));
+      }
+    }
+  });
+
+  it('[05 P0.G G-8] discounted lines with a charge: inclusive one tax and the compound pair (both modes)', () => {
+    const sc = { rate_bp: 1000, removed: false, tax_profile_id: 'restaurant' };
+    const lines = [sl('A', 11_600, 'restaurant', 1_160), sl('B', 5_801, 'restaurant', 3), sl('C', 999, 'restaurant', 999)];
+    expectSound(split({ rules: { ...PK_PB_RULES, prices_include_tax: true }, lines, service_charge: sc }));
+    expectSound(split({ lines, service_charge: sc }));
+    const st = [stackedProfile('restaurant', 500, 950, true)];
+    expectSound(split({ rules: inclNone, tax_profiles: st, lines, service_charge: sc }));
+    expectSound(split({ rules: noneRules(), tax_profiles: st, lines, service_charge: sc }));
+  });
+
+  it('[05 P0.G G-8] R-21: an applied charge of 0 (rate 0, net 0, or rounded to 0) is no charge → service_charge null', () => {
+    const zeroRate = split({ lines: [sl('A', 100_000, 'restaurant')], service_charge: { rate_bp: 0, removed: false, tax_profile_id: 'restaurant' } });
+    expect(spreadLineTaxes(zeroRate).service_charge).toBeNull();
+    const zeroNet = split({ lines: [sl('A', 1_000, 'restaurant', 1_000)], service_charge: { rate_bp: 1000, removed: false, tax_profile_id: 'restaurant' } });
+    expect(spreadLineTaxes(zeroNet).service_charge).toBeNull();
+    expectSumsToRows(zeroNet);
+    // rounded to 0: net 4 at 1 000 bp → 0.4 → 0 (R-21, "or the rounded amount 0")
+    const roundedZero = split({ lines: [sl('A', 4, 'restaurant')], service_charge: { rate_bp: 1000, removed: false, tax_profile_id: 'restaurant' } });
+    expect(computeSplit(roundedZero).totals.as_paid.service_charge_minor).toBe(0);
+    expect(spreadLineTaxes(roundedZero).service_charge).toBeNull();
+    expectSumsToRows(roundedZero);
   });
 });
