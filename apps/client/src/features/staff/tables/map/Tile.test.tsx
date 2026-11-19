@@ -148,4 +148,25 @@ describe('[02a §8 Table map] tile', () => {
     m.click(button);
     expect(onTap).toHaveBeenCalledWith(t);
   });
+
+  it('[02a #66] [05 row T-4] tile marks (TableBillStates): "Reopened" while reopened, the printer mark "Check bill printed" while check_printed_at is set, both together in that order, nothing when false / null or absent', () => {
+    const base = { state: 'BILL_REQUESTED' as const, seating_id: 'S1', opened_at: OPENED };
+    const marks = (t: MapTile) => [...show(t).button.querySelectorAll('.tt__f .b5-tg')].map((e) => [e.className, e.textContent]);
+    expect(marks(tile(base))).toEqual([]);
+    m.unmount();
+    expect(marks({ ...tile(base), reopened: false, check_printed_at: null })).toEqual([]);
+    m.unmount();
+    expect(marks({ ...tile(base), reopened: true, check_printed_at: null })).toEqual([['b5-tg c-info cased', 'Reopened']]);
+    m.unmount();
+    expect(marks({ ...tile(base), reopened: false, check_printed_at: NOW - 60_000 })).toEqual([['b5-tg c-ok cased', 'Check bill printed']]);
+    m.unmount();
+    expect(marks({ ...tile(base), reopened: true, check_printed_at: NOW - 60_000 })).toEqual([
+      ['b5-tg c-info cased', 'Reopened'],
+      ['b5-tg c-ok cased', 'Check bill printed'],
+    ]);
+    m.unmount();
+    const { button } = show({ ...tile(base), reopened: true, check_printed_at: 1 });
+    expect(button.getAttribute('aria-label')).toContain('Reopened');
+    expect(button.getAttribute('aria-label')).toContain('Check bill printed');
+  });
 });

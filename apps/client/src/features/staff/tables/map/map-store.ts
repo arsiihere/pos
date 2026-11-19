@@ -23,6 +23,8 @@ const TABLE_FRAMES: ReadonlySet<string> = new Set([
   'SeatingReopened',
   'BillClosed',
   'BillClosedEmpty',
+  // ⚠️ 02a v1.1.9 (05 row T-4): a tile mark of an open seating may have changed; the map re-reads once (debounced)
+  'TableMarksChanged',
 ]);
 
 /**

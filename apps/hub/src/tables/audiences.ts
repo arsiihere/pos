@@ -4,7 +4,7 @@ import { registerEventAudience } from '../ws/audience.js';
 // branch (the hub is one branch; ids only, no totals); TableMoved, TablesMerged and SeatingSplit also go to KDS
 // stations. Registered once per process at this module's load, like 00's and 03a's audience lists.
 // ⚠️ 02a v1.1.8 (05 row T-3 (6), (7), H2-7): SeatingReopened, BillClosed and 05's BillClosedEmpty join the list
-// (staff sockets + cashier kiosks, not KDS stations).
+// (staff sockets + cashier kiosks, not KDS stations). ⚠️ 02a v1.1.9 (05 row T-4): so does TableMarksChanged (ids only).
 
 export const TABLE_EVENT_TYPES = [
   'TableOpened',
@@ -20,6 +20,7 @@ export const TABLE_EVENT_TYPES = [
   'SeatingReopened',
   'BillClosed',
   'BillClosedEmpty',
+  'TableMarksChanged',
 ] as const;
 
 export const KDS_TABLE_EVENT_TYPES: ReadonlySet<string> = new Set(['TableMoved', 'TablesMerged', 'SeatingSplit']);

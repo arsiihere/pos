@@ -57,13 +57,15 @@ const examples: Record<string, { payload: Record<string, unknown> }> = {
   },
   // ⚠️ 02a v1.1.8 (05 row T-3): written by 05's full-edit reopen of a CLOSED bill; alert_id on an approval apply.
   SeatingReopened: { payload: { seating_id: 'S1', bill_id: 'B1', alert_id: 'A1' } },
+  // ⚠️ 02a v1.1.9 (05 row T-4): written by 05 when a tile mark may have changed; ids only, no fold effect.
+  TableMarksChanged: { payload: { seating_id: 'S1' } },
 };
 
 const TYPES = Object.keys(examples);
 
 describe('02a table-stream events', () => {
   it('[02a §6.19] each table event round-trips with its §6.19 payload', () => {
-    expect(TYPES).toHaveLength(11);
+    expect(TYPES).toHaveLength(12);
     for (const type of TYPES) {
       expect(payloadSchema(type, 1).parse(examples[type]!.payload), type).toEqual(examples[type]!.payload);
     }
@@ -161,6 +163,17 @@ describe('05 row T-3: SeatingReopened', () => {
     expect(schema.safeParse({ bill_id: 'B1' }).success).toBe(false);
     expect(schema.safeParse({ seating_id: 'S1', bill_id: 'B1', alert_id: null }).success).toBe(false);
     expect(schema.safeParse({ seating_id: 'S1', bill_id: 'B1', table_id: 'T1' }).success).toBe(false);
+  });
+});
+
+describe('05 row T-4: TableMarksChanged', () => {
+  it('[02a #66] [05 row T-4] TableMarksChanged v1 { seating_id }: ids only, strict — the schema refuses any other key', () => {
+    const schema = payloadSchema('TableMarksChanged', 1);
+    expect(schema.parse({ seating_id: 'S1' })).toEqual({ seating_id: 'S1' });
+    expect(schema.safeParse({}).success).toBe(false);
+    expect(schema.safeParse({ seating_id: 'S1', reopened: true }).success).toBe(false);
+    expect(schema.safeParse({ seating_id: 'S1', check_printed_at: 1 }).success).toBe(false);
+    expect(schema.safeParse({ seating_id: 'S1', bill_id: 'B1' }).success).toBe(false);
   });
 });
 

@@ -119,6 +119,22 @@ const PATHS: Record<string, ReactNode> = {
       <rect x="14" y="5" width="3.5" height="14" rx="1" />
     </>
   ),
+  // 05-X01 TableBillStates: the Reopened mark (circling arrows) and the check bill printed mark (printer)
+  reopen: (
+    <>
+      <path d="M4 12a8 8 0 0 1 13.7-5.7" />
+      <path d="M18 3v4h-4" />
+      <path d="M20 12a8 8 0 0 1-13.7 5.7" />
+      <path d="M6 21v-4h4" />
+    </>
+  ),
+  printer: (
+    <>
+      <path d="M7 9V3.5h10V9" />
+      <rect x="3.5" y="9" width="17" height="8" rx="2" />
+      <path d="M7 14h10v6.5H7z" />
+    </>
+  ),
   plus: (
     <>
       <path d="M12 5v14" />
@@ -211,6 +227,10 @@ export function Tile({ tile, staffId, nowMs, late, waiting = false, callSentAt =
     ((tile.holder !== null && tile.assignee.staff_id !== tile.holder.staff_id) ||
       (zoneAssignee !== undefined && zoneAssignee?.staff_id !== tile.assignee.staff_id && tile.assignee.staff_id !== tile.holder?.staff_id));
 
+  // ⚠️ 02a v1.1.9 (05 row T-4, 05-X01 TableBillStates): small marks under the usual state; nothing when false / null
+  const reopened = tile.reopened === true;
+  const printed = tile.check_printed_at !== undefined && tile.check_printed_at !== null;
+
   const flag = isLate ? 'late' : waiting ? 'waiting' : callSentAt !== null ? 'call' : tile.archived ? 'archived' : null;
   const classes = ['tt', `s-${tone}`, `c-${tone}`, urgent ? 'urgent' : null, tile.archived ? 'arch' : null, pressed ? 'pressed' : null, dim ? 'dim' : null].filter((c) => c !== null).join(' ');
 
@@ -221,6 +241,8 @@ export function Tile({ tile, staffId, nowMs, late, waiting = false, callSentAt =
     minutes === null ? null : `${minutes} min`,
     tile.party_size === null ? null : `${tile.party_size}`,
     tile.lock === null ? null : `${tile.lock.name ?? ''}`,
+    reopened ? t('tables.mark.reopened') : null,
+    printed ? t('tables.mark.check_printed') : null,
   ]
     .filter((x): x is string => x !== null && x !== '')
     .join(', ');
@@ -246,6 +268,18 @@ export function Tile({ tile, staffId, nowMs, late, waiting = false, callSentAt =
         {minutes !== null && tile.state !== 'NEEDS_CLEANING' && <span className="t">{fill(t('tables.tile.min'), { n: String(minutes) })}</span>}
       </span>
       <span className="tt__f">
+        {reopened && (
+          <span className="b5-tg c-info cased">
+            <MapIco name="reopen" />
+            {t('tables.mark.reopened')}
+          </span>
+        )}
+        {printed && (
+          <span className="b5-tg c-ok cased">
+            <MapIco name="printer" />
+            {t('tables.mark.check_printed')}
+          </span>
+        )}
         {flag === 'late' && (
           <span className="fl c-warn">
             <MapIco name="clock" />
