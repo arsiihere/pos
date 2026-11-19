@@ -45,8 +45,14 @@ Binding for the 05 v1.0.2 and P0.2c writers.
 | G-26 | Major | P0.13, client lanes | No |
 | G-27 | Minor | various | No |
 | G-28 | Major | 27, 38 | 05 v1.0.5 (§6.23a `GET /queries/bill-printers`, owner ruling R-27) |
+| G-29 | Major | 10, 35, 36 | 05 v1.0.6 (§6.1 `added_after_close`, pinned `blocks`, `reopen_count`; owner ruling R-29) |
+| G-30 | Minor | P0.11d, 7, 11, 19, 33 | 05 v1.0.6 row T-4 + 02a v1.1.9 (owner ruling R-30 (b)) |
+| G-31 | Major | P0.9b, P0.10 | 05 v1.0.6 row A-1 (1) + 01a v2.7 (owner rulings R-31, R-32) |
+| G-32 | Major | P0.14, 24 | 05 v1.0.6 row Q-3 + 02b v1.0.17 (owner ruling R-33) |
+| G-33 | Minor | P0.13 | 05 v1.0.6 row Q-6 + 02b v1.0.17 (owner ruling R-34) |
+| G-34 | Minor | P0.17, 10, 38 | 05 v1.0.6 row P-2 + 03c v1.0.13 (owner ruling R-35) |
 
-Counts: Blocker 5, Major 12, Minor 10 (27 rows). G-28 (Major) added 2026-11-19 after the sweep: Blocker 5, Major 13, Minor 10 (28 rows).
+Counts: Blocker 5, Major 12, Minor 10 (27 rows). G-28 (Major) added 2026-11-19 after the sweep: Blocker 5, Major 13, Minor 10 (28 rows). G-29, G-31 (Major) and G-30 (Minor) added 2026-11-19 from the 05 design brief (PR #316): Blocker 5, Major 15, Minor 11 (31 rows). G-32 (Major) and G-33 (Minor) added 2026-11-19: Blocker 5, Major 16, Minor 12 (33 rows). G-34 (Minor) added 2026-11-20: Blocker 5, Major 16, Minor 13 (34 rows).
 
 ## G-1 When a snapshot counts as fiscalized
 Severity: Major. Tasks: 5, 10, 17, 29a/b, 4a.
@@ -169,6 +175,30 @@ Checked and found consistent: `Message.items` (StockApp.tsx:42), the audit seal 
 Severity: Major. Tasks: 27 (hub), 38 (client). Found after the sweep (2026-11-19).
 The staff Print to picker (05 §8 Print status, B18, `RetargetBillPrint` §6.23) has to list active printers, but no staff-session read gives that list: 03c's `GET /admin/queries/print-config` and `GET /admin/queries/print-queue` are admin only, and 05 §6.1 `prints[]` carries only `printer_name`. Fix (owner ruling R-27): one staff read in 05, `GET /queries/bill-printers` (05 v1.0.5 §6.23a): `take-order` (any grant; same as `RetargetBillPrint`, R-27 amended), staff session, the branch's active (not archived) printers `{ printers: [{ printer_id, name }] }` ordered by name, 1 statement, no new error code; test #60b. Built with task 27; task 38's picker uses it.
 
+## G-29 Bill-view fields the design brief needs (Q-4, Q-5, Q-18)
+Severity: Major. Tasks: 10 (hub), 35, 36 (client). Found by the 05 design brief (`docs/design/inventory/05-billing-design-brief.md` §7, PR #316).
+(Q-4) 05 §8 shows a "new" mark on lines that joined the open remainder after a split closed, but §6.1 `lines[]` has no flag for it. (Q-5) §6.1 `blocks` "lists every §3.3 rule that would refuse a close now", but only `void_pending`, `weight_pending`, `tax_unresolved` (§9) and `shares_sum` were named, and the `ids` field did not fit rules 4, 6, 8. (Q-18) The "Reopened" chip has no field; `bills.reopen_count` exists (§5, §3.10) but §6.1 does not return it. Fix (owner ruling R-29): 05 v1.0.6 §6.1 — `lines[].added_after_close` (true when the bill has a closed split and the line is not in `bill_discount_lines`, the lines on the bill at the first close of the cycle), `blocks: [{ reason, split_no, details }]` with one pinned reason per §3.3 rule (`bill_not_open`, `void_pending`, `weight_pending`, `tax_unresolved`, `discount_pending`, `buyer_id_required`, `balance_due`, `shares_sum`; rules 5, 7, 9 never block) and `details` = the §9 error's, `reopen_count`. Statements unchanged (≤ 9). Tests #4b, #4c, #4d.
+
+## G-30 Table-tile marks (reopened, check bill printed)
+Severity: Minor. Tasks: the 02a table-map query (`apps/hub/src/tables/queries.ts`, `MapTile`) and the 02a client map. Found by the 05 design brief (§5 05-X01, §7 Q-11).
+The tile has no "reopened" or "check bill printed" mark; both facts are 05's (`bills.reopen_count`, `bills.check_printed_at`), and 02a must not read 05's tables. Owner ruling R-30 adds both marks. The fold seam (02a's `tables` projection folding 05 events, as `BillClosed` / `BillClosedEmpty` under row T-3) was a STOP: it needed new `seatings` columns (a hub migration number; 0021–0023 are taken) and `seating_id` on `CheckBillPrinted` / `BillReopened`. **Resolved by R-30 (b)** (hook, the `registerMergeGuard` pattern of row T-1; no migration): 02a v1.1.9 `registerTileMarks(fn)` and `MapTile.reopened` / `check_printed_at` (`table-map` 3 + 1 → 4 + 1 with a reader), ids-only event `TableMarksChanged { seating_id }` for the live refresh (no fold effect); 05 v1.0.6 row T-4 and §6.4a: the reader `billTileMarks` (1 statement over `bills` and 02a `seatings`; task 7), `TableMarksChanged` appended with `CheckBillPrinted` (task 11) and with a dine-in `BillReopened` that writes no `SeatingReopened` (task 19; a `SeatingReopened` is already a map frame, so no second event), registration in task 33. Code in plan row P0.11d. Tests 05 #6b, 02a #65, #66.
+
+## G-31 `fiscal_category` has no home
+Severity: Major. Task: P0.9b. Found while writing 05 v1.0.6.
+05 rows A-1 (1) / A-2 and 01a §4.3, §5.2b, §6.25 name the tax class's `fiscal_category` (the snapshot field and the `profile_missing` check), but no cloud column, route field or wire field holds it. Fix (owner ruling R-31): cloud `tax_classes.fiscal_category TEXT NULL` in `0014_billing_settings.sql` (P0.9b, not merged); `POST` / `PATCH /v1/admin/tax-classes` accept it and every tax-class answer and the menu read return it; the snapshot's `tax_classes[]` carries it (optional on the wire, R29); `profile_missing` reads it. 05 v1.0.6 row A-1 (1); 01a v2.7; 01a test #200. Owner ruling R-32: the owner sets it per tax class on the owner **Billing** page (P0.10), not in the menu tax-class form; the snapshot field is `.nullable().optional()` in schema 4 and the cloud always sends it; the builder is 23 fixed statements (was 22), +1 on 01b's sync bound (34 → 35; the bound is 01b's, R32 b, so 01b records it in its next bump).
+
+## G-32 A deal part touched alone hides the deal's money change
+Severity: Major. Tasks: P0.14 (02b / 04 callers), 24 (05's guard). Found during P0.14.
+Removing or voiding a `deal_part` on its own (a part is never comped alone, so comp is out of scope) changes the parent deal line's `billed_minor` (02b §3.4: the deal total minus its parts' money out), but the line guard list held only the part, whose own billed amount is 0; 05's guard could not see a money change on a deal with closed units. Fix (owner ruling R-33): the caller also adds the parent deal's entry (`units_after` unchanged, `base_after_minor` recomputed from its parts, `money_changes: true`); ids may repeat in one list (e.g. `void-preview` judging a deal and its part) and every entry is judged. 05 v1.0.6 row Q-3; 02b v1.0.17 §3.4, §4.2; 02b tests 53, 54.
+
+## G-33 Takeaway addition contact
+Severity: Minor. Task: P0.13. Found during P0.13.
+02b §3.1 (row Q-6) said a takeaway addition "copies the customer fields" from its root, which would write the root's contact into a second `OrderContactSet` (O17 privacy: contact only where needed). Fix (owner ruling R-34): an addition carries only its own payload's customer fields; nothing is copied from the root, the root keeps the contact, and the bill groups by the root's `bill_key`. 05 v1.0.6 row Q-6; 02b v1.0.17 §3.1; 02b test 55.
+
+## G-34 Printer name for the print status
+Severity: Minor. Tasks: P0.17 (03c), 10 (bill view), 38 (client print status). Found 2026-11-20.
+05 §6.1 `prints[]` and the §8 print status show the printer's name, but 03c's `documentJobsStatus` (row P-2) returned only `printer_id`, so the bill view had no source for `printer_name` without an extra read. Fix (owner ruling R-35): `documentJobsStatus` also returns `printer_name`, joined from `printers` in the same statement (still 1). 05 v1.0.6 row P-2; 03c v1.0.13 §3.7, §4.2.
+
 ## Owner rulings on P0.G (2026-11-19, every Rec; board R-6 … R-12)
 
 | Board | Row | Ruling | Lands in |
@@ -187,9 +217,23 @@ Note: R-5 is a board ruling about the integrator rebasing stopped lanes; it is n
 
 ## Owner rulings after P0.G
 
+R-15…R-22: see 05-status.md (not listed on the board at the `module-05` tip; their text landed in the 05 v1.0.2–v1.0.4 and 03c v1.0.12 changelogs).
+
 | Board | Row | Ruling | Lands in |
 |---|---|---|---|
+| R-23 | — (P0.7) | (2026-11-19) The eleven `perm.*` English labels for the bills permissions are the integrator's draft; Urdu goes to 01b `urdu-todo.md`. | P0.7 (client i18n, `apps/client/src/i18n/en.ts`); 01b `urdu-todo.md` |
+| R-24 | — (build process) | (2026-11-19) CI's gate on the PR counts as the full gate; lanes run targeted tests + typecheck + lint and no local full gate. | every lane; plan §1 global rules (process, no spec text) |
+| R-25 | — (P0.4) | (2026-11-19) An H-1 retransmit across routes follows the per-route M47 replay rule as written: admin-first then device → replays; device-first then admin → `400`; nothing ever runs twice. A clarifying sentence goes into the next 00 bump. | P0.4 (tests); next 00 bump (text) |
+| R-26 | — (P0.17, row P-3) | (2026-11-19) QR block: default module size **6 on 80 mm** paper (48 columns) and **4 on 58 mm** (32 columns), by the **printer's** paper width, not `doc.width_cols`; a block's own `size` (3–8) wins; the 400 limit counts characters (code points); `pL pH` = the payload's UTF-8 bytes + 3. Where a bad QR block is refused is not decided. | 03c v1.0.13 §3.6; 05 v1.0.6 row P-3, §12.7 A3; P0.17 |
 | R-27 | G-28 | (2026-11-19 19:40 PKT) Add one staff read to 05, **`GET /queries/bill-printers`**: permission `take-order` (amended 2026-11-19: permission take-order, same as RetargetBillPrint; was `take-payment`), staff session; the branch's active (not archived) printers as `{ printers: [{ printer_id, name }] }`, ordered by name; 1 statement, no N+1; no new error code beyond the foundation's auth / permission errors. Built with task 27 (hub); client task 38 uses it. | 05 v1.0.5 §6.23a (§8, #60b, §11, §12.2); plan tasks 27, 38 |
+| R-28 | — (P0.15) | (2026-11-19) The 05 audit action labels are the implementer's English draft (32 actions), in two new groups "Bills and payments" and "Shifts and cash"; Urdu goes to 04 `urdu-todo.md`; the `walk_out` reason is labelled "Walked out without paying". | P0.15 (client audit labels, i18n); 04 `urdu-todo.md` |
+| R-29 | G-29 | (2026-11-19) Design brief Q-4, Q-5, Q-18: add to the §6.1 bill view a per-line boolean `added_after_close` (defined from the data 05 already keeps, same statements, no N+1), one exact `blocks` `reason` per §3.3 rule 1–9 reusing the existing names, with the `details` each block carries, and `reopen_count` (int ≥ 0). | 05 v1.0.6 §6.1 (§3.3, §3.8 pointers, §8, #4b–#4d, §10 Acceptance, §11 task 10 and client 35 / 36, §12.2); plan tasks 10, 35, 36 |
+| R-30 | G-30 | (2026-11-19) The 02a table-map tile gains a **reopened** mark and a **check bill printed** mark; 02a gets both from 05 without reading 05's tables. The fold option needed a migration number (STOP); the owner then ruled **option (b)**: an ordered hook list `registerTileMarks(fn)` (like `registerMergeGuard`), `fn(db, seating_ids) → Map<seating_id, { reopened, check_printed_at }>`, asked once by `table-map` (3 + 1 → 4 + 1 with a registration), `MapTile` fields `false` / `null` with none; live refresh by an ids-only `TableMarksChanged { seating_id }` (table audiences, not KDS; client map frame list; no 02a row change) that 05 appends with `CheckBillPrinted` and `BillReopened` on a dine-in seating; 05 registers a 1-statement reader of its `bills`. Design decision under R-30 (05 §6.4a): a `BillReopened` whose transaction already appends `SeatingReopened` (a map frame, row T-3) appends no `TableMarksChanged`. | 05 v1.0.6 row T-4, §4.1, §6.3, §6.4a, §6.13, §6.29, §6.30, #6b, §11 tasks 7, 11, 19, 33, §12.2; 02a v1.1.9 (§4.2, §4.3, §5, §6.17, §6.19, §8, #65, #66, §11 step 21, §12.2); plan row P0.11d |
+| R-31 | G-31 | (2026-11-19) Cloud `tax_classes` gains `fiscal_category TEXT NULL` in `0014_billing_settings.sql` (P0.9b, not merged); the tax-class routes accept and return it; the snapshot's `tax_classes[]` carries it; PK-PB's `profile_missing` check reads it. | 05 v1.0.6 row A-1 (1), §11 P0.9; 01a v2.7 (§4.3, §5.2, §5.2b, §6.11, §6.12, §6.25, #200); plan row P0.9b |
+| R-32 | G-31 | (2026-11-19) The owner sets `fiscal_category` per tax class on the owner **Billing** page (plan task P0.10), not in the menu tax-class form. From P0.9b's build: the config builder is **23** fixed statements (was 22) and the sync poll bound 34 → **35**; the snapshot `tax_classes[].fiscal_category` is `.nullable().optional()` within schema 4 (R29 additive) and the cloud always sends it. | 01a v2.7 (§4.3, §6.1, §8.1, changes table); 05 v1.0.6 row A-1 (1); plan rows P0.9b, P0.10 |
+| R-33 | G-32 | (2026-11-19) When a `deal_part` is touched on its own (removed or voided without its deal; a part is never comped alone, 02b §3.4, so R-33 covers remove and void only), the line guard list also gets the parent deal's entry: `units_after` unchanged, `base_after_minor` recomputed from its parts, `money_changes: true`. Ids may repeat in one list (void-preview judging a deal and its part); every entry is judged. | 05 v1.0.6 row Q-3; 02b v1.0.17 §3.4, §4.2, tests 53, 54; plan row P0.14 |
+| R-34 | G-33 | (2026-11-19) A takeaway addition (`adds_to_order_id`) carries only its own payload's customer fields; nothing is copied from the root; the root keeps the contact; the bill groups by the root's `bill_key`. | 05 v1.0.6 row Q-6; 02b v1.0.17 §3.1, test 55; plan row P0.13 |
+| R-35 | G-34 | (2026-11-20) `documentJobsStatus` also returns `printer_name`, joined from `printers`, and stays 1 statement; it gives 05 §6.1 `prints[]` and the §8 print status the printer's name. | 03c v1.0.13 §3.7, §4.2 (row P-2); 05 v1.0.6 row P-2, §6.1; plan row P0.17 |
 
 ## Owner questions (all settled 2026-11-19)
 
