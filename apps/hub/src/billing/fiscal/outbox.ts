@@ -8,8 +8,8 @@ import {
   type FiscalCreditInvoiceFields,
   type FiscalSaleInvoiceFields,
   type FiscalSnapshot,
+  isFiscalized,
 } from '@pos/domain';
-import { NONE_ADAPTER_KEY } from './none.js';
 import type { FiscalAnswer } from './port.js';
 
 export type FiscalRowState = (typeof FISCAL_ROW_STATES)[number];
@@ -34,9 +34,9 @@ export type OutboxInvoice =
 
 /**
  * The outbox row for an invoice event at `ord` (the event's seq, §3.15 send order).
- * - Sale: `not_required` when its snapshot is not fiscalized (`fiscal.required` false: adapter `none`, an
- *   order type with `fiscalize: false`, an invoice issued before `switched_at` — the close decides it,
- *   H8-3) or names adapter `none`; else `pending` under the snapshot's jurisdiction, adapter and pos_id.
+ * - Sale: `not_required` when its snapshot is not fiscalized (`isFiscalized`, §3.1: `fiscal.required` false —
+ *   an order type with `fiscalize: false`, an invoice issued before `switched_at`, the close decides it, H8-3 —
+ *   or adapter `none`); else `pending` under the snapshot's jurisdiction, adapter and pos_id.
  * - Credit: follows its original's row (H6-8): `not_required` ↔ `not_required`, otherwise fiscalized
  *   (`pending`), with the original's jurisdiction, adapter and pos_id, whatever the branch uses now. A credit
  *   of a `rejected` original is queued `pending` and the worker rejects it after its original (§3.15 Order).
@@ -64,7 +64,7 @@ export function outboxRowFor(invoice: OutboxInvoice, ord: number, original?: Out
     };
   }
   if (original !== undefined) throw new Error(`sale ${invoice.invoice_id}: a sale has no original`);
-  const fiscalized = invoice.fiscal.required && invoice.fiscal.adapter_key !== NONE_ADAPTER_KEY;
+  const fiscalized = isFiscalized(invoice.fiscal);
   if (fiscalized && invoice.fiscal.pos_id === null) {
     throw new Error(`sale ${invoice.invoice_id}: a fiscalized invoice needs a pos_id`);
   }

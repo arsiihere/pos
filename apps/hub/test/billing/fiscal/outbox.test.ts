@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { FiscalSnapshot } from '@pos/domain';
+import { buildReceiptDoc, type DocContext, type FiscalSaleInvoiceFields, type FiscalSnapshot } from '@pos/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   answerTransition,
@@ -309,6 +309,65 @@ describe('[05 task 28a] outbox rows (§3.15, B20)', () => {
     });
     // Adapter none is never fiscalized, even if a snapshot claimed `required`.
     expect(outboxRowFor(sale('inv-3', 'PK', { ...PK_SNAPSHOT, required: true }), 13).state).toBe('not_required');
+  });
+
+  it('[05 P0.19a §3.1, R-8] required under a real (test fake) adapter → pending; adapter none → not_required whatever required says', () => {
+    const fake = fakeAdapter().key;
+    const testSnapshot: FiscalSnapshot = { ...PRA_SNAPSHOT, adapter_key: fake };
+    expect(outboxRowFor(sale('inv-t', 'TEST', testSnapshot), 21)).toMatchObject({ state: 'pending', adapter_key: fake, pos_id: 'POS-1' });
+    expect(outboxRowFor(sale('inv-t2', 'TEST', { ...testSnapshot, required: false }), 22).state).toBe('not_required');
+    expect(outboxRowFor(sale('inv-n', 'PK', { ...PK_SNAPSHOT, required: true }), 23).state).toBe('not_required');
+  });
+
+  it('[05 P0.19a G-1] outboxRowFor is pending iff the receipt shows the fiscal block (same snapshot, both builders agree)', () => {
+    const fake = fakeAdapter().key;
+    const ctx: DocContext = {
+      width_cols: 48,
+      currency_exponent: 2,
+      utc_offset_ms: 0,
+      branch_name: 'B',
+      template: {
+        header_lines: [],
+        footer_lines: [],
+        show: { tax_reg_no: false, address: false, phone: false, cashier: false, order_no: false, bill_no: false },
+        address: null,
+        phone: null,
+      },
+    };
+    const snapshots: FiscalSnapshot[] = [
+      { ...PRA_SNAPSHOT, adapter_key: fake, required: true },
+      { ...PRA_SNAPSHOT, adapter_key: fake, required: false },
+      { ...PK_SNAPSHOT, required: true },
+      { ...PK_SNAPSHOT, required: false },
+    ];
+    for (const [i, fiscal] of snapshots.entries()) {
+      const invoice: FiscalSaleInvoiceFields = {
+        series: 'sale',
+        invoice_id: `inv-${i}`,
+        invoice_ref: `S${i}`,
+        issued_at: T,
+        order_type: 'dine_in',
+        jurisdiction_id: 'J',
+        currency_code: 'PKR',
+        prices_include_tax: false,
+        lines: [],
+        service_charge: null,
+        subtotal_minor: 0,
+        discount_minor: 0,
+        taxes: [],
+        rounding_minor: 0,
+        total_minor: 0,
+        payment_ids: [],
+        buyer_id_refused: false,
+        fiscal,
+      };
+      const doc = buildReceiptDoc(
+        { invoice, payments: [], change_minor: 0, cashier_name: null, order_label: null, bill_label: null, fiscal_number: null, is_reprint: false },
+        ctx,
+      );
+      const block = doc.blocks.some((b) => 'text' in b && b.text.includes('FISCAL NUMBER PENDING'));
+      expect(block, `${fiscal.adapter_key} × required ${String(fiscal.required)}`).toBe(outboxRowFor(invoice, i + 1).state === 'pending');
+    }
   });
 
   it('[05 #69 outbox-row half] a non-fiscalized order type (delivery, Q17) → not_required under a fiscal adapter', () => {
