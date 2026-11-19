@@ -1,11 +1,9 @@
-import type { Doc } from '@pos/domain';
+import { renderText, type Doc } from '@pos/domain';
 import type { EngineState } from '@pos/engine';
 import type { BranchConfig, PosEvent } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
-import { renderText as renderTextContract } from '../../src/print/contracts';
 import { encodeDoc } from '../../src/print/escpos';
 import { renderJob, type RenderCtx, type RenderJob } from '../../src/print/render/jobs';
-import { renderText } from '../../src/print/render/text';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -495,14 +493,14 @@ describe('[03c §3.5, §3.6] render at send: slips, REPRINT, empty, stale, fallb
     expect(counter.count).toBe(3);
   });
 
-  it('[03c §4.2] renderText through the contract (provided by lane C2): align, size, rule, feed; cut / drawer print nothing', async () => {
+  it('[03c §4.2, 05 row P-4] renderText from @pos/domain (moved from the hub, output unchanged): align, size, rule, feed; cut / drawer print nothing', async () => {
     hub = await createTestHub({ provisioned: true });
     const doc: Doc = {
       blocks: [{ text: 'BILL', size: 2, align: 'center' }, { text: 'Total 1,200', align: 'right' }, { rule: true }, { feed: 1 }, { text: 'x' }, { cut: true }, { drawer: true }],
     };
-    expect(renderTextContract(doc, 32).split('\n')).toEqual([centre2('BILL', 32), ' '.repeat(21) + 'Total 1,200', '-'.repeat(32), '', 'x']);
-    expect(renderTextContract({ ...doc, width_cols: 48 }, 32).split('\n')[2]).toBe('-'.repeat(48));
-    expect(renderTextContract({ blocks: [{ text: 'a\nb' }] }, 32), 'a newline breaks the line, as in encodeDoc').toBe('a\nb');
+    expect(renderText(doc, 32).split('\n')).toEqual([centre2('BILL', 32), ' '.repeat(21) + 'Total 1,200', '-'.repeat(32), '', 'x']);
+    expect(renderText({ ...doc, width_cols: 48 }, 32).split('\n')[2]).toBe('-'.repeat(48));
+    expect(renderText({ blocks: [{ text: 'a\nb' }] }, 32), 'a newline breaks the line, as in encodeDoc').toBe('a\nb');
   });
 });
 

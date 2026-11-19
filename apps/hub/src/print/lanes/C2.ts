@@ -1,8 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
-import { providePrint } from '../contracts.js';
-import { renderText } from '../render/text.js';
 
 // 03c lane C2 (c11, c10): this lane's wiring lines go here and only here (phase 0 P0.11). Only lane C2 edits this file.
 // register(): commands, queries, routes, catch-ups, providePrint(...) — called once per server by registerPrint.
@@ -11,7 +9,7 @@ import { renderText } from '../render/text.js';
 export function register(app: FastifyInstance, deps: HubDeps): void {
   void app;
   void deps;
-  providePrint({ renderText }); // c10, §3.6 / §4.2
+  // c10's renderText moved to @pos/domain (03c v1.0.11 §3.6, §4.2; 05 row P-4): nothing to provide.
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
