@@ -29,6 +29,8 @@ describe('tick loop (01d §3.5, §4.2 registerTick)', () => {
     for (const name of ['pass_closures', 'ready_retarget', 'served_estimate']) unregisterTick(name); // 03b §6.18–6.19 (b16), 02b §6.11 (0e): lane B5 adds these to every test hub too
     // 03b §6.20 (b20): registerKds adds kds_presence to every test hub too; this file counts the ticks
     unregisterTick('kds_presence');
+    // 05 §3.15 (task 31): registerBilling adds the fiscal_outbox_stuck tick (1 indexed SELECT per pass) to every test hub too; this file counts the ticks
+    unregisterTick('fiscal_outbox_stuck');
     registerFakes();
     // 0006 seeds the no_approver flag dirty (cleared by the tick's flag pass, task 31): start clean
     hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
