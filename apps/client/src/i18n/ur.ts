@@ -1478,4 +1478,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // ---- 05 client (task 37): frame BillUrdu ----
   'billing.discount.field': 'رعایت',
   'billing.sheet.needs': 'منظوری چاہیے',
+  // ---- 05 client (task 43b): frame DayCloseUrdu ----
+  'errors.DAY_CLOSE_BLOCKED.shift_open': '{count} شفٹیں ابھی کھلی ہیں — پہلے انہیں بند کریں',
 };
