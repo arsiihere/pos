@@ -14,3 +14,6 @@
 :where(.b5-wr.b5-wr--sk) .sk:first-child { height: 54px; border-radius: 14px; }
 /* a row is a button when it opens the bill: no kit button chrome */
 :where(button.b5-wr) { width: 100%; border: 0; background: none; font: inherit; text-align: start; cursor: pointer; }
+
+/* task 38 (frame PrintStatus): the print rows' stack (style="gap:10px") */
+:where(.b5-prints) { gap: 10px; }
