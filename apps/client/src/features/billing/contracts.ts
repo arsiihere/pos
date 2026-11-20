@@ -173,3 +173,86 @@ export interface SplitDues {
 export type CloseSplitResult =
   | { invoice_id: string; invoice_ref: string; total_minor: number; change_minor: number; bill_state: 'open' | 'partly_paid' | 'closed'; receipt: { job_id: string | null; printer_name: string | null }; fiscal_state: 'pending' | 'not_required' }
   | { bill_state: 'closed'; empty: true };
+
+// ---- 05-2 shifts (task 39): §6.15–§6.19 as the hub returns them (apps/hub/src/billing/queries/shift.ts,
+// commands/open-shift.ts, commands/shift-close.ts). Blind rule (B23): before the count a cash row's sums are null and
+// the view's expected / variance are null; only CountShift and HandoverCount answers reveal expected.
+
+export interface ShiftTaking {
+  mode_id: string;
+  mode_name: string;
+  payment_class: 'cash' | 'digital';
+  /** null on a cash row before the count (B23) */
+  in_minor: number | null;
+  out_minor: number | null;
+  change_minor: number | null;
+  /** R-51: live payments (in and out) of this shift × mode, shown before the count too */
+  payments_count: number;
+  by: Array<{ taken_by_name: string | null; in_minor: number | null; payments_count: number }>;
+}
+
+export interface ShiftPetty {
+  entry_id: string;
+  kind: 'advance' | 'out' | 'in';
+  amount_minor: number;
+  category_name: string | null;
+  paid_to: string | null;
+  advance_staff_name: string | null;
+  settled: boolean;
+}
+
+export interface ShiftHandover {
+  at: number;
+  counted_minor: number;
+  expected_minor: number;
+  variance_minor: number;
+  by_staff_name: string | null;
+}
+
+/** §6.16 `GET /queries/shift?shift_id?` (absent → the caller's open shift; none → 404 SHIFT_NOT_FOUND). */
+export interface ShiftView {
+  shift_id: string;
+  staff_name: string | null;
+  state: 'open' | 'closed';
+  is_drawer: boolean;
+  opened_at: number;
+  float_minor: number;
+  takings: ShiftTaking[];
+  petty: ShiftPetty[];
+  open_advances_minor: number;
+  handovers: ShiftHandover[];
+  counted_minor: number | null;
+  expected_minor: number | null;
+  variance_minor: number | null;
+}
+
+/** §6.15 */
+export interface OpenShiftResult {
+  shift_id: string;
+  opened_at: number;
+}
+
+/** §6.17 (counts and closes; the first reveal of expected; R-78 `closed_requests`) */
+export interface CountShiftResult {
+  shift_id: string;
+  closed: true;
+  expected_minor: number;
+  variance_minor: number;
+  sign_off: { alert_id: string } | null;
+  closed_requests: string[];
+}
+
+/** §6.18 (R-78: `closed_requests`, `open_advances`; never blocking, no `pending`) */
+export interface CloseShiftResult {
+  closed: { shift_id: string };
+  closed_requests: string[];
+  open_advances: Array<{ entry_id: string; advance_staff_id: string; amount_minor: number }>;
+}
+
+/** §6.19 (the shift stays open; this count's expected only) */
+export interface HandoverCountResult {
+  shift_id: string;
+  counted_minor: number;
+  expected_minor: number;
+  variance_minor: number;
+}

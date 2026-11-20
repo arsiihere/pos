@@ -38,6 +38,8 @@ export interface TopBarProps {
   audit?: boolean;
   /** 05 §8 Cashier screen (task 34, R5): take-payment allowed → "Bills" (#/bills) */
   bills?: boolean;
+  /** 05 §8 Shift (task 39, R5): manage-own-shift allowed → "My shift" (#/shift) */
+  shift?: boolean;
   /** phone top bar */
   title: string;
   phoneSub: ReactNode;
@@ -99,6 +101,7 @@ export function TopBar(p: TopBarProps) {
               {p.testAlert && <IconButton icon="pulse" label={t('alerts.nav.test')} count={null} onClick={() => p.onNavigate('/test-alert')} />}
               {p.requests !== null && <IconButton icon="shield" label={t('alerts.nav.requests')} count={p.requests} onClick={() => p.onNavigate('/requests')} />}
               {p.bills === true && <IconButton icon="receipt" label={t('billing.nav')} count={null} onClick={() => p.onNavigate('/bills')} />}
+              {p.shift === true && <IconButton icon="cash" label={t('billing.shift.nav')} count={null} onClick={() => p.onNavigate('/shift')} />}
               <IconButton icon="tray" label={t('alerts.nav.inbox')} count={p.inbox} onClick={() => p.onNavigate('/inbox')} />
               {p.audit === true && (
                 <button type="button" className="btn btn--icon" onClick={() => p.onNavigate('/audit')}>

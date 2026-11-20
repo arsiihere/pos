@@ -23,6 +23,8 @@ vi.mock('./BillScreen', async (orig) => ({
   BillScreen: ({ billRef }: { billRef: unknown }) => <div data-probe="bill" data-ref={JSON.stringify(billRef)} />,
 }));
 
+vi.mock('./ShiftScreen', () => ({ ShiftScreen: () => <div data-probe="shift" /> }));
+
 class FakeSocket implements SocketLike {
   readyState = 0;
   onopen: ((ev: unknown) => void) | null = null;
@@ -132,5 +134,23 @@ describe('[05 §8 Cashier screen] Bills in the staff nav (R5)', () => {
     expect(page?.getAttribute('data-probe')).toBe('bill');
     expect(page?.getAttribute('data-ref')).toBe(JSON.stringify({ seating_id: 'S 7' }));
     expect(await at('#/bill?bill_id=B1&order_id=O1')).toBeNull();
+  });
+});
+
+describe('[05 §8 Shift; task 39] My shift in the staff nav (R5)', () => {
+  it('with manage-own-shift: the My shift button opens #/shift, which mounts the shift screen', async () => {
+    PERMS = { 'manage-own-shift': { grant: 'allowed', scope: 'branch' } };
+    await signedIn();
+    m.click(m.button('My shift'));
+    await flush(6);
+    expect(window.location.hash).toBe('#/shift');
+    expect(m.container.querySelector('[data-probe]')?.getAttribute('data-probe')).toBe('shift');
+  });
+
+  it('without manage-own-shift: no My shift button, and #/shift mounts nothing', async () => {
+    PERMS = { 'take-payment': { grant: 'allowed', scope: 'branch' } };
+    await signedIn();
+    expect(m.buttons().some((b) => b.textContent === 'My shift')).toBe(false);
+    expect(await at('#/shift')).toBeNull();
   });
 });
