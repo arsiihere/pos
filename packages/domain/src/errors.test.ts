@@ -278,4 +278,9 @@ describe('[05 §9] billing codes', () => {
     }
   });
 
+  it('[05 v1.0.12 §9, R-58] SERVICE_CHARGE_NOT_APPLIED is 409 (the remove_service_charge apply re-check)', () => {
+    expect(ErrorCatalogue).toHaveProperty('SERVICE_CHARGE_NOT_APPLIED');
+    expect(ErrorCatalogue.SERVICE_CHARGE_NOT_APPLIED.status).toBe(409);
+  });
+
 });

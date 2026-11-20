@@ -8,6 +8,8 @@ import { registerEventAudience } from '../ws/audience.js';
 import type { SocketCtx } from '../ws/catch-up.js';
 import { registerOpenShift } from './commands/open-shift.js';
 import { registerSetSplits } from './commands/set-splits.js';
+// task 14 (§6.8, §3.14): RemoveServiceCharge / ApplyServiceCharge; the module load registers the remove_service_charge apply
+import { registerServiceCharge } from './commands/service-charge.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
 import { billingProjection } from './projections/billing.js';
@@ -35,6 +37,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerShiftQuery(app);
   // task 12 (§6.5): SetSplits
   registerSetSplits(app);
+  // task 14 (§6.8)
+  registerServiceCharge(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
