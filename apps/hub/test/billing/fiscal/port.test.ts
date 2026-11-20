@@ -32,6 +32,13 @@ describe('[05 task 28a] fiscal port, registry, none adapter (§3.15, B20)', () =
     expect(fiscalAdapterFor('FAKE')).toBe(first);
   });
 
+  it('[05 §6.30] the same adapter object again is a no-op (boot and a test may both register it)', () => {
+    const first = fakeAdapter({ key: 'FAKE' });
+    registerFiscalAdapter(first);
+    expect(() => registerFiscalAdapter(first)).not.toThrow();
+    expect(fiscalAdapterFor('FAKE')).toBe(first);
+  });
+
   it('[05 #74 H10-5] a settingsSchema with a field marked secret fails registration', () => {
     const top = z.object({ seller_code: z.string(), api_key: z.string().meta({ secret: true }) }).strict();
     expect(() => registerFiscalAdapter(fakeAdapter({ key: 'S1', settingsSchema: top }))).toThrow(

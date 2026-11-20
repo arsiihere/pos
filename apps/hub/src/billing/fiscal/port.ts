@@ -50,13 +50,16 @@ export type FiscalCreditSubmission = Parameters<FiscalAdapter['submitCredit']>[0
 const adapters = new Map<string, FiscalAdapter>();
 
 /**
- * Registers an adapter by key. Throws on a duplicate or empty key, on empty / repeated credential names,
+ * Registers an adapter by key. The same adapter object again is ignored (registration may run once per server, as the
+ * kind seam); a different adapter under a registered key throws. Throws on an empty key, on empty / repeated credential names,
  * and on a settingsSchema with a secret field (H10-5: marked `.meta({ secret })`, or named like one of the
  * adapter's own credentialNames).
  */
 export function registerFiscalAdapter(adapter: FiscalAdapter): void {
   if (adapter.key === '') throw new Error('fiscal adapter key is empty');
-  if (adapters.has(adapter.key)) throw new Error(`fiscal adapter already registered: ${adapter.key}`);
+  const had = adapters.get(adapter.key);
+  if (had === adapter) return;
+  if (had !== undefined) throw new Error(`fiscal adapter already registered: ${adapter.key}`);
   const names = adapter.credentialNames;
   if (names.some((n) => n === '') || new Set(names).size !== names.length) {
     throw new Error(`fiscal adapter ${adapter.key}: credentialNames must be distinct and non-empty`);
