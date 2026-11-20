@@ -347,7 +347,7 @@ describe('[05 spike-0a] (a) jurisdiction PK, adapter none', () => {
   it('[05 spike-0a] (a) buildReceiptDoc shows the rounding line outside the tax row and NO fiscal block', () => {
     const payments: DocPayment[] = [{ mode_name: 'Cash', payment_class: 'cash', direction: 'in', amount_minor: 662_400 }];
     const doc = buildReceiptDoc(
-      { invoice, payments, change_minor: split.change_minor, cashier_name: 'Ali', order_label: null, bill_label: 'T7', fiscal_number: null, is_reprint: false },
+      { invoice, payments, change_minor: split.change_minor, cashier_name: 'Ali', order_label: null, bill_label: 'T7', fiscal: { state: 'not_required' }, buyer: null, is_reprint: false },
       CTX,
     );
     const text = docText(doc);
@@ -414,7 +414,7 @@ describe('[05 spike-0a] (b) test jurisdiction with the fake adapter (strict_per_
   const docPayments: DocPayment[] = [{ mode_name: 'Card', payment_class: 'digital', direction: 'in', amount_minor: 599_600 }];
   const receipt = (fiscal_number: string | null, is_reprint: boolean): Doc =>
     buildReceiptDoc(
-      { invoice, payments: docPayments, change_minor: split.change_minor, cashier_name: null, order_label: null, bill_label: 'T7', fiscal_number, is_reprint },
+      { invoice, payments: docPayments, change_minor: split.change_minor, cashier_name: null, order_label: null, bill_label: 'T7', fiscal: fiscal_number === null ? { state: 'pending' } : { state: 'acked', fiscal_number, qr_payload: null }, buyer: null, is_reprint },
       CTX,
     );
   /** The money lines of the all-card receipt (§6.31 step 2), as docs.ts prints them. */

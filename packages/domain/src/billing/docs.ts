@@ -12,8 +12,11 @@ import type { PAYMENT_CLASSES } from './types.js';
 // They lay out the numbers they are given: no tax, rounding, due or total is computed here (§3.5 is compute.ts's).
 // The only arithmetic is summing the tax rows that share one (label, rate, class) into the one printed row (#34).
 // Money is formatted with the currency exponent (row F-6), never an assumed 100. Browser-safe, 0 statements.
-// Not in 4a (task 4b, rows P-3 / P-5 change DocBlock): the QR block and the buyer-ID filler block. A receipt
-// therefore carries no buyer block yet; a credit note prints only the last 4 of a buyer ID (Q-3).
+// Task 4b (rows P-3 / P-5; R-11 / G-2, G-24, G-25): the receipt / reprint / credit note take the invoice's fiscal state
+// (PENDING / the number + QR / NOT ISSUED, B21); the receipt carries the buyer block as the fill block
+// `{ fill: 'buyer_id', ref: invoice_id, last4 }`, filled at send by 03c's worker through 05's filler (B19: the full ID
+// never enters a Doc, so never `print_jobs.payload`); a credit note prints only the last 4 (Q-3); inclusive prices
+// print the tax inside the menu prices as a memo block, so the printed lines add up.
 
 type PaymentClass = (typeof PAYMENT_CLASSES)[number];
 
@@ -93,6 +96,33 @@ export interface DocPayment {
   amount_minor: number;
 }
 
+/**
+ * R-11 / G-2 (§3.16, B21, §6.22): the invoice's fiscal state as the hub holds it — the outbox row's state, and once
+ * `FiscalNumberAssigned` exists the number and the answer's QR payload. `not_required` exactly when the invoice is
+ * not fiscalized ({@link isFiscalized}); a state that disagrees with the snapshot is a caller bug (RangeError).
+ */
+export type DocFiscalState =
+  | { state: 'not_required' }
+  | { state: 'pending' }
+  | { state: 'rejected' }
+  | { state: 'acked'; fiscal_number: string; qr_payload: string | null };
+
+/** B19, Q-3: what a Doc may know of a buyer tax ID — its type label and last 4; never the value, never the name. */
+export interface DocBuyerMask {
+  type_label: string;
+  last4: string;
+}
+
+/**
+ * Row P-5, §6.12 step 7: the fill block kind 05 registers with 03c's `registerDocumentFiller`. Its filler returns the
+ * buyer block text (the buyer name and the full tax ID with its type label) from `invoice_buyers` by `ref` (the
+ * invoice id); with no row, the worker prints the block's `last4` (the masked line).
+ */
+export const BUYER_ID_FILL = 'buyer_id';
+
+/** 03c §3.6 (row P-3, R-26): a QR payload is 1–400 characters, counted as Unicode code points. */
+const QR_MAX_CODE_POINTS = 400;
+
 // ------------------------------------------------------------------------------------------------------ helpers
 
 /** `left` and `right` on one line of `cols`, else `left` then `right` right-aligned (03c's ticket layout). */
@@ -167,24 +197,92 @@ interface Totals {
   service_charge_minor: number;
   taxes: readonly DocTaxRow[];
   rounding_minor: number;
+  /** G-24: inclusive prices — the charge's own taxes (§3.5 (6)(a), its `service_charge.taxes`); else null. */
+  inclusive: null | { service_charge_taxes: readonly DocTaxRow[] };
 }
 
-/** Subtotal, discount, service charge, tax rows, then the rounding line outside every tax row (§25). */
+const rowKey = (x: Pick<DocTaxRow, 'label' | 'rate_bp' | 'payment_class'>) => JSON.stringify([x.label, x.rate_bp, x.payment_class]);
+const rowLabel = (x: DocTaxRow) => `${x.label} ${formatRateBp(x.rate_bp)} ${CLASS_LABEL[x.payment_class]}`;
+
+/**
+ * G-24, §3.5 (6): with inclusive prices a tax row is the lines' included part plus the charge's added part. The
+ * printed rows minus the charge's part = the tax inside the menu prices (the memo); zero rows are left out.
+ */
+function includedRows(t: Totals): DocTaxRow[] {
+  if (t.inclusive === null) return [];
+  const sc = new Map(taxRows(t.inclusive.service_charge_taxes).map((x) => [rowKey(x), x.tax_minor]));
+  const memo = t.taxes.map((x) => ({ ...x, tax_minor: x.tax_minor - (sc.get(rowKey(x)) ?? 0) }));
+  for (const key of sc.keys()) {
+    if (!t.taxes.some((x) => rowKey(x) === key)) throw new RangeError('a service-charge tax has no invoice tax row');
+  }
+  if (memo.some((x) => x.tax_minor < 0)) throw new RangeError('a service-charge tax exceeds its invoice tax row');
+  return memo.filter((x) => x.tax_minor !== 0);
+}
+
+/**
+ * Subtotal, discount, service charge, tax rows, then the rounding line outside every tax row (§25). Inclusive
+ * prices (G-24): only the charge's taxes are added here (the charge is never tax-inclusive, §3.5 (4)); the rest is
+ * inside the menu prices and prints after the total as a memo ({@link memoBlocks}), so the lines add up.
+ */
 function totalBlocks(t: Totals, { cols, m }: Money): DocBlock[] {
+  const added = t.inclusive === null ? t.taxes : taxRows(t.inclusive.service_charge_taxes);
+  const suffix = t.inclusive === null ? '' : ' on service charge';
   return [
     ...spread('Subtotal', m(t.subtotal_minor), cols),
     ...(t.discount_minor !== 0 ? spread('Discount', m(-t.discount_minor), cols) : []),
     ...(t.service_charge_minor !== 0 ? spread('Service charge', m(t.service_charge_minor), cols) : []),
-    ...t.taxes.flatMap((x) => spread(`${x.label} ${formatRateBp(x.rate_bp)} ${CLASS_LABEL[x.payment_class]}`, m(x.tax_minor), cols)),
+    ...added.flatMap((x) => spread(rowLabel(x) + suffix, m(x.tax_minor), cols)),
     ...(t.rounding_minor !== 0 ? spread('Rounding adjustment', m(t.rounding_minor), cols) : []),
   ];
 }
 
-/** B21: the fiscal block of a fiscalized invoice; nothing when the invoice is not fiscalized. */
-function fiscalBlocks(invoice: FiscalInvoiceFields, fiscal_number: string | null, cols: number): DocBlock[] {
-  if (!isFiscalized(invoice.fiscal)) return [];
-  if (fiscal_number === null) return [{ rule: true }, center('FISCAL NUMBER PENDING', true)];
-  return [{ rule: true }, ...spread(invoice.fiscal.receipt.fiscal_number_label ?? 'Fiscal no.', fiscal_number, cols, true)];
+/** G-24: the memo of the tax inside inclusive menu prices (not added again); nothing with exclusive prices. */
+function memoBlocks(t: Totals, { cols, m }: Money): DocBlock[] {
+  const rows = includedRows(t);
+  if (rows.length === 0) return [];
+  return [{ text: 'Tax included in prices' }, ...rows.flatMap((x) => spread(`  ${rowLabel(x)}`, m(x.tax_minor), cols))];
+}
+
+/**
+ * B21, §6.22, row P-3: the QR payload of an answered invoice — none unless the snapshot's receipt fields ask for one
+ * (`show_qr`); the answer's own payload, else the snapshot's template with `{fiscal_number}` replaced (Appendix P).
+ * A payload outside 03c's 1–400 code points is left out, so the receipt still prints with its number line.
+ */
+function qrPayload(receipt: FiscalInvoiceFields['fiscal']['receipt'], fiscal_number: string, qr_payload: string | null): string | null {
+  if (!receipt.show_qr) return null;
+  const payload = qr_payload ?? (receipt.qr_url_template === null ? null : receipt.qr_url_template.split('{fiscal_number}').join(fiscal_number));
+  if (payload === null) return null;
+  const chars = [...payload].length;
+  return chars >= 1 && chars <= QR_MAX_CODE_POINTS ? payload : null;
+}
+
+/**
+ * B21, R-11 / G-2: the fiscal block of a fiscalized invoice — "FISCAL NUMBER PENDING" before the answer, the number
+ * with the snapshot's label (+ the QR block, its module size left to the printer, R-26) once acked, "FISCAL NUMBER
+ * NOT ISSUED" when rejected; nothing when the invoice is not fiscalized.
+ */
+function fiscalBlocks(invoice: FiscalInvoiceFields, fiscal: DocFiscalState, cols: number): DocBlock[] {
+  const fiscalized = isFiscalized(invoice.fiscal);
+  if (fiscalized === (fiscal.state === 'not_required')) {
+    throw new RangeError(`fiscal state ${fiscal.state} does not match the invoice snapshot (fiscalized: ${String(fiscalized)})`);
+  }
+  switch (fiscal.state) {
+    case 'not_required':
+      return [];
+    case 'pending':
+      return [{ rule: true }, center('FISCAL NUMBER PENDING', true)];
+    case 'rejected':
+      return [{ rule: true }, center('FISCAL NUMBER NOT ISSUED', true)];
+    case 'acked': {
+      const { receipt } = invoice.fiscal;
+      const qr = qrPayload(receipt, fiscal.fiscal_number, fiscal.qr_payload);
+      return [
+        { rule: true },
+        ...spread(receipt.fiscal_number_label ?? 'Fiscal no.', fiscal.fiscal_number, cols, true),
+        ...(qr === null ? [] : [{ qr }]),
+      ];
+    }
+  }
 }
 
 const reprint = (is_reprint: boolean): DocBlock[] => (is_reprint ? [center('** REPRINT **', true)] : []);
@@ -210,7 +308,12 @@ export interface CheckBillDocInput {
   taxes: readonly DocTaxRow[];
   rounding_minor: number;
   cash_total_minor: number;
+  /** G-25: `computeBill`'s `totals_default_digital.total_minor` (P0.19d). */
   digital_total_minor: number | null;
+  /** The bill's frozen price mode (G-24). */
+  prices_include_tax: boolean;
+  /** G-24, inclusive prices: the charge's own tax rows at the cash class (`spreadLineTaxes`, P0.19c); else unused. */
+  service_charge_taxes: readonly DocTaxRow[];
 }
 
 export function buildCheckBillDoc(input: CheckBillDocInput, ctx: DocContext): Doc {
@@ -227,6 +330,11 @@ export function buildCheckBillDoc(input: CheckBillDocInput, ctx: DocContext): Do
     date,
     cashier: '',
   };
+  const totals: Totals = {
+    ...input,
+    taxes: taxRows(input.taxes),
+    inclusive: input.prices_include_tax ? { service_charge_taxes: input.service_charge_taxes } : null,
+  };
   const blocks: DocBlock[] = [
     ...ownerLines(ctx.template.header_lines, vars),
     center('PROVISIONAL - NOT A TAX INVOICE', true),
@@ -234,11 +342,12 @@ export function buildCheckBillDoc(input: CheckBillDocInput, ctx: DocContext): Do
     { rule: true },
     ...lineBlocks(input.lines, money),
     { rule: true },
-    ...totalBlocks({ ...input, taxes: taxRows(input.taxes) }, money),
+    ...totalBlocks(totals, money),
     ...spread('Total if paid in cash', money.m(input.cash_total_minor), cols, true),
     ...(input.digital_total_minor !== null && input.digital_total_minor !== input.cash_total_minor
       ? spread('Total if paid by card', money.m(input.digital_total_minor), cols)
       : []),
+    ...memoBlocks(totals, money),
     { rule: true },
     ...ownerLines(ctx.template.footer_lines, vars),
     ...END,
@@ -259,8 +368,13 @@ export interface ReceiptDocInput {
   order_label: string | null;
   /** The bill / split identifier (show toggle `bill_no`). */
   bill_label: string | null;
-  /** From `FiscalNumberAssigned`, once answered. */
-  fiscal_number: string | null;
+  /** R-11: the outbox state; the number and QR payload from `FiscalNumberAssigned` once acked. */
+  fiscal: DocFiscalState;
+  /**
+   * B19, row P-5: the invoice's buyer (`invoice_buyers`) as a mask only; printed as the fill block when the snapshot's
+   * `buyer_id_on_receipt` is true. Null without a buyer (or a waiver).
+   */
+  buyer: DocBuyerMask | null;
   is_reprint: boolean;
 }
 
@@ -296,6 +410,19 @@ function headerBlocks(
   return { blocks, vars };
 }
 
+/** G-24: the charge's tax rows (`service_charge.taxes`, from `spreadLineTaxes` at close), labelled from the invoice row. */
+function serviceChargeTaxRows(invoice: FiscalInvoiceFields): DocTaxRow[] {
+  const sc = invoice.service_charge;
+  if (sc === null) return [];
+  return sc.taxes.map((x) => {
+    const row = invoice.taxes.find(
+      (t) => t.tax_profile_id === sc.tax_profile_id && t.tax_code === x.tax_code && t.payment_class === x.payment_class && t.rate_bp === x.rate_bp,
+    );
+    if (row === undefined) throw new RangeError(`the service charge's ${x.tax_code} tax has no invoice tax row`);
+    return { label: row.label, rate_bp: x.rate_bp, payment_class: x.payment_class, tax_minor: x.tax_minor };
+  });
+}
+
 function invoiceTotals(invoice: FiscalInvoiceFields): Totals {
   return {
     subtotal_minor: invoice.subtotal_minor,
@@ -303,7 +430,16 @@ function invoiceTotals(invoice: FiscalInvoiceFields): Totals {
     service_charge_minor: invoice.service_charge?.amount_minor ?? 0,
     taxes: taxRows(invoice.taxes),
     rounding_minor: invoice.rounding_minor,
+    inclusive: invoice.prices_include_tax ? { service_charge_taxes: serviceChargeTaxRows(invoice) } : null,
   };
+}
+
+/** B19, row P-5, §6.12 step 7: the buyer block as the fill block — the mask only (last 4), never the full ID. */
+function buyerBlocks(invoice: FiscalSaleInvoiceFields, buyer: DocBuyerMask | null): DocBlock[] {
+  if (buyer === null || !invoice.fiscal.receipt.buyer_id_on_receipt) return [];
+  // The fill block's `last4` holds the whole masked line with its type label ("CNIC: ****1234"): the worker prints it
+  // as is when no filler answers (03c §3.7), and only the last 4 of the value ever enter it.
+  return [{ fill: BUYER_ID_FILL, ref: invoice.invoice_id, last4: `${buyer.type_label}: ****${buyer.last4.slice(-4)}` }];
 }
 
 const invoiceLines = (invoice: FiscalInvoiceFields): DocLine[] =>
@@ -315,15 +451,18 @@ export function buildReceiptDoc(input: ReceiptDocInput, ctx: DocContext): Doc {
   const money: Money = { cols, m: (v) => formatMinor(v, ctx.currency_exponent) };
   const head = headerBlocks(invoice, ctx, input);
   const cashMoved = input.payments.some((p) => p.payment_class === 'cash');
+  const totals = invoiceTotals(invoice);
   const blocks: DocBlock[] = [
     ...reprint(input.is_reprint),
     ...head.blocks,
     ...spread('Invoice', invoice.invoice_ref, cols, true),
+    ...buyerBlocks(invoice, input.buyer),
     { rule: true },
     ...lineBlocks(invoiceLines(invoice), money),
     { rule: true },
-    ...totalBlocks(invoiceTotals(invoice), money),
+    ...totalBlocks(totals, money),
     ...spread(`TOTAL ${invoice.currency_code}`, money.m(invoice.total_minor), cols, true),
+    ...memoBlocks(totals, money),
     { rule: true },
     ...input.payments.flatMap((p) =>
       p.direction === 'in'
@@ -331,7 +470,7 @@ export function buildReceiptDoc(input: ReceiptDocInput, ctx: DocContext): Doc {
         : spread(`${p.mode_name} refund`, money.m(-p.amount_minor), cols),
     ),
     ...(input.change_minor !== 0 ? spread('Change', money.m(input.change_minor), cols) : []),
-    ...fiscalBlocks(invoice, input.fiscal_number, cols),
+    ...fiscalBlocks(invoice, input.fiscal, cols),
     { rule: true },
     ...ownerLines(ctx.template.footer_lines, head.vars),
     ...END,
@@ -347,8 +486,9 @@ export interface CreditNoteDocInput {
   /** The `InvoiceCredited` fields (5a): the original's amounts and snapshot, copied (H9-6). */
   invoice: FiscalCreditInvoiceFields;
   /** Q-3: the credit note prints the last 4 of a buyer ID only. */
-  buyer_id: { type_label: string; last4: string } | null;
-  fiscal_number: string | null;
+  buyer_id: DocBuyerMask | null;
+  /** R-11: as {@link ReceiptDocInput.fiscal} (the credit's own outbox row and number). */
+  fiscal: DocFiscalState;
   is_reprint: boolean;
   cashier_name: string | null;
 }
@@ -358,6 +498,7 @@ export function buildCreditNoteDoc(input: CreditNoteDocInput, ctx: DocContext): 
   const cols = ctx.width_cols;
   const money: Money = { cols, m: (v) => formatMinor(v, ctx.currency_exponent) };
   const head = headerBlocks(invoice, ctx, { cashier_name: input.cashier_name, order_label: null, bill_label: null });
+  const totals = invoiceTotals(invoice);
   const blocks: DocBlock[] = [
     ...reprint(input.is_reprint),
     ...head.blocks,
@@ -368,9 +509,10 @@ export function buildCreditNoteDoc(input: CreditNoteDocInput, ctx: DocContext): 
     { rule: true },
     ...lineBlocks(invoiceLines(invoice), money),
     { rule: true },
-    ...totalBlocks(invoiceTotals(invoice), money),
+    ...totalBlocks(totals, money),
     ...spread(`TOTAL CREDIT ${invoice.currency_code}`, money.m(invoice.total_minor), cols, true),
-    ...fiscalBlocks(invoice, input.fiscal_number, cols),
+    ...memoBlocks(totals, money),
+    ...fiscalBlocks(invoice, input.fiscal, cols),
     { rule: true },
     ...ownerLines(ctx.template.footer_lines, head.vars),
     ...END,

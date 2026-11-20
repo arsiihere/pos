@@ -335,7 +335,7 @@ describe('[05 task 28a] outbox rows (§3.15, B20)', () => {
         fiscal,
       };
       const doc = buildReceiptDoc(
-        { invoice, payments: [], change_minor: 0, cashier_name: null, order_label: null, bill_label: null, fiscal_number: null, is_reprint: false },
+        { invoice, payments: [], change_minor: 0, cashier_name: null, order_label: null, bill_label: null, fiscal: { state: outboxRowFor(invoice, i + 1).state === 'pending' ? 'pending' : 'not_required' }, buyer: null, is_reprint: false },
         ctx,
       );
       const block = doc.blocks.some((b) => 'text' in b && b.text.includes('FISCAL NUMBER PENDING'));
