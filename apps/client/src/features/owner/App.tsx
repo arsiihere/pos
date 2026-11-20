@@ -7,6 +7,7 @@ import { ChoiceGroupList } from './choice-groups/ChoiceGroupList';
 import { BranchPicker } from './BranchPicker';
 import { BranchesView } from './branches/BranchesView';
 import { BranchSettings } from './branches/BranchSettings';
+import { BillingView } from './billing/BillingView';
 import { BranchNames, storeBranch, storedBranch } from './branch';
 import { DealForm } from './deals/DealForm';
 import { DealList } from './deals/DealList';
@@ -137,7 +138,7 @@ function Routes({
   // 01b §8: the 01b views. Staff and roles cover every branch (B8) and need no chosen branch; Teams and
   // Stock counting are per branch and fall back to the picker, as Floors and Stations do.
   const owner = matchOwnerRoute(route);
-  const ownerNeedsBranch = owner?.name === 'teams' || owner?.name === 'stock_counting';
+  const ownerNeedsBranch = owner?.name === 'teams' || owner?.name === 'stock_counting' || owner?.name === 'billing';
   const needsBranch = route === '/floors' || route === '/stations' || route === '/points' || ownerNeedsBranch;
   if (owner !== null && (!ownerNeedsBranch || branchId !== null)) {
     return (
@@ -157,6 +158,9 @@ function Routes({
         )}
         {owner.name === 'stock_counting' && branchId !== null && (
           <StockCountingView key={branchId} api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
+        )}
+        {owner.name === 'billing' && branchId !== null && (
+          <BillingView key={branchId} api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
         )}
         {owner.name === 'size_groups' && <SizeGroupList api={api} />}
         {owner.name === 'size_group_edit' && <SizeGroupForm key={owner.id} api={api} groupId={owner.id} />}
