@@ -8,9 +8,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDb } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
 import { boot } from '../../src/lib/boot';
+import { auditProjection } from '../../src/audit/projection';
 import { ORDERS_EVENT_TYPES } from '../../src/orders/projection';
 import { fixedClock, T } from '../../src/lib/clock';
 import { freshDb } from '../helpers/db';
+import { dropBilling0023 } from './billing-0023';
 import { offlineCloud } from '../helpers/stub-cloud';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
@@ -52,6 +54,7 @@ const checkpoint = (db: Database.Database, projection: string) => db.prepare('SE
 /** Back to a pre-0019 hub: the column gone, 0019 not applied; every projection and checkpoint as it was. */
 function toPre0019(db: Database.Database): void {
   // 0021 (02b v1.0.16, 05 Q-1 / Q-5 / Q-6, R-7 / R-17) re-adds these and orders_token_day / orders_bill_key
+  dropBilling0023(db); // 0023 (05 v1.0.7 §5) runs after 0022
   db.exec('DROP TABLE bill_routes'); // 0022 (03c v1.0.13, 05 row P-1)
   db.exec('DROP INDEX orders_bill_key; DROP INDEX orders_token_day');
   db.exec('CREATE UNIQUE INDEX orders_token ON orders (business_date, token) WHERE token IS NOT NULL');
@@ -110,8 +113,8 @@ describe('[02b #51] hub migration 0019_order_line_station (02b v1.0.12 §5; 04 Q
     expect(checkpoint(copy, 'orders')).toBe(maxSeq);
     expect(checkpoint(copy, 'kitchen_tickets')).toBe(maxSeq);
     // 0019 applied on the copy before boot: the orders row is gone, the forward-only kitchen_tickets row is still there.
-    // (02b v1.0.13: 0020 runs after it, and deletes the orders row too; 02b v1.0.16: so do 0021 and 0022)
-    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0020_order_line_option_quantity.sql', '0021_orders_billing.sql', '0022_bill_routes.sql']);
+    // (02b v1.0.13: 0020 runs after it, and deletes the orders row too; 02b v1.0.16: so do 0021 and 0022; 05 0023 deletes the audit row)
+    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0020_order_line_option_quantity.sql', '0021_orders_billing.sql', '0022_bill_routes.sql', '0023_billing.sql']);
     expect(checkpoint(copy, 'orders')).toBeUndefined();
     expect(checkpoint(copy, 'kitchen_tickets'), '0019 keeps the kitchen_tickets checkpoint row').toBe(maxSeq);
     copy.close();
@@ -120,20 +123,21 @@ describe('[02b #51] hub migration 0019_order_line_station (02b v1.0.12 §5; 04 Q
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(22);
+    expect(db.pragma('user_version', { simple: true })).toBe(23);
     const after = db.prepare('SELECT event_type FROM events WHERE seq > ? ORDER BY seq').pluck().all(maxSeq);
     expect(after[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(rowsOf(db), 'every old line has its station_id; rows equal the fresh fold').toEqual(live);
     expect(checkpoint(db, 'orders')).toBeGreaterThanOrEqual(maxSeq);
-    // Only `orders` replays: HubStarted.events_replayed (Σ over every projection's catch-up) = the log's orders events,
-    // so kitchen_tickets (no reset; a missing row would replay it from 0) and every other projection replayed 0.
-    const ordersEvents = db
-      .prepare('SELECT COUNT(*) FROM events WHERE event_type IN (SELECT value FROM json_each(?))')
-      .pluck()
-      .get(JSON.stringify(ORDERS_EVENT_TYPES)) as number;
+    // Only `orders` (0019–0021) and `audit` (05 0023, V-3) replay: HubStarted.events_replayed (Σ over every projection's
+    // catch-up) = the log's orders events + its audit events, so kitchen_tickets (no reset; a missing row would replay it
+    // from 0) and every other projection replayed 0.
+    const countOf = (types: readonly string[]) =>
+      db.prepare('SELECT COUNT(*) FROM events WHERE event_type IN (SELECT value FROM json_each(?))').pluck().get(JSON.stringify(types)) as number;
+    const ordersEvents = countOf(ORDERS_EVENT_TYPES);
     expect(ordersEvents).toBeGreaterThan(0);
+    const auditEvents = countOf(auditProjection().eventTypes); // boot already sealed the registry; this only reads it
     const started = db.prepare("SELECT payload FROM events WHERE event_type = 'HubStarted' ORDER BY seq DESC LIMIT 1").pluck().get() as string;
-    expect((JSON.parse(started) as { events_replayed: number }).events_replayed, 'replayed = orders only; kitchen_tickets 0').toBe(ordersEvents);
+    expect((JSON.parse(started) as { events_replayed: number }).events_replayed, 'replayed = orders + audit only; kitchen_tickets 0').toBe(ordersEvents + auditEvents);
   });
 });
 
