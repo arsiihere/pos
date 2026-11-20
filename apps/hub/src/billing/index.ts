@@ -9,6 +9,7 @@ import type { SocketCtx } from '../ws/catch-up.js';
 import { registerCloseSplit } from './commands/close-split.js'; // task 17
 import { registerOpenShift } from './commands/open-shift.js';
 import { registerPrintCheckBill } from './commands/print-check-bill.js';
+import { registerPrintDocs } from './commands/print-docs.js'; // task 27
 import { registerPayments } from './commands/payments.js'; // task 16
 // task 13 (§6.6, §6.7, §3.14): ApplyDiscount / RemoveDiscount; the module load registers the discount apply
 import { registerDiscount } from './commands/discount.js';
@@ -23,6 +24,7 @@ import { billPrintsProjection, bindBillPrints } from './print/folds.js';
 import { billingProjection } from './projections/billing.js';
 import { shiftsProjection } from './projections/shifts.js';
 import { registerBillQuery } from './queries/bill.js';
+import { registerBillPrintersQuery } from './queries/bill-printers.js'; // task 27
 import { registerOpenBillsQuery } from './queries/open-bills.js';
 import { registerShiftQuery } from './queries/shift.js';
 
@@ -55,6 +57,9 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerDiscount(app);
   // task 17 (§6.12): CloseSplit and the buyer-ID document filler (row P-5)
   registerCloseSplit(app);
+  // task 27 (§6.22, §6.23, §6.23a): PrintBillDocument, RetargetBillPrint and the Print to picker's printer list
+  registerPrintDocs(app);
+  registerBillPrintersQuery(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
