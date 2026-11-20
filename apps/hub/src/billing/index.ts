@@ -26,6 +26,8 @@ import { registerWaiveBuyerId } from './commands/waive-buyer-id.js';
 import { registerSetFiscalToken } from './fiscal/credentials.js';
 // task 22 (§6.20, §3.14): RecordPettyCash / SettlePettyAdvance; the module load registers the petty_cash apply
 import { registerPettyCash } from './commands/petty-cash.js';
+// task 21 (§6.17–§6.19, §3.14): CountShift / CloseShift / HandoverCount; the module load registers the shift_variance apply
+import { registerShiftClose } from './commands/shift-close.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 // task 31 (§3.15, §6.27, §6.28): the stuck tick (01d registerTick, G-22), fiscal-status and RetryFiscalNow
 import { registerFiscalStatus } from './fiscal/status.js';
@@ -78,6 +80,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerFiscalStatus(app);
   // task 22 (§6.20)
   registerPettyCash(app);
+  // task 21 (§6.17–§6.19)
+  registerShiftClose(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
