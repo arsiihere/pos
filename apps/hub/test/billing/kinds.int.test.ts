@@ -124,8 +124,8 @@ describe('[05 §3.14, PL-5 (integrator ruling, option (c))] the apply seam', () 
   const ctx = { alert: { alert_id: 'A1' } } as unknown as AlertApplyCtx<never, never>;
 
   it('[05 §3.14] an unregistered kind throws not built (approve and reject alike); onWithdraw → [] (as if never asked)', () => {
-    // built kinds leave this list as their command task registers its apply: task 14 remove_service_charge
-    const BUILT: BillRequestKind[] = ['remove_service_charge'];
+    // built kinds leave this list as their command task registers its apply: task 14 remove_service_charge, task 20 remove_comp
+    const BUILT: BillRequestKind[] = ['remove_service_charge', 'remove_comp'];
     for (const name of [...APPROVAL.map(([n]) => n), ...HOLDERS].filter((n) => !BUILT.includes(n))) {
       const request = kindOf(name)!.request!;
       expect(() => request.apply(ctx as never, answer), name).toThrow(/not built/);
