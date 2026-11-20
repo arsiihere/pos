@@ -17,7 +17,7 @@
 // Settle — the read (1), the note (1, with a note) — ≤ 2. The kind's `apply`: the shift's state (1), read-only.
 // Privacy: `paid_to` and `note` are free text → `hashOmit` (row H-4, H16-7); their text only in `bill_texts` under the
 // `entry_id` (H3-5, R-48: the values and the events carry no `note_id`, only `has_paid_to` / `has_note`).
-import { DomainError, PETTY_KINDS } from "@pos/domain";
+import { DomainError, PETTY_KINDS } from '@pos/domain';
 import {
   draftOf,
   PettyCashAdvanced,
@@ -31,18 +31,18 @@ import {
   type AlertDetails,
   type AlertDisplay,
   type EventDraft,
-} from "@pos/events";
-import type { FastifyInstance } from "fastify";
-import { z } from "zod";
-import type { AlertApplyCtx, AnswerFacts } from "../../alerts/kinds.js";
-import { alerts } from "../../alerts/raise.js";
-import { defineCommand, type CommandCtx } from "../../commands/registry.js";
-import { commandRegistry } from "../../commands/route.js";
-import { printDocument } from "../../print/api.js";
-import { branchConfig } from "../../sync/branch-config-holder.js";
-import { hubBilling } from "../defaults.js";
-import { registerBillKindApply } from "../kinds/seam.js";
-import type { BillRequestDetails, PettyCashValues } from "../kinds/values.js";
+} from '@pos/events';
+import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import type { AlertApplyCtx, AnswerFacts } from '../../alerts/kinds.js';
+import { alerts } from '../../alerts/raise.js';
+import { defineCommand, type CommandCtx } from '../../commands/registry.js';
+import { commandRegistry } from '../../commands/route.js';
+import { printDocument } from '../../print/api.js';
+import { branchConfig } from '../../sync/branch-config-holder.js';
+import { hubBilling } from '../defaults.js';
+import { registerBillKindApply } from '../kinds/seam.js';
+import type { BillRequestDetails, PettyCashValues } from '../kinds/values.js';
 
 // ------------------------------------------------------------------------------------------------ payloads
 
@@ -64,11 +64,11 @@ export const RecordPettyCashPayload = z
   })
   .strict()
   .superRefine((p, ctx) => {
-    if (p.kind !== "advance" && p.advance_staff_id !== undefined) {
+    if (p.kind !== 'advance' && p.advance_staff_id !== undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["advance_staff_id"],
-        message: "only an advance names advance_staff_id",
+        path: ['advance_staff_id'],
+        message: 'only an advance names advance_staff_id',
       });
     }
   });
@@ -98,7 +98,7 @@ export interface SettlePettyAdvanceResult {
 
 // ------------------------------------------------------------------------------------------------ shared steps
 
-const LABELS = { lock: "alert.petty_cash.lock" } as const;
+const LABELS = { lock: 'alert.petty_cash.lock' } as const;
 
 // B11: the device's open drawer shift, else the caller's own open shift; the device's own route printer for the
 // drawer kick (R-57 pattern, as OpenShift: no zone / floor / default fallback). 1 statement.
@@ -135,15 +135,15 @@ interface SettleRow {
 /** C8, last: `record-petty-cash` takes `branch` only (01b PERMISSION_SCOPES). 0 statements. */
 function requireScope(ctx: CommandCtx): void {
   const scope =
-    ctx.permission !== null && "scope" in ctx.permission
+    ctx.permission !== null && 'scope' in ctx.permission
       ? ctx.permission.scope
       : null;
-  if (ctx.actor.staffId === null || scope !== "branch")
-    throw new DomainError("PERMISSION_DENIED", { reason: "outside_scope" });
+  if (ctx.actor.staffId === null || scope !== 'branch')
+    throw new DomainError('PERMISSION_DENIED', { reason: 'outside_scope' });
 }
 
 const present = (s: string | undefined): s is string =>
-  s !== undefined && s.trim() !== "";
+  s !== undefined && s.trim() !== '';
 
 /**
  * 1 statement (hub state, never synced): the entry's texts under its `entry_id` (H3-5, R-48) — `paid_to` and / or
@@ -155,12 +155,12 @@ function writeTexts(
   texts: { paid_to: string | null; note: string | null },
 ): void {
   const rows: Array<[string, string]> = [];
-  if (texts.paid_to !== null) rows.push(["paid_to", texts.paid_to]);
-  if (texts.note !== null) rows.push(["note", texts.note]);
+  if (texts.paid_to !== null) rows.push(['paid_to', texts.paid_to]);
+  if (texts.note !== null) rows.push(['note', texts.note]);
   if (rows.length === 0) return;
   ctx.tx.db
     .prepare(
-      `INSERT INTO bill_texts (subject_id, field, text) VALUES ${rows.map(() => "(?, ?, ?)").join(", ")}`,
+      `INSERT INTO bill_texts (subject_id, field, text) VALUES ${rows.map(() => '(?, ?, ?)').join(', ')}`,
     )
     .run(...rows.flatMap(([field, text]) => [entry_id, field, text]));
 }
@@ -195,24 +195,24 @@ function pettyDraft(
     alert_id: who.alert_id,
   };
   const envelope = {
-    stream_type: "shift" as const,
+    stream_type: 'shift' as const,
     stream_id: e.shift_id,
     occurred_at: ctx.clock.branchNow(),
     actor_id: ctx.actor.staffId,
     device_id: ctx.actor.deviceId,
   };
   switch (e.kind) {
-    case "advance":
+    case 'advance':
       return draftOf(PettyCashAdvanced, {
         ...envelope,
         payload: PettyCashAdvancedPayload.parse(payload),
       });
-    case "out":
+    case 'out':
       return draftOf(PettyCashOut, {
         ...envelope,
         payload: PettyCashOutPayload.parse(payload),
       });
-    case "in":
+    case 'in':
       return draftOf(PettyCashIn, {
         ...envelope,
         payload: PettyCashInPayload.parse(payload),
@@ -229,9 +229,9 @@ function recordPettyCash(
 ): { events: EventDraft[]; result: RecordPettyCashResult } {
   const staff_id = ctx.actor.staffId;
   if (staff_id === null)
-    throw new DomainError("PERMISSION_DENIED", {
-      permission: "record-petty-cash",
-      grant: "not_granted",
+    throw new DomainError('PERMISSION_DENIED', {
+      permission: 'record-petty-cash',
+      grant: 'not_granted',
     });
 
   // the money shift (B11), state open
@@ -240,7 +240,7 @@ function recordPettyCash(
     .get({ device_id: ctx.actor.deviceId, staff_id }) as MoneyShiftRow; // 1
   const shift_id = r.drawer_shift_id ?? r.own_shift_id;
   if (shift_id === null)
-    throw new DomainError("SHIFT_NOT_OPEN", { reason: "no_shift" });
+    throw new DomainError('SHIFT_NOT_OPEN', { reason: 'no_shift' });
 
   // the category: active in the branch's billing settings (owner-edited, built-in defaults otherwise)
   const config = branchConfig();
@@ -249,20 +249,20 @@ function recordPettyCash(
     (c) => c.category_id === p.category_id,
   );
   if (category === undefined || !category.is_active)
-    throw new DomainError("CONFIG_REFERENCE_INVALID", {
-      field: "category_id",
-      reason: "not_found",
+    throw new DomainError('CONFIG_REFERENCE_INVALID', {
+      field: 'category_id',
+      reason: 'not_found',
     });
 
   // an advance names a person of the directory
   if (
-    p.kind === "advance" &&
+    p.kind === 'advance' &&
     (p.advance_staff_id === undefined ||
       ctx.directory.get(p.advance_staff_id) === undefined)
   ) {
-    throw new DomainError("CONFIG_REFERENCE_INVALID", {
-      field: "advance_staff_id",
-      reason: "not_found",
+    throw new DomainError('CONFIG_REFERENCE_INVALID', {
+      field: 'advance_staff_id',
+      reason: 'not_found',
     });
   }
 
@@ -278,14 +278,14 @@ function recordPettyCash(
     category_id: p.category_id,
     has_paid_to: paid_to !== null,
     advance_staff_id:
-      p.kind === "advance" ? (p.advance_staff_id as string) : null,
+      p.kind === 'advance' ? (p.advance_staff_id as string) : null,
     has_note: note !== null,
   };
 
   const limit = settings?.petty_cash_limit_minor ?? 0;
   const needsRequest =
     ctx.permission === null ||
-    ctx.permission.grant !== "allowed" ||
+    ctx.permission.grant !== 'allowed' ||
     p.amount_minor > limit;
   if (needsRequest) {
     // §3.14, H3-5, R-48: values carry the entry without text; details in AlertDetailsBase keys (H2-6)
@@ -302,9 +302,9 @@ function recordPettyCash(
       device_name: null,
     };
     const raised = alerts.raise(ctx, {
-      kind: "petty_cash",
-      subject: { stream_type: "shift", stream_id: shift_id },
-      target: { kind: "answerers" },
+      kind: 'petty_cash',
+      subject: { stream_type: 'shift', stream_id: shift_id },
+      target: { kind: 'answerers' },
       values,
       details: details as AlertDetails,
       display,
@@ -351,7 +351,7 @@ export function applyPettyCash(
   ctx: AlertApplyCtx<PettyCashValues, BillRequestDetails>,
   answer: AnswerFacts,
 ): EventDraft[] {
-  if (answer.decision !== "approve") return [];
+  if (answer.decision !== 'approve') return [];
   const v = ctx.alert.values;
   const requester = ctx.alert.requester_staff_id;
   if (requester === null)
@@ -359,11 +359,11 @@ export function applyPettyCash(
       `petty_cash ${ctx.alert.alert_id}: a request always has a requester`,
     );
   const state = ctx.tx.db
-    .prepare("SELECT state FROM shifts WHERE shift_id = ?")
+    .prepare('SELECT state FROM shifts WHERE shift_id = ?')
     .pluck()
     .get(v.shift_id) as string | undefined; // 1
-  if (state !== "open")
-    throw new DomainError("SHIFT_NOT_OPEN", { reason: "not_open" });
+  if (state !== 'open')
+    throw new DomainError('SHIFT_NOT_OPEN', { reason: 'not_open' });
   return [
     pettyDraft(ctx, v, {
       requester,
@@ -374,7 +374,7 @@ export function applyPettyCash(
 }
 
 // 05 §3.14, PL-5 seam (task 9 reviewers' rule): module top level, a module-level function, never a closure.
-registerBillKindApply("petty_cash", { apply: applyPettyCash });
+registerBillKindApply('petty_cash', { apply: applyPettyCash });
 
 // ------------------------------------------------------------------------------------------------ SettlePettyAdvance
 
@@ -384,9 +384,9 @@ function settlePettyAdvance(
 ): { events: EventDraft[]; result: SettlePettyAdvanceResult } {
   const staff_id = ctx.actor.staffId;
   if (staff_id === null)
-    throw new DomainError("PERMISSION_DENIED", {
-      permission: "record-petty-cash",
-      grant: "not_granted",
+    throw new DomainError('PERMISSION_DENIED', {
+      permission: 'record-petty-cash',
+      grant: 'not_granted',
     });
   const r = ctx.tx.db
     .prepare(SETTLE_READ)
@@ -396,17 +396,17 @@ function settlePettyAdvance(
       staff_id,
     }) as SettleRow; // 1
   // an entry that is not an advance (an out / in, or one still waiting for its request) is not an advance to settle
-  if (r.kind !== "advance" || r.amount_minor === null)
-    throw new DomainError("PETTY_CASH_NOT_FOUND", { entry_id: p.entry_id });
+  if (r.kind !== 'advance' || r.amount_minor === null)
+    throw new DomainError('PETTY_CASH_NOT_FOUND', { entry_id: p.entry_id });
   if (r.settled_at !== null)
-    throw new DomainError("PETTY_ADVANCE_SETTLED", { entry_id: p.entry_id });
+    throw new DomainError('PETTY_ADVANCE_SETTLED', { entry_id: p.entry_id });
   if (p.spent_minor + p.returned_minor !== r.amount_minor)
-    throw new DomainError("PETTY_SETTLE_MISMATCH", {
+    throw new DomainError('PETTY_SETTLE_MISMATCH', {
       amount_minor: r.amount_minor,
     });
   const shift_id = r.drawer_shift_id ?? r.own_shift_id;
   if (shift_id === null)
-    throw new DomainError("SHIFT_NOT_OPEN", { reason: "no_shift" });
+    throw new DomainError('SHIFT_NOT_OPEN', { reason: 'no_shift' });
   requireScope(ctx); // the last refusal (C8)
 
   // H4-4: the settle's own note_id, never the advance's (entry_id, 'note') row
@@ -428,7 +428,7 @@ function settlePettyAdvance(
     note_id,
   });
   const event = draftOf(PettyCashSettled, {
-    stream_type: "shift",
+    stream_type: 'shift',
     stream_id: shift_id,
     payload,
     occurred_at: ctx.clock.branchNow(),
@@ -441,21 +441,21 @@ function settlePettyAdvance(
 // ------------------------------------------------------------------------------------------------ registration
 
 export const RecordPettyCash = defineCommand({
-  commandType: "RecordPettyCash",
+  commandType: 'RecordPettyCash',
   payloadSchema: RecordPettyCashPayload,
-  sessionKind: "device",
-  permission: "record-petty-cash",
+  sessionKind: 'device',
+  permission: 'record-petty-cash',
   approvable: true,
-  hashOmit: ["paid_to", "note"], // row H-4, H16-7: free text never reaches payload_hash
+  hashOmit: ['paid_to', 'note'], // row H-4, H16-7: free text never reaches payload_hash
   handle: (ctx, p, cmd) => recordPettyCash(ctx, p, cmd.command_id),
 });
 
 export const SettlePettyAdvance = defineCommand({
-  commandType: "SettlePettyAdvance",
+  commandType: 'SettlePettyAdvance',
   payloadSchema: SettlePettyAdvancePayload,
-  sessionKind: "device",
-  permission: "record-petty-cash",
-  hashOmit: ["note"],
+  sessionKind: 'device',
+  permission: 'record-petty-cash',
+  hashOmit: ['note'],
   handle: (ctx, p) => settlePettyAdvance(ctx, p),
 });
 

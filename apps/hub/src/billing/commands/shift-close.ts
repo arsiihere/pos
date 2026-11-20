@@ -17,7 +17,7 @@
 // HandoverCount — the shift (1) (≤ 2). The kind's `apply`: the shift (1) on approve, 0 on reject; read-only.
 // Privacy: the note is free text → `hashOmit: ['note']` (H-4, H16-7), its text only in `bill_texts` (H3-5); events,
 // values and details carry ids and amounts only.
-import { DomainError } from "@pos/domain";
+import { DomainError } from '@pos/domain';
 import {
   draftOf,
   HandoverCounted,
@@ -33,21 +33,21 @@ import {
   type AlertDetails,
   type AlertDisplay,
   type EventDraft,
-} from "@pos/events";
-import type { FastifyInstance } from "fastify";
-import { z } from "zod";
-import type { AlertApplyCtx, AnswerFacts } from "../../alerts/kinds.js";
-import { alerts, type CloseItem } from "../../alerts/raise.js";
-import { defineCommand, type CommandCtx } from "../../commands/registry.js";
-import { commandRegistry } from "../../commands/route.js";
-import { branchConfig } from "../../sync/branch-config-holder.js";
-import { hubBilling } from "../defaults.js";
-import { registerBillKindApply } from "../kinds/seam.js";
+} from '@pos/events';
+import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import type { AlertApplyCtx, AnswerFacts } from '../../alerts/kinds.js';
+import { alerts, type CloseItem } from '../../alerts/raise.js';
+import { defineCommand, type CommandCtx } from '../../commands/registry.js';
+import { commandRegistry } from '../../commands/route.js';
+import { branchConfig } from '../../sync/branch-config-holder.js';
+import { hubBilling } from '../defaults.js';
+import { registerBillKindApply } from '../kinds/seam.js';
 import type {
   ShiftVarianceDetails,
   ShiftVarianceValues,
-} from "../kinds/values.js";
-import { MAX_FLOAT_MINOR } from "./open-shift.js";
+} from '../kinds/values.js';
+import { MAX_FLOAT_MINOR } from './open-shift.js';
 
 // ------------------------------------------------------------------------------------------------ payloads
 
@@ -76,7 +76,7 @@ interface ShiftRow {
   shift_id: string;
   staff_id: string;
   drawer_device_id: string | null;
-  state: "open" | "closed";
+  state: 'open' | 'closed';
   expected_cash_minor: number;
   variance_state: string | null;
 }
@@ -90,13 +90,13 @@ const SHIFT_WITH_ADVANCES = `SELECT s.shift_id, s.staff_id, s.drawer_device_id, 
               WHERE shift_id = s.shift_id AND kind = 'advance' AND settled_at IS NULL ORDER BY at, entry_id) p) AS advances_json
   FROM shifts s WHERE s.shift_id = ?`;
 
-type Db = CommandCtx["tx"]["db"];
+type Db = CommandCtx['tx']['db'];
 
 /** 404 / 409 not_open. */
 function requireOpen(row: ShiftRow | undefined, shift_id: string): ShiftRow {
-  if (row === undefined) throw new DomainError("SHIFT_NOT_FOUND", { shift_id });
-  if (row.state !== "open")
-    throw new DomainError("SHIFT_NOT_OPEN", { reason: "not_open" });
+  if (row === undefined) throw new DomainError('SHIFT_NOT_FOUND', { shift_id });
+  if (row.state !== 'open')
+    throw new DomainError('SHIFT_NOT_OPEN', { reason: 'not_open' });
   return row;
 }
 
@@ -104,17 +104,17 @@ function requireOpen(row: ShiftRow | undefined, shift_id: string): ShiftRow {
 function requireOwnOrOthers(ctx: CommandCtx, row: ShiftRow): string {
   const staff_id = ctx.actor.staffId;
   if (staff_id === null)
-    throw new DomainError("PERMISSION_DENIED", {
-      permission: "manage-own-shift",
-      grant: "not_granted",
+    throw new DomainError('PERMISSION_DENIED', {
+      permission: 'manage-own-shift',
+      grant: 'not_granted',
     });
   if (
     row.staff_id !== staff_id &&
-    ctx.directory.resolve(staff_id, "close-shift-for-others").grant !==
-      "allowed"
+    ctx.directory.resolve(staff_id, 'close-shift-for-others').grant !==
+      'allowed'
   ) {
-    throw new DomainError("PERMISSION_DENIED", {
-      permission: "close-shift-for-others",
+    throw new DomainError('PERMISSION_DENIED', {
+      permission: 'close-shift-for-others',
     });
   }
   return staff_id;
@@ -124,7 +124,7 @@ function noteOf(
   ctx: CommandCtx,
   note: string | undefined,
 ): { note_id: string | null; has_note: boolean; text: string | null } {
-  if (note === undefined || note.trim() === "")
+  if (note === undefined || note.trim() === '')
     return { note_id: null, has_note: false, text: null };
   return { note_id: ctx.ids.next(), has_note: true, text: note };
 }
@@ -161,13 +161,13 @@ function closePettyRequests(
   shift_id: string,
 ): { events: EventDraft[]; closed: string[] } {
   const open = alerts
-    .listOpen(ctx.tx.db, { kind: "petty_cash" })
+    .listOpen(ctx.tx.db, { kind: 'petty_cash' })
     .filter((a) => (a.values as { shift_id?: unknown }).shift_id === shift_id); // 1
   if (open.length === 0) return { events: [], closed: [] };
   const items: CloseItem[] = open.map((a) => ({
     alert_id: a.alert_id,
-    reason: "obsolete",
-    note: "shift_closed",
+    reason: 'obsolete',
+    note: 'shift_closed',
   }));
   return {
     events: alerts.closeMany(ctx, items),
@@ -190,7 +190,7 @@ function closedDraft(
     approver_staff_id: null,
   });
   return draftOf(ShiftClosed, {
-    stream_type: "shift",
+    stream_type: 'shift',
     stream_id: shift_id,
     payload,
     ...envelopeOf(ctx),
@@ -220,7 +220,7 @@ function countShift(
   ); // 1
   const by = requireOwnOrOthers(ctx, row);
   const config = branchConfig();
-  if (config === null) throw new DomainError("BUSINESS_DAY_NOT_OPEN");
+  if (config === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
   const threshold = hubBilling(config).settings.variance_threshold_minor;
 
   const expected_minor = row.expected_cash_minor; // §3.7, the running fold
@@ -238,16 +238,16 @@ function countShift(
     };
     const details: ShiftVarianceDetails = { amount: variance_minor };
     const display: AlertDisplay = {
-      kind_label_key: "alert.shift_variance.lock",
+      kind_label_key: 'alert.shift_variance.lock',
       table_code: null,
       point_code: null,
       requester_name: ctx.directory.get(by)?.display_name ?? null,
       device_name: null,
     };
     const r = alerts.raise(ctx, {
-      kind: "shift_variance",
-      subject: { stream_type: "shift", stream_id: row.shift_id },
-      target: { kind: "answerers" },
+      kind: 'shift_variance',
+      subject: { stream_type: 'shift', stream_id: row.shift_id },
+      target: { kind: 'answerers' },
       values,
       details: details as AlertDetails,
       display,
@@ -269,7 +269,7 @@ function countShift(
   const petty = closePettyRequests(ctx, row.shift_id); // 1
   const events: EventDraft[] = [
     draftOf(ShiftCounted, {
-      stream_type: "shift",
+      stream_type: 'shift',
       stream_id: row.shift_id,
       payload: counted,
       ...envelopeOf(ctx),
@@ -315,9 +315,9 @@ function closeShift(
   const staff_id = ctx.actor.staffId;
   if (
     staff_id === null ||
-    ctx.directory.resolve(staff_id, "skip-blind-count").grant !== "allowed"
+    ctx.directory.resolve(staff_id, 'skip-blind-count').grant !== 'allowed'
   ) {
-    throw new DomainError("PERMISSION_DENIED", { reason: "skip_not_granted" });
+    throw new DomainError('PERMISSION_DENIED', { reason: 'skip_not_granted' });
   }
   const by = requireOwnOrOthers(ctx, row);
   const note = noteOf(ctx, p.note);
@@ -326,7 +326,7 @@ function closeShift(
   const skipped = ShiftCountSkippedPayload.parse({ shift_id: row.shift_id });
   const events: EventDraft[] = [
     draftOf(ShiftCountSkipped, {
-      stream_type: "shift",
+      stream_type: 'shift',
       stream_id: row.shift_id,
       payload: skipped,
       ...envelopeOf(ctx),
@@ -336,7 +336,7 @@ function closeShift(
   ];
   const open_advances = JSON.parse(
     (got as { advances_json: string }).advances_json,
-  ) as CloseShiftResult["open_advances"];
+  ) as CloseShiftResult['open_advances'];
   return {
     events,
     result: {
@@ -365,7 +365,7 @@ function handoverCount(
     p.shift_id,
   ); // 1
   if (row.drawer_device_id === null)
-    throw new DomainError("SHIFT_NOT_OPEN", { reason: "no_drawer_shift" });
+    throw new DomainError('SHIFT_NOT_OPEN', { reason: 'no_drawer_shift' });
   const by = requireOwnOrOthers(ctx, row);
   const expected_minor = row.expected_cash_minor;
   const variance_minor = p.counted_minor - expected_minor;
@@ -380,7 +380,7 @@ function handoverCount(
   return {
     events: [
       draftOf(HandoverCounted, {
-        stream_type: "shift",
+        stream_type: 'shift',
         stream_id: row.shift_id,
         payload,
         ...envelopeOf(ctx),
@@ -413,24 +413,24 @@ export function applyShiftVariance(
   // Defence only: the event needs an open day. Unreachable under the owner ruling of 2026-11-20 (05 v1.0.18, built in
   // task 25): CloseBusinessDay is refused while any shift_variance request is pending, so an answer always has a day.
   if (day === null || day.closed_at !== null)
-    throw new DomainError("BUSINESS_DAY_NOT_OPEN");
-  if (answer.decision === "approve") {
+    throw new DomainError('BUSINESS_DAY_NOT_OPEN');
+  if (answer.decision === 'approve') {
     const row = ctx.tx.db.prepare(SHIFT).get(v.shift_id) as
       ShiftRow | undefined; // 1
-    if (row === undefined || row.variance_state !== "pending") {
-      throw new DomainError("SHIFT_NOT_OPEN", { reason: "not_open" }); // inferred: no pending variance to sign off
+    if (row === undefined || row.variance_state !== 'pending') {
+      throw new DomainError('SHIFT_NOT_OPEN', { reason: 'not_open' }); // inferred: no pending variance to sign off
     }
   }
   const payload = ShiftVarianceSignedOffPayload.parse({
     shift_id: v.shift_id,
-    outcome: answer.decision === "approve" ? "approved" : "disputed",
+    outcome: answer.decision === 'approve' ? 'approved' : 'disputed',
     alert_id: ctx.alert.alert_id,
     approver_staff_id: answer.answerer_staff_id,
     business_date: day.business_date,
   });
   return [
     draftOf(ShiftVarianceSignedOff, {
-      stream_type: "shift",
+      stream_type: 'shift',
       stream_id: v.shift_id,
       payload,
       ...envelopeOf(ctx),
@@ -439,33 +439,33 @@ export function applyShiftVariance(
 }
 
 // 05 §3.14, PL-5 seam (task 9 reviewers' rule): module top level, a module-level function, never a closure.
-registerBillKindApply("shift_variance", { apply: applyShiftVariance });
+registerBillKindApply('shift_variance', { apply: applyShiftVariance });
 
 // ------------------------------------------------------------------------------------------------ commands
 
 export const CountShift = defineCommand({
-  commandType: "CountShift",
+  commandType: 'CountShift',
   payloadSchema: CountShiftPayload,
-  sessionKind: "device",
-  permission: "manage-own-shift",
-  hashOmit: ["note"], // row H-4, H16-7
+  sessionKind: 'device',
+  permission: 'manage-own-shift',
+  hashOmit: ['note'], // row H-4, H16-7
   handle: (ctx, p) => countShift(ctx, p),
 });
 
 export const CloseShift = defineCommand({
-  commandType: "CloseShift",
+  commandType: 'CloseShift',
   payloadSchema: CloseShiftPayload,
-  sessionKind: "device",
-  permission: "manage-own-shift",
-  hashOmit: ["note"],
+  sessionKind: 'device',
+  permission: 'manage-own-shift',
+  hashOmit: ['note'],
   handle: (ctx, p) => closeShift(ctx, p),
 });
 
 export const HandoverCount = defineCommand({
-  commandType: "HandoverCount",
+  commandType: 'HandoverCount',
   payloadSchema: HandoverCountPayload,
-  sessionKind: "device",
-  permission: "manage-own-shift",
+  sessionKind: 'device',
+  permission: 'manage-own-shift',
   handle: (ctx, p) => handoverCount(ctx, p),
 });
 
