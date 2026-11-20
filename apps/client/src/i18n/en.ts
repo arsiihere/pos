@@ -3484,6 +3484,23 @@ export const en = {
   'billing.sc.reason.staff_meal': 'Staff meal',
   'billing.sc.reason.other': 'Other',
   'errors.PERMISSION_DENIED.not_requester': 'Only the person who asked can withdraw it',
+  // ---- 05 client (task 38, Print to): after hub task 27, brief §3.4 + frames PrintStatus, PrintTo, PrintToPhone; Urdu: docs/design/handoff/05/urdu-todo.md ----
+  'billing.print.print_to': 'Print to',
+  'billing.print.title_check': 'Print the check bill on…',
+  'billing.print.title_receipt': 'Print the receipt on…',
+  'billing.print.title_credit': 'Print the credit note on…',
+  'billing.print.note': 'It moves to the printer you pick. Nothing prints twice.',
+  'billing.print.pick': 'Pick a printer',
+  'billing.print.print_on': 'Print on {printer}',
+  'billing.print.moved': 'Moved to {printer}',
+  'billing.print.failed_here': 'didn’t print here · {error}',
+  'billing.print.failed_here_plain': 'didn’t print here',
+  'billing.print.waiting_here': 'waiting here',
+  'billing.print.reprint_sent': 'Reprint sent to {printer}',
+  'billing.print.err.printer_gone': 'This printer was removed — pick another',
+  'billing.print.err.job_gone': 'This print is no longer there',
+  'billing.reprint_receipt': 'Reprint receipt',
+  'billing.reprint_credit': 'Reprint credit note',
 } as const;
 
 export type MessageKey = keyof typeof en;

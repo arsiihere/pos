@@ -4,7 +4,7 @@
 /* task 34 (frames OpenBills*): the page sits under the staff shell's own top bar, so .b5 has one row */
 :where(.b5.b5--page) { grid-template-rows: minmax(0, 1fr); }
 /* no side column yet (the shift card is 05-2's): the list takes the width */
-:where(.b5-home.b5-home--one) { grid-template-columns: minmax(0, 1fr); }
+:where(.b5-home--one).b5-home { grid-template-columns: minmax(0, 1fr); } /* ties .b5-home, wins by order */
 /* frame: style="flex:1" on the list body */
 :where(.b5-wl__b.b5-wl__b--fill) { flex: 1; }
 /* frame OpenBillsOffline: a kept row reads as stale (.b5-ob.stale's opacity) */
@@ -47,3 +47,6 @@
 /* review m6: a real input inside the .b5-in look, with the .b5-in focus ring while it has focus */
 :where(.b5-in) > input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; color: inherit; letter-spacing: inherit; }
 :where(.pu) .b5-in:focus-within { /* beats .b5-in */ box-shadow: inset 0 0 0 2.5px var(--accent), 0 0 0 4px var(--accent-bg); }
+/* task 38 Print to (frame PrintTo): the printer list is one column of tall chips (style="grid-template-columns:1fr"; chip min-height 72px) */
+:where(.b5-chips--one).b5-chips { grid-template-columns: minmax(0, 1fr); } /* ties .b5-chips, wins by order */
+:where(.b5-chips--one) .b5-chip { min-height: 72px; } /* ties .b5-chip, wins by order */

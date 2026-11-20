@@ -1,6 +1,6 @@
 import type { HubResult } from '../../api/hub-admin';
 import { newUlid } from '../../app/ulid';
-import type { AddPaymentResult, BillRef, BillView, CloseSplitResult, OpenBillsBody, PrintCheckBillResult, SetSplitsPayload, SetSplitsResult, SheetResult } from './contracts';
+import type { AddPaymentResult, BillPrint, BillRef, BillView, CloseSplitResult, OpenBillsBody, PrintCheckBillResult, SetSplitsPayload, SetSplitsResult, SheetResult } from './contracts';
 
 // 05 §6 (task 34 on): the billing queries and commands on the staff api's query() / command() (the shell's own
 // transport, features/staff/api.ts — no second client, socket or token).
@@ -37,12 +37,21 @@ export interface BillingApi {
   applyServiceCharge(payload: { bill_ref: BillRef; note?: string }): Promise<HubResult<SheetResult>>;
   /** 01d: the requester takes back an open request. */
   withdrawRequest(alert_id: string): Promise<HubResult<unknown>>;
+  /** §6.23a: the branch's active printers by name (the Print to picker; read when it opens). */
+  billPrinters(): Promise<HubResult<{ printers: Array<{ printer_id: string; name: string }> }>>;
+  /** §6.23 (B18): move a waiting / failed bill-document job to another printer; the job's new status comes back. */
+  retargetBillPrint(payload: { job_id: string; printer_id: string }): Promise<HubResult<Omit<BillPrint, 'doc_kind'> & { printer_id: string }>>;
+  /** §6.22: reprint a receipt / credit note (REPRINT; the full buyer ID only on that customer's receipt). */
+  printBillDocument(payload: { doc: 'receipt' | 'credit_note'; ref_id: string; printer_id?: string }): Promise<HubResult<{ printed: boolean; job_id: string | null; printer_name: string | null }>>;
 }
+
+// One map for every billing api instance of the page (each screen builds its own over the shell's transport): a resend
+// after a lost reply keeps its command_id even if the button that sent it was mounted again (a reprint prints once).
+const pending = new Map<string, string>();
 
 export function billingApi(staff: BillingTransport, newCommandId: () => string = () => newUlid()): BillingApi {
   // a command's id is kept per command type + payload until the hub answers (a network error keeps it), as the KDS
   // api does (features/kds/actions/actions.ts): a resend after a lost reply is the same command, applied once
-  const pending = new Map<string, string>();
   async function command<T>(type: string, payload: object): Promise<HubResult<T>> {
     // `note`, `reference` and `tendered_minor` are left out of the key: the hub leaves `note` / `reference` out of the
     // payload hash (hashOmit, row H-4, H16-7), and a payment's reference is never kept on the client (B30, H1-20).
@@ -70,6 +79,9 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
     removeServiceCharge: (payload) => command<SheetResult>('RemoveServiceCharge', payload),
     applyServiceCharge: (payload) => command<SheetResult>('ApplyServiceCharge', payload),
     withdrawRequest: (alert_id) => command<unknown>('WithdrawRequest', { alert_id }),
+    billPrinters: () => staff.query('/queries/bill-printers'),
+    retargetBillPrint: (payload) => command('RetargetBillPrint', payload),
+    printBillDocument: (payload) => command('PrintBillDocument', payload),
     openBills: (floor_id) =>
       staff.query<OpenBillsBody>(floor_id === undefined ? '/queries/open-bills' : `/queries/open-bills?floor_id=${encodeURIComponent(floor_id)}`),
   };
