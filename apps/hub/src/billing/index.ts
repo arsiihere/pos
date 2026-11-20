@@ -1,0 +1,86 @@
+import type { FastifyInstance } from 'fastify';
+import { currentDirectory } from '../auth/guards.js';
+import type { ProjectionRegistry } from '../projections/registry.js';
+import type { HubDeps } from '../server.js';
+import { registerEventAudience } from '../ws/audience.js';
+import type { SocketCtx } from '../ws/catch-up.js';
+import { fiscalAdapterFor } from './fiscal/port.js';
+import { startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
+import { billingProjection } from './projections/billing.js';
+
+// 05 wiring entry (§6.30, task 7; H6-14: every later task adds only its own registration lines here, under its marker).
+// Audit actions and alert kinds register at module load (P0.15, P0.7, G-20); projections in registerHubProjections
+// (lib/boot.ts), before the audit seal; per-server registrations in registerBilling, removed when the server closes.
+
+/** Called once from buildHubServer, after registerAudit. */
+export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
+  // The plan row's signature: later tasks' registration lines use `deps`; until then the `void` line keeps
+  // no-unused-vars on, as in tables/index.ts registerTables (the repo's wiring-entry convention).
+  void deps;
+  // task 7 (§6.30, S-B): the OrdersCarriedOver audience (P0.13 writes the event; with no audience it reaches no socket)
+  const stopCarryAudience = registerOrdersCarriedOverAudience(app);
+  app.addHook('onClose', async () => {
+    stopCarryAudience();
+  });
+}
+
+/** §5, G-20: inside registerHubProjections, after orders, tables and audit (also the test hub and the big fixture). */
+export function registerBillingProjections(projections: ProjectionRegistry): void {
+  // task 7 (billing); task 8 adds shifts here
+  projections.register(billingProjection());
+}
+
+/**
+ * §6.30: `OrdersCarriedOver` → sockets whose staff hold `view-reports` or `close-business-day` (01d's holders: an
+ * `allowed` grant), resolved through the hub's StaffDirectory in memory. Returns the unregister function.
+ * Scope is not read: both permissions take `branch` only (01b v1.10 §3.3, `PERMISSION_SCOPES`), and the 01d
+ * `permission` target likewise reads scope only for a `range_of` (alerts/targets.ts permissionHolders), which this
+ * audience has none of.
+ */
+function registerOrdersCarriedOverAudience(app: FastifyInstance): () => void {
+  return registerEventAudience('OrdersCarriedOver', (_event, socket: SocketCtx) => {
+    if (socket.kind !== 'staff' || socket.staffId === null) return false;
+    const directory = currentDirectory(app);
+    return (
+      directory.resolve(socket.staffId, 'view-reports').grant === 'allowed' ||
+      directory.resolve(socket.staffId, 'close-business-day').grant === 'allowed'
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------------------------- workers (G-21, H-3)
+
+/** The fiscal worker's two seams (29b registers the real ones with one line below its marker). */
+export interface FiscalWorkerSeams {
+  loadSubmission(deps: HubDeps, row: FiscalWorkRow): LoadedSubmission | Promise<LoadedSubmission>;
+  onAnswer(deps: HubDeps, row: FiscalWorkRow, answer: FiscalFinalAnswer): void | Promise<void>;
+}
+
+let seams: FiscalWorkerSeams | null = null;
+
+export function registerFiscalWorkerSeams(s: FiscalWorkerSeams): void {
+  seams = s;
+}
+
+/** Tests only: back to "no seams registered". */
+export function resetFiscalWorkerSeams(): void {
+  seams = null;
+}
+
+/**
+ * G-21: boot calls this after listen, beside the print worker (P0.18), and joins the returned stop to `beat.stop`.
+ * Starts the fiscal worker only when loadSubmission and onAnswer are registered; with none it starts nothing, reads
+ * nothing and fails nothing.
+ */
+export function startBillingWorkers(deps: HubDeps, log: FiscalWorkerLog): () => void {
+  const s = seams;
+  if (s === null) return () => undefined;
+  return startFiscalWorker({
+    db: deps.db,
+    clock: deps.clock,
+    adapterFor: fiscalAdapterFor,
+    loadSubmission: (row) => s.loadSubmission(deps, row),
+    onAnswer: (row, answer) => s.onAnswer(deps, row, answer),
+    log,
+  });
+}
