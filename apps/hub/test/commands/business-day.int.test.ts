@@ -285,6 +285,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
 
     expect(res.statusCode).toBe(200);
     expect(logAfter(hub, before)).toEqual([
+      { type: 'ZReportIssued' }, // +1: 05 day-close appender's Z, before the releases (05 task 25, R-85)
       { type: 'StockReleased', id: 'I1', line: 'H', q: 1, reason: 'day_closed' },
       { type: 'StockReleased', id: 'I3', line: 'H', q: 250, reason: 'day_closed' },
       { type: 'StockReleased', id: 'I1', line: 'S', q: 1, reason: 'day_closed' },
@@ -292,7 +293,8 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     ]);
     const rows = rowsAfter(hub, before);
     for (const row of rows) expect(row).toMatchObject({ occurred_at: now, recorded_at: now, actor_id: 'S_MGR', device_id: admin.device.deviceId });
-    expect(rows.map((row) => [row.stream_type, row.stream_id])).toEqual([['stock', 'I1'], ['stock', 'I3'], ['stock', 'I1'], ['hub', 'branch-1']]);
+    // +1 ['hub', 'branch-1'] first: 05 day-close appender's ZReportIssued (05 task 25, R-85)
+    expect(rows.map((row) => [row.stream_type, row.stream_id])).toEqual([['hub', 'branch-1'], ['stock', 'I1'], ['stock', 'I3'], ['stock', 'I1'], ['hub', 'branch-1']]);
     expect(res.json().data.event_ids).toEqual(rows.map((row) => row.event_id));
     // The result's closed_at is the BusinessDayClosed event's recorded_at; shape unchanged.
     expect(res.json().data.result).toEqual({
@@ -313,7 +315,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     const replay = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close');
     expect(replay.headers['idempotent-replay']).toBe('true');
     expect(replay.json()).toEqual(res.json());
-    expect(rowsAfter(hub, before)).toHaveLength(4);
+    expect(rowsAfter(hub, before)).toHaveLength(4 + 1); // +1: 05 day-close appender's ZReportIssued (05 task 25, R-85)
   });
 
   it('[01a §6.18b A-14] the no-op paths append nothing, with reservations a close would release', async () => {
@@ -369,7 +371,11 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(engine(hub).business_day!.closed_at).toBeNull();
     fail = false;
     expect((await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-fail')).statusCode).toBe(200);
-    expect(logAfter(hub, before)).toEqual([{ type: 'StockReleased', id: 'I1', line: 'H', q: 1, reason: 'day_closed' }, { type: 'BusinessDayClosed' }]);
+    expect(logAfter(hub, before)).toEqual([
+      { type: 'ZReportIssued' }, // +1: 05 day-close appender's Z, before the releases (05 task 25, R-85)
+      { type: 'StockReleased', id: 'I1', line: 'H', q: 1, reason: 'day_closed' },
+      { type: 'BusinessDayClosed' },
+    ]);
   });
 
   it('[01a §6.18b A-14] the statement count changes only by the appends: each release adds one INSERT', async () => {
@@ -389,8 +395,8 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     const line = (id: string): LineSpec => ({ id, draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true });
     const plain = await closeCount([]);
     const withReleases = await closeCount([line('A'), line('B')]);
-    expect(plain.events).toBe(1);
-    expect(withReleases.events).toBe(3);
+    expect(plain.events).toBe(2); // +1: 05 day-close appender's ZReportIssued (05 task 25, R-85)
+    expect(withReleases.events).toBe(4); // +1: 05 day-close appender's ZReportIssued (05 task 25, R-85)
     expect(withReleases.statements).toBe(plain.statements + 2);
   });
 
@@ -560,6 +566,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
       expect(res.statusCode, res.body).toBe(200);
       expect(res.json().data.result).toMatchObject({ changed: true, reason: 'closed' });
       expect(logAfter(hub, before)).toEqual([
+        { type: 'ZReportIssued' }, // +1: 05 day-close appender's Z, registered first at boot (05 task 25, R-85)
         { type: 'StockSet', id: 'I3', on_hand: 111, unit: 'g' },
         { type: 'StockSet', id: 'I3', on_hand: 222, unit: 'g' },
         { type: 'StockReleased', id: 'I1', line: 'H', q: 1, reason: 'day_closed' },
@@ -599,7 +606,11 @@ describe('business day commands (§6.18a, §6.18b)', () => {
       calls = 0;
       expect((await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-fail')).statusCode).toBe(200);
       expect(calls).toBe(1);
-      expect(logAfter(hub, before)).toEqual([{ type: 'StockSet', id: 'I3', on_hand: 333, unit: 'g' }, { type: 'BusinessDayClosed' }]);
+      expect(logAfter(hub, before)).toEqual([
+        { type: 'ZReportIssued' }, // +1: 05 day-close appender's Z, registered first at boot (05 task 25, R-85)
+        { type: 'StockSet', id: 'I3', on_hand: 333, unit: 'g' },
+        { type: 'BusinessDayClosed' },
+      ]);
     });
   });
 

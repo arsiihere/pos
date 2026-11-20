@@ -53,7 +53,7 @@ const PKS: Record<string, string[]> = {
   fiscal_outbox: ['invoice_id'],
   closed_split_units: ['bill_id', 'split_no', 'order_item_id'],
   carried_orders: ['order_id', 'business_date'],
-  z_reports: ['business_date'],
+  z_reports: ['z_no'], // 0023 keyed it by business_date; 0025 re-keys it by z_no (05 task 25, R-85)
   billing_day: ['k'],
   shifts: ['shift_id'],
   shift_signoffs: ['shift_id'],
@@ -173,9 +173,9 @@ describe('[05 v1.0.11 §5, R-56] hub migration 0024_billing_payments_shift', () 
     expect(plan(db, "SELECT payment_id FROM bill_payments WHERE shift_id = 'SH1' AND mode_id = 'cash'")).toMatch(/USING (COVERING )?INDEX bill_payments_shift \(shift_id=\? AND mode_id=\?\)/);
   });
 
-  it('[05 v1.0.11 §5, R-56] a fresh database and a database at 23 both end at 24 with the index; re-run is a no-op', async () => {
+  it('[05 v1.0.11 §5, R-56] a fresh database and a database at 23 both end at 25 (0024 adds the index); re-run is a no-op', async () => {
     const fresh = await migrated();
-    expect(fresh.pragma('user_version', { simple: true })).toBe(24);
+    expect(fresh.pragma('user_version', { simple: true })).toBe(25); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     expect(names(fresh, 'index')).toContain('bill_payments_shift');
 
     const fx = freshDb();
@@ -187,14 +187,41 @@ describe('[05 v1.0.11 §5, R-56] hub migration 0024_billing_payments_shift', () 
     const tablesBefore = names(db, 'table');
     insert(db, 'bills', BILL);
     insert(db, 'bill_payments', PAYMENT);
-    const result = await runMigrations(db, { dir: migrations, clock: fixedClock(T) });
+    const upTo24 = copyUpTo(dir, '0024'); // 0025 (R-85) is its own describe's subject (05 task 25)
+    const result = await runMigrations(db, { dir: upTo24, clock: fixedClock(T) });
     expect(result).toEqual({ from: 23, to: 24, applied: [SHIFT_MIGRATION] });
     expect(db.pragma('user_version', { simple: true })).toBe(24);
     expect(names(db, 'index').filter((n) => !indexesBefore.includes(n))).toEqual(['bill_payments_shift']);
     expect(names(db, 'table'), 'no table change').toEqual(tablesBefore);
     expect(db.prepare('SELECT COUNT(*) FROM bill_payments').pluck().get(), 'rows kept').toBe(1);
     expect(plan(db, "SELECT * FROM bill_payments WHERE shift_id = 'SH1'")).toMatch(/bill_payments_shift/);
-    expect(await runMigrations(db, { dir: migrations, clock: fixedClock(T + 1) })).toEqual({ from: 24, to: 24, applied: [] });
+    expect(await runMigrations(db, { dir: upTo24, clock: fixedClock(T + 1) })).toEqual({ from: 24, to: 24, applied: [] });
+  });
+});
+
+const Z_KEY_MIGRATION = '0025_billing_z_reports_key.sql';
+
+describe('[05 v1.0.24 §5, R-85] hub migration 0025_billing_z_reports_key', () => {
+  it('[05 R-85] a database at 24 with Zs ends at 25: z_reports keyed by z_no, business_date a plain index, every row kept; a date may hold two Zs; z_no stays unique; 0023 untouched; re-run is a no-op', async () => {
+    const fx = freshDb();
+    cleanups.push(fx.cleanup);
+    const { db, dir } = fx;
+    await runMigrations(db, { dir: copyUpTo(dir, '0024'), clock: fixedClock(T) });
+    insert(db, 'z_reports', { business_date: '2026-11-19', z_no: 1, issued_at: 1, report_json: '{"a":1}' });
+    insert(db, 'z_reports', { business_date: '2026-11-20', z_no: 2, issued_at: 2, report_json: '{"a":2}' });
+    const before = db.prepare('SELECT * FROM z_reports ORDER BY z_no').all();
+    const result = await runMigrations(db, { dir: migrations, clock: fixedClock(T) });
+    expect(result).toEqual({ from: 24, to: 25, applied: [Z_KEY_MIGRATION] });
+    expect(db.prepare('SELECT * FROM z_reports ORDER BY z_no').all(), 'rows kept').toEqual(before);
+    const pk = (db.pragma('table_info(z_reports)') as Array<{ name: string; pk: number }>).filter((c) => c.pk > 0).map((c) => c.name);
+    expect(pk).toEqual(['z_no']);
+    const ix = (db.pragma('index_list(z_reports)') as Array<{ name: string; unique: number; partial: number }>).find((i) => i.name === 'z_reports_day');
+    expect([ix?.unique, ix?.partial]).toEqual([0, 0]);
+    expect((db.pragma('index_info(z_reports_day)') as Array<{ name: string }>).map((c) => c.name)).toEqual(['business_date']);
+    insert(db, 'z_reports', { business_date: '2026-11-20', z_no: 3, issued_at: 3, report_json: '{}' }); // same date, next Z
+    expect(() => insert(db, 'z_reports', { business_date: '2026-11-21', z_no: 3, issued_at: 4, report_json: '{}' })).toThrow(/UNIQUE constraint failed: z_reports.z_no/);
+    expect(lf(readFileSync(billingMigrationPath, 'utf8')), '0023 never edited').not.toMatch(/z_reports_day/);
+    expect(await runMigrations(db, { dir: migrations, clock: fixedClock(T + 1) })).toEqual({ from: 25, to: 25, applied: [] });
   });
 });
 
@@ -246,8 +273,9 @@ describe('[05 §5] hub migration 0023_billing — schema', () => {
     const desc = (db.pragma('index_xinfo(bill_print_jobs_bill)') as Array<{ name: string | null; desc: number; key: number }>).filter((c) => c.key === 1);
     expect(desc.map((c) => [c.name, c.desc])).toEqual([['bill_id', 0], ['created_at', 1]]);
     expect(db.prepare('SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?').pluck().get('z_reports', 'z_no')).toBe(1);
+    // 0023's UNIQUE (z_no) became the primary key in 0025 (05 task 25, R-85): z_no stays unique, no unique index left
     const zUnique = (db.pragma('index_list(z_reports)') as Array<{ name: string; unique: number; origin: string }>).filter((i) => i.origin === 'u');
-    expect(zUnique.map((i) => (db.pragma(`index_info(${i.name})`) as Array<{ name: string }>).map((c) => c.name))).toEqual([['z_no']]);
+    expect(zUnique).toEqual([]);
   });
 
   it('[05 v1.0.7 §5, task 6 review] bills_seating, bills_key and fiscal_outbox_rejected exist on their tables; only fiscal_outbox_rejected is partial, WHERE state = \'rejected\'', async () => {
@@ -502,7 +530,7 @@ describe('[05 #87 rebuild half] [04 v1.0.7 V-3] 0023 deletes the audit checkpoin
     let live: Row[] = [];
     await bootOnce(configPath, WALL + 30_000, (deps) => {
       const db = deps.db;
-      expect(db.pragma('user_version', { simple: true })).toBe(24);
+      expect(db.pragma('user_version', { simple: true })).toBe(25); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
       const rows = auditRows(db);
       expect(rows.filter((r) => r['action'] === 'bill_requested').map((r) => r['seq']), 'the old BillRequested is in the log').toEqual(oldBillRequested);
       expect(rows.filter((r) => r['action'] !== 'bill_requested'), 'every earlier row, column for column').toEqual(before);

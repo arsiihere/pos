@@ -120,7 +120,7 @@ describe('[04 §4.2, §6.6] contracts and guards (built by v8)', () => {
     expect(checkMergeGuard(hub.deps.db, { seating_ids: ['S1', 'S2'] })).toBeNull();
     expect(checkLineGuard(hub.deps.db, 'O1', touched(['L1']))).toBeNull();
     expect(checkDayCloseGuard(hub.deps.db, {} as EngineState)).toBeNull();
-    expect(counter.count).toBe(3 + 2); // +2: 05 merge guard and 05 line guard on the same lists (task 24)
+    expect(counter.count).toBe(3 + 2 + 3); // +2: 05 merge guard and 05 line guard on the same lists (task 24); +3: 05 day-close guard (05 task 25, R-85)
     const calls: unknown[] = [];
     provideVoids({
       mergeGuard: (_db, q) => {

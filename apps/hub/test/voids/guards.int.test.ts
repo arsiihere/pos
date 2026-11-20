@@ -211,6 +211,8 @@ describe('[04 row A-1] day-close guard', () => {
     });
     expect(state().business_day?.closed_at).toBeNull();
     expect((await answer(hub, cashier, alert_id!, 'withdraw')).status).toBe(200);
+    // setup (05 task 25, R-85): 05's day-close guard now refuses an unbilled order; cancel it so the close is about the void
+    append(hub, [{ stream_type: 'order', stream_id: s.order_id, event_type: 'OrderCancelled', payload: { order_id: s.order_id } }]);
     const closed = await closeDay();
     expect(closed.status, JSON.stringify(closed.body.error)).toBe(200);
     expect(closed.body.data!.result.changed).toBe(true);
@@ -241,7 +243,10 @@ describe('[04 row A-1] day-close guard', () => {
       const r = await answer(hub, end === 'withdraw' ? cashier : manager, id, end);
       expect(r.status, `${end} ${JSON.stringify(r.error)}`).toBe(200);
     }
-    expect(counted(() => checkDayCloseGuard(hub.deps.db, state()))).toEqual({ value: null, statements: 1 });
+    // setup (05 task 25, R-85): 05's day-close guard now refuses unbilled orders; cancel the 41 so the close is about the voids
+    for (const o of orders) append(hub, [{ stream_type: 'order', stream_id: o.order_id, event_type: 'OrderCancelled', payload: { order_id: o.order_id } }]);
+    // +3: 05's day-close guard after 04's (open shifts, pending sign-offs, unbilled orders; 05 task 25, R-85)
+    expect(counted(() => checkDayCloseGuard(hub.deps.db, state()))).toEqual({ value: null, statements: 1 + 3 });
     expect((await closeDay()).status).toBe(200);
   });
 });
@@ -263,7 +268,8 @@ describe('[04 §6.6, §4.2] index', () => {
     pendingVoids(db, ['O'], state());
     db.prepare = prepare;
     // +3: 05's merge guard (both forms) and line guard (task 24) follow 04's on the 02a / 02b lists; they read bills
-    expect(seen).toHaveLength(8);
+    // +3: 05's day-close guard after 04's (shifts, shifts, orders; 05 task 25, R-85)
+    expect(seen).toHaveLength(8 + 3);
     const ours = seen.filter((sql) => /FROM alerts/.test(sql));
     expect(ours).toHaveLength(5);
     for (const sql of ours) {

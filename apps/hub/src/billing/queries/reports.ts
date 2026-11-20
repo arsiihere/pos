@@ -51,8 +51,10 @@ SELECT i.invoice_id, i.series, i.bill_id, i.subtotal_minor, i.discount_minor, i.
          SELECT json_extract(e.payload, '$.reason_code')
            FROM events e WHERE e.stream_type = 'bill' AND e.stream_id = i.bill_id AND e.seq < f.ord AND e.event_type = 'BillReopened'
           ORDER BY e.seq DESC LIMIT 1) END AS credit_reason_code
-FROM invoices i LEFT JOIN fiscal_outbox f ON f.invoice_id = i.invoice_id
+FROM invoices i JOIN fiscal_outbox f ON f.invoice_id = i.invoice_id -- R-85: the f.ord bound below needs the row
 WHERE i.business_date = @day
+  -- ⚠️ 05 v1.0.24 (R-85): this session only (a date may hold two): the invoice event after the day's BusinessDayOpened
+  AND f.ord > (SELECT MAX(d.seq) FROM audit_entries d WHERE d.action = 'day_opened')
 ORDER BY i.invoice_id`;
 interface InvoiceRow {
   invoice_id: string;
@@ -76,7 +78,7 @@ SELECT s.shift_id, s.staff_id, s.float_minor, s.expected_cash_minor, s.counted_m
        (SELECT json_group_array(json_object('mode_id', t.mode_id, 'taken_by_staff_id', t.taken_by_staff_id,
                'in_minor', t.in_minor, 'out_minor', t.out_minor, 'change_minor', t.change_minor))
           FROM shift_takings t WHERE t.shift_id = s.shift_id) AS takings
-FROM shifts s WHERE s.business_date = @day
+FROM shifts s WHERE s.business_date = @day AND s.opened_at >= @opened_at -- R-85: shifts of this session (no shift spans a close)
 ORDER BY s.shift_id`;
 interface ShiftRow {
   shift_id: string;
@@ -93,7 +95,7 @@ interface ShiftRow {
 // 3. Petty cash on the day's shifts (petty_cash_shift) + every advance not settled (petty_cash_open).
 const PETTY = `
 SELECT 'day' AS src, p.kind, p.amount_minor, p.category_id, p.advance_staff_id, p.at
-  FROM shifts s JOIN petty_cash p ON p.shift_id = s.shift_id WHERE s.business_date = @day
+  FROM shifts s JOIN petty_cash p ON p.shift_id = s.shift_id WHERE s.business_date = @day AND s.opened_at >= @opened_at -- R-85
 UNION ALL
 SELECT 'open', p.kind, p.amount_minor, p.category_id, p.advance_staff_id, p.at
   FROM petty_cash p WHERE p.kind = 'advance' AND p.settled_at IS NULL`;
@@ -109,7 +111,7 @@ interface PettyRow {
 // 4. Sign-offs answered in the day, any shift date (shift_signoffs_day) + pending sign-offs, any date (shifts_signoff_pending).
 const SIGNOFFS = `
 SELECT 'done' AS src, s.business_date AS shift_date, s.staff_id, s.variance_minor, o.outcome, o.approver_staff_id, o.signed_at
-  FROM shift_signoffs o JOIN shifts s ON s.shift_id = o.shift_id WHERE o.business_date = @day
+  FROM shift_signoffs o JOIN shifts s ON s.shift_id = o.shift_id WHERE o.business_date = @day AND o.signed_at >= @opened_at -- R-85
 UNION ALL
 SELECT 'pending', s.business_date, s.staff_id, s.variance_minor, NULL, NULL, NULL
   FROM shifts s WHERE s.variance_state = 'pending'`;
@@ -145,10 +147,11 @@ interface DayEventRow {
 }
 
 // 6. Carried forward: live payments on the open splits of the open bills (bills_open, bill_payments_split), with the
-// staff of the payment's shift. Brought forward: the carried forward of the last Z before the day. Carried orders of
+// staff of the payment's shift. Brought forward: the carried forward of the previous Z (by z_no, R-85). Carried orders of
 // the day (carried over) and of the last closed day (carried in), with what labels them.
 const FORWARD = `
-WITH prev AS (SELECT business_date, report_json FROM z_reports WHERE business_date < @day ORDER BY business_date DESC LIMIT 1)
+-- ⚠️ 05 v1.0.24 (R-85): the previous Z is the previous z_no (a date may hold two Zs), not the last earlier date
+WITH prev AS (SELECT business_date, report_json FROM z_reports WHERE @z_no IS NULL OR z_no < @z_no ORDER BY z_no DESC LIMIT 1)
 SELECT 'cf' AS src, p.mode_id AS a, s.staff_id AS b, p.direction AS c, p.amount_minor AS n, NULL AS j
   FROM bills b JOIN bill_splits sp ON sp.bill_id = b.bill_id AND sp.state = 'open'
   JOIN bill_payments p ON p.bill_id = sp.bill_id AND p.split_no = sp.split_no AND p.removed_at IS NULL
@@ -271,13 +274,14 @@ export function loadReportInput(db: Database.Database, config: BranchConfig, day
   const categoryName = new Map(billing.settings.petty_categories.map((c) => [c.category_id, c.name]));
   const tableName = new Map(config.floors.flatMap((f) => f.tables).map((t) => [t.table_id, t.name]));
   const p = { day: day.business_date, opened_at: day.opened_at };
+  const forwardP = { ...p, z_no: day.z_no }; // R-85: the previous Z by number
 
   const invoiceRows = db.prepare(INVOICES).all(p) as InvoiceRow[]; // 1
   const shiftRows = db.prepare(SHIFTS).all(p) as ShiftRow[]; // 2
   const pettyRows = db.prepare(PETTY).all(p) as PettyRow[]; // 3
   const signoffRows = db.prepare(SIGNOFFS).all(p) as SignoffRow[]; // 4
   const eventRows = db.prepare(DAY_EVENTS).all(p) as DayEventRow[]; // 5
-  const forwardRows = db.prepare(FORWARD).all(p) as ForwardRow[]; // 6
+  const forwardRows = db.prepare(FORWARD).all(forwardP) as ForwardRow[]; // 6
   const openRows = day.kind === 'x' ? (db.prepare(OPEN_BILLS).all() as OpenBillRow[]) : []; // 7 (X only)
 
   const invoices: ReportInput['invoices'] = invoiceRows.map((r) => {
