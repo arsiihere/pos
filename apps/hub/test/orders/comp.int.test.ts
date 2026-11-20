@@ -974,7 +974,8 @@ describe('[02b #44] line change judges changed lines only; stale_comps mode (04 
       const drafts = lineChangeDrafts(ctxOf(tx), order_id, change, { stale_comps: 'keep' });
       return { drafts, statements: counter.count };
     }).result;
-    expect(kept.statements).toBe(1);
+    // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(kept.statements).toBe(2);
     expect(kept.drafts.map((d) => d.event_type)).toEqual(['OrderCancelled']);
 
     const closed = hub.deps.writer.run((tx) => lineChangeDrafts(ctxOf(tx), order_id, change)).result;

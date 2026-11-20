@@ -802,7 +802,8 @@ describe('RemoveItems (02b §6.2, §3.5)', () => {
       { order_item_id: 'K1r', units: 1 },
       { order_item_id: 'K1n', units: 1 },
     ]);
-    expect(lastStatements).toBe(2);
+    // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(lastStatements).toBe(3);
     expect(lineView(order_id, 'K1n')).toMatchObject({ removed_units: 1, removed_minor: 10_000, live_units: 0 });
 
     // the multiple case: 3 later raita under karahi ×3 → a partial remove still leaves the child alone
@@ -1127,7 +1128,8 @@ describe('[05 #79 line half] [05 row Q-3] the line guard list: ordered, first no
     const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1' }] }, { counted: true });
     expect(r.status, JSON.stringify(r.error)).toBe(200);
     expect(asked).toBe(1);
-    expect(lastStatements).toBe(3);
+    // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(lastStatements).toBe(4);
   });
 
   it('[05 #79 line half] none registered → never blocked, +0 statements', async () => {
@@ -1136,7 +1138,8 @@ describe('[05 #79 line half] [05 row Q-3] the line guard list: ordered, first no
     const order_id = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
     const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1' }] }, { counted: true });
     expect(r.status, JSON.stringify(r.error)).toBe(200);
-    expect(lastStatements).toBe(2);
+    // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(lastStatements).toBe(3);
   });
 });
 

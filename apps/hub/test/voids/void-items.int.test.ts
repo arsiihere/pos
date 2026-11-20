@@ -442,11 +442,12 @@ async function countedVoid(who: Who, payload: Record<string, unknown>): Promise<
 // order; K2 is placed with K1 and held unfired (a VX.slow hold line), a live waiting line of the same order.
 describe('[04 §6.1, T-2] VoidItems moved: stock effects end to end (10b, 10d–10h)', () => {
   type Entry = { order_item_id: string; units?: number; disposition: 'moved' | 'wastage' };
-  async function voidCounted(order_id: string, lines: Entry[]): Promise<{ reply: Reply; reserved: string[] }> {
+  async function voidCounted(order_id: string, lines: Entry[], expected = 5 + 1): Promise<{ reply: Reply; reserved: string[] }> {
     const mgr = signIn(hub, STAFF.manager);
     const { reply, statements } = await countedVoid(mgr, { order_id, reason_code: 'quality', note: null, disposition_note: null, lines });
     expect(reply.status, JSON.stringify(reply.error)).toBe(200);
-    expect(statements).toBe(5 + 1); // +1: 05 line guard (task 24)
+    // default 5 + 1: 05 line guard (task 24); callers that cancel an order pass + 1 more for the order-cancelled hook (R-72, task 19)
+    expect(statements).toBe(expected);
     expect(strictRefold(hub)).toEqual(state());
     expect(state().diagnostics.filter((d) => d.kind === 'stock_breach')).toEqual([]);
     return { reply, reserved: ofType(reply, 'StockReserved').map((e) => e.payload.order_item_id as string) };
@@ -469,7 +470,8 @@ describe('[04 §6.1, T-2] VoidItems moved: stock effects end to end (10b, 10d–
     toStage(hub, order_id, ['KA'], 'cooking');
     toStage(hub, order_id, ['KB'], 'done');
     const t4 = waitingT4(hub);
-    const { reply, reserved } = await voidCounted(order_id, [{ order_item_id: 'KA', disposition: 'moved' }, { order_item_id: 'KB', disposition: 'moved' }]);
+    // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    const { reply, reserved } = await voidCounted(order_id, [{ order_item_id: 'KA', disposition: 'moved' }, { order_item_id: 'KB', disposition: 'moved' }], 5 + 1 + 1);
     expect(reply.events.filter((e) => e.event_type === 'ItemMovedToStock' || e.event_type === 'ItemVoided').map((e) => `${e.event_type} ${String(e.payload.order_item_id)}`)).toEqual([
       'ItemMovedToStock KA',
       'ItemVoided KA',
@@ -491,7 +493,8 @@ describe('[04 §6.1, T-2] VoidItems moved: stock effects end to end (10b, 10d–
       const t4 = waitingT4(hub);
       const k1: Entry = { order_item_id: 'K1', disposition: 'moved' };
       const k2: Entry = { order_item_id: 'K2', disposition: 'wastage' };
-      const { reply, reserved } = await voidCounted(order_id, movedFirst ? [k1, k2] : [k2, k1]);
+      // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+      const { reply, reserved } = await voidCounted(order_id, movedFirst ? [k1, k2] : [k2, k1], 5 + 1 + 1);
       expect(reserved, String(movedFirst)).toEqual([t4.line]);
       expect(ofType(reply, 'OrderCancelled')).toHaveLength(1);
       expect(state().lines[t4.line]).toMatchObject({ from_stock: true });
@@ -580,7 +583,8 @@ describe('[04 §6.1] definition and statements', () => {
       ],
     });
     expect(r.status, JSON.stringify(r.error)).toBe(200);
-    expect(handled).toBe(5 + 1); // +1: 05 line guard (task 24)
+    // +1: 05 line guard (task 24); +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(handled).toBe(5 + 1 + 1);
   });
 
   // Reading (#131): §6.1's "3 + 2" excludes 01d's closeMany when lineChangeDrafts closes a stale comp request; measured

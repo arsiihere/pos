@@ -290,7 +290,8 @@ describe('[04 #42] option children', () => {
     });
     expect(last.status, JSON.stringify(last.error)).toBe(200);
     expect(ofType(last, 'ItemVoided').map((p) => [p.order_item_id, p.units])).toEqual([['KL', 1], ['RL', 1]]);
-    expect(handled).toBe(5 + 1); // +1: 05 line guard (task 24)
+    // +1: 05 line guard (task 24); +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(handled).toBe(5 + 1 + 1);
   });
 
   it('[02b #39] [04 K-1] approval path: the last parent unit with a null child, approved → the child\'s cascaded ItemVoided carries the alert_id', async () => {
