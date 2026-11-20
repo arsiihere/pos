@@ -8,6 +8,7 @@ import { registerEventAudience } from '../ws/audience.js';
 import type { SocketCtx } from '../ws/catch-up.js';
 import { registerOpenShift } from './commands/open-shift.js';
 import { registerPrintCheckBill } from './commands/print-check-bill.js';
+import { registerPayments } from './commands/payments.js'; // task 16
 import { registerSetSplits } from './commands/set-splits.js';
 // task 14 (§6.8, §3.14): RemoveServiceCharge / ApplyServiceCharge; the module load registers the remove_service_charge apply
 import { registerServiceCharge } from './commands/service-charge.js';
@@ -45,6 +46,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   bindBillPrints(deps.projections, { log: (line) => app.log.warn(line, 'billing.print_skipped'), config: deps.config });
   // task 20 (§6.14)
   registerRemoveComp(app);
+  // task 16 (§6.9, §6.10): AddPayment and RemovePayment
+  registerPayments(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
