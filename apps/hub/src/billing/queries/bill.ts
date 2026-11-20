@@ -117,7 +117,7 @@ export interface BillView {
 
 // ------------------------------------------------------------------------------------------------ reads
 
-interface BillOrder {
+export interface BillOrder {
   order_id: string;
   order_type: string;
   placed_by: string;
@@ -466,7 +466,7 @@ export function closedSplitView(s: SplitRow, splitMode: BillHead['split_mode'], 
   };
 }
 
-function identifierOf(head: BillHead, config: BranchConfig, orders: readonly BillOrder[], today: string | null): string {
+export function identifierOf(head: BillHead, config: BranchConfig, orders: readonly BillOrder[], today: string | null): string {
   let id: Identifier;
   if (head.scope === 'seating') {
     const table = head.seating?.primary_table_id ?? '';
