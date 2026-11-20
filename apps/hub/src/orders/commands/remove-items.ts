@@ -7,7 +7,7 @@ import { defineCommand, type CommandCtx } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { withStockEffects } from '../../commands/set-precooked-stock.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
-import { requireLock } from '../../tables/lock.js';
+import { requireLock, requireLockHolder } from '../../tables/lock.js';
 import { readOrder, type ReadOrderHead, type ReadOrderLine } from '../exports.js';
 import { gmlDealPartPartial, liveUnits, planRemove } from '../ledger.js';
 import { changeDrafts, type LineChange } from '../line-change.js';
@@ -20,7 +20,7 @@ import { zoneAlertDrafts } from '../zone-alerts.js';
 // payload order (line of the order, zone rule before any engine stage, stage 1, units, g/ml parts) → line guard with
 // the planRemove lines (⚠️ 04 row Q-3: 409 VOID_PENDING; ⚠️ 05 row Q-3: the list, LINE_IN_CLOSED_SPLIT) → scope last (C8).
 // Statements: 1 order + lines (readOrder, orders/exports.ts: with the order's seating, its tables and the zone counts of
-// its zone lines), 1 seating / lock (requireLock, dine-in), 1 open comp requests (alerts.listOpen), +1 zone alerts
+// its zone lines), 1 seating / lock (requireLock, dine-in; on a CLOSED seating none: requireLockHolder reads nothing, ⚠️ 05 row T-3 (4), R-39), 1 open comp requests (alerts.listOpen), +1 zone alerts
 // (listOpen for zone:<id>) only when a zone line is in the payload (m-6), +1 per registered line guard (04 Q-3, G-23; 05 Q-3);
 // 01d's own bounds and the append excluded.
 
@@ -64,7 +64,15 @@ function removeItems(ctx: CommandCtx, p: Payload): { events: EventDraft[]; resul
     if (order.seating_id !== p.seating_id || order.primary_table_id === null) {
       throw new DomainError('TABLE_SEATING_CHANGED', { table_id: order.primary_table_id, seating_id: p.seating_id });
     }
-    lockDrafts = requireLock(ctx.tx, { table_id: order.primary_table_id, seating_id: p.seating_id }, ctx);
+    // ⚠️ Changed by 05 (row T-3 (4), H2-14), 02a v1.1.9 §4.2: a CLOSED seating (a corrections-only reopen after
+    // CleanTable) has no lock to take; the seating_id check above still holds. NEEDS_CLEANING keeps requireLock's 409.
+    // ⚠️ Owner ruling R-39 (2026-11-20): it still gets requireLock's authorisation (holder, or take-order-anywhere whose
+    // scope covers the primary table → else the same 403), with no lock drafts and no statement (holder from readOrder).
+    if (order.seating_state === 'CLOSED') {
+      requireLockHolder(ctx, { table_id: order.primary_table_id, holder_staff_id: order.holder_staff_id! });
+    } else {
+      lockDrafts = requireLock(ctx.tx, { table_id: order.primary_table_id, seating_id: p.seating_id }, ctx);
+    }
   }
 
   const now = ctx.clock.branchNow();

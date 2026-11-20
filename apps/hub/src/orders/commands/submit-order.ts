@@ -139,7 +139,9 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
     const ref = { table_id: payload.table_id!, seating_id: payload.seating_id! };
     const seating = seatingOf(db, ref.table_id);
     if (seating === null || seating.seating_id !== ref.seating_id) throw new DomainError('TABLE_SEATING_CHANGED', ref);
-    lockDrafts = requireLock(ctx.tx, ref, ctx);
+    // ⚠️ Changed by 05 (row T-3 (3), H2-13), 02a v1.1.9 §4.2: a live submit passes a NEEDS_CLEANING seating (S-9 (b);
+    // OrderPlaced re-occupies it); requireLock applies the live-only rule, so a queued replay keeps TABLE_NEEDS_CLEANING.
+    lockDrafts = requireLock(ctx.tx, ref, ctx, { allowBillClosed: true });
     primary_table_id = seating.primary_table_id;
   }
 

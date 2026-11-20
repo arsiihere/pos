@@ -365,6 +365,29 @@ describe('[02a §8 Table sheet] table sheet', () => {
       vi.useRealTimers();
     }
   });
+
+  // 02a v1.1.9 §8 (05 row T-3 (6), H2-7): SeatingReopened joins the table frames; 02b v1.0.16 (05 rows Q-2, Q-4, G-26):
+  // OrdersUnbilled and LineCompRemoved join the order frames, as in the map and table-view lists.
+  // 05 row T-3 (7) (H7-3): BillClosedEmpty is a table frame of the hub list too (integrator plan fix, reading 1).
+  it.each([
+    ['05 row T-3 (6)', 'SeatingReopened'],
+    ['05 row T-3 (7)', 'BillClosedEmpty'],
+    ['05 row Q-2; G-26', 'OrdersUnbilled'],
+    ['05 row Q-4; G-26', 'LineCompRemoved'],
+  ])('[%s] a %s frame re-reads the map once (debounced)', async (_row, event_type) => {
+    vi.useFakeTimers();
+    try {
+      const { shell, calls } = fakeShell({});
+      await render(shell);
+      const reads = () => calls.filter((c) => c.name === 'tableMap').length;
+      const before = reads();
+      shell.live.frame({ type: 'event' as const, seq: 20, event: { event_id: 'E20', event_type, schema_version: 1, payload: {} } });
+      await vi.advanceTimersByTimeAsync(300);
+      expect(reads()).toBe(before + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // 04 v1.0.5 §8 Cancel table (row S-1, owner Q-VU1-1 (a); §10 #59b): under More for void-item (any grant), while the

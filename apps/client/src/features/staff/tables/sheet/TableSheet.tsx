@@ -40,7 +40,11 @@ export interface TableSheetProps {
   seating_id: string | null;
 }
 
-/** 02a §6.19 table frames (tables/audiences.ts) except TableLockTouched; 02b order frames; BillClosed (Q-5, Q-35). */
+/**
+ * 02a §6.19 table frames (tables/audiences.ts) except TableLockTouched; 02b order frames; BillClosed (Q-5, Q-35).
+ * ⚠️ 02a v1.1.9 §8 (05 row T-3 (6), (7), H2-7, H7-3): SeatingReopened and 05's BillClosedEmpty join; ⚠️ 02b v1.0.16 (05 rows Q-2, Q-4, G-26): OrdersUnbilled
+ * and LineCompRemoved join, as in the map (map-store.ts) and table-view (refetch.ts) lists.
+ */
 const REFRESH_ON: ReadonlySet<string> = new Set([
   'TableOpened',
   'TableLocked',
@@ -51,6 +55,8 @@ const REFRESH_ON: ReadonlySet<string> = new Set([
   'SeatingSplit',
   'BillRequested',
   'TableCleaned',
+  'SeatingReopened',
+  'BillClosedEmpty',
   'OrderPlaced',
   'ItemAdded',
   'OrderLinesAdded',
@@ -64,8 +70,10 @@ const REFRESH_ON: ReadonlySet<string> = new Set([
   'OrderFoodServed',
   'OrderFoodCleared',
   'OrdersBilled',
+  'OrdersUnbilled',
   'LineWeightSet',
   'LineComped',
+  'LineCompRemoved',
   'OrderContactSet',
   'BillClosed',
 ]);

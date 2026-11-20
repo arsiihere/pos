@@ -6,6 +6,7 @@
 import { DomainError } from '@pos/domain';
 import type Database from 'better-sqlite3';
 import type { CommandCtx } from '../commands/registry.js';
+import type { SeatingRow } from '../tables/contracts.js';
 import type { LineView, OrdersOf, OrderLines, OrderType, OrderView, SeatingTotals } from './contracts.js';
 import { billedMinor, liveUnits } from './ledger.js';
 
@@ -190,6 +191,8 @@ export interface ReadOrderHead {
   /** non-null for a closed seating too; "no current table" is `table_ids.length === 0` (G-14) */
   primary_table_id: string | null;
   holder_staff_id: string | null;
+  /** ⚠️ Changed by 05 (row T-3 (4), H2-14), 02a v1.1.9 §4.2: the seating's `s.state` (same statement); null without one */
+  seating_state: SeatingRow['state'] | null;
   /** the seating's seating_tables, joined_at then table_id (02a currentTableOf's order); [] once the seating is cleaned */
   table_ids: string[];
 }
@@ -205,7 +208,7 @@ export type ReadOrderLine = LineView & { zone_on_hand: number | null; station_id
 // One statement: the order, its seating (02a, P-1c) with its tables (aggregate ORDER BY inside, SQLite ≥ 3.44), and its
 // lines with the zone count of each zone line.
 const READ_ORDER = `SELECT o.order_id, o.order_type, o.placed_by, o.billed_at, o.token, o.car_number, o.car_type, o.business_date,
-       so.seating_id, s.primary_table_id, s.holder_staff_id,
+       so.seating_id, s.primary_table_id, s.holder_staff_id, s.state AS seating_state,
        (SELECT json_group_array(st.table_id ORDER BY st.joined_at, st.table_id)
           FROM seating_tables st WHERE st.seating_id = so.seating_id) AS table_ids_json,
        l.order_item_id, l.parent_order_item_id, l.line_kind, l.item_id, l.deal_id, l.name, l.sale_unit, l.quantity,
@@ -234,7 +237,7 @@ export function readOrder(ctx: CommandCtx, order_id: string): { order: ReadOrder
   const rows = ctx.tx.db.prepare(READ_ORDER).all(order_id) as ReadOrderRow[];
   const first = rows[0];
   if (first === undefined) throw new DomainError('ORDER_NOT_FOUND', { order_id });
-  const { order_type, placed_by, billed_at, business_date, token, car_number, car_type, seating_id, primary_table_id, holder_staff_id } = first;
+  const { order_type, placed_by, billed_at, business_date, token, car_number, car_type, seating_id, primary_table_id, holder_staff_id, seating_state } = first;
   // json_group_array over no rows is '[]'; a NULL seating gives NULL (no seating_tables row matches NULL).
   const table_ids = first.table_ids_json === null ? [] : (JSON.parse(first.table_ids_json) as string[]);
   const lines: ReadOrderLine[] = rows
@@ -291,6 +294,7 @@ export function readOrder(ctx: CommandCtx, order_id: string): { order: ReadOrder
     seating_id,
     primary_table_id,
     holder_staff_id,
+    seating_state,
     table_ids,
   };
   return { order, lines };
