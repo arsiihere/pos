@@ -68,6 +68,8 @@ Binding for the 05 v1.0.2 and P0.2c writers.
 | G-49 | Minor | 12 | 05 v1.0.10 §3.8 (paid split keeps its number only; R-53) |
 | G-50 | Minor | 11 | 05 v1.0.10 §6.4 (`BillRequested` fold ≤ 10; R-54) |
 | G-51 | Minor | 4b | 05 v1.0.10 §3.16 (bad QR payload skipped; R-55) |
+| G-52 | Major | 0024 (new row), 15, 21, 26a | 05 v1.0.11 §5 (`bill_payments_shift` index, migration 0024; R-56) |
+| G-53 | Minor | 15 | 05 v1.0.11 §6.15 (drawer kick on the device's own route only; R-57) |
 
 Counts: Blocker 5, Major 12, Minor 10 (27 rows). G-28 (Major) added 2026-11-19 after the sweep: Blocker 5, Major 13, Minor 10 (28 rows). G-29, G-31 (Major) and G-30 (Minor) added 2026-11-19 from the 05 design brief (PR #316): Blocker 5, Major 15, Minor 11 (31 rows). G-32 (Major) and G-33 (Minor) added 2026-11-19: Blocker 5, Major 16, Minor 12 (33 rows). G-34 (Minor) added 2026-11-20: Blocker 5, Major 16, Minor 13 (34 rows). G-35 (Major) added 2026-11-20: Blocker 5, Major 17, Minor 13 (35 rows). G-36 (Minor) added 2026-11-20: Blocker 5, Major 17, Minor 14 (36 rows). G-37 (Major) added 2026-11-20: Blocker 5, Major 18, Minor 14 (37 rows). G-38, G-39, G-40 (Major) added 2026-11-20 from the task 5 review: Blocker 5, Major 21, Minor 14 (40 rows).
 
@@ -297,6 +299,8 @@ R-15…R-22: see 05-status.md (not listed on the board at the `module-05` tip; t
 | R-53 | G-49 | (2026-11-20, task 12 STOP 2) a paid split keeps its number only (§3.8 aligned with §6.5 / test #9). | 05 v1.0.10 §3.8; plan row 12 |
 | R-54 | G-50 | (2026-11-20, task 11 STOP) the `BillRequested` fold may use ≤ 10 statements (03c printing is 5), as `PrintCheckBill`. | 05 v1.0.10 §6.4; plan row 11 |
 | R-55 | G-51 | (2026-11-20, task 4b STOP) a QR payload the printer cannot encode is skipped; the fiscal number line and the slip still print, nothing errors. | 05 v1.0.10 §3.16; plan row 4b |
+| R-56 | G-52 | (2026-11-20, task 15 review) the takings subqueries scan `bill_payments` (no `shift_id` index; ~110 ms at a year of payments on a dev machine vs 0.02 ms indexed): add `bill_payments_shift (shift_id, mode_id, taken_by_staff_id)` in a new hub migration 0024. | 05 v1.0.11 §5; new plan row 0024 |
+| R-57 | G-53 | (2026-11-20, task 15 review) the OpenShift drawer kick uses only the device's own route (a kiosk without one must not open another counter's drawer). | 05 v1.0.11 §6.15; plan row 15 |
 
 ## Owner questions (all settled 2026-11-19)
 
