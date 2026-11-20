@@ -3284,6 +3284,26 @@ export const en = {
   'alert.fiscal_outbox_stuck.card': 'Fiscal records stuck · {quantity} waiting · oldest {minutes} min',
   'alert.fiscal_outbox_stuck.lock': 'Fiscal records stuck',
   'alert.fiscal_outbox_stuck.help': 'Tax invoices are not reaching the authority. Tell the owner.',
+  // ---- 05 client (task 34): cashier open-bills list, brief §6.1 + frames OpenBills / OpenBillsEmpty / OpenBillsOffline; Urdu from OpenBillsUrdu, else docs/design/handoff/05/urdu-todo.md ----
+  'billing.nav': 'Bills',
+  'billing.list.title': 'Open bills',
+  'billing.list.col.bill': 'Bill',
+  'billing.list.col.type': 'Type',
+  'billing.list.col.status': 'Status',
+  'billing.list.col.open': 'Open',
+  'billing.list.col.total': 'Total if cash',
+  'billing.list.paid': 'Paid {amount}',
+  'billing.list.empty': 'No open bills',
+  'billing.list.empty_sub': 'Bills show here as soon as a table orders or a takeaway is placed.',
+  'billing.list.as_of': 'as of {time}',
+  'billing.list.load_failed': "Couldn't load the bills.",
+  'billing.badge.check_printed': 'Check bill printed {time}',
+  'billing.badge.partly_paid': 'Partly paid',
+  'billing.badge.open_too_long': 'Open too long · {duration}',
+  'billing.badge.waiting': 'Waiting for approval',
+  'billing.type.dine_in': 'Dine-in',
+  'billing.type.takeaway': 'Takeaway',
+  'billing.type.parking': 'Parking',
 } as const;
 
 export type MessageKey = keyof typeof en;

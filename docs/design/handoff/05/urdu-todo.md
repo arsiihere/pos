@@ -7,6 +7,8 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.list.open_for` | Open {duration} |
 | `billing.list.empty` | No open bills |
 | `billing.list.as_of` | as of {time} |
+| `billing.list.empty_sub` | Bills show here as soon as a table orders or a takeaway is placed. |
+| `billing.list.load_failed` | Couldn't load the bills. |
 | `fiscal.line.ok` | Fiscal: all sent · last {time} |
 | `fiscal.line.stuck` | Fiscal: {n} waiting · oldest {duration} — tell a manager |
 | `fiscal.line.rejected` | Fiscal: {n} not accepted — tell a manager |
