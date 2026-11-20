@@ -43,7 +43,8 @@ import { registerReopenBill } from './commands/reopen-bill.js';
 import { registerCarryOverOrders } from './commands/carry-over.js';
 import { registerDayCloseAppender, registerDayCloseGuard } from '../commands/close-business-day.js';
 import { billingDayCloseAppender, billingDayCloseGuard, bindDayClose } from './lanes/day-close.js';
-import { fiscalAdapterFor } from './fiscal/port.js';
+import { NONE_ADAPTER_KEY, noneAdapter } from './fiscal/none.js';
+import { fiscalAdapterFor, registerFiscalAdapter } from './fiscal/port.js';
 // task 31 (§3.15, §6.27, §6.28): the stuck tick (01d registerTick, G-22), fiscal-status and RetryFiscalNow
 import { registerFiscalStatus } from './fiscal/status.js';
 import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
@@ -87,6 +88,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerDiscount(app);
   // task 17 (§6.12): CloseSplit and the buyer-ID document filler (row P-5)
   registerCloseSplit(app);
+  // §6.30, §3.15 (B20): the `none` adapter (every branch's PK built-in); the same object again is a no-op
+  registerFiscalAdapter(noneAdapter);
   // task 27 (§6.22, §6.23, §6.23a): PrintBillDocument, RetargetBillPrint and the Print to picker's printer list
   registerPrintDocs(app);
   registerBillPrintersQuery(app);
@@ -122,7 +125,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   app.addHook('onClose', async () => {
     stopAudiences();
   });
-  // task 33 (§6.30, #91b): the startup wiring check, last — a 05 event with no audience or audit map fails boot
+  // task 33 (§6.30, #91b): the startup wiring check, last — a 05 event with no audience or audit map, or no `none`
+  // fiscal adapter, fails boot
   checkBillingWiring(BILLING_AUDIENCE_TYPES, new Set(auditEventTypes()));
 }
 
@@ -194,13 +198,22 @@ const audienced = new Set<string>();
 /** The 05 event types registerBilling has given a WS audience (through ws/audience.ts registerEventAudience). */
 export const BILLING_AUDIENCE_TYPES: ReadonlySet<string> = audienced;
 
-/** §6.30, #91b: throws, naming every 05 event type with no WS audience or (outside NO_AUDIT_ACTION) no audit map. */
-export function checkBillingWiring(withAudience: ReadonlySet<string>, withAudit: ReadonlySet<string>): void {
+/**
+ * §6.30, #91b: throws, naming every 05 event type with no WS audience or (outside NO_AUDIT_ACTION) no audit map, and
+ * the `none` fiscal adapter when it is not registered (§6.30, §3.15). The branch's own adapter key is not known at boot
+ * (the branch config arrives by sync), so only `none` is checked here.
+ */
+export function checkBillingWiring(
+  withAudience: ReadonlySet<string>,
+  withAudit: ReadonlySet<string>,
+  hasAdapter: (key: string) => boolean = (key) => fiscalAdapterFor(key) !== null,
+): void {
   const noAudience = FIVE_EVENT_TYPES.filter((t) => !withAudience.has(t));
   const noAudit = FIVE_EVENT_TYPES.filter((t) => !NO_AUDIT_ACTION.has(t) && !withAudit.has(t));
   const parts = [
     ...(noAudience.length > 0 ? [`no WS audience: ${noAudience.join(', ')}`] : []),
     ...(noAudit.length > 0 ? [`no audit map: ${noAudit.join(', ')}`] : []),
+    ...(hasAdapter(NONE_ADAPTER_KEY) ? [] : [`no fiscal adapter: ${NONE_ADAPTER_KEY}`]),
   ];
   if (parts.length > 0) throw new Error(`05 startup wiring check failed (§6.30): ${parts.join('; ')}`);
 }
