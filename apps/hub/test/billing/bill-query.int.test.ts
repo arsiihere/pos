@@ -432,7 +432,7 @@ describe('[05 §6.1] GET /queries/bill', () => {
     expect(pv.blocks[0]).toEqual({ reason: 'void_pending', split_no: null, details: { reason: 'void_pending', order_item_ids: ['PV_N'] } });
   });
 
-  it('[05 #4b] added_after_close: projected and no closed split → false; a round after split 1 closes → true; reopen → all false; ≤ 9 statements', async () => {
+  it('[05 #4b] added_after_close: projected and no closed split → false; a round after split 1 closes → true; reopen → all false; 7 statements here (task 12: the invoices ride the splits statement)', async () => {
     const { seating_id, rounds } = dineInTwoRounds(hub);
     const [A, B] = rounds[0].lines as [string, string];
     let v = (await bill(cashier, { seating_id })).data;
@@ -456,7 +456,7 @@ describe('[05 §6.1] GET /queries/bill', () => {
     expect(v.splits.map((s) => s.state)).toEqual(['closed', 'open']);
     // the round joins the highest open split (§3.8): split 2 = B + D
     expect(v.splits[1].totals.as_paid.subtotal_minor).toBe((base.get(B) as number) + 3_000);
-    expect(await handlerStatements(cashier, 'bill', { seating_id })).toBeLessThanOrEqual(9);
+    expect(await handlerStatements(cashier, 'bill', { seating_id })).toBe(7); // no print job: documentJobsStatus reads nothing
     reopen(bill_id, rounds.map((r) => r.order_id));
     v = (await bill(cashier, { seating_id })).data;
     expect(v.reopen_count).toBe(1);
@@ -571,7 +571,7 @@ describe('[05 §6.1] GET /queries/bill', () => {
     void rounds;
   });
 
-  it('[05 #91] the bill query stays ≤ 9 statements at 1 and at 40 lines', async () => {
+  it('[05 #91] the bill query stays ≤ 8 statements at 1 and at 40 lines (task 12: was ≤ 9)', async () => {
     const one = dineInTwoRounds(hub, { prefix: 'ONE' });
     await ensure({ seating_id: one.seating_id });
     const at1 = await handlerStatements(cashier, 'bill', { seating_id: one.seating_id });
@@ -580,10 +580,10 @@ describe('[05 §6.1] GET /queries/bill', () => {
     const id40 = (await ensure({ seating_id: 'SEAT_40' })).result!.bill_id as string;
     for (let i = 0; i < 5; i += 1) pay(id40, 1, 100, `P40_${i}`);
     const at40 = await handlerStatements(cashier, 'bill', { seating_id: 'SEAT_40' });
-    expect(at1).toBeLessThanOrEqual(9);
+    expect(at1).toBeLessThanOrEqual(8);
     expect(at40).toBe(at1);
     const projected = await handlerStatements(cashier, 'bill', { order_id: addedTakeaway(hub).addition.order_id });
-    expect(projected).toBeLessThanOrEqual(9);
+    expect(projected).toBeLessThanOrEqual(8);
   });
 });
 

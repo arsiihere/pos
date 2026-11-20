@@ -1,13 +1,15 @@
 // 05 §6.1 `GET /queries/bill?seating_id|order_id|bill_id` (task 10; R-29: `lines[].added_after_close`, pinned `blocks`,
 // `reopen_count`). The projected bill (no bill row) and an opened bill go through the same pure `computeBill` (#1).
-// Statements ≤ 9, fixed whatever the number of lines, splits or payments (#91): openBillOf (1), orders of the bill (1),
-// orderLines (1), pendingVoids (1), splits + payments + plan lines + closed units (1), invoices of the bill (1),
-// alerts.listOpen on the bill (1), bill_print_jobs + documentJobsStatus (2). Config and directory in memory. A projected
+// Statements ≤ 9 (§6.1), 8 since task 12, fixed whatever the number of lines, splits or payments (#91): openBillOf (1),
+// orders of the bill (1), orderLines (1), pendingVoids (1), splits + payments + plan lines + closed units + current
+// invoices (1, SPLITS_OF_BILL, shared with the bill commands), alerts.listOpen on the bill (1), bill_print_jobs +
+// documentJobsStatus (2). Config and directory in memory. A projected
 // bill skips the reads that need a bill row. Never a buyer tax ID; a payment's `reference` only to `take-payment`
 // holders whose scope covers the bill (H2-20).
 import {
   computeBill,
   DomainError,
+  type ComputeBillInput,
   type ComputeBillResult,
   type ComputeDiscount,
   type ComputeLine,
@@ -28,6 +30,7 @@ import type { LineView } from '../../orders/contracts.js';
 import { orderLines } from '../../orders/exports.js';
 import { documentJobsStatus } from '../../print/document-jobs.js';
 import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registry.js';
+import type { PendingVoid } from '../../voids/contracts.js';
 import { pendingVoids } from '../../voids/exports.js';
 import { billingAt, openBillOf, type BillHead, type BillRef } from '../commands/ensure-bill.js';
 import type { HubBilling } from '../defaults.js';
@@ -127,8 +130,8 @@ interface BillOrder {
 
 // The bill's orders, cancelled ones never (#2): its own `bill_orders` (the reopen set, a closed bill's orders), and —
 // for a live bill or a projected one — the target's orders that are neither billed nor cancelled and are not in
-// another bill's `bill_orders` (a corrections reopen keeps its own). 1 statement.
-const ORDERS_OF_BILL = `
+// another bill's `bill_orders` (a corrections reopen keeps its own). 1 statement. Shared with the bill commands.
+export const ORDERS_OF_BILL = `
 SELECT o.order_id, o.order_type, o.placed_by, o.placed_at, o.token, o.car_number, o.car_type, o.business_date
 FROM orders o
 WHERE o.cancelled_at IS NULL AND (
@@ -139,9 +142,18 @@ WHERE o.cancelled_at IS NULL AND (
       AND NOT EXISTS (SELECT 1 FROM bill_orders bo WHERE bo.order_id = o.order_id AND bo.bill_id IS NOT @bill_id)))
 ORDER BY o.placed_at, o.order_id`;
 
-// Splits with their live payments (reference from the hub-only payment_references), item-plan rows and closed units,
-// as JSON per split: 1 statement whatever the counts.
-const SPLITS_OF_BILL = `
+/** ORDERS_OF_BILL's parameters for `head`: a closed, absorbed or corrections bill reads its own orders only. */
+export function ordersOfBillParams(head: BillHead): { bill_id: string | null; own_only: 0 | 1; seating_id: string | null; bill_key: string | null } {
+  const own = head.state === 'closed' || head.absorbed || head.reopen_mode === 'corrections' ? 1 : 0;
+  return { bill_id: head.bill_id, own_only: own, seating_id: head.seating_id, bill_key: head.bill_key };
+}
+
+/**
+ * The bill's splits with their live payments (reference from the hub-only payment_references), item-plan rows (by
+ * order_item_id), closed units and — for a closed split — its current sale invoice with the fiscal row's state:
+ * 1 statement whatever the counts. Shared by the bill view and the bill commands (task 12 plan fix: one reading).
+ */
+export const SPLITS_OF_BILL = `
 SELECT s.split_no, s.state, s.plan_json, s.invoice_id,
   (SELECT json_group_array(json_object('payment_id', p.payment_id, 'mode_id', p.mode_id, 'payment_class', p.payment_class,
             'direction', p.direction, 'amount_minor', p.amount_minor, 'tendered_minor', p.tendered_minor,
@@ -150,24 +162,25 @@ SELECT s.split_no, s.state, s.plan_json, s.invoice_id,
            ORDER BY added_at, payment_id) p
      LEFT JOIN payment_references r ON r.payment_id = p.payment_id) AS payments_json,
   (SELECT json_group_array(json_object('order_item_id', l.order_item_id, 'units', l.units))
-     FROM bill_split_lines l WHERE l.bill_id = s.bill_id AND l.split_no = s.split_no) AS plan_lines_json,
+     FROM (SELECT order_item_id, units FROM bill_split_lines WHERE bill_id = s.bill_id AND split_no = s.split_no
+           ORDER BY order_item_id) l) AS plan_lines_json,
   (SELECT json_group_array(json_object('order_item_id', c.order_item_id, 'units', c.units, 'share_minor', c.share_minor))
-     FROM closed_split_units c WHERE c.bill_id = s.bill_id AND c.split_no = s.split_no) AS closed_json
-FROM bill_splits s WHERE s.bill_id = ? ORDER BY s.split_no`;
-
-// The current sale invoice of each closed split, with its fiscal row's state: 1 statement.
-const INVOICES_OF_BILL = `
-SELECT s.split_no, i.invoice_id, i.invoice_ref, i.subtotal_minor, i.discount_minor, i.service_charge_minor, i.rounding_minor,
-       i.total_minor, i.fiscal_number, i.doc_json, f.state AS fiscal_state
-FROM bill_splits s JOIN invoices i ON i.invoice_id = s.invoice_id LEFT JOIN fiscal_outbox f ON f.invoice_id = i.invoice_id
-WHERE s.bill_id = ? AND s.state = 'closed'`;
+     FROM closed_split_units c WHERE c.bill_id = s.bill_id AND c.split_no = s.split_no) AS closed_json,
+  i.invoice_ref, i.subtotal_minor AS inv_subtotal_minor, i.discount_minor AS inv_discount_minor,
+  i.service_charge_minor AS inv_service_charge_minor, i.rounding_minor AS inv_rounding_minor, i.total_minor AS inv_total_minor,
+  i.fiscal_number, i.doc_json, f.state AS fiscal_state
+FROM bill_splits s
+LEFT JOIN invoices i ON s.state = 'closed' AND i.invoice_id = s.invoice_id
+LEFT JOIN fiscal_outbox f ON f.invoice_id = i.invoice_id
+WHERE s.bill_id = ? ORDER BY s.split_no`;
 
 const PRINT_JOBS = `
 SELECT job_id, doc_kind FROM bill_print_jobs
 WHERE (@bill_id IS NOT NULL AND bill_id = @bill_id) OR (@bill_id IS NULL AND bill_id IS NULL AND ref_id = @ref_id)
 ORDER BY created_at DESC, job_id`;
 
-interface SplitRow {
+/** One SPLITS_OF_BILL row; the invoice columns are null unless the split is closed with a sale invoice. */
+export interface SplitRow {
   split_no: number;
   state: 'open' | 'closed';
   plan_json: string | null;
@@ -175,8 +188,39 @@ interface SplitRow {
   payments_json: string;
   plan_lines_json: string;
   closed_json: string;
+  invoice_ref: string | null;
+  inv_subtotal_minor: number | null;
+  inv_discount_minor: number | null;
+  inv_service_charge_minor: number | null;
+  inv_rounding_minor: number | null;
+  inv_total_minor: number | null;
+  fiscal_number: string | null;
+  doc_json: string | null;
+  fiscal_state: string | null;
 }
-interface PaymentRow {
+
+/** A bill with no `bill_splits` row yet (projected, or opened in this command): its one open split. */
+export const ONE_OPEN_SPLIT: SplitRow = {
+  split_no: 1,
+  state: 'open',
+  plan_json: null,
+  invoice_id: null,
+  payments_json: '[]',
+  plan_lines_json: '[]',
+  closed_json: '[]',
+  invoice_ref: null,
+  inv_subtotal_minor: null,
+  inv_discount_minor: null,
+  inv_service_charge_minor: null,
+  inv_rounding_minor: null,
+  inv_total_minor: null,
+  fiscal_number: null,
+  doc_json: null,
+  fiscal_state: null,
+};
+
+/** One live payment of SPLITS_OF_BILL's `payments_json`. */
+export interface PaymentRow {
   payment_id: string;
   mode_id: string;
   payment_class: PaymentClass;
@@ -186,19 +230,6 @@ interface PaymentRow {
   has_reference: number;
   taken_by_staff_id: string;
   reference: string | null;
-}
-interface InvoiceRow {
-  split_no: number;
-  invoice_id: string;
-  invoice_ref: string;
-  subtotal_minor: number;
-  discount_minor: number;
-  service_charge_minor: number;
-  rounding_minor: number;
-  total_minor: number;
-  fiscal_number: string | null;
-  doc_json: string;
-  fiscal_state: string | null;
 }
 
 // ------------------------------------------------------------------------------------------------ scope
@@ -316,6 +347,125 @@ export function billRules(rules: ComputeRules, head: BillHead): ComputeRules {
   return { ...rules, prices_include_tax: head.prices_include_tax, rounding: { ...head.rounding } };
 }
 
+/** The bill's live lines in the orders' order (`orderLines` per order id), units > 0. */
+export function billLines(order_ids: readonly string[], byOrder: ReadonlyMap<string, readonly LineView[]>): LineView[] {
+  return order_ids.flatMap((id) => byOrder.get(id) ?? []).filter((l) => l.live_units > 0);
+}
+
+/** §3.1: Σ pending-void `refund_minor` per named line. */
+export function refundsOf(voids: ReadonlyMap<string, readonly PendingVoid[]>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const list of voids.values()) for (const v of list) out.set(v.order_item_id, (out.get(v.order_item_id) ?? 0) + v.refund_minor);
+  return out;
+}
+
+/** B15, H2-2: per line, Σ the units and shares closed splits invoiced (`closed_split_units`). */
+export function closedUnitsOf(splits: ReadonlyArray<Pick<SplitRow, 'closed_json'>>): Map<string, { units: number; share: number }> {
+  const out = new Map<string, { units: number; share: number }>();
+  for (const s of splits) {
+    for (const c of JSON.parse(s.closed_json) as Array<{ order_item_id: string; units: number; share_minor: number }>) {
+      const cur = out.get(c.order_item_id) ?? { units: 0, share: 0 };
+      out.set(c.order_item_id, { units: cur.units + c.units, share: cur.share + c.share_minor });
+    }
+  }
+  return out;
+}
+
+/** The compute input of a bill's open part without its plan and payments (each caller adds its own). */
+export interface BillComputeBase {
+  input: Omit<ComputeBillInput, 'plan' | 'payments'>;
+  refundOf: Map<string, number>;
+  closedUnits: Map<string, { units: number; share: number }>;
+  /** Σ the closed splits' current invoices' discount */
+  closedDiscount: number;
+}
+
+/**
+ * §3.5, §6.1: the one reading of a bill's open part that every bill read and command computes from — the open part
+ * of each line (H2-2) with its §3.1 base, the bill's frozen price mode and rounding (H9-9, H16-2), the discount (frozen
+ * after the first close, B7) and the sticky service charge (B8; a projected bill takes the order type's rate now). Pure.
+ */
+export function billComputeBase(o: {
+  head: BillHead;
+  billing: HubBilling;
+  /** the compute rules in force on the bill's business date (`billingAt`) */
+  rules: ComputeRules;
+  lines: readonly LineView[];
+  voids: ReadonlyMap<string, readonly PendingVoid[]>;
+  splits: readonly SplitRow[];
+}): BillComputeBase {
+  const { head, billing } = o;
+  const refundOf = refundsOf(o.voids);
+  const closedUnits = closedUnitsOf(o.splits);
+  const closedDiscount = o.splits.reduce((a, s) => a + (s.state === 'closed' ? (s.inv_discount_minor ?? 0) : 0), 0);
+  const discount: ComputeDiscount | null =
+    head.discount === null
+      ? null
+      : {
+          kind: head.discount.kind,
+          value: head.discount.value,
+          frozen: head.discount.frozen_minor === null ? null : { amount_minor: head.discount.frozen_minor, closed_discount_minor: closedDiscount, line_ids: head.discount_line_ids },
+        };
+  const sc = scOf(head, billing);
+  if (head.business_date === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
+  return {
+    refundOf,
+    closedUnits,
+    closedDiscount,
+    input: {
+      business_date: head.business_date,
+      rules: billRules(o.rules, head),
+      tax_profiles: billing.tax_profiles,
+      lines: openComputeLines(
+        o.lines.map((l) => ({ order_item_id: l.order_item_id, line_kind: l.line_kind, live_units: l.live_units, base_minor: lineBase(l, refundOf.get(l.order_item_id) ?? 0), tax_profile_id: l.tax_profile_id, unit_price_minor: l.unit_price_minor })),
+        closedUnits,
+      ),
+      discount,
+      service_charge: { rate_bp: sc.rate_bp, removed: sc.removed, tax_profile_id: billing.settings.service_charge_tax_profile_id },
+    },
+  };
+}
+
+/** §6.1 `service_charge`: the bill's (B8), or for a projected bill the order type's rate now. */
+export function scOf(head: BillHead, billing: HubBilling): { rate_bp: number; removed: boolean } {
+  return head.bill_id === null ? { rate_bp: billing.settings.service_charge_bp[head.order_type], removed: false } : { rate_bp: head.sc_bp, removed: head.sc_removed };
+}
+
+/** The payment-mode names of the settings (for `paymentView`). */
+export function modeNames(billing: HubBilling): Map<string, string> {
+  return new Map(billing.settings.payment_modes.map((m) => [m.mode_id, m.name]));
+}
+
+/** §6.1 payment entry; `reference` only with the full view (H2-20); names from settings and directory in memory. */
+export function paymentView(p: PaymentRow, o: { modeName: ReadonlyMap<string, string>; directory: StaffDirectory; full: boolean }): BillViewPayment {
+  return {
+    payment_id: p.payment_id,
+    mode_id: p.mode_id,
+    mode_name: o.modeName.get(p.mode_id) ?? p.mode_id,
+    direction: p.direction,
+    amount_minor: p.amount_minor,
+    tendered_minor: p.tendered_minor,
+    change_minor: p.payment_class === 'cash' && p.direction === 'in' && p.tendered_minor !== null ? p.tendered_minor - p.amount_minor : 0,
+    has_reference: p.has_reference === 1,
+    ...(o.full ? { reference: p.reference } : {}),
+    taken_by_name: o.directory.get(p.taken_by_staff_id)?.display_name ?? null,
+  };
+}
+
+/** A closed split's view entry: totals from its current invoice (zero without one), balance 0, its own plan (§3.8). */
+export function closedSplitView(s: SplitRow, splitMode: BillHead['split_mode'], payments: BillViewPayment[]): BillViewSplit {
+  const t = invoiceTotals(s);
+  return {
+    split_no: s.split_no,
+    state: 'closed',
+    plan: planView(splitMode, s),
+    payments,
+    totals: { cash: t, digital: t, as_paid: t },
+    balance_minor: 0,
+    invoice: s.invoice_ref === null ? null : { invoice_ref: s.invoice_ref, fiscal_number: s.fiscal_number, fiscal_state: s.fiscal_state },
+  };
+}
+
 function identifierOf(head: BillHead, config: BranchConfig, orders: readonly BillOrder[], today: string | null): string {
   let id: Identifier;
   if (head.scope === 'seating') {
@@ -356,62 +506,32 @@ export function billView(c: BillViewCtx, ref: BillRef): BillView {
     throw new DomainError('BILL_NOT_FOUND', { bill_id: null });
   }
   if (head.business_date === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
-  const ownOnly = head.state === 'closed' || head.absorbed || head.reopen_mode === 'corrections' ? 1 : 0;
-  const orders = db
-    .prepare(ORDERS_OF_BILL)
-    .all({ bill_id: head.bill_id, own_only: ownOnly, seating_id: head.seating_id, bill_key: head.bill_key }) as BillOrder[]; // 2
+  const orders = db.prepare(ORDERS_OF_BILL).all(ordersOfBillParams(head)) as BillOrder[]; // 2
   const access = billAccess(c.directory, config, c.staffId, { seating: head.seating, scope: head.scope, placed_by: orders.map((o) => o.placed_by) }, c.permissions);
 
   const order_ids = orders.map((o) => o.order_id);
   const byOrder = orderLines(db, order_ids); // 3
   const voids = pendingVoids(db, order_ids); // 4
-  const splitRows = head.bill_id === null ? [] : (db.prepare(SPLITS_OF_BILL).all(head.bill_id) as SplitRow[]); // 5
-  const invoiceRows = head.bill_id === null || !splitRows.some((s) => s.state === 'closed') ? [] : (db.prepare(INVOICES_OF_BILL).all(head.bill_id) as InvoiceRow[]); // 6
-  const open = head.bill_id === null ? [] : alerts.listOpen(db, { subject: { stream_type: 'bill', stream_id: head.bill_id } }); // 7
-  const jobs = db.prepare(PRINT_JOBS).all({ bill_id: head.bill_id, ref_id: head.seating_id ?? head.bill_key }) as Array<{ job_id: string; doc_kind: string }>; // 8
-  const jobStatus = documentJobsStatus(db, jobs.map((j) => j.job_id)); // 9
+  const splitRows = head.bill_id === null ? [] : (db.prepare(SPLITS_OF_BILL).all(head.bill_id) as SplitRow[]); // 5, with the closed splits' invoices
+  const open = head.bill_id === null ? [] : alerts.listOpen(db, { subject: { stream_type: 'bill', stream_id: head.bill_id } }); // 6
+  const jobs = db.prepare(PRINT_JOBS).all({ bill_id: head.bill_id, ref_id: head.seating_id ?? head.bill_key }) as Array<{ job_id: string; doc_kind: string }>; // 7
+  const jobStatus = documentJobsStatus(db, jobs.map((j) => j.job_id)); // 8
 
   const { billing, rules: atDay } = billingAt(config, head.business_date);
-  const rules = billRules(atDay, head);
+  const lines = billLines(order_ids, byOrder);
+  const splits = splitRows.length === 0 ? [ONE_OPEN_SPLIT] : splitRows;
+  const base = billComputeBase({ head, billing, rules: atDay, lines, voids, splits });
+  const { refundOf, closedDiscount } = base;
+  const rules = base.input.rules;
 
-  // pending voids: refund on the named line, a tag on every touched line (§3.1, #4)
-  const refundOf = new Map<string, number>();
+  // pending voids: a tag on every touched line (§3.1, #4)
   const pendingIds = new Set<string>();
-  for (const list of voids.values()) {
-    for (const v of list) {
-      refundOf.set(v.order_item_id, (refundOf.get(v.order_item_id) ?? 0) + v.refund_minor);
-      for (const id of [v.order_item_id, ...v.touched_ids]) pendingIds.add(id);
-    }
-  }
-  const lines = order_ids.flatMap((id) => byOrder.get(id) ?? []).filter((l) => l.live_units > 0);
+  for (const list of voids.values()) for (const v of list) for (const id of [v.order_item_id, ...v.touched_ids]) pendingIds.add(id);
 
-  const splits = splitRows.length === 0 ? [{ split_no: 1, state: 'open' as const, plan_json: null, invoice_id: null, payments_json: '[]', plan_lines_json: '[]', closed_json: '[]' }] : splitRows;
-  const closedUnits = new Map<string, { units: number; share: number }>();
-  for (const s of splits) {
-    for (const c2 of JSON.parse(s.closed_json) as Array<{ order_item_id: string; units: number; share_minor: number }>) {
-      const cur = closedUnits.get(c2.order_item_id) ?? { units: 0, share: 0 };
-      closedUnits.set(c2.order_item_id, { units: cur.units + c2.units, share: cur.share + c2.share_minor });
-    }
-  }
   const openSplits = splits.filter((s) => s.state === 'open');
-  const hasClosed = splits.some((s) => s.state === 'closed');
-  const invoices = new Map(invoiceRows.map((i) => [i.split_no, i]));
-
-  // compute input: the open part of each line (H2-2), through the helper open-bills shares
-  const computeLines = openComputeLines(
-    lines.map((l) => ({ order_item_id: l.order_item_id, line_kind: l.line_kind, live_units: l.live_units, base_minor: lineBase(l, refundOf.get(l.order_item_id) ?? 0), tax_profile_id: l.tax_profile_id, unit_price_minor: l.unit_price_minor })),
-    closedUnits,
-  );
-  const closedDiscount = invoiceRows.reduce((a, i) => a + i.discount_minor, 0);
-  const discount: ComputeDiscount | null =
-    head.discount === null
-      ? null
-      : {
-          kind: head.discount.kind,
-          value: head.discount.value,
-          frozen: head.discount.frozen_minor === null ? null : { amount_minor: head.discount.frozen_minor, closed_discount_minor: closedDiscount, line_ids: head.discount_line_ids },
-        };
-  const sc = head.bill_id === null ? { rate_bp: billing.settings.service_charge_bp[head.order_type], removed: false } : { rate_bp: head.sc_bp, removed: head.sc_removed };
+  const closedRows = splits.filter((s) => s.state === 'closed');
+  const hasClosed = closedRows.length > 0;
+  const sc = scOf(head, billing);
   const paymentsOf = new Map(splits.map((s) => [s.split_no, JSON.parse(s.payments_json) as PaymentRow[]]));
   let result: ComputeBillResult | null = null;
   if (openSplits.length > 0) {
@@ -419,53 +539,20 @@ export function billView(c: BillViewCtx, ref: BillRef): BillView {
     const payments: ComputePayment[] = openSplits.flatMap((s) =>
       (paymentsOf.get(s.split_no) ?? []).map((p) => ({ split_no: s.split_no, payment_class: p.payment_class, direction: p.direction, amount_minor: p.amount_minor, tendered_minor: p.tendered_minor })),
     );
-    result = computeBill({
-      business_date: head.business_date,
-      rules,
-      tax_profiles: billing.tax_profiles,
-      lines: computeLines,
-      discount,
-      service_charge: { rate_bp: sc.rate_bp, removed: sc.removed, tax_profile_id: billing.settings.service_charge_tax_profile_id },
-      plan,
-      payments,
-    });
+    result = computeBill({ ...base.input, plan, payments });
   }
   const unresolved = new Set((result?.lines ?? []).filter((l) => l.tags.includes('tax_unresolved')).map((l) => l.order_item_id));
 
   // splits of the view
-  const modeName = new Map(billing.settings.payment_modes.map((m) => [m.mode_id, m.name]));
+  const pv = { modeName: modeNames(billing), directory: c.directory, full: access === 'full' };
   const viewSplits: BillViewSplit[] = splits.map((s) => {
-    const payments = (paymentsOf.get(s.split_no) ?? []).map((p): BillViewPayment => ({
-      payment_id: p.payment_id,
-      mode_id: p.mode_id,
-      mode_name: modeName.get(p.mode_id) ?? p.mode_id,
-      direction: p.direction,
-      amount_minor: p.amount_minor,
-      tendered_minor: p.tendered_minor,
-      change_minor: p.payment_class === 'cash' && p.direction === 'in' && p.tendered_minor !== null ? p.tendered_minor - p.amount_minor : 0,
-      has_reference: p.has_reference === 1,
-      ...(access === 'full' ? { reference: p.reference } : {}),
-      taken_by_name: c.directory.get(p.taken_by_staff_id)?.display_name ?? null,
-    }));
-    const plan = planView(head, s);
-    if (s.state === 'closed') {
-      const inv = invoices.get(s.split_no);
-      const t = inv === undefined ? ZERO_TOTALS : invoiceTotals(inv);
-      return {
-        split_no: s.split_no,
-        state: 'closed',
-        plan,
-        payments,
-        totals: { cash: t, digital: t, as_paid: t },
-        balance_minor: 0,
-        invoice: inv === undefined ? null : { invoice_ref: inv.invoice_ref, fiscal_number: inv.fiscal_number, fiscal_state: inv.fiscal_state },
-      };
-    }
+    const payments = (paymentsOf.get(s.split_no) ?? []).map((p) => paymentView(p, pv));
+    if (s.state === 'closed') return closedSplitView(s, head.split_mode, payments);
     const r = result!.splits.find((x) => x.split_no === s.split_no)!;
     return {
       split_no: s.split_no,
       state: 'open',
-      plan,
+      plan: planView(head.split_mode, s),
       payments,
       totals: { cash: toTotals(r.totals.cash), digital: toTotals(r.totals.digital), as_paid: toTotals(r.totals.as_paid) },
       balance_minor: r.balance_minor,
@@ -475,7 +562,7 @@ export function billView(c: BillViewCtx, ref: BillRef): BillView {
 
   // buyer (B19): the whole bill's net = closed invoices' + the open remainder's (bases − discount)
   const totalsDefault = result === null ? ZERO_TOTALS : toTotals(result.totals_default);
-  const net = invoiceRows.reduce((a, i) => a + i.subtotal_minor - i.discount_minor, 0) + totalsDefault.subtotal_minor - totalsDefault.discount_minor;
+  const net = closedRows.reduce((a, s) => a + (s.inv_subtotal_minor ?? 0) - (s.inv_discount_minor ?? 0), 0) + totalsDefault.subtotal_minor - totalsDefault.discount_minor;
   const rule = billingRule(billing, head.business_date);
   const threshold = rule?.buyer_id.threshold_minor ?? null;
   const buyer = { required: threshold !== null && net > threshold, threshold_minor: threshold, waived: head.buyer_waived };
@@ -552,18 +639,30 @@ export function planOf(head: BillHead, openSplits: ReadonlyArray<Pick<SplitRow, 
   return { mode: 'equal', splits: openSplits.map((s) => ({ split_no: s.split_no })) };
 }
 
-function planView(head: BillHead, s: Pick<SplitRow, 'plan_json' | 'plan_lines_json'>): BillViewSplit['plan'] {
-  if (head.split_mode === 'items') return { lines: JSON.parse(s.plan_lines_json) as Array<{ order_item_id: string; units: number }> };
+/**
+ * §6.1 `plan` of a split as the fold stores it (§5). A closed split keeps its own plan whatever the bill's mode now
+ * (§3.8): its `plan_json` (amount `{ share_minor }`, equal `{ n, k }`), else its item rows, else null. An open split
+ * follows the bill's `split_mode`: items → its `bill_split_lines` rows; otherwise `plan_json` (null for none).
+ */
+export function planView(splitMode: BillHead['split_mode'], s: Pick<SplitRow, 'state' | 'plan_json' | 'plan_lines_json'>): BillViewSplit['plan'] {
+  const rows = (): Array<{ order_item_id: string; units: number }> => JSON.parse(s.plan_lines_json) as Array<{ order_item_id: string; units: number }>;
+  if (s.state === 'closed' && s.plan_json === null) {
+    const lines = rows();
+    return lines.length === 0 ? null : { lines };
+  }
+  if (s.state === 'open' && splitMode === 'items') return { lines: rows() };
   if (s.plan_json === null) return null;
   return JSON.parse(s.plan_json) as { share_minor: number } | { n: number; k: number };
 }
 
-function invoiceTotals(inv: InvoiceRow): Totals {
-  const doc = JSON.parse(inv.doc_json) as { taxes: Totals['taxes'] };
+/** A closed split's totals from its current invoice (SPLITS_OF_BILL columns); zero when it has none. */
+export function invoiceTotals(s: SplitRow): Totals {
+  if (s.doc_json === null) return ZERO_TOTALS;
+  const doc = JSON.parse(s.doc_json) as { taxes: Array<Totals['taxes'][number]> };
   return {
-    subtotal_minor: inv.subtotal_minor,
-    discount_minor: inv.discount_minor,
-    service_charge_minor: inv.service_charge_minor,
+    subtotal_minor: s.inv_subtotal_minor as number,
+    discount_minor: s.inv_discount_minor as number,
+    service_charge_minor: s.inv_service_charge_minor as number,
     taxes: doc.taxes.map((x) => ({
       tax_profile_id: x.tax_profile_id,
       tax_code: x.tax_code,
@@ -574,8 +673,8 @@ function invoiceTotals(inv: InvoiceRow): Totals {
       tax_minor: x.tax_minor,
       rate_ref: x.rate_ref ?? null,
     })),
-    rounding_minor: inv.rounding_minor,
-    total_minor: inv.total_minor,
+    rounding_minor: s.inv_rounding_minor as number,
+    total_minor: s.inv_total_minor as number,
   };
 }
 
