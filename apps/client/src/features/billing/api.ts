@@ -1,6 +1,6 @@
 import type { HubResult } from '../../api/hub-admin';
 import { newUlid } from '../../app/ulid';
-import type { BillRef, OpenBillsBody, PrintCheckBillResult, SetSplitsPayload, SetSplitsResult } from './contracts';
+import type { AddPaymentResult, BillRef, BillView, CloseSplitResult, OpenBillsBody, PrintCheckBillResult, SetSplitsPayload, SetSplitsResult } from './contracts';
 
 // 05 §6 (task 34 on): the billing queries and commands on the staff api's query() / command() (the shell's own
 // transport, features/staff/api.ts — no second client, socket or token).
@@ -10,6 +10,12 @@ export interface BillingTransport {
   command<T>(commandType: string, payload: unknown, opts?: { commandId?: string }): Promise<HubResult<T>>;
 }
 
+/** §6.1 query string of a bill ref (`bill_id`, else `seating_id`, else `order_id`). */
+export function billQuery(ref: BillRef): string {
+  const [k, v] = Object.entries(ref)[0] as [string, string];
+  return `${k}=${encodeURIComponent(v)}`;
+}
+
 export interface BillingApi {
   /** §6.2: every bill that still needs money, in server order; `floor_id` narrows it to one floor. */
   openBills(floor_id?: string): Promise<HubResult<OpenBillsBody>>;
@@ -17,6 +23,12 @@ export interface BillingApi {
   printCheckBill(payload: { bill_ref: BillRef; printer_id?: string }): Promise<HubResult<PrintCheckBillResult>>;
   /** §6.5: re-plan the open splits. A retry after a lost reply resends the same command_id (00 M47, handbook §10). */
   setSplits(payload: SetSplitsPayload): Promise<HubResult<SetSplitsResult>>;
+  /** §6.1: the bill view (totals from the hub only). */
+  bill(ref: BillRef): Promise<HubResult<BillView>>;
+  /** §6.9: one payment on a split (dues, rounding and change come back). */
+  addPayment(payload: { bill_ref: BillRef; split_no: number; mode_id: string; direction: 'in' | 'out'; amount_minor: number; tendered_minor?: number; reference?: string }): Promise<HubResult<AddPaymentResult>>;
+  /** §6.12: close a split; `expected_total_minor` = the total the screen showed (rule 7). */
+  closeSplit(payload: { bill_ref: BillRef; split_no: number; expected_total_minor: number }): Promise<HubResult<CloseSplitResult>>;
 }
 
 export function billingApi(staff: BillingTransport, newCommandId: () => string = () => newUlid()): BillingApi {
@@ -24,7 +36,15 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
   // api does (features/kds/actions/actions.ts): a resend after a lost reply is the same command, applied once
   const pending = new Map<string, string>();
   async function command<T>(type: string, payload: object): Promise<HubResult<T>> {
-    const key = `${type} ${JSON.stringify(payload)}`;
+    // `note`, `reference` and `tendered_minor` are left out of the key: the hub leaves `note` / `reference` out of the
+    // payload hash (hashOmit, row H-4, H16-7), and a payment's reference is never kept on the client (B30, H1-20).
+    // A resend after a lost reply with only those edited is the same command — never a second payment; a changed
+    // tendered then meets the hub's same-id check instead of minting a new payment
+    const { note: _n, reference: _r, tendered_minor: _t, ...hashed } = payload as { note?: unknown; reference?: unknown; tendered_minor?: unknown };
+    void _n;
+    void _r;
+    void _t;
+    const key = `${type} ${JSON.stringify(hashed)}`;
     let commandId = pending.get(key);
     if (commandId === undefined) pending.set(key, (commandId = newCommandId()));
     const answer = await staff.command<T>(type, payload, { commandId });
@@ -34,6 +54,9 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
   return {
     printCheckBill: (payload) => command<PrintCheckBillResult>('PrintCheckBill', payload),
     setSplits: (payload) => command<SetSplitsResult>('SetSplits', payload),
+    bill: (ref) => staff.query<BillView>(`/queries/bill?${billQuery(ref)}`),
+    addPayment: (payload) => command<AddPaymentResult>('AddPayment', payload),
+    closeSplit: (payload) => command<CloseSplitResult>('CloseSplit', payload),
     openBills: (floor_id) =>
       staff.query<OpenBillsBody>(floor_id === undefined ? '/queries/open-bills' : `/queries/open-bills?floor_id=${encodeURIComponent(floor_id)}`),
   };

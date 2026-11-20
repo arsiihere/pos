@@ -140,3 +140,38 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `errors.PETTY_SETTLE_MISMATCH` | Spent and returned must add up to {amount} |
 | `errors.DAY_CLOSE_BLOCKED.shift_open/ `.unbilled_orders`` | as `dayclose.blocked.*` (staff app); `void_pending` keeps 04's text |
 | `errors.PERMISSION_DENIED.not_own_payment/ `.skip_not_granted` / `.outside_scope`` | Only a manager can remove someone else's payment / You can't skip the count / This bill is not one of your tables |
+| `billing.bill.load_failed` | Couldn't load the bill. |
+| `billing.bill.offline` | Reconnecting to the hub… · Showing what we had as of {time} · every bill action needs the hub |
+| `billing.bill.split` | Split {n} |
+| `billing.bill.paid_split` | Paid · {invoice_ref} |
+| `billing.state.closed` | Closed |
+| `billing.state.reopened` | Reopened |
+| `billing.tot.service_charge` | Service charge {rate} |
+| `pad.all_paid` | All paid |
+| `pad.all_paid_sub` | Add another payment only if the customer changes how they pay. |
+| `pad.change_due_k` | Change due |
+| `pad.change_after_add` | shows after Add payment — from the hub |
+| `pad.enter_tendered` | Type the cash given, or leave it empty |
+| `billing.blocks.buyer_id_required` | Buyer details needed above {threshold} |
+| `billing.closed` | Closed · Invoice {invoice_ref} · {amount} |
+| `billing.closed_empty` | Closed · nothing billed · money given back |
+| `billing.done` | Done |
+| `billing.tot.total` | Total |
+| `billing.tot.paid` | Paid |
+| `billing.dues.balance_k` | Balance |
+| `billing.dues.nothing_left` | Nothing left to take — close the bill |
+| `billing.refund.cash_k` | Refund cash |
+| `billing.refund.card_k` | Refund card |
+| `billing.blocks.refund_due` | Give back {amount} first |
+| `billing.bill.split_closed` | Split {n} · Closed |
+| `billing.bill.split_open` | Split {n} · Open |
+| `billing.tag.new` | New |
+| `billing.close_split` | Close split {n} |
+| `billing.close_issues` | {amount} · issues the invoice |
+| `billing.give_change` | Give change {amount} |
+| `pad.tendered_short` | Cash given is less than the amount |
+| `pad.offline_sub` | Payments, Close and every bill sheet wait for the hub. Nothing is queued — money is never taken offline. |
+| `billing.tot.paid_k` | Paid · {type} |
+| `billing.tot.paid_cash` | cash |
+| `billing.tot.paid_card` | card |
+| `pad.maybe_in` | This payment may already be in — check the payments before taking it again |
