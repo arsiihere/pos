@@ -6,12 +6,14 @@ import type { ProjectionRegistry } from '../projections/registry.js';
 import type { HubDeps } from '../server.js';
 import { registerEventAudience } from '../ws/audience.js';
 import type { SocketCtx } from '../ws/catch-up.js';
+import { registerOpenShift } from './commands/open-shift.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
 import { billingProjection } from './projections/billing.js';
 import { shiftsProjection } from './projections/shifts.js';
 import { registerBillQuery } from './queries/bill.js';
 import { registerOpenBillsQuery } from './queries/open-bills.js';
+import { registerShiftQuery } from './queries/shift.js';
 
 // 05 wiring entry (§6.30, task 7; H6-14: every later task adds only its own registration lines here, under its marker).
 // Audit actions and alert kinds register at module load (P0.15, P0.7, G-20); projections in registerHubProjections
@@ -27,6 +29,9 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   // task 10 (§6.1, §6.2): the bill view and the open-bills list (ensure bill is a helper of the bill commands)
   registerBillQuery(app);
   registerOpenBillsQuery(app);
+  // task 15 (§6.15, §6.16): OpenShift and the blind shift view
+  registerOpenShift(app);
+  registerShiftQuery(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
