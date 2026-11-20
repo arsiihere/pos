@@ -269,7 +269,14 @@ export function billAccess(
   throw new DomainError('PERMISSION_DENIED', { reason: 'outside_scope', ...(bill.seating === null ? {} : { table_ids: [bill.seating.primary_table_id] }) });
 }
 
-function covers(directory: StaffDirectory, config: BranchConfig, staffId: string, scope: string, bill: { seating: BillHead['seating']; scope: 'seating' | 'key'; placed_by: readonly string[] }): boolean {
+/** C8 scope test of §6.1 (also the `bill`-stream WS audience, §6.30): does a grant of `scope` cover the bill? 0 statements. */
+export function covers(
+  directory: StaffDirectory,
+  config: BranchConfig,
+  staffId: string,
+  scope: string,
+  bill: { seating: Pick<NonNullable<BillHead['seating']>, 'holder_staff_id' | 'primary_table_id'> | null; scope: 'seating' | 'key'; placed_by: readonly string[] },
+): boolean {
   if (scope === 'branch') return true;
   if (bill.scope === 'key') return bill.placed_by.includes(staffId);
   if (bill.seating === null) return false;
