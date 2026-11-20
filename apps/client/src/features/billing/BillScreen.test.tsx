@@ -63,6 +63,7 @@ interface Opts {
   views?: BillView[];
   answers?: Answer[];
   online?: boolean;
+  grants?: Record<string, unknown>;
 }
 
 function setup(o: Opts = {}) {
@@ -86,7 +87,7 @@ function setup(o: Opts = {}) {
     api: { query, command },
     live: createLiveBus(),
     toasts,
-    permissions: createPermissions({ 'take-payment': { grant: 'allowed', scope: 'branch' } } as never),
+    permissions: createPermissions({ 'take-payment': { grant: 'allowed', scope: 'branch' }, ...o.grants } as never),
     config: { config: () => null, snapshot: () => ({ currency_code: 'PKR', billing: { payment_modes: MODES } }), subscribe: () => () => {} },
     clock: { nowMs: () => NOW, utcOffsetMs: 0 },
     me: { staff_id: 'sana', name: 'Sana' },
@@ -654,6 +655,111 @@ describe('[05 §8] several splits, offline, Urdu', () => {
     expect(v.container.querySelector('.dlg .msg')?.textContent).toBe('Check the ID number');
     expect(inp('ID number')?.value).toBe('');
     expect(text(v, '.b5-buyer b')).toBe('Buyer details needed above Rs 50,000.00');
+  });
+
+  // task 37 buyer review: retry, drop after the answer, Change, a lifted need, the .type / .name refusals, not_required
+  const NEED = { reason: 'buyer_id_required', split_no: null, details: { threshold_minor: 5_000_000, net_minor: 6_000_000, accepted_types: ['CNIC'] } };
+  const BUYER_SNAPSHOT = {
+    currency_code: 'PKR',
+    billing: { payment_modes: MODES, jurisdiction: { jurisdiction_id: 'PK-PB', adapter_key: 'PRA', currency_code: 'PKR', currency_exponent: 2, rules: [{ effective_from: '2026-01-01', buyer_id: { threshold_minor: 5_000_000, accepted_types: [{ type: 'CNIC', label: 'CNIC', pattern: '^[0-9]{13}$', strip: '-' }] } }] } },
+  };
+  const needy = (over: Partial<BillView> = {}) => bill({ splits: [split({ balance_minor: 0 })], blocks: [NEED], buyer: { required: true, threshold_minor: 5_000_000, waived: false }, ...over });
+  async function withBuyer(s: ReturnType<typeof setup>) {
+    (s.shell.config as { snapshot: () => unknown }).snapshot = () => BUYER_SNAPSHOT;
+    const v = await show(s);
+    v.click(v.button('Add buyer'));
+    await flush();
+    const inp = (label: string) => [...v.container.querySelectorAll('.dlg .b5-fld')].find((f) => f.querySelector('span')?.textContent === label)?.querySelector('input');
+    typeIn(inp('Name'), 'Sample Traders');
+    v.click(v.button('CNIC'));
+    typeIn(inp('ID number'), '1234512345671');
+    await flush();
+    v.click(v.button('Use for this close'));
+    await flush();
+    return { v, inp };
+  }
+  const CLOSED_OK = { ok: true as const, data: { invoice_id: 'I1', invoice_ref: 'AC1-S000200', total_minor: 662_400, change_minor: 0, bill_state: 'partly_paid', receipt: { job_id: null, printer_name: null }, fiscal_state: 'pending' } };
+  const BUYER = { name: 'Sample Traders', tax_id: { type: 'CNIC', value: '1234512345671' } };
+
+  it('[B19, D32] a lost close reply keeps the buyer for the resend with the same command_id; once answered it is dropped and the next close sends none', async () => {
+    const s = setup({ views: [needy(), needy(), needy()], answers: [{ ok: false, error: { kind: 'network' } }, CLOSED_OK, CLOSED_OK] });
+    const { v } = await withBuyer(s);
+    v.click(v.button('Close bill'));
+    await flush();
+    expect(text(v, '.b5-buyer b')).toBe('Buyer added — sent with Close');
+    v.click(v.button('Close bill'));
+    await flush();
+    const [first, second] = s.command.mock.calls;
+    expect(first![1]).toEqual(expect.objectContaining({ buyer: BUYER }));
+    expect(second![1]).toEqual(expect.objectContaining({ buyer: BUYER }));
+    expect((second![2] as { commandId?: string }).commandId).toBe((first![2] as { commandId?: string }).commandId);
+    // answered: gone from memory and from the row
+    expect(text(v, '.b5-buyer b')).toBe('Buyer details needed above Rs 50,000.00');
+  });
+
+  it('[B19] Change drops the held buyer and opens an empty sheet (the value is never shown again)', async () => {
+    const s = setup({ views: [needy()] });
+    const { v, inp } = await withBuyer(s);
+    v.click(v.button('Change'));
+    await flush();
+    expect(v.container.querySelector('.dlg')).not.toBeNull();
+    expect(inp('ID number')?.value).toBe('');
+    expect(text(v, '.b5-buyer b')).toBe('Buyer details needed above Rs 50,000.00');
+    expect(v.button('Close bill').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('[B19] a refresh that lifts the need drops the held buyer: the close then sends none', async () => {
+    const lifted = bill({ splits: [split({ balance_minor: 0 })], blocks: [], buyer: { required: false, threshold_minor: 5_000_000, waived: false } });
+    const s = setup({ views: [needy(), lifted], answers: [CLOSED_OK] });
+    const { v } = await withBuyer(s);
+    vi.useFakeTimers();
+    s.shell.live.frame({ type: 'event', seq: 5, event: { event_type: 'PaymentAdded', payload: {} } } as never);
+    await vi.advanceTimersByTimeAsync(300);
+    vi.useRealTimers();
+    await flush();
+    expect(v.container.querySelector('.b5-buyer')).toBeNull();
+    v.click(v.button('Close bill'));
+    await flush();
+    expect(s.command.mock.calls[0]![1]).not.toHaveProperty('buyer');
+  });
+
+  it('a close refused on buyer.tax_id.type reopens on "Pick an ID type", on buyer.name on "Type the name"', async () => {
+    const refusal = (path: string) => ({ ok: false as const, error: { kind: 'api' as const, status: 400, code: 'VALIDATION_FAILED', details: { issues: [{ path, message: 'x' }] } } });
+    const s = setup({ views: [needy(), needy(), needy()], answers: [refusal('payload.buyer.tax_id.type')] });
+    const { v } = await withBuyer(s);
+    v.click(v.button('Close bill'));
+    await flush();
+    expect(v.container.querySelector('.dlg .msg')?.textContent).toBe('Pick an ID type');
+    v.unmount();
+    const t2 = setup({ views: [needy(), needy(), needy()], answers: [refusal('payload.buyer.name')] });
+    const w = (await withBuyer(t2)).v;
+    w.click(w.button('Close bill'));
+    await flush();
+    expect(w.container.querySelector('.dlg .msg')?.textContent).toBe('Type the name');
+    w.unmount();
+  });
+
+  it('BUYER_ID_REQUIRED on a close (no buyer held) opens the sheet with the hub\'s accepted types', async () => {
+    const s = setup({ views: [needy({ blocks: [] }), needy({ blocks: [] })], answers: [{ ok: false, error: { kind: 'api', status: 409, code: 'BUYER_ID_REQUIRED', details: { threshold_minor: 5_000_000, net_minor: 6_000_000, accepted_types: ['CNIC'] } } }] });
+    (s.shell.config as { snapshot: () => unknown }).snapshot = () => BUYER_SNAPSHOT;
+    const v = await show(s);
+    v.click(v.button('Close bill'));
+    await flush();
+    expect(text(v, '.dlg__t h2')).toBe('Buyer details');
+    expect([...v.container.querySelectorAll('.dlg .b5-chip')].map((c) => c.textContent)).toEqual(['CNIC']);
+  });
+
+  it('Customer refuses answered not_required: the row reads "Not needed for this bill"', async () => {
+    const s = setup({ views: [needy(), bill({ buyer: { required: false, threshold_minor: 5_000_000, waived: false } })], answers: [{ ok: true, data: { bill_id: 'B7', changed: false, reason: 'not_required' } }], grants: { 'close-without-buyer-id': { grant: 'allowed', scope: 'branch' } } });
+    (s.shell.config as { snapshot: () => unknown }).snapshot = () => BUYER_SNAPSHOT;
+    const v = await show(s);
+    v.click(v.button('Add buyer'));
+    await flush();
+    v.click(v.button('Customer refuses'));
+    await flush();
+    expect(v.container.querySelector('.dlg')).toBeNull();
+    expect(text(v, '.b5-buyer b')).toBe('Not needed for this bill');
+    expect(text(v, '.b5-buyer span')).toBe('The total fell under the threshold.');
   });
 
   it('a waived bill\'s row reads "Customer refused buyer details"', async () => {

@@ -3541,6 +3541,9 @@ export const en = {
   'billing.buyer.added': 'Buyer added — sent with Close',
   'billing.buyer.waived': 'Customer refused buyer details',
   'billing.buyer.not_needed': 'Not needed for this bill',
+  'billing.buyer.not_needed_sub': 'The total fell under the threshold.',
+  'billing.buyer.waived_sub': 'Holds for every later split and after a reopen.',
+  'billing.buyer.change': 'Change',
 } as const;
 
 export type MessageKey = keyof typeof en;

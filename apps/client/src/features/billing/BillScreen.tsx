@@ -9,7 +9,7 @@ import { useLiveRefetch } from '../staff/orders/lists/OpenOrders';
 import { useShell } from '../staff/shell/hooks';
 import { billingApi } from './api';
 import type { AddPaymentResult, BillBlock, BillRef, BillView, BillViewSplit, SplitDues, Totals } from './contracts';
-import { BuyerSheet, type BuyerEntry } from './BillSheets';
+import { BuyerSheet, type BuyerEntry, type BuyerIssue } from './BillSheets';
 import { CheckBillButton, PrintRows } from './PrintStatus';
 import { billingErrorKey } from './errors';
 import { BILL_LIST_FRAMES } from './frames';
@@ -270,7 +270,9 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   // B19: the buyer of the next close, in memory only (a ref, never state or storage); dropped after the close answers
   const heldBuyer = useRef<BuyerEntry | null>(null);
   const [buyerHeld, setBuyerHeld] = useState(false);
-  const [buyerSheet, setBuyerSheet] = useState<{ error: 'value' | 'type' | null } | null>(null);
+  const [buyerSheet, setBuyerSheet] = useState<{ error: BuyerIssue | null; accepted: string[] | null } | null>(null);
+  // WaiveBuyerId answered not_required: the row says so until the bill needs the buyer again
+  const [buyerNotNeeded, setBuyerNotNeeded] = useState(false);
   const dropBuyer = () => {
     heldBuyer.current = null;
     setBuyerHeld(false);
@@ -294,6 +296,13 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
     void load();
   }, [load]);
   useLiveRefetch(shell.live, () => void load(), BILL_LIST_FRAMES);
+  // B19: a held buyer is for a bill that needs one; a refresh that lifts the need (or records the waiver) drops it,
+  // so it is never sent for a bill that did not ask. "Not needed" lasts until the bill needs the buyer again.
+  const needsBuyer = bill !== null && bill.buyer.required && !bill.buyer.waived;
+  useEffect(() => {
+    if (!needsBuyer) dropBuyer();
+    else setBuyerNotNeeded(false);
+  }, [needsBuyer]);
 
   if (bill === null)
     return (
@@ -417,7 +426,9 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
     if (!answer.ok) {
       const e = answer.error;
       if (e.kind === 'api' && (e.code === 'BUYER_ID_REQUIRED' || buyerIssue(e) !== null)) {
-        setBuyerSheet({ error: e.code === 'BUYER_ID_REQUIRED' ? null : buyerIssue(e) });
+        const listed = e.details['accepted_types'];
+        const accepted = e.code === 'BUYER_ID_REQUIRED' && Array.isArray(listed) && listed.every((x) => typeof x === 'string') ? (listed as string[]) : null;
+        setBuyerSheet({ error: e.code === 'BUYER_ID_REQUIRED' ? null : buyerIssue(e), accepted });
         await load();
         return;
       }
@@ -529,6 +540,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
           <Ico name="info" />
           <div>
             <b>{t('billing.buyer.waived')}</b>
+            <span>{t('billing.buyer.waived_sub')}</span>
           </div>
         </div>
       ) : buyerHeld ? (
@@ -537,6 +549,17 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
           <div>
             <b>{t('billing.buyer.added')}</b>
           </div>
+          {/* the value is never shown again, so a mistake is fixed by typing it afresh */}
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              dropBuyer();
+              setBuyerSheet({ error: null, accepted: null });
+            }}
+          >
+            {t('billing.buyer.change')}
+          </button>
         </div>
       ) : (
         <div className="b5-ban b5-buyer c-warn">
@@ -546,12 +569,20 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             <span>{t('billing.buyer.needed_sub')}</span>
           </div>
           {online && (
-            <button type="button" className="btn btn--tone c-warn" onClick={() => setBuyerSheet({ error: null })}>
+            <button type="button" className="btn btn--tone c-warn" onClick={() => setBuyerSheet({ error: null, accepted: null })}>
               {t('billing.buyer.add')}
             </button>
           )}
         </div>
       )
+    ) : buyerNotNeeded && open ? (
+      <div className="b5-ban b5-buyer c-info">
+        <Ico name="info" />
+        <div>
+          <b>{t('billing.buyer.not_needed')}</b>
+          <span>{t('billing.buyer.not_needed_sub')}</span>
+        </div>
+      </div>
     ) : null;
   const sym = currencySymbol(code);
   const dueCard = (cls: string, k: string, v: number, sub: string) => (
@@ -799,6 +830,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
         <BuyerSheet
           bill={bill}
           error={buyerSheet.error}
+          accepted={buyerSheet.accepted}
           onUse={(entry) => {
             heldBuyer.current = entry;
             setBuyerHeld(true);
@@ -806,6 +838,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
           }}
           onWaived={(r) => {
             if (r !== 'pending') setBuyerSheet(null);
+            if (r === 'not_required') setBuyerNotNeeded(true);
             void load();
           }}
           onClose={() => setBuyerSheet(null)}
@@ -816,10 +849,11 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
 }
 
 /** A close refusal on the buyer's fields (VALIDATION_FAILED at payload.buyer.tax_id.value / .type), never echoing it. */
-function buyerIssue(e: HubError): 'value' | 'type' | null {
+function buyerIssue(e: HubError): BuyerIssue | null {
   if (e.kind !== 'api' || e.code !== 'VALIDATION_FAILED' || !Array.isArray(e.details['issues'])) return null;
   const paths = (e.details['issues'] as Array<{ path?: unknown }>).map((i) => String(i.path ?? ''));
   if (paths.some((x) => x.includes('buyer.tax_id.type'))) return 'type';
+  if (paths.some((x) => x.includes('buyer.name'))) return 'name';
   if (paths.some((x) => x.includes('buyer'))) return 'value';
   return null;
 }
