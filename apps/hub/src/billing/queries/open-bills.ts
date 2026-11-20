@@ -29,7 +29,7 @@ export const LINE_BASE = `CASE WHEN l.line_kind = 'deal_part' OR l.return_of IS 
   END) END`;
 
 /** Orders kept by a corrections reopen (§3.10) belong to that bill only (its bill_orders), never to the seating / key's. */
-const NOT_IN_CORRECTIONS = `NOT EXISTS (SELECT 1 FROM bill_orders bo JOIN bills x ON x.bill_id = bo.bill_id
+export const NOT_IN_CORRECTIONS = `NOT EXISTS (SELECT 1 FROM bill_orders bo JOIN bills x ON x.bill_id = bo.bill_id
   WHERE bo.order_id = o.order_id AND x.reopen_mode = 'corrections' AND x.state <> 'closed')`;
 
 /**
