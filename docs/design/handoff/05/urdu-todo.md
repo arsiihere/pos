@@ -84,12 +84,14 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `errors.BILL_NOT_OPEN/ `_cancelled`` | This bill is already closed / This order was cancelled |
 | `errors.BILL_CLOSE_BLOCKED` | Can't close yet: {reasons} (reasons as `billing.blocks.*`) |
 | `errors.DISCOUNT_PENDING` | A discount is waiting for approval |
+| `errors.SERVICE_CHARGE_NOT_APPLIED` | The service charge was already removed |
 | `errors.BUYER_ID_REQUIRED` | Buyer details are needed above {threshold} |
 | `errors.BILL_TOTAL_CHANGED` | The total changed to {amount} — check it and close again |
 | `errors.BILL_BALANCE_DUE` | {amount} still to take on split {n} |
 | `errors.BILL_PARTLY_PAID` | A split is already paid — no discount now |
 | `errors.LINE_IN_CLOSED_SPLIT` | Reopen the bill to change a paid split |
 | `errors.BILL_HAS_PAYMENTS` | Split {n} has a payment — remove the payment first or keep the split (merge / split of the table: "This bill has a payment — the tables can't be joined or split now") |
+| `errors.BILL_HAS_PAYMENTS_tables` | This bill has a payment — the tables can't be joined or split now |
 | `errors.BILL_REOPEN_PENDING` | A reopen is already waiting for approval |
 | `errors.BILL_REOPEN_NOT_SUPPORTED` | This bill can't be reopened: its tax invoice can't be credited here — ask the owner |
 | `errors.LINE_NOT_COMPED` | This item is not comped |

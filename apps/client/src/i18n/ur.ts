@@ -1432,4 +1432,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // no frame: the 02b comp lock pattern with the frames' word ووئڈ (04 urdu-todo: needs native review)
   'alert.void_approval.lock': '{table} · ووئڈ · {requester}',
   'void.answer.lines': 'لائنیں اور مرحلہ',
+  // ---- 05 client (task 43a): frame AnswerUrdu05 draws the word رعایت; .card / .lock composed on the 02b comp / 04 void pattern (needs native review) ----
+  'alert.discount.name': 'رعایت',
+  'alert.discount.card': 'رعایت · {identifier} · {amount} · {reason}',
+  'alert.discount.lock': '{table} · رعایت · {requester}',
 };
