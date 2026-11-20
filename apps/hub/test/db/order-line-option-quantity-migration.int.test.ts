@@ -10,6 +10,7 @@ import { runMigrations } from '../../src/db/migrate';
 import { boot } from '../../src/lib/boot';
 import { fixedClock, T } from '../../src/lib/clock';
 import { freshDb } from '../helpers/db';
+import { dropBilling0023 } from './billing-0023';
 import { offlineCloud } from '../helpers/stub-cloud';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
@@ -49,6 +50,7 @@ const checkpoint = (db: Database.Database, projection: string) => db.prepare('SE
 /** Back to a pre-0020 hub: the column (and 0021's) gone, 0020 / 0021 not applied; every projection and checkpoint as it was. */
 function toPre0020(db: Database.Database): void {
   // 0021 (02b v1.0.16, 05 Q-1 / Q-5 / Q-6, R-7 / R-17) re-adds these and orders_token_day / orders_bill_key
+  dropBilling0023(db); // 0023 (05 v1.0.7 ยง5) runs after 0022
   db.exec('DROP TABLE bill_routes'); // 0022 (03c v1.0.13, 05 row P-1)
   db.exec('DROP INDEX orders_bill_key; DROP INDEX orders_token_day');
   db.exec('CREATE UNIQUE INDEX orders_token ON orders (business_date, token) WHERE token IS NOT NULL');
@@ -109,7 +111,7 @@ describe('[02b #39] hub migration 0020_order_line_option_quantity (02b v1.0.13 ย
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(22); // 02b v1.0.16: 0021 and 03c 0022 run after it
+    expect(db.pragma('user_version', { simple: true })).toBe(23); // 02b v1.0.16: 0021, 03c 0022 and 05 0023 run after it
     expect(db.prepare('SELECT event_type FROM events WHERE seq > ? ORDER BY seq').pluck().all(maxSeq)[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(rowsOf(db), 'every old line has its option_quantity; rows equal the fresh fold').toEqual(live);
     expect(checkpoint(db, 'orders')).toBeGreaterThanOrEqual(maxSeq);

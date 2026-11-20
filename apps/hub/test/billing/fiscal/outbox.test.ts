@@ -1,6 +1,5 @@
 /// <reference types="node" />
-import { readdirSync, readFileSync } from 'node:fs';
-import { basename, dirname } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildReceiptDoc, type DocContext, type FiscalSaleInvoiceFields, type FiscalSnapshot } from '@pos/domain';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,13 +14,11 @@ import {
   type OutboxRow,
 } from '../../../src/billing/fiscal/outbox';
 import { registerFiscalAdapter, resetFiscalAdapters, type FiscalAnswer } from '../../../src/billing/fiscal/port';
-import { runMigrations } from '../../../src/db/migrate';
-import { fixedClock, T } from '../../../src/lib/clock';
-import { freshDb } from '../../helpers/db';
+import { T } from '../../../src/lib/clock';
 import { aSubmission, fakeAdapter } from './fake-adapter';
-import { fiscalDdlText, freshOutboxDb, migrationsDir, stagedDdlPath, type OutboxDb } from './outbox-db';
+import { fiscalDdlText, freshOutboxDb, type OutboxDb } from './outbox-db';
 
-const specPath = fileURLToPath(new URL('../../../../../docs/specs/05_Billing_Spec_v1.0.md', import.meta.url));
+const specPath = fileURLToPath(new URL('../../../../../docs/specs/05_Billing_Spec_v1.0.7.md', import.meta.url));
 
 type Column = { cid: number; name: string; type: string; notnull: number; dflt_value: string | null; pk: number };
 
@@ -53,7 +50,7 @@ function block(text: string, first: string, last: (line: string) => boolean, aft
   return lines.slice(start, end + 1).join('\n');
 }
 const OUTBOX_FIRST = 'CREATE TABLE fiscal_outbox (';
-const OUTBOX_LAST = (l: string): boolean => l.startsWith('CREATE INDEX fiscal_outbox_pending');
+const OUTBOX_LAST = (l: string): boolean => l.startsWith('CREATE INDEX fiscal_outbox_rejected');   // 05 v1.0.7 (task 6 review): the block now ends with the rejected index
 const CREDS_FIRST = 'CREATE TABLE fiscal_credentials (';
 const CREDS_LAST = (l: string): boolean => l === ');';
 
@@ -73,13 +70,11 @@ function fiscalObjects(fx: OutboxDb): string[] {
       .all() as { name: string }[]
   ).map((r) => r.name);
 }
-function schemaNames(fx: { db: OutboxDb['db'] }): string[] {
-  return (fx.db.prepare('SELECT name FROM sqlite_master ORDER BY name').all() as { name: string }[]).map((r) => r.name);
-}
 const FISCAL_OBJECTS = [
   'fiscal_credentials',
   'fiscal_outbox',
   'fiscal_outbox_pending',
+  'fiscal_outbox_rejected',
   'sqlite_autoindex_fiscal_credentials_1',
   'sqlite_autoindex_fiscal_outbox_1',
 ];
@@ -101,38 +96,16 @@ const INSERT =
   'INSERT INTO fiscal_outbox (invoice_id, ord, ref_invoice_id, jurisdiction_id, adapter_key, pos_id, state, queued_at) ' +
   'VALUES (@invoice_id, @ord, @ref_invoice_id, @jurisdiction_id, @adapter_key, @pos_id, @state, @queued_at)';
 
-describe('[05 task 6a] staged fiscal DDL (§5, B20, B22; plan PL-13)', () => {
-  it('[05 §5] the fiscal DDL holds the spec §5 fiscal_outbox, fiscal_outbox_pending and fiscal_credentials text verbatim', () => {
+describe('[05 task 6] fiscal DDL in migration 0023 (§5, B20, B22)', () => {
+  it('[05 §5] the fiscal DDL holds the spec §5 fiscal_outbox, fiscal_outbox_pending, fiscal_outbox_rejected and fiscal_credentials text verbatim', () => {
     const ddl = fiscalDdlText();
     expect(block(ddl, OUTBOX_FIRST, OUTBOX_LAST)).toBe(specBlock(OUTBOX_FIRST, OUTBOX_LAST));
     expect(block(ddl, CREDS_FIRST, CREDS_LAST)).toBe(specBlock(CREDS_FIRST, CREDS_LAST));
   });
 
-  it('[05 §5] the fiscal DDL creates exactly the two tables, their primary keys and fiscal_outbox_pending', async () => {
+  it('[05 §5] the fiscal DDL creates exactly the two tables, their primary keys, fiscal_outbox_pending and (v1.0.7) fiscal_outbox_rejected', async () => {
     const fx = await db();
     expect(fiscalObjects(fx)).toEqual(FISCAL_OBJECTS);
-  });
-
-  it.runIf(stagedDdlPath !== null)('[05 §5, PL-13] staged: the file holds only the two §5 blocks and comments', () => {
-    let rest = lf(fiscalDdlText());
-    rest = rest.replace(block(rest, OUTBOX_FIRST, OUTBOX_LAST), '').replace(block(rest, CREDS_FIRST, CREDS_LAST), '');
-    expect(rest.split('\n').filter((l) => l.trim() !== '' && !l.trimStart().startsWith('--'))).toEqual([]);
-  });
-
-  it.runIf(stagedDdlPath !== null)('[05 §5, PL-13] staged: the migration runner never reads the file, and it adds nothing else', async () => {
-    const path = stagedDdlPath!;
-    expect(dirname(path)).not.toBe(migrationsDir);
-    expect(readdirSync(migrationsDir)).not.toContain(basename(path));
-    const fx = freshDb();
-    try {
-      await runMigrations(fx.db, { dir: migrationsDir, clock: fixedClock(T) });
-      const migrated = schemaNames(fx);
-      expect(migrated.filter((n) => FISCAL_OBJECTS.includes(n))).toEqual([]);
-      const staged = await db();
-      expect(schemaNames(staged).filter((n) => !migrated.includes(n))).toEqual(FISCAL_OBJECTS);
-    } finally {
-      fx.cleanup();
-    }
   });
 
   it('[05 §5] fiscal_outbox columns, types, NOT NULL, defaults and primary key', async () => {
