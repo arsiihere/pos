@@ -34,6 +34,10 @@ import { registerPettyCash } from './commands/petty-cash.js';
 import { registerShiftClose } from './commands/shift-close.js';
 // task 19 (§6.13, §3.10): ReopenBill and the order-cancelled hook; the module load registers the reopen_bill apply
 import { registerReopenBill } from './commands/reopen-bill.js';
+// task 25 (§6.24, §6.25, B25): CarryOverOrders and 05's day-close guard (after 04's)
+import { registerCarryOverOrders } from './commands/carry-over.js';
+import { registerDayCloseAppender, registerDayCloseGuard } from '../commands/close-business-day.js';
+import { billingDayCloseAppender, billingDayCloseGuard, bindDayClose } from './lanes/day-close.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 // task 31 (§3.15, §6.27, §6.28): the stuck tick (01d registerTick, G-22), fiscal-status and RetryFiscalNow
 import { registerFiscalStatus } from './fiscal/status.js';
@@ -98,6 +102,12 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerReopenBill(app);
   // task 26b (§6.26): the X and Z queries (the ZReportIssued print fold is in print/folds.ts)
   registerReportQueries(app);
+  // task 25 (§6.24, §6.25, §3.13, R-76, R-84, R-85): CarryOverOrders; the day-close guard after 04's (registerVoids runs first)
+  registerCarryOverOrders(app);
+  bindDayClose({ clock: deps.clock, warn: (fields, msg) => app.log.warn(fields, msg) });
+  registerDayCloseGuard(billingDayCloseGuard);
+  // the appender: AlertClosed for 05 + 02b comp requests, then ZReportIssued (before 03a's releases and BusinessDayClosed)
+  registerDayCloseAppender(billingDayCloseAppender);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
