@@ -128,16 +128,16 @@ describe('[04 §6.6] merge guard (02a §3.11 / §3.12)', () => {
     }
   });
 
-  it('[04 §6.6] merge guard: 1 statement whether it blocks or not, by seatings (merge) or by order ids (split)', async () => {
+  it('[04 §6.6] merge guard: 1 statement whether it blocks or not, by seatings (merge) or by order ids (split); 05’s guard (+1) only when 04’s passes', async () => {
     hub = await startVoids();
     const cashier = signIn(hub, STAFF.cashier);
     openSeating(hub, { table_id: VX.tables.T4, seating_id: 'SEAT_T4' });
     const s = stagedOrder(hub, { seating_id: 'SEAT_T4' });
     const free = counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_T4'] }));
-    expect(free).toEqual({ value: null, statements: 1 });
+    expect(free).toEqual({ value: null, statements: 2 }); // +1: 05 merge guard (task 24), asked after 04's passes
     await ask(cashier, s.order_id, [{ order_item_id: s.cooking, disposition: 'wastage' }, { order_item_id: s.done, disposition: 'wastage' }]);
     expect(counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_T4', 'SEAT_X'] }))).toEqual({ value: { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: [s.cooking, s.done] } }, statements: 1 });
-    expect(counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_T4'], order_ids: ['OTHER'] }))).toEqual({ value: null, statements: 1 });
+    expect(counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_T4'], order_ids: ['OTHER'] }))).toEqual({ value: null, statements: 2 }); // +1: 05 merge guard (task 24)
     expect(counted(() => checkMergeGuard(hub.deps.db, { seating_ids: ['SEAT_X'], order_ids: [s.order_id] }))).toEqual({ value: { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: [s.cooking, s.done] } }, statements: 1 });
   });
 });
@@ -145,14 +145,14 @@ describe('[04 §6.6] merge guard (02a §3.11 / §3.12)', () => {
 // ------------------------------------------------------------------------------------------- line guard (02b Q-3)
 
 describe('[04 §6.6, row Q-3] line guard', () => {
-  it('[04 §6.6] an open void request of the order whose touched ids meet the given ids → VOID_PENDING { alert_id, order_item_id: the first locked given id } (⚠️ 05 row Q-3 result shape); other orders / ids → null; 1 statement', async () => {
+  it('[04 §6.6] an open void request of the order whose touched ids meet the given ids → VOID_PENDING { alert_id, order_item_id: the first locked given id } (⚠️ 05 row Q-3 result shape); other orders / ids → null; 1 statement (+1 for 05’s guard when 04’s passes)', async () => {
     hub = await startVoids();
     const cashier = signIn(hub, STAFF.cashier);
     const d = dealX2(hub);
     const other = stagedOrder(hub);
     toStage(hub, d.order_id, [d.karahiPart], 'cooking');
     const [alert_id] = await ask(cashier, d.order_id, [{ order_item_id: d.karahiPart, units: 1, disposition: 'wastage' }]);
-    expect(counted(() => checkLineGuard(hub.deps.db, d.order_id, touched([d.deal, d.naanPart])))).toEqual({ value: null, statements: 1 });
+    expect(counted(() => checkLineGuard(hub.deps.db, d.order_id, touched([d.deal, d.naanPart])))).toEqual({ value: null, statements: 2 }); // +1: 05 line guard (task 24), asked after 04's passes
     expect(counted(() => checkLineGuard(hub.deps.db, d.order_id, touched([d.deal, d.naanPart, d.karahiPart])))).toEqual({ value: { code: 'VOID_PENDING', details: { alert_id, order_item_id: d.karahiPart } }, statements: 1 });
     expect(checkLineGuard(hub.deps.db, other.order_id, touched([d.karahiPart]))).toBeNull();
     expect(checkLineGuard(hub.deps.db, d.order_id, touched([]))).toBeNull();
@@ -247,7 +247,7 @@ describe('[04 row A-1] day-close guard', () => {
 });
 
 describe('[04 §6.6, §4.2] index', () => {
-  it('[04 §6.6] merge (both forms), line and day-close guards and pendingVoids each run one statement on alerts_open_kind', async () => {
+  it('[04 §6.6] merge (both forms), line and day-close guards and pendingVoids each run one statement on alerts_open_kind (05’s guards on the same lists read bills / closed_split_units)', async () => {
     hub = await startVoids();
     const db = hub.deps.db;
     const seen: string[] = [];
@@ -262,8 +262,11 @@ describe('[04 §6.6, §4.2] index', () => {
     checkDayCloseGuard(db, state());
     pendingVoids(db, ['O'], state());
     db.prepare = prepare;
-    expect(seen).toHaveLength(5);
-    for (const sql of seen) {
+    // +3: 05's merge guard (both forms) and line guard (task 24) follow 04's on the 02a / 02b lists; they read bills
+    expect(seen).toHaveLength(8);
+    const ours = seen.filter((sql) => /FROM alerts/.test(sql));
+    expect(ours).toHaveLength(5);
+    for (const sql of ours) {
       const args = Array.from({ length: (sql.match(/\?/g) ?? []).length }, () => '[]');
       const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...args) as Array<{ detail: string }>).map((r) => r.detail).join(' | ');
       expect(plan, sql).toMatch(/alerts_open_kind/);
