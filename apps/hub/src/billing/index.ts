@@ -24,6 +24,8 @@ import { registerRemoveComp } from './commands/remove-comp.js';
 import { registerWaiveBuyerId } from './commands/waive-buyer-id.js';
 // task 31a (§6.28a): SetFiscalToken (admin, write-only)
 import { registerSetFiscalToken } from './fiscal/credentials.js';
+// task 22 (§6.20, §3.14): RecordPettyCash / SettlePettyAdvance; the module load registers the petty_cash apply
+import { registerPettyCash } from './commands/petty-cash.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 // task 31 (§3.15, §6.27, §6.28): the stuck tick (01d registerTick, G-22), fiscal-status and RetryFiscalNow
 import { registerFiscalStatus } from './fiscal/status.js';
@@ -74,6 +76,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerSetFiscalToken(app);
   // task 31 (§3.15 Stuck, §6.27, §6.28; G-22): the fiscal_outbox_stuck tick, fiscal-status and RetryFiscalNow
   registerFiscalStatus(app);
+  // task 22 (§6.20)
+  registerPettyCash(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });

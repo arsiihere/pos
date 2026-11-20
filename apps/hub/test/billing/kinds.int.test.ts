@@ -124,8 +124,8 @@ describe('[05 §3.14, PL-5 (integrator ruling, option (c))] the apply seam', () 
   const ctx = { alert: { alert_id: 'A1' } } as unknown as AlertApplyCtx<never, never>;
 
   it('[05 §3.14] an unregistered kind throws not built (approve and reject alike); onWithdraw → [] (as if never asked)', () => {
-    // built kinds leave this list as their command task registers its apply: task 13 discount, task 14 remove_service_charge, task 20 remove_comp, task 18 close_without_buyer_id
-    const BUILT: BillRequestKind[] = ['discount', 'remove_service_charge', 'remove_comp', 'close_without_buyer_id'];
+    // built kinds leave this list as their command task registers its apply: task 13 discount, task 14 remove_service_charge, task 20 remove_comp, task 18 close_without_buyer_id, task 22 petty_cash
+    const BUILT: BillRequestKind[] = ['discount', 'remove_service_charge', 'remove_comp', 'close_without_buyer_id', 'petty_cash'];
     for (const name of [...APPROVAL.map(([n]) => n), ...HOLDERS].filter((n) => !BUILT.includes(n))) {
       const request = kindOf(name)!.request!;
       expect(() => request.apply(ctx as never, answer), name).toThrow(/not built/);
@@ -148,13 +148,14 @@ describe('[05 §3.14, PL-5 (integrator ruling, option (c))] the apply seam', () 
 
   it('[05 §3.14] re-registering the same function is ignored (guard-list rule); a different function for the same kind throws', () => {
     const apply = vi.fn(() => []);
-    registerBillKindApply('petty_cash', { apply });
-    expect(() => registerBillKindApply('petty_cash', { apply })).not.toThrow();
-    PETTY_CASH.request!.apply(ctx as never, answer);
+    // task 22 built petty_cash: the fake kind is reopen_bill (unbuilt; switch it when its own task lands)
+    registerBillKindApply('reopen_bill', { apply });
+    expect(() => registerBillKindApply('reopen_bill', { apply })).not.toThrow();
+    REOPEN_BILL.request!.apply(ctx as never, answer);
     expect(apply).toHaveBeenCalledTimes(1);
-    expect(() => registerBillKindApply('petty_cash', { apply: () => [] })).toThrow(/petty_cash/);
+    expect(() => registerBillKindApply('reopen_bill', { apply: () => [] })).toThrow(/reopen_bill/);
     resetBillKindApplies();
-    expect(() => PETTY_CASH.request!.apply(ctx as never, answer)).toThrow(/not built/);
+    expect(() => REOPEN_BILL.request!.apply(ctx as never, answer)).toThrow(/not built/);
   });
 });
 
