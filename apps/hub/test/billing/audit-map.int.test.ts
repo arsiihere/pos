@@ -11,13 +11,24 @@ import {
   aCheckBillPrinted,
   aDiscountApplied,
   aDiscountRemoved,
+  aDrawerOpened,
   aFiscalSubmitRejected,
   aFiscalTokenSet,
+  aHandoverCounted,
   anInvoiceCredited,
   anInvoiceIssued,
   aPaymentAdded,
   aPaymentRemoved,
+  aPettyCashAdvanced,
+  aPettyCashIn,
+  aPettyCashOut,
+  aPettyCashSettled,
+  aShiftClosed,
+  aShiftCounted,
+  aShiftCountSkipped,
   aShiftOpened,
+  aShiftVarianceSignedOff,
+  aZReportIssued,
 } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { auditProjection } from '../../src/audit/projection';
@@ -27,14 +38,15 @@ import type { BillRequestKind } from '../../src/billing/kinds/values';
 import type { CommandCtx } from '../../src/commands/registry';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import type { TestHub } from '../helpers/test-hub';
-import { answer, signIn, startBilling, STAFF, type Who } from './fixtures';
+import { answer, billingDirectory, signIn, startBilling, STAFF, type Who } from './fixtures';
 
 // 05 §6.30, row V-3, §10 test #87 (05-1 half; task 32a, plan PL-3, §11 H6-14): every 05-1 event of row V-3 maps to its
 // audit action through registerAuditAction (billing/audit-map.ts, at module load); the seven request kinds map their
 // AlertRaised / RequestAnswered through registerRequestAction; a rebuild of `audit` equals live; `detail_json` carries
 // no buyer data, names, phones, notes, references, tokens or PINs (permanent privacy scan below). Real events through
 // the hub's writer (task-5 builders, ids overridden), folded by the real `audit` projection; literal values.
-// 05-2's events (shift count / close, petty cash, drawer, carry-over, Z) are task 32b's and stay unmapped here.
+// Task 32b (plan §3 row 32b, H6-14) adds the 05-2 half: shift count / close / handover / sign-off, petty cash and
+// settle, drawer, carry-over and Z, through the same file (no second refold: 05-2's events have no history before it).
 
 let hub: TestHub;
 let cashier: Who;
@@ -176,33 +188,30 @@ const MAPPED_05_1: Record<string, string> = {
   FiscalTokenSet: 'fiscal_token_changed',
 };
 
-describe('[05 §6.30, row V-3] audit registrations at module load (task 32a)', () => {
-  it('[05 #87] every 05-1 event of row V-3 is a mapped audit event type; DiscountFrozen, FiscalNumberAssigned and 05-2 events are not', () => {
+/** The 05-2 events of row V-3 (§6.17–§6.21, §6.24, §6.25), each with its action (task 32b). */
+const MAPPED_05_2: Record<string, string> = {
+  ShiftCounted: 'shift_counted',
+  ShiftCountSkipped: 'shift_count_skipped',
+  HandoverCounted: 'handover_counted',
+  ShiftClosed: 'shift_closed',
+  ShiftVarianceSignedOff: 'shift_variance_signed_off',
+  PettyCashAdvanced: 'petty_cash',
+  PettyCashOut: 'petty_cash',
+  PettyCashIn: 'petty_cash',
+  PettyCashSettled: 'petty_cash',
+  DrawerOpened: 'drawer_opened',
+  OrdersCarriedOver: 'orders_carried_over',
+  ZReportIssued: 'z_report_issued',
+};
+
+describe('[05 §6.30, row V-3] audit registrations at module load (tasks 32a, 32b)', () => {
+  it('[05 #87] every 05 event of row V-3 is a mapped audit event type; DiscountFrozen, FiscalNumberAssigned, OrdersBilled and OrdersUnbilled are not', () => {
     const types = auditEventTypes();
-    for (const t of Object.keys(MAPPED_05_1)) expect(types, t).toContain(t);
-    for (const action of Object.values(MAPPED_05_1)) expect(AUDIT_ACTIONS as readonly string[], action).toContain(action);
-    // §6.29: DiscountFrozen has no audit action of its own (the close audits invoice_issued); FiscalNumberAssigned
-    // is not in row V-3; the 05-2 events are task 32b's
-    for (const t of [
-      'DiscountFrozen',
-      'FiscalNumberAssigned',
-      'OrdersBilled',
-      'OrdersUnbilled',
-      'ShiftCounted',
-      'ShiftCountSkipped',
-      'HandoverCounted',
-      'ShiftClosed',
-      'ShiftVarianceSignedOff',
-      'PettyCashAdvanced',
-      'PettyCashSettled',
-      'PettyCashOut',
-      'PettyCashIn',
-      'DrawerOpened',
-      'OrdersCarriedOver',
-      'ZReportIssued',
-    ]) {
-      expect(types, t).not.toContain(t);
-    }
+    for (const t of [...Object.keys(MAPPED_05_1), ...Object.keys(MAPPED_05_2)]) expect(types, t).toContain(t);
+    for (const action of [...Object.values(MAPPED_05_1), ...Object.values(MAPPED_05_2)]) expect(AUDIT_ACTIONS as readonly string[], action).toContain(action);
+    // §6.29: DiscountFrozen has no audit action of its own (the close audits invoice_issued); FiscalNumberAssigned,
+    // OrdersBilled and OrdersUnbilled are not in row V-3
+    for (const t of ['DiscountFrozen', 'FiscalNumberAssigned', 'OrdersBilled', 'OrdersUnbilled']) expect(types, t).not.toContain(t);
   });
 });
 
@@ -525,6 +534,164 @@ describe('[05 #87 (05-1 events), §6.30, row V-3] each 05-1 event → its audit 
   });
 });
 
+/**
+ * A scripted 05-2 day (task 32b): every mapped 05-2 event once, raw appended through the writer (task-5 builders, ids
+ * overridden). `variance_alert_id` = a raised `shift_variance` request, so the sign-off's requester comes from
+ * audit_requests (requestOf). The Z carries a carried-over label (a parking plate) that must never reach the row.
+ */
+function scriptedShifts(variance_alert_id: string): Record<string, string> {
+  const ev: Record<string, string> = {};
+  ev.drawerOpened = append('S_CASH', d(aDrawerOpened(), { shift_id: 'SH1', device_id: 'D_KIOSK', reason_code: 'check_cash', has_note: true, note_id: 'N10' }, 'SH1'));
+  ev.pettyOut = append('S_CASH', d(aPettyCashOut(), { entry_id: 'E1', shift_id: 'SH1', requester_staff_id: 'S_CASH' }, 'SH1'));
+  ev.pettyIn = append('S_CASH', d(aPettyCashIn(), { entry_id: 'E2', shift_id: 'SH1', requester_staff_id: 'S_CASH' }, 'SH1'));
+  // an over-limit advance, answered: the envelope actor is the Manager, the act is the Cashier's
+  ev.pettyAdvanced = append(
+    'S_MGR',
+    d(
+      aPettyCashAdvanced(),
+      { entry_id: 'E3', shift_id: 'SH1', advance_staff_id: 'S_WAIT', has_note: true, requester_staff_id: 'S_CASH', approver_staff_id: 'S_MGR', alert_id: 'AL_P' },
+      'SH1',
+    ),
+  );
+  ev.pettySettled = append('S_CASH', d(aPettyCashSettled(), { entry_id: 'E3', shift_id: 'SH1', has_note: true, note_id: 'N11' }, 'SH1'));
+  ev.handover = append('S_CASH', d(aHandoverCounted(), { shift_id: 'SH1', by_staff_id: 'S_CASH' }, 'SH1'));
+  // a Manager counts the Cashier's shift (close-shift-for-others): the counter is the act's person
+  ev.counted = append('S_MGR', d(aShiftCounted(), { shift_id: 'SH1', by_staff_id: 'S_MGR', variance_alert_id }, 'SH1'));
+  ev.closed = append('S_MGR', d(aShiftClosed(), { shift_id: 'SH1', closed_by: 'S_MGR', has_note: true, note_id: 'N12' }, 'SH1'));
+  ev.skipped = append('S_MGR', d(aShiftCountSkipped(), { shift_id: 'SH2' }, 'SH2'));
+  ev.closedSkip = append('S_MGR', d(aShiftClosed(), { shift_id: 'SH2', closed_by: 'S_MGR' }, 'SH2'));
+  ev.signedOff = append('S_OWNER', d(aShiftVarianceSignedOff(), { shift_id: 'SH1', outcome: 'disputed', alert_id: variance_alert_id, approver_staff_id: 'S_OWNER' }, 'SH1'));
+  ev.carried = append(
+    'S_MGR',
+    raw('hub', 'branch-1', 'OrdersCarriedOver', {
+      order_ids: ['O7', 'O8'],
+      business_date: '2025-10-20',
+      reason_code: 'table_still_seated',
+      has_note: true,
+      note_id: 'N13',
+    }),
+  );
+  const z = aZReportIssued();
+  const report = { ...((z.payload as Record<string, unknown>)['report'] as Record<string, unknown>), carried_over: [{ label: PLATE, carried_in: false }] };
+  ev.z = append('S_MGR', d(z, { report }, 'branch-1'));
+  return ev;
+}
+
+describe('[05 #87 (05-2 events), §6.30, row V-3] each 05-2 event → its audit row (task 32b)', () => {
+  it('[05 #87] the scripted day: one row per event; counts, ids and codes only (no paid_to, no report body)', () => {
+    const variance_alert_id = raiseKind('shift_variance');
+    const ev = scriptedShifts(variance_alert_id);
+    const env = (actor: string | null) => ({ envelope_actor_id: actor });
+    const shift = (id = 'SH1') => ({ subject_type: 'shift', subject_id: id });
+
+    expect(rowOf(ev.drawerOpened)).toEqual({
+      ...base,
+      action: 'drawer_opened',
+      actor_staff_id: 'S_CASH',
+      ...shift(),
+      reason: 'check_cash',
+      detail: { device_id: 'D_KIOSK', has_note: true, note_id: 'N10', ...env('S_CASH') },
+    });
+    const petty = { entry_id: 'E1', shift_id: 'SH1', category_id: 'supplies', advance_staff_id: null, has_note: false, alert_id: null };
+    expect(rowOf(ev.pettyOut), '§6.20: kind, amount, category; never paid_to (nor has_paid_to, H1-20 pattern)').toEqual({
+      ...base,
+      action: 'petty_cash',
+      actor_staff_id: 'S_CASH',
+      ...shift(),
+      amount_minor: 20_000,
+      detail: { kind: 'out', ...petty, ...env('S_CASH') },
+    });
+    expect(rowOf(ev.pettyIn)).toEqual({
+      ...base,
+      action: 'petty_cash',
+      actor_staff_id: 'S_CASH',
+      ...shift(),
+      amount_minor: 20_000,
+      detail: { kind: 'in', ...petty, entry_id: 'E2', category_id: 'other', ...env('S_CASH') },
+    });
+    expect(rowOf(ev.pettyAdvanced), 'approved: actor = requester, approver from the event').toEqual({
+      ...base,
+      action: 'petty_cash',
+      actor_staff_id: 'S_CASH',
+      approver_staff_id: 'S_MGR',
+      ...shift(),
+      amount_minor: 20_000,
+      detail: { kind: 'advance', ...petty, entry_id: 'E3', category_id: 'staff_advance', advance_staff_id: 'S_WAIT', has_note: true, alert_id: 'AL_P', ...env('S_MGR') },
+    });
+    expect(rowOf(ev.pettySettled), 'settle: amount = spent + returned (the advance)').toEqual({
+      ...base,
+      action: 'petty_cash',
+      actor_staff_id: 'S_CASH',
+      ...shift(),
+      amount_minor: 20_000,
+      detail: { kind: 'settle', entry_id: 'E3', shift_id: 'SH1', spent_minor: 15_000, returned_minor: 5_000, has_note: true, note_id: 'N11', ...env('S_CASH') },
+    });
+    const count = { counted_minor: 1_195_000, expected_minor: 1_195_500, variance_minor: -500 };
+    expect(rowOf(ev.handover)).toEqual({
+      ...base,
+      action: 'handover_counted',
+      actor_staff_id: 'S_CASH',
+      ...shift(),
+      amount_minor: 1_195_000,
+      detail: { ...count, ...env('S_CASH') },
+    });
+    expect(rowOf(ev.counted), 'actor = the counter (by_staff_id)').toEqual({
+      ...base,
+      action: 'shift_counted',
+      actor_staff_id: 'S_MGR',
+      ...shift(),
+      amount_minor: 1_195_000,
+      detail: { ...count, variance_alert_id, ...env('S_MGR') },
+    });
+    expect(rowOf(ev.closed)).toEqual({
+      ...base,
+      action: 'shift_closed',
+      actor_staff_id: 'S_MGR',
+      ...shift(),
+      detail: { alert_id: null, has_note: true, note_id: 'N12', ...env('S_MGR') },
+    });
+    expect(rowOf(ev.skipped)).toEqual({ ...base, action: 'shift_count_skipped', actor_staff_id: 'S_MGR', ...shift('SH2'), detail: env('S_MGR') });
+    expect(rowOf(ev.closedSkip)).toEqual({
+      ...base,
+      action: 'shift_closed',
+      actor_staff_id: 'S_MGR',
+      ...shift('SH2'),
+      detail: { alert_id: null, has_note: false, note_id: null, ...env('S_MGR') },
+    });
+    expect(rowOf(ev.signedOff), 'actor = the request\'s requester (requestOf), approver and outcome from the event').toEqual({
+      ...base,
+      action: 'shift_variance_signed_off',
+      actor_staff_id: 'S_CASH',
+      approver_staff_id: 'S_OWNER',
+      ...shift(),
+      outcome: 'disputed',
+      detail: { alert_id: variance_alert_id, business_date: '2025-10-21', ...env('S_OWNER') },
+    });
+    expect(rowOf(ev.carried), 'a day act: subject `day` = the hub stream (04 day_opened), ids only').toEqual({
+      ...base,
+      action: 'orders_carried_over',
+      actor_staff_id: 'S_MGR',
+      subject_type: 'day',
+      subject_id: 'branch-1',
+      reason: 'table_still_seated',
+      detail: { business_date: '2025-10-20', order_ids: ['O7', 'O8'], has_note: true, note_id: 'N13', ...env('S_MGR') },
+    });
+    expect(rowOf(ev.z), 'the Z number and day only; never the report body').toEqual({
+      ...base,
+      action: 'z_report_issued',
+      actor_staff_id: 'S_MGR',
+      subject_type: 'day',
+      subject_id: 'branch-1',
+      detail: { business_date: '2025-10-20', z_no: 1, ...env('S_MGR') },
+    });
+  });
+
+  it('[05 #87, §6.30] a sign-off whose request is unknown to the fold: actor falls back to the envelope actor', () => {
+    const id = append('S_OWNER', d(aShiftVarianceSignedOff(), { shift_id: 'SH9', alert_id: 'AL_UNKNOWN', approver_staff_id: 'S_OWNER' }, 'SH9'));
+    expect(rowOf(id)).toMatchObject({ action: 'shift_variance_signed_off', actor_staff_id: 'S_OWNER', approver_staff_id: 'S_OWNER', outcome: 'approved' });
+  });
+});
+
 describe('[05 #87, row V-3, H1-8] the seven request kinds (registerRequestAction)', () => {
   it('[05 #87] discount → discount_requested / discount_answered; the six others → money_request_raised / money_request_answered (kind in the answered detail)', async () => {
     const KINDS: BillRequestKind[] = ['discount', 'remove_service_charge', 'reopen_bill', 'remove_comp', 'close_without_buyer_id', 'petty_cash', 'shift_variance'];
@@ -594,8 +761,13 @@ describe('[05 #87, V-3, PL-3] rebuild = live; no buyer data in detail_json (perm
     expect((await answer(hub, manager, ids[0]!, 'reject')).status).toBe(200);
     // the requestOf path: an empty close inside an answered request (actor / approver from audit_requests)
     append('S_MGR', d(aBillClosedEmpty(), { bill_id: 'B3', seating_id: 'SEAT3', credit_invoice_ids: [], alert_id: ids[0]! }, 'B3'));
+    // 05-2 (task 32b): the sign-off's requester via requestOf on the raised shift_variance request
+    scriptedShifts(ids[6]!);
     const live = dumpAudit();
-    expect(live.length).toBeGreaterThan(30);
+    expect(live.length).toBeGreaterThan(40);
+    expect(live, 'the sign-off row reads its requester').toContainEqual(
+      expect.objectContaining({ action: 'shift_variance_signed_off', actor_staff_id: 'S_CASH', approver_staff_id: 'S_OWNER' }),
+    );
 
     expect(live, 'the answered empty close is in the live log').toContainEqual(
       expect.objectContaining({ action: 'bill_closed_empty', subject_id: 'B3', actor_staff_id: 'S_CASH', approver_staff_id: 'S_MGR' }),
@@ -608,22 +780,28 @@ describe('[05 #87, V-3, PL-3] rebuild = live; no buyer data in detail_json (perm
     expect(dumpAudit()).toEqual(live);
   });
 
-  it('[05 #87, PL-3] every 05 row: no buyer, name, phone, note, reference, token or PIN key; no plate or menu name; detail ≤ 2 KB', async () => {
+  it('[05 #87, PL-3] every 05 row (05-1 and 05-2): no buyer, name, phone, note, reference, paid_to, token or PIN key; no plate or menu name; no Z report body; detail ≤ 2 KB', async () => {
     scriptedBills();
     const ids = (['discount', 'remove_service_charge', 'reopen_bill', 'remove_comp', 'close_without_buyer_id', 'petty_cash', 'shift_variance'] as const).map((k) => raiseKind(k));
     expect((await answer(hub, manager, ids[0]!, 'reject')).status).toBe(200);
     expect((await answer(hub, manager, ids[1]!, 'reject')).status).toBe(200);
-    const FROM_05 = new Set([...Object.values(MAPPED_05_1), 'discount_requested', 'discount_answered', 'money_request_raised', 'money_request_answered']);
+    scriptedShifts(ids[6]!);
+    // the directory's staff names (the one startBilling binds): no row may carry one under any key, neutral ones too
+    const STAFF_NAMES = (await billingDirectory()).staff.map((s) => s.display_name);
+    expect(STAFF_NAMES.length).toBeGreaterThan(0);
+    const FROM_05 = new Set([...Object.values(MAPPED_05_1), ...Object.values(MAPPED_05_2), 'discount_requested', 'discount_answered', 'money_request_raised', 'money_request_answered']);
     const rows = (hub.deps.db.prepare('SELECT action, reason, outcome, detail_json FROM audit_entries ORDER BY seq').all() as Array<Record<string, string | null>>).filter((r) =>
       FROM_05.has(r['action']!),
     );
-    expect(new Set(rows.map((r) => r['action'])), 'every 05-1 action and request action is scanned').toEqual(FROM_05);
+    expect(new Set(rows.map((r) => r['action'])), 'every 05 action and request action is scanned').toEqual(FROM_05);
     for (const r of rows) {
       const json = r['detail_json']!;
       expect(Buffer.byteLength(json, 'utf8'), r['action']!).toBeLessThanOrEqual(2_048);
       const bad = keysOf(JSON.parse(json)).filter((k) => !ALLOWED_KEYS.has(k) && FORBIDDEN_KEY.test(k));
       expect(bad, `${r['action']}: ${json}`).toEqual([]);
-      for (const poison of [PLATE, LINE_NAME]) expect(JSON.stringify(r), r['action']!).not.toContain(poison);
+      for (const poison of [PLATE, LINE_NAME, ...STAFF_NAMES]) expect(JSON.stringify(r), `${r['action']}: ${poison}`).not.toContain(poison);
+      // task 32b: never a Z report body (staff ids, mode / category names, carried labels) nor a petty paid_to flag
+      for (const k of ['report', 'has_paid_to', 'mode_name', 'category_name', 'label']) expect(keysOf(JSON.parse(json)), `${r['action']}: ${k}`).not.toContain(k);
     }
   });
 });
