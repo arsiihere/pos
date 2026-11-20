@@ -1,7 +1,7 @@
 import type { BranchConfig, DirectoryInput, EventDraft } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { kindOf } from '../../src/alerts/kinds';
-import { startTickLoop, TICK_MS } from '../../src/alerts/tick';
+import { startTickLoop, TICK_MS, unregisterTick } from '../../src/alerts/tick';
 import { defineCommand } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
 import { endSession, type SessionRow } from '../../src/auth/session-store';
@@ -74,6 +74,9 @@ const CONFIG = {
 
 beforeEach(async () => {
   hub = await createTestHub();
+  // 05 §3.15 (task 31): registerBilling adds the fiscal_outbox_stuck tick to every test hub; its stuck limit needs the billing
+  // config (currency, tax classes) that this file's partial CONFIG lacks, and #35 runs the tick loop with a log.error spy
+  unregisterTick('fiscal_outbox_stuck');
   await seedDirectory(hub, await directory());
   swapBranchConfig({ config: CONFIG, snapshotHash: 'h'.repeat(64), configVersion: 1, snapshotSchemaVersion: 4, appliedAt: 0 });
   const registry = commandRegistry(hub.app);

@@ -25,6 +25,8 @@ import { registerWaiveBuyerId } from './commands/waive-buyer-id.js';
 // task 31a (§6.28a): SetFiscalToken (admin, write-only)
 import { registerSetFiscalToken } from './fiscal/credentials.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
+// task 31 (§3.15, §6.27, §6.28): the stuck tick (01d registerTick, G-22), fiscal-status and RetryFiscalNow
+import { registerFiscalStatus } from './fiscal/status.js';
 import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
 import { billPrintsProjection, bindBillPrints } from './print/folds.js';
 import { billingProjection } from './projections/billing.js';
@@ -70,6 +72,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerWaiveBuyerId(app);
   // task 31a (§6.28a, B22): SetFiscalToken on /admin/commands/set-fiscal-token
   registerSetFiscalToken(app);
+  // task 31 (§3.15 Stuck, §6.27, §6.28; G-22): the fiscal_outbox_stuck tick, fiscal-status and RetryFiscalNow
+  registerFiscalStatus(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
