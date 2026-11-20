@@ -56,7 +56,7 @@ function report(over: Partial<ReportDocInput> = {}): ReportDocInput {
     shifts: [
       { staff_id: 'S-SANA', float_minor: 500_000, expected_minor: null, counted_minor: null, variance_minor: null, skipped: false, signoff_state: null },
       { staff_id: 'S-HAMZA', float_minor: 0, expected_minor: 1_252_000, counted_minor: 1_248_000, variance_minor: -4_000, skipped: false, signoff_state: null },
-      { staff_id: 'S-USMAN', float_minor: 0, expected_minor: 3_911_000, counted_minor: 3_886_000, variance_minor: -25_000, skipped: false, signoff_state: 'pending' },
+      { staff_id: 'S-USMAN', float_minor: 0, expected_minor: 3_911_000, counted_minor: 3_886_000, variance_minor: -25_000, skipped: false, signoff_state: 'pending sign-off' },
       { staff_id: 'S-BILAL', float_minor: 0, expected_minor: null, counted_minor: null, variance_minor: null, skipped: true, signoff_state: null },
     ],
     variance_signoffs: [{ shift_date: '2026-11-17', staff_id: 'S-USMAN', amount_minor: -15_000, outcome: 'approved', approver_staff_id: 'S-IMRAN', at: 1 }],
@@ -193,6 +193,7 @@ describe('[05 §8 Reports, §6.26] Today (X) (frame XReport)', () => {
       'Cash · back−325.00',
       'Cash · change given41,880.00',
       'Card165,210.00',
+      'Takings by person',
       'Sana300,000.00',
       'Brought forward0.00',
       'Carried forward0.00',
@@ -203,14 +204,14 @@ describe('[05 §8 Reports, §6.26] Today (X) (frame XReport)', () => {
       'Usman · expected 39,110.00 · counted 38,860.00 · Short 250.00Pending sign-off',
       'Bilal · skipped the countSkipped',
       'Variance sign-offs today',
-      'Usman · 17 NovApproved by Imran',
+      'Usman · 17 Nov · −150.00Approved by Imran · 12:00 AM',
       'Pending sign-offs1',
       'Usman · 19 Nov−250.00',
     ]);
     expect(rowText(v, 'Fiscal')).toEqual(['Accepted83', 'Pending3', 'Not accepted0', 'Not required0']);
     expect(rowText(v, 'Open bills')).toEqual(['Open now2', 'Open too longT2 · 4 h 12 min', 'Carried in#12']);
     expect(rowText(v, 'Petty cash')).toEqual(['Cash out · Supplies600.00', 'Open advancesAli · 1,000.00 · 2 h 00 min']);
-    expect(rowText(v, 'Comps, voids, reopens')).toEqual(['Comps2,900.00', 'Comp removals1 · 1,450.00', 'Voids · Wastage3 · 900.00', 'Reopens1 · 5,996.00']);
+    expect(rowText(v, 'Comps, voids, reopens')).toEqual(['Comps2,900.00', 'Comp removals1 · 1,450.00', 'Voids · Wastage3 · 900.00', 'Reopens1 · 5,996.00', 'asked Sana, approved Imran']);
   });
 
   it('[§6.28] Retry fiscal now only with close-business-day: RetryFiscalNow {} → "{n} waiting — sending now"; reads the X again', async () => {
@@ -224,6 +225,56 @@ describe('[05 §8 Reports, §6.26] Today (X) (frame XReport)', () => {
     expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['RetryFiscalNow', {}]);
     expect(s.shown).toEqual(['3 waiting — sending now']);
     expect(s.query).toHaveBeenCalledTimes(2);
+  });
+
+  it('[review M1] the hub\'s sign-off strings: pending sign-off warn, approved ok, disputed danger; an unknown one as is, never "Within"', async () => {
+    const shifts = (['pending sign-off', 'approved', 'disputed', 'odd'] as const).map((st, i) => ({ staff_id: `S${i}`, float_minor: 0, expected_minor: 100, counted_minor: 90, variance_minor: -10, skipped: false, signoff_state: st }));
+    const v = await show(setup({ x: { ok: true, data: { report: report({ shifts, variance_signoffs: [], pending_signoffs: [] }), staff_names: {} } } }));
+    const chips = [...rows(v, 'Shifts')].slice(0, 4).map((r) => [r.querySelector('.st')?.textContent, r.querySelector('.st')?.className]);
+    expect(chips).toEqual([
+      ['Pending sign-off', 'st c-warn'],
+      ['Approved', 'st c-ok'],
+      ['Disputed', 'st c-danger'],
+      ['odd', 'st c-warn'],
+    ]);
+  });
+
+  it('[§6.26] each discount\'s asker and approver (frame: "asked Sana, approved Imran")', async () => {
+    const discounts = { count: 2, value_minor: 418_000, by_reason: [], entries: [{ requester_staff_id: 'S-SANA', approver_staff_id: 'S-IMRAN', method: 'approval', value_minor: 296_000 }, { requester_staff_id: 'S-ALI', approver_staff_id: null, method: 'direct', value_minor: 122_000 }] };
+    const base = report();
+    const v = await show(setup({ x: { ok: true, data: { report: { ...base, sales: { ...base.sales, discounts } }, staff_names: NAMES } } }));
+    expect(rowText(v, 'Sales').slice(1, 4)).toEqual(['Discounts · 2−4,180.00', 'asked Sana, approved Imran−2,960.00', 'Ali−1,220.00']);
+  });
+
+  it('[review m2] brought / carried forward: the hub\'s rows by mode and staff, never a client total', async () => {
+    const v = await show(setup({ x: { ok: true, data: { report: report({ brought_forward: [{ mode_name: 'Cash', staff_id: 'S-SANA', amount_minor: 100_000 }, { mode_name: 'Card', staff_id: 'S-SANA', amount_minor: 50_000 }] }), staff_names: NAMES } } }));
+    const pay = rowText(v, 'Payments by mode');
+    expect(pay).toContain('Brought forward');
+    expect(pay).toContain('Cash · Sana1,000.00');
+    expect(pay).toContain('Card · Sana500.00');
+    expect(v.text()).not.toContain('1,500.00');
+  });
+
+  it('[review m4] no open day (BUSINESS_DAY_NOT_OPEN): its own note and See Z reports, no Try again', async () => {
+    const s = setup({ x: { ok: false, error: { kind: 'api', status: 409, code: 'BUSINESS_DAY_NOT_OPEN', details: {} } } });
+    const v = await show(s);
+    expect(v.text()).toContain('No day is open, so there is no X.');
+    expect(v.buttons().some((b) => b.textContent === 'Try again')).toBe(false);
+    v.click(v.button('See Z reports'));
+    await flush();
+    expect(seg(v, 'Z reports').getAttribute('aria-pressed')).toBe('true');
+    expect(s.page).toHaveBeenCalledTimes(1);
+  });
+
+  it('[review m8] Retry fiscal now only with something pending', async () => {
+    const v = await show(setup({ grants: { 'close-business-day': { grant: 'allowed', scope: 'branch' } }, x: { ok: true, data: { report: report({ fiscal: { pending: 0, acked: 86, rejected: 0, not_required: 0 } }), staff_names: NAMES } } }));
+    expect(v.buttons().some((b) => b.textContent === 'Retry fiscal now')).toBe(false);
+    expect(v.container.querySelectorAll('.b5-kpi')[3]!.querySelector('b')?.textContent).toBe('All sent');
+  });
+
+  it('a negative net after credits (a day of refunds) reads with its sign', async () => {
+    const v = await show(setup({ x: { ok: true, data: { report: report({ net_after_credits_minor: -59_960 }), staff_names: NAMES } } }));
+    expect(v.container.querySelector('.b5-kpi.hero b')?.textContent).toBe('-Rs 599.60');
   });
 
   it('rejected invoices: "Not accepted invoices need a fix from support"', async () => {
@@ -276,6 +327,22 @@ describe('[05 §8 Reports, §6.26, R-85] Z reports (frames ZList, ZReport)', () 
     expect(v.buttons().some((b) => b.textContent === 'Load older')).toBe(false);
   });
 
+  it('[review m5] a double tap on Load older reads one page; a row seen already is not repeated', async () => {
+    let release: (a: Answer) => void = () => {};
+    const s = setup({ pages: [{ ok: true, data: { data: { reports: [zRow(43, '2026-11-19', 1)] }, next_cursor: 'C1' } }] });
+    const v = await show(s);
+    v.click(seg(v, 'Z reports'));
+    await flush();
+    s.page.mockImplementationOnce(() => new Promise<Answer>((r) => (release = r)));
+    const older = v.button('Load older');
+    v.click(older);
+    v.click(older);
+    release({ ok: true, data: { data: { reports: [zRow(43, '2026-11-19', 1), zRow(42, '2026-11-18', 2)] }, next_cursor: null } });
+    await flush();
+    expect(s.page).toHaveBeenCalledTimes(2);
+    expect([...v.container.querySelectorAll('.b5-zl .z')].map((z) => z.textContent)).toEqual(['Z 0043', 'Z 0042']);
+  });
+
   it('no Z yet: "No Z reports yet"', async () => {
     const v = await show(setup({ pages: [{ ok: true, data: { data: { reports: [] }, next_cursor: null } }] }));
     v.click(seg(v, 'Z reports'));
@@ -309,6 +376,9 @@ describe('[05 §8, §6.27] the fiscal status line (frame OpenBillsFiscal)', () =
     expect(at(status())).toEqual(['c-ok', 'Fiscal: all sent']);
     expect(fiscalLineOf(status(), 0)?.small).toBe('last 1:38 PM');
     expect(fiscalLineOf(status({ last_success_at: null }), 0)?.small).toBeUndefined();
+    // review m7: an ack of an earlier day names its date
+    expect(fiscalLineOf(status(), 0, Date.UTC(2026, 10, 19, 15, 0))?.small).toBe('last 1:38 PM');
+    expect(fiscalLineOf(status(), 0, Date.UTC(2026, 10, 20, 9, 0))?.small).toBe('last 19 Nov 1:38 PM');
     expect(at(status({ pending_count: 3, oldest_pending_age_ms: 12 * 60_000 }))).toEqual(['c-info', 'Fiscal: 3 waiting · oldest 12 min']);
     expect(at(status({ pending_count: 3, oldest_pending_age_ms: 125 * 60_000, stuck: true }))).toEqual(['c-warn', 'Fiscal: 3 waiting · oldest 2 h 05 min — tell a manager']);
     expect(at(status({ rejected_count: 1, pending_count: 3 }))).toEqual(['c-danger', 'Fiscal: 1 not accepted — tell a manager']);
@@ -330,6 +400,24 @@ describe('[05 §8, §6.27] the fiscal status line (frame OpenBillsFiscal)', () =
     expect(s.query.mock.calls[0]![0]).toBe('/queries/fiscal-status');
     expect(m.container.querySelector('.b5-fis')?.className).toBe('b5-fis c-danger');
     expect(m.container.innerHTML).not.toContain('POS-');
+  });
+
+  it('[review m7] read again each minute (oldest age, stuck and health move with time)', async () => {
+    vi.useFakeTimers();
+    const s = setup({ x: { ok: true, data: status() } });
+    m = mount();
+    m.render(
+      <ShellContext.Provider value={s.shell}>
+        <FiscalLine />
+      </ShellContext.Provider>,
+    );
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(s.query).toHaveBeenCalledTimes(2);
+    m.unmount();
+    m = null;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(s.query).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 
   it('adapter none or a refusal: nothing shown', async () => {

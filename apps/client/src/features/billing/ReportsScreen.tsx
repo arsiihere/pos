@@ -1,7 +1,7 @@
 import type { ReportDocInput } from '@pos/domain';
 import { defaultBillingSettings } from '@pos/events';
 import { currencyExponent } from '@pos/domain';
-import { Fragment, useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { HubError } from '../../api/hub-admin';
 import { t } from '../../i18n';
 import { fill, type MessageKey } from '../../i18n/en';
@@ -20,7 +20,7 @@ import './styles';
 // R-85: a Z is keyed by `z_no`, a date can have several, the list is newest `z_no` first, cursor-paged), §6.28
 // (Retry fiscal now, `close-business-day`), B26 (plan §4.1 task 42, after hub task 26b; frames XReport, ZList,
 // ZReport, ReportsTablet). Every figure is the hub's: the client formats, never sums (D47). Names from `staff_names`
-// (H16-5: the report carries ids only). Print (§6.22 PrintReport) is not offered: no hub task builds it yet; the Z
+// (H16-5: the report carries ids only); brought / carried forward as their rows (R-83 (5)), never a client total. Print (§6.22 PrintReport) is not offered: no hub task builds it yet; the Z
 // prints by itself when it is issued (26b's live print fold).
 
 type Tab = 'x' | 'z';
@@ -53,7 +53,7 @@ export function ReportsScreen() {
           </button>
         </div>
       </div>
-      {tab === 'x' ? <XView key="x" offset={shell.clock.utcOffsetMs} /> : <ZView key="z" offset={shell.clock.utcOffsetMs} />}
+      {tab === 'x' ? <XView key="x" offset={shell.clock.utcOffsetMs} onShowZ={() => setTab('z')} /> : <ZView key="z" offset={shell.clock.utcOffsetMs} />}
     </main>
   );
 }
@@ -72,26 +72,40 @@ function Failed({ text, onRetry }: { text: string; onRetry: () => void }) {
   );
 }
 
-function XView({ offset }: { offset: number }) {
+function XView({ offset, onShowZ }: { offset: number; onShowZ: () => void }) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
   const [view, setView] = useState<{ report: ReportDocInput; staff_names: Record<string, string> } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [closedDay, setClosedDay] = useState(false);
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     const answer = await api.xReport();
     if (answer.ok) {
       setView(answer.data);
       setErr(null);
+      setClosedDay(false);
+    } else if (answer.error.kind === 'api' && answer.error.code === 'BUSINESS_DAY_NOT_OPEN') {
+      // no open day, so no X: the day's figures are its Z (review m4)
+      setView(null);
+      setClosedDay(true);
     } else setErr(errText(answer.error));
   }, [api]);
   useEffect(() => {
     void load();
   }, [load]);
+  if (closedDay)
+    return (
+      <div className="col b5-stack">
+        <p className="b5-note">{t('billing.report.no_open_day')}</p>
+        <button type="button" className="btn" onClick={onShowZ}>
+          {t('billing.report.see_z')}
+        </button>
+      </div>
+    );
   if (view === null) return err === null ? null : <Failed text={err} onRetry={() => void load()} />;
   const r = view.report;
-  const retry = shell.permissions.allowed('close-business-day')
-    ? async () => {
+  const run = async () => {
         if (busy) return;
         setBusy(true);
         const answer = await api.retryFiscalNow();
@@ -102,15 +116,15 @@ function XView({ offset }: { offset: number }) {
         }
         shell.toasts.show({ text: fill(t('billing.report.retry_done'), { count: String(answer.data.pending_count) }), tone: 'ok' });
         await load();
-      }
-    : null;
+      };
+  const retry = shell.permissions.allowed('close-business-day') ? { busy, run: () => void run() } : null;
   return (
     <>
       <p className="b5-note b5-rep-line">
         {fill(t('billing.report.x_line'), { date: dayText(dateOf(r.business_date), 0), time: timeText(r.issued_at, offset), currency: r.currency_code })}
       </p>
       {err !== null && <Failed text={err} onRetry={() => void load()} />}
-      <ReportBody report={r} names={view.staff_names} retry={retry} />
+      <ReportBody report={r} names={view.staff_names} offset={offset} retry={retry} />
     </>
   );
 }
@@ -127,10 +141,14 @@ function ZView({ offset }: { offset: number }) {
   const [state, setState] = useState<ZState | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const reading = useRef(false);
   const more = useCallback(
     async (cursor: string | null) => {
+      if (reading.current) return;
+      reading.current = true;
       setBusy(true);
       const answer = await api.zReports(cursor);
+      reading.current = false;
       setBusy(false);
       if (!answer.ok) {
         setErr(errText(answer.error));
@@ -138,7 +156,11 @@ function ZView({ offset }: { offset: number }) {
       }
       setErr(null);
       // R-85: the hub's order (newest z_no first); a later page goes after the rows already shown
-      setState((s) => ({ rows: [...(cursor === null ? [] : (s?.rows ?? [])), ...answer.data.data.reports], next: answer.data.next_cursor, selected: cursor === null ? 0 : (s?.selected ?? 0) }));
+      setState((s) => {
+        const kept = cursor === null ? [] : (s?.rows ?? []);
+        const seen = new Set(kept.map((z) => z.z_no));
+        return { rows: [...kept, ...answer.data.data.reports.filter((z) => !seen.has(z.z_no))], next: answer.data.next_cursor, selected: cursor === null ? 0 : (s?.selected ?? 0) };
+      });
     },
     [api],
   );
@@ -172,7 +194,7 @@ function ZView({ offset }: { offset: number }) {
           ))}
           {err !== null && <Failed text={err} onRetry={() => void more(state.next)} />}
           {state.next !== null && (
-            <button type="button" className="btn" aria-disabled={busy} onClick={() => !busy && void more(state.next)}>
+            <button type="button" className="btn" disabled={busy} aria-disabled={busy} onClick={() => void more(state.next)}>
               {t('billing.report.older')}
             </button>
           )}
@@ -183,7 +205,7 @@ function ZView({ offset }: { offset: number }) {
           <p className="b5-note b5-rep-line">
             {fill(t('billing.report.z_line'), { z: zNo(picked.z_no), date: dayText(dateOf(picked.business_date), 0), time: timeText(picked.report.issued_at, offset), currency: picked.report.currency_code })}
           </p>
-          <ReportBody report={picked.report} names={picked.staff_names} retry={null} />
+          <ReportBody report={picked.report} names={picked.staff_names} offset={offset} retry={null} />
         </div>
       )}
     </div>
@@ -211,8 +233,9 @@ const VOID_KEYS: Record<string, MessageKey> = {
   other: 'void.disposition.other',
 };
 const PETTY_KEYS: Record<string, MessageKey> = { advance: 'billing.petty.kind_advance', out: 'billing.petty.kind_out', in: 'billing.petty.kind_in' };
-const SIGNOFF: Record<string, { key: MessageKey; tone: string }> = {
-  pending: { key: 'billing.report.signoff_pending', tone: 'c-warn' },
+/** The hub's `signoff_state` strings (report.ts SIGNOFF_LABEL); an unknown one shows as is, never as "within". */
+const SIGNOFF: Partial<Record<string, { key: MessageKey; tone: string }>> = {
+  'pending sign-off': { key: 'billing.report.signoff_pending', tone: 'c-warn' },
   approved: { key: 'billing.report.signoff_approved', tone: 'c-ok' },
   disputed: { key: 'billing.report.signoff_disputed', tone: 'c-danger' },
 };
@@ -240,7 +263,7 @@ function Card({ title, icon, children }: { title: string; icon: 'bill' | 'cash' 
 }
 
 /** One report (X or Z): the four KPIs and the cards in the frames' order (CHANGES.md D-12). */
-function ReportBody({ report: r, names, retry }: { report: ReportDocInput; names: Record<string, string>; retry: (() => Promise<void>) | null }) {
+function ReportBody({ report: r, names, offset, retry }: { report: ReportDocInput; names: Record<string, string>; offset: number; retry: { busy: boolean; run: () => void } | null }) {
   const code = r.currency_code;
   const amt = (m: number) => amountText(m, code);
   const neg = (m: number) => (m === 0 ? amt(0) : `−${amt(m)}`);
@@ -250,7 +273,6 @@ function ReportBody({ report: r, names, retry }: { report: ReportDocInput; names
   const variance = (v: number) => (v === 0 ? t('billing.shift.exact') : fill(t(v < 0 ? 'billing.shift.short' : 'billing.shift.over'), { amount: amt(Math.abs(v)) }));
   const f = r.fiscal;
   const fiscalKpi = f.rejected > 0 ? fill(t('billing.report.kpi_rejected'), { count: String(f.rejected) }) : f.pending > 0 ? fill(t('billing.report.kpi_waiting'), { count: String(f.pending) }) : t('billing.report.kpi_all_sent');
-  const sum = (xs: ReadonlyArray<{ amount_minor: number }>) => xs.reduce((a, x) => a + x.amount_minor, 0);
   return (
     <>
       <div className="b5-kpis">
@@ -283,6 +305,15 @@ function ReportBody({ report: r, names, retry }: { report: ReportDocInput; names
             {r.sales.discounts.by_reason.map((d) => (
               <Row key={d.reason_code} cls="ind" k={`${discountLabel.get(d.reason_code) ?? d.reason_code} · ${d.count}`} v={neg(d.value_minor)} />
             ))}
+            {/* §6.26: who asked and who approved each discount (method from the audit fold, R-83 (3)) */}
+            {r.sales.discounts.entries.map((d, i) => (
+              <Row
+                key={`d${i}`}
+                cls="ind"
+                k={d.approver_staff_id === null ? fill(t('billing.report.by_direct'), { name: name(d.requester_staff_id) }) : fill(t('billing.report.by_approved'), { name: name(d.requester_staff_id), approver: name(d.approver_staff_id) })}
+                v={neg(d.value_minor)}
+              />
+            ))}
             <Row k={t('billing.report.service_charge')} v={amt(r.sales.service_charge_minor)} />
             <Row cls="b" k={t('billing.report.net_sales')} v={amt(r.sales.net_minor)} />
             {/* R-83 (2): one row per (key, rate, label), never merged */}
@@ -312,25 +343,30 @@ function ReportBody({ report: r, names, retry }: { report: ReportDocInput; names
                 </Fragment>
               ),
             )}
+            {/* review m6: takings by taker under their own heading (Q10) */}
+            {r.takings_by_taker.length > 0 && <Row k={t('billing.report.by_taker')} v="" />}
             {r.takings_by_taker.map((x) => (
-              <Row key={x.staff_id} k={name(x.staff_id)} v={amt(x.amount_minor)} />
+              <Row key={x.staff_id} cls="ind" k={name(x.staff_id)} v={amt(x.amount_minor)} />
             ))}
-            <Row k={t('billing.report.brought_forward')} v={amt(sum(r.brought_forward))} />
+            {/* §6.26, R-83 (5): rows by mode and staff only; no client total (D47) — none at all reads 0.00 */}
+            <Row k={t('billing.report.brought_forward')} v={r.brought_forward.length === 0 ? amt(0) : ''} />
             {r.brought_forward.map((x, i) => (
               <Row key={`b${i}`} cls="ind" k={`${x.mode_name} · ${name(x.staff_id)}`} v={amt(x.amount_minor)} />
             ))}
-            <Row k={t('billing.report.carried_forward')} v={amt(sum(r.carried_forward))} />
+            <Row k={t('billing.report.carried_forward')} v={r.carried_forward.length === 0 ? amt(0) : ''} />
             {r.carried_forward.map((x, i) => (
               <Row key={`c${i}`} cls="ind" k={`${x.mode_name} · ${name(x.staff_id)}`} v={amt(x.amount_minor)} />
             ))}
           </Card>
           <Card title={t('billing.report.shifts')} icon="cash">
             {r.shifts.map((s, i) => {
-              const state = s.skipped
+              const state: { key: MessageKey; tone: string } | { text: string; tone: string } = s.skipped
                 ? { key: 'billing.report.skipped' as MessageKey, tone: 'c-mute' }
                 : s.counted_minor === null
                   ? { key: 'billing.report.open' as MessageKey, tone: 'c-ok' }
-                  : (SIGNOFF[s.signoff_state ?? ''] ?? { key: 'billing.report.within' as MessageKey, tone: 'c-mute' });
+                  : s.signoff_state === null
+                    ? { key: 'billing.report.within' as MessageKey, tone: 'c-mute' }
+                    : (SIGNOFF[s.signoff_state] ?? { text: s.signoff_state, tone: 'c-warn' });
               const what = s.skipped
                 ? t('billing.report.skipped_count')
                 : s.counted_minor === null
@@ -346,7 +382,7 @@ function ReportBody({ report: r, names, retry }: { report: ReportDocInput; names
                   }
                 >
                   <span>
-                    <span className={`st ${state.tone}`}>{t(state.key)}</span>
+                    <span className={`st ${state.tone}`}>{'key' in state ? t(state.key) : state.text}</span>
                   </span>
                 </Row>
               );
@@ -356,8 +392,8 @@ function ReportBody({ report: r, names, retry }: { report: ReportDocInput; names
               <Row
                 key={`s${i}`}
                 cls="ind"
-                k={`${name(x.staff_id)} · ${day(x.shift_date)}`}
-                v={fill(t(x.outcome === 'approved' ? 'billing.report.signed_approved' : 'billing.report.signed_disputed'), { name: name(x.approver_staff_id) })}
+                k={`${name(x.staff_id)} · ${day(x.shift_date)} · ${signedAmountText(x.amount_minor, code)}`}
+                v={`${fill(t(x.outcome === 'approved' ? 'billing.report.signed_approved' : 'billing.report.signed_disputed'), { name: name(x.approver_staff_id) })} · ${timeText(x.at, offset)}`}
               />
             ))}
             <Row k={t('billing.report.pending_signoffs')} v={String(r.pending_signoffs.length)} />
@@ -372,10 +408,10 @@ function ReportBody({ report: r, names, retry }: { report: ReportDocInput; names
             <Row k={t('billing.report.pending')} v={String(f.pending)} />
             <Row k={t('billing.report.rejected')} v={String(f.rejected)} />
             <Row k={t('billing.report.not_required')} v={String(f.not_required)} />
-            {(retry !== null || f.rejected > 0) && (
+            {((retry !== null && f.pending > 0) || f.rejected > 0) && (
               <div className="b5-rr b5-rep-act">
-                {retry !== null ? (
-                  <button type="button" className="btn" onClick={() => void retry()}>
+                {retry !== null && f.pending > 0 ? (
+                  <button type="button" className="btn" disabled={retry.busy} aria-disabled={retry.busy} onClick={retry.run}>
                     <Ico name="sync" />
                     {t('billing.report.retry')}
                   </button>
@@ -426,6 +462,14 @@ function ReportBody({ report: r, names, retry }: { report: ReportDocInput; names
               />
             ))}
             <Row k={t('billing.report.reopens')} v={`${r.reopens.count} · ${amt(r.reopens.value_minor)}`} />
+            {r.reopens.entries.map((x, i) => (
+              <Row
+                key={`r${i}`}
+                cls="ind"
+                k={x.approver_staff_id === null ? fill(t('billing.report.by_direct'), { name: name(x.requester_staff_id) }) : fill(t('billing.report.by_approved'), { name: name(x.requester_staff_id), approver: name(x.approver_staff_id) })}
+                v=""
+              />
+            ))}
           </Card>
         </div>
       </div>

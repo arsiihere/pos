@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { t } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { timeText } from '../alerts/labels';
+import { dayStart, shortDayText } from '../audit/days';
 import { Ico } from '../alerts/ui';
 import { useLiveRefetch } from '../staff/orders/lists/OpenOrders';
 import { useShell } from '../staff/shell/hooks';
@@ -18,7 +19,7 @@ import { durationText } from './money';
 export type FiscalTone = 'c-ok' | 'c-info' | 'c-warn' | 'c-danger' | 'c-mute';
 
 /** The line for a status, worst first (frame OpenBillsFiscal); null for the adapter `none`. */
-export function fiscalLineOf(s: FiscalStatusView, utcOffsetMs: number): { tone: FiscalTone; text: string; small?: string } | null {
+export function fiscalLineOf(s: FiscalStatusView, utcOffsetMs: number, nowMs?: number): { tone: FiscalTone; text: string; small?: string } | null {
   if (s.adapter_key === 'none') return null;
   const waiting = () =>
     fill(t('billing.fiscal.waiting'), { count: String(s.pending_count), age: durationText(Math.floor((s.oldest_pending_age_ms ?? 0) / 60_000)) });
@@ -29,8 +30,13 @@ export function fiscalLineOf(s: FiscalStatusView, utcOffsetMs: number): { tone: 
   if (s.pending_count > 0) return { tone: 'c-info', text: waiting() };
   if (s.adapter_health === 'unknown') return { tone: 'c-mute', text: t('billing.fiscal.unknown') };
   // frame: "Fiscal: all sent" with "last 1:38 PM" as its small end note
-  return { tone: 'c-ok', text: t('billing.fiscal.all_sent'), ...(s.last_success_at === null ? {} : { small: fill(t('billing.fiscal.last'), { time: timeText(s.last_success_at, utcOffsetMs) }) }) };
+  if (s.last_success_at === null) return { tone: 'c-ok', text: t('billing.fiscal.all_sent') };
+  // an ack of an earlier day names its date (review m7: a quiet night never reads as today's time)
+  const when = nowMs !== undefined && dayStart(s.last_success_at, utcOffsetMs) !== dayStart(nowMs, utcOffsetMs) ? `${shortDayText(s.last_success_at, utcOffsetMs)} ${timeText(s.last_success_at, utcOffsetMs)}` : timeText(s.last_success_at, utcOffsetMs);
+  return { tone: 'c-ok', text: t('billing.fiscal.all_sent'), small: fill(t('billing.fiscal.last'), { time: when }) };
 }
+
+export const REFRESH_MS = 60_000;
 
 const ICON = { 'c-ok': 'checkc', 'c-info': 'sync', 'c-warn': 'warn', 'c-danger': 'warn', 'c-mute': 'info' } as const;
 
@@ -47,7 +53,12 @@ export function FiscalLine() {
     void load();
   }, [load]);
   useLiveRefetch(shell.live, () => void load(), BILL_LIST_FRAMES);
-  const line = status === null ? null : fiscalLineOf(status, shell.clock.utcOffsetMs);
+  // the oldest age, stuck and the adapter's health move with time and the worker, not with a frame: read each minute
+  useEffect(() => {
+    const id = setInterval(() => void load(), REFRESH_MS);
+    return () => clearInterval(id);
+  }, [load]);
+  const line = status === null ? null : fiscalLineOf(status, shell.clock.utcOffsetMs, shell.clock.nowMs());
   if (line === null) return null;
   return (
     <div className={`b5-fis ${line.tone}`} role="status">
