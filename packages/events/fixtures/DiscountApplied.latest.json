@@ -1,0 +1,27 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "bill",
+  "stream_id": "01J00000000000000000000020",
+  "event_type": "DiscountApplied",
+  "payload": {
+    "bill_id": "01J00000000000000000000020",
+    "kind": "percent",
+    "value": 1000,
+    "amount_minor": 57100,
+    "reason_code": "regular_customer",
+    "has_note": false,
+    "note_id": null,
+    "requester_staff_id": "01J00000000000000000000029",
+    "approver_staff_id": null,
+    "alert_id": null,
+    "replaces": false
+  }
+}

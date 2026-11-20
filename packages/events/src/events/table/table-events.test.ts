@@ -175,6 +175,14 @@ describe('05 row T-4: TableMarksChanged', () => {
     expect(schema.safeParse({ seating_id: 'S1', check_printed_at: 1 }).success).toBe(false);
     expect(schema.safeParse({ seating_id: 'S1', bill_id: 'B1' }).success).toBe(false);
   });
+
+  it('[02a #68] [05 row T-4, R-43] TableMarksChanged v1 { seating_id, alert_id? }: alert_id optional, never null; no other key', () => {
+    const schema = payloadSchema('TableMarksChanged', 1);
+    expect(schema.parse({ seating_id: 'S1' })).toEqual({ seating_id: 'S1' });
+    expect(schema.parse({ seating_id: 'S1', alert_id: 'A1' })).toEqual({ seating_id: 'S1', alert_id: 'A1' });
+    expect(schema.safeParse({ seating_id: 'S1', alert_id: null }).success).toBe(false);
+    expect(schema.safeParse({ seating_id: 'S1', alert_id: 'A1', bill_id: 'B1' }).success).toBe(false);
+  });
 });
 
 describe('02a SG-2: BillClosed', () => {
