@@ -1,5 +1,7 @@
 // task 9 (§3.14, §3.15): the eight 05 alert kinds register at this module's load, before boot replays `alerts` (#89).
 import './kinds/index.js';
+// task 32a (§6.30, row V-3, H6-14): the audit maps of 05-1's events and the seven request actions, at module load
+import './audit-map.js';
 import type { FastifyInstance } from 'fastify';
 import { currentDirectory } from '../auth/guards.js';
 import type { ProjectionRegistry } from '../projections/registry.js';
