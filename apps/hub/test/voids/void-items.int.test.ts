@@ -446,7 +446,7 @@ describe('[04 §6.1, T-2] VoidItems moved: stock effects end to end (10b, 10d–
     const mgr = signIn(hub, STAFF.manager);
     const { reply, statements } = await countedVoid(mgr, { order_id, reason_code: 'quality', note: null, disposition_note: null, lines });
     expect(reply.status, JSON.stringify(reply.error)).toBe(200);
-    expect(statements).toBe(5);
+    expect(statements).toBe(5 + 1); // +1: 05 line guard (task 24)
     expect(strictRefold(hub)).toEqual(state());
     expect(state().diagnostics.filter((d) => d.kind === 'stock_breach')).toEqual([]);
     return { reply, reserved: ofType(reply, 'StockReserved').map((e) => e.payload.order_item_id as string) };
@@ -547,7 +547,7 @@ describe('[04 §6.1] definition and statements', () => {
     expect(voidItemsCommand.queueable ?? false).toBe(false);
   });
 
-  it('[04 §6.1 Statements] direct path: 3 + 2 = 5 statements (readOrder, two listOpen, lineChangeDrafts 2)', async () => {
+  it('[04 §6.1 Statements] direct path: 3 + 2 = 5 statements (readOrder, two listOpen, lineChangeDrafts 2), + 1 for 05’s line guard', async () => {
     hub = await startVoids();
     const mgr = signIn(hub, STAFF.manager);
     const s = stagedOrder(hub);
@@ -580,12 +580,12 @@ describe('[04 §6.1] definition and statements', () => {
       ],
     });
     expect(r.status, JSON.stringify(r.error)).toBe(200);
-    expect(handled).toBe(5);
+    expect(handled).toBe(5 + 1); // +1: 05 line guard (task 24)
   });
 
   // Reading (#131): §6.1's "3 + 2" excludes 01d's closeMany when lineChangeDrafts closes a stale comp request; measured
   // +7 here (closeMany's own statements for one close), so 12. Pinned as measured; the integrator records it as an AD row.
-  it('[04 §6.1 Statements, #19 path] a direct void that closes a stale comp request: 3 + 2 + 01d closeMany (7, one close) = 12', async () => {
+  it('[04 §6.1 Statements, #19 path] a direct void that closes a stale comp request: 3 + 2 + 01d closeMany (7, one close) = 12, + 1 for 05’s line guard', async () => {
     hub = await startVoids();
     const mgr = signIn(hub, STAFF.manager);
     const cashier = signIn(hub, STAFF.cashier);
@@ -600,7 +600,7 @@ describe('[04 §6.1] definition and statements', () => {
     const { reply, statements } = await countedVoid(mgr, { order_id: s.order_id, reason_code: 'quality', note: null, disposition_note: null, lines: [{ order_item_id: s.cooking, disposition: 'wastage' }] });
     expect(reply.status, JSON.stringify(reply.error)).toBe(200);
     expect(ofType(reply, 'AlertClosed')).toHaveLength(1);
-    expect(statements).toBe(12);
+    expect(statements).toBe(12 + 1); // +1: 05 line guard (task 24)
   });
 });
 
@@ -626,7 +626,7 @@ function folded(order_id: string, ids: string[], money_changes = false): LineGua
 }
 
 describe('[05 #32 guard-list half] [05 row V-1] VoidItems asks the line guard list once after ORDER_BILLED', () => {
-  it('[05 row V-1] direct: one ask with every touched line (deal + parts, a second entry); entries = the fold after; 04\'s own guard not re-asked: 5 + 1 statements', async () => {
+  it('[05 row V-1] direct: one ask with every touched line (deal + parts, a second entry); entries = the fold after; 04\'s own guard not re-asked: 5 + 1 (the stub) + 1 (05\'s) statements', async () => {
     hub = await startVoids();
     const mgr = signIn(hub, STAFF.manager);
     const d = dealX2(hub);
@@ -635,7 +635,7 @@ describe('[05 #32 guard-list half] [05 row V-1] VoidItems asks the line guard li
     const asks = recordGuard();
     const { reply, statements } = await countedVoid(mgr, { order_id: d.order_id, reason_code: 'quality', note: null, disposition_note: null, lines: [{ order_item_id: d.deal, units: 1, disposition: 'wastage' }] });
     expect(reply.status, JSON.stringify(reply.error)).toBe(200);
-    expect(statements).toBe(5 + 1);
+    expect(statements).toBe(5 + 1 + 1); // +1: 05 line guard (task 24)
     expect(asks).toEqual([folded(d.order_id, [d.deal, d.karahiPart, d.naanPart])]);
     expect(asks[0]![0]).toMatchObject({ units_after: 1 });
 

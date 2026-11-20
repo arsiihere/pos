@@ -159,15 +159,15 @@ describe('[04 §6.3] void-preview', () => {
     expect(disp(previews(await preview(manager, other.order_id, [other.cooking]))[0]!, 'moved')).toMatchObject({ enabled: false, block: 'day_closed' });
   });
 
-  it('[04 §6.3] 3 statements (readOrder + the two listOpen) for 1 and for 40 ids; ids de-duplicated', async () => {
+  it('[04 §6.3] 3 statements (readOrder + the two listOpen) + 1 (05’s line guard) for 1 and for 40 ids; ids de-duplicated', async () => {
     hub = await startVoids();
     const manager = signIn(hub, STAFF.manager);
     const lines = Array.from({ length: 40 }, (_, i) => ({ order_item_id: `M${String(i).padStart(2, '0')}`, item_id: FX.naan }));
     const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines });
     toStage(hub, order_id, lines.map((l) => l.order_item_id), 'cooking');
     const ids = lines.map((l) => l.order_item_id);
-    expect(await handlerStatements(manager, 'void-preview', { order_id, order_item_ids: ids[0]! })).toBe(3);
-    expect(await handlerStatements(manager, 'void-preview', { order_id, order_item_ids: ids.join(',') })).toBe(3);
+    expect(await handlerStatements(manager, 'void-preview', { order_id, order_item_ids: ids[0]! })).toBe(3 + 1); // +1: 05 line guard (task 24)
+    expect(await handlerStatements(manager, 'void-preview', { order_id, order_item_ids: ids.join(',') })).toBe(3 + 1); // +1: 05 line guard (task 24)
     const dup = await preview(manager, order_id, [ids[0]!, ids[1]!, ids[0]!]);
     expect(previews(dup).map((p) => p.order_item_id)).toEqual([ids[0], ids[1]]);
   });
@@ -214,7 +214,7 @@ describe('[05 #32 guard-list half] [05 row V-1] void-preview asks the line guard
     return asks;
   }
 
-  it('[05 row V-1] one ask for all ids (not per id), each id\'s wastage plan against the order as read; a stage-1 id adds nothing; 3 + 1 statements', async () => {
+  it('[05 row V-1] one ask for all ids (not per id), each id\'s wastage plan against the order as read; a stage-1 id adds nothing; 3 + 1 (the stub) + 1 (05\'s) statements', async () => {
     hub = await startVoids();
     const manager = signIn(hub, STAFF.manager);
     const s = order();
@@ -236,7 +236,7 @@ describe('[05 #32 guard-list half] [05 row V-1] void-preview asks the line guard
     expect(asks[1]!.map((t) => [t.order_item_id, t.units_after])).toEqual(previews(half)[0]!.touched.map((t) => [t.order_item_id, live.get(t.order_item_id)! - t.units]));
     expect(asks[1]!.map((t) => t.order_item_id)).toEqual([dl.deal, dl.karahiPart, dl.naanPart]);
     expect(asks[1]![0]!.units_after).toBe(1);
-    expect(await handlerStatements(manager, 'void-preview', { order_id: s.order_id, order_item_ids: `${s.cooking},${s.done},${s.served}` })).toBe(3 + 1);
+    expect(await handlerStatements(manager, 'void-preview', { order_id: s.order_id, order_item_ids: `${s.cooking},${s.done},${s.served}` })).toBe(3 + 1 + 1); // +1: 05 line guard (task 24)
     expect(asks).toHaveLength(3); // the probe fails at Zod: only the real call asks, once
     // the deal portion's entries = the fold after VoidItems runs the same plan: units, comped and base_after_minor
     // against the folded billed_minor (the deal's from its parts)
@@ -273,11 +273,11 @@ describe('[05 #32 guard-list half] [05 row V-1] void-preview asks the line guard
     expect(ask[4]!.base_after_minor).toBeGreaterThan(0);
   });
 
-  it('[05 row V-1] LINE_IN_CLOSED_SPLIT fails the call (409); ORDER_BILLED first, the guard not asked; only 04\'s guard → 3 statements', async () => {
+  it('[05 row V-1] LINE_IN_CLOSED_SPLIT fails the call (409); ORDER_BILLED first, the guard not asked; 04\'s guard (skipped) and 05\'s → 3 + 1 statements', async () => {
     hub = await startVoids();
     const manager = signIn(hub, STAFF.manager);
     const s = order();
-    expect(await handlerStatements(manager, 'void-preview', { order_id: s.order_id, order_item_ids: s.cooking })).toBe(3);
+    expect(await handlerStatements(manager, 'void-preview', { order_id: s.order_id, order_item_ids: s.cooking })).toBe(3 + 1); // +1: 05 line guard (task 24)
     const closed: LineGuardResult = { code: 'LINE_IN_CLOSED_SPLIT', details: { order_item_id: s.cooking, bill_id: 'B1', split_no: 1 } };
     const asks = recordGuard(closed);
     const r = await preview(manager, s.order_id, [s.cooking]);

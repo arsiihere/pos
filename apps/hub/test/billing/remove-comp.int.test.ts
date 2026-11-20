@@ -529,8 +529,8 @@ describe('[05 §3.14, §6.14] RemoveComp — approval path (grant requires_appro
         return { out, statements: counter.count };
       }).result;
     const approved = run('approve');
-    // the line read (1) + 04's line guard (1); read-only
-    expect(approved.statements).toBe(2);
+    // the line read (1) + 04's line guard (1) + 05's line guard (1); read-only
+    expect(approved.statements).toBe(3); // +1: 05 line guard (task 24)
     expect(approved.out.map((d) => d.event_type)).toEqual(['LineCompRemoved']);
     expect(approved.out[0]!.payload).toMatchObject({ alert_id, requester_staff_id: STAFF.cashier, approver_staff_id: STAFF.manager });
     expect(run('reject')).toEqual({ out: [], statements: 0 });
@@ -574,20 +574,20 @@ describe('[05 §3.14, §6.14] RemoveComp — approval path (grant requires_appro
 // ------------------------------------------------------------------------------------------------ statement counts
 
 describe('[05 §6.14] statement counts (≤ 4; the 00 envelope and 01d’s raise excluded)', () => {
-  it('[05 §6.14] direct: the line read + the line guard list (04’s guard registered) = 2; + 1 with a note (bill_texts) = 3', async () => {
+  it('[05 §6.14] direct: the line read + the line guard list (04’s and 05’s guards registered) = 3; + 1 with a note (bill_texts) = 4', async () => {
     await start();
     const a = compedLine(hub, { prefix: 'S1' });
     const b = compedLine(hub, { prefix: 'S2' });
     expect((await removeCounted(manager, { order_item_id: a.line, reason_code: 'wrong_line' })).status).toBe(200);
-    expect(lastStatements).toBe(2);
+    expect(lastStatements).toBe(3); // +1: 05 line guard (task 24)
     expect((await removeCounted(manager, { order_item_id: b.line, reason_code: 'other', note: 'n' })).status).toBe(200);
-    expect(lastStatements).toBe(3);
+    expect(lastStatements).toBe(4); // +1: 05 line guard (task 24); §6.14 bound ≤ 4
     // a refusal before the guard: the line read only
     expect((await removeCounted(manager, { order_item_id: a.line, reason_code: 'wrong_line' })).status).toBe(409);
     expect(lastStatements).toBe(1);
   });
 
-  it('[05 §6.14] the request path: line read + guard + bill_texts = 3 besides 01d’s raise; a dedupe hit: 2', async () => {
+  it('[05 §6.14] the request path: line read + 2 guards + bill_texts = 4 besides 01d’s raise; a dedupe hit: 3', async () => {
     await start();
     const { line } = compedLine(hub);
     let inRaise = 0;
@@ -604,9 +604,9 @@ describe('[05 §6.14] statement counts (≤ 4; the 00 envelope and 01d’s raise
       const r = await removeCounted(cashier, { order_item_id: line, reason_code: 'other', note: 'please' });
       expect(r.result).toMatchObject({ pending: { alert_id: expect.any(String) } });
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(lastStatements - inRaise).toBe(3);
+      expect(lastStatements - inRaise).toBe(4); // +1: 05 line guard (task 24)
       await removeCounted(cashier, { order_item_id: line, reason_code: 'other', note: 'again' });
-      expect(lastStatements - inRaise).toBe(2); // the dedupe hit writes no note
+      expect(lastStatements - inRaise).toBe(3); // +1: 05 line guard (task 24); the dedupe hit writes no note
     } finally {
       spy.mockRestore();
     }

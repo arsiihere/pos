@@ -17,6 +17,9 @@ import { registerPayments } from './commands/payments.js'; // task 16
 // task 13 (§6.6, §6.7, §3.14): ApplyDiscount / RemoveDiscount; the module load registers the discount apply
 import { registerDiscount } from './commands/discount.js';
 import { registerSetSplits } from './commands/set-splits.js';
+import { billLineGuard, billMergeGuard } from './lanes/guards.js'; // task 24
+import { registerLineGuard } from '../orders/line-guard.js'; // task 24
+import { registerMergeGuard } from '../tables/merge-guard.js'; // task 24
 // task 14 (§6.8, §3.14): RemoveServiceCharge / ApplyServiceCharge; the module load registers the remove_service_charge apply
 import { registerServiceCharge } from './commands/service-charge.js';
 // task 20 (§6.14, §3.14): RemoveComp; the module load registers the remove_comp apply
@@ -85,6 +88,9 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerShiftClose(app);
   // task 23 (§6.21): OpenCashDrawer (no-sale; the kick on the device's own route, R-57)
   registerOpenCashDrawer(app);
+  // task 24 (§3.9, row T-1; B15, row Q-3): 05's merge and line guards, after 04's (registerVoids runs first)
+  registerMergeGuard(billMergeGuard);
+  registerLineGuard(billLineGuard);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
