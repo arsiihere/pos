@@ -51,6 +51,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'owner.nav.teams': 'ٹیمیں',
   'owner.nav.stock_counting': 'اسٹاک کی گنتی',
   'owner.nav.branches': 'برانچیں اور سیٹنگ',
+  // 01a v2.7.1 §8.1 (05 row A-1 (6)): needed by the Urdu nav test; a native read is still due
+  'owner.nav.billing': 'بلنگ',
   'owner.nav.people': 'لوگ', // owner decision 2026-10-30: one People entry
   'owner.nav.group.people': 'لوگ',
   'owner.nav.group.branches': 'برانچیں',

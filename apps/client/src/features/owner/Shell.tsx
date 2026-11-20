@@ -86,6 +86,8 @@ export function Shell({
       current: route.startsWith('/branches'),
       group: restaurant,
     },
+    // 01a v2.7.1 §8.1 (05 row A-1 (6)): the branch's billing settings, receipt preview and tax categories
+    { href: '#/billing', icon: 'clipboard', label: t('owner.nav.billing'), current: route === '/billing', group: restaurant },
   ];
   const onNavigate = (href: string) => {
     setMenuOpen(false);
