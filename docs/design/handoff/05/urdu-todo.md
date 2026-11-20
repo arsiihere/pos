@@ -46,6 +46,31 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.print.failed_plain` | Didn’t print on {printer} |
 | `split.title/ `.items` / `.amount` / `.equal` / `.one` / `.add`` | Split the bill / Items / Amount / Equally / One bill / Add split |
 | `split.not_placed/ `.to_share` / `.save`` | {n} items not placed / {amount} to share · {left} left / Save split |
+| `print.waiting/ `.printed` / `.failed` / `.none` / `.print_to`` | Printing on {printer}… / Printed on {printer} / Didn't print on {printer}: {error} / No bill printer set up / Print to |
+| `billing.split.title/ `.items` / `.amount` / `.equal` / `.one` / `.add`` | Split the bill / Items / Amount / Equally / One bill / Add split |
+| `billing.split.not_placed/ `.to_share` / `.save`` | {n} items not placed / {amount} to share · {left} left / Save split |
+| `billing.split.sub` | Re-plan how the open part is paid |
+| `billing.split.add_hint` | 2–20 splits |
+| `billing.split.items_hint` | Tap an item, then tap a split to move it. Items with more than one unit move one at a time (“3 of 6”). A deal moves whole; options go with their item. |
+| `billing.split.lines` | {n} lines |
+| `billing.split.unit_of` | {units} of {total} |
+| `billing.split.pool` | Not placed |
+| `billing.split.items_count` | {n} items |
+| `billing.split.all_placed` | Every item is placed |
+| `billing.split.left` | {n} left |
+| `billing.split.locked_note` | Paid — can’t change |
+| `billing.split.has_payment` | has a payment · {amount} |
+| `billing.split.new_after` | New — added after split {n} closed |
+| `billing.split.cash` | cash |
+| `billing.split.amount_hint` | Shares are in the cash total. Each split’s card total comes back from the hub after Save. The hub re-bases the last open share when the bill changes. |
+| `billing.split.how_many` | How many people |
+| `billing.split.equal_hint` | 2 to 20 · over the open part |
+| `billing.split.fewer` | One fewer |
+| `billing.split.more` | One more |
+| `billing.split.place_first` | Place {n} items first |
+| `billing.split.make_add_up` | Make it add up to {amount} |
+| `billing.split.two_needed` | Place items in at least 2 splits |
+| `billing.split.paid_empty` | Split {n} has a payment — keep at least one item on it |
 | `sheet.ask_approval/ `sheet.pick_reason` / `sheet.write_why`` | Ask for approval / Pick a reason / Write why first |
 | `discount.waiting` | Waiting for {name} or a manager · {value} · {reason} |
 | `sc.remove/ `.add_back` / `.removed`` | Remove / Add back / Service charge removed |

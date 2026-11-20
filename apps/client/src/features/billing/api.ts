@@ -1,6 +1,6 @@
 import type { HubResult } from '../../api/hub-admin';
 import { newUlid } from '../../app/ulid';
-import type { BillRef, OpenBillsBody, PrintCheckBillResult } from './contracts';
+import type { BillRef, OpenBillsBody, PrintCheckBillResult, SetSplitsPayload, SetSplitsResult } from './contracts';
 
 // 05 §6 (task 34 on): the billing queries and commands on the staff api's query() / command() (the shell's own
 // transport, features/staff/api.ts — no second client, socket or token).
@@ -15,6 +15,8 @@ export interface BillingApi {
   openBills(floor_id?: string): Promise<HubResult<OpenBillsBody>>;
   /** §6.3: the check bill on the bill printer of the zone / floor (or `printer_id`). */
   printCheckBill(payload: { bill_ref: BillRef; printer_id?: string }): Promise<HubResult<PrintCheckBillResult>>;
+  /** §6.5: re-plan the open splits. A retry after a lost reply resends the same command_id (00 M47, handbook §10). */
+  setSplits(payload: SetSplitsPayload): Promise<HubResult<SetSplitsResult>>;
 }
 
 export function billingApi(staff: BillingTransport, newCommandId: () => string = () => newUlid()): BillingApi {
@@ -31,6 +33,7 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
   }
   return {
     printCheckBill: (payload) => command<PrintCheckBillResult>('PrintCheckBill', payload),
+    setSplits: (payload) => command<SetSplitsResult>('SetSplits', payload),
     openBills: (floor_id) =>
       staff.query<OpenBillsBody>(floor_id === undefined ? '/queries/open-bills' : `/queries/open-bills?floor_id=${encodeURIComponent(floor_id)}`),
   };
