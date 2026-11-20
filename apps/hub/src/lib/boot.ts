@@ -31,7 +31,7 @@ import { registerOrdersProjection } from '../orders/index.js';
 import { registerKdsProjections } from '../kds/index.js';
 import { registerPrintProjections } from '../print/index.js';
 import { registerAuditProjections } from '../audit/index.js';
-import { registerBillingProjections } from '../billing/index.js';
+import { registerBillingProjections, startBillingWorkers } from '../billing/index.js';
 import { startPrintWorker } from '../print/boot.js';
 import { registerTablesProjection } from '../tables/index.js';
 import { publisherFor } from '../ws/server.js';
@@ -241,12 +241,16 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     const stopTick = startTickLoop(deps, app.log);
     // 03c §3.7, H-11 (G-7): the print worker starts after listen, next to the tick loop (a no-op until c16).
     const stopPrint = startPrintWorker(deps, app.log);
+    // 05 §3.15, 00 row H-3 (P0.18, G-21): the billing workers start after listen, beside the print worker; the
+    // fiscal worker runs only once 29b has registered its seams (startBillingWorkers starts nothing until then).
+    const stopBilling = startBillingWorkers(deps, app.log);
     beat.stop = () => {
       stopConfirm();
       stopHeart();
       stopSweep();
       stopTick();
       stopPrint();
+      stopBilling();
     };
     return handle(deps, app, db, readDb, () => current, beat);
   } catch (error) {
