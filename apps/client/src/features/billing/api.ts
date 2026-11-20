@@ -5,6 +5,7 @@ import type {
   BillPrint,
   BillRef,
   BillView,
+  CloseBusinessDayResult,
   CloseShiftResult,
   CloseSplitResult,
   CountShiftResult,
@@ -82,6 +83,12 @@ export interface BillingApi {
   xReport(): Promise<HubResult<XReportView>>;
   /** §6.26 (R-85): the Z list, newest `z_no` first, 20 a page; `cursor` from the previous page. */
   zReports(cursor: string | null): Promise<HubResult<{ data: { reports: ZReportView[] }; next_cursor: string | null }>>;
+  /** §6.26 (R-85): the Z of one date, newest `z_no` first (a date closed twice has two). */
+  zReportOf(business_date: string): Promise<HubResult<{ data: { reports: ZReportView[] }; next_cursor: string | null }>>;
+  /** 01a §6.18b with 05's guard (§6.25): `409 DAY_CLOSE_BLOCKED { reason, <list>, count }` while something blocks. */
+  closeBusinessDay(): Promise<HubResult<CloseBusinessDayResult>>;
+  /** §6.24 (`close-business-day`): orders that stay open into tomorrow. */
+  carryOverOrders(payload: { order_ids: string[]; reason_code: string; note?: string }): Promise<HubResult<{ business_date: string; order_ids: string[] }>>;
   /** §6.27: the fiscal line's figures (never a token). */
   fiscalStatus(): Promise<HubResult<FiscalStatusView>>;
   /** §6.28 (`close-business-day`): resend the pending invoices now (a rejected one is not resent). */
@@ -142,6 +149,9 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
     handoverCount: (payload) => command<HandoverCountResult>('HandoverCount', payload),
     xReport: () => staff.query<XReportView>('/queries/x-report'),
     zReports: (cursor) => staff.page<{ reports: ZReportView[] }>(`/queries/z-reports?limit=20${cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`}`),
+    zReportOf: (business_date) => staff.page<{ reports: ZReportView[] }>(`/queries/z-reports?business_date=${encodeURIComponent(business_date)}&limit=1`),
+    closeBusinessDay: () => command<CloseBusinessDayResult>('CloseBusinessDay', {}),
+    carryOverOrders: (payload) => command('CarryOverOrders', payload),
     fiscalStatus: () => staff.query<FiscalStatusView>('/queries/fiscal-status'),
     retryFiscalNow: () => command<{ pending_count: number }>('RetryFiscalNow', {}),
     recordPettyCash: (payload) => command<RecordPettyCashResult>('RecordPettyCash', payload),

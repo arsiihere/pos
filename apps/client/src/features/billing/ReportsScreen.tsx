@@ -31,7 +31,7 @@ function errText(e: HubError): string {
   return t(billingErrorKey(e.code, e.details));
 }
 
-const dateOf = (iso: string): number => {
+export const dateOf = (iso: string): number => {
   const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
   return Date.UTC(y, m - 1, d);
 };
@@ -212,7 +212,7 @@ function ZView({ offset }: { offset: number }) {
   );
 }
 
-const zNo = (n: number) => fill(t('billing.report.z_no'), { no: String(n).padStart(4, '0') });
+export const zNo = (n: number) => fill(t('billing.report.z_no'), { no: String(n).padStart(4, '0') });
 
 /** The discount reasons' labels (settings, else the built-in ones). */
 function useDiscountLabels(code: string): Map<string, string> {
@@ -263,7 +263,7 @@ function Card({ title, icon, children }: { title: string; icon: 'bill' | 'cash' 
 }
 
 /** One report (X or Z): the four KPIs and the cards in the frames' order (CHANGES.md D-12). */
-function ReportBody({ report: r, names, offset, retry }: { report: ReportDocInput; names: Record<string, string>; offset: number; retry: { busy: boolean; run: () => void } | null }) {
+export function ReportBody({ report: r, names, offset, retry }: { report: ReportDocInput; names: Record<string, string>; offset: number; retry: { busy: boolean; run: () => void } | null }) {
   const code = r.currency_code;
   const amt = (m: number) => amountText(m, code);
   const neg = (m: number) => (m === 0 ? amt(0) : `−${amt(m)}`);

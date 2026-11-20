@@ -23,8 +23,9 @@ vi.mock('./BillScreen', async (orig) => ({
   BillScreen: ({ billRef }: { billRef: unknown }) => <div data-probe="bill" data-ref={JSON.stringify(billRef)} />,
 }));
 
-vi.mock('./ShiftScreen', () => ({ ShiftScreen: () => <div data-probe="shift" /> }));
+vi.mock('./ShiftScreen', () => ({ ShiftScreen: ({ shiftId }: { shiftId?: string }) => <div data-probe="shift" data-id={shiftId ?? ''} /> }));
 vi.mock('./ReportsScreen', () => ({ ReportsScreen: () => <div data-probe="reports" /> }));
+vi.mock('./DayCloseScreen', () => ({ DayCloseScreen: () => <div data-probe="dayclose" /> }));
 
 class FakeSocket implements SocketLike {
   readyState = 0;
@@ -171,6 +172,32 @@ describe('[05 §8 Reports; task 42] Reports in the staff nav (R5)', () => {
     await signedIn();
     expect(m.buttons().some((b) => b.textContent === 'Reports')).toBe(false);
     expect(await at('#/reports')).toBeNull();
+  });
+});
+
+describe('[05 §8 Day close; task 41] Close day in the staff nav (R5)', () => {
+  it('with close-business-day: the Close day button opens #/day-close, which mounts the day-close screen', async () => {
+    PERMS = { 'close-business-day': { grant: 'allowed', scope: 'branch' } };
+    await signedIn();
+    m.click(m.button('Close day'));
+    await flush(6);
+    expect(window.location.hash).toBe('#/day-close');
+    expect(m.container.querySelector('[data-probe]')?.getAttribute('data-probe')).toBe('dayclose');
+  });
+
+  it('without close-business-day: no Close day button, and #/day-close mounts nothing', async () => {
+    PERMS = { 'take-payment': { grant: 'allowed', scope: 'branch' } };
+    await signedIn();
+    expect(m.buttons().some((b) => b.textContent === 'Close day')).toBe(false);
+    expect(await at('#/day-close')).toBeNull();
+  });
+
+  it('[Close this shift] #/shift?shift_id=… mounts the shift screen of that shift', async () => {
+    PERMS = { 'manage-own-shift': { grant: 'allowed', scope: 'branch' } };
+    await signedIn();
+    const page = await at('#/shift?shift_id=SH7');
+    expect(page?.getAttribute('data-probe')).toBe('shift');
+    expect(page?.getAttribute('data-id')).toBe('SH7');
   });
 });
 
