@@ -7,11 +7,13 @@ import type { HubDeps } from '../server.js';
 import { registerEventAudience } from '../ws/audience.js';
 import type { SocketCtx } from '../ws/catch-up.js';
 import { registerOpenShift } from './commands/open-shift.js';
+import { registerPrintCheckBill } from './commands/print-check-bill.js';
 import { registerSetSplits } from './commands/set-splits.js';
 // task 14 (§6.8, §3.14): RemoveServiceCharge / ApplyServiceCharge; the module load registers the remove_service_charge apply
 import { registerServiceCharge } from './commands/service-charge.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
+import { billPrintsProjection, bindBillPrints } from './print/folds.js';
 import { billingProjection } from './projections/billing.js';
 import { shiftsProjection } from './projections/shifts.js';
 import { registerBillQuery } from './queries/bill.js';
@@ -24,9 +26,6 @@ import { registerShiftQuery } from './queries/shift.js';
 
 /** Called once from buildHubServer, after registerAudit. */
 export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
-  // The plan row's signature: later tasks' registration lines use `deps`; until then the `void` line keeps
-  // no-unused-vars on, as in tables/index.ts registerTables (the repo's wiring-entry convention).
-  void deps;
   // task 7 (§6.30, S-B): the OrdersCarriedOver audience (P0.13 writes the event; with no audience it reaches no socket)
   const stopCarryAudience = registerOrdersCarriedOverAudience(app);
   // task 10 (§6.1, §6.2): the bill view and the open-bills list (ensure bill is a helper of the bill commands)
@@ -39,6 +38,9 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerSetSplits(app);
   // task 14 (§6.8)
   registerServiceCharge(app);
+  // task 11 (§6.3, §6.4): PrintCheckBill; the live-only print folds' log and hub config (branch name on the slip)
+  registerPrintCheckBill(app);
+  bindBillPrints(deps.projections, { log: (line) => app.log.warn(line, 'billing.print_skipped'), config: deps.config });
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
@@ -50,6 +52,8 @@ export function registerBillingProjections(projections: ProjectionRegistry): voi
   projections.register(billingProjection());
   // task 8 (shifts; §6.30: after billing)
   projections.register(shiftsProjection());
+  // task 11 (§6.4, §6.30: the live-only print folds, after billing and shifts)
+  projections.register(billPrintsProjection(projections));
 }
 
 /**
