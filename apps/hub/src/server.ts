@@ -19,6 +19,7 @@ import { registerKds } from './kds/index.js';
 import { registerPrint } from './print/index.js';
 import { registerVoids } from './voids/index.js';
 import { registerAudit } from './audit/index.js';
+import { registerBilling } from './billing/index.js';
 import { registerAppUpdateRoutes } from './app-update/routes.js';
 import { registerAdminBootstrapRoutes } from './auth/admin-bootstrap.js';
 import { registerAdminRoutes } from './auth/admin-session.js';
@@ -223,6 +224,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerPrint(app, deps);
   registerVoids(app, deps); // 04 §6.6
   registerAudit(app, deps); // 04 §6.6
+  registerBilling(app, deps); // 05 §6.30
   registerUiAssets(app);
   // §7.1: the built /admin/stock page; no credentials, like 00's admin pages (M79).
   registerClientDist(app, { prefix: '/admin/stock/', dir: CLIENT_DIST_DIR, routeConfig: { group: 'admin-page' } });

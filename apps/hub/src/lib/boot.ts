@@ -31,6 +31,7 @@ import { registerOrdersProjection } from '../orders/index.js';
 import { registerKdsProjections } from '../kds/index.js';
 import { registerPrintProjections } from '../print/index.js';
 import { registerAuditProjections } from '../audit/index.js';
+import { registerBillingProjections } from '../billing/index.js';
 import { startPrintWorker } from '../print/boot.js';
 import { registerTablesProjection } from '../tables/index.js';
 import { publisherFor } from '../ws/server.js';
@@ -312,6 +313,7 @@ export function registerHubProjections(projections: ProjectionRegistry): void {
   registerKdsProjections(projections);
   registerPrintProjections(projections);
   registerAuditProjections(projections); // 04 §6.6: events only, order free (§5)
+  registerBillingProjections(projections); // 05 §5, G-20: after orders, tables and audit
 }
 
 function createDeps(
