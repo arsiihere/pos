@@ -15,6 +15,13 @@ import {
   REOPEN_BILL,
   SHIFT_VARIANCE,
 } from '../../src/billing/kinds/index';
+import { applyDiscountRequest } from '../../src/billing/commands/discount';
+import { applyPettyCash } from '../../src/billing/commands/petty-cash';
+import { applyRemoveComp } from '../../src/billing/commands/remove-comp';
+import { applyReopenBill } from '../../src/billing/commands/reopen-bill';
+import { applyRemoveServiceCharge } from '../../src/billing/commands/service-charge';
+import { applyShiftVariance } from '../../src/billing/commands/shift-close';
+import { applyCloseWithoutBuyerId } from '../../src/billing/commands/waive-buyer-id';
 import { registerBillKindApply, resetBillKindApplies } from '../../src/billing/kinds/seam';
 import type { BillRequestKind } from '../../src/billing/kinds/values';
 import type { CommandCtx } from '../../src/commands/registry';
@@ -24,12 +31,25 @@ import type { TestHub } from '../helpers/test-hub';
 // 05 §3.14, §3.15, row D-1 (task 9; integrator ruling on the task-9 STOP, option (c)): the seven request kinds and
 // `fiscal_outbox_stuck`, registered at module load; holders right per kind; approvals routed to the row B-2 approver
 // roles (the cloud DEFAULT_ROLES directory); the `apply` seam (registerBillKindApply) throws `not built` until the
-// command task registers its own `apply`.
+// command task registers its own `apply` — since task 19 every request kind is built.
 
 const OWNER = 'S_OWNER';
 
+// Every 05 kind's real apply (its command file registers it at module load). The seam tests reset the seam and fake
+// one; afterEach puts the real ones back, so later tests (and this file's routing tests) see the seam as boot leaves it.
+const REAL_APPLIES = {
+  discount: applyDiscountRequest,
+  remove_service_charge: applyRemoveServiceCharge,
+  reopen_bill: applyReopenBill,
+  remove_comp: applyRemoveComp,
+  close_without_buyer_id: applyCloseWithoutBuyerId,
+  petty_cash: applyPettyCash,
+  shift_variance: applyShiftVariance,
+} as const;
+
 afterEach(() => {
   resetBillKindApplies();
+  for (const [kind, apply] of Object.entries(REAL_APPLIES)) registerBillKindApply(kind as BillRequestKind, { apply: apply as never });
 });
 
 const APPROVAL: Array<[BillRequestKind, Permission, string]> = [
@@ -56,7 +76,7 @@ const BY_NAME = {
 const RAISE: Record<BillRequestKind, Pick<RaiseInput, 'subject' | 'values' | 'details' | 'dedupe_key'>> = {
   discount: { subject: { stream_type: 'bill', stream_id: 'B1' }, values: { bill_id: 'B1', kind: 'percent', value: 1_000, reason_code: 'regular_customer', note_id: null, has_note: false }, details: { amount: 50_000, reason: 'regular_customer', identifier: 'T4' }, dedupe_key: 'discount:B1' },
   remove_service_charge: { subject: { stream_type: 'bill', stream_id: 'B1' }, values: { bill_id: 'B1', reason_code: 'customer_request', note_id: 'N1', has_note: true }, details: { amount: 20_000, reason: 'customer_request', identifier: 'T4' }, dedupe_key: 'remove_sc:B1' },
-  reopen_bill: { subject: { stream_type: 'bill', stream_id: 'B1' }, values: { bill_id: 'B1', invoice_ids: ['I1'], reason_code: 'wrong_payment_mode', note_id: null, has_note: false }, details: { amount: 300_000, reason: 'wrong_payment_mode', identifier: 'T4' }, dedupe_key: 'reopen:B1' },
+  reopen_bill: { subject: { stream_type: 'bill', stream_id: 'B1' }, values: { bill_id: 'B1', invoice_ids: ['I1'], credit_invoice_ids: ['C1'], reason_code: 'wrong_payment_mode', note_id: null, has_note: false }, details: { amount: 300_000, reason: 'wrong_payment_mode', identifier: 'T4' }, dedupe_key: 'reopen:B1' },
   remove_comp: { subject: { stream_type: 'order', stream_id: 'O1' }, values: { order_id: 'O1', order_item_id: 'L1', units: 1, reason_code: 'comped_by_mistake', note_id: null, has_note: false }, details: { amount: 3_000, reason: 'comped_by_mistake', identifier: 'T4' }, dedupe_key: 'remove_comp:L1' },
   close_without_buyer_id: { subject: { stream_type: 'bill', stream_id: 'B1' }, values: { bill_id: 'B1', note_id: null, has_note: false }, details: { amount: 6_000_000, identifier: 'T4' }, dedupe_key: 'buyer_waiver:B1' },
   petty_cash: { subject: { stream_type: 'shift', stream_id: 'SH1' }, values: { entry_id: 'E1', kind: 'out', shift_id: 'SH1', amount_minor: 600_000, category_id: 'supplies', has_paid_to: true, advance_staff_id: null, has_note: true }, details: { amount: 600_000, reason: 'supplies' }, dedupe_key: 'petty:CMD1' },
@@ -109,6 +129,11 @@ describe('[05 §3.14, §3.15, row D-1] the eight 05 kinds (definitions)', () => 
       expect(kind.details_schema!.parse({ ...RAISE[name].details, item: 'x', lines: [] }), name).toEqual(RAISE[name].details);
     }
     expect(kindOf('reopen_bill')!.values_schema.safeParse({ ...RAISE.reopen_bill.values, invoice_ids: [] }).success).toBe(false);
+    // ⚠️ 05 v1.0.15 R-66 / G-62: one distinct credit id per invoice id, minted at raise
+    expect(kindOf('reopen_bill')!.values_schema.safeParse({ ...RAISE.reopen_bill.values, credit_invoice_ids: undefined }).success).toBe(false);
+    expect(kindOf('reopen_bill')!.values_schema.safeParse({ ...RAISE.reopen_bill.values, credit_invoice_ids: ['C1', 'C2'] }).success).toBe(false);
+    expect(kindOf('reopen_bill')!.values_schema.safeParse({ ...RAISE.reopen_bill.values, invoice_ids: ['I1', 'I2'], credit_invoice_ids: ['C1', 'C1'] }).success).toBe(false);
+    expect(kindOf('reopen_bill')!.values_schema.safeParse({ ...RAISE.reopen_bill.values, invoice_ids: ['I1', 'I2'], credit_invoice_ids: ['C1', 'C2'] }).success).toBe(true);
     expect(kindOf('remove_comp')!.values_schema.safeParse({ ...RAISE.remove_comp.values, units: 0 }).success).toBe(false);
     expect(kindOf('petty_cash')!.values_schema.safeParse({ ...RAISE.petty_cash.values, kind: 'loan' }).success).toBe(false);
     // as the petty events: advance_staff_id on an advance only
@@ -123,22 +148,27 @@ describe('[05 §3.14, PL-5 (integrator ruling, option (c))] the apply seam', () 
   const answer: AnswerFacts = { decision: 'approve', answerer_staff_id: 'S_MGR', method: 'pin', device_id: 'D1', answered_at: 0 };
   const ctx = { alert: { alert_id: 'A1' } } as unknown as AlertApplyCtx<never, never>;
 
-  it('[05 §3.14] an unregistered kind throws not built (approve and reject alike); onWithdraw → [] (as if never asked)', () => {
-    // built kinds leave this list as their command task registers its apply: task 13 discount, task 14 remove_service_charge, task 20 remove_comp, task 18 close_without_buyer_id, task 22 petty_cash, task 21 shift_variance
-    const BUILT: BillRequestKind[] = ['discount', 'remove_service_charge', 'remove_comp', 'close_without_buyer_id', 'petty_cash', 'shift_variance'];
-    for (const name of [...APPROVAL.map(([n]) => n), ...HOLDERS].filter((n) => !BUILT.includes(n))) {
+  it('[05 §3.14] every request kind is built: each registered apply is the command file\'s own (task 19 built the last, reopen_bill); onWithdraw → [] (as if never asked)', () => {
+    // tasks 13 discount, 14 remove_service_charge, 18 close_without_buyer_id, 19 reopen_bill, 20 remove_comp, 21 shift_variance, 22 petty_cash
+    const BUILT: BillRequestKind[] = ['discount', 'remove_service_charge', 'reopen_bill', 'remove_comp', 'close_without_buyer_id', 'petty_cash', 'shift_variance'];
+    expect([...BUILT].sort()).toEqual([...APPROVAL.map(([n]) => n), ...HOLDERS].sort());
+    for (const [kind, apply] of Object.entries(REAL_APPLIES) as Array<[BillRequestKind, (...a: never[]) => EventDraft[]]>) {
+      // the same function again is ignored: proof the real one is the registered one
+      expect(() => registerBillKindApply(kind, { apply: apply as never }), kind).not.toThrow();
+      expect(() => registerBillKindApply(kind, { apply: (() => []) as never }), kind).toThrow(new RegExp(kind));
+    }
+    for (const name of BUILT) {
       const request = kindOf(name)!.request!;
-      expect(() => request.apply(ctx as never, answer), name).toThrow(/not built/);
-      expect(() => request.apply(ctx as never, { ...answer, decision: 'reject' }), name).toThrow(/not built/);
       expect(request.onWithdraw?.(ctx as never), name).toEqual([]);
     }
   });
 
-  it('[05 §3.14] a registered apply is called with the alert ctx and the answer, and its drafts are returned; other kinds stay not built', () => {
-    // tasks 13, 14, 18, 20, 21, 22 are built (their applies register at module load), so the one still-unbuilt kind carries this check
+  it('[05 §3.14] after resetBillKindApplies a kind is not built (approve and reject alike); a registered apply is called with the alert ctx and the answer, and its drafts are returned', () => {
+    resetBillKindApplies();
+    expect(() => REOPEN_BILL.request!.apply(ctx as never, answer)).toThrow(/not built/);
+    expect(() => REOPEN_BILL.request!.apply(ctx as never, { ...answer, decision: 'reject' })).toThrow(/not built/);
     const drafts = [{ event_type: 'BillReopened' }] as unknown as EventDraft[];
     const apply = vi.fn(() => drafts);
-    // reopen_bill is unbuilt today (task 19): task 19 must move this check (e.g. reset the seam first) when it lands
     registerBillKindApply('reopen_bill', { apply });
     expect(REOPEN_BILL.request!.apply(ctx as never, answer)).toBe(drafts);
     expect(apply).toHaveBeenCalledTimes(1);
@@ -146,8 +176,8 @@ describe('[05 §3.14, PL-5 (integrator ruling, option (c))] the apply seam', () 
   });
 
   it('[05 §3.14] re-registering the same function is ignored (guard-list rule); a different function for the same kind throws', () => {
+    resetBillKindApplies();
     const apply = vi.fn(() => []);
-    // task 22 built petty_cash: the fake kind is reopen_bill (unbuilt; switch it when its own task lands)
     registerBillKindApply('reopen_bill', { apply });
     expect(() => registerBillKindApply('reopen_bill', { apply })).not.toThrow();
     REOPEN_BILL.request!.apply(ctx as never, answer);

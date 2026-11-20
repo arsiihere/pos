@@ -32,6 +32,7 @@ import {
   type PaymentRow,
   type SplitRow,
 } from '../queries/bill.js';
+import { CANCELLED_ORDERS_OF_BILL, emptyCloseDrafts } from './close-split.js';
 import { billingAt, BillRef, ensureBill, type BillHead } from './ensure-bill.js';
 
 /** H16-13: money caps scaled for any currency. */
@@ -169,7 +170,17 @@ export const AddPayment = defineCommand({
 
     // the result: the split recomputed with this payment (pure; nothing re-read)
     const mine: ComputePayment = { split_no: p.split_no, payment_class, direction: p.direction, amount_minor: p.amount_minor, tendered_minor: tendered };
-    const after = splitOf(computeBill({ ...base, plan, payments: [...existing, mine] }), p.split_no);
+    const whole = computeBill({ ...base, plan, payments: [...existing, mine] });
+    const after = splitOf(whole, p.split_no);
+    // §6.9 / §3.10 (H7-3, H8-4; task 19 plan fix): an `out` that leaves a bill row whose every order is cancelled with
+    // every split balance 0 also appends BillClosedEmpty (task 17's drafts). Statements (R-73, owner ruling, 05 v1.0.20):
+    // ≤ 10 on this path — 8 (ensure bill, splits, money shift, orders, + the cancelled orders, credits, the seating's
+    // other open bills (dine-in, seating not CLOSED), listOpen), + 1 when a `reference` is written, + 1 when closeMany
+    // closes open 05 requests (01d's request_result raise inside it is 01d's own); every other path stays ≤ 7.
+    if (p.direction === 'out' && !created && order_ids.length === 0 && whole.splits.every((s) => s.balance_minor === 0)) {
+      const cancelled = db.prepare(CANCELLED_ORDERS_OF_BILL).pluck().all({ bill_id, seating_id: head.seating_id, bill_key: head.bill_key }) as string[];
+      events.push(...emptyCloseDrafts(ctx, { bill_id, seating: head.seating, order_ids: cancelled }));
+    }
     return {
       events,
       result: {

@@ -481,8 +481,8 @@ function closeSplitCommand(log: Log) {
 }
 
 // The bill's orders an empty close names: its own `bill_orders` (a reopened bill) and the cancelled orders of its
-// seating / key (a never-closed bill: its orders were never billed). 1 statement.
-const CANCELLED_ORDERS_OF_BILL = `
+// seating / key (a never-closed bill: its orders were never billed). 1 statement. Exported for task 19's empty-close paths.
+export const CANCELLED_ORDERS_OF_BILL = `
 SELECT o.order_id FROM orders o
 WHERE o.order_id IN (SELECT order_id FROM bill_orders WHERE bill_id = @bill_id)
    OR (o.cancelled_at IS NOT NULL AND o.billed_at IS NULL

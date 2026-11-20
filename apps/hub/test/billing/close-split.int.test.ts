@@ -594,16 +594,21 @@ describe('[05 §6.12] CloseSplit — one transaction: invoice, folds, outbox row
 // ================================================================================================= the empty close (H7-3, H8-4)
 
 describe('[05 §6.12 step 3, H7-3, H8-4, #16d] CloseSplit — the empty close: BillClosedEmpty, no invoice', () => {
-  /** A dine-in bill with a row (a payment taken then removed) whose only order is then cancelled by RemoveItems. */
+  /**
+   * A dine-in bill with a row (a payment taken) whose only order is then cancelled by RemoveItems, then the payment
+   * removed. ⚠️ task 19 (row Q-7): the payment is removed after the cancel, so the order-cancelled hook (balance −Rs 10
+   * at the cancel) appends no BillClosedEmpty and the bill stays open for this empty close (RemovePayment appends none).
+   */
   async function emptiedBill(prefix: string): Promise<{ seating_id: string; bill_id: string; order_id: string }> {
     const s = seated([{ order_item_id: `${prefix}_N`, item_id: FX.naan }]);
     const p = await pay(cashier.who, { seating_id: s.seating_id }, 1, 'cash', 1_000);
-    const rm = await post(hub, cashier.who, 'remove-payment', 'RemovePayment', { payment_id: p.result!['payment_id'], reason_code: 'wrong_amount' });
-    expect(rm.status, JSON.stringify(rm.error)).toBe(200);
     const taker = signIn(hub, STAFF.orderTaker);
     const ri = await post(hub, taker, 'remove-items', 'RemoveItems', { order_id: s.order_id, seating_id: s.seating_id, lines: [{ order_item_id: `${prefix}_N` }] });
     expect(ri.status, JSON.stringify(ri.error)).toBe(200);
     expect(ri.events.map((e) => e.event_type)).toContain('OrderCancelled');
+    expect(ri.events.map((e) => e.event_type)).not.toContain('BillClosedEmpty');
+    const rm = await post(hub, cashier.who, 'remove-payment', 'RemovePayment', { payment_id: p.result!['payment_id'], reason_code: 'wrong_amount' });
+    expect(rm.status, JSON.stringify(rm.error)).toBe(200);
     return { seating_id: s.seating_id, bill_id: billIdOf(s.seating_id), order_id: s.order_id };
   }
 

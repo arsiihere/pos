@@ -52,14 +52,24 @@ export const RemoveServiceChargeValues = z.object({
 });
 export type RemoveServiceChargeValues = z.infer<typeof RemoveServiceChargeValues>;
 
-/** §6.13 `{ bill_id, invoice_ids, reason_code, note_id, has_note }` (H2-17, H4-4; ⚠️ 05 v1.0.9 R-47: `reason_code`, copied to `BillReopened`). */
-export const ReopenBillValues = z.object({
-  bill_id: Id,
-  invoice_ids: z.array(Id).min(1),
-  reason_code: z.enum(BILL_REOPEN_REASONS),
-  note_id: NoteId,
-  has_note: z.boolean(),
-});
+/**
+ * §6.13 `{ bill_id, invoice_ids, credit_invoice_ids, reason_code, note_id, has_note }` (H2-17, H4-4; ⚠️ 05 v1.0.9 R-47:
+ * `reason_code`, copied to `BillReopened`; ⚠️ 05 v1.0.15 R-66 / G-62: `credit_invoice_ids`, ULIDs minted at raise, one
+ * per `invoice_ids` entry in the same order — `apply` mints nothing, 01d AD-91).
+ */
+export const ReopenBillValues = z
+  .object({
+    bill_id: Id,
+    invoice_ids: z.array(Id).min(1),
+    credit_invoice_ids: z.array(Id).min(1),
+    reason_code: z.enum(BILL_REOPEN_REASONS),
+    note_id: NoteId,
+    has_note: z.boolean(),
+  })
+  .refine((v) => v.credit_invoice_ids.length === v.invoice_ids.length && new Set(v.credit_invoice_ids).size === v.credit_invoice_ids.length, {
+    message: 'one distinct credit_invoice_id per invoice_ids entry (R-66)',
+    path: ['credit_invoice_ids'],
+  });
 export type ReopenBillValues = z.infer<typeof ReopenBillValues>;
 
 /** §6.14 / H4-4: `units` resolved at raise (inferred: required); `order_id` (inferred: the request's subject). */

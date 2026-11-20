@@ -32,6 +32,8 @@ import { registerSetFiscalToken } from './fiscal/credentials.js';
 import { registerPettyCash } from './commands/petty-cash.js';
 // task 21 (§6.17–§6.19, §3.14): CountShift / CloseShift / HandoverCount; the module load registers the shift_variance apply
 import { registerShiftClose } from './commands/shift-close.js';
+// task 19 (§6.13, §3.10): ReopenBill and the order-cancelled hook; the module load registers the reopen_bill apply
+import { registerReopenBill } from './commands/reopen-bill.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 // task 31 (§3.15, §6.27, §6.28): the stuck tick (01d registerTick, G-22), fiscal-status and RetryFiscalNow
 import { registerFiscalStatus } from './fiscal/status.js';
@@ -91,6 +93,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   // task 24 (§3.9, row T-1; B15, row Q-3): 05's merge and line guards, after 04's (registerVoids runs first)
   registerMergeGuard(billMergeGuard);
   registerLineGuard(billLineGuard);
+  // task 19 (§6.13, §3.10, row Q-7)
+  registerReopenBill(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
