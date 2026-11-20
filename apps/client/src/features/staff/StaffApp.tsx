@@ -9,6 +9,8 @@ import { createAnswerSender } from '../alerts/answer';
 import { AnswerSheet, NoticeSheet, type Toast } from '../alerts/AnswerSheet';
 import { Banners } from '../alerts/Banner';
 import { BindingHeader } from '../alerts/BindingHeader';
+import { billQuery } from '../billing/api';
+import { BillScreen, billRefOfSearch } from '../billing/BillScreen';
 import { OpenBills } from '../billing/OpenBills';
 import { Inbox } from '../alerts/Inbox';
 import { lockText, timeText } from '../alerts/labels';
@@ -580,7 +582,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const returnTarget = async (rec: ReturnRecord): Promise<string | null> => {
     const path = routePath(rec.from);
     if (path === '/audit') return showAudit ? rec.from : null;
-    if (path === '/bills') return showBills ? rec.from : null;
+    if (path === '/bills' || path === '/bill') return showBills ? rec.from : null;
     if (path === '/requests') return showRequests ? rec.from : null;
     if (path === '/test-alert') return showTest ? rec.from : null;
     if (/^\/receipts\/[^/]+$/.test(path)) return showTest ? rec.from : null;
@@ -701,7 +703,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   } else if (path === '/audit' && showAudit) {
     page = <AuditLog />;
   } else if (path === '/bills' && showBills) {
-    page = <OpenBills />;
+    page = <OpenBills onOpen={(ref) => navigate(`/bill?${billQuery(ref)}`)} />;
+  } else if (path === '/bill' && showBills && billRefOfSearch(route.split('?')[1] ?? '') !== null) {
+    // 05 §8 Bill screen (task 35): #/bill?bill_id=…|seating_id=…|order_id=…
+    page = <BillScreen key={route} billRef={billRefOfSearch(route.split('?')[1] ?? '')!} onBack={() => navigate('/bills')} />;
   } else if (path === '/requests' && showRequests) {
     page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={tap} />;
   } else if (path === '/test-alert' && showTest) {

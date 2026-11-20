@@ -34,6 +34,15 @@ function bill(over: Partial<BillView> = {}): BillView {
     splits: [split({ split_no: 1, totals: { cash: tot(662_400), digital: tot(599_600), as_paid: tot(662_400) } })],
     currency: { code: 'PKR', exponent: 2 },
     as_of_seq: 3,
+    service_charge: { rate_bp: 0, removed: false },
+    discount: null,
+    totals_default: tot(0),
+    open_requests: [],
+    prints: [],
+    blocks: [],
+    reopen_count: 0,
+    check_printed_at: null,
+    buyer: { required: false, threshold_minor: null, waived: false },
     ...over,
   };
 }

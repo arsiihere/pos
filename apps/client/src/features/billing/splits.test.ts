@@ -26,6 +26,15 @@ function bill(splits: BillViewSplit[]): BillView {
     splits,
     currency: { code: 'PKR', exponent: 2 },
     as_of_seq: 3,
+    service_charge: { rate_bp: 0, removed: false },
+    discount: null,
+    totals_default: zero,
+    open_requests: [],
+    prints: [],
+    blocks: [],
+    reopen_count: 0,
+    check_printed_at: null,
+    buyer: { required: false, threshold_minor: null, waived: false },
   };
 }
 

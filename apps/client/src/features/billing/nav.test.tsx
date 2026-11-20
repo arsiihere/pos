@@ -9,7 +9,19 @@ import { StaffApp } from '../staff/StaffApp';
 // 05 §8 "Cashier screen" (plan §3.1 task 34; brief §3.1.1 Entry): the staff nav's "Bills" (R5: shown with
 // `take-payment`) and #/bills mount the open-bills list; without the grant neither shows. The list is a probe here.
 
-vi.mock('./OpenBills', () => ({ OpenBills: () => <div data-probe="bills" /> }));
+vi.mock('./OpenBills', () => ({
+  OpenBills: ({ onOpen }: { onOpen?: (ref: unknown) => void }) => (
+    <div data-probe="bills">
+      <button type="button" onClick={() => onOpen?.({ seating_id: 'S 7' })}>
+        open T7
+      </button>
+    </div>
+  ),
+}));
+vi.mock('./BillScreen', async (orig) => ({
+  ...(await orig<object>()),
+  BillScreen: ({ billRef }: { billRef: unknown }) => <div data-probe="bill" data-ref={JSON.stringify(billRef)} />,
+}));
 
 class FakeSocket implements SocketLike {
   readyState = 0;
@@ -106,5 +118,19 @@ describe('[05 §8 Cashier screen] Bills in the staff nav (R5)', () => {
     await signedIn();
     expect(m.buttons().some((b) => b.getAttribute('aria-label') === 'Bills' || b.textContent === 'Bills')).toBe(false);
     expect(await at('#/bills')).toBeNull();
+  });
+
+  it('[task 35] a row opens #/bill?<ref>, which mounts the bill screen with that ref; a bad ref mounts nothing', async () => {
+    PERMS = { 'take-payment': { grant: 'allowed', scope: 'branch' } };
+    await signedIn();
+    m.click(m.button('Bills'));
+    await flush(6);
+    m.click(m.button('open T7'));
+    await flush(6);
+    expect(window.location.hash).toBe('#/bill?seating_id=S%207');
+    const page = m.container.querySelector('[data-probe]');
+    expect(page?.getAttribute('data-probe')).toBe('bill');
+    expect(page?.getAttribute('data-ref')).toBe(JSON.stringify({ seating_id: 'S 7' }));
+    expect(await at('#/bill?bill_id=B1&order_id=O1')).toBeNull();
   });
 });
