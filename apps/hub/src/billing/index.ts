@@ -20,6 +20,8 @@ import { registerSetSplits } from './commands/set-splits.js';
 import { registerServiceCharge } from './commands/service-charge.js';
 // task 20 (§6.14, §3.14): RemoveComp; the module load registers the remove_comp apply
 import { registerRemoveComp } from './commands/remove-comp.js';
+// task 18 (§6.11, §3.14): WaiveBuyerId; the module load registers the close_without_buyer_id apply
+import { registerWaiveBuyerId } from './commands/waive-buyer-id.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
 import { billPrintsProjection, bindBillPrints } from './print/folds.js';
@@ -62,6 +64,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   // task 27 (§6.22, §6.23, §6.23a): PrintBillDocument, RetargetBillPrint and the Print to picker's printer list
   registerPrintDocs(app);
   registerBillPrintersQuery(app);
+  // task 18 (§6.11)
+  registerWaiveBuyerId(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
