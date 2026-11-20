@@ -22,6 +22,8 @@ import { registerServiceCharge } from './commands/service-charge.js';
 import { registerRemoveComp } from './commands/remove-comp.js';
 // task 18 (§6.11, §3.14): WaiveBuyerId; the module load registers the close_without_buyer_id apply
 import { registerWaiveBuyerId } from './commands/waive-buyer-id.js';
+// task 31a (§6.28a): SetFiscalToken (admin, write-only)
+import { registerSetFiscalToken } from './fiscal/credentials.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
 import { billPrintsProjection, bindBillPrints } from './print/folds.js';
@@ -66,6 +68,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerBillPrintersQuery(app);
   // task 18 (§6.11)
   registerWaiveBuyerId(app);
+  // task 31a (§6.28a, B22): SetFiscalToken on /admin/commands/set-fiscal-token
+  registerSetFiscalToken(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
