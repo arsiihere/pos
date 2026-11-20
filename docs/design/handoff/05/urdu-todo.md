@@ -176,7 +176,9 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `errors.PAYMENT_CASH_STEP` | Cash must be in steps of {amount} |
 | `errors.DRAWER_DEVICE_INVALID` | This device can't hold a cash drawer |
 | `errors.PETTY_SETTLE_MISMATCH` | Spent and returned must add up to {amount} |
-| `errors.DAY_CLOSE_BLOCKED.shift_open/ `.unbilled_orders`` | as `dayclose.blocked.*` (staff app); `void_pending` keeps 04's text |
+| `errors.DAY_CLOSE_BLOCKED.unbilled_orders` | {count} orders are not billed — bill them or carry them over |
+| `errors.DAY_CLOSE_BLOCKED.shift_open_one` | 1 shift is still open — close it first |
+| `errors.DAY_CLOSE_BLOCKED.unbilled_orders_one` | 1 order is not billed — bill it or carry it over |
 | `errors.PERMISSION_DENIED.not_own_payment/ `.skip_not_granted` / `.outside_scope`` | Only a manager can remove someone else's payment / You can't skip the count / This bill is not one of your tables |
 | `billing.bill.load_failed` | Couldn't load the bill. |
 | `billing.bill.offline` | Reconnecting to the hub… · Showing what we had as of {time} · every bill action needs the hub |

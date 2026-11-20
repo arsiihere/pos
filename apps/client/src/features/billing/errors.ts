@@ -57,8 +57,40 @@ export const BILLING_KIND_KEYS_05_1 = [
   'alert.fiscal_outbox_stuck.help',
 ] as const satisfies readonly MessageKey[];
 
+/**
+ * 05-2's §9 keys (task 43b): petty cash, Z, day close (DAY_CLOSE_BLOCKED's 05 reasons with their `_one` forms;
+ * `void_pending` reads 04's `admin_stock.errors.DAY_CLOSE_BLOCKED` / `_one`, brief §6.6 `dayclose.blocked.voids`),
+ * skip count. The kind labels' `.approve` / `.reject` and `alerts.closed.day_closed` / `.shift_closed` are read by the
+ * 05-2 answer sheet and closed-row tasks (39, 41); nothing shows them yet.
+ */
+export const BILLING_ERROR_KEYS_05_2 = [
+  'errors.PETTY_CASH_NOT_FOUND',
+  'errors.Z_REPORT_NOT_FOUND',
+  'errors.PETTY_ADVANCE_SETTLED',
+  'errors.PETTY_SETTLE_MISMATCH',
+  'errors.DAY_CLOSE_BLOCKED.shift_open',
+  'errors.DAY_CLOSE_BLOCKED.shift_open_one',
+  'errors.DAY_CLOSE_BLOCKED.unbilled_orders',
+  'errors.DAY_CLOSE_BLOCKED.unbilled_orders_one',
+  'errors.PERMISSION_DENIED.skip_not_granted',
+] as const satisfies readonly MessageKey[];
+
+/** 05-2's kinds (§3.14 petty_cash, shift_variance) and the closed reasons a shift / day close gives a request. */
+export const BILLING_KIND_KEYS_05_2 = [
+  'alert.petty_cash.name',
+  'alert.petty_cash.card',
+  'alert.petty_cash.lock',
+  'alert.shift_variance.name',
+  'alert.shift_variance.card',
+  'alert.shift_variance.lock',
+  'alert.shift_variance.approve',
+  'alert.shift_variance.reject',
+  'alerts.closed.day_closed',
+  'alerts.closed.shift_closed',
+] as const satisfies readonly MessageKey[];
+
 /** §9 codes whose `details.reason` picks the text (`errors.<code>.<reason>`). */
-const BY_REASON = new Set(['SHIFT_NOT_OPEN', 'BILL_SPLIT_INVALID', 'PERMISSION_DENIED']);
+const BY_REASON = new Set(['SHIFT_NOT_OPEN', 'BILL_SPLIT_INVALID', 'PERMISSION_DENIED', 'DAY_CLOSE_BLOCKED']);
 
 const has = (key: string): key is MessageKey => key in en;
 
@@ -74,11 +106,16 @@ export function billingErrorKey(
 ): MessageKey {
   if (BY_REASON.has(code)) {
     const reason = details['reason'];
-    const key = `errors.${code}.${typeof reason === 'string' ? reason : ''}`;
+    // DAY_CLOSE_BLOCKED carries `count` (§3.13): one shift / order reads its singular text
+    const one = code === 'DAY_CLOSE_BLOCKED' && details['count'] === 1 ? '_one' : '';
+    const key = `errors.${code}.${typeof reason === 'string' ? reason : ''}${one}`;
     // an unknown reason, or a PERMISSION_DENIED `{ permission, grant }` (no reason; the caller routes it to the 01d
     // approval / permission UI), and BILL_CLOSE_BLOCKED's reasons are shown as `billing.blocks.*` by the bill screen:
     // the generic text (PERMISSION_DENIED's own errors.* text is the owner app's tenant-wide one)
-    return has(key) ? key : 'errors.UNKNOWN';
+    if (has(key)) return key;
+    // 05 §9 "Reused": DAY_CLOSE_BLOCKED `void_pending` (and any other reason) reads 04's own text (brief §6.6)
+    if (code === 'DAY_CLOSE_BLOCKED') return one === '' ? 'admin_stock.errors.DAY_CLOSE_BLOCKED' : 'admin_stock.errors.DAY_CLOSE_BLOCKED_one';
+    return 'errors.UNKNOWN';
   }
   if (code === 'BILL_NOT_OPEN' && details['state'] === 'cancelled') return 'errors.BILL_NOT_OPEN_cancelled';
   if (code === 'BILL_HAS_PAYMENTS' && !Array.isArray(details['split_nos'])) return 'errors.BILL_HAS_PAYMENTS_tables';

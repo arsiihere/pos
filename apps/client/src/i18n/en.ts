@@ -3501,6 +3501,26 @@ export const en = {
   'billing.print.err.job_gone': 'This print is no longer there',
   'billing.reprint_receipt': 'Reprint receipt',
   'billing.reprint_credit': 'Reprint credit note',
+  // ---- 05 client (task 43b): 05 §8 "Errors" / §9 codes of 05-2 (brief §6.8) and the 05-2 kind labels (brief §6.7). Urdu: docs/design/handoff/05/urdu-todo.md ----
+  'errors.PETTY_CASH_NOT_FOUND': "This advance can't be found",
+  'errors.Z_REPORT_NOT_FOUND': "This Z report can't be found",
+  'errors.PETTY_ADVANCE_SETTLED': 'Already settled',
+  'errors.PETTY_SETTLE_MISMATCH': 'Spent and returned must add up to {amount}',
+  'errors.DAY_CLOSE_BLOCKED.shift_open': '{count} shifts are still open — close them first',
+  'errors.DAY_CLOSE_BLOCKED.shift_open_one': '1 shift is still open — close it first',
+  'errors.DAY_CLOSE_BLOCKED.unbilled_orders': '{count} orders are not billed — bill them or carry them over',
+  'errors.DAY_CLOSE_BLOCKED.unbilled_orders_one': '1 order is not billed — bill it or carry it over',
+  'errors.PERMISSION_DENIED.skip_not_granted': "You can't skip the count",
+  'alert.petty_cash.name': 'Petty cash',
+  'alert.petty_cash.card': 'Petty cash · {amount} · {reason}',
+  'alert.petty_cash.lock': 'Petty cash · {requester}',
+  'alert.shift_variance.name': 'Shift variance',
+  'alert.shift_variance.card': 'Shift variance · {requester} · {amount}',
+  'alert.shift_variance.lock': 'Shift variance · {requester}',
+  'alert.shift_variance.approve': 'Approve',
+  'alert.shift_variance.reject': 'Dispute',
+  'alerts.closed.day_closed': 'Closed: day closed',
+  'alerts.closed.shift_closed': 'Closed: shift closed',
 } as const;
 
 export type MessageKey = keyof typeof en;
