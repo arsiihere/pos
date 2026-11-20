@@ -10,6 +10,7 @@ import { registerEventAudience } from '../ws/audience.js';
 import type { SocketCtx } from '../ws/catch-up.js';
 import { registerCloseSplit } from './commands/close-split.js'; // task 17
 import { registerOpenShift } from './commands/open-shift.js';
+import { registerOpenCashDrawer } from './commands/open-cash-drawer.js'; // task 23
 import { registerPrintCheckBill } from './commands/print-check-bill.js';
 import { registerPrintDocs } from './commands/print-docs.js'; // task 27
 import { registerPayments } from './commands/payments.js'; // task 16
@@ -82,6 +83,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerPettyCash(app);
   // task 21 (§6.17–§6.19)
   registerShiftClose(app);
+  // task 23 (§6.21): OpenCashDrawer (no-sale; the kick on the device's own route, R-57)
+  registerOpenCashDrawer(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
