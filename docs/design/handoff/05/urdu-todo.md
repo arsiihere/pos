@@ -291,3 +291,7 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.shift.handed` | Handover counted · shift still open |
 | `billing.shift.back` | Back to my shift |
 | `billing.shift.not_counted` | Closed without a count |
+
+## Builder notes
+
+- Task 39 (shift screens): the petty cash and advance rows show no time ("12:10 PM", "2 h ago" in ShiftClose / PettyAdvances). The hub contract §6.16 `petty[]` has no time field, and none is added (owner 2026-11-20).

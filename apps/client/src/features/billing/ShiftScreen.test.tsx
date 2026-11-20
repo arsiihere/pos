@@ -221,6 +221,24 @@ describe('[05 §8 Shift, §6.16, B23] the blind close screen (frames ShiftClose,
     expect(v.button('Count and close').getAttribute('aria-disabled')).toBe('true');
   });
 
+  it('[B23] before the count is sent, no expected amount anywhere in the DOM: text, aria-*, title, data-* or any attribute, input values', async () => {
+    // even a view that wrongly carries expected / variance (a stale or bad payload) shows none of it before this screen's own count
+    const s = setup({ views: [{ ok: true, data: view({ expected_minor: 4_850_000, variance_minor: -25_000 }) }] });
+    await show(s);
+    typeIn(field(m!, 'Cash counted'), '48,250.00');
+    await flush();
+    const parts: string[] = [document.body.textContent ?? ''];
+    for (const el of [document.body, ...document.body.querySelectorAll('*')]) {
+      for (const name of el.getAttributeNames()) parts.push(`${name}=${el.getAttribute(name) ?? ''}`);
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) parts.push(el.value);
+    }
+    const all = parts.join('\n');
+    for (const leak of ['48,500', '48500', '4850000', '4,850,000', '25000', '25,000', 'Rs 250.00', 'Variance', 'Short', 'Over ']) expect(all, leak).not.toContain(leak);
+    // only the blind line's lower-case "The expected amount shows after you count" may name it
+    expect(all).not.toMatch(/\bExpected\b/);
+    expect(s.command).not.toHaveBeenCalled();
+  });
+
   it('[§6.17] Count and close: CountShift; then Expected · Counted · Short (over the threshold, warn); sign-off pending; the cancelled petty request', async () => {
     const counted = view({ state: 'closed', counted_minor: 4_825_000, expected_minor: 4_850_000, variance_minor: -25_000 });
     const s = setup({
