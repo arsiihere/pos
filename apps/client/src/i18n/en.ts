@@ -3610,15 +3610,15 @@ export const en = {
   'billing.shift.closed_drawer': 'Shift closed · drawer is free',
   'billing.shift.closed': 'Shift closed',
   'billing.shift.signoff': 'Variance sent for sign-off (pending); the drawer is free',
-  'billing.shift.signoff_short': 'More than {threshold} short — a manager signs it off later. You can go.',
-  'billing.shift.signoff_over': 'More than {threshold} over — a manager signs it off later. You can go.',
   'billing.shift.within': 'Within the {threshold} threshold — nothing sent.',
-  'billing.shift.handover_over': 'Over the {threshold} threshold — a handover sends no sign-off; the close count does.',
   'billing.shift.petty_cancelled_one': '1 petty cash request was cancelled because the shift closed',
   'billing.shift.petty_cancelled': '{count} petty cash requests were cancelled because the shift closed',
   'billing.shift.handed': 'Handover counted · shift still open',
   'billing.shift.back': 'Back to my shift',
   'billing.shift.not_counted': 'Closed without a count',
+  'billing.shift.not_counted_cash': 'not counted',
+  'billing.shift.nothing_sent': 'Nothing sent for sign-off.',
+  'billing.shift.signed_out': 'You were signed out — sign in again',
   'billing.shift.nav': 'My shift',
 } as const;
 
