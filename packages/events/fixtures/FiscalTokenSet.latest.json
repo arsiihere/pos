@@ -1,0 +1,20 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "hub",
+  "stream_id": "01J00000000000000000000003",
+  "event_type": "FiscalTokenSet",
+  "payload": {
+    "pos_id": "POS-1",
+    "name": "token",
+    "set_at": 1761000000000,
+    "set_by_staff_id": "01J0000000000000000000002A"
+  }
+}

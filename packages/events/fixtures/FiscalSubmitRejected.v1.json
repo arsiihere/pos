@@ -1,0 +1,20 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "bill",
+  "stream_id": "01J00000000000000000000020",
+  "event_type": "FiscalSubmitRejected",
+  "payload": {
+    "invoice_id": "01J00000000000000000000024",
+    "adapter_key": "PRA",
+    "error_code": "mode_unmapped",
+    "http_status": null
+  }
+}

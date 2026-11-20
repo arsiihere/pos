@@ -1,0 +1,26 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "shift",
+  "stream_id": "01J00000000000000000000022",
+  "event_type": "PettyCashAdvanced",
+  "payload": {
+    "entry_id": "01J00000000000000000000027",
+    "shift_id": "01J00000000000000000000022",
+    "amount_minor": 20000,
+    "category_id": "staff_advance",
+    "has_paid_to": false,
+    "advance_staff_id": "01J0000000000000000000002A",
+    "has_note": false,
+    "requester_staff_id": "01J00000000000000000000029",
+    "approver_staff_id": null,
+    "alert_id": null
+  }
+}

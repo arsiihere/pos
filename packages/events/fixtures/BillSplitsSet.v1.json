@@ -1,0 +1,42 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "bill",
+  "stream_id": "01J00000000000000000000020",
+  "event_type": "BillSplitsSet",
+  "payload": {
+    "bill_id": "01J00000000000000000000020",
+    "mode": "items",
+    "splits": [
+      {
+        "split_no": 1,
+        "lines": [
+          {
+            "order_item_id": "L1",
+            "order_id": "O1",
+            "units": 1
+          }
+        ],
+        "share_minor": null
+      },
+      {
+        "split_no": 2,
+        "lines": [
+          {
+            "order_item_id": "L1",
+            "order_id": "O1",
+            "units": 1
+          }
+        ],
+        "share_minor": null
+      }
+    ]
+  }
+}

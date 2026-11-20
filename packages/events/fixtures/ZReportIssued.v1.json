@@ -1,0 +1,122 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "hub",
+  "stream_id": "01J00000000000000000000003",
+  "event_type": "ZReportIssued",
+  "payload": {
+    "business_date": "2025-10-20",
+    "z_no": 1,
+    "report": {
+      "kind": "z",
+      "z_no": 1,
+      "business_date": "2025-10-20",
+      "issued_at": 1761000000000,
+      "currency_code": "PKR",
+      "sales": {
+        "invoice_count": 1,
+        "gross_minor": 571000,
+        "discounts": {
+          "count": 0,
+          "value_minor": 0,
+          "by_reason": [],
+          "entries": []
+        },
+        "service_charge_minor": 28550,
+        "net_minor": 599550,
+        "taxes": [
+          {
+            "tax_code": "PST",
+            "label": "PST",
+            "tax_profile_id": "TP1",
+            "payment_class": "cash",
+            "rate_bp": 1600,
+            "tax_minor": 95928
+          }
+        ],
+        "rounding_minor": 22,
+        "total_minor": 695500
+      },
+      "credits": {
+        "count": 0,
+        "value_minor": 0,
+        "by_reason": []
+      },
+      "net_after_credits_minor": 695500,
+      "payments_by_mode": [
+        {
+          "mode_name": "Cash",
+          "in_minor": 695500,
+          "out_minor": 0,
+          "change_minor": 4500
+        }
+      ],
+      "comps": {
+        "value_minor": 0,
+        "voided_minor": 0,
+        "removals": {
+          "count": 0,
+          "value_minor": 0
+        }
+      },
+      "voids": [],
+      "reopens": {
+        "count": 0,
+        "value_minor": 0,
+        "entries": []
+      },
+      "petty_cash": [
+        {
+          "category_name": "Supplies",
+          "kind": "out",
+          "amount_minor": 20000
+        }
+      ],
+      "open_advances": [],
+      "shifts": [
+        {
+          "staff_id": "01J00000000000000000000029",
+          "float_minor": 500000,
+          "expected_minor": 1195500,
+          "counted_minor": 1195000,
+          "variance_minor": -500,
+          "skipped": false,
+          "signoff_state": null
+        }
+      ],
+      "variance_signoffs": [],
+      "pending_signoffs": [],
+      "takings_by_taker": [
+        {
+          "staff_id": "01J00000000000000000000029",
+          "amount_minor": 695500
+        }
+      ],
+      "full_refunds": {
+        "count": 0,
+        "value_minor": 0
+      },
+      "fiscal": {
+        "pending": 1,
+        "acked": 0,
+        "rejected": 0,
+        "not_required": 0
+      },
+      "bills": {
+        "count": 1,
+        "average_minor": 695500
+      },
+      "open_bills": [],
+      "carried_over": [],
+      "brought_forward": [],
+      "carried_forward": []
+    }
+  }
+}

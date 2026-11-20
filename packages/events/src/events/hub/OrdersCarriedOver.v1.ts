@@ -1,6 +1,7 @@
 import { CARRY_OVER_REASONS } from '@pos/domain';
 import { z } from 'zod';
 import { defineEvent } from '../../registry.js';
+import { BusinessDate } from '../bill/parts.js';
 
 // 05 §6.24 / §6.29 (stream hub, id branch_id): written by 05's CarryOverOrders; folded by 02b's `orders` projection
 // (05 row Q-5, 02b v1.0.16 §3.3). No note text: `has_note` / `note_id` point at 05's `bill_texts`; `note_id` is null when
@@ -8,7 +9,7 @@ import { defineEvent } from '../../registry.js';
 export const OrdersCarriedOverPayload = z
   .object({
     order_ids: z.array(z.string()).min(1),
-    business_date: z.string(),
+    business_date: BusinessDate,
     reason_code: z.enum(CARRY_OVER_REASONS),
     has_note: z.boolean(),
     note_id: z.string().nullable(),
