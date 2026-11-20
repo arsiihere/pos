@@ -9,7 +9,7 @@ import { ShellContext, type Shell } from '../staff/shell/hooks';
 import { createLiveBus } from '../staff/shell/live';
 import { createPermissions } from '../staff/shell/permissions';
 import { createToastBus } from '../staff/shell/toast';
-import { DayCloseScreen } from './DayCloseScreen';
+import { DayCloseScreen, type DayCloseExits } from './DayCloseScreen';
 import { TODO_05 } from './urdu-todo-05';
 
 // 05 v1.0.25 §8 "Day close" (staff app, close-business-day: blockers list — voids, open shifts, unbilled orders with
@@ -91,6 +91,7 @@ function setup(o: { answers?: Answer[]; zPage?: Answer; grants?: Record<string, 
   const shell = {
     device: { id: 'D1', type: 'tablet', token: 't' },
     meta: { branchName: 'Gulberg' },
+    me: { staff_id: 'S-IMRAN', name: 'Imran' },
     api: { query, command, page },
     live: createLiveBus(),
     toasts,
@@ -112,12 +113,13 @@ afterEach(() => {
 });
 
 const navigate = vi.fn();
-async function show(s: ReturnType<typeof setup>) {
+const ALL: DayCloseExits = { closeShift: true, ownShift: true, bill: true, requests: true, reports: true };
+async function show(s: ReturnType<typeof setup>, exits: DayCloseExits = ALL) {
   navigate.mockReset();
   m = mount();
   m.render(
     <ShellContext.Provider value={s.shell}>
-      <DayCloseScreen onNavigate={navigate} />
+      <DayCloseScreen onNavigate={navigate} exits={exits} />
     </ShellContext.Provider>,
   );
   await flush();
@@ -212,6 +214,48 @@ describe('[05 §8 Day close, §3.13] Close day and the guard order (frame DayClo
   });
 });
 
+describe('[task 41 review] exits the person may use (R5); own shift; the Z read', () => {
+  it('[M2] without close-shift-for-others, take-payment or the requests route: no Close this shift, no Open bill, no Open Requests', async () => {
+    const none: DayCloseExits = { closeShift: false, ownShift: true, bill: false, requests: false, reports: false };
+    const v = await show(setup({ answers: [SHIFTS, VOIDS, UNBILLED] }), none);
+    await close(v);
+    expect(v.buttons().some((b) => b.textContent === 'Close this shift')).toBe(false);
+    await close(v);
+    expect(v.buttons().some((b) => b.textContent === 'Open Requests')).toBe(false);
+    expect(v.text()).toContain('Someone allowed to answer them does it in Requests.');
+    await close(v);
+    expect(v.buttons().some((b) => b.textContent === 'Open bill')).toBe(false);
+  });
+
+  it('[m3] my own open shift opens as My shift (#/shift, no shift_id)', async () => {
+    const own = blocked({ reason: 'shift_open', count: 1, shifts: [{ shift_id: 'SH1', staff_name: 'Imran', opened_at: AT(9, 0), is_drawer: true }] });
+    const v = await show(setup({ answers: [own] }));
+    await close(v);
+    v.click(v.button('Close this shift'));
+    expect(navigate).toHaveBeenCalledWith('/shift');
+  });
+
+  it('[M1] the Z read refused (no view-reports) or failed: "Day closed" and where to see it — never "no Z"', async () => {
+    const v = await show(setup({ zPage: { ok: false, error: { kind: 'api', status: 403, code: 'PERMISSION_DENIED', details: { permission: 'view-reports' } } } }));
+    await close(v);
+    expect(v.container.querySelector('.b5-blk__h b')?.textContent).toBe('Day closed');
+    expect(v.text()).toContain('The Z is saved and printed.');
+    expect(v.text()).not.toContain('No Z report for this day');
+    v.click(v.button('Reports'));
+    expect(navigate).toHaveBeenCalledWith('/reports');
+  });
+
+  it('[D32] a lost close reply: the resend carries the same command_id', async () => {
+    const s = setup({ answers: [{ ok: false, error: { kind: 'network' } }] });
+    const v = await show(s);
+    await close(v);
+    expect(v.text()).toContain('Needs the hub');
+    await close(v);
+    const [a, b] = s.command.mock.calls;
+    expect((b![2] as { commandId: string }).commandId).toBe((a![2] as { commandId: string }).commandId);
+  });
+});
+
 describe('[05 §8, §6.24] unbilled orders and Carry over (frames DayCloseUnbilled, CarryOver)', () => {
   it('rows with a tick, the amount, placed and open time, Open bill; Carry over {n} after ticking', async () => {
     const v = await show(setup({ answers: [UNBILLED] }));
@@ -262,6 +306,21 @@ describe('[05 §8, §6.24] unbilled orders and Carry over (frames DayCloseUnbill
     expect([...v.container.querySelectorAll('.b5-br .tcode')].map((c) => c.textContent)).toEqual(['F1']);
   });
 
+  it('[m5] more orders than listed: carrying the listed ones says to tap Close day for the next, not "all carried"', async () => {
+    const many = blocked({ reason: 'unbilled_orders', count: 45, orders: [{ order_id: 'O1', identifier: 'T2', total_minor: 1, placed_at: AT(19, 0), open_minutes: 5 }] });
+    const v = await show(setup({ answers: [many, { ok: true, data: { business_date: '2026-11-19', order_ids: ['O1'] } }] }));
+    await close(v);
+    v.click(v.container.querySelector('.b5-br .b5-tick')!);
+    await flush();
+    v.click(v.button('Carry over 1'));
+    await flush();
+    v.click([...v.container.querySelectorAll<HTMLButtonElement>('.dlg .b5-chip')].find((c) => c.textContent === 'Table still seated')!);
+    await flush();
+    v.click(v.container.querySelector<HTMLButtonElement>('.dlg .acts .btn--primary')!);
+    await flush();
+    expect(v.container.querySelector('.b5-blk__h b')?.textContent).toBe('The listed orders are carried over — tap Close day again for the next ones');
+  });
+
   it('a refusal (ORDER_BILLED) shows in the sheet', async () => {
     const v = await show(setup({ answers: [UNBILLED, { ok: false, error: { kind: 'api', status: 409, code: 'ORDER_BILLED', details: {} } }] }));
     await close(v);
@@ -273,7 +332,7 @@ describe('[05 §8, §6.24] unbilled orders and Carry over (frames DayCloseUnbill
     await flush();
     v.click(v.container.querySelector<HTMLButtonElement>('.dlg .acts .btn--primary')!);
     await flush();
-    expect(v.container.querySelector('.dlg .msg')).not.toBeNull();
+    expect(v.container.querySelector('.dlg .msg')?.textContent).toContain('Tap Close day again to refresh the list.');
   });
 });
 

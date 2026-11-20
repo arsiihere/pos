@@ -418,8 +418,6 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.dayclose.signoffs_one` | 1 variance sign-off is still pending — answer it first |
 | `billing.dayclose.signoffs` | {count} variance sign-offs are still pending — answer them first |
 | `billing.dayclose.signoffs_sub` | Answer them in Requests; the day closes after. |
-| `billing.dayclose.open_since` | open since {time} · no drawer |
-| `billing.dayclose.open_since_drawer` | open since {time} · drawer |
 | `billing.dayclose.closed_at` | closed {time} |
 | `billing.dayclose.all_carried` | Every listed order is carried over — tap Close day again |
 | `billing.dayclose.ticked` | {count} ticked |
@@ -440,6 +438,10 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.dayclose.carry_note` | They move to tomorrow and stay open. Any payment already taken shows as carried forward on the Z. |
 | `billing.dayclose.carry_send` | Carry over {count} orders |
 | `billing.dayclose.carry_send_one` | Carry over 1 order |
+| `billing.dayclose.z_unread` | The Z is saved and printed. Open it in Reports to see it here. |
+| `billing.dayclose.ask_manager` | Someone allowed to answer them does it in Requests. |
+| `billing.dayclose.load_next` | The listed orders are carried over — tap Close day again for the next ones |
+| `billing.dayclose.refresh` | Tap Close day again to refresh the list. |
 | `billing.fiscal.waiting` | Fiscal: {count} waiting · oldest {age} |
 | `billing.fiscal.stuck` | {waiting} — tell a manager |
 | `billing.fiscal.rejected` | Fiscal: {count} not accepted — tell a manager |
