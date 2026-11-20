@@ -66,6 +66,14 @@ export function parseMinor(text: string, exponent: number): number | null {
 }
 
 /** Typed percent → basis points 1–10 000, at most 2 decimals ("12.5" → 1250), by string arithmetic; else null. */
+/** A counted / starting / settled amount: 0 … 10¹², typed in major units (0 is fine: an empty drawer, nothing returned). */
+export function parseCount(text: string, exponent: number): number | null {
+  const s = text.trim().replace(/,/g, '');
+  if (s === '') return null;
+  if (/^0+(\.0+)?$/.test(s)) return 0;
+  return parseMinor(text, exponent);
+}
+
 export function parsePercentBp(text: string): number | null {
   const m = /^([0-9]{1,3})(?:\.([0-9]{1,2}))?$/.exec(text.trim());
   if (m === null) return null;

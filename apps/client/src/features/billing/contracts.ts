@@ -256,3 +256,15 @@ export interface HandoverCountResult {
   expected_minor: number;
   variance_minor: number;
 }
+
+/** §6.20 RecordPettyCash: `pending` when the entry waits for a `petty_cash` request (no event yet; the approval writes it). */
+export interface RecordPettyCashResult {
+  entry_id: string;
+  pending?: { alert_id: string };
+}
+
+/** §6.20 SettlePettyAdvance */
+export interface SettlePettyAdvanceResult {
+  entry_id: string;
+  shift_id: string;
+}

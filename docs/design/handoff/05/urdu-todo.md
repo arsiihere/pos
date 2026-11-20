@@ -291,6 +291,26 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.shift.not_counted_cash` | not counted |
 | `billing.shift.nothing_sent` | Nothing sent for sign-off. |
 | `billing.shift.signed_out` | You were signed out — sign in again |
+| `billing.petty.from_shift` | From {name}'s shift |
+| `billing.petty.who` | Who takes it |
+| `billing.petty.enter_amount` | Type the amount |
+| `billing.petty.pick_category` | Pick a category |
+| `billing.petty.pick_person` | Pick who takes it |
+| `billing.petty.recorded` | Recorded |
+| `billing.petty.recorded_drawer` | Recorded · drawer opened |
+| `billing.petty.waiting` | Waiting for a manager |
+| `billing.petty.waiting_line` | {kind} {amount} · {category} · asked {time} |
+| `billing.petty.when_approved` | When it is approved, open the drawer to take the cash. The drawer doesn’t open by itself. |
+| `billing.petty.approved` | Approved — open the drawer to take the cash |
+| `billing.petty.back` | Back |
+| `billing.petty.settle` | Settle |
+| `billing.petty.settle_title` | Settle advance |
+| `billing.petty.spent` | Spent |
+| `billing.petty.returned` | Returned (cash back) |
+| `billing.petty.returned_note` | The returned cash goes into your shift. |
+| `billing.petty.enter_spent` | Type what was spent |
+| `billing.petty.enter_returned` | Type what came back |
+| `billing.petty.settled` | Advance settled |
 
 ## Builder notes
 
