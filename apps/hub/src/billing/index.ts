@@ -7,6 +7,7 @@ import type { HubDeps } from '../server.js';
 import { registerEventAudience } from '../ws/audience.js';
 import type { SocketCtx } from '../ws/catch-up.js';
 import { registerOpenShift } from './commands/open-shift.js';
+import { registerSetSplits } from './commands/set-splits.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
 import { billingProjection } from './projections/billing.js';
@@ -32,6 +33,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   // task 15 (§6.15, §6.16): OpenShift and the blind shift view
   registerOpenShift(app);
   registerShiftQuery(app);
+  // task 12 (§6.5): SetSplits
+  registerSetSplits(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
