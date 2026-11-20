@@ -10,6 +10,8 @@ import { fiscalAdapterFor } from './fiscal/port.js';
 import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
 import { billingProjection } from './projections/billing.js';
 import { shiftsProjection } from './projections/shifts.js';
+import { registerBillQuery } from './queries/bill.js';
+import { registerOpenBillsQuery } from './queries/open-bills.js';
 
 // 05 wiring entry (§6.30, task 7; H6-14: every later task adds only its own registration lines here, under its marker).
 // Audit actions and alert kinds register at module load (P0.15, P0.7, G-20); projections in registerHubProjections
@@ -22,6 +24,9 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   void deps;
   // task 7 (§6.30, S-B): the OrdersCarriedOver audience (P0.13 writes the event; with no audience it reaches no socket)
   const stopCarryAudience = registerOrdersCarriedOverAudience(app);
+  // task 10 (§6.1, §6.2): the bill view and the open-bills list (ensure bill is a helper of the bill commands)
+  registerBillQuery(app);
+  registerOpenBillsQuery(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
