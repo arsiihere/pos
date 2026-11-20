@@ -36,6 +36,8 @@ export interface TopBarProps {
   pass?: boolean;
   /** 04 §8 (VU2): view-audit-log allowed → "Audit log" (list icon) after Inbox and Requests */
   audit?: boolean;
+  /** 05 §8 Cashier screen (task 34, R5): take-payment allowed → "Bills" (#/bills) */
+  bills?: boolean;
   /** phone top bar */
   title: string;
   phoneSub: ReactNode;
@@ -96,6 +98,7 @@ export function TopBar(p: TopBarProps) {
               {p.pass === true && <IconButton icon="hand" label={t('nav.pass')} count={null} onClick={() => p.onNavigate('/pass')} />}
               {p.testAlert && <IconButton icon="pulse" label={t('alerts.nav.test')} count={null} onClick={() => p.onNavigate('/test-alert')} />}
               {p.requests !== null && <IconButton icon="shield" label={t('alerts.nav.requests')} count={p.requests} onClick={() => p.onNavigate('/requests')} />}
+              {p.bills === true && <IconButton icon="receipt" label={t('billing.nav')} count={null} onClick={() => p.onNavigate('/bills')} />}
               <IconButton icon="tray" label={t('alerts.nav.inbox')} count={p.inbox} onClick={() => p.onNavigate('/inbox')} />
               {p.audit === true && (
                 <button type="button" className="btn btn--icon" onClick={() => p.onNavigate('/audit')}>
