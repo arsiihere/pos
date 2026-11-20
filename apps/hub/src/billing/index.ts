@@ -71,6 +71,7 @@ export function resetFiscalWorkerSeams(): void {
  * G-21: boot calls this after listen, beside the print worker (P0.18), and joins the returned stop to `beat.stop`.
  * Starts the fiscal worker only when loadSubmission and onAnswer are registered; with none it starts nothing, reads
  * nothing and fails nothing.
+ * Call once per boot; stop before re-boot.
  */
 export function startBillingWorkers(deps: HubDeps, log: FiscalWorkerLog): () => void {
   const s = seams;
