@@ -214,3 +214,16 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.tot.paid_card` | card |
 | `pad.maybe_in` | This payment may already be in — check the payments before taking it again |
 | `errors.PERMISSION_DENIED.not_requester` | Only the person who asked can withdraw it |
+| `billing.print.title_check` | Print the check bill on… |
+| `billing.print.title_receipt` | Print the receipt on… |
+| `billing.print.title_credit` | Print the credit note on… |
+| `billing.print.note` | It moves to the printer you pick. Nothing prints twice. |
+| `billing.print.pick` | Pick a printer |
+| `billing.print.print_on` | Print on {printer} |
+| `billing.print.moved` | Moved to {printer} |
+| `billing.print.failed_here` | didn’t print here · {error} |
+| `billing.print.failed_here_plain` | didn’t print here |
+| `billing.print.waiting_here` | waiting here |
+| `billing.print.reprint_sent` | Reprint sent to {printer} |
+| `billing.print.err.printer_gone` | This printer was removed — pick another |
+| `billing.print.err.job_gone` | This print is no longer there |
