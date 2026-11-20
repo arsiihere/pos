@@ -24,6 +24,7 @@ vi.mock('./BillScreen', async (orig) => ({
 }));
 
 vi.mock('./ShiftScreen', () => ({ ShiftScreen: () => <div data-probe="shift" /> }));
+vi.mock('./ReportsScreen', () => ({ ReportsScreen: () => <div data-probe="reports" /> }));
 
 class FakeSocket implements SocketLike {
   readyState = 0;
@@ -154,3 +155,22 @@ describe('[05 §8 Shift; task 39] My shift in the staff nav (R5)', () => {
     expect(await at('#/shift')).toBeNull();
   });
 });
+
+describe('[05 §8 Reports; task 42] Reports in the staff nav (R5)', () => {
+  it('with view-reports: the Reports button opens #/reports, which mounts the reports screen', async () => {
+    PERMS = { 'view-reports': { grant: 'allowed', scope: 'branch' } };
+    await signedIn();
+    m.click(m.button('Reports'));
+    await flush(6);
+    expect(window.location.hash).toBe('#/reports');
+    expect(m.container.querySelector('[data-probe]')?.getAttribute('data-probe')).toBe('reports');
+  });
+
+  it('without view-reports: no Reports button, and #/reports mounts nothing', async () => {
+    PERMS = { 'take-payment': { grant: 'allowed', scope: 'branch' } };
+    await signedIn();
+    expect(m.buttons().some((b) => b.textContent === 'Reports')).toBe(false);
+    expect(await at('#/reports')).toBeNull();
+  });
+});
+

@@ -8,6 +8,7 @@ import { useShell } from '../staff/shell/hooks';
 import { billingApi } from './api';
 import type { BillRef, OpenBillRow } from './contracts';
 import { BILL_LIST_FRAMES } from './frames';
+import { FiscalLine } from './FiscalLine';
 import { BIco, type BillIconName } from './icons';
 import { billMoney, durationText, MONEY_DIR } from './money';
 import './styles';
@@ -17,7 +18,7 @@ import './styles';
 // first, then opened_at — never re-sorted here). Read on mount, on bill / order / table frames, on reconnect and when
 // the page turns visible (no push, no sound for a bill request, Q13). Badges: check bill printed (+ time), partly
 // paid (+ Paid line), waiting for approval, open too long (`flagged`). Offline the last list stays "as of <time>".
-// Not here: the floor switch (designer choice, needs a floors read), the fiscal line (task 31's fiscal-status) and
+// Not here: the floor switch (designer choice, needs a floors read) and
 // the shift card (05-2); a tap opens the bill screen of task 35 through `onOpen`.
 
 /** 05 §6 header (bill_ref rule): bill_id, else seating_id, else order_id. */
@@ -227,6 +228,8 @@ export function OpenBills({ onOpen }: { onOpen?: (ref: BillRef) => void }) {
             <h1>{t('billing.list.title')}</h1>
             <span className="cnt">{rows?.length ?? 0}</span>
             {stale && loadedAt !== null && <span className="b5-note">{fill(t('billing.list.as_of'), { time: timeText(loadedAt, offset) })}</span>}
+            {/* 05 §8, §6.27 (task 42): the fiscal line, shown only when the adapter is not none */}
+            <FiscalLine />
           </div>
           <div className="b5-wl__b b5-wl__b--fill">{body}</div>
         </section>

@@ -53,6 +53,8 @@ interface Opts {
   online?: boolean;
   fail?: boolean;
   currency?: string;
+  /** task 42: the fiscal line's own read (default: the adapter none, so no line) */
+  fiscal?: Record<string, unknown>;
 }
 
 function setup(o: Opts = {}) {
@@ -62,9 +64,11 @@ function setup(o: Opts = {}) {
     if (o.fail === true) return { ok: false as const, error: { kind: 'api' as const, status: 500, code: 'INTERNAL', details: {} } };
     return { ok: true as const, data: { bills: o.rows ?? ROWS, as_of_seq: 7 } };
   });
+  // the fiscal line (task 42) reads on its own path: answered apart, so `query` counts the list's reads only
+  const fiscal = vi.fn(async () => ({ ok: true as const, data: { adapter_key: 'none', adapter_health: 'ok', pending_count: 0, rejected_count: 0, stuck: false, token_missing: [], tokens: [], last_success_at: null, oldest_pending_age_ms: null, ...o.fiscal } }));
   const shell = {
     device: { token: 'D', id: 'dev-1', type: 'cashier_kiosk' },
-    api: { query },
+    api: { query: (path: string) => (path === '/queries/fiscal-status' ? fiscal() : query(path)) },
     live,
     config: { config: () => null, snapshot: () => ({ currency_code: o.currency ?? 'PKR' }), subscribe: () => () => {} },
     permissions: createPermissions({ 'take-payment': { grant: 'allowed', scope: 'branch' } } as never),
@@ -291,3 +295,29 @@ describe('[05 §8 Cashier screen; §6.2] open-bills list (task 34)', () => {
     }
   });
 });
+
+describe('[05 §8, §6.27; task 42] the fiscal line in the list header', () => {
+  it('shown when the adapter is not none (frame OpenBills: "Fiscal: 3 waiting · oldest 12 min"); none for the adapter none', async () => {
+    const v = mount();
+    const s = setup({ fiscal: { adapter_key: 'PRA', pending_count: 3, oldest_pending_age_ms: 12 * 60_000 } });
+    v.render(
+      <ShellContext.Provider value={s.shell}>
+        <OpenBills />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    expect(v.container.querySelector('.b5-wl__h .b5-fis')?.textContent).toBe('Fiscal: 3 waiting · oldest 12 min');
+    v.unmount();
+    const w = mount();
+    const t2 = setup();
+    w.render(
+      <ShellContext.Provider value={t2.shell}>
+        <OpenBills />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    expect(w.container.querySelector('.b5-fis')).toBeNull();
+    w.unmount();
+  });
+});
+

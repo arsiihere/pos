@@ -13,6 +13,7 @@ import { billQuery } from '../billing/api';
 import { BillScreen, billRefOfSearch } from '../billing/BillScreen';
 import { OpenBills } from '../billing/OpenBills';
 import { ShiftScreen } from '../billing/ShiftScreen';
+import { ReportsScreen } from '../billing/ReportsScreen';
 import { Inbox } from '../alerts/Inbox';
 import { lockText, timeText } from '../alerts/labels';
 import { Receipts } from '../alerts/Receipts';
@@ -502,6 +503,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const showBills = !phone && allowed.has('take-payment');
   // 05 §8 Shift (task 39, R5): My shift with manage-own-shift granted outright (the hub's registry grant), every device
   const showShift = allowed.has('manage-own-shift');
+  // 05 §8 Reports (task 42, R5): X and the Z list with view-reports, kiosk and tablet (frames at 1920 and 1280)
+  const showReports = !phone && allowed.has('view-reports');
   // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
   const hasPoint = useSyncExternalStore(pass.store.subscribe, () => pass.store.snapshot().view !== null);
   // AD-K12 / W-3: leaving the landing route ends the landing too (a late catch-up never moves a person mid-task)
@@ -587,6 +590,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     if (path === '/audit') return showAudit ? rec.from : null;
     if (path === '/bills' || path === '/bill') return showBills ? rec.from : null;
     if (path === '/shift') return showShift ? rec.from : null;
+    if (path === '/reports') return showReports ? rec.from : null;
     if (path === '/requests') return showRequests ? rec.from : null;
     if (path === '/test-alert') return showTest ? rec.from : null;
     if (/^\/receipts\/[^/]+$/.test(path)) return showTest ? rec.from : null;
@@ -708,6 +712,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     page = <AuditLog />;
   } else if (path === '/shift' && showShift) {
     page = <ShiftScreen />;
+  } else if (path === '/reports' && showReports) {
+    page = <ReportsScreen />;
   } else if (path === '/bills' && showBills) {
     page = <OpenBills onOpen={(ref) => navigate(`/bill?${billQuery(ref)}`)} />;
   } else if (path === '/bill' && showBills && billRefOfSearch(route.split('?')[1] ?? '') !== null) {
@@ -802,6 +808,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         audit={showAudit}
         bills={showBills}
         shift={showShift}
+        reports={showReports}
         title={me === null ? meta.branchName : phoneTitle}
         phoneSub={
           me === null ? (
