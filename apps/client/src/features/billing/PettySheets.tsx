@@ -110,16 +110,33 @@ function Money({ label, value, onChange, code }: { label: ReactNode; value: stri
   );
 }
 
-export type PettyOutcome = 'recorded' | 'pending' | 'withdrawn';
+export type PettyOutcome = 'recorded' | 'pending' | 'withdrawn' | 'closed';
 
-/** A request raised here: its entry (the approval's event carries the same entry_id) and the waiting line. */
-interface Raised {
+/**
+ * A request raised here: its entry (the approval's event carries the same entry_id) and the waiting line. Held by the
+ * shift screen, not the sheet, so Back never loses it and a second tap reopens the waiting card instead of a new form
+ * (a new form would raise a second request a manager could approve too).
+ */
+export interface Raised {
   entry_id: string;
   alert_id: string;
   line: string;
 }
 
-export function PettySheet({ shift, onDone, onClose }: { shift: ShiftView; onDone: (r: PettyOutcome) => void; onClose: () => void }) {
+export function PettySheet({
+  shift,
+  raised,
+  onRaised,
+  onDone,
+  onClose,
+}: {
+  shift: ShiftView;
+  /** the screen's open request of this sheet, if any */
+  raised: Raised | null;
+  onRaised: (r: Raised | null) => void;
+  onDone: (r: PettyOutcome) => void;
+  onClose: () => void;
+}) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
   const { code, exponent, money } = useCurrency();
@@ -134,7 +151,6 @@ export function PettySheet({ shift, onDone, onClose }: { shift: ShiftView; onDon
   const [people, setPeople] = useState<RosterPerson[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [raised, setRaised] = useState<Raised | null>(null);
   // Q-12: who takes an advance comes from the sign-in roster, read when Advance is picked
   useEffect(() => {
     if (kind !== 'advance' || people !== null) return;
@@ -173,7 +189,7 @@ export function PettySheet({ shift, onDone, onClose }: { shift: ShiftView; onDon
     if (answer.data.pending !== undefined) {
       const cat = categories.find((c) => c.category_id === category)?.name ?? '';
       const what = t(KINDS.find((k) => k.kind === kind)!.key);
-      setRaised({
+      onRaised({
         entry_id: answer.data.entry_id,
         alert_id: answer.data.pending.alert_id,
         line: fill(t('billing.petty.waiting_line'), { kind: what, amount: money(amount), category: cat, time: timeText(shell.clock.nowMs(), shell.clock.utcOffsetMs) }),
@@ -213,11 +229,14 @@ export function PettySheet({ shift, onDone, onClose }: { shift: ShiftView; onDon
                   setBusy(true);
                   void api.withdrawRequest(raised.alert_id).then((answer) => {
                     setBusy(false);
-                    if (!answer.ok && !(answer.error.kind === 'api' && answer.error.code === 'REQUEST_NOT_PENDING')) {
+                    // REQUEST_NOT_PENDING: answered (rejected, approved) or closed obsolete meanwhile — never "withdrawn"
+                    const gone = !answer.ok && answer.error.kind === 'api' && answer.error.code === 'REQUEST_NOT_PENDING';
+                    if (!answer.ok && !gone) {
                       setMsg(errText(answer.error, money));
                       return;
                     }
-                    onDone('withdrawn');
+                    onRaised(null);
+                    onDone(gone ? 'closed' : 'withdrawn');
                   });
                 }}
               >
@@ -252,9 +271,12 @@ export function PettySheet({ shift, onDone, onClose }: { shift: ShiftView; onDon
           ))}
         </div>
         <Money label={t('billing.petty.amount')} value={text} onChange={setText} code={code} />
-        <div className={`b5-limit ${amount !== null && amount > limit ? 'c-warn' : 'c-ok'}`}>
-          <span>{fill(t('billing.petty.limit'), { limit: money(limit) })}</span>
-        </div>
+        {/* the limit only matters to an allowed grant (CHANGES.md petty.limit_ok / limit_over); requires_approval always asks */}
+        {!shell.permissions.requiresApproval('record-petty-cash') && (
+          <div className={`b5-limit ${amount !== null && amount > limit ? 'c-warn' : 'c-ok'}`}>
+            <span>{fill(t(amount !== null && amount > limit ? 'billing.petty.limit_over' : 'billing.petty.limit'), { limit: money(limit) })}</span>
+          </div>
+        )}
         {kind === 'advance' && (
           <div className="b5-sec">
             <h3>{t('billing.petty.who')}</h3>

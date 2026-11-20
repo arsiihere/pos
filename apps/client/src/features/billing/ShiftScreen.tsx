@@ -12,7 +12,7 @@ import type { CountShiftResult, HandoverCountResult, ShiftPetty, ShiftView } fro
 import { billingErrorKey } from './errors';
 import { BIco } from './icons';
 import { billMoney, MONEY_DIR, parseCount } from './money';
-import { PettySheet, SettleSheet } from './PettySheets';
+import { PettySheet, SettleSheet, type Raised } from './PettySheets';
 import { useLiveRefetch } from '../staff/orders/lists/OpenOrders';
 import { SHIFT_FRAMES } from './frames';
 import './styles';
@@ -25,7 +25,6 @@ import './styles';
 // (§6.17) reveals expected and variance; Close without counting (§6.18, `skip-blind-count`); Count at handover (§6.19,
 // drawer shifts; the shift stays open). Task 40: Petty cash (record) and Settle on an open advance (PettySheets).
 
-export { parseCount };
 
 type Step = { name: 'count' } | { name: 'handover' } | { name: 'skip' } | { name: 'skipped'; cancelled: number } | { name: 'counted'; r: CountShiftResult } | { name: 'handed'; r: HandoverCountResult };
 
@@ -70,6 +69,7 @@ export function ShiftScreen({ shiftId }: { shiftId?: string }) {
   // a petty entry approved elsewhere, a settle on another device, a reconnect: read again (the hub's own view)
   useLiveRefetch(shell.live, () => void load(), SHIFT_FRAMES);
   const [petty, setPetty] = useState<{ name: 'record' } | { name: 'settle'; advance: ShiftPetty } | null>(null);
+  const [raised, setRaised] = useState<Raised | null>(null);
 
   if (none)
     return (
@@ -171,17 +171,27 @@ export function ShiftScreen({ shiftId }: { shiftId?: string }) {
             </button>
           </div>
         )}
+        {raised !== null && !shift.petty.some((p) => p.entry_id === raised.entry_id) && (
+          <p className="b5-note">{fill(t('billing.petty.waiting_screen'), { line: raised.line })}</p>
+        )}
         <Takings shift={shift} money={money} handovers={step.name !== 'handed'} {...(canSettle ? { onSettle: (advance: ShiftPetty) => setPetty({ name: 'settle', advance }) } : {})} />
       </div>
       <div className="col b5-stack">{side}</div>
       {petty?.name === 'record' && (
         <PettySheet
           shift={shift}
+          raised={raised}
+          onRaised={setRaised}
           onDone={(r) => {
             if (r !== 'pending') setPetty(null);
+            if (r === 'closed') shell.toasts.show({ text: t('billing.petty.not_pending'), tone: 'info' });
             void load();
           }}
-          onClose={() => setPetty(null)}
+          onClose={() => {
+            // an approved request, seen once, is done; a waiting one stays (its card reopens on the next tap)
+            if (raised !== null && shift.petty.some((p) => p.entry_id === raised.entry_id)) setRaised(null);
+            setPetty(null);
+          }}
         />
       )}
       {petty?.name === 'settle' && (

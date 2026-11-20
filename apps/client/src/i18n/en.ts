@@ -3652,6 +3652,9 @@ export const en = {
   'billing.petty.enter_spent': 'Type what was spent',
   'billing.petty.enter_returned': 'Type what came back',
   'billing.petty.settled': 'Advance settled',
+  'billing.petty.limit_over': 'Over the {limit} limit — a manager approves it',
+  'billing.petty.waiting_screen': 'Petty cash waiting for a manager · {line}',
+  'billing.petty.not_pending': 'That request was already answered or closed — see your inbox',
   'billing.shift.nav': 'My shift',
 } as const;
 

@@ -9,7 +9,8 @@ import { createLiveBus } from '../staff/shell/live';
 import { createPermissions } from '../staff/shell/permissions';
 import { createToastBus } from '../staff/shell/toast';
 import type { ShiftView } from './contracts';
-import { parseCount, ShiftScreen } from './ShiftScreen';
+import { parseCount } from './money';
+import { ShiftScreen } from './ShiftScreen';
 import { TODO_05 } from './urdu-todo-05';
 
 // 05 v1.0.21 §8 "Shift" (open with float; close shows card / online totals and asks for the counted cash before any

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flush, mount, type Mounted } from '../../../test/dom';
 import { setLanguage } from '../../i18n';
@@ -9,7 +10,7 @@ import { createLiveBus } from '../staff/shell/live';
 import { createPermissions } from '../staff/shell/permissions';
 import { createToastBus } from '../staff/shell/toast';
 import type { ShiftPetty, ShiftView } from './contracts';
-import { PettySheet, SettleSheet } from './PettySheets';
+import { PettySheet, SettleSheet, type Raised } from './PettySheets';
 import { ShiftScreen } from './ShiftScreen';
 import { TODO_05 } from './urdu-todo-05';
 
@@ -95,11 +96,17 @@ afterEach(() => {
   setLanguage('en');
 });
 
+/** The sheet with its raised request held outside it, as the shift screen holds it. */
+function Harness({ shift, done, close }: { shift: ShiftView; done: (r: string) => void; close: () => void }) {
+  const [raised, setRaised] = useState<Raised | null>(null);
+  return <PettySheet shift={shift} raised={raised} onRaised={setRaised} onDone={done} onClose={close} />;
+}
+
 async function sheet(s: ReturnType<typeof setup>, shift: ShiftView = view(), on: { done?: (r: string) => void; close?: () => void } = {}) {
   m = mount();
   m.render(
     <ShellContext.Provider value={s.shell}>
-      <PettySheet shift={shift} onDone={on.done ?? (() => {})} onClose={on.close ?? (() => {})} />
+      <Harness shift={shift} done={on.done ?? (() => {})} close={on.close ?? (() => {})} />
     </ShellContext.Provider>,
   );
   await flush();
@@ -183,6 +190,8 @@ describe('[05 §8 Petty cash, §6.20] record (frames Petty, PettyAdvance)', () =
     v.click(chip(v, 'Supplies'));
     await flush();
     expect(primary(v).textContent).toBe('Ask for approvalNeeds approval');
+    expect(v.container.querySelector('.b5-limit')?.textContent).toBe('Over the Rs 5,000.00 limit — a manager approves it');
+    expect(v.container.querySelector('.b5-limit')?.className).toContain('c-warn');
     v.click(primary(v));
     await flush();
     expect(v.container.querySelector('.b5-wait b')?.textContent).toBe('Waiting for a manager');
@@ -201,11 +210,13 @@ describe('[05 §8 Petty cash, §6.20] record (frames Petty, PettyAdvance)', () =
     v.click(chip(v, 'Supplies'));
     await flush();
     expect(primary(v).textContent).toBe('Ask for approvalNeeds approval');
+    // requires_approval asks for every amount: no limit line
+    expect(v.container.querySelector('.b5-limit')).toBeNull();
     v.click(primary(v));
     await flush();
     v.render(
       <ShellContext.Provider value={s.shell}>
-        <PettySheet shift={view({ petty: [ADVANCE, { ...ADVANCE, entry_id: 'P9', kind: 'out', advance_staff_name: null, settled: false }] })} onDone={() => {}} onClose={() => {}} />
+        <Harness shift={view({ petty: [ADVANCE, { ...ADVANCE, entry_id: 'P9', kind: 'out', advance_staff_name: null, settled: false }] })} done={() => {}} close={() => {}} />
       </ShellContext.Provider>,
     );
     await flush();
@@ -228,6 +239,47 @@ describe('[05 §8 Petty cash, §6.20] record (frames Petty, PettyAdvance)', () =
     await flush();
     const [a, b] = s.command.mock.calls;
     expect((b![2] as { commandId: string }).commandId).toBe((a![2] as { commandId: string }).commandId);
+  });
+
+  it('[D32, H-4] the note alone edited before the resend: still the same command_id', async () => {
+    const s = setup({ answers: [{ ok: false, error: { kind: 'network' } }, { ok: true, data: { entry_id: 'P9' } }] });
+    const v = await sheet(s);
+    typeIn(field(v, 'Amount'), '600');
+    v.click(chip(v, 'Supplies'));
+    typeIn(v.container.querySelector('textarea'), 'Soap');
+    await flush();
+    v.click(primary(v));
+    await flush();
+    typeIn(v.container.querySelector('textarea'), 'Soap and bags');
+    await flush();
+    v.click(primary(v));
+    await flush();
+    const [a, b] = s.command.mock.calls;
+    expect((b![2] as { commandId: string }).commandId).toBe((a![2] as { commandId: string }).commandId);
+    expect(b![1]).toEqual({ kind: 'out', amount_minor: 60_000, category_id: 'supplies', note: 'Soap and bags' });
+  });
+
+  it('[§6.20 Amount ≥ 1] a zero amount cannot be recorded', async () => {
+    const v = await sheet(setup());
+    typeIn(field(v, 'Amount'), '0');
+    v.click(chip(v, 'Supplies'));
+    await flush();
+    expect(primary(v).textContent).toBe('Type the amount');
+    expect(primary(v).getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('[review M2] Withdraw on a request answered or closed meanwhile (REQUEST_NOT_PENDING) is "closed", never "withdrawn"', async () => {
+    const s = setup({ answers: [{ ok: true, data: { entry_id: 'P9', pending: { alert_id: 'A7' } } }, { ok: false, error: { kind: 'api', status: 409, code: 'REQUEST_NOT_PENDING', details: {} } }] });
+    const done: string[] = [];
+    const v = await sheet(s, view(), { done: (r) => done.push(r) });
+    typeIn(field(v, 'Amount'), '6,500');
+    v.click(chip(v, 'Supplies'));
+    await flush();
+    v.click(primary(v));
+    await flush();
+    v.click(v.button('Withdraw'));
+    await flush();
+    expect(done).toEqual(['pending', 'closed']);
   });
 
   it('SHIFT_NOT_OPEN no_shift reads its own text', async () => {
@@ -271,6 +323,21 @@ describe('[05 §8 Petty cash, §6.20 Settle] settle an advance (frames PettyAdva
     expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['SettlePettyAdvance', { entry_id: 'P2', spent_minor: 80_000, returned_minor: 20_000 }]);
     expect(s.shown).toEqual(['Advance settled']);
     expect(done).toBe(1);
+  });
+
+  it('[D32] a lost settle reply: the resend carries the same command_id', async () => {
+    const s = setup({ answers: [{ ok: false, error: { kind: 'network' } }, { ok: true, data: { entry_id: 'P2', shift_id: 'SH1' } }] });
+    const v = await settle(s);
+    typeIn(field(v, 'Spent'), '1,000');
+    typeIn(field(v, 'Returned'), '0');
+    await flush();
+    v.click(primary(v));
+    await flush();
+    expect(v.container.querySelector('.msg span')?.textContent).toBe('Needs the hub');
+    v.click(primary(v));
+    await flush();
+    const [a, b] = s.command.mock.calls;
+    expect((b![2] as { commandId: string }).commandId).toBe((a![2] as { commandId: string }).commandId);
   });
 
   it('0 is fine for one of them; the hub\'s PETTY_SETTLE_MISMATCH shown inline with its amount', async () => {
@@ -317,6 +384,51 @@ describe('[05 §8] on the shift screen', () => {
     v.unmount();
     m = await screen(setup({ grant: null }));
     expect(m.buttons().some((b) => b.textContent === 'Petty cash' || b.textContent?.includes('Settle'))).toBe(false);
+  });
+
+  it('[review M3] a raised request survives Back: the screen says it waits, and Petty cash reopens its card (no second request)', async () => {
+    const s = setup({ answers: [{ ok: true, data: { entry_id: 'P9', pending: { alert_id: 'A7' } } }] });
+    const v = await screen(s);
+    v.click(v.button('Petty cash'));
+    await flush();
+    typeIn(field(v, 'Amount'), '6,500');
+    v.click(chip(v, 'Supplies'));
+    await flush();
+    v.click(primary(v));
+    await flush();
+    v.click(v.button('Back'));
+    await flush();
+    expect(v.container.querySelector('.dlg')).toBeNull();
+    expect(v.text()).toContain('Petty cash waiting for a manager · Cash out Rs 6,500.00 · Supplies · asked 1:46 PM');
+    v.click(v.button('Petty cash'));
+    await flush();
+    expect(v.container.querySelector('.b5-wait b')?.textContent).toBe('Waiting for a manager');
+    expect(s.command).toHaveBeenCalledTimes(1);
+  });
+
+  it('no Petty cash on another person\'s shift or a closed one (Record lands on my own money shift)', async () => {
+    const s = setup({ views: [{ ok: true, data: view({ staff_name: 'Usman' }) }] });
+    m = mount();
+    m.render(
+      <ShellContext.Provider value={s.shell}>
+        <ShiftScreen shiftId="SH7" />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    expect(m.buttons().some((b) => b.textContent === 'Petty cash')).toBe(false);
+    m.unmount();
+    m = await screen(setup({ views: [{ ok: true, data: view({ state: 'closed' }) }] }));
+    expect(m.buttons().some((b) => b.textContent === 'Petty cash')).toBe(false);
+  });
+
+  it('a shift-stream frame (an approval elsewhere) reads the shift again', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    await screen(s);
+    s.shell.live.frame({ type: 'event', seq: 4, event: { event_type: 'PettyCashOut', payload: {} } } as never);
+    await vi.advanceTimersByTimeAsync(300);
+    vi.useRealTimers();
+    expect(s.query).toHaveBeenCalledTimes(2);
   });
 
   it('a recorded entry reads the shift again', async () => {
