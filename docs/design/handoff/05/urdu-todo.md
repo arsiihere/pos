@@ -39,7 +39,11 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.buyer.needed/ `.added` / `.waived`` | Buyer details needed above {threshold} / Buyer added — sent with Close / Customer refused buyer details |
 | `billing.read_only` | Total if paid in cash {cash} · By card {card} |
 | `billing.reprint_receipt/ `.reprint_credit`` | Reprint receipt / Reprint credit note |
-| `print.waiting/ `.printed` / `.failed` / `.none` / `.print_to`` | Printing on {printer}… / Printed on {printer} / Didn't print on {printer}: {error} / No bill printer set up / Print to |
+| `billing.print.waiting/ `.printed` / `.failed` / `.none` / `.print_to`` | Printing on {printer}… / Printed on {printer} / Didn't print on {printer}: {error} / No bill printer set up / Print to |
+| `billing.check_sent` | Check bill sent to {printer} |
+| `billing.no_printer` | No bill printer is set up — show the screen to the customer |
+| `billing.print.kind.check/ `.receipt` / `.credit`` | Check bill / Receipt / Credit note |
+| `billing.print.failed_plain` | Didn’t print on {printer} |
 | `split.title/ `.items` / `.amount` / `.equal` / `.one` / `.add`` | Split the bill / Items / Amount / Equally / One bill / Add split |
 | `split.not_placed/ `.to_share` / `.save`` | {n} items not placed / {amount} to share · {left} left / Save split |
 | `sheet.ask_approval/ `sheet.pick_reason` / `sheet.write_why`` | Ask for approval / Pick a reason / Write why first |

@@ -27,3 +27,20 @@ export interface OpenBillsBody {
 
 /** 05 §6 header: a command or the bill query names its bill by one of these. */
 export type BillRef = { bill_id: string } | { seating_id: string } | { order_id: string };
+
+/** §6.1 `prints[]` (03c `documentJobsStatus`): a bill document's print job. */
+export interface BillPrint {
+  job_id: string;
+  doc_kind: 'check' | 'receipt' | 'credit' | string;
+  state: 'waiting' | 'printing' | 'printed' | 'failed' | 'cancelled' | string;
+  printer_name: string | null;
+  last_error: string | null;
+}
+
+/** §6.3 `PrintCheckBill` result (`printed: false` = no bill printer, the command still succeeds, §3.16). */
+export interface PrintCheckBillResult {
+  bill_id: string;
+  printed: boolean;
+  job_id: string | null;
+  printer_name: string | null;
+}

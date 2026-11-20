@@ -1452,4 +1452,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.type.dine_in': 'ڈائن اِن',
   'billing.type.takeaway': 'ٹیک اوے',
   'billing.type.parking': 'پارکنگ',
+  // ---- 05 client (task 38): frame BillUrdu ----
+  'billing.check_bill': 'چیک بل پرنٹ',
 };

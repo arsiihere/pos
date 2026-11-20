@@ -3304,6 +3304,18 @@ export const en = {
   'billing.type.dine_in': 'Dine-in',
   'billing.type.takeaway': 'Takeaway',
   'billing.type.parking': 'Parking',
+  // ---- 05 client (task 38): print status + Print check bill, brief §3.2.7 / §3.4 + frame PrintStatus (the brief's print.* keys are billing.print.*, beside 03b's print.* ticket keys and with the other billing.* keys); Urdu: BillUrdu, else docs/design/handoff/05/urdu-todo.md ----
+  'billing.check_bill': 'Print check bill',
+  'billing.check_sent': 'Check bill sent to {printer}',
+  'billing.no_printer': 'No bill printer is set up — show the screen to the customer',
+  'billing.print.kind.check': 'Check bill',
+  'billing.print.kind.receipt': 'Receipt',
+  'billing.print.kind.credit': 'Credit note',
+  'billing.print.waiting': 'Printing on {printer}…',
+  'billing.print.printed': 'Printed on {printer}',
+  'billing.print.failed': 'Didn’t print on {printer}: {error}',
+  'billing.print.failed_plain': 'Didn’t print on {printer}',
+  'billing.print.none': 'No bill printer set up',
 } as const;
 
 export type MessageKey = keyof typeof en;
