@@ -61,7 +61,10 @@ export function qrBytes(payload: string, size: number): Uint8Array {
   ]);
 }
 
-/** §3.6: a Doc as ESC/POS bytes; `doc.width_cols` wins over the printer's `width_cols`. */
+/**
+ * §3.6: a Doc as ESC/POS bytes; `doc.width_cols` wins over the printer's `width_cols`. ⚠️ 03c v1.0.11 §3.6 (05 row
+ * P-5): the worker fills fill blocks before it encodes; one that still reaches here prints its `last4` as a plain line.
+ */
 export function encodeDoc(doc: Doc, width_cols: 32 | 48): Buffer {
   const cols = doc.width_cols ?? width_cols;
   const parts: Uint8Array[] = [ESCPOS.init];
@@ -72,7 +75,8 @@ export function encodeDoc(doc: Doc, width_cols: 32 | 48): Buffer {
     if (s !== size) parts.push(ESCPOS.size(s));
     size = s;
   };
-  for (const block of doc.blocks) {
+  for (const raw of doc.blocks) {
+    const block = 'fill' in raw ? { text: raw.last4 } : raw;
     if ('text' in block) {
       const a = block.align ?? 'left';
       const b = block.bold ?? false;

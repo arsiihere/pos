@@ -220,3 +220,11 @@ describe('[05 #86] QR block → GS ( k', () => {
     }
   });
 });
+
+describe('[05 row P-5] fill block in encodeDoc', () => {
+  it('[05 row P-5] a fill block that reaches the encoder prints its last4 as a plain line (never a drawer kick)', () => {
+    const fill: Doc = { blocks: [{ fill: 'buyer_id', ref: 'INV1', last4: '****1234' }] };
+    expect(bytes(fill)).toEqual([...encodeDoc({ blocks: [{ text: '****1234' }] }, 32)]);
+    expect(bytes(fill)).not.toContain(0x70); // ESC p (drawer)
+  });
+});

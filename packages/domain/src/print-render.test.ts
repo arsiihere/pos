@@ -34,6 +34,12 @@ describe('[03c §3.6, 05 row P-4] renderText from @pos/domain', () => {
     expect(renderText({ blocks: [{ qr: 'x'.repeat(40) }] }, 32).split('\n')).toEqual(['[QR] ' + 'x'.repeat(27), 'x'.repeat(13)]);
   });
 
+  it('[05 row P-5] renderText prints the fill block last4 (pure: no filler is ever asked)', () => {
+    const doc: Doc = { blocks: [{ text: 'Buyer ID:' }, { fill: 'buyer_id', ref: 'INV1', last4: '****1234' }, { text: 'x' }] };
+    expect(renderText(doc, 32).split('\n')).toEqual(['Buyer ID:', '****1234', 'x']);
+    expect(renderText(doc, 32)).not.toContain('INV1');
+  });
+
   it('[05 §10 #86, row P-4] browser-safe: print-render.ts imports no node:* module and no Buffer', () => {
     const src = readFileSync(new URL('./print-render.ts', import.meta.url), 'utf8');
     expect(src).not.toMatch(/from\s+['"]node:/);

@@ -38,4 +38,12 @@ describe('[03c §3.6] Doc type', () => {
     const small: DocBlock = { qr: 'x', size: 2 };
     expect([qr, big, small]).toHaveLength(3);
   });
+
+  it('[05 row P-5] the fill block: { fill: block_kind, ref, last4 }', () => {
+    expectTypeOf<Extract<DocBlock, { fill: string }>>().toEqualTypeOf<{ fill: string; ref: string; last4: string }>();
+    const doc: Doc = { blocks: [{ fill: 'buyer_id', ref: 'INV1', last4: '1234' }] };
+    // @ts-expect-error last4 is required
+    const noLast4: DocBlock = { fill: 'buyer_id', ref: 'INV1' };
+    expect([doc, noLast4]).toHaveLength(2);
+  });
 });
