@@ -237,3 +237,6 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.buyer.needed_sub` | Name and ID. Sent with Close, never kept on screen. |
 | `billing.buyer.add` | Add buyer |
 | `billing.buyer.not_needed` | Not needed for this bill |
+| `billing.buyer.not_needed_sub` | The total fell under the threshold. |
+| `billing.buyer.waived_sub` | Holds for every later split and after a reopen. |
+| `billing.buyer.change` | Change |

@@ -11,6 +11,7 @@ import { createToastBus } from '../staff/shell/toast';
 import { acceptedBuyerTypes, BuyerSheet, type BuyerEntry } from './BillSheets';
 import type { BillView } from './contracts';
 import { TODO_05 } from './urdu-todo-05';
+import { QUEUEABLE } from '../staff/orders/queue/queue';
 
 // 05 v1.0.18 §8 (buyer sheet when buyer.required: name + a type from the jurisdiction's accepted types + the ID;
 // "Customer refuses" → WaiveBuyerId), §6.11, §6.12 `buyer`, B19 (plan §3.1 task 37, after hub task 18; brief §3.5.3;
@@ -64,7 +65,7 @@ function bill(over: Partial<BillView> = {}): BillView {
   };
 }
 
-function setup(o: { answers?: Answer[]; grant?: 'allowed' | 'requires_approval' | null; snapshot?: unknown } = {}) {
+function setup(o: { answers?: Answer[]; grant?: 'allowed' | 'requires_approval' | null; snapshot?: unknown; nowMs?: number } = {}) {
   const queue = [...(o.answers ?? [])];
   const command = vi.fn(async (type: string, payload: unknown, opts?: { commandId?: string }): Promise<Answer> => {
     void type;
@@ -80,7 +81,7 @@ function setup(o: { answers?: Answer[]; grant?: 'allowed' | 'requires_approval' 
     toasts: createToastBus(),
     permissions: createPermissions(grants as never),
     config: { config: () => null, snapshot: () => snapshot, subscribe: () => () => {} },
-    clock: { nowMs: () => Date.UTC(2026, 10, 20, 13, 40), utcOffsetMs: 0 },
+    clock: { nowMs: () => o.nowMs ?? Date.UTC(2026, 10, 20, 13, 40), utcOffsetMs: 0 },
     online: true,
     phone: false,
     portrait: false,
@@ -95,11 +96,11 @@ afterEach(() => {
   setLanguage('en');
 });
 
-async function show(s: ReturnType<typeof setup>, b: BillView = bill(), h: { onUse?: (x: BuyerEntry) => void; onWaived?: (x: string) => void; error?: 'value' | 'type' | null } = {}) {
+async function show(s: ReturnType<typeof setup>, b: BillView = bill(), h: { onUse?: (x: BuyerEntry) => void; onWaived?: (x: string) => void; onClose?: () => void; error?: 'value' | 'type' | 'name' | null; accepted?: string[] } = {}) {
   view = mount();
   view.render(
     <ShellContext.Provider value={s.shell}>
-      <BuyerSheet bill={b} error={h.error ?? null} onUse={h.onUse ?? (() => {})} onWaived={h.onWaived ?? (() => {})} onClose={() => {}} />
+      <BuyerSheet bill={b} error={h.error ?? null} accepted={h.accepted ?? null} onUse={h.onUse ?? (() => {})} onWaived={h.onWaived ?? (() => {})} onClose={h.onClose ?? (() => {})} />
     </ShellContext.Provider>,
   );
   await flush();
@@ -118,6 +119,20 @@ describe('[05 §8; §6.12 buyer, J-4] accepted buyer ID types', () => {
     expect(acceptedBuyerTypes(SNAPSHOT, '2026-11-20').map((x) => x.type)).toEqual(['CNIC', 'NTN']);
     expect(acceptedBuyerTypes(SNAPSHOT, '2026-03-01').map((x) => x.type)).toEqual(['NTN']);
     expect(acceptedBuyerTypes({ currency_code: 'PKR' }, '2026-11-20')).toEqual([]);
+  });
+
+  it('[review] the hub\'s list (the rule of the bill\'s business date) picks the types, whatever the device date says', () => {
+    // past midnight on a bill of 2026-12-31: the device is on the 2027 rule (no types), the hub on 2026-07-01's
+    expect(acceptedBuyerTypes(SNAPSHOT, '2027-01-01').map((x) => x.type)).toEqual([]);
+    expect(acceptedBuyerTypes(SNAPSHOT, '2027-01-01', ['CNIC', 'NTN']).map((x) => x.type)).toEqual(['CNIC', 'NTN']);
+    expect(acceptedBuyerTypes(SNAPSHOT, '2026-11-20', ['NTN']).map((x) => x.type)).toEqual(['NTN']);
+    expect(acceptedBuyerTypes(SNAPSHOT, '2026-11-20', ['XX'])).toEqual([]);
+  });
+});
+
+describe('[05 §6 "not queueable", B12, B19; 02b §3.12] the buyer never reaches the device queue', () => {
+  it('CloseSplit and WaiveBuyerId are not queueable: the queue (IndexedDB / SQLite) refuses them before any write', () => {
+    for (const type of ['CloseSplit', 'WaiveBuyerId', 'AddPayment']) expect(QUEUEABLE.has(type), type).toBe(false);
   });
 });
 
@@ -202,6 +217,63 @@ describe('[05 §8; brief §3.5.3] buyer sheet (task 37, after hub task 18)', () 
     w.click(w.button('Customer refuses'));
     await flush();
     expect(out).toEqual(['pending', 'not_required']);
+  });
+
+  it('[review] the bill\'s buyer_id_required block lists the types (device past midnight on a bill of the day before)', async () => {
+    const block = { reason: 'buyer_id_required' as const, split_no: null, details: { threshold_minor: 5_000_000, net_minor: 6_000_000, accepted_types: ['CNIC', 'NTN'] } };
+    const v = await show(setup({ nowMs: Date.UTC(2027, 0, 1, 0, 20) }), bill({ blocks: [block] }));
+    expect([...v.container.querySelectorAll('.b5-chip')].map((c) => c.textContent)).toEqual(['CNIC', 'NTN']);
+    v.unmount();
+    const w = await show(setup(), bill({ blocks: [block] }), { accepted: ['NTN'] });
+    expect([...w.container.querySelectorAll('.b5-chip')].map((c) => c.textContent)).toEqual(['NTN']);
+  });
+
+  it('[review] a pattern the browser cannot read fails, as the hub\'s', async () => {
+    const odd = { currency_code: 'PKR', billing: { jurisdiction: { rules: [RULE('2026-01-01', [{ type: 'X', label: 'X', pattern: '([', strip: '' }])] } } };
+    const v = await show(setup({ snapshot: odd }));
+    type(input(v, 'Name'), 'A');
+    v.click(v.button('X'));
+    type(input(v, 'ID number'), '123');
+    await flush();
+    expect(primary(v).textContent).toBe('Check the ID number');
+  });
+
+  it('[review] a name refusal reopens on "Type the name"', async () => {
+    const v = await show(setup(), bill(), { error: 'name' });
+    expect(v.container.querySelector('.msg')?.textContent).toBe('Type the name');
+  });
+
+  it('[review, §6.11] a bill not opened yet (bill_id null) offers no Customer refuses (WaiveBuyerId never opens a bill)', async () => {
+    const v = await show(setup(), bill({ bill_id: null }));
+    expect(v.buttons().some((b) => b.textContent?.includes('Customer refuses'))).toBe(false);
+  });
+
+  it('[review] the waiting card\'s Withdraw → WithdrawRequest → withdrawn; a waiver approved while open closes the sheet', async () => {
+    const s = setup({ grant: 'requires_approval', answers: [{ ok: true, data: { bill_id: 'B9', pending: { alert_id: 'A4' } } }, { ok: true, data: {} }] });
+    const out: string[] = [];
+    let closed = 0;
+    const v = await show(s, bill(), { onWaived: (x) => out.push(x), onClose: () => closed++ });
+    v.click(v.button('Customer refuses'));
+    await flush();
+    v.click(v.button('Withdraw'));
+    await flush();
+    expect(s.command.mock.calls[1]?.slice(0, 2)).toEqual(['WithdrawRequest', { alert_id: 'A4' }]);
+    expect(out).toEqual(['pending', 'withdrawn']);
+    v.render(
+      <ShellContext.Provider value={s.shell}>
+        <BuyerSheet bill={bill({ buyer: { required: true, threshold_minor: 5_000_000, waived: true } })} error={null} onUse={() => {}} onWaived={() => {}} onClose={() => closed++} />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    expect(closed).toBeGreaterThan(0);
+  });
+
+  it('[review] { changed: false } (already waived) → waived', async () => {
+    const out: string[] = [];
+    const v = await show(setup({ answers: [{ ok: true, data: { bill_id: 'B9', changed: false } }] }), bill(), { onWaived: (x) => out.push(x) });
+    v.click(v.button('Customer refuses'));
+    await flush();
+    expect(out).toEqual(['waived']);
   });
 
   it('without close-without-buyer-id there is no Customer refuses', async () => {

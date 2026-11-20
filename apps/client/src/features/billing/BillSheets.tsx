@@ -1,6 +1,6 @@
 import { CHARGE_REMOVE_REASONS } from '@pos/domain';
 import { defaultBillingSettings } from '@pos/events';
-import { useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { HubError } from '../../api/hub-admin';
 import { t } from '../../i18n';
 import { fill, type MessageKey } from '../../i18n/en';
@@ -510,24 +510,42 @@ export interface BuyerEntry {
 }
 
 /**
- * The accepted buyer ID types of the jurisdiction rule in force on `date` (the latest `effective_from` ≤ date, as the
- * hub's `ruleInForce`); none with no `billing` key (the hub's built-in defaults have no buyer rule).
+ * The accepted buyer ID types. The hub checks the rule in force on the **bill's business date** (`ruleInForce`), which
+ * the client does not hold, so `hub` — the type codes the hub itself lists (the `buyer_id_required` block's or the
+ * `BUYER_ID_REQUIRED` refusal's `details.accepted_types`) — picks them, in the hub's order, each with its definition
+ * from the latest rule that has it (on or before `date`, else any). Without `hub`: the rule in force on `date` (the
+ * latest `effective_from` ≤ date). None with no `billing` key (the hub's built-in defaults have no buyer rule).
  */
-export function acceptedBuyerTypes(snapshot: unknown, date: string): BuyerIdType[] {
+export function acceptedBuyerTypes(snapshot: unknown, date: string, hub: readonly string[] | null = null): BuyerIdType[] {
   const rules = (snapshot as { billing?: { jurisdiction?: { rules?: Array<{ effective_from: string; buyer_id?: { accepted_types?: BuyerIdType[] } }> } } } | null)?.billing?.jurisdiction?.rules ?? [];
-  let best: (typeof rules)[number] | null = null;
-  for (const r of rules) if (r.effective_from <= date && (best === null || r.effective_from > best.effective_from)) best = r;
-  return best?.buyer_id?.accepted_types ?? [];
+  const latestFirst = [...rules].sort((a, b) => (a.effective_from < b.effective_from ? 1 : a.effective_from > b.effective_from ? -1 : 0));
+  if (hub !== null) {
+    const ordered = [...latestFirst.filter((r) => r.effective_from <= date), ...latestFirst.filter((r) => r.effective_from > date)];
+    return hub.flatMap((code) => {
+      for (const r of ordered) {
+        const t = r.buyer_id?.accepted_types?.find((x) => x.type === code);
+        if (t !== undefined) return [t];
+      }
+      return [];
+    });
+  }
+  return latestFirst.find((r) => r.effective_from <= date)?.buyer_id?.accepted_types ?? [];
 }
 
-/** The typed value checked as the hub will (strip that type's characters, then its pattern); a bad pattern passes (the hub decides). */
+/** The hub's accepted type codes for this bill (the `buyer_id_required` block's `details.accepted_types`), or null. */
+function hubBuyerTypes(bill: BillView): string[] | null {
+  const list = bill.blocks.find((b) => b.reason === 'buyer_id_required')?.details['accepted_types'];
+  return Array.isArray(list) && list.every((x) => typeof x === 'string') ? (list as string[]) : null;
+}
+
+/** The typed value checked as the hub will (strip that type's characters, then its pattern); a bad pattern fails, as the hub's. */
 function buyerValueOk(t: BuyerIdType, value: string): boolean {
   const stripped = [...t.strip].reduce((v, ch) => v.split(ch).join(''), value.trim());
   if (stripped.length < 1 || stripped.length > 40) return false;
   try {
     return new RegExp(t.pattern).test(stripped);
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -542,13 +560,16 @@ export type BuyerOutcome = 'waived' | 'not_required' | 'pending' | 'withdrawn';
 export function BuyerSheet({
   bill,
   error,
+  accepted = null,
   onUse,
   onWaived,
   onClose,
 }: {
   bill: BillView;
-  /** the close's refusal on the buyer: `payload.buyer.tax_id.value` → 'value', `.type` → 'type' */
-  error: 'value' | 'type' | null;
+  /** the close's refusal on the buyer: `payload.buyer.tax_id.value` → 'value', `.type` → 'type', `.name` → 'name' */
+  error: BuyerIssue | null;
+  /** the type codes of a `BUYER_ID_REQUIRED` refusal's `details.accepted_types` (else the bill's block's) */
+  accepted?: readonly string[] | null;
   onUse: (buyer: BuyerEntry) => void;
   onWaived: (r: BuyerOutcome) => void;
   onClose: () => void;
@@ -556,16 +577,22 @@ export function BuyerSheet({
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
   const today = new Date(shell.clock.nowMs() + shell.clock.utcOffsetMs).toISOString().slice(0, 10);
-  const types = useSyncExternalStore(shell.config.subscribe, () => buyerTypesOf(shell.config.snapshot(), today));
+  const hub = accepted ?? hubBuyerTypes(bill);
+  const types = useSyncExternalStore(shell.config.subscribe, () => buyerTypesOf(shell.config.snapshot(), today, hub));
   const canWaive = shell.permissions.allowed('close-without-buyer-id') || shell.permissions.requiresApproval('close-without-buyer-id');
   const askWaive = shell.permissions.requiresApproval('close-without-buyer-id');
   const [name, setName] = useState('');
   const [picked, setPicked] = useState<string | null>(null);
   const [value, setValue] = useState('');
-  const [msg, setMsg] = useState<string | null>(error === 'value' ? t('billing.buyer.check_number') : error === 'type' ? t('billing.buyer.pick_type') : null);
+  const [msg, setMsg] = useState<string | null>(error === null ? null : t(ISSUE_TEXT[error]));
   const [busy, setBusy] = useState(false);
   const [local, setLocal] = useState<Pending | null>(null);
   const waiting = waitingOf(bill, 'close_without_buyer_id', local);
+  // a waiver approved while the sheet is open: nothing left to ask
+  const done = bill.buyer.waived;
+  useEffect(() => {
+    if (done) onClose();
+  }, [done, onClose]);
   const type = types.find((x) => x.type === picked) ?? null;
   const step: MessageKey | null =
     name.trim() === '' || name.trim().length > 60
@@ -585,7 +612,7 @@ export function BuyerSheet({
     onUse(entry);
   };
   const waive = async () => {
-    if (busy || bill.bill_id === null) return;
+    if (busy || bill.bill_id === null || done) return;
     setBusy(true);
     setMsg(null);
     const answer = await api.waiveBuyerId({ bill_id: bill.bill_id });
@@ -643,7 +670,8 @@ export function BuyerSheet({
       </div>
       {msg !== null && <Msg text={msg} />}
       <div className="acts">
-        {canWaive ? (
+        {/* §6.11 takes a bill_id and never opens a bill: a bill not opened yet has no refusal to record */}
+        {canWaive && bill.bill_id !== null ? (
           <button type="button" className="btn btn--tone c-warn" aria-disabled={busy} onClick={() => void waive()}>
             {t('billing.buyer.refuses')}
             {askWaive && <span className="ntag">{t('billing.sheet.needs')}</span>}
@@ -659,11 +687,14 @@ export function BuyerSheet({
   );
 }
 
+export type BuyerIssue = 'value' | 'type' | 'name';
+const ISSUE_TEXT: Record<BuyerIssue, MessageKey> = { value: 'billing.buyer.check_number', type: 'billing.buyer.pick_type', name: 'billing.buyer.enter_name' };
+
 // the types list, cached by content so the store read is stable between renders
 let lastTypesKey = '';
 let lastTypes: BuyerIdType[] = [];
-function buyerTypesOf(snapshot: unknown, date: string): BuyerIdType[] {
-  const list = acceptedBuyerTypes(snapshot, date);
+function buyerTypesOf(snapshot: unknown, date: string, hub: readonly string[] | null): BuyerIdType[] {
+  const list = acceptedBuyerTypes(snapshot, date, hub);
   const key = JSON.stringify(list);
   if (key !== lastTypesKey) {
     lastTypesKey = key;
