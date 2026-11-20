@@ -5,7 +5,7 @@ import type { HubDeps } from '../server.js';
 import { registerEventAudience } from '../ws/audience.js';
 import type { SocketCtx } from '../ws/catch-up.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
-import { startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
+import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
 import { billingProjection } from './projections/billing.js';
 
 // 05 wiring entry (§6.30, task 7; H6-14: every later task adds only its own registration lines here, under its marker).
@@ -66,6 +66,9 @@ export function registerFiscalWorkerSeams(s: FiscalWorkerSeams): void {
 export function resetFiscalWorkerSeams(): void {
   seams = null;
 }
+
+// task 29b (§3.15, G-21, H6-14): the real seams, at module load (boot imports this file)
+registerFiscalWorkerSeams(fiscalWorkerSeams);
 
 /**
  * G-21: boot calls this after listen, beside the print worker (P0.18), and joins the returned stop to `beat.stop`.
