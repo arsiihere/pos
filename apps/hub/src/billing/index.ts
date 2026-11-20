@@ -9,6 +9,7 @@ import type { SocketCtx } from '../ws/catch-up.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
 import { billingProjection } from './projections/billing.js';
+import { shiftsProjection } from './projections/shifts.js';
 
 // 05 wiring entry (§6.30, task 7; H6-14: every later task adds only its own registration lines here, under its marker).
 // Audit actions and alert kinds register at module load (P0.15, P0.7, G-20); projections in registerHubProjections
@@ -28,8 +29,10 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
 
 /** §5, G-20: inside registerHubProjections, after orders, tables and audit (also the test hub and the big fixture). */
 export function registerBillingProjections(projections: ProjectionRegistry): void {
-  // task 7 (billing); task 8 adds shifts here
+  // task 7 (billing)
   projections.register(billingProjection());
+  // task 8 (shifts; §6.30: after billing)
+  projections.register(shiftsProjection());
 }
 
 /**
