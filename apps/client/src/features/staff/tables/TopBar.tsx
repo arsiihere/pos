@@ -42,6 +42,8 @@ export interface TopBarProps {
   shift?: boolean;
   /** 05 §8 Reports (task 42, R5): view-reports allowed → "Reports" (#/reports) */
   reports?: boolean;
+  /** 05 §8 Day close (task 41, R5): close-business-day allowed → "Close day" (#/day-close) */
+  dayClose?: boolean;
   /** phone top bar */
   title: string;
   phoneSub: ReactNode;
@@ -105,6 +107,7 @@ export function TopBar(p: TopBarProps) {
               {p.bills === true && <IconButton icon="receipt" label={t('billing.nav')} count={null} onClick={() => p.onNavigate('/bills')} />}
               {p.shift === true && <IconButton icon="cash" label={t('billing.shift.nav')} count={null} onClick={() => p.onNavigate('/shift')} />}
               {p.reports === true && <IconButton icon="eye" label={t('billing.report.nav')} count={null} onClick={() => p.onNavigate('/reports')} />}
+              {p.dayClose === true && <IconButton icon="lock" label={t('billing.dayclose.nav')} count={null} onClick={() => p.onNavigate('/day-close')} />}
               <IconButton icon="tray" label={t('alerts.nav.inbox')} count={p.inbox} onClick={() => p.onNavigate('/inbox')} />
               {p.audit === true && (
                 <button type="button" className="btn btn--icon" onClick={() => p.onNavigate('/audit')}>

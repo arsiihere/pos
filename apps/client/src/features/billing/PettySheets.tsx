@@ -67,7 +67,7 @@ function errText(e: HubError, money: (m: number) => string): string {
   return t(billingErrorKey(e.code, e.details));
 }
 
-function Dlg({ title, sub, wide, onClose, children }: { title: string; sub?: string; wide?: boolean; onClose: () => void; children: ReactNode }) {
+export function Dlg({ title, sub, wide, onClose, children }: { title: string; sub?: string; wide?: boolean; onClose: () => void; children: ReactNode }) {
   const shell = useShell();
   const sheet = shell.portrait || shell.phone;
   return (

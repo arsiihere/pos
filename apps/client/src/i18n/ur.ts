@@ -1527,4 +1527,18 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.petty.paid_to_sub': 'اختیاری · رپورٹ میں نہیں دکھتا',
   'billing.petty.note_ph': 'نوٹ (“دیگر” کے لیے ضروری)',
   'billing.petty.record': 'درج کریں',
+  // ---- 05 client (task 41, day close): frame DayCloseUrdu ----
+  'billing.dayclose.title': 'دن بند کریں',
+  'billing.dayclose.close': 'دن بند کریں',
+  'billing.dayclose.nav': 'دن بند کریں',
+  'billing.dayclose.what': 'کھلی درخواستیں منسوخ ہو جاتی ہیں اور Z رپورٹ پرنٹ ہوتی ہے۔',
+  'billing.dayclose.step_voids': 'void کی درخواستیں',
+  'billing.dayclose.step_shifts': 'کھلی شفٹیں',
+  'billing.dayclose.step_orders': 'بغیر بل آرڈر',
+  'billing.dayclose.clear': 'صاف',
+  'billing.dayclose.fix': 'اسے ٹھیک کریں',
+  'billing.dayclose.next': 'اس کے بعد',
+  'billing.dayclose.order_hint': 'ہر بار ایک رکاوٹ دکھتی ہے۔ ٹھیک کر کے دوبارہ “دن بند کریں” دبائیں۔',
+  'billing.dayclose.shifts_sub': 'ہر ایک اس شخص کی شفٹ اندھی گنتی کے ساتھ کھولتا ہے۔',
+  'billing.dayclose.close_shift': 'یہ شفٹ بند کریں',
 };

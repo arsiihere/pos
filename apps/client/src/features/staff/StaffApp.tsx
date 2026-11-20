@@ -14,6 +14,7 @@ import { BillScreen, billRefOfSearch } from '../billing/BillScreen';
 import { OpenBills } from '../billing/OpenBills';
 import { ShiftScreen } from '../billing/ShiftScreen';
 import { ReportsScreen } from '../billing/ReportsScreen';
+import { DayCloseScreen } from '../billing/DayCloseScreen';
 import { Inbox } from '../alerts/Inbox';
 import { lockText, timeText } from '../alerts/labels';
 import { Receipts } from '../alerts/Receipts';
@@ -505,6 +506,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const showShift = allowed.has('manage-own-shift');
   // 05 §8 Reports (task 42, R5): X and the Z list with view-reports, kiosk and tablet (frames at 1920 and 1280)
   const showReports = !phone && allowed.has('view-reports');
+  // 05 §8 Day close (task 41, R5): close-business-day, kiosk and tablet (frames at 1920 and 1280)
+  const showDayClose = !phone && allowed.has('close-business-day');
   // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
   const hasPoint = useSyncExternalStore(pass.store.subscribe, () => pass.store.snapshot().view !== null);
   // AD-K12 / W-3: leaving the landing route ends the landing too (a late catch-up never moves a person mid-task)
@@ -591,6 +594,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     if (path === '/bills' || path === '/bill') return showBills ? rec.from : null;
     if (path === '/shift') return showShift ? rec.from : null;
     if (path === '/reports') return showReports ? rec.from : null;
+    if (path === '/day-close') return showDayClose ? rec.from : null;
     if (path === '/requests') return showRequests ? rec.from : null;
     if (path === '/test-alert') return showTest ? rec.from : null;
     if (/^\/receipts\/[^/]+$/.test(path)) return showTest ? rec.from : null;
@@ -711,7 +715,11 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   } else if (path === '/audit' && showAudit) {
     page = <AuditLog />;
   } else if (path === '/shift' && showShift) {
-    page = <ShiftScreen />;
+    // task 41: #/shift?shift_id=… opens that shift (day close's Close this shift; the hub checks close-shift-for-others)
+    const shiftId = new URLSearchParams(route.split('?')[1] ?? '').get('shift_id');
+    page = <ShiftScreen key={route} {...(shiftId === null || shiftId === '' ? {} : { shiftId })} />;
+  } else if (path === '/day-close' && showDayClose) {
+    page = <DayCloseScreen onNavigate={navigate} />;
   } else if (path === '/reports' && showReports) {
     page = <ReportsScreen />;
   } else if (path === '/bills' && showBills) {
@@ -809,6 +817,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         bills={showBills}
         shift={showShift}
         reports={showReports}
+        dayClose={showDayClose}
         title={me === null ? meta.branchName : phoneTitle}
         phoneSub={
           me === null ? (

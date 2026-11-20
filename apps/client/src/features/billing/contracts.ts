@@ -303,3 +303,12 @@ export interface FiscalStatusView {
   token_missing: Array<{ pos_id: string; name: string }>;
   tokens: Array<{ pos_id: string; name: string; set_at: number }>;
 }
+
+/** 01a §6.18b `CloseBusinessDay` result: `changed: false` with a `reason` when nothing was closed. */
+export interface CloseBusinessDayResult {
+  business_date: string | null;
+  opened_at: number | null;
+  closed_at: number | null;
+  changed: boolean;
+  reason?: 'not_open' | 'opened_recently';
+}

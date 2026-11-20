@@ -76,3 +76,15 @@
 :where(.b5-kpi) b.b5-kpi__s { font-size: 24px; } /* style="font-size:24px" */
 :where(.b5-rep-act).b5-rr { min-height: 60px; } /* ties .b5-rr, wins by order */
 :where(.b5-rep-act) .b5-note { text-align: end; }
+/* task 41 day close (frames DayClose, DayCloseShifts, DayCloseUnbilled, DayCloseDone) */
+:where(.b5-dc__fill) { flex: 1; } /* <div style="flex:1"> */
+:where(.b5-dc__ready).b5-blk__b { align-items: center; justify-content: center; flex: 1; gap: 16px; text-align: center; padding: 40px; } /* ties .b5-blk__b, wins by order */
+:where(.b5-dc__ready) > b { font: 800 26px/1.2 var(--font-display); }
+:where(.b5-dc__ready) > .b5-note { max-width: 520px; font-size: 16px; }
+:where(.b5-br__av).av { width: 52px; height: 52px; font-size: 22px; } /* style="width:52px;height:52px;font-size:22px" */
+:where(.b5-br--tick).b5-br { grid-template-columns: auto auto minmax(0, 1fr) auto; } /* style="grid-template-columns:auto auto minmax(0,1fr) auto" */
+:where(.b5-tick) { border: 0; background: none; padding: 0; cursor: pointer; } /* the tick is a real button */
+:where(.pu) .b5-tick.on { background: var(--accent); } /* beats the button reset above */
+:where(.b5-blk__h--ok).b5-blk__h { background: var(--ok-bg); color: var(--ok-ink); } /* the done head (DayCloseDone) */
+:where(.b5-blk__h--ok) .ico { color: var(--ok); }
+:where(.b5-port, .b5-ph) .b5-dc { grid-template-columns: minmax(0, 1fr); }
