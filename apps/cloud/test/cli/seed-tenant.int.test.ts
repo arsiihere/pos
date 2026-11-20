@@ -89,22 +89,32 @@ describe('seed-tenant', () => {
     expect(ownerGrants.some((grant) => grant.permission === 'manage-devices')).toBe(true);
     const managerGrants = byRole.get('Manager') ?? [];
     expect(managerGrants.map((grant) => grant.permission).sort()).toEqual(
-      PERMISSIONS.filter((permission) => permission !== 'manage-roles').sort(),
+      // 05 B-2 (01b v1.10, H6-13): Manager lacks the two Owner-only billing permissions
+      PERMISSIONS.filter((permission) => !['manage-roles', 'skip-blind-count', 'manage-fiscal-settings'].includes(permission)).sort(),
     );
     expect(managerGrants.every((grant) => grant.grant_type === 'allowed')).toBe(true);
     expect((byRole.get('Cashier') ?? []).slice().sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
       { permission: 'apply-comp', grant_type: 'requires_approval', approver: 'Manager' },
       { permission: 'apply-discount', grant_type: 'requires_approval', approver: 'Manager' },
       { permission: 'clean-table', grant_type: 'allowed', approver: null },
+      { permission: 'close-without-buyer-id', grant_type: 'requires_approval', approver: 'Manager' }, // 05 B-2 (01b v1.10)
+      { permission: 'manage-own-shift', grant_type: 'allowed', approver: null },
       { permission: 'move-item-to-stock', grant_type: 'allowed', approver: null }, // 04 B-1 (01b v1.9)
+      { permission: 'open-cash-drawer', grant_type: 'allowed', approver: null },
+      { permission: 'record-petty-cash', grant_type: 'allowed', approver: null },
+      { permission: 'remove-comp', grant_type: 'requires_approval', approver: 'Manager' },
+      { permission: 'remove-service-charge', grant_type: 'requires_approval', approver: 'Manager' },
+      { permission: 'reopen-bill', grant_type: 'requires_approval', approver: 'Manager' },
       { permission: 'reprint-ticket', grant_type: 'allowed', approver: null },
       { permission: 'set-line-weight', grant_type: 'allowed', approver: null },
       { permission: 'take-order', grant_type: 'allowed', approver: null },
+      { permission: 'take-payment', grant_type: 'allowed', approver: null },
       { permission: 'view-customer-contact', grant_type: 'allowed', approver: null },
       { permission: 'void-item', grant_type: 'requires_approval', approver: 'Manager' }, // 04 B-1 (01b v1.9)
     ]);
     expect((byRole.get('Order taker') ?? []).map((grant) => grant.permission).sort()).toEqual([
-      'apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'move-item-to-stock', 'take-order', 'view-customer-contact',
+      'apply-comp', 'boost-order', 'clean-table', 'manage-own-shift', 'mark-item-returned', 'mark-served', 'move-item-to-stock', 'take-order',
+      'take-payment', 'view-customer-contact', // 05 B-2 (01b v1.10): manage-own-shift, take-payment
       'void-item', // 04 B-1 (01b v1.9)
     ]);
     expect((byRole.get('Waiter') ?? []).map((grant) => grant.permission).sort()).toEqual(['clean-table', 'mark-served']);
@@ -210,15 +220,23 @@ describe('seed-tenant', () => {
     const of = (key: string) => grants.rows.filter((row) => row.role_id === roleId(key));
     expect(of('owner').map((row) => row.permission).sort()).toEqual([...PERMISSIONS].sort());
     expect(of('owner').every((row) => row.grant_type === 'allowed' && row.scope === 'branch')).toBe(true);
-    expect(of('manager').map((row) => row.permission).sort()).toEqual(PERMISSIONS.filter((p) => p !== 'manage-roles').sort());
+    expect(of('manager').map((row) => row.permission).sort()).toEqual(PERMISSIONS.filter((p) => !['manage-roles', 'skip-blind-count', 'manage-fiscal-settings'].includes(p)).sort()); // 05 B-2
     expect(of('cashier').map(({ permission, grant_type, approver_role_id }) => ({ permission, grant_type, approver_role_id })).sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
       { permission: 'apply-comp', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
       { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
       { permission: 'clean-table', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'close-without-buyer-id', grant_type: 'requires_approval', approver_role_id: roleId('manager') }, // 05 B-2 (01b v1.10)
+      { permission: 'manage-own-shift', grant_type: 'allowed', approver_role_id: null },
       { permission: 'move-item-to-stock', grant_type: 'allowed', approver_role_id: null }, // 04 B-1 (01b v1.9)
+      { permission: 'open-cash-drawer', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'record-petty-cash', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'remove-comp', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
+      { permission: 'remove-service-charge', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
+      { permission: 'reopen-bill', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
       { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
       { permission: 'set-line-weight', grant_type: 'allowed', approver_role_id: null },
       { permission: 'take-order', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'take-payment', grant_type: 'allowed', approver_role_id: null },
       { permission: 'view-customer-contact', grant_type: 'allowed', approver_role_id: null },
       { permission: 'void-item', grant_type: 'requires_approval', approver_role_id: roleId('manager') }, // 04 B-1 (01b v1.9)
     ]);
@@ -228,10 +246,12 @@ describe('seed-tenant', () => {
       { permission: 'apply-comp', grant_type: 'requires_approval', scope: 'branch' },
       { permission: 'boost-order', grant_type: 'allowed', scope: 'branch' },
       { permission: 'clean-table', grant_type: 'allowed', scope: 'branch' },
+      { permission: 'manage-own-shift', grant_type: 'allowed', scope: 'branch' }, // 05 B-2 (01b v1.10)
       { permission: 'mark-item-returned', grant_type: 'allowed', scope: 'branch' },
       { permission: 'mark-served', grant_type: 'allowed', scope: 'branch' },
       { permission: 'move-item-to-stock', grant_type: 'allowed', scope: 'branch' }, // 04 B-1 (01b v1.9)
       { permission: 'take-order', grant_type: 'allowed', scope: 'branch' },
+      { permission: 'take-payment', grant_type: 'allowed', scope: 'own_tables' }, // 05 B-2 (01b v1.10)
       { permission: 'view-customer-contact', grant_type: 'allowed', scope: 'own_tables' },
       { permission: 'void-item', grant_type: 'requires_approval', scope: 'branch' }, // 04 B-1 (01b v1.9)
     ]);
@@ -257,6 +277,11 @@ describe('seed-tenant', () => {
         // 04 B-1 (01b v1.9)
         { role_id: roleId('cashier'), permission: 'void-item', approver_role_id: roleId('manager') },
         { role_id: roleId('order_taker'), permission: 'void-item', approver_role_id: roleId('manager') },
+        // 05 B-2 (01b v1.10)
+        { role_id: roleId('cashier'), permission: 'close-without-buyer-id', approver_role_id: roleId('manager') },
+        { role_id: roleId('cashier'), permission: 'remove-comp', approver_role_id: roleId('manager') },
+        { role_id: roleId('cashier'), permission: 'remove-service-charge', approver_role_id: roleId('manager') },
+        { role_id: roleId('cashier'), permission: 'reopen-bill', approver_role_id: roleId('manager') },
       ].sort((a, b) => approverKey(a).localeCompare(approverKey(b))),
     );
 
