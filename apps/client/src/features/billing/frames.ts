@@ -42,3 +42,20 @@ const TABLE_FRAMES = [
 ] as const;
 
 export const BILL_LIST_FRAMES: ReadonlySet<string> = new Set<string>([...BILL_FRAMES, ...ORDER_FRAMES, ...TABLE_FRAMES]);
+
+/** 05-2 shift stream (packages/events/src/events/shift/): the shift screen reads again on these (task 40: a petty entry
+ *  approved elsewhere, a settle on another device) and on reconnect. */
+export const SHIFT_FRAMES: ReadonlySet<string> = new Set([
+  'ShiftOpened',
+  'ShiftCounted',
+  'ShiftClosed',
+  'ShiftCountSkipped',
+  'HandoverCounted',
+  'ShiftVarianceSignedOff',
+  'PettyCashAdvanced',
+  'PettyCashOut',
+  'PettyCashIn',
+  'PettyCashSettled',
+  'DrawerOpened',
+]);
+

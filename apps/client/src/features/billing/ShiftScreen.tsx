@@ -8,10 +8,13 @@ import { timeText } from '../alerts/labels';
 import { Ico } from '../alerts/ui';
 import { useShell } from '../staff/shell/hooks';
 import { billingApi } from './api';
-import type { CountShiftResult, HandoverCountResult, ShiftView } from './contracts';
+import type { CountShiftResult, HandoverCountResult, ShiftPetty, ShiftView } from './contracts';
 import { billingErrorKey } from './errors';
 import { BIco } from './icons';
-import { billMoney, MONEY_DIR, parseMinor } from './money';
+import { billMoney, MONEY_DIR, parseCount } from './money';
+import { PettySheet, SettleSheet } from './PettySheets';
+import { useLiveRefetch } from '../staff/orders/lists/OpenOrders';
+import { SHIFT_FRAMES } from './frames';
 import './styles';
 
 // 05 v1.0.21 §8 "Shift", §3.11, §6.15–§6.19, B23 (plan §4.1 task 39, after hub task 21; frames ShiftOpen,
@@ -20,15 +23,9 @@ import './styles';
 // tablet). An open shift → in the spec's order: card / online with who took them, cash as a count only (B23: the hub
 // sends no cash sum and no expected before the count), petty and open advances, then the blind count. Count and close
 // (§6.17) reveals expected and variance; Close without counting (§6.18, `skip-blind-count`); Count at handover (§6.19,
-// drawer shifts; the shift stays open). Settle on an advance is task 40's (petty cash).
+// drawer shifts; the shift stays open). Task 40: Petty cash (record) and Settle on an open advance (PettySheets).
 
-/** A counted / starting amount: 0 … 10¹², typed in major units (0 is fine: an empty drawer, a phone). */
-export function parseCount(text: string, exponent: number): number | null {
-  const s = text.trim().replace(/,/g, '');
-  if (s === '') return null;
-  if (/^0+(\.0+)?$/.test(s)) return 0;
-  return parseMinor(text, exponent);
-}
+export { parseCount };
 
 type Step = { name: 'count' } | { name: 'handover' } | { name: 'skip' } | { name: 'skipped'; cancelled: number } | { name: 'counted'; r: CountShiftResult } | { name: 'handed'; r: HandoverCountResult };
 
@@ -70,6 +67,9 @@ export function ShiftScreen({ shiftId }: { shiftId?: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+  // a petty entry approved elsewhere, a settle on another device, a reconnect: read again (the hub's own view)
+  useLiveRefetch(shell.live, () => void load(), SHIFT_FRAMES);
+  const [petty, setPetty] = useState<{ name: 'record' } | { name: 'settle'; advance: ShiftPetty } | null>(null);
 
   if (none)
     return (
@@ -102,6 +102,10 @@ export function ShiftScreen({ shiftId }: { shiftId?: string }) {
 
   const open = shift.state === 'open';
   const mine = shiftId === undefined;
+  // §6.20: Record (approvable) lands on the caller's own money shift, so it is offered on my open shift; Settle is
+  // `allowed` only (the returned cash lands on the caller's money shift, the hub checks it)
+  const canRecord = open && mine && (shell.permissions.allowed('record-petty-cash') || shell.permissions.requiresApproval('record-petty-cash'));
+  const canSettle = shell.permissions.allowed('record-petty-cash');
   /** the refusal's text; a shift closed or gone meanwhile (another device, a manager) is read again, so its real state shows */
   const refused = (e: HubError): string => {
     if (e.kind === 'api' && (e.code === 'SHIFT_NOT_OPEN' || e.code === 'SHIFT_NOT_FOUND')) {
@@ -159,19 +163,47 @@ export function ShiftScreen({ shiftId }: { shiftId?: string }) {
     <main className={shiftPage(shell)}>
       <div className="col b5-stack">
         <Head shift={shift} mine={mine} money={money} />
-        <Takings shift={shift} money={money} handovers={step.name !== 'handed'} />
+        {canRecord && (
+          <div className="b5-acts">
+            <button type="button" className="btn" onClick={() => setPetty({ name: 'record' })}>
+              <BIco name="wallet" />
+              {t('billing.petty.title')}
+            </button>
+          </div>
+        )}
+        <Takings shift={shift} money={money} handovers={step.name !== 'handed'} {...(canSettle ? { onSettle: (advance: ShiftPetty) => setPetty({ name: 'settle', advance }) } : {})} />
       </div>
       <div className="col b5-stack">{side}</div>
+      {petty?.name === 'record' && (
+        <PettySheet
+          shift={shift}
+          onDone={(r) => {
+            if (r !== 'pending') setPetty(null);
+            void load();
+          }}
+          onClose={() => setPetty(null)}
+        />
+      )}
+      {petty?.name === 'settle' && (
+        <SettleSheet
+          advance={petty.advance}
+          onDone={() => {
+            setPetty(null);
+            void load();
+          }}
+          onClose={() => setPetty(null)}
+        />
+      )}
     </main>
   );
 }
 
-/** The branch's `variance_threshold_minor` (§3.11), or null for the defaults. */
 /** The page: two columns (frame ShiftClose) on a kiosk / landscape tablet, one on a phone or portrait (ShiftPhone). */
 function shiftPage(shell: { phone: boolean; portrait: boolean }): string {
   return shell.phone || shell.portrait ? 'b5-page b5-shift b5-shift--one' : 'b5-page b5-shift';
 }
 
+/** The branch's `variance_threshold_minor` (§3.11), or null for the defaults. */
 function thresholdOf(snapshot: unknown): number | null {
   const v = (snapshot as { billing?: { variance_threshold_minor?: unknown } } | null)?.billing?.variance_threshold_minor;
   return typeof v === 'number' ? v : null;
@@ -345,7 +377,7 @@ function Head({ shift, mine, money }: { shift: ShiftView; mine: boolean; money: 
 
 const net = (x: { in_minor: number | null; out_minor: number | null }) => (x.in_minor ?? 0) - (x.out_minor ?? 0);
 
-function Takings({ shift, money, handovers }: { shift: ShiftView; money: (m: number) => string; handovers: boolean }) {
+function Takings({ shift, money, handovers, onSettle }: { shift: ShiftView; money: (m: number) => string; handovers: boolean; onSettle?: (advance: ShiftPetty) => void }) {
   const digital = shift.takings.filter((x) => x.payment_class === 'digital');
   const cash = shift.takings.filter((x) => x.payment_class === 'cash');
   const petty = shift.petty.filter((p) => p.kind !== 'advance' || p.settled);
@@ -423,6 +455,12 @@ function Takings({ shift, money, handovers }: { shift: ShiftView; money: (m: num
                 <span>{t('billing.shift.advance_open')}</span>
               </span>
               <span className="a">{money(p.amount_minor)}</span>
+              {onSettle !== undefined && (
+                <button type="button" className="btn" onClick={() => onSettle(p)}>
+                  <BIco name="check" />
+                  {t('billing.petty.settle')}
+                </button>
+              )}
             </div>
           ))}
         </>

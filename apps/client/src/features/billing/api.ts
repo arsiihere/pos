@@ -11,6 +11,8 @@ import type {
   HandoverCountResult,
   OpenBillsBody,
   OpenShiftResult,
+  RecordPettyCashResult,
+  SettlePettyAdvanceResult,
   PrintCheckBillResult,
   SetSplitsPayload,
   SetSplitsResult,
@@ -71,6 +73,10 @@ export interface BillingApi {
   closeShift(payload: { shift_id: string; skip_count: true; note?: string }): Promise<HubResult<CloseShiftResult>>;
   /** §6.19: a drawer shift's count at handover; the shift stays open. */
   handoverCount(payload: { shift_id: string; counted_minor: number }): Promise<HubResult<HandoverCountResult>>;
+  /** §6.20 (approvable): an advance / cash out / cash in on the caller's money shift; `{ pending }` when a request was raised. */
+  recordPettyCash(payload: { kind: 'advance' | 'out' | 'in'; amount_minor: number; category_id: string; paid_to?: string; advance_staff_id?: string; note?: string }): Promise<HubResult<RecordPettyCashResult>>;
+  /** §6.20 (`allowed` only): spent + returned = the advance (the hub checks); the returned cash lands on the caller's shift. */
+  settlePettyAdvance(payload: { entry_id: string; spent_minor: number; returned_minor: number; note?: string }): Promise<HubResult<SettlePettyAdvanceResult>>;
 }
 
 // One map for every billing api instance of the page (each screen builds its own over the shell's transport): a resend
@@ -87,7 +93,9 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
     // tendered then meets the hub's same-id check instead of minting a new payment
     // `buyer` too (CloseSplit `hashOmit: ['buyer']`, B19): a buyer ID is never held in this map, and a resend with a
     // corrected buyer is the same close
-    const { note: _n, reference: _r, tendered_minor: _t, buyer: _b, ...hashed } = payload as { note?: unknown; reference?: unknown; tendered_minor?: unknown; buyer?: unknown };
+    // paid_to (petty cash) is free text the hub leaves out of its hash too (H-4)
+    const { note: _n, reference: _r, tendered_minor: _t, buyer: _b, paid_to: _p, ...hashed } = payload as { note?: unknown; reference?: unknown; tendered_minor?: unknown; buyer?: unknown; paid_to?: unknown };
+    void _p;
     void _n;
     void _r;
     void _t;
@@ -119,6 +127,8 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
     countShift: (payload) => command<CountShiftResult>('CountShift', payload),
     closeShift: (payload) => command<CloseShiftResult>('CloseShift', payload),
     handoverCount: (payload) => command<HandoverCountResult>('HandoverCount', payload),
+    recordPettyCash: (payload) => command<RecordPettyCashResult>('RecordPettyCash', payload),
+    settlePettyAdvance: (payload) => command<SettlePettyAdvanceResult>('SettlePettyAdvance', payload),
     openBills: (floor_id) =>
       staff.query<OpenBillsBody>(floor_id === undefined ? '/queries/open-bills' : `/queries/open-bills?floor_id=${encodeURIComponent(floor_id)}`),
   };

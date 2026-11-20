@@ -1514,4 +1514,17 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.shift.skip': 'گنے بغیر بند کریں',
   'billing.shift.delete': 'Delete',
   'billing.shift.nav': 'میری شفٹ',
+  // ---- 05 client (task 40, petty): frame PettyUrdu ----
+  'billing.petty.title': 'پیٹی کیش',
+  'billing.petty.from_drawer': '{name} کی دراز شفٹ سے',
+  'billing.petty.kind_advance': 'ایڈوانس',
+  'billing.petty.kind_out': 'نقد باہر',
+  'billing.petty.kind_in': 'نقد اندر',
+  'billing.petty.amount': 'رقم',
+  'billing.petty.limit': '{limit} تک فوراً درج ہوتا ہے',
+  'billing.petty.category': 'قسم',
+  'billing.petty.paid_to': 'کس کو دیا',
+  'billing.petty.paid_to_sub': 'اختیاری · رپورٹ میں نہیں دکھتا',
+  'billing.petty.note_ph': 'نوٹ (“دیگر” کے لیے ضروری)',
+  'billing.petty.record': 'درج کریں',
 };
