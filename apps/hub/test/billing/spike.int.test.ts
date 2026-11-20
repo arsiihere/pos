@@ -4,35 +4,23 @@
 // the P0.9b billing mapper (hubBilling / computeRulesAt / ruleInForce), 28a's outbox, 29a's worker (`runOnce`), the
 // port registry, 03c's print queue and bill routing (`billPrinterFor`, row P-1) and the `Doc` builders. Seatings,
 // orders and the directory come from the P0.F fixtures.
-// Only the close transaction is in-test: `closeSplitInTest` below, the shape task 17's `CloseSplit` takes (task 17's
-// PR switches this spike to the real command, §2B.6). 29b is not merged, so the worker seams are in-test too:
+// ⚠️ Task 17 (§2B.6 DoD, PL-19): the close is the real `CloseSplit` command over HTTP (`closeSplit` below; it was the
+// in-test `closeSplitInTest` until task 17). The worker seams stay the spike's own, as written before 29b:
 // `loadSubmissionInTest` and `onAnswerInTest` (the latter appends the real `FiscalNumberAssigned` event).
 // No timing asserts (03a AD-32). Test-only DDL: TEMP triggers on this test's connection for G-10 (never a migration).
 import {
   buildReceiptDoc,
-  computeSplit,
   isFiscalized,
-  spreadLineTaxes,
-  type ComputePayment,
-  type ComputeSplitInput,
-  type ComputeSplitLine,
   type Doc,
   type DocContext,
-  type FiscalSnapshot,
   type PAYMENT_CLASSES,
 } from '@pos/domain';
 import type { EngineState } from '@pos/engine';
 import {
-  BillClosed,
-  BillClosedPayload,
   BillOpened,
-  DiscountFrozen,
   draftOf,
   FiscalNumberAssigned,
-  InvoiceIssued,
   InvoiceIssuedPayload,
-  OrdersBilled,
-  OrdersBilledPayload,
   PaymentAdded,
   PrinterSaved,
   BillRouteSet,
@@ -44,22 +32,22 @@ import {
   type PosEvent,
   type SnapshotBilling,
 } from '@pos/events';
-import { aBillOpened, aDiscountFrozen, aFiscalNumberAssigned, anInvoiceIssued, aPaymentAdded } from '@pos/events/testing';
+import { aBillOpened, aFiscalNumberAssigned, aPaymentAdded } from '@pos/events/testing';
 import type Database from 'better-sqlite3';
 import type { z } from 'zod';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { computeRulesAt, hubBilling, ruleInForce } from '../../src/billing/defaults';
+import { computeRulesAt, hubBilling } from '../../src/billing/defaults';
 import { noneAdapter } from '../../src/billing/fiscal/none';
 import { fiscalAdapterFor, registerFiscalAdapter, resetFiscalAdapters, type FiscalSubmission } from '../../src/billing/fiscal/port';
 import { resetFiscalWorker, runOnce, type FiscalFinalAnswer, type FiscalWorkRow, type LoadedSubmission } from '../../src/billing/fiscal/worker';
-import { orderLines, ordersOf } from '../../src/orders/exports';
-import { billPrinterFor, printDocument } from '../../src/print/api';
+import { billPrinterFor } from '../../src/print/api';
 import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { createLogCapture } from '../helpers/log-capture';
 import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { openDay, voidsMenu } from '../voids/fixtures';
 import { fakeAdapter, type FakeAdapter } from './fiscal/fake-adapter';
-import { billingDirectory, dineInTwoRounds, drawerDevice, JURISDICTIONS, STAFF } from './fixtures';
+import type { BillView } from '../../src/billing/queries/bill';
+import { billingDirectory, dineInTwoRounds, drawerDevice, JURISDICTIONS, post, signInOn, STAFF, type Who } from './fixtures';
 
 // ------------------------------------------------------------------------------------------------ hub set-up
 
@@ -136,6 +124,7 @@ async function startSpikeHub(billing?: SnapshotBilling): Promise<{ device: { dev
   await seedDirectory(hub, await billingDirectory());
   openDay(hub, { menu: taxedMenu(billing), stock: { K1: 0, K_NAAN: 0 } });
   const device = drawerDevice(hub);
+  sessions.set(device.deviceId, signInOn(hub, STAFF.cashier, device)); // the session the real CloseSplit runs in
   // 03c print config by its real events (print_config fold): a counter printer routed to the drawer device, a default.
   const branch = hub.deps.config.provisioned!.branch_id;
   const onHub = <P extends z.ZodType>(def: EventDef<P>, payload: unknown): Draft => ({
@@ -164,6 +153,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   commit.fail = false;
+  sessions.clear();
   await hub.close();
   swapBranchConfig(null);
   resetFiscalAdapters();
@@ -228,7 +218,7 @@ function pay(bill_id: string, p: { payment_id: string; mode_id: string; payment_
   hubAppend([{ stream_type: 'bill', stream_id: bill_id, event_type: PaymentAdded.eventType, schema_version: 1, payload }]);
 }
 
-// ================================================================================== the in-test close (task 17)
+// ================================================================================== the close (task 17: the real CloseSplit)
 
 /** §6.12 Result, exactly: what task 17's `CloseSplit` answers (the tests read the rest back from the hub). */
 interface CloseResult {
@@ -249,214 +239,34 @@ const docContext = (billing: ReturnType<typeof hubBilling>): DocContext => ({
   template: billing.settings.receipt,
 });
 
+/** The cashier's session on each device the spike closes from (signed in once per device). */
+const sessions = new Map<string, Who>();
+
+/** The message of the last unhandled error the hub logged (a 500's cause; the reply itself carries none). */
+function lastUnhandled(): string {
+  const lines = hub
+    .logs()
+    .split('\n')
+    .filter((l) => l.includes('unhandled error'))
+    .map((l) => JSON.parse(l) as { err?: { message?: string } });
+  return lines.at(-1)?.err?.message ?? 'no unhandled error logged';
+}
+
 /**
- * THE IN-TEST CLOSE — becomes task 17's `CloseSplit` (§6.12). One writer transaction (`BEGIN IMMEDIATE`):
- *  1. bill + split + live payments (billing projection);
- *  2. orders of the seating (02b `ordersOf`), their lines (`orderLines`), the seating and other open bills (02a);
- *  3. spike subset of §3.3: a plain dine-in bill (no discount, service charge, comp, void or pending weight),
- *     balance 0, no compute block; on a fiscalized split every payment's mode has a code for the adapter (H8-3);
- *  4. `computeSplit` + `spreadLineTaxes` (§6.12 step 6, J-2 / R-18 / R-19) under the bill's frozen rules;
- *  5. number = MAX + 1 of the sale series, `invoice_ref = invoice_prefix + 'S' + 6 digits`;
- *  6. drafts: `InvoiceIssued`, `DiscountFrozen` (first close, R-41; 0 with no discount), and on the last open split
- *     02b `OrdersBilled` (stream order, first order) and 02a `BillClosed` (stream table, primary table) when the
- *     seating is not CLOSED and holds no other open bill;
- *  7. append (every projection folds: invoice + outbox row, billed_at, NEEDS_CLEANING) → receipt:
- *     `billPrinterFor({ device_id })`, `buildReceiptDoc` (fiscal block "FISCAL NUMBER PENDING" when fiscalized),
- *     `printDocument` + `bill_print_jobs`.
+ * THE CLOSE — task 17's real `CloseSplit` (§6.12) over HTTP (05 plan §2B.6: "task 17's PR switches the spike to the
+ * real CloseSplit command"): the cashier signed in on `device_id`, `expected_total_minor` = the split's total as the
+ * bill view shows it. A refusal or a failed transaction throws (`CloseSplit <status> <code>: <the logged cause>`).
  */
-function closeSplitInTest(c: { bill_id: string; split_no: number; device_id: string; staff_id: string }): CloseResult {
-  hub.clock.advance(1_000);
-  return hub.deps.writer.run((tx): CloseResult => {
-    const db = tx.db;
-    const now = tx.clock.branchNow();
-    const env = { occurred_at: now, actor_id: c.staff_id, device_id: c.device_id };
-    // 1
-    const bill = db
-      .prepare('SELECT bill_id, scope, seating_id, order_type, state, prices_include_tax, rounding_json, sc_bp, discount_json FROM bills WHERE bill_id = ?')
-      .get(c.bill_id) as
-      | { bill_id: string; scope: string; seating_id: string | null; order_type: 'dine_in'; state: string; prices_include_tax: number; rounding_json: string; sc_bp: number; discount_json: string | null }
-      | undefined;
-    if (bill === undefined || bill.state === 'closed') throw new Error('spike close: no open bill');
-    const splits = db.prepare('SELECT split_no, state FROM bill_splits WHERE bill_id = ?').all(c.bill_id) as { split_no: number; state: string }[];
-    if (splits.find((s) => s.split_no === c.split_no)?.state !== 'open') throw new Error('spike close: split not open');
-    const payments = db
-      .prepare(
-        `SELECT payment_id, mode_id, payment_class, direction, amount_minor, tendered_minor FROM bill_payments
-         WHERE bill_id = ? AND split_no = ? AND removed_at IS NULL ORDER BY added_at, payment_id`,
-      )
-      .all(c.bill_id, c.split_no) as { payment_id: string; mode_id: string; payment_class: PaymentClass; direction: 'in' | 'out'; amount_minor: number; tendered_minor: number | null }[];
-    // 2
-    if (bill.scope !== 'seating' || bill.seating_id === null) throw new Error('spike close: dine-in only');
-    const orders = ordersOf(db, bill.seating_id).filter((o) => !o.cancelled);
-    const byOrder = orderLines(db, orders.map((o) => o.order_id));
-    const lines = orders.flatMap((o) => byOrder.get(o.order_id)!);
-    const seating = db.prepare('SELECT primary_table_id, state FROM seatings WHERE seating_id = ?').get(bill.seating_id) as { primary_table_id: string; state: string };
-    const otherOpen = db
-      .prepare(`SELECT COUNT(*) FROM bills WHERE seating_id = ? AND bill_id <> ? AND state <> 'closed' AND absorbed_into IS NULL`)
-      .pluck()
-      .get(bill.seating_id, c.bill_id) as number;
-    // 3 (spike subset)
-    if (bill.sc_bp !== 0 || bill.discount_json !== null) throw new Error('spike close: no service charge or discount in the spike');
-    for (const l of lines) {
-      if (l.live_units !== l.units || l.unit_price_minor === null || l.line_total_minor === null || l.refund_minor !== 0 || l.comp_minor !== 0) {
-        throw new Error(`spike close: line ${l.order_item_id} is not a plain line`);
-      }
-    }
-    const config = branchConfig()!;
-    const billing = hubBilling(config);
-    const business_date = (tx.state as EngineState).business_day!.business_date;
-    const atDay = computeRulesAt(billing, { business_date, tax_enabled: config.tax_enabled })!;
-    const rules = { ...atDay, prices_include_tax: bill.prices_include_tax === 1, rounding: JSON.parse(bill.rounding_json) as typeof atDay.rounding };
-    const rule = ruleInForce(billing, business_date)!;
-    // 4
-    const input: ComputeSplitInput = {
-      split_no: c.split_no,
-      business_date,
-      rules,
-      tax_profiles: billing.tax_profiles,
-      lines: lines.map(
-        (l): ComputeSplitLine => ({
-          order_item_id: l.order_item_id,
-          line_kind: l.line_kind,
-          units: l.live_units,
-          unit_price_minor: l.unit_price_minor!,
-          base_minor: l.billed_minor,
-          discount_minor: 0,
-          tax_profile_id: l.tax_profile_id,
-        }),
-      ),
-      service_charge: null,
-      payments: payments.map((p): ComputePayment => ({ split_no: c.split_no, payment_class: p.payment_class, direction: p.direction, amount_minor: p.amount_minor, tendered_minor: p.tendered_minor })),
-    };
-    const split = computeSplit(input);
-    if (split.blocks.length > 0 || split.balance_minor !== 0) throw new Error('spike close: split not payable as is');
-    const spread = spreadLineTaxes(input);
-    // fiscal snapshot (§6.12 step 6, H8-3, H9-6, H16-2, R-8): `required` false under adapter none (owner ruling R-46)
-    const adapter = fiscalAdapterFor(billing.jurisdiction.adapter_key);
-    if (adapter === null) throw new Error(`spike close: adapter ${billing.jurisdiction.adapter_key} not registered`);
-    const f = billing.settings.fiscal;
-    const fiscalizeType = f.fiscalize_by_order_type[bill.order_type];
-    const afterSwitch = f.switched_at === null || now >= Date.parse(f.switched_at);
-    const required = fiscalizeType && afterSwitch && adapter.key !== noneAdapter.key;
-    const modes = new Map(billing.settings.payment_modes.map((m) => [m.mode_id, m]));
-    const payment_codes = payments.map((p) => ({
-      payment_id: p.payment_id,
-      authority_code: modes.get(p.mode_id)?.authority_codes.find((a) => a.adapter_key === adapter.key)?.code ?? null,
-    }));
-    const fiscal: FiscalSnapshot = {
-      adapter_key: adapter.key,
-      pos_id: f.device_pos_ids.find((d) => d.device_id === c.device_id)?.pos_id ?? f.default_pos_id,
-      required,
-      capabilities: { ordering: adapter.capabilities.ordering, credit: adapter.capabilities.credit },
-      credit_support: rule.credit_support,
-      rounding: rules.rounding,
-      receipt: rule.receipt,
-      seller_registrations: billing.settings.receipt.tax_registrations.map((r) => ({ code: r.code, number: r.number })),
-      payment_codes,
-    };
-    if (isFiscalized(fiscal) && payment_codes.some((p) => p.authority_code === null)) throw new Error('spike close: PAYMENT_MODE_NOT_FISCAL');
-    // 5
-    const number = (db.prepare(`SELECT COALESCE(MAX(number), 0) + 1 FROM invoices WHERE series = 'sale'`).pluck().get() as number);
-    const invoice_ref = `${billing.settings.receipt.invoice_prefix}S${String(number).padStart(6, '0')}`;
-    // 6
-    const firstClose = splits.every((s) => s.state === 'open');
-    const lastOpen = splits.filter((s) => s.state === 'open').length === 1;
-    const fiscalCategory = new Map(config.tax_classes.map((t) => [t.tax_class_id, t.fiscal_category ?? null]));
-    const byId = new Map(lines.map((l) => [l.order_item_id, l]));
-    const t = split.totals.as_paid;
-    const invoice_id = tx.ids.next();
-    const invoice = built(InvoiceIssued, anInvoiceIssued, {
-      invoice_id,
-      series: 'sale',
-      number,
-      invoice_ref,
-      bill_id: c.bill_id,
-      split_no: c.split_no,
-      business_date,
-      issued_at: now,
-      order_type: bill.order_type,
-      jurisdiction_id: billing.jurisdiction.jurisdiction_id,
-      currency_code: billing.jurisdiction.currency_code,
-      prices_include_tax: rules.prices_include_tax,
-      lines: split.lines.map((l, i) => {
-        const v = byId.get(l.order_item_id)!;
-        return {
-          order_item_id: l.order_item_id,
-          item_id: v.item_id,
-          name: v.name,
-          units: l.units,
-          unit_price_minor: l.unit_price_minor,
-          base_minor: l.base_minor,
-          discount_minor: l.discount_minor,
-          tax_profile_id: l.tax_profile_id,
-          fiscal_category: l.tax_profile_id === null ? null : (fiscalCategory.get(l.tax_profile_id) ?? null),
-          taxes: spread.lines[i]!.taxes,
-        };
-      }),
-      service_charge: spread.service_charge,
-      subtotal_minor: t.subtotal_minor,
-      discount_minor: t.discount_minor,
-      service_charge_minor: t.service_charge_minor,
-      taxes: t.taxes.map((x) => ({ ...x })),
-      rounding_minor: t.rounding_minor,
-      total_minor: t.total_minor,
-      payment_class: split.payment_class,
-      mixed_rule: split.mixed_rule,
-      payment_ids: payments.map((p) => p.payment_id),
-      change_minor: split.change_minor,
-      discount_line_ids: firstClose ? lines.map((l) => l.order_item_id) : null,
-      fiscal,
-      has_buyer_id: false,
-      buyer_id_refused: false,
-      closed_by: c.staff_id,
-    });
-    const drafts: EventDraft[] = [draftOf(InvoiceIssued, { stream_type: 'bill', stream_id: c.bill_id, payload: invoice, ...env })];
-    if (firstClose) {
-      const frozen = built(DiscountFrozen, aDiscountFrozen, { bill_id: c.bill_id, frozen_minor: 0, line_ids: invoice.discount_line_ids ?? [] });
-      drafts.push(draftOf(DiscountFrozen, { stream_type: 'bill', stream_id: c.bill_id, payload: frozen, ...env }));
-    }
-    if (lastOpen) {
-      const order_ids = orders.map((o) => o.order_id);
-      drafts.push(draftOf(OrdersBilled, { stream_type: 'order', stream_id: order_ids[0]!, payload: OrdersBilledPayload.parse({ order_ids, bill_id: c.bill_id }), ...env }));
-      if (seating.state !== 'CLOSED' && otherOpen === 0) {
-        drafts.push(draftOf(BillClosed, { stream_type: 'table', stream_id: seating.primary_table_id, payload: BillClosedPayload.parse({ seating_id: bill.seating_id }), ...env }));
-      }
-    }
-    // 7
-    tx.append(drafts);
-    const printer_id = billPrinterFor(db, { device_id: c.device_id });
-    const receipt = buildReceiptDoc(
-      {
-        invoice,
-        payments: payments.map((p) => ({ mode_name: modes.get(p.mode_id)!.name, payment_class: p.payment_class, direction: p.direction, amount_minor: p.amount_minor })),
-        change_minor: split.change_minor,
-        cashier_name: null,
-        order_label: null,
-        bill_label: seating.primary_table_id,
-        fiscal: isFiscalized(fiscal) ? { state: 'pending' } : { state: 'not_required' },
-        buyer: null,
-        is_reprint: false,
-      },
-      docContext(billing),
-    );
-    let job_id: string | null = null;
-    let printer_name: string | null = null;
-    if (printer_id !== null) {
-      job_id = printDocument(tx, printer_id, receipt, { kind_label: 'Receipt' }).job_id;
-      db.prepare(`INSERT INTO bill_print_jobs (job_id, bill_id, doc_kind, ref_id, created_at) VALUES (?, ?, 'receipt', ?, ?)`).run(job_id, c.bill_id, invoice_id, now);
-      printer_name = db.prepare('SELECT name FROM printers WHERE printer_id = ?').pluck().get(printer_id) as string;
-    }
-    const bill_state = db.prepare('SELECT state FROM bills WHERE bill_id = ?').pluck().get(c.bill_id) as CloseResult['bill_state'];
-    return {
-      invoice_id,
-      invoice_ref,
-      total_minor: invoice.total_minor,
-      change_minor: invoice.change_minor,
-      bill_state,
-      receipt: { job_id, printer_name },
-      fiscal_state: isFiscalized(fiscal) ? 'pending' : 'not_required',
-    };
-  }).result;
+async function closeSplit(c: { bill_id: string; split_no: number; device_id: string; staff_id: string }): Promise<CloseResult> {
+  const who = sessions.get(c.device_id);
+  if (who === undefined || who.staffId !== c.staff_id) throw new Error(`spike: no ${c.staff_id} session on ${c.device_id}`);
+  const res = await hub.app.inject({ method: 'GET', url: `/queries/bill?bill_id=${c.bill_id}`, headers: { authorization: `Bearer ${who.token}`, 'x-session-token': who.sessionToken } });
+  if (res.statusCode !== 200) throw new Error(`spike: bill view ${res.statusCode}`);
+  const view = (res.json() as { data: BillView }).data;
+  const expected_total_minor = view.splits.find((s) => s.split_no === c.split_no)!.totals.as_paid.total_minor;
+  const r = await post(hub, who, 'close-split', 'CloseSplit', { bill_ref: { bill_id: c.bill_id }, split_no: c.split_no, expected_total_minor });
+  if (r.status !== 200) throw new Error(`CloseSplit ${r.status} ${r.error?.code ?? ''}${r.status === 500 ? `: ${lastUnhandled()}` : ''}`);
+  return r.result as unknown as CloseResult;
 }
 
 // ================================================================================== in-test 29b seams
@@ -614,7 +424,7 @@ describe('[05 spike] (a) jurisdiction PK (adapter none): one close transaction, 
     const lastSeq = hub.deps.writer.lastSeq();
     const published = hub.published.length;
 
-    const r = closeSplitInTest({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier });
+    const r = await closeSplit({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier });
 
     // the §6.12 result
     expect(r).toEqual({
@@ -697,7 +507,7 @@ describe('[05 spike] (a) jurisdiction PK (adapter none): one close transaction, 
     expect(billPrinterFor(db(), { device_id: 'D_OTHER' })).toBe(PRINTER_DEFAULT);
     const lastSeq = hub.deps.writer.lastSeq();
 
-    const r = closeSplitInTest({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier });
+    const r = await closeSplit({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier });
 
     const job_id = r.receipt.job_id!;
     expect(r.receipt.printer_name).toBe(PRINTER_COUNTER);
@@ -735,7 +545,7 @@ describe('[05 spike] (b) test jurisdiction on the fake adapter: pending row → 
     pay(b.bill_id, { payment_id: 'PAY_B1', mode_id: 'card', payment_class: 'digital', amount_minor: 132_300, tendered_minor: null });
     const lastSeq = hub.deps.writer.lastSeq();
 
-    const r = closeSplitInTest({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier });
+    const r = await closeSplit({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier });
 
     expect(r).toMatchObject({ invoice_ref: 'AC1-S000001', total_minor: 132_300, change_minor: 0, bill_state: 'closed', fiscal_state: 'pending' });
     const appended = eventsAfter(lastSeq);
@@ -850,7 +660,7 @@ describe('[05 spike] (c) a pre-COMMIT throw (beforeCommit): no invoice, no outbo
     const published = hub.published.length;
 
     commit.fail = true;
-    expect(() => closeSplitInTest({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier })).toThrow('commit failed');
+    await expect(closeSplit({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier })).rejects.toThrow('commit failed');
 
     expect(written()).toEqual(NOTHING);
     expect(hub.deps.writer.lastSeq()).toBe(seq);
@@ -862,7 +672,7 @@ describe('[05 spike] (c) a pre-COMMIT throw (beforeCommit): no invoice, no outbo
     expect(db().prepare('SELECT state FROM seatings WHERE seating_id = ?').pluck().get(b.seating_id)).not.toBe('NEEDS_CLEANING');
 
     commit.fail = false;
-    const r = closeSplitInTest({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier });
+    const r = await closeSplit({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier });
     expect(storedInvoice(r.invoice_id).number).toBe(1); // the failed close used no number
     expect(written()).toMatchObject({ invoices: 1, outbox: 1, print_jobs: 1, bill_print_jobs: 1, close_events: 4 });
   });
@@ -908,7 +718,7 @@ describe('[05 spike] G-10: the invoice and its outbox row commit or roll back to
       const published = hub.published.length;
       db().exec(ddl);
       try {
-        expect(() => closeSplitInTest({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier })).toThrow(message);
+        await expect(closeSplit({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier })).rejects.toThrow(message);
       } finally {
         db().exec('DROP TRIGGER IF EXISTS temp.g10');
       }
@@ -920,7 +730,7 @@ describe('[05 spike] G-10: the invoice and its outbox row commit or roll back to
       expect(db().prepare('SELECT state FROM bills WHERE bill_id = ?').pluck().get(b.bill_id)).toBe('open');
 
       // the trigger gone, the same close commits both rows together
-      const r = closeSplitInTest({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier });
+      const r = await closeSplit({ bill_id: b.bill_id, split_no: 1, device_id: device.deviceId, staff_id: STAFF.cashier });
       expect(db().prepare('SELECT i.invoice_id, o.state FROM invoices i JOIN fiscal_outbox o ON o.invoice_id = i.invoice_id').all()).toEqual([
         { invoice_id: r.invoice_id, state: billing ? 'pending' : 'not_required' },
       ]);
