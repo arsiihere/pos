@@ -1,6 +1,6 @@
 import type { HubResult } from '../../api/hub-admin';
 import { newUlid } from '../../app/ulid';
-import type { AddPaymentResult, BillRef, BillView, CloseSplitResult, OpenBillsBody, PrintCheckBillResult, SetSplitsPayload, SetSplitsResult } from './contracts';
+import type { AddPaymentResult, BillRef, BillView, CloseSplitResult, OpenBillsBody, PrintCheckBillResult, SetSplitsPayload, SetSplitsResult, SheetResult } from './contracts';
 
 // 05 §6 (task 34 on): the billing queries and commands on the staff api's query() / command() (the shell's own
 // transport, features/staff/api.ts — no second client, socket or token).
@@ -29,6 +29,14 @@ export interface BillingApi {
   addPayment(payload: { bill_ref: BillRef; split_no: number; mode_id: string; direction: 'in' | 'out'; amount_minor: number; tendered_minor?: number; reference?: string }): Promise<HubResult<AddPaymentResult>>;
   /** §6.12: close a split; `expected_total_minor` = the total the screen showed (rule 7). */
   closeSplit(payload: { bill_ref: BillRef; split_no: number; expected_total_minor: number }): Promise<HubResult<CloseSplitResult>>;
+  /** §6.6 (approvable) / §6.7: the whole bill's discount. */
+  applyDiscount(payload: { bill_ref: BillRef; kind: 'amount' | 'percent'; value: number; reason_code: string; note?: string }): Promise<HubResult<SheetResult>>;
+  removeDiscount(payload: { bill_id: string; reason_code: string; note?: string }): Promise<HubResult<SheetResult>>;
+  /** §6.8 (Remove approvable; Apply = the re-add, `allowed` only). */
+  removeServiceCharge(payload: { bill_ref: BillRef; reason_code: string; note?: string }): Promise<HubResult<SheetResult>>;
+  applyServiceCharge(payload: { bill_ref: BillRef; note?: string }): Promise<HubResult<SheetResult>>;
+  /** 01d: the requester takes back an open request. */
+  withdrawRequest(alert_id: string): Promise<HubResult<unknown>>;
 }
 
 export function billingApi(staff: BillingTransport, newCommandId: () => string = () => newUlid()): BillingApi {
@@ -57,6 +65,11 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
     bill: (ref) => staff.query<BillView>(`/queries/bill?${billQuery(ref)}`),
     addPayment: (payload) => command<AddPaymentResult>('AddPayment', payload),
     closeSplit: (payload) => command<CloseSplitResult>('CloseSplit', payload),
+    applyDiscount: (payload) => command<SheetResult>('ApplyDiscount', payload),
+    removeDiscount: (payload) => command<SheetResult>('RemoveDiscount', payload),
+    removeServiceCharge: (payload) => command<SheetResult>('RemoveServiceCharge', payload),
+    applyServiceCharge: (payload) => command<SheetResult>('ApplyServiceCharge', payload),
+    withdrawRequest: (alert_id) => command<unknown>('WithdrawRequest', { alert_id }),
     openBills: (floor_id) =>
       staff.query<OpenBillsBody>(floor_id === undefined ? '/queries/open-bills' : `/queries/open-bills?floor_id=${encodeURIComponent(floor_id)}`),
   };

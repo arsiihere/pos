@@ -1475,4 +1475,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.close': 'بل بند کریں',
   'billing.blocks.head': 'ابھی بند نہیں ہو سکتا',
   'billing.blocks.balance_due': 'نقد میں {cash} یا کارڈ سے {card} لیں',
+  // ---- 05 client (task 37): frame BillUrdu ----
+  'billing.discount.field': 'رعایت',
+  'billing.sheet.needs': 'منظوری چاہیے',
 };

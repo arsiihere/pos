@@ -75,6 +75,44 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `discount.waiting` | Waiting for {name} or a manager · {value} · {reason} |
 | `sc.remove/ `.add_back` / `.removed`` | Remove / Add back / Service charge removed |
 | `sc.reason.customer_request/ `.service_complaint` / `.staff_meal` / `.other`` | Customer asked / Service complaint / Staff meal / Other |
+| `billing.sc.remove/ `.add_back` / `.removed`` | Remove / Add back / Service charge removed |
+| `billing.sc.reason.customer_request/ `.service_complaint` / `.staff_meal` / `.other`` | Customer asked / Service complaint / Staff meal / Other |
+| `billing.sheet.reason` | Reason |
+| `billing.sheet.note` | Note |
+| `billing.sheet.note_ph` | Write why (needed for Other) |
+| `billing.sheet.count` | {n} / 200 |
+| `billing.sheet.pick_reason` | Pick a reason |
+| `billing.sheet.write_why` | Write why first |
+| `billing.sheet.ask` | Ask for approval |
+| `billing.sheet.waiting` | Waiting for approval |
+| `billing.sheet.withdraw` | Withdraw |
+| `billing.sheet.back` | Back to the bill |
+| `billing.discount.title` | Discount the bill |
+| `billing.discount.sub` | Whole bill |
+| `billing.discount.amount` | Amount |
+| `billing.discount.percent` | Percent |
+| `billing.discount.hint` | Whole bill. The new totals come from the hub after it is applied. |
+| `billing.discount.enter` | Type the discount first |
+| `billing.discount.apply` | Give discount |
+| `billing.discount.remove` | Remove discount |
+| `billing.discount.remove_title` | Remove the discount |
+| `billing.discount.applied` | Discount applied |
+| `billing.discount.removed` | Discount removed |
+| `billing.discount.close_waits` | You can keep working on the bill. Close waits until the discount is answered — the totals change only if it is approved. |
+| `billing.sc.label` | Service charge {rate} |
+| `billing.sc.label_plain` | Service charge |
+| `billing.sc.title` | Remove service charge |
+| `billing.sc.remove` | Remove |
+| `billing.sc.add_back` | Add back |
+| `billing.sc.removed` | Service charge removed |
+| `billing.sc.confirm` | Add the {rate} back? |
+| `billing.sc.totals_after` | Totals after |
+| `billing.sc.from_hub` | from the hub |
+| `billing.sc.stays` | Removed stays removed: nothing adds it back by itself. Someone allowed to remove it can tap Add back on the row. |
+| `billing.sc.reason.customer_request` | Customer asked |
+| `billing.sc.reason.service_complaint` | Service complaint |
+| `billing.sc.reason.staff_meal` | Staff meal |
+| `billing.sc.reason.other` | Other |
 | `reopen.title/ `.what_happens` / `.done`` | Reopen bill / Each paid split gets a credit note. Payments stay. Close again to issue new invoices. / Reopened · credit {credit_ref} {amount} |
 | `reopen.reason.wrong_item_billed/ `.wrong_payment_mode` / `.customer_returned_item` / `.price_error` / `.other`` | Wrong item billed / Wrong payment type / Customer returned an item / Price error / Other |
 | `comp_remove.title/ `.done`` | Remove comp / Comp removed · {amount} back on the bill |
@@ -175,3 +213,4 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.tot.paid_cash` | cash |
 | `billing.tot.paid_card` | card |
 | `pad.maybe_in` | This payment may already be in — check the payments before taking it again |
+| `errors.PERMISSION_DENIED.not_requester` | Only the person who asked can withdraw it |
