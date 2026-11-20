@@ -79,6 +79,12 @@ Binding for the 05 v1.0.2 and P0.2c writers.
 | G-60 | Minor | 17, 24, 3b | 05 v1.0.14 B15 / §10 (unit sum holds for item splits; R-64) |
 | G-61 | Minor | 32a | 05 v1.0.15 V-3 / §6.30 / §10 (raised row carries no kind; R-65) |
 | G-62 | Major | 19 | 05 v1.0.15 §6.13 (`reopen_bill` values carry `credit_invoice_ids`; R-66) |
+| G-63 | Minor | 18 | 05 v1.0.16 §6.11 (`WaiveBuyerId` ≤ 6 statements; R-67) |
+| G-64 | Minor | 18 | 05 v1.0.16 §6.11 / §3.14 (approval on an already-waived bill writes a second `BuyerIdWaived`; R-68) |
+| G-65 | Minor | 32a | 05 v1.0.16 V-3 / §6.30 / §6.28a (`fiscal_token_changed` subject `hub`; R-69) |
+| G-66 | Minor | 27 | 05 v1.0.16 §6.23 (`RetargetBillPrint` ≤ 3 statements; R-70) |
+| G-67 | Minor | 31a | 05 v1.0.16 §6.28a (`SetFiscalToken` ≤ 2 statements; new `command_id` per Save; R-71) |
+| G-68 | Minor | 32a | 04 (later bump): 04 §5's audit subject list gains `hub` (05 V-3, R-69); 04's code already uses `item` and `zone`, also not on the list — add them in the same bump. Not in 05 v1.0.16; 04's spec is not edited here |
 
 Counts: Blocker 5, Major 12, Minor 10 (27 rows). G-28 (Major) added 2026-11-19 after the sweep: Blocker 5, Major 13, Minor 10 (28 rows). G-29, G-31 (Major) and G-30 (Minor) added 2026-11-19 from the 05 design brief (PR #316): Blocker 5, Major 15, Minor 11 (31 rows). G-32 (Major) and G-33 (Minor) added 2026-11-19: Blocker 5, Major 16, Minor 12 (33 rows). G-34 (Minor) added 2026-11-20: Blocker 5, Major 16, Minor 13 (34 rows). G-35 (Major) added 2026-11-20: Blocker 5, Major 17, Minor 13 (35 rows). G-36 (Minor) added 2026-11-20: Blocker 5, Major 17, Minor 14 (36 rows). G-37 (Major) added 2026-11-20: Blocker 5, Major 18, Minor 14 (37 rows). G-38, G-39, G-40 (Major) added 2026-11-20 from the task 5 review: Blocker 5, Major 21, Minor 14 (40 rows).
 
@@ -319,6 +325,11 @@ R-15…R-22: see 05-status.md (not listed on the board at the `module-05` tip; t
 | R-64 | G-60 | (2026-11-20, task 17 review) B15's unit sum contradicted §5 / H1-27 for amount / equal splits: the sum holds for item splits; any closed row freezes the whole line otherwise. Text only. | 05 v1.0.14 B15, §10; plan rows 17, 24, 3b |
 | R-65 | G-61 | (2026-11-20, task 32a build) the `money_request_raised` row is written by 04's built-in `AlertRaised` map (P0.15), which writes no kind and which 05 cannot override: the raised row's detail carries no kind (join `audit_requests` on `alert_id`); `money_request_answered` keeps it. Text only. | 05 v1.0.15 V-3, §6.30, §10 #87; plan row 32a |
 | R-66 | G-62 | (2026-11-20, task 19 build) 01d AD-91: `apply` mints no ids, so `reopen_bill` values gain `credit_invoice_ids` (ULIDs minted at raise, one per `invoice_ids` entry, same order); approve uses `credit_invoice_ids[i]` for `invoice_ids[i]`; the direct path mints its own; a mismatch is refused by the existing re-check, never re-pairs an id. | 05 v1.0.15 §6.13, §3.14, §10 #37j; plan row 19 |
+| R-67 | G-63 | (2026-11-20, task 18, owner ruling) `WaiveBuyerId` ≤ 4 → **≤ 6**: the net-vs-threshold check needs the whole-bill reads (`openBillOf`, `SPLITS_OF_BILL`, orders, `orderLines`, `pendingVoids`) = 5, the note write 6; `apply` 1, reject 0. Same pattern as R-54, R-60. Text only. | 05 v1.0.16 §6.11; plan row 18 |
+| R-68 | G-64 | (2026-11-20, task 18, integrator reading, review-confirmed) the `close_without_buyer_id` `apply` re-checks only OPEN / PARTLY_PAID, so approving on a bill already waived directly writes a second `BuyerIdWaived`; the fold is idempotent, the audit shows two rows. Text only. | 05 v1.0.16 §6.11, §3.14; plan row 18 |
+| R-69 | G-65, G-68 | (2026-11-20, task 32a, integrator) `fiscal_token_changed` uses subject `hub`, 05's own subject (a fiscal `pos_id` is not a device or a day; 04 §5's list has no fitting entry). 04's spec not edited; G-68 carries the 04 follow-up. Text only. | 05 v1.0.16 V-3, §6.30, §6.28a; plan row 32a |
+| R-70 | G-66 | (2026-11-20, task 27, integrator reading) `RetargetBillPrint` 3 → **≤ 3** statements (happy path 2, a refusal 3). Text only. | 05 v1.0.16 §6.23; plan row 27 |
+| R-71 | G-67 | (2026-11-20, task 31a, integrator reading, review-confirmed) `SetFiscalToken` 2 → **≤ 2** statements (bad `pos_id` 0, branch adapter's name 1, bad name 1, pending adapter's name 2); the token is hash-omitted (H-4), so a same-`command_id` retransmit with a different token replays the old answer — clients mint a new `command_id` per Save. Text only. | 05 v1.0.16 §6.28a; plan row 31a |
 
 ## Owner questions (all settled 2026-11-19)
 
