@@ -184,7 +184,7 @@ describe('[05 #82] hub migration 0021_orders_billing (02b v1.0.16 §5; 05 rows Q
     toPre0021(copy);
     expect(checkpoint(copy, 'orders')).toBe(maxSeq);
     expect(checkpoint(copy, 'kitchen_tickets')).toBe(maxSeq);
-    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0022_bill_routes.sql', '0023_billing.sql']);
+    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0022_bill_routes.sql', '0023_billing.sql', '0024_billing_payments_shift.sql']);
     expect(checkpoint(copy, 'orders')).toBeUndefined();
     expect(checkpoint(copy, 'kitchen_tickets'), '0021 keeps the kitchen_tickets checkpoint row').toBe(maxSeq);
     expect(copy.prepare("SELECT COUNT(*) FROM order_lines WHERE tax_profile_id IS NOT NULL OR unit_price_minor IS NOT NULL").pluck().get(), 'no UPDATE: the refold fills them').toBe(0);
@@ -194,7 +194,7 @@ describe('[05 #82] hub migration 0021_orders_billing (02b v1.0.16 §5; 05 rows Q
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(23);
+    expect(db.pragma('user_version', { simple: true })).toBe(24);
     expect(db.prepare('SELECT event_type FROM events WHERE seq > ? ORDER BY seq').pluck().all(maxSeq)[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(rowsOf(db), 'every old line has tax_profile_id and unit_price_minor; rows equal the live fold').toEqual(liveLines);
     expect(ordersOf(db), 'orders rows equal the live fold').toEqual(liveOrders);

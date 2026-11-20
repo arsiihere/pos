@@ -177,7 +177,7 @@ describe('hub migration 0006_alerts', () => {
     for (const [name, hash] of Object.entries(MERGED)) expect(sha256hex(readFileSync(join(migrations, name)))).toBe(hash);
   });
 
-  it('[00 H-5, H-6] [01b B-4, v1.6 B-2] the hub migrations are exactly 0001–0023 in order (03b 0014, 03c 0015, 02b v1.0.7 0016, 04 0017 / 0018, 02b v1.0.12 0019, v1.0.13 0020, v1.0.16 0021, 03c v1.0.13 0022, 05 v1.0.7 0023)', () => {
+  it('[00 H-5, H-6] [01b B-4, v1.6 B-2] the hub migrations are exactly 0001–0024 in order (03b 0014, 03c 0015, 02b v1.0.7 0016, 04 0017 / 0018, 02b v1.0.12 0019, v1.0.13 0020, v1.0.16 0021, 03c v1.0.13 0022, 05 v1.0.7 0023, 05 v1.0.11 0024)', () => {
     const files = readdirSync(migrations).filter((name) => name.endsWith('.sql')).sort();
     expect(files).toEqual([
       ...Object.keys(MERGED),
@@ -199,6 +199,7 @@ describe('hub migration 0006_alerts', () => {
       '0021_orders_billing.sql',
       '0022_bill_routes.sql',
       '0023_billing.sql',
+      '0024_billing_payments_shift.sql',
     ]);
   });
 
