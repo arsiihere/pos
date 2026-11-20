@@ -77,6 +77,8 @@ Binding for the 05 v1.0.2 and P0.2c writers.
 | G-58 | Minor | 20 | 05 v1.0.14 §6.14 (deal part alone refused; R-62) |
 | G-59 | Major | 31a | 05 v1.0.14 §6.28b (admin read for the fiscal page; R-63) |
 | G-60 | Minor | 17, 24, 3b | 05 v1.0.14 B15 / §10 (unit sum holds for item splits; R-64) |
+| G-61 | Minor | 32a | 05 v1.0.15 V-3 / §6.30 / §10 (raised row carries no kind; R-65) |
+| G-62 | Major | 19 | 05 v1.0.15 §6.13 (`reopen_bill` values carry `credit_invoice_ids`; R-66) |
 
 Counts: Blocker 5, Major 12, Minor 10 (27 rows). G-28 (Major) added 2026-11-19 after the sweep: Blocker 5, Major 13, Minor 10 (28 rows). G-29, G-31 (Major) and G-30 (Minor) added 2026-11-19 from the 05 design brief (PR #316): Blocker 5, Major 15, Minor 11 (31 rows). G-32 (Major) and G-33 (Minor) added 2026-11-19: Blocker 5, Major 16, Minor 12 (33 rows). G-34 (Minor) added 2026-11-20: Blocker 5, Major 16, Minor 13 (34 rows). G-35 (Major) added 2026-11-20: Blocker 5, Major 17, Minor 13 (35 rows). G-36 (Minor) added 2026-11-20: Blocker 5, Major 17, Minor 14 (36 rows). G-37 (Major) added 2026-11-20: Blocker 5, Major 18, Minor 14 (37 rows). G-38, G-39, G-40 (Major) added 2026-11-20 from the task 5 review: Blocker 5, Major 21, Minor 14 (40 rows).
 
@@ -315,6 +317,8 @@ R-15…R-22: see 05-status.md (not listed on the board at the `module-05` tip; t
 | R-62 | G-58 | (2026-11-20, task 20 reading) `RemoveComp` on a `deal_part` named alone → 400 `VALIDATION_FAILED` (issue at `order_item_id`); command and re-check. | 05 v1.0.14 §6.14; plan row 20 |
 | R-63 | G-59 | (2026-11-20, task 31a STOP) the `/admin/fiscal/` page had no read: new `GET /admin/queries/fiscal-credentials` (admin, `manage-fiscal-settings`, never the token, 2 statements). | 05 v1.0.14 §6.28b; plan row 31a |
 | R-64 | G-60 | (2026-11-20, task 17 review) B15's unit sum contradicted §5 / H1-27 for amount / equal splits: the sum holds for item splits; any closed row freezes the whole line otherwise. Text only. | 05 v1.0.14 B15, §10; plan rows 17, 24, 3b |
+| R-65 | G-61 | (2026-11-20, task 32a build) the `money_request_raised` row is written by 04's built-in `AlertRaised` map (P0.15), which writes no kind and which 05 cannot override: the raised row's detail carries no kind (join `audit_requests` on `alert_id`); `money_request_answered` keeps it. Text only. | 05 v1.0.15 V-3, §6.30, §10 #87; plan row 32a |
+| R-66 | G-62 | (2026-11-20, task 19 build) 01d AD-91: `apply` mints no ids, so `reopen_bill` values gain `credit_invoice_ids` (ULIDs minted at raise, one per `invoice_ids` entry, same order); approve uses `credit_invoice_ids[i]` for `invoice_ids[i]`; the direct path mints its own; a mismatch is refused by the existing re-check, never re-pairs an id. | 05 v1.0.15 §6.13, §3.14, §10 #37j; plan row 19 |
 
 ## Owner questions (all settled 2026-11-19)
 
