@@ -12,10 +12,13 @@ import {
   type ReportDocInput,
 } from './docs.js';
 import type { FiscalCreditInvoiceFields, FiscalSaleInvoiceFields, FiscalSnapshot } from './fiscal-snapshot.js';
+import { renderText } from '../print-render.js';
+import { computeBill, computeSplit, spreadLineTaxes, type ComputeSplitInput, type ComputeSplitLine } from './compute.js';
+import { line as billLine, pkPbProfile, PK_PB_RULES, TODAY } from './compute.fixtures.js';
 
 // 05 §3.16, B17, B21, B29, §6.26; §11 task 4a: pure Doc builders over 03c's Doc / DocBlock. They lay out the
-// numbers they are given (no tax, rounding or due is computed here). Not in 4a: the QR block (row P-3) and the
-// buyer-ID filler block (row P-5) — task 4b.
+// numbers they are given (no tax, rounding or due is computed here). Task 4b (rows P-3 / P-5, R-11, G-24, G-25): the
+// fiscal state, the QR block, the buyer fill block and the inclusive memo — the last describe blocks of this file.
 
 const texts = (doc: Doc): string[] => doc.blocks.flatMap((b) => ('text' in b ? b.text.split('\n') : []));
 const joined = (doc: Doc): string => texts(doc).join('\n');
@@ -131,6 +134,12 @@ function sale(over: Partial<FiscalSaleInvoiceFields> = {}): FiscalSaleInvoiceFie
   };
 }
 
+// R-11 / G-2: the invoice's fiscal state as the hub holds it (outbox row state; number + QR payload once acked).
+const NOT_REQUIRED = { state: 'not_required' } as const;
+const PENDING = { state: 'pending' } as const;
+const REJECTED = { state: 'rejected' } as const;
+const acked = (fiscal_number: string, qr_payload: string | null = null) => ({ state: 'acked', fiscal_number, qr_payload }) as const;
+
 const card = { mode_name: 'Card', payment_class: 'digital', direction: 'in', amount_minor: 599_600 } as const;
 const cash = (amount_minor: number) => ({ mode_name: 'Cash', payment_class: 'cash', direction: 'in', amount_minor }) as const;
 
@@ -141,7 +150,8 @@ const receiptInput = (over: Partial<Parameters<typeof buildReceiptDoc>[0]> = {})
   cashier_name: 'Bilal',
   order_label: 'T7',
   bill_label: 'T7 split 1',
-  fiscal_number: null,
+  fiscal: NOT_REQUIRED,
+  buyer: null,
   is_reprint: false,
   ...over,
 });
@@ -182,6 +192,8 @@ describe('check bill (B17)', () => {
       rounding_minor: 40,
       cash_total_minor: 662_400,
       digital_total_minor: 599_600,
+      prices_include_tax: false,
+      service_charge_taxes: [],
       ...over,
     };
   }
@@ -363,7 +375,7 @@ describe('receipt (#34, #20, #61 doc halves)', () => {
     const fiscalized = sale({
       fiscal: snapshot({ adapter_key: 'PRA', pos_id: 'P1', required: true, receipt: { ...snapshot().receipt, fiscal_number_label: 'PRA invoice no.' } }),
     });
-    const pending = buildReceiptDoc(receiptInput({ invoice: fiscalized }), ctx());
+    const pending = buildReceiptDoc(receiptInput({ invoice: fiscalized, fiscal: PENDING }), ctx());
     expect(texts(pending)).toContain('FISCAL NUMBER PENDING');
     expect(joined(pending)).not.toContain('PRA invoice no.');
     const plain = buildReceiptDoc(receiptInput(), ctx());
@@ -375,12 +387,13 @@ describe('receipt (#34, #20, #61 doc halves)', () => {
     const noneRequired = sale({ fiscal: snapshot({ adapter_key: 'none', required: true }) });
     const plain = buildReceiptDoc(receiptInput({ invoice: noneRequired }), ctx());
     expect(joined(plain)).not.toContain('FISCAL');
-    expect(joined(buildReceiptDoc(receiptInput({ invoice: noneRequired, fiscal_number: 'N9' }), ctx()))).not.toContain('N9');
+    // R-11: a fiscal state that disagrees with the snapshot is a caller bug, refused (outbox and docs agree, P0.19a)
+    expect(() => buildReceiptDoc(receiptInput({ invoice: noneRequired, fiscal: acked('N9') }), ctx())).toThrow(RangeError);
     const noneCredit = { ...noneRequired, series: 'credit' as const, invoice_id: 'cr1', invoice_ref: 'AC1C000007', ref_invoice_id: 'inv1', ref_invoice_ref: 'AC1S000123' };
-    expect(joined(buildCreditNoteDoc({ invoice: noneCredit, buyer_id: null, fiscal_number: null, is_reprint: false, cashier_name: null }, ctx()))).not.toContain('FISCAL');
+    expect(joined(buildCreditNoteDoc({ invoice: noneCredit, buyer_id: null, fiscal: NOT_REQUIRED, is_reprint: false, cashier_name: null }, ctx()))).not.toContain('FISCAL');
     // A required snapshot under a real (test) adapter is fiscalized: PENDING until the answer.
     const testRequired = sale({ fiscal: snapshot({ adapter_key: TEST_ADAPTER, pos_id: 'P1', required: true }) });
-    expect(texts(buildReceiptDoc(receiptInput({ invoice: testRequired }), ctx()))).toContain('FISCAL NUMBER PENDING');
+    expect(texts(buildReceiptDoc(receiptInput({ invoice: testRequired, fiscal: PENDING }), ctx()))).toContain('FISCAL NUMBER PENDING');
     // Not required under a real adapter (fiscalize: false order type): no block.
     const testNotRequired = sale({ fiscal: snapshot({ adapter_key: TEST_ADAPTER, pos_id: 'P1', required: false }) });
     expect(joined(buildReceiptDoc(receiptInput({ invoice: testNotRequired }), ctx()))).not.toContain('FISCAL');
@@ -390,27 +403,21 @@ describe('receipt (#34, #20, #61 doc halves)', () => {
     const fiscalized = sale({
       fiscal: snapshot({ adapter_key: 'PRA', pos_id: 'P1', required: true, receipt: { ...snapshot().receipt, fiscal_number_label: 'PRA invoice no.' } }),
     });
-    const before = buildReceiptDoc(receiptInput({ invoice: fiscalized, is_reprint: true }), ctx());
+    const before = buildReceiptDoc(receiptInput({ invoice: fiscalized, fiscal: PENDING, is_reprint: true }), ctx());
     expect(texts(before)).toContain('** REPRINT **');
     expect(texts(before)).toContain('FISCAL NUMBER PENDING');
-    const after = buildReceiptDoc(receiptInput({ invoice: fiscalized, is_reprint: true, fiscal_number: '1234ABC' }), ctx());
+    const after = buildReceiptDoc(receiptInput({ invoice: fiscalized, is_reprint: true, fiscal: acked('1234ABC') }), ctx());
     expect(lineWith(after, 'PRA invoice no.')).toContain('1234ABC');
     expect(joined(after)).not.toContain('PENDING');
     // no label in the snapshot → a neutral label
     const unlabelled = sale({ fiscal: snapshot({ adapter_key: TEST_ADAPTER, pos_id: 'P1', required: true }) });
-    expect(lineWith(buildReceiptDoc(receiptInput({ invoice: unlabelled, fiscal_number: 'N9' }), ctx()), 'N9')).toBe(
-      lineWith(buildReceiptDoc(receiptInput({ invoice: unlabelled, fiscal_number: 'N9' }), ctx()), 'Fiscal no.'),
+    expect(lineWith(buildReceiptDoc(receiptInput({ invoice: unlabelled, fiscal: acked('N9') }), ctx()), 'N9')).toBe(
+      lineWith(buildReceiptDoc(receiptInput({ invoice: unlabelled, fiscal: acked('N9') }), ctx()), 'Fiscal no.'),
     );
-    // a fiscal number never prints on an invoice that is not fiscalized
-    expect(joined(buildReceiptDoc(receiptInput({ fiscal_number: 'N9' }), ctx()))).not.toContain('N9');
+    // a fiscal number never prints on an invoice that is not fiscalized: the builder refuses the state (R-11)
+    expect(() => buildReceiptDoc(receiptInput({ fiscal: acked('N9') }), ctx())).toThrow(RangeError);
   });
 
-  it('[05 #61 doc half] no QR block in 4a even when the snapshot asks for one (row P-3 is 4b)', () => {
-    const fiscalized = sale({ fiscal: snapshot({ adapter_key: TEST_ADAPTER, pos_id: 'P1', required: true, receipt: { ...snapshot().receipt, show_qr: true, qr_url_template: 'https://x/{fiscal_number}' } }) });
-    const doc = buildReceiptDoc(receiptInput({ invoice: fiscalized, fiscal_number: 'N9' }), ctx());
-    expect(doc.blocks.every((b) => 'text' in b || 'rule' in b || 'feed' in b || 'cut' in b || 'drawer' in b)).toBe(true);
-    expect(joined(doc)).not.toContain('https://x/');
-  });
 });
 
 describe('credit note', () => {
@@ -420,7 +427,7 @@ describe('credit note', () => {
 
   it('[05 §3.16 Q-3] credit note: title, its number, the original, amounts, and the last 4 of a buyer ID only', () => {
     const doc = buildCreditNoteDoc(
-      { invoice: credit(), buyer_id: { type_label: 'CNIC', last4: '4567' }, fiscal_number: null, is_reprint: false, cashier_name: null },
+      { invoice: credit(), buyer_id: { type_label: 'CNIC', last4: '4567' }, fiscal: NOT_REQUIRED, is_reprint: false, cashier_name: null },
       ctx(),
     );
     expect(texts(doc)).toContain('CREDIT NOTE');
@@ -435,7 +442,7 @@ describe('credit note', () => {
 
   it('[05 §3.16 Q-3] a longer value passed as last4 still prints 4 characters only', () => {
     const doc = buildCreditNoteDoc(
-      { invoice: credit(), buyer_id: { type_label: 'CNIC', last4: '3520212345671' }, fiscal_number: null, is_reprint: false, cashier_name: null },
+      { invoice: credit(), buyer_id: { type_label: 'CNIC', last4: '3520212345671' }, fiscal: NOT_REQUIRED, is_reprint: false, cashier_name: null },
       ctx(),
     );
     expect(joined(doc)).not.toContain('352021234');
@@ -444,9 +451,9 @@ describe('credit note', () => {
 
   it('[05 B21] fiscalized credit: PENDING before the answer, the number after; no buyer line without a buyer', () => {
     const invoice = credit({ fiscal: snapshot({ adapter_key: TEST_ADAPTER, pos_id: 'P1', required: true, receipt: { ...snapshot().receipt, fiscal_number_label: 'PRA invoice no.' } }) });
-    const before = buildCreditNoteDoc({ invoice, buyer_id: null, fiscal_number: null, is_reprint: false, cashier_name: null }, ctx());
+    const before = buildCreditNoteDoc({ invoice, buyer_id: null, fiscal: PENDING, is_reprint: false, cashier_name: null }, ctx());
     expect(texts(before)).toContain('FISCAL NUMBER PENDING');
-    const after = buildCreditNoteDoc({ invoice, buyer_id: null, fiscal_number: 'C55', is_reprint: true, cashier_name: null }, ctx());
+    const after = buildCreditNoteDoc({ invoice, buyer_id: null, fiscal: acked('C55'), is_reprint: true, cashier_name: null }, ctx());
     expect(lineWith(after, 'PRA invoice no.')).toContain('C55');
     expect(texts(after)).toContain('** REPRINT **');
     expect(joined(after)).not.toContain('****');
@@ -576,6 +583,8 @@ describe('32 and 48 columns', () => {
           rounding_minor: 0,
           cash_total_minor: 191_000,
           digital_total_minor: null,
+          prices_include_tax: false,
+          service_charge_taxes: [],
         },
         ctx(cols),
       ),
@@ -594,5 +603,347 @@ describe('32 and 48 columns', () => {
     const i = doc.blocks.findIndex((b) => 'text' in b && b.text === longName);
     expect(i).toBeGreaterThanOrEqual(0);
     expect(doc.blocks[i + 1]).toEqual({ text: '3,800.00', align: 'right' });
+  });
+});
+
+// =============================================================================================================== 4b
+
+/** `left` and `right` spread over `cols` (the builders' two-column line). */
+const row = (left: string, right: string, cols: 32 | 48 = 48) => left + ' '.repeat(cols - left.length - right.length) + right;
+
+/** A fiscalized (test adapter) sale whose snapshot asks for a QR from `template`. */
+function qrSale(template: string | null, show_qr = true, over: Partial<FiscalSnapshot['receipt']> = {}): FiscalSaleInvoiceFields {
+  return sale({
+    fiscal: snapshot({
+      adapter_key: TEST_ADAPTER,
+      pos_id: 'P1',
+      required: true,
+      receipt: { ...snapshot().receipt, fiscal_number_label: 'PRA invoice no.', show_qr, qr_url_template: template, ...over },
+    }),
+  });
+}
+const TEMPLATE = 'https://verify.test/inv?n={fiscal_number}';
+const qrBlocks = (doc: Doc) => doc.blocks.filter((b): b is Extract<DocBlock, { qr: string }> => 'qr' in b);
+
+describe('[05 4b] fiscal state (R-11 / G-2, B21, §3.16, §6.22)', () => {
+  it('[05 #61 QR half, R-11] rejected → "FISCAL NUMBER NOT ISSUED" on the receipt and its reprint; never PENDING, no number, no QR', () => {
+    for (const is_reprint of [false, true]) {
+      const doc = buildReceiptDoc(receiptInput({ invoice: qrSale(TEMPLATE), fiscal: REJECTED, is_reprint }), ctx());
+      expect(texts(doc)).toContain('FISCAL NUMBER NOT ISSUED');
+      expect(joined(doc)).not.toContain('PENDING');
+      expect(joined(doc)).not.toContain('PRA invoice no.');
+      expect(qrBlocks(doc)).toEqual([]);
+      expect(texts(doc).includes('** REPRINT **')).toBe(is_reprint);
+    }
+  });
+
+  it('[05 #61 QR half, R-11] pending → PENDING and no QR, even when the snapshot asks for one', () => {
+    const doc = buildReceiptDoc(receiptInput({ invoice: qrSale(TEMPLATE), fiscal: PENDING }), ctx());
+    expect(texts(doc)).toContain('FISCAL NUMBER PENDING');
+    expect(joined(doc)).not.toContain('NOT ISSUED');
+    expect(qrBlocks(doc)).toEqual([]);
+  });
+
+  it('[05 R-11, P0.19a] a state that disagrees with the snapshot is refused: not_required on a fiscalized invoice, any other on a plain one', () => {
+    expect(() => buildReceiptDoc(receiptInput({ invoice: qrSale(TEMPLATE), fiscal: NOT_REQUIRED }), ctx())).toThrow(RangeError);
+    for (const fiscal of [PENDING, REJECTED, acked('N9')]) {
+      expect(() => buildReceiptDoc(receiptInput({ fiscal }), ctx())).toThrow(RangeError);
+    }
+    expect(() => buildReceiptDoc(receiptInput({ fiscal: NOT_REQUIRED }), ctx())).not.toThrow();
+  });
+
+  it('[05 #78, R-11] the credit note follows the same states: rejected → NOT ISSUED, acked → number + QR', () => {
+    const invoice = { ...qrSale(TEMPLATE), series: 'credit' as const, invoice_id: 'cr1', invoice_ref: 'AC1C000007', ref_invoice_id: 'inv1', ref_invoice_ref: 'AC1S000123' };
+    const base = { invoice, buyer_id: null, is_reprint: false, cashier_name: null };
+    const rejected = buildCreditNoteDoc({ ...base, fiscal: REJECTED }, ctx());
+    expect(texts(rejected)).toContain('FISCAL NUMBER NOT ISSUED');
+    expect(joined(rejected)).not.toContain('PENDING');
+    const ok = buildCreditNoteDoc({ ...base, fiscal: acked('C55') }, ctx());
+    expect(texts(ok)).toContain(row('PRA invoice no.', 'C55'));
+    expect(qrBlocks(ok)).toEqual([{ qr: 'https://verify.test/inv?n=C55' }]);
+    expect(() => buildCreditNoteDoc({ ...base, fiscal: NOT_REQUIRED }, ctx())).toThrow(RangeError);
+  });
+});
+
+describe('[05 4b] QR block (row P-3; B21, §6.22, A3, R-26)', () => {
+  it('[05 #61 QR half] acked: the fiscal number line, then the QR block from the snapshot template; no size (the printer decides, R-26)', () => {
+    for (const is_reprint of [false, true]) {
+      const doc = buildReceiptDoc(receiptInput({ invoice: qrSale(TEMPLATE), fiscal: acked('FN-000777'), is_reprint }), ctx());
+      const at = doc.blocks.findIndex((b) => 'qr' in b);
+      expect(doc.blocks[at]).toEqual({ qr: 'https://verify.test/inv?n=FN-000777' });
+      expect(doc.blocks[at - 1]).toEqual({ text: row('PRA invoice no.', 'FN-000777'), bold: true });
+      expect(qrBlocks(doc)).toHaveLength(1);
+      expect(joined(doc)).not.toMatch(/PENDING|NOT ISSUED/);
+    }
+  });
+
+  it('[05 #61 QR half] the answer\'s own qr_payload wins over the template (Appendix P: "unless the answer carries its own payload")', () => {
+    const doc = buildReceiptDoc(receiptInput({ invoice: qrSale(TEMPLATE), fiscal: acked('FN-1', 'AUTH-QR-PAYLOAD-1') }), ctx());
+    expect(qrBlocks(doc)).toEqual([{ qr: 'AUTH-QR-PAYLOAD-1' }]);
+    // and with no template at all
+    const noTemplate = buildReceiptDoc(receiptInput({ invoice: qrSale(null), fiscal: acked('FN-1', 'AUTH-QR-PAYLOAD-1') }), ctx());
+    expect(qrBlocks(noTemplate)).toEqual([{ qr: 'AUTH-QR-PAYLOAD-1' }]);
+  });
+
+  it('[05 #61 QR half] no QR when the snapshot does not ask (show_qr false), or asks with neither template nor payload; the number still prints', () => {
+    const off = buildReceiptDoc(receiptInput({ invoice: qrSale(TEMPLATE, false), fiscal: acked('FN-1', 'AUTH-QR') }), ctx());
+    expect(qrBlocks(off)).toEqual([]);
+    expect(texts(off)).toContain(row('PRA invoice no.', 'FN-1'));
+    const nothing = buildReceiptDoc(receiptInput({ invoice: qrSale(null), fiscal: acked('FN-1') }), ctx());
+    expect(qrBlocks(nothing)).toEqual([]);
+    expect(texts(nothing)).toContain(row('PRA invoice no.', 'FN-1'));
+  });
+
+  it('[05 #61 QR half, H9-6] the template is the invoice snapshot\'s; every {fiscal_number} is replaced', () => {
+    const doc = buildReceiptDoc(receiptInput({ invoice: qrSale('https://a.test/{fiscal_number}?again={fiscal_number}'), fiscal: acked('N9') }), ctx());
+    expect(qrBlocks(doc)).toEqual([{ qr: 'https://a.test/N9?again=N9' }]);
+  });
+
+  it('[05 row P-3] the 400 limit counts code points: 400 kept (also 400 astral characters), 401 → no QR block, the number line stays', () => {
+    const astral = '\u{1F600}'.repeat(400); // 800 UTF-16 units, 400 code points
+    expect(qrBlocks(buildReceiptDoc(receiptInput({ invoice: qrSale(null), fiscal: acked('N9', 'a'.repeat(400)) }), ctx()))).toHaveLength(1);
+    expect(qrBlocks(buildReceiptDoc(receiptInput({ invoice: qrSale(null), fiscal: acked('N9', astral) }), ctx()))).toHaveLength(1);
+    const over = buildReceiptDoc(receiptInput({ invoice: qrSale(null), fiscal: acked('N9', 'a'.repeat(401)) }), ctx());
+    expect(qrBlocks(over)).toEqual([]);
+    expect(texts(over)).toContain(row('PRA invoice no.', 'N9'));
+    // an empty payload is no QR either (03c's encoder refuses it)
+    expect(qrBlocks(buildReceiptDoc(receiptInput({ invoice: qrSale(null), fiscal: acked('N9', '') }), ctx()))).toEqual([]);
+  });
+
+  it('[05 #61 QR half, row P-3] renderText at 48 columns: rule, number line, `[QR] <payload>` on one line', () => {
+    const doc = buildReceiptDoc(receiptInput({ invoice: qrSale(TEMPLATE), fiscal: acked('FN-000777') }), ctx(48));
+    const out = renderText(doc, 48).split('\n');
+    const at = out.indexOf(row('PRA invoice no.', 'FN-000777', 48));
+    expect(out.slice(at - 1, at + 2)).toEqual(['-'.repeat(48), row('PRA invoice no.', 'FN-000777', 48), '[QR] https://verify.test/inv?n=FN-000777']);
+  });
+
+  it('[05 #61 QR half, row P-3] renderText at 32 columns: the `[QR] <payload>` line wraps at 32, the long word broken', () => {
+    const doc = buildReceiptDoc(receiptInput({ invoice: qrSale(TEMPLATE), fiscal: acked('FN-000777') }), ctx(32));
+    const out = renderText(doc, 48).split('\n'); // doc.width_cols (32) wins
+    const qrLine = '[QR] https://verify.test/inv?n=FN-000777';
+    const at = out.indexOf(row('PRA invoice no.', 'FN-000777', 32));
+    expect(out.slice(at - 1, at + 3)).toEqual(['-'.repeat(32), row('PRA invoice no.', 'FN-000777', 32), qrLine.slice(0, 32), qrLine.slice(32)]);
+    for (const l of out) expect(l.length).toBeLessThanOrEqual(32);
+  });
+
+  it('[05 B17] the check bill never carries a QR or a fill block', () => {
+    const doc = buildCheckBillDoc(
+      {
+        identifier: 'T7',
+        printed_at: ISSUED_AT,
+        lines: [],
+        subtotal_minor: 0,
+        discount_minor: 0,
+        service_charge_minor: 0,
+        taxes: [],
+        rounding_minor: 0,
+        cash_total_minor: 0,
+        digital_total_minor: null,
+        prices_include_tax: false,
+        service_charge_taxes: [],
+      },
+      ctx(),
+    );
+    expect(doc.blocks.some((b) => 'qr' in b || 'fill' in b)).toBe(false);
+  });
+});
+
+describe('[05 4b] buyer fill block (row P-5; B19, §6.12 step 7, §6.22)', () => {
+  // An obviously fake ID, used only in this file; the scan below proves no Doc / preview carries it.
+  const FULL_ID = '9999900001234';
+  const buyerOn = (on: boolean) =>
+    sale({ fiscal: snapshot({ adapter_key: TEST_ADAPTER, pos_id: 'P1', required: true, receipt: { ...snapshot().receipt, buyer_id_on_receipt: on } }) });
+
+  /** Every place a Doc could carry the ID to: the stored JSON (print_jobs.payload's doc) and both previews. */
+  const leaksOf = (secret: string, doc: Doc): string[] =>
+    [
+      ['Doc JSON', JSON.stringify(doc)],
+      ['renderText 48', renderText(doc, 48)],
+      ['renderText 32', renderText(doc, 32)],
+    ]
+      .filter(([, text]) => text!.includes(secret))
+      .map(([place]) => place!);
+
+  it('[05 row P-5, B19] the receipt carries { fill: "buyer_id", ref: invoice_id, last4 } when the snapshot prints the buyer ID; renderText prints last4', () => {
+    const doc = buildReceiptDoc(receiptInput({ invoice: buyerOn(true), fiscal: PENDING, buyer: { type_label: 'CNIC', last4: '1234' } }), ctx());
+    const fills = doc.blocks.filter((b) => 'fill' in b);
+    expect(fills).toEqual([{ fill: 'buyer_id', ref: 'inv1', last4: 'CNIC: ****1234' }]);
+    // right after the invoice number line, before the item lines
+    const at = doc.blocks.findIndex((b) => 'fill' in b);
+    expect(doc.blocks[at - 1]).toEqual({ text: row('Invoice', 'AC1S000123'), bold: true });
+    expect(renderText(doc, 48).split('\n')).toContain('CNIC: ****1234');
+  });
+
+  it('[05 B19] the full ID never enters the Doc: a full value passed as last4 is cut to its last 4 (scan: Doc JSON, renderText 48 / 32)', () => {
+    for (const is_reprint of [false, true]) {
+      const doc = buildReceiptDoc(
+        receiptInput({ invoice: buyerOn(true), fiscal: PENDING, is_reprint, buyer: { type_label: 'CNIC', last4: FULL_ID } }),
+        ctx(),
+      );
+      expect(doc.blocks.filter((b) => 'fill' in b)).toEqual([{ fill: 'buyer_id', ref: 'inv1', last4: 'CNIC: ****1234' }]);
+      expect(leaksOf('1234', doc).length).toBeGreaterThan(0); // the scan is live
+      expect(leaksOf(FULL_ID, doc)).toEqual([]);
+      expect(leaksOf(FULL_ID.slice(0, 9), doc)).toEqual([]);
+    }
+  });
+
+  it('[05 §6.12 step 7] no fill block when the snapshot does not print the buyer ID, or the invoice has no buyer', () => {
+    const off = buildReceiptDoc(receiptInput({ invoice: buyerOn(false), fiscal: PENDING, buyer: { type_label: 'CNIC', last4: '1234' } }), ctx());
+    expect(off.blocks.some((b) => 'fill' in b)).toBe(false);
+    expect(joined(off)).not.toContain('****');
+    const none = buildReceiptDoc(receiptInput({ invoice: buyerOn(true), fiscal: PENDING, buyer: null }), ctx());
+    expect(none.blocks.some((b) => 'fill' in b)).toBe(false);
+  });
+
+  it('[05 Q-3] the credit note keeps the last 4 as plain text, never a fill block', () => {
+    const invoice = { ...buyerOn(true), series: 'credit' as const, invoice_id: 'cr1', invoice_ref: 'AC1C000007', ref_invoice_id: 'inv1', ref_invoice_ref: 'AC1S000123' };
+    const doc = buildCreditNoteDoc({ invoice, buyer_id: { type_label: 'CNIC', last4: FULL_ID }, fiscal: PENDING, is_reprint: false, cashier_name: null }, ctx());
+    expect(doc.blocks.some((b) => 'fill' in b)).toBe(false);
+    expect(leaksOf(FULL_ID, doc)).toEqual([]);
+  });
+});
+
+describe('[05 4b] inclusive prices: the memo tax block (G-24)', () => {
+  // PK-PB's profile with prices including tax, a discount share on one line and a 10 % service charge taxed under the
+  // same profile; no payment → cash class (16 %). The invoice is mapped from computeSplit + spreadLineTaxes as task 17 does.
+  const rules = { ...PK_PB_RULES, prices_include_tax: true };
+  const splitLines: ComputeSplitLine[] = [
+    { ...billLine('oi1', 116_000, 'restaurant'), discount_minor: 1_160 },
+    { ...billLine('oi2', 58_050, 'restaurant', { units: 3, unit_price_minor: 19_350 }), discount_minor: 0 },
+  ];
+  const input: ComputeSplitInput = {
+    split_no: 1,
+    business_date: TODAY,
+    rules,
+    // PK-PB's rates under a short label, so every printed row fits one 48-column line
+    tax_profiles: [{ ...pkPbProfile(), taxes: [{ ...pkPbProfile().taxes[0]!, label: 'PST' }] }],
+    lines: splitLines,
+    service_charge: { rate_bp: 1000, removed: false, tax_profile_id: 'restaurant' },
+    payments: [],
+  };
+  const split = computeSplit(input);
+  const spread = spreadLineTaxes(input);
+  const t = split.totals.as_paid;
+  const inclusive = sale({
+    prices_include_tax: true,
+    lines: splitLines.map((l, i) => ({
+      order_item_id: l.order_item_id,
+      item_id: l.order_item_id,
+      name: `Item ${i + 1}`,
+      units: l.units,
+      unit_price_minor: l.unit_price_minor,
+      base_minor: l.base_minor,
+      discount_minor: l.discount_minor,
+      tax_profile_id: l.tax_profile_id,
+      fiscal_category: 'restaurant_service',
+      taxes: spread.lines[i]!.taxes,
+    })),
+    service_charge: spread.service_charge,
+    subtotal_minor: t.subtotal_minor,
+    discount_minor: t.discount_minor,
+    taxes: t.taxes,
+    rounding_minor: t.rounding_minor,
+    total_minor: t.total_minor,
+  });
+  const amount = (text: string): number => Math.round(Number(text.trim().split(/\s+/).pop()!.replace(/,/g, '')) * 100);
+
+  it('[05 P0.G G-24] the printed lines add up: subtotal − discount + charge + the charge\'s taxes + rounding = TOTAL; the memo holds the included tax', () => {
+    expect(t.service_charge_minor).toBeGreaterThan(0);
+    expect(spread.service_charge!.taxes[0]!.tax_minor).toBeGreaterThan(0);
+    const out = texts(buildReceiptDoc(receiptInput({ invoice: inclusive }), ctx()));
+    const get = (prefix: string) => out.filter((l) => l.startsWith(prefix));
+    const total = amount(get('TOTAL PKR')[0]!);
+    const tot = out.indexOf(get('TOTAL PKR')[0]!);
+    const above = out.slice(0, tot);
+    const sum =
+      amount(above.find((l) => l.startsWith('Subtotal'))!) +
+      amount(above.find((l) => l.startsWith('Discount'))!) +
+      amount(above.find((l) => l.startsWith('Service charge '))!) +
+      above.filter((l) => l.includes('on service charge')).reduce((a, l) => a + amount(l), 0) +
+      above.filter((l) => l.startsWith('Rounding')).reduce((a, l) => a + amount(l), 0);
+    expect(sum).toBe(total);
+    expect(total).toBe(t.total_minor);
+    // no full tax row above TOTAL (it is inside the menu prices); the memo below TOTAL holds the lines' part
+    expect(above.some((l) => /^PST 16% cash\s+[\d,.]+$/.test(l))).toBe(false);
+    const memoAt = out.indexOf('Tax included in prices');
+    expect(memoAt).toBeGreaterThan(tot);
+    const memo = out.slice(memoAt + 1).filter((l) => l.startsWith('  PST 16% cash'));
+    expect(memo).toHaveLength(1);
+    const scTax = spread.service_charge!.taxes.reduce((a, x) => a + x.tax_minor, 0);
+    // memo + the charge's taxes = the invoice's tax rows (Σ printed tax = Σ invoice tax rows, §3.5 (8))
+    expect(amount(memo[0]!) + scTax).toBe(t.taxes.reduce((a, x) => a + x.tax_minor, 0));
+  });
+
+  it('[05 P0.G G-24] exclusive prices are unchanged: full tax rows above TOTAL, no memo block', () => {
+    const out = texts(buildReceiptDoc(receiptInput(), ctx()));
+    expect(out).not.toContain('Tax included in prices');
+    expect(out).toContain(row('PST 5% card', '285.50'));
+  });
+
+  it('[05 P0.G G-24] the check bill too: inclusive → the charge\'s taxes above the total, the rest as a memo', () => {
+    const scRows = spread.service_charge!.taxes.map((x) => ({ label: 'PST', rate_bp: x.rate_bp, payment_class: x.payment_class, tax_minor: x.tax_minor }));
+    const doc = buildCheckBillDoc(
+      {
+        identifier: 'T7',
+        printed_at: ISSUED_AT,
+        lines: [],
+        subtotal_minor: t.subtotal_minor,
+        discount_minor: t.discount_minor,
+        service_charge_minor: t.service_charge_minor,
+        taxes: t.taxes.map((x) => ({ label: x.label, rate_bp: x.rate_bp, payment_class: x.payment_class, tax_minor: x.tax_minor })),
+        rounding_minor: t.rounding_minor,
+        cash_total_minor: t.total_minor,
+        digital_total_minor: null,
+        prices_include_tax: true,
+        service_charge_taxes: scRows,
+      },
+      ctx(),
+    );
+    const out = texts(doc);
+    const tot = out.findIndex((l) => l.startsWith('Total if paid in cash'));
+    const above = out.slice(0, tot);
+    const sum =
+      amount(above.find((l) => l.startsWith('Subtotal'))!) +
+      amount(above.find((l) => l.startsWith('Discount'))!) +
+      amount(above.find((l) => l.startsWith('Service charge '))!) +
+      above.filter((l) => l.includes('on service charge')).reduce((a, l) => a + amount(l), 0) +
+      above.filter((l) => l.startsWith('Rounding')).reduce((a, l) => a + amount(l), 0);
+    expect(sum).toBe(amount(out[tot]!));
+    expect(out.indexOf('Tax included in prices')).toBeGreaterThan(tot);
+  });
+});
+
+describe('[05 4b] check bill digital line from totals_default_digital (G-25, P0.19d)', () => {
+  it('[05 P0.G G-25] computeBill → the slip: cash 6,624.00 from totals_default, card 5,996.00 from totals_default_digital', () => {
+    const r = computeBill({
+      business_date: TODAY,
+      rules: PK_PB_RULES,
+      tax_profiles: [pkPbProfile()],
+      lines: [billLine('L1', 571_000, 'restaurant')],
+      discount: null,
+      service_charge: null,
+      plan: { mode: 'none', split_no: 1 },
+      payments: [],
+    });
+    const c = r.totals_default;
+    const doc = buildCheckBillDoc(
+      {
+        identifier: 'T7',
+        printed_at: ISSUED_AT,
+        lines: [{ name: 'Food', units: 1, unit_price_minor: 571_000, amount_minor: 571_000 }],
+        subtotal_minor: c.subtotal_minor,
+        discount_minor: c.discount_minor,
+        service_charge_minor: c.service_charge_minor,
+        taxes: c.taxes.map((x) => ({ label: 'PST', rate_bp: x.rate_bp, payment_class: x.payment_class, tax_minor: x.tax_minor })),
+        rounding_minor: c.rounding_minor,
+        cash_total_minor: c.total_minor,
+        digital_total_minor: r.totals_default_digital.total_minor,
+        prices_include_tax: false,
+        service_charge_taxes: [],
+      },
+      ctx(),
+    );
+    expect(texts(doc)).toContain(row('Total if paid in cash', '6,624.00'));
+    expect(texts(doc)).toContain(row('Total if paid by card', '5,996.00'));
   });
 });
