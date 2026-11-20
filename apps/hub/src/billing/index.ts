@@ -1,3 +1,5 @@
+// task 9 (§3.14, §3.15): the eight 05 alert kinds register at this module's load, before boot replays `alerts` (#89).
+import './kinds/index.js';
 import type { FastifyInstance } from 'fastify';
 import { currentDirectory } from '../auth/guards.js';
 import type { ProjectionRegistry } from '../projections/registry.js';
