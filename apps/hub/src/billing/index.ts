@@ -9,6 +9,8 @@ import type { SocketCtx } from '../ws/catch-up.js';
 import { registerOpenShift } from './commands/open-shift.js';
 import { registerPrintCheckBill } from './commands/print-check-bill.js';
 import { registerPayments } from './commands/payments.js'; // task 16
+// task 13 (§6.6, §6.7, §3.14): ApplyDiscount / RemoveDiscount; the module load registers the discount apply
+import { registerDiscount } from './commands/discount.js';
 import { registerSetSplits } from './commands/set-splits.js';
 // task 14 (§6.8, §3.14): RemoveServiceCharge / ApplyServiceCharge; the module load registers the remove_service_charge apply
 import { registerServiceCharge } from './commands/service-charge.js';
@@ -48,6 +50,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerRemoveComp(app);
   // task 16 (§6.9, §6.10): AddPayment and RemovePayment
   registerPayments(app);
+  // task 13 (§6.6, §6.7)
+  registerDiscount(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
