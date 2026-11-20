@@ -13,6 +13,7 @@ import { registerOpenShift } from './commands/open-shift.js';
 import { registerOpenCashDrawer } from './commands/open-cash-drawer.js'; // task 23
 import { registerPrintCheckBill } from './commands/print-check-bill.js';
 import { registerPrintDocs } from './commands/print-docs.js'; // task 27
+import { registerPrintReport } from './commands/print-report.js'; // task 27b
 import { registerPayments } from './commands/payments.js'; // task 16
 // task 13 (§6.6, §6.7, §3.14): ApplyDiscount / RemoveDiscount; the module load registers the discount apply
 import { registerDiscount } from './commands/discount.js';
@@ -83,6 +84,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   // task 27 (§6.22, §6.23, §6.23a): PrintBillDocument, RetargetBillPrint and the Print to picker's printer list
   registerPrintDocs(app);
   registerBillPrintersQuery(app);
+  // task 27b (§6.22, R-87): PrintReport (X / Z at the report route → default)
+  registerPrintReport(app);
   // task 18 (§6.11)
   registerWaiveBuyerId(app);
   // task 31a (§6.28a, B22): SetFiscalToken on /admin/commands/set-fiscal-token
