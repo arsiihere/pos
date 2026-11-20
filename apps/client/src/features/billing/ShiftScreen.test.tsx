@@ -9,7 +9,7 @@ import { createLiveBus } from '../staff/shell/live';
 import { createPermissions } from '../staff/shell/permissions';
 import { createToastBus } from '../staff/shell/toast';
 import type { ShiftView } from './contracts';
-import { ShiftScreen } from './ShiftScreen';
+import { parseCount, ShiftScreen } from './ShiftScreen';
 import { TODO_05 } from './urdu-todo-05';
 
 // 05 v1.0.21 §8 "Shift" (open with float; close shows card / online totals and asks for the counted cash before any
@@ -256,8 +256,10 @@ describe('[05 §8 Shift, §6.16, B23] the blind close screen (frames ShiftClose,
     const res = [...v.container.querySelectorAll('.b5-res > div')].map((d) => d.textContent);
     expect(res).toEqual(['ExpectedRs 48,500.00', 'CountedRs 48,250.00', 'VarianceShort Rs 250.00']);
     expect(v.container.querySelector('.b5-res > .var')?.className).toContain('c-warn');
-    expect(txt(v, '.msg b')).toBe('Variance sent for sign-off (pending); the drawer is free');
-    expect(v.text()).toContain('More than Rs 100.00 short — a manager signs it off later. You can go.');
+    // frame ShiftVariancePending: the waiting card (info), the spec's line
+    expect(txt(v, '.b5-wait b')).toBe('Variance sent for sign-off (pending); the drawer is free');
+    expect(txt(v, '.b5-wait span')).toBe('Short Rs 250.00');
+    expect(v.container.querySelector('.b5-wait')?.className).toContain('c-info');
     expect(v.text()).toContain('1 petty cash request was cancelled because the shift closed');
     expect(txt(v, '.b5-bh .st')).toBe('Closed');
   });
@@ -304,6 +306,90 @@ describe('[05 §8 Shift, §6.16, B23] the blind close screen (frames ShiftClose,
   });
 });
 
+describe('[task 39 review] refusals, stale settings, closed shifts, layout', () => {
+  it('[review M2] CountShift refused SHIFT_NOT_OPEN (closed elsewhere): the shift is read again and shows closed', async () => {
+    const closed = view({ state: 'closed', counted_minor: 100_000, expected_minor: 100_000, variance_minor: 0 });
+    const s = setup({ views: [{ ok: true, data: view() }, { ok: true, data: closed }], answers: [{ ok: false, error: { kind: 'api', status: 409, code: 'SHIFT_NOT_OPEN', details: { reason: 'not_open' } } }] });
+    const v = await show(s);
+    typeIn(field(v, 'Cash counted'), '10');
+    await flush();
+    v.click(v.button('Count and close'));
+    await flush();
+    expect(s.query).toHaveBeenCalledTimes(2);
+    expect(txt(v, '.b5-bh .st')).toBe('Closed');
+    expect(v.buttons().some((b) => b.textContent === 'Count and close')).toBe(false);
+  });
+
+  it('[review M5] the sign-off tone follows the hub\'s answer, not the client\'s (maybe stale) threshold', async () => {
+    // client threshold Rs 100; the hub raised nothing for Short Rs 250 (its threshold is higher) → ok, "Nothing sent"
+    const s = setup({ answers: [{ ok: true, data: { shift_id: 'SH1', closed: true, expected_minor: 100_000, variance_minor: -25_000, sign_off: null, closed_requests: [] } }] });
+    const v = await show(s);
+    typeIn(field(v, 'Cash counted'), '750');
+    await flush();
+    v.click(v.button('Count and close'));
+    await flush();
+    expect(v.container.querySelector('.b5-res > .var')?.className).toContain('c-ok');
+    expect(v.container.querySelector('.b5-wait')).toBeNull();
+    expect(v.text()).toContain('Nothing sent for sign-off.');
+    v.unmount();
+    // and a sign-off within the client's threshold still reads warn with the waiting card
+    const t2 = setup({ threshold: 100_000, answers: [{ ok: true, data: { shift_id: 'SH1', closed: true, expected_minor: 100_000, variance_minor: -25_000, sign_off: { alert_id: 'A1' }, closed_requests: [] } }] });
+    m = await show(t2);
+    typeIn(field(m, 'Cash counted'), '750');
+    await flush();
+    m.click(m.button('Count and close'));
+    await flush();
+    expect(m.container.querySelector('.b5-res > .var')?.className).toContain('c-warn');
+    expect(txt(m, '.b5-wait b')).toBe('Variance sent for sign-off (pending); the drawer is free');
+  });
+
+  it('[review M4] a closed shift never counted: the cash row says "not counted", not "after you count"', async () => {
+    const v = await show(setup({ views: [{ ok: true, data: view({ state: 'closed' }) }] }), 'SH1');
+    expect(v.container.querySelector('.b5-tk.blind')?.textContent).toContain('not counted');
+    expect(v.text()).not.toContain('amount shows after you count');
+    expect(v.text()).toContain('Closed without a count');
+  });
+
+  it('[review M1] phone and portrait: one column (frame ShiftPhone); kiosk: two', async () => {
+    const k = await show(setup());
+    expect(k.container.querySelector('main')?.className).toBe('b5-page b5-shift');
+    k.unmount();
+    m = await show(setup({ device: 'phone' }));
+    expect(m.container.querySelector('main')?.className).toBe('b5-page b5-shift b5-shift--one');
+    m.unmount();
+    m = await show(setup({ device: 'phone', views: [NOT_FOUND] }));
+    expect(m.container.querySelector('main')?.className).toBe('b5-page b5-shift b5-shift--one');
+  });
+
+  it('[review M3] after Open shift the form is gone at once; a failed read then says so with Try again', async () => {
+    const s = setup({ views: [NOT_FOUND, { ok: false, error: { kind: 'network' } }, { ok: true, data: view() }], answers: [{ ok: true, data: { shift_id: 'SH1', opened_at: 1 } }] });
+    const v = await show(s);
+    typeIn(field(v, 'Starting cash'), '0');
+    await flush();
+    v.click(v.button('Open shift'));
+    await flush();
+    expect(v.buttons().some((b) => b.textContent === 'Open shift')).toBe(false);
+    expect(txt(v, '.msg span')).toBe('Needs the hub');
+    v.click(v.button('Try again'));
+    await flush();
+    expect(s.query.mock.calls[2]![0]).toBe('/queries/shift?shift_id=SH1');
+    expect(txt(v, '.b5-bh h1')).toBe('My shift');
+    expect(s.command).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('[05 §8 i18n; row F-6] parseCount (typed count / starting cash → minor units)', () => {
+  it('0 is fine; the exponent of the currency; refuses bad input and above 10¹²', () => {
+    for (const z of ['0', '00', '0.00', ' 0 ']) expect(parseCount(z, 2), z).toBe(0);
+    expect(parseCount('48,250.00', 2)).toBe(4_825_000);
+    expect(parseCount('1,234', 0)).toBe(1_234);
+    expect(parseCount('6.624', 3)).toBe(6_624);
+    expect(parseCount('10000000000', 2)).toBe(1e12);
+    for (const bad of ['', '-5', '1.234', 'abc', '10000000000.01']) expect(parseCount(bad, 2), bad).toBeNull();
+    expect(parseCount('1.5', 0)).toBeNull();
+  });
+});
+
 describe('[05 §6.18] close without counting (frame ShiftSkip)', () => {
   it('without skip-blind-count the button is not there', async () => {
     const v = await show(setup());
@@ -330,6 +416,21 @@ describe('[05 §6.18] close without counting (frame ShiftSkip)', () => {
     expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['CloseShift', { shift_id: 'SH1', skip_count: true, note: 'Power cut' }]);
     expect(s.shown).toEqual(['Shift closed without a count']);
     expect(txt(v, '.b5-bh .st')).toBe('Closed');
+  });
+
+  it('[review M7] the skip close lists its cancelled petty requests (§6.18 closed_requests)', async () => {
+    const s = setup({
+      grants: { 'skip-blind-count': { grant: 'allowed', scope: 'branch' } },
+      views: [{ ok: true, data: view() }, { ok: true, data: view({ state: 'closed' }) }],
+      answers: [{ ok: true, data: { closed: { shift_id: 'SH1' }, closed_requests: ['A1', 'A2'], open_advances: [] } }],
+    });
+    const v = await show(s);
+    v.click(v.button('Close without counting'));
+    await flush();
+    v.click([...v.container.querySelectorAll<HTMLButtonElement>('.b5-acts .btn--primary')].find((b) => b.textContent === 'Close without counting')!);
+    await flush();
+    expect(s.command.mock.calls[0]![1]).toEqual({ shift_id: 'SH1', skip_count: true });
+    expect(v.text()).toContain('2 petty cash requests were cancelled because the shift closed');
   });
 
   it('a refused skip (403 skip_not_granted) says "You can\'t skip the count"', async () => {
@@ -364,7 +465,8 @@ describe('[05 §6.19] count at handover (frames ShiftHandover, ShiftHandoverResu
     expect(txt(v, '.b5-step.done')).toBe('Handover counted · shift still open');
     expect(txt(v, '.b5-res > .var b')).toBe('Short Rs 40.00');
     expect(v.text()).toContain('Within the Rs 100.00 threshold — nothing sent.');
-    expect(v.text()).toContain('expected Rs 31,240.00');
+    // listed once (in the result, frame ShiftHandoverResult), not again on the left
+    expect([...v.container.querySelectorAll('.b5-tk')].filter((r) => r.textContent?.includes('expected Rs 31,240.00'))).toHaveLength(1);
     v.click(v.button('Back to my shift'));
     await flush();
     expect(v.buttons().some((b) => b.textContent === 'Count and close')).toBe(true);

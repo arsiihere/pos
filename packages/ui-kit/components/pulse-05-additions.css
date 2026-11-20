@@ -52,7 +52,7 @@
 :where(.b5-chips--one) .b5-chip { min-height: 72px; } /* ties .b5-chip, wins by order */
 /* task 39 shifts (frames ShiftOpen, ShiftClose): the page's two columns (style="grid-template-columns:minmax(0,1fr) 560px;align-items:start") */
 :where(.b5-shift).b5-page { grid-template-columns: minmax(0, 1fr) 560px; align-items: start; } /* ties .b5-page, wins by order */
-:where(.b5-ph, .b5-port) .b5-shift.b5-page { grid-template-columns: minmax(0, 1fr); }
+:where(.b5-shift--one).b5-page { grid-template-columns: minmax(0, 1fr); } /* phone / portrait (frame ShiftPhone); same specificity, later */
 :where(.b5-bh__av).av { width: 88px; height: 88px; font-size: 38px; border-radius: 22px; } /* style= of the frame's avatar */
 /* the drawer switch chip (style="min-height:76px"; .sw and its knob drawn inline) */
 :where(.b5-switch).b5-chip { min-height: 76px; text-align: start; } /* ties .b5-chip, wins by order */

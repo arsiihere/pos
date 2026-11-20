@@ -30,7 +30,7 @@ export function parseCount(text: string, exponent: number): number | null {
   return parseMinor(text, exponent);
 }
 
-type Step = { name: 'count' } | { name: 'handover' } | { name: 'skip' } | { name: 'counted'; r: CountShiftResult } | { name: 'handed'; r: HandoverCountResult };
+type Step = { name: 'count' } | { name: 'handover' } | { name: 'skip' } | { name: 'skipped'; cancelled: number } | { name: 'counted'; r: CountShiftResult } | { name: 'handed'; r: HandoverCountResult };
 
 const QUICK_MAJOR = [0, 5_000, 10_000] as const;
 
@@ -79,6 +79,7 @@ export function ShiftScreen({ shiftId }: { shiftId?: string }) {
         onOpened={(shift_id) => {
           setStep({ name: 'count' });
           known.current = shift_id;
+          setNone(false);
           void load();
         }}
         onAlreadyOpen={() => {
@@ -101,19 +102,27 @@ export function ShiftScreen({ shiftId }: { shiftId?: string }) {
 
   const open = shift.state === 'open';
   const mine = shiftId === undefined;
+  /** the refusal's text; a shift closed or gone meanwhile (another device, a manager) is read again, so its real state shows */
+  const refused = (e: HubError): string => {
+    if (e.kind === 'api' && (e.code === 'SHIFT_NOT_OPEN' || e.code === 'SHIFT_NOT_FOUND')) {
+      setStep({ name: 'count' });
+      void load();
+    }
+    return errText(e);
+  };
   const side = (() => {
     if (step.name === 'counted') return <CountResult shift={shift} r={step.r} threshold={threshold} money={money} />;
     if (step.name === 'handed') return <HandoverResult shift={shift} r={step.r} threshold={threshold} money={money} onBack={() => setStep({ name: 'count' })} />;
-    if (!open) return <ClosedCard shift={shift} money={money} />;
+    if (!open) return <ClosedCard shift={shift} money={money} cancelled={step.name === 'skipped' ? step.cancelled : 0} />;
     if (step.name === 'skip')
       return (
         <SkipConfirm
           onBack={() => setStep({ name: 'count' })}
           onSkip={async (note) => {
             const answer = await api.closeShift({ shift_id: shift.shift_id, skip_count: true, ...(note === '' ? {} : { note }) });
-            if (!answer.ok) return errText(answer.error);
+            if (!answer.ok) return refused(answer.error);
             shell.toasts.show({ text: t('billing.shift.skipped'), tone: 'ok' });
-            setStep({ name: 'count' });
+            setStep({ name: 'skipped', cancelled: answer.data.closed_requests.length });
             await load();
             return null;
           }}
@@ -132,11 +141,11 @@ export function ShiftScreen({ shiftId }: { shiftId?: string }) {
         onCount={async (counted_minor) => {
           if (step.name === 'handover') {
             const answer = await api.handoverCount({ shift_id: shift.shift_id, counted_minor });
-            if (!answer.ok) return errText(answer.error);
+            if (!answer.ok) return refused(answer.error);
             setStep({ name: 'handed', r: answer.data });
           } else {
             const answer = await api.countShift({ shift_id: shift.shift_id, counted_minor });
-            if (!answer.ok) return errText(answer.error);
+            if (!answer.ok) return refused(answer.error);
             setStep({ name: 'counted', r: answer.data });
           }
           await load();
@@ -147,10 +156,10 @@ export function ShiftScreen({ shiftId }: { shiftId?: string }) {
   })();
 
   return (
-    <main className="b5-page b5-shift">
+    <main className={shiftPage(shell)}>
       <div className="col b5-stack">
         <Head shift={shift} mine={mine} money={money} />
-        <Takings shift={shift} money={money} />
+        <Takings shift={shift} money={money} handovers={step.name !== 'handed'} />
       </div>
       <div className="col b5-stack">{side}</div>
     </main>
@@ -158,12 +167,18 @@ export function ShiftScreen({ shiftId }: { shiftId?: string }) {
 }
 
 /** The branch's `variance_threshold_minor` (§3.11), or null for the defaults. */
+/** The page: two columns (frame ShiftClose) on a kiosk / landscape tablet, one on a phone or portrait (ShiftPhone). */
+function shiftPage(shell: { phone: boolean; portrait: boolean }): string {
+  return shell.phone || shell.portrait ? 'b5-page b5-shift b5-shift--one' : 'b5-page b5-shift';
+}
+
 function thresholdOf(snapshot: unknown): number | null {
   const v = (snapshot as { billing?: { variance_threshold_minor?: unknown } } | null)?.billing?.variance_threshold_minor;
   return typeof v === 'number' ? v : null;
 }
 
 function errText(e: HubError): string {
+  if (e.kind === 'signed_out') return t('billing.shift.signed_out');
   if (e.kind !== 'api') return t('tables.toast.needs_hub');
   if (e.code === 'DRAWER_IN_USE') return fill(t('errors.DRAWER_IN_USE'), { name: typeof e.details['staff_name'] === 'string' ? e.details['staff_name'] : t('billing.shift.someone') });
   if (e.code === 'BUSINESS_DAY_NOT_OPEN') return t('billing.shift.day_not_open');
@@ -240,7 +255,7 @@ function OpenForm({ exponent, code, onOpened, onAlreadyOpen }: { exponent: numbe
     onOpened(answer.data.shift_id);
   };
   return (
-    <main className="b5-page b5-shift">
+    <main className={shiftPage(shell)}>
       <div className="col b5-stack">
         <div className="b5-card">
           <div className="b5-step">{t('billing.shift.open_title')}</div>
@@ -330,7 +345,7 @@ function Head({ shift, mine, money }: { shift: ShiftView; mine: boolean; money: 
 
 const net = (x: { in_minor: number | null; out_minor: number | null }) => (x.in_minor ?? 0) - (x.out_minor ?? 0);
 
-function Takings({ shift, money }: { shift: ShiftView; money: (m: number) => string }) {
+function Takings({ shift, money, handovers }: { shift: ShiftView; money: (m: number) => string; handovers: boolean }) {
   const digital = shift.takings.filter((x) => x.payment_class === 'digital');
   const cash = shift.takings.filter((x) => x.payment_class === 'cash');
   const petty = shift.petty.filter((p) => p.kind !== 'advance' || p.settled);
@@ -380,14 +395,14 @@ function Takings({ shift, money }: { shift: ShiftView; money: (m: number) => str
                 <span>{count(x.payments_count)}</span>
               </span>
               {/* B23: no cash sum before the count; the hub sends null */}
-              <span className="a">{x.in_minor === null ? t('billing.shift.after_count') : money(net(x) - (x.change_minor ?? 0))}</span>
+              <span className="a">{x.in_minor === null ? t(shift.state === 'open' ? 'billing.shift.after_count' : 'billing.shift.not_counted_cash') : money(net(x) - (x.change_minor ?? 0))}</span>
             </div>
           ))}
         </>
       )}
       {(petty.length > 0 || advances.length > 0) && (
         <>
-          <Step n={++n} text={t('billing.shift.petty')} />
+          <Step n={n + 1} text={t('billing.shift.petty')} />
           {petty.map((p) => (
             <div key={p.entry_id} className="b5-tk">
               <span className="b5-pay__i">
@@ -412,9 +427,9 @@ function Takings({ shift, money }: { shift: ShiftView; money: (m: number) => str
           ))}
         </>
       )}
-      {shift.handovers.length > 0 && (
+      {handovers && shift.handovers.length > 0 && (
         <>
-          <Step n={n + 1} text={t('billing.shift.handovers')} />
+          <Step text={t('billing.shift.handovers')} />
           <HandoverRows shift={shift} money={money} />
         </>
       )}
@@ -593,8 +608,10 @@ function variance(v: number, threshold: number, money: (m: number) => string): {
   return { text: fill(t(v < 0 ? 'billing.shift.short' : 'billing.shift.over'), { amount: money(Math.abs(v)) }), tone: over ? 'c-warn' : 'c-ok', over };
 }
 
-function Result({ expected, counted, v, threshold, money }: { expected: number; counted: number; v: number; threshold: number; money: (m: number) => string }) {
-  const r = variance(v, threshold, money);
+function Result({ expected, counted, v, threshold, money, signOff }: { expected: number; counted: number; v: number; threshold: number; money: (m: number) => string; signOff?: boolean }) {
+  const base = variance(v, threshold, money);
+  // the hub decides the sign-off (§6.17); its answer sets the tone, never a possibly stale client threshold
+  const r = signOff === undefined || v === 0 ? base : { ...base, tone: signOff ? 'c-warn' : 'c-ok' };
   return (
     <div className="b5-res">
       <div>
@@ -620,17 +637,18 @@ function CountResult({ shift, r, threshold, money }: { shift: ShiftView; r: Coun
   return (
     <div className="b5-card b5-stack">
       <Step done text={t(shift.is_drawer ? 'billing.shift.closed_drawer' : 'billing.shift.closed')} />
-      <Result expected={r.expected_minor} counted={counted} v={r.variance_minor} threshold={threshold} money={money} />
+      <Result expected={r.expected_minor} counted={counted} v={r.variance_minor} threshold={threshold} money={money} signOff={r.sign_off !== null} />
       {r.sign_off !== null ? (
-        <div className="msg c-warn" role="status">
-          <Ico name="warn" />
-          <span>
+        // frame ShiftVariancePending: the waiting card, info tone; the shift does not wait
+        <div className="b5-wait c-info" role="status">
+          <BIco name="clock" />
+          <div>
             <b>{t('billing.shift.signoff')}</b>
-            <span>{fill(t(r.variance_minor < 0 ? 'billing.shift.signoff_short' : 'billing.shift.signoff_over'), { threshold: money(threshold) })}</span>
-          </span>
+            <span>{v.text}</span>
+          </div>
         </div>
       ) : (
-        v.text !== t('billing.shift.exact') && <p className="b5-note">{fill(t('billing.shift.within'), { threshold: money(threshold) })}</p>
+        r.variance_minor !== 0 && <p className="b5-note">{Math.abs(r.variance_minor) <= threshold ? fill(t('billing.shift.within'), { threshold: money(threshold) }) : t('billing.shift.nothing_sent')}</p>
       )}
       {cancelled > 0 && <p className="b5-note">{fill(t(cancelled === 1 ? 'billing.shift.petty_cancelled_one' : 'billing.shift.petty_cancelled'), { count: String(cancelled) })}</p>}
     </div>
@@ -643,7 +661,8 @@ function HandoverResult({ shift, r, threshold, money, onBack }: { shift: ShiftVi
     <div className="b5-card b5-stack">
       <Step done text={t('billing.shift.handed')} />
       <Result expected={r.expected_minor} counted={r.counted_minor} v={r.variance_minor} threshold={threshold} money={money} />
-      {r.variance_minor !== 0 && <p className="b5-note">{fill(t(v.over ? 'billing.shift.handover_over' : 'billing.shift.within'), { threshold: money(threshold) })}</p>}
+      {/* §6.19: a handover never raises a sign-off */}
+      {r.variance_minor !== 0 && <p className="b5-note">{v.over ? t('billing.shift.nothing_sent') : fill(t('billing.shift.within'), { threshold: money(threshold) })}</p>}
       {shift.handovers.length > 0 && (
         <>
           <h3>{t('billing.shift.handovers')}</h3>
@@ -658,7 +677,7 @@ function HandoverResult({ shift, r, threshold, money, onBack }: { shift: ShiftVi
 }
 
 /** A closed shift read later (another person's, or after a reload): the hub's own count, no recount (§3.11). */
-function ClosedCard({ shift, money }: { shift: ShiftView; money: (m: number) => string }) {
+function ClosedCard({ shift, money, cancelled }: { shift: ShiftView; money: (m: number) => string; cancelled: number }) {
   return (
     <div className="b5-card b5-stack">
       <Step done text={t('billing.shift.closed')} />
@@ -680,6 +699,7 @@ function ClosedCard({ shift, money }: { shift: ShiftView; money: (m: number) => 
       ) : (
         <p className="b5-note">{t('billing.shift.not_counted')}</p>
       )}
+      {cancelled > 0 && <p className="b5-note">{fill(t(cancelled === 1 ? 'billing.shift.petty_cancelled_one' : 'billing.shift.petty_cancelled'), { count: String(cancelled) })}</p>}
     </div>
   );
 }
