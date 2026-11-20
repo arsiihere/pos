@@ -3521,6 +3521,26 @@ export const en = {
   'alert.shift_variance.reject': 'Dispute',
   'alerts.closed.day_closed': 'Closed: day closed',
   'alerts.closed.shift_closed': 'Closed: shift closed',
+  // ---- 05 client (task 37, buyer): after hub task 18, brief §3.5.3 / §3.2.11 + frames Buyer, BuyerWaiveWaiting, BillBuyerRequired; Urdu: frame BuyerUrdu, else docs/design/handoff/05/urdu-todo.md ----
+  'billing.buyer.title': 'Buyer details',
+  'billing.buyer.sub': 'Needed above {threshold}',
+  'billing.buyer.name': 'Name',
+  'billing.buyer.type': 'ID type',
+  'billing.buyer.number': 'ID number',
+  'billing.buyer.privacy': 'The number is sent with Close, then cleared. It is never shown again on any screen — it prints only on this customer’s receipt.',
+  'billing.buyer.refuses': 'Customer refuses',
+  'billing.buyer.use': 'Use for this close',
+  'billing.buyer.enter_name': 'Type the name',
+  'billing.buyer.pick_type': 'Pick an ID type',
+  'billing.buyer.enter_number': 'Type the ID number',
+  'billing.buyer.check_number': 'Check the ID number',
+  'billing.buyer.waiting_line': 'Close without buyer details',
+  'billing.buyer.needed': 'Buyer details needed above {threshold}',
+  'billing.buyer.needed_sub': 'Name and ID. Sent with Close, never kept on screen.',
+  'billing.buyer.add': 'Add buyer',
+  'billing.buyer.added': 'Buyer added — sent with Close',
+  'billing.buyer.waived': 'Customer refused buyer details',
+  'billing.buyer.not_needed': 'Not needed for this bill',
 } as const;
 
 export type MessageKey = keyof typeof en;

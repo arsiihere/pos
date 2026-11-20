@@ -28,7 +28,9 @@ export interface BillingApi {
   /** §6.9: one payment on a split (dues, rounding and change come back). */
   addPayment(payload: { bill_ref: BillRef; split_no: number; mode_id: string; direction: 'in' | 'out'; amount_minor: number; tendered_minor?: number; reference?: string }): Promise<HubResult<AddPaymentResult>>;
   /** §6.12: close a split; `expected_total_minor` = the total the screen showed (rule 7). */
-  closeSplit(payload: { bill_ref: BillRef; split_no: number; expected_total_minor: number }): Promise<HubResult<CloseSplitResult>>;
+  closeSplit(payload: { bill_ref: BillRef; split_no: number; expected_total_minor: number; buyer?: { name: string; tax_id: { type: string; value: string } } }): Promise<HubResult<CloseSplitResult>>;
+  /** §6.11 (approvable): close without buyer details; holds for every later split and after a reopen. */
+  waiveBuyerId(payload: { bill_id: string; note?: string }): Promise<HubResult<SheetResult | { bill_id: string; changed: false; reason: 'not_required' }>>;
   /** §6.6 (approvable) / §6.7: the whole bill's discount. */
   applyDiscount(payload: { bill_ref: BillRef; kind: 'amount' | 'percent'; value: number; reason_code: string; note?: string }): Promise<HubResult<SheetResult>>;
   removeDiscount(payload: { bill_id: string; reason_code: string; note?: string }): Promise<HubResult<SheetResult>>;
@@ -57,10 +59,13 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
     // payload hash (hashOmit, row H-4, H16-7), and a payment's reference is never kept on the client (B30, H1-20).
     // A resend after a lost reply with only those edited is the same command — never a second payment; a changed
     // tendered then meets the hub's same-id check instead of minting a new payment
-    const { note: _n, reference: _r, tendered_minor: _t, ...hashed } = payload as { note?: unknown; reference?: unknown; tendered_minor?: unknown };
+    // `buyer` too (CloseSplit `hashOmit: ['buyer']`, B19): a buyer ID is never held in this map, and a resend with a
+    // corrected buyer is the same close
+    const { note: _n, reference: _r, tendered_minor: _t, buyer: _b, ...hashed } = payload as { note?: unknown; reference?: unknown; tendered_minor?: unknown; buyer?: unknown };
     void _n;
     void _r;
     void _t;
+    void _b;
     const key = `${type} ${JSON.stringify(hashed)}`;
     let commandId = pending.get(key);
     if (commandId === undefined) pending.set(key, (commandId = newCommandId()));
@@ -79,6 +84,7 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
     removeServiceCharge: (payload) => command<SheetResult>('RemoveServiceCharge', payload),
     applyServiceCharge: (payload) => command<SheetResult>('ApplyServiceCharge', payload),
     withdrawRequest: (alert_id) => command<unknown>('WithdrawRequest', { alert_id }),
+    waiveBuyerId: (payload) => command('WaiveBuyerId', payload),
     billPrinters: () => staff.query('/queries/bill-printers'),
     retargetBillPrint: (payload) => command('RetargetBillPrint', payload),
     printBillDocument: (payload) => command('PrintBillDocument', payload),

@@ -39,12 +39,12 @@ interface Reason {
   label: string;
 }
 
-function Chips({ reasons, picked, onPick, cols }: { reasons: readonly Reason[]; picked: string | null; onPick: (code: string) => void; cols: 'c2' | 'c3' }) {
+function Chips({ reasons, picked, onPick, cols, title }: { reasons: readonly Reason[]; picked: string | null; onPick: (code: string) => void; cols: 'c2' | 'c3'; title?: string }) {
   const shell = useShell();
   if (shell.phone) cols = 'c2';
   return (
     <div className="b5-sec">
-      <h3>{t('billing.sheet.reason')}</h3>
+      <h3>{title ?? t('billing.sheet.reason')}</h3>
       <div className={`b5-chips ${cols}`}>
         {reasons.map((r) => (
           <button key={r.code} type="button" className="b5-chip" aria-pressed={picked === r.code} onClick={() => onPick(r.code)}>
@@ -493,4 +493,181 @@ export function ServiceChargeRow({ bill, billRef, onRemove, onChanged }: { bill:
       )}
     </>
   );
+}
+
+/** A buyer ID type of the jurisdiction (snapshot `billing.jurisdiction.rules[].buyer_id.accepted_types`, J-4). */
+export interface BuyerIdType {
+  type: string;
+  label: string;
+  pattern: string;
+  strip: string;
+}
+
+/** What the buyer sheet hands the close (§6.12 `buyer`). Held in memory for that one close only (B19). */
+export interface BuyerEntry {
+  name: string;
+  tax_id: { type: string; value: string };
+}
+
+/**
+ * The accepted buyer ID types of the jurisdiction rule in force on `date` (the latest `effective_from` ≤ date, as the
+ * hub's `ruleInForce`); none with no `billing` key (the hub's built-in defaults have no buyer rule).
+ */
+export function acceptedBuyerTypes(snapshot: unknown, date: string): BuyerIdType[] {
+  const rules = (snapshot as { billing?: { jurisdiction?: { rules?: Array<{ effective_from: string; buyer_id?: { accepted_types?: BuyerIdType[] } }> } } } | null)?.billing?.jurisdiction?.rules ?? [];
+  let best: (typeof rules)[number] | null = null;
+  for (const r of rules) if (r.effective_from <= date && (best === null || r.effective_from > best.effective_from)) best = r;
+  return best?.buyer_id?.accepted_types ?? [];
+}
+
+/** The typed value checked as the hub will (strip that type's characters, then its pattern); a bad pattern passes (the hub decides). */
+function buyerValueOk(t: BuyerIdType, value: string): boolean {
+  const stripped = [...t.strip].reduce((v, ch) => v.split(ch).join(''), value.trim());
+  if (stripped.length < 1 || stripped.length > 40) return false;
+  try {
+    return new RegExp(t.pattern).test(stripped);
+  } catch {
+    return true;
+  }
+}
+
+export type BuyerOutcome = 'waived' | 'not_required' | 'pending' | 'withdrawn';
+
+/**
+ * 05-D04 Buyer details (§8, §6.12, B19; frames Buyer, BuyerWaiveWaiting, BuyerUrdu): name, an ID type from the
+ * jurisdiction, the ID number. **Use for this close** hands it to the close (`onUse`) and clears the field — the ID is
+ * never stored (no storage, no log, the browser told not to remember it) and never shown again. **Customer refuses**
+ * (`close-without-buyer-id`, approvable) sends `WaiveBuyerId`. `error` reopens it after a close refused the buyer.
+ */
+export function BuyerSheet({
+  bill,
+  error,
+  onUse,
+  onWaived,
+  onClose,
+}: {
+  bill: BillView;
+  /** the close's refusal on the buyer: `payload.buyer.tax_id.value` → 'value', `.type` → 'type' */
+  error: 'value' | 'type' | null;
+  onUse: (buyer: BuyerEntry) => void;
+  onWaived: (r: BuyerOutcome) => void;
+  onClose: () => void;
+}) {
+  const shell = useShell();
+  const api = useMemo(() => billingApi(shell.api), [shell.api]);
+  const today = new Date(shell.clock.nowMs() + shell.clock.utcOffsetMs).toISOString().slice(0, 10);
+  const types = useSyncExternalStore(shell.config.subscribe, () => buyerTypesOf(shell.config.snapshot(), today));
+  const canWaive = shell.permissions.allowed('close-without-buyer-id') || shell.permissions.requiresApproval('close-without-buyer-id');
+  const askWaive = shell.permissions.requiresApproval('close-without-buyer-id');
+  const [name, setName] = useState('');
+  const [picked, setPicked] = useState<string | null>(null);
+  const [value, setValue] = useState('');
+  const [msg, setMsg] = useState<string | null>(error === 'value' ? t('billing.buyer.check_number') : error === 'type' ? t('billing.buyer.pick_type') : null);
+  const [busy, setBusy] = useState(false);
+  const [local, setLocal] = useState<Pending | null>(null);
+  const waiting = waitingOf(bill, 'close_without_buyer_id', local);
+  const type = types.find((x) => x.type === picked) ?? null;
+  const step: MessageKey | null =
+    name.trim() === '' || name.trim().length > 60
+      ? 'billing.buyer.enter_name'
+      : type === null
+        ? 'billing.buyer.pick_type'
+        : value.trim() === ''
+          ? 'billing.buyer.enter_number'
+          : !buyerValueOk(type, value)
+            ? 'billing.buyer.check_number'
+            : null;
+  const use = () => {
+    if (step !== null || type === null) return;
+    const entry: BuyerEntry = { name: name.trim(), tax_id: { type: type.type, value: value.trim() } };
+    // B19: the field is cleared at once; the value lives on only in the close that sends it
+    setValue('');
+    onUse(entry);
+  };
+  const waive = async () => {
+    if (busy || bill.bill_id === null) return;
+    setBusy(true);
+    setMsg(null);
+    const answer = await api.waiveBuyerId({ bill_id: bill.bill_id });
+    setBusy(false);
+    if (!answer.ok) {
+      setMsg(errorText(answer.error, bill.currency.code));
+      return;
+    }
+    const r = answer.data;
+    if ('pending' in r) {
+      setLocal({ alert_id: r.pending.alert_id, line: t('billing.buyer.waiting_line'), seq: bill.as_of_seq, done: false });
+      onWaived('pending');
+      return;
+    }
+    onWaived('reason' in r && r.reason === 'not_required' ? 'not_required' : 'waived');
+  };
+  const withdraw = async () => {
+    if (waiting === null || busy) return;
+    setBusy(true);
+    const answer = await api.withdrawRequest(waiting.alert_id);
+    setBusy(false);
+    if (!answer.ok && !(answer.error.kind === 'api' && answer.error.code === 'REQUEST_NOT_PENDING')) {
+      setMsg(errorText(answer.error, bill.currency.code));
+      return;
+    }
+    setLocal({ ...waiting, seq: bill.as_of_seq, done: true });
+    onWaived('withdrawn');
+  };
+  const sub = bill.buyer.threshold_minor === null ? undefined : fill(t('billing.buyer.sub'), { threshold: billMoney(bill.buyer.threshold_minor, bill.currency.code) });
+  if (waiting !== null)
+    return (
+      <Frame bill={bill} title={t('billing.buyer.title')} onClose={onClose}>
+        <Waiting line={waiting.line === '' ? t('billing.buyer.waiting_line') : waiting.line} what={null} busy={busy} onWithdraw={() => void withdraw()} onBack={onClose} />
+        {msg !== null && <Msg text={msg} />}
+      </Frame>
+    );
+  return (
+    <Frame bill={bill} title={t('billing.buyer.title')} {...(sub === undefined ? {} : { sub })} onClose={onClose}>
+      <label className="b5-fld">
+        <span>{t('billing.buyer.name')}</span>
+        <div className="b5-in text">
+          <input autoComplete="off" maxLength={60} value={name} onChange={(e) => setName(e.currentTarget.value)} />
+        </div>
+      </label>
+      <Chips reasons={types.map((x) => ({ code: x.type, label: x.label }))} picked={picked} onPick={setPicked} cols="c2" title={t('billing.buyer.type')} />
+      <label className="b5-fld">
+        <span>{t('billing.buyer.number')}</span>
+        <div className="b5-in text">
+          <input autoComplete="off" spellCheck={false} maxLength={40} dir="ltr" value={value} onChange={(e) => setValue(e.currentTarget.value)} />
+        </div>
+      </label>
+      <div className="b5-what">
+        <Ico name="lock" />
+        <span>{t('billing.buyer.privacy')}</span>
+      </div>
+      {msg !== null && <Msg text={msg} />}
+      <div className="acts">
+        {canWaive ? (
+          <button type="button" className="btn btn--tone c-warn" aria-disabled={busy} onClick={() => void waive()}>
+            {t('billing.buyer.refuses')}
+            {askWaive && <span className="ntag">{t('billing.sheet.needs')}</span>}
+          </button>
+        ) : (
+          <button type="button" className="btn" onClick={onClose}>
+            {t('common.cancel')}
+          </button>
+        )}
+        <Primary step={step} action={t('billing.buyer.use')} ask={false} busy={busy} onClick={use} />
+      </div>
+    </Frame>
+  );
+}
+
+// the types list, cached by content so the store read is stable between renders
+let lastTypesKey = '';
+let lastTypes: BuyerIdType[] = [];
+function buyerTypesOf(snapshot: unknown, date: string): BuyerIdType[] {
+  const list = acceptedBuyerTypes(snapshot, date);
+  const key = JSON.stringify(list);
+  if (key !== lastTypesKey) {
+    lastTypesKey = key;
+    lastTypes = list;
+  }
+  return lastTypes;
 }

@@ -9,6 +9,7 @@ import { useLiveRefetch } from '../staff/orders/lists/OpenOrders';
 import { useShell } from '../staff/shell/hooks';
 import { billingApi } from './api';
 import type { AddPaymentResult, BillBlock, BillRef, BillView, BillViewSplit, SplitDues, Totals } from './contracts';
+import { BuyerSheet, type BuyerEntry } from './BillSheets';
 import { CheckBillButton, PrintRows } from './PrintStatus';
 import { billingErrorKey } from './errors';
 import { BILL_LIST_FRAMES } from './frames';
@@ -266,6 +267,14 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   const [done, setDone] = useState<Done | null>(null);
   const [busy, setBusy] = useState(false);
   const [noPrinter, setNoPrinter] = useState(false);
+  // B19: the buyer of the next close, in memory only (a ref, never state or storage); dropped after the close answers
+  const heldBuyer = useRef<BuyerEntry | null>(null);
+  const [buyerHeld, setBuyerHeld] = useState(false);
+  const [buyerSheet, setBuyerSheet] = useState<{ error: 'value' | 'type' | null } | null>(null);
+  const dropBuyer = () => {
+    heldBuyer.current = null;
+    setBuyerHeld(false);
+  };
 
   const request = useRef(0);
   const refKey = JSON.stringify(billRef);
@@ -309,7 +318,8 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   const split = bill.splits.find((s) => s.split_no === picked) ?? bill.splits.find((s) => s.state === 'open') ?? bill.splits[0];
   const open = split !== undefined && split.state === 'open' && bill.state !== 'closed';
   const dues = split === undefined ? null : duesOf(split, held);
-  const blocks = split === undefined ? [] : bill.blocks.filter((b) => b.split_no === null || b.split_no === split.split_no);
+  // §3.3 rule 6: a close carrying a valid buyer passes the buyer rule, so a held buyer lifts that block
+  const blocks = split === undefined ? [] : bill.blocks.filter((b) => (b.split_no === null || b.split_no === split.split_no) && !(buyerHeld && b.reason === 'buyer_id_required'));
   const paid = split === undefined ? 0 : split.payments.reduce((n, p) => n + (p.direction === 'in' ? p.amount_minor : -p.amount_minor), 0);
   const refund = split !== undefined && split.balance_minor < 0;
   const direction: 'in' | 'out' = refund ? 'out' : 'in';
@@ -399,10 +409,18 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
     setBusy(true);
     setCloseMsg(null);
     setBanner(null);
-    const answer = await api.closeSplit({ bill_ref: billRef, split_no: split.split_no, expected_total_minor: split.totals.as_paid.total_minor });
+    const buyer = heldBuyer.current;
+    const answer = await api.closeSplit({ bill_ref: billRef, split_no: split.split_no, expected_total_minor: split.totals.as_paid.total_minor, ...(buyer === null ? {} : { buyer }) });
     setBusy(false);
+    // B19: the buyer is sent once; any answer drops it (a lost reply keeps it for the same close's resend)
+    if (answer.ok || answer.error.kind !== 'network') dropBuyer();
     if (!answer.ok) {
       const e = answer.error;
+      if (e.kind === 'api' && (e.code === 'BUYER_ID_REQUIRED' || buyerIssue(e) !== null)) {
+        setBuyerSheet({ error: e.code === 'BUYER_ID_REQUIRED' ? null : buyerIssue(e) });
+        await load();
+        return;
+      }
       if (e.kind === 'api' && e.code === 'BILL_TOTAL_CHANGED') {
         // rule 7: read again and show the new total; never close by itself
         setBanner(fill(t('billing.total_changed'), { amount: typeof e.details['total_minor'] === 'number' ? money(e.details['total_minor']) : '' }));
@@ -503,6 +521,38 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
       </div>
     ) : null;
 
+  // §3.2.11 the buyer row (frame BillBuyerRequired): needed + Add buyer; added (no name, no value, no last 4); waived
+  const buyerRow =
+    bill.buyer.required && open ? (
+      bill.buyer.waived ? (
+        <div className="b5-ban b5-buyer c-info">
+          <Ico name="info" />
+          <div>
+            <b>{t('billing.buyer.waived')}</b>
+          </div>
+        </div>
+      ) : buyerHeld ? (
+        <div className="b5-ban b5-buyer c-ok">
+          <Ico name="checkc" />
+          <div>
+            <b>{t('billing.buyer.added')}</b>
+          </div>
+        </div>
+      ) : (
+        <div className="b5-ban b5-buyer c-warn">
+          <Ico name="user" />
+          <div>
+            <b>{fill(t('billing.buyer.needed'), { threshold: bill.buyer.threshold_minor === null ? '' : money(bill.buyer.threshold_minor) })}</b>
+            <span>{t('billing.buyer.needed_sub')}</span>
+          </div>
+          {online && (
+            <button type="button" className="btn btn--tone c-warn" onClick={() => setBuyerSheet({ error: null })}>
+              {t('billing.buyer.add')}
+            </button>
+          )}
+        </div>
+      )
+    ) : null;
   const sym = currencySymbol(code);
   const dueCard = (cls: string, k: string, v: number, sub: string) => (
     <div className={`b5-due ${cls}`.trim()}>
@@ -736,6 +786,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
           <div className="b5-pane">
             {strip}
             {split !== undefined && <TotalsTable split={split} bill={bill} paid={paid} modes={modes} />}
+            {buyerRow}
             {duesBlock}
             {pad}
             {offlinePad}
@@ -744,6 +795,31 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
           </div>
         </section>
       </main>
+      {buyerSheet !== null && (
+        <BuyerSheet
+          bill={bill}
+          error={buyerSheet.error}
+          onUse={(entry) => {
+            heldBuyer.current = entry;
+            setBuyerHeld(true);
+            setBuyerSheet(null);
+          }}
+          onWaived={(r) => {
+            if (r !== 'pending') setBuyerSheet(null);
+            void load();
+          }}
+          onClose={() => setBuyerSheet(null)}
+        />
+      )}
     </div>
   );
+}
+
+/** A close refusal on the buyer's fields (VALIDATION_FAILED at payload.buyer.tax_id.value / .type), never echoing it. */
+function buyerIssue(e: HubError): 'value' | 'type' | null {
+  if (e.kind !== 'api' || e.code !== 'VALIDATION_FAILED' || !Array.isArray(e.details['issues'])) return null;
+  const paths = (e.details['issues'] as Array<{ path?: unknown }>).map((i) => String(i.path ?? ''));
+  if (paths.some((x) => x.includes('buyer.tax_id.type'))) return 'type';
+  if (paths.some((x) => x.includes('buyer'))) return 'value';
+  return null;
 }

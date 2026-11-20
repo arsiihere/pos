@@ -1480,4 +1480,13 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.sheet.needs': 'منظوری چاہیے',
   // ---- 05 client (task 43b): frame DayCloseUrdu ----
   'errors.DAY_CLOSE_BLOCKED.shift_open': '{count} شفٹیں ابھی کھلی ہیں — پہلے انہیں بند کریں',
+  // ---- 05 client (task 37, buyer): frame BuyerUrdu ----
+  'billing.buyer.title': 'خریدار کی تفصیل',
+  'billing.buyer.sub': '{threshold} سے زیادہ پر ضروری',
+  'billing.buyer.name': 'نام',
+  'billing.buyer.type': 'شناخت کی قسم',
+  'billing.buyer.number': 'شناختی نمبر',
+  'billing.buyer.privacy': 'یہ نمبر صرف بند کرتے وقت بھیجا جاتا ہے، پھر مٹ جاتا ہے۔ کسی اسکرین پر دوبارہ نظر نہیں آتا — صرف گاہک کی رسید پر چھپتا ہے۔',
+  'billing.buyer.refuses': 'گاہک انکار کرتا ہے',
+  'billing.buyer.use': 'اس بندش کے لیے',
 };

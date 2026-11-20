@@ -229,3 +229,11 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.print.reprint_sent` | Reprint sent to {printer} |
 | `billing.print.err.printer_gone` | This printer was removed — pick another |
 | `billing.print.err.job_gone` | This print is no longer there |
+| `billing.buyer.enter_name` | Type the name |
+| `billing.buyer.pick_type` | Pick an ID type |
+| `billing.buyer.enter_number` | Type the ID number |
+| `billing.buyer.check_number` | Check the ID number |
+| `billing.buyer.waiting_line` | Close without buyer details |
+| `billing.buyer.needed_sub` | Name and ID. Sent with Close, never kept on screen. |
+| `billing.buyer.add` | Add buyer |
+| `billing.buyer.not_needed` | Not needed for this bill |
