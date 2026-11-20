@@ -314,6 +314,97 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.petty.limit_over` | Over the {limit} limit — a manager approves it |
 | `billing.petty.waiting_screen` | Petty cash waiting for a manager · {line} |
 | `billing.petty.not_pending` | That request was already answered or closed — see your inbox |
+| `billing.report.nav` | Reports |
+| `billing.report.title` | Reports |
+| `billing.report.tab_x` | Today (X) |
+| `billing.report.tab_z` | Z reports |
+| `billing.report.retry_done` | {count} waiting — sending now |
+| `billing.report.x_line` | X · {date} · issued {time} · {currency} |
+| `billing.report.z_line` | {z} · {date} · issued {time} · {currency} |
+| `billing.report.z_no` | Z {no} |
+| `billing.report.z_title` | Z reports |
+| `billing.report.newest_first` | newest first |
+| `billing.report.no_z` | No Z reports yet |
+| `billing.report.z_row` | {count} invoices · closed {time} |
+| `billing.report.net` | net |
+| `billing.report.older` | Load older |
+| `billing.report.net_after_credits` | Net after credits |
+| `billing.report.so_far` | so far today |
+| `billing.report.invoices` | Invoices |
+| `billing.report.credit_notes_one` | 1 credit note |
+| `billing.report.credit_notes` | {count} credit notes |
+| `billing.report.average` | Average bill |
+| `billing.report.bills_one` | 1 bill |
+| `billing.report.bills` | {count} bills |
+| `billing.report.fiscal` | Fiscal |
+| `billing.report.kpi_rejected` | {count} not accepted |
+| `billing.report.kpi_waiting` | {count} waiting |
+| `billing.report.kpi_all_sent` | All sent |
+| `billing.report.kpi_fiscal_sub` | {acked} accepted · {rejected} not accepted |
+| `billing.report.sales` | Sales |
+| `billing.report.gross` | Gross |
+| `billing.report.discounts` | Discounts · {count} |
+| `billing.report.service_charge` | Service charge |
+| `billing.report.net_sales` | Net |
+| `billing.report.class_cash` | cash |
+| `billing.report.class_digital` | digital |
+| `billing.report.rounding` | Rounding |
+| `billing.report.total` | Total |
+| `billing.report.credits` | Credits · {count} |
+| `billing.report.credit_reason.wrong_item_billed` | Wrong item billed |
+| `billing.report.credit_reason.wrong_payment_mode` | Wrong payment type |
+| `billing.report.credit_reason.customer_returned_item` | Customer returned an item |
+| `billing.report.credit_reason.price_error` | Price error |
+| `billing.report.credit_reason.other` | Other |
+| `billing.report.full_refunds` | Full refunds · {count} |
+| `billing.report.payments` | Payments by mode |
+| `billing.report.mode_in` | {mode} · in |
+| `billing.report.mode_back` | {mode} · back |
+| `billing.report.mode_change` | {mode} · change given |
+| `billing.report.brought_forward` | Brought forward |
+| `billing.report.carried_forward` | Carried forward |
+| `billing.report.shifts` | Shifts |
+| `billing.report.open` | Open |
+| `billing.report.within` | Within |
+| `billing.report.skipped` | Skipped |
+| `billing.report.skipped_count` | skipped the count |
+| `billing.report.shift_open` | float {float} · open |
+| `billing.report.shift_counted` | expected {expected} · counted {counted} · {variance} |
+| `billing.report.signoff_pending` | Pending sign-off |
+| `billing.report.signoff_approved` | Approved |
+| `billing.report.signoff_disputed` | Disputed |
+| `billing.report.signoffs` | Variance sign-offs today |
+| `billing.report.signed_approved` | Approved by {name} |
+| `billing.report.signed_disputed` | Disputed by {name} |
+| `billing.report.pending_signoffs` | Pending sign-offs |
+| `billing.report.acked` | Accepted |
+| `billing.report.pending` | Pending |
+| `billing.report.rejected` | Not accepted |
+| `billing.report.not_required` | Not required |
+| `billing.report.retry` | Retry fiscal now |
+| `billing.report.rejected_note` | Not accepted invoices need a fix from support |
+| `billing.report.open_bills` | Open bills |
+| `billing.report.open_now` | Open now |
+| `billing.report.open_too_long` | Open too long |
+| `billing.report.carried_in` | Carried in |
+| `billing.report.carried_over` | Carried over |
+| `billing.report.carried` | Carried orders |
+| `billing.report.open_advances` | Open advances |
+| `billing.report.cvr` | Comps, voids, reopens |
+| `billing.report.comps` | Comps |
+| `billing.report.comps_voided` | Voided comps |
+| `billing.report.comp_removals` | Comp removals |
+| `billing.report.voids` | Voids · {disposition} |
+| `billing.report.void_none` | No disposition |
+| `billing.report.reopens` | Reopens |
+| `billing.fiscal.waiting` | Fiscal: {count} waiting · oldest {age} |
+| `billing.fiscal.stuck` | {waiting} — tell a manager |
+| `billing.fiscal.rejected` | Fiscal: {count} not accepted — tell a manager |
+| `billing.fiscal.not_set_up` | Fiscal: not set up on this hub — tell the owner |
+| `billing.fiscal.failing` | Fiscal: can’t reach the authority |
+| `billing.fiscal.unknown` | Fiscal: not checked yet |
+| `billing.fiscal.all_sent` | Fiscal: all sent |
+| `billing.fiscal.last` | last {time} |
 
 ## Builder notes
 

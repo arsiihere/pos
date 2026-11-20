@@ -61,3 +61,18 @@
 :where(.b5-switch)[aria-pressed="true"] .sw { background: var(--accent); }
 :where(.b5-switch) .sw i { position: absolute; top: 4px; inset-inline-start: 4px; width: 24px; height: 24px; border-radius: 50%; background: var(--on-accent); }
 :where(.b5-switch)[aria-pressed="true"] .sw i { inset-inline-start: auto; inset-inline-end: 4px; }
+/* task 42 reports (frames XReport, ZList, ZReport, ReportsTablet): the page rows (style="grid-template-rows:auto auto minmax(0,1fr);gap:16px;padding:20px 24px") */
+:where(.b5-rep).b5-page { align-content: start; gap: 16px; padding: 20px 24px; } /* ties .b5-page, wins by order */
+:where(.b5-rep-h) { gap: 16px; align-items: center; }
+:where(.b5-rep-h) .b5-seg { width: 420px; max-width: 100%; }
+/* the X cards: three columns (style="grid-template-columns:1.25fr 1fr 1fr;gap:16px;align-items:start"), one on portrait */
+:where(.b5-rep-grid) { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 16px; align-items: start; min-height: 0; }
+:where(.b5-port) .b5-rep-grid { grid-template-columns: minmax(0, 1fr); }
+/* the Z list beside the selected Z (style="grid-template-columns:640px minmax(0,1fr);gap:20px") */
+:where(.b5-rep-z) { display: grid; grid-template-columns: 640px minmax(0, 1fr); gap: 20px; min-height: 0; align-items: start; }
+:where(.b5-rep-z) .b5-rep-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+:where(.b5-rep-z) .b5-rep-grid > .col:first-child { grid-column: 1 / -1; }
+:where(.b5-rc) > .b5-rc__end { height: 8px; } /* the frames' <div style="height:8px"> */
+:where(.b5-kpi) b.b5-kpi__s { font-size: 24px; } /* style="font-size:24px" */
+:where(.b5-rep-act).b5-rr { min-height: 60px; } /* ties .b5-rr, wins by order */
+:where(.b5-rep-act) .b5-note { text-align: end; }

@@ -1,3 +1,5 @@
+import type { ReportDocInput } from '@pos/domain';
+
 // 05 §6.2 `GET /queries/open-bills?floor_id?` (as the hub's apps/hub/src/billing/queries/open-bills.ts answers it;
 // `state: 'projected'` is a seating / key with no bill row yet, `bill_id: null`).
 
@@ -267,4 +269,37 @@ export interface RecordPettyCashResult {
 export interface SettlePettyAdvanceResult {
   entry_id: string;
   shift_id: string;
+}
+
+// ---- 05-2 reports (task 42): §6.26 / §6.27 as the hub returns them (apps/hub/src/billing/queries/reports.ts,
+// fiscal/status.ts). The report is @pos/domain's ReportDocInput (staff ids only, H16-5); names come in `staff_names`.
+
+/** §6.26 `GET /queries/x-report` */
+export interface XReportView {
+  report: ReportDocInput;
+  staff_names: Record<string, string>;
+}
+
+/** §6.26 `GET /queries/z-reports` row (R-85: keyed by `z_no`; a date can have several) */
+export interface ZReportView {
+  business_date: string;
+  z_no: number;
+  report: ReportDocInput;
+  staff_names: Record<string, string>;
+}
+
+/** §6.27 `GET /queries/fiscal-status` (never a token, never a buyer) */
+export interface FiscalStatusView {
+  jurisdiction_id: string;
+  adapter_key: string;
+  environment: 'sandbox' | 'production';
+  adapter_health: 'ok' | 'failing' | 'unknown';
+  last_success_at: number | null;
+  pending_count: number;
+  oldest_pending_age_ms: number | null;
+  rejected_count: number;
+  catch_up_window_ms: number | null;
+  stuck: boolean;
+  token_missing: Array<{ pos_id: string; name: string }>;
+  tokens: Array<{ pos_id: string; name: string; set_at: number }>;
 }

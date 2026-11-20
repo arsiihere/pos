@@ -8,6 +8,7 @@ import type {
   CloseShiftResult,
   CloseSplitResult,
   CountShiftResult,
+  FiscalStatusView,
   HandoverCountResult,
   OpenBillsBody,
   OpenShiftResult,
@@ -18,6 +19,8 @@ import type {
   SetSplitsResult,
   SheetResult,
   ShiftView,
+  XReportView,
+  ZReportView,
 } from './contracts';
 
 // 05 §6 (task 34 on): the billing queries and commands on the staff api's query() / command() (the shell's own
@@ -25,6 +28,8 @@ import type {
 
 export interface BillingTransport {
   query<T>(path: string): Promise<HubResult<T>>;
+  /** F §6.3 cursor pages (the Z list) */
+  page<T>(path: string): Promise<HubResult<{ data: T; next_cursor: string | null }>>;
   command<T>(commandType: string, payload: unknown, opts?: { commandId?: string }): Promise<HubResult<T>>;
 }
 
@@ -73,6 +78,14 @@ export interface BillingApi {
   closeShift(payload: { shift_id: string; skip_count: true; note?: string }): Promise<HubResult<CloseShiftResult>>;
   /** §6.19: a drawer shift's count at handover; the shift stays open. */
   handoverCount(payload: { shift_id: string; counted_minor: number }): Promise<HubResult<HandoverCountResult>>;
+  /** §6.26: the open day's X (staff ids only; names in `staff_names`). */
+  xReport(): Promise<HubResult<XReportView>>;
+  /** §6.26 (R-85): the Z list, newest `z_no` first, 20 a page; `cursor` from the previous page. */
+  zReports(cursor: string | null): Promise<HubResult<{ data: { reports: ZReportView[] }; next_cursor: string | null }>>;
+  /** §6.27: the fiscal line's figures (never a token). */
+  fiscalStatus(): Promise<HubResult<FiscalStatusView>>;
+  /** §6.28 (`close-business-day`): resend the pending invoices now (a rejected one is not resent). */
+  retryFiscalNow(): Promise<HubResult<{ pending_count: number }>>;
   /** §6.20 (approvable): an advance / cash out / cash in on the caller's money shift; `{ pending }` when a request was raised. */
   recordPettyCash(payload: { kind: 'advance' | 'out' | 'in'; amount_minor: number; category_id: string; paid_to?: string; advance_staff_id?: string; note?: string }): Promise<HubResult<RecordPettyCashResult>>;
   /** §6.20 (`allowed` only): spent + returned = the advance (the hub checks); the returned cash lands on the caller's shift. */
@@ -127,6 +140,10 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
     countShift: (payload) => command<CountShiftResult>('CountShift', payload),
     closeShift: (payload) => command<CloseShiftResult>('CloseShift', payload),
     handoverCount: (payload) => command<HandoverCountResult>('HandoverCount', payload),
+    xReport: () => staff.query<XReportView>('/queries/x-report'),
+    zReports: (cursor) => staff.page<{ reports: ZReportView[] }>(`/queries/z-reports?limit=20${cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`}`),
+    fiscalStatus: () => staff.query<FiscalStatusView>('/queries/fiscal-status'),
+    retryFiscalNow: () => command<{ pending_count: number }>('RetryFiscalNow', {}),
     recordPettyCash: (payload) => command<RecordPettyCashResult>('RecordPettyCash', payload),
     settlePettyAdvance: (payload) => command<SettlePettyAdvanceResult>('SettlePettyAdvance', payload),
     openBills: (floor_id) =>
