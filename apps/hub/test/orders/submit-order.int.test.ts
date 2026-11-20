@@ -402,7 +402,10 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     expect((missing.error!.details.issues as Array<{ path: string }>).map((i) => i.path)).toEqual(['seating_id']);
     expect(eventCount()).toBe(before);
     billClosed('SEAT1');
-    const cleaning = await submit(ali, dineIn('O1', [item('L1', FX.naan)]));
+    // ⚠️ 05 row T-3 (3), H2-13: a live submit now passes NEEDS_CLEANING; a queued replay keeps the refusal (m-10).
+    // The live-submit-on-NEEDS_CLEANING lock rule is covered in tables/require-lock.int.test.ts (02a half) and in the
+    // '[05 row T-3] SubmitOrder on a just-closed seating' describe at the end of this file (order half).
+    const cleaning = await submit(ali, dineIn('O1', [item('L1', FX.naan)]), { queuedAt: hub.clock.branchNow() });
     expect(cleaning.status).toBe(409);
     expect(cleaning.error).toEqual({ code: 'TABLE_NEEDS_CLEANING', details: { table_id: FX.table } });
     expect(eventCount()).toBe(before + 1);
@@ -943,5 +946,82 @@ describe('[05 row Q-6] takeaway addition (adds_to_order_id)', () => {
     expect(dine.error!.details).toMatchObject({ issues: [{ path: 'adds_to_order_id' }] });
     const park = await submit(cashier, { order_id: 'P1', order_type: 'parking', parking: { car_number: 'ABC 1', car_type: 'sedan' }, adds_to_order_id: 'T1', lines: [item('LP', FX.naan)] });
     expect(park.status).toBe(400);
+  });
+});
+
+// 05 v1.0.6 row T-3 (3), (4) (H2-13, H2-14), 02a v1.1.9 §4.2 requireLock, §3.3; 02a #64 (order half); 05 #37b, #37c,
+// #37e, #37g (02b halves). SubmitOrder passes `{ allowBillClosed: true }`: only a live call gets through NEEDS_CLEANING.
+describe('[05 row T-3] SubmitOrder on a just-closed seating (S-9 (b))', () => {
+  const seatingRow = (seating_id: string) =>
+    hub.deps.db.prepare('SELECT state, bill_closed FROM seatings WHERE seating_id = ?').get(seating_id) as { state: string; bill_closed: number };
+  const cleaned = (seating_id: string): void =>
+    append({ stream_type: 'table', stream_id: FX.table, event_type: 'TableCleaned', payload: { seating_id, table_ids: [FX.table], reason: 'cleaned', by_staff_id: 'S_ALI' } });
+
+  it('[05 row T-3 (3)] [02a #64] [05 #37e] [05 #37b submit half] a live submit on a NEEDS_CLEANING seating → 200, OrderPlaced clears bill_closed, the seating re-occupies; 5 statements, as on an open seating', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const ali = signIn('S_ALI');
+    const counted = countHandle();
+    expect((await submit(ali, dineIn('O1', [item('L1', FX.naan)]))).status).toBe(200);
+    billClosed('SEAT1');
+    expect(seatingRow('SEAT1')).toEqual({ state: 'NEEDS_CLEANING', bill_closed: 1 });
+    const r = await submit(ali, dineIn('O2', [item('L2', FX.naan)]));
+    counted.restore();
+    expect(r.status).toBe(200);
+    // Ali already holds the lock on this device (taken by O1): no TableLocked.
+    expect(r.events.map((e) => e.event_type)).toEqual(['OrderPlaced', 'ItemAdded']);
+    expect(r.events[0]!.payload).toMatchObject({ table_key: 'dine_in:SEAT1' });
+    expect(seatingRow('SEAT1')).toEqual({ state: 'ORDERED', bill_closed: 0 });
+    expect(counted.calls).toEqual([5, 5]);
+  });
+
+  it('[05 row T-3 (3)] [02a #64] [05 #37e] a live submit by the holder on another device after the close takes the free lock (TableLocked first)', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    billClosed('SEAT1');
+    const r = await submit(signIn('S_ALI'), dineIn('O1', [item('L1', FX.naan)]));
+    expect(r.status).toBe(200);
+    expect(r.events.map((e) => e.event_type)).toEqual(['TableLocked', 'OrderPlaced', 'ItemAdded']);
+    expect(seatingRow('SEAT1').bill_closed).toBe(0);
+  });
+
+  it('[05 row T-3 (3), H2-13] [02a #64] [05 #37g] a round queued before the close and replayed after it → 409 TABLE_NEEDS_CLEANING, nothing appended; a fresh resend → 200', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const ali = signIn('S_ALI');
+    const queuedAt = hub.clock.branchNow();
+    expect((await submit(ali, dineIn('O1', [item('L1', FX.naan)]))).status).toBe(200);
+    billClosed('SEAT1');
+    const before = eventCount();
+    const replay = await submit(ali, dineIn('O2', [item('L2', FX.naan)]), { queuedAt });
+    expect(replay.status).toBe(409);
+    expect(replay.error).toEqual({ code: 'TABLE_NEEDS_CLEANING', details: { table_id: FX.table } });
+    expect(eventCount()).toBe(before);
+    expect(seatingRow('SEAT1')).toEqual({ state: 'NEEDS_CLEANING', bill_closed: 1 });
+    const fresh = await submit(ali, dineIn('O2', [item('L2', FX.naan)]));
+    expect(fresh.status).toBe(200);
+    expect(seatingRow('SEAT1')).toEqual({ state: 'ORDERED', bill_closed: 0 });
+  });
+
+  it('[05 row T-3 (4), H2-14] [02a #64] [05 #37c submit half] a submit naming a cleaned seating → 409 TABLE_SEATING_CHANGED (T18, no new code), live or queued; a new seating on the table is untouched', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const ali = signIn('S_ALI');
+    expect((await submit(ali, dineIn('O1', [item('L1', FX.naan)]))).status).toBe(200);
+    billClosed('SEAT1');
+    cleaned('SEAT1');
+    expect(seatingRow('SEAT1').state).toBe('CLOSED');
+    const before = eventCount();
+    const live = await submit(ali, dineIn('O2', [item('L2', FX.naan)]));
+    expect(live.status).toBe(409);
+    expect(live.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: FX.table, seating_id: 'SEAT1' } });
+    const queued = await submit(ali, dineIn('O2', [item('L2', FX.naan)]), { queuedAt: hub.clock.branchNow() });
+    expect(queued.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: FX.table, seating_id: 'SEAT1' } });
+    // re-seated: the old seating_id is stale, the new seating is not touched
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT2', holder_staff_id: 'S_ALI' });
+    const stale = await submit(ali, dineIn('O2', [item('L2', FX.naan)]));
+    expect(stale.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: FX.table, seating_id: 'SEAT1' } });
+    expect(eventCount()).toBe(before + 1);
+    expect(seatingRow('SEAT2')).toEqual({ state: 'SEATED', bill_closed: 0 });
   });
 });

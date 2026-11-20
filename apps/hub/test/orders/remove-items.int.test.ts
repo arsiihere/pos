@@ -62,6 +62,8 @@ async function directory(): Promise<DirectoryInput> {
       role('R_OWN', [grant('take-order', 'own_tables')]),
       // AD-36: take-order my_floors plus take-order-anywhere at branch.
       role('R_FLOOR_ANYWHERE', [grant('take-order', 'my_floors'), grant('take-order-anywhere')]),
+      // 05 R-39: take-order-anywhere at my_floors (the scope half of requireLock's authorisation).
+      role('R_ANYWHERE_FLOORS', [grant('take-order'), grant('take-order-anywhere', 'my_floors')]),
     ],
     staff: [
       ...base.staff,
@@ -73,6 +75,8 @@ async function directory(): Promise<DirectoryInput> {
       person('S_NOOR', 'R_FLOOR', [FX.floor]),
       person('S_NOFLOOR', 'R_FLOOR'),
       person('S_FARAH', 'R_FLOOR_ANYWHERE', ['F9']),
+      person('S_FAWAD', 'R_ANYWHERE_FLOORS', ['F9']),
+      person('S_FIZA', 'R_ANYWHERE_FLOORS', [FX.floor]),
     ],
   };
 }
@@ -848,6 +852,103 @@ describe('RemoveItems (02b §6.2, §3.5)', () => {
 });
 
 // ------------------------------------------------------------------------------------------- #43 (04 Q-3)
+
+// 05 v1.0.6 row T-3 (4) (H2-14), 02a v1.1.9 §4.2; 02a #64 (order half); 05 #37b, #37c (02b halves): RemoveItems skips
+// requireLock when readOrder's seating_state is CLOSED (a corrections-only reopen after CleanTable); otherwise unchanged.
+describe('[05 row T-3 (4)] [R-39] RemoveItems on a closed seating', () => {
+  const tableEv = (event_type: string, payload: Record<string, unknown>) => ({ stream_type: 'table' as const, stream_id: FX.table, event_type, payload });
+  const lockOf = () => hub.deps.db.prepare('SELECT staff_id FROM table_locks WHERE table_id = ?').get(FX.table);
+  /**
+   * The reachable path to a dine-in order on a CLOSED seating: billed (OrdersBilled), BillClosed, cleaned (TableCleaned),
+   * optionally re-seated, then a corrections-only reopen (OrdersUnbilled). Ali holds SEAT1.
+   */
+  function closedSeating(o: { reseatBy?: string } = {}): { order_id: string; seating_id: string } {
+    const d = dineIn([{ order_item_id: 'L1', item_id: FX.naan, quantity: 3 }]);
+    append([on(d.order_id, 'OrdersBilled', { order_ids: [d.order_id], bill_id: 'B1' })]);
+    append([tableEv('BillClosed', { seating_id: d.seating_id })]);
+    append([tableEv('TableCleaned', { seating_id: d.seating_id, table_ids: [FX.table], reason: 'cleaned', by_staff_id: 'S_ALI' })]);
+    if (o.reseatBy !== undefined) openSeating(hub, { table_id: FX.table, seating_id: 'SEAT2', holder_staff_id: o.reseatBy });
+    append([on(d.order_id, 'OrdersUnbilled', { order_ids: [d.order_id], bill_id: 'B1' })]);
+    expect(hub.deps.db.prepare('SELECT state FROM seatings WHERE seating_id = ?').get(d.seating_id)).toEqual({ state: 'CLOSED' });
+    return d;
+  }
+  const removeOne = (who: Who, d: { order_id: string; seating_id: string }, counted = false) =>
+    remove(who, { order_id: d.order_id, seating_id: d.seating_id, lines: [{ order_item_id: 'L1', units: 1 }] }, { counted });
+
+  it('[05 row T-3 (4)] [R-39] [02a #64] [05 #37c remove half] the holder → 200 with no lock (no TableLocked, no lock row); 2 statements (authorisation reads nothing)', async () => {
+    await start();
+    const d = closedSeating();
+    const r = await removeOne(signIn('S_ALI'), d, true);
+    expect(r.status).toBe(200);
+    expect(types(r)).toEqual(['ItemRemoved']);
+    expect(lastStatements).toBe(2);
+    expect(line('L1').removed_units).toBe(1);
+    expect(lockOf()).toBeUndefined();
+  });
+
+  it('[R-39] a non-holder without take-order-anywhere → 403 PERMISSION_DENIED not_holder (the open-seating details), nothing written', async () => {
+    await start();
+    const d = closedSeating();
+    const caller = signIn('S_SARA');
+    const before = eventCount();
+    const r = await removeOne(caller, d);
+    expect(r.status).toBe(403);
+    expect(r.error).toEqual({
+      code: 'PERMISSION_DENIED',
+      details: { reason: 'not_holder', table_id: FX.table, assigned_staff_id: null, holder_staff_id: 'S_ALI' },
+    });
+    expect(eventCount()).toBe(before);
+    expect(line('L1').removed_units).toBe(0);
+  });
+
+  it('[R-39] take-order-anywhere covering the floor → 200, no lock taken (branch scope, and my_floors on the table\'s floor)', async () => {
+    await start();
+    const d = closedSeating();
+    const branch = await removeOne(signIn('S_FARAH'), d);
+    expect(branch.status).toBe(200);
+    expect(types(branch)).toEqual(['ItemRemoved']);
+    const floors = await removeOne(signIn('S_FIZA'), d);
+    expect(floors.status).toBe(200);
+    expect(types(floors)).toEqual(['ItemRemoved']);
+    expect(lockOf()).toBeUndefined();
+  });
+
+  it('[R-39] take-order-anywhere at my_floors not covering the table\'s floor → 403 outside_scope, nothing written', async () => {
+    await start();
+    const d = closedSeating();
+    const caller = signIn('S_FAWAD');
+    const before = eventCount();
+    const r = await removeOne(caller, d);
+    expect(r.status).toBe(403);
+    expect(r.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope', table_ids: [FX.table] } });
+    expect(eventCount()).toBe(before);
+  });
+
+  it('[05 row T-3 (4)] [05 #37c] re-seated, then reopened: the old seating\'s holder removes with no lock, the new seating untouched; its seating_id on the old order → TABLE_SEATING_CHANGED', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const d = closedSeating({ reseatBy: 'S_SARA' });
+    const stale = await remove(ali, { order_id: d.order_id, seating_id: 'SEAT2', lines: [{ order_item_id: 'L1' }] });
+    expect(stale.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: FX.table, seating_id: 'SEAT2' } });
+    const r = await removeOne(ali, d);
+    expect(r.status).toBe(200);
+    expect(types(r)).toEqual(['ItemRemoved']);
+    expect(lockOf()).toBeUndefined();
+    expect(hub.deps.db.prepare('SELECT state FROM seatings WHERE seating_id = ?').get('SEAT2')).toEqual({ state: 'SEATED' });
+  });
+
+  it('[05 row T-3 (4)] [02a #32] a NEEDS_CLEANING (not CLOSED) seating keeps requireLock: 409 TABLE_NEEDS_CLEANING, nothing appended', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const d = dineIn([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    append([tableEv('BillClosed', { seating_id: d.seating_id })]);
+    const before = eventCount();
+    const r = await removeOne(ali, d);
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual({ code: 'TABLE_NEEDS_CLEANING', details: { table_id: FX.table } });
+    expect(eventCount()).toBe(before);
+  });
+});
 
 /** 04 row Q-3 stub line guard: 1 statement per ask; locks `locked` under alert A_VOID; records every ask. */
 function lockLines(locked: string[]): Array<{ order_id: string; touched: string[] }> {

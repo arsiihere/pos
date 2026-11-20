@@ -6,6 +6,7 @@ import type { RequireLock } from './contracts.js';
 
 // 02a v1.1.1 §4.2 requireLock (+ P-1b), §2 (holder-only re-acquire, G4-3 #2, N-3), §3.15, T15, T18.
 // One statement: the named table's open seating and its lock (stored under the primary table, §3.2).
+// ⚠️ R-39 (2026-11-20): `requireLockHolder` below is the authorisation half alone (holder / take-order-anywhere / scope).
 // ⚠️ 02a v1.1.8 (05 row T-3 (3), H2-13): `{ allowBillClosed: true }` — passed by SubmitOrder only — lets a live call
 // (`ctx.queuedAt === null`) through a NEEDS_CLEANING seating; a queued replay keeps TABLE_NEEDS_CLEANING. A cleaned
 // seating has no seating_tables row, so it stays TABLE_SEATING_CHANGED (T18, H2-14: no new code).
@@ -52,27 +53,50 @@ export const requireLock: RequireLock = (tx, ref, ctx, opts) => {
   }
 
   // Holder ≠ actor: take-order-anywhere (§3.15: only an `allowed` grant counts); a free lock is never taken (G4-3 #2).
-  const grant = actor === null ? null : ctx.directory.resolve(actor, 'take-order-anywhere');
-  if (actor === null || grant === null || grant.grant !== 'allowed') {
-    throw new DomainError('PERMISSION_DENIED', {
-      reason: 'not_holder',
-      table_id: ref.table_id,
-      assigned_staff_id: ctx.directory.assignedOrderTaker(ref.table_id),
-      holder_staff_id: row.holder_staff_id,
-    });
-  }
+  const grant = anywhereGrant(ctx, actor, ref.table_id, row.holder_staff_id);
   let drafts: EventDraft[] = [];
   if (row.lock_staff_id === actor && !heldByMe) {
-    if (!queued) drafts = [tableLocked(ctx, actor, row, row.lock_device_id ?? undefined)]; // R1: moves (T15); never queued (AD-8)
+    if (!queued) drafts = [tableLocked(ctx, grant.actor, row, row.lock_device_id ?? undefined)]; // R1: moves (T15); never queued (AD-8)
   } else if (row.lock_staff_id !== null && !heldByMe) {
     throw alreadyLocked(ctx, ref.table_id, row.lock_staff_id);
   }
   // Scope last (C8, §3.15): the grant's scope must cover the table named.
-  if (grant.scope !== 'branch' && !coversFloor(ctx, actor, ref.table_id)) {
-    throw new DomainError('PERMISSION_DENIED', { reason: 'outside_scope', table_ids: [ref.table_id] });
-  }
+  checkAnywhereScope(ctx, grant, ref.table_id);
   return drafts;
 };
+
+/**
+ * ⚠️ Owner ruling R-39 (2026-11-20; 05 row T-3 (4)): requireLock's authorisation alone — holder, else an `allowed`
+ * take-order-anywhere (`403 not_holder`) whose scope covers the table (`403 outside_scope`) — for a seating with no lock
+ * to take (RemoveItems on a CLOSED seating). No lock check, no drafts, 0 statements: the caller passes the seating's
+ * holder it already read (readOrder) and the table to judge (its primary table).
+ */
+export function requireLockHolder(ctx: CommandCtx, ref: { table_id: string; holder_staff_id: string }): void {
+  const actor = ctx.actor.staffId;
+  if (actor !== null && ref.holder_staff_id === actor) return;
+  checkAnywhereScope(ctx, anywhereGrant(ctx, actor, ref.table_id, ref.holder_staff_id), ref.table_id);
+}
+
+/** §3.15: a non-holder needs an `allowed` take-order-anywhere, else `403 not_holder`. */
+function anywhereGrant(ctx: CommandCtx, actor: string | null, table_id: string, holder_staff_id: string): { actor: string; scope: string } {
+  const grant = actor === null ? null : ctx.directory.resolve(actor, 'take-order-anywhere');
+  if (actor === null || grant === null || grant.grant !== 'allowed') {
+    throw new DomainError('PERMISSION_DENIED', {
+      reason: 'not_holder',
+      table_id,
+      assigned_staff_id: ctx.directory.assignedOrderTaker(table_id),
+      holder_staff_id,
+    });
+  }
+  return { actor, scope: grant.scope };
+}
+
+/** C8, §3.15: the take-order-anywhere grant's scope must cover the table named, else `403 outside_scope`. */
+function checkAnywhereScope(ctx: CommandCtx, grant: { actor: string; scope: string }, table_id: string): void {
+  if (grant.scope !== 'branch' && !coversFloor(ctx, grant.actor, table_id)) {
+    throw new DomainError('PERMISSION_DENIED', { reason: 'outside_scope', table_ids: [table_id] });
+  }
+}
 
 function tableLocked(ctx: CommandCtx, staff_id: string, row: SeatingLockRow, replaced_device_id?: string): EventDraft {
   return {
