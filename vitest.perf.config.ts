@@ -30,6 +30,19 @@ export default defineConfig({
           sequence: { groupOrder: 2 },
         },
       },
+      {
+        // 00 §10 #53 timing half (owner ruling 2026-11-20, AD-32): the login timing check, out of the normal gate.
+        test: {
+          name: 'perf-cloud',
+          root: './apps/cloud',
+          include: ['test/**/*.perf.test.ts'],
+          globalSetup: ['./test/helpers/global-setup.ts'],
+          testTimeout: 600_000,
+          maxWorkers: 1,
+          fileParallelism: false,
+          sequence: { groupOrder: 3 },
+        },
+      },
     ],
   },
 });
