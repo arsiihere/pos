@@ -111,7 +111,7 @@ describe('[02b #39] hub migration 0020_order_line_option_quantity (02b v1.0.13 Â
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(23); // 02b v1.0.16: 0021, 03c 0022 and 05 0023 run after it
+    expect(db.pragma('user_version', { simple: true })).toBe(24); // 02b v1.0.16: 0021, 03c 0022, 05 0023 and 0024 run after it
     expect(db.prepare('SELECT event_type FROM events WHERE seq > ? ORDER BY seq').pluck().all(maxSeq)[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(rowsOf(db), 'every old line has its option_quantity; rows equal the fresh fold').toEqual(live);
     expect(checkpoint(db, 'orders')).toBeGreaterThanOrEqual(maxSeq);

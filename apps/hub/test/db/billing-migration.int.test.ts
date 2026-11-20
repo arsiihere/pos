@@ -144,6 +144,60 @@ describe('[05 §5] hub migration 0023_billing — text', () => {
   });
 });
 
+const SHIFT_MIGRATION = '0024_billing_payments_shift.sql';
+
+describe('[05 v1.0.11 §5, R-56] hub migration 0024_billing_payments_shift', () => {
+  const plan = (db: Database.Database, q: string): string => (db.prepare(`EXPLAIN QUERY PLAN ${q}`).all() as Array<{ detail: string }>).map((r) => r.detail).join(' | ');
+
+  it('[05 v1.0.11 §5, R-56] the migration is the one index statement, under a header that cites 05 v1.0.11 §5 and R-56; 0023 is untouched', () => {
+    const sql = lf(readFileSync(join(migrations, SHIFT_MIGRATION), 'utf8'));
+    const header = sql.split('\n').filter((l) => l.trimStart().startsWith('--')).join('\n');
+    expect(header).toMatch(/05 v1\.0\.11 §5/);
+    expect(header).toMatch(/R-56/);
+    const rest = sql.split('\n').filter((l) => l.trim() !== '' && !l.trimStart().startsWith('--'));
+    expect(rest).toEqual(['CREATE INDEX bill_payments_shift ON bill_payments (shift_id, mode_id, taken_by_staff_id);']);
+    expect(lf(readFileSync(billingMigrationPath, 'utf8')), '0023 never edited').not.toMatch(/bill_payments_shift/);
+  });
+
+  it('[05 v1.0.11 §5, R-56] bill_payments_shift is on bill_payments, not unique, not partial, columns (shift_id, mode_id, taken_by_staff_id) in that order', async () => {
+    const db = await migrated();
+    const ix = (db.pragma('index_list(bill_payments)') as Array<{ name: string; unique: number; partial: number }>).find((i) => i.name === 'bill_payments_shift');
+    expect(ix, 'bill_payments_shift').toBeDefined();
+    expect([ix!.unique, ix!.partial]).toEqual([0, 0]);
+    expect((db.pragma('index_info(bill_payments_shift)') as Array<{ seqno: number; name: string }>).map((c) => c.name)).toEqual(['shift_id', 'mode_id', 'taken_by_staff_id']);
+  });
+
+  it('[05 v1.0.11 §5, R-56] a query by shift_id on bill_payments (the takings read) uses bill_payments_shift', async () => {
+    const db = await migrated();
+    expect(plan(db, "SELECT mode_id, taken_by_staff_id, SUM(amount_minor) FROM bill_payments WHERE shift_id = 'SH1' GROUP BY mode_id, taken_by_staff_id")).toMatch(/USING (COVERING )?INDEX bill_payments_shift \(shift_id=\?/);
+    expect(plan(db, "SELECT payment_id FROM bill_payments WHERE shift_id = 'SH1' AND mode_id = 'cash'")).toMatch(/USING (COVERING )?INDEX bill_payments_shift \(shift_id=\? AND mode_id=\?\)/);
+  });
+
+  it('[05 v1.0.11 §5, R-56] a fresh database and a database at 23 both end at 24 with the index; re-run is a no-op', async () => {
+    const fresh = await migrated();
+    expect(fresh.pragma('user_version', { simple: true })).toBe(24);
+    expect(names(fresh, 'index')).toContain('bill_payments_shift');
+
+    const fx = freshDb();
+    cleanups.push(fx.cleanup);
+    const { db, dir } = fx;
+    await runMigrations(db, { dir: copyUpTo(dir, '0023'), clock: fixedClock(T) });
+    expect(names(db, 'index')).not.toContain('bill_payments_shift');
+    const indexesBefore = names(db, 'index');
+    const tablesBefore = names(db, 'table');
+    insert(db, 'bills', BILL);
+    insert(db, 'bill_payments', PAYMENT);
+    const result = await runMigrations(db, { dir: migrations, clock: fixedClock(T) });
+    expect(result).toEqual({ from: 23, to: 24, applied: [SHIFT_MIGRATION] });
+    expect(db.pragma('user_version', { simple: true })).toBe(24);
+    expect(names(db, 'index').filter((n) => !indexesBefore.includes(n))).toEqual(['bill_payments_shift']);
+    expect(names(db, 'table'), 'no table change').toEqual(tablesBefore);
+    expect(db.prepare('SELECT COUNT(*) FROM bill_payments').pluck().get(), 'rows kept').toBe(1);
+    expect(plan(db, "SELECT * FROM bill_payments WHERE shift_id = 'SH1'")).toMatch(/bill_payments_shift/);
+    expect(await runMigrations(db, { dir: migrations, clock: fixedClock(T + 1) })).toEqual({ from: 24, to: 24, applied: [] });
+  });
+});
+
 describe('[05 §5] hub migration 0023_billing — schema', () => {
   it('[05 §5] a 0022 database migrates to 0023: exactly the 23 tables and the 24 named indexes (+ primary-key / UNIQUE autoindexes); only the audit checkpoint is deleted; re-run is a no-op', async () => {
     const fx = freshDb();
@@ -156,7 +210,8 @@ describe('[05 §5] hub migration 0023_billing — schema', () => {
     const cp = db.prepare('INSERT INTO projection_checkpoints (branch_id, projection, last_seq) VALUES (?, ?, ?)');
     for (const p of ['audit', 'orders', 'tables', 'kitchen_tickets']) cp.run('branch-1', p, 42);
 
-    const result = await runMigrations(db, { dir: migrations, clock: fixedClock(T) });
+    const upTo23 = copyUpTo(dir, '0023'); // 0024 (R-56) is the next describe's subject
+    const result = await runMigrations(db, { dir: upTo23, clock: fixedClock(T) });
     expect(result).toEqual({ from: 22, to: 23, applied: [BILLING_MIGRATION] });
     expect(db.pragma('user_version', { simple: true })).toBe(23);
     expect(names(db, 'table').filter((n) => !tablesBefore.includes(n))).toEqual([...TABLES].sort());
@@ -168,7 +223,7 @@ describe('[05 §5] hub migration 0023_billing — schema', () => {
       { projection: 'orders', last_seq: 42 },
       { projection: 'tables', last_seq: 42 },
     ]);
-    expect(await runMigrations(db, { dir: migrations, clock: fixedClock(T + 1) })).toEqual({ from: 23, to: 23, applied: [] });
+    expect(await runMigrations(db, { dir: upTo23, clock: fixedClock(T + 1) })).toEqual({ from: 23, to: 23, applied: [] });
   });
 
   it('[05 §5] every table has the §5 primary key', async () => {
@@ -447,7 +502,7 @@ describe('[05 #87 rebuild half] [04 v1.0.7 V-3] 0023 deletes the audit checkpoin
     let live: Row[] = [];
     await bootOnce(configPath, WALL + 30_000, (deps) => {
       const db = deps.db;
-      expect(db.pragma('user_version', { simple: true })).toBe(23);
+      expect(db.pragma('user_version', { simple: true })).toBe(24);
       const rows = auditRows(db);
       expect(rows.filter((r) => r['action'] === 'bill_requested').map((r) => r['seq']), 'the old BillRequested is in the log').toEqual(oldBillRequested);
       expect(rows.filter((r) => r['action'] !== 'bill_requested'), 'every earlier row, column for column').toEqual(before);
