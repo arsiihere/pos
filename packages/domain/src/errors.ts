@@ -125,6 +125,8 @@ export const ErrorCatalogue = {
   SHIFT_ALREADY_OPEN: { status: 409 },
   DRAWER_IN_USE: { status: 409 },
   PETTY_ADVANCE_SETTLED: { status: 409 },
+  // 05 v1.0.12 §9 (owner R-58)
+  SERVICE_CHARGE_NOT_APPLIED: { status: 409 },
   REGISTRATION_CODE_KIND_UNSUPPORTED: { status: 422 },
   HANDOVER_TARGET_INVALID: { status: 422 },
   CONFIG_REFERENCE_INVALID: { status: 422 },

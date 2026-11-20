@@ -124,7 +124,9 @@ describe('[05 §3.14, PL-5 (integrator ruling, option (c))] the apply seam', () 
   const ctx = { alert: { alert_id: 'A1' } } as unknown as AlertApplyCtx<never, never>;
 
   it('[05 §3.14] an unregistered kind throws not built (approve and reject alike); onWithdraw → [] (as if never asked)', () => {
-    for (const name of [...APPROVAL.map(([n]) => n), ...HOLDERS]) {
+    // built kinds leave this list as their command task registers its apply: task 14 remove_service_charge
+    const BUILT: BillRequestKind[] = ['remove_service_charge'];
+    for (const name of [...APPROVAL.map(([n]) => n), ...HOLDERS].filter((n) => !BUILT.includes(n))) {
       const request = kindOf(name)!.request!;
       expect(() => request.apply(ctx as never, answer), name).toThrow(/not built/);
       expect(() => request.apply(ctx as never, { ...answer, decision: 'reject' }), name).toThrow(/not built/);
@@ -139,7 +141,7 @@ describe('[05 §3.14, PL-5 (integrator ruling, option (c))] the apply seam', () 
     expect(DISCOUNT.request!.apply(ctx as never, answer)).toBe(drafts);
     expect(apply).toHaveBeenCalledTimes(1);
     expect(apply).toHaveBeenCalledWith(ctx, answer);
-    expect(() => REMOVE_SERVICE_CHARGE.request!.apply(ctx as never, answer)).toThrow(/not built/);
+    expect(() => REOPEN_BILL.request!.apply(ctx as never, answer)).toThrow(/not built/);
   });
 
   it('[05 §3.14] re-registering the same function is ignored (guard-list rule); a different function for the same kind throws', () => {
