@@ -237,10 +237,23 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
         grantsBefore.rows.map((row: { permission: string }) => row.permission),
       ],
     );
+    // Listed explicitly (not derived from the migration SQL, which would make the test circular); the test targets the
+    // whole migrations dir, so the rows of 0013 (04 B-1) and 0015 (05 B-2, 01b v1.10; own test:
+    // billing-defaults-backfill.int.test.ts) both appear. The fixture's owner / manager roles already hold the new rows.
     expect(added.rows.map((row) => row.line)).toEqual([
+      'cashier:close-without-buyer-id:requires_approval',
+      'cashier:manage-own-shift:allowed',
       'cashier:move-item-to-stock:allowed',
+      'cashier:open-cash-drawer:allowed',
+      'cashier:record-petty-cash:allowed',
+      'cashier:remove-comp:requires_approval',
+      'cashier:remove-service-charge:requires_approval',
+      'cashier:reopen-bill:requires_approval',
+      'cashier:take-payment:allowed',
       'cashier:void-item:requires_approval',
+      'order_taker:manage-own-shift:allowed',
       'order_taker:move-item-to-stock:allowed',
+      'order_taker:take-payment:allowed',
       'order_taker:void-item:requires_approval',
     ]);
     await expect(
