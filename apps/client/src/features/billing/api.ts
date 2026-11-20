@@ -1,6 +1,22 @@
 import type { HubResult } from '../../api/hub-admin';
 import { newUlid } from '../../app/ulid';
-import type { AddPaymentResult, BillPrint, BillRef, BillView, CloseSplitResult, OpenBillsBody, PrintCheckBillResult, SetSplitsPayload, SetSplitsResult, SheetResult } from './contracts';
+import type {
+  AddPaymentResult,
+  BillPrint,
+  BillRef,
+  BillView,
+  CloseShiftResult,
+  CloseSplitResult,
+  CountShiftResult,
+  HandoverCountResult,
+  OpenBillsBody,
+  OpenShiftResult,
+  PrintCheckBillResult,
+  SetSplitsPayload,
+  SetSplitsResult,
+  SheetResult,
+  ShiftView,
+} from './contracts';
 
 // 05 §6 (task 34 on): the billing queries and commands on the staff api's query() / command() (the shell's own
 // transport, features/staff/api.ts — no second client, socket or token).
@@ -45,6 +61,16 @@ export interface BillingApi {
   retargetBillPrint(payload: { job_id: string; printer_id: string }): Promise<HubResult<Omit<BillPrint, 'doc_kind'> & { printer_id: string }>>;
   /** §6.22: reprint a receipt / credit note (REPRINT; the full buyer ID only on that customer's receipt). */
   printBillDocument(payload: { doc: 'receipt' | 'credit_note'; ref_id: string; printer_id?: string }): Promise<HubResult<{ printed: boolean; job_id: string | null; printer_name: string | null }>>;
+  /** §6.16: a shift (absent → the caller's open one; none → 404 SHIFT_NOT_FOUND). Blind until counted (B23). */
+  shift(shift_id?: string): Promise<HubResult<ShiftView>>;
+  /** §6.15: open the caller's shift with its starting cash; `as_drawer` takes this device's drawer. */
+  openShift(payload: { float_minor: number; as_drawer: boolean }): Promise<HubResult<OpenShiftResult>>;
+  /** §6.17: the blind count, which also closes the shift (the drawer is free at once). */
+  countShift(payload: { shift_id: string; counted_minor: number; note?: string }): Promise<HubResult<CountShiftResult>>;
+  /** §6.18: close without a count (`skip-blind-count`). */
+  closeShift(payload: { shift_id: string; skip_count: true; note?: string }): Promise<HubResult<CloseShiftResult>>;
+  /** §6.19: a drawer shift's count at handover; the shift stays open. */
+  handoverCount(payload: { shift_id: string; counted_minor: number }): Promise<HubResult<HandoverCountResult>>;
 }
 
 // One map for every billing api instance of the page (each screen builds its own over the shell's transport): a resend
@@ -88,6 +114,11 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
     billPrinters: () => staff.query('/queries/bill-printers'),
     retargetBillPrint: (payload) => command('RetargetBillPrint', payload),
     printBillDocument: (payload) => command('PrintBillDocument', payload),
+    shift: (shift_id) => staff.query<ShiftView>(shift_id === undefined ? '/queries/shift' : `/queries/shift?shift_id=${encodeURIComponent(shift_id)}`),
+    openShift: (payload) => command<OpenShiftResult>('OpenShift', payload),
+    countShift: (payload) => command<CountShiftResult>('CountShift', payload),
+    closeShift: (payload) => command<CloseShiftResult>('CloseShift', payload),
+    handoverCount: (payload) => command<HandoverCountResult>('HandoverCount', payload),
     openBills: (floor_id) =>
       staff.query<OpenBillsBody>(floor_id === undefined ? '/queries/open-bills' : `/queries/open-bills?floor_id=${encodeURIComponent(floor_id)}`),
   };

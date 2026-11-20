@@ -51,12 +51,18 @@ export function PhoneTabs({ current, inbox, requests = null }: { current: PhoneT
 type ReactIcon = ReturnType<typeof TabIcon> | ReturnType<typeof Ico>;
 
 /** The Me tab: who is signed in, and sign out (it used to be the second tab of the 01d bar). */
-export function MeTab({ name, onSignOut }: { name: string; onSignOut: () => void }) {
+export function MeTab({ name, onSignOut, onShift }: { name: string; onSignOut: () => void; /** 05 §8 Shift (task 39): manage-own-shift */ onShift?: () => void }) {
   return (
     <main className="ph-body">
       <div className="card col signin__phone">
         <span className="av av--me av--48">{initial(name)}</span>
         <b>{name}</b>
+        {onShift !== undefined && (
+          <button type="button" className="btn btn--lg" onClick={onShift}>
+            <Ico name="cash" />
+            {t('billing.shift.nav')}
+          </button>
+        )}
         <button type="button" className="btn btn--lg" onClick={onSignOut}>
           <Ico name="signout" />
           {t('alerts.sign_out_short')}
