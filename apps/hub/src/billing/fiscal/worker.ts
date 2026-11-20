@@ -13,11 +13,22 @@
 // - `health()` at most every 60 s per adapter while rows wait. `last_error` holds short codes only; logs
 //   carry ids, outcomes and codes — never a token, a buyer field or a request body.
 // Seams for phase 0b (plan PL-16, PL-18): `loadSubmission(row)` and `onAnswer(row, answer)` are injected;
-// task 29b supplies the real ones (events, invoice_buyers); P0.18 adds the boot call.
+// task 29b supplies the real ones (`fiscalWorkerSeams`, end of file: events, invoice_buyers); P0.18 adds the boot call.
+import { currencyExponent } from '@pos/domain';
+import {
+  draftOf,
+  FiscalNumberAssigned,
+  FiscalSubmitRejected,
+  type InvoiceCreditedPayload,
+  type InvoiceIssuedPayload,
+} from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { Clock } from '../../lib/clock.js';
+import type { HubDeps } from '../../server.js';
+import { branchConfig } from '../../sync/branch-config-holder.js';
+import { hubBilling } from '../defaults.js';
 import { answerTransition } from './outbox.js';
-import type { FiscalAdapter, FiscalAnswer, FiscalCreditSubmission, FiscalSubmission } from './port.js';
+import { fiscalAdapterFor, type FiscalAdapter, type FiscalAnswer, type FiscalCreditSubmission, type FiscalSubmission } from './port.js';
 
 /** §3.15: 5 s, 30 s, 2 min, then 5 min (attempt n waits BACKOFF_MS[min(n, 4) - 1]). */
 export const BACKOFF_MS = [5_000, 30_000, 120_000, 300_000] as const;
@@ -36,6 +47,12 @@ export const FISCAL_ERRORS = {
   original_rejected: 'original_rejected',
   original_missing: 'original_missing',
   invalid_code: 'invalid_code',
+  /** 29b: §3.15 "an invalid blob → rows stay pending, last_error: 'adapter_settings_invalid'". */
+  adapter_settings_invalid: 'adapter_settings_invalid',
+  /** 29b: the hub has no provisioned branch or no applied branch config yet (the row waits). */
+  config_missing: 'config_missing',
+  /** 29b: the row's `ord` event is not its InvoiceIssued / InvoiceCredited (a fault; the row waits). */
+  invoice_missing: 'invoice_missing',
 } as const;
 
 /** A pending `fiscal_outbox` row as the worker reads it. */
@@ -119,11 +136,15 @@ export function resetFiscalWorker(): void {
   lock = Promise.resolve();
 }
 
-/** A short code for `last_error` / logs: `[a-z0-9_]`, ≤ 40 chars; anything else (free text) is dropped. */
+/**
+ * A short code for `last_error` / logs / `FiscalSubmitRejected`: `[a-z0-9_]`, ≤ 40 chars; anything else (free text) is
+ * dropped. A run of 5 or more digits is dropped too (B19 / B22: an authority echoing a CNIC / NTN or any other number
+ * must not reach the outbox, an event or a log). Dropped → `invalid_code`.
+ */
 export function shortCode(code: unknown): string {
   if (typeof code !== 'string') return FISCAL_ERRORS.invalid_code;
   const c = code.toLowerCase();
-  return /^[a-z0-9_]{1,40}$/.test(c) ? c : FISCAL_ERRORS.invalid_code;
+  return /^[a-z0-9_]{1,40}$/.test(c) && !/[0-9]{5}/.test(c) ? c : FISCAL_ERRORS.invalid_code;
 }
 
 /** An adapter's answer as the port types it, or null (an adapter bug: treated as a retry). */
@@ -415,3 +436,184 @@ function logError(deps: FiscalWorkerDeps, obj: Record<string, unknown>, msg: str
     // a broken logger never stops the worker
   }
 }
+
+// ============================================================================ 29b: the real seams (§3.15, B19–B22)
+
+type SeamDeps = Pick<HubDeps, 'db' | 'writer' | 'clock' | 'config'>;
+type InvoicePayload = InvoiceIssuedPayload | InvoiceCreditedPayload;
+type PaymentClass = FiscalSubmission['invoice']['payments'][number]['payment_class'];
+
+/**
+ * §3.15 / Appendix P.2: the neutral submission for a pending row, from what the hub holds — never today's settings
+ * for the invoice's own facts (H9-6). Fixed statement count, 3 for a sale and for a credit (#91): the invoice event
+ * (1), its payments (1), the buyer row and a credit's original invoice row (1).
+ * - The invoice is the row's own event: `ord` = its seq (§5), read by the (branch_id, seq) index.
+ * - Payments (G-6): the invoice's `payment_ids` joined to `bill_payments` by `payment_id`, in the invoice's order,
+ *   whatever `removed_at` says and never by `invoice_id` (a reopen clears it); `authority_code` = the snapshot's
+ *   `payment_codes` entry for that payment, else null (G-4, R-9: the adapter rejects `mode_unmapped`).
+ * - `tax_minor` = Σ the invoice tax rows, service-charge taxes included (G-5).
+ * - Buyer (B19): the `invoice_buyers` row of the invoice, a credit its original's (H7-10); null when none.
+ * - Config (H10-6): `base_urls[row.adapter_key][environment] ?? null`, `adapter_settings[row.adapter_key] ?? {}`,
+ *   validated by that adapter's settingsSchema (invalid → `adapter_settings_invalid`, the row waits).
+ * - A `payment_ids` entry with no `bill_payments` row → `invoice_missing` (the row waits; never a short list).
+ * The worker adds idempotency_key, credentials, pos_id and jurisdiction_id from the row. Nothing here logs.
+ */
+function loadSubmissionFromHub(deps: SeamDeps, row: FiscalWorkRow): LoadedSubmission {
+  const branch_id = deps.config.provisioned?.branch_id;
+  const config = branchConfig();
+  if (branch_id === undefined || config === null) return { ok: false, error_code: FISCAL_ERRORS.config_missing };
+  const { db } = deps;
+  const event = db.prepare('SELECT event_type, payload FROM events WHERE branch_id = ? AND seq = ?').get(branch_id, row.ord) as
+    | { event_type: string; payload: string }
+    | undefined;
+  const wanted = row.ref_invoice_id === null ? 'InvoiceIssued' : 'InvoiceCredited';
+  if (event === undefined || event.event_type !== wanted) return { ok: false, error_code: FISCAL_ERRORS.invoice_missing };
+  const inv = JSON.parse(event.payload) as InvoicePayload;
+  if (inv.invoice_id !== row.invoice_id) return { ok: false, error_code: FISCAL_ERRORS.invoice_missing };
+
+  const fiscal = hubBilling(config).settings.fiscal;
+  const settings: unknown = fiscal.adapter_settings[row.adapter_key] ?? {};
+  const adapter = fiscalAdapterFor(row.adapter_key);
+  if (adapter === null) return { ok: false, error_code: FISCAL_ERRORS.adapter_unknown };
+  if (!adapter.settingsSchema.safeParse(settings).success) return { ok: false, error_code: FISCAL_ERRORS.adapter_settings_invalid };
+
+  const pays = db
+    .prepare(
+      `SELECT p.payment_id, p.payment_class, p.direction, p.amount_minor FROM json_each(?) j
+         JOIN bill_payments p ON p.payment_id = j.value ORDER BY j.key`,
+    )
+    .all(JSON.stringify(inv.payment_ids)) as { payment_id: string; payment_class: PaymentClass; direction: 'in' | 'out'; amount_minor: number }[];
+  // G-6: every payment of the invoice must join; a missing one would send the authority a short list (the row waits)
+  if (pays.length !== inv.payment_ids.length) return { ok: false, error_code: FISCAL_ERRORS.invoice_missing };
+  const codes = new Map(inv.fiscal.payment_codes.map((p) => [p.payment_id, p.authority_code]));
+  // one statement for both: the buyer row (a credit: its original's, H7-10) and a credit's original invoice row
+  const k = db
+    .prepare(
+      `SELECT b.buyer_name, b.id_type, b.id_value, o.invoice_ref, o.fiscal_number, o.issued_at
+         FROM (SELECT ? AS buyer_of, ? AS original_id) k
+         LEFT JOIN invoice_buyers b ON b.invoice_id = k.buyer_of
+         LEFT JOIN invoices o ON o.invoice_id = k.original_id`,
+    )
+    .get(row.ref_invoice_id ?? row.invoice_id, row.ref_invoice_id) as {
+    buyer_name: string | null;
+    id_type: string | null;
+    id_value: string | null;
+    invoice_ref: string | null;
+    fiscal_number: string | null;
+    issued_at: number | null;
+  };
+  const buyer =
+    k.buyer_name === null || k.id_type === null || k.id_value === null ? undefined : { buyer_name: k.buyer_name, id_type: k.id_type, id_value: k.id_value };
+  const original: FiscalCreditSubmission['original'] | null =
+    k.invoice_ref === null || k.issued_at === null ? null : { invoice_ref: k.invoice_ref, fiscal_number: k.fiscal_number, issued_at: k.issued_at };
+
+  return {
+    ok: true,
+    original,
+    submission: {
+      currency_code: inv.currency_code,
+      currency_exponent: currencyExponent(inv.currency_code),
+      prices_include_tax: inv.prices_include_tax,
+      seller: { branch_id, tax_registrations: inv.fiscal.seller_registrations.map((r) => ({ code: r.code, number: r.number })) },
+      config: { environment: fiscal.environment, base_url: fiscal.base_urls?.[row.adapter_key]?.[fiscal.environment] ?? null, settings },
+      invoice: {
+        invoice_ref: inv.invoice_ref,
+        issued_at: inv.issued_at,
+        order_type: inv.order_type,
+        lines: inv.lines.map((l) => ({
+          order_item_id: l.order_item_id,
+          item_id: l.item_id,
+          tax_profile_id: l.tax_profile_id,
+          fiscal_category: l.fiscal_category,
+          name: l.name,
+          units: l.units,
+          unit_price_minor: l.unit_price_minor,
+          base_minor: l.base_minor,
+          discount_minor: l.discount_minor,
+          taxes: l.taxes.map(lineTax),
+        })),
+        service_charge: inv.service_charge === null ? null : { amount_minor: inv.service_charge.amount_minor, taxes: inv.service_charge.taxes.map(lineTax) },
+        subtotal_minor: inv.subtotal_minor,
+        discount_minor: inv.discount_minor,
+        tax_minor: inv.taxes.reduce((sum, t) => sum + t.tax_minor, 0),
+        rounding_minor: inv.rounding_minor,
+        total_minor: inv.total_minor,
+        taxes: inv.taxes.map((t) => ({
+          tax_profile_id: t.tax_profile_id,
+          tax_code: t.tax_code,
+          payment_class: t.payment_class,
+          rate_bp: t.rate_bp,
+          base_minor: t.base_minor,
+          tax_minor: t.tax_minor,
+        })),
+        payments: pays.map((p) => ({
+          authority_code: codes.get(p.payment_id) ?? null,
+          payment_class: p.payment_class,
+          direction: p.direction,
+          amount_minor: p.amount_minor,
+        })),
+        buyer: buyer === undefined ? null : { name: buyer.buyer_name, tax_id: { type: buyer.id_type, value: buyer.id_value } },
+        buyer_id_refused: inv.buyer_id_refused,
+      },
+    },
+  };
+}
+
+const lineTax = (t: InvoicePayload['lines'][number]['taxes'][number]) => ({
+  tax_code: t.tax_code,
+  payment_class: t.payment_class,
+  rate_bp: t.rate_bp,
+  base_minor: t.base_minor,
+  tax_minor: t.tax_minor,
+});
+
+/**
+ * §3.15 answer → one writer transaction: `FiscalNumberAssigned` (ok, or duplicate with a number) or
+ * `FiscalSubmitRejected` (rejected, or duplicate without one; short code, `http_status` 100–599 else null) on the
+ * invoice's bill stream (actor null, device 'hub'); the billing fold moves the row to `acked` / `rejected`; the same
+ * transaction clears `in_flight_at` and sets `last_error` (null on an ack, the code on a reject). A row that already
+ * left `pending` (an answer committed before a crash) gets nothing: one answer event per invoice (#70).
+ * A throw (e.g. the COMMIT fails) rolls all of it back: the row stays pending and in flight and is resent with the
+ * same key. Statements: the row + bill (1), the append, the worker columns (1).
+ */
+function commitFiscalAnswer(deps: SeamDeps, row: FiscalWorkRow, answer: FiscalFinalAnswer): void {
+  const t = answerTransition(answer);
+  if (t.to === 'retry') throw new Error('onAnswer: a retry is handled on the row by the worker');
+  deps.writer.run((tx) => {
+    const current = tx.db
+      .prepare('SELECT o.state, i.bill_id FROM fiscal_outbox o JOIN invoices i ON i.invoice_id = o.invoice_id WHERE o.invoice_id = ?')
+      .get(row.invoice_id) as { state: string; bill_id: string } | undefined;
+    if (current === undefined || current.state !== 'pending') return;
+    const env = { stream_type: 'bill' as const, stream_id: current.bill_id, occurred_at: deps.clock.branchNow(), actor_id: null, device_id: 'hub' };
+    if (t.to === 'acked') {
+      tx.append([
+        draftOf(FiscalNumberAssigned, {
+          ...env,
+          payload: { invoice_id: row.invoice_id, adapter_key: row.adapter_key, pos_id: row.pos_id, fiscal_number: t.fiscal_number, qr_payload: t.qr_payload },
+        }),
+      ]);
+    } else {
+      const status = t.http_status;
+      tx.append([
+        draftOf(FiscalSubmitRejected, {
+          ...env,
+          payload: {
+            invoice_id: row.invoice_id,
+            adapter_key: row.adapter_key,
+            error_code: shortCode(t.error_code),
+            http_status: Number.isInteger(status) && status! >= 100 && status! <= 599 ? status : null,
+          },
+        }),
+      ]);
+    }
+    tx.db
+      .prepare('UPDATE fiscal_outbox SET in_flight_at = NULL, last_error = ? WHERE invoice_id = ?')
+      .run(t.to === 'rejected' ? shortCode(t.error_code) : null, row.invoice_id);
+  });
+}
+
+/** The real seams, registered at module load by `apps/hub/src/billing/index.ts` (one line, H6-14, G-21). */
+export const fiscalWorkerSeams = {
+  loadSubmission: (deps: HubDeps, row: FiscalWorkRow): LoadedSubmission => loadSubmissionFromHub(deps, row),
+  onAnswer: (deps: HubDeps, row: FiscalWorkRow, answer: FiscalFinalAnswer): void => commitFiscalAnswer(deps, row, answer),
+};

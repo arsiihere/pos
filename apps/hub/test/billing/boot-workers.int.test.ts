@@ -5,7 +5,7 @@ import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { registerFiscalWorkerSeams, resetFiscalWorkerSeams } from '../../src/billing/index';
-import { FISCAL_LOOP_MS } from '../../src/billing/fiscal/worker';
+import { FISCAL_LOOP_MS, fiscalWorkerSeams } from '../../src/billing/fiscal/worker';
 import { boot, registerBootStep, type BootContext } from '../../src/lib/boot';
 import { createLogCapture } from '../helpers/log-capture';
 import { offlineCloud } from '../helpers/stub-cloud';
@@ -17,6 +17,8 @@ import { stubConfigCloud } from '../helpers/stub-config-cloud';
 // fake timers inside listen, so a worker started before listen would pass there; each pass records whether step 7's
 // HubStarted is already in `events` (as the tick test's first pass does). Fake timers, no timing asserts (AD-32).
 // A fiscal pass is seen as its `fiscal_outbox` pending read on the hub db.
+// 29b (H6-14, G-21): billing/index.ts registers the real seams at module load, so a test that needs "no seams"
+// resets them and puts the real ones back afterwards (plan fix of row 29b); the first test never touches them.
 
 const WALL = 1_761_000_000_000;
 const PASS_SQL = /FROM fiscal_outbox WHERE state = 'pending'/;
@@ -92,8 +94,21 @@ async function bootWithProbe(): Promise<{
 }
 
 describe('[05 row H-3, G-21] boot starts the billing workers after listen and beat.stop stops them', () => {
+  it('[05 29b, H6-14] with no registration in the test: the seams billing/index.ts registers at module load start the fiscal worker after boot', async () => {
+    const hub = await bootWithProbe();
+    expect(hub.atStep6()).toBe(0);
+    expect(hub.passes()).toBe(0); // not before listen
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hub.passes()).toBe(1); // the worker runs: startBillingWorkers found the module-load seams
+    await vi.advanceTimersByTimeAsync(FISCAL_LOOP_MS);
+    expect(hub.passes()).toBe(2);
+    await hub.stop();
+    expect(hub.log()).not.toMatch(/fiscal\.pass_failed/);
+  });
+
   it('[05 row H-3, G-21] with no seams registered: nothing runs, nothing fails, stop is clean', async () => {
     resetFiscalWorkerSeams();
+    cleanups.push(() => registerFiscalWorkerSeams(fiscalWorkerSeams)); // back to the module-load registration
     const hub = await bootWithProbe();
     expect(hub.atStep6()).toBe(0);
     await vi.advanceTimersByTimeAsync(FISCAL_LOOP_MS * 5);
@@ -106,7 +121,7 @@ describe('[05 row H-3, G-21] boot starts the billing workers after listen and be
     const loadSubmission = vi.fn(() => ({ ok: false as const, error_code: 'not_yet' }));
     const onAnswer = vi.fn();
     registerFiscalWorkerSeams({ loadSubmission, onAnswer });
-    cleanups.push(() => resetFiscalWorkerSeams());
+    cleanups.push(() => registerFiscalWorkerSeams(fiscalWorkerSeams)); // back to the module-load registration
     const hub = await bootWithProbe();
     expect(hub.atStep6()).toBe(0); // not started at or before step 6
     expect(hub.passes()).toBe(0); // not started before listen (the probe ran the timers inside listen)
