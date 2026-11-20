@@ -8,18 +8,27 @@
 // exists (its service charge, discount, splits), else the projected bill (ensure-bill drafts are not possible in a
 // fold), at `billPrinterFor({ zone_id, floor_id })` of the seating's primary table; the job in `bill_print_jobs`
 // (`bill_id` = the bill, else NULL with `ref_id = seating_id`). No event, no 01d notice. No printer → logged, skipped.
-import { DomainError } from '@pos/domain';
-import type { BillRequestedPayload, PosEvent } from '@pos/events';
+//
+// 05 §6.25, §3.16 (task 26b): `ZReportIssued { business_date, z_no, report }` → the Z at `billPrinterFor({ report:
+// true })` (the `report` route, else `default`), rendered by 4a's `buildReportDoc` with the staff names of the report's
+// ids read from `staff_names` at print (H16-5: the event holds ids only), dates in hub time at the event's
+// `recorded_at`, amounts in the report's own currency. Its `bill_print_jobs` row (`doc_kind 'report'`, `bill_id`
+// NULL, `ref_id` = the business date) is claimed first under the job id `<event_id>:z`, so the same event applied
+// again prints nothing. Live only: a replay, refold or rebuild ('catchup') never prints a Z again.
+import { buildReportDoc, currencyExponent, DomainError } from '@pos/domain';
+import type { BillRequestedPayload, PosEvent, ZReportIssuedPayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { HubConfig } from '../../config/schema.js';
 import type { WriterTx } from '../../engine-host/writer.js';
 import type { Projection, ProjectionRegistry } from '../../projections/registry.js';
-import { billPrinterFor } from '../../print/api.js';
+import { billPrinterFor, printDocument } from '../../print/api.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
+import { hubTime } from '../../lib/hub-time.js';
 import { openBillOf } from '../commands/ensure-bill.js';
 import { activePrinter, checkBillOf, queueCheckBill, tableRouteOf } from '../commands/print-check-bill.js';
+import { reportStaffIds, staffNamesOf } from '../queries/reports.js';
 
-export const BILL_PRINT_EVENT_TYPES = ['BillRequested'] as const;
+export const BILL_PRINT_EVENT_TYPES = ['BillRequested', 'ZReportIssued'] as const;
 
 /** One skipped print (ids and a short reason only). */
 export interface BillPrintSkip {
@@ -61,9 +70,10 @@ export function billPrintsProjection(projections: ProjectionRegistry): Projectio
     eventTypes: [...BILL_PRINT_EVENT_TYPES],
     apply(tx, event, mode) {
       if (mode !== 'live') return;
-      const seating_id = (event.payload as Partial<BillRequestedPayload>).seating_id ?? null;
+      const seating_id = event.event_type === 'BillRequested' ? ((event.payload as Partial<BillRequestedPayload>).seating_id ?? null) : null;
       try {
-        tx.transaction(() => printRequestedBill(tx, event, slot.config))();
+        if (event.event_type === 'ZReportIssued') tx.transaction(() => printZReport(tx, event))();
+        else tx.transaction(() => printRequestedBill(tx, event, slot.config))();
       } catch (error) {
         emit({ event_id: event.event_id, event_type: event.event_type, seating_id, reason: error instanceof Skip ? error.message : error instanceof DomainError ? error.code : 'fold_error' });
       }
@@ -94,6 +104,30 @@ function printRequestedBill(db: Database.Database, event: PosEvent, hub: HubConf
     ref_id: head.bill_id === null ? p.seating_id : null,
     branch_name: hub?.provisioned?.branch_name ?? '',
   });
+}
+
+const Z_JOB = `INSERT OR IGNORE INTO bill_print_jobs (job_id, bill_id, doc_kind, ref_id, created_at) VALUES (?, NULL, 'report', ?, ?)`;
+
+/**
+ * §6.25, §3.16: billPrinterFor (1) + the printer row (1) → claim the `bill_print_jobs` row (1) → the report's staff
+ * names (1) → printDocument (2). 6 statements, whatever the report's size. No printer → Skip (logged, ids only).
+ */
+function printZReport(db: Database.Database, event: PosEvent): void {
+  const p = event.payload as Partial<ZReportIssuedPayload>;
+  const report = p.report;
+  if (report === undefined || typeof p.business_date !== 'string') throw new Skip('bad_payload');
+  const routed = billPrinterFor(db, { report: true });
+  const printer = routed === null ? null : activePrinter(db, routed);
+  if (printer === null) throw new Skip('no_printer');
+  const job_id = `${event.event_id}:z`;
+  if (db.prepare(Z_JOB).run(job_id, p.business_date, event.recorded_at).changes === 0) return; // already printed
+  const doc = buildReportDoc(report, staffNamesOf(db, reportStaffIds(report)), {
+    width_cols: printer.paper_width_mm === 58 ? 32 : 48,
+    currency_exponent: currencyExponent(report.currency_code),
+    utc_offset_ms: hubTime({ branchNow: () => event.recorded_at }).utc_offset_ms,
+  });
+  const { job_id: printed } = printDocument(foldTx(db, event, job_id), printer.printer_id, doc, { kind_label: 'Z report' });
+  if (printed !== job_id) throw new Error('Z report: the print job id is not the claimed one');
 }
 
 /** printDocument's transaction view inside a fold: the fold's connection, the event's time and a job id of its own. */

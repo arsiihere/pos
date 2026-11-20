@@ -44,6 +44,7 @@ import { shiftsProjection } from './projections/shifts.js';
 import { registerBillQuery } from './queries/bill.js';
 import { registerBillPrintersQuery } from './queries/bill-printers.js'; // task 27
 import { registerOpenBillsQuery } from './queries/open-bills.js';
+import { registerReportQueries } from './queries/reports.js'; // task 26b
 import { registerShiftQuery } from './queries/shift.js';
 
 // 05 wiring entry (§6.30, task 7; H6-14: every later task adds only its own registration lines here, under its marker).
@@ -95,6 +96,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerLineGuard(billLineGuard);
   // task 19 (§6.13, §3.10, row Q-7)
   registerReopenBill(app);
+  // task 26b (§6.26): the X and Z queries (the ZReportIssued print fold is in print/folds.ts)
+  registerReportQueries(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
