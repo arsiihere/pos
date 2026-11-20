@@ -19,7 +19,7 @@ import type { Projection } from '../../projections/registry.js';
 // 05 §5 (task 8): the projection `shifts` (with `reset`). Events only (R-44 / G-39): every fold reads the event and the
 // projection's own five tables, never a `billing` table (bill_payments, bills, invoices, billing_day), 02a's / 02b's
 // tables or the settings — so a rebuild from seq 0 equals live (#88, #47b) and a later settings change never moves a
-// rebuilt shift (R-42, #50d). Times are the envelope's recorded_at; shifts.business_date is ShiftOpened's and
+// rebuilt shift (R-42, #50d). Times are the envelope's recorded_at (shift_handovers.at bumped from it, R-81); shifts.business_date is ShiftOpened's and
 // shift_signoffs.business_date is ShiftVarianceSignedOff's (the open day of the answer, R-44).
 // Expected cash (§3.7) = float + Σ cash `in` − Σ cash `out` + Σ settled-advance cash returned − Σ advances
 // − Σ cash-outs + Σ cash-ins; tendered and change cancel out on the receiving shift, so only amount_minor moves it.
@@ -113,11 +113,14 @@ function applyShifts(tx: Database.Database, event: PosEvent): void {
       return;
     }
     case 'HandoverCounted': {
-      // §6.19: the shift stays open; no variance_state, no sign-off.
+      // §6.19: the shift stays open; no variance_state, no sign-off. R-81 (v1.0.21): `at` (epoch ms) =
+      // max(recorded_at, the shift's last handover at + 1), strictly increasing per shift (§5 key (shift_id, at)),
+      // read from this table alone in the same statement, so a rebuild in seq order gives the same rows.
       const p = event.payload as HandoverCountedPayload;
       tx.prepare(
-        `INSERT INTO shift_handovers (shift_id, at, counted_minor, expected_minor, variance_minor, by_staff_id) VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(p.shift_id, at, p.counted_minor, p.expected_minor, p.variance_minor, p.by_staff_id);
+        `INSERT INTO shift_handovers (shift_id, at, counted_minor, expected_minor, variance_minor, by_staff_id)
+         SELECT ?, MAX(?, COALESCE((SELECT MAX(h.at) FROM shift_handovers h WHERE h.shift_id = ?) + 1, ?)), ?, ?, ?, ?`,
+      ).run(p.shift_id, at, p.shift_id, at, p.counted_minor, p.expected_minor, p.variance_minor, p.by_staff_id);
       return;
     }
     case 'ShiftClosed': {
