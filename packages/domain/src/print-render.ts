@@ -6,6 +6,7 @@ import type { Doc } from './print.js';
 // here), so the preview and the paper stay the same text. Text wraps at width / size and is aligned as the printer
 // does (size columns per character); a rule is `-` × width; a feed is empty lines; cut and drawer print nothing.
 // ⚠️ 03c v1.0.11 §3.6 (05 row P-3): a QR block prints `[QR] <payload>`, mapped and wrapped like a text line.
+// ⚠️ 03c v1.0.11 §3.6 (05 row P-5): a fill block prints its `last4` as a plain text line (pure: no filler is asked).
 
 // §3.6 mapping, applied before PC437.
 const ASCII_MAP: ReadonlyMap<string, string> = new Map([
@@ -88,7 +89,8 @@ export function wrapText(text: string, cols: number): string[] {
 export function renderText(doc: Doc, width_cols: 32 | 48): string {
   const cols = doc.width_cols ?? width_cols;
   const out: string[] = [];
-  for (const block of doc.blocks) {
+  for (const raw of doc.blocks) {
+    const block = 'fill' in raw ? { text: raw.last4 } : raw;
     if ('text' in block) {
       const align = block.align ?? 'left';
       const size = block.size ?? 1;
