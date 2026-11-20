@@ -686,6 +686,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // --------------------------------------------------------------------------------------------- routes
   // 01d v1.3 §3.13.5 (m11): the raw checks below take no `focus`; compare the path, so a stray query never unmatches them
   const path = routePath(route);
+  const shiftQueryId = path === '/shift' ? new URLSearchParams(route.split('?')[1] ?? '').get('shift_id') || null : null;
   const receiptsMatch = /^\/receipts\/([^/]+)$/.exec(path);
   const staffRoute = matchStaffRoute(route, device.type);
   let page: ReactNode;
@@ -714,12 +715,16 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
   } else if (path === '/audit' && showAudit) {
     page = <AuditLog />;
-  } else if (path === '/shift' && showShift) {
-    // task 41: #/shift?shift_id=… opens that shift (day close's Close this shift; the hub checks close-shift-for-others)
-    const shiftId = new URLSearchParams(route.split('?')[1] ?? '').get('shift_id');
-    page = <ShiftScreen key={route} {...(shiftId === null || shiftId === '' ? {} : { shiftId })} />;
+  } else if (path === '/shift' && (showShift || (shiftQueryId !== null && allowed.has('close-shift-for-others')))) {
+    // task 41: #/shift?shift_id=… opens that shift (day close's Close this shift, close-shift-for-others)
+    page = <ShiftScreen key={route} {...(shiftQueryId === null ? {} : { shiftId: shiftQueryId })} />;
   } else if (path === '/day-close' && showDayClose) {
-    page = <DayCloseScreen onNavigate={navigate} />;
+    page = (
+      <DayCloseScreen
+        onNavigate={navigate}
+        exits={{ closeShift: allowed.has('close-shift-for-others'), ownShift: showShift, bill: showBills, requests: showRequests, reports: showReports }}
+      />
+    );
   } else if (path === '/reports' && showReports) {
     page = <ReportsScreen />;
   } else if (path === '/bills' && showBills) {

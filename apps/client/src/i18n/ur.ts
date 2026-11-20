@@ -1530,7 +1530,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // ---- 05 client (task 41, day close): frame DayCloseUrdu ----
   'billing.dayclose.title': 'دن بند کریں',
   'billing.dayclose.close': 'دن بند کریں',
-  'billing.dayclose.nav': 'دن بند کریں',
+  'billing.dayclose.nav': 'دن بند',
+  'billing.dayclose.open_since': '{time} سے · دراز نہیں',
+  'billing.dayclose.open_since_drawer': '{time} سے · دراز',
   'billing.dayclose.what': 'کھلی درخواستیں منسوخ ہو جاتی ہیں اور Z رپورٹ پرنٹ ہوتی ہے۔',
   'billing.dayclose.step_voids': 'void کی درخواستیں',
   'billing.dayclose.step_shifts': 'کھلی شفٹیں',

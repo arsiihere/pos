@@ -192,6 +192,13 @@ describe('[05 §8 Day close; task 41] Close day in the staff nav (R5)', () => {
     expect(await at('#/day-close')).toBeNull();
   });
 
+  it('[review M2] #/shift?shift_id=… also opens with close-shift-for-others alone', async () => {
+    PERMS = { 'close-business-day': { grant: 'allowed', scope: 'branch' }, 'close-shift-for-others': { grant: 'allowed', scope: 'branch' } };
+    await signedIn();
+    expect((await at('#/shift?shift_id=SH7'))?.getAttribute('data-id')).toBe('SH7');
+    expect(await at('#/shift')).toBeNull();
+  });
+
   it('[Close this shift] #/shift?shift_id=… mounts the shift screen of that shift', async () => {
     PERMS = { 'manage-own-shift': { grant: 'allowed', scope: 'branch' } };
     await signedIn();

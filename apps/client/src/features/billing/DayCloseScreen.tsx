@@ -92,7 +92,8 @@ export function blockedOf(details: Record<string, unknown>): Blocked {
 type State =
   | { name: 'idle'; note: string | null }
   | { name: 'blocked'; b: Blocked }
-  | { name: 'done'; business_date: string; z: ZReportView | null };
+  /** z: the Z of the date; 'none' = the hub issued none (no branch settings, R-85 (2)); 'unread' = the read failed or was refused */
+  | { name: 'done'; business_date: string; z: ZReportView | 'none' | 'unread' };
 
 function errText(e: HubError): string {
   if (e.kind === 'signed_out') return t('billing.shift.signed_out');
@@ -100,7 +101,21 @@ function errText(e: HubError): string {
   return t(billingErrorKey(e.code, e.details));
 }
 
-export function DayCloseScreen({ onNavigate }: { onNavigate: (path: string) => void }) {
+/** What the person may open from a blocker row (R5: each exit is offered only where its own gate lets them through). */
+export interface DayCloseExits {
+  /** `#/shift` of another person (close-shift-for-others) */
+  closeShift: boolean;
+  /** their own shift (manage-own-shift) */
+  ownShift: boolean;
+  /** `#/bill` (take-payment) */
+  bill: boolean;
+  /** `#/requests` (the hub lists requests they answer) */
+  requests: boolean;
+  /** `#/reports` (view-reports) */
+  reports: boolean;
+}
+
+export function DayCloseScreen({ onNavigate, exits }: { onNavigate: (path: string) => void; exits: DayCloseExits }) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
   const code = (shell.config.snapshot() as { currency_code?: string } | null)?.currency_code ?? 'PKR';
@@ -133,7 +148,7 @@ export function DayCloseScreen({ onNavigate }: { onNavigate: (path: string) => v
     // CHANGES.md D-17 / R-85: the Z number and content from the Z list of that date (newest z_no), never the close result
     const z = await api.zReportOf(r.business_date);
     setBusy(false);
-    setState({ name: 'done', business_date: r.business_date, z: z.ok ? (z.data.data.reports[0] ?? null) : null });
+    setState({ name: 'done', business_date: r.business_date, z: !z.ok ? 'unread' : (z.data.data.reports[0] ?? 'none') });
   };
 
   const at = state.name === 'blocked' && state.b.reason !== null ? GUARDS.indexOf(state.b.reason) : state.name === 'done' ? GUARDS.length : -1;
@@ -195,6 +210,8 @@ export function DayCloseScreen({ onNavigate }: { onNavigate: (path: string) => v
         {state.name === 'blocked' && (
           <BlockedList
             b={state.b}
+            exits={exits}
+            me={shell.me?.name ?? null}
             code={code}
             offset={offset}
             ticked={ticked}
@@ -208,15 +225,23 @@ export function DayCloseScreen({ onNavigate }: { onNavigate: (path: string) => v
             <div className="b5-blk__h b5-blk__h--ok">
               <Ico name="checkc" />
               <div>
-                <b>{state.z === null ? t('billing.dayclose.done') : fill(t('billing.dayclose.done_z'), { z: zNo(state.z.z_no) })}</b>
+                <b>{typeof state.z === 'string' ? t('billing.dayclose.done') : fill(t('billing.dayclose.done_z'), { z: zNo(state.z.z_no) })}</b>
                 <span>
-                  {state.z === null
+                  {state.z === 'none'
                     ? t('billing.dayclose.no_z')
-                    : fill(t('billing.dayclose.done_sub'), { date: dayText(dateOf(state.z.business_date), 0), time: timeText(state.z.report.issued_at, offset) })}
+                    : state.z === 'unread'
+                      ? t('billing.dayclose.z_unread')
+                      : fill(t('billing.dayclose.done_sub'), { date: dayText(dateOf(state.z.business_date), 0), time: timeText(state.z.report.issued_at, offset) })}
                 </span>
               </div>
+              {state.z === 'unread' && exits.reports && (
+                <button type="button" className="btn" onClick={() => onNavigate('/reports')}>
+                  <Ico name="eye" />
+                  {t('billing.report.nav')}
+                </button>
+              )}
             </div>
-            {state.z !== null && (
+            {typeof state.z !== 'string' && (
               <div className="b5-blk__b b5-scroll">
                 <div className="col b5-stack">
                   <ReportBody report={state.z.report} names={state.z.staff_names} offset={offset} retry={null} />
@@ -261,6 +286,9 @@ function Head({ text, sub, action }: { text: string; sub?: string; action?: Reac
 
 function BlockedList(p: {
   b: Blocked;
+  exits: DayCloseExits;
+  /** the signed-in person's name: their own open shift opens as "My shift" */
+  me: string | null;
   code: string;
   offset: number;
   ticked: ReadonlySet<string>;
@@ -272,16 +300,16 @@ function BlockedList(p: {
   if (b.reason === null) return <Head text={t('billing.dayclose.blocked_generic')} />;
   const sentence = (one: MessageKey, many: MessageKey) => (b.count === 1 ? t(one) : fill(t(many), { count: String(b.count) }));
   const more = b.count > b.rows.length ? <div className="b5-more">{fill(t('admin_stock.errors.DAY_CLOSE_BLOCKED_more'), { n: String(b.count - b.rows.length) })}</div> : null;
-  const requests = (
+  const requests = p.exits.requests ? (
     <button type="button" className="btn btn--tone c-warn" onClick={() => p.onNavigate('/requests')}>
       <Ico name="shield" />
       {t('billing.dayclose.open_requests')}
     </button>
-  );
+  ) : undefined;
   if (b.reason === 'void_pending')
     return (
       <>
-        <Head text={sentence('admin_stock.errors.DAY_CLOSE_BLOCKED_one', 'admin_stock.errors.DAY_CLOSE_BLOCKED')} sub={t('billing.dayclose.voids_sub')} action={requests} />
+        <Head text={sentence('admin_stock.errors.DAY_CLOSE_BLOCKED_one', 'admin_stock.errors.DAY_CLOSE_BLOCKED')} sub={t(p.exits.requests ? 'billing.dayclose.voids_sub' : 'billing.dayclose.ask_manager')} {...(requests === undefined ? {} : { action: requests })} />
         <div className="b5-blk__b b5-scroll">
           {b.rows.map((v, i) => (
             <div key={i} className="b5-br">
@@ -300,8 +328,8 @@ function BlockedList(p: {
       <>
         <Head
           text={open ? sentence('errors.DAY_CLOSE_BLOCKED.shift_open_one', 'errors.DAY_CLOSE_BLOCKED.shift_open') : sentence('billing.dayclose.signoffs_one', 'billing.dayclose.signoffs')}
-          sub={t(open ? 'billing.dayclose.shifts_sub' : 'billing.dayclose.signoffs_sub')}
-          {...(open ? {} : { action: requests })}
+          sub={t(open ? 'billing.dayclose.shifts_sub' : p.exits.requests ? 'billing.dayclose.signoffs_sub' : 'billing.dayclose.ask_manager')}
+          {...(open || requests === undefined ? {} : { action: requests })}
         />
         <div className="b5-blk__b b5-scroll">
           {b.rows.map((s) => (
@@ -318,8 +346,9 @@ function BlockedList(p: {
                 </span>
               </div>
               <div className="end">
-                {open && (
-                  <button type="button" className="btn" onClick={() => p.onNavigate(`/shift?shift_id=${encodeURIComponent(s.shift_id)}`)}>
+                {/* own shift → My shift (manage-own-shift); another's → that shift (close-shift-for-others) */}
+                {open && (p.me !== null && s.staff_name === p.me ? p.exits.ownShift : p.exits.closeShift) && (
+                  <button type="button" className="btn" onClick={() => p.onNavigate(p.me !== null && s.staff_name === p.me ? '/shift' : `/shift?shift_id=${encodeURIComponent(s.shift_id)}`)}>
                     <BIco name="cash" />
                     {t('billing.dayclose.close_shift')}
                   </button>
@@ -336,7 +365,7 @@ function BlockedList(p: {
   return (
     <>
       <Head
-        text={b.rows.length === 0 ? t('billing.dayclose.all_carried') : sentence('errors.DAY_CLOSE_BLOCKED.unbilled_orders_one', 'errors.DAY_CLOSE_BLOCKED.unbilled_orders')}
+        text={b.count === 0 ? t('billing.dayclose.all_carried') : b.rows.length === 0 ? t('billing.dayclose.load_next') : sentence('errors.DAY_CLOSE_BLOCKED.unbilled_orders_one', 'errors.DAY_CLOSE_BLOCKED.unbilled_orders')}
         {...(picked.length === 0 ? {} : { sub: fill(t('billing.dayclose.ticked'), { count: String(picked.length) }) })}
         {...(picked.length === 0
           ? {}
@@ -363,10 +392,12 @@ function BlockedList(p: {
                 <span>{fill(t('billing.dayclose.placed'), { time: timeText(o.placed_at, p.offset), open: durationText(o.open_minutes) })}</span>
               </div>
               <div className="end">
-                <button type="button" className="btn" onClick={() => p.onNavigate(`/bill?order_id=${encodeURIComponent(o.order_id)}`)}>
-                  <BIco name="bill" />
-                  {t('billing.dayclose.open_bill')}
-                </button>
+                {p.exits.bill && (
+                  <button type="button" className="btn" onClick={() => p.onNavigate(`/bill?order_id=${encodeURIComponent(o.order_id)}`)}>
+                    <BIco name="bill" />
+                    {t('billing.dayclose.open_bill')}
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -399,7 +430,10 @@ function CarrySheet({ rows, code, offset, onClose, onDone }: { rows: OrderRow[];
     const answer = await api.carryOverOrders({ order_ids: ids, reason_code: reason, ...(note.trim() === '' ? {} : { note: note.trim() }) });
     setBusy(false);
     if (!answer.ok) {
-      setMsg(errText(answer.error));
+      const e = answer.error;
+      // an order billed meanwhile, or the day closed elsewhere: the list is stale — Close day again reads it afresh
+      const stale = e.kind === 'api' && (e.code === 'ORDER_BILLED' || e.code === 'BUSINESS_DAY_NOT_OPEN');
+      setMsg(stale ? `${errText(e)} ${t('billing.dayclose.refresh')}` : errText(e));
       return;
     }
     onDone(ids);
