@@ -11,6 +11,8 @@ import { registerPrintCheckBill } from './commands/print-check-bill.js';
 import { registerSetSplits } from './commands/set-splits.js';
 // task 14 (§6.8, §3.14): RemoveServiceCharge / ApplyServiceCharge; the module load registers the remove_service_charge apply
 import { registerServiceCharge } from './commands/service-charge.js';
+// task 20 (§6.14, §3.14): RemoveComp; the module load registers the remove_comp apply
+import { registerRemoveComp } from './commands/remove-comp.js';
 import { fiscalAdapterFor } from './fiscal/port.js';
 import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type FiscalWorkerLog, type FiscalWorkRow, type LoadedSubmission } from './fiscal/worker.js';
 import { billPrintsProjection, bindBillPrints } from './print/folds.js';
@@ -41,6 +43,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   // task 11 (§6.3, §6.4): PrintCheckBill; the live-only print folds' log and hub config (branch name on the slip)
   registerPrintCheckBill(app);
   bindBillPrints(deps.projections, { log: (line) => app.log.warn(line, 'billing.print_skipped'), config: deps.config });
+  // task 20 (§6.14)
+  registerRemoveComp(app);
   app.addHook('onClose', async () => {
     stopCarryAudience();
   });
