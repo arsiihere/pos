@@ -47,12 +47,13 @@ const V125 = {
   alertsOpen: 3,
   /** the `alerts` catch-up part build for the approver's staff socket (§3.13.1: 2 → 2) */
   catchUp: 2,
-  /** whole AnswerRequest reject command, writer db (inject), linked kind without result_also_to */
-  rejectWithout: 62,
+  /** whole AnswerRequest reject command, writer db (inject), linked kind without result_also_to
+   *  (+1 since 05 task 7: the `billing` projection checkpoint UPDATE per append) */
+  rejectWithout: 63,
   /** … linked kind with result_also_to, the :also raised (holder ≠ requester) */
-  rejectWithAlso: 72,
+  rejectWithAlso: 73,
   /** … linked kind with result_also_to, the :also dropped (holder = requester): +2 over without, as 01d #67 */
-  rejectWithAlsoDropped: 64,
+  rejectWithAlsoDropped: 65,
 };
 
 async function directory(): Promise<DirectoryInput> {
