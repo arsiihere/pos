@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import { auditEventTypes, registerAuditAction, resetAuditActions } from '@pos/domain';
 import { parseEvent, type PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { auditProjection } from '../../src/audit/projection';
+import { MAPS as BILLING_AUDIT_MAPS } from '../../src/billing/audit-map';
 import { boot, registerHubProjections } from '../../src/lib/boot';
 import { createProjectionRegistry, type Projection } from '../../src/projections/registry';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
@@ -21,6 +22,16 @@ import { auditDirectory, withTestApply } from './fixtures';
 
 let hub: TestHub | undefined;
 const cleanups: Array<() => Promise<void> | void> = [];
+
+// 05's startup wiring check needs 05's audit maps (05 task 33)
+const register05AuditMaps = (): void => {
+  for (const [event_type, map] of Object.entries(BILLING_AUDIT_MAPS)) registerAuditAction(event_type, map);
+};
+
+beforeEach(() => {
+  resetAuditActions();
+  register05AuditMaps(); // 05's startup wiring check needs 05's audit maps (05 task 33)
+});
 
 afterEach(async () => {
   resetAuditActions();
@@ -352,6 +363,7 @@ describe('[04 #55b] a new mapping of an old event type + the checkpoint-delete m
     const { configPath } = bootDir();
     await bootOnce(configPath, WALL, appendMapped); // boot 1: HubStarted not mapped yet
     resetAuditActions(); // a new process: boot 1's projection sealed this one's registry
+    register05AuditMaps(); // 05's startup wiring check needs 05's audit maps (05 task 33)
     mapHubStarted(); // the later module's registerAuditAction (startup, before boot 2 builds the projection)
     await bootOnce(configPath, WALL + 30_000, (deps) => {
       // the shipped hub migration: DELETE FROM projection_checkpoints WHERE projection = 'audit'
@@ -377,6 +389,7 @@ describe('[04 #55b] a new mapping of an old event type + the checkpoint-delete m
       firstHubStarted = deps.db.prepare(`SELECT MIN(seq) FROM events WHERE event_type = 'HubStarted'`).pluck().get() as number;
     });
     resetAuditActions(); // a new process
+    register05AuditMaps(); // 05's startup wiring check needs 05's audit maps (05 task 33)
     mapHubStarted();
     let after: AfterBoot | undefined;
     await bootOnce(configPath, WALL + 30_000, (deps) => {

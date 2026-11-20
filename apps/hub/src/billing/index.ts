@@ -2,8 +2,12 @@
 import './kinds/index.js';
 // task 32a (§6.30, row V-3, H6-14): the audit maps of 05-1's events and the seven request actions, at module load
 import './audit-map.js';
+import { auditEventTypes } from '@pos/domain';
+import type { PosEvent } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { currentDirectory } from '../auth/guards.js';
+import { branchConfig } from '../sync/branch-config-holder.js';
+import { registerTileMarks } from '../tables/tile-marks.js';
 import type { ProjectionRegistry } from '../projections/registry.js';
 import type { HubDeps } from '../server.js';
 import { registerEventAudience } from '../ws/audience.js';
@@ -46,7 +50,8 @@ import { fiscalWorkerSeams, startFiscalWorker, type FiscalFinalAnswer, type Fisc
 import { billPrintsProjection, bindBillPrints } from './print/folds.js';
 import { billingProjection } from './projections/billing.js';
 import { shiftsProjection } from './projections/shifts.js';
-import { registerBillQuery } from './queries/bill.js';
+import { covers, registerBillQuery } from './queries/bill.js';
+import { billTileMarks } from './tile-marks.js';
 import { registerBillPrintersQuery } from './queries/bill-printers.js'; // task 27
 import { registerOpenBillsQuery } from './queries/open-bills.js';
 import { registerReportQueries } from './queries/reports.js'; // task 26b
@@ -59,7 +64,8 @@ import { registerShiftQuery } from './queries/shift.js';
 /** Called once from buildHubServer, after registerAudit. */
 export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   // task 7 (§6.30, S-B): the OrdersCarriedOver audience (P0.13 writes the event; with no audience it reaches no socket)
-  const stopCarryAudience = registerOrdersCarriedOverAudience(app);
+  // task 33 (§6.30, H16-6, H17-4): the audience table of every 05 event (OrdersCarriedOver's is in it)
+  const stopAudiences = registerBillingAudiences(app, deps);
   // task 10 (§6.1, §6.2): the bill view and the open-bills list (ensure bill is a helper of the bill commands)
   registerBillQuery(app);
   registerOpenBillsQuery(app);
@@ -111,9 +117,13 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerDayCloseGuard(billingDayCloseGuard);
   // the appender: AlertClosed for 05 + 02b comp requests, then ZReportIssued (before 03a's releases and BusinessDayClosed)
   registerDayCloseAppender(billingDayCloseAppender);
+  // task 33 (§6.30, row T-4, R-30 / G-30): the table-tile marks reader, before listen (buildHubServer runs before it)
+  registerTileMarks(billTileMarks);
   app.addHook('onClose', async () => {
-    stopCarryAudience();
+    stopAudiences();
   });
+  // task 33 (§6.30, #91b): the startup wiring check, last — a 05 event with no audience or audit map fails boot
+  checkBillingWiring(BILLING_AUDIENCE_TYPES, new Set(auditEventTypes()));
 }
 
 /** §5, G-20: inside registerHubProjections, after orders, tables and audit (also the test hub and the big fixture). */
@@ -126,22 +136,177 @@ export function registerBillingProjections(projections: ProjectionRegistry): voi
   projections.register(billPrintsProjection(projections));
 }
 
+// ---------------------------------------------------------------------------------------------- audiences (task 33)
+
+/** §6.29: the `bill`-stream events (@pos/events/src/events/bill/). */
+export const BILL_STREAM: readonly string[] = [
+  'BillOpened',
+  'ChargeApplied',
+  'ChargeRemoved',
+  'CheckBillPrinted',
+  'BillSplitsSet',
+  'DiscountFrozen',
+  'DiscountApplied',
+  'DiscountRemoved',
+  'PaymentAdded',
+  'PaymentRemoved',
+  'BuyerIdWaived',
+  'InvoiceIssued',
+  'BillReopened',
+  'InvoiceCredited',
+  'FiscalNumberAssigned',
+  'FiscalSubmitRejected',
+  'BillClosedEmpty',
+];
+
+/** §6.29: the `shift`-stream events (@pos/events/src/events/shift/). */
+export const SHIFT_STREAM: readonly string[] = [
+  'ShiftOpened',
+  'ShiftCounted',
+  'ShiftCountSkipped',
+  'HandoverCounted',
+  'ShiftClosed',
+  'ShiftVarianceSignedOff',
+  'PettyCashAdvanced',
+  'PettyCashSettled',
+  'PettyCashOut',
+  'PettyCashIn',
+  'DrawerOpened',
+];
+
+/** §6.29: 05's three `hub`-stream events. */
+const FIVE_HUB_EVENTS: readonly string[] = ['OrdersCarriedOver', 'ZReportIssued', 'FiscalTokenSet'];
+
+/** §6.29: every event 05 owns — the `bill` and `shift` streams and 05's three `hub` events. */
+export const FIVE_EVENT_TYPES: readonly string[] = [...BILL_STREAM, ...SHIFT_STREAM, ...FIVE_HUB_EVENTS];
+
+const REPORT_EVENTS: readonly string[] = ['OrdersCarriedOver', 'ZReportIssued'];
+
 /**
- * §6.30: `OrdersCarriedOver` → sockets whose staff hold `view-reports` or `close-business-day` (01d's holders: an
- * `allowed` grant), resolved through the hub's StaffDirectory in memory. Returns the unregister function.
- * Scope is not read: both permissions take `branch` only (01b v1.10 §3.3, `PERMISSION_SCOPES`), and the 01d
- * `permission` target likewise reads scope only for a `range_of` (alerts/targets.ts permissionHolders), which this
- * audience has none of.
+ * 05 events with no audit action of their own (the two exceptions of the wiring check):
+ * - `DiscountFrozen`: §6.29 (v1.0.7, R-41 / G-38) "no audit action of its own (the close audits `invoice_issued`)";
+ * - `FiscalNumberAssigned`: row V-3 (04 v1.0.7 §3.6) lists no action for it (only the worker's rejection,
+ *   `fiscal_rejected`); integrator-accepted reading, task 33.
  */
-function registerOrdersCarriedOverAudience(app: FastifyInstance): () => void {
-  return registerEventAudience('OrdersCarriedOver', (_event, socket: SocketCtx) => {
+export const NO_AUDIT_ACTION: ReadonlySet<string> = new Set(['DiscountFrozen', 'FiscalNumberAssigned']);
+
+const audienced = new Set<string>();
+/** The 05 event types registerBilling has given a WS audience (through ws/audience.ts registerEventAudience). */
+export const BILLING_AUDIENCE_TYPES: ReadonlySet<string> = audienced;
+
+/** §6.30, #91b: throws, naming every 05 event type with no WS audience or (outside NO_AUDIT_ACTION) no audit map. */
+export function checkBillingWiring(withAudience: ReadonlySet<string>, withAudit: ReadonlySet<string>): void {
+  const noAudience = FIVE_EVENT_TYPES.filter((t) => !withAudience.has(t));
+  const noAudit = FIVE_EVENT_TYPES.filter((t) => !NO_AUDIT_ACTION.has(t) && !withAudit.has(t));
+  const parts = [
+    ...(noAudience.length > 0 ? [`no WS audience: ${noAudience.join(', ')}`] : []),
+    ...(noAudit.length > 0 ? [`no audit map: ${noAudit.join(', ')}`] : []),
+  ];
+  if (parts.length > 0) throw new Error(`05 startup wiring check failed (§6.30): ${parts.join('; ')}`);
+}
+
+interface BillHeadRow {
+  scope: 'seating' | 'key';
+  holder_staff_id: string | null;
+  primary_table_id: string | null;
+  placed_by_json: string;
+}
+
+// The bill's scope facts for §6.1's C8 test: its seating's holder and primary table, and the placers of its orders
+// (payments.ts PAYMENT_OF's predicate) — 1 statement, once per event (memoised), only when a scoped holder is open.
+const BILL_SCOPE_OF = `
+SELECT b.scope, st.holder_staff_id, st.primary_table_id,
+       (SELECT json_group_array(o.placed_by) FROM orders o
+         WHERE o.cancelled_at IS NULL AND (
+           o.order_id IN (SELECT order_id FROM bill_orders WHERE bill_id = b.bill_id)
+           OR (b.state <> 'closed' AND b.absorbed_into IS NULL AND b.reopen_mode IS NOT 'corrections' AND o.billed_at IS NULL
+               AND ((b.seating_id IS NOT NULL AND o.order_id IN (SELECT order_id FROM seating_orders WHERE seating_id = b.seating_id))
+                 OR (b.table_key IS NOT NULL AND o.bill_key = b.table_key))
+               AND NOT EXISTS (SELECT 1 FROM bill_orders bo WHERE bo.order_id = o.order_id AND bo.bill_id IS NOT b.bill_id)))) AS placed_by_json
+FROM bills b
+LEFT JOIN seatings st ON st.seating_id = b.seating_id
+WHERE b.bill_id = ?`;
+
+const SHIFT_OWNER_OF = `SELECT staff_id FROM shifts WHERE shift_id = ?`;
+
+/**
+ * §6.30 (H16-6, H17-4, B23), the audience table of every 05 event:
+ * - `bill` stream (DiscountFrozen included, R-41) → cashier kiosks, and staff sockets holding `take-payment` (allowed or
+ *   requires_approval) whose scope covers the bill as §6.1 (branch any; my_floors / own_tables / a key bill's placer);
+ *   a `take-order`-only socket gets none of them (its check-bill view is a query, §6.1).
+ * - `shift` stream → the shift's own staff (`shifts.staff_id`; `ShiftOpened` names it) and `close-shift-for-others`
+ *   holders (allowed), on any device: a cashier never gets another person's ShiftCounted / HandoverCounted. Those two
+ *   are the count itself, so their expected / variance reach a socket only after the count.
+ * - `OrdersCarriedOver`, `ZReportIssued` → `view-reports` / `close-business-day` holders (allowed; both scope branch).
+ * - `FiscalTokenSet` → admin sessions only: hub sockets are staff / station only (ws/catch-up.ts), so it reaches none.
+ * Returns the unregister function (onClose).
+ */
+function registerBillingAudiences(app: FastifyInstance, deps: HubDeps): () => void {
+  const directory = () => currentDirectory(app);
+  const billScope = new WeakMap<PosEvent, BillHeadRow | null>();
+  const shiftOwner = new WeakMap<PosEvent, string | null>();
+  const billScopeOf = deps.readDb.prepare(BILL_SCOPE_OF);
+  const shiftOwnerOf = deps.readDb.prepare(SHIFT_OWNER_OF);
+
+  const billAudience = (event: PosEvent, socket: SocketCtx): boolean => {
+    if (socket.deviceType === 'cashier_kiosk') return true;
     if (socket.kind !== 'staff' || socket.staffId === null) return false;
-    const directory = currentDirectory(app);
-    return (
-      directory.resolve(socket.staffId, 'view-reports').grant === 'allowed' ||
-      directory.resolve(socket.staffId, 'close-business-day').grant === 'allowed'
-    );
-  });
+    const r = directory().resolve(socket.staffId, 'take-payment');
+    if (r.grant !== 'allowed' && r.grant !== 'requires_approval') return false;
+    if (r.scope === 'branch') return true;
+    let head = billScope.get(event);
+    if (head === undefined) {
+      const bill_id = typeof event.payload['bill_id'] === 'string' ? event.payload['bill_id'] : event.stream_id;
+      head = (billScopeOf.get(bill_id) as BillHeadRow | undefined) ?? null;
+      billScope.set(event, head);
+    }
+    const config = branchConfig();
+    if (head === null || config === null) return false;
+    const seating = head.holder_staff_id === null || head.primary_table_id === null ? null : { holder_staff_id: head.holder_staff_id, primary_table_id: head.primary_table_id };
+    return covers(directory(), config, socket.staffId, r.scope, { seating, scope: head.scope, placed_by: JSON.parse(head.placed_by_json) as string[] });
+  };
+
+  const shiftAudience = (event: PosEvent, socket: SocketCtx): boolean => {
+    if (socket.kind !== 'staff' || socket.staffId === null) return false;
+    if (directory().resolve(socket.staffId, 'close-shift-for-others').grant === 'allowed') return true;
+    let owner = shiftOwner.get(event);
+    if (owner === undefined) {
+      const named = event.event_type === 'ShiftOpened' ? event.payload['staff_id'] : undefined;
+      if (typeof named === 'string') owner = named;
+      else {
+        const shift_id = typeof event.payload['shift_id'] === 'string' ? event.payload['shift_id'] : event.stream_id;
+        owner = (shiftOwnerOf.get(shift_id) as { staff_id: string } | undefined)?.staff_id ?? null;
+      }
+      shiftOwner.set(event, owner);
+    }
+    return owner === socket.staffId;
+  };
+
+  const reportAudience = (_event: PosEvent, socket: SocketCtx): boolean => {
+    if (socket.kind !== 'staff' || socket.staffId === null) return false;
+    const d = directory();
+    return d.resolve(socket.staffId, 'view-reports').grant === 'allowed' || d.resolve(socket.staffId, 'close-business-day').grant === 'allowed';
+  };
+
+  // §6.28a: admin sessions hold no hub socket, so no socket qualifies
+  const adminOnly = (): boolean => false;
+
+  const table: Array<[readonly string[], (event: PosEvent, socket: SocketCtx) => boolean]> = [
+    [BILL_STREAM, billAudience],
+    [SHIFT_STREAM, shiftAudience],
+    [REPORT_EVENTS, reportAudience],
+    [['FiscalTokenSet'], adminOnly],
+  ];
+  const offs: Array<() => void> = [];
+  for (const [types, audience] of table) {
+    for (const t of types) {
+      offs.push(registerEventAudience(t, audience));
+      audienced.add(t);
+    }
+  }
+  return () => {
+    for (const off of offs) off();
+  };
 }
 
 // ---------------------------------------------------------------------------------------------- workers (G-21, H-3)

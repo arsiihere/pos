@@ -121,6 +121,7 @@ let hub: TestHub;
 
 beforeEach(async () => {
   hub = await createTestHub();
+  resetTileMarks(); // 05 registers bill tile marks at boot (05 task 33, G-30); this 02a test covers 02a's tiles alone
   await seedDirectory(hub, await directory());
   applyConfig(config());
 });

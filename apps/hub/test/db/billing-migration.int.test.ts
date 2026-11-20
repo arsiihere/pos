@@ -13,6 +13,7 @@ import { fixedClock, T } from '../../src/lib/clock';
 import { freshDb } from '../helpers/db';
 import { offlineCloud } from '../helpers/stub-cloud';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
+import { MAPS as BILLING_AUDIT_MAPS } from '../../src/billing/audit-map';
 import { BILLING_MIGRATION, billingMigrationPath, billingTables, dropBilling0023 } from './billing-0023';
 
 // 05 v1.0.7 §5 (DDL), §5 "Audit refold" (04 v1.0.7 row V-3), plan §2B.5 task 6: hub migration 0023_billing.
@@ -492,6 +493,14 @@ function appendHistory(deps: Deps, n: number): void {
 }
 
 /**
+ * This test simulates the history before 05's maps existed (task 6 / H6-14): BillRequested stays unmapped until the
+ * stand-in below. 05's startup wiring check (task 33) needs every other 05 map, so they are registered after each reset.
+ */
+const map05ExceptBillRequested = (): void => {
+  for (const [event_type, map] of Object.entries(BILLING_AUDIT_MAPS)) if (event_type !== 'BillRequested') registerAuditAction(event_type, map);
+};
+
+/**
  * Stand-in for 05's own `bill_requested` map (task 32a, §6.30): registered at startup, before the projection is built.
  * Its shape does not matter here — the subject is that a mapping of an event type with history refolds (V-3).
  */
@@ -513,6 +522,8 @@ function toPre0023(db: Database.Database): void {
 describe('[05 #87 rebuild half] [04 v1.0.7 V-3] 0023 deletes the audit checkpoint: rebuild = live, with old BillRequested events', () => {
   it('[05 #87, V-3, H1-8] a pre-0023 hub with BillRequested history boots onto 0023 with the map registered: old BillRequested rows appear, every earlier row is unchanged; a later rebuild equals the live log', async () => {
     const { configPath, dbPath } = bootDir();
+    resetAuditActions();
+    map05ExceptBillRequested(); // the wiring check's maps (task 33); BillRequested still unmapped
     await bootOnce(configPath, WALL, (deps) => appendHistory(deps, 1)); // boot 1: BillRequested has no audit map yet
 
     const pre = openDb(dbPath);
@@ -526,6 +537,7 @@ describe('[05 #87 rebuild half] [04 v1.0.7 V-3] 0023 deletes the audit checkpoin
     pre.close();
 
     resetAuditActions(); // a new process: boot 1's projection sealed this one's registry
+    map05ExceptBillRequested();
     mapBillRequested();
     let live: Row[] = [];
     await bootOnce(configPath, WALL + 30_000, (deps) => {
@@ -544,6 +556,7 @@ describe('[05 #87 rebuild half] [04 v1.0.7 V-3] 0023 deletes the audit checkpoin
     again.prepare("DELETE FROM projection_checkpoints WHERE projection = 'audit'").run(); // force a full rebuild
     again.close();
     resetAuditActions();
+    map05ExceptBillRequested();
     mapBillRequested();
     await bootOnce(configPath, WALL + 60_000, (deps) => {
       const rebuilt = auditRows(deps.db);

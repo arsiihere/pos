@@ -87,7 +87,8 @@ const invoice = (p: Record<string, unknown>): Record<string, unknown> => ({
   split_no: num(p, 'split_no'),
 });
 
-const MAPS: Record<string, (e: AuditEvent, l: AuditLookups) => AuditMapped> = {
+/** The audit map of every 05 event (exported for tests that rebuild a registry after resetAuditActions, task 33). */
+export const MAPS: Readonly<Record<string, (e: AuditEvent, l: AuditLookups) => AuditMapped>> = {
   // 02a's event (table stream, §6.4): no bill may exist yet, so the subject is the table
   BillRequested: (e) => {
     const table_id = str(e.payload, 'table_id') ?? e.stream_id;
