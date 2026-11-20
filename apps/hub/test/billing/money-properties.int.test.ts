@@ -1009,7 +1009,7 @@ describe('[05 #23 shifts half, §3.7, §3.12, B11, B23] property: a shift’s ex
         } else {
           // HandoverCount: a count while OPEN — answers the expected, moves nothing
           const counted = expectedOf(d) + int(rnd, -5, 5) * 100;
-          hub.clock.advance(1_000); // two handovers of one shift in one millisecond collide (see the it.fails below)
+          hub.clock.advance(1_000);
           const h = await ok(post(hub, d.who, 'handover-count', 'HandoverCount', { shift_id: d.shift_id, counted_minor: counted }), 'HandoverCount');
           expect(h.result).toMatchObject({ expected_minor: expectedOf(d), variance_minor: counted - expectedOf(d) });
           log.push(`handover ${counted} on ${d.shift_id}`);
@@ -1085,19 +1085,46 @@ describe('[05 #23 shifts half] scripted: literal PKR moves on two drawers', () =
   });
 });
 
-describe('[05 §3.11, §6.19] HandoverCount twice in one millisecond (found by the #23 shifts property)', () => {
+describe('[05 §3.11, §6.19, R-81] HandoverCount twice in one millisecond (found by the #23 shifts property)', () => {
   // FINDING (task 3b): §3.11 allows a HandoverCount "any time while OPEN", but §5's `shift_handovers` key is
-  // (shift_id, at) with `at` in ms. Two handovers of one shift with the same hub time (the test clock does not move
-  // between commands; in the field, two queued commands replayed together) → the `shifts` fold's INSERT hits the
-  // primary key and the second command answers 500 INTERNAL_ERROR. Expected per §6.19: 200, a second
-  // HandoverCounted with its own expected / variance, the shift still OPEN. Left failing on purpose (spec §5 vs §3.11).
-  it.fails('[05 §6.19] two HandoverCounts of the drawer shift at the same hub time → both 200, two shift_handovers rows', async () => {
+  // (shift_id, at) with `at` in ms; two handovers of one shift at the same hub time (the test clock does not move
+  // between commands; in the field, two queued commands replayed together) answered 500 INTERNAL_ERROR.
+  // 05 v1.0.21 (R-81, owner 2026-11-20): the `shifts` fold writes `at` = max(recorded_at, last at + 1 ms) —
+  // strictly increasing per shift, no migration; no envelope field is redefined (occurred_at stays the device clock).
+  const rows = () =>
+    db().prepare('SELECT at, counted_minor FROM shift_handovers WHERE shift_id = ? ORDER BY at').all(cashierShift) as Array<{ at: number; counted_minor: number }>;
+
+  it('[05 §6.19, R-81] two HandoverCounts of the drawer shift at the same hub time → both 200, two shift_handovers rows, at strictly increasing', async () => {
     await start();
-    const first = await post(hub, cashier, 'handover-count', 'HandoverCount', { shift_id: cashierShift, counted_minor: FLOAT });
-    expect(first.status).toBe(200);
-    const second = await post(hub, cashier, 'handover-count', 'HandoverCount', { shift_id: cashierShift, counted_minor: FLOAT - 1_000 });
-    expect(second.status, JSON.stringify(second.error)).toBe(200);
+    const now = hub.clock.branchNow();
+    const first = await ok(post(hub, cashier, 'handover-count', 'HandoverCount', { shift_id: cashierShift, counted_minor: FLOAT }), 'first');
+    const second = await ok(post(hub, cashier, 'handover-count', 'HandoverCount', { shift_id: cashierShift, counted_minor: FLOAT - 1_000 }), 'second');
+    expect(hub.clock.branchNow()).toBe(now); // the clock never moved
     expect(second.result).toMatchObject({ expected_minor: FLOAT, variance_minor: -1_000 });
-    expect(db().prepare('SELECT COUNT(*) FROM shift_handovers WHERE shift_id = ?').pluck().get(cashierShift)).toBe(2);
+    expect(rows()).toEqual([
+      { at: now, counted_minor: FLOAT },
+      { at: now + 1, counted_minor: FLOAT - 1_000 },
+    ]);
+    // the envelopes are untouched: both events carry the same recorded_at; the bump is the fold's alone
+    expect([first, second].map((r) => r.events.map((e) => e.event_type))).toEqual([['HandoverCounted'], ['HandoverCounted']]);
+    expect(db().prepare(`SELECT recorded_at FROM events WHERE event_type = 'HandoverCounted' AND stream_id = ? ORDER BY seq`).pluck().all(cashierShift)).toEqual([now, now]);
+  });
+
+  it('[05 §6.19, R-81] three HandoverCounts in one millisecond → three rows at now, now + 1, now + 2; a later one at a real later time keeps its own now', async () => {
+    await start();
+    const now = hub.clock.branchNow();
+    for (const counted of [FLOAT, FLOAT - 100, FLOAT - 200]) {
+      await ok(post(hub, cashier, 'handover-count', 'HandoverCount', { shift_id: cashierShift, counted_minor: counted }), `handover ${counted}`);
+    }
+    expect(rows()).toEqual([
+      { at: now, counted_minor: FLOAT },
+      { at: now + 1, counted_minor: FLOAT - 100 },
+      { at: now + 2, counted_minor: FLOAT - 200 },
+    ]);
+    hub.clock.advance(1_000);
+    await ok(post(hub, cashier, 'handover-count', 'HandoverCount', { shift_id: cashierShift, counted_minor: FLOAT - 300 }), 'later');
+    expect(rows().at(-1)).toEqual({ at: now + 1_000, counted_minor: FLOAT - 300 });
+    const ats = rows().map((r) => r.at);
+    expect(ats.every((a, i) => i === 0 || a > ats[i - 1]!)).toBe(true);
   });
 });

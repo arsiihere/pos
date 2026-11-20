@@ -1242,10 +1242,15 @@ describe('[05 §6.17–§6.19 Statements] fixed, whatever the payments (00 envel
     expect(handled['close-shift']).toBe(2);
   });
 
-  it('[05 §6.19] HandoverCount: the shift (1) (≤ 2)', async () => {
+  it('[05 §6.19, R-81] HandoverCount: the shift (1) (≤ 2), with and without an earlier handover', async () => {
     const { cashier, drawer } = await start();
     await handover(cashier, { shift_id: drawer, counted_minor: 1 });
     // exactly 1 (the shift read); the spec bound is "2" in v1.0.16 and becomes ≤ 2 in v1.0.18
+    expect(handled['handover-count']).toBe(1);
+    // v1.0.21 (R-81): the `at` bump is the fold's, not the command's — a second handover in the same millisecond
+    // answers 200 and still costs 1
+    const second = await handover(cashier, { shift_id: drawer, counted_minor: 2 });
+    expect(second.status, JSON.stringify(second.error)).toBe(200);
     expect(handled['handover-count']).toBe(1);
   });
 

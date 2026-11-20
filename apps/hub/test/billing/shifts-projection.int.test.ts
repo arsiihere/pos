@@ -331,6 +331,39 @@ describe('[05 §5] shifts projection', () => {
   });
 });
 
+describe('[05 §5, §6.19, R-81] same-millisecond handovers: the fold makes at strictly increasing from recorded_at', () => {
+  it('[05 §6.19, R-81] three HandoverCounted in one ms (two in one transaction, one in the next) → at = t, t + 1, t + 2; envelopes untouched; rebuild from seq 0 equals live', () => {
+    append(opened('SH1', 'S_CASH', 5_000));
+    hub.clock.advance(1_000);
+    const t = hub.clock.branchNow();
+    const h = (counted_minor: number): EventDraft => ({
+      ...d(aHandoverCounted(), { shift_id: 'SH1', counted_minor, expected_minor: 5_000, variance_minor: counted_minor - 5_000, by_staff_id: 'S_CASH' }),
+      occurred_at: t,
+      actor_id: 'S_CASH',
+      device_id: 'D_FIXTURE',
+    });
+    stream.push(...hub.deps.writer.run((tx) => tx.append([h(5_000), h(4_900)])).appended);
+    stream.push(...hub.deps.writer.run((tx) => tx.append([h(4_800)])).appended); // the clock never moved
+    const handovers = stream.filter((e) => e.event_type === 'HandoverCounted');
+    expect(handovers.map((e) => [e.occurred_at, e.recorded_at])).toEqual([[t, t], [t, t], [t, t]]);
+    const live = dump();
+    expect(live.shift_handovers.map((r) => [(r as { at: number }).at, (r as { counted_minor: number }).counted_minor])).toEqual([
+      [t, 5_000],
+      [t + 1, 4_900],
+      [t + 2, 4_800],
+    ]);
+    // a later handover at a real later time keeps its own recorded_at
+    append(d(aHandoverCounted(), { shift_id: 'SH1', counted_minor: 4_700, expected_minor: 5_000, variance_minor: -300, by_staff_id: 'S_CASH' }));
+    const after = dump();
+    expect((after.shift_handovers.at(-1) as { at: number }).at).toBe(t + 1_000);
+
+    expect(rebuildShiftsAlone()).toBe(stream.filter((e) => SHIFTS_EVENT_TYPES.includes(e.event_type)).length);
+    expect(dump()).toEqual(after);
+    rebuildAll();
+    expect(dump()).toEqual(after);
+  });
+});
+
 describe('[05 #47b fold half] shifts is events-only (R-44 / G-39)', () => {
   it('[05 #47b fold half] rebuild of shifts alone (billing at the head) = live for expected cash, takings (taker key) and sign-off dates; the fold touches no billing table', () => {
     scriptedDay();
