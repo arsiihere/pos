@@ -10,6 +10,7 @@ import { createPermissions } from '../staff/shell/permissions';
 import { createToastBus } from '../staff/shell/toast';
 import { BillScreen, duesOf } from './BillScreen';
 import type { BillView, BillViewSplit, Totals } from './contracts';
+import { PRINT_WATCH_MS, PRINT_WATCH_TRIES } from './PrintStatus';
 import { TODO_05 } from './urdu-todo-05';
 
 // 05 v1.0.14 §8 "Bill screen", §6.1, §6.9, §6.12, §3.3, §3.5 (7) (plan §3.1 task 35; brief §3.2; frames Bill,
@@ -963,6 +964,88 @@ describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', 
     await flush();
     expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['RetargetBillPrint', { job_id: 'J1', printer_id: 'P2' }]);
     expect(s.query.mock.calls.filter((c) => String(c[0]).startsWith('/queries/bill?')).length).toBeGreaterThan(reads);
+  });
+
+  // R-2 (E2E re-run, §8 Print status): no live frame carries a print job's ack, so after a print action the bill is read
+  // again every PRINT_WATCH_MS while a job is waiting / printing, at most PRINT_WATCH_TRIES times
+  const RJ = (state: string) => ({ job_id: 'J9', doc_kind: 'receipt', state, printer_name: 'Counter', last_error: null });
+  const closedWith = (prints: ReturnType<typeof RJ>[]) =>
+    bill({ state: 'closed', blocks: [], prints, splits: [split({ state: 'closed', balance_minor: 0, invoice: { invoice_id: 'INV_AC1-S000123', invoice_ref: 'AC1-S000123', fiscal_number: null, fiscal_state: 'pending' } })] });
+  const billReads = (s: ReturnType<typeof setup>) => s.query.mock.calls.filter((c) => String(c[0]).startsWith('/queries/bill?')).length;
+
+  it('[R-2, §8 Print status] Reprint receipt: the bill is read again until the new job is printed, then no more', async () => {
+    vi.useFakeTimers();
+    const s = setup({ views: [closedWith([]), closedWith([RJ('waiting')]), closedWith([RJ('printing')]), closedWith([RJ('printed')])], answers: [{ ok: true, data: { printed: true, job_id: 'J9', printer_name: 'Counter' } }] });
+    const v = await show(s);
+    v.click(v.button('Reprint receipt'));
+    await flush();
+    expect(v.container.querySelector('.b5-prints')?.textContent).toContain('Printing on Counter…');
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS);
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS);
+    await flush();
+    expect(v.container.querySelector('.b5-prints')?.textContent).toContain('Printed on Counter');
+    const reads = billReads(s);
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS * 5);
+    expect(billReads(s)).toBe(reads);
+  });
+
+  it('[R-2] a job that never acks: the reads stop after PRINT_WATCH_TRIES; a failed job stops them at once', async () => {
+    vi.useFakeTimers();
+    let s = setup({ views: [closedWith([]), closedWith([RJ('waiting')])], answers: [{ ok: true, data: { printed: true, job_id: 'J9', printer_name: 'Counter' } }] });
+    let v = await show(s);
+    const before = billReads(s);
+    v.click(v.button('Reprint receipt'));
+    await flush();
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS * (PRINT_WATCH_TRIES + 10));
+    expect(billReads(s) - before).toBe(PRINT_WATCH_TRIES);
+    v.unmount();
+    s = setup({ views: [closedWith([]), closedWith([RJ('failed')])], answers: [{ ok: true, data: { printed: true, job_id: 'J9', printer_name: 'Counter' } }] });
+    v = await show(s);
+    v.click(v.button('Reprint receipt'));
+    await flush();
+    const after = billReads(s);
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS * 5);
+    expect(billReads(s)).toBe(after);
+  });
+
+  it('[R-2, B18] after Print to → "Moved to …" the bill is read again until the moved job is printed', async () => {
+    vi.useFakeTimers();
+    const failed = bill({ prints: [{ job_id: 'J1', doc_kind: 'receipt', state: 'failed', printer_name: 'Bar', last_error: null }] });
+    const moved = (state: string) => bill({ prints: [{ job_id: 'J1', doc_kind: 'receipt', state, printer_name: 'Counter', last_error: null }] });
+    const s = setup({
+      grants: { 'take-order': { grant: 'allowed', scope: 'branch' } },
+      views: [failed, moved('waiting'), moved('printed')],
+      answers: [{ ok: true, data: { job_id: 'J1', state: 'waiting', printer_name: 'Counter', last_error: null, printer_id: 'P1' } }],
+    });
+    const viewOf = s.query.getMockImplementation()!;
+    s.query.mockImplementation(async (path: string) => (path === '/queries/bill-printers' ? { ok: true as const, data: { printers: [{ printer_id: 'P1', name: 'Counter' }] } as never } : viewOf(path)));
+    const v = await show(s);
+    v.click(v.button('Print to'));
+    await flush();
+    v.click([...v.container.querySelectorAll<HTMLButtonElement>('.dlg .b5-chip')].find((c) => c.textContent?.includes('Counter'))!);
+    await flush();
+    v.click([...v.container.querySelectorAll<HTMLButtonElement>('.dlg .btn--primary')].at(-1)!);
+    await flush();
+    expect(v.container.querySelector('.b5-prints')?.textContent).toContain('Printing on Counter…');
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS);
+    await flush();
+    expect(v.container.querySelector('.b5-prints')?.textContent).toContain('Printed on Counter');
+  });
+
+  it('[R-2] a close that printed a receipt: the closed view\'s receipt row turns Printed once the job acks', async () => {
+    vi.useFakeTimers();
+    const ready = bill({ splits: [split({ balance_minor: 0 })], blocks: [] });
+    const s = setup({
+      views: [ready, closedWith([RJ('waiting')]), closedWith([RJ('printed')])],
+      answers: [{ ok: true, data: { invoice_id: 'INV_AC1-S000123', invoice_ref: 'AC1-S000123', total_minor: 662_400, change_minor: 0, bill_state: 'closed', receipt: { job_id: 'J9', printer_name: 'Counter' }, fiscal_state: 'pending' } }],
+    });
+    const v = await show(s);
+    v.click(v.button('Close bill'));
+    await flush();
+    expect(v.container.querySelector('.b5-prints')?.textContent).toContain('Printing on Counter…');
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS);
+    await flush();
+    expect(v.container.querySelector('.b5-prints')?.textContent).toContain('Printed on Counter');
   });
 
   it('[review m4 / NIT 8] without take-order a failed print offers no Print to (RetargetBillPrint needs it)', async () => {
