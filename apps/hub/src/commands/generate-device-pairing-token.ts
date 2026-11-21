@@ -54,7 +54,8 @@ export function registerGenerateDevicePairingToken(app: FastifyInstance): void {
           );
         const host = ctx.config.advertised_host;
         if (host === undefined) throw new DomainError('HUB_NOT_PROVISIONED');
-        const pairUrl = `http://${host}:${ctx.config.http_port}/pair?t=${token}`;
+        // 00 v1.12.2 §6.7 (STAB-1): a tablet link says so, for the hub-served pair page; a phone link is unchanged
+        const pairUrl = `http://${host}:${ctx.config.http_port}/pair?t=${token}${phone ? '' : '&d=tablet'}`;
         return {
           events: [
             {
