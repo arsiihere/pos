@@ -283,12 +283,25 @@ export interface XReportView {
   staff_names: Record<string, string>;
 }
 
+/** 05 v1.0.32 §6.26 (R-93): a Z's latest print job state (03c document-job states + 'expired': swept after 7 days) */
+export type ZPrintState = 'waiting' | 'printing' | 'printed' | 'failed' | 'cancelled' | 'expired';
+
+/** 05 v1.0.32 §6.26 (R-93): the Z's latest print job; ids, state and printer name only */
+export interface ZPrintView {
+  job_id: string;
+  state: ZPrintState;
+  /** null when 'expired' or the printer row is gone */
+  printer_name: string | null;
+}
+
 /** §6.26 `GET /queries/z-reports` row (R-85: keyed by `z_no`; a date can have several) */
 export interface ZReportView {
   business_date: string;
   z_no: number;
   report: ReportDocInput;
   staff_names: Record<string, string>;
+  /** 05 v1.0.32 §6.26 (R-93): null = no Z print job was written (not printed) */
+  print: ZPrintView | null;
 }
 
 /** §6.27 `GET /queries/fiscal-status` (never a token, never a buyer) */
