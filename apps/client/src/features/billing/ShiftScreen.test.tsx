@@ -391,6 +391,24 @@ describe('[05 §8 i18n; row F-6] parseCount (typed count / starting cash → min
   });
 });
 
+describe('[05 §6.16, §3.7; E2E E-5] the cash line after the count', () => {
+  it('shows in − out (the applied amounts); the change given is not taken off again', async () => {
+    // E2E run: cash 962 (given 1,000), 320 (given 500), 500, 34 (given 50): in 1,816.00, change 234.00
+    const cash = { mode_id: 'cash', mode_name: 'Cash', payment_class: 'cash' as const, in_minor: 181_600, out_minor: 0, change_minor: 23_400, payments_count: 4, by: [{ taken_by_name: 'Sana', in_minor: 181_600, payments_count: 4 }] };
+    const closed = view({ state: 'closed', takings: [cash], petty: [], open_advances_minor: 0, counted_minor: 631_600, expected_minor: 656_600, variance_minor: -25_000 });
+    const v = await show(setup({ views: [{ ok: true, data: closed }] }), 'SH1');
+    const row = [...v.container.querySelectorAll('.b5-tk')].find((r) => r.textContent?.includes('Cash'))!;
+    expect(row.querySelector('.a')?.textContent).toBe('Rs 1,816.00');
+    expect(v.text()).not.toContain('Rs 1,582.00');
+  });
+
+  it('a cash refund (out) is taken off', async () => {
+    const cash = { mode_id: 'cash', mode_name: 'Cash', payment_class: 'cash' as const, in_minor: 100_000, out_minor: 30_000, change_minor: 5_000, payments_count: 3, by: [] };
+    const v = await show(setup({ views: [{ ok: true, data: view({ state: 'closed', takings: [cash], petty: [], counted_minor: 0, expected_minor: 0, variance_minor: 0 }) }] }), 'SH1');
+    expect([...v.container.querySelectorAll('.b5-tk')].find((r) => r.textContent?.includes('Cash'))!.querySelector('.a')?.textContent).toBe('Rs 700.00');
+  });
+});
+
 describe('[05 §6.18] close without counting (frame ShiftSkip)', () => {
   it('without skip-blind-count the button is not there', async () => {
     const v = await show(setup());

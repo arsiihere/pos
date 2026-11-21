@@ -436,8 +436,9 @@ function Takings({ shift, money, handovers, onSettle }: { shift: ShiftView; mone
                 <b>{x.mode_name}</b>
                 <span>{count(x.payments_count)}</span>
               </span>
-              {/* B23: no cash sum before the count; the hub sends null */}
-              <span className="a">{x.in_minor === null ? t(shift.state === 'open' ? 'billing.shift.after_count' : 'billing.shift.not_counted_cash') : money(net(x) - (x.change_minor ?? 0))}</span>
+              {/* B23: no cash sum before the count; the hub sends null. E2E E-5: in_minor is already the applied amount
+                  (tendered and change cancel out, hub projections/shifts.ts), so the line is in − out, never − change again */}
+              <span className="a">{x.in_minor === null ? t(shift.state === 'open' ? 'billing.shift.after_count' : 'billing.shift.not_counted_cash') : money(net(x))}</span>
             </div>
           ))}
         </>
