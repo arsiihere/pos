@@ -436,7 +436,20 @@ export function ServiceChargeSheet({ bill, billRef, onDone, onClose }: { bill: B
  * asks), or "Service charge removed" + Add back (`allowed` only, §6.8) with an inline confirm → `ApplyServiceCharge`.
  * No row while the bill has no charge (rate 0, R-61). Never re-added by anything else.
  */
-export function ServiceChargeRow({ bill, billRef, onRemove, onChanged }: { bill: BillView; billRef: BillRef; onRemove: () => void; onChanged: () => void }) {
+export function ServiceChargeRow({
+  bill,
+  billRef,
+  onRemove,
+  onChanged,
+  amountMinor,
+}: {
+  bill: BillView;
+  billRef: BillRef;
+  onRemove: () => void;
+  onChanged: () => void;
+  /** the amount shown (E-1: the bill screen's split column passes its split's own); default the whole bill's */
+  amountMinor?: number;
+}) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
   const [confirm, setConfirm] = useState(false);
@@ -477,7 +490,7 @@ export function ServiceChargeRow({ bill, billRef, onRemove, onChanged }: { bill:
           )}
         </span>
         <span className="v sp" dir={MONEY_DIR}>
-          {amountText(bill.totals_default.service_charge_minor, bill.currency.code)}
+          {amountText(amountMinor ?? bill.totals_default.service_charge_minor, bill.currency.code)}
         </span>
       </div>
       {confirm && (

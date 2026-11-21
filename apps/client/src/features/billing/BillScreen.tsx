@@ -9,7 +9,9 @@ import { useLiveRefetch } from '../staff/orders/lists/OpenOrders';
 import { useShell } from '../staff/shell/hooks';
 import { billingApi } from './api';
 import type { AddPaymentResult, BillBlock, BillRef, BillView, BillViewSplit, SplitDues, Totals } from './contracts';
-import { BuyerSheet, type BuyerEntry, type BuyerIssue } from './BillSheets';
+import { BuyerSheet, canDiscount, DiscountSheet, ServiceChargeRow, ServiceChargeSheet, type BuyerEntry, type BuyerIssue } from './BillSheets';
+import { BIco } from './icons';
+import { SplitEditor } from './SplitEditor';
 import { CheckBillButton, PrintRows } from './PrintStatus';
 import { billingErrorKey } from './errors';
 import { BILL_LIST_FRAMES } from './frames';
@@ -23,8 +25,9 @@ import './styles';
 // cash given is never pre-filled, M-6; change only from the AddPayment result); Close with the server's `blocks` text
 // (R-29) and `expected_total_minor` (rule 7: BILL_TOTAL_CHANGED re-reads, never auto-closes). Totals, dues, rounding
 // and change are the hub's — the client computes no tax and no money (G1-15). A retry after a lost reply resends the
-// same command_id (handbook §10). Mounted later (once their PRs merge): split editor (36), discount / service charge
-// sheets (37), print status (38), buyer sheet (18).
+// same command_id (handbook §10). E2E E-1: the split editor (36), the discount sheet and the service-charge row and
+// sheet (37) are mounted here — Split and Discount on the acts row (frame Bill), Remove discount on the discount row,
+// the service-charge row with Remove / Add back in the totals; each answer reads the bill again.
 
 interface Mode {
   mode_id: string;
@@ -122,7 +125,26 @@ const TAG_CLASS: Record<string, string> = {
   tax_unresolved: 'b5-tg c-danger',
 };
 
-function TotalsTable({ split, bill, paid, modes }: { split: BillViewSplit; bill: BillView; paid: number; modes: readonly Mode[] }) {
+function TotalsTable({
+  split,
+  bill,
+  paid,
+  modes,
+  billRef,
+  onRemoveDiscount,
+  onRemoveCharge,
+  onChanged,
+}: {
+  split: BillViewSplit;
+  bill: BillView;
+  paid: number;
+  modes: readonly Mode[];
+  billRef: BillRef;
+  /** E-1: the discount row's Remove discount (null: not offered) */
+  onRemoveDiscount: (() => void) | null;
+  onRemoveCharge: () => void;
+  onChanged: () => void;
+}) {
   const code = bill.currency.code;
   const cash = split.totals.cash;
   const card = split.totals.digital;
@@ -146,15 +168,20 @@ function TotalsTable({ split, bill, paid, modes }: { split: BillViewSplit; bill:
       </div>
       {cash.discount_minor > 0 && (
         <div className="b5-tr disc">
-          <span>{t('billing.tot.discount')}</span>
+          <span>
+            {t('billing.tot.discount')}
+            {onRemoveDiscount !== null && (
+              <button type="button" className="btn" onClick={onRemoveDiscount}>
+                {t('billing.discount.remove')}
+              </button>
+            )}
+          </span>
           <span className="v sp">{amt(-cash.discount_minor)}</span>
         </div>
       )}
-      {cash.service_charge_minor > 0 && (
-        <div className="b5-tr">
-          <span>{fill(t('billing.tot.service_charge'), { rate: rateText(bill.service_charge.rate_bp) })}</span>
-          <span className="v sp">{amt(cash.service_charge_minor)}</span>
-        </div>
+      {/* B8 / §6.8: the sticky service charge row (Remove / Add back), this split's amount */}
+      {bill.service_charge.rate_bp > 0 && (
+        <ServiceChargeRow bill={bill} billRef={billRef} amountMinor={cash.service_charge_minor} onRemove={onRemoveCharge} onChanged={onChanged} />
       )}
       {keys.map(([k, label]) => (
         <div key={k} className="b5-tr">
@@ -270,6 +297,8 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   // B19: the buyer of the next close, in memory only (a ref, never state or storage); dropped after the close answers
   const heldBuyer = useRef<BuyerEntry | null>(null);
   const [buyerHeld, setBuyerHeld] = useState(false);
+  // E-1: the split editor and the discount / service-charge sheets
+  const [sheet, setSheet] = useState<'split' | 'discount' | 'discount_remove' | 'service' | null>(null);
   const [buyerSheet, setBuyerSheet] = useState<{ error: BuyerIssue | null; accepted: string[] | null } | null>(null);
   // WaiveBuyerId answered not_required: the row says so until the bill needs the buyer again
   const [buyerNotNeeded, setBuyerNotNeeded] = useState(false);
@@ -326,6 +355,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   const online = shell.online;
   const split = bill.splits.find((s) => s.split_no === picked) ?? bill.splits.find((s) => s.state === 'open') ?? bill.splits[0];
   const open = split !== undefined && split.state === 'open' && bill.state !== 'closed';
+  const discountGrant = shell.permissions.allowed('apply-discount') || shell.permissions.requiresApproval('apply-discount');
   const dues = split === undefined ? null : duesOf(split, held);
   // §3.3 rule 6: a close carrying a valid buyer passes the buyer rule, so a held buyer lifts that block
   const blocks = split === undefined ? [] : bill.blocks.filter((b) => (b.split_no === null || b.split_no === split.split_no) && !(buyerHeld && b.reason === 'buyer_id_required'));
@@ -807,6 +837,17 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             {online && bill.state !== 'closed' && (
               <div className="b5-acts">
                 <CheckBillButton billRef={billRef} onPrinted={(r) => (r.printed ? void load() : setNoPrinter(true))} />
+                <button type="button" className="btn" onClick={() => setSheet('split')}>
+                  <BIco name="split" />
+                  {t('billing.split.button')}
+                </button>
+                {discountGrant && canDiscount(bill) && (
+                  <button type="button" className="btn" onClick={() => setSheet('discount')}>
+                    <BIco name="bill" />
+                    {t('billing.discount.button')}
+                    {shell.permissions.requiresApproval('apply-discount') && <span className="ntag">{t('billing.sheet.needs')}</span>}
+                  </button>
+                )}
               </div>
             )}
             {lines}
@@ -816,7 +857,18 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
         <section className="b5-col b5-money">
           <div className="b5-pane">
             {strip}
-            {split !== undefined && <TotalsTable split={split} bill={bill} paid={paid} modes={modes} />}
+            {split !== undefined && (
+              <TotalsTable
+                split={split}
+                bill={bill}
+                paid={paid}
+                modes={modes}
+                billRef={billRef}
+                onRemoveDiscount={online && open && bill.discount !== null && discountGrant && canDiscount(bill) ? () => setSheet('discount_remove') : null}
+                onRemoveCharge={() => setSheet('service')}
+                onChanged={() => void load()}
+              />
+            )}
             {buyerRow}
             {duesBlock}
             {pad}
@@ -826,6 +878,40 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
           </div>
         </section>
       </main>
+      {sheet === 'split' && (
+        <SplitEditor
+          bill={bill}
+          billRef={billRef}
+          onSaved={() => {
+            setSheet(null);
+            void load();
+          }}
+          onClose={() => setSheet(null)}
+        />
+      )}
+      {(sheet === 'discount' || sheet === 'discount_remove') && (
+        <DiscountSheet
+          bill={bill}
+          billRef={billRef}
+          mode={sheet === 'discount' ? 'apply' : 'remove'}
+          onDone={(r) => {
+            if (r !== 'pending') setSheet(null);
+            void load();
+          }}
+          onClose={() => setSheet(null)}
+        />
+      )}
+      {sheet === 'service' && (
+        <ServiceChargeSheet
+          bill={bill}
+          billRef={billRef}
+          onDone={(r) => {
+            if (r !== 'pending') setSheet(null);
+            void load();
+          }}
+          onClose={() => setSheet(null)}
+        />
+      )}
       {buyerSheet !== null && (
         <BuyerSheet
           bill={bill}
