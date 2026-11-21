@@ -464,7 +464,7 @@ describe('[05 §6.12] CloseSplit — one transaction: invoice, folds, outbox row
     // the bill view after: the split closed with its invoice
     const after = await view(cashier.who, { bill_id });
     expect(after.state).toBe('closed');
-    expect(after.splits[0]!.invoice).toEqual({ invoice_ref: 'S000001', fiscal_number: null, fiscal_state: 'not_required' });
+    expect(after.splits[0]!.invoice).toEqual({ invoice_id: r.result!['invoice_id'], invoice_ref: 'S000001', fiscal_number: null, fiscal_state: 'not_required' }); // R-90: + invoice_id
   });
 
   it('[05 #29, #16d, R-29] two item splits with a 10 % discount on Rs 2,000: DiscountFrozen 20000 at the first close only; OrdersBilled + BillClosed once, at the last', async () => {

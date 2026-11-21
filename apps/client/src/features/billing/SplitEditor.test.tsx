@@ -53,11 +53,11 @@ const LOCKED = bill({
   state: 'partly_paid',
   lines: [line('H', 'Chicken Karahi Half', 1), line('N1', 'Naan', 2), line('M', 'Mutton Karahi Half', 1), line('L', 'Lassi', 2), line('N2', 'Naan', 2, true)],
   splits: [
-    split({ split_no: 1, state: 'closed', plan: { lines: [{ order_item_id: 'H', units: 1 }, { order_item_id: 'N1', units: 2 }] }, invoice: { invoice_ref: 'AC1-S000124', fiscal_number: null, fiscal_state: 'pending' } }),
+    split({ split_no: 1, state: 'closed', plan: { lines: [{ order_item_id: 'H', units: 1 }, { order_item_id: 'N1', units: 2 }] }, invoice: { invoice_id: 'INV_AC1-S000124', invoice_ref: 'AC1-S000124', fiscal_number: null, fiscal_state: 'pending' } }),
     split({
       split_no: 2,
       plan: { lines: [{ order_item_id: 'M', units: 1 }, { order_item_id: 'L', units: 1 }] },
-      payments: [{ payment_id: 'P1', mode_id: 'cash', mode_name: 'Cash', direction: 'in', amount_minor: 100_000, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana' }],
+      payments: [{ payment_id: 'P1', mode_id: 'cash', mode_name: 'Cash', direction: 'in', amount_minor: 100_000, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana', taken_by_staff_id: 'S_SANA' }],
     }),
     split({ split_no: 3, plan: { lines: [{ order_item_id: 'L', units: 1 }, { order_item_id: 'N2', units: 2 }] } }),
   ],

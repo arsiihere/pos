@@ -51,6 +51,8 @@ export interface BillViewPayment {
   change_minor: number;
   has_reference: boolean;
   taken_by_name: string | null;
+  /** 05 v1.0.29 (R-90): decides "own payment" for RemovePayment by id (§6.10), never by name. */
+  taken_by_staff_id: string;
 }
 
 export type SplitPlan = null | { lines: Array<{ order_item_id: string; units: number }> } | { share_minor: number } | { n: number; k: number };
@@ -62,7 +64,8 @@ export interface BillViewSplit {
   payments: BillViewPayment[];
   totals: { cash: Totals; digital: Totals; as_paid: Totals };
   balance_minor: number;
-  invoice: { invoice_ref: string; fiscal_number: string | null; fiscal_state: string | null } | null;
+  /** 05 v1.0.29 (R-90): `invoice_id` is the `ref_id` of PrintBillDocument { doc: 'receipt' } (§6.22). */
+  invoice: { invoice_id: string; invoice_ref: string; fiscal_number: string | null; fiscal_state: string | null } | null;
 }
 
 export interface BillViewLine {

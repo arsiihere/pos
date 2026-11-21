@@ -190,7 +190,7 @@ describe('[05 §8; §3.5 (7)] dues', () => {
   it('duesOf: from the latest AddPayment result while it is the split\'s last payment; otherwise only with no payments (else unknown)', () => {
     const s0 = split();
     expect(duesOf(s0, null)).toEqual({ card_due_minor: 599_600, cash_due_minor: 662_400, card_refund_due_minor: 0, cash_refund_due_minor: 0 });
-    const paid = split({ payments: [{ payment_id: 'P1', mode_id: 'card', mode_name: 'Card', direction: 'in', amount_minor: 300_000, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana' }], balance_minor: 299_600, totals: { cash: CASH, digital: CARD, as_paid: CARD } });
+    const paid = split({ payments: [{ payment_id: 'P1', mode_id: 'card', mode_name: 'Card', direction: 'in', amount_minor: 300_000, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana', taken_by_staff_id: 'S_SANA' }], balance_minor: 299_600, totals: { cash: CASH, digital: CARD, as_paid: CARD } });
     const result = { split_no: 1, payment_id: 'P1', balance_minor: 299_600, total_minor: 599_600, card_due_minor: 299_600, cash_due_minor: 362_400, card_refund_due_minor: 0, cash_refund_due_minor: 0 };
     expect(duesOf(paid, result)).toEqual({ card_due_minor: 299_600, cash_due_minor: 362_400, card_refund_due_minor: 0, cash_refund_due_minor: 0 });
     // [review M1, money] stale once the split's balance or total moved (a round, a void, a reopen): unknown again
@@ -203,7 +203,7 @@ describe('[05 §8; §3.5 (7)] dues', () => {
   });
 
   it('a split with payments and no AddPayment result here: Paid · Left only (the view carries no dues — STOP to the owner)', async () => {
-    const paid = split({ payments: [{ payment_id: 'P1', mode_id: 'card', mode_name: 'Card', direction: 'in', amount_minor: 300_000, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana' }], balance_minor: 299_600 });
+    const paid = split({ payments: [{ payment_id: 'P1', mode_id: 'card', mode_name: 'Card', direction: 'in', amount_minor: 300_000, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana', taken_by_staff_id: 'S_SANA' }], balance_minor: 299_600 });
     const v = await show(setup({ views: [bill({ state: 'partly_paid', splits: [paid], blocks: [{ reason: 'balance_due', split_no: 1, details: { split_no: 1, balance_minor: 299_600 } }] })] }));
     expect(all(v, '.b5-due').length).toBe(0);
     expect(text(v, '.b5-paid')).toBe('Paid Rs 3,000.00 · Left Rs 2,996.00');
@@ -257,7 +257,7 @@ describe('[05 §8 pad; §6.9] payment pad', () => {
   });
 
   it('the AddPayment result\'s dues replace the screen\'s, and the view is read again', async () => {
-    const after = split({ payments: [{ payment_id: 'P1', mode_id: 'card', mode_name: 'Card', direction: 'in', amount_minor: 300_000, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana' }], balance_minor: 299_600, totals: { cash: CASH, digital: CARD, as_paid: CARD } });
+    const after = split({ payments: [{ payment_id: 'P1', mode_id: 'card', mode_name: 'Card', direction: 'in', amount_minor: 300_000, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana', taken_by_staff_id: 'S_SANA' }], balance_minor: 299_600, totals: { cash: CASH, digital: CARD, as_paid: CARD } });
     const s = setup({
       views: [bill(), bill({ state: 'open', splits: [after], blocks: [{ reason: 'balance_due', split_no: 1, details: { split_no: 1, balance_minor: 299_600 } }] })],
       answers: [{ ok: true, data: { bill_id: 'B7', payment_id: 'P1', split_no: 1, totals: { as_paid: CARD }, balance_minor: 299_600, card_due_minor: 299_600, cash_due_minor: 362_400, card_refund_due_minor: 0, cash_refund_due_minor: 0, rounding_minor: 50, change_due_minor: 0 } }],
@@ -314,7 +314,7 @@ describe('[05 §8 pad; §6.9] payment pad', () => {
   });
 
   it('[§8, H17-1] a negative balance shows only "Refund …" for the types with a refund due, and the pad gives back (direction out)', async () => {
-    const paid = split({ payments: [{ payment_id: 'P1', mode_id: 'cash', mode_name: 'Cash', direction: 'in', amount_minor: 662_400, tendered_minor: 700_000, change_minor: 37_600, has_reference: false, taken_by_name: 'Sana' }], balance_minor: -32_500 });
+    const paid = split({ payments: [{ payment_id: 'P1', mode_id: 'cash', mode_name: 'Cash', direction: 'in', amount_minor: 662_400, tendered_minor: 700_000, change_minor: 37_600, has_reference: false, taken_by_name: 'Sana', taken_by_staff_id: 'S_SANA' }], balance_minor: -32_500 });
     const result = { bill_id: 'B7', payment_id: 'P1', split_no: 1, totals: { as_paid: CASH }, balance_minor: -32_500, card_due_minor: 0, cash_due_minor: 0, card_refund_due_minor: 0, cash_refund_due_minor: 32_500, rounding_minor: 0, change_due_minor: 0 };
     const s = setup({ views: [bill({ splits: [paid], blocks: [] })], answers: [{ ok: true, data: result }] });
     const v = await show(s);
@@ -358,8 +358,8 @@ describe('[05 §8; §6.12, §3.3] close', () => {
   });
 
   it('balance 0, no blocks: Close is the primary; CloseSplit { bill_ref, split_no, expected_total_minor } → closed with the invoice', async () => {
-    const ready = bill({ splits: [split({ balance_minor: 0, payments: [{ payment_id: 'P1', mode_id: 'card', mode_name: 'Card', direction: 'in', amount_minor: 599_600, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana' }], totals: { cash: CASH, digital: CARD, as_paid: CARD } })], blocks: [] });
-    const closed = bill({ state: 'closed', splits: [split({ state: 'closed', balance_minor: 0, totals: { cash: CASH, digital: CARD, as_paid: CARD }, invoice: { invoice_ref: 'AC1-S000123', fiscal_number: null, fiscal_state: 'pending' } })], blocks: [] });
+    const ready = bill({ splits: [split({ balance_minor: 0, payments: [{ payment_id: 'P1', mode_id: 'card', mode_name: 'Card', direction: 'in', amount_minor: 599_600, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana', taken_by_staff_id: 'S_SANA' }], totals: { cash: CASH, digital: CARD, as_paid: CARD } })], blocks: [] });
+    const closed = bill({ state: 'closed', splits: [split({ state: 'closed', balance_minor: 0, totals: { cash: CASH, digital: CARD, as_paid: CARD }, invoice: { invoice_id: 'INV_AC1-S000123', invoice_ref: 'AC1-S000123', fiscal_number: null, fiscal_state: 'pending' } })], blocks: [] });
     const s = setup({ views: [ready, closed], answers: [{ ok: true, data: { invoice_id: 'I1', invoice_ref: 'AC1-S000123', total_minor: 599_600, change_minor: 0, bill_state: 'closed', receipt: { job_id: 'J1', printer_name: 'Counter' }, fiscal_state: 'pending' } }] });
     const done: unknown[] = [];
     view = mount();
@@ -409,7 +409,7 @@ describe('[05 §8] several splits, offline, Urdu', () => {
   it('a splits strip when there are several; a closed split is locked with its invoice and has no pad', async () => {
     const b = bill({
       state: 'partly_paid',
-      splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_ref: 'AC1-S000124', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })],
+      splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_id: 'INV_AC1-S000124', invoice_ref: 'AC1-S000124', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })],
       blocks: [{ reason: 'balance_due', split_no: 2, details: { split_no: 2, balance_minor: 662_400 } }],
     });
     const v = await show(setup({ views: [b] }));
@@ -492,7 +492,7 @@ describe('[05 §8] several splits, offline, Urdu', () => {
   });
 
   it('[review m, money] a negative balance: the close line says what to give back; a refund result pre-fills the Give back amount', async () => {
-    const paid = split({ payments: [{ payment_id: 'P1', mode_id: 'cash', mode_name: 'Cash', direction: 'in', amount_minor: 662_400, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana' }], balance_minor: -32_500 });
+    const paid = split({ payments: [{ payment_id: 'P1', mode_id: 'cash', mode_name: 'Cash', direction: 'in', amount_minor: 662_400, tendered_minor: null, change_minor: 0, has_reference: false, taken_by_name: 'Sana', taken_by_staff_id: 'S_SANA' }], balance_minor: -32_500 });
     const v = await show(setup({ views: [bill({ splits: [paid], blocks: [{ reason: 'balance_due', split_no: 1, details: { split_no: 1, balance_minor: -32_500 } }] })] }));
     expect(text(v, '.b5-close .b5-why1')).toBe('Give back Rs 325.00 first');
   });
@@ -882,7 +882,7 @@ describe('[05 §8; E2E E-1] split, discount and service charge on the bill', () 
 // onChanged, §8 Print status, B18) and Reprint receipt (§6.22) was not mounted. Frames RemovePayment,
 // RemovePaymentShiftClosed, BillMixed (Remove on the payment row), PrintTo, BillClosed (Reprint receipt).
 describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', () => {
-  const PAY = { payment_id: 'P1', mode_id: 'card', mode_name: 'Card', direction: 'in' as const, amount_minor: 300_000, tendered_minor: null, change_minor: 0, has_reference: true, taken_by_name: 'Sana' };
+  const PAY = { payment_id: 'P1', mode_id: 'card', mode_name: 'Card', direction: 'in' as const, amount_minor: 300_000, tendered_minor: null, change_minor: 0, has_reference: true, taken_by_name: 'Sana', taken_by_staff_id: 'S_SANA' };
   const paidBill = (over: Partial<BillView> = {}) => bill({ splits: [split({ payments: [PAY], balance_minor: 362_400 })], ...over });
 
   it('a payment row has Remove → the sheet: the payment, Why remove it (4 reasons), Other needs a note → RemovePayment; reload', async () => {
@@ -926,10 +926,10 @@ describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', 
     let v = await show(setup({ online: false, views: [paidBill()] }));
     expect(v.buttons().some((b) => b.textContent === 'Remove')).toBe(false);
     v.unmount();
-    v = await show(setup({ views: [paidBill({ splits: [split({ payments: [{ ...PAY, taken_by_name: 'Usman' }], balance_minor: 362_400 })] })] }));
+    v = await show(setup({ views: [paidBill({ splits: [split({ payments: [{ ...PAY, taken_by_name: 'Usman', taken_by_staff_id: 'S_USMAN' }], balance_minor: 362_400 })] })] }));
     expect(v.buttons().some((b) => b.textContent === 'Remove')).toBe(false);
     v.unmount();
-    v = await show(setup({ grants: { 'close-shift-for-others': { grant: 'allowed', scope: 'branch' } }, views: [paidBill({ splits: [split({ payments: [{ ...PAY, taken_by_name: 'Usman' }], balance_minor: 362_400 })] })] }));
+    v = await show(setup({ grants: { 'close-shift-for-others': { grant: 'allowed', scope: 'branch' } }, views: [paidBill({ splits: [split({ payments: [{ ...PAY, taken_by_name: 'Usman', taken_by_staff_id: 'S_USMAN' }], balance_minor: 362_400 })] })] }));
     expect(v.buttons().some((b) => b.textContent === 'Remove')).toBe(true);
   });
 
@@ -1030,7 +1030,7 @@ describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', 
 
   it('[§6.22] a split closed in this visit (bill partly paid): Reprint receipt on that split, by its own invoice; an empty close has none', async () => {
     const two = bill({ state: 'open', splits: [split({ split_no: 1, balance_minor: 0 }), split({ split_no: 2 })], blocks: [] });
-    const after = bill({ state: 'partly_paid', splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_ref: 'AC1-S000201', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })], blocks: [] });
+    const after = bill({ state: 'partly_paid', splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_id: 'INV_AC1-S000201', invoice_ref: 'AC1-S000201', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })], blocks: [] });
     const s = setup({
       views: [two, after],
       answers: [
@@ -1050,7 +1050,7 @@ describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', 
 
   it('[review m1] reopened and closed again elsewhere (the split now shows another invoice): no Reprint of the cancelled one', async () => {
     const two = bill({ state: 'open', splits: [split({ split_no: 1, balance_minor: 0 }), split({ split_no: 2 })], blocks: [] });
-    const reclosed = bill({ state: 'partly_paid', splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_ref: 'AC1-S000202', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })], blocks: [] });
+    const reclosed = bill({ state: 'partly_paid', splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_id: 'INV_AC1-S000202', invoice_ref: 'AC1-S000202', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })], blocks: [] });
     const s = setup({ views: [two, reclosed], answers: [{ ok: true, data: { invoice_id: 'INV7', invoice_ref: 'AC1-S000201', total_minor: 662_400, change_minor: 0, bill_state: 'partly_paid', receipt: { job_id: 'J1', printer_name: 'Counter' }, fiscal_state: 'pending' } }] });
     const v = await show(s);
     v.click([...v.container.querySelectorAll<HTMLButtonElement>('.b5-close .btn--primary')][0]!);

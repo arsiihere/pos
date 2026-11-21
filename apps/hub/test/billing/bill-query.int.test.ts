@@ -532,6 +532,37 @@ describe('[05 §6.1] GET /queries/bill', () => {
     expect((await bill(cashier, { bill_id })).data.reopen_count).toBe(2);
   });
 
+  it('[05 #4e, R-90] ids: a closed split invoice carries invoice_id; payments carry taken_by_staff_id; statements unchanged at 1 and at 40', async () => {
+    const closedBill = async (table_id: string, seating_id: string, n: number) => {
+      openSeating(hub, { table_id, seating_id });
+      appendOrder(hub, { order_type: 'dine_in', seating_id, lines: Array.from({ length: n }, (_, i) => ({ order_item_id: `${seating_id}_L${i}`, item_id: FX.naan })) });
+      const bill_id = (await ensure({ seating_id })).result!.bill_id as string;
+      for (let i = 0; i < n; i += 1) pay(bill_id, 1, 3_000, `${seating_id}_P${i}`);
+      const open = (await bill(cashier, { bill_id })).data;
+      expect(open.splits[0].state).toBe('open');
+      expect(open.splits[0].invoice).toBeNull();
+      expect(open.splits[0].payments.map((x) => x.taken_by_staff_id)).toEqual(Array.from({ length: n }, () => STAFF.cashier));
+      const all = open.lines.map((l) => ({ order_item_id: l.order_item_id, units: l.units, base_minor: l.base_minor }));
+      closeInTest(bill_id, 1, all, all.map((l) => l.order_item_id));
+      return { bill_id, invoice_id: `INV_${invoiceNo}`, invoice_ref: `T-S${String(invoiceNo).padStart(6, '0')}` };
+    };
+    const one = await closedBill(VX.tables.T4, 'SEAT_IDS1', 1);
+    const v = (await bill(cashier, { bill_id: one.bill_id })).data;
+    expect(v.splits[0].state).toBe('closed');
+    expect(v.splits[0].invoice).toMatchObject({ invoice_id: one.invoice_id, invoice_ref: one.invoice_ref });
+    expect(v.splits[0].payments).toHaveLength(1);
+    expect(v.splits[0].payments[0]).toMatchObject({ payment_id: 'SEAT_IDS1_P0', taken_by_staff_id: STAFF.cashier });
+    expect(Object.keys(v.splits[0].payments[0]!)).toEqual(expect.arrayContaining(['taken_by_name', 'taken_by_staff_id']));
+    const at1 = await handlerStatements(cashier, 'bill', { bill_id: one.bill_id });
+    const forty = await closedBill(VX.tables.T7, 'SEAT_IDS40', 40);
+    const v40 = (await bill(cashier, { bill_id: forty.bill_id })).data;
+    expect(v40.splits[0].invoice?.invoice_id).toBe(forty.invoice_id);
+    expect(v40.splits[0].payments.every((x) => x.taken_by_staff_id === STAFF.cashier)).toBe(true);
+    const at40 = await handlerStatements(cashier, 'bill', { bill_id: forty.bill_id });
+    expect(at1).toBe(5); // as before R-90: a closed bill with no print job (documentJobsStatus reads nothing); both fields ride the splits statement
+    expect(at40).toBe(at1);
+  });
+
   it('[05 #5b] a fully comped bill totals 0 with no block (closes with no payment)', async () => {
     const comp = compedLine(hub, { units: 3, value_minor: 9_000 });
     const v = (await bill(cashier, { order_id: comp.order_id })).data;
