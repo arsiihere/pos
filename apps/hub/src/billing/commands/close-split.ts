@@ -126,9 +126,15 @@ SELECT
         AND o.order_id NOT IN (SELECT value FROM json_each(@order_ids))) AS other_open`;
 
 // After the append: the bill's folded state, the invoice's outbox row state (4b: the Doc's fiscal state comes from
-// the row) and the receipt printer's name and paper. 1 statement.
+// the row), the receipt printer's name and paper, and (R-91) the ids of the bill's payments added after its latest
+// `BillReopened` (every `PaymentAdded` on the bill stream when never reopened; event seq order, `events_stream`).
+// 1 statement.
 const AFTER_FOLD = `
-SELECT b.state AS bill_state, f.state AS fiscal_state, p.name AS printer_name, p.paper_width_mm
+SELECT b.state AS bill_state, f.state AS fiscal_state, p.name AS printer_name, p.paper_width_mm,
+  (SELECT json_group_array(json_extract(e.payload, '$.payment_id')) FROM events e
+    WHERE e.stream_type = 'bill' AND e.stream_id = @bill_id AND e.event_type = 'PaymentAdded'
+      AND e.seq > COALESCE((SELECT MAX(r.seq) FROM events r
+                             WHERE r.stream_type = 'bill' AND r.stream_id = @bill_id AND r.event_type = 'BillReopened'), 0)) AS since_reopen_json
 FROM bills b
 LEFT JOIN fiscal_outbox f ON f.invoice_id = @invoice_id
 LEFT JOIN printers p ON p.printer_id = @printer_id AND p.archived_at IS NULL
@@ -447,6 +453,7 @@ function closeSplitCommand(log: Log) {
         fiscal_state: string | null;
         printer_name: string | null;
         paper_width_mm: number | null;
+        since_reopen_json: string;
       };
       const fiscal_state: CloseSplitResult['fiscal_state'] = isFiscalized(fiscal) ? 'pending' : 'not_required';
 
@@ -470,7 +477,7 @@ function closeSplitCommand(log: Log) {
         invoice_id,
         invoice_ref,
         total_minor: invoice.total_minor,
-        change_minor: invoice.change_minor,
+        change_minor: changeSinceReopen(payments, after.since_reopen_json),
         bill_state: after.bill_state,
         receipt,
         fiscal_state,
@@ -478,6 +485,19 @@ function closeSplitCommand(log: Log) {
       return { events: [], result };
     },
   });
+}
+
+/**
+ * §6.12 Result (⚠️ 05 v1.0.30, R-91): the change due now — Σ (tendered − amount) of the split's live cash `in`
+ * payments added after the bill's latest `BillReopened` (`since_reopen_json`, AFTER_FOLD); on a never-reopened bill
+ * every one of them, so it equals `InvoiceIssued.change_minor`. The change of a payment carried across a reopen was
+ * given out at the earlier close. Only the result: the invoice, its events, the receipt, the shift and the Z keep Σ.
+ */
+function changeSinceReopen(payments: readonly PaymentRow[], since_reopen_json: string): number {
+  const since = new Set(JSON.parse(since_reopen_json) as string[]);
+  return payments
+    .filter((x) => x.payment_class === 'cash' && x.direction === 'in' && since.has(x.payment_id))
+    .reduce((a, x) => a + (x.tendered_minor ?? x.amount_minor) - x.amount_minor, 0);
 }
 
 // The bill's orders an empty close names: its own `bill_orders` (a reopened bill) and the cancelled orders of its
