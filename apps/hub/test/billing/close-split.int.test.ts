@@ -1034,6 +1034,35 @@ describe('[05 #36, #26, #28] CloseSplit — atomic, gap-free, one winner', () =>
   });
 });
 
+describe('[05 §6.12 Result, R-91, #37m] CloseSplit — the re-close change counts only payments since the latest reopen', () => {
+  it('[05 #37m, R-91] cash given 18 000 over, closed, reopened, a naan added, cash given 1 600 over → the re-close result change 1 600; InvoiceIssued.change_minor still Σ 19 600', async () => {
+    await start();
+    const s = seated([{ order_item_id: 'RC_N1', item_id: FX.naan }]);
+    const bill_ref = { seating_id: s.seating_id };
+    const t1 = (await view(cashier.who, bill_ref)).splits[0]!.totals.as_paid.total_minor;
+    await pay(cashier.who, bill_ref, 1, 'cash', t1, t1 + 18_000);
+    const first = await close(cashier.who, { bill_ref, split_no: 1, expected_total_minor: t1 });
+    expect(first.status, JSON.stringify(first.error)).toBe(200);
+    expect(first.result).toMatchObject({ change_minor: 18_000 }); // a never-reopened bill: every cash payment, as before
+    const bill_id = billIdOf(s.seating_id);
+
+    const manager = signIn(hub, STAFF.manager);
+    const re = await post(hub, manager, 'reopen-bill', 'ReopenBill', { bill_id, reason_code: 'wrong_item_billed' });
+    expect(re.status, JSON.stringify(re.error)).toBe(200);
+    appendOrder(hub, { order_type: 'dine_in', seating_id: s.seating_id, placed_by: STAFF.orderTaker, lines: [{ order_item_id: 'RC_N2', item_id: FX.naan }] });
+
+    const v = (await view(cashier.who, { bill_id })).splits[0]!;
+    expect(v.balance_minor).toBeGreaterThan(0);
+    await pay(cashier.who, { bill_id }, 1, 'cash', v.balance_minor, v.balance_minor + 1_600);
+    const second = await close(cashier.who, { bill_ref: { bill_id }, split_no: 1, expected_total_minor: v.totals.as_paid.total_minor });
+    expect(second.status, JSON.stringify(second.error)).toBe(200);
+    // R-91: only the change of the cash payments added after the latest BillReopened (the 18 000 was given at close 1)
+    expect(second.result).toMatchObject({ change_minor: 1_600 });
+    // the invoice and every event stay as they are: InvoiceIssued.change_minor = Σ the split's cash payments' change
+    expect(invoiceOf(second)['change_minor']).toBe(19_600);
+  });
+});
+
 // ================================================================================================= printing, statements
 
 describe('[05 #35, §6.12 Statements] CloseSplit — no printer; statements fixed', () => {
