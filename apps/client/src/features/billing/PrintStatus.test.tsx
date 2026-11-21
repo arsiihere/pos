@@ -104,7 +104,7 @@ describe('[05 §6.3; brief §3.2.7] Print check bill (task 38)', () => {
     expect(s.command.mock.calls[0]![0]).toBe('PrintCheckBill');
     expect(s.command.mock.calls[0]![1]).toEqual({ bill_ref: { seating_id: 'S7' } });
     expect(s.shown).toEqual([{ text: 'Check bill sent to Counter', tone: 'ok' }]);
-    expect(done).toEqual([{ printed: true, printer_name: 'Counter' }]);
+    expect(done).toEqual([{ printed: true, printer_name: 'Counter', job_id: 'J1' }]);
   });
 
   it('printed: false → "No bill printer is set up — show the screen to the customer" (warn)', async () => {
@@ -114,7 +114,7 @@ describe('[05 §6.3; brief §3.2.7] Print check bill (task 38)', () => {
     v.click(v.button('Print check bill'));
     await flush();
     expect(s.shown).toEqual([{ text: 'No bill printer is set up — show the screen to the customer', tone: 'warn' }]);
-    expect(done).toEqual([{ printed: false, printer_name: null }]);
+    expect(done).toEqual([{ printed: false, printer_name: null, job_id: null }]);
   });
 
   it('BILL_NOT_OPEN → its text; a lost reply → "Needs the hub", and the resend keeps the command_id', async () => {

@@ -232,22 +232,28 @@ describe('[05 §8 pad; §6.9] payment pad', () => {
 
   it('[R-4] picking a mode scrolls the money pane so Add payment sits above the Close bar', async () => {
     const spy = boxes([1054, 1126]);
-    const v = await show(setup());
-    const scrolled = paneScroll(v);
-    v.click(v.button('Cash'));
-    await flush();
-    expect(scrolled()).toBe(1126 - 938 + PAD_CLEAR_PX);
-    spy.mockRestore();
+    try {
+      const v = await show(setup());
+      const scrolled = paneScroll(v);
+      v.click(v.button('Cash'));
+      await flush();
+      expect(scrolled()).toBe(1126 - 938 + PAD_CLEAR_PX);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('[R-4] Add payment already clear of the bar (1280×800 short bill): the pane does not move', async () => {
     const spy = boxes([700, 772]);
-    const v = await show(setup());
-    const scrolled = paneScroll(v);
-    v.click(v.button('Card'));
-    await flush();
-    expect(scrolled()).toBe(0);
-    spy.mockRestore();
+    try {
+      const v = await show(setup());
+      const scrolled = paneScroll(v);
+      v.click(v.button('Card'));
+      await flush();
+      expect(scrolled()).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('only active modes, in sort order, with their class word; idle until one is picked', async () => {
@@ -1041,6 +1047,51 @@ describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', 
     const after = billReads(s);
     await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS * 5);
     expect(billReads(s)).toBe(after);
+  });
+
+  it('[R-2, review m1] an older job stuck waiting does not keep the reads going: they follow the new job only', async () => {
+    vi.useFakeTimers();
+    const OLD = { ...RJ('waiting'), job_id: 'J1' };
+    const s = setup({ views: [closedWith([OLD]), closedWith([OLD, RJ('waiting')]), closedWith([OLD, RJ('printed')])], answers: [{ ok: true, data: { printed: true, job_id: 'J9', printer_name: 'Counter' } }] });
+    const v = await show(s);
+    v.click(v.button('Reprint receipt'));
+    await flush();
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS);
+    await flush();
+    const reads = billReads(s);
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS * 5);
+    expect(billReads(s)).toBe(reads);
+  });
+
+  it('[R-2, review m2] the reads stop when the screen goes offline', async () => {
+    vi.useFakeTimers();
+    const s = setup({ views: [closedWith([]), closedWith([RJ('waiting')])], answers: [{ ok: true, data: { printed: true, job_id: 'J9', printer_name: 'Counter' } }] });
+    const v = await show(s);
+    v.click(v.button('Reprint receipt'));
+    await flush();
+    (s.shell as { online: boolean }).online = false;
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS);
+    await flush();
+    const reads = billReads(s);
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS * 5);
+    expect(billReads(s)).toBe(reads);
+  });
+
+  it('[R-2, review n3] Print check bill: the check row turns Printed once its job acks', async () => {
+    vi.useFakeTimers();
+    const CJ = (state: string) => ({ job_id: 'K1', doc_kind: 'check', state, printer_name: 'Counter', last_error: null });
+    const s = setup({
+      grants: { 'take-order': { grant: 'allowed', scope: 'branch' } },
+      views: [bill(), bill({ prints: [CJ('waiting')] }), bill({ prints: [CJ('printed')] })],
+      answers: [{ ok: true, data: { bill_id: 'B7', printed: true, job_id: 'K1', printer_name: 'Counter' } }],
+    });
+    const v = await show(s);
+    v.click(v.button('Print check bill'));
+    await flush();
+    expect(v.container.querySelector('.b5-prints')?.textContent).toContain('Printing on Counter…');
+    await vi.advanceTimersByTimeAsync(PRINT_WATCH_MS);
+    await flush();
+    expect(v.container.querySelector('.b5-prints')?.textContent).toContain('Printed on Counter');
   });
 
   it('[R-2, B18] after Print to → "Moved to …" the bill is read again until the moved job is printed', async () => {

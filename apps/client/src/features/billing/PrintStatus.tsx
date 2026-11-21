@@ -88,7 +88,7 @@ function Row({ print, onPrintTo }: { print: BillPrint; onPrintTo: (() => void) |
  * The bill's print rows (the bill view's `prints[]`, cancelled jobs left out). `noPrinter` adds the muted "No bill
  * printer set up" row for a document whose print command answered `printed: false`.
  */
-export function PrintRows({ prints, noPrinter, onChanged }: { prints: readonly BillPrint[]; noPrinter?: 'check' | null; onChanged?: () => void }) {
+export function PrintRows({ prints, noPrinter, onChanged }: { prints: readonly BillPrint[]; noPrinter?: 'check' | null; onChanged?: (jobId: string) => void }) {
   const shown = prints.filter((p) => p.state !== 'cancelled');
   const [late, setLate] = useState<ReadonlySet<string>>(new Set());
   const [open, setOpen] = useState<BillPrint | null>(null);
@@ -132,7 +132,7 @@ export function PrintRows({ prints, noPrinter, onChanged }: { prints: readonly B
           onClose={() => setOpen(null)}
           onDone={() => {
             setOpen(null);
-            onChanged();
+            onChanged(open.job_id);
           }}
         />
       )}
@@ -150,7 +150,7 @@ export function PrintRows({ prints, noPrinter, onChanged }: { prints: readonly B
 }
 
 /** §6.3 Print check bill (`take-order`): a toast with the printer, or the no-printer line (§3.16). */
-export function CheckBillButton({ billRef, onPrinted }: { billRef: BillRef; onPrinted: (r: Pick<PrintCheckBillResult, 'printed' | 'printer_name'>) => void }) {
+export function CheckBillButton({ billRef, onPrinted }: { billRef: BillRef; onPrinted: (r: Pick<PrintCheckBillResult, 'printed' | 'printer_name' | 'job_id'>) => void }) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
   const [busy, setBusy] = useState(false);
@@ -160,11 +160,11 @@ export function CheckBillButton({ billRef, onPrinted }: { billRef: BillRef; onPr
     const answer = await api.printCheckBill({ bill_ref: billRef });
     setBusy(false);
     if (answer.ok) {
-      const { printed, printer_name } = answer.data;
+      const { printed, printer_name, job_id } = answer.data;
       shell.toasts.show(
         printed ? { text: fill(t('billing.check_sent'), { printer: printer_name ?? '' }), tone: 'ok' } : { text: t('billing.no_printer'), tone: 'warn' },
       );
-      onPrinted({ printed, printer_name });
+      onPrinted({ printed, printer_name, job_id });
       return;
     }
     shell.toasts.show({ text: answer.error.kind === 'api' ? t(billingErrorKey(answer.error.code, answer.error.details)) : t('tables.toast.needs_hub'), tone: 'warn' });
@@ -298,7 +298,7 @@ function PrintToSheet({ job, onDone, onClose }: { job: BillPrint; onDone: () => 
 }
 
 /** §6.22 Reprint receipt / Reprint credit note (`take-payment`) for an invoice the caller knows by id. */
-export function ReprintButton({ doc, invoiceId, onPrinted }: { doc: 'receipt' | 'credit_note'; invoiceId: string; onPrinted: () => void }) {
+export function ReprintButton({ doc, invoiceId, onPrinted }: { doc: 'receipt' | 'credit_note'; invoiceId: string; onPrinted: (jobId: string | null) => void }) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
   const [busy, setBusy] = useState(false);
@@ -308,9 +308,9 @@ export function ReprintButton({ doc, invoiceId, onPrinted }: { doc: 'receipt' | 
     const answer = await api.printBillDocument({ doc, ref_id: invoiceId });
     setBusy(false);
     if (answer.ok) {
-      const { printed, printer_name } = answer.data;
+      const { printed, printer_name, job_id } = answer.data;
       shell.toasts.show(printed ? { text: fill(t('billing.print.reprint_sent'), { printer: printer_name ?? '' }), tone: 'ok' } : { text: t('billing.no_printer'), tone: 'warn' });
-      onPrinted();
+      onPrinted(printed ? job_id : null);
       return;
     }
     shell.toasts.show({ text: answer.error.kind === 'api' ? t(billingErrorKey(answer.error.code, answer.error.details)) : t('tables.toast.needs_hub'), tone: 'warn' });
