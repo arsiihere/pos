@@ -1086,7 +1086,7 @@ describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', 
 // (frame ReopenCorrections); refusals by §9 code.
 describe('[05 §8 Reopen, §6.13; #37k] reopen a closed bill', () => {
   const g = (grant: 'allowed' | 'requires_approval') => ({ 'reopen-bill': { grant, scope: 'branch' } });
-  const closed = () => bill({ state: 'closed', blocks: [], splits: [split({ state: 'closed', balance_minor: 0, invoice: { invoice_ref: 'AC1-S000123', fiscal_number: null, fiscal_state: 'pending' } })] });
+  const closed = () => bill({ state: 'closed', blocks: [], splits: [split({ state: 'closed', balance_minor: 0, invoice: { invoice_id: 'INV_AC1-S000123', invoice_ref: 'AC1-S000123', fiscal_number: null, fiscal_state: 'pending' } })] });
   const reopened = (mode: 'full' | 'corrections') => ({ ok: true as const, data: { reopened: { mode, credits: [{ invoice_ref: 'AC1-C000017', total_minor: 599_600 }] } } });
   const chip = (v: Mounted, label: string) => [...v.container.querySelectorAll<HTMLButtonElement>('.dlg .b5-chip')].find((c) => c.textContent === label)!;
   const primary = (v: Mounted) => v.container.querySelector<HTMLButtonElement>('.dlg .acts .btn--primary')!;
@@ -1188,7 +1188,7 @@ describe('[05 §8 Reopen, §6.13; #37k] reopen a closed bill', () => {
   });
 
   it('a partly-paid bill: Reopen on its closed split, not on the open one; none without reopen-bill, none offline, none on an open bill', async () => {
-    const pp = bill({ state: 'partly_paid', splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_ref: 'AC1-S000124', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })] });
+    const pp = bill({ state: 'partly_paid', splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_id: 'INV_AC1-S000124', invoice_ref: 'AC1-S000124', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })] });
     let v = await show(setup({ grants: g('allowed'), views: [pp] }));
     expect(v.buttons().some((b) => b.textContent === 'Reopen')).toBe(false);
     v.click(v.button('Split 1'));
