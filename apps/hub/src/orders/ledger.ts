@@ -20,7 +20,8 @@ export type LedgerLine = Pick<
   | 'refund_minor'
 >;
 type Money = Pick<LineView, 'comp_minor' | 'comp_voided_minor' | 'removed_minor' | 'refund_minor'>;
-export type LedgerAction = 'remove' | 'void' | 'comp';
+// ⚠️ Changed by 05 (row Q-4): 'uncomp' = 05's comp removal (planCompRemoval), the inverse of 'comp'.
+export type LedgerAction = 'remove' | 'void' | 'comp' | 'uncomp';
 /**
  * A part / child line a command cascades to. ⚠️ 02b v1.0.13 (owner 2026-11-12, 04 Q-19): `option_quantity` is the
  * line's `ItemAdded.option_quantity` (`order_lines.option_quantity`): set on an option child placed in its parent's
@@ -161,8 +162,9 @@ export function cascadeUnits(
   if (parent.line_kind !== 'item' && parent.line_kind !== 'deal') throw new Error(`${fn}: a ${parent.line_kind} line has no children`);
   const laterChild = parent.line_kind === 'item' && child.option_quantity === null;
   if (!laterChild && child.units % parent.units !== 0) throw new Error(`${fn}: child units are not a multiple of the parent's`);
-  const cap = action === 'comp' ? liveUnits(child) - child.comped_units : liveUnits(child);
-  const parentLeft = action === 'comp' ? liveUnits(parent) - parent.comped_units : liveUnits(parent);
+  // ⚠️ Changed by 05 (row Q-4): an uncomp takes comped units only — the parent's comped units, capped at the child's.
+  const cap = action === 'comp' ? liveUnits(child) - child.comped_units : action === 'uncomp' ? child.comped_units : liveUnits(child);
+  const parentLeft = action === 'comp' ? liveUnits(parent) - parent.comped_units : action === 'uncomp' ? parent.comped_units : liveUnits(parent);
   units(fn, n, parentLeft);
   if (n === parentLeft) return cap;
   if (laterChild) return 0;
@@ -248,6 +250,47 @@ export function planComp(
     return { order_item_id: line.order_item_id, units: u, after: c.after, payload };
   });
   return { lines, value_minor: total };
+}
+
+/**
+ * ⚠️ Changed by 05 (row Q-4), 02b v1.0.16 §3.9: un-comp n comped units, the inverse of compUnits. Each unit gives back
+ * its comped share (lineShares' take-back: a comp holding the remainder share returns it first), so comp_minor is what
+ * the comps took for those units.
+ */
+export function uncompUnits(line: LedgerLine, n: number): { after: LedgerLine; comp_minor: number } {
+  units('uncompUnits', n, line.comped_units);
+  const back = lineShares(line).comped_take_back_minor(n);
+  const after = pick(line);
+  after.comped_units -= n;
+  after.comp_minor -= back;
+  return { after, comp_minor: back };
+}
+
+/** One line's `LineCompRemoved` ledger fields (05 adds reason, note and approval fields). */
+export interface CompRemovalLine {
+  order_item_id: string;
+  units: number;
+  comp_minor: number;
+}
+
+/**
+ * ⚠️ Changed by 05 (row Q-4), 02b v1.0.16 §3.9 export: remove the comp from n comped units of `line` and, as the comp
+ * did, its option children / deal parts (01c §3.4.8 cascade, `children` as for planComp; none by default). `units` is
+ * the named line's; `comp_minor` the sum over every line touched (05's result); each planned line carries its own
+ * units and comp_minor for its `LineCompRemoved`. A line the cascade gives 0 units is left out. Pure.
+ */
+export function planCompRemoval(
+  line: LedgerParent,
+  n: number,
+  children: readonly LedgerRef[] = [],
+): { units: number; comp_minor: number; lines: PlannedLine<CompRemovalLine>[] } {
+  let total = 0;
+  const lines = targets('uncomp', line, children, n).map(({ line: l, units: u }) => {
+    const r = uncompUnits(l, u);
+    total += r.comp_minor;
+    return { order_item_id: l.order_item_id, units: u, after: r.after, payload: { order_item_id: l.order_item_id, units: u, comp_minor: r.comp_minor } };
+  });
+  return { units: n, comp_minor: total, lines };
 }
 
 /**

@@ -1,8 +1,9 @@
 import { fileURLToPath } from 'node:url';
 import { initialEngineState, type EngineState } from '@pos/engine';
-import type { BranchConfig, EventDraft } from '@pos/events';
+import { defineEvent, latestVersion, type BranchConfig, type EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { runMigrations } from '../../src/db/migrate';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
 import { createAuthGeneration } from '../../src/engine-host/auth-generation';
@@ -16,6 +17,21 @@ import { registerTablesProjection } from '../../src/tables/index';
 import { tableLocksTick } from '../../src/tables/tick';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { freshDb } from '../helpers/db';
+
+// 05 §6.29 `BillClosedEmpty` is 05's own event (its schema file lands with 05's events, not in P0.11): until it is
+// registered, this file registers the §6.29 payload so the writer can append it. 05's stream `bill` lands with P0.3b
+// (F-1); the 02a fold reads only the payload, so these tests append it on stream `table`.
+try {
+  latestVersion('BillClosedEmpty');
+} catch {
+  defineEvent({
+    eventType: 'BillClosedEmpty',
+    version: 1,
+    payload: z
+      .object({ bill_id: z.string(), seating_id: z.string().nullable(), credit_invoice_ids: z.array(z.string()), alert_id: z.string().optional() })
+      .strict(),
+  });
+}
 
 // 02a §3.3 / T7 / T19: the lock part of the one projection `tables` — table_locks folds and the activity refresh,
 // over the real 0012 tables, fed real events through the hub writer.
@@ -375,6 +391,13 @@ describe('02a tables projection — lock part', () => {
     expect(lock(h.db, 'T1')).toMatchObject({ last_activity_at: holderAt });
     h.append(ev('table', 'T1', 'BillClosed', { seating_id: 'S1' }));
     expect(lock(h.db, 'T1')).toMatchObject({ last_activity_at: holderAt });
+    // ⚠️ 02a v1.1.8 (05 row T-3): SeatingReopened is a §6.19 table event → activity by the lock's (staff, device);
+    // 05's BillClosedEmpty is not (as BillClosed)
+    h.append(ev('table', 'T1', 'SeatingReopened', { seating_id: 'S1', bill_id: 'B1' }));
+    const reopenAt = h.now();
+    expect(lock(h.db, 'T1')).toMatchObject({ last_activity_at: reopenAt });
+    h.append(ev('table', 'B1', 'BillClosedEmpty', { bill_id: 'B1', seating_id: 'S1', credit_invoice_ids: [] }));
+    expect(lock(h.db, 'T1')).toMatchObject({ last_activity_at: reopenAt });
   });
 
   it('[02a #9 tick] after reset + replay a refreshed lock is not released early by the tick', async () => {

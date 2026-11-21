@@ -251,6 +251,12 @@ export function createStaffApi(o: StaffApiOptions) {
       if (!answer.ok) return answer;
       return { ok: true, data: { alerts: answer.data.data.alerts, next_cursor: answer.data.meta.next_cursor } };
     },
+    /** F §6.3: a cursor-paged query (05 §6.26 Z list): the reply's `data` with `meta.next_cursor`. */
+    async page<T>(path: string): Promise<HubResult<{ data: T; next_cursor: string | null }>> {
+      const answer = await send('GET', path, undefined, true, PAGE_REPLY);
+      if (!answer.ok) return answer;
+      return { ok: true, data: { data: answer.data.data as T, next_cursor: answer.data.meta.next_cursor } };
+    },
     /** 04 v1.0.4 §6.5 (VU2): a page of the audit log, with the cursor of the next page. */
     async auditLog(q: AuditQuery, cursor: string | null, limit?: number): Promise<HubResult<AuditPage>> {
       const answer = await send('GET', auditLogPath(q, cursor, limit), undefined, true, AuditLogResponse);
@@ -282,5 +288,16 @@ export function createStaffApi(o: StaffApiOptions) {
     sendTestAlert: (target: SendTestAlertPayload['target']) => command<{ alert_id: string }>('SendTestAlert', { target }),
   };
 }
+
+/** A paged reply (F §6.3): an object `data` and `meta.next_cursor` string | null; its `data` is the caller's to read. */
+const PAGE_REPLY = {
+  safeParse(v: unknown): { success: true; data: { data: unknown; meta: { next_cursor: string | null } } } | { success: false } {
+    const o = typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
+    const meta = typeof o?.['meta'] === 'object' && o['meta'] !== null ? (o['meta'] as Record<string, unknown>) : null;
+    const next = meta?.['next_cursor'];
+    if (o === null || typeof o['data'] !== 'object' || o['data'] === null || !(next === null || typeof next === 'string')) return { success: false };
+    return { success: true, data: { data: o['data'], meta: { next_cursor: next } } };
+  },
+};
 
 export type StaffApi = ReturnType<typeof createStaffApi>;

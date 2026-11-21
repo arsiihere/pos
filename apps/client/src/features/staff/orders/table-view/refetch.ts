@@ -9,7 +9,11 @@ import type { LiveBus } from '../../shell/live';
 
 export const REFETCH_DEBOUNCE_MS = 250;
 
-/** 02b §6.19 order frames the views show, and the Q-6 stage frames (H1). */
+/**
+ * 02b §6.19 order frames the views show, and the Q-6 stage frames (H1). ⚠️ 02b v1.0.16 (05 rows Q-2, Q-4, G-26):
+ * OrdersUnbilled and LineCompRemoved join (the order is editable again; a comp comes off a line). 05's OrdersCarriedOver
+ * does not: it changes no row a view shows.
+ */
 export const ORDER_FRAMES: ReadonlySet<string> = new Set([
   'OrderPlaced',
   'ItemAdded',
@@ -24,8 +28,10 @@ export const ORDER_FRAMES: ReadonlySet<string> = new Set([
   'OrderFoodServed',
   'OrderFoodCleared',
   'OrdersBilled',
+  'OrdersUnbilled',
   'LineWeightSet',
   'LineComped',
+  'LineCompRemoved',
   'OrderContactSet',
   'ItemStarted',
   'ItemDone',
@@ -33,8 +39,11 @@ export const ORDER_FRAMES: ReadonlySet<string> = new Set([
   'FireDispatched',
 ]);
 
-/** 02a frames that move orders between seatings (the seating's order list changes). */
-export const SEATING_FRAMES: ReadonlySet<string> = new Set(['TableMoved', 'TablesMerged', 'SeatingSplit']);
+/**
+ * 02a frames that move orders between seatings (the seating's order list changes). ⚠️ 02a v1.1.8 (05 row T-3 (6),
+ * H2-7): and SeatingReopened / BillClosed (the seating's bill closes or reopens).
+ */
+export const SEATING_FRAMES: ReadonlySet<string> = new Set(['TableMoved', 'TablesMerged', 'SeatingSplit', 'SeatingReopened', 'BillClosed']);
 
 export const idsOf = (v: unknown): string[] => (typeof v === 'string' ? [v] : Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 

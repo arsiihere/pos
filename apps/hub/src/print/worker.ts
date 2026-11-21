@@ -1,4 +1,4 @@
-import type { Doc } from '@pos/domain';
+import type { Doc, DocBlock } from '@pos/domain';
 import type { EngineState } from '@pos/engine';
 import type Database from 'better-sqlite3';
 import type { StateHolder } from '../engine-host/state-holder.js';
@@ -23,6 +23,10 @@ import { createUsbTransport } from './transport/usb.js';
 // - A head row with sent_at set and not in this process's in-flight set (a process that died before the ack) is resent with
 //   REPRINT; c16's boot step does the same reset at boot.
 // Idle loop: 1 statement. Status reads, suspects and printer_problem are c15's, through the hooks below.
+// ⚠️ 03c v1.0.11 §3.6, §3.7 (05 row P-5): document fillers. A block `{ fill: block_kind, ref, last4 }` is replaced at
+// send by the filler registered for its kind, `fn(db, ref)`; the filled text is encoded and sent only, never written
+// back to `print_jobs.payload` (which keeps the block) and never logged. An unknown kind or a missing row (the filler
+// returns null or '') prints `last4`; a filler that throws prints `last4` and is logged with `job_id` only.
 
 export const PRINT_LOOP_MS = 1_000;
 export const RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const;
@@ -104,6 +108,49 @@ interface PrinterState {
 }
 
 const STALE_KINDS = new Set(['cancel', 'first', 'coming_up']);
+
+/**
+ * 03c §3.7 (05 row P-5): `fn(db, ref)` → the text that replaces the block, or null when there is no row (→ `last4`;
+ * an empty string prints `last4` too). Read-only: a single SELECT, no write. It receives the worker's own connection,
+ * called at send outside any writer transaction (the worker never runs inside one), so it sees committed rows only.
+ */
+export type DocumentFiller = (db: Database.Database, ref: string) => string | null;
+
+// One filler per block kind (a single slot per kind, as §3.7's `registerDocumentFiller(block_kind, fn)` says).
+const fillers = new Map<string, DocumentFiller>();
+
+/** Startup only: `fn` fills the blocks `{ fill: block_kind, … }`; registering the same kind again replaces it. */
+export function registerDocumentFiller(block_kind: string, fn: DocumentFiller): void {
+  fillers.set(block_kind, fn);
+}
+
+/** Tests only: back to "no filler registered" (every fill block prints its `last4`). */
+export function resetDocumentFillers(): void {
+  fillers.clear();
+}
+
+type FillBlock = Extract<DocBlock, { fill: string }>;
+
+/**
+ * §3.7 (row P-5): a copy of `doc` with every fill block replaced by a plain text line; `doc` itself (the stored
+ * payload's Doc) is not changed. 0 statements of its own; each fill block costs what its filler reads.
+ */
+function fillDoc(db: Database.Database, doc: Doc, onError: () => void): Doc {
+  const isFill = (b: DocBlock): b is FillBlock => typeof b === 'object' && b !== null && 'fill' in b;
+  if (!doc.blocks.some(isFill)) return doc;
+  const filled = (b: FillBlock): string => {
+    const fn = fillers.get(b.fill);
+    if (fn === undefined) return b.last4;
+    try {
+      const text = fn(db, b.ref);
+      return typeof text === 'string' && text !== '' ? text : b.last4;
+    } catch {
+      onError();
+      return b.last4;
+    }
+  };
+  return { ...doc, blocks: doc.blocks.map((b) => (isFill(b) ? { text: filled(b) } : b)) };
+}
 
 /** The job as renderJob takes it; `document` jobs carry their Doc (§3.9 payload `{ doc, kind_label? }`, c18). */
 function docOf(row: HeadRow, render: (job: RenderJob) => Doc | null): Doc | null {
@@ -280,7 +327,8 @@ export function createPrintWorker(o: PrintWorkerOptions): PrintWorker {
     try {
       const ctx = { db: o.db, state: o.state.get() as EngineState, now: at, utc_offset_ms: hubTime(o.clock).utc_offset_ms, width_cols } as const;
       const doc = docOf(job, (j) => renderJob(ctx, j));
-      bytes = doc === null ? null : encodeDoc(doc, width_cols);
+      // row P-5: filled here, encoded, never stored; a filler error is logged with job_id only (no message: it may hold the text)
+      bytes = doc === null ? null : encodeDoc(fillDoc(o.db, doc, () => logError({ job_id: row.job_id }, 'print.fill_failed')), width_cols);
     } catch (error) {
       // a corrupt payload or Doc must not wedge the printer's FIFO; the row keeps the reason for the print-queue page
       logError({ job_id: row.job_id, err: (error as Error).message }, 'print.render_failed');

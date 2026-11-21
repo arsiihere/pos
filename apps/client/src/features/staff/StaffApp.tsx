@@ -9,6 +9,12 @@ import { createAnswerSender } from '../alerts/answer';
 import { AnswerSheet, NoticeSheet, type Toast } from '../alerts/AnswerSheet';
 import { Banners } from '../alerts/Banner';
 import { BindingHeader } from '../alerts/BindingHeader';
+import { billQuery } from '../billing/api';
+import { BillScreen, billRefOfSearch } from '../billing/BillScreen';
+import { OpenBills } from '../billing/OpenBills';
+import { ShiftScreen } from '../billing/ShiftScreen';
+import { ReportsScreen } from '../billing/ReportsScreen';
+import { DayCloseScreen } from '../billing/DayCloseScreen';
 import { Inbox } from '../alerts/Inbox';
 import { lockText, timeText } from '../alerts/labels';
 import { Receipts } from '../alerts/Receipts';
@@ -494,6 +500,14 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const showTest = !phone && allowed.has('manage-devices');
   // 04 §8 (VU2, R5): the audit log with view-audit-log granted outright (the hub refuses anything else), laptop and tablet
   const showAudit = !phone && allowed.has('view-audit-log');
+  // 05 §8 Cashier screen (task 34, R5): the open-bills list with take-payment, kiosk and tablet
+  const showBills = !phone && allowed.has('take-payment');
+  // 05 §8 Shift (task 39, R5): My shift with manage-own-shift granted outright (the hub's registry grant), every device
+  const showShift = allowed.has('manage-own-shift');
+  // 05 §8 Reports (task 42, R5): X and the Z list with view-reports, kiosk and tablet (frames at 1920 and 1280)
+  const showReports = !phone && allowed.has('view-reports');
+  // 05 §8 Day close (task 41, R5): close-business-day, kiosk and tablet (frames at 1920 and 1280)
+  const showDayClose = !phone && allowed.has('close-business-day');
   // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
   const hasPoint = useSyncExternalStore(pass.store.subscribe, () => pass.store.snapshot().view !== null);
   // AD-K12 / W-3: leaving the landing route ends the landing too (a late catch-up never moves a person mid-task)
@@ -577,6 +591,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const returnTarget = async (rec: ReturnRecord): Promise<string | null> => {
     const path = routePath(rec.from);
     if (path === '/audit') return showAudit ? rec.from : null;
+    if (path === '/bills' || path === '/bill') return showBills ? rec.from : null;
+    if (path === '/shift') return showShift ? rec.from : null;
+    if (path === '/reports') return showReports ? rec.from : null;
+    if (path === '/day-close') return showDayClose ? rec.from : null;
     if (path === '/requests') return showRequests ? rec.from : null;
     if (path === '/test-alert') return showTest ? rec.from : null;
     if (/^\/receipts\/[^/]+$/.test(path)) return showTest ? rec.from : null;
@@ -668,6 +686,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // --------------------------------------------------------------------------------------------- routes
   // 01d v1.3 §3.13.5 (m11): the raw checks below take no `focus`; compare the path, so a stray query never unmatches them
   const path = routePath(route);
+  const shiftQueryId = path === '/shift' ? new URLSearchParams(route.split('?')[1] ?? '').get('shift_id') || null : null;
   const receiptsMatch = /^\/receipts\/([^/]+)$/.exec(path);
   const staffRoute = matchStaffRoute(route, device.type);
   let page: ReactNode;
@@ -691,11 +710,28 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       />
     );
   } else if (staffRoute.name === 'me') {
-    page = <MeTab name={me.name} onSignOut={() => signOut(true)} />;
+    page = <MeTab name={me.name} onSignOut={() => signOut(true)} {...(showShift ? { onShift: () => navigate('/shift') } : {})} />;
   } else if (isSlotRoute(staffRoute)) {
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
   } else if (path === '/audit' && showAudit) {
     page = <AuditLog />;
+  } else if (path === '/shift' && (showShift || (shiftQueryId !== null && allowed.has('close-shift-for-others')))) {
+    // task 41: #/shift?shift_id=… opens that shift (day close's Close this shift, close-shift-for-others)
+    page = <ShiftScreen key={route} {...(shiftQueryId === null ? {} : { shiftId: shiftQueryId })} />;
+  } else if (path === '/day-close' && showDayClose) {
+    page = (
+      <DayCloseScreen
+        onNavigate={navigate}
+        exits={{ closeShift: allowed.has('close-shift-for-others'), ownShift: showShift, bill: showBills, requests: showRequests, reports: showReports }}
+      />
+    );
+  } else if (path === '/reports' && showReports) {
+    page = <ReportsScreen />;
+  } else if (path === '/bills' && showBills) {
+    page = <OpenBills onOpen={(ref) => navigate(`/bill?${billQuery(ref)}`)} />;
+  } else if (path === '/bill' && showBills && billRefOfSearch(route.split('?')[1] ?? '') !== null) {
+    // 05 §8 Bill screen (task 35): #/bill?bill_id=…|seating_id=…|order_id=…
+    page = <BillScreen key={route} billRef={billRefOfSearch(route.split('?')[1] ?? '')!} onBack={() => navigate('/bills')} />;
   } else if (path === '/requests' && showRequests) {
     page = <RequestsToAnswer rows={views} nowMs={nowMs} utcOffsetMs={offset} onOpen={tap} />;
   } else if (path === '/test-alert' && showTest) {
@@ -783,6 +819,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         testAlert={showTest}
         pass={me !== null && hasPoint}
         audit={showAudit}
+        bills={showBills}
+        shift={showShift}
+        reports={showReports}
+        dayClose={showDayClose}
         title={me === null ? meta.branchName : phoneTitle}
         phoneSub={
           me === null ? (

@@ -284,3 +284,5 @@ These keys in `apps/hub/src/lib/strings.ts` have English only; the pages show th
 - `lockouts.unlocked` — {name} unlocked.
 - `lockouts.unlocked_body` — They can try their PIN again now.
 - `lockouts.already_unlocked` — Already unlocked.
+
+- `admin.nav_fiscal` — Fiscal (hub admin `/admin/fiscal/` side-nav item and home tile, 05 row H-2). Urdu draft in `apps/hub/src/lib/strings.ts`: مالیاتی. Needs native review.

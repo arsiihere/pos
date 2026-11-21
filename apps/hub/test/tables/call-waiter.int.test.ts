@@ -1,7 +1,7 @@
 import type { BranchConfig, DirectoryInput, EventDraft } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { kindOf } from '../../src/alerts/kinds';
-import { startTickLoop, TICK_MS } from '../../src/alerts/tick';
+import { startTickLoop, TICK_MS, unregisterTick } from '../../src/alerts/tick';
 import { defineCommand } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
 import { endSession, type SessionRow } from '../../src/auth/session-store';
@@ -74,6 +74,9 @@ const CONFIG = {
 
 beforeEach(async () => {
   hub = await createTestHub();
+  // 05 §3.15 (task 31): registerBilling adds the fiscal_outbox_stuck tick to every test hub; its stuck limit needs the billing
+  // config (currency, tax classes) that this file's partial CONFIG lacks, and #35 runs the tick loop with a log.error spy
+  unregisterTick('fiscal_outbox_stuck');
   await seedDirectory(hub, await directory());
   swapBranchConfig({ config: CONFIG, snapshotHash: 'h'.repeat(64), configVersion: 1, snapshotSchemaVersion: 4, appliedAt: 0 });
   const registry = commandRegistry(hub.app);
@@ -584,8 +587,10 @@ describe('[02a #63] caller name on the call-waiter display (02a v1.1.6 §6.14, Q
     counter.reset();
     const r = await call(ali, 'CallWaiter', { table_id: 'T1', seating_id: 'S1', chip: 'water' });
     // statements unchanged by the name (in-memory directory): the same call measured before Q-12 cost 41; +1 since the
-    // 04 merge (Z3): the `audit` projection's checkpoint UPDATE (00 M48, one per registered projection per append; 04 §6.6)
-    expect(counter.count).toBe(42);
+    // 04 merge (Z3): the `audit` projection's checkpoint UPDATE (00 M48, one per registered projection per append; 04 §6.6);
+    // +1 since 05 task 7: the `billing` projection's checkpoint UPDATE (05 §5, G-20); +1 since 05 task 8: the `shifts` one;
+    // +1 since 05 task 11: the `billing_prints` one (the live-only print folds, §6.30)
+    expect(counter.count).toBe(45);
     expect(r.status).toBe(200);
     const alertId = r.result?.alert_id as string;
     const display = { kind_label_key: 'alert.call_waiter.lock', table_code: 'Table 1', requester_name: 'Ali' };

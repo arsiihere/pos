@@ -19,7 +19,9 @@ import { zoneAlertDrafts } from '../zone-alerts.js';
 // 02b v1.0.3 §6.1 SubmitOrder (queueable), §3.2 script, §3.1 identity, §3.3 follow_up, §3.11 token, §3.14 scope.
 // Statements (§3.2): seatingOf 1 + requireLock 1 (dine-in) + ids 1 + follow_up 1 (dine-in) + token 1 (takeaway) +
 // item_availability 1 + zone counts 1 (only with a zone candidate, step 5) + 01d's alert bound (zone alert drafts, only
-// with a zone-served line). Engine checks run in memory on ctx.state.
+// with a zone-served line). Engine checks run in memory on ctx.state. ⚠️ Changed by 05 (row Q-6): a takeaway addition
+// runs the adds_to_order_id check (1; it reads the target's type, date, cancel state and token only) in place of the
+// token statement; its root (bill_key) is never read here: the orders projection takes it from the target's row.
 
 export const Option = z.object({ option_id: z.string().min(1), quantity: z.number().int().min(1), order_item_id: z.string().min(1).optional() }).strict();
 // §3.1: phone 10–13 digits, stored digits only (spaces, dashes and a leading + are dropped).
@@ -60,6 +62,8 @@ export const PayloadObject = z
       .strict()
       .optional(),
     order_note: z.string().max(200).optional(),
+    // ⚠️ Changed by 05 (row Q-6), 02b v1.0.16 §6.1: takeaway only (§3.2 step 2).
+    adds_to_order_id: z.string().min(1).optional(),
     lines: z.array(Line).min(1).max(40),
   })
   .strict();
@@ -68,6 +72,9 @@ type Payload = z.infer<typeof PayloadObject>;
 
 function checkShape(p: Payload, rc: z.RefinementCtx): void {
   checkOrderFields(p, rc);
+  if (p.order_type !== 'takeaway' && p.adds_to_order_id !== undefined) {
+    rc.addIssue({ code: 'custom', path: ['adds_to_order_id'], message: 'only on takeaway' });
+  }
   // §3.2 step 3 (O3, C6): an id repeated inside the payload → 400 at its path, before any read (step order).
   const seen = new Set<string>([p.order_id]);
   for (const { id, path } of payloadIds(p.lines)) {
@@ -132,9 +139,16 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
     const ref = { table_id: payload.table_id!, seating_id: payload.seating_id! };
     const seating = seatingOf(db, ref.table_id);
     if (seating === null || seating.seating_id !== ref.seating_id) throw new DomainError('TABLE_SEATING_CHANGED', ref);
-    lockDrafts = requireLock(ctx.tx, ref, ctx);
+    // ⚠️ Changed by 05 (row T-3 (3), H2-13), 02a v1.1.9 §4.2: a live submit passes a NEEDS_CLEANING seating (S-9 (b);
+    // OrderPlaced re-occupies it); requireLock applies the live-only rule, so a queued replay keeps TABLE_NEEDS_CLEANING.
+    lockDrafts = requireLock(ctx.tx, ref, ctx, { allowBillClosed: true });
     primary_table_id = seating.primary_table_id;
   }
+
+  // ⚠️ Changed by 05 (row Q-6): a takeaway addition names an order of this business date, takeaway, not cancelled; the
+  // same statement reads its token, which the addition keeps (step 9). No lock (takeaway has none). Owner ruling R-34
+  // (02b v1.0.17 §3.1): the addition carries only its own payload's customer fields; nothing is copied from the root.
+  const addsTo = payload.adds_to_order_id === undefined ? null : additionTarget(db, payload.adds_to_order_id, business_date);
 
   // Step 3: ids already used (orders ∪ order_lines, or live in EngineState).
   requireIdsFree(ctx, state, payload);
@@ -160,8 +174,9 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
   if (reserved.refused.length > 0) throw soldOut(state, config, proposed.lines, reserved, dayStart, configStockUnits);
   const plan = planOrder(state, proposed, now, reserved.from_stock);
 
-  // Step 9: token (O12), takeaway only.
-  const token = payload.order_type === 'takeaway' ? nextToken(ctx, business_date) : null;
+  // Step 9: token (O12), takeaway only. ⚠️ Changed by 05 (row Q-6): nextToken only for a root order; an addition keeps
+  // the token of the order it adds to (§3.11).
+  const token = payload.order_type !== 'takeaway' ? null : addsTo !== null ? addsTo.token : nextToken(ctx, business_date);
 
   // §3.14 scope (v1.0.5 AD-36): dine-in is 02a's rule, decided by requireLock at step 2 (holder, or take-order-anywhere
   // covering the floor); no extra take-order `my_floors` check. Takeaway / parking: none.
@@ -195,6 +210,8 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
     ...(token === null ? {} : { token }),
     ...(payload.parking === undefined ? {} : { car_number: payload.parking.car_number, car_type: payload.parking.car_type }),
     ...(payload.order_note === undefined ? {} : { order_note: payload.order_note }),
+    // ⚠️ Changed by 05 (row S-1), 03a v1.2.6 §4.2: the order a takeaway addition adds to.
+    ...(addsTo === null ? {} : { adds_to_order_id: payload.adds_to_order_id }),
     sent_after_reconnect: ctx.queuedAt !== null,
     has_phone: phone !== null,
     has_food: itemAdded.some(isFoodLine),
@@ -352,6 +369,19 @@ export function seatingHasServedFood(db: Database.Database, seating_id: string):
     )
     .get(seating_id) as { served: number };
   return row.served === 1;
+}
+
+// ⚠️ Changed by 05 (row Q-6), 02b v1.0.16 §3.2 step 2: 1 statement (in place of the token statement, step 9). Unknown →
+// 404 ORDER_NOT_FOUND; another type, another business date or a cancelled order → 422 CONFIG_REFERENCE_INVALID.
+function additionTarget(db: Database.Database, order_id: string, business_date: string): { token: number | null } {
+  const row = db.prepare('SELECT order_type, business_date, cancelled_at, token FROM orders WHERE order_id = ?').get(order_id) as
+    | { order_type: string; business_date: string; cancelled_at: number | null; token: number | null }
+    | undefined;
+  if (row === undefined) throw new DomainError('ORDER_NOT_FOUND', { order_id });
+  if (row.order_type !== 'takeaway' || row.business_date !== business_date || row.cancelled_at !== null) {
+    throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'adds_to_order_id' });
+  }
+  return { token: row.token };
 }
 
 // §3.2 step 9 (O12), §3.11: 1 + MAX(token) over the orders of the business date (a reopened date continues).

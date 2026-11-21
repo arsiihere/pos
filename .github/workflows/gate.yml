@@ -1,5 +1,7 @@
 # The normal gate (CLAUDE.md "Test environment"), run by GitHub on every PR into main or a module-* branch
 # and on every push to them. Public repo: standard runners are free.
+# Owner ruling 2026-11-20: the same checks, split into parallel jobs (one runner each) to cut the wait.
+# The required check stays named `gate`: the last job, green only when every other job succeeded.
 name: gate
 
 on:
@@ -13,10 +15,55 @@ concurrency:
   group: gate-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  TMPDIR: /dev/shm
+  TZ: Asia/Karachi              # same as the owner's machine and the restaurant; some tests compare local offsets
+  TURBO_TELEMETRY_DISABLED: '1'
+
 jobs:
-  gate:
+  checks:
+    name: typecheck + lint
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6          # version from package.json "packageManager"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Every workspace test project is covered by a test job below
+        run: |
+          found=$(for d in apps/* packages/*; do [ -f "$d/package.json" ] && node -p "require('./$d/package.json').name"; done | sort | tr '\n' ' ')
+          want="@pos/client @pos/cloud @pos/domain @pos/engine @pos/events @pos/hub "
+          [ "$found" = "$want" ] || { echo "workspace projects changed: '$found' vs '$want' — update gate.yml"; exit 1; }
+      - run: pnpm -w typecheck
+      - run: pnpm -w lint
+
+  test-hub:
+    name: test hub (${{ matrix.shard }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/2', '2/2']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @pos/client build
+      - run: pnpm exec vitest run --project @pos/hub --shard=${{ matrix.shard }}
+
+  test-cloud:
+    name: test cloud
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -30,12 +77,9 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 30
     env:
       DATABASE_URL: postgres://pos:pos@127.0.0.1:5433/pos_test
-      TMPDIR: /dev/shm
-      TZ: Asia/Karachi              # same as the owner's machine and the restaurant; some tests compare local offsets
-      TURBO_TELEMETRY_DISABLED: '1'
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6          # version from package.json "packageManager"
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
@@ -48,6 +92,34 @@ jobs:
           -c "ALTER SYSTEM SET synchronous_commit = off"
           -c "ALTER SYSTEM SET full_page_writes = off"
           -c "SELECT pg_reload_conf()"
-      - run: pnpm -w typecheck
-      - run: pnpm -w lint
-      - run: pnpm -w test
+      - run: pnpm --filter @pos/client build
+      - run: pnpm exec vitest run --project @pos/cloud
+
+  test-client-packages:
+    name: test client + packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @pos/client build
+      - run: pnpm exec vitest run --project @pos/client --project @pos/domain --project @pos/engine --project @pos/events
+
+  # The required status check. `always()` + the result test: a skipped or cancelled job is never read as green.
+  gate:
+    name: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    if: always()
+    needs: [checks, test-hub, test-cloud, test-client-packages]
+    steps:
+      - name: Every gate job succeeded
+        run: |
+          echo '${{ toJSON(needs) }}'
+          [ "${{ needs.checks.result }}" = success ] && [ "${{ needs.test-hub.result }}" = success ] \
+            && [ "${{ needs.test-cloud.result }}" = success ] && [ "${{ needs.test-client-packages.result }}" = success ]

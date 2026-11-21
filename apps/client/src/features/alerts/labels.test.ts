@@ -3,6 +3,7 @@ import { setLanguage } from '../../i18n';
 import { en } from '../../i18n/en';
 import { ur } from '../../i18n/ur';
 import todo from '../../../../../docs/design/handoff/01d/urdu-todo.md?raw';
+import { TODO_05 } from '../billing/urdu-todo-05';
 import {
   ALERT_KINDS_01D,
   alertText,
@@ -51,7 +52,8 @@ describe('[01d §3.12] labels', () => {
     }
     const ours = Object.keys(en).filter((k) => /^(alert|alerts|requests|answer|notice|bind|lock|test|receipts)\./.test(k));
     expect(ours.length).toBeGreaterThan(60);
-    for (const key of ours) expect(key in ur || todo.includes(`\`${key}\``), key).toBe(true);
+    // 05 task 43a: the 05 kinds' labels (alert.discount.*, …) are listed in the 05 hand-off's Urdu to-do
+    for (const key of ours) expect(key in ur || todo.includes(`\`${key}\``) || TODO_05.has(key), key).toBe(true);
     for (const key of ['errors.ALERT_NOT_FOUND', 'errors.REQUEST_NOT_PENDING', 'errors.REQUEST_PIN_REQUIRED']) {
       expect(key in en, key).toBe(true);
       expect(key in ur || todo.includes(`\`${key}\``), key).toBe(true);

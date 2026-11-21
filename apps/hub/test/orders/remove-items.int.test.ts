@@ -9,8 +9,11 @@ import { removeItemsCommand } from '../../src/orders/commands/remove-items';
 import { orderLines, seatingTotals } from '../../src/orders/exports';
 import { registerOrdersProjection } from '../../src/orders/index';
 import { lineShares, planComp, planVoid } from '../../src/orders/ledger';
-import { lineChangeDrafts } from '../../src/orders/line-change';
-import { registerLineGuard, resetLineGuard } from '../../src/orders/line-guard';
+import { lineChangeDrafts, registerOrderCancelledHook, resetOrderCancelledHooks } from '../../src/orders/line-change';
+import type { OrderCancelledHook } from '../../src/orders/contracts';
+import { checkAlertIds } from '../../src/alerts/commands/request-row';
+import type { AlertRecord } from '../../src/alerts/kinds';
+import { registerLineGuard, resetLineGuard, type LineGuard, type LineGuardEntry, type LineGuardResult } from '../../src/orders/line-guard';
 import { zoneAlertDrafts } from '../../src/orders/zone-alerts';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import { swapBranchConfig, branchConfig } from '../../src/sync/branch-config-holder';
@@ -59,6 +62,8 @@ async function directory(): Promise<DirectoryInput> {
       role('R_OWN', [grant('take-order', 'own_tables')]),
       // AD-36: take-order my_floors plus take-order-anywhere at branch.
       role('R_FLOOR_ANYWHERE', [grant('take-order', 'my_floors'), grant('take-order-anywhere')]),
+      // 05 R-39: take-order-anywhere at my_floors (the scope half of requireLock's authorisation).
+      role('R_ANYWHERE_FLOORS', [grant('take-order'), grant('take-order-anywhere', 'my_floors')]),
     ],
     staff: [
       ...base.staff,
@@ -70,6 +75,8 @@ async function directory(): Promise<DirectoryInput> {
       person('S_NOOR', 'R_FLOOR', [FX.floor]),
       person('S_NOFLOOR', 'R_FLOOR'),
       person('S_FARAH', 'R_FLOOR_ANYWHERE', ['F9']),
+      person('S_FAWAD', 'R_ANYWHERE_FLOORS', ['F9']),
+      person('S_FIZA', 'R_ANYWHERE_FLOORS', [FX.floor]),
     ],
   };
 }
@@ -795,7 +802,8 @@ describe('RemoveItems (02b §6.2, §3.5)', () => {
       { order_item_id: 'K1r', units: 1 },
       { order_item_id: 'K1n', units: 1 },
     ]);
-    expect(lastStatements).toBe(2);
+    // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(lastStatements).toBe(3);
     expect(lineView(order_id, 'K1n')).toMatchObject({ removed_units: 1, removed_minor: 10_000, live_units: 0 });
 
     // the multiple case: 3 later raita under karahi ×3 → a partial remove still leaves the child alone
@@ -846,14 +854,112 @@ describe('RemoveItems (02b §6.2, §3.5)', () => {
 
 // ------------------------------------------------------------------------------------------- #43 (04 Q-3)
 
+// 05 v1.0.6 row T-3 (4) (H2-14), 02a v1.1.9 §4.2; 02a #64 (order half); 05 #37b, #37c (02b halves): RemoveItems skips
+// requireLock when readOrder's seating_state is CLOSED (a corrections-only reopen after CleanTable); otherwise unchanged.
+describe('[05 row T-3 (4)] [R-39] RemoveItems on a closed seating', () => {
+  const tableEv = (event_type: string, payload: Record<string, unknown>) => ({ stream_type: 'table' as const, stream_id: FX.table, event_type, payload });
+  const lockOf = () => hub.deps.db.prepare('SELECT staff_id FROM table_locks WHERE table_id = ?').get(FX.table);
+  /**
+   * The reachable path to a dine-in order on a CLOSED seating: billed (OrdersBilled), BillClosed, cleaned (TableCleaned),
+   * optionally re-seated, then a corrections-only reopen (OrdersUnbilled). Ali holds SEAT1.
+   */
+  function closedSeating(o: { reseatBy?: string } = {}): { order_id: string; seating_id: string } {
+    const d = dineIn([{ order_item_id: 'L1', item_id: FX.naan, quantity: 3 }]);
+    append([on(d.order_id, 'OrdersBilled', { order_ids: [d.order_id], bill_id: 'B1' })]);
+    append([tableEv('BillClosed', { seating_id: d.seating_id })]);
+    append([tableEv('TableCleaned', { seating_id: d.seating_id, table_ids: [FX.table], reason: 'cleaned', by_staff_id: 'S_ALI' })]);
+    if (o.reseatBy !== undefined) openSeating(hub, { table_id: FX.table, seating_id: 'SEAT2', holder_staff_id: o.reseatBy });
+    append([on(d.order_id, 'OrdersUnbilled', { order_ids: [d.order_id], bill_id: 'B1' })]);
+    expect(hub.deps.db.prepare('SELECT state FROM seatings WHERE seating_id = ?').get(d.seating_id)).toEqual({ state: 'CLOSED' });
+    return d;
+  }
+  const removeOne = (who: Who, d: { order_id: string; seating_id: string }, counted = false) =>
+    remove(who, { order_id: d.order_id, seating_id: d.seating_id, lines: [{ order_item_id: 'L1', units: 1 }] }, { counted });
+
+  it('[05 row T-3 (4)] [R-39] [02a #64] [05 #37c remove half] the holder → 200 with no lock (no TableLocked, no lock row); 2 statements (authorisation reads nothing)', async () => {
+    await start();
+    const d = closedSeating();
+    const r = await removeOne(signIn('S_ALI'), d, true);
+    expect(r.status).toBe(200);
+    expect(types(r)).toEqual(['ItemRemoved']);
+    expect(lastStatements).toBe(2);
+    expect(line('L1').removed_units).toBe(1);
+    expect(lockOf()).toBeUndefined();
+  });
+
+  it('[R-39] a non-holder without take-order-anywhere → 403 PERMISSION_DENIED not_holder (the open-seating details), nothing written', async () => {
+    await start();
+    const d = closedSeating();
+    const caller = signIn('S_SARA');
+    const before = eventCount();
+    const r = await removeOne(caller, d);
+    expect(r.status).toBe(403);
+    expect(r.error).toEqual({
+      code: 'PERMISSION_DENIED',
+      details: { reason: 'not_holder', table_id: FX.table, assigned_staff_id: null, holder_staff_id: 'S_ALI' },
+    });
+    expect(eventCount()).toBe(before);
+    expect(line('L1').removed_units).toBe(0);
+  });
+
+  it('[R-39] take-order-anywhere covering the floor → 200, no lock taken (branch scope, and my_floors on the table\'s floor)', async () => {
+    await start();
+    const d = closedSeating();
+    const branch = await removeOne(signIn('S_FARAH'), d);
+    expect(branch.status).toBe(200);
+    expect(types(branch)).toEqual(['ItemRemoved']);
+    const floors = await removeOne(signIn('S_FIZA'), d);
+    expect(floors.status).toBe(200);
+    expect(types(floors)).toEqual(['ItemRemoved']);
+    expect(lockOf()).toBeUndefined();
+  });
+
+  it('[R-39] take-order-anywhere at my_floors not covering the table\'s floor → 403 outside_scope, nothing written', async () => {
+    await start();
+    const d = closedSeating();
+    const caller = signIn('S_FAWAD');
+    const before = eventCount();
+    const r = await removeOne(caller, d);
+    expect(r.status).toBe(403);
+    expect(r.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope', table_ids: [FX.table] } });
+    expect(eventCount()).toBe(before);
+  });
+
+  it('[05 row T-3 (4)] [05 #37c] re-seated, then reopened: the old seating\'s holder removes with no lock, the new seating untouched; its seating_id on the old order → TABLE_SEATING_CHANGED', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const d = closedSeating({ reseatBy: 'S_SARA' });
+    const stale = await remove(ali, { order_id: d.order_id, seating_id: 'SEAT2', lines: [{ order_item_id: 'L1' }] });
+    expect(stale.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: FX.table, seating_id: 'SEAT2' } });
+    const r = await removeOne(ali, d);
+    expect(r.status).toBe(200);
+    expect(types(r)).toEqual(['ItemRemoved']);
+    expect(lockOf()).toBeUndefined();
+    expect(hub.deps.db.prepare('SELECT state FROM seatings WHERE seating_id = ?').get('SEAT2')).toEqual({ state: 'SEATED' });
+  });
+
+  it('[05 row T-3 (4)] [02a #32] a NEEDS_CLEANING (not CLOSED) seating keeps requireLock: 409 TABLE_NEEDS_CLEANING, nothing appended', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const d = dineIn([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    append([tableEv('BillClosed', { seating_id: d.seating_id })]);
+    const before = eventCount();
+    const r = await removeOne(ali, d);
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual({ code: 'TABLE_NEEDS_CLEANING', details: { table_id: FX.table } });
+    expect(eventCount()).toBe(before);
+  });
+});
+
 /** 04 row Q-3 stub line guard: 1 statement per ask; locks `locked` under alert A_VOID; records every ask. */
 function lockLines(locked: string[]): Array<{ order_id: string; touched: string[] }> {
   const asks: Array<{ order_id: string; touched: string[] }> = [];
-  registerLineGuard((db, order_id, touched_ids) => {
+  registerLineGuard((db, order_id, touched) => {
     db.prepare('SELECT 1 AS one').get();
-    asks.push({ order_id, touched: [...touched_ids] });
-    const hit = touched_ids.find((id) => locked.includes(id));
-    return hit === undefined ? null : { alert_id: 'A_VOID', order_item_id: hit };
+    const ids = touched.map((t) => t.order_item_id);
+    asks.push({ order_id, touched: ids });
+    const hit = ids.find((id) => locked.includes(id));
+    return hit === undefined ? null : { code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: hit } };
   });
   return asks;
 }
@@ -903,6 +1009,137 @@ describe('[02b #43] RemoveItems asks the line guard with its planRemove ids (04 
     expect((await remove(signIn('S_ASIF'), { order_id: omars, lines: [{ order_item_id: 'D2' }] })).error?.code).toBe('VOID_PENDING');
     resetLineGuard();
     expect((await remove(signIn('S_ASIF'), { order_id: omars, lines: [{ order_item_id: 'D2' }] })).error?.code).toBe('PERMISSION_DENIED');
+  });
+});
+
+// ------------------------------------------------------------------------------------------- 05 #32, #79 (05 row Q-3)
+
+/** 05 row Q-3 recording guard: 1 statement per ask; every ask's `touched` list as given; answers `result`. */
+function recordGuard(result: LineGuardResult = null, tag = 'g', log: string[] = []): LineGuardEntry[][] {
+  const asks: LineGuardEntry[][] = [];
+  registerLineGuard((db, _order_id, touched) => {
+    db.prepare('SELECT 1 AS one').get();
+    log.push(tag);
+    asks.push(touched.map((t) => ({ ...t })));
+    return result;
+  });
+  return asks;
+}
+
+/** The touched entries as the fold leaves them: live units, comped units and billed_minor (02b §3.4) after the command. */
+function folded(order_id: string, ids: string[], money_changes = false): LineGuardEntry[] {
+  return ids.map((id) => {
+    const l = lineView(order_id, id);
+    return { order_item_id: id, units_after: l.live_units, comped_after: l.comped_units, base_after_minor: l.billed_minor, money_changes };
+  });
+}
+
+const CLOSED_SPLIT: LineGuardResult = { code: 'LINE_IN_CLOSED_SPLIT', details: { order_item_id: 'L1', bill_id: 'B1', split_no: 1 } };
+
+describe('[05 #32 guard-list half] [05 row Q-3] RemoveItems asks the line guard list with { order_item_id, units_after, comped_after, base_after_minor, money_changes }', () => {
+  it('[05 #32 guard-list half] one ask with every planned line; each entry = the line as the fold leaves it (deal + parts, a comped item), money_changes false', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([...deal('D1'), { order_item_id: 'L1', item_id: FX.naan, quantity: 3 }]);
+    comp(order_id, 'L1', 1);
+    const asks = recordGuard();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'D1' }, { order_item_id: 'L1', units: 1 }] }, { counted: true });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(lastStatements).toBe(3);
+    expect(asks).toEqual([folded(order_id, ['D1', 'D1a', 'D1b', 'L1'])]);
+    expect(asks[0]!.find((t) => t.order_item_id === 'L1')).toMatchObject({ units_after: 2, comped_after: 1 });
+  });
+
+  it('[05 #32 guard-list half] [R-33] a deal_part removed alone → its entry, then the parent deal\'s: units/comped unchanged, base folded from its parts, money_changes true', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway(deal('D1'));
+    const before = lineView(order_id, 'D1');
+    const asks = recordGuard();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'D1a' }] });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    const after = lineView(order_id, 'D1');
+    expect(after.billed_minor).toBeLessThan(before.billed_minor); // the part's money left the deal's billed_minor
+    expect(asks).toEqual([[...folded(order_id, ['D1a']), ...folded(order_id, ['D1'], true)]]);
+    expect(asks[0]![1]).toMatchObject({ units_after: before.live_units, comped_after: before.comped_units, base_after_minor: after.billed_minor });
+  });
+
+  it('[05 #32 guard-list half] [R-33] the deal itself in the payload → no extra parent entry (the deal\'s own entry is folded)', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway(deal('D1', 2));
+    const asks = recordGuard();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'D1', units: 1 }] });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(asks).toEqual([folded(order_id, ['D1', 'D1a', 'D1b'])]);
+  });
+
+  it('[05 #32 guard-list half] a guard answering LINE_IN_CLOSED_SPLIT → 409 with its details, nothing written', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    recordGuard(CLOSED_SPLIT);
+    const n = eventCount();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1', units: 1 }] });
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual(CLOSED_SPLIT);
+    expect(eventCount()).toBe(n);
+  });
+});
+
+describe('[05 #79 line half] [05 row Q-3] the line guard list: ordered, first non-null wins, 04\'s results unchanged', () => {
+  it('[05 #79 line half] two guards: 04 null then 05 non-null → 05\'s { code, details }; each guard +1 statement', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    const log: string[] = [];
+    recordGuard(null, '04', log);
+    recordGuard(CLOSED_SPLIT, '05', log);
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1' }] }, { counted: true });
+    expect(r.error).toEqual(CLOSED_SPLIT);
+    expect(log).toEqual(['04', '05']);
+    expect(lastStatements).toBe(1 + 2); // readOrder, then each guard (refused before the comp-request read)
+  });
+
+  it('[05 #79 line half] 04 first and non-null: its VOID_PENDING { alert_id, order_item_id } wins and 05\'s guard is not asked', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    const log: string[] = [];
+    lockLines(['L1']);
+    recordGuard(CLOSED_SPLIT, '05', log);
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1' }] });
+    expect(r.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'L1' } });
+    expect(log).toEqual([]);
+  });
+
+  it('[05 #79 line half] every guard null → removed; a guard registered twice is asked once (registerVoids re-runs per test hub)', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    let asked = 0;
+    const g: LineGuard = (db) => {
+      asked += 1;
+      db.prepare('SELECT 1').get();
+      return null;
+    };
+    registerLineGuard(g);
+    registerLineGuard(g);
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1' }] }, { counted: true });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(asked).toBe(1);
+    // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(lastStatements).toBe(4);
+  });
+
+  it('[05 #79 line half] none registered → never blocked, +0 statements', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'L1' }] }, { counted: true });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(lastStatements).toBe(3);
   });
 });
 
@@ -960,5 +1197,89 @@ describe('lineChangeDrafts (02b §3.5 Export, To 04)', () => {
     expect(seatingTotals(hub.deps.db, d.seating_id).total_minor).toBe(20_000);
     expect((await remove(ali, { order_id: d.order_id, seating_id: d.seating_id, lines: [{ order_item_id: 'N1', units: 1 }] })).status).toBe(200);
     expect(seatingTotals(hub.deps.db, d.seating_id).total_minor).toBe(10_000);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- order-cancelled hook
+
+describe('[05 row Q-7] registerOrderCancelledHook (02b v1.0.16 §3.5)', () => {
+  afterEach(() => resetOrderCancelledHooks());
+
+  const AL = 'AL_VOID_1';
+  /** 04's void `apply` passes its AlertApplyCtx (CommandCtx & { alert }) straight to lineChangeDrafts. */
+  const applyCtxOf = (tx: WriterTx) => ({ ...ctxOf(tx), alert: { alert_id: AL, kind: 'void' } }) as unknown as CommandCtx;
+  const record = { alert_id: AL, kind: 'void' } as unknown as AlertRecord;
+
+  interface Call {
+    order_id: string;
+    alert_id: string | null;
+  }
+  /** A stub hook: one OrdersUnbilled draft per call (a real event type, so a direct command can append it). */
+  function stubHook(calls: Call[], bill_id = 'B_STUB'): OrderCancelledHook {
+    return (ctx, order_id, alert_id) => {
+      calls.push({ order_id, alert_id });
+      return [
+        {
+          stream_type: 'order',
+          stream_id: order_id,
+          event_type: 'OrdersUnbilled',
+          schema_version: 1,
+          // a stale alert_id the stamp must overwrite inside an apply and drop outside one
+          payload: { order_ids: [order_id], bill_id, alert_id: 'AL_WRONG' },
+          occurred_at: ctx.clock.branchNow(),
+          actor_id: ctx.actor.staffId,
+          device_id: ctx.actor.deviceId,
+        },
+      ];
+    };
+  }
+
+  it('[05 row Q-7] unregistered → no change: the emptied order gives OrderCancelled only', async () => {
+    await start();
+    const order_id = takeaway([{ order_item_id: 'N1', item_id: FX.naan, quantity: 1 }]);
+    const drafts = hub.deps.writer.run((tx) => lineChangeDrafts(applyCtxOf(tx), order_id, [{ order_item_id: 'N1', units_out: 1 }], { stale_comps: 'keep' })).result;
+    expect(drafts.map((d) => [d.event_type, d.payload])).toEqual([['OrderCancelled', { order_id }]]);
+  });
+
+  it('[05 row Q-7] inside an apply: the hook gets the alert id; its drafts follow OrderCancelled with alert_id stamped; checkAlertIds passes', async () => {
+    await start();
+    const order_id = takeaway([{ order_item_id: 'N1', item_id: FX.naan, quantity: 2 }]);
+    const calls: Call[] = [];
+    const hook = stubHook(calls);
+    registerOrderCancelledHook(hook);
+    registerOrderCancelledHook(hook); // a duplicate registration is ignored
+    registerOrderCancelledHook(stubHook(calls, 'B_SECOND')); // list order = registration order
+
+    // not emptied → the hook is not called
+    const partial = hub.deps.writer.run((tx) => lineChangeDrafts(applyCtxOf(tx), order_id, [{ order_item_id: 'N1', units_out: 1 }], { stale_comps: 'keep' })).result;
+    expect(partial.map((d) => d.event_type)).not.toContain('OrdersUnbilled');
+    expect(calls).toEqual([]);
+
+    const drafts = hub.deps.writer.run((tx) => lineChangeDrafts(applyCtxOf(tx), order_id, [{ order_item_id: 'N1', units_out: 2 }], { stale_comps: 'keep' })).result;
+    expect(calls).toEqual([
+      { order_id, alert_id: AL },
+      { order_id, alert_id: AL },
+    ]);
+    expect(drafts.map((d) => [d.event_type, d.payload])).toEqual([
+      ['OrderCancelled', { order_id }],
+      ['OrdersUnbilled', { order_ids: [order_id], bill_id: 'B_STUB', alert_id: AL }],
+      ['OrdersUnbilled', { order_ids: [order_id], bill_id: 'B_SECOND', alert_id: AL }],
+    ]);
+    const hookDrafts = drafts.filter((d) => d.event_type === 'OrdersUnbilled');
+    expect(() => checkAlertIds('AnswerRequest', 'apply', record, hookDrafts)).not.toThrow();
+  });
+
+  it('[05 row Q-7] outside an apply (RemoveItems, direct): the hook gets null; its drafts carry no alert_id and are written', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([{ order_item_id: 'N1', item_id: FX.naan, quantity: 1 }]);
+    const calls: Call[] = [];
+    registerOrderCancelledHook(stubHook(calls));
+
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'N1', units: 1 }] });
+    expect(r.status).toBe(200);
+    expect(calls).toEqual([{ order_id, alert_id: null }]);
+    expect(types(r).slice(-2)).toEqual(['OrderCancelled', 'OrdersUnbilled']);
+    expect(ofType(r, 'OrdersUnbilled')).toEqual([{ order_ids: [order_id], bill_id: 'B_STUB' }]);
   });
 });

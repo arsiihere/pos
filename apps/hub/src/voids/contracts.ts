@@ -1,6 +1,7 @@
 import type { ErrorCode } from '@pos/domain';
 import type { EngineState } from '@pos/engine';
 import type Database from 'better-sqlite3';
+import type { LineGuard } from '../orders/line-guard.js';
 import type { MergeGuard } from '../tables/contracts.js';
 
 // 04 §4.2 (phase 0 P0.7): every export other modules and lanes code against. Each function throws "not built" until
@@ -25,12 +26,12 @@ export interface PendingVoid {
   blocked: 'not_movable_stage' | null;
 }
 
-/** 02b v1.0.10 §3.4 (row Q-3) line guard shape; registered at boot by lanes/V2.ts (v8) through `registerLineGuard`. */
-export type VoidLineGuard = (
-  db: Database.Database,
-  order_id: string,
-  touched_ids: readonly string[],
-) => { alert_id: string; order_item_id: string } | null;
+/**
+ * 02b v1.0.10 §3.4 (row Q-3) line guard shape; registered at boot by lanes/V2.ts (v8) through `registerLineGuard`.
+ * ⚠️ 02b v1.0.16 (05 row Q-3): 02b's list shape — the touched entries in (04 reads only their ids), `{ code, details }`
+ * out (04's: `VOID_PENDING { alert_id, order_item_id }`, unchanged).
+ */
+export type VoidLineGuard = LineGuard;
 
 /** 01a v2.5 §6.18b (row A-1) day-close guard shape; registered at boot by lanes/V2.ts (v8) through `registerDayCloseGuard`. */
 export type VoidDayCloseGuard = (
@@ -69,16 +70,19 @@ export function pendingVoids(db: Database.Database, order_ids: readonly string[]
   return fn(db, order_ids, state);
 }
 
-/** §6.6: registered by registerVoids (voids/index.ts); delegates to the guard lanes/V2.ts provides (voids/guards.ts, 1 statement). */
+/**
+ * §6.6: registered by registerVoids (voids/index.ts); delegates to the guard lanes/V2.ts provides (voids/guards.ts,
+ * 1 statement). ⚠️ 02a v1.1.8 (05 row T-1): `null` = not blocked, else MERGE_BLOCKED_BY_VOID { order_item_ids }.
+ */
 export const voidMergeGuard: MergeGuard = (db, q) => {
   const fn = built.mergeGuard;
-  return fn === undefined ? { blocked: false, order_item_ids: [] } : fn(db, q);
+  return fn === undefined ? null : fn(db, q);
 };
 
 /** Row Q-3: registered by lanes/V2.ts; delegates to the provided guard (voids/guards.ts, 1 statement). */
-export const voidLineGuard: VoidLineGuard = (db, order_id, touched_ids) => {
+export const voidLineGuard: VoidLineGuard = (db, order_id, touched) => {
   const fn = built.lineGuard;
-  return fn === undefined ? null : fn(db, order_id, touched_ids);
+  return fn === undefined ? null : fn(db, order_id, touched);
 };
 
 /** Row A-1: registered by lanes/V2.ts; delegates to the provided guard (voids/guards.ts, 1 statement). */

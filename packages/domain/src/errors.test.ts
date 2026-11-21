@@ -234,3 +234,53 @@ describe('[02b §9] ordering codes', () => {
     expect(statusOf('VOID_PENDING')).toBe(409);
   });
 });
+
+describe('[05 §9] billing codes', () => {
+  const expected: Record<string, number> = {
+    BILL_NOT_FOUND: 404,
+    SHIFT_NOT_FOUND: 404,
+    INVOICE_NOT_FOUND: 404,
+    PAYMENT_NOT_FOUND: 404,
+    PAYMENT_MODE_NOT_FOUND: 404,
+    PETTY_CASH_NOT_FOUND: 404,
+    Z_REPORT_NOT_FOUND: 404,
+    BILL_NOT_OPEN: 409,
+    BILL_CLOSE_BLOCKED: 409,
+    DISCOUNT_PENDING: 409,
+    BUYER_ID_REQUIRED: 409,
+    BILL_TOTAL_CHANGED: 409,
+    BILL_BALANCE_DUE: 409,
+    BILL_PARTLY_PAID: 409,
+    LINE_IN_CLOSED_SPLIT: 409,
+    BILL_HAS_PAYMENTS: 409,
+    BILL_REOPEN_PENDING: 409,
+    BILL_REOPEN_NOT_SUPPORTED: 409,
+    LINE_NOT_COMPED: 409,
+    SHIFT_NOT_OPEN: 409,
+    SHIFT_ALREADY_OPEN: 409,
+    DRAWER_IN_USE: 409,
+    PETTY_ADVANCE_SETTLED: 409,
+    BILL_SPLIT_INVALID: 422,
+    DISCOUNT_TOO_LARGE: 422,
+    PAYMENT_MODE_NOT_FISCAL: 422,
+    PAYMENT_EXCEEDS_BALANCE: 422,
+    PAYMENT_REFERENCE_REQUIRED: 422,
+    PAYMENT_CASH_STEP: 422,
+    DRAWER_DEVICE_INVALID: 422,
+    PETTY_SETTLE_MISMATCH: 422,
+  };
+
+  it('[05 §9] the 31 new codes have their statuses', () => {
+    expect(Object.keys(expected)).toHaveLength(31);
+    for (const [code, status] of Object.entries(expected)) {
+      expect(ErrorCatalogue).toHaveProperty(code);
+      expect(ErrorCatalogue[code as keyof typeof ErrorCatalogue].status).toBe(status);
+    }
+  });
+
+  it('[05 v1.0.12 §9, R-58] SERVICE_CHARGE_NOT_APPLIED is 409 (the remove_service_charge apply re-check)', () => {
+    expect(ErrorCatalogue).toHaveProperty('SERVICE_CHARGE_NOT_APPLIED');
+    expect(ErrorCatalogue.SERVICE_CHARGE_NOT_APPLIED.status).toBe(409);
+  });
+
+});

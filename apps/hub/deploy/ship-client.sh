@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ship the built /admin/stock, /staff, /kds/, /admin/kitchen-screens/ and /admin/printers/ pages to a stopped hub (01a S39 d, e; §7.8 hub release step 5;
+# Ship the built /admin/stock, /staff, /kds/, /admin/kitchen-screens/, /admin/printers/ and /admin/fiscal/ pages to a stopped hub (01a S39 d, e; §7.8 hub release step 5;
 # 01d task 41 adds the staff entry; HK7 adds the kds and admin kitchen/printer entries).
 # Run on the developer machine, on the restaurant LAN, after `pnpm test` built apps/client/dist/ at the
 # release commit and the hub was stopped and checked out at the same commit. Refuses while
@@ -10,7 +10,7 @@ REMOTE_DIST=/opt/pos-hub/apps/client/dist
 REMOTE_CHECKOUT=/opt/pos-hub
 # Every build is checked, then every build is staged, then every build is swapped; a refused check or a
 # failed copy ships nothing.
-BUILDS=(admin-stock staff kds admin-kitchen-screens admin-printers)
+BUILDS=(admin-stock staff kds admin-kitchen-screens admin-printers admin-fiscal)
 
 fail() {
   echo "ship-client: $1" >&2

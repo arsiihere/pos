@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Component: the fiscal line in all its states</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/pulse.css">
+<link rel="stylesheet" href="css/v-brand.css">
+<link rel="stylesheet" href="css/pulse-01d.css">
+<link rel="stylesheet" href="css/pulse-02.css">
+<link rel="stylesheet" href="css/pulse-04.css">
+<link rel="stylesheet" href="css/pulse-05.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pu v-brand " lang="en" dir="ltr" data-theme="light" style="width: 1920px; height: 1080px;">
+<div class="b5"><header class="top"><div class="brand"><div class="mark" aria-hidden="true">AC</div><div><b>Arif Chatkhara</b><span>Gulberg · Counter kiosk</span></div></div><div class="seg" role="tablist" aria-label="Staff"><button aria-pressed="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6"/><path d="M9 12h6"/><path d="M9 16h3"/></svg>Bills</button><button aria-pressed="false"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.2 12.5H6.2z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>Open orders</button><button aria-pressed="false"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v.01"/><path d="M18 14.5v.01"/></svg>My shift</button></div><div class="end"><span class="live"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 8.5a14 14 0 0 1 19 0"/><path d="M5.5 12a9.5 9.5 0 0 1 13 0"/><path d="M8.5 15.5a5 5 0 0 1 7 0"/><path d="M12 19v.01"/></svg>Live</span><span class="clock num">1:40 PM</span><button class="btn btn--icon" aria-label="Requests"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></button><button class="btn btn--icon" aria-label="Inbox"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 13.5l2.5-8h12l2.5 8V19a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/><path d="M3.5 13.5h5l1 2.5h5l1-2.5h5"/></svg></button><button class="me" aria-label="Sana — sign out"><span class="av av--sm av--me">S</span>Sana</button></div></header><main class="b5-board" style="grid-template-columns:1fr 1fr;padding:40px;gap:28px 40px"><div class="col" style="gap:8px;grid-column:1/-1"><h2>Fiscal status line — <code>GET /queries/fiscal-status</code></h2><div class="b5-note">Shown only when the branch’s adapter is not <code>none</code>. No action for a cashier (Retry fiscal now lives on the X report). Never a token or a pos id. It sits at the top of the open-bills list and the rail.</div></div><div class="col" style="gap:8px"><span class="lbl">pending_count 0, rejected 0, health ok</span><div class="b5-fis c-ok" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Fiscal: all sent</span><small>last <span class="num">1:38 PM</span></small></div></div><div class="col" style="gap:8px"><span class="lbl">pending_count > 0</span><div class="b5-fis c-info" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h10"/><path d="M7 20.5h10"/><path d="M8 3.5c0 5 8 5 8 8.5s-8 3.5-8 8.5"/><path d="M16 3.5c0 5-8 5-8 8.5s8 3.5 8 8.5"/></svg><span>Fiscal: <span class="num">3</span> waiting · oldest <span class="num">12 min</span></span></div></div><div class="col" style="gap:8px"><span class="lbl">stuck: true</span><div class="b5-fis c-warn" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg><span>Fiscal: <span class="num">3</span> waiting · oldest <span class="num">2 h 05 min</span> — tell a manager</span></div></div><div class="col" style="gap:8px"><span class="lbl">rejected_count > 0</span><div class="b5-fis c-danger" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg><span>Fiscal: <span class="num">1</span> not accepted — tell a manager</span></div></div><div class="col" style="gap:8px"><span class="lbl">token_missing not empty</span><div class="b5-fis c-danger" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg><span>Fiscal: not set up on this hub — tell the owner</span></div></div><div class="col" style="gap:8px"><span class="lbl">adapter_health 'failing'</span><div class="b5-fis c-warn" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M8 8a5 5 0 0 0-1 9.9V18h10.5"/><path d="M11 6.2A5.5 5.5 0 0 1 17.6 10 4 4 0 0 1 20 17"/></svg><span>Fiscal: can’t reach the authority</span></div></div><div class="col" style="gap:8px"><span class="lbl">adapter_health 'unknown'</span><div class="b5-fis c-mute" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg><span>Fiscal: not checked yet</span></div></div><div class="col" style="gap:8px"><span class="lbl">In the rail (kiosk bill screen)</span><div style="width:388px"><div class="b5-fis c-info" role="status"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h10"/><path d="M7 20.5h10"/><path d="M8 3.5c0 5 8 5 8 8.5s-8 3.5-8 8.5"/><path d="M16 3.5c0 5-8 5-8 8.5s8 3.5 8 8.5"/></svg><span>Fiscal: <span class="num">3</span> waiting · oldest <span class="num">12 min</span></span></div></div></div></main></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1920,"height":1080}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

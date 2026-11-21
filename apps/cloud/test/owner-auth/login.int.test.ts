@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SystemContext } from '../../src/cli/system-context';
+import { DUMMY_PASSWORD_HASH } from '../../src/modules/owner-auth/service';
 import { seedTenant } from '../../src/cli/seed-tenant';
 import { testIdGen, type IdGen } from '../../src/lib/ids';
 import { createTestCloud, truncateAll, type TestCloud } from '../helpers/test-cloud';
@@ -31,7 +32,7 @@ describe('POST /v1/auth/login', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  it('[00 §10 #53] login happy path; wrong password and unknown email both 401 with similar timing (within 2×); the 10th failure sets login_locked_until and still answers 401 LOGIN_INVALID', async () => {
+  it('[00 §10 #53] login happy path; wrong password and unknown email both 401, each with one argon2 verify (timing: test:perf); the 10th failure sets login_locked_until and still answers 401 LOGIN_INVALID', async () => {
     const cloud = await open();
     const created = await seedOwner(cloud, 'owner@example.com');
     const ok = await login(cloud.app, 'Owner@Example.com', PASSWORD);
@@ -58,15 +59,20 @@ describe('POST /v1/auth/login', () => {
     );
     expect(stored.rows).toEqual([{ token_hash: sha256(ok.json().data.refresh_token as string) }]);
 
-    const wrongMs = await elapsed(() => login(cloud.app, 'owner@example.com', 'wrong-password'));
-    const unknownMs = await elapsed(() => login(cloud.app, 'missing@example.com', PASSWORD));
-    expect(wrongMs.status).toBe(401);
-    expect(unknownMs.status).toBe(401);
-    expect(wrongMs.body.error.code).toBe('LOGIN_INVALID');
-    expect(unknownMs.body.error.code).toBe('LOGIN_INVALID');
-    const slower = Math.max(wrongMs.ms, unknownMs.ms);
-    const faster = Math.max(1, Math.min(wrongMs.ms, unknownMs.ms));
-    expect(slower).toBeLessThanOrEqual(faster * 2);
+    // The wall-clock half ("within 2×") runs only in `pnpm test:perf` (login-timing.perf.test.ts; AD-32, owner ruling
+    // 2026-11-20). Here the behaviour that makes the timing equal: each path runs exactly one argon2 verify, the unknown
+    // email against DUMMY_PASSWORD_HASH.
+    verifyHashes.length = 0;
+    const wrong = await login(cloud.app, 'owner@example.com', 'wrong-password');
+    const wrongVerifies = verifyHashes.splice(0);
+    const unknown = await login(cloud.app, 'missing@example.com', PASSWORD);
+    const unknownVerifies = verifyHashes.splice(0);
+    expect(wrong.statusCode).toBe(401);
+    expect(unknown.statusCode).toBe(401);
+    expect(wrong.json().error.code).toBe('LOGIN_INVALID');
+    expect(unknown.json().error.code).toBe('LOGIN_INVALID');
+    expect(wrongVerifies).toHaveLength(1);
+    expect(unknownVerifies).toEqual([DUMMY_PASSWORD_HASH]);
 
     const locked = await seedOwner(cloud, 'locked@example.com', 'Bea');
     for (let i = 0; i < 10; i += 1) {
@@ -197,12 +203,6 @@ function login(app: FastifyInstance, email: string, password: string, remoteAddr
     payload: { email, password },
     remoteAddress,
   });
-}
-
-async function elapsed(run: () => Promise<{ statusCode: number; json(): { error: { code: string } } }>) {
-  const start = Date.now();
-  const res = await run();
-  return { ms: Date.now() - start, status: res.statusCode, body: res.json() };
 }
 
 function withoutRequestId(body: { error: { request_id: string } }): unknown {

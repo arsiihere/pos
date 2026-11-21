@@ -76,7 +76,12 @@ async function directory(): Promise<DirectoryInput> {
   };
 }
 
-const RequireLockPayload = z.object({ table_id: z.string(), seating_id: z.string(), via_order_id: z.string().optional() });
+const RequireLockPayload = z.object({
+  table_id: z.string(),
+  seating_id: z.string(),
+  via_order_id: z.string().optional(),
+  allow_bill_closed: z.boolean().optional(),
+});
 
 beforeEach(async () => {
   hub = await createTestHub();
@@ -97,7 +102,10 @@ beforeEach(async () => {
         const before = counter.count;
         let drafts: EventDraft[];
         try {
-          drafts = requireLock(ctx.tx, { table_id, seating_id: payload.seating_id }, ctx);
+          drafts =
+            payload.allow_bill_closed === undefined
+              ? requireLock(ctx.tx, { table_id, seating_id: payload.seating_id }, ctx)
+              : requireLock(ctx.tx, { table_id, seating_id: payload.seating_id }, ctx, { allowBillClosed: payload.allow_bill_closed });
         } finally {
           lastStatements = counter.count - before;
         }
@@ -282,6 +290,40 @@ describe('02a requireLock (§4.2)', () => {
       expect(r.error).toEqual({ code: 'TABLE_NEEDS_CLEANING', details: { table_id: 'T1' } });
     }
     expect(lockRows()).toEqual([]);
+  });
+
+  it('[05 row T-3 (3)] [02a #64] [05 #37e / #37g 02a half] { allowBillClosed: true } on a live call: NEEDS_CLEANING passes (the holder takes the free lock); a queued replay keeps TABLE_NEEDS_CLEANING; 1 statement', async () => {
+    const ali = signIn('S_ALI');
+    seat('SEAT1', 'T1', 'S_ALI', { state: 'NEEDS_CLEANING' });
+    // without the option, or with it false: refused as before
+    for (const allow_bill_closed of [undefined, false]) {
+      const r = await call(ali, { table_id: 'T1', seating_id: 'SEAT1', ...(allow_bill_closed === undefined ? {} : { allow_bill_closed }) });
+      expect(r.error).toEqual({ code: 'TABLE_NEEDS_CLEANING', details: { table_id: 'T1' } });
+    }
+    // H2-13: a queued replay (X-Queued-At) never gets it
+    const queued = await call(ali, { table_id: 'T1', seating_id: 'SEAT1', allow_bill_closed: true }, { queuedAt: hub.clock.branchNow() - 60_000 });
+    expect(queued.status).toBe(409);
+    expect(lastStatements).toBe(1);
+    expect(queued.error).toEqual({ code: 'TABLE_NEEDS_CLEANING', details: { table_id: 'T1' } });
+    expect(lockRows()).toEqual([]);
+    // a live call passes and the holder rule applies as on an open seating
+    const live = await call(ali, { table_id: 'T1', seating_id: 'SEAT1', allow_bill_closed: true });
+    expect(live.status).toBe(200);
+    expect(lastStatements).toBe(1);
+    expect(live.eventTypes).toEqual(['TableLocked']);
+    expect(lockRows()).toEqual([{ table_id: 'T1', seating_id: 'SEAT1', staff_id: 'S_ALI', device_id: ali.deviceId }]);
+    // the other rules still hold: another staff's lock, a non-holder without take-order-anywhere
+    const noor = signIn('S_NOOR');
+    expect((await call(noor, { table_id: 'T1', seating_id: 'SEAT1', allow_bill_closed: true })).error?.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('[05 row T-3 (4)] [02a #64] [05 #37c 02a half] { allowBillClosed: true } naming a cleaned seating (no seating, or another) → TABLE_SEATING_CHANGED (T18), no new code', async () => {
+    const ali = signIn('S_ALI');
+    const gone = await call(ali, { table_id: 'T1', seating_id: 'SEAT_CLEANED', allow_bill_closed: true });
+    expect(gone.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: 'T1', seating_id: 'SEAT_CLEANED' } });
+    seat('SEAT_NEW', 'T1', 'S_ALI', { state: 'NEEDS_CLEANING' });
+    const other = await call(ali, { table_id: 'T1', seating_id: 'SEAT_CLEANED', allow_bill_closed: true });
+    expect(other.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: 'T1', seating_id: 'SEAT_CLEANED' } });
   });
 
   it("[02a #45] a moved order's old table → TABLE_SEATING_CHANGED; through currentTableOf → passes", async () => {

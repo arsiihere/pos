@@ -58,12 +58,20 @@ export const savePrinterCommand = defineCommand({
     const printer_id = payload.printer_id ?? ctx.ids.next();
     const db = ctx.tx.db;
     if (payload.archived) {
-      // §3.2: archive refused while a station output uses it (any mode: `screen` keeps it as its fallback printer).
-      // Any output row holds it, also one of a station archived in (or missing from) the branch config, with or without
-      // a config in memory (integrator review, replaces R-c5-2).
-      const users = db.prepare('SELECT station_id FROM station_outputs WHERE printer_id = ? ORDER BY station_id').pluck().all(printer_id) as string[];
+      // §3.2: archive refused while a station output uses it (any mode: `screen` keeps it as its fallback printer) or a
+      // bill route does (05 row P-1, R-22). One query. Any output row holds it, also one of a station archived in (or
+      // missing from) the branch config, with or without a config in memory (integrator review, replaces R-c5-2).
+      // `used_by` names the stations when stations use it, else the routes as `<scope>:<ref_id>` (station first).
+      const users = db
+        .prepare(
+          `SELECT 'station' AS entity, station_id AS id FROM station_outputs WHERE printer_id = @p
+           UNION ALL SELECT 'bill_route', scope || ':' || ref_id FROM bill_routes WHERE printer_id = @p
+           ORDER BY entity DESC, id`,
+        )
+        .all({ p: printer_id }) as Array<{ entity: 'station' | 'bill_route'; id: string }>;
       if (users.length > 0) {
-        throw new DomainError('CONFIG_IN_USE', { entity: 'printer', id: printer_id, used_by: { entity: 'station', ids: users } });
+        const entity = users[0]!.entity;
+        throw new DomainError('CONFIG_IN_USE', { entity: 'printer', id: printer_id, used_by: { entity, ids: users.filter((u) => u.entity === entity).map((u) => u.id) } });
       }
     } else {
       const taken = db

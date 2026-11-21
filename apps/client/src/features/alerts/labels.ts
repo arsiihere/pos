@@ -1,4 +1,4 @@
-import { VOID_REASON_CODES, type AlertFamily, type VoidReasonCode } from '@pos/domain';
+import { BILL_REOPEN_REASONS, CHARGE_REMOVE_REASONS, COMP_REMOVE_REASONS, VOID_REASON_CODES, type AlertFamily, type VoidReasonCode } from '@pos/domain';
 import type { AlertCard, AlertDetails, AlertLock, RequestOutcome, WsAlertClosed } from '@pos/events';
 import { t, type MessageKey } from '../../i18n';
 import { en, fill } from '../../i18n/en';
@@ -117,11 +117,27 @@ export function lockText(a: Labelled): string {
  * the existing `void.reason.*` labels, the note after it; an unknown code on a void card reads as the generic
  * "Other" (never the raw string). Any other reason (a comp's chip text, 02b Q-19; a closer's note) is shown as stored.
  */
+/**
+ * E2E E-8: 05's request kinds send their reason as a code (05 §3.14). The card reads it as the label the bill sheets and
+ * the Z use; an unknown code stays as sent.
+ */
+const KIND_REASONS: ReadonlyArray<{ prefix: string; codes: readonly string[]; key: (code: string) => MessageKey }> = [
+  { prefix: 'alert.reopen_bill.', codes: BILL_REOPEN_REASONS, key: (c) => `billing.report.credit_reason.${c}` as MessageKey },
+  { prefix: 'alert.remove_service_charge.', codes: CHARGE_REMOVE_REASONS, key: (c) => `billing.sc.reason.${c}` as MessageKey },
+  { prefix: 'alert.remove_comp.', codes: COMP_REMOVE_REASONS, key: (c) => `billing.comp_remove.reason.${c}` as MessageKey },
+];
+
 export function reasonText(reason: string | null | undefined, card: { kind_label_key: string } | null | undefined): string | null {
   if (reason === null || reason === undefined || reason === '') return null;
   const at = reason.indexOf(': ');
   const code = at < 0 ? reason : reason.slice(0, at);
   const note = at < 0 ? null : reason.slice(at + 2);
+  const kind = KIND_REASONS.find((k) => card?.kind_label_key.startsWith(k.prefix) === true);
+  if (kind !== undefined) {
+    if (!kind.codes.includes(code)) return reason;
+    const words = t(kind.key(code));
+    return note === null || note === '' ? words : fill(t('audit.reason.with_note'), { reason: words, note });
+  }
   const known = (VOID_REASON_CODES as readonly string[]).includes(code);
   const voidCard = card?.kind_label_key.startsWith('alert.void_approval.') === true;
   if (!known && !voidCard) return reason;

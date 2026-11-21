@@ -874,3 +874,498 @@ export function aStockReleased(overrides?: Overrides): PosEvent {
 export function aStockConsumed(overrides?: Overrides): PosEvent {
   return stockLine('StockConsumed', {}, overrides);
 }
+
+// ---------------------------------------------------------------------------------------------- 05 billing (§6.29)
+// One builder per 05 event (F §6.7). Ids only, no free text, no buyer data (B19, B30). The invoice follows 05 §6.31:
+// Rs 5,710 of food on `PK-PB` (adapter PRA), exclusive, 16 % cash rate, rounding step Rs 1, plus a 5 % service charge.
+
+const BILL_ID = '01J00000000000000000000020';
+const SEATING_ID = '01J00000000000000000000021';
+const SHIFT_ID = '01J00000000000000000000022';
+const PAYMENT_ID = '01J00000000000000000000023';
+const INVOICE_ID = '01J00000000000000000000024';
+const CREDIT_ID = '01J00000000000000000000025';
+const NOTE_ID = '01J00000000000000000000026';
+const ENTRY_ID = '01J00000000000000000000027';
+const BILL_ALERT_ID = '01J00000000000000000000028';
+const CASHIER_ID = '01J00000000000000000000029';
+const MANAGER_ID = '01J0000000000000000000002A';
+const DRAWER_DEVICE_ID = '01J0000000000000000000002B';
+const BILLING_DATE = '2025-10-20';
+const VARIANCE_ALERT_ID = '01J0000000000000000000002E';
+/** R-44: a sign-off is dated the open business day of its answer, here the day after the counted shift's. */
+const SIGNOFF_DATE = '2025-10-21';
+
+function bill(eventType: string, payload: Record<string, unknown>): PosEvent {
+  return { ...envelope, stream_type: 'bill', stream_id: BILL_ID, event_type: eventType, payload };
+}
+
+function shift(eventType: string, payload: Record<string, unknown>): PosEvent {
+  return { ...envelope, stream_type: 'shift', stream_id: SHIFT_ID, event_type: eventType, payload };
+}
+
+const ROUNDING = { step_minor: 100, mode: 'nearest', applies_to: 'all' } as const;
+
+export function aBillOpened(overrides?: Overrides): PosEvent {
+  return build(
+    bill('BillOpened', {
+      bill_id: BILL_ID,
+      scope: 'seating',
+      seating_id: SEATING_ID,
+      bill_key: null,
+      order_type: 'dine_in',
+      prices_include_tax: false,
+      rounding: ROUNDING,
+    }),
+    overrides,
+  );
+}
+
+export function aChargeApplied(overrides?: Overrides): PosEvent {
+  return build(
+    bill('ChargeApplied', { bill_id: BILL_ID, charge: 'service', rate_bp: 500, source: 'rule', has_note: false, note_id: null }),
+    overrides,
+  );
+}
+
+export function aChargeRemoved(overrides?: Overrides): PosEvent {
+  return build(
+    bill('ChargeRemoved', {
+      bill_id: BILL_ID,
+      charge: 'service',
+      reason_code: 'customer_request',
+      has_note: true,
+      note_id: NOTE_ID,
+      requester_staff_id: CASHIER_ID,
+      approver_staff_id: MANAGER_ID,
+      alert_id: BILL_ALERT_ID,
+    }),
+    overrides,
+  );
+}
+
+export function aCheckBillPrinted(overrides?: Overrides): PosEvent {
+  return build(
+    bill('CheckBillPrinted', {
+      bill_id: BILL_ID,
+      total_default_minor: 695_500,
+      line_count: 1,
+      printer_id: '01J0000000000000000000002C',
+      job_id: '01J0000000000000000000002D',
+      source: 'manual',
+    }),
+    overrides,
+  );
+}
+
+export function aBillSplitsSet(overrides?: Overrides): PosEvent {
+  return build(
+    bill('BillSplitsSet', {
+      bill_id: BILL_ID,
+      mode: 'items',
+      splits: [
+        { split_no: 1, lines: [{ order_item_id: 'L1', order_id: ORDER_ID, units: 1 }], share_minor: null },
+        { split_no: 2, lines: [{ order_item_id: 'L1', order_id: ORDER_ID, units: 1 }], share_minor: null },
+      ],
+    }),
+    overrides,
+  );
+}
+
+// R-41: the first close's freeze, paired with anInvoiceIssued (no discount → 0; `line_ids` = its `discount_line_ids`).
+export function aDiscountFrozen(overrides?: Overrides): PosEvent {
+  return build(bill('DiscountFrozen', { bill_id: BILL_ID, frozen_minor: 0, line_ids: ['L1'] }), overrides);
+}
+
+export function aDiscountApplied(overrides?: Overrides): PosEvent {
+  return build(
+    bill('DiscountApplied', {
+      bill_id: BILL_ID,
+      kind: 'percent',
+      value: 1_000,
+      amount_minor: 57_100,
+      reason_code: 'regular_customer',
+      has_note: false,
+      note_id: null,
+      requester_staff_id: CASHIER_ID,
+      approver_staff_id: null,
+      alert_id: null,
+      replaces: false,
+    }),
+    overrides,
+  );
+}
+
+export function aDiscountRemoved(overrides?: Overrides): PosEvent {
+  return build(bill('DiscountRemoved', { bill_id: BILL_ID, reason_code: 'other', has_note: true, note_id: NOTE_ID }), overrides);
+}
+
+export function aPaymentAdded(overrides?: Overrides): PosEvent {
+  return build(
+    bill('PaymentAdded', {
+      payment_id: PAYMENT_ID,
+      bill_id: BILL_ID,
+      split_no: 1,
+      mode_id: 'cash',
+      payment_class: 'cash',
+      direction: 'in',
+      amount_minor: 695_500,
+      tendered_minor: 700_000,
+      change_minor: 4_500,
+      has_reference: false,
+      taken_by_staff_id: CASHIER_ID,
+      shift_id: SHIFT_ID,
+    }),
+    overrides,
+  );
+}
+
+export function aPaymentRemoved(overrides?: Overrides): PosEvent {
+  return build(
+    // R-44: the removed payment's facts, equal to aPaymentAdded's (`change_minor` 0 when it had no tender).
+    bill('PaymentRemoved', {
+      payment_id: PAYMENT_ID,
+      bill_id: BILL_ID,
+      split_no: 1,
+      reason_code: 'wrong_mode',
+      has_note: false,
+      shift_id: SHIFT_ID,
+      mode_id: 'cash',
+      payment_class: 'cash',
+      direction: 'in',
+      amount_minor: 695_500,
+      change_minor: 4_500,
+      taken_by_staff_id: CASHIER_ID,
+    }),
+    overrides,
+  );
+}
+
+export function aBuyerIdWaived(overrides?: Overrides): PosEvent {
+  return build(
+    bill('BuyerIdWaived', {
+      bill_id: BILL_ID,
+      has_note: false,
+      note_id: null,
+      requester_staff_id: CASHIER_ID,
+      approver_staff_id: null,
+      alert_id: null,
+    }),
+    overrides,
+  );
+}
+
+const PST_CASH = { tax_code: 'PST', payment_class: 'cash', rate_bp: 1_600 } as const;
+
+// 05 §6.12 step 6: the invoice fields both series share (§6.13: a credit copies the original's).
+function invoiceFields(): Record<string, unknown> {
+  return {
+    invoice_id: INVOICE_ID,
+    number: 123,
+    invoice_ref: 'AC1-S000123',
+    bill_id: BILL_ID,
+    split_no: 1,
+    business_date: BILLING_DATE,
+    issued_at: T,
+    order_type: 'dine_in',
+    jurisdiction_id: 'PK-PB',
+    currency_code: 'PKR',
+    prices_include_tax: false,
+    lines: [
+      {
+        order_item_id: 'L1',
+        item_id: 'I1',
+        name: 'Chicken Karahi — Half',
+        units: 1,
+        unit_price_minor: 571_000,
+        base_minor: 571_000,
+        discount_minor: 0,
+        tax_profile_id: 'TP1',
+        fiscal_category: 'restaurant_service',
+        taxes: [{ ...PST_CASH, base_minor: 571_000, tax_minor: 91_360 }],
+      },
+    ],
+    service_charge: {
+      amount_minor: 28_550,
+      tax_profile_id: 'TP1',
+      taxes: [{ ...PST_CASH, base_minor: 28_550, tax_minor: 4_568 }],
+    },
+    subtotal_minor: 571_000,
+    discount_minor: 0,
+    service_charge_minor: 28_550,
+    taxes: [
+      {
+        tax_profile_id: 'TP1',
+        tax_code: 'PST',
+        label: 'PST',
+        seq: 1,
+        compound: false,
+        payment_class: 'cash',
+        rate_bp: 1_600,
+        base_minor: 599_550,
+        tax_minor: 95_928,
+        rate_ref: 'PRA.32-24/2026/1313',
+      },
+    ],
+    rounding_minor: 22,
+    total_minor: 695_500,
+    payment_class: 'cash',
+    mixed_rule: 'higher_rate',
+    payment_ids: [PAYMENT_ID],
+    change_minor: 4_500,
+    fiscal: {
+      adapter_key: 'PRA',
+      pos_id: 'POS-1',
+      required: true,
+      capabilities: { ordering: 'strict_per_pos_id', credit: true },
+      credit_support: 'credit_invoice',
+      rounding: ROUNDING,
+      receipt: {
+        fiscal_number_label: 'PRA invoice no.',
+        tax_reg_labels: [{ code: 'NTN', label: 'NTN' }],
+        show_qr: true,
+        qr_url_template: 'https://example.invalid/verify?n={fiscal_number}',
+        buyer_id_on_receipt: true,
+      },
+      seller_registrations: [{ code: 'NTN', number: '0000000' }],
+      payment_codes: [{ payment_id: PAYMENT_ID, authority_code: '1' }],
+    },
+    has_buyer_id: false,
+    buyer_id_refused: false,
+    closed_by: CASHIER_ID,
+  };
+}
+
+export function anInvoiceIssued(overrides?: Overrides): PosEvent {
+  return build(bill('InvoiceIssued', { ...invoiceFields(), series: 'sale', discount_line_ids: ['L1'] }), overrides);
+}
+
+export function aBillReopened(overrides?: Overrides): PosEvent {
+  return build(
+    bill('BillReopened', {
+      bill_id: BILL_ID,
+      order_ids: [ORDER_ID],
+      mode: 'full',
+      reason_code: 'wrong_item_billed',
+      has_note: false,
+      note_id: null,
+      requester_staff_id: MANAGER_ID,
+      approver_staff_id: null,
+      alert_id: null,
+    }),
+    overrides,
+  );
+}
+
+export function anInvoiceCredited(overrides?: Overrides): PosEvent {
+  return build(
+    bill('InvoiceCredited', {
+      ...invoiceFields(),
+      invoice_id: CREDIT_ID,
+      series: 'credit',
+      number: 7,
+      invoice_ref: 'AC1-C000007',
+      issued_at: T + 60_000,
+      ref_invoice_id: INVOICE_ID,
+      ref_invoice_ref: 'AC1-S000123',
+      alert_id: null,
+      closed_by: MANAGER_ID, // §6.13: the reopen's requester (aBillReopened), not the original's closer
+    }),
+    overrides,
+  );
+}
+
+export function aFiscalNumberAssigned(overrides?: Overrides): PosEvent {
+  return build(
+    bill('FiscalNumberAssigned', {
+      invoice_id: INVOICE_ID,
+      adapter_key: 'PRA',
+      pos_id: 'POS-1',
+      fiscal_number: 'FN-000777',
+      qr_payload: null,
+    }),
+    overrides,
+  );
+}
+
+export function aFiscalSubmitRejected(overrides?: Overrides): PosEvent {
+  return build(
+    bill('FiscalSubmitRejected', { invoice_id: INVOICE_ID, adapter_key: 'PRA', error_code: 'mode_unmapped', http_status: null }),
+    overrides,
+  );
+}
+
+export function aBillClosedEmpty(overrides?: Overrides): PosEvent {
+  return build(
+    bill('BillClosedEmpty', { bill_id: BILL_ID, seating_id: SEATING_ID, credit_invoice_ids: [CREDIT_ID], alert_id: BILL_ALERT_ID }),
+    overrides,
+  );
+}
+
+export function aShiftOpened(overrides?: Overrides): PosEvent {
+  return build(
+    shift('ShiftOpened', {
+      shift_id: SHIFT_ID,
+      staff_id: CASHIER_ID,
+      drawer_device_id: DRAWER_DEVICE_ID,
+      float_minor: 500_000,
+      business_date: BILLING_DATE,
+    }),
+    overrides,
+  );
+}
+
+const COUNT = { shift_id: SHIFT_ID, counted_minor: 1_195_000, expected_minor: 1_195_500, variance_minor: -500, by_staff_id: CASHIER_ID };
+
+export function aShiftCounted(overrides?: Overrides): PosEvent {
+  // R-42: −500 is above this fixture's threshold, so the count raised the `shift_variance` request.
+  return build(shift('ShiftCounted', { ...COUNT, variance_alert_id: VARIANCE_ALERT_ID }), overrides);
+}
+
+export function aShiftCountSkipped(overrides?: Overrides): PosEvent {
+  return build(shift('ShiftCountSkipped', { shift_id: SHIFT_ID }), overrides);
+}
+
+export function aHandoverCounted(overrides?: Overrides): PosEvent {
+  return build(shift('HandoverCounted', COUNT), overrides);
+}
+
+export function aShiftClosed(overrides?: Overrides): PosEvent {
+  return build(
+    shift('ShiftClosed', {
+      shift_id: SHIFT_ID,
+      closed_by: CASHIER_ID,
+      has_note: false,
+      note_id: null,
+      alert_id: null,
+      approver_staff_id: null,
+    }),
+    overrides,
+  );
+}
+
+export function aShiftVarianceSignedOff(overrides?: Overrides): PosEvent {
+  return build(
+    shift('ShiftVarianceSignedOff', {
+      shift_id: SHIFT_ID,
+      outcome: 'approved',
+      alert_id: VARIANCE_ALERT_ID,
+      approver_staff_id: MANAGER_ID,
+      business_date: SIGNOFF_DATE,
+    }),
+    overrides,
+  );
+}
+
+function petty(eventType: string, o: Record<string, unknown>): PosEvent {
+  return shift(eventType, {
+    entry_id: ENTRY_ID,
+    shift_id: SHIFT_ID,
+    amount_minor: 20_000,
+    category_id: 'supplies',
+    has_paid_to: true,
+    advance_staff_id: null,
+    has_note: false,
+    requester_staff_id: CASHIER_ID,
+    approver_staff_id: null,
+    alert_id: null,
+    ...o,
+  });
+}
+
+export function aPettyCashAdvanced(overrides?: Overrides): PosEvent {
+  return build(petty('PettyCashAdvanced', { category_id: 'staff_advance', has_paid_to: false, advance_staff_id: MANAGER_ID }), overrides);
+}
+
+export function aPettyCashOut(overrides?: Overrides): PosEvent {
+  return build(petty('PettyCashOut', {}), overrides);
+}
+
+export function aPettyCashIn(overrides?: Overrides): PosEvent {
+  return build(petty('PettyCashIn', { category_id: 'other', has_paid_to: false }), overrides);
+}
+
+export function aPettyCashSettled(overrides?: Overrides): PosEvent {
+  return build(
+    shift('PettyCashSettled', {
+      entry_id: ENTRY_ID,
+      shift_id: SHIFT_ID,
+      spent_minor: 15_000,
+      returned_minor: 5_000,
+      has_note: false,
+      note_id: null,
+    }),
+    overrides,
+  );
+}
+
+export function aDrawerOpened(overrides?: Overrides): PosEvent {
+  return build(
+    shift('DrawerOpened', {
+      shift_id: SHIFT_ID,
+      device_id: DRAWER_DEVICE_ID,
+      reason_code: 'change_for_customer',
+      has_note: false,
+      note_id: null,
+    }),
+    overrides,
+  );
+}
+
+// 05 §6.25 / §6.26: a Z with one sale, one cash taking, one petty entry and one counted shift (staff ids only).
+export function aZReportIssued(overrides?: Overrides): PosEvent {
+  const report = {
+    kind: 'z',
+    z_no: 1,
+    business_date: BILLING_DATE,
+    issued_at: T,
+    currency_code: 'PKR',
+    sales: {
+      invoice_count: 1,
+      gross_minor: 571_000,
+      discounts: { count: 0, value_minor: 0, by_reason: [], entries: [] },
+      service_charge_minor: 28_550,
+      net_minor: 599_550,
+      taxes: [{ tax_code: 'PST', label: 'PST', tax_profile_id: 'TP1', payment_class: 'cash', rate_bp: 1_600, tax_minor: 95_928 }],
+      rounding_minor: 22,
+      total_minor: 695_500,
+    },
+    credits: { count: 0, value_minor: 0, by_reason: [] },
+    net_after_credits_minor: 695_500,
+    payments_by_mode: [{ mode_name: 'Cash', in_minor: 695_500, out_minor: 0, change_minor: 4_500 }],
+    comps: { value_minor: 0, voided_minor: 0, removals: { count: 0, value_minor: 0 } },
+    voids: [],
+    reopens: { count: 0, value_minor: 0, entries: [] },
+    petty_cash: [{ category_name: 'Supplies', kind: 'out', amount_minor: 20_000 }],
+    open_advances: [],
+    shifts: [
+      {
+        staff_id: CASHIER_ID,
+        float_minor: 500_000,
+        expected_minor: 1_195_500,
+        counted_minor: 1_195_000,
+        variance_minor: -500,
+        skipped: false,
+        signoff_state: null,
+      },
+    ],
+    variance_signoffs: [],
+    pending_signoffs: [],
+    takings_by_taker: [{ staff_id: CASHIER_ID, amount_minor: 695_500 }],
+    full_refunds: { count: 0, value_minor: 0 },
+    fiscal: { pending: 1, acked: 0, rejected: 0, not_required: 0 },
+    bills: { count: 1, average_minor: 695_500 },
+    open_bills: [],
+    carried_over: [],
+    brought_forward: [],
+    carried_forward: [],
+  };
+  return build(hub('ZReportIssued', envelope.branch_id, { business_date: BILLING_DATE, z_no: 1, report }), overrides);
+}
+
+export function aFiscalTokenSet(overrides?: Overrides): PosEvent {
+  return build(
+    hub('FiscalTokenSet', envelope.branch_id, { pos_id: 'POS-1', name: 'token', set_at: T, set_by_staff_id: MANAGER_ID }),
+    overrides,
+  );
+}

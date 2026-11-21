@@ -1,0 +1,21 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "shift",
+  "stream_id": "01J00000000000000000000022",
+  "event_type": "ShiftOpened",
+  "payload": {
+    "shift_id": "01J00000000000000000000022",
+    "staff_id": "01J00000000000000000000029",
+    "drawer_device_id": "01J0000000000000000000002B",
+    "float_minor": 500000,
+    "business_date": "2025-10-20"
+  }
+}

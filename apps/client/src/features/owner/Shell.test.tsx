@@ -61,7 +61,7 @@ function stubPhone() {
 }
 
 describe('[01b §8] owner shell (design handoff README §9)', () => {
-  it('laptop: Menu: Items, Size groups, Choice groups, Deals, Stock items (01c); Restaurant: Floors and tables, Kitchen stations, People, Branches and settings (owner decision 2026-10-30, 01c CHANGES §1); counts; foot', () => {
+  it('laptop: Menu: Items, Size groups, Choice groups, Deals, Stock items (01c); Restaurant: Floors and tables, Kitchen stations, People, Branches and settings, Billing (owner decision 2026-10-30, 01c CHANGES §1); counts; foot', () => {
     renderShell();
     const nav = container.querySelector('nav.pos-sidenav')!;
     expect(navOutline(nav)).toEqual([
@@ -77,6 +77,7 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       'Points',
       'People',
       'Branches and settings [3]',
+      'Billing',
     ]);
     expect(nav.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/staff');
     expect(nav.querySelector('a[aria-current="page"]')?.textContent).toBe('People');
@@ -107,6 +108,7 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       'پوائنٹس',
       'لوگ',
       'برانچیں اور سیٹنگ [3]',
+      'بلنگ',
     ]);
     expect(nav.querySelector('.pos-sidenav__foot a')?.textContent).toBe('پاس ورڈ بدلیں');
   });
@@ -144,6 +146,7 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       '#/points',
       '#/staff',
       '#/branches',
+      '#/billing',
     ]);
     expect(nav.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/staff');
     const foot = nav.querySelector('.pos-sidenav__foot')!;

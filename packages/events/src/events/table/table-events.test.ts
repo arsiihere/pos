@@ -55,13 +55,17 @@ const examples: Record<string, { payload: Record<string, unknown> }> = {
   TableCleaned: {
     payload: { seating_id: 'S1', table_ids: ['T1', 'T2'], reason: 'cleaned', by_staff_id: 'W1' },
   },
+  // ⚠️ 02a v1.1.8 (05 row T-3): written by 05's full-edit reopen of a CLOSED bill; alert_id on an approval apply.
+  SeatingReopened: { payload: { seating_id: 'S1', bill_id: 'B1', alert_id: 'A1' } },
+  // ⚠️ 02a v1.1.9 (05 row T-4): written by 05 when a tile mark may have changed; ids only, no fold effect.
+  TableMarksChanged: { payload: { seating_id: 'S1' } },
 };
 
 const TYPES = Object.keys(examples);
 
 describe('02a table-stream events', () => {
   it('[02a §6.19] each table event round-trips with its §6.19 payload', () => {
-    expect(TYPES).toHaveLength(10);
+    expect(TYPES).toHaveLength(12);
     for (const type of TYPES) {
       expect(payloadSchema(type, 1).parse(examples[type]!.payload), type).toEqual(examples[type]!.payload);
     }
@@ -147,6 +151,37 @@ describe('02a table-stream events', () => {
     const base = { seating_id: 'S1', table_ids: ['T1'], by_staff_id: 'W1' };
     expect(schema.safeParse({ ...base, reason: 'left_without_order' }).success).toBe(true);
     expect(schema.safeParse({ ...base, reason: 'other' }).success).toBe(false);
+  });
+});
+
+describe('05 row T-3: SeatingReopened', () => {
+  it('[05 row T-3 (1)] SeatingReopened v1 { seating_id, bill_id, alert_id? }: alert_id optional (absent on the direct path), bill_id required, strict', () => {
+    const schema = payloadSchema('SeatingReopened', 1);
+    expect(schema.parse({ seating_id: 'S1', bill_id: 'B1' })).toEqual({ seating_id: 'S1', bill_id: 'B1' });
+    expect(schema.parse({ seating_id: 'S1', bill_id: 'B1', alert_id: 'A1' })).toEqual({ seating_id: 'S1', bill_id: 'B1', alert_id: 'A1' });
+    expect(schema.safeParse({ seating_id: 'S1' }).success).toBe(false);
+    expect(schema.safeParse({ bill_id: 'B1' }).success).toBe(false);
+    expect(schema.safeParse({ seating_id: 'S1', bill_id: 'B1', alert_id: null }).success).toBe(false);
+    expect(schema.safeParse({ seating_id: 'S1', bill_id: 'B1', table_id: 'T1' }).success).toBe(false);
+  });
+});
+
+describe('05 row T-4: TableMarksChanged', () => {
+  it('[02a #66] [05 row T-4] TableMarksChanged v1 { seating_id }: ids only, strict — the schema refuses any other key', () => {
+    const schema = payloadSchema('TableMarksChanged', 1);
+    expect(schema.parse({ seating_id: 'S1' })).toEqual({ seating_id: 'S1' });
+    expect(schema.safeParse({}).success).toBe(false);
+    expect(schema.safeParse({ seating_id: 'S1', reopened: true }).success).toBe(false);
+    expect(schema.safeParse({ seating_id: 'S1', check_printed_at: 1 }).success).toBe(false);
+    expect(schema.safeParse({ seating_id: 'S1', bill_id: 'B1' }).success).toBe(false);
+  });
+
+  it('[02a #68] [05 row T-4, R-43] TableMarksChanged v1 { seating_id, alert_id? }: alert_id optional, never null; no other key', () => {
+    const schema = payloadSchema('TableMarksChanged', 1);
+    expect(schema.parse({ seating_id: 'S1' })).toEqual({ seating_id: 'S1' });
+    expect(schema.parse({ seating_id: 'S1', alert_id: 'A1' })).toEqual({ seating_id: 'S1', alert_id: 'A1' });
+    expect(schema.safeParse({ seating_id: 'S1', alert_id: null }).success).toBe(false);
+    expect(schema.safeParse({ seating_id: 'S1', alert_id: 'A1', bill_id: 'B1' }).success).toBe(false);
   });
 });
 

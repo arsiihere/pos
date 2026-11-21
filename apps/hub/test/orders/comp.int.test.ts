@@ -13,7 +13,7 @@ import { orderLines } from '../../src/orders/exports';
 import { changeDrafts, lineChangeDrafts } from '../../src/orders/line-change';
 import { lineShares, planVoid } from '../../src/orders/ledger';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
-import { registerLineGuard, resetLineGuard } from '../../src/orders/line-guard';
+import { registerLineGuard, resetLineGuard, type LineGuardEntry, type LineGuardResult } from '../../src/orders/line-guard';
 import { aDirectory, PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -543,11 +543,12 @@ describe('CompLine (02b §6.8, §3.9)', () => {
 /** 04 row Q-3 stub line guard: 1 statement per ask; locks `locked` under alert A_VOID; records every ask. */
 function lockLines(locked: string[]): Array<{ order_id: string; touched: string[] }> {
   const asks: Array<{ order_id: string; touched: string[] }> = [];
-  registerLineGuard((db, order_id, touched_ids) => {
+  registerLineGuard((db, order_id, touched) => {
     db.prepare('SELECT 1 AS one').get();
-    asks.push({ order_id, touched: [...touched_ids] });
-    const hit = touched_ids.find((id) => locked.includes(id));
-    return hit === undefined ? null : { alert_id: 'A_VOID', order_item_id: hit };
+    const ids = touched.map((t) => t.order_item_id);
+    asks.push({ order_id, touched: ids });
+    const hit = ids.find((id) => locked.includes(id));
+    return hit === undefined ? null : { code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: hit } };
   });
   return asks;
 }
@@ -660,6 +661,76 @@ describe('[02b #43] CompLine and applyComp ask the line guard (04 §4.5 Q-3; G-1
     const a = await answer(mgr, alert_id, 'approve');
     expect(a.status).toBe(409);
     expect(a.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'D1a' } });
+    expect(compEvents()).toEqual([]);
+    expect(alertRow(alert_id)).toMatchObject({ state: 'open' });
+  });
+});
+
+// ------------------------------------------------------------------------------------------- 05 #32 (05 row Q-3)
+
+/** 05 row Q-3 recording guard: 1 statement per ask; every ask's `touched` list as given; answers `result`. */
+function recordGuard(result: LineGuardResult = null): LineGuardEntry[][] {
+  const asks: LineGuardEntry[][] = [];
+  registerLineGuard((db, _order_id, touched) => {
+    db.prepare('SELECT 1 AS one').get();
+    asks.push(touched.map((t) => ({ ...t })));
+    return result;
+  });
+  return asks;
+}
+
+/** The touched entries as the fold leaves them: live units, comped units and billed_minor (02b §3.4). */
+function folded(order_id: string, ids: string[]): LineGuardEntry[] {
+  return ids.map((id) => {
+    const l = lineView(order_id, id);
+    return { order_item_id: id, units_after: l.live_units, comped_after: l.comped_units, base_after_minor: l.billed_minor, money_changes: false };
+  });
+}
+
+const CLOSED_SPLIT: LineGuardResult = { code: 'LINE_IN_CLOSED_SPLIT', details: { order_item_id: 'N1', bill_id: 'B1', split_no: 1 } };
+
+describe('[05 #32 guard-list half] [05 row Q-3] CompLine and applyComp ask the guard list with the planned comped_after / base_after_minor', () => {
+  it('[05 #32 guard-list half] allowed: one ask with the deal and its parts; each entry = the line as the fold leaves it', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([...deal('D1'), NAANS]);
+    const asks = recordGuard();
+    expect((await compLine(ali, quality('D1', 1))).status).toBe(200);
+    expect(asks).toEqual([folded(order_id, ['D1', 'D1a', 'D1b'])]);
+    const n1 = await compLine(ali, quality('N1', 2));
+    expect(n1.status).toBe(200);
+    expect(asks[1]).toEqual(folded(order_id, ['N1']));
+    expect(asks[1]![0]).toMatchObject({ units_after: 3, comped_after: 2 });
+  });
+
+  it('[05 #32 guard-list half] requires approval: the raise asks once and the approve asks with the same planned after (= the fold after the approve)', async () => {
+    await start();
+    const omar = signIn('S_OMAR');
+    const mgr = signIn('S_MGR');
+    const order_id = takeaway([NAANS]);
+    const asks = recordGuard();
+    const alert_id = (await compLine(omar, quality('N1', 1))).result!.alert_id as string;
+    expect(asks).toHaveLength(1);
+    expect((await answer(mgr, alert_id, 'approve')).status).toBe(200);
+    // the approve: 01d's pre-read runs the kind's apply once before the write and once in it; each one ask of the list
+    expect(asks.length).toBeGreaterThan(1);
+    for (const a of asks) expect(a).toEqual(folded(order_id, ['N1']));
+  });
+
+  it('[05 #32 guard-list half] LINE_IN_CLOSED_SPLIT refuses CompLine (409, nothing written) and refuses the approve (request stays open)', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const omar = signIn('S_OMAR');
+    const mgr = signIn('S_MGR');
+    takeaway([NAANS]);
+    const alert_id = (await compLine(omar, quality('N1', 1))).result!.alert_id as string;
+    recordGuard(CLOSED_SPLIT);
+    const r = await compLine(ali, quality('N1', 1));
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual(CLOSED_SPLIT);
+    const a = await answer(mgr, alert_id, 'approve');
+    expect(a.status).toBe(409);
+    expect(a.error).toEqual(CLOSED_SPLIT);
     expect(compEvents()).toEqual([]);
     expect(alertRow(alert_id)).toMatchObject({ state: 'open' });
   });
@@ -903,7 +974,8 @@ describe('[02b #44] line change judges changed lines only; stale_comps mode (04 
       const drafts = lineChangeDrafts(ctxOf(tx), order_id, change, { stale_comps: 'keep' });
       return { drafts, statements: counter.count };
     }).result;
-    expect(kept.statements).toBe(1);
+    // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(kept.statements).toBe(2);
     expect(kept.drafts.map((d) => d.event_type)).toEqual(['OrderCancelled']);
 
     const closed = hub.deps.writer.run((tx) => lineChangeDrafts(ctxOf(tx), order_id, change)).result;

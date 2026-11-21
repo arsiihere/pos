@@ -15,10 +15,13 @@ import type {
   AdminTable,
   AdminTaxClass,
   AdminWindow,
+  BillingSettings,
+  BillingSettingsWire,
   BranchRenameRequest,
   BranchSettingsPatchRequest,
   BranchWire,
   ChangedPassword,
+  JurisdictionWire,
   CreateStockItemRequest,
   CreateVariantGroupRequest,
   CreateDealRequest,
@@ -91,6 +94,10 @@ export type CloudError =
 export type CloudResult<T> = { ok: true; data: T } | { ok: false; error: CloudError };
 
 export type Branch = AdminBranch;
+// 05 §4.5 row A-1 (4) (01a v2.7.1 §6.25, §6.26): the branch billing settings document and the read-only jurisdiction catalog.
+export type BillingDocument = BillingSettingsWire;
+export type PutBillingBody = BillingSettings & { expected_version: string };
+export type Jurisdiction = JurisdictionWire;
 export type AvailabilityWindow = AdminWindow;
 export type Table = AdminTable;
 export type Floor = AdminFloor;
@@ -394,6 +401,16 @@ export function createCloudAdmin(options: CloudAdminOptions) {
 
     // §6.7b (S58) the owner's branches, for their names; 01b B19 the hub times and their warning threshold
     listBranches: () => call<{ branches: Branch[]; hub_stale_after_ms: number }>('GET', '/v1/admin/branches'),
+
+    // 05 A-1 (4), 01a §6.25 / §6.26: billing settings (a PUT is a branch write, no Idempotency-Key) and the catalog
+    getBilling: (branchId: string) => call<{ billing: BillingDocument }>('GET', `${branch(branchId)}/billing`),
+    putBilling: (branchId: string, body: PutBillingBody) =>
+      call<{ billing: BillingDocument }>('PUT', `${branch(branchId)}/billing`, body),
+    listJurisdictions: (jurisdictionId?: string) =>
+      call<{ jurisdictions: Jurisdiction[] }>(
+        'GET',
+        `/v1/admin/jurisdictions${jurisdictionId === undefined ? '' : `?jurisdiction_id=${id(jurisdictionId)}`}`,
+      ),
 
     // §6.2–§6.6 floors and tables
     listFloors: (branchId: string) =>

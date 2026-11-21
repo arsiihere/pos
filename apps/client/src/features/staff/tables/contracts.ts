@@ -32,6 +32,9 @@ export interface MapTile {
   opened_at: number | null;
   bill_requested_at: number | null;
   live_order_count: number;
+  /** ⚠️ 02a v1.1.9 (05 row T-4, plan fix R-12): optional here so older fixtures stand; absent = no mark */
+  reopened?: boolean;
+  check_printed_at?: number | null;
 }
 
 export interface MapZone {

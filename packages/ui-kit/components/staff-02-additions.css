@@ -22,3 +22,10 @@
    plain .scrim at 30, above the banners. Same specificity as :where(.pu) .scrim, later in the cascade, so it wins. */
 :where(.pu) .scrim--route { z-index: 10; }
 :where(.pu) .abk { position: absolute; inset-block-start: 16px; inset-inline-start: 20px; z-index: 20; }
+
+/* 05-X01 TableBillStates (02a v1.1.9, 05 row T-4): the tile marks "Reopened" and "Check bill printed", as the 05
+   handoff's pulse-05.css `.b5-tg`; a duplicate to drop when pulse-05.css lands (pulse-02.css stays a byte copy). */
+:where(.pu) .b5-tg { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px 0 7px; border-radius: 8px; background: var(--c-bg); color: var(--c-ink); font: 800 12px/1 var(--font); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; vertical-align: middle; }
+:where(.pu) .b5-tg .ico { width: 14px; height: 14px; stroke-width: 2.4; color: var(--c); }
+:where(.pu) .b5-tg.cased { text-transform: none; letter-spacing: 0; font-size: 13px; }
+.pu[lang="ur"] .b5-tg { font-family: var(--font-urdu); letter-spacing: 0; text-transform: none; line-height: 1.6; height: auto; min-height: 26px; padding-block: 2px; }

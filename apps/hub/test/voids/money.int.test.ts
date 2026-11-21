@@ -238,7 +238,7 @@ describe('[04 #42] option children', () => {
     expect(linesOf(hub, order_id).get('F1')!.billed_minor).toBe(320_000);
   });
 
-  it('[02b #39] statements: VoidItems direct with a null child = the same order without it (04 §6.1 3 + 2)', async () => {
+  it('[02b #39] statements: VoidItems direct with a null child = the same order without it (04 §6.1 3 + 2, + 1 for 05’s line guard)', async () => {
     hub = await startMoney();
     const mgr = signIn(hub, STAFF.manager);
     const counter = statementCounter(hub.deps.db);
@@ -274,8 +274,8 @@ describe('[04 #42] option children', () => {
     const plain = await counted('K0', [{ order_item_id: 'K0', item_id: FX.piece, quantity: 3 }]);
     const withNull = await counted('K', laterChild(3));
     expect(withNull).toBe(plain);
-    expect(withNull).toBe(5);
-    // the last unit, cascading into the null child: still 3 + 2 (one readOrder row read carries option_quantity)
+    expect(withNull).toBe(5 + 1); // +1: 05 line guard (task 24)
+    // the last unit, cascading into the null child: still 3 + 2 + 1 (one readOrder row read carries option_quantity)
     const order_id = takeaway([
       { order_item_id: 'KL', item_id: FX.piece, quantity: 1 },
       { order_item_id: 'RL', option_id: FX.option, parent_order_item_id: 'KL', quantity: 1, item: { option_quantity: null, quantity: 1, line_total_minor: 10_000 } },
@@ -290,7 +290,8 @@ describe('[04 #42] option children', () => {
     });
     expect(last.status, JSON.stringify(last.error)).toBe(200);
     expect(ofType(last, 'ItemVoided').map((p) => [p.order_item_id, p.units])).toEqual([['KL', 1], ['RL', 1]]);
-    expect(handled).toBe(5);
+    // +1: 05 line guard (task 24); +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(handled).toBe(5 + 1 + 1);
   });
 
   it('[02b #39] [04 K-1] approval path: the last parent unit with a null child, approved → the child\'s cascaded ItemVoided carries the alert_id', async () => {

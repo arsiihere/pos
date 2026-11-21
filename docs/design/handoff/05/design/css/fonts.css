@@ -1,0 +1,6 @@
+/* 05 frames: the 5 bundled fonts (the hub has no internet; no CDN). Same files as ds/pos/tokens.css. */
+@font-face { font-family: "Figtree"; src: url("../ds/pos/fonts/Figtree-var.woff2") format("woff2"); font-weight: 300 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Bricolage Grotesque"; src: url("../ds/pos/fonts/BricolageGrotesque-var.woff2") format("woff2"); font-weight: 200 800; font-style: normal; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("../ds/pos/fonts/GeistMono-var.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Noto Nastaliq Urdu"; src: url("../ds/pos/fonts/NotoNastaliqUrdu-400.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Noto Nastaliq Urdu"; src: url("../ds/pos/fonts/NotoNastaliqUrdu-700.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }

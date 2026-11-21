@@ -128,8 +128,8 @@ async function submitForm(): Promise<void> {
 }
 
 const TAXES: TaxClass[] = [
-  { tax_class_id: 'X1', name: 'Standard', rate_bp: 1600, archived_at: null },
-  { tax_class_id: 'X2', name: 'Old rate', rate_bp: 1700, archived_at: 5 },
+  { tax_class_id: 'X1', name: 'Standard', rate_bp: 1600, fiscal_category: null, archived_at: null },
+  { tax_class_id: 'X2', name: 'Old rate', rate_bp: 1700, fiscal_category: null, archived_at: 5 },
 ];
 const CATEGORIES: Category[] = [
   { category_id: 'C1', name: 'Karahi', sort_order: 0, archived_at: null, availability_windows: [], goes_with: [] },

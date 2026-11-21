@@ -1,7 +1,8 @@
 import { fileURLToPath } from 'node:url';
-import type { EventDraft } from '@pos/events';
+import { defineEvent, latestVersion, type EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { runMigrations } from '../../src/db/migrate';
 import { createAuthGeneration } from '../../src/engine-host/auth-generation';
 import { createStateHolder } from '../../src/engine-host/state-holder';
@@ -13,6 +14,21 @@ import { registerTablesProjection } from '../../src/tables/index';
 import { bindTablesProjectionLog, foldState, TABLES_EVENT_TYPES } from '../../src/tables/projection';
 import { freshDb } from '../helpers/db';
 import { createTestHub } from '../helpers/test-hub';
+
+// 05 §6.29 `BillClosedEmpty` is 05's own event (its schema file lands with 05's events, not in P0.11): until it is
+// registered, this file registers the §6.29 payload so the writer can append it. 05's stream `bill` lands with P0.3b
+// (F-1); the 02a fold reads only the payload, so these tests append it on stream `table`.
+try {
+  latestVersion('BillClosedEmpty');
+} catch {
+  defineEvent({
+    eventType: 'BillClosedEmpty',
+    version: 1,
+    payload: z
+      .object({ bill_id: z.string(), seating_id: z.string().nullable(), credit_invoice_ids: z.array(z.string()), alert_id: z.string().optional() })
+      .strict(),
+  });
+}
 
 // 02a §5 / T19: the one projection `tables`, over the real 0012 tables, fed real events through the hub writer.
 const migrations = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
@@ -115,6 +131,11 @@ const foodCleared = (order_id: string, food_served: boolean) => ev('order', orde
 const billRequested = (seating_id: string, table_id = 'T1') =>
   ev('table', table_id, 'BillRequested', { seating_id, table_id, by_staff_id: ALI });
 const billClosed = (seating_id: string, table_id = 'T1') => ev('table', table_id, 'BillClosed', { seating_id });
+// ⚠️ 02a v1.1.8 (05 row T-3): 05's full-edit reopen of a CLOSED bill; 05's empty close (05 §6.29, stream `bill`).
+const reopened = (seating_id: string, table_id = 'T1', alert_id?: string) =>
+  ev('table', table_id, 'SeatingReopened', { seating_id, bill_id: 'B1', ...(alert_id === undefined ? {} : { alert_id }) });
+const closedEmpty = (seating_id: string | null) =>
+  ev('table', 'B1', 'BillClosedEmpty', { bill_id: 'B1', seating_id, credit_invoice_ids: ['INV1'] });
 const cleaned = (seating_id: string, table_ids: string[], reason: 'cleaned' | 'left_without_order' = 'cleaned') =>
   ev('table', table_ids[0]!, 'TableCleaned', { seating_id, table_ids, reason, by_staff_id: ALI });
 
@@ -148,7 +169,7 @@ describe('02a tables projection', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  it('[02a §5] eventTypes = the ten §6.19 types + the nine 02b / 05 folds; not ItemServed (AD-4)', () => {
+  it('[02a §5] eventTypes = the eleven §6.19 types + the ten 02b / 05 folds; not ItemServed (AD-4) ⚠️ 05 row T-3', () => {
     expect([...TABLES_EVENT_TYPES].sort()).toEqual(
       [
         'TableOpened',
@@ -170,6 +191,8 @@ describe('02a tables projection', () => {
         'LineWeightSet',
         'LineComped',
         'BillClosed',
+        'SeatingReopened',
+        'BillClosedEmpty',
       ].sort(),
     );
     expect(TABLES_EVENT_TYPES).not.toContain('ItemServed');
@@ -254,6 +277,89 @@ describe('02a tables projection', () => {
     expect(seating(h.db, 'S1')).toMatchObject({ state: 'NEEDS_CLEANING', bill_closed: 1 });
     h.append(linesAdded('O1'), billRequested('S1'), cancelled('O1'));
     expect(stateOf(h.db, 'S1')).toBe('NEEDS_CLEANING');
+  });
+
+  it('[05 row T-3 (1)] [02a #64] [05 #37b 02a half] SeatingReopened → bill_closed = 0, bill_requested_at = NULL, state re-folded (ORDERED / FOOD_ON_TABLE / SEATED)', async () => {
+    const h = await harness(cleanups);
+    h.append(opened('T1', 'S1'), placed('O1'), foodServed('O1'), billRequested('S1'), billClosed('S1'));
+    expect(seating(h.db, 'S1')).toMatchObject({ state: 'NEEDS_CLEANING', bill_closed: 1 });
+    h.append(reopened('S1'));
+    expect(seating(h.db, 'S1')).toMatchObject({ state: 'FOOD_ON_TABLE', bill_closed: 0, bill_requested_at: null });
+    // a round added after the reopen → ORDERED; the re-close writes BillClosed → NEEDS_CLEANING again
+    h.append(linesAdded('O1'));
+    expect(stateOf(h.db, 'S1')).toBe('ORDERED');
+    h.append(billClosed('S1'));
+    expect(seating(h.db, 'S1')).toMatchObject({ state: 'NEEDS_CLEANING', bill_closed: 1 });
+    // with an approval's alert_id; a reopened seating whose every order is cancelled folds to SEATED
+    h.append(opened('T2', 'S2'), placed('O2', { seating: 'S2' }), cancelled('O2'), billClosed('S2', 'T2'), reopened('S2', 'T2', 'A1'));
+    expect(seating(h.db, 'S2')).toMatchObject({ state: 'SEATED', bill_closed: 0 });
+  });
+
+  it('[05 row T-3 (1)] [02a #64] [05 #37c 02a half] SeatingReopened on a CLOSED (cleaned) seating changes nothing; the new seating on the table is unaffected', async () => {
+    const h = await harness(cleanups);
+    h.append(opened('T1', 'S1'), placed('O1'), billRequested('S1'), billClosed('S1'), cleaned('S1', ['T1']));
+    const closed = seating(h.db, 'S1');
+    expect(closed).toMatchObject({ state: 'CLOSED', bill_closed: 1 });
+    h.append(opened('T1', 'S9'), placed('O9', { seating: 'S9' }), billRequested('S9'));
+    const fresh = seating(h.db, 'S9');
+    h.append(reopened('S1'));
+    expect(seating(h.db, 'S1')).toEqual(closed);
+    expect(seating(h.db, 'S9')).toEqual(fresh);
+    expect(stateOf(h.db, 'S9')).toBe('BILL_REQUESTED');
+  });
+
+  it('[05 row T-3 (2)] [05 #37e 02a half] OrderPlaced on a seating with bill_closed = 1 → bill_closed = 0, re-folded ORDERED; its close writes BillClosed → NEEDS_CLEANING again', async () => {
+    const h = await harness(cleanups);
+    h.append(opened('T1', 'S1'), placed('O1'), foodServed('O1'), billClosed('S1'));
+    expect(seating(h.db, 'S1')).toMatchObject({ state: 'NEEDS_CLEANING', bill_closed: 1 });
+    h.append(placed('O2'));
+    expect(seating(h.db, 'S1')).toMatchObject({ state: 'ORDERED', bill_closed: 0, bill_requested_at: null });
+    expect(order(h.db, 'O2')).toMatchObject({ seating_id: 'S1', cancelled: 0 });
+    h.append(foodServed('O2'));
+    expect(stateOf(h.db, 'S1')).toBe('FOOD_ON_TABLE');
+    h.append(billClosed('S1'));
+    expect(seating(h.db, 'S1')).toMatchObject({ state: 'NEEDS_CLEANING', bill_closed: 1 });
+    // other order events keep NEEDS_CLEANING sticky (only OrderPlaced and SeatingReopened clear it)
+    h.append(linesAdded('O2'), billRequested('S1'));
+    expect(stateOf(h.db, 'S1')).toBe('NEEDS_CLEANING');
+  });
+
+  it('[05 row T-3 (7)] BillClosedEmpty with a non-null seating_id folds like BillClosed (NEEDS_CLEANING); with seating_id null the table state is unchanged', async () => {
+    const h = await harness(cleanups);
+    h.append(opened('T1', 'S1'), placed('O1'), cancelled('O1'), reopened('S1'));
+    const before = seating(h.db, 'S1');
+    expect(before).toMatchObject({ state: 'SEATED', bill_closed: 0 });
+    h.append(closedEmpty(null));
+    expect(seating(h.db, 'S1')).toEqual(before);
+    h.append(closedEmpty('S1'));
+    expect(seating(h.db, 'S1')).toMatchObject({ state: 'NEEDS_CLEANING', bill_closed: 1 });
+    // a CLOSED seating is never re-folded
+    h.append(cleaned('S1', ['T1']));
+    const closed = seating(h.db, 'S1');
+    h.append(closedEmpty('S1'));
+    expect(seating(h.db, 'S1')).toEqual(closed);
+  });
+
+  it('[05 row T-3] reset + replay over SeatingReopened, OrderPlaced on bill_closed, BillClosedEmpty → identical rows', async () => {
+    const h = await harness(cleanups);
+    h.append(
+      opened('T1', 'S1'),
+      placed('O1'),
+      billClosed('S1'),
+      reopened('S1'),
+      billClosed('S1'),
+      placed('O2'),
+      opened('T2', 'S2'),
+      placed('O3', { seating: 'S2' }),
+      cancelled('O3'),
+      closedEmpty('S2'),
+    );
+    const live = dump(h.db);
+    h.db.prepare(`DELETE FROM projection_checkpoints WHERE projection = 'tables'`).run();
+    const fresh = createProjectionRegistry();
+    registerTablesProjection(fresh);
+    expect(fresh.catchUp(h.db, BRANCH).replayed.tables).toBe(10);
+    expect(dump(h.db)).toEqual(live);
   });
 
   it('[02a #33 fold] every order cancelled → SEATED; bill requested, then every order cancelled → SEATED with bill_requested_at cleared', async () => {

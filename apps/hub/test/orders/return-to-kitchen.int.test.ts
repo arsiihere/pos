@@ -1,3 +1,4 @@
+import { renderText } from '@pos/domain';
 import { ORDER_EXIT_AFTER_SERVED_MS, type EngineState } from '@pos/engine';
 import type { DirectoryInput, EventDraft } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -8,7 +9,6 @@ import { returnToKitchenCommand } from '../../src/orders/commands/return-to-kitc
 import { orderLines } from '../../src/orders/exports';
 import { voidUnits } from '../../src/orders/ledger';
 import { renderJob } from '../../src/print/render/jobs';
-import { renderText } from '../../src/print/render/text';
 import { branchConfig, runBranchConfigHooks, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';

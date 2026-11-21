@@ -7,8 +7,8 @@ import { toPc437 } from '../print/escpos.js';
 import { defineQuery, queryRegistry, type QueryCtx } from './registry.js';
 
 // 03c §6.6, §3.2, §3.10 (task c20): GET /admin/queries/print-config — admin session, `manage-devices` checked inside
-// handle. `{ printers, station_outputs, warnings }`. Statements 4 (printers + runtime, outputs, fold skips, waiting
-// suspects) + memory: the config's stations and items, 03b's screen-station map (screenStations, b6).
+// handle. `{ printers, station_outputs, bill_routes, zones, floors, warnings }` (zones with their floor_id / floors: R-38, memory). Statements 5 (printers + runtime, outputs, bill routes (05 row
+// P-1, R-22), fold skips, waiting suspects) + memory: the config's stations and items, 03b's screen-station map (screenStations, b6).
 // Warnings (§3.2):
 // - `screen_unused`  a `printer` station that also has a screen paired;
 // - `no_screen`      a `screen` station with a fallback printer but no paired screen (it never falls back to paper);
@@ -27,6 +27,7 @@ SELECT p.printer_id, p.name, p.connection, p.address, p.paper_width_mm, p.archiv
   FROM printers p LEFT JOIN printer_runtime r ON r.printer_id = p.printer_id
  ORDER BY p.archived_at IS NOT NULL, p.name, p.printer_id`;
 const OUTPUTS_SQL = 'SELECT station_id, mode, printer_id, show_taker, show_order_id FROM station_outputs';
+const ROUTES_SQL = 'SELECT scope, ref_id, printer_id FROM bill_routes ORDER BY scope, ref_id';
 const SKIPS_SQL = 'SELECT event_id, station_id FROM print_fold_skips ORDER BY at, event_id';
 const SUSPECT_SQL = `SELECT DISTINCT station_id FROM print_jobs WHERE suspect_at IS NOT NULL AND suspect_resolved_at IS NULL`;
 
@@ -88,6 +89,7 @@ export function registerPrintConfigQuery(app: FastifyInstance): void {
         requireManageDevices(ctx);
         const printers = ctx.db.prepare(PRINTERS_SQL).all() as Array<Record<string, unknown>>;
         const outputs = new Map((ctx.db.prepare(OUTPUTS_SQL).all() as OutputRow[]).map((o) => [o.station_id, o]));
+        const bill_routes = ctx.db.prepare(ROUTES_SQL).all();
         const skips = ctx.db.prepare(SKIPS_SQL).all() as Array<{ event_id: string; station_id: string }>;
         const suspects = ctx.db.prepare(SUSPECT_SQL).pluck().all() as Array<string | null>;
         const screens = screenStations();
@@ -121,6 +123,10 @@ export function registerPrintConfigQuery(app: FastifyInstance): void {
             archived: true,
           });
         }
+        // 03c v1.0.14 §6.6 (R-38): the zones and floors a bill route can name, from the config in memory (0 statements)
+        const floors = ctx.branchConfig?.floors ?? [];
+        const floorList = floors.map((f) => ({ floor_id: f.floor_id, name: f.name, archived: false }));
+        const zones = floors.flatMap((f) => f.zones.map((z) => ({ zone_id: z.zone_id, floor_id: f.floor_id, name: z.name, archived: z.is_archived })));
         const warnings: PrintConfigWarning[] = [];
         const printing = new Set<string>();
         for (const s of station_outputs) {
@@ -133,7 +139,7 @@ export function registerPrintConfigQuery(app: FastifyInstance): void {
         warnings.push(...lossyNames(ctx.branchConfig, printing));
         for (const k of skips) warnings.push({ station_id: k.station_id, kind: 'fold_skipped' });
         for (const station_id of suspects) warnings.push(station_id === null ? { kind: 'suspect_waiting' } : { station_id, kind: 'suspect_waiting' });
-        return { data: { printers, station_outputs, warnings } };
+        return { data: { printers, station_outputs, bill_routes, zones, floors: floorList, warnings } };
       },
     }),
   );

@@ -22,7 +22,7 @@ afterEach(() => {
   window.location.hash = '';
 });
 
-const TAXES: TaxClass[] = [{ tax_class_id: 'X1', name: 'Standard', rate_bp: 1600, archived_at: null }];
+const TAXES: TaxClass[] = [{ tax_class_id: 'X1', name: 'Standard', rate_bp: 1600, fiscal_category: null, archived_at: null }];
 const CATEGORIES: Category[] = [
   { category_id: 'C1', name: 'Karahi', sort_order: 0, archived_at: null, availability_windows: [], goes_with: [] },
   { category_id: 'C2', name: 'BBQ', sort_order: 1, archived_at: null, availability_windows: [], goes_with: [] },

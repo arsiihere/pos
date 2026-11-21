@@ -5,11 +5,14 @@ import type {
   ItemServedPayload,
   ItemVoidedPayload,
   LineCompedPayload,
+  LineCompRemovedPayload,
   LineWeightSetPayload,
   OrderCancelledPayload,
   OrderContactSetPayload,
   OrderPlacedPayload,
   OrdersBilledPayload,
+  OrdersCarriedOverPayload,
+  OrdersUnbilledPayload,
   PosEvent,
   ZoneStockAddedPayload,
   ZoneStockSetPayload,
@@ -36,6 +39,10 @@ export const ORDERS_EVENT_TYPES: readonly string[] = [
   'OrderContactSet',
   'OrderCancelled',
   'OrdersBilled',
+  // ⚠️ Changed by 05 (rows Q-2, Q-4, Q-5), 02b v1.0.16 §5.
+  'OrdersUnbilled',
+  'LineCompRemoved',
+  'OrdersCarriedOver',
   'BusinessDayClosed',
   'ZoneStockAdded',
   'ZoneStockSet',
@@ -85,14 +92,14 @@ function applyOrders(tx: Database.Database, event: PosEvent): void {
       return;
     }
     case 'LineWeightSet': {
-      // §3.4 Weights / §6.19: the weighed line starts at 0; refundable_minor = line_total_minor.
+      // §3.4 Weights / §6.19: the weighed line starts at 0; refundable_minor = line_total_minor. ⚠️ Changed by 05
+      // (R-7, R-17): unit_price_minor = round_half_up(line_total_minor ÷ units); only item lines are weighed
+      // (set-line-weight) and a weighed line has 1 unit, so it is the weighed total (§3.4; same statement).
       const p = event.payload as LineWeightSetPayload;
-      tx.prepare('UPDATE order_lines SET quantity = ?, line_total_minor = ?, refundable_minor = ? WHERE order_item_id = ?').run(
-        p.quantity,
-        p.line_total_minor,
-        p.line_total_minor,
-        p.order_item_id,
-      );
+      tx.prepare(
+        `UPDATE order_lines SET quantity = ?, line_total_minor = ?, refundable_minor = ?, unit_price_minor = ?
+         WHERE order_item_id = ?`,
+      ).run(p.quantity, p.line_total_minor, p.line_total_minor, p.line_total_minor, p.order_item_id);
       return;
     }
     case 'LineComped': {
@@ -125,6 +132,28 @@ function applyOrders(tx: Database.Database, event: PosEvent): void {
       );
       return;
     }
+    case 'OrdersUnbilled': {
+      // ⚠️ Changed by 05 (row Q-2), §3.3 Unbilled: back to the state before BILLED, and off the day close (H1-11).
+      const p = event.payload as OrdersUnbilledPayload;
+      tx.prepare('UPDATE orders SET billed_at = NULL, day_closed_at = NULL WHERE order_id IN (SELECT value FROM json_each(?))').run(
+        JSON.stringify(p.order_ids),
+      );
+      return;
+    }
+    case 'LineCompRemoved': {
+      // ⚠️ Changed by 05 (row Q-4), §3.9: this line's own units and comp share leave the comp, never below 0.
+      const p = event.payload as LineCompRemovedPayload;
+      tx.prepare(
+        'UPDATE order_lines SET comped_units = MAX(0, comped_units - ?), comp_minor = MAX(0, comp_minor - ?) WHERE order_item_id = ?',
+      ).run(p.units, p.comp_minor, p.order_item_id);
+      return;
+    }
+    case 'OrdersCarriedOver': {
+      // ⚠️ Changed by 05 (row Q-5), §3.3 Day close: 05's hub-stream event (05 §6.24); only order_ids is read here.
+      const p = event.payload as OrdersCarriedOverPayload;
+      tx.prepare('UPDATE orders SET carried_over = 1 WHERE order_id IN (SELECT value FROM json_each(?))').run(JSON.stringify(p.order_ids));
+      return;
+    }
     case 'BusinessDayClosed':
       return applyDayClosed(tx, at);
     case 'ZoneStockAdded': {
@@ -153,8 +182,8 @@ function applyPlaced(tx: Database.Database, event: PosEvent): void {
   if (p.order_type === 'delivery' || p.business_date === undefined || event.actor_id === null) return;
   tx.prepare(
     `INSERT INTO orders (order_id, order_type, table_key, business_date, token, car_number, car_type, order_note,
-                         placed_by, placed_at, follow_up, sent_after_reconnect)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                         placed_by, placed_at, follow_up, sent_after_reconnect, bill_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     p.order_id,
     p.order_type,
@@ -168,7 +197,21 @@ function applyPlaced(tx: Database.Database, event: PosEvent): void {
     event.recorded_at,
     p.follow_up ? 1 : 0,
     p.sent_after_reconnect === true ? 1 : 0,
+    billKey(tx, p),
   );
+}
+
+// ⚠️ Changed by 05 (row Q-6), 02b v1.0.16 §3.1, §5: takeaway 'takeaway:' + root (an addition takes the bill_key of the
+// order it adds to, which already names its root), parking table_key + ':' + business_date (the normalised plate),
+// dine-in NULL (05 bills it through seating_orders). Reads only `orders` (T19). SubmitOrder checks the target's row
+// first, and the target's OrderPlaced has a lower seq, so the row is always there; if it were not, NULL (no guessed key,
+// and no throw that would stop a refold at boot).
+function billKey(tx: Database.Database, p: OrderPlacedPayload): string | null {
+  if (p.order_type === 'parking') return `${p.table_key}:${p.business_date!}`;
+  if (p.order_type !== 'takeaway') return null;
+  if (p.adds_to_order_id === undefined) return `takeaway:${p.order_id}`;
+  const row = tx.prepare('SELECT bill_key FROM orders WHERE order_id = ?').get(p.adds_to_order_id) as { bill_key: string | null } | undefined;
+  return row?.bill_key ?? null;
 }
 
 // §5 `order_lines` row from the ItemAdded copy (01c §4.3 + C-1); zone-served line → zone count − (§3.10).
@@ -181,8 +224,8 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
   const inserted = tx.prepare(
     `INSERT INTO order_lines (order_item_id, order_id, parent_order_item_id, line_kind, item_id, deal_id, name, sale_unit,
                               quantity, units, line_total_minor, refundable_minor, return_of, served_from_zone_id, added_at,
-                              is_food, kitchen_note, options_json, station_id, option_quantity)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              is_food, kitchen_note, options_json, station_id, option_quantity, tax_profile_id, unit_price_minor)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (order_item_id) DO NOTHING`,
   ).run(
     p.order_item_id,
@@ -208,6 +251,10 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
     p.station_id,
     // ⚠️ Changed by v1.0.13 (owner 2026-11-12, 04 Q-19): the §3.4 cascade's null-quantity child rule reads it.
     p.option_quantity,
+    // ⚠️ Changed by 05 (row Q-1): the item's tax profile (the event field keeps its name); NULL = untaxed.
+    p.tax_class_id,
+    // ⚠️ Changed by 05 (R-7, R-17): per line kind from its own line_total_minor and units; NULL while a weight is pending.
+    unitPriceMinor(p.line_total_minor, units),
   );
   if (inserted.changes === 1 && zoneServed && p.item_id !== null) {
     tx.prepare('UPDATE zone_stock SET on_hand = on_hand - ? WHERE zone_id = ? AND item_id = ?').run(units, p.served_from_zone_id, p.item_id);
@@ -223,6 +270,18 @@ function lineUnits(tx: Database.Database, p: ItemAddedPayload): number {
   }
   if (p.sale_unit !== 'piece' || p.quantity === null) return 1;
   return p.quantity;
+}
+
+// ⚠️ Changed by 05 (R-7, R-17), 02b v1.0.16 §5: round_half_up(line_total_minor ÷ units) in integers,
+// floor((2 × t + u) ÷ (2 × u)) (BigInt, as shareOf). NULL while a weight is pending (no total); a deal_part (total 0) = 0;
+// item, deal and option_child lines from their own total and units. Totals are never negative (01c §3.4.4).
+function unitPriceMinor(line_total_minor: number | null, units: number): number | null {
+  // units < 1 never reaches the fold (the command schema has quantity ≥ 1); NULL rather than a BigInt RangeError, so a
+  // seq-0 refold can never stop the hub at boot.
+  if (line_total_minor === null || units < 1) return null;
+  const t = BigInt(line_total_minor);
+  const u = BigInt(units);
+  return Number((2n * t + u) / (2n * u));
 }
 
 // §3.4 Refundable amount: line_total_minor for item / option_child (0 while a weight is pending, LineWeightSet sets
@@ -313,15 +372,18 @@ function applyVoided(tx: Database.Database, p: ItemVoidedPayload): void {
 
 // §3.3 Day close: day_closed_at on every open order (any earlier date) that is cancelled, billed, or whose lines are
 // all served, removed or voided. A deal line is never served itself (§3.4 Deal headers): only its parts count.
+// ⚠️ Changed by 05 (row Q-5): a carried order (carried_over = 1) is skipped and its flag cleared in the same fold, so it
+// keeps day_closed_at = NULL for this close only.
 function applyDayClosed(tx: Database.Database, at: number): void {
   tx.prepare(
     `UPDATE orders SET day_closed_at = ?
-     WHERE day_closed_at IS NULL
+     WHERE day_closed_at IS NULL AND carried_over = 0
        AND (cancelled_at IS NOT NULL OR billed_at IS NOT NULL
             OR NOT EXISTS (SELECT 1 FROM order_lines l
                            WHERE l.order_id = orders.order_id AND l.line_kind <> 'deal' AND l.served_at IS NULL
                              AND l.units - l.removed_units - l.voided_units > 0))`,
   ).run(at);
+  tx.prepare('UPDATE orders SET carried_over = 0 WHERE carried_over = 1').run();
 }
 
 function zoneAdd(tx: Database.Database, zoneId: string, itemId: string, quantity: number): void {

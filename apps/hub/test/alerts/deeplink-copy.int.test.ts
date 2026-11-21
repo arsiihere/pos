@@ -327,11 +327,12 @@ describe('[01d #72] (b) (c), [01d #71] copy kinds when the request kind has no l
     // Absolute totals, so a statement added for every variant fails here too (review h3 #252, reviewer B's mutation).
     // Measured with this same flow on module-deeplinks @ 4d596bed (before h1, = v1.2.5 alerts code): identical numbers.
     // Each total is the whole HTTP command / query (auth, pipeline, after-commit frames), writer db + read db:
-    // - raise 42: RequestTableHandover (the owning raise; `link` is not run there)
+    // - raise 45: RequestTableHandover (the owning raise; `link` is not run there; +1 since 05 task 7, the `billing` checkpoint;
+    //   +1 since 05 task 8, the `shifts` checkpoint; +1 since 05 task 11, the `billing_prints` checkpoint)
     // - inbox 4 = 2 query statements (§3.13.1 "Statement counts": 2 → 2; 01d #42 pin) + 2 auth
     // - requests-to-answer 4 = 2 query statements (2 → 2; 01d §6.9 pin) + 2 auth
-    // - answer 52: AnswerRequest accept with the request_result raise (values.link from the RequestRow, no read added)
-    // - closeMany 39: one close obsolete with its request_result raise (values_json in the same alert SELECT, 1 → 1)
-    expect(real).toEqual({ raise: 42, inbox: 4, inboxQuery: 2, requestsToAnswer: 4, requestsToAnswerQuery: 2, answer: 52, closeMany: 39 });
+    // - answer 55 (+1, 05 task 7; +1, 05 task 8; +1, 05 task 11): AnswerRequest accept with the request_result raise (values.link from the RequestRow, no read added)
+    // - closeMany 42 (+1, 05 task 7; +1, 05 task 8; +1, 05 task 11): one close obsolete with its request_result raise (values_json in the same alert SELECT, 1 → 1)
+    expect(real).toEqual({ raise: 45, inbox: 4, inboxQuery: 2, requestsToAnswer: 4, requestsToAnswerQuery: 2, answer: 55, closeMany: 42 });
   });
 });

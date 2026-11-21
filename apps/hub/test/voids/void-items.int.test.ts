@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { alerts } from '../../src/alerts/raise';
 import { defineCommand, type CommandCtx } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
+import { orderLines } from '../../src/orders/exports';
 import { COMP_KIND } from '../../src/orders/line-change';
+import { registerLineGuard, resetLineGuard, type LineGuardEntry, type LineGuardResult } from '../../src/orders/line-guard';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { voidItemsCommand } from '../../src/voids/commands/void-items';
 import { statementCounter } from '../helpers/statement-counter';
@@ -38,6 +40,7 @@ import {
 let hub: TestHub;
 
 afterEach(async () => {
+  resetLineGuard(); // a guard a test registered; the next test hub re-registers 04's (registerVoids)
   swapBranchConfig(null);
   await hub.close();
 });
@@ -439,11 +442,12 @@ async function countedVoid(who: Who, payload: Record<string, unknown>): Promise<
 // order; K2 is placed with K1 and held unfired (a VX.slow hold line), a live waiting line of the same order.
 describe('[04 §6.1, T-2] VoidItems moved: stock effects end to end (10b, 10d–10h)', () => {
   type Entry = { order_item_id: string; units?: number; disposition: 'moved' | 'wastage' };
-  async function voidCounted(order_id: string, lines: Entry[]): Promise<{ reply: Reply; reserved: string[] }> {
+  async function voidCounted(order_id: string, lines: Entry[], expected = 5 + 1): Promise<{ reply: Reply; reserved: string[] }> {
     const mgr = signIn(hub, STAFF.manager);
     const { reply, statements } = await countedVoid(mgr, { order_id, reason_code: 'quality', note: null, disposition_note: null, lines });
     expect(reply.status, JSON.stringify(reply.error)).toBe(200);
-    expect(statements).toBe(5);
+    // default 5 + 1: 05 line guard (task 24); callers that cancel an order pass + 1 more for the order-cancelled hook (R-72, task 19)
+    expect(statements).toBe(expected);
     expect(strictRefold(hub)).toEqual(state());
     expect(state().diagnostics.filter((d) => d.kind === 'stock_breach')).toEqual([]);
     return { reply, reserved: ofType(reply, 'StockReserved').map((e) => e.payload.order_item_id as string) };
@@ -466,7 +470,8 @@ describe('[04 §6.1, T-2] VoidItems moved: stock effects end to end (10b, 10d–
     toStage(hub, order_id, ['KA'], 'cooking');
     toStage(hub, order_id, ['KB'], 'done');
     const t4 = waitingT4(hub);
-    const { reply, reserved } = await voidCounted(order_id, [{ order_item_id: 'KA', disposition: 'moved' }, { order_item_id: 'KB', disposition: 'moved' }]);
+    // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    const { reply, reserved } = await voidCounted(order_id, [{ order_item_id: 'KA', disposition: 'moved' }, { order_item_id: 'KB', disposition: 'moved' }], 5 + 1 + 1);
     expect(reply.events.filter((e) => e.event_type === 'ItemMovedToStock' || e.event_type === 'ItemVoided').map((e) => `${e.event_type} ${String(e.payload.order_item_id)}`)).toEqual([
       'ItemMovedToStock KA',
       'ItemVoided KA',
@@ -488,7 +493,8 @@ describe('[04 §6.1, T-2] VoidItems moved: stock effects end to end (10b, 10d–
       const t4 = waitingT4(hub);
       const k1: Entry = { order_item_id: 'K1', disposition: 'moved' };
       const k2: Entry = { order_item_id: 'K2', disposition: 'wastage' };
-      const { reply, reserved } = await voidCounted(order_id, movedFirst ? [k1, k2] : [k2, k1]);
+      // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+      const { reply, reserved } = await voidCounted(order_id, movedFirst ? [k1, k2] : [k2, k1], 5 + 1 + 1);
       expect(reserved, String(movedFirst)).toEqual([t4.line]);
       expect(ofType(reply, 'OrderCancelled')).toHaveLength(1);
       expect(state().lines[t4.line]).toMatchObject({ from_stock: true });
@@ -544,7 +550,7 @@ describe('[04 §6.1] definition and statements', () => {
     expect(voidItemsCommand.queueable ?? false).toBe(false);
   });
 
-  it('[04 §6.1 Statements] direct path: 3 + 2 = 5 statements (readOrder, two listOpen, lineChangeDrafts 2)', async () => {
+  it('[04 §6.1 Statements] direct path: 3 + 2 = 5 statements (readOrder, two listOpen, lineChangeDrafts 2), + 1 for 05’s line guard', async () => {
     hub = await startVoids();
     const mgr = signIn(hub, STAFF.manager);
     const s = stagedOrder(hub);
@@ -577,12 +583,13 @@ describe('[04 §6.1] definition and statements', () => {
       ],
     });
     expect(r.status, JSON.stringify(r.error)).toBe(200);
-    expect(handled).toBe(5);
+    // +1: 05 line guard (task 24); +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(handled).toBe(5 + 1 + 1);
   });
 
   // Reading (#131): §6.1's "3 + 2" excludes 01d's closeMany when lineChangeDrafts closes a stale comp request; measured
   // +7 here (closeMany's own statements for one close), so 12. Pinned as measured; the integrator records it as an AD row.
-  it('[04 §6.1 Statements, #19 path] a direct void that closes a stale comp request: 3 + 2 + 01d closeMany (7, one close) = 12', async () => {
+  it('[04 §6.1 Statements, #19 path] a direct void that closes a stale comp request: 3 + 2 + 01d closeMany (7, one close) = 12, + 1 for 05’s line guard', async () => {
     hub = await startVoids();
     const mgr = signIn(hub, STAFF.manager);
     const cashier = signIn(hub, STAFF.cashier);
@@ -597,6 +604,99 @@ describe('[04 §6.1] definition and statements', () => {
     const { reply, statements } = await countedVoid(mgr, { order_id: s.order_id, reason_code: 'quality', note: null, disposition_note: null, lines: [{ order_item_id: s.cooking, disposition: 'wastage' }] });
     expect(reply.status, JSON.stringify(reply.error)).toBe(200);
     expect(ofType(reply, 'AlertClosed')).toHaveLength(1);
-    expect(statements).toBe(12);
+    expect(statements).toBe(12 + 1); // +1: 05 line guard (task 24)
+  });
+});
+
+// ------------------------------------------------------------------------------------------- 05 #32 (05 row V-1)
+
+/** 05 row Q-3 / V-1 recording guard (stands in for 05's): 1 statement per ask; every ask's `touched` as given. */
+function recordGuard(result: LineGuardResult = null): LineGuardEntry[][] {
+  const asks: LineGuardEntry[][] = [];
+  registerLineGuard((db, _order_id, touched) => {
+    db.prepare('SELECT 1 AS one').get();
+    asks.push(touched.map((t) => ({ ...t })));
+    return result;
+  });
+  return asks;
+}
+
+function folded(order_id: string, ids: string[], money_changes = false): LineGuardEntry[] {
+  const lines = orderLines(hub.deps.db, [order_id]).get(order_id)!;
+  return ids.map((id) => {
+    const l = lines.find((x) => x.order_item_id === id)!;
+    return { order_item_id: id, units_after: l.live_units, comped_after: l.comped_units, base_after_minor: l.billed_minor, money_changes };
+  });
+}
+
+describe('[05 #32 guard-list half] [05 row V-1] VoidItems asks the line guard list once after ORDER_BILLED', () => {
+  it('[05 row V-1] direct: one ask with every touched line (deal + parts, a second entry); entries = the fold after; 04\'s own guard not re-asked: 5 + 1 (the stub) + 1 (05\'s) statements', async () => {
+    hub = await startVoids();
+    const mgr = signIn(hub, STAFF.manager);
+    const d = dealX2(hub);
+    const s = stagedOrder(hub);
+    toStage(hub, d.order_id, [d.karahiPart], 'cooking');
+    const asks = recordGuard();
+    const { reply, statements } = await countedVoid(mgr, { order_id: d.order_id, reason_code: 'quality', note: null, disposition_note: null, lines: [{ order_item_id: d.deal, units: 1, disposition: 'wastage' }] });
+    expect(reply.status, JSON.stringify(reply.error)).toBe(200);
+    expect(statements).toBe(5 + 1 + 1); // +1: 05 line guard (task 24)
+    expect(asks).toEqual([folded(d.order_id, [d.deal, d.karahiPart, d.naanPart])]);
+    expect(asks[0]![0]).toMatchObject({ units_after: 1 });
+
+    const two = await voidItems(mgr, s.order_id, [{ order_item_id: s.cooking, disposition: 'wastage' }, { order_item_id: s.done, disposition: 'wastage' }]);
+    expect(two.status, JSON.stringify(two.error)).toBe(200);
+    expect(asks).toHaveLength(2);
+    expect(asks[1]).toEqual(folded(s.order_id, [s.cooking, s.done]));
+  });
+
+  it('[05 row V-1] [R-33] a deal_part voided alone → its entry, then the parent deal\'s (units/comped unchanged, base folded from its parts, money_changes true)', async () => {
+    hub = await startVoids();
+    const mgr = signIn(hub, STAFF.manager);
+    const d = dealX2(hub);
+    toStage(hub, d.order_id, [d.karahiPart], 'cooking');
+    const before = folded(d.order_id, [d.deal])[0]!;
+    const asks = recordGuard();
+    const r = await voidItems(mgr, d.order_id, [{ order_item_id: d.karahiPart, disposition: 'wastage' }]);
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    const after = folded(d.order_id, [d.deal], true)[0]!;
+    expect(after.base_after_minor).toBeLessThan(before.base_after_minor);
+    expect(asks).toEqual([[...folded(d.order_id, [d.karahiPart]), after]]);
+    expect(after).toMatchObject({ units_after: before.units_after, comped_after: before.comped_after });
+  });
+
+  it('[05 row V-1] approval path: one ask with the planned after of every entry (whole line → units_after 0, base 0), before the raise', async () => {
+    hub = await startVoids();
+    const cashier = signIn(hub, STAFF.cashier);
+    const s = stagedOrder(hub);
+    const asks = recordGuard();
+    const r = await voidItems(cashier, s.order_id, [{ order_item_id: s.cooking, disposition: 'wastage' }, { order_item_id: s.done, disposition: 'wastage' }]);
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(r.result).toHaveProperty('pending');
+    expect(asks).toEqual([
+      [
+        { order_item_id: s.cooking, units_after: 0, comped_after: 0, base_after_minor: 0, money_changes: false },
+        { order_item_id: s.done, units_after: 0, comped_after: 0, base_after_minor: 0, money_changes: false },
+      ],
+    ]);
+  });
+
+  it('[05 row V-1] LINE_IN_CLOSED_SPLIT → 409, nothing written (both paths); a billed order → ORDER_BILLED, the guard not asked', async () => {
+    hub = await startVoids();
+    const mgr = signIn(hub, STAFF.manager);
+    const cashier = signIn(hub, STAFF.cashier);
+    const s = stagedOrder(hub);
+    const closed: LineGuardResult = { code: 'LINE_IN_CLOSED_SPLIT', details: { order_item_id: s.cooking, bill_id: 'B1', split_no: 1 } };
+    const asks = recordGuard(closed);
+    const n = events();
+    for (const who of [mgr, cashier]) {
+      const r = await voidItems(who, s.order_id, [{ order_item_id: s.cooking, disposition: 'wastage' }]);
+      expect(r.status).toBe(409);
+      expect(r.error).toEqual(closed);
+    }
+    expect(events()).toBe(n);
+    expect(asks).toHaveLength(2);
+    hub.deps.db.prepare('UPDATE orders SET billed_at = ? WHERE order_id = ?').run(hub.clock.branchNow(), s.order_id); // 05's bill: fixture
+    expect((await voidItems(mgr, s.order_id, [{ order_item_id: s.cooking, disposition: 'wastage' }])).error?.code).toBe('ORDER_BILLED');
+    expect(asks).toHaveLength(2);
   });
 });

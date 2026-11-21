@@ -6,6 +6,7 @@
 import { DomainError } from '@pos/domain';
 import type Database from 'better-sqlite3';
 import type { CommandCtx } from '../commands/registry.js';
+import type { SeatingRow } from '../tables/contracts.js';
 import type { LineView, OrdersOf, OrderLines, OrderType, OrderView, SeatingTotals } from './contracts.js';
 import { billedMinor, liveUnits } from './ledger.js';
 
@@ -24,7 +25,7 @@ const LINE_COLUMNS = `l.order_item_id AS l_order_item_id, l.order_id AS l_order_
   l.item_id, l.deal_id, l.name, l.sale_unit, l.quantity, l.units, l.comped_units, l.removed_units, l.voided_units,
   l.returned_units, l.refundable_minor, l.comp_minor, l.comp_voided_minor, l.removed_minor, l.refund_minor,
   l.line_total_minor, ${BILLED} AS billed_minor, l.return_of, l.served_from_zone_id, l.added_at, l.served_at,
-  l.served_source, l.is_food, l.kitchen_note, l.options_json`;
+  l.served_source, l.is_food, l.kitchen_note, l.options_json, l.tax_profile_id, l.unit_price_minor`;
 
 type LineRow = Omit<LineView, 'order_item_id' | 'order_id' | 'live_units' | 'zone_served' | 'is_food' | 'options'> & {
   l_order_item_id: string;
@@ -72,6 +73,8 @@ function toLine(r: LineRow): LineView {
     is_food: r.is_food === 1,
     kitchen_note: r.kitchen_note,
     options: lineOptions(r.options_json),
+    tax_profile_id: r.tax_profile_id, // ⚠️ 02b v1.0.16 (05 row Q-1), same statement
+    unit_price_minor: r.unit_price_minor, // ⚠️ 02b v1.0.16 (05 R-7, R-17), same statement
   };
 }
 
@@ -188,6 +191,8 @@ export interface ReadOrderHead {
   /** non-null for a closed seating too; "no current table" is `table_ids.length === 0` (G-14) */
   primary_table_id: string | null;
   holder_staff_id: string | null;
+  /** ⚠️ Changed by 05 (row T-3 (4), H2-14), 02a v1.1.9 §4.2: the seating's `s.state` (same statement); null without one */
+  seating_state: SeatingRow['state'] | null;
   /** the seating's seating_tables, joined_at then table_id (02a currentTableOf's order); [] once the seating is cleaned */
   table_ids: string[];
 }
@@ -195,20 +200,22 @@ export interface ReadOrderHead {
 /**
  * 02b §4.2 `readOrder` line: the line view plus the zone count of a zone line (§3.10), (⚠️ Changed by v1.0.12, 04
  * Q-14) `order_lines.station_id` — the line's ItemAdded.station_id, NULL for a deal header (04 §3.1 engine line) — and
- * (⚠️ Changed by v1.0.13, 04 Q-19) the line's `option_quantity` (§5), so each line is a §3.4 `LedgerRef`.
+ * (⚠️ Changed by v1.0.13, 04 Q-19) the line's `option_quantity` (§5), so each line is a §3.4 `LedgerRef`. ⚠️ Changed by
+ * 05 (row Q-1; R-7, R-17): `tax_profile_id` and `unit_price_minor` come with `LineView` (§5), still 1 statement.
  */
 export type ReadOrderLine = LineView & { zone_on_hand: number | null; station_id: string | null; option_quantity: number | null };
 
 // One statement: the order, its seating (02a, P-1c) with its tables (aggregate ORDER BY inside, SQLite ≥ 3.44), and its
 // lines with the zone count of each zone line.
 const READ_ORDER = `SELECT o.order_id, o.order_type, o.placed_by, o.billed_at, o.token, o.car_number, o.car_type, o.business_date,
-       so.seating_id, s.primary_table_id, s.holder_staff_id,
+       so.seating_id, s.primary_table_id, s.holder_staff_id, s.state AS seating_state,
        (SELECT json_group_array(st.table_id ORDER BY st.joined_at, st.table_id)
           FROM seating_tables st WHERE st.seating_id = so.seating_id) AS table_ids_json,
        l.order_item_id, l.parent_order_item_id, l.line_kind, l.item_id, l.deal_id, l.name, l.sale_unit, l.quantity,
        l.units, l.comped_units, l.removed_units, l.voided_units, l.returned_units, l.refundable_minor, l.comp_minor,
        l.comp_voided_minor, l.removed_minor, l.refund_minor, l.line_total_minor, l.return_of, l.served_from_zone_id,
-       l.added_at, l.served_at, l.served_source, l.is_food, l.kitchen_note, l.options_json, l.station_id, l.option_quantity, zs.on_hand AS zone_on_hand
+       l.added_at, l.served_at, l.served_source, l.is_food, l.kitchen_note, l.options_json, l.station_id, l.option_quantity, l.tax_profile_id,
+       l.unit_price_minor, zs.on_hand AS zone_on_hand
   FROM orders o
   LEFT JOIN seating_orders so ON so.order_id = o.order_id
   LEFT JOIN seatings s ON s.seating_id = so.seating_id
@@ -230,7 +237,7 @@ export function readOrder(ctx: CommandCtx, order_id: string): { order: ReadOrder
   const rows = ctx.tx.db.prepare(READ_ORDER).all(order_id) as ReadOrderRow[];
   const first = rows[0];
   if (first === undefined) throw new DomainError('ORDER_NOT_FOUND', { order_id });
-  const { order_type, placed_by, billed_at, business_date, token, car_number, car_type, seating_id, primary_table_id, holder_staff_id } = first;
+  const { order_type, placed_by, billed_at, business_date, token, car_number, car_type, seating_id, primary_table_id, holder_staff_id, seating_state } = first;
   // json_group_array over no rows is '[]'; a NULL seating gives NULL (no seating_tables row matches NULL).
   const table_ids = first.table_ids_json === null ? [] : (JSON.parse(first.table_ids_json) as string[]);
   const lines: ReadOrderLine[] = rows
@@ -267,6 +274,8 @@ export function readOrder(ctx: CommandCtx, order_id: string): { order: ReadOrder
       is_food: r.is_food === 1,
       kitchen_note: r.kitchen_note,
       options: lineOptions(r.options_json), // 02b v1.0.11 §4.2 LineView (Q-7)
+      tax_profile_id: r.tax_profile_id, // ⚠️ 02b v1.0.16 §4.2 (05 row Q-1), same statement
+      unit_price_minor: r.unit_price_minor, // ⚠️ 02b v1.0.16 §4.2 (05 R-7, R-17), same statement
       zone_on_hand: r.zone_on_hand,
       station_id: r.station_id,
       option_quantity: r.option_quantity,
@@ -285,6 +294,7 @@ export function readOrder(ctx: CommandCtx, order_id: string): { order: ReadOrder
     seating_id,
     primary_table_id,
     holder_staff_id,
+    seating_state,
     table_ids,
   };
   return { order, lines };

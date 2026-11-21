@@ -7,21 +7,21 @@ import { defineCommand, type CommandCtx } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { withStockEffects } from '../../commands/set-precooked-stock.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
-import { requireLock } from '../../tables/lock.js';
+import { requireLock, requireLockHolder } from '../../tables/lock.js';
 import { readOrder, type ReadOrderHead, type ReadOrderLine } from '../exports.js';
 import { gmlDealPartPartial, liveUnits, planRemove } from '../ledger.js';
 import { changeDrafts, type LineChange } from '../line-change.js';
-import { requireNoVoidPending } from '../line-guard.js';
+import { lineGuardEntries, requireLineGuard } from '../line-guard.js';
 import { zoneAlertDrafts } from '../zone-alerts.js';
 
 // 02b §6.2 RemoveItems, §3.5 (stage 1, zone undo, drafts), §3.4 (units, deals, cascades, g/ml parts), §3.9 (stale comp
 // requests), §3.3 (OrderFoodCleared), §3.10 (zone counts and alerts), §3.14 (scope). Not queueable (§3.12).
 // Order of checks: payload (Zod, C6) → order (404) → billed → dine-in seating + requireLock (02a) → each entry in
 // payload order (line of the order, zone rule before any engine stage, stage 1, units, g/ml parts) → line guard with
-// the planRemove ids (⚠️ 04 row Q-3: 409 VOID_PENDING) → scope last (C8).
+// the planRemove lines (⚠️ 04 row Q-3: 409 VOID_PENDING; ⚠️ 05 row Q-3: the list, LINE_IN_CLOSED_SPLIT) → scope last (C8).
 // Statements: 1 order + lines (readOrder, orders/exports.ts: with the order's seating, its tables and the zone counts of
-// its zone lines), 1 seating / lock (requireLock, dine-in), 1 open comp requests (alerts.listOpen), +1 zone alerts
-// (listOpen for zone:<id>) only when a zone line is in the payload (m-6), +1 line guard when registered (04 Q-3, G-23);
+// its zone lines), 1 seating / lock (requireLock, dine-in; on a CLOSED seating none: requireLockHolder reads nothing, ⚠️ 05 row T-3 (4), R-39), 1 open comp requests (alerts.listOpen), +1 zone alerts
+// (listOpen for zone:<id>) only when a zone line is in the payload (m-6), +1 per registered line guard (04 Q-3, G-23; 05 Q-3);
 // 01d's own bounds and the append excluded.
 
 const Entry = z.object({ order_item_id: z.string().min(1), units: z.number().int().min(1).optional() });
@@ -64,7 +64,15 @@ function removeItems(ctx: CommandCtx, p: Payload): { events: EventDraft[]; resul
     if (order.seating_id !== p.seating_id || order.primary_table_id === null) {
       throw new DomainError('TABLE_SEATING_CHANGED', { table_id: order.primary_table_id, seating_id: p.seating_id });
     }
-    lockDrafts = requireLock(ctx.tx, { table_id: order.primary_table_id, seating_id: p.seating_id }, ctx);
+    // ⚠️ Changed by 05 (row T-3 (4), H2-14), 02a v1.1.9 §4.2: a CLOSED seating (a corrections-only reopen after
+    // CleanTable) has no lock to take; the seating_id check above still holds. NEEDS_CLEANING keeps requireLock's 409.
+    // ⚠️ Owner ruling R-39 (2026-11-20): it still gets requireLock's authorisation (holder, or take-order-anywhere whose
+    // scope covers the primary table → else the same 403), with no lock drafts and no statement (holder from readOrder).
+    if (order.seating_state === 'CLOSED') {
+      requireLockHolder(ctx, { table_id: order.primary_table_id, holder_staff_id: order.holder_staff_id! });
+    } else {
+      lockDrafts = requireLock(ctx.tx, { table_id: order.primary_table_id, seating_id: p.seating_id }, ctx);
+    }
   }
 
   const now = ctx.clock.branchNow();
@@ -120,7 +128,8 @@ function removeItems(ctx: CommandCtx, p: Payload): { events: EventDraft[]; resul
   });
 
   // §3.4 line guard (⚠️ 04 row Q-3): asked with every planned id (cascades with ≥ 1 unit), after the plan, before scope.
-  requireNoVoidPending(ctx.tx.db, order.order_id, [...removed.keys()]);
+  // ⚠️ 05 row Q-3: one ask of the list, each entry the line as the plan leaves it (the working copy).
+  requireLineGuard(ctx.tx.db, order.order_id, lineGuardEntries(work, removed.keys()));
 
   checkScope(ctx, order);
 

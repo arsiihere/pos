@@ -26,6 +26,10 @@ function approvedByManager(permission: Permission): DefaultGrant {
   return { permission, grant_type: 'requires_approval', approver_key: 'manager' };
 }
 
+// ⚠️ Changed by 05 (row B-2), 01b v1.10 §6.15 (H6-13): Manager is "every permission but manage-roles" and that filter now
+// also excludes the two Owner-only billing permissions.
+const MANAGER_EXCLUDED: readonly Permission[] = ['manage-roles', 'skip-blind-count', 'manage-fiscal-settings'];
+
 export const DEFAULT_ROLES: readonly DefaultRole[] = [
   {
     default_key: 'owner',
@@ -37,7 +41,7 @@ export const DEFAULT_ROLES: readonly DefaultRole[] = [
     default_key: 'manager',
     name: 'Manager',
     session_idle_ttl_ms: 3_600_000,
-    grants: PERMISSIONS.filter((permission) => permission !== 'manage-roles').map((permission) => allowed(permission)),
+    grants: PERMISSIONS.filter((permission) => !MANAGER_EXCLUDED.includes(permission)).map((permission) => allowed(permission)),
   },
   {
     default_key: 'cashier',
@@ -56,6 +60,16 @@ export const DEFAULT_ROLES: readonly DefaultRole[] = [
       // ⚠️ Changed by 04 (row B-1), 01b v1.9: void with the Manager's approval; move-item-to-stock is allowed-only (B-2).
       approvedByManager('void-item'),
       allowed('move-item-to-stock'),
+      // ⚠️ Changed by 05 (row B-2), 01b v1.10 §6.15: take-payment (branch), shift, drawer and petty cash allowed (the petty
+      // limit still applies); discount, service-charge removal, reopen, comp removal, buyer-id waiver need the Manager.
+      allowed('take-payment'),
+      allowed('manage-own-shift'),
+      allowed('open-cash-drawer'),
+      allowed('record-petty-cash'),
+      approvedByManager('remove-service-charge'),
+      approvedByManager('reopen-bill'),
+      approvedByManager('remove-comp'),
+      approvedByManager('close-without-buyer-id'),
     ],
   },
   {
@@ -73,6 +87,9 @@ export const DEFAULT_ROLES: readonly DefaultRole[] = [
       // ⚠️ Changed by 04 (row B-1), 01b v1.9: as Cashier.
       approvedByManager('void-item'),
       allowed('move-item-to-stock'),
+      // ⚠️ Changed by 05 (row B-2), 01b v1.10 §6.15
+      allowed('take-payment', 'own_tables'),
+      allowed('manage-own-shift'),
     ],
   },
   // 02a v1.0 B-1: clean-table, not take-order (D-12).

@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { hash, Algorithm, Version } from '@node-rs/argon2';
-import type { DefaultKey } from '@pos/domain';
+import { currencyExponent, UnknownCurrencyError, type DefaultKey } from '@pos/domain';
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
@@ -33,6 +33,15 @@ export async function seedTenant(
   input: SeedTenantInput,
   deps: { clock: Clock; ids: IdGen },
 ): Promise<{ tenant_id: string; user_id: string; staff_id: string }> {
+  // 00 v1.12 §6.26 row H-5: --currency is validated with currencyExponent before any write.
+  try {
+    currencyExponent(input.currency);
+  } catch (error) {
+    if (error instanceof UnknownCurrencyError) {
+      throw new Error(`--currency ${error.currency_code} is not an ISO 4217 currency code`, { cause: error });
+    }
+    throw error;
+  }
   if (input.password.length < 8 || input.password.length > 200) {
     throw new Error('password must be 8 to 200 characters');
   }

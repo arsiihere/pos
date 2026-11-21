@@ -42,9 +42,48 @@ export interface PrintConfigWarning {
   kind: 'lossy_name' | 'fold_skipped' | 'suspect_waiting' | 'screen_unused' | 'no_screen';
 }
 
+/** 03c v1.0.13 §3.2, §6.6, §6.13 (05 row P-1, R-22): `ref_id` is '' for `report` and `default`. */
+export type BillScope = 'zone' | 'floor' | 'device' | 'report' | 'default';
+export interface BillRoute {
+  scope: BillScope;
+  ref_id: string;
+  printer_id: string;
+}
+
+export interface SetBillRoutePayload {
+  scope: BillScope;
+  ref_id: string;
+  printer_id: string | null;
+}
+
+/** 00 §6.14 `GET /admin/queries/devices` (only the fields this page reads). */
+export interface BillDevice {
+  device_id: string;
+  device_name: string;
+  device_type: string;
+  revoked_at: number | null;
+}
+
+/** 03c v1.0.14 §6.6 (R-38): the zones and floors a bill route can name (from the branch config; names, not just ids). */
+export interface ConfigZone {
+  zone_id: string;
+  /** a zone name is unique only within its floor (01a), so the page shows the floor too */
+  floor_id: string;
+  name: string;
+  archived: boolean;
+}
+export interface ConfigFloor {
+  floor_id: string;
+  name: string;
+  archived: boolean;
+}
+
 export interface PrintConfig {
   printers: ConfigPrinter[];
   station_outputs: StationOutput[];
+  bill_routes: BillRoute[];
+  zones: ConfigZone[];
+  floors: ConfigFloor[];
   warnings: PrintConfigWarning[];
 }
 
@@ -120,6 +159,10 @@ export function createPrintersApi(options: HubAdminOptions) {
     savePrinter: (payload: SavePrinterPayload, commandId: string) => page.command<SavedPrinter>('SavePrinter', { ...payload }, commandId),
     // §6.3
     setStationOutput: (payload: SetStationOutputPayload, commandId: string) => page.command<unknown>('SetStationOutput', { ...payload }, commandId),
+    // §6.13: one route per (scope, ref_id); printer_id null removes it
+    setBillRoute: (payload: SetBillRoutePayload, commandId: string) => page.command<unknown>('SetBillRoute', { ...payload }, commandId),
+    // 00 §6.14: the devices a bill route can name
+    devices: () => page.query<{ devices: BillDevice[] }>('devices'),
     // §6.4 (outside the FIFO, ≤ 8 s)
     testPrint: (printerId: string) => page.post<TestPrintResult>('/admin/print/test', { printer_id: printerId }),
     // §6.5

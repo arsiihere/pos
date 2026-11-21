@@ -5,7 +5,11 @@ import type { MapStore, MapTile, TableMapBody, TablesApi } from '../contracts';
 // 02a v1.1.6 §8 Table map (Q-5, Q-35), §6.17: the map is the catch-up `tables` part, then one debounced `table-map`
 // read per trigger. No timer polls: a read happens only after a frame, a reconnect or a visible page.
 
-/** The `table` stream (tables/audiences.ts) minus TableLockTouched, which changes no tile (Q-5). */
+/**
+ * The table frames (tables/audiences.ts TABLE_EVENT_TYPES) minus TableLockTouched, which changes no tile (Q-5).
+ * ⚠️ 02a v1.1.8 (05 row T-3 (6), H2-7): SeatingReopened and BillClosed join; so does 05's BillClosedEmpty, a table
+ * frame of the hub list (§8: any table frame except TableLockTouched).
+ */
 const TABLE_FRAMES: ReadonlySet<string> = new Set([
   'TableOpened',
   'TableLocked',
@@ -16,12 +20,19 @@ const TABLE_FRAMES: ReadonlySet<string> = new Set([
   'SeatingSplit',
   'BillRequested',
   'TableCleaned',
+  'SeatingReopened',
+  'BillClosed',
+  'BillClosedEmpty',
+  // ⚠️ 02a v1.1.9 (05 row T-4): a tile mark of an open seating may have changed; the map re-reads once (debounced)
+  'TableMarksChanged',
 ]);
 
 /**
  * The order frames of orders/audiences.ts (ORDER_EVENT_TYPES, OrderContactSet, LineComped) minus the kitchen-progress
  * frames ItemStarted, ItemDone, ItemDoneUndone, FireDispatched and SlipWarned, which change no tile (Q-35; they are
- * not in the list at all). Zone stock frames are no order frames. `BillClosed` is listened for; 05 registers it (AD-25).
+ * not in the list at all). Zone stock frames are no order frames. ⚠️ 02b v1.0.16 (05 rows Q-2, Q-4, G-26): OrdersUnbilled
+ * and LineCompRemoved join, as OrdersBilled and LineComped are here; 05's OrdersCarriedOver does not (it changes no
+ * tile).
  */
 const ORDER_FRAMES: ReadonlySet<string> = new Set([
   'OrderPlaced',
@@ -37,10 +48,11 @@ const ORDER_FRAMES: ReadonlySet<string> = new Set([
   'OrderFoodServed',
   'OrderFoodCleared',
   'OrdersBilled',
+  'OrdersUnbilled',
   'LineWeightSet',
   'OrderContactSet',
   'LineComped',
-  'BillClosed',
+  'LineCompRemoved',
 ]);
 
 export const MAP_REFRESH_DEBOUNCE_MS = 250;

@@ -1,0 +1,22 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "shift",
+  "stream_id": "01J00000000000000000000022",
+  "event_type": "PettyCashSettled",
+  "payload": {
+    "entry_id": "01J00000000000000000000027",
+    "shift_id": "01J00000000000000000000022",
+    "spent_minor": 15000,
+    "returned_minor": 5000,
+    "has_note": false,
+    "note_id": null
+  }
+}

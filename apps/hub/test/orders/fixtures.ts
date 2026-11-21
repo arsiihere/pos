@@ -197,6 +197,8 @@ export interface FixtureOrder {
   placed_by?: string;
   device_id?: string;
   follow_up?: boolean;
+  /** takeaway only (05 row Q-6): an addition keeps this order's token and carries `adds_to_order_id` on OrderPlaced */
+  adds_to_order_id?: string;
 }
 
 /**
@@ -269,6 +271,12 @@ function orderFields(tx: WriterTx, config: BranchConfig, o: FixtureOrder, order_
     const car_number = o.car_number ?? 'LEB 1234';
     const norm = car_number.toUpperCase().replace(/[\s-]/g, '');
     return { proposed: { ...base, table_id: null, table_key: `parking:${norm}` }, extra: { business_date, car_number, car_type: 'sedan' }, zone_id: null };
+  }
+  if (o.adds_to_order_id !== undefined) {
+    const root = tx.db.prepare('SELECT token FROM orders WHERE order_id = ?').get(o.adds_to_order_id) as { token: number } | undefined;
+    if (root === undefined) throw new Error(`appendOrder: no order ${o.adds_to_order_id} to add to`);
+    const extra = { business_date, token: root.token, adds_to_order_id: o.adds_to_order_id };
+    return { proposed: { ...base, table_id: null, table_key: `takeaway:${order_id}` }, extra, zone_id: null };
   }
   const max = tx.db
     .prepare(

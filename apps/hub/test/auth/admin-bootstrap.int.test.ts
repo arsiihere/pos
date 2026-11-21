@@ -65,10 +65,10 @@ describe('first-admin bootstrap', () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
     const directory = await aDirectory();
-    for (const staff of directory.staff) if (staff.staff_id === 'S_MGR') staff.denied_permissions = ['manage-staff'];
+    for (const staff of directory.staff) if (staff.staff_id === 'S_MGR') staff.denied_permissions = ['manage-staff', 'manage-fiscal-settings', 'close-business-day'];
     await seedDirectory(hub, directory);
     const owner = await bootstrap(hub, issue(hub).token, 'S_OWNER', PIN.a);
-    expect(owner.json().data.permissions).toEqual({ 'manage-devices': true, 'manage-staff': true });
+    expect(owner.json().data.permissions).toEqual({ 'manage-devices': true, 'manage-staff': true, 'manage-fiscal-settings': true, 'close-business-day': true });
     const tablet = pairDevice(hub, { type: 'tablet' });
     const manager = await hub.app.inject({
       method: 'POST',
@@ -77,7 +77,24 @@ describe('first-admin bootstrap', () => {
       payload: { staff_id: 'S_MGR', pin: PIN.b },
     });
     expect(manager.statusCode).toBe(200);
-    expect(manager.json().data.permissions).toEqual({ 'manage-devices': true, 'manage-staff': false });
+    expect(manager.json().data.permissions).toEqual({ 'manage-devices': true, 'manage-staff': false, 'manage-fiscal-settings': false, 'close-business-day': false });
+  });
+
+  it('[05 R-37] each of manage-fiscal-settings and close-business-day is true or false on its own in the admin permissions', async () => {
+    for (const [denied, want] of [
+      ['close-business-day', { 'manage-fiscal-settings': true, 'close-business-day': false }],
+      ['manage-fiscal-settings', { 'manage-fiscal-settings': false, 'close-business-day': true }],
+    ] as const) {
+      const hub = await createTestHub();
+      cleanups.push(() => hub.close());
+      const directory = await aDirectory();
+      for (const staff of directory.staff) if (staff.staff_id === 'S_MGR') staff.denied_permissions = [denied];
+      await seedDirectory(hub, directory);
+      const tablet = pairDevice(hub, { type: 'tablet' });
+      const manager = await hub.app.inject({ method: 'POST', url: '/admin/auth', headers: { authorization: `Bearer ${tablet.token}` }, payload: { staff_id: 'S_MGR', pin: PIN.b } });
+      expect(manager.statusCode, denied).toBe(200);
+      expect(manager.json().data.permissions, denied).toEqual({ 'manage-devices': true, 'manage-staff': true, ...want });
+    }
   });
 });
 

@@ -465,7 +465,7 @@ describe('02a SplitSeating (§3.12, §6.11)', () => {
     const calls: unknown[] = [];
     registerMergeGuard((_db, q) => {
       calls.push(q);
-      return { blocked: true, order_item_ids: ['X'] };
+      return { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['X'] } };
     });
     const r = await split(ali, sp('T1', 'SEAT1', 'T2', []));
     expect(r.status).toBe(200);
@@ -625,7 +625,7 @@ describe('02a SplitSeating (§3.12, §6.11)', () => {
     const calls: Array<Parameters<MergeGuard>[1]> = [];
     registerMergeGuard((_db, q) => {
       calls.push(q);
-      return { blocked: true, order_item_ids: ['O2-L1'] };
+      return { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['O2-L1'] } };
     });
     opened('T1', 'SEAT1', 'S_ALI');
     placed('O1', 'SEAT1');
@@ -641,7 +641,7 @@ describe('02a SplitSeating (§3.12, §6.11)', () => {
     const ali = signIn('S_ALI');
     registerMergeGuard((db) => {
       db.prepare('SELECT 1').get();
-      return { blocked: false, order_item_ids: [] };
+      return null;
     });
     opened('T1', 'SEAT1', 'S_ALI');
     placed('O1', 'SEAT1');
@@ -649,6 +649,48 @@ describe('02a SplitSeating (§3.12, §6.11)', () => {
     const r = await split(ali, sp('T1', 'SEAT1', 'T3', ['O2']));
     expect(r.status).toBe(200);
     expect(r.statements).toBe(3 + 1 + 1);
+  });
+
+  // ⚠️ 02a v1.1.8 (05 row T-1): the same ordered guard list as merge; the first non-null `{ code, details }` is thrown.
+  // The second stub stands in for 05's guard (BILL_HAS_PAYMENTS comes with P0.3c); TABLE_NOT_FREE is a 409 code.
+  it('[05 #79 split half] [05 row T-1] two guards registered: the first non-null wins, in registration order; a later guard is not asked', async () => {
+    const ali = signIn('S_ALI');
+    const asked: string[] = [];
+    const fromBill: MergeGuard = (_db, q) => {
+      asked.push(`05:${(q.order_ids ?? []).join(',')}`);
+      return { code: 'TABLE_NOT_FREE', details: { bill_id: 'B1' } };
+    };
+    registerMergeGuard((_db, q) => {
+      asked.push(`04:${(q.order_ids ?? []).join(',')}`);
+      return null;
+    });
+    registerMergeGuard(fromBill);
+    opened('T1', 'SEAT1', 'S_ALI');
+    placed('O1', 'SEAT1');
+    placed('O2', 'SEAT1');
+    const r = await split(ali, sp('T1', 'SEAT1', 'T3', ['O2']));
+    expect(r.status).toBe(409);
+    expect(r.body.error).toEqual({ code: 'TABLE_NOT_FREE', details: { bill_id: 'B1' } });
+    expect(asked).toEqual(['04:O2', '05:O2']);
+    expect(ordersOf('SEAT1')).toEqual(['O1', 'O2']);
+
+    // 04 first: MERGE_BLOCKED_BY_VOID unchanged, the later guard not asked
+    resetMergeGuard();
+    asked.length = 0;
+    registerMergeGuard((_db, q) => {
+      asked.push(`04:${(q.order_ids ?? []).join(',')}`);
+      return { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['O2-L1'] } };
+    });
+    registerMergeGuard(fromBill);
+    const blocked = await split(ali, sp('T1', 'SEAT1', 'T3', ['O2']));
+    expect(blocked.body.error).toEqual({ code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['O2-L1'] } });
+    expect(asked).toEqual(['04:O2']);
+
+    // every guard null → split
+    resetMergeGuard();
+    registerMergeGuard(() => null);
+    registerMergeGuard(() => null);
+    expect((await split(ali, sp('T1', 'SEAT1', 'T3', ['O2']))).status).toBe(200);
   });
 
   it('[02a §6.11] non-holder without force → 403 not_holder; with force → split, holder stays', async () => {
@@ -739,7 +781,7 @@ describe('02a SplitSeating (§3.12, §6.11)', () => {
     placed('O4', 'SEAT2');
     expect((await split(zain, sp('T2', 'SEAT2', 'T5', ['O4']))).body.error?.details).toMatchObject({ reason: 'other_owner' });
     expect((await split(zain, sp('T2', 'SEAT2', 'T7', ['O3', 'O4']))).body.error?.code).toBe('SPLIT_INVALID');
-    registerMergeGuard(() => ({ blocked: true, order_item_ids: ['L'] }));
+    registerMergeGuard(() => ({ code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: ['L'] } }));
     expect((await split(zain, sp('T2', 'SEAT2', 'T7', ['O4']))).body.error?.code).toBe('MERGE_BLOCKED_BY_VOID');
     resetMergeGuard();
     locked('T2', 'SEAT2', 'S_BILAL', 'DEV_B');

@@ -553,7 +553,8 @@ describe('[04 §3.3] voidDrafts', () => {
     expect(types(x).filter((t) => t === 'OrderCancelled' || t === 'OrderFoodCleared')).toEqual(['OrderCancelled']);
     expect(x.cancelled).toBe(true);
     expect(x.planStatements).toBe(0);
-    expect(x.draftStatements).toBe(2);
+    // +1: 05 order-cancelled hook (05 v1.0.17 R-72, task 19)
+    expect(x.draftStatements).toBe(3);
     const k = stagedOrder(hub, { prefix: 'K' });
     const y = run(k.order_id, { entries: [{ order_item_id: k.cooking, disposition: 'wastage' }], stale_comps: 'keep', alert_id: 'A_TEST' });
     expect(y.draftStatements).toBe(1);

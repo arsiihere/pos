@@ -6,6 +6,8 @@ import todo from '../../../../../docs/design/handoff/04/urdu-todo.md?raw';
 import kit from '../../app/ui-kit-staff.ts?raw';
 import { ACTION_META, AUDIT_GROUPS, OUTCOMES } from './labels';
 
+const todoText: string = todo;
+
 // 04 §8 Rules (VU2; D12 i18n keys only, R20; integrator O5): every audit key is in en, and in ur or the 04 Urdu to-do
 // list; every AUDIT_ACTIONS value has a label and a group; the staff kit loads the audit stylesheet.
 
@@ -21,6 +23,25 @@ describe('[04 §8 Rules] audit strings', () => {
     }
     for (const g of AUDIT_GROUPS) expect(en, g).toHaveProperty(`audit.actions.group.${g}`);
     for (const o of OUTCOMES) expect(en, o).toHaveProperty(`audit.out.${o}`);
+  });
+
+  it('[05 P0.15, R-28] the new actions sit in the two 05 groups, walk_out has a reason label, and every new key is in the 05 section of urdu-todo.md', () => {
+    const bills = ['fiscal_token_changed', 'bill_opened', 'check_bill_printed', 'bill_requested', 'splits_set', 'discount_requested', 'discount_answered', 'discount_applied', 'discount_removed', 'service_charge_applied', 'service_charge_removed', 'payment_added', 'payment_removed', 'buyer_id_waived', 'invoice_issued', 'bill_reopened', 'invoice_credited', 'fiscal_rejected', 'comp_removed', 'bill_closed_empty', 'money_request_raised', 'money_request_answered'] as const;
+    const shifts = ['shift_opened', 'shift_counted', 'shift_count_skipped', 'handover_counted', 'shift_closed', 'shift_variance_signed_off', 'petty_cash', 'drawer_opened', 'orders_carried_over', 'z_report_issued'] as const;
+    for (const a of bills) expect(ACTION_META[a].group, a).toBe('bills_payments');
+    for (const a of shifts) expect(ACTION_META[a].group, a).toBe('shifts_cash');
+    expect(en['audit.actions.group.bills_payments']).toBe('Bills and payments');
+    expect(en['audit.actions.group.shifts_cash']).toBe('Shifts and cash');
+    expect(en['audit.action.bill_requested']).toBe('Bill asked for');
+    expect(en['audit.action.z_report_issued']).toBe('Z report issued');
+    expect(en['audit.reason.walk_out']).toBe('Walked out without paying');
+    expect(en['void.reason.walk_out']).toBe('Walked out without paying');
+    // void.reason.walk_out is a VU1 key: apps/client/test/voids-i18n.test.ts requires it in the VU1 section.
+    expect(todoText.split(/^## /m).find((x) => x.startsWith('VU1')) ?? '').toContain('| `void.reason.walk_out` |');
+    const section = todoText.split(/^## /m).find((x) => x.startsWith('05 P0.15')) ?? '';
+    for (const k of [...bills, ...shifts].map((a) => `audit.action.${a}`).concat(['audit.actions.group.bills_payments', 'audit.actions.group.shifts_cash', 'audit.reason.walk_out'])) {
+      expect(section, k).toContain(`| \`${k}\` |`);
+    }
   });
 
   it('[04 §8 R20] every audit.* key is in ur or in docs/design/handoff/04/urdu-todo.md (not both); ur keeps the placeholders', () => {

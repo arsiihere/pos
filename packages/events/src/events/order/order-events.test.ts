@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VOID_DISPOSITIONS, VOID_REASON_CODES } from '@pos/domain';
+import { CARRY_OVER_REASONS, VOID_DISPOSITIONS, VOID_REASON_CODES } from '@pos/domain';
 import '../../index';
 import { parseEvent } from '../../codecs';
 import { payloadSchema } from '../../registry';
@@ -541,5 +541,82 @@ describe('[04 §4.5 T-1, Q-1] void fields on order-stream events (04 #49)', () =
       expect(schema.safeParse({ ...payload, alert_id: null }).success, type).toBe(false);
       expect(schema.safeParse({ ...payload, alert_id: 'A1', extra: 1 }).success, type).toBe(false);
     }
+  });
+});
+
+// 05 §4.5 rows Q-2, Q-4 (02b v1.0.16 §6.19) and S-1 (03a v1.2.6 §4.2): the order-stream events 05 writes, and the
+// additive OrderPlaced field. Folded by 02b's `orders` projection.
+describe('[05 rows Q-2, Q-4, S-1] OrdersUnbilled, LineCompRemoved, OrderPlaced.adds_to_order_id', () => {
+  const placed = examples.OrderPlaced!;
+
+  it('[05 row Q-2] OrdersUnbilled round-trips { order_ids ≥ 1, bill_id, alert_id? }; .strict(); alert_id never null', () => {
+    const schema = payloadSchema('OrdersUnbilled', 1);
+    const bare = { order_ids: ['O1', 'O2'], bill_id: 'BL1' };
+    expect(schema.parse(bare)).toEqual(bare);
+    expect(schema.parse({ ...bare, alert_id: 'A1' })).toEqual({ ...bare, alert_id: 'A1' });
+    expect(schema.safeParse({ ...bare, order_ids: [] }).success).toBe(false);
+    expect(schema.safeParse({ order_ids: ['O1'] }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, alert_id: null }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, extra: 1 }).success).toBe(false);
+    expect(Object.keys((schema as unknown as { shape: Record<string, unknown> }).shape).sort()).toEqual(['alert_id', 'bill_id', 'order_ids']);
+  });
+
+  it('[05 row Q-4] LineCompRemoved has exactly the §6.19 keys (no note text), .strict(); units ≥ 1, comp_minor ≥ 0, reason ∈ COMP_REMOVE_REASONS', () => {
+    const schema = payloadSchema('LineCompRemoved', 1);
+    const direct = {
+      order_item_id: 'L1',
+      units: 1,
+      comp_minor: 5_000,
+      reason_code: 'comped_by_mistake',
+      has_note: false,
+      note_id: null,
+      requester_staff_id: 'S1',
+      approver_staff_id: null,
+      alert_id: null,
+    };
+    const approved = { ...direct, reason_code: 'other', has_note: true, note_id: 'N1', approver_staff_id: 'S2', alert_id: 'A1' };
+    expect(schema.parse(direct)).toEqual(direct);
+    expect(schema.parse(approved)).toEqual(approved);
+    expect(Object.keys((schema as unknown as { shape: Record<string, unknown> }).shape).sort()).toEqual(Object.keys(direct).sort());
+    expect(schema.safeParse({ ...direct, note: 'typed text' }).success).toBe(false);
+    expect(schema.safeParse({ ...direct, units: 0 }).success).toBe(false);
+    expect(schema.safeParse({ ...direct, comp_minor: -1 }).success).toBe(false);
+    expect(schema.safeParse({ ...direct, comp_minor: 1.5 }).success).toBe(false);
+    expect(schema.safeParse({ ...direct, reason_code: 'late' }).success).toBe(false);
+    for (const key of Object.keys(direct)) expect(schema.safeParse(without(direct, key)).success, key).toBe(false);
+  });
+
+  it('[05 row S-1] OrderPlaced fixture with and without adds_to_order_id round-trips; the field is kept, never null', () => {
+    const schema = payloadSchema('OrderPlaced', 1);
+    const takeaway = { ...placed, order_type: 'takeaway', table_id: null, table_key: 'takeaway:O2', order_id: 'O2', groups: [{ ...group, group_id: 'O2:0' }] };
+    expect(schema.parse(takeaway)).toEqual(takeaway);
+    expect(schema.parse(takeaway)).not.toHaveProperty('adds_to_order_id');
+    const addition = { ...takeaway, adds_to_order_id: 'O1' };
+    expect(schema.parse(addition)).toEqual(addition);
+    expect(schema.safeParse({ ...addition, adds_to_order_id: null }).success).toBe(false);
+    expect(schema.safeParse({ ...addition, adds_to_order_id: 7 }).success).toBe(false);
+  });
+});
+
+// 05 §4.5 row Q-5, §6.24 / §6.29 (stream hub): folded by 02b (02b v1.0.16 §3.3). Integrator ruling S-A (a): the schema
+// lands with P0.13; 05 task 5 skips it.
+describe('[05 row Q-5] OrdersCarriedOver (05 §6.29)', () => {
+  it('[05 row Q-5] round-trips { order_ids, business_date, reason_code ∈ CARRY_OVER_REASONS, has_note, note_id }; .strict(); no note text', () => {
+    const schema = payloadSchema('OrdersCarriedOver', 1);
+    const bare = { order_ids: ['O1'], business_date: '2026-11-19', reason_code: 'table_still_seated', has_note: false, note_id: null };
+    const noted = { ...bare, order_ids: ['O1', 'O2'], reason_code: 'other', has_note: true, note_id: 'N1' };
+    expect(schema.parse(bare)).toEqual(bare);
+    expect(schema.parse(noted)).toEqual(noted);
+    expect(Object.keys((schema as unknown as { shape: Record<string, unknown> }).shape).sort()).toEqual(Object.keys(bare).sort());
+    for (const reason_code of CARRY_OVER_REASONS) expect(schema.safeParse({ ...bare, reason_code }).success, reason_code).toBe(true);
+    expect(schema.safeParse({ ...bare, reason_code: 'late' }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, order_ids: [] }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, note: 'typed text' }).success).toBe(false);
+    for (const key of Object.keys(bare)) expect(schema.safeParse(without(bare, key)).success, key).toBe(false);
+    const parsed = parseEvent({
+      event_id: 'E1', tenant_id: 'TN', branch_id: 'B1', stream_type: 'hub', stream_id: 'B1', event_type: 'OrdersCarriedOver',
+      schema_version: 1, payload: bare, occurred_at: 1, recorded_at: 1, actor_id: 'S1', device_id: 'D1', seq: 1,
+    });
+    expect(parsed.stream_type).toBe('hub');
   });
 });

@@ -325,6 +325,26 @@ describe('[02b #42 exports] readOrder (04 §4.5 Q-2; G-14, G-16)', () => {
     expect(currentTableOf(hub.deps.db, [o.order_id]).has(o.order_id)).toBe(false);
   });
 
+  it('[05 row T-3 (4), H2-14] [02a #64] [05 #37c readOrder half] the head carries seating_state (s.state) in the same 1 statement: open states, NEEDS_CLEANING, CLOSED; null without a seating', async () => {
+    await start();
+    const counter = statementCounter(hub.deps.db);
+    openSeating(hub, { table_id: FX.table, seating_id: 'S1' });
+    const dine = appendOrder(hub, { order_type: 'dine_in', seating_id: 'S1', lines: [{ order_item_id: 'W1', item_id: FX.ready }] });
+    const take = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'N2', item_id: FX.naan }] });
+    const counted = (order_id: string) =>
+      hub.deps.writer.run((tx) => {
+        counter.reset();
+        const r = readOrder({ tx } as unknown as CommandCtx, order_id);
+        return { state: r.order.seating_state, statements: counter.count };
+      }).result;
+    expect(counted(dine.order_id)).toEqual({ state: 'ORDERED', statements: 1 });
+    append({ stream_type: 'table', stream_id: FX.table, event_type: 'BillClosed', payload: { seating_id: 'S1' } });
+    expect(counted(dine.order_id)).toEqual({ state: 'NEEDS_CLEANING', statements: 1 });
+    append({ stream_type: 'table', stream_id: FX.table, event_type: 'TableCleaned', payload: { seating_id: 'S1', table_ids: [FX.table], reason: 'cleaned', by_staff_id: STAFF } });
+    expect(counted(dine.order_id)).toEqual({ state: 'CLOSED', statements: 1 });
+    expect(counted(take.order_id)).toEqual({ state: null, statements: 1 });
+  });
+
   it('[02b #42] unknown order → 404 ORDER_NOT_FOUND', async () => {
     await start();
     let err: unknown;

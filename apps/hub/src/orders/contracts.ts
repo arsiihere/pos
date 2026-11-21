@@ -58,6 +58,13 @@ export interface LineView {
    * `[{ name, quantity }]`, payload order); `[]` when NULL.
    */
   options: Array<{ name: string; quantity: number }>;
+  /** ⚠️ 02b v1.0.16 §4.2 (05 row Q-1): `order_lines.tax_profile_id` (= ItemAdded.tax_class_id); NULL = untaxed item */
+  tax_profile_id: string | null;
+  /**
+   * ⚠️ 02b v1.0.16 §4.2 (05 R-7, R-17): `order_lines.unit_price_minor` = round_half_up(line_total_minor ÷ units);
+   * NULL while a weight is pending; 0 on a deal_part
+   */
+  unit_price_minor: number | null;
 }
 
 /**
@@ -128,6 +135,19 @@ export type LineChangeDrafts = (
   changes: { order_item_id: string; units_out: number }[],
   opts?: LineChangeOptions,
 ) => EventDraft[];
+
+/**
+ * ⚠️ 02b v1.0.17 §3.5 (05 row Q-7): `registerOrderCancelledHook(fn)` (a list, registered at startup). `changeDrafts`
+ * calls every hook when it emits `OrderCancelled` (RemoveItems and `lineChangeDrafts`, so 04's void `apply` too) and
+ * appends the drafts returned. `alert_id` = `ctx.alert.alert_id` inside an `apply` (`AlertApplyCtx`), else `null`;
+ * `changeDrafts` stamps it on every returned draft's payload (absent when null), for 01d `checkAlertIds`. Inside an
+ * `apply` `ctx.tx` is 01d's read-only view. On every path a hook only reads and returns drafts; it must be pure and
+ * mint no ids (01d AnswerRequest runs `apply` twice, the first time in `preRead`, drafts discarded). It sees the
+ * database as it was before this command: none of the command's events (`OrderCancelled`, `ItemRemoved` /
+ * `ItemVoided`) are folded yet, so it must treat `order_id` as already cancelled (two orders of one bill emptied in
+ * one transaction each look live to the other — 05 task 19). 05's hook returns `BillClosedEmpty`.
+ */
+export type OrderCancelledHook = (ctx: CommandCtx, order_id: string, alert_id: string | null) => EventDraft[];
 
 /**
  * §3.3 / §3.5 (pure): OrderFoodServed / OrderFoodCleared for an order's lines after a serve, a change or a return.

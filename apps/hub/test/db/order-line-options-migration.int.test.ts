@@ -10,6 +10,7 @@ import { runMigrations } from '../../src/db/migrate';
 import { boot } from '../../src/lib/boot';
 import { fixedClock, T } from '../../src/lib/clock';
 import { freshDb } from '../helpers/db';
+import { dropBilling0023 } from './billing-0023';
 import { offlineCloud } from '../helpers/stub-cloud';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
@@ -51,10 +52,17 @@ function ordersWithOptions(hub: TestHub): void {
 
 const linesOf = (db: Database.Database) => db.prepare('SELECT order_item_id, options_json FROM order_lines ORDER BY order_item_id').all() as Array<{ order_item_id: string; options_json: string | null }>;
 
-/** Back to a pre-0016 hub: the column gone, 0016 (and the later 04 0017 / 0018, 02b v1.0.12 0019, v1.0.13 0020) not applied; every
+/** Back to a pre-0016 hub: the column gone, 0016 (and the later 04 0017 / 0018, 02b v1.0.12 0019, v1.0.13 0020, v1.0.16 0021, 03c 0022, 05 0023, 0024) not applied; every
  *  projection (and checkpoint) as it was. */
-const LATER = ['0017_staff_names.sql', '0018_audit.sql', '0019_order_line_station.sql', '0020_order_line_option_quantity.sql'];
+const LATER = ['0017_staff_names.sql', '0018_audit.sql', '0019_order_line_station.sql', '0020_order_line_option_quantity.sql', '0021_orders_billing.sql', '0022_bill_routes.sql', '0023_billing.sql', '0024_billing_payments_shift.sql', '0025_billing_z_reports_key.sql']; // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
 function toPre0016(db: Database.Database): void {
+  // 0021 (02b v1.0.16, 05 Q-1 / Q-5 / Q-6, R-7 / R-17) re-adds these and orders_token_day / orders_bill_key
+  dropBilling0023(db); // 0023 (05 v1.0.7 §5) runs after 0022
+  db.exec('DROP TABLE bill_routes'); // 0022 (03c v1.0.13, 05 row P-1)
+  db.exec('DROP INDEX orders_bill_key; DROP INDEX orders_token_day');
+  db.exec('CREATE UNIQUE INDEX orders_token ON orders (business_date, token) WHERE token IS NOT NULL');
+  db.exec('ALTER TABLE orders DROP COLUMN bill_key; ALTER TABLE orders DROP COLUMN carried_over');
+  db.exec('ALTER TABLE order_lines DROP COLUMN unit_price_minor; ALTER TABLE order_lines DROP COLUMN tax_profile_id');
   db.exec('ALTER TABLE order_lines DROP COLUMN option_quantity'); // 0020 (02b v1.0.13, 04 Q-19) re-adds it
   db.exec('ALTER TABLE order_lines DROP COLUMN station_id'); // 0019 (02b v1.0.12, 04 Q-14) re-adds it
   db.exec('ALTER TABLE order_lines DROP COLUMN options_json');
@@ -105,10 +113,12 @@ describe('[02b v1.0.7 / v1.0.9 §5] hub migration 0016_order_line_options', () =
       Da: '[{"name":"Mild","quantity":1}]',
       Db: null,
     });
-    // station_id (0019) and option_quantity (0020) are filled by the boot-time refold, not by runMigrations; left out here.
+    // station_id (0019), option_quantity (0020), tax_profile_id and unit_price_minor (0021) are filled by the boot-time refold, not by runMigrations; left out here.
     const allRows = () => (db.prepare('SELECT * FROM order_lines ORDER BY order_item_id').all() as Array<Record<string, unknown>>).map((r) => {
       delete r.station_id;
       delete r.option_quantity;
+      delete r.tax_profile_id; // 0021 (02b v1.0.16), refold-filled as well
+      delete r.unit_price_minor;
       return r;
     });
     const all = allRows();
@@ -146,7 +156,7 @@ describe('[02b v1.0.7 / v1.0.9 §5] hub migration 0016_order_line_options', () =
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(20);
+    expect(db.pragma('user_version', { simple: true })).toBe(25); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     const after = db.prepare('SELECT event_type FROM events WHERE seq > (SELECT MAX(seq) FROM events WHERE recorded_at <= ?) ORDER BY seq').pluck().all(lastRecordedAt);
     expect(after[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(linesOf(db)).toEqual(live);

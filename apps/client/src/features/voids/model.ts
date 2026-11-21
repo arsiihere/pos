@@ -15,9 +15,10 @@ export const REASON_KEY: Record<VoidReasonCode, MessageKey> = {
   too_late: 'void.reason.too_late',
   quality: 'void.reason.quality',
   other: 'void.reason.other',
+  walk_out: 'void.reason.walk_out',
 };
 
-/** V12: the five reason chips, in the spec's order. */
+/** V12: the six reason chips, in the spec's order. */
 export const REASON_CHIPS: readonly VoidReasonCode[] = VOID_REASON_CODES;
 
 /** §8: `moved` pre-selected when enabled, else `wastage`. */

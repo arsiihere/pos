@@ -11,7 +11,7 @@ export function adminPage(ctx: {
   tenant_id: string;
   branch_id: string;
   branch_name: string;
-  links: { stock: boolean; kitchenScreens: boolean; printers: boolean };
+  links: { stock: boolean; kitchenScreens: boolean; printers: boolean; fiscal: boolean };
 }): string {
   return `${pageHead({ title: 'admin.title', theme: 'light' })}
 <body class="pos-root">
@@ -43,7 +43,8 @@ function permissions() {
   try { return JSON.parse(sessionStorage.getItem('admin_permissions') || '{}'); } catch { return {}; }
 }
 function can(permission) {
-  return permissions()[permission] !== false;
+  // Only an explicit true shows anything: a missing key (an older sign-in, an unknown name) is no permission.
+  return permissions()[permission] === true;
 }
 function openDeviceDb() {
   return new Promise((resolve, reject) => {
@@ -291,13 +292,15 @@ function stockLink(className) {
   return stock;
 }
 // 00 v1.9.2 §8.2 (Q-43): the 03b / 03c admin pages, shown when the hub serves the build and the admin has
-// manage-devices (both pages need it).
+// manage-devices (both pages need it). 00 v1.12 row H-2: the Fiscal page, shown by manage-fiscal-settings; its page
+// body is 05's, so the tile has no status query.
 const MODULE_PAGES = [
-  { name: 'kitchenScreens', href: '/admin/kitchen-screens/', icon: 'screen', key: 'admin.nav_kitchen_screens', query: '/admin/queries/kds-config' },
-  { name: 'printers', href: '/admin/printers/', icon: 'printer', key: 'admin.nav_printers', query: '/admin/queries/print-queue' },
+  { name: 'kitchenScreens', href: '/admin/kitchen-screens/', icon: 'screen', key: 'admin.nav_kitchen_screens', query: '/admin/queries/kds-config', permission: 'manage-devices' },
+  { name: 'printers', href: '/admin/printers/', icon: 'printer', key: 'admin.nav_printers', query: '/admin/queries/print-queue', permission: 'manage-devices' },
+  { name: 'fiscal', href: '/admin/fiscal/', icon: 'lock', key: 'admin.nav_fiscal', query: null, permission: 'manage-fiscal-settings' },
 ];
 function modulePages() {
-  return MODULE_PAGES.filter((p) => ctx.links[p.name] && can('manage-devices'));
+  return MODULE_PAGES.filter((p) => ctx.links[p.name] === true && can(p.permission));
 }
 function otherLinks(className) {
   const links = ctx.links.stock ? [stockLink(className)] : [];
@@ -312,7 +315,7 @@ function otherLinks(className) {
 }
 // Each tile reads its query once when home opens; a 404 / 403 / no answer → the tile without a status line.
 async function loadTiles() {
-  const pages = modulePages();
+  const pages = modulePages().filter((p) => p.query !== null);
   const results = await Promise.all(pages.map((p) => call(p.query, { headers: headers() }).catch(() => null)));
   state.tiles = {};
   pages.forEach((p, i) => {

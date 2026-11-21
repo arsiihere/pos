@@ -221,7 +221,7 @@ describe('printers page (03c-S01)', () => {
   });
 
   it('[03c §8] no printers → "No printers" with Add printer; the add dialog opens', async () => {
-    setup({}, { printers: [], station_outputs: PRINT_CONFIG.station_outputs, warnings: [] });
+    setup({}, { printers: [], station_outputs: PRINT_CONFIG.station_outputs, bill_routes: [], zones: [], floors: [], warnings: [] });
     await flush();
     expect(m.text()).toContain('No printers');
     expect(m.text()).toContain('Every station works on its screen. Add a printer only if you want paper.');

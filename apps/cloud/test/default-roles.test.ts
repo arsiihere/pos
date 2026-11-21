@@ -1,4 +1,4 @@
-import { DEFAULT_KEYS } from '@pos/domain';
+import { ALLOWED_ONLY_PERMISSIONS, DEFAULT_KEYS, PERMISSIONS, PERMISSION_CATALOGUE } from '@pos/domain';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_ROLES } from '../src/modules/staff-roles/default-roles';
 
@@ -12,6 +12,12 @@ function grants(key: string): string[] {
 function holders(permission: string): string[] {
   return DEFAULT_ROLES.filter((role) => role.grants.some((g) => g.permission === permission)).map((role) => role.default_key);
 }
+
+const BILLING_APPROVABLE: string[] = ['apply-discount', 'remove-service-charge', 'reopen-bill', 'remove-comp', 'close-without-buyer-id'];
+const NEW_BILLS = [
+  'take-payment', 'manage-own-shift', 'close-shift-for-others', 'skip-blind-count', 'record-petty-cash', 'remove-service-charge',
+  'close-business-day', 'open-cash-drawer', 'remove-comp', 'close-without-buyer-id', 'manage-fiscal-settings',
+];
 
 describe('default roles', () => {
   it('[03b #60] run-pass defaults to Owner, Manager and Cook; Cook also gets reprint-ticket; both allowed at branch scope', () => {
@@ -55,10 +61,18 @@ describe('default roles', () => {
     const grant = (key: string, permission: string) => DEFAULT_ROLES.find((r) => r.default_key === key)!.grants.find((g) => g.permission === permission);
     expect([...grants('cashier')].sort()).toEqual(
       // 04 B-1 (01b v1.9): + move-item-to-stock, void-item
-      ['apply-comp', 'apply-discount', 'clean-table', 'move-item-to-stock', 'reprint-ticket', 'set-line-weight', 'take-order', 'view-customer-contact', 'void-item'].sort(),
+      // 05 B-2 (01b v1.10): + the billing grants, see #90 below
+      [
+        'apply-comp', 'apply-discount', 'clean-table', 'close-without-buyer-id', 'manage-own-shift', 'move-item-to-stock', 'open-cash-drawer',
+        'record-petty-cash', 'remove-comp', 'remove-service-charge', 'reopen-bill', 'reprint-ticket', 'set-line-weight', 'take-order',
+        'take-payment', 'view-customer-contact', 'void-item',
+      ].sort(),
     );
     expect([...grants('order_taker')].sort()).toEqual(
-      ['apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'move-item-to-stock', 'take-order', 'view-customer-contact', 'void-item'].sort(),
+      [
+        'apply-comp', 'boost-order', 'clean-table', 'manage-own-shift', 'mark-item-returned', 'mark-served', 'move-item-to-stock', 'take-order',
+        'take-payment', 'view-customer-contact', 'void-item',
+      ].sort(),
     );
     expect(grants('waiter').sort()).toEqual(['clean-table', 'mark-served']);
     expect(grant('cashier', 'apply-comp')).toMatchObject({ grant_type: 'requires_approval', approver_key: 'manager' });
@@ -72,6 +86,8 @@ describe('default roles', () => {
       for (const g of role.grants) {
         if (g.permission === 'apply-comp' || g.permission === 'apply-discount') continue;
         if (g.permission === 'void-item' && (role.default_key === 'cashier' || role.default_key === 'order_taker')) continue; // 04 B-1, #108
+        if (g.grant_type === 'requires_approval' && role.default_key === 'cashier' && BILLING_APPROVABLE.includes(g.permission)) continue; // 05 B-2, #90
+        if (g.permission === 'take-payment' && role.default_key === 'order_taker') continue; // 05 B-2: own_tables, #90
         expect(g.grant_type, `${role.default_key} ${g.permission}`).toBe('allowed');
         if (!(role.default_key === 'order_taker' && g.permission === 'view-customer-contact')) expect(g.scope ?? 'branch').toBe('branch');
       }
@@ -112,6 +128,52 @@ describe('default roles', () => {
       for (const grant of role.grants) {
         expect(grant.grant_type === 'requires_approval').toBe(grant.approver_key !== undefined);
         if (grant.approver_key !== undefined) expect(DEFAULT_KEYS).toContain(grant.approver_key);
+      }
+    }
+  });
+
+  // 05 B-2 / 01b v1.10 §6.15, #90 (new-tenant half): the exact grant table of the new `bills` permissions per default role.
+  it('[05 #90] [B-2] [H6-13] Owner holds every permission; Manager every one but manage-roles, skip-blind-count, manage-fiscal-settings', () => {
+    expect(grants('owner').sort()).toEqual([...PERMISSIONS].sort());
+    expect(DEFAULT_ROLES.find((r) => r.default_key === 'owner')!.grants.every((g) => g.grant_type === 'allowed')).toBe(true);
+    expect(grants('manager').sort()).toEqual(PERMISSIONS.filter((p) => !['manage-roles', 'skip-blind-count', 'manage-fiscal-settings'].includes(p)).sort());
+    const manager = DEFAULT_ROLES.find((r) => r.default_key === 'manager')!;
+    expect(manager.grants.every((g) => g.grant_type === 'allowed')).toBe(true);
+    expect(holders('skip-blind-count')).toEqual(['owner']);
+    expect(holders('manage-fiscal-settings')).toEqual(['owner']);
+    expect(holders('close-business-day')).toEqual(['owner', 'manager']);
+    expect(holders('close-shift-for-others')).toEqual(['owner', 'manager']);
+    for (const p of NEW_BILLS) expect(PERMISSION_CATALOGUE.find((c) => c.key === p)?.group, p).toBe('bills');
+  });
+
+  it('[05 #90] [B-2] Cashier and Order taker: the billing grants as the table says; Waiter and Cook get none', () => {
+    const bills = (key: string) =>
+      DEFAULT_ROLES.find((r) => r.default_key === key)!
+        .grants.filter((g) => NEW_BILLS.includes(g.permission) || ['apply-discount', 'reopen-bill'].includes(g.permission))
+        .sort((a, b) => a.permission.localeCompare(b.permission));
+    expect(bills('cashier')).toEqual(
+      [
+        { permission: 'apply-discount', grant_type: 'requires_approval', approver_key: 'manager' },
+        { permission: 'close-without-buyer-id', grant_type: 'requires_approval', approver_key: 'manager' },
+        { permission: 'manage-own-shift', grant_type: 'allowed' },
+        { permission: 'open-cash-drawer', grant_type: 'allowed' },
+        { permission: 'record-petty-cash', grant_type: 'allowed' },
+        { permission: 'remove-comp', grant_type: 'requires_approval', approver_key: 'manager' },
+        { permission: 'remove-service-charge', grant_type: 'requires_approval', approver_key: 'manager' },
+        { permission: 'reopen-bill', grant_type: 'requires_approval', approver_key: 'manager' },
+        { permission: 'take-payment', grant_type: 'allowed' },
+      ].sort((a, b) => a.permission.localeCompare(b.permission)),
+    );
+    expect(bills('order_taker')).toEqual([
+      { permission: 'manage-own-shift', grant_type: 'allowed' },
+      { permission: 'take-payment', grant_type: 'allowed', scope: 'own_tables' },
+    ]);
+    expect(bills('waiter')).toEqual([]);
+    expect(bills('cook')).toEqual([]);
+    // approvals only on approvable permissions (01b §3.3 ALLOWED_ONLY_PERMISSIONS)
+    for (const role of DEFAULT_ROLES) {
+      for (const g of role.grants) {
+        if (g.grant_type === 'requires_approval') expect(ALLOWED_ONLY_PERMISSIONS as readonly string[], g.permission).not.toContain(g.permission);
       }
     }
   });

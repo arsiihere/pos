@@ -33,8 +33,9 @@ describe('[03b #53, 03c #10] 03b / 03c wiring (phase 0 skeleton)', () => {
     const hub = await createTestHub({ provisioned: true });
     cleanups.push(() => hub.close());
     const order = Object.keys(hub.deps.projections.catchUp(hub.deps.db, hub.deps.config.provisioned!.branch_id).replayed);
-    // b13: lane B4's `pass` (not mocked) registers after B1's probe, before 03c; 04 P0.7: `audit` after 03c
-    expect(order.slice(order.indexOf('orders'))).toEqual(['orders', 'probe_kds', 'pass', 'probe_print', 'audit']);
+    // b13: lane B4's `pass` (not mocked) registers after B1's probe, before 03c; 04 P0.7: `audit` after 03c;
+    // 05 task 7 (§5, G-20): `billing` after audit; 05 task 8 (§6.30): `shifts` after billing; 05 task 11 (§6.30): `billing_prints` last
+    expect(order.slice(order.indexOf('orders'))).toEqual(['orders', 'probe_kds', 'pass', 'probe_print', 'audit', 'billing', 'shifts', 'billing_prints']);
   });
 
   it('[03b §5, 03c §3.7, H-11] a booted hub with every stub registers in that order, starts, listens and stops', async () => {
@@ -75,7 +76,7 @@ describe('[03b §4.2, 03c §4.2] contracts and hooks before their tasks', () => 
   it('[03c §4.2] printDocument throws "not built"; the boot-step registration is once-guarded; retention is a no-op', async () => {
     const print = await import('../../src/print/contracts');
     void print; // printDocument: built by c18, provided by lane C4's register (test/print/api.int.test.ts).
-    // renderText: built by c10 (test/print/render.int.test.ts).
+    // renderText: moved to @pos/domain (03c v1.0.11 §3.6, 05 row P-4; packages/domain/src/print-render.test.ts).
     const hooks = await import('../../src/print/boot');
     // resumePrintQueue, startPrintWorker: built by c16 (test/print/boot.int.test.ts).
     expect(() => {

@@ -21,7 +21,8 @@ const BY_SEATINGS = `SELECT values_json FROM alerts
 /**
  * §6.6 merge guard (02a §3.11 / §3.12): open void requests whose order is in `order_ids` when given (split: only the
  * orders that move, H6-7), else in the seatings (merge, via `seating_orders`) → blocked with their touched ids (in
- * request order, de-duplicated). 1 statement.
+ * request order, de-duplicated). 1 statement. ⚠️ 02a v1.1.8 (05 row T-1): blocked → `MERGE_BLOCKED_BY_VOID
+ * { order_item_ids }` (unchanged code and details), else `null`.
  */
 export const mergeGuard: MergeGuard = (db, q) => {
   const rows = (q.order_ids === undefined ? db.prepare(BY_SEATINGS).all(JSON.stringify(q.seating_ids)) : db.prepare(BY_ORDERS).all(JSON.stringify(q.order_ids))) as Array<{
@@ -29,7 +30,7 @@ export const mergeGuard: MergeGuard = (db, q) => {
   }>;
   const ids = new Set<string>();
   for (const r of rows) for (const id of (JSON.parse(r.values_json) as { touched_ids: string[] }).touched_ids) ids.add(id);
-  return { blocked: ids.size > 0, order_item_ids: [...ids] };
+  return ids.size === 0 ? null : { code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: [...ids] } };
 };
 
 const LINE = `SELECT a.alert_id AS alert_id, g.value AS order_item_id
@@ -39,13 +40,16 @@ const LINE = `SELECT a.alert_id AS alert_id, g.value AS order_item_id
   LIMIT 1`;
 
 /**
- * §6.6 / 02b row Q-3 line guard: the open void request of the order whose touched ids meet `touched_ids` →
- * `{ alert_id, order_item_id }` with the first given id that is locked (as VoidItems' own rule 6 (b) reports it), else
- * null. 1 statement. Never asked by the void `apply` (H1-1: its own request is the lock).
+ * §6.6 / 02b row Q-3 line guard: the open void request of the order whose touched ids meet the touched lines' ids →
+ * `VOID_PENDING { alert_id, order_item_id }` with the first given id that is locked (as VoidItems' own rule 6 (b)
+ * reports it), else null. ⚠️ 02b v1.0.16 (05 row Q-3): reads only the entries' ids; the result in the list's
+ * `{ code, details }` form. 1 statement. Never asked by the void `apply` (H1-1: its own request is the lock), nor by
+ * VoidItems / void-preview (05 row V-1: they skip it, their rule 6 (b) is this lock).
  */
-export const lineGuard: VoidLineGuard = (db, order_id, touched_ids) => {
-  const hit = db.prepare(LINE).get(JSON.stringify(touched_ids), order_id) as { alert_id: string; order_item_id: string } | undefined;
-  return hit === undefined ? null : { alert_id: hit.alert_id, order_item_id: hit.order_item_id };
+export const lineGuard: VoidLineGuard = (db, order_id, touched) => {
+  const ids = touched.map((t) => t.order_item_id);
+  const hit = db.prepare(LINE).get(JSON.stringify(ids), order_id) as { alert_id: string; order_item_id: string } | undefined;
+  return hit === undefined ? null : { code: 'VOID_PENDING', details: { alert_id: hit.alert_id, order_item_id: hit.order_item_id } };
 };
 
 /** §9: at most this many requests listed in `DAY_CLOSE_BLOCKED`; `count` is all open ones. */

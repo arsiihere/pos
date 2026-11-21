@@ -1,5 +1,5 @@
 import { DomainError, type DeviceType, type Permission } from '@pos/domain';
-import type { AlertRaisedPayloadV2, AlertTarget } from '@pos/events';
+import type { AlertRaisedPayloadV5, AlertTarget } from '@pos/events';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
@@ -12,8 +12,11 @@ import { cachedPrepare } from './statements.js';
 // (answerers, holders_informed, mayAnswer). Routes of a person (§3.4.3) are routes.ts (task 17).
 // No role name is read anywhere (R5): only permissions, and roles by id.
 
-/** §3.2 `request`, as stored (`alerts.request_json` = the AlertRaised payload's request part). */
-export type AlertRequestPart = NonNullable<AlertRaisedPayloadV2['request']>;
+/**
+ * §3.2 `request`, as stored (`alerts.request_json` = the AlertRaised payload's request part). ⚠️ Changed by 05
+ * (row D-1; G-16): the v5 part, whose `right_mode` may be `holders` (`base_permission` = the holders permission).
+ */
+export type AlertRequestPart = NonNullable<AlertRaisedPayloadV5['request']>;
 
 /** The `alerts` row fields that resolution needs, parsed (task 18 reads it; the tick selects it). */
 export interface AlertRow {
@@ -506,12 +509,22 @@ export type MayAnswer = { ok: true } | { ok: false; reason: 'self' | 'not_approv
  * §3.3 rules 5–6, read now (A5): not self; in the hub directory with a PIN (`no_pin_staff` never answers);
  * `approval`: holds a role in `resolve(requester, base_permission).approver_role_ids` read now, and, with a
  * `range_permission`, holds it `allowed` with a scope covering the requester; `named`: is the receiver.
+ * ⚠️ Changed by 05 (row D-1), 01d v1.3.4 §3.3 rule 6: `holders`: holds `base_permission` (the right's permission)
+ * `allowed` read now (else not_approver) with a scope covering the requester (else out_of_range); the requester's
+ * own grant plays no part. The `answerers` / `holders_informed` targets read this same verdict (§3.4).
  */
 export function mayAnswer(directory: StaffDirectory, request: AlertRequestPart, requesterId: string | null, staffId: string): MayAnswer {
   if (requesterId !== null && staffId === requesterId) return { ok: false, reason: 'self' };
   const answerer = directory.get(staffId);
   if (request.right_mode === 'named') {
     return answerer !== undefined && staffId === request.receiver_staff_id ? { ok: true } : { ok: false, reason: 'not_receiver' };
+  }
+  if (request.right_mode === 'holders') {
+    if (answerer === undefined || request.base_permission === null) return { ok: false, reason: 'not_approver' };
+    const held = directory.resolve(staffId, request.base_permission);
+    if (held.grant !== 'allowed') return { ok: false, reason: 'not_approver' };
+    if (held.scope === 'branch') return { ok: true };
+    return requesterId !== null && covers(directory, held.scope, staffId, requesterId) ? { ok: true } : { ok: false, reason: 'out_of_range' };
   }
   if (answerer === undefined || request.base_permission === null || requesterId === null) return { ok: false, reason: 'not_approver' };
   const base = directory.resolve(requesterId, request.base_permission);

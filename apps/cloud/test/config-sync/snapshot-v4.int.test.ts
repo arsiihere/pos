@@ -72,7 +72,7 @@ describe('GET /v1/sync/config: snapshot V4', () => {
     });
     await patchTable(menu.tableIds[0], { zone_id: zoneId });
     const { config, snapshot } = await pollConfig();
-    expect(counter.count).toBe(V21_CONFIG_ONLY_200 + 1);
+    expect(counter.count).toBe(V21_CONFIG_ONLY_200 + 2); // + zones; + billing (05 row A-1 (5))
     expect(SNAPSHOT_SCHEMA_VERSION).toBe(4);
     expect(config.snapshot.snapshot_schema_version).toBe(4);
     expect(config.snapshot_hash).toBe(sha256hex(canonicalJson(config.snapshot)));
@@ -87,7 +87,7 @@ describe('GET /v1/sync/config: snapshot V4', () => {
     await cloud.pool.query(`DELETE FROM zone_stock_items`);
     await cloud.pool.query(`DELETE FROM zones`);
     const empty = await pollConfig();
-    expect(counter.count).toBe(V21_CONFIG_ONLY_200 + 1);
+    expect(counter.count).toBe(V21_CONFIG_ONLY_200 + 2); // + zones; + billing (05 row A-1 (5))
     expect(ground(empty.snapshot).zones).toEqual([]);
     // with the directory (directory_version 0 is always behind): + the zones read and the assignments read
     const both = await cloud.app.inject({
@@ -97,7 +97,7 @@ describe('GET /v1/sync/config: snapshot V4', () => {
     });
     expect(both.statusCode, both.body).toBe(200);
     expect(both.json().data.directory).not.toBeNull();
-    expect(counter.count).toBe(V21_WITH_DIRECTORY_200 + 2);
+    expect(counter.count).toBe(V21_WITH_DIRECTORY_200 + 3); // + billing (05 row A-1 (5))
   });
 
   it('[01a #192] Snapshot V4 carries `zones[].routes[]`, `zones[].stock_items[]`, `items[].is_ready_item`', async () => {

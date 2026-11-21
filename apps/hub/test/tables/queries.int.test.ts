@@ -1,16 +1,35 @@
-import type { BranchConfig, DirectoryInput, EventDraft, PosEvent } from '@pos/events';
+import { defineEvent, latestVersion, type BranchConfig, type DirectoryInput, type EventDraft, type PosEvent } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { currentDirectory } from '../../src/auth/guards';
 import { activity } from '../../src/auth/session-store';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
+import { ORDER_EVENT_TYPES } from '../../src/orders/audiences';
+import { TABLE_EVENT_TYPES } from '../../src/tables/audiences';
 import { audienceAllows } from '../../src/ws/audience';
 import type { SocketCtx } from '../../src/ws/catch-up';
 import { tableMapBody } from '../../src/tables/queries';
+import { registerTileMarks, resetTileMarks, tileMarksOf } from '../../src/tables/tile-marks';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
+
+// 05 §6.29 `BillClosedEmpty` is 05's own event (its schema file lands with 05's events, not in P0.11): until it is
+// registered, this file registers the §6.29 payload so the writer can append it. 05's stream `bill` lands with P0.3b
+// (F-1); the 02a fold reads only the payload, so these tests append it on stream `table`.
+try {
+  latestVersion('BillClosedEmpty');
+} catch {
+  defineEvent({
+    eventType: 'BillClosedEmpty',
+    version: 1,
+    payload: z
+      .object({ bill_id: z.string(), seating_id: z.string().nullable(), credit_invoice_ids: z.array(z.string()), alert_id: z.string().optional() })
+      .strict(),
+  });
+}
 
 // 02a v1.1.3 §6.17 table-map, §6.18 handover-candidates, catch-up part `tables`, §6.19 audiences, 00 M59, SG-4.
 // Seatings, locks and orders are seeded with real events appended through the hub writer (the `tables` projection).
@@ -103,6 +122,7 @@ let hub: TestHub;
 
 beforeEach(async () => {
   hub = await createTestHub();
+  resetTileMarks(); // 05 registers bill tile marks at boot (05 task 33, G-30); this 02a test covers 02a's tiles alone
   await seedDirectory(hub, await directory());
   applyConfig(config());
 });
@@ -212,6 +232,8 @@ interface Tile {
   opened_at: number | null;
   bill_requested_at: number | null;
   live_order_count: number;
+  reopened: boolean;
+  check_printed_at: number | null;
 }
 interface MapBody {
   as_of_seq: number;
@@ -260,6 +282,93 @@ describe('table-map (§6.17)', () => {
     expect(all.get('T5')!.live_order_count).toBe(1);
     expect(all.get('T45')).toMatchObject({ seating_id: 'SEAT-41', primary_table_id: 'T41', joined_table_names: ['Table 41', 'Table 45'] });
     expect(body.as_of_seq).toBe(lastSeq());
+  });
+
+  it('[02a #65] [05 row T-4] registerTileMarks: no registration → every tile reopened false / check_printed_at null, still 3 + 1 statements (#36 unchanged); resetTileMarks() clears the list', async () => {
+    const ali = signIn(ALI);
+    for (let n = 1; n <= 40; n += 1) open(`T${n}`, `SEAT-${n}`, ali, { locked: false });
+    const counter = statementCounter(hub.deps.readDb);
+    const body = await tableMap(ali);
+    expect(counter.count).toBe(4);
+    for (const t of tiles(body).values()) expect([t.table_id, t.reopened, t.check_printed_at]).toEqual([t.table_id, false, null]);
+    expect(tileMarksOf(hub.deps.db, [])).toEqual(new Map());
+    registerTileMarks(() => new Map([['SEAT-1', { reopened: true, check_printed_at: 5 }]]));
+    resetTileMarks();
+    expect(tileMarksOf(hub.deps.db, ['SEAT-1'])).toEqual(new Map([['SEAT-1', { reopened: false, check_printed_at: null }]]));
+  });
+
+  it('[02a #65] [05 row T-4] one reader: asked once with every open seating id (not for an all-free map), its values on the seated tiles, an omitted seating → false / null, 4 + 1 statements at 1 and 40 open seatings, the catch-up part carries the marks', async () => {
+    const ali = signIn(ALI);
+    const asked: string[][] = [];
+    registerTileMarks((db, ids) => {
+      asked.push([...ids]);
+      db.prepare('SELECT 1').all();
+      return new Map(ids.filter((id) => id !== 'SEAT-2').map((id) => [id, { reopened: id === 'SEAT-1', check_printed_at: id === 'SEAT-1' ? 1_700_000_000_000 : null }]));
+    });
+    try {
+      // all free: not asked, 3 + 1
+      const counter = statementCounter(hub.deps.readDb);
+      await tableMap(ali);
+      expect(asked).toHaveLength(0);
+      expect(counter.count).toBe(4);
+
+      // one seating: 4 + 1
+      open('T1', 'SEAT-1', ali, { locked: false });
+      counter.reset();
+      let all = tiles(await tableMap(ali));
+      expect(counter.count).toBe(5);
+      expect(asked).toEqual([['SEAT-1']]);
+      expect(all.get('T1')).toMatchObject({ reopened: true, check_printed_at: 1_700_000_000_000 });
+      expect(all.get('T2')).toMatchObject({ reopened: false, check_printed_at: null });
+
+      // 40 seatings (one of them joined): still one call, 4 + 1
+      for (let n = 2; n <= 40; n += 1) open(`T${n}`, `SEAT-${n}`, ali, { locked: false, ...(n === 40 ? { joined: ['T41'] } : {}) });
+      asked.length = 0;
+      counter.reset();
+      const body = await tableMap(ali);
+      expect(counter.count).toBe(5);
+      expect(asked).toHaveLength(1);
+      expect([...asked[0]!].sort()).toEqual(Array.from({ length: 40 }, (_, i) => `SEAT-${i + 1}`).sort());
+      all = tiles(body);
+      expect(all.get('T1')).toMatchObject({ reopened: true, check_printed_at: 1_700_000_000_000 });
+      expect(all.get('T2')).toMatchObject({ reopened: false, check_printed_at: null }); // omitted by the reader
+      expect(all.get('T3')).toMatchObject({ reopened: false, check_printed_at: null });
+      expect(all.get('T41')).toMatchObject({ seating_id: 'SEAT-40', reopened: false, check_printed_at: null });
+
+      // the catch-up part uses the same builder
+      const ws = await authed(ali.token, ali.sessionToken);
+      const part = (ws.messages[0] as { state: Record<string, unknown> }).state.tables as MapBody;
+      expect(tiles(part).get('T1')).toMatchObject({ reopened: true, check_printed_at: 1_700_000_000_000 });
+    } finally {
+      resetTileMarks();
+    }
+  });
+
+  it('[02a #65] [05 row T-4] two readers: reopened OR-ed, the larger check_printed_at, an absent seating false / null; each reader asked once', () => {
+    const calls: string[] = [];
+    registerTileMarks((_db, ids) => {
+      calls.push(`a:${ids.join(',')}`);
+      return new Map([
+        ['S1', { reopened: false, check_printed_at: 100 }],
+        ['S2', { reopened: true, check_printed_at: null }],
+      ]);
+    });
+    registerTileMarks((_db, ids) => {
+      calls.push(`b:${ids.join(',')}`);
+      return new Map([
+        ['S1', { reopened: true, check_printed_at: 300 }],
+        ['S2', { reopened: false, check_printed_at: 50 }],
+      ]);
+    });
+    try {
+      const marks = tileMarksOf(hub.deps.db, ['S1', 'S2', 'S3']);
+      expect(calls).toEqual(['a:S1,S2,S3', 'b:S1,S2,S3']);
+      expect(marks.get('S1')).toEqual({ reopened: true, check_printed_at: 300 });
+      expect(marks.get('S2')).toEqual({ reopened: true, check_printed_at: 50 });
+      expect(marks.get('S3')).toEqual({ reopened: false, check_printed_at: null });
+    } finally {
+      resetTileMarks();
+    }
   });
 
   it('[02a #36] table-map: `mine` per (staff, device) — the locking device only, never the same staff on another device', async () => {
@@ -342,6 +451,8 @@ describe('table-map (§6.17)', () => {
       opened_at: null,
       bill_requested_at: null,
       live_order_count: 0,
+      reopened: false,
+      check_printed_at: null,
     });
     const seated = {
       seats: 4,
@@ -357,6 +468,8 @@ describe('table-map (§6.17)', () => {
       opened_at: openedAt,
       bill_requested_at: billAt,
       live_order_count: 1,
+      reopened: false,
+      check_printed_at: null,
     };
     expect(all.get('T2')).toEqual({ table_id: 'T2', name: 'Table 2', ...seated });
     expect(all.get('T3')).toEqual({ table_id: 'T3', name: 'Table 3', ...seated });
@@ -490,6 +603,78 @@ describe('audiences and catch-up (§6.19, catch-up part `tables`)', () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(eventTypes(staffWs).filter((t) => t.startsWith('Table'))).toEqual(['TableOpened', 'TableMoved']);
     expect(eventTypes(stationWs)).toEqual(['TableMoved']);
+  });
+
+  it('[05 row T-3 (6)] [02a #64] [05 #37b 02a half] SeatingReopened, BillClosed and BillClosedEmpty join TABLE_EVENT_TYPES: staff sockets and cashier kiosks, not KDS stations; the frames reach a staff socket', async () => {
+    expect(TABLE_EVENT_TYPES).toEqual(expect.arrayContaining(['SeatingReopened', 'BillClosed', 'BillClosedEmpty']));
+    const staff = socketCtx({});
+    const kiosk = socketCtx({ deviceType: 'cashier_kiosk', staffId: CASH });
+    const station = socketCtx({ deviceType: 'kds', kind: 'station', staffId: null, stationId: 'S1' });
+    for (const event_type of ['SeatingReopened', 'BillClosed', 'BillClosedEmpty']) {
+      const event = { event_type, payload: {} } as unknown as PosEvent;
+      expect(audienceAllows(event, staff), event_type).toBe(true);
+      expect(audienceAllows(event, kiosk), event_type).toBe(true);
+      expect(audienceAllows(event, station), event_type).toBe(false);
+    }
+
+    const ali = signIn(ALI);
+    const staffWs = await authed(ali.token, ali.sessionToken);
+    open('T1', 'SEAT-1', ali, { locked: false });
+    append(
+      ev('table', 'T1', 'BillClosed', { seating_id: 'SEAT-1' }, ali),
+      ev('table', 'T1', 'SeatingReopened', { seating_id: 'SEAT-1', bill_id: 'B1' }, ali),
+      ev('table', 'B1', 'BillClosedEmpty', { bill_id: 'B1', seating_id: 'SEAT-1', credit_invoice_ids: [] }, ali),
+    );
+    await staffWs.untilCount(5);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(eventTypes(staffWs)).toEqual(expect.arrayContaining(['TableOpened', 'BillClosed', 'SeatingReopened', 'BillClosedEmpty']));
+  });
+
+  it('[05 #6 audience half] BillClosed (TABLE_EVENT_TYPES) and OrdersUnbilled (ORDER_EVENT_TYPES) reach staff sockets and cashier kiosks, never a KDS station; both frames reach a staff socket for the map / table view', async () => {
+    expect(TABLE_EVENT_TYPES).toContain('BillClosed');
+    expect(ORDER_EVENT_TYPES).toContain('OrdersUnbilled');
+    const staff = socketCtx({});
+    const kiosk = socketCtx({ deviceType: 'cashier_kiosk', staffId: CASH });
+    const station = socketCtx({ deviceType: 'kds', kind: 'station', staffId: null, stationId: 'S1' });
+    for (const event_type of ['BillClosed', 'OrdersUnbilled']) {
+      const event = { event_type, payload: {} } as unknown as PosEvent;
+      expect(audienceAllows(event, staff), event_type).toBe(true);
+      expect(audienceAllows(event, kiosk), event_type).toBe(true);
+      expect(audienceAllows(event, station), event_type).toBe(false);
+    }
+
+    const ali = signIn(ALI);
+    const staffWs = await authed(ali.token, ali.sessionToken);
+    open('T1', 'SEAT-1', ali, { locked: false });
+    append(
+      ev('table', 'T1', 'BillClosed', { seating_id: 'SEAT-1' }, ali),
+      ev('order', 'O-UNB', 'OrdersUnbilled', { order_ids: ['O-UNB'], bill_id: 'B1' }, ali),
+    );
+    await staffWs.untilCount(4);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(eventTypes(staffWs)).toEqual(expect.arrayContaining(['BillClosed', 'OrdersUnbilled']));
+  });
+
+  it('[02a #66] [05 row T-4] TableMarksChanged joins TABLE_EVENT_TYPES: staff sockets and cashier kiosks, never a KDS station; the frame reaches a staff socket; the tables projection changes no row', async () => {
+    expect(TABLE_EVENT_TYPES).toContain('TableMarksChanged');
+    const staff = socketCtx({});
+    const kiosk = socketCtx({ deviceType: 'cashier_kiosk', staffId: CASH });
+    const station = socketCtx({ deviceType: 'kds', kind: 'station', staffId: null, stationId: 'S1' });
+    const event = { event_type: 'TableMarksChanged', payload: {} } as unknown as PosEvent;
+    expect(audienceAllows(event, staff)).toBe(true);
+    expect(audienceAllows(event, kiosk)).toBe(true);
+    expect(audienceAllows(event, station)).toBe(false);
+
+    const ali = signIn(ALI);
+    open('T1', 'SEAT-1', ali, { locked: false });
+    const dump = () =>
+      ['seatings', 'seating_tables', 'seating_orders', 'table_locks'].map((t) => hub.deps.db.prepare(`SELECT * FROM ${t} ORDER BY 1, 2`).all());
+    const before = dump();
+    const staffWs = await authed(ali.token, ali.sessionToken);
+    append(ev('table', 'T1', 'TableMarksChanged', { seating_id: 'SEAT-1' }, ali));
+    await staffWs.untilCount(2);
+    expect(eventTypes(staffWs)).toContain('TableMarksChanged');
+    expect(dump()).toEqual(before);
   });
 
   it('[02a §6.19 catch-up] catch-up `tables` = the map builder for the socket\'s (staff, device); staff sockets of map devices only; 3 statements at the catch-up seq', async () => {

@@ -36,6 +36,14 @@ export interface TopBarProps {
   pass?: boolean;
   /** 04 §8 (VU2): view-audit-log allowed → "Audit log" (list icon) after Inbox and Requests */
   audit?: boolean;
+  /** 05 §8 Cashier screen (task 34, R5): take-payment allowed → "Bills" (#/bills) */
+  bills?: boolean;
+  /** 05 §8 Shift (task 39, R5): manage-own-shift allowed → "My shift" (#/shift) */
+  shift?: boolean;
+  /** 05 §8 Reports (task 42, R5): view-reports allowed → "Reports" (#/reports) */
+  reports?: boolean;
+  /** 05 §8 Day close (task 41, R5): close-business-day allowed → "Close day" (#/day-close) */
+  dayClose?: boolean;
   /** phone top bar */
   title: string;
   phoneSub: ReactNode;
@@ -96,6 +104,10 @@ export function TopBar(p: TopBarProps) {
               {p.pass === true && <IconButton icon="hand" label={t('nav.pass')} count={null} onClick={() => p.onNavigate('/pass')} />}
               {p.testAlert && <IconButton icon="pulse" label={t('alerts.nav.test')} count={null} onClick={() => p.onNavigate('/test-alert')} />}
               {p.requests !== null && <IconButton icon="shield" label={t('alerts.nav.requests')} count={p.requests} onClick={() => p.onNavigate('/requests')} />}
+              {p.bills === true && <IconButton icon="receipt" label={t('billing.nav')} count={null} onClick={() => p.onNavigate('/bills')} />}
+              {p.shift === true && <IconButton icon="cash" label={t('billing.shift.nav')} count={null} onClick={() => p.onNavigate('/shift')} />}
+              {p.reports === true && <IconButton icon="eye" label={t('billing.report.nav')} count={null} onClick={() => p.onNavigate('/reports')} />}
+              {p.dayClose === true && <IconButton icon="lock" label={t('billing.dayclose.nav')} count={null} onClick={() => p.onNavigate('/day-close')} />}
               <IconButton icon="tray" label={t('alerts.nav.inbox')} count={p.inbox} onClick={() => p.onNavigate('/inbox')} />
               {p.audit === true && (
                 <button type="button" className="btn btn--icon" onClick={() => p.onNavigate('/audit')}>

@@ -14,11 +14,11 @@ import { covers } from './move-table.js';
 // `order_ids` non-empty → a new seating (id from ctx.ids) on `to_table_id` (FREE, or a joined table of S that is not
 // the primary) with those whole live orders, holder = S's holder; `order_ids` empty on a joined table → detach (the
 // table is FREE, no new seating). The lock stays on S; split takes no lock.
-// Statements: 3 reads (S + lock, the target's seating, S's live orders; a detach needs only 2) + the 04 guard (only
+// Statements: 3 reads (S + lock, the target's seating, S's live orders; a detach needs only 2) + the guard list (only
 // when orders move) + 1 `byDedupeKey` + the `alerts.close` bound when a handover is pending.
 // Order of checks: S (T18, NEEDS_CLEANING), holder or force, the target (another seating or S's primary →
-// TABLE_NOT_FREE; FREE and archived → 404), the orders (SPLIT_INVALID), R23 (a new seating only), the lock, the 04
-// guard, scope last over the from and to tables.
+// TABLE_NOT_FREE; FREE and archived → 404), the orders (SPLIT_INVALID), R23 (a new seating only), the lock, the guard
+// list (04 then 05, T-1), scope last over the from and to tables.
 // §3.12: the pending handover of S closes `obsolete` in the same transaction, drafts after SeatingSplit.
 
 const SplitSeatingPayload = z
@@ -126,10 +126,11 @@ function handle(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: { 
     });
   }
 
-  // §4.1 row 04: a pending void on a moved order blocks the split (a detach moves no order).
+  // §4.1 row 04, ⚠️ 02a v1.1.8 (05 row T-1): the guard list over the moved orders (a detach moves no order and asks
+  // none); the first non-null result is thrown (04: MERGE_BLOCKED_BY_VOID; 05: BILL_HAS_PAYMENTS).
   if (!detach) {
-    const verdict = checkMergeGuard(db, { seating_ids: [from.seating_id], order_ids: p.order_ids });
-    if (verdict.blocked) throw new DomainError('MERGE_BLOCKED_BY_VOID', { order_item_ids: verdict.order_item_ids });
+    const blocked = checkMergeGuard(db, { seating_ids: [from.seating_id], order_ids: p.order_ids });
+    if (blocked !== null) throw new DomainError(blocked.code, blocked.details);
   }
 
   // Scope last (C8) over the from and to tables, for the take-order grant and for the force grant when it was used.

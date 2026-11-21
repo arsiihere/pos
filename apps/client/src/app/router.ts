@@ -30,6 +30,8 @@ export type OwnerRoute =
   | { name: 'stock_counting' }
   | { name: 'branches' }
   | { name: 'branch_settings'; id: string }
+  // 01a v2.7.1 §8.1 (05 row A-1 (6)): the branch's Billing page
+  | { name: 'billing' }
   | { name: 'account_password' }
   // 01c §8 "Views": the Menu section's views (Items stay #/menu, 01a)
   | { name: 'size_groups' }
@@ -48,6 +50,7 @@ const FIXED: Record<string, OwnerRoute> = {
   '/teams': { name: 'teams' },
   '/stock-counting': { name: 'stock_counting' },
   '/branches': { name: 'branches' },
+  '/billing': { name: 'billing' },
   '/account/password': { name: 'account_password' },
   '/size-groups': { name: 'size_groups' },
   '/stock-items': { name: 'stock_items' },

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createLiveBus } from '../../shell/live';
-import { concerns, createLiveReader, ORDER_FRAMES, REFETCH_DEBOUNCE_MS } from './refetch';
+import { concerns, createLiveReader, ORDER_FRAMES, REFETCH_DEBOUNCE_MS, SEATING_FRAMES } from './refetch';
 
 // 02b v1.0.11 §8 Table view (Q-6, H1; IR-6): open views read again on frames, debounced; no timer. The table view's
 // orders part and the order view both read through this (OrdersPart.test / OrderView.test check their screens).
@@ -95,6 +95,20 @@ describe('[02b Q-6] live re-read', () => {
     await Promise.all([a, b]);
     expect(onAnswer).toHaveBeenLastCalledWith({ ok: true, data: 4 });
     expect(onAnswer).toHaveBeenCalledTimes(2);
+  });
+
+  it('[05 row T-3 (6)] [05 #37b 02a half] the table view\'s table frames add SeatingReopened and BillClosed (the seating\'s state changes); order frames unchanged', () => {
+    expect([...SEATING_FRAMES].sort()).toEqual(['BillClosed', 'SeatingReopened', 'SeatingSplit', 'TableMoved', 'TablesMerged']);
+    expect(ORDER_FRAMES.has('SeatingReopened')).toBe(false);
+    expect(ORDER_FRAMES.has('BillClosed')).toBe(false);
+  });
+
+  it('[05 rows Q-2, Q-4, Q-5, G-26] OrdersUnbilled and LineCompRemoved are order frames; OrdersCarriedOver is not (it changes nothing a view shows)', () => {
+    expect(ORDER_FRAMES.has('OrdersUnbilled')).toBe(true);
+    expect(ORDER_FRAMES.has('LineCompRemoved')).toBe(true);
+    expect(ORDER_FRAMES.has('OrdersCarriedOver')).toBe(false);
+    expect(concerns({ order_ids: ['O1'], bill_id: 'BL1' }, new Set(['O1']), new Set())).toBe(true);
+    expect(concerns({ order_item_id: 'L1', units: 1, comp_minor: 100 }, new Set(), new Set(['L1']))).toBe(true);
   });
 
   it('[02b Q-6] concerns: by order id, line id, or a frame that names neither', () => {

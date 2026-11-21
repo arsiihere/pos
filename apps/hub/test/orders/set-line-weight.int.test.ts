@@ -7,7 +7,7 @@ import { commandRegistry } from '../../src/commands/route';
 import { setLineWeightCommand } from '../../src/orders/commands/set-line-weight';
 import { orderLines } from '../../src/orders/exports';
 import { planComp } from '../../src/orders/ledger';
-import { registerLineGuard, resetLineGuard } from '../../src/orders/line-guard';
+import { registerLineGuard, resetLineGuard, type LineGuardEntry, type LineGuardResult } from '../../src/orders/line-guard';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -380,11 +380,12 @@ describe('SetLineWeight (02b §6.3, §3.6)', () => {
 /** 04 row Q-3 stub line guard: 1 statement per ask; locks `locked` under alert A_VOID; records every ask. */
 function lockLines(locked: string[]): Array<{ order_id: string; touched: string[] }> {
   const asks: Array<{ order_id: string; touched: string[] }> = [];
-  registerLineGuard((db, order_id, touched_ids) => {
+  registerLineGuard((db, order_id, touched) => {
     db.prepare('SELECT 1 AS one').get();
-    asks.push({ order_id, touched: [...touched_ids] });
-    const hit = touched_ids.find((id) => locked.includes(id));
-    return hit === undefined ? null : { alert_id: 'A_VOID', order_item_id: hit };
+    const ids = touched.map((t) => t.order_item_id);
+    asks.push({ order_id, touched: ids });
+    const hit = ids.find((id) => locked.includes(id));
+    return hit === undefined ? null : { code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: hit } };
   });
   return asks;
 }
@@ -421,5 +422,43 @@ describe('[02b #43] SetLineWeight asks the line guard with the line itself (04 �
     comp(order_id, 'W1', 1);
     lockLines(['W1']);
     expect((await weigh(ali, { order_item_id: 'W1', quantity: 550 })).error?.code).toBe('LINE_ALREADY_SETTLED');
+  });
+});
+
+// ------------------------------------------------------------------------------------------- 05 #32 (05 row Q-3)
+
+describe('[05 #32 guard-list half] [05 row Q-3] SetLineWeight asks the guard list with money_changes: true', () => {
+  it('[05 #32 guard-list half] one ask, [{ the line, units_after, comped_after 0, base_after_minor = the new total, money_changes: true }]; a correction likewise', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([fish('W1')]);
+    const asks: LineGuardEntry[][] = [];
+    registerLineGuard((db, _order_id, touched) => {
+      db.prepare('SELECT 1 AS one').get();
+      asks.push(touched.map((t) => ({ ...t })));
+      return null;
+    });
+    for (const quantity of [500, 750]) {
+      const r = await weigh(ali, { order_item_id: 'W1', quantity }, { counted: true });
+      expect(r.status, JSON.stringify(r.error)).toBe(200);
+      expect(lastStatements).toBe(2);
+      const l = lineView(order_id, 'W1');
+      expect(asks.at(-1)).toEqual([{ order_item_id: 'W1', units_after: l.live_units, comped_after: 0, base_after_minor: l.billed_minor, money_changes: true }]);
+      expect(l.billed_minor).toBe(r.result!.line_total_minor);
+    }
+    expect(asks).toHaveLength(2);
+  });
+
+  it('[05 #32 guard-list half] a guard answering LINE_IN_CLOSED_SPLIT → 409 with its details, nothing written', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    takeaway([fish('W1')]);
+    const closed: LineGuardResult = { code: 'LINE_IN_CLOSED_SPLIT', details: { order_item_id: 'W1', bill_id: 'B1', split_no: 1 } };
+    registerLineGuard(() => closed);
+    const n = eventCount();
+    const r = await weigh(ali, { order_item_id: 'W1', quantity: 500 });
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual(closed);
+    expect(eventCount()).toBe(n);
   });
 });

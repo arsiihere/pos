@@ -1,0 +1,28 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "bill",
+  "stream_id": "01J00000000000000000000020",
+  "event_type": "PaymentRemoved",
+  "payload": {
+    "payment_id": "01J00000000000000000000023",
+    "bill_id": "01J00000000000000000000020",
+    "split_no": 1,
+    "reason_code": "wrong_mode",
+    "has_note": false,
+    "shift_id": "01J00000000000000000000022",
+    "mode_id": "cash",
+    "payment_class": "cash",
+    "direction": "in",
+    "amount_minor": 695500,
+    "change_minor": 4500,
+    "taken_by_staff_id": "01J00000000000000000000029"
+  }
+}

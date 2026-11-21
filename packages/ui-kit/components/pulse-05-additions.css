@@ -1,0 +1,108 @@
+/* 05 client (lane 05C1): what the 05 frames set inline, as classes; pulse-05.css stays a byte copy of the hand-off.
+   Every rule is scoped with :where(...) so it adds no specificity. */
+
+/* task 34 (frames OpenBills*): the page sits under the staff shell's own top bar, so .b5 has one row */
+:where(.b5.b5--page) { grid-template-rows: minmax(0, 1fr); }
+/* no side column yet (the shift card is 05-2's): the list takes the width */
+:where(.b5-home--one).b5-home { grid-template-columns: minmax(0, 1fr); } /* ties .b5-home, wins by order */
+/* frame: style="flex:1" on the list body */
+:where(.b5-wl__b.b5-wl__b--fill) { flex: 1; }
+/* frame OpenBillsOffline: a kept row reads as stale (.b5-ob.stale's opacity) */
+:where(.b5-wr.stale) { opacity: 0.72; }
+/* first load (frame OpenBillsEmpty note): skeleton rows */
+:where(.b5-wr.b5-wr--sk) .sk { height: 20px; }
+:where(.b5-wr.b5-wr--sk) .sk:first-child { height: 54px; border-radius: 14px; }
+/* a row is a button when it opens the bill: no kit button chrome */
+:where(button.b5-wr) { width: 100%; border: 0; background: none; font: inherit; text-align: start; cursor: pointer; }
+
+/* task 38 (frame PrintStatus): the print rows' stack (style="gap:10px") */
+:where(.b5-prints) { gap: 10px; }
+/* task 36 (frames Split*): the split columns' height (frame style="height:470px") */
+:where(.b5-scols.b5-scols--fill) { height: 470px; }
+/* frame SplitAmount: the neutral sum line (its inline --c / --c-bg / --c-ink) */
+:where(.b5-sum.b5-sum--mute) { --c: var(--muted); --c-bg: var(--surface-2); --c-ink: var(--ink-2); }
+/* frame SplitAmount: "Add split" sits at the start (style="align-self:flex-start") */
+:where(.b5-start) { align-self: flex-start; }
+/* a unit and a split header are buttons (tap a unit, then a split): no kit button chrome */
+:where(button.b5-su, button.b5-scol__h) { width: 100%; border: 0; font: inherit; color: inherit; text-align: start; cursor: pointer; }
+:where(button.b5-scol__h) { background: none; }
+/* the picked-up unit */
+:where(.b5-su)[aria-pressed="true"] { /* ties .b5-su, wins by order */ box-shadow: inset 0 0 0 2.5px var(--accent), 0 0 0 4px var(--accent-bg); }
+/* a share is typed in a real input inside the .b5-in look */
+:where(.b5-in input) { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; color: inherit; letter-spacing: inherit; direction: ltr; }
+
+/* task 35: the Paid · Left line under the dues and the done card's change line (brief §6.2 billing.dues.paid_left, billing.give_change) */
+:where(.b5-paid) { padding: 6px 22px; font-size: 15px; font-weight: 700; color: var(--ink-2); }
+:where(.b5-done .b5-change-due) { font: 800 22px/1.2 var(--font-display); color: var(--ok-ink); }
+/* task 37 (frames Discount, ServiceCharge*): the sheet body's stack (style="gap:16px") */
+:where(.b5-stack) { gap: 16px; }
+/* the waiting card's clock icon in the ring's place */
+:where(.b5-wait) > .ico { width: 40px; height: 40px; color: var(--info); }
+/* the note is a real textarea in the .b5-in look */
+:where(textarea.b5-in) { width: 100%; resize: none; border: 0; }
+:where(.pu) textarea.b5-in:focus { /* beats .b5-in */ outline: 0; box-shadow: inset 0 0 0 2.5px var(--accent), 0 0 0 4px var(--accent-bg); }
+/* Add back's inline confirm (brief §3.5.2: "Add the 5 % back?" · Add back) */
+:where(.b5-confirm) { display: flex; align-items: center; gap: 10px; padding: 8px 22px; font-size: 15px; font-weight: 650; }
+:where(.b5-confirm) > span { flex: 1; }
+/* review m6: a real input inside the .b5-in look, with the .b5-in focus ring while it has focus */
+:where(.b5-in) > input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; color: inherit; letter-spacing: inherit; }
+:where(.pu) .b5-in:focus-within { /* beats .b5-in */ box-shadow: inset 0 0 0 2.5px var(--accent), 0 0 0 4px var(--accent-bg); }
+/* task 38 Print to (frame PrintTo): the printer list is one column of tall chips (style="grid-template-columns:1fr"; chip min-height 72px) */
+:where(.b5-chips--one).b5-chips { grid-template-columns: minmax(0, 1fr); } /* ties .b5-chips, wins by order */
+:where(.b5-chips--one) .b5-chip { min-height: 72px; } /* ties .b5-chip, wins by order */
+/* task 39 shifts (frames ShiftOpen, ShiftClose): the page's two columns (style="grid-template-columns:minmax(0,1fr) 560px;align-items:start") */
+:where(.b5-shift).b5-page { grid-template-columns: minmax(0, 1fr) 560px; align-items: start; } /* ties .b5-page, wins by order */
+:where(.b5-shift--one).b5-page { grid-template-columns: minmax(0, 1fr); } /* phone / portrait (frame ShiftPhone); same specificity, later */
+:where(.b5-bh__av).av { width: 88px; height: 88px; font-size: 38px; border-radius: 22px; } /* style= of the frame's avatar */
+/* the drawer switch chip (style="min-height:76px"; .sw and its knob drawn inline) */
+:where(.b5-switch).b5-chip { min-height: 76px; text-align: start; } /* ties .b5-chip, wins by order */
+:where(.b5-switch) > span:not(.sw) { flex: 1; }
+:where(.b5-switch) .sw { width: 56px; height: 32px; border-radius: 999px; background: var(--line); position: relative; flex: none; }
+:where(.b5-switch)[aria-pressed="true"] .sw { background: var(--accent); }
+:where(.b5-switch) .sw i { position: absolute; top: 4px; inset-inline-start: 4px; width: 24px; height: 24px; border-radius: 50%; background: var(--on-accent); }
+:where(.b5-switch)[aria-pressed="true"] .sw i { inset-inline-start: auto; inset-inline-end: 4px; }
+/* task 42 reports (frames XReport, ZList, ZReport, ReportsTablet): the page rows (style="grid-template-rows:auto auto minmax(0,1fr);gap:16px;padding:20px 24px") */
+:where(.b5-rep).b5-page { align-content: start; gap: 16px; padding: 20px 24px; } /* ties .b5-page, wins by order */
+:where(.b5-rep-h) { gap: 16px; align-items: center; }
+:where(.b5-rep-h) .b5-seg { width: 420px; max-width: 100%; }
+/* the X cards: three columns (style="grid-template-columns:1.25fr 1fr 1fr;gap:16px;align-items:start"), one on portrait */
+:where(.b5-rep-grid) { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 16px; align-items: start; min-height: 0; }
+:where(.b5-port) .b5-rep-grid { grid-template-columns: minmax(0, 1fr); }
+/* the Z list beside the selected Z (style="grid-template-columns:640px minmax(0,1fr);gap:20px") */
+:where(.b5-rep-z) { display: grid; grid-template-columns: 640px minmax(0, 1fr); gap: 20px; min-height: 0; align-items: start; }
+:where(.b5-rep-z) .b5-rep-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+:where(.b5-rep-z) .b5-rep-grid > .col:first-child { grid-column: 1 / -1; }
+:where(.b5-rc) > .b5-rc__end { height: 8px; } /* the frames' <div style="height:8px"> */
+:where(.b5-kpi) b.b5-kpi__s { font-size: 24px; } /* style="font-size:24px" */
+:where(.b5-rep-act).b5-rr { min-height: 60px; } /* ties .b5-rr, wins by order */
+:where(.b5-rep-act) .b5-note { text-align: end; }
+/* task 41 day close (frames DayClose, DayCloseShifts, DayCloseUnbilled, DayCloseDone) */
+:where(.b5-dc__fill) { flex: 1; } /* <div style="flex:1"> */
+:where(.b5-dc__ready).b5-blk__b { align-items: center; justify-content: center; flex: 1; gap: 16px; text-align: center; padding: 40px; } /* ties .b5-blk__b, wins by order */
+:where(.b5-dc__ready) > b { font: 800 26px/1.2 var(--font-display); }
+:where(.b5-dc__ready) > .b5-note { max-width: 520px; font-size: 16px; }
+:where(.b5-br__av).av { width: 52px; height: 52px; font-size: 22px; } /* style="width:52px;height:52px;font-size:22px" */
+:where(.b5-br--tick).b5-br { grid-template-columns: auto auto minmax(0, 1fr) auto; } /* style="grid-template-columns:auto auto minmax(0,1fr) auto" */
+:where(.b5-tick) { border: 0; background: none; padding: 0; cursor: pointer; } /* the tick is a real button */
+:where(.pu) .b5-tick.on { background: var(--accent); } /* beats the button reset above */
+:where(.b5-blk__h--ok).b5-blk__h { background: var(--ok-bg); color: var(--ok-ink); } /* the done head (DayCloseDone) */
+:where(.b5-blk__h--ok) .ico { color: var(--ok); }
+:where(.b5-port, .b5-ph) .b5-dc { grid-template-columns: minmax(0, 1fr); }
+/* the X / Z head line with Print at its end (frames XReport, ZReport: the note, <span style="flex:1">, Print) */
+:where(.b5-rep-line) { gap: 16px; align-items: center; }
+/* E2E E-6: at the 1920×1080 kiosk a long money column shrank its parts (.b5-tot has overflow: hidden, so its flex
+   min-height is 0) and the Close bar sat over "Add payment". The pane scrolls; none of its parts shrinks. */
+:where(.b5-money) > .b5-pane { overflow: hidden auto; scrollbar-width: none; } /* as the kit's other scroll regions */
+:where(.b5-money) > .b5-pane::-webkit-scrollbar { display: none; }
+:where(.b5-money) > .b5-pane > * { flex-shrink: 0; }
+/* Close stays in view at the column's foot (the frames draw it last, always visible); the rest scrolls above it */
+:where(.b5-money) > .b5-pane > .b5-close { position: sticky; bottom: -22px; padding-block: 10px 22px; margin-bottom: -22px; background: var(--surface-2); box-shadow: 0 -1px 0 var(--line); z-index: 1; }
+/* E2E E-7, frame BillClosed: the closed view on its own page — the money column's width, the frame's inline gaps */
+:where(.b5-done--page).b5-done { max-width: 600px; min-height: 100%; margin: 0 auto; padding: 22px 24px; } /* ties .b5-done, wins by order */
+:where(.b5-done__st) { gap: 10px; flex-wrap: wrap; } /* style="gap:10px;flex-wrap:wrap" */
+/* E2E R-4 (E-6 leftover): focus scrolling (the keyboard, scrollIntoView) stops above the sticky Close bar, not under it;
+   the bar is 142 px at the kiosk (80 px button, the why line, its 10 + 22 px padding). Opening the pad scrolls in code. */
+:where(.b5-money) > .b5-pane { scroll-padding-bottom: 160px; }
+/* E2E R-3 / R-93: the Z print line (Day close head, each Z row) takes its tone's ink; the rows' muted / ink-2 span
+   colour would hide it */
+:where(.b5-zl, .b5-blk__h) :is(span, div) > span.b5-zprint.b5-zprint { color: var(--c-ink); } /* (0,2,2): above the kit's (0,1,2) */

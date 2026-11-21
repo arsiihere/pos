@@ -402,7 +402,10 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     expect((missing.error!.details.issues as Array<{ path: string }>).map((i) => i.path)).toEqual(['seating_id']);
     expect(eventCount()).toBe(before);
     billClosed('SEAT1');
-    const cleaning = await submit(ali, dineIn('O1', [item('L1', FX.naan)]));
+    // ⚠️ 05 row T-3 (3), H2-13: a live submit now passes NEEDS_CLEANING; a queued replay keeps the refusal (m-10).
+    // The live-submit-on-NEEDS_CLEANING lock rule is covered in tables/require-lock.int.test.ts (02a half) and in the
+    // '[05 row T-3] SubmitOrder on a just-closed seating' describe at the end of this file (order half).
+    const cleaning = await submit(ali, dineIn('O1', [item('L1', FX.naan)]), { queuedAt: hub.clock.branchNow() });
     expect(cleaning.status).toBe(409);
     expect(cleaning.error).toEqual({ code: 'TABLE_NEEDS_CLEANING', details: { table_id: FX.table } });
     expect(eventCount()).toBe(before + 1);
@@ -855,5 +858,170 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
       ['L2', FX.zoneStation, null], // §3.10: the zone route of the table's zone
     ]);
     expect(r.events.map((e) => e.event_type)).not.toContain('ItemServed');
+  });
+});
+
+// 05 §4.5 row Q-6 (02b v1.0.16 §3.1, §3.2 steps 2 and 9, §3.11, §5, §6.1) and 03a v1.2.6 row S-1.
+describe('[05 row Q-6] takeaway addition (adds_to_order_id)', () => {
+  const billKey = (order_id: string) => (hub.deps.db.prepare('SELECT bill_key FROM orders WHERE order_id = ?').get(order_id) as { bill_key: string | null }).bill_key;
+
+  it('[05 row Q-6] keeps the root order\'s token, gets its own table_key and the root\'s bill_key; OrderPlaced carries adds_to_order_id (S-1); 3 statements; nextToken unchanged for roots', async () => {
+    const day = await setUp();
+    const cashier = signIn('S_CASHIER');
+    const root = await submit(cashier, takeaway('T1', [item('L1', FX.naan)]));
+    expect(root.events[0]!.payload).not.toHaveProperty('adds_to_order_id');
+    await submit(cashier, takeaway('T2', [item('L2', FX.naan)]));
+    const counted = countHandle();
+    const add = await submit(cashier, takeaway('T3', [item('L3', FX.naan)], { adds_to_order_id: 'T1' }));
+    // an addition to the addition: same root, same token
+    const add2 = await submit(cashier, takeaway('T4', [item('L4', FX.naan)], { adds_to_order_id: 'T3' }));
+    counted.restore();
+    // takeaway addition: 1 ids + 1 addition check (in place of the token) + 1 item_availability.
+    expect(counted.calls).toEqual([3, 3]);
+    expect(add.status).toBe(200);
+    expect(add.result!.token).toBe(1);
+    expect(add.events[0]!.payload).toMatchObject({ token: 1, table_key: 'takeaway:T3', adds_to_order_id: 'T1', business_date: day.business_date });
+    expect(add2.result!.token).toBe(1);
+    expect(add2.events[0]!.payload).toMatchObject({ token: 1, table_key: 'takeaway:T4', adds_to_order_id: 'T3' });
+    expect(orderRow('T3')).toMatchObject({ token: 1, table_key: 'takeaway:T3' });
+    expect([billKey('T1'), billKey('T2'), billKey('T3'), billKey('T4')]).toEqual(['takeaway:T1', 'takeaway:T2', 'takeaway:T1', 'takeaway:T1']);
+    expect(engine().orders.T3).toMatchObject({ table_key: 'takeaway:T3' });
+    // the next root still takes MAX + 1
+    const next = await submit(cashier, takeaway('T5', [item('L5', FX.naan)]));
+    expect(next.result!.token).toBe(3);
+  });
+
+  it('[05 row Q-6] unknown → 404 ORDER_NOT_FOUND; dine-in / parking target, cancelled target, earlier-day target → 422 CONFIG_REFERENCE_INVALID; nothing written', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const cashier = signIn('S_CASHIER');
+    await submit(signIn('S_ALI'), dineIn('D1', [item('LD', FX.naan)]));
+    await submit(cashier, { order_id: 'P1', order_type: 'parking', parking: { car_number: 'ABC 1', car_type: 'sedan' }, lines: [item('LP', FX.naan)] });
+    await submit(cashier, takeaway('TC', [item('LC', FX.naan)]));
+    append({ stream_type: 'order', stream_id: 'TC', event_type: 'ItemRemoved', payload: { order_item_id: 'LC' }, actor_id: 'S_ALI' });
+    append({ stream_type: 'order', stream_id: 'TC', event_type: 'OrderCancelled', payload: { order_id: 'TC' }, actor_id: 'S_ALI' });
+    await submit(cashier, takeaway('TY', [item('LY', FX.naan)]));
+    const before = eventCount();
+    const unknown = await submit(cashier, takeaway('N1', [item('N1L', FX.naan)], { adds_to_order_id: 'NOPE' }));
+    expect(unknown.status).toBe(404);
+    expect(unknown.error!.code).toBe('ORDER_NOT_FOUND');
+    for (const target of ['D1', 'P1', 'TC']) {
+      const r = await submit(cashier, takeaway(`N${target}`, [item(`N${target}L`, FX.naan)], { adds_to_order_id: target }));
+      expect(r.status, target).toBe(422);
+      expect(r.error, target).toEqual({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'adds_to_order_id' } });
+    }
+    expect(eventCount()).toBe(before);
+    // an earlier-day order is never a target
+    closeDay();
+    hub.clock.advance(86_400_000);
+    openDay(hub);
+    const late = await submit(signIn('S_CASHIER'), takeaway('NL', [item('NLL', FX.naan)], { adds_to_order_id: 'TY' }));
+    expect(late.status).toBe(422);
+    expect(late.error).toEqual({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'adds_to_order_id' } });
+  });
+
+  it('[05 row Q-6, R-34] an addition carries only its own payload\'s customer fields: with none, nothing is copied from the root', async () => {
+    await setUp();
+    const cashier = signIn('S_CASHIER');
+    const root = await submit(cashier, takeaway('T1', [item('L1', FX.naan)], { takeaway: { customer_name: 'Ahmed', phone: '03001234567' } }));
+    expect(root.events.map((e) => e.event_type)).toContain('OrderContactSet');
+    const add = await submit(cashier, takeaway('T2', [item('L2', FX.naan)], { adds_to_order_id: 'T1' }));
+    expect(add.status).toBe(200);
+    expect(add.events.map((e) => e.event_type)).toEqual(['OrderPlaced', 'ItemAdded']);
+    expect(add.events[0]!.payload).toMatchObject({ has_phone: false, adds_to_order_id: 'T1' });
+    expect(orderRow('T2')).toMatchObject({ customer_name: null, phone: null });
+    expect(orderRow('T1')).toMatchObject({ customer_name: 'Ahmed', phone: '03001234567' });
+    // its own fields are its own
+    const own = await submit(cashier, takeaway('T3', [item('L3', FX.naan)], { adds_to_order_id: 'T1', takeaway: { customer_name: 'Sara' } }));
+    expect(own.events.find((e) => e.event_type === 'OrderContactSet')!.payload).toEqual({ order_id: 'T3', customer_name: 'Sara', phone: null });
+  });
+
+  it('[05 row Q-6] adds_to_order_id only on takeaway: dine-in / parking with it → 400 at its path', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const cashier = signIn('S_CASHIER');
+    await submit(cashier, takeaway('T1', [item('L1', FX.naan)]));
+    const dine = await submit(signIn('S_ALI'), dineIn('D1', [item('LD', FX.naan)], { adds_to_order_id: 'T1' }));
+    expect(dine.status).toBe(400);
+    expect(dine.error!.details).toMatchObject({ issues: [{ path: 'adds_to_order_id' }] });
+    const park = await submit(cashier, { order_id: 'P1', order_type: 'parking', parking: { car_number: 'ABC 1', car_type: 'sedan' }, adds_to_order_id: 'T1', lines: [item('LP', FX.naan)] });
+    expect(park.status).toBe(400);
+  });
+});
+
+// 05 v1.0.6 row T-3 (3), (4) (H2-13, H2-14), 02a v1.1.9 §4.2 requireLock, §3.3; 02a #64 (order half); 05 #37b, #37c,
+// #37e, #37g (02b halves). SubmitOrder passes `{ allowBillClosed: true }`: only a live call gets through NEEDS_CLEANING.
+describe('[05 row T-3] SubmitOrder on a just-closed seating (S-9 (b))', () => {
+  const seatingRow = (seating_id: string) =>
+    hub.deps.db.prepare('SELECT state, bill_closed FROM seatings WHERE seating_id = ?').get(seating_id) as { state: string; bill_closed: number };
+  const cleaned = (seating_id: string): void =>
+    append({ stream_type: 'table', stream_id: FX.table, event_type: 'TableCleaned', payload: { seating_id, table_ids: [FX.table], reason: 'cleaned', by_staff_id: 'S_ALI' } });
+
+  it('[05 row T-3 (3)] [02a #64] [05 #37e] [05 #37b submit half] a live submit on a NEEDS_CLEANING seating → 200, OrderPlaced clears bill_closed, the seating re-occupies; 5 statements, as on an open seating', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const ali = signIn('S_ALI');
+    const counted = countHandle();
+    expect((await submit(ali, dineIn('O1', [item('L1', FX.naan)]))).status).toBe(200);
+    billClosed('SEAT1');
+    expect(seatingRow('SEAT1')).toEqual({ state: 'NEEDS_CLEANING', bill_closed: 1 });
+    const r = await submit(ali, dineIn('O2', [item('L2', FX.naan)]));
+    counted.restore();
+    expect(r.status).toBe(200);
+    // Ali already holds the lock on this device (taken by O1): no TableLocked.
+    expect(r.events.map((e) => e.event_type)).toEqual(['OrderPlaced', 'ItemAdded']);
+    expect(r.events[0]!.payload).toMatchObject({ table_key: 'dine_in:SEAT1' });
+    expect(seatingRow('SEAT1')).toEqual({ state: 'ORDERED', bill_closed: 0 });
+    expect(counted.calls).toEqual([5, 5]);
+  });
+
+  it('[05 row T-3 (3)] [02a #64] [05 #37e] a live submit by the holder on another device after the close takes the free lock (TableLocked first)', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    billClosed('SEAT1');
+    const r = await submit(signIn('S_ALI'), dineIn('O1', [item('L1', FX.naan)]));
+    expect(r.status).toBe(200);
+    expect(r.events.map((e) => e.event_type)).toEqual(['TableLocked', 'OrderPlaced', 'ItemAdded']);
+    expect(seatingRow('SEAT1').bill_closed).toBe(0);
+  });
+
+  it('[05 row T-3 (3), H2-13] [02a #64] [05 #37g] a round queued before the close and replayed after it → 409 TABLE_NEEDS_CLEANING, nothing appended; a fresh resend → 200', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const ali = signIn('S_ALI');
+    const queuedAt = hub.clock.branchNow();
+    expect((await submit(ali, dineIn('O1', [item('L1', FX.naan)]))).status).toBe(200);
+    billClosed('SEAT1');
+    const before = eventCount();
+    const replay = await submit(ali, dineIn('O2', [item('L2', FX.naan)]), { queuedAt });
+    expect(replay.status).toBe(409);
+    expect(replay.error).toEqual({ code: 'TABLE_NEEDS_CLEANING', details: { table_id: FX.table } });
+    expect(eventCount()).toBe(before);
+    expect(seatingRow('SEAT1')).toEqual({ state: 'NEEDS_CLEANING', bill_closed: 1 });
+    const fresh = await submit(ali, dineIn('O2', [item('L2', FX.naan)]));
+    expect(fresh.status).toBe(200);
+    expect(seatingRow('SEAT1')).toEqual({ state: 'ORDERED', bill_closed: 0 });
+  });
+
+  it('[05 row T-3 (4), H2-14] [02a #64] [05 #37c submit half] a submit naming a cleaned seating → 409 TABLE_SEATING_CHANGED (T18, no new code), live or queued; a new seating on the table is untouched', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const ali = signIn('S_ALI');
+    expect((await submit(ali, dineIn('O1', [item('L1', FX.naan)]))).status).toBe(200);
+    billClosed('SEAT1');
+    cleaned('SEAT1');
+    expect(seatingRow('SEAT1').state).toBe('CLOSED');
+    const before = eventCount();
+    const live = await submit(ali, dineIn('O2', [item('L2', FX.naan)]));
+    expect(live.status).toBe(409);
+    expect(live.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: FX.table, seating_id: 'SEAT1' } });
+    const queued = await submit(ali, dineIn('O2', [item('L2', FX.naan)]), { queuedAt: hub.clock.branchNow() });
+    expect(queued.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: FX.table, seating_id: 'SEAT1' } });
+    // re-seated: the old seating_id is stale, the new seating is not touched
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT2', holder_staff_id: 'S_ALI' });
+    const stale = await submit(ali, dineIn('O2', [item('L2', FX.naan)]));
+    expect(stale.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: FX.table, seating_id: 'SEAT1' } });
+    expect(eventCount()).toBe(before + 1);
+    expect(seatingRow('SEAT2')).toEqual({ state: 'SEATED', bill_closed: 0 });
   });
 });

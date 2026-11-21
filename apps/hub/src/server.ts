@@ -19,6 +19,7 @@ import { registerKds } from './kds/index.js';
 import { registerPrint } from './print/index.js';
 import { registerVoids } from './voids/index.js';
 import { registerAudit } from './audit/index.js';
+import { registerBilling } from './billing/index.js';
 import { registerAppUpdateRoutes } from './app-update/routes.js';
 import { registerAdminBootstrapRoutes } from './auth/admin-bootstrap.js';
 import { registerAdminRoutes } from './auth/admin-session.js';
@@ -43,6 +44,7 @@ import { registerCommandRoutes } from './commands/route.js';
 import { hubTime } from './lib/hub-time.js';
 import {
   ADMIN_KITCHEN_SCREENS_DIST_DIR,
+  ADMIN_FISCAL_DIST_DIR,
   ADMIN_PRINTERS_DIST_DIR,
   CLIENT_DIST_DIR,
   KDS_DIST_DIR,
@@ -222,6 +224,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerPrint(app, deps);
   registerVoids(app, deps); // 04 §6.6
   registerAudit(app, deps); // 04 §6.6
+  registerBilling(app, deps); // 05 §6.30
   registerUiAssets(app);
   // §7.1: the built /admin/stock page; no credentials, like 00's admin pages (M79).
   registerClientDist(app, { prefix: '/admin/stock/', dir: CLIENT_DIST_DIR, routeConfig: { group: 'admin-page' } });
@@ -245,6 +248,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   // 00 v1.9.2 §8.2 (Q-43): the 03b / 03c admin entries, like /admin/stock/ (no meta, no credentials).
   registerClientDist(app, { prefix: '/admin/kitchen-screens/', dir: ADMIN_KITCHEN_SCREENS_DIST_DIR, routeConfig: { group: 'admin-page' } });
   registerClientDist(app, { prefix: '/admin/printers/', dir: ADMIN_PRINTERS_DIST_DIR, routeConfig: { group: 'admin-page' } });
+  registerClientDist(app, { prefix: '/admin/fiscal/', dir: ADMIN_FISCAL_DIST_DIR, routeConfig: { group: 'admin-page' } });
   installCors(app, deps.config.cors_origins);
   bindConfigPoller(
     app,

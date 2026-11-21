@@ -5,14 +5,14 @@ import { z } from 'zod';
 import { defineCommand, type CommandCtx } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { hasUnitOutOfBilling } from '../ledger.js';
-import { requireNoVoidPending } from '../line-guard.js';
+import { requireLineGuard } from '../line-guard.js';
 
 // 02b §6.3 SetLineWeight, §3.6 (pending, correction, total from the ItemAdded copy, 01c M7), §3.4 Weights
 // (LINE_ALREADY_SETTLED; the LineWeightSet fold sets refundable_minor), §3.14 (scope `branch`). Not queueable (§3.12).
 // Order of checks: payload (Zod: S59 steps of 50, 50–50 000) → line (404) → billed → weighed (not a return line, owner
 // S-1) → settled → line guard with the line itself (⚠️ 04 row Q-3: 409 VOID_PENDING) → scope last (C8). An unknown
 // line → 404 ORDER_NOT_FOUND { order_item_id } (owner S-2).
-// Statements: 1 (the line, its order and its ItemAdded copy), +1 line guard when registered (04 Q-3, G-23); the append
+// Statements: 1 (the line, its order and its ItemAdded copy), +1 per registered line guard (04 Q-3, G-23; 05 Q-3); the append
 // excluded.
 
 export const SetLineWeightPayload = z.object({
@@ -24,6 +24,7 @@ type Payload = z.infer<typeof SetLineWeightPayload>;
 interface Row {
   order_id: string;
   billed_at: number | null;
+  units: number;
   comped_units: number;
   removed_units: number;
   voided_units: number;
@@ -32,7 +33,7 @@ interface Row {
 }
 
 // One statement: the line, its order's billed_at and its ItemAdded copy (stream order:<order_id>, events_stream index).
-const READ = `SELECT l.order_id, o.billed_at, l.comped_units, l.removed_units, l.voided_units,
+const READ = `SELECT l.order_id, o.billed_at, l.units, l.comped_units, l.removed_units, l.voided_units,
        (SELECT e.payload FROM events e
          WHERE e.stream_type = 'order' AND e.stream_id = l.order_id AND e.event_type = 'ItemAdded'
            AND json_extract(e.payload, '$.order_item_id') = l.order_item_id
@@ -54,11 +55,6 @@ function setLineWeight(ctx: CommandCtx, p: Payload): { events: EventDraft[]; res
   if (copy.return_of !== undefined) throw new DomainError('LINE_NOT_WEIGHED', { order_item_id: p.order_item_id });
   // §3.4 Weights / §3.6: a correction is refused once any unit left billing (comped, removed or voided).
   if (hasUnitOutOfBilling(row)) throw new DomainError('LINE_ALREADY_SETTLED', { order_item_id: p.order_item_id });
-  // §3.4 line guard (⚠️ 04 row Q-3): the line itself, after LINE_ALREADY_SETTLED, before scope.
-  requireNoVoidPending(ctx.tx.db, row.order_id, [p.order_item_id]);
-
-  checkScope(ctx, row.order_id);
-
   // 01c M7: orderLineTotalMinor over the ItemAdded copy (its price_minor and options as copied), never re-priced.
   const line_total_minor = orderLineTotalMinor({
     line_kind: 'item',
@@ -67,6 +63,14 @@ function setLineWeight(ctx: CommandCtx, p: Payload): { events: EventDraft[]; res
     sale_unit: copy.sale_unit,
     option_charges_minor: copy.options.map((o) => o.charge_minor),
   }) as number;
+  // §3.4 line guard (⚠️ 04 row Q-3): the line itself, after LINE_ALREADY_SETTLED, before scope. ⚠️ 05 row Q-3: the list,
+  // with the line after the weight: no unit out of billing (settled above), so units_after = units, comped_after = 0 and
+  // base_after_minor = the new total (the fold sets refundable_minor = line_total_minor); money_changes: true.
+  requireLineGuard(ctx.tx.db, row.order_id, [
+    { order_item_id: p.order_item_id, units_after: row.units, comped_after: 0, base_after_minor: line_total_minor, money_changes: true },
+  ]);
+
+  checkScope(ctx, row.order_id);
   const payload: LineWeightSetPayload = { order_item_id: p.order_item_id, quantity: p.quantity, line_total_minor };
   const event: EventDraft = {
     stream_type: 'order',
