@@ -13,7 +13,7 @@ import { billingErrorKey } from './errors';
 import { BIco } from './icons';
 import { billMoney, durationText } from './money';
 import { Dlg } from './PettySheets';
-import { dateOf, ReportBody, zNo } from './ReportsScreen';
+import { dateOf, PrintReportButton, ReportBody, zNo } from './ReportsScreen';
 import './styles';
 
 // 05 v1.0.25 §8 "Day close" (staff app, `close-business-day`: the blockers list — voids, open shifts, unbilled orders
@@ -234,6 +234,8 @@ export function DayCloseScreen({ onNavigate, exits }: { onNavigate: (path: strin
                       : fill(t('billing.dayclose.done_sub'), { date: dayText(dateOf(state.z.business_date), 0), time: timeText(state.z.report.issued_at, offset) })}
                 </span>
               </div>
+              {/* §6.22, R-87: the date's latest Z again (view-reports); it already printed by itself */}
+              {typeof state.z !== 'string' && exits.reports && <PrintReportButton payload={{ doc: 'z_report', ref_id: state.z.business_date }} label="billing.report.print_again" />}
               {state.z === 'unread' && exits.reports && (
                 <button type="button" className="btn" onClick={() => onNavigate('/reports')}>
                   <Ico name="eye" />

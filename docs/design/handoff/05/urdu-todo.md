@@ -402,6 +402,11 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.report.by_taker` | Takings by person |
 | `billing.report.no_open_day` | No day is open, so there is no X. A closed day's figures are in its Z report. |
 | `billing.report.see_z` | See Z reports |
+| `billing.report.print` | Print |
+| `billing.report.print_again` | Print again |
+| `billing.report.printed` | Sent to {printer} |
+| `billing.report.not_printed` | No printer is set up for reports — nothing printed |
+| `billing.report.older_z` | Only the latest Z of a date prints |
 | `billing.dayclose.step_signoffs` | Pending sign-offs |
 | `billing.dayclose.ready` | Ready when you are |
 | `billing.dayclose.ready_note` | Tap Close day. If something is still open, it shows here as a list with a way to fix each row. |

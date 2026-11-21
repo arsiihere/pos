@@ -349,6 +349,20 @@ describe('[05 §8, §6.26, R-85] day closed (frame DayCloseDone)', () => {
     expect(v.buttons().some((b) => b.textContent === 'Close day')).toBe(false);
   });
 
+  it('[§6.22, R-87] Print again → PrintReport { doc: z_report, ref_id: the date }; only with view-reports', async () => {
+    const s = setup({ answers: [CLOSED, { ok: true, data: { printed: true, job_id: 'J1', printer_name: 'Office' } }] });
+    const v = await show(s);
+    await close(v);
+    v.click(v.button('Print again'));
+    await flush();
+    expect(s.command.mock.calls[1]!.slice(0, 2)).toEqual(['PrintReport', { doc: 'z_report', ref_id: '2026-11-19' }]);
+    expect(s.shown).toEqual(['Sent to Office']);
+    v.unmount();
+    m = await show(setup(), { ...ALL, reports: false });
+    await close(m);
+    expect(m.buttons().some((b) => b.textContent === 'Print again')).toBe(false);
+  });
+
   it('[R-85 (2)] no Z for the date (no branch settings): "Day closed" and the note', async () => {
     const v = await show(setup({ zPage: { ok: true, data: { data: { reports: [] }, next_cursor: null } } }));
     await close(v);

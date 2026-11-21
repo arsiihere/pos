@@ -20,8 +20,9 @@ import './styles';
 // R-85: a Z is keyed by `z_no`, a date can have several, the list is newest `z_no` first, cursor-paged), §6.28
 // (Retry fiscal now, `close-business-day`), B26 (plan §4.1 task 42, after hub task 26b; frames XReport, ZList,
 // ZReport, ReportsTablet). Every figure is the hub's: the client formats, never sums (D47). Names from `staff_names`
-// (H16-5: the report carries ids only); brought / carried forward as their rows (R-83 (5)), never a client total. Print (§6.22 PrintReport) is not offered: no hub task builds it yet; the Z
-// prints by itself when it is issued (26b's live print fold).
+// (H16-5: the report carries ids only); brought / carried forward as their rows (R-83 (5)), never a client total. Print
+// (§6.22 PrintReport, hub task 27b, R-87): the X, or the Z of a date (its latest z_no); a Z also prints by itself when it
+// is issued (26b's live print fold).
 
 type Tab = 'x' | 'z';
 
@@ -120,9 +121,11 @@ function XView({ offset, onShowZ }: { offset: number; onShowZ: () => void }) {
   const retry = shell.permissions.allowed('close-business-day') ? { busy, run: () => void run() } : null;
   return (
     <>
-      <p className="b5-note b5-rep-line">
-        {fill(t('billing.report.x_line'), { date: dayText(dateOf(r.business_date), 0), time: timeText(r.issued_at, offset), currency: r.currency_code })}
-      </p>
+      <div className="row b5-rep-line">
+        <span className="b5-note">{fill(t('billing.report.x_line'), { date: dayText(dateOf(r.business_date), 0), time: timeText(r.issued_at, offset), currency: r.currency_code })}</span>
+        <span className="b5-dc__fill" />
+        <PrintReportButton payload={{ doc: 'x_report' }} label="billing.report.print" primary />
+      </div>
       {err !== null && <Failed text={err} onRetry={() => void load()} />}
       <ReportBody report={r} names={view.staff_names} offset={offset} retry={retry} />
     </>
@@ -202,13 +205,50 @@ function ZView({ offset }: { offset: number }) {
       </section>
       {picked !== null && (
         <div className="col b5-stack">
-          <p className="b5-note b5-rep-line">
-            {fill(t('billing.report.z_line'), { z: zNo(picked.z_no), date: dayText(dateOf(picked.business_date), 0), time: timeText(picked.report.issued_at, offset), currency: picked.report.currency_code })}
-          </p>
+          <div className="row b5-rep-line">
+            <span className="b5-note">
+              {fill(t('billing.report.z_line'), { z: zNo(picked.z_no), date: dayText(dateOf(picked.business_date), 0), time: timeText(picked.report.issued_at, offset), currency: picked.report.currency_code })}
+            </span>
+            <span className="b5-dc__fill" />
+            {/* R-87 (1): a Z prints by its date, which prints that date's latest z_no; an older Z of the same date cannot */}
+            {state.rows.findIndex((z) => z.business_date === picked.business_date) === state.selected ? (
+              <PrintReportButton payload={{ doc: 'z_report', ref_id: picked.business_date }} label="billing.report.print" primary />
+            ) : (
+              <span className="b5-note">{t('billing.report.older_z')}</span>
+            )}
+          </div>
           <ReportBody report={picked.report} names={picked.staff_names} offset={offset} retry={null} />
         </div>
       )}
     </div>
+  );
+}
+
+/** §6.22 PrintReport (R-87): one tap, one job; a lost reply is resent with the same command_id (no second print). */
+export function PrintReportButton({ payload, label, primary }: { payload: { doc: 'x_report' } | { doc: 'z_report'; ref_id: string }; label: MessageKey; primary?: boolean }) {
+  const shell = useShell();
+  const api = useMemo(() => billingApi(shell.api), [shell.api]);
+  const [busy, setBusy] = useState(false);
+  const print = async () => {
+    if (busy || !shell.online) return;
+    setBusy(true);
+    const answer = await api.printReport(payload);
+    setBusy(false);
+    if (!answer.ok) {
+      shell.toasts.show({ text: errText(answer.error), tone: 'warn' });
+      return;
+    }
+    shell.toasts.show(
+      answer.data.printed && answer.data.printer_name !== null
+        ? { text: fill(t('billing.report.printed'), { printer: answer.data.printer_name }), tone: 'ok' }
+        : { text: t('billing.report.not_printed'), tone: 'warn' },
+    );
+  };
+  return (
+    <button type="button" className={primary === true ? 'btn btn--primary' : 'btn'} disabled={busy} aria-disabled={busy || !shell.online} onClick={() => void print()}>
+      <BIco name="printer" />
+      {t(label)}
+    </button>
   );
 }
 

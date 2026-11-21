@@ -89,6 +89,8 @@ export interface BillingApi {
   closeBusinessDay(): Promise<HubResult<CloseBusinessDayResult>>;
   /** §6.24 (`close-business-day`): orders that stay open into tomorrow. */
   carryOverOrders(payload: { order_ids: string[]; reason_code: string; note?: string }): Promise<HubResult<{ business_date: string; order_ids: string[] }>>;
+  /** §6.22 (R-87, `view-reports`): print the open day's X, or the Z of a date (its latest `z_no`); no printer → `printed: false`. */
+  printReport(payload: { doc: 'x_report' } | { doc: 'z_report'; ref_id: string }): Promise<HubResult<{ printed: boolean; job_id: string | null; printer_name: string | null }>>;
   /** §6.27: the fiscal line's figures (never a token). */
   fiscalStatus(): Promise<HubResult<FiscalStatusView>>;
   /** §6.28 (`close-business-day`): resend the pending invoices now (a rejected one is not resent). */
@@ -152,6 +154,7 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
     zReportOf: (business_date) => staff.page<{ reports: ZReportView[] }>(`/queries/z-reports?business_date=${encodeURIComponent(business_date)}&limit=1`),
     closeBusinessDay: () => command<CloseBusinessDayResult>('CloseBusinessDay', {}),
     carryOverOrders: (payload) => command('CarryOverOrders', payload),
+    printReport: (payload) => command('PrintReport', payload),
     fiscalStatus: () => staff.query<FiscalStatusView>('/queries/fiscal-status'),
     retryFiscalNow: () => command<{ pending_count: number }>('RetryFiscalNow', {}),
     recordPettyCash: (payload) => command<RecordPettyCashResult>('RecordPettyCash', payload),

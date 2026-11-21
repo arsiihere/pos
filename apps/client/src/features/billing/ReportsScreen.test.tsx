@@ -156,7 +156,7 @@ describe('[05 §8 Reports, §6.26] Today (X) (frame XReport)', () => {
     const v = await show(s);
     expect(s.query.mock.calls[0]![0]).toBe('/queries/x-report');
     expect(seg(v, 'Today (X)').getAttribute('aria-pressed')).toBe('true');
-    expect(v.container.querySelector('.b5-rep-line')?.textContent).toBe('X · Thu 19 Nov · issued 4:15 PM · PKR');
+    expect(v.container.querySelector('.b5-rep-line .b5-note')?.textContent).toBe('X · Thu 19 Nov · issued 4:15 PM · PKR');
     const kpis = [...v.container.querySelectorAll('.b5-kpi')].map((k) => [k.querySelector('span')?.textContent, k.querySelector('b')?.textContent, k.querySelector('small')?.textContent]);
     expect(kpis).toEqual([
       ['Net after credits', 'Rs 451,366.00', 'so far today'],
@@ -348,6 +348,57 @@ describe('[05 §8 Reports, §6.26, R-85] Z reports (frames ZList, ZReport)', () 
     v.click(seg(v, 'Z reports'));
     await flush();
     expect(v.text()).toContain('No Z reports yet');
+  });
+});
+
+describe('[05 §6.22, R-87; frames XReport, ZReport] Print (hub task 27b)', () => {
+  it('X: Print → PrintReport { doc: x_report } (no ref_id); "Sent to {printer}"', async () => {
+    const s = setup({ answers: [{ ok: true, data: { printed: true, job_id: 'J1', printer_name: 'Counter' } }] });
+    const v = await show(s);
+    v.click(v.button('Print'));
+    await flush();
+    expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['PrintReport', { doc: 'x_report' }]);
+    expect(s.shown).toEqual(['Sent to Counter']);
+  });
+
+  it('no printer routed (printed: false) says so; a refusal reads its text; a lost reply resends with the same command_id', async () => {
+    const s = setup({
+      answers: [
+        { ok: true, data: { printed: false, job_id: null, printer_name: null } },
+        { ok: false, error: { kind: 'api', status: 409, code: 'BUSINESS_DAY_NOT_OPEN', details: {} } },
+        { ok: false, error: { kind: 'network' } },
+        { ok: true, data: { printed: true, job_id: 'J2', printer_name: 'Counter' } },
+      ],
+    });
+    const v = await show(s);
+    for (let i = 0; i < 4; i++) {
+      v.click(v.button('Print'));
+      await flush();
+    }
+    expect(s.shown[0]).toBe('No printer is set up for reports — nothing printed');
+    expect(s.shown[2]).toBe('Needs the hub');
+    const [, , c, d] = s.command.mock.calls;
+    expect((d![2] as { commandId: string }).commandId).toBe((c![2] as { commandId: string }).commandId);
+  });
+
+  it('[R-87 (1), R-85] Z: Print sends the business date; a date closed twice prints only its latest Z (z_no), the older one says so', async () => {
+    const s = setup({
+      pages: [{ ok: true, data: { data: { reports: [zRow(44, '2026-11-19', 1), zRow(43, '2026-11-19', 2), zRow(42, '2026-11-18', 3)] }, next_cursor: null } }],
+      answers: [{ ok: true, data: { printed: true, job_id: 'J3', printer_name: 'Office' } }],
+    });
+    const v = await show(s);
+    v.click(seg(v, 'Z reports'));
+    await flush();
+    v.click(v.button('Print'));
+    await flush();
+    expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['PrintReport', { doc: 'z_report', ref_id: '2026-11-19' }]);
+    v.click(v.container.querySelectorAll('.b5-zl')[1] as HTMLElement);
+    await flush();
+    expect(v.buttons().some((b) => b.textContent === 'Print')).toBe(false);
+    expect(v.text()).toContain('Only the latest Z of a date prints');
+    v.click(v.container.querySelectorAll('.b5-zl')[2] as HTMLElement);
+    await flush();
+    expect(v.buttons().some((b) => b.textContent === 'Print')).toBe(true);
   });
 });
 
