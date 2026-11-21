@@ -88,3 +88,5 @@
 :where(.b5-blk__h--ok).b5-blk__h { background: var(--ok-bg); color: var(--ok-ink); } /* the done head (DayCloseDone) */
 :where(.b5-blk__h--ok) .ico { color: var(--ok); }
 :where(.b5-port, .b5-ph) .b5-dc { grid-template-columns: minmax(0, 1fr); }
+/* the X / Z head line with Print at its end (frames XReport, ZReport: the note, <span style="flex:1">, Print) */
+:where(.b5-rep-line) { gap: 16px; align-items: center; }
