@@ -441,6 +441,9 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.closed_empty_line` | nothing billed · money given back |
 | `billing.closed_fiscal_pending` | Fiscal number pending |
 | `billing.done_next` | Done · next bill |
+| `billing.comp_remove.reason.comped_by_mistake` | Comped by mistake |
+| `billing.comp_remove.reason.wrong_line` | Wrong line |
+| `billing.comp_remove.reason.other` | Other |
 | `billing.dayclose.step_signoffs` | Pending sign-offs |
 | `billing.dayclose.ready` | Ready when you are |
 | `billing.dayclose.ready_note` | Tap Close day. If something is still open, it shows here as a list with a way to fix each row. |
