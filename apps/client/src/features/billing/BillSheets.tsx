@@ -1,13 +1,14 @@
-import { CHARGE_REMOVE_REASONS } from '@pos/domain';
+import { BILL_REOPEN_REASONS, CHARGE_REMOVE_REASONS } from '@pos/domain';
 import { defaultBillingSettings } from '@pos/events';
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { HubError } from '../../api/hub-admin';
 import { t } from '../../i18n';
 import { fill, type MessageKey } from '../../i18n/en';
+import { timeText } from '../alerts/labels';
 import { Ico } from '../alerts/ui';
 import { useShell } from '../staff/shell/hooks';
 import { billingApi } from './api';
-import type { BillRef, BillView, BillViewSplit, SheetResult } from './contracts';
+import type { BillRef, BillView, BillViewSplit, ReopenResult, SheetResult } from './contracts';
 import { billingErrorKey } from './errors';
 import { amountText, billMoney, currencySymbol, MONEY_DIR, parseMinor, parsePercentBp, rateText } from './money';
 import './styles';
@@ -805,6 +806,117 @@ export function RemovePaymentSheet({ bill, payment, onDone, onClose }: { bill: B
         </button>
         <Primary step={shell.online ? step : 'tables.toast.needs_hub'} action={t('billing.pay_remove.title')} ask={false} busy={busy} onClick={() => void remove()} />
       </div>
+    </Frame>
+  );
+}
+
+export type ReopenOutcome = { kind: 'reopened'; mode: 'full' | 'corrections'; credits: Array<{ invoice_ref: string; total_minor: number }> } | { kind: 'pending' } | { kind: 'withdrawn' };
+
+/**
+ * 05 §8 Reopen (v1.0.28 R-89, plan 36c; frames Reopen, ReopenWaiting, ReopenNotSupported): why (BILL_REOPEN_REASONS, a
+ * note required for Other — the hub refuses Other without one), what happens (a credit note per closed split's sale
+ * invoice, payments stay, close again for new invoices — the hub decides full edit or corrections, §3.10, so the
+ * sheet promises no mode). `allowed` → ReopenBill; `requires_approval` → the `reopen_bill` request and the waiting card
+ * with Withdraw. Refusals by §9 code; BILL_REOPEN_NOT_SUPPORTED ends the sheet (OK only).
+ */
+export function ReopenSheet({ bill, onDone, onClose }: { bill: BillView; onDone: (r: ReopenOutcome) => void; onClose: () => void }) {
+  const shell = useShell();
+  const api = useMemo(() => billingApi(shell.api), [shell.api]);
+  const currency = bill.currency.code;
+  const ask = shell.permissions.requiresApproval('reopen-bill');
+  const reasons = BILL_REOPEN_REASONS.map((code) => ({ code, label: t(`billing.report.credit_reason.${code}` as MessageKey) }));
+  const refs = bill.splits.filter((x) => x.state === 'closed' && x.invoice !== null).map((x) => x.invoice!.invoice_ref);
+  const [reason, setReason] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [unsupported, setUnsupported] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [local, setLocal] = useState<Pending | null>(null);
+  const waiting = waitingOf(bill, 'reopen_bill', local);
+  const step = shell.online ? noteStep(reason, note) : 'tables.toast.needs_hub';
+  const sub = refs.length === 0 ? undefined : fill(t('billing.reopen.invoices'), { refs: refs.join(', ') });
+
+  const send = async () => {
+    if (step !== null || busy || reason === null || bill.bill_id === null) return;
+    setBusy(true);
+    setError(null);
+    const answer = await api.reopenBill({ bill_id: bill.bill_id, reason_code: reason, ...(note.trim() === '' ? {} : { note: note.trim() }) });
+    setBusy(false);
+    if (!answer.ok) {
+      const e = answer.error;
+      if (e.kind === 'api' && e.code === 'BILL_REOPEN_NOT_SUPPORTED') setUnsupported(true);
+      else if (e.kind === 'api' && e.code === 'BILL_NOT_OPEN') setError(t('billing.reopen.not_closed'));
+      else setError(errorText(e, currency));
+      return;
+    }
+    const r: ReopenResult = answer.data;
+    if ('pending' in r) {
+      setLocal({ alert_id: r.pending.alert_id, line: fill(t('billing.reopen.waiting_line'), { reason: reasons.find((x) => x.code === reason)?.label ?? '', time: timeText(shell.clock.nowMs(), shell.clock.utcOffsetMs) }), seq: bill.as_of_seq, done: false });
+      onDone({ kind: 'pending' });
+      return;
+    }
+    onDone({ kind: 'reopened', mode: r.reopened.mode, credits: r.reopened.credits });
+  };
+  const withdraw = async () => {
+    if (waiting === null || busy) return;
+    setBusy(true);
+    const answer = await api.withdrawRequest(waiting.alert_id);
+    setBusy(false);
+    if (!answer.ok && !(answer.error.kind === 'api' && answer.error.code === 'REQUEST_NOT_PENDING')) {
+      setError(errorText(answer.error, currency));
+      return;
+    }
+    setLocal({ ...waiting, seq: bill.as_of_seq, done: true });
+    onDone({ kind: 'withdrawn' });
+  };
+
+  if (unsupported)
+    return (
+      <Frame bill={bill} title={t('billing.reopen.title')} onClose={onClose}>
+        <div className="msg c-danger" role="alert">
+          <Ico name="warn" />
+          <span>{t('errors.BILL_REOPEN_NOT_SUPPORTED')}</span>
+        </div>
+        <div className="acts one">
+          <button type="button" className="btn btn--primary" onClick={onClose}>
+            {t('billing.pay_remove.ok')}
+          </button>
+        </div>
+      </Frame>
+    );
+  return (
+    <Frame bill={bill} title={t('billing.reopen.title')} {...(sub === undefined ? {} : { sub })} wide={waiting === null} onClose={onClose}>
+      {waiting !== null ? (
+        <>
+          <Waiting line={waiting.line} what={t('billing.reopen.waiting_what')} busy={busy} onWithdraw={() => void withdraw()} onBack={onClose} />
+          {error !== null && <Msg text={error} />}
+        </>
+      ) : (
+        <>
+          <Chips reasons={reasons} picked={reason} onPick={setReason} cols="c3" title={t('billing.reopen.why')} />
+          <Note value={note} onChange={setNote} />
+          <div className="b5-what">
+            <Ico name="info" />
+            <span>{t('billing.reopen.what')}</span>
+          </div>
+          <div className="facts">
+            <div className="fact">
+              <span>{t('billing.reopen.paid_splits')}</span>
+              <b>{refs.length === 0 ? '—' : `${refs.length} · ${refs.join(', ')}`}</b>
+            </div>
+            <div className="fact">
+              <span>{t('billing.reopen.credit_prints')}</span>
+            </div>
+          </div>
+          {error !== null && <Msg text={error} />}
+          <div className="acts">
+            <button type="button" className="btn" onClick={onClose}>
+              {t('common.cancel')}
+            </button>
+            <Primary step={step} action={t('billing.reopen.title')} ask={ask} busy={busy} onClick={() => void send()} />
+          </div>
+        </>
+      )}
     </Frame>
   );
 }

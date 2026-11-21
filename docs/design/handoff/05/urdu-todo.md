@@ -417,6 +417,18 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.pay_remove.ok` | OK |
 | `billing.pay_remove.done` | Payment removed |
 | `billing.pay_remove.maybe` | The hub didn’t answer — the payment may already be removed. Check the payments, then try again. |
+| `billing.reopen.button` | Reopen |
+| `billing.reopen.title` | Reopen bill |
+| `billing.reopen.why` | Why reopen |
+| `billing.reopen.invoices` | Invoice {refs} |
+| `billing.reopen.what` | Each paid split gets a credit note. Payments stay. Close again to issue new invoices. |
+| `billing.reopen.paid_splits` | Paid splits |
+| `billing.reopen.credit_prints` | Credit note prints by itself |
+| `billing.reopen.waiting_line` | Reopen bill · {reason} · asked {time} |
+| `billing.reopen.waiting_what` | The credit note prints on the approver’s device route when it is approved. |
+| `billing.reopen.not_closed` | Only a closed or partly paid bill can be reopened |
+| `billing.reopen.done` | Reopened · credit {credits} |
+| `billing.reopen.corrections` | Corrections only: remove, void or comp; new items go on a new bill |
 | `billing.pay_remove.in` | In |
 | `billing.pay_remove.out` | Back |
 | `billing.pay_remove.shift_closed` | This payment’s shift is already counted — it can’t be removed. Give the money back from your shift instead: the pad offers Give back when the bill owes the customer. |
