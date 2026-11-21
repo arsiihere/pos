@@ -208,7 +208,8 @@ describe('[05 §8; §3.5 (7)] dues', () => {
     expect(all(v, '.b5-due').length).toBe(0);
     expect(text(v, '.b5-paid')).toBe('Paid Rs 3,000.00 · Left Rs 2,996.00');
     expect(text(v, '.b5-close .b5-why1')).toBe('Rs 2,996.00 still to take on split 1');
-    expect(all(v, '.b5-pay').map((p) => p.textContent)).toEqual(['CardRs 3,000.00by Sana']);
+    // E2E E-3: the row now ends with Remove (Sana's own payment, take-payment, open split)
+    expect(all(v, '.b5-pay').map((p) => p.textContent)).toEqual(['CardRs 3,000.00by SanaRemove']);
   });
 });
 
@@ -874,6 +875,90 @@ describe('[05 §8; E2E E-1] split, discount and service charge on the bill', () 
   it('a closed bill: no Split, no Discount, no Remove', async () => {
     const v = await show(setup({ grants: { 'apply-discount': grant('allowed'), 'remove-service-charge': grant('allowed') }, views: [bill({ state: 'closed', service_charge: { rate_bp: 500, removed: false }, splits: [split({ state: 'closed', balance_minor: 0 })], blocks: [] })] }));
     expect(v.buttons().some((b) => ['Split', 'Discount', 'Remove'].includes(b.textContent ?? ''))).toBe(false);
+  });
+});
+
+// E2E E-3 (docs/reviews/05-e2e.md): no Remove payment (§6.10, B10), the Print to picker never opened (PrintRows had no
+// onChanged, §8 Print status, B18) and Reprint receipt (§6.22) was not mounted. Frames RemovePayment,
+// RemovePaymentShiftClosed, BillMixed (Remove on the payment row), PrintTo, BillClosed (Reprint receipt).
+describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', () => {
+  const PAY = { payment_id: 'P1', mode_id: 'card', mode_name: 'Card', direction: 'in' as const, amount_minor: 300_000, tendered_minor: null, change_minor: 0, has_reference: true, taken_by_name: 'Sana' };
+  const paidBill = (over: Partial<BillView> = {}) => bill({ splits: [split({ payments: [PAY], balance_minor: 362_400 })], ...over });
+
+  it('a payment row has Remove → the sheet: the payment, Why remove it (4 reasons), Other needs a note → RemovePayment; reload', async () => {
+    const s = setup({ views: [paidBill(), bill()], answers: [{ ok: true, data: { payment_id: 'P1', bill_id: 'B7', split_no: 1 } }] });
+    const v = await show(s);
+    v.click(v.button('Remove'));
+    await flush();
+    expect(v.container.querySelector('.dlg__t h2')?.textContent).toBe('Remove payment');
+    expect(v.container.querySelector('.dlg .b5-pay')?.textContent).toContain('Rs 3,000.00');
+    const chips = [...v.container.querySelectorAll<HTMLButtonElement>('.dlg .b5-chip')];
+    expect(chips.map((c) => c.textContent)).toEqual(['Wrong payment type', 'Wrong amount', 'Customer changed their mind', 'Other']);
+    const primary = () => v.container.querySelector<HTMLButtonElement>('.dlg .acts .btn--primary')!;
+    expect(primary().textContent).toBe('Pick a reason');
+    v.click(chips[3]!);
+    await flush();
+    expect(primary().textContent).toBe('Write why first');
+    v.click(chips[1]!);
+    await flush();
+    expect(primary().textContent).toBe('Remove payment');
+    v.click(primary());
+    await flush();
+    expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['RemovePayment', { payment_id: 'P1', reason_code: 'wrong_amount' }]);
+    expect(v.container.querySelector('.dlg')).toBeNull();
+    expect(s.query).toHaveBeenCalledTimes(2);
+  });
+
+  it('[frame RemovePaymentShiftClosed] SHIFT_NOT_OPEN payment_shift_closed: its warning and OK only', async () => {
+    const s = setup({ views: [paidBill()], answers: [{ ok: false, error: { kind: 'api', status: 409, code: 'SHIFT_NOT_OPEN', details: { reason: 'payment_shift_closed' } } }] });
+    const v = await show(s);
+    v.click(v.button('Remove'));
+    await flush();
+    v.click([...v.container.querySelectorAll<HTMLButtonElement>('.dlg .b5-chip')][0]!);
+    await flush();
+    v.click(v.container.querySelector<HTMLButtonElement>('.dlg .acts .btn--primary')!);
+    await flush();
+    expect(v.container.querySelector('.dlg .msg.c-warn')?.textContent).toContain('already counted');
+    expect([...v.container.querySelectorAll('.dlg .acts .btn')].map((b) => b.textContent)).toEqual(['OK']);
+  });
+
+  it('no Remove offline, on a closed split, or on someone else\'s payment without close-shift-for-others', async () => {
+    let v = await show(setup({ online: false, views: [paidBill()] }));
+    expect(v.buttons().some((b) => b.textContent === 'Remove')).toBe(false);
+    v.unmount();
+    v = await show(setup({ views: [paidBill({ splits: [split({ payments: [{ ...PAY, taken_by_name: 'Usman' }], balance_minor: 362_400 })] })] }));
+    expect(v.buttons().some((b) => b.textContent === 'Remove')).toBe(false);
+    v.unmount();
+    v = await show(setup({ grants: { 'close-shift-for-others': { grant: 'allowed', scope: 'branch' } }, views: [paidBill({ splits: [split({ payments: [{ ...PAY, taken_by_name: 'Usman' }], balance_minor: 362_400 })] })] }));
+    expect(v.buttons().some((b) => b.textContent === 'Remove')).toBe(true);
+  });
+
+  it('[B18] a failed receipt print offers Print to (the picker reads the printers)', async () => {
+    const s = setup({ views: [bill({ prints: [{ job_id: 'J1', doc_kind: 'receipt', state: 'failed', printer_name: 'Counter', last_error: 'paper_out' }] })] });
+    const viewOf = s.query.getMockImplementation()!;
+    s.query.mockImplementation(async (path: string) => (path === '/queries/bill-printers' ? { ok: true as const, data: { printers: [{ printer_id: 'P2', name: 'First floor bill' }] } as never } : viewOf(path)));
+    const v = await show(s);
+    v.click(v.button('Print to'));
+    await flush();
+    expect(s.query.mock.calls.some((c) => c[0] === '/queries/bill-printers')).toBe(true);
+  });
+
+  it('[§6.22, frame BillClosed] after the last close: Reprint receipt → PrintBillDocument { receipt, the closed invoice }', async () => {
+    const ready = bill({ splits: [split({ balance_minor: 0 })], blocks: [] });
+    const closed = bill({ state: 'closed', splits: [split({ state: 'closed', balance_minor: 0 })], blocks: [] });
+    const s = setup({
+      views: [ready, closed],
+      answers: [
+        { ok: true, data: { invoice_id: 'INV1', invoice_ref: 'AC1-S000200', total_minor: 662_400, change_minor: 0, bill_state: 'closed', receipt: { job_id: 'J1', printer_name: 'Counter' }, fiscal_state: 'pending' } },
+        { ok: true, data: { printed: true, job_id: 'J2', printer_name: 'Counter' } },
+      ],
+    });
+    const v = await show(s);
+    v.click(v.button('Close bill'));
+    await flush();
+    v.click(v.button('Reprint receipt'));
+    await flush();
+    expect(s.command.mock.calls[1]!.slice(0, 2)).toEqual(['PrintBillDocument', { doc: 'receipt', ref_id: 'INV1' }]);
   });
 });
 
