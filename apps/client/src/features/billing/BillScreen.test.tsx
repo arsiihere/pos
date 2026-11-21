@@ -90,7 +90,7 @@ function setup(o: Opts = {}) {
     permissions: createPermissions({ 'take-payment': { grant: 'allowed', scope: 'branch' }, ...o.grants } as never),
     config: { config: () => null, snapshot: () => ({ currency_code: 'PKR', billing: { payment_modes: MODES } }), subscribe: () => () => {} },
     clock: { nowMs: () => NOW, utcOffsetMs: 0 },
-    me: { staff_id: 'sana', name: 'Sana' },
+    me: { staff_id: 'S_SANA', name: 'Sana' },
     online: o.online ?? true,
     phone: false,
     portrait: false,
@@ -935,6 +935,14 @@ describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', 
     expect(v.buttons().some((b) => b.textContent === 'Remove')).toBe(true);
   });
 
+  it('[R-90, §6.10] "own" is the taker\'s staff id, not the name: a namesake\'s payment has no Remove; a renamed own one has', async () => {
+    let v = await show(setup({ views: [paidBill({ splits: [split({ payments: [{ ...PAY, taken_by_name: 'Sana', taken_by_staff_id: 'S_SANA_2' }], balance_minor: 362_400 })] })] }));
+    expect(v.buttons().some((b) => b.textContent === 'Remove')).toBe(false);
+    v.unmount();
+    v = await show(setup({ views: [paidBill({ splits: [split({ payments: [{ ...PAY, taken_by_name: null, taken_by_staff_id: 'S_SANA' }], balance_minor: 362_400 })] })] }));
+    expect(v.buttons().some((b) => b.textContent === 'Remove')).toBe(true);
+  });
+
   it('[B18] a failed receipt print: Print to → pick a printer → RetargetBillPrint, then the bill is read again (take-order)', async () => {
     const s = setup({
       grants: { 'take-order': { grant: 'allowed', scope: 'branch' } },
@@ -1030,7 +1038,7 @@ describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', 
     expect(v.container.querySelector('.dlg .acts .btn--primary')?.textContent).toBe('Needs the hub');
   });
 
-  it('[§6.22] a split closed in this visit (bill partly paid): Reprint receipt on that split, by its own invoice; an empty close has none', async () => {
+  it('[§6.22, R-90] a split closed in this visit (bill partly paid): Reprint receipt on that split, by the view\'s invoice_id', async () => {
     const two = bill({ state: 'open', splits: [split({ split_no: 1, balance_minor: 0 }), split({ split_no: 2 })], blocks: [] });
     const after = bill({ state: 'partly_paid', splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_id: 'INV_AC1-S000201', invoice_ref: 'AC1-S000201', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })], blocks: [] });
     const s = setup({
@@ -1047,18 +1055,41 @@ describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', 
     await flush();
     v.click(v.button('Reprint receipt'));
     await flush();
-    expect(s.command.mock.calls[1]!.slice(0, 2)).toEqual(['PrintBillDocument', { doc: 'receipt', ref_id: 'INV7' }]);
+    expect(s.command.mock.calls[1]!.slice(0, 2)).toEqual(['PrintBillDocument', { doc: 'receipt', ref_id: 'INV_AC1-S000201' }]);
   });
 
-  it('[review m1] reopened and closed again elsewhere (the split now shows another invoice): no Reprint of the cancelled one', async () => {
+  it('[R-90, #4e] reopened and closed again elsewhere: Reprint prints the split\'s current invoice (the view\'s), not the cancelled one', async () => {
     const two = bill({ state: 'open', splits: [split({ split_no: 1, balance_minor: 0 }), split({ split_no: 2 })], blocks: [] });
     const reclosed = bill({ state: 'partly_paid', splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_id: 'INV_AC1-S000202', invoice_ref: 'AC1-S000202', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })], blocks: [] });
-    const s = setup({ views: [two, reclosed], answers: [{ ok: true, data: { invoice_id: 'INV7', invoice_ref: 'AC1-S000201', total_minor: 662_400, change_minor: 0, bill_state: 'partly_paid', receipt: { job_id: 'J1', printer_name: 'Counter' }, fiscal_state: 'pending' } }] });
+    const s = setup({
+      views: [two, reclosed],
+      answers: [
+        { ok: true, data: { invoice_id: 'INV7', invoice_ref: 'AC1-S000201', total_minor: 662_400, change_minor: 0, bill_state: 'partly_paid', receipt: { job_id: 'J1', printer_name: 'Counter' }, fiscal_state: 'pending' } },
+        { ok: true, data: { printed: true, job_id: 'J2', printer_name: 'Counter' } },
+      ],
+    });
     const v = await show(s);
     v.click([...v.container.querySelectorAll<HTMLButtonElement>('.b5-close .btn--primary')][0]!);
     await flush();
     v.click(v.button('Split 1'));
     await flush();
+    v.click(v.button('Reprint receipt'));
+    await flush();
+    expect(s.command.mock.calls[1]!.slice(0, 2)).toEqual(['PrintBillDocument', { doc: 'receipt', ref_id: 'INV_AC1-S000202' }]);
+  });
+
+  it('[R-90, #4e] a closed bill opened later (no close in this visit): Reprint receipt by the view\'s invoice_id; none offline or without take-payment', async () => {
+    const closed = bill({ state: 'closed', blocks: [], splits: [split({ state: 'closed', balance_minor: 0, invoice: { invoice_id: 'INV_AC1-S000123', invoice_ref: 'AC1-S000123', fiscal_number: null, fiscal_state: 'pending' } })] });
+    const s = setup({ views: [closed], answers: [{ ok: true, data: { printed: true, job_id: 'J2', printer_name: 'Counter' } }] });
+    let v = await show(s);
+    v.click(v.button('Reprint receipt'));
+    await flush();
+    expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['PrintBillDocument', { doc: 'receipt', ref_id: 'INV_AC1-S000123' }]);
+    v.unmount();
+    v = await show(setup({ online: false, views: [closed] }));
+    expect(v.buttons().some((b) => b.textContent === 'Reprint receipt')).toBe(false);
+    v.unmount();
+    v = await show(setup({ grants: { 'take-payment': { grant: 'denied', scope: 'branch' }, 'take-order': { grant: 'allowed', scope: 'branch' } }, views: [closed] }));
     expect(v.buttons().some((b) => b.textContent === 'Reprint receipt')).toBe(false);
   });
 
