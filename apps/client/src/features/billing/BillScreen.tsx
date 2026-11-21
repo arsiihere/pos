@@ -312,9 +312,8 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   const [sheet, setSheet] = useState<'split' | 'discount' | 'discount_remove' | 'service' | 'reopen' | null>(null);
   // 36c: the reopen this visit made (its credits, the mode the hub decided): the banner
   const [reopenedBy, setReopenedBy] = useState<{ mode: 'full' | 'corrections'; credits: Array<{ invoice_ref: string; total_minor: number }> } | null>(null);
-  // E-3: the payment being removed; the invoice each close of this visit issued (the bill view carries no invoice id)
+  // E-3: the payment being removed
   const [removing, setRemoving] = useState<BillViewSplit['payments'][number] | null>(null);
-  const [invoiceOf, setInvoiceOf] = useState<ReadonlyMap<number, { invoice_id: string; invoice_ref: string }>>(new Map());
   const [buyerSheet, setBuyerSheet] = useState<{ error: BuyerIssue | null; accepted: string[] | null } | null>(null);
   // WaiveBuyerId answered not_required: the row says so until the bill needs the buyer again
   const [buyerNotNeeded, setBuyerNotNeeded] = useState(false);
@@ -491,7 +490,6 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
       return;
     }
     const r = answer.data;
-    if (!('empty' in r)) setInvoiceOf((m) => new Map([...m, [split.split_no, { invoice_id: r.invoice_id, invoice_ref: r.invoice_ref }]]));
     const text = 'empty' in r ? t('billing.closed_empty') : fill(t('billing.closed'), { invoice_ref: r.invoice_ref, amount: money(r.total_minor) });
     const doneOf: Done =
       'empty' in r
@@ -677,10 +675,9 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
                 </span>
                 {p.tendered_minor !== null && <small>{fill(t('pad.payment.tendered_change'), { tendered: money(p.tendered_minor), change: money(p.change_minor) })}</small>}
                 {p.taken_by_name !== null && <small>{fill(t('pad.payment.by'), { name: p.taken_by_name })}</small>}
-                {/* E-3, §6.10: before close (open split), online; another's payment needs close-shift-for-others too. "Own" is
-                    read by name (§6.1 payments[] carry taken_by_name only, no staff id): a hint only — the hub decides by
-                    staff id and refuses PERMISSION_DENIED not_own_payment */}
-                {online && open && shell.permissions.allowed('take-payment') && (p.taken_by_name === shell.me?.name || shell.permissions.allowed('close-shift-for-others')) && (
+                {/* E-3, §6.10: before close (open split), online; another's payment needs close-shift-for-others too.
+                    "Own" is the taker's staff id (R-90, §6.1 payments[].taken_by_staff_id) */}
+                {online && open && shell.permissions.allowed('take-payment') && (p.taken_by_staff_id === shell.me?.staff_id || shell.permissions.allowed('close-shift-for-others')) && (
                   <button type="button" className="btn" onClick={() => setRemoving(p)}>
                     {t('billing.pay_remove.button')}
                   </button>
@@ -990,9 +987,9 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
                 {shell.permissions.requiresApproval('reopen-bill') && <span className="ntag">{t('billing.sheet.needs')}</span>}
               </button>
             )}
-            {/* only while the split still shows the invoice this visit issued (a reopen and re-close elsewhere issues another) */}
-            {!open && split !== undefined && split.invoice !== null && invoiceOf.get(split.split_no)?.invoice_ref === split.invoice.invoice_ref && online && shell.permissions.allowed('take-payment') && (
-              <ReprintButton doc="receipt" invoiceId={invoiceOf.get(split.split_no)!.invoice_id} onPrinted={() => void load()} />
+            {/* §6.22, R-90: the split's current sale invoice, from the view (a later visit too; a re-close shows the new one) */}
+            {!open && split !== undefined && split.invoice !== null && online && shell.permissions.allowed('take-payment') && (
+              <ReprintButton doc="receipt" invoiceId={split.invoice.invoice_id} onPrinted={() => void load()} />
             )}
           </div>
         </section>
