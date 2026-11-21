@@ -338,14 +338,14 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
 
   const request = useRef(0);
   const refKey = JSON.stringify(billRef);
-  /** the bill read (null: refused, or a later read overtook it) */
-  const load = useCallback(async (): Promise<BillView | null> => {
+  /** the bill read; 'refused' (the screen shows it failed) or null (a later read overtook this one) */
+  const load = useCallback(async (): Promise<BillView | 'refused' | null> => {
     const mine = ++request.current;
     const answer = await api.bill(JSON.parse(refKey) as BillRef);
     if (mine !== request.current) return null;
     if (!answer.ok) {
       setFailed(true);
-      return null;
+      return 'refused';
     }
     setFailed(false);
     setBill(answer.data);
@@ -356,10 +356,16 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
     void load();
   }, [load]);
   // R-2 (§8 Print status): no frame carries a print job's ack, so after a print action (a reprint, Print to, a close
-  // with a receipt, the check bill) the bill is read again every PRINT_WATCH_MS while one of its jobs is waiting or
-  // printing: PRINT_WATCH_TRIES reads at most; a printed / failed / cancelled job stops it
+  // with a receipt, the check bill) the bill is read again every PRINT_WATCH_MS while THAT job is waiting or printing
+  // (or not in the view yet): PRINT_WATCH_TRIES reads at most (a row still waiting then stays so until the next read);
+  // the job printed / failed / cancelled, a refused read or going offline stops it. An older stuck job does not.
   const printWatch = useRef<{ left: number; timer: ReturnType<typeof setTimeout> | null }>({ left: 0, timer: null });
-  const watchPrints = useCallback(() => {
+  const watchPrints = useCallback((jobId: string | null) => {
+    if (jobId === null) {
+      // nothing was printed (no printer): one read
+      void load();
+      return;
+    }
     const w = printWatch.current;
     if (w.timer !== null) clearTimeout(w.timer);
     w.timer = null;
@@ -368,7 +374,9 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
       w.timer = null;
       const b = await load();
       w.left -= 1;
-      const pending = b === null || b.prints.some((p) => p.state === 'waiting' || p.state === 'printing');
+      if (b === 'refused' || !shellRef.current.online) return;
+      const job = b?.prints.find((p) => p.job_id === jobId);
+      const pending = b === null || job === undefined || job.state === 'waiting' || job.state === 'printing';
       if (pending && w.left > 0 && w.timer === null) w.timer = setTimeout(() => void read(), PRINT_WATCH_MS);
     };
     void read();
@@ -544,7 +552,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
     setMode(null);
     setPicked(null);
     // R-2: a close that printed a receipt watches it to its ack
-    if (!('empty' in r) && r.receipt.job_id !== null) watchPrints();
+    if (!('empty' in r) && r.receipt.job_id !== null) watchPrints(r.receipt.job_id);
     else await load();
   };
 
@@ -980,7 +988,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             {header}
             {online && bill.state !== 'closed' && (
               <div className="b5-acts">
-                <CheckBillButton billRef={billRef} onPrinted={(r) => (r.printed ? watchPrints() : setNoPrinter(true))} />
+                <CheckBillButton billRef={billRef} onPrinted={(r) => (r.printed ? watchPrints(r.job_id) : setNoPrinter(true))} />
                 {/* §6.5 SetSplits: take-payment, as the hub */}
                 {shell.permissions.allowed('take-payment') && (
                   <button type="button" className="btn" onClick={() => setSheet('split')}>
