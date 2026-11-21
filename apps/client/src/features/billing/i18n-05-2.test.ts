@@ -16,6 +16,7 @@ describe('[05 §8 Errors; §9] 05-2 error and kind strings (task 43b)', () => {
     const all = [...BILLING_ERROR_KEYS_05_2, ...BILLING_KIND_KEYS_05_2];
     expect(all).toContain('errors.DAY_CLOSE_BLOCKED.shift_open_one');
     expect(all).toContain('errors.DAY_CLOSE_BLOCKED.unbilled_orders_one');
+    expect(all).toContain('errors.DAY_CLOSE_BLOCKED.variance_pending_one'); // G-77 (R-76)
     for (const key of all) {
       expect(EN[key], key).toBeTruthy();
       const u = UR[key];
@@ -32,6 +33,8 @@ describe('[05 §8 Errors; §9] 05-2 error and kind strings (task 43b)', () => {
     expect(EN['errors.DAY_CLOSE_BLOCKED.shift_open_one']).toBe('1 shift is still open — close it first');
     expect(EN['errors.DAY_CLOSE_BLOCKED.shift_open']).toBe('{count} shifts are still open — close them first');
     expect(EN['errors.DAY_CLOSE_BLOCKED.unbilled_orders']).toBe('{count} orders are not billed — bill them or carry them over');
+    expect(EN['errors.DAY_CLOSE_BLOCKED.variance_pending']).toBe('{count} variance sign-offs are still pending — answer them first');
+    expect(EN['errors.DAY_CLOSE_BLOCKED.variance_pending_one']).toBe('1 variance sign-off is still pending — answer it first');
     expect(EN['errors.PERMISSION_DENIED.skip_not_granted']).toBe("You can't skip the count");
     expect(EN['alert.shift_variance.card']).toBe('Shift variance · {requester} · {amount}');
     expect(EN['alert.shift_variance.reject']).toBe('Dispute');
@@ -50,6 +53,9 @@ describe('[05 §8 Errors; §9] 05-2 error and kind strings (task 43b)', () => {
     expect(billingErrorKey('DAY_CLOSE_BLOCKED', { reason: 'void_pending', count: 1 })).toBe('admin_stock.errors.DAY_CLOSE_BLOCKED_one');
     expect(billingErrorKey('DAY_CLOSE_BLOCKED', { reason: 'shift_open', shifts: [], count: 1 })).toBe('errors.DAY_CLOSE_BLOCKED.shift_open_one');
     expect(billingErrorKey('DAY_CLOSE_BLOCKED', { reason: 'unbilled_orders', orders: [], count: 1 })).toBe('errors.DAY_CLOSE_BLOCKED.unbilled_orders_one');
+    // [G-77, R-76] variance_pending reads its own text, never 04's void text
+    expect(billingErrorKey('DAY_CLOSE_BLOCKED', { reason: 'variance_pending', shifts: [], count: 2 })).toBe('errors.DAY_CLOSE_BLOCKED.variance_pending');
+    expect(billingErrorKey('DAY_CLOSE_BLOCKED', { reason: 'variance_pending', shifts: [], count: 1 })).toBe('errors.DAY_CLOSE_BLOCKED.variance_pending_one');
     expect(billingErrorKey('PERMISSION_DENIED', { reason: 'skip_not_granted' })).toBe('errors.PERMISSION_DENIED.skip_not_granted');
     expect(billingErrorKey('PETTY_ADVANCE_SETTLED', { entry_id: 'E1' })).toBe('errors.PETTY_ADVANCE_SETTLED');
   });

@@ -371,7 +371,7 @@ const alertState = (alert_id: string) => db().prepare('SELECT state FROM alerts 
 // ================================================================================================= the close
 
 describe('[05 §6.12] CloseSplit — one transaction: invoice, folds, outbox row, receipt', () => {
-  it('[05 §6.12, #29, #34, #69] dine-in, two rounds, PK: result, events in order, the invoice money pinned, every fold, the receipt job', async () => {
+  it('[05 §6.12, #6, #29, #34, #69] dine-in, two rounds, PK: result, events in order, the invoice money pinned, every fold, the receipt job', async () => {
     await start();
     const t = dineInTwoRounds(hub, { prefix: 'A' });
     const ref = { seating_id: t.seating_id };
@@ -550,7 +550,7 @@ describe('[05 §6.12] CloseSplit — one transaction: invoice, folds, outbox row
     expect(db().prepare('SELECT state FROM bills WHERE bill_id = ?').pluck().get(bill_id)).toBe('closed');
   });
 
-  it('[05 §6.12, H6-11] a projected takeaway bill closes at its own total in one command (BillOpened first); no BillClosed for takeaway', async () => {
+  it('[05 §6.12, #6, H6-11] a projected takeaway bill closes at its own total in one command (BillOpened first); no BillClosed for takeaway', async () => {
     await start();
     const o = takeaway(2, 'TK');
     // 60.00 + 16 % 9.60 = 69.60 → 70.00; no payment → BILL_BALANCE_DUE, nothing written, no bill opened

@@ -17,6 +17,9 @@ export const en = {
   'admin_stock.errors.DAY_CLOSE_BLOCKED_shift_open_one': '1 shift is still open — close it first',
   'admin_stock.errors.DAY_CLOSE_BLOCKED_unbilled_orders': '{count} orders are not billed yet — bill, cancel or carry them over first',
   'admin_stock.errors.DAY_CLOSE_BLOCKED_unbilled_orders_one': '1 order is not billed yet — bill, cancel or carry it over first',
+  // 05 G-77 (R-76): pending variance sign-offs; 01a's row A-5 listing gains it at its next bump
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_variance_pending': '{count} variance sign-offs are still pending — answer them first',
+  'admin_stock.errors.DAY_CLOSE_BLOCKED_variance_pending_one': '1 variance sign-off is still pending — answer it first',
   'admin_stock.day_close.drawer': 'drawer',
   'admin_stock.day_close.open_minutes': 'open {n} min',
   'admin_stock.status.version': 'Menu version {version}',
@@ -3510,6 +3513,9 @@ export const en = {
   'errors.DAY_CLOSE_BLOCKED.shift_open_one': '1 shift is still open — close it first',
   'errors.DAY_CLOSE_BLOCKED.unbilled_orders': '{count} orders are not billed — bill them or carry them over',
   'errors.DAY_CLOSE_BLOCKED.unbilled_orders_one': '1 order is not billed — bill it or carry it over',
+  // 05 G-77 (R-76): the day close refused while a variance sign-off is pending
+  'errors.DAY_CLOSE_BLOCKED.variance_pending': '{count} variance sign-offs are still pending — answer them first',
+  'errors.DAY_CLOSE_BLOCKED.variance_pending_one': '1 variance sign-off is still pending — answer it first',
   'errors.PERMISSION_DENIED.skip_not_granted': "You can't skip the count",
   'alert.petty_cash.name': 'Petty cash',
   'alert.petty_cash.card': 'Petty cash · {amount} · {reason}',

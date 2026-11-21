@@ -15,7 +15,7 @@ import { createProjectionRegistry } from '../../src/projections/registry';
 import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import type { EngineState } from '@pos/engine';
 import { statementCounter } from '../helpers/statement-counter';
-import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { createTestHub, openSession, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { append, openVoidsDay, raiseVoid } from '../voids/fixtures';
 import { answer, appendOrder, billingDirectory, FX, openSeating, post, signIn, STAFF, startBilling, takeawayOrder, VX, type Reply, type Who } from './fixtures';
 
@@ -299,6 +299,33 @@ describe('[05 §6.24] CarryOverOrders', () => {
     expect((await closeDay(manager)).status).toBe(200);
     const closed = await carry(manager, { ...ok, order_ids: [a] });
     expect(closed).toMatchObject({ status: 409, error: { code: 'BUSINESS_DAY_NOT_OPEN' } });
+  });
+
+  it('[05 §6.24, F-7 owner ruling 2026-11-20] device route only: /admin/commands/carry-over-orders → 404 ROUTE_NOT_FOUND; nothing written', async () => {
+    const { owner } = await start();
+    const { order_id } = takeawayOrder(hub, { prefix: 'AD' });
+    const admin = openSession(hub, { kind: 'admin', staffId: owner.staffId, deviceId: owner.deviceId });
+    seats.push({ ...owner, sessionId: admin.sessionId, sessionToken: admin.token });
+    const provisioned = hub.deps.config.provisioned!;
+    const res = await hub.app.inject({
+      method: 'POST',
+      url: '/admin/commands/carry-over-orders',
+      headers: { authorization: `Bearer ${owner.token}`, 'x-admin-session': admin.token },
+      payload: {
+        command_id: 'carry-admin-1',
+        tenant_id: provisioned.tenant_id,
+        branch_id: provisioned.branch_id,
+        command_type: 'CarryOverOrders',
+        payload: { order_ids: [order_id], reason_code: 'other' },
+        occurred_at: hub.clock.branchNow(),
+        actor_id: owner.staffId,
+        device_id: owner.deviceId,
+      },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('ROUTE_NOT_FOUND');
+    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM carried_orders').pluck().get()).toBe(0);
+    expect(hub.deps.db.prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'OrdersCarriedOver'`).pluck().get()).toBe(0);
   });
 
   it('[05 #63c] carry the same order on day 1 and day 2 → two carried_orders rows, no key error, each close succeeds; a carried order blocks the next day unless carried again; rebuild equal', async () => {

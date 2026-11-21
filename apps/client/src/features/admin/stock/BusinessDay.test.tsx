@@ -476,10 +476,31 @@ describe('/admin/stock business day', () => {
     expect([...banner!.querySelectorAll('li .pos-ltr')].map((x) => x.textContent)).toEqual(['T4', '#12']);
   });
 
+  it('[05 G-77, R-76] [01a §8.2] DAY_CLOSE_BLOCKED variance_pending lists one row per pending sign-off (staff name); the singular for one', async () => {
+    const shifts = [
+      { shift_id: 'SH1', staff_name: 'Ali', closed_at: hubAt(25, 21), alert_id: 'A1' },
+      { shift_id: 'SH2', staff_name: 'Sara', closed_at: hubAt(25, 22), alert_id: 'A2' },
+    ];
+    const answers = [blockedWith({ reason: 'variance_pending', shifts, count: 2 }), blockedWith({ reason: 'variance_pending', shifts: shifts.slice(0, 1), count: 1 })];
+    const { api } = fakeHub([answer()], (_, n) => answers[n]!);
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+
+    await closeDay();
+    const banner = bannerWith('2 variance sign-offs are still pending — answer them first');
+    expect(banner).toBeDefined();
+    expect([...banner!.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Ali', 'Sara']);
+    expect(container.textContent).not.toContain('void requests are still open');
+    await closeDay();
+    expect(container.textContent).toContain('1 variance sign-off is still pending — answer it first');
+    expect([...container.querySelectorAll('.pos-banner li')].map((li) => li.textContent)).toEqual(['Ali']);
+  });
+
   it.each([
     ['an unknown reason', { reason: 'something_else', voids: [{ alert_id: 'A1', identifier: 'T1', item: 'Paye', requester_name: 'Ali' }], count: 1 }],
     ['shift_open without shifts', { reason: 'shift_open', count: 1 }],
     ['unbilled_orders with an empty list', { reason: 'unbilled_orders', orders: [], count: 1 }],
+    ['variance_pending without shifts', { reason: 'variance_pending', count: 1 }],
   ])('[05 row A-5] DAY_CLOSE_BLOCKED with %s shows the generic error and no list', async (_, details) => {
     const { api } = fakeHub([answer()], () => blockedWith(details));
     act(() => root.render(<StockApp api={api} />));

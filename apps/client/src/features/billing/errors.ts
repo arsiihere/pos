@@ -72,6 +72,8 @@ export const BILLING_ERROR_KEYS_05_2 = [
   'errors.DAY_CLOSE_BLOCKED.shift_open_one',
   'errors.DAY_CLOSE_BLOCKED.unbilled_orders',
   'errors.DAY_CLOSE_BLOCKED.unbilled_orders_one',
+  'errors.DAY_CLOSE_BLOCKED.variance_pending', // G-77 (R-76)
+  'errors.DAY_CLOSE_BLOCKED.variance_pending_one',
   'errors.PERMISSION_DENIED.skip_not_granted',
 ] as const satisfies readonly MessageKey[];
 
