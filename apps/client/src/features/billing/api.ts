@@ -13,6 +13,7 @@ import type {
   HandoverCountResult,
   OpenBillsBody,
   OpenShiftResult,
+  ReopenResult,
   RecordPettyCashResult,
   SettlePettyAdvanceResult,
   PrintCheckBillResult,
@@ -53,6 +54,8 @@ export interface BillingApi {
   addPayment(payload: { bill_ref: BillRef; split_no: number; mode_id: string; direction: 'in' | 'out'; amount_minor: number; tendered_minor?: number; reference?: string }): Promise<HubResult<AddPaymentResult>>;
   /** §6.12: close a split; `expected_total_minor` = the total the screen showed (rule 7). */
   closeSplit(payload: { bill_ref: BillRef; split_no: number; expected_total_minor: number; buyer?: { name: string; tax_id: { type: string; value: string } } }): Promise<HubResult<CloseSplitResult>>;
+  /** §6.13 (`reopen-bill`, approvable): reopen a CLOSED / PARTLY_PAID bill — a credit per closed split's sale invoice. */
+  reopenBill(payload: { bill_id: string; reason_code: string; note?: string }): Promise<HubResult<ReopenResult>>;
   /** §6.10 (take-payment; another's payment also close-shift-for-others): remove a payment of an open split, with its reason. */
   removePayment(payload: { payment_id: string; reason_code: 'wrong_mode' | 'wrong_amount' | 'customer_changed' | 'other'; note?: string }): Promise<HubResult<{ payment_id: string; bill_id: string; split_no: number }>>;
   /** §6.11 (approvable): close without buyer details; holds for every later split and after a reopen. */
@@ -138,6 +141,7 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
     addPayment: (payload) => command<AddPaymentResult>('AddPayment', payload),
     closeSplit: (payload) => command<CloseSplitResult>('CloseSplit', payload),
     removePayment: (payload) => command('RemovePayment', payload),
+    reopenBill: (payload) => command<ReopenResult>('ReopenBill', payload),
     applyDiscount: (payload) => command<SheetResult>('ApplyDiscount', payload),
     removeDiscount: (payload) => command<SheetResult>('RemoveDiscount', payload),
     removeServiceCharge: (payload) => command<SheetResult>('RemoveServiceCharge', payload),

@@ -9,7 +9,7 @@ import { useLiveRefetch } from '../staff/orders/lists/OpenOrders';
 import { useShell } from '../staff/shell/hooks';
 import { billingApi } from './api';
 import type { AddPaymentResult, BillBlock, BillRef, BillView, BillViewSplit, SplitDues, Totals } from './contracts';
-import { BuyerSheet, canDiscount, DiscountSheet, RemovePaymentSheet, ServiceChargeRow, ServiceChargeSheet, type BuyerEntry, type BuyerIssue } from './BillSheets';
+import { BuyerSheet, canDiscount, DiscountSheet, RemovePaymentSheet, ReopenSheet, ServiceChargeRow, ServiceChargeSheet, type BuyerEntry, type BuyerIssue } from './BillSheets';
 import { BIco } from './icons';
 import { SplitEditor } from './SplitEditor';
 import { CheckBillButton, PrintRows, ReprintButton } from './PrintStatus';
@@ -302,7 +302,9 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   const heldBuyer = useRef<BuyerEntry | null>(null);
   const [buyerHeld, setBuyerHeld] = useState(false);
   // E-1: the split editor and the discount / service-charge sheets
-  const [sheet, setSheet] = useState<'split' | 'discount' | 'discount_remove' | 'service' | null>(null);
+  const [sheet, setSheet] = useState<'split' | 'discount' | 'discount_remove' | 'service' | 'reopen' | null>(null);
+  // 36c: the reopen this visit made (its credits, the mode the hub decided): the banner
+  const [reopenedBy, setReopenedBy] = useState<{ mode: 'full' | 'corrections'; credits: Array<{ invoice_ref: string; total_minor: number }> } | null>(null);
   // E-3: the payment being removed; the invoice each close of this visit issued (the bill view carries no invoice id)
   const [removing, setRemoving] = useState<BillViewSplit['payments'][number] | null>(null);
   const [invoiceOf, setInvoiceOf] = useState<ReadonlyMap<number, { invoice_id: string; invoice_ref: string }>>(new Map());
@@ -363,6 +365,8 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   const split = bill.splits.find((s) => s.split_no === picked) ?? bill.splits.find((s) => s.state === 'open') ?? bill.splits[0];
   const open = split !== undefined && split.state === 'open' && bill.state !== 'closed';
   const discountGrant = shell.permissions.allowed('apply-discount') || shell.permissions.requiresApproval('apply-discount');
+  // 36c, §8 Reopen (R-89): reopen-bill holders, allowed or requires_approval (R5)
+  const canReopenGrant = shell.permissions.allowed('reopen-bill') || shell.permissions.requiresApproval('reopen-bill');
   const dues = split === undefined ? null : duesOf(split, held);
   // §3.3 rule 6: a close carrying a valid buyer passes the buyer rule, so a held buyer lifts that block
   const blocks = split === undefined ? [] : bill.blocks.filter((b) => (b.split_no === null || b.split_no === split.split_no) && !(buyerHeld && b.reason === 'buyer_id_required'));
@@ -828,6 +832,19 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
           {done.change !== null && <span className="b5-change-due">{done.change}</span>}
           {/* §6.22, frame BillClosed: Reprint receipt of the invoice this close issued */}
           {done.invoiceId !== null && shell.permissions.allowed('take-payment') && <ReprintButton doc="receipt" invoiceId={done.invoiceId} onPrinted={() => {}} />}
+          {/* 36c, frame BillClosed: Reopen from the closed view */}
+          {canReopenGrant && online && done.invoiceId !== null && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setDone(null);
+                setSheet('reopen');
+              }}
+            >
+              {t('billing.reopen.button')}
+            </button>
+          )}
           <button type="button" className="btn btn--primary" onClick={onBack}>
             {t('billing.done')}
           </button>
@@ -846,6 +863,16 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
       {banner !== null && (
         <div className="b5-ban c-warn" role="alert">
           {banner}
+        </div>
+      )}
+      {/* 36c, frame ReopenCorrections: the result's credits; the mode sets the line */}
+      {reopenedBy !== null && (
+        <div className="b5-ban c-ok" role="status">
+          <Ico name="checkc" />
+          <div>
+            <b>{fill(t('billing.reopen.done'), { credits: reopenedBy.credits.map((c) => `${c.invoice_ref} ${money(c.total_minor)}`).join(', ') })}</b>
+            {reopenedBy.mode === 'corrections' && <span>{t('billing.reopen.corrections')}</span>}
+          </div>
         </div>
       )}
       <main className="b5-t">
@@ -898,6 +925,12 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             {offlinePad}
             {closeArea}
             {!open && split !== undefined && split.invoice !== null && <div className="b5-note">{fill(t('billing.bill.paid_split'), { invoice_ref: split.invoice.invoice_ref })}</div>}
+            {/* 36c: Reopen on a CLOSED bill, or on a closed split's invoice of a PARTLY_PAID bill (it reopens the whole bill) */}
+            {canReopenGrant && online && split !== undefined && split.state === 'closed' && split.invoice !== null && (bill.state === 'closed' || bill.state === 'partly_paid') && (
+              <button type="button" className="btn" onClick={() => setSheet('reopen')}>
+                {t('billing.reopen.button')}
+              </button>
+            )}
             {/* only while the split still shows the invoice this visit issued (a reopen and re-close elsewhere issues another) */}
             {!open && split !== undefined && split.invoice !== null && invoiceOf.get(split.split_no)?.invoice_ref === split.invoice.invoice_ref && online && shell.permissions.allowed('take-payment') && (
               <ReprintButton doc="receipt" invoiceId={invoiceOf.get(split.split_no)!.invoice_id} onPrinted={() => void load()} />
@@ -914,6 +947,17 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             void load();
           }}
           onClose={() => setRemoving(null)}
+        />
+      )}
+      {sheet === 'reopen' && (
+        <ReopenSheet
+          bill={bill}
+          onDone={(r) => {
+            if (r.kind === 'reopened') setReopenedBy({ mode: r.mode, credits: r.credits });
+            if (r.kind !== 'pending') setSheet(null);
+            void load();
+          }}
+          onClose={() => setSheet(null)}
         />
       )}
       {sheet === 'split' && (

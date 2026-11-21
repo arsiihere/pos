@@ -312,3 +312,6 @@ export interface CloseBusinessDayResult {
   changed: boolean;
   reason?: 'not_open' | 'opened_recently';
 }
+
+/** §6.13 ReopenBill result: the mode the hub decided (§3.10) and the credit notes it issued, or the request raised. */
+export type ReopenResult = { reopened: { mode: 'full' | 'corrections'; credits: Array<{ invoice_ref: string; total_minor: number }> } } | { pending: { alert_id: string } };
