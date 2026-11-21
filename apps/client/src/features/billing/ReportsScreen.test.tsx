@@ -376,9 +376,39 @@ describe('[05 §6.22, R-87; frames XReport, ZReport] Print (hub task 27b)', () =
       await flush();
     }
     expect(s.shown[0]).toBe('No printer is set up for reports — nothing printed');
+    // review m1: the day closed meanwhile — its own text, and the X view reads again (closed-day state)
+    expect(s.shown[1]).toBe('No day is open, so there is no X to print.');
     expect(s.shown[2]).toBe('Needs the hub');
     const [, , c, d] = s.command.mock.calls;
     expect((d![2] as { commandId: string }).commandId).toBe((c![2] as { commandId: string }).commandId);
+  });
+
+  it('offline: Print sends nothing and says "Needs the hub"', async () => {
+    const s = setup();
+    (s.shell as { online: boolean }).online = false;
+    const v = await show(s);
+    v.click(v.button('Print'));
+    await flush();
+    expect(s.command).not.toHaveBeenCalled();
+    expect(s.shown).toEqual(['Needs the hub']);
+  });
+
+  it('[R-87 (1)] an older Z of a date on a later page: still no Print (its date\'s latest is on page 1)', async () => {
+    const s = setup({
+      pages: [
+        { ok: true, data: { data: { reports: [zRow(44, '2026-11-19', 1)] }, next_cursor: 'C1' } },
+        { ok: true, data: { data: { reports: [zRow(43, '2026-11-19', 2)] }, next_cursor: null } },
+      ],
+    });
+    const v = await show(s);
+    v.click(seg(v, 'Z reports'));
+    await flush();
+    v.click(v.button('Load older'));
+    await flush();
+    v.click(v.container.querySelectorAll('.b5-zl')[1] as HTMLElement);
+    await flush();
+    expect(v.buttons().some((b) => b.textContent === 'Print')).toBe(false);
+    expect(v.text()).toContain('Only the latest Z of a date prints');
   });
 
   it('[R-87 (1), R-85] Z: Print sends the business date; a date closed twice prints only its latest Z (z_no), the older one says so', async () => {

@@ -124,7 +124,7 @@ function XView({ offset, onShowZ }: { offset: number; onShowZ: () => void }) {
       <div className="row b5-rep-line">
         <span className="b5-note">{fill(t('billing.report.x_line'), { date: dayText(dateOf(r.business_date), 0), time: timeText(r.issued_at, offset), currency: r.currency_code })}</span>
         <span className="b5-dc__fill" />
-        <PrintReportButton payload={{ doc: 'x_report' }} label="billing.report.print" primary />
+        <PrintReportButton payload={{ doc: 'x_report' }} label="billing.report.print" primary onDayClosed={() => void load()} />
       </div>
       {err !== null && <Failed text={err} onRetry={() => void load()} />}
       <ReportBody report={r} names={view.staff_names} offset={offset} retry={retry} />
@@ -225,17 +225,34 @@ function ZView({ offset }: { offset: number }) {
 }
 
 /** §6.22 PrintReport (R-87): one tap, one job; a lost reply is resent with the same command_id (no second print). */
-export function PrintReportButton({ payload, label, primary }: { payload: { doc: 'x_report' } | { doc: 'z_report'; ref_id: string }; label: MessageKey; primary?: boolean }) {
+export function PrintReportButton({
+  payload,
+  label,
+  primary,
+  onDayClosed,
+}: {
+  payload: { doc: 'x_report' } | { doc: 'z_report'; ref_id: string };
+  label: MessageKey;
+  primary?: boolean;
+  /** R-87 (4): the X of a day closed meanwhile is refused BUSINESS_DAY_NOT_OPEN; the X view reads again */
+  onDayClosed?: () => void;
+}) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
   const [busy, setBusy] = useState(false);
   const print = async () => {
-    if (busy || !shell.online) return;
+    if (busy) return;
+    if (!shell.online) {
+      shell.toasts.show({ text: t('tables.toast.needs_hub'), tone: 'warn' });
+      return;
+    }
     setBusy(true);
     const answer = await api.printReport(payload);
     setBusy(false);
     if (!answer.ok) {
-      shell.toasts.show({ text: errText(answer.error), tone: 'warn' });
+      const closed = answer.error.kind === 'api' && answer.error.code === 'BUSINESS_DAY_NOT_OPEN';
+      shell.toasts.show({ text: closed ? t('billing.report.print_no_day') : errText(answer.error), tone: 'warn' });
+      if (closed) onDayClosed?.();
       return;
     }
     shell.toasts.show(
