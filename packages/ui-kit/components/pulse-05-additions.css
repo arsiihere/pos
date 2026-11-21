@@ -103,3 +103,6 @@
 /* E2E R-4 (E-6 leftover): focus scrolling (the keyboard, scrollIntoView) stops above the sticky Close bar, not under it;
    the bar is 142 px at the kiosk (80 px button, the why line, its 10 + 22 px padding). Opening the pad scrolls in code. */
 :where(.b5-money) > .b5-pane { scroll-padding-bottom: 160px; }
+/* E2E R-3 / R-93: the Z print line (Day close head, each Z row) takes its tone's ink; the rows' muted / ink-2 span
+   colour would hide it */
+:where(.b5-zl, .b5-blk__h) :is(span, div) > span.b5-zprint { color: var(--c-ink); } /* (0,1,2), after the kit's rules */

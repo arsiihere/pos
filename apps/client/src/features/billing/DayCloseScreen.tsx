@@ -1,5 +1,5 @@
 import { CARRY_OVER_REASONS } from '@pos/domain';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { HubError } from '../../api/hub-admin';
 import { t } from '../../i18n';
 import { fill, type MessageKey } from '../../i18n/en';
@@ -13,7 +13,7 @@ import { billingErrorKey } from './errors';
 import { BIco } from './icons';
 import { billMoney, durationText } from './money';
 import { Dlg } from './PettySheets';
-import { dateOf, PrintReportButton, ReportBody, zNo } from './ReportsScreen';
+import { dateOf, PrintReportButton, ReportBody, zLine, zNo, zPrintPending } from './ReportsScreen';
 import './styles';
 
 // 05 v1.0.25 §8 "Day close" (staff app, `close-business-day`: the blockers list — voids, open shifts, unbilled orders
@@ -101,6 +101,10 @@ function errText(e: HubError): string {
   return t(billingErrorKey(e.code, e.details));
 }
 
+/** R-93 (§8 Day close): a Z still printing (or failed: 03c retries) is read again every Z_WATCH_MS, Z_WATCH_TRIES times. */
+export const Z_WATCH_MS = 3_000;
+export const Z_WATCH_TRIES = 10;
+
 /** What the person may open from a blocker row (R5: each exit is offered only where its own gate lets them through). */
 export interface DayCloseExits {
   /** `#/shift` of another person (close-shift-for-others) */
@@ -122,6 +126,62 @@ export function DayCloseScreen({ onNavigate, exits }: { onNavigate: (path: strin
   const offset = shell.clock.utcOffsetMs;
   const [state, setState] = useState<State>({ name: 'idle', note: null });
   const [busy, setBusy] = useState(false);
+  const shellRef = useRef(shell);
+  shellRef.current = shell;
+  // R-93: the closed date's Z is read again while its print may still move; after the last try (or offline) the last
+  // state stays with Refresh. A refused re-read keeps the shown Z.
+  const zWatch = useRef<{ left: number; timer: ReturnType<typeof setTimeout> | null; live: boolean }>({ left: 0, timer: null, live: true });
+  const [zStale, setZStale] = useState(false);
+  const watchZ = useCallback(
+    (date: string, shown: ZReportView | 'none' | 'unread') => {
+      const w = zWatch.current;
+      if (w.timer !== null) clearTimeout(w.timer);
+      w.timer = null;
+      w.left = Z_WATCH_TRIES;
+      setZStale(false);
+      const next = (z: ZReportView | 'none' | 'unread') => {
+        if (typeof z === 'string' || !zPrintPending(z.print)) return;
+        if (w.left <= 0 || !shellRef.current.online) {
+          setZStale(true);
+          return;
+        }
+        w.timer = setTimeout(() => {
+          w.timer = null;
+          if (!shellRef.current.online) {
+            setZStale(true);
+            return;
+          }
+          w.left -= 1;
+          void api.zReportOf(date).then((r) => {
+            if (!w.live) return;
+            const fresh = r.ok ? (r.data.data.reports[0] ?? 'none') : z;
+            if (r.ok) setState((st) => (st.name === 'done' && st.business_date === date ? { ...st, z: fresh } : st));
+            next(fresh);
+          });
+        }, Z_WATCH_MS);
+      };
+      next(shown);
+    },
+    [api],
+  );
+  useEffect(() => {
+    const w = zWatch.current;
+    w.live = true;
+    return () => {
+      w.live = false;
+      if (w.timer !== null) clearTimeout(w.timer);
+      w.timer = null;
+    };
+  }, []);
+  /** Refresh / after Print again: read the Z now, then watch it again */
+  const rereadZ = async (date: string) => {
+    if (!shell.online) return;
+    const r = await api.zReportOf(date);
+    if (!r.ok || !zWatch.current.live) return;
+    const fresh = r.data.data.reports[0] ?? 'none';
+    setState((st) => (st.name === 'done' && st.business_date === date ? { ...st, z: fresh } : st));
+    watchZ(date, fresh);
+  };
   const [msg, setMsg] = useState<string | null>(null);
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
   const [carry, setCarry] = useState<OrderRow[] | null>(null);
@@ -148,7 +208,9 @@ export function DayCloseScreen({ onNavigate, exits }: { onNavigate: (path: strin
     // CHANGES.md D-17 / R-85: the Z number and content from the Z list of that date (newest z_no), never the close result
     const z = await api.zReportOf(r.business_date);
     setBusy(false);
-    setState({ name: 'done', business_date: r.business_date, z: !z.ok ? 'unread' : (z.data.data.reports[0] ?? 'none') });
+    const shown = !z.ok ? 'unread' : (z.data.data.reports[0] ?? 'none');
+    setState({ name: 'done', business_date: r.business_date, z: shown });
+    watchZ(r.business_date, shown);
   };
 
   const at = state.name === 'blocked' && state.b.reason !== null ? GUARDS.indexOf(state.b.reason) : state.name === 'done' ? GUARDS.length : -1;
@@ -233,9 +295,18 @@ export function DayCloseScreen({ onNavigate, exits }: { onNavigate: (path: strin
                       ? t('billing.dayclose.z_unread')
                       : fill(t('billing.dayclose.done_sub'), { date: dayText(dateOf(state.z.business_date), 0), time: timeText(state.z.report.issued_at, offset) })}
                 </span>
+                {/* R-93: whether the Z printed, from the Z row's print (never "prints by itself") */}
+                {typeof state.z !== 'string' && zLine(state.z)}
               </div>
-              {/* §6.22, R-87: the date's latest Z again (view-reports); it already printed by itself */}
-              {typeof state.z !== 'string' && exits.reports && <PrintReportButton payload={{ doc: 'z_report', ref_id: state.z.business_date }} label="billing.report.print_again" />}
+              {typeof state.z !== 'string' && zStale && zPrintPending(state.z.print) && (
+                <button type="button" className="btn" aria-disabled={!shell.online} onClick={() => void rereadZ(state.business_date)}>
+                  {t('billing.zprint.refresh')}
+                </button>
+              )}
+              {/* §6.22, R-87: the date's latest Z again (view-reports); R-93: then its print state is read again */}
+              {typeof state.z !== 'string' && exits.reports && (
+                <PrintReportButton payload={{ doc: 'z_report', ref_id: state.z.business_date }} label="billing.report.print_again" onPrinted={() => void rereadZ(state.business_date)} />
+              )}
               {state.z === 'unread' && exits.reports && (
                 <button type="button" className="btn" onClick={() => onNavigate('/reports')}>
                   <Ico name="eye" />
