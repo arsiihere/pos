@@ -277,6 +277,8 @@ interface Done {
   /** the invoice the last close issued (Reprint receipt), null for an empty close */
   invoiceId: string | null;
   fiscalPending: boolean;
+  /** the receipt job this close queued (CloseSplit `receipt`): shown until the reloaded bill lists it */
+  receipt: { job_id: string | null; printer_name: string | null } | null;
 }
 
 /** #/bill?<ref>: one bill (`take-payment`). `onBack` returns to the open bills. */
@@ -493,8 +495,8 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
     const text = 'empty' in r ? t('billing.closed_empty') : fill(t('billing.closed'), { invoice_ref: r.invoice_ref, amount: money(r.total_minor) });
     const doneOf: Done =
       'empty' in r
-        ? { empty: true, invoiceRef: null, totalMinor: null, changeMinor: null, invoiceId: null, fiscalPending: false }
-        : { empty: false, invoiceRef: r.invoice_ref, totalMinor: r.total_minor, changeMinor: r.change_minor > 0 ? r.change_minor : null, invoiceId: r.invoice_id, fiscalPending: r.fiscal_state === 'pending' };
+        ? { empty: true, invoiceRef: null, totalMinor: null, changeMinor: null, invoiceId: null, fiscalPending: false, receipt: null }
+        : { empty: false, invoiceRef: r.invoice_ref, totalMinor: r.total_minor, changeMinor: r.change_minor > 0 ? r.change_minor : null, invoiceId: r.invoice_id, fiscalPending: r.fiscal_state === 'pending', receipt: r.receipt };
     const changeText = 'empty' in r || r.change_minor <= 0 ? null : fill(t('billing.give_change'), { amount: money(r.change_minor) });
     if (r.bill_state === 'closed') setReopenedBy(null);
     if (r.bill_state === 'closed') setDone(doneOf);
@@ -838,7 +840,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
       <main className="b5 b5--page">
         {/* E-7, frame BillClosed: the hero, the change due, the receipt's print row, the acts, Done at the foot */}
         <div className="b5-done b5-done--page">
-          <div className="b5-done__hero">
+          <div className="b5-done__hero" role="status" aria-label={done.empty ? t('billing.closed_empty') : fill(t('billing.closed'), { invoice_ref: done.invoiceRef ?? '', amount: money(done.totalMinor ?? 0) })}>
             <span className="k">
               <Ico name="check" />
               {t('billing.closed_k')}
@@ -867,26 +869,37 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
               <b dir={MONEY_DIR}>{money(done.changeMinor)}</b>
             </div>
           )}
-          <PrintRows prints={bill.prints.filter((p) => p.doc_kind === 'receipt')} />
-          <span className="b5-dc__fill" />
-          <div className="b5-acts">
-          {/* §6.22, frame BillClosed: Reprint receipt of the invoice this close issued */}
-          {done.invoiceId !== null && shell.permissions.allowed('take-payment') && <ReprintButton doc="receipt" invoiceId={done.invoiceId} onPrinted={() => {}} />}
-          {/* 36c, frame BillClosed: Reopen from the closed view */}
-          {canReopenGrant && online && done.invoiceId !== null && bill.state === 'closed' && (
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                setDone(null);
-                setSheet('reopen');
-              }}
-            >
-              {t('billing.reopen.button')}
-              {shell.permissions.requiresApproval('reopen-bill') && <span className="ntag">{t('billing.sheet.needs')}</span>}
-            </button>
+          {/* this close's receipt job only: the reloaded bill's row, else the close answer's (waiting) until it lands */}
+          {done.receipt !== null && done.receipt.job_id !== null && (
+            <PrintRows
+              prints={
+                bill.prints.some((p) => p.job_id === done.receipt!.job_id)
+                  ? bill.prints.filter((p) => p.job_id === done.receipt!.job_id)
+                  : [{ job_id: done.receipt.job_id, doc_kind: 'receipt', state: 'waiting', printer_name: done.receipt.printer_name, last_error: null }]
+              }
+            />
           )}
-          </div>
+          <span className="b5-dc__fill" />
+          {done.invoiceId !== null && (shell.permissions.allowed('take-payment') || (canReopenGrant && online && bill.state === 'closed')) && (
+            <div className="b5-acts">
+              {/* §6.22, frame BillClosed: Reprint receipt of the invoice this close issued */}
+              {done.invoiceId !== null && shell.permissions.allowed('take-payment') && <ReprintButton doc="receipt" invoiceId={done.invoiceId} onPrinted={() => {}} />}
+              {/* 36c, frame BillClosed: Reopen from the closed view */}
+              {canReopenGrant && online && done.invoiceId !== null && bill.state === 'closed' && (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setDone(null);
+                    setSheet('reopen');
+                  }}
+                >
+                  {t('billing.reopen.button')}
+                  {shell.permissions.requiresApproval('reopen-bill') && <span className="ntag">{t('billing.sheet.needs')}</span>}
+                </button>
+              )}
+            </div>
+          )}
           <div className="b5-close">
             <button type="button" className="btn btn--primary btn--block" onClick={onBack}>
               <Ico name="check" />

@@ -3821,6 +3821,10 @@ export const en = {
   'billing.closed_empty_line': 'nothing billed · money given back',
   'billing.closed_fiscal_pending': 'Fiscal number pending',
   'billing.done_next': 'Done · next bill',
+  // ---- 05 client (E2E E-8): remove_comp request reasons (COMP_REMOVE_REASONS) ----
+  'billing.comp_remove.reason.comped_by_mistake': 'Comped by mistake',
+  'billing.comp_remove.reason.wrong_line': 'Wrong line',
+  'billing.comp_remove.reason.other': 'Other',
   // ---- 05 client (E2E E-3): Remove payment, §6.10 (frames RemovePayment, RemovePaymentShiftClosed) ----
   'billing.pay_remove.button': 'Remove',
   'billing.pay_remove.title': 'Remove payment',

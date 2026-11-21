@@ -1307,3 +1307,42 @@ describe('[05 §8 Bill screen; frame BillClosed; E2E E-7] the closed view', () =
   });
 });
 
+describe('[E2E E-7 review] the closed view before the reload, several receipts, an empty close', () => {
+  const ready = bill({ splits: [split({ balance_minor: 0 })], blocks: [] });
+  const ans = (over: Record<string, unknown> = {}) => ({ ok: true as const, data: { invoice_id: 'INV2', invoice_ref: 'AC1-S000124', total_minor: 599_600, change_minor: 0, bill_state: 'closed', receipt: { job_id: 'J2', printer_name: 'Counter' }, fiscal_state: 'not_required', ...over } });
+
+  it('[m1] the reload has not landed (still the pre-close view): the receipt row from the close answer, waiting on its printer; no change box; no fiscal chip', async () => {
+    const s = setup({ views: [ready, ready], answers: [ans()] });
+    const v = await show(s);
+    v.click(v.button('Close bill'));
+    await flush();
+    const done = v.container.querySelector('.b5-done')!;
+    expect(done.querySelectorAll('.b5-pr')).toHaveLength(1);
+    expect(done.querySelector('.b5-pr')?.textContent).toContain('Counter');
+    expect(done.querySelector('.b5-change')).toBeNull();
+    expect(done.querySelector('.b5-done__hero .st')).toBeNull();
+  });
+
+  it('[m2] several receipt jobs on the bill: only this close\'s', async () => {
+    const after = bill({ state: 'closed', blocks: [], splits: [split({ state: 'closed', balance_minor: 0 })], prints: [
+      { job_id: 'J1', doc_kind: 'receipt', state: 'printed', printer_name: 'Bar', last_error: null },
+      { job_id: 'J2', doc_kind: 'receipt', state: 'printed', printer_name: 'Counter', last_error: null },
+    ] });
+    const v = await show(setup({ views: [ready, after], answers: [ans()] }));
+    v.click(v.button('Close bill'));
+    await flush();
+    const rows = [...v.container.querySelectorAll('.b5-done .b5-pr')];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.textContent).toContain('Counter');
+  });
+
+  it('[NIT 6] an empty close: no acts row, no receipt row; the hero is announced as one sentence', async () => {
+    const v = await show(setup({ views: [ready, ready], answers: [{ ok: true, data: { bill_state: 'closed', empty: true } }] }));
+    v.click(v.button('Close bill'));
+    await flush();
+    expect(v.container.querySelector('.b5-done .b5-acts')).toBeNull();
+    expect(v.container.querySelector('.b5-done .b5-pr')).toBeNull();
+    expect(v.container.querySelector('.b5-done__hero')?.getAttribute('aria-label')).toBe('Closed · nothing billed · money given back');
+  });
+});
+

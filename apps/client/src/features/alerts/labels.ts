@@ -1,4 +1,4 @@
-import { BILL_REOPEN_REASONS, CHARGE_REMOVE_REASONS, VOID_REASON_CODES, type AlertFamily, type VoidReasonCode } from '@pos/domain';
+import { BILL_REOPEN_REASONS, CHARGE_REMOVE_REASONS, COMP_REMOVE_REASONS, VOID_REASON_CODES, type AlertFamily, type VoidReasonCode } from '@pos/domain';
 import type { AlertCard, AlertDetails, AlertLock, RequestOutcome, WsAlertClosed } from '@pos/events';
 import { t, type MessageKey } from '../../i18n';
 import { en, fill } from '../../i18n/en';
@@ -124,6 +124,7 @@ export function lockText(a: Labelled): string {
 const KIND_REASONS: ReadonlyArray<{ prefix: string; codes: readonly string[]; key: (code: string) => MessageKey }> = [
   { prefix: 'alert.reopen_bill.', codes: BILL_REOPEN_REASONS, key: (c) => `billing.report.credit_reason.${c}` as MessageKey },
   { prefix: 'alert.remove_service_charge.', codes: CHARGE_REMOVE_REASONS, key: (c) => `billing.sc.reason.${c}` as MessageKey },
+  { prefix: 'alert.remove_comp.', codes: COMP_REMOVE_REASONS, key: (c) => `billing.comp_remove.reason.${c}` as MessageKey },
 ];
 
 export function reasonText(reason: string | null | undefined, card: { kind_label_key: string } | null | undefined): string | null {

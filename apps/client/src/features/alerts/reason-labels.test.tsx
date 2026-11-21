@@ -110,6 +110,9 @@ describe('[05 §3.14; E2E E-8] 05 request reasons by label', () => {
   it('remove_service_charge: the CHARGE_REMOVE_REASONS label', () => {
     expect(reasonText('service_complaint', { kind_label_key: 'alert.remove_service_charge.card' })).toBe('Service complaint');
   });
+  it('[review m3] remove_comp: the COMP_REMOVE_REASONS label', () => {
+    expect(reasonText('comped_by_mistake', { kind_label_key: 'alert.remove_comp.card' })).toBe('Comped by mistake');
+  });
   it('the card line', () => {
     expect(detailsText({ amount: 599_600, reason: 'wrong_payment_mode' } as never, { kind_label_key: 'alert.reopen_bill.card' })).toContain('“Wrong payment type”');
   });
