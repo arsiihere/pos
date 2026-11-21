@@ -267,11 +267,16 @@ function refusalText(e: HubError, ctx: { bill: BillView; split: BillViewSplit; d
   });
 }
 
+/** The last close's answer, as frame BillClosed shows it (E-7). */
 interface Done {
-  text: string;
-  change: string | null;
+  /** an empty close (BillClosedEmpty): no invoice */
+  empty: boolean;
+  invoiceRef: string | null;
+  totalMinor: number | null;
+  changeMinor: number | null;
   /** the invoice the last close issued (Reprint receipt), null for an empty close */
   invoiceId: string | null;
+  fiscalPending: boolean;
 }
 
 /** #/bill?<ref>: one bill (`take-payment`). `onBack` returns to the open bills. */
@@ -486,9 +491,13 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
     const r = answer.data;
     if (!('empty' in r)) setInvoiceOf((m) => new Map([...m, [split.split_no, { invoice_id: r.invoice_id, invoice_ref: r.invoice_ref }]]));
     const text = 'empty' in r ? t('billing.closed_empty') : fill(t('billing.closed'), { invoice_ref: r.invoice_ref, amount: money(r.total_minor) });
+    const doneOf: Done =
+      'empty' in r
+        ? { empty: true, invoiceRef: null, totalMinor: null, changeMinor: null, invoiceId: null, fiscalPending: false }
+        : { empty: false, invoiceRef: r.invoice_ref, totalMinor: r.total_minor, changeMinor: r.change_minor > 0 ? r.change_minor : null, invoiceId: r.invoice_id, fiscalPending: r.fiscal_state === 'pending' };
     const changeText = 'empty' in r || r.change_minor <= 0 ? null : fill(t('billing.give_change'), { amount: money(r.change_minor) });
     if (r.bill_state === 'closed') setReopenedBy(null);
-    if (r.bill_state === 'closed') setDone({ text, change: changeText, invoiceId: 'empty' in r ? null : r.invoice_id });
+    if (r.bill_state === 'closed') setDone(doneOf);
     else shell.toasts.show({ text: changeText === null ? text : `${text} · ${changeText}`, tone: 'ok' });
     setMode(null);
     setPicked(null);
@@ -827,10 +836,40 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   if (done !== null)
     return (
       <main className="b5 b5--page">
-        <div className="b5-done">
-          <Ico name="checkc" />
-          <b>{done.text}</b>
-          {done.change !== null && <span className="b5-change-due">{done.change}</span>}
+        {/* E-7, frame BillClosed: the hero, the change due, the receipt's print row, the acts, Done at the foot */}
+        <div className="b5-done b5-done--page">
+          <div className="b5-done__hero">
+            <span className="k">
+              <Ico name="check" />
+              {t('billing.closed_k')}
+            </span>
+            {done.empty ? (
+              <span>{t('billing.closed_empty_line')}</span>
+            ) : (
+              <div className="inv">
+                <span>
+                  {t('billing.closed_invoice')} <span className="b5-mono">{done.invoiceRef}</span>
+                </span>
+                <b className="num" dir={MONEY_DIR}>
+                  {money(done.totalMinor ?? 0)}
+                </b>
+              </div>
+            )}
+            {done.fiscalPending && (
+              <div className="row b5-done__st">
+                <span className="st c-info">{t('billing.closed_fiscal_pending')}</span>
+              </div>
+            )}
+          </div>
+          {done.changeMinor !== null && (
+            <div className="b5-change">
+              <span>{t('pad.change_due_k')}</span>
+              <b dir={MONEY_DIR}>{money(done.changeMinor)}</b>
+            </div>
+          )}
+          <PrintRows prints={bill.prints.filter((p) => p.doc_kind === 'receipt')} />
+          <span className="b5-dc__fill" />
+          <div className="b5-acts">
           {/* §6.22, frame BillClosed: Reprint receipt of the invoice this close issued */}
           {done.invoiceId !== null && shell.permissions.allowed('take-payment') && <ReprintButton doc="receipt" invoiceId={done.invoiceId} onPrinted={() => {}} />}
           {/* 36c, frame BillClosed: Reopen from the closed view */}
@@ -847,9 +886,13 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
               {shell.permissions.requiresApproval('reopen-bill') && <span className="ntag">{t('billing.sheet.needs')}</span>}
             </button>
           )}
-          <button type="button" className="btn btn--primary" onClick={onBack}>
-            {t('billing.done')}
-          </button>
+          </div>
+          <div className="b5-close">
+            <button type="button" className="btn btn--primary btn--block" onClick={onBack}>
+              <Ico name="check" />
+              {t('billing.done_next')}
+            </button>
+          </div>
         </div>
       </main>
     );
