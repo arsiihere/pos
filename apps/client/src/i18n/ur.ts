@@ -1477,6 +1477,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.blocks.balance_due': 'نقد میں {cash} یا کارڈ سے {card} لیں',
   // ---- 05 client (task 37): frame BillUrdu ----
   'billing.discount.field': 'رعایت',
+  'billing.discount.button': 'رعایت',
+  'billing.split.button': 'تقسیم',
   'billing.sheet.needs': 'منظوری چاہیے',
   // ---- 05 client (task 43b): frame DayCloseUrdu ----
   'errors.DAY_CLOSE_BLOCKED.shift_open': '{count} شفٹیں ابھی کھلی ہیں — پہلے انہیں بند کریں',

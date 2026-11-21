@@ -3812,6 +3812,9 @@ export const en = {
   'billing.dayclose.ask_manager': 'Someone allowed to answer them does it in Requests.',
   'billing.dayclose.load_next': 'The listed orders are carried over — tap Close day again for the next ones',
   'billing.dayclose.refresh': 'Tap Close day again to refresh the list.',
+  // ---- 05 client (E2E E-1): the acts row's Split and Discount (frames Bill, BillUrdu) ----
+  'billing.split.button': 'Split',
+  'billing.discount.button': 'Discount',
   'billing.fiscal.waiting': 'Fiscal: {count} waiting · oldest {age}',
   'billing.fiscal.stuck': '{waiting} — tell a manager',
   'billing.fiscal.rejected': 'Fiscal: {count} not accepted — tell a manager',

@@ -768,3 +768,80 @@ describe('[05 §8] several splits, offline, Urdu', () => {
     expect(v.buttons().some((b) => b.textContent === 'Add buyer')).toBe(false);
   });
 });
+
+// E2E E-1 (docs/reviews/05-e2e.md): the split editor (task 36), the discount sheet and the service-charge row (task 37)
+// mounted on the bill screen — 05 §8 Bill screen (split editor, discount sheet, service charge row with Remove /
+// Add back), Splits; frame Bill: the acts row Print check bill · Split · Discount (+ Needs approval).
+describe('[05 §8; E2E E-1] split, discount and service charge on the bill', () => {
+  const grant = (g: 'allowed' | 'requires_approval') => ({ grant: g, scope: 'branch' });
+  const dlg = (v: Mounted) => v.container.querySelector('.dlg__t h2')?.textContent ?? null;
+
+  it('the acts row: Split opens the split editor; Discount opens the discount sheet', async () => {
+    const s = setup({ grants: { 'apply-discount': grant('allowed') } });
+    const v = await show(s);
+    const acts = [...v.container.querySelectorAll('.b5-acts .btn')].map((b) => b.textContent);
+    expect(acts).toEqual(['Print check bill', 'Split', 'Discount']);
+    v.click(v.button('Split'));
+    await flush();
+    expect(dlg(v)).toBe('Split the bill');
+    v.click(v.container.querySelector<HTMLButtonElement>('.dlg__x')!);
+    await flush();
+    v.click(v.button('Discount'));
+    await flush();
+    expect(dlg(v)).toBe('Discount the bill');
+  });
+
+  it('Discount: "Needs approval" with requires_approval; none without apply-discount; none once a split is closed (B7)', async () => {
+    let v = await show(setup({ grants: { 'apply-discount': grant('requires_approval') } }));
+    expect(v.button('Discount').querySelector('.ntag')?.textContent).toBe('Needs approval');
+    v.unmount();
+    v = await show(setup());
+    expect(v.buttons().some((b) => b.textContent?.startsWith('Discount'))).toBe(false);
+    v.unmount();
+    v = await show(setup({ grants: { 'apply-discount': grant('allowed') }, views: [bill({ state: 'partly_paid', splits: [split({ state: 'closed', balance_minor: 0 }), split({ split_no: 2 })] })] }));
+    expect(v.buttons().some((b) => b.textContent?.startsWith('Discount'))).toBe(false);
+  });
+
+  it('a discount on the bill: its row has Remove discount → the remove sheet', async () => {
+    const d = { kind: 'percent' as const, value: 1_000, reason_code: 'regular_customer', frozen_minor: null, discount_minor: 66_240 };
+    const v = await show(setup({ grants: { 'apply-discount': grant('allowed') }, views: [bill({ discount: d, splits: [split({ totals: { ...split().totals, cash: { ...split().totals.cash, discount_minor: 66_240 } } })] })] }));
+    v.click(v.button('Remove discount'));
+    await flush();
+    expect(dlg(v)).toBe('Remove the discount');
+  });
+
+  it('service charge: the row with Remove (remove-service-charge) → the sheet; removed → Add back', async () => {
+    const sc = (removed: boolean) => bill({ service_charge: { rate_bp: 500, removed } });
+    let v = await show(setup({ grants: { 'remove-service-charge': grant('allowed') }, views: [sc(false)] }));
+    expect(v.text()).toContain('Service charge 5 %');
+    v.click(v.button('Remove'));
+    await flush();
+    expect(dlg(v)).toBe('Remove service charge');
+    v.unmount();
+    v = await show(setup({ grants: { 'remove-service-charge': grant('allowed') }, views: [sc(true)] }));
+    expect(v.text()).toContain('Service charge removed');
+    expect(v.buttons().some((b) => b.textContent === 'Add back')).toBe(true);
+  });
+
+  it('a saved split plan or a sheet\'s answer reads the bill again', async () => {
+    const s = setup({ grants: { 'apply-discount': grant('allowed') }, answers: [{ ok: true, data: { bill_id: 'B7', changed: true } }] });
+    const v = await show(s);
+    v.click(v.button('Discount'));
+    await flush();
+    v.click([...v.container.querySelectorAll<HTMLButtonElement>('.dlg .b5-chip')][0]!);
+    const input = v.container.querySelector<HTMLInputElement>('.dlg .b5-in input')!;
+    typeIn(input, '10');
+    await flush();
+    v.click(v.container.querySelector<HTMLButtonElement>('.dlg .acts .btn--primary')!);
+    await flush();
+    expect(s.command.mock.calls[0]![0]).toBe('ApplyDiscount');
+    expect(v.container.querySelector('.dlg')).toBeNull();
+    expect(s.query).toHaveBeenCalledTimes(2);
+  });
+
+  it('a closed bill: no Split, no Discount, no Remove', async () => {
+    const v = await show(setup({ grants: { 'apply-discount': grant('allowed'), 'remove-service-charge': grant('allowed') }, views: [bill({ state: 'closed', service_charge: { rate_bp: 500, removed: false }, splits: [split({ state: 'closed', balance_minor: 0 })], blocks: [] })] }));
+    expect(v.buttons().some((b) => ['Split', 'Discount', 'Remove'].includes(b.textContent ?? ''))).toBe(false);
+  });
+});
+
