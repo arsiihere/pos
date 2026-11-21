@@ -90,3 +90,10 @@
 :where(.b5-port, .b5-ph) .b5-dc { grid-template-columns: minmax(0, 1fr); }
 /* the X / Z head line with Print at its end (frames XReport, ZReport: the note, <span style="flex:1">, Print) */
 :where(.b5-rep-line) { gap: 16px; align-items: center; }
+/* E2E E-6: at the 1920×1080 kiosk a long money column shrank its parts (.b5-tot has overflow: hidden, so its flex
+   min-height is 0) and the Close bar sat over "Add payment". The pane scrolls; none of its parts shrinks. */
+:where(.b5-money) > .b5-pane { overflow: hidden auto; scrollbar-width: none; } /* as the kit's other scroll regions */
+:where(.b5-money) > .b5-pane::-webkit-scrollbar { display: none; }
+:where(.b5-money) > .b5-pane > * { flex-shrink: 0; }
+/* Close stays in view at the column's foot (the frames draw it last, always visible); the rest scrolls above it */
+:where(.b5-money) > .b5-pane > .b5-close { position: sticky; bottom: -22px; padding-block: 10px 22px; margin-bottom: -22px; background: var(--surface-2); box-shadow: 0 -1px 0 var(--line); z-index: 1; }
