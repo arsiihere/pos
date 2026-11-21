@@ -410,6 +410,19 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.report.not_printed` | No printer is set up for reports — nothing printed |
 | `billing.report.older_z` | Only the latest Z of a date prints |
 | `billing.report.print_no_day` | No day is open, so there is no X to print. |
+| `billing.pay_remove.button` | Remove |
+| `billing.pay_remove.title` | Remove payment |
+| `billing.pay_remove.why` | Why remove it |
+| `billing.pay_remove.keep` | Keep it |
+| `billing.pay_remove.ok` | OK |
+| `billing.pay_remove.done` | Payment removed |
+| `billing.pay_remove.in` | In |
+| `billing.pay_remove.out` | Back |
+| `billing.pay_remove.shift_closed` | This payment’s shift is already counted — it can’t be removed. Give the money back from your shift instead: the pad offers Give back when the bill owes the customer. |
+| `billing.pay_remove.reason.wrong_mode` | Wrong payment type |
+| `billing.pay_remove.reason.wrong_amount` | Wrong amount |
+| `billing.pay_remove.reason.customer_changed` | Customer changed their mind |
+| `billing.pay_remove.reason.other` | Other |
 | `billing.dayclose.step_signoffs` | Pending sign-offs |
 | `billing.dayclose.ready` | Ready when you are |
 | `billing.dayclose.ready_note` | Tap Close day. If something is still open, it shows here as a list with a way to fix each row. |

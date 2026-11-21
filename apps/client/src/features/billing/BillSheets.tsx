@@ -7,7 +7,7 @@ import { fill, type MessageKey } from '../../i18n/en';
 import { Ico } from '../alerts/ui';
 import { useShell } from '../staff/shell/hooks';
 import { billingApi } from './api';
-import type { BillRef, BillView, SheetResult } from './contracts';
+import type { BillRef, BillView, BillViewSplit, SheetResult } from './contracts';
 import { billingErrorKey } from './errors';
 import { amountText, billMoney, currencySymbol, MONEY_DIR, parseMinor, parsePercentBp, rateText } from './money';
 import './styles';
@@ -720,3 +720,87 @@ function buyerTypesOf(snapshot: unknown, date: string, hub: readonly string[] | 
   }
   return lastTypes;
 }
+
+const PAYMENT_REMOVE_REASONS = ['wrong_mode', 'wrong_amount', 'customer_changed', 'other'] as const;
+type PaymentRemoveReason = (typeof PAYMENT_REMOVE_REASONS)[number];
+
+/**
+ * 05 §6.10 Remove payment (E2E E-3; frames RemovePayment, RemovePaymentShiftClosed): the payment, why (four reasons, a
+ * note needed for Other — the hub refuses Other without one), Keep it / Remove payment. Not approvable. A payment of a
+ * counted shift cannot be removed (`SHIFT_NOT_OPEN payment_shift_closed`): the sheet says so and offers OK only.
+ */
+export function RemovePaymentSheet({ bill, payment, onDone, onClose }: { bill: BillView; payment: BillViewSplit['payments'][number]; onDone: () => void; onClose: () => void }) {
+  const shell = useShell();
+  const api = useMemo(() => billingApi(shell.api), [shell.api]);
+  const [reason, setReason] = useState<PaymentRemoveReason | null>(null);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [shiftClosed, setShiftClosed] = useState(false);
+  const step = noteStep(reason, note);
+  const remove = async () => {
+    if (step !== null || reason === null || busy || !shell.online) return;
+    setBusy(true);
+    setMsg(null);
+    const answer = await api.removePayment({ payment_id: payment.payment_id, reason_code: reason, ...(note.trim() === '' ? {} : { note: note.trim() }) });
+    setBusy(false);
+    if (!answer.ok) {
+      const e = answer.error;
+      if (e.kind === 'api' && e.code === 'SHIFT_NOT_OPEN' && e.details['reason'] === 'payment_shift_closed') setShiftClosed(true);
+      else setMsg(errorText(e, bill.currency.code));
+      return;
+    }
+    shell.toasts.show({ text: t('billing.pay_remove.done'), tone: 'ok' });
+    onDone();
+  };
+  const row = (
+    <div className="b5-pay">
+      <span className="b5-pay__m">
+        <b>
+          <span className="b5-dir">{t(payment.direction === 'in' ? 'billing.pay_remove.in' : 'billing.pay_remove.out')}</span>
+          {payment.mode_name}
+        </b>
+        {payment.taken_by_name !== null && <span>{fill(t('pad.payment.by'), { name: payment.taken_by_name })}</span>}
+      </span>
+      <span className="b5-pay__a" dir={MONEY_DIR}>
+        {billMoney(payment.amount_minor, bill.currency.code)}
+      </span>
+    </div>
+  );
+  if (shiftClosed)
+    return (
+      <Frame bill={bill} title={t('billing.pay_remove.title')} onClose={onClose}>
+        <div className="msg c-warn" role="alert">
+          <Ico name="warn" />
+          <span>{t('billing.pay_remove.shift_closed')}</span>
+        </div>
+        {row}
+        <div className="acts one">
+          <button type="button" className="btn btn--primary" onClick={onClose}>
+            {t('billing.pay_remove.ok')}
+          </button>
+        </div>
+      </Frame>
+    );
+  return (
+    <Frame bill={bill} title={t('billing.pay_remove.title')} onClose={onClose}>
+      {row}
+      <Chips
+        reasons={PAYMENT_REMOVE_REASONS.map((code) => ({ code, label: t(`billing.pay_remove.reason.${code}` as MessageKey) }))}
+        picked={reason}
+        onPick={(c) => setReason(c as PaymentRemoveReason)}
+        cols="c2"
+        title={t('billing.pay_remove.why')}
+      />
+      <Note value={note} onChange={setNote} />
+      {msg !== null && <Msg text={msg} />}
+      <div className="acts">
+        <button type="button" className="btn" onClick={onClose}>
+          {t('billing.pay_remove.keep')}
+        </button>
+        <Primary step={step} action={t('billing.pay_remove.title')} ask={false} busy={busy || !shell.online} onClick={() => void remove()} />
+      </div>
+    </Frame>
+  );
+}
+

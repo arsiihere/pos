@@ -9,10 +9,10 @@ import { useLiveRefetch } from '../staff/orders/lists/OpenOrders';
 import { useShell } from '../staff/shell/hooks';
 import { billingApi } from './api';
 import type { AddPaymentResult, BillBlock, BillRef, BillView, BillViewSplit, SplitDues, Totals } from './contracts';
-import { BuyerSheet, canDiscount, DiscountSheet, ServiceChargeRow, ServiceChargeSheet, type BuyerEntry, type BuyerIssue } from './BillSheets';
+import { BuyerSheet, canDiscount, DiscountSheet, RemovePaymentSheet, ServiceChargeRow, ServiceChargeSheet, type BuyerEntry, type BuyerIssue } from './BillSheets';
 import { BIco } from './icons';
 import { SplitEditor } from './SplitEditor';
-import { CheckBillButton, PrintRows } from './PrintStatus';
+import { CheckBillButton, PrintRows, ReprintButton } from './PrintStatus';
 import { billingErrorKey } from './errors';
 import { BILL_LIST_FRAMES } from './frames';
 import { amountText, billMoney, currencySymbol, MONEY_DIR, parseMinor, rateText, signedAmountText } from './money';
@@ -270,6 +270,8 @@ function refusalText(e: HubError, ctx: { bill: BillView; split: BillViewSplit; d
 interface Done {
   text: string;
   change: string | null;
+  /** the invoice the last close issued (Reprint receipt), null for an empty close */
+  invoiceId: string | null;
 }
 
 /** #/bill?<ref>: one bill (`take-payment`). `onBack` returns to the open bills. */
@@ -301,6 +303,9 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   const [buyerHeld, setBuyerHeld] = useState(false);
   // E-1: the split editor and the discount / service-charge sheets
   const [sheet, setSheet] = useState<'split' | 'discount' | 'discount_remove' | 'service' | null>(null);
+  // E-3: the payment being removed; the invoice each close of this visit issued (the bill view carries no invoice id)
+  const [removing, setRemoving] = useState<BillViewSplit['payments'][number] | null>(null);
+  const [invoiceOf, setInvoiceOf] = useState<ReadonlyMap<number, string>>(new Map());
   const [buyerSheet, setBuyerSheet] = useState<{ error: BuyerIssue | null; accepted: string[] | null } | null>(null);
   // WaiveBuyerId answered not_required: the row says so until the bill needs the buyer again
   const [buyerNotNeeded, setBuyerNotNeeded] = useState(false);
@@ -475,9 +480,10 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
       return;
     }
     const r = answer.data;
+    if (!('empty' in r)) setInvoiceOf((m) => new Map([...m, [split.split_no, r.invoice_id]]));
     const text = 'empty' in r ? t('billing.closed_empty') : fill(t('billing.closed'), { invoice_ref: r.invoice_ref, amount: money(r.total_minor) });
     const changeText = 'empty' in r || r.change_minor <= 0 ? null : fill(t('billing.give_change'), { amount: money(r.change_minor) });
-    if (r.bill_state === 'closed') setDone({ text, change: changeText });
+    if (r.bill_state === 'closed') setDone({ text, change: changeText, invoiceId: 'empty' in r ? null : r.invoice_id });
     else shell.toasts.show({ text: changeText === null ? text : `${text} · ${changeText}`, tone: 'ok' });
     setMode(null);
     setPicked(null);
@@ -655,6 +661,12 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
                 </span>
                 {p.tendered_minor !== null && <small>{fill(t('pad.payment.tendered_change'), { tendered: money(p.tendered_minor), change: money(p.change_minor) })}</small>}
                 {p.taken_by_name !== null && <small>{fill(t('pad.payment.by'), { name: p.taken_by_name })}</small>}
+                {/* E-3, §6.10: before close (open split), online; another's payment needs close-shift-for-others too */}
+                {online && open && shell.permissions.allowed('take-payment') && (p.taken_by_name === shell.me?.name || shell.permissions.allowed('close-shift-for-others')) && (
+                  <button type="button" className="btn" onClick={() => setRemoving(p)}>
+                    {t('billing.pay_remove.button')}
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -812,6 +824,8 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
           <Ico name="checkc" />
           <b>{done.text}</b>
           {done.change !== null && <span className="b5-change-due">{done.change}</span>}
+          {/* §6.22, frame BillClosed: Reprint receipt of the invoice this close issued */}
+          {done.invoiceId !== null && shell.permissions.allowed('take-payment') && <ReprintButton doc="receipt" invoiceId={done.invoiceId} onPrinted={() => {}} />}
           <button type="button" className="btn btn--primary" onClick={onBack}>
             {t('billing.done')}
           </button>
@@ -856,7 +870,8 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
               </div>
             )}
             {lines}
-            <PrintRows prints={bill.prints} noPrinter={noPrinter ? 'check' : null} />
+            {/* E-3, B18: onChanged lets a failed / late job open the Print to picker */}
+            <PrintRows prints={bill.prints} noPrinter={noPrinter ? 'check' : null} onChanged={() => void load()} />
           </div>
         </section>
         <section className="b5-col b5-money">
@@ -881,9 +896,23 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             {offlinePad}
             {closeArea}
             {!open && split !== undefined && split.invoice !== null && <div className="b5-note">{fill(t('billing.bill.paid_split'), { invoice_ref: split.invoice.invoice_ref })}</div>}
+            {!open && split !== undefined && invoiceOf.has(split.split_no) && online && shell.permissions.allowed('take-payment') && (
+              <ReprintButton doc="receipt" invoiceId={invoiceOf.get(split.split_no)!} onPrinted={() => void load()} />
+            )}
           </div>
         </section>
       </main>
+      {removing !== null && (
+        <RemovePaymentSheet
+          bill={bill}
+          payment={removing}
+          onDone={() => {
+            setRemoving(null);
+            void load();
+          }}
+          onClose={() => setRemoving(null)}
+        />
+      )}
       {sheet === 'split' && (
         <SplitEditor
           bill={bill}
