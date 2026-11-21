@@ -31,6 +31,10 @@ function kindText(kind: string): string {
 
 /** §8: a waiting job offers Print to after this long on the screen. */
 export const PRINT_TO_AFTER_MS = 10_000;
+/** R-2 (E2E re-run, §8 Print status): no live frame carries a print job's ack; after a print action the bill screen
+ * reads the bill again every PRINT_WATCH_MS while a job is waiting / printing, at most PRINT_WATCH_TRIES times (30 s). */
+export const PRINT_WATCH_MS = 1_500;
+export const PRINT_WATCH_TRIES = 20;
 
 function PrintToButton({ tone, onClick }: { tone: 'danger' | null; onClick: () => void }) {
   return (

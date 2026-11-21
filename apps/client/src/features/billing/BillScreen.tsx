@@ -12,7 +12,7 @@ import type { AddPaymentResult, BillBlock, BillRef, BillView, BillViewSplit, Spl
 import { BuyerSheet, canDiscount, DiscountSheet, RemovePaymentSheet, ReopenSheet, ServiceChargeRow, ServiceChargeSheet, type BuyerEntry, type BuyerIssue } from './BillSheets';
 import { BIco } from './icons';
 import { SplitEditor } from './SplitEditor';
-import { CheckBillButton, PrintRows, ReprintButton } from './PrintStatus';
+import { CheckBillButton, PRINT_WATCH_MS, PRINT_WATCH_TRIES, PrintRows, ReprintButton } from './PrintStatus';
 import { billingErrorKey } from './errors';
 import { BILL_LIST_FRAMES } from './frames';
 import { amountText, billMoney, currencySymbol, MONEY_DIR, parseMinor, rateText, signedAmountText } from './money';
@@ -324,21 +324,49 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
 
   const request = useRef(0);
   const refKey = JSON.stringify(billRef);
-  const load = useCallback(async () => {
+  /** the bill read (null: refused, or a later read overtook it) */
+  const load = useCallback(async (): Promise<BillView | null> => {
     const mine = ++request.current;
     const answer = await api.bill(JSON.parse(refKey) as BillRef);
-    if (mine !== request.current) return;
+    if (mine !== request.current) return null;
     if (!answer.ok) {
       setFailed(true);
-      return;
+      return null;
     }
     setFailed(false);
     setBill(answer.data);
     setLoadedAt(shellRef.current.clock.nowMs());
+    return answer.data;
   }, [api, refKey]);
   useEffect(() => {
     void load();
   }, [load]);
+  // R-2 (§8 Print status): no frame carries a print job's ack, so after a print action (a reprint, Print to, a close
+  // with a receipt, the check bill) the bill is read again every PRINT_WATCH_MS while one of its jobs is waiting or
+  // printing: PRINT_WATCH_TRIES reads at most; a printed / failed / cancelled job stops it
+  const printWatch = useRef<{ left: number; timer: ReturnType<typeof setTimeout> | null }>({ left: 0, timer: null });
+  const watchPrints = useCallback(() => {
+    const w = printWatch.current;
+    if (w.timer !== null) clearTimeout(w.timer);
+    w.timer = null;
+    w.left = PRINT_WATCH_TRIES;
+    const read = async () => {
+      w.timer = null;
+      const b = await load();
+      w.left -= 1;
+      const pending = b === null || b.prints.some((p) => p.state === 'waiting' || p.state === 'printing');
+      if (pending && w.left > 0 && w.timer === null) w.timer = setTimeout(() => void read(), PRINT_WATCH_MS);
+    };
+    void read();
+  }, [load]);
+  useEffect(() => {
+    const w = printWatch.current;
+    return () => {
+      w.left = 0;
+      if (w.timer !== null) clearTimeout(w.timer);
+      w.timer = null;
+    };
+  }, []);
   useLiveRefetch(shell.live, () => void load(), BILL_LIST_FRAMES);
   // B19: a held buyer is for a bill that needs one; a refresh that lifts the need (or records the waiver) drops it,
   // so it is never sent for a bill that did not ask. "Not needed" lasts until the bill needs the buyer again.
@@ -501,7 +529,9 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
     else shell.toasts.show({ text: changeText === null ? text : `${text} · ${changeText}`, tone: 'ok' });
     setMode(null);
     setPicked(null);
-    await load();
+    // R-2: a close that printed a receipt watches it to its ack
+    if (!('empty' in r) && r.receipt.job_id !== null) watchPrints();
+    else await load();
   };
 
   const states: Array<{ key: MessageKey; tone: string }> = [
@@ -936,7 +966,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             {header}
             {online && bill.state !== 'closed' && (
               <div className="b5-acts">
-                <CheckBillButton billRef={billRef} onPrinted={(r) => (r.printed ? void load() : setNoPrinter(true))} />
+                <CheckBillButton billRef={billRef} onPrinted={(r) => (r.printed ? watchPrints() : setNoPrinter(true))} />
                 {/* §6.5 SetSplits: take-payment, as the hub */}
                 {shell.permissions.allowed('take-payment') && (
                   <button type="button" className="btn" onClick={() => setSheet('split')}>
@@ -955,7 +985,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             )}
             {lines}
             {/* E-3, B18: onChanged lets a failed / late job open the Print to picker */}
-            <PrintRows prints={bill.prints} noPrinter={noPrinter ? 'check' : null} {...(shell.permissions.allowed('take-order') ? { onChanged: () => void load() } : {})} />
+            <PrintRows prints={bill.prints} noPrinter={noPrinter ? 'check' : null} {...(shell.permissions.allowed('take-order') ? { onChanged: watchPrints } : {})} />
           </div>
         </section>
         <section className="b5-col b5-money">
@@ -989,7 +1019,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             )}
             {/* §6.22, R-90: the split's current sale invoice, from the view (a later visit too; a re-close shows the new one) */}
             {!open && split !== undefined && split.invoice !== null && online && shell.permissions.allowed('take-payment') && (
-              <ReprintButton doc="receipt" invoiceId={split.invoice.invoice_id} onPrinted={() => void load()} />
+              <ReprintButton doc="receipt" invoiceId={split.invoice.invoice_id} onPrinted={watchPrints} />
             )}
           </div>
         </section>
