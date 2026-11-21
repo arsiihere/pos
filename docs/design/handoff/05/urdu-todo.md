@@ -436,6 +436,11 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.reopen.not_closed` | Only a closed or partly paid bill can be reopened |
 | `billing.reopen.done` | Reopened · credit {credits} |
 | `billing.reopen.corrections` | Corrections only: remove, void or comp; new items go on a new bill |
+| `billing.closed_k` | Closed |
+| `billing.closed_invoice` | Invoice |
+| `billing.closed_empty_line` | nothing billed · money given back |
+| `billing.closed_fiscal_pending` | Fiscal number pending |
+| `billing.done_next` | Done · next bill |
 | `billing.dayclose.step_signoffs` | Pending sign-offs |
 | `billing.dayclose.ready` | Ready when you are |
 | `billing.dayclose.ready_note` | Tap Close day. If something is still open, it shows here as a list with a way to fix each row. |

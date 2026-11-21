@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NOW, VOID_CARD, requestRow, row } from '../../../test/alert-rows';
 import { mount, type Mounted } from '../../../test/dom';
 import { setLanguage } from '../../i18n';
+import { en, fill } from '../../i18n/en';
 import { createAnswerSender, type HubLink } from './answer';
 import { AnswerSheet, NoticeSheet } from './AnswerSheet';
 import { detailsText, reasonText } from './labels';
@@ -94,3 +95,23 @@ describe('[04 §8; 01d §3.12] void reason labels', () => {
     expect(reasonText('', { kind_label_key: 'alert.void_approval.card' })).toBeNull();
   });
 });
+
+// E2E E-8 (docs/reviews/05-e2e.md): the reopen request card showed the raw code "wrong_payment_mode". 05's request kinds
+// send their reason as a code; the card reads it as the label the Z uses (billing.report.credit_reason.* for
+// reopen_bill, BILL_REOPEN_REASONS) and the service-charge sheet uses (billing.sc.reason.*, CHARGE_REMOVE_REASONS);
+// "code: note" keeps the note; an unknown code stays as sent.
+describe('[05 §3.14; E2E E-8] 05 request reasons by label', () => {
+  it('reopen_bill: the BILL_REOPEN_REASONS label', () => {
+    expect(reasonText('wrong_payment_mode', { kind_label_key: 'alert.reopen_bill.card' })).toBe('Wrong payment type');
+    expect(reasonText('price_error', { kind_label_key: 'alert.reopen_bill.lock' })).toBe('Price error');
+    expect(reasonText('other: wrong table', { kind_label_key: 'alert.reopen_bill.card' })).toBe(fill(en['audit.reason.with_note'], { reason: 'Other', note: 'wrong table' }));
+    expect(reasonText('made_up', { kind_label_key: 'alert.reopen_bill.card' })).toBe('made_up');
+  });
+  it('remove_service_charge: the CHARGE_REMOVE_REASONS label', () => {
+    expect(reasonText('service_complaint', { kind_label_key: 'alert.remove_service_charge.card' })).toBe('Service complaint');
+  });
+  it('the card line', () => {
+    expect(detailsText({ amount: 599_600, reason: 'wrong_payment_mode' } as never, { kind_label_key: 'alert.reopen_bill.card' })).toContain('“Wrong payment type”');
+  });
+});
+

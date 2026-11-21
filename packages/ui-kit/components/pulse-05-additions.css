@@ -97,3 +97,6 @@
 :where(.b5-money) > .b5-pane > * { flex-shrink: 0; }
 /* Close stays in view at the column's foot (the frames draw it last, always visible); the rest scrolls above it */
 :where(.b5-money) > .b5-pane > .b5-close { position: sticky; bottom: -22px; padding-block: 10px 22px; margin-bottom: -22px; background: var(--surface-2); box-shadow: 0 -1px 0 var(--line); z-index: 1; }
+/* E2E E-7, frame BillClosed: the closed view on its own page — the money column's width, the frame's inline gaps */
+:where(.b5-done--page).b5-done { max-width: 600px; min-height: 100%; margin: 0 auto; padding: 22px 24px; } /* ties .b5-done, wins by order */
+:where(.b5-done__st) { gap: 10px; flex-wrap: wrap; } /* style="gap:10px;flex-wrap:wrap" */

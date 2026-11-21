@@ -3815,6 +3815,12 @@ export const en = {
   // ---- 05 client (E2E E-1): the acts row's Split and Discount (frames Bill, BillUrdu) ----
   'billing.split.button': 'Split',
   'billing.discount.button': 'Discount',
+  // ---- 05 client (E2E E-7): the closed view (frame BillClosed) ----
+  'billing.closed_k': 'Closed',
+  'billing.closed_invoice': 'Invoice',
+  'billing.closed_empty_line': 'nothing billed · money given back',
+  'billing.closed_fiscal_pending': 'Fiscal number pending',
+  'billing.done_next': 'Done · next bill',
   // ---- 05 client (E2E E-3): Remove payment, §6.10 (frames RemovePayment, RemovePaymentShiftClosed) ----
   'billing.pay_remove.button': 'Remove',
   'billing.pay_remove.title': 'Remove payment',

@@ -380,8 +380,9 @@ describe('[05 §8; §6.12, §3.3] close', () => {
     v.click(close);
     await flush();
     expect(s.command.mock.calls[0]).toEqual(['CloseSplit', { bill_ref: { bill_id: 'B7' }, split_no: 1, expected_total_minor: 599_600 }, expect.anything()]);
-    expect(text(v, '.b5-done b')).toBe('Closed · Invoice AC1-S000123 · Rs 5,996.00');
-    v.click(v.button('Done'));
+    expect(text(v, '.b5-done__hero .k')).toBe('Closed');
+    expect(text(v, '.b5-done__hero .inv')).toBe('Invoice AC1-S000123Rs 5,996.00');
+    v.click(v.button('Done · next bill'));
     expect(done).toEqual(['back']);
   });
 
@@ -401,7 +402,8 @@ describe('[05 §8; §6.12, §3.3] close', () => {
     const v = await show(s);
     v.click(v.button('Close bill'));
     await flush();
-    expect(text(v, '.b5-done b')).toBe('Closed · nothing billed · money given back');
+    expect(text(v, '.b5-done__hero .k')).toBe('Closed');
+    expect(text(v, '.b5-done__hero')).toContain('nothing billed · money given back');
   });
 });
 
@@ -627,7 +629,7 @@ describe('[05 §8] several splits, offline, Urdu', () => {
     v.click(close);
     await flush();
     expect(s.command.mock.calls[0]![1]).toEqual({ bill_ref: { bill_id: 'B7' }, split_no: 1, expected_total_minor: 662_400, buyer: { name: 'Sample Traders', tax_id: { type: 'CNIC', value: '12345-1234567-1' } } });
-    expect(text(v, '.b5-done b')).toBe('Closed · Invoice AC1-S000200 · Rs 6,624.00');
+    expect(text(v, '.b5-done__hero .inv')).toBe('Invoice AC1-S000200Rs 6,624.00');
   });
 
   it('[B19] a close refused on the buyer reopens the sheet with its text (never the value); the held buyer is dropped after any answer', async () => {
@@ -1277,6 +1279,31 @@ describe('[05 §8 Reopen, §6.13; #37k] reopen a closed bill', () => {
     v.click(v.button('Reopen'));
     await flush();
     expect(v.container.querySelector('.dlg__t h2')?.textContent).toBe('Reopen bill');
+  });
+});
+
+// E2E E-7: the closed view was unstyled (a bare icon, the text, a full-width Done). Frame BillClosed: .b5-done with the
+// hero (Closed, the invoice and its total, the fiscal state), the change due, the receipt's print row, the acts row
+// (Reprint receipt · Reopen) and Done · next bill at the foot.
+describe('[05 §8 Bill screen; frame BillClosed; E2E E-7] the closed view', () => {
+  it('the frame\'s parts: hero, change due, the receipt row, acts, Done at the foot', async () => {
+    const ready = bill({ splits: [split({ balance_minor: 0 })], blocks: [] });
+    const closedView = bill({ state: 'closed', blocks: [], splits: [split({ state: 'closed', balance_minor: 0 })], prints: [{ job_id: 'J1', doc_kind: 'receipt', state: 'printed', printer_name: 'Counter', last_error: null }] });
+    const s = setup({
+      views: [ready, closedView],
+      answers: [{ ok: true, data: { invoice_id: 'INV1', invoice_ref: 'AC1-S000123', total_minor: 599_600, change_minor: 100_400, bill_state: 'closed', receipt: { job_id: 'J1', printer_name: 'Counter' }, fiscal_state: 'pending' } }],
+    });
+    const v = await show(s);
+    v.click(v.button('Close bill'));
+    await flush();
+    const done = v.container.querySelector('.b5-done')!;
+    expect(done.querySelector('.b5-done__hero .k')?.textContent).toBe('Closed');
+    expect(done.querySelector('.b5-done__hero .inv .b5-mono')?.textContent).toBe('AC1-S000123');
+    expect(done.querySelector('.b5-done__hero .st.c-info')?.textContent).toBe('Fiscal number pending');
+    expect(done.querySelector('.b5-change')?.textContent).toBe('Change dueRs 1,004.00');
+    expect(done.querySelector('.b5-pr')?.textContent).toContain('Counter');
+    expect([...done.querySelectorAll('.b5-acts .btn')].map((b) => b.textContent)).toEqual(['Reprint receipt']);
+    expect(done.querySelector('.b5-close .btn--primary')?.textContent).toBe('Done · next bill');
   });
 });
 
