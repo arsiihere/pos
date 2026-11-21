@@ -9,6 +9,9 @@ import type { BillView } from '../../src/billing/queries/bill';
 import { noneAdapter } from '../../src/billing/fiscal/none';
 import { registerFiscalAdapter, resetFiscalAdapters } from '../../src/billing/fiscal/port';
 import type { CommandCtx, CommandDef } from '../../src/commands/registry';
+import { billPrintsProjection } from '../../src/billing/print/folds';
+import { billingProjection } from '../../src/billing/projections/billing';
+import { createProjectionRegistry } from '../../src/projections/registry';
 import { commandRegistry } from '../../src/commands/route';
 import { currentConfigEntry, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { alerts } from '../../src/alerts/raise';
@@ -952,6 +955,163 @@ describe('[05 §3.10, §6.13] ReopenBill — takeaway / parking corrections, tab
     expect(payload).toContain('5671');
     expect(payload).not.toContain(cnic);
     expect(db().prepare('SELECT id_value FROM invoice_buyers').pluck().all()).toEqual([cnic]);
+  });
+});
+
+// ================================================================================================= the credit note print
+
+describe('[05 §3.16, §6.13, B19, R-75; E2E E-4] InvoiceCredited live-only print fold — the credit note', () => {
+  const MGR_PRINTER = 'PR_OFFICE';
+  /** a second printer on `deviceId`'s bill route (the Counter kiosk keeps PR_COUNTER) */
+  const routeDevice = (deviceId: string, printer_id = MGR_PRINTER) =>
+    hubEvents([
+      { stream_type: 'hub', stream_id: hub.deps.config.provisioned!.branch_id, event_type: 'PrinterSaved', payload: { printer_id, name: 'Office', connection: 'lan', address: '192.168.1.21:9100', paper_width_mm: 80, archived: false } },
+      { stream_type: 'hub', stream_id: hub.deps.config.provisioned!.branch_id, event_type: 'BillRouteSet', payload: { scope: 'device', ref_id: deviceId, printer_id } },
+    ]);
+  const creditJobs = () =>
+    db().prepare(`SELECT b.job_id, b.bill_id, b.ref_id, p.printer_id, p.payload FROM bill_print_jobs b JOIN print_jobs p ON p.job_id = b.job_id WHERE b.doc_kind = 'credit' ORDER BY b.ref_id`).all() as Array<{
+      job_id: string;
+      bill_id: string;
+      ref_id: string;
+      printer_id: string;
+      payload: string;
+    }>;
+  const creditEvents = (): PosEvent[] =>
+    (db().prepare(`SELECT * FROM events WHERE event_type = 'InvoiceCredited' ORDER BY seq`).all() as Array<Record<string, unknown>>).map((r) => ({ ...r, payload: JSON.parse(r['payload'] as string) }) as unknown as PosEvent);
+  const sorted = (ids: string[]) => [...ids].sort();
+
+  it('[05 §3.16] a direct ReopenBill prints one credit note per credited invoice at the event device route; job <event_id>:credit kept in bill_print_jobs; ReopenBill statements unchanged (6)', async () => {
+    await start();
+    routeDevice(manager.deviceId);
+    const b = await closedTwoSplits('CN');
+    const r = ok(await reopen(manager, { bill_id: b.bill_id, reason_code: 'price_error' }));
+    expect(handled['reopen-bill']).toBe(6); // the fold runs inside the append, outside the handler's count
+    const credits = creditEvents();
+    expect(credits).toHaveLength(2);
+    expect(credits.map((e) => e.device_id)).toEqual([manager.deviceId, manager.deviceId]);
+    const jobs = creditJobs();
+    expect(sorted(jobs.map((j) => j.job_id))).toEqual(sorted(credits.map((e) => `${e.event_id}:credit`)));
+    expect(sorted(jobs.map((j) => j.ref_id))).toEqual(sorted(ofType(r, 'InvoiceCredited').map((e) => e.payload['invoice_id'] as string)));
+    for (const j of jobs) {
+      expect(j.printer_id).toBe(MGR_PRINTER);
+      expect(j.bill_id).toBe(b.bill_id);
+      expect(JSON.parse(j.payload)).toMatchObject({ kind_label: 'Credit note' });
+      expect(j.payload).toContain('CREDIT NOTE');
+      expect(j.payload).not.toContain('REPRINT');
+    }
+    const refs = credits.map((e) => e.payload as { invoice_ref: string; ref_invoice_ref: string });
+    for (const c of refs) expect(jobs.some((j) => j.payload.includes(c.invoice_ref) && j.payload.includes(c.ref_invoice_ref))).toBe(true);
+  });
+
+  it('[05 §3.16] no device route → the default printer', async () => {
+    await start();
+    hubEvents([{ stream_type: 'hub', stream_id: hub.deps.config.provisioned!.branch_id, event_type: 'BillRouteSet', payload: { scope: 'default', ref_id: '', printer_id: PRINTER } }]);
+    const t = await closedTakeaway('CD');
+    ok(await reopen(manager, { bill_id: t.bill_id, reason_code: 'price_error' }));
+    expect(creditJobs().map((j) => j.printer_id)).toEqual([PRINTER]);
+  });
+
+  it('[05 §3.16, §3.14] an approved reopen_bill prints on the answerer\'s device route, not the requester\'s', async () => {
+    await start();
+    routeDevice(manager.deviceId);
+    const t = await closedTakeaway('CA');
+    const raise = ok(await reopen(cashier, { bill_id: t.bill_id, reason_code: 'price_error' }));
+    expect(creditJobs()).toEqual([]);
+    const alert_id = (raise.result as { pending: { alert_id: string } }).pending.alert_id;
+    ok(await answer(hub, manager, alert_id, 'approve'));
+    const [credit] = creditEvents();
+    expect(credit!.device_id).toBe(manager.deviceId);
+    expect(creditJobs().map((j) => [j.job_id, j.printer_id])).toEqual([[`${credit!.event_id}:credit`, MGR_PRINTER]]);
+  });
+
+  it('[05 §3.16, D1] a rebuild or catch-up never reprints; live again finds the claim and prints nothing more', async () => {
+    await start();
+    routeDevice(manager.deviceId);
+    const t = await closedTakeaway('CR');
+    ok(await reopen(manager, { bill_id: t.bill_id, reason_code: 'price_error' }));
+    const [credit] = creditEvents();
+    expect(creditJobs()).toHaveLength(1);
+    // the catch-up of the real registry from seq 0: forward-only, replayed as 'catchup'
+    expect(db().prepare(`DELETE FROM projection_checkpoints WHERE projection = 'billing_prints'`).run().changes).toBe(1);
+    hub.deps.projections.catchUp(db(), hub.deps.config.provisioned!.branch_id);
+    expect(creditJobs()).toHaveLength(1);
+    // a fresh rebuild with nothing claimed prints nothing
+    db().prepare(`DELETE FROM print_jobs WHERE job_id IN (SELECT job_id FROM bill_print_jobs WHERE doc_kind = 'credit')`).run();
+    db().prepare(`DELETE FROM bill_print_jobs WHERE doc_kind = 'credit'`).run();
+    db().prepare(`DELETE FROM projection_checkpoints WHERE projection IN ('billing', 'billing_prints')`).run();
+    const registry = createProjectionRegistry();
+    registry.register(billingProjection());
+    registry.register(billPrintsProjection(registry));
+    registry.catchUp(db(), hub.deps.config.provisioned!.branch_id);
+    const fold = billPrintsProjection(createProjectionRegistry());
+    db().transaction(() => fold.apply(db(), credit!, 'catchup'))();
+    expect(creditJobs()).toEqual([]);
+    // live: once; the same event live again: claimed, no second job
+    db().transaction(() => fold.apply(db(), credit!, 'live'))();
+    db().transaction(() => fold.apply(db(), credit!, 'live'))();
+    expect(creditJobs().map((j) => j.job_id)).toEqual([`${credit!.event_id}:credit`]);
+  });
+
+  it('[05 B19, Q-3, #43] the credit note prints the buyer\'s last 4 only; the full ID is nowhere but invoice_buyers', async () => {
+    await start();
+    routeDevice(manager.deviceId);
+    const cnic = '3520212345671';
+    BUYER_IDS.add(cnic);
+    BUYER_IDS.add('35202-1234567-1');
+    const o = takeaway(2, 'CP');
+    ok(await pay(cashier, { order_id: o.order_id }, 1, 'cash', 7_000));
+    ok(await post(hub, cashier, 'close-split', 'CloseSplit', { bill_ref: { order_id: o.order_id }, split_no: 1, expected_total_minor: 7_000, buyer: { name: 'Buyer CP', tax_id: { type: 'CNIC', value: '35202-1234567-1' } } }));
+    ok(await reopen(manager, { bill_id: billOfOrder(o.order_id), reason_code: 'price_error' }));
+    const [job] = creditJobs();
+    expect(job!.payload).toContain('CNIC: ****5671');
+    expect(job!.payload).not.toContain(cnic);
+    expect(job!.payload).not.toContain('1234567');
+    expect(db().prepare('SELECT id_value FROM invoice_buyers').pluck().all()).toEqual([cnic]); // afterEach: the privacy scan
+  });
+
+  it('[05 §3.16, R8] no printer routed → the reopen succeeds, the credit note is skipped and logged with ids only', async () => {
+    await start(); // the manager's device has no route and there is no default
+    const cnic = '3520298765431';
+    BUYER_IDS.add(cnic);
+    const o = takeaway(2, 'CS');
+    ok(await pay(cashier, { order_id: o.order_id }, 1, 'cash', 7_000));
+    ok(await post(hub, cashier, 'close-split', 'CloseSplit', { bill_ref: { order_id: o.order_id }, split_no: 1, expected_total_minor: 7_000, buyer: { name: 'Buyer CS', tax_id: { type: 'CNIC', value: cnic } } }));
+    const r = ok(await reopen(manager, { bill_id: billOfOrder(o.order_id), reason_code: 'price_error' }));
+    expect(typesOf(r)).toContain('InvoiceCredited');
+    expect(creditJobs()).toEqual([]);
+    const [credit] = creditEvents();
+    const line = hub.logs().split('\n').find((l) => l.includes('billing.print_skipped') && l.includes(credit!.event_id));
+    expect(line).toBeDefined();
+    const parsed = JSON.parse(line!) as Record<string, unknown>;
+    expect(parsed).toMatchObject({ event_id: credit!.event_id, event_type: 'InvoiceCredited', seating_id: null, reason: 'no_printer' });
+    expect(line).not.toContain('5431');
+    expect(line).not.toContain('Buyer CS');
+  });
+
+  it('[05 §3.16] the credit-note fold is 6 statements with 1 line and with 40 lines', async () => {
+    await start();
+    routeDevice(manager.deviceId);
+    const foldCount = (e: PosEvent): number => {
+      db().prepare(`DELETE FROM print_jobs WHERE job_id = ?`).run(`${e.event_id}:credit`);
+      db().prepare(`DELETE FROM bill_print_jobs WHERE job_id = ?`).run(`${e.event_id}:credit`);
+      const fold = billPrintsProjection(createProjectionRegistry());
+      const c = statementCounter(db());
+      db().transaction(() => fold.apply(db(), e, 'live'))();
+      return c.count;
+    };
+    const one1 = await closedTakeaway('C1');
+    ok(await reopen(manager, { bill_id: one1.bill_id, reason_code: 'price_error' }));
+    const lines40 = Array.from({ length: 40 }, (_, i) => ({ order_item_id: `C40_${i}`, item_id: FX.naan, quantity: 1 }));
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: lines40 });
+    ok(await pay(cashier, { order_id }, 1, 'cash', 139_200)); // 40 × Rs 30.00 + 16 % = Rs 1,392.00
+    ok(await close(cashier, { order_id }, 1, 139_200));
+    ok(await reopen(manager, { bill_id: billOfOrder(order_id), reason_code: 'price_error' }));
+    const [c1, c40] = creditEvents();
+    expect((c1!.payload as { lines: unknown[] }).lines).toHaveLength(1);
+    expect((c40!.payload as { lines: unknown[] }).lines).toHaveLength(40);
+    expect(foldCount(c1!)).toBe(6);
+    expect(foldCount(c40!)).toBe(6);
+    expect(creditJobs()).toHaveLength(2);
   });
 });
 

@@ -82,8 +82,8 @@ interface PaymentRow {
   amount_minor: number;
 }
 
-/** 4b: the outbox row's state as the Doc takes it; `acked` carries the folded number and QR payload. */
-function docFiscalState(row: InvoiceRow): DocFiscalState {
+/** 4b: the outbox row's state as the Doc takes it; `acked` carries the folded number and QR payload. Also the credit-note fold's. */
+export function docFiscalState(row: Pick<InvoiceRow, 'invoice_id' | 'fiscal_state' | 'fiscal_number' | 'qr_payload'>): DocFiscalState {
   switch (row.fiscal_state) {
     case 'not_required':
     case 'pending':
