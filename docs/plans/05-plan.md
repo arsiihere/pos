@@ -308,7 +308,7 @@ Ask the designer now for: open-bills list, bill screen + payment pad, split edit
 | # | Task | Needs | Who |
 |---|---|---|---|
 | 44 | E2E flows (webapp-testing, never CI): dine-in split + mixed payment; takeaway before food; reopen; day close with carry-over → `docs/reviews/05-e2e.md` | C1, C2 | integrator machine |
-| 45 | `test:perf` row: 200-bill rush close (written and typechecked in the gate, **run only by the owner**, M1) | 17 | owner |
+| 45 | `test:perf` row: 200-bill rush close (written and typechecked in the gate, **run only by the owner**, M1) ⚠️ G-89 (R-88, 05 v1.0.27 §7, §11 #45, §12.7): asserts `CloseSplit` (with its payment) p99 ≤ 100 ms per close and all 200 closes ≤ 60 s in total; never in the normal gate; the owner runs it on the pilot hardware, on the real disk | 17 | owner |
 | 46 | Manual checks `docs/plans/05-manual-checks.md` (written by Z2 from §8) | Z2 | owner |
 | Z1 | Acceptance map on the board: every story AC, §12.2 row and §10 test → green test name (both halves of every split test); §12.7 gaps listed "not built"; cleanup entries fixed or listed | all hub tasks | integrator |
 | Z2 | Write `docs/plans/05-manual-checks.md` from §8 | Z1 | integrator (Sonnet) |
