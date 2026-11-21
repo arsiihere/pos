@@ -170,9 +170,10 @@ function ZView({ offset }: { offset: number }) {
   useEffect(() => {
     void more(null);
   }, [more]);
-  // R-93: after Print the first page is read again; its rows replace theirs (the new job's state), the pick stays
-  const reread = async () => {
-    const answer = await api.zReports(null);
+  // R-93: after Print the Z list of the printed date is read again (the row may be on a later page); its rows replace
+  // theirs (the new job's state), the pick stays
+  const reread = async (date: string) => {
+    const answer = await api.zReportOf(date);
     if (!answer.ok) return;
     const fresh = new Map(answer.data.data.reports.map((z) => [z.z_no, z]));
     setState((s) => (s === null ? s : { ...s, rows: s.rows.map((z) => fresh.get(z.z_no) ?? z) }));
@@ -221,7 +222,7 @@ function ZView({ offset }: { offset: number }) {
             <span className="b5-dc__fill" />
             {/* R-87 (1): a Z prints by its date, which prints that date's latest z_no; an older Z of the same date cannot */}
             {state.rows.findIndex((z) => z.business_date === picked.business_date) === state.selected ? (
-              <PrintReportButton payload={{ doc: 'z_report', ref_id: picked.business_date }} label="billing.report.print" primary onPrinted={() => void reread()} />
+              <PrintReportButton payload={{ doc: 'z_report', ref_id: picked.business_date }} label="billing.report.print" primary onPrinted={() => void reread(picked.business_date)} />
             ) : (
               <span className="b5-note">{t('billing.report.older_z')}</span>
             )}

@@ -461,11 +461,11 @@ describe('[05 v1.0.32 §8 Reports, R-93] the Z print state on each Z row', () =>
     ]);
   });
 
-  it('after Print on a Z the list is read again (the new job shows); the picked Z stays picked', async () => {
+  it('after Print on a Z the Z list of its date is read again (the new job shows); the picked Z stays picked', async () => {
     const s = setup({
       pages: [
         { ok: true, data: { data: { reports: [zRow(43, '2026-11-19', 1, null), zRow(42, '2026-11-18', 2, null)] }, next_cursor: null } },
-        { ok: true, data: { data: { reports: [zRow(43, '2026-11-19', 1, null), zRow(42, '2026-11-18', 2, job('waiting'))] }, next_cursor: null } },
+        { ok: true, data: { data: { reports: [zRow(42, '2026-11-18', 2, job('waiting'))] }, next_cursor: null } },
       ],
       answers: [{ ok: true, data: { printed: true, job_id: 'J2', printer_name: 'Office' } }],
     });
@@ -477,9 +477,31 @@ describe('[05 v1.0.32 §8 Reports, R-93] the Z print state on each Z row', () =>
     v.click(v.button('Print'));
     await flush();
     expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['PrintReport', { doc: 'z_report', ref_id: '2026-11-18' }]);
-    expect(s.page.mock.calls.map((c) => c[0])).toEqual(['/queries/z-reports?limit=20', '/queries/z-reports?limit=20']);
+    expect(s.page.mock.calls.map((c) => c[0])).toEqual(['/queries/z-reports?limit=20', '/queries/z-reports?business_date=2026-11-18&limit=1']);
     expect(lines(v)[1]).toBe('Z printing on Office…');
     expect(v.container.querySelectorAll('.b5-zl')[1]!.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('[review m4] a Z on a later page: after Print its own row shows the new job', async () => {
+    const s = setup({
+      pages: [
+        { ok: true, data: { data: { reports: [zRow(43, '2026-11-19', 1, null)] }, next_cursor: 'C1' } },
+        { ok: true, data: { data: { reports: [zRow(42, '2026-11-18', 2, null)] }, next_cursor: null } },
+        { ok: true, data: { data: { reports: [zRow(42, '2026-11-18', 2, job('printed'))] }, next_cursor: null } },
+      ],
+      answers: [{ ok: true, data: { printed: true, job_id: 'J2', printer_name: 'Office' } }],
+    });
+    const v = await show(s);
+    v.click(seg(v, 'Z reports'));
+    await flush();
+    v.click(v.button('Load older'));
+    await flush();
+    v.click(v.container.querySelectorAll('.b5-zl')[1] as HTMLElement);
+    await flush();
+    v.click(v.button('Print'));
+    await flush();
+    expect(s.page.mock.calls.at(-1)![0]).toBe('/queries/z-reports?business_date=2026-11-18&limit=1');
+    expect(lines(v)).toEqual(['Z not printed — print it from the Z screen', 'Z printed on Office']);
   });
 });
 

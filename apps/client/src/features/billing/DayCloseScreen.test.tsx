@@ -458,7 +458,66 @@ describe('[05 v1.0.32 §8 Day close, R-93] the Z print state', () => {
     await close(v);
     (s.shell as { online: boolean }).online = false;
     await vi.advanceTimersByTimeAsync(Z_WATCH_MS * 5);
+    await flush();
     expect(zReads(s)).toBe(1);
+    expect(v.buttons().some((b) => b.textContent === 'Refresh')).toBe(true);
+    v.click(v.button('Refresh'));
+    await flush();
+    expect(zReads(s)).toBe(1);
+    expect(s.shown).toContain('Needs the hub');
+  });
+
+  it('[review M1] Print again while a read is in flight: the older answer changes nothing; one read per tick after', async () => {
+    vi.useFakeTimers();
+    const s = setup({ zPages: [zp('waiting')], answers: [CLOSED, { ok: true, data: { printed: true, job_id: 'J2', printer_name: 'Office' } }] });
+    const v = await show(s);
+    await close(v);
+    let late: (a: Answer) => void = () => {};
+    s.page.mockImplementationOnce(() => new Promise<Answer>((res) => (late = res)));
+    await vi.advanceTimersByTimeAsync(Z_WATCH_MS);
+    expect(zReads(s)).toBe(2);
+    s.page.mockImplementationOnce(async () => zp('waiting', 'Bar'));
+    v.click(v.button('Print again'));
+    await flush();
+    expect(line(v)).toBe('Z printing on Bar…');
+    late(zp('printed'));
+    await flush();
+    expect(line(v)).toBe('Z printing on Bar…');
+    const reads = zReads(s);
+    await vi.advanceTimersByTimeAsync(Z_WATCH_MS);
+    expect(zReads(s)).toBe(reads + 1);
+  });
+
+  it('[review m2] the re-read after Print again refused: the shown line stays, with Refresh', async () => {
+    const s = setup({ zPages: [zAnswer(null), { ok: false, error: { kind: 'network' } }], answers: [CLOSED, { ok: true, data: { printed: true, job_id: 'J2', printer_name: 'Office' } }] });
+    const v = await show(s);
+    await close(v);
+    expect(v.buttons().some((b) => b.textContent === 'Refresh')).toBe(false);
+    v.click(v.button('Print again'));
+    await flush();
+    expect(line(v)).toBe('Z not printed — print it from the Z screen');
+    expect(v.buttons().some((b) => b.textContent === 'Refresh')).toBe(true);
+  });
+
+  it('[review m3] leaving the screen with a read pending: no more reads', async () => {
+    vi.useFakeTimers();
+    const s = setup({ zPage: zp('waiting') });
+    const v = await show(s);
+    await close(v);
+    v.unmount();
+    m = null;
+    await vi.advanceTimersByTimeAsync(Z_WATCH_MS * 5);
+    expect(zReads(s)).toBe(1);
+  });
+
+  it('[review m5] every billing.zprint key is in en and in ur or 05/urdu-todo.md; Urdu keeps {printer}', () => {
+    const keys = Object.keys(en).filter((k) => k.startsWith('billing.zprint.'));
+    expect(keys.length).toBe(8);
+    for (const key of keys) {
+      const u = (ur as Record<string, string | undefined>)[key];
+      expect(u !== undefined || TODO_05.has(key), key).toBe(true);
+      if (u !== undefined) expect(u.includes('{printer}'), key).toBe(en[key as keyof typeof en].includes('{printer}'));
+    }
   });
 
   it('Print again: the Z is read again and its new job shown', async () => {

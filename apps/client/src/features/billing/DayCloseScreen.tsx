@@ -128,34 +128,45 @@ export function DayCloseScreen({ onNavigate, exits }: { onNavigate: (path: strin
   const [busy, setBusy] = useState(false);
   const shellRef = useRef(shell);
   shellRef.current = shell;
-  // R-93: the closed date's Z is read again while its print may still move; after the last try (or offline) the last
-  // state stays with Refresh. A refused re-read keeps the shown Z.
-  const zWatch = useRef<{ left: number; timer: ReturnType<typeof setTimeout> | null; live: boolean }>({ left: 0, timer: null, live: true });
+  // R-93: the closed date's Z is read again while its print may still move; after the last try, offline or a refused
+  // read, the last state stays with Refresh. Each watch or re-read takes a new generation: an answer of an older one
+  // (a read still in flight when Refresh / Print again started another) changes nothing.
+  const zWatch = useRef<{ left: number; timer: ReturnType<typeof setTimeout> | null; live: boolean; gen: number }>({ left: 0, timer: null, live: true, gen: 0 });
   const [zStale, setZStale] = useState(false);
+  /** a new generation: the pending tick is dropped, an older read's answer is ignored */
+  const nextGen = () => {
+    const w = zWatch.current;
+    if (w.timer !== null) clearTimeout(w.timer);
+    w.timer = null;
+    w.gen += 1;
+    return w.gen;
+  };
+  const showZ = (date: string, z: ZReportView | 'none') => setState((st) => (st.name === 'done' && st.business_date === date ? { ...st, z } : st));
   const watchZ = useCallback(
     (date: string, shown: ZReportView | 'none' | 'unread') => {
       const w = zWatch.current;
-      if (w.timer !== null) clearTimeout(w.timer);
-      w.timer = null;
+      if (!w.live) return;
+      const gen = nextGen();
       w.left = Z_WATCH_TRIES;
       setZStale(false);
       const next = (z: ZReportView | 'none' | 'unread') => {
-        if (typeof z === 'string' || !zPrintPending(z.print)) return;
+        if (gen !== w.gen || !w.live || typeof z === 'string' || !zPrintPending(z.print)) return;
         if (w.left <= 0 || !shellRef.current.online) {
           setZStale(true);
           return;
         }
         w.timer = setTimeout(() => {
           w.timer = null;
+          if (gen !== w.gen) return;
           if (!shellRef.current.online) {
             setZStale(true);
             return;
           }
           w.left -= 1;
           void api.zReportOf(date).then((r) => {
-            if (!w.live) return;
+            if (gen !== w.gen || !w.live) return;
             const fresh = r.ok ? (r.data.data.reports[0] ?? 'none') : z;
-            if (r.ok) setState((st) => (st.name === 'done' && st.business_date === date ? { ...st, z: fresh } : st));
+            if (r.ok) showZ(date, fresh);
             next(fresh);
           });
         }, Z_WATCH_MS);
@@ -173,13 +184,23 @@ export function DayCloseScreen({ onNavigate, exits }: { onNavigate: (path: strin
       w.timer = null;
     };
   }, []);
-  /** Refresh / after Print again: read the Z now, then watch it again */
+  /** Refresh / after Print again: read the Z now, then watch it again; a refused read offers Refresh */
   const rereadZ = async (date: string) => {
-    if (!shell.online) return;
+    if (!shell.online) {
+      shell.toasts.show({ text: t('tables.toast.needs_hub'), tone: 'warn' });
+      return;
+    }
+    const w = zWatch.current;
+    const gen = nextGen();
+    setZStale(false);
     const r = await api.zReportOf(date);
-    if (!r.ok || !zWatch.current.live) return;
+    if (gen !== w.gen || !w.live) return;
+    if (!r.ok) {
+      setZStale(true);
+      return;
+    }
     const fresh = r.data.data.reports[0] ?? 'none';
-    setState((st) => (st.name === 'done' && st.business_date === date ? { ...st, z: fresh } : st));
+    showZ(date, fresh);
     watchZ(date, fresh);
   };
   const [msg, setMsg] = useState<string | null>(null);
@@ -298,7 +319,7 @@ export function DayCloseScreen({ onNavigate, exits }: { onNavigate: (path: strin
                 {/* R-93: whether the Z printed, from the Z row's print (never "prints by itself") */}
                 {typeof state.z !== 'string' && zLine(state.z)}
               </div>
-              {typeof state.z !== 'string' && zStale && zPrintPending(state.z.print) && (
+              {typeof state.z !== 'string' && zStale && (
                 <button type="button" className="btn" aria-disabled={!shell.online} onClick={() => void rereadZ(state.business_date)}>
                   {t('billing.zprint.refresh')}
                 </button>
