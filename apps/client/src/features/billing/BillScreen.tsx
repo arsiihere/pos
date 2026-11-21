@@ -1,5 +1,5 @@
 import { defaultBillingSettings } from '@pos/events';
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { HubError } from '../../api/hub-admin';
 import { t } from '../../i18n';
 import { fill, type MessageKey } from '../../i18n/en';
@@ -28,6 +28,9 @@ import './styles';
 // same command_id (handbook §10). E2E E-1: the split editor (36), the discount sheet and the service-charge row and
 // sheet (37) are mounted here — Split and Discount on the acts row (frame Bill), Remove discount on the discount row,
 // the service-charge row with Remove / Add back in the totals; each answer reads the bill again.
+
+/** R-4: the gap left between Add payment and the Close bar when the pad opens (px). */
+export const PAD_CLEAR_PX = 12;
 
 interface Mode {
   mode_id: string;
@@ -295,6 +298,17 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   const [picked, setPicked] = useState<number | null>(null);
   const [held, setHeld] = useState<HeldResult | null>(null);
   const [mode, setMode] = useState<Mode | null>(null);
+  // R-4 (E-6 leftover): the pad's Add payment, scrolled clear of the sticky Close bar when a mode opens the pad
+  const addRef = useRef<HTMLButtonElement>(null);
+  const modeId = mode?.mode_id ?? null;
+  useLayoutEffect(() => {
+    const add = addRef.current;
+    const pane = add?.closest<HTMLElement>('.b5-pane');
+    const bar = pane?.querySelector<HTMLElement>(':scope > .b5-close');
+    if (modeId === null || add == null || pane == null || bar == null) return;
+    const over = add.getBoundingClientRect().bottom - bar.getBoundingClientRect().top + PAD_CLEAR_PX;
+    if (over > 0) pane.scrollTop += over;
+  }, [modeId]);
   const [amount, setAmount] = useState('');
   const [tendered, setTendered] = useState('');
   const [reference, setReference] = useState('');
@@ -813,7 +827,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
                 <span>{padMsg}</span>
               </div>
             )}
-            <button type="button" className="btn btn--primary b5-add btn--block" aria-disabled={padStep !== null || busy} onClick={() => void addPayment()}>
+            <button ref={addRef} type="button" className="btn btn--primary b5-add btn--block" aria-disabled={padStep !== null || busy} onClick={() => void addPayment()}>
               {padStep !== null && padStep !== 'amount' ? t(padStep) : t(refund ? 'pad.give_back' : 'pad.add')}
             </button>
           </>
