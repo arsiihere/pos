@@ -451,7 +451,7 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.dayclose.opened_recently` | The day opened too recently to close; nothing changed. |
 | `billing.dayclose.done` | Day closed |
 | `billing.dayclose.done_z` | Day closed · {z} |
-| `billing.dayclose.done_sub` | {date} · issued {time} · the Z prints by itself |
+| `billing.dayclose.done_sub` | {date} · issued {time} |
 | `billing.dayclose.no_z` | No Z report for this day (the branch has no billing settings yet). |
 | `billing.dayclose.blocked_generic` | Something still stops the day from closing. Fix it, then tap Close day again. |
 | `billing.dayclose.voids_sub` | Same list as the Stock page’s day close. |
@@ -492,6 +492,14 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.fiscal.unknown` | Fiscal: not checked yet |
 | `billing.fiscal.all_sent` | Fiscal: all sent |
 | `billing.fiscal.last` | last {time} |
+| `billing.zprint.none` | Z not printed — print it from the Z screen |
+| `billing.zprint.printing` | Z printing… |
+| `billing.zprint.printing_on` | Z printing on {printer}… |
+| `billing.zprint.failed` | Z printing… — printer problem on {printer} |
+| `billing.zprint.failed_plain` | Z printing… — printer problem |
+| `billing.zprint.printed` | Z printed on {printer} |
+| `billing.zprint.printed_plain` | Z printed |
+| `billing.zprint.refresh` | Refresh |
 
 ## Builder notes
 

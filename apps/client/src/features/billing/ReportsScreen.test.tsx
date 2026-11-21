@@ -74,11 +74,12 @@ function report(over: Partial<ReportDocInput> = {}): ReportDocInput {
 }
 
 const NAMES = { 'S-SANA': 'Sana', 'S-HAMZA': 'Hamza', 'S-USMAN': 'Usman', 'S-BILAL': 'Bilal', 'S-IMRAN': 'Imran', 'S-ALI': 'Ali' };
-const zRow = (z_no: number, business_date: string, net: number) => ({
+const zRow = (z_no: number, business_date: string, net: number, print: { job_id: string; state: string; printer_name: string | null } | null = null) => ({
   business_date,
   z_no,
   report: report({ kind: 'z', z_no, business_date, net_after_credits_minor: net, open_bills: [] }),
   staff_names: NAMES,
+  print,
 });
 
 interface Opts {
@@ -299,7 +300,7 @@ describe('[05 §8 Reports, §6.26, R-85] Z reports (frames ZList, ZReport)', () 
     expect(s.page.mock.calls[0]![0]).toBe('/queries/z-reports?limit=20');
     const list = [...v.container.querySelectorAll('.b5-zl')];
     expect(list.map((r) => r.querySelector('.z')?.textContent)).toEqual(['Z 0044', 'Z 0043', 'Z 0042']);
-    expect(list[1]!.textContent).toBe('Z 0043Thu 19 Nov86 invoices · closed 4:15 PMRs 498,214.00net');
+    expect(list[1]!.textContent).toBe('Z 0043Thu 19 Nov86 invoices · closed 4:15 PMZ not printed — print it from the Z screenRs 498,214.00net');
     expect(list[0]!.className).toContain('is-sel');
     expect(v.container.querySelector('.b5-kpi small')?.textContent).toBe('Z 0044');
     v.click(list[2] as HTMLElement);
@@ -429,6 +430,56 @@ describe('[05 §6.22, R-87; frames XReport, ZReport] Print (hub task 27b)', () =
     v.click(v.container.querySelectorAll('.b5-zl')[2] as HTMLElement);
     await flush();
     expect(v.buttons().some((b) => b.textContent === 'Print')).toBe(true);
+  });
+});
+
+// R-93 (05 v1.0.32 §8 Reports, §6.26; E2E re-run R-3): each Z row says whether that Z printed, from its `print` (the
+// Day close texts; 'expired' → no line); after Print on a Z the list is read again to show the new job.
+describe('[05 v1.0.32 §8 Reports, R-93] the Z print state on each Z row', () => {
+  const lines = (v: Mounted) => [...v.container.querySelectorAll('.b5-zl')].map((r) => r.querySelector('.b5-zprint')?.textContent ?? null);
+  const job = (state: string, printer_name: string | null = 'Office') => ({ job_id: 'J', state, printer_name });
+
+  it('each row: printed / printing / problem / not printed / cancelled; expired has no line', async () => {
+    const rows = [
+      zRow(48, '2026-11-24', 1, job('printed')),
+      zRow(47, '2026-11-23', 1, job('waiting')),
+      zRow(46, '2026-11-22', 1, job('failed', 'Bar')),
+      zRow(45, '2026-11-21', 1, null),
+      zRow(44, '2026-11-20', 1, job('cancelled')),
+      zRow(43, '2026-11-19', 1, { job_id: 'J', state: 'expired', printer_name: null }),
+    ];
+    const v = await show(setup({ pages: [{ ok: true, data: { data: { reports: rows }, next_cursor: null } }] }));
+    v.click(seg(v, 'Z reports'));
+    await flush();
+    expect(lines(v)).toEqual([
+      'Z printed on Office',
+      'Z printing on Office…',
+      'Z printing… — printer problem on Bar',
+      'Z not printed — print it from the Z screen',
+      'Z not printed — print it from the Z screen',
+      null,
+    ]);
+  });
+
+  it('after Print on a Z the list is read again (the new job shows); the picked Z stays picked', async () => {
+    const s = setup({
+      pages: [
+        { ok: true, data: { data: { reports: [zRow(43, '2026-11-19', 1, null), zRow(42, '2026-11-18', 2, null)] }, next_cursor: null } },
+        { ok: true, data: { data: { reports: [zRow(43, '2026-11-19', 1, null), zRow(42, '2026-11-18', 2, job('waiting'))] }, next_cursor: null } },
+      ],
+      answers: [{ ok: true, data: { printed: true, job_id: 'J2', printer_name: 'Office' } }],
+    });
+    const v = await show(s);
+    v.click(seg(v, 'Z reports'));
+    await flush();
+    v.click(v.container.querySelectorAll('.b5-zl')[1] as HTMLElement);
+    await flush();
+    v.click(v.button('Print'));
+    await flush();
+    expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['PrintReport', { doc: 'z_report', ref_id: '2026-11-18' }]);
+    expect(s.page.mock.calls.map((c) => c[0])).toEqual(['/queries/z-reports?limit=20', '/queries/z-reports?limit=20']);
+    expect(lines(v)[1]).toBe('Z printing on Office…');
+    expect(v.container.querySelectorAll('.b5-zl')[1]!.getAttribute('aria-pressed')).toBe('true');
   });
 });
 

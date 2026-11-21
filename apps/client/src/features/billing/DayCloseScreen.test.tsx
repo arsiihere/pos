@@ -9,7 +9,7 @@ import { ShellContext, type Shell } from '../staff/shell/hooks';
 import { createLiveBus } from '../staff/shell/live';
 import { createPermissions } from '../staff/shell/permissions';
 import { createToastBus } from '../staff/shell/toast';
-import { DayCloseScreen, type DayCloseExits } from './DayCloseScreen';
+import { DayCloseScreen, Z_WATCH_MS, Z_WATCH_TRIES, type DayCloseExits } from './DayCloseScreen';
 import { TODO_05 } from './urdu-todo-05';
 
 // 05 v1.0.25 §8 "Day close" (staff app, close-business-day: blockers list — voids, open shifts, unbilled orders with
@@ -68,7 +68,15 @@ function zReport(z_no: number): ReportDocInput {
   };
 }
 
-function setup(o: { answers?: Answer[]; zPage?: Answer; grants?: Record<string, unknown> } = {}) {
+/** the Z list answer for 2026-11-19 with the R-93 `print` of its one Z */
+const zAnswer = (print: { job_id: string; state: string; printer_name: string | null } | null): Answer => ({
+  ok: true,
+  data: { data: { reports: [{ business_date: '2026-11-19', z_no: 43, report: zReport(43), staff_names: {}, print }] }, next_cursor: null },
+});
+const zp = (state: string, printer_name: string | null = 'Office') => zAnswer({ job_id: 'EV1:z', state, printer_name });
+
+function setup(o: { answers?: Answer[]; zPage?: Answer; zPages?: Answer[]; grants?: Record<string, unknown> } = {}) {
+  const zPages = [...(o.zPages ?? [])];
   const queue = [...(o.answers ?? [])];
   const command = vi.fn(async (type: string, payload: unknown, opts?: { commandId?: string }): Promise<Answer> => {
     void type;
@@ -78,7 +86,8 @@ function setup(o: { answers?: Answer[]; zPage?: Answer; grants?: Record<string, 
   });
   const page = vi.fn(async (path: string): Promise<Answer> => {
     void path;
-    return o.zPage ?? { ok: true, data: { data: { reports: [{ business_date: '2026-11-19', z_no: 43, report: zReport(43), staff_names: {} }] }, next_cursor: null } };
+    if (zPages.length > 0) return zPages.length > 1 ? zPages.shift()! : zPages[0]!;
+    return o.zPage ?? zAnswer(null);
   });
   const query = vi.fn(async (): Promise<Answer> => ({ ok: false, error: { kind: 'network' } }));
   const toasts = createToastBus();
@@ -110,6 +119,7 @@ afterEach(() => {
   m?.unmount();
   m = null;
   setLanguage('en');
+  vi.useRealTimers();
 });
 
 const navigate = vi.fn();
@@ -337,14 +347,15 @@ describe('[05 §8, §6.24] unbilled orders and Carry over (frames DayCloseUnbill
 });
 
 describe('[05 §8, §6.26, R-85] day closed (frame DayCloseDone)', () => {
-  it('every step clear; the Z of that date read after the close (newest z_no); "the Z prints by itself"', async () => {
+  it('every step clear; the Z of that date read after the close (newest z_no); never "the Z prints by itself" (R-93)', async () => {
     const s = setup();
     const v = await show(s);
     await close(v);
     expect(s.page.mock.calls[0]![0]).toBe('/queries/z-reports?business_date=2026-11-19&limit=1');
     expect(steps(v).map((x) => x[1])).toEqual(['ok', 'ok', 'ok', 'ok']);
     expect(v.container.querySelector('.b5-blk__h b')?.textContent).toBe('Day closed · Z 0043');
-    expect(v.text()).toContain('Thu 19 Nov · issued 11:58 PM · the Z prints by itself');
+    expect(v.text()).toContain('Thu 19 Nov · issued 11:58 PM');
+    expect(v.text()).not.toContain('prints by itself');
     expect(v.container.querySelector('.b5-kpi.hero b')?.textContent).toBe('Rs 498,214.00');
     expect(v.buttons().some((b) => b.textContent === 'Close day')).toBe(false);
   });
@@ -368,6 +379,100 @@ describe('[05 §8, §6.26, R-85] day closed (frame DayCloseDone)', () => {
     await close(v);
     expect(v.container.querySelector('.b5-blk__h b')?.textContent).toBe('Day closed');
     expect(v.text()).toContain('No Z report for this day');
+  });
+});
+
+// R-93 (05 v1.0.32 §8 Day close, §6.26; E2E re-run R-3): the Z list row's `print` says whether the Z printed; the
+// screen never claims it prints by itself. waiting / printing / failed: read again every 3 s, 10 reads at most, then
+// the last state stays with Refresh; offline stops the reads.
+describe('[05 v1.0.32 §8 Day close, R-93] the Z print state', () => {
+  const line = (v: Mounted) => v.container.querySelector('.b5-zprint')?.textContent;
+  const zReads = (s: ReturnType<typeof setup>) => s.page.mock.calls.length;
+
+  it('no Z job (print null) or cancelled: "Z not printed — print it from the Z screen"; no reads after', async () => {
+    vi.useFakeTimers();
+    for (const answer of [zAnswer(null), zp('cancelled')]) {
+      const s = setup({ zPage: answer });
+      const v = await show(s);
+      await close(v);
+      expect(line(v)).toBe('Z not printed — print it from the Z screen');
+      await vi.advanceTimersByTimeAsync(Z_WATCH_MS * 5);
+      expect(zReads(s)).toBe(1);
+      v.unmount();
+    }
+  });
+
+  it('waiting → printing → printed: "Z printing on Office…", then "Z printed on Office"; the reads stop', async () => {
+    vi.useFakeTimers();
+    const s = setup({ zPages: [zp('waiting'), zp('printing'), zp('printed')] });
+    const v = await show(s);
+    await close(v);
+    expect(line(v)).toBe('Z printing on Office…');
+    await vi.advanceTimersByTimeAsync(Z_WATCH_MS);
+    await flush();
+    expect(line(v)).toBe('Z printing on Office…');
+    await vi.advanceTimersByTimeAsync(Z_WATCH_MS);
+    await flush();
+    expect(line(v)).toBe('Z printed on Office');
+    expect(s.page.mock.calls.every((c) => c[0] === '/queries/z-reports?business_date=2026-11-19&limit=1')).toBe(true);
+    await vi.advanceTimersByTimeAsync(Z_WATCH_MS * 5);
+    expect(zReads(s)).toBe(3);
+  });
+
+  it('failed: "Z printing… — printer problem on Office"; still read again (03c retries)', async () => {
+    vi.useFakeTimers();
+    const s = setup({ zPages: [zp('failed'), zp('printed')] });
+    const v = await show(s);
+    await close(v);
+    expect(line(v)).toBe('Z printing… — printer problem on Office');
+    await vi.advanceTimersByTimeAsync(Z_WATCH_MS);
+    await flush();
+    expect(line(v)).toBe('Z printed on Office');
+  });
+
+  it('no printer name known: "Z printing…"', async () => {
+    const v = await show(setup({ zPage: zp('waiting', null) }));
+    await close(v);
+    expect(line(v)).toBe('Z printing…');
+  });
+
+  it('stuck waiting: 10 reads again at most, then the last state stays with Refresh; Refresh reads again', async () => {
+    vi.useFakeTimers();
+    const s = setup({ zPage: zp('waiting') });
+    const v = await show(s);
+    await close(v);
+    expect(v.buttons().some((b) => b.textContent === 'Refresh')).toBe(false);
+    await vi.advanceTimersByTimeAsync(Z_WATCH_MS * (Z_WATCH_TRIES + 5));
+    await flush();
+    expect(zReads(s)).toBe(1 + Z_WATCH_TRIES);
+    expect(line(v)).toBe('Z printing on Office…');
+    v.click(v.button('Refresh'));
+    await flush();
+    expect(zReads(s)).toBe(2 + Z_WATCH_TRIES);
+  });
+
+  it('offline: the reads stop', async () => {
+    vi.useFakeTimers();
+    const s = setup({ zPage: zp('waiting') });
+    const v = await show(s);
+    await close(v);
+    (s.shell as { online: boolean }).online = false;
+    await vi.advanceTimersByTimeAsync(Z_WATCH_MS * 5);
+    expect(zReads(s)).toBe(1);
+  });
+
+  it('Print again: the Z is read again and its new job shown', async () => {
+    vi.useFakeTimers();
+    const s = setup({ zPages: [zAnswer(null), zp('waiting'), zp('printed')], answers: [CLOSED, { ok: true, data: { printed: true, job_id: 'J1', printer_name: 'Office' } }] });
+    const v = await show(s);
+    await close(v);
+    expect(line(v)).toBe('Z not printed — print it from the Z screen');
+    v.click(v.button('Print again'));
+    await flush();
+    expect(line(v)).toBe('Z printing on Office…');
+    await vi.advanceTimersByTimeAsync(Z_WATCH_MS);
+    await flush();
+    expect(line(v)).toBe('Z printed on Office');
   });
 });
 

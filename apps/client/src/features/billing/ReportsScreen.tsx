@@ -10,7 +10,7 @@ import { Ico } from '../alerts/ui';
 import { dayText, shortDayText } from '../audit/days';
 import { useShell } from '../staff/shell/hooks';
 import { billingApi } from './api';
-import type { ZReportView } from './contracts';
+import type { ZPrintView, ZReportView } from './contracts';
 import { billingErrorKey } from './errors';
 import { BIco } from './icons';
 import { amountText, billMoney, durationText, rateText, signedAmountText } from './money';
@@ -170,6 +170,13 @@ function ZView({ offset }: { offset: number }) {
   useEffect(() => {
     void more(null);
   }, [more]);
+  // R-93: after Print the first page is read again; its rows replace theirs (the new job's state), the pick stays
+  const reread = async () => {
+    const answer = await api.zReports(null);
+    if (!answer.ok) return;
+    const fresh = new Map(answer.data.data.reports.map((z) => [z.z_no, z]));
+    setState((s) => (s === null ? s : { ...s, rows: s.rows.map((z) => fresh.get(z.z_no) ?? z) }));
+  };
   if (state === null) return err === null ? null : <Failed text={err} onRetry={() => void more(null)} />;
   const picked = state.rows[state.selected] ?? null;
   return (
@@ -187,6 +194,8 @@ function ZView({ offset }: { offset: number }) {
               <span>
                 <b>{dayText(dateOf(z.business_date), 0)}</b>
                 <span>{fill(t('billing.report.z_row'), { count: String(z.report.sales.invoice_count), time: timeText(z.report.issued_at, offset) })}</span>
+                {/* R-93: whether this Z printed (no line once retention removed the job) */}
+                {zLine(z)}
               </span>
               <span className="v">
                 {billMoney(z.report.net_after_credits_minor, z.report.currency_code)}
@@ -212,7 +221,7 @@ function ZView({ offset }: { offset: number }) {
             <span className="b5-dc__fill" />
             {/* R-87 (1): a Z prints by its date, which prints that date's latest z_no; an older Z of the same date cannot */}
             {state.rows.findIndex((z) => z.business_date === picked.business_date) === state.selected ? (
-              <PrintReportButton payload={{ doc: 'z_report', ref_id: picked.business_date }} label="billing.report.print" primary />
+              <PrintReportButton payload={{ doc: 'z_report', ref_id: picked.business_date }} label="billing.report.print" primary onPrinted={() => void reread()} />
             ) : (
               <span className="b5-note">{t('billing.report.older_z')}</span>
             )}
@@ -230,12 +239,15 @@ export function PrintReportButton({
   label,
   primary,
   onDayClosed,
+  onPrinted,
 }: {
   payload: { doc: 'x_report' } | { doc: 'z_report'; ref_id: string };
   label: MessageKey;
   primary?: boolean;
   /** R-87 (4): the X of a day closed meanwhile is refused BUSINESS_DAY_NOT_OPEN; the X view reads again */
   onDayClosed?: () => void;
+  /** R-93: the hub took the print (a job was written or none could be): the Z's print state is read again */
+  onPrinted?: () => void;
 }) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
@@ -260,6 +272,7 @@ export function PrintReportButton({
         ? { text: fill(t('billing.report.printed'), { printer: answer.data.printer_name }), tone: 'ok' }
         : { text: t('billing.report.not_printed'), tone: 'warn' },
     );
+    onPrinted?.();
   };
   return (
     <button type="button" className={primary === true ? 'btn btn--primary' : 'btn'} disabled={busy} aria-disabled={busy || !shell.online} onClick={() => void print()}>
@@ -268,6 +281,26 @@ export function PrintReportButton({
     </button>
   );
 }
+
+/** R-93 (§8 Day close / Reports, §6.26 `print`): the Z's print line; null for 'expired' (retention removed the job). */
+export function zPrintLine(print: ZPrintView | null): { text: string; tone: 'c-ok' | 'c-warn' | 'c-danger' | 'c-info' } | null {
+  if (print === null || print.state === 'cancelled') return { text: t('billing.zprint.none'), tone: 'c-warn' };
+  const printer = print.printer_name;
+  switch (print.state) {
+    case 'printed':
+      return { text: printer === null ? t('billing.zprint.printed_plain') : fill(t('billing.zprint.printed'), { printer }), tone: 'c-ok' };
+    case 'failed':
+      return { text: printer === null ? t('billing.zprint.failed_plain') : fill(t('billing.zprint.failed'), { printer }), tone: 'c-danger' };
+    case 'waiting':
+    case 'printing':
+      return { text: printer === null ? t('billing.zprint.printing') : fill(t('billing.zprint.printing_on'), { printer }), tone: 'c-info' };
+    default:
+      return null;
+  }
+}
+
+/** R-93: a Z print the hub may still move on (03c retries a failed job). */
+export const zPrintPending = (print: ZPrintView | null): boolean => print !== null && (print.state === 'waiting' || print.state === 'printing' || print.state === 'failed');
 
 export const zNo = (n: number) => fill(t('billing.report.z_no'), { no: String(n).padStart(4, '0') });
 
@@ -532,4 +565,10 @@ export function ReportBody({ report: r, names, offset, retry }: { report: Report
       </div>
     </>
   );
+}
+
+/** R-93: a Z row's print line (tone class on the kit's colour scale). */
+export function zLine(z: Pick<ZReportView, 'print'>): ReactNode {
+  const line = zPrintLine(z.print);
+  return line === null ? null : <span className={`b5-zprint ${line.tone}`}>{line.text}</span>;
 }
