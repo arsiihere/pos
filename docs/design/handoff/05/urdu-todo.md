@@ -417,6 +417,13 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.pay_remove.ok` | OK |
 | `billing.pay_remove.done` | Payment removed |
 | `billing.pay_remove.maybe` | The hub didn’t answer — the payment may already be removed. Check the payments, then try again. |
+| `billing.pay_remove.in` | In |
+| `billing.pay_remove.out` | Back |
+| `billing.pay_remove.shift_closed` | This payment’s shift is already counted — it can’t be removed. Give the money back from your shift instead: the pad offers Give back when the bill owes the customer. |
+| `billing.pay_remove.reason.wrong_mode` | Wrong payment type |
+| `billing.pay_remove.reason.wrong_amount` | Wrong amount |
+| `billing.pay_remove.reason.customer_changed` | Customer changed their mind |
+| `billing.pay_remove.reason.other` | Other |
 | `billing.reopen.button` | Reopen |
 | `billing.reopen.title` | Reopen bill |
 | `billing.reopen.why` | Why reopen |
@@ -429,13 +436,6 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.reopen.not_closed` | Only a closed or partly paid bill can be reopened |
 | `billing.reopen.done` | Reopened · credit {credits} |
 | `billing.reopen.corrections` | Corrections only: remove, void or comp; new items go on a new bill |
-| `billing.pay_remove.in` | In |
-| `billing.pay_remove.out` | Back |
-| `billing.pay_remove.shift_closed` | This payment’s shift is already counted — it can’t be removed. Give the money back from your shift instead: the pad offers Give back when the bill owes the customer. |
-| `billing.pay_remove.reason.wrong_mode` | Wrong payment type |
-| `billing.pay_remove.reason.wrong_amount` | Wrong amount |
-| `billing.pay_remove.reason.customer_changed` | Customer changed their mind |
-| `billing.pay_remove.reason.other` | Other |
 | `billing.dayclose.step_signoffs` | Pending sign-offs |
 | `billing.dayclose.ready` | Ready when you are |
 | `billing.dayclose.ready_note` | Tap Close day. If something is still open, it shows here as a list with a way to fix each row. |
