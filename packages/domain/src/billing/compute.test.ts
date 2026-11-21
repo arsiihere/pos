@@ -810,7 +810,7 @@ describe('splits (05 §3.8) and bill invariants (#10 compute half)', () => {
   });
 });
 
-describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () => {
+describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8; §10 #11d)', () => {
   const sl = (order_item_id: string, base_minor: number, tax_profile_id: string | null, discount_minor = 0): ComputeSplitLine => ({
     order_item_id,
     line_kind: 'item',
@@ -881,7 +881,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     expectSumsToRows(cardSplit);
   });
 
-  it('[05 P0.G G-8] non-even: one rounded row spread with apportionMinor — the left-over unit to the larger fraction, ties to the earlier line', () => {
+  it('[05 P0.G G-8, #11d] non-even: one rounded row spread with apportionMinor — the left-over unit to the larger fraction, ties to the earlier line', () => {
     const p = [rateBpProfile('p', 'GST', 2500)];
     // row = round_half_up(20 × 25 %) = 5 (per-line rounding would give 3 + 3 = 6); 2.5 / 2.5 → tie → the earlier line
     const tie = split({ rules: noneRules(), tax_profiles: p, lines: [sl('A', 10, 'p'), sl('B', 10, 'p')] });
@@ -893,7 +893,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     expectSumsToRows(later);
   });
 
-  it('[05 P0.G G-8] a bill discount: the weights are line net (base − discount share), not base; a line discounted to 0 carries 0', () => {
+  it('[05 P0.G G-8, #11d] a bill discount: the weights are line net (base − discount share), not base; a line discounted to 0 carries 0', () => {
     // nets 1 000 / 1 000 / 0 → row 320 at 16 % → [160, 160, 0]; by base (2 000 / 1 000 / 500) it would be [183, 91, 46]
     const s = split({ lines: [sl('A', 2_000, 'restaurant', 1_000), sl('B', 1_000, 'restaurant'), sl('C', 500, 'restaurant', 500)] });
     expect(computeSplit(s).totals.as_paid.taxes.map((t) => t.tax_minor)).toEqual([320]);
@@ -924,7 +924,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     expectSumsToRows(s);
   });
 
-  it('[05 P0.G G-8] a stacked compound pair: every (profile, tax) row is spread by line net; Σ per tax = the row', () => {
+  it('[05 P0.G G-8, #11d] a stacked compound pair: every (profile, tax) row is spread by line net; Σ per tax = the row', () => {
     // N 3 001: FED round(150.05) = 150 → [50, 100]; PROV compound round(3 151 × 9.5 %) = 299 → [100, 199]
     const s = split({ rules: noneRules(), tax_profiles: [stackedProfile('st', 500, 950, true)], lines: [sl('A', 1_000, 'st'), sl('B', 2_001, 'st')] });
     expect(computeSplit(s).totals.as_paid.taxes.map((t) => t.tax_minor)).toEqual([150, 299]);
@@ -936,7 +936,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     expectSumsToRows(s);
   });
 
-  it('[05 P0.G G-8] inclusive: the included tax of the profile (one rounding) is spread by line net; Σ = the row', () => {
+  it('[05 P0.G G-8, #11d] inclusive: the included tax of the profile (one rounding) is spread by line net; Σ = the row', () => {
     // A 2 500 at 16 % inclusive → TI = round(344.83) = 345 → [138.14, 137.86, 69] → [138, 138, 69]
     const s = split({ rules: { ...PK_PB_RULES, prices_include_tax: true }, lines: [sl('A', 1_001, 'restaurant'), sl('B', 999, 'restaurant'), sl('C', 500, 'restaurant')] });
     expect(computeSplit(s).totals.as_paid.taxes.map((t) => t.tax_minor)).toEqual([345]);
@@ -945,7 +945,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     expectSumsToRows(s);
   });
 
-  it('[05 P0.G G-8] inclusive compound (R-19): base = line net − the line\'s taxes of the profile, plus its earlier taxes', () => {
+  it('[05 P0.G G-8, #11d] inclusive compound (R-19): base = line net − the line\'s taxes of the profile, plus its earlier taxes', () => {
     // #11b: 11 497.50 inclusive at 5 % + 9.5 % compound → [500.00, 997.50]; pre-tax 10 000.00
     const prof = [stackedProfile('st', 500, 950, true)];
     const incl = { ...noneRules(), prices_include_tax: true };
@@ -971,7 +971,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     expectSumsToRows(withSc);
   });
 
-  it('[05 P0.G G-8] service-charge taxes are the invoice service_charge.taxes, never in the lines (own profile; inclusive shared profile)', () => {
+  it('[05 P0.G G-8, #11d] service-charge taxes are the invoice service_charge.taxes, never in the lines (own profile; inclusive shared profile)', () => {
     // exclusive, the charge under its own profile: the lines carry only the food row
     const own = split({
       tax_profiles: [pkPbProfile(), rateBpProfile('svc', 'Service tax', 1000)],
@@ -1009,7 +1009,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     expect(spreadLineTaxes({ ...own, service_charge: { rate_bp: 1000, removed: true, tax_profile_id: 'svc' } }).service_charge).toBeNull();
   });
 
-  it('[05 P0.G G-8] R-18 exclusive, the charge on the lines\' profile: its part rounded on its own; the lines get row − part; Σ = the row', () => {
+  it('[05 P0.G G-8, #11d] R-18 exclusive, the charge on the lines\' profile: its part rounded on its own; the lines get row − part; Σ = the row', () => {
     const p = [rateBpProfile('p', 'GST', 2500)];
     // N 10, SC 2 (20 %): row round(12 × 25 %) = 3; charge round(0.5) = 1; lines 3 − 1 = 2 → [1, 1]
     // (the lines alone would round 2.5 → 3: the lines' part is the rest of the row, not their own rounding)
@@ -1031,7 +1031,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     expectSumsToRows(pk);
   });
 
-  it('[05 P0.G G-8] R-18 + R-19 exclusive compound, the charge shared: the charge\'s compound base is its amount + its earlier part', () => {
+  it('[05 P0.G G-8, #11d] R-18 + R-19 exclusive compound, the charge shared: the charge\'s compound base is its amount + its earlier part', () => {
     // N 3 001, SC round(300.1) = 300. FED: row round(3 301 × 5 %) = 165, charge round(15) = 15, lines 150 → [50, 100].
     // PROV: row round(3 466 × 9.5 %) = 329, charge round(315 × 9.5 % = 29.925) = 30, lines 299 → [100, 199].
     const s = split({
@@ -1081,7 +1081,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     taxes: [1, 2, 3, 4].map((seq) => ({ seq, tax_code: `T${seq}`, label: `Tax ${seq}`, compound: false, rates: rates(bp, bp) })),
   });
 
-  it('[05 P0.G G-8] R-20 review crash: inclusive 13 % + 5 %, 10 lines of 50 000, amount split [499 990, 10] → split 2 via computeBill', () => {
+  it('[05 P0.G G-8, #11d] R-20 review crash: inclusive 13 % + 5 %, 10 lines of 50 000, amount split [499 990, 10] → split 2 via computeBill', () => {
     const prof = [stackedProfile('st', 1300, 500, false)];
     const lines = Array.from({ length: 10 }, (_, i) => line(`L${i}`, 50_000, 'st'));
     const b = computeBill(
@@ -1091,7 +1091,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     expectSound(split({ split_no: 2, rules: inclNone, tax_profiles: prof, lines: s2.lines }));
   });
 
-  it('[05 P0.G G-8] R-20 review crashes: nets of 1 under stacked and compound profiles (both modes)', () => {
+  it('[05 P0.G G-8, #11d] R-20 review crashes: nets of 1 under stacked and compound profiles (both modes)', () => {
     const cases: Array<[ComputeSplitInput['tax_profiles'], number[]]> = [
       [[stackedProfile('q', 1300, 500, false)], Array.from({ length: 10 }, () => 1)],
       [[stackedProfile('q', 10_000, 10_000, true)], [1, 1, 1]],
@@ -1105,7 +1105,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     }
   });
 
-  it('[05 P0.G G-8] discounted lines with a charge: inclusive one tax and the compound pair (both modes)', () => {
+  it('[05 P0.G G-8, #11d] discounted lines with a charge: inclusive one tax and the compound pair (both modes)', () => {
     const sc = { rate_bp: 1000, removed: false, tax_profile_id: 'restaurant' };
     const lines = [sl('A', 11_600, 'restaurant', 1_160), sl('B', 5_801, 'restaurant', 3), sl('C', 999, 'restaurant', 999)];
     expectSound(split({ rules: { ...PK_PB_RULES, prices_include_tax: true }, lines, service_charge: sc }));
@@ -1115,7 +1115,7 @@ describe('per-line tax spread (05 §6.12 step 6, J-2; P0.19c, 05-gaps G-8)', () 
     expectSound(split({ rules: noneRules(), tax_profiles: st, lines, service_charge: sc }));
   });
 
-  it('[05 P0.G G-8] R-21: an applied charge of 0 (rate 0, net 0, or rounded to 0) is no charge → service_charge null', () => {
+  it('[05 P0.G G-8, #11d] R-21: an applied charge of 0 (rate 0, net 0, or rounded to 0) is no charge → service_charge null', () => {
     const zeroRate = split({ lines: [sl('A', 100_000, 'restaurant')], service_charge: { rate_bp: 0, removed: false, tax_profile_id: 'restaurant' } });
     expect(spreadLineTaxes(zeroRate).service_charge).toBeNull();
     const zeroNet = split({ lines: [sl('A', 1_000, 'restaurant', 1_000)], service_charge: { rate_bp: 1000, removed: false, tax_profile_id: 'restaurant' } });

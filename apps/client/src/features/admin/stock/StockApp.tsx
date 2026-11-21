@@ -81,6 +81,13 @@ const BLOCKED_REASONS: Record<string, BlockedReason> = {
     one: 'admin_stock.errors.DAY_CLOSE_BLOCKED_shift_open_one',
     many: 'admin_stock.errors.DAY_CLOSE_BLOCKED_shift_open',
   },
+  // 05 G-77 (R-76, 05 §6.25): pending variance sign-offs (shifts: staff name), after shift_open, before unbilled_orders
+  variance_pending: {
+    list: 'shifts',
+    row: (s) => ({ text: asText(s['staff_name']) }),
+    one: 'admin_stock.errors.DAY_CLOSE_BLOCKED_variance_pending_one',
+    many: 'admin_stock.errors.DAY_CLOSE_BLOCKED_variance_pending',
+  },
   unbilled_orders: {
     list: 'orders',
     row: (o) => ({

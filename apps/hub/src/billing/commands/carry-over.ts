@@ -60,8 +60,8 @@ export function registerCarryOverOrders(app: FastifyInstance): void {
     defineCommand({
       commandType: 'CarryOverOrders',
       payloadSchema: CarryOverOrdersPayload,
-      // offered wherever the day is closed (01a §6.18b `CloseBusinessDay` is `'both'`, row A-5 / H-1)
-      sessionKind: 'both',
+      // the staff (device) route only: §6.24 states no admin route (05 §6 default; owner ruling 2026-11-20, F-7)
+      sessionKind: 'device',
       permission: 'close-business-day',
       hashOmit: ['note'], // row H-4: the note never reaches payload_hash
       handle(ctx, p) {

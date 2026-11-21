@@ -179,6 +179,8 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `errors.DAY_CLOSE_BLOCKED.unbilled_orders` | {count} orders are not billed — bill them or carry them over |
 | `errors.DAY_CLOSE_BLOCKED.shift_open_one` | 1 shift is still open — close it first |
 | `errors.DAY_CLOSE_BLOCKED.unbilled_orders_one` | 1 order is not billed — bill it or carry it over |
+| `errors.DAY_CLOSE_BLOCKED.variance_pending/ `_one`` | {count} variance sign-offs are still pending — answer them first / 1 variance sign-off is still pending — answer it first |
+| `admin_stock.errors.DAY_CLOSE_BLOCKED_variance_pending/ `_one`` | {count} variance sign-offs are still pending — answer them first / 1 variance sign-off is still pending — answer it first |
 | `errors.PERMISSION_DENIED.not_own_payment/ `.skip_not_granted` / `.outside_scope`` | Only a manager can remove someone else's payment / You can't skip the count / This bill is not one of your tables |
 | `billing.bill.load_failed` | Couldn't load the bill. |
 | `billing.bill.offline` | Reconnecting to the hub… · Showing what we had as of {time} · every bill action needs the hub |

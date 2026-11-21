@@ -237,6 +237,8 @@ Keys in `apps/client/src/i18n/en.ts` added by lane VU1 (handoff 04 CHANGES §2.1
 | `comp.ask` | Ask for approval | Frame VoidSheetUrdu: منظوری مانگیں (02b key, listed in 02b/urdu-todo.md) |
 | `comp.withdraw` | Withdraw | Frame VoidPendingUrdu: واپس لیں (02b key, listed in 02b/urdu-todo.md) |
 | `void.reason.walk_out` | Walked out without paying | void sheet reason chip (04 §4.4 V12, 05 row V-2) |
+| `admin_stock.errors.DAY_CLOSE_BLOCKED_variance_pending` | {count} variance sign-offs are still pending — answer them first | 05 R-76 / G-77 day-close reason on /admin/stock (05 key under 04's prefix) |
+| `admin_stock.errors.DAY_CLOSE_BLOCKED_variance_pending_one` | 1 variance sign-off is still pending — answer it first | 05 R-76 / G-77 (singular) |
 
 Needs native review as well (in `ur.ts`, no frame shows them):
 

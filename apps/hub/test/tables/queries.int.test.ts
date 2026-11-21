@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { currentDirectory } from '../../src/auth/guards';
 import { activity } from '../../src/auth/session-store';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
+import { ORDER_EVENT_TYPES } from '../../src/orders/audiences';
 import { TABLE_EVENT_TYPES } from '../../src/tables/audiences';
 import { audienceAllows } from '../../src/ws/audience';
 import type { SocketCtx } from '../../src/ws/catch-up';
@@ -627,6 +628,31 @@ describe('audiences and catch-up (§6.19, catch-up part `tables`)', () => {
     await staffWs.untilCount(5);
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(eventTypes(staffWs)).toEqual(expect.arrayContaining(['TableOpened', 'BillClosed', 'SeatingReopened', 'BillClosedEmpty']));
+  });
+
+  it('[05 #6 audience half] BillClosed (TABLE_EVENT_TYPES) and OrdersUnbilled (ORDER_EVENT_TYPES) reach staff sockets and cashier kiosks, never a KDS station; both frames reach a staff socket for the map / table view', async () => {
+    expect(TABLE_EVENT_TYPES).toContain('BillClosed');
+    expect(ORDER_EVENT_TYPES).toContain('OrdersUnbilled');
+    const staff = socketCtx({});
+    const kiosk = socketCtx({ deviceType: 'cashier_kiosk', staffId: CASH });
+    const station = socketCtx({ deviceType: 'kds', kind: 'station', staffId: null, stationId: 'S1' });
+    for (const event_type of ['BillClosed', 'OrdersUnbilled']) {
+      const event = { event_type, payload: {} } as unknown as PosEvent;
+      expect(audienceAllows(event, staff), event_type).toBe(true);
+      expect(audienceAllows(event, kiosk), event_type).toBe(true);
+      expect(audienceAllows(event, station), event_type).toBe(false);
+    }
+
+    const ali = signIn(ALI);
+    const staffWs = await authed(ali.token, ali.sessionToken);
+    open('T1', 'SEAT-1', ali, { locked: false });
+    append(
+      ev('table', 'T1', 'BillClosed', { seating_id: 'SEAT-1' }, ali),
+      ev('order', 'O-UNB', 'OrdersUnbilled', { order_ids: ['O-UNB'], bill_id: 'B1' }, ali),
+    );
+    await staffWs.untilCount(4);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(eventTypes(staffWs)).toEqual(expect.arrayContaining(['BillClosed', 'OrdersUnbilled']));
   });
 
   it('[02a #66] [05 row T-4] TableMarksChanged joins TABLE_EVENT_TYPES: staff sockets and cashier kiosks, never a KDS station; the frame reaches a staff socket; the tables projection changes no row', async () => {

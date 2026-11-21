@@ -139,7 +139,7 @@ describe('[05 #82] hub migration 0021_orders_billing (02b v1.0.16 §5; 05 rows Q
     expect(await runMigrations(db, { dir: copyUpTo(dir, '0021b'), clock: fixedClock(T + 1) })).toEqual({ from: 21, to: 21, applied: [] });
   });
 
-  it('[05 #82] [05 P0.G G-14] the fold writes tax_profile_id and unit_price_minor per line kind (item, option_child, weighed pending → LineWeightSet, deal, deal_part); LineView and ReadOrderLine carry both in the same statements', async () => {
+  it('[05 #82] [05 P0.G G-14] [05 #11d unit_price half] the fold writes tax_profile_id and unit_price_minor per line kind (item, option_child, weighed pending → LineWeightSet, deal, deal_part); LineView and ReadOrderLine carry both in the same statements', async () => {
     const hub = await createTestHub({ provisioned: true });
     cleanups.push(() => hub.close());
     const o = someOrders(hub);
