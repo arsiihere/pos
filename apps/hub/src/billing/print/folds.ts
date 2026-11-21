@@ -15,8 +15,16 @@
 // `recorded_at`, amounts in the report's own currency. Its `bill_print_jobs` row (`doc_kind 'report'`, `bill_id`
 // NULL, `ref_id` = the business date) is claimed first under the job id `<event_id>:z`, so the same event applied
 // again prints nothing. Live only: a replay, refold or rebuild ('catchup') never prints a Z again.
-import { buildReportDoc, currencyExponent, DomainError } from '@pos/domain';
-import type { BillRequestedPayload, PosEvent, ZReportIssuedPayload } from '@pos/events';
+//
+// 05 §3.16, §6.13, B19 / Q-3 (E2E E-4): `InvoiceCredited` → the credit note, on the direct `ReopenBill` and the
+// `reopen_bill` approve alike (the command never prints it, so it prints once). Printer: the event's device route
+// (the envelope `device_id`: on an approval the answerer's, 01d `apply` drafts carry the answering command's actor)
+// → default. Built by 4b's `buildCreditNoteDoc` from the event's own payload (the original's amounts and snapshot,
+// H9-6), the credit's outbox state, and the buyer's type and last 4 of the original's `invoice_buyers` row (SQLite
+// hands back `substr(…, -4)` only; no full ID enters this file). Its `bill_print_jobs` row (`doc_kind 'credit'`,
+// `ref_id` = the credit invoice) is claimed first under `<event_id>:credit`. Live only, as the Z.
+import { buildCreditNoteDoc, buildReportDoc, currencyExponent, DomainError, type DocBuyerMask } from '@pos/domain';
+import type { BillRequestedPayload, InvoiceCreditedPayload, PosEvent, ZReportIssuedPayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { HubConfig } from '../../config/schema.js';
 import type { WriterTx } from '../../engine-host/writer.js';
@@ -24,11 +32,13 @@ import type { Projection, ProjectionRegistry } from '../../projections/registry.
 import { billPrinterFor, printDocument } from '../../print/api.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 import { hubTime } from '../../lib/hub-time.js';
+import { hubBilling } from '../defaults.js';
 import { openBillOf } from '../commands/ensure-bill.js';
 import { activePrinter, checkBillOf, queueCheckBill, tableRouteOf } from '../commands/print-check-bill.js';
+import { docFiscalState } from '../commands/print-docs.js';
 import { reportStaffIds, staffNamesOf } from '../queries/reports.js';
 
-export const BILL_PRINT_EVENT_TYPES = ['BillRequested', 'ZReportIssued'] as const;
+export const BILL_PRINT_EVENT_TYPES = ['BillRequested', 'ZReportIssued', 'InvoiceCredited'] as const;
 
 /** One skipped print (ids and a short reason only). */
 export interface BillPrintSkip {
@@ -73,6 +83,7 @@ export function billPrintsProjection(projections: ProjectionRegistry): Projectio
       const seating_id = event.event_type === 'BillRequested' ? ((event.payload as Partial<BillRequestedPayload>).seating_id ?? null) : null;
       try {
         if (event.event_type === 'ZReportIssued') tx.transaction(() => printZReport(tx, event))();
+        else if (event.event_type === 'InvoiceCredited') tx.transaction(() => printCreditNote(tx, event, slot.config))();
         else tx.transaction(() => printRequestedBill(tx, event, slot.config))();
       } catch (error) {
         emit({ event_id: event.event_id, event_type: event.event_type, seating_id, reason: error instanceof Skip ? error.message : error instanceof DomainError ? error.code : 'fold_error' });
@@ -128,6 +139,66 @@ function printZReport(db: Database.Database, event: PosEvent): void {
   });
   const { job_id: printed } = printDocument(foldTx(db, event, job_id), printer.printer_id, doc, { kind_label: 'Z report' });
   if (printed !== job_id) throw new Error('Z report: the print job id is not the claimed one');
+}
+
+const CREDIT_JOB = `INSERT OR IGNORE INTO bill_print_jobs (job_id, bill_id, doc_kind, ref_id, created_at) VALUES (?, ?, 'credit', ?, ?)`;
+
+// The credit's outbox state and folded number / QR (the billing fold wrote both earlier in this event), the buyer's
+// type and last 4 of its original's `invoice_buyers` row (Q-3: no copy for a credit), the closer's name. 1 statement.
+const CREDIT = `
+SELECT i.invoice_id, f.state AS fiscal_state, i.fiscal_number, i.qr_payload,
+       b.id_type AS buyer_type, substr(b.id_value, -4) AS buyer_last4, n.display_name AS cashier_name
+FROM invoices i
+LEFT JOIN fiscal_outbox f ON f.invoice_id = i.invoice_id
+LEFT JOIN invoice_buyers b ON b.invoice_id = i.ref_invoice_id
+LEFT JOIN staff_names n ON n.staff_id = i.closed_by
+WHERE i.invoice_id = ? AND i.series = 'credit'`;
+interface CreditRow {
+  invoice_id: string;
+  fiscal_state: string | null;
+  fiscal_number: string | null;
+  qr_payload: string | null;
+  buyer_type: string | null;
+  buyer_last4: string | null;
+  cashier_name: string | null;
+}
+
+/**
+ * §3.16, §6.13: billPrinterFor (the event's device → default, 1) + the printer row (1) → claim the `bill_print_jobs`
+ * row (1) → the credit row (1) → printDocument (2). 6 statements, whatever the number of lines. No printer → Skip
+ * (logged, ids only).
+ */
+function printCreditNote(db: Database.Database, event: PosEvent, hub: HubConfig | null): void {
+  const p = event.payload as Partial<InvoiceCreditedPayload>;
+  if (typeof p.invoice_id !== 'string' || typeof p.bill_id !== 'string' || p.series !== 'credit') throw new Skip('bad_payload');
+  const invoice = p as InvoiceCreditedPayload;
+  const config = branchConfig();
+  if (config === null) throw new Skip('no_config');
+  const routed = billPrinterFor(db, { device_id: event.device_id });
+  const printer = routed === null ? null : activePrinter(db, routed);
+  if (printer === null) throw new Skip('no_printer');
+  const job_id = `${event.event_id}:credit`;
+  if (db.prepare(CREDIT_JOB).run(job_id, invoice.bill_id, invoice.invoice_id, event.recorded_at).changes === 0) return; // already printed
+  const row = db.prepare(CREDIT).get(invoice.invoice_id) as CreditRow | undefined;
+  if (row === undefined) throw new Skip('invoice_missing');
+  const billing = hubBilling(config);
+  const types = (billing.jurisdiction.rules ?? []).flatMap((r) => r.buyer_id.accepted_types);
+  const buyer: DocBuyerMask | null =
+    row.buyer_type === null || row.buyer_last4 === null
+      ? null
+      : { type_label: types.find((t) => t.type === row.buyer_type)?.label ?? row.buyer_type, last4: row.buyer_last4.slice(-4) };
+  const doc = buildCreditNoteDoc(
+    { invoice, buyer_id: buyer, fiscal: docFiscalState(row), is_reprint: false, cashier_name: row.cashier_name }, // Q-3: the last 4
+    {
+      width_cols: printer.paper_width_mm === 58 ? 32 : 48,
+      currency_exponent: currencyExponent(invoice.currency_code),
+      utc_offset_ms: hubTime({ branchNow: () => event.recorded_at }).utc_offset_ms,
+      branch_name: hub?.provisioned?.branch_name ?? '',
+      template: billing.settings.receipt,
+    },
+  );
+  const { job_id: printed } = printDocument(foldTx(db, event, job_id), printer.printer_id, doc, { kind_label: 'Credit note' });
+  if (printed !== job_id) throw new Error('credit note: the print job id is not the claimed one');
 }
 
 /** printDocument's transaction view inside a fold: the fold's connection, the event's time and a job id of its own. */
