@@ -1086,10 +1086,20 @@ describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', 
     await flush();
     expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['PrintBillDocument', { doc: 'receipt', ref_id: 'INV_AC1-S000123' }]);
     v.unmount();
+    // each view renders the closed split (its paid note) before the absence is read
+    const none = (m: Mounted) => {
+      expect(m.container.querySelector('.b5-note')?.textContent).toContain('AC1-S000123');
+      expect(m.buttons().some((b) => b.textContent === 'Reprint receipt')).toBe(false);
+    };
     v = await show(setup({ online: false, views: [closed] }));
-    expect(v.buttons().some((b) => b.textContent === 'Reprint receipt')).toBe(false);
+    none(v);
     v.unmount();
     v = await show(setup({ grants: { 'take-payment': { grant: 'denied', scope: 'branch' }, 'take-order': { grant: 'allowed', scope: 'branch' } }, views: [closed] }));
+    none(v);
+    v.unmount();
+    // an empty close issues no invoice: nothing to reprint
+    v = await show(setup({ views: [bill({ state: 'closed', blocks: [], splits: [split({ state: 'closed', balance_minor: 0, invoice: null })] })] }));
+    expect(v.container.textContent).toContain('Closed');
     expect(v.buttons().some((b) => b.textContent === 'Reprint receipt')).toBe(false);
   });
 
