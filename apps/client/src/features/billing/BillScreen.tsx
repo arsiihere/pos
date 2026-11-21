@@ -305,7 +305,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
   const [sheet, setSheet] = useState<'split' | 'discount' | 'discount_remove' | 'service' | null>(null);
   // E-3: the payment being removed; the invoice each close of this visit issued (the bill view carries no invoice id)
   const [removing, setRemoving] = useState<BillViewSplit['payments'][number] | null>(null);
-  const [invoiceOf, setInvoiceOf] = useState<ReadonlyMap<number, string>>(new Map());
+  const [invoiceOf, setInvoiceOf] = useState<ReadonlyMap<number, { invoice_id: string; invoice_ref: string }>>(new Map());
   const [buyerSheet, setBuyerSheet] = useState<{ error: BuyerIssue | null; accepted: string[] | null } | null>(null);
   // WaiveBuyerId answered not_required: the row says so until the bill needs the buyer again
   const [buyerNotNeeded, setBuyerNotNeeded] = useState(false);
@@ -480,7 +480,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
       return;
     }
     const r = answer.data;
-    if (!('empty' in r)) setInvoiceOf((m) => new Map([...m, [split.split_no, r.invoice_id]]));
+    if (!('empty' in r)) setInvoiceOf((m) => new Map([...m, [split.split_no, { invoice_id: r.invoice_id, invoice_ref: r.invoice_ref }]]));
     const text = 'empty' in r ? t('billing.closed_empty') : fill(t('billing.closed'), { invoice_ref: r.invoice_ref, amount: money(r.total_minor) });
     const changeText = 'empty' in r || r.change_minor <= 0 ? null : fill(t('billing.give_change'), { amount: money(r.change_minor) });
     if (r.bill_state === 'closed') setDone({ text, change: changeText, invoiceId: 'empty' in r ? null : r.invoice_id });
@@ -661,7 +661,9 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
                 </span>
                 {p.tendered_minor !== null && <small>{fill(t('pad.payment.tendered_change'), { tendered: money(p.tendered_minor), change: money(p.change_minor) })}</small>}
                 {p.taken_by_name !== null && <small>{fill(t('pad.payment.by'), { name: p.taken_by_name })}</small>}
-                {/* E-3, §6.10: before close (open split), online; another's payment needs close-shift-for-others too */}
+                {/* E-3, §6.10: before close (open split), online; another's payment needs close-shift-for-others too. "Own" is
+                    read by name (§6.1 payments[] carry taken_by_name only, no staff id): a hint only — the hub decides by
+                    staff id and refuses PERMISSION_DENIED not_own_payment */}
                 {online && open && shell.permissions.allowed('take-payment') && (p.taken_by_name === shell.me?.name || shell.permissions.allowed('close-shift-for-others')) && (
                   <button type="button" className="btn" onClick={() => setRemoving(p)}>
                     {t('billing.pay_remove.button')}
@@ -871,7 +873,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             )}
             {lines}
             {/* E-3, B18: onChanged lets a failed / late job open the Print to picker */}
-            <PrintRows prints={bill.prints} noPrinter={noPrinter ? 'check' : null} onChanged={() => void load()} />
+            <PrintRows prints={bill.prints} noPrinter={noPrinter ? 'check' : null} {...(shell.permissions.allowed('take-order') ? { onChanged: () => void load() } : {})} />
           </div>
         </section>
         <section className="b5-col b5-money">
@@ -896,8 +898,9 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             {offlinePad}
             {closeArea}
             {!open && split !== undefined && split.invoice !== null && <div className="b5-note">{fill(t('billing.bill.paid_split'), { invoice_ref: split.invoice.invoice_ref })}</div>}
-            {!open && split !== undefined && invoiceOf.has(split.split_no) && online && shell.permissions.allowed('take-payment') && (
-              <ReprintButton doc="receipt" invoiceId={invoiceOf.get(split.split_no)!} onPrinted={() => void load()} />
+            {/* only while the split still shows the invoice this visit issued (a reopen and re-close elsewhere issues another) */}
+            {!open && split !== undefined && split.invoice !== null && invoiceOf.get(split.split_no)?.invoice_ref === split.invoice.invoice_ref && online && shell.permissions.allowed('take-payment') && (
+              <ReprintButton doc="receipt" invoiceId={invoiceOf.get(split.split_no)!.invoice_id} onPrinted={() => void load()} />
             )}
           </div>
         </section>
