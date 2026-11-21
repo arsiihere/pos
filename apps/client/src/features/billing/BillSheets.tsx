@@ -747,6 +747,11 @@ export function RemovePaymentSheet({ bill, payment, onDone, onClose }: { bill: B
     if (!answer.ok) {
       const e = answer.error;
       if (e.kind === 'api' && e.code === 'SHIFT_NOT_OPEN' && e.details['reason'] === 'payment_shift_closed') setShiftClosed(true);
+      else if (e.kind === 'api' && (e.code === 'PAYMENT_NOT_FOUND' || e.code === 'BILL_NOT_OPEN')) {
+        // gone or closed meanwhile (an earlier send that did land, another device): say so and show the bill as it is
+        shell.toasts.show({ text: errorText(e, bill.currency.code), tone: 'warn' });
+        onDone();
+      } else if (e.kind === 'network') setMsg(t('billing.pay_remove.maybe'));
       else setMsg(errorText(e, bill.currency.code));
       return;
     }
@@ -798,7 +803,7 @@ export function RemovePaymentSheet({ bill, payment, onDone, onClose }: { bill: B
         <button type="button" className="btn" onClick={onClose}>
           {t('billing.pay_remove.keep')}
         </button>
-        <Primary step={step} action={t('billing.pay_remove.title')} ask={false} busy={busy || !shell.online} onClick={() => void remove()} />
+        <Primary step={shell.online ? step : 'tables.toast.needs_hub'} action={t('billing.pay_remove.title')} ask={false} busy={busy} onClick={() => void remove()} />
       </div>
     </Frame>
   );

@@ -3822,6 +3822,7 @@ export const en = {
   'billing.pay_remove.keep': 'Keep it',
   'billing.pay_remove.ok': 'OK',
   'billing.pay_remove.done': 'Payment removed',
+  'billing.pay_remove.maybe': 'The hub didn’t answer — the payment may already be removed. Check the payments, then try again.',
   'billing.pay_remove.in': 'In',
   'billing.pay_remove.out': 'Back',
   'billing.pay_remove.shift_closed': 'This payment’s shift is already counted — it can’t be removed. Give the money back from your shift instead: the pad offers Give back when the bill owes the customer.',

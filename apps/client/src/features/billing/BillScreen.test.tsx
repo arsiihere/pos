@@ -933,14 +933,131 @@ describe('[05 §6.10, §8, §6.22; E2E E-3] remove payment, Print to, reprint', 
     expect(v.buttons().some((b) => b.textContent === 'Remove')).toBe(true);
   });
 
-  it('[B18] a failed receipt print offers Print to (the picker reads the printers)', async () => {
-    const s = setup({ views: [bill({ prints: [{ job_id: 'J1', doc_kind: 'receipt', state: 'failed', printer_name: 'Counter', last_error: 'paper_out' }] })] });
+  it('[B18] a failed receipt print: Print to → pick a printer → RetargetBillPrint, then the bill is read again (take-order)', async () => {
+    const s = setup({
+      grants: { 'take-order': { grant: 'allowed', scope: 'branch' } },
+      views: [bill({ prints: [{ job_id: 'J1', doc_kind: 'receipt', state: 'failed', printer_name: 'Counter', last_error: 'paper_out' }] })],
+      answers: [{ ok: true, data: { job_id: 'J1', state: 'waiting', printer_name: 'First floor bill', last_error: null, printer_id: 'P2' } }],
+    });
     const viewOf = s.query.getMockImplementation()!;
     s.query.mockImplementation(async (path: string) => (path === '/queries/bill-printers' ? { ok: true as const, data: { printers: [{ printer_id: 'P2', name: 'First floor bill' }] } as never } : viewOf(path)));
     const v = await show(s);
     v.click(v.button('Print to'));
     await flush();
     expect(s.query.mock.calls.some((c) => c[0] === '/queries/bill-printers')).toBe(true);
+    const reads = s.query.mock.calls.filter((c) => String(c[0]).startsWith('/queries/bill?')).length;
+    v.click([...v.container.querySelectorAll<HTMLButtonElement>('.dlg .b5-chip')].find((c) => c.textContent?.includes('First floor bill'))!);
+    await flush();
+    const send = [...v.container.querySelectorAll<HTMLButtonElement>('.dlg .btn--primary')].at(-1)!;
+    v.click(send);
+    await flush();
+    expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['RetargetBillPrint', { job_id: 'J1', printer_id: 'P2' }]);
+    expect(s.query.mock.calls.filter((c) => String(c[0]).startsWith('/queries/bill?')).length).toBeGreaterThan(reads);
+  });
+
+  it('[review m4 / NIT 8] without take-order a failed print offers no Print to (RetargetBillPrint needs it)', async () => {
+    const v = await show(setup({ views: [bill({ prints: [{ job_id: 'J1', doc_kind: 'receipt', state: 'failed', printer_name: 'Counter', last_error: 'paper_out' }] })] }));
+    expect(v.buttons().some((b) => b.textContent === 'Print to')).toBe(false);
+  });
+
+  const openRemove = async (s: ReturnType<typeof setup>) => {
+    const v = await show(s);
+    v.click(v.button('Remove'));
+    await flush();
+    return v;
+  };
+  const chip = (v: Mounted, label: string) => [...v.container.querySelectorAll<HTMLButtonElement>('.dlg .b5-chip')].find((c) => c.textContent === label)!;
+  const note = (v: Mounted, text: string) => {
+    const el = v.container.querySelector('.dlg textarea')!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, text);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const send = (v: Mounted) => v.click(v.container.querySelector<HTMLButtonElement>('.dlg .acts .btn--primary')!);
+
+  it('[§6.10 note min 1] spaces are not a note: Other stays blocked, another reason sends none; a note is trimmed', async () => {
+    const s = setup({ views: [paidBill()], answers: [{ ok: true, data: { payment_id: 'P1', bill_id: 'B7', split_no: 1 } }] });
+    const v = await openRemove(s);
+    v.click(chip(v, 'Other'));
+    note(v, '   ');
+    await flush();
+    expect(v.container.querySelector('.dlg .acts .btn--primary')?.textContent).toBe('Write why first');
+    note(v, '  Typed 3000 for 300  ');
+    await flush();
+    send(v);
+    await flush();
+    expect(s.command.mock.calls[0]![1]).toEqual({ payment_id: 'P1', reason_code: 'other', note: 'Typed 3000 for 300' });
+  });
+
+  it('[D32] a lost reply: "may already be removed"; the resend with an edited note keeps the command_id', async () => {
+    const s = setup({ views: [paidBill()], answers: [{ ok: false, error: { kind: 'network' } }, { ok: true, data: { payment_id: 'P1', bill_id: 'B7', split_no: 1 } }] });
+    const v = await openRemove(s);
+    v.click(chip(v, 'Wrong amount'));
+    await flush();
+    send(v);
+    await flush();
+    expect(v.container.querySelector('.dlg .msg')?.textContent).toContain('may already be removed');
+    note(v, 'second try');
+    await flush();
+    send(v);
+    await flush();
+    const [a, b] = s.command.mock.calls;
+    expect((b![2] as { commandId: string }).commandId).toBe((a![2] as { commandId: string }).commandId);
+  });
+
+  it('refusals: not_own_payment keeps the sheet with its text; PAYMENT_NOT_FOUND closes it with a toast and reads the bill', async () => {
+    const s = setup({ views: [paidBill()], answers: [{ ok: false, error: { kind: 'api', status: 403, code: 'PERMISSION_DENIED', details: { reason: 'not_own_payment' } } }, { ok: false, error: { kind: 'api', status: 404, code: 'PAYMENT_NOT_FOUND', details: {} } }] });
+    const v = await openRemove(s);
+    v.click(chip(v, 'Wrong amount'));
+    await flush();
+    send(v);
+    await flush();
+    expect(v.container.querySelector('.dlg .msg')?.textContent).toContain("Only a manager can remove someone else's payment");
+    send(v);
+    await flush();
+    expect(v.container.querySelector('.dlg')).toBeNull();
+    expect(s.query.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('offline while the sheet is open: the primary reads "Needs the hub"', async () => {
+    const s = setup({ views: [paidBill()] });
+    const v = await openRemove(s);
+    v.click(chip(v, 'Wrong amount'));
+    (s.shell as { online: boolean }).online = false;
+    v.click(chip(v, 'Wrong payment type'));
+    await flush();
+    expect(v.container.querySelector('.dlg .acts .btn--primary')?.textContent).toBe('Needs the hub');
+  });
+
+  it('[§6.22] a split closed in this visit (bill partly paid): Reprint receipt on that split, by its own invoice; an empty close has none', async () => {
+    const two = bill({ state: 'open', splits: [split({ split_no: 1, balance_minor: 0 }), split({ split_no: 2 })], blocks: [] });
+    const after = bill({ state: 'partly_paid', splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_ref: 'AC1-S000201', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })], blocks: [] });
+    const s = setup({
+      views: [two, after],
+      answers: [
+        { ok: true, data: { invoice_id: 'INV7', invoice_ref: 'AC1-S000201', total_minor: 662_400, change_minor: 0, bill_state: 'partly_paid', receipt: { job_id: 'J1', printer_name: 'Counter' }, fiscal_state: 'pending' } },
+        { ok: true, data: { printed: true, job_id: 'J2', printer_name: 'Counter' } },
+      ],
+    });
+    const v = await show(s);
+    v.click([...v.container.querySelectorAll<HTMLButtonElement>('.b5-close .btn--primary')][0]!);
+    await flush();
+    v.click(v.button('Split 1'));
+    await flush();
+    v.click(v.button('Reprint receipt'));
+    await flush();
+    expect(s.command.mock.calls[1]!.slice(0, 2)).toEqual(['PrintBillDocument', { doc: 'receipt', ref_id: 'INV7' }]);
+  });
+
+  it('[review m1] reopened and closed again elsewhere (the split now shows another invoice): no Reprint of the cancelled one', async () => {
+    const two = bill({ state: 'open', splits: [split({ split_no: 1, balance_minor: 0 }), split({ split_no: 2 })], blocks: [] });
+    const reclosed = bill({ state: 'partly_paid', splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, invoice: { invoice_ref: 'AC1-S000202', fiscal_number: null, fiscal_state: 'pending' } }), split({ split_no: 2 })], blocks: [] });
+    const s = setup({ views: [two, reclosed], answers: [{ ok: true, data: { invoice_id: 'INV7', invoice_ref: 'AC1-S000201', total_minor: 662_400, change_minor: 0, bill_state: 'partly_paid', receipt: { job_id: 'J1', printer_name: 'Counter' }, fiscal_state: 'pending' } }] });
+    const v = await show(s);
+    v.click([...v.container.querySelectorAll<HTMLButtonElement>('.b5-close .btn--primary')][0]!);
+    await flush();
+    v.click(v.button('Split 1'));
+    await flush();
+    expect(v.buttons().some((b) => b.textContent === 'Reprint receipt')).toBe(false);
   });
 
   it('[§6.22, frame BillClosed] after the last close: Reprint receipt → PrintBillDocument { receipt, the closed invoice }', async () => {
