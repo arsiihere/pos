@@ -42,3 +42,22 @@ describe('[05 §8; handoff 05 README] Pulse 05 layer', () => {
     for (const f of ['ui-kit.ts', 'ui-kit-staff.ts', 'ui-kit-kds.ts', 'ui-kit-admin.ts']) if (existsSync(app + f)) expect(importsOf(app + f), f).not.toContain(k('pulse-05.css'));
   });
 });
+
+// E2E E-6 (docs/reviews/05-e2e.md): at the 1920×1080 kiosk the money column did not scroll and its children shrank
+// (`.b5-tot` has overflow: hidden, so its flex min-height is 0), so the Close bar sat over "Add payment" and the
+// totals were clipped. The money pane scrolls and none of its children shrinks. (jsdom does no layout; the measured
+// check at 1920×1080 is in the PR.)
+describe('[05 §8 Bill screen; E2E E-6] the money column scrolls, its parts never shrink', () => {
+  const rules = readFileSync(kitDir + 'pulse-05-additions.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const ruleOf = (selector: string) => [...rules.matchAll(/([^{}]+)\{([^}]*)\}/g)].find((m) => m[1]!.trim() === selector)?.[2] ?? '';
+  it('the pane: overflow-y auto', () => {
+    expect(ruleOf(':where(.b5-money) > .b5-pane')).toMatch(/overflow:\s*hidden auto/);
+  });
+  it('its children: flex-shrink 0', () => {
+    expect(ruleOf(':where(.b5-money) > .b5-pane > *')).toMatch(/flex-shrink:\s*0/);
+  });
+  it('Close stays in view at the foot (sticky), no sideways scroll', () => {
+    expect(ruleOf(':where(.b5-money) > .b5-pane > .b5-close')).toMatch(/position:\s*sticky/);
+    expect(ruleOf(':where(.b5-money) > .b5-pane')).toMatch(/overflow:\s*hidden auto/);
+  });
+});
