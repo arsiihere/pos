@@ -61,3 +61,13 @@ describe('[05 §8 Bill screen; E2E E-6] the money column scrolls, its parts neve
     expect(ruleOf(':where(.b5-money) > .b5-pane')).toMatch(/overflow:\s*hidden auto/);
   });
 });
+
+// E2E R-4 (re-run, E-6 leftover): focus scrolling stopped with Add payment under the sticky Close bar (no bottom
+// scroll padding). The pane pads its scrollport by the bar's height; opening the pad scrolls in BillScreen (tested there).
+describe('[05 §8 Bill screen; E2E R-4] focus scrolling clears the Close bar', () => {
+  const rules = readFileSync(kitDir + 'pulse-05-additions.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  it('the money pane has a bottom scroll padding at least the kiosk bar height (142 px)', () => {
+    const m = [...rules.matchAll(/([^{}]+)\{([^}]*)\}/g)].map((r) => (r[1]!.trim() === ':where(.b5-money) > .b5-pane' ? /scroll-padding-bottom:\s*(\d+)px/.exec(r[2]!)?.[1] : undefined)).find((x) => x !== undefined);
+    expect(Number(m ?? 0)).toBeGreaterThanOrEqual(142);
+  });
+});

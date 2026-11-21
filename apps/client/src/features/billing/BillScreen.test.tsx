@@ -8,7 +8,7 @@ import { ShellContext, type Shell } from '../staff/shell/hooks';
 import { createLiveBus } from '../staff/shell/live';
 import { createPermissions } from '../staff/shell/permissions';
 import { createToastBus } from '../staff/shell/toast';
-import { BillScreen, duesOf } from './BillScreen';
+import { BillScreen, duesOf, PAD_CLEAR_PX } from './BillScreen';
 import type { BillView, BillViewSplit, Totals } from './contracts';
 import { PRINT_WATCH_MS, PRINT_WATCH_TRIES } from './PrintStatus';
 import { TODO_05 } from './urdu-todo-05';
@@ -215,6 +215,41 @@ describe('[05 §8; §3.5 (7)] dues', () => {
 });
 
 describe('[05 §8 pad; §6.9] payment pad', () => {
+  // R-4 (E2E re-run, E-6 leftover): at the 1920×1080 kiosk a split with payment rows put Add payment under the sticky
+  // Close bar (Add 1,054–1,126, Close from 938; measured on the bill DOM in Chromium). Opening the pad scrolls the money
+  // pane just enough that Add payment clears the bar by PAD_CLEAR_PX; nothing moves when it already clears.
+  const boxes = (add: [number, number]) =>
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const [top, bottom] = this.classList.contains('b5-add') ? add : this.classList.contains('b5-close') ? [938, 1080] : [0, 0];
+      return { top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+    });
+  const paneScroll = (v: Mounted) => {
+    const pane = v.container.querySelector<HTMLElement>('.b5-money > .b5-pane')!;
+    let top = 0;
+    Object.defineProperty(pane, 'scrollTop', { configurable: true, get: () => top, set: (n: number) => void (top = n) });
+    return () => top;
+  };
+
+  it('[R-4] picking a mode scrolls the money pane so Add payment sits above the Close bar', async () => {
+    const spy = boxes([1054, 1126]);
+    const v = await show(setup());
+    const scrolled = paneScroll(v);
+    v.click(v.button('Cash'));
+    await flush();
+    expect(scrolled()).toBe(1126 - 938 + PAD_CLEAR_PX);
+    spy.mockRestore();
+  });
+
+  it('[R-4] Add payment already clear of the bar (1280×800 short bill): the pane does not move', async () => {
+    const spy = boxes([700, 772]);
+    const v = await show(setup());
+    const scrolled = paneScroll(v);
+    v.click(v.button('Card'));
+    await flush();
+    expect(scrolled()).toBe(0);
+    spy.mockRestore();
+  });
+
   it('only active modes, in sort order, with their class word; idle until one is picked', async () => {
     const v = await show(setup());
     expect(all(v, '.b5-mode').map((m) => m.textContent)).toEqual(['Cashcash rate', 'Carddigital', 'JazzCashdigital · ref']);

@@ -100,3 +100,6 @@
 /* E2E E-7, frame BillClosed: the closed view on its own page — the money column's width, the frame's inline gaps */
 :where(.b5-done--page).b5-done { max-width: 600px; min-height: 100%; margin: 0 auto; padding: 22px 24px; } /* ties .b5-done, wins by order */
 :where(.b5-done__st) { gap: 10px; flex-wrap: wrap; } /* style="gap:10px;flex-wrap:wrap" */
+/* E2E R-4 (E-6 leftover): focus scrolling (the keyboard, scrollIntoView) stops above the sticky Close bar, not under it;
+   the bar is 142 px at the kiosk (80 px button, the why line, its 10 + 22 px padding). Opening the pad scrolls in code. */
+:where(.b5-money) > .b5-pane { scroll-padding-bottom: 160px; }
