@@ -3749,6 +3749,7 @@ export const en = {
   'billing.report.printed': 'Sent to {printer}',
   'billing.report.not_printed': 'No printer is set up for reports — nothing printed',
   'billing.report.older_z': 'Only the latest Z of a date prints',
+  'billing.report.print_no_day': 'No day is open, so there is no X to print.',
   // ---- 05 client (task 41, day close): 05 §8 Day close, §3.13, §6.24, §6.25; frames DayClose … DayCloseUrdu ----
   'billing.dayclose.nav': 'Close day',
   'billing.dayclose.title': 'Close the day',
