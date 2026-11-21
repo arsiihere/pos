@@ -1205,6 +1205,69 @@ describe('[05 §8 Reopen, §6.13; #37k] reopen a closed bill', () => {
     expect(v.buttons().some((b) => b.textContent === 'Reopen')).toBe(false);
   });
 
+  it('[review m1] requires_approval: the Reopen action carries "Needs approval"', async () => {
+    const v = await show(setup({ grants: g('requires_approval'), views: [closed()] }));
+    expect(v.button('Reopen').querySelector('.ntag')?.textContent).toBe('Needs approval');
+  });
+
+  it('[review m4] approved while the waiting card is open (the bill reopened): the sheet closes', async () => {
+    const pendingView = bill({ ...closed(), open_requests: [{ alert_id: 'A5', kind: 'reopen_bill' } as never] });
+    const s = setup({ grants: g('requires_approval'), views: [closed(), pendingView, bill({ state: 'partly_paid', reopen_count: 1 })], answers: [{ ok: true, data: { pending: { alert_id: 'A5' } } }] });
+    const v = await show(s);
+    v.click(v.button('Reopen'));
+    await flush();
+    v.click(chip(v, 'Price error'));
+    await flush();
+    v.click(primary(v));
+    await flush();
+    expect(v.container.querySelector('.dlg .b5-wait')).not.toBeNull();
+    vi.useFakeTimers();
+    s.shell.live.frame({ type: 'event', seq: 9, event: { event_type: 'BillReopened', payload: {} } } as never);
+    await vi.advanceTimersByTimeAsync(300);
+    vi.useRealTimers();
+    await flush();
+    expect(v.container.querySelector('.dlg')).toBeNull();
+  });
+
+  it('[review m3] BILL_REOPEN_PENDING / BILL_NOT_OPEN read the bill again', async () => {
+    const s = setup({ grants: g('allowed'), views: [closed()], answers: [{ ok: false, error: { kind: 'api', status: 409, code: 'BILL_REOPEN_PENDING', details: { alert_id: 'A9' } } }] });
+    const v = await show(s);
+    v.click(v.button('Reopen'));
+    await flush();
+    v.click(chip(v, 'Price error'));
+    await flush();
+    const before = s.query.mock.calls.length;
+    v.click(primary(v));
+    await flush();
+    expect(s.query.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('Other with a note: the note is trimmed; spaces alone stay blocked', async () => {
+    const s = setup({ grants: g('allowed'), views: [closed()], answers: [reopened('full')] });
+    const v = await show(s);
+    v.click(v.button('Reopen'));
+    await flush();
+    v.click(chip(v, 'Other'));
+    const el = v.container.querySelector('.dlg textarea')!;
+    const put = (x: string) => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, x);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    put('   ');
+    await flush();
+    expect(primary(v).textContent).toBe('Write why first');
+    put('  Wrong table billed  ');
+    await flush();
+    v.click(primary(v));
+    await flush();
+    expect(s.command.mock.calls[0]![1]).toEqual({ bill_id: 'B7', reason_code: 'other', note: 'Wrong table billed' });
+  });
+
+  it('a bill closed empty (no invoice): no Reopen', async () => {
+    const v = await show(setup({ grants: g('allowed'), views: [bill({ state: 'closed', blocks: [], splits: [split({ state: 'closed', balance_minor: 0, invoice: null })] })] }));
+    expect(v.buttons().some((b) => b.textContent?.startsWith('Reopen'))).toBe(false);
+  });
+
   it('[frame BillClosed] the closed view after the last close has Reopen too', async () => {
     const ready = bill({ splits: [split({ balance_minor: 0 })], blocks: [] });
     const s = setup({ grants: g('allowed'), views: [ready, closed()], answers: [{ ok: true, data: { invoice_id: 'INV1', invoice_ref: 'AC1-S000123', total_minor: 662_400, change_minor: 0, bill_state: 'closed', receipt: { job_id: 'J1', printer_name: 'Counter' }, fiscal_state: 'pending' } }] });

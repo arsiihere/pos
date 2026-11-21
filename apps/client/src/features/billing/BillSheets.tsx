@@ -1,6 +1,6 @@
 import { BILL_REOPEN_REASONS, CHARGE_REMOVE_REASONS } from '@pos/domain';
 import { defaultBillingSettings } from '@pos/events';
-import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { HubError } from '../../api/hub-admin';
 import { t } from '../../i18n';
 import { fill, type MessageKey } from '../../i18n/en';
@@ -819,7 +819,7 @@ export type ReopenOutcome = { kind: 'reopened'; mode: 'full' | 'corrections'; cr
  * sheet promises no mode). `allowed` → ReopenBill; `requires_approval` → the `reopen_bill` request and the waiting card
  * with Withdraw. Refusals by §9 code; BILL_REOPEN_NOT_SUPPORTED ends the sheet (OK only).
  */
-export function ReopenSheet({ bill, onDone, onClose }: { bill: BillView; onDone: (r: ReopenOutcome) => void; onClose: () => void }) {
+export function ReopenSheet({ bill, onDone, onClose, onRefresh }: { bill: BillView; onDone: (r: ReopenOutcome) => void; onClose: () => void; /** a refusal that means the view is stale (another device) */ onRefresh?: () => void }) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
   const currency = bill.currency.code;
@@ -834,6 +834,16 @@ export function ReopenSheet({ bill, onDone, onClose }: { bill: BillView; onDone:
   const [local, setLocal] = useState<Pending | null>(null);
   const waiting = waitingOf(bill, 'reopen_bill', local);
   const step = shell.online ? noteStep(reason, note) : 'tables.toast.needs_hub';
+  // review m4: the request this sheet waited on was answered (approved: the bill reopened; rejected: it left
+  // open_requests) — the sheet has nothing left to show; the screen's view tells the outcome
+  const seen = useRef<string | null>(null);
+  const listed = bill.open_requests.find((r) => r.kind === 'reopen_bill')?.alert_id ?? null;
+  if (listed !== null) seen.current = listed;
+  const reopenable = bill.state === 'closed' || (bill.state === 'partly_paid' && bill.splits.some((x) => x.state === 'closed'));
+  const answered = (seen.current !== null && listed === null) || (local !== null && !reopenable);
+  useEffect(() => {
+    if (answered) onClose();
+  }, [answered, onClose]);
   const sub = refs.length === 0 ? undefined : fill(t('billing.reopen.invoices'), { refs: refs.join(', ') });
 
   const send = async () => {
@@ -847,6 +857,8 @@ export function ReopenSheet({ bill, onDone, onClose }: { bill: BillView; onDone:
       if (e.kind === 'api' && e.code === 'BILL_REOPEN_NOT_SUPPORTED') setUnsupported(true);
       else if (e.kind === 'api' && e.code === 'BILL_NOT_OPEN') setError(t('billing.reopen.not_closed'));
       else setError(errorText(e, currency));
+      // review m3: these mean another device moved the bill — read it again (the waiting card shows from open_requests)
+      if (e.kind === 'api' && (e.code === 'BILL_NOT_OPEN' || e.code === 'BILL_REOPEN_PENDING')) onRefresh?.();
       return;
     }
     const r: ReopenResult = answer.data;

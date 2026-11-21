@@ -487,6 +487,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
     if (!('empty' in r)) setInvoiceOf((m) => new Map([...m, [split.split_no, { invoice_id: r.invoice_id, invoice_ref: r.invoice_ref }]]));
     const text = 'empty' in r ? t('billing.closed_empty') : fill(t('billing.closed'), { invoice_ref: r.invoice_ref, amount: money(r.total_minor) });
     const changeText = 'empty' in r || r.change_minor <= 0 ? null : fill(t('billing.give_change'), { amount: money(r.change_minor) });
+    if (r.bill_state === 'closed') setReopenedBy(null);
     if (r.bill_state === 'closed') setDone({ text, change: changeText, invoiceId: 'empty' in r ? null : r.invoice_id });
     else shell.toasts.show({ text: changeText === null ? text : `${text} · ${changeText}`, tone: 'ok' });
     setMode(null);
@@ -833,7 +834,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
           {/* §6.22, frame BillClosed: Reprint receipt of the invoice this close issued */}
           {done.invoiceId !== null && shell.permissions.allowed('take-payment') && <ReprintButton doc="receipt" invoiceId={done.invoiceId} onPrinted={() => {}} />}
           {/* 36c, frame BillClosed: Reopen from the closed view */}
-          {canReopenGrant && online && done.invoiceId !== null && (
+          {canReopenGrant && online && done.invoiceId !== null && bill.state === 'closed' && (
             <button
               type="button"
               className="btn"
@@ -843,6 +844,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
               }}
             >
               {t('billing.reopen.button')}
+              {shell.permissions.requiresApproval('reopen-bill') && <span className="ntag">{t('billing.sheet.needs')}</span>}
             </button>
           )}
           <button type="button" className="btn btn--primary" onClick={onBack}>
@@ -929,6 +931,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             {canReopenGrant && online && split !== undefined && split.state === 'closed' && split.invoice !== null && (bill.state === 'closed' || bill.state === 'partly_paid') && (
               <button type="button" className="btn" onClick={() => setSheet('reopen')}>
                 {t('billing.reopen.button')}
+                {shell.permissions.requiresApproval('reopen-bill') && <span className="ntag">{t('billing.sheet.needs')}</span>}
               </button>
             )}
             {/* only while the split still shows the invoice this visit issued (a reopen and re-close elsewhere issues another) */}
@@ -952,8 +955,10 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
       {sheet === 'reopen' && (
         <ReopenSheet
           bill={bill}
+          onRefresh={() => void load()}
           onDone={(r) => {
             if (r.kind === 'reopened') setReopenedBy({ mode: r.mode, credits: r.credits });
+            if (r.kind === 'pending') setReopenedBy(null);
             if (r.kind !== 'pending') setSheet(null);
             void load();
           }}
