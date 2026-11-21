@@ -456,6 +456,8 @@ function closeSplitCommand(log: Log) {
         since_reopen_json: string;
       };
       const fiscal_state: CloseSplitResult['fiscal_state'] = isFiscalized(fiscal) ? 'pending' : 'not_required';
+      // R-91 / R-92: the change due now — the result's and the receipt's (the invoice keeps Σ)
+      const change_now = changeSinceReopen(payments, after.since_reopen_json);
 
       const receipt = printReceipt(ctx, log, {
         printer_id: after.printer_name === null ? null : printer_id,
@@ -468,6 +470,7 @@ function closeSplitCommand(log: Log) {
         config,
         billing,
         payments,
+        change_minor: change_now,
         orders,
         buyer: buyerId === null ? null : { type_label: buyerId.label, last4: buyerId.value.slice(-4) },
         staff_id,
@@ -477,7 +480,7 @@ function closeSplitCommand(log: Log) {
         invoice_id,
         invoice_ref,
         total_minor: invoice.total_minor,
-        change_minor: changeSinceReopen(payments, after.since_reopen_json),
+        change_minor: change_now,
         bill_state: after.bill_state,
         receipt,
         fiscal_state,
@@ -491,7 +494,8 @@ function closeSplitCommand(log: Log) {
  * §6.12 Result (⚠️ 05 v1.0.30, R-91): the change due now — Σ (tendered − amount) of the split's live cash `in`
  * payments added after the bill's latest `BillReopened` (`since_reopen_json`, AFTER_FOLD); on a never-reopened bill
  * every one of them, so it equals `InvoiceIssued.change_minor`. The change of a payment carried across a reopen was
- * given out at the earlier close. Only the result: the invoice, its events, the receipt, the shift and the Z keep Σ.
+ * given out at the earlier close. The result and (⚠️ 05 v1.0.31, R-92) the receipt's Change line; the invoice, its
+ * events, the shift and the Z keep Σ. A Reprint re-derives the same figure (print-docs.ts `PAYMENTS`).
  */
 function changeSinceReopen(payments: readonly PaymentRow[], since_reopen_json: string): number {
   const since = new Set(JSON.parse(since_reopen_json) as string[]);
@@ -575,6 +579,8 @@ function printReceipt(
     config: BranchConfig;
     billing: HubBilling;
     payments: readonly PaymentRow[];
+    /** R-92: the change due now (`changeSinceReopen`), not `invoice.change_minor` (Σ) — a Reprint prints the same. */
+    change_minor: number;
     orders: ReadonlyArray<{ token: number | null }>;
     buyer: { type_label: string; last4: string } | null;
     staff_id: string;
@@ -594,7 +600,7 @@ function printReceipt(
       {
         invoice: o.invoice,
         payments: o.payments.map((x) => ({ mode_name: modeName.get(x.mode_id) ?? x.mode_id, payment_class: x.payment_class, direction: x.direction, amount_minor: x.amount_minor })),
-        change_minor: o.invoice.change_minor,
+        change_minor: o.change_minor,
         cashier_name: ctx.directory.get(o.staff_id)?.display_name ?? null,
         order_label: o.head.scope === 'key' && token !== null ? `#${token}` : null,
         bill_label: table,

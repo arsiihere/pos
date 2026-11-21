@@ -50,7 +50,7 @@ type Log = Pick<FastifyInstance['log'], 'info'>;
 // events (branch_id, seq) index), the outbox state and the folded fiscal number / QR; for a credit its original's ref;
 // the buyer's type and last 4 from `invoice_buyers` (a credit: its original's row, Q-3). 1 statement.
 const INVOICE = `
-SELECT i.invoice_id, i.bill_id, i.series, f.state AS fiscal_state, i.fiscal_number, i.qr_payload, e.event_type, e.payload,
+SELECT i.invoice_id, i.bill_id, i.series, f.state AS fiscal_state, f.ord, i.fiscal_number, i.qr_payload, e.event_type, e.payload,
        b.id_type AS buyer_type, substr(b.id_value, -4) AS buyer_last4
 FROM invoices i
 LEFT JOIN fiscal_outbox f ON f.invoice_id = i.invoice_id
@@ -62,6 +62,7 @@ interface InvoiceRow {
   bill_id: string;
   series: 'sale' | 'credit';
   fiscal_state: string | null;
+  ord: number | null;
   fiscal_number: string | null;
   qr_payload: string | null;
   event_type: string | null;
@@ -71,15 +72,36 @@ interface InvoiceRow {
 }
 
 // The receipt's payments: the invoice's `payment_ids` joined by id, in the invoice's order, regardless of `removed_at`
-// (G-6: a reopen clears `bill_payments.invoice_id`). 1 statement whatever their number.
+// (G-6: a reopen clears `bill_payments.invoice_id`). ⚠️ 05 v1.0.31 (R-92): with `since_reopen` — the payment's
+// `PaymentAdded` comes after the bill's latest `BillReopened` before the invoice's own `InvoiceIssued` (`@ord`, the
+// outbox row's seq; every one on a never-reopened bill) — so the Reprint's Change is the figure the close printed
+// (close-split.ts `changeSinceReopen`), from stored events only. 1 statement whatever their number (`events_stream`).
 const PAYMENTS = `
-SELECT p.mode_id, p.payment_class, p.direction, p.amount_minor FROM json_each(?) j
+WITH r AS (SELECT COALESCE(MAX(seq), 0) AS seq FROM events
+           WHERE stream_type = 'bill' AND stream_id = @bill_id AND event_type = 'BillReopened' AND seq < @ord),
+     a AS (SELECT json_extract(e.payload, '$.payment_id') AS payment_id FROM events e, r
+           WHERE e.stream_type = 'bill' AND e.stream_id = @bill_id AND e.event_type = 'PaymentAdded' AND e.seq > r.seq AND e.seq < @ord)
+SELECT p.mode_id, p.payment_class, p.direction, p.amount_minor, p.tendered_minor,
+       p.payment_id IN (SELECT payment_id FROM a) AS since_reopen
+FROM json_each(@payment_ids) j
 JOIN bill_payments p ON p.payment_id = j.value ORDER BY j.key`;
 interface PaymentRow {
   mode_id: string;
   payment_class: 'cash' | 'digital';
   direction: 'in' | 'out';
   amount_minor: number;
+  tendered_minor: number | null;
+  since_reopen: 0 | 1;
+}
+
+/**
+ * §3.16, §6.22 (⚠️ 05 v1.0.31, R-92): the receipt's Change — Σ (tendered − amount) of the invoice's cash `in`
+ * payments added after the bill's latest `BillReopened` before that invoice (as its close printed it, R-91).
+ */
+function changeAsClosed(payments: readonly PaymentRow[]): number {
+  return payments
+    .filter((x) => x.payment_class === 'cash' && x.direction === 'in' && x.since_reopen === 1)
+    .reduce((a, x) => a + (x.tendered_minor ?? x.amount_minor) - x.amount_minor, 0);
 }
 
 /** 4b: the outbox row's state as the Doc takes it; `acked` carries the folded number and QR payload. Also the credit-note fold's. */
@@ -128,7 +150,10 @@ function printBillDocumentCommand(log: Log) {
       const { head } = openBillOf(db, { bill_id: row.bill_id }, ctx.state.business_day?.business_date ?? null); // 2
       const orders = db.prepare(ORDERS_OF_BILL).all(ordersOfBillParams(head)) as Array<{ placed_by: string; token: number | null }>; // 3
       const invoice = JSON.parse(row.payload) as InvoiceIssuedPayload | InvoiceCreditedPayload;
-      const payments = invoice.series === 'sale' ? (db.prepare(PAYMENTS).all(JSON.stringify(invoice.payment_ids)) as PaymentRow[]) : []; // 4 (receipt)
+      const payments =
+        invoice.series === 'sale'
+          ? (db.prepare(PAYMENTS).all({ payment_ids: JSON.stringify(invoice.payment_ids), bill_id: row.bill_id, ord: row.ord }) as PaymentRow[])
+          : []; // 4 (receipt)
 
       let printer: ReturnType<typeof activePrinter>;
       if (p.printer_id !== undefined) {
@@ -172,7 +197,7 @@ function printBillDocumentCommand(log: Log) {
           {
             invoice,
             payments: payments.map((x) => ({ mode_name: modeName.get(x.mode_id) ?? x.mode_id, payment_class: x.payment_class, direction: x.direction, amount_minor: x.amount_minor })),
-            change_minor: invoice.change_minor,
+            change_minor: changeAsClosed(payments), // R-92: not `invoice.change_minor` (Σ)
             cashier_name,
             order_label: head.scope === 'key' && token !== null ? `#${token}` : null,
             bill_label: table,

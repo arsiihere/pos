@@ -1063,6 +1063,46 @@ describe('[05 §6.12 Result, R-91, #37m] CloseSplit — the re-close change coun
   });
 });
 
+describe('[05 §3.16, §6.12 step 7, §6.22, R-92, #37n] the receipt change after a reopen matches the close', () => {
+  it('[05 #37n, R-92] cash 18 000 over, closed, reopened, a naan, cash 1 600 over, re-closed → the re-close receipt and its Reprint print Change 16.00; the first invoice prints 180.00', async () => {
+    await start();
+    const s = seated([{ order_item_id: 'RR_N1', item_id: FX.naan }]);
+    const bill_ref = { seating_id: s.seating_id };
+    const t1 = (await view(cashier.who, bill_ref)).splits[0]!.totals.as_paid.total_minor;
+    await pay(cashier.who, bill_ref, 1, 'cash', t1, t1 + 18_000);
+    const first = await close(cashier.who, { bill_ref, split_no: 1, expected_total_minor: t1 });
+    expect(first.status, JSON.stringify(first.error)).toBe(200);
+    const firstLines = docText(jobDoc((first.result!['receipt'] as { job_id: string }).job_id)).split('\n');
+    expect(firstLines).toContain(row48('Change', '180.00')); // a never-reopened bill: every cash payment, as before
+    const bill_id = billIdOf(s.seating_id);
+
+    const manager = signIn(hub, STAFF.manager);
+    const re = await post(hub, manager, 'reopen-bill', 'ReopenBill', { bill_id, reason_code: 'wrong_item_billed' });
+    expect(re.status, JSON.stringify(re.error)).toBe(200);
+    appendOrder(hub, { order_type: 'dine_in', seating_id: s.seating_id, placed_by: STAFF.orderTaker, lines: [{ order_item_id: 'RR_N2', item_id: FX.naan }] });
+    const v = (await view(cashier.who, { bill_id })).splits[0]!;
+    await pay(cashier.who, { bill_id }, 1, 'cash', v.balance_minor, v.balance_minor + 1_600);
+    const second = await close(cashier.who, { bill_ref: { bill_id }, split_no: 1, expected_total_minor: v.totals.as_paid.total_minor });
+    expect(second.status, JSON.stringify(second.error)).toBe(200);
+    expect(second.result).toMatchObject({ change_minor: 1_600 });
+    expect(invoiceOf(second)['change_minor']).toBe(19_600); // the invoice keeps Σ (R-91): no event changes
+
+    // R-92: the re-close receipt prints the change due now, the close result's figure
+    const secondLines = docText(jobDoc((second.result!['receipt'] as { job_id: string }).job_id)).split('\n');
+    expect(secondLines).toContain(row48('Change', '16.00'));
+    expect(secondLines).not.toContain(row48('Change', '196.00'));
+
+    // a later Reprint of that invoice prints the same figure; a Reprint of the first (credited) invoice prints what it printed
+    const reprint = async (invoice_id: unknown): Promise<string[]> => {
+      const r = await post(hub, cashier.who, 'print-bill-document', 'PrintBillDocument', { doc: 'receipt', ref_id: invoice_id });
+      expect(r.status, JSON.stringify(r.error)).toBe(200);
+      return docText(jobDoc((r.result as { job_id: string }).job_id)).split('\n');
+    };
+    expect(await reprint(second.result!['invoice_id'])).toContain(row48('Change', '16.00'));
+    expect(await reprint(first.result!['invoice_id'])).toContain(row48('Change', '180.00'));
+  });
+});
+
 // ================================================================================================= printing, statements
 
 describe('[05 #35, §6.12 Statements] CloseSplit — no printer; statements fixed', () => {
