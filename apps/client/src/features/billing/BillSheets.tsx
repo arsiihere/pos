@@ -442,6 +442,7 @@ export function ServiceChargeRow({
   onRemove,
   onChanged,
   amountMinor,
+  readOnly,
 }: {
   bill: BillView;
   billRef: BillRef;
@@ -449,6 +450,8 @@ export function ServiceChargeRow({
   onChanged: () => void;
   /** the amount shown (E-1: the bill screen's split column passes its split's own); default the whole bill's */
   amountMinor?: number;
+  /** E-1 review: no Remove / Add back (offline — "Needs the hub", §8 — or a closed split, frozen, B15) */
+  readOnly?: boolean;
 }) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
@@ -457,10 +460,11 @@ export function ServiceChargeRow({
   const { rate_bp, removed } = bill.service_charge;
   if (rate_bp === 0) return null;
   // B8 / §6.8: OPEN or PARTLY_PAID (a projected bill is opened by the command); a closed bill is read-only
-  const editable = bill.state !== 'closed';
+  const editable = bill.state !== 'closed' && readOnly !== true;
   const canRemove = editable && (shell.permissions.allowed('remove-service-charge') || shell.permissions.requiresApproval('remove-service-charge'));
   const canAdd = editable && shell.permissions.allowed('remove-service-charge');
   const rate = rateText(rate_bp);
+  const shownRemoved = removed && !(readOnly === true && (amountMinor ?? 0) > 0);
   const addBack = async () => {
     if (busy) return;
     setBusy(true);
@@ -475,9 +479,10 @@ export function ServiceChargeRow({
   };
   return (
     <>
-      <div className={removed ? 'b5-tr gone' : 'b5-tr'}>
+      {/* a closed split keeps the charge it closed with (B15): its own figure, whatever the open remainder's state */}
+      <div className={shownRemoved ? 'b5-tr gone' : 'b5-tr'}>
         <span>
-          {removed ? t('billing.sc.removed') : fill(t('billing.sc.label'), { rate })}
+          {shownRemoved ? t('billing.sc.removed') : fill(t('billing.sc.label'), { rate })}
           {!removed && canRemove && (
             <button type="button" className="btn" onClick={onRemove}>
               {t('billing.sc.remove')}

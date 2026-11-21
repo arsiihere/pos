@@ -134,6 +134,7 @@ function TotalsTable({
   onRemoveDiscount,
   onRemoveCharge,
   onChanged,
+  online,
 }: {
   split: BillViewSplit;
   bill: BillView;
@@ -144,6 +145,7 @@ function TotalsTable({
   onRemoveDiscount: (() => void) | null;
   onRemoveCharge: () => void;
   onChanged: () => void;
+  online: boolean;
 }) {
   const code = bill.currency.code;
   const cash = split.totals.cash;
@@ -181,7 +183,7 @@ function TotalsTable({
       )}
       {/* B8 / §6.8: the sticky service charge row (Remove / Add back), this split's amount */}
       {bill.service_charge.rate_bp > 0 && (
-        <ServiceChargeRow bill={bill} billRef={billRef} amountMinor={cash.service_charge_minor} onRemove={onRemoveCharge} onChanged={onChanged} />
+        <ServiceChargeRow bill={bill} billRef={billRef} amountMinor={cash.service_charge_minor} readOnly={!online || split.state === 'closed'} onRemove={onRemoveCharge} onChanged={onChanged} />
       )}
       {keys.map(([k, label]) => (
         <div key={k} className="b5-tr">
@@ -837,10 +839,13 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             {online && bill.state !== 'closed' && (
               <div className="b5-acts">
                 <CheckBillButton billRef={billRef} onPrinted={(r) => (r.printed ? void load() : setNoPrinter(true))} />
-                <button type="button" className="btn" onClick={() => setSheet('split')}>
-                  <BIco name="split" />
-                  {t('billing.split.button')}
-                </button>
+                {/* §6.5 SetSplits: take-payment, as the hub */}
+                {shell.permissions.allowed('take-payment') && (
+                  <button type="button" className="btn" onClick={() => setSheet('split')}>
+                    <BIco name="split" />
+                    {t('billing.split.button')}
+                  </button>
+                )}
                 {discountGrant && canDiscount(bill) && (
                   <button type="button" className="btn" onClick={() => setSheet('discount')}>
                     <BIco name="bill" />
@@ -867,6 +872,7 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
                 onRemoveDiscount={online && open && bill.discount !== null && discountGrant && canDiscount(bill) ? () => setSheet('discount_remove') : null}
                 onRemoveCharge={() => setSheet('service')}
                 onChanged={() => void load()}
+                online={online}
               />
             )}
             {buyerRow}

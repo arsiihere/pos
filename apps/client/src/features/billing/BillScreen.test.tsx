@@ -839,6 +839,38 @@ describe('[05 §8; E2E E-1] split, discount and service charge on the bill', () 
     expect(s.query).toHaveBeenCalledTimes(2);
   });
 
+  it('[review m1] offline: no Split, no Discount, no service-charge Remove', async () => {
+    const v = await show(setup({ online: false, grants: { 'apply-discount': grant('allowed'), 'remove-service-charge': grant('allowed') }, views: [bill({ service_charge: { rate_bp: 500, removed: false } })] }));
+    expect(v.buttons().some((b) => ['Split', 'Discount', 'Remove'].includes(b.textContent ?? ''))).toBe(false);
+    expect(v.text()).toContain('Service charge 5 %');
+  });
+
+  it('[review m2] per split: each split\'s own charge; a closed split shows its frozen charge, no Remove, even after a removal', async () => {
+    const tot = (sc: number) => ({ ...split().totals, cash: { ...split().totals.cash, service_charge_minor: sc } });
+    const b = bill({
+      state: 'partly_paid',
+      service_charge: { rate_bp: 500, removed: true },
+      splits: [split({ split_no: 1, state: 'closed', balance_minor: 0, totals: tot(15_000) }), split({ split_no: 2, totals: tot(0) })],
+    });
+    const v = await show(setup({ grants: { 'remove-service-charge': grant('allowed') }, views: [b] }));
+    // split 2 (open) first: removed, Add back
+    const scRow = () => [...v.container.querySelectorAll('.b5-tot .b5-tr')].find((r) => r.textContent?.includes('Service charge'))!;
+    expect(scRow().textContent).toContain('Service charge removed');
+    v.click(v.button('Split 1'));
+    await flush();
+    expect(scRow().textContent).toContain('Service charge 5 %');
+    expect(scRow().textContent).toContain('150.00');
+    expect(v.buttons().some((x) => x.textContent === 'Add back' || x.textContent === 'Remove')).toBe(false);
+  });
+
+  it('a partly-paid bill still offers Split (frame BillPartlyPaid); the split editor\'s save reads the bill again', async () => {
+    const s = setup({ views: [bill({ state: 'partly_paid' })] });
+    const v = await show(s);
+    v.click(v.button('Split'));
+    await flush();
+    expect(v.container.querySelector('.dlg__t h2')?.textContent).toBe('Split the bill');
+  });
+
   it('a closed bill: no Split, no Discount, no Remove', async () => {
     const v = await show(setup({ grants: { 'apply-discount': grant('allowed'), 'remove-service-charge': grant('allowed') }, views: [bill({ state: 'closed', service_charge: { rate_bp: 500, removed: false }, splits: [split({ state: 'closed', balance_minor: 0 })], blocks: [] })] }));
     expect(v.buttons().some((b) => ['Split', 'Discount', 'Remove'].includes(b.textContent ?? ''))).toBe(false);
