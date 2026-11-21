@@ -16,7 +16,8 @@
 //   7 open bills (X only);
 //   8 the staff names of every staff id in the report, from `staff_names` (X only; H16-5: names at render only).
 // The Z build (`loadReportInput` with kind 'z', task 25's appender, §6.25 ≤ 6) runs statements 1–6 only.
-// The Z list is 1 statement with a cursor (F §6.3), the stored `ZReportIssued.report` and its staff names.
+// The Z list is 1 statement with a cursor (F §6.3), the stored `ZReportIssued.report` and its staff names, and
+// (05 v1.0.32 R-93) each Z's `print` state in the same statement.
 // Logs carry ids only: `buildReport`'s warnings go to the hub log as { code, reopen_id, credit_invoice_id }.
 import { buildReport, DomainError, type ReportDocInput, type ReportInput, type ReportWarning } from '@pos/domain';
 import type { BranchConfig } from '@pos/events';
@@ -25,6 +26,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { StaffDirectory } from '../../auth/staff-directory.js';
 import { tableLabel } from '../../kds/details.js';
+import type { DocumentJobState } from '../../print/document-jobs.js';
 import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registry.js';
 import { hubBilling } from '../defaults.js';
 import { NOT_IN_CORRECTIONS } from './open-bills.js';
@@ -217,10 +219,31 @@ const NAMES = `SELECT staff_id, display_name FROM staff_names WHERE staff_id IN 
 
 // Z list (1): newest first by number, the stored report and the names of its staff ids (json_tree over the report).
 const STAFF_KEYS = `('staff_id', 'requester_staff_id', 'approver_staff_id', 'taken_by_staff_id', 'advance_staff_id')`;
+// 05 v1.0.32 §6.26 (R-93, G-96): each Z's `print`, in the same statement — the Z's latest `bill_print_jobs` row
+// (`doc_kind 'report'`, `ref_id` = its date, written at or after its `issued_at` and before a later Z of the same date
+// was issued: the live fold's `<event_id>:z` and every PrintReport of that Z) whose 03c job is a 'Z report' (an X of a
+// second session on the same date is also `report` + the date), with the job's state (03c §3.7's derivation, as
+// print/document-jobs.ts STATE_SQL; #67b pins them equal) and its printer's name. The 03c row gone (retention deletes
+// done jobs after 7 days) → 'expired', printer null. No row → NULL (no Z job written: not printed). Ids, state and
+// printer name only (never last_error).
+const Z_PRINT = `
+(SELECT json_object('job_id', b.job_id,
+          'state', CASE WHEN pj.job_id IS NULL THEN 'expired' WHEN pj.cancelled_at IS NOT NULL THEN 'cancelled'
+                        WHEN pj.acked_at IS NOT NULL THEN 'printed' WHEN pj.sent_at IS NOT NULL THEN 'printing'
+                        WHEN pj.attempts > 0 THEN 'failed' ELSE 'waiting' END,
+          'printer_name', p.name)
+   FROM bill_print_jobs b
+   LEFT JOIN print_jobs pj ON pj.job_id = b.job_id AND pj.kind = 'document'
+   LEFT JOIN printers p ON p.printer_id = pj.printer_id
+  WHERE b.bill_id IS NULL AND b.doc_kind = 'report' AND b.ref_id = z.business_date AND b.created_at >= z.issued_at
+    AND NOT EXISTS (SELECT 1 FROM z_reports l WHERE l.business_date = z.business_date AND l.z_no > z.z_no AND l.issued_at <= b.created_at)
+    AND (pj.job_id IS NULL OR json_extract(pj.payload, '$.kind_label') = 'Z report')
+  ORDER BY b.created_at DESC, b.job_id DESC LIMIT 1)`;
 const Z_LIST = `
 SELECT z.business_date, z.z_no, z.issued_at, z.report_json,
        (SELECT json_group_object(n.staff_id, n.display_name) FROM staff_names n
-         WHERE n.staff_id IN (SELECT j.value FROM json_tree(z.report_json) j WHERE j.key IN ${STAFF_KEYS} AND j.type = 'text')) AS names
+         WHERE n.staff_id IN (SELECT j.value FROM json_tree(z.report_json) j WHERE j.key IN ${STAFF_KEYS} AND j.type = 'text')) AS names,
+       ${Z_PRINT} AS print_json
 FROM z_reports z
 WHERE (@business_date IS NULL OR z.business_date = @business_date) AND (@before IS NULL OR z.z_no < @before)
 ORDER BY z.z_no DESC LIMIT @limit`;
@@ -230,6 +253,7 @@ interface ZRow {
   issued_at: number;
   report_json: string;
   names: string;
+  print_json: string | null;
 }
 
 // ------------------------------------------------------------------------------------------------ the build
@@ -455,9 +479,22 @@ export interface XReportView {
   staff_names: Record<string, string>;
 }
 
+/** 05 v1.0.32 §6.26 (R-93): the state of a Z's latest print job; 'expired' = its 03c row was swept by retention. */
+export type ZPrintState = DocumentJobState | 'expired';
+
+/** 05 v1.0.32 §6.26 (R-93): the Z's latest print job; ids, state and printer name only. */
+export interface ZPrintView {
+  job_id: string;
+  state: ZPrintState;
+  /** the job's current printer's name; null when 'expired' or the printer row is gone */
+  printer_name: string | null;
+}
+
 export interface ZReportView extends XReportView {
   business_date: string;
   z_no: number;
+  /** 05 v1.0.32 §6.26 (R-93): null = no Z print job was written (no `report` / `default` route and no print since) */
+  print: ZPrintView | null;
 }
 
 function requireViewReports(directory: StaffDirectory, staffId: string | null): void {
@@ -515,6 +552,7 @@ export function zReports(ctx: QueryCtx, q: z.infer<typeof ZReportsQuery>): { dat
         z_no: r.z_no,
         report: JSON.parse(r.report_json) as ReportDocInput,
         staff_names: JSON.parse(r.names) as Record<string, string>,
+        print: r.print_json === null ? null : (JSON.parse(r.print_json) as ZPrintView),
       })),
     },
     meta: { next_cursor: more ? encodeZCursor(page.at(-1)!.z_no) : null },
