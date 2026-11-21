@@ -70,6 +70,8 @@ export interface BillViewPayment {
   has_reference: boolean;
   reference?: string | null;
   taken_by_name: string | null;
+  /** ⚠️ 05 v1.0.29 (R-90): the taker's staff id, so the client decides "own payment" for RemovePayment by id (§6.10). */
+  taken_by_staff_id: string;
 }
 
 export interface BillViewSplit {
@@ -79,7 +81,8 @@ export interface BillViewSplit {
   payments: BillViewPayment[];
   totals: { cash: Totals; digital: Totals; as_paid: Totals };
   balance_minor: number;
-  invoice: { invoice_ref: string; fiscal_number: string | null; fiscal_state: string | null } | null;
+  /** ⚠️ 05 v1.0.29 (R-90): `invoice_id` is the `ref_id` of PrintBillDocument { doc: 'receipt' } (§6.22). */
+  invoice: { invoice_id: string; invoice_ref: string; fiscal_number: string | null; fiscal_state: string | null } | null;
 }
 
 export interface BillView {
@@ -456,6 +459,7 @@ export function paymentView(p: PaymentRow, o: { modeName: ReadonlyMap<string, st
     has_reference: p.has_reference === 1,
     ...(o.full ? { reference: p.reference } : {}),
     taken_by_name: o.directory.get(p.taken_by_staff_id)?.display_name ?? null,
+    taken_by_staff_id: p.taken_by_staff_id,
   };
 }
 
@@ -469,7 +473,8 @@ export function closedSplitView(s: SplitRow, splitMode: BillHead['split_mode'], 
     payments,
     totals: { cash: t, digital: t, as_paid: t },
     balance_minor: 0,
-    invoice: s.invoice_ref === null ? null : { invoice_ref: s.invoice_ref, fiscal_number: s.fiscal_number, fiscal_state: s.fiscal_state },
+    // the joined invoice row matched `s.invoice_id` (SPLITS_OF_BILL), so it is set whenever `invoice_ref` is (R-90)
+    invoice: s.invoice_ref === null || s.invoice_id === null ? null : { invoice_id: s.invoice_id, invoice_ref: s.invoice_ref, fiscal_number: s.fiscal_number, fiscal_state: s.fiscal_state },
   };
 }
 
