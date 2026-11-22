@@ -1,6 +1,6 @@
 # STAB-5 proposal: one kitchen line per unit on slot stations ("B2")
 
-Status: **PROPOSAL, awaiting owner review** (2026-11-22). Nothing here is built. After the owner's OK each spec named
+Status: **PROPOSAL, owner answered §6 (2026-11-22); awaiting the owner's OK of the whole proposal** (2026-11-22). Nothing here is built. After the owner's OK each spec named
 below gets its own version bump (spec first), then the code, TDD.
 
 ## 1. Problem (owner reports, 2026-11-22)
@@ -68,7 +68,7 @@ per-part share; the rounding rule of 05 §3 applies per part, the sum stays exac
 
 - **KDS station view:** siblings in the same stage show as one row "Karahi ×3" with the stage; parts in different
   stages show as separate rows ("×3 cooking", "×1 waiting"). **Done on a grouped row marks one part** (each pot
-  finishes on its own); a "Done all n" action marks every part of the row. Start likewise.
+  finishes on its own); a "Done all n" action marks every part of the row. Start likewise. **Owner 2026-11-22 (Q1 = b): Done (and Start) on a grouped row act on every part of that row at once** — one tap, all parts in that stage; parts in another stage are their own row.
 - **Pass card:** one row per `part_of` with the count per stage ("3 done · 1 cooking"); the Ready pick sheet
   (03b v1.0.10) lists the group with a count stepper ("2 of 4").
 - **Tickets / printing (03c):** one ticket row per group with its count, as today's "×n".
@@ -95,6 +95,7 @@ not split (batch, weighed); a slot-station line has one unit.
 | 03c Printing | patch | ticket rows grouped by `part_of` |
 | 04 Voids + Audit | patch | void / return by count on a grouped row; parts picked latest stage first |
 | 05 Billing | v1.0.33 | bill, receipt, reports, fiscal grouped by `part_of`; discount / comp share per part |
+| 01a Restaurant Setup | patch | branch setting `show_part_times_to_customers` (default true), owner-app toggle (Q2) |
 | `@pos/events` | — | `ItemAdded.part_of?: string` (additive, v1) |
 
 No migration is expected (`order_lines` holds one row per part; grouping is a read-time `GROUP BY part_of`). If 05's
@@ -112,7 +113,18 @@ fiscal invoice needs a stored group, that is decided in 05's bump.
 6. Bill / receipt / Z group the parts into one row with the exact total.
 7. Remove / void / return "1 of 4" picks the latest-stage part.
 
-## 6. Questions for the owner
+## 6. Questions for the owner — answered 2026-11-22
+
+- **Q1 = b:** Done / Start on a grouped KDS row act on all its parts at once (§3.5).
+- **Q2 = customers too, behind a setting, on by default:** a new branch setting (01a) **`show_part_times_to_customers`**,
+  default **true**. When on, the per-part ready times ("4 ready ~2:20 PM · 1 ready ~2:40 PM") are printed on the
+  customer's takeaway token / receipt (03c, 05) as well as shown to staff; off → customers see only the order's
+  promise. There is no customer display screen today; one belongs to the later screens feature
+  (`docs/stories/screens-parking-qr-refined.md`) and will read the same setting. Adds 01a to §4 (branch setting,
+  owner app toggle).
+- **Q3 = a:** orders already open when this ships stay as they are.
+
+Original questions:
 
 1. **Done on a grouped KDS row:** one part per tap (recommended: each pot finishes on its own) with a "Done all", or
    all parts at once?
