@@ -135,3 +135,20 @@ Original questions:
 ## 7. Out of scope
 
 Batch-station loads, weighed items, zone stock, and any change to the engine's placement rules.
+
+## 8. Serve choice at send (owner 2026-11-22: option C, "Ok")
+
+Each kitchen line already carries `serve_mode` ('sync' = served together, 'immediate' = as ready), copied from the
+menu item. The waiter can now choose it when sending:
+
+- **Order switch** next to Send: "Serve: Together / As ready". It starts at the lines' menu settings; when they differ
+  it shows "Mixed" until tapped. Setting it sets every line that has no override.
+- **Line override** inside the line's edit sheet only (with options and the note), never on the cart row; an
+  overridden line shows a small badge. **A line override always wins**; changing the order switch never clears it.
+- `SubmitOrder` gains optional `serve_mode` on the order and on each line (additive); the hub copies the chosen mode
+  to the line's `ItemAdded.serve_mode` instead of the item's. No engine change, no migration.
+- Shown to the kitchen (KDS / Pass mark the mode) and the customer (slip: "Served together ~2:40" or the per-part
+  times, under `show_part_times_to_customers`).
+- Per-part ready times differ only for "as ready" lines; "together" lines of an order land together (03a sync groups).
+
+Specs: 02b (payload, §3.2, order screen), 03b (mode on KDS / Pass), 03c / 05 (slip text).

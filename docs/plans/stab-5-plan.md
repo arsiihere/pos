@@ -24,6 +24,11 @@ Source: `docs/plans/stab-b2-unit-split-proposal.md` (APPROVED, owner 2026-11-22)
 Cart: per-part times "4 ready ~2:20 PM · 1 ready ~2:40 PM" from the preview; order view and open-orders group parts by
 `part_of`; remove by count (latest stage first).
 
+## Phase 2b — serve choice at send (02b; proposal §8, owner option C)
+
+`SubmitOrder` optional `serve_mode` on the order and on each line (a line wins); the order screen's switch next to Send
+(Together / As ready / Mixed) and the line override in the edit sheet with a badge.
+
 ## Phase 3 — KDS, Pass, tickets (03b v1.0.11, 03c)
 
 Grouped rows by `part_of` and stage; Start / Done on a grouped row act on all its parts (owner Q1 = b); Pass counts and
