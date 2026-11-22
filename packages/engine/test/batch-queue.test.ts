@@ -225,3 +225,48 @@ describe('[03a v1.2.10 §3.10 BQ-5] capacity drop as a cascade', () => {
   });
 });
 
+describe('[03a v1.2.10 §3.3 BQ-1, §10.3g #143 property] arrival order on random days', () => {
+  // m-2 scope: immediate one-unit lines (per-unit parts) on one batch station, no capacity drop, no boost, no priority.
+  // Random orders (1–6 parts) on the 15 s grid, Start tapped 0–3 min after each fire (two_tap, so loads slide).
+  function prng(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let x = a;
+      x = Math.imul(x ^ (x >>> 15), x | 1);
+      x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+      return ((x ^ (x >>> 14)) >>> 0) / 4_294_967_296;
+    };
+  }
+  it('[03a #143] property, 50 seeds: round(u) ≤ round(v) whenever u arrived before v; live = replay', () => {
+    for (let seed = 1; seed <= 50; seed += 1) {
+      const r = prng(14_300 + seed);
+      const used = new Set<number>();
+      const orders: Array<[string, number, number]> = [];
+      for (let k = 0; k < 14; k += 1) {
+        let q = Math.floor(r() * 80); // quarter-minutes in [0, 20)
+        while (used.has(q)) q = (q + 1) % 80;
+        used.add(q);
+        orders.push([`Q${String.fromCharCode(65 + k)}`, 1 + Math.floor(r() * 6), q / 4]);
+      }
+      const delays = Array.from({ length: 64 }, () => Math.floor(r() * 13) * 15_000);
+      const run = runRounds(queueFryer(), orders, { until: 60, startAfter: (i) => delays[i % delays.length]! });
+      // arrival key: placement time, then order id, then part index
+      const key = new Map<string, [number, string, number]>();
+      for (const [oid, n, min] of orders) for (let i = 1; i <= n; i += 1) key.set(`${oid}${i}`, [min, oid, i]);
+      const round = new Map<string, number>();
+      run.fires.forEach((f, i) => f.ids.forEach((id) => round.set(id, i)));
+      expect(round.size, `seed ${seed}: every part fired`).toBe(key.size);
+      const ids = [...key.keys()].sort((a, b) => {
+        const [ta, oa, ia] = key.get(a)!;
+        const [tb, ob, ib] = key.get(b)!;
+        return ta - tb || (oa < ob ? -1 : oa > ob ? 1 : 0) || ia - ib;
+      });
+      for (let i = 1; i < ids.length; i += 1) {
+        expect(round.get(ids[i - 1]!)!, `seed ${seed}: ${ids[i - 1]} before ${ids[i]}`).toBeLessThanOrEqual(round.get(ids[i]!)!);
+      }
+      expect(withoutDiag(buildEngineState([queueConfig(), ...run.events].map((e) => parseEvent(e)))), `seed ${seed} live = replay`).toEqual(withoutDiag(run.state));
+    }
+  }, 120_000);
+});
+

@@ -214,7 +214,7 @@ export type RoundRun = { state: EngineState; fires: RoundFire[]; events: PosEven
 export function runRounds(
   state: EngineState,
   orders: ReadonlyArray<readonly [string, number, number, Partial<Omit<BItem, 'id'>>?]>,
-  o: { until: number; startAfter?: number | null; extra?: (s: EngineState, t: number) => PosEvent[] },
+  o: { until: number; startAfter?: number | null | ((fire: number) => number); extra?: (s: EngineState, t: number) => PosEvent[] },
 ): RoundRun {
   let s = state;
   const fires: RoundFire[] = [];
@@ -271,7 +271,7 @@ export function runRounds(
       if (p.station_id !== 'F') continue;
       fires.push({ at: t, load_id: p.load_id, ids: [...p.order_item_ids] });
       if (o.startAfter !== undefined && o.startAfter !== null) {
-        const k = t + o.startAfter;
+        const k = t + (typeof o.startAfter === 'function' ? o.startAfter(fires.length - 1) : o.startAfter);
         startAt.set(k, [...(startAt.get(k) ?? []), ...p.order_item_ids]);
       }
     }
