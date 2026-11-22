@@ -110,6 +110,8 @@ describe('menu item create', () => {
       max_carry_ms: null,
       max_late_ms: null,
       adjust_time_ms: 180000,
+      max_delay_ms: null, // ⚠️ 01a v2.7.5 MD-4 (STAB-7)
+      max_delay_unlimited: false,
       goes_with: [],
       archived_at: null,
       routes: [{ branch_id: f.branches[0], station_id: menu.slotStationId, program_id: null, stock_program_id: null, price_minor_override: null }],

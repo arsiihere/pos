@@ -1124,6 +1124,8 @@ export interface MenuItemRow {
   max_carry_ms: number | null;
   max_late_ms: number | null;
   adjust_time_ms: number;
+  max_delay_ms: number | null; // 01a v2.7.5 MD-1 (STAB-7)
+  max_delay_unlimited: boolean;
   archived_at: number | null;
 }
 
@@ -1147,7 +1149,7 @@ const MENU_ITEM_COLUMNS =
   'item_id, category_id, tax_class_id, name, group_label, variant_group_id, variant_name, description, sort_order, ' +
   'price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms, out_of_stock_behaviour, stock_unit, sale_unit, ' +
   'stock_per_sale_unit, low_stock_threshold, carries_over, requires_weighing, is_ready_item, ' +
-  'weight_pct, max_early_ms, max_carry_ms, max_late_ms, adjust_time_ms, archived_at';
+  'weight_pct, max_early_ms, max_carry_ms, max_late_ms, adjust_time_ms, max_delay_ms, max_delay_unlimited, archived_at';
 
 // 01c §6 lock order 3: an item's variant group FOR SHARE (§6.4 reference), with what §3.3 checks against.
 export async function shareVariantGroup(
@@ -1279,9 +1281,10 @@ export async function insertMenuItem(
                              description, sort_order, price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms,
                              out_of_stock_behaviour, stock_unit, sale_unit, stock_per_sale_unit, low_stock_threshold,
                              carries_over, requires_weighing, created_at, updated_at,
-                             weight_pct, max_early_ms, max_carry_ms, max_late_ms, adjust_time_ms, is_ready_item)
+                             weight_pct, max_early_ms, max_carry_ms, max_late_ms, adjust_time_ms, is_ready_item,
+                             max_delay_ms, max_delay_unlimited)
      SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $23,
-            $24, $25, $26, $27, $28, $29
+            $24, $25, $26, $27, $28, $29, $30, $31
        FROM tenants WHERE tenant_id = $1
      RETURNING ${MENU_ITEM_COLUMNS}`,
     [
@@ -1313,6 +1316,8 @@ export async function insertMenuItem(
       item.max_late_ms,
       item.adjust_time_ms,
       item.is_ready_item,
+      item.max_delay_ms,
+      item.max_delay_unlimited,
     ],
   );
   return menuItemRow(rows[0]!);
@@ -1343,7 +1348,7 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
                            stock_per_sale_unit = $17, low_stock_threshold = $18, carries_over = $19, archived_at = $20,
                            updated_at = $21, variant_group_id = $22, variant_name = $23, requires_weighing = $24,
                            weight_pct = $25, max_early_ms = $26, max_carry_ms = $27, max_late_ms = $28, adjust_time_ms = $29,
-                           is_ready_item = $30
+                           is_ready_item = $30, max_delay_ms = $31, max_delay_unlimited = $32
       WHERE tenant_id = $1 AND item_id = $2
       RETURNING ${MENU_ITEM_COLUMNS}`,
     [
@@ -1376,6 +1381,8 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
       item.max_late_ms,
       item.adjust_time_ms,
       item.is_ready_item,
+      item.max_delay_ms,
+      item.max_delay_unlimited,
     ],
   );
   return menuItemRow(rows[0]!);

@@ -31,7 +31,7 @@ function dish(id: string, name: string, extra: Partial<MenuItem> = {}): MenuItem
     sort_order: 0, price_minor: 115_000, serve_mode: 'immediate', prep_buffer_ms: 0, cook_time_ms: 600_000,
     stock_time_ms: null, out_of_stock_behaviour: 'cook_fresh', sale_unit: 'piece', requires_weighing: false, is_ready_item: false,
     stock_draws: [], availability_windows: [], weight_pct: 100, max_early_ms: 60_000, max_carry_ms: null,
-    max_late_ms: null, adjust_time_ms: 180_000, goes_with: [], archived_at: null, routes: [], ...extra,
+    max_late_ms: null, adjust_time_ms: 180_000, max_delay_ms: null, max_delay_unlimited: false, goes_with: [], archived_at: null, routes: [], ...extra,
   };
 }
 const link = (target_kind: 'category' | 'item', target_id: string, excluded = false) => ({
