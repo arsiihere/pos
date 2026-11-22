@@ -2,8 +2,8 @@
 // session is refused by the route: not stationScoped, 403 PERMISSION_DENIED { session_kind: 'station' }). Not
 // queueable (§3.2 "all four", the Pass is online). Engine data from memory; the alert through 01d's alerts.raise.
 import { DomainError, UNDO_DONE_MS, type Identifier } from '@pos/domain';
-import { isOrderInEngine } from '@pos/engine';
-import { HUB_ENGINE_SETTING_DEFAULTS, type EventDraft, type ReadyToServePayload, type ReadyToServeUndonePayload } from '@pos/events';
+import { isOrderInEngine, stockEffects, type EngineState } from '@pos/engine';
+import { HUB_ENGINE_SETTING_DEFAULTS, ReadyToServeV2, type EventDraft, type ReadyToServePayload, type ReadyToServePayloadV2, type ReadyToServeUndonePayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -15,9 +15,16 @@ import { branchConfig } from '../../sync/branch-config-holder.js';
 import { currentTableOf } from '../../tables/reads.js';
 import { pointOfLine, tableLabel } from '../details.js';
 import { READY_TO_SERVE_KIND } from '../kinds.js';
+import { envelopeOf } from './start-done.js';
 
 export const ReadyPayload = z.object({ order_id: z.string().min(1), point_id: z.string().min(1) });
 type Payload = z.infer<typeof ReadyPayload>;
+// ⚠️ 03b v1.0.10 §6.6 (STAB-2): the lines to make ready (additive); absent → the done ones.
+export const MarkReadyPayload = ReadyPayload.extend({ order_item_ids: z.array(z.string().min(1)).min(1).max(40).optional() });
+type MarkPayload = z.infer<typeof MarkReadyPayload>;
+
+/** 03b v1.0.10 §3.5 step 5: at most this many lines on the waiter's card (`details.lines`). */
+const CARD_LINES_MAX = 20;
 
 /** Engine stages of a live line (§3.4: served / removed / voided / returned lines drop off). */
 const LIVE_STAGES = new Set(['added', 'cooking', 'done']);
@@ -60,6 +67,7 @@ function openReady(db: Database.Database, order_id: string, point_id: string): {
 }
 
 interface OrderFacts {
+  lines_json: string;
   order_type: 'dine_in' | 'takeaway' | 'parking';
   placed_by: string;
   business_date: string;
@@ -78,6 +86,8 @@ export interface PassOrder {
   table_code: string | null;
   /** §3.1 identifier text, ≤ 40 (D-2 `details.identifier`) */
   identifier: string;
+  /** 03b v1.0.10 §3.5 step 5: each line's name and live units (`order_lines`, same statement) */
+  names: Map<string, { name: string; units: number }>;
 }
 
 /**
@@ -86,27 +96,34 @@ export interface PassOrder {
  */
 export function passOrderFacts(ctx: CommandCtx, order_id: string): PassOrder {
   const row = ctx.tx.db
-    .prepare('SELECT order_type, placed_by, business_date, token, car_number, car_type FROM orders WHERE order_id = ?')
+    .prepare(
+      `SELECT order_type, placed_by, business_date, token, car_number, car_type,
+              (SELECT json_group_array(json_object('id', l.order_item_id, 'name', l.name, 'units', l.units - l.removed_units - l.voided_units))
+                 FROM order_lines l WHERE l.order_id = orders.order_id) AS lines_json
+         FROM orders WHERE order_id = ?`,
+    )
     .get(order_id) as OrderFacts | undefined;
   // In the engine but no 02b row (an order logged before 02b): 02b orders are the only orders a Pass serves.
   if (row === undefined) throw new DomainError('ORDER_NOT_IN_ENGINE', { order_id });
+  const names = new Map((JSON.parse(row.lines_json) as Array<{ id: string; name: string; units: number }>).map((l) => [l.id, { name: l.name, units: l.units }] as const));
   if (row.order_type !== 'dine_in') {
-    return { order_type: row.order_type, placed_by: row.placed_by, table_id: null, table_code: null, identifier: identifierText(identifierOf(ctx, row, null)) };
+    return { order_type: row.order_type, placed_by: row.placed_by, table_id: null, table_code: null, identifier: identifierText(identifierOf(ctx, row, null)), names };
   }
   const seating = currentTableOf(ctx.tx.db, [order_id]).get(order_id);
   const ids =
     seating === undefined
       ? [ctx.state.orders[order_id]?.table_id].filter((t): t is string => typeof t === 'string')
       : [seating.primary_table_id, ...seating.table_ids.filter((t) => t !== seating.primary_table_id)];
-  const names = new Map((branchConfig()?.floors ?? []).flatMap((f) => f.tables.map((t) => [t.table_id, t.name] as const)));
+  const tableNames = new Map((branchConfig()?.floors ?? []).flatMap((f) => f.tables.map((t) => [t.table_id, t.name] as const)));
   const primary = ids[0] ?? null;
-  const primaryName = primary === null ? null : (names.get(primary) ?? primary);
+  const primaryName = primary === null ? null : (tableNames.get(primary) ?? primary);
   return {
     order_type: row.order_type,
     placed_by: row.placed_by,
     table_id: primary,
     table_code: primaryName !== null && /^[0-9]+$/.test(primaryName) ? primaryName : null,
-    identifier: identifierText({ kind: 'table', label: ids.map((t) => tableLabel(names.get(t) ?? t)).join(' + ') }),
+    identifier: identifierText({ kind: 'table', label: ids.map((t) => tableLabel(tableNames.get(t) ?? t)).join(' + ') }),
+    names,
   };
 }
 
@@ -134,19 +151,92 @@ export function identifierText(identifier: Identifier): string {
 
 const dedupeKey = (order_id: string, point_id: string, table_id: string | null): string => `${order_id}:${point_id}:${table_id ?? '-'}`;
 
-function draft(ctx: CommandCtx, order_id: string, event_type: string, payload: ReadyToServePayload | ReadyToServeUndonePayload, now: number): EventDraft {
-  return { stream_type: 'order', stream_id: order_id, event_type, schema_version: 1, payload, occurred_at: now, actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
+function draft(ctx: CommandCtx, order_id: string, event_type: string, payload: ReadyToServePayloadV2 | ReadyToServeUndonePayload, now: number): EventDraft {
+  const schema_version = event_type === 'ReadyToServe' ? 2 : 1; // 03b v1.0.10 §6.22: ReadyToServe v2
+  return { stream_type: 'order', stream_id: order_id, event_type, schema_version, payload, occurred_at: now, actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
+}
+
+/**
+ * §3.5 steps 4–6 for `lines`: raise the ready alert under `key` (its card lists the lines, 03b v1.0.10) and draft the
+ * `ReadyToServe` v2. 1 statement (`orders` with its line names) + 1 `currentTableOf` for a dine-in; + 01d's raise.
+ */
+function raiseReady(
+  ctx: CommandCtx,
+  o: { order_id: string; point_id: string; point_name: string; lines: string[]; added: string[]; forced: string[]; suffix: string },
+  now: number,
+): { events: EventDraft[]; alert_id: string; deduped: boolean } {
+  const order = passOrderFacts(ctx, o.order_id);
+  const target =
+    order.order_type === 'dine_in' && order.table_id !== null
+      ? ({ kind: 'table_team', table_id: order.table_id, depth: 'direct' } as const)
+      : ({ kind: 'person', staff_id: order.placed_by } as const);
+  const window_ms = branchConfig()?.engine_settings.ready_window_ms ?? HUB_ENGINE_SETTING_DEFAULTS.ready_window_ms;
+  const cardLines = o.lines.slice(0, CARD_LINES_MAX).map((id) => {
+    const n = order.names.get(id);
+    return { name: n?.name ?? id, quantity: Math.max(1, n?.units ?? 1), state: 'ready' };
+  });
+  const raised = alerts.raise(ctx, {
+    kind: READY_TO_SERVE_KIND,
+    subject: { stream_type: 'order', stream_id: o.order_id },
+    target,
+    values: { order_id: o.order_id, point_id: o.point_id, table_id: order.table_id ?? '', window_ms },
+    display: { table_code: order.table_code, point_code: o.point_name, kind_label_key: 'alert.ready_to_serve' },
+    details: { identifier: order.identifier, lines: cardLines },
+    dedupe_key: dedupeKey(o.order_id, o.point_id, order.table_id) + o.suffix,
+  });
+  if (raised.deduped) return { events: [], alert_id: raised.alert_id, deduped: true };
+  const p: ReadyToServePayloadV2 = {
+    order_id: o.order_id,
+    point_id: o.point_id,
+    order_item_ids: o.lines,
+    added_ids: o.added,
+    forced_ids: o.forced,
+    table_id: order.table_id,
+    alert_id: raised.alert_id,
+  };
+  return { events: [...raised.events, draft(ctx, o.order_id, 'ReadyToServe', p, now)], alert_id: raised.alert_id, deduped: false };
 }
 
 // ------------------------------------------------------------------------------------------- §6.6
 
-type MarkResult = { alert_id: string; already?: true };
+type MarkResult = { alert_id: string; already?: true; forced?: string[] };
+
+/** 1 statement: the open Ready of (order, point) with its unsettled own lines (`pass_orders` ⋈ `pass_ready_lines`). */
+function openReadyLines(db: Database.Database, order_id: string, point_id: string): { ready_alert_id: string; lines: Set<string> } | undefined {
+  const row = db
+    .prepare(
+      `SELECT p.ready_alert_id,
+              (SELECT json_group_array(r.order_item_id) FROM pass_ready_lines r
+                WHERE r.order_id = p.order_id AND r.point_id = p.point_id AND r.settled_at IS NULL) AS lines
+         FROM pass_orders p WHERE p.order_id = ? AND p.point_id = ? AND p.ready_alert_id IS NOT NULL`,
+    )
+    .get(order_id, point_id) as { ready_alert_id: string; lines: string } | undefined;
+  return row === undefined ? undefined : { ready_alert_id: row.ready_alert_id, lines: new Set(JSON.parse(row.lines) as string[]) };
+}
+
+/** §3.2 DoneItem's drafts for one line (03b v1.0.10 §3.5 step 2a): ItemDone (tap) + its stockEffects; no confirm, no load. */
+function forcedDones(ctx: CommandCtx, ids: readonly string[], now: number): EventDraft[] {
+  if (ids.length === 0) return [];
+  const envelope = envelopeOf(ctx, now);
+  const dones = ids.map(
+    (order_item_id): EventDraft => ({
+      stream_type: 'order',
+      stream_id: ctx.state.lines[order_item_id]!.order_id,
+      event_type: 'ItemDone',
+      schema_version: 1,
+      payload: { order_item_id, done_at: now, source: 'tap' },
+      ...envelope,
+    }),
+  );
+  return stockEffects(ctx.state as EngineState, dones).map((d): EventDraft => ({ ...envelope, ...d }) as EventDraft);
+}
 
 /**
- * §3.5 MarkReadyToServe. Statements 4 (dine-in): `handover_lines`, `pass_orders`, `orders`, `currentTableOf`; 3 for a
- * takeaway / parking (no table read); + 01d's raise.
+ * §3.5 MarkReadyToServe (⚠️ 03b v1.0.10, STAB-2: picked lines, forced Dones, extend). Statements 4 (dine-in):
+ * `handover_lines`, `pass_orders` ⋈ `pass_ready_lines`, `orders` (+ line names), `currentTableOf`; 3 for a takeaway /
+ * parking; + 01d's raise and close.
  */
-function markReadyToServe(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; result: MarkResult } {
+function markReadyToServe(ctx: CommandCtx, payload: MarkPayload): { events: EventDraft[]; result: MarkResult } {
   const now = ctx.clock.branchNow();
   const { order_id, point_id } = payload;
   const point = livePoint(point_id);
@@ -154,37 +244,38 @@ function markReadyToServe(ctx: CommandCtx, payload: Payload): { events: EventDra
 
   const atPoint = linesAtPoint(ctx, order_id, point_id);
   const handed = atPoint.length === 0 ? new Set<string>() : handedOver(ctx.tx.db, atPoint);
-  const readyLines = atPoint.filter((id) => !handed.has(id));
-  if (readyLines.length === 0) throw new DomainError('ITEM_WRONG_STAGE', { order_id, stage: 'served' });
+  const candidates = atPoint.filter((id) => !handed.has(id));
+  const isCandidate = new Set(candidates);
+  const asked = payload.order_item_ids === undefined ? null : [...new Set(payload.order_item_ids)];
+  for (const id of asked ?? []) {
+    if (isCandidate.has(id)) continue;
+    const stage = handed.has(id) ? 'handed_over' : (ctx.state.lines[id]?.stage ?? 'unknown');
+    throw new DomainError('ITEM_WRONG_STAGE', { order_item_id: id, stage });
+  }
+  if (candidates.length === 0) throw new DomainError('ITEM_WRONG_STAGE', { order_id, stage: 'served' });
 
-  const open = openReady(ctx.tx.db, order_id, point_id);
-  if (open !== undefined) return { events: [], result: { alert_id: open.ready_alert_id, already: true } };
-
-  const order = passOrderFacts(ctx, order_id);
-  const target =
-    order.order_type === 'dine_in' && order.table_id !== null
-      ? ({ kind: 'table_team', table_id: order.table_id, depth: 'direct' } as const)
-      : ({ kind: 'person', staff_id: order.placed_by } as const);
-  const window_ms = branchConfig()?.engine_settings.ready_window_ms ?? HUB_ENGINE_SETTING_DEFAULTS.ready_window_ms;
-  const raised = alerts.raise(ctx, {
-    kind: READY_TO_SERVE_KIND,
-    subject: { stream_type: 'order', stream_id: order_id },
-    target,
-    values: { order_id, point_id, table_id: order.table_id ?? '', window_ms },
-    display: { table_code: order.table_code, point_code: point.name, kind_label_key: 'alert.ready_to_serve' },
-    details: { identifier: order.identifier },
-    dedupe_key: dedupeKey(order_id, point_id, order.table_id),
-  });
+  const open = openReadyLines(ctx.tx.db, order_id, point_id);
+  const stageOf = (id: string): string => ctx.state.lines[id]!.stage;
+  const picked = (asked ?? candidates.filter((id) => stageOf(id) === 'done')).filter((id) => open === undefined || !open.lines.has(id));
+  if (picked.length === 0) {
+    if (open !== undefined) return { events: [], result: { alert_id: open.ready_alert_id, already: true } };
+    throw new DomainError('ITEM_WRONG_STAGE', { order_id, stage: stageOf(candidates[0]!) });
+  }
+  const forced = picked.filter((id) => stageOf(id) !== 'done');
+  const taken = new Set([...picked, ...(open === undefined ? [] : [...open.lines].filter((id) => isCandidate.has(id)))]);
+  const lines = candidates.filter((id) => taken.has(id)); // the order's line order
+  // Step 3: extend — the open alert still holds the base key in this transaction, so the new one takes a suffix.
+  const closed = open === undefined ? [] : alerts.close(ctx, open.ready_alert_id, 'obsolete');
+  const raised = raiseReady(ctx, { order_id, point_id, point_name: point.name, lines, added: picked, forced, suffix: open === undefined ? '' : `:+${picked[0]}` }, now);
   // An open alert under the same key with no open pass_orders row cannot be built by 03b's commands; treat as step 3.
   if (raised.deduped) return { events: [], result: { alert_id: raised.alert_id, already: true } };
-
-  const p: ReadyToServePayload = { order_id, point_id, order_item_ids: readyLines, table_id: order.table_id, alert_id: raised.alert_id };
-  return { events: [...raised.events, draft(ctx, order_id, 'ReadyToServe', p, now)], result: { alert_id: raised.alert_id } };
+  const events = [...forcedDones(ctx, forced, now), ...closed, ...raised.events];
+  return { events, result: { alert_id: raised.alert_id, ...(forced.length === 0 ? {} : { forced }) } };
 }
 
 export const markReadyToServeCommand = defineCommand({
   commandType: 'MarkReadyToServe',
-  payloadSchema: ReadyPayload,
+  payloadSchema: MarkReadyPayload,
   sessionKind: 'device',
   permission: 'run-pass',
   handle: (ctx, payload) => markReadyToServe(ctx, payload),
@@ -192,15 +283,31 @@ export const markReadyToServeCommand = defineCommand({
 
 // ------------------------------------------------------------------------------------------- §6.7
 
+/** 1 statement (`events_stream`): the latest `ReadyToServe` of (order, point), read as v2 (03b v1.0.10 §6.7). */
+function latestReady(db: Database.Database, order_id: string, point_id: string): ReadyToServePayloadV2 | undefined {
+  const row = db
+    .prepare(
+      `SELECT schema_version, payload FROM events
+        WHERE stream_type = 'order' AND stream_id = ? AND event_type = 'ReadyToServe' AND json_extract(payload, '$.point_id') = ?
+        ORDER BY seq DESC LIMIT 1`,
+    )
+    .get(order_id, point_id) as { schema_version: number; payload: string } | undefined;
+  if (row === undefined) return undefined;
+  const payload = JSON.parse(row.payload) as unknown;
+  return row.schema_version >= 2 ? (payload as ReadyToServePayloadV2) : (ReadyToServeV2.upcastFromPrevious!(payload as ReadyToServePayload) as ReadyToServePayloadV2);
+}
+
 /**
- * §3.5 UndoReadyToServe: an open Ready, `now − ready_at ≤ UNDO_DONE_MS`, no Handover of (order, point) since `ready_at`
- * → `ReadyToServeUndone` + close `undone`; else 409 PASS_UNDO_WINDOW_CLOSED. Statements 2 (`pass_orders`, `handovers`)
- * + 01d's close.
+ * §3.5 UndoReadyToServe: an open Ready, `now − ready_at ≤ UNDO_DONE_MS`, no Handover of (order, point) since `ready_at`;
+ * else 409 PASS_UNDO_WINDOW_CLOSED. ⚠️ 03b v1.0.10 (STAB-2): takes back only the last press — its forced Dones get
+ * `ItemDoneUndone`; the lines it did not add stay ready under a new alert (a new `ReadyToServe`), else
+ * `ReadyToServeUndone`; the alert closes `undone`. Statements 3 (`pass_orders`, `handovers`, the latest
+ * `ReadyToServe`), + `orders` and `currentTableOf` when it re-raises; + 01d's close and raise.
  */
 function undoReadyToServe(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; result: { alert_id: string } } {
   const now = ctx.clock.branchNow();
   const { order_id, point_id } = payload;
-  livePoint(point_id);
+  const point = livePoint(point_id);
   const closed = (): DomainError => new DomainError('PASS_UNDO_WINDOW_CLOSED', { order_id, point_id });
   const open = openReady(ctx.tx.db, order_id, point_id);
   if (open === undefined || open.ready_at === null || now - open.ready_at > UNDO_DONE_MS) throw closed();
@@ -213,11 +320,21 @@ function undoReadyToServe(ctx: CommandCtx, payload: Payload): { events: EventDra
     .get(order_id, point_id, open.ready_at) as { handed: number };
   if (handed.handed === 1) throw closed();
 
-  const p: ReadyToServeUndonePayload = { order_id, point_id, alert_id: open.ready_alert_id };
-  return {
-    events: [draft(ctx, order_id, 'ReadyToServeUndone', p, now), ...alerts.close(ctx, open.ready_alert_id, 'undone')],
-    result: { alert_id: open.ready_alert_id },
-  };
+  const last = latestReady(ctx.tx.db, order_id, point_id);
+  const live = (id: string): boolean => LIVE_STAGES.has(ctx.state.lines[id]?.stage ?? '') && pointOfLine(ctx.state, id) === point_id;
+  const undone = (last?.forced_ids ?? [])
+    .filter((id) => ctx.state.lines[id]?.stage === 'done' && live(id))
+    .map((order_item_id): EventDraft => ({ stream_type: 'order', stream_id: order_id, event_type: 'ItemDoneUndone', schema_version: 1, payload: { order_item_id }, ...envelopeOf(ctx, now) }));
+  const added = new Set(last?.added_ids ?? []);
+  const rest = (last?.order_item_ids ?? []).filter((id) => !added.has(id) && live(id));
+  const close = alerts.close(ctx, open.ready_alert_id, 'undone');
+  if (rest.length === 0) {
+    const p: ReadyToServeUndonePayload = { order_id, point_id, alert_id: open.ready_alert_id };
+    return { events: [...undone, draft(ctx, order_id, 'ReadyToServeUndone', p, now), ...close], result: { alert_id: open.ready_alert_id } };
+  }
+  // the earlier lines stay ready: a new alert for them (the waiter is told again), as a Ready of its own
+  const raised = raiseReady(ctx, { order_id, point_id, point_name: point.name, lines: rest, added: rest, forced: [], suffix: `:-${[...added][0] ?? ''}` }, now);
+  return { events: [...undone, ...close, ...raised.events], result: { alert_id: raised.alert_id } };
 }
 
 export const undoReadyToServeCommand = defineCommand({

@@ -20,8 +20,9 @@ const envelope = (event_type: string, stream_type: string, stream_id: string, pa
   seq: 1,
 });
 
+const READY_V1 = { order_id: 'O1', point_id: 'P1', order_item_ids: ['L1', 'L2'], table_id: 'T4', alert_id: 'A1' };
+
 const CASES: Array<[string, string, string, Record<string, unknown>]> = [
-  ['ReadyToServe', 'order', 'O1', { order_id: 'O1', point_id: 'P1', order_item_ids: ['L1', 'L2'], table_id: 'T4', alert_id: 'A1' }],
   ['ReadyToServeUndone', 'order', 'O1', { order_id: 'O1', point_id: 'P1', alert_id: null }],
   [
     'Handover',
@@ -46,6 +47,21 @@ const CASES: Array<[string, string, string, Record<string, unknown>]> = [
 ];
 
 describe('[03b §6.22, 03c §6.11] 03b and 03c events', () => {
+  // ⚠️ Changed by 03b v1.0.10 (STAB-2): ReadyToServe is v2 (+ added_ids, forced_ids); a stored v1 upcasts.
+  it('[03b v1.0.10 §6.22, #80] ReadyToServe v2 round-trips; a stored v1 reads as added_ids = order_item_ids, forced_ids = []; v2 refuses a missing field', () => {
+    expect(latestVersion('ReadyToServe')).toBe(2);
+    const v2 = { ...envelope('ReadyToServe', 'order', 'O1', { ...READY_V1, added_ids: ['L2'], forced_ids: ['L2'] }), schema_version: 2 };
+    expect(parseEvent(v2)).toEqual(v2);
+    expect(parseEvent(JSON.parse(JSON.stringify(parseEvent(v2))))).toEqual(v2);
+    const v1 = envelope('ReadyToServe', 'order', 'O1', READY_V1);
+    expect(parseEvent(v1)).toEqual({ ...v1, schema_version: 2, payload: { ...READY_V1, added_ids: ['L1', 'L2'], forced_ids: [] } });
+    for (const key of Object.keys(v2.payload)) {
+      const rest: Record<string, unknown> = { ...v2.payload };
+      delete rest[key];
+      expect(() => parseEvent({ ...v2, payload: rest }), key).toThrow();
+    }
+  });
+
   it.each(CASES)('[03b §6.22 / 03c §6.11] %s round-trips at schema_version 1', (type, stream, id, payload) => {
     expect(latestVersion(type)).toBe(1);
     const stored = envelope(type, stream, id, payload);
@@ -64,11 +80,11 @@ describe('[03b §6.22, 03c §6.11] 03b and 03c events', () => {
   it('[03b §6.22] value rules: Handover 1–40 lines; sound_volume 0–100; lanes ≥ 1; lane_label 1–20', () => {
     const bad = (type: string, stream: string, id: string, payload: Record<string, unknown>) =>
       expect(() => parseEvent(envelope(type, stream, id, payload)), JSON.stringify(payload)).toThrow();
-    const handover = CASES[2]![3];
+    const handover = CASES[1]![3];
     bad('Handover', 'order', 'O1', { ...handover, order_item_ids: [] });
     bad('Handover', 'order', 'O1', { ...handover, order_item_ids: Array.from({ length: 41 }, (_, i) => `L${i}`) });
     expect(() => parseEvent(envelope('Handover', 'order', 'O1', { ...handover, ready_alert_closed: null }))).not.toThrow();
-    bad('ReadyToServe', 'order', 'O1', { ...CASES[0]![3], order_item_ids: [] });
+    bad('ReadyToServe', 'order', 'O1', { ...READY_V1, order_item_ids: [] });
     bad('StationScreenSet', 'hub', 'B1', { station_id: 'S1', sound_volume: 101 });
     bad('StationScreenSet', 'hub', 'B1', { station_id: 'S1', sound_volume: -1 });
     bad('LanesSet', 'station', 'S1', { station_id: 'S1', lanes_on: 0, lane_count: 2 });
@@ -77,23 +93,23 @@ describe('[03b §6.22, 03c §6.11] 03b and 03c events', () => {
   });
 
   it('[03c §3.2, §6.11] value rules: connection lan | usb; paper 58 | 80; name 1–40; mode screen | both | printer', () => {
-    const printer = CASES[8]![3];
+    const printer = CASES[7]![3];
     const bad = (payload: Record<string, unknown>) => expect(() => parseEvent(envelope('PrinterSaved', 'hub', 'B1', payload))).toThrow();
     bad({ ...printer, connection: 'bluetooth' });
     bad({ ...printer, paper_width_mm: 72 });
     bad({ ...printer, name: '' });
     bad({ ...printer, name: 'x'.repeat(41) });
     expect(() => parseEvent(envelope('PrinterSaved', 'hub', 'B1', { ...printer, connection: 'usb', address: '/dev/usb/lp0', paper_width_mm: 58 }))).not.toThrow();
-    expect(() => parseEvent(envelope('StationOutputSet', 'hub', 'B1', { ...CASES[9]![3], mode: 'paper' }))).toThrow();
+    expect(() => parseEvent(envelope('StationOutputSet', 'hub', 'B1', { ...CASES[8]![3], mode: 'paper' }))).toThrow();
     // 03c v1.0.6 §6.11 (Q-18): optional source, additive at v1
-    const configSet = envelope('StationOutputSet', 'hub', 'B1', { ...CASES[9]![3], mode: 'screen', printer_id: null, source: 'config' });
+    const configSet = envelope('StationOutputSet', 'hub', 'B1', { ...CASES[8]![3], mode: 'screen', printer_id: null, source: 'config' });
     expect(parseEvent(configSet)).toEqual(configSet);
-    expect(() => parseEvent(envelope('StationOutputSet', 'hub', 'B1', { ...CASES[9]![3], source: 'cloud' }))).toThrow();
+    expect(() => parseEvent(envelope('StationOutputSet', 'hub', 'B1', { ...CASES[8]![3], source: 'cloud' }))).toThrow();
     bad({ ...printer, archived: 'no' });
   });
 
   it('[03c §6.11, §3.2; 05 #85] BillRouteSet: scope zone | floor | device | report | default; printer_id null removes; ref_id is a string (\'\' for report / default)', () => {
-    const route = CASES[10]![3];
+    const route = CASES[9]![3];
     const bad = (payload: Record<string, unknown>) => expect(() => parseEvent(envelope('BillRouteSet', 'hub', 'B1', payload)), JSON.stringify(payload)).toThrow();
     const good = (payload: Record<string, unknown>) => expect(() => parseEvent(envelope('BillRouteSet', 'hub', 'B1', payload)), JSON.stringify(payload)).not.toThrow();
     for (const scope of ['zone', 'floor', 'device']) good({ ...route, scope });

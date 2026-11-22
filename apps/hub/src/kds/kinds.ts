@@ -18,8 +18,8 @@ export const ReadyToServeValues = z.object({
 });
 export type ReadyToServeValues = z.infer<typeof ReadyToServeValues>;
 
-// D-2: the order's identifier on the card.
-export const ReadyToServeDetails = AlertDetailsBase.pick({ identifier: true });
+// D-2: the order's identifier on the card. ⚠️ 03b v1.0.10 §3.5 step 5 (STAB-2): + lines, what is ready.
+export const ReadyToServeDetails = AlertDetailsBase.pick({ identifier: true, lines: true });
 export type ReadyToServeDetails = z.infer<typeof ReadyToServeDetails>;
 
 export const READY_TO_SERVE = defineAlertKind<ReadyToServeValues, ReadyToServeDetails>({

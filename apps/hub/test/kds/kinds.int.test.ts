@@ -36,7 +36,7 @@ describe('[03b #53, 03c #54] 03b / 03c alert kinds', () => {
     expect(SERVED_CARD.details_schema).toBe(ServedCardDetails);
     expect(KDS_OFFLINE.details_schema).toBe(KdsOfflineDetails);
     expect(PRINTER_PROBLEM.details_schema).toBe(PrinterProblemDetails);
-    expect(Object.keys(ReadyToServeDetails.shape)).toEqual(['identifier']);
+    expect(Object.keys(ReadyToServeDetails.shape)).toEqual(['identifier', 'lines']); // 03b v1.0.10 (STAB-2): + lines
     expect(Object.keys(ServedCardDetails.shape)).toEqual(['identifier']);
     expect(Object.keys(KdsOfflineDetails.shape)).toEqual(['station_name']);
     expect(Object.keys(PrinterProblemDetails.shape).sort()).toEqual(['printer_name', 'problem']);

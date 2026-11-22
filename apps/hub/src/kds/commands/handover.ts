@@ -3,7 +3,7 @@
 // be `allowed` (P0.F: a requires_approval right is not a receiver), and the receiver signed in (owner ruling B4-3 (a));
 // else 422 PASS_RECEIVER_INVALID.
 import { DomainError } from '@pos/domain';
-import type { EventDraft, HandoverPayload, ReadyToServePayload } from '@pos/events';
+import type { EventDraft, HandoverPayload, ReadyToServePayloadV2 } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -187,8 +187,9 @@ function handover(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; re
 
   // §3.5 step 5: no open Ready → a Ready with no alert first (its own lines are the handed lines)
   if (ready === undefined) {
-    const p: ReadyToServePayload = { order_id, point_id, order_item_ids: lines, table_id: identity.table_id, alert_id: null };
-    events.push({ ...env, event_type: 'ReadyToServe', payload: p });
+    // 03b v1.0.10 §6.22: ReadyToServe v2; Handover's Ready adds its lines and forces none
+    const p: ReadyToServePayloadV2 = { order_id, point_id, order_item_ids: lines, added_ids: lines, forced_ids: [], table_id: identity.table_id, alert_id: null };
+    events.push({ ...env, schema_version: 2, event_type: 'ReadyToServe', payload: p });
   }
 
   // §3.5 step 6: the Served card to the receiver
