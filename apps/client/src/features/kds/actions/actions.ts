@@ -4,6 +4,7 @@ import type { HubError, HubResult } from '../../../api/hub-admin';
 import { newUlid } from '../../../app/ulid';
 import { toKebab, type PageMeta } from '../../staff/api';
 import type { KdsApi } from '../contracts';
+import { sendOrder } from '../station/parts';
 import type { KdsRow } from '../store';
 
 // 03b v1.0.8 §3.2, §6.1–§6.5, §8, #72 (K3): the station commands on the station session, and the rules that turn a
@@ -206,21 +207,43 @@ export function useKdsActions(api: KdsApi, timers: ActionTimers, onLoad: (r: Loa
     [timers],
   );
 
+  /**
+   * 03b v1.0.11 §3.3 (STAB-5, owner Q1 = b): a grouped row's tap sends one command per part, in `sendOrder`, each
+   * with its own command_id (the api keeps it per payload until the hub answers). A Done that needs a confirm stops
+   * there: the row asks once and nothing else is sent. The row shows the first refusal; the batch notice shows when
+   * an answer names more than its own part.
+   */
   const run = useCallback(
-    async (id: string, action: 'start' | 'done' | 'undo', confirm: boolean): Promise<void> => {
+    async (id: string, ids: readonly string[], action: 'start' | 'done' | 'undo', confirm: boolean): Promise<void> => {
       set(id, { busy: action, msg: null });
-      if (action === 'start') {
-        const r = await api.startItem({ order_item_id: id });
-        set(id, { busy: null, msg: r.ok ? null : messageFor('start', r.error) });
-        if (r.ok && r.data.started.length > 1) loadRef.current({ kind: 'started', ids: r.data.started });
-      } else if (action === 'done') {
-        const r = await api.doneItem(confirm ? { order_item_id: id, confirm: true } : { order_item_id: id });
-        set(id, { busy: null, msg: r.ok ? null : messageFor('done', r.error) });
-        if (r.ok && r.data.done.length > 1) loadRef.current({ kind: 'done', ids: r.data.done });
-      } else {
-        const r = await api.undoDone({ order_item_id: id });
-        set(id, { busy: null, msg: r.ok ? null : messageFor('undo', r.error) });
+      let msg: RowMessage | null = null;
+      let load: LoadResult | null = null;
+      const named = (kind: LoadResult['kind'], part: string, got: string[]) => {
+        if (got.length > 1 || (got.length === 1 && got[0] !== part)) load = { kind, ids: [...new Set([...(load?.ids ?? []), ...got])] };
+      };
+      for (const part of ids) {
+        if (action === 'start') {
+          const r = await api.startItem({ order_item_id: part });
+          if (r.ok) named('started', part, r.data.started);
+          else msg ??= messageFor('start', r.error);
+        } else if (action === 'done') {
+          const r = await api.doneItem(confirm ? { order_item_id: part, confirm: true } : { order_item_id: part });
+          if (r.ok) named('done', part, r.data.done);
+          else {
+            const m = messageFor('done', r.error);
+            if (m?.kind === 'confirm') {
+              msg = m;
+              break;
+            }
+            msg ??= m;
+          }
+        } else {
+          const r = await api.undoDone({ order_item_id: part });
+          if (!r.ok) msg ??= messageFor('undo', r.error);
+        }
       }
+      set(id, { busy: null, msg });
+      if (load !== null) loadRef.current(load);
     },
     [api, set],
   );
@@ -232,7 +255,7 @@ export function useKdsActions(api: KdsApi, timers: ActionTimers, onLoad: (r: Loa
       if (inFlight.current.has(id)) return;
       inFlight.current.add(id);
       try {
-        await run(id, action, confirm);
+        await run(id, sendOrder(row, action), action, confirm);
       } finally {
         inFlight.current.delete(id);
       }

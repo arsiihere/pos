@@ -5,12 +5,14 @@ import type { KdsRow, KdsView } from '../store';
 import { LineRow } from './LineRow';
 import { isReturn, ON_TOP } from './MarkTag';
 import { nextOf, NextColumn } from './NextColumn';
+import { groupNow, partsOf } from './parts';
 
 // 03b v1.0.8 §3.3, §8, #70, Q-50 (K2; frames 03b-S01 Kds, Kds1280, KdsRush, KdsRush1280, KdsEmpty): the station
 // view. Now = the store's rows in append order (new lines join at the end, Done leaves after its undo window, nothing
 // visible reorders), with mark / return lines (RETURN, BOOST, EXPEDITE) on top in red; a moved line keeps its row.
 // Next / Later on the right. 1920: 3 columns, Next 440 px; the 1280 wall tablet: 2 columns of compact cards, Next
 // 340 px (`kgrid--1280`, kds-03-additions.css, IR-14). Re-renders on onSlotsChanged (03c's printed tag, Reprint).
+// 03b v1.0.11 §3.3 (STAB-5): a split line's parts in one stage are one row (`groupNow`); its actions get the row.
 
 /** the 1280 × 800 wall tablet (frames Kds1280, KdsRush1280) */
 export const COMPACT_QUERY = '(max-width: 1400px)';
@@ -57,7 +59,7 @@ export function StationView({ view, nowMs, utcOffsetMs, up, banner, actionsFor, 
   const [, rerender] = useState(0);
   useEffect(() => onSlotsChanged(() => rerender((n) => n + 1)), []);
   const station = view.station;
-  const rows = nowOrder(view.rows);
+  const rows = nowOrder(groupNow(view.rows));
   const empty = rows.length === 0 && nextOf(view.plan).next.length === 0;
   const classes = ['kgrid'];
   if (banner !== undefined && banner !== null && banner !== false) classes.push('kgrid--bar');
@@ -99,7 +101,7 @@ export function StationView({ view, nowMs, utcOffsetMs, up, banner, actionsFor, 
                 compact={compact}
                 stationId={station?.station_id ?? ''}
                 hasPrinter={station?.has_printer ?? false}
-                highlight={highlight?.has(row.order_item_id) ?? false}
+                highlight={partsOf(row).some((p) => highlight?.has(p.order_item_id) === true)}
                 {...(actionsFor === undefined ? {} : { actions: actionsFor(row) })}
                 {...(messageFor === undefined ? {} : { message: messageFor(row) })}
               />

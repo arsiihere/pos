@@ -6,10 +6,12 @@ import { fill } from '../../../i18n/en';
 import { identifierText } from './Identifier';
 import { clockText } from './LineTimer';
 import { MarkTag } from './MarkTag';
+import { groupNext } from './parts';
 
 // 03b §3.3, #70 (K2; frame 03b-S01 Next column): Next = the `station_plan` lines with `frozen: true`, each with
 // "in m:ss" to its fire_ms (hub clock); Later: N = the rest, counted. A planned line without details yet is a
-// placeholder row in place. The footer (Give me more, K3) stays at the bottom.
+// placeholder row in place. The footer (Give me more, K3) stays at the bottom. 03b v1.0.11 §3.3 (STAB-5): planned parts
+// of one `part_of` with the same fire_ms and mark are one row with the units summed (`groupNext`).
 
 export function nextOf(plan: StationPlanBody | null): { next: StationPlanBody['lines']; later: number } {
   const lines = plan?.lines ?? [];
@@ -27,7 +29,8 @@ export function NextColumn({
   nowMs: number;
   footer?: ReactNode;
 }) {
-  const { next, later } = nextOf(plan);
+  const { next: lines, later } = nextOf(plan);
+  const next = groupNext(lines, details);
   return (
     <aside className="knx">
       <div className="ksec__h">
@@ -35,8 +38,7 @@ export function NextColumn({
         <span className="n">{next.length}</span>
       </div>
       <div className="knx__l">
-        {next.map((l) => {
-          const d = details.get(l.order_item_id);
+        {next.map(({ line: l, detail: d }) => {
           const inText = fill(t('kds.in'), { time: clockText(l.fire_ms - nowMs) });
           if (d === undefined) return <div key={l.order_item_id} className="knr s-ph" aria-label={t('kds.loading')} data-id={l.order_item_id} />;
           return (

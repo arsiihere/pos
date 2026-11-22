@@ -26,6 +26,11 @@ export interface KdsRow {
   /** hub-clock ms when this screen saw the Done (the client keeps the row for UNDO_DONE_MS) */
   done_at: number | null;
   detail: LineDetail | null;
+  /**
+   * 03b v1.0.11 §3.3 (STAB-5): set only on a view row that groups a split line's parts (`station/parts.ts`): the
+   * store rows it stands for, in append order. Absent = the row is one line. The store never sets it.
+   */
+  parts?: readonly KdsRow[];
 }
 
 /** What K2–K5 render: the contract snapshot plus the ordered rows (placeholders included), Next and the notices. */
