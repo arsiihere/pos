@@ -127,7 +127,13 @@ export function checkBillOf(db: Database.Database, config: BranchConfig, head: B
   // a deal part is priced inside its deal: the deal's line prints, its parts do not
   const docLines: DocLine[] = input.lines
     .filter((l) => l.line_kind !== 'deal_part')
-    .map((l) => ({ name: byId.get(l.order_item_id)?.name ?? l.order_item_id, units: l.units, unit_price_minor: l.unit_price_minor, amount_minor: l.base_minor }));
+    .map((l) => ({
+      name: byId.get(l.order_item_id)?.name ?? l.order_item_id,
+      units: l.units,
+      unit_price_minor: l.unit_price_minor,
+      amount_minor: l.base_minor,
+      part_of: byId.get(l.order_item_id)?.part_of ?? null, // 05 v1.0.33 §3.16 (STAB-5): grouped by the Doc
+    }));
   const identifier = identifierOf(head, config, orders, business_date);
   return {
     totals_default: toTotals(t),

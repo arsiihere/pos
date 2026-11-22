@@ -38,6 +38,8 @@ const InvoiceLine = z
     tax_profile_id: z.string().nullable(),
     fiscal_category: z.string().nullable(),
     taxes: z.array(LineTax),
+    /** 05 v1.0.33 §6.29 (STAB-5): a split line's part names its first part (02b v1.0.20); absent = not split (v1 additive) */
+    part_of: z.string().optional(),
   })
   .strict();
 

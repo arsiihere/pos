@@ -1134,3 +1134,40 @@ describe('[05 #35, §6.12 Statements] CloseSplit — no printer; statements fixe
     expect(counts).toEqual([13, 13]);
   });
 });
+
+describe('[05 v1.0.33 §6.29, §3.16, #93, #94] split lines on the invoice and the receipt (STAB-5)', () => {
+  it('[05 #93, #94] naan ×5 as five parts: five invoice lines with part_of, sums = the unsplit invoice; the receipt prints one row "Naan 150.00 / 5 x 30.00"', async () => {
+    await start();
+    const ids = ['SP_N', 'SP_N-p2', 'SP_N-p3', 'SP_N-p4', 'SP_N-p5'];
+    const split = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: ids.map((order_item_id) => ({ order_item_id, item_id: FX.naan, item: { part_of: 'SP_N' } })) });
+    const whole = takeaway(5, 'WH');
+    const closeByCard = async (order_id: string): Promise<Reply> => {
+      const v = await view(cashier.who, { order_id });
+      const due = v.splits[0]!.totals.digital.total_minor;
+      await pay(cashier.who, { order_id }, 1, 'card', due);
+      const r = await close(cashier.who, { bill_ref: { order_id }, split_no: 1, expected_total_minor: due });
+      expect(r.status, JSON.stringify(r.error)).toBe(200);
+      return r;
+    };
+    const rs = await closeByCard(split.order_id);
+    const rw = await closeByCard(whole.order_id);
+    const is = invoiceOf(rs);
+    const iw = invoiceOf(rw);
+    expect(is.lines.map((l) => [l['order_item_id'], l['part_of'], l['units']])).toEqual(ids.map((id) => [id, 'SP_N', 1]));
+    expect('part_of' in iw.lines[0]!).toBe(false);
+    const sum = (inv: typeof is, key: string) => inv.lines.reduce((n, l) => n + (l[key] as number), 0);
+    expect(sum(is, 'base_minor')).toBe(sum(iw, 'base_minor'));
+    expect(sum(is, 'discount_minor')).toBe(sum(iw, 'discount_minor'));
+    expect(is['total_minor']).toBe(iw['total_minor']);
+    expect(is['taxes']).toEqual(iw['taxes']);
+
+    // #94: the receipt prints the parts as the unsplit line
+    const text = (r: Reply) => docText(jobDoc((r.result!['receipt'] as { job_id: string }).job_id)).split('\n');
+    const ts = text(rs);
+    expect(ts.filter((l) => l.startsWith('Naan'))).toEqual([row48('Naan', '150.00')]);
+    expect(ts).toContain('  5 x 30.00');
+    const tw = text(rw);
+    const at = (t: string[]) => t.indexOf(row48('Naan', '150.00'));
+    expect(ts.slice(at(ts), at(ts) + 2)).toEqual(tw.slice(at(tw), at(tw) + 2));
+  });
+});

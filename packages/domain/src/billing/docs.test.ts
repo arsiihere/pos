@@ -236,6 +236,16 @@ describe('check bill (B17)', () => {
     expect(pst).toHaveLength(1);
     expect(pst[0]).toContain('913.60');
   });
+
+  // 05 v1.0.33 §3.16 (STAB-5)
+  it('[05 #94 doc half] five karahi parts print one row "5,750" with "5 x 1,150"; two separate cart lines stay two rows', () => {
+    const part = (n: number) => ({ name: 'Karahi', units: 1, unit_price_minor: 115_000, amount_minor: 115_000, part_of: n > 0 ? 'K' : null });
+    const lines = [part(1), part(2), part(3), part(4), part(5), { name: 'Karahi', units: 1, unit_price_minor: 115_000, amount_minor: 115_000, part_of: null }, { name: 'Karahi', units: 1, unit_price_minor: 115_000, amount_minor: 115_000 }];
+    const out = texts(buildCheckBillDoc(checkBill({ lines }), ctx()));
+    const rows = out.filter((x) => x.startsWith('Karahi'));
+    expect(rows).toEqual([expect.stringMatching(/^Karahi +5,750\.00$/), expect.stringMatching(/^Karahi +1,150\.00$/), expect.stringMatching(/^Karahi +1,150\.00$/)]);
+    expect(out.filter((x) => x === '  5 x 1,150.00')).toHaveLength(1);
+  });
 });
 
 describe('receipt (#34, #20, #61 doc halves)', () => {

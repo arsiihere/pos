@@ -84,6 +84,8 @@ export type FiscalInvoiceLine = {
   tax_profile_id: string | null;
   fiscal_category: string | null;
   taxes: FiscalLineTax[];
+  /** 05 v1.0.33 §6.29 (STAB-5): the first part of a split line (02b v1.0.20); absent = not split */
+  part_of?: string;
 };
 
 /** §6.12 step 6 `service_charge` (H10-8). */

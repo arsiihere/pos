@@ -6,6 +6,7 @@ import type {
   FiscalSaleInvoiceFields,
 } from './fiscal-snapshot.js';
 import { isFiscalized } from './fiscal-snapshot.js';
+import { groupByPartOf } from '../kds.js';
 import type { PAYMENT_CLASSES } from './types.js';
 
 // 05 §3.16, B17, B21, B29, §6.26; §11 task 4a: pure Doc builders over 03c's Doc / DocBlock (print.ts, unchanged).
@@ -87,6 +88,23 @@ export interface DocLine {
   units: number;
   unit_price_minor: number;
   amount_minor: number;
+  /** 05 v1.0.33 §3.16 (STAB-5): the first part of a split line (02b v1.0.20); absent / null = not split */
+  part_of?: string | null;
+}
+
+/**
+ * 05 v1.0.33 §3.16 (STAB-5): printed lines with the same `part_of`, name, unit price and amount per part are one row at
+ * the first part's place — the amount the parts' sum, the units their count ("Karahi  5,750" / "  5 x 1,150"). Sums of
+ * the stored integers only; a line without `part_of` stays a row of its own.
+ */
+export function groupDocLines(lines: readonly DocLine[]): DocLine[] {
+  const keyOf = (l: DocLine): string | null =>
+    l.part_of === undefined || l.part_of === null ? null : JSON.stringify([l.part_of, l.name, l.unit_price_minor, l.units, l.amount_minor]);
+  return groupByPartOf(lines, keyOf).map((g) => {
+    const first = g[0]!;
+    if (g.length === 1) return first;
+    return { ...first, units: g.reduce((n, l) => n + l.units, 0), amount_minor: g.reduce((n, l) => n + l.amount_minor, 0) };
+  });
 }
 
 export interface DocPayment {
@@ -185,7 +203,7 @@ interface Money {
 }
 
 function lineBlocks(lines: readonly DocLine[], { cols, m }: Money): DocBlock[] {
-  return lines.flatMap((l) => [
+  return groupDocLines(lines).flatMap((l) => [
     ...spread(l.name, m(l.amount_minor), cols),
     ...(l.units !== 1 ? [{ text: `  ${l.units} x ${m(l.unit_price_minor)}` }] : []),
   ]);
@@ -443,7 +461,7 @@ function buyerBlocks(invoice: FiscalSaleInvoiceFields, buyer: DocBuyerMask | nul
 }
 
 const invoiceLines = (invoice: FiscalInvoiceFields): DocLine[] =>
-  invoice.lines.map((l) => ({ name: l.name, units: l.units, unit_price_minor: l.unit_price_minor, amount_minor: l.base_minor }));
+  invoice.lines.map((l) => ({ name: l.name, units: l.units, unit_price_minor: l.unit_price_minor, amount_minor: l.base_minor, part_of: l.part_of ?? null }));
 
 export function buildReceiptDoc(input: ReceiptDocInput, ctx: DocContext): Doc {
   const { invoice } = input;

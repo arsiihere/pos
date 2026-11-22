@@ -391,6 +391,8 @@ function closeSplitCommand(log: Log) {
             tax_profile_id: l.tax_profile_id,
             fiscal_category: l.tax_profile_id === null ? null : (fiscalCategory.get(l.tax_profile_id) ?? null),
             taxes: spread.lines[i]!.taxes,
+            // 05 v1.0.33 §6.29 (STAB-5): only a split line's part carries it, so an unsplit invoice is unchanged
+            ...(v?.part_of === undefined || v.part_of === null ? {} : { part_of: v.part_of }),
           };
         }),
         service_charge: spread.service_charge,
