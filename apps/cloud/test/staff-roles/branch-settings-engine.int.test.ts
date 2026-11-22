@@ -34,6 +34,7 @@ const DEFAULTS = {
   served_estimate_ms: null,
   ready_window_ms: 60_000,
   kds_offline_ms: 30_000,
+  show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §5.2a PT-1 (STAB-5)
 };
 const RANGES: Array<[string, number, number]> = [
   ['weight_dine_in_pct', 10, 1000],
@@ -217,6 +218,22 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     expect(snapshot.engine_settings).toMatchObject({ ready_window_ms: 90_000, kds_offline_ms: 45_000, served_estimate_ms: 240_000 });
   });
 
+  it('[01a v2.7.3 #201] show_part_times_to_customers: default true; false is returned, bumps once and reaches the snapshot; the same value again writes nothing (STAB-5)', async () => {
+    const held = await configVersion();
+    const directory = Number((await cloud.pool.query(`SELECT directory_version FROM tenants WHERE tenant_id = $1`, [f.tenantId])).rows[0].directory_version);
+    const off = await patchCurrent({ show_part_times_to_customers: false });
+    expect(off.statusCode, off.body).toBe(200);
+    expect(off.json().data.branch.show_part_times_to_customers).toBe(false);
+    expect(await configVersion()).toBe(held + 1);
+    const next = await cloud.app.inject({ method: 'GET', url: `/v1/sync/config?config_version=${held}&directory_version=${directory}`, headers: { authorization: `Bearer ${f.branchKey}` } });
+    expect(next.statusCode, next.body).toBe(200);
+    expect(BranchConfigSnapshotSchemaV4.parse(next.json().data.config.snapshot).engine_settings.show_part_times_to_customers).toBe(false);
+    const again = await patchCurrent({ show_part_times_to_customers: false });
+    expect(again.statusCode, again.body).toBe(200);
+    expect(await configVersion()).toBe(held + 1);
+    expect((await patchCurrent({ show_part_times_to_customers: 'no' })).statusCode).toBe(400);
+  });
+
   it('[01b B-6] returns_boost takes a boolean only', async () => {
     const accepted = await patchCurrent({ returns_boost: false });
     expect(accepted.statusCode, accepted.body).toBe(200);
@@ -337,6 +354,7 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
       served_estimate_ms: null,
       ready_window_ms: 60_000, // 03b A-1
       kds_offline_ms: 30_000, // 03b A-1
+      show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §5.2a PT-1 (STAB-5)
       order_abandon_ms: 7_200_000,
       table_lock_ttl_ms: 120_000,
       returns_boost: false,

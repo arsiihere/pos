@@ -332,6 +332,8 @@ const BranchConfigSnapshotSchemaV4Base = BranchConfigSnapshotSchemaV3Shape.exten
     // default, read as `branchConfig()?.engine_settings.<key> ?? HUB_ENGINE_SETTING_DEFAULTS.<key>`.
     ready_window_ms: int.optional(),
     kds_offline_ms: int.optional(),
+    // 01a v2.7.3 §4.3 row PT-3 (STAB-5): optional, no version bump (R29); absent → true (05 v1.0.33 §3.16)
+    show_part_times_to_customers: z.boolean().optional(),
   }),
 });
 

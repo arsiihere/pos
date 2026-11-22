@@ -54,6 +54,7 @@ const STORED = {
   served_estimate_ms: 180_000,
   ready_window_ms: 60_000,
   kds_offline_ms: 30_000,
+  show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §8.1 PT-4 (STAB-5): a switch, not a box
   version: 'v1',
 };
 
@@ -133,7 +134,8 @@ describe('[01b §8] branch settings', () => {
     const names = [...group.querySelectorAll<HTMLInputElement>('input[name]')].map((i) => i.name);
     const ordering = ['queue_auto_send_max_ms', 'zone_undo_ms', 'slow_item_threshold_ms'];
     expect(names.sort()).toEqual(
-      [...new Set([...BRANCH_ENGINE_SETTING_KEYS, ...ordering])].filter((k) => k !== 'returns_boost' && k !== 'comp_reason_chips').sort(),
+      // ⚠️ 01a v2.7.3 §8.1 PT-4 (STAB-5): show_part_times_to_customers is a switch, like returns_boost
+      [...new Set([...BRANCH_ENGINE_SETTING_KEYS, ...ordering])].filter((k) => k !== 'returns_boost' && k !== 'comp_reason_chips' && k !== 'show_part_times_to_customers').sort(),
     );
     const value = (name: string) => group.querySelector<HTMLInputElement>(`input[name="${name}"]`)!.value;
     expect(value('weight_follow_up_pct')).toBe('300');
@@ -159,6 +161,15 @@ describe('[01b §8] branch settings', () => {
     expect(Object.keys(calls.find((c) => c.method === 'PATCH')!.body as object).sort()).toEqual(
       ['cascade_step_ms', 'expected_version', 'promise_padding_dine_in_ms', 'returns_boost', 'weight_delivery_pct'],
     );
+  });
+
+  it('[01a v2.7.3 #201] the part-times switch shows the stored value and sends only a change (STAB-5)', async () => {
+    const calls = await render();
+    const sw = m.container.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${t('branches.timing.part_times')}"]`)!;
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+    await click(sw);
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ expected_version: 'v1', show_part_times_to_customers: false });
   });
 
   // 03b §4.5 B-2 (owner ruling (a), 2026-11-11): Ready window, KDS offline, Served estimate (1–30 min or Off).

@@ -14,7 +14,8 @@ import { formatMinutes, parseMinutes } from '../minutes';
 // window, the KDS offline threshold and the 02b served estimate (1–30 min, or Off = null on the wire).
 // 01a v2.4.3 (03b v1.0.3 §4.5 A-2, owner ruling P15-1 (a) 2026-11-11): the Ready window (15–300 s) and KDS offline
 // (10–300 s) are typed in whole seconds (10 s is not two-decimal minutes); the served estimate stays in minutes.
-type NumericKey = Exclude<keyof BranchEngineSettings, 'returns_boost' | 'comp_reason_chips' | 'served_estimate_ms'>;
+// 01a v2.7.3 §8.1 PT-4 (STAB-5): show_part_times_to_customers is a switch, like returns_boost
+type NumericKey = Exclude<keyof BranchEngineSettings, 'returns_boost' | 'comp_reason_chips' | 'served_estimate_ms' | 'show_part_times_to_customers'>;
 const storedOf = (base: BranchEngineSettings, key: NumericKey): number => base[key];
 interface Spec {
   key: NumericKey;
@@ -69,11 +70,12 @@ const formatSeconds = (ms: number): string => String(Math.round(ms / SECOND_MS))
 const formatOf = (spec: Spec, ms: number): string =>
   spec.kind === 'pct' ? String(ms) : spec.kind === 'sec' ? formatSeconds(ms) : formatMinutes(ms);
 
-export type EngineState = Record<NumericKey, string> & { returns_boost: boolean; served_estimate_ms: string; served_estimate_on: boolean };
+export type EngineState = Record<NumericKey, string> & { returns_boost: boolean; show_part_times_to_customers: boolean; served_estimate_ms: string; served_estimate_on: boolean };
 
 export function engineState(base: BranchEngineSettings): EngineState {
   const state = {
     returns_boost: base.returns_boost,
+    show_part_times_to_customers: base.show_part_times_to_customers,
     served_estimate_on: base.served_estimate_ms !== null,
     served_estimate_ms: formatMinutes(base.served_estimate_ms ?? SERVED_DEFAULT_MS),
   } as EngineState;
@@ -112,6 +114,7 @@ export function enginePatch(
     } else if (value !== stored) patch[spec.key] = value;
   }
   if (state.returns_boost !== base.returns_boost) patch['returns_boost'] = state.returns_boost;
+  if (state.show_part_times_to_customers !== base.show_part_times_to_customers) patch['show_part_times_to_customers'] = state.show_part_times_to_customers;
   // Off sends null and the box is not checked; On checks the box like the other times.
   if (!state.served_estimate_on) {
     if (base.served_estimate_ms !== null) patch['served_estimate_ms'] = null;
@@ -128,6 +131,7 @@ export function enginePatch(
 
 export const engineFieldLabel = (key: string): string | undefined => {
   if (key === 'returns_boost') return t('branches.timing.returns_boost');
+  if (key === 'show_part_times_to_customers') return t('branches.timing.part_times');
   if (key === 'served_estimate_ms') return t('branches.timing.served_estimate_ms');
   const spec = SPECS.find((s) => s.key === key);
   return spec === undefined ? undefined : t(spec.label);
@@ -193,6 +197,17 @@ export function KitchenTiming({
           onChange={(next) => onChange({ ...state, returns_boost: next })}
         />
         <span className="pos-field__help">{t('branches.timing.returns_help')}</span>
+      </div>
+      {/* 01a v2.7.3 §8.1 PT-4 (STAB-5): the takeaway receipt's per-part ready times (05 v1.0.33 §3.16) */}
+      <div className="pos-field" data-field="show_part_times_to_customers">
+        <span className="pos-field__label">{t('branches.timing.part_times')}</span>
+        <Switch
+          checked={state.show_part_times_to_customers}
+          name={t('branches.timing.part_times')}
+          label={t(state.show_part_times_to_customers ? 'branches.timing.part_times_on' : 'branches.timing.part_times_off')}
+          onChange={(next) => onChange({ ...state, show_part_times_to_customers: next })}
+        />
+        <span className="pos-field__help">{t('branches.timing.part_times_help')}</span>
       </div>
       <div className="pos-stack">
         <div className="pos-section__head pos-section__head--sub">
