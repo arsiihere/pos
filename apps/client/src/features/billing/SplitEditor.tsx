@@ -7,7 +7,8 @@ import { billingApi } from './api';
 import type { BillRef, BillView, BillViewSplit, SetSplitsPayload } from './contracts';
 import { billingErrorKey } from './errors';
 import { billMoney, MONEY_DIR } from './money';
-import { initialColumns, moveUnit, nextSplitNo, openUnits, parseMinor, unplacedOf, type Column } from './splits';
+import { partGroups } from './parts';
+import { initialColumns, moveUnit, nextSplitNo, openUnits, parseMinor, toPool, unplacedOf, type Column } from './splits';
 import './styles';
 
 // 05 v1.0.12 §8 "Splits", §6.5, §3.8 (plan §3.1 task 36; brief §3.3; frames SplitItems, SplitAmount, SplitEqual,
@@ -17,6 +18,9 @@ import './styles';
 // BILL_HAS_PAYMENTS); ⚠️ G-29 (R-29): a line of an open split with `added_after_close` carries the "new" mark. The
 // hub validates and recomputes: Save → `SetSplits`, its `splits` go back to the bill screen (`onSaved`). No amount is
 // computed here except the sum of typed shares against the hub's open cash totals.
+// 05 v1.0.33 §8 (STAB-5): a split line's parts (`part_of`, one unit each) are one row with a count stepper in every
+// split: + takes a part from the not-placed pool, else from the split holding most of the row; − puts one back in the
+// pool. The plan still names part ids, each with units 1.
 
 type Mode = 'items' | 'amount' | 'equal' | 'none';
 const MODES: Array<{ mode: Mode; key: 'billing.split.items' | 'billing.split.amount' | 'billing.split.equal' | 'billing.split.one' }> = [
@@ -59,6 +63,16 @@ export function SplitEditor({ bill, billRef, onSaved, onClose }: SplitEditorProp
   const nameOf = useMemo(() => new Map(bill.lines.map((l) => [l.order_item_id, l.name] as const)), [bill.lines]);
   const totalOf = useMemo(() => new Map(bill.lines.map((l) => [l.order_item_id, l.units] as const)), [bill.lines]);
   const isNew = useMemo(() => new Set(bill.lines.filter((l) => l.added_after_close).map((l) => l.order_item_id)), [bill.lines]);
+  // v1.0.33 (STAB-5): groups of a split line's parts still in the open remainder (line order), and their ids
+  const groups = useMemo(() => {
+    const out = new Map<string, string[]>();
+    for (const [k, ids] of partGroups(bill.lines)) {
+      const left = ids.filter((id) => remainder.has(id));
+      if (left.length > 1) out.set(k, left);
+    }
+    return out;
+  }, [bill.lines, remainder]);
+  const grouped = useMemo(() => new Set([...groups.values()].flat()), [groups]);
   const paidOf = useMemo(() => new Map(open.map((s) => [s.split_no, s.payments.reduce((n, p) => n + (p.direction === 'in' ? p.amount_minor : -p.amount_minor), 0)] as const)), [open]);
   const lastClosed = closed.length === 0 ? null : Math.max(...closed.map((s) => s.split_no));
   const withPayments = open.filter((s) => s.payments.length > 0).length;
@@ -151,6 +165,61 @@ export function SplitEditor({ bill, billRef, onSaved, onClose }: SplitEditorProp
         ? fill(t('billing.split.make_add_up'), { amount: money(toShare) })
         : t('billing.split.save');
 
+  /** + on a group's row in split `to`: a not-placed part first, else the last part of the split holding most of the row */
+  const stepIn = (ids: readonly string[], to: number) => {
+    const free = ids.find((id) => unplaced.has(id));
+    if (free !== undefined) {
+      setCols((c) => moveUnit(c, free, null, to));
+      return;
+    }
+    const donor = cols
+      .filter((c) => c.split_no !== to)
+      .map((c) => ({ c, mine: ids.filter((id) => c.lines.has(id)) }))
+      .filter((x) => x.mine.length > 0)
+      .sort((a, b) => b.mine.length - a.mine.length || b.c.split_no - a.c.split_no)[0];
+    if (donor === undefined) return;
+    const id = donor.mine[donor.mine.length - 1]!;
+    setCols((c) => moveUnit(c, id, donor.c.split_no, to));
+  };
+  const stepOut = (ids: readonly string[], from: number) => {
+    const mine = ids.filter((id) => cols.find((c) => c.split_no === from)?.lines.has(id) === true);
+    const id = mine[mine.length - 1];
+    if (id !== undefined) setCols((c) => toPool(c, id, from));
+  };
+  /** a group's row: name, "n of total" and, in a split, the − / + stepper; in the pool a tap picks one part */
+  const groupRow = (key: string, ids: readonly string[], where: number | null) => {
+    const here = where === null ? ids.filter((id) => unplaced.has(id)) : ids.filter((id) => cols.find((c) => c.split_no === where)?.lines.has(id) === true);
+    const label = (
+      <>
+        <span>{nameOf.get(ids[0]!) ?? key}</span>
+        <span className="q num">{fill(t('billing.split.unit_of'), { units: String(here.length), total: String(ids.length) })}</span>
+      </>
+    );
+    if (where === null) {
+      const first = here[0]!;
+      const on = picked !== null && picked.id === first && picked.from === null;
+      return (
+        <button key={`g-${key}`} type="button" className="b5-su err" data-group={key} aria-pressed={on} onClick={() => setPicked(on ? null : { id: first, from: null })}>
+          {label}
+        </button>
+      );
+    }
+    return (
+      <div key={`g-${key}`} className="b5-su" data-group={key}>
+        {label}
+        <span className="step">
+          <button type="button" aria-label={t('cart.less')} disabled={here.length === 0} onClick={() => stepOut(ids, where)}>
+            −
+          </button>
+          <output className="num">{here.length}</output>
+          <button type="button" aria-label={t('cart.more')} disabled={here.length === ids.length} onClick={() => stepIn(ids, where)}>
+            +
+          </button>
+        </span>
+      </div>
+    );
+  };
+
   const unit = (id: string, units: number, from: number | null, opts: { locked?: boolean; err?: boolean; newMark?: boolean } = {}) => {
     const label = (
       <>
@@ -191,7 +260,8 @@ export function SplitEditor({ bill, billRef, onSaved, onClose }: SplitEditorProp
               <b>{t('billing.split.pool')}</b>
               <span>{fill(t('billing.split.items_count'), { n: String(unplacedCount) })}</span>
             </div>
-            {[...unplaced].map(([id, units]) => unit(id, units, null, { err: true, newMark: isNew.has(id) }))}
+            {[...unplaced].filter(([id]) => !grouped.has(id)).map(([id, units]) => unit(id, units, null, { err: true, newMark: isNew.has(id) }))}
+            {[...groups].filter(([, ids]) => ids.some((id) => unplaced.has(id))).map(([key, ids]) => groupRow(key, ids, null))}
           </div>
         )}
         {cols.map((c) => {
@@ -203,7 +273,8 @@ export function SplitEditor({ bill, billRef, onSaved, onClose }: SplitEditorProp
                 <b>{fill(t('billing.split_tab'), { n: String(c.split_no) })}</b>
                 <span>{has ? fill(t('billing.split.has_payment'), { amount: money(paid) }) : fill(t('billing.split.lines'), { n: String(c.lines.size) })}</span>
               </button>
-              {[...remainder.keys()].filter((id) => c.lines.has(id)).map((id) => unit(id, c.lines.get(id) as number, c.split_no, { newMark: isNew.has(id) }))}
+              {[...remainder.keys()].filter((id) => c.lines.has(id) && !grouped.has(id)).map((id) => unit(id, c.lines.get(id) as number, c.split_no, { newMark: isNew.has(id) }))}
+              {[...groups].map(([key, ids]) => groupRow(key, ids, c.split_no))}
             </div>
           );
         })}

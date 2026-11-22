@@ -106,3 +106,6 @@
 /* E2E R-3 / R-93: the Z print line (Day close head, each Z row) takes its tone's ink; the rows' muted / ink-2 span
    colour would hide it */
 :where(.b5-zl, .b5-blk__h) :is(span, div) > span.b5-zprint.b5-zprint { color: var(--c-ink); } /* (0,2,2): above the kit's (0,1,2) */
+
+/* 05 v1.0.33 §8 (STAB-5): a split line's grouped row in the split editor carries the kit stepper at its end */
+.b5-su .step { margin-inline-start: auto; direction: ltr; }
