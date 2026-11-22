@@ -68,11 +68,25 @@ describe('[02b v1.0.20 §3.2 step 4a] expandParts', () => {
     ]);
   });
 
-  it('[02b #37] not split: quantity 1, a batch station, a weighed item, a zone line, a deal', () => {
+  // ⚠️ 02b v1.0.23 §3.2 step 4a (STAB-6): a batch-station piece line is now split per unit too (was: "not split: …, a
+  // batch station, …").
+  it('[02b #37] naan ×10 on a batch station → 10 lines of 1 (N, N-p2 … N-p10), each part_of N; totals sum to the unsplit line', () => {
+    const config = menu();
+    const input = takeaway([{ order_item_id: 'N', item_id: 'I_BREAD', quantity: 10 }]);
+    const expanded = expandParts(config, input, ctx(config));
+    expect(expanded.lines.map((l) => [l.order_item_id, l.quantity, l.part_of])).toEqual(
+      Array.from({ length: 10 }, (_, i) => [i === 0 ? 'N' : `N-p${i + 1}`, 1, 'N']),
+    );
+    const built = buildSubmit(config, expanded, ctx(config));
+    const whole = buildSubmit(config, input, ctx(config));
+    expect(built.itemAdded.reduce((n, a) => n + (a.line_total_minor ?? 0), 0)).toBe(whole.itemAdded[0]!.line_total_minor);
+    expect(built.itemAdded.map((a) => a.station_id)).toEqual(Array.from({ length: 10 }, () => 'S_TANDOOR'));
+  });
+
+  it('[02b #37] not split: quantity 1, a weighed item, a zone line, a deal', () => {
     const config = menu();
     const lines: SubmitInput['lines'] = [
       { order_item_id: 'A', item_id: FX.piece, quantity: 1 },
-      { order_item_id: 'B', item_id: 'I_BREAD', quantity: 6 },
       { order_item_id: 'C', item_id: 'I_MEAT_KG', quantity: 750 },
       { order_item_id: 'Z', item_id: FX.piece, quantity: 2, from_zone: true },
     ];

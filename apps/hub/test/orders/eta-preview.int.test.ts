@@ -381,3 +381,55 @@ describe('02b eta-preview (§6.14)', () => {
     expect({ groups: after.data!.groups, lines: after.data!.lines }).toEqual(s.asPreview);
   });
 });
+
+// ⚠️ 02b v1.0.23 §3.2 step 4a (STAB-6; 03a v1.2.10 BQ-6, #145): a batch-station piece line is split per unit, so its
+// first parts fill the room of the next unfired load and the rest form the next load.
+describe('02b eta-preview and SubmitOrder on a batch station (v1.0.23, STAB-6)', () => {
+  const COOK = 180_000;
+  function tandoorMenu(): BranchConfig {
+    const base = fixtureMenu();
+    const naan = base.items.find((i) => i.item_id === FX.naan)!;
+    return {
+      ...base,
+      stations: [
+        ...base.stations,
+        {
+          ...base.stations[0]!,
+          station_id: 'S_TANDOOR',
+          name: 'Tandoor',
+          station_type: 'batch',
+          capacity: 8,
+          freshness_window_ms: 120_000,
+          programs: [{ program_id: 'PR', name: 'Bake', cook_time_ms: COOK, is_archived: false }],
+        },
+      ],
+      items: [...base.items, { ...naan, item_id: 'I_BREAD', name: 'Tandoori naan', station_id: 'S_TANDOOR', program_id: 'PR', serve_mode: 'immediate', stock_draws: [] }],
+    };
+  }
+
+  it('[02b #56] naan ×10 on a batch station of capacity 8 whose next unfired load holds 5 → 3 parts at that load\'s eta_ms, 7 at the next; the submit lists N, N-p2 … N-p10 and folds as the preview', async () => {
+    await setUp({ menu: tandoorMenu() });
+    const ali = signIn();
+    const now = hub.clock.branchNow();
+    expect((await submitDraft(ali, 'O0', takeaway([line('A', 'I_BREAD', 5)]))).status).toBe(200);
+    const first = Object.values(engine().stations.S_TANDOOR!.loads);
+    expect(first).toHaveLength(1);
+    expect(first[0]!.order_item_ids).toHaveLength(5);
+    const end1 = first[0]!.booked.end;
+    expect(end1).toBe(now + COOK);
+    const r = await preview(ali, takeaway([line('N', 'I_BREAD', 10)]));
+    expect(r.status).toBe(200);
+    const etas = r.data!.lines.map((l) => [l.key, (l as { part?: number }).part, l.eta_ms]);
+    expect(etas).toEqual(Array.from({ length: 10 }, (_, i) => ['N', i + 1, i < 3 ? end1 : end1 + COOK]));
+    const s = await submitDraft(ali, 'O1', takeaway([line('N', 'I_BREAD', 10)]));
+    expect(s.status).toBe(200);
+    expect({ groups: r.data!.groups, lines: r.data!.lines }).toEqual(s.asPreview);
+    const added = hub.deps.db
+      .prepare("SELECT json_extract(payload, '$.order_item_id') FROM events WHERE event_type = 'ItemAdded' AND stream_id = 'O1' ORDER BY seq")
+      .pluck()
+      .all();
+    expect(added).toEqual(Array.from({ length: 10 }, (_, i) => (i === 0 ? 'N' : `N-p${i + 1}`)));
+    const loads = Object.values(engine().stations.S_TANDOOR!.loads).sort((a, b) => a.booked.start - b.booked.start);
+    expect(loads.map((l) => l.order_item_ids.filter((id) => id.startsWith('N')).length)).toEqual([3, 7]);
+  });
+});
