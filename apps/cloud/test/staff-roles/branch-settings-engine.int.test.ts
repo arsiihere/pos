@@ -115,8 +115,11 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
   });
 
   it('[01b B-6; 03b §4.5 B-2] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV4 (served_estimate_ms, ready_window_ms, kds_offline_ms included)', () => {
+    // ⚠️ 01a v2.7.5 MD-5 / 01b v1.10.3 §6.10 (STAB-7, plan stab-6-7 task 3 vs task 4): the snapshot parser already
+    // takes the optional max_delay_default_ms; the wire field comes with its column (migration 0017, plan phase 7,
+    // tasks 4 / 24 / 26), which removes this exemption.
     expect(Object.keys(DEFAULTS).sort()).toEqual(
-      Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).sort(),
+      Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).filter((k) => k !== 'max_delay_default_ms').sort(),
     );
   });
 
