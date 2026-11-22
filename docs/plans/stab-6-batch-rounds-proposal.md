@@ -1,8 +1,10 @@
 # STAB-6 proposal: batch stations cook in rounds, in arrival order ("A + C") — with STAB-7 (max delay → priority)
 
-Status: **spec draft, awaiting owner approval** — 03a v1.2.8 DRAFT (`docs/specs/03a_Timing_Engine_Spec_v1.2.8.md`) and
-02b v1.0.23 DRAFT (`docs/specs/02b_Ordering_Spec_v1.0.23.md`). Fix chosen by the owner on 2026-11-22: **A + C**. The owner asked for STAB-7 (max delay → priority, `docs/plans/stab-7-max-delay-proposal.md`) to go into the same 03a draft, so one engine change is approved; see §10. No code
-until the owner approves the drafts and answers §9.
+Status: **specs approved by the owner 2026-11-22 ("all recommendations approve start working on it")** — 03a v1.2.8 (`docs/specs/03a_Timing_Engine_Spec_v1.2.8.md`),
+02b v1.0.23 (`docs/specs/02b_Ordering_Spec_v1.0.23.md`), and the §10 rows written as 01a v2.7.4, 01c v1.1.3, 02b v1.0.24 and
+03b v1.0.13. Every question of §9 and §10 (1–14, F-1) is answered with its recommendation. Build plan:
+`docs/plans/stab-6-7-plan.md`. Next: hostile review, then build. Fix chosen by the owner on 2026-11-22: **A + C**. The owner asked for STAB-7 (max delay → priority, `docs/plans/stab-7-max-delay-proposal.md`) to go into the same 03a draft, so one engine change is approved; see §10. No code
+until the hostile review has run.
 
 ## 1. Problem (owner report, 2026-11-22)
 
@@ -139,7 +141,7 @@ one-unit part is the smallest piece.
 | 03a engine | `batchPass1`: the queue (BQ-1, BQ-2), the capacity shed (BQ-5), no batch `overloadPlace`. The batch tests that pinned the re-form and the batch Λ search are replaced (tests 143, 144, 147). Nothing else in `plan.ts`, `batch.ts`, `live.ts` or `tick.ts` | 03a v1.2.8 DRAFT |
 | 02b hub | `expandParts`: slot **or batch**; tests 37, 45 updated, 56, 57 new | 02b v1.0.23 DRAFT |
 | 02b client | None: the cart's per-part times, the order view grouping and remove-by-count are STAB-5's | — |
-| 03b KDS / Pass | Patch: at a batch station the part grouping (`part_of` + stage) also keys on `load_id`, so "Naan ×3" (this round) and "Naan ×7" (next round) are separate rows. Start / Done act on the load as today (03a To 03b #9) | 03b v1.0.13 (to draft after approval) |
+| 03b KDS / Pass | Patch (written as 03b v1.0.13, approved 2026-11-22): at a batch station the part grouping (`part_of` + stage) also keys on `load_id`, so "Naan ×3" (this round) and "Naan ×7" (next round) are separate rows. Start / Done act on the load as today (03a To 03b #9) | 03b v1.0.13 |
 | 03c / 05 | None: tickets, bill, receipt, credit note and the customer ready times already group by `part_of` (05 v1.0.33 / v1.0.34) | — |
 | 04 | None beyond STAB-5 phase 4 (void / return by count, not started yet) | — |
 | Foundation | No rule change (Q-F1) | — |
@@ -154,7 +156,7 @@ one-unit part is the smallest piece.
 - 02b #37 (batch line split), #45 (deal with a batch part split), #56 (preview / submit: 3 + 7 `eta_ms`), #57 (cart row
   "3 ready ~2:10 PM · 7 ready ~2:14 PM").
 
-## 8. Build plan (after approval; small TDD tasks, one commit each, gate green)
+## 8. Build plan (superseded by `docs/plans/stab-6-7-plan.md`, 2026-11-22; kept as the first sketch)
 
 1. **02b split (hub):** failing tests 37 (batch), 56; `expandParts` slot ∨ batch; deal part (45). `[02b v1.0.23 §3.2
    step 4a; STAB-6]`
@@ -175,31 +177,31 @@ one-unit part is the smallest piece.
 1. **A void (or remove) opens room in a waiting round.** Should the next round's earliest naan move up into it (strict
    arrival order), or should the room stay for the next new order? **Recommend: leave it for the next new order** (and
    the fire's pull-in). It is rare: it needs a void of a waiting naan in a full round. Moving up adds a second
-   re-splitting rule.
+   re-splitting rule. **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 2. **Idle time before a round held for a later pickup.** May a new order's round use it (it delays no one), or must
    every new round go after the last waiting round (foundation's literal "station_free_at")? **Recommend: use the idle
-   time.** Today's engine already does this (J3), and it costs nobody anything.
+   time.** Today's engine already does this (J3), and it costs nobody anything. **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 3. **Weights and expedite on a batch station.** Follow-up / expedite weights and the overload search no longer reorder
    rounds; only a Boost (marked) jumps the queue; lateness shows as a slip. **Recommend: yes**, it is the owner's
-   first-come-first-served rule.
+   first-come-first-served rule. **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 4. **A capacity drop (fryer basket off)** with a waiting round over the new size: move the latest naan to the next
    round (BQ-5), or keep the whole round as one double-length load (AD-4)? **Recommend: move the latest to the next
-   round** ("whatever doesn't fit goes into the round after"). A round already frozen (about to be loaded) stays whole.
+   round** ("whatever doesn't fit goes into the round after"). A round already frozen (about to be loaded) stays whole. **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 5. **Multi-unit option children and deal parts on a batch station** (for example a thali with "2 naan" as an option
    child, or a deal part of 2 naan per deal) stay one line of 2 (AD-4). Split those per unit too? **Recommend: not
-   now**; follow up if the menu has them. Naan is usually its own line.
-6. **Orders already open when this ships** keep their rounds as they are (no re-split). **Recommend: yes** (STAB-5 Q3).
+   now**; follow up if the menu has them. Naan is usually its own line. **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
+6. **Orders already open when this ships** keep their rounds as they are (no re-split). **Recommend: yes** (STAB-5 Q3). **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 7. **KDS rows across rounds:** "Naan ×3" in this round and "Naan ×7" in the next show as two rows (03b patch). **Recommend:
-   yes.**
+   yes.** **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 8. **Stop-gap until this ships:** set the tandoor (and the fryer) to `single_tap` if the cook does not tap Start. It
    removes the slide, so the rounds stay in order today (§2, single-tap run). The ×10 issue stays until C ships.
-   **Recommend: yes, if the cook does not tap Start.**
+   **Recommend: yes, if the cook does not tap Start.** **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 
 **Foundation (Q-F1, no edit made):** no 00_Foundation v1.14 rule changes. F §4.7's batch ETA already places a new load
 after the station's reservations and keeps "first batch b … with room". F §4.7 "Fire rule: never past the latest-start
 of the earliest-deadline item" still holds unless the queue is late, which is today's overload case. F's "re-planned
 on every submit within slack" (03a F-3 / F-19 marker) is read as "a hidden load is re-placed as one unit". Please
-confirm that reading. If you read it as per item, the foundation needs a bump (owner-approved, README R34).
+confirm that reading. If you read it as per item, the foundation needs a bump (owner-approved, README R34). **Answered 2026-11-22: confirmed (recommendation) — a waiting round is re-placed as one unit; no foundation change.**
 
 ## 10. STAB-7 in the same draft: max delay, then priority
 
@@ -234,7 +236,7 @@ null), each later re-plan may push it again, and nothing on the KDS says why.
 - **Cost:** `ENGINE_STATE_VERSION` 4 → 5 (two `EngineLine` fields; full replay at upgrade), one event type, one optional
   `ItemAdded` field. No endpoint, migration or error code in 03a.
 
-**Rows for other specs (not written; the owner approves them with this draft):**
+**Rows for other specs (approved 2026-11-22 and written: 01a v2.7.4, 01c v1.1.3, 02b v1.0.24, 03b v1.0.13):**
 
 | Spec | Row |
 |---|---|
@@ -247,20 +249,20 @@ null), each later re-plan may push it again, and nothing on the KDS says why.
 **STAB-7 owner questions:**
 
 9. **Measure the delay from the kitchen target `T` or from the customer promise `P` (= `T` + padding)?** **Recommend:
-   `T`**, the same as the slip card's "≈ n min late". Priority then starts before the customer's promise is broken.
+   `T`**, the same as the slip card's "≈ n min late". Priority then starts before the customer's promise is broken. **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 10. **Branch default:** 5 min, with "empty = default" and an explicit "no limit" choice per item? **Recommend: yes, 5
-    min.** The slip threshold (2 min) is below it, so the order taker hears first and priority follows.
+    min.** The slip threshold (2 min) is below it, so the order taker hears first and priority follows. **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 11. **Manager alert:** no new alert. The slip raised earlier escalates to managers at `slip_escalate_ms`. Or should a
     priority crossing escalate at once? **Recommend: keep the existing slip** (no 01d change). Revisit if managers
-    miss it.
+    miss it. **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 12. **A priority line in a full batch round** moves that round's latest non-priority member to the next round. Or should
     it only take free room and otherwise go first into the round after? **Recommend: move the latest member back.**
-    That is "first into the next round".
-13. **Priority after a Boost:** a boost may still go ahead of a priority line (a human jump, marked). **Recommend: yes.**
+    That is "first into the next round". **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
+13. **Priority after a Boost:** a boost may still go ahead of a priority line (a human jump, marked). **Recommend: yes.** **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 14. **Rollout:** `ENGINE_STATE_VERSION` 5 means a full log replay at the first boot after the update (minutes at pilot
-    volume). **Recommend:** ship STAB-6 and STAB-7 as one engine update, after hours.
+    volume). **Recommend:** ship STAB-6 and STAB-7 as one engine update, after hours. **Answered 2026-11-22: recommendation** (owner, "all recommendations approve start working on it").
 
-**Build tasks (after the STAB-6 tasks of §8):** S7-1 events (`LinePrioritized`, `ItemAdded.max_delay_ms`), state v5
+**Build tasks (sketch; the plan is `docs/plans/stab-6-7-plan.md`):** S7-1 events (`LinePrioritized`, `ItemAdded.max_delay_ms`), state v5
 (tests 160); S7-2 the crossing in `getAlertIntents` / `slip_due` (153); S7-3 the fold and the slot priority placement,
 plus pass 1 priority-first (152, 154, 155, 157, 159); S7-4 batch priority with the BQ walk (156); S7-5 auto-fill (158);
 S7-6 views (161), then 03b's chip; S7-7 the 01a / 01c / 02b rows above.

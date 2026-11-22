@@ -1,7 +1,8 @@
 # STAB-7 proposal: a maximum delay per item, then priority
 
-Status: **design agreed by the owner (2026-11-22: "alright man done!")**; the 03a spec text is now in the 03a v1.2.8 DRAFT
-(§3.5.7, PR-1–PR-8, tests 152–161, with STAB-6), awaiting owner approval; design and owner questions in
+Status: **design agreed by the owner (2026-11-22: "alright man done!")**; the 03a spec text is 03a v1.2.8
+(§3.5.7, PR-1–PR-8, tests 152–161, with STAB-6), **approved by the owner 2026-11-22 ("all recommendations approve start working on it")**, with 01a v2.7.4,
+01c v1.1.3, 02b v1.0.24 and 03b v1.0.13; questions 9–14 answered with the recommendations; build plan `docs/plans/stab-6-7-plan.md`; design and owner questions in
 `docs/plans/stab-6-batch-rounds-proposal.md` §10.
 
 ## 1. Owner request (2026-11-22)
