@@ -38,7 +38,9 @@ const UNIT_CHANGES: ReadonlySet<string> = new Set(['ItemRemoved', 'ItemVoided', 
 
 /** Q-46: the engine line's serve group and mode, so the Pass computes Ready / HOLD (a return or released line is `immediate`). */
 export type ServeFields = { group_id: string; serve_mode: 'sync' | 'immediate' };
-export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean };
+// ⚠️ 03b v1.0.12 §6.15 (STAB-5 Q5): started_at = the engine line's (null while waiting), so a grouped Done on the Pass
+// sends the part that started last first
+export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean; started_at: number | null };
 export interface PointViewBody {
   point_id: string;
   stations: Array<{ station_id: string; name: string; lanes: KdsStationBody['lanes']; dark: boolean; screenless: boolean }>;
@@ -151,7 +153,7 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
     const lines = order.line_ids.flatMap((id): PointLine[] => {
       const d = details.get(id);
       if (!lineSet.has(id) || d === undefined) return [];
-      return [{ ...d, ...serveOf(state, id), stage: state.lines[id]!.stage as PointLine['stage'], handed_over: handed.has(id) }];
+      return [{ ...d, ...serveOf(state, id), stage: state.lines[id]!.stage as PointLine['stage'], handed_over: handed.has(id), started_at: state.lines[id]!.started_at }];
     });
     if (lines.length === 0) continue;
     orders.push({ order_id, identifier: lines[0]!.identifier, placed_at: order.placed_at, lines, ready: ready.get(order_id) ?? null });

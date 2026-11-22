@@ -17,8 +17,8 @@ import { clockText, type CardMessage } from './ready';
 // ITEM_WRONG_STAGE cooking / done (another device was first, #72) → nothing; Undo after the window → "Too late to
 // undo". One tap at a time per line (ref guard); the KdsApi re-sends a lost reply with the same command_id.
 // 03b v1.0.11 §3.4 (STAB-5, owner Q1 = b): a grouped row (`parts`, a split line's parts in one stage) acts on all its
-// parts, one command per part. Done goes from the last part back (the Pass has no start times: the later part is the
-// one most likely under §3.2's 50 %); `422 ITEM_DONE_CONFIRM_REQUIRED` stops the row, asks once, and the next Done
+// parts, one command per part. ⚠️ v1.0.12 (STAB-5 Q5): Done sends the part that started last first (`started_at`, an
+// unknown start last); `422 ITEM_DONE_CONFIRM_REQUIRED` stops the row, asks once, and the next Done
 // sends every part with `confirm: true`. Undo shows while a part is inside this tablet's own Undo window and undoes
 // those parts. The row shows the first refusal.
 
@@ -75,7 +75,12 @@ export function ScreenlessActions({ line, parts = [line], api, up, nowMs, clock,
     if (busy.current) return;
     busy.current = true;
     try {
-      const targets = action === 'done' ? [...ids].reverse() : action === 'undo' ? undoable : ids;
+      // ⚠️ 03b v1.0.12 §3.4 (STAB-5 Q5): Done by started_at, latest first (unknown last, then the later part first)
+      const byStart = parts
+        .map((p, i) => ({ id: p.order_item_id, at: p.started_at ?? Number.NEGATIVE_INFINITY, i }))
+        .sort((a, b) => b.at - a.at || b.i - a.i)
+        .map((p) => p.id);
+      const targets = action === 'done' ? byStart : action === 'undo' ? undoable : ids;
       let message: CardMessage | null = null;
       let failed = false;
       for (const id of targets) {

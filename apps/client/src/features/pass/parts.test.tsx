@@ -124,6 +124,26 @@ describe('[03b v1.0.11 §3.4] Pass split-line parts (STAB-5)', () => {
     expect(ids(s.sent, 'UndoDone').sort()).toEqual(['N-p2', 'N-p3']);
   });
 
+  it('[03b v1.0.12 #90] a grouped Done sends the part that started last first, by started_at; an ItemStarted frame sets it (STAB-5 Q5)', async () => {
+    const s = shellWith({ DoneItem: [ok({ done: ['x'] })] });
+    const started = (id: string, started_at: number) => ({ ...line(id, 'cooking'), started_at });
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: order([started('N', 0), started('N-p2', 100_000), started('N-p3', 50_000)]) } });
+    show(s.shell);
+    m.click(m.button('Done', row('N')));
+    await flush();
+    expect(ids(s.sent, 'DoneItem')).toEqual(['N-p2', 'N-p3', 'N']);
+
+    // a waiting part that starts live takes the frame's started_at
+    const t = shellWith({ DoneItem: [ok({ done: ['x'] })] });
+    m.unmount();
+    t.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: order([started('M', 500_000), { ...line('M-p2', 'added'), started_at: null }]) } });
+    t.raw({ type: 'event', seq: 2, event: { event_id: 'E2', event_type: 'ItemStarted', schema_version: 1, payload: { order_item_id: 'M-p2', started_at: 900_000 } } });
+    show(t.shell);
+    m.click(m.button('Done', row('M')));
+    await flush();
+    expect(ids(t.sent, 'DoneItem')).toEqual(['M-p2', 'M']);
+  });
+
   it('[03b #88] a grouped Done that needs a confirm asks once; the confirm sends every part with confirm: true', async () => {
     const s = shellWith({ DoneItem: [{ ok: false, error: { kind: 'api', status: 422, code: 'ITEM_DONE_CONFIRM_REQUIRED', details: { elapsed_ms: 1_000, cook_ms: 60_000 } } }, ok({ done: ['x'] })] });
     s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: order([line('N', 'cooking'), line('N-p2', 'cooking')]) } });

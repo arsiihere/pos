@@ -85,6 +85,7 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
     const pass = await connect(cook.token, cook.sessionToken);
     const view = catchUpState(pass).point_view as PointViewBody;
     const details = buildLineDetails(hub.deps.db, engine(), ['A1', 'A2', 'B1']);
+    // ⚠️ 03b v1.0.12 §6.15 (STAB-5 Q5): every line carries started_at (null while waiting)
     expect(view).toEqual({
       point_id: 'P1',
       stations: [
@@ -97,12 +98,12 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
           identifier: details.get('A1')!.identifier,
           placed_at: engine().orders[a]!.placed_at,
           lines: [
-            { ...details.get('A1')!, ...serve('A1'), stage: 'added', handed_over: false },
-            { ...details.get('A2')!, ...serve('A2'), stage: 'added', handed_over: false },
+            { ...details.get('A1')!, ...serve('A1'), stage: 'added', handed_over: false, started_at: null },
+            { ...details.get('A2')!, ...serve('A2'), stage: 'added', handed_over: false, started_at: null },
           ],
           ready: null,
         },
-        { order_id: b, identifier: details.get('B1')!.identifier, placed_at: engine().orders[b]!.placed_at, lines: [{ ...details.get('B1')!, ...serve('B1'), stage: 'added', handed_over: false }], ready: null },
+        { order_id: b, identifier: details.get('B1')!.identifier, placed_at: engine().orders[b]!.placed_at, lines: [{ ...details.get('B1')!, ...serve('B1'), stage: 'added', handed_over: false, started_at: null }], ready: null },
       ],
       takeovers: [],
     });
@@ -224,6 +225,22 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
     expect(framed.find((l) => l.order_item_id === 'R1')!.serve_mode).toBe('immediate');
     expect(framed.find((l) => l.order_item_id === 'C1')!.serve_mode).toBe('sync');
     for (const f of pointLines(pass)) WsPointLines.parse(f);
+  });
+
+  it('[03b v1.0.12 #90] a point_view line carries the engine line\'s started_at: null while waiting, set after ItemStarted (STAB-5 Q5)', async () => {
+    const cook = await start();
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'S1', item_id: FX.piece }, { order_item_id: 'S2', item_id: FX.piece }] });
+    const station_id = engine().lines.S1!.station_id;
+    append(hub, [{ stream_type: 'station', stream_id: station_id, event_type: 'FireDispatched', payload: { station_id, order_item_ids: ['S1'], load_id: null, due_at: now(), reason: 'pulled' } }]);
+    const at = now();
+    append(hub, [{ stream_type: 'order', stream_id: order_id, event_type: 'ItemStarted', payload: { order_item_id: 'S1', started_at: at, source: 'tap' } }]);
+    const pass = await connect(cook.token, cook.sessionToken);
+    const lines = (catchUpState(pass).point_view as PointViewBody).orders.flatMap((o) => o.lines);
+    expect(lines.map((l) => [l.order_item_id, l.started_at])).toEqual([
+      ['S1', engine().lines.S1!.started_at],
+      ['S2', null],
+    ]);
+    expect(engine().lines.S1!.started_at).not.toBeNull();
   });
 
   it('[03b #67] statements unchanged: point_view 4 (+1 per takeover), point_lines hook 2', async () => {

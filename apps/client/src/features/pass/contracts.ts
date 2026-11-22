@@ -19,7 +19,8 @@ export interface ServeFields {
 }
 
 /** §6.15 a Pass line: the details plus its live stage and whether it was handed over. */
-export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean };
+/** ⚠️ 03b v1.0.12 §6.15 (STAB-5 Q5): `started_at` = the engine line's start (null while waiting; absent from an older hub) */
+export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean; started_at?: number | null };
 
 export interface PointStation {
   station_id: string;

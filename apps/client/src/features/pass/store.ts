@@ -214,8 +214,11 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
     if (point === null) return false;
     const id = str(p['order_item_id']);
     switch (type) {
-      case 'ItemStarted':
-        return id !== null && updateLines(new Set([id]), (l) => ({ ...l, stage: 'cooking' }));
+      case 'ItemStarted': {
+        // ⚠️ 03b v1.0.12 §6.15 (STAB-5 Q5): the start time, so a grouped Done sends the last-started part first
+        const at = typeof p['started_at'] === 'number' ? p['started_at'] : deps.now();
+        return id !== null && updateLines(new Set([id]), (l) => ({ ...l, stage: 'cooking', started_at: at }));
+      }
       case 'ItemDone':
         return id !== null && updateLines(new Set([id]), (l) => ({ ...l, stage: 'done' }));
       case 'ItemDoneUndone':
