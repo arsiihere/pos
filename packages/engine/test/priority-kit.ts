@@ -61,7 +61,8 @@ export function kitchen(stations: Array<Partial<StationCfg> & { station_id: stri
 }
 
 // maxDelay: the ItemAdded.max_delay_ms copy (undefined = the field absent on the event).
-export type Item = { id: string; station?: string; cook: number; prep?: number; mode?: 'sync' | 'immediate'; units?: number; carry?: number; early?: number; maxDelay?: number | null; weight?: number };
+// batch: a line on a batch station with program P1 (its copied cook time, §3.2).
+export type Item = { id: string; station?: string; cook: number; prep?: number; mode?: 'sync' | 'immediate'; units?: number; carry?: number; early?: number; maxDelay?: number | null; weight?: number; batch?: boolean };
 export type OrderOpts = { key?: string; order_type?: 'dine_in' | 'takeaway' | 'delivery' | 'parking'; follow_up?: boolean; pickup_at_ms?: number | null };
 
 function itemFields(i: Item): Record<string, unknown> {
@@ -72,7 +73,22 @@ function itemFields(i: Item): Record<string, unknown> {
     serve_mode: i.mode ?? 'sync',
     quantity: i.units ?? 1,
     ...(i.maxDelay === undefined ? {} : { max_delay_ms: i.maxDelay }),
+    ...(i.batch === true ? { program_id: 'P1', program_cook_time_ms: i.cook, stock_program_id: null, stock_program_cook_time_ms: null, cook_time_ms: 999_999 } : {}),
   };
+}
+
+// A batch station config entry (one program P1 whose config cook time no placement may use, §3.2).
+export function batchStation(station_id: string, o: Partial<StationCfg> = {}): Partial<StationCfg> & { station_id: string } {
+  return {
+    station_id,
+    station_type: 'batch',
+    capacity: 8,
+    freshness_window_ms: 2 * M,
+    freeze_ms: 2 * M,
+    min_slack_keep_ms: M,
+    programs: [{ program_id: 'P1', name: 'Bake', cook_time_ms: 999_999, is_archived: false }],
+    ...o,
+  } as Partial<StationCfg> & { station_id: string };
 }
 
 export function proposed(order_id: string, items: Item[], o: OrderOpts = {}): ProposedOrder {
