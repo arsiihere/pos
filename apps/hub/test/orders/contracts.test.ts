@@ -65,6 +65,7 @@ describe('[02b §4.2] contracts', () => {
       options: Array<{ name: string; quantity: number }>; // 02b v1.0.11 §4.2 (Q-7)
       tax_profile_id: string | null; // ⚠️ 02b v1.0.16 §4.2 (05 row Q-1)
       unit_price_minor: number | null; // ⚠️ 02b v1.0.16 §4.2 (05 R-7, R-17)
+      part_of: string | null; // ⚠️ 02b v1.0.20 §5 (STAB-5): order_lines.part_of, migration 0026
     }>();
     // plan "02b exports" OrderView, plus the §5 orders columns (no contact values: has_phone only, O17).
     expectTypeOf<OrderView>().toEqualTypeOf<{
@@ -167,6 +168,7 @@ describe('[02b §4.2] contracts', () => {
           item_id: string;
           order_item_id: string;
           options?: Array<{ option_id: string; quantity: number; order_item_id?: string; part_of?: string }>;
+          part_of?: string; // ⚠️ 02b v1.0.22 (STAB-5): set by expandParts on a split deal's choices only
         }>;
         kitchen_note?: string;
         from_zone?: boolean;
