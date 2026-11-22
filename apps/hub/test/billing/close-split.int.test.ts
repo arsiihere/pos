@@ -1171,3 +1171,44 @@ describe('[05 v1.0.33 §6.29, §3.16, #93, #94] split lines on the invoice and t
     expect(ts.slice(at(ts), at(ts) + 2)).toEqual(tw.slice(at(tw), at(tw) + 2));
   });
 });
+
+describe('[05 v1.0.33 §3.16, #97] customer ready times on the takeaway receipt (STAB-5)', () => {
+  const T12 = /~\d{1,2}:\d\d [AP]M/.source;
+  const parts = (prefix: string, n: number, serve_mode: 'sync' | 'immediate') =>
+    Array.from({ length: n }, (_, i) => ({ order_item_id: i === 0 ? prefix : `${prefix}-p${i + 1}`, item_id: FX.piece, item: { part_of: prefix, serve_mode } }));
+  const receiptLines = async (order_id: string, bill_ref: Record<string, string> = { order_id }): Promise<string[]> => {
+    const v = await view(cashier.who, bill_ref);
+    const due = v.splits[0]!.totals.digital.total_minor;
+    await pay(cashier.who, bill_ref, 1, 'card', due);
+    const r = await close(cashier.who, { bill_ref, split_no: 1, expected_total_minor: due });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    return docText(jobDoc((r.result!['receipt'] as { job_id: string }).job_id)).split('\n');
+  };
+  const timeLines = (lines: string[]) => lines.filter((l) => l.includes('ready ~') || l.startsWith('Ready ~'));
+  const setPartTimes = (on: boolean) => {
+    const cur = currentConfigEntry()!;
+    swapBranchConfig({ ...cur, config: { ...cur.config, engine_settings: { ...cur.config.engine_settings, show_part_times_to_customers: on } } });
+  };
+
+  it('[05 #97] an as-ready karahi ×5 on a capacity-4 station → "Chicken Karahi: 4 ready ~… · 1 ready ~…"', async () => {
+    await start();
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: parts('KR', 5, 'immediate') });
+    expect(timeLines(await receiptLines(order_id))).toEqual([expect.stringMatching(new RegExp(`^Chicken Karahi: 4 ready ${T12} · 1 ready ${T12}$`))]);
+  });
+
+  it('[05 #97] a together order → "Ready ~…" once', async () => {
+    await start();
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: parts('KT', 2, 'sync') });
+    expect(timeLines(await receiptLines(order_id))).toEqual([expect.stringMatching(new RegExp(`^Ready ${T12}$`))]);
+  });
+
+  it('[05 #97] the setting off → no time line; a dine-in receipt never prints one', async () => {
+    await start();
+    setPartTimes(false);
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: parts('KO', 5, 'immediate') });
+    expect(timeLines(await receiptLines(order_id))).toEqual([]);
+    setPartTimes(true);
+    const t = seated([{ order_item_id: 'DI_K', item_id: FX.piece }]);
+    expect(timeLines(await receiptLines(t.order_id, { seating_id: t.seating_id }))).toEqual([]);
+  });
+});

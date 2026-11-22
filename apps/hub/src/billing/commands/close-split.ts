@@ -55,6 +55,8 @@ import { defineCommand, type CommandCtx } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { hubTime } from '../../lib/hub-time.js';
 import { orderLines } from '../../orders/exports.js';
+import { customerReadyTimes } from '../print/ready-times.js';
+import type { EngineState } from '@pos/engine';
 import { billPrinterFor, printDocument } from '../../print/api.js';
 import { registerDocumentFiller } from '../../print/worker.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
@@ -609,6 +611,7 @@ function printReceipt(
         fiscal: docFiscalState(o.row_state),
         buyer: o.buyer,
         is_reprint: false,
+        ready_times: customerReadyTimes(ctx.state as EngineState, o.invoice, hubTime(ctx.clock).utc_offset_ms), // v1.0.33 §3.16 (STAB-5)
       },
       {
         width_cols: o.paper_width_mm === 58 ? 32 : 48,

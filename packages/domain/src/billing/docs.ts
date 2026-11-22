@@ -394,6 +394,11 @@ export interface ReceiptDocInput {
    */
   buyer: DocBuyerMask | null;
   is_reprint: boolean;
+  /**
+   * 05 v1.0.33 §3.16 (STAB-5): the customer ready-time lines ("Ready ~2:40 PM", "Karahi: 4 ready ~2:20 PM · 1 ready
+   * ~2:40 PM"), printed after the payments; empty / absent = none (another order type, the setting off, nothing left).
+   */
+  ready_times?: readonly string[];
 }
 
 function headerBlocks(
@@ -489,6 +494,7 @@ export function buildReceiptDoc(input: ReceiptDocInput, ctx: DocContext): Doc {
     ),
     ...(input.change_minor !== 0 ? spread('Change', money.m(input.change_minor), cols) : []),
     ...fiscalBlocks(invoice, input.fiscal, cols),
+    ...((input.ready_times ?? []).length > 0 ? [{ rule: true } as const, ...(input.ready_times ?? []).map((text): DocBlock => ({ text, bold: true }))] : []),
     { rule: true },
     ...ownerLines(ctx.template.footer_lines, head.vars),
     ...END,
