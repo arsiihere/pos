@@ -321,7 +321,14 @@ const BranchConfigSnapshotSchemaV4Base = BranchConfigSnapshotSchemaV3Shape.exten
       tables: z.array(baseShape.floors.element.shape.tables.element.extend({ zone_id: z.string().nullable() })),
     }),
   ),
-  items: z.array(v3Shape.items.element.extend({ is_ready_item: z.boolean() })),
+  items: z.array(
+    v3Shape.items.element.extend({
+      is_ready_item: z.boolean(),
+      // 01a v2.7.5 §4.3 MD-5 (STAB-7): optional, no version bump (R29); absent → null / false (itemMaxDelay).
+      max_delay_ms: int.nullable().optional(),
+      max_delay_unlimited: z.boolean().optional(),
+    }),
+  ),
   engine_settings: v3Shape.engine_settings.extend({
     queue_auto_send_max_ms: int,
     zone_undo_ms: int,
@@ -334,6 +341,9 @@ const BranchConfigSnapshotSchemaV4Base = BranchConfigSnapshotSchemaV3Shape.exten
     kds_offline_ms: int.optional(),
     // 01a v2.7.3 §4.3 row PT-3 (STAB-5): optional, no version bump (R29); absent → true (05 v1.0.33 §3.16)
     show_part_times_to_customers: z.boolean().optional(),
+    // 01a v2.7.5 §4.3 MD-5 (STAB-7): optional; a MISSING key → 300 000, an explicit null (no limit) stays null
+    // (maxDelayDefaultMs; review M-8).
+    max_delay_default_ms: int.nullable().optional(),
   }),
 });
 
@@ -425,6 +435,24 @@ export type ConfigModifierOption = ConfigModifierGroup['options'][number];
 export type ConfigDeal = BranchConfig['deals'][number];
 export type ConfigCategory = BranchConfig['categories'][number];
 export type ConfigStation = BranchConfig['stations'][number];
+
+// 01a v2.7.5 §4.3 MD-5, MD-2 (STAB-7; review M-8): the hub reader of the optional max delay keys. Only a missing
+// key gives the default; an explicit null branch default ("No limit") is kept (never `value ?? 300000`).
+export const MAX_DELAY_DEFAULT_MS = 300_000;
+
+export function maxDelayDefaultMs(config: Pick<BranchConfig, 'engine_settings'>): number | null {
+  const settings = config.engine_settings;
+  return 'max_delay_default_ms' in settings && settings.max_delay_default_ms !== undefined
+    ? settings.max_delay_default_ms
+    : MAX_DELAY_DEFAULT_MS;
+}
+
+export function itemMaxDelay(item: Pick<ConfigItem, 'max_delay_ms' | 'max_delay_unlimited'>): {
+  max_delay_ms: number | null;
+  max_delay_unlimited: boolean;
+} {
+  return { max_delay_ms: item.max_delay_ms ?? null, max_delay_unlimited: item.max_delay_unlimited ?? false };
+}
 
 // 01c §4.2 (V12): the builder lists only tracked draws.
 export function isStockTracked(item: Pick<ConfigItem, 'stock_draws'>): boolean {

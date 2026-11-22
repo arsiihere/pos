@@ -553,8 +553,9 @@ describe('BranchConfigSnapshotSchemaV4', () => {
     const declared = Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape);
     // 03b A-1 (01a v2.4): + the two optional keys ready_window_ms, kds_offline_ms.
     // ⚠️ 01a v2.7.3 §4.3 PT-3 (STAB-5): + the optional show_part_times_to_customers.
+    // ⚠️ 01a v2.7.5 §4.3 MD-5 (STAB-7): + the optional max_delay_default_ms (a snapshot key, not an EngineSettings field).
     expect(declared.sort()).toEqual(
-      [...Object.keys(EngineSettings.shape), 'table_lock_ttl_ms', ...Object.keys(V4_SETTINGS), 'ready_window_ms', 'kds_offline_ms', 'show_part_times_to_customers'].sort(),
+      [...Object.keys(EngineSettings.shape), 'table_lock_ttl_ms', ...Object.keys(V4_SETTINGS), 'ready_window_ms', 'kds_offline_ms', 'show_part_times_to_customers', 'max_delay_default_ms'].sort(),
     );
   });
 
