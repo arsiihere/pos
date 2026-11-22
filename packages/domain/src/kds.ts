@@ -27,4 +27,6 @@ export interface LineDetail {
   prep_ms: number;
   from_stock: boolean;
   placed_by_name: string | null; // order taker (03c ticket toggle)
+  /** 03b v1.0.11 §4.4 (STAB-5): order_lines.part_of, the first part of a split line (02b v1.0.20 §3.2 step 4a); null = not split; absent from an older hub */
+  part_of?: string | null;
 }

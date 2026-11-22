@@ -116,6 +116,8 @@ export const LineDetailSchema = z.object({
   prep_ms: z.number().int(),
   from_stock: z.boolean(),
   placed_by_name: z.string().nullable(),
+  // ⚠️ 03b v1.0.11 §4.4 (STAB-5): the first part of a split line (02b v1.0.20 §3.2 step 4a); additive, optional
+  part_of: Id.nullable().optional(),
 });
 
 // 03b §6.16: details for the line ids a commit gained, per station socket set / per point (Pass) socket set.

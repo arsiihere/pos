@@ -142,6 +142,7 @@ describe('[03b §3.1, §4.2] buildLineDetails / pointOfLine (b11)', () => {
       prep_ms: line.prep_ms,
       from_stock: line.from_stock,
       placed_by_name: 'Order taker',
+      part_of: null, // ⚠️ 03b v1.0.11 (STAB-5): LineDetail.part_of, null = not split
     } satisfies LineDetail);
     expect(got.get('C1')).toMatchObject({ line_kind: 'option_child', item_name: 'Raita', for_parent: 'Chicken Karahi', deal_name: null, options: [] });
     expect(got.get('DM')).toMatchObject({ line_kind: 'deal_part', item_name: 'Chicken Karahi', for_parent: null, deal_name: 'Karahi combo', units: 1 });
@@ -274,6 +275,32 @@ describe('[03b §3.1, §4.2] buildLineDetails / pointOfLine (b11)', () => {
       order_note: 'birthday, bring together',
       placed_by_name: 'Owner',
     });
+  });
+
+  it('[03b v1.0.11 §4.4, #84] part_of: every part of a split line names part 1 (part 1 too); an unsplit line null; still 2 statements', async () => {
+    await start();
+    const device = pairDevice(hub, { type: 'tablet' });
+    const session = openSession(hub, { kind: 'staff', staffId: 'S_OWNER', deviceId: device.deviceId });
+    const res = await hub.app.inject({
+      method: 'POST',
+      url: '/commands/submit-order',
+      headers: { authorization: `Bearer ${device.token}`, 'x-session-token': session.token },
+      payload: {
+        command_id: 'cmd-submit-parts',
+        tenant_id: 'tenant-a',
+        branch_id: 'branch-1',
+        command_type: 'SubmitOrder',
+        payload: { order_id: 'O1', order_type: 'takeaway', lines: [{ order_item_id: 'N', item_id: FX.naan, quantity: 3 }, { order_item_id: 'K', item_id: FX.naan, quantity: 1 }] },
+        occurred_at: hub.clock.branchNow(),
+        actor_id: 'S_OWNER',
+        device_id: device.deviceId,
+      },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const counter = statementCounter(hub.deps.db);
+    const got = details(['N', 'N-p2', 'N-p3', 'K']);
+    expect(counter.count).toBe(2);
+    expect(['N', 'N-p2', 'N-p3', 'K'].map((id) => got.get(id)!.part_of)).toEqual(['N', 'N', 'N', null]);
   });
 
   it('[03b §4.2] 2 statements for any batch (order lines + orders, currentTableOf); unknown ids are left out; empty → 0', async () => {
