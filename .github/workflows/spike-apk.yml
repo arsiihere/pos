@@ -6,6 +6,8 @@ on:
     branches: [spike/lock-alerts]
     paths: ['spike/lock-alerts/app/**', '.github/workflows/spike-apk.yml']
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -32,6 +34,19 @@ jobs:
         run: ./gradlew --no-daemon assembleDebug
       - name: Name the APK with the commit
         run: cp android/app/build/outputs/apk/debug/app-debug.apk "pos-spike-alerts-${GITHUB_SHA::7}.apk"
+      - name: Show the APK manifest summary (permissions, SDKs)
+        run: |
+          AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt2
+          "$AAPT2" dump badging pos-spike-alerts-*.apk | grep -E "package:|sdkVersion|targetSdkVersion|uses-permission" || true
+      - name: Publish to the rolling pre-release (direct download on the tablet)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp pos-spike-alerts-*.apk pos-spike-alerts.apk
+          gh release view spike-lock-alerts >/dev/null 2>&1 || \
+            gh release create spike-lock-alerts --prerelease --target "$GITHUB_SHA" \
+              --title "Spike: lock-screen alerts (throwaway)" --notes "Debug APK of branch spike/lock-alerts. Throwaway; not a product release."
+          gh release upload spike-lock-alerts pos-spike-alerts.apk --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: pos-spike-alerts-apk
