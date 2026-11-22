@@ -4,14 +4,14 @@ import { clock12 } from '../../print/render/jobs.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 
 // 05 v1.0.33 §3.16 (STAB-5; proposal §6 Q2, 01a v2.7.3 `show_part_times_to_customers`, default on): the ready times a
-// takeaway receipt prints, from the engine state at the print (memory only, no statement):
+// takeaway or (v1.0.34) parking receipt prints, from the engine state at the print (memory only, no statement):
 // - the order's together lines (`sync`): "Ready ~2:40 PM", the latest of their times;
 // - an as-ready line or a split line's as-ready parts (one entry per `part_of`): "Karahi: 4 ready ~2:20 PM · 1 ready
 //   ~2:40 PM" (parts bucketed by the minute, earliest first), with one time "Karahi: ready ~2:20 PM";
 // - a line's time = its land (done_at, else the booked cook end; + carry_ms) + the order's padding
 //   (promise_ms − target_land_ms), 12-hour clock in the branch zone;
 // - only the invoice's own lines that are still in the engine and not served; nothing for another order type, or when
-//   the setting is off (the receipt is as before).
+//   the setting is off (the receipt is as before); never on a dine-in receipt.
 
 const LIVE = new Set<EngineLine['stage']>(['added', 'cooking', 'done']);
 
@@ -24,7 +24,8 @@ function landOf(state: EngineState, l: EngineLine): number | null {
 }
 
 export function customerReadyTimes(state: EngineState, invoice: Pick<FiscalSaleInvoiceFields, 'order_type' | 'lines'>, utc_offset_ms: number): string[] {
-  if (invoice.order_type !== 'takeaway') return [];
+  // ⚠️ 05 v1.0.34 §3.16 (owner 2026-11-22, STAB-5 Q4): parking too
+  if (invoice.order_type !== 'takeaway' && invoice.order_type !== 'parking') return [];
   if ((branchConfig()?.engine_settings.show_part_times_to_customers ?? true) === false) return [];
   const together: number[] = [];
   const entries = new Map<string, { name: string; times: number[] }>();

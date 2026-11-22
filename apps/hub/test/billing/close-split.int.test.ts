@@ -1202,6 +1202,15 @@ describe('[05 v1.0.33 §3.16, #97] customer ready times on the takeaway receipt 
     expect(timeLines(await receiptLines(order_id))).toEqual([expect.stringMatching(new RegExp(`^Ready ${T12}$`))]);
   });
 
+  it('[05 v1.0.34 #97b] a parking receipt prints the ready times as a takeaway one; with the setting off, none (STAB-5 Q4)', async () => {
+    await start();
+    const { order_id } = appendOrder(hub, { order_type: 'parking', car_number: 'LEB 1234', placed_by: STAFF.orderTaker, lines: parts('KP', 5, 'immediate') });
+    expect(timeLines(await receiptLines(order_id))).toEqual([expect.stringMatching(new RegExp(`^Chicken Karahi: 4 ready ${T12} · 1 ready ${T12}$`))]);
+    setPartTimes(false);
+    const off = appendOrder(hub, { order_type: 'parking', car_number: 'LEB 5678', placed_by: STAFF.orderTaker, lines: parts('KQ', 2, 'immediate') });
+    expect(timeLines(await receiptLines(off.order_id))).toEqual([]);
+  });
+
   it('[05 #97] the setting off → no time line; a dine-in receipt never prints one', async () => {
     await start();
     setPartTimes(false);
