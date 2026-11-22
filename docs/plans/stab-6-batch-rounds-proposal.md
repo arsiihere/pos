@@ -1,7 +1,7 @@
-# STAB-6 proposal: batch stations cook in rounds, in arrival order ("A + C")
+# STAB-6 proposal: batch stations cook in rounds, in arrival order ("A + C") — with STAB-7 (max delay → priority)
 
 Status: **spec draft, awaiting owner approval** — 03a v1.2.8 DRAFT (`docs/specs/03a_Timing_Engine_Spec_v1.2.8.md`) and
-02b v1.0.23 DRAFT (`docs/specs/02b_Ordering_Spec_v1.0.23.md`). Fix chosen by the owner on 2026-11-22: **A + C**. No code
+02b v1.0.23 DRAFT (`docs/specs/02b_Ordering_Spec_v1.0.23.md`). Fix chosen by the owner on 2026-11-22: **A + C**. The owner asked for STAB-7 (max delay → priority, `docs/plans/stab-7-max-delay-proposal.md`) to go into the same 03a draft, so one engine change is approved; see §10. No code
 until the owner approves the drafts and answers §9.
 
 ## 1. Problem (owner report, 2026-11-22)
@@ -200,3 +200,67 @@ after the station's reservations and keeps "first batch b … with room". F §4.
 of the earliest-deadline item" still holds unless the queue is late, which is today's overload case. F's "re-planned
 on every submit within slack" (03a F-3 / F-19 marker) is read as "a hidden load is re-placed as one unit". Please
 confirm that reading. If you read it as per item, the foundation needs a bump (owner-approved, README R34).
+
+## 10. STAB-7 in the same draft: max delay, then priority
+
+The rule is the one the owner agreed (`docs/plans/stab-7-max-delay-proposal.md` §4). It is written as 03a v1.2.8 §3.5.7,
+rules PR-1–PR-8, tests 152–161.
+
+**Root cause:** 03a v1.2.7 has no push-back limit and no priority. Only promise deadlines and the overload weights apply.
+Once a disturbance makes a line late (a slide, an overrun, a capacity drop, a boost, an overload with `max_late_ms`
+null), each later re-plan may push it again, and nothing on the KDS says why.
+
+**Design against the code, consistent with A + C:**
+
+- **The limit (PR-1).** `ItemAdded.max_delay_ms` is a D25 copy (the item's value, else the branch default; `null` = no
+  limit). The engine never reads menu config for it.
+- **The delay (PR-2).** The group's estimate (§3.8, the same function as the slip) minus the group's target `T`. An
+  "as ready" line is its own group.
+- **The trigger (PR-3)** sits in `fires_alerts`, beside the slips. `getAlertIntents` already computes the estimates.
+  The crossing goes into `slip_due[key]`, so `next_alert_due_at` stays exact and an idle kitchen opens no transaction.
+  It writes one new event, **`LinePrioritized`** (order stream), so live, replay and the screens agree. Rejected:
+  deciding priority inside a re-plan fold. That misses delays that grow between events (a slide), and the tick could
+  not tell the KDS.
+- **The fold (PR-4)** marks `priority_at` (sticky) and re-places the lines with the **boost path for those lines only**
+  (§3.9 machinery: hold-and-fire against fixed lines; the D15 exception for frozen lines of others).
+  - On a **slot** station, pass 1 then always places priority lines first, at their earliest fit (`replan.ts`
+    `pass1Order` / the slot loop), so new orders never push them. Auto-fill (`tick.ts`) takes priority lines first.
+  - On a **batch** station the line moves into the first unfired round of its program. When that round is full, its
+    latest non-priority member moves back through BQ-5's walk. This is STAB-6's queue with one sanctioned jump, so A
+    and STAB-7 use one ordering rule: arrival order, then priority, then boost.
+- **Kept (PR-5, PR-7):** `max_early_ms` (never fire before `d − max_early_ms`), and fired / COOKING lines (never
+  pre-empted).
+- **Weights (PR-6)** order only non-priority lines on slot stations. Batch queues have no weights since BQ-2.
+- **Cost:** `ENGINE_STATE_VERSION` 4 → 5 (two `EngineLine` fields; full replay at upgrade), one event type, one optional
+  `ItemAdded` field. No endpoint, migration or error code in 03a.
+
+**Rows for other specs (not written; the owner approves them with this draft):**
+
+| Spec | Row |
+|---|---|
+| 01a Restaurant Setup | `menu_items.max_delay_ms INTEGER NULL` (≥ 0; the owner app shows minutes, next to "Can be ready early by"; empty = branch default); branch setting `max_delay_default_ms` (default 300 000 = 5 min; `null` = no limit by default); a migration ADD COLUMN; config snapshot and `BranchConfig.items[].max_delay_ms` |
+| 01c Menu Variants | `ItemAdded.max_delay_ms?: number \| null` (additive at v1, no upcaster; absent = no limit), 01c §4.3 |
+| 02b Ordering | §3.2 build: copy the item's value or the branch default onto every line's (and part's) `ItemAdded.max_delay_ms` (03a To 02 #13); a test |
+| 03b KDS + Pass | "Priority · n min late" chip on KDS and Pass rows from the views' `priority`; `LinePrioritized` reaches station / pass sockets (03a To 03b #10); client tests |
+| 01d | none: the existing `slip_warning` reaches the manager by its step 1 |
+
+**STAB-7 owner questions:**
+
+9. **Measure the delay from the kitchen target `T` or from the customer promise `P` (= `T` + padding)?** **Recommend:
+   `T`**, the same as the slip card's "≈ n min late". Priority then starts before the customer's promise is broken.
+10. **Branch default:** 5 min, with "empty = default" and an explicit "no limit" choice per item? **Recommend: yes, 5
+    min.** The slip threshold (2 min) is below it, so the order taker hears first and priority follows.
+11. **Manager alert:** no new alert. The slip raised earlier escalates to managers at `slip_escalate_ms`. Or should a
+    priority crossing escalate at once? **Recommend: keep the existing slip** (no 01d change). Revisit if managers
+    miss it.
+12. **A priority line in a full batch round** moves that round's latest non-priority member to the next round. Or should
+    it only take free room and otherwise go first into the round after? **Recommend: move the latest member back.**
+    That is "first into the next round".
+13. **Priority after a Boost:** a boost may still go ahead of a priority line (a human jump, marked). **Recommend: yes.**
+14. **Rollout:** `ENGINE_STATE_VERSION` 5 means a full log replay at the first boot after the update (minutes at pilot
+    volume). **Recommend:** ship STAB-6 and STAB-7 as one engine update, after hours.
+
+**Build tasks (after the STAB-6 tasks of §8):** S7-1 events (`LinePrioritized`, `ItemAdded.max_delay_ms`), state v5
+(tests 160); S7-2 the crossing in `getAlertIntents` / `slip_due` (153); S7-3 the fold and the slot priority placement,
+plus pass 1 priority-first (152, 154, 155, 157, 159); S7-4 batch priority with the BQ walk (156); S7-5 auto-fill (158);
+S7-6 views (161), then 03b's chip; S7-7 the 01a / 01c / 02b rows above.
