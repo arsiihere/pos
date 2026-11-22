@@ -55,14 +55,25 @@ import { ORDER_EXIT_AFTER_SERVED_MS, orderInEngine, type FoldScope } from './lif
 import { liveProfiles, packStation } from './live.js';
 import { pressureBp, pressureWindowOf } from './pressure.js';
 import { occupiedCook } from './profile.js';
-import type { ItemsReleasedPayload } from '@pos/events';
+import type { ItemsReleasedPayload, LinePrioritizedPayload } from '@pos/events';
 import type { EngineLine, EngineOrder, EngineState, SlipRecord } from './state.js';
 
 export interface AlertIntents {
   slips: Array<{ table_key: string; order_ids: string[]; estimate: number; target: number; promise: number }>;
   resolved: Array<{ table_key: string; alert_id: string }>;
   overload: Array<{ station_id: string; pressure_bp: number; waiting: number; capped: boolean }>;
+  // ⚠️ 03a v1.2.10 §3.5.7 PR-3 (STAB-7): one LinePrioritized per due group whose waiting line drives its delay at now,
+  // and the due groups that fail condition 3 at now, each with its pure recheck_at (the host parks them, §6.2a step 7).
+  prioritized: LinePrioritizedDraft[];
+  priority_waits: Array<{ group_id: string; recheck_at: number | null }>;
 }
+
+// The draft as the other engine drafts (tick.ts): no envelope ids or times; the host stamps them.
+export type LinePrioritizedDraft = { stream_type: 'order'; stream_id: string; event_type: 'LinePrioritized'; schema_version: 1; payload: LinePrioritizedPayload };
+
+// 03a v1.2.10 §3.5.7 PR-1 (re-review F-1, review M-10): the effective limit of a "No limit" line (30 min), exported like
+// ORDER_EXIT_AFTER_SERVED_MS.
+export const MAX_DELAY_NO_LIMIT_MS = 1_800_000;
 
 const INF = Number.POSITIVE_INFINITY;
 const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -396,6 +407,237 @@ export function slipGroupsAt(state: EngineState, key: string, t: number): Array<
   return out;
 }
 
+// ---- 03a v1.2.10 §3.5.7 PR-2, PR-3: max delay → priority (STAB-7) ---------------------------------------------------
+//
+// A group g of the order (every group: an immediate line is its own group, §3.2), its lines without placeholders:
+//   E_w(g, t) = max over g's waiting lines (stage added, not fired; hidden or frozen) of lineEstimate (§3.8);
+//   F(g, t)   = max over g's fired-not-started (lineEstimate, packed), COOKING (max(planned land, t + carry): an overrun
+//               counts, re-review R-2) and done-not-served (done_at + carry) lines; −∞ when none;
+//   level(g)  = T(g) + limit(g), limit(g) = min over the waiting lines with priority_at null of max_delay_ms ??
+//               MAX_DELAY_NO_LIMIT_MS; no level (condition 1 fails) when there is no such line.
+// priority_due[g] = the level crossing (condition 2 only, monotone between folds): lineCrossing over g's waiting lines
+// from the order's placed_at (re-review R-3), none at or after its exit. Condition 3 (E_w > F) is checked at the draft.
+// Proposed (implementer) reading: an order still awaiting listed lines has no entry (as keyDue: its plan is not made).
+
+type PGroup = { order: EngineOrder; group_id: string; target: number; lines: EngineLine[] };
+
+function isWaiting(l: EngineLine): boolean {
+  return l.stage === 'added' && l.fired_at === null;
+}
+
+function pGroup(state: EngineState, order: EngineOrder, group_id: string): PGroup | null {
+  const g = order.groups[group_id];
+  if (g === undefined) return null;
+  const lines: EngineLine[] = [];
+  for (const id of g.line_ids) {
+    const l = state.lines[id];
+    if (l !== undefined && l.order_id === order.order_id && !isPlaceholder(l)) lines.push(l);
+  }
+  return lines.length === 0 ? null : { order, group_id, target: g.target_land_ms, lines };
+}
+
+// The order of a group id (`order_id:index`, §3.3).
+function orderIdOfGroup(group_id: string): string {
+  const k = group_id.lastIndexOf(':');
+  return k < 0 ? group_id : group_id.slice(0, k);
+}
+
+function priorityLevel(g: PGroup): number | null {
+  let limit = INF;
+  for (const l of g.lines) if (isWaiting(l) && l.priority_at === null) limit = Math.min(limit, l.max_delay_ms ?? MAX_DELAY_NO_LIMIT_MS);
+  return limit === INF ? null : g.target + limit;
+}
+
+function waitingEstimate(ctx: Ctx, g: PGroup, t: number): number {
+  let e = Number.NEGATIVE_INFINITY;
+  for (const l of g.lines) if (isWaiting(l)) e = Math.max(e, lineEstimate(ctx, l, t) ?? Number.NEGATIVE_INFINITY);
+  return e;
+}
+
+function fixedLand(ctx: Ctx, g: PGroup, t: number): number {
+  let f = Number.NEGATIVE_INFINITY;
+  for (const l of g.lines) {
+    if (isFiredNotStarted(l)) f = Math.max(f, lineEstimate(ctx, l, t) ?? Number.NEGATIVE_INFINITY);
+    else if (l.stage === 'cooking') f = Math.max(f, cookingLand(ctx.state, l), t + l.carry_ms);
+    else if (l.stage === 'done' && l.done_at !== null) f = Math.max(f, l.done_at + l.carry_ms);
+  }
+  return f;
+}
+
+function priorityCrossing(ctx: Ctx, g: PGroup): number {
+  if (g.order.awaiting > 0) return INF;
+  const level = priorityLevel(g);
+  if (level === null) return INF;
+  const exit = ctx.exitAt(g.order);
+  let c = INF;
+  for (const l of g.lines) if (isWaiting(l)) c = Math.min(c, lineCrossing(ctx, l, level, g.order.placed_at, exit));
+  return c;
+}
+
+// The full recompute of priority_due (test 106: the per-group upkeep equals it after every fold; test 177).
+export function priorityDueOf(state: EngineState): Record<string, number> {
+  const ctx = new Ctx(state);
+  const out: Record<string, number> = {};
+  for (const oid of Object.keys(state.orders).sort(byId)) {
+    const order = state.orders[oid]!;
+    for (const gid of Object.keys(order.groups).sort(byId)) {
+      const g = pGroup(state, order, gid);
+      if (g === null) continue;
+      const c = priorityCrossing(ctx, g);
+      if (c !== INF) out[gid] = c;
+    }
+  }
+  return out;
+}
+
+// §3.5.7 PR-2 at t, for the fold (priority_delay_ms = delay(g, recorded_at)) and the views (PR-8): E_w − T, and the
+// live F(g, t) (the PR-4 floor). Absent group → null.
+export function priorityTerms(state: EngineState, order_id: string, group_id: string, t: number): { waiting: number; fixed: number; target: number } | null {
+  const order = state.orders[order_id];
+  const g = order === undefined ? null : pGroup(state, order, group_id);
+  if (g === null) return null;
+  const ctx = new Ctx(state);
+  return { waiting: waitingEstimate(ctx, g, t), fixed: fixedLand(ctx, g, t), target: g.target };
+}
+
+// PR-3 "The search": the first t > now, t < exit, with E_w(g, t) > F(g, t) on the current state, or null. Breakpoints:
+// the knees of g's lines (an unfired line's estimate rises from its booking start − prep, a COOKING line's overrun term
+// from planned land − carry), the fires of the in-flight lines on the stations of g's fired lines and the ends of their
+// COOKING lines (where a packing may step), and (final check FC-3) the exit instants of the orders with in-flight lines
+// there. Proposed (implementer) reading of "on each piece E_w − F is linear, so its first instant > 0 is closed form": on
+// each piece the difference is tested for linearity at both ends and the middle; a piece that is not linear (a packing
+// step the breakpoints did not name) is halved until it is, so the result is still the first instant on the state.
+function recheckAt(ctx: Ctx, g: PGroup, now: number): number | null {
+  const exit = ctx.exitAt(g.order);
+  const diff = (t: number): number => {
+    const e = waitingEstimate(ctx, g, t);
+    if (e === Number.NEGATIVE_INFINITY) return Number.NEGATIVE_INFINITY;
+    const f = fixedLand(ctx, g, t);
+    return f === Number.NEGATIVE_INFINITY ? INF : e - f;
+  };
+  const points = new Set<number>();
+  const stations = new Set<string>();
+  for (const l of g.lines) {
+    if (isWaiting(l)) {
+      const iv = plannedInterval(ctx.state, l);
+      if (iv !== null) points.add(iv.start - l.prep_ms);
+    } else if (l.stage === 'cooking') {
+      points.add(cookingLand(ctx.state, l) - l.carry_ms);
+    } else if (isFiredNotStarted(l)) {
+      stations.add(l.station_id);
+    }
+  }
+  if (stations.size > 0) {
+    const seen = new Set<string>();
+    for (const id in ctx.state.lines) {
+      const l = ctx.state.lines[id]!;
+      if (!stations.has(l.station_id) || !isInFlight(l)) continue;
+      if (l.fire_ms !== null) points.add(l.fire_ms);
+      if (l.stage === 'cooking') points.add(cookingLand(ctx.state, l) - l.carry_ms);
+      if (!seen.has(l.order_id)) {
+        seen.add(l.order_id);
+        const o = ctx.state.orders[l.order_id];
+        if (o !== undefined) points.add(ctx.exitAt(o));
+      }
+    }
+  }
+  const HORIZON = 2 ** 40;
+  const end = exit === INF ? Math.max(now + 1, ...[...points].filter((p) => p !== INF)) + HORIZON : exit;
+  const cuts = [...points].filter((p) => p > now + 1 && p < end).sort((a, b) => a - b);
+  const bounds = [now + 1, ...cuts, end];
+  // First t in [a, b) with diff(t) > 0 on a piece assumed linear unless shown otherwise.
+  const first = (a: number, b: number): number | null => {
+    if (b <= a) return null;
+    const fa = diff(a);
+    if (fa > 0) return a;
+    if (b - a <= 2) return b - a === 2 && diff(a + 1) > 0 ? a + 1 : null;
+    const z = b - 1;
+    const m = a + Math.floor((z - a) / 2);
+    const fm = diff(m);
+    const fz = diff(z);
+    // A waiting line's estimate is defined wherever its order is in the engine, and t < exit here: −∞ only when g has no
+    // placed waiting line, which no t changes.
+    if (fa === Number.NEGATIVE_INFINITY) return null;
+    if (fm === INF || fz === INF) return first(a + 1, m + 1) ?? (fz === INF ? z : null);
+    const k1 = (fm - fa) / (m - a);
+    const k2 = (fz - fm) / (z - m);
+    if (k1 === k2 && Number.isInteger(k1)) {
+      if (k1 <= 0) return null;
+      const c = a + Math.floor(-fa / k1) + 1;
+      if (c >= b) return null;
+      if (diff(c) > 0 && diff(c - 1) <= 0) return c;
+    }
+    return first(a + 1, m + 1) ?? first(m + 1, b);
+  };
+  for (let i = 0; i + 1 < bounds.length; i++) {
+    const r = first(bounds[i]!, bounds[i + 1]!);
+    if (r !== null) return r;
+  }
+  return null;
+}
+
+// PR-3 the draft and the waits at now (part of getAlertIntents): the groups with priority_due ≤ now whose order is in the
+// engine; drafted when E_w(g, now) > F(g, now) (condition 3), else listed with recheck_at. Groups in id order.
+function priorityIntents(state: EngineState, now: number): Pick<AlertIntents, 'prioritized' | 'priority_waits'> {
+  const prioritized: LinePrioritizedDraft[] = [];
+  const priority_waits: AlertIntents['priority_waits'] = [];
+  const due = Object.keys(state.priority_due)
+    .filter((k) => state.priority_due[k]! <= now)
+    .sort(byId);
+  if (due.length === 0) return { prioritized, priority_waits };
+  const ctx = new Ctx(state);
+  for (const gid of due) {
+    const order = state.orders[orderIdOfGroup(gid)];
+    if (order === undefined || order.awaiting > 0 || !orderInEngine(state, order, now)) continue;
+    const g = pGroup(state, order, gid);
+    if (g === null || priorityLevel(g) === null) continue;
+    const e = waitingEstimate(ctx, g, now);
+    if (!(e > fixedLand(ctx, g, now))) {
+      priority_waits.push({ group_id: gid, recheck_at: recheckAt(ctx, g, now) });
+      continue;
+    }
+    const inGroup = new Set(g.lines.map((l) => l.order_item_id));
+    const order_item_ids = order.line_ids.filter((id) => inGroup.has(id) && state.lines[id]!.stage === 'added');
+    prioritized.push({
+      stream_type: 'order',
+      stream_id: order.order_id,
+      event_type: 'LinePrioritized',
+      schema_version: 1,
+      payload: { order_id: order.order_id, group_id: gid, order_item_ids, delay_ms: e - g.target, at_ms: now },
+    });
+  }
+  return { prioritized, priority_waits };
+}
+
+// PR-3 recheck_at of one group at now (pure; the host's parking and test 168 read it).
+export function priorityRecheckAt(state: EngineState, group_id: string, now: number): number | null {
+  const order = state.orders[orderIdOfGroup(group_id)];
+  const g = order === undefined ? null : pGroup(state, order, group_id);
+  return g === null ? null : recheckAt(new Ctx(state), g, now);
+}
+
+// PR-3 upkeep (slip_due's): the groups of the touched keys' orders recomputed, and the entries of absent orders dropped.
+function upkeepPriority(ctx: Ctx, due: Record<string, number>, byKey: ReadonlyMap<string, readonly EngineOrder[]>): Record<string, number> {
+  let out = due;
+  const set = (gid: string, v: number): void => {
+    const old = out[gid];
+    if (v === INF ? old === undefined : old === v) return;
+    if (out === due) out = { ...due };
+    if (v === INF) delete out[gid];
+    else out[gid] = v;
+  };
+  for (const gid in due) if (ctx.state.orders[orderIdOfGroup(gid)] === undefined) set(gid, INF);
+  for (const orders of byKey.values()) {
+    for (const order of orders) {
+      for (const gid in order.groups) {
+        const g = pGroup(ctx.state, order, gid);
+        set(gid, g === null ? INF : priorityCrossing(ctx, g));
+      }
+    }
+  }
+  return out;
+}
+
 // ---- fold-side upkeep (apply-event.ts calls it after every handled fold) --------------------------------------------
 
 // Visits (before, after) of each entry that is a different object in `next`: the named ids only, or every id when the
@@ -547,10 +789,13 @@ export function upkeepSlips(prev: EngineState, next: EngineState, t: number, nam
     if (v === null) delete due[key];
     else due[key] = v;
   }
-  if (due === state.slip_due) return state;
+  // 03a v1.2.10 §3.5.7 PR-3 (review B-1): priority_due beside slip_due, the same touched set, independent of every slip
+  // term. Plan task 14 gate guard (re-review m-7): next_alert_due_at stays the slip minimum until the writer (task 23).
+  const priority_due = upkeepPriority(ctx, state.priority_due, byKey);
+  if (due === state.slip_due) return priority_due === state.priority_due ? state : { ...state, priority_due };
   let min: number | null = null;
   for (const k in due) if (min === null || due[k]! < min) min = due[k]!;
-  return { ...state, slip_due: due, next_alert_due_at: min };
+  return { ...state, slip_due: due, next_alert_due_at: min, priority_due };
 }
 
 // ---- readers (§6.1g) ------------------------------------------------------------------------------------------------
@@ -634,7 +879,7 @@ export function getAlertIntents(state: EngineState, now: number): AlertIntents {
       if (item !== null) slips.push(item);
     }
   }
-  return { slips, resolved, overload: overloadItems(state, now) };
+  return { slips, resolved, overload: overloadItems(state, now), ...priorityIntents(state, now) };
 }
 
 // §6.1g: state.next_alert_due_at; with `exclude` (the host's skipped keys, §3.8) the same minimum without those keys.

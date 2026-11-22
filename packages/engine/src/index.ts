@@ -19,7 +19,20 @@ export {
   type ReservationsShiftedDraft,
   type TickDraft,
 } from './tick.js';
-export { getAlertIntents, goesWith, nextAlertDueAt, planRelease, type AlertIntents, type GoesWithLine, type GoesWithLink, type ItemsReleasedDraft } from './slip.js';
+export {
+  getAlertIntents,
+  goesWith,
+  MAX_DELAY_NO_LIMIT_MS,
+  nextAlertDueAt,
+  planRelease,
+  priorityDueOf,
+  priorityRecheckAt,
+  type AlertIntents,
+  type GoesWithLine,
+  type GoesWithLink,
+  type ItemsReleasedDraft,
+  type LinePrioritizedDraft,
+} from './slip.js';
 export { capacityForLanes, pressureBand, stationPressure, type PressureBand } from './pressure.js';
 export {
   groupReadiness,
