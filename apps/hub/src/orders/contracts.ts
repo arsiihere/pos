@@ -171,6 +171,8 @@ export interface SubmitOption {
   option_id: string;
   quantity: number;
   order_item_id?: string;
+  /** 02b v1.0.20 §3.2 step 4a: set by expandParts on a split part's linked option (never in the payload) */
+  part_of?: string;
 }
 
 /** §6.1 SubmitOrder payload (typed from the §6.1 payload table; the zod schema is lane 2A's). */
@@ -195,6 +197,8 @@ export interface SubmitInput {
     /** ≤ 80 */
     kitchen_note?: string;
     from_zone?: boolean;
+    /** 02b v1.0.20 §3.2 step 4a: set by expandParts on every part of a split line (never in the payload) */
+    part_of?: string;
   }>;
 }
 

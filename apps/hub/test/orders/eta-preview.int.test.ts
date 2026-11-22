@@ -81,6 +81,13 @@ interface SubmitResult {
 
 let commandSeq = 0;
 
+/** 02b v1.0.20 §3.2 step 4a: a part id `<key>-p<k>` is part k of `<key>`; `<key>` itself is part 1 when it has parts. */
+function partKey(id: string, result: { lines: Array<{ order_item_id: string }> }): { key: string; part?: number } {
+  const m = /^(.*)-p(\d+)$/.exec(id);
+  if (m !== null) return { key: m[1]!, part: Number(m[2]) };
+  return result.lines.some((l) => l.order_item_id === `${id}-p2`) ? { key: id, part: 1 } : { key: id };
+}
+
 /** Submits the draft with each key as its id (keys → order_item_id) and returns the result in the preview's shape. */
 async function submitDraft(who: Who, order_id: string, draft: Record<string, unknown>): Promise<{ status: number; asPreview: Omit<Preview, 'as_of_seq'>; placed: Record<string, unknown> }> {
   const payload = JSON.parse(JSON.stringify({ order_id, ...draft }).replace(/"key":/g, '"order_item_id":')) as Record<string, unknown>;
@@ -108,8 +115,11 @@ async function submitDraft(who: Who, order_id: string, draft: Record<string, unk
   return {
     status: res.statusCode,
     asPreview: {
-      groups: result.groups.map((g) => ({ promise_ms: g.promise_ms, keys: g.order_item_ids })),
-      lines: result.lines.map(({ order_item_id, ...rest }) => ({ key: order_item_id, ...rest })),
+      groups: result.groups.map((g) => ({ promise_ms: g.promise_ms, keys: [...new Set(g.order_item_ids.map((id) => partKey(id, result).key))] })),
+      lines: result.lines.map(({ order_item_id, ...rest }) => {
+        const { key, part } = partKey(order_item_id, result);
+        return { key, ...(part === undefined ? {} : { part }), ...rest };
+      }),
     },
     placed: JSON.parse(placed) as Record<string, unknown>,
   };
@@ -167,8 +177,9 @@ describe('02b eta-preview (§6.14)', () => {
     expect(engine()).toBe(state); // no fold ran: nothing appended
     expect(stockLeft()).toBe(stock); // reserveStock claimed nothing
     expect(r.data!.as_of_seq).toBe(hub.deps.writer.lastSeq());
-    expect(r.data!.lines.map((l) => l.key)).toEqual(['c1', 'c1o', 'c2', 'c3', 'c4', 'c4a', 'c4b']);
-    for (const l of r.data!.lines) expect(Object.keys(l).sort()).toEqual(['eta_ms', 'from_stock', 'key', 'zone_served']);
+    // ⚠️ 02b v1.0.20 §3.2 step 4a, §6.14 (STAB-5): naan ×2 on the slot station is two parts, each with `part`
+    expect(r.data!.lines.map((l) => [l.key, (l as { part?: number }).part])).toEqual([['c1', undefined], ['c1o', undefined], ['c2', 1], ['c2', 2], ['c3', undefined], ['c4', undefined], ['c4a', undefined], ['c4b', undefined]]);
+    for (const l of r.data!.lines) expect(Object.keys(l).sort()).toEqual(l.key === 'c2' ? ['eta_ms', 'from_stock', 'key', 'part', 'zone_served'] : ['eta_ms', 'from_stock', 'key', 'zone_served']);
     for (const g of r.data!.groups) expect(Object.keys(g).sort()).toEqual(['keys', 'promise_ms']);
     // The same preview twice reads the same state.
     expect((await preview(ali, takeaway(fullCart()))).data).toEqual(r.data);

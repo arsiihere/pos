@@ -69,7 +69,7 @@ function orderOf(input: SubmitInput, ctx: BuildSubmitCtx): ProposedOrder['order'
 }
 
 // §3.10: the primary table's zone (dine-in only); a table without a zone, or an archived zone, has none.
-function zoneOf(config: BranchConfig, input: SubmitInput, table_id: string | null): Zone | null {
+export function zoneOf(config: BranchConfig, input: SubmitInput, table_id: string | null): Zone | null {
   if (input.order_type !== 'dine_in' || table_id === null) return null;
   const zone_id = config.floors.flatMap((f) => f.tables).find((t) => t.table_id === table_id)?.zone_id ?? null;
   return config.floors.flatMap((f) => f.zones).find((z) => z.zone_id === zone_id && !z.is_archived) ?? null;
@@ -231,6 +231,8 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
         tax_class_id: linked.tax_class_id,
         options: [],
         line_total_minor: orderLineTotalMinor({ line_kind: 'option_child', price_minor: option.price_minor, quantity: childQty, option_charges_minor: [] }),
+        // 02b v1.0.20 §3.2 step 4a: a split part's child carries the first part's child id
+        ...(given.part_of === undefined ? {} : { part_of: given.part_of }),
       });
     });
     const parent: ItemAddedPayload = {
@@ -252,6 +254,8 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
         option_charges_minor: plain.map((o) => o.charge_minor),
       }),
       kitchen_note: line.kitchen_note ?? null,
+      // 02b v1.0.20 §3.2 step 4a: every part of a split line carries the first part's id
+      ...(line.part_of === undefined ? {} : { part_of: line.part_of }),
     };
     return [parent, ...children];
   };
