@@ -9,4 +9,5 @@ Everything surprising found while building or soaking. Each entry: date, unit (o
 - 2026-11-23 · design · On Android 12+, a foreground-service start from a background broadcast (the adb `START` broadcast) can be refused unless the app is battery-exempt. If it is refused, open the app and press **Start service**. The refusal is logged as `debug_start_failed`.
 
 ## Soak
-(add entries per unit)
+- 2026-11-23 04:14 · owner's first tablet (model TBD) · First live test: notification while unlocked, and the red full-screen alert while locked. Lock text "Arif · spike-tablet-a · alert.test_alert.lock". Hub on the owner's laptop (10.190.116.133:3000).
+- 2026-11-23 · setup · Admin routes from a paired admin browser need the device token (`Authorization: Bearer`) next to `X-Admin-Session`, otherwise `401 DEVICE_TOKEN_INVALID`. The README now has the console snippet.

@@ -23,7 +23,21 @@ curl -L -o pos-spike-alerts.apk https://github.com/arsiihere/pos/releases/downlo
 adb install -r pos-spike-alerts.apk
 ```
 
-**3. Mint tokens.** Follow `scripts/DEV_HUB.md` §A: admin session from the `/admin` page, then mint `tablet-a`, `sender` and `control`.
+**3. Mint tokens.** Open `http://<hub-ip>:3000/admin` and sign in. In the DevTools Console, read the admin session **and** this browser's device token. The admin routes want both when the page runs on a paired browser; with only the session you get `401 DEVICE_TOKEN_INVALID`:
+```js
+[sessionStorage.admin_session_token, sessionStorage.admin_staff_id]
+await new Promise(r => { const q = indexedDB.open('pos-device', 1); q.onsuccess = () => { const s = q.result.transaction('device').objectStore('device'); const out = {}; let n = 0; for (const k of ['token','device_id']) { const g = s.get(k); g.onsuccess = () => { out[k] = g.result; if (++n === 2) r(out); }; } }; })
+```
+Then mint, from `spike/lock-alerts/scripts`:
+```sh
+H=http://<hub-ip>:3000
+A="--hub $H --admin-session <session> --staff <staff_id> --admin-device-token <token> --admin-device-id <device_id>"
+node mint-tablet-token.mjs $A --label tablet-a
+node mint-tablet-token.mjs $A --sender
+node mint-tablet-token.mjs $A --label control
+node -e 'console.log(require("./devices/tablet-a.json").device_token)'   # the TABLET's token (the last mint prints control's)
+```
+The hub's LAN IP: `hostname -I | awk '{print $1}'` on the hub machine; check `curl http://<hub-ip>:3000/health`. The laptop running the hub must not suspend during a soak.
 
 **4. Inject the token** (printed by the mint script), or paste it into the app's page and tap **Save → native**:
 ```sh
