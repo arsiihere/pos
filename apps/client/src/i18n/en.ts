@@ -1991,6 +1991,14 @@ export const en = {
   'cart.now': 'Now',
   'cart.all_ready': 'All ready by',
   'cart.part_ready': '{n} ready ~{time}', // 02b v1.0.21 (STAB-5)
+  // 02b v1.0.21 §8 (STAB-5, owner option C): the serve choice
+  'serve.label': 'Serve',
+  'serve.together': 'Together',
+  'serve.as_ready': 'As ready',
+  'serve.mixed': 'Mixed',
+  'serve.menu_default': 'As the menu says',
+  'serve.badge_together': 'Together',
+  'serve.badge_as_ready': 'As ready',
   'cart.times_later': 'Times will be set when sent',
   'cart.note': 'Order note',
   'cart.hold': 'Hold',

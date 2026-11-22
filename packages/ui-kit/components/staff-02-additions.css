@@ -32,3 +32,10 @@
 
 /* 02b v1.0.21 §8 (STAB-5): a split cart line's part times under the row ("4 ready ~2:20 PM · 1 ready ~2:40 PM"). */
 :where(.pu) .ln__parts { grid-column: 1 / -1; font-size: 13px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* 02b v1.0.21 §8 (STAB-5, owner option C): "Serve: Together / As ready" — the cart switch and the edit sheet's row. */
+:where(.pu) .serve { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
+:where(.pu) .serve__l { font-weight: 700; }
+:where(.pu) .serve__l small { font-weight: 600; color: var(--muted); }
+:where(.pu) .serve .seg { display: inline-flex; gap: 6px; }
+:where(.pu) .serve .seg .btn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent, #fff); border-color: var(--accent); }

@@ -3,7 +3,7 @@ import type { BranchConfig } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import type { EtaPreviewBody } from '../contracts';
-import { addTap, cartCount, cartLineMoney, cartTotal, configUnits, groupCart, lineProblems, removeLine, setUnits, toEtaDraft, toSubmitLines, zoneCovered, type Cart, type UnitOf } from './cart';
+import { addTap, cartCount, cartLineMoney, cartTotal, configUnits, groupCart, lineProblems, removeLine, serveState, setUnits, toEtaDraft, toSubmitLines, zoneCovered, type Cart, type UnitOf } from './cart';
 
 // I1 Half Rs 1,200 (piece); I2 Mutton by weight (g, Rs 3,800 / kg); I4 Naan (linked from option OPN); plain option OPX
 // "less oil" +Rs 40; deal D1 = 1 karahi (I1 or I3 +Rs 300) + 2 naan.
@@ -53,6 +53,24 @@ let n = 0;
 const key = () => `K${++n}`;
 
 describe('[02b §8 Ordering screen] cart', () => {
+  // 02b v1.0.21 §3.2 / §8 (STAB-5 owner option C, test 44): the serve choice at send
+  it('[02b #44] serveState: the switch when set, else the lines\' menu modes (equal → that mode, else mixed); draft and submit carry both values', () => {
+    const base = aBranchConfig();
+    const [a, b] = base.items;
+    const config = { ...base, items: base.items.map((i) => (i.item_id === b!.item_id ? { ...i, serve_mode: a!.serve_mode === 'sync' ? ('immediate' as const) : ('sync' as const) } : i)) };
+    const one: Cart = { lines: [{ key: 'A', item_id: a!.item_id, quantity: 1, options: [] }] };
+    expect(serveState(one, config)).toBe(a!.serve_mode);
+    const mixed: Cart = { lines: [...one.lines, { key: 'B', item_id: b!.item_id, quantity: 1, options: [] }] };
+    expect(serveState(mixed, config)).toBe('mixed');
+    expect(serveState({ ...mixed, serve_mode: 'immediate' }, config)).toBe('immediate');
+    const chosen: Cart = { lines: [{ key: 'A', item_id: a!.item_id, quantity: 2, options: [], serve_mode: 'sync' }], serve_mode: 'immediate' };
+    const draft = toEtaDraft(chosen, { order_type: 'takeaway' });
+    expect(draft.serve_mode).toBe('immediate');
+    expect(draft.lines[0]!.serve_mode).toBe('sync');
+    expect(toSubmitLines(chosen)[0]!.serve_mode).toBe('sync');
+    expect(toEtaDraft(one, { order_type: 'takeaway' }).serve_mode).toBeUndefined();
+  });
+
   // 02b v1.0.21 §8 (STAB-5, test 41): a split line's parts come back with `part`; the row shows each distinct time with its count
   it('[02b #41] parts with different times → parts [{ n: 4, eta }, { n: 1, eta }], the row time = the last part; same times → no parts', () => {
     const cart: Cart = { lines: [{ key: 'K', item_id: 'I1', quantity: 5, options: [] }, { key: 'S', item_id: 'I1', quantity: 2, options: [] }] };

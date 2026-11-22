@@ -12,7 +12,7 @@ import { LockBanner } from '../../tables/lock/LockBanner';
 import { useTableLock } from '../../tables/lock/useTableLock';
 import { OfflineBar } from '../../tables/offline/OfflineBar';
 import type { SeatingRef } from '../../tables/contracts';
-import type { Draft, DraftStore, EtaDraft, OrderType, OrdersCatchUp, ZoneStockBody } from '../contracts';
+import type { Draft, DraftStore, EtaDraft, OrderType, OrdersCatchUp, ServeMode, ZoneStockBody } from '../contracts';
 import { createAvailability, dealAvailability, itemAvailability, type ItemAvailability } from '../live/availability';
 import { createStockMirror } from '../live/stock-mirror';
 import { createIdbDraftStore } from '../drafts/idb-drafts';
@@ -30,6 +30,7 @@ import {
   lineProblems,
   readyBy,
   removeLine,
+  serveState,
   setUnits,
   toEtaDraft,
   unitsOf,
@@ -578,6 +579,8 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     onSend: () => void onSend(),
     day: dayClosed ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
     info: cart.lines.find((l) => l.comp_it === true) === undefined ? null : compItInfo(),
+    // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins
+    serve: { state: serveState(cart, config), onSet: (mode: ServeMode) => (sending.current ? undefined : setCart((c) => ({ ...c, serve_mode: mode }))) },
   };
   const keepDraft = () => navigate(seat === null ? '/tables' : tableHref(seat.ref.table_id, id));
 

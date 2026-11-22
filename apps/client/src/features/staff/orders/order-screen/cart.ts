@@ -1,6 +1,6 @@
 import { childQuantity, optionChargeMinor, orderLineTotalMinor, type Unit } from '@pos/domain';
 import type { BranchConfig, ConfigDeal, ConfigItem, ConfigModifierOption } from '@pos/events';
-import type { CarType, EtaDraft, EtaPreviewBody, OrderType, SubmitLine } from '../contracts';
+import type { CarType, EtaDraft, EtaPreviewBody, OrderType, ServeMode, SubmitLine } from '../contracts';
 
 // 02b §8 Ordering screen (02-S05; #36 cart sorted by ETA): the cart the order screen keeps (and the device draft
 // stores, Draft.cart), its money from @pos/domain exactly as the hub's buildSubmit computes ItemAdded.line_total_minor
@@ -34,6 +34,8 @@ export interface CartLine {
   kitchen_note?: string;
   /** a zone tile tap (§8 Zone items) */
   from_zone?: boolean;
+  /** 02b v1.0.21 §8 (STAB-5): the line's serve override from its edit sheet; wins over the order switch */
+  serve_mode?: ServeMode;
   /** E-7 "Send it as a new item": the screen asks "Comp it?" once it is sent (badge "Sent again · asks to comp") */
   comp_it?: boolean;
   /** E-7 / Q-7: the line arrived without its choices; the screen opens its options sheet once (the sheet clears it) */
@@ -48,6 +50,24 @@ export interface Cart {
   parking?: { car_number: string; car_type: CarType; phone?: string };
   /** IR-8: the queue log entry this cart was copied from (25c shows that row as "Copied") */
   from_entry_id?: string;
+  /** 02b v1.0.21 §8 (STAB-5): the order switch next to Send; unset = each line's menu setting */
+  serve_mode?: ServeMode;
+}
+
+/**
+ * 02b v1.0.21 §8 (STAB-5, owner option C): what the switch shows — the order's choice when set, else the lines' menu
+ * serve modes (an override counts as the line's mode): all equal → that mode, any difference → 'mixed'.
+ */
+export function serveState(cart: Cart, config: BranchConfig): ServeMode | 'mixed' {
+  if (cart.serve_mode !== undefined) return cart.serve_mode;
+  const modes = new Set(
+    cart.lines.flatMap((l) => {
+      if (l.serve_mode !== undefined) return [l.serve_mode];
+      const item = l.item_id === undefined ? undefined : config.items.find((i) => i.item_id === l.item_id);
+      return item === undefined ? [] : [item.serve_mode];
+    }),
+  );
+  return modes.size === 1 ? [...modes][0]! : modes.size === 0 ? 'sync' : 'mixed';
 }
 
 export const EMPTY_CART: Cart = { lines: [] };
@@ -216,8 +236,10 @@ export function toEtaDraft(cart: Cart, target: DraftTarget): EtaDraft {
     ...(cart.order_note === undefined ? {} : { order_note: cart.order_note }),
     ...(target.order_type === 'takeaway' && cart.takeaway !== undefined ? { takeaway: { ...cart.takeaway } } : {}),
     ...(target.order_type === 'parking' && cart.parking !== undefined ? { parking: { ...cart.parking } } : {}),
+    ...(cart.serve_mode === undefined ? {} : { serve_mode: cart.serve_mode }),
     lines: cart.lines.map((l) => ({
       key: l.key,
+      ...(l.serve_mode === undefined ? {} : { serve_mode: l.serve_mode }),
       ...(l.item_id === undefined ? {} : { item_id: l.item_id }),
       ...(l.deal_id === undefined ? {} : { deal_id: l.deal_id }),
       ...(l.quantity === null ? {} : { quantity: l.quantity }),
@@ -242,6 +264,7 @@ export function toEtaDraft(cart: Cart, target: DraftTarget): EtaDraft {
 export function toSubmitLines(cart: Cart): SubmitLine[] {
   return cart.lines.map((l) => ({
     order_item_id: l.key,
+    ...(l.serve_mode === undefined ? {} : { serve_mode: l.serve_mode }),
     ...(l.item_id === undefined ? {} : { item_id: l.item_id }),
     ...(l.deal_id === undefined ? {} : { deal_id: l.deal_id }),
     ...(l.quantity === null ? {} : { quantity: l.quantity }),

@@ -165,7 +165,12 @@ export interface SubmitLine {
   deal_choices?: Array<{ deal_part_id: string; item_id: string; order_item_id: string; options?: SubmitOption[] }>;
   kitchen_note?: string;
   from_zone?: boolean;
+  /** 02b v1.0.21 §6.1 (STAB-5): the line's serve choice, wins over the order's */
+  serve_mode?: ServeMode;
 }
+
+/** 02b v1.0.21: 'sync' = served together, 'immediate' = as ready */
+export type ServeMode = 'sync' | 'immediate';
 
 /** 02b §6.1 payload (hub submit-order.ts PayloadObject). */
 export interface SubmitOrderPayload {
@@ -176,6 +181,8 @@ export interface SubmitOrderPayload {
   takeaway?: { customer_name?: string; phone?: string };
   parking?: { car_number: string; car_type: CarType; phone?: string };
   order_note?: string;
+  /** 02b v1.0.21 §6.1: the order's serve choice for every line without its own */
+  serve_mode?: ServeMode;
   lines: SubmitLine[];
 }
 
@@ -195,6 +202,7 @@ export interface EtaDraft {
   takeaway?: SubmitOrderPayload['takeaway'];
   parking?: SubmitOrderPayload['parking'];
   order_note?: string;
+  serve_mode?: ServeMode;
   lines: Array<
     Omit<SubmitLine, 'order_item_id' | 'options' | 'deal_choices'> & {
       key: string;

@@ -89,6 +89,28 @@ describe('[02b §8 Ordering screen] sheets', () => {
     document.body.innerHTML = '';
   });
 
+  // 02b v1.0.21 §8 (STAB-5, owner option C, test 44): the line's serve override in its edit sheet
+  it('[02b #44] the sheet\'s Serve row: menu default by default (no serve_mode); As ready / Together set the line override; an edited line keeps its override', () => {
+    const config = cfg();
+    const added: CartLine[] = [];
+    const m = mount();
+    m.render(<OptionsSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} item_ids={['I4']} initial={null} capOf={() => null} sheet={false} newKey={newKey} onAdd={(l) => added.push(l)} onClose={() => {}} />);
+    const row = m.container.querySelector('.serve')!;
+    expect(m.button('As the menu says', row).getAttribute('aria-pressed')).toBe('true');
+    m.click(m.button('As ready', row));
+    m.click(m.button('Add to order'));
+    expect(added[0]!.serve_mode).toBe('immediate');
+    m.unmount();
+    const m2 = mount();
+    m2.render(<OptionsSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} item_ids={['I4']} initial={{ ...added[0]! }} capOf={() => null} sheet={false} newKey={newKey} onAdd={(l) => added.push(l)} onClose={() => {}} />);
+    const row2 = m2.container.querySelector('.serve')!;
+    expect(m2.button('As ready', row2).getAttribute('aria-pressed')).toBe('true');
+    m2.click(m2.button('As the menu says', row2));
+    m2.click(m2.container.querySelector<HTMLButtonElement>('.acts .btn--primary')!);
+    expect(added[1]!.serve_mode).toBeUndefined();
+    m2.unmount();
+  });
+
   it('[02b §8 Ordering screen] options: defaults visible; a required group blocks Add and says what is missing (checkOptionChoices)', () => {
     const config = cfg();
     const added: CartLine[] = [];

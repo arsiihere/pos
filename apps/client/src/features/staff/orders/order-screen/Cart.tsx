@@ -7,6 +7,8 @@ import { timeText } from '../../../alerts/labels';
 import { MONEY_DIR, money } from '../money';
 import type { CartGroup, UnitOf } from './cart';
 import { CartLineRow, type LineActions, type LineView } from './CartLine';
+import { ServeSwitch } from './ServeSwitch';
+import type { ServeMode } from '../contracts';
 
 // 02-S05 cart (400 px; handoff Order, OrderEmpty, OrderProblem, OrderOffline): head with the round and count, the
 // problem message, groups with their promise ("From the counter · Now", "Food together · 8:27 PM"), the footer with
@@ -35,6 +37,8 @@ export interface CartProps {
   onNote(): void;
   onHold(): void;
   onSend(): void;
+  /** 02b v1.0.21 §8 (STAB-5): the order's serve switch */
+  serve?: { state: ServeMode | 'mixed'; onSet(mode: ServeMode): void };
   /** phone / portrait: the list only (the sticky bar carries Send) */
   bare?: boolean;
 }
@@ -142,6 +146,7 @@ export function Cart(p: CartProps) {
           </div>
           <strong dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</strong>
         </div>
+        {p.serve !== undefined && !empty && <ServeSwitch state={p.serve.state} onSet={p.serve.onSet} />}
         <div className="duo">
           <button type="button" className="btn" onClick={p.onNote}>
             {t('cart.note')}
