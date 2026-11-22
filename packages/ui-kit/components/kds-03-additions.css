@@ -53,3 +53,12 @@
 .pl > .row { gap: 6px; }
 /* PassCards: a line with one action (Done, Undo) — one column */
 .pl__a--1 { grid-template-columns: 1fr; }
+
+/* 03b v1.0.10 §3.4 (STAB-2): the Pass's Ready pick sheet, one big tick row per line (not a handoff frame) */
+.rdpick { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
+.rdpick__row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 14px; border-radius: 12px; background: var(--surface-2); cursor: pointer; }
+.rdpick__row input { width: 26px; height: 26px; flex: none; accent-color: var(--accent); }
+.rdpick__t { flex: 1; font-size: 17px; font-weight: 700; }
+.rdpick__t .q { font: 800 17px/1 var(--font-num); color: var(--accent-text); margin-inline-end: 6px; }
+.pu[lang="ur"] .rdpick__t { font-family: var(--font-urdu); line-height: 1.9; letter-spacing: 0; }
+.pu[lang="ur"] .rdpick__t .q { font-family: var(--font-num); }

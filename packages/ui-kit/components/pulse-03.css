@@ -220,12 +220,6 @@
 .hosum { display: flex; flex-wrap: wrap; gap: 8px; }
 .hosum span { display: inline-flex; align-items: center; height: 36px; padding: 0 12px; border-radius: 10px; background: var(--surface-2); font-size: 15px; font-weight: 700; }
 .hosum .q { font: 800 15px/1 var(--font-num); color: var(--accent-text); margin-inline-end: 5px; }
-/* 03b v1.0.10 §3.4 (STAB-2): the Ready pick sheet, one big tick row per line */
-.rdpick { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
-.rdpick__row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 14px; border-radius: 12px; background: var(--surface-2); cursor: pointer; }
-.rdpick__row input { width: 26px; height: 26px; flex: none; accent-color: var(--accent); }
-.rdpick__t { flex: 1; font-size: 17px; font-weight: 700; }
-.rdpick__t .q { font: 800 17px/1 var(--font-num); color: var(--accent-text); margin-inline-end: 6px; }
 
 /* ---------- paper preview (03c-C04) ---------- */
 .papers { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
@@ -248,8 +242,8 @@
 .pkey i { display: inline-block; min-width: 26px; height: 20px; padding: 0 4px; border-radius: 4px; background: #FFFEFA; box-shadow: inset 0 0 0 1px var(--line); font: 800 12px/20px "Geist Mono", monospace; font-style: normal; text-align: center; color: #141110; }
 
 /* ---------- Urdu ---------- */
-.pu[lang="ur"] :is(.pst b, .pst .w, .pc__g, .pc__m, .pl__t, .pl__o, .rd, .pc__rdy, .pc__msg, .pc__more, .pc__on, .tko__h b, .tko__h small, .rcv b, .rcv small, .hosum span, .rdpick__t, .ksec__h, .klater, .kl__msg) { font-family: var(--font-urdu); line-height: 1.9; letter-spacing: 0; text-transform: none; }
-.pu[lang="ur"] .pl__t .q, .pu[lang="ur"] .hosum .q, .pu[lang="ur"] .rdpick__t .q { font-family: var(--font-num); }
+.pu[lang="ur"] :is(.pst b, .pst .w, .pc__g, .pc__m, .pl__t, .pl__o, .rd, .pc__rdy, .pc__msg, .pc__more, .pc__on, .tko__h b, .tko__h small, .rcv b, .rcv small, .hosum span, .ksec__h, .klater, .kl__msg) { font-family: var(--font-urdu); line-height: 1.9; letter-spacing: 0; text-transform: none; }
+.pu[lang="ur"] .pl__t .q, .pu[lang="ur"] .hosum .q { font-family: var(--font-num); }
 .pu[lang="ur"] .rd, .pu[lang="ur"] .rcv small { height: auto; min-height: 34px; }
 .pu[lang="ur"] .tko__h b { font-size: 20px; }
 

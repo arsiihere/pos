@@ -71,7 +71,6 @@ function shellWith(view: PointViewBody, answers: Record<string, Array<HubResult<
   live.frame({ type: 'catch_up', as_of_seq: 1, state: { point_view: view } });
   return { shell, live, sent, at: (ms: number) => (now = ms) };
 }
-const wrongStage = (stage: string): HubResult<never> => ({ ok: false, error: { kind: 'api', status: 409, code: 'ITEM_WRONG_STAGE', details: { stage } } });
 
 let m: Mounted;
 afterEach(() => m?.unmount());
@@ -84,8 +83,6 @@ function show(s: ReturnType<typeof shellWith>) {
     </ShellContext.Provider>,
   );
 }
-const salad = () => m.container.querySelector('.pl[data-id="SALAD"]')!;
-const actsOf = (id: string) => [...(m.container.querySelector(`.pl[data-id="${id}"] .pl__a`)?.querySelectorAll('button') ?? [])].map((b) => b.textContent);
 
 const ok = (data: unknown): HubResult<unknown> => ({ ok: true, data });
 const order = (lines: PointLine[], ready: PointViewBody['orders'][number]['ready'] = null): PointViewBody => ({
