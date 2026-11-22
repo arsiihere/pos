@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { priorityCmp, priorityRank, type PriorityRank } from '../src/priority';
 import { priorityDueOf } from '../src/slip';
 import { getTickIntents, groupReadiness, stationPlan, stationView, type EngineState } from '../src/index';
-import { at, deepFreeze, fireEv, fold, G, kitchen, M, orderEv, S, startEv, submit, Tg } from './priority-kit';
+import { anOrderBatch, aStockSet } from '@pos/events/testing';
+import { at, batchStation, configEvent, deepFreeze, fireEv, fold, G, kitchen, M, orderEv, S, stamp, startEv, stationEv, submit, Tg } from './priority-kit';
 
 // Orders O1…On (one immediate line each, listed at `arrived`), then each made a priority group by hand: its line's
 // priority_at and its group's priority_delay_ms (what the LinePrioritized fold stores).
@@ -189,5 +190,48 @@ describe('[03a v1.2.10 §3.5.7 PR-8] views carry priority on priority lines only
     s = fold(s, [fireEv('S1', ['b'], at(46)), startEv('Ob', 'b', at(46))]);
     expect(stationView(s, 'S1', at(47)).now.find((l) => l.order_item_id === 'b')!.priority).toBeUndefined();
     expect(groupReadiness(s, 'Ob', at(47))[0]!.priority).toBeUndefined();
+  });
+});
+
+describe('[03a v1.2.10 §3.5.7 PR-9] paused stations, stock lines, type changes', () => {
+  it('[03a #170] a priority line on a paused slot station is still placed first there (never routed off it)', () => {
+    let s = queueOn(['a', 'b']);
+    s = fold(s, [stationEv('StationPauseSet', 'S1', { station_id: 'S1', paused: true }, at(24))]);
+    s = fold(s, [orderEv('LinePrioritized', 'Ob', { order_id: 'Ob', group_id: G('Ob'), order_item_ids: ['b'], delay_ms: 0, at_ms: at(25) }, at(25))]);
+    expect(s.lines.b!.station_id).toBe('S1');
+    expect(startOf(s, 'b')).toBe(at(30));
+    expect(startOf(s, 'a')).toBe(at(40));
+  });
+
+  it('[03a #170] a from-stock line becomes priority: the fold writes, moves and releases no reservation', () => {
+    let s = kitchen([{ station_id: 'S1', capacity: 1 }]);
+    s = fold(s, [stamp(aStockSet({ payload: { stock_item_id: 'K1', on_hand: 10, unit: 'piece' } }), at(-1))]);
+    s = submit(s, 'OW', [{ id: 'w', cook: 30 * M, mode: 'immediate' }], at(0)).state;
+    s = fold(s, [fireEv('S1', ['w'], at(0)), startEv('OW', 'w', at(0))]);
+    const events = anOrderBatch({
+      order_id: 'OD',
+      recorded_at: at(0),
+      seq: 9_000,
+      lines: [{ order_item_id: 'd', item: { cook_time_ms: 10 * M, stock_time_ms: 5 * M, serve_mode: 'immediate', stock_draws: [{ stock_item_id: 'K1', quantity: 1 }], out_of_stock_behaviour: 'cook_fresh' }, line: { from_stock: true } }],
+      order: { groups: [{ group_id: 'OD:0', target_land_ms: at(35), promise_ms: at(38), order_item_ids: ['d'] }], table_key: 't:OD' },
+      reserved: [{ stock_item_id: 'K1', order_item_id: 'd', quantity: 1 }],
+    }).map((e) => stamp(e, at(0)));
+    s = fold(s, events);
+    expect(s.lines.d!.from_stock).toBe(true);
+    const stock = s.stock;
+    s = fold(s, [orderEv('LinePrioritized', 'OD', { order_id: 'OD', group_id: 'OD:0', order_item_ids: ['d'], delay_ms: 0, at_ms: at(25) }, at(25))]);
+    expect(s.lines.d!.priority_at).toBe(at(25));
+    expect(s.stock).toEqual(stock);
+    expect(s.lines.d!.draws).toEqual([{ stock_item_id: 'K1', quantity: 1, reserved: 1 }]);
+  });
+
+  it('[03a #170] a station switched slot → batch keeps the line\'s priority_at, priority_land_ms and priority_delay_ms', () => {
+    let s = queueOn(['a', 'b']);
+    s = patch(s, 'b', { since: at(24), delay: 14 * M, land: at(50) });
+    const g = s.orders.Ob!.groups[G('Ob')]!;
+    s = fold(s, [configEvent([batchStation('S1', { capacity: 1 })], {}, at(25))]);
+    expect(s.stations.S1!.type).toBe('batch');
+    expect(s.lines.b!.priority_at).toBe(at(24));
+    expect(s.orders.Ob!.groups[G('Ob')]).toMatchObject({ priority_land_ms: g.priority_land_ms, priority_delay_ms: g.priority_delay_ms });
   });
 });
