@@ -1016,6 +1016,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'cart.food_together': 'کھانا ایک ساتھ',
   'cart.now': 'ابھی',
   'cart.all_ready': 'سب تیار',
+  'cart.part_ready': '{n} تیار ~{time}',
   'cart.note': 'آرڈر نوٹ',
   'cart.hold': 'روکیں',
   'cart.send': 'کچن کو بھیجیں',

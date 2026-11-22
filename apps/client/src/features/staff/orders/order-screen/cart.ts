@@ -259,6 +259,16 @@ export interface ShownLine {
   /** null: no preview time (none yet, failed, offline, or a counter line) */
   eta_ms: number | null;
   refused: { code: string; details: Record<string, unknown> } | null;
+  /** 02b v1.0.21 §8 (STAB-5): a split line's distinct part times with their counts, earliest first; absent when one time */
+  parts?: Array<{ n: number; eta_ms: number }>;
+}
+
+// 02b v1.0.21 §8: the parts' times of one key ("4 ready ~2:20 · 1 ready ~2:40"); undefined unless they differ.
+function partTimes(lines: EtaPreviewBody['lines'], key: string): ShownLine['parts'] {
+  const counts = new Map<number, number>();
+  for (const l of lines) if (l.key === key && l.part !== undefined && l.eta_ms !== null) counts.set(l.eta_ms, (counts.get(l.eta_ms) ?? 0) + 1);
+  if (counts.size < 2) return undefined;
+  return [...counts.entries()].sort(([a], [b]) => a - b).map(([eta_ms, n]) => ({ n, eta_ms }));
 }
 
 export type CartGroup =
@@ -286,7 +296,8 @@ export function groupCart(cart: Cart, preview: EtaPreviewBody | null): CartGroup
       pending.push({ line, eta_ms: null, refused: null });
       continue;
     }
-    const shown: ShownLine = { line, eta_ms: p.eta_ms, refused: p.refused ?? null };
+    const parts = partTimes(preview.lines, line.key);
+    const shown: ShownLine = { line, eta_ms: p.eta_ms, refused: p.refused ?? null, ...(parts === undefined ? {} : { parts }) };
     const g = groupOf.get(line.key);
     if (p.zone_served || (p.refused === undefined && (p.eta_ms === null || g === undefined))) counter.push({ ...shown, eta_ms: null });
     else if (g === undefined) pending.push(shown);

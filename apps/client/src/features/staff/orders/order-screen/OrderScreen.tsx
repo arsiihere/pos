@@ -466,6 +466,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
           problem: problems.get(s.line.key) ?? null,
           open: openKey === s.line.key,
           cap,
+          ...(s.parts === undefined ? {} : { parts: s.parts }),
         };
       },
     ),

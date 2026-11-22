@@ -130,7 +130,8 @@ export interface OpenOrdersBody {
 export interface EtaPreviewBody {
   as_of_seq: number;
   groups: Array<{ promise_ms: number; keys: string[] }>;
-  lines: Array<{ key: string; eta_ms: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
+  /** ⚠️ 02b v1.0.20 §6.14 (STAB-5): `part` (1…n) on each part of a line split per unit, same key */
+  lines: Array<{ key: string; part?: number; eta_ms: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
 }
 
 /** 02b §6.17 (hub ZoneStockBody). */

@@ -1990,6 +1990,7 @@ export const en = {
   'cart.food_together': 'Food together',
   'cart.now': 'Now',
   'cart.all_ready': 'All ready by',
+  'cart.part_ready': '{n} ready ~{time}', // 02b v1.0.21 (STAB-5)
   'cart.times_later': 'Times will be set when sent',
   'cart.note': 'Order note',
   'cart.hold': 'Hold',
