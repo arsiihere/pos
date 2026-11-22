@@ -108,7 +108,9 @@ if (args.receipts !== undefined || args['receipts-session'] !== undefined) {
     if (delivered.length > 0) {
       withReceipt++;
       const a = byAlert.get(f.alert_id);
-      if (a?.raisedAt != null) receiptLat.push(delivered[0].at - a.raisedAt);
+      // raised_at from the device log; without one, the ULID time of the alert id (minted by the hub at raise)
+      const raisedAt = a?.raisedAt ?? ulidTime(f.alert_id);
+      if (raisedAt != null) receiptLat.push(delivered[0].at - raisedAt);
     }
   }
   receiptLat.sort((x, y) => x - y);
@@ -116,6 +118,17 @@ if (args.receipts !== undefined || args['receipts-session'] !== undefined) {
   process.stderr.write(
     `hub receipts: ${withReceipt}/${fired.length} delivered on the hub; hub receipt time − raised_at p50 ${percentile(receiptLat, 50)} ms, p95 ${percentile(receiptLat, 95)} ms (≤ 1 s batching, A11)\n`,
   );
+}
+
+function ulidTime(id) {
+  const A = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  let t = 0;
+  for (const c of String(id).slice(0, 10).toUpperCase()) {
+    const v = A.indexOf(c);
+    if (v < 0) return null;
+    t = t * 32 + v;
+  }
+  return t;
 }
 
 latencies.sort((a, b) => a - b);
@@ -135,7 +148,8 @@ if (recovers.length) recoverParts.push(`${recovers.length} alerts raised in outa
 const recover = recoverParts.length ? recoverParts.join('; ') : '—';
 // A re-sent row (alerts_open after a reconnect) that the dedupe dropped is correct behaviour, not a duplicate.
 // "Dupes" counts only a second notification for one alert.
-const pass = missed.length === 0 && notified === fired.length && doubleNotified === 0 && p95 !== null && p95 < 3000;
+const noDeviceLog = devLog.length === 0;
+const pass = !noDeviceLog && missed.length === 0 && notified === fired.length && doubleNotified === 0 && p95 !== null && p95 < 3000;
 
 const cells = [
   run,
@@ -152,7 +166,7 @@ const cells = [
   recover,
   '(spot check)',
   '(battery)',
-  pass ? 'PASS (pending spot check)' : 'FAIL',
+  noDeviceLog ? 'NO DEVICE LOG (hub receipts only)' : pass ? 'PASS (pending spot check)' : 'FAIL',
 ];
 process.stdout.write(
   [
@@ -162,7 +176,7 @@ process.stdout.write(
     '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
     `| ${cells.join(' | ')} |`,
     '',
-    missed.length ? `Missed (${missed.length}):\n${missed.map((m) => `- ${m.alert_id} fired ${new Date(m.fired).toISOString()}`).join('\n')}` : 'Missed: none',
+    noDeviceLog ? 'No device log: "Received/Missed" are not measured; use the hub receipts line.' : missed.length ? `Missed (${missed.length}):\n${missed.map((m) => `- ${m.alert_id} fired ${new Date(m.fired).toISOString()}`).join('\n')}` : 'Missed: none',
     late.length ? `Late > ${lateMs} ms (${late.length}):\n${late.map((m) => `- ${m.alert_id} ${m.latency_ms} ms via ${m.via}`).join('\n')}` : `Late > ${lateMs} ms: none`,
     '',
   ].join('\n'),
