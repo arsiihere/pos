@@ -229,7 +229,7 @@ describe('[03c #1] kitchen ticket golden bytes 32 / 48', () => {
       centre2(ident, cols),
       'TAKEAWAY  Owner  #O1',
       '-'.repeat(cols),
-      '3 x Naan',
+      '1 x Naan', // ⚠️ 02b v1.0.20 (STAB-5): naan ×3 is sent as three one-unit parts; a ticket per part until phase 3 groups them
       ...(cols === 32 ? ['    NOTE: well done - 2xcrisp,', '-salt'] : ['    NOTE: well done - 2xcrisp, -salt']),
       '-'.repeat(cols),
     ];

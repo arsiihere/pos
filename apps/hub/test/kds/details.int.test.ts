@@ -262,10 +262,14 @@ describe('[03b §3.1, §4.2] buildLineDetails / pointOfLine (b11)', () => {
       },
     });
     expect(res.statusCode, res.body).toBe(200);
+    // ⚠️ 02b v1.0.20 §3.2 step 4a (STAB-5): naan ×3 on the slot station is three one-unit parts (L1, L1-p2, L1-p3),
+    // each with the notes; grouping them back on the screens is STAB-5 phase 3
+    expect([...details(['L1', 'L1-p2', 'L1-p3']).keys()].sort()).toEqual(['L1', 'L1-p2', 'L1-p3']);
+    expect(details(['L1-p3']).get('L1-p3')).toMatchObject({ units: 1, kitchen_note: 'well done' });
     expect(details(['L1']).get('L1')).toMatchObject({
       order_id: 'O1',
       item_name: 'Naan',
-      units: 3,
+      units: 1,
       kitchen_note: 'well done',
       order_note: 'birthday, bring together',
       placed_by_name: 'Owner',
