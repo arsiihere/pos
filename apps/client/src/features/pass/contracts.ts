@@ -35,8 +35,9 @@ export interface PointOrder {
   identifier: Identifier;
   placed_at: number;
   lines: PointLine[];
-  /** `by` = staff id (names from `staff-roster`, Q-55) */
-  ready: { at: number; by: string | null } | null;
+  /** `by` = staff id (names from `staff-roster`, Q-55); ⚠️ 03b v1.0.10 §6.15: `lines` = the Ready's unsettled own lines
+   * (absent from an older hub: then every line counts as in it) */
+  ready: { at: number; by: string | null; lines?: string[] } | null;
 }
 
 /** §6.15 catch-up part `point_view` (orders oldest first; `takeovers` = the bodies of this point's dark stations). */
@@ -95,7 +96,7 @@ export interface OrderTicket {
 /** §6.6–§6.8, §6.11 (`run-pass`; a station session is refused). */
 export interface PassApi {
   /** `already: true` → the order was Ready already (the existing state is shown) */
-  markReadyToServe(p: OrderAtPoint): Promise<HubResult<{ alert_id: string; already?: true }>>;
+  markReadyToServe(p: OrderAtPoint & { order_item_ids?: string[] }): Promise<HubResult<{ alert_id: string; already?: true; forced?: string[] }>>;
   /** after the 30 s window `409 PASS_UNDO_WINDOW_CLOSED` */
   undoReadyToServe(p: OrderAtPoint): Promise<HubResult<{ alert_id: string }>>;
   handover(p: HandoverPayload): Promise<HubResult<HandoverResult>>;

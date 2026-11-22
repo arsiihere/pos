@@ -89,7 +89,8 @@ export function passError(answer: Exclude<HubResult<unknown>, { ok: true }>): Ca
 }
 
 export interface ReadyActions {
-  markReady(order_id: string, point_id: string): Promise<{ busy?: true; message?: CardMessage }>;
+  /** 03b v1.0.10 §6.6: `order_item_ids` from the pick sheet; none → the hub takes the done lines */
+  markReady(order_id: string, point_id: string, order_item_ids?: string[]): Promise<{ busy?: true; message?: CardMessage }>;
   undoReady(order_id: string, point_id: string): Promise<{ busy?: true; toast?: string; message?: CardMessage }>;
   busy(order_id: string): boolean;
 }
@@ -107,10 +108,10 @@ export function createReadyActions(deps: { api: PassApi; store: PassStoreImpl; n
   };
   return {
     busy: (order_id) => inFlight.has(order_id),
-    markReady: (order_id, point_id) =>
+    markReady: (order_id, point_id, order_item_ids) =>
       guarded(order_id, async () => {
         const me = deps.me();
-        const answer = await deps.api.markReadyToServe({ order_id, point_id });
+        const answer = await deps.api.markReadyToServe({ order_id, point_id, ...(order_item_ids === undefined ? {} : { order_item_ids }) });
         if (!answer.ok) return { message: passError(answer) };
         if (answer.data.already !== true && me !== null) {
           deps.names.remember(me.staff_id, me.name);

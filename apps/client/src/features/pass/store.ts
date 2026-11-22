@@ -264,7 +264,8 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
         const alert_id = str(p['alert_id']);
         readyAlert.set(order_id, alert_id);
         seen.set(`ready:${order_id}`, at);
-        setReady(order_id, { at, by: alert_id === null ? null : (claims.get(alert_id) ?? null) });
+        // 03b v1.0.10 §6.15: the Ready's own lines (an extending press lists all of them)
+        setReady(order_id, { at, by: alert_id === null ? null : (claims.get(alert_id) ?? null), lines: ids(p['order_item_ids']) });
         return true;
       }
       case 'ReadyToServeUndone':

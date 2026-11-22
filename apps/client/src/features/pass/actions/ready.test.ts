@@ -84,7 +84,7 @@ describe('[03b §3.5] Ready to serve', () => {
     at(12_000);
     frame('ReadyToServe', { order_id: 'O1', point_id: 'PT', order_item_ids: ['A'], table_id: null, alert_id: 'AL1' });
     const r = store.snapshot().view!.orders[0]!.ready!;
-    expect(r).toEqual({ at: 12_000, by: 'S-ASIF' });
+    expect(r).toEqual({ at: 12_000, by: 'S-ASIF', lines: ['A'] }); // 03b v1.0.10: + lines
     expect(names.name(r.by)).toBe('Asif');
 
     // the band: "Ready · {time} · {name}", count-up, Undo for UNDO_DONE_MS (30 s) from the Ready
