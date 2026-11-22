@@ -98,7 +98,7 @@ not split (batch, weighed); a slot-station line has one unit.
 | 01a Restaurant Setup | patch | branch setting `show_part_times_to_customers` (default true), owner-app toggle (Q2) |
 | `@pos/events` | — | `ItemAdded.part_of?: string` (additive, v1) |
 
-No migration is expected (`order_lines` holds one row per part; grouping is a read-time `GROUP BY part_of`). If 05's
+One new hub migration (found while planning phase 1): `0026_order_line_part_of` adds `order_lines.part_of` (ADD COLUMN, no refold; no merged migration changes); grouping reads it. If 05's
 fiscal invoice needs a stored group, that is decided in 05's bump.
 
 ## 5. Tests (to be numbered in each spec)
