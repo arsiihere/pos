@@ -3,6 +3,7 @@
 Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md` (written in P0.2). Spec: `05a_Device_Access_Screens_Spec_v1.0.md` (APPROVED 2026-11-23 03:24 PKT). Integration branch: `module-05a` (cut in P0.3). Only the integrator edits this file.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 03:35 PKT: Owner confirmed the plan readings PL-1 – PL-4 and ruled the no-profile device rule (R-1, below). **The build still waits for the `fix/stab-tablet-pairing` merge** (G0.1).
 > - 2026-11-23: Plan ready for the owner's review. **The build starts after `fix/stab-tablet-pairing` is merged to `main`** (G0.1). Nothing has started yet.
 
 ## Gates
@@ -10,7 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md` (w
 | Check | State |
 |---|---|
 | G0.1 `fix/stab-tablet-pairing` on `main` | **not met** (2026-11-23: not merged) |
-| Plan readings PL-1 – PL-4 confirmed by the owner | **proposed** |
+| Plan readings PL-1 – PL-4 confirmed by the owner | **met** — 2026-11-23 03:35 PKT (rulings below) |
 
 ## Version numbers (filled in P0.1, against `main` @ G0.1)
 
@@ -30,7 +31,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md` (w
 |---|---|---|---|---|---|
 | G0.1 | 0 | stab branch on `main` | — | | waiting |
 | P0.1 | 0 | version numbers | NORMAL | | |
-| P0.2 | 0 | gap sweep (G-a, G-b, G-c + moved cites) | NORMAL | | |
+| P0.2 | 0 | gap sweep (G-b, G-c + moved cites; G-a ruled as R-1) + **05a v1.0.1** patch (R-1 notes) | NORMAL | | |
 | P0.3 | 0 | cut `module-05a`, labels, cleanup file | NORMAL | | |
 | P0.4 | 0 | 00 bump (H-1 – H-7) | NORMAL | | |
 | P0.5 | 0 | 01d bump (D-1 – D-4) | NORMAL | | |
@@ -75,6 +76,16 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md` (w
 | Z1 | Z | acceptance map | — | | |
 | Z2 | Z | manual checks (owner) | — | | |
 | Z3 | Z | `module-05a` → `main` | — | | |
+
+## Owner rulings
+
+| # | Ruling | When | Where it landed |
+|---|---|---|---|
+| PL-1 | Yes: the client screens are built on existing page patterns, with no 05a design handoff. Pulse mapping happens later, for all modules in one pass | 2026-11-23 03:35 PKT | plan D-5, batch B8 |
+| PL-2 | Yes: B-1 and C-1 are not version bumps. If the gap sweep finds approved text that contradicts them → **STOP** and ask | 2026-11-23 03:35 PKT | plan D-5, P0.2 (G-c), P0.8 |
+| PL-3 | Yes: integration branch `module-05a`, cut from `main` after `fix/stab-tablet-pairing` merges | 2026-11-23 03:35 PKT | plan D-5, P0.3 |
+| PL-4 | Yes: a fresh **Opus** reviewer for the migration, the permission mask, sign-in, approvals and the recovery link; **Sonnet** for the rest | 2026-11-23 03:35 PKT | plan D-5, §1 tiers |
+| R-1 | **Staff device with no profile: split rule** (was gap G-a). (1) **Permissions:** treat it as `access = 'everyone'` (masked, fail-closed). (2) **Sign-in:** today's rule, **not** `everyone`. A `phone` accepts only its `owner_staff_id`; a `tablet` / `cashier_kiosk` accepts any directory staff. Never let a phone without a profile accept any PIN but its owner's. Goes in as a §3.3a / §3.5 note in **05a v1.0.1** (owner-approved now; written by P0.2's spec patch), tested in task 9 (mask) and task 17 (sign-in check) | 2026-11-23 03:35 PKT | plan D-6, Review Focus 1, P0.2, tasks 9, 17 |
 
 ## Owner rulings during the build
 
