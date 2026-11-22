@@ -29,7 +29,7 @@ import { orderInEngine } from './lifecycle.js';
 import { liveProfiles } from './live.js';
 import { bookingAt, type Booking } from './overload.js';
 import { addInterval, earliestFit, occupiedCook, removeInterval } from './profile.js';
-import { combine, stationPolicy, weightOf } from './replan.js';
+import { byArrival, combine, stationPolicy, weightOf } from './replan.js';
 import type { EngineLine, EngineOrder, EngineState, Load, Profile, StationRuntime } from './state.js';
 import { lineReleases, stockEffects, type StockConsumedDraft, type StockReleasedDraft } from './stock.js';
 
@@ -95,7 +95,10 @@ function fireDraft(f: Fire): FireDispatchedDraft {
 // A firing load pulls in compatible unfired lines of its station whose target lies within the freshness window
 // (§3.6.1 item 1; F §4.7 D14 / D17), capped per line by max_early_ms — the join rule of placement (batch.ts
 // compatible + the sync window: b.end ≤ E ∧ E − b.end ≤ min(window, max_early_ms)), read at now. Candidates in
-// (E, order_item_id) order while the load has room. A pulled-in line leaves its own load at the fold (task 13), so a
+// ⚠️ 03a v1.2.10 §3.6.1 item 1 (STAB-6, review M-12): candidates in the queue order of their hidden loads (§3.3 BQ-1:
+// booked.start, load_id; a line in no load last), then by the BQ-1 arrival key, while the load has room, so a part of a
+// later round never goes ahead of an older member of an earlier one. Was: (E, order_item_id) order. (Priority members
+// first: 03a §3.5.7, a later task.) A pulled-in line leaves its own load at the fold (task 13), so a
 // load is never fired in part: only lines that are not due with their own load this pass are taken.
 // Proposed (implementer, overnight) P1: frozen as well as hidden lines may be pulled in (auto-fill, D16, fires frozen
 // lines early too); the line's slot end E = slotEnd (its AD-12 deadline + prep + cook).
@@ -111,7 +114,16 @@ function pullIns(state: EngineState, station: StationRuntime, load: Load, taken:
     const E = slotEnd(line, cap);
     if (load.booked.end <= E && E - load.booked.end <= Math.min(window, line.max_early_ms)) cands.push({ line, E });
   }
-  cands.sort((x, y) => x.E - y.E || byId(x.line.order_item_id, y.line.order_item_id));
+  const queueKey = (l: EngineLine): [number, string] => {
+    const own = l.load_id === null ? undefined : station.loads[l.load_id];
+    return own === undefined ? [Number.POSITIVE_INFINITY, ''] : [own.booked.start, own.load_id];
+  };
+  const arrival = byArrival(state);
+  cands.sort((x, y) => {
+    const [sx, ix] = queueKey(x.line);
+    const [sy, iy] = queueKey(y.line);
+    return sx - sy || byId(ix, iy) || arrival(x.line, y.line);
+  });
   const out: string[] = [];
   for (const { line } of cands) {
     const L = joinLine(line);

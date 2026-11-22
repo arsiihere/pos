@@ -1,10 +1,11 @@
 // 03a v1.2.10 §3.3 BQ-1–BQ-6, §3.5.3, §3.5.6, §3.10 BQ-5, §10.3g tests 143–151 (STAB-6): the unfired loads of a batch
 // station are a queue kept through every re-plan; rounds in arrival order. Kit: batch-kit.ts (queueFryer, unitParts,
 // runRounds). No timing asserts (AD-32): every time below is simulated engine time.
-import { parseEvent } from '@pos/events';
+import { parseEvent, type PosEvent } from '@pos/events';
+import { aStockAdded, aStockReserved, aStockSet } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import { applyEvents, buildEngineState, getAlertIntents, type EngineState } from '../src/index';
-import { at, etaB, loadOf, queueConfig, queueFryer, roundsOf, runRounds, submitB, unitParts, voidB, M, type RoundFire } from './batch-kit';
+import { at, COOK, etaB, fold, loadOf, nextSeq, queueConfig, queueFryer, roundsOf, runRounds, submitB, unitParts, voidB, M, type RoundFire } from './batch-kit';
 
 const ORDERS_143 = [['A', 5, 0], ['B', 10, 1], ['C', 2, 2], ['D', 2, 3], ['E', 4, 5], ['F', 3, 7], ['G', 2, 9], ['H', 1, 12]] as const;
 
@@ -113,3 +114,88 @@ function expectArrivalOrder(fires: readonly RoundFire[]): void {
 function withoutDiag(s: EngineState): Omit<EngineState, 'diagnostics'> {
   return { ...s, diagnostics: undefined } as unknown as Omit<EngineState, 'diagnostics'>;
 }
+
+describe('[03a v1.2.10 §3.3 BQ-3, BQ-4, §3.6.1 item 1] membership and pull-in', () => {
+  it('[03a #146] new lines never jump the queue: join the earliest load with room, else a load after the last', () => {
+    // Z ×8 cooks [0, 3); A ×8 [3, 6), B ×8 [6, 9), C ×8 [9, 12) queue behind it; B1–B3 are voided (room 3 in B's load).
+    const voids = (_s: EngineState, t: number) => (t === at(0.25) ? ['B1', 'B2', 'B3'].map((x) => voidB('OB', x, 1, t)) : []);
+    let s = runRounds(queueFryer(), [['Z', 8, 0], ['A', 8, 0], ['B', 8, 0], ['C', 8, 0]], { until: 0.25, startAfter: 0, extra: voids }).state;
+    const names = ['A4', 'B4', 'C1'].map((x) => loadOf(s, x)!.load_id);
+    const bookings = names.map((n) => s.stations.F!.loads[n]!.booked);
+    s = submitB(s, 'OX', unitParts('X', 3), at(0.5)).state;
+    for (const x of ['X1', 'X2', 'X3']) expect(loadOf(s, x)!.load_id, x).toBe(names[1]); // the earliest load with room
+    s = submitB(s, 'OY', unitParts('Y', 1), at(0.75)).state;
+    const y = loadOf(s, 'Y1')!;
+    expect(names).not.toContain(y.load_id);
+    expect(y.booked.start).toBeGreaterThanOrEqual(bookings[2]!.end); // after the last queued load
+    expect(names.map((n) => s.stations.F!.loads[n]!.booked)).toEqual(bookings); // no queued load moved
+  });
+
+  it('[03a #146] a new immediate line uses the idle time before a load held for a pickup 30 min away; the held load does not move later', () => {
+    let s = queueFryer();
+    s = submitB(s, 'OP', unitParts('P', 8, { mode: 'sync' }), at(0), { pickup_at_ms: at(30) }).state;
+    const held = loadOf(s, 'P1')!;
+    expect(held.booked.end).toBe(at(30));
+    s = submitB(s, 'OX', unitParts('X', 1), at(1)).state;
+    expect(loadOf(s, 'X1')!.booked).toMatchObject({ start: at(1), end: at(4) });
+    // The held load keeps its members and name; the new line does not move it. The re-plan's own keep cushion (BQ-2:
+    // latestFit by d(b) − keep, D6) may land it up to keep (1 min) earlier, never later.
+    const after = loadOf(s, 'P1')!;
+    expect(after).toMatchObject({ load_id: held.load_id, order_item_ids: held.order_item_ids });
+    expect(after.booked.end).toBeLessThanOrEqual(at(30));
+    expect(after.booked.end).toBeGreaterThanOrEqual(at(29));
+  });
+
+  it('[03a #148] a void in a hidden load keeps its name, members and place; the room is not refilled from later loads; the pull-in goes in queue order, then arrival', () => {
+    // Freshness 10 min, so the loads behind the first are inside the pull-in window. Z ×8 cooks [0, 3). The ×2 placed at
+    // +0.5 is order "AA": younger than B and C, but its ids sort first, so an id order would pull it ahead of B.
+    const orders = [['Z', 8, 0], ['A', 8, 0], ['B', 8, 0], ['C', 8, 0], ['AA', 2, 0.5]] as const;
+    const events = (s: EngineState, t: number) =>
+      t === at(0.25) ? [voidB('OB', 'B1', 1, t), voidB('OB', 'B2', 1, t)] : t === at(0.75) ? [voidB('OA', 'A1', 1, t), voidB('OA', 'A2', 1, t)] : [];
+    const early = runRounds(queueFryer({ freshness: 10 * M }), orders.slice(0, 4), { until: 0, startAfter: 0 }).state;
+    const [l1, l2, l3] = ['A1', 'B1', 'C1'].map((x) => loadOf(early, x)!);
+    const mid = runRounds(queueFryer({ freshness: 10 * M }), orders, { until: 0.5, startAfter: 0, extra: events }).state;
+    // B1, B2 voided: B's load keeps its name, B3–B8 and its place; C's load keeps its members; AA ×2 joins B's load.
+    expect(mid.stations.F!.loads[l2!.load_id]!.order_item_ids).toEqual(['AA1', 'AA2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8']);
+    expect(mid.stations.F!.loads[l2!.load_id]!.booked).toEqual(l2!.booked);
+    expect(mid.stations.F!.loads[l3!.load_id]!.order_item_ids).toEqual(l3!.order_item_ids);
+    // A1, A2 voided at +0.75: A's load keeps 6 members; the re-plan does not refill it from B's or C's load (Q1).
+    const run = runRounds(queueFryer({ freshness: 10 * M }), orders, { until: 3, startAfter: 0, extra: events });
+    const fireA = run.fires.find((f) => f.load_id === l1!.load_id)!;
+    expect(fireA.at).toBe(at(3));
+    // The fire pulls in 2: B's load first (queue order), its oldest members (arrival key), never a part of C's load.
+    expect(fireA.ids).toEqual(['A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'B3', 'B4']);
+  });
+  it('[03a #150] a program flip: the flipped member leaves its hidden load (the load keeps the rest, its place and name) and joins the first compatible stock-program load with room, else forms one', () => {
+    const stockEv = (e: PosEvent, t: number): PosEvent => {
+      const sq = nextSeq();
+      return { ...e, recorded_at: t, occurred_at: t, seq: sq, event_id: `01J${String(sq).padStart(23, '0')}` };
+    };
+    const flipTo = (s: EngineState, t: number): EngineState =>
+      fold(s, [
+        stockEv(aStockAdded({ stream_id: 'KB', payload: { stock_item_id: 'KB', quantity: 1, unit: 'piece' } }), t),
+        stockEv(aStockReserved({ stream_id: 'KB', payload: { stock_item_id: 'KB', order_item_id: 'A1', quantity: 1 } }), t),
+      ]);
+    const stocked = { stock: { program: 'P2', cook: M }, draws: [{ stock_item_id: 'KB', quantity: 1 }] };
+    for (const withP2 of [false, true]) {
+      // Freshness 5 min. Z ×8 cooks [0, 3); [W ×1 on P2, cook 1 min: [3, 4)]; A ×3 (A1 can come from stock) and B ×5 on P1
+      // share the next load.
+      let s = fold(queueFryer({ freshness: 5 * M }), [stockEv(aStockSet({ stream_id: 'KB', payload: { stock_item_id: 'KB', on_hand: 0, unit: 'piece' } }), at(-1))]);
+      s = runRounds(s, [['Z', 8, 0]], { until: 0, startAfter: 0 }).state;
+      if (withP2) s = submitB(s, 'OW', [{ id: 'W1', cook: M, program: 'P2', mode: 'immediate', early: 60 * M }], at(0.25)).state;
+      s = submitB(s, 'OA', [{ id: 'A1', cook: COOK, mode: 'immediate', early: 60 * M, ...stocked }, ...unitParts('A', 3).slice(1)], at(0.25)).state;
+      s = submitB(s, 'OB', unitParts('B', 5), at(0.25)).state;
+      const load = loadOf(s, 'A1')!;
+      expect(load.order_item_ids).toEqual(['A1', 'A2', 'A3', 'B1', 'B2', 'B3', 'B4', 'B5']);
+      const after = flipTo(s, at(0.5));
+      expect(after.lines.A1).toMatchObject({ from_stock: true, cook_ms: M });
+      const kept = after.stations.F!.loads[load.load_id]!;
+      expect(kept.order_item_ids).toEqual(['A2', 'A3', 'B1', 'B2', 'B3', 'B4', 'B5']);
+      expect(kept.booked).toEqual(load.booked);
+      const flipped = loadOf(after, 'A1')!;
+      expect(flipped.program_id).toBe('P2');
+      if (withP2) expect(flipped.order_item_ids).toEqual(['A1', 'W1']);
+      else expect(flipped.order_item_ids).toEqual(['A1']);
+    }
+  });
+});
