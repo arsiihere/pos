@@ -1,0 +1,6 @@
+{
+  "appId": "pos.spike.lockalerts",
+  "appName": "POS Spike Alerts",
+  "webDir": "www",
+  "android": { "allowMixedContent": true }
+}

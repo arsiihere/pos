@@ -1,0 +1,16 @@
+{
+  "name": "pos-spike-lock-alerts",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Throwaway spike: lock-screen alerts over the hub alert-mode socket [spike lock-alerts]",
+  "scripts": {
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/core": "8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2"
+  }
+}
