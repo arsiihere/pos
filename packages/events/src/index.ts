@@ -67,6 +67,7 @@ export * from './events/order/ItemMovedToStock.v1.js';
 export * from './events/order/OrderBoosted.v1.js';
 export * from './events/order/ItemsReleased.v1.js';
 export * from './events/order/SlipWarned.v1.js';
+export * from './events/order/LinePrioritized.v1.js'; // 03a v1.2.10 §4.2 (STAB-7)
 export * from './events/order/OrderFoodServed.v1.js';
 export * from './events/order/OrderFoodCleared.v1.js';
 export * from './events/order/OrderCancelled.v1.js';
