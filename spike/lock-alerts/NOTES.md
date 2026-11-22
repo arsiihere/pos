@@ -11,3 +11,7 @@ Everything surprising found while building or soaking. Each entry: date, unit (o
 ## Soak
 - 2026-11-23 04:14 · owner's first tablet (model TBD) · First live test: notification while unlocked, and the red full-screen alert while locked. Lock text "Arif · spike-tablet-a · alert.test_alert.lock". Hub on the owner's laptop (10.190.116.133:3000).
 - 2026-11-23 · setup · Admin routes from a paired admin browser need the device token (`Authorization: Bearer`) next to `X-Admin-Session`, otherwise `401 DEVICE_TOKEN_INVALID`. The README now has the console snippet.
+- 2026-11-23 04:33 · TCL 9198S · Dry run on the first build (no device log): **19/19 delivered receipts** on the hub over ~19 min, locked, defaults (wake lock off, WifiLock on, ping 15 s, urgent FSI on).
+- 2026-11-23 04:42 · TCL 9198S · Android 11 (SDK 30), TCL UI 3, security patch 2021-04-05, not device owner (not provisioned; no USB cable on hand for `dpm`). Battery-opt exempt, FSI allowed, notifications on. The LAN log upload works (skew 433 ms at that moment). After the reinstall, `alerts_open` replayed 4 still-open dry-run alerts and they were notified again (fresh dedupe set); this is correct.
+- 2026-11-23 · TCL 9198S · No USB cable → no adb. The spike is now network-only (log upload, in-app toggles). Wireless-debugging pairing is not offered on this TCL UI build. The S5 (am kill) and device-owner checks need a cable later.
+- 2026-11-23 04:45 · TCL 9198S · S1 (12 h, locked, on charger) started.
