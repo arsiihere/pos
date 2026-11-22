@@ -2,6 +2,14 @@
 
 Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. Spec: `05a_Device_Access_Screens_Spec_v1.0.1.md` (APPROVED; v1.0 2026-11-23 03:24 PKT, v1.0.1 rulings 03:35 / 03:53 PKT). Integration branch: `module-05a`, **cut from `fix/stab-tablet-pairing`; the 05a PR comes after the stab PR** (owner D-7). Stab work comes in only by `git merge fix/stab-tablet-pairing`, before each batch, then the gate. Pushed to **`build/05a`** after every task (owner 03:53, no PRs). Only the integrator edits this file.
 
+> ## ⚠️ NEEDS RULING — three 01d questions (B6 waits; B1–B5 continue)
+>
+> The 01d v1.3.5 bump (rows D-1 – D-4) is written. Three places have no rule in 05a. Only the 01d rows wait (P0.5 commit, batch B6); B1–B5 do not touch them and go on. Each question has a Rec.
+>
+> - **Q-1** 05a §3.9 rule 3 says "the 'no one can approve' check counts an approver as reachable only through a listed-device route". 01d §3.9's `no_approver` warning counts "signed in anywhere". **(a, Rec)** For a money kind, a session on an `everyone` device no longer counts in that warning, as the 05a text reads. (b) Leave the warning as it is; only routing and the G1-9d shortcut change.
+> - **Q-2** The new link `{ type: 'devices' }` (`device_waiting`) has no §3.13.3 "open" check. **(a, Rec)** Always open, no read: the device list always exists, and the notice itself closes when no request is pending (§3.10). (b) Open only while a pair request is pending (1 read).
+> - **Q-3** The G1-9d shortcut (01d §3.5:637) applies to kinds whose `right.mode` is `'approval'`. A downgraded raise stores `named` or `holders` on an approval kind. **(a, Rec)** Key on the **stored** right: a downgraded request gets no shortcut, like other `named` / `holders` requests today; it still escalates by its steps. (b) Key on the kind's right: the shortcut also runs for a downgraded `holders` request.
+
 > **Status (owner summary, newest first):**
 > - 2026-11-23 (after 03:53 PKT): Owner rulings 03:53: `git merge` allowed, push target **`build/05a`**, G-b (a). `spec/05a-device-access` merged into `module-05a` (`866f74c3`; README conflict resolved: 05 row from stab, 05a row from the spec branch); pushed as `build/05a`. **05a v1.0.1** written (R-1, G-b). F §6.2 append done (`855e87eb`). The 00 / 01d / 03b / 04 bumps are being written; baseline gate running.
 > - 2026-11-23 (after 03:45 PKT): Owner D-7: don't wait for the stab merge. `module-05a` cut locally from the stab tip `44112286`; P0.1 and the P0.2 sweep done; **stopped**: the merge is blocked by permissions, plus a push decision and G-b (see the top).
@@ -105,6 +113,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 |---|---|---|---|
 | S-1 | G0.1 | `git merge` into `module-05a` refused by the auto-mode classifier | **closed** 03:53: owner allowed it; merged |
 | S-2 | P0.3 | Push target for `module-05a` under the `module-*` ruleset with no PRs | **closed** 03:53: (a) `build/05a` |
-| S-3 | P0.2 | G-b: names in the `device_profile_set` audit detail | **closed** 03:53: (a), in 05a v1.0.1 §4.2 |
+| S-3 | P0.2 | G-b: names in the `device_profile_set` audit detail | **closed** 03:53: (a), in 05a v1.0.1 §4.2; 04 v1.0.8 §8 maps the ids through `audit-staff` (no query change) |
+| S-4 | P0.5 | 01d Q-1 – Q-3 (top of this file) | **open**, Recs (a) |
 
 Scan for P0.1: every local and remote branch and both open PRs (#121, #126) were checked for 00 > v1.12.2, 01d > v1.3.4, 03b > v1.0.14, 04 > v1.0.7, Foundation > v1.15 and hub migrations ≥ `0027`. Nothing is claimed. The bumps are patch steps, like the other cross-module rows (e.g. 00 v1.12.1 → v1.12.2 for STAB-1).
