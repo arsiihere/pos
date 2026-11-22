@@ -140,4 +140,31 @@ describe('[02b v1.0.22] deals split per deal unit', () => {
     const allocated = (xs: typeof built.itemAdded) => xs.filter((a) => a.line_kind === 'deal_part').reduce((n, a) => n + (a.allocated_price_minor ?? 0), 0);
     expect(allocated(built.itemAdded)).toBe(allocated(whole.itemAdded));
   });
+
+  // ⚠️ 02b v1.0.23 §3.2 step 4a (STAB-6): a deal whose only cooked part is on a batch station is split per deal unit too
+  // (was: "a deal whose parts are all batch / weighed stays one line"); a part of quantity > 1 within one deal unit is
+  // not split (Q5, m-1).
+  it('[02b #45] deal ×2 whose cooked part is a naan on a batch station → D, D-p2; a deal of weighed parts only stays one line', () => {
+    const base = menu();
+    const config: BranchConfig = {
+      ...base,
+      items: [...base.items, { ...base.items.find((i) => i.item_id === 'I_MEAT_KG')!, item_id: 'I_MEAT2' }],
+      deals: [
+        { ...base.deals[0]!, deal_id: 'D_BREAD', parts: [{ deal_part_id: 'DP_B', quantity: 2, sort_order: 0, choices: [{ item_id: 'I_BREAD', extra_price_minor: 0, sort_order: 0 }] }] },
+        { ...base.deals[0]!, deal_id: 'D_KG', parts: [{ deal_part_id: 'DP_K', quantity: 1, sort_order: 0, choices: [{ item_id: 'I_MEAT_KG', extra_price_minor: 0, sort_order: 0 }] }] },
+      ],
+    };
+    const bread = { order_item_id: 'D', deal_id: 'D_BREAD', quantity: 2, deal_choices: [{ deal_part_id: 'DP_B', item_id: 'I_BREAD', order_item_id: 'Db' }] };
+    const kg = { order_item_id: 'G', deal_id: 'D_KG', quantity: 2, deal_choices: [{ deal_part_id: 'DP_K', item_id: 'I_MEAT_KG', order_item_id: 'Gk' }] };
+    const expanded = expandParts(config, takeaway([bread, kg]), ctx(config));
+    expect(expanded.lines.map((l) => [l.order_item_id, l.quantity, l.part_of, l.deal_choices?.map((c) => [c.order_item_id, c.part_of])])).toEqual([
+      ['D', 1, 'D', [['Db', 'Db']]],
+      ['D-p2', 1, 'D', [['Db-p2', 'Db']]],
+      ['G', 2, undefined, [['Gk', undefined]]],
+    ]);
+    // the naan part of quantity 2 inside one deal unit stays one line of 2 (Q5)
+    const built = buildSubmit(config, expanded, ctx(config));
+    expect(built.itemAdded.filter((a) => a.line_kind === 'deal_part' && a.station_id === 'S_TANDOOR').map((a) => [a.order_item_id, a.quantity])).toEqual([['Db', 2], ['Db-p2', 2]]);
+  });
 });
+

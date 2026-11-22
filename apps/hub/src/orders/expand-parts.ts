@@ -27,13 +27,13 @@ export function expandParts(config: BranchConfig, input: SubmitInput, ctx: Pick<
     const type = stationType.get(station_id);
     return type !== undefined && types.has(type);
   };
-  const SLOT: ReadonlySet<string> = new Set(['slot']);
   const SLOT_OR_BATCH: ReadonlySet<string> = new Set(['slot', 'batch']);
   const splits = (line: Line): number => {
     const n = line.quantity ?? 1;
     if (n <= 1 || line.from_zone === true) return 1;
-    // ⚠️ 02b v1.0.22 (phase 5): a deal is split per deal unit when a chosen part cooks on a slot station
-    if (line.deal_id !== undefined) return (line.deal_choices ?? []).some((c) => routedTo(c.item_id, SLOT)) ? n : 1;
+    // ⚠️ 02b v1.0.22 (phase 5): a deal is split per deal unit when a chosen part cooks on a slot station; ⚠️ v1.0.23
+    // (STAB-6): or on a batch station. A part of quantity > 1 inside one deal unit stays one line (Q5).
+    if (line.deal_id !== undefined) return (line.deal_choices ?? []).some((c) => routedTo(c.item_id, SLOT_OR_BATCH)) ? n : 1;
     if (line.item_id === undefined) return 1;
     return routedTo(line.item_id, SLOT_OR_BATCH) ? n : 1;
   };
