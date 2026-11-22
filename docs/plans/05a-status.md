@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > - **Q-3** The G1-9d shortcut (01d §3.5:637) applies to kinds whose `right.mode` is `'approval'`. A downgraded raise stores `named` or `holders` on an approval kind. **(a, Rec)** Key on the **stored** right: a downgraded request gets no shortcut, like other `named` / `holders` requests today; it still escalates by its steps. (b) Key on the kind's right: the shortcut also runs for a downgraded `holders` request.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~04:35 PKT: Phase 0 bumps: **00 v1.12.3** (`0ddb82cb`), **03b v1.0.15** (`f45df89a`), **04 v1.0.8** (`f1cc15bc`), **01d v1.3.5** (committed with **Q-1 – Q-3 marked open**), F §6.2 append (`855e87eb`). Each was checked by a fresh reviewer, and the findings are fixed. Stab tip `943e1cb6` merged (no spec change); gate running before batch B1.
 > - 2026-11-23 (after 03:53 PKT): Owner rulings 03:53: `git merge` allowed, push target **`build/05a`**, G-b (a). `spec/05a-device-access` merged into `module-05a` (`866f74c3`; README conflict resolved: 05 row from stab, 05a row from the spec branch); pushed as `build/05a`. **05a v1.0.1** written (R-1, G-b). F §6.2 append done (`855e87eb`). The 00 / 01d / 03b / 04 bumps are being written; baseline gate running.
 > - 2026-11-23 (after 03:45 PKT): Owner D-7: don't wait for the stab merge. `module-05a` cut locally from the stab tip `44112286`; P0.1 and the P0.2 sweep done; **stopped**: the merge is blocked by permissions, plus a push decision and G-b (see the top).
 > - 2026-11-23 03:35 PKT: Owner confirmed the plan readings PL-1 – PL-4 and ruled the no-profile device rule (R-1, below). **The build still waits for the `fix/stab-tablet-pairing` merge** (G0.1).
@@ -44,10 +45,10 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | P0.1 | 0 | version numbers | NORMAL | — (on `spec/05a-device-access`) | **done** |
 | P0.2 | 0 | gap sweep (G-b, G-c + moved cites; G-a ruled as R-1) + **05a v1.0.1** patch (R-1 notes) | NORMAL | `def937e8` | **done** (sweep + v1.0.1) |
 | P0.3 | 0 | cut `module-05a`, cleanup file (no labels: no PRs) | NORMAL | | cut; `build/05a` pushed; cleanup file with P0.8 |
-| P0.4 | 0 | 00 bump (H-1 – H-7) | NORMAL | | |
-| P0.5 | 0 | 01d bump (D-1 – D-4) | NORMAL | | |
-| P0.6 | 0 | 03b bump (K-1, K-2) | NORMAL | | |
-| P0.7 | 0 | 04 bump (A-1) | NORMAL | | |
+| P0.4 | 0 | 00 bump (H-1 – H-7) | NORMAL | `0ddb82cb` | **done** (review: 1 MAJOR table fix + MINORs, fixed) |
+| P0.5 | 0 | 01d bump (D-1 – D-4) | NORMAL | see log | **done except Q-1 – Q-3** (review: 2 MAJOR + 6 MINOR, fixed) |
+| P0.6 | 0 | 03b bump (K-1, K-2) | NORMAL | `f45df89a` | **done** (review APPROVE) |
+| P0.7 | 0 | 04 bump (A-1) | NORMAL | `f1cc15bc` | **done** (review APPROVE; G-b read path via `audit-staff`) |
 | P0.8 | 0 | F §6.2 append, README | NORMAL | `855e87eb` (F) | F done; README rows after the bumps |
 | 1 | B1 | permission lists + screens | NORMAL | | |
 | 2 | B1 | error codes | NORMAL | | |
@@ -117,3 +118,10 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | S-4 | P0.5 | 01d Q-1 – Q-3 (top of this file) | **open**, Recs (a) |
 
 Scan for P0.1: every local and remote branch and both open PRs (#121, #126) were checked for 00 > v1.12.2, 01d > v1.3.4, 03b > v1.0.14, 04 > v1.0.7, Foundation > v1.15 and hub migrations ≥ `0027`. Nothing is claimed. The bumps are patch steps, like the other cross-module rows (e.g. 00 v1.12.1 → v1.12.2 for STAB-1).
+
+## Stab merges
+
+| When | Stab sha | Spec change in 00 / 01d / 03b / 04? | Gate after |
+|---|---|---|---|
+| cut | `44112286` | — (baseline: 00 v1.12.2, 01d v1.3.4, 03b v1.0.14, 04 v1.0.7) | — |
+| before B1 | `943e1cb6` (merge `ad0864ad`) | none | running |
