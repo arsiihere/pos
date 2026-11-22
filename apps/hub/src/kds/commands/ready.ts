@@ -265,7 +265,8 @@ function markReadyToServe(ctx: CommandCtx, payload: MarkPayload): { events: Even
   const taken = new Set([...picked, ...(open === undefined ? [] : [...open.lines].filter((id) => isCandidate.has(id)))]);
   const lines = candidates.filter((id) => taken.has(id)); // the order's line order
   // Step 3: extend — the open alert still holds the base key in this transaction, so the new one takes a suffix.
-  const closed = open === undefined ? [] : alerts.close(ctx, open.ready_alert_id, 'obsolete');
+  // `overridden`, not `obsolete` (the re-target's "Moved"): the waiter's old card reads "Updated"
+  const closed = open === undefined ? [] : alerts.close(ctx, open.ready_alert_id, 'overridden');
   const raised = raiseReady(ctx, { order_id, point_id, point_name: point.name, lines, added: picked, forced, suffix: open === undefined ? '' : `:+${picked[0]}` }, now);
   // An open alert under the same key with no open pass_orders row cannot be built by 03b's commands; treat as step 3.
   if (raised.deduped) return { events: [], result: { alert_id: raised.alert_id, already: true } };

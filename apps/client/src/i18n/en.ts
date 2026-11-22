@@ -2515,6 +2515,7 @@ export const en = {
   'alert.printer_problem.stays': 'Stays until day close',
   'alerts.closed.dismissed': 'Dismissed',
   'alerts.closed.undone': 'Pass took it back',
+  'alerts.closed.updated': 'Updated — see the newer card', // 03b v1.0.10 (STAB-2)
   'alerts.closed.moved': 'Moved to {table}',
   'alerts.closed.screen_back': 'Screen back',
   'alerts.closed.screen_removed': 'Screen removed',

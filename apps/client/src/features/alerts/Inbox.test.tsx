@@ -40,6 +40,22 @@ const forAli = row({
 });
 
 describe('[01d §8.1 S01] Inbox', () => {
+  // 03b v1.0.10 §3.5 step 5, §8 (STAB-2, test #83): a ready card lists what is ready; an older card without lines as before
+  it('[03b #83] an open ready_to_serve card with details.lines lists the items; without lines only the identifier', () => {
+    const card = (lines?: Array<{ name: string; quantity: number; state: string }>) => ({
+      kind_label_key: 'alert.ready_to_serve.card',
+      table_code: '4',
+      point_code: 'Pass',
+      details: { identifier: 'T4', ...(lines === undefined ? {} : { lines }) },
+    });
+    const withLines = row({ alert_id: 'R1', kind: 'ready_to_serve', family: 'action', raised_at: NOW - MIN, card: card([{ name: 'Seekh kebab', quantity: 2, state: 'ready' }, { name: 'Naan', quantity: 4, state: 'ready' }]) as never });
+    const old = row({ alert_id: 'R2', kind: 'ready_to_serve', family: 'action', raised_at: NOW - MIN, card: card() as never });
+    m = mount();
+    m.render(<Inbox rows={[withLines, old]} loading={false} offlineAt={null} nowMs={NOW} utcOffsetMs={0} onOpen={vi.fn()} />);
+    expect(m.container.querySelector('[data-alert="R1"]')!.textContent).toContain('Seekh kebab ×2 · Naan ×4');
+    expect(m.container.querySelector('[data-alert="R2"]')!.textContent).not.toContain('×');
+  });
+
   it('open action alerts first, then open requests newest first; everything else under Today, newest first; "For" groups', () => {
     const s = inboxSections([closed, test, voidLock, voidCard, handover, forAli]);
     expect(s.open.map((r) => r.alert_id)).toEqual(['H1', 'V1', 'V2']);

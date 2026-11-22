@@ -1292,6 +1292,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'alert.printer_problem.stays': 'دن بند ہونے تک رہے گا',
   'alerts.closed.dismissed': 'ہٹا دیا',
   'alerts.closed.undone': 'پاس نے واپس لے لیا',
+  'alerts.closed.updated': 'تازہ — نیا کارڈ دیکھیں',
   'alerts.closed.moved': '{table} پر منتقل',
   'alerts.closed.screen_back': 'اسکرین واپس',
   'alerts.closed.screen_removed': 'اسکرین ہٹا دی',

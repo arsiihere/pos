@@ -368,7 +368,7 @@ describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
     expect([stage('L1'), stage('L2'), stage('L3')]).toEqual(['done', 'done', 'done']);
   });
 
-  it('[03b #79] extend: an open Ready of L1, L2 and a press picking L3 → old alert closed obsolete, one new alert (dedupe <base>:+L3) listing L1–L3; picking L1 again → already', async () => {
+  it('[03b #79] extend: an open Ready of L1, L2 and a press picking L3 → old alert closed overridden, one new alert (dedupe <base>:+L3) listing L1–L3; picking L1 again → already', async () => {
     openDay(hub);
     const cookWho = await cookSignedIn();
     const order_id = takeaway(['L1', 'L2', 'L3']);
@@ -381,7 +381,7 @@ describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
     expect(lastStatements).toBe(3);
     const second = reply.result!.alert_id as string;
     expect(second).not.toBe(first);
-    expect(alertRow(first)).toMatchObject({ state: 'closed', close_reason: 'obsolete' });
+    expect(alertRow(first)).toMatchObject({ state: 'closed', close_reason: 'overridden' });
     expect(alertRow(second)).toMatchObject({ state: 'open', dedupe_key: `${order_id}:${POINT}:-:+L3` });
     expect(JSON.parse(alertRow(second).details_json!)).toEqual({ identifier: '#1', lines: [naan(), naan(), naan()] });
     expect(reply.events.find((e) => e.event_type === 'ReadyToServe')!.payload).toMatchObject({ order_item_ids: ['L1', 'L2', 'L3'], added_ids: ['L3'], forced_ids: [], alert_id: second });
