@@ -98,7 +98,7 @@ export const STEP_KEY: Record<Exclude<PrimaryStep, 'blocked'>, MessageKey> = {
 };
 
 /** §6.1 VoidItems payload for one line, or null while the sheet cannot send. */
-export function voidPayload(o: { order_id: string; order_item_id: string; units: number | undefined; choice: SheetChoice }): VoidItemsPayload | null {
+export function voidPayload(o: { order_id: string; order_item_id: string; units: number | undefined; choice: SheetChoice; part_ids?: readonly string[] }): VoidItemsPayload | null {
   const c = o.choice;
   if (c.reason === null) return null;
   const note = c.note.trim().slice(0, VOID_NOTE_MAX);
@@ -111,7 +111,11 @@ export function voidPayload(o: { order_id: string; order_item_id: string; units:
     // a note typed for Other is not sent once another chip is picked (as 02b's comp)
     note: c.reason === 'other' ? note : null,
     disposition_note: c.disposition === 'other' ? dnote : null,
-    lines: [{ order_item_id: o.order_item_id, ...(o.units === undefined ? {} : { units: o.units }), disposition: c.disposition }],
+    // 02b v1.0.21 §8 (STAB-5): n of a grouped row = its first n parts, one unit each
+    lines:
+      o.part_ids === undefined
+        ? [{ order_item_id: o.order_item_id, ...(o.units === undefined ? {} : { units: o.units }), disposition: c.disposition }]
+        : o.part_ids.slice(0, o.units ?? o.part_ids.length).map((order_item_id) => ({ order_item_id, units: 1, disposition: c.disposition })),
   };
 }
 

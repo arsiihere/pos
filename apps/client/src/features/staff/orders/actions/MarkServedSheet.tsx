@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { GroupedLine } from '../view/parts';
 import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
 import { Ico } from '../../../alerts/ui';
@@ -33,7 +34,8 @@ export interface MarkServedSheetProps {
 /** One `{ order_id, order_item_ids }` per order, in the candidates' order (§6.4). */
 export function servedPayload(lines: readonly LineView[]): MarkServedPayload {
   const byOrder = new Map<string, string[]>();
-  for (const l of lines) byOrder.set(l.order_id, [...(byOrder.get(l.order_id) ?? []), l.order_item_id]);
+  // 02b v1.0.21 §8 (STAB-5): a grouped row serves all its parts
+  for (const l of lines) byOrder.set(l.order_id, [...(byOrder.get(l.order_id) ?? []), ...((l as GroupedLine).part_ids ?? [l.order_item_id])]);
   return { lines: [...byOrder].map(([order_id, order_item_ids]) => ({ order_id, order_item_ids })) };
 }
 

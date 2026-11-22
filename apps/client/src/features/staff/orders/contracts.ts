@@ -53,6 +53,8 @@ export interface LineView {
   line_total_minor: number | null;
   billed_minor: number;
   return_of: string | null;
+  /** 02b v1.0.21 §8 (STAB-5): the first part's id of a line sent as one-unit parts; null = not split (absent from an older hub) */
+  part_of?: string | null;
   served_from_zone_id: string | null;
   zone_served: boolean;
   /** recorded_at of the ItemAdded (zone undo window, hub clock) */

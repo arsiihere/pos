@@ -1,5 +1,6 @@
 // owned by lane T, task 27a1 (was the W0.6 stub)
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { groupParts } from './parts';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { navigate } from '../../../../app/router';
 import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
@@ -182,7 +183,9 @@ export function OrderView({ order_id }: OrderViewProps) {
   // 01d v1.3.3 §3.13.2 rule 6: a deep-linked view's close returns where the tap started (the shell decides)
   const close = () => (shell.closeRouteSheet === undefined ? navigate(fallback) : shell.closeRouteSheet(fallback));
   const offset = shell.clock.utcOffsetMs;
-  const order = view.kind === 'order' && view.order.order_id === order_id ? view.order : null;
+  const raw = view.kind === 'order' && view.order.order_id === order_id ? view.order : null;
+  // 02b v1.0.21 §8 (STAB-5): a split line's parts show as one row per stage (groupParts); the commands name the parts
+  const order = useMemo(() => (raw === null ? null : { ...raw, lines: groupParts(raw.lines) }), [raw]);
   const nowMs = shell.clock.nowMs();
   const fallbackLines: LineView[] =
     view.kind === 'fallback' ? (caught?.lines ?? []).map((l) => (l.served_at === null && servedSince.has(l.order_item_id) ? { ...l, served_at: nowMs } : l)) : [];

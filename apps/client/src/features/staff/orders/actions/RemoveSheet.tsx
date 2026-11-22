@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { partEntries } from '../view/parts';
 import { newUlid } from '../../../../app/ulid';
 import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
@@ -54,7 +55,8 @@ export function RemoveSheet({ order, from, onClose, onDone, onChanged, onVoid }:
       payload: {
         order_id: order.order_id,
         ...(order.seating_id === undefined ? {} : { seating_id: order.seating_id }),
-        lines: [...units].map(([order_item_id, n]) => ({ order_item_id, units: n })),
+        // 02b v1.0.21 §8 (STAB-5): n of a grouped row = n of its parts, one unit each
+        lines: [...units].flatMap(([order_item_id, n]) => partEntries(order.lines, order_item_id, n)),
       },
     };
     setPending(attempt);
