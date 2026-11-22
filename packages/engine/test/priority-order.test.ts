@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { priorityCmp, priorityRank, type PriorityRank } from '../src/priority';
 import { priorityDueOf } from '../src/slip';
-import type { EngineState } from '../src/index';
+import { getTickIntents, type EngineState } from '../src/index';
 import { at, deepFreeze, fireEv, fold, G, kitchen, M, orderEv, S, startEv, submit } from './priority-kit';
 
 // Orders O1…On (one immediate line each, listed at `arrived`), then each made a priority group by hand: its line's
@@ -149,5 +149,23 @@ describe('[03a v1.2.10 §3.5.7 PR-4, PR-6] the order among priority groups, weig
     expect(startOf(s, 'f')).toBe(at(30));
     expect(startOf(s, 'p')).toBeGreaterThanOrEqual(at(40));
     expect(s.lines.f!.mark).toBe('boost');
+  });
+});
+
+describe('[03a v1.2.10 §3.6.1 item 2] auto-fill takes priority lines first', () => {
+  it('[03a #158] one idle unit, an eligible priority line and an eligible older non-priority line: the priority line is fired', () => {
+    let s = kitchen([{ station_id: 'S1', capacity: 1 }]);
+    s = submit(s, 'OW', [{ id: 'w', cook: 10 * M, mode: 'immediate' }], at(0)).state;
+    s = submit(s, 'Oa', [{ id: 'a', cook: 5 * M, mode: 'immediate', early: 30 * M }], at(0)).state;
+    s = submit(s, 'Ob', [{ id: 'b', cook: 5 * M, mode: 'immediate', early: 30 * M }], at(0)).state;
+    s = fold(s, [orderEv('ItemVoided', 'OW', { order_item_id: 'w', units: 1 }, at(0) + S)]);
+    expect([startOf(s, 'a'), startOf(s, 'b')]).toEqual([at(9), at(14)]); // the keep cushion
+    const fill = (x: EngineState): string[][] =>
+      getTickIntents(x, at(1))
+        .filter((d) => d.event_type === 'FireDispatched')
+        .map((d) => (d.payload as { order_item_ids: string[]; reason: string }).order_item_ids);
+    expect(fill(s)).toEqual([['a']]);
+    s = patch(s, 'b', { since: at(0) + 2 * S, delay: 5 * M, land: at(19) });
+    expect(fill(s)).toEqual([['b']]);
   });
 });

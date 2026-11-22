@@ -307,12 +307,14 @@ function fills(state: EngineState, station: StationRuntime): boolean {
 }
 
 // The auto-fill candidates of a slot station at now: placed (booked), not yet due, eligible at now ≥ d − max_early_ms.
+// ⚠️ 03a v1.2.10 §3.6.1 item 2 (review B-2): a priority line is eligible from d_p − max_early_ms.
 function fillCandidates(state: EngineState, station: StationRuntime, now: number): EngineLine[] {
   const out: EngineLine[] = [];
+  const cap = Math.max(1, effectiveCapacity(station));
   for (const id of station.unfired) {
     const line = state.lines[id];
     if (!ready(state, line) || line.booked === null || line.fire_ms! <= now) continue;
-    if (now >= line.deadline_ms - line.max_early_ms) out.push(line);
+    if (now >= deadlineFor(state, line, cap) - line.max_early_ms) out.push(line);
   }
   return out;
 }
@@ -331,7 +333,12 @@ function fillOrder(state: EngineState, lines: EngineLine[], now: number, pol: Re
     return { frozen, urgent, d: urgent === 0 ? l.deadline_ms : 0, w: urgent === 0 ? 0 : -weightOf(state, l) * waited };
   };
   const keys = new Map(lines.map((l) => [l.order_item_id, key(l)]));
+  // ⚠️ 03a v1.2.10 §3.6.1 item 2 (review B-2, M-10): eligible priority lines first, in the priority order (earliest onset).
+  const prio = memberOrder(state);
   return [...lines].sort((a, b) => {
+    const pa = a.priority_at !== null;
+    const pb = b.priority_at !== null;
+    if (pa || pb) return pa && pb ? prio(a, b) : pa ? -1 : 1;
     const x = keys.get(a.order_item_id)!;
     const y = keys.get(b.order_item_id)!;
     return x.frozen - y.frozen || x.urgent - y.urgent || x.d - y.d || x.w - y.w || byId(a.order_item_id, b.order_item_id);
@@ -629,7 +636,7 @@ function softCandidates(c: Ctx, station: StationRuntime, t: number, before: numb
     for (const id of station.unfired) {
       const line = state.lines[id];
       if (!ready(state, line) || line.booked === null) continue;
-      const e = line.deadline_ms - line.max_early_ms;
+      const e = deadlineFor(state, line, Math.max(1, effectiveCapacity(station))) - line.max_early_ms; // 03a v1.2.10: d_p for a priority line
       if (e >= line.fire_ms! || line.fire_ms! <= t) continue; // eligible only before its own fire
       add(e);
       for (const r of reservations) if (r.key !== id && r.booked.end - line.prep_ms > e) add(r.booked.end - line.prep_ms);
