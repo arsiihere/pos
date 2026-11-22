@@ -4,8 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import { priorityCmp, priorityRank, type PriorityRank } from '../src/priority';
 import { priorityDueOf } from '../src/slip';
-import { getTickIntents, type EngineState } from '../src/index';
-import { at, deepFreeze, fireEv, fold, G, kitchen, M, orderEv, S, startEv, submit } from './priority-kit';
+import { getTickIntents, groupReadiness, stationPlan, stationView, type EngineState } from '../src/index';
+import { at, deepFreeze, fireEv, fold, G, kitchen, M, orderEv, S, startEv, submit, Tg } from './priority-kit';
 
 // Orders O1…On (one immediate line each, listed at `arrived`), then each made a priority group by hand: its line's
 // priority_at and its group's priority_delay_ms (what the LinePrioritized fold stores).
@@ -167,5 +167,27 @@ describe('[03a v1.2.10 §3.6.1 item 2] auto-fill takes priority lines first', ()
     expect(fill(s)).toEqual([['a']]);
     s = patch(s, 'b', { since: at(0) + 2 * S, delay: 5 * M, land: at(19) });
     expect(fill(s)).toEqual([['b']]);
+  });
+});
+
+describe('[03a v1.2.10 §3.5.7 PR-8] views carry priority on priority lines only', () => {
+  it('[03a #161] stationView, stationPlan and groupReadiness carry priority { since_ms, minutes_late }; minutes_late follows now; 0 when on time again; Start drops it', () => {
+    let s = queueOn(['a', 'b']);
+    s = patch(s, 'b', { since: at(24), delay: 5 * M, land: at(50) });
+    // b lands at its T (+50): a sticky priority on a group that is on time again.
+    expect(Tg(s, 'Ob')).toBe(at(50));
+    const plan = stationPlan(s, 'S1', at(25)).lines;
+    expect(plan.find((l) => l.order_item_id === 'b')!.priority).toEqual({ since_ms: at(24), minutes_late: 0 });
+    expect(plan.find((l) => l.order_item_id === 'a')!.priority).toBeUndefined();
+    // At +45 b's estimate is max(+50, +45 + 10) = +55: 5 min late; frozen at +48 so it is in Next.
+    expect(stationPlan(s, 'S1', at(45)).lines.find((l) => l.order_item_id === 'b')!.priority).toEqual({ since_ms: at(24), minutes_late: 5 });
+    expect(stationView(s, 'S1', at(48) + 30 * S).next.find((l) => l.order_item_id === 'b')!.priority).toEqual({ since_ms: at(24), minutes_late: 9 });
+    expect(stationView(s, 'S1', at(48) + 30 * S).next.find((l) => l.order_item_id === 'a')?.priority).toBeUndefined();
+    expect(groupReadiness(s, 'Ob', at(45))).toEqual([{ group_id: G('Ob'), done: [], waiting: [], hold: false, priority: { since_ms: at(24), minutes_late: 5 } }]);
+    expect(groupReadiness(s, 'Oa', at(45))[0]!.priority).toBeUndefined();
+    // Start ends it.
+    s = fold(s, [fireEv('S1', ['b'], at(46)), startEv('Ob', 'b', at(46))]);
+    expect(stationView(s, 'S1', at(47)).now.find((l) => l.order_item_id === 'b')!.priority).toBeUndefined();
+    expect(groupReadiness(s, 'Ob', at(47))[0]!.priority).toBeUndefined();
   });
 });

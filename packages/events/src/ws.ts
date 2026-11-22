@@ -75,6 +75,9 @@ export const StationPlanLine = z.object({
   deadline_ms: z.number().int(),
   mark: z.enum(['expedite', 'boost', 'pulled', 'return', 'moved']).nullable(),
   frozen: z.boolean(),
+  // ⚠️ 03a v1.2.10 §3.5.7 PR-8 (STAB-7): on a priority line only (additive): since_ms = priority_at, minutes_late =
+  // max(0, ceil((the group's estimate at now − T) / 60 000)).
+  priority: z.object({ since_ms: z.number().int(), minutes_late: z.number().int().nonnegative() }).optional(),
 });
 export type StationPlanLine = z.infer<typeof StationPlanLine>;
 

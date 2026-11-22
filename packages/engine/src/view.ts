@@ -14,6 +14,7 @@ import { bookingAt } from './overload.js';
 import { pressureBand, pressureBp, type PressureBand } from './pressure.js';
 import { addInterval, earliestFit, removeInterval } from './profile.js';
 import { combine, stationPolicy } from './replan.js';
+import { priorityOfLine, type LinePriority } from './slip.js';
 import type { EngineLine, EngineState, Interval, Profile, StationRuntime } from './state.js';
 import { ctxOf, loadReady, pushDown, ready, scratch, type FireDispatchedDraft, type ReservationsShiftedDraft } from './tick.js';
 
@@ -51,7 +52,7 @@ function unfiredAt(state: EngineState, station: StationRuntime, now: number): Ar
 export type ViewLine = Pick<
   EngineLine,
   'order_item_id' | 'order_id' | 'group_id' | 'serve_mode' | 'units' | 'stage' | 'fire_ms' | 'deadline_ms' | 'fired_at' | 'started_at' | 'mark' | 'return_of' | 'load_id'
-> & { live: Interval | null };
+> & { live: Interval | null; priority?: LinePriority };
 
 export interface StationViewBody {
   now: ViewLine[];
@@ -59,7 +60,8 @@ export interface StationViewBody {
   later_count: number;
 }
 
-function viewLine(state: EngineState, line: EngineLine, now: number): ViewLine {
+function viewLine(state: EngineState, line: EngineLine, now: number, memo?: Map<string, number>): ViewLine {
+  const priority = priorityOfLine(state, line, now, memo);
   return {
     order_item_id: line.order_item_id,
     order_id: line.order_id,
@@ -75,6 +77,7 @@ function viewLine(state: EngineState, line: EngineLine, now: number): ViewLine {
     return_of: line.return_of,
     load_id: line.load_id,
     live: liveInterval(state, line.order_item_id, now),
+    ...(priority === undefined ? {} : { priority }),
   };
 }
 
@@ -96,9 +99,10 @@ export function stationView(state: EngineState, station_id: string, now: number)
   const fireOf = (l: EngineLine): number => l.fire_ms ?? l.fired_at ?? l.started_at ?? 0;
   fired.sort((a, b) => fireOf(a) - fireOf(b) || byId(a.order_item_id, b.order_item_id));
   const unfired = unfiredAt(state, station, now);
+  const memo = new Map<string, number>();
   return {
-    now: fired.map((l) => viewLine(state, l, now)),
-    next: unfired.filter((u) => u.frozen).map((u) => viewLine(state, u.line, now)),
+    now: fired.map((l) => viewLine(state, l, now, memo)),
+    next: unfired.filter((u) => u.frozen).map((u) => viewLine(state, u.line, now, memo)),
     later_count: unfired.filter((u) => !u.frozen).length,
   };
 }
@@ -116,16 +120,21 @@ export interface StationPlanBody {
 export function stationPlan(state: EngineState, station_id: string, now: number): StationPlanBody {
   const station = state.stations[station_id];
   if (station === undefined) return { station_id, lines: [] };
+  const memo = new Map<string, number>();
   return {
     station_id,
-    lines: unfiredAt(state, station, now).map(({ line, frozen }) => ({
-      order_item_id: line.order_item_id,
-      order_id: line.order_id,
-      fire_ms: line.fire_ms,
-      deadline_ms: line.deadline_ms,
-      mark: line.mark,
-      frozen,
-    })),
+    lines: unfiredAt(state, station, now).map(({ line, frozen }) => {
+      const priority = priorityOfLine(state, line, now, memo);
+      return {
+        order_item_id: line.order_item_id,
+        order_id: line.order_id,
+        fire_ms: line.fire_ms,
+        deadline_ms: line.deadline_ms,
+        mark: line.mark,
+        frozen,
+        ...(priority === undefined ? {} : { priority }),
+      };
+    }),
   };
 }
 
@@ -136,6 +145,7 @@ export interface GroupReadiness {
   done: string[];
   waiting: string[];
   hold: boolean;
+  priority?: LinePriority; // ⚠️ 03a v1.2.10 §3.5.7 PR-8: a group with a priority line not yet started
 }
 
 // Per group, its sync lines only (F: "Immediate items are never held"): done = `done` or later, waiting = `added` or
@@ -153,8 +163,10 @@ export function groupReadiness(state: EngineState, order_id: string, now: number
     const done: string[] = [];
     const waiting: string[] = [];
     let atPass = false;
+    let priority: LinePriority | undefined;
     for (const id of order.groups[group_id]!.line_ids) {
       const line = state.lines[id];
+      if (line !== undefined && !isPlaceholder(line)) priority ??= priorityOfLine(state, line, now);
       if (line === undefined || line.serve_mode !== 'sync' || isPlaceholder(line)) continue;
       if (line.stage === 'added' || line.stage === 'cooking') waiting.push(id);
       else if (line.stage === 'done' || line.stage === 'served') {
@@ -162,7 +174,7 @@ export function groupReadiness(state: EngineState, order_id: string, now: number
         atPass ||= line.stage === 'done';
       }
     }
-    return { group_id, done, waiting, hold: atPass && waiting.length > 0 };
+    return { group_id, done, waiting, hold: atPass && waiting.length > 0, ...(priority === undefined ? {} : { priority }) };
   });
 }
 

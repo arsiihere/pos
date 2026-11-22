@@ -609,6 +609,27 @@ function priorityIntents(state: EngineState, now: number): Pick<AlertIntents, 'p
   return { prioritized, priority_waits };
 }
 
+// ⚠️ 03a v1.2.10 §3.5.7 PR-8: the view's priority of a line — on a priority line not yet started only: since_ms =
+// priority_at, minutes_late = max(0, ceil((estimate(g, now) − T(g)) / 60 000)), the group's estimate the §3.8 maximum of
+// its lines' estimates (its sync lines; an immediate group's own line). `ctx` is reused by a caller listing many lines.
+export type LinePriority = { since_ms: number; minutes_late: number };
+export function priorityOfLine(state: EngineState, line: EngineLine, now: number, memo?: Map<string, number>): LinePriority | undefined {
+  if (line.priority_at === null || line.stage !== 'added') return undefined;
+  const order = state.orders[line.order_id];
+  const g = order === undefined ? null : pGroup(state, order, line.group_id);
+  if (g === null) return undefined;
+  let late = memo?.get(line.group_id);
+  if (late === undefined) {
+    const ctx = new Ctx(state);
+    const sync = g.lines.some((l) => l.serve_mode === 'sync');
+    let e = Number.NEGATIVE_INFINITY;
+    for (const l of g.lines) if (!sync || l.serve_mode === 'sync') e = Math.max(e, lineEstimate(ctx, l, now) ?? Number.NEGATIVE_INFINITY);
+    late = e === Number.NEGATIVE_INFINITY ? 0 : Math.max(0, Math.ceil((e - g.target) / 60_000));
+    memo?.set(line.group_id, late);
+  }
+  return { since_ms: line.priority_at, minutes_late: late };
+}
+
 // PR-3 recheck_at of one group at now (pure; the host's parking and test 168 read it).
 export function priorityRecheckAt(state: EngineState, group_id: string, now: number): number | null {
   const order = state.orders[orderIdOfGroup(group_id)];
