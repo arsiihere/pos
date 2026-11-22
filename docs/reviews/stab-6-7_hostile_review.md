@@ -244,3 +244,57 @@ STAB-6 (BQ) is sound in concept and the F-1 reading holds. STAB-7 (PR) has three
 | 5 | Return lines copy the served line's max delay | Accept (D25). With `returns_boost` on by default, returns are boosted anyway |
 | 6 | 03b round tags, chip minutes from the frame, grouped row = largest n | Accept the largest-n rule; fix m-7 and m-8 |
 | 7 | 03a §4.2 `ItemAdded` row without `max_delay_ms` | Reject. Add the pointer (m-10) |
+
+---
+
+## Resolution (2026-11-23)
+
+Owner decision 2026-11-23, verbatim: **"sab recommendations"** (every recommendation accepted). Where the review offered a choice (`OD`), the owner's answer is given. The specs were approved and not yet built, so 03a v1.2.8, 02b v1.0.23 / v1.0.24, 01a v2.7.4, 01c v1.1.3 and 03b v1.0.13 are fixed **in place**, each with a changelog line "post-review fixes 2026-11-23". Two new versions are written: foundation **v1.15** and 01b **v1.10.2**. "03a" below means `03a_Timing_Engine_Spec_v1.2.8.md`. Re-review next, in a fresh session.
+
+| Finding | Owner decision | Fixed where |
+|---|---|---|
+| B-1 | Spec fix as proposed | 03a §3.3 (`EngineState.priority_due`), §3.5.7 PR-3 (separate per-group map, `slip_due`'s upkeep, independent of the threshold, the open alert and `skipped`; `next_alert_due_at` = the minimum of both maps), §3.8, §6.2a step 7; tests 92 and 106 extended, 153 (+3 cases: slip open, threshold `null`, skipped key) |
+| B-2 | Spec fix as proposed | 03a §3.3 (`groups[].priority_land_ms`), §3.5.3 note, §3.5.7 PR-4 (one loop per group, working deadline `d_p`), PR-5; test 155 rewritten (`d_p`, a second re-plan keeps the group together) |
+| B-3 | **(a)**: priority never touches frozen lines or frozen / visible loads; it reorders only waiting (hidden) lines and loads; D15, D17, P4 unchanged | 03a §3.5.3 note, §3.5.7 PR-4 ("What it never touches"), PR-7, §3.9 note, To 03b #10; 03b v1.0.13 §3.3; tests 157 extended, 162 new |
+| M-1 | Foundation bump **v1.15** (priority = a second, bounded displacement beside boost), APPROVED owner 2026-11-23 | `00_Foundation_Spec_v1.15.md` ("Changes in v1.15" rows P-1–P-4; §4.7 lifecycle row "Priority", station-policy paragraph, D44 tick paragraph, hold-and-fire step 3, each "⚠️ Changed by v1.15 (owner 2026-11-23, STAB-7 review M-1)" with the old text kept); README row F; 03a D4 row and "Changes in v1.2.8" foundation sentence. The story file `docs/stories/03a-g0.md` D4 is not edited (the spec wins) |
+| M-2 | Spec fix as proposed | 03a §3.5.7 PR-4 (cascade shed), §3.10 BQ-5 (the same cascade for a capacity drop); test 156 rewritten |
+| M-3 | Spec fix as proposed | 03a §3.3 (`EngineLine.arrived_at`; BQ-1 arrival key `(arrived_at, order_id, index in line_ids)`), §3.5.7 PR-4, §3.10 BQ-5; test 163 |
+| M-4 | A priority line may use idle time before a held pickup round, ahead of non-priority lines | 03a §3.5.7 PR-4 batch option (b); test 164 |
+| M-5 | Spec fix as proposed | 03a §3.5.7 PR-4 (the load's fire ≥ the fire bound); test 165 |
+| M-6 | Spec fix as proposed | 03a §3.10 BQ-5 (priority members kept first, then arrival), §3.5.3 note; test 149 extended |
+| M-7 | Minimum **60 000 ms**; 0 refused with `422 VALIDATION_FAILED` on the field; one comparison: strict **`>`** | 03a §3.5.7 PR-1, PR-3; 01a v2.7.4 MD-1, MD-2, MD-4, §5.2a, §6.15, tests 202–205; 01c v1.1.3 §4.3 (`min(60000).max(7200000)`), test 130; 01b v1.10.2 §6.10, test 115; 03a test 166 |
+| M-8 | Spec fix as proposed | 01a v2.7.4 MD-5 and §4.3 (a missing key → 300 000, an explicit `null` kept), test 204; 02b v1.0.24 §3.2 step 4b, test 58; 03a To 02 #13; plan task 3 |
+| M-9 | 01b version bump | `01b_Staff_Roles_Spec_v1.10.2.md` (header, §6.10 marker, test 115, endpoint table); 01a v2.7.4 MD-2 cites it; README row 01b; plan task 4 |
+| M-10 | Among priority groups the **larger delay first** (ties: arrival, then `order_item_id`); "no limit" = a far cap of **30 min** (`MAX_DELAY_NO_LIMIT_MS = 1 800 000`); branch default stays 5 min | 03a §3.3 (`groups[].priority_delay_ms`), §3.5.7 PR-1, PR-4, §3.6.1 item 2, §4.2 exports, §10.6 (max-delay simulator scenario, report only); tests 167, 172; 01a v2.7.4 MD-6 ("No limit (priority after 30 min)"); 01c, 02b notes |
+| M-11 | A group becomes priority only when a waiting line causes its delay; a cooking or fired driver prioritises nothing | 03a §3.5.7 PR-2 (`E_w`, `F`), PR-3 condition 3; test 168 |
+| M-12 | Spec fix as proposed | 03a §3.6.1 item 1 (priority members, then queue order, then arrival); test 148 extended |
+| M-13 | Plan reordered, tasks added | `docs/plans/stab-6-7-plan.md`: task 0 (specs, F v1.15, 01b v1.10.2), task 5 (v5 bump with every field first), task 16 (fold + replay list together), task 23 (writer after the fold, with the due term), tasks 14 (B-1), 16 (B-2), 4 and 26 (M-9), 22 (simulator), #106 upkeep in tasks 14 and 16 |
+| m-1 | Spec fix as proposed | 03a header and changelog Q5, §3.3 BQ-1 scope, To 02 #12; 02b v1.0.23 / v1.0.24 headers and changelog rows; plan release notes |
+| m-2 | Spec fix as proposed | 03a §3.3 BQ-1 scope; test 143 (property part with the exemptions) |
+| m-3 | Spec fix as proposed | 03a §3.5.7 PR-2 (immediate groups per line; `T` of a released group and of an addition's group); test 171 |
+| m-4 | Spec fix as proposed | 03a §3.5.7 PR-3, §4.2 `LinePrioritized` row; test 154 extended |
+| m-5 | Spec fix as proposed | 03a §3.5.7 PR-3, §3.8, §6.2a step 7 (`LinePrioritized` last; slip shows the pre-priority estimate); test 173 |
+| m-6 | Spec fix as proposed | 03a test 106 extended (`LinePrioritized` in the fold set) |
+| m-7 | "Priority" alone when `minutes_late = 0` | 03a §3.5.7 PR-8, To 03b #10; 03b v1.0.13 §3.3, test 94; 03a test 161 extended |
+| m-8 | Spec fix as proposed | 03a To 03b #9; 03b v1.0.13 §3.3 (station-wide round count), §6.15 (`load_id` before a fire), test 93 |
+| m-9 | Spec fix as proposed | 03a §3.1 D5, D7, D12, D28 marked; To 02 #14, To 03b #11 (new); 03b v1.0.13 §3.3 |
+| m-10 | Spec fix as proposed (decision 7) | 03a §4.2 `ItemAdded` row |
+| m-11 | Spec fix as proposed | 01a v2.7.4 MD-4 and §6.15 (every combination; any whole ms value in range kept), test 203 |
+| m-12 | Spec fix as proposed | 03a "Changes in v1.2.8" row 8 (the four tests by file and title); plan task 7 |
+| m-13 | Spec fix as proposed | 03a §11 note (install only after `BusinessDayClosed` and its checkpoint); plan release notes, tasks 33 and 35 |
+| m-14 | Spec fix as proposed | 03a §3.10 BQ-5 (cascade; a new load after the last queued load of the program); test 149 |
+| m-15 | Spec fix as proposed | 03a §3.5.7 PR-9 (paused station, stock lines, type change); test 170 |
+| Decision 1 | Accepted (review) | m-11 closed (above) |
+| Decision 2 | Range accepted with M-7's minimum; M-8 fixed | above |
+| Decision 3 | Accepted (review) | — |
+| Decision 4 | Rejected (review): needs a 01b row | 01b v1.10.2 (M-9) |
+| Decision 5 | Accepted (review) | — |
+| Decision 6 | Accepted (review), with m-7 and m-8 | above |
+| Decision 7 | Rejected (review): add the pointer | 03a §4.2 (m-10) |
+
+**Readings the fixes had to choose (for the re-review):**
+- **B-3, slot station:** a priority line may still take **free** capacity inside the freeze window (it then shows as a new row at the bottom of Next, as a new order's line may, D17 "append"); it never moves, joins or sheds a frozen line or load. The review's text said "first fit after the freeze window"; the owner's wording was "never touches frozen lines … what the cook already sees never changes", which this keeps.
+- **BQ-5 uses the M-2 cascade too**, so a capacity drop can no longer put an older unit behind younger ones by skipping a full load (test 149 changed).
+- **M-10 "larger delay first"** is read as the delay **at the fold** (`priority_delay_ms`), so priority groups do not swap places at every re-plan.
+- **M-11 drive test:** `F(g)` uses the fixed lands at the group's latest fold; a fired-not-started line that slides later between folds is seen at the next fold of the group.
+- **Open for the owner:** an explicit item max delay above 30 min (allowed up to 120 min) is later than "No limit" (30 min). The owner app labels "No limit (priority after 30 min)"; the owner may want to cap the item range at 30 min.
