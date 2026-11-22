@@ -117,6 +117,10 @@ function holderLine(order_item_id: string, draws: EngineLine['draws']): EngineLi
     expedited: false,
     rounds: null,
     done_undone: false,
+    // 03a v1.2.10 §3.3 (ENGINE_STATE_VERSION 5): the v5 line fields, unread by the stock folds
+    max_delay_ms: null,
+    priority_at: null,
+    arrived_at: 0,
   };
 }
 
