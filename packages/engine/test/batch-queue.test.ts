@@ -5,7 +5,7 @@ import { parseEvent, type PosEvent } from '@pos/events';
 import { aStockAdded, aStockReserved, aStockSet } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import { applyEvents, buildEngineState, getAlertIntents, type EngineState } from '../src/index';
-import { at, COOK, etaB, fold, loadOf, nextSeq, queueConfig, queueFryer, roundsOf, runRounds, submitB, unitParts, voidB, M, type RoundFire } from './batch-kit';
+import { at, capacityB, COOK, etaB, fold, loadOf, nextSeq, queueConfig, queueFryer, roundsOf, runRounds, submitB, unitParts, voidB, M, type RoundFire } from './batch-kit';
 
 const ORDERS_143 = [['A', 5, 0], ['B', 10, 1], ['C', 2, 2], ['D', 2, 3], ['E', 4, 5], ['F', 3, 7], ['G', 2, 9], ['H', 1, 12]] as const;
 
@@ -199,3 +199,29 @@ describe('[03a v1.2.10 §3.3 BQ-3, BQ-4, §3.6.1 item 1] membership and pull-in'
     }
   });
 });
+
+describe('[03a v1.2.10 §3.10 BQ-5] capacity drop as a cascade', () => {
+  // K ×8 cooks [0, 3); X ×4, Y ×2, V ×2 fill the next load [3, 6) and Z ×3 forms [6, 9); V1, V2 are voided at +0.25, so
+  // the first hidden load holds 6 parts (X ×4 then Y ×2) and the next 3 (Z, arrived after Y).
+  const orders = [['K', 8, 0], ['X', 4, 0], ['Y', 2, 0], ['V', 2, 0], ['Z', 3, 0]] as const;
+  const voids = (t: number) => (t === at(0.25) ? [voidB('OV', 'V1', 1, t), voidB('OV', 'V2', 1, t)] : []);
+
+  it('[03a #149] 8 → 4: X stays; Y moves to the next load, which passes its latest Z part on to a new load after the last: [X×4], [Y×2, Z×2], [Z×1]', () => {
+    const run = runRounds(queueFryer(), orders, { until: 0.5, startAfter: 0, extra: (_s, t) => [...voids(t), ...(t === at(0.5) ? [capacityB(4, t)] : [])] });
+    const s = run.state;
+    const loads = Object.values(s.stations.F!.loads).sort((a, b) => a.booked.start - b.booked.start);
+    expect(loads.map((l) => l.order_item_ids)).toEqual([['X1', 'X2', 'X3', 'X4'], ['Y1', 'Y2', 'Z1', 'Z2'], ['Z3']]);
+    for (let k = 1; k < loads.length; k += 1) expect(loads[k]!.booked.start).toBeGreaterThanOrEqual(loads[k - 1]!.booked.end);
+    for (const l of loads) expect(l.booked.units).toBe(4);
+    expect(withoutDiag(buildEngineState([queueConfig(), ...run.events].map((e) => parseEvent(e))))).toEqual(withoutDiag(s));
+  });
+
+  it('[03a #149, P4] a frozen load of 6 stays whole in AD-4 rounds', () => {
+    // At +1.5 the first load (fire +3) is frozen (fire ≤ t + 2 min).
+    const run = runRounds(queueFryer(), orders, { until: 1.5, startAfter: 0, extra: (_s, t) => [...voids(t), ...(t === at(1.5) ? [capacityB(4, t)] : [])] });
+    const first = loadOf(run.state, 'X1')!;
+    expect(first.order_item_ids).toEqual(['X1', 'X2', 'X3', 'X4', 'Y1', 'Y2']);
+    expect(first.booked.end - first.booked.start).toBe(2 * COOK); // two rounds of 4
+  });
+});
+

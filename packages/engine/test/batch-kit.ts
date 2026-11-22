@@ -288,3 +288,20 @@ export function roundsOf(fires: readonly RoundFire[]): string[][] {
     return [...n.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, c]) => `${k}×${c}`);
   });
 }
+
+// A StationCapacitySet on F (03a §6.6) at `recorded_at`.
+export function capacityB(capacity_override: number | null, recorded_at: number): PosEvent {
+  const sq = nextSeq();
+  return {
+    ...aFireDispatched(),
+    stream_type: 'station',
+    stream_id: 'F',
+    event_type: 'StationCapacitySet',
+    schema_version: 1,
+    payload: { station_id: 'F', capacity_override, previous: null, reason: 'manager' },
+    recorded_at,
+    occurred_at: recorded_at,
+    seq: sq,
+    event_id: `01J${String(sq).padStart(23, '0')}`,
+  };
+}

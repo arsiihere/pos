@@ -567,24 +567,13 @@ function batchPass1(
   // program_id, BF-1) leaves it and is placed as a new line after the walk (BQ-3).
   const leavers: EngineLine[] = [];
   let s_prev = Number.NEGATIVE_INFINITY;
-  for (const queued of queue) {
-    if (!free.has(queued)) {
-      out.push(queued);
-      s_prev = Math.max(s_prev, queued.booked.start);
-      continue;
-    }
-    const stay = queued.members.filter((m) => {
-      const L = state.lines[m];
-      if (L === undefined) return false;
-      if (currentProgram(L) === queued.program_id && L.cook_ms === queued.cook_ms) return true;
-      leavers.push(L);
-      return false;
-    });
-    if (stay.length === 0) continue;
-    const b = stay.length === queued.members.length ? queued : membersOf(state, queued, stay);
+  const lastStart = new Map<string, number>(); // per program: the start of its last queued load (BQ-5)
+  // BQ-2: one hidden load as one unit, after the load before it.
+  const place = (b: WorkLoad, forced: boolean): void => {
     let d = Number.POSITIVE_INFINITY;
     let bind: EngineLine | null = null;
-    let lo = Math.max(t, s_prev - b.max_prep);
+    const floor = Math.max(t, s_prev - b.max_prep, forced ? b.fire_ms : Number.NEGATIVE_INFINITY);
+    let lo = floor;
     for (const m of [...b.members].sort()) {
       const L = state.lines[m];
       if (L === undefined) continue;
@@ -595,8 +584,6 @@ function batchPass1(
       }
       lo = Math.max(lo, L.deadline_ms - L.max_early_ms);
     }
-    const floor = Math.max(t, s_prev - b.max_prep, forcedLoad(b) ? b.fire_ms : Number.NEGATIVE_INFINITY);
-    lo = Math.max(lo, floor);
     const shape = { units: Math.max(b.units, cap), prep_ms: b.max_prep, cook_ms: b.cook_ms };
     const fire =
       latestFit(work, lo, d - pol.keep_ms, shape.prep_ms, shape.cook_ms, shape.units, cap) ??
@@ -605,9 +592,47 @@ function batchPass1(
     const booked = bookingAt(shape, cap, fire);
     work.add(booked);
     s_prev = booked.start;
+    lastStart.set(b.program_id, booked.start);
     const late = fire - d;
     const maxLate = bind?.max_late_ms ?? null;
     out.push({ ...b, fire_ms: fire, booked, capped: late > 0 && maxLate !== null && late >= maxLate });
+  };
+  // §3.10 BQ-5 (review M-2, M-3): a hidden load over the capacity keeps its members by arrival key up to it; the rest
+  // cascade down the queue (each over-full load passing its latest members on) and what is left forms new loads after
+  // the last queued load of the program. A single member over the capacity stays alone (AD-4 rounds).
+  const arrival = byArrival(state);
+  let carry: EngineLine[] = [];
+  for (const queued of queue) {
+    if (!free.has(queued)) {
+      out.push(queued);
+      s_prev = Math.max(s_prev, queued.booked.start);
+      lastStart.set(queued.program_id, queued.booked.start);
+      continue;
+    }
+    const stay: EngineLine[] = [];
+    for (const m of queued.members) {
+      const L = state.lines[m];
+      if (L === undefined) continue;
+      if (currentProgram(L) === queued.program_id && L.cook_ms === queued.cook_ms) stay.push(L);
+      else leavers.push(L);
+    }
+    const joins = carry.filter((L) => currentProgram(L) === queued.program_id && L.cook_ms === queued.cook_ms);
+    carry = carry.filter((L) => !joins.includes(L));
+    const all = [...stay, ...joins].sort(arrival);
+    const kept = upToCapacity(all, cap);
+    carry = [...carry, ...all.slice(kept.length)].sort(arrival);
+    if (kept.length === 0) continue;
+    const same = joins.length === 0 && kept.length === queued.members.length;
+    place(same ? queued : membersOf(state, queued, kept.map((L) => L.order_item_id)), forcedLoad(queued));
+  }
+  while (carry.length > 0) {
+    const first = carry[0]!;
+    const program = currentProgram(first)!;
+    const kept = upToCapacity(carry.filter((L) => currentProgram(L) === program && L.cook_ms === first.cook_ms), cap);
+    carry = carry.filter((L) => !kept.includes(L));
+    s_prev = lastStart.get(program) ?? s_prev;
+    const base: WorkLoad = { load_id: null, inherit: null, program_id: program, cook_ms: first.cook_ms, members: [], units: 0, max_prep: 0, fire_ms: 0, booked: { start: 0, end: 0, units: 0 }, capped: false };
+    place(membersOf(state, base, kept.map((L) => L.order_item_id)), false);
   }
   // BQ-3 for a member that left (BQ-4 (d)): join the first compatible load in queue order (its keep cushion, then its
   // own), else a load of its own at its latest fit, else late at its earliest fit after the queue.
@@ -642,6 +667,19 @@ function batchPass1(
     moves.set(L.order_item_id, { fire, booked, capped: late > 0 && L.max_late_ms !== null && late >= L.max_late_ms });
   }
   return { profile: work.snapshot(), loads: cands, moves, probes: null, replaced: free.size };
+}
+
+// §3.10 BQ-5: the longest prefix (in the given order) whose units fit the capacity; at least the first line (a single
+// member over the capacity stays alone, AD-4 rounds).
+function upToCapacity(lines: readonly EngineLine[], cap: number): EngineLine[] {
+  const kept: EngineLine[] = [];
+  let units = 0;
+  for (const L of lines) {
+    if (kept.length > 0 && units + L.units > cap) break;
+    kept.push(L);
+    units += L.units;
+  }
+  return kept;
 }
 
 // A stored load with only `members` left (BQ-4: it keeps its name and its booking until BQ-2 re-places it).
