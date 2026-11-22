@@ -143,7 +143,8 @@ describe('[02b §4.2] contracts', () => {
         ctx: BuildSubmitCtx,
       ) => { proposed: ProposedOrder; itemAdded: ItemAddedPayload[]; zoneCandidates: string[] }
     >();
-    expectTypeOf<SubmitOption>().toEqualTypeOf<{ option_id: string; quantity: number; order_item_id?: string }>();
+    // ⚠️ 02b v1.0.20 §3.2 step 4a (STAB-5): part_of is set by expandParts only; the §6.1 zod payload (.strict) never takes it
+    expectTypeOf<SubmitOption>().toEqualTypeOf<{ option_id: string; quantity: number; order_item_id?: string; part_of?: string }>();
     // §6.1 SubmitOrder payload.
     expectTypeOf<SubmitInput>().toEqualTypeOf<{
       order_id: string;
@@ -159,15 +160,16 @@ describe('[02b §4.2] contracts', () => {
         deal_id?: string;
         variant_id?: string;
         quantity?: number;
-        options?: Array<{ option_id: string; quantity: number; order_item_id?: string }>;
+        options?: Array<{ option_id: string; quantity: number; order_item_id?: string; part_of?: string }>;
         deal_choices?: Array<{
           deal_part_id: string;
           item_id: string;
           order_item_id: string;
-          options?: Array<{ option_id: string; quantity: number; order_item_id?: string }>;
+          options?: Array<{ option_id: string; quantity: number; order_item_id?: string; part_of?: string }>;
         }>;
         kitchen_note?: string;
         from_zone?: boolean;
+        part_of?: string; // 02b v1.0.20: set by expandParts only
       }>;
     }>();
     // index.ts entry points.
