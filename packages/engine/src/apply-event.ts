@@ -23,7 +23,9 @@ import type {
   StockTransferredOutPayload,
 } from '@pos/events';
 import { addInterval, occupancy, removeInterval, type Underflow } from './profile.js';
-import { applyMoves, capacityFor, flipPlacement, isFifo, isHidden, placementCap, sortUnfired, stationPolicy } from './replan.js';
+import { applyMoves, capacityFor, flipPlacement, isFifo, isHidden, placeBatchPriority, placementCap, sortUnfired, stationPolicy } from './replan.js';
+import { deadlineFor } from './priority.js';
+import { liveInterval } from './live.js';
 import {
   applyPass1,
   boostOrder,
@@ -1374,14 +1376,72 @@ function foldLinePrioritized(state: EngineState, event: PosEvent, o: FoldOptions
     priority_due = { ...priority_due };
     delete priority_due[p.group_id];
   }
-  const next: EngineState = { ...state, lines, orders: { ...state.orders, [p.order_id]: { ...order, groups } }, priority_due };
-  const stations = new Set<string>();
+  let next: EngineState = { ...state, lines, orders: { ...state.orders, [p.order_id]: { ...order, groups } }, priority_due };
+  const slot = new Set<string>();
+  const batch: string[] = [];
   for (const id of group.line_ids) {
     const l = next.lines[id];
-    if (l !== undefined && l.priority_at !== null && isHidden(next, l, t)) stations.add(l.station_id);
+    if (l === undefined || l.priority_at === null || !isHiddenUnfired(next, l, t)) continue;
+    if (next.stations[l.station_id]?.type === 'batch' && !isFifo(next, l.station_id)) batch.push(id);
+    else slot.add(l.station_id);
   }
   // §3.3: a tick-written event; it does not refresh the order's clock (last_line_fold_at), as SlipWarned does not.
-  return stations.size === 0 ? next : replanStations(next, [...stations].sort(), event, o);
+  if (batch.length === 0) return slot.size === 0 ? next : replanStations(next, [...slot].sort(), event, o);
+  // PR-4 batch (one loop for the group): the provisional priority_land_ms is the latest of the floor (live F, the lands
+  // of the group's lines that do not move, the pickup) and each batch line's earliest option land from t; the slot step
+  // may raise it; each batch line then takes its option by d_p, the queue is re-placed (BQ-2), and a later batch land
+  // raises it and re-places the slot lines (the AD-11 re-loop).
+  const P = next.orders[p.order_id]!.groups[p.group_id]!.priority_land_ms ?? provisionalLand(next, p.order_id, p.group_id, batch, t, o.strict);
+  next = setLand(next, p.order_id, p.group_id, P);
+  if (slot.size > 0) next = replanStations(next, [...slot].sort(), event, o);
+  const stations = new Set<string>();
+  for (const id of batch) {
+    const L = next.lines[id]!;
+    const st = next.stations[L.station_id]!;
+    const fb = Math.max(t, deadlineFor(next, L, capacityFor(st, id)) - L.max_early_ms);
+    const r = placeBatchPriority(next, id, fb, t, o.strict);
+    if (r === null) continue;
+    next = storeLoads(next, L.station_id, r.loads, event.event_id, o.strict);
+    stations.add(L.station_id);
+  }
+  next = replanStations(next, [...stations].sort(), event, o);
+  let land = next.orders[p.order_id]!.groups[p.group_id]!.priority_land_ms!;
+  for (const id of batch) {
+    const L = next.lines[id]!;
+    const b = L.load_id === null ? undefined : next.stations[L.station_id]!.loads[L.load_id];
+    if (b !== undefined) land = Math.max(land, b.booked.end + L.carry_ms);
+  }
+  if (land === next.orders[p.order_id]!.groups[p.group_id]!.priority_land_ms) return next;
+  next = setLand(next, p.order_id, p.group_id, land);
+  return slot.size === 0 ? next : replanStations(next, [...slot].sort(), event, o);
+}
+
+function setLand(state: EngineState, order_id: string, group_id: string, land: number): EngineState {
+  const order = state.orders[order_id]!;
+  const g = order.groups[group_id]!;
+  if (g.priority_land_ms === land) return state;
+  return { ...state, orders: { ...state.orders, [order_id]: { ...order, groups: { ...order.groups, [group_id]: { ...g, priority_land_ms: land } } } } };
+}
+
+// PR-4 T_p's start for a group with batch priority lines: the live F(g, t), the lands of its open unfired lines that are
+// not hidden priority lines (frozen siblings, R-4), the pickup, and each hidden batch priority line's earliest option.
+function provisionalLand(state: EngineState, order_id: string, group_id: string, batch: readonly string[], t: number, strict: boolean): number {
+  const order = state.orders[order_id]!;
+  const g = order.groups[group_id]!;
+  let P = Math.max(priorityTerms(state, order_id, group_id, t)?.fixed ?? Number.NEGATIVE_INFINITY, order.pickup_at_ms ?? Number.NEGATIVE_INFINITY);
+  const own = new Set(batch);
+  for (const id of g.line_ids) {
+    const l = state.lines[id];
+    if (l === undefined || own.has(id) || l.stage !== 'added' || l.fired_at !== null) continue;
+    if (l.priority_at !== null && isHiddenUnfired(state, l, t)) continue; // a slot priority line: the slot step's loop places it
+    const iv = liveInterval(state, id, t);
+    if (iv !== null) P = Math.max(P, iv.end + l.carry_ms);
+  }
+  for (const id of batch) {
+    const r = placeBatchPriority(state, id, t, t, strict);
+    if (r !== null) P = Math.max(P, r.land);
+  }
+  return P;
 }
 
 // §7.1: the event types whose fold always re-plans or may rewrite any line (FoldScope.whole); ItemAdded at awaiting 0 and

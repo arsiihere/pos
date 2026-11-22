@@ -10,6 +10,7 @@ import { addInterval, earliestFit, latestFit, occupancy, removeInterval } from '
 import { applyMoves, bookingAt, capacityFor, combine, fixedProfiles, heldAfterFrozen, isFifo, isFifoLine, isHidden, pass1, placeFrozen, placementCap, profileOf, sortUnfired, stationPolicy, syncOrder, type FrozenStep, type Move, type NewLine, type Pass1Options, type Placement } from './replan.js';
 import { priorityCmp, priorityRank, type PriorityRank } from './priority.js';
 import { priorityTerms } from './slip.js';
+import { isHiddenUnfired } from './stock.js';
 import { chooseImmediate, rerouted, routeCtx, routeOptions, type RouteOption } from './route.js';
 import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, immediateJoin, joinAdvance, joinLine, nameLoads, placedUnderOldType, replaced, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import type { Diagnostic, EngineLine, EngineState, Load, Profile, StationRuntime } from './state.js';
@@ -826,6 +827,8 @@ export function priorityPlan(state: EngineState, station_ids: Iterable<string>, 
     for (const id of g.line_ids) {
       const l = state.lines[id];
       if (l === undefined || moving.has(id) || l.stage !== 'added' || l.fired_at !== null) continue;
+      // A hidden batch priority line of the group follows priority_land_ms (PR-4 batch): no floor.
+      if (l.priority_at !== null && state.stations[l.station_id]?.type === 'batch' && isHiddenUnfired(state, l, t)) continue;
       const iv = liveInterval(state, id, t);
       if (iv !== null) floor = Math.max(floor, iv.end + l.carry_ms);
     }

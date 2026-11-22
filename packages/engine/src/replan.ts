@@ -26,10 +26,12 @@ import { liveProfile, liveProfiles } from './live.js';
 import { bookingAt, overloadPlace, Work, type Booking, type OverloadLine, type Placement } from './overload.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval, type Underflow } from './profile.js';
 import { allFifo, homeOf, optionOn, rerouted, routeCtx, routeOptions, type Alternate, type RouteCtx, type RouteOption } from './route.js';
-import { asLoad, blockShape, currentProgram, formed, freshnessOf, joinLine, placedUnderOldType, replaced, slotEnd, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
+import { asLoad, blockShape, compatible, currentProgram, formed, freshnessOf, joinLine, placedUnderOldType, replaced, slotEnd, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
+import { byArrival, deadlineFor, memberOrder } from './priority.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
 export { bookingAt, type Booking, type Placement } from './overload.js';
+export { byArrival } from './priority.js';
 
 // A new line of the batch being planned, as the pivot and routing read it (an EngineLine or a line of a
 // ProposedOrder).
@@ -603,12 +605,14 @@ function batchPass1(
     for (const m of [...b.members].sort()) {
       const L = state.lines[m];
       if (L === undefined) continue;
-      const dm = L.deadline_ms + L.prep_ms - b.max_prep;
+      // ⚠️ 03a v1.2.10 §3.5.7 PR-4 "Sticky", PR-5: a priority member's deadline in J7 is its d_p (never the old d).
+      const dL = deadlineFor(state, L, cap);
+      const dm = dL + L.prep_ms - b.max_prep;
       if (dm < d) {
         d = dm;
         bind = L;
       }
-      lo = Math.max(lo, L.deadline_ms - L.max_early_ms);
+      lo = Math.max(lo, dL - L.max_early_ms);
     }
     const shape = { units: Math.max(b.units, cap), prep_ms: b.max_prep, cook_ms: b.cook_ms };
     const fire =
@@ -626,7 +630,9 @@ function batchPass1(
   // §3.10 BQ-5 (review M-2, M-3): a hidden load over the capacity keeps its members by arrival key up to it; the rest
   // cascade down the queue (each over-full load passing its latest members on) and what is left forms new loads after
   // the last queued load of the program. A single member over the capacity stays alone (AD-4 rounds).
-  const arrival = byArrival(state);
+  // ⚠️ 03a v1.2.10 §3.10 BQ-5 (review M-6; re-review m-2): priority members are kept first, in the priority order, then
+  // by arrival; so the non-priority members are shed first, then the lowest-ranked priority ones.
+  const arrival = memberOrder(state);
   let carry: EngineLine[] = [];
   for (const queued of queue) {
     if (!free.has(queued)) {
@@ -695,6 +701,74 @@ function batchPass1(
   return { profile: work.snapshot(), loads: cands, moves, probes: null, replaced: free.size };
 }
 
+// ⚠️ 03a v1.2.10 §3.5.7 PR-4 "Batch station" (STAB-7; review M-2–M-5, B-3; re-review m-1, m-2): the fold-time placement
+// of one hidden priority line on a batch station. It leaves its hidden load (BQ-4 (e), as a boost) and takes the option
+// that lands earliest, each with the load's fire at or after fb = max(t, d_p − max_early_ms):
+//   (a) the first hidden load of its program (and copied cook) in queue order with room or a non-priority member (a full
+//       all-priority load is skipped; frozen and fired loads are never joined, B-3);
+//   (b) a new load at its earliest fit in time no fixed or queued load needs, when it lands earlier than (a) (an idle gap,
+//       M-4), else (c) the same with no (a): after the queued loads;
+// (a) full → the cascade shed: the load passes its non-priority member with the latest arrival key to the next hidden
+// compatible load in the queue (skipping a full load with no non-priority member, m-2), which passes its own on when over
+// the capacity, and so on; the last forms a new load after the last queued load. Returns the station's loads to store
+// (BQ-2 re-places the queue at the re-plan that follows), and the land of the line's option; null when not placeable.
+// `dry`: only the option's land (the fold's provisional priority_land_ms, from fb = t).
+export function placeBatchPriority(state: EngineState, id: string, fb: number, t: number, strict: boolean): { loads: WorkLoad[]; land: number } | null {
+  const L = state.lines[id];
+  const station = L === undefined ? undefined : state.stations[L.station_id];
+  if (L === undefined || station === undefined || station.type !== 'batch' || L.load_id === null) return null;
+  const sid = station.station_id;
+  const pol = stationPolicy(state, sid);
+  const cap = capacityFor(station, id);
+  const frozenLoad = (b: WorkLoad): boolean => b.fire_ms <= t + pol.freeze_ms;
+  const isPrio = (m: string): boolean => state.lines[m]?.priority_at != null;
+  let profile = liveProfile(state, sid, t);
+  const queue: WorkLoad[] = [];
+  for (const l of Object.values(station.loads)) {
+    if (!l.order_item_ids.includes(id)) {
+      queue.push(workOf(state, l));
+      continue;
+    }
+    const rest = l.order_item_ids.filter((m) => m !== id);
+    if (rest.length > 0) queue.push(membersOf(state, workOf(state, l), rest));
+    else profile = removeInterval(profile, l.booked, l.booked.units, strict ? undefined : () => undefined);
+  }
+  queue.sort(queueCmp);
+  const jl = joinLine(L);
+  const fits = (b: WorkLoad, x: EngineLine): boolean => compatible(b, joinLine(x), cap, t) || (b.program_id === currentProgram(x) && b.cook_ms === x.cook_ms && b.booked.start - x.prep_ms >= t);
+  const a = queue.find((b) => !frozenLoad(b) && fits(b, L) && b.fire_ms >= fb && (b.units + L.units <= cap || b.members.some((m) => !isPrio(m))));
+  const W = asLoad(L, cap);
+  const fresh = earliestFit(profile, fb, W.prep_ms, W.cook_ms, W.units, cap);
+  const freshBooked = bookingAt(W, cap, fresh);
+  if (a === undefined || freshBooked.end < a.booked.end) return { loads: [...queue, formed(jl, fresh, freshBooked)], land: freshBooked.end + L.carry_ms };
+  const land = a.booked.end + L.carry_ms;
+  let out = replaced(queue, a, withMember(a, jl));
+  let cur = out.find((b) => b.members.includes(id))!;
+  const order = byArrival(state);
+  for (let guard = 0; cur.units > cap && guard < 10_000; guard++) {
+    const np = cur.members.map((m) => state.lines[m]!).filter((x) => x.order_item_id !== id && x.priority_at === null);
+    if (np.length === 0) break;
+    const shed = np.sort(order)[np.length - 1]!;
+    const left = membersOf(state, cur, cur.members.filter((m) => m !== shed.order_item_id));
+    out = replaced(out, cur, left);
+    const after = out.filter((b) => queueCmp(b, left) > 0).sort(queueCmp);
+    const next = after.find((b) => !frozenLoad(b) && fits(b, shed) && (b.units + shed.units <= cap || b.members.some((m) => !isPrio(m))));
+    if (next === undefined) {
+      const S = asLoad(shed, cap);
+      const last = out.filter((b) => b.program_id === left.program_id).sort(queueCmp).pop()!;
+      const work = new Work(profile);
+      for (const b of out) if (b.load_id === null) work.add(b.booked);
+      const fire = earliestFit(work, Math.max(t, last.booked.start), S.prep_ms, S.cook_ms, S.units, cap);
+      out = [...out, formed(joinLine(shed), fire, bookingAt(S, cap, fire))];
+      break;
+    }
+    const grown = withMember(next, joinLine(shed));
+    out = replaced(out, next, grown);
+    cur = grown;
+  }
+  return { loads: out, land };
+}
+
 // §3.10 BQ-5: the longest prefix (in the given order) whose units fit the capacity; at least the first line (a single
 // member over the capacity stays alone, AD-4 rounds).
 function upToCapacity(lines: readonly EngineLine[], cap: number): EngineLine[] {
@@ -720,15 +794,6 @@ function membersOf(state: EngineState, b: WorkLoad, members: readonly string[]):
   return { ...b, members: [...members], units, max_prep };
 }
 
-// §3.3 BQ-1 arrival key: (arrived_at, order_id, index of the line in its order's line_ids), then order_item_id.
-export function byArrival(state: EngineState): (a: EngineLine, b: EngineLine) => number {
-  const index = (l: EngineLine): number => state.orders[l.order_id]?.line_ids.indexOf(l.order_item_id) ?? -1;
-  return (a, b) =>
-    a.arrived_at - b.arrived_at ||
-    (a.order_id < b.order_id ? -1 : a.order_id > b.order_id ? 1 : 0) ||
-    index(a) - index(b) ||
-    (a.order_item_id < b.order_item_id ? -1 : a.order_item_id > b.order_item_id ? 1 : 0);
-}
 
 // §3.3 BQ-1: the queue order of a batch station's unfired loads (booked.start, then load_id).
 function queueCmp(a: WorkLoad, b: WorkLoad): number {

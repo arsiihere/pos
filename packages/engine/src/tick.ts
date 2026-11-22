@@ -23,12 +23,13 @@
 // A line of an order still awaiting listed lines (AD-8) is never fired, and a load fires whole or not at all.
 import type { EngineConfig, FireDispatchedPayload, ItemDonePayload, ItemStartedPayload, PosEvent, ReservationsShiftedPayload } from '@pos/events';
 import { applyEvent } from './apply-event.js';
-import { compatible, currentProgram, freshnessOf, joinLine, slotEnd, withMember, workOf, type WorkLoad } from './batch.js';
+import { compatible, currentProgram, freshnessOf, joinLine, withMember, workOf, type WorkLoad } from './batch.js';
 import { effectiveCapacity } from './capacity.js';
 import { orderInEngine } from './lifecycle.js';
 import { liveProfiles } from './live.js';
 import { bookingAt, type Booking } from './overload.js';
-import { addInterval, earliestFit, occupiedCook, removeInterval } from './profile.js';
+import { addInterval, earliestFit, occupancy, occupiedCook, removeInterval } from './profile.js';
+import { deadlineFor, memberOrder } from './priority.js';
 import { byArrival, combine, stationPolicy, weightOf } from './replan.js';
 import type { EngineLine, EngineOrder, EngineState, Load, Profile, StationRuntime } from './state.js';
 import { lineReleases, stockEffects, type StockConsumedDraft, type StockReleasedDraft } from './stock.js';
@@ -97,8 +98,8 @@ function fireDraft(f: Fire): FireDispatchedDraft {
 // compatible + the sync window: b.end ≤ E ∧ E − b.end ≤ min(window, max_early_ms)), read at now. Candidates in
 // ⚠️ 03a v1.2.10 §3.6.1 item 1 (STAB-6, review M-12): candidates in the queue order of their hidden loads (§3.3 BQ-1:
 // booked.start, load_id; a line in no load last), then by the BQ-1 arrival key, while the load has room, so a part of a
-// later round never goes ahead of an older member of an earlier one. Was: (E, order_item_id) order. (Priority members
-// first: 03a §3.5.7, a later task.) A pulled-in line leaves its own load at the fold (task 13), so a
+// later round never goes ahead of an older member of an earlier one. Was: (E, order_item_id) order. Priority members
+// first (03a v1.2.10 §3.5.7, below). A pulled-in line leaves its own load at the fold (task 13), so a
 // load is never fired in part: only lines that are not due with their own load this pass are taken.
 // Proposed (implementer, overnight) P1: frozen as well as hidden lines may be pulled in (auto-fill, D16, fires frozen
 // lines early too); the line's slot end E = slotEnd (its AD-12 deadline + prep + cook).
@@ -111,7 +112,8 @@ function pullIns(state: EngineState, station: StationRuntime, load: Load, taken:
     const line = state.lines[id];
     // line.booked: a slot line placed before a type change is fixed input (§3.11), never pulled into a load.
     if (taken.has(id) || !ready(state, line) || line.booked !== null || currentProgram(line) !== load.program_id) continue;
-    const E = slotEnd(line, cap);
+    // ⚠️ 03a v1.2.10 §3.5.7 PR-4, PR-5: a priority line's slot end is from its d_p.
+    const E = deadlineFor(state, line, cap) + line.prep_ms + occupancy(line.units, cap, line.cook_ms).cook_ms;
     if (load.booked.end <= E && E - load.booked.end <= Math.min(window, line.max_early_ms)) cands.push({ line, E });
   }
   const queueKey = (l: EngineLine): [number, string] => {
@@ -119,7 +121,13 @@ function pullIns(state: EngineState, station: StationRuntime, load: Load, taken:
     return own === undefined ? [Number.POSITIVE_INFINITY, ''] : [own.booked.start, own.load_id];
   };
   const arrival = byArrival(state);
+  // ⚠️ 03a v1.2.10 §3.6.1 item 1 (review M-12, re-review m-7, test 148): a priority member within the window first, in
+  // the priority order; then the queue order, then arrival.
+  const prio = memberOrder(state);
   cands.sort((x, y) => {
+    const px = x.line.priority_at !== null;
+    const py = y.line.priority_at !== null;
+    if (px || py) return px && py ? prio(x.line, y.line) : px ? -1 : 1;
     const [sx, ix] = queueKey(x.line);
     const [sy, iy] = queueKey(y.line);
     return sx - sy || byId(ix, iy) || arrival(x.line, y.line);
