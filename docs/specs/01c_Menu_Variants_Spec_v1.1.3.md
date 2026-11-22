@@ -1,6 +1,6 @@
 # 01c — Menu: variants, modifiers, deals — Module Spec v1.1.3 (APPROVED)
 
-**v1.1.3 — APPROVED (owner 2026-11-22, "all recommendations approve start working on it"), additive patch from 03a Timing Engine v1.2.8** (§3.5.7 PR-1, To 02 #13; proposal `docs/plans/stab-6-batch-rounds-proposal.md` §10 row "01c Menu Variants"; stabilization STAB-7; marker "⚠️ Changed by v1.1.3 (owner 2026-11-22, STAB-6, STAB-7)"): `ItemAdded` v1 gains one copied field, **`max_delay_ms?: number | null`** (§4.3; additive at v1, R29, no upcaster; absent = `null` = no limit). It is the D25 copy of the line's effective max delay (01a v2.7.4 MD-5: `max_delay_unlimited` → `null`, else the item's `max_delay_ms`, else the branch `max_delay_default_ms`), written by 02b v1.0.24 §3.2 on every engine line kind (`item`, `option_child`, `deal_part`, the parts of a split line); `null` on `deal`. No rule, endpoint, migration or error code change in 01c. Test 130. v1.1.2 kept as history.
+**v1.1.3 — APPROVED (owner 2026-11-22, "all recommendations approve start working on it"), additive patch from 03a Timing Engine v1.2.8** (§3.5.7 PR-1, To 02 #13; proposal `docs/plans/stab-6-batch-rounds-proposal.md` §10 row "01c Menu Variants"; stabilization STAB-7; marker "⚠️ Changed by v1.1.3 (owner 2026-11-22, STAB-6, STAB-7)"): `ItemAdded` v1 gains one copied field, **`max_delay_ms?: number | null`** (§4.3; additive at v1, R29, no upcaster; absent = `null` = no limit). It is the D25 copy of the line's effective max delay (01a v2.7.4 MD-5: `max_delay_unlimited` → `null`, else the item's `max_delay_ms`, else the branch `max_delay_default_ms`), written by 02b v1.0.24 §3.2 on every engine line kind (`item`, `option_child`, `deal_part`, the parts of a split line); `null` on `deal`. No rule, endpoint, migration or error code change in 01c. Test 130. v1.1.2 kept as history. **Post-review fixes 2026-11-23** (`docs/reviews/stab-6-7_hostile_review.md`; owner 2026-11-23, "sab recommendations"; version kept, not yet built): a number is a whole ms value in **60 000–7 200 000** (`z.number().int().min(60000).max(7200000).nullable().optional()`), so 0 is refused (M-7); `null` / absent = "no limit", which the engine prioritises at 30 min late (03a v1.2.8 PR-1, `MAX_DELAY_NO_LIMIT_MS`, M-10). Test 130 changed.
 
 **v1.1.2 — APPROVED (developer as the owner's proxy, 2026-11-07), additive patch from 02b Ordering v1.0** (`docs/specs/02b_Ordering_Spec_v1.0.md` §4.5 row C-1; "⚠️ Changed by 02b v1.0 (C-1)" marker): `ItemAdded` v1 gains two copied fields, `served_from_zone_id` and `is_ready_item` (additive, R29). 01c's deal money (§3.4.8, N1, M8, To 04) is **unchanged**: 02b's per-line ledger adopts it (02b O19). No rule, code or test change in 01c; v1.1.1 kept as history.
 
@@ -399,12 +399,14 @@ ItemAddedV1 = {
                                                      // MD-5): unlimited → null, else the item's, else the branch default;
                                                      // a 'deal_part' / 'option_child' copies its own item's; 'deal' null;
                                                      // absent (an older event) = null = no limit (03a v1.2.8 §3.5.7 PR-1)
+                                                     // post-review (M-7, M-10): a number is 60 000–7 200 000; no limit =
+                                                     // priority at 30 min late in the engine (MAX_DELAY_NO_LIMIT_MS)
 }
 ```
 
 > ⚠️ Changed by 02b v1.0 (C-1): two additive fields, `served_from_zone_id` and `is_ready_item` (02b §3.2, §3.3). The engine ignores a line with `served_from_zone_id` set (03a v1.2 Q-3). Older events without them read as `null` / `false`.
 
-> ⚠️ Changed by v1.1.3 (owner 2026-11-22, STAB-6, STAB-7): one additive optional field, `max_delay_ms` (`z.number().int().min(0).nullable().optional()`, R29, no upcaster). 02b v1.0.24 §3.2 writes it on every line (03a v1.2.8 To 02 #13); the engine copies it onto `EngineLine.max_delay_ms` (03a §3.5.7 PR-1) and never reads menu config for it. An event without it parses and means "no limit".
+> ⚠️ Changed by v1.1.3 (owner 2026-11-22, STAB-6, STAB-7): one additive optional field, `max_delay_ms` (`z.number().int().min(0).nullable().optional()`, R29, no upcaster; *post-review 2026-11-23 (M-7):* **`z.number().int().min(60000).max(7200000).nullable().optional()`**, the 01a v2.7.4 MD-1 range, so a 0 that would make a line priority at once is refused). 02b v1.0.24 §3.2 writes it on every line (03a v1.2.8 To 02 #13); the engine copies it onto `EngineLine.max_delay_ms` (03a §3.5.7 PR-1) and never reads menu config for it. An event without it parses and means "no limit" (*post-review, M-10:* the engine prioritises a no-limit line at 30 min late, 03a v1.2.8 PR-1).
 
 Example (**abridged**: only the keys that matter are shown; on the wire every key above is present on every line, null or `[]` where it does not apply). Family karahi deal Rs 3,200 at T12, parts Full Chicken Karahi (Rs 2,200), Naan × 4 (Rs 30), Lassi jug (Rs 750). Weights 220 000, 12 000, 75 000 (sum 307 000); allocation of 320 000: 229 315, 12 508, 78 177. The naan part's weight is its reference choice, plain Naan at Rs 30 × 4, whichever naan is chosen (M9).
 
@@ -1400,7 +1402,7 @@ Test names cite `[01c #N]`. Cloud integration tests in `apps/cloud/test/menu-var
 
 | # | Rule | Case |
 |---|---|---|
-| 130 | §4.3, v1.1.3 | ⚠️ Changed by v1.1.3 (owner 2026-11-22, STAB-6, STAB-7): `ItemAdded` v1 parses with `max_delay_ms: 300000`, with `max_delay_ms: null` and without the key (no upcaster; the parsed payload has none); `-1` and `1.5` are refused; the fixture for each line kind carries it (`deal`: `null`) |
+| 130 | §4.3, v1.1.3 | ⚠️ Changed by v1.1.3 (owner 2026-11-22, STAB-6, STAB-7): `ItemAdded` v1 parses with `max_delay_ms: 300000`, with `max_delay_ms: null` and without the key (no upcaster; the parsed payload has none); `-1` and `1.5` are refused; the fixture for each line kind carries it (`deal`: `null`); *post-review (M-7):* `0`, `59999` and `7200001` are refused too; `60000` and `7200000` parse |
 
 ### 10.9 Acceptance table (story AC → endpoint → test)
 
