@@ -3,6 +3,7 @@ import { t } from '../../../i18n';
 import { fill } from '../../../i18n/en';
 import { identifierText } from '../../kds/station/Identifier';
 import type { PassApi, PassReceiver, PointOrder } from '../contracts';
+import { groupLines } from '../cards/parts';
 import { doneToHand, handOver, sortReceivers, type Handed } from './handover';
 import { passError, type CardMessage } from './ready';
 
@@ -90,7 +91,8 @@ export function HandOverSheet({ order, pointId, api, up, onClose, onHanded, onGo
           </button>
         </div>
         <div className="hosum">
-          {doneToHand(order).map((l) => (
+          {/* 03b v1.0.11 §3.4 (STAB-5): a split line's done parts as one entry */}
+          {groupLines(doneToHand(order)).map(({ line: l }) => (
             <span key={l.order_item_id}>
               <span className="q">{l.units} x</span>
               {l.item_name}

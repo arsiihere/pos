@@ -2471,6 +2471,7 @@ export const en = {
   'pass.ready_pick_sub': 'Ticked items go to the waiter as ready.',
   'pass.ready_pick_warn': 'Not cooked yet: {items}. Marking them ready also marks them Done on the kitchen screen.',
   'pass.ready_pick_confirm': 'Ready to serve ({n})',
+  'pass.ready_pick_of': '{n} of {total}',
   'pass.ready_at': 'Ready · {time} · {name}',
   'pass.undo_ready': 'Undo {time}',
   'pass.undo_closed': 'Too late to undo',

@@ -327,7 +327,7 @@ export function PassScreen() {
                   lineActions={
                     canRun
                       ? // ⚠️ 03b v1.0.10 §3.4 (STAB-3): Start / Done / Undo on every station's lines (a tandoor's distributor)
-                        (l) => <ScreenlessActions line={l} api={kds} up={up} nowMs={nowMs} clock={() => shell.clock.nowMs()} doneAt={doneAt} onMessage={(m) => setMsg(o.order_id, m)} />
+                        (l, parts) => <ScreenlessActions line={l} parts={parts} api={kds} up={up} nowMs={nowMs} clock={() => shell.clock.nowMs()} doneAt={doneAt} onMessage={(m) => setMsg(o.order_id, m)} />
                       : undefined
                   }
                   band={

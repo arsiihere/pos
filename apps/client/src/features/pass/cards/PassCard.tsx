@@ -6,6 +6,7 @@ import { onSlotsChanged, passCardActions, runSlotAction } from '../../kds/slots'
 import { dayLabel } from '../../kds/station/Identifier';
 import type { PointLine, PointOrder, PointStation } from '../contracts';
 import { LineRow } from './LineRow';
+import { groupLines, type PassRow } from './parts';
 import { readiness } from './readiness';
 
 // 03b v1.0.8 §3.4 (#74, Q-47, Q-50; P2; frames 03b-S02 Pass / PassRush / PassUrdu, 03b-C10 / C12 PassCards): one card
@@ -16,6 +17,8 @@ import { readiness } from './readiness';
 // Ready band and card messages; `buttons`: Ready to serve / Hand over; `lineActions`: screenless Start / Done), and the
 // 03c card actions (Reprint, `btn rp`). The card re-renders on notifySlots (03c's printed set, ticket cache); a slot
 // action runs once per tap (ref guard) and its toast goes to the page's toast bus; every button is off while offline.
+// 03b v1.0.11 §3.4 (STAB-5): a split line's parts with one stage and hand-over state are one row (`groupLines`); the
+// fold counts rows; `lineActions` gets the row's parts.
 
 const SHOWN = 7;
 const FOLD_AFTER = 8;
@@ -51,8 +54,8 @@ export interface PassCardProps {
   band?: ReactNode;
   /** P3: Ready to serve / Hand over, in the footer before the slot actions */
   buttons?: ReactNode[];
-  /** P3: a line's own actions (Start / Done on a screenless station) */
-  lineActions?: (line: PointLine) => ReactNode;
+  /** P3: a line's own actions (Start / Done); `parts` = the lines a grouped row stands for (v1.0.11, STAB-5) */
+  lineActions?: (line: PointLine, parts: readonly PointLine[]) => ReactNode;
   onToast?: (text: string, tone?: 'ok' | 'warn') => void;
 }
 
@@ -100,20 +103,21 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
 
   // lines by station, in the point's station order (an unknown station last, in line order)
   const rank = new Map(stations.map((s, i) => [s.station_id, i]));
-  const groups: Array<{ station_id: string; lines: PointLine[] }> = [];
+  const byStation: Array<{ station_id: string; lines: PointLine[] }> = [];
   for (const l of order.lines) {
-    const g = groups.find((x) => x.station_id === l.station_id);
-    if (g === undefined) groups.push({ station_id: l.station_id, lines: [l] });
+    const g = byStation.find((x) => x.station_id === l.station_id);
+    if (g === undefined) byStation.push({ station_id: l.station_id, lines: [l] });
     else g.lines.push(l);
   }
-  groups.sort((a, b) => (rank.get(a.station_id) ?? stations.length) - (rank.get(b.station_id) ?? stations.length));
-  const total = order.lines.length;
+  byStation.sort((a, b) => (rank.get(a.station_id) ?? stations.length) - (rank.get(b.station_id) ?? stations.length));
+  const groups: Array<{ station_id: string; rows: PassRow[] }> = byStation.map((g) => ({ station_id: g.station_id, rows: groupLines(g.lines) }));
+  const total = groups.reduce((n, g) => n + g.rows.length, 0);
   let budget = total > FOLD_AFTER ? SHOWN : total;
   const shown = groups.flatMap((g) => {
     if (budget <= 0) return [];
-    const lines = g.lines.slice(0, budget);
-    budget -= lines.length;
-    return [{ ...g, lines }];
+    const rows = g.rows.slice(0, budget);
+    budget -= rows.length;
+    return [{ ...g, rows }];
   });
 
   const slot = passCardActions({ order_id: order.order_id, point_id: pointId });
@@ -168,7 +172,7 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
             <div key={`g-${g.station_id}`} className="pc__g">
               {st?.screenless === true ? fill(t('pass.group_no_screen'), { station: name }) : name}
             </div>,
-            ...g.lines.map((l) => <LineRow key={l.order_item_id} line={l} actions={lineActions?.(l)} />),
+            ...g.rows.map((r) => <LineRow key={r.line.order_item_id} line={r.line} actions={lineActions?.(r.line, r.parts)} />),
           ];
         })}
         {total > FOLD_AFTER && <div className="pc__more">{fill(t('pass.more_lines'), { n: String(total - SHOWN) })}</div>}

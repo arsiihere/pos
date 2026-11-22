@@ -62,3 +62,6 @@
 .rdpick__t .q { font: 800 17px/1 var(--font-num); color: var(--accent-text); margin-inline-end: 6px; }
 .pu[lang="ur"] .rdpick__t { font-family: var(--font-urdu); line-height: 1.9; letter-spacing: 0; }
 .pu[lang="ur"] .rdpick__t .q { font-family: var(--font-num); }
+/* 03b v1.0.11 §3.4 (STAB-5): a grouped row's count stepper ("2 of 4") keeps its width; the number stays LTR */
+.rdpick__row .step { flex: none; direction: ltr; }
+.rdpick__row .step output { min-width: 72px; text-align: center; }

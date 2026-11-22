@@ -1268,6 +1268,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.ready_pick_sub': 'نشان لگی چیزیں ویٹر کو تیار کے طور پر جائیں گی۔',
   'pass.ready_pick_warn': 'ابھی پکی نہیں: {items}۔ انہیں تیار کرنے سے کچن اسکرین پر بھی مکمل ہو جائیں گی۔',
   'pass.ready_pick_confirm': 'پیش کرنے کو تیار ({n})',
+  'pass.ready_pick_of': '{total} میں سے {n}',
   'pass.ready_at': 'تیار · {time} · {name}',
   'pass.undo_ready': 'واپس {time}',
   'pass.hand_over': 'حوالے کریں',
