@@ -102,6 +102,8 @@ export interface BillView {
     tax_profile_id: string | null;
     tags: Array<'comp' | 'pending_void' | 'weight_needed' | 'tax_unresolved'>;
     added_after_close: boolean;
+    /** 05 v1.0.33 §6.1 (STAB-5): order_lines.part_of, the first part of a split line (02b v1.0.20); null = not split */
+    part_of: string | null;
   }>;
   service_charge: { rate_bp: number; removed: boolean };
   discount: null | { kind: 'amount' | 'percent'; value: number; reason_code: string; frozen_minor: number | null; discount_minor: number };
@@ -612,6 +614,7 @@ export function billView(c: BillViewCtx, ref: BillRef): BillView {
         ...(unresolved.has(l.order_item_id) ? (['tax_unresolved'] as const) : []),
       ],
       added_after_close: hasClosed && !discountLines.has(l.order_item_id),
+      part_of: l.part_of,
     })),
     service_charge: sc,
     discount:
