@@ -9,7 +9,13 @@
 
 ## Morning checklist (owner)
 
-**0. Once:** on the laptop, Node 22, the repo on branch `spike/lock-alerts`, and `adb` (Android platform-tools). On the tablet: Settings → About → tap *Build number* 7× → Developer options → **USB debugging ON**, plus **Stay awake OFF** (you want it to sleep).
+**0. Once:** on the laptop, Node 22 and the repo on branch `spike/lock-alerts`. **No USB or adb is needed:** the app uploads its log over the LAN to `scripts/log-receiver.mjs`, which also measures the clock skew. adb is optional and only needed for the device-owner check (step 1) and the S5 kill test. On the tablet, keep **Stay awake OFF** (you want it to sleep).
+
+**Network-only loop (no adb):**
+- Run `node log-receiver.mjs` on the hub's machine. It prints the receiver URL.
+- In the app, put `http://<laptop-ip>:8787/log?label=<run>` in **Laptop log receiver** and tap **Upload log to laptop**. The log lands in `scripts/logs/tablet-<run>.jsonl`, and the receiver prints `--skew-ms`.
+- Use the in-app buttons for toggles (then **Apply**), **Clear log** and Start/Stop.
+- Updates: the APK is signed with a fixed spike key (`app/android/spike-debug.keystore`). From the build that added it onward, a new APK installs over the old one and keeps the token and log.
 
 **1. Device-owner check (OQ2, R33).** Do this only on a **freshly factory-reset unit with no Google account added**, because the `dpm` command needs that. Install first (step 2), then:
 ```sh

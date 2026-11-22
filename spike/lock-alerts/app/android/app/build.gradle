@@ -23,7 +23,19 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    // [spike lock-alerts] fixed throwaway debug key (committed on purpose) so every CI build installs over the last one.
+    signingConfigs {
+        spike {
+            storeFile file('../spike-debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig signingConfigs.spike
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

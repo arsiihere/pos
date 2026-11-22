@@ -136,6 +136,43 @@ class AlertServicePlugin : Plugin() {
         call.resolve()
     }
 
+    /**
+     * Upload the JSONL log to the laptop receiver (scripts/log-receiver.mjs) — no adb needed.
+     * X-Device-Now lets the receiver (on the hub's machine) estimate the clock skew.
+     */
+    @PluginMethod
+    fun uploadLog(call: PluginCall) {
+        val url = call.getString("url")
+        if (url.isNullOrBlank()) { call.reject("url is required"); return }
+        Thread {
+            try {
+                val file = java.io.File(SpikeLog.path(context))
+                val bytes = if (file.exists()) file.readBytes() else ByteArray(0)
+                val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.connectTimeout = 5000
+                conn.readTimeout = 30000
+                conn.setRequestProperty("Content-Type", "application/x-ndjson")
+                conn.setRequestProperty("X-Device-Now", System.currentTimeMillis().toString())
+                conn.setFixedLengthStreamingMode(bytes.size)
+                conn.outputStream.use { it.write(bytes) }
+                val code = conn.responseCode
+                val body = (if (code < 400) conn.inputStream else conn.errorStream)?.bufferedReader()?.readText() ?: ""
+                conn.disconnect()
+                SpikeLog.ev("log_uploaded", mapOf("url" to url, "bytes" to bytes.size, "status" to code))
+                val r = JSObject()
+                r.put("status", code)
+                r.put("bytes", bytes.size)
+                r.put("body", body)
+                call.resolve(r)
+            } catch (e: Exception) {
+                SpikeLog.ev("log_upload_failed", mapOf("url" to url, "error" to e.toString()))
+                call.reject(e.toString())
+            }
+        }.start()
+    }
+
     @PluginMethod
     fun clearLog(call: PluginCall) {
         SpikeLog.clear(context)

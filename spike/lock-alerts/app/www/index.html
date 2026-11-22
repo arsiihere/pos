@@ -47,7 +47,14 @@
   <h3>Status</h3>
   <table id="status"></table>
 
-  <h3>Log tail <button id="clear">Clear log</button></h3>
+  <h3>Log</h3>
+  <label>Laptop log receiver (node log-receiver.mjs), e.g. http://10.190.116.133:8787/log?label=S1</label>
+  <input id="recv" autocomplete="off" />
+  <div class="row">
+    <button id="upload">Upload log to laptop</button>
+    <button id="clear">Clear log</button>
+  </div>
+  <h3>Log tail</h3>
   <pre id="log"></pre>
 
 <script>
@@ -64,7 +71,14 @@
   $('perm-notif').onclick = () => P().requestNotificationPermission().then(refresh);
   $('perm-battery').onclick = () => P().requestBatteryExemption();
   $('perm-fsi').onclick = () => P().requestFullScreenIntent();
-  $('clear').onclick = () => P().clearLog().then(refresh);
+  $('clear').onclick = () => { if (confirm('Clear the device log? Upload it first if you need it.')) P().clearLog().then(refresh); };
+  try { $('recv').value = localStorage.getItem('recv') || ''; } catch (e) {}
+  $('upload').onclick = async () => {
+    const url = $('recv').value.trim();
+    try { localStorage.setItem('recv', url); } catch (e) {}
+    try { const r = await P().uploadLog({ url }); alert(`Uploaded ${r.bytes} bytes → HTTP ${r.status}\n${r.body}`); }
+    catch (e) { say(e); }
+  };
   $('apply').onclick = async () => {
     for (const k of ['wake_lock', 'wifi_lock', 'urgent_fsi']) await P().setToggle({ key: k, value: String($('t-' + k).checked) });
     await P().setToggle({ key: 'ping_s', value: String($('t-ping_s').value || 15) });
