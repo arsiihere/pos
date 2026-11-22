@@ -67,7 +67,7 @@ const qrcodeImports = {
 };
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/.turbo/**', '**/coverage/**', 'tools/tap-test/**'] }, // OQ4 field tool, not product code
+  { ignores: ['**/dist/**', '**/.turbo/**', '**/coverage/**', 'tools/tap-test/**', 'spike/**'] }, // OQ4 field tool, not product code; spike/** = throwaway spike branch only
   eslint.configs.recommended,
   tseslint.configs.recommended,
   {

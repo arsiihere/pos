@@ -47,6 +47,9 @@ class AlertService : Service() {
         const val NOTIF_STATUS = 1
         private val BACKOFF_MS = longArrayOf(500, 1000, 2000, 4000, 5000)
         private const val HEARTBEAT_MS = 5 * 60 * 1000L
+        // A stopping hub can accept TCP and never answer the upgrade (found in the script dry run):
+        // no first frame within this window → cancel and reconnect.
+        private const val FIRST_FRAME_TIMEOUT_MS = 10_000L
 
         // Status read by the plugin / page (best effort, no locking needed for a spike).
         @Volatile var socketState: String = "stopped"
@@ -147,6 +150,13 @@ class AlertService : Service() {
         socketState = "connecting"
         updateStatus("Connecting to $hub")
         SpikeLog.ev("socket_connecting", mapOf("url" to url, "attempt" to attempt, "ping_s" to pingS))
+        worker.postDelayed({
+            if (gen == wsGen && !authedFirstFrame && ws != null) {
+                SpikeLog.ev("first_frame_timeout", mapOf("timeout_ms" to FIRST_FRAME_TIMEOUT_MS))
+                ws?.cancel()
+                onClosed(1006, "no first frame in ${FIRST_FRAME_TIMEOUT_MS} ms")
+            }
+        }, FIRST_FRAME_TIMEOUT_MS)
         ws = c.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 worker.post {

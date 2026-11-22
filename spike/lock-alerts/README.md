@@ -1,0 +1,94 @@
+# Spike: lock-screen alerts (throwaway)
+
+**Question:** can a Kotlin foreground service on the pilot tablet keep the hub's existing 01d alert-mode socket alive while the tablet is locked, and ring for every alert? The answer feeds the 05b spec. This branch is **never merged** and is deleted after `SPIKE_RESULTS.md` is read.
+
+- `app/`: Capacitor 8.6.2 shell + Kotlin `AlertService` (foreground service `specialUse`, OkHttp WS, notifications + full-screen intent, receipts, dedupe, boot start, JSONL log).
+- `scripts/`: Node 22 tools with no dependencies (mint token, fire, control socket, skew, analyse). Full detail is in [`scripts/DEV_HUB.md`](scripts/DEV_HUB.md).
+- `NOTES.md`: surprises. `SPIKE_RESULTS.md`: fill per unit × scenario.
+- The APK is built by `.github/workflows/spike-apk.yml` on every push to this branch.
+
+## Morning checklist (owner)
+
+**0. Once:** on the laptop, Node 22, the repo on branch `spike/lock-alerts`, and `adb` (Android platform-tools). On the tablet: Settings → About → tap *Build number* 7× → Developer options → **USB debugging ON**, plus **Stay awake OFF** (you want it to sleep).
+
+**1. Device-owner check (OQ2, R33).** Do this only on a **freshly factory-reset unit with no Google account added**, because the `dpm` command needs that. Install first (step 2), then:
+```sh
+adb shell dpm set-device-owner pos.spike.lockalerts/.AdminReceiver
+```
+Record success or the exact error in SPIKE_RESULTS "Units". If it fails, carry on without device owner and note it.
+
+**2. Install the APK.** Either open this link on the tablet: `https://github.com/arsiihere/pos/releases/download/spike-lock-alerts/pos-spike-alerts.apk` (allow "install unknown apps" for the browser), or from the laptop:
+```sh
+curl -L -o pos-spike-alerts.apk https://github.com/arsiihere/pos/releases/download/spike-lock-alerts/pos-spike-alerts.apk
+adb install -r pos-spike-alerts.apk
+```
+
+**3. Mint tokens.** Follow `scripts/DEV_HUB.md` §A: admin session from the `/admin` page, then mint `tablet-a`, `sender` and `control`.
+
+**4. Inject the token** (printed by the mint script), or paste it into the app's page and tap **Save → native**:
+```sh
+adb shell am broadcast -a pos.spike.SET_TOKEN -n pos.spike.lockalerts/.DebugReceiver --es url http://<hub-ip>:3000 --es token <tablet-a token>
+```
+
+**5. Open the app** and tap **Notification permission**, then **Battery-optimisation exemption** (Allow), then **Full-screen-intent permission** (check it is allowed), then **Start service**. In the status table, the socket should read `up` within a few seconds.
+
+**6. Dry run (30 min).** Leave it unlocked for 2 alerts, then lock the screen:
+```sh
+cd spike/lock-alerts/scripts
+node control-socket.mjs --device devices/control.json --quiet &
+node fire.mjs --sender devices/sender.json --target devices/tablet-a.json --staff <manager> --pin <pin> --label dry --interval-s 60 --count 30
+```
+Each alert should ring and light the lock screen (red full-screen alert). Then pull and analyse:
+```sh
+adb exec-out run-as pos.spike.lockalerts cat files/spike-log.jsonl > logs/tablet-a-dry.jsonl
+node skew.mjs --hub http://<hub-ip>:3000
+node analyse.mjs --fire logs/fire-dry.jsonl --device logs/tablet-a-dry.jsonl --label dry --skew-ms <skew>
+```
+
+**7. Soak S1–S7** (table below) with the commands in `scripts/DEV_HUB.md` §A. Fill `SPIKE_RESULTS.md`. Clear the device log between runs:
+```sh
+adb shell am broadcast -a pos.spike.CLEAR_LOG -n pos.spike.lockalerts/.DebugReceiver
+```
+
+**If anything breaks,** paste these into the chat:
+```sh
+adb logcat -d | grep -E "PosSpike|AndroidRuntime|AlertService" | tail -200
+adb exec-out run-as pos.spike.lockalerts cat files/spike-log.jsonl | tail -100
+```
+plus a screenshot of the status table.
+
+## Soak scenarios (per unit; fire every 60 s ± 20 s unless stated)
+
+| # | Scenario | How |
+|---|---|---|
+| S1 | 12 h locked on charger | Screen off, locked, charger, Wi-Fi on. Don't touch it. `--duration-h 12` |
+| S2 | 4 h locked on battery | Unplug from ≥ 90 %. Battery %/h comes from the heartbeat lines. `--duration-h 4` |
+| S3 | Hub restart | During S1/S2, restart the hub 3×, ≥ 20 min apart. Note stop and ready times → `--outage` |
+| S4 | Router reboot | 2×, ~5 min each (below the 10 min `test_alert` expiry) → `--outage` |
+| S5 | Process killed | `adb shell am kill pos.spike.lockalerts`, then separately `adb shell am force-stop pos.spike.lockalerts` (info only) |
+| S6 | Reboot | `adb reboot`, leave it locked, don't open the app |
+| S7 | Burst | `fire.mjs … --label S7 --burst 30` while locked |
+
+**Pass, per unit:**
+- 100 % of alerts fired while the hub was up are received, notified and have a hub receipt;
+- p95 < 3 s outside outages;
+- it rings every time (spot-check ≥ 10 by ear while locked);
+- zero duplicates;
+- S3, S4 and S6 recover untouched.
+
+**Config:** start with the defaults (wake lock OFF, WifiLock ON, ping 15 s, urgent ON). Turn the wake lock ON only if the defaults fail, then re-run:
+```sh
+adb shell am broadcast -a pos.spike.SET_TOGGLE -n pos.spike.lockalerts/.DebugReceiver --es key wake_lock --es value true
+```
+Then Stop and Start the service from the app.
+
+## Control (adb, debug only)
+
+| Action | Command (`-n pos.spike.lockalerts/.DebugReceiver`) |
+|---|---|
+| Set token | `-a pos.spike.SET_TOKEN --es url http://HUB:3000 --es token TOK` |
+| Start / stop service | `-a pos.spike.START` / `-a pos.spike.STOP` (if START is refused on Android 12+, press Start in the app) |
+| Toggle | `-a pos.spike.SET_TOGGLE --es key wake_lock\|wifi_lock\|urgent_fsi\|ping_s --es value …` |
+| Clear log | `-a pos.spike.CLEAR_LOG` |
+
+Device log: `adb exec-out run-as pos.spike.lockalerts cat files/spike-log.jsonl`. Event names: `socket_*`, `auth_sent`, `first_frame`, `first_frame_timeout`, `reconnect_*`, `network_*`, `frame`, `alert_received`, `notify_posted`, `notified`, `receipt_sent`, `duplicate_dropped`, `fsi_shown`, `heartbeat` (every 5 min: screen, Doze, battery, locks, RSSI), `service_start` / `service_destroyed`, `boot_received`.
