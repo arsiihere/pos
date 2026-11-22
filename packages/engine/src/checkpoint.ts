@@ -54,6 +54,7 @@ export function fromCheckpoint(body: EngineCheckpointV1): EngineState {
     slips: {},
     next_alert_due_at: null,
     slip_due: {},
+    priority_due: {},
     diagnostics: [],
   };
 }

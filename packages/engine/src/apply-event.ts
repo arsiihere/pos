@@ -255,7 +255,7 @@ function listLines(
   // A group lists only engine lines: an id with no lines[] entry (a deal, no station) is left out here, and a
   // listed id whose ItemAdded is not a line is removed by its ItemAdded fold.
   for (const g of p.groups) {
-    groups[g.group_id] = { target_land_ms: g.target_land_ms, line_ids: g.order_item_ids.filter((id) => byId.has(id)) };
+    groups[g.group_id] = { target_land_ms: g.target_land_ms, line_ids: g.order_item_ids.filter((id) => byId.has(id)), priority_land_ms: null, priority_delay_ms: null };
   }
   const listed = p.order_item_ids.filter((id) => byId.has(id));
   const lines = o.scope.writableLines(state);
@@ -306,6 +306,10 @@ function listLines(
       expedited: false,
       rounds: null,
       done_undone: false, // 03a v1.2.2 B2-2: false at ItemAdded (fillLine keeps the placeholder's value)
+      // 03a v1.2.10 §3.3 (v5): max_delay_ms is filled from ItemAdded (fillLine); no priority; arrival = this listing.
+      max_delay_ms: null,
+      priority_at: null,
+      arrived_at: recorded_at,
     });
   }
   p.groups.forEach((g, i) => {
@@ -425,6 +429,7 @@ function fillLine(state: EngineState, order: EngineOrder, listed: EngineLine, p:
       // §4.2 / D25: ItemAdded.station_id is the routed (home) station; the line's station_id stays the engine's.
       routed_station_id: p.station_id ?? listed.station_id,
       draws: ret !== null ? [] : p.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity, reserved: 0 })),
+      max_delay_ms: p.max_delay_ms ?? null, // 03a v1.2.10 §3.5.7 PR-1: the D25 copy; absent = null (no limit)
     };
     checkProgram(filled, station);
     // The unqueued deadline (AD-4 occupancy); the placement at awaiting = 0 replaces it with the queued one (AD-12).
@@ -1152,7 +1157,7 @@ function foldItemsReleased(state: EngineState, event: PosEvent, o: FoldOptions):
       sources.add(line.group_id);
     }
     lines[id] = { ...line, ...patch, serve_mode: 'immediate', group_id: gid };
-    if (own) groups[gid] = { target_land_ms: src?.target_land_ms ?? order.target_land_ms, line_ids: [id] };
+    if (own) groups[gid] = { target_land_ms: src?.target_land_ms ?? order.target_land_ms, line_ids: [id], priority_land_ms: null, priority_delay_ms: null };
   };
   for (const line of released) leave(line, {}, true);
   for (const line of expedite) {
@@ -1171,7 +1176,7 @@ function foldItemsReleased(state: EngineState, event: PosEvent, o: FoldOptions):
     const g = { ...ord.groups };
     for (const id of movable) {
       const l = next.lines[id]!;
-      g[l.group_id] = { target_land_ms: l.booked!.end + l.carry_ms, line_ids: [id] };
+      g[l.group_id] = { target_land_ms: l.booked!.end + l.carry_ms, line_ids: [id], priority_land_ms: null, priority_delay_ms: null };
     }
     next = { ...next, orders: { ...next.orders, [oid]: { ...ord, groups: g } } };
   }
