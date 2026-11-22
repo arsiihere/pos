@@ -29,4 +29,12 @@ describe('[02b v1.0.21 §8] cart row part times', () => {
     m.render(<CartLineRow view={view()} config={config} unitOf={() => 'piece'} utcOffsetMs={0} actions={actions} />);
     expect(m.container.querySelector('.ln__parts')).toBeNull();
   });
+
+  // 02b v1.0.23 §8 (STAB-6, test 57): naan ×10 on a batch station (02b #56: 3 parts in the next round, 7 in the one after)
+  it('[02b #57] naan ×10 split over two rounds → "3 ready ~2:10 PM · 7 ready ~2:14 PM" (the v1.0.21 row, unchanged)', () => {
+    m = mount();
+    const t = (h: number, min: number): number => (h * 60 + min) * 60_000;
+    m.render(<CartLineRow view={view({ line: { key: 'N', item_id: item.item_id, quantity: 10, options: [] }, eta_ms: t(14, 14), parts: [{ n: 3, eta_ms: t(14, 10) }, { n: 7, eta_ms: t(14, 14) }] })} config={config} unitOf={() => 'piece'} utcOffsetMs={0} actions={actions} />);
+    expect(m.container.querySelector('.ln__parts')?.textContent).toBe('3 ready ~2:10 PM · 7 ready ~2:14 PM');
+  });
 });

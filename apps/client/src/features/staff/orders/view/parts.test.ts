@@ -56,4 +56,13 @@ describe('[02b v1.0.21 §8] order view parts', () => {
       { order_item_id: 'K-p2', units: 1, disposition: 'wastage' },
     ]);
   });
+
+  // 02b v1.0.23 §8 (STAB-6, test 57): a batch-station naan ×10 sent as parts shows as one grouped row per stage.
+  it('[02b #57] naan ×10 (N, N-p2 … N-p10), all waiting → one row "Naan ×10" (units summed, part_ids kept)', () => {
+    const lines = Array.from({ length: 10 }, (_, i) => line(i === 0 ? 'N' : `N-p${i + 1}`, { part_of: 'N', name: 'Naan' }));
+    const rows = groupParts(lines);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ order_item_id: 'N', name: 'Naan', live_units: 10, quantity: 10 });
+    expect(rows[0]!.part_ids).toEqual(lines.map((l) => l.order_item_id));
+  });
 });
