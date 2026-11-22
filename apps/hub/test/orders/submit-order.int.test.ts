@@ -1065,6 +1065,18 @@ describe('02b SubmitOrder split per unit (v1.0.20, STAB-5)', () => {
     expect(r.result!.lines[0]!.eta_ms).toBe(r.result!.lines[1]!.eta_ms);
   });
 
+  it('[02b #43] order serve_mode immediate → every part immediate, a line value wins; an unknown value → 400 VALIDATION_FAILED', async () => {
+    await setUp();
+    const cashier = signIn('S_CASHIER');
+    const r = await submit(cashier, takeaway('O1', [item('K', FX.piece, 2), item('N', FX.naan, 1, { serve_mode: 'sync' })], { serve_mode: 'immediate' }));
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    const modes = Object.fromEntries(r.events.filter((e) => e.event_type === 'ItemAdded').map((e) => [(e.payload as { order_item_id: string }).order_item_id, (e.payload as { serve_mode: string }).serve_mode]));
+    expect(modes).toEqual({ K: 'immediate', 'K-p2': 'immediate', N: 'sync' });
+    const bad = await submit(cashier, takeaway('O2', [item('X', FX.piece, 1)], { serve_mode: 'later' }));
+    expect(bad.status).toBe(400);
+    expect(bad.error?.code).toBe('VALIDATION_FAILED');
+  });
+
   it('[02b #39] a derived part id already in use → 409 ORDER_ITEM_ID_IN_USE { order_item_id: K-p2 }, nothing written', async () => {
     await setUp();
     const cashier = signIn('S_CASHIER');

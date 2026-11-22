@@ -48,6 +48,8 @@ export const Line = z
       .optional(),
     kitchen_note: z.string().max(80).optional(),
     from_zone: z.boolean().optional(),
+    // ⚠️ 02b v1.0.21 §6.1 (STAB-5, owner option C): the line's serve choice; wins over the order's and the item's
+    serve_mode: z.enum(['sync', 'immediate']).optional(),
   })
   .strict();
 
@@ -63,6 +65,8 @@ export const PayloadObject = z
       .strict()
       .optional(),
     order_note: z.string().max(200).optional(),
+    // ⚠️ 02b v1.0.21 §6.1 (STAB-5, owner option C): the order's serve choice for every line without its own
+    serve_mode: z.enum(['sync', 'immediate']).optional(),
     // ⚠️ Changed by 05 (row Q-6), 02b v1.0.16 §6.1: takeaway only (§3.2 step 2).
     adds_to_order_id: z.string().min(1).optional(),
     lines: z.array(Line).min(1).max(40),

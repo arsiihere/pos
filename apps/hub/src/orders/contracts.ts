@@ -185,6 +185,8 @@ export interface SubmitInput {
   parking?: { car_number: string; car_type: CarType; phone?: string };
   /** ≤ 200 */
   order_note?: string;
+  /** 02b v1.0.21 §6.1: the order's serve choice; a line's own `serve_mode` wins; absent → the item's */
+  serve_mode?: 'sync' | 'immediate';
   /** 1–40 */
   lines: Array<{
     order_item_id: string;
@@ -199,6 +201,8 @@ export interface SubmitInput {
     from_zone?: boolean;
     /** 02b v1.0.20 §3.2 step 4a: set by expandParts on every part of a split line (never in the payload) */
     part_of?: string;
+    /** 02b v1.0.21 §6.1: the line's serve choice (wins over the order's and the item's) */
+    serve_mode?: 'sync' | 'immediate';
   }>;
 }
 

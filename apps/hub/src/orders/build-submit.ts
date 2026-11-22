@@ -197,6 +197,7 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
     const quantity = line.quantity ?? (item.requires_weighing ? null : invalid(`lines.${n}.quantity`, 'quantity required'));
     checkSellable(item, quantity ?? 1, 'line');
     const options = line.options ?? [];
+    const chosenMode = line.serve_mode ?? input.serve_mode;
     const chosen = checkOptions(line.order_item_id, item, options, 'line', { quantity, sale_unit: unitOf(item) });
     const plain: ItemAddedPayload['options'] = [];
     const children: ItemAddedPayload[] = [];
@@ -233,6 +234,8 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
         line_total_minor: orderLineTotalMinor({ line_kind: 'option_child', price_minor: option.price_minor, quantity: childQty, option_charges_minor: [] }),
         // 02b v1.0.20 §3.2 step 4a: a split part's child carries the first part's child id
         ...(given.part_of === undefined ? {} : { part_of: given.part_of }),
+        // 02b v1.0.21 §3.2: a child follows its parent's serve choice
+        ...(chosenMode === undefined ? {} : { serve_mode: chosenMode }),
       });
     });
     const parent: ItemAddedPayload = {
@@ -256,6 +259,8 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
       kitchen_note: line.kitchen_note ?? null,
       // 02b v1.0.20 §3.2 step 4a: every part of a split line carries the first part's id
       ...(line.part_of === undefined ? {} : { part_of: line.part_of }),
+      // 02b v1.0.21 §3.2 (owner option C): the line's serve choice, else the order's, else the item's (fromItem)
+      ...(chosenMode === undefined ? {} : { serve_mode: chosenMode }),
     };
     return [parent, ...children];
   };
@@ -349,9 +354,12 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
       header,
       ...parts.map((p, i): ItemAddedPayload => {
         const copied = fromItem(p.item, p.quantity);
+        // 02b v1.0.21 §3.2 (owner option C): a deal part takes the deal line's serve choice, else the order's
+        const mode = line.serve_mode ?? input.serve_mode;
         return {
           ...none,
           ...copied,
+          ...(mode === undefined ? {} : { serve_mode: mode }),
           order_id: input.order_id,
           order_item_id: p.choice.order_item_id,
           parent_order_item_id: line.order_item_id,

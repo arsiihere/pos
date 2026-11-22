@@ -154,6 +154,7 @@ describe('[02b §4.2] contracts', () => {
       takeaway?: { customer_name?: string; phone?: string };
       parking?: { car_number: string; car_type: 'sedan' | 'mini' | 'large'; phone?: string };
       order_note?: string;
+      serve_mode?: 'sync' | 'immediate'; // 02b v1.0.21
       lines: Array<{
         order_item_id: string;
         item_id?: string;
@@ -170,6 +171,7 @@ describe('[02b §4.2] contracts', () => {
         kitchen_note?: string;
         from_zone?: boolean;
         part_of?: string; // 02b v1.0.20: set by expandParts only
+        serve_mode?: 'sync' | 'immediate'; // 02b v1.0.21
       }>;
     }>();
     // index.ts entry points.

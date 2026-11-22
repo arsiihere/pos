@@ -80,3 +80,24 @@ describe('[02b v1.0.20 §3.2 step 4a] expandParts', () => {
     expect(expanded.lines).toEqual(lines);
   });
 });
+
+// 02b v1.0.21 §3.2 / §6.1 (STAB-5 owner option C, test 43): the serve choice at send.
+describe('[02b v1.0.21] serve choice', () => {
+  it('[02b #43] a line value wins over the order value, the order value over the item; every part and child takes it', () => {
+    const config = menu();
+    const itemMode = config.items.find((i) => i.item_id === FX.piece)!.serve_mode;
+    const other = itemMode === 'sync' ? 'immediate' : 'sync';
+    const lines: SubmitInput['lines'] = [
+      { order_item_id: 'A', item_id: FX.piece, quantity: 2, options: [{ option_id: FX.option, quantity: 1, order_item_id: 'R' }] },
+      { order_item_id: 'B', item_id: FX.piece, quantity: 1, serve_mode: itemMode },
+    ];
+    const modes = (input: SubmitInput) => {
+      const built = buildSubmit(config, expandParts(config, input, ctx(config)), ctx(config));
+      return Object.fromEntries(built.itemAdded.map((a) => [a.order_item_id, a.serve_mode]));
+    };
+    expect(modes(takeaway(lines))).toEqual({ A: itemMode, 'A-p2': itemMode, R: expect.any(String), 'R-p2': expect.any(String), B: itemMode });
+    const chosen = modes({ ...takeaway(lines), serve_mode: other });
+    expect([chosen.A, chosen['A-p2'], chosen.R, chosen['R-p2']]).toEqual([other, other, other, other]);
+    expect(chosen.B).toBe(itemMode); // the line's own value wins
+  });
+});
