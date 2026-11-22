@@ -5,6 +5,7 @@ import type { ShellConfig } from '../../shell/config';
 import type { LiveBus, LiveMessage } from '../../shell/live';
 import type { StockMirror } from '../contracts';
 
+import type { HubResult } from '../../../../api/hub-admin';
 // 02b §8 Ordering screen, §10 #36 (handoff 02b-C01 / 02-B06, CHANGES §2 Q1, Q9): what a menu tile, a linked option
 // and a deal tile show, from the branch config, the device stock mirror (26a, Q-22), the manual Off list (catch-up
 // `availability` + ItemMadeUnavailable / ItemMadeAvailable frames), the windows on the hub clock (S47) and the
@@ -158,7 +159,35 @@ export interface AvailabilityOptions {
   /** injectable for tests; default the global timers */
   setInterval?: (fn: () => void, ms: number) => unknown;
   clearInterval?: (handle: unknown) => void;
+  /**
+   * ⚠️ 02b v1.0.19 §8, 03a v1.2.7 §4.3 To 02 #9 (STAB-4): `GET /queries/stations-live`; absent → the catch-up's
+   * `stations_live` only (the v1.0.18 behaviour, kept for callers that have no API)
+   */
+  fetchStationsLive?: () => Promise<HubResult<{ stations: unknown }>>;
 }
+
+/** 03a v1.2.7 §4.3 To 02 #9: the events that change a station's load (staff sockets get them, 02b §6.19, 03a §6.4). */
+const STATION_LOAD_EVENTS: ReadonlySet<string> = new Set([
+  'OrderPlaced',
+  'ItemAdded',
+  'OrderLinesAdded',
+  'ItemRemoved',
+  'ItemVoided',
+  'ItemServed',
+  'ItemReturned',
+  'ItemsReleased',
+  'OrderBoosted',
+  'OrderCancelled',
+  'FireDispatched',
+  'ItemStarted',
+  'ItemDone',
+  'ItemDoneUndone',
+  'StationCapacitySet',
+  'StationPauseSet',
+  'EngineConfigApplied',
+]);
+const REFETCH_DEBOUNCE_MS = 100;
+const REFETCH_EVERY_MS = 30_000;
 
 function offIds(part: unknown): string[] | null {
   const ids = (part as { unavailable_item_ids?: unknown } | undefined)?.unavailable_item_ids;
@@ -183,8 +212,32 @@ export function createAvailability(o: AvailabilityOptions): Availability {
     for (const l of [...listeners]) l();
   };
 
+  // STAB-4: one stations-live read 100 ms after the last trigger; a reply older than a later request is dropped and a
+  // failed read keeps the last times.
+  let asked = 0;
+  let pending: ReturnType<typeof globalThis.setTimeout> | null = null;
+  let disposed = false;
+  const refetch = async () => {
+    pending = null;
+    if (o.fetchStationsLive === undefined || disposed) return;
+    const mine = (asked += 1);
+    const answer = await o.fetchStationsLive();
+    if (disposed || mine !== asked || !answer.ok) return;
+    const w = waits(answer.data);
+    if (w === null) return;
+    stationWaits = w;
+    notify();
+  };
+  const schedule = () => {
+    if (o.fetchStationsLive === undefined || disposed) return;
+    if (pending !== null) globalThis.clearTimeout(pending);
+    pending = globalThis.setTimeout(() => void refetch(), REFETCH_DEBOUNCE_MS);
+  };
+
   const onMessage = (m: LiveMessage) => {
+    if (m.kind === 'reconnect' || m.kind === 'visible' || (m.kind === 'event' && STATION_LOAD_EVENTS.has(m.event.event_type))) schedule();
     if (m.kind === 'catch_up') {
+      schedule();
       const ids = offIds(m.state['availability']);
       if (ids !== null) off = new Set(ids);
       const w = waits(m.state['stations_live']);
@@ -204,6 +257,7 @@ export function createAvailability(o: AvailabilityOptions): Availability {
   const every = o.setInterval ?? ((fn: () => void, ms: number) => globalThis.setInterval(fn, ms));
   const stop = o.clearInterval ?? ((h: unknown) => globalThis.clearInterval(h as ReturnType<typeof globalThis.setInterval>));
   const tick = every(notify, MINUTE_MS);
+  const poll = o.fetchStationsLive === undefined ? null : every(schedule, REFETCH_EVERY_MS);
 
   const inputs = (): AvailabilityInputs | null => {
     const config = o.config.snapshot();
@@ -230,8 +284,11 @@ export function createAvailability(o: AvailabilityOptions): Availability {
       return () => void listeners.delete(listener);
     },
     dispose() {
+      disposed = true;
+      if (pending !== null) globalThis.clearTimeout(pending);
       for (const s of stops) s();
       stop(tick);
+      if (poll !== null) stop(poll);
     },
   };
 }

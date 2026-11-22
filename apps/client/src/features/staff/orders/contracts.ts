@@ -223,6 +223,8 @@ export type CompResult = { comped: true; value_minor: number } | { alert_id: str
 
 /** 02b §6.1–§6.10 and §6.14–§6.18a (`api.ts` createOrdersApi). */
 export interface OrdersApi {
+  /** ⚠️ 02b v1.0.19 §8 (STAB-4): 03a §6.5 `GET /queries/stations-live`, the tiles' station wait */
+  stationsLive?(): Promise<HubResult<{ stations: unknown }>>;
   /** queueable: a replay passes the entry's `commandId` and `queuedAt` (02b §3.12) */
   submitOrder(p: SubmitOrderPayload, opts?: CommandOptions): Promise<HubResult<SubmitResult>>;
   removeItems(p: RemoveItemsPayload): Promise<HubResult<{ removed: Array<{ order_item_id: string; units: number }>; cancelled: boolean; comp_requests_closed: string[] }>>;

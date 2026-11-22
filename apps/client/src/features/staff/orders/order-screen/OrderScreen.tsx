@@ -148,7 +148,15 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const config: BranchConfig | null = shell.config.snapshot();
   const mirror = useMemo(() => createStockMirror({ live: shell.live, snapshot: () => shellRef.current.config.snapshot(), hubNow: () => shellRef.current.clock.nowMs() }), [shell.live]);
   const availability = useMemo(
-    () => createAvailability({ live: shell.live, config: shell.config, stock: mirror, clock: () => shellRef.current.clock }),
+    () =>
+      createAvailability({
+        live: shell.live,
+        config: shell.config,
+        stock: mirror,
+        clock: () => shellRef.current.clock,
+        // 02b v1.0.19 §8 (STAB-4): the tiles' station wait follows the kitchen, not only the catch-up
+        fetchStationsLive: () => shellRef.current.orders.stationsLive?.() ?? Promise.resolve({ ok: false, error: { kind: 'network' } } as const),
+      }),
     [shell.live, shell.config, mirror],
   );
   useEffect(() => () => {

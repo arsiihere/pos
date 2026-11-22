@@ -26,6 +26,7 @@ export function createOrdersApi(staff: StaffTransport): OrdersApi {
     (payload: P): Promise<HubResult<R>> =>
       staff.command<R>(type, payload);
   return {
+    stationsLive: () => staff.query<{ stations: unknown }>('/queries/stations-live'),
     submitOrder: (p: SubmitOrderPayload, opts?: CommandOptions) => staff.command<SubmitResult>('SubmitOrder', p, opts),
     removeItems: cmd('RemoveItems'),
     setLineWeight: cmd('SetLineWeight'),
