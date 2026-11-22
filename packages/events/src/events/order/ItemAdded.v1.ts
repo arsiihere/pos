@@ -53,6 +53,9 @@ export const ItemAddedPayload = z.object({
   // 02b AD-15, owner 2026-11-11; 03a §4.2 / 02b §6.19 text bump pending. On a return line's ItemAdded (02b §3.8
   // ReturnToKitchen, fix and remake): the order_item_id of the line it returns; absent on every other line.
   return_of: z.string().optional(),
+  // 02b v1.0.20 §3.2 step 4a, §4.5 (STAB-5): on every part of a line split per unit on a slot station, the first part's
+  // order_item_id (a child: the first part's child id); absent on an unsplit line. Additive at v1, no upcaster.
+  part_of: z.string().min(1).optional(),
 });
 export type ItemAddedPayload = z.infer<typeof ItemAddedPayload>;
 
