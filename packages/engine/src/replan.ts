@@ -26,7 +26,7 @@ import { liveProfile, liveProfiles } from './live.js';
 import { bookingAt, overloadPlace, Work, type Booking, type OverloadLine, type Placement } from './overload.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval, type Underflow } from './profile.js';
 import { allFifo, homeOf, optionOn, rerouted, routeCtx, routeOptions, type Alternate, type RouteCtx, type RouteOption } from './route.js';
-import { asLoad, blockShape, formed, freshnessOf, joinLine, placedUnderOldType, replaced, slotEnd, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
+import { asLoad, blockShape, currentProgram, formed, freshnessOf, joinLine, placedUnderOldType, replaced, slotEnd, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
 export { bookingAt, type Booking, type Placement } from './overload.js';
@@ -512,26 +512,23 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
   return { profiles, moves, probes, replaced, loads, fallbacks };
 }
 
-// Task 13: pass 1 of §3.5.3 on a batch station at t. The unit of placement is the load (F §4.7, batch.ts):
-//   fixed  = the live profile minus the hidden loads (fire > t + freeze_ms); frozen loads stay where they are and
-//            keep their members, and may still gain joiners (§3.7: "a frozen program-Q load never gains a
-//            program-P line", so it may gain a program-Q one);
+// Task 13; ⚠️ 03a v1.2.10 §3.3 BQ-1, BQ-2, §3.5.3, §3.5.6 (STAB-6): pass 1 on a batch station at t is the load queue.
+//   fixed  = the live profile minus the hidden loads (fire > t + freeze_ms); frozen, pruned (D25) and held (boost)
+//            loads are fixed input, keep their members and their place in the queue, and may still gain joiners in
+//            pass 2 (§3.7: "a frozen program-Q load never gains a program-P line", so it may gain a program-Q one);
 //   prune  = (submit) hidden loads whose booking ends ≤ the pivot, with each new line fitted as a whole-station
 //            booking (D25; joins need no capacity, so a pruned load stays joinable);
-//   pass 1 = the hidden loads are re-formed (§12.6 G4-1 #10: "a hidden load is re-formed by every re-plan"): their
-//            members in pass-1 order, each line L with slot end E = d + prep + cook
-//              1. joins the first load b (start order) of the station with b.end ≤ E − keep and (E − keep) − b.end
-//                 ≤ min(freshness, max_early_ms) (the keep cushion applied to the target, so lines that shared a
-//                 load re-form together — proposed (implementer, overnight) J4);
-//              2. else forms a load at latestFit(lo = max(t, d − max_early_ms), hi = d − keep) (whole station);
-//              3. else joins with b.end ≤ E and E − b.end ≤ the window (its own keep, still on time);
-//              4. else forms a load at latestFit(lo, d);
-//              5. else joins the late set.
-//   late   = §3.5.6 on the batch station, proposed (implementer, overnight) J5: every free hidden line is re-placed
-//            by the overload search as a load of its own (whole station), the loads formed above discarded; §3.5.6
-//            defines no join rule, and a singleton load keeps the search's per-line deadlines exact.
-// A re-formed load is named after the stored load the line that formed it came from (nameLoads), so a void of the
-// naming line, whose fold re-plans the station, keeps the name (§3.3 v0.2.1).
+//   queue  = every stored unfired load in start order (booked.start, load_id) (BQ-1). A hidden load is never broken
+//            up and never re-sorted: in queue order each one is re-placed as one unit (the whole station, its largest
+//            member prep, its cook) by BQ-2: d(b) = min over members of (d(m) + prep(m) − max_prep) (J7), lo(b) =
+//            max(t, max over members of (d(m) − max_early_ms(m)), s_prev − max_prep), fire = latestFit(lo, d(b) − keep)
+//            ?? latestFit(lo, d(b)) ?? earliestFit(max(t, s_prev − max_prep)) (late), where s_prev is the new start of
+//            the load before it. A late load is not sent to §3.5.6 (no weighted search on a batch station); it is
+//            capped when its lateness (fire − d(b)) > 0 reaches its binding member's max_late_ms (§3.10). A frozen
+//            load pushed past its deadline (placeFrozen, o.late) is a queue member that moves only later from its fire.
+//            A slot booking left from the old type (§3.11) pushed late goes at its earliest fit after the queue.
+// Every load keeps its members and its name (storeLoads moves only the booking). Was: the hidden loads were re-formed
+// line by line in pass-1 order and the late ones went through the §3.5.6 search (J4–J7, §12.3 G4-1 #10).
 function batchPass1(
   state: EngineState,
   station: StationRuntime,
@@ -549,42 +546,73 @@ function batchPass1(
   const stored = Object.values(station.loads).map((l) => workOf(state, l));
   if (pol.policy === 'fifo') return { profile: liveHere, loads: stored, moves: new Map(), probes: null, replaced: 0 };
   // §3.4 D15 exceptions: a load of the boosted lines is held; a frozen load pushed past its deadline (placeFrozen) is
-  // free, as a unit of the §3.5.6 search, moving only later from its fire.
+  // free, moving only later from its fire.
   const heldLoad = (b: WorkLoad): boolean => o.held !== undefined && b.members.some((m) => o.held!.has(m));
   const forcedLoad = (b: WorkLoad): boolean => o.late !== undefined && b.members.some((m) => o.late!.has(m));
   const isHiddenLoad = (b: WorkLoad): boolean => !heldLoad(b) && (b.fire_ms > t + pol.freeze_ms || forcedLoad(b));
   const hidden = stored.filter(isHiddenLoad);
-  // §3.10, §3.11: a slot booking left from the old type (placeFrozen, oldType) pushed past its deadline: a line of the search.
+  // §3.10, §3.11: a slot booking left from the old type (placeFrozen, oldType) pushed past its deadline.
   const forcedLines = lateLines(state, station, o.late);
   if (hidden.length === 0 && forcedLines.length === 0) return { profile: liveHere, loads: stored, moves: new Map(), probes: null, replaced: 0 };
-  const cap = capacityFor(station, hidden[0]?.members[0] ?? id);
+  const cap = capacityFor(station, hidden[0]?.members[0] ?? forcedLines[0]?.order_item_id ?? id);
   const fixed = combine(liveHere, profileOf([...hidden.map((b) => b.booked), ...forcedLines.map((l) => l.booked!)]), -1, o.strict ? undefined : () => undefined);
   const whole = <L extends NewLine>(L: L): L => (optionOn(opts.get(L.order_item_id) ?? [], id) === undefined ? L : asLoad(L, cap));
   const pivot = o.prune && newLines.length > 0 ? pivotOn(fixed, id, held.map(whole), newLines.map(whole), opts, fifoLines, t, T_min) : Number.NEGATIVE_INFINITY;
-  const pruned = hidden.filter((b) => !forcedLoad(b) && b.booked.end <= pivot);
-  const free = hidden.filter((b) => forcedLoad(b) || b.booked.end > pivot);
-  const base = combine(fixed, profileOf(pruned.map((b) => b.booked)), 1);
-  const keepLoads = [...stored.filter((b) => !isHiddenLoad(b)), ...pruned];
-  const from = new Map<string, string>();
-  const freeLines: EngineLine[] = [];
-  const late: EngineLine[] = [];
-  const floors = new Map<string, number>();
-  for (const b of free) {
-    for (const m of b.members) {
-      const l = state.lines[m];
-      if (l === undefined || l.stage !== 'added' || l.fired_at !== null) continue;
-      from.set(m, b.load_id!);
-      if (forcedLoad(b)) {
-        late.push(l);
-        floors.set(m, Math.max(t, b.fire_ms));
-      } else {
-        freeLines.push(l);
-      }
+  const free = new Set(hidden.filter((b) => forcedLoad(b) || b.booked.end > pivot));
+  const pruned = hidden.filter((b) => !free.has(b));
+  const work = new Work(combine(fixed, profileOf(pruned.map((b) => b.booked)), 1));
+  const queue = [...stored].sort(queueCmp);
+  const out: WorkLoad[] = [];
+  // BQ-4 (d): a member whose program (or copied cook) no longer matches its hidden load (a StockReleased back to its
+  // program_id, BF-1) leaves it and is placed as a new line after the walk (BQ-3).
+  const leavers: EngineLine[] = [];
+  let s_prev = Number.NEGATIVE_INFINITY;
+  for (const queued of queue) {
+    if (!free.has(queued)) {
+      out.push(queued);
+      s_prev = Math.max(s_prev, queued.booked.start);
+      continue;
     }
+    const stay = queued.members.filter((m) => {
+      const L = state.lines[m];
+      if (L === undefined) return false;
+      if (currentProgram(L) === queued.program_id && L.cook_ms === queued.cook_ms) return true;
+      leavers.push(L);
+      return false;
+    });
+    if (stay.length === 0) continue;
+    const b = stay.length === queued.members.length ? queued : membersOf(state, queued, stay);
+    let d = Number.POSITIVE_INFINITY;
+    let bind: EngineLine | null = null;
+    let lo = Math.max(t, s_prev - b.max_prep);
+    for (const m of [...b.members].sort()) {
+      const L = state.lines[m];
+      if (L === undefined) continue;
+      const dm = L.deadline_ms + L.prep_ms - b.max_prep;
+      if (dm < d) {
+        d = dm;
+        bind = L;
+      }
+      lo = Math.max(lo, L.deadline_ms - L.max_early_ms);
+    }
+    const floor = Math.max(t, s_prev - b.max_prep, forcedLoad(b) ? b.fire_ms : Number.NEGATIVE_INFINITY);
+    lo = Math.max(lo, floor);
+    const shape = { units: Math.max(b.units, cap), prep_ms: b.max_prep, cook_ms: b.cook_ms };
+    const fire =
+      latestFit(work, lo, d - pol.keep_ms, shape.prep_ms, shape.cook_ms, shape.units, cap) ??
+      latestFit(work, lo, d, shape.prep_ms, shape.cook_ms, shape.units, cap) ??
+      earliestFit(work, floor, shape.prep_ms, shape.cook_ms, shape.units, cap);
+    const booked = bookingAt(shape, cap, fire);
+    work.add(booked);
+    s_prev = booked.start;
+    const late = fire - d;
+    const maxLate = bind?.max_late_ms ?? null;
+    out.push({ ...b, fire_ms: fire, booked, capped: late > 0 && maxLate !== null && late >= maxLate });
   }
+  // BQ-3 for a member that left (BQ-4 (d)): join the first compatible load in queue order (its keep cushion, then its
+  // own), else a load of its own at its latest fit, else late at its earliest fit after the queue.
   const window = freshnessOf(state, id);
-  const work = new Work(base);
-  let cands: WorkLoad[] = [...keepLoads];
+  let cands = out;
   const join = (L: EngineLine, E: number): boolean => {
     const jl = joinLine(L);
     const b = syncJoin(cands, jl, cap, E, window, t);
@@ -592,50 +620,55 @@ function batchPass1(
     cands = replaced(cands, b, withMember(b, jl));
     return true;
   };
-  for (const L of pass1Order(state, freeLines, pol.keep_ms, t)) {
+  for (const L of leavers.sort(byArrival(state))) {
     const E = slotEnd(L, cap);
     if (join(L, E - pol.keep_ms)) continue;
     const W = asLoad(L, cap);
     const lo = Math.max(t, L.deadline_ms - L.max_early_ms);
     let fire = latestFit(work, lo, L.deadline_ms - pol.keep_ms, W.prep_ms, W.cook_ms, W.units, cap);
     if (fire === null && join(L, E)) continue;
-    fire ??= latestFit(work, lo, L.deadline_ms, W.prep_ms, W.cook_ms, W.units, cap);
-    if (fire === null) {
-      late.push(L);
-      continue;
-    }
+    fire ??= latestFit(work, lo, L.deadline_ms, W.prep_ms, W.cook_ms, W.units, cap) ?? earliestFit(work, Math.max(t, s_prev - W.prep_ms), W.prep_ms, W.cook_ms, W.units, cap);
     const booked = bookingAt(W, cap, fire);
     work.add(booked);
-    cands.push(formed(joinLine(L), fire, booked, from.get(L.order_item_id) ?? null));
+    cands = [...cands, formed(joinLine(L), fire, booked)];
   }
-  if (late.length === 0 && forcedLines.length === 0) return { profile: work.snapshot(), loads: cands, moves: new Map(), probes: null, replaced: freeLines.length };
-  // Task 13 review (D14 kept in the overload search): the units of the Λ search are loads. The loads the loop above
-  // formed keep their members; the late lines are grouped by the stored load they came from (same program, cook
-  // and room by construction) — proposed (implementer, overnight) J6; joins into frozen / pruned loads stay fixed.
-  const units: WorkLoad[] = cands.filter((b) => b.load_id === null);
-  const lateGroups = new Map<string, EngineLine[]>();
-  for (const L of late) {
-    const k = from.get(L.order_item_id) ?? L.order_item_id;
-    lateGroups.set(k, [...(lateGroups.get(k) ?? []), L]);
+  // §3.11: an old-type slot booking pushed late, at its earliest fit after the queue (moving only later from its fire).
+  const moves = new Map<string, Move>();
+  for (const L of forcedLines) {
+    const fire = earliestFit(work, Math.max(t, L.fire_ms!, s_prev - L.prep_ms), L.prep_ms, L.cook_ms, L.units, cap);
+    const booked = bookingAt(L, cap, fire);
+    work.add(booked);
+    const late = fire - L.deadline_ms;
+    moves.set(L.order_item_id, { fire, booked, capped: late > 0 && L.max_late_ms !== null && late >= L.max_late_ms });
   }
-  for (const [k, ls] of lateGroups) {
-    let u = formed(joinLine(ls[0]!), 0, { start: 0, end: 0, units: 0 }, from.has(ls[0]!.order_item_id) ? k : null);
-    for (const L of ls.slice(1)) u = withMember(u, joinLine(L));
-    units.push(u);
+  return { profile: work.snapshot(), loads: cands, moves, probes: null, replaced: free.size };
+}
+
+// A stored load with only `members` left (BQ-4: it keeps its name and its booking until BQ-2 re-places it).
+function membersOf(state: EngineState, b: WorkLoad, members: readonly string[]): WorkLoad {
+  let units = 0;
+  let max_prep = 0;
+  for (const m of members) {
+    const l = state.lines[m]!;
+    units += l.units;
+    max_prep = Math.max(max_prep, l.prep_ms);
   }
-  const asLines = forcedLines.map((L): OverloadLine => {
-    const w = weightOf(state, L);
-    return { ...L, max_early_ms: L.deadline_ms - Math.max(t, L.fire_ms!), w, urgency: w * (t - (state.orders[L.order_id]?.placed_at ?? t)), cap };
-  });
-  const r = overloadPlace(base, [...units.map((u) => overloadUnit(state, u, cap, t, floors)), ...asLines], cap, t, Math.max(1, state.config?.settings.cascade_step_ms ?? 60_000));
-  const capped = new Set(r.capped);
-  const placed = new Map(r.placements);
-  const moves = new Map<string, Move>(forcedLines.map((L) => [L.order_item_id, { ...placed.get(L.order_item_id)!, capped: capped.has(L.order_item_id) }]));
-  const loads = units.map((u) => {
-    const pl = placed.get(u.members[0]!)!;
-    return { ...u, fire_ms: pl.fire, booked: pl.booked, capped: capped.has(u.members[0]!) };
-  });
-  return { profile: r.profile, loads: [...cands.filter((b) => b.load_id !== null), ...loads], moves, probes: r.probes, replaced: freeLines.length + late.length };
+  return { ...b, members: [...members], units, max_prep };
+}
+
+// §3.3 BQ-1 arrival key: (arrived_at, order_id, index of the line in its order's line_ids), then order_item_id.
+export function byArrival(state: EngineState): (a: EngineLine, b: EngineLine) => number {
+  const index = (l: EngineLine): number => state.orders[l.order_id]?.line_ids.indexOf(l.order_item_id) ?? -1;
+  return (a, b) =>
+    a.arrived_at - b.arrived_at ||
+    (a.order_id < b.order_id ? -1 : a.order_id > b.order_id ? 1 : 0) ||
+    index(a) - index(b) ||
+    (a.order_item_id < b.order_item_id ? -1 : a.order_item_id > b.order_item_id ? 1 : 0);
+}
+
+// §3.3 BQ-1: the queue order of a batch station's unfired loads (booked.start, then load_id).
+function queueCmp(a: WorkLoad, b: WorkLoad): number {
+  return a.booked.start - b.booked.start || ((a.load_id ?? '') < (b.load_id ?? '') ? -1 : (a.load_id ?? '') > (b.load_id ?? '') ? 1 : 0);
 }
 
 // Task 13 review: a load as one unit of the §3.5.6 search (keyed by its first member), fitted whole-station with

@@ -202,7 +202,10 @@ describe('[03a §7.1] fold cost', () => {
     expectNamed(state, next, named);
   });
 
-  it('[03a §7.1] naming: a batch flip re-forms the loads of its station, so it compares the whole maps', () => {
+  // ⚠️ 03a v1.2.10 §3.3 BQ-4 (d) (STAB-6; v1.2.8 row 8, m-12): rewritten. A flip no longer re-forms the station's loads:
+  // only the flipped line moves; the other load keeps its name, booking and member (the naming still covers the fold).
+  // Was: "naming: a batch flip re-forms the loads of its station, so it compares the whole maps" (B2 counted as changed).
+  it('[03a §7.1, BQ-4 (d)] naming: a batch flip moves only the flipped line; the other loads keep their names and bookings', () => {
     const T = 1_761_000_000_000;
     const pickup = T + 3_600_000;
     const stamp = (e: PosEvent, seq: number): PosEvent => ({ ...e, recorded_at: T, occurred_at: T, seq, event_id: `01K${String(seq).padStart(23, '0')}` });
@@ -227,7 +230,9 @@ describe('[03a §7.1] fold cost', () => {
     const event = stamp(aStockReserved({ payload: { stock_item_id: 'KB', order_item_id: 'B1', quantity: 1 } }), 30);
     const { next, named } = foldNamed(state, event, {});
     expect(next.lines.B1!.from_stock).toBe(true);
-    expect(changedLines(state, next)).toContain('B2');
+    expect(changedLines(state, next)).toContain('B1');
+    expect(next.lines.B2).toEqual(state.lines.B2);
+    expect(loadOf(next, 'B2')).toEqual(loadOf(state, 'B2'));
     expectNamed(state, next, named);
   });
 

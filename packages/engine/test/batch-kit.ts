@@ -66,6 +66,7 @@ export type BItem = {
   stock?: { program: string; cook: number };
   from_stock?: boolean;
   weight?: number; // the line's weight_pct (default 100)
+  draws?: Array<{ stock_item_id: string; quantity: number }>; // ItemAdded.stock_draws (default none)
   maxLate?: number | null; // the line's max_late_ms (default null)
 };
 export type BOrder = { pickup_at_ms?: number | null };
@@ -81,6 +82,7 @@ function itemFields(i: BItem): Record<string, unknown> {
     prep_buffer_ms: i.prep ?? 0,
     serve_mode: i.mode ?? 'sync',
     quantity: i.units ?? 1,
+    ...(i.draws === undefined ? {} : { stock_draws: i.draws, out_of_stock_behaviour: 'cook_fresh' }),
   };
 }
 
@@ -185,11 +187,11 @@ export const at = (min: number): number => T + min * M;
 export const COOK = 3 * M;
 export const TICK = 15_000;
 
-type QueueOpts = { mode?: 'two_tap' | 'single_tap'; capacity?: number; F?: Partial<StationCfg> };
+type QueueOpts = { mode?: 'two_tap' | 'single_tap'; capacity?: number; freshness?: number; F?: Partial<StationCfg> };
 export function queueConfig(o: QueueOpts = {}): PosEvent {
   return batchConfig({
     capacity: o.capacity ?? 8,
-    freshness: 2 * M,
+    freshness: o.freshness ?? 2 * M,
     freeze_ms: 2 * M,
     F: { min_slack_keep_ms: M, completion_mode: o.mode ?? 'two_tap', policy: 'waada_guard', ...o.F },
   });
@@ -240,7 +242,7 @@ export function runRounds(
       event_id: `01J${String(sq).padStart(23, '0')}`,
     };
   };
-  for (let t = T; t <= at(o.until); t += TICK) {
+  const tapStarts = (t: number): void => {
     for (const id of startAt.get(t) ?? []) {
       const line = s.lines[id];
       if (line === undefined || line.stage !== 'added') continue;
@@ -248,6 +250,10 @@ export function runRounds(
       apply([startB(line.order_id, id, t)]);
       if (shift !== null) apply([stampDraft(shift, t)]);
     }
+    startAt.delete(t);
+  };
+  for (let t = T; t <= at(o.until); t += TICK) {
+    tapStarts(t);
     for (const [oid, n, min, item] of orders) {
       if (at(min) !== t) continue;
       const items = unitParts(oid, n, item);
@@ -269,6 +275,7 @@ export function runRounds(
         startAt.set(k, [...(startAt.get(k) ?? []), ...p.order_item_ids]);
       }
     }
+    tapStarts(t); // startAfter 0: Start tapped at the pass that fired the load
   }
   return { state: s, fires, events, plans };
 }

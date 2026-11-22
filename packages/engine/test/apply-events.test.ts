@@ -214,26 +214,15 @@ describe('[03a AD-28] applyEvents = the per-event fold', () => {
 
   it('[03a AD-28] the run still writes the same events and reaches the same state (hash of seed 7, 200 orders)', () => {
     const run = runDay(generateDay(7, { orders: 200 }));
-    expect(sha(run.events)).toBe('18f0dd7a8446930962642b75d00ef3690a7bc6d4e380a2e7a996417eff4fe289');
+    // ⚠️ 03a v1.2.10 §3.3 BQ-1, BQ-2 (STAB-6): the day has a batch station (degh), whose hidden loads are now a queue
+    // re-placed whole (no re-form, no §3.5.6 search), so its fires and the events moved (was 18f0dd7a…).
+    expect(sha(run.events)).toBe('ee2bb7ad442e1156fd3e0f242c2cd1df6ea3cd6d5ab9a430ff527ac92bae8989');
     // Task 18d: the events are the same; the state hash moved only for the two new line fields (with `expedited` and `rounds`
     // stripped it is the old 3a7ed3c2…). 03a v1.2.2 (B2-2): moved again only for `done_undone` (false on every line, the
-    // run has no Undo); with it stripped it is the old ad0ddb7f….
-    // ⚠️ 03a v1.2.10 §3.3 (STAB-6/7): v5 moved it again only for the new keys (max_delay_ms / priority_at / arrived_at on
-    // a line, the two priority fields on a group, priority_due); with them stripped it is the old 38138ee7….
-    const { priority_due, ...v4 } = run.liveState;
-    expect(priority_due).toEqual({});
-    const omit = <T extends object>(o: T, keys: readonly string[]): Partial<T> =>
-      Object.fromEntries(Object.entries(o).filter(([k]) => !keys.includes(k))) as Partial<T>;
-    const stripped = {
-      ...v4,
-      orders: Object.fromEntries(Object.entries(v4.orders).map(([id, o]) => [id, {
-        ...o,
-        groups: Object.fromEntries(Object.entries(o.groups).map(([g, grp]) => [g, omit(grp, ['priority_land_ms', 'priority_delay_ms'])])),
-      }])),
-      lines: Object.fromEntries(Object.entries(v4.lines).map(([id, l]) => [id, omit(l, ['max_delay_ms', 'priority_at', 'arrived_at'])])),
-    };
-    expect(sha(stripped)).toBe('38138ee7070d874fcb3e1285389efaa666bc6c72c63e7993b370180a53588c0a');
-    expect(sha(run.liveState)).toBe('fb634433377b8d3686073292cc2b4eb6da2e4d6555d4c4686186d38cae2803c6');
+    // run has no Undo); with it stripped it is the old ad0ddb7f…. ⚠️ 03a v1.2.10 §3.3 (STAB-6/7): v5 moved it for the new
+    // keys (with them stripped it was the old 38138ee7… before the queue, task 5), then the queue moved the events.
+    expect(run.liveState.priority_due).toEqual({});
+    expect(sha(run.liveState)).toBe('08d2a11863863b7dc41878625872204a5ebb5679940ce22cb981880d9f476fc4');
   }, 120_000);
 });
 
