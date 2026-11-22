@@ -42,7 +42,8 @@ export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' 
 export interface PointViewBody {
   point_id: string;
   stations: Array<{ station_id: string; name: string; lanes: KdsStationBody['lanes']; dark: boolean; screenless: boolean }>;
-  orders: Array<{ order_id: string; identifier: LineDetail['identifier']; placed_at: number; lines: PointLine[]; ready: { at: number; by: string | null } | null }>;
+  // ⚠️ 03b v1.0.10 §6.15 (STAB-2): ready.lines = the Ready's unsettled own lines
+  orders: Array<{ order_id: string; identifier: LineDetail['identifier']; placed_at: number; lines: PointLine[]; ready: { at: number; by: string | null; lines: string[] } | null }>;
   takeovers: KdsStationBody[];
 }
 
@@ -90,10 +91,13 @@ SELECT j.value AS station_id,
   FROM json_each(?) j`;
 
 const PASS_SQL = `
-SELECT 'r' AS k, order_id AS id, ready_at AS at, ready_by AS by FROM pass_orders
+SELECT 'r' AS k, order_id AS id, ready_at AS at, ready_by AS by,
+       (SELECT json_group_array(r.order_item_id) FROM pass_ready_lines r
+         WHERE r.order_id = pass_orders.order_id AND r.point_id = pass_orders.point_id AND r.settled_at IS NULL) AS rl
+  FROM pass_orders
  WHERE point_id = @point_id AND ready_at IS NOT NULL AND order_id IN (SELECT value FROM json_each(@orders))
 UNION ALL
-SELECT 'h' AS k, order_item_id AS id, NULL AS at, NULL AS by FROM handover_lines
+SELECT 'h' AS k, order_item_id AS id, NULL AS at, NULL AS by, NULL AS rl FROM handover_lines
  WHERE order_item_id IN (SELECT value FROM json_each(@lines))`;
 
 interface SettingsRow {
@@ -124,7 +128,7 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
   const details = buildLineDetails(db, state, [...new Set([...lineIds, ...takeoverLineIds])]);
 
   const orderIds = [...new Set(lineIds.map((id) => state.lines[id]!.order_id))];
-  const ready = new Map<string, { at: number; by: string | null }>();
+  const ready = new Map<string, { at: number; by: string | null; lines: string[] }>();
   const handed = new Set<string>();
   if (orderIds.length > 0) {
     const rows = db.prepare(PASS_SQL).all({ point_id, orders: JSON.stringify(orderIds), lines: JSON.stringify(lineIds) }) as Array<{
@@ -132,9 +136,10 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
       id: string;
       at: number | null;
       by: string | null;
+      rl: string | null;
     }>;
     for (const r of rows) {
-      if (r.k === 'r') ready.set(r.id, { at: r.at!, by: r.by });
+      if (r.k === 'r') ready.set(r.id, { at: r.at!, by: r.by, lines: JSON.parse(r.rl ?? '[]') as string[] });
       else handed.add(r.id);
     }
   }

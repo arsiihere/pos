@@ -116,7 +116,7 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
     expect(catchUpState(station).point_view).toBeUndefined();
   });
 
-  it('[03b §6.15] Ready { at, by } and handed_over from the pass tables; served / removed lines drop off; a card drops off when none is left', async () => {
+  it('[03b §6.15, v1.0.10] Ready { at, by, lines } and handed_over from the pass tables; served / removed lines drop off; a card drops off when none is left', async () => {
     await start();
     const { order_id } = appendOrder(hub, {
       order_type: 'takeaway',
@@ -130,7 +130,8 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
     const [ready] = append(hub, [on('ReadyToServe', { order_id, point_id: 'P1', order_item_ids: ['L1', 'L2', 'L3'], table_id: null, alert_id: null })], { actor: COOK.staff });
     append(hub, [on('Handover', { handover_id: 'H1', order_id, point_id: 'P1', receiver_staff_id: 'S_WAIT', order_item_ids: ['L2'], alert_id: 'A_CARD', ready_alert_closed: null })]);
     let card = body().orders[0]!;
-    expect(card.ready).toEqual({ at: ready!.recorded_at, by: COOK.staff });
+    // ⚠️ 03b v1.0.10 §6.15 (STAB-2): + the Ready's unsettled own lines, so the Pass offers Ready for the others
+    expect(card.ready).toEqual({ at: ready!.recorded_at, by: COOK.staff, lines: ['L1', 'L2', 'L3'] });
     expect(card.lines.map((l) => [l.order_item_id, l.handed_over])).toEqual([
       ['L1', false],
       ['L2', true],
