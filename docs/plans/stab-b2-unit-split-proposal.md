@@ -1,6 +1,6 @@
 # STAB-5 proposal: one kitchen line per unit on slot stations ("B2")
 
-Status: **PROPOSAL, owner answered §6 (2026-11-22); awaiting the owner's OK of the whole proposal** (2026-11-22). Nothing here is built. After the owner's OK each spec named
+Status: **APPROVED (owner 2026-11-22: "yes start stab 5")**, with the §6 answers. Spec bumps per §4, then code, TDD.
 below gets its own version bump (spec first), then the code, TDD.
 
 ## 1. Problem (owner reports, 2026-11-22)
