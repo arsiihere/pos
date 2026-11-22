@@ -101,3 +101,29 @@ describe('[02b v1.0.21] serve choice', () => {
     expect(chosen.B).toBe(itemMode); // the line's own value wins
   });
 });
+
+// 02b v1.0.22 §3.2 step 4a (STAB-5 phase 5, test 45): a deal is split per deal unit when a part cooks on a slot station.
+describe('[02b v1.0.22] deals split per deal unit', () => {
+  it('[02b #45] deal ×2 with a slot-station part → D, D-p2 with their parts (Da, Da-p2 …), part_of on headers and parts; totals sum to the unsplit deal', () => {
+    const config = menu();
+    const deal = { order_item_id: 'D', deal_id: FX.deal, quantity: 2, deal_choices: [
+      { deal_part_id: FX.dealParts[0]!, item_id: FX.piece, order_item_id: 'Da' },
+      { deal_part_id: FX.dealParts[1]!, item_id: FX.naan, order_item_id: 'Db' },
+    ] };
+    const input = takeaway([deal]);
+    const expanded = expandParts(config, input, ctx(config));
+    expect(expanded.lines.map((l) => [l.order_item_id, l.quantity, l.part_of, l.deal_choices?.map((c) => [c.order_item_id, c.part_of])])).toEqual([
+      ['D', 1, 'D', [['Da', 'Da'], ['Db', 'Db']]],
+      ['D-p2', 1, 'D', [['Da-p2', 'Da'], ['Db-p2', 'Db']]],
+    ]);
+    const built = buildSubmit(config, expanded, ctx(config));
+    const headers = built.itemAdded.filter((a) => a.line_kind === 'deal');
+    expect(headers.map((h) => [h.order_item_id, h.quantity, h.part_of])).toEqual([['D', 1, 'D'], ['D-p2', 1, 'D']]);
+    expect(built.itemAdded.filter((a) => a.line_kind === 'deal_part').map((p) => [p.order_item_id, p.part_of])).toEqual([['Da', 'Da'], ['Db', 'Db'], ['Da-p2', 'Da'], ['Db-p2', 'Db']]);
+    const whole = buildSubmit(config, input, ctx(config));
+    const total = (xs: typeof built.itemAdded) => xs.filter((a) => a.line_kind === 'deal').reduce((n, a) => n + (a.line_total_minor ?? 0), 0);
+    expect(total(built.itemAdded)).toBe(total(whole.itemAdded));
+    const allocated = (xs: typeof built.itemAdded) => xs.filter((a) => a.line_kind === 'deal_part').reduce((n, a) => n + (a.allocated_price_minor ?? 0), 0);
+    expect(allocated(built.itemAdded)).toBe(allocated(whole.itemAdded));
+  });
+});

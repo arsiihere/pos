@@ -349,6 +349,8 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
       }),
       kitchen_note: line.kitchen_note ?? null,
       is_ready_item: false,
+      // 02b v1.0.22 §3.2 step 4a: a split deal's header carries part 1's header id
+      ...(line.part_of === undefined ? {} : { part_of: line.part_of }),
     };
     return [
       header,
@@ -360,6 +362,8 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
           ...none,
           ...copied,
           ...(mode === undefined ? {} : { serve_mode: mode }),
+          // 02b v1.0.22: a split deal's part carries part 1's choice id
+          ...(p.choice.part_of === undefined ? {} : { part_of: p.choice.part_of }),
           order_id: input.order_id,
           order_item_id: p.choice.order_item_id,
           parent_order_item_id: line.order_item_id,

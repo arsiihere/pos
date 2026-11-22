@@ -197,7 +197,8 @@ export interface SubmitInput {
     variant_id?: string;
     quantity?: number;
     options?: SubmitOption[];
-    deal_choices?: Array<{ deal_part_id: string; item_id: string; order_item_id: string; options?: SubmitOption[] }>;
+    /** 02b v1.0.22: `part_of` set by expandParts on a split deal's choices (never in the payload) */
+    deal_choices?: Array<{ deal_part_id: string; item_id: string; order_item_id: string; options?: SubmitOption[]; part_of?: string }>;
     /** ≤ 80 */
     kitchen_note?: string;
     from_zone?: boolean;

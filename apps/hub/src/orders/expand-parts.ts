@@ -16,16 +16,24 @@ export const partId = (order_item_id: string, k: number): string => (k === 1 ? o
 export function expandParts(config: BranchConfig, input: SubmitInput, ctx: Pick<BuildSubmitCtx, 'draws' | 'primary_table_id'>): SubmitInput {
   const zone = zoneOf(config, input, ctx.primary_table_id);
   const stationType = new Map(config.stations.map((s) => [s.station_id, s.station_type]));
-  const splits = (line: Line): number => {
-    if (line.item_id === undefined || line.deal_id !== undefined || line.from_zone === true) return 1;
-    const n = line.quantity ?? 1;
-    if (n <= 1) return 1;
-    const item = config.items.find((i) => i.item_id === line.item_id);
-    if (item === undefined || item.requires_weighing || ctx.draws(item.item_id).sale_unit !== 'piece') return 1;
+  // a piece item (not weighed) whose routed station is a slot station
+  const onSlot = (item_id: string): boolean => {
+    const item = config.items.find((i) => i.item_id === item_id);
+    if (item === undefined || item.requires_weighing || ctx.draws(item.item_id).sale_unit !== 'piece') return false;
     // §3.10 / O4: the zone route of the primary table's zone (dine-in), else the branch route — as buildSubmit routes
     const station_id = zone?.routes.find((r) => r.item_id === item.item_id)?.station_id ?? item.station_id;
-    return stationType.get(station_id) === 'slot' ? n : 1;
+    return stationType.get(station_id) === 'slot';
   };
+  const splits = (line: Line): number => {
+    const n = line.quantity ?? 1;
+    if (n <= 1 || line.from_zone === true) return 1;
+    // ⚠️ 02b v1.0.22 (phase 5): a deal is split per deal unit when a chosen part cooks on a slot station
+    if (line.deal_id !== undefined) return (line.deal_choices ?? []).some((c) => onSlot(c.item_id)) ? n : 1;
+    if (line.item_id === undefined) return 1;
+    return onSlot(line.item_id) ? n : 1;
+  };
+  const optionParts = (options: Line['options'], k: number): Line['options'] =>
+    options?.map((o) => (o.order_item_id === undefined ? o : { ...o, order_item_id: partId(o.order_item_id, k), part_of: o.order_item_id }));
   const lines = input.lines.flatMap((line): Line[] => {
     const n = splits(line);
     if (n === 1) return [line];
@@ -34,12 +42,16 @@ export function expandParts(config: BranchConfig, input: SubmitInput, ctx: Pick<
       order_item_id: partId(line.order_item_id, i + 1),
       quantity: 1,
       part_of: line.order_item_id,
-      ...(line.options === undefined
+      ...(line.options === undefined ? {} : { options: optionParts(line.options, i + 1) }),
+      ...(line.deal_choices === undefined
         ? {}
         : {
-            options: line.options.map((o) =>
-              o.order_item_id === undefined ? o : { ...o, order_item_id: partId(o.order_item_id, i + 1), part_of: o.order_item_id },
-            ),
+            deal_choices: line.deal_choices.map((c) => ({
+              ...c,
+              order_item_id: partId(c.order_item_id, i + 1),
+              part_of: c.order_item_id,
+              ...(c.options === undefined ? {} : { options: optionParts(c.options, i + 1) }),
+            })),
           }),
     }));
   });
