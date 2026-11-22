@@ -113,20 +113,6 @@ function fire(ids: string[], recorded_at: number, station_id = 'S1'): PosEvent {
   });
 }
 
-function voided(order_id: string, id: string, recorded_at: number): PosEvent {
-  const s = nextSeq(0);
-  const base = anOrderBatch({ order_id })[0]!;
-  return {
-    ...base,
-    event_type: 'ItemVoided',
-    stream_id: order_id,
-    payload: { order_item_id: id, units: 1 },
-    recorded_at,
-    occurred_at: recorded_at,
-    seq: s,
-    event_id: `01JZ${String(s).padStart(22, '0')}`,
-  };
-}
 
 
 const karahi = (id: string): Item => ({ id, cook: 20, mode: 'immediate', early: 60 });
