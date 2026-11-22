@@ -117,7 +117,8 @@ function pkPb(b: BillingSettings & { version: string; branch_id: string }, patch
 }
 
 beforeAll(async () => {
-  ({ pool } = await scratchDatabaseAt(14));
+  // ⚠️ 01a v2.7.3 PT-1 (STAB-5): to 0016, as the snapshot builder reads branch_engine_settings.show_part_times_to_customers
+  ({ pool } = await scratchDatabaseAt(16));
   app = buildCloudServer({ pool, env, clock, ids: seedIds('A'), secrets: testSecrets() });
   await app.ready();
   pk = await tenant('PKR', 'pk');
