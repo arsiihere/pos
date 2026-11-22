@@ -300,7 +300,7 @@ describe('@pos/engine EngineState v5', () => {
       order: [
         'OrderPlaced', 'OrderLinesAdded', 'ItemAdded', 'ItemStarted', 'ItemDone', 'ItemDoneUndone', 'ItemServed',
         'ItemRemoved', 'ItemVoided', 'ItemMovedToStock', 'ItemReturned', 'OrderBoosted', 'ItemsReleased', 'SlipWarned',
-        'AlertClosed',
+        'AlertClosed', 'LinePrioritized',
       ],
       station: ['FireDispatched', 'ReservationsShifted', 'EngineConfigApplied', 'StationCapacitySet', 'StationPauseSet'],
       stock: ['StockSet', 'StockAdded', 'StockReserved', 'StockReleased', 'StockConsumed', 'StockTransferredOut'],

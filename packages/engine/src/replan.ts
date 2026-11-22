@@ -103,6 +103,11 @@ export type Pass1Options = {
   // §3.4 D15 exceptions (task 16): the frozen lines placeFrozen found pushed past their deadline; they go straight
   // to §3.5.6 with the station's hidden lines and move only later from their current fire.
   late?: ReadonlySet<string>;
+  // ⚠️ 03a v1.2.10 §3.5.7 PR-4 (STAB-7): the priority step (plan.ts priorityPlan) placed these hidden priority lines on
+  // slot stations first, in the priority order, each group as one group toward its priority_land_ms: pass 1 takes them
+  // as fixed input at their new bookings (reported as moves) and re-places the other hidden lines around them. A
+  // station of the step is not pruned (D25): its priority lines are re-placed before any new line.
+  priority?: { placed: ReadonlyMap<string, Placement>; stations: ReadonlySet<string> };
 };
 
 export type Pass1Result = {
@@ -121,6 +126,8 @@ export type Pass1Result = {
   // Task 11 re-review: hidden lines pass 1 placed on their own station at full capacity because the reserve shut
   // them out of every allowed station (route.ts fallback 'reserve'); the folding caller appends a reserve_fallback.
   fallbacks: Array<{ order_item_id: string; station_id: string; capacity: number; reserve_units: number }>;
+  // ⚠️ 03a v1.2.10 §3.5.7 PR-4: the priority groups whose priority_land_ms the step set or moved (plan.ts stores them).
+  lands: ReadonlyMap<string, { order_id: string; land: number }>;
 };
 
 // ---- profile sweeps (review fix 3: no hidden-lines × profile-size cost) ------------------------------------------
@@ -397,18 +404,37 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
       profiles[id] = liveHere;
       continue;
     }
-    const hidden = station.unfired
+    const all = station.unfired
       .map((x) => state.lines[x])
       .filter((l): l is EngineLine => l !== undefined && isHidden(state, l, t) && o.held?.has(l.order_item_id) !== true);
-    const forced = lateLines(state, station, o.late);
+    // §3.5.7 PR-4: the priority lines the step placed leave the free set; their old bookings come out with the hidden
+    // ones and their new bookings are fixed input.
+    const pri = o.priority?.placed;
+    const priHere = pri === undefined ? [] : all.filter((l) => pri.has(l.order_item_id));
+    const hidden = pri === undefined ? all : all.filter((l) => !pri.has(l.order_item_id));
+    const lateHere = lateLines(state, station, o.late);
+    const priLate = pri === undefined ? [] : lateHere.filter((l) => pri.has(l.order_item_id));
+    const forced = priLate.length === 0 ? lateHere : lateHere.filter((l) => !pri!.has(l.order_item_id));
+    if (priLate.length > 0) {
+      all.push(...priLate);
+      priHere.push(...priLate);
+    }
     // §3.10, §3.11: a stored load (a block, placeFrozen) pushed past its deadline goes to §3.5.6 as one unit too.
     const blocks = o.late === undefined ? [] : Object.values(station.loads).filter((l) => l.order_item_ids.some((m) => o.late!.has(m))).map((l) => workOf(state, l));
+    for (const L of priHere) {
+      const pl = pri!.get(L.order_item_id)!;
+      if (pl.fire !== L.fire_ms || !sameBooking(L.booked, pl.booked) || L.capped) moves.set(L.order_item_id, { ...pl, capped: false });
+    }
     if (hidden.length === 0 && forced.length === 0 && blocks.length === 0) {
-      profiles[id] = liveHere;
+      profiles[id] = priHere.length === 0 ? liveHere : combine(combine(liveHere, profileOf(priHere.map((h) => h.booked!)), -1, o.strict ? undefined : () => undefined), profileOf(priHere.map((h) => pri!.get(h.order_item_id)!.booked)), 1);
       continue;
     }
-    const fixed = combine(liveHere, profileOf([...[...hidden, ...forced].map((h) => h.booked!), ...blocks.map((b) => b.booked)]), -1, o.strict ? undefined : () => undefined);
-    const pivot = o.prune && newLines.length > 0 ? pivotOn(fixed, id, held, newLines, opts, fifoLines, t, T_min) : Number.NEGATIVE_INFINITY;
+    const fixed = combine(
+      combine(liveHere, profileOf([...[...all, ...forced].map((h) => h.booked!), ...blocks.map((b) => b.booked)]), -1, o.strict ? undefined : () => undefined),
+      profileOf(priHere.map((h) => pri!.get(h.order_item_id)!.booked)),
+      1,
+    );
+    const pivot = o.prune && newLines.length > 0 && o.priority?.stations.has(id) !== true ? pivotOn(fixed, id, held, newLines, opts, fifoLines, t, T_min) : Number.NEGATIVE_INFINITY;
     const pruned: Booking[] = [];
     const free: EngineLine[] = [];
     for (const h of hidden) {
@@ -509,7 +535,7 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
     profiles[id] = out;
   }
   for (const [sid, w] of settled) profiles[sid] = w.snapshot();
-  return { profiles, moves, probes, replaced, loads, fallbacks };
+  return { profiles, moves, probes, replaced, loads, fallbacks, lands: new Map() };
 }
 
 // Task 13; ⚠️ 03a v1.2.10 §3.3 BQ-1, BQ-2, §3.5.3, §3.5.6 (STAB-6): pass 1 on a batch station at t is the load queue.

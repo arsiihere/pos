@@ -10,6 +10,7 @@ import type {
   ItemStartedPayload,
   ItemVoidedPayload,
   ItemsReleasedPayload,
+  LinePrioritizedPayload,
   OrderGroupPayload,
   OrderLinePayload,
   OrderLinesAddedLinePayload,
@@ -22,7 +23,7 @@ import type {
   StockTransferredOutPayload,
 } from '@pos/events';
 import { addInterval, occupancy, removeInterval, type Underflow } from './profile.js';
-import { applyMoves, capacityFor, flipPlacement, isFifo, isHidden, pass1, placementCap, sortUnfired, stationPolicy } from './replan.js';
+import { applyMoves, capacityFor, flipPlacement, isFifo, isHidden, placementCap, sortUnfired, stationPolicy } from './replan.js';
 import {
   applyPass1,
   boostOrder,
@@ -32,6 +33,7 @@ import {
   isEngineLine,
   lineShape,
   lineUnits,
+  pass1P,
   planNewLines,
   placeExpedites,
   replanCapacity,
@@ -46,7 +48,7 @@ import { BatchMaps, closeExitIds, exitedOrderIds, FoldScope, isOpen, isPlacehold
 import { ENGINE_REPLAY_EVENTS, type ReplayEventType } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
 import { initialEngineState } from './state.js';
-import { upkeepSlips } from './slip.js';
+import { priorityTerms, upkeepSlips } from './slip.js';
 import { isHiddenUnfired, stockOf } from './stock.js';
 
 // Payloads as validated by the @pos/events schemas (§4.2).
@@ -1057,7 +1059,7 @@ function foldStockSet(state: EngineState, event: PosEvent, strict: boolean): Eng
 // re-place nothing (AD-14).
 function replanStations(state: EngineState, station_ids: readonly string[], event: PosEvent, o: SequenceOptions): EngineState {
   if (station_ids.length === 0) return state;
-  const p1 = pass1(state, station_ids, [], event.recorded_at, { prune: false, strict: o.strict });
+  const p1 = pass1P(state, station_ids, [], event.recorded_at, { prune: false, strict: o.strict });
   return applyPass1(state, p1, event.event_id, o.strict);
 }
 
@@ -1157,8 +1159,13 @@ function foldItemsReleased(state: EngineState, event: PosEvent, o: FoldOptions):
       sources.add(line.group_id);
     }
     lines[id] = { ...line, ...patch, serve_mode: 'immediate', group_id: gid };
-    if (own) groups[gid] = { target_land_ms: src?.target_land_ms ?? order.target_land_ms, line_ids: [id], priority_land_ms: null, priority_delay_ms: null };
+    // ⚠️ 03a v1.2.10 §3.5.7 PR-4 "Sticky" (test 169): a released line keeps priority_at; its group copies the source's
+    // priority_delay_ms (so its onset is unchanged) and gets priority_land_ms at its first placement.
+    const delay = src?.priority_delay_ms ?? null;
+    if (own) groups[gid] = { target_land_ms: src?.target_land_ms ?? order.target_land_ms, line_ids: [id], priority_land_ms: null, priority_delay_ms: delay };
+    else delays.set(id, delay);
   };
+  const delays = new Map<string, number | null>();
   for (const line of released) leave(line, {}, true);
   for (const line of expedite) {
     const move = isHidden(state, line, t) && !isFifo(state, line.station_id);
@@ -1176,7 +1183,9 @@ function foldItemsReleased(state: EngineState, event: PosEvent, o: FoldOptions):
     const g = { ...ord.groups };
     for (const id of movable) {
       const l = next.lines[id]!;
-      g[l.group_id] = { target_land_ms: l.booked!.end + l.carry_ms, line_ids: [id], priority_land_ms: null, priority_delay_ms: null };
+      const land = l.booked!.end + l.carry_ms;
+      // PR-4 (m-3): the expedite placement is the first placement of a priority line's new group (its earliest fit).
+      g[l.group_id] = { target_land_ms: land, line_ids: [id], priority_land_ms: l.priority_at === null ? null : land, priority_delay_ms: delays.get(id) ?? null };
     }
     next = { ...next, orders: { ...next.orders, [oid]: { ...ord, groups: g } } };
   }
@@ -1332,6 +1341,49 @@ function foldAlertClosed(state: EngineState, event: PosEvent): EngineState {
   return state;
 }
 
+// ⚠️ 03a v1.2.10 §3.5.7 PR-4 (STAB-7; review B-2, B-3, m-4; re-review R-4, m-3): sets priority_at = recorded_at on each
+// listed line of the group still at `added` (a line already priority keeps its instant: sticky, never raised twice;
+// others are skipped; an absent order, group or id is the AD-8 no-op), sets priority_delay_ms = delay(g, recorded_at) =
+// E_w(g, recorded_at) − T(g) from the state before the placement (kept when already set; the payload's delay_ms and at_ms
+// are never read), drops priority_due[g] (the upkeep finds condition 1 failing), then re-plans the stations of g's hidden
+// priority lines: pass 1 with its priority step (plan.ts priorityPlan) places the priority groups first and stores g's
+// priority_land_ms. Frozen, fired and COOKING lines are fixed input (B-3). A group with no hidden priority line moves
+// nothing and keeps priority_land_ms null (m-3). Proposed (implementer) reading: with no waiting line left the delay is
+// measured on the group's live F (its estimate), never below 0.
+// The scope: LinePrioritized is in REPLANS (whole), so the upkeep compares the whole maps.
+function foldLinePrioritized(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
+  const p = event.payload as unknown as LinePrioritizedPayload;
+  const t = event.recorded_at;
+  checkStream(event, p.order_id, p.order_item_ids[0] ?? '');
+  const order = state.orders[p.order_id];
+  const group = order?.groups[p.group_id];
+  if (order === undefined || group === undefined || !orderInEngine(state, order, t)) return state;
+  const mark = p.order_item_ids.filter((id) => {
+    const l = state.lines[id];
+    return l !== undefined && l.order_id === p.order_id && l.group_id === p.group_id && l.stage === 'added' && !isPlaceholder(l) && l.priority_at === null;
+  });
+  if (mark.length === 0 && group.priority_delay_ms !== null) return state;
+  const terms = priorityTerms(state, p.order_id, p.group_id, t);
+  const est = terms === null ? Number.NEGATIVE_INFINITY : terms.waiting !== Number.NEGATIVE_INFINITY ? terms.waiting : terms.fixed;
+  const delay = est === Number.NEGATIVE_INFINITY ? 0 : Math.max(0, est - group.target_land_ms);
+  const lines = { ...state.lines };
+  for (const id of mark) lines[id] = { ...lines[id]!, priority_at: t };
+  const groups = { ...order.groups, [p.group_id]: { ...group, priority_delay_ms: group.priority_delay_ms ?? delay } };
+  let priority_due = state.priority_due;
+  if (priority_due[p.group_id] !== undefined) {
+    priority_due = { ...priority_due };
+    delete priority_due[p.group_id];
+  }
+  const next: EngineState = { ...state, lines, orders: { ...state.orders, [p.order_id]: { ...order, groups } }, priority_due };
+  const stations = new Set<string>();
+  for (const id of group.line_ids) {
+    const l = next.lines[id];
+    if (l !== undefined && l.priority_at !== null && isHidden(next, l, t)) stations.add(l.station_id);
+  }
+  // §3.3: a tick-written event; it does not refresh the order's clock (last_line_fold_at), as SlipWarned does not.
+  return stations.size === 0 ? next : replanStations(next, [...stations].sort(), event, o);
+}
+
 // §7.1: the event types whose fold always re-plans or may rewrite any line (FoldScope.whole); ItemAdded at awaiting 0 and
 // a StockReserved flip set it where they re-plan.
 const REPLANS: ReadonlySet<ReplayEventType> = new Set<ReplayEventType>([
@@ -1344,6 +1396,7 @@ const REPLANS: ReadonlySet<ReplayEventType> = new Set<ReplayEventType>([
   'OrderBoosted',
   'ItemsReleased',
   'StationCapacitySet',
+  'LinePrioritized', // §3.5.7 PR-4: it moves other orders' hidden lines (test 106)
 ]);
 
 function fold(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
@@ -1433,6 +1486,8 @@ function fold(state: EngineState, event: PosEvent, o: FoldOptions): EngineState 
       return foldStationCapacity(state, event, o);
     case 'StationPauseSet':
       return foldStationPause(state, event);
+    case 'LinePrioritized':
+      return foldLinePrioritized(state, event, o);
     default:
       replayType satisfies never;
       return state;
