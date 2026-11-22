@@ -1371,12 +1371,9 @@ function foldLinePrioritized(state: EngineState, event: PosEvent, o: FoldOptions
   const lines = { ...state.lines };
   for (const id of mark) lines[id] = { ...lines[id]!, priority_at: t };
   const groups = { ...order.groups, [p.group_id]: { ...group, priority_delay_ms: group.priority_delay_ms ?? delay } };
-  let priority_due = state.priority_due;
-  if (priority_due[p.group_id] !== undefined) {
-    priority_due = { ...priority_due };
-    delete priority_due[p.group_id];
-  }
-  let next: EngineState = { ...state, lines, orders: { ...state.orders, [p.order_id]: { ...order, groups } }, priority_due };
+  // priority_due[g] goes in the upkeep after the fold (condition 1 fails: every waiting line is priority now), which also
+  // keeps next_alert_due_at its minimum.
+  let next: EngineState = { ...state, lines, orders: { ...state.orders, [p.order_id]: { ...order, groups } } };
   const slot = new Set<string>();
   const batch: string[] = [];
   for (const id of group.line_ids) {

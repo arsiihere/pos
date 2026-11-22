@@ -201,7 +201,7 @@ describe('03a task 22a: the fires_alerts tick', () => {
 
   // ------------------------------------------------------------------------------------------------------- wiring
   it('[03a §6.2a] fires_alerts is registered right after fires', () => {
-    expect(registeredTicks().map((t) => t.name)).toEqual(['alerts', 'fires', 'fires_alerts']);
+    expect(registeredTicks().map((t) => t.name)).toEqual(['alerts', 'fires', 'fires_alerts', 'fires_alerts_priority']);
   });
 
   it('[03a §6.2a] a slip pass: 2 listOpen + raiseMany, the same count for 1 and 3 tables; SlipWarned carries the returned alert_id', async () => {

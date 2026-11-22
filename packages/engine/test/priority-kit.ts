@@ -44,6 +44,8 @@ export function configEvent(stations: Array<Partial<StationCfg> & { station_id: 
 export function checkUpkeep(s: EngineState): void {
   expect(s.slip_due).toEqual(slipDueOf(s));
   expect(s.priority_due).toEqual(priorityDueOf(s));
+  const vals = [...Object.values(s.slip_due), ...Object.values(s.priority_due)];
+  expect(s.next_alert_due_at).toBe(vals.length === 0 ? null : Math.min(...vals));
 }
 
 export function fold(state: EngineState, events: PosEvent[], log?: PosEvent[]): EngineState {

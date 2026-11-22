@@ -2,7 +2,7 @@ import { getTickIntents, initialEngineState, type Diagnostic, type EngineState }
 import { registerTick } from '../alerts/tick.js';
 import { registerBootStep, type BootContext } from '../lib/boot.js';
 import { setStockVersion } from '../sync/stock-version.js';
-import { droppedLineOf, firesAlertsTick } from './fires-alerts-tick.js';
+import { droppedLineOf, firesAlertsPriorityTick, firesAlertsTick } from './fires-alerts-tick.js';
 import { configStaleFor, firesTick } from './fires-tick.js';
 import { hostFlags, resetHostFlags } from './host-flags.js';
 import { applyUntrackedOp, logDiagnostics, noteUntrackedId } from './reducer.js';
@@ -122,4 +122,6 @@ export function registerEngineBootSteps(mono?: () => number): void {
   registerTick(firesTick);
   // §6.2a: fires_alerts right after fires.
   registerTick(firesAlertsTick);
+  // ⚠️ 03a v1.2.10 §6.2a step 7: the priority drafts in a transaction of their own, the pass's last of fires_alerts.
+  registerTick(firesAlertsPriorityTick);
 }

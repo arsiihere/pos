@@ -24,6 +24,8 @@ export {
   goesWith,
   MAX_DELAY_NO_LIMIT_MS,
   nextAlertDueAt,
+  nextPriorityDueAt,
+  nextSlipDueAt,
   planRelease,
   priorityDueOf,
   priorityRecheckAt,

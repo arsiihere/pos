@@ -4,7 +4,7 @@
 import { parseEvent } from '@pos/events';
 import { anItemAdded } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
-import { buildEngineState, getAlertIntents, MAX_DELAY_NO_LIMIT_MS, priorityRecheckAt, type EngineState } from '../src/index';
+import { buildEngineState, getAlertIntents, MAX_DELAY_NO_LIMIT_MS, nextAlertDueAt, priorityRecheckAt, type EngineState } from '../src/index';
 import { priorityDueOf } from '../src/slip';
 import { at, capacityEv, deepFreeze, doneEv, fireEv, fold, G, kitchen, landOf, M, orderEv, prioritizedEv, S, startEv, submit, Tg, type Item } from './priority-kit';
 
@@ -27,6 +27,12 @@ describe('[03a v1.2.10 §3.5.7 PR-3] the level crossing and the draft', () => {
     expect(s.lines.A!.fire_ms).toBe(at(0));
     expect(Tg(s, 'O1')).toBe(at(10));
     expect(s.priority_due).toEqual({ [G('O1')]: at(5) + 1 });
+    // The earliest term (slips: the immediate line has no slip): next_alert_due_at is the priority crossing.
+    expect(s.slip_due).toEqual({});
+    expect(s.next_alert_due_at).toBe(at(5) + 1);
+    expect(nextAlertDueAt(s, new Set(['t:O1']))).toBe(at(5) + 1); // the priority term ignores the skipped keys
+    expect(nextAlertDueAt(s, undefined, new Map([[G('O1'), at(9)]]))).toBe(at(9)); // parked: at its recheck_at
+    expect(nextAlertDueAt(s, undefined, new Map([[G('O1'), null]]))).toBeNull();
     expect(drafted(s, at(5))).toEqual([]);
     expect(waits(s, at(5))).toEqual([]);
     const a = getAlertIntents(s, at(5) + 1);

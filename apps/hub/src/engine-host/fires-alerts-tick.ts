@@ -1,4 +1,4 @@
-import { getAlertIntents, nextAlertDueAt, pressureBand, type AlertIntents, type Diagnostic, type EngineState } from '@pos/engine';
+import { getAlertIntents, nextPriorityDueAt, nextSlipDueAt, pressureBand, type AlertIntents, type Diagnostic, type EngineState } from '@pos/engine';
 import type { EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { kindOf } from '../alerts/kinds.js';
@@ -47,6 +47,7 @@ export function bindFiresAlertsTick(deps: { db: Database.Database }, log?: WarnL
   hostFlags.overload_open = new Set();
   hostFlags.overload_skipped = new Set();
   hostFlags.dropped_lines = [];
+  hostFlags.priority_parked = new Map();
 }
 
 // 01a §2: a hub with no engine steps holds {}.
@@ -74,6 +75,8 @@ export function noteAlertFacts(state: unknown, appended: readonly PosEvent[]): v
     if (fact !== null) hostFlags.dropped_lines.push(fact);
   }
   if (appended.some((e) => e.event_type === 'BusinessDayClosed')) hostFlags.day_closed = true;
+  // ⚠️ 03a v1.2.10 §3.5.7 PR-3 "Host" (final check FC-2): any commit un-parks every parked priority group.
+  if (appended.length > 0 && hostFlags.priority_parked.size > 0) hostFlags.priority_parked = new Map();
   if (hostFlags.skipped.size > 0) {
     for (const e of appended) {
       if (e.stream_type !== 'order') continue;
@@ -217,7 +220,8 @@ export const firesAlertsTick: TickDef = {
     const overload = overloadPlan(state, getAlertIntents(state, now).overload, now, hostFlags.overload_open, kindOf(ENGINE_ALERT_KINDS.overload) !== undefined);
     if (hostFlags.reconcile || hostFlags.day_closed || hostFlags.dropped_lines.length > 0) return true;
     if (overload.raise.length > 0 || overload.close.length > 0) return true;
-    const at = nextAlertDueAt(state, hostFlags.skipped);
+    // ⚠️ 03a v1.2.10 §6.2a step 7: the slip half only; the priority half is the priority tick's own due (below).
+    const at = nextSlipDueAt(state, hostFlags.skipped);
     return at !== null && now >= at;
   },
   intents(tx, state, now) {
@@ -414,4 +418,39 @@ function droppedInput(fact: DroppedLine, kind: ReturnType<typeof kindOf>): Raise
     display: { kind_label_key: kind.labels.lock },
     dedupe_key: fact.batch ? `engine_line_dropped:${fact.order_id}:${fact.order_item_id}` : `engine_line_dropped:${fact.order_item_id}`,
   };
+}
+
+// ⚠️ 03a v1.2.10 §3.5.7 PR-3, §6.2a step 7 (STAB-7; review B-1, m-5; re-review R-2; final check FC-2): priority, last.
+// Registered right after fires_alerts, so its drafts are the pass's last transaction, one of their own (01d isolation: a
+// throw in the slip transaction does not stop it, and a throw here rolls back no slip). From the state the pass reads,
+// getAlertIntents(state, now).prioritized → one LinePrioritized draft each; 0 statements (no alert, no receiver, no read).
+// Written whatever the table key's `skipped`, the slip threshold or an open slip alert.
+// - due (in memory, no statement): `now ≥ nextPriorityDueAt(state, priority_parked)` (a parked group at its recheck_at);
+//   then condition 3 is evaluated for every group with priority_due ≤ now (getAlertIntents, pure): the groups that fail
+//   are parked with their recheck_at, and the pass is due only when one drafts, so an un-park never costs an empty pass.
+// - priority_parked is cleared by any commit (noteAlertFacts) and at a restart.
+export const firesAlertsPriorityTick: TickDef = {
+  name: 'fires_alerts_priority',
+  due(db, state, now) {
+    if (!hosts.has(rawDbOf(db)) || !isEngineState(state)) return false;
+    const at = nextPriorityDueAt(state, hostFlags.priority_parked);
+    if (at === null || now < at) return false;
+    const intents = getAlertIntents(state, now);
+    park(intents.priority_waits);
+    return intents.prioritized.length > 0;
+  },
+  intents(tx, state, now) {
+    if (!hosts.has(tx.db) || !isEngineState(state)) return [];
+    const intents = getAlertIntents(state, now);
+    const waits = intents.priority_waits;
+    tx.onCommit(() => park(waits));
+    return intents.prioritized.map((d) => ({ ...d, payload: { ...d.payload }, occurred_at: now, actor_id: null, device_id: 'hub' }));
+  },
+};
+
+function park(waits: AlertIntents['priority_waits']): void {
+  if (waits.length === 0) return;
+  const next = new Map(hostFlags.priority_parked);
+  for (const w of waits) next.set(w.group_id, w.recheck_at);
+  hostFlags.priority_parked = next;
 }
