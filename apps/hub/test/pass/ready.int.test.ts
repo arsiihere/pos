@@ -258,6 +258,27 @@ describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
     expect(eventCount()).toBe(before);
   });
 
+  it('[03b v1.0.11 §3.5 step 5, #85] a split line\'s parts are one card entry with the summed units; separate lines stay apart; statements unchanged', async () => {
+    openDay(hub);
+    const cookWho = await cookSignedIn();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    const part = (order_item_id: string, part_of: string) => ({ order_item_id, item_id: FX.naan, item: { part_of } });
+    const order_id = appendOrder(hub, {
+      order_type: 'dine_in',
+      seating_id: 'SEAT1',
+      lines: [part('N', 'N'), part('N-p2', 'N'), { order_item_id: 'K', item_id: FX.piece }, part('N-p3', 'N'), { order_item_id: 'M', item_id: FX.naan }],
+    }).order_id;
+    cook(order_id, ['N', 'N-p2', 'N-p3', 'M']);
+    cook(order_id, ['K']);
+    const reply = await ready(cookWho, order_id, { counted: true });
+    expect(reply.status, JSON.stringify(reply.error)).toBe(200);
+    expect(lastStatements).toBe(4);
+    expect(JSON.parse(alertRow(reply.result!.alert_id as string).details_json!)).toEqual({
+      identifier: 'T2',
+      lines: [naan(3), { name: 'Chicken Karahi', quantity: 1, state: 'ready' }, naan()],
+    });
+  });
+
   it('[03b #20] all-digit table name → table_code and identifier "T4"; default window_ms 60 000', async () => {
     openDay(hub);
     withConfig((c) => ({ ...c, floors: c.floors.map((f) => ({ ...f, tables: f.tables.map((t) => (t.table_id === FX.table ? { ...t, name: '4' } : t)) })) }));

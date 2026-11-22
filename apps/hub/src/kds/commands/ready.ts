@@ -86,8 +86,8 @@ export interface PassOrder {
   table_code: string | null;
   /** §3.1 identifier text, ≤ 40 (D-2 `details.identifier`) */
   identifier: string;
-  /** 03b v1.0.10 §3.5 step 5: each line's name and live units (`order_lines`, same statement) */
-  names: Map<string, { name: string; units: number }>;
+  /** 03b v1.0.10 §3.5 step 5: each line's name, live units and (v1.0.11, STAB-5) `part_of` (`order_lines`, same statement) */
+  names: Map<string, { name: string; units: number; part_of: string | null }>;
 }
 
 /**
@@ -98,14 +98,16 @@ export function passOrderFacts(ctx: CommandCtx, order_id: string): PassOrder {
   const row = ctx.tx.db
     .prepare(
       `SELECT order_type, placed_by, business_date, token, car_number, car_type,
-              (SELECT json_group_array(json_object('id', l.order_item_id, 'name', l.name, 'units', l.units - l.removed_units - l.voided_units))
+              (SELECT json_group_array(json_object('id', l.order_item_id, 'name', l.name, 'units', l.units - l.removed_units - l.voided_units, 'part_of', l.part_of))
                  FROM order_lines l WHERE l.order_id = orders.order_id) AS lines_json
          FROM orders WHERE order_id = ?`,
     )
     .get(order_id) as OrderFacts | undefined;
   // In the engine but no 02b row (an order logged before 02b): 02b orders are the only orders a Pass serves.
   if (row === undefined) throw new DomainError('ORDER_NOT_IN_ENGINE', { order_id });
-  const names = new Map((JSON.parse(row.lines_json) as Array<{ id: string; name: string; units: number }>).map((l) => [l.id, { name: l.name, units: l.units }] as const));
+  const names = new Map(
+    (JSON.parse(row.lines_json) as Array<{ id: string; name: string; units: number; part_of: string | null }>).map((l) => [l.id, { name: l.name, units: l.units, part_of: l.part_of }] as const),
+  );
   if (row.order_type !== 'dine_in') {
     return { order_type: row.order_type, placed_by: row.placed_by, table_id: null, table_code: null, identifier: identifierText(identifierOf(ctx, row, null)), names };
   }
@@ -171,10 +173,18 @@ function raiseReady(
       ? ({ kind: 'table_team', table_id: order.table_id, depth: 'direct' } as const)
       : ({ kind: 'person', staff_id: order.placed_by } as const);
   const window_ms = branchConfig()?.engine_settings.ready_window_ms ?? HUB_ENGINE_SETTING_DEFAULTS.ready_window_ms;
-  const cardLines = o.lines.slice(0, CARD_LINES_MAX).map((id) => {
+  // ⚠️ 03b v1.0.11 §3.5 step 5 (STAB-5): a split line's parts (one `part_of`) are one entry with their summed units, at
+  // the first part's place; the cap counts entries
+  const entries = new Map<string, { name: string; quantity: number; state: string }>();
+  for (const id of o.lines) {
     const n = order.names.get(id);
-    return { name: n?.name ?? id, quantity: Math.max(1, n?.units ?? 1), state: 'ready' };
-  });
+    const key = n?.part_of ?? id;
+    const units = Math.max(1, n?.units ?? 1);
+    const had = entries.get(key);
+    if (had === undefined) entries.set(key, { name: n?.name ?? id, quantity: units, state: 'ready' });
+    else had.quantity += units;
+  }
+  const cardLines = [...entries.values()].slice(0, CARD_LINES_MAX);
   const raised = alerts.raise(ctx, {
     kind: READY_TO_SERVE_KIND,
     subject: { stream_type: 'order', stream_id: o.order_id },
