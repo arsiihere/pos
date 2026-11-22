@@ -14,7 +14,7 @@
 //   carry ids, outcomes and codes — never a token, a buyer field or a request body.
 // Seams for phase 0b (plan PL-16, PL-18): `loadSubmission(row)` and `onAnswer(row, answer)` are injected;
 // task 29b supplies the real ones (`fiscalWorkerSeams`, end of file: events, invoice_buyers); P0.18 adds the boot call.
-import { currencyExponent } from '@pos/domain';
+import { currencyExponent, groupInvoiceLines } from '@pos/domain';
 import {
   draftOf,
   FiscalNumberAssigned,
@@ -520,7 +520,8 @@ function loadSubmissionFromHub(deps: SeamDeps, row: FiscalWorkRow): LoadedSubmis
         invoice_ref: inv.invoice_ref,
         issued_at: inv.issued_at,
         order_type: inv.order_type,
-        lines: inv.lines.map((l) => ({
+        // 05 v1.0.33 §3.15 (STAB-5): a split line's parts as one entry
+        lines: groupInvoiceLines(inv.lines).map((l) => ({
           order_item_id: l.order_item_id,
           item_id: l.item_id,
           tax_profile_id: l.tax_profile_id,
