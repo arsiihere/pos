@@ -63,26 +63,37 @@ the normal gate (03a AD-32).
    reviews; README rows point at them; the re-review's "Resolution (2026-11-23, re-review)" table. Docs only.
    `[00 v1.15 §4.7; 01b v1.10.2 §6.10; 03a v1.2.9; 01a v2.7.5; 01c v1.1.4; 01b v1.10.3; 03b v1.0.14; review; re-review]`
 
+## Build status (chunk 1, 2026-11-23)
+
+Phases 1–4 built (tasks 1–3, 5–13), full gate green 2026-11-23. **Task 4 is moved to phase 7** (build it with task 24 /
+26): adding `max_delay_default_ms` to `BRANCH_ENGINE_SETTING_KEYS` makes the cloud repository select and update
+`branch_engine_settings.max_delay_default_ms`, a column that only migration `0017_max_delay.sql` (task 24) adds, so the
+gate would go red between the two; until then the cloud key-set test (`branch-settings-engine.int.test.ts`) exempts the
+snapshot's optional `max_delay_default_ms`, and task 26 removes that exemption. Full gate 2026-11-23: 742 files passed
+(1 skipped), 7 951 tests passed (1 skipped, 1 todo). Test notes: #151 asserts the proposal's single_tap rounds (H alone at +12, since the
+fourth round fires at +9 before H is placed; "the same round membership" holds for every earlier round); #146's held
+load may land up to `keep` earlier by BQ-2's own keep cushion (asserted: never later, members and name kept).
+
 ## Phase 1 — events and types (`@pos/events`, `@pos/domain`)
 
-1. **`ItemAdded.max_delay_ms?`** — `z.number().int().min(60000).max(1800000).nullable().optional()` on `ItemAdded.v1.ts`
+1. **[x] (`01fcf3ef`) `ItemAdded.max_delay_ms?`** — `z.number().int().min(60000).max(1800000).nullable().optional()` on `ItemAdded.v1.ts`
    (additive, no upcaster). Test 01c #130 (parses with 60 000, 1 800 000, `null`, absent; refuses `0`, `59999`,
    `1800001`, `7200000`, `-1`, `1.5`). `[01c v1.1.4 §4.3; 03a v1.2.10 §3.5.7 PR-1; STAB-7; review M-7; re-review F-1]`
-2. **`LinePrioritized` v1 schema only** — `{ order_id, group_id, order_item_ids: string[] (≥ 1), delay_ms, at_ms }` on
+2. **[x] (`e1092064`) `LinePrioritized` v1 schema only** — `{ order_id, group_id, order_item_ids: string[] (≥ 1), delay_ms, at_ms }` on
    the order stream (`LinePrioritized.v1.ts`, registry, fixture). Not on `ENGINE_REPLAY_EVENTS` yet (task 16), and no
    writer yet (task 23), so test 94 stays green. Test 03a #160 (fixture parse part) and the events registry test.
    `[03a v1.2.10 §4.2, §3.5.7 PR-3; STAB-7]`
-3. **Snapshot keys** — `items[].max_delay_ms` (`number | null`), `items[].max_delay_unlimited` (`boolean`),
+3. **[x] (`a66643fc`) Snapshot keys** — `items[].max_delay_ms` (`number | null`), `items[].max_delay_unlimited` (`boolean`),
    `engine_settings.max_delay_default_ms` (`number | null`), all optional in `config.ts` (V4). The hub reader in
    `branchConfig()`: a **missing** key → `null` / `false` / `300000`; an explicit `null` default stays `null` (never
    `?? 300000`). Test 01a #204 (parser and reader part, both fixtures). `[01a v2.7.5 §4.3 MD-5; STAB-7; review M-8]`
-4. **`BranchEngineSettings` wire** (01b owner settings) and `BRANCH_ENGINE_SETTING_KEYS` gain
+4. **[ ] (deferred to phase 7, with task 24 / 26) `BranchEngineSettings` wire** (01b owner settings) and `BRANCH_ENGINE_SETTING_KEYS` gain
    `max_delay_default_ms: number | null` (60 000–1 800 000; re-review F-1). Test 01b #115 (wire and versions part), 01a #204 (wire
    part). `[01b v1.10.3 §6.10; 01a v2.7.5 §5.2a MD-2; STAB-7; review M-9]`
 
 ## Phase 2 — engine state v5 first (`packages/engine`)
 
-5. **`ENGINE_STATE_VERSION` 4 → 5 with every v5 field** — failing #160 (version part: a v4 snapshot is skipped and the
+5. **[x] (`2c9b2b77`) `ENGINE_STATE_VERSION` 4 → 5 with every v5 field** — failing #160 (version part: a v4 snapshot is skipped and the
    log replayed) and #56 (v5 key set): `EngineLine.max_delay_ms` (the `ItemAdded` copy, absent → `null`),
    `EngineLine.priority_at` (`null`), `EngineLine.arrived_at` (the listing event's `recorded_at`),
    `groups[g].priority_land_ms` / `priority_delay_ms` (`null`), `EngineState.priority_due` (`{}`), all folded with these
@@ -92,10 +103,10 @@ the normal gate (03a AD-32).
 
 ## Phase 3 — engine A: the batch round queue (`packages/engine`, 03a v1.2.10 STAB-6)
 
-6. **Test kit + #145 "3 now, 7 next"** — extend `packages/engine/test/batch-kit.ts` (capacity 8, cook 3 min, freeze
+6. **[x] (`54590042`) Test kit + #145 "3 now, 7 next"** — extend `packages/engine/test/batch-kit.ts` (capacity 8, cook 3 min, freeze
    2 min, keep 1 min, freshness 2 min, per-unit parts). #145 passes on v1.2.7 with parts (proposal §2), so it pins C.
    `[03a v1.2.10 §3.3 BQ-6, §10.3g #145]`
-7. **Queue walk in `batchPass1`** — failing #143 (rounds in arrival order through a slide), #144 (a hidden load is
+7. **[x] (`d9a75745`) Queue walk in `batchPass1`** — failing #143 (rounds in arrival order through a slide), #144 (a hidden load is
    never broken up; snapshot + replay = full replay), #147 (late queue keeps order whatever the weights; `capped`,
    `station_overload`). Rewrite `replan.ts` `batchPass1` as the BQ-2 walk over `(booked.start, load_id)`: `d(b)` (J7),
    `lo(b)`, `latestFit(lo, d − keep) ?? latestFit(lo, d) ?? earliestFit(max(t, s_prev − max_prep))`; drop the batch
@@ -103,28 +114,28 @@ the normal gate (03a AD-32).
    "a re-plan re-forms hidden loads …" and "the overload search keeps loads whole …"; rewrite `stock-folds.test.ts`
    "a partial void … re-forms the load …" and `fold-cost.test.ts` "naming: a batch flip re-forms …".
    `[03a v1.2.10 §3.3 BQ-1, BQ-2, §3.5.3, §3.5.6, §12.3 G4-1 #10; review m-12]`
-8. **Membership and pull-in** — #146 (new lines never jump the queue; the idle-gap case before a pickup-held load,
+8. **[x] (`420e417a`) Membership and pull-in** — #146 (new lines never jump the queue; the idle-gap case before a pickup-held load,
    Q2), #148 without its priority part (a void keeps the load; room not refilled from later loads, Q1; the pull-in order:
    queue order, then the arrival key, M-12; *re-review m-7:* "a priority member is pulled first" needs priority and is
    built in task 17), #150 (`StockAdded` program flip). Fix what fails.
    `[03a v1.2.10 §3.3 BQ-3, BQ-4, §3.6.1 item 1; review M-12]`
-9. **Capacity shed as a cascade** — failing #149 (non-priority part): BQ-5 keeps members by the arrival key
+9. **[x] (`b5b9650b`) Capacity shed as a cascade** — failing #149 (non-priority part): BQ-5 keeps members by the arrival key
    (`arrived_at`, `order_id`, index in `line_ids`) up to the capacity; the rest cascade down the queue, each over-full
    load passing its latest member on; a new load after the last queued load; a frozen load stays whole (P4) (Q4).
    `[03a v1.2.10 §3.10 BQ-5; review M-2, M-3, m-14]`
-10. **Regression** — #151 (`single_tap` gives the same rounds), the arrival-order property of #143 on the #59 harness
+10. **[x] (`f8872eef`) Regression** — #151 (`single_tap` gives the same rounds), the arrival-order property of #143 on the #59 harness
     (with its BQ-1 scope exemptions, m-2), the full engine suite, the simulator scenarios.
     `[03a v1.2.10 §10.3g #143, #151; review m-2]`
 
 ## Phase 4 — 02b C: split per unit on batch stations (`apps/hub/src/orders/expand-parts.ts`)
 
-11. **Batch line split** — failing #37 (batch case now split) and #56 (`eta-preview` and `SubmitOrder`: naan ×10 on a
+11. **[x] (`51b78db7`) Batch line split** — failing #37 (batch case now split) and #56 (`eta-preview` and `SubmitOrder`: naan ×10 on a
     batch station whose next load holds 5 → 3 parts at the earlier `eta_ms`, 7 at the next); `expandParts` station
     type `=== 'slot'` → `∈ {slot, batch}`. `[02b v1.0.23 §3.2 step 4a; 03a v1.2.10 To 02 #12; STAB-6]`
-12. **Deal with a batch part** — failing #45 (a deal ×2 whose chosen part cooks on a batch station is split per deal
+12. **[x] (`13e785a4`) Deal with a batch part** — failing #45 (a deal ×2 whose chosen part cooks on a batch station is split per deal
     unit); same change for the deal's chosen part. A part of quantity > 1 inside one deal unit and an option child of
     quantity > 1 are not split (Q5, m-1). `[02b v1.0.23 §3.2 step 4a; STAB-6]`
-13. **Cart row** — #57 client (naan ×10 → "3 ready ~2:10 PM · 7 ready ~2:14 PM"); expected to pass with the v1.0.21
+13. **[x] (`9fdc6e10`) Cart row** — #57 client (naan ×10 → "3 ready ~2:10 PM · 7 ready ~2:14 PM"); expected to pass with the v1.0.21
     code. `[02b v1.0.23 §8, #57]`
 
 ## Phase 5 — engine STAB-7: due map, fold, placement, ordering (`packages/engine`, 03a v1.2.10 §3.5.7)
