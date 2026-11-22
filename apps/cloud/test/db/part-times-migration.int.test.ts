@@ -50,9 +50,10 @@ describe('[01a v2.7.3 §5.2a, #201] cloud migration 0016_part_times.sql (STAB-5)
   it('[01a #201; AD-9] 0016 bumps config_version for every branch with an engine-settings row, only those', async () => {
     const { rows } = await q(`SELECT branch_id, config_version FROM branches WHERE branch_id IN ('b0', 'b1', 'b2') ORDER BY branch_id`);
     expect(rows.map((r) => [r.branch_id, Number(r.config_version)])).toEqual([
-      ['b0', preVersions.b0],
-      ['b1', preVersions.b1! + 1],
-      ['b2', preVersions.b2! + 1],
+      // ⚠️ 01a v2.7.5 MD-3 (STAB-7): the whole folder runs, so 0017_max_delay.sql bumps every branch once more
+      ['b0', preVersions.b0! + 1],
+      ['b1', preVersions.b1! + 2],
+      ['b2', preVersions.b2! + 2],
     ]);
   });
 });
