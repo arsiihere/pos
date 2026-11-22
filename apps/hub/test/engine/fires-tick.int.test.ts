@@ -62,6 +62,9 @@ describe('03a task 22: the fires tick', () => {
     unregisterTick('kds_presence');
     // 05 §3.15 (task 31): registerBilling adds the fiscal_outbox_stuck tick (1 indexed SELECT per pass) to every test hub too; this file counts the ticks
     unregisterTick('fiscal_outbox_stuck');
+    // ⚠️ 03a v1.2.10 §6.2a step 7: the priority tick writes a LinePrioritized for a line 30 min late (No limit, the
+    // ItemAdded copy is absent until 02b v1.0.24); this file counts the fires tick's transactions on such lines.
+    unregisterTick('fires_alerts_priority');
     // 0006 seeds the no_approver flag dirty (01d's flag pass): start clean, so 01d's tick is idle (1 SELECT per pass).
     hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
     log.error.mockClear();

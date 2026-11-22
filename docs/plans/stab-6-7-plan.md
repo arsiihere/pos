@@ -74,6 +74,10 @@ snapshot's optional `max_delay_default_ms`, and task 26 removes that exemption. 
 fourth round fires at +9 before H is placed; "the same round membership" holds for every earlier round); #146's held
 load may land up to `keep` earlier by BQ-2's own keep cushion (asserted: never later, members and name kept).
 
+## Build status (chunk 2, 2026-11-23)
+
+Phases 5–6 built (tasks 14–23), full gate green 2026-11-23: 749 files passed (1 skipped), 7 998 tests passed (1 skipped, 1 todo). Commits 14–16 were first made on `spec-05a` by a checkout switch and cherry-picked here (new hashes below). #172 (task 22) is in `test:perf` only and not run here (owner, real disk); a 600-order smoke of the same option runs in the normal gate. The priority drafts are written by a second tick `fires_alerts_priority` registered right after `fires_alerts` (its own transaction, the pass's last).
+
 ## Phase 1 — events and types (`@pos/events`, `@pos/domain`)
 
 1. **[x] (`01fcf3ef`) `ItemAdded.max_delay_ms?`** — `z.number().int().min(60000).max(1800000).nullable().optional()` on `ItemAdded.v1.ts`
@@ -140,7 +144,7 @@ load may land up to `keep` earlier by BQ-2's own keep cushion (asserted: never l
 
 ## Phase 5 — engine STAB-7: due map, fold, placement, ordering (`packages/engine`, 03a v1.2.10 §3.5.7)
 
-14. **`priority_due`, the crossing and the drive check** — failing #153 (engine part, with the B-1 cases: a slip already
+14. **[x] (`c8e5e732`)** **`priority_due`, the crossing and the drive check** — failing #153 (engine part, with the B-1 cases: a slip already
     open, `slip_threshold_ms: null`), #166 (boundary `>`, 60 000 minimum, 1 800 000 maximum), #167 (far-cap part: `null`
     crosses at `MAX_DELAY_NO_LIMIT_MS`), #168 (engine parts (a)–(c): the drive check `E_w(now) > F(now)` on the live
     estimate, a sliding fired-not-started load and an overrun count; a failing group is returned in `priority_waits`
@@ -154,10 +158,10 @@ load may land up to `keep` earlier by BQ-2's own keep cushion (asserted: never l
     `next_alert_due_at` = min-of-both-maps part is **not** asserted here; it is built in task 23 with the writer and the
     host parking, so no hub pass is due for a draft nobody writes (test 93 stays green).
     `[03a v1.2.10 §3.5.7 PR-1–PR-3, §3.8, §3.3; review B-1, M-7, M-10, M-11, m-3; re-review R-2, R-3, F-1]`
-15. **Priority order key** — unit test: the priority order (the earliest lateness onset `max(priority_at − priority_delay_ms, arrival(g))`, *final check FC-1*: `arrival(g)` = the first listed line's `arrived_at`;
+15. **[x] (`0ffeb904`)** **Priority order key** — unit test: the priority order (the earliest lateness onset `max(priority_at − priority_delay_ms, arrival(g))`, *final check FC-1*: `arrival(g)` = the first listed line's `arrived_at`;
     then the arrival key, then `order_item_id`) as a pure comparator used by tasks 16–19; the tick-phase case of
     #167 at comparator level (fails on "larger delay first") and its FC-1 jump case (fails without the `arrival` term). `[03a v1.2.10 §3.5.7 PR-4; review M-10; re-review R-1]`
-16. **`LinePrioritized` fold + replay list, slot placement with `priority_land_ms`** — failing #152 (the owner's
+16. **[x] (`e1046b48`)** **`LinePrioritized` fold + replay list, slot placement with `priority_land_ms`** — failing #152 (the owner's
     example), #154 (sticky; no second event; `delay_ms` / `at_ms` not read; Start ends it), #176 (a group with no hidden line keeps
     `priority_land_ms: null` until a capacity change makes a frozen priority line hidden, slot part), #157 (nothing cooking or frozen moves), #162 (slot part: a frozen line of
     another order is never moved), #169 (release keeps priority). In the **same task**: `LinePrioritized` on
@@ -169,7 +173,7 @@ load may land up to `keep` earlier by BQ-2's own keep cushion (asserted: never l
     each as one group toward `priority_land_ms`; a forced later land re-loops the group's other stations.
     `[03a v1.2.10 §3.5.7 PR-4, PR-5, PR-7, §3.5.3, §3.9, §3.12; review B-2, B-3, M-13; re-review R-4, m-3, m-7]`
     *Re-review m-7:* #155 moved to task 17, because its naan is a **batch** priority line (batch placement is task 17).
-17. **Batch priority with the BQ walk** — failing #155 (fragile and together across two re-plans, `priority_land_ms`,
+17. **[x] (`977dbe5d`)** **Batch priority with the BQ walk** — failing #155 (fragile and together across two re-plans, `priority_land_ms`,
     with the re-review R-4 frozen-sibling and R-2 sliding-sibling cases; moved from task 16, m-7), #148 (priority part:
     a priority member within the window is pulled in first; moved from task 8, m-7), #175 (cascade edge cases: an
     all-priority full load is skipped, BQ-5 sheds the lowest-ranked priority member last; re-review m-2), #156 (cascade
@@ -177,23 +181,23 @@ load may land up to `keep` earlier by BQ-2's own keep cushion (asserted: never l
     keeps its members), #163 (arrival key, not join order), #164 (idle gap before a held round), #165 (fire, not end),
     #149 (priority part: BQ-5 keeps priority members first). `[03a v1.2.10 §3.5.7 PR-4 (batch), PR-5, §3.3 BQ-4 (g),
     §3.6.1 item 1, §3.10 BQ-5; review B-2, B-3, M-2–M-6, M-12; re-review R-2, R-4, m-1, m-2, m-7]`
-18. **Weights, boost and the order among priority groups** — failing #159 (weights order only non-priority lines; a
+18. **[x] (`44ed0089`)** **Weights, boost and the order among priority groups** — failing #159 (weights order only non-priority lines; a
     boost may still go ahead, Q13), #167 (order part: the earliest onset first, ties by arrival; the tick-phase case) and
     #174 (sustained-overload property: a priority group is overtaken only by an earlier onset; "Sticky" causes; *FC-1:* capacity drops in the harness, "a group listed after A's onset never overtakes A" with `arrival` from the state).
     `[03a v1.2.10 §3.5.7 PR-4, PR-6; review M-10; re-review R-1]`
-19. **Auto-fill** — failing #158: `tick.ts` auto-fill takes eligible priority lines first, in the priority order (earliest
+19. **[x] (`d6ea5287`)** **Auto-fill** — failing #158: `tick.ts` auto-fill takes eligible priority lines first, in the priority order (earliest
     onset first), each from `d_p − max_early_ms`. `[03a v1.2.10 §3.6.1 item 2; review B-2, M-10]`
-20. **Views** — failing #161: `stationView`, `stationPlan`, `groupReadiness` carry `priority { since_ms, minutes_late }`
+20. **[x] (`dfa28bfb`)** **Views** — failing #161: `stationView`, `stationPlan`, `groupReadiness` carry `priority { since_ms, minutes_late }`
     on priority lines only (`minutes_late = max(0, ceil((estimate − T) / 60 000))`, 0 for a group on time again).
     `[03a v1.2.10 §3.5.7 PR-8, §6.1h; review m-7]`
-21. **Paused, stock, type change** — failing #170. `[03a v1.2.10 §3.5.7 PR-9; review m-15]`
-22. **Simulator scenario** — #172 in the `test:perf` project only (report: priority share, p95 / max delay, overtakes by onset;
+21. **[x] (`613280a6`)** **Paused, stock, type change** — failing #170. `[03a v1.2.10 §3.5.7 PR-9; review m-15]`
+22. **[x] (`44112286`)** **Simulator scenario** — #172 in the `test:perf` project only (report: priority share, p95 / max delay, overtakes by onset;
     assert only the far-cap bound, for groups a waiting line drives (re-review m-4), and live = replay); its numbers go to the status board after the owner's run.
     `[03a v1.2.10 §10.6, #172; review M-10; re-review m-4]`
 
 ## Phase 6 — hub writer (`apps/hub/src/engine-host/fires-alerts-tick.ts`), after the fold
 
-23. **Write `LinePrioritized` in `fires_alerts`** — failing #153 (hub part: a `skipped` key still gets its
+23. **[x] (`2d2dc355`)** **Write `LinePrioritized` in `fires_alerts`** — failing #153 (hub part: a `skipped` key still gets its
     `LinePrioritized`, `nextAlertDueAt` keeps the priority term) and #173 (the priority transaction is the pass's last;
     the slip carries the pre-priority estimate; isolation). Step 7 of 03a §6.2a: one transaction of its own, 0
     statements; an idle kitchen still opens none. In the same task `next_alert_due_at` becomes the minimum of

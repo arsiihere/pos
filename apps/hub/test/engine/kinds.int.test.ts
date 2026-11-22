@@ -222,7 +222,7 @@ describe('03a task 23: the engine alert kinds', () => {
 
   // ------------------------------------------------------------------------------------------------ registration
   it('[03a §6.4] the three kinds are registered at module load with the §3.8 / §3.10 / AD-8 definitions', () => {
-    expect(registeredTicks().map((t) => t.name)).toEqual(['alerts', 'fires', 'fires_alerts']);
+    expect(registeredTicks().map((t) => t.name)).toEqual(['alerts', 'fires', 'fires_alerts', 'fires_alerts_priority']);
     const slip = kindOf(ENGINE_ALERT_KINDS.slip)!;
     expect(slip).toBe(SLIP_WARNING);
     expect(slip).toMatchObject({

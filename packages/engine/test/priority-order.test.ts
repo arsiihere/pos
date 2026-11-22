@@ -106,7 +106,9 @@ function patch(s: EngineState, id: string, p: { since: number; delay: number; la
     lines: { ...s.lines, [id]: { ...l, priority_at: p.since, ...(p.arrived === undefined ? {} : { arrived_at: p.arrived }) } },
     orders: { ...s.orders, [l.order_id]: { ...o, groups: { ...o.groups, [l.group_id]: { ...o.groups[l.group_id]!, priority_delay_ms: p.delay, priority_land_ms: p.land } } } },
   };
-  return deepFreeze({ ...next, priority_due: priorityDueOf(next) });
+  const priority_due = priorityDueOf(next);
+  const vals = [...Object.values(next.slip_due), ...Object.values(priority_due)];
+  return deepFreeze({ ...next, priority_due, next_alert_due_at: vals.length === 0 ? null : Math.min(...vals) });
 }
 // A re-plan of S1 at t: a void of an unrelated line placed after the others.
 function replan(s: EngineState, t: number): EngineState {

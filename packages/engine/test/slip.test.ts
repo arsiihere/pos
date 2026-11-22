@@ -86,7 +86,8 @@ function checkUpkeep(s: EngineState): void {
   expect(s.slip_due).toEqual(slipDueOf(s));
   // ⚠️ 03a v1.2.10 §3.5.7 PR-3 (test 106, review m-6, re-review R-3): the per-group priority_due upkeep = a full recompute.
   expect(s.priority_due).toEqual(priorityDueOf(s));
-  const vals = Object.values(s.slip_due);
+  // ⚠️ 03a v1.2.10 §3.5.7 PR-3 (B-1, task 23): next_alert_due_at = the minimum of both maps.
+  const vals = [...Object.values(s.slip_due), ...Object.values(s.priority_due)];
   expect(s.next_alert_due_at).toBe(vals.length === 0 ? null : Math.min(...vals));
 }
 
@@ -536,7 +537,12 @@ function check92(s: EngineState): void {
   checkPriority92(s);
   const due = s.next_alert_due_at;
   if (due === null) return;
-  const key = Object.keys(s.slip_due).find((k) => s.slip_due[k] === due)!;
+  const key = Object.keys(s.slip_due).find((k) => s.slip_due[k] === due);
+  // A priority term at the minimum: checkPriority92 checks its group is listed at it (and not at − 1).
+  if (key === undefined) {
+    expect(Object.values(s.priority_due)).toContain(due);
+    return;
+  }
   const has = (a: AlertIntents): boolean => a.slips.some((x) => x.table_key === key) || a.resolved.some((x) => x.table_key === key);
   expect(has(getAlertIntents(s, due)), `item for ${key} at ${due}`).toBe(true);
   expect(has(getAlertIntents(s, due - 1)), `no item for ${key} at ${due - 1}`).toBe(false);

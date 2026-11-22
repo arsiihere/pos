@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startTickLoop, TICK_MS } from '../../src/alerts/tick';
 import { engineStep6, registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { engineConfigHook, engineConfigOf } from '../../src/engine-host/config-hook';
-import { firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
+import { firesAlertsPriorityTick, firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
 import { configStaleFor, setEngineConfigOf } from '../../src/engine-host/fires-tick';
 import { hostFlags } from '../../src/engine-host/host-flags';
 import type { WriterTx } from '../../src/engine-host/writer';
@@ -58,6 +58,7 @@ describe('03a task 24: the config hook (§3.11)', () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
     vi.spyOn(firesAlertsTick, 'due').mockReturnValue(false);
+    vi.spyOn(firesAlertsPriorityTick, 'due').mockReturnValue(false); // 03a v1.2.10 §6.2a step 7: quiet like fires_alerts
     const log = { error: vi.fn<(obj: Record<string, unknown>, msg?: string) => void>() };
     cleanups.push(startTickLoop(hub.deps, log));
     return log;

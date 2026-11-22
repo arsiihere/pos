@@ -58,7 +58,8 @@ function configEvent(stations: Array<Partial<StationCfg> & { station_id: string 
 
 function checkUpkeep(s: EngineState): void {
   expect(s.slip_due).toEqual(slipDueOf(s));
-  const vals = Object.values(s.slip_due);
+  // 03a v1.2.10 §3.5.7 PR-3 (task 23): the minimum of slip_due and priority_due.
+  const vals = [...Object.values(s.slip_due), ...Object.values(s.priority_due)];
   expect(s.next_alert_due_at).toBe(vals.length === 0 ? null : Math.min(...vals));
 }
 

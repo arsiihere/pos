@@ -811,11 +811,12 @@ export function upkeepSlips(prev: EngineState, next: EngineState, t: number, nam
     else due[key] = v;
   }
   // 03a v1.2.10 §3.5.7 PR-3 (review B-1): priority_due beside slip_due, the same touched set, independent of every slip
-  // term. Plan task 14 gate guard (re-review m-7): next_alert_due_at stays the slip minimum until the writer (task 23).
+  // term; next_alert_due_at = min(min(slip_due), min(priority_due)), null when both are empty.
   const priority_due = upkeepPriority(ctx, state.priority_due, byKey);
-  if (due === state.slip_due) return priority_due === state.priority_due ? state : { ...state, priority_due };
   let min: number | null = null;
   for (const k in due) if (min === null || due[k]! < min) min = due[k]!;
+  for (const k in priority_due) if (min === null || priority_due[k]! < min) min = priority_due[k]!;
+  if (due === state.slip_due && priority_due === state.priority_due && min === state.next_alert_due_at) return state;
   return { ...state, slip_due: due, next_alert_due_at: min, priority_due };
 }
 
@@ -904,13 +905,32 @@ export function getAlertIntents(state: EngineState, now: number): AlertIntents {
 }
 
 // §6.1g: state.next_alert_due_at; with `exclude` (the host's skipped keys, §3.8) the same minimum without those keys.
-export function nextAlertDueAt(state: EngineState, exclude?: ReadonlySet<string>): number | null {
-  if (exclude === undefined || exclude.size === 0) return state.next_alert_due_at;
+// ⚠️ 03a v1.2.10 §3.5.7 PR-3 "Host" (re-review R-2): with `parked` (the host's priority_parked) a parked group counts at
+// its recheck_at (null: nothing). The priority term ignores `exclude`. Pure, in memory.
+export function nextAlertDueAt(state: EngineState, exclude?: ReadonlySet<string>, parked?: ReadonlyMap<string, number | null>): number | null {
+  if ((exclude === undefined || exclude.size === 0) && (parked === undefined || parked.size === 0)) return state.next_alert_due_at;
+  const a = nextSlipDueAt(state, exclude);
+  const b = nextPriorityDueAt(state, parked);
+  return a === null ? b : b === null ? a : Math.min(a, b);
+}
+
+// The slip half of nextAlertDueAt: the minimum of slip_due without the `exclude` keys (fires_alerts' own due, §6.2a).
+export function nextSlipDueAt(state: EngineState, exclude?: ReadonlySet<string>): number | null {
   let min: number | null = null;
   for (const k in state.slip_due) {
-    if (exclude.has(k)) continue;
+    if (exclude?.has(k) === true) continue;
     const v = state.slip_due[k]!;
     if (min === null || v < min) min = v;
+  }
+  return min;
+}
+
+// The priority half (§6.2a step 7): the minimum of priority_due, a parked group at its recheck_at.
+export function nextPriorityDueAt(state: EngineState, parked?: ReadonlyMap<string, number | null>): number | null {
+  let min: number | null = null;
+  for (const g in state.priority_due) {
+    const v = parked?.has(g) === true ? parked.get(g)! : state.priority_due[g]!;
+    if (v !== null && (min === null || v < min)) min = v;
   }
   return min;
 }
