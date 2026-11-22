@@ -22,7 +22,7 @@ It also covers every §4.5 row in the other specs.
 
 **Tech stack:** TypeScript, Fastify 5, better-sqlite3 (WAL, `synchronous=FULL`), Zod (`fastify-type-provider-zod`), `@pos/domain`, `@pos/events`, React client, Vitest (root `test.projects`).
 
-**Spec:** `docs/specs/05a_Device_Access_Screens_Spec_v1.0.md` (APPROVED 2026-11-23 03:24 PKT, with every §4.5 row). Reviews: `docs/reviews/05a_v0.3_hostile_review.md`, `05a_v0.4_targeted_check.md` (§3 is the STAB-1 conflict table) and `05a_v0.5_final_check.md`. Deferred, so do **not** build: spec §1 "Out of scope" and §12.4.
+**Spec:** `docs/specs/05a_Device_Access_Screens_Spec_v1.0.1.md` (APPROVED: v1.0 2026-11-23 03:24 PKT with every §4.5 row; v1.0.1 = gap-sweep rulings R-1, G-b). Reviews: `docs/reviews/05a_v0.3_hostile_review.md`, `05a_v0.4_targeted_check.md` (§3 is the STAB-1 conflict table) and `05a_v0.5_final_check.md`. Deferred, so do **not** build: spec §1 "Out of scope" and §12.4.
 
 **What is different from the 04 and 05 plans (and why):**
 
@@ -169,7 +169,7 @@ P0.4–P0.8 merge in that order, each as its own PR into `main` (W-3 docs-PR rul
 |---|---|---|---|---|---|---|---|
 | 1 | Permission lists + screens | §3.3, §3.6 | `packages/domain/src/permissions.ts` (2 lists), `packages/domain/src/screens.ts` (new), `packages/domain/src/index.ts` (1 line) | `LISTED_ONLY_PERMISSIONS: readonly Permission[]`, `MONEY_PERMISSIONS: readonly Permission[]`, `SCREEN_KEYS`, `type ScreenKey`, `screensOffered(t: DeviceType): readonly ScreenKey[]`, `type Masked = 'listed_only' \| 'downgraded'` | lists exact (Global Constraints); `screensOffered('phone')` has no `cashier`; `screensOffered('kds')` = `[]`; the lists are disjoint | — | NORMAL, Shared |
 | 2 | Error codes | §9, F-1 | `packages/domain/src/errors.ts` | `DEVICE_ACCESS_DENIED` (403), `DEVICE_ACCESS_SELF` (422); `PermissionDeniedReason` adds the 3 reasons | codes + HTTP status; `DEVICE_NOT_OWNED` still defined | — | NORMAL, Shared |
-| 3 | Audit action `device_profile_set` | §4.2, A-1 | `packages/domain/src/audit.ts` | `toAuditEntry` maps `DeviceProfileSet` → action `device_profile_set`, detail per G-b, actor = event `actor_id` | the mapping, actor null for `upgrade` / `directory`; existing `device_paired` / `device_revoked` / `pairing_token_generated` unchanged | 4 | NORMAL, Shared, Cross |
+| 3 | Audit action `device_profile_set` | §4.2, A-1 | `packages/domain/src/audit.ts` | `toAuditEntry` maps `DeviceProfileSet` → action `device_profile_set`, detail `{ device_name, access, staff_ids, screens, point_id, cause }` (G-b: no names in the entry), actor = event `actor_id` | the mapping, actor null for `upgrade` / `directory`; existing `device_paired` / `device_revoked` / `pairing_token_generated` unchanged | 4 | NORMAL, Shared, Cross |
 | 4 | Events | §4.2, H-7 | `packages/events/src/events/hub/DeviceProfileSet.v1.ts` (new), `AdminBootstrapTokenIssued.v2.ts` (new, identity upcaster from v1), `packages/events/src/index.ts` | `DeviceProfileSet` v1 payload exactly as §4.2 (`.strict()`); `AdminBootstrapTokenIssued` v2 `issued_by: 'setup' \| 'cli' \| 'restore' \| 'recovery'` | parse fixtures; a v1 event upcasts to an equal v2 | 1 | NORMAL, Shared |
 
 ### B2 — data model and memory (§11 step 2)
@@ -238,7 +238,9 @@ P0.4–P0.8 merge in that order, each as its own PR into `main` (W-3 docs-PR rul
 | 34 | **C-1 shell**: tabs from `screens` in list order, last tab remembered; home = first screen; `kiosk_home` retired (its content is the `takeaway` screen, A-7); `device_profile` push redraws (a removed tab under the user → first remaining tab + toast); screens hidden with none of their permissions (§3.6 O-16); masked actions hidden, downgraded shown as "Confirm on your phone"; width gates `StaffApp.tsx:500-510` removed, width picks the layout only | §3.6, §8, C-1 | `apps/client/src/features/staff/{StaffApp.tsx,shell/*}` | tabs per profile; kiosk opens on `takeaway`; push redraw; **RF-5** (client); a 700 px kiosk shows the same items as a 1280 px one | 12, 17 | NORMAL |
 | 35 | Deep-link fallback (inbox + `focus=alert:<id>` + toast "Open this on a device with <screen>"); answer sheet: "Approve here" and `InPerson.tsx` removed, money card on `everyone` → "Approve on a listed device", no button; requester text `request.find_approver`; error texts (§8 Errors); `PassScreen.tsx:130` parses with the device's own type | §8, §3.9 rule 4, D-2, K-1 | `apps/client/src/features/alerts/{AnswerSheet.tsx,InPerson.tsx (delete),deeplink-*.ts}`, `apps/client/src/features/pass/PassScreen.tsx`, i18n | **#23**; answer sheet per device access; texts exact | 34 | NORMAL, Cross |
 
-**05a: 9 phase-0 rows + 35 tasks.**
+| 36 | Audit screen: a `device_profile_set` row shows `detail.staff_ids` as names from the `audit-staff` list the screen already loads ("left" mark kept); `audit-log` unchanged | 04 v1.0.8 §8 (A-1, G-b) | `apps/client/src/features/audit/*` | the row renders names; an id of a leaver shows the name with "left" | 3, 19 | NORMAL, Cross |
+
+**05a: 9 phase-0 rows + 36 tasks.** (Task 36 was added by the gap-sweep patch, from ruling G-b.)
 
 ---
 
@@ -276,6 +278,7 @@ Every §10 test has an owner. A test split in halves names its half in the test 
 
 ## 6. Self-review (done when the plan was written)
 
+- **Gap-sweep patch (2026-11-23):** task 36 added (G-b), task 3's detail per G-b, versions per P0.1 (00 v1.12.3, 01d v1.3.5, 03b v1.0.15, 04 v1.0.8, F v1.15 append). Spec = **05a v1.0.1**.
 - **Spec coverage:**
   - §3.1–§3.10 → tasks 1, 7, 9–11, 17, 19, 21–26.
   - §4.2 → 3, 4, 7, 9.

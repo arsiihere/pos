@@ -85,6 +85,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 33 | B8 | hub admin pages, recovery, K-2 | NORMAL | | |
 | 34 | B8 | shell tabs (C-1) | NORMAL | | |
 | 35 | B8 | deep links, answer sheet, Pass parse | NORMAL | | |
+| 36 | B8 | audit screen names for `device_profile_set` (G-b) | NORMAL | | |
 | Z1 | Z | acceptance map | — | | |
 | Z2 | Z | manual checks (owner) | — | | |
 | Z3 | Z | `module-05a` → `main` | — | | |
