@@ -1077,6 +1077,17 @@ describe('02b SubmitOrder split per unit (v1.0.20, STAB-5)', () => {
     expect(bad.error?.code).toBe('VALIDATION_FAILED');
   });
 
+  it('[02b #42] order-view lines carry part_of (one per part, the first part\'s id); an unsplit line has null', async () => {
+    await setUp();
+    const cashier = signIn('S_CASHIER');
+    expect((await submit(cashier, takeaway('O1', [item('K', FX.piece, 3), item('N', FX.naan, 1)]))).status).toBe(200);
+    const owner = signIn('S_OWNER');
+    const res = await hub.app.inject({ method: 'GET', url: '/queries/order-view?order_id=O1', headers: { authorization: `Bearer ${owner.token}`, 'x-session-token': owner.sessionToken } });
+    expect(res.statusCode, res.body).toBe(200);
+    const lines = (res.json() as { data: { lines: Array<{ order_item_id: string; part_of: string | null }> } }).data.lines;
+    expect(lines.map((l) => [l.order_item_id, l.part_of])).toEqual([['K', 'K'], ['K-p2', 'K'], ['K-p3', 'K'], ['N', null]]);
+  });
+
   it('[02b #39] a derived part id already in use → 409 ORDER_ITEM_ID_IN_USE { order_item_id: K-p2 }, nothing written', async () => {
     await setUp();
     const cashier = signIn('S_CASHIER');

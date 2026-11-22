@@ -43,6 +43,8 @@ export interface LineView {
   line_total_minor: number | null;
   billed_minor: number;
   /** the returned line of a return line (money 0) */
+  /** 02b v1.0.21 §8 (STAB-5): the first part's id of a line split per unit (§3.2 step 4a); null = not split */
+  part_of: string | null;
   return_of: string | null;
   served_from_zone_id: string | null;
   zone_served: boolean;
