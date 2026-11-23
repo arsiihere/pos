@@ -2,15 +2,36 @@
 
 Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. Spec: `05a_Device_Access_Screens_Spec_v1.0.1.md` (APPROVED; v1.0 2026-11-23 03:24 PKT, v1.0.1 rulings 03:35 / 03:53 PKT). Integration branch: `module-05a`, **cut from `fix/stab-tablet-pairing`; the 05a PR comes after the stab PR** (owner D-7). Stab work comes in only by `git merge fix/stab-tablet-pairing`, before each batch, then the gate. Pushed to **`build/05a`** after every task (owner 03:53, no PRs). Only the integrator edits this file.
 
-> ## ⚠️ NEEDS RULING — three 01d questions (B6 waits; B1–B5 continue)
+> ## ✅ Q-1 – Q-3 ruled (owner, 2026-11-23, cloud session): all three **(a)**
 >
-> The 01d v1.3.5 bump (rows D-1 – D-4) is written. Three places have no rule in 05a. Only the 01d rows wait (P0.5 commit, batch B6); B1–B5 do not touch them and go on. Each question has a Rec.
+> - **Q-1 (a):** for a money kind, a session on an `everyone` device no longer counts in the 01d §3.9 `no_approver` warning (listed-device routes only).
+> - **Q-2 (a):** `{ type: 'devices' }` is always open, no read.
+> - **Q-3 (a):** the G1-9d shortcut keys on the **stored** right; a downgraded `named` / `holders` request gets no shortcut and escalates by its steps.
 >
-> - **Q-1** 05a §3.9 rule 3 says "the 'no one can approve' check counts an approver as reachable only through a listed-device route". 01d §3.9's `no_approver` warning counts "signed in anywhere". **(a, Rec)** For a money kind, a session on an `everyone` device no longer counts in that warning, as the 05a text reads. (b) Leave the warning as it is; only routing and the G1-9d shortcut change.
-> - **Q-2** The new link `{ type: 'devices' }` (`device_waiting`) has no §3.13.3 "open" check. **(a, Rec)** Always open, no read: the device list always exists, and the notice itself closes when no request is pending (§3.10). (b) Open only while a pair request is pending (1 read).
-> - **Q-3** The G1-9d shortcut (01d §3.5:637) applies to kinds whose `right.mode` is `'approval'`. A downgraded raise stores `named` or `holders` on an approval kind. **(a, Rec)** Key on the **stored** right: a downgraded request gets no shortcut, like other `named` / `holders` requests today; it still escalates by its steps. (b) Key on the kind's right: the shortcut also runs for a downgraded `holders` request.
+> They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~12:05 PKT (07:05 UTC): **Cloud integrator started** on `build/05a` @ `6935a2d3` (CI green). Stab: `origin/fix/stab-tablet-pairing` @ `b72d290c` is already in `build/05a` (nothing new; no 00 / 01d / 03b / 04 version change). Owner answered **Q-1 – Q-3: all (a)**. Next: finish the six saved lanes (L1, K, R, D, C1, C2) in parallel cloud agents, CI on GitHub runners, then a fresh review each, then `merge --no-ff`.
+> - 2026-11-23 ~12:10 PKT: **Everything saved to GitHub; the build moves to a claude.ai/code cloud session.** All laptop agents were stopped and their unfinished work was committed as `wip(05a)` and pushed. None of it is reviewed:
+>   - `lane-05aL1/05a-10-12` @ `0a80fb86` (B3 tasks 10–12; task 9 is on `build/05a`);
+>   - `lane-05aK/05a-27-28` @ `a02b0ce8` (task 27 mostly done, task 28 started);
+>   - `lane-05aR/05a-29` @ `fd9bba83` (recovery link);
+>   - `lane-05aD/05a-22` @ `4e8c93fc` (bindings);
+>   - `lane-05aC1/05a-35-36` @ `c9eeb04b` (task 36 committed and finished, task 35 partly done);
+>   - `lane-05aC2/05a-31-32` @ `99202a64` (device list and forms).
+>
+>   The next integrator starts from these branches (handover §3).
+> - 2026-11-23 ~11:40 PKT: **New integrator took over** on `build/05a` @ `8a78a2e4`. Stab: `origin/fix/stab-tablet-pairing` has nothing new (no merge needed; no new 00 / 01d / 03b / 04 version). Lanes K, R, D, C1, C2 (and L1) are worktree agents **on the laptop**, not in the cloud (coordinator confirmed); reports come via the coordinator. **B3 tasks 10–12** given to an Opus implementer on `lane-05aL1/05a-10-12` (from `wip/05a-task10`); then an Opus review of 9–12.
+> - 2026-11-23 ~11:45 PKT: **The integrator moved to the cloud** (the laptop goes offline). Handover: `docs/plans/05a-handover.md`. Integration branch: `build/05a`. Lane L1 (local) stopped: task 9 done (`42c4b122`); unfinished task 10 saved on `wip/05a-task10`. The cloud lanes K, R, D, C1 and C2 keep running.
+> - 2026-11-23 ~11:35 PKT: **Owner: finish the rest in the cloud, CI on GitHub runners, 5–6 agents at once.** CI now runs on pushes to `build/**` and `lane-05a*/**` (`39b6519b`). Six lanes:
+>   - **L1** (local, Opus): B3 → B4 → B5 (tasks 9–21, the core chain) on `module-05a`.
+>   - **K** (cloud, Opus): `lane-05aK/05a-27-28` (Pass readers K-1 / D-4, upgrade boot step).
+>   - **R** (cloud, Opus): `lane-05aR/05a-29` (recovery link).
+>   - **D** (cloud, Opus): `lane-05aD/05a-22` (bindings D-1).
+>   - **C1** (cloud, Sonnet): `lane-05aC1/05a-35-36` (deep links, answer sheet, audit names).
+>   - **C2** (cloud, Sonnet): `lane-05aC2/05a-31-32` (device list, approve / edit forms).
+>
+>   Each cloud lane branches from `build/05a` @ `39b6519b` and must be CI-green. A fresh reviewer checks it, then the integrator merges it into `module-05a` (pushed as `build/05a`). Still waiting: tasks 23–26 (01d answers / raise / routing / `device_waiting`: B3–B5 plus your Q-1 – Q-3), 30 (counter), 33, 34 (client, after B4 / B3). No PRs.
 > - 2026-11-23 11:20 PKT: Gate before B3 **fully green** (759 files, 8 081 tests). The first B3 implementer stalled for ~4 h after the carry-over commit (`443084d8`: B2 review M1, M4, M5); it was stopped and **B3 (tasks 9–12) relaunched**.
 > - 2026-11-23 ~06:45 PKT: **Batch B2 done** (tasks 5–8; Opus review APPROVE, 5 MINORs: M1, M4 and M5 go into B3, M2 and M3 are notes below). Stab `3fa96f0d` merged: the stab session fixed its lint line and the Pass `load_id` test. Gate before B3 running.
 > - 2026-11-23 ~06:05 PKT: The gate before B2 found three gaps from B1, now fixed: the client audit label for `device_profile_set`, the pinned action count 66 → 67, the audit projection's pinned event list, and a lint error in B1's fixtures test. Also one stab lint error (`max-delay-copy.test.ts:19`, stab `9521e49f`), fixed with one line. **Known red from the stab branch, outside 05a:** `apps/hub/test/kds/point-catch-up.int.test.ts` "[03b #65] point_view ≤ 4 statements…" expects `load_id: null` on Pass lines. It **also fails at the stab tip itself** (`d7e90732`, run detached in `~/pos-05a`), from stab commit `dff98415`. Not touched here; the stab session owns it. Everything else is green. **B2 starts.**
@@ -63,10 +84,10 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 6 | B2 | profile projections | HIGH | `8259743d` | **done** (review APPROVE) |
 | 7 | B2 | `deviceProfile` map + M-8 count | HIGH | `7f1190f8` | **done** (review APPROVE) |
 | 8 | B2 | profile test fixture | NORMAL | `d1ebd94d` | **done** (review APPROVE) |
-| 9 | B3 | `forSession` view | HIGH | | |
-| 10 | B3 | pipeline / query / PIN call sites | HIGH | | |
-| 11 | B3 | admin guard + print route | HIGH | | |
-| 12 | B3 | `/queries/session` | NORMAL | | |
+| 9 | B3 | `forSession` view | HIGH | `42c4b122` | done, review with 10–12 |
+| 10 | B3 | pipeline / query / PIN call sites | HIGH | | running (`lane-05aL1/05a-10-12`) |
+| 11 | B3 | admin guard + print route | HIGH | | running (`lane-05aL1/05a-10-12`) |
+| 12 | B3 | `/queries/session` | NORMAL | | running (`lane-05aL1/05a-10-12`) |
 | 13 | B4 | request-based pairing fixture | NORMAL | | |
 | 14 | B4 | pair request hint + poll screens | NORMAL | | |
 | 15 | B4 | approve v2 **+ STAB-1 removal (one commit)** | HIGH | | |
@@ -128,7 +149,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | S-1 | G0.1 | `git merge` into `module-05a` refused by the auto-mode classifier | **closed** 03:53: owner allowed it; merged |
 | S-2 | P0.3 | Push target for `module-05a` under the `module-*` ruleset with no PRs | **closed** 03:53: (a) `build/05a` |
 | S-3 | P0.2 | G-b: names in the `device_profile_set` audit detail | **closed** 03:53: (a), in 05a v1.0.1 §4.2; 04 v1.0.8 §8 maps the ids through `audit-staff` (no query change) |
-| S-4 | P0.5 | 01d Q-1 – Q-3 (top of this file) | **open**, Recs (a) |
+| S-4 | P0.5 | 01d Q-1 – Q-3 (top of this file) | **closed** 2026-11-23 (cloud): owner ruled all three (a) |
 
 Scan for P0.1: every local and remote branch and both open PRs (#121, #126) were checked for 00 > v1.12.2, 01d > v1.3.4, 03b > v1.0.14, 04 > v1.0.7, Foundation > v1.15 and hub migrations ≥ `0027`. Nothing is claimed. The bumps are patch steps, like the other cross-module rows (e.g. 00 v1.12.1 → v1.12.2 for STAB-1).
 
