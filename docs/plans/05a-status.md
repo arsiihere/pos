@@ -165,6 +165,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | S-1 | G0.1 | `git merge` into `module-05a` refused by the auto-mode classifier | **closed** 03:53: owner allowed it; merged |
 | S-2 | P0.3 | Push target for `module-05a` under the `module-*` ruleset with no PRs | **closed** 03:53: (a) `build/05a` |
 | S-3 | P0.2 | G-b: names in the `device_profile_set` audit detail | **closed** 03:53: (a), in 05a v1.0.1 §4.2; 04 v1.0.8 §8 maps the ids through `audit-staff` (no query change) |
+| S-6 | 33 | G-g: the recovery signal never reaches an `everyone` device (login-roster refuses it), the main recovery case after the upgrade | **closed** 2026-11-23 (cloud): owner ruled (a) → **05a v1.0.3**: the 403 carries `recovery_available`; 00 v1.12.3 §6.13 note |
 | S-5 | 32 | G-e: clearing `point_id` / `staff_ids` in `SetDeviceProfile`; G-f: people-picker source | **closed** 2026-11-23 (cloud): owner ruled both (a) → **05a v1.0.2** (§6.4 derived clear; §6.8 `staff`), 00 v1.12.3 §6.17 note |
 | S-4 | P0.5 | 01d Q-1 – Q-3 (top of this file) | **closed** 2026-11-23 (cloud): owner ruled all three (a) |
 
