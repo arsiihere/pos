@@ -6,7 +6,9 @@ import type { EtaDraft, EtaPreviewBody } from '../contracts';
 // again (same debounce) on BranchConfigApplied, a Stock* frame, BusinessDayOpened / Closed, a station frame or a catch-up carrying
 // `stations_live`. A reply older than a later request is dropped. "Time updated" (02-B07): a line whose group
 // promise moved by ≥ 60 s against the previous reply is in `moved` until the next reply. Preview failed or offline
-// → no times ("—", "Times will be set when sent"); Send stays on (it queues, 26d). Logs nothing.
+// → no times ("—", "Times will be set when sent"); Send stays on (it queues, 26d). 02b-TK C1-1 (02b §6.14, §8; audit
+// #1): a `409 BUSINESS_DAY_NOT_OPEN` keeps its code as `day_not_open` (the cart says "Times show after Start day" and
+// Send waits); a catch-up carrying `stock` (its business day) refetches too. Logs nothing.
 
 export const PREVIEW_DEBOUNCE_MS = 250;
 export const MOVED_MS = 60_000;
@@ -14,7 +16,9 @@ export const MOVED_MS = 60_000;
 export type PreviewState =
   | { kind: 'none' }
   | { kind: 'ok'; body: EtaPreviewBody; moved: ReadonlySet<string> }
-  | { kind: 'failed' };
+  | { kind: 'failed' }
+  /** the hub answered 409 BUSINESS_DAY_NOT_OPEN: no day is open, nothing can be sent or timed */
+  | { kind: 'day_not_open' };
 
 const REFETCH = new Set([
   'BranchConfigApplied',
@@ -78,7 +82,7 @@ export function createPreview(o: PreviewOptions): Preview {
     if (!o.online()) return publish({ kind: 'failed' });
     const answer = await o.etaPreview(draft);
     if (disposed || gen !== generation) return;
-    if (!answer.ok) return publish({ kind: 'failed' });
+    if (!answer.ok) return publish(answer.error.kind === 'api' && answer.error.code === 'BUSINESS_DAY_NOT_OPEN' ? { kind: 'day_not_open' } : { kind: 'failed' });
     const before = last === null ? null : promiseByKey(last);
     const now = promiseByKey(answer.data);
     const moved = new Set<string>();
@@ -99,7 +103,7 @@ export function createPreview(o: PreviewOptions): Preview {
 
   const off = o.live.subscribe((m: LiveMessage) => {
     if (draft === null) return;
-    if ((m.kind === 'event' && REFETCH.has(m.event.event_type)) || (m.kind === 'catch_up' && m.state['stations_live'] !== undefined) || m.kind === 'reconnect') schedule();
+    if ((m.kind === 'event' && REFETCH.has(m.event.event_type)) || (m.kind === 'catch_up' && (m.state['stations_live'] !== undefined || m.state['stock'] !== undefined)) || m.kind === 'reconnect') schedule();
   });
 
   return {

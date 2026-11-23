@@ -46,6 +46,7 @@ import { NoteSheet, ORDER_NOTE_MAX } from '../sheets/NoteSheet';
 import { OptionsSheet } from '../sheets/OptionsSheet';
 import { createPreview, type PreviewState } from './preview';
 import { DayNotStarted, canStartDay } from './DayNotStarted';
+import { createDayWatch } from './day-open';
 import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
 import { announceCompIt, freezeSubmit, refusalText, sendOrder, timeUpdated, toCart, zoneEmpty } from '../send/send';
@@ -171,6 +172,10 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   useEffect(() => () => preview.dispose(), [preview]);
   useVersion(preview.subscribe);
   const pv: PreviewState = preview.state();
+  // 02b-TK C1-1: no business day open (catch-up `stock`, BusinessDay* frames), known before the first item
+  const dayWatch = useMemo(() => createDayWatch(shell.live), [shell.live]);
+  useEffect(() => () => dayWatch.dispose(), [dayWatch]);
+  useVersion(dayWatch.subscribe);
   // a reply's times stand only while the hub is reachable: offline they read "—" at once (the reconnect refetches)
   const body = pv.kind === 'ok' && shell.online ? pv.body : null;
   // 01c V20: the day-frozen sale unit (the mirror's BusinessDay), the config's until the mirror is seeded
@@ -341,6 +346,9 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const [dayClosed, setDayClosed] = useState(false);
   // a BusinessDayOpened frame, or a catch-up after a reconnect (a frame may have been missed), lets Send try again
   useEffect(() => shell.live.subscribe((m) => ((m.kind === 'event' && m.event.event_type === 'BusinessDayOpened') || m.kind === 'catch_up' ? setDayClosed(false) : undefined)), [shell.live]);
+  // 02b-TK C1-1 (02b §6.14, §8; audit #1): Send refused, eta-preview answered BUSINESS_DAY_NOT_OPEN, or the socket
+  // says no day is open: the cart shows "Times show after Start day" and the day block instead of Send
+  const dayNotOpen = dayClosed || pv.kind === 'day_not_open' || dayWatch.state() === 'closed';
   /** #35: one Send at a time — a ref, so two taps inside one render cannot both enqueue */
   const sending = useRef(false);
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -495,7 +503,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   // 26d: Send freezes the cart (#35), enqueues it first (stored before the first send, 25b), then the queue submits
   const onSend = async () => {
     // the button's state is not the only guard: lock, line problems and the day are checked here too
-    if (sending.current || target === null || cart.lines.length === 0 || !canSend || problems.size > 0 || dayClosed) return;
+    if (sending.current || target === null || cart.lines.length === 0 || !canSend || problems.size > 0 || dayNotOpen) return;
     sending.current = true;
     const frozen = cart;
     const before = body;
@@ -579,7 +587,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     onNote: () => (sending.current ? undefined : setSheet({ kind: 'order_note' })),
     onHold: () => void onHold(),
     onSend: () => void onSend(),
-    day: dayClosed ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
+    day: dayNotOpen ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
     info: cart.lines.find((l) => l.comp_it === true) === undefined ? null : compItInfo(),
     // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins
     serve: { state: serveState(cart, config), onSet: (mode: ServeMode) => (sending.current ? undefined : setCart((c) => ({ ...c, serve_mode: mode }))) },
@@ -737,7 +745,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
           )}
         </div>
         {cartProps.day}
-        {!dayClosed && <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} onSend={() => void onSend()} />}
+        {!dayNotOpen && <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} onSend={() => void onSend()} />}
         {draftBack}
         {sheetView}
         {sendView}

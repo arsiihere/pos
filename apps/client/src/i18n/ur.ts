@@ -1597,4 +1597,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.dayclose.order_hint': 'ہر بار ایک رکاوٹ دکھتی ہے۔ ٹھیک کر کے دوبارہ “دن بند کریں” دبائیں۔',
   'billing.dayclose.shifts_sub': 'ہر ایک اس شخص کی شفٹ اندھی گنتی کے ساتھ کھولتا ہے۔',
   'billing.dayclose.close_shift': 'یہ شفٹ بند کریں',
+  // ---- 02b-TK client (batch C1): docs/design/handoff/02b-tk/strings-table.md ----
+  'c.times_day': 'دن شروع ہونے پر وقت دکھے گا',
 };
