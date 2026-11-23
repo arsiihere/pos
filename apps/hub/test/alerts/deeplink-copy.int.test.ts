@@ -8,7 +8,7 @@ import { TABLE_HANDOVER } from '../../src/tables/kinds';
 import { resetMergeGuard } from '../../src/tables/merge-guard';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
-import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { createTestHub, endSessionNow, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { answer, openSeating, PIN, post, raiseVoid, signIn, STAFF, stagedOrder, startVoids, VX, type Who } from '../voids/fixtures';
 
 // dl h3 — 01d v1.3 §3.10 note (L-2), §3.13.1 "Copy kinds" and "Statement counts"; tests 71, 72. The copy kinds
@@ -99,10 +99,14 @@ describe('[01d #72] (a) the copy kinds of a void_approval request carry its orde
     expect(viewTarget(e!.payload.alert_id as string)).toEqual(line(o.order_id, o.cooking));
   });
 
-  it('[01d #72] (a) answered in person on the requester\'s device → answered_on_requester_device (and the receipt) carry values.link', async () => {
+  it('[01d #72] (a) answered on the requester\'s device → answered_on_requester_device (and the receipt) carry values.link', async () => {
     const o = stagedOrder(hub, { seating_id: 'SEAT_T4' });
     const id = raise(o.order_id, o.done);
-    const r = await post(hub, waiter, 'answer-request', 'AnswerRequest', { alert_id: id, decision: 'approve', method: 'in_person', answerer_staff_id: STAFF.manager, pin: PIN.b });
+    // 05a D-2: no in-person answers; the manager signs in on the requester's device and answers with his PIN
+    endSessionNow(hub, waiter.sessionId);
+    const there = openSession(hub, { kind: 'staff', staffId: STAFF.manager, deviceId: waiter.deviceId });
+    const mgrThere: Who = { ...waiter, staffId: STAFF.manager, sessionId: there.sessionId, sessionToken: there.token };
+    const r = await post(hub, mgrThere, 'answer-request', 'AnswerRequest', { alert_id: id, decision: 'approve', method: 'pin', pin: PIN.b });
     expect(r.status, JSON.stringify(r.error)).toBe(200);
     for (const kind of ['answered_on_requester_device', 'approval_receipt', 'request_result']) {
       const [e] = aboutRequest(kind, id);
@@ -114,17 +118,18 @@ describe('[01d #72] (a) the copy kinds of a void_approval request carry its orde
   it('[01d #72] (a) a matched PIN whose answer then fails → pin_use_failed carries values.link', async () => {
     const o = stagedOrder(hub, { seating_id: 'SEAT_T4' });
     const id = raise(o.order_id, o.done);
-    // §3.3 rule 4 (d), as answer-pin.int.test.ts #54: the request closes while argon2 runs, so the in-person answer on the
-    // raising device fails after the manager's PIN matched → RequestPinFailed answer_failed and pin_use_failed to him
+    // §3.3 rule 4 (d), as answer-pin.int.test.ts #60 (b′): the manager's session ends while argon2 runs, so his PIN
+    // answer fails after the PIN matched → RequestPinFailed answer_failed and pin_use_failed to him (05a D-2: was an
+    // in-person answer losing to a close, which BF-1 leaves without a notice for a pin answer)
     hub.deps.testHooks = {
       betweenVerifyAndWriter: async () => {
         await Promise.resolve();
-        hub.deps.writer.run((tx) => tx.append(alerts.close(alerts.tickCtx(tx, hub.clock.branchNow()), id, 'obsolete')));
+        endSessionNow(hub, mgr.sessionId);
       },
     };
-    const r = await post(hub, waiter, 'answer-request', 'AnswerRequest', { alert_id: id, decision: 'approve', method: 'in_person', answerer_staff_id: STAFF.manager, pin: PIN.b });
+    const r = await post(hub, mgr, 'answer-request', 'AnswerRequest', { alert_id: id, decision: 'approve', method: 'pin', pin: PIN.b });
     hub.deps.testHooks = {};
-    expect(r.status, JSON.stringify(r.error)).toBe(409);
+    expect(r.status, JSON.stringify(r.error)).toBe(401);
     const [e, ...more] = aboutRequest('pin_use_failed', id);
     expect(more).toHaveLength(0);
     expect(valuesOf(e)?.link).toEqual(line(o.order_id, o.done));

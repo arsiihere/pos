@@ -10,7 +10,7 @@ import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { VOID_APPROVAL, voidApplyDeps, type VoidValues } from '../../src/voids/kind';
 import { statementCounter } from '../helpers/statement-counter';
 import { auditDirectory } from '../audit/fixtures';
-import type { TestHub } from '../helpers/test-hub';
+import { endSessionNow, openSession, type TestHub } from '../helpers/test-hub';
 import {
   answer,
   appendOrder,
@@ -226,16 +226,21 @@ describe('[04 §3.4, §6.2] approve', () => {
     expect(strictRefold(hub)).toEqual(state());
   });
 
-  it('[04 #22] approve in_person on the requester\'s device → approver = named answerer, actor_id = the requester device\'s session', async () => {
+  it('[04 #22] approve on the requester\'s device (05a D-2: the Manager signs in there and answers with his PIN; in person is removed) → approver = the answerer, actor_id = the answering session, device_id = the requester\'s device', async () => {
     hub = await startVoids();
     const cashier = signIn(hub, STAFF.cashier);
     const s = stagedOrder(hub);
     const { alert_ids } = await ask(cashier, s.order_id, [{ order_item_id: s.cooking, disposition: 'wastage' }]);
-    const r = await post(hub, cashier, 'answer-request', 'AnswerRequest', { alert_id: alert_ids[0], decision: 'approve', method: 'in_person', answerer_staff_id: STAFF.manager, pin: PIN.b });
+    const removed = await post(hub, cashier, 'answer-request', 'AnswerRequest', { alert_id: alert_ids[0], decision: 'approve', method: 'in_person', answerer_staff_id: STAFF.manager, pin: PIN.b });
+    expect(removed.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'in_person_removed' } });
+    endSessionNow(hub, cashier.sessionId);
+    const session = openSession(hub, { kind: 'staff', staffId: STAFF.manager, deviceId: cashier.deviceId });
+    const there: Who = { ...cashier, staffId: STAFF.manager, sessionId: session.sessionId, sessionToken: session.token };
+    const r = await post(hub, there, 'answer-request', 'AnswerRequest', { alert_id: alert_ids[0], decision: 'approve', method: 'pin', pin: PIN.b });
     expect(r.status, JSON.stringify(r.error)).toBe(200);
     const v = ofType(r, 'ItemVoided')[0]!;
     expect(v.payload).toMatchObject({ approver_staff_id: STAFF.manager, requester_staff_id: STAFF.cashier, alert_id: alert_ids[0] });
-    expect(v.actor_id).toBe(STAFF.cashier);
+    expect(v.actor_id).toBe(STAFF.manager);
     expect(v.device_id).toBe(cashier.deviceId);
   });
 
