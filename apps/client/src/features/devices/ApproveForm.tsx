@@ -48,18 +48,12 @@ const ERR_KEYS: Record<string, true> = {
 
 const screenLabel = (s: ScreenKey) => t(`devices.screen.${s}` as MessageKey);
 
-/** Roster, points and stations for the pickers; `extra` adds people a device already lists. */
-export function usePickers(api: DevicesApi, extra: PickPerson[] = []) {
-  const [people, setPeople] = useState<PickPerson[]>(extra);
+/** Points and stations for the pickers (branch-config snapshot; the spec names no other source). People come from the `devices` reply (§6.8 G-f). */
+export function usePlaces(api: DevicesApi) {
   const [points, setPoints] = useState<PickPoint[]>([]);
   const [stations, setStations] = useState<PickStation[]>([]);
   useEffect(() => {
     let live = true;
-    void api.people().then((a) => {
-      if (!live || !a.ok) return;
-      const have = new Set(a.data.map((p) => p.staff_id));
-      setPeople([...a.data, ...extra.filter((p) => !have.has(p.staff_id))]);
-    });
     void api.places().then((a) => {
       if (!live || !a.ok) return;
       setPoints(a.data.points);
@@ -69,7 +63,15 @@ export function usePickers(api: DevicesApi, extra: PickPerson[] = []) {
       live = false;
     };
   }, [api]);
-  return { people, points, stations };
+  return { points, stations };
+}
+
+/** §6.3: "Counter 2" for a kiosk, "Ali's phone" for a phone (needs the picked person), else "Tablet". */
+export function suggestName(hardware: DeviceType, firstPerson: string | null): string {
+  if (hardware === 'phone') return firstPerson === null ? '' : `${firstPerson}'s phone`;
+  if (hardware === 'cashier_kiosk') return 'Counter 2';
+  if (hardware === 'kds') return 'Kitchen screen';
+  return 'Tablet 1';
 }
 
 export function ProfileFields({
@@ -165,10 +167,12 @@ const HARDWARE: DeviceType[] = ['tablet', 'cashier_kiosk', 'kds', 'phone'];
 export function ApproveForm({
   api,
   request,
+  people,
   onDone,
   onCancel,
 }: {
   api: DevicesApi;
+  people: PickPerson[];
   /** the waiting request this approves, or null for a request the approver has only a code for */
   request: PendingRequest | null;
   onDone: () => void;
@@ -177,16 +181,19 @@ export function ApproveForm({
   const hint = request?.hardware_hint ?? null;
   const [hardware, setHardware] = useState<DeviceType>(hint ?? 'cashier_kiosk');
   const [code, setCode] = useState(''); // always typed, never prefilled (§6.3)
-  const [name, setName] = useState(request?.device_name ?? '');
+  const given = request?.device_name.trim() ?? '';
+  const [name, setName] = useState(given !== '' ? given : suggestName(hint ?? 'cashier_kiosk', null));
+  const [edited, setEdited] = useState(given !== '');
   const [profile, setProfile] = useState<Profile>(defaultsFor(hint));
   const [stationId, setStationId] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ text: string; stale: boolean } | null>(null);
-  const { people, points, stations } = usePickers(api);
+  const { points, stations } = usePlaces(api);
 
   const pickHardware = (h: DeviceType) => {
     setHardware(h);
     setProfile(defaultsFor(h));
+    if (!edited) setName(suggestName(h, null));
   };
   const isKds = hardware === 'kds';
   const ready = code.trim() !== '' && name.trim() !== '' && (isKds ? stationId !== '' : profileReady(profile));
@@ -220,7 +227,7 @@ export function ApproveForm({
       </label>
       <label className="dv__field" data-field="name">
         {t('devices.form.name')}
-        <input type="text" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
+        <input type="text" maxLength={40} value={name} onChange={(e) => (setEdited(true), setName(e.target.value))} />
       </label>
       <label className="dv__field" data-field="hardware">
         {t('devices.form.hardware')}
@@ -245,7 +252,17 @@ export function ApproveForm({
           </select>
         </label>
       ) : (
-        <ProfileFields hardware={hardware} value={profile} onChange={setProfile} people={people} points={points} />
+        <ProfileFields
+          hardware={hardware}
+          value={profile}
+          onChange={(next) => {
+            setProfile(next);
+            const first = people.find((x) => x.staff_id === next.staffIds[0]);
+            if (!edited && hardware === 'phone' && first !== undefined) setName(suggestName('phone', first.display_name));
+          }}
+          people={people}
+          points={points}
+        />
       )}
       <div className="pos-row">
         <button type="button" className="pos-btn" onClick={onCancel}>

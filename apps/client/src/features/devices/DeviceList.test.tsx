@@ -30,7 +30,7 @@ const ALI = { staff_id: 'S1', display_name: 'Ali' };
 const BILAL = { staff_id: 'S2', display_name: 'Bilal' };
 
 function setup(data: Partial<DevicesData>) {
-  const body: DevicesData = { devices: [], pending_requests: [], admin_warning: null, ...data };
+  const body: DevicesData = { devices: [], pending_requests: [], admin_warning: null, staff: [], ...data };
   const staff = createStaffApi({
     device: { token: 'DEV', id: 'D1', type: 'tablet' },
     meta: { tenantId: 'T', branchId: 'B', branchName: 'G', hubNowMs: 0, utcOffsetMs: 0 },

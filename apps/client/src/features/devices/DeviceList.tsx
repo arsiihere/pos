@@ -134,8 +134,8 @@ function Ready({ api, data, reload }: { api: DevicesApi; data: DevicesData; relo
     <>
       {data.admin_warning === 0 && <Banner tone="danger" text={t('devices.warn.none')} />}
       {data.admin_warning === 1 && <Banner tone="warn" text={t('devices.warn.one')} />}
-      {open?.kind === 'approve' && <ApproveForm key={open.request.request_id} api={api} request={open.request} onDone={done} onCancel={() => setOpen(null)} />}
-      {open?.kind === 'edit' && <EditForm key={open.device.device_id} api={api} device={open.device} onDone={done} onCancel={() => setOpen(null)} onReload={done} />}
+      {open?.kind === 'approve' && <ApproveForm key={open.request.request_id} api={api} people={data.staff} request={open.request} onDone={done} onCancel={() => setOpen(null)} />}
+      {open?.kind === 'edit' && <EditForm key={open.device.device_id} api={api} people={data.staff} device={open.device} onDone={done} onCancel={() => setOpen(null)} onReload={done} />}
       {shown.length === 0 && <p>{t('devices.empty')}</p>}
       {shown.map((g) => (
         <div key={g} className="dv__group" data-group={g}>

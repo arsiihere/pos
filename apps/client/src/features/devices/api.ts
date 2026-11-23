@@ -39,6 +39,8 @@ export interface DevicesData {
   pending_requests: PendingRequest[];
   /** M-8: the count when it is 0 or 1, else null */
   admin_warning: 0 | 1 | null;
+  /** §6.8 (v1.0.2 G-f): every directory person, sorted by name, for the forms' people picker */
+  staff: DevicePerson[];
 }
 
 /** §6.3 payload. `kds` ⇒ `station_id` and nothing else; a staff device ⇒ `access` and `screens`. */
@@ -95,14 +97,6 @@ export function createDevicesApi(staff: Pick<StaffApi, 'query' | 'command'>) {
     setProfile: (payload: SetProfilePayload, commandId: string) =>
       staff.command<{ device_id: string; profile_version: number }>('SetDeviceProfile', payload, { commandId }),
     revoke: (deviceId: string, commandId: string) => staff.command<unknown>('RevokeDevice', { device_id: deviceId }, { commandId }),
-    /**
-     * The people to pick from. Assumption (spec §6.3 names no query for it): the staff roster, as the sign-in screen
-     * reads it; the forms add the people a device already lists.
-     */
-    people: async (): Promise<HubResult<PickPerson[]>> => {
-      const answer = await staff.query<{ staff: PickPerson[] }>('/queries/staff-roster');
-      return answer.ok ? { ok: true, data: answer.data.staff.map((s) => ({ staff_id: s.staff_id, display_name: s.display_name })) } : answer;
-    },
     /** Points and stations come from the branch-config snapshot a staff session may read (00 §6.23). */
     places: async (): Promise<HubResult<{ points: PickPoint[]; stations: PickStation[] }>> => {
       const answer = await staff.query<BranchConfigReply | null>('/queries/branch-config');

@@ -28,7 +28,6 @@ function setup(commandReply: () => Response = () => reply(200, { data: { result:
     device: { token: 'DEV', id: 'D1', type: 'tablet' },
     meta: { tenantId: 'T', branchId: 'B', branchName: 'G', hubNowMs: 0, utcOffsetMs: 0 },
     fetch: async (url, init) => {
-      if (url === '/queries/staff-roster') return reply(200, { data: { staff: [{ staff_id: 'S1', display_name: 'Ali' }, { staff_id: 'S2', display_name: 'Bilal' }] } });
       if (url === '/queries/branch-config')
         return reply(200, { data: { snapshot: { points: [{ point_id: 'P1', name: 'Grill pass' }], stations: [{ station_id: 'K1', name: 'Grill' }] } } });
       if (url.startsWith('/commands/')) {
@@ -42,6 +41,7 @@ function setup(commandReply: () => Response = () => reply(200, { data: { result:
   return { api: createDevicesApi(staff), sent };
 }
 
+const STAFF = [{ staff_id: 'S1', display_name: 'Ali' }, { staff_id: 'S2', display_name: 'Bilal' }];
 const type = (el: Element | null, value: string) => {
   if (el === null) throw new Error('no field');
   const input = el as HTMLInputElement;
@@ -64,33 +64,33 @@ describe('[05a §6.3] form defaults by hint', () => {
 
   it('[05a §6.3] a phone request opens as listed with Dine-in ticked, a tablet as everyone with Dine-in and Manager', async () => {
     const { api } = setup();
-    m.render(<ApproveForm api={api} request={req('phone')} onDone={() => {}} onCancel={() => {}} />);
+    m.render(<ApproveForm api={api} people={STAFF} request={req('phone')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
     expect(m.container.querySelector('[data-field="people"]')).not.toBeNull();
-    expect(screensChecked()).toEqual(['Dine-in']);
-    m.render(<ApproveForm key="t" api={api} request={req('tablet')} onDone={() => {}} onCancel={() => {}} />);
+    expect(screensChecked()).toEqual(['Dine in']);
+    m.render(<ApproveForm key="t" api={api} people={STAFF} request={req('tablet')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
     expect(m.container.querySelector('[data-field="people"]')).toBeNull();
-    expect(screensChecked()).toEqual(['Dine-in', 'Back office']);
+    expect(screensChecked()).toEqual(['Dine in', 'Manager tools']);
   });
 
   it('[05a §3.6] a phone is not offered Cashier; a kiosk is', async () => {
     const { api } = setup();
-    m.render(<ApproveForm api={api} request={req('phone')} onDone={() => {}} onCancel={() => {}} />);
+    m.render(<ApproveForm api={api} people={STAFF} request={req('phone')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
     const offered = [...m.container.querySelectorAll('[data-field="screens"] label')].map((l) => l.textContent);
-    expect(offered).toEqual(screensOffered('phone').map((s) => ({ dine_in: 'Dine-in', takeaway: 'Takeaway', parking: 'Parking', cashier: 'Cashier desk', pass: 'Pass', manager: 'Back office' })[s]));
-    expect(offered).not.toContain('Cashier desk');
-    m.render(<ApproveForm key="k" api={api} request={req('cashier_kiosk')} onDone={() => {}} onCancel={() => {}} />);
+    expect(offered).toEqual(screensOffered('phone').map((s) => ({ dine_in: 'Dine in', takeaway: 'Takeaway', parking: 'Parking', cashier: 'Cash desk', pass: 'Pass', manager: 'Manager tools' })[s]));
+    expect(offered).not.toContain('Cash desk');
+    m.render(<ApproveForm key="k" api={api} people={STAFF} request={req('cashier_kiosk')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
-    expect(m.text()).toContain('Cashier desk');
+    expect(m.text()).toContain('Cash desk');
   });
 });
 
 describe('[05a §6.3] the display code is always typed', () => {
   it('[05a §6.3] the code field is empty when the request is known (r fills the request, not the code), and Approve waits for it', async () => {
     const { api, sent } = setup();
-    m.render(<ApproveForm api={api} request={req('tablet')} onDone={() => {}} onCancel={() => {}} />);
+    m.render(<ApproveForm api={api} people={STAFF} request={req('tablet')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
     expect((field('code') as HTMLInputElement).value).toBe('');
     expect(m.button('Approve', m.container.querySelector('.pos-row') ?? undefined).hasAttribute('disabled')).toBe(true);
@@ -113,7 +113,7 @@ describe('[05a §6.3] the display code is always typed', () => {
 describe('[05a §6.3 step 3] pass ⇔ point', () => {
   it('[05a §6.3] ticking Pass shows the point picker and Approve waits for one; the point is sent only with Pass', async () => {
     const { api, sent } = setup();
-    m.render(<ApproveForm api={api} request={req('tablet')} onDone={() => {}} onCancel={() => {}} />);
+    m.render(<ApproveForm api={api} people={STAFF} request={req('tablet')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
     expect(m.container.querySelector('[data-field="point"]')).toBeNull();
     const pass = [...m.container.querySelectorAll<HTMLInputElement>('[data-field="screens"] input')].find((i) => i.parentElement?.textContent === 'Pass');
@@ -134,7 +134,7 @@ describe('[05a §6.3 step 3] pass ⇔ point', () => {
 
   it('[05a §6.3] unticking Pass drops the point', async () => {
     const { api, sent } = setup();
-    m.render(<ApproveForm api={api} request={req('tablet')} onDone={() => {}} onCancel={() => {}} />);
+    m.render(<ApproveForm api={api} people={STAFF} request={req('tablet')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
     const pass = [...m.container.querySelectorAll<HTMLInputElement>('[data-field="screens"] input')].find((i) => i.parentElement?.textContent === 'Pass');
     m.click(pass);
@@ -149,7 +149,7 @@ describe('[05a §6.3 step 3] pass ⇔ point', () => {
 describe('[05a §6.3] kds', () => {
   it('[05a §6.3] a kds request sends station_id and nothing about access or screens', async () => {
     const { api, sent } = setup();
-    m.render(<ApproveForm api={api} request={req('kds')} onDone={() => {}} onCancel={() => {}} />);
+    m.render(<ApproveForm api={api} people={STAFF} request={req('kds')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
     expect(m.container.querySelector('[data-field="screens"]')).toBeNull();
     type(field('code'), '77');
@@ -181,9 +181,9 @@ const device = (over: Partial<DeviceRow> = {}): DeviceRow => ({
 describe('[05a §6.4] edit form', () => {
   it('[05a §6.4] opens on the current profile and sends expected_version', async () => {
     const { api, sent } = setup();
-    m.render(<EditForm api={api} device={device()} onDone={() => {}} onCancel={() => {}} onReload={() => {}} />);
+    m.render(<EditForm api={api} people={STAFF} device={device()} onDone={() => {}} onCancel={() => {}} onReload={() => {}} />);
     await flush();
-    expect(screensChecked()).toEqual(['Dine-in']);
+    expect(screensChecked()).toEqual(['Dine in']);
     m.click(m.button('Save'));
     await flush();
     expect(sent[0]?.url).toBe('/commands/set-device-profile');
@@ -200,7 +200,7 @@ describe('[05a §6.4] edit form', () => {
   it('[05a §6.4] 409 CONFIG_STALE shows "Changed elsewhere" with Reload, keeps what was typed, and disables Save', async () => {
     const { api } = setup(() => reply(409, { error: { code: 'CONFIG_STALE', details: { device_id: 'D5', profile_version: 4 } } }));
     let reloaded = 0;
-    m.render(<EditForm api={api} device={device()} onDone={() => {}} onCancel={() => {}} onReload={() => void (reloaded += 1)} />);
+    m.render(<EditForm api={api} people={STAFF} device={device()} onDone={() => {}} onCancel={() => {}} onReload={() => void (reloaded += 1)} />);
     await flush();
     type(field('name'), 'Renamed');
     m.click(m.button('Save'));
@@ -214,11 +214,62 @@ describe('[05a §6.4] edit form', () => {
 
   it('[05a §6.4 M-6] 422 DEVICE_ACCESS_SELF says "You would lose access on this device"', async () => {
     const { api } = setup(() => reply(422, { error: { code: 'DEVICE_ACCESS_SELF', details: { device_id: 'D5' } } }));
-    m.render(<EditForm api={api} device={device()} onDone={() => {}} onCancel={() => {}} onReload={() => {}} />);
+    m.render(<EditForm api={api} people={STAFF} device={device()} onDone={() => {}} onCancel={() => {}} onReload={() => {}} />);
     await flush();
     m.click(m.button('Save'));
     await flush();
     expect(m.text()).toContain('You would lose access on this device');
+  });
+});
+
+describe('[05a v1.0.2 G-e] the hub derives the clear: no point_id without Pass, no staff_ids on everyone', () => {
+  it('[05a G-e] removing Pass sends screens without pass and no point_id', async () => {
+    const { api, sent } = setup();
+    m.render(<EditForm api={api} people={STAFF} device={device({ access: 'everyone', people: [], screens: ['dine_in', 'pass'], point_id: 'P1' })} onDone={() => {}} onCancel={() => {}} onReload={() => {}} />);
+    await flush();
+    const pass = [...m.container.querySelectorAll<HTMLInputElement>('[data-field="screens"] input')].find((i) => i.parentElement?.textContent === 'Pass');
+    m.click(pass);
+    m.click(m.button('Save'));
+    await flush();
+    expect(sent[0]?.payload).toMatchObject({ screens: ['dine_in'] });
+    expect(sent[0]?.payload).not.toHaveProperty('point_id');
+  });
+
+  it('[05a G-e] switching to everyone sends access and no staff_ids', async () => {
+    const { api, sent } = setup();
+    m.render(<EditForm api={api} people={STAFF} device={device()} onDone={() => {}} onCancel={() => {}} onReload={() => {}} />);
+    await flush();
+    m.click(m.container.querySelector('input[name="dv-access"]'));
+    m.click(m.button('Save'));
+    await flush();
+    expect(sent[0]?.payload).toMatchObject({ access: 'everyone' });
+    expect(sent[0]?.payload).not.toHaveProperty('staff_ids');
+  });
+});
+
+describe('[05a v1.0.2 G-f] the picker reads the devices reply, not the roster', () => {
+  it('[05a G-f] the people list is the whole directory from `staff`', async () => {
+    const { api } = setup();
+    m.render(<ApproveForm api={api} people={STAFF} request={req('phone')} onDone={() => {}} onCancel={() => {}} />);
+    await flush();
+    expect([...m.container.querySelectorAll('[data-field="people"] label')].map((l) => l.textContent)).toEqual(['Ali', 'Bilal']);
+  });
+  it('[05a G-f] createDevicesApi has no roster read', () => {
+    expect('people' in setup().api).toBe(false);
+  });
+});
+
+describe('[05a §6.3] name suggestion', () => {
+  it('[05a §6.3] a request with no name gets "Counter 2" for a kiosk and "Ali\'s phone" once Ali is picked', async () => {
+    const { api } = setup();
+    const unnamed = (hint: PendingRequest['hardware_hint']): PendingRequest => ({ ...req(hint), device_name: '' });
+    m.render(<ApproveForm api={api} people={STAFF} request={unnamed('cashier_kiosk')} onDone={() => {}} onCancel={() => {}} />);
+    await flush();
+    expect((field('name') as HTMLInputElement).value).toBe('Counter 2');
+    m.render(<ApproveForm key="p" api={api} people={STAFF} request={unnamed('phone')} onDone={() => {}} onCancel={() => {}} />);
+    await flush();
+    m.click(m.container.querySelector('[data-field="people"] input'));
+    expect((field('name') as HTMLInputElement).value).toBe("Ali's phone");
   });
 });
 
@@ -230,7 +281,7 @@ describe('[05a §8] the list opens the forms', () => {
       meta: { tenantId: 'T', branchId: 'B', branchName: 'G', hubNowMs: 0, utcOffsetMs: 0 },
       fetch: async (url) =>
         url === '/queries/devices'
-          ? reply(200, { data: { devices: [device(), device({ device_id: 'K', device_name: 'Grill', device_type: 'kds', access: null, screens: [] })], pending_requests: [req('tablet')], admin_warning: null } })
+          ? reply(200, { data: { devices: [device(), device({ device_id: 'K', device_name: 'Grill', device_type: 'kds', access: null, screens: [] })], pending_requests: [req('tablet')], admin_warning: null, staff: STAFF } })
           : reply(404, { error: { code: 'ROUTE_NOT_FOUND' } }),
       onSignedOut: () => {},
     });
