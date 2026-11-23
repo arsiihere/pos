@@ -1,6 +1,9 @@
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
-import { deviceProfile } from '../../src/auth/device-profile';
+import { deviceProfile, listedAdminDeviceCount } from '../../src/auth/device-profile';
+import { currentDirectory } from '../../src/auth/guards';
+import { EN } from '../../src/lib/strings';
+import { jsonResponse, runPage } from '../helpers/page-sandbox';
 import { registerStationValidator } from '../../src/auth/station-validator';
 import { sha256hex } from '../../src/lib/hash';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
@@ -98,6 +101,9 @@ const events = (hub: Hub, type: string, streamId: string) =>
       return { ...(JSON.parse(r.payload) as Record<string, unknown>), actor_id: r.actor_id };
     });
 
+const envelope = (hub: Hub, type: string, streamId: string) =>
+  hub.deps.db.prepare('SELECT stream_type, stream_id, device_id, actor_id FROM events WHERE event_type = ? AND stream_id = ?').all(type, streamId);
+
 const STAFF_CASES = [
   { device_type: 'phone', access: 'listed', staff_ids: ['S_WAIT'], screens: ['dine_in'] },
   { device_type: 'tablet', access: 'everyone', screens: ['dine_in', 'manager'] },
@@ -142,6 +148,9 @@ describe('ApprovePairingRequest v2 (05a §6.3)', () => {
           actor_id: 'S_OWNER',
         },
       ]);
+      // the envelopes: stream hub / device_id; DevicePaired names the new device (00 §6.32), DeviceProfileSet the approver's
+      expect(envelope(hub, 'DevicePaired', id)).toEqual([{ stream_type: 'hub', stream_id: id, device_id: id, actor_id: 'S_OWNER' }]);
+      expect(envelope(hub, 'DeviceProfileSet', id)).toEqual([{ stream_type: 'hub', stream_id: id, device_id: admin.deviceId, actor_id: 'S_OWNER' }]);
       // §6.3 step 5: the deviceProfile map is refreshed by the time the response is out.
       expect(deviceProfile(id)).toMatchObject({ access: c.access, screens: c.screens, needs_review: false });
       expect([...deviceProfile(id)!.staff_ids].sort()).toEqual('staff_ids' in c ? [...c.staff_ids].sort() : []);
@@ -265,6 +274,8 @@ describe('ApprovePairingRequest v2 (05a §6.3)', () => {
     const viaBootstrap = await approve(hub2, who, { request_id: req2.request_id, display_code: req2.display_code, device_type: 'cashier_kiosk', device_name: 'Counter 1', access: 'everyone', screens: ['takeaway', 'cashier', 'manager'] });
     expect(viaBootstrap.statusCode).toBe(200);
     expect(viaBootstrap.json().data.result).toMatchObject({ device_type: 'cashier_kiosk', access: 'everyone' });
+    const bootId = viaBootstrap.json().data.result.device_id as string;
+    expect(envelope(hub2, 'DeviceProfileSet', bootId)).toEqual([{ stream_type: 'hub', stream_id: bootId, device_id: 'hub-admin', actor_id: 'S_OWNER' }]);
   });
 
   it('[05a #4a] ApprovePairingRequest on /commands from a listed device works; from an everyone device → 403 listed_device_only, nothing written', async () => {
@@ -347,5 +358,61 @@ describe('ApprovePairingRequest v2 (05a §6.3)', () => {
       expect(res.statusCode).toBe(200);
       expect(own(rec.sql), payload.device_type).toEqual({ requestReads: 1, deviceInserts: 1, requestUpdates: 1, appends, staffOrPointReads: 0 });
     }
+  });
+});
+
+describe('/admin/approve interim kinds (05a §6.3, D-3; plan task 15 review)', () => {
+  /** The page's fetch, answered by the real hub (bootstrap admin: no device token). */
+  const realFetch = (hub: Hub) => async (url: string, init?: unknown) => {
+    const req = (init ?? {}) as { method?: string; headers?: Record<string, string>; body?: string };
+    const res = await hub.app.inject({
+      method: (req.method ?? 'GET') as 'GET' | 'POST',
+      url,
+      headers: req.headers ?? {},
+      ...(req.body === undefined ? {} : { payload: JSON.parse(req.body) as Record<string, unknown> }),
+    });
+    return jsonResponse(res.statusCode, res.json());
+  };
+
+  it('[05a §6.3] [05a D-3] a fresh hub\'s bootstrap admin pairs a tablet (everyone; dine_in, manager) and their own phone (listed [them]; dine_in) through the page\'s payload; the phone counts as a listed admin device; the kind defaults from the request\'s hint', async () => {
+    const hub = await open();
+    expect(listedAdminDeviceCount(currentDirectory(hub.app))).toBe(0);
+    const bootstrap = openSession(hub, { kind: 'admin', staffId: 'S_OWNER' });
+    const session = { admin_session_token: bootstrap.token, admin_staff_id: 'S_OWNER', admin_bootstrap: '1', admin_name: 'Owner' };
+    const html = (await hub.app.inject({ method: 'GET', url: '/admin/approve' })).body;
+
+    for (const [index, type] of [[1, 'tablet'], [2, 'phone']] as const) {
+      const req = await request(hub);
+      const page = await runPage(html, { session, fetch: realFetch(hub) });
+      const form = page.findAll((el) => el.tagName === 'form')[0]!;
+      page.find('display_code')!.value = req.display_code;
+      await page.click(page.find('device_type')!.children[index]!);
+      await page.submit(form);
+      await page.settle();
+      expect(page.screen.children.length, type).toBeGreaterThan(0);
+      const id = hub.deps.db.prepare('SELECT device_id FROM pair_requests WHERE request_id = ?').pluck().get(req.request_id) as string | null;
+      expect(id, type).not.toBeNull();
+      expect(hub.deps.db.prepare('SELECT device_type, device_name FROM devices WHERE device_id = ?').get(id), type).toEqual({
+        device_type: type,
+        device_name: EN[type === 'tablet' ? 'approve.kind_tablet' : 'approve.kind_phone'],
+      });
+      const profile = deviceProfile(id!)!;
+      if (type === 'tablet') {
+        expect({ access: profile.access, screens: profile.screens, staff: [...profile.staff_ids] }).toEqual({ access: 'everyone', screens: ['dine_in', 'manager'], staff: [] });
+        expect(listedAdminDeviceCount(currentDirectory(hub.app))).toBe(0);
+      } else {
+        expect({ access: profile.access, screens: profile.screens, staff: [...profile.staff_ids] }).toEqual({ access: 'listed', screens: ['dine_in'], staff: ['S_OWNER'] });
+        expect(listedAdminDeviceCount(currentDirectory(hub.app))).toBe(1);
+      }
+    }
+
+    // M-2: a scanned ?r= of a request hinted `phone` opens with Phone picked; no hint → nothing picked.
+    const hinted = await request(hub, 'phone');
+    const fromQr = await runPage((await hub.app.inject({ method: 'GET', url: `/admin/approve?r=${hinted.request_id}` })).body, { session, search: `?r=${hinted.request_id}`, fetch: realFetch(hub) });
+    const pressed = (p: typeof fromQr) => p.find('device_type')!.children.map((el) => el.getAttribute('aria-pressed'));
+    expect(pressed(fromQr)).toEqual(['false', 'false', 'true', 'false']);
+    const plain = await request(hub);
+    const noHint = await runPage((await hub.app.inject({ method: 'GET', url: `/admin/approve?r=${plain.request_id}` })).body, { session, search: `?r=${plain.request_id}`, fetch: realFetch(hub) });
+    expect(pressed(noHint)).toEqual(['false', 'false', 'false', 'false']);
   });
 });

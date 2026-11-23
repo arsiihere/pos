@@ -773,7 +773,7 @@ function deviceRow(d, manage) {
     name: 'more_' + d.device_id,
     label: t('devices.more', { name: d.device_name }),
     title: d.device_name,
-    info: { title: t('devices.menu_paired', { date: day(d.paired_at), name: d.paired_by_name || '—' }), detail: t(d.pairing_source === 'request' ? 'devices.source_request' : 'devices.source_token') },
+    info: { title: t('devices.menu_paired', { date: day(d.paired_at), name: d.paired_by_name || '—' }), detail: t('devices.source_request') },
     items: [{ name: 'remove_' + d.device_id, label: t('devices.menu_remove', { name: d.device_name }), icon: 'x', danger: true, disabled: !manage, onSelect: () => removeDialog(d) }],
   });
   if (phone()) {

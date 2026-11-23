@@ -145,8 +145,8 @@ describe('hub admin page (M86)', () => {
     expect(text).toContain(EN['admin.locked_many'].replace('{n}', '2'));
     expect(text).toContain(EN['devices.approve']);
     // 05a H-1: no Add a phone / Add a tablet tile; every device pairs by request (Approve).
-    expect(text).not.toContain(EN['admin.tile_add_phone_title']);
-    expect(text).not.toContain(EN['admin.tile_add_tablet_title']);
+    expect(text).not.toContain('Add a phone for staff' /* was EN['admin.tile_add_phone_title'], removed by 05a H-1 */);
+    expect(text).not.toContain('Add a shared tablet' /* was EN['admin.tile_add_tablet_title'], removed by 05a H-1 */);
     expect(text).toContain('Imran');
     // Pulse 00-S20: one big number per tile, no Other-jobs tile grid, "Branch hub · {host}" in the side-nav foot.
     const nums = page.findAll((el) => el.className === 'pos-tile__num').map((el) => el.textContent);
@@ -159,16 +159,16 @@ describe('hub admin page (M86)', () => {
 
     const viewer = await runPage(source, { store: STORE, session: { ...SESSION, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': false }) }, fetch: fakeHub().fetch });
     expect(textOf(viewer.screen)).not.toContain(EN['devices.approve']);
-    expect(textOf(viewer.screen)).not.toContain(EN['admin.tile_add_phone_title']);
+    expect(textOf(viewer.screen)).not.toContain('Add a phone for staff' /* was EN['admin.tile_add_phone_title'], removed by 05a H-1 */);
     // 05a H-1: the Devices view offers Approve only; #add-phone / #add-tablet open home.
     const list = textOf((await runPage(source, { store: STORE, session: SESSION, fetch: fakeHub().fetch, hash: '#devices' })).screen);
     expect(list).toContain(EN['devices.approve']);
-    expect(list).not.toContain(EN['devices.add_phone']);
-    expect(list).not.toContain(EN['devices.add_tablet']);
+    expect(list).not.toContain('Add a phone' /* was EN['devices.add_phone'], removed by 05a H-1 */);
+    expect(list).not.toContain('Add a tablet' /* was EN['devices.add_tablet'], removed by 05a H-1 */);
     for (const hash of ['#add-phone', '#add-tablet']) {
       const gone = textOf((await runPage(source, { store: STORE, session: SESSION, fetch: fakeHub().fetch, hash })).screen);
       expect(gone, hash).toContain(EN['admin.tile_devices'].replace('{n}', '3'));
-      expect(gone, hash).not.toContain('Make QR');
+      expect(gone, hash).not.toContain('Make QR' /* was EN['addphone.make_qr'], removed by 05a H-1 */);
     }
   });
 
@@ -194,7 +194,7 @@ describe('hub admin page (M86)', () => {
     const [pairedHead, pairedTail] = EN['devices.menu_paired'].split('{date}');
     expect(textOf(row)).toContain(pairedHead! + EN['devices.today'].split('{time}')[0]);
     expect(textOf(row)).toContain(pairedTail!.replace('{name}', 'Imran'));
-    expect(textOf(row)).toContain(EN['devices.source_token']);
+    expect(textOf(row)).toContain(EN['devices.source_request']);
     await page.click(page.find('remove_D3', row)!);
     expect(more.getAttribute('aria-expanded')).toBe('false');
     expect(page.findAll((el) => el.className.split(' ').includes('pos-menu'), row)).toHaveLength(0);

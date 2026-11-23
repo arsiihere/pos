@@ -525,6 +525,16 @@ describe('01d alerts.raise / raiseMany', () => {
     ['DeviceRevoked', () => aDeviceRevoked({ stream_id: 'D_X', payload: { device_id: 'D_X' } })],
     ['PresenceSet', () => aPresenceSet({ payload: { staff_ids: [KAMRAN], present: false, set_by: IMRAN } })],
     ['DevicePaired', () => aDevicePaired({ stream_id: 'D_NEW', payload: { device_id: 'D_NEW', device_type: 'tablet' } })],
+    // 05a §3.8 (D-1), §5.1: a profile changes device_bindings and devices.point_id
+    [
+      'DeviceProfileSet',
+      () => ({
+        ...aDevicePaired({ stream_id: 'D_X' }),
+        event_type: 'DeviceProfileSet',
+        schema_version: 1,
+        payload: { device_id: 'D_X', device_name: 'Tab', access: 'listed', staff_ids: [KAMRAN], screens: ['dine_in'], point_id: null, profile_version: 1, cause: 'approved', needs_review: false },
+      }),
+    ],
     ['BusinessDayClosed', () => aBusinessDayClosed()],
   ])('[01d BF-6] appending %s in the transaction drops the cached fixed reads; other events keep them', async (_type, event) => {
     const h = await harness(cleanups);

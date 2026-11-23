@@ -15,7 +15,7 @@ export function registerRevokeDevice(app: FastifyInstance): void {
     defineCommand({
       commandType: 'RevokeDevice',
       payloadSchema: Payload,
-      sessionKind: 'admin',
+      sessionKind: 'both',
       permission: 'manage-devices',
       handle(ctx, payload) {
         const device = ctx.tx.db

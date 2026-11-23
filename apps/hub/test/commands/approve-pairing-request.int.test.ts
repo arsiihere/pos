@@ -284,7 +284,7 @@ describe('ApprovePairingRequest', () => {
     expect(textOf(form())).toContain(EN['approve.err_code_format']);
     expect(sent).toHaveLength(1);
     page.find('display_code')!.value = 'ABC124';
-    await page.click(opts()[1]!);
+    await page.click(opts()[3]!); // 05a task 15: cashier, tablet, phone, kitchen
     await page.submit(form());
     expect(textOf(form())).toContain(EN['approve.err_station']);
     const tandoor = page.find('station_id')!.children[0]!;

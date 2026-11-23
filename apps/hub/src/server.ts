@@ -36,6 +36,7 @@ import { registerCloseBusinessDay } from './commands/close-business-day.js';
 import { registerForceLogoutSession } from './commands/force-logout-session.js';
 import { registerOpenBusinessDay } from './commands/open-business-day.js';
 import { registerRevokeDevice } from './commands/revoke-device.js';
+import { registerSetDeviceProfile } from './commands/set-device-profile.js';
 import { registerSetItemAvailability } from './commands/set-item-availability.js';
 import { registerSetPrecookedStock } from './commands/set-precooked-stock.js';
 import { registerSetStationCapacity } from './commands/set-station-capacity.js';
@@ -180,6 +181,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerApprovePairingRequest(app, deps);
   registerAdminPage(app, deps);
   registerRevokeDevice(app);
+  registerSetDeviceProfile(app, deps);
   registerForceLogoutSession(app);
   registerClearPinLockout(app);
   registerOpenBusinessDay(app);

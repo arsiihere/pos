@@ -30,7 +30,8 @@ export interface QueryCtx {
 
 export interface QueryDef<Q extends z.ZodType = z.ZodType> {
   resource: string;
-  sessionKind: 'device' | 'admin';
+  /** 00 §3.7 (05a H-6): `'both'` is registered on `GET /queries/` and `GET /admin/queries/`. */
+  sessionKind: 'device' | 'admin' | 'both';
   session: 'required' | 'none';
   allowStation?: boolean;
   deviceTypes?: DeviceType[];
@@ -105,7 +106,7 @@ function runQuery(
 ): { data: unknown; meta?: unknown } {
   const params = request.params as { resource?: string };
   const def = registry.byResource(params.resource ?? '');
-  if (def === undefined || def.sessionKind !== routeKind) throw new DomainError('ROUTE_NOT_FOUND');
+  if (def === undefined || (def.sessionKind !== routeKind && def.sessionKind !== 'both')) throw new DomainError('ROUTE_NOT_FOUND');
   if (routeKind === 'device' && def.session === 'required') requireDeviceSession(request, deps, def.allowStation === true);
   const deviceType = request.device?.device_type;
   if (def.deviceTypes !== undefined && (deviceType === undefined || !def.deviceTypes.includes(deviceType))) {
