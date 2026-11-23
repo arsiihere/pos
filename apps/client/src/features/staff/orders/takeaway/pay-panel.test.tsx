@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flush, mount, type Mounted } from '../../../../../test/dom';
 import type { BillView, BillViewSplit, Totals } from '../../../billing/contracts';
@@ -176,6 +177,19 @@ describe('[02b-TK C3-1] pay panel — cash (frames PayCash, PayCashShort, PayDon
     expect(s.command.mock.calls[0]![1]).toMatchObject({ amount_minor: 365_000, tendered_minor: 365_000 });
     expect(m.text()).toContain('Paid · Rs 3,650');
     expect(m.container.querySelector('.tk-change')).toBeNull();
+  });
+
+  it('[TAPS row 1 "F8 ⏎ ⏎"] Enter while the tapped note still has the focus = Paid, once (not the note again)', async () => {
+    const s = setup({ answers: [PAID({ change_due_minor: 0 }), CLOSED({ change_minor: 0 })] });
+    const m = await show(s);
+    const exact = m.button('Exact');
+    m.click(exact);
+    // a real key press is cancelable: Paid takes it, so the browser does not click the focused note too
+    const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    act(() => void exact.dispatchEvent(ev));
+    await flush();
+    expect(calls(s).map((c) => c[0])).toEqual(['AddPayment', 'CloseSplit']);
+    expect(ev.defaultPrevented).toBe(true);
   });
 
   it('[frame PayCashShort] typed 3,000 → "Short by Rs 650" in red, Paid stays off, nothing sent', async () => {

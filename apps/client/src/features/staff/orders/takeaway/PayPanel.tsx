@@ -221,7 +221,9 @@ export function PayPanel({ target, onLater, onDone, fixed }: PayPanelProps) {
   keys.current = { pay, onDone, phase, ready };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.target instanceof HTMLButtonElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key !== 'Enter' || e.target instanceof HTMLTextAreaElement) return;
+      // a tapped note or mode keeps the focus: its Enter is Paid ("Exact ⏎", TAPS row 1); any other button its own
+      if (e.target instanceof HTMLButtonElement && e.target.closest('.tk-notes, .tk-modes') === null) return;
       const k = keys.current;
       if (k.phase.kind === 'done') {
         e.preventDefault();
