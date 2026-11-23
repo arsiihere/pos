@@ -54,6 +54,8 @@ import { MeTab, PhoneTabs, type PhoneTab } from './tables/PhoneTabs';
 import { TopBar } from './tables/TopBar';
 import { createPrintSkipDismiss } from '../alerts/labels-03b';
 import { AuditLog } from '../audit/AuditLog';
+import { createDevicesApi } from '../devices/api';
+import { DeviceList } from '../devices/DeviceList';
 import { checkTarget } from '../alerts/deeplink-check';
 import { tapAlert } from '../alerts/deeplink-tap';
 import { dropHandover } from './orders/preload';
@@ -506,6 +508,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const showTest = !phone && allowed.has('manage-devices');
   // 04 §8 (VU2, R5): the audit log with view-audit-log granted outright (the hub refuses anything else), laptop and tablet
   const showAudit = !phone && allowed.has('view-audit-log');
+  // 05a §8 (task 31): the device list, manage-devices unmasked (a listed device); width never decides (C-1)
+  const showDevices = allowed.has('manage-devices');
+  const devicesApi = useMemo(() => createDevicesApi(api), [api]);
   // 05 §8 Cashier screen (task 34, R5): the open-bills list with take-payment, kiosk and tablet
   const showBills = !phone && allowed.has('take-payment');
   // 05 §8 Shift (task 39, R5): My shift with manage-own-shift granted outright (the hub's registry grant), every device
@@ -597,6 +602,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const returnTarget = async (rec: ReturnRecord): Promise<string | null> => {
     const path = routePath(rec.from);
     if (path === '/audit') return showAudit ? rec.from : null;
+    if (path === '/devices') return showDevices ? rec.from : null;
     if (path === '/bills' || path === '/bill') return showBills ? rec.from : null;
     if (path === '/shift') return showShift ? rec.from : null;
     if (path === '/reports') return showReports ? rec.from : null;
@@ -722,6 +728,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
   } else if (path === '/audit' && showAudit) {
     page = <AuditLog />;
+  } else if (path === '/devices' && showDevices) {
+    // §8: the QR / link `#/devices?r=<request_id>` opens that request's approve form (code still typed)
+    page = <DeviceList api={devicesApi} openRequestId={new URLSearchParams(route.split('?')[1] ?? '').get('r')} />;
   } else if (path === '/shift' && (showShift || (shiftQueryId !== null && allowed.has('close-shift-for-others')))) {
     // task 41: #/shift?shift_id=… opens that shift (day close's Close this shift, close-shift-for-others)
     page = <ShiftScreen key={route} {...(shiftQueryId === null ? {} : { shiftId: shiftQueryId })} />;
