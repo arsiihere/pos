@@ -139,7 +139,11 @@ function insertSession(db: Database.Database, o: { id: string; staff: string; de
   ).run(o.id, BRANCH, `tok-${o.id}`, o.staff, o.device, o.last, o.last, o.ended === true ? o.last + 300_000 : null, o.ended === true ? 'idle_timeout' : null);
 }
 
-/** A command ctx whose `permission` getter throws: `raise` never reads it (§4.2, v0.4 m7). */
+/**
+ * A command ctx with an unmasked `permission`. ⚠️ Changed by 05a (row D-2), 01d v1.3.5 §4.2 gap G-d: `raise` reads
+ * `ctx.permission` only to test `masked === 'downgraded'` (05a §3.9 rule 1; test/alerts/downgraded-raise.int.test.ts),
+ * so an unmasked grant leaves every raise here as before. Was: a getter that throws ("never read", v0.4 m7).
+ */
 function cmdCtx(tx: WriterTx, staffId: string = ALI, deviceId: string = ALI_DEV): AlertCtx {
   const ctx = {
     tx,
@@ -149,9 +153,7 @@ function cmdCtx(tx: WriterTx, staffId: string = ALI, deviceId: string = ALI_DEV)
     actor: { kind: 'staff', staffId, stationId: null, sessionId: 'SESS', deviceId },
     branch: { tenantId: 'tenant-1', branchId: BRANCH },
     directory: dir,
-    get permission(): never {
-      throw new Error('raise read ctx.permission');
-    },
+    permission: { grant: 'requires_approval', approver_role_ids: ['R2', 'R3'], scope: 'branch' },
   };
   return ctx as unknown as CommandCtx;
 }
@@ -355,7 +357,7 @@ describe('01d alerts.raise / raiseMany', () => {
     });
   });
 
-  it('[01d §6.1] named kind: receiver copied into the request part; raise never reads ctx.permission', async () => {
+  it('[01d §6.1] named kind: receiver copied into the request part', async () => {
     const h = await harness(cleanups);
     const r = h.writer.run((tx) =>
       alerts.raise(cmdCtx(tx), {
