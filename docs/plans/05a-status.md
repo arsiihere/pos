@@ -20,6 +20,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~21:30 PKT: **05a merged into `main`** (PR #455 → `55756a09`, owner's word). Z2 hand checks still to do on the pilot devices. 05b phase B is unblocked.
 > - 2026-11-23 ~21:00 PKT: **Z1 merged; build code-complete** (see the box at the top). Stab `origin/fix/stab-tablet-pairing` moved to `011d4bf2` (one docs-only commit, STAB-6/7 status): merged; no 00 / 01d / 03b / 04 version from STAB.
 > - 2026-11-23 ~20:45 PKT: **Task 25 merged — all 36 build tasks are merged into `build/05a`.** Next: Z1 acceptance map (draft ready), then the owner's Z2 hand checks and Z3 (PR to `main`, after the stab PR, on the owner's word).
 > - 2026-11-23 ~20:00 PKT: **Task 30 merged** (counter check). **27 tasks merged.** Left: 25 (in review), the #15 refusal test, then Z1.
@@ -144,7 +145,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 36 | B8 | audit screen names for `device_profile_set` (G-b) | NORMAL | `c978d0fe` | **done** (Sonnet review APPROVE) |
 | Z1 | Z | acceptance map | — | `683d17af` | **done**: `docs/plans/05a-acceptance.md` — all 43 §10 cases cite a test (0 pending, 0 missing); every §4.5 row, RF-1–RF-5, §12.4, rulings and owner notes |
 | Z2 | Z | manual checks (owner) | — | | |
-| Z3 | Z | `module-05a` → `main` | — | | |
+| Z3 | Z | `module-05a` → `main` | — | PR #455, merge `55756a09` | **done** 2026-11-23 on the owner's word ("merge into main"), after the stab PR #448; `main` merged into `build/05a` first (`38bfae2d`, no file change); PR gate green (run 45154777477) |
 
 ## Owner rulings
 
