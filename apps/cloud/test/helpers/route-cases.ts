@@ -135,6 +135,14 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
     payload: { expected_version: 'stale', station_id: ids.stationId },
   }),
   'GET /v1/admin/stock-items/:stock_item_id/inventory': (ids) => ({ url: `/v1/admin/stock-items/${ids.stockItemId}/inventory` }),
+  'POST /v1/admin/stock-items/:stock_item_id/units': (ids) => ({
+    url: `/v1/admin/stock-items/${ids.stockItemId}/units`,
+    payload: { unit_name: 'peti', factor_num: 12000 },
+  }),
+  'POST /v1/admin/stock-items/:stock_item_id/yields': (ids) => ({
+    url: `/v1/admin/stock-items/${ids.stockItemId}/yields`,
+    payload: { yield_bp: 7120 },
+  }),
   'GET /v1/admin/modifier-groups': () => ({ url: '/v1/admin/modifier-groups' }),
   'POST /v1/admin/modifier-groups': (ids) => ({
     url: '/v1/admin/modifier-groups',
