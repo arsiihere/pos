@@ -1,0 +1,546 @@
+[
+ {
+  "stem": "ShellAnatomy",
+  "screen": "TK-SH01",
+  "device": "component",
+  "state": "normal",
+  "title": "Shell — proposed: top bar parts, tab active state, offline, rush, day/shift banners",
+  "lang": "en"
+ },
+ {
+  "stem": "PersonMenu",
+  "screen": "TK-SH02",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Person chip menu — Switch user · Lock · My shift · Sign out (never one-tap sign out)",
+  "lang": "en"
+ },
+ {
+  "stem": "DayNotStarted",
+  "screen": "TK-SH03",
+  "device": "kiosk",
+  "state": "error",
+  "title": "Day not started — blocked before the first item, times explain why",
+  "lang": "en"
+ },
+ {
+  "stem": "HomeKiosk",
+  "screen": "TK-S01",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Takeaway home — queue · menu · cart in one screen; live “Ready by 1:42 PM”; Send & pay",
+  "lang": "en"
+ },
+ {
+  "stem": "HomeEmpty",
+  "screen": "TK-S01",
+  "device": "kiosk",
+  "state": "empty",
+  "title": "Start of lunch — no orders, empty cart answers “kitna time?” from live station waits",
+  "lang": "en"
+ },
+ {
+  "stem": "HomeRush",
+  "screen": "TK-S01",
+  "device": "kiosk",
+  "state": "rush",
+  "title": "RUSH — 40 open: rush mode (dense 5-col tiles, half/full on the tile, top items pinned, compact queue)",
+  "lang": "en"
+ },
+ {
+  "stem": "HomeOffline",
+  "screen": "TK-S01",
+  "device": "kiosk",
+  "state": "offline",
+  "title": "Hub offline — orders queue (token after sending), times “—”, payment waits; queue frozen “as of”",
+  "lang": "en"
+ },
+ {
+  "stem": "HomeError",
+  "screen": "TK-S01",
+  "device": "kiosk",
+  "state": "error",
+  "title": "Errors — queue read failed (retry), a cart line problem blocks Send (“Fix 1 item first”)",
+  "lang": "en"
+ },
+ {
+  "stem": "HomeUrdu",
+  "screen": "TK-S01",
+  "device": "kiosk",
+  "state": "urdu",
+  "title": "Urdu RTL — mirrored layout; tokens, money, times, phones stay LTR",
+  "lang": "ur"
+ },
+ {
+  "stem": "HomeRushUrdu",
+  "screen": "TK-S01",
+  "device": "kiosk",
+  "state": "rush · urdu",
+  "title": "Rush mode in Urdu",
+  "lang": "ur"
+ },
+ {
+  "stem": "PhoneRepeat",
+  "screen": "TK-D01",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Phone typed → match “Usman · 6 orders” → Repeat last order in one tap; numeric pad with +92 mask",
+  "lang": "en"
+ },
+ {
+  "stem": "PhoneInvalid",
+  "screen": "TK-D01",
+  "device": "kiosk",
+  "state": "error",
+  "title": "Phone too short — inline error, Send still allowed without phone? No: a typed phone must be valid (clear it or fix it)",
+  "lang": "en"
+ },
+ {
+  "stem": "PickupLater",
+  "screen": "TK-D02",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Phone-ahead order — pickup 2:00 PM; name + phone required; kitchen times it to land at 2:00; “Schedule for 2:00 PM”",
+  "lang": "en"
+ },
+ {
+  "stem": "PickupLaterUrdu",
+  "screen": "TK-D02",
+  "device": "kiosk",
+  "state": "urdu",
+  "title": "Phone-ahead order in Urdu",
+  "lang": "ur"
+ },
+ {
+  "stem": "ItemSheet",
+  "screen": "TK-D03",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Item sheet — size, add-ons WITH quantity steppers (karahi + 4 naan), cooking choices, note; “usually 4 naan” hint",
+  "lang": "en"
+ },
+ {
+  "stem": "ItemSheetEdit",
+  "screen": "TK-D03",
+  "device": "kiosk",
+  "state": "edit",
+  "title": "Editing a cart line — CTA says “Save changes”, Remove on the left (fixes “Add to order” on edit)",
+  "lang": "en"
+ },
+ {
+  "stem": "ItemSheetKg",
+  "screen": "TK-D03",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Karahi by kg — weight pad, 0.5/0.75/1 kg chips, or Weigh later",
+  "lang": "en"
+ },
+ {
+  "stem": "ItemSheetUrdu",
+  "screen": "TK-D03",
+  "device": "kiosk",
+  "state": "urdu",
+  "title": "Item sheet in Urdu",
+  "lang": "ur"
+ },
+ {
+  "stem": "DealSheet",
+  "screen": "TK-D04",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Family deal — each part listed, choices as big buttons, extra naan with a stepper",
+  "lang": "en"
+ },
+ {
+  "stem": "TileStates",
+  "screen": "TK-C01",
+  "device": "component",
+  "state": "all",
+  "title": "Menu tile — every state: wait chip, now, zone count, in cart, keyboard focus, sold out (no strike-through), not now, paused, half/full on tile, rush tile",
+  "lang": "en"
+ },
+ {
+  "stem": "KeyboardMode",
+  "screen": "TK-S02",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Keyboard speed mode — type “4n”, Enter adds 4 roghni naan; shortcuts always shown",
+  "lang": "en"
+ },
+ {
+  "stem": "CartTimeDelta",
+  "screen": "TK-S02",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "USP — 2nd karahi pushes Ready by from 1:42 to 2:00 PM; the line says why, so the cashier can tell the customer",
+  "lang": "en"
+ },
+ {
+  "stem": "CartSuggest",
+  "screen": "TK-S02",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Companion suggestions — under Half karahi: “+4 Roghni naan” “+Salad” (one tap each)",
+  "lang": "en"
+ },
+ {
+  "stem": "CartNote",
+  "screen": "TK-S02",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Order note visible in the cart (saffron), button reads “Edit note”",
+  "lang": "en"
+ },
+ {
+  "stem": "ServeChoice",
+  "screen": "TK-S02",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Mixed order — one plain question in the footer: “Paye is ready now. Give it now?” (replaces Together / As ready jargon)",
+  "lang": "en"
+ },
+ {
+  "stem": "SentToast",
+  "screen": "TK-D05",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "After Send — no dialog: fresh cart at once, token 57 toast (print again), token on top of Cooking",
+  "lang": "en"
+ },
+ {
+  "stem": "SentQueued",
+  "screen": "TK-D05",
+  "device": "kiosk",
+  "state": "offline",
+  "title": "Sent while offline — “Not sent yet — token comes when the hub is back”; row dashed “Waiting to send”",
+  "lang": "en"
+ },
+ {
+  "stem": "PayCash",
+  "screen": "TK-D06",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Send & pay → pay panel over the cart (menu + queue stay live): Exact / 4,000 / 5,000 / 10,000, change shown huge",
+  "lang": "en"
+ },
+ {
+  "stem": "PayCashShort",
+  "screen": "TK-D06",
+  "device": "kiosk",
+  "state": "error",
+  "title": "Typed less than due — “Short by Rs 650” in red, Paid stays off",
+  "lang": "en"
+ },
+ {
+  "stem": "PayCard",
+  "screen": "TK-D06",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Card on the kiosk — counter machine, last 4 digits as the reference (05 reference_required)",
+  "lang": "en"
+ },
+ {
+  "stem": "PayRaast",
+  "screen": "TK-D06",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Raast — dynamic QR for this amount; closes itself when the bank confirms; mirrored on the customer screen",
+  "lang": "en"
+ },
+ {
+  "stem": "PayDone",
+  "screen": "TK-D06",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Paid — change Rs 1,350 huge, receipt printing, Enter = next customer (fresh cart already behind)",
+  "lang": "en"
+ },
+ {
+  "stem": "PayError",
+  "screen": "TK-D06",
+  "device": "kiosk",
+  "state": "error",
+  "title": "Payment failed — nothing charged, Try again or Pay later (order is already in the kitchen)",
+  "lang": "en"
+ },
+ {
+  "stem": "PayUrdu",
+  "screen": "TK-D06",
+  "device": "kiosk",
+  "state": "urdu",
+  "title": "Pay panel in Urdu",
+  "lang": "ur"
+ },
+ {
+  "stem": "TokenDue",
+  "screen": "TK-S03",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Token view (drawer) — 54 unpaid: stages per item, Give ready items now, Take payment as the primary",
+  "lang": "en"
+ },
+ {
+  "stem": "TokenReady",
+  "screen": "TK-S03",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Token 48 ready + paid — one primary: Hand over all (Enter); undo for 5 s after",
+  "lang": "en"
+ },
+ {
+  "stem": "TokenPartial",
+  "screen": "TK-S03",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Split pickup — paye handed over, karahi cooking; Hand over waits for 1:31 PM",
+  "lang": "en"
+ },
+ {
+  "stem": "TokenLate",
+  "screen": "TK-S03",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Not collected — ready 17 min ago: amber, Call shows the phone (view-customer-contact)",
+  "lang": "en"
+ },
+ {
+  "stem": "TokenUrdu",
+  "screen": "TK-S03",
+  "device": "kiosk",
+  "state": "urdu",
+  "title": "Token view in Urdu",
+  "lang": "ur"
+ },
+ {
+  "stem": "TokenAddItems",
+  "screen": "TK-S03",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Add items to a sent token — same token 53, banner says so, primary “Add to token 53”",
+  "lang": "en"
+ },
+ {
+  "stem": "TokenRemove",
+  "screen": "TK-D07",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Remove / cancel — not started: remove (units stepper); cooking: void → approval (04); paid → refund on the bill",
+  "lang": "en"
+ },
+ {
+  "stem": "HandoverUndo",
+  "screen": "TK-C02",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Hand over in one tap from the ready tile — toast “48 handed over · Undo” for 5 s; the board clears 48",
+  "lang": "en"
+ },
+ {
+  "stem": "ReadyTiles",
+  "screen": "TK-C02",
+  "device": "component",
+  "state": "all",
+  "title": "Ready tile — paid · due (tap = pay first) · waiting long (call) · partial (some given) · selected",
+  "lang": "en"
+ },
+ {
+  "stem": "LeaveGuard",
+  "screen": "TK-D08",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Leaving with an unsent cart (any tab, Back, sign out) — Hold it / Throw away / Stay here. Never silent.",
+  "lang": "en"
+ },
+ {
+  "stem": "HeldDrawer",
+  "screen": "TK-S04",
+  "device": "kiosk",
+  "state": "normal",
+  "title": "Held on this counter — everyone signed in here sees them (not only who held); Resume / Throw away; held at + by whom",
+  "lang": "en"
+ },
+ {
+  "stem": "HomeTablet",
+  "screen": "TK-S01",
+  "device": "tablet",
+  "state": "normal",
+  "title": "Tablet 1280×800 — ready strip on top (tap = hand over / pay), menu 3 columns, cart 440; queue opens as a drawer",
+  "lang": "en"
+ },
+ {
+  "stem": "HomeTabletUrdu",
+  "screen": "TK-S01",
+  "device": "tablet",
+  "state": "urdu",
+  "title": "Tablet in Urdu",
+  "lang": "ur"
+ },
+ {
+  "stem": "PayNfcTablet",
+  "screen": "TK-D06",
+  "device": "tablet",
+  "state": "normal",
+  "title": "Card by NFC on the tablet (Paymob) — “Tap the card on the back of this tablet”",
+  "lang": "en"
+ },
+ {
+  "stem": "QueueTablet",
+  "screen": "TK-S03",
+  "device": "tablet",
+  "state": "rush",
+  "title": "Tablet — full queue as a drawer (40 open, search by token / name / last 4 digits)",
+  "lang": "en"
+ },
+ {
+  "stem": "PhoneMenu",
+  "screen": "TK-S01",
+  "device": "phone",
+  "state": "normal",
+  "title": "Phone — Menu tab, 2 columns, wait on every tile, sticky bar with total + Ready by",
+  "lang": "en"
+ },
+ {
+  "stem": "PhoneCart",
+  "screen": "TK-S01",
+  "device": "phone",
+  "state": "normal",
+  "title": "Phone — Cart tab: name / phone / pickup, lines with steppers and times",
+  "lang": "en"
+ },
+ {
+  "stem": "PhoneQueue",
+  "screen": "TK-S03",
+  "device": "phone",
+  "state": "normal",
+  "title": "Phone — Queue tab: ready first (hand over / pay), then cooking, then phone orders",
+  "lang": "en"
+ },
+ {
+  "stem": "PhoneToken",
+  "screen": "TK-S03",
+  "device": "phone",
+  "state": "normal",
+  "title": "Phone — one token full screen: stages, Hand over / Pay, Add items",
+  "lang": "en"
+ },
+ {
+  "stem": "PhoneCartUrdu",
+  "screen": "TK-S01",
+  "device": "phone",
+  "state": "urdu",
+  "title": "Phone cart in Urdu",
+  "lang": "ur"
+ },
+ {
+  "stem": "PhoneOffline",
+  "screen": "TK-S01",
+  "device": "phone",
+  "state": "offline",
+  "title": "Phone offline — times “—”, Send queues, Pay hidden (needs hub)",
+  "lang": "en"
+ },
+ {
+  "stem": "Board",
+  "screen": "TK-S05",
+  "device": "tv",
+  "state": "normal",
+  "title": "Pickup board (TV) — Ready (green, big) / Preparing (with ~time); English + Urdu; no names for unpaid; phone orders by first name",
+  "lang": "en"
+ },
+ {
+  "stem": "BoardCall",
+  "screen": "TK-S05",
+  "device": "tv",
+  "state": "normal",
+  "title": "Call-out — a token turns ready: tile flashes, banner + chime + recorded Urdu voice “Token number sattavan”",
+  "lang": "en"
+ },
+ {
+  "stem": "BoardRush",
+  "screen": "TK-S05",
+  "device": "tv",
+  "state": "rush",
+  "title": "RUSH — 40 open: oldest ready first, Preparing shows 16 + “+18 more”; no scrolling",
+  "lang": "en"
+ },
+ {
+  "stem": "BoardEmpty",
+  "screen": "TK-S05",
+  "device": "tv",
+  "state": "empty",
+  "title": "Board with no orders — welcome in English + Urdu",
+  "lang": "en"
+ },
+ {
+  "stem": "BoardOffline",
+  "screen": "TK-S05",
+  "device": "tv",
+  "state": "offline",
+  "title": "Board lost the hub — keeps the last list, “Updating…”, never shows a wrong Ready",
+  "lang": "en"
+ },
+ {
+  "stem": "PackerPass",
+  "screen": "TK-S06",
+  "device": "tablet",
+  "state": "normal",
+  "title": "Packer / Pass (tablet) — takeaway filter: “Pack next” by time; Bag ready = ReadyToServe → board + cashier tile",
+  "lang": "en"
+ },
+ {
+  "stem": "StatusCooking",
+  "screen": "TK-S07",
+  "device": "phone",
+  "state": "normal",
+  "title": "Customer status page (slip QR → restaurant Wi-Fi) — token, “Ready around 1:42 PM”, items",
+  "lang": "en"
+ },
+ {
+  "stem": "StatusReady",
+  "screen": "TK-S07",
+  "device": "phone",
+  "state": "normal",
+  "title": "Customer status page — ready (green), beeps, “show this screen at the counter”",
+  "lang": "en"
+ },
+ {
+  "stem": "StatusUrdu",
+  "screen": "TK-S07",
+  "device": "phone",
+  "state": "urdu",
+  "title": "Customer status page in Urdu",
+  "lang": "ur"
+ },
+ {
+  "stem": "TokenSlip",
+  "screen": "TK-P01",
+  "device": "slip",
+  "state": "normal",
+  "title": "Token slip (80 mm) — token huge, ready ~time, Urdu line, QR to the status page; receipt stays as 05 prints it",
+  "lang": "en"
+ },
+ {
+  "stem": "CustomerDisplay",
+  "screen": "TK-S08",
+  "device": "display",
+  "state": "normal",
+  "title": "Customer-facing display at the counter — cart mirror with total and Ready by, while the cashier types",
+  "lang": "en"
+ },
+ {
+  "stem": "CustomerDisplayRaast",
+  "screen": "TK-S08",
+  "device": "display",
+  "state": "normal",
+  "title": "Customer display during Raast — big QR for this amount, auto “Paid ✓” when the bank confirms",
+  "lang": "en"
+ },
+ {
+  "stem": "HostileReview",
+  "screen": "TK-HR",
+  "device": "component",
+  "state": "review",
+  "title": "Hostile review — tired cashier, 1:30 PM, 15 in queue: what could lose an order or money, before → after",
+  "lang": "en"
+ }
+]
