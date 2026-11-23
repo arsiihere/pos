@@ -16,10 +16,10 @@ import type { StaffRoute } from './routes';
 // .map / .order layouts are flex children of it, so no wrapper). The lane replaces the component body (W0.6 stubs
 // render nothing), never this table.
 
-export type SlotRoute = Exclude<StaffRoute, { name: 'inbox' } | { name: 'requests' } | { name: 'test_alert' } | { name: 'receipts' }>;
+export type SlotRoute = Exclude<StaffRoute, { name: 'inbox' } | { name: 'requests' } | { name: 'test_alert' } | { name: 'receipts' } | { name: 'manager' }>;
 
 export function isSlotRoute(route: StaffRoute): route is SlotRoute {
-  return !['inbox', 'requests', 'test_alert', 'receipts'].includes(route.name);
+  return !['inbox', 'requests', 'test_alert', 'receipts', 'manager'].includes(route.name);
 }
 
 /** What the shell hands the slots beyond the route (02a IR-5): the 01d alert store's rows, for the map's flags, and
@@ -60,7 +60,7 @@ export function slotContent(route: SlotRoute, props: SlotProps = {}): ReactNode 
     case 'me':
       // 20b (lane A): the phone's Me tab (person, sign out); the shell draws nothing here yet
       return null;
-    case 'kiosk_home':
+    case 'takeaway':
       return <KioskHome />;
     case 'pass':
       return <PassScreen />; // 03b W0.6 (Q-58)

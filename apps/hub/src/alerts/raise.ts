@@ -1,4 +1,4 @@
-import { DomainError, OWNER_CLOSE_REASONS, type REQUEST_DECISIONS } from '@pos/domain';
+import { DomainError, MONEY_PERMISSIONS, OWNER_CLOSE_REASONS, type REQUEST_DECISIONS } from '@pos/domain';
 import {
   latestVersion,
   type AlertClosedPayload,
@@ -11,6 +11,7 @@ import {
   type PosEvent,
 } from '@pos/events';
 import type Database from 'better-sqlite3';
+import { deviceProfile } from '../auth/device-profile.js';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { CommandCtx } from '../commands/registry.js';
 import { rawDbOf } from '../engine-host/read-only-tx.js';
@@ -27,7 +28,10 @@ import { cachedPrepare } from './statements.js';
 // checks of values / details (§3.12), the request part, step 0 resolved and routed (§3.4), or the G1-9d
 // shortcut for approval kinds whose step-0 answerers have no route (§3.5). Statements ≤ 6 + R + T
 // (dedupe 1, the cached fixed reads 5, one call per resolver kind and per registered route); raiseMany
-// costs the same as one raise. `ctx.permission` is never read (v0.4 m7). `details` is never logged (§7).
+// costs the same as one raise. `details` is never logged (§7).
+// ⚠️ Changed by 05a (row D-2), 01d v1.3.5 §4.2 gap G-d: `ctx.permission` is read only for `masked === 'downgraded'`
+// (05a §3.3a, §3.9 rule 1): an approval kind is then stored `named` (receiver = the requester, a listed device of theirs
+// connected now) or `holders` (the kind's range_permission, else its base_permission); no statement (was: "never read", v0.4 m7).
 
 /** §4.2 `tickCtx(tx, now)` shape: a tick-raised alert has `raised_device_id = 'hub'`. */
 export interface TickCtx {
@@ -105,6 +109,9 @@ function envelopeOf(ctx: AlertCtx): { now: number; actor_id: string | null; devi
   return { now: ctx.now, actor_id: ctx.actor_id, device_id: ctx.device_id };
 }
 
+/** 05a §3.3 `MONEY_PERMISSIONS`: the permissions whose `allowed` grant the session view downgrades. */
+const MONEY: ReadonlySet<string> = new Set(MONEY_PERMISSIONS);
+
 const dedupeKey = (kind: string, key: string): string => `${kind}\u0000${key}`;
 
 function kindFor(name: string): AlertKind {
@@ -118,11 +125,42 @@ function invalid(issue: 'values_invalid' | 'details_invalid', kind: string, path
   return new DomainError('VALIDATION_FAILED', { issue, kind, fields: paths.map((path) => path.map(String).join('.')) });
 }
 
+/**
+ * ⚠️ Changed by 05a (row D-2), 05a §3.9 rule 1 (a), 01d v1.3.5 §3.3 "Raise from a downgraded grant": the requester is
+ * on ≥ 1 unrevoked `listed` device (the in-memory `deviceProfile` map holds unrevoked devices only) that is connected
+ * now. ⚠️ Changed by 05a v1.0.4 (G-h (a)): route-level — the device counts only if it would reach the requester now:
+ * the requester's OWN open staff session socket on it, or its alert-mode socket when it is bound to them permanently
+ * (`listed` with exactly one person, §3.8). Someone else signed in on a listed device listing them does not count.
+ * The hub's in-memory socket lists, no statement.
+ */
+function listedDeviceConnected(ws: WsHub, staffId: string): boolean {
+  const listed = (deviceId: string, only: boolean): boolean => {
+    const profile = deviceProfile(deviceId);
+    return profile !== undefined && profile.access === 'listed' && profile.staff_ids.has(staffId) && (!only || profile.staff_ids.size === 1);
+  };
+  return (
+    ws.connectedSessions().some((s) => s.kind === 'staff' && s.staffId === staffId && listed(s.deviceId, false)) ||
+    ws.alertSockets().some((s) => listed(s.deviceId, true))
+  );
+}
+
+/** The downgraded raise's stored right (05a §3.9 rule 1): `named` to this person, or (null) `holders`. Chosen once, at raise. */
+type Downgraded = { named: string | null };
+
 /** §6.1 (5): the request part as stored (`AlertRaised.request`). */
-function requestPart(kind: AlertKind, input: RaiseInput): AlertRequestPart | null {
+function requestPart(kind: AlertKind, input: RaiseInput, downgraded: Downgraded | null): AlertRequestPart | null {
   const request = kind.request;
   if (request === null) return null;
   const base = { answers: [...request.answers], needs_pin: request.needs_pin };
+  if (request.right.mode === 'approval' && downgraded !== null) {
+    // ⚠️ Changed by 05a (row D-2), 05a §3.9 rule 1, A-2: the kind's own request (same kind, values, details, steps) with
+    // the stored right in place of `approval`; AlertRaised v5's right modes, no event version change.
+    if (downgraded.named !== null) {
+      return { ...base, right_mode: 'named', base_permission: null, range_permission: null, approver_role_ids: [], receiver_staff_id: downgraded.named };
+    }
+    const permission = request.right.range_permission ?? request.right.base_permission;
+    return { ...base, right_mode: 'holders', base_permission: permission, range_permission: null, approver_role_ids: [], receiver_staff_id: null };
+  }
   if (request.right.mode === 'approval') {
     const roles = input.request?.approver_role_ids;
     if (roles === undefined) throw new Error(`alerts.raise('${kind.kind}'): request.approver_role_ids is required for an approval kind`);
@@ -161,6 +199,27 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
   const cache = alertTxCache(tx);
   const kinds = inputs.map((input) => kindFor(input.kind)); // §6.1 (1)
   const env = envelopeOf(ctx);
+  // 05a §3.9 rule 1 / 01d §4.2 G-d: `ctx.permission` read only for `masked === 'downgraded'` (a tick's is null); the
+  // grant is read only when an approval kind is raised, and the socket lists only for a downgraded one, once per
+  // requester per call (memory, no statement); other raises (close's request_result, notices) never read it
+  let downgradedGrant: boolean | undefined;
+  const connected = new Map<string, boolean>();
+  const downgradedFor = (kind: AlertKind, requester: string | null): Downgraded | null => {
+    if (kind.request?.right.mode !== 'approval') return null;
+    downgradedGrant ??= 'actor' in ctx && ctx.permission?.masked === 'downgraded';
+    if (!downgradedGrant) return null;
+    // a downgraded grant is a money permission's (05a §3.3a): the kind it raises must be a money kind's own request
+    if (!MONEY.has(kind.request.right.base_permission)) {
+      throw new Error(`alerts.raise('${kind.kind}'): downgraded grant raising a kind whose base_permission is not a money permission`);
+    }
+    if (requester === null) return { named: null };
+    let on = connected.get(requester);
+    if (on === undefined) {
+      on = listedDeviceConnected(envOf(tx).ws(), requester);
+      connected.set(requester, on);
+    }
+    return { named: on ? requester : null };
+  };
 
   // §6.1 (2): open (kind, key) in one statement, unless this transaction returned the key already
   const ask = new Map<string, [string, string]>();
@@ -209,8 +268,8 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
     if (kind.steps[0] === undefined) throw new Error(`alerts.raise('${kind.kind}'): the kind has no step 0`);
     // §6.1 (4), (5)
     const alert_id = tx.ids.next();
-    const request = requestPart(kind, input);
     const requester = input.requester_staff_id ?? null;
+    const request = requestPart(kind, input, downgradedFor(kind, requester));
     const valuesOut = values.data as Record<string, unknown>;
     const payload: AlertRaisedPayloadV5 = {
       alert_id,
@@ -228,7 +287,9 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
       request,
     };
     const row: AlertRow = { alert_id, kind: kind.kind, requester_staff_id: requester, target: input.target, values: valuesOut, request, step: -1, raised_at: env.now };
-    const esc = kind.request?.right.mode === 'approval' ? kind.steps.findIndex((s) => s.escalation === true) : -1;
+    // G1-9d candidate. ⚠️ Changed by 05a (row D-2; owner Q-3 (a)), 01d v1.3.5 §3.5: keyed on the STORED right, so a
+    // downgraded request stored `named` / `holders` gets no shortcut and escalates by its steps.
+    const esc = request?.right_mode === 'approval' ? kind.steps.findIndex((s) => s.escalation === true) : -1;
     pending.push({ index, kind, input, row, payload, escalation: esc > 0 ? esc : null });
     fresh.set(key, { alert_id, requester_staff_id: requester });
   });

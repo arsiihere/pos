@@ -3,8 +3,9 @@ import { t } from '../../../i18n';
 import { fill } from '../../../i18n/en';
 import { badgeText } from '../../alerts/labels';
 import { Ico, initial, type IconName } from '../../alerts/ui';
-import { AIco } from '../../audit/icons';
+import type { TabItem } from '../shell/screens';
 import { FloorControl, type FloorChoice } from './FloorControl';
+import { TabGlyph, type PhoneTab } from './PhoneTabs';
 
 // 02a §8 Top bar (frame 02a-C10; TableMap, TableMapPortrait, TableMapKiosk, TableMapPhone; 01d AD-168): 80 px maroon.
 // Start: brand block + the 01d B05 alerts line (tablets only: the shell passes `bind` or nothing). Middle: the floor
@@ -30,20 +31,11 @@ export interface TopBarProps {
   requests: number | null;
   /** unseen alerts */
   inbox: number;
-  /** manage-devices (01d Test alert) */
-  testAlert: boolean;
-  /** 03b W0.6: the catch-up has a point_view (a Pass tablet) → Pass first in the nav */
-  pass?: boolean;
-  /** 04 §8 (VU2): view-audit-log allowed → "Audit log" (list icon) after Inbox and Requests */
-  audit?: boolean;
-  /** 05 §8 Cashier screen (task 34, R5): take-payment allowed → "Bills" (#/bills) */
-  bills?: boolean;
+  /** 05a §8 C-1: the device's screens as tabs, in the profile's list order (width never changes the list) */
+  tabs?: readonly TabItem[];
+  currentTab?: PhoneTab | null;
   /** 05 §8 Shift (task 39, R5): manage-own-shift allowed → "My shift" (#/shift) */
   shift?: boolean;
-  /** 05 §8 Reports (task 42, R5): view-reports allowed → "Reports" (#/reports) */
-  reports?: boolean;
-  /** 05 §8 Day close (task 41, R5): close-business-day allowed → "Close day" (#/day-close) */
-  dayClose?: boolean;
   /** phone top bar */
   title: string;
   phoneSub: ReactNode;
@@ -72,6 +64,8 @@ export function TopBar(p: TopBarProps) {
         </div>
         {p.person !== null && (
           <div className="end">
+            {p.requests !== null && <IconButton icon="shield" label={t('alerts.nav.requests')} count={p.requests} onClick={() => p.onNavigate('/requests')} />}
+            <IconButton icon="tray" label={t('alerts.nav.inbox')} count={p.inbox} onClick={() => p.onNavigate('/inbox')} />
             <span className="av av--me av--48">{initial(p.person.name)}</span>
           </div>
         )}
@@ -95,26 +89,26 @@ export function TopBar(p: TopBarProps) {
             {p.bind}
           </div>
         </div>
+        {p.person !== null && p.tabs !== undefined && p.tabs.length > 0 && (
+          <nav className="tabs-top" aria-label={t('tabs.tables')}>
+            {p.tabs.map((tab) => (
+              <a key={tab.key} className="btn" href={`#${tab.path}`} {...(p.currentTab === tab.key ? { 'aria-current': 'page' as const } : {})}>
+                <TabGlyph screen={tab.key} />
+                {tab.label}
+                {tab.hint !== null && <small className="hint">{tab.hint}</small>}
+              </a>
+            ))}
+          </nav>
+        )}
         {!p.portrait && floorControl}
         <div className="end">
           {p.live}
           <span className="clock">{p.clock}</span>
           {p.person !== null && (
             <>
-              {p.pass === true && <IconButton icon="hand" label={t('nav.pass')} count={null} onClick={() => p.onNavigate('/pass')} />}
-              {p.testAlert && <IconButton icon="pulse" label={t('alerts.nav.test')} count={null} onClick={() => p.onNavigate('/test-alert')} />}
               {p.requests !== null && <IconButton icon="shield" label={t('alerts.nav.requests')} count={p.requests} onClick={() => p.onNavigate('/requests')} />}
-              {p.bills === true && <IconButton icon="receipt" label={t('billing.nav')} count={null} onClick={() => p.onNavigate('/bills')} />}
               {p.shift === true && <IconButton icon="cash" label={t('billing.shift.nav')} count={null} onClick={() => p.onNavigate('/shift')} />}
-              {p.reports === true && <IconButton icon="eye" label={t('billing.report.nav')} count={null} onClick={() => p.onNavigate('/reports')} />}
-              {p.dayClose === true && <IconButton icon="lock" label={t('billing.dayclose.nav')} count={null} onClick={() => p.onNavigate('/day-close')} />}
               <IconButton icon="tray" label={t('alerts.nav.inbox')} count={p.inbox} onClick={() => p.onNavigate('/inbox')} />
-              {p.audit === true && (
-                <button type="button" className="btn btn--icon" onClick={() => p.onNavigate('/audit')}>
-                  <AIco name="list" />
-                  <span className="sr">{t('audit.tab')}</span>
-                </button>
-              )}
               <button type="button" className="me" aria-label={fill(t('alerts.sign_out'), { name: p.person.name })} onClick={p.onSignOut}>
                 <span className="av av--sm av--me">{initial(p.person.name)}</span>
                 {p.person.name}

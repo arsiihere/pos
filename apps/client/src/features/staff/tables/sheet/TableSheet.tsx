@@ -410,6 +410,7 @@ export function TableSheet({ table_id, seating_id }: TableSheetProps) {
 
   const sub = (a: SheetAction): string | null => {
     if (a.id === 'move' && a.off === 'sheet.split_first') return fill(t('sheet.split_first'), { table: code });
+    if (a.id === 'cancel_table' && permissions.masked('void-item') === 'downgraded') return t('answer.confirm_on_phone');
     if (a.id === 'join') return t('sheet.join_sub');
     if (a.id === 'split') {
       // the joined tables after the primary (§3.12 detach frees a joined table, never the primary)

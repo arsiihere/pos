@@ -11,6 +11,8 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~19:35 PKT: **Task 24 merged** (downgraded raise). **26 tasks merged.** Left: 25, 30 (running), then Z1.
+> - 2026-11-23 ~19:10 PKT: **Task 34 merged** (shell tabs). **25 tasks merged.** Left: 24 (fix round), 25, 30 (running), then Z1.
 > - 2026-11-23 ~18:55 PKT: **Task 33 merged** (hub admin devices, Recover admin access, K-2). **24 tasks merged.** Fix rounds: 24, 34. Running: 25. Left after these: 30, Z1.
 > - 2026-11-23 ~18:40 PKT: **Task 23 merged** (answers). **23 tasks merged.** Owner ruled **G-h (a)** → **05a v1.0.4** ("connected now" is route-level). Fix rounds: 24, 33, 34. Starting 25 (routing).
 > - 2026-11-23 ~18:00 PKT: **Task 26 merged** (`device_waiting`). **22 tasks merged.** Owner ruled **G-g (a)** → **05a v1.0.3** (recovery signal in login-roster's 403). In review: 24, 34. Fix rounds: 33 (G-g, K-2 `?edit=`). Running: 23.
@@ -115,7 +117,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 21 | B5 | directory apply | HIGH | `f3ab0b3c` | **done** (Opus review APPROVE; one wider `device_people` read; no `device_profile` push for `directory` events, none needed: screens / point never change; a `directory` event clears an earlier `needs_review`, literal §4.2 / §6.9) |
 | 22 | B6 | D-1 bindings | HIGH | `e9cd26d1` | **done** (Opus review APPROVE, 300-sequence rebuild fuzz; `alert-sockets.ts` as-built outside the Files column, required by 01d §3.7) |
 | 23 | B6 | D-2 answers | HIGH | `11c9b4c2`, `de764770` | **done** (Opus review APPROVE; order rule 3 → 2a → 2 → 5 → 6 per 01d §3.3 rule 4 (b); named-self skip only reachable through task 24's raise; requester routing at `targets.ts:373` is fixed in task 24) |
-| 24 | B6 | D-2 downgraded raise | HIGH | | |
+| 24 | B6 | D-2 downgraded raise | HIGH | `da5e608a`, `add4f0ca`, fix `ce6083a2` | **done** (Opus review FIX (BLOCKER: named-to-self rang nobody, `targets.ts` requester skip) → 1 round → APPROVE; owner G-h → v1.0.4 route-level; a downgraded raise of a non-money kind throws; carry-over: one test for that guard) |
 | 25 | B6 | D-2 routing | HIGH | | |
 | 26 | B6 | D-3 `device_waiting` | HIGH | `248f9b22` | **done** (Opus review APPROVE). Until task 25, `device_waiting` also reaches `everyone` devices (label only, no code / name / count); row 25 widened to carry that drop + the #21 delivery test. Carry-overs to task 25: MINOR-1 (raise without the extra pre-read), MINOR-2 (`deeplink-check` `devices` → open, not `no_place`), MINOR-3 (01d #69 counts 20 kinds). Client copy `alert.device_waiting.card` / `.lock` (EN + UR) has no spec wording: proposed "A device is waiting for approval" / "Device waiting", in task 25's client follow-up unless the owner says otherwise |
 | 27 | B7 | K-1 + D-4 Pass readers | HIGH | `d1d88e71` | **done** (Opus review APPROVE; PC-4) |
@@ -125,7 +127,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 31 | B8 | device list page | NORMAL | `02677131` | **done** (Sonnet review; built against the §6.8 shape, hub side = task 20) |
 | 32 | B8 | approve + edit forms | NORMAL | `cdd79520` … `8790e5ee` | **done** (Sonnet review FIX → owner G-e / G-f → 05a v1.0.2; `#/devices?r=` opens the request, code empty; one screen-label set `alerts.screen.*`) |
 | 33 | B8 | hub admin pages, recovery, K-2 | NORMAL | `907aa2f1`, `3d0fa85b`, fix `a5cf1211` | **done** (Sonnet review FIX → owner G-g → 05a v1.0.3; `#/devices?edit=` opens the edit form; `/admin/recovery-link` also returns `first_admin_qr_svg`, additive as setup does; the unauthenticated `?r=` hint read removed) |
-| 34 | B8 | shell tabs (C-1) | NORMAL | | |
+| 34 | B8 | shell tabs (C-1) | NORMAL | `7193332b`, `c6e8ab2c`, fix `e6312da0` | **done** (Sonnet review FIX → 1 round: downgraded money actions — void / cancel, comp, discount, reopen — keep their button and show "Confirm on your phone"; `listed_only` hidden). Notes for the owner: the client has **no live-view screen** yet, so `manager` holds reports, day close, audit, test alert, devices (§3.6 lists "live view" too); `parking` opens `#/orders`; no client button gates on `apply-refund` (refunds are bill payments out) |
 | 35 | B8 | deep links, answer sheet, Pass parse | NORMAL | `c8249ee0`, `e816be7c`, fix `a8374df5` | **done** (Sonnet review FIX → 1 round: "Confirm on your phone" removed from the answer sheet, it belongs to task 34's downgraded action buttons). Screen labels: Dine in, Takeaway, Parking, Cash desk, Pass, Manager tools (spec names none) |
 | 36 | B8 | audit screen names for `device_profile_set` (G-b) | NORMAL | `c978d0fe` | **done** (Sonnet review APPROVE) |
 | Z1 | Z | acceptance map | — | | |
