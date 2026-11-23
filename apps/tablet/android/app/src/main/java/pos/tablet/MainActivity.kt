@@ -1,5 +1,6 @@
 package pos.tablet
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -34,6 +35,7 @@ class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         registerPlugin(PosNativePlugin::class.java)
         super.onCreate(savedInstanceState) // its load() is deferred (below)
+        if (savedInstanceState == null) takeTap(intent) // 05b A12: M-12 cold start; start() applies it
         if (findViewById<WebView>(com.getcapacitor.android.R.id.webview) == null) return // no WebView installed
         showSplash()
         val forced = pendingFailure
@@ -52,7 +54,7 @@ class MainActivity : BridgeActivity() {
 
     private fun start(choice: StartChoice) {
         Log.i(TAG, "start serverUrl=${choice.serverUrl} startPath=${choice.startPath}")
-        val b = CapConfig.Builder(this).setStartPath(choice.startPath)
+        val b = CapConfig.Builder(this).setStartPath(tapStartPath(choice.startPath)) // 05b A12: M-12
         if (choice.serverUrl != null) b.setServerUrl(choice.serverUrl)
         config = b.create()
         loadAllowed = true
@@ -71,6 +73,39 @@ class MainActivity : BridgeActivity() {
             br.onResume()
         }
     }
+
+    // 05b A12: M-12 notification / FSI tap (singleTask). The hub's staff page loaded → set the hash with
+    // evaluateJavascript (no reload: the session is in page memory); otherwise keep the id and start again, and
+    // the next start that loads /staff/ loads it with the hash. During a cold start's probe, start() applies it.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val id = takeTap(intent) ?: return
+        val br = bridge
+        if (!loadAllowed || br == null) return
+        when (val a = DeepLink.onTap(id, br.webView?.url, br.serverUrl)) {
+            is TapAction.SetHash -> {
+                pendingFocus = null
+                br.webView.evaluateJavascript(a.script, null)
+            }
+            is TapAction.LoadWithHash -> if (!isFinishing && !isDestroyed) recreate()
+        }
+    }
+
+    /** The validated id of a tap intent (removed from it, so a recreate does not replay it), kept as pending. */
+    private fun takeTap(i: Intent?): String? {
+        if (i == null || (i.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return null
+        val id = DeepLink.alertId(i.getStringExtra(DeepLink.EXTRA_ALERT_ID))
+        i.removeExtra(DeepLink.EXTRA_ALERT_ID)
+        if (id != null) pendingFocus = id
+        return id
+    }
+
+    private fun tapStartPath(chosen: String): String {
+        val (path, used) = DeepLink.startPath(chosen, pendingFocus)
+        if (used) pendingFocus = null
+        return path
+    }
+    // 05b A12 end
 
     /** N-2: the hub's main frame failed to load → the bundled unreachable page, without a probe. */
     private fun onHubMainFrameFailed(reason: String) {
@@ -112,5 +147,8 @@ class MainActivity : BridgeActivity() {
 
         /** Survives `recreate()` (same process): the failure the next start shows without probing. */
         @Volatile private var pendingFailure: String? = null
+
+        /** 05b A12: M-12 a tapped alert not yet shown (survives `recreate()`). */
+        @Volatile private var pendingFocus: String? = null
     }
 }

@@ -55,6 +55,17 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- 05b A12: M-11 full-screen alert over the lock screen (urgent only); main process; not exported. -->
+        <activity
+            android:name=".FullScreenAlertActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity="pos.tablet.alert"
+            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" />
+
         <!-- M-4: the alert service and everything that (re)starts it live in :alerts -->
         <service
             android:name=".AlertService"

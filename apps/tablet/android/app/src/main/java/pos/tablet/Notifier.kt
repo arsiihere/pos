@@ -89,6 +89,8 @@ class Notifier(private val ctx: Context) {
             .setContentIntent(pi)
             .setSilent(!withSound || noSound)
         item.raisedAt?.let { b.setWhen(it).setShowWhen(true) }
+        // 05b A12: M-11 full-screen intent, urgent with sound only (the FSI activity runs in the main process).
+        if (urgent && withSound) b.setFullScreenIntent(FullScreenAlertActivity.pendingIntent(ctx, item.alertId, text), true)
         if (urgent && withSound) onUrgentPosted?.invoke(item, b) // A10–A12: FSI / repeat attach here, before notify
         try {
             nm.notify(item.alertId, ALERT_ID, b.build())
