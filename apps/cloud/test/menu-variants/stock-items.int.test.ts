@@ -135,8 +135,8 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
     const before = await versions();
     const changed = await patch(pot.stock_item_id, { expected_version: pot.version, stock_unit: 'ml' });
     expect(changed.statusCode, changed.body).toBe(200);
-    // tenant-wide check, lock, drawers read, update, audit, 2 bump
-    expect(counter.count).toBe(7);
+    // tenant-wide check, lock, drawers read, recipes read (⚠️ 08b v1.0 C-11), update, audit, 2 bump
+    expect(counter.count).toBe(8);
     const ml = changed.json().data.stock_item;
     expect(ml).toMatchObject({ stock_item_id: pot.stock_item_id, stock_unit: 'ml' });
     expect(ml.version).not.toBe(pot.version);

@@ -175,7 +175,7 @@ describe('08a stock items (§6.1–§6.3, I2, I9, I11, C-5)', () => {
     const archivedClash = await nothingWritten(() => patch(fx.ids.beef, { expected_version: plain.version, archived: true, code: 'TP-1' }), 409);
     expect(archivedClash.error).toMatchObject({ code: 'CONFIG_NAME_TAKEN', details: { entity: 'stock_item_code' } });
     expect((await patch(fx.ids.beef, { expected_version: plain.version, archived: true, code: 'TP-1' })).statusCode).toBe(409);
-    expect(counter.count).toBe(4); // tenant-wide, lock, drawers read (archiving), code read
+    expect(counter.count).toBe(5); // tenant-wide, lock, drawers read (archiving), recipes read (archiving; ⚠️ 08b v1.0 C-11), code read
   });
 
   it('[08a #9] PATCH only is_a_item → 200, one audit row, no config_version change; statements = the bump path − 2 (I11, N-6)', async () => {
@@ -210,7 +210,7 @@ describe('08a stock items (§6.1–§6.3, I2, I9, I11, C-5)', () => {
     expect(counter.count).toBe(4);
     const toPrepared = await patch(fx.ids.beef, { expected_version: cat.json().data.stock_item.version, kind: 'prepared' });
     expect(toPrepared.statusCode, toPrepared.body).toBe(200);
-    expect(counter.count).toBe(4); // a change to prepared reads no drawers or branch rows
+    expect(counter.count).toBe(5); // a change to prepared reads no drawers or branch rows; + the recipes read (⚠️ 08b v1.0 P-2: any kind change)
     expect(await versions()).toEqual(v);
   });
 
@@ -263,7 +263,7 @@ describe('08a stock items (§6.1–§6.3, I2, I9, I11, C-5)', () => {
     const before = await versions();
     const changed = await patch(fx.ids.payeCooked, { expected_version: v1, kind: 'ingredient' });
     expect(changed.statusCode, changed.body).toBe(200);
-    expect(counter.count).toBe(6); // tenant-wide, lock, drawers read, branch-rows read, update, audit; no bump (I11)
+    expect(counter.count).toBe(7); // tenant-wide, lock, drawers read, branch-rows read, recipes read (⚠️ 08b v1.0 P-2), update, audit; no bump (I11)
     expect(changed.json().data.stock_item).toMatchObject({ kind: 'ingredient' });
     expect(await versions()).toEqual(before);
 
