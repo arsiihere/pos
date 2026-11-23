@@ -223,13 +223,18 @@ describe('01d personal notices: approval_receipt, answered_on_requester_device, 
     vi.restoreAllMocks();
   });
 
-  it('[01d #12] in person on the raising device: wrong PIN → 401 counted on the answerer and this device with RequestPinFailed; lockout → 429; right PIN → RequestAnswered in_person on_requester_device, answered_on_requester_device and approval_receipt to the answerer in the same transaction', async () => {
+  it('[01d #12] a PIN answer on the raising device (05a D-2: was in person, now refused in_person_removed): wrong PIN → 401 counted on the answerer and this device with RequestPinFailed; lockout → 429; right PIN → RequestAnswered pin on_requester_device, answered_on_requester_device and approval_receipt to the answerer in the same transaction', async () => {
     const hub = await world(cleanups);
     const hamza = seat(hub, WAIT, 'Hamza tablet');
     const imran = seat(hub, MGR, 'Imran tablet'); // Imran's own tablet: never the lockout subject here
     const id = raiseAs(hub, hamza, voidInput());
+    const removed = await answer(hub, hamza, inPerson(id, MGR, PIN.b));
+    expect(removed.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED', details: { reason: 'in_person_removed' } } });
+    expect(verifySpy).not.toHaveBeenCalled();
+    // Imran signs in on Hamza's tablet
+    const there = signInOn(hub, hamza, MGR);
 
-    const wrong = await answer(hub, hamza, inPerson(id, MGR, WRONG));
+    const wrong = await answer(hub, there, byPin(id, WRONG));
     expect(wrong.statusCode).toBe(401);
     expect(wrong.json()).toMatchObject({ error: { code: 'PIN_INVALID' } });
     expect(lockouts(hub, MGR, hamza.deviceId)).toEqual({ staff: 1, device: 1 });
@@ -237,20 +242,20 @@ describe('01d personal notices: approval_receipt, answered_on_requester_device, 
     const failed = eventsOf(hub, 'RequestPinFailed');
     expect(failed).toHaveLength(1);
     expect(failed[0]).toMatchObject({ stream_type: 'audit', stream_id: id });
-    expect(failed[0]?.payload).toMatchObject({ alert_id: id, answerer_staff_id: MGR, method: 'in_person', device_id: hamza.deviceId, outcome: 'pin_invalid', error_code: 'PIN_INVALID' });
+    expect(failed[0]?.payload).toMatchObject({ alert_id: id, answerer_staff_id: MGR, method: 'pin', device_id: hamza.deviceId, outcome: 'pin_invalid', error_code: 'PIN_INVALID' });
     expect(JSON.stringify(failed[0]?.payload)).not.toContain(WRONG);
 
-    for (let i = 0; i < 4; i += 1) expect((await answer(hub, hamza, inPerson(id, MGR, WRONG))).statusCode).toBe(401);
-    const locked = await answer(hub, hamza, inPerson(id, MGR, PIN.b));
+    for (let i = 0; i < 4; i += 1) expect((await answer(hub, there, byPin(id, WRONG))).statusCode).toBe(401);
+    const locked = await answer(hub, there, byPin(id, PIN.b));
     expect(locked.statusCode).toBe(429);
     expect(locked.json()).toMatchObject({ error: { code: 'PIN_LOCKED_OUT' } });
     expect(raisedOf(hub, 'approval_receipt')).toHaveLength(0);
     expect(raisedOf(hub, 'answered_on_requester_device')).toHaveLength(0);
 
-    // the lockout ends; Hamza signs in again on his tablet (his idle TTL is shorter than the lockout)
+    // the lockout ends; Imran signs in again on Hamza's tablet (the idle TTL is shorter than the lockout)
     hub.clock.advance(hub.deps.config.auth.pin_lockout_ms + 1);
-    const again = signInOn(hub, hamza, WAIT);
-    const ok = await answer(hub, again, inPerson(id, MGR, PIN.b));
+    const again = signInOn(hub, there, MGR);
+    const ok = await answer(hub, again, byPin(id, PIN.b));
     expect(ok.statusCode).toBe(200);
     const answered = eventsOf(hub, 'RequestAnswered');
     expect(answered).toHaveLength(1);
@@ -258,7 +263,7 @@ describe('01d personal notices: approval_receipt, answered_on_requester_device, 
       alert_id: id,
       decision: 'approve',
       answerer_staff_id: MGR,
-      method: 'in_person',
+      method: 'pin',
       device_id: hamza.deviceId,
       on_requester_device: true,
     });
@@ -425,8 +430,10 @@ describe('01d personal notices: approval_receipt, answered_on_requester_device, 
     ws.send({ type: 'auth', device_token: owner.deviceToken, session_token: owner.sessionToken });
     await ws.untilCount(1);
     const id = raiseAs(hub, hamza, voidInput());
-    // Imran is signed in nowhere; Hamza hands the tablet over and Imran answers in person
-    expect((await answer(hub, hamza, inPerson(id, MGR, PIN.b))).statusCode).toBe(200);
+    // Imran is signed in nowhere; Hamza hands the tablet over and Imran answers there with his PIN (05a D-2: was in
+    // person); the answering seat is hidden from both notices, so they have no route
+    const there = signInOn(hub, hamza, MGR);
+    expect((await answer(hub, there, byPin(id, PIN.b))).statusCode).toBe(200);
     for (const kind of ['approval_receipt', 'answered_on_requester_device']) {
       const raised = raisedOf(hub, kind);
       expect(raised).toHaveLength(1);
