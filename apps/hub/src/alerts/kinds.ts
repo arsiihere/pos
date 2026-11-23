@@ -428,6 +428,33 @@ export const NO_APPROVER = defineAlertKind<NoApproverValues>({
   request: null,
 });
 
+/**
+ * ⚠️ Changed by 05a (row D-3): 01d v1.3.5 §3.10 `device_waiting` (owner 00 pairing; 05a §3.10). A device is waiting
+ * for pairing approval. Raised by `POST /pair/requests` when none is open (raised_target = `manage-devices` holders;
+ * the listed-devices-only drop is 01d §3.4.3's), closed `done` by ApprovePairingRequest or `obsolete` by the session
+ * sweeper when no request is pending. Values are empty (strict): no count and never the display code (05a A-5).
+ * `closes_on: 'owner'` forces `expires_at_day_close: true` (startup check); a request still pending after day close
+ * raises a fresh one on the next request. Link `{ type: 'devices' }` → `#/devices` (§3.13.1 row 20).
+ */
+export const DEVICE_WAITING = defineAlertKind<Record<string, never>>({
+  kind: 'device_waiting',
+  family: 'info',
+  subject: 'hub',
+  steps: [{ at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] }],
+  closes_on: 'owner',
+  values_schema: z.object({}).strict(),
+  details_schema: null,
+  lead_fallback: false,
+  expires_at_day_close: true,
+  silent: false,
+  labels: { card: 'alert.device_waiting.card', lock: 'alert.device_waiting.lock' },
+  link: () => ({ type: 'devices' }),
+  request: null,
+});
+
+/** 05a §3.10: the one dedupe key of `device_waiting`. */
+export const DEVICE_WAITING_KEY = 'device_waiting';
+
 /** §3.10 personal notices (v0.5 #2, v1.0 #2): closed `obsolete` by the tick's flag pass when their person leaves `staff` (BF-7). */
 export const PERSONAL_NOTICE_KINDS: readonly string[] = Object.freeze([
   APPROVAL_RECEIPT.kind,

@@ -5,7 +5,8 @@ import type { WriterTx } from '../engine-host/writer.js';
 import { purgeAlerts } from '../alerts/retention.js';
 import { purgePrint } from '../print/retention.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
-import { clearExpiredDeliveryTokens } from './pair-requests.js';
+import { alerts } from '../alerts/raise.js';
+import { clearExpiredDeliveryTokens, closeDeviceWaitingWhenIdle } from './pair-requests.js';
 import { activity, endSession, idlePause, type SessionRow } from './session-store.js';
 
 const SWEEP_MS = 15_000;
@@ -72,6 +73,9 @@ export function sweepOnce(deps: HubDeps): { ended: string[] } {
       ids.push(session.session_id);
     }
     clearExpiredDeliveryTokens(tx, now);
+    // 05a §3.10 (row D-3): `device_waiting` closes `obsolete` here, in this write, once no request is pending (expiry)
+    const closed = closeDeviceWaitingWhenIdle(alerts.tickCtx(tx, now), now, 'obsolete');
+    if (closed.length > 0) tx.append(closed);
     return ids;
   }).result;
   return { ended };
