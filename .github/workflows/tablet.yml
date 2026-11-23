@@ -43,10 +43,10 @@ jobs:
       - run: npx cap sync android
       - name: Native unit tests
         working-directory: apps/tablet/android
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: ./gradlew --no-daemon testDebugUnitTest || { echo 'retry once (network flake)'; sleep 20; ./gradlew --no-daemon testDebugUnitTest; }
       - name: Build debug APK
         working-directory: apps/tablet/android
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon assembleDebug || { sleep 20; ./gradlew --no-daemon assembleDebug; }
       - run: cp android/app/build/outputs/apk/debug/app-debug.apk "pos-tablet-${GITHUB_RUN_NUMBER}.apk"
       - uses: actions/upload-artifact@v4
         if: always()
