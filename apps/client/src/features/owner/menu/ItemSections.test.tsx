@@ -88,6 +88,7 @@ function pot(extra: Partial<StockItem> = {}): StockItem {
     code: null,
     cost_category: 'food',
     is_a_item: false,
+    menu_cost: null, // ⚠️ 08a C-5: the list adds menu_cost (client StockItem type)
     version: 'k1',
     branches: ['B1', 'B2', 'B3', 'B4'].map((b) => ({ branch_id: b, station_id: 'S1', low_stock_threshold: 1000, version: `${b}-v1` })),
     drawers: [],
@@ -488,7 +489,7 @@ describe('01c-S01 Create a stock item with this name', () => {
       'GET /v1/admin/stock-items',
       'PUT /v1/admin/stock-items/K9/branches/B1',
       'PATCH /v1/admin/menu-items/I1',
-      'GET /v1/admin/stock-items',
+      'GET /v1/admin/stock-items?kind=prepared', // ⚠️ 08a C-10: the picker's re-read asks kind=prepared
     ]);
     expect(calls[0]?.key).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
     expect(calls[0]?.body).toEqual({ name: 'Chicken Karahi', stock_unit: 'g', carries_over: false });
