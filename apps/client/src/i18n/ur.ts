@@ -916,6 +916,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'errors.reference.archived': 'یہ آرکائیو ہو چکا ہے۔ کوئی اور چنیں۔',
   'errors.reference.not_found': 'یہ اب موجود نہیں۔ کوئی اور چنیں۔',
   'errors.reference.wrong_branch': 'یہ اسٹیشن کسی اور برانچ کا ہے۔',
+  // 08a §9 (C-10): the item form's stock picker names it (01a timing pages need Urdu); draft, native read in 08a/urdu-todo.md
+  'errors.reference.wrong_kind': 'یہاں صرف تیار اسٹاک استعمال ہو سکتا ہے۔ یہ خام مال یا پیکٹ ہے۔',
   'errors.reference.program_not_allowed': 'یہ اسٹیشن ہر آرڈر الگ پکاتا ہے؛ اسے ترکیب نہیں چاہیے۔',
   'errors.reference.program_wrong_station': 'یہ ترکیب کسی اور اسٹیشن کی ہے۔',
   'errors.reference.stock_time_exceeds_cook_time': 'پکنے کے وقت سے کم ہونا چاہیے۔',
