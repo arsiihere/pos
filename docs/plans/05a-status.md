@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~16:45 PKT: **Task 15 merged** (approve tablet / phone by request; token pairing and the STAB-1 Add a phone / Add a tablet removed). 17 tasks merged. Approved, merging next: 16, 17 (re-check), 18. In review: 21. Running: 34.
 > - 2026-11-23 ~16:20 PKT: **Task 20 merged**. 16 tasks merged. Fix rounds: 15 (tablet / phone on `/admin/approve` until task 33), 17 (tests). Running: 16, 18, 21.
 > - 2026-11-23 ~15:55 PKT: **Task 19 merged** (SetDeviceProfile, Opus APPROVE). 15 tasks merged. In review: 15, 17, 20. Running: 16.
 > - 2026-11-23 ~15:40 PKT: **Tasks 31–32 merged** (lane C2). **14 tasks merged**; all six saved laptop lanes are in. In review: 15 (approve v2 + token-pairing removal), 19 (SetDeviceProfile). Running: 16 (stacked on 15), 17, 20.
@@ -99,7 +100,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 12 | B3 | `/queries/session` | NORMAL | `92fe7062` | **done** (Opus review APPROVE) |
 | 13 | B4 | request-based pairing fixture | NORMAL | `9f567176`, `d802168c`, `cc9c85c7` | **done** (Sonnet review FIX → markers → done; `TASK-15-DELETE/EDIT` markers list task 15's test work) |
 | 14 | B4 | pair request hint + poll screens | NORMAL | `9a61c55b` | **done** (Sonnet review APPROVE; no-profile poll → `screens: []`, an inference from §3.6, noted) |
-| 15 | B4 | approve v2 **+ STAB-1 removal (one commit)** | HIGH | | |
+| 15 | B4 | approve v2 **+ STAB-1 removal (one commit)** | HIGH | `8a3645e8`, fix `c1035209` | **done** (Opus review FIX → 1 round → APPROVE). Task commit is one commit (D-3); the fix commit adds Tablet / My phone to `/admin/approve` until task 33 so a tablet and a phone stay pairable through a UI (D-3), plus tests. `/admin/approve?r=` reads `hardware_hint` (1 unauthenticated read, only the hint; task 33 may move it after sign-in) |
 | 16 | B4 | pair page text + hint | NORMAL | | |
 | 17 | B5 | sign-in checks | HIGH | | |
 | 18 | B5 | staff / login roster | NORMAL | | |
