@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Module | 05b Staff Tablet App (Android shell + native alert service; small hub and client changes) |
-| Version | **v0.1 DRAFT** (2026-11-23) — for owner review, then hostile review |
+| Version | **v0.1 owner-approved for hostile review** (owner, 2026-11-23 11:44 PKT, "approve"; §12.3 recommendations accepted) |
 | Inherits | Shared Standards from **Foundation v1.15** §6; not redefined here |
 | Depends on | Foundation v1.15 (§1 Android row R33); **00 v1.12.2** (device token, §8.1 token storage, §6.36–§6.38 APK update, `/health`, the `/staff/` page meta); **01d v1.3.4** (alert mode §3.7, frames, receipts §3.6, §8.1–§8.4, the 9b contract); **05a v1.0** (pairing by request, `hardware_hint`, listed / everyone, one-person binding §3.8, §8 "Capacitor app") |
 | Replaces | **01d batch 9b** (`docs/plans/01d-tablet-plan.md`, T1–T7) and the app side of 01d §8.2 / §8.4. 9b's approved choices carry over: Kotlin (TQ2), OkHttp (TQ1), pinned `@capacitor/{core,android,cli}` |
@@ -15,7 +15,7 @@
 
 | Version | Date | Change |
 |---|---|---|
-| **v0.1** | 2026-11-23 | First draft from the kickoff, the 05a decisions, owner ruling O-10 (the app loads the hub's `/staff/` page) and the spike's evidence. |
+| **v0.1** | 2026-11-23 | First draft from the kickoff, the 05a decisions, owner ruling O-10 (the app loads the hub's `/staff/` page) and the spike's evidence. Owner "approve" (11:44 PKT): OQ-1–OQ-4 take their Rec. Next: hostile review. |
 
 ---
 
@@ -250,7 +250,7 @@ Gate green with tests 1–7; native tests 8–13 green in CI; manual 14–21 rec
 
 ### 12.3 Open questions
 
-| # | Question | Rec |
+| # | Question | Rec (accepted by the owner 2026-11-23 11:44) |
 |---|---|---|
 | OQ-1 | Pilot tablet model(s) (O-8). | Keep the TCL 9198S if S1–S7 pass; buy the second unit of a different brand for comparison |
 | OQ-2 | Lock-task on `everyone` tablets when signed out: lock the tablet into the app, or leave Home reachable? | Lock (staff cannot wander off); exit needs a manager PIN later |
