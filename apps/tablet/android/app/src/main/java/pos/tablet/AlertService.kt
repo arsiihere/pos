@@ -46,6 +46,8 @@ class AlertService : Service() {
         /** §3.5 confirmed revoke (socket close or confirmRevoked): clear, stop, `state { paired: false }`. */
         fun revoked(ctx: Context, reason: String) {
             AlertLog.ev("revoked", mapOf("reason" to reason))
+            // 05b O-20: a hub-confirmed revoke is remembered (token hash) before the clear; hub_address_changed is not.
+            AlertsStore.revokeMemory(ctx).onRevoked(AlertsStore.token(ctx), reason)
             AlertsStore.clearToken(ctx)
             AlertsStore.setWantRunning(ctx, false)
             IpcReply.state(ctx, paired = false, alertSocket = "down", bindingRouteUntil = null)

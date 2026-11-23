@@ -18,7 +18,7 @@ object Ipc {
     const val EXTRA_JSON = "json" // payload / reply body as a JSON string
 
     // main → :alerts
-    const val OP_SET_DEVICE_TOKEN = "set_device_token"   // json { token, device_id, device_type, hub_origin }
+    const val OP_SET_DEVICE_TOKEN = "set_device_token"   // json { token, device_id, device_type, hub_origin }; reply { ok, error? } (O-20 TOKEN_REVOKED)
     const val OP_CONFIRM_REVOKED = "confirm_revoked"     // reply json { revoked, reason? }  (§3.5)
     const val OP_SET_SESSION = "set_session"             // json { signed_in, staff_id? }   (M-21)
     const val OP_SET_DEVICE_CONTEXT = "set_device_context" // json { always_on, language, lock_task } (M-21)

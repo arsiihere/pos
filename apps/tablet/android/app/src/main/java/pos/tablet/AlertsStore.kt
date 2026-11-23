@@ -54,7 +54,8 @@ class Tolerant<T : Any>(private val open: () -> T, private val reset: () -> Unit
  * - `alerts_secure` (EncryptedSharedPreferences, Keystore master key): `device_token`, `device_id`, and the
  *   service's copy of `hub_origin` (sent with setDeviceToken; the main process's own copy is `main_secure`).
  * - `alerts_plain`: `want_running`, `wake_lock` (default true), dedupe keys, open urgent set, `always_on`,
- *   `language` (default 'en'), `last_update_check`.
+ *   `language` (default 'en'), `last_update_check`, `last_revoke` (05b O-20: sha256 of the last confirmed-revoked
+ *   token + reason + time, never the token).
  */
 object AlertsStore {
     private const val K_TOKEN = "device_token"
@@ -124,6 +125,9 @@ object AlertsStore {
 
     /** M-7 dedupe keys (JSON array), committed before a receipt is sent. */
     fun dedupeStore(ctx: Context): Persisted = plainString(ctx, "dedupe_keys")
+
+    /** 05b O-20: the last confirmed revoke (see [RevokeMemory]). */
+    fun revokeMemory(ctx: Context): RevokeMemory = RevokeMemory(plainString(ctx, "last_revoke"))
 
     /** M-10 open unseen urgent set (JSON object alert_id → step). */
     fun openUrgentStore(ctx: Context): Persisted = plainString(ctx, "open_urgent")

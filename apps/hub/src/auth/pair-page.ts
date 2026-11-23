@@ -70,18 +70,20 @@ function posNative() {
   if (!cap || typeof cap.isNativePlatform !== 'function' || cap.isNativePlatform() !== true) return null;
   return (cap.Plugins && cap.Plugins.PosNative) || null;
 }
-const NOT_TABLET = 'NOT_TABLET';
-const NOT_TABLET_TEXT = 'Approve this tablet as a Tablet';
+// Native's refusals that end these keys, with a fallback text: a non-tablet approval (M-3, NOT_TABLET) and a token
+// native saw revoked (05b O-20, TOKEN_REVOKED).
+const KEY_REFUSALS = { NOT_TABLET: 'Approve this tablet as a Tablet', TOKEN_REVOKED: 'This tablet was removed. Pair it again.' };
 // Hands the page's keys to native (its copy for the alert service). Resolves null when accepted, or when the bridge
 // fails for another reason (the page keys stand; native recovers its copy on a later load); the refusal's text
-// when native refuses a non-tablet approval (NOT_TABLET).
+// when native refuses the keys (KEY_REFUSALS).
 async function giveNativeKeys(native, keys) {
   try {
     await native.setDeviceToken(keys);
     return null;
   } catch (error) {
-    if (!error || error.code !== NOT_TABLET) return null;
-    return error.message || NOT_TABLET_TEXT;
+    const code = error && error.code;
+    if (code !== 'NOT_TABLET' && code !== 'TOKEN_REVOKED') return null;
+    return error.message || KEY_REFUSALS[code];
   }
 }
 async function wipeDeviceKeys(db) {

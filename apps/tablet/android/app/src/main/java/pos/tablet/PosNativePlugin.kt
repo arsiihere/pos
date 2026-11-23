@@ -174,11 +174,19 @@ class PosNativePlugin : Plugin() {
             TokenRule.Result.Ok -> Unit
         }
         val hub = MainStore.hubOrigin(context) ?: return call.reject(NOT_ALLOWED_HERE, NOT_ALLOWED_HERE)
-        ipc.send(
+        // 05b O-20: :alerts answers; a token it saw revoked is refused with TOKEN_REVOKED (the page wipes its keys).
+        // Any other answer, or none in time, resolves as before (the page keys stand, N-9).
+        ipc.request(
             Ipc.OP_SET_DEVICE_TOKEN,
             JSONObject().put("token", token).put("device_id", deviceId).put("device_type", deviceType).put("hub_origin", hub),
-        )
-        call.resolve()
+            SET_TOKEN_TIMEOUT_MS,
+        ) { reply ->
+            if (reply?.optString("error", "") == RevokeMemory.TOKEN_REVOKED_CODE) {
+                call.reject(RevokeMemory.TOKEN_REVOKED_MESSAGE, RevokeMemory.TOKEN_REVOKED_CODE)
+            } else {
+                call.resolve()
+            }
+        }
     }
 
     @PluginMethod
@@ -323,6 +331,7 @@ class PosNativePlugin : Plugin() {
         private const val TAG = "PosNative"
         private const val GUARD_TIMEOUT_MS = 500L
         private const val CONFIRM_TIMEOUT_MS = 3_000L
+        private const val SET_TOKEN_TIMEOUT_MS = 3_000L
         private const val HEALTH_TIMEOUT_MS = 1_000L
         private const val UPDATE_TIMEOUT_MS = 3_000L
         private const val BAD_ORIGIN_MESSAGE = "Enter the hub address with its port, e.g. 192.168.1.10:8080"
