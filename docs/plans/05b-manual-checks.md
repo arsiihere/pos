@@ -22,6 +22,22 @@ How to fill in: in each cell write **pass**, or **what you saw** (short; details
 
 OQ-1: model A is the TCL 9198S if S1–S7 pass; model B a different brand.
 
+## 0a. Five-tablet split (owner has 5 units, 2026-11-23)
+
+Run everything in **one day + one night** by giving each unit a role. Fill §0 for every unit used.
+
+| Unit | Build | Role | Manual checks (day) | Soak |
+|---|---|---|---|---|
+| **T1** | release, **device owner**, profile `everyone` (pass / kitchen) | lock task, Home, reboot, silent update | 20a, 20b, 20c, 20d, 20e, 21c, 26 (the staged unit) | S6 |
+| **T2** | release, **device owner**, profile `listed` (approver) | alerts signed in / out, urgent, lock text, taps | 21a, 21b, 21d, 22a, 22b, 23 | S2 (battery, 4 h) |
+| **T3** | debug | first run, pairing, hub down, crash, revoke | 18, 19, 24a, 24b, 24c, 28, then 27a **last** (revokes it) | — |
+| **T4** | debug | live UI update, network outages, kills, burst | 25, 27b | S3, S4, S5, S7 |
+| **T5** | release, not device owner (the **Android 14+ unit** if one of the five is 14+; else a second brand) | Android 14 full-screen-intent permission, OEM differences | 21b, 22a, 23 | — |
+
+**Night:** S1 (8 h, alert every 60 ± 20 s) on **all five at once** — one `fire.mjs` run reaches every paired unit; `analyse.mjs` per device log. Re-pair T3 after 27a first.
+
+Order: T1/T2 need the release APK (`tablet.yml` manual run with `release: true` after the merge to main) and a factory reset; start T3/T4 on the debug APK from `tablet-dev` meanwhile.
+
 ## 1. Before you start
 
 1. Hub at the `module-05b` release commit, client shipped (`apps/hub/deploy/ship-client.sh`), `/health` `ready`.
