@@ -99,6 +99,17 @@ jobs:
             gh release create tablet-dev --prerelease --target "$GITHUB_SHA" \
               --title "Tablet app (dev builds)" --notes "Debug APK of main / module-05b. Not for device owner."
           gh release upload tablet-dev pos-tablet.apk --clobber
+      - name: Publish lane builds to the tablet-lane pre-release (device fixes tried before they reach main)
+        if: github.event_name == 'push' && startsWith(github.ref_name, 'lane-05b/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp pos-tablet-*.apk pos-tablet-lane.apk
+          gh release view tablet-lane >/dev/null 2>&1 || \
+            gh release create tablet-lane --prerelease --target "$GITHUB_SHA" \
+              --title "Tablet app (lane test builds)" --notes "Debug APK of the latest lane-05b/* push. Not for device owner."
+          gh release upload tablet-lane pos-tablet-lane.apk --clobber
+          gh release edit tablet-lane --notes "Debug APK of ${GITHUB_REF_NAME} @ ${GITHUB_SHA::8}. Not for device owner."
       # 05b A17 (§7, M-17, m-9): release-signed APK, on a manual run with `release: true` only. The key comes from
       # secrets, decoded to a temp file outside the repo and deleted afterwards; without the secrets the steps skip.
       - name: Release key present?

@@ -18,6 +18,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
+        android:name=".PosApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -55,6 +56,8 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- M-19 aid: the debug build shows the last crash report here (MainActivity opens it); not exported. -->
+        <activity android:name=".CrashActivity" android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <!-- 05b A12: M-11 full-screen alert over the lock screen (urgent only); main process; not exported. -->
         <activity
             android:name=".FullScreenAlertActivity"

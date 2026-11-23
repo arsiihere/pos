@@ -35,6 +35,11 @@ class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         registerPlugin(PosNativePlugin::class.java)
         super.onCreate(savedInstanceState) // its load() is deferred (below)
+        if (BuildConfig.DEBUG && CrashLog.pending(this) != null) { // M-19 aid: read the crash without adb
+            startActivity(Intent(this, CrashActivity::class.java))
+            finish()
+            return
+        }
         if (savedInstanceState == null) takeTap(intent) // 05b A12: M-12 cold start; start() applies it
         if (findViewById<WebView>(com.getcapacitor.android.R.id.webview) == null) return // no WebView installed
         showSplash()
