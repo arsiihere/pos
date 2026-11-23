@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~18:00 PKT: **Task 26 merged** (`device_waiting`). **22 tasks merged.** Owner ruled **G-g (a)** → **05a v1.0.3** (recovery signal in login-roster's 403). In review: 24, 34. Fix rounds: 33 (G-g, K-2 `?edit=`). Running: 23.
 > - 2026-11-23 ~17:20 PKT: **Task 16 merged**: B4 complete. **21 tasks merged.**
 > - 2026-11-23 ~17:10 PKT: **Task 21 merged**. **20 tasks merged**; B3, B5 complete. Starting B6: 23 (answers), 24 (downgraded raise), 26 (`device_waiting`) in parallel; 25 after 23.
 > - 2026-11-23 ~17:00 PKT: **Tasks 17–18 merged** (sign-in checks, rosters). **19 tasks merged**: 9–15, 17–20, 22, 27–29, 31, 32, 35, 36. Next: 16 (approved, merging after its merge of build/05a), 21 (in review), 33, 34 (running); then 23–26, 30.
@@ -114,7 +115,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 23 | B6 | D-2 answers | HIGH | | |
 | 24 | B6 | D-2 downgraded raise | HIGH | | |
 | 25 | B6 | D-2 routing | HIGH | | |
-| 26 | B6 | D-3 `device_waiting` | HIGH | | |
+| 26 | B6 | D-3 `device_waiting` | HIGH | `248f9b22` | **done** (Opus review APPROVE). Until task 25, `device_waiting` also reaches `everyone` devices (label only, no code / name / count); row 25 widened to carry that drop + the #21 delivery test. Carry-overs to task 25: MINOR-1 (raise without the extra pre-read), MINOR-2 (`deeplink-check` `devices` → open, not `no_place`), MINOR-3 (01d #69 counts 20 kinds). Client copy `alert.device_waiting.card` / `.lock` (EN + UR) has no spec wording: proposed "A device is waiting for approval" / "Device waiting", in task 25's client follow-up unless the owner says otherwise |
 | 27 | B7 | K-1 + D-4 Pass readers | HIGH | `d1d88e71` | **done** (Opus review APPROVE; PC-4) |
 | 28 | B7 | upgrade boot step | HIGH | `773e939a`, fix `87d22dc2` | **done** (Opus review FIX → 1 round → APPROVE; PC-3; RF-1 exception: an ownerless phone (raw SQL only) stays unprofiled, warned each boot) |
 | 29 | B7 | recovery link | HIGH | `72933db1` (merge `1b5b5c61`) | **done** (Opus review APPROVE; carry-overs: #16a "owner approves their phone" `it.todo` → task 15; MINORs m1 empty `advertised_host`, m2 count-0 cases at the route, m3 unprovisioned refusal test → with task 15/18) |
