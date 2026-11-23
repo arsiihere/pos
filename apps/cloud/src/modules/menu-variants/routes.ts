@@ -18,6 +18,7 @@ import {
   PutModifierGroupBranchBody,
   PutStockItemBranchBody,
   StockItemBranchResponse,
+  StockItemListQuery,
   StockItemListResponse,
   StockItemResponse,
   VariantGroupResponse,
@@ -52,7 +53,7 @@ const ModifierGroupBranchParams = z.object({ modifier_group_id: z.string().min(1
 const DealParams = z.object({ deal_id: z.string().min(1) });
 const DealBranchParams = z.object({ deal_id: z.string().min(1), branch_id: z.string().min(1) });
 const StockItemBranchParams = z.object({ stock_item_id: z.string().min(1), branch_id: z.string().min(1) });
-// §6.6, §6.10, §6.13 (AD-30)
+// §6.10, §6.13 (AD-30); §6.6 takes 08a §6.1 StockItemListQuery
 const StatusQuery = z.object({ status: z.enum(['active', 'archived']).default('active') });
 
 // 01c §6: owner routes (JWT, tenant guard, password guard). Tenant-wide writes; the owner must cover every branch.
@@ -88,7 +89,7 @@ export function registerMenuVariantRoutes(app: FastifyInstance, deps: MenuVarian
     '/v1/admin/stock-items',
     {
       config: { tenantScope: 'jwt' },
-      schema: { querystring: StatusQuery, response: { 200: StockItemListResponse } },
+      schema: { querystring: StockItemListQuery, response: { 200: StockItemListResponse } },
     },
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('GET /v1/admin/stock-items');
