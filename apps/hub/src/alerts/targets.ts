@@ -83,7 +83,8 @@ export interface DeviceRead {
   device_id: string;
   device_type: DeviceType;
   /**
-   * 01d v1.2.3 D-5: the point a tablet is bound to (`devices.point_id`); `always_on` reaches point-bound tablets.
+   * 01d v1.2.3 D-5: the point a device is bound to (`devices.point_id`); `always_on` reaches point-bound non-kds
+   * devices (05a row D-4; was tablets only).
    * Read (5) always selects it; optional only so hand-built reads for one binding (alert-sockets.ts) stay valid
    * (absent = not bound).
    */
@@ -419,7 +420,7 @@ function resolveTarget(target: AlertTarget, alert: AlertRow, reads: BatchReads, 
     case 'always_on': {
       // §3.4 (v1.2.3 D-5, 03b B1-2): kiosks, KDS screens and the unrevoked tablets bound to a point, all from read (5).
       // 05a D-4: any unrevoked non-kds device bound to a point, not only a tablet.
-      // ⚠️ Changed by v1.2.4 (owner 2026-11-12, 03b P18-1, D-6): a tablet only when its point is active (not archived)
+      // ⚠️ Changed by v1.2.4 (owner 2026-11-12, 03b P18-1, D-6): such a device only when its point is active (not archived)
       // in branchConfig().points; filtered in memory after read (5), no statement added. No config yet → no point.
       const active = activePointIds();
       return { staff_ids: [], device_ids: reads.devices.filter((d) => isAlwaysOn(d, active)).map((d) => d.device_id) };
