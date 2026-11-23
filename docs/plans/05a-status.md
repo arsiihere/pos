@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~17:20 PKT: **Task 16 merged**: B4 complete. **21 tasks merged.**
 > - 2026-11-23 ~17:10 PKT: **Task 21 merged**. **20 tasks merged**; B3, B5 complete. Starting B6: 23 (answers), 24 (downgraded raise), 26 (`device_waiting`) in parallel; 25 after 23.
 > - 2026-11-23 ~17:00 PKT: **Tasks 17–18 merged** (sign-in checks, rosters). **19 tasks merged**: 9–15, 17–20, 22, 27–29, 31, 32, 35, 36. Next: 16 (approved, merging after its merge of build/05a), 21 (in review), 33, 34 (running); then 23–26, 30.
 > - 2026-11-23 ~16:45 PKT: **Task 15 merged** (approve tablet / phone by request; token pairing and the STAB-1 Add a phone / Add a tablet removed). 17 tasks merged. Approved, merging next: 16, 17 (re-check), 18. In review: 21. Running: 34.
@@ -103,7 +104,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 13 | B4 | request-based pairing fixture | NORMAL | `9f567176`, `d802168c`, `cc9c85c7` | **done** (Sonnet review FIX → markers → done; `TASK-15-DELETE/EDIT` markers list task 15's test work) |
 | 14 | B4 | pair request hint + poll screens | NORMAL | `9a61c55b` | **done** (Sonnet review APPROVE; no-profile poll → `screens: []`, an inference from §3.6, noted) |
 | 15 | B4 | approve v2 **+ STAB-1 removal (one commit)** | HIGH | `8a3645e8`, fix `c1035209` | **done** (Opus review FIX → 1 round → APPROVE). Task commit is one commit (D-3); the fix commit adds Tablet / My phone to `/admin/approve` until task 33 so a tablet and a phone stay pairable through a UI (D-3), plus tests. `/admin/approve?r=` reads `hardware_hint` (1 unauthenticated read, only the hint; task 33 may move it after sign-in) |
-| 16 | B4 | pair page text + hint | NORMAL | | |
+| 16 | B4 | pair page text + hint | NORMAL | `3927fd47`, `289e37af` | **done** (Sonnet review APPROVE; iOS Safari outside the Home Screen shows "Add to Home Screen" and makes no request, per §8 "then the request from the home-screen app") |
 | 17 | B5 | sign-in checks | HIGH | `1f2e66ae`, `a1b47393`, fix `2eb9daad` | **done** (Opus review FIX → 1 round → APPROVE). #114: the 00 404 half kept (unknown id on the list → 404); an unknown id off a listed device's list → 403 `DEVICE_ACCESS_DENIED` first (05a §3.5 order); note for Z1 / the next 00 bump |
 | 18 | B5 | staff / login roster | NORMAL | `19e3cdbb` | **done** (Sonnet review APPROVE; a no-profile phone's roster = its owner, read from §3.5 R-1) |
 | 19 | B5 | `SetDeviceProfile` | HIGH | `cac60851` | **done** (Opus review APPROVE; PC-5) |
