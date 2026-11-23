@@ -74,7 +74,10 @@ class GuardTest {
             "info", "probeHub", "getHubOrigin", "setHubOrigin", "setDeviceToken", "confirmRevoked", "setSession",
             "setDeviceContext", "reportShown", "health", "openSetting", "setWakeLock", "checkForUpdate", "addListener",
         )
-        assertEquals(spec, Guard.RULES.keys)
+        // + debugPairing: debug builds only, bundled only (plan batch A-2)
+        assertEquals(spec + "debugPairing", Guard.RULES.keys)
+        assertTrue(Guard.allowed("debugPairing", "https://localhost/index.html", "http://hub.local:8080"))
+        assertFalse(Guard.allowed("debugPairing", "http://hub.local:8080/pair", "http://hub.local:8080"))
     }
 
     @Test fun hubOriginNormalize() {
