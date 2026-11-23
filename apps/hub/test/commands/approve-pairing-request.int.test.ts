@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { registerStationValidator } from '../../src/auth/station-validator';
+import { registerStationValidator, stationExists } from '../../src/auth/station-validator';
 import { sha256hex } from '../../src/lib/hash';
 import { aDirectory } from '../helpers/fixtures';
 import { EN } from '../../src/lib/strings';
@@ -361,6 +361,14 @@ describe('ApprovePairingRequest', () => {
     const ambiguous = await approve(hub, admin, { display_code: code, device_type: 'cashier_kiosk' }, 'cmd-code-two');
     expect(ambiguous.statusCode).toBe(404);
     expect(ambiguous.json().error.code).toBe('PAIRING_REQUEST_NOT_FOUND');
+  });
+
+  it('[00 §3.1 M31] stationExists is false until a validator is registered', () => {
+    const tx = {} as Parameters<typeof stationExists>[0];
+    expect(stationExists(tx, 'station-1')).toBe(false);
+    registerStationValidator((_tx, id) => id === 'station-1');
+    expect(stationExists(tx, 'station-1')).toBe(true);
+    expect(stationExists(tx, 'station-2')).toBe(false);
   });
 });
 

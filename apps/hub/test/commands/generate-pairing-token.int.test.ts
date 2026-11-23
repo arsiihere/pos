@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { qrSvg } from '../../src/lib/qr';
 import { sha256hex } from '../../src/lib/hash';
-import { registerStationValidator, stationExists } from '../../src/auth/station-validator';
+import { registerStationValidator } from '../../src/auth/station-validator';
 import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 const cleanups: Array<() => Promise<void>> = [];
 
+// TASK-15-DELETE: whole file. GenerateDevicePairingToken and POST /devices/pair are removed in plan task 15 (the
+// surviving §3.1 M31 stationExists test moved to approve-pairing-request.int.test.ts in task 13).
 describe('GenerateDevicePairingToken', () => {
   afterEach(async () => {
     registerStationValidator(() => false);
@@ -121,14 +123,6 @@ describe('GenerateDevicePairingToken', () => {
     expect(paired.json().data.owner_staff_id).toBe('S_OWNER');
     const device = hub.deps.db.prepare('SELECT owner_staff_id FROM devices WHERE device_id = ?').get(paired.json().data.device_id);
     expect(device).toEqual({ owner_staff_id: 'S_OWNER' });
-  });
-
-  it('[00 §3.1 M31] stationExists is false until a validator is registered', () => {
-    const tx = {} as Parameters<typeof stationExists>[0];
-    expect(stationExists(tx, 'station-1')).toBe(false);
-    registerStationValidator((_tx, id) => id === 'station-1');
-    expect(stationExists(tx, 'station-1')).toBe(true);
-    expect(stationExists(tx, 'station-2')).toBe(false);
   });
 });
 

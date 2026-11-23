@@ -7,7 +7,7 @@ import { alertsTick } from '../../src/alerts/tick';
 import { devicePoint } from '../../src/kds/contracts';
 import { screenStations } from '../../src/kds/device-roles';
 import { statementCounter } from '../helpers/statement-counter';
-import { createTestHub, endSessionNow, openSession, pairDevice as pairDeviceRow, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { appendDeviceProfile, createTestHub, endSessionNow, openSession, pairDevice as pairDeviceRow, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { append, COOK, cookDirectory, FX, pairDevice, pairKds, pairPassTablet } from './fixtures';
 
 // 03b b6: projection device_roles, the memory maps devicePoint / screen stations (§3.1, §3.8) and the `point` target
@@ -49,7 +49,7 @@ describe('03b device_roles, memory maps, point resolver (b6)', () => {
     return h;
   }
 
-  it('[03b #50] DeviceRoleSet: devices.point_id / lane_label written by the projection; devicePoint refreshed after the commit (1 statement)', async () => {
+  it('[03b #50] [05a row K-1] DeviceRoleSet: the projection writes devices.lane_label only; devicePoint refreshed after the commit (1 statement) and after DeviceProfileSet', async () => {
     const h = await hub();
     const tablet = pairDeviceRow(h, { type: 'tablet' });
     const kds = pairKds(h, { stationId: FX.station });
@@ -63,11 +63,15 @@ describe('03b device_roles, memory maps, point resolver (b6)', () => {
     // same commit shape: DeviceRoleSet = device_roles UPDATE (1) + the map reload after commit (1); StationScreenSet =
     // kds_config upsert (1) and no reload (not a device event)
     expect(withRefresh - without).toBe(1);
-    expect(devicePoint(tablet.deviceId)).toBe('P1');
-    expect(deviceRow(h.deps.db, tablet.deviceId)).toEqual({ point_id: 'P1', lane_label: null });
-    append(h, [roleSet(kds.deviceId, null, 'Lane A'), roleSet(tablet.deviceId, null)]);
-    expect(deviceRow(h.deps.db, kds.deviceId)).toEqual({ point_id: null, lane_label: 'Lane A' });
+    // 05a K-1: a DeviceRoleSet point (historic) is never written; the DeviceProfileSet fold is the one writer
     expect(devicePoint(tablet.deviceId)).toBeNull();
+    expect(deviceRow(h.deps.db, tablet.deviceId)).toEqual({ point_id: null, lane_label: null });
+    appendDeviceProfile(h, tablet.deviceId, { access: 'everyone', screens: ['pass', 'dine_in'], point_id: 'P1' });
+    expect(devicePoint(tablet.deviceId)).toBe('P1');
+    append(h, [roleSet(kds.deviceId, 'P1', 'Lane A'), roleSet(tablet.deviceId, null)]);
+    expect(deviceRow(h.deps.db, kds.deviceId)).toEqual({ point_id: null, lane_label: 'Lane A' });
+    expect(deviceRow(h.deps.db, tablet.deviceId)).toEqual({ point_id: 'P1', lane_label: null });
+    expect(devicePoint(tablet.deviceId)).toBe('P1');
   });
 
   it('[03b #50] pairing: a DevicePaired commit refreshes the screen-station map and devicePoint', async () => {
@@ -131,7 +135,7 @@ describe('03b device_roles, memory maps, point resolver (b6)', () => {
     const gone = pairPassTablet(h, { pointId: 'P1', name: 'Revoked' });
     pairPassTablet(h, { pointId: 'P9', name: 'Unasked point' });
     const kds = pairKds(h, { stationId: FX.station });
-    h.deps.db.prepare("UPDATE devices SET point_id = 'P1' WHERE device_id = ?").run(kds.deviceId); // not a tablet
+    h.deps.db.prepare("UPDATE devices SET point_id = 'P1' WHERE device_id = ?").run(kds.deviceId); // a kds device is never a Pass (05a K-1)
     h.deps.db.prepare('UPDATE devices SET revoked_at = 1 WHERE device_id = ?').run(gone.deviceId);
     openSession(h, { kind: 'staff', staffId: COOK.staff, deviceId: t1.deviceId });
     const ended = openSession(h, { kind: 'staff', staffId: 'S_WAIT', deviceId: t2.deviceId });

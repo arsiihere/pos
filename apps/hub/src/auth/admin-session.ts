@@ -8,6 +8,7 @@ import { sha256hex } from '../lib/hash.js';
 import { Semaphore } from '../lib/semaphore.js';
 import { currentDirectory } from './guards.js';
 import { checkPin } from './pin.js';
+import { registerRecoveryLinkRoute } from './recovery-link.js';
 import { createSession, endSession, findSessionByToken, isIdleExpired } from './session-store.js';
 
 const LOGIN_TYPES = new Set<DeviceType>(['tablet', 'cashier_kiosk', 'phone']);
@@ -121,6 +122,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
       data: { session_id: session.session_id, ended_at: endedAt, already_ended: outcome.kind === 'ended' },
     };
   });
+
+  registerRecoveryLinkRoute(app, deps); // 05a §6.11
 
   app.get('/admin/login-roster', { config: { group: 'admin-bootstrap' } }, async (request) => {
     const scope = rosterScope(deps, request);

@@ -8,8 +8,10 @@ const BOOTSTRAP_TTL_MS = 1_800_000;
 
 export function issueAdminBootstrap(
   tx: WriterTx,
-  issuedBy: 'setup' | 'cli' | 'restore',
+  issuedBy: 'setup' | 'cli' | 'restore' | 'recovery',
   deps: { clock: Clock; ids: IdGen; secrets: SecretGen },
+  // 05a §4.5 H-7 (R-2): the event's device_id. Setup, the CLI and restore keep 'hub'; 05a §6.11 passes the caller.
+  deviceId = 'hub',
 ): { token: string; bootstrap_token_id: string; expires_at: number } {
   const now = deps.clock.branchNow();
   tx.db
@@ -33,11 +35,11 @@ export function issueAdminBootstrap(
       stream_type: 'hub',
       stream_id: tx.branchId,
       event_type: 'AdminBootstrapTokenIssued',
-      schema_version: 1,
+      schema_version: 2,
       payload: { bootstrap_token_id: bootstrapTokenId, expires_at: expiresAt, issued_by: issuedBy },
       occurred_at: now,
       actor_id: null,
-      device_id: 'hub',
+      device_id: deviceId,
     },
   ]);
   return { token, bootstrap_token_id: bootstrapTokenId, expires_at: expiresAt };

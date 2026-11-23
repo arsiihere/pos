@@ -6,6 +6,7 @@ import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
+// STAYS unless the pairing_tokens table goes: 05a spec H-1 keeps `pairing_tokens` (unused; the sweeper purges it), so task 15 leaves these rows alone.
 const cleanups: Array<() => Promise<void>> = [];
 
 describe('access queries', () => {

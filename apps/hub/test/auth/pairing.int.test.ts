@@ -14,6 +14,7 @@ describe('device pairing', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §10 #29] happy path; expired token → 401; used token by another request → 401; device_type mismatch → 403', async () => {
     const hub = await open();
     const token = await pairingToken(hub, { device_type: 'tablet' });
@@ -77,6 +78,7 @@ describe('device pairing', () => {
     expect(mismatch.json().error.details).toEqual({ device_type: 'phone', allowed: ['tablet'] });
   });
 
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §10 #30] Retry with same pair_request_id → new token works, old token → 401, one DevicePaired, one DeviceTokenRotated', async () => {
     const hub = await open();
     const token = await pairingToken(hub, { device_type: 'tablet' });
@@ -106,6 +108,7 @@ describe('device pairing', () => {
     expect(rotated).toEqual({ device_id: first.json().data.device_id, pair_request_id: requestId });
   });
 
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §10 #84] Pairing a phone whose owner was removed after the token was generated → 401 PAIRING_TOKEN_INVALID', async () => {
     const hub = await open();
     const token = await pairingToken(hub, { device_type: 'phone', owner_staff_id: 'S_OWNER' });
@@ -123,6 +126,7 @@ describe('device pairing', () => {
     expect(hub.deps.db.prepare('SELECT COUNT(*) FROM devices').pluck().get()).toBe(1);
   });
 
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §10 #150] M92: POST /devices/pair for a phone returns owner_name', async () => {
     const hub = await open();
     const token = await pairingToken(hub, { device_type: 'phone', owner_staff_id: 'S_OWNER' }, 'cmd-phone-name');
@@ -130,6 +134,7 @@ describe('device pairing', () => {
     expect(paired.json().data).toMatchObject({ owner_staff_id: 'S_OWNER', owner_name: 'Owner' });
   });
 
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §6.8] a phone pair stores owner_staff_id', async () => {
     const hub = await open();
     const token = await pairingToken(hub, { device_type: 'phone', owner_staff_id: 'S_OWNER' }, 'cmd-phone');
@@ -145,6 +150,7 @@ describe('device pairing', () => {
     expect(row).toEqual({ owner_staff_id: 'S_OWNER' });
   });
 
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §10 #118] /devices/pair: old client → 426; guest IP → 403; rotation 10 min + 1 s after consumption → 401; rotation for a revoked device → 401', async () => {
     const hub = await open();
     const token = await pairingToken(hub, { device_type: 'tablet' });
@@ -263,6 +269,7 @@ describe('device pairing', () => {
     expect(locked.findAll((el) => el.className === 'pos-ltr', again)[0]!.textContent).toBe('3:52');
   });
 
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §10 #139] phone pairing asks for the name in a field, never window.prompt; an empty name sends nothing; a name pairs; 401 shows the expired-QR screen', async () => {
     const hub = await open();
     const html = (await hub.app.inject({ method: 'GET', url: '/pair?t=tok' })).body;
@@ -307,6 +314,7 @@ describe('device pairing', () => {
     expect(paired.prompts).toBe(0);
   });
 
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §10 #151] M91/M92: /pair?t= turns light, /pair stays dark; the paired phone names its owner; an approved kds names its station', async () => {
     const hub = await open();
     const screenHtml = (await hub.app.inject({ method: 'GET', url: '/pair' })).body;
@@ -332,6 +340,7 @@ describe('device pairing', () => {
     expect(textOf(kds.screen)).toContain(EN['pairing.approved_body'].replace('{station}', 'Tandoor'));
   });
 
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §10 #94] the served page logs out an admin session and clears sessionStorage before pairing, and uses neither randomUUID nor serviceWorker; after the logout call the admin token → 401', async () => {
     const hub = await open();
     const page = await hub.app.inject({ method: 'GET', url: '/pair' });
@@ -500,6 +509,7 @@ describe('pair page opens the staff or KDS entry (00 v1.9.1 / v1.9.2 §8.2; Q-13
     }
   });
 
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §10 #168] /pair?t=tok&d=tablet (00 v1.12.2, STAB-1): tablet texts, POST /devices/pair with device_type tablet, token stored, → /staff/; /pair?t=tok still sends phone', async () => {
     const html = await pairHtml('?t=tok&d=tablet');
     const sent: Array<Record<string, unknown>> = [];
@@ -538,6 +548,7 @@ describe('pair page opens the staff or KDS entry (00 v1.9.1 / v1.9.2 §8.2; Q-13
     expect(phoneSent[0]).toMatchObject({ device_type: 'phone' });
   });
 
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §8.2 v1.9.1 Q-29] /pair?t= → POST /devices/pair 200 → /staff/; an already-paired phone opening /pair?t= → /staff/', async () => {
     const html = await pairHtml('?t=tok');
     const urls: string[] = [];

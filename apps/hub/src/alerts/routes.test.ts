@@ -230,6 +230,30 @@ describe('01d §3.4.3 binding route rule (a)(b)(c)', () => {
     expect(bindingIsRoute(phone, r, wsWith(), NOW)).toEqual({ route: false, until: null });
   });
 
+  it('[05a #14a §3.8 D-1] a permanent row (session_id NULL) routes on any hardware, connected and present, with no idle check: until is null', () => {
+    const permanent = (device_id: string): BindingRead => ({ device_id, staff_id: ALI, session_id: null, since: NOW - 3 * IDLE });
+    const r = reads({
+      devices: [
+        { device_id: 'D_KIOSK', device_type: 'cashier_kiosk' },
+        { device_id: 'D_TAB', device_type: 'tablet' },
+      ],
+      activity: new Map([[ALI, NOW - 3 * IDLE]]),
+    });
+    const ws = wsWith({ alert: [{ deviceId: 'D_KIOSK', deviceType: 'cashier_kiosk' }, { deviceId: 'D_TAB', deviceType: 'tablet' }] });
+    expect(bindingIsRoute(permanent('D_KIOSK'), r, ws, NOW)).toEqual({ route: true, until: null });
+    expect(bindingIsRoute(permanent('D_TAB'), r, ws, NOW)).toEqual({ route: true, until: null });
+    expect(bindingIsRoute(permanent('D_KIOSK'), r, wsWith(), NOW)).toEqual({ route: false, until: null });
+    expect(bindingIsRoute(permanent('D_KIOSK'), { ...r, presence: new Map([[ALI, false]]) }, ws, NOW)).toEqual({ route: false, until: null });
+  });
+
+  it('[05a §3.8 D-1] a phone session row (a phone that is not one-person) follows (c) like a tablet: until = last + idle', () => {
+    const row: BindingRead = { device_id: 'D_PH', staff_id: ALI, session_id: 'ss_ph', since: NOW - 10_000 };
+    const r = (last: number) => reads({ devices: [{ device_id: 'D_PH', device_type: 'phone' }], activity: new Map([[ALI, last]]) });
+    const ws = wsWith({ alert: [{ deviceId: 'D_PH', deviceType: 'phone' }] });
+    expect(bindingIsRoute(row, r(NOW - 60_000), ws, NOW)).toEqual({ route: true, until: NOW - 60_000 + IDLE });
+    expect(bindingIsRoute(row, r(NOW - IDLE - 1), ws, NOW)).toEqual({ route: false, until: NOW - 1 });
+  });
+
   it('[01d §3.4.3] a kiosk row never routes (BF-3), nor a KDS or an unknown / revoked device', () => {
     const r = reads({
       devices: [

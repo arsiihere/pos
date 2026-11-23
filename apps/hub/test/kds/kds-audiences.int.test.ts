@@ -63,7 +63,7 @@ interface Seats {
   p1: SocketCtx;
   p2: SocketCtx;
   plain: SocketCtx;
-  /** a cashier kiosk bound to P1: never a Pass (§3.1) */
+  /** a cashier kiosk bound to P1: a Pass like the P1 tablet (03b §3.1, ⚠️ 05a K-1: any non-kds device with a point) */
   kiosk: SocketCtx;
 }
 
@@ -171,10 +171,10 @@ describe('[03b §6.17] event audiences (b22)', () => {
     const o = order();
     const e = ev('LinePrioritized', 'order', o, { order_id: o, group_id: `${o}:0`, order_item_ids: ['A1', 'G1'], delay_ms: 360_000, at_ms: 0 });
     const counter = statementCounter(hub.deps.db);
-    expect(who03b(seats, e)).toEqual(['p1', 'p2', 's1', 's3']);
+    expect(who03b(seats, e)).toEqual(['kiosk', 'p1', 'p2', 's1', 's3']); // 05a K-1: the P1 kiosk is a Pass
     expect(counter.count).toBe(0);
     expect(who(seats, e)).not.toContain('s2');
-    expect(who(seats, e)).not.toContain('kiosk');
+    expect(who(seats, e)).not.toContain('plain');
     const one = ev('LinePrioritized', 'order', o, { order_id: o, group_id: `${o}:0`, order_item_ids: ['G1'], delay_ms: 360_000, at_ms: 0 });
     expect(who03b(seats, one)).toEqual(['p2', 's3']);
   });
@@ -188,7 +188,7 @@ describe('[03b §6.17] event audiences (b22)', () => {
       ev('Handover', 'order', o, { handover_id: 'H1', order_id: o, point_id: 'P1', receiver_staff_id: 'S_WAIT', order_item_ids: ['A1'], alert_id: 'A', ready_alert_closed: null }),
       ev('ReadyRetargeted', 'order', o, { order_id: o, point_id: 'P1', table_id: 'T2', alert_id: 'A2', previous_alert_id: 'A1' }),
     ];
-    for (const e of events) expect(who(seats, e), e.event_type).toEqual(['p1']);
+    for (const e of events) expect(who(seats, e), e.event_type).toEqual(['kiosk', 'p1']); // 05a K-1: the P1 kiosk is a Pass
   });
 
   it('[03b §6.17, §3.6] a line event of a station under takeover also reaches the Pass sockets of the station point', async () => {
@@ -208,14 +208,14 @@ describe('[03b §6.17] event audiences (b22)', () => {
     // before the takeover too; among stations the set stays s1
     const started = ev('ItemStarted', 'order', o, { order_item_id: 'A1', started_at: 0, source: 'tap' });
     expect(who(seats, started)).toEqual(['kiosk', 'p1', 'p2', 'plain', 's1']);
-    expect(who03b(seats, started)).toEqual(['p1', 's1']); // 03b's own set: the line's point only
+    expect(who03b(seats, started)).toEqual(['kiosk', 'p1', 's1']); // 03b's own set: the line's point only (05a K-1: its kiosk too)
     const t0 = hub.clock.branchNow();
     kdsPresenceTick.due(readOnlyDb(hub.deps.db), engine(), t0);
     expect(kdsPresenceTick.due(readOnlyDb(hub.deps.db), engine(), t0 + 30_000)).toBe(true);
     hub.deps.writer.run((tx) => tx.append(kdsPresenceTick.intents(tx, tx.state as EngineState, t0 + 30_000)));
     const takenOver = ev('ItemStarted', 'order', o, { order_item_id: 'A1', started_at: 0, source: 'tap' });
     expect(who(seats, takenOver)).toEqual(['kiosk', 'p1', 'p2', 'plain', 's1']);
-    expect(who03b(seats, takenOver)).toEqual(['p1', 'p2', 's1']); // §3.6: + the station point's Pass under takeover
+    expect(who03b(seats, takenOver)).toEqual(['kiosk', 'p1', 'p2', 's1']); // §3.6: + the station point's Pass under takeover
   });
 
   it('[03b §6.17] end to end: a real Pass socket and station socket get the published ItemStarted / FireDispatched; a point-less tablet gets them through 02b (v1.0.11 Q-6)', async () => {
