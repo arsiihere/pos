@@ -51,3 +51,17 @@ Batches of about five tasks, one commit each, in order.
 ## Part B (spec bumps — STOP for owner review before code)
 
 02b v1.0.25 · 03a v1.2.11 · 03b v1.0.16 · 00 Hub Platform Access v1.13 + Foundation v1.18 + 05a v1.0.7 · 03c v1.0.16 + 05 v1.0.35 (§3.16) · 01a v2.11 · new 05c v0.1. Each through a hostile review in a fresh session (`docs/reviews/`).
+
+## Status (2026-11-24)
+
+| Task | State | Commit(s) |
+|---|---|---|
+| A1 H10 | done | `d361da25` |
+| C1-1 … C1-5 | done | `git log --grep "02b-tk C1-"` |
+| C2-1 … C2-5 | done (tests written with the code, not failing-first) | `git log --grep "02b-tk C2-"` |
+| C3-1, C3-2 | done | `git log --grep "02b-tk C3-[12]"` |
+| C3-3, C3-4 | done | `git log --grep "02b-tk C3-[34]"` |
+| C3-5 | done: `apps/client/e2e/02b-tk-flows.spec.ts`, 8/8 on the kiosk project; the hand-over step is not walked (the e2e hub never marks items done) | `git log --grep "02b-tk C3-5"` |
+
+Waiting for Part B: paid tokens kept in the queue after a reload (02b v1.0.25 open-orders), "Phone orders — later" and pickup chips (`pickup_at_ms`), the amber not-collected tile (`ready_window_ms` in the staff config, 03b v1.0.16), the token slip / "Print again" (03c v1.0.16), Raast / NFC (05c).
+Known outside this work: `apps/hub/test/queries/stock.int.test.ts` "items_meta … windows" fails in a UTC container (`-0` vs `0` utc_offset_ms) on `main` too; `apps/client/e2e/02b-takeaway.spec.ts` was already stale (sign-in lands on `#/inbox`; expects the removed token dialog).
