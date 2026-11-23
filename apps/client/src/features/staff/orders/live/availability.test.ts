@@ -88,15 +88,67 @@ describe('[02b §8 Ordering screen] availability', () => {
     availability.dispose();
   });
 
-  it('[02b #36] slow chip from slow_item_threshold_ms (station wait + cook time)', () => {
-    // I2: cook 20 min; threshold 15 min
-    expect(itemAvailability('I2', inputs({ stationWaitMs: () => 0 })).state).toEqual({ kind: 'slow', minutes: 20 });
-    expect(itemAvailability('I2', inputs({ slowThresholdMs: 1_500_000, stationWaitMs: () => 300_000 })).state).toEqual({ kind: 'ok' });
-    expect(itemAvailability('I2', inputs({ slowThresholdMs: 1_500_000, stationWaitMs: () => 330_000 })).state).toEqual({ kind: 'slow', minutes: 26 });
-    // I1 is served from the pot: stock time 5 min + wait 9 min stays under 15 min
-    expect(itemAvailability('I1', inputs({ stationWaitMs: () => 540_000 })).state).toEqual({ kind: 'ok' });
-    // no wait known → no chip
+  // ⚠️ 02b-tk C3-3 (03a v1.2.10 §4.3 To 02 #9, §6.5; 02b v1.0.24 §8; rulings "Audit corrections"): every orderable
+  // tile shows "about N min" = stations-live wait_ms + prep + cook (+ takeaway padding); amber past
+  // slow_item_threshold_ms (02b §8 slow chip) or at 20 min (frame TileStates). Was: a time only past the threshold.
+  it('[03a To 02 #9, 02b-tk C3-3] every tile shows about wait + prep + cook; amber past the threshold or at 20 min', () => {
+    // I2: cook 20 min, prep 0; threshold 15 min
+    expect(itemAvailability('I2', inputs({ stationWaitMs: () => 0 })).state).toEqual({ kind: 'about', minutes: 20, long: true });
+    const quick = cfg({ items: cfg().items.map((i) => (i.item_id === 'I2' ? { ...i, cook_time_ms: 300_000, prep_buffer_ms: 60_000 } : i)) });
+    // 4 min wait + 1 min prep + 5 min cook = 10 min, not amber
+    expect(itemAvailability('I2', inputs({ config: quick, stationWaitMs: () => 240_000 })).state).toEqual({ kind: 'about', minutes: 10, long: false });
+    // a part minute rounds up
+    expect(itemAvailability('I2', inputs({ config: quick, stationWaitMs: () => 1_000 })).state).toEqual({ kind: 'about', minutes: 7, long: false });
+    // no threshold (null): amber only from 20 min
+    expect(itemAvailability('I2', inputs({ config: quick, slowThresholdMs: null, stationWaitMs: () => 9 * 60_000 })).state).toEqual({ kind: 'about', minutes: 15, long: false });
+    expect(itemAvailability('I2', inputs({ config: quick, slowThresholdMs: null, stationWaitMs: () => 14 * 60_000 })).state).toEqual({ kind: 'about', minutes: 20, long: true });
+    // past the threshold before 20 min: amber (02b §8 slow chip kept)
+    expect(itemAvailability('I2', inputs({ config: quick, stationWaitMs: () => 10 * 60_000 })).state).toEqual({ kind: 'about', minutes: 16, long: true });
+    // no wait known → no time
     expect(itemAvailability('I2', inputs({ stationWaitMs: () => null })).state).toEqual({ kind: 'ok' });
+  });
+
+  it('[02b-tk C3-3, audit] Now only for a ready item or a stock item with stock_time_ms 0; a pre-cooked item shows its reheat time', () => {
+    const ready = cfg({ items: cfg().items.map((i) => (i.item_id === 'I2' ? { ...i, is_ready_item: true } : i)) });
+    expect(itemAvailability('I2', inputs({ config: ready, stationWaitMs: () => 30 * 60_000 })).state).toEqual({ kind: 'now' });
+    // a ready item needs no station wait
+    expect(itemAvailability('I2', inputs({ config: ready, stationWaitMs: () => null })).state).toEqual({ kind: 'now' });
+    // I1 is served from the pot (stock time 5 min): wait 9 min + 5 min reheat = 14 min, not "Now"
+    expect(itemAvailability('I1', inputs({ stationWaitMs: () => 540_000 })).state).toEqual({ kind: 'about', minutes: 14, long: false });
+    // stock time 0 with stock: Now
+    const instant = cfg({ items: cfg().items.map((i) => (i.item_id === 'I1' ? { ...i, stock_time_ms: 0 } : i)) });
+    expect(itemAvailability('I1', inputs({ config: instant, stationWaitMs: () => 540_000 })).state).toEqual({ kind: 'now' });
+    // stock time 0 but the pot is empty (cook_fresh I3): cooks fresh, so the full cook time
+    const fresh = cfg({ items: cfg().items.map((i) => (i.item_id === 'I3' ? { ...i, stock_time_ms: 0 } : i)) });
+    expect(itemAvailability('I3', inputs({ config: fresh, stock: fakeStock({ I3: 0 }, { I3: 'out' }), stationWaitMs: () => 0 })).state).toEqual({ kind: 'about', minutes: 20, long: true });
+    // the low-stock chip still wins over the time (frame TileStates "3 left")
+    expect(itemAvailability('I1', inputs({ config: instant, stock: fakeStock({ I1: 2 }, { I1: 'low' }) })).state).toEqual({ kind: 'left', n: 2 });
+  });
+
+  it("[02b-tk C3-3] takeaway: the takeaway home station's wait plus the takeaway padding", () => {
+    const base = cfg();
+    const s1 = base.stations[0]!;
+    const config = cfg({
+      items: base.items.map((i) => (i.item_id === 'I2' ? { ...i, cook_time_ms: 300_000 } : i)),
+      stations: [
+        { ...s1, alternates: [{ station_id: 'S2', order_types: ['takeaway'], home_for_order_types: ['takeaway'] }] },
+        { ...s1, station_id: 'S2', name: 'Takeaway karahi', alternates: [] },
+      ],
+      engine_settings: { ...base.engine_settings, promise_padding_takeaway_ms: 120_000, promise_padding_dine_in_ms: 600_000 },
+    });
+    const waits: Record<string, number> = { S1: 10 * 60_000, S2: 60_000 };
+    const at = (c: BranchConfig, orderType: 'dine_in' | 'takeaway') =>
+      itemAvailability('I2', inputs({ config: c, slowThresholdMs: null, orderType, stationWaitMs: (id) => waits[id] ?? null })).state;
+    // dine-in: S1's wait 10 + cook 5 = 15 (no padding, To 02 #9)
+    expect(at(config, 'dine_in')).toEqual({ kind: 'about', minutes: 15, long: false });
+    // takeaway: S2's wait 1 + cook 5 + padding 2 = 8
+    expect(at(config, 'takeaway')).toEqual({ kind: 'about', minutes: 8, long: false });
+    // the station's own padding wins over the branch's (03a §3.5.1 step 5)
+    const own = { ...config, stations: config.stations.map((s) => (s.station_id === 'S2' ? { ...s, promise_padding_ms: 0 } : s)) };
+    expect(at(own, 'takeaway')).toEqual({ kind: 'about', minutes: 6, long: false });
+    // an alternate allowed for takeaway but not its home: the routed station (wait 10 + cook 5 + padding 2)
+    const notHome = { ...config, stations: config.stations.map((s) => (s.station_id === 'S1' ? { ...s, alternates: [{ station_id: 'S2', order_types: ['takeaway' as const], home_for_order_types: [] }] } : s)) };
+    expect(at(notHome, 'takeaway')).toEqual({ kind: 'about', minutes: 17, long: false });
   });
 
   it('[02b #36] "Only 2 left" caps the stepper (O15)', () => {
@@ -152,7 +204,7 @@ describe('[02b §8 Ordering screen] availability', () => {
       const live = createLiveBus();
       const replies: Array<(r: unknown) => void> = [];
       const fetchStationsLive = vi.fn(() => new Promise<unknown>((resolve) => replies.push(resolve)));
-      const expected = (wait_ms: number) => (wait_ms + item.cook_time_ms > 900_000 ? { kind: 'slow', minutes: Math.ceil((wait_ms + item.cook_time_ms) / 60_000) } : { kind: 'ok' });
+      const expected = (wait_ms: number) => ({ kind: 'about', minutes: Math.ceil((wait_ms + item.cook_time_ms) / 60_000), long: wait_ms + item.cook_time_ms > 900_000 });
       const body = (wait_ms: number) => ({ ok: true, data: { now_ms: T, as_of_seq: 1, stations: [{ station_id: item.station_id, wait_ms }] } });
       const availability = createAvailability({
         live,
@@ -171,7 +223,7 @@ describe('[02b §8 Ordering screen] availability', () => {
       expect(fetchStationsLive).toHaveBeenCalledTimes(1);
       replies.shift()!(body(30 * 60_000));
       await vi.advanceTimersByTimeAsync(0);
-      expect(availability.item('I2')!.state).toEqual({ kind: 'slow', minutes: Math.ceil((30 * 60_000 + item.cook_time_ms) / 60_000) });
+      expect(availability.item('I2')!.state).toEqual(expected(30 * 60_000));
 
       // two reads in flight: the older answer, arriving last, is dropped
       live.frame({ type: 'event', seq: 4, event: { event_id: 'E4', event_type: 'ItemDone', schema_version: 1, payload: {} } } as never);
@@ -206,6 +258,15 @@ describe('[02b §8 Ordering screen] availability', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('[02b-tk C3-3] the live availability reads the times for its order type', () => {
+    const config = cfg();
+    const live = createLiveBus();
+    const make = (orderType?: 'takeaway') =>
+      createAvailability({ live, config: { snapshot: () => config, config: () => null, subscribe: () => () => {} }, stock: fakeStock({}), clock: () => clockAt(() => T), setInterval: () => 0, clearInterval: () => {}, ...(orderType === undefined ? {} : { orderType }) });
+    expect(make('takeaway').inputs()!.orderType).toBe('takeaway');
+    expect(make().inputs()!.orderType).toBe('dine_in');
   });
 
   it('[02b §8 Ordering screen] a linked option off with its reason', () => {

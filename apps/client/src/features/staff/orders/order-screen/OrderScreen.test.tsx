@@ -196,6 +196,33 @@ describe('[02b §8 Ordering screen] order screen', () => {
     document.body.innerHTML = '';
   });
 
+  it('[03a To 02 #9, 02b-tk C3-3] every tile shows "about N min" (an estimate) for its order type; amber at 20 min; Now for a ready item', async () => {
+    const h = harness();
+    const base = cfg();
+    h.setConfig({ ...base, items: base.items.map((i) => (i.item_id === 'I5' ? { ...i, cook_time_ms: 10 * 60_000 } : i.item_id === 'I4' ? { ...i, is_ready_item: true } : i)) });
+    h.live.frame({ type: 'catch_up', as_of_seq: 1, state: { stations_live: { stations: [{ station_id: 'S1', wait_ms: 4 * 60_000 }] } } });
+    const chip = (m: ReturnType<typeof mount>, name: string) => tile(m, name).querySelector('.tag')!;
+    // takeaway: wait 4 + Naan's cook 10 + takeaway padding 3 = 17; Mutton Karahi 4 + 20 + 3 = 27 (amber)
+    const m = h.render({ order_type: 'takeaway', id: 'D1' });
+    await flush();
+    pick(m, 'Sides');
+    expect(chip(m, 'Naan').textContent).toBe('about 17 min');
+    expect(chip(m, 'Naan').classList.contains('c-warn')).toBe(false);
+    expect(chip(m, 'Naan').getAttribute('title')).toBe('Estimate — the cart shows the promised time');
+    expect(chip(m, 'Raita').textContent).toBe('Now');
+    expect(chip(m, 'Raita').classList.contains('c-ok')).toBe(true);
+    pick(m, 'Karahi');
+    expect(chip(m, 'Mutton Karahi').textContent).toBe('about 27 min');
+    expect(chip(m, 'Mutton Karahi').classList.contains('c-warn')).toBe(true);
+    m.unmount();
+    // dine-in: no padding
+    const d = h.render();
+    await flush();
+    pick(d, 'Sides');
+    expect(chip(d, 'Naan').textContent).toBe('about 14 min');
+    d.unmount();
+  });
+
   it('[02b §8 Zone items] zone tile "Raita · 6 here"; a tap adds or increments one from_zone line', async () => {
     const h = harness();
     h.live.frame({ type: 'catch_up', as_of_seq: 1, state: { orders: { orders: [], zone_stock: [{ zone_id: 'Z1', name: 'Family hall counter', items: [{ item_id: 'I4', name: 'Raita', on_hand: 6, threshold: 2 }] }] } } });
