@@ -201,4 +201,34 @@ describe('[04 §8; VU2a] audit log screen', () => {
     expect(mm.container.querySelector('.au__bar .flt b')?.textContent).toBe('آج · 17 نومبر');
     expect(mm.container.querySelector('.au__end')?.textContent).toBe('آج کے سب اندراج');
   });
+
+  it('[05a A-1, G-b] a device_profile_set row shows detail.staff_ids as names from audit-staff; a leaver keeps the "left" mark; an unknown id its short id', async () => {
+    const row = {
+      ...ROWS[0]!,
+      seq: 20,
+      action: 'device_profile_set',
+      approver_staff_id: null,
+      approver_name: null,
+      subject_type: 'device',
+      order_id: null,
+      table_code: null,
+      table_id: null,
+      table_name: null,
+      reason: null,
+      outcome: null,
+      amount_minor: null,
+      detail_json: JSON.stringify({ device_name: 'Tab 4', access: 'listed', staff_ids: ['S-IMRAN', 'S-DANISH', '01JDQ5Z8K2M4N6P8R0T2V4G7Q2'], screens: ['dine_in'], point_id: null, cause: 'edited' }),
+    };
+    const { api, staffCalls } = fakeApi({ first: { entries: [row], next_cursor: null } }, [
+      { staff_id: 'S-IMRAN', display_name: 'Imran', in_directory: true },
+      { staff_id: 'S-DANISH', display_name: 'Danish', in_directory: false },
+    ]);
+    const mm = render(api);
+    await flush();
+    expect(staffCalls.length).toBe(1);
+    const ppl = mm.container.querySelector('.au__body .aur .tg .ppl')!;
+    expect(ppl.textContent).toBe('Imran, Danishleft, 01JDQ…G7Q2');
+    expect(ppl.querySelectorAll('.left').length).toBe(1);
+    expect(mm.container.querySelector('.au__body .aur .tg b')?.textContent).toBe('Tab 4');
+  });
 });
