@@ -14,8 +14,8 @@ No event version change (`AlertRaised` v5 unchanged: the step target and `counte
 
 | Row | Target | Change |
 |---|---|---|
-| C-F-37 | Foundation v1.18 §6.5 / 00 HPA v1.13 §6.21 (DRAFTs) | WS close code **`4413` `DISPLAY_DEVICE`** (reason `display_device`): "this device is a display (board); it gets no alert connection". Not a revoke: the client keeps its keys. |
-| C-05b-37 | 05b next bump | the native alert service, on close `4413`, stops (no token check, no reconnect loop) and does not start while the approved profile is the board (05a T-1). |
+| C-F-37 | Foundation v1.18 §6.5 / 00 HPA v1.13 §6.21 (DRAFTs) | WS close code **`4413` `DISPLAY_DEVICE`** (reason `display_device`): "this device is a display (board); it gets no alert connection". Not a revoke: the client keeps its keys. ⚠️ Changed by v1.3.7 (integration, 02b-TK): **carried** in Foundation v1.18 §6.5 close codes and 00 HPA v1.13 §6.21 (which used `4403` before; 05a v1.0.7 follows) |
+| C-05b-37 | 05b next bump | the native alert service, on close `4413`, stops (no token check, no reconnect loop) and does not start while the approved profile is the board (05a T-1). ⚠️ Changed by v1.3.7 (integration, 02b-TK): **deferred with tablet boards** — pilot boards are `cashier_kiosk` only (00 HPA v1.13 OD-2, 05a v1.0.7 OQ-B7), so no 05b bump now; recorded in 05a v1.0.7 row T-1 |
 
 #### Hostile run 1 fixes (docs/reviews/01d_v1.3.7_hostile_run1.md)
 
@@ -44,6 +44,18 @@ Verdict FIX THEN RE-REVIEW (3 BLOCKER, 6 MAJOR, 12 MINOR). "BfA" = owner decisio
 | m-10 | §10.10, §11 and §12 rows added; the README pointer goes with the approval commit (not edited here, per the coordinator) | §10.10, §11, §12.9 |
 | m-11 | `needs_review` profiles count (they are in force: 05a routes and shows by them until reviewed) (BfA Q-37g) | §3.4 |
 | m-12 | 05c raises from its worker with `alerts.tickCtx(tx, now)` (actor null, `raised_device_id = 'hub'`); `raise`'s ≤ 6 + R + T goes into 05c's statement bound | §4.3 To 05c |
+
+#### Integration pass (02b-TK cross-spec rows)
+
+⚠️ Changed by v1.3.7 (integration, 02b-TK), 2026-11-24; still DRAFT. No rule here changes.
+
+| Row | Where it now stands |
+|---|---|
+| C-F-37 | Carried: Foundation v1.18 §6.5 lists `4413`; 00 HPA v1.13 §6.21 closes a board's alert-mode socket with `4413` (was `4403`), and 05a v1.0.7 §4.5 D-5, §6.4, test 45 follow |
+| C-05b-37 | Deferred with tablet boards (05a v1.0.7 row T-1; no 05b bump in the pilot) |
+| To 05c deviations 1, 2 (Q-37e) | Copied by 05c v0.2 §4.5 D-1 (lock = kind label only; `identifier` / `amount` / `problem` base fields; no `ref_last4` / `token` details) |
+| 03b v1.0.16 D-7; 05a v1.0.7 D-5 | Checked: the step target `screen_devices`, `counter_card` and the board guard read the same in both |
+
 
 
 ### Changes in v1.3.6 (05b Staff Tablet App v1.0 §4.5 D-1–D-4; APPROVED (owner, 2026-11-23 12:24 PKT, with 05b v1.0))

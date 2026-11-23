@@ -102,6 +102,19 @@
 | m-16 CLAUDE.md | stated: the Foundation v1.18 approval commit adds the two stack rows to CLAUDE.md | §12.1 |
 | m-5, m-6, m-10, m-11, m-12 | 05a v1.0.7's (clips path and range, queue flush, code reason, R33) | 05a v1.0.7 run 1 sub-section |
 
+#### Integration pass (02b-TK cross-spec rows)
+
+⚠️ Changed by 00 v1.13 (integration, 02b-TK), 2026-11-24; still DRAFT.
+
+| Source row | Change here | Where |
+|---|---|---|
+| 01d v1.3.7 C-F-37 (owner decision Q-37c) | WS close code **`4413` `DISPLAY_DEVICE`** appended; a board's alert-mode `auth` and the switch to the board close with `4413`, not `4403` (the M-2 fix above said `4403`; 01d's run 1 B-2 moved it to a distinct code because clients treat `4403` as a revoke) | §6.21, §8.4, test 194 |
+| 02b v1.0.25 TK-6 | Checked: H-16 (redaction adds `phone`, test 200) and §6.41 reading `takeawayProgress` as 02b §4.2 defines it | — |
+| 02b v1.0.25 (OD-10) | 02b now checks `SubmitOrder.order_id` against `ULID_RE` (02b §3.2 step 3, test 84, TK-Q17 = OD-10) | §12.3 OD-10 |
+| 03c v1.0.16 (M-3, M-4) | Checked: 03c now prints `statusLink(root)?.url` with the url on `public_status.port` | — |
+| 05c v0.2 H-1 – H-3 | Checked: folded as H-13 – H-15 with the same text | — |
+
+
 ### Changes in v1.12.4 (05b Staff Tablet App v1.0, `docs/specs/05b_Staff_Tablet_App_Spec_v1.0.md` §4.5 rows H-1–H-4)
 
 **v1.12.4 — 2026-11-23 — 05b rows, applied by the 05b plan's phase B task P0.1.** Each changed place carries "⚠️ Changed by 05b (row H-n)".
@@ -1190,7 +1203,7 @@ The index serves 01d's last-activity read and changes no 00 behaviour.
 
 > ⚠️ Changed by 01d v1.0 (H-12, H-14): `app_releases` and `staff_sessions_staff_activity`, created in 01d's `0006`. See 01d §4.5.
 
-**⚠️ Changed by 00 v1.13 (row H-8): `00NN_display_sessions.sql`** (⚠️ Changed by 00 v1.13 hostile run 1 (m-4): the **next free hub number at merge**. Claims today: `main` has `0027`; `0028_inventory.sql` (08 Part D) and `0028_orders_takeaway.sql` (02b v1.0.25) **both claim `0028`** (a clash the merge order settles); this file; 05a v1.0.7's `00NN_device_profiles_board.sql` (its own file now). Number at merge, never edit a merged file). First line `-- migrate:foreign-keys-off` (no FK refers to `staff_sessions`; the pragma keeps the runner's rebuild recipe, `db/migrate.ts:66-79`). `0002` and `0006` are not edited; the indexes are recreated under their names.
+**⚠️ Changed by 00 v1.13 (row H-8): `00NN_display_sessions.sql`** (⚠️ Changed by 00 v1.13 hostile run 1 (m-4): the **next free hub number at merge**. Claims today: `main` has `0027`; `0028_inventory.sql` (08 Part D) and `0028_orders_takeaway.sql` (02b v1.0.25) **both claim `0028`** (a clash the merge order settles; ⚠️ Changed by 00 v1.13 (integration, 02b-TK): 02b v1.0.25 now writes `NNNN_orders_takeaway.sql`, numbered at merge, and 05c v0.2's `0030` / `0031` are provisional; README "Migration numbers"); this file; 05a v1.0.7's `00NN_device_profiles_board.sql` (its own file now). Number at merge, never edit a merged file). First line `-- migrate:foreign-keys-off` (no FK refers to `staff_sessions`; the pragma keeps the runner's rebuild recipe, `db/migrate.ts:66-79`). `0002` and `0006` are not edited; the indexes are recreated under their names.
 
 ```sql
 -- migrate:foreign-keys-off
@@ -1681,7 +1694,8 @@ After auth:
 - Keepalive as above; a pong refreshes the device's `last_seen_at` (§6.17), nothing else.
 - `packages/events/src/ws.ts`: `WsServerMessage` adds `display_hint { seq: number, order_ids: string[] }`; `WsClientMessage` is unchanged. The socket context of a display socket has `kind: 'display'`, `staffId` and `stationId` null; since no audience sees it, `ConnectedSession` and the audience socket context keep `kind: 'staff' | 'station'`.
 - Query count of a display `catch_up` (⚠️ Changed by 00 v1.13 hostile run 1 (m-1)): 00's `hub` part (**1**, its `ClockAlarm` read, `ws/catch-up.ts:47–62`) + the display parts' declared counts (05a `pickup_board`: 2) = **3**.
-- ⚠️ Changed by 00 v1.13 hostile run 1 (M-2): **a board never holds an alert-mode socket.** An alert-mode `auth` (device token, no session) from a device whose 05a profile is the board closes `4403` with reason `display_device`, no frame (01d v1.3.7 row D-5). When 05a's `SetDeviceProfile` turns a device into the board, its after-commit closes the device's open alert-mode socket the same way, as `DeviceRevoked` closes it today (`ws/server.ts:212`).
+- ⚠️ Changed by 00 v1.13 hostile run 1 (M-2): **a board never holds an alert-mode socket.** An alert-mode `auth` (device token, no session) from a device whose 05a profile is the board closes ~~`4403`~~ **`4413`** (⚠️ Changed by 00 v1.13 (integration, 02b-TK): 01d v1.3.7 row C-F-37, owner decision Q-37c: `WS_CLOSE.DISPLAY_DEVICE`, not a revoke, the client keeps its keys) with reason `display_device`, no frame (01d v1.3.7 row D-5). When 05a's `SetDeviceProfile` turns a device into the board, its after-commit closes the device's open alert-mode socket the same way (`4413`), as `DeviceRevoked` closes it today (`ws/server.ts:212`).
+- ⚠️ Changed by 00 v1.13 (integration, 02b-TK) (01d v1.3.7 row C-F-37): **close code `4413` `DISPLAY_DEVICE`** (reason `display_device`) — "this device is a display (board); it gets no alert connection"; a new constant `WS_CLOSE.DISPLAY_DEVICE` beside `4401`, `4403`, `4426`, `1012` (Foundation v1.18 §6.5). Not a revoke: the client keeps `device_token` (§8.4).
 - ⚠️ Changed by 00 v1.13 hostile run 1 (m-14 (h)): when one batch both ends a display session and maps to a hint, the close wins: the socket is closed and no hint is sent first.
 
 | | |
@@ -2144,6 +2158,7 @@ Files land in the §6.9 folders: `apps/hub/src/{config,db,commands,queries,proje
 | `SESSION_EXPIRED`, `SESSION_INVALID`, WS close `4401` (any reason except below) | go to login; keep unsent drafts (BUILDING) on the device |
 | `DEVICE_TOKEN_INVALID`, `DEVICE_REVOKED`, WS `4403` (non-guest) | wipe `device_token`; show "This device must be paired again" (⚠️ Changed by 05b (row H-4): inside the tablet app the page first calls `PosNative.confirmRevoked()` and wipes only on `revoked: true`; the native alert socket follows 05b §3.5) |
 | `GUEST_NETWORK_FORBIDDEN`, WS `4403` (before auth) | "Connect to the staff WiFi" |
+| WS `4413` `DISPLAY_DEVICE` (⚠️ Changed by 00 v1.13 (integration, 02b-TK); 01d v1.3.7 C-F-37) | keep `device_token`; no reconnect of the alert-mode socket; the page goes to `/board/` (01d v1.3.7 §8.1) |
 | `CLIENT_UPGRADE_REQUIRED`, WS `4426` | blocking "Update the app" screen |
 | `PIN_INVALID` | shake PIN pad; show `attempts_remaining` when ≤ 2 |
 | `PIN_LOCKED_OUT`, `DEVICE_LOCKED_OUT`, `IP_LOCKED_OUT` | show time left from `retry_after_ms` |
@@ -2426,7 +2441,7 @@ Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.i
 | 191 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-1, m-14 a): a display session ended by each of `replaced`, `forced`, `logout`, `device_revoked`, `hub_restored` writes its `SessionEnded` on stream `hub` / device_id with `actor_id` null; no event lands on a `staff` / `''` stream |
 | 192 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-1): `sessionStream` / `sessionActor` give the §3.4a mapping for all four kinds; a type test fails to compile when a `switch (kind)` misses `display` |
 | 193 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-1): a lint / grep check over `apps/hub/src` finds no `kind === 'station' ?` or `kind !== 'station' ?` ternary |
-| 194 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-2, m-14 b): an alert-mode `auth` from a board kiosk → close `4403` reason `display_device`, zero frames; `SetDeviceProfile` kiosk → board closes the kiosk's open alert-mode socket `4403` after commit; with 01d v1.3.7 D-5, a board kiosk is never in `alert_recipients` (an `always_on` alert raised while the board exists) |
+| 194 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-2, m-14 b): an alert-mode `auth` from a board kiosk → close ~~`4403`~~ `4413` (⚠️ Changed by 00 v1.13 (integration, 02b-TK)) reason `display_device`, zero frames, `device_token` still valid afterwards; `SetDeviceProfile` kiosk → board closes the kiosk's open alert-mode socket ~~`4403`~~ `4413` after commit; with 01d v1.3.7 D-5, a board kiosk is never in `alert_recipients` (an `always_on` alert raised while the board exists) |
 | 195 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-3, m-14 c): `statusLink` → `null` with `public_status.enabled: false`, without `advertised_host`, for `order_id` `'abc'` / a lower-case ULID / a UUID, and with no key loaded; otherwise `{ path, url }` |
 | 196 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-3): with `public_status.enabled: false` a pay-later token slip prints without a QR (03c test, cited) |
 | 197 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-5, m-14 d): NAT run: 50 phones behind one IP each polling a valid link every 10 s while a guesser on the same IP sends invalid links at full rate for 2 min → every valid poll answers 200 |
@@ -2583,7 +2598,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | OD-7 | Voice clips 1–300 (Urdu, English) and who makes them (05a OQ-B3) | 1–300, rendered once offline, owner checks a sample | m-6 |
 | OD-8 | Keep `DEVICE_ACCESS_DENIED` + `reason: 'display_device'` (clients branch on `reason` first) or a new code `DISPLAY_DEVICE` (05a OQ-B8) | Keep, with the client rule and test | m-11 |
 | OD-9 | Link lifetime (MQ13) | `min(day close + 2 h, business day + 36 h)` | m-3 |
-| OD-10 | 02b `SubmitOrder.order_id` must match `ULID_RE` (breaking before the pilot, R29; owed by 02b) | Yes; until it lands `statusLink` returns `null` for such ids | M-3 |
+| OD-10 | 02b `SubmitOrder.order_id` must match `ULID_RE` (breaking before the pilot, R29; owed by 02b; ⚠️ Changed by 00 v1.13 (integration, 02b-TK): written in 02b v1.0.25 §3.2 step 3, test 84, TK-Q17) | Yes; until it lands `statusLink` returns `null` for such ids | M-3 |
 
 ### 12.4 Deferred until needed
 
