@@ -239,10 +239,12 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
     );
     // Listed explicitly (not derived from the migration SQL, which would make the test circular); the test targets the
     // whole migrations dir, so the rows of 0013 (04 B-1) and 0015 (05 B-2, 01b v1.10; own test:
-    // billing-defaults-backfill.int.test.ts) both appear. The fixture's owner / manager roles already hold the new rows.
+    // billing-defaults-backfill.int.test.ts) both appear, and 0019 (01b v1.8.1 Q-23; own test:
+    // cashier-mark-served-migration.int.test.ts). The fixture's owner / manager roles already hold the new rows.
     expect(added.rows.map((row) => row.line)).toEqual([
       'cashier:close-without-buyer-id:requires_approval',
       'cashier:manage-own-shift:allowed',
+      'cashier:mark-served:allowed',
       'cashier:move-item-to-stock:allowed',
       'cashier:open-cash-drawer:allowed',
       'cashier:record-petty-cash:allowed',

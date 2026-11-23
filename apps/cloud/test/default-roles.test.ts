@@ -41,8 +41,14 @@ describe('default roles', () => {
     expect(holders('manage-stations')).toEqual(['owner', 'manager']);
   });
 
-  it('[01b B-2] mark-served defaults to Owner, Manager, Order taker and Waiter', () => {
-    expect(holders('mark-served')).toEqual(['owner', 'manager', 'order_taker', 'waiter']);
+  it('[01b B-2] mark-served defaults to Owner, Manager, Cashier, Order taker and Waiter (01b v1.8.1 Q-23: Cashier)', () => {
+    expect(holders('mark-served')).toEqual(['owner', 'manager', 'cashier', 'order_taker', 'waiter']);
+  });
+
+  it('[01b v1.8.1] Cashier gains mark-served (allowed, branch), not boost-order', () => {
+    const cashier = DEFAULT_ROLES.find((r) => r.default_key === 'cashier')!;
+    expect(cashier.grants.find((g) => g.permission === 'mark-served')).toEqual({ permission: 'mark-served', grant_type: 'allowed' }); // scope absent = branch
+    expect(grants('cashier')).not.toContain('boost-order');
   });
 
   it('[01b B-5] mark-item-returned defaults to Owner, Manager and Order taker', () => {
@@ -62,8 +68,9 @@ describe('default roles', () => {
     expect([...grants('cashier')].sort()).toEqual(
       // 04 B-1 (01b v1.9): + move-item-to-stock, void-item
       // 05 B-2 (01b v1.10): + the billing grants, see #90 below
+      // 01b v1.8.1 Q-23 (H10): + mark-served
       [
-        'apply-comp', 'apply-discount', 'clean-table', 'close-without-buyer-id', 'manage-own-shift', 'move-item-to-stock', 'open-cash-drawer',
+        'apply-comp', 'apply-discount', 'clean-table', 'close-without-buyer-id', 'manage-own-shift', 'mark-served', 'move-item-to-stock', 'open-cash-drawer',
         'record-petty-cash', 'remove-comp', 'remove-service-charge', 'reopen-bill', 'reprint-ticket', 'set-line-weight', 'take-order',
         'take-payment', 'view-customer-contact', 'void-item',
       ].sort(),
