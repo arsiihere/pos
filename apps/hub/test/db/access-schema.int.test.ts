@@ -52,10 +52,11 @@ describe('access schema', () => {
     expect(db.prepare("SELECT COUNT(*) FROM staff_sessions WHERE device_id = 'dev-1' AND ended_at IS NULL").pluck().get()).toBe(2);
   });
 
-  it('[00 §5.1] kds without a station and a phone without an owner are rejected', async () => {
+  // ⚠️ 05a §5.1 (00 H-5): 0027 drops the phone ⇔ owner CHECK; a phone without an owner now inserts.
+  it('[00 §5.1] [05a §5.1] kds without a station is rejected; a phone without an owner is accepted (0027)', async () => {
     const { db } = await open();
     expect(() => insertDevice(db, { device_id: 'kds-1', token_hash: 'tok-kds', device_type: 'kds' })).toThrow(/CHECK constraint failed/);
-    expect(() => insertDevice(db, { device_id: 'phone-1', token_hash: 'tok-phone', device_type: 'phone' })).toThrow(/CHECK constraint failed/);
+    insertDevice(db, { device_id: 'phone-1', token_hash: 'tok-phone', device_type: 'phone' });
     insertDevice(db, { device_id: 'kds-ok', token_hash: 'tok-kds-ok', device_type: 'kds', station_id: 'ST1' });
     insertDevice(db, { device_id: 'phone-ok', token_hash: 'tok-phone-ok', device_type: 'phone', owner_staff_id: 'S1' });
   });
