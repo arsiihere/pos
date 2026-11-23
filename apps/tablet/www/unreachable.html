@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Arif POS — hub unreachable</title>
+<link rel="stylesheet" href="common.css">
+</head>
+<body>
+<!-- 05b §8.4 hub-unreachable page (M-16): retry every 5 s; "Change hub address" after a 5-second press -->
+<main>
+  <section id="status">
+    <h1>Can't reach the hub</h1>
+    <div class="card">
+      <p class="big-status" id="where"></p>
+      <p id="reason" class="msg error"></p>
+      <p id="retry" class="msg info">Trying again every 5 seconds…</p>
+    </div>
+    <button id="change" class="wide secondary hold"><span class="fill"></span><span>Change hub address (press and hold 5 seconds)</span></button>
+  </section>
+
+  <section id="change-form" class="hidden">
+    <h1>Change hub address</h1>
+    <p class="lead">Type the address shown on the hub's setup page, with the port.</p>
+    <div id="form"></div>
+    <button id="cancel" class="wide secondary">Cancel</button>
+  </section>
+</main>
+
+<div id="confirm" class="overlay hidden">
+  <div class="card">
+    <p class="big-status">This tablet will need to be paired again</p>
+    <div class="row">
+      <button id="confirm-no" class="secondary">Cancel</button>
+      <button id="confirm-yes">Change address</button>
+    </div>
+  </div>
+</div>
+
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var P = window.PosPages;
+  var RETRY_MS = 5000;   // Spec.UNREACHABLE_RETRY_MS
+  var HOLD_MS = 5000;    // M-16 5-second press
+  var origin = P.query('origin') || '';
+  var reason = P.query('reason') || 'no_hub';
+  var timer = null;
+  var probing = false;
+  var paused = false;
+  var done = false;
+
+  document.getElementById('where').textContent = "Can't reach the hub at " + origin;
+  document.getElementById('reason').textContent = P.reasonText({ reason: reason });
+
+  function schedule() {
+    clearTimeout(timer);
+    if (!paused && !done) timer = setTimeout(tryOnce, RETRY_MS);
+  }
+
+  function tryOnce() {
+    if (probing || paused || done || !origin) return;
+    probing = true;
+    P.call('probeHub', { origin: origin }).then(function (r) {
+      if (paused || done) return;
+      if (r && r.ok) {
+        done = true;
+        P.setMsg(document.getElementById('retry'), 'Hub found — opening…', 'ok');
+        // Same origin: native stores it and recreates into the hub page.
+        return P.call('setHubOrigin', { origin: origin }).catch(function () { done = false; });
+      }
+      document.getElementById('reason').textContent = P.reasonText(r);
+    }).catch(function (e) {
+      document.getElementById('reason').textContent = (e && e.message) || P.reasonText(null);
+    }).then(function () {
+      probing = false;
+      schedule();
+    });
+  }
+
+  if (!P.has('probeHub')) {
+    P.setMsg(document.getElementById('retry'), 'This app version cannot retry. Update the app.', 'error');
+  } else {
+    schedule();
+  }
+
+  // ---- "Change hub address": only after a 5-second press and hold ----
+  var holdBtn = document.getElementById('change');
+  var fill = holdBtn.querySelector('.fill');
+  var holdTimer = null;
+  var holdStart = 0;
+  var raf = null;
+
+  function holdProgress() {
+    var p = Math.min(1, (Date.now() - holdStart) / HOLD_MS);
+    fill.style.width = (p * 100) + '%';
+    if (p < 1) raf = requestAnimationFrame(holdProgress);
+  }
+  function holdBegin(e) {
+    e.preventDefault();
+    if (holdTimer) return;
+    holdStart = Date.now();
+    holdProgress();
+    holdTimer = setTimeout(function () { holdEnd(); holdDone(); }, HOLD_MS);
+  }
+  function holdEnd() {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+    fill.style.width = '0';
+  }
+  holdBtn.addEventListener('pointerdown', holdBegin);
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (t) { holdBtn.addEventListener(t, holdEnd); });
+  holdBtn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+  function holdDone() {
+    paused = true;
+    clearTimeout(timer);
+    var health = P.has('health') ? P.call('health') : Promise.resolve({});
+    health.then(function (h) {
+      if (h && h.paired === true) show('confirm');
+      else openForm();
+    }).catch(function () { show('confirm'); });
+  }
+
+  function show(id) { document.getElementById(id).classList.remove('hidden'); }
+  function hide(id) { document.getElementById(id).classList.add('hidden'); }
+
+  document.getElementById('confirm-no').addEventListener('click', function () { hide('confirm'); resume(); });
+  document.getElementById('confirm-yes').addEventListener('click', function () { hide('confirm'); openForm(); });
+  document.getElementById('cancel').addEventListener('click', function () {
+    hide('change-form'); show('status'); resume();
+  });
+
+  var form = null;
+  function openForm() {
+    hide('status');
+    show('change-form');
+    if (!form) {
+      form = P.addressForm(document.getElementById('form'), function (newOrigin) {
+        done = true;
+        P.call('setHubOrigin', { origin: newOrigin }).catch(function () { done = false; });
+      });
+    }
+    form.setValue(origin.replace(/^http:\/\//, ''));
+    form.focus();
+  }
+
+  function resume() {
+    paused = false;
+    schedule();
+  }
+})();
+</script>
+</body>
+</html>

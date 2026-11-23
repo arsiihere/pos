@@ -1,1 +1,129 @@
-<!doctype html><html><body>placeholder</body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Arif POS — set up</title>
+<link rel="stylesheet" href="common.css">
+</head>
+<body>
+<!-- 05b §8.1 first-run page (M-16 address + probe, M-20 permission steps), §3.4 -->
+<main>
+  <section id="address">
+    <h1>Connect to the hub</h1>
+    <p class="lead">Type the address shown on the hub's setup page, with the port.</p>
+    <div id="form"></div>
+  </section>
+
+  <section id="perms" class="hidden">
+    <h1>Allow alerts</h1>
+    <p class="lead">This tablet must be allowed to ring and to stay connected. Tap each button, allow it, then come back.</p>
+    <div class="card" id="steps"></div>
+    <button id="continue" class="wide" disabled>Continue</button>
+    <div id="perms-msg" class="msg"></div>
+  </section>
+</main>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var P = window.PosPages;
+  var origin = null;
+  var lastHealth = null;
+
+  // M-20 steps for a non-device-owner unit. `hard`: Continue stays disabled until granted.
+  var STEPS = [
+    { key: 'battery_exempt', which: 'battery', hard: true, title: 'Battery: no restrictions',
+      hint: 'Lets alerts arrive when the screen is off.' },
+    { key: 'post_notifications', which: 'notifications', title: 'Notifications',
+      hint: 'Allow notifications so alerts can ring.' },
+    { key: 'fsi_allowed', which: 'fsi', title: 'Full-screen alerts',
+      hint: 'Lets urgent alerts light up the locked screen.' },
+    { key: 'can_install', which: 'install', title: 'Install app updates',
+      hint: 'Allow "Install unknown apps" so the app can update itself from the hub.' },
+  ];
+
+  var form = P.addressForm(document.getElementById('form'), function (o) {
+    origin = o;
+    afterProbe();
+  });
+  form.focus();
+
+  if (!P.has('probeHub')) {
+    P.setMsg(document.getElementById('form').querySelector('.msg'), 'This app version cannot connect. Update the app.', 'error');
+  }
+
+  function finish() {
+    var msg = document.getElementById('perms-msg');
+    P.call('setHubOrigin', { origin: origin }).catch(function (e) {
+      P.setMsg(msg, (e && e.message) || 'Could not save the address', 'error');
+    });
+    // Native stores the origin and recreates into the hub page.
+  }
+
+  function afterProbe() {
+    if (!P.has('health')) { finish(); return; }
+    P.call('health').then(function (h) {
+      lastHealth = h || {};
+      if (lastHealth.device_owner === true) { finish(); return; } // M-17: device owner needs no steps
+      document.getElementById('address').classList.add('hidden');
+      document.getElementById('perms').classList.remove('hidden');
+      renderSteps();
+    }).catch(function () { finish(); });
+  }
+
+  function granted(step) {
+    var v = lastHealth ? lastHealth[step.key] : undefined;
+    // Battery is a hard step: only an explicit true passes. Soft steps: a missing field = not applicable here.
+    return step.hard ? v === true : v !== false;
+  }
+
+  function renderSteps() {
+    var root = document.getElementById('steps');
+    root.innerHTML = '';
+    STEPS.forEach(function (s) {
+      var ok = granted(s);
+      var row = document.createElement('div');
+      row.className = 'step ' + (ok ? 'done' : 'todo');
+      row.innerHTML = '<div class="text"><div class="title"></div><div class="hint"></div></div>' +
+        '<div class="state"></div>';
+      row.querySelector('.title').textContent = s.title + (s.hard ? ' (required)' : '');
+      row.querySelector('.hint').textContent = s.hint;
+      row.querySelector('.state').textContent = ok ? 'Done' : 'Needed';
+      if (!ok) {
+        var b = document.createElement('button');
+        b.textContent = 'Open settings';
+        b.addEventListener('click', function () {
+          P.call('openSetting', { which: s.which }).catch(function (e) {
+            P.setMsg(document.getElementById('perms-msg'), (e && e.message) || 'Could not open settings', 'error');
+          });
+        });
+        row.appendChild(b);
+      }
+      root.appendChild(row);
+    });
+    var hardOk = STEPS.every(function (s) { return !s.hard || granted(s); });
+    var btn = document.getElementById('continue');
+    btn.disabled = !hardOk;
+    P.setMsg(document.getElementById('perms-msg'),
+      hardOk ? '' : 'Set the battery to "No restrictions" to continue.', hardOk ? '' : 'info');
+  }
+
+  function refresh() {
+    if (origin === null || document.getElementById('perms').classList.contains('hidden')) return;
+    if (!P.has('health')) return;
+    P.call('health').then(function (h) { lastHealth = h || {}; renderSteps(); }).catch(function () {});
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') refresh();
+  });
+  window.addEventListener('focus', refresh);
+
+  document.getElementById('continue').addEventListener('click', function () {
+    if (STEPS.every(function (s) { return !s.hard || granted(s); })) finish();
+  });
+})();
+</script>
+</body>
+</html>
