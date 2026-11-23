@@ -117,7 +117,7 @@ describe('08a audit, append-only routes and the cross-tenant sweep (§6.0, C7)',
     expect(rows[3]!.after).toMatchObject({ stock_item_id: fx.ids.beef, price_id: rows[3]!.entity_id, branch_id: null, kind: 'market_rate' });
     expect(rows[4]!.after).toMatchObject({ stock_item_id: fx.ids.beef, yield_bp: 7120 });
     for (const row of rows) expect(row.after, row.entity).not.toHaveProperty('recorded_by_name');
-    // §6.0: no other stock_item audit row is written by the three POSTs (the no-bump checks live in units / prices / yields tests)
+    // §6.0: no other stock_item audit row is written by the three POSTs (their bump checks, ⚠️ 08b P-1, live in units / prices / yields tests)
     const other = await cloud.pool.query(`SELECT entity FROM config_audit WHERE tenant_id = $1 AND entity = 'stock_item' AND action <> 'create'`, [
       fx.f.tenantId,
     ]);
@@ -135,10 +135,13 @@ describe('08a audit, append-only routes and the cross-tenant sweep (§6.0, C7)',
       const first = await post(c.path, c.id, c.payload, headers);
       expect(first.statusCode, first.body).toBe(201);
       const before = await written();
+      const versionsBefore = (await cloud.pool.query(`SELECT branch_id, config_version::text AS v FROM branches ORDER BY branch_id`)).rows;
       const replay = await post(c.path, c.id, c.payload, headers);
       expect(replay.statusCode, c.path).toBe(201);
       expect(replay.json(), c.path).toEqual(first.json());
       expect(await written(), `${c.path} replay`).toEqual(before);
+      // ⚠️ 08b P-1: the POSTs bump now; a replay bumps nothing
+      expect((await cloud.pool.query(`SELECT branch_id, config_version::text AS v FROM branches ORDER BY branch_id`)).rows, `${c.path} replay versions`).toEqual(versionsBefore);
     }
     expect(await audits()).toHaveLength(3);
 

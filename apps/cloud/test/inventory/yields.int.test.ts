@@ -7,7 +7,8 @@ import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 import { inventoryFixture, type InventoryFixture } from './fixtures';
 
 // 08a §6.7: POST /v1/admin/stock-items/:stock_item_id/yields — one form (yield_bp, or AP / EP in the item's stock
-// unit), ingredient only (422 wrong_kind), test_unit = the locked stock unit, 7 fixed statements, no bump (I11),
+// unit), ingredient only (422 wrong_kind), test_unit = the locked stock unit, 9 fixed statements (⚠️ 08b P-1: was 7),
+// bumps every branch (08b B16; was I11's no bump),
 // audit yield_profile / create.
 describe('08a yield profiles POST (§6.7)', () => {
   let cloud: TestCloud;
@@ -79,7 +80,7 @@ describe('08a yield profiles POST (§6.7)', () => {
     expect(await yieldRows(fx)).toBe(0);
   });
 
-  it('[08a #35] AP / EP stored with test_unit = the stock unit; 7 statements; audit yield_profile / create; no bump; replay', async () => {
+  it('[08a #35 ⚠️ 08b P-1] AP / EP stored with test_unit = the stock unit; 9 statements; audit yield_profile / create; bumps every branch; replay', async () => {
     const fx = await inventoryFixture(cloud);
     const versions = async () =>
       (await cloud.pool.query(`SELECT branch_id, config_version FROM branches WHERE tenant_id = $1 ORDER BY branch_id`, [fx.f.tenantId])).rows;
@@ -95,7 +96,7 @@ describe('08a yield profiles POST (§6.7)', () => {
     const headers = owner(fx.f).headers;
     counter.reset();
     const response = await post(fx, fx.ids.beef, { test_ap_qty: 10_000, test_ep_qty: 7120, note: ' drill 1 ' }, headers);
-    expect(counter.count).toBe(7);
+    expect(counter.count).toBe(9); // ⚠️ 08b P-1: + 2 bump statements
     expect(response.statusCode, response.body).toBe(201);
     const y = response.json().data.yield as YieldProfileWire;
     expect(y).toEqual({
@@ -118,7 +119,7 @@ describe('08a yield profiles POST (§6.7)', () => {
       [fx.f.tenantId],
     );
     expect(audit.rows).toEqual([{ entity: 'yield_profile', entity_id: y.yield_profile_id, action: 'create', branch_id: null, actor_owner_user_id: fx.f.userId }]);
-    expect(await versions()).toEqual(before);
+    expect(await versions()).toEqual(before.map((row: { branch_id: string; config_version: string }) => ({ ...row, config_version: String(Number(row.config_version) + 1) }))); // ⚠️ 08b P-1 (B16): every branch
 
     const replay = await post(fx, fx.ids.beef, { test_ap_qty: 10_000, test_ep_qty: 7120, note: ' drill 1 ' }, headers);
     expect(replay.statusCode).toBe(201);

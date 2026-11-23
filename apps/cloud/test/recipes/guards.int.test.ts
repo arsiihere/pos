@@ -246,20 +246,20 @@ describe('08b B17 recipe in-use guards (C-11, C-14, C-15, P-2; test 22)', () => 
     const recategorised = await patchStock(gravy, { cost_category: 'packaging' });
     expect(recategorised.statusCode, recategorised.body).toBe(200);
     expect(recipeReads()).toBe(0);
-    expect(counter.count).toBe(4); // tenant-wide, lock, update, audit (no bump, I11)
+    expect(counter.count).toBe(6); // tenant-wide, lock, update, audit, 2 bump (⚠️ 08b P-1, B16: cost_category is in inventory.items[])
 
     await archiveRecipe(own);
     const ok = await patchStock(gravy, { kind: 'ingredient' });
     expect(ok.statusCode, ok.body).toBe(200);
     expect(ok.json().data.stock_item.kind).toBe('ingredient');
     expect(recipeReads()).toBe(1);
-    expect(counter.count).toBe(7); // tenant-wide, lock, drawers, branch rows, recipes (+1, P-2), update, audit
+    expect(counter.count).toBe(9); // tenant-wide, lock, drawers, branch rows, recipes (+1, P-2), update, audit, 2 bump (⚠️ 08b P-1)
 
     // any kind change reads recipes (P-2 "+1 only when kind changes"), not only one away from prepared
     const packet = await patchStock(gravy, { kind: 'packet' });
     expect(packet.statusCode, packet.body).toBe(200);
     expect(recipeReads()).toBe(1);
-    expect(counter.count).toBe(5); // tenant-wide, lock, recipes (+1, P-2), update, audit
+    expect(counter.count).toBe(7); // tenant-wide, lock, recipes (+1, P-2), update, audit, 2 bump (⚠️ 08b P-1)
   });
 
   // ------------------------------------------------------------------------------------------------------ C-14
