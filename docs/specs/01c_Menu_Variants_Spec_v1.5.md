@@ -1,6 +1,6 @@
 # 01c — Menu: variants, modifiers, deals — Module Spec v1.5 (DRAFT (pending hostile review + owner))
 
-**v1.5 — DRAFT (pending hostile review + owner), 2026-11-24, with 01a v2.11 (DRAFT; `docs/specs/01_Restaurant_Setup_Spec_v2.11.md`, "Changes to other specs" rows C-1 – C-5) and 01b v1.12; 02b-TK Takeaway Part B (GAPS G-5 companions, G-18 short codes; `docs/plans/02b-tk-rulings.md`); markers "⚠️ Changed by 01a v2.11 (C-n)".** The item `POST` / `PATCH`, which 01c owns since v1.0, take two optional fields that 01a v2.11 defines: **`companions?: [{ item_id, quantity }]`** (0–4 suggested add-on items, a replace-list; table `menu_item_companions`, 01a §5.2c) and **`short_code?: string | null`** (keyboard code, unique among active items; new code `409 SHORT_CODE_IN_USE`, 01a §9). The rules, statements and edge rows are 01a §3.3, §6.14, §6.15; this file places them in 01c's script, rule precedence, no-op step, menu read, snapshot item shape and item form. No new route, table of 01c's, event or error code of 01c's. Tests are 01a's #207 – #213, #216 (one number per test, cited here). Not yet built. v1.4 kept as history (unchanged).
+**v1.5 — DRAFT (pending hostile review + owner), 2026-11-24, with 01a v2.11 (DRAFT; `docs/specs/01_Restaurant_Setup_Spec_v2.11.md`, "Changes to other specs" rows C-1 – C-5) and 01b v1.12; 02b-TK Takeaway Part B (GAPS G-5 companions, G-18 short codes; `docs/plans/02b-tk-rulings.md`); markers "⚠️ Changed by 01a v2.11 (C-n)".** The item `POST` / `PATCH`, which 01c owns since v1.0, take two optional fields that 01a v2.11 defines: **`companions?: [{ item_id, quantity }]`** (0–4 suggested add-on items, a replace-list; table `menu_item_companions`, 01a §5.2c) and **`short_code?: string | null`** (keyboard code, unique among active items; new code `409 SHORT_CODE_IN_USE`, 01a §9). The rules, statements and edge rows are 01a §3.3, §6.14, §6.15; this file places them in 01c's script, rule precedence, no-op step, menu read, snapshot item shape and item form. No new route, table of 01c's, event or error code of 01c's. Tests are 01a's #207 – #214, #216 (one number per test, cited here). **Depends on 01a v2.11 owner decisions OD-1 (code format), OD-2 (the new code), OD-3 (meaning of `quantity`), OD-4 (per-row lists), OD-5 (limits) and OD-7 (companion vs linked option), all open; v1.5 is approved only with them** (hostile run 1 M-3). Not yet built. v1.4 kept as history (unchanged).
 
 | Row | Change | Where |
 |---|---|---|
@@ -9,6 +9,25 @@
 | C-3 | §6.3 menu read returns `short_code` and `companions[]` with `status`; no statement added | §6.3 |
 | C-4 | §4.6 item shape gains optional `companions` and `short_code`; builder rule 7 (in-memory filter, as rule 2) | §4.6 |
 | C-5 | §8 item form: Short code and Suggest with this item (01a §8.1); the sheet / cart behaviour is 01a §4.4 To 02b | §8 |
+
+### Hostile run 1 fixes (docs/reviews/01c_v1.5_01b_v1.12_hostile_run1.md)
+
+| Finding | Resolution |
+|---|---|
+| **B-1** holder read matched the patched item | C-1 / C-2: the holder read excludes the written row (`item_id <> $item_id`) and matches the index expressions (01a §6.14 (b)); 01a test 213 adds the PATCH cases |
+| **M-1** write-answer shape | C-1 / C-2 / C-3: every item answer carries the menu-read shape (`packages/events/src/admin/restaurant.ts` `MenuItem`), the audit the stored shape; +0 statements; §5.4 names the right wire file |
+| **M-2** POST anchor | C-1: the companion read runs after the §3.3 item rows (`category_mismatch`, `unit_mismatch`, `weighed_item_stock_draw`, `too_many_groups`), last before the insert |
+| **M-3** open decisions | Header: depends on 01a OD-1 – OD-5, OD-7 |
+| m-1 | C-1: "+ 0 – 4", the retry counted |
+| m-2, m-4 | C-1: holder subqueries by index expression; details as 01a §6.14 (b) |
+| m-3 | C-2: the path-item check is in the handler, before the transaction |
+| m-5, m-6 | C-4: hub schema lines; optional keys cited to 01a S28 c (the README R29 Effect text "S28 c is not used by 01c" needs the coordinator's amendment when the package is listed) |
+| m-7 | Tests 01a #210, #214 cited by C-3 / C-4; §12.2 rows 6.3, 6.4, 6.5, 6.17, §12.1 DoD and §6.0 audit column updated |
+| m-8 | C-2 states groups (2) and (3) in full, as built |
+| m-9 | §6 lock order: the companion rows and the lock-free target read placed |
+| m-14 | C-2: old owner app shows the generic error for the new restore `409` |
+| m-15 | C-2: no test pins an absolute PATCH count; 01a #209 asserts the +1 |
+| m-16 | C-2 / §6.0: the §6.2 member-move audit rows carry `short_code`, not `companions` (named exception, 01a §6.0) |
 
 
 **v1.4 — APPROVED (owner 2026-11-24 00:23 PKT, with 08d v1.0; `docs/specs/08_Inventory_Costing_Spec_v1.2.md` Part D §4.5 row C-1; markers "⚠️ Changed by 08d v1.0 (C-1)").** `stock_items` gains `must_weigh_on_receipt` (only with `stock_unit = 'g'`) and `track_piece_count` (only with `stock_unit ∈ g, ml` and `kind <> 'packet'`), both in the version input and the owner form, delivered as optional `inventory.items[]` fields (they bump by 08b's B16 rule); the owner form shows `is_a_item` on `prepared` items labelled "Count daily". Cloud migration `0020_inventory_receiving.sql`. Not yet built (08d plan). v1.3 kept as history.
@@ -590,7 +609,7 @@ Builder rules:
 5. Deals and choices omitted per V11 e; choices ordered by `sort_order`, then `item_id` (m5); `variant_groups[]` only groups with a routed member.
 6. A link whose target (category, variant group, item) is archived is ignored (m15).
 
-> ⚠️ Changed by 01a v2.11 (C-4): each `items[]` entry also carries the **optional** keys `companions: [{ item_id, quantity }]` (in `sort_order`) and `short_code: string | null` (01a v2.11 §4.3; snapshot schema 4, R29, no version bump; the builder always sends them, the hub reads `[]` / `null` when absent). **Builder rule 7:** an item's stored companion list is read raw inside the items statement and filtered in memory like rule 2's linked-option backstop: an entry is kept only when its `item_id` is in this snapshot's `items` and that item has `sale_unit = 'piece'` and `requires_weighing = false`. A deal is never a companion. No statement added (01a §6.1).
+> ⚠️ Changed by 01a v2.11 (C-4; hostile run 1 m-5, m-6, m-7): each `items[]` entry also carries the **optional** keys `companions: [{ item_id, quantity }]` (in `sort_order`) and `short_code: string | null` (01a v2.11 §4.3; additive optional keys within snapshot schema 4 under **01a S28 c**, no version bump; the builder always sends them, the hub reads `[]` / `null` when absent). **Hub parser shapes (the compatibility promise):** `companions: z.array(z.object({ item_id: z.string(), quantity: int.min(1) })).optional()` with **no** upper bound on `quantity` and **no** length bound, and `short_code: z.string().nullable().optional()` with no format check: the 4 / 1–20 limits and the code format are the cloud's write rules, and a later widening must not make every hub reject the snapshot. **Builder rule 7:** an item's stored companion list is read raw inside the items statement and filtered in memory like rule 2's linked-option backstop: an entry is kept only when its `item_id` is in this snapshot's `items` and that item has `sale_unit = 'piece'` and `requires_weighing = false`. A deal is never a companion. No statement added (01a §6.1). Tests 01a #210, #214.
 
 *As built, v1.1 (AD-27, AD-28, AD-33 d):* how the builder reads and applies the rules above; the statement count stays fixed (§6.17).
 - **Linked option "routed here" (AD-27 a):** its item is in this snapshot's `items` (which are active and routed); a null linked price takes that item's effective branch price (S57). The rule 2 "not routed here" drop is part of the modifier-group reads.
@@ -817,6 +836,8 @@ Owner routes: JWT, tenant guard, 00's password guard (01a §6 v1.3 note). Tenant
 
 Checked per write (v0.5, P3: each script below states its locks in this order; every write ends with 10): §6.1 (6 → 10); §6.2 (3 → 4 members → 6 → 10: the members are locked before the category, v0.4); §6.4 (3 → 5 → 6 → 7 → 8 → 9 → 10; the new item row is unlocked until insert, the 01a route rows are inserted last); §6.5 (3 → 4 → 5 → 6 → 7 → 8 → 10, restart rule below; on restore the routes' stations and programs, 8); §6.7 (10 only: insert, no lock); §6.8 (5 → 10); §6.9 (5 → 8 on a set → 9 → 10); §6.11 (3 → 4 → 6 → 10; v0.4: variant groups before linked items); §6.12 (1 → 3 → 4 → 6 → 10); §6.12a (1 → 9 → 10); §6.14 (4 → 6 → 7 → 10); §6.15 (2 → 4 → 6 → 7 → 10); §6.16 (2 → 9 → 10); 01a category, tax class and station archives with the V16 in-use checks (one target lock → 10; in-use checks are plain reads). Merged-row rules that read other entities (R4, R6, R8, R10 of §6.5; R2 of §6.8) are plain reads after the target lock; they take no lock. Branch PUTs (§6.9, §6.12a, §6.16) lock their parent row `FOR UPDATE`, so two PUTs on a branch row that does not exist yet serialise (M4).
 
+> ⚠️ Changed by 01a v2.11 (C-1, C-2; hostile run 1 m-9): §6.4 / §6.5 also write the item's `menu_item_companions` rows (delete + insert; row locks on the item's own companion rows only) **after the item row (kind 4) and before the branch rows (9)**; companion targets are read **without a lock** (01a §5.2c, no FK on `companion_item_id`), so they take no place in this order.
+
 **§6.5 restart rule (v0.4, N2 decision; replaces AU-9).** §6.5 reads the item without a lock, locks the variant group(s) it saw (stored and merged non-null, in id order) `FOR SHARE`, then locks the item `FOR UPDATE`, which re-reads it. If the locked row's stored `variant_group_id` differs from the one read before the lock (null → non-null, non-null → null, or another group), the transaction **rolls back and restarts from the beginning**; at most 3 attempts, then `503 SERVICE_UNAVAILABLE`. The rule applies on the no-group path too (stored and merged null: no group lock, item lock, compare). An item lock is therefore never followed by a group lock.
 
 #### 6.0 Permission, audit and bump per route
@@ -825,8 +846,8 @@ Checked per write (v0.5, P3: each script below states its locks in this order; e
 |---|---|---|---|---|
 | 6.1 | `POST /v1/admin/variant-groups` | owner covering every branch | `variant_group` / `create` | every branch |
 | 6.2 | `PATCH /v1/admin/variant-groups/:id` | same | `variant_group` / `update`, `archive`, `restore`; + one `menu_item` / `update` per moved member (C5) | every branch |
-| 6.4 | `POST /v1/admin/menu-items` (changed) | same | as 01a | every branch |
-| 6.5 | `PATCH /v1/admin/menu-items/:id` (changed) | same | as 01a; `stock_draws` in `before` / `after` | every branch |
+| 6.4 | `POST /v1/admin/menu-items` (changed) | same | as 01a; ⚠️ Changed by 01a v2.11 (C-1): + `companions` (`[{ item_id, quantity }]`), `short_code` in `after` | every branch |
+| 6.5 | `PATCH /v1/admin/menu-items/:id` (changed) | same | as 01a; `stock_draws` in `before` / `after`; ⚠️ Changed by 01a v2.11 (C-2): + `companions`, `short_code` | every branch |
 | 6.7 | `POST /v1/admin/stock-items` | same | `stock_item` / `create` | every branch |
 | 6.8 | `PATCH /v1/admin/stock-items/:id` | same | `stock_item` / `update`, `archive`, `restore` | every branch |
 | 6.9 | `PUT /v1/admin/stock-items/:id/branches/:branch_id` | owner, branch allowed | `stock_item_branch` / `branch_set` or `branch_removed` | that branch |
@@ -893,7 +914,7 @@ Every route above and the reads (§6.3, §6.6, §6.10, §6.13) add a case to `ap
 
 Adds `variant_groups` (whole, archived included, like `categories`) and per item `variant_group_id`, `variant_name`, `stock_draws`; removes `group_label`, `stock_unit`, `stock_per_sale_unit`, `low_stock_threshold`, `carries_over`. `q` matches item `name` or its group's `name`. **Queries: 8 fixed** (01a's 6 + variant groups + the page items' draws `= ANY($ids)`). *As built, v1.1 (AD-8):* each variant group's `member_ids` lists every member, archived included, as §6.1.
 
-> ⚠️ Changed by 01a v2.11 (C-3): each item also returns `short_code` and `companions: [{ item_id, name, quantity, status: 'active' | 'archived' | 'not_piece' | 'not_routed' }]` in order (01a v2.11 §6.11), read inside the item page statement: still **8 fixed** statements.
+> ⚠️ Changed by 01a v2.11 (C-3; hostile run 1 M-1): each item also returns `short_code` and `companions: [{ item_id, name, quantity, status: 'active' | 'archived' | 'not_piece' | 'not_routed' }]` in order (01a v2.11 §6.11), read inside the item page statement: still **8 fixed** statements. The same shape is carried by **every item answer** (§6.4, §6.5, the no-op answer too): one wire type, `packages/events/src/admin/restaurant.ts` `MenuItem` (used by `MenuItemResponse` and `MenuResponse`), gains both fields (the §5.4 file `admin/menu-variants.ts` is not the one). Tests 01a #207, #210.
 
 #### 6.4 `POST /v1/admin/menu-items` (changed, 01a §6.14)
 
@@ -901,7 +922,13 @@ Adds `variant_groups` (whole, archived included, like `categories`) and per item
 
 Body adds `variant_group_id?` (default null), `variant_name?`, `stock_draws?: [{ stock_item_id, quantity_per_sale_unit }]` (0–1), `requires_weighing?` (default false, V18); the removed fields are dropped by the schema (01a schemas are not `.strict()`). Script adds, in the §6 lock order (v0.5, P3): the variant group `FOR SHARE` (3), then the stock item `FOR SHARE` (5), both before 01a's category, tax class and station references (6 → 7 → 8); the route rows are inserted last (9); check §3.3 rows (category match, variant name, draw unit rule, effective-set limit, weighed item rules); insert the draw row. Queries: 01a's fixed count + 2 reference reads + 1 draw insert + 1 links read (effective set); measured (v1.1): 12 for a plain item, 15 with a variant group and a draw. *As built, v1.1 (AD-21 a):* the `too_many_groups` field is `variant_group_id` when the write sets the variant group, else `category_id` (§3.3 lists both).
 
-> ⚠️ Changed by 01a v2.11 (C-1): the body also takes **`companions?`** (default `[]`) and **`short_code?`** (default `null`); rules 01a v2.11 §3.3 (schema `400`s at C4 step 1). Script, in this section's order: after the reference reads above (and 01a's A-13 goes_with check), one plain read of the companion targets (`= ANY($ids)`, **no lock**; 01a §5.2c, the A-13 `assertGoesWithTargets` precedent) when the list is not empty → `422 CONFIG_REFERENCE_INVALID { field: 'companions.N.item_id', reason: 'not_found' | 'archived' | 'not_piece' | 'requires_weighing' }`; the item insert runs inside `SAVEPOINT item_write` when `short_code` is not null, and a `23505` on `menu_items_active_name`, `menu_items_variant_name` or `menu_items_active_short_code` rolls back to it and runs one holder read, answering in the fixed order **name → variant name → code** (`409 CONFIG_NAME_TAKEN { entity: 'menu_item' }` / `{ entity: 'variant' }` / `409 SHORT_CODE_IN_USE { short_code, item_id, name }`; 01a §6.14); the companion rows are one multi-row insert after the item row (before the route rows, step 9). Queries: the measured 12 / 15 hold for a body without the two fields; + 0 – 3 with them (target read, savepoint + release, companion insert), + 2 on a conflict. Edge rows: 01a v2.11 §6.14 (companion shape / target, code format, code held by an archived or active item, name and code both taken, two concurrent `POST`s). Tests 01a #207, #208, #212, #213.
+> ⚠️ Changed by 01a v2.11 (C-1; hostile run 1 B-1, M-1, M-2, m-1, m-2, m-4): the body also takes **`companions?`** (default `[]`) and **`short_code?`** (default `null`); rules 01a v2.11 §3.3 (schema `400`s at C4 step 1). Script, in this section's order:
+> - **Companion check position:** after the reference reads above **and after the §3.3 item rows** (`category_mismatch`, `unit_mismatch`, `weighed_item_stock_draw`, `too_many_groups`), i.e. **last before the insert**, mirroring the PATCH (last rule of group (3)). The `POST` has no `goes_with` check. One plain read of the targets (`= ANY($ids)`, **no lock**; 01a §5.2c, the A-13 `assertGoesWithTargets` precedent), returning `name`, `archived_at`, `sale_unit`, `requires_weighing` and an `EXISTS` on `item_routes`, when the list is not empty → `422 CONFIG_REFERENCE_INVALID { field: 'companions.N.item_id', reason: 'not_found' | 'archived' | 'not_piece' | 'requires_weighing' }`. A body with a bad companion and a `category_mismatch` answers `422 category_mismatch`.
+> - **Write and conflicts:** the item insert runs inside `SAVEPOINT item_write` when `short_code` is not null. A `23505` on `menu_items_active_name`, `menu_items_variant_name` or `menu_items_active_short_code` rolls back to it and runs **one** holder read whose three subqueries match the index expressions — `lower(name) = lower($name)`; `variant_group_id = $group AND lower(variant_name) = lower($variant_name)` (members only); `short_code = $code` — each with `archived_at IS NULL` and **`item_id <> $item_id`** (the written row). The answer is the first holder in the fixed order **name → variant name → code**: `409 CONFIG_NAME_TAKEN { entity: 'menu_item', name }` (the written item name), `409 CONFIG_NAME_TAKEN { entity: 'variant', name }` (the written variant name), `409 SHORT_CODE_IN_USE { short_code, item_id, name }` (the holder). No holder found → one retry from a new savepoint, then `503 SERVICE_UNAVAILABLE` (01a §6.14 (b)).
+> - The companion rows are one multi-row insert after the item row (before the route rows, step 9).
+> - **Answer:** `companions` in the menu-read shape (§6.3), built from the target read (+0); the audit `after` carries `[{ item_id, quantity }]`.
+> - **Queries:** the measured 12 / 15 hold for a body without the two fields; **+ 0 – 4** with them (target read, savepoint, release, companion insert), + 2 on a conflict (rollback, holder read), + 3 on the one retry (savepoint, insert, release).
+> - Edge rows: 01a v2.11 §6.14. Tests 01a #207, #208, #212, #213.
 
 | Edge | Answer |
 |---|---|
@@ -928,13 +955,15 @@ Last write wins (S23, V13 divergence). Lock order (v0.3 M3; v0.4 N2, N3; §6 "Lo
 
 **Rule precedence (C4 step 6, v0.6 Q2).** When several merged-row rules fail, the response is the first in this order: (1) the `400` rules (01a's, and R7's `sale_unit ∈ g, ml` part); (2) the `409 CONFIG_IN_USE` rules in the order **R4, R10, R6** (modifier groups before deals, as R4 already reports); (3) the `422` rules in rule-number order (01a's first, then R1, R1a, R2, R3, R7's draw part, R8, R9); (4) R5 (the variant-name unique index) at the write. Step 4's reference checks on sent fields (C4) still come before all of step 6. **v1.0 (T4 decision, V13 divergence):** on `menu_items` the no-op step (5) runs before the reference checks (4), as 01a built it, and R1–R10 run after the no-op step in the order above.
 
-> ⚠️ Changed by 01a v2.11 (C-2): the PATCH also takes **`companions?`** and **`short_code?`** (01a v2.11 §3.3, §6.15).
-> - **Reads:** the item's stored companion list is read on **every** PATCH, beside the goes_with links, before the no-op step (it feeds the no-op, the answer and the audit `before`): **+1 statement always**, the no-op path included; + 0 – 5 conditional (new-target read, delete, insert, savepoint + release); + 2 on a conflict. Tests here that pin an item-PATCH statement count are re-baselined by +1 in the build.
+> ⚠️ Changed by 01a v2.11 (C-2; hostile run 1 B-1, M-1, m-3, m-8, m-14, m-15, m-16): the PATCH also takes **`companions?`** and **`short_code?`** (01a v2.11 §3.3, §6.15).
+> - **Reads:** the item's stored companion list is read on **every** PATCH, beside the goes_with links, before the no-op step, **joined to the targets** so it returns `name` and `status` (it feeds the no-op, the answer in the menu-read shape, §6.3, and the audit `before` in the stored shape): **+1 statement always**, the no-op path included; + 0 – 5 conditional (new-target read, delete, insert, savepoint, release); + 2 on a conflict; + 3 on the one retry. No test pins an absolute item-PATCH count today (the assertions are relative); 01a #209 asserts the +1.
 > - **No-op (step 5, T4):** also compares `companions` (in order; a reorder is a change) and the normalised `short_code`.
-> - **Precedence:** the companion and short-code `400`s are **C4 step 1** (the route schema, before any statement; an entry naming the path item included), not group (1). The companion `422` is the **last rule of group (3)**, after `422 A-13 goes_with targets`, and checks only **new** entries (an `item_id` not in the stored list), whatever the merged row's state. Group (4) at the write is, in this fixed order, 01a's active-name index, R5's variant-name index, then `menu_items_active_short_code`; the write runs inside a savepoint when the merged row is active with a non-null code that changes or is restored, and after a `23505` the holder read answers by that order, whichever index Postgres reported (01a §6.15).
+> - **Precedence, in full as built (`ITEM_PATCH_RULES`, `apps/cloud/src/modules/restaurant/service.ts`):** **C4 step 1** — the route schema's `400`s (companion shape, length, duplicates, quantity; the code format), and, **in the handler before the transaction** (a Fastify body schema does not see `params`; no statement), an entry naming the path item, with the same `400` shape (`companions.N.item_id`). Then, after the no-op step: **group (1)** the `400` merged-row rules (01a's, R7's `sale_unit` part); **group (2)** the `409 CONFIG_IN_USE` rules **R4, R10, R6, AD-6** (zones, 01a §6.15 as built), **08b C-14** (recipe); **group (3)** the `422` rules: 01a's stock-time rule, 01a's references, 01a's routes on restore, **R1, R1a, R2, R3, R7** (draw part), **R8, R9, R9b, A-13** (goes_with targets), then the **companion targets** (new entries only, an `item_id` not in the stored list, whatever the merged row's state); **group (4)** at the write, in this fixed order: 01a's active-name index, R5's variant-name index, `menu_items_active_short_code`. The write runs inside a savepoint when the merged row is active with a non-null code that changes or is restored; after a `23505` the holder read (C-1) **excludes the path item** (`item_id <> $item_id`: its own row is still active after the rollback) and answers by that order, whichever index Postgres reported — so an active item that only changes its code answers `SHORT_CODE_IN_USE`, never a name or variant-name clash with itself (01a §6.15, test 213).
 > - **Restore:** the stored code is re-checked (by the index, above); the stored companions are **not** re-checked. **Named divergence from Q1** (linked items re-checked on restore, `422 … 'archived'`): a dead companion is harmless because the builder drops it (§4.6 rule 7) and the menu read flags it; re-checking would make any edit of a list holding one dead entry fail (01a v2.11 hostile run 1 M-4). The lock-free target read diverges from this spec's `FOR SHARE` reference pattern for the deadlock reason of 01a §5.2c.
 > - **In-use checks:** archiving an item, or changing its `sale_unit` / `requires_weighing`, needs no companion check (R4, R6, R10 unchanged).
-> - Edge rows (dead entry kept, new archived target refused, `companions` with `archived: true`, restore refused for the code): 01a v2.11 §6.15 and tests 01a #209, #211, #213.
+> - **§6.2 member move:** its per-member `menu_item` / `update` audit rows come from `to_jsonb(m)` and carry `short_code` but not `companions`; the move never changes companions (named exception, 01a §6.0; no read added).
+> - **Old clients:** the cloud and the owner app ship together; a cached older owner app shows the generic error text for the new restore `409 SHORT_CODE_IN_USE`.
+> - Edge rows (dead entry kept, new archived target refused, `companions` with `archived: true`, restore refused for the code, active-item code clash): 01a v2.11 §6.15 and tests 01a #209, #211, #213.
 
 | Edge | Answer |
 |---|---|
@@ -1540,6 +1569,7 @@ Coverage: 15 of 15 rows have at least one test (100 %).
 
 - Every numbered test 1–129 (71 and 72 retired) passes, cites `[01c #N]`, and every re-keyed 01a/01b test passes. *v1.1 (AD-35):* tests 115 and 124 are deferred with the owner-app views (plan tasks 34–37) to the UI module ("Pulse" design pass, branch `ui-pulse`, requirements `docs/plans/01c-ui-contract.md`), so 01c is done with the other 125; the UI module's Definition of Done carries them. 99 and 116 are two named halves each (AD-37, §10).
 - `pnpm -w typecheck`, `lint`, `test` green; route-inventory and cross-tenant sweeps include every new route (C7).
+- ⚠️ Changed by 01a v2.11 (C-1 – C-5): 01a v2.11 tests #207 – #214 and #216 pass; 01a owner decisions OD-1 – OD-5 and OD-7 are answered.
 - Snapshot 2 built for the seed tenant parses on the hub; a hub on schema 1 refuses it visibly.
 - The stock page shows the Karahi pot once with Half and Full under it; counts and adds work end to end.
 - *v1.1 (sync bound):* `GET /v1/sync/config` `200` with the directory is exactly at its bound, 26 statements (≤ 26, AD-16, §4.5 A19; measured AD-33 e). Any later builder or directory statement must raise the bound in a spec, not in a test.
@@ -1551,9 +1581,9 @@ Coverage: 15 of 15 rows have at least one test (100 %).
 |---|---|---|---|---|---|---|
 | 6.1 | `POST /v1/admin/variant-groups` | owner, every branch | — | key | yes | 15, 16 |
 | 6.2 | `PATCH /v1/admin/variant-groups/:id` | same | yes | — | yes (+C5) | 17–20, 98, 101, 121 |
-| 6.3 | `GET /v1/admin/menu` | owner | — | — | — | 26 |
-| 6.4 | `POST /v1/admin/menu-items` | owner, every branch | — | key | yes | 21–23, 84, 85 |
-| 6.5 | `PATCH /v1/admin/menu-items/:id` | same | no (S23) | — | yes | 24, 25, 83–86, 98, 101, 111, 120, 123, 125, 128 |
+| 6.3 | `GET /v1/admin/menu` | owner | — | — | — | 26; 01a #207, #210 (⚠️ 01a v2.11 C-3) |
+| 6.4 | `POST /v1/admin/menu-items` | owner, every branch | — | key | yes | 21–23, 84, 85; 01a #207, #208, #212, #213 (⚠️ 01a v2.11 C-1) |
+| 6.5 | `PATCH /v1/admin/menu-items/:id` | same | no (S23) | — | yes | 24, 25, 83–86, 98, 101, 111, 120, 123, 125, 128; 01a #208, #209, #211–#213 (⚠️ 01a v2.11 C-2) |
 | 6.6 | `GET /v1/admin/stock-items` | owner | — | — | — | 35 |
 | 6.7 | `POST /v1/admin/stock-items` | owner, every branch | — | key | yes | 28, 124 (deferred, AD-35) |
 | 6.8 | `PATCH /v1/admin/stock-items/:id` | same | yes | — | yes | 29, 30 |
@@ -1566,7 +1596,7 @@ Coverage: 15 of 15 rows have at least one test (100 %).
 | 6.14 | `POST /v1/admin/deals` | owner, every branch | — | key | yes | 49–51, 86 |
 | 6.15 | `PATCH /v1/admin/deals/:id` | same | yes | — | yes | 52, 53, 86, 105, 129 |
 | 6.16 | `PUT /v1/admin/deals/:id/branches/:b` | owner, branch | yes | PUT | yes | 54–56, 99 |
-| 6.17 | `GET /v1/sync/config`, `/queries/branch-config` | branch key / device | — | — | — | 57–62, 81, 92, 93, 100, 107, 109, 127 |
+| 6.17 | `GET /v1/sync/config`, `/queries/branch-config` | branch key / device | — | — | — | 57–62, 81, 92, 93, 100, 107, 109, 127; 01a #210, #214 (⚠️ 01a v2.11 C-4) |
 | 6.18 | `SetPrecookedStock` | `manage-stock` | — | `command_id` | event | 63–65 |
 | 6.19 | `AddPrecookedStock` | `manage-stock` | — | `command_id` | event | 79 |
 | 6.20 | `OpenBusinessDay` | `manage-stock` (branch) | — | `command_id` | event | 68, 114 |
