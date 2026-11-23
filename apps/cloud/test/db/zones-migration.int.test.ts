@@ -81,7 +81,7 @@ describe('[01a §5.2] cloud migration 0009_zones.sql', () => {
     // 0009 bumps nothing; the whole folder runs, and 0012 (03b A-1, AD-9 owner 2026-11-11) bumps once → 2.
     // ⚠️ 01a v2.7.3 PT-1 (STAB-5): 0016_part_times.sql bumps once more, as 0012 → 3.
     // ⚠️ 01a v2.7.5 MD-3 (STAB-7): 0017_max_delay.sql bumps every branch once more → 4.
-    expect((await q(`SELECT DISTINCT config_version::int AS v FROM branches`)).rows).toEqual([{ v: 4 }]);
+    expect((await q(`SELECT DISTINCT config_version::int AS v FROM branches`)).rows).toEqual([{ v: 5 }]); // ⚠️ 08b v1.0 A-6: 0019_recipes.sql bumps every branch once more
   });
 
   it('[01a A-1] zones: name 1–40 characters, a same-branch floor, unique active name per floor (case-insensitive)', async () => {
