@@ -3,7 +3,7 @@ import type { BranchConfig, ConfigItem } from '@pos/events';
 import type { HubClock } from '../../../../app/hub-clock';
 import type { ShellConfig } from '../../shell/config';
 import type { LiveBus, LiveMessage } from '../../shell/live';
-import type { StockMirror } from '../contracts';
+import type { OrderType, StockMirror } from '../contracts';
 
 import type { HubResult } from '../../../../api/hub-admin';
 // 02b §8 Ordering screen, §10 #36 (handoff 02b-C01 / 02-B06, CHANGES §2 Q1, Q9): what a menu tile, a linked option
@@ -16,7 +16,14 @@ import type { HubResult } from '../../../../api/hub-admin';
 //   not_counted  a sold_out item whose stock has no valid count today (S41, Q1)    → "Not counted today"
 //   sold_out     a sold_out item with 0 sale units left (O15)                      → "Sold out"
 //   left         a sold_out item at `low` (Q1: "N left" only at low)              → "{n} left"
-//   slow         station wait + cook time past slow_item_threshold_ms (Q9)         → "{n} min"
+//   now          a ready item, or a stock item with stock_time_ms 0 and stock     → "Now"
+//   about        station wait + prep + cook (+ takeaway padding), an estimate     → "about {n} min" (amber when long)
+// ⚠️ 02b-tk C3-3 (03a v1.2.10 §4.3 To 02 #9, §6.5; rulings "Audit corrections"): every orderable tile shows the
+// estimate, not only past slow_item_threshold_ms (was the `slow` chip, Q9); past the threshold, or at 20 min (frame
+// TileStates), it is amber (`long`). The station is the order type's home (an alternate listing the order type in
+// home_for_order_types, as the engine routes, 03a §3.5.5 D9); a stock-served item uses its reheat time
+// (stock_time_ms); zone stock never serves takeaway, so a zone count is never read here (build-submit `zoneOf`).
+// The cart's eta-preview stays the promise.
 // `cap` is the stepper's maximum (O15 "Only 2 left"): the sale units left for a sold_out stock-tracked item, else
 // null (a cook_fresh item cooks fresh when the stock runs out, 01a S32). Sold out flips on the stock frame itself
 // (the mirror notifies, E2-SOLD AC3); the windows are re-checked once a minute on the hub clock.
@@ -29,7 +36,8 @@ export type TileState =
   | { kind: 'not_counted' }
   | { kind: 'sold_out' }
   | { kind: 'left'; n: number }
-  | { kind: 'slow'; minutes: number };
+  | { kind: 'now' }
+  | { kind: 'about'; minutes: number; long: boolean };
 
 export interface ItemAvailability {
   state: TileState;
@@ -52,9 +60,43 @@ export interface AvailabilityInputs {
   slowThresholdMs: number | null;
   /** the station's wait_ms from stations_live; null when not known */
   stationWaitMs: (station_id: string) => number | null;
+  /** the order being built (02b-tk C3-3: home station and padding); absent = dine_in */
+  orderType?: OrderType;
 }
 
 const MINUTE_MS = 60_000;
+/** frame TileStates: "Long wait ≥ 20 min = amber" */
+const LONG_WAIT_MS = 20 * MINUTE_MS;
+
+/** 03a §3.5.5 (D9): the alternate home for the order type, else the item's own station (`routeFromConfig`). */
+function homeStationId(config: BranchConfig, station_id: string, order_type: OrderType): string {
+  const routed = config.stations.find((s) => s.station_id === station_id);
+  const home = routed?.alternates.find((a) => a.order_types.includes(order_type) && a.home_for_order_types.includes(order_type));
+  return home?.station_id ?? station_id;
+}
+
+/** 03a §3.5.1 step 5 (`paddingOf`): takeaway only (C3-3); 0 off a waada_guard station; the station's own wins. */
+function takeawayPadding(config: BranchConfig, station_id: string): number {
+  const station = config.stations.find((s) => s.station_id === station_id);
+  if (station !== undefined && station.policy !== 'waada_guard') return 0;
+  return station?.promise_padding_ms ?? config.engine_settings.promise_padding_takeaway_ms;
+}
+
+/** 02b-tk C3-3: "Now", "about N min", or null (no station wait known yet). `left` = the stock mirror's units. */
+function waitEstimate(item: ConfigItem, left: number | null, inp: AvailabilityInputs): TileState | null {
+  if (item.is_ready_item) return { kind: 'now' };
+  const fromStock = item.stock_time_ms !== null && left !== null && left >= 1;
+  if (fromStock && item.stock_time_ms === 0) return { kind: 'now' };
+  const order_type = inp.orderType ?? 'dine_in';
+  const station_id = homeStationId(inp.config, item.station_id, order_type);
+  const wait = inp.stationWaitMs(station_id);
+  if (wait === null) return null;
+  const cook = fromStock ? item.stock_time_ms! : item.cook_time_ms;
+  const padding = order_type === 'takeaway' ? takeawayPadding(inp.config, station_id) : 0;
+  const total = wait + item.prep_buffer_ms + cook + padding;
+  const long = total >= LONG_WAIT_MS || (inp.slowThresholdMs !== null && total > inp.slowThresholdMs);
+  return { kind: 'about', minutes: Math.max(1, Math.ceil(total / MINUTE_MS)), long };
+}
 
 function itemOf(inp: AvailabilityInputs, item_id: string): ConfigItem | undefined {
   return inp.config.items.find((i) => i.item_id === item_id);
@@ -112,14 +154,8 @@ export function itemAvailability(item_id: string, inp: AvailabilityInputs): Item
     if (level === 'low') return { state: { kind: 'left', n: left }, orderable: true, cap };
   }
 
-  // Q9: station wait + cook time; the stock cook time when the stock can serve one now (01c V12).
-  const wait = inp.stationWaitMs(item.station_id);
-  if (inp.slowThresholdMs !== null && wait !== null) {
-    const cook = left !== null && left >= 1 && item.stock_time_ms !== null ? item.stock_time_ms : item.cook_time_ms;
-    const total = wait + cook;
-    if (total > inp.slowThresholdMs) return { state: { kind: 'slow', minutes: Math.ceil(total / MINUTE_MS) }, orderable: true, cap };
-  }
-  return { state: { kind: 'ok' }, orderable: true, cap };
+  // C3-3 (Q9 widened): the stock cook time when the stock can serve one now (01c V12).
+  return { state: waitEstimate(item, left, inp) ?? { kind: 'ok' }, orderable: true, cap };
 }
 
 /** handoff 02-D04: a linked option is off, with its reason, when its item is not orderable now; a plain option is on. */
@@ -164,6 +200,8 @@ export interface AvailabilityOptions {
    * `stations_live` only (the v1.0.18 behaviour, kept for callers that have no API)
    */
   fetchStationsLive?: () => Promise<HubResult<{ stations: unknown }>>;
+  /** 02b-tk C3-3: the order being built; absent = dine_in */
+  orderType?: OrderType;
 }
 
 /** 03a v1.2.7 §4.3 To 02 #9: the events that change a station's load (staff sockets get them, 02b §6.19, 03a §6.4). */
@@ -271,6 +309,7 @@ export function createAvailability(o: AvailabilityOptions): Availability {
       utcOffsetMs: clock.utcOffsetMs,
       slowThresholdMs: o.config.config()?.slow_item_threshold_ms ?? null,
       stationWaitMs: (id) => stationWaits.get(id) ?? null,
+      orderType: o.orderType ?? 'dine_in',
     };
   };
   return {

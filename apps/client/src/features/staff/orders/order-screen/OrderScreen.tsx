@@ -157,8 +157,10 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         clock: () => shellRef.current.clock,
         // 02b v1.0.19 §8 (STAB-4): the tiles' station wait follows the kitchen, not only the catch-up
         fetchStationsLive: () => shellRef.current.orders.stationsLive?.() ?? Promise.resolve({ ok: false, error: { kind: 'network' } } as const),
+        // 02b-tk C3-3: the tile estimate reads this order type's home station and padding
+        orderType: order_type,
       }),
-    [shell.live, shell.config, mirror],
+    [shell.live, shell.config, mirror, order_type],
   );
   useEffect(() => () => {
     availability.dispose();
