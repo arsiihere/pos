@@ -108,10 +108,18 @@ class AlertsReceiver : BroadcastReceiver() {
             IpcReply.reply(ctx, reqId, JSONObject().put("ok", false).put("error", err))
             return
         }
+        // 05b O-20: the token the hub confirmed revoked is refused and nothing changes; the page wipes its keys.
+        val memory = AlertsStore.revokeMemory(ctx)
+        if (memory.refuses(token)) {
+            AlertLog.ev("set_device_token_refused", mapOf("why" to RevokeMemory.TOKEN_REVOKED_CODE))
+            IpcReply.reply(ctx, reqId, JSONObject().put("ok", false).put("error", RevokeMemory.TOKEN_REVOKED_CODE))
+            return
+        }
         if (!AlertsStore.setCredentials(ctx, token, deviceId, origin)) {
             IpcReply.reply(ctx, reqId, JSONObject().put("ok", false).put("error", "STORE_UNWRITABLE"))
             return
         }
+        memory.clear() // O-20: any other accepted token ends the record
         AlertsStore.setWantRunning(ctx, true)
         AlertService.start(ctx, "set_device_token")
         IpcReply.reply(ctx, reqId, JSONObject().put("ok", true))
@@ -122,9 +130,10 @@ class AlertsReceiver : BroadcastReceiver() {
         val origin = AlertsStore.hubOrigin(ctx)
         val token = AlertsStore.token(ctx)
         if (origin.isNullOrEmpty() || token.isNullOrEmpty()) {
-            // Native holds no token (never paired here, or M-22 store loss): nothing to check; the page keeps
-            // its keys and offers them through setDeviceToken (N-9).
-            IpcReply.reply(ctx, reqId, JSONObject().put("revoked", false).put("reason", "NO_NATIVE_TOKEN"))
+            // Native holds no token. After a confirmed revoke (O-20) the remembered one answers revoked: true with
+            // its reason (no HTTP call), so the page wipes. Otherwise (never paired here, or M-22 store loss):
+            // NO_NATIVE_TOKEN; the page keeps its keys and offers them through setDeviceToken (N-9).
+            IpcReply.reply(ctx, reqId, AlertsStore.revokeMemory(ctx).answerWithoutToken())
             return
         }
         val result = TokenCheck(BuildConfig.VERSION_NAME).check(origin, token)

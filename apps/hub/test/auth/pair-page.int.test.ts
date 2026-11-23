@@ -189,6 +189,54 @@ describe('pair page in the tablet app (05b H-2, N-9; gate test 8)', () => {
     expect(textOf(page.screen)).toContain('Approve this tablet as a Tablet');
     expect(page.assigned).toEqual([]);
   });
+  it('[05b O-20] a TOKEN_REVOKED refusal on approval is handled like NOT_TABLET: wipes the three keys, shows its message, starts a new request', async () => {
+    const bridge = fakeBridge({ code: 'TOKEN_REVOKED', message: 'This tablet was removed. Pair it again.' });
+    const posts: string[] = [];
+    let polls = 0;
+    const page = await runPage(pairPage(), {
+      userAgent: ANDROID_TABLET,
+      window: bridge.window,
+      fetch: (url) => {
+        if (url === '/pair/requests') {
+          posts.push(url);
+          return Promise.resolve(requestReply());
+        }
+        polls += 1;
+        return Promise.resolve(polls === 1 ? approvedReply('tablet') : jsonResponse(200, { data: { status: 'pending' } }));
+      },
+    });
+    for (let i = 0; i < 40 && posts.length < 2; i += 1) await page.advance();
+    expect(bridge.calls).toEqual([{ token: 'tok-1', device_id: 'T1', device_type: 'tablet' }]);
+    expect(page.store.has('token')).toBe(false);
+    expect(page.store.has('device_id')).toBe(false);
+    expect(page.store.has('device_type')).toBe(false);
+    expect(posts.length).toBe(2);
+    await page.settle();
+    expect(textOf(page.screen)).toContain('This tablet was removed. Pair it again.');
+    expect(textOf(page.screen)).toContain('ABCDEF');
+    expect(page.assigned).toEqual([]);
+  });
+
+  it('[05b O-20] resumePaired: a TOKEN_REVOKED refusal of the stored keys wipes them and starts a new request with the message', async () => {
+    const bridge = fakeBridge({ code: 'TOKEN_REVOKED', message: 'This tablet was removed. Pair it again.' });
+    const posts: string[] = [];
+    const page = await runPage(pairPage(), {
+      userAgent: ANDROID_TABLET,
+      window: bridge.window,
+      store: { token: 'revoked', device_id: 'T9', device_type: 'tablet' },
+      fetch: (url) => {
+        posts.push(url);
+        return Promise.resolve(url === '/pair/requests' ? requestReply() : jsonResponse(200, { data: { status: 'pending' } }));
+      },
+    });
+    for (let i = 0; i < 10 && !textOf(page.screen).includes('ABCDEF'); i += 1) await page.advance();
+    expect(bridge.calls).toEqual([{ token: 'revoked', device_id: 'T9', device_type: 'tablet' }]);
+    expect([...page.store.keys()]).toEqual([]);
+    expect(posts[0]).toBe('/pair/requests');
+    expect(textOf(page.screen)).toContain('This tablet was removed. Pair it again.');
+    expect(page.assigned).toEqual([]);
+  });
+
   it('[05b O-13] any other bridge rejection (NOT_ALLOWED_HERE) keeps the keys and opens /staff/ — on approval and on resumePaired', async () => {
     const approve = fakeBridge({ code: 'NOT_ALLOWED_HERE', message: 'guard' });
     const posts: string[] = [];
