@@ -110,6 +110,8 @@ class AlertService : Service() {
             return START_NOT_STICKY
         }
         AlertsStore.setWantRunning(this, true)
+        // 05b A13: (re)arm the watchdog on every start (M-6).
+        Watchdog.schedule(this)
         worker.post {
             if (stopped) return@post
             ensureIntake()
@@ -130,7 +132,8 @@ class AlertService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         AlertLog.ev("task_removed")
-        // A13 arms the 2 s watchdog here (M-6).
+        // 05b A13: arm the watchdog in 2 s so a swipe-away that kills the process is recovered (M-6).
+        if (AlertsStore.wantRunning(this)) Watchdog.schedule(this, Spec.TASK_REMOVED_WATCHDOG_MS)
         super.onTaskRemoved(rootIntent)
     }
 
