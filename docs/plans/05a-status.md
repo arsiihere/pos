@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > - **Q-3** The G1-9d shortcut (01d §3.5:637) applies to kinds whose `right.mode` is `'approval'`. A downgraded raise stores `named` or `holders` on an approval kind. **(a, Rec)** Key on the **stored** right: a downgraded request gets no shortcut, like other `named` / `holders` requests today; it still escalates by its steps. (b) Key on the kind's right: the shortcut also runs for a downgraded `holders` request.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~06:45 PKT: **Batch B2 done** (tasks 5–8; Opus review APPROVE, 5 MINORs: M1, M4 and M5 go into B3, M2 and M3 are notes below). Stab `3fa96f0d` merged: the stab session fixed its lint line and the Pass `load_id` test. Gate before B3 running.
 > - 2026-11-23 ~06:05 PKT: The gate before B2 found three gaps from B1, now fixed: the client audit label for `device_profile_set`, the pinned action count 66 → 67, the audit projection's pinned event list, and a lint error in B1's fixtures test. Also one stab lint error (`max-delay-copy.test.ts:19`, stab `9521e49f`), fixed with one line. **Known red from the stab branch, outside 05a:** `apps/hub/test/kds/point-catch-up.int.test.ts` "[03b #65] point_view ≤ 4 statements…" expects `load_id: null` on Pass lines. It **also fails at the stab tip itself** (`d7e90732`, run detached in `~/pos-05a`), from stab commit `dff98415`. Not touched here; the stab session owns it. Everything else is green. **B2 starts.**
 > - 2026-11-23 ~05:45 PKT: **Batch B1 done** (tasks 1–4; review APPROVE). Stab `85690d41` merged (no spec change, no hub migration). Gate before B2 running.
 > - 2026-11-23 ~05:20 PKT: Gate before B1 green (see "Stab merges"; two shared-DB clashes, no code cause). **Batch B1 started** (tasks 1, 2, 4, 3).
@@ -57,10 +58,10 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 2 | B1 | error codes | NORMAL | `63bbc278` | **done** (review APPROVE) |
 | 3 | B1 | audit action | NORMAL | `652d2e01` | **done** (review APPROVE) |
 | 4 | B1 | events | NORMAL | `1d23c70c` | **done** (review APPROVE) |
-| 5 | B2 | migration 0027 | HIGH | | |
-| 6 | B2 | profile projections | HIGH | | |
-| 7 | B2 | `deviceProfile` map + M-8 count | HIGH | | |
-| 8 | B2 | profile test fixture | NORMAL | | |
+| 5 | B2 | migration 0027 | HIGH | `d4b2e47c` | **done** (review APPROVE) |
+| 6 | B2 | profile projections | HIGH | `8259743d` | **done** (review APPROVE) |
+| 7 | B2 | `deviceProfile` map + M-8 count | HIGH | `7f1190f8` | **done** (review APPROVE) |
+| 8 | B2 | profile test fixture | NORMAL | `d1ebd94d` | **done** (review APPROVE) |
 | 9 | B3 | `forSession` view | HIGH | | |
 | 10 | B3 | pipeline / query / PIN call sites | HIGH | | |
 | 11 | B3 | admin guard + print route | HIGH | | |
@@ -110,6 +111,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 
 | # | Task | Correction |
 |---|---|---|
+| PC-2 | 7 | Task 7 also wires 3 lines in `apps/hub/src/server.ts` (`buildHubServer`: load the map + the post-commit refresh), where the 03b device-roles map is wired. B2 review M2: until task 27 (K-1), a `DeviceRoleSet` still writes `devices.point_id` and does not refresh `deviceProfile`, so its `point_id` can be stale; task 27 removes that writer and must re-check `test/auth/device-profile.int.test.ts:84`. M3: the map is per process, like device-roles; a test that builds a hub without `buildHubServer` calls `loadDeviceProfiles(db)` itself |
 | PC-1 | 2 | The plan named a `PermissionDeniedReason` type; none exists. `DomainError` details are `Record<string, unknown>`, so the three reasons are plain strings in `details.reason`, as other reasons are today. No type added |
 
 ## Owner rulings during the build
@@ -134,5 +136,6 @@ Scan for P0.1: every local and remote branch and both open PRs (#121, #126) were
 | When | Stab sha | Spec change in 00 / 01d / 03b / 04? | Gate after |
 |---|---|---|---|
 | cut | `44112286` | — (baseline: 00 v1.12.2, 01d v1.3.4, 03b v1.0.14, 04 v1.0.7) | — |
+| before B3 | `3fa96f0d` | none | running |
 | before B2 | `85690d41` | none | **green except 1 stab-red test** (`point-catch-up` #65, red at the stab tip too); 3 B1 gaps fixed (`fix(05a)`, `test(04)` commits); 1 stab lint line fixed |
 | before B1 | `943e1cb6` (merge `ad0864ad`), then `6be21317` (cloud `0017`) | none | **green**: typecheck + lint + hub pass. Run 1: 95 cloud files failed (the shared `pos_test` DB already had cloud `0017` from the newer stab commit), fixed by merging `6be21317`. Run 2: 51 cloud files and 1 hub timeout (deadlocks / duplicate keys while the `~/pos` stab session tested the same DB). Rerun of `apps/cloud` + `voids/guards` under the lock: 116 files, 809 tests green |
