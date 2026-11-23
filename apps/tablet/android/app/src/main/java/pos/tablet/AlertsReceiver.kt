@@ -54,6 +54,7 @@ class AlertsReceiver : BroadcastReceiver() {
                 IpcReply.reply(ctx, reqId, JSONObject().put("ok", true))
             }
             // A14 builds the update client; until then there is never an update.
+            Ipc.OP_CLEAR_PAIRING -> async { AlertService.revoked(ctx, "hub_address_changed") }
             Ipc.OP_CHECK_FOR_UPDATE -> IpcReply.reply(ctx, reqId, JSONObject().put("state", "none"))
             else -> AlertLog.ev("ipc_unknown_op", mapOf("op" to op))
         }

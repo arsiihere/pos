@@ -115,6 +115,9 @@ class PosNativePlugin : Plugin() {
     fun setHubOrigin(call: PluginCall) {
         if (!allowed(call, "setHubOrigin")) return
         val origin = HubOrigin.normalize(call.getString("origin")) ?: return call.reject(BAD_ORIGIN_MESSAGE)
+        // M-16: a different hub address means this tablet must pair again (the bundled page confirmed it).
+        val previous = MainStore.hubOrigin(context)
+        if (previous != null && previous != origin) ipc.send(Ipc.OP_CLEAR_PAIRING)
         MainStore.setHubOrigin(context, origin)
         if (MainStore.hubOrigin(context) != origin) return call.reject("The hub address could not be saved")
         call.resolve(JSObject().put("origin", origin))
