@@ -4141,6 +4141,11 @@ export const en = {
   'opt.save': 'Save changes',
   'opt.more': 'One more {option}',
   'opt.less': 'One less {option}',
+  'l.title': 'This order isn’t sent',
+  'l.body': '{n} items · {money}. What should happen to it?',
+  'l.hold': 'Hold it',
+  'l.discard': 'Throw away',
+  'l.stay': 'Stay here',
 } as const;
 
 export type MessageKey = keyof typeof en;

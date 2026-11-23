@@ -13,6 +13,7 @@ import { createMemoryQueueStore } from '../queue/memory-store';
 import type { DraftStore, EtaDraft, EtaPreviewBody, SubmitOrderPayload, SubmitResult } from '../contracts';
 import { createMemoryDraftStore } from '../drafts/memory-drafts';
 import { createDayWatch } from './day-open';
+import { letLeavePass } from './leave-pass';
 import { DraftStoreContext, OrderScreen } from './OrderScreen';
 
 // 02b-TK batch C1 (docs/plans/02b-tk-plan.md): the takeaway cart and Send on the order screen.
@@ -452,5 +453,121 @@ describe('[02b-TK C1-4] editing a cart line', () => {
     expect(m.container.querySelector('.dlg')).toBeNull();
     expect(m.container.querySelectorAll('.ln')).toHaveLength(0);
     m.unmount();
+  });
+});
+
+/** A hash change as a tab, Back or the browser makes it (jsdom fires hashchange as a task). */
+const goTo = async (path: string) => {
+  window.location.hash = path;
+  await new Promise((r) => setTimeout(r, 0));
+  await flush();
+};
+
+describe('[02b-TK C1-5] leave guard and auto-hold', () => {
+  beforeEach(() => {
+    window.history.replaceState(null, '', '#/order/takeaway/D1');
+  });
+  afterEach(() => {
+    document.body.innerHTML = '';
+    nav.to = [];
+    window.history.replaceState(null, '', '#');
+  });
+
+  it('[02b §8 Held; frame LeaveGuard] leaving with an unsent cart asks; Stay here keeps the screen and the cart', async () => {
+    const h = harness();
+    const m = h.render();
+    await flush();
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    m.click(tile(m, 'Naan'));
+    await goTo('/tables');
+    expect(window.location.hash).toBe('#/order/takeaway/D1');
+    const dlg = m.container.querySelector('.dlg')!;
+    expect(dlg.textContent).toContain('This order isn’t sent');
+    expect(dlg.textContent).toContain('2 items · Rs 80. What should happen to it?');
+    expect([...dlg.querySelectorAll('button')].map((b) => b.textContent)).toEqual(expect.arrayContaining(['Hold it', 'Throw away', 'Stay here']));
+    expect(dlg.querySelector('.btn--primary')?.textContent).toBe('Hold it');
+    m.click(m.button('Stay here', dlg));
+    expect(m.container.querySelector('.dlg')).toBeNull();
+    expect(nav.to).toEqual([]);
+    expect(m.container.querySelectorAll('.ln')).toHaveLength(1);
+    m.unmount();
+  });
+
+  it('[02b §8 Held] Hold it keeps the draft held for this person and goes on; Throw away drops it and goes on', async () => {
+    for (const choice of ['Hold it', 'Throw away'] as const) {
+      const drafts = createMemoryDraftStore();
+      const h = harness({ drafts });
+      const m = h.render();
+      await flush();
+      pick(m, 'Sides');
+      m.click(tile(m, 'Naan'));
+      await flush();
+      await goTo('/orders');
+      m.click(m.button(choice, m.container.querySelector('.dlg')!));
+      await flush();
+      expect(nav.to).toEqual(['/orders']);
+      const left = await drafts.list('DV1', 'ST1');
+      if (choice === 'Hold it') expect(left.map((d) => [d.draft_id, d.held])).toEqual([['D1', true]]);
+      else expect(left).toEqual([]);
+      m.unmount();
+      nav.to = [];
+      window.history.replaceState(null, '', '#/order/takeaway/D1');
+    }
+  });
+
+  it('[02b-TK C1-5; 01d #105] a deep link passes the guard and does not hold: its Back returns to the cart as it was', async () => {
+    const drafts = createMemoryDraftStore();
+    const h = harness({ drafts });
+    const m = h.render();
+    await flush();
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    await flush();
+    letLeavePass('/tables/T4?seating_id=S1');
+    await goTo('/tables/T4?seating_id=S1');
+    expect(m.container.querySelector('.dlg')).toBeNull();
+    expect(window.location.hash).toBe('#/tables/T4?seating_id=S1');
+    m.unmount();
+    await flush();
+    expect((await drafts.list('DV1', 'ST1')).map((d) => [d.draft_id, d.held])).toEqual([['D1', false]]);
+  });
+
+  it('[02b-TK C1-5] an empty cart, or one whose Send is under way, leaves without asking', async () => {
+    const h = harness();
+    const m = h.render();
+    await flush();
+    await goTo('/tables');
+    expect(m.container.querySelector('.dlg')).toBeNull();
+    expect(window.location.hash).toBe('#/tables');
+    m.unmount();
+  });
+
+  it('[02b §8 Device idle lock; shell.me.signout_sub] sign out / idle lock (the screen goes with the person) holds the unsent cart; it is in Held, not restored over a new cart', async () => {
+    const drafts = createMemoryDraftStore();
+    const h = harness({ drafts });
+    const m = h.render();
+    await flush();
+    type(nameInput(m), 'Usman');
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    await flush();
+    m.unmount();
+    await flush();
+    const held = await drafts.list('DV1', 'ST1');
+    expect(held.map((d) => [d.draft_id, d.held])).toEqual([['D1', true]]);
+    expect(held[0]!.cart).toMatchObject({ takeaway: { customer_name: 'Usman' }, lines: [{ item_id: 'I5', quantity: 1 }] });
+    // signed in again on the same route: a fresh cart, and the held one stays held
+    const again = harness({ drafts }).render();
+    await flush();
+    expect(again.container.querySelectorAll('.ln')).toHaveLength(0);
+    pick(again, 'Sides');
+    again.click(tile(again, 'Raita'));
+    await flush();
+    const both = await drafts.list('DV1', 'ST1');
+    expect(both.filter((d) => d.held).map((d) => d.draft_id)).toEqual(['D1']);
+    expect(both.filter((d) => !d.held)).toHaveLength(1);
+    expect(both.find((d) => !d.held)!.draft_id).not.toBe('D1');
+    again.unmount();
   });
 });
