@@ -54,6 +54,17 @@ describe('[05a §10] device-access fixture', () => {
     expect(deviceProfile(deviceId)).toBeUndefined();
   });
 
+  it('[05a §6.3] withProfile refuses a listed profile with no staff_ids and a kds device (no profile)', async () => {
+    const h = await hub();
+    const tablet = pairDevice(h, { type: 'tablet' }).deviceId;
+    expect(() => withProfile(h, tablet, { access: 'listed', screens: ['dine_in'] })).toThrow(/needs staff_ids/);
+    expect(() => withProfile(h, tablet, { access: 'listed', staff_ids: [], screens: ['dine_in'] })).toThrow(/needs staff_ids/);
+    const kds = pairDevice(h, { type: 'kds', stationId: 'st-1' }).deviceId;
+    expect(() => withProfile(h, kds, { access: 'everyone', screens: ['dine_in'] })).toThrow(/kds/);
+    expect(deviceProfile(tablet)).toBeUndefined();
+    expect(deviceProfile(kds)).toBeUndefined();
+  });
+
   it('[05a §4.2 N-4] withProfile bumps profile_version and replaces the whole profile', async () => {
     const h = await hub();
     const { deviceId } = pairDevice(h, { type: 'cashier_kiosk', profile: { access: 'everyone', screens: ['takeaway', 'cashier'] } });

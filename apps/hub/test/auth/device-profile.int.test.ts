@@ -121,12 +121,17 @@ describe('[05a §4.2] deviceProfile memory map', () => {
     setProfile(h, { device_id: mixed, access: 'listed', staff_ids: ['S_CASH', 'S_OWNER'] });
     counter.reset();
     expect(listedAdminDeviceCount(dir)).toBe(2);
+    // a listed device naming two admins counts once
+    const twoAdmins = pairDevice(h, { type: 'tablet' }).deviceId;
+    setProfile(h, { device_id: twoAdmins, access: 'listed', staff_ids: ['S_MGR', 'S_OWNER'] });
+    counter.reset();
+    expect(listedAdminDeviceCount(dir)).toBe(3);
     expect(counter.count).toBe(0);
     // unmasked resolve: a person denied manage-devices does not count
     const denied = StaffDirectory.fromInput({
       ...input,
       staff: input.staff.map((s) => (s.staff_id === 'S_MGR' ? { ...s, denied_permissions: ['manage-devices'] } : s)),
     });
-    expect(listedAdminDeviceCount(denied)).toBe(1);
+    expect(listedAdminDeviceCount(denied)).toBe(2);
   });
 });

@@ -215,9 +215,16 @@ export function pairDevice(
  * `edited` after; `device_name` = the device's current name.
  */
 export function appendDeviceProfile(h: TestHub, deviceId: string, p: DeviceProfileInput): void {
+  // 05a §3.6 / §6.3: `listed` needs 1–20 people, and a kds device has no profile.
+  if (p.access === 'listed' && (p.staff_ids === undefined || p.staff_ids.length === 0)) {
+    throw new Error(`appendDeviceProfile: listed profile for ${deviceId} needs staff_ids`);
+  }
   h.deps.writer.run((tx) => {
-    const device = tx.db.prepare('SELECT device_name FROM devices WHERE device_id = ?').get(deviceId) as { device_name: string } | undefined;
+    const device = tx.db.prepare('SELECT device_name, device_type FROM devices WHERE device_id = ?').get(deviceId) as
+      | { device_name: string; device_type: string }
+      | undefined;
     if (device === undefined) throw new Error(`device ${deviceId} not found`);
+    if (device.device_type === 'kds') throw new Error(`appendDeviceProfile: kds device ${deviceId} has no profile`);
     const prev = tx.db.prepare('SELECT profile_version FROM device_profiles WHERE device_id = ?').get(deviceId) as { profile_version: number } | undefined;
     const payload: DeviceProfileSetPayload = {
       device_id: deviceId,

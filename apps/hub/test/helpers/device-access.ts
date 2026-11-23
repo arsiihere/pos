@@ -21,7 +21,11 @@ export function withProfile(h: TestHub, deviceId: string, p: DeviceProfileInput)
   appendDeviceProfile(h, deviceId, p);
 }
 
-/** A staff session for the person on the device (session store; the §3.5 sign-in check is not exercised here). */
+/**
+ * A staff session for the person on the device, written straight to the session store. It **bypasses the PIN path**
+ * (`POST /auth/pin`): no §3.5 sign-in check, no argon2, no counter. Tests of §3.5, the staff roster or `/admin/auth`
+ * (plan tasks 17, 18) must use the real routes, not this helper.
+ */
 export function signInOn(h: TestHub, deviceId: string, staffId: string): { sessionId: string; token: string } {
   return openSession(h, { kind: 'staff', staffId, deviceId });
 }
