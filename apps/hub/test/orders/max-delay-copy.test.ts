@@ -18,6 +18,7 @@ function menu(defaultMs: number | null | 'missing' = 300_000): BranchConfig {
   const base = fixtureMenu();
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 05a gate: lint fix of a stab line (9521e49f); drops the key
   const { max_delay_default_ms: _drop, ...settings } = base.engine_settings;
+  void _drop;
   return {
     ...base,
     engine_settings: defaultMs === 'missing' ? settings : { ...settings, max_delay_default_ms: defaultMs },
