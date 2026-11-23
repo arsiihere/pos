@@ -50,7 +50,7 @@ export function HardwareIcon({ hardware }: { hardware: DeviceType | null }) {
 }
 
 const groupTitle = (g: GroupKey) => t(`devices.group.${g}` as MessageKey);
-const screenText = (s: ScreenKey) => t(`devices.screen.${s}` as MessageKey);
+const screenText = (s: ScreenKey) => t(`alerts.screen.${s}` as MessageKey);
 
 function DeviceItem({ d, onEdit }: { d: DeviceRow; onEdit: (d: DeviceRow) => void }) {
   const who = d.access === 'listed' ? d.people.map((p) => p.display_name).join(', ') : t('devices.everyone');
@@ -89,7 +89,7 @@ function WaitingItem({ r, onApprove }: { r: PendingRequest; onApprove: (r: Pendi
 
 type State = { status: 'loading' } | { status: 'error' } | { status: 'ready'; data: DevicesData };
 
-export function DeviceList({ api }: { api: DevicesApi }) {
+export function DeviceList({ api, openRequestId = null }: { api: DevicesApi; openRequestId?: string | null }) {
   const [state, setState] = useState<State>({ status: 'loading' });
 
   const load = useCallback(async () => {
@@ -114,15 +114,19 @@ export function DeviceList({ api }: { api: DevicesApi }) {
           {t('devices.reload')}
         </button>
       )}
-      {state.status === 'ready' && <Ready api={api} data={state.data} reload={() => void load()} />}
+      {state.status === 'ready' && <Ready api={api} data={state.data} reload={() => void load()} openRequestId={openRequestId} />}
     </section>
   );
 }
 
 type Open = { kind: 'approve'; request: PendingRequest } | { kind: 'edit'; device: DeviceRow } | null;
 
-function Ready({ api, data, reload }: { api: DevicesApi; data: DevicesData; reload: () => void }) {
-  const [open, setOpen] = useState<Open>(null);
+function Ready({ api, data, reload, openRequestId }: { api: DevicesApi; data: DevicesData; reload: () => void; openRequestId: string | null }) {
+  // `r` names a pending request: its form opens at once; an unknown `r` shows just the list
+  const [open, setOpen] = useState<Open>(() => {
+    const request = openRequestId === null ? undefined : data.pending_requests.find((r) => r.request_id === openRequestId);
+    return request === undefined ? null : { kind: 'approve', request };
+  });
   const done = () => {
     setOpen(null);
     reload();

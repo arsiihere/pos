@@ -46,7 +46,7 @@ const ERR_KEYS: Record<string, true> = {
   'devices.err.PERMISSION_DENIED': true,
 };
 
-const screenLabel = (s: ScreenKey) => t(`devices.screen.${s}` as MessageKey);
+const screenLabel = (s: ScreenKey) => t(`alerts.screen.${s}` as MessageKey);
 
 /** Points and stations for the pickers (branch-config snapshot; the spec names no other source). People come from the `devices` reply (§6.8 G-f). */
 export function usePlaces(api: DevicesApi) {

@@ -294,3 +294,29 @@ describe('[05a §8] the list opens the forms', () => {
     expect((field('code') as HTMLInputElement).value).toBe('');
   });
 });
+
+describe('[05a §8, row 32] #/devices?r=<request_id>: the QR fills the request, never the code', () => {
+  const listApi = () =>
+    createDevicesApi(
+      createStaffApi({
+        device: { token: 'DEV', id: 'D1', type: 'tablet' },
+        meta: { tenantId: 'T', branchId: 'B', branchName: 'G', hubNowMs: 0, utcOffsetMs: 0 },
+        fetch: async (url) =>
+          url === '/queries/devices' ? reply(200, { data: { devices: [], pending_requests: [req('tablet')], admin_warning: null, staff: STAFF } }) : reply(404, { error: { code: 'ROUTE_NOT_FOUND' } }),
+        onSignedOut: () => {},
+      }),
+    );
+  it('[05a §8] a known r opens the approve form for that request with the code field empty', async () => {
+    m.render(<DeviceList api={listApi()} openRequestId="R1" />);
+    await flush();
+    expect(m.container.querySelector('[data-field="code"]')).not.toBeNull();
+    expect((field('code') as HTMLInputElement).value).toBe('');
+    expect((field('name') as HTMLInputElement).value).toBe('Counter 2');
+  });
+  it('[05a §8] an unknown r shows just the list', async () => {
+    m.render(<DeviceList api={listApi()} openRequestId="NOPE" />);
+    await flush();
+    expect(m.container.querySelector('[data-field="code"]')).toBeNull();
+    expect(m.text()).toContain('Waiting');
+  });
+});
