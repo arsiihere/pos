@@ -106,5 +106,7 @@ class WatchdogReceiver : BroadcastReceiver() {
             WatchdogPlan.Tick.RESTART -> AlertService.start(ctx, "watchdog_restart")
         }
         Watchdog.schedule(ctx)
+        // M-15: the hourly update check and the install window ride on the watchdog tick.
+        Updates.client(ctx).tickAsync()
     }
 }
