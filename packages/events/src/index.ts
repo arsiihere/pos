@@ -39,6 +39,7 @@ export * from './admin/hub.js';
 export * from './admin/staff.js';
 export * from './admin/menu-variants.js';
 export * from './admin/inventory.js';
+export * from './admin/recipes.js';
 export * from './alerts.js';
 export * from './events/alert/AlertRaised.v1.js';
 export * from './events/alert/AlertRaised.v2.js';
