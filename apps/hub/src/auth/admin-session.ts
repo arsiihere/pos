@@ -6,8 +6,9 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { HubDeps } from '../server.js';
 import { sha256hex } from '../lib/hash.js';
 import { Semaphore } from '../lib/semaphore.js';
+import { deviceProfile, listedAdminDeviceCount } from './device-profile.js';
 import { currentDirectory } from './guards.js';
-import { checkPin } from './pin.js';
+import { checkDeviceAccess, checkPin } from './pin.js';
 import { registerRecoveryLinkRoute } from './recovery-link.js';
 import { createSession, endSession, findSessionByToken, isIdleExpired } from './session-store.js';
 
@@ -39,9 +40,11 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
         allowed: ['tablet', 'cashier_kiosk', 'phone'],
       });
     }
-    if (device.device_type === 'phone' && device.owner_staff_id !== body.staff_id) {
-      throw new DomainError('DEVICE_NOT_OWNED', { device_id: device.device_id });
-    }
+    // 05a §3.5: before 00 §3.5 step 2; not counted, no argon2, memory only. An `everyone` device, or one with no
+    // profile (v1.0.1 R-1, as `everyone`), signs no admin in; a `listed` one only its people.
+    const profile = deviceProfile(device.device_id);
+    if (profile === undefined || profile.access === 'everyone') throw listedDeviceOnly();
+    checkDeviceAccess(device, body.staff_id, profile);
     const outcome = await checkPin(
       {
         db: deps.db,
@@ -54,9 +57,17 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
       },
       { staffId: body.staff_id, pin: body.pin, subject: { type: 'device', id: device.device_id }, eventDeviceId: device.device_id },
       (tx) => {
-        const directory = currentDirectory(app);
+        // 05a §3.3a: the admin grant through the session view of this device, so a profile edit committed while
+        // argon2 ran (now `everyone`, or the person off the list) is masked here.
+        const directory = currentDirectory(app).forSession({ staff_id: body.staff_id, device_id: device.device_id }, deviceProfile);
         const staff = directory.get(body.staff_id);
-        if (staff === undefined || !directory.hasAdmin(body.staff_id)) return { allowed: false as const };
+        if (staff === undefined) return { allowed: false as const, masked: false };
+        const fresh = deviceProfile(device.device_id);
+        if (fresh?.access === 'listed' && !fresh.staff_ids.has(body.staff_id)) {
+          return { allowed: false as const, denied: true as const };
+        }
+        const admin = directory.resolve(body.staff_id, 'access-hub-admin');
+        if (admin.grant !== 'allowed') return { allowed: false as const, masked: admin.masked === 'listed_only' };
         const idleTtlMs = directory.ttlFor(body.staff_id);
         const created = createSession(tx, {
           kind: 'admin',
@@ -77,7 +88,11 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
         };
       },
     );
-    if (!outcome.allowed) throw new DomainError('PERMISSION_DENIED', { permission: 'access-hub-admin' });
+    if (!outcome.allowed) {
+      if ('denied' in outcome) throw new DomainError('DEVICE_ACCESS_DENIED', { device_id: device.device_id });
+      if (outcome.masked) throw listedDeviceOnly();
+      throw new DomainError('PERMISSION_DENIED', { permission: 'access-hub-admin' });
+    }
     return {
       data: {
         admin_session_token: outcome.admin_session_token,
@@ -128,6 +143,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
   app.get('/admin/login-roster', { config: { group: 'admin-bootstrap' } }, async (request) => {
     const scope = rosterScope(deps, request);
     const directory = currentDirectory(app);
+    const listed = scope.listed;
     const locks = new Map<string, number | null>();
     const rows = deps.db
       .prepare(`SELECT subject_id, locked_until FROM auth_lockouts WHERE branch_id = ? AND subject_type = 'staff'`)
@@ -136,16 +152,20 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
     for (const row of rows) locks.set(row.subject_id, row.locked_until !== null && row.locked_until > now ? row.locked_until : null);
     const staff = directory
       .list()
-      .filter((member) => directory.hasAdmin(member.staff_id))
-      .filter((member) => scope === null || member.staff_id === scope)
+      .filter((member) => (listed === null ? directory.hasAdmin(member.staff_id) : listed.has(member.staff_id) && directory.resolve(member.staff_id, 'access-hub-admin').grant === 'allowed'))
       .map((member) => ({
         staff_id: member.staff_id,
         display_name: member.display_name,
         role_names: directory.roleNames(member.staff_id),
         locked_until: locks.get(member.staff_id) ?? null,
       }));
-    return { data: { staff } };
+    // 05a §6.11: memory, no statement.
+    return { data: { staff, recovery_available: listedAdminDeviceCount(directory) === 0 } };
   });
+}
+
+function listedDeviceOnly(): DomainError {
+  return new DomainError('PERMISSION_DENIED', { permission: 'access-hub-admin', reason: 'listed_device_only' });
 }
 
 function loginBody(request: FastifyRequest): { staff_id: string; pin: string } {
@@ -173,11 +193,12 @@ function deviceFromBearer(db: Database.Database, request: FastifyRequest): Devic
     .get(sha256hex(token)) as DeviceHit | undefined;
 }
 
-function rosterScope(deps: HubDeps, request: FastifyRequest): string | null {
+/** `listed: null` = bootstrap token (whole directory's admins); else the people of the calling `listed` device. */
+function rosterScope(deps: HubDeps, request: FastifyRequest): { listed: ReadonlySet<string> | null } {
   const bootstrap = headerValue(request, 'x-admin-bootstrap');
   if (bootstrap !== undefined) {
     if (!liveBootstrap(deps, bootstrap)) throw new DomainError('PAIRING_TOKEN_INVALID');
-    return null;
+    return { listed: null };
   }
   const device = deviceFromBearer(deps.db, request);
   if (device === undefined) throw new DomainError('DEVICE_TOKEN_INVALID');
@@ -188,7 +209,10 @@ function rosterScope(deps: HubDeps, request: FastifyRequest): string | null {
       allowed: ['tablet', 'cashier_kiosk', 'phone'],
     });
   }
-  return device.device_type === 'phone' ? device.owner_staff_id : null;
+  // 05a H-2: `everyone`, or no profile (R-1, as `everyone`), is refused.
+  const profile = deviceProfile(device.device_id);
+  if (profile === undefined || profile.access === 'everyone') throw listedDeviceOnly();
+  return { listed: profile.staff_ids };
 }
 
 function liveBootstrap(deps: HubDeps, token: string): boolean {

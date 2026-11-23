@@ -9,7 +9,7 @@ import { aDirectory } from '../helpers/fixtures';
 import { stubCloud } from '../helpers/stub-cloud';
 import { aBranchConfig } from '@pos/events/testing';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
-import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -85,7 +85,7 @@ describe('pairing requests', () => {
 
   it('[00 §10 #95] create → pending → approved (insert the approval rows directly) → token twice → after expires_at 404 and delivery_token cleared by clearExpiredDeliveryTokens; wrong secret 404; 11th pending → 503', async () => {
     const hub = await open();
-    const before = hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get();
+    const before = hub.deps.db.prepare('SELECT COALESCE(MAX(seq), 0) FROM events').pluck().get();
     const created = await create(hub, 'Till', '10.1.0.1');
     expect(created.statusCode).toBe(200);
     const data = created.json().data;
@@ -93,7 +93,8 @@ describe('pairing requests', () => {
     expect(data.approve_qr_svg).toBe(qrSvg(data.approve_url));
     expect(data.expires_at).toBe(hub.clock.branchNow() + 600_000);
     expect(data.display_code).toMatch(/^[0-9A-HJKMNP-TV-Z]{6}$/);
-    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get()).toBe(before);
+    // 05a §6.1 / §3.10 (task 26): 00 §6.30 "Events: none" became "AlertRaised (device_waiting) when none is open"
+    expect(hub.deps.db.prepare(`SELECT event_type FROM events WHERE seq > ? ORDER BY seq`).pluck().all(before)).toEqual(['AlertRaised', 'AttemptSent']);
     const stored = hub.deps.db
       .prepare('SELECT poll_secret_hash, requester_ip FROM pair_requests WHERE request_id = ?')
       .get(data.request_id) as { poll_secret_hash: string; requester_ip: string };
@@ -184,33 +185,12 @@ describe('pairing requests', () => {
     expect(full.json().error.code).toBe('SERVICE_UNAVAILABLE');
   });
 
-  // TASK-15-EDIT: the pairing-token QR half calls the removed generate-device-pairing-token command; drop that half, keep setup and request QRs.
-  it('[00 §10 #131] the setup, pairing-token and pairing-request responses carry an SVG equal to qrSvg(their URL), with no <script>', async () => {
+  it('[00 §10 #131] the setup and pairing-request responses (05a H-1: the pairing-token QR is gone) carry an SVG equal to qrSvg(their URL), with no <script>', async () => {
     const setup = await provision();
     expect(setup.first_admin_qr_svg).toBe(qrSvg(setup.first_admin_url));
     expect(setup.first_admin_qr_svg).not.toContain('<script');
 
     const hub = await open();
-    const admin = adminOf(hub);
-    const token = await hub.app.inject({
-      method: 'POST',
-      url: '/admin/commands/generate-device-pairing-token',
-      headers: { authorization: `Bearer ${admin.device.token}`, 'x-admin-session': admin.session.token },
-      payload: {
-        command_id: 'cmd-qr',
-        tenant_id: 'tenant-a',
-        branch_id: 'branch-1',
-        command_type: 'GenerateDevicePairingToken',
-        payload: { device_type: 'tablet' },
-        occurred_at: hub.clock.branchNow(),
-        actor_id: 'S_OWNER',
-        device_id: admin.device.deviceId,
-      },
-    });
-    const issued = token.json().data.result;
-    expect(issued.pair_qr_svg).toBe(qrSvg(issued.pair_url));
-    expect(issued.pair_qr_svg).not.toContain('<script');
-
     const request = await create(hub, 'Screen', '10.5.0.1');
     const body = request.json().data;
     expect(body.approve_qr_svg).toBe(qrSvg(body.approve_url));
@@ -240,12 +220,6 @@ function poll(hub: TestHub, id: string, secret: string) {
     url: `/pair/requests/${id}`,
     headers: { 'x-poll-secret': secret },
   });
-}
-
-function adminOf(hub: TestHub): { device: { deviceId: string; token: string }; session: { token: string } } {
-  const device = pairDevice(hub, { type: 'tablet' });
-  const session = openSession(hub, { kind: 'admin', staffId: 'S_OWNER', deviceId: device.deviceId });
-  return { device, session };
 }
 
 async function provision(): Promise<{ first_admin_url: string; first_admin_qr_svg: string }> {

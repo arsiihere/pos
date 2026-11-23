@@ -7,6 +7,8 @@ import { jsonResponse, runPage, textOf } from '../helpers/page-sandbox';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 const cleanups: Array<() => Promise<void>> = [];
+/** 05a §6.3 form default for a cashier_kiosk (everyone; takeaway, cashier, manager). */
+const KIOSK = { access: 'everyone', screens: ['takeaway', 'cashier', 'manager'] };
 
 describe('ApprovePairingRequest', () => {
   afterEach(async () => {
@@ -33,7 +35,8 @@ describe('ApprovePairingRequest', () => {
     });
     expect(approved.statusCode).toBe(200);
     const result = approved.json().data.result as Record<string, unknown>;
-    expect(result).toEqual({ device_id: result.device_id, device_type: 'kds', station_id: 'STATION-1' });
+    // 05a §6.3: the result adds screens and access (a kds has no profile).
+    expect(result).toEqual({ device_id: result.device_id, device_type: 'kds', station_id: 'STATION-1', screens: [], access: null });
     expect(JSON.stringify(result)).not.toContain('device_token');
     const device = hub.deps.db
       .prepare('SELECT device_type, station_id, device_name, paired_by, token_hash FROM devices WHERE device_id = ?')
@@ -44,7 +47,7 @@ describe('ApprovePairingRequest', () => {
       paired_by: string;
       token_hash: string;
     };
-    expect(device).toMatchObject({ device_type: 'kds', station_id: 'STATION-1', device_name: 'Kitchen', paired_by: 'S_OWNER' });
+    expect(device).toMatchObject({ device_type: 'kds', station_id: 'STATION-1', device_name: 'Kitchen 1', paired_by: 'S_OWNER' });
     const stored = hub.deps.db
       .prepare('SELECT delivery_token, approved_by FROM pair_requests WHERE request_id = ?')
       .get(request.request_id) as { delivery_token: string; approved_by: string };
@@ -147,6 +150,7 @@ describe('ApprovePairingRequest', () => {
       request_id: pendingBody.request_id,
       display_code: pendingBody.display_code,
       device_type: 'cashier_kiosk',
+      ...KIOSK,
     });
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe('PERMISSION_DENIED');
@@ -163,7 +167,7 @@ describe('ApprovePairingRequest', () => {
       payload: { device_name: 'Till' },
     });
     const { display_code } = created.json().data as { display_code: string };
-    const payload = { display_code, device_type: 'cashier_kiosk' };
+    const payload = { display_code, device_type: 'cashier_kiosk', ...KIOSK };
     const first = await approve(hub, admin, payload, 'cmd-code-retransmit');
     expect(first.statusCode).toBe(200);
     expect(first.headers['idempotent-replay']).toBeUndefined();
@@ -269,7 +273,8 @@ describe('ApprovePairingRequest', () => {
       branch_id: 'branch-1',
       actor_id: 'S_OWNER',
       device_id: 'hub-admin',
-      payload: { display_code: 'ABS123', device_type: 'cashier_kiosk' },
+      // 05a §6.3 v2 payload: until plan task 33 the page sends the kind's label and the §6.3 kiosk default.
+      payload: { display_code: 'ABS123', device_type: 'cashier_kiosk', device_name: EN['approve.kind_cashier'], access: 'everyone', screens: ['takeaway', 'cashier', 'manager'] },
     });
     expect((sent[0]!.payload as Record<string, unknown>).station_id).toBeUndefined();
     expect(textOf(form())).toContain(EN['errors.PAIRING_REQUEST_NOT_FOUND']);
@@ -279,7 +284,7 @@ describe('ApprovePairingRequest', () => {
     expect(textOf(form())).toContain(EN['approve.err_code_format']);
     expect(sent).toHaveLength(1);
     page.find('display_code')!.value = 'ABC124';
-    await page.click(opts()[1]!);
+    await page.click(opts()[3]!); // 05a task 15: cashier, tablet, phone, kitchen
     await page.submit(form());
     expect(textOf(form())).toContain(EN['approve.err_station']);
     const tandoor = page.find('station_id')!.children[0]!;
@@ -288,7 +293,8 @@ describe('ApprovePairingRequest', () => {
     expect(textOf(page.screen)).toContain(EN['approve.preview_kds_name'].replace('{station}', 'Tandoor'));
     expect(page.findAll((el) => el.tagName === 'b', outcome())[0]!.textContent).toBe(EN['approve.preview_kds_name'].replace('{station}', 'Tandoor'));
     await page.submit(form());
-    expect(sent[1]).toMatchObject({ payload: { display_code: 'ABC124', device_type: 'kds', station_id: 'T' } });
+    expect(sent[1]).toMatchObject({ payload: { display_code: 'ABC124', device_type: 'kds', station_id: 'T', device_name: EN['approve.preview_kds_name'].replace('{station}', 'Tandoor') } });
+    expect(Object.keys(sent[1]!.payload as object).sort()).toEqual(['device_name', 'device_type', 'display_code', 'station_id']);
     expect(textOf(page.screen)).toContain(EN['approve.done_title']);
     expect(textOf(page.screen)).toContain(EN['approve.done_body_kds'].replace('{station}', 'Tandoor'));
     // The audit note moved from the form to the result screen (CHANGES §2).
@@ -342,10 +348,10 @@ describe('ApprovePairingRequest', () => {
       payload: { device_name: 'Till' },
     });
     const request = created.json().data as { request_id: string; display_code: string };
-    const none = await approve(hub, admin, { display_code: 'ZZZZZZ', device_type: 'cashier_kiosk' }, 'cmd-code-none');
+    const none = await approve(hub, admin, { display_code: 'ZZZZZZ', device_type: 'cashier_kiosk', ...KIOSK }, 'cmd-code-none');
     expect(none.statusCode).toBe(404);
     expect(none.json().error.code).toBe('PAIRING_REQUEST_NOT_FOUND');
-    const byCode = await approve(hub, admin, { display_code: request.display_code, device_type: 'cashier_kiosk' }, 'cmd-code');
+    const byCode = await approve(hub, admin, { display_code: request.display_code, device_type: 'cashier_kiosk', ...KIOSK }, 'cmd-code');
     expect(byCode.statusCode).toBe(200);
     const approvedRow = hub.deps.db
       .prepare('SELECT device_id FROM pair_requests WHERE request_id = ?')
@@ -358,7 +364,7 @@ describe('ApprovePairingRequest', () => {
     hub.deps.db
       .prepare('UPDATE pair_requests SET display_code = ? WHERE request_id = ?')
       .run(code, (b.json().data as { request_id: string }).request_id);
-    const ambiguous = await approve(hub, admin, { display_code: code, device_type: 'cashier_kiosk' }, 'cmd-code-two');
+    const ambiguous = await approve(hub, admin, { display_code: code, device_type: 'cashier_kiosk', ...KIOSK }, 'cmd-code-two');
     expect(ambiguous.statusCode).toBe(404);
     expect(ambiguous.json().error.code).toBe('PAIRING_REQUEST_NOT_FOUND');
   });
@@ -400,7 +406,8 @@ function approve(
       tenant_id: 'tenant-a',
       branch_id: 'branch-1',
       command_type: 'ApprovePairingRequest',
-      payload,
+      // 05a §6.3: device_name is required; tests that do not name the device get one.
+      payload: { device_name: 'Kitchen 1', ...payload },
       occurred_at: hub.clock.branchNow(),
       actor_id: 'S_OWNER',
       device_id: admin.device.deviceId,

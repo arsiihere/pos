@@ -11,6 +11,11 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~18:00 PKT: **Task 26 merged** (`device_waiting`). **22 tasks merged.** Owner ruled **G-g (a)** → **05a v1.0.3** (recovery signal in login-roster's 403). In review: 24, 34. Fix rounds: 33 (G-g, K-2 `?edit=`). Running: 23.
+> - 2026-11-23 ~17:20 PKT: **Task 16 merged**: B4 complete. **21 tasks merged.**
+> - 2026-11-23 ~17:10 PKT: **Task 21 merged**. **20 tasks merged**; B3, B5 complete. Starting B6: 23 (answers), 24 (downgraded raise), 26 (`device_waiting`) in parallel; 25 after 23.
+> - 2026-11-23 ~17:00 PKT: **Tasks 17–18 merged** (sign-in checks, rosters). **19 tasks merged**: 9–15, 17–20, 22, 27–29, 31, 32, 35, 36. Next: 16 (approved, merging after its merge of build/05a), 21 (in review), 33, 34 (running); then 23–26, 30.
+> - 2026-11-23 ~16:45 PKT: **Task 15 merged** (approve tablet / phone by request; token pairing and the STAB-1 Add a phone / Add a tablet removed). 17 tasks merged. Approved, merging next: 16, 17 (re-check), 18. In review: 21. Running: 34.
 > - 2026-11-23 ~16:20 PKT: **Task 20 merged**. 16 tasks merged. Fix rounds: 15 (tablet / phone on `/admin/approve` until task 33), 17 (tests). Running: 16, 18, 21.
 > - 2026-11-23 ~15:55 PKT: **Task 19 merged** (SetDeviceProfile, Opus APPROVE). 15 tasks merged. In review: 15, 17, 20. Running: 16.
 > - 2026-11-23 ~15:40 PKT: **Tasks 31–32 merged** (lane C2). **14 tasks merged**; all six saved laptop lanes are in. In review: 15 (approve v2 + token-pairing removal), 19 (SetDeviceProfile). Running: 16 (stacked on 15), 17, 20.
@@ -99,18 +104,18 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 12 | B3 | `/queries/session` | NORMAL | `92fe7062` | **done** (Opus review APPROVE) |
 | 13 | B4 | request-based pairing fixture | NORMAL | `9f567176`, `d802168c`, `cc9c85c7` | **done** (Sonnet review FIX → markers → done; `TASK-15-DELETE/EDIT` markers list task 15's test work) |
 | 14 | B4 | pair request hint + poll screens | NORMAL | `9a61c55b` | **done** (Sonnet review APPROVE; no-profile poll → `screens: []`, an inference from §3.6, noted) |
-| 15 | B4 | approve v2 **+ STAB-1 removal (one commit)** | HIGH | | |
-| 16 | B4 | pair page text + hint | NORMAL | | |
-| 17 | B5 | sign-in checks | HIGH | | |
-| 18 | B5 | staff / login roster | NORMAL | | |
+| 15 | B4 | approve v2 **+ STAB-1 removal (one commit)** | HIGH | `8a3645e8`, fix `c1035209` | **done** (Opus review FIX → 1 round → APPROVE). Task commit is one commit (D-3); the fix commit adds Tablet / My phone to `/admin/approve` until task 33 so a tablet and a phone stay pairable through a UI (D-3), plus tests. `/admin/approve?r=` reads `hardware_hint` (1 unauthenticated read, only the hint; task 33 may move it after sign-in) |
+| 16 | B4 | pair page text + hint | NORMAL | `3927fd47`, `289e37af` | **done** (Sonnet review APPROVE; iOS Safari outside the Home Screen shows "Add to Home Screen" and makes no request, per §8 "then the request from the home-screen app") |
+| 17 | B5 | sign-in checks | HIGH | `1f2e66ae`, `a1b47393`, fix `2eb9daad` | **done** (Opus review FIX → 1 round → APPROVE). #114: the 00 404 half kept (unknown id on the list → 404); an unknown id off a listed device's list → 403 `DEVICE_ACCESS_DENIED` first (05a §3.5 order); note for Z1 / the next 00 bump |
+| 18 | B5 | staff / login roster | NORMAL | `19e3cdbb` | **done** (Sonnet review APPROVE; a no-profile phone's roster = its owner, read from §3.5 R-1) |
 | 19 | B5 | `SetDeviceProfile` | HIGH | `cac60851` | **done** (Opus review APPROVE; PC-5) |
 | 20 | B5 | revoke both + device list | NORMAL | `547702b2`, fix `961da1e3` | **done** (Sonnet review FIX → 1 round: a no-profile staff device lists as `everyone` v0 so task 19 can edit it) |
-| 21 | B5 | directory apply | HIGH | | |
+| 21 | B5 | directory apply | HIGH | `f3ab0b3c` | **done** (Opus review APPROVE; one wider `device_people` read; no `device_profile` push for `directory` events, none needed: screens / point never change; a `directory` event clears an earlier `needs_review`, literal §4.2 / §6.9) |
 | 22 | B6 | D-1 bindings | HIGH | `e9cd26d1` | **done** (Opus review APPROVE, 300-sequence rebuild fuzz; `alert-sockets.ts` as-built outside the Files column, required by 01d §3.7) |
 | 23 | B6 | D-2 answers | HIGH | | |
 | 24 | B6 | D-2 downgraded raise | HIGH | | |
 | 25 | B6 | D-2 routing | HIGH | | |
-| 26 | B6 | D-3 `device_waiting` | HIGH | | |
+| 26 | B6 | D-3 `device_waiting` | HIGH | `248f9b22` | **done** (Opus review APPROVE). Until task 25, `device_waiting` also reaches `everyone` devices (label only, no code / name / count); row 25 widened to carry that drop + the #21 delivery test. Carry-overs to task 25: MINOR-1 (raise without the extra pre-read), MINOR-2 (`deeplink-check` `devices` → open, not `no_place`), MINOR-3 (01d #69 counts 20 kinds). Client copy `alert.device_waiting.card` / `.lock` (EN + UR) has no spec wording: proposed "A device is waiting for approval" / "Device waiting", in task 25's client follow-up unless the owner says otherwise |
 | 27 | B7 | K-1 + D-4 Pass readers | HIGH | `d1d88e71` | **done** (Opus review APPROVE; PC-4) |
 | 28 | B7 | upgrade boot step | HIGH | `773e939a`, fix `87d22dc2` | **done** (Opus review FIX → 1 round → APPROVE; PC-3; RF-1 exception: an ownerless phone (raw SQL only) stays unprofiled, warned each boot) |
 | 29 | B7 | recovery link | HIGH | `72933db1` (merge `1b5b5c61`) | **done** (Opus review APPROVE; carry-overs: #16a "owner approves their phone" `it.todo` → task 15; MINORs m1 empty `advertised_host`, m2 count-0 cases at the route, m3 unprovisioned refusal test → with task 15/18) |
@@ -161,6 +166,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | S-1 | G0.1 | `git merge` into `module-05a` refused by the auto-mode classifier | **closed** 03:53: owner allowed it; merged |
 | S-2 | P0.3 | Push target for `module-05a` under the `module-*` ruleset with no PRs | **closed** 03:53: (a) `build/05a` |
 | S-3 | P0.2 | G-b: names in the `device_profile_set` audit detail | **closed** 03:53: (a), in 05a v1.0.1 §4.2; 04 v1.0.8 §8 maps the ids through `audit-staff` (no query change) |
+| S-6 | 33 | G-g: the recovery signal never reaches an `everyone` device (login-roster refuses it), the main recovery case after the upgrade | **closed** 2026-11-23 (cloud): owner ruled (a) → **05a v1.0.3**: the 403 carries `recovery_available`; 00 v1.12.3 §6.13 note |
 | S-5 | 32 | G-e: clearing `point_id` / `staff_ids` in `SetDeviceProfile`; G-f: people-picker source | **closed** 2026-11-23 (cloud): owner ruled both (a) → **05a v1.0.2** (§6.4 derived clear; §6.8 `staff`), 00 v1.12.3 §6.17 note |
 | S-4 | P0.5 | 01d Q-1 – Q-3 (top of this file) | **closed** 2026-11-23 (cloud): owner ruled all three (a) |
 
