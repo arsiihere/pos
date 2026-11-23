@@ -29,6 +29,10 @@
 | m-15 | C-2: no test pins an absolute PATCH count; 01a #209 asserts the +1 |
 | m-16 | C-2 / §6.0: the §6.2 member-move audit rows carry `short_code`, not `companions` (named exception, 01a §6.0) |
 
+### Integration pass (02b-TK cross-spec rows)
+
+⚠️ Changed by v1.5 (integration, 02b-TK), 2026-11-24; still DRAFT. 01a v2.11 rows C-1 – C-5 checked: present here (§6.3, §6.4, §6.5, §4.6, §8) with 01a's names, shapes and error code (`409 SHORT_CODE_IN_USE { short_code, item_id, name }`, appended to Foundation v1.18 §6.2). Review m-6: the README R29 "Effect" text is amended in `docs/specs/README.md` (01c v1.5 uses 01a S28 c additive optional fields within snapshot schema 4).
+
 
 **v1.4 — APPROVED (owner 2026-11-24 00:23 PKT, with 08d v1.0; `docs/specs/08_Inventory_Costing_Spec_v1.2.md` Part D §4.5 row C-1; markers "⚠️ Changed by 08d v1.0 (C-1)").** `stock_items` gains `must_weigh_on_receipt` (only with `stock_unit = 'g'`) and `track_piece_count` (only with `stock_unit ∈ g, ml` and `kind <> 'packet'`), both in the version input and the owner form, delivered as optional `inventory.items[]` fields (they bump by 08b's B16 rule); the owner form shows `is_a_item` on `prepared` items labelled "Count daily". Cloud migration `0020_inventory_receiving.sql`. Not yet built (08d plan). v1.3 kept as history.
 

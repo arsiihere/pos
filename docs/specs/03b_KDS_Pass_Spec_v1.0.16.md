@@ -72,6 +72,10 @@ Verdict FIX THEN RE-REVIEW (1 BLOCKER, 7 MAJOR, 11 MINOR). Every finding, its re
 | m-10 | Resolved by `readyAtOf` reading `ready_at` whatever the Ready's alert state: a carried order keeps its amber the next day, with no alert (expired at day close; accepted) | §4.2, test 105 |
 | m-11 | One line: a signed-out kiosk gets no Pass frames (staff sockets only); on sign-in its catch-up and the 02b refetch bring the tiles current; no audience change | §6.17 |
 
+#### Integration pass (02b-TK cross-spec rows)
+
+⚠️ Changed by v1.0.16 (integration, 02b-TK), 2026-11-24; still DRAFT. Checked, no text change needed: 02b v1.0.25 TK-3 (`readyAtOf` `Map<order_id, number>`, 1 statement, 0 for `[]`, latest Ready whatever its alert state; `LINE_READY_AT_SQL` in `kds/contracts.ts`, the same meaning per line, `NULL` when none or undone) reads the same in 02b §4.1, §4.2, §6.16; 03a v1.2.11 row 03b-R4-1 / To 03b #12 is carried (§3.4, §6.15, tests 74, 110, 111); 01d v1.3.7 D-7 (`screen_devices`, `counter_card`) is carried there as row D-7 asks. Board devices never qualify for the counter audience (05a v1.0.7; 01d D-5).
+
 ---
 
 ## §1. Header
