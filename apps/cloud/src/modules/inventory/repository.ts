@@ -229,6 +229,71 @@ export async function insertItemUnit(db: TenantSql, row: NewItemUnit): Promise<{
 
 // ----------------------------------------------------------------------------------------------- §6.6 prices
 
+// C1: the price's branch_id is a body reference — a branch of this tenant (any of them; the price's scope is
+// not the writer's, I10). The insert's FK then takes FOR KEY SHARE on that row (after kind 5).
+export async function branchExists(db: TenantSql, branchId: string): Promise<boolean> {
+  const rows = await db.query(`SELECT 1 FROM branches WHERE tenant_id = $1 AND branch_id = $2`, [branchId]);
+  return rows.length > 0;
+}
+
+// I5 input: the item's unit rows of this name (every base unit; resolveUnit keeps the stock unit's latest).
+export async function selectItemUnitsNamed(db: TenantSql, stockItemId: string, unitName: string): Promise<ItemUnitRecord[]> {
+  const rows = await db.query<RawUnit>(
+    `SELECT ${UNIT_COLUMNS} FROM stock_item_units
+      WHERE tenant_id = $1 AND stock_item_id = $2 AND unit_name = $3
+      ORDER BY created_at DESC, unit_row_id DESC`,
+    [stockItemId, unitName],
+  );
+  return rows.map(itemUnitRecord);
+}
+
+export interface NewItemPrice {
+  price_id: string;
+  stock_item_id: string;
+  branch_id: string | null;
+  kind: ItemPriceRecord['kind'];
+  unit_name: string;
+  price_minor: bigint;
+  stock_qty_num: bigint;
+  stock_qty_den: bigint;
+  stock_unit: ItemPriceRecord['stock_unit'];
+  created_at: number;
+  valid_until_at: number | null;
+  note: string | null;
+  recorded_by: string;
+}
+
+// I6: the append-only insert (frozen conversion and stock_unit), returning the row with the recorder's display
+// name (§5.3 recorded_by_name) in the same statement.
+export async function insertItemPrice(db: TenantSql, p: NewItemPrice): Promise<{ price: ItemPriceRecord; recordedByName: string }> {
+  const rows = await db.query<RawPrice & { recorded_by_name: string }>(
+    `WITH inserted AS (
+       INSERT INTO item_prices (tenant_id, price_id, stock_item_id, branch_id, kind, unit_name, price_minor, stock_qty_num, stock_qty_den,
+                                stock_unit, created_at, valid_until_at, note, recorded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       RETURNING ${PRICE_COLUMNS})
+     SELECT ${inserted(PRICE_COLUMNS)}, owner_users.display_name AS recorded_by_name
+       FROM inserted JOIN owner_users ON owner_users.tenant_id = $1 AND owner_users.user_id = inserted.recorded_by`,
+    [
+      p.price_id,
+      p.stock_item_id,
+      p.branch_id,
+      p.kind,
+      p.unit_name,
+      p.price_minor.toString(),
+      p.stock_qty_num.toString(),
+      p.stock_qty_den.toString(),
+      p.stock_unit,
+      p.created_at,
+      p.valid_until_at,
+      p.note,
+      p.recorded_by,
+    ],
+  );
+  const { recorded_by_name: recordedByName, ...price } = rows[0]!;
+  return { price: itemPriceRecord(price), recordedByName };
+}
+
 // ----------------------------------------------------------------------------------------------- §6.7 yields
 
 export interface NewYieldProfile {
