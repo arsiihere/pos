@@ -118,7 +118,7 @@ describe('applyStaffDirectory', () => {
     );
   });
 
-  it('[00 §10 #83] removing the owner revokes their phones and leaves other devices', async () => {
+  it('[00 §10 #83; 05a H-4, M-5] removing the only person of a listed phone revokes it owner_removed and leaves other devices', async () => {
     const late: { db?: Database.Database } = {};
     const seen: Array<{ version: unknown; revoked: unknown }> = [];
     const opened = await open({
@@ -138,6 +138,9 @@ describe('applyStaffDirectory', () => {
     insertDevice(db, { device_id: 'phone-owner', token_hash: 'tok-phone', device_type: 'phone', owner_staff_id: 'S_OWNER' });
     insertDevice(db, { device_id: 'tablet-owner', token_hash: 'tok-tablet', device_type: 'tablet' });
     insertDevice(db, { device_id: 'phone-other', token_hash: 'tok-other', device_type: 'phone', owner_staff_id: 'S_OTHER' });
+    // 05a H-4: the reader is the profile's list, not owner_staff_id (this harness runs no projection: rows written directly)
+    listedProfile(db, 'phone-owner', ['S_OWNER']);
+    listedProfile(db, 'phone-other', ['S_OTHER']);
     const phoneSession = writer.run((tx) =>
       createSession(tx, {
         kind: 'staff',
@@ -975,6 +978,11 @@ function insertDevice(
       device_id, branch_id, token_hash, device_name, device_type, station_id, owner_staff_id, paired_at, paired_by
     ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'admin')`,
   ).run(row.device_id, BRANCH, row.token_hash, row.device_id, row.device_type, row.owner_staff_id ?? null, T);
+}
+
+function listedProfile(db: Database.Database, deviceId: string, staffIds: string[]): void {
+  db.prepare(`INSERT INTO device_profiles (device_id, access, screens, profile_version, needs_review) VALUES (?, 'listed', '["dine_in"]', 1, 0)`).run(deviceId);
+  for (const staffId of staffIds) db.prepare('INSERT INTO device_people (device_id, staff_id) VALUES (?, ?)').run(deviceId, staffId);
 }
 
 function events(db: Database.Database): Array<{
