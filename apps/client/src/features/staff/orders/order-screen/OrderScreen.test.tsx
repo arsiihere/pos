@@ -6,6 +6,7 @@ import { setLanguage } from '../../../../i18n';
 import { flush, mount } from '../../../../../test/dom';
 import { ShellContext, type Shell } from '../../shell/hooks';
 import { createLiveBus, type LiveBus } from '../../shell/live';
+import { createPermissions } from '../../shell/permissions';
 import type { LockBannerProps, LockBannerState, SeatingRef, TableMapBody } from '../../tables/contracts';
 import type { Draft, DraftStore, EtaDraft, EtaPreviewBody } from '../contracts';
 import { createMemoryDraftStore } from '../drafts/memory-drafts';
@@ -151,6 +152,8 @@ function harness(): Harness {
           },
           tables: { tableMap: async () => ({ ok: true, data: o.map ?? MAP }) },
           toasts: { show: (x: { text: string }) => toasts.push(x.text) },
+          // 02b-TK C3-1: the takeaway cart reads take-payment (none here: the one Send to kitchen)
+          permissions: createPermissions(null),
           clock: { nowMs: () => T, utcOffsetMs: 5 * HOUR },
           me: { staff_id: 'ST1', name: 'Ali' },
           online: o.online ?? true,

@@ -34,7 +34,7 @@ import { MaskedAction } from '../staff/shell/MaskedAction';
 /** R-4: the gap left between Add payment and the Close bar when the pad opens (px). */
 export const PAD_CLEAR_PX = 12;
 
-interface Mode {
+export interface Mode {
   mode_id: string;
   name: string;
   kind: string;
@@ -49,7 +49,7 @@ const DEFAULT_MODES: readonly Mode[] = defaultBillingSettings({ currency_code: '
 // cached by content, so the store read is stable between renders whatever object the snapshot is
 let lastKey = '';
 let lastModes: readonly Mode[] = [];
-function activeModes(snapshot: unknown): readonly Mode[] {
+export function activeModes(snapshot: unknown): readonly Mode[] {
   const list = (snapshot as { billing?: { payment_modes?: Mode[] } } | null)?.billing?.payment_modes;
   const source = Array.isArray(list) ? list : DEFAULT_MODES;
   const key = JSON.stringify(source);
@@ -253,7 +253,7 @@ function blockText(b: BillBlock, bill: BillView, split: BillViewSplit, dues: Spl
  * A pad or close refusal's text, filled from the hub's figures (§9 `details`), the mode's name (the picked mode, or
  * the one `details.mode_id` names) and, for BILL_CLOSE_BLOCKED, the block line of its reason. Never a raw `{…}`.
  */
-function refusalText(e: HubError, ctx: { bill: BillView; split: BillViewSplit; dues: SplitDues | null; mode: Mode | null; modes: readonly Mode[]; direction: 'in' | 'out' }): string {
+export function refusalText(e: HubError, ctx: { bill: BillView; split: BillViewSplit; dues: SplitDues | null; mode: Mode | null; modes: readonly Mode[]; direction: 'in' | 'out' }): string {
   if (e.kind !== 'api') return t('tables.toast.needs_hub');
   const d = e.details;
   const code = ctx.bill.currency.code;
