@@ -14,6 +14,9 @@ class BootReceiver : BroadcastReceiver() {
         val ctx = context.applicationContext
         AlertLog.init(ctx.filesDir)
         val want = AlertsStore.wantRunning(ctx)
+        // 05b M-21: after a reboot or an update no page has run yet, so nobody is signed in on this tablet
+        // (the session token is page memory only). Known signed out → the D-3 install window may open.
+        AlertsMemory.signedIn = false
         val plan = WatchdogPlan.onBroadcast(intent.action, want)
         AlertLog.ev("boot_received", mapOf("action" to intent.action, "want_running" to want, "arm_in_ms" to plan.armInMs))
         plan.armInMs?.let { Watchdog.schedule(ctx, it) }
