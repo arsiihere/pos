@@ -122,14 +122,15 @@ function applyStarted(
 ): void {
   const p = event.payload as z.infer<typeof SessionStartedPayload>;
   if (p.kind !== 'staff' || p.staff_id === null || p.device_id === null) return;
-  const profile = profiles.get(p.device_id);
-  if (profile === 'one_person') return; // 05a §3.8: the permanent row is never touched by sessions
+  if (profiles.get(p.device_id) === 'one_person') return; // 05a §3.8: the permanent row is never touched by sessions
   const type = typeOf(tx, p.device_id);
-  // BF-3: a kiosk or KDS binds no one. A phone with no profile yet: its row belongs to its owner and is never
-  // touched by sessions (m2); a phone with a profile here (`everyone` or several people) follows the tablet
-  // rule (05a §3.8). A device unknown to both the map and `devices` follows the tablet rule (§3.7 default).
-  if (type !== undefined && (UNBOUND_TYPES.has(type) || (type === 'phone' && profile === undefined))) return;
-  // The WHERE keeps a permanent row (session_id NULL: a phone owner or one-person profile) in every case (m2).
+  // BF-3: a kiosk or KDS binds no one. 05a §3.8 (row D-1, code point 1): phone sessions are no longer skipped,
+  // so a phone that is not one-person follows the tablet rule. A phone with no profile yet keeps its owner row
+  // through the WHERE below (m2), not through the profile map: after a restart with the checkpoint near the tip
+  // the map is empty, and the row in the table is the only fact that survives. A device unknown to both the map
+  // and `devices` follows the tablet rule (§3.7 default).
+  if (type !== undefined && UNBOUND_TYPES.has(type)) return;
+  // The WHERE keeps a permanent row (session_id NULL: a phone owner or a one-person profile) in every case (m2).
   tx.prepare(
     `INSERT INTO device_bindings (device_id, staff_id, session_id, since) VALUES (?, ?, ?, ?)
      ON CONFLICT (device_id) DO UPDATE SET staff_id = excluded.staff_id, session_id = excluded.session_id, since = excluded.since

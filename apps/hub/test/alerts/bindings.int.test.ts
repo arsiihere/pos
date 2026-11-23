@@ -215,6 +215,10 @@ function insertDevice(db: Database.Database, deviceId: string, type: string, o: 
   ).run(deviceId, BRANCH, `hash-${deviceId}`, deviceId, type, o.station ?? null, o.owner ?? null, T);
 }
 
+function insertBinding(db: Database.Database, deviceId: string, staffId: string, sessionId: string | null): void {
+  db.prepare('INSERT INTO device_bindings (device_id, staff_id, session_id, since) VALUES (?, ?, ?, ?)').run(deviceId, staffId, sessionId, T);
+}
+
 describe('01d device_bindings projection', () => {
   const cleanups: Array<() => void> = [];
   afterEach(() => {
@@ -309,6 +313,8 @@ describe('01d device_bindings projection', () => {
     insertDevice(h.db, KIOSK, 'cashier_kiosk');
     insertDevice(h.db, TAB, 'tablet');
     insertDevice(h.db, PHONE, 'phone', { owner: OWNER });
+    // The phone's owner row, as DevicePaired wrote it before the restart (05a row D-1: the WHERE keeps it, m2).
+    insertBinding(h.db, PHONE, OWNER, null);
     // The hub restarted with every checkpoint at the tip: the projection's in-memory map is empty.
     const counted: Counted[] = [];
     const registry = countingRegistry(h.db, counted);
@@ -320,11 +326,14 @@ describe('01d device_bindings projection', () => {
     append(started('s-t', TAB, BILAL));
     append(started('s-p', PHONE, ALI));
     append(started('s-k2', KIOSK, BILAL), started('s-t2', TAB, ALI));
-    expect(bindings(h.db).map((row) => [row.device_id, row.staff_id, row.session_id])).toEqual([[TAB, ALI, 's-t2']]);
+    expect(bindings(h.db).map((row) => [row.device_id, row.staff_id, row.session_id])).toEqual([
+      [PHONE, OWNER, null],
+      [TAB, ALI, 's-t2'],
+    ]);
     expect(counted.map((c) => [c.event_type, c.reads, c.total])).toEqual([
       ['SessionStarted', 1, 1], // kiosk: devices read, no write
       ['SessionStarted', 1, 2], // tablet: devices read + upsert
-      ['SessionStarted', 1, 1], // phone: devices read, ignored (m2)
+      ['SessionStarted', 1, 2], // phone: devices read, upsert kept off the owner row by its WHERE (m2; 05a row D-1)
       ['SessionStarted', 0, 0], // kiosk again: cached
       ['SessionStarted', 0, 1], // tablet again: cached, upsert
     ]);
@@ -455,11 +464,15 @@ describe('01d device_bindings projection', () => {
 
   it('[05a #14b §3.8] replay of an old phone: bound to DevicePaired.owner_staff_id until its first DeviceProfileSet, then by the profile', async () => {
     const h = await harness(cleanups);
-    h.append(paired(PHONE, 'phone', OWNER), paired('dev-phone2', 'phone', null));
-    // no profile yet: today's phone rule (owner row; sessions ignored, a phone with no owner binds no one)
-    h.append(started('s1', PHONE, ALI), started('s2', 'dev-phone2', ALI));
-    expect(rows(h.db)).toEqual([[PHONE, OWNER, null]]);
-    // the upgrade profile: everyone → the owner row goes, the next sign-in binds by the tablet rule
+    h.append(paired(PHONE, 'phone', OWNER), paired('dev-phone2', 'phone', ALI));
+    // no profile yet: today's phone rule (the owner row; a session on the phone leaves it, m2)
+    h.append(started('s1', PHONE, OWNER), started('s2', 'dev-phone2', ALI));
+    expect(rows(h.db)).toEqual([
+      ['dev-phone', OWNER, null],
+      ['dev-phone2', ALI, null],
+    ]);
+    // the upgrade profile: everyone → the owner row goes, the next sign-in binds by the tablet rule;
+    // one person → that person, permanent
     h.append(profiled(PHONE, 'everyone'), profiled('dev-phone2', 'listed', [BILAL]));
     expect(rows(h.db)).toEqual([['dev-phone2', BILAL, null]]);
     h.append(started('s3', PHONE, ALI));
@@ -469,6 +482,24 @@ describe('01d device_bindings projection', () => {
     ]);
     const live = bindings(h.db);
     expect(await rebuilt(h)).toEqual(live);
+  });
+
+  it('[05a §3.8 D-1] after a restart with the checkpoint at the tip (empty in-memory maps): a profiled phone signs in by the tablet rule, a permanent row is kept', async () => {
+    const h = await harness(cleanups);
+    insertDevice(h.db, PHONE, 'phone', { owner: OWNER });
+    insertDevice(h.db, TAB, 'tablet');
+    // Before the restart: PHONE got `everyone` (its owner row went), TAB got one person (ALI, permanent).
+    insertBinding(h.db, TAB, ALI, null);
+    // A new registry on the same db: the checkpoint is at the tip, so nothing is replayed into memory.
+    const counted: Counted[] = [];
+    const registry = countingRegistry(h.db, counted);
+    registerAlertProjections(registry);
+    const writer = writerOn(h.db, h.clock, registry);
+    writer.run((tx) => tx.append([draft(started('s-p', PHONE, BILAL)), draft(started('s-t', TAB, BILAL))]));
+    expect(rows(h.db)).toEqual([
+      [PHONE, BILAL, 's-p'],
+      [TAB, ALI, null],
+    ]);
   });
 
   it('[05a §3.8 D-1] DeviceProfileSet reads nothing (its own map, no device_profiles row) and runs 1 statement; a SessionStarted on a one-person device runs none', async () => {
