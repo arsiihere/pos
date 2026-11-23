@@ -10,8 +10,8 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // 05b M-14 / M-15: version_code drives the APK update; CI sets it from the run number
-        versionCode (System.getenv("TABLET_VERSION_CODE") ?: "1").toInteger()
-        versionName System.getenv("TABLET_VERSION_NAME") ?: "0.1.0-dev"
+        versionCode = Integer.parseInt(System.getenv("TABLET_VERSION_CODE") ?: "1")
+        versionName = System.getenv("TABLET_VERSION_NAME") ?: "0.1.0-dev"
         buildConfigField "int", "NATIVE_API", "1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
