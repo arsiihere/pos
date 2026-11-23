@@ -1,5 +1,5 @@
-import { isPermission } from '@pos/domain';
-import type { DirectoryInput } from '@pos/events';
+import { isPermission, type ScreenKey } from '@pos/domain';
+import type { DeviceProfileSetPayload, DirectoryInput } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { WriterTx } from '../engine-host/writer.js';
 import { activeSessionsOf, endSession, revokeDevice } from './session-store.js';
@@ -194,7 +194,7 @@ export function applyStaffDirectory(
   const stored: DirectoryCore = { directory_version: d.directory_version, roles, staff, responsibilities, no_pin_staff: noPin };
   replaceCache(tx, stored);
   for (const staffId of removed) endStaff(tx, staffId, 'staff_removed');
-  for (const staffId of removed) revokePhones(tx, staffId);
+  applyToDeviceProfiles(tx, removed);
   for (const staffId of changed) endStaff(tx, staffId, 'credentials_changed');
   tx.append([
     {
@@ -427,17 +427,65 @@ function endStaff(tx: WriterTx, staffId: string, reason: 'staff_removed' | 'cred
   for (const session of sessions) endSession(tx, session, reason, null, null, 'hub');
 }
 
-function revokePhones(tx: WriterTx, staffId: string): void {
-  const phones = tx.db
-    .prepare("SELECT device_id FROM devices WHERE device_type = 'phone' AND owner_staff_id = ? AND revoked_at IS NULL")
-    .all(staffId) as Array<{ device_id: string }>;
-  for (const phone of phones) {
-    revokeDevice(tx, phone.device_id, {
-      reason: null,
-      cause: 'owner_removed',
-      actorId: null,
-      eventDeviceId: 'hub',
-      revokedBy: null,
-    });
+// 05a v1.0.2 §6.9 (M-5, N-4, N-9; 00 v1.12.3 row H-4), after the removed staff's sessions ended above. Step 1 is ONE
+// statement through `device_people_staff`: the unrevoked listed devices naming a removed person, each with its whole
+// profile and its full list in list order (so the event needs no further read). Step 2, per device: a list left
+// non-empty → `DeviceProfileSet { cause: 'directory' }` without them; an emptied phone → the RevokeDevice path,
+// `owner_removed`; any other emptied device → `everyone` + `needs_review`. Every event bumps `profile_version` (N-4).
+// The removed people's staff and admin sessions on these devices were already ended `staff_removed` by `endStaff`
+// (N-1), and the drawer shift, printer routes, device targets and point are untouched.
+const AFFECTED_SQL = `
+  SELECT d.device_id, d.device_type, d.device_name, d.point_id, p.screens, p.profile_version,
+         (SELECT json_group_array(staff_id) FROM
+            (SELECT a.staff_id FROM device_people a WHERE a.device_id = d.device_id ORDER BY a.rowid)) AS staff_ids
+    FROM devices d
+    JOIN device_profiles p ON p.device_id = d.device_id
+   WHERE d.revoked_at IS NULL AND p.access = 'listed'
+     AND d.device_id IN (SELECT device_id FROM device_people WHERE staff_id IN (SELECT value FROM json_each(?)))
+   ORDER BY d.device_id`;
+
+interface AffectedRow {
+  device_id: string;
+  device_type: string;
+  device_name: string;
+  point_id: string | null;
+  screens: string;
+  profile_version: number;
+  staff_ids: string;
+}
+
+function applyToDeviceProfiles(tx: WriterTx, removed: readonly string[]): void {
+  if (removed.length === 0) return;
+  const gone = new Set(removed);
+  const rows = tx.db.prepare(AFFECTED_SQL).all(JSON.stringify(removed)) as AffectedRow[];
+  for (const row of rows) {
+    const left = (JSON.parse(row.staff_ids) as string[]).filter((id) => !gone.has(id));
+    if (left.length === 0 && row.device_type === 'phone') {
+      revokeDevice(tx, row.device_id, { reason: null, cause: 'owner_removed', actorId: null, eventDeviceId: 'hub', revokedBy: null });
+      continue;
+    }
+    const payload: DeviceProfileSetPayload = {
+      device_id: row.device_id,
+      device_name: row.device_name,
+      access: left.length === 0 ? 'everyone' : 'listed',
+      staff_ids: left,
+      screens: JSON.parse(row.screens) as ScreenKey[],
+      point_id: row.point_id,
+      profile_version: row.profile_version + 1,
+      cause: 'directory',
+      needs_review: left.length === 0,
+    };
+    tx.append([
+      {
+        stream_type: 'hub',
+        stream_id: row.device_id,
+        event_type: 'DeviceProfileSet',
+        schema_version: 1,
+        payload,
+        occurred_at: tx.clock.branchNow(),
+        actor_id: null,
+        device_id: 'hub',
+      },
+    ]);
   }
 }
