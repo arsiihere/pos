@@ -3,6 +3,7 @@
 Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part B** (APPROVED 2026-11-24), with Part A P-1 – P-3, 01a v2.9 (A-2′ – A-6), 01b v1.10.4 (B-x), 01c v1.3 (C-11 – C-16), foundation v1.16 §6.2 (F-1). Integration branch: `module-08b`. Only the integrator (orchestrator session) edits this file.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-24: **Phase 0 merged** (#479 → `module-08b` @ `263c157`; gate green on try 2 — try 1 red on a collation-dependent `ORDER BY name` in the fixture test, fixed with `COLLATE "C"`). Every finding of the 4 fresh reviewers fixed (2 MAJOR: `RECIPE_NOT_FOUND` missing; B7 cap per option instead of per stock item per sale line). Lanes s1, r1, g1, u1 running in parallel.
 > - 2026-11-24: `module-08b` cut from `main` @ `325903dd` (PR #477 merged, gate green on that commit). P0.0 gap sweep done: **one spec–code contradiction (G-1, package graph) — owner ruled (a)**; the other gaps are small and recorded as AD-1 – AD-17 with the plan's Rec applied. Phase 0 (P0.1 – P0.5) built, one PR (AD-10).
 
 ## Gates
@@ -77,11 +78,11 @@ Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part
 | Task | What | Branch | PR | Tests | Merged | Notes |
 |---|---|---|---|---|---|---|
 | P0.0 | Gap sweep | — | — | — | 2026-11-24 | G-1, AD-1 – AD-17 |
-| P0.1 | `module-08b` + this board | `lane-0/p0` | | — | | |
-| P0.2 | Migration `0019_recipes.sql` | `lane-0/p0` | | 33 (+ AD-4 edits) | | HIGH |
-| P0.3 | Cost engine + `lb` / `oz` | `lane-0/p0` | | 1–11, 27 (t-1), 08a #1 | | Shared, HIGH; G-1 |
-| P0.4 | Wires + schemas | `lane-0/p0` | | 24, 27 (M-5), 27b (schema level), AD-12 pin | | Shared |
-| P0.5 | Hooks + fixtures | `lane-0/p0` | | fixture smoke | | Cross |
+| P0.1 | `module-08b` + this board | `lane-0/p0` | #479 | — | 2026-11-24 | |
+| P0.2 | Migration `0019_recipes.sql` | `lane-0/p0` | #479 | 33 (+ AD-4 edits) | 2026-11-24 | HIGH; 2 reviewers |
+| P0.3 | Cost engine + `lb` / `oz` | `lane-0/p0` | #479 | 1–11, 27 (t-1), 08a #1 | 2026-11-24 | Shared, HIGH; 2 reviewers; G-1 |
+| P0.4 | Wires + schemas | `lane-0/p0` | #479 | 24, 27 (M-5), 27b (schema level), AD-12 pin | 2026-11-24 | Shared |
+| P0.5 | Hooks + fixtures | `lane-0/p0` | #479 | fixture smoke | 2026-11-24 | Cross |
 | s1 | Snapshot key | `lane-S/s1` | | 23–25, 27, 27b, 28, 33 (key), 08a #25 | | HIGH, Cross |
 | s2 | Bump rule on 08a writes | `lane-S/s2` | | 26, 08a #9 #28 #31 #35 | | HIGH, Cross |
 | r1 | Recipes module + create + draft | `lane-R/r1` | | 12, 13 | | HIGH |
@@ -97,7 +98,7 @@ Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part
 
 | Test | Task | PR |
 |---|---|---|
-| 1–11 | P0.3 | |
+| 1–11 | P0.3 | #479 |
 | 12, 13 | r1 | |
 | 14–17 | r2 | |
 | 18, 18b, 37, 38 | r3 | |
@@ -107,9 +108,9 @@ Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part
 | 23–25, 27, 27b, 28 | s1 (+ P0.3 / P0.4 schema-level parts) | |
 | 26 | s2 | |
 | 29–32 | u1 | |
-| 33 | P0.2 (+ s1, AD-7) | |
+| 33 | P0.2 (+ s1, AD-7) | #479 (+ s1) |
 | 34–36 | t1 | |
-| 08a #1 | P0.3 | |
+| 08a #1 | P0.3 | #479 |
 | 08a #25 | s1 | |
 | 08a #9, #28, #31, #35 | s2 | |
 | drill 2 | — (owner's paper figures, OQ-1) | |
