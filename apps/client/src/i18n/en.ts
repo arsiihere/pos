@@ -2469,6 +2469,12 @@ export const en = {
   'kds.batch_started': 'One tap started the whole load ({n} lines)',
   'kds.batch_done': 'One tap finished the whole load — Undo on any line undoes all',
   'kds.ready_made': 'Ready-made',
+  // ⚠️ 03b v1.0.13 / v1.0.14 §3.3, §8 (STAB-6, STAB-7): the batch round tag and the priority chip
+  'kds.round.this': 'this round',
+  'kds.round.next': 'next round',
+  'kds.round.n': 'round {n}',
+  'kds.priority': 'Priority · {n} min late',
+  'kds.priority_short': 'Priority',
   // Pass (03b-S02, S03, D01)
   'pass.title': '{point}',
   'pass.ready': 'Ready',

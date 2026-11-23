@@ -64,7 +64,10 @@ export function kdsStationBody(db: Database.Database, state: EngineState, statio
     lanes: { lanes_on: s.has_lanes === 1 ? s.lanes_on : lane_count, lane_count },
     now: view.now.flatMap((l) => {
       const d = details.get(l.order_item_id);
-      return d === undefined ? [] : [{ ...d, stage: l.stage, fired_at: l.fired_at, started_at: l.started_at, mark: l.mark, done_undone: doneUndone(state, l.order_item_id) }];
+      // ⚠️ 03b v1.0.13 §3.3 (STAB-6, STAB-7): + the view's load_id (the round) and priority (the chip), memory
+      return d === undefined
+        ? []
+        : [{ ...d, stage: l.stage, fired_at: l.fired_at, started_at: l.started_at, mark: l.mark, done_undone: doneUndone(state, l.order_item_id), load_id: l.load_id, priority: l.priority ?? null }];
     }),
     details: view.next.flatMap((l) => {
       const d = details.get(l.order_item_id);

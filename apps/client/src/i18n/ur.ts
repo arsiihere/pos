@@ -325,6 +325,12 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'branches.timing.part_times_on': 'گاہک ہر حصے کا تیار وقت دیکھے',
   'branches.timing.part_times_off': 'گاہک صرف آرڈر کا وقت دیکھے',
   'branches.timing.part_times_help': 'ٹیک اوے رسید پر بڑے آرڈر کے ہر حصے کا تیار وقت چھپے گا ("4 تیار ~2:20 PM · 1 تیار ~2:40 PM")۔',
+  // ⚠️ 03b v1.0.13 / v1.0.14 §3.3, §8 (STAB-6, STAB-7): the batch round tag and the priority chip
+  'kds.round.this': 'یہ باری',
+  'kds.round.next': 'اگلی باری',
+  'kds.round.n': 'باری {n}',
+  'kds.priority': 'ترجیح · {n} منٹ دیر',
+  'kds.priority_short': 'ترجیح',
   // ⚠️ 01a v2.7.5 §8.1 MD-6 (STAB-7)
   'branches.timing.max_delay_default_ms': 'زیادہ سے زیادہ تاخیر (عام)',
   'branches.timing.max_delay_help': 'اگر کسی آئٹم کا کھانا اتنے منٹ دیر سے ہو تو کچن اسے اگلا پکائے (ترجیح)۔ جن آئٹمز کی تاخیر خالی ہو وہ یہی لیں۔',
