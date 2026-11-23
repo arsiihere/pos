@@ -325,6 +325,12 @@ export async function tapAlert(row: TapRow, deps: TapDeps): Promise<TapOutcome> 
   }
   switch (result.kind) {
     case 'open': {
+      if (result.focus === null) {
+        // 05a §3.10: a plain route with no place to glow (`#/devices`); tapAlert routes `devices` above, so not reached today
+        deps.navigate(result.href);
+        deps.settled?.();
+        return 'navigated';
+      }
       // 05a §8 (M-11): a place whose screen this device does not have falls back to the inbox with the alert selected
       // and a toast; a request this person answers (or a notice) still gets its sheet there
       const needs = screenOf(result);

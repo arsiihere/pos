@@ -11,7 +11,7 @@ import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { COOK, FX, append as appendDrafts, appendOrder, cookDirectory, fireLines, openDay, openSeating, pairPassTablet } from '../kds/fixtures';
 
-// dl h2 — 01d v1.3 §3.13.1 per-kind table (rows 1–19): each owning kind's pure `link` (02a v1.1.7 §6.14, §6.15;
+// dl h2 — 01d v1.3 §3.13.1 per-kind table (rows 1–20; row 20 `device_waiting`, 05a §3.10): each owning kind's pure `link` (02a v1.1.7 §6.14, §6.15;
 // 02b v1.0.15 §6.12, §6.13; 03a v1.2.5 §4.2; 03b v1.0.9 §6.21; 04 v1.0.6 §3.5); no `link` on station_overload,
 // kds_offline, printer_problem (DL Q-0a (a)); tests 69 and 73. The kinds are the real registrations (createTestHub
 // boots every module). Views are read through the real alerts-inbox route over rows written by the alerts projection.
@@ -80,15 +80,16 @@ const ROWS: Array<[number, string, Record<string, unknown>, AlertLinkTarget | nu
   [17, 'pin_use_failed', { request_alert_id: 'A1', request_kind: 'void_approval', error_code: 'ITEM_WRONG_STAGE', device_id: 'D1', link: LINE }, LINE],
   [18, 'no_approver', { permission: 'void-item' }, null],
   [19, 'test_alert', {}, null],
+  [20, 'device_waiting', {}, { type: 'devices' }], // ⚠️ 05a §3.10 (row D-3), 01d v1.3.5 §3.13.1 row 20
 ];
 
-describe('[01d #69] per-kind link (§3.13.1 rows 1–19)', () => {
+describe('[01d #69] per-kind link (§3.13.1 rows 1–20)', () => {
   beforeEach(async () => {
     hub = await createTestHub();
   });
 
-  it('[01d #69] each of the 19 kinds: its values_schema fixture gives exactly its §3.13.1 target; null for 8, 12, 13, 18, 19', () => {
-    expect(ROWS.map(([n]) => n)).toEqual(Array.from({ length: 19 }, (_, i) => i + 1));
+  it('[01d #69] each of the 20 kinds: its values_schema fixture gives exactly its §3.13.1 target; null for 8, 12, 13, 18, 19', () => {
+    expect(ROWS.map(([n]) => n)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
     for (const [n, name, values, target] of ROWS) expect(targetOf(name, values), `${n} ${name}`).toEqual(target);
     // a request's copy kinds without a stored link (a pre-v1.3 row) → null
     for (const [, name, values] of ROWS.slice(13, 17)) expect(targetOf(name, { ...values, link: undefined }), name).toBeNull();

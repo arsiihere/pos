@@ -1469,6 +1469,9 @@ export const en = {
   'alert.answered_on_requester_device.lock': 'You answered a request at {device}',
   'alert.no_approver.card': 'No one can approve requests right now',
   'alert.no_approver.lock': 'No one can approve requests',
+  // 05a §3.10 (row D-3): device_waiting (no spec wording; proposed at the task 26 review, owner may change). Urdu: English fallback, as the other 05a keys
+  'alert.device_waiting.card': 'A device is waiting for approval',
+  'alert.device_waiting.lock': 'Device waiting',
   // a kind this client has no texts for yet (a later module's kind): never the key itself
   'alerts.unknown.request': '{table} · Request · {requester}',
   'alerts.unknown.alert': '{table} · Alert · {requester}',

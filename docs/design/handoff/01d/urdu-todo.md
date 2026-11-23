@@ -175,3 +175,12 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `alerts.screen.cashier` | Cashier |  |
 | `alerts.screen.pass` | Pass |  |
 | `alerts.screen.manager` | Manager |  |
+
+## 05a client (task 25, carry-over from the task 26 review) — `device_waiting`, no Urdu yet
+
+05a §3.10 (row D-3): the `device_waiting` kind's labels. No spec wording: proposed at the task 26 review (the owner may change them). No entry in `ur.ts`; they show in English until a native speaker translates them.
+
+| Key | English | Note |
+|---|---|---|
+| `alert.device_waiting.card` | A device is waiting for approval | never the code, the device name or a count (05a A-5) |
+| `alert.device_waiting.lock` | Device waiting | lock line, same rule |
