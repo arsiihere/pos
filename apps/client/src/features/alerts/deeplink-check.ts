@@ -174,5 +174,9 @@ export async function checkTarget(row: CheckRow, deps: CheckDeps): Promise<Check
       return checkZoneItem(target.zone_id, target.item_id, deps);
     case 'table':
       return checkTable(row, target.table_id, target.seating_id, deps);
+    case 'devices':
+      // 05a §3.10 (row D-3, task 26): always open, no read (01d §3.13.3 row `devices`); `tapAlert` routes it to
+      // #/devices before any check (task 31), so no place is checked here
+      return { kind: 'no_place' };
   }
 }

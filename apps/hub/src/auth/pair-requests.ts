@@ -1,6 +1,9 @@
 import { DomainError } from '@pos/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import type { EventDraft } from '@pos/events';
+import { DEVICE_WAITING, DEVICE_WAITING_KEY } from '../alerts/kinds.js';
+import { alerts, type AlertCtx } from '../alerts/raise.js';
 import { provisionedOf } from '../config/schema.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import type { WriterTx } from '../engine-host/writer.js';
@@ -19,6 +22,24 @@ const PER_IP_CAP = 2;
 
 export function clearExpiredDeliveryTokens(tx: WriterTx, now: number): void {
   tx.db.prepare('UPDATE pair_requests SET delivery_token = NULL WHERE delivery_token IS NOT NULL AND expires_at <= ?').run(now);
+}
+
+/**
+ * 05a §3.10 close (row D-3): one read gives the pending requests other than the ones just approved / expired and the
+ * open `device_waiting` (the §6.3 "pending read for the close (1)"); when none is pending and one is open, the
+ * `AlertClosed` draft (+ the close's own row read). Called inside ApprovePairingRequest's transaction (`done`) and the
+ * session sweeper's existing write (`obsolete`). Returns [] when it stays open or none is open.
+ */
+export function closeDeviceWaitingWhenIdle(ctx: AlertCtx, now: number, reason: 'done' | 'obsolete'): EventDraft[] {
+  const row = ctx.tx.db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM pair_requests WHERE branch_id = ? AND approved_at IS NULL AND expires_at > ?) AS pending,
+         (SELECT alert_id FROM alerts WHERE state = 'open' AND kind = ? AND dedupe_key = ?) AS alert_id`,
+    )
+    .get(ctx.tx.branchId, now, DEVICE_WAITING.kind, DEVICE_WAITING_KEY) as { pending: number; alert_id: string | null };
+  if (row.pending > 0 || row.alert_id === null) return [];
+  return alerts.close(ctx, row.alert_id, reason);
 }
 
 export function registerPairRequestRoutes(app: FastifyInstance, deps: HubDeps): void {
@@ -113,6 +134,18 @@ function createRequest(deps: HubDeps, tx: WriterTx, deviceName: string, hardware
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(requestId, branchId, sha256hex(pollSecret), displayCode, deviceName, requesterIp, now, expiresAt, hardwareHint);
+  // 05a §3.10 / §6.1 (row D-3): raise `device_waiting` when none is open (+1 read, + the raise). Raised as the hub
+  // (actor null, device 'hub'); no values and a label key only: never the code or the requester's device name.
+  if (alerts.byDedupeKey(tx.db, DEVICE_WAITING.kind, DEVICE_WAITING_KEY) === null) {
+    const raised = alerts.raise(alerts.tickCtx(tx, now), {
+      kind: DEVICE_WAITING.kind,
+      subject: { stream_type: 'hub', stream_id: branchId },
+      target: { kind: 'permission', permission: 'manage-devices' },
+      display: { kind_label_key: DEVICE_WAITING.labels.lock },
+      dedupe_key: DEVICE_WAITING_KEY,
+    });
+    tx.append(raised.events);
+  }
   const host = deps.config.advertised_host ?? '';
   const approveUrl = `http://${host}:${deps.config.http_port}/admin/approve?r=${requestId}`;
   return {

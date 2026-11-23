@@ -85,7 +85,7 @@ describe('pairing requests', () => {
 
   it('[00 §10 #95] create → pending → approved (insert the approval rows directly) → token twice → after expires_at 404 and delivery_token cleared by clearExpiredDeliveryTokens; wrong secret 404; 11th pending → 503', async () => {
     const hub = await open();
-    const before = hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get();
+    const before = hub.deps.db.prepare('SELECT COALESCE(MAX(seq), 0) FROM events').pluck().get();
     const created = await create(hub, 'Till', '10.1.0.1');
     expect(created.statusCode).toBe(200);
     const data = created.json().data;
@@ -93,7 +93,8 @@ describe('pairing requests', () => {
     expect(data.approve_qr_svg).toBe(qrSvg(data.approve_url));
     expect(data.expires_at).toBe(hub.clock.branchNow() + 600_000);
     expect(data.display_code).toMatch(/^[0-9A-HJKMNP-TV-Z]{6}$/);
-    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get()).toBe(before);
+    // 05a §6.1 / §3.10 (task 26): 00 §6.30 "Events: none" became "AlertRaised (device_waiting) when none is open"
+    expect(hub.deps.db.prepare(`SELECT event_type FROM events WHERE seq > ? ORDER BY seq`).pluck().all(before)).toEqual(['AlertRaised', 'AttemptSent']);
     const stored = hub.deps.db
       .prepare('SELECT poll_secret_hash, requester_ip FROM pair_requests WHERE request_id = ?')
       .get(data.request_id) as { poll_secret_hash: string; requester_ip: string };
