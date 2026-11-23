@@ -347,6 +347,8 @@ export interface Draft {
 export interface DraftStore {
   put(draft: Draft): Promise<void>;
   list(device_id: string, staff_id: string): Promise<Draft[]>;
+  /** 02b-TK C2-5 (R3): every person's drafts of this device (the shared Held list) */
+  listDevice?(device_id: string): Promise<Draft[]>;
   remove(draft_id: string): Promise<void>;
 }
 

@@ -17,6 +17,12 @@ export function createMemoryDraftStore(backing: MemoryDraftBacking = new Map()):
         .map(draftRecord)
         .sort(byUpdatedAt);
     },
+    async listDevice(device_id) {
+      return [...backing.values()]
+        .filter((d) => d.device_id === device_id)
+        .map(draftRecord)
+        .sort(byUpdatedAt);
+    },
     async remove(draft_id) {
       backing.delete(draft_id);
     },

@@ -1659,4 +1659,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'v.refund_first': 'ادا ہو چکا: پہلے بل دوبارہ کھولیں (بل ← دوبارہ کھولیں)، پھر یہاں آئٹم ہٹائیں — بل واپسی کی رقم دکھائے گا',
   'line.err.closed_split': 'یہ آئٹم بل کے ادا شدہ حصے پر ہے — واپسی کیلئے بل دوبارہ کھولیں',
   'line.err.void_not_allowed': 'یہ آئٹم ابھی void نہیں ہو سکتا — تازہ کر دیا',
+  // 02b-TK C2-5 (frame HeldDrawer "Held … · by Sana"; R3): not in strings-table.md; Urdu to confirm
+  'h.by': '{name} نے',
+  'h.shared': 'اس کاؤنٹر پر سب یہ دیکھتے ہیں۔ میز کے آرڈر اسی کے پاس رہتے ہیں جس نے ہولڈ کیے۔',
 };
