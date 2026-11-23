@@ -34,6 +34,8 @@ class DeepLinkTest {
         assertEquals("#/inbox?focus=alert:$id", DeepLink.hash(id))
         assertEquals("location.hash = '#/inbox?focus=alert:$id'", DeepLink.script(id))
         assertEquals("/staff/#/inbox?focus=alert:$id", DeepLink.staffPath(id))
+        // the id is the only variable part: nothing in the script can end the JS string
+        assertEquals(2, DeepLink.script("7ZZZZZZZZZZZZZZZZZZZZZZZZZ").count { it == '\'' })
     }
 
     @Test(expected = IllegalArgumentException::class) fun hashRefusesAnInvalidId() {
