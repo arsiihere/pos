@@ -144,6 +144,29 @@ describe('[05a §5.3, §6.10] upgrade boot step', () => {
     expect((third.deps.db.prepare(`SELECT COUNT(*) AS n FROM events WHERE event_type = 'DeviceProfileSet'`).get() as { n: number }).n).toBe(7);
   });
 
+  it('[05a §6.10] the step runs after catchUp: with device_profiles wiped, the catch-up refolds every profile first and the step appends nothing', async () => {
+    const cfg = writeConfig();
+    cleanups.push(cfg.cleanup);
+    const start = (): Promise<BootHandle> =>
+      boot({ configPath: cfg.path, wallNow: () => 1_761_000_000_000, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud() });
+    const first = await start();
+    const h1 = asHub(first);
+    const kiosk = pairDevice(h1, { type: 'cashier_kiosk', name: 'Counter' }).deviceId;
+    const profiled = pairDevice(h1, { type: 'tablet', name: 'Set', profile: { access: 'listed', staff_ids: ['S_OWNER'], screens: ['manager'] } }).deviceId;
+    await first.stop();
+    const second = await start(); // upgrades the kiosk
+    expect(upgradeEvents(second.deps.db).map((e) => e.payload.device_id)).toEqual([kiosk]);
+    second.deps.db.exec(`DELETE FROM device_people; DELETE FROM device_profiles; DELETE FROM projection_checkpoints WHERE projection = 'device_profiles'`);
+    await second.stop();
+
+    const third = await start();
+    cleanups.push(() => third.stop());
+    expect(upgradeEvents(third.deps.db)).toHaveLength(1);
+    expect(deviceProfile(profiled)).toEqual({ access: 'listed', staff_ids: new Set(['S_OWNER']), screens: ['manager'], point_id: null, needs_review: false });
+    expect(deviceProfile(kiosk)).toMatchObject({ access: 'everyone', needs_review: true });
+    expect(unprofiled(third.deps.db)).toEqual([]);
+  });
+
   it('[05a §6.10] 1 read and one writer.run for every device; nothing to upgrade → the read only, no writer.run', async () => {
     const h = await createTestHub({ provisioned: true });
     cleanups.push(() => h.close());
@@ -175,6 +198,20 @@ describe('[05a §5.3, §6.10] upgrade boot step', () => {
     expect(upgradeEvents(h.deps.db).map((e) => [e.payload.access, e.payload.staff_ids])).toEqual([['listed', ['S_MGR']]]);
     expect(deviceProfile(phone)?.staff_ids).toEqual(new Set(['S_MGR']));
     expect(binding()).toEqual({ staff_id: 'S_MGR', session_id: null });
+  });
+
+  it('[05a §5.2, §5.3] [05a row D-6] a phone with no owner_staff_id is skipped: no event, left unprofiled, reported for a warning', async () => {
+    const h = await createTestHub({ provisioned: true });
+    cleanups.push(() => h.close());
+    const tablet = pairDevice(h, { type: 'tablet' }).deviceId;
+    const ownerless = pairDevice(h, { type: 'phone', ownerStaffId: 'S_MGR' }).deviceId;
+    h.deps.db.prepare('UPDATE devices SET owner_staff_id = NULL WHERE device_id = ?').run(ownerless); // raw SQL only
+    const warned: string[][] = [];
+    expect(upgradeDevices(h.deps, (ids) => warned.push(ids))).toBe(1);
+    expect(warned).toEqual([[ownerless]]);
+    expect(upgradeEvents(h.deps.db).map((e) => e.payload.device_id)).toEqual([tablet]);
+    expect(deviceProfile(ownerless)).toBeUndefined();
+    expect(unprofiled(h.deps.db)).toEqual([ownerless]);
   });
 
   // §5.3 / N-2 refusals need the session mask (05a §3.3a forSession in authorize, plan tasks 9–11, another lane).

@@ -188,7 +188,10 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     current = '4c';
     // 05a §5.3, §6.10: the upgrade step — after the catch-up (device_profiles is current), before the server build and
     // listen (its maps load the new profiles): 1 read, one writer.run, nothing on a later boot.
-    upgradeDevices(deps);
+    let ownerlessPhones: string[] = [];
+    upgradeDevices(deps, (ids) => {
+      ownerlessPhones = ids;
+    });
     // 00 M95: every device starts paused at HubStarted.hub_down_at (boot time on a first boot), before any contact.
     const hubDownAt = readHeartbeat(db, provisioned.branch_id);
     idlePause.boot(db, hubDownAt ?? deps.clock.branchNow());
@@ -197,6 +200,8 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     const publish = publisherFor(app);
     if (publish !== undefined) publishSlot.current = publish;
     ctx.app = app;
+    // 05a §5.2, D-6: logged here, where the hub logger exists (device ids only: no name, no token)
+    if (ownerlessPhones.length > 0) app.log.warn({ device_ids: ownerlessPhones }, 'upgrade skipped phones with no owner; they stay without a profile');
     registerHealth(app, () =>
       healthRead(phase, current, true, isConfirmed(config), provisioned.branch_id, opened.alarm, db),
     );

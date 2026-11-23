@@ -39,7 +39,7 @@ export function upgradeProfile(row: UnprofiledRow): DeviceProfileSetPayload {
     device_id: row.device_id,
     device_name: row.device_name,
     access: listed ? 'listed' : 'everyone',
-    staff_ids: listed && row.owner_staff_id !== null ? [row.owner_staff_id] : [],
+    staff_ids: listed && row.owner_staff_id !== null ? [row.owner_staff_id] : [], // ownerless phones are skipped
     screens: row.point_id === null ? [...UPGRADE_SCREENS[row.device_type]] : ['pass', ...UPGRADE_SCREENS[row.device_type]],
     point_id: row.point_id,
     profile_version: 1,
@@ -48,9 +48,21 @@ export function upgradeProfile(row: UnprofiledRow): DeviceProfileSetPayload {
   };
 }
 
-/** §6.10: appends the upgrade profiles; returns how many devices it upgraded (0 → no writer.run). */
-export function upgradeDevices(deps: { db: Database.Database; writer: Writer; clock: Clock }): number {
-  const rows = deps.db.prepare(UNPROFILED_SQL).all() as UnprofiledRow[];
+/**
+ * §6.10: appends the upgrade profiles; returns how many devices it upgraded (0 → no writer.run). A phone with no
+ * `owner_staff_id` (only reachable by raw SQL since 0027; 0002 forbade it) would get an invalid `listed` profile with
+ * no people (§5.2): it is skipped and left unprofiled (masked as `everyone`, no PIN accepted: D-6), and its id goes to
+ * `onSkipped` for a warning.
+ */
+export function upgradeDevices(
+  deps: { db: Database.Database; writer: Writer; clock: Clock },
+  onSkipped?: (device_ids: string[]) => void,
+): number {
+  const all = deps.db.prepare(UNPROFILED_SQL).all() as UnprofiledRow[];
+  const ownerless = (row: UnprofiledRow): boolean => row.device_type === 'phone' && row.owner_staff_id === null;
+  const skipped = all.filter(ownerless).map((row) => row.device_id);
+  if (skipped.length > 0) onSkipped?.(skipped);
+  const rows = all.filter((row) => !ownerless(row));
   if (rows.length === 0) return 0;
   deps.writer.run((tx) => {
     const occurred_at = deps.clock.branchNow();
