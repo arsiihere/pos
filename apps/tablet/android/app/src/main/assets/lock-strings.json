@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "generated_by": "apps/tablet/scripts/gen-lock-strings.mjs",
+  "fallback_language": "en",
+  "join": " · ",
+  "params": {
+    "table": "table_code",
+    "point": "point_code",
+    "requester": "requester_name",
+    "device": "device_name"
+  },
+  "table": {
+    "key": "alerts.table",
+    "digits": "^[0-9]+$"
+  },
+  "table_point_kinds": {
+    "kinds": [
+      "kds_offline",
+      "printer_problem",
+      "ready_to_serve",
+      "served_card"
+    ],
+    "params": [
+      "table",
+      "point"
+    ]
+  },
+  "takeaway": {
+    "kind": "comp",
+    "key": "comp.takeaway_card"
+  },
+  "outcome": {
+    "kind": "request_result",
+    "key": "alert.request_result.{outcome}",
+    "outcomes": [
+      "approved",
+      "rejected",
+      "withdrawn",
+      "obsolete",
+      "overridden"
+    ]
+  },
+  "unknown": {
+    "urgent": "alerts.unknown.request",
+    "other": "alerts.unknown.alert"
+  },
+  "silent_kinds": [
+    "approval_receipt"
+  ],
+  "result_sounds": {
+    "kind": "request_result",
+    "default": "info",
+    "by_outcome": {
+      "approved": "result_approved",
+      "rejected": "result_rejected",
+      "withdrawn": "none"
+    }
+  },
+  "languages": {
+    "en": {
+      "alert.answered_on_requester_device.lock": "You answered a request at {device}",
+      "alert.approval_receipt.lock": "You answered a request · {table}",
+      "alert.call_waiter.lock": "{table} · Call waiter",
+      "alert.close_without_buyer_id.lock": "{table} · No buyer details · {requester}",
+      "alert.comp.lock": "{table} · Comp · {requester}",
+      "alert.discount.lock": "{table} · Discount · {requester}",
+      "alert.fiscal_outbox_stuck.lock": "Fiscal records stuck",
+      "alert.kds_offline.lock": "Kitchen screen offline",
+      "alert.no_approver.lock": "No one can approve requests",
+      "alert.petty_cash.lock": "Petty cash · {requester}",
+      "alert.pin_use_failed.lock": "Your PIN was used on {device}",
+      "alert.printer_problem.lock": "Printer problem",
+      "alert.ready_to_serve.lock": "Ready to serve · {table} · {point}",
+      "alert.remove_comp.lock": "{table} · Remove comp · {requester}",
+      "alert.remove_service_charge.lock": "{table} · Remove service charge · {requester}",
+      "alert.reopen_bill.lock": "{table} · Reopen bill · {requester}",
+      "alert.request_result.approved": "Request approved · {table}",
+      "alert.request_result.lock": "Request answered · {table}",
+      "alert.request_result.obsolete": "Request closed · {table}",
+      "alert.request_result.overridden": "Request overridden · {table}",
+      "alert.request_result.rejected": "Request rejected · {table}",
+      "alert.request_result.withdrawn": "You withdrew the request · {table}",
+      "alert.served_card.lock": "Food handed over · {table}",
+      "alert.shift_variance.lock": "Shift variance · {requester}",
+      "alert.slip_warning.lock": "{table} · Running late",
+      "alert.table_handover.lock": "{table} · Table handover · {requester}",
+      "alert.test_alert.lock": "Test alert · from {requester}",
+      "alert.void_approval.lock": "{table} · Void · {requester}",
+      "alert.zone_stock_low.lock": "A zone item is running low",
+      "alert.zone_stock_out.lock": "A zone item ran out",
+      "alerts.table": "T{code}",
+      "alerts.unknown.alert": "{table} · Alert · {requester}",
+      "alerts.unknown.request": "{table} · Request · {requester}",
+      "comp.takeaway_card": "Comp · Takeaway order"
+    },
+    "ur": {
+      "alert.call_waiter.lock": "{table} · ویٹر بلایا",
+      "alert.comp.lock": "{table} · مفت · {requester}",
+      "alert.discount.lock": "{table} · رعایت · {requester}",
+      "alert.kds_offline.lock": "کچن اسکرین بند",
+      "alert.no_approver.lock": "کوئی منظور نہیں کر سکتا",
+      "alert.printer_problem.lock": "پرنٹر مسئلہ",
+      "alert.ready_to_serve.lock": "پیش کرنے کو تیار · {table} · {point}",
+      "alert.served_card.lock": "کھانا حوالے ہو گیا · {table}",
+      "alert.slip_warning.lock": "{table} · دیر ہو رہی ہے",
+      "alert.table_handover.lock": "{table} · میز حوالگی · {requester}",
+      "alert.test_alert.lock": "ٹیسٹ الرٹ · از {requester}",
+      "alert.void_approval.lock": "{table} · ووئڈ · {requester}",
+      "alert.zone_stock_low.lock": "زون کا ایک آئٹم کم ہو رہا ہے",
+      "alert.zone_stock_out.lock": "زون کا ایک آئٹم ختم ہو گیا"
+    }
+  }
+}
