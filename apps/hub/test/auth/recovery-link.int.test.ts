@@ -53,7 +53,7 @@ describe('05a §6.11 admin recovery link', () => {
     expect(bootstrapEvents(hub)).toHaveLength(1);
   });
 
-  it.todo('[05a #16a approve half] lands with task 15');
+  it.todo('[05a #16a] approve half: the owner approves their phone from the recovery session (needs task 15, ApprovePairingRequest v2 for phones)');
 
   it('[05a #16a] any live bootstrap token (here one from setup) answers already_issued_until; a consumed or expired one does not; a kds device is refused', async () => {
     const hub = await open();
@@ -81,6 +81,26 @@ describe('05a §6.11 admin recovery link', () => {
     const refused = await press(hub, kds.token);
     expect(refused.statusCode).toBe(403);
     expect(refused.json().error.code).toBe('DEVICE_TYPE_NOT_ALLOWED');
+  });
+
+  it('[05a §6.11 N-7] the admin-device-public group refuses an unknown token, a revoked device and a kds device; nothing is written', async () => {
+    const hub = await open();
+    const tablet = pairDevice(hub, { type: 'tablet', profile: { access: 'everyone', screens: ['dine_in'] } });
+    const kds = pairDevice(hub, { type: 'kds', stationId: 'ST_GRILL' });
+    hub.deps.db.prepare('UPDATE devices SET revoked_at = ? WHERE device_id = ?').run(hub.clock.branchNow(), tablet.deviceId);
+
+    const unknown = await press(hub, 'not-a-paired-device-token');
+    expect(unknown.statusCode).toBe(401);
+    expect(unknown.json().error.code).toBe('DEVICE_TOKEN_INVALID');
+    const revoked = await press(hub, tablet.token);
+    expect(revoked.statusCode).toBe(403);
+    expect(revoked.json().error.code).toBe('DEVICE_REVOKED');
+    const refused = await press(hub, kds.token);
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error).toMatchObject({ code: 'DEVICE_TYPE_NOT_ALLOWED', details: { device_type: 'kds' } });
+
+    expect(bootstrapEvents(hub)).toHaveLength(0);
+    expect(hub.deps.db.prepare('SELECT COUNT(*) AS n FROM admin_bootstrap_tokens').get()).toEqual({ n: 0 });
   });
 
   it('[05a §6.11 R-1] statements: 1 read of live bootstrap tokens + the issueAdminBootstrap transaction', async () => {
