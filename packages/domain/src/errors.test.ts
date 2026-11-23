@@ -283,4 +283,10 @@ describe('[05 §9] billing codes', () => {
     expect(ErrorCatalogue.SERVICE_CHARGE_NOT_APPLIED.status).toBe(409);
   });
 
+
+  it('[05a §9] DEVICE_ACCESS_DENIED is 403 and DEVICE_ACCESS_SELF is 422; DEVICE_NOT_OWNED stays', () => {
+    expect(statusOf('DEVICE_ACCESS_DENIED')).toBe(403);
+    expect(statusOf('DEVICE_ACCESS_SELF')).toBe(422);
+    expect(statusOf('DEVICE_NOT_OWNED')).toBe(403);
+  });
 });

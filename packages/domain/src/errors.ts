@@ -18,6 +18,8 @@ export const ErrorCatalogue = {
   BRANCH_MISMATCH: { status: 403 },
   DEVICE_TYPE_NOT_ALLOWED: { status: 403 },
   DEVICE_NOT_OWNED: { status: 403 },
+  // 05a §9
+  DEVICE_ACCESS_DENIED: { status: 403 },
   HOST_NOT_ALLOWED: { status: 403 },
   STATION_LOGOUT_NOT_ALLOWED: { status: 403 },
   PASSWORD_CHANGE_REQUIRED: { status: 403 },
@@ -147,6 +149,8 @@ export const ErrorCatalogue = {
   PAYMENT_REFERENCE_REQUIRED: { status: 422 },
   PAYMENT_CASH_STEP: { status: 422 },
   DRAWER_DEVICE_INVALID: { status: 422 },
+  // 05a §9
+  DEVICE_ACCESS_SELF: { status: 422 },
   PETTY_SETTLE_MISMATCH: { status: 422 },
   CLIENT_UPGRADE_REQUIRED: { status: 426 },
   PIN_LOCKED_OUT: { status: 429 },
