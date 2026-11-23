@@ -29,6 +29,8 @@ data class AlertItem(
     val fromBusinessDay: String?,
     /** "alerts_open" | "alert" (M-19 `alert_received.via`). */
     val via: String,
+    // 05b A10: 01d §8.3 G1-14c — `escalation: true` marks the escalation step (one volume step-up, M-10).
+    val escalation: Boolean = false,
 ) {
     val key: String get() = "$alertId:$step"
 
@@ -101,6 +103,7 @@ object Frames {
             seenByMe = a.optBoolean("seen_by_me", false),
             fromBusinessDay = strOrNull(a, "from_business_day")?.takeIf { it.isNotEmpty() },
             via = via,
+            escalation = a.optBoolean("escalation", false), // 05b A10: M-10 step-up
         )
     }
 
