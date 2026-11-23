@@ -10,6 +10,8 @@ import type { HubDeps } from '../server.js';
 
 const Body = z.object({
   device_name: z.string().min(1).max(40),
+  // 05a §6.1: a default for the form only (M-2).
+  hardware_hint: z.enum(['tablet', 'cashier_kiosk', 'kds', 'phone']).optional(),
 });
 
 const PENDING_CAP = 10;
@@ -27,7 +29,7 @@ export function registerPairRequestRoutes(app: FastifyInstance, deps: HubDeps): 
         issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
       });
     }
-    const created = deps.writer.run((tx) => createRequest(deps, tx, parsed.data.device_name, request.ip)).result;
+    const created = deps.writer.run((tx) => createRequest(deps, tx, parsed.data.device_name, parsed.data.hardware_hint ?? null, request.ip)).result;
     return { data: created };
   });
 
@@ -37,9 +39,10 @@ export function registerPairRequestRoutes(app: FastifyInstance, deps: HubDeps): 
     const row = deps.readDb
       .prepare(
         `SELECT r.poll_secret_hash, r.expires_at, r.approved_at, r.device_id, r.delivery_token,
-                d.device_type, d.station_id
+                d.device_type, d.station_id, p.screens
          FROM pair_requests r
          LEFT JOIN devices d ON d.device_id = r.device_id
+         LEFT JOIN device_profiles p ON p.device_id = r.device_id
          WHERE r.request_id = ?`,
       )
       .get(id) as
@@ -51,6 +54,7 @@ export function registerPairRequestRoutes(app: FastifyInstance, deps: HubDeps): 
           delivery_token: string | null;
           device_type: string | null;
           station_id: string | null;
+          screens: string | null;
         }
       | undefined;
     if (
@@ -69,6 +73,8 @@ export function registerPairRequestRoutes(app: FastifyInstance, deps: HubDeps): 
         device_token: row.delivery_token,
         device_type: row.device_type,
         station_id: row.station_id,
+        // 05a §6.2: from the device's profile; a kds (or a device without one) has none.
+        screens: row.screens === null ? [] : (JSON.parse(row.screens) as string[]),
         // M92: the screen names its station while it opens.
         station_name: row.station_id === null ? null : (branchConfig()?.stations.find((station) => station.station_id === row.station_id)?.name ?? null),
         branch_name: provisionedOf(deps.config).branch_name,
@@ -77,7 +83,7 @@ export function registerPairRequestRoutes(app: FastifyInstance, deps: HubDeps): 
   });
 }
 
-function createRequest(deps: HubDeps, tx: WriterTx, deviceName: string, requesterIp: string) {
+function createRequest(deps: HubDeps, tx: WriterTx, deviceName: string, hardwareHint: string | null, requesterIp: string) {
   const now = tx.clock.branchNow();
   const branchId = tx.branchId;
   const oldest = tx.db
@@ -103,10 +109,10 @@ function createRequest(deps: HubDeps, tx: WriterTx, deviceName: string, requeste
   tx.db
     .prepare(
       `INSERT INTO pair_requests (
-        request_id, branch_id, poll_secret_hash, display_code, device_name, requester_ip, created_at, expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        request_id, branch_id, poll_secret_hash, display_code, device_name, requester_ip, created_at, expires_at, hardware_hint
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(requestId, branchId, sha256hex(pollSecret), displayCode, deviceName, requesterIp, now, expiresAt);
+    .run(requestId, branchId, sha256hex(pollSecret), displayCode, deviceName, requesterIp, now, expiresAt, hardwareHint);
   const host = deps.config.advertised_host ?? '';
   const approveUrl = `http://${host}:${deps.config.http_port}/admin/approve?r=${requestId}`;
   return {

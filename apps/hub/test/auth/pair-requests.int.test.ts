@@ -4,6 +4,7 @@ import { qrSvg } from '../../src/lib/qr';
 import { sha256hex } from '../../src/lib/hash';
 import { registerSetupRoutes } from '../../src/setup/provision';
 import { writeHubConfigAtomic } from '../../src/config/write';
+import { statementCounter } from '../helpers/statement-counter';
 import { aDirectory } from '../helpers/fixtures';
 import { stubCloud } from '../helpers/stub-cloud';
 import { aBranchConfig } from '@pos/events/testing';
@@ -32,6 +33,54 @@ describe('pairing requests', () => {
     };
     expect(await approve('kds', 'S1')).toMatchObject({ status: 'approved', station_id: 'S1', station_name: 'Karahi' });
     expect(await approve('cashier_kiosk', null)).toMatchObject({ status: 'approved', station_id: null, station_name: null });
+  });
+
+  it('[05a #25] hardware_hint is stored in the column; absent stays NULL; the display code and token are not in the stored hint', async () => {
+    const hub = await open();
+    const withHint = (await create(hub, 'Phone', '10.1.0.11', { hardware_hint: 'phone' })).json().data;
+    const without = (await create(hub, 'Other', '10.1.0.12')).json().data;
+    const hint = (id: string) => hub.deps.db.prepare('SELECT hardware_hint FROM pair_requests WHERE request_id = ?').pluck().get(id);
+    expect(hint(withHint.request_id)).toBe('phone');
+    expect(hint(without.request_id)).toBeNull();
+    for (const value of ['tablet', 'cashier_kiosk', 'kds']) {
+      const res = await create(hub, 'X', `10.1.1.${value.length}`, { hardware_hint: value });
+      expect(res.statusCode).toBe(200);
+      expect(hint(res.json().data.request_id)).toBe(value);
+    }
+  });
+
+  it('[05a #25] hardware_hint outside the four values -> 400 and nothing stored', async () => {
+    const hub = await open();
+    const before = hub.deps.db.prepare('SELECT COUNT(*) FROM pair_requests').pluck().get();
+    for (const bad of ['printer', '', 'PHONE', 7, null]) {
+      const res = await create(hub, 'Bad', '10.1.0.20', { hardware_hint: bad });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM pair_requests').pluck().get()).toBe(before);
+  });
+
+  it('[05a §6.2] the approved poll adds screens from the device profile (ordered), [] for a kds or no profile; one statement', async () => {
+    const hub = await open();
+    const approve = async (type: string, stationId: string | null, screens: string[] | null) => {
+      const data = (await create(hub, 'Screen', '10.1.0.30')).json().data;
+      const deviceId = hub.deps.ids.next();
+      hub.deps.db
+        .prepare(`INSERT INTO devices (device_id, branch_id, token_hash, device_name, device_type, station_id, owner_staff_id, paired_at, paired_by) VALUES (?, 'branch-1', ?, 'Screen', ?, ?, NULL, ?, 'S_OWNER')`)
+        .run(deviceId, sha256hex(`secret-${deviceId}`), type, stationId, hub.clock.branchNow());
+      if (screens !== null) {
+        hub.deps.db
+          .prepare(`INSERT INTO device_profiles (device_id, access, screens, profile_version, needs_review) VALUES (?, 'everyone', ?, 1, 0)`)
+          .run(deviceId, JSON.stringify(screens));
+      }
+      hub.deps.db.prepare('UPDATE pair_requests SET approved_at = ?, approved_by = ?, device_id = ?, delivery_token = ? WHERE request_id = ?').run(hub.clock.branchNow(), 'S_OWNER', deviceId, `secret-${deviceId}`, data.request_id);
+      const counter = statementCounter(hub.deps.readDb);
+      const res = await poll(hub, data.request_id, data.poll_secret);
+      expect(counter.count).toBe(1);
+      return res.json().data;
+    };
+    expect(await approve('tablet', null, ['pass', 'dine_in', 'cashier'])).toMatchObject({ status: 'approved', screens: ['pass', 'dine_in', 'cashier'] });
+    expect(await approve('kds', 'S1', null)).toMatchObject({ status: 'approved', screens: [] });
+    expect(await approve('phone', null, null)).toMatchObject({ status: 'approved', screens: [] });
   });
 
   it('[00 §10 #95] create → pending → approved (insert the approval rows directly) → token twice → after expires_at 404 and delivery_token cleared by clearExpiredDeliveryTokens; wrong secret 404; 11th pending → 503', async () => {
@@ -175,12 +224,12 @@ async function open(): Promise<TestHub> {
   return hub;
 }
 
-function create(hub: TestHub, deviceName: string, remoteAddress: string) {
+function create(hub: TestHub, deviceName: string, remoteAddress: string, extra: Record<string, unknown> = {}) {
   return hub.app.inject({
     method: 'POST',
     url: '/pair/requests',
     remoteAddress,
-    payload: { device_name: deviceName },
+    payload: { device_name: deviceName, ...extra },
   });
 }
 
