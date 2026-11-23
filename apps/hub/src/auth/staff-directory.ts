@@ -1,5 +1,6 @@
-import { PERMISSIONS, type Permission, type Scope } from '@pos/domain';
+import { LISTED_ONLY_PERMISSIONS, MONEY_PERMISSIONS, PERMISSIONS, type Masked, type Permission, type Scope } from '@pos/domain';
 import type Database from 'better-sqlite3';
+import type { DeviceProfile } from './device-profile.js';
 import { zoneOfTable as zoneOfTableFromConfig } from '../sync/branch-config-holder.js';
 
 // 01b §3.6 (v1.5 B-4): the responsibility kinds a station is assigned.
@@ -45,12 +46,22 @@ export interface NoPinStaff {
   lead_staff_id: string | null;
 }
 
-// 01b §3.3: `scope` only on a granting result.
-export type Resolution =
+// 01b §3.3: `scope` only on a granting result. 05a §3.3a: `masked` only on a result the session view changed.
+export type Resolution = (
   | { grant: 'allowed'; scope: Scope }
   | { grant: 'requires_approval'; approver_role_ids: string[]; scope: Scope }
   | { grant: 'not_granted' }
-  | { grant: 'denied' };
+  | { grant: 'denied' }
+) & { masked?: Masked };
+
+// 05a §3.3a: the session a view is bound to. `device_id` null = the bootstrap admin (no device).
+export interface SessionRef {
+  staff_id: string | null;
+  device_id: string | null;
+}
+
+const LISTED_ONLY: ReadonlySet<string> = new Set(LISTED_ONLY_PERMISSIONS);
+const MONEY: ReadonlySet<string> = new Set(MONEY_PERMISSIONS);
 
 // 01b §3.3: branch > my_floors = my_team = my_stations = my_zones > own_tables.
 const SCOPE_RANK: Record<Scope, number> = { branch: 2, my_floors: 1, my_team: 1, my_stations: 1, my_zones: 1, own_tables: 0 };
@@ -88,7 +99,7 @@ interface StaffRecord {
 type ResponsibilityRecord = DirectoryCore['responsibilities'][number];
 
 export class StaffDirectory {
-  private constructor(
+  protected constructor(
     private readonly directoryVersion: number,
     private readonly staffById: Map<string, StaffRecord>,
     private readonly roles: Map<string, RoleRecord>,
@@ -263,6 +274,26 @@ export class StaffDirectory {
     return this.directoryVersion;
   }
 
+  /**
+   * 05a §3.3a (00 §3.6 row H-3): the directory as seen by one session. Its `resolve` (and so `permissionsOf`,
+   * `adminPermissions`, `hasAdmin`) masks the session's own grants when its device is `everyone` or has no profile
+   * (v1.0.1 R-1); every other read is the directory's. The profile is read at each resolve, in memory.
+   */
+  forSession(s: SessionRef, profileOf: (id: string) => DeviceProfile | undefined): SessionDirectory {
+    return new SessionDirectory(
+      this.directoryVersion,
+      this.staffById,
+      this.roles,
+      this.responsibilities,
+      this.noPinById,
+      this.zoneOfTable,
+      this.tableAssignee,
+      this.zoneAssignee,
+      s,
+      profileOf,
+    );
+  }
+
   get(staffId: string): StaffView | undefined {
     const staff = this.staffById.get(staffId);
     if (staff === undefined) return undefined;
@@ -430,6 +461,34 @@ export class StaffDirectory {
 
   hasAdmin(staffId: string): boolean {
     return this.resolve(staffId, 'access-hub-admin').grant === 'allowed';
+  }
+}
+
+/** 05a §3.3a: a `StaffDirectory` bound to a session; see `StaffDirectory.forSession`. */
+export class SessionDirectory extends StaffDirectory {
+  constructor(
+    directoryVersion: number,
+    staffById: Map<string, StaffRecord>,
+    roles: Map<string, RoleRecord>,
+    responsibilities: ResponsibilityRecord[],
+    noPinById: Map<string, NoPinStaff>,
+    zoneOfTable: ZoneOfTable,
+    tableAssignee: Map<string, string>,
+    zoneAssignee: Map<string, string>,
+    private readonly session: SessionRef,
+    private readonly profileOf: (id: string) => DeviceProfile | undefined,
+  ) {
+    super(directoryVersion, staffById, roles, responsibilities, noPinById, zoneOfTable, tableAssignee, zoneAssignee);
+  }
+
+  override resolve(staffId: string, permission: Permission): Resolution {
+    const raw = super.resolve(staffId, permission);
+    if (raw.grant !== 'allowed' || staffId !== this.session.staff_id || this.session.device_id === null) return raw;
+    // R-1: no profile counts as `everyone` (fail-closed, permissions only).
+    if (this.profileOf(this.session.device_id)?.access === 'listed') return raw;
+    if (LISTED_ONLY.has(permission)) return { grant: 'not_granted', masked: 'listed_only' };
+    if (MONEY.has(permission)) return { grant: 'requires_approval', approver_role_ids: [], scope: raw.scope, masked: 'downgraded' };
+    return raw;
   }
 }
 
