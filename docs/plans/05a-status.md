@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~17:10 PKT: **Task 21 merged**. **20 tasks merged**; B3, B5 complete. Starting B6: 23 (answers), 24 (downgraded raise), 26 (`device_waiting`) in parallel; 25 after 23.
 > - 2026-11-23 ~17:00 PKT: **Tasks 17–18 merged** (sign-in checks, rosters). **19 tasks merged**: 9–15, 17–20, 22, 27–29, 31, 32, 35, 36. Next: 16 (approved, merging after its merge of build/05a), 21 (in review), 33, 34 (running); then 23–26, 30.
 > - 2026-11-23 ~16:45 PKT: **Task 15 merged** (approve tablet / phone by request; token pairing and the STAB-1 Add a phone / Add a tablet removed). 17 tasks merged. Approved, merging next: 16, 17 (re-check), 18. In review: 21. Running: 34.
 > - 2026-11-23 ~16:20 PKT: **Task 20 merged**. 16 tasks merged. Fix rounds: 15 (tablet / phone on `/admin/approve` until task 33), 17 (tests). Running: 16, 18, 21.
@@ -107,7 +108,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 18 | B5 | staff / login roster | NORMAL | `19e3cdbb` | **done** (Sonnet review APPROVE; a no-profile phone's roster = its owner, read from §3.5 R-1) |
 | 19 | B5 | `SetDeviceProfile` | HIGH | `cac60851` | **done** (Opus review APPROVE; PC-5) |
 | 20 | B5 | revoke both + device list | NORMAL | `547702b2`, fix `961da1e3` | **done** (Sonnet review FIX → 1 round: a no-profile staff device lists as `everyone` v0 so task 19 can edit it) |
-| 21 | B5 | directory apply | HIGH | | |
+| 21 | B5 | directory apply | HIGH | `f3ab0b3c` | **done** (Opus review APPROVE; one wider `device_people` read; no `device_profile` push for `directory` events, none needed: screens / point never change; a `directory` event clears an earlier `needs_review`, literal §4.2 / §6.9) |
 | 22 | B6 | D-1 bindings | HIGH | `e9cd26d1` | **done** (Opus review APPROVE, 300-sequence rebuild fuzz; `alert-sockets.ts` as-built outside the Files column, required by 01d §3.7) |
 | 23 | B6 | D-2 answers | HIGH | | |
 | 24 | B6 | D-2 downgraded raise | HIGH | | |
