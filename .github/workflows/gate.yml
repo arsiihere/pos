@@ -8,7 +8,7 @@ on:
   pull_request:
     branches: [main, 'module-*']
   push:
-    branches: [main, 'module-*']
+    branches: [main, 'module-*', 'build/**', 'lane-05a*/**']   # 05a: build/05a and its cloud lanes (owner 2026-11-23, no PRs)
   workflow_dispatch:
 
 concurrency:
