@@ -47,6 +47,7 @@ export interface CloudTestHooks {
   guardRead?(): Promise<void>; // 01b task 35: a rejection makes the JWT guard's owner-row read fail (#107)
   onVersionCompare?(entity: 'staff' | 'role' | 'responsibility', id: string, version: string): void; // 01b task 30 (#104)
   afterOwnerRowLock?(path: 'login' | 'refresh' | 'change' | 'reset'): Promise<void>; // 01b task 42: right after each owner-row lock (#74)
+  afterStockItemLock?(route: string): Promise<void>; // 08a §10.3 (N-5, AD-1): right after the stock-item lock of the §6.3 PATCH and the §6.5–§6.7 POSTs
 }
 
 export interface CloudDeps {

@@ -373,6 +373,7 @@ export async function patchStockItem(
     const level = new TenantLevelRepository(req.tenant, client);
     await assertTenantWide(level, req.ownerUserId);
     const before = await lockStockItem(level, stockItemId);
+    await deps.testHooks?.afterStockItemLock?.('PATCH /v1/admin/stock-items/:stock_item_id'); // 08a §10.3 (N-5); before the 404 on purpose: every path
     if (before === undefined) throw new DomainError('STOCK_ITEM_NOT_FOUND', { stock_item_id: stockItemId });
     if (body.expected_version !== toStockItemWire(before).version) {
       throw new DomainError('CONFIG_STALE', { entity: 'stock_item', id: stockItemId });
