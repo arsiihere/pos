@@ -2,6 +2,7 @@ import type { BranchConfig } from '@pos/events';
 import type { HubError } from '../../../../api/hub-admin';
 import { t, type MessageKey } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
+import { timeText } from '../../../alerts/labels';
 import { TABLE_ERROR_CODES, tableErrorKey } from '../../tables/errors';
 import type { Enqueue } from '../../tables/contracts';
 import type { CarType, Draft, DraftStore, EtaPreviewBody, LineOption, SubmitOrderPayload, SubmitResult } from '../contracts';
@@ -108,6 +109,16 @@ export function refusalText(config: BranchConfig, outcome: Extract<SendOutcome, 
   }
   if ((TABLE_ERROR_CODES as readonly string[]).includes(code)) return t(tableErrorKey(outcome.error));
   return fill(t('send.refused_why'), { why: t('queue.why.other') });
+}
+
+/**
+ * 02b-TK C1-3 (frame SentToast; 02b §6.1 result): the background Send's toast — "57 · Usman · sent · ready 1:42 PM"
+ * (the token, the name if typed, the latest group promise); a 2xx without a result (the hub had it already) → "Sent".
+ */
+export function sentToastText(result: SubmitResult | undefined, customer_name: string | undefined, utcOffsetMs: number): string {
+  if (result === undefined || result.groups.length === 0) return t('send.sent');
+  const ready = Math.max(...result.groups.map((g) => g.promise_ms));
+  return [result.token === null ? null : String(result.token), customer_name ?? null, `${t('t.sent')} ${timeText(ready, utcOffsetMs)}`].filter((x) => x !== null).join(' · ');
 }
 
 const nameOf = (config: BranchConfig, line: CartLine): string =>

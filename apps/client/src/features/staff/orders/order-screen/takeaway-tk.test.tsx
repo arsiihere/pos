@@ -6,7 +6,10 @@ import type { HubResult } from '../../../../api/hub-admin';
 import { flush, mount } from '../../../../../test/dom';
 import { ShellContext, type Shell } from '../../shell/hooks';
 import { createLiveBus } from '../../shell/live';
-import type { EnqueueMeta, EnqueueResult, QueueableCommand } from '../../tables/contracts';
+import { createStaffApi } from '../../api';
+import type { Enqueue, EnqueueMeta, EnqueueResult, QueueableCommand } from '../../tables/contracts';
+import { createEnqueue } from '../queue/enqueue';
+import { createMemoryQueueStore } from '../queue/memory-store';
 import type { DraftStore, EtaDraft, EtaPreviewBody, SubmitOrderPayload, SubmitResult } from '../contracts';
 import { createMemoryDraftStore } from '../drafts/memory-drafts';
 import { createDayWatch } from './day-open';
@@ -37,7 +40,7 @@ function cfg(): BranchConfig {
 type Answer = EnqueueResult<SubmitResult | undefined>;
 const DAY_CLOSED = { ok: false, error: { kind: 'api', status: 409, code: 'BUSINESS_DAY_NOT_OPEN', details: {} } } as const;
 
-function harness(o: { answer?: (p: SubmitOrderPayload) => Promise<Answer>; preview?: (d: EtaDraft) => HubResult<EtaPreviewBody>; drafts?: DraftStore; phone?: boolean; online?: boolean } = {}) {
+function harness(o: { answer?: (p: SubmitOrderPayload) => Promise<Answer>; preview?: (d: EtaDraft) => HubResult<EtaPreviewBody>; drafts?: DraftStore; phone?: boolean; online?: boolean; enqueue?: (live: ReturnType<typeof createLiveBus>) => Enqueue } = {}) {
   const live = createLiveBus();
   const config = cfg();
   const sent: Array<{ type: QueueableCommand; payload: SubmitOrderPayload; meta: EnqueueMeta }> = [];
@@ -52,7 +55,7 @@ function harness(o: { answer?: (p: SubmitOrderPayload) => Promise<Answer>; previ
     { pendingFor: () => 0, pendingCount: () => 0, subscribe: () => () => {} },
   );
   const shell = {
-    device: { token: 'tok', id: 'DV1', type: 'kiosk' },
+    device: { token: 'tok', id: 'DV1', type: 'cashier_kiosk' },
     live,
     config: { config: () => null, snapshot: () => config, refresh: async () => {}, subscribe: () => () => {}, dispose: () => {} },
     orders: {
@@ -65,7 +68,7 @@ function harness(o: { answer?: (p: SubmitOrderPayload) => Promise<Answer>; previ
     tables: { tableMap: async () => ({ ok: true, data: { as_of_seq: 1, floors: [] } }) },
     toasts: { show: (x: { text: string; sub?: string; tone?: string }) => toasts.push(x) },
     permissions: { allowed: () => false, requiresApproval: () => false, resolution: () => ({ grant: 'not_granted' }), scope: () => null },
-    enqueue,
+    enqueue: o.enqueue?.(live) ?? enqueue,
     clock: { nowMs: () => T, utcOffsetMs: 5 * HOUR },
     me: { staff_id: 'ST1', name: 'Sana' },
     online: o.online ?? true,
@@ -287,6 +290,144 @@ describe('[02b-TK C1-2] takeaway name / phone inline in the cart', () => {
     expect(phoneInput(m)).not.toBeNull();
     type(phoneInput(m), '123');
     expect((m.container.querySelector('.sbar .btn--primary') as HTMLButtonElement).disabled).toBe(true);
+    m.unmount();
+  });
+});
+
+const result = (p: SubmitOrderPayload, o: Partial<SubmitResult> = {}): SubmitResult => ({
+  order_id: p.order_id,
+  token: 57,
+  groups: [
+    { group_id: 'G1', promise_ms: at(20, 12), order_item_ids: [] },
+    { group_id: 'G2', promise_ms: at(20, 29), order_item_ids: p.lines.map((l) => l.order_item_id) },
+  ],
+  lines: p.lines.map((l) => ({ order_item_id: l.order_item_id, eta_ms: at(20, 29), from_stock: false, zone_served: false })),
+  ...o,
+});
+
+describe('[02b-TK C1-3] Send in the background', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] }));
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+    nav.to = [];
+  });
+
+  it('[02b §6.1; frame SentToast] no dialog; the cart is fresh at once; the toast names the token, the customer and the ready time', async () => {
+    let release: (a: Answer) => void = () => {};
+    const h = harness({ answer: () => new Promise((r) => (release = r)) });
+    const m = h.render();
+    await flush();
+    type(nameInput(m), 'Usman');
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    m.click(tile(m, 'Naan'));
+    m.click(m.button('Send to kitchen'));
+    await flush();
+    // fresh cart at once, before the hub answers; no "Sending…" dialog
+    expect(m.container.querySelector('.dlg')).toBeNull();
+    expect(m.container.querySelectorAll('.ln')).toHaveLength(0);
+    expect(nameInput(m)!.value).toBe('');
+    expect(h.sent[0]!.payload).toMatchObject({ order_type: 'takeaway', takeaway: { customer_name: 'Usman' }, lines: [{ item_id: 'I5', quantity: 2 }] });
+    release({ status: 'sent', result: result(h.sent[0]!.payload) });
+    await flush();
+    expect(m.container.querySelector('.dlg')).toBeNull();
+    expect(h.toasts.at(-1)).toMatchObject({ text: '57 · Usman · sent · ready 8:29 PM', tone: 'ok' });
+    expect(nav.to).toEqual([]);
+    // the next customer: the screen takes the next order at once
+    m.click(tile(m, 'Raita'));
+    expect(m.container.querySelectorAll('.ln')).toHaveLength(1);
+    m.click(m.button('Send to kitchen'));
+    await flush();
+    expect(h.sent).toHaveLength(2);
+    expect(h.sent[1]!.payload.takeaway).toBeUndefined();
+    expect(h.sent[1]!.payload.order_id).not.toBe(h.sent[0]!.payload.order_id);
+    m.unmount();
+  });
+
+  it('[02b §3.12 #35] while the first answer is awaited the fresh cart takes no tap (one Send at a time)', async () => {
+    let release: (a: Answer) => void = () => {};
+    const h = harness({ answer: () => new Promise((r) => (release = r)) });
+    const m = h.render();
+    await flush();
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    m.click(m.button('Send to kitchen'));
+    await flush();
+    m.click(tile(m, 'Raita'));
+    expect(m.container.querySelectorAll('.ln')).toHaveLength(0);
+    release({ status: 'sent', result: result(h.sent[0]!.payload) });
+    await flush();
+    m.click(tile(m, 'Raita'));
+    expect(m.container.querySelectorAll('.ln')).toHaveLength(1);
+    m.unmount();
+  });
+
+  it('[02b §9] a refused Send brings the cart back (lines and customer) with the reason', async () => {
+    const h = harness({ answer: async () => ({ status: 'refused', error: { kind: 'api', status: 409, code: 'ITEM_SOLD_OUT', details: { item_id: 'I5' } } }) });
+    const m = h.render();
+    await flush();
+    type(nameInput(m), 'Usman');
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    m.click(m.button('Send to kitchen'));
+    await flush();
+    expect(m.container.querySelectorAll('.ln')).toHaveLength(1);
+    expect(nameInput(m)!.value).toBe('Usman');
+    expect(h.toasts.at(-1)!.text).toContain('Naan');
+    m.unmount();
+  });
+
+  it('[02b §3.12; frame SentQueued] offline: "Not sent yet — token comes when the hub is back", no dialog, fresh cart; a logged entry says the queue log', async () => {
+    for (const [answer, text] of [
+      [{ status: 'queued', entry_id: 'Q1' }, 'Not sent yet — token comes when the hub is back'],
+      [{ status: 'queued', entry_id: 'Q1', logged: true }, 'Not sent — see the queue log'],
+    ] as const) {
+      const h = harness({ answer: async () => answer });
+      const m = h.render();
+      await flush();
+      pick(m, 'Sides');
+      m.click(tile(m, 'Naan'));
+      m.click(m.button('Send to kitchen'));
+      await flush();
+      expect(m.container.querySelector('.dlg')).toBeNull();
+      expect(m.container.querySelectorAll('.ln')).toHaveLength(0);
+      expect(h.toasts.at(-1)!.text).toBe(text);
+      m.unmount();
+    }
+  });
+
+  it('[02b §3.12; frame SentQueued] a takeaway waiting in the queue shows as a dashed "Waiting to send" row', async () => {
+    const fetch = async (input: string) => {
+      if (input === '/auth/pin') return new Response(JSON.stringify({ data: { session_token: 'TOK', session_id: 'S', staff_id: 'ST1', display_name: 'Sana', role_ids: [], idle_ttl_ms: 1 } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      throw new TypeError('Failed to fetch');
+    };
+    const device = { token: 'DEV', id: 'DV1', type: 'cashier_kiosk' } as const;
+    const api = createStaffApi({ device, meta: { tenantId: 'ten', branchId: 'br', branchName: 'Lake City', hubNowMs: 0, utcOffsetMs: 0 }, fetch, onSignedOut: () => {} });
+    await api.signIn('ST1', '1', false);
+    const h = harness({
+      enqueue: (live) =>
+        createEnqueue({
+          api,
+          device,
+          clock: () => ({ nowMs: () => T, utcOffsetMs: 5 * HOUR }),
+          live,
+          store: createMemoryQueueStore(),
+          onDeviceRevoked: () => {},
+          presence: () => ({ ownedElsewhere: async () => new Set<string>(), announceRemoved: () => {}, onRemoved: () => () => {}, dispose: () => {} }),
+        }),
+    });
+    const m = h.render();
+    await flush();
+    type(nameInput(m), 'Usman');
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    m.click(m.button('Send to kitchen'));
+    await flush(8);
+    const row = m.container.querySelector('.rnd.q');
+    expect(row?.textContent).toContain('Waiting to send');
+    expect(row?.textContent).toContain('Usman');
+    expect(row?.textContent).toContain('1 items');
     m.unmount();
   });
 });
