@@ -86,7 +86,10 @@ describe('[05a §3.3a] session view call sites', () => {
       headers: { authorization: `Bearer ${s.deviceToken}`, 'x-admin-session': s.sessionToken },
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json().error.code).toBe('PERMISSION_DENIED');
+    // N-6: the handler's own details, unchanged; no `reason`.
+    expect(res.json().error).toEqual(
+      expect.objectContaining({ code: 'PERMISSION_DENIED', details: { permission: 'manage-fiscal-settings', grant: 'not_granted' } }),
+    );
   });
 
   it('[05a #4c] query: the audit query on an `everyone` device → 403 (existing details); listed device → 200', async () => {
@@ -103,6 +106,8 @@ describe('[05a §3.3a] session view call sites', () => {
     const h = await hub();
     const s = seat(h, 'listed');
     const queuedAt = h.clock.branchNow();
+    // Sent now, it passes the permission step (BUSINESS_DAY_NOT_OPEN is the handler's own check).
+    expect((await setPresence(h, s)).json().error?.code).toBe('BUSINESS_DAY_NOT_OPEN');
     withProfile(h, s.deviceId, { access: 'everyone', screens: ['manager'] });
     const res = await setPresence(h, s, { queuedAt });
     expect(res.statusCode).toBe(403);
