@@ -119,6 +119,34 @@ describe('[05a §6.8] devices query', () => {
     expect(Object.keys(body.staff[0]).sort()).toEqual(['display_name', 'staff_id']);
   });
 
+  it('[05a §6.8, R-1] a staff device with no profile row lists as everyone, version 0 (editable from expected_version 0); a kds keeps null', async () => {
+    const h = await hub();
+    const s = listedSeat(h);
+    const bare = pairDevice(h, { type: 'cashier_kiosk' });
+    const kds = pairDevice(h, { type: 'kds', stationId: 'STATION-1' });
+    const rows = (await getDevices(h, s)).json().data.devices as Array<Record<string, unknown>>;
+    const by = (id: string) => rows.find((d) => d.device_id === id);
+    expect(by(bare.deviceId)).toMatchObject({ access: 'everyone', profile_version: 0, people: [], screens: [], needs_review: false });
+    expect(by(kds.deviceId)).toMatchObject({ access: null, profile_version: null });
+    // The row's profile_version is accepted by SetDeviceProfile.
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/commands/set-device-profile',
+      headers: { authorization: `Bearer ${s.deviceToken}`, 'x-session-token': s.sessionToken },
+      payload: {
+        command_id: `sdp-${(n += 1)}`,
+        tenant_id: 'tenant-a',
+        branch_id: 'branch-1',
+        command_type: 'SetDeviceProfile',
+        payload: { device_id: bare.deviceId, expected_version: by(bare.deviceId)!.profile_version, access: 'everyone', screens: ['takeaway'] },
+        occurred_at: h.clock.branchNow(),
+        actor_id: ALI,
+        device_id: s.deviceId,
+      },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+  });
+
   it('[05a H-6] permission manage-devices through the session view: an `everyone` device → 403', async () => {
     const h = await hub();
     expect((await getDevices(h, listedSeat(h, ALI, 'everyone'))).statusCode).toBe(403);
