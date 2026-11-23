@@ -425,7 +425,7 @@ describe('[02b-TK C1-3] Send in the background', () => {
     m.click(tile(m, 'Naan'));
     m.click(m.button('Send to kitchen'));
     await flush(8);
-    const row = m.container.querySelector('.rnd.q');
+    const row = m.container.querySelector('.tk-qr--q');
     expect(row?.textContent).toContain('Waiting to send');
     expect(row?.textContent).toContain('Usman');
     expect(row?.textContent).toContain('1 items');
