@@ -599,6 +599,20 @@ describe('hub admin page: recover admin access (05a §6.11, M-8)', () => {
     expect(bootstrap.find('recover_admin')).toBeUndefined();
   });
 
+  it('[05a §6.11, G-g] an everyone device\'s 403 listed_device_only with recovery_available true shows the button; false shows none', async () => {
+    const source = await html();
+    const refused = (flag: boolean) => jsonResponse(403, { error: { code: 'PERMISSION_DENIED', details: { permission: 'access-hub-admin', reason: 'listed_device_only', recovery_available: flag } } });
+    const until = Date.now() + 1_800_000;
+    const on = (answers: Array<ReturnType<typeof jsonResponse>>) => ({
+      fetch: (url: string) => (url === '/admin/login-roster' ? Promise.resolve(refused(true)) : url === '/admin/recovery-link' ? Promise.resolve(answers.shift()) : Promise.reject(new Error(url))),
+    });
+    const page = await runPage(source, { store: STORE, fetch: on([jsonResponse(200, { data: { first_admin_url: 'http://h/admin/bootstrap#t=T', first_admin_qr_svg: '<svg id="qr"></svg>', expires_at: until } })]).fetch });
+    await page.click(page.find('recover_admin')!);
+    expect(page.find('recover_qr')!.innerHTML).toBe('<svg id="qr"></svg>');
+    const off = await runPage(source, { store: STORE, fetch: (url) => (url === '/admin/login-roster' ? Promise.resolve(refused(false)) : Promise.reject(new Error(url))) });
+    expect(off.find('recover_admin')).toBeUndefined();
+  });
+
   it('[05a §6.11] first press asks the hub with the device token and shows the link as a QR; a second press shows "A recovery link was already made — it works until <time>"', async () => {
     const source = await html();
     const until = Date.now() + 1_800_000;

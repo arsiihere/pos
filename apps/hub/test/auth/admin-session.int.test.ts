@@ -56,6 +56,21 @@ describe('admin session', () => {
     expect(ids).not.toContain('S_WAIT');
   });
 
+  it('[05a §6.11, G-g] the login-roster 403 on an everyone / no-profile device carries recovery_available: true at count 0, false once a listed admin device exists', async () => {
+    const hub = await open();
+    const everyone = pairDevice(hub, { type: 'tablet', profile: { access: 'everyone', staff_ids: [], screens: ['manager'] } });
+    const bare = pairDevice(hub, { type: 'tablet' });
+    for (const device of [everyone, bare]) {
+      const res = await roster(hub, { authorization: `Bearer ${device.token}` });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.details).toMatchObject({ reason: 'listed_device_only', recovery_available: true });
+    }
+    pairDevice(hub, { type: 'tablet', profile: { access: 'listed', staff_ids: ['S_MGR'], screens: ['manager'] } });
+    const res = await roster(hub, { authorization: `Bearer ${everyone.token}` });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.details).toMatchObject({ reason: 'listed_device_only', recovery_available: false });
+  });
+
   it('[05a #16] login-roster recovery_available: true with no listed admin device, false with one', async () => {
     const hub = await open();
     const issued = hub.deps.writer.run((tx) =>

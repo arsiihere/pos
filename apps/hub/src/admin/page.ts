@@ -1170,7 +1170,10 @@ function signIn() {
       card,
       load: async () => {
         const res = await call('/admin/login-roster', { headers: state.auth });
-        state.recovery = res.status === 200 && res.body.data.recovery_available === true && Boolean(state.auth.authorization);
+        // §6.11 (v1.0.3 G-g): the 200 roster says it, and so does the 403 listed_device_only of an everyone device.
+        const says = res.status === 200 ? res.body.data.recovery_available
+          : res.status === 403 && res.body.error && res.body.error.details ? res.body.error.details.recovery_available : false;
+        state.recovery = says === true && Boolean(state.auth.authorization);
         recoverSlot.replaceChildren(...(state.recovery ? [recoverControl()] : []));
         return res;
       },

@@ -730,7 +730,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     page = <AuditLog />;
   } else if (path === '/devices' && showDevices) {
     // §8: the QR / link `#/devices?r=<request_id>` opens that request's approve form (code still typed)
-    page = <DeviceList api={devicesApi} openRequestId={new URLSearchParams(route.split('?')[1] ?? '').get('r')} />;
+    const devicesQuery = new URLSearchParams(route.split('?')[1] ?? '');
+    page = <DeviceList key={route} api={devicesApi} openRequestId={devicesQuery.get('r')} openEditId={devicesQuery.get('edit')} />;
   } else if (path === '/shift' && (showShift || (shiftQueryId !== null && allowed.has('close-shift-for-others')))) {
     // task 41: #/shift?shift_id=… opens that shift (day close's Close this shift, close-shift-for-others)
     page = <ShiftScreen key={route} {...(shiftQueryId === null ? {} : { shiftId: shiftQueryId })} />;
