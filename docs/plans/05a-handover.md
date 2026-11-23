@@ -24,7 +24,23 @@ The owner is away from the laptop, and the laptop will be offline. From now on a
 - Task 9 (`forSession`) is committed (`42c4b122`) but **not reviewed yet**.
 - B2 review carry-over: `443084d8`.
 
-## 3. Running when the laptop went offline (cloud lanes, each pushes its own branch)
+## 3. Saved lane work (2026-11-23 ~12:10 PKT)
+
+All the laptop agents were stopped. Their work as it stood was committed as `wip(05a): …` and pushed. Nothing below is reviewed, and the last commit on each branch may not pass. For each branch:
+1. Check it out, run its tests, and finish the task.
+2. Have a fresh reviewer check it.
+3. Merge it into `build/05a` once CI is green.
+
+| Branch | Tip | State |
+|---|---|---|
+| `lane-05aL1/05a-10-12` | `0a80fb86` | B3 task 10 (call sites) in progress; 11, 12 not started. Task 9 (`forSession`) is on `build/05a` (`42c4b122`), not yet reviewed |
+| `lane-05aK/05a-27-28` | `a02b0ce8` | task 27 (K-1 + D-4) mostly written incl. test pins; task 28 (`auth/device-upgrade.ts`) started |
+| `lane-05aR/05a-29` | `fd9bba83` | task 29 recovery link written (`auth/recovery-link.ts`, `bootstrap-tokens.ts`, test) |
+| `lane-05aD/05a-22` | `4e8c93fc` | task 22 bindings written (`bindings.ts`, `routes.ts`, `alert-sockets.ts`, tests) |
+| `lane-05aC1/05a-35-36` | `c9eeb04b` | task 36 committed (`c978d0fe`); task 35 in progress (answer sheet, `InPerson` removed, deep links) |
+| `lane-05aC2/05a-31-32` | `99202a64` | tasks 31–32 in progress (`features/devices/`, i18n, an Urdu to-do file under `docs/design/handoff/05a/`) |
+
+### Original lane brief (kept for reference)
 
 | Lane | Branch | Tasks | Model |
 |---|---|---|---|

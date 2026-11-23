@@ -11,6 +11,15 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > - **Q-3** The G1-9d shortcut (01d §3.5:637) applies to kinds whose `right.mode` is `'approval'`. A downgraded raise stores `named` or `holders` on an approval kind. **(a, Rec)** Key on the **stored** right: a downgraded request gets no shortcut, like other `named` / `holders` requests today; it still escalates by its steps. (b) Key on the kind's right: the shortcut also runs for a downgraded `holders` request.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~12:10 PKT: **Everything saved to GitHub; the build moves to a claude.ai/code cloud session.** All laptop agents were stopped and their unfinished work was committed as `wip(05a)` and pushed. None of it is reviewed:
+>   - `lane-05aL1/05a-10-12` @ `0a80fb86` (B3 tasks 10–12; task 9 is on `build/05a`);
+>   - `lane-05aK/05a-27-28` @ `a02b0ce8` (task 27 mostly done, task 28 started);
+>   - `lane-05aR/05a-29` @ `fd9bba83` (recovery link);
+>   - `lane-05aD/05a-22` @ `4e8c93fc` (bindings);
+>   - `lane-05aC1/05a-35-36` @ `c9eeb04b` (task 36 committed and finished, task 35 partly done);
+>   - `lane-05aC2/05a-31-32` @ `99202a64` (device list and forms).
+>
+>   The next integrator starts from these branches (handover §3).
 > - 2026-11-23 ~11:40 PKT: **New integrator took over** on `build/05a` @ `8a78a2e4`. Stab: `origin/fix/stab-tablet-pairing` has nothing new (no merge needed; no new 00 / 01d / 03b / 04 version). Lanes K, R, D, C1, C2 (and L1) are worktree agents **on the laptop**, not in the cloud (coordinator confirmed); reports come via the coordinator. **B3 tasks 10–12** given to an Opus implementer on `lane-05aL1/05a-10-12` (from `wip/05a-task10`); then an Opus review of 9–12.
 > - 2026-11-23 ~11:45 PKT: **The integrator moved to the cloud** (the laptop goes offline). Handover: `docs/plans/05a-handover.md`. Integration branch: `build/05a`. Lane L1 (local) stopped: task 9 done (`42c4b122`); unfinished task 10 saved on `wip/05a-task10`. The cloud lanes K, R, D, C1 and C2 keep running.
 > - 2026-11-23 ~11:35 PKT: **Owner: finish the rest in the cloud, CI on GitHub runners, 5–6 agents at once.** CI now runs on pushes to `build/**` and `lane-05a*/**` (`39b6519b`). Six lanes:
