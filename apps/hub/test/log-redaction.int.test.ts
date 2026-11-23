@@ -188,7 +188,9 @@ async function runAuth(): Promise<string[]> {
 }
 
 function assertAbsent(hub: TestHub, secrets: string[]): void {
-  const logs = hub.logs();
+  // Fastify's numeric `responseTime` (ms, many decimals) can contain a short PIN such as '1234' by chance;
+  // it is never a secret, so it is dropped before the search (a flake seen in CI, 2026-11-23).
+  const logs = hub.logs().replace(/"responseTime":[0-9.eE+-]+/g, '"responseTime":0');
   expect(logs.length).toBeGreaterThan(0);
   for (const secret of secrets) {
     expect(logs, secret).not.toContain(secret);
