@@ -263,6 +263,13 @@ export async function tapAlert(row: TapRow, deps: TapDeps): Promise<TapOutcome> 
     deps.openSheet();
     return 'sheet';
   }
+  // 05a §3.10 (D-3, task 31): the `device_waiting` link `{ type: 'devices' }` is a plain route, no open check and no
+  // sheet. Read through `string` so it compiles before and after the link type reaches AlertLinkTarget (task 26).
+  if ((target as { type: string }).type === 'devices') {
+    deps.navigate('/devices');
+    deps.settled?.();
+    return 'navigated';
+  }
   // §3.13.5 m12 (dl cp7, integrator ruling (a)): on #/pass, an order whose Pass card is on the screen glows in place:
   // no read, no navigation. Seen above, once (rule 3); a stale tap does nothing. Rule 4 (DL Q-1 (a)): a row this viewer
   // can answer then gets AnswerSheet on top; a lock-only or not answerable row (the Pass escalation) gets no sheet.
