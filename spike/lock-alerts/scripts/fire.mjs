@@ -57,12 +57,13 @@ async function signIn() {
     return false;
   }
   session = r.body.data.session_token;
-  appendJsonl(out, { label, ev: 'signed_in', at: Date.now() });
+  appendJsonl(out, { label, ev: 'signed_in', at: Date.now(), session_tail: String(session).slice(-6), expires: r.body.data.expires_at ?? r.body.data.idle_ttl_ms ?? null });
   return true;
 }
 
 let fired = 0;
-async function fireOne() {
+let sessionFailStreak = 0;
+async function fireOne(isRetry = false) {
   if (session === null && !(await signIn())) {
     appendJsonl(out, { label, alert_id: null, fired_at_laptop_ms: Date.now(), http_status: 0, error: 'not_signed_in' });
     return;
@@ -91,8 +92,16 @@ async function fireOne() {
   };
   appendJsonl(out, line);
   if (!args.quiet) process.stdout.write(JSON.stringify(line) + '\n');
-  if (ok(r)) fired++;
-  if (SESSION_ERRORS.has(line.error)) session = null;
+  if (ok(r)) { fired++; sessionFailStreak = 0; }
+  if (SESSION_ERRORS.has(line.error)) {
+    // sign in again right now and retry this alert once, so a session expiry never silently stops the soak
+    session = null;
+    sessionFailStreak++;
+    appendJsonl(out, { label, ev: 'session_error', at: Date.now(), error: line.error, details: r.body?.error?.details ?? null, streak: sessionFailStreak });
+    process.stderr.write(`session ${line.error} (streak ${sessionFailStreak}) → signing in again\n`);
+    if (sessionFailStreak >= 10) die(`10 session errors in a row (${line.error}); the hub rejects fresh sessions — check the hub log`);
+    if (!isRetry) await fireOne(true);
+  }
 }
 
 let stop = false;

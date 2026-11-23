@@ -36,6 +36,7 @@ class DebugReceiver : BroadcastReceiver() {
             }
             "pos.spike.STOP" -> {
                 SpikeStore.setWantRunning(context, false)
+                Watchdog.cancel(context)
                 AlertService.stop(context)
             }
             "pos.spike.SET_TOGGLE" -> {

@@ -97,14 +97,30 @@ class AlertService : Service() {
         goForeground("Starting…")
         SpikeLog.ev("service_start", mapOf("reason" to reason, "sdk" to Build.VERSION.SDK_INT))
         running = true
+        Watchdog.schedule(this)
+        val check = reason == "watchdog_check"
         worker.post {
             stopped = false
+            if (check) {
+                // Health check from the Doze-proof alarm: re-take the locks if they were lost, reconnect if down.
+                if (wakeLock?.isHeld != true && SpikeStore.bool(this, SpikeStore.T_WAKE_LOCK)) applyLocks()
+                if (ws == null) reconnectNow("watchdog")
+                heartbeat()
+                return@post
+            }
             applyLocks()
             registerNetworkCallback()
             if (ws == null) connect()
             scheduleHeartbeat()
         }
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // The app was swiped away from recents: make sure we come back within seconds.
+        SpikeLog.ev("task_removed")
+        if (SpikeStore.wantRunning(this)) Watchdog.schedule(this, 2000)
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {

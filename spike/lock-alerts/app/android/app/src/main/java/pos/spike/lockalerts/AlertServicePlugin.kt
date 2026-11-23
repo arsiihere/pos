@@ -56,6 +56,7 @@ class AlertServicePlugin : Plugin() {
     @PluginMethod
     fun stop(call: PluginCall) {
         SpikeStore.setWantRunning(context, false)
+        Watchdog.cancel(context)
         AlertService.stop(context)
         call.resolve()
     }

@@ -11,6 +11,7 @@ class BootReceiver : BroadcastReceiver() {
         val want = SpikeStore.wantRunning(context)
         SpikeLog.ev("boot_received", mapOf("action" to intent.action, "want_running" to want))
         if (!want) return
+        Watchdog.schedule(context, 60_000)
         try {
             AlertService.start(context, "boot:${intent.action}")
         } catch (e: Exception) {

@@ -96,9 +96,9 @@ plus a screenshot of the status table.
 - zero duplicates;
 - S3, S4 and S6 recover untouched.
 
-**Config:** start with the defaults (wake lock OFF, WifiLock ON, ping 15 s, urgent ON). Turn the wake lock ON only if the defaults fail, then re-run:
+**Config:** defaults are wake lock ON, WifiLock ON, ping 15 s, urgent ON, plus the 10-min watchdog alarm. To measure whether the wake lock is really needed, turn it OFF in the app and re-run:
 ```sh
-adb shell am broadcast -a pos.spike.SET_TOGGLE -n pos.spike.lockalerts/.DebugReceiver --es key wake_lock --es value true
+adb shell am broadcast -a pos.spike.SET_TOGGLE -n pos.spike.lockalerts/.DebugReceiver --es key wake_lock --es value false
 ```
 Then Stop and Start the service from the app.
 

@@ -63,7 +63,7 @@ object SpikeStore {
     fun toggles(ctx: Context): JSONObject {
         val p = plain(ctx)
         return JSONObject()
-            .put(T_WAKE_LOCK, p.getBoolean(T_WAKE_LOCK, false))
+            .put(T_WAKE_LOCK, p.getBoolean(T_WAKE_LOCK, true))
             .put(T_WIFI_LOCK, p.getBoolean(T_WIFI_LOCK, true))
             .put(T_PING_S, p.getInt(T_PING_S, 15))
             .put(T_URGENT, p.getBoolean(T_URGENT, true))
