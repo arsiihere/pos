@@ -4,7 +4,7 @@ name: tablet
 
 on:
   pull_request:
-    branches: [main, 'module-*']
+    branches: [main]            # lane PRs into module-05b are covered by the lane's own push run
     paths: ['apps/tablet/**', '.github/workflows/tablet.yml']
   push:
     branches: [main, 'module-05b', 'lane-05b/**']
@@ -39,6 +39,8 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false   # lanes share the dependency cache (Maven Central 429s on cold runs)
       - run: npm ci --no-audit --no-fund
       - run: npx cap sync android
       - name: Native unit tests

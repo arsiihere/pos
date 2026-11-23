@@ -4,6 +4,8 @@ buildscript {
     
     repositories {
         google()
+        // 05b CI: Google's Maven Central mirror first — repo.maven.apache.org rate-limits (429) parallel cold CI runs
+        maven { url 'https://maven-central.storage-download.googleapis.com/maven2/' }
         mavenCentral()
     }
     dependencies {
@@ -21,6 +23,8 @@ apply from: "variables.gradle"
 allprojects {
     repositories {
         google()
+        // 05b CI: Google's Maven Central mirror first — repo.maven.apache.org rate-limits (429) parallel cold CI runs
+        maven { url 'https://maven-central.storage-download.googleapis.com/maven2/' }
         mavenCentral()
     }
 }
