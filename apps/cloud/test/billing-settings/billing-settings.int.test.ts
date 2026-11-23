@@ -119,7 +119,8 @@ function pkPb(b: BillingSettings & { version: string; branch_id: string }, patch
 beforeAll(async () => {
   // ⚠️ 01a v2.7.3 PT-1 (STAB-5): to 0016, as the snapshot builder reads branch_engine_settings.show_part_times_to_customers
   // ⚠️ 01a v2.7.5 MD-1–MD-3 (STAB-7): to 0017, as the menu read and the builder read the max-delay columns
-  ({ pool } = await scratchDatabaseAt(17));
+  // ⚠️ 08a v1.0 C-6 (owner ruling 2026-11-23, AD-6): to 0018, as the builder reads stock_items.kind
+  ({ pool } = await scratchDatabaseAt(18));
   app = buildCloudServer({ pool, env, clock, ids: seedIds('A'), secrets: testSecrets() });
   await app.ready();
   pk = await tenant('PKR', 'pk');
