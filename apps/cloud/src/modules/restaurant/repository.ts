@@ -1,3 +1,4 @@
+import type { StockItemKind } from '@pos/events';
 import type { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantScopedRepository } from '../../db/tenant-scoped-repository.js';
 import type { AuditEntry } from '../../lib/config-audit.js';
@@ -1183,12 +1184,14 @@ export async function shareVariantGroups(
 export async function shareStockItem(
   repo: TenantLevelRepository,
   stockItemId: string,
-): Promise<{ stock_unit: Unit; archived_at: number | null } | undefined> {
-  const rows = await repo.query<{ stock_unit: Unit; archived_at: string | null }>(
-    `SELECT stock_unit, archived_at FROM stock_items WHERE tenant_id = $1 AND stock_item_id = $2 FOR SHARE`,
+): Promise<{ stock_unit: Unit; archived_at: number | null; kind: StockItemKind } | undefined> {
+  // 08a I9 (C-3, C-9): kind is read in this FOR SHARE statement, never outside it (+0 statements).
+  const rows = await repo.query<{ stock_unit: Unit; archived_at: string | null; kind: StockItemKind }>(
+    `SELECT stock_unit, archived_at, kind FROM stock_items WHERE tenant_id = $1 AND stock_item_id = $2 FOR SHARE`,
     [stockItemId],
   );
-  return rows[0] === undefined ? undefined : { stock_unit: rows[0].stock_unit, archived_at: msOrNull(rows[0].archived_at) };
+  const row = rows[0];
+  return row === undefined ? undefined : { stock_unit: row.stock_unit, archived_at: msOrNull(row.archived_at), kind: row.kind };
 }
 
 // 01c §6.3 statement 8 (and the item write's response): the items' draws, = ANY($ids), by item, then stock item.

@@ -534,7 +534,7 @@ export async function patchStockItem(
 // is bumped. Stock item FOR UPDATE (404; M4: serialises two PUTs on a row that does not exist yet) → C2 branch read
 // inside the transaction, among the JWT's allowed branches (404 BRANCH_NOT_FOUND) → stored row read without a lock
 // (P3) → version (409 CONFIG_STALE, a stale no-op too) → on a set: the stock item active (422 stock_item_id
-// archived), the station FOR SHARE, an active station of this branch (422 not_found / wrong_branch / archived) →
+// archived), then prepared (422 stock_item_id wrong_kind, 08a I9 / C-4, from the locked row), the station FOR SHARE, an active station of this branch (422 not_found / wrong_branch / archived) →
 // no-op (200, nothing written) → upsert or delete (the row's own lock, 9) → audit branch_set / branch_removed with
 // branch_id → bump that branch (10).
 export async function putStockItemBranch(
@@ -559,6 +559,10 @@ export async function putStockItemBranch(
     if (next !== null) {
       if (stockItem.archived_at !== null) {
         throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_item_id', reason: 'archived' });
+      }
+      // 08a I9 / C-4: only a prepared stock item is counted at a branch; kind from the locked row. A remove is always allowed.
+      if (stockItem.kind !== 'prepared') {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_item_id', reason: 'wrong_kind' });
       }
       const stations = await shareStationsById(scoped, [next.station_id]);
       const station = stations.find((s) => s.branch_id === branchId);
