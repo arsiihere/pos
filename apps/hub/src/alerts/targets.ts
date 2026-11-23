@@ -418,6 +418,7 @@ function resolveTarget(target: AlertTarget, alert: AlertRow, reads: BatchReads, 
     }
     case 'always_on': {
       // §3.4 (v1.2.3 D-5, 03b B1-2): kiosks, KDS screens and the unrevoked tablets bound to a point, all from read (5).
+      // 05a D-4: any unrevoked non-kds device bound to a point, not only a tablet.
       // ⚠️ Changed by v1.2.4 (owner 2026-11-12, 03b P18-1, D-6): a tablet only when its point is active (not archived)
       // in branchConfig().points; filtered in memory after read (5), no statement added. No config yet → no point.
       const active = activePointIds();
@@ -440,7 +441,8 @@ function activePointIds(): ReadonlySet<string> {
 
 function isAlwaysOn(d: DeviceRead, activePoints: ReadonlySet<string>): boolean {
   if (d.device_type === 'cashier_kiosk' || d.device_type === 'kds') return true;
-  const point = d.device_type === 'tablet' ? (d.point_id ?? null) : null;
+  // 05a D-4: any unrevoked non-kds device with point_id set to an active point (was `tablet` only)
+  const point = d.point_id ?? null;
   return point !== null && activePoints.has(point);
 }
 

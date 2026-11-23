@@ -167,7 +167,7 @@ describe('[03b §3.10] archived station config reaction (b23)', () => {
     const kds = pairKds(hub, { stationId: FX.station });
     const pass = await connect(cook.token, cook.sessionToken);
     const station = await connect(kds.token, openSession(hub, { kind: 'station', deviceId: kds.deviceId, stationId: FX.station }).token);
-    // a cashier kiosk bound to P1 is no Pass tablet (§3.1): it gets no notice (8 tokens: the test secrets' limit)
+    // a cashier kiosk bound to P1 is a Pass tablet (§3.1, ⚠️ 05a K-1): it gets the notice too (8 tokens: the test secrets' limit)
     const kiosk = pairDevice(hub, { type: 'cashier_kiosk' });
     hub.deps.db.prepare("UPDATE devices SET point_id = 'P1' WHERE device_id = ?").run(kiosk.deviceId);
     loadDeviceMaps(hub.deps.db);
@@ -180,7 +180,7 @@ describe('[03b §3.10] archived station config reaction (b23)', () => {
     const notice = { type: 'station_notice', station_id: FX.station, kind: 'archived', open_lines: 2 };
     expect(notices(station)).toEqual([notice]);
     expect(notices(pass)).toEqual([notice]);
-    expect(notices(kioskWs)).toEqual([]);
+    expect(notices(kioskWs)).toEqual([notice]);
     // the KDS still renders its lines
     expect(kdsStationBody(hub.deps.db, engine(), FX.station, hub.clock.branchNow()).now.map((l) => l.order_item_id)).toEqual(['A1']);
     expect((await kdsConfig(a)).data!.warnings).toEqual([{ station_id: FX.station, kind: 'archived_open_lines', name: 'Karahi' }]);

@@ -399,17 +399,17 @@ describe('[03b §6.16] point_lines frame (b21)', () => {
     expect(counter.count).toBe(0);
   });
 
-  it('[03b §3.1] a cashier kiosk bound to a point is no Pass: no point_view part, no point_lines frame', async () => {
+  it('[03b §3.1] [05a row K-1] a cashier kiosk bound to a point is a Pass: point_view part and point_lines frame', async () => {
     const cook = await start();
     void cook;
     const kiosk = pairDevice(hub, { type: 'cashier_kiosk' });
     hub.deps.db.prepare("UPDATE devices SET point_id = 'P1' WHERE device_id = ?").run(kiosk.deviceId);
     loadDeviceMaps(hub.deps.db);
     const ws = await connect(kiosk.token, openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: kiosk.deviceId }).token);
-    expect(catchUpState(ws).point_view).toBeUndefined();
+    expect(catchUpState(ws).point_view).toBeDefined();
     appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'Q1', item_id: FX.piece }] });
     await settle();
-    expect(pointLines(ws)).toEqual([]);
+    expect(pointLines(ws).length).toBeGreaterThan(0);
   });
 
   it('[03b §6.16] a takeover start view is not resent as point_lines; lines that reach a dark station later are', async () => {
