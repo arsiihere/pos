@@ -461,17 +461,25 @@ export function ItemForm({
   }, [api, branchIds]);
 
   // 01c §6.6: the stock items for the picker and the summary; an archived linked one is read too (R9).
+  // ⚠️ 08a §8.6 (C-10): both reads ask kind=prepared (only prepared stock may be drawn, I9). A stored draw onto a
+  // non-prepared item (raw-edited data only, after C-9) is found by one more read of every kind, to show its name.
   async function readStockItems(): Promise<StockItem[] | null> {
-    const active = await api.listStockItems({});
+    const active = await api.listStockItems({ kind: 'prepared' });
     if (!active.ok) return null;
     // A reply without the list (an older cloud) reads as no stock items.
     const list = Array.isArray(active.data.stock_items) ? [...active.data.stock_items] : [];
     const linked = storedDraw?.stock_item_id;
-    if (linked !== undefined && !list.some((s) => s.stock_item_id === linked)) {
-      const archived = await api.listStockItems({ status: 'archived' });
+    const has = () => list.some((s) => s.stock_item_id === linked);
+    if (linked !== undefined && !has()) {
+      const archived = await api.listStockItems({ status: 'archived', kind: 'prepared' });
       if (archived.ok && Array.isArray(archived.data.stock_items)) {
         list.push(...archived.data.stock_items.filter((s) => s.stock_item_id === linked));
       }
+    }
+    if (linked !== undefined && !has()) {
+      const [anyActive, anyArchived] = await Promise.all([api.listStockItems({}), api.listStockItems({ status: 'archived' })]);
+      const found = [anyActive, anyArchived].flatMap((r) => (r.ok && Array.isArray(r.data.stock_items) ? r.data.stock_items : []));
+      list.push(...found.filter((s) => s.stock_item_id === linked && s.kind !== 'prepared').slice(0, 1));
     }
     return list;
   }
@@ -1108,7 +1116,7 @@ export function ItemForm({
   const stockOptions = [
     { value: '', label: t('item.stock_none') },
     ...(stockItems ?? [])
-      .filter((s) => s.archived_at === null || s.stock_item_id === stockId)
+      .filter((s) => (s.archived_at === null && s.kind === 'prepared') || s.stock_item_id === stockId)
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((s) => ({ value: s.stock_item_id, label: s.name })),
     ...(stockId !== '' && stockItems?.some((s) => s.stock_item_id === stockId) !== true
@@ -1178,6 +1186,11 @@ export function ItemForm({
           />
         )}
       </div>
+      {stock !== undefined && stock.kind !== 'prepared' && (
+        <p className="pos-field__error" data-draw-wrong-kind="">
+          {t('errors.reference.wrong_kind')}
+        </p>
+      )}
       {sameUnit && <p className="pos-note">{t('item.uses_same')}</p>}
       {/* 01c A2: the hub counts an item only with a stock time or stock program and a draw. */}
       {stockId !== '' && !keptReady && (
