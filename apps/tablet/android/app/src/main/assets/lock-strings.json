@@ -63,6 +63,7 @@
       "alert.call_waiter.lock": "{table} · Call waiter",
       "alert.close_without_buyer_id.lock": "{table} · No buyer details · {requester}",
       "alert.comp.lock": "{table} · Comp · {requester}",
+      "alert.device_waiting.lock": "Device waiting",
       "alert.discount.lock": "{table} · Discount · {requester}",
       "alert.fiscal_outbox_stuck.lock": "Fiscal records stuck",
       "alert.kds_offline.lock": "Kitchen screen offline",

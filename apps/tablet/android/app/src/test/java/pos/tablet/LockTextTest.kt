@@ -42,6 +42,10 @@ class LockTextTest {
         val pin = lock("kind_label_key" to "alert.pin_use_failed.lock", "device_name" to "Till 1")
         // no Urdu text yet: the English one (client i18n t())
         assertEquals("Your PIN was used on Till 1", strings.lineOf("pin_use_failed", pin, "ur"))
+        // 05a D-3 kind (info, link devices); client copy not final, no Urdu yet → English
+        val waiting = lock("kind_label_key" to "alert.device_waiting.lock")
+        assertEquals("Device waiting", strings.lineOf("device_waiting", waiting, "en"))
+        assertEquals("Device waiting", strings.lineOf("device_waiting", waiting, "ur"))
     }
 
     @Test fun `an unknown language reads English`() {
