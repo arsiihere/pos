@@ -12,19 +12,32 @@ const row = (id: string, name: string, base: ItemUnitRow['base_unit'], num: stri
 });
 
 describe('08a inventory conversions', () => {
-  it('[08a #1] BUILTIN_UNITS: kg, pao, maund, l, darjan; names case-insensitive', () => {
+  it('[08a #1 ⚠️ 08b P-3] BUILTIN_UNITS: kg, pao, maund, l, darjan, lb, oz; names case-insensitive', () => {
     expect(BUILTIN_UNITS).toEqual({
       kg: { base: 'g', num: 1000n, den: 1n },
       pao: { base: 'g', num: 250n, den: 1n },
       maund: { base: 'g', num: 40000n, den: 1n },
       l: { base: 'ml', num: 1000n, den: 1n },
       darjan: { base: 'piece', num: 12n, den: 1n },
+      // ⚠️ Changed by 08b v1.0 (P-3): imperial built-ins, exact (owner ruling; no gallon)
+      lb: { base: 'g', num: 45359237n, den: 100000n },
+      oz: { base: 'g', num: 45359237n, den: 1600000n },
     });
     expect(Object.isFrozen(BUILTIN_UNITS)).toBe(true);
     expect(normaliseUnitName('  KG ')).toBe('kg');
     expect(resolveUnit({ stock_unit: 'g' }, 'Maund', [])).toEqual({ num: 40000n, den: 1n });
     expect(resolveUnit({ stock_unit: 'piece' }, 'DARJAN', [])).toEqual({ num: 12n, den: 1n });
     expect(root.BUILTIN_UNITS).toBe(BUILTIN_UNITS);
+    // ⚠️ 08b P-3: lb / oz resolve on a g item, not on piece / ml; Rs 1 000 per lb → per g = 1 000 × 100 × 100 000 / 45 359 237 minor
+    expect(resolveUnit({ stock_unit: 'g' }, 'LB', [])).toEqual({ num: 45359237n, den: 100000n });
+    expect(resolveUnit({ stock_unit: 'g' }, 'oz', [])).toEqual({ num: 45359237n, den: 1600000n });
+    expect(resolveUnit({ stock_unit: 'piece' }, 'lb', [])).toBeNull();
+    expect(resolveUnit({ stock_unit: 'ml' }, 'oz', [])).toBeNull();
+    const perLb = toStockUnits(1n, resolveUnit({ stock_unit: 'g' }, 'lb', [])!);
+    expect(reduceFraction(100_000n * perLb.den, perLb.num)).toEqual(reduceFraction(1000n * 100n * 100_000n, 45_359_237n));
+    // t-8 (a): an existing item unit named lb (allowed before P-3) keeps its own factor (I5 step 2: item unit first)
+    expect(resolveUnit({ stock_unit: 'g' }, 'lb', [row('u1', 'lb', 'g', '450', '1', 1)])).toEqual({ num: 450n, den: 1n });
+    expect(resolveUnit({ stock_unit: 'piece' }, 'lb', [row('u1', 'lb', 'piece', '3', '1', 1)])).toEqual({ num: 3n, den: 1n });
   });
 
   it('[08a #2] resolveUnit: own unit, item unit before built-in, base rules, latest wins, other base ignored, no chains', () => {

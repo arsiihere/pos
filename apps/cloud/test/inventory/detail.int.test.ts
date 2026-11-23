@@ -199,6 +199,9 @@ describe('08a inventory detail (§6.4)', () => {
       { unit_name: 'kg', base: 'g', num: 1000, den: 1 },
       { unit_name: 'pao', base: 'g', num: 250, den: 1 },
       { unit_name: 'maund', base: 'g', num: 40000, den: 1 },
+      // ⚠️ 08b v1.0 P-3 (AD-3): the imperial built-ins on a g item
+      { unit_name: 'lb', base: 'g', num: 45359237, den: 100000 },
+      { unit_name: 'oz', base: 'g', num: 45359237, den: 1600000 },
     ]);
     // the list entry's StockItemWire fields (the list adds branches, drawers, menu_cost)
     const listed = (await stockItem(cloud, fx.f, fx.ids.tp1)) as Record<string, unknown>;
