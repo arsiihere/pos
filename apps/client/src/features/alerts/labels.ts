@@ -287,11 +287,19 @@ export function answerErrorText(
           return t('answer.error.out_of_range');
         case 'in_person_elsewhere':
           return t('answer.error.in_person_elsewhere');
+        case 'listed_device_only': // 05a §8
+          return t('answer.error.listed_device_only');
         case 'self':
           return t('answer.error.self');
         default:
           return t('answer.error.not_approver');
       }
+    // 05a §8 Errors: DEVICE_NOT_OWNED is no longer returned but reads the same
+    case 'DEVICE_ACCESS_DENIED':
+    case 'DEVICE_NOT_OWNED':
+      return t('answer.error.device_not_set_up');
+    case 'DEVICE_ACCESS_SELF':
+      return t('answer.error.device_access_self');
     case 'PIN_INVALID':
       return t('answer.error.pin_invalid');
     case 'PIN_LOCKED_OUT':

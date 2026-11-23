@@ -96,8 +96,7 @@ export function createPinPad(link: HubLink): PinPad {
 
 export type AnswerInput =
   | { alert_id: string; decision: AnswerRequestPayload['decision']; method: 'session' }
-  | { alert_id: string; decision: AnswerRequestPayload['decision']; method: 'pin' }
-  | { alert_id: string; decision: AnswerRequestPayload['decision']; method: 'in_person'; answerer_staff_id: string };
+  | { alert_id: string; decision: AnswerRequestPayload['decision']; method: 'pin' };
 
 /** §6.2 Result */
 export interface AnswerResult {
@@ -124,7 +123,7 @@ export interface AnswerSender {
   /** B03: answering is possible only while the hub socket is up */
   canSend(): boolean;
   /**
-   * `pin` / `in_person` read the PIN from `pad`; the pad is cleared when this resolves, whatever the outcome.
+   * `pin` reads the PIN from `pad`; the pad is cleared when this resolves, whatever the outcome.
    * While an answer is in flight, another call returns `IN_FLIGHT` at once and sends nothing (the UI ignores it).
    */
   answer(input: AnswerInput, pad?: PinPad, request?: { requester_name?: string | null }): Promise<AnswerOutcome>;

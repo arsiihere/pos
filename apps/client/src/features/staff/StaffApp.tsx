@@ -25,7 +25,7 @@ import { createAlertStore, type AlertRow, type AlertStore, type Timers } from '.
 import type { WsAlertClosed } from '@pos/events';
 import { TestAlert } from '../alerts/TestAlert';
 import { FamilyPill, Ico, isRequest } from '../alerts/ui';
-import { createStaffApi, type Device, type PageMeta, type Resolution, type RosterPerson, type SignedIn } from './api';
+import { createStaffApi, type Device, type PageMeta, type Resolution, type RosterPerson, type SessionInfo, type SignedIn } from './api';
 import { SignIn } from './SignIn';
 import { createOrdersApi } from './orders/api';
 import { pendingCompsOf } from './orders/actions/pending-comps';
@@ -108,6 +108,9 @@ const browserSink = webAudioSink(() => {
   }
 });
 
+/** 05a §6.7: what `GET /queries/session` says of this device (null before sign-in, or on a hub that sends none) */
+type DeviceView = NonNullable<SessionInfo['device']>;
+
 interface Me {
   staffId: string;
   name: string;
@@ -137,6 +140,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const portrait = useMedia(PORTRAIT_QUERY);
   const route = useHashRoute();
   const [me, setMe] = useState<Me | null>(null);
+  const [deviceView, setDeviceView] = useState<DeviceView | null>(null);
   const meRef = useRef<Me | null>(null);
   meRef.current = me;
   const signOutRef = useRef<() => void>(() => {});
@@ -409,6 +413,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     if (info.ok) {
       const allowed = new Set(Object.entries(info.data.permissions).filter(([, r]) => r.grant === 'allowed').map(([p]) => p));
       setMe((m) => (m === null || m.staffId !== who.staff_id ? m : { ...m, allowed, permissions: info.data.permissions }));
+      setDeviceView(info.data.device ?? null);
     }
     void loadInbox(null);
     const people = await api.roster();
@@ -428,6 +433,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       setRequests([]);
       setCursor(null);
       setMe(null);
+      setDeviceView(null);
       if (callHub) {
         void api.signOut();
         setBindingUntil(null); // a logout ends the binding (§3.7); an idle sign-out keeps it
@@ -662,6 +668,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       tables: tablesApi,
       heldMap: () => sharedMapStore(tablesApi, liveBus).current(),
       openSlips: () => (liveBus.part('orders') as OrdersCatchUp | undefined)?.open_slips,
+      screens: () => deviceView?.screens, // 05a §8 (M-11): absent → today's route
       seen: () => seenHere(row),
       openSheet: () => openSheet(row),
       navigate: deepNavigate,
@@ -885,14 +892,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
             key={sheetRow.alert_id}
             row={sheetRow}
             canAnswer={'can_answer' in sheetRow ? sheetRow.can_answer : sheetRow.set === 'answerer' && (sheetRow.answers?.length ?? 0) > 0}
-            deviceId={device.id}
+            access={deviceView?.access}
             me={{ staffId: me.staffId, name: me.name }}
             sender={sender}
             link={conn}
-            loadApprovers={async () => {
-              const answer = await api.roster();
-              return answer.ok ? answer.data.staff.filter((s) => s.locked_until == null) : [];
-            }}
             nowMs={nowMs}
             utcOffsetMs={offset}
             sheet={phone || portrait}

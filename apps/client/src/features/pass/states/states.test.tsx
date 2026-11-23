@@ -67,6 +67,7 @@ function setup(o: { online?: boolean; runPass?: boolean; answers?: Record<string
     online: o.online ?? true,
     portrait: false,
     me: { staff_id: 'S1', name: 'Asif' },
+    device: { token: 'DEV', id: 'D-P1', type: 'tablet' },
   } as unknown as Shell;
   passLiveOf(shell);
   if (o.catchUp !== false) live.frame({ type: 'catch_up', as_of_seq: 1, state: { point_view: o.view ?? VIEW } });
