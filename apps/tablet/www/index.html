@@ -13,6 +13,12 @@
     <h1>Connect to the hub</h1>
     <p class="lead">Type the address shown on the hub's setup page, with the port.</p>
     <div id="form"></div>
+    <!-- 05b plan batch A-2: DEBUG BUILDS ONLY (until phase B's pair page hands the token to native). -->
+    <div id="debug-pair" class="card hidden">
+      <p><b>Debug build:</b> paste a device token minted with <code>tools/tablet-soak/mint-tablet-token.mjs</code> (optional).</p>
+      <input id="debug-token" placeholder="device token (64 hex)" autocomplete="off" />
+      <input id="debug-device-id" placeholder="device id (optional)" autocomplete="off" />
+    </div>
   </section>
 
   <section id="perms" class="hidden">
@@ -53,9 +59,20 @@
     P.setMsg(document.getElementById('form').querySelector('.msg'), 'This app version cannot connect. Update the app.', 'error');
   }
 
+  var debugBuild = false;
+  if (P.has('info')) P.call('info').then(function (i) {
+    debugBuild = !!(i && i.debug);
+    if (debugBuild) document.getElementById('debug-pair').classList.remove('hidden');
+  }).catch(function () {});
+
   function finish() {
     var msg = document.getElementById('perms-msg');
-    P.call('setHubOrigin', { origin: origin }).catch(function (e) {
+    var tok = debugBuild ? document.getElementById('debug-token').value.trim() : '';
+    var pre = tok
+      ? P.call('debugPairing', { origin: origin, token: tok, device_id: document.getElementById('debug-device-id').value.trim() || 'debug' })
+      : Promise.resolve();
+    pre.catch(function (e) { P.setMsg(msg, (e && e.message) || 'Debug pairing failed', 'error'); throw e; })
+      .then(function () { return P.call('setHubOrigin', { origin: origin }); }).catch(function (e) {
       P.setMsg(msg, (e && e.message) || 'Could not save the address', 'error');
     });
     // Native stores the origin and recreates into the hub page.
