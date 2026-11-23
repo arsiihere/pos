@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~16:20 PKT: **Task 20 merged**. 16 tasks merged. Fix rounds: 15 (tablet / phone on `/admin/approve` until task 33), 17 (tests). Running: 16, 18, 21.
 > - 2026-11-23 ~15:55 PKT: **Task 19 merged** (SetDeviceProfile, Opus APPROVE). 15 tasks merged. In review: 15, 17, 20. Running: 16.
 > - 2026-11-23 ~15:40 PKT: **Tasks 31–32 merged** (lane C2). **14 tasks merged**; all six saved laptop lanes are in. In review: 15 (approve v2 + token-pairing removal), 19 (SetDeviceProfile). Running: 16 (stacked on 15), 17, 20.
 > - 2026-11-23 ~15:15 PKT: **Tasks 35–36 merged** (lane C1). 12 tasks merged. CI red on `build/05a` at `c55e600e` (task 13 × 14 fixture hint) fixed in `423c6cf4`, green. Running: 15, 17, 19, 20 (B4/B5 in parallel), C2 fix round.
@@ -103,7 +104,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 17 | B5 | sign-in checks | HIGH | | |
 | 18 | B5 | staff / login roster | NORMAL | | |
 | 19 | B5 | `SetDeviceProfile` | HIGH | `cac60851` | **done** (Opus review APPROVE; PC-5) |
-| 20 | B5 | revoke both + device list | NORMAL | | |
+| 20 | B5 | revoke both + device list | NORMAL | `547702b2`, fix `961da1e3` | **done** (Sonnet review FIX → 1 round: a no-profile staff device lists as `everyone` v0 so task 19 can edit it) |
 | 21 | B5 | directory apply | HIGH | | |
 | 22 | B6 | D-1 bindings | HIGH | `e9cd26d1` | **done** (Opus review APPROVE, 300-sequence rebuild fuzz; `alert-sockets.ts` as-built outside the Files column, required by 01d §3.7) |
 | 23 | B6 | D-2 answers | HIGH | | |
