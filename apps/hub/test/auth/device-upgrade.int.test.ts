@@ -2,14 +2,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DeviceProfileSetPayload, EventDraft } from '@pos/events';
+import { LISTED_ONLY_PERMISSIONS, MONEY_PERMISSIONS, type Permission } from '@pos/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deviceProfile } from '../../src/auth/device-profile';
 import { upgradeDevices } from '../../src/auth/device-upgrade';
 import { boot, type BootHandle } from '../../src/lib/boot';
+import { ALI, directoryWith } from '../helpers/device-access';
+import { PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { offlineCloud } from '../helpers/stub-cloud';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
-import { createTestHub, pairDevice, type TestHub } from '../helpers/test-hub';
+import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 // 05a §5.3, §6.10 (plan task 28): the upgrade boot step — after the projection catch-up, before listen; 1 read, one
 // writer.run appending one DeviceProfileSet { cause: 'upgrade', needs_review: true, profile_version: 1 } per unrevoked
@@ -214,6 +217,93 @@ describe('[05a §5.3, §6.10] upgrade boot step', () => {
     expect(unprofiled(h.deps.db)).toEqual([ownerless]);
   });
 
-  // §5.3 / N-2 refusals need the session mask (05a §3.3a forSession in authorize, plan tasks 9–11, another lane).
-  it.todo('[05a #15 mask half] lands with task 9–11: Test alert, printer setup and Kitchen screens setup are refused on an upgraded kiosk / tablet and work from a listed device');
+  it('[05a #15] [05a §5.3 N-2] on an upgraded kiosk and tablet Test alert, printer setup and Kitchen screens setup are refused; they work from the upgraded (listed) phone; every other action stays, money ones as "Confirm on your phone"', async () => {
+    const h = await createTestHub();
+    cleanups.push(() => h.close());
+    await seedDirectory(h, await directoryWith()); // Ali = Manager (PIN.b): manage-devices, access-hub-admin, view-reports
+    const kiosk = pairDevice(h, { type: 'cashier_kiosk', name: 'Counter' });
+    const tablet = pairDevice(h, { type: 'tablet', name: 'Floor' });
+    const phone = pairDevice(h, { type: 'phone', ownerStaffId: ALI, name: 'Ali phone' });
+    // an admin session left on the kiosk from before the upgrade (as /admin/auth wrote it then)
+    const leftover = openSession(h, { kind: 'admin', staffId: ALI, deviceId: kiosk.deviceId, legacyProfile: false });
+    expect(upgradeDevices(h.deps)).toBe(3);
+    for (const d of [kiosk, tablet]) expect(deviceProfile(d.deviceId)).toMatchObject({ access: 'everyone', needs_review: true });
+    expect(deviceProfile(phone.deviceId)).toMatchObject({ access: 'listed', staff_ids: new Set([ALI]) });
+
+    type Device = typeof kiosk;
+    let n = 0;
+    const pin = async (d: Device): Promise<string> => {
+      const res = await h.app.inject({ method: 'POST', url: '/auth/pin', headers: { authorization: `Bearer ${d.token}` }, payload: { staff_id: ALI, pin: PIN.b } });
+      expect(res.statusCode, res.body).toBe(200);
+      return res.json().data.session_token as string;
+    };
+    const command = (d: Device, session: string, name: string, command_type: string, payload: Record<string, unknown>) =>
+      h.app.inject({
+        method: 'POST',
+        url: `/commands/${name}`,
+        headers: { authorization: `Bearer ${d.token}`, 'x-session-token': session },
+        payload: { command_id: `up-${(n += 1)}`, tenant_id: 'tenant-a', branch_id: BRANCH, command_type, payload, occurred_at: h.clock.branchNow(), actor_id: ALI, device_id: d.deviceId },
+      });
+    const adminAuth = (d: Device) => h.app.inject({ method: 'POST', url: '/admin/auth', headers: { authorization: `Bearer ${d.token}` }, payload: { staff_id: ALI, pin: PIN.b } });
+    const admin = (d: Device, session: string) => ({ authorization: `Bearer ${d.token}`, 'x-admin-session': session });
+    const printTest = (d: Device, session: string) => h.app.inject({ method: 'POST', url: '/admin/print/test', headers: admin(d, session), payload: { printer_id: 'no-such-printer' } });
+    const kdsConfig = (d: Device, session: string) => h.app.inject({ method: 'GET', url: '/admin/queries/kds-config', headers: admin(d, session) });
+    const stationScreen = (d: Device, session: string) =>
+      h.app.inject({
+        method: 'POST',
+        url: '/admin/commands/set-station-screen',
+        headers: admin(d, session),
+        payload: { command_id: `up-${(n += 1)}`, tenant_id: 'tenant-a', branch_id: BRANCH, command_type: 'SetStationScreen', payload: { station_id: 'S_NONE', sound_volume: 10 }, occurred_at: h.clock.branchNow(), actor_id: ALI, device_id: d.deviceId },
+      });
+    const testAlert = (d: Device, session: string) => command(d, session, 'send-test-alert', 'SendTestAlert', { target: { kind: 'person', staff_id: ALI } });
+    const report = (d: Device, session: string) => command(d, session, 'print-report', 'PrintReport', { doc: 'z_report' });
+    const permissions = async (d: Device, session: string): Promise<Record<Permission, Record<string, unknown>>> => {
+      const res = await h.app.inject({ method: 'GET', url: '/queries/session', headers: { authorization: `Bearer ${d.token}`, 'x-session-token': session } });
+      expect(res.statusCode, res.body).toBe(200);
+      return res.json().data.permissions as Record<Permission, Record<string, unknown>>;
+    };
+
+    // the listed phone: everything works (the permission step passes; the handlers answer with their own results)
+    const onPhone = await pin(phone);
+    const sent = await testAlert(phone, onPhone);
+    expect(sent.statusCode, sent.body).toBe(200);
+    expect(sent.json().data.result.alert_id).toEqual(expect.any(String));
+    const phoneAdmin = await adminAuth(phone);
+    expect(phoneAdmin.statusCode, phoneAdmin.body).toBe(200);
+    const phoneAdminToken = phoneAdmin.json().data.admin_session_token as string;
+    expect((await printTest(phone, phoneAdminToken)).json().error.code).toBe('PRINTER_NOT_FOUND');
+    expect((await kdsConfig(phone, phoneAdminToken)).statusCode).toBe(200);
+    expect((await stationScreen(phone, phoneAdminToken)).json().error.code).toBe('STATION_NOT_FOUND');
+    expect((await report(phone, onPhone)).json().error.code).toBe('Z_REPORT_NOT_FOUND');
+    const unmasked = await permissions(phone, onPhone);
+
+    for (const d of [kiosk, tablet]) {
+      const label = d === kiosk ? 'kiosk' : 'tablet';
+      const session = await pin(d); // any directory staff signs in on an `everyone` device
+      // Test alert: the pipeline's authorize adds the reason (N-6)
+      const refused = await testAlert(d, session);
+      expect(refused.statusCode, label).toBe(403);
+      expect(refused.json().error, label).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'manage-devices', grant: 'not_granted', reason: 'listed_device_only' } });
+      // printer and Kitchen screens setup are admin screens: /admin/auth is refused (§3.5, H-2)
+      const signIn = await adminAuth(d);
+      expect(signIn.statusCode, label).toBe(403);
+      expect(signIn.json().error, label).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'access-hub-admin', reason: 'listed_device_only' } });
+      // what stays: Reports (and every counter action) reach their handler as on the phone
+      expect((await report(d, session)).json().error.code, label).toBe('Z_REPORT_NOT_FOUND');
+      // the session view: the listed-only grants are hidden, the money ones downgraded, everything else as on the phone
+      const masked = await permissions(d, session);
+      for (const p of Object.keys(unmasked) as Permission[]) {
+        const before = unmasked[p];
+        if (before.grant === 'allowed' && LISTED_ONLY_PERMISSIONS.includes(p)) expect(masked[p], `${label} ${p}`).toMatchObject({ grant: 'not_granted', masked: 'listed_only' });
+        else if (before.grant === 'allowed' && MONEY_PERMISSIONS.includes(p)) expect(masked[p], `${label} ${p}`).toMatchObject({ grant: 'requires_approval', masked: 'downgraded' });
+        else expect(masked[p], `${label} ${p}`).toEqual(before);
+      }
+    }
+
+    // an admin session left on the upgraded kiosk: the admin guard refuses printer and Kitchen screens setup (details unchanged, N-6)
+    for (const res of [await printTest(kiosk, leftover.token), await kdsConfig(kiosk, leftover.token), await stationScreen(kiosk, leftover.token)]) {
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'access-hub-admin' } });
+    }
+  });
 });
