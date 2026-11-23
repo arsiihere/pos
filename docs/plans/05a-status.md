@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~13:50 PKT: **Tasks 27–28 merged** (lane K: Pass readers K-1 / D-4, upgrade boot step), Opus review APPROVE after one fix round. 3 lanes merged so far (R, B14, K).
 > - 2026-11-23 ~13:30 PKT: **Task 14 merged** (pair request hint + poll screens; review APPROVE).
 > - 2026-11-23 ~13:20 PKT: **Task 29 (recovery link) merged** into `build/05a` (`1b5b5c61`), Opus review APPROVE.
 > - 2026-11-23 ~13:10 PKT: **8 lanes running** (6 saved + new B13, B14 for B4). **K (27–28)** done, CI green, Opus review FIX (1 MAJOR: no test pins "after catchUp"), fix round 1 running. **R (29)** done, CI green, Opus review running. npm registry was blocked in this cloud env: new personal env `pos-build` (package registries only) fixed it.
@@ -105,8 +106,8 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 24 | B6 | D-2 downgraded raise | HIGH | | |
 | 25 | B6 | D-2 routing | HIGH | | |
 | 26 | B6 | D-3 `device_waiting` | HIGH | | |
-| 27 | B7 | K-1 + D-4 Pass readers | HIGH | | |
-| 28 | B7 | upgrade boot step | HIGH | | |
+| 27 | B7 | K-1 + D-4 Pass readers | HIGH | `d1d88e71` | **done** (Opus review APPROVE; PC-4) |
+| 28 | B7 | upgrade boot step | HIGH | `773e939a`, fix `87d22dc2` | **done** (Opus review FIX → 1 round → APPROVE; PC-3; RF-1 exception: an ownerless phone (raw SQL only) stays unprofiled, warned each boot) |
 | 29 | B7 | recovery link | HIGH | `72933db1` (merge `1b5b5c61`) | **done** (Opus review APPROVE; carry-overs: #16a "owner approves their phone" `it.todo` → task 15; MINORs m1 empty `advertised_host`, m2 count-0 cases at the route, m3 unprovisioned refusal test → with task 15/18) |
 | 30 | B7 | counter check (fresh implementer) | HIGH | | |
 | 31 | B8 | device list page | NORMAL | | |
