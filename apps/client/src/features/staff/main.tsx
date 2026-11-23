@@ -5,6 +5,7 @@ import { readDeviceKey } from '../../api/hub-admin';
 import '../../app/ui-kit-staff';
 import { initLanguage, language } from '../../i18n';
 import { initial } from '../alerts/ui';
+import { nativeBridge } from '../native/bridge';
 import { readPageMeta } from './api';
 import { StaffApp } from './StaffApp';
 import { PairAgain } from './tables/PairAgain';
@@ -31,6 +32,15 @@ async function start(): Promise<void> {
   const meta = readPageMeta();
   const root = createRoot(container);
   if (token === null || id === null || meta === null || !DEVICE_TYPES.includes(type as DeviceType)) {
+    // 05b §3.5 (D-2): inside the tablet app a page with no pairing keys goes to /pair by itself (signed out)
+    const native = nativeBridge();
+    if (native !== null) {
+      void native.setSession({ signed_in: false });
+      if (token === null) {
+        window.location.assign('/pair');
+        return;
+      }
+    }
     // 02a §8 Login (frame 02a-S00): not paired (or the keys were wiped) → "This screen must be paired again" → /pair
     const lang = language();
     root.render(
