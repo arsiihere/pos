@@ -99,7 +99,9 @@ describe('device pairing', () => {
       url: '/admin/login-roster',
       headers: { authorization: `Bearer ${second.json().data.device_token}` },
     });
-    expect(newRoster.statusCode).toBe(200);
+    // 05a H-2: the new token is accepted (not 401); a freshly paired device has no profile, so it is refused as `everyone`.
+    expect(newRoster.statusCode).toBe(403);
+    expect(newRoster.json().error.details).toMatchObject({ reason: 'listed_device_only' });
     expect(hub.deps.db.prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'DevicePaired'`).pluck().get()).toBe(1);
     expect(hub.deps.db.prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'DeviceTokenRotated'`).pluck().get()).toBe(1);
     const rotated = JSON.parse(

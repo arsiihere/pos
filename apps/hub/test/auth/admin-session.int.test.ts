@@ -37,6 +37,38 @@ describe('admin session', () => {
     expect(staffFailures(hub, 'S_CASH')).toBe(0);
   });
 
+  it('[05a #3] login-roster: everyone or no profile → 403 listed_device_only; listed → its allowed admins only', async () => {
+    const hub = await open();
+    const everyone = pairDevice(hub, { type: 'tablet', profile: { access: 'everyone', staff_ids: [], screens: ['manager'] } });
+    const bare = pairDevice(hub, { type: 'tablet' });
+    for (const device of [everyone, bare]) {
+      const res = await roster(hub, { authorization: `Bearer ${device.token}` });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe('PERMISSION_DENIED');
+      expect(res.json().error.details).toMatchObject({ permission: 'access-hub-admin', reason: 'listed_device_only' });
+    }
+    const listed = pairDevice(hub, { type: 'tablet', profile: { access: 'listed', staff_ids: ['S_MGR', 'S_WAIT'], screens: ['manager'] } });
+    const res = await roster(hub, { authorization: `Bearer ${listed.token}` });
+    expect(res.statusCode).toBe(200);
+    const ids = (res.json().data.staff as Array<{ staff_id: string }>).map((row) => row.staff_id);
+    expect(ids).toContain('S_MGR');
+    expect(ids).not.toContain('S_OWNER');
+    expect(ids).not.toContain('S_WAIT');
+  });
+
+  it('[05a #16] login-roster recovery_available: true with no listed admin device, false with one', async () => {
+    const hub = await open();
+    const issued = hub.deps.writer.run((tx) =>
+      issueAdminBootstrap(tx, 'setup', { clock: hub.deps.clock, ids: hub.deps.ids, secrets: hub.deps.secrets }),
+    ).result;
+    const before = await roster(hub, { 'x-admin-bootstrap': issued.token });
+    expect(before.json().data.recovery_available).toBe(true);
+    const tablet = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
+    const after = await roster(hub, { authorization: `Bearer ${tablet.token}` });
+    expect(after.statusCode).toBe(200);
+    expect(after.json().data.recovery_available).toBe(false);
+  });
+
   it('[00 §10 #148] M92: login-roster rows carry the staff role names', async () => {
     const hub = await open();
     const tablet = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
@@ -98,7 +130,7 @@ describe('admin session', () => {
 
   it('[00 §10 #41] the login roster lists admin staff for a tablet or a live bootstrap token', async () => {
     const hub = await open();
-    const tablet = pairDevice(hub, { type: 'tablet' });
+    const tablet = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
     const until = hub.clock.branchNow() + 900_000;
     hub.deps.db
       .prepare(
@@ -120,11 +152,11 @@ describe('admin session', () => {
     expect(withBootstrap.json().data.staff).toEqual(withDevice.json().data.staff);
     const neither = await roster(hub, {});
     expect(neither.statusCode).toBe(401);
-    const ownerPhone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_OWNER' });
+    const ownerPhone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_OWNER', profile: { access: 'listed', staff_ids: ['S_OWNER'], screens: ['cashier'] } });
     const ownerRoster = await roster(hub, { authorization: `Bearer ${ownerPhone.token}` });
     expect(ownerRoster.statusCode).toBe(200);
     expect(ownerRoster.json().data.staff).toEqual([{ staff_id: 'S_OWNER', display_name: 'Owner', role_names: ['Owner'], locked_until: until }]);
-    const waiterPhone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_WAIT' });
+    const waiterPhone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_WAIT', profile: { access: 'listed', staff_ids: ['S_WAIT'], screens: ['cashier'] } });
     const waiterRoster = await roster(hub, { authorization: `Bearer ${waiterPhone.token}` });
     expect(waiterRoster.statusCode).toBe(200);
     expect(waiterRoster.json().data.staff).toEqual([]);

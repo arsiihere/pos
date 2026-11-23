@@ -13,6 +13,8 @@ export const AdminRosterResponse = z.object({
   data: z.object({
     // role_names: 00 v1.4 M92
     staff: z.array(z.object({ staff_id: z.string(), display_name: z.string(), role_names: z.array(z.string()).optional(), locked_until: int.nullable() })),
+    // 05a §6.11: no unrevoked listed device lists a person who can manage devices.
+    recovery_available: z.boolean(),
   }),
 });
 

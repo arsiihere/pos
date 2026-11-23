@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { HubDeps } from '../server.js';
 import { sha256hex } from '../lib/hash.js';
 import { Semaphore } from '../lib/semaphore.js';
-import { deviceProfile } from './device-profile.js';
+import { deviceProfile, listedAdminDeviceCount } from './device-profile.js';
 import { currentDirectory } from './guards.js';
 import { checkDeviceAccess, checkPin } from './pin.js';
 import { registerRecoveryLinkRoute } from './recovery-link.js';
@@ -143,6 +143,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
   app.get('/admin/login-roster', { config: { group: 'admin-bootstrap' } }, async (request) => {
     const scope = rosterScope(deps, request);
     const directory = currentDirectory(app);
+    const listed = scope.listed;
     const locks = new Map<string, number | null>();
     const rows = deps.db
       .prepare(`SELECT subject_id, locked_until FROM auth_lockouts WHERE branch_id = ? AND subject_type = 'staff'`)
@@ -151,15 +152,15 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
     for (const row of rows) locks.set(row.subject_id, row.locked_until !== null && row.locked_until > now ? row.locked_until : null);
     const staff = directory
       .list()
-      .filter((member) => directory.hasAdmin(member.staff_id))
-      .filter((member) => scope === null || member.staff_id === scope)
+      .filter((member) => (listed === null ? directory.hasAdmin(member.staff_id) : listed.has(member.staff_id) && directory.resolve(member.staff_id, 'access-hub-admin').grant === 'allowed'))
       .map((member) => ({
         staff_id: member.staff_id,
         display_name: member.display_name,
         role_names: directory.roleNames(member.staff_id),
         locked_until: locks.get(member.staff_id) ?? null,
       }));
-    return { data: { staff } };
+    // 05a §6.11: memory, no statement.
+    return { data: { staff, recovery_available: listedAdminDeviceCount(directory) === 0 } };
   });
 }
 
@@ -192,11 +193,12 @@ function deviceFromBearer(db: Database.Database, request: FastifyRequest): Devic
     .get(sha256hex(token)) as DeviceHit | undefined;
 }
 
-function rosterScope(deps: HubDeps, request: FastifyRequest): string | null {
+/** `listed: null` = bootstrap token (whole directory's admins); else the people of the calling `listed` device. */
+function rosterScope(deps: HubDeps, request: FastifyRequest): { listed: ReadonlySet<string> | null } {
   const bootstrap = headerValue(request, 'x-admin-bootstrap');
   if (bootstrap !== undefined) {
     if (!liveBootstrap(deps, bootstrap)) throw new DomainError('PAIRING_TOKEN_INVALID');
-    return null;
+    return { listed: null };
   }
   const device = deviceFromBearer(deps.db, request);
   if (device === undefined) throw new DomainError('DEVICE_TOKEN_INVALID');
@@ -207,7 +209,10 @@ function rosterScope(deps: HubDeps, request: FastifyRequest): string | null {
       allowed: ['tablet', 'cashier_kiosk', 'phone'],
     });
   }
-  return device.device_type === 'phone' ? device.owner_staff_id : null;
+  // 05a H-2: `everyone`, or no profile (R-1, as `everyone`), is refused.
+  const profile = deviceProfile(device.device_id);
+  if (profile === undefined || profile.access === 'everyone') throw listedDeviceOnly();
+  return { listed: profile.staff_ids };
 }
 
 function liveBootstrap(deps: HubDeps, token: string): boolean {

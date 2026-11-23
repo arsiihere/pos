@@ -153,7 +153,7 @@ describe('access queries', () => {
 
     const hub = await open(await manyStaff(30));
     const counter = statementCounter(hub.deps.readDb);
-    const device = pairDevice(hub, { type: 'cashier_kiosk' });
+    const device = pairDevice(hub, { type: 'cashier_kiosk', profile: { access: 'everyone', staff_ids: [], screens: ['cashier'] } });
     const session = openSession(hub, { kind: 'staff', staffId: 'S_00', deviceId: device.deviceId });
     hub.deps.db
       .prepare(
@@ -247,6 +247,22 @@ describe('access queries', () => {
     expect(byId.get('S_WAIT')).toEqual(['count_stock']);
     expect(byId.get('S_MGR')).toEqual([]);
     expect(byId.get('S_OWNER')).toEqual([]);
+  });
+
+  it('[05a #3] roster: a listed device shows only its people, an everyone device the whole directory; 2 statements', async () => {
+    const hub = await open();
+    const counter = statementCounter(hub.deps.readDb);
+    const listed = pairDevice(hub, { type: 'tablet', profile: { access: 'listed', staff_ids: ['S_CASH', 'S_MGR'], screens: ['cashier'] } });
+    const everyone = pairDevice(hub, { type: 'tablet', profile: { access: 'everyone', staff_ids: [], screens: ['cashier'] } });
+    counter.reset();
+    const some = await deviceGet(hub, listed.token, '/queries/staff-roster');
+    expect(some.statusCode).toBe(200);
+    expect(counter.count).toBe(2);
+    expect((some.json().data.staff as Array<{ staff_id: string }>).map((row) => row.staff_id).sort()).toEqual(['S_CASH', 'S_MGR']);
+    counter.reset();
+    const all = await deviceGet(hub, everyone.token, '/queries/staff-roster');
+    expect(counter.count).toBe(2);
+    expect(all.json().data.staff).toHaveLength(currentDirectory(hub.app).list().length);
   });
 
   it('[00 §10 #82] phone roster lists only the owner', async () => {
