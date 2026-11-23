@@ -1,3 +1,5 @@
+> **Folded into `08_Inventory_Costing_Spec_v1.1.md` (Part B, APPROVED 2026-11-24).** This file is history.
+
 # 08b — Inventory & Costing: recipes + cost engine — Module Spec part v0.4 (DRAFT)
 
 **v0.4 — DRAFT (2026-11-24), fixes the targeted check (run 3)** (`docs/reviews/08b_v0.3_targeted_check.md`: 0 BLOCKER, 4 MAJOR, 8 MINOR; run-2 rows left ✗ there: N-1, N-4, N-6, n-1, n-2). No owner ruling needed. Next: **a second targeted check on T-1 … T-4 and t-1 … t-8 only**, as the check asked. Markers "⚠️ v0.4 (id)". Still the 08b part of module 08 (module OQ-1: folded into `08_Inventory_Costing_Spec` at approval).
