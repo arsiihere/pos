@@ -69,7 +69,8 @@ describe('first-admin bootstrap', () => {
     await seedDirectory(hub, directory);
     const owner = await bootstrap(hub, issue(hub).token, 'S_OWNER', PIN.a);
     expect(owner.json().data.permissions).toEqual({ 'manage-devices': true, 'manage-staff': true, 'manage-fiscal-settings': true, 'close-business-day': true });
-    const tablet = pairDevice(hub, { type: 'tablet' });
+    // 05a §3.5: `/admin/auth` signs in only on a listed device, and only its people
+    const tablet = pairDevice(hub, { type: 'tablet', profile: { access: 'listed', staff_ids: ['S_MGR'], screens: ['manager'] } });
     const manager = await hub.app.inject({
       method: 'POST',
       url: '/admin/auth',
@@ -90,7 +91,8 @@ describe('first-admin bootstrap', () => {
       const directory = await aDirectory();
       for (const staff of directory.staff) if (staff.staff_id === 'S_MGR') staff.denied_permissions = [denied];
       await seedDirectory(hub, directory);
-      const tablet = pairDevice(hub, { type: 'tablet' });
+      // 05a §3.5: `/admin/auth` signs in only on a listed device, and only its people
+      const tablet = pairDevice(hub, { type: 'tablet', profile: { access: 'listed', staff_ids: ['S_MGR'], screens: ['manager'] } });
       const manager = await hub.app.inject({ method: 'POST', url: '/admin/auth', headers: { authorization: `Bearer ${tablet.token}` }, payload: { staff_id: 'S_MGR', pin: PIN.b } });
       expect(manager.statusCode, denied).toBe(200);
       expect(manager.json().data.permissions, denied).toEqual({ 'manage-devices': true, 'manage-staff': true, ...want });

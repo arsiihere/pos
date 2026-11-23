@@ -4,9 +4,11 @@ import { checkPin } from '../../src/auth/pin';
 import { currentDirectory } from '../../src/auth/guards';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PIN } from '../helpers/fixtures';
-import { createTestHub, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { createTestHub, pairDevice, seedDirectory, type DeviceProfileInput, type TestHub } from '../helpers/test-hub';
 
 const cleanups: Array<() => Promise<void>> = [];
+// 05a §3.5: `/admin/auth` signs in only on a `listed` device, and only its people (a device with no profile is refused).
+const ADMIN_LIST: DeviceProfileInput = { access: 'listed', staff_ids: ['S_OWNER', 'S_MGR', 'S_CASH', 'S_WAIT'], screens: ['manager'] };
 
 describe('admin session', () => {
   afterEach(async () => {
@@ -15,7 +17,7 @@ describe('admin session', () => {
 
   it('[00 §10 #26] tablet admin login binds the session and a non-admin PIN resets the staff counter', async () => {
     const hub = await open();
-    const tablet = pairDevice(hub, { type: 'tablet' });
+    const tablet = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
     const ok = await login(hub, tablet.token, 'S_OWNER', PIN.a);
     expect(ok.statusCode).toBe(200);
     const body = ok.json().data;
@@ -37,7 +39,7 @@ describe('admin session', () => {
 
   it('[00 §10 #148] M92: login-roster rows carry the staff role names', async () => {
     const hub = await open();
-    const tablet = pairDevice(hub, { type: 'tablet' });
+    const tablet = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
     const res = await hub.app.inject({ method: 'GET', url: '/admin/login-roster', headers: { authorization: `Bearer ${tablet.token}` } });
     expect(res.statusCode).toBe(200);
     const rows = res.json().data.staff as Array<{ staff_id: string; role_names: string[] }>;
@@ -47,7 +49,7 @@ describe('admin session', () => {
 
   it('[00 §10 #27] ten failures from one device across staff lock the device', async () => {
     const hub = await open();
-    const tablet = pairDevice(hub, { type: 'tablet' });
+    const tablet = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
     const plan = [
       ['S_OWNER', 3],
       ['S_MGR', 3],
@@ -68,7 +70,7 @@ describe('admin session', () => {
 
   it('[00 §10 #40] admin logout is idempotent', async () => {
     const hub = await open();
-    const tablet = pairDevice(hub, { type: 'tablet' });
+    const tablet = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
     const opened = await login(hub, tablet.token, 'S_OWNER', PIN.a);
     const token = opened.json().data.admin_session_token as string;
     const first = await logout(hub, tablet.token, token);
@@ -140,17 +142,18 @@ describe('admin session', () => {
       allowed: ['tablet', 'cashier_kiosk', 'phone'],
     });
 
-    const phone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_OWNER' });
+    // 05a §3.5: a listed phone signs in only its people; DEVICE_ACCESS_DENIED replaces DEVICE_NOT_OWNED (m-8)
+    const phone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_OWNER', profile: { access: 'listed', staff_ids: ['S_OWNER'], screens: ['manager'] } });
     const other = await login(hub, phone.token, 'S_MGR', PIN.b);
     expect(other.statusCode).toBe(403);
-    expect(other.json().error.code).toBe('DEVICE_NOT_OWNED');
+    expect(other.json().error.code).toBe('DEVICE_ACCESS_DENIED');
     expect(other.json().error.details).toEqual({ device_id: phone.deviceId });
     expect(staffFailures(hub, 'S_MGR')).toBe(0);
     const owner = await login(hub, phone.token, 'S_OWNER', PIN.a);
     expect(owner.statusCode).toBe(200);
 
-    const tabletA = pairDevice(hub, { type: 'tablet' });
-    const tabletB = pairDevice(hub, { type: 'tablet' });
+    const tabletA = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
+    const tabletB = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
     const session = (await login(hub, tabletA.token, 'S_OWNER', PIN.a)).json().data.admin_session_token as string;
     const crossed = await logout(hub, tabletB.token, session);
     expect(crossed.statusCode).toBe(401);
@@ -159,7 +162,7 @@ describe('admin session', () => {
 
   it('[00 §10 #93] a full PIN semaphore does not delay admin login and a full admin semaphore does not delay PIN verify', async () => {
     const hub = await open();
-    const tablet = pairDevice(hub, { type: 'tablet' });
+    const tablet = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
     const semaphores = authSemaphores(hub.app);
     const pinReleases = [await semaphores.pin.acquire(1_000), await semaphores.pin.acquire(1_000)];
     const adminLogin = await login(hub, tablet.token, 'S_OWNER', PIN.a);
@@ -189,6 +192,7 @@ describe('admin session', () => {
   it('[00 §10 #114] unknown staff is STAFF_NOT_FOUND on /auth/pin and /admin/auth, not counted; a locked staff is PIN_LOCKED_OUT on admin login', async () => {
     const hub = await open();
     const tablet = pairDevice(hub, { type: 'tablet' });
+    const adminDevice = pairDevice(hub, { type: 'tablet', profile: { ...ADMIN_LIST, staff_ids: [...ADMIN_LIST.staff_ids!, 'S_MISSING'] } });
     const events = () => hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get() as number;
     const before = events();
     const staffPin = await hub.app.inject({
@@ -204,16 +208,33 @@ describe('admin session', () => {
       hub.deps.db.prepare(`SELECT COUNT(*) FROM auth_lockouts WHERE subject_type = 'staff' AND subject_id = 'S_MISSING'`).pluck().get(),
     ).toBe(0);
     expect(events()).toBe(before);
-    const missing = await login(hub, tablet.token, 'S_MISSING', PIN.a);
+    // the 05a §3.5 check passes (the id is on the device's list), so 00 §3.5 step 4 answers
+    const missing = await login(hub, adminDevice.token, 'S_MISSING', PIN.a);
     expect(missing.statusCode).toBe(404);
     expect(missing.json().error.code).toBe('STAFF_NOT_FOUND');
     expect(missing.json().error.details).toEqual({ staff_id: 'S_MISSING' });
+    expect(
+      hub.deps.db.prepare(`SELECT COUNT(*) FROM auth_lockouts WHERE subject_type = 'staff' AND subject_id = 'S_MISSING'`).pluck().get(),
+    ).toBe(0);
     for (let i = 0; i < 5; i += 1) {
-      expect((await login(hub, tablet.token, 'S_OWNER', '0000')).json().error.code).toBe('PIN_INVALID');
+      expect((await login(hub, adminDevice.token, 'S_OWNER', '0000')).json().error.code).toBe('PIN_INVALID');
     }
-    const locked = await login(hub, tablet.token, 'S_OWNER', PIN.a);
+    const locked = await login(hub, adminDevice.token, 'S_OWNER', PIN.a);
     expect(locked.statusCode).toBe(429);
     expect(locked.json().error.code).toBe('PIN_LOCKED_OUT');
+  });
+
+  it('[05a §3.5] /admin/auth with an unknown id that is not on the listed device\'s list → 403 DEVICE_ACCESS_DENIED before step 2, not counted', async () => {
+    const hub = await open();
+    const adminDevice = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
+    const events = () => hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get() as number;
+    const before = events();
+    const missing = await login(hub, adminDevice.token, 'S_MISSING', PIN.a);
+    expect(missing.statusCode).toBe(403);
+    expect(missing.json().error.code).toBe('DEVICE_ACCESS_DENIED');
+    expect(missing.json().error.details).toEqual({ device_id: adminDevice.deviceId });
+    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM auth_lockouts').pluck().get()).toBe(0);
+    expect(events()).toBe(before);
   });
 });
 

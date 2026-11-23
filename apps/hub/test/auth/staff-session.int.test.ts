@@ -216,7 +216,7 @@ describe('staff PIN session', () => {
     expect(activeStaff(hub, tablet.deviceId)).toHaveLength(1);
   });
 
-  it('[00 §10 #81] the phone owner logs in; another staff member is DEVICE_NOT_OWNED with no PIN check', async () => {
+  it('[00 §10 #81] the phone owner logs in; another staff member is DEVICE_ACCESS_DENIED (05a §3.5 m-8) with no PIN check', async () => {
     const hub = await open();
     const phone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_OWNER' });
     const owner = await pin(hub, phone.token, 'S_OWNER', PIN.a);
@@ -225,7 +225,7 @@ describe('staff PIN session', () => {
     const started = Date.now();
     const other = await pin(hub, phone.token, 'S_MGR', PIN.b);
     expect(other.statusCode).toBe(403);
-    expect(other.json().error.code).toBe('DEVICE_NOT_OWNED');
+    expect(other.json().error.code).toBe('DEVICE_ACCESS_DENIED');
     expect(other.json().error.details).toEqual({ device_id: phone.deviceId });
     expect(Date.now() - started).toBeLessThan(1_000);
     expect(other.json().error.details.can_take_over).toBeUndefined();

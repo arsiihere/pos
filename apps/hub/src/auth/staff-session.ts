@@ -5,8 +5,9 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { HubDeps } from '../server.js';
 import type { Semaphore } from '../lib/semaphore.js';
 import type { WriterTx } from '../engine-host/writer.js';
+import { deviceProfile } from './device-profile.js';
 import { currentDirectory } from './guards.js';
-import { checkPin } from './pin.js';
+import { checkDeviceAccess, checkPin } from './pin.js';
 import {
   activeSessionsOf,
   activity,
@@ -30,9 +31,8 @@ export function registerStaffSessionRoutes(app: FastifyInstance, deps: HubDeps, 
         allowed: ['tablet', 'cashier_kiosk', 'phone'],
       });
     }
-    if (device.device_type === 'phone' && device.owner_staff_id !== body.staff_id) {
-      throw new DomainError('DEVICE_NOT_OWNED', { device_id: device.device_id });
-    }
+    // 05a §3.5: before 00 §3.5 step 2; not counted, no argon2, memory only.
+    checkDeviceAccess(device, body.staff_id, deviceProfile(device.device_id));
     const outcome = await checkPin(
       {
         db: deps.db,
@@ -49,10 +49,26 @@ export function registerStaffSessionRoutes(app: FastifyInstance, deps: HubDeps, 
         subject: { type: 'device', id: device.device_id },
         eventDeviceId: device.device_id,
       },
-      (tx) => openStaffSession(app, tx, device.device_id, body.staff_id, body.takeover),
+      (tx) => {
+        // 05a §3.5 again in the writer: a profile edit committed while argon2 ran is seen here (the map is rebuilt
+        // after each commit). The takeover below is reached only by a person this device accepts (m-10).
+        try {
+          checkDeviceAccess(device, body.staff_id, deviceProfile(device.device_id));
+        } catch (error) {
+          return { refused: error as DomainError };
+        }
+        // 05a §6.5: the device block as `GET /queries/session` reads it (§6.7), read with the check it answers; no
+        // profile reads as `everyone`.
+        const profile = deviceProfile(device.device_id);
+        return {
+          opened: openStaffSession(app, tx, device.device_id, body.staff_id, body.takeover),
+          device: { screens: profile?.screens ?? [], access: profile?.access ?? 'everyone', point_id: profile?.point_id ?? null },
+        };
+      },
     );
-    activity.touch(outcome.session_id, deps.clock.branchNow());
-    return { data: outcome };
+    if ('refused' in outcome) throw outcome.refused;
+    activity.touch(outcome.opened.session_id, deps.clock.branchNow());
+    return { data: { ...outcome.opened, device: outcome.device } };
   });
 
   app.post(
