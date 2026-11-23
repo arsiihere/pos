@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~17:00 PKT: **Tasks 17–18 merged** (sign-in checks, rosters). **19 tasks merged**: 9–15, 17–20, 22, 27–29, 31, 32, 35, 36. Next: 16 (approved, merging after its merge of build/05a), 21 (in review), 33, 34 (running); then 23–26, 30.
 > - 2026-11-23 ~16:45 PKT: **Task 15 merged** (approve tablet / phone by request; token pairing and the STAB-1 Add a phone / Add a tablet removed). 17 tasks merged. Approved, merging next: 16, 17 (re-check), 18. In review: 21. Running: 34.
 > - 2026-11-23 ~16:20 PKT: **Task 20 merged**. 16 tasks merged. Fix rounds: 15 (tablet / phone on `/admin/approve` until task 33), 17 (tests). Running: 16, 18, 21.
 > - 2026-11-23 ~15:55 PKT: **Task 19 merged** (SetDeviceProfile, Opus APPROVE). 15 tasks merged. In review: 15, 17, 20. Running: 16.
@@ -102,8 +103,8 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 14 | B4 | pair request hint + poll screens | NORMAL | `9a61c55b` | **done** (Sonnet review APPROVE; no-profile poll → `screens: []`, an inference from §3.6, noted) |
 | 15 | B4 | approve v2 **+ STAB-1 removal (one commit)** | HIGH | `8a3645e8`, fix `c1035209` | **done** (Opus review FIX → 1 round → APPROVE). Task commit is one commit (D-3); the fix commit adds Tablet / My phone to `/admin/approve` until task 33 so a tablet and a phone stay pairable through a UI (D-3), plus tests. `/admin/approve?r=` reads `hardware_hint` (1 unauthenticated read, only the hint; task 33 may move it after sign-in) |
 | 16 | B4 | pair page text + hint | NORMAL | | |
-| 17 | B5 | sign-in checks | HIGH | | |
-| 18 | B5 | staff / login roster | NORMAL | | |
+| 17 | B5 | sign-in checks | HIGH | `1f2e66ae`, `a1b47393`, fix `2eb9daad` | **done** (Opus review FIX → 1 round → APPROVE). #114: the 00 404 half kept (unknown id on the list → 404); an unknown id off a listed device's list → 403 `DEVICE_ACCESS_DENIED` first (05a §3.5 order); note for Z1 / the next 00 bump |
+| 18 | B5 | staff / login roster | NORMAL | `19e3cdbb` | **done** (Sonnet review APPROVE; a no-profile phone's roster = its owner, read from §3.5 R-1) |
 | 19 | B5 | `SetDeviceProfile` | HIGH | `cac60851` | **done** (Opus review APPROVE; PC-5) |
 | 20 | B5 | revoke both + device list | NORMAL | `547702b2`, fix `961da1e3` | **done** (Sonnet review FIX → 1 round: a no-profile staff device lists as `everyone` v0 so task 19 can edit it) |
 | 21 | B5 | directory apply | HIGH | | |
