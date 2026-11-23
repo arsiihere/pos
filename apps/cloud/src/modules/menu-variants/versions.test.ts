@@ -146,11 +146,33 @@ describe('menu-variants versions (01c §5.4, V13)', () => {
     expect(toVariantGroupWire({ ...row, archived_at: '2000' }).archived_at).toBe(2_000);
   });
 
-  it('[01c §5.4] stock item: exactly the five input keys', () => {
-    const row = { stock_item_id: 'SI1', name: 'Naan dough', stock_unit: 'g' as const, carries_over: true, archived_at: null };
+  it('[01c §5.4; 08a C-7, #12] stock item: exactly the nine input keys (01c v1.2: + kind, code, cost_category, is_a_item)', () => {
+    const row = {
+      stock_item_id: 'SI1',
+      name: 'Naan dough',
+      stock_unit: 'g' as const,
+      carries_over: true,
+      archived_at: null,
+      kind: 'prepared' as const,
+      code: null,
+      cost_category: 'food' as const,
+      is_a_item: false,
+    };
     const wire = toStockItemWire(row);
     expect(wire).toEqual({ ...row, version: wire.version });
-    expect(wire.version).toBe(hash({ stock_item_id: 'SI1', name: 'Naan dough', stock_unit: 'g', carries_over: true, archived: false }));
+    expect(wire.version).toBe(
+      hash({
+        stock_item_id: 'SI1',
+        name: 'Naan dough',
+        stock_unit: 'g',
+        carries_over: true,
+        archived: false,
+        kind: 'prepared',
+        code: null,
+        cost_category: 'food',
+        is_a_item: false,
+      }),
+    );
   });
 
   it('[01c §5.4] stock item branch: exactly the five keys; no row is is_counted: false and stable; BIGINT strings hash like numbers', () => {

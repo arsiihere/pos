@@ -83,6 +83,11 @@ function pot(extra: Partial<StockItem> = {}): StockItem {
     stock_unit: 'g',
     carries_over: false,
     archived_at: null,
+    // ⚠️ 08a C-7 (owner ruling 2026-11-23, AD-5): the wire is extended in place
+    kind: 'prepared',
+    code: null,
+    cost_category: 'food',
+    is_a_item: false,
     version: 'k1',
     branches: ['B1', 'B2', 'B3', 'B4'].map((b) => ({ branch_id: b, station_id: 'S1', low_stock_threshold: 1000, version: `${b}-v1` })),
     drawers: [],
