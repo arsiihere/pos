@@ -7,6 +7,7 @@ import { kdsPresenceTick } from '../../src/kds/presence';
 import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { audienceAllows, type Audience } from '../../src/ws/audience';
 import type { SocketCtx } from '../../src/ws/catch-up';
+import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
 import { FX, append, appendOrder, fireLines, fixtureMenu, openDay, pairDevice, pairKds, pairPassTablet, signInCook } from './fixtures';
@@ -163,6 +164,19 @@ describe('[03b §6.17] event audiences (b22)', () => {
       expect(got, e.event_type).toEqual(expect.arrayContaining(['p2', 's3']));
       expect(got.filter((k) => k.startsWith('s')), e.event_type).toEqual(e.event_type === 'StationCapacitySet' ? ['s1', 's2', 's3'] : e.event_type === 'OrderBoosted' ? ['s1', 's3'] : ['s3']);
     }
+  });
+
+  it('[03b v1.0.14 §6.17, #92] LinePrioritized for two lines of one order on two stations reaches each station socket and each point Pass; another station\'s KDS does not; 0 statements (STAB-7)', async () => {
+    const seats = await start();
+    const o = order();
+    const e = ev('LinePrioritized', 'order', o, { order_id: o, group_id: `${o}:0`, order_item_ids: ['A1', 'G1'], delay_ms: 360_000, at_ms: 0 });
+    const counter = statementCounter(hub.deps.db);
+    expect(who03b(seats, e)).toEqual(['p1', 'p2', 's1', 's3']);
+    expect(counter.count).toBe(0);
+    expect(who(seats, e)).not.toContain('s2');
+    expect(who(seats, e)).not.toContain('kiosk');
+    const one = ev('LinePrioritized', 'order', o, { order_id: o, group_id: `${o}:0`, order_item_ids: ['G1'], delay_ms: 360_000, at_ms: 0 });
+    expect(who03b(seats, one)).toEqual(['p2', 's3']);
   });
 
   it('[03b §6.17] ReadyToServe, ReadyToServeUndone, Handover, ReadyRetargeted reach exactly the Pass sockets of their point', async () => {

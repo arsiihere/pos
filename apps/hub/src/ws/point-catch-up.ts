@@ -1,5 +1,5 @@
 import type { LineDetail } from '@pos/domain';
-import { isOrderInEngine, stationView, type EngineState } from '@pos/engine';
+import { isOrderInEngine, priorityOfLine, stationView, type EngineState, type LinePriority } from '@pos/engine';
 import type { KdsStationBody, WsPointLines } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
@@ -36,8 +36,13 @@ const LIVE = new Set(['added', 'cooking', 'done']);
 /** B3-3: the events that change a line's live units (as ws/kds-catch-up.ts). */
 const UNIT_CHANGES: ReadonlySet<string> = new Set(['ItemRemoved', 'ItemVoided', 'LineWeightSet']);
 
-/** Q-46: the engine line's serve group and mode, so the Pass computes Ready / HOLD (a return or released line is `immediate`). */
-export type ServeFields = { group_id: string; serve_mode: 'sync' | 'immediate' };
+/**
+ * Q-46: the engine line's serve group and mode, so the Pass computes Ready / HOLD (a return or released line is `immediate`).
+ * ⚠️ 03b v1.0.13 §6.15, §6.16 (STAB-6, STAB-7): + `load_id` (the engine line's, set for a stored load before its fire
+ * too; null off a batch station) and `priority` (the engine view's, 03a v1.2.10 §3.5.7 PR-8; null on a line that is
+ * not priority), both memory.
+ */
+export type ServeFields = { group_id: string; serve_mode: 'sync' | 'immediate'; load_id: string | null; priority: LinePriority | null };
 // ⚠️ 03b v1.0.12 §6.15 (STAB-5 Q5): started_at = the engine line's (null while waiting), so a grouped Done on the Pass
 // sends the part that started last first
 export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean; started_at: number | null };
@@ -49,9 +54,9 @@ export interface PointViewBody {
   takeovers: KdsStationBody[];
 }
 
-const serveOf = (state: EngineState, id: string): ServeFields => {
+const serveOf = (state: EngineState, id: string, now: number, memo?: Map<string, number>): ServeFields => {
   const l = state.lines[id]!;
-  return { group_id: l.group_id, serve_mode: l.serve_mode };
+  return { group_id: l.group_id, serve_mode: l.serve_mode, load_id: l.load_id, priority: priorityOfLine(state, l, now, memo) ?? null };
 };
 
 /** The live lines of `point_id` whose order is in the engine (memory). */
@@ -147,13 +152,14 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
   }
 
   const lineSet = new Set(lineIds);
+  const memo = new Map<string, number>();
   const orders: PointViewBody['orders'] = [];
   for (const order_id of orderIds) {
     const order = state.orders[order_id]!;
     const lines = order.line_ids.flatMap((id): PointLine[] => {
       const d = details.get(id);
       if (!lineSet.has(id) || d === undefined) return [];
-      return [{ ...d, ...serveOf(state, id), stage: state.lines[id]!.stage as PointLine['stage'], handed_over: handed.has(id), started_at: state.lines[id]!.started_at }];
+      return [{ ...d, ...serveOf(state, id, now, memo), stage: state.lines[id]!.stage as PointLine['stage'], handed_over: handed.has(id), started_at: state.lines[id]!.started_at }];
     });
     if (lines.length === 0) continue;
     orders.push({ order_id, identifier: lines[0]!.identifier, placed_at: order.placed_at, lines, ready: ready.get(order_id) ?? null });
@@ -290,12 +296,13 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
 
     const details = buildLineDetails(deps.db, state, [...all]);
     const ws = wsHubFor(app);
+    const memo = new Map<string, number>();
     for (const s of sessions) {
       const ids = missing.get(s.sessionId);
       if (ids === undefined) continue;
       const lines = ids.flatMap((id) => {
         const d = details.get(id);
-        return d === undefined || state.lines[id] === undefined ? [] : [{ ...d, ...serveOf(state, id) }];
+        return d === undefined || state.lines[id] === undefined ? [] : [{ ...d, ...serveOf(state, id, now, memo) }];
       });
       const had = given.get(s.sessionId)!;
       for (const id of ids) had.add(id);

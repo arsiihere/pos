@@ -49,7 +49,13 @@ const pointLines = (ws: WsClient): WsPointLines[] => ws.messages.filter((m) => (
 const ids = (frames: WsPointLines[]): string[][] => frames.map((f) => f.lines.map((l) => l.order_item_id));
 const body = (point = 'P1'): PointViewBody => pointViewBody(hub.deps.db, engine(), point, now());
 /** Q-46: the engine line's serve group and mode. */
-const serve = (id: string): { group_id: string; serve_mode: 'sync' | 'immediate' } => ({ group_id: engine().lines[id]!.group_id, serve_mode: engine().lines[id]!.serve_mode });
+// ⚠️ 03b v1.0.13 §6.15 (STAB-6, STAB-7): + load_id and priority (null on a slot line that is not priority)
+const serve = (id: string): { group_id: string; serve_mode: 'sync' | 'immediate'; load_id: string | null; priority: null } => ({
+  group_id: engine().lines[id]!.group_id,
+  serve_mode: engine().lines[id]!.serve_mode,
+  load_id: engine().lines[id]!.load_id,
+  priority: null,
+});
 
 /** Counts only buildLineDetails' two statements (its line read and 02a currentTableOf), as test/kds/kds-catch-up's. */
 function detailsCounter(db: Database.Database): { readonly count: number; reset(): void } {
@@ -196,7 +202,7 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
     const view = catchUpState(pass).point_view as PointViewBody;
     const viewLines = view.orders.flatMap((o) => o.lines);
     expect(viewLines.map((l) => l.order_item_id).sort()).toEqual(['G1', 'G2']);
-    for (const l of viewLines) expect({ group_id: l.group_id, serve_mode: l.serve_mode }, l.order_item_id).toEqual(serve(l.order_item_id));
+    for (const l of viewLines) expect({ group_id: l.group_id, serve_mode: l.serve_mode, load_id: l.load_id, priority: l.priority }, l.order_item_id).toEqual(serve(l.order_item_id));
     expect(viewLines.find((l) => l.order_item_id === 'G1')!.serve_mode).toBe('immediate');
 
     const device = pairDevice(hub, { type: 'tablet' });
@@ -221,7 +227,7 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
     await settle();
     const framed = pointLines(pass).flatMap((f) => f.lines);
     expect(framed.map((l) => l.order_item_id).sort()).toEqual(['C1', 'R1']);
-    for (const l of framed) expect({ group_id: l.group_id, serve_mode: l.serve_mode }, l.order_item_id).toEqual(serve(l.order_item_id));
+    for (const l of framed) expect({ group_id: l.group_id, serve_mode: l.serve_mode, load_id: l.load_id, priority: l.priority }, l.order_item_id).toEqual(serve(l.order_item_id));
     expect(framed.find((l) => l.order_item_id === 'R1')!.serve_mode).toBe('immediate');
     expect(framed.find((l) => l.order_item_id === 'C1')!.serve_mode).toBe('sync');
     for (const f of pointLines(pass)) WsPointLines.parse(f);
@@ -241,6 +247,49 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
       ['S2', null],
     ]);
     expect(engine().lines.S1!.started_at).not.toBeNull();
+  });
+
+  it('[03b v1.0.14 §6.15, §6.16, #91] point_view and point_lines lines carry load_id (a batch line before and after its fire; null on a slot line) and priority (null, then set after a LinePrioritized fold); statements unchanged (STAB-6, STAB-7)', async () => {
+    hub = await createTestHub({ provisioned: true });
+    const cook = await signInCook(hub, { pointId: 'P1' });
+    const base = fixtureMenu();
+    const s1 = base.stations.find((s) => s.station_id === FX.station)!;
+    const naan = base.items.find((i) => i.item_id === FX.naan)!;
+    const menu: BranchConfig = {
+      ...base,
+      stations: [...base.stations, { ...s1, station_id: 'S_B', name: 'Tandoor', station_type: 'batch', programs: [{ program_id: 'PR', name: 'Bake', cook_time_ms: 480_000, is_archived: false }] }],
+      items: [...base.items, { ...naan, item_id: 'I_B', name: 'Tandoori naan', station_id: 'S_B', program_id: 'PR', cook_time_ms: 480_000 }],
+    };
+    openDay(hub, { menu });
+    const pass = await connect(cook.token, cook.sessionToken);
+    const { order_id } = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'B1', item_id: 'I_B', item: { program_cook_time_ms: 480_000 } },
+        { order_item_id: 'K1', item_id: FX.piece },
+      ],
+    });
+    await settle();
+    const load = engine().lines.B1!.load_id;
+    expect(load).not.toBeNull();
+    const viewOf = (id: string) => body().orders.flatMap((o) => o.lines).find((l) => l.order_item_id === id)!;
+    expect(viewOf('B1')).toMatchObject({ load_id: load, priority: null });
+    expect(viewOf('K1')).toMatchObject({ load_id: null, priority: null });
+    const framed = pointLines(pass).flatMap((f) => f.lines);
+    expect(framed.find((l) => l.order_item_id === 'B1')).toMatchObject({ load_id: load, priority: null });
+    expect(framed.find((l) => l.order_item_id === 'K1')).toMatchObject({ load_id: null, priority: null });
+    for (const f of pointLines(pass)) WsPointLines.parse(f);
+
+    const group_id = engine().lines.K1!.group_id;
+    append(hub, [{ stream_type: 'order', stream_id: order_id, event_type: 'LinePrioritized', payload: { order_id, group_id, order_item_ids: ['K1'], delay_ms: 360_000, at_ms: now() } }]);
+    expect(engine().lines.K1!.priority_at).not.toBeNull();
+    expect(viewOf('K1').priority).toEqual({ since_ms: engine().lines.K1!.priority_at, minutes_late: expect.any(Number) });
+    append(hub, [{ stream_type: 'station', stream_id: 'S_B', event_type: 'FireDispatched', payload: { station_id: 'S_B', order_item_ids: ['B1'], load_id: load, due_at: now(), reason: 'pulled' } }]);
+    expect(engine().lines.B1!.fired_at).not.toBeNull();
+    expect(viewOf('B1').load_id).toBe(load); // after the fire too
+    const counter = statementCounter(hub.deps.db);
+    body();
+    expect(counter.count).toBe(4);
   });
 
   it('[03b #67] statements unchanged: point_view 4 (+1 per takeover), point_lines hook 2', async () => {
