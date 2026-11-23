@@ -191,7 +191,7 @@ describe('[05a §3.5] sign-in check on /auth/pin and /admin/auth', () => {
       const h = await hub();
       const tablet = pairDevice(h, { type: 'tablet', profile: { access: 'listed', staff_ids: [ALI], screens: ['dine_in'] } });
       const actual = await vi.importActual<typeof import('@node-rs/argon2')>('@node-rs/argon2');
-      verifySpy.mockImplementationOnce((hash: string, pinValue: string) => {
+      verifySpy.mockImplementationOnce((hash, pinValue) => {
         withProfile(h, tablet.deviceId, { access: 'everyone', screens: ['dine_in'] });
         return actual.verify(hash, pinValue);
       });
@@ -206,7 +206,7 @@ describe('[05a §3.5] sign-in check on /auth/pin and /admin/auth', () => {
       const h = await hub();
       const tablet = pairDevice(h, { type: 'tablet', profile: { access: 'listed', staff_ids: [ALI, BILAL], screens: ['dine_in'] } });
       const actual = await vi.importActual<typeof import('@node-rs/argon2')>('@node-rs/argon2');
-      verifySpy.mockImplementationOnce((hash: string, pinValue: string) => {
+      verifySpy.mockImplementationOnce((hash, pinValue) => {
         withProfile(h, tablet.deviceId, { access: 'listed', staff_ids: [ALI], screens: ['dine_in'] });
         return actual.verify(hash, pinValue);
       });
