@@ -447,3 +447,24 @@ describe('[05b M-14] Update the app', () => {
   });
 });
 
+describe('[05b C-1, M-18] Me → device health', () => {
+  it('the card is on the Me screen inside the app only', async () => {
+    const n = fakeNative();
+    render(n);
+    await signIn();
+    act(() => {
+      window.location.hash = '#/me';
+    });
+    await flush();
+    expect(m.container.querySelector('[data-native="health"]')).not.toBeNull();
+    m.unmount();
+    render(null);
+    await signIn();
+    act(() => {
+      window.location.hash = '#/me';
+    });
+    await flush();
+    expect(m.button('Sign out')).toBeTruthy();
+    expect(m.container.querySelector('[data-native="health"]')).toBeNull();
+  });
+});

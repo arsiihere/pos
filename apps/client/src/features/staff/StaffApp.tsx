@@ -67,6 +67,7 @@ import { LiveRegion } from '../alerts/LiveRegion';
 import { PrintSkipContext, type PrintSkipCtx } from '../alerts/ui';
 import { passLiveOf } from '../pass/live';
 import { deviceContextOf, nativeBridge, needsAppUpdate, readStaffBuild, revokeNotice, staffBuildAction, type NativeBridge, type NativeState, type RevokeNoticeKey } from '../native/bridge';
+import { DeviceHealth } from '../native/DeviceHealth';
 
 // 01d task 41: the hub-served staff entry /staff/ (spec §8.1; hand-off PROMPT "Staff entry shell"). Maroon 80 px
 // top bar: brand block (mark, branch, device; the third line is the B05 slot, task 42), the segmented nav
@@ -1027,7 +1028,11 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       />
     );
   } else if (staffRoute.name === 'me') {
-    page = <MeTab name={me.name} onSignOut={() => signOut(true)} {...(showShift ? { onShift: () => navigate('/shift') } : {})} />;
+    page = (
+      <MeTab name={me.name} onSignOut={() => signOut(true)} {...(showShift ? { onShift: () => navigate('/shift') } : {})}>
+        {native !== null && <DeviceHealth native={native} />}
+      </MeTab>
+    );
   } else if (isSlotRoute(staffRoute)) {
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
   } else if (path === '/manager' && has('manager')) {
