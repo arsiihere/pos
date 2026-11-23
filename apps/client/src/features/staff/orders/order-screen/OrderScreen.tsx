@@ -1,6 +1,6 @@
 import { inAvailabilityWindows, localTimeOfDayMs, type Unit } from '@pos/domain';
 import type { BranchConfig, ConfigItem } from '@pos/events';
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { navigate } from '../../../../app/router';
 import { language, t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
@@ -57,6 +57,12 @@ import { announceCompIt, freezeSubmit, refusalText, sendOrder, sentToastText, ti
 import { createTokenBook } from '../takeaway/book';
 import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
 import type { QueueToken } from '../takeaway/queue-model';
+import { createHandovers } from '../takeaway/handover';
+import { readyNow, TokenView } from '../takeaway/TokenView';
+import { servedPayload } from '../actions/MarkServedSheet';
+import { showEnqueued } from '../view/LineActions';
+import { groupParts, type GroupedLine } from '../view/parts';
+import { servable } from '../view/stage';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
 // Menu / Cart tabs + sticky Send; 02-B03 draft back, B04 offline, B05 / B07 line problems), 02a §8 Order screen (the
@@ -408,10 +414,64 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       live = false;
     };
   }, [drafts, deviceId, staffId, order_type, restored]);
-  // the token's own view (the order view of its newest order until the token drawer, C2-2)
-  const onOpenToken = (q: QueueToken) => navigate(`/orders/${encodeURIComponent(q.newest_order_id)}`);
+  // 02b-TK C2-2: the token view drawer over the menu and the cart (the cart is kept)
+  const [openToken, setOpenToken] = useState<QueueToken | null>(null);
+  // hand-overs wait UNDO_MS before MarkServed is sent (frame HandoverUndo); the page hiding or the screen closing sends them
+  const handovers = useMemo(
+    () =>
+      createHandovers({
+        send: (h) => {
+          const s = shellRef.current;
+          void s.enqueue('MarkServed', h.payload, { label: `${t('served.title')} · ${h.ident}` }).then((r) => showEnqueued(s, r, 'order.toast.served', () => {}));
+        },
+      }),
+    [],
+  );
+  useEffect(() => handovers.attach(), [handovers]);
+  useSyncExternalStore(handovers.subscribe, handovers.version);
+  const handOver = (q: QueueToken, lines: readonly GroupedLine[]) => {
+    if (lines.length === 0) return;
+    handovers.start({ id: newUlid(), token_key: q.key, ident: q.token === null ? '—' : String(q.token), payload: servedPayload(lines) });
+    setOpenToken(null);
+  };
+  // the ready tile's one tap: the token's lines from order-view, every servable one ready → handed over (R2: paid only)
+  const handOverTile = async (q: QueueToken) => {
+    if (!shellRef.current.permissions.allowed('mark-served')) return setOpenToken(q);
+    const views = await Promise.all(q.order_ids.map((oid) => shellRef.current.orders.orderView(oid)));
+    const lines = views.flatMap((v) => (v.ok && v.data.kind === 'order' ? groupParts(v.data.order.lines) : [])).filter(servable);
+    if (lines.length === 0 || !lines.every(readyNow)) return setOpenToken(q);
+    handOver(q, lines);
+  };
+  const pendingKeys = new Set(handovers.pending().map((h) => h.token_key));
+  const lastHandover = handovers.pending().at(-1) ?? null;
+  const toBill = (q: QueueToken) => navigate(`/bill?order_id=${encodeURIComponent(q.newest_order_id)}`);
   const railVariant: RailVariant = shell.phone || shell.portrait ? 'tab' : shell.device.type === 'cashier_kiosk' ? 'column' : 'strip';
-  const queueRail = (variant: RailVariant) => (book === null ? null : <QueueRail variant={variant} book={book} selected={null} onOpen={onOpenToken} heldCount={heldCount} />);
+  const queueRail = (variant: RailVariant) =>
+    book === null ? null : (
+      <QueueRail
+        variant={variant}
+        book={book}
+        selected={openToken?.key ?? null}
+        onOpen={setOpenToken}
+        heldCount={heldCount}
+        onHandOver={(q) => void handOverTile(q)}
+        onPay={toBill}
+        hidden={pendingKeys}
+      />
+    );
+  const tokenView =
+    openToken === null || book === null ? null : <TokenView token={openToken} book={book} onClose={() => setOpenToken(null)} onHandOver={(lines) => handOver(openToken, lines)} />;
+  const undoToast =
+    lastHandover === null ? null : (
+      <div className="tk-toast tk-toast--ok tk-toast--bottom" role="status">
+        <span>
+          <b dir="ltr">{lastHandover.ident}</b> {t('t.collected')}
+        </span>
+        <button type="button" className="tk-btn" onClick={() => handovers.undo(lastHandover.id)}>
+          {t('t.undo')}
+        </button>
+      </div>
+    );
 
   if (config === null) {
     return (
@@ -891,6 +951,8 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         {sendView}
         {newOrderView}
         {leaveView}
+        {tokenView}
+        {undoToast}
       </div>
     );
   }
@@ -916,6 +978,8 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       {sendView}
       {newOrderView}
       {leaveView}
+      {tokenView}
+      {undoToast}
     </div>
   );
 }

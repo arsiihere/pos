@@ -136,6 +136,9 @@
 .osc--tk > .tk-q { align-self: stretch; }
 .tk-q__scroll { overflow-y: auto; }
 .tk-q--tab { width: auto; border: 0; background: transparent; }
+/* a ready tile: the open area and its one action are two buttons (the tile itself is the frame's .tk-rt) */
+.tk-rt__open { display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; padding: 0; border: 0; background: transparent; text-align: start; min-width: 0; }
+button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transparent; text-align: start; }
 .tk-mid { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .tk-rstrip { padding: 12px 18px 0; }
 .tk-search input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; font: inherit; color: var(--ink); outline: none; }

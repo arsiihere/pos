@@ -4165,6 +4165,23 @@ export const en = {
   'q.as_of': 'Last updated',
   // 02b-TK C2-1 (frame PhoneQueue tab): not in strings-table.md; Urdu to confirm
   'q.tab': 'Queue',
+  'v.placed': 'Placed {t} by {who}',
+  'v.ready_at': 'Ready by',
+  'v.bill': 'Bill',
+  'v.waiting': 'Waiting',
+  'v.cooking': 'Cooking',
+  'v.ready': 'Ready',
+  'v.given': 'Handed over',
+  'v.collected': 'Hand over all',
+  'v.give_ready': 'Give ready items now',
+  'v.pay': 'Take payment',
+  'v.add': 'Add items',
+  'v.call': 'Call',
+  't.collected': 'handed over',
+  't.undo': 'Undo',
+  // 02b-TK C2-2 (ruling R2: Due greys Hand over, a manager may override): not in strings-table.md; Urdu to confirm
+  'v.pay_first': 'Take payment first — a manager can hand over unpaid',
+  'v.override': 'Hand over unpaid · manager',
 } as const;
 
 export type MessageKey = keyof typeof en;
