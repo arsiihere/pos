@@ -26,7 +26,24 @@ export interface KdsRow {
   /** hub-clock ms when this screen saw the Done (the client keeps the row for UNDO_DONE_MS) */
   done_at: number | null;
   detail: LineDetail | null;
+  /**
+   * 03b v1.0.11 §3.3 (STAB-5): set only on a view row that groups a split line's parts (`station/parts.ts`): the
+   * store rows it stands for, in append order. Absent = the row is one line. The store never sets it.
+   */
+  parts?: readonly KdsRow[];
+  /**
+   * ⚠️ 03b v1.0.13 §3.3 (STAB-6): the line's batch load (EngineLine.load_id: from the catch-up, the plan line or the
+   * FireDispatched); null / absent off a batch station. Keys the row per round.
+   */
+  load_id?: string | null;
+  /**
+   * ⚠️ 03b v1.0.14 §3.3 (STAB-7, m-6): the priority chip; `minutes_late` only from the engine view (catch-up or the
+   * plan line that fired), null after a LinePrioritized frame alone ("Priority"). Start ends it. Absent / null = none.
+   */
+  priority?: RowPriority | null;
 }
+
+export type RowPriority = { minutes_late: number | null };
 
 /** What K2–K5 render: the contract snapshot plus the ordered rows (placeholders included), Next and the notices. */
 export interface KdsView extends KdsSnapshot {
@@ -35,6 +52,11 @@ export interface KdsView extends KdsSnapshot {
   plan: StationPlanBody | null;
   /** §3.10 `station_notice { kind: 'archived' }` since the last catch-up */
   archived: { open_lines: number } | null;
+  /**
+   * ⚠️ 03b v1.0.14 §3.3 (m-6): planned lines a LinePrioritized frame named since the last `station_plan` (the chip
+   * reads "Priority" until the next frame carries the engine's minutes). Absent = none.
+   */
+  flagged?: ReadonlySet<string>;
 }
 
 export interface KdsStoreImpl extends KdsStore {
@@ -45,7 +67,24 @@ export interface KdsStoreImpl extends KdsStore {
 
 type Meta = Omit<KdsStationBody, 'now' | 'details'>;
 
-const EMPTY: KdsView = { station: null, details: new Map(), arrived_at: new Map(), rows: [], plan: null, archived: null };
+const EMPTY: KdsView = { station: null, details: new Map(), arrived_at: new Map(), rows: [], plan: null, archived: null, flagged: new Set() };
+
+type PlanLine = StationPlanBody['lines'][number];
+const rowPriority = (p: { minutes_late: number } | null | undefined): RowPriority | null => (p === undefined || p === null ? null : { minutes_late: p.minutes_late });
+
+/**
+ * ⚠️ 03b v1.0.14 §3.3 (re-review m-5; D17): Next rows already shown keep their places; a line that becomes visible (a
+ * priority line too, even with an earlier fire) is appended at the bottom, in plan order. Hidden (Later) lines follow.
+ */
+function ordered(lines: readonly PlanLine[], shown: readonly string[]): { lines: PlanLine[]; shown: string[] } {
+  const frozen = lines.filter((l) => l.frozen);
+  const ids = new Set(frozen.map((l) => l.order_item_id));
+  const kept = shown.filter((id) => ids.has(id));
+  const added = frozen.map((l) => l.order_item_id).filter((id) => !kept.includes(id));
+  const order = [...kept, ...added];
+  const at = new Map(order.map((id, i) => [id, i]));
+  return { lines: [...frozen.sort((a, b) => at.get(a.order_item_id)! - at.get(b.order_item_id)!), ...lines.filter((l) => !l.frozen)], shown: order };
+}
 
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const int = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
@@ -64,6 +103,9 @@ export function createKdsStore(deps: { stationId: string; now: () => number }): 
    */
   let leaving = new Map<string, StationPlanBody['lines'][number]>();
   let archived: { open_lines: number } | null = null;
+  /** ⚠️ 03b v1.0.14 §3.3: the Next rows in their on-screen order (m-5) and the planned ids flagged by LinePrioritized (m-6) */
+  let shown: string[] = [];
+  let flagged = new Set<string>();
   let view: KdsView = EMPTY;
   const listeners = new Set<() => void>();
 
@@ -87,6 +129,7 @@ export function createKdsStore(deps: { stationId: string; now: () => number }): 
             rows: [...rows],
             plan,
             archived,
+            flagged: new Set(flagged),
           };
     for (const fn of [...listeners]) fn();
   }
@@ -100,7 +143,10 @@ export function createKdsStore(deps: { stationId: string; now: () => number }): 
   }
 
   function dropPlanned(ids: ReadonlySet<string>): void {
-    for (const id of ids) leaving.delete(id);
+    for (const id of ids) {
+      leaving.delete(id);
+      flagged.delete(id);
+    }
     if (plan !== null && plan.lines.some((l) => ids.has(l.order_item_id))) plan = { ...plan, lines: plan.lines.filter((l) => !ids.has(l.order_item_id)) };
   }
 
@@ -131,6 +177,8 @@ export function createKdsStore(deps: { stationId: string; now: () => number }): 
         done_undone: false,
         done_at: null,
         detail: details.get(id) ?? null,
+        load_id: p?.load_id ?? null,
+        priority: rowPriority(p?.priority) ?? (flagged.has(id) ? { minutes_late: null } : null),
         ...row,
       },
     ];
@@ -145,15 +193,34 @@ export function createKdsStore(deps: { stationId: string; now: () => number }): 
     meta = rest;
     details = new Map();
     for (const d of next) details.set(d.order_item_id, d);
-    rows = now.map(({ stage, fired_at, started_at, mark, done_undone, ...d }) => {
+    rows = now.map(({ stage, fired_at, started_at, mark, done_undone, load_id, priority, ...d }) => {
       details.set(d.order_item_id, d);
-      return { order_item_id: d.order_item_id, order_id: d.order_id, stage, fired_at, started_at, mark, done_undone, done_at: null, detail: d };
+      return {
+        order_item_id: d.order_item_id,
+        order_id: d.order_id,
+        stage,
+        fired_at,
+        started_at,
+        mark,
+        done_undone,
+        done_at: null,
+        detail: d,
+        load_id: load_id ?? null,
+        priority: rowPriority(priority),
+      };
     });
     const plans = Array.isArray(state['station_plan']) ? (state['station_plan'] as unknown[]) : [];
     plan = null;
     for (const raw of plans) {
       const p = StationPlanBody.safeParse(raw);
       if (p.success && p.data.station_id === own) plan = p.data;
+    }
+    shown = [];
+    flagged = new Set();
+    if (plan !== null) {
+      const next = ordered(plan.lines, shown);
+      plan = { ...plan, lines: next.lines };
+      shown = next.shown;
     }
     arrived = new Map();
     leaving = new Map();
@@ -170,14 +237,17 @@ export function createKdsStore(deps: { stationId: string; now: () => number }): 
       case 'FireDispatched': {
         if (p['station_id'] !== own || !Array.isArray(p['order_item_ids'])) return false;
         const ids = (p['order_item_ids'] as unknown[]).flatMap((v) => (typeof v === 'string' && planned(v) !== undefined && rowOf(v) === undefined ? [v] : []));
-        for (const fired of ids) enter(fired, at, {});
+        // ⚠️ 03b v1.0.13 §3.3 (STAB-6): the fired load's name (FireDispatched.load_id fixes it, 03a §3.3)
+        const load = str(p['load_id']);
+        for (const fired of ids) enter(fired, at, load === null ? {} : { load_id: load });
         return ids.length > 0;
       }
       case 'ItemStarted': {
         if (id === null || !held(id)) return false;
         const started_at = int(p['started_at']) ?? at;
-        if (rowOf(id) === undefined) enter(id, at, { stage: 'cooking', started_at });
-        else replace(id, { stage: 'cooking', started_at });
+        // ⚠️ 03b v1.0.13 §3.3 (STAB-7): Start ends priority (03a PR-4), so the chip goes
+        if (rowOf(id) === undefined) enter(id, at, { stage: 'cooking', started_at, priority: null });
+        else replace(id, { stage: 'cooking', started_at, priority: null });
         return true;
       }
       case 'ItemDone': {
@@ -203,6 +273,24 @@ export function createKdsStore(deps: { stationId: string; now: () => number }): 
       }
       case 'ItemServed':
         return Array.isArray(p['order_item_ids']) && remove((p['order_item_ids'] as unknown[]).flatMap((v) => (typeof v === 'string' ? [v] : [])));
+      case 'LinePrioritized': {
+        // ⚠️ 03b v1.0.14 §3.3, §6.17 (STAB-7, m-6): the chip at once, "Priority" without minutes (never from delay_ms);
+        // the next station_plan carries the engine's minutes. An id this screen does not hold is ignored (Q-49).
+        if (!Array.isArray(p['order_item_ids'])) return false;
+        let hit = false;
+        for (const v of p['order_item_ids'] as unknown[]) {
+          if (typeof v !== 'string') continue;
+          const row = rowOf(v);
+          if (row !== undefined) {
+            if (row.priority == null && row.stage === 'added') replace(v, { priority: { minutes_late: null } });
+            hit = true;
+          } else if (planned(v) !== undefined) {
+            flagged.add(v);
+            hit = true;
+          }
+        }
+        return hit;
+      }
       case 'BusinessDayOpened':
         meta = { ...meta, day_open: true };
         return true;
@@ -256,7 +344,11 @@ export function createKdsStore(deps: { stationId: string; now: () => number }): 
         const inNow = new Set(rows.map((r) => r.order_item_id));
         const kept = new Set(body.lines.map((l) => l.order_item_id));
         leaving = new Map((plan?.lines ?? []).filter((l) => !kept.has(l.order_item_id) && !inNow.has(l.order_item_id)).map((l) => [l.order_item_id, l]));
-        plan = { ...body, lines: body.lines.filter((l) => !inNow.has(l.order_item_id)) };
+        // ⚠️ 03b v1.0.14 §3.3 (m-6): the plan carries the engine's priority now; m-5: shown rows keep their places
+        for (const id of kept) flagged.delete(id);
+        const next = ordered(body.lines.filter((l) => !inNow.has(l.order_item_id)), shown);
+        shown = next.shown;
+        plan = { ...body, lines: next.lines };
         return true;
       }
       case 'station_notice':

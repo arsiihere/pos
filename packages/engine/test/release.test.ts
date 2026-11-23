@@ -58,7 +58,8 @@ function configEvent(stations: Array<Partial<StationCfg> & { station_id: string 
 
 function checkUpkeep(s: EngineState): void {
   expect(s.slip_due).toEqual(slipDueOf(s));
-  const vals = Object.values(s.slip_due);
+  // 03a v1.2.10 §3.5.7 PR-3 (task 23): the minimum of slip_due and priority_due.
+  const vals = [...Object.values(s.slip_due), ...Object.values(s.priority_due)];
   expect(s.next_alert_due_at).toBe(vals.length === 0 ? null : Math.min(...vals));
 }
 
@@ -192,14 +193,16 @@ describe('03a §3.8 applyEvent(ItemsReleased) (D11, D12)', () => {
     const o = r.orders.O1!;
     // Released: A leaves O1:0 into a group of its own (next_group_index), no hold.
     expect(r.lines.A).toMatchObject({ stage: 'done', serve_mode: 'immediate', group_id: 'O1:1', mark: null });
-    expect(o.groups['O1:1']).toEqual({ target_land_ms: T, line_ids: ['A'] });
+    // ⚠️ 03a v1.2.10 (STAB-6/7): a v5 group also carries priority_land_ms / priority_delay_ms (null until prioritised).
+    expect(o.groups['O1:1']).toEqual({ target_land_ms: T, line_ids: ['A'], priority_land_ms: null, priority_delay_ms: null });
     // Expedite: B is immediate, mark 'expedite', its own group, placed at its earliest fit from 12:02 on S2.
     expect(r.lines.B).toMatchObject({ serve_mode: 'immediate', group_id: 'O1:2', mark: 'expedite', fire_ms: at(2), deadline_ms: at(2) });
     expect(r.lines.B!.booked).toEqual({ start: at(2), end: at(8), units: 1 });
-    expect(o.groups['O1:2']).toEqual({ target_land_ms: at(8), line_ids: ['B'] });
+    // ⚠️ 03a v1.2.10 (STAB-6/7): a v5 group also carries priority_land_ms / priority_delay_ms (null until prioritised).
+    expect(o.groups['O1:2']).toEqual({ target_land_ms: at(8), line_ids: ['B'], priority_land_ms: null, priority_delay_ms: null });
     expect(weightOf(r, r.lines.B!)).toBe(100 * BASE.settings.weight_follow_up_pct / 100);
     // The rest: C stays sync in O1:0 at its old T, untouched.
-    expect(o.groups['O1:0']).toEqual({ target_land_ms: T, line_ids: ['C'] });
+    expect(o.groups['O1:0']).toEqual({ target_land_ms: T, line_ids: ['C'], priority_land_ms: null, priority_delay_ms: null }); // v5 group (03a v1.2.10)
     expect(r.lines.C).toBe(before);
     expect(weightOf(r, r.lines.C!)).toBe(100 * BASE.settings.weight_dine_in_pct / 100);
     expect(o.next_group_index).toBe(3);
@@ -310,7 +313,8 @@ describe('03a §3.8 applyEvent(ItemsReleased) (D11, D12)', () => {
     expect(s.lines.B!.fire_ms).toBe(at(10)); // queued behind X, hidden at 12:01
     const r = fold(s, [releasedEv('O1', [], ['B'], at(1))]);
     expect(r.lines.B).toMatchObject({ serve_mode: 'immediate', mark: 'expedite', group_id: 'O1:1', fire_ms: at(10), booked: s.lines.B!.booked });
-    expect(r.orders.O1!.groups['O1:1']).toEqual({ target_land_ms: s.orders.O1!.groups['O1:0']!.target_land_ms, line_ids: ['B'] });
+    // ⚠️ 03a v1.2.10 (STAB-6/7): a v5 group also carries priority_land_ms / priority_delay_ms (null until prioritised).
+    expect(r.orders.O1!.groups['O1:1']).toEqual({ target_land_ms: s.orders.O1!.groups['O1:0']!.target_land_ms, line_ids: ['B'], priority_land_ms: null, priority_delay_ms: null });
     expect(r.stations).toBe(s.stations);
   });
 
@@ -334,7 +338,8 @@ describe('03a §3.8 applyEvent(ItemsReleased) (D11, D12)', () => {
     s = fold(s, [doneEv('O1', 'A', at(1))]);
     expect(s.lines.C!.deadline_ms).toBe(at(22)); // a Done changes no group
     const r = fold(s, [releasedEv('O1', ['A'], [], at(2))]);
-    expect(r.orders.O1!.groups['O1:0']).toEqual({ target_land_ms: at(40), line_ids: ['C', 'E', 'F'] });
+    // ⚠️ 03a v1.2.10 (STAB-6/7): a v5 group also carries priority_land_ms / priority_delay_ms (null until prioritised).
+    expect(r.orders.O1!.groups['O1:0']).toEqual({ target_land_ms: at(40), line_ids: ['C', 'E', 'F'], priority_land_ms: null, priority_delay_ms: null });
     expect(r.lines.C!.deadline_ms).toBe(at(25));
     expect(r.lines.E!.deadline_ms).toBe(at(35));
     expect(r.lines.A!.deadline_ms).toBe(s.lines.A!.deadline_ms);

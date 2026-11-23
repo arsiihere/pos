@@ -381,6 +381,28 @@ describe('[05 29b] loadSubmission builds the neutral submission (§3.15) from In
     expect(outbox(ids(1))).toMatchObject({ state: 'pending', last_error: 'invoice_missing' });
   });
 
+  it('[05 v1.0.33 #95] a split line\'s five parts go to the authority as one line: units, base, discount and per-tax amounts summed; other lines stay apart (STAB-5)', async () => {
+    await start();
+    const base = anInvoiceIssued().payload as { lines: Array<Record<string, unknown> & { taxes: Array<Record<string, number | string>>; base_minor: number; discount_minor: number }> };
+    const l0 = base.lines[0]!;
+    const bill_id = 'BILL_PARTS';
+    append([payment('PAY_PARTS', bill_id, { amount_minor: 100 })]);
+    const parts = ['KP', 'KP-p2', 'KP-p3', 'KP-p4', 'KP-p5'].map((order_item_id) => ({ ...l0, order_item_id, units: 1, part_of: 'KP' }));
+    const other = { ...l0, order_item_id: 'OTHER', units: 1 };
+    const row = issue({ ...sale({ n: 95, bill_id, payments: [{ payment_id: 'PAY_PARTS' }] }), lines: [...parts, other] });
+    const loaded = await fiscalWorkerSeams.loadSubmission(hub.deps, row);
+    if (!loaded.ok) throw new Error(loaded.error_code);
+    const lines = loaded.submission.invoice.lines;
+    expect(lines.map((l) => [l.order_item_id, l.units])).toEqual([
+      ['KP', 5],
+      ['OTHER', 1],
+    ]);
+    expect(lines[0]!.base_minor).toBe(5 * l0.base_minor);
+    expect(lines[0]!.discount_minor).toBe(5 * l0.discount_minor);
+    expect(lines[0]!.taxes).toEqual(l0.taxes.map((t) => ({ ...t, base_minor: 5 * (t['base_minor'] as number), tax_minor: 5 * (t['tax_minor'] as number) })));
+    expect(lines.flatMap((l) => l.taxes).reduce((n, t) => n + t.tax_minor, 0)).toBe([...parts, other].flatMap((l) => l.taxes).reduce((n, t) => n + (t['tax_minor'] as number), 0));
+  });
+
   it('[05 #91 loadSubmission] statements: 3 for a sale and 3 for a credit, at 2 and at 5 lines / payments', async () => {
     await start();
     const base = anInvoiceIssued().payload as { lines: Record<string, unknown>[] };

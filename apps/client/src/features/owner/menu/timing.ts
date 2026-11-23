@@ -29,7 +29,7 @@ export function minutesOrStored(text: string, stored: number | null | undefined)
 
 // undefined = the box does not hold a value in range. A box left as stored keeps its exact stored ms, which
 // two-decimal minutes may not round-trip.
-export function knobValue(knob: Knob, text: string, stored: number | null | undefined): number | null | undefined {
+export function knobValue(knob: Pick<Knob, 'min' | 'max' | 'nullable'>, text: string, stored: number | null | undefined): number | null | undefined {
   if (text.trim() === '') return knob.nullable ? null : undefined;
   const ms = minutesOrStored(text, stored);
   return ms === null || ms < knob.min || ms > knob.max ? undefined : ms;
@@ -40,5 +40,5 @@ export function weightValue(text: string): number | undefined {
   return n >= WEIGHT_RANGE.min && n <= WEIGHT_RANGE.max ? n : undefined;
 }
 
-export const rangeText = (knob: Knob): string =>
+export const rangeText = (knob: Pick<Knob, 'min' | 'max'>): string =>
   fill(t('item.timing.need_minutes'), { min: formatMinutes(knob.min), max: formatMinutes(knob.max) });

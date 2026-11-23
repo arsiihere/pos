@@ -253,7 +253,18 @@ function tokenExpired(standaloneIos) {
   show(stateScreen('danger', 'clock', t('pairing.token_expired'), t(standaloneIos ? 'pairing.token_expired_ios' : 'pairing.token_expired_body')));
 }
 // 00-S12: name the phone, then POST /devices/pair with one pair_request_id per pairing (M14, M60).
+// 00 v1.12.2 §8.2 (STAB-1): a tablet link (d=tablet) pairs a shared tablet with the same form and its own texts.
 async function pairPhone(db, pairingToken) {
+  const tablet = new URLSearchParams(location.search).get('d') === 'tablet';
+  const TABLET_TEXT = {
+    'pairing.phone_title': 'pairing.tablet_title',
+    'pairing.phone_intro': 'pairing.tablet_intro',
+    'pairing.name_label': 'pairing.tablet_name_label',
+    'pairing.name_error': 'pairing.tablet_name_error',
+    'pairing.name_help': 'pairing.tablet_name_help',
+    'pairing.submit': 'pairing.tablet_submit',
+  };
+  const say = (key) => t(tablet ? TABLET_TEXT[key] : key);
   const standaloneIos = /iPhone|iPad/.test(navigator.userAgent);
   let pairRequestId = await readKey(db, 'pair_request_id');
   if (!pairRequestId) {
@@ -267,12 +278,12 @@ async function pairPhone(db, pairingToken) {
   page.appendChild(status);
   const head = node('div', 'pos-phonepair__head');
   head.appendChild(node('p', 'caption', t('app.brand')));
-  head.appendChild(node('h1', 'title', t('pairing.phone_title')));
-  head.appendChild(node('p', 'body', t('pairing.phone_intro')));
+  head.appendChild(node('h1', 'title', say('pairing.phone_title')));
+  head.appendChild(node('p', 'body', say('pairing.phone_intro')));
   page.appendChild(head);
   const form = node('form', 'pos-card pos-phonepair__card');
   const nameField = node('div', 'pos-field');
-  const label = node('label', 'pos-field__label', t('pairing.name_label'));
+  const label = node('label', 'pos-field__label', say('pairing.name_label'));
   label.setAttribute('for', 'device_name');
   const nameInput = node('input', 'pos-input');
   nameInput.name = 'device_name';
@@ -282,22 +293,22 @@ async function pairPhone(db, pairingToken) {
   nameInput.setAttribute('enterkeyhint', 'done');
   const nameError = node('p', 'pos-field__error');
   nameError.appendChild(icon('alert'));
-  nameError.appendChild(node('span', '', t('pairing.name_error')));
+  nameError.appendChild(node('span', '', say('pairing.name_error')));
   nameField.appendChild(label);
   nameField.appendChild(nameInput);
   nameField.appendChild(nameError);
-  nameField.appendChild(node('p', 'pos-field__help', t('pairing.name_help')));
+  nameField.appendChild(node('p', 'pos-field__help', say('pairing.name_help')));
   form.appendChild(nameField);
   const formStatus = node('div', 'pos-phonepair__status');
   form.appendChild(formStatus);
   const submit = node('button', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block');
   submit.type = 'submit';
-  submit.appendChild(icon('phone'));
-  const submitText = node('span', '', t('pairing.submit'));
+  submit.appendChild(icon(tablet ? 'tablet' : 'phone'));
+  const submitText = node('span', '', say('pairing.submit'));
   submit.appendChild(submitText);
   form.appendChild(submit);
   page.appendChild(form);
-  page.appendChild(node('p', 'caption pos-phonepair__note', t('pairing.only_you')));
+  page.appendChild(node('p', 'caption pos-phonepair__note', tablet ? t('pairing.tablet_note') : t('pairing.only_you')));
   show(page);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -310,7 +321,7 @@ async function pairPhone(db, pairingToken) {
     const send = () => fetchRetry('/devices/pair', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pairing_token: pairingToken, pair_request_id: pairRequestId, device_name: name, device_type: 'phone' }),
+      body: JSON.stringify({ pairing_token: pairingToken, pair_request_id: pairRequestId, device_name: name, device_type: tablet ? 'tablet' : 'phone' }),
     }, 'pairing.phone_hub_down_body');
     const finish = async (res, retried) => {
       if (res.status === 401) {
@@ -330,7 +341,7 @@ async function pairPhone(db, pairingToken) {
       // M14: a 503 is retried once with the same pair_request_id.
       if (res.status === 503 && !retried) return finish(await send(), true);
       setBusy(submit, false);
-      submitText.textContent = t('pairing.submit');
+      submitText.textContent = say('pairing.submit');
       if (global(body.error, 'phone')) return;
       formStatus.replaceChildren(banner('danger', errorText(body.error)));
     };

@@ -7,6 +7,7 @@ import type { KdsRow } from '../store';
 import { Identifier } from './Identifier';
 import { LineTimer, timerOf } from './LineTimer';
 import { isReturn, MarkTag, ON_TOP, returnWhy } from './MarkTag';
+import { priorityText } from './parts';
 import { Placeholder } from './Placeholder';
 
 // 03b v1.0.8 §3.3, #70, #71, Q-50 (K2; frames 03b-C01–C05, 03b-B04): one Now card = one line, never merged.
@@ -30,11 +31,13 @@ export interface LineRowProps {
   message?: ReactNode;
   /** K3: changed by a batch tap (`s-hl`) */
   highlight?: boolean;
+  /** ⚠️ 03b v1.0.13 §3.3 (STAB-6): the row's station-wide round tag ("this round", "next round", "round n") */
+  round?: string;
 }
 
 const TICK_ICON = 'M7 9V3.5h10V9';
 
-export function LineRow({ row, nowMs, utcOffsetMs, up, compact, stationId, hasPrinter, actions, message, highlight }: LineRowProps) {
+export function LineRow({ row, nowMs, utcOffsetMs, up, compact, stationId, hasPrinter, actions, message, highlight, round }: LineRowProps) {
   const [toast, setToast] = useState<{ text: string; tone: 'mute' | 'danger' } | null>(null);
   const d = row.detail;
   if (d === null) return <Placeholder off={!up} compact={compact} />;
@@ -70,6 +73,13 @@ export function LineRow({ row, nowMs, utcOffsetMs, up, compact, stationId, hasPr
           <Identifier id={d.identifier} />
           <div className="kl__tags">
             {mark !== null && <MarkTag mark={mark} {...(mark === 'moved' && row.fired_at !== null ? { extra: fill(t('kds.mark.moved_time'), { time: timeText(row.fired_at, utcOffsetMs) }) } : {})} />}
+            {/* ⚠️ 03b v1.0.13 §3.3 (STAB-7): the amber chip beside the mark tag; the row keeps its place */}
+            {row.priority != null && <span className="kmk c-warn kmk--prio">{priorityText(row.priority)}</span>}
+            {round !== undefined && (
+              <span className="kround" data-round>
+                {round}
+              </span>
+            )}
             {tags.map((tag) => (
               <span key={tag.key} className="ptag">
                 <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">

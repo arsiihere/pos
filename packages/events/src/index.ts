@@ -67,6 +67,7 @@ export * from './events/order/ItemMovedToStock.v1.js';
 export * from './events/order/OrderBoosted.v1.js';
 export * from './events/order/ItemsReleased.v1.js';
 export * from './events/order/SlipWarned.v1.js';
+export * from './events/order/LinePrioritized.v1.js'; // 03a v1.2.10 §4.2 (STAB-7)
 export * from './events/order/OrderFoodServed.v1.js';
 export * from './events/order/OrderFoodCleared.v1.js';
 export * from './events/order/OrderCancelled.v1.js';
@@ -104,6 +105,7 @@ export * from './events/table/ZoneStockSet.v1.js';
 
 // 03b §6.22, 03c §6.11 (schema_version 1)
 export * from './events/order/ReadyToServe.v1.js';
+export * from './events/order/ReadyToServe.v2.js';
 export * from './events/order/ReadyToServeUndone.v1.js';
 export * from './events/order/Handover.v1.js';
 export * from './events/order/ReadyRetargeted.v1.js';

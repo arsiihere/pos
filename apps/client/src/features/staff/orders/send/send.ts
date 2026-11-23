@@ -40,6 +40,7 @@ export function freezeSubmit(cart: Cart, target: DraftTarget, order_id: string):
     ...(target.order_type === 'takeaway' && cart.takeaway !== undefined ? { takeaway: { ...cart.takeaway } } : {}),
     ...(target.order_type === 'parking' && cart.parking !== undefined ? { parking: { ...cart.parking } } : {}),
     ...(cart.order_note === undefined ? {} : { order_note: cart.order_note }),
+    ...(cart.serve_mode === undefined ? {} : { serve_mode: cart.serve_mode }),
     lines: toSubmitLines(cart),
   };
   return deepFreeze(structuredClone(payload));

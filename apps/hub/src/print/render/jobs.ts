@@ -1,4 +1,4 @@
-import type { Doc, DocBlock, Identifier, LineDetail } from '@pos/domain';
+import { groupByPartOf, sumOptionTexts, type Doc, type DocBlock, type Identifier, type LineDetail } from '@pos/domain';
 import { stationPlan, type EngineState } from '@pos/engine';
 import type Database from 'better-sqlite3';
 import { buildLineDetails } from '../../kds/contracts.js';
@@ -90,6 +90,7 @@ interface Row {
   live_units: number;
   kitchen_note: string | null;
   options_json: string | null; // 02b v1.0.7: the line's plain options [{ name, quantity }], NULL = none (B3-2)
+  part_of: string | null; // 03c v1.0.15 §3.3 (STAB-5): the first part of a split line (02b v1.0.20 §3.2 step 4a)
   parent_kind: Row['line_kind'] | null;
   parent_name: string | null;
   options: string; // JSON [{ name, live }] of the live option children with no ticket line of their own
@@ -128,7 +129,7 @@ const TICKET_SQL = `
 SELECT t.ticket_id, t.station_id, t.order_id, t.fired_at, so.show_taker, so.show_order_id,
        tl.order_item_id, tl.done_at,
        l.line_kind, l.name, l.sale_unit, l.units, l.units - l.removed_units - l.voided_units AS live_units, l.kitchen_note,
-       l.options_json,
+       l.options_json, l.part_of,
        p.line_kind AS parent_kind, p.name AS parent_name,
        (SELECT json_group_array(json_object('name', c.name, 'live', c.live))
           FROM (SELECT c0.name, c0.units - c0.removed_units - c0.voided_units AS live FROM order_lines c0
@@ -180,6 +181,9 @@ interface TicketLine {
   kitchen_note: string | null;
   return_of: { mode: 'fix' | 'remake' | null; item_name: string; identifier: Identifier } | null; // mode null: engine gone
   first: boolean; // engine mark boost / expedite
+  part_of: string | null; // v1.0.15 (STAB-5)
+  for_parent: string | null;
+  deal_name: string | null;
 }
 
 interface Ticket {
@@ -272,9 +276,33 @@ function readTicket(db: Database.Database, state: EngineState, ticket_id: string
         kitchen_note: d !== undefined ? d.kitchen_note : r.kitchen_note,
         return_of: d !== undefined ? d.return_of : fallbackReturn(r, state),
         first: mark === 'boost' || mark === 'expedite',
+        part_of: r.part_of,
+        for_parent,
+        deal_name,
       };
     }),
   };
+}
+
+/**
+ * ⚠️ Changed by v1.0.15 (owner 2026-11-22, STAB-5 phase 3), §3.3: the lines of one ticket with the same `part_of` (a
+ * split line's parts) are one row at the first part's place — units summed ("3 x Naan"), the `+` options summed by
+ * name ("+ 3 x Raita"), the kitchen note once (the first part's). Parts on other tickets print there.
+ */
+function groupParts(lines: readonly TicketLine[]): TicketLine[] {
+  return groupByPartOf(lines, (l) => l.part_of).map((g) => {
+    const f = g[0]!;
+    if (g.length === 1) return f;
+    const live_units = g.reduce((n, l) => n + l.live_units, 0);
+    return {
+      ...f,
+      live_units,
+      units: g.reduce((n, l) => n + l.units, 0),
+      text: lineText(live_units, f.name, f.for_parent, f.deal_name),
+      options: sumOptionTexts(g.map((l) => l.options)),
+      first: g.some((l) => l.first),
+    };
+  });
 }
 
 // ---- layout ---------------------------------------------------------------------------------------------------------
@@ -344,11 +372,20 @@ function comingUpDoc(ctx: RenderCtx, station_id: string, is_reprint: boolean): D
     { text: '='.repeat(ctx.width_cols) },
   ];
   let n = 0;
-  for (const p of plan) {
+  // v1.0.15 §3.3 (STAB-5): planned parts of one part_of with the same fire time are one row
+  const live = plan.flatMap((p) => {
     const d = details.get(p.order_item_id);
-    if (d === undefined || d.units <= 0) continue;
+    return d === undefined || d.units <= 0 ? [] : [{ p, d }];
+  });
+  for (const g of groupByPartOf(live, ({ p, d }) => (d.part_of === undefined || d.part_of === null ? null : `${d.part_of} ${p.fire_ms}`))) {
+    const { p, d } = g[0]!;
     n += 1;
-    const what = lineText(d.units, d.item_name, d.for_parent, d.deal_name);
+    const what = lineText(
+      g.reduce((u, x) => u + x.d.units, 0),
+      d.item_name,
+      d.for_parent,
+      d.deal_name,
+    );
     blocks.push({ text: `${clock12(p.fire_ms, ctx.utc_offset_ms)}  ${identifierText(d.identifier)}  ${what}` });
   }
   if (n === 0) blocks.push({ text: 'Nothing coming up' });
@@ -370,7 +407,7 @@ export function renderJob(ctx: RenderCtx, job: RenderJob): Doc | null {
   const ident = identifierText(t.identifier);
   if (job.kind === 'kitchen' || job.kind === 'reprint') {
     const every = job.kind === 'reprint';
-    const lines = t.lines.filter((l) => l.live_units > 0 && (every || !l.done));
+    const lines = groupParts(t.lines.filter((l) => l.live_units > 0 && (every || !l.done)));
     return lines.length === 0 ? null : ticketDoc(t, lines, ctx, every || job.is_reprint);
   }
   if (job.kind === 'cancel') {
@@ -391,7 +428,7 @@ export function renderJob(ctx: RenderCtx, job: RenderJob): Doc | null {
     return slipDoc(t, job.slip === 'moved' ? [MOVED_TO_STOCK, body] : [`CANCELLED  ${body}`], ctx, job.is_reprint);
   }
   const ids = new Set(job.order_item_ids);
-  const lines = t.lines.filter((l) => ids.has(l.order_item_id) && !l.done && l.live_units > 0);
+  const lines = groupParts(t.lines.filter((l) => ids.has(l.order_item_id) && !l.done && l.live_units > 0));
   if (lines.length === 0) return null;
   return slipDoc(t, lines.map((l) => `FIRST  ${ident}  ${l.live_units} x ${l.name} (${job.reason})`), ctx, job.is_reprint);
 }

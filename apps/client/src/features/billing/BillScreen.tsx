@@ -7,6 +7,7 @@ import { timeText } from '../alerts/labels';
 import { Ico } from '../alerts/ui';
 import { useLiveRefetch } from '../staff/orders/lists/OpenOrders';
 import { useShell } from '../staff/shell/hooks';
+import { groupBillLines } from './parts';
 import { billingApi } from './api';
 import type { AddPaymentResult, BillBlock, BillRef, BillView, BillViewSplit, SplitDues, Totals } from './contracts';
 import { BuyerSheet, canDiscount, DiscountSheet, RemovePaymentSheet, ReopenSheet, ServiceChargeRow, ServiceChargeSheet, type BuyerEntry, type BuyerIssue } from './BillSheets';
@@ -582,16 +583,18 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
     </div>
   );
 
+  // 05 v1.0.33 §8 (STAB-5): a split line's parts as one row
+  const rows = groupBillLines(bill.lines);
   const lines = (
     <section className="b5-lines">
       <div className="b5-lines__h">
         <div className="b5-h">
           {t('billing.lines.title')}
-          <span className="end">{fill(t('billing.lines.count'), { n: String(bill.lines.length) })}</span>
+          <span className="end">{fill(t('billing.lines.count'), { n: String(rows.length) })}</span>
         </div>
       </div>
       <div className="b5-scroll">
-        {bill.lines.map((l) => (
+        {rows.map(({ line: l }) => (
           <div key={l.order_item_id} className={l.tags.includes('pending_void') ? 'ol pend' : 'ol'}>
             <span className="ol__q num">{`${l.units}×`}</span>
             <span className="ol__n">

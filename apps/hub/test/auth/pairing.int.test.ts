@@ -500,6 +500,44 @@ describe('pair page opens the staff or KDS entry (00 v1.9.1 / v1.9.2 §8.2; Q-13
     }
   });
 
+  it('[00 §10 #168] /pair?t=tok&d=tablet (00 v1.12.2, STAB-1): tablet texts, POST /devices/pair with device_type tablet, token stored, → /staff/; /pair?t=tok still sends phone', async () => {
+    const html = await pairHtml('?t=tok&d=tablet');
+    const sent: Array<Record<string, unknown>> = [];
+    const tablet = await runPage(html, {
+      search: '?t=tok&d=tablet',
+      fetch: (url, init) => {
+        if (url !== '/devices/pair') throw new Error(`unexpected ${url}`);
+        sent.push(JSON.parse((init as { body: string }).body));
+        return Promise.resolve(jsonResponse(200, { data: { device_id: 'T1', device_token: 'tablet-tok', device_type: 'tablet', owner_staff_id: null, owner_name: null } }));
+      },
+    });
+    const text = textOf(tablet.screen);
+    expect(text).toContain(EN['pairing.tablet_title']);
+    expect(text).toContain(EN['pairing.tablet_note']);
+    expect(text).not.toContain(EN['pairing.only_you']);
+    tablet.find('device_name')!.value = 'Pass 1';
+    await tablet.submit(tablet.findAll((child) => child.tagName === 'form')[0]!);
+    expect(sent[0]).toMatchObject({ pairing_token: 'tok', device_name: 'Pass 1', device_type: 'tablet' });
+    expect(tablet.store.get('token')).toBe('tablet-tok');
+    expect(tablet.store.get('device_type')).toBe('tablet');
+    expect(textOf(tablet.screen)).toContain(EN['pairing.paired_body_any']);
+    await drain(tablet);
+    expect(tablet.assigned).toEqual(['/staff/']);
+
+    const phoneSent: Array<Record<string, unknown>> = [];
+    const phone = await runPage(await pairHtml('?t=tok'), {
+      search: '?t=tok',
+      fetch: (_url, init) => {
+        phoneSent.push(JSON.parse((init as { body: string }).body));
+        return Promise.resolve(jsonResponse(200, { data: { device_id: 'P1', device_token: 'phone-tok', device_type: 'phone', owner_staff_id: 'S_WAIT', owner_name: 'Bilal' } }));
+      },
+    });
+    expect(textOf(phone.screen)).toContain(EN['pairing.only_you']);
+    phone.find('device_name')!.value = 'Bilal phone';
+    await phone.submit(phone.findAll((child) => child.tagName === 'form')[0]!);
+    expect(phoneSent[0]).toMatchObject({ device_type: 'phone' });
+  });
+
   it('[00 §8.2 v1.9.1 Q-29] /pair?t= → POST /devices/pair 200 → /staff/; an already-paired phone opening /pair?t= → /staff/', async () => {
     const html = await pairHtml('?t=tok');
     const urls: string[] = [];

@@ -99,6 +99,37 @@ const KEY_SETS = {
     EngineLineReturnOf: ['order_item_id', 'mode'],
     EngineLineBooked: ['start', 'end', 'units'],
   },
+  // 03a v1.2.10 §3.3 (STAB-6, STAB-7; v1.2.8 post-review B-1, B-2, M-3): v5 adds EngineLine.max_delay_ms, priority_at,
+  // arrived_at; groups[].priority_land_ms, priority_delay_ms; EngineState.priority_due. Every other set is v4's.
+  // v5 is unreleased: this entry may change until the STAB-6/7 update ships.
+  5: {
+    EngineState: ['stock', 'business_day', 'config', 'stations', 'orders', 'lines', 'slips', 'next_alert_due_at', 'slip_due', 'priority_due'],
+    StockEntry: ['on_hand', 'reserved', 'set_at', 'unit'],
+    BusinessDay: ['business_date', 'opened_at', 'closed_at', 'stock_units', 'draws'],
+    DayDraws: ['sale_unit', 'stock_draws'],
+    SlipRecord: ['order_ids', 'last_estimate', 'alert_id', 'resolved_at'],
+    StationRuntime: ['station_id', 'type', 'capacity', 'capacity_override', 'paused', 'profile', 'unfired', 'loads'],
+    Profile: ['t', 'u'],
+    Load: ['load_id', 'program_id', 'order_item_ids', 'fire_ms', 'booked'],
+    LoadBooked: ['start', 'end', 'units'],
+    EngineOrder: [
+      'order_id', 'order_type', 'table_key', 'table_id', 'follow_up', 'pickup_at_ms', 'placed_at', 'placed_by',
+      'target_land_ms', 'promise_ms', 'boosted', 'line_ids', 'awaiting', 'last_served_at', 'last_line_fold_at',
+      'next_group_index', 'groups',
+    ],
+    EngineLine: [
+      'order_item_id', 'order_id', 'group_id', 'serve_mode', 'station_id', 'alternates', 'point_id', 'carry_ms',
+      'units', 'prep_ms', 'cook_ms', 'full_cook_ms', 'from_stock', 'program_id', 'stock_cook_ms', 'stock_program_id',
+      'draws', 'reserved_seq', 'weight_pct', 'max_early_ms', 'max_late_ms', 'max_carry_ms', 'stage', 'fire_ms',
+      'deadline_ms', 'fired_at', 'started_at', 'done_at', 'mark', 'return_of', 'load_id', 'booked',
+      'capped', 'routed_station_id', 'expedited', 'rounds', 'done_undone', 'max_delay_ms', 'priority_at', 'arrived_at',
+    ],
+    EngineOrderGroup: ['target_land_ms', 'line_ids', 'priority_land_ms', 'priority_delay_ms'],
+    EngineLineAlternate: ['station_id', 'carry_ms', 'home'],
+    EngineLineDraw: ['stock_item_id', 'quantity', 'reserved'],
+    EngineLineReturnOf: ['order_item_id', 'mode'],
+    EngineLineBooked: ['start', 'end', 'units'],
+  },
 } as const;
 
 type Current = (typeof KEY_SETS)[typeof ENGINE_STATE_VERSION];
@@ -156,10 +187,11 @@ function configEvent(stations: Array<Partial<EngineConfig['stations'][number]>>,
   return anEngineConfigApplied({ recorded_at, occurred_at: recorded_at, payload: { stations: stations.map((s) => ({ ...S1, ...s })) } });
 }
 
-describe('@pos/engine EngineState v4', () => {
-  it('[03a #56] buildEngineState(engine-log.v4.json) deep-equals engine-state.v4.json; the key set is snapshotted per ENGINE_STATE_VERSION', () => {
-    // 03a v1.2.2 (owner 2026-11-11, B2-2): v4 (was 3) adds EngineLine.done_undone.
-    expect(ENGINE_STATE_VERSION).toBe(4);
+describe('@pos/engine EngineState v5', () => {
+  it('[03a #56, #160] buildEngineState(engine-log.v5.json) deep-equals engine-state.v5.json; the key set is snapshotted per ENGINE_STATE_VERSION', () => {
+    // ⚠️ 03a v1.2.10 §3.3 (STAB-6, STAB-7): v5 (was 4) adds max_delay_ms, priority_at, arrived_at on a line, the two
+    // priority fields on a group and EngineState.priority_due. 03a v1.2.2 (B2-2): v4 (was 3) added done_undone.
+    expect(ENGINE_STATE_VERSION).toBe(5);
     const log = (fixture(`engine-log.v${ENGINE_STATE_VERSION}.json`) as unknown[]).map((e) => parseEvent(e));
     expect(log.map((e) => e.event_type)).toEqual([
       'EngineConfigApplied', 'BusinessDayOpened', 'StockSet', 'OrderPlaced', 'ItemAdded', 'ItemAdded', 'FireDispatched',
@@ -168,14 +200,30 @@ describe('@pos/engine EngineState v4', () => {
     const { diagnostics, ...state } = buildEngineState(deepFreeze(log));
     expect(diagnostics).toEqual([]);
     expect(state).toEqual(fixture(`engine-state.v${ENGINE_STATE_VERSION}.json`));
-    // The fixture holds both values of the new key: L1 was inferred Done at the auto_done S1, then undone.
     expect(state.lines.L1).toMatchObject({ stage: 'cooking', done_at: null, done_undone: true });
     expect(state.lines.L2).toMatchObject({ stage: 'cooking', done_undone: false });
-    for (const line of Object.values(state.lines)) expect(Object.keys(line).sort()).toEqual([...KEY_SETS[4].EngineLine].sort());
-    // The v3 files stay as written: the v3 log (no line) still folds to the v3 state.
+    // v5 defaults: the ItemAdded copy (L1 carries 300 000, L2 has no key → null), no priority, arrival = the listing
+    // OrderPlaced's recorded_at; the group has no priority fields set; no priority crossing.
+    const placed = log.find((e) => e.event_type === 'OrderPlaced')!;
+    expect(state.lines.L1).toMatchObject({ max_delay_ms: 300_000, priority_at: null, arrived_at: placed.recorded_at });
+    expect(state.lines.L2).toMatchObject({ max_delay_ms: null, priority_at: null, arrived_at: placed.recorded_at });
+    for (const order of Object.values(state.orders)) {
+      for (const g of Object.values(order.groups)) {
+        expect(g).toMatchObject({ priority_land_ms: null, priority_delay_ms: null });
+        expect(Object.keys(g).sort()).toEqual([...KEY_SETS[5].EngineOrderGroup].sort());
+      }
+    }
+    expect(state.priority_due).toEqual({});
+    for (const line of Object.values(state.lines)) expect(Object.keys(line).sort()).toEqual([...KEY_SETS[5].EngineLine].sort());
+    // The older logs still fold (the v4 and v3 files stay as written); the v5 engine adds its keys with the defaults.
+    const { diagnostics: v4Diagnostics, ...v4 } = buildEngineState(deepFreeze((fixture('engine-log.v4.json') as unknown[]).map((e) => parseEvent(e))));
+    expect(v4Diagnostics).toEqual([]);
+    const v4State = fixture('engine-state.v4.json') as EngineState;
+    expect(Object.keys(v4).sort()).toEqual([...Object.keys(v4State), 'priority_due'].sort());
+    for (const id of Object.keys(v4State.lines)) expect(v4.lines[id]).toMatchObject(v4State.lines[id]!);
     const { diagnostics: v3Diagnostics, ...v3 } = buildEngineState(deepFreeze((fixture('engine-log.v3.json') as unknown[]).map((e) => parseEvent(e))));
     expect(v3Diagnostics).toEqual([]);
-    expect(v3).toEqual(fixture('engine-state.v3.json'));
+    expect(v3).toEqual({ ...(fixture('engine-state.v3.json') as object), priority_due: {} });
 
     const keys = KEY_SETS[ENGINE_STATE_VERSION];
     expect(Object.values(keysMatch).every(Boolean)).toBe(true);
@@ -231,7 +279,7 @@ describe('@pos/engine EngineState v4', () => {
     expect(twice.diagnostics).toEqual([d, d2]);
   });
 
-  it('[03a §3.3] initialEngineState is the empty v3 state', () => {
+  it('[03a §3.3] initialEngineState is the empty v5 state', () => {
     expect(initialEngineState()).toEqual({
       stock: {},
       business_day: null,
@@ -242,6 +290,7 @@ describe('@pos/engine EngineState v4', () => {
       slips: {},
       next_alert_due_at: null,
       slip_due: {},
+      priority_due: {}, // ⚠️ 03a v1.2.10 §3.3 (STAB-7, B-1): v5
       diagnostics: [],
     });
   });
@@ -251,7 +300,7 @@ describe('@pos/engine EngineState v4', () => {
       order: [
         'OrderPlaced', 'OrderLinesAdded', 'ItemAdded', 'ItemStarted', 'ItemDone', 'ItemDoneUndone', 'ItemServed',
         'ItemRemoved', 'ItemVoided', 'ItemMovedToStock', 'ItemReturned', 'OrderBoosted', 'ItemsReleased', 'SlipWarned',
-        'AlertClosed',
+        'AlertClosed', 'LinePrioritized',
       ],
       station: ['FireDispatched', 'ReservationsShifted', 'EngineConfigApplied', 'StationCapacitySet', 'StationPauseSet'],
       stock: ['StockSet', 'StockAdded', 'StockReserved', 'StockReleased', 'StockConsumed', 'StockTransferredOut'],

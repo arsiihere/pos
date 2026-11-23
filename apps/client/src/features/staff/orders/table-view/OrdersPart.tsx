@@ -25,6 +25,7 @@ import { isWeightPending } from '../view/stage';
 import { concerns, createLiveReader, idsOf, ORDER_FRAMES, SEATING_FRAMES, type LiveReader } from './refetch';
 import { allServed, QueuedRound, Round } from './Round';
 import { ZoneUndo } from './ZoneUndo';
+import { groupParts } from '../view/parts';
 
 // 02b v1.0.11 §8 Table view, Zone items, Late cards (02-S06 TableView*, ZoneUndo*, 02b-C04): the orders part of 02a's
 // table sheet for one seating — late cards on top (O18 / Q-10), then "Orders · n orders · Rs total · + n to weigh",
@@ -153,7 +154,8 @@ export const OrdersPart = ({ seating_id, table_ids, primary_table_id, mine, onRo
   const caught = shell.live.part('orders') as OrdersCatchUp | undefined;
   const slips = caught?.open_slips === undefined && liveSlips === null ? undefined : [...(caught?.open_slips ?? []).filter((s) => !(liveSlips ?? []).some((x) => x.alert_id === s.alert_id)), ...(liveSlips ?? [])];
 
-  const orders = useMemo(() => [...(body?.orders ?? [])].sort((a, b) => a.placed_at - b.placed_at), [body]);
+  // 02b v1.0.21 §8 (STAB-5): a split line's parts show as one row per stage (groupParts); the commands name the parts
+  const orders = useMemo(() => [...(body?.orders ?? [])].sort((a, b) => a.placed_at - b.placed_at).map((o) => ({ ...o, lines: groupParts(o.lines) })), [body]);
   // 04 §8 Pending tag: pending-voids with every read of the seating's orders; the total leaves their refund_minor out
   const orderIds = orders.map((o) => o.order_id);
   usePendingVoidsRead(orderIds, body);

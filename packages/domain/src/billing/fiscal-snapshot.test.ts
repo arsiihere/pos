@@ -185,6 +185,7 @@ describe('[05 task 5a] invoice fiscal snapshot types', () => {
       tax_profile_id: string | null;
       fiscal_category: string | null;
       taxes: FiscalLineTax[];
+      part_of?: string; // ⚠️ 05 v1.0.33 §6.29 (STAB-5): a split line's part
     }>();
     expectTypeOf<FiscalLineTax>().toEqualTypeOf<{
       tax_code: string;

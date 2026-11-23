@@ -214,8 +214,12 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
     if (point === null) return false;
     const id = str(p['order_item_id']);
     switch (type) {
-      case 'ItemStarted':
-        return id !== null && updateLines(new Set([id]), (l) => ({ ...l, stage: 'cooking' }));
+      case 'ItemStarted': {
+        // ⚠️ 03b v1.0.12 §6.15 (STAB-5 Q5): the start time, so a grouped Done sends the last-started part first
+        const at = typeof p['started_at'] === 'number' ? p['started_at'] : deps.now();
+        // ⚠️ 03b v1.0.13 §3.4 (STAB-7): Start ends priority (03a PR-4), so the chip goes
+        return id !== null && updateLines(new Set([id]), (l) => ({ ...l, stage: 'cooking', started_at: at, priority: null }));
+      }
       case 'ItemDone':
         return id !== null && updateLines(new Set([id]), (l) => ({ ...l, stage: 'done' }));
       case 'ItemDoneUndone':
@@ -244,6 +248,10 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
         dropOrderState(order_id);
         return true;
       }
+      case 'LinePrioritized':
+        // ⚠️ 03b v1.0.14 §3.4, §6.17 (STAB-7, m-6): "Priority" at once, without minutes (never from delay_ms); the hub's
+        // next view carries them. An id this point does not hold is ignored (Q-49).
+        return updateLines(new Set(ids(p['order_item_ids'])), (l) => (l.priority != null || l.stage !== 'added' ? l : { ...l, priority: { minutes_late: null } }));
       case 'ItemsReleased':
         return updateLines(new Set([...ids(p['released']), ...ids(p['expedite'])]), (l) => ({ ...l, serve_mode: 'immediate' }));
       case 'LanesSet': {
@@ -264,7 +272,8 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
         const alert_id = str(p['alert_id']);
         readyAlert.set(order_id, alert_id);
         seen.set(`ready:${order_id}`, at);
-        setReady(order_id, { at, by: alert_id === null ? null : (claims.get(alert_id) ?? null) });
+        // 03b v1.0.10 §6.15: the Ready's own lines (an extending press lists all of them)
+        setReady(order_id, { at, by: alert_id === null ? null : (claims.get(alert_id) ?? null), lines: ids(p['order_item_ids']) });
         return true;
       }
       case 'ReadyToServeUndone':

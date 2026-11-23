@@ -5,6 +5,7 @@ import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
 import { CloseX, Dialog, Ico } from '../../../alerts/ui';
 import { itemAvailability, optionAvailability, type AvailabilityInputs, type OptionAvailability } from '../live/availability';
+import type { ServeMode } from '../contracts';
 import { MONEY_DIR, money } from '../money';
 import { cartLineMoney, type CartLine, type CartOption, type UnitOf } from '../order-screen/cart';
 import { KITCHEN_NOTE_MAX, NoteSheet } from './NoteSheet';
@@ -79,6 +80,8 @@ export function OptionsSheet(p: OptionsSheetProps) {
   const [text, setText] = useState(p.initial !== null && weighed && p.initial.quantity !== null ? String(p.initial.quantity / 1000) : '');
   const [note, setNote] = useState<string | undefined>(p.initial?.kitchen_note);
   const [noteOpen, setNoteOpen] = useState(false);
+  // 02b v1.0.21 §8 (STAB-5, owner option C): the line's serve override; undefined = as the menu (or the order switch) says
+  const [serve, setServe] = useState<ServeMode | undefined>(p.initial?.serve_mode);
 
   const groups = groupsOf(p.config, item);
   const quantity: number | null = weighed ? (mode === 'later' && item.requires_weighing ? null : gramsOf(text)) : units;
@@ -99,6 +102,7 @@ export function OptionsSheet(p: OptionsSheetProps) {
     quantity,
     options: options.filter((o) => groupOf(o.option_id) !== undefined),
     ...(note === undefined ? {} : { kitchen_note: note }),
+    ...(serve === undefined ? {} : { serve_mode: serve }),
     ...(p.from_zone === true || p.initial?.from_zone === true ? { from_zone: true } : {}),
     // an edited E-7 line stays a comp-it line (its "Comp it?" after Send); `pick_options` is done once the sheet adds
     ...(p.initial?.comp_it === true ? { comp_it: true } : {}),
@@ -240,6 +244,16 @@ export function OptionsSheet(p: OptionsSheetProps) {
             {priceText}
           </strong>
         </span>
+      </div>
+      <div className="serve" role="group" aria-label={t('serve.label')}>
+        <span className="serve__l">{t('serve.label')}</span>
+        <div className="seg">
+          {([[undefined, 'serve.menu_default'], ['sync', 'serve.together'], ['immediate', 'serve.as_ready']] as const).map(([value, key]) => (
+            <button key={key} type="button" className="btn" aria-pressed={serve === value} onClick={() => setServe(value)}>
+              {t(key)}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="acts">
         <button type="button" className="btn" onClick={() => setNoteOpen(true)}>

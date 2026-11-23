@@ -113,9 +113,9 @@ describe('[03b §3.4] Pass store', () => {
     // Ready, its retarget (no visible change), Undo
     at(6_000);
     store.apply(ev('ReadyToServe', { order_id: 'O1', point_id: PT, order_item_ids: ['A', 'B'], table_id: 'T-4', alert_id: 'AL1' }));
-    expect(store.snapshot().view!.orders[0]!.ready).toEqual({ at: 6_000, by: null });
+    expect(store.snapshot().view!.orders[0]!.ready).toEqual({ at: 6_000, by: null, lines: ['A', 'B'] });
     store.apply(ev('ReadyRetargeted', { order_id: 'O1', point_id: PT, table_id: 'T-9', alert_id: 'AL2', previous_alert_id: 'AL1' }));
-    expect(store.snapshot().view!.orders[0]!.ready).toEqual({ at: 6_000, by: null });
+    expect(store.snapshot().view!.orders[0]!.ready).toEqual({ at: 6_000, by: null, lines: ['A', 'B'] });
     store.apply(ev('ReadyToServeUndone', { order_id: 'O1', point_id: PT, alert_id: 'AL2' }));
     expect(store.snapshot().view!.orders[0]!.ready).toBeNull();
 
@@ -272,11 +272,11 @@ describe('[03b §3.4] Pass store', () => {
     store.apply(ev('ReadyToServe', { order_id: 'O1', point_id: PT, order_item_ids: ['A'], table_id: null, alert_id: 'AL1' }));
     at(9_500);
     store.apply(ev('ReadyToServe', { order_id: 'O2', point_id: PT, order_item_ids: ['B'], table_id: null, alert_id: 'AL2' }));
-    expect(store.snapshot().view!.orders[1]!.ready).toEqual({ at: 9_500, by: null });
+    expect(store.snapshot().view!.orders[1]!.ready).toEqual({ at: 9_500, by: null, lines: ['B'] });
     store.claimReady('AL2', 'S-ASIF');
     const v = store.snapshot().view!;
-    expect(v.orders[0]!.ready).toEqual({ at: 9_000, by: 'S-ASIF' });
-    expect(v.orders[1]!.ready).toEqual({ at: 9_500, by: 'S-ASIF' });
+    expect(v.orders[0]!.ready).toEqual({ at: 9_000, by: 'S-ASIF', lines: ['A'] });
+    expect(v.orders[1]!.ready).toEqual({ at: 9_500, by: 'S-ASIF', lines: ['B'] });
     expect(store.snapshot().seen_at.get('ready:O1')).toBe(9_000);
     // someone else's Ready (no claim) carries no name; a catch-up brings the hub's time and id
     store.apply(ev('ReadyToServeUndone', { order_id: 'O2', point_id: PT, alert_id: 'AL2' }));
@@ -294,7 +294,7 @@ describe('[03b §3.4] Pass store', () => {
       store.apply(ev('ReadyToServe', { order_id: 'O1', point_id: PT, order_item_ids: ['A'], table_id: null, alert_id: null }));
       store.apply(ev('Handover', { handover_id: 'H1', order_id: 'O1', point_id: PT, receiver_staff_id: 'S9', order_item_ids: ['A'], alert_id: 'AL3', ready_alert_closed: null }));
       if (!replyFirst) store.claimHandover('H1', 'S-ASIF');
-      expect(store.snapshot().view!.orders[0]!.ready).toEqual({ at: 5_000, by: 'S-ASIF' });
+      expect(store.snapshot().view!.orders[0]!.ready).toEqual({ at: 5_000, by: 'S-ASIF', lines: ['A'] });
     }
     // another tablet's Handover (no claim) leaves the Ready without a name; an open Ready with an alert keeps its own
     const { store } = setup(5_000);

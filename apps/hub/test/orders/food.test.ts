@@ -46,6 +46,7 @@ function line(over: Partial<LineView> = {}): LineView {
     options: [], // 02b v1.0.11 §4.2 (Q-7)
     tax_profile_id: null, // 02b v1.0.16 §4.2 (05 row Q-1)
     unit_price_minor: 100_000, // 02b v1.0.16 §4.2 (05 R-7, R-17)
+    part_of: null, // ⚠️ 02b v1.0.20 §5 (STAB-5): not split
     ...over,
   };
 }

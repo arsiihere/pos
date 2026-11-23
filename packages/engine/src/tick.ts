@@ -23,13 +23,14 @@
 // A line of an order still awaiting listed lines (AD-8) is never fired, and a load fires whole or not at all.
 import type { EngineConfig, FireDispatchedPayload, ItemDonePayload, ItemStartedPayload, PosEvent, ReservationsShiftedPayload } from '@pos/events';
 import { applyEvent } from './apply-event.js';
-import { compatible, currentProgram, freshnessOf, joinLine, slotEnd, withMember, workOf, type WorkLoad } from './batch.js';
+import { compatible, currentProgram, freshnessOf, joinLine, withMember, workOf, type WorkLoad } from './batch.js';
 import { effectiveCapacity } from './capacity.js';
 import { orderInEngine } from './lifecycle.js';
 import { liveProfiles } from './live.js';
 import { bookingAt, type Booking } from './overload.js';
-import { addInterval, earliestFit, occupiedCook, removeInterval } from './profile.js';
-import { combine, stationPolicy, weightOf } from './replan.js';
+import { addInterval, earliestFit, occupancy, occupiedCook, removeInterval } from './profile.js';
+import { deadlineFor, memberOrder } from './priority.js';
+import { byArrival, combine, stationPolicy, weightOf } from './replan.js';
 import type { EngineLine, EngineOrder, EngineState, Load, Profile, StationRuntime } from './state.js';
 import { lineReleases, stockEffects, type StockConsumedDraft, type StockReleasedDraft } from './stock.js';
 
@@ -95,7 +96,10 @@ function fireDraft(f: Fire): FireDispatchedDraft {
 // A firing load pulls in compatible unfired lines of its station whose target lies within the freshness window
 // (§3.6.1 item 1; F §4.7 D14 / D17), capped per line by max_early_ms — the join rule of placement (batch.ts
 // compatible + the sync window: b.end ≤ E ∧ E − b.end ≤ min(window, max_early_ms)), read at now. Candidates in
-// (E, order_item_id) order while the load has room. A pulled-in line leaves its own load at the fold (task 13), so a
+// ⚠️ 03a v1.2.10 §3.6.1 item 1 (STAB-6, review M-12): candidates in the queue order of their hidden loads (§3.3 BQ-1:
+// booked.start, load_id; a line in no load last), then by the BQ-1 arrival key, while the load has room, so a part of a
+// later round never goes ahead of an older member of an earlier one. Was: (E, order_item_id) order. Priority members
+// first (03a v1.2.10 §3.5.7, below). A pulled-in line leaves its own load at the fold (task 13), so a
 // load is never fired in part: only lines that are not due with their own load this pass are taken.
 // Proposed (implementer, overnight) P1: frozen as well as hidden lines may be pulled in (auto-fill, D16, fires frozen
 // lines early too); the line's slot end E = slotEnd (its AD-12 deadline + prep + cook).
@@ -108,10 +112,26 @@ function pullIns(state: EngineState, station: StationRuntime, load: Load, taken:
     const line = state.lines[id];
     // line.booked: a slot line placed before a type change is fixed input (§3.11), never pulled into a load.
     if (taken.has(id) || !ready(state, line) || line.booked !== null || currentProgram(line) !== load.program_id) continue;
-    const E = slotEnd(line, cap);
+    // ⚠️ 03a v1.2.10 §3.5.7 PR-4, PR-5: a priority line's slot end is from its d_p.
+    const E = deadlineFor(state, line, cap) + line.prep_ms + occupancy(line.units, cap, line.cook_ms).cook_ms;
     if (load.booked.end <= E && E - load.booked.end <= Math.min(window, line.max_early_ms)) cands.push({ line, E });
   }
-  cands.sort((x, y) => x.E - y.E || byId(x.line.order_item_id, y.line.order_item_id));
+  const queueKey = (l: EngineLine): [number, string] => {
+    const own = l.load_id === null ? undefined : station.loads[l.load_id];
+    return own === undefined ? [Number.POSITIVE_INFINITY, ''] : [own.booked.start, own.load_id];
+  };
+  const arrival = byArrival(state);
+  // ⚠️ 03a v1.2.10 §3.6.1 item 1 (review M-12, re-review m-7, test 148): a priority member within the window first, in
+  // the priority order; then the queue order, then arrival.
+  const prio = memberOrder(state);
+  cands.sort((x, y) => {
+    const px = x.line.priority_at !== null;
+    const py = y.line.priority_at !== null;
+    if (px || py) return px && py ? prio(x.line, y.line) : px ? -1 : 1;
+    const [sx, ix] = queueKey(x.line);
+    const [sy, iy] = queueKey(y.line);
+    return sx - sy || byId(ix, iy) || arrival(x.line, y.line);
+  });
   const out: string[] = [];
   for (const { line } of cands) {
     const L = joinLine(line);
@@ -287,12 +307,14 @@ function fills(state: EngineState, station: StationRuntime): boolean {
 }
 
 // The auto-fill candidates of a slot station at now: placed (booked), not yet due, eligible at now ≥ d − max_early_ms.
+// ⚠️ 03a v1.2.10 §3.6.1 item 2 (review B-2): a priority line is eligible from d_p − max_early_ms.
 function fillCandidates(state: EngineState, station: StationRuntime, now: number): EngineLine[] {
   const out: EngineLine[] = [];
+  const cap = Math.max(1, effectiveCapacity(station));
   for (const id of station.unfired) {
     const line = state.lines[id];
     if (!ready(state, line) || line.booked === null || line.fire_ms! <= now) continue;
-    if (now >= line.deadline_ms - line.max_early_ms) out.push(line);
+    if (now >= deadlineFor(state, line, cap) - line.max_early_ms) out.push(line);
   }
   return out;
 }
@@ -311,7 +333,12 @@ function fillOrder(state: EngineState, lines: EngineLine[], now: number, pol: Re
     return { frozen, urgent, d: urgent === 0 ? l.deadline_ms : 0, w: urgent === 0 ? 0 : -weightOf(state, l) * waited };
   };
   const keys = new Map(lines.map((l) => [l.order_item_id, key(l)]));
+  // ⚠️ 03a v1.2.10 §3.6.1 item 2 (review B-2, M-10): eligible priority lines first, in the priority order (earliest onset).
+  const prio = memberOrder(state);
   return [...lines].sort((a, b) => {
+    const pa = a.priority_at !== null;
+    const pb = b.priority_at !== null;
+    if (pa || pb) return pa && pb ? prio(a, b) : pa ? -1 : 1;
     const x = keys.get(a.order_item_id)!;
     const y = keys.get(b.order_item_id)!;
     return x.frozen - y.frozen || x.urgent - y.urgent || x.d - y.d || x.w - y.w || byId(a.order_item_id, b.order_item_id);
@@ -609,7 +636,7 @@ function softCandidates(c: Ctx, station: StationRuntime, t: number, before: numb
     for (const id of station.unfired) {
       const line = state.lines[id];
       if (!ready(state, line) || line.booked === null) continue;
-      const e = line.deadline_ms - line.max_early_ms;
+      const e = deadlineFor(state, line, Math.max(1, effectiveCapacity(station))) - line.max_early_ms; // 03a v1.2.10: d_p for a priority line
       if (e >= line.fire_ms! || line.fire_ms! <= t) continue; // eligible only before its own fire
       add(e);
       for (const r of reservations) if (r.key !== id && r.booked.end - line.prep_ms > e) add(r.booked.end - line.prep_ms);

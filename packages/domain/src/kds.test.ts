@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import * as domain from './index';
-import { UNDO_DONE_MS, type Identifier, type LineDetail } from './kds';
+import { UNDO_DONE_MS, groupByPartOf, sumOptionTexts, type Identifier, type LineDetail } from './kds';
 
 // 03b §4.4: shared, browser-safe types.
 describe('[03b §4.4] kds types', () => {
@@ -41,6 +41,8 @@ describe('[03b §4.4] kds types', () => {
       prep_ms: number;
       from_stock: boolean;
       placed_by_name: string | null;
+      // ⚠️ 03b v1.0.11 §4.4 (STAB-5): the first part of a split line; null = not split, absent from an older hub
+      part_of?: string | null;
     }>();
     const line: LineDetail = {
       order_item_id: 'L1',
@@ -64,5 +66,26 @@ describe('[03b §4.4] kds types', () => {
       placed_by_name: null,
     };
     expect(line.identifier.kind).toBe('table');
+  });
+});
+
+describe('[03b v1.0.11 §3.3, §3.4; 03c v1.0.15 §3.3] split-line parts (STAB-5)', () => {
+  it('groupByPartOf: items with one key are one group at the first one\'s place; a null key stays alone', () => {
+    const items = [
+      { id: 'N', k: 'N' },
+      { id: 'K', k: null },
+      { id: 'N-p2', k: 'N' },
+      { id: 'M', k: null },
+      { id: 'N-p3', k: 'N' },
+    ];
+    expect(groupByPartOf(items, (i) => i.k).map((g) => g.map((i) => i.id))).toEqual([['N', 'N-p2', 'N-p3'], ['K'], ['M']]);
+    expect(groupByPartOf([], () => 'x')).toEqual([]);
+  });
+
+  it('sumOptionTexts: option entries summed by name, first-seen order ("Raita" ×3 → "3 x Raita"); one list unchanged', () => {
+    expect(sumOptionTexts([['Raita', '2 x No onion'], ['Raita', '2 x No onion'], ['Raita', '2 x No onion']])).toEqual(['3 x Raita', '6 x No onion']);
+    expect(sumOptionTexts([['Extra butter'], ['Less salt']])).toEqual(['Extra butter', 'Less salt']);
+    expect(sumOptionTexts([['2 x Raita', 'Mint']])).toEqual(['2 x Raita', 'Mint']);
+    expect(sumOptionTexts([])).toEqual([]);
   });
 });

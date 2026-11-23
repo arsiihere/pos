@@ -77,7 +77,9 @@ export function VoidSheet({ line, order, onClose, onDone, onChanged, onRemove }:
   useEffect(() => {
     if (!online) return;
     let live = true;
-    void voidPreview(shell.api, { order_id: order.order_id, order_item_ids: [line.order_item_id], ...(sentUnits === undefined ? {} : { units: sentUnits }) }).then((answer) => {
+    // 02b v1.0.21 §8 (STAB-5): a grouped row previews its first n parts
+    const parts = (line as { part_ids?: string[] }).part_ids;
+    void voidPreview(shell.api, parts === undefined ? { order_id: order.order_id, order_item_ids: [line.order_item_id], ...(sentUnits === undefined ? {} : { units: sentUnits }) } : { order_id: order.order_id, order_item_ids: parts.slice(0, sentUnits ?? parts.length) }).then((answer) => {
       if (!live) return;
       if (!answer.ok) {
         setLoadError(answer.error);
@@ -98,7 +100,8 @@ export function VoidSheet({ line, order, onClose, onDone, onChanged, onRemove }:
   const choice: SheetChoice = { reason, note, disposition: chosen, dispositionNote };
   const step = primaryStep({ online, preview, choice });
   const approval = preview?.needs_approval ?? shell.permissions.resolution('void-item').grant === 'requires_approval';
-  const payload = voidPayload({ order_id: order.order_id, order_item_id: line.order_item_id, units: sentUnits, choice });
+  const partIds = (line as { part_ids?: string[] }).part_ids;
+  const payload = voidPayload({ order_id: order.order_id, order_item_id: line.order_item_id, units: sentUnits, choice, ...(partIds === undefined ? {} : { part_ids: partIds }) });
 
   const send = async () => {
     if (busy || !online) return;

@@ -204,6 +204,7 @@ describe('buildSubmit — 01c §4.3 copies [02b #2]', () => {
       kitchen_note: 'less oil',
       served_from_zone_id: null,
       is_ready_item: false,
+      max_delay_ms: 300_000, // ⚠️ 02b v1.0.24 §3.2 step 4b (STAB-7): the branch default (snapshot without the key)
     } satisfies ItemAddedPayload);
     expect(added(out, 'L1_RAITA')).toEqual({
       order_id: 'O1',
@@ -243,6 +244,7 @@ describe('buildSubmit — 01c §4.3 copies [02b #2]', () => {
       kitchen_note: null,
       served_from_zone_id: null,
       is_ready_item: false,
+      max_delay_ms: 300_000, // ⚠️ 02b v1.0.24 §3.2 step 4b (STAB-7): the branch default (snapshot without the key)
     } satisfies ItemAddedPayload);
   });
 
@@ -288,6 +290,7 @@ describe('buildSubmit — 01c §4.3 copies [02b #2]', () => {
       kitchen_note: null,
       served_from_zone_id: null,
       is_ready_item: false,
+      max_delay_ms: null, // ⚠️ 02b v1.0.24 §3.2 step 4b (STAB-7): a deal header
     } satisfies ItemAddedPayload);
     expect(added(out, 'L_MAIN')).toEqual({
       order_id: 'O1',
@@ -327,6 +330,7 @@ describe('buildSubmit — 01c §4.3 copies [02b #2]', () => {
       kitchen_note: null,
       served_from_zone_id: null,
       is_ready_item: false,
+      max_delay_ms: 300_000, // ⚠️ 02b v1.0.24 §3.2 step 4b (STAB-7): the branch default (snapshot without the key)
     } satisfies ItemAddedPayload);
     expect([added(out, 'L_NAAN'), added(out, 'L_LASSI')].map((l) => [l.quantity, l.allocated_price_minor, l.line_total_minor, l.category_id])).toEqual([
       [4, 12_508, 0, 'C_DEAL'],

@@ -93,6 +93,16 @@ export interface StationRuntime {
   loads: Record<string, Load>; // batch only
 }
 
+// 03a §3.3 group (§3.2). ⚠️ 03a v1.2.10 §3.3, §3.5.7 PR-4 (STAB-7; v1.2.8 post-review B-2, M-10): v5 adds
+// priority_land_ms (the group's priority land, §3.5.7 PR-4) and priority_delay_ms (delay(g, recorded_at) at its
+// LinePrioritized fold); both null until the group is prioritised.
+export interface EngineOrderGroup {
+  target_land_ms: number;
+  line_ids: string[];
+  priority_land_ms: number | null;
+  priority_delay_ms: number | null;
+}
+
 // 03a §3.3.
 export interface EngineOrder {
   order_id: string;
@@ -111,7 +121,7 @@ export interface EngineOrder {
   last_served_at: number | null; // min(served_at, recorded_at) of the ItemServed that left no line open (⚠️ Changed by Q-6, owner ruling 2026-11-09: was its recorded_at)
   last_line_fold_at: number; // recorded_at of the latest fold that names the order or one of its lines
   next_group_index: number; // group ids are order_id + ':' + index
-  groups: Record<string, { target_land_ms: number; line_ids: string[] }>;
+  groups: Record<string, EngineOrderGroup>;
 }
 
 // 03a §3.3.
@@ -167,9 +177,17 @@ export interface EngineLine {
   // 03a v1.2.2 (owner 2026-11-11, B2-2): false at ItemAdded, set by ItemDoneUndone's fold, cleared by nothing. The
   // auto_done inference (tick.ts doneDue) skips a flagged line: after an Undo Done it waits for a tapped Done.
   done_undone: boolean;
+  // ⚠️ 03a v1.2.10 §3.3, §3.5.7 PR-1, PR-4, §3.3 BQ-1 (STAB-6, STAB-7; v5): the ItemAdded.max_delay_ms copy (D25; absent
+  // = null = no limit, MAX_DELAY_NO_LIMIT_MS applies); priority_at = the recorded_at of the LinePrioritized fold that
+  // made the line priority (set once, never cleared); arrived_at = the recorded_at of the OrderPlaced / OrderLinesAdded
+  // that listed the line (the BQ-1 arrival key, review M-3).
+  max_delay_ms: number | null;
+  priority_at: number | null;
+  arrived_at: number;
 }
 
-// 03a §3.3: EngineState v4 (ENGINE_STATE_VERSION = 4, D62; v1.2.2 B2-2: v4 adds EngineLine.done_undone).
+// 03a §3.3: EngineState v5 (ENGINE_STATE_VERSION = 5, D62; v1.2.2 B2-2: v4 adds EngineLine.done_undone; 03a v1.2.10
+// STAB-6/7: v5 adds the line and group priority fields and priority_due).
 export interface EngineState {
   stock: Record<string, StockEntry>; // unchanged (01a S14, 01c V5)
   business_day: BusinessDay | null; // unchanged (01a S33, 01c §3.5.3)
@@ -180,6 +198,7 @@ export interface EngineState {
   slips: Record<string, SlipRecord>; // by table_key (§3.8)
   next_alert_due_at: number | null; // minimum of slip_due (§3.8)
   slip_due: Record<string, number>; // per table_key crossing / close time
+  priority_due: Record<string, number>; // ⚠️ 03a v1.2.10 §3.5.7 PR-3 (B-1, R-3): per group_id level crossing
   diagnostics: Diagnostic[]; // AD-6: host scratch, outside the v3 key set
 }
 
@@ -194,6 +213,7 @@ export function initialEngineState(): EngineState {
     slips: {},
     next_alert_due_at: null,
     slip_due: {},
+    priority_due: {},
     diagnostics: [],
   };
 }

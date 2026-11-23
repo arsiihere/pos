@@ -20,6 +20,8 @@ export interface LineView {
   open: boolean;
   /** the stepper's cap (O15) */
   cap: number | null;
+  /** 02b v1.0.21 §8 (STAB-5): a split line's distinct part times with their counts, earliest first */
+  parts?: Array<{ n: number; eta_ms: number }>;
 }
 
 export interface LineActions {
@@ -103,6 +105,8 @@ export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions }: { vi
           </span>
         )}
         {line.quantity === null && <span>{t('cart.weight_pending')}</span>}
+        {/* 02b v1.0.21 §8 (STAB-5): a line's own serve override */}
+        {line.serve_mode !== undefined && <span className="bd c-info">{t(line.serve_mode === 'sync' ? 'serve.badge_together' : 'serve.badge_as_ready')}</span>}
         {line.comp_it === true && (
           <span className="bd c-info">
             <Ico name="repeat" />
@@ -121,6 +125,11 @@ export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions }: { vi
           </span>
         )}
       </div>
+      {view.parts !== undefined && view.zone_name === null && (
+        <div className="ln__parts" dir="ltr">
+          {view.parts.map((p) => fill(t('cart.part_ready'), { n: String(p.n), time: timeText(p.eta_ms, utcOffsetMs) })).join(' · ')}
+        </div>
+      )}
       {view.problem !== null && (
         <div className="ln__prob">
           <span className="why">

@@ -9,8 +9,10 @@ import { useShell, type Shell } from '../staff/shell/hooks';
 import { HandOverSheet } from './actions/HandOverSheet';
 import { doneToHand, handedLine, type Handed } from './actions/handover';
 import { createPassApi, createReadyActions, readyBand, retrying, type CardMessage } from './actions/ready';
+import { ReadySheet, pendingLines } from './actions/ReadySheet';
 import { ScreenlessActions } from './actions/ScreenlessActions';
 import { PassCard } from './cards/PassCard';
+import { passRounds } from './cards/parts';
 import { readiness } from './cards/readiness';
 import { Loading, Offline } from './states/Offline';
 import { PointArchived, watchPoint } from './states/PointArchived';
@@ -112,6 +114,8 @@ export function PassScreen() {
   const [handed, setHanded] = useState<ReadonlyMap<string, Handed>>(new Map());
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [sheet, setSheet] = useState<string | null>(null);
+  // 03b v1.0.10 §3.4: the order whose Ready pick sheet is open
+  const [picking, setPicking] = useState<string | null>(null);
   const toastRef = useRef((text: string) => shell.toasts.show({ text, tone: 'ok' }));
   toastRef.current = (text: string) => shell.toasts.show({ text, tone: 'ok' });
 
@@ -193,6 +197,7 @@ export function PassScreen() {
   const canRun = allowed && !archived;
   const up = shell.online;
   const orders = [...view.orders].sort((a, b) => a.placed_at - b.placed_at);
+  const rounds = passRounds(orders); // ⚠️ 03b v1.0.13 §3.4 (STAB-6): the point's round tags, oldest card first
   const onToast = (text: string, tone: 'ok' | 'warn' = 'ok') => shell.toasts.show({ text, tone });
   const setMsg = (order_id: string, msg: CardMessage | null | undefined) =>
     setMsgs((m) => {
@@ -209,10 +214,10 @@ export function PassScreen() {
       return next;
     });
 
-  const markReady = async (order_id: string) => {
+  const markReady = async (order_id: string, order_item_ids?: string[]) => {
     if (ready.busy(order_id)) return;
     flag(order_id, true);
-    const r = await ready.markReady(order_id, view.point_id);
+    const r = await ready.markReady(order_id, view.point_id, order_item_ids);
     flag(order_id, false);
     if (r.busy === true) return;
     setMsg(order_id, r.message ?? null);
@@ -234,8 +239,14 @@ export function PassScreen() {
     setMsg(order_id, null);
     if (h.left === 0) onToast(fill(t('pass.handed'), { name: h.name }));
   };
-  const screenless = new Set(view.stations.filter((st) => st.screenless === true).map((st) => st.station_id));
   const open = sheet === null ? undefined : orders.find((o) => o.order_id === sheet);
+  const pickOrder = picking === null ? undefined : orders.find((o) => o.order_id === picking);
+  // 03b v1.0.10 §3.4 (STAB-2): every pending line done → one tap; else the pick sheet
+  const tapReady = (o: (typeof orders)[number]) => {
+    const pending = pendingLines(o);
+    if (pending.every((l) => l.stage === 'done')) void markReady(o.order_id);
+    else setPicking(o.order_id);
+  };
 
   return (
     <main className="pass">
@@ -290,10 +301,11 @@ export function PassScreen() {
                     {t('pass.hand_over')}
                   </button>,
                 );
-              if (canRun && o.ready === null && state !== 'none') {
+              // ⚠️ 03b v1.0.10 §3.4: also with an open Ready while lines not in it are left (they finished later)
+              if (canRun && pendingLines(o).length > 0 && (o.ready !== null || state !== 'none')) {
                 const b = busy.has(o.order_id);
                 buttons.push(
-                  <button key="ready" type="button" className={b ? 'btn btn--ready busy' : 'btn btn--ready'} aria-busy={b} disabled={!up} onClick={() => void markReady(o.order_id)}>
+                  <button key="ready" type="button" className={b ? 'btn btn--ready busy' : 'btn btn--ready'} aria-busy={b} disabled={!up} onClick={() => tapReady(o)}>
                     <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M5 12.5l4.5 4.5L19 7.5" />
                     </svg>
@@ -310,16 +322,15 @@ export function PassScreen() {
                   order={o}
                   stations={view.stations}
                   pointId={view.point_id}
+                  rounds={rounds}
                   utcOffsetMs={shell.clock.utcOffsetMs}
                   up={up}
                   onToast={onToast}
                   buttons={buttons}
                   lineActions={
                     canRun
-                      ? (l) =>
-                          screenless.has(l.station_id) ? (
-                            <ScreenlessActions line={l} api={kds} up={up} nowMs={nowMs} clock={() => shell.clock.nowMs()} doneAt={doneAt} onMessage={(m) => setMsg(o.order_id, m)} />
-                          ) : null
+                      ? // ⚠️ 03b v1.0.10 §3.4 (STAB-3): Start / Done / Undo on every station's lines (a tandoor's distributor)
+                        (l, parts) => <ScreenlessActions line={l} parts={parts} api={kds} up={up} nowMs={nowMs} clock={() => shell.clock.nowMs()} doneAt={doneAt} onMessage={(m) => setMsg(o.order_id, m)} />
                       : undefined
                   }
                   band={
@@ -356,6 +367,17 @@ export function PassScreen() {
           </div>
         )}
       </div>
+      {pickOrder !== undefined && (
+        <ReadySheet
+          order={pickOrder}
+          up={up}
+          onClose={() => setPicking(null)}
+          onConfirm={(ids) => {
+            setPicking(null);
+            void markReady(pickOrder.order_id, ids);
+          }}
+        />
+      )}
       {open !== undefined && (
         <HandOverSheet order={open} pointId={view.point_id} api={passApi} up={up} onClose={() => setSheet(null)} onHanded={(h) => onHanded(open.order_id, h)} onGone={(msg) => setMsg(open.order_id, msg)} />
       )}

@@ -102,6 +102,19 @@ export function moveUnit(cols: readonly Column[], id: string, from: number | nul
   });
 }
 
+/** 05 v1.0.33 §8 (STAB-5): one unit of `id` from column `from` back to the not-placed pool (unchanged if it holds none). */
+export function toPool(cols: readonly Column[], id: string, from: number): Column[] {
+  if ((cols.find((c) => c.split_no === from)?.lines.get(id) ?? 0) < 1) return cols as Column[];
+  return cols.map((c) => {
+    if (c.split_no !== from) return c;
+    const lines = new Map(c.lines);
+    const n = (lines.get(id) ?? 0) - 1;
+    if (n > 0) lines.set(id, n);
+    else lines.delete(id);
+    return { split_no: c.split_no, lines };
+  });
+}
+
 /** Typed major units → minor units at `exponent` (row F-6); commas ignored. Null for anything else or ≤ 0. */
 export function parseMinor(text: string, exponent: number): number | null {
   const m = /^([0-9]+)(?:\.([0-9]+))?$/.exec(text.trim().replaceAll(',', ''));

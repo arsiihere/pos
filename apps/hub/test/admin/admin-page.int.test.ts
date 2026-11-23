@@ -280,6 +280,35 @@ describe('hub admin page (M86)', () => {
     expect(textOf(page.screen)).toContain(EN['devices.group_cashier']);
   });
 
+  it('[00 §10 #167] add a tablet (00 v1.12.2, STAB-1): home tile and Devices action with manage-devices only; Make QR sends a tablet token with no owner, shows the QR, link and countdown; Done goes back to the list', async () => {
+    const source = await html();
+    const home = await runPage(source, { store: STORE, session: SESSION, fetch: fakeHub().fetch });
+    expect(textOf(home.screen)).toContain(EN['admin.tile_add_tablet_title']);
+    const viewer = await runPage(source, { store: STORE, session: { ...SESSION, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': false }) }, fetch: fakeHub().fetch });
+    expect(textOf(viewer.screen)).not.toContain(EN['admin.tile_add_tablet_title']);
+    const list = await runPage(source, { store: STORE, session: SESSION, fetch: fakeHub().fetch, hash: '#devices' });
+    expect(textOf(list.screen)).toContain(EN['devices.add_tablet']);
+    const listViewer = await runPage(source, { store: STORE, session: { ...SESSION, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': false }) }, fetch: fakeHub().fetch, hash: '#devices' });
+    expect(textOf(listViewer.screen)).not.toContain(EN['devices.add_tablet']);
+
+    const hub = fakeHub();
+    hub.answers['/admin/commands/generate-device-pairing-token'] = () => jsonResponse(200, { data: { result: { pair_url: 'http://192.168.0.107:3000/pair?t=abc&d=tablet', pair_qr_svg: '<svg id="q"></svg>', expires_at: Date.now() + 581_000 } } });
+    const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#add-tablet' });
+    expect(textOf(page.screen)).toContain(EN['addtablet.intro']);
+    await page.click(page.find('make_qr')!);
+    expect(hub.sent).toHaveLength(1);
+    expect(hub.sent[0]!.body).toMatchObject({ command_type: 'GenerateDevicePairingToken', payload: { device_type: 'tablet' } });
+    expect((hub.sent[0]!.body.payload as Record<string, unknown>).owner_staff_id).toBeUndefined();
+    const text = textOf(page.screen);
+    expect(text).toContain(EN['addtablet.scan_title']);
+    expect(text).toContain('9:41');
+    expect(text).not.toContain('http://192.168.0.107:3000/pair?t=abc&d=tablet');
+    await page.click(page.find('show_link')!);
+    expect(textOf(page.screen)).toContain('http://192.168.0.107:3000/pair?t=abc&d=tablet');
+    await page.click(byText(page, EN['addphone.done'], page.screen)!);
+    expect(textOf(page.screen)).toContain(EN['devices.group_cashier']);
+  });
+
   it('[00 §8.2 M86] signed in now: kinds, idle rules, warn when about to sign out, no Log out on own row; Log out confirms and sends ForceLogoutSession; already_ended says so', async () => {
     const source = await html();
     const hub = fakeHub();

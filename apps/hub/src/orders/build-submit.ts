@@ -19,7 +19,7 @@ import {
   type Position,
 } from '@pos/domain';
 import type { ProposedLine, ProposedOrder } from '@pos/engine';
-import type { BranchConfig, ConfigCategory, ConfigDeal, ConfigItem, ConfigModifierGroup, ConfigStation, ItemAddedPayload } from '@pos/events';
+import { itemMaxDelay, maxDelayDefaultMs, type BranchConfig, type ConfigCategory, type ConfigDeal, type ConfigItem, type ConfigModifierGroup, type ConfigStation, type ItemAddedPayload } from '@pos/events';
 import type { BuildSubmit, BuildSubmitCtx, OrderType, SubmitInput, SubmitOption } from './contracts.js';
 
 type Line = SubmitInput['lines'][number];
@@ -69,7 +69,7 @@ function orderOf(input: SubmitInput, ctx: BuildSubmitCtx): ProposedOrder['order'
 }
 
 // §3.10: the primary table's zone (dine-in only); a table without a zone, or an archived zone, has none.
-function zoneOf(config: BranchConfig, input: SubmitInput, table_id: string | null): Zone | null {
+export function zoneOf(config: BranchConfig, input: SubmitInput, table_id: string | null): Zone | null {
   if (input.order_type !== 'dine_in' || table_id === null) return null;
   const zone_id = config.floors.flatMap((f) => f.tables).find((t) => t.table_id === table_id)?.zone_id ?? null;
   return config.floors.flatMap((f) => f.zones).find((z) => z.zone_id === zone_id && !z.is_archived) ?? null;
@@ -148,6 +148,14 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
 
   // §3.10 / O4: the zone route of the primary table's zone (dine-in only), else the branch route.
   const routeOf = (item: ConfigItem): string => zone?.routes.find((r) => r.item_id === item.item_id)?.station_id ?? item.station_id;
+  // 02b v1.0.24 §3.2 step 4b (STAB-7; 01a v2.7.5 MD-5, review M-8): the line's own item's effective max delay —
+  // "No limit" → null; else the item's number; else the branch default, an explicit null kept (only a snapshot
+  // without the key gives 300 000, maxDelayDefaultMs). The engine turns null into priority at 30 min (03a PR-1).
+  const branchMaxDelay = maxDelayDefaultMs(config);
+  const maxDelayOf = (item: ConfigItem): number | null => {
+    const own = itemMaxDelay(item);
+    return own.max_delay_unlimited ? null : (own.max_delay_ms ?? branchMaxDelay);
+  };
   // 01c §4.3: the D25 copies of the line's item; B1: program cook times from the routed station's programs[] (batch only).
   const fromItem = (item: ConfigItem, quantity: number | null) => {
     const station_id = routeOf(item);
@@ -176,6 +184,7 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
       // 01c §3.5.2: stock units for the whole line; a weight still pending has none (a weighed item has no draws, V18).
       stock_draws: quantity === null ? [] : day.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity_per_sale_unit * quantity })),
       is_ready_item: item.is_ready_item,
+      max_delay_ms: maxDelayOf(item),
     };
   };
   const none = {
@@ -197,6 +206,7 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
     const quantity = line.quantity ?? (item.requires_weighing ? null : invalid(`lines.${n}.quantity`, 'quantity required'));
     checkSellable(item, quantity ?? 1, 'line');
     const options = line.options ?? [];
+    const chosenMode = line.serve_mode ?? input.serve_mode;
     const chosen = checkOptions(line.order_item_id, item, options, 'line', { quantity, sale_unit: unitOf(item) });
     const plain: ItemAddedPayload['options'] = [];
     const children: ItemAddedPayload[] = [];
@@ -231,6 +241,10 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
         tax_class_id: linked.tax_class_id,
         options: [],
         line_total_minor: orderLineTotalMinor({ line_kind: 'option_child', price_minor: option.price_minor, quantity: childQty, option_charges_minor: [] }),
+        // 02b v1.0.20 §3.2 step 4a: a split part's child carries the first part's child id
+        ...(given.part_of === undefined ? {} : { part_of: given.part_of }),
+        // 02b v1.0.21 §3.2: a child follows its parent's serve choice
+        ...(chosenMode === undefined ? {} : { serve_mode: chosenMode }),
       });
     });
     const parent: ItemAddedPayload = {
@@ -252,6 +266,10 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
         option_charges_minor: plain.map((o) => o.charge_minor),
       }),
       kitchen_note: line.kitchen_note ?? null,
+      // 02b v1.0.20 §3.2 step 4a: every part of a split line carries the first part's id
+      ...(line.part_of === undefined ? {} : { part_of: line.part_of }),
+      // 02b v1.0.21 §3.2 (owner option C): the line's serve choice, else the order's, else the item's (fromItem)
+      ...(chosenMode === undefined ? {} : { serve_mode: chosenMode }),
     };
     return [parent, ...children];
   };
@@ -340,14 +358,22 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
       }),
       kitchen_note: line.kitchen_note ?? null,
       is_ready_item: false,
+      max_delay_ms: null, // 02b v1.0.24 §3.2 step 4b: a deal header is no engine line
+      // 02b v1.0.22 §3.2 step 4a: a split deal's header carries part 1's header id
+      ...(line.part_of === undefined ? {} : { part_of: line.part_of }),
     };
     return [
       header,
       ...parts.map((p, i): ItemAddedPayload => {
         const copied = fromItem(p.item, p.quantity);
+        // 02b v1.0.21 §3.2 (owner option C): a deal part takes the deal line's serve choice, else the order's
+        const mode = line.serve_mode ?? input.serve_mode;
         return {
           ...none,
           ...copied,
+          ...(mode === undefined ? {} : { serve_mode: mode }),
+          // 02b v1.0.22: a split deal's part carries part 1's choice id
+          ...(p.choice.part_of === undefined ? {} : { part_of: p.choice.part_of }),
           order_id: input.order_id,
           order_item_id: p.choice.order_item_id,
           parent_order_item_id: line.order_item_id,

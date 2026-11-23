@@ -253,7 +253,8 @@ describe('@pos/engine return to kitchen (§3.8a, D28)', () => {
       const s = fold(ret, base);
       const r = s.lines.L1R!;
       expect(r).toMatchObject({ draws: [], units: 2, serve_mode: 'immediate', group_id: 'O1:1', mark: 'return' });
-      expect(groupOf(s, 'L1R')).toEqual({ target_land_ms: at(42), line_ids: ['L1R'] });
+      // ⚠️ 03a v1.2.10 (STAB-6/7): a v5 group also carries priority_land_ms / priority_delay_ms (null until prioritised).
+      expect(groupOf(s, 'L1R')).toEqual({ target_land_ms: at(42), line_ids: ['L1R'], priority_land_ms: null, priority_delay_ms: null });
       expect(s.orders.O1!.groups[s.lines.L1!.group_id]).toEqual(oldGroup);
       expect(s.orders.O1!.next_group_index).toBe(2);
     }

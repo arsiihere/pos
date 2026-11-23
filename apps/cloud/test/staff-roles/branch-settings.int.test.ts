@@ -31,6 +31,8 @@ const ENGINE_DEFAULTS = {
   served_estimate_ms: null,
   ready_window_ms: 60_000,
   kds_offline_ms: 30_000,
+  show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §5.2a PT-1 (STAB-5)
+  max_delay_default_ms: 300_000, // ⚠️ 01a v2.7.5 §5.2a MD-2 (STAB-7)
 };
 
 describe('GET / PATCH /v1/admin/branches/:branch_id/settings (01b §6.10, B16)', () => {

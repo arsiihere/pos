@@ -13,7 +13,7 @@ describe('GenerateDevicePairingToken', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  it('[00 §10 #28] GenerateDevicePairingToken: tablet ok; kds or cashier_kiosk → 400; no manage-devices → 403; retransmit → same token', async () => {
+  it('[00 §10 #28, #167] GenerateDevicePairingToken: tablet ok, its pair_url ends &d=tablet; kds or cashier_kiosk → 400; no manage-devices → 403; retransmit → same token', async () => {
     const hub = await open();
     const admin = await adminOn(hub, 'S_OWNER');
     const created = await post(hub, admin, { device_type: 'tablet' });
@@ -26,7 +26,8 @@ describe('GenerateDevicePairingToken', () => {
       pair_qr_svg: string;
     };
     expect(result.expires_at).toBe(hub.clock.branchNow() + 600_000);
-    expect(result.pair_url).toBe(`http://192.168.10.2:3000/pair?t=${result.pairing_token}`);
+    // ⚠️ Changed by 00 v1.12.2 (STAB-1, test 167): a tablet's pair_url carries d=tablet for the pair page
+    expect(result.pair_url).toBe(`http://192.168.10.2:3000/pair?t=${result.pairing_token}&d=tablet`);
     expect(result.pair_qr_svg).toBe(qrSvg(result.pair_url));
     const row = hub.deps.db
       .prepare('SELECT token_hash, device_type, owner_staff_id, created_by, expires_at FROM pairing_tokens WHERE pairing_token_id = ?')
@@ -83,7 +84,7 @@ describe('GenerateDevicePairingToken', () => {
     expect(hub.deps.db.prepare('SELECT COUNT(*) FROM pairing_tokens').pluck().get()).toBe(1);
   });
 
-  it('[00 §10 #80] Phone pairing: GenerateDevicePairingToken for phone without owner_staff_id → 400; unknown owner → 404; pair → device has owner_staff_id', async () => {
+  it('[00 §10 #80, #167] Phone pairing (pair_url without d=): GenerateDevicePairingToken for phone without owner_staff_id → 400; unknown owner → 404; pair → device has owner_staff_id', async () => {
     const hub = await open();
     const admin = await adminOn(hub, 'S_OWNER');
     const missingOwner = await post(hub, admin, { device_type: 'phone' });
@@ -103,7 +104,9 @@ describe('GenerateDevicePairingToken', () => {
       .prepare('SELECT device_type, owner_staff_id FROM pairing_tokens WHERE pairing_token_id = ?')
       .get(result.pairing_token_id);
     expect(row).toEqual({ device_type: 'phone', owner_staff_id: 'S_OWNER' });
-    const token = created.json().data.result as { pairing_token: string };
+    const token = created.json().data.result as { pairing_token: string; pair_url: string };
+    // 00 v1.12.2 test 167: a phone's pair_url is unchanged (no d=)
+    expect(token.pair_url).toBe(`http://192.168.10.2:3000/pair?t=${token.pairing_token}`);
     const paired = await hub.app.inject({
       method: 'POST',
       url: '/devices/pair',

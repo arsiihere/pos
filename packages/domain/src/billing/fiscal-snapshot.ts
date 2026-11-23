@@ -84,7 +84,51 @@ export type FiscalInvoiceLine = {
   tax_profile_id: string | null;
   fiscal_category: string | null;
   taxes: FiscalLineTax[];
+  /** 05 v1.0.33 §6.29 (STAB-5): the first part of a split line (02b v1.0.20); absent = not split */
+  part_of?: string;
 };
+
+/**
+ * 05 v1.0.33 §3.15 (STAB-5): an invoice's lines for the authority with a split line's parts (same `part_of`, `item_id`,
+ * `name`, `tax_profile_id`, `fiscal_category`, `unit_price_minor`, `base_minor`) as one entry at the first part's place:
+ * units, `base_minor`, `discount_minor` summed, taxes summed per (`tax_code`, `payment_class`, `rate_bp`). Sums of the
+ * stored integers only, so Σ per tax over the lines is unchanged; a line without `part_of` stays its own entry.
+ */
+export function groupInvoiceLines<L extends Omit<FiscalInvoiceLine, 'part_of'> & { part_of?: string | undefined }>(lines: readonly L[]): L[] {
+  const groups: L[][] = [];
+  const byKey = new Map<string, L[]>();
+  for (const l of lines) {
+    const key = l.part_of === undefined ? null : JSON.stringify([l.part_of, l.item_id, l.name, l.tax_profile_id, l.fiscal_category, l.unit_price_minor, l.base_minor]);
+    const had = key === null ? undefined : byKey.get(key);
+    if (had !== undefined) {
+      had.push(l);
+      continue;
+    }
+    const g = [l];
+    groups.push(g);
+    if (key !== null) byKey.set(key, g);
+  }
+  return groups.map((g) => {
+    const first = g[0]!;
+    if (g.length === 1) return first;
+    const taxes: FiscalLineTax[] = [];
+    for (const t of g.flatMap((l) => l.taxes)) {
+      const had = taxes.find((x) => x.tax_code === t.tax_code && x.payment_class === t.payment_class && x.rate_bp === t.rate_bp);
+      if (had === undefined) taxes.push({ ...t });
+      else {
+        had.base_minor += t.base_minor;
+        had.tax_minor += t.tax_minor;
+      }
+    }
+    return {
+      ...first,
+      units: g.reduce((n, l) => n + l.units, 0),
+      base_minor: g.reduce((n, l) => n + l.base_minor, 0),
+      discount_minor: g.reduce((n, l) => n + l.discount_minor, 0),
+      taxes,
+    };
+  });
+}
 
 /** §6.12 step 6 `service_charge` (H10-8). */
 export type FiscalServiceCharge = {

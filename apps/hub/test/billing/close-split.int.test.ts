@@ -1134,3 +1134,90 @@ describe('[05 #35, §6.12 Statements] CloseSplit — no printer; statements fixe
     expect(counts).toEqual([13, 13]);
   });
 });
+
+describe('[05 v1.0.33 §6.29, §3.16, #93, #94] split lines on the invoice and the receipt (STAB-5)', () => {
+  it('[05 #93, #94] naan ×5 as five parts: five invoice lines with part_of, sums = the unsplit invoice; the receipt prints one row "Naan 150.00 / 5 x 30.00"', async () => {
+    await start();
+    const ids = ['SP_N', 'SP_N-p2', 'SP_N-p3', 'SP_N-p4', 'SP_N-p5'];
+    const split = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: ids.map((order_item_id) => ({ order_item_id, item_id: FX.naan, item: { part_of: 'SP_N' } })) });
+    const whole = takeaway(5, 'WH');
+    const closeByCard = async (order_id: string): Promise<Reply> => {
+      const v = await view(cashier.who, { order_id });
+      const due = v.splits[0]!.totals.digital.total_minor;
+      await pay(cashier.who, { order_id }, 1, 'card', due);
+      const r = await close(cashier.who, { bill_ref: { order_id }, split_no: 1, expected_total_minor: due });
+      expect(r.status, JSON.stringify(r.error)).toBe(200);
+      return r;
+    };
+    const rs = await closeByCard(split.order_id);
+    const rw = await closeByCard(whole.order_id);
+    const is = invoiceOf(rs);
+    const iw = invoiceOf(rw);
+    expect(is.lines.map((l) => [l['order_item_id'], l['part_of'], l['units']])).toEqual(ids.map((id) => [id, 'SP_N', 1]));
+    expect('part_of' in iw.lines[0]!).toBe(false);
+    const sum = (inv: typeof is, key: string) => inv.lines.reduce((n, l) => n + (l[key] as number), 0);
+    expect(sum(is, 'base_minor')).toBe(sum(iw, 'base_minor'));
+    expect(sum(is, 'discount_minor')).toBe(sum(iw, 'discount_minor'));
+    expect(is['total_minor']).toBe(iw['total_minor']);
+    expect(is['taxes']).toEqual(iw['taxes']);
+
+    // #94: the receipt prints the parts as the unsplit line
+    const text = (r: Reply) => docText(jobDoc((r.result!['receipt'] as { job_id: string }).job_id)).split('\n');
+    const ts = text(rs);
+    expect(ts.filter((l) => l.startsWith('Naan'))).toEqual([row48('Naan', '150.00')]);
+    expect(ts).toContain('  5 x 30.00');
+    const tw = text(rw);
+    const at = (t: string[]) => t.indexOf(row48('Naan', '150.00'));
+    expect(ts.slice(at(ts), at(ts) + 2)).toEqual(tw.slice(at(tw), at(tw) + 2));
+  });
+});
+
+describe('[05 v1.0.33 §3.16, #97] customer ready times on the takeaway receipt (STAB-5)', () => {
+  const T12 = /~\d{1,2}:\d\d [AP]M/.source;
+  const parts = (prefix: string, n: number, serve_mode: 'sync' | 'immediate') =>
+    Array.from({ length: n }, (_, i) => ({ order_item_id: i === 0 ? prefix : `${prefix}-p${i + 1}`, item_id: FX.piece, item: { part_of: prefix, serve_mode } }));
+  const receiptLines = async (order_id: string, bill_ref: Record<string, string> = { order_id }): Promise<string[]> => {
+    const v = await view(cashier.who, bill_ref);
+    const due = v.splits[0]!.totals.digital.total_minor;
+    await pay(cashier.who, bill_ref, 1, 'card', due);
+    const r = await close(cashier.who, { bill_ref, split_no: 1, expected_total_minor: due });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    return docText(jobDoc((r.result!['receipt'] as { job_id: string }).job_id)).split('\n');
+  };
+  const timeLines = (lines: string[]) => lines.filter((l) => l.includes('ready ~') || l.startsWith('Ready ~'));
+  const setPartTimes = (on: boolean) => {
+    const cur = currentConfigEntry()!;
+    swapBranchConfig({ ...cur, config: { ...cur.config, engine_settings: { ...cur.config.engine_settings, show_part_times_to_customers: on } } });
+  };
+
+  it('[05 #97] an as-ready karahi ×5 on a capacity-4 station → "Chicken Karahi: 4 ready ~… · 1 ready ~…"', async () => {
+    await start();
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: parts('KR', 5, 'immediate') });
+    expect(timeLines(await receiptLines(order_id))).toEqual([expect.stringMatching(new RegExp(`^Chicken Karahi: 4 ready ${T12} · 1 ready ${T12}$`))]);
+  });
+
+  it('[05 #97] a together order → "Ready ~…" once', async () => {
+    await start();
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: parts('KT', 2, 'sync') });
+    expect(timeLines(await receiptLines(order_id))).toEqual([expect.stringMatching(new RegExp(`^Ready ${T12}$`))]);
+  });
+
+  it('[05 v1.0.34 #97b] a parking receipt prints the ready times as a takeaway one; with the setting off, none (STAB-5 Q4)', async () => {
+    await start();
+    const { order_id } = appendOrder(hub, { order_type: 'parking', car_number: 'LEB 1234', placed_by: STAFF.orderTaker, lines: parts('KP', 5, 'immediate') });
+    expect(timeLines(await receiptLines(order_id))).toEqual([expect.stringMatching(new RegExp(`^Chicken Karahi: 4 ready ${T12} · 1 ready ${T12}$`))]);
+    setPartTimes(false);
+    const off = appendOrder(hub, { order_type: 'parking', car_number: 'LEB 5678', placed_by: STAFF.orderTaker, lines: parts('KQ', 2, 'immediate') });
+    expect(timeLines(await receiptLines(off.order_id))).toEqual([]);
+  });
+
+  it('[05 #97] the setting off → no time line; a dine-in receipt never prints one', async () => {
+    await start();
+    setPartTimes(false);
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: parts('KO', 5, 'immediate') });
+    expect(timeLines(await receiptLines(order_id))).toEqual([]);
+    setPartTimes(true);
+    const t = seated([{ order_item_id: 'DI_K', item_id: FX.piece }]);
+    expect(timeLines(await receiptLines(t.order_id, { seating_id: t.seating_id }))).toEqual([]);
+  });
+});

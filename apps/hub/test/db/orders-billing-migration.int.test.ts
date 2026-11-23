@@ -49,6 +49,7 @@ function toPre0021(db: Database.Database): void {
   db.exec('CREATE UNIQUE INDEX orders_token ON orders (business_date, token) WHERE token IS NOT NULL');
   db.exec('ALTER TABLE orders DROP COLUMN bill_key; ALTER TABLE orders DROP COLUMN carried_over');
   db.exec('ALTER TABLE order_lines DROP COLUMN unit_price_minor; ALTER TABLE order_lines DROP COLUMN tax_profile_id');
+  db.exec('ALTER TABLE order_lines DROP COLUMN part_of'); // 0026 (02b v1.0.20, STAB-5) runs after it
   db.prepare('DELETE FROM migration_checksums WHERE version >= 21').run();
   db.pragma('user_version = 20');
 }
@@ -184,7 +185,7 @@ describe('[05 #82] hub migration 0021_orders_billing (02b v1.0.16 §5; 05 rows Q
     toPre0021(copy);
     expect(checkpoint(copy, 'orders')).toBe(maxSeq);
     expect(checkpoint(copy, 'kitchen_tickets')).toBe(maxSeq);
-    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0022_bill_routes.sql', '0023_billing.sql', '0024_billing_payments_shift.sql', '0025_billing_z_reports_key.sql']); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0022_bill_routes.sql', '0023_billing.sql', '0024_billing_payments_shift.sql', '0025_billing_z_reports_key.sql', '0026_order_line_part_of.sql']); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     expect(checkpoint(copy, 'orders')).toBeUndefined();
     expect(checkpoint(copy, 'kitchen_tickets'), '0021 keeps the kitchen_tickets checkpoint row').toBe(maxSeq);
     expect(copy.prepare("SELECT COUNT(*) FROM order_lines WHERE tax_profile_id IS NOT NULL OR unit_price_minor IS NOT NULL").pluck().get(), 'no UPDATE: the refold fills them').toBe(0);
@@ -194,7 +195,7 @@ describe('[05 #82] hub migration 0021_orders_billing (02b v1.0.16 §5; 05 rows Q
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(25); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+    expect(db.pragma('user_version', { simple: true })).toBe(26); // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     expect(db.prepare('SELECT event_type FROM events WHERE seq > ? ORDER BY seq').pluck().all(maxSeq)[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(rowsOf(db), 'every old line has tax_profile_id and unit_price_minor; rows equal the live fold').toEqual(liveLines);
     expect(ordersOf(db), 'orders rows equal the live fold').toEqual(liveOrders);

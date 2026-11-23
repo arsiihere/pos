@@ -8,6 +8,7 @@ import type { Clock } from '../../lib/clock.js';
 import { hubTime } from '../../lib/hub-time.js';
 import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registry.js';
 import { buildSubmit } from '../build-submit.js';
+import { expandParts } from '../expand-parts.js';
 import {
   checkOrderFields,
   Line,
@@ -94,7 +95,8 @@ function draftKeys(lines: readonly DraftLine[]): Array<{ key: string; line: numb
 export interface EtaPreview {
   as_of_seq: number;
   groups: Array<{ promise_ms: number; keys: string[] }>;
-  lines: Array<{ key: string; eta_ms: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
+  // ⚠️ 02b v1.0.20 §6.14 (STAB-5): `part` (1…n) on each part of a line split per unit (§3.2 step 4a), same key
+  lines: Array<{ key: string; part?: number; eta_ms: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
 }
 
 type Refusal = { code: string; details: Record<string, unknown> };
@@ -137,6 +139,31 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
   const primary_table_id = dineIn ? draft.table_id! : null;
   const { now_ms: now, utc_offset_ms } = hubTime(clock);
   const buildCtx = submitBuildCtx(ctx.db, state, config, input, { now, utc_offset_ms }, primary_table_id, follow_up);
+  // 02b v1.0.20 §3.2 step 4a (STAB-5): the same split as SubmitOrder; each part maps back to its key and draft line,
+  // with its part number.
+  const expanded = expandParts(config, input, buildCtx);
+  const register = (id: string | undefined, part_of: string | undefined): void => {
+    if (id === undefined || part_of === undefined) return;
+    keyOf.set(id, keyOf.get(part_of)!);
+    lineOf.set(id, lineOf.get(part_of)!);
+  };
+  for (const l of expanded.lines) {
+    register(l.order_item_id, l.part_of);
+    for (const o of l.options ?? []) register(o.order_item_id, o.part_of);
+  }
+  const partOf = new Map<string, number>();
+  const counted = new Map<string, number>();
+  for (const l of expanded.lines) {
+    const ids = [l.order_item_id, ...(l.options ?? []).map((o) => o.order_item_id)];
+    const roots = [l.part_of, ...(l.options ?? []).map((o) => o.part_of)];
+    ids.forEach((id, i) => {
+      const root = roots[i];
+      if (id === undefined || root === undefined) return;
+      const k = (counted.get(root) ?? 0) + 1;
+      counted.set(root, k);
+      partOf.set(id, k);
+    });
+  }
 
   const refused = new Map<number, Refusal>();
   const refuse = (n: number, e: DomainError): void => {
@@ -165,7 +192,7 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
   if (accepted.length > 0) {
     // Steps 4–7 on the accepted lines, step 5's zone counts (1 statement with a candidate), as SubmitOrder does. Each
     // line passed buildSubmit alone; a cross-line rule raising here (none exists today) would be a whole-request error.
-    const built = buildSubmit(config, { ...input, lines: accepted }, buildCtx);
+    const built = buildSubmit(config, { ...input, lines: expanded.lines.filter((l) => !refused.has(lineOf.get(l.order_item_id)!)) }, buildCtx);
     itemAdded = built.itemAdded;
     zoneServed = zoneServe(ctx.db, primary_table_id, built.itemAdded, built.zoneCandidates).served;
     const proposed = { ...built.proposed, lines: built.proposed.lines.filter((l) => !zoneServed.has(l.order_item_id)) };
@@ -198,7 +225,7 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
     const plan = calculateETA(state, { ...proposed, lines: live }, now, reserved.from_stock);
     for (const l of plan.lines) eta.set(l.order_item_id, l.eta_ms);
     // promise_ms only, never target_land_ms (03a #9).
-    groups = plan.groups.map((g) => ({ promise_ms: g.promise_ms, keys: g.order_item_ids.map((i) => keyOf.get(i)!) }));
+    groups = plan.groups.map((g) => ({ promise_ms: g.promise_ms, keys: [...new Set(g.order_item_ids.map((i) => keyOf.get(i)!))] }));
   }
 
   // Lines in draft order: a refused line lists every key it has with its refusal; the others are SubmitOrder's §3.2
@@ -212,8 +239,10 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
     }
     for (const a of itemAdded) {
       if (lineOf.get(a.order_item_id) !== n) continue;
+      const part = partOf.get(a.order_item_id);
       out.push({
         key: keyOf.get(a.order_item_id)!,
+        ...(part === undefined ? {} : { part }),
         eta_ms: eta.get(a.order_item_id) ?? null,
         from_stock: fromStock[a.order_item_id] === true,
         zone_served: zoneServed.has(a.order_item_id),

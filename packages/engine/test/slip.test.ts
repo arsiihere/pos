@@ -22,6 +22,7 @@ import {
   getAlertIntents,
   getTickIntents,
   initialEngineState,
+  isOrderInEngine,
   liveInterval,
   nextAlertDueAt,
   planOrder,
@@ -32,7 +33,7 @@ import {
   type ProposedOrder,
   type TickDraft,
 } from '../src/index';
-import { slipDueOf, slipGroupsAt } from '../src/slip';
+import { priorityDueOf, slipDueOf, slipGroupsAt } from '../src/slip';
 
 const T0 = 1_761_000_000_000; // "12:00"
 const S = 1_000;
@@ -83,7 +84,10 @@ function fold(state: EngineState, events: PosEvent[], log?: PosEvent[]): EngineS
 
 function checkUpkeep(s: EngineState): void {
   expect(s.slip_due).toEqual(slipDueOf(s));
-  const vals = Object.values(s.slip_due);
+  // ⚠️ 03a v1.2.10 §3.5.7 PR-3 (test 106, review m-6, re-review R-3): the per-group priority_due upkeep = a full recompute.
+  expect(s.priority_due).toEqual(priorityDueOf(s));
+  // ⚠️ 03a v1.2.10 §3.5.7 PR-3 (B-1, task 23): next_alert_due_at = the minimum of both maps.
+  const vals = [...Object.values(s.slip_due), ...Object.values(s.priority_due)];
   expect(s.next_alert_due_at).toBe(vals.length === 0 ? null : Math.min(...vals));
 }
 
@@ -91,7 +95,7 @@ function kitchen(stations: Array<Partial<StationCfg> & { station_id: string }>, 
   return fold(initialEngineState(), [configEvent(stations, settings)], log);
 }
 
-type Item = { id: string; station?: string; cook: number; prep?: number; mode?: 'sync' | 'immediate'; units?: number; carry?: number; early?: number };
+type Item = { id: string; station?: string; cook: number; prep?: number; mode?: 'sync' | 'immediate'; units?: number; carry?: number; early?: number; maxDelay?: number | null };
 // 03a v1.2 §3.2 (Q-2): a dine_in key is 'dine_in:' + seating_id (02a's seating, sent by 02b), never the table id.
 type OrderOpts = { key?: string; order_type?: 'dine_in' | 'takeaway' | 'delivery' | 'parking'; actor?: string | null; table?: string };
 
@@ -102,6 +106,7 @@ function itemFields(i: Item): Record<string, unknown> {
     prep_buffer_ms: i.prep ?? 0,
     serve_mode: i.mode ?? 'sync',
     quantity: i.units ?? 1,
+    ...(i.maxDelay === undefined ? {} : { max_delay_ms: i.maxDelay }),
   };
 }
 
@@ -272,7 +277,9 @@ describe('03a §3.8 slip estimate and crossing', () => {
     // An open, unresolved alert contributes only its BF-4 abandon time (f + order_abandon_ms, AD-13).
     expect(s.slip_due).toEqual({ 'dine_in:SEAT12': f + BASE.settings.order_abandon_ms });
     // Grown by far more than another threshold while the alert is open: still nothing.
-    expect(getAlertIntents(s, c + 30 * M)).toEqual({ slips: [], resolved: [], overload: getAlertIntents(s, c + 30 * M).overload });
+    const later = getAlertIntents(s, c + 30 * M);
+    expect(later).toEqual({ slips: [], resolved: [], overload: later.overload, prioritized: later.prioritized, priority_waits: later.priority_waits });
+    expect(later.slips).toEqual([]);
     // Another alert's AlertClosed changes nothing (§3.8: state itself).
     expect(applyEvent(s, deepFreeze(alertClosedEv('OTHER', c + M)))).toBe(s);
     // Its own AlertClosed: alert_id null; the level is now last_estimate + threshold.
@@ -527,9 +534,15 @@ function asEvents(drafts: readonly TickDraft[], now: number): PosEvent[] {
 // a slip or resolved item for its key and at − 1 none for that key (92).
 function check92(s: EngineState): void {
   checkUpkeep(s);
+  checkPriority92(s);
   const due = s.next_alert_due_at;
   if (due === null) return;
-  const key = Object.keys(s.slip_due).find((k) => s.slip_due[k] === due)!;
+  const key = Object.keys(s.slip_due).find((k) => s.slip_due[k] === due);
+  // A priority term at the minimum: checkPriority92 checks its group is listed at it (and not at − 1).
+  if (key === undefined) {
+    expect(Object.values(s.priority_due)).toContain(due);
+    return;
+  }
   const has = (a: AlertIntents): boolean => a.slips.some((x) => x.table_key === key) || a.resolved.some((x) => x.table_key === key);
   expect(has(getAlertIntents(s, due)), `item for ${key} at ${due}`).toBe(true);
   expect(has(getAlertIntents(s, due - 1)), `no item for ${key} at ${due - 1}`).toBe(false);
@@ -547,6 +560,28 @@ function check92(s: EngineState): void {
       const b = before.find((x) => x.order_id === g.order_id && x.level === g.level && x.crossing === g.crossing);
       expect(b, `group of ${g.order_id} at due − 1`).toBeDefined();
       expect(b!.estimate).toBeLessThanOrEqual(g.level);
+    }
+  }
+}
+
+// ⚠️ 03a v1.2.10 §3.5.7 PR-3 (test 92 extended for the priority_due map and the recheck_at pair only; re-review m-7: the
+// next_alert_due_at = min-of-both-maps part is the writer's, task 23): each due group is listed (drafted or waiting) at
+// its due, and at − 1 (after its order's placed_at) not; a waiting group's recheck_at r drafts it at r and not at r − 1.
+const listed = (s: EngineState, now: number, gid: string): boolean => {
+  const a = getAlertIntents(s, now);
+  return a.prioritized.some((d) => d.payload.group_id === gid) || a.priority_waits.some((w) => w.group_id === gid);
+};
+function checkPriority92(s: EngineState): void {
+  for (const [gid, d] of Object.entries(s.priority_due)) {
+    const order = s.orders[gid.slice(0, gid.lastIndexOf(':'))]!;
+    if (!isOrderInEngine(s, order.order_id, d)) continue;
+    expect(listed(s, d, gid), `${gid} listed at its due ${d}`).toBe(true);
+    if (d > order.placed_at) expect(listed(s, d - 1, gid), `${gid} not listed at ${d - 1}`).toBe(false);
+    for (const w of getAlertIntents(s, d).priority_waits) {
+      if (w.group_id !== gid || w.recheck_at === null) continue;
+      const drafts = (t: number): boolean => getAlertIntents(s, t).prioritized.some((x) => x.payload.group_id === gid);
+      expect(drafts(w.recheck_at), `${gid} drafted at recheck_at`).toBe(true);
+      if (w.recheck_at - 1 > d) expect(drafts(w.recheck_at - 1), `${gid} not drafted at recheck_at − 1`).toBe(false);
     }
   }
 }
@@ -578,6 +613,7 @@ function runSeed(seed: number): { live: EngineState; log: PosEvent[]; firedOnCap
         prep: rnd() < 0.3 ? M : 0,
         carry,
         mode: rnd() < 0.85 ? 'sync' : 'immediate',
+        maxDelay: pick([undefined, null, 60_000, 3 * M, 5 * M] as const),
       }));
       ({ state: s } = submit(s, id, items, now, { key: pick(['k1', 'k2', 'k3']) }, now, log));
       check92(s);

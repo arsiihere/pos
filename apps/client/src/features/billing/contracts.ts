@@ -78,6 +78,8 @@ export interface BillViewLine {
   tags: Array<'comp' | 'pending_void' | 'weight_needed' | 'tax_unresolved'>;
   /** §6.1 (R-29): the line joined the open remainder after a split of this cycle closed */
   added_after_close: boolean;
+  /** v1.0.33 §6.1 (STAB-5): the first part of a split line (02b v1.0.20); null / absent (an older hub) = not split */
+  part_of?: string | null;
 }
 
 /** §6.1 `discount`: the whole bill's (B7). */

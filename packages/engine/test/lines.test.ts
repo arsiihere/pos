@@ -76,9 +76,10 @@ describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0
     const replayed = buildEngineState([other, ...batch].map(deepFreeze));
     for (const s of [live, replayed]) {
       const o = s.orders.O1!;
+      // ⚠️ 03a v1.2.10 (STAB-6/7): a v5 group also carries priority_land_ms / priority_delay_ms (null until prioritised).
       expect(o.groups).toEqual({
-        'O1:0': { target_land_ms: groups[0]!.target_land_ms, line_ids: ['L1'] },
-        'O1:1': { target_land_ms: groups[1]!.target_land_ms, line_ids: ['L2'] },
+        'O1:0': { target_land_ms: groups[0]!.target_land_ms, line_ids: ['L1'], priority_land_ms: null, priority_delay_ms: null },
+        'O1:1': { target_land_ms: groups[1]!.target_land_ms, line_ids: ['L2'], priority_land_ms: null, priority_delay_ms: null },
       });
       // The order's target / promise are the latest group's (F §4.7: the order lands with its last group).
       expect(o.target_land_ms).toBe(groups[1]!.target_land_ms);
@@ -173,7 +174,8 @@ describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0
     expect(s1.orders.O1!.awaiting).toBe(2);
     expect(s1.orders.O1!.next_group_index).toBe(2);
     expect(s1.orders.O1!.line_ids).toEqual(['L1', 'L2', 'L3']);
-    expect(s1.orders.O1!.groups['O1:1']).toEqual({ target_land_ms: T0 + 2_000_000, line_ids: ['L2', 'L3'] });
+    // ⚠️ 03a v1.2.10 (STAB-6/7): a v5 group also carries priority_land_ms / priority_delay_ms (null until prioritised).
+    expect(s1.orders.O1!.groups['O1:1']).toEqual({ target_land_ms: T0 + 2_000_000, line_ids: ['L2', 'L3'], priority_land_ms: null, priority_delay_ms: null });
     // §3.5.1: target and promise are copied from OrderPlaced only.
     expect(s1.orders.O1!.target_land_ms).toBe(placed.orders.O1!.target_land_ms);
     expect(s1.orders.O1!.promise_ms).toBe(placed.orders.O1!.promise_ms);
@@ -547,13 +549,13 @@ describe('@pos/engine E-4: the first OrderLinesAdded creates the engine order; t
     expect(getAlertIntents(s, due).slips.map((x) => x.table_key)).toEqual(['dine_in:T12']);
   });
 
-  it('[03a #132] the log of #131 → buildEngineState = applyEvents = live; ENGINE_STATE_VERSION 4 (03a v1.2.2 B2-2: was 3)', () => {
+  it('[03a #132] the log of #131 → buildEngineState = applyEvents = live; ENGINE_STATE_VERSION 5 (03a v1.2.10 STAB-6/7: was 4)', () => {
     const log = [cfg(), drinks(), addition(), ...food('O1', ['F1', 'F2']), stamp(aFireDispatched({ payload: { station_id: 'S1', order_item_ids: ['F1', 'F2'], due_at: T1 } }), T1)];
     const live = fold(log, initialEngineState(), { strict: false });
     expect(live.orders.O1).toBeDefined();
     expect(buildEngineState(log)).toEqual(live);
     expect(applyEvents(initialEngineState(), log)).toEqual(live);
-    expect(ENGINE_STATE_VERSION).toBe(4);
+    expect(ENGINE_STATE_VERSION).toBe(5); // ⚠️ 03a v1.2.10 §3.3 (STAB-6/7): v5
   });
 
   it('[03a #135] safety net: non-empty order_item_ids without order_header on an order the engine does not hold → InvalidEvent(order_not_in_engine) with order_item_ids[0]', () => {

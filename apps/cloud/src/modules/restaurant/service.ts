@@ -1594,9 +1594,23 @@ function itemFields(
     max_carry_ms: item.max_carry_ms,
     max_late_ms: item.max_late_ms,
     adjust_time_ms: item.adjust_time_ms,
+    max_delay_ms: item.max_delay_ms,
+    max_delay_unlimited: item.max_delay_unlimited,
     goes_with: [...links],
     archived_at: item.archived_at,
   };
+}
+
+// 01a v2.7.5 §6.15 row MD-4 (STAB-7; m-11): the max-delay pair on the merged row. A number clears "No limit";
+// `max_delay_unlimited: true` clears the number; `max_delay_ms: null` alone keeps the flag; `false` alone keeps the
+// number (null by the CHECK). The schema refuses `true` with a number (400 at max_delay_ms).
+function mergedMaxDelay(
+  before: Pick<MenuItemRow, 'max_delay_ms' | 'max_delay_unlimited'>,
+  body: Pick<PatchMenuItemInput, 'max_delay_ms' | 'max_delay_unlimited'>,
+): Pick<MenuItemRow, 'max_delay_ms' | 'max_delay_unlimited'> {
+  const unlimited = body.max_delay_unlimited ?? (typeof body.max_delay_ms === 'number' ? false : before.max_delay_unlimited);
+  const delay = unlimited ? null : body.max_delay_ms !== undefined ? body.max_delay_ms : before.max_delay_ms;
+  return { max_delay_ms: delay, max_delay_unlimited: unlimited };
 }
 
 // 01c §6.5 restart rule (N2): thrown inside the transaction when the locked item's variant_group_id differs from
@@ -1861,6 +1875,7 @@ export async function patchMenuItem(
       ...before,
       ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)),
       ...(archived !== undefined ? { archived_at: archived ? (before.archived_at ?? now) : null } : {}),
+      ...mergedMaxDelay(before, body),
     };
     const beforeWindows = await selectWindowsOf(level, { item_id: itemId });
     const beforeDraws: DrawRow[] = (await selectDrawsOf(level, [itemId])).map(({ stock_item_id, quantity_per_sale_unit }) => ({

@@ -37,6 +37,7 @@ interface Row {
   car_type: CarType | null;
   order_note: string | null;
   placed_by_name: string | null;
+  part_of: string | null; // 03b v1.0.11 (STAB-5): order_lines.part_of (02b v1.0.20)
   parent_kind: Row['line_kind'] | null;
   parent_name: string | null;
   children: string; // JSON [{ id, name, live }] of the line's option children
@@ -52,7 +53,7 @@ interface Row {
 
 const SQL = `
 SELECT l.order_item_id, l.order_id, l.line_kind, l.name, l.sale_unit, l.units - l.removed_units - l.voided_units AS live_units,
-       l.kitchen_note, l.options_json, o.order_type, o.business_date, o.token, o.car_number, o.car_type, o.order_note,
+       l.kitchen_note, l.options_json, l.part_of, o.order_type, o.business_date, o.token, o.car_number, o.car_type, o.order_note,
        s.display_name AS placed_by_name,
        p.line_kind AS parent_kind, p.name AS parent_name,
        (SELECT json_group_array(json_object('id', c.order_item_id, 'name', c.name, 'live', c.units - c.removed_units - c.voided_units))
@@ -183,6 +184,8 @@ export function buildLineDetails(db: Database.Database, state: EngineState, orde
       prep_ms: line.prep_ms,
       from_stock: line.from_stock,
       placed_by_name: r.placed_by_name,
+      // 03b v1.0.11 §4.4 (STAB-5): the screens and tickets group a split line's parts by it
+      part_of: r.part_of,
     });
   }
   return out;

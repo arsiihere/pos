@@ -25,7 +25,7 @@ const LINE_COLUMNS = `l.order_item_id AS l_order_item_id, l.order_id AS l_order_
   l.item_id, l.deal_id, l.name, l.sale_unit, l.quantity, l.units, l.comped_units, l.removed_units, l.voided_units,
   l.returned_units, l.refundable_minor, l.comp_minor, l.comp_voided_minor, l.removed_minor, l.refund_minor,
   l.line_total_minor, ${BILLED} AS billed_minor, l.return_of, l.served_from_zone_id, l.added_at, l.served_at,
-  l.served_source, l.is_food, l.kitchen_note, l.options_json, l.tax_profile_id, l.unit_price_minor`;
+  l.served_source, l.is_food, l.kitchen_note, l.options_json, l.tax_profile_id, l.unit_price_minor, l.part_of`;
 
 type LineRow = Omit<LineView, 'order_item_id' | 'order_id' | 'live_units' | 'zone_served' | 'is_food' | 'options'> & {
   l_order_item_id: string;
@@ -65,6 +65,7 @@ function toLine(r: LineRow): LineView {
     line_total_minor: r.line_total_minor,
     billed_minor: r.billed_minor,
     return_of: r.return_of,
+    part_of: r.part_of ?? null, // 02b v1.0.21 (STAB-5), same statement
     served_from_zone_id: r.served_from_zone_id,
     zone_served: r.served_from_zone_id !== null,
     added_at: r.added_at,
@@ -215,7 +216,7 @@ const READ_ORDER = `SELECT o.order_id, o.order_type, o.placed_by, o.billed_at, o
        l.units, l.comped_units, l.removed_units, l.voided_units, l.returned_units, l.refundable_minor, l.comp_minor,
        l.comp_voided_minor, l.removed_minor, l.refund_minor, l.line_total_minor, l.return_of, l.served_from_zone_id,
        l.added_at, l.served_at, l.served_source, l.is_food, l.kitchen_note, l.options_json, l.station_id, l.option_quantity, l.tax_profile_id,
-       l.unit_price_minor, zs.on_hand AS zone_on_hand
+       l.unit_price_minor, l.part_of, zs.on_hand AS zone_on_hand
   FROM orders o
   LEFT JOIN seating_orders so ON so.order_id = o.order_id
   LEFT JOIN seatings s ON s.seating_id = so.seating_id
@@ -266,6 +267,7 @@ export function readOrder(ctx: CommandCtx, order_id: string): { order: ReadOrder
       line_total_minor: r.line_total_minor,
       billed_minor: 0,
       return_of: r.return_of,
+      part_of: r.part_of ?? null, // 02b v1.0.21 (STAB-5), same statement
       served_from_zone_id: r.served_from_zone_id,
       zone_served: r.served_from_zone_id !== null,
       added_at: r.added_at,

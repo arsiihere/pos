@@ -12,6 +12,10 @@
 // (the rest of the slice, moved after the reopen), stopped mid-flight. Idle passes are skipped as the simulator does
 // (a pass at each fires or alert due, at every tap and submit instant's grid, and a 30 s heartbeat while work is open).
 // No wall-clock assert (AD-32). The file runs in about 95 s on an idle laptop, about 240 s under gate load.
+// ⚠️ 03a v1.2.10 §10.2, §3.5.7 (STAB-6, STAB-7; plan stab-6-7 task 33, review m-13): every line carries the 02b step 4b
+// max delay (5 min; "No limit" on the tawa), so the real fires_alerts_priority tick writes LinePrioritized under load,
+// beside the batch stations' one-unit lines in their rounds and the capacity drop; the boots compare the priority
+// groups (priority_land_ms, priority_delay_ms, priority_due) with the rest of the state (priority_parked is host memory).
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -59,6 +63,8 @@ const STOCK_COOK_MS = 60 * SECOND;
 // AD-6: these mean a bookkeeping bug; over_capacity and reserve_fallback are planning facts.
 const BREACHES = new Set(['profile_underflow', 'stock_breach', 'invalid_event']);
 const TERMINAL = new Set(['served', 'removed', 'voided', 'returned']);
+// 22 of the 50 seeds write a LinePrioritized today (2026-11-23); at least 15 must.
+const PRIORITY_SEEDS_MIN = 15;
 
 const nextImmediate = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 const nextGrid = (t: number): number => (Math.floor(t / TICK_MS) + 1) * TICK_MS;
@@ -107,6 +113,8 @@ function itemOf(s: SimStation): Record<string, unknown> {
     item_id: s.station_id,
     name: s.station_id,
     cook_time_ms: s.cook_ms,
+    // ⚠️ 02b v1.0.24 §3.2 step 4b (STAB-7): the effective max delay copied onto ItemAdded ("No limit" = null on the tawa)
+    max_delay_ms: s.station_id === STOCK_STATION ? null : 5 * MIN,
     ...(s.type === 'batch' ? { program_id: `${s.station_id}-p`, program_cook_time_ms: s.cook_ms } : {}),
     ...(s.station_id === STOCK_STATION ? { stock_time_ms: STOCK_COOK_MS, stock_draws: [{ stock_item_id: STOCK, quantity: 1 }], out_of_stock_behaviour: 'cook_fresh' } : {}),
   };
@@ -123,6 +131,8 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
 
   // SlipWarned per seed: asserted across all seeds in afterAll (a seed's slips depend on its load).
   const slipSeeds = new Map<number, number>();
+  // ⚠️ STAB-7: LinePrioritized per seed, asserted across all seeds in afterAll.
+  const prioritySeeds = new Map<number, number>();
 
   beforeAll(async () => {
     directory = await aDirectory();
@@ -133,6 +143,7 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
   afterAll(() => {
     // 45 of the 50 seeds raise a slip today (seeds 27, 32, 37, 42 and 50 do not); at least 40 must.
     if (slipSeeds.size === SEEDS.length) expect([...slipSeeds.values()].filter((n) => n > 0).length).toBeGreaterThanOrEqual(40);
+    if (prioritySeeds.size === SEEDS.length) expect([...prioritySeeds.values()].filter((n) => n > 0).length, 'seeds with a LinePrioritized').toBeGreaterThanOrEqual(PRIORITY_SEEDS_MIN);
   });
 
   afterEach(async () => {
@@ -454,6 +465,7 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
     expect(releases).toEqual(expect.arrayContaining(['recount', 'day_closed']));
     if (seed % 2 === 1) expect(counts.ItemReturned ?? 0, 'ItemReturned').toBe(1);
     slipSeeds.set(seed, counts.SlipWarned ?? 0);
+    prioritySeeds.set(seed, counts.LinePrioritized ?? 0);
 
     // No breach: not in the replays, not in the live log (AD-6, §7.2), and no tick failed.
     expect(breaches).toEqual([]);

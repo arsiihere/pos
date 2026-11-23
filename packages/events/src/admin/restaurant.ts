@@ -381,6 +381,14 @@ const MaxEarly = z.number().int().min(0).max(3_600_000);
 const MaxCarry = z.number().int().min(0).max(600_000).nullable();
 const MaxLate = z.number().int().min(0).max(7_200_000).nullable();
 const AdjustTime = z.number().int().min(0).max(3_600_000);
+// 01a v2.7.5 §6.14, §6.15 row MD-4 (STAB-7; re-review F-1, F-2): 1–30 min in ms, null = the branch default; with
+// max_delay_unlimited ("No limit") the number must be null. Every refusal is 400 VALIDATION_FAILED at max_delay_ms.
+const MaxDelay = z.number().int().min(60_000).max(1_800_000).nullable();
+function refineMaxDelay(body: { max_delay_ms?: number | null | undefined; max_delay_unlimited?: boolean | undefined }, ctx: z.RefinementCtx): void {
+  if (body.max_delay_unlimited === true && typeof body.max_delay_ms === 'number') {
+    ctx.addIssue({ code: 'custom', path: ['max_delay_ms'], message: 'must be null with max_delay_unlimited' });
+  }
+}
 
 // 01c §3.3, V4: 0–1 draws (pilot), quantity 1 … 1 000 000; one per stock_item_id (C6: the repeat → 400 at
 // stock_draws.N.stock_item_id). The unit rule needs the stock item, so it is the service's (422 unit_mismatch).
@@ -439,6 +447,8 @@ export const CreateMenuItemBody = z
     max_carry_ms: MaxCarry.default(null),
     max_late_ms: MaxLate.default(null),
     adjust_time_ms: AdjustTime.default(180_000),
+    max_delay_ms: MaxDelay.default(null),
+    max_delay_unlimited: z.boolean().default(false),
     routes: z
       .array(RouteInput)
       .default([])
@@ -456,6 +466,7 @@ export const CreateMenuItemBody = z
     if (body.requires_weighing && body.sale_unit === 'piece') {
       ctx.addIssue({ code: 'custom', path: ['requires_weighing'], message: "needs sale_unit 'g' or 'ml'" });
     }
+    refineMaxDelay(body, ctx);
   });
 
 // §6.15 (01c §6.5): any item field plus archived; routes use §6.16. stock_draws replaces the item's draws (0–1,
@@ -487,6 +498,8 @@ export const PatchMenuItemBody = z
     max_carry_ms: MaxCarry.optional(),
     max_late_ms: MaxLate.optional(),
     adjust_time_ms: AdjustTime.optional(),
+    max_delay_ms: MaxDelay.optional(),
+    max_delay_unlimited: z.boolean().optional(),
     goes_with: ItemGoesWith.optional(),
     archived: z.boolean().optional(),
   })
@@ -499,6 +512,7 @@ export const PatchMenuItemBody = z
     if (body.variant_name === null && body.variant_group_id !== null) {
       ctx.addIssue({ code: 'custom', path: ['variant_group_id'], message: 'must be null with variant_name null' });
     }
+    refineMaxDelay(body, ctx);
   });
 
 // §6.16: { station_id, program_id?, stock_program_id?, price_minor_override? } sets the branch's route;
@@ -554,6 +568,9 @@ const MenuItem = z.object({
   max_carry_ms: z.number().nullable(),
   max_late_ms: z.number().nullable(),
   adjust_time_ms: z.number(),
+  // 01a v2.7.5 §6.11 row MD-4 (STAB-7)
+  max_delay_ms: z.number().nullable(),
+  max_delay_unlimited: z.boolean(),
   goes_with: z.array(GoesWithLink),
   archived_at: z.number().nullable(),
   routes: z.array(Route),

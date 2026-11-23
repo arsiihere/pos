@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import type { GroupedLine } from '../view/parts';
 import { childQuantity } from '@pos/domain';
 import { newUlid } from '../../../../app/ulid';
 import { t } from '../../../../i18n';
@@ -69,7 +70,8 @@ export function compPreviewMinor(line: LineView, all: readonly LineView[], n: nu
 
 export function CompSheet({ line, order, units: given, onClose, onDone, onChanged }: CompSheetProps) {
   const shell = useShell();
-  const max = line.live_units - line.comped_units;
+  // 02b v1.0.21 §8 (STAB-5): a grouped row comps one part per action (CompLine names one line; the row's id is its first part)
+  const max = (line as GroupedLine).part_ids !== undefined ? Math.min(1, line.live_units - line.comped_units) : line.live_units - line.comped_units;
   const [units, setUnits] = useState(Math.max(1, Math.min(given ?? 1, max)));
   const [chip, setChip] = useState<ReasonChip | null>(null);
   const [note, setNote] = useState('');

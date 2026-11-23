@@ -219,7 +219,8 @@ describe('[03c #1] kitchen ticket golden bytes 32 / 48', () => {
     const first = engine().business_day!.business_date;
     hub.clock.advance(DAY);
     openDay(hub, { menu: menu() });
-    const t = fireTicket(FX.station, 'O1', ['L1']);
+    // ⚠️ 03c v1.0.15 §3.3 (STAB-5): naan ×3 is sent as three one-unit parts (02b v1.0.20); fired together they share a ticket
+    const t = fireTicket(FX.station, 'O1', ['L1', 'L1-p2', 'L1-p3']);
     const [, m, d] = first.split('-');
     const ident = `#1 ${Number(d)} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m) - 1]}`;
     const off = offsetFor(t.fired_at);
@@ -229,7 +230,7 @@ describe('[03c #1] kitchen ticket golden bytes 32 / 48', () => {
       centre2(ident, cols),
       'TAKEAWAY  Owner  #O1',
       '-'.repeat(cols),
-      '3 x Naan',
+      '3 x Naan', // ⚠️ 03c v1.0.15 §3.3 (STAB-5): the three parts on one ticket print as one row
       ...(cols === 32 ? ['    NOTE: well done - 2xcrisp,', '-salt'] : ['    NOTE: well done - 2xcrisp, -salt']),
       '-'.repeat(cols),
     ];
@@ -543,5 +544,34 @@ describe('[03c v1.0.3 §3.3, §3.6, #9] plain options on tickets (B3-2, task P0.
     const exited: EngineState = { ...engine(), orders: {}, lines: {} };
     expect(renderText(renderJob(ctx(32, off, exited), reprint)!, 32).split('\n').slice(6)).toEqual(body);
     expect(renderText(renderJob(ctx(32, off, exited), kitchen(t.ticket_id))!, 32).split('\n').slice(5)).toEqual(body);
+  });
+});
+
+describe('[03c v1.0.15 §3.3, #1b] split lines on tickets (STAB-5 phase 3)', () => {
+  const plain = (name: string, quantity: number) => ({ option_id: `O_${name}`, modifier_group_id: 'G_PLAIN', name, price_minor: 0, quantity, charge_minor: 0 });
+  /** a part of the naan ×4 split (02b v1.0.20 §3.2 step 4a): one unit, part_of = the first part's id */
+  const part = (order_item_id: string) => ({ order_item_id, item_id: FX.naan, item: { part_of: 'N', kitchen_note: 'crisp', options: [plain('Butter', 1)] } });
+
+  it('[03c #1b] parts fired together → one row "3 x Naan", "+ 3 x Butter", the note once; a later part → its own ticket; separate cart lines stay apart; FIRST groups', async () => {
+    await start();
+    const { order_id } = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [part('N'), part('N-p2'), part('N-p3'), part('N-p4'), { order_item_id: 'M', item_id: FX.naan }],
+    });
+    const t = fireTicket(FX.station, order_id, ['N', 'N-p2', 'N-p3', 'M']);
+    const off = offsetFor(t.fired_at);
+    const counter = statementCounter(hub.deps.db);
+    const text = renderText(renderJob(ctx(32, off), kitchen(t.ticket_id))!, 32).split('\n');
+    expect(counter.count, 'ticket read 1 + buildLineDetails 2 (unchanged)').toBe(3);
+    expect(text.slice(5)).toEqual(['3 x Naan', '    + 3 x Butter', '    NOTE: crisp', '1 x Naan']);
+    // the reprint groups the same way
+    const reprint: RenderJob = { kind: 'reprint', ticket_id: t.ticket_id, is_reprint: false };
+    expect(renderText(renderJob(ctx(32, off), reprint)!, 32).split('\n').slice(6)).toEqual(['3 x Naan', '    + 3 x Butter', '    NOTE: crisp', '1 x Naan']);
+    // FIRST slip on the grouped parts: one row with the summed units
+    const slip = renderText(renderJob(ctx(32, off), { kind: 'first', ticket_id: t.ticket_id, order_item_ids: ['N', 'N-p2', 'N-p3'], reason: 'boost', is_reprint: false })!, 32).split('\n').slice(1);
+    expect(slip).toEqual(['FIRST  #1  3 x Naan (boost)']);
+
+    const t2 = fireTicket(FX.station, order_id, ['N-p4']);
+    expect(renderText(renderJob(ctx(32, offsetFor(t2.fired_at)), kitchen(t2.ticket_id))!, 32).split('\n').slice(5)).toEqual(['1 x Naan', '    + Butter', '    NOTE: crisp']);
   });
 });

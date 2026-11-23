@@ -217,7 +217,8 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
     });
 
     // 03a v1.2.2 (owner 2026-11-11, B2-2): ENGINE_STATE_VERSION 4; a stored v3 snapshot is skipped like a v2 one.
-    it.each([2, 3])('[03a #57] a v%i snapshot is skipped → the checkpoint → a one-day replay', async (old) => {
+    // ⚠️ 03a v1.2.10 §3.3, §3.12 (STAB-6/7, test 160): ENGINE_STATE_VERSION 5; a stored v4 snapshot is skipped too.
+    it.each([2, 3, 4])('[03a #57, #160] a v%i snapshot is skipped → the checkpoint → a one-day replay', async (old) => {
       const opened = aBusinessDayOpened();
       const { booted, logs } = await restart((db, next) => {
         const day1 = stamped([aStockSet({ stream_id: 'K1', payload: { stock_item_id: 'K1', on_hand: 5, unit: 'piece' } })], next);

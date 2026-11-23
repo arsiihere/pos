@@ -6,6 +6,7 @@ import type { CommandDef } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
 import { hubTime } from '../../src/lib/hub-time';
 import { buildSubmit } from '../../src/orders/build-submit';
+import { expandParts } from '../../src/orders/expand-parts';
 import type { SubmitInput } from '../../src/orders/contracts';
 import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
@@ -265,7 +266,8 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     // §3.2 Statements: 1 seating + lock (02a requireLock, 1) + 1 ids + 1 follow_up + 1 item_availability = 5. The spec's
     // 7 also counts the zone counts (step 5, only with a zone candidate) and the token (takeaway only).
     expect(counted.calls).toEqual([5]);
-    const ids = ['L1', 'L1o', 'L2', 'L3', 'D1', 'D1a', 'D1b'];
+    // ⚠️ 02b v1.0.20 §3.2 step 4a (STAB-5): naan ×2 on the slot station S1 is sent as two parts, L2 and L2-p2
+    const ids = ['L1', 'L1o', 'L2', 'L2-p2', 'L3', 'D1', 'D1a', 'D1b'];
     expect(r.events.map((e) => e.event_type)).toEqual(['TableLocked', 'OrderPlaced', ...ids.map(() => 'ItemAdded'), 'StockReserved', 'StockReserved']);
     for (const e of r.events) expect({ actor_id: e.actor_id, device_id: e.device_id }).toEqual({ actor_id: 'S_ALI', device_id: ali.deviceId });
     expect(r.events[0]).toMatchObject({ stream_type: 'table', stream_id: FX.table, payload: { table_id: FX.table, seating_id: 'SEAT1', staff_id: 'S_ALI' } });
@@ -291,7 +293,7 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     });
     // planOrder's route fields copied verbatim with the line's 01a knobs; the deal header is no engine line (03a :245).
     const lines = placed.payload.lines as Array<Record<string, unknown>>;
-    expect(lines.map((l) => l.order_item_id)).toEqual(['L1', 'L1o', 'L2', 'L3', 'D1a', 'D1b']);
+    expect(lines.map((l) => l.order_item_id)).toEqual(['L1', 'L1o', 'L2', 'L2-p2', 'L3', 'D1a', 'D1b']); // 02b v1.0.20: L2's two parts
     for (const l of lines) {
       expect(Object.keys(l).sort()).toEqual(
         ['alternates', 'carry_ms', 'from_stock', 'max_carry_ms', 'max_early_ms', 'max_late_ms', 'order_item_id', 'point_id', 'station_id', 'weight_pct'].sort(),
@@ -303,14 +305,16 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     const state = engine();
     const config = branchConfig()!;
     const units = Object.fromEntries(config.stock_items.map((s) => [s.stock_item_id, s.stock_unit]));
-    const expected = buildSubmit(config, payload as unknown as SubmitInput, {
+    const buildCtx = {
       now: hub.clock.branchNow(),
       utc_offset_ms: hubTime(hub.clock).utc_offset_ms,
       isAvailable: () => true,
-      draws: (id) => dayDraws(state, config.items.find((i) => i.item_id === id)!, units),
+      draws: (id: string) => dayDraws(state, config.items.find((i) => i.item_id === id)!, units),
       primary_table_id: FX.table,
       follow_up: false,
-    }).itemAdded;
+    };
+    // 02b v1.0.20 §3.2 step 4a: SubmitOrder splits before it builds
+    const expected = buildSubmit(config, expandParts(config, payload as unknown as SubmitInput, buildCtx), buildCtx).itemAdded;
     expect(r.events.filter((e) => e.event_type === 'ItemAdded').map((e) => e.payload)).toEqual(expected);
     expect(r.events.filter((e) => e.event_type === 'StockReserved').map((e) => e.payload)).toEqual([
       { stock_item_id: FX.stock, order_item_id: 'L1', quantity: 500 },
@@ -546,7 +550,8 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     expect(eventCount()).toBe(before);
     const fits = await submit(cashier, takeaway('O1', [item('L2', FX.piece, 2), item('L3', FX.piece, 1)]));
     expect(fits.status).toBe(200);
-    expect(fits.result!.lines.map((l) => l.from_stock)).toEqual([true, true]);
+    // ⚠️ 02b v1.0.20 (STAB-5): L2 ×2 is two parts, L2 and L2-p2
+    expect(fits.result!.lines.map((l) => [l.order_item_id, l.from_stock])).toEqual([['L2', true], ['L2-p2', true], ['L3', true]]);
   });
 
   it('[02b #7] sold out is never ITEM_UNAVAILABLE (AD-21): a sold_out item at available 0 → ITEM_SOLD_OUT { available: 0 }; a cook_fresh one is accepted', async () => {
@@ -565,16 +570,18 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     await setUp({ stock: { [FX.stock]: 500 } });
     const cashier = signIn('S_CASHIER');
     const now = hub.clock.branchNow();
-    const fresh = await submit(cashier, takeaway('O1', [item('L1', FX.piece, 2)]));
-    expect(fresh.status).toBe(200);
-    expect(fresh.events.map((e) => e.event_type)).toEqual(['OrderPlaced', 'ItemAdded']);
-    expect(fresh.result!.lines[0]).toMatchObject({ from_stock: false });
-    expect(fresh.result!.lines[0]!.eta_ms! - now).toBeGreaterThanOrEqual(1_200_000); // cook_time_ms
+    // ⚠️ 02b v1.0.20 (STAB-5): the stocked order first (it takes the only karahi's stock); karahi ×2 is then two parts,
+    // both short of stock (the mixed case, part 1 from stock and part 2 fresh, is in stab5-split.int.test.ts)
     const stocked = await submit(cashier, takeaway('O2', [item('L2', FX.piece, 1)]));
     expect(stocked.events.map((e) => e.event_type)).toEqual(['OrderPlaced', 'ItemAdded', 'StockReserved']);
     expect(stocked.result!.lines[0]).toMatchObject({ from_stock: true });
     expect((stocked.events[0]!.payload.lines as Array<{ from_stock: boolean }>)[0]!.from_stock).toBe(true);
     expect(stocked.result!.lines[0]!.eta_ms! - now).toBeLessThan(1_200_000);
+    const fresh = await submit(cashier, takeaway('O1', [item('L1', FX.piece, 2)]));
+    expect(fresh.status).toBe(200);
+    expect(fresh.events.map((e) => e.event_type)).toEqual(['OrderPlaced', 'ItemAdded', 'ItemAdded']);
+    expect(fresh.result!.lines.map((l) => [l.order_item_id, l.from_stock])).toEqual([['L1', false], ['L1-p2', false]]);
+    expect(fresh.result!.lines[0]!.eta_ms! - now).toBeGreaterThanOrEqual(1_200_000); // cook_time_ms
     expect(engine().lines.L2).toMatchObject({ from_stock: true });
   });
 
@@ -1023,5 +1030,72 @@ describe('[05 row T-3] SubmitOrder on a just-closed seating (S-9 (b))', () => {
     expect(stale.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: FX.table, seating_id: 'SEAT1' } });
     expect(eventCount()).toBe(before + 1);
     expect(seatingRow('SEAT2')).toEqual({ state: 'SEATED', bill_closed: 0 });
+  });
+});
+
+// 02b v1.0.20 §3.2 step 4a, §5 (STAB-5 phase 1): a slot-station piece line of quantity n is sent as n one-unit parts.
+describe('02b SubmitOrder split per unit (v1.0.20, STAB-5)', () => {
+  it('[02b #37] karahi ×5 → 5 ItemAdded of quantity 1 (K, K-p2 … K-p5), part_of K on each; order_lines.part_of folded; the totals sum to the unsplit line; the result lists every part', async () => {
+    await setUp({ stock: { [FX.stock]: 0 } });
+    const cashier = signIn('S_CASHIER');
+    const r = await submit(cashier, takeaway('O1', [item('K', FX.piece, 5)]));
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    const added = r.events.filter((e) => e.event_type === 'ItemAdded').map((e) => e.payload as { order_item_id: string; quantity: number; part_of?: string; line_total_minor: number });
+    expect(added.map((a) => [a.order_item_id, a.quantity, a.part_of])).toEqual([1, 2, 3, 4, 5].map((k) => [k === 1 ? 'K' : `K-p${k}`, 1, 'K']));
+    const price = branchConfig()!.items.find((i) => i.item_id === FX.piece)!.price_minor;
+    expect(added.reduce((n, a) => n + a.line_total_minor, 0)).toBe(5 * price);
+    const rows = hub.deps.db.prepare("SELECT order_item_id, part_of, units FROM order_lines WHERE order_id = 'O1' ORDER BY order_item_id").all();
+    expect(rows).toEqual(['K', 'K-p2', 'K-p3', 'K-p4', 'K-p5'].map((id) => ({ order_item_id: id, part_of: 'K', units: 1 })));
+    expect(r.result!.lines.map((l) => l.order_item_id)).toEqual(['K', 'K-p2', 'K-p3', 'K-p4', 'K-p5']);
+    // a line of quantity 1 has no part_of
+    const one = await submit(cashier, takeaway('O2', [item('S', FX.piece, 1)]));
+    expect((one.events.find((e) => e.event_type === 'ItemAdded')!.payload as { part_of?: string }).part_of).toBeUndefined();
+    expect(hub.deps.db.prepare("SELECT part_of FROM order_lines WHERE order_item_id = 'S'").pluck().get()).toBeNull();
+  });
+
+  it('[02b #38] stock per part: stock for one karahi, ×2 ordered → part 1 from stock, part 2 cooked fresh; a sync item\'s parts land together', async () => {
+    await setUp({ stock: { [FX.stock]: 500 } });
+    const cashier = signIn('S_CASHIER');
+    const now = hub.clock.branchNow();
+    const r = await submit(cashier, takeaway('O1', [item('L1', FX.piece, 2)]));
+    expect(r.events.map((e) => e.event_type)).toEqual(['OrderPlaced', 'ItemAdded', 'ItemAdded', 'StockReserved']);
+    expect(r.result!.lines.map((l) => [l.order_item_id, l.from_stock])).toEqual([['L1', true], ['L1-p2', false]]);
+    // a sync item: both parts land together (03a sync groups), so the part from stock waits for the fresh one
+    expect(r.result!.lines[1]!.eta_ms! - now).toBeGreaterThanOrEqual(1_200_000);
+    expect(r.result!.lines[0]!.eta_ms).toBe(r.result!.lines[1]!.eta_ms);
+  });
+
+  it('[02b #43] order serve_mode immediate → every part immediate, a line value wins; an unknown value → 400 VALIDATION_FAILED', async () => {
+    await setUp();
+    const cashier = signIn('S_CASHIER');
+    const r = await submit(cashier, takeaway('O1', [item('K', FX.piece, 2), item('N', FX.naan, 1, { serve_mode: 'sync' })], { serve_mode: 'immediate' }));
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    const modes = Object.fromEntries(r.events.filter((e) => e.event_type === 'ItemAdded').map((e) => [(e.payload as { order_item_id: string }).order_item_id, (e.payload as { serve_mode: string }).serve_mode]));
+    expect(modes).toEqual({ K: 'immediate', 'K-p2': 'immediate', N: 'sync' });
+    const bad = await submit(cashier, takeaway('O2', [item('X', FX.piece, 1)], { serve_mode: 'later' }));
+    expect(bad.status).toBe(400);
+    expect(bad.error?.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('[02b #42] order-view lines carry part_of (one per part, the first part\'s id); an unsplit line has null', async () => {
+    await setUp();
+    const cashier = signIn('S_CASHIER');
+    expect((await submit(cashier, takeaway('O1', [item('K', FX.piece, 3), item('N', FX.naan, 1)]))).status).toBe(200);
+    const owner = signIn('S_OWNER');
+    const res = await hub.app.inject({ method: 'GET', url: '/queries/order-view?order_id=O1', headers: { authorization: `Bearer ${owner.token}`, 'x-session-token': owner.sessionToken } });
+    expect(res.statusCode, res.body).toBe(200);
+    const lines = (res.json() as { data: { lines: Array<{ order_item_id: string; part_of: string | null }> } }).data.lines;
+    expect(lines.map((l) => [l.order_item_id, l.part_of])).toEqual([['K', 'K'], ['K-p2', 'K'], ['K-p3', 'K'], ['N', null]]);
+  });
+
+  it('[02b #39] a derived part id already in use → 409 ORDER_ITEM_ID_IN_USE { order_item_id: K-p2 }, nothing written', async () => {
+    await setUp();
+    const cashier = signIn('S_CASHIER');
+    expect((await submit(cashier, takeaway('O1', [item('K-p2', FX.naan, 1)]))).status).toBe(200);
+    const before = eventCount();
+    const r = await submit(cashier, takeaway('O2', [item('K', FX.piece, 2)]));
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual({ code: 'ORDER_ITEM_ID_IN_USE', details: { order_item_id: 'K-p2' } });
+    expect(eventCount()).toBe(before);
   });
 });

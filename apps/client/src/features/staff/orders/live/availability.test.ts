@@ -142,6 +142,72 @@ describe('[02b §8 Ordering screen] availability', () => {
     }
   });
 
+  // ⚠️ 02b v1.0.19 §8, 03a v1.2.7 §4.3 To 02 #9 (STAB-4): the tiles' station wait is refetched from stations-live on a
+  // station-load event (100 ms debounce), on reconnect and every 30 s — it used to change only with a new catch-up.
+  it('[02b #36, STAB-4] station wait refetched on a station-load event (100 ms), every 30 s and on reconnect; an older reply is dropped; a failed read keeps the last times', async () => {
+    vi.useFakeTimers();
+    try {
+      const config = cfg();
+      const item = config.items.find((i) => i.item_id === 'I2')!;
+      const live = createLiveBus();
+      const replies: Array<(r: unknown) => void> = [];
+      const fetchStationsLive = vi.fn(() => new Promise<unknown>((resolve) => replies.push(resolve)));
+      const expected = (wait_ms: number) => (wait_ms + item.cook_time_ms > 900_000 ? { kind: 'slow', minutes: Math.ceil((wait_ms + item.cook_time_ms) / 60_000) } : { kind: 'ok' });
+      const body = (wait_ms: number) => ({ ok: true, data: { now_ms: T, as_of_seq: 1, stations: [{ station_id: item.station_id, wait_ms }] } });
+      const availability = createAvailability({
+        live,
+        config: { snapshot: () => config, config: () => ({ slow_item_threshold_ms: 900_000 }) as never, subscribe: () => () => {} },
+        stock: fakeStock({}),
+        clock: () => clockAt(() => T),
+        fetchStationsLive: fetchStationsLive as never,
+      });
+      expect(availability.item('I2')!.state.kind).toBe('ok');
+
+      // an order lands: one read 100 ms after the last station-load event of the commit
+      live.frame({ type: 'event', seq: 2, event: { event_id: 'E2', event_type: 'OrderPlaced', schema_version: 1, payload: {} } } as never);
+      live.frame({ type: 'event', seq: 3, event: { event_id: 'E3', event_type: 'FireDispatched', schema_version: 1, payload: {} } } as never);
+      expect(fetchStationsLive).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(fetchStationsLive).toHaveBeenCalledTimes(1);
+      replies.shift()!(body(30 * 60_000));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(availability.item('I2')!.state).toEqual({ kind: 'slow', minutes: Math.ceil((30 * 60_000 + item.cook_time_ms) / 60_000) });
+
+      // two reads in flight: the older answer, arriving last, is dropped
+      live.frame({ type: 'event', seq: 4, event: { event_id: 'E4', event_type: 'ItemDone', schema_version: 1, payload: {} } } as never);
+      await vi.advanceTimersByTimeAsync(100);
+      live.connection(true);
+      live.connection(false);
+      live.connection(true); // up again after a drop → reconnect
+      await vi.advanceTimersByTimeAsync(100);
+      expect(fetchStationsLive).toHaveBeenCalledTimes(3);
+      const [older, newer] = [replies.shift()!, replies.shift()!];
+      newer(body(0));
+      await vi.advanceTimersByTimeAsync(0);
+      older(body(50 * 60_000));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(availability.item('I2')!.state).toEqual(expected(0));
+
+      // every 30 s while open; a failed read keeps the last times
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(fetchStationsLive.mock.calls.length).toBeGreaterThanOrEqual(4);
+      replies.shift()!({ ok: false, error: { kind: 'network' } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(availability.item('I2')!.state).toEqual(expected(0));
+
+      // an unrelated event reads nothing; after dispose nothing more
+      const calls = fetchStationsLive.mock.calls.length;
+      live.frame({ type: 'event', seq: 9, event: { event_id: 'E9', event_type: 'TableOpened', schema_version: 1, payload: {} } } as never);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(fetchStationsLive).toHaveBeenCalledTimes(calls);
+      availability.dispose();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fetchStationsLive).toHaveBeenCalledTimes(calls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('[02b §8 Ordering screen] a linked option off with its reason', () => {
     expect(optionAvailability({ linked_item_id: null }, inputs())).toEqual({ on: true });
     expect(optionAvailability({ linked_item_id: 'I4' }, inputs())).toEqual({ on: true });

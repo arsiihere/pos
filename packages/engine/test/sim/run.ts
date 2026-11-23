@@ -15,7 +15,9 @@ import {
   applyEvent,
   applyEvents,
   checkOrderable,
+  getAlertIntents,
   getTickIntents,
+  MAX_DELAY_NO_LIMIT_MS,
   initialEngineState,
   lateStartShift,
   nextDueAt,
@@ -23,9 +25,12 @@ import {
   reserveStock,
   type EngineState,
   type ProposedOrder,
+  type LinePrioritizedDraft,
   type TickDraft,
 } from '../../src/index';
 import { planOrderObserved } from '../../src/plan';
+import { priorityRank } from '../../src/priority';
+import { priorityTerms } from '../../src/slip';
 import { generateDay, TICK_MS, type GenerateOptions, type SimDay, type SimOrder, type SimStation } from './generate';
 
 export type Policy = 'waada_guard' | 'edf' | 'fifo';
@@ -35,6 +40,26 @@ export type RunOptions = {
   everyTick?: boolean;
   // Task 18: sees the live state after each fold, outside the re-plan stopwatch (the end of a day is drained, so live = replayed compares mid-day states too).
   watch?: (state: EngineState, last_seq: number) => void;
+  // ⚠️ 03a v1.2.10 §10.6, test 172 (STAB-7): every line copies max_delay_ms = defaultMs (every `noLimitEvery`-th line of the
+  // day "No limit", null), and a fires_alerts pass writes every LinePrioritized draft at each priority due (the host's
+  // parking of priority_waits, cleared at any commit, FC-2). Off: the field is absent and no LinePrioritized is written.
+  priority?: { defaultMs: number | null; noLimitEvery?: number };
+  // Test 172's smoke: Start is tapped this long after the fire (fired lines slide meanwhile, §3.3), so re-plans push
+  // waiting lines past their targets. Default 0 (tapped at the pass that fired the line).
+  startLateMs?: number;
+};
+
+// Test 172's report (asserted only: the far-cap bound for groups a waiting line drives, checked at every pass).
+export type PriorityStats = {
+  lines: number;
+  priority_lines: number;
+  groups: number;
+  priority_groups: number;
+  delays_ms: number[]; // priority_delay_ms of every priority group
+  no_limit_delays_ms: number[]; // of the priority groups with a No limit line
+  overtakes: number; // a group's priority_land_ms moved later at another group's LinePrioritized fold
+  overtakes_by_earlier_onset: number;
+  bound_violations: string[]; // groups a waiting line drives, waiting past T + MAX_DELAY_NO_LIMIT_MS + one cook, not priority
 };
 
 export type SimResult = {
@@ -44,6 +69,7 @@ export type SimResult = {
   overloadProbes: number[]; // per §3.5.6 search at a submit
   overloadStations: string[]; // the station of each overloadProbes entry
   liveState: EngineState;
+  priority?: PriorityStats;
 };
 
 // §7.1: the simulator's stopwatch, the one clock of test/sim (never in src, F §6.7).
@@ -82,8 +108,9 @@ function configEvent(stations: readonly SimStation[], policy: Policy, at: number
   });
 }
 
-export function itemFields(s: SimStation): Record<string, unknown> {
+export function itemFields(s: SimStation, maxDelay?: number | null): Record<string, unknown> {
   return {
+    ...(maxDelay === undefined ? {} : { max_delay_ms: maxDelay }),
     station_id: s.station_id,
     item_id: s.station_id,
     name: s.station_id,
@@ -93,7 +120,7 @@ export function itemFields(s: SimStation): Record<string, unknown> {
 }
 
 // The ProposedOrder 02 builds from branchConfig() (§4.2): the ItemAdded drafts + the config defaults of the line.
-export function proposedOf(order: SimOrder, stations: ReadonlyMap<string, SimStation>): ProposedOrder {
+export function proposedOf(order: SimOrder, stations: ReadonlyMap<string, SimStation>, maxDelay?: (order_item_id: string) => number | null | undefined): ProposedOrder {
   const base = anItemAdded().payload;
   return {
     order_id: order.order_id,
@@ -108,7 +135,7 @@ export function proposedOf(order: SimOrder, stations: ReadonlyMap<string, SimSta
       ...base,
       order_id: order.order_id,
       order_item_id: l.order_item_id,
-      ...itemFields(stations.get(l.station_id)!),
+      ...itemFields(stations.get(l.station_id)!, maxDelay?.(l.order_item_id)),
       alternates: [],
       point_id: null,
       carry_ms: 0,
@@ -131,6 +158,11 @@ class Sim {
   overloadProbes: number[] = [];
   overloadStations: string[] = [];
   watch: RunOptions['watch'];
+  priority: RunOptions['priority'];
+  startLateMs = 0;
+  stats: PriorityStats = { lines: 0, priority_lines: 0, groups: 0, priority_groups: 0, delays_ms: [], no_limit_delays_ms: [], overtakes: 0, overtakes_by_earlier_onset: 0, bound_violations: [] };
+  readonly maxDelays = new Map<string, number | null>();
+  readonly parked = new Map<string, number | null>();
   readonly opts: { prune?: boolean };
   readonly template = anItemStarted();
 
@@ -147,13 +179,14 @@ class Sim {
   }
 
   append(e: PosEvent): void {
+    this.parked.clear(); // FC-2: any commit un-parks every group
     this.events.push(e);
     this.state = applyEvent(this.state, e, this.opts);
     this.watch?.(this.state, this.events.length);
   }
 
   // The host's stamp on a draft (§3.6.1 Drafts): event_id, seq, occurred_at / recorded_at.
-  stamp(d: Pick<TickDraft, 'stream_type' | 'stream_id' | 'event_type' | 'schema_version' | 'payload'>, at: number): PosEvent {
+  stamp(d: Pick<TickDraft | LinePrioritizedDraft, 'stream_type' | 'stream_id' | 'event_type' | 'schema_version' | 'payload'>, at: number): PosEvent {
     const seq = this.seq;
     return {
       ...this.template,
@@ -176,7 +209,15 @@ class Sim {
 
   submit(order: SimOrder, stations: ReadonlyMap<string, SimStation>, dayStart: number): void {
     const now = order.at_ms;
-    const proposed = proposedOf(order, stations);
+    if (this.priority !== undefined) {
+      for (const l of order.lines) {
+        this.stats.lines++;
+        const every = this.priority.noLimitEvery;
+        this.maxDelays.set(l.order_item_id, every !== undefined && this.stats.lines % every === 0 ? null : this.priority.defaultMs);
+      }
+    }
+    const md = this.priority === undefined ? undefined : (id: string) => this.maxDelays.get(id);
+    const proposed = proposedOf(order, stations, md);
     checkOrderable(this.state, proposed);
     const stock = reserveStock(this.state, proposed, dayStart, [], {});
     const a = wallMs();
@@ -191,7 +232,7 @@ class Sim {
         const p = placed.get(l.order_item_id)!;
         return {
           order_item_id: l.order_item_id,
-          item: itemFields(stations.get(l.station_id)!),
+          item: itemFields(stations.get(l.station_id)!, md?.(l.order_item_id)),
           line: { station_id: p.station_id, alternates: p.alternates, point_id: p.point_id, carry_ms: p.carry_ms, from_stock: p.from_stock },
         };
       }),
@@ -219,6 +260,7 @@ class Sim {
     const remaining = new Map<string, number>();
     const linesOf = new Map<string, string[]>();
     const doneAt = new Map<number, string[]>(); // tap instant → lines, in tap order
+    const startAt = new Map<number, string[]>(); // startLateMs: Start tap instant → lines
     const instants = new MinHeap();
     let i = 0;
     let open = 0;
@@ -268,7 +310,13 @@ class Sim {
         this.state = applyEvents(this.state, stamped, this.opts);
         this.watch?.(this.state, this.events.length);
       }
-      for (const id of fired) tapStart(id, t);
+      if (this.startLateMs === 0) for (const id of fired) tapStart(id, t);
+      else if (fired.length > 0) {
+        const at = ceilGrid(t + this.startLateMs);
+        startAt.set(at, [...(startAt.get(at) ?? []), ...fired]);
+        instants.push(at);
+      }
+      if (this.priority !== undefined) this.priorityPass(t);
     };
 
     let tick = Number.POSITIVE_INFINITY;
@@ -280,12 +328,18 @@ class Sim {
       if (tap === t) {
         instants.pop();
         tapDone(t);
+        const starts = startAt.get(t);
+        if (starts !== undefined) {
+          startAt.delete(t);
+          for (const id of starts) if (this.state.lines[id]?.stage === 'added') tapStart(id, t);
+        }
       }
       if (t % TICK_MS === 0) {
         if (this.everyTick) pass(t);
         else {
-          const due = nextDueAt(this.state, t);
-          if (due !== null && t >= due) pass(t);
+          const fires = nextDueAt(this.state, t);
+          const pr = this.priority === undefined ? null : this.priorityDue();
+          if ((fires !== null && t >= fires) || (pr !== null && t >= pr)) pass(t);
         }
       }
       while (i < day.orders.length && day.orders[i]!.at_ms === t) {
@@ -299,14 +353,91 @@ class Sim {
       if (this.everyTick) {
         tick = open > 0 ? g : Number.POSITIVE_INFINITY;
       } else {
-        const due = nextDueAt(this.state, g);
+        const fires = nextDueAt(this.state, g);
+        const pr = this.priority === undefined ? null : this.priorityDue();
+        const due = fires === null ? pr : pr === null ? fires : Math.min(fires, pr);
         tick = due === null ? Number.POSITIVE_INFINITY : Math.max(g, ceilGrid(due));
       }
     }
   }
 
+  // The earliest priority due not parked (a parked group counts at its recheck_at), as the host's nextAlertDueAt.
+  priorityDue(): number | null {
+    let min: number | null = null;
+    for (const [gid, d] of Object.entries(this.state.priority_due)) {
+      const v = this.parked.has(gid) ? this.parked.get(gid)! : d;
+      if (v !== null && (min === null || v < min)) min = v;
+    }
+    return min;
+  }
+
+  // The priority half of a fires_alerts pass (§6.2a step 7): one transaction of its drafts; the waits parked.
+  priorityPass(t: number): void {
+    this.checkBound(t);
+    const due = this.priorityDue();
+    if (due === null || due > t) return;
+    const a = getAlertIntents(this.state, t);
+    const before = this.lands();
+    const stamped = a.prioritized.map((d) => this.stamp(d, t));
+    if (stamped.length > 0) {
+      this.events.push(...stamped);
+      this.parked.clear();
+      this.state = applyEvents(this.state, stamped, this.opts);
+      this.watch?.(this.state, this.events.length);
+      const newRanks = new Map(a.prioritized.map((d) => [d.payload.group_id, priorityRank(this.state, d.payload.order_id, d.payload.group_id)]));
+      for (const d of a.prioritized) {
+        const g = this.state.orders[d.payload.order_id]?.groups[d.payload.group_id];
+        if (g === undefined || g.priority_delay_ms === null) continue;
+        this.stats.priority_groups++;
+        this.stats.priority_lines += d.payload.order_item_ids.length;
+        this.stats.delays_ms.push(g.priority_delay_ms);
+        if (d.payload.order_item_ids.some((id) => this.maxDelays.get(id) === null)) this.stats.no_limit_delays_ms.push(g.priority_delay_ms);
+      }
+      for (const [gid, [order_id, land]] of before) {
+        const now = this.state.orders[order_id]?.groups[gid]?.priority_land_ms ?? null;
+        if (now === null || now <= land) continue;
+        this.stats.overtakes++;
+        const mine = priorityRank(this.state, order_id, gid);
+        if (mine !== null && [...newRanks.values()].some((r) => r !== null && r.onset < mine.onset)) this.stats.overtakes_by_earlier_onset++;
+      }
+    }
+    for (const w of a.priority_waits) this.parked.set(w.group_id, w.recheck_at);
+  }
+
+  lands(): Map<string, [string, number]> {
+    const out = new Map<string, [string, number]>();
+    for (const o of Object.values(this.state.orders)) for (const [gid, g] of Object.entries(o.groups)) if (g.priority_land_ms !== null) out.set(gid, [o.order_id, g.priority_land_ms]);
+    return out;
+  }
+
+  // Test 172's bound: a group a waiting line drives (E_w > F), not priority, never waits past T + MAX_DELAY_NO_LIMIT_MS +
+  // one cook (its longest waiting line's): its crossing was due before then, so a pass drafted it.
+  checkBound(t: number): void {
+    for (const o of Object.values(this.state.orders)) {
+      for (const [gid, g] of Object.entries(o.groups)) {
+        if (g.priority_delay_ms !== null || o.awaiting > 0) continue;
+        let cook = 0;
+        for (const id of g.line_ids) {
+          const l = this.state.lines[id];
+          if (l !== undefined && l.stage === 'added' && l.fired_at === null) cook = Math.max(cook, l.prep_ms + l.cook_ms + l.carry_ms);
+        }
+        if (cook === 0) continue;
+        const terms = priorityTerms(this.state, o.order_id, gid, t);
+        if (terms === null || !(terms.waiting > terms.fixed)) continue;
+        if (terms.waiting > g.target_land_ms + MAX_DELAY_NO_LIMIT_MS + cook && this.stats.bound_violations.length < 20) this.stats.bound_violations.push(`${gid}@${t}`);
+      }
+    }
+  }
+
   result(): SimResult {
-    return { events: this.events, replanMs: this.replanMs, replacedLines: this.replacedLines, overloadProbes: this.overloadProbes, overloadStations: this.overloadStations, liveState: this.state };
+    const priority = this.priority === undefined ? {} : { priority: { ...this.stats, groups: this.countGroups() } };
+    return { events: this.events, replanMs: this.replanMs, replacedLines: this.replacedLines, overloadProbes: this.overloadProbes, overloadStations: this.overloadStations, liveState: this.state, ...priority };
+  }
+
+  countGroups(): number {
+    let n = 0;
+    for (const e of this.events) if (e.event_type === 'OrderPlaced' || e.event_type === 'OrderLinesAdded') n += ((e.payload as { groups?: unknown[] }).groups ?? []).length;
+    return n;
   }
 }
 
@@ -358,6 +489,8 @@ export function runDay(day: SimDay, o: RunOptions = {}): SimResult {
   const policy = o.policy ?? 'waada_guard';
   const sim = new Sim(policy, o.prune ?? true, o.everyTick ?? false);
   sim.watch = o.watch;
+  sim.priority = o.priority;
+  sim.startLateMs = o.startLateMs ?? 0;
   sim.append(configEvent(day.stations, policy, day.start_ms - 2, sim.seq));
   opening(sim, day);
   sim.drive(day);

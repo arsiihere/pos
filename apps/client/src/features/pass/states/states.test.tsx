@@ -111,6 +111,9 @@ describe('[03b §8] Pass states', () => {
     show(s.shell);
     m.click(m.button('Ready to serve'));
     await flush();
+    // 03b v1.0.10 §3.4: RAITA is not done, so the pick sheet opens; confirm it (NAAN ticked)
+    m.click(m.button('Ready to serve (1)', m.container.querySelector('[role="dialog"]')!));
+    await flush();
     expect(s.sent).toEqual(['MarkReadyToServe']);
     expect(m.container.querySelector('main.pass > .msg.c-danger[role="alert"]')?.textContent).toBe('This Pass point is archived. Ask a manager to set up this tablet again.');
     expect(m.container.querySelectorAll('article.pc')).toHaveLength(1);
@@ -134,7 +137,7 @@ describe('[03b §8] Pass states', () => {
             sound_volume: 70,
             has_printer: true,
             lanes: { lanes_on: 2, lane_count: 2 },
-            now: [{ ...line('NAAN', 'added'), stage: 'added', fired_at: 1, started_at: null, mark: null, done_undone: false }],
+            now: [{ ...line('NAAN', 'added'), priority: null, stage: 'added', fired_at: 1, started_at: null, mark: null, done_undone: false }],
             details: [],
           },
         ],
@@ -143,6 +146,8 @@ describe('[03b §8] Pass states', () => {
       show(s.shell);
       expect(m.buttons().some((b) => b.textContent === 'Reprint')).toBe(true);
       m.click(m.button('Ready to serve'));
+      await flush();
+      m.click(m.button('Ready to serve (1)', m.container.querySelector('[role="dialog"]')!)); // 03b v1.0.10: the pick sheet
       await flush();
       expect(m.container.querySelector('main.pass > .msg.c-danger')).not.toBeNull();
       expect(m.container.querySelectorAll('section.tko article.kl')).toHaveLength(1);

@@ -43,6 +43,8 @@ export interface LineView {
   line_total_minor: number | null;
   billed_minor: number;
   /** the returned line of a return line (money 0) */
+  /** 02b v1.0.21 §8 (STAB-5): the first part's id of a line split per unit (§3.2 step 4a); null = not split */
+  part_of: string | null;
   return_of: string | null;
   served_from_zone_id: string | null;
   zone_served: boolean;
@@ -171,6 +173,8 @@ export interface SubmitOption {
   option_id: string;
   quantity: number;
   order_item_id?: string;
+  /** 02b v1.0.20 §3.2 step 4a: set by expandParts on a split part's linked option (never in the payload) */
+  part_of?: string;
 }
 
 /** §6.1 SubmitOrder payload (typed from the §6.1 payload table; the zod schema is lane 2A's). */
@@ -183,6 +187,8 @@ export interface SubmitInput {
   parking?: { car_number: string; car_type: CarType; phone?: string };
   /** ≤ 200 */
   order_note?: string;
+  /** 02b v1.0.21 §6.1: the order's serve choice; a line's own `serve_mode` wins; absent → the item's */
+  serve_mode?: 'sync' | 'immediate';
   /** 1–40 */
   lines: Array<{
     order_item_id: string;
@@ -191,10 +197,15 @@ export interface SubmitInput {
     variant_id?: string;
     quantity?: number;
     options?: SubmitOption[];
-    deal_choices?: Array<{ deal_part_id: string; item_id: string; order_item_id: string; options?: SubmitOption[] }>;
+    /** 02b v1.0.22: `part_of` set by expandParts on a split deal's choices (never in the payload) */
+    deal_choices?: Array<{ deal_part_id: string; item_id: string; order_item_id: string; options?: SubmitOption[]; part_of?: string }>;
     /** ≤ 80 */
     kitchen_note?: string;
     from_zone?: boolean;
+    /** 02b v1.0.20 §3.2 step 4a: set by expandParts on every part of a split line (never in the payload) */
+    part_of?: string;
+    /** 02b v1.0.21 §6.1: the line's serve choice (wins over the order's and the item's) */
+    serve_mode?: 'sync' | 'immediate';
   }>;
 }
 

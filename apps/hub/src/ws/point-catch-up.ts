@@ -1,5 +1,5 @@
 import type { LineDetail } from '@pos/domain';
-import { isOrderInEngine, stationView, type EngineState } from '@pos/engine';
+import { isOrderInEngine, priorityOfLine, stationView, type EngineState, type LinePriority } from '@pos/engine';
 import type { KdsStationBody, WsPointLines } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
@@ -36,19 +36,27 @@ const LIVE = new Set(['added', 'cooking', 'done']);
 /** B3-3: the events that change a line's live units (as ws/kds-catch-up.ts). */
 const UNIT_CHANGES: ReadonlySet<string> = new Set(['ItemRemoved', 'ItemVoided', 'LineWeightSet']);
 
-/** Q-46: the engine line's serve group and mode, so the Pass computes Ready / HOLD (a return or released line is `immediate`). */
-export type ServeFields = { group_id: string; serve_mode: 'sync' | 'immediate' };
-export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean };
+/**
+ * Q-46: the engine line's serve group and mode, so the Pass computes Ready / HOLD (a return or released line is `immediate`).
+ * ⚠️ 03b v1.0.13 §6.15, §6.16 (STAB-6, STAB-7): + `load_id` (the engine line's, set for a stored load before its fire
+ * too; null off a batch station) and `priority` (the engine view's, 03a v1.2.10 §3.5.7 PR-8; null on a line that is
+ * not priority), both memory.
+ */
+export type ServeFields = { group_id: string; serve_mode: 'sync' | 'immediate'; load_id: string | null; priority: LinePriority | null };
+// ⚠️ 03b v1.0.12 §6.15 (STAB-5 Q5): started_at = the engine line's (null while waiting), so a grouped Done on the Pass
+// sends the part that started last first
+export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean; started_at: number | null };
 export interface PointViewBody {
   point_id: string;
   stations: Array<{ station_id: string; name: string; lanes: KdsStationBody['lanes']; dark: boolean; screenless: boolean }>;
-  orders: Array<{ order_id: string; identifier: LineDetail['identifier']; placed_at: number; lines: PointLine[]; ready: { at: number; by: string | null } | null }>;
+  // ⚠️ 03b v1.0.10 §6.15 (STAB-2): ready.lines = the Ready's unsettled own lines
+  orders: Array<{ order_id: string; identifier: LineDetail['identifier']; placed_at: number; lines: PointLine[]; ready: { at: number; by: string | null; lines: string[] } | null }>;
   takeovers: KdsStationBody[];
 }
 
-const serveOf = (state: EngineState, id: string): ServeFields => {
+const serveOf = (state: EngineState, id: string, now: number, memo?: Map<string, number>): ServeFields => {
   const l = state.lines[id]!;
-  return { group_id: l.group_id, serve_mode: l.serve_mode };
+  return { group_id: l.group_id, serve_mode: l.serve_mode, load_id: l.load_id, priority: priorityOfLine(state, l, now, memo) ?? null };
 };
 
 /** The live lines of `point_id` whose order is in the engine (memory). */
@@ -90,10 +98,13 @@ SELECT j.value AS station_id,
   FROM json_each(?) j`;
 
 const PASS_SQL = `
-SELECT 'r' AS k, order_id AS id, ready_at AS at, ready_by AS by FROM pass_orders
+SELECT 'r' AS k, order_id AS id, ready_at AS at, ready_by AS by,
+       (SELECT json_group_array(r.order_item_id) FROM pass_ready_lines r
+         WHERE r.order_id = pass_orders.order_id AND r.point_id = pass_orders.point_id AND r.settled_at IS NULL) AS rl
+  FROM pass_orders
  WHERE point_id = @point_id AND ready_at IS NOT NULL AND order_id IN (SELECT value FROM json_each(@orders))
 UNION ALL
-SELECT 'h' AS k, order_item_id AS id, NULL AS at, NULL AS by FROM handover_lines
+SELECT 'h' AS k, order_item_id AS id, NULL AS at, NULL AS by, NULL AS rl FROM handover_lines
  WHERE order_item_id IN (SELECT value FROM json_each(@lines))`;
 
 interface SettingsRow {
@@ -124,7 +135,7 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
   const details = buildLineDetails(db, state, [...new Set([...lineIds, ...takeoverLineIds])]);
 
   const orderIds = [...new Set(lineIds.map((id) => state.lines[id]!.order_id))];
-  const ready = new Map<string, { at: number; by: string | null }>();
+  const ready = new Map<string, { at: number; by: string | null; lines: string[] }>();
   const handed = new Set<string>();
   if (orderIds.length > 0) {
     const rows = db.prepare(PASS_SQL).all({ point_id, orders: JSON.stringify(orderIds), lines: JSON.stringify(lineIds) }) as Array<{
@@ -132,21 +143,23 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
       id: string;
       at: number | null;
       by: string | null;
+      rl: string | null;
     }>;
     for (const r of rows) {
-      if (r.k === 'r') ready.set(r.id, { at: r.at!, by: r.by });
+      if (r.k === 'r') ready.set(r.id, { at: r.at!, by: r.by, lines: JSON.parse(r.rl ?? '[]') as string[] });
       else handed.add(r.id);
     }
   }
 
   const lineSet = new Set(lineIds);
+  const memo = new Map<string, number>();
   const orders: PointViewBody['orders'] = [];
   for (const order_id of orderIds) {
     const order = state.orders[order_id]!;
     const lines = order.line_ids.flatMap((id): PointLine[] => {
       const d = details.get(id);
       if (!lineSet.has(id) || d === undefined) return [];
-      return [{ ...d, ...serveOf(state, id), stage: state.lines[id]!.stage as PointLine['stage'], handed_over: handed.has(id) }];
+      return [{ ...d, ...serveOf(state, id, now, memo), stage: state.lines[id]!.stage as PointLine['stage'], handed_over: handed.has(id), started_at: state.lines[id]!.started_at }];
     });
     if (lines.length === 0) continue;
     orders.push({ order_id, identifier: lines[0]!.identifier, placed_at: order.placed_at, lines, ready: ready.get(order_id) ?? null });
@@ -180,7 +193,10 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
         lanes: lanesOf(s),
         now: view.now.flatMap((l) => {
           const d = details.get(l.order_item_id);
-          return d === undefined ? [] : [{ ...d, stage: l.stage, fired_at: l.fired_at, started_at: l.started_at, mark: l.mark, done_undone: doneUndone(state, l.order_item_id) }];
+          // ⚠️ 03b v1.0.13 §3.3 (STAB-6, STAB-7): + load_id and priority, as kdsStationBody (a takeover body is one)
+          return d === undefined
+            ? []
+            : [{ ...d, stage: l.stage, fired_at: l.fired_at, started_at: l.started_at, mark: l.mark, done_undone: doneUndone(state, l.order_item_id), load_id: l.load_id, priority: l.priority ?? null }];
         }),
         details: view.next.flatMap((l) => {
           const d = details.get(l.order_item_id);
@@ -283,12 +299,13 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
 
     const details = buildLineDetails(deps.db, state, [...all]);
     const ws = wsHubFor(app);
+    const memo = new Map<string, number>();
     for (const s of sessions) {
       const ids = missing.get(s.sessionId);
       if (ids === undefined) continue;
       const lines = ids.flatMap((id) => {
         const d = details.get(id);
-        return d === undefined || state.lines[id] === undefined ? [] : [{ ...d, ...serveOf(state, id) }];
+        return d === undefined || state.lines[id] === undefined ? [] : [{ ...d, ...serveOf(state, id, now, memo) }];
       });
       const had = given.get(s.sessionId)!;
       for (const id of ids) had.add(id);

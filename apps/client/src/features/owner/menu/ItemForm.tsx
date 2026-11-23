@@ -186,6 +186,7 @@ function TextField({
   unit,
   prefix,
   placeholder,
+  disabled,
 }: {
   name: string;
   label: string;
@@ -197,6 +198,7 @@ function TextField({
   unit?: string;
   prefix?: string;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   const input = (
     <input
@@ -206,6 +208,7 @@ function TextField({
       inputMode={numeric ? 'decimal' : undefined}
       aria-invalid={error !== undefined ? true : undefined}
       placeholder={placeholder}
+      disabled={disabled}
       value={value}
       onChange={(e) => onChange(e.target.value)}
     />
@@ -284,7 +287,18 @@ const MAX_USES = 1_000_000;
 // The fields inside the folded disclosure: an error on any of them opens it.
 const IN_FOLD = (id: string) =>
   id.startsWith('route-') ||
-  ['item-cook_minutes', 'item-prep_minutes', 'item-stock_time_minutes', 'item-hours', 'item-kept_ready', 'item-weight_pct', 'item-max_early_minutes', 'item-max_carry_minutes', 'item-max_late_minutes', 'item-adjust_time_minutes', 'item-goes_with'].includes(id);
+  ['item-cook_minutes', 'item-prep_minutes', 'item-stock_time_minutes', 'item-hours', 'item-kept_ready', 'item-weight_pct', 'item-max_early_minutes', 'item-max_delay_minutes', 'item-max_carry_minutes', 'item-max_late_minutes', 'item-adjust_time_minutes', 'item-goes_with'].includes(id);
+
+// 01a v2.7.5 §8.1 MD-6, MD-1 (re-review F-1): the item's max delay box, 1–30 minutes; empty = the branch default.
+const MAX_DELAY_KNOB = { min: 60_000, max: 1_800_000, nullable: true } as const;
+
+/** "Branch default (n min)": the branches' current defaults (one value, or each when they differ; "No limit" as such). */
+function defaultText(values: ReadonlyArray<number | null> | null): string {
+  if (values === null) return t('item.timing.max_delay_default_unknown');
+  const shown = [...new Set(values.map((v) => (v === null ? t('timing.max_delay_no_limit') : formatMinutes(v))))];
+  if (shown.length === 1 && values[0] === null) return `${t('item.timing.max_delay_default_unknown')} (${shown[0]})`;
+  return fill(t('item.timing.max_delay_default'), { n: shown.join(' / ') });
+}
 
 const storedLinks = (item: MenuItem | null): GoesWithLink[] =>
   item === null ? [] : item.goes_with.map((l) => ({ target_kind: l.target_kind, target_id: l.target_id, excluded: l.excluded }));
@@ -365,6 +379,10 @@ export function ItemForm({
   const [carry, setCarry] = useState(knobText(item?.max_carry_ms ?? null));
   const [late, setLate] = useState(knobText(item?.max_late_ms ?? null));
   const [adjust, setAdjust] = useState(knobText(item?.adjust_time_ms ?? 180_000));
+  // 01a v2.7.5 §8.1 MD-6 (STAB-7): the item's max delay (empty = the branch default) and "No limit"
+  const [maxDelay, setMaxDelay] = useState(knobText(item?.max_delay_ms ?? null));
+  const [noLimit, setNoLimit] = useState(item?.max_delay_unlimited ?? false);
+  const [branchDefaults, setBranchDefaults] = useState<Array<number | null> | null>(null);
   // Until the whole menu is read the stored list is held as it is (picker off, never sent); the read then drops
   // the targets known to be archived from the base and the form together, so nothing differs by itself.
   const everyItem = useEveryItem(api, item !== null);
@@ -419,6 +437,23 @@ export function ItemForm({
         else setError(errorText(result.error));
       }
       setStations(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [api, branchIds]);
+
+  // 01a v2.7.5 §8.1 MD-6: the branches' current default max delay, for the empty box's "Branch default (n min)". A read
+  // that fails leaves the plain "Branch default".
+  useEffect(() => {
+    let live = true;
+    void Promise.all(branchIds.map((b) => api.getBranchSettings(b))).then((results) => {
+      if (!live) return;
+      const values = results.flatMap((r) => {
+        const v = r.ok ? (r.data.branch as { max_delay_default_ms?: unknown } | undefined)?.max_delay_default_ms : undefined;
+        return typeof v === 'number' || v === null ? [v] : [];
+      });
+      setBranchDefaults(values.length === results.length && values.length > 0 ? values : null);
     });
     return () => {
       live = false;
@@ -509,6 +544,8 @@ export function ItemForm({
     max_late_ms: knobValue(KNOBS[2]!, late, item?.max_late_ms),
     adjust_time_ms: knobValue(KNOBS[3]!, adjust, item?.adjust_time_ms),
   };
+  // 01a v2.7.5 MD-4 / MD-6 (re-review F-1): "No limit" → null + true; empty → null (the branch default); else 1–30 min.
+  const maxDelayMs = noLimit ? null : knobValue(MAX_DELAY_KNOB, maxDelay, item?.max_delay_ms);
 
   // 01c: the size group, weighing and the stock draw as they will be sent.
   const group = groupId === '' ? undefined : groupOf(groupId);
@@ -554,6 +591,7 @@ export function ItemForm({
       }
     }
     if (weightPct === undefined) found.push({ id: 'item-weight_pct', section: 'item.timing', text: t('item.timing.need_pct') });
+    if (maxDelayMs === undefined) found.push({ id: 'item-max_delay_minutes', section: 'item.timing', text: rangeText(MAX_DELAY_KNOB) });
     for (const [knob, id] of [[KNOBS[0]!, 'item-max_early_minutes'], [KNOBS[1]!, 'item-max_carry_minutes'], [KNOBS[2]!, 'item-max_late_minutes'], [KNOBS[3]!, 'item-adjust_time_minutes']] as const) {
       if (knobMs[knob.name] === undefined) found.push({ id, section: 'item.timing', text: rangeText(knob) });
     }
@@ -578,7 +616,7 @@ export function ItemForm({
 
   function fields(): Omit<CreateMenuItemBody, 'routes'> | null {
     if (!priceValue.ok || cookMs === null || prepMs === null || windows === null || draws === undefined) return null;
-    if (weightPct === undefined || Object.values(knobMs).includes(undefined)) return null;
+    if (weightPct === undefined || Object.values(knobMs).includes(undefined) || maxDelayMs === undefined) return null;
     return {
       category_id: categoryId,
       tax_class_id: taxId === '' ? null : taxId,
@@ -602,6 +640,8 @@ export function ItemForm({
       max_carry_ms: knobMs.max_carry_ms as number | null,
       max_late_ms: knobMs.max_late_ms as number | null,
       adjust_time_ms: knobMs.adjust_time_ms as number,
+      max_delay_ms: maxDelayMs,
+      max_delay_unlimited: noLimit,
     };
   }
 
@@ -1604,6 +1644,21 @@ export function ItemForm({
               <div className="pos-grid">
                 <TextField name="weight_pct" label={t('item.timing.weight_pct')} value={weight} onChange={setWeight} numeric unit="%" help={t('item.timing.weight_help')} error={problemFor('item-weight_pct')} />
                 <TextField name="max_early_minutes" label={t('item.timing.max_early')} value={early} onChange={setEarly} numeric error={problemFor('item-max_early_minutes')} />
+                {/* 01a v2.7.5 §8.1 MD-6 (STAB-7): next to "Can be ready early by" */}
+                <div className="pos-stack" data-field="max_delay">
+                  <TextField
+                    name="max_delay_minutes"
+                    label={t('item.timing.max_delay')}
+                    value={noLimit ? '' : maxDelay}
+                    onChange={setMaxDelay}
+                    numeric
+                    disabled={noLimit}
+                    placeholder={defaultText(branchDefaults)}
+                    help={t('item.timing.max_delay_help')}
+                    error={problemFor('item-max_delay_minutes')}
+                  />
+                  <Switch checked={noLimit} label={t('timing.max_delay_no_limit')} onChange={setNoLimit} />
+                </div>
                 <TextField name="max_carry_minutes" label={t('item.timing.max_carry')} value={carry} onChange={setCarry} numeric help={t('item.timing.max_carry_help')} error={problemFor('item-max_carry_minutes')} />
                 <TextField name="max_late_minutes" label={t('item.timing.max_late')} value={late} onChange={setLate} numeric help={t('item.timing.max_late_help')} error={problemFor('item-max_late_minutes')} />
                 <TextField name="adjust_time_minutes" label={t('item.timing.adjust')} value={adjust} onChange={setAdjust} numeric help={t('item.timing.adjust_help')} error={problemFor('item-adjust_time_minutes')} />

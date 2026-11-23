@@ -53,3 +53,21 @@
 .pl > .row { gap: 6px; }
 /* PassCards: a line with one action (Done, Undo) — one column */
 .pl__a--1 { grid-template-columns: 1fr; }
+
+/* 03b v1.0.10 §3.4 (STAB-2): the Pass's Ready pick sheet, one big tick row per line (not a handoff frame) */
+.rdpick { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
+.rdpick__row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 14px; border-radius: 12px; background: var(--surface-2); cursor: pointer; }
+.rdpick__row input { width: 26px; height: 26px; flex: none; accent-color: var(--accent); }
+.rdpick__t { flex: 1; font-size: 17px; font-weight: 700; }
+.rdpick__t .q { font: 800 17px/1 var(--font-num); color: var(--accent-text); margin-inline-end: 6px; }
+.pu[lang="ur"] .rdpick__t { font-family: var(--font-urdu); line-height: 1.9; letter-spacing: 0; }
+.pu[lang="ur"] .rdpick__t .q { font-family: var(--font-num); }
+/* 03b v1.0.11 §3.4 (STAB-5): a grouped row's count stepper ("2 of 4") keeps its width; the number stays LTR */
+.rdpick__row .step { flex: none; direction: ltr; }
+.rdpick__row .step output { min-width: 72px; text-align: center; }
+
+/* 03b v1.0.13 / v1.0.14 §3.3 (STAB-6, STAB-7): the batch round tag ("this round", "next round", "round n") and the
+   amber "Priority · n min late" chip beside the mark tag (dark ink on the amber fill) */
+.kround { display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2, var(--ink)); font-size: 14px; font-weight: 700; white-space: nowrap; }
+.knr .kround { grid-column: 1 / -1; justify-self: start; height: 26px; font-size: 13px; }
+.kmk.kmk--prio { color: #1E1003; }

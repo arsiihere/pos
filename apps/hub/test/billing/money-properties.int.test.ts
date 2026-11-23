@@ -18,6 +18,7 @@ import type { BillView, BillViewSplit, Totals } from '../../src/billing/queries/
 import { resetLineGuard } from '../../src/orders/line-guard';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import type { TestHub } from '../helpers/test-hub';
+import { appendOrder, type FixtureOrder } from '../orders/fixtures';
 import { openDay, toStage, voidsMenu } from '../voids/fixtures';
 import { drawerDevice, FX, openSeating, post, signIn, signInOn, STAFF, startBilling, VX, type Reply, type Who } from './fixtures';
 
@@ -133,20 +134,23 @@ function seat(table_id: string = VX.tables.T4): string {
 const tableOf = new Map<string, string>();
 
 let orderNo = 0;
-/** One dine-in round through 02b SubmitOrder as the seating's holder; returns the order_id. */
+/**
+ * One dine-in round; returns the order_id. ⚠️ 02b v1.0.20 §3.2 step 4a (STAB-5): these money rules are about units
+ * *inside one line* (split 1 of B's units, void 1 of 3, comp a unit) — lines that stay multi-unit (batch stations,
+ * weighed items). SubmitOrder now sends a slot-station line of quantity n as n parts, so the rounds are written with
+ * 02b's fixture (`appendOrder`: the same events through the hub's writer, as ./fixtures does); every bill action
+ * stays a real command. Split lines on a bill are 05's own tests (STAB-5 phase 6).
+ */
 async function round(seating_id: string, lines: CartLine[]): Promise<string> {
   orderNo += 1;
   const order_id = `O_M${orderNo}`;
-  await ok(
-    post(hub, manager, 'submit-order', 'SubmitOrder', {
-      order_id,
-      order_type: 'dine_in',
-      table_id: tableOf.get(seating_id),
-      seating_id,
-      lines: lines.map((l) => ({ quantity: 1, ...l })),
-    }),
-    `SubmitOrder ${order_id}`,
-  );
+  appendOrder(hub, {
+    order_id,
+    order_type: 'dine_in',
+    seating_id,
+    placed_by: STAFF.manager,
+    lines: lines.map((l) => ({ quantity: 1, ...l })) as FixtureOrder['lines'],
+  });
   orderOf.set(order_id, seating_id);
   for (const l of lines) lineOrder.set(l.order_item_id, order_id);
   return order_id;

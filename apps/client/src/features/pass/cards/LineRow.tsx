@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { t } from '../../../i18n';
 import { lineTags } from '../../kds/slots';
+import { priorityText } from '../../kds/station/parts';
 import type { PointLine } from '../contracts';
 
 // 03b v1.0.8 §3.4 (P2; frame 03b-C11 in PassCards / Pass): one Pass line — units x item, the slot tags (03c `printed`)
@@ -34,7 +35,7 @@ export function stageOf(line: PointLine): keyof typeof TONE {
   return line.stage === 'added' ? 'waiting' : line.stage;
 }
 
-export function LineRow({ line, actions }: { line: PointLine; actions?: ReactNode }) {
+export function LineRow({ line, actions, round }: { line: PointLine; actions?: ReactNode; round?: string }) {
   const stage = stageOf(line);
   const tags = lineTags(line);
   const extra = [...line.options, ...(line.kitchen_note === null ? [] : [`“${line.kitchen_note}”`])];
@@ -55,6 +56,13 @@ export function LineRow({ line, actions }: { line: PointLine; actions?: ReactNod
             {tag.label}
           </span>
         ))}
+        {/* ⚠️ 03b v1.0.13 §3.4 (STAB-6, STAB-7): the round tag and the "Priority · n min late" chip */}
+        {round !== undefined && (
+          <span className="kround" data-round>
+            {round}
+          </span>
+        )}
+        {line.priority != null && <span className="kmk c-warn kmk--prio">{priorityText(line.priority)}</span>}
         <span className={`stg ${TONE[stage]}`}>
           <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
             {ICON[stage]}

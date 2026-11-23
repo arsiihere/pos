@@ -34,6 +34,8 @@ const DEFAULTS = {
   served_estimate_ms: null,
   ready_window_ms: 60_000,
   kds_offline_ms: 30_000,
+  show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §5.2a PT-1 (STAB-5)
+  max_delay_default_ms: 300_000, // ⚠️ 01a v2.7.5 §5.2a MD-2 (STAB-7)
 };
 const RANGES: Array<[string, number, number]> = [
   ['weight_dine_in_pct', 10, 1000],
@@ -58,6 +60,8 @@ const RANGES: Array<[string, number, number]> = [
   ['ready_window_ms', 15_000, 300_000],
   ['kds_offline_ms', 10_000, 300_000],
   ['served_estimate_ms', 60_000, 1_800_000],
+  // ⚠️ 01a v2.7.5 MD-2 / 01b v1.10.3 §6.10 (STAB-7; re-review F-1): the 0017 CHECK.
+  ['max_delay_default_ms', 60_000, 1_800_000],
 ];
 const BRANCH_SETTINGS = { tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4 };
 describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b v1.5 §6.10, B-6; 01a v2.1 A-12)', () => {
@@ -114,9 +118,7 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
   });
 
   it('[01b B-6; 03b §4.5 B-2] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV4 (served_estimate_ms, ready_window_ms, kds_offline_ms included)', () => {
-    expect(Object.keys(DEFAULTS).sort()).toEqual(
-      Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).sort(),
-    );
+    expect(Object.keys(DEFAULTS).sort()).toEqual(Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).sort());
   });
 
   it('[01b B-6] a missing settings row on read is an error, not a default', async () => {
@@ -215,6 +217,62 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     const snapshot = BranchConfigSnapshotSchemaV4.parse(next.json().data.config.snapshot);
     expect(snapshot.config_version).toBe(held + 1);
     expect(snapshot.engine_settings).toMatchObject({ ready_window_ms: 90_000, kds_offline_ms: 45_000, served_estimate_ms: 240_000 });
+  });
+
+  it('[01a v2.7.3 #201] show_part_times_to_customers: default true; false is returned, bumps once and reaches the snapshot; the same value again writes nothing (STAB-5)', async () => {
+    const held = await configVersion();
+    const directory = Number((await cloud.pool.query(`SELECT directory_version FROM tenants WHERE tenant_id = $1`, [f.tenantId])).rows[0].directory_version);
+    const off = await patchCurrent({ show_part_times_to_customers: false });
+    expect(off.statusCode, off.body).toBe(200);
+    expect(off.json().data.branch.show_part_times_to_customers).toBe(false);
+    expect(await configVersion()).toBe(held + 1);
+    const next = await cloud.app.inject({ method: 'GET', url: `/v1/sync/config?config_version=${held}&directory_version=${directory}`, headers: { authorization: `Bearer ${f.branchKey}` } });
+    expect(next.statusCode, next.body).toBe(200);
+    expect(BranchConfigSnapshotSchemaV4.parse(next.json().data.config.snapshot).engine_settings.show_part_times_to_customers).toBe(false);
+    const again = await patchCurrent({ show_part_times_to_customers: false });
+    expect(again.statusCode, again.body).toBe(200);
+    expect(await configVersion()).toBe(held + 1);
+    expect((await patchCurrent({ show_part_times_to_customers: 'no' })).statusCode).toBe(400);
+  });
+
+  it('[01b v1.10.3 #115; 01a v2.7.5 #204] max_delay_default_ms: 600 000 → one audit row with the field, bump; null is stored and returned null; refusals are 400 at the field; the same value again writes nothing (STAB-7)', async () => {
+    const held = await configVersion();
+    const ten = await patchCurrent({ max_delay_default_ms: 600_000 });
+    expect(ten.statusCode, ten.body).toBe(200);
+    expect(ten.json().data.branch.max_delay_default_ms).toBe(600_000);
+    expect((await branchOf()).max_delay_default_ms).toBe(600_000);
+    const rows = await audits();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.before).toMatchObject({ max_delay_default_ms: 300_000 });
+    expect(rows[0]!.after).toMatchObject({ max_delay_default_ms: 600_000 });
+    expect(await configVersion()).toBe(held + 1);
+    const before = (await branchOf()).version;
+    const none = await patchCurrent({ max_delay_default_ms: null });
+    expect(none.statusCode, none.body).toBe(200);
+    expect(none.json().data.branch.max_delay_default_ms).toBeNull();
+    expect(none.json().data.branch.version).not.toBe(before); // BRANCH_ENGINE_SETTING_KEYS lists the key
+    expect((await engineRow()).max_delay_default_ms).toBeNull();
+    expect(await configVersion()).toBe(held + 2);
+    for (const value of [0, 59_999, 1_800_001, 7_200_000, 1.5]) {
+      const refused = await patchCurrent({ max_delay_default_ms: value });
+      expect(refused.statusCode, `${value}`).toBe(400);
+      expect(refused.json().error).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'max_delay_default_ms' }] } });
+    }
+    const again = await patchCurrent({ max_delay_default_ms: null });
+    expect(again.statusCode, again.body).toBe(200);
+    expect(await audits()).toHaveLength(2);
+    expect(await configVersion()).toBe(held + 2);
+  });
+
+  it('[01a v2.7.5 #204 MD-5] the snapshot always carries engine_settings.max_delay_default_ms, an explicit null kept (STAB-7)', async () => {
+    const held = await configVersion();
+    const directory = Number((await cloud.pool.query(`SELECT directory_version FROM tenants WHERE tenant_id = $1`, [f.tenantId])).rows[0].directory_version);
+    expect((await patchCurrent({ max_delay_default_ms: null })).statusCode).toBe(200);
+    const next = await cloud.app.inject({ method: 'GET', url: `/v1/sync/config?config_version=${held}&directory_version=${directory}`, headers: { authorization: `Bearer ${f.branchKey}` } });
+    expect(next.statusCode, next.body).toBe(200);
+    const raw = next.json().data.config.snapshot as { engine_settings: Record<string, unknown> };
+    expect('max_delay_default_ms' in raw.engine_settings).toBe(true);
+    expect(BranchConfigSnapshotSchemaV4.parse(raw).engine_settings.max_delay_default_ms).toBeNull();
   });
 
   it('[01b B-6] returns_boost takes a boolean only', async () => {
@@ -337,6 +395,7 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
       served_estimate_ms: null,
       ready_window_ms: 60_000, // 03b A-1
       kds_offline_ms: 30_000, // 03b A-1
+      show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §5.2a PT-1 (STAB-5)
       order_abandon_ms: 7_200_000,
       table_lock_ttl_ms: 120_000,
       returns_boost: false,

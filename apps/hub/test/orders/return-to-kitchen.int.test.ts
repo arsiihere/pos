@@ -314,6 +314,20 @@ describe('ReturnToKitchen (02b §6.7, §3.8)', () => {
     expect(lineOf(o1, 'R1')).toMatchObject({ return_of: 'N1', billed_minor: 0 });
   });
 
+  it('[02b v1.0.24 §3.2 step 4b, #58] fix and remake copy the served line\'s ItemAdded.max_delay_ms, never the item\'s config value after a change (D25; STAB-7)', async () => {
+    open();
+    const order_id = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'N1', item_id: FX.naan, item: { max_delay_ms: 600_000 } }] }).order_id;
+    cookAndServe(order_id, 'N1');
+    const old = branchConfig()!;
+    const next = { ...old, config_version: old.config_version + 1, items: old.items.map((i) => (i.item_id === FX.naan ? { ...i, max_delay_ms: 120_000 } : i)) };
+    hub.deps.writer.run((tx) => runBranchConfigHooks(old, next, tx));
+    swapBranchConfig({ config: next, snapshotHash: 'e'.repeat(64), configVersion: next.config_version, snapshotSchemaVersion: 4, appliedAt: hub.clock.branchNow() });
+    const remake = await ret(signIn('S_TAKER'), { order_item_id: 'N1', return_order_item_id: 'R1', mode: 'remake' });
+    expect(remake.status).toBe(200);
+    expect(remake.events[1]!.payload).toMatchObject({ order_item_id: 'R1', max_delay_ms: 600_000 });
+    expect(engine().lines.R1!.max_delay_ms).toBe(600_000);
+  });
+
   it('[02b #25] a second return while the first is open → 409 RETURN_ALREADY_OPEN, nothing appended; after the replacement is served a fix is accepted again', async () => {
     open();
     const o1 = servedNaan();

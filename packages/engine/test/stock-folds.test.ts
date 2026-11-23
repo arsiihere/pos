@@ -458,7 +458,10 @@ describe('@pos/engine stock folds (§3.7)', () => {
     expect(s2.stations.S1!.profile).toEqual({ t: [T, T + COOK, T + 2 * COOK], u: [3, 2, 0] });
   });
 
-  it('[03a §3.5.3] a partial void of a line in a hidden batch load re-forms the load at the lower units (old booking removed exactly)', () => {
+  // ⚠️ 03a v1.2.10 §3.3 BQ-4 (b) (STAB-6; v1.2.8 row 8, m-12): rewritten from "re-forms the load at the lower units":
+  // the hidden load is no longer re-formed; it keeps its name and its place in the queue (re-placed whole by BQ-2) at
+  // the lower units, and its old booking is removed exactly.
+  it('[03a §3.5.3, BQ-4 (b)] a partial void of a line in a hidden batch load keeps the load\'s name and place at the lower units (old booking removed exactly)', () => {
     // Fryer capacity 2: B1 × 3 needs two rounds; a delivery picked up in an hour keeps the load hidden.
     const a = submitB(fryer({ capacity: 2 }), 'OA', [{ id: 'B1', cook: 300_000, units: 3 }], T, { pickup_at_ms: T + 3_600_000 });
     const before = loadOf(a.state, 'B1')!;
@@ -466,7 +469,7 @@ describe('@pos/engine stock folds (§3.7)', () => {
     const s1 = fold([voidB('OA', 'B1', 1, T + 10)], a.state);
     const after = loadOf(s1, 'B1')!;
     expect(s1.lines.B1).toMatchObject({ units: 2, load_id: 'F:B1', fire_ms: after.fire_ms });
-    expect(after).toMatchObject({ load_id: 'F:B1', order_item_ids: ['B1'] });
+    expect(after).toMatchObject({ load_id: before.load_id, order_item_ids: ['B1'] });
     expect(after.booked.end - after.booked.start).toBe(300_000); // one round now
     expect(s1.stations.F!.profile).toEqual({ t: [after.booked.start, after.booked.end], u: [2, 0] });
     expect(s1.orders.OA!.groups['OA:0']!.target_land_ms).toBe(a.state.orders.OA!.groups['OA:0']!.target_land_ms);

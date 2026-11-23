@@ -16,6 +16,7 @@ export const ENGINE_REPLAY_EVENTS = {
     'ItemsReleased',
     'SlipWarned',
     'AlertClosed',
+    'LinePrioritized', // ⚠️ 03a v1.2.10 §3.5.7 PR-4, §3.12 (STAB-7)
   ],
   station: ['FireDispatched', 'ReservationsShifted', 'EngineConfigApplied', 'StationCapacitySet', 'StationPauseSet'],
   // 03a v1.2 Q-5: StockTransferredOut (02b zone refill), folded as a negative StockAdded.

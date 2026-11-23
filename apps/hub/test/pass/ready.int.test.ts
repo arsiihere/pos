@@ -198,8 +198,10 @@ async function send(who: Who, type: keyof typeof PATHS, payload: Record<string, 
         ).map(({ p, ...rest }) => ({ ...rest, payload: JSON.parse(p) as Record<string, unknown> }));
   return { status: res.statusCode, result: body.data?.result, events, ...(body.error === undefined ? {} : { error: { code: body.error.code, details: body.error.details } }) };
 }
-const ready = (who: Who, order_id: string, o: { counted?: boolean; point_id?: string } = {}) =>
-  send(who, o.counted === true ? 'TestMarkReadyCounted' : 'MarkReadyToServe', { order_id, point_id: o.point_id ?? POINT });
+const ready = (who: Who, order_id: string, o: { counted?: boolean; point_id?: string; ids?: string[] } = {}) =>
+  send(who, o.counted === true ? 'TestMarkReadyCounted' : 'MarkReadyToServe', { order_id, point_id: o.point_id ?? POINT, ...(o.ids === undefined ? {} : { order_item_ids: o.ids }) });
+const stage = (id: string): string => engine().lines[id]!.stage;
+const naan = (n = 1) => ({ name: 'Naan', quantity: n, state: 'ready' });
 const undo = (who: Who, order_id: string, o: { counted?: boolean; point_id?: string } = {}) =>
   send(who, o.counted === true ? 'TestUndoReadyCounted' : 'UndoReadyToServe', { order_id, point_id: o.point_id ?? POINT });
 
@@ -214,7 +216,7 @@ async function cardFrame(ws: WsClient, alert_id: string): Promise<Record<string,
 // ------------------------------------------------------------------------------------------- MarkReadyToServe
 
 describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
-  it('[03b #20] dine-in → table_team direct on the current primary table, window_ms from settings; the alert row and the card frame carry details.identifier; second tap { already: true }; 4 statements', async () => {
+  it('[03b #20, #77] dine-in → table_team direct on the current primary table, window_ms from settings; the alert row and the card frame carry details.identifier and lines; second tap { already: true }; 4 statements', async () => {
     openDay(hub);
     withConfig((c) => ({ ...c, engine_settings: { ...c.engine_settings, ready_window_ms: 90_000 } }));
     const waiter = staffOn('S_WAIT');
@@ -222,7 +224,7 @@ describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
     const cookWho = await cookSignedIn();
     const order_id = dineIn(['L1', 'L2', 'L3']);
     cook(order_id, ['L1', 'L2']);
-    cook(order_id, ['L3'], { done: false }); // cooking: a live line at the point, still part of the Ready
+    cook(order_id, ['L3'], { done: false }); // ⚠️ 03b v1.0.10 (#77): cooking, so left out with no order_item_ids
 
     const reply = await ready(cookWho, order_id, { counted: true });
     expect(reply.status, JSON.stringify(reply.error)).toBe(200);
@@ -235,24 +237,46 @@ describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
     expect(types[types.length - 1]).toBe('ReadyToServe');
     const readyEvent = reply.events.find((e) => e.event_type === 'ReadyToServe')!;
     expect(readyEvent).toMatchObject({ stream_type: 'order', stream_id: order_id, actor_id: COOK.staff, device_id: cookWho.deviceId });
-    expect(readyEvent.payload).toEqual({ order_id, point_id: POINT, order_item_ids: ['L1', 'L2', 'L3'], table_id: FX.table, alert_id });
+    expect(readyEvent.payload).toEqual({ order_id, point_id: POINT, order_item_ids: ['L1', 'L2'], added_ids: ['L1', 'L2'], forced_ids: [], table_id: FX.table, alert_id });
+    expect(stage('L3')).toBe('cooking');
 
     const row = alertRow(alert_id);
     expect(row).toMatchObject({ kind: 'ready_to_serve', state: 'open', subject_stream_type: 'order', subject_stream_id: order_id, dedupe_key: `${order_id}:${POINT}:${FX.table}` });
     expect(JSON.parse(row.target_json)).toEqual({ kind: 'table_team', table_id: FX.table, depth: 'direct' });
     expect(JSON.parse(row.values_json)).toEqual({ order_id, point_id: POINT, table_id: FX.table, window_ms: 90_000 });
     expect(JSON.parse(row.display_json)).toMatchObject({ table_code: null, point_code: 'Pass', kind_label_key: 'alert.ready_to_serve' });
-    expect(JSON.parse(row.details_json!)).toEqual({ identifier: 'T2' });
+    expect(JSON.parse(row.details_json!)).toEqual({ identifier: 'T2', lines: [naan(), naan()] });
     expect(passOrder(order_id)).toMatchObject({ ready_by: COOK.staff, ready_alert_id: alert_id, ready_table_id: FX.table });
 
     const card = await cardFrame(ws, alert_id);
-    expect((card.card as { details: unknown }).details).toEqual({ identifier: 'T2' });
+    expect((card.card as { details: unknown }).details).toEqual({ identifier: 'T2', lines: [naan(), naan()] });
 
     const before = eventCount();
     const again = await ready(cookWho, order_id);
     expect(again.status).toBe(200);
     expect(again.result).toEqual({ alert_id, already: true });
     expect(eventCount()).toBe(before);
+  });
+
+  it('[03b v1.0.11 §3.5 step 5, #85] a split line\'s parts are one card entry with the summed units; separate lines stay apart; statements unchanged', async () => {
+    openDay(hub);
+    const cookWho = await cookSignedIn();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    const part = (order_item_id: string, part_of: string) => ({ order_item_id, item_id: FX.naan, item: { part_of } });
+    const order_id = appendOrder(hub, {
+      order_type: 'dine_in',
+      seating_id: 'SEAT1',
+      lines: [part('N', 'N'), part('N-p2', 'N'), { order_item_id: 'K', item_id: FX.piece }, part('N-p3', 'N'), { order_item_id: 'M', item_id: FX.naan }],
+    }).order_id;
+    cook(order_id, ['N', 'N-p2', 'N-p3', 'M']);
+    cook(order_id, ['K']);
+    const reply = await ready(cookWho, order_id, { counted: true });
+    expect(reply.status, JSON.stringify(reply.error)).toBe(200);
+    expect(lastStatements).toBe(4);
+    expect(JSON.parse(alertRow(reply.result!.alert_id as string).details_json!)).toEqual({
+      identifier: 'T2',
+      lines: [naan(3), { name: 'Chicken Karahi', quantity: 1, state: 'ready' }, naan()],
+    });
   });
 
   it('[03b #20] all-digit table name → table_code and identifier "T4"; default window_ms 60 000', async () => {
@@ -264,7 +288,7 @@ describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
     const reply = await ready(cookWho, order_id);
     const row = alertRow(reply.result!.alert_id as string);
     expect(JSON.parse(row.display_json)).toMatchObject({ table_code: '4' });
-    expect(JSON.parse(row.details_json!)).toEqual({ identifier: 'T4' });
+    expect(JSON.parse(row.details_json!)).toEqual({ identifier: 'T4', lines: [naan()] });
     expect(JSON.parse(row.values_json)).toMatchObject({ window_ms: 60_000 });
   });
 
@@ -284,11 +308,11 @@ describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
     expect(JSON.parse(row.target_json)).toEqual({ kind: 'person', staff_id: 'S_CASH' });
     expect(JSON.parse(row.values_json)).toEqual({ order_id, point_id: POINT, table_id: '', window_ms: 60_000 });
     expect(row.dedupe_key).toBe(`${order_id}:${POINT}:-`);
-    expect(JSON.parse(row.details_json!)).toEqual({ identifier: '#1' });
+    expect(JSON.parse(row.details_json!)).toEqual({ identifier: '#1', lines: [naan()] });
     expect(JSON.parse(row.display_json)).toMatchObject({ table_code: null, point_code: 'Pass' });
     expect(reply.events.find((e) => e.event_type === 'ReadyToServe')!.payload).toMatchObject({ table_id: null, alert_id });
     const card = await cardFrame(ws, alert_id);
-    expect((card.card as { details: unknown }).details).toEqual({ identifier: '#1' });
+    expect((card.card as { details: unknown }).details).toEqual({ identifier: '#1', lines: [naan()] });
   });
 
   it('[03b §3.5 step 2] ready lines leave out served and handed-over lines; none left → ITEM_WRONG_STAGE { stage: served }', async () => {
@@ -322,6 +346,72 @@ describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
     expect((await ready(cookWho, 'O_NONE')).error).toMatchObject({ code: 'ORDER_NOT_IN_ENGINE', details: { order_id: 'O_NONE' } });
     withConfig((c) => ({ ...c, points: c.points.map((p) => ({ ...p, is_archived: true })) }));
     expect((await ready(cookWho, order_id)).error).toMatchObject({ code: 'POINT_NOT_FOUND', details: { point_id: POINT } });
+  });
+
+  it('[03b #77] no done line and no open Ready, no order_item_ids → ITEM_WRONG_STAGE { order_id, stage } of the first line, nothing written', async () => {
+    openDay(hub);
+    const cookWho = await cookSignedIn();
+    const order_id = takeaway(['L1', 'L2']);
+    cook(order_id, ['L1'], { done: false });
+    const before = eventCount();
+    const reply = await ready(cookWho, order_id);
+    expect(reply.status).toBe(409);
+    expect(reply.error).toEqual({ code: 'ITEM_WRONG_STAGE', details: { order_id, stage: 'cooking' } });
+    expect(eventCount()).toBe(before);
+  });
+
+  it('[03b #78] order_item_ids with a cooking and a not-started line: ItemDone (tap) for each before the Ready, no early-Done confirm; ReadyToServe v2 forced_ids; a bad id → ITEM_WRONG_STAGE { order_item_id, stage }, nothing written', async () => {
+    openDay(hub);
+    const cookWho = await cookSignedIn();
+    const order_id = takeaway(['L1', 'L2', 'L3', 'L4']);
+    cook(order_id, ['L1']);
+    cook(order_id, ['L2'], { done: false }); // cooking, far below half its cook time
+    serveLines(hub, order_id, ['L4']);
+
+    const before = eventCount();
+    const bad = await ready(cookWho, order_id, { ids: ['L1', 'L4'] });
+    expect(bad.status).toBe(409);
+    expect(bad.error).toEqual({ code: 'ITEM_WRONG_STAGE', details: { order_item_id: 'L4', stage: 'served' } });
+    expect((await ready(cookWho, order_id, { ids: ['L_NONE'] })).error).toMatchObject({ code: 'ITEM_WRONG_STAGE', details: { order_item_id: 'L_NONE' } });
+    expect(eventCount()).toBe(before);
+
+    const reply = await ready(cookWho, order_id, { ids: ['L1', 'L2', 'L3', 'L2'] });
+    expect(reply.status, JSON.stringify(reply.error)).toBe(200);
+    expect(reply.result).toEqual({ alert_id: reply.result!.alert_id, forced: ['L2', 'L3'] });
+    const types = reply.events.map((e) => e.event_type);
+    const dones = reply.events.filter((e) => e.event_type === 'ItemDone');
+    expect(dones.map((e) => e.payload)).toEqual([
+      { order_item_id: 'L2', done_at: hub.clock.branchNow(), source: 'tap' },
+      { order_item_id: 'L3', done_at: hub.clock.branchNow(), source: 'tap' },
+    ]);
+    expect(types.indexOf('ItemDone')).toBeLessThan(types.indexOf('ReadyToServe'));
+    expect(reply.events.find((e) => e.event_type === 'ReadyToServe')!.payload).toMatchObject({ order_item_ids: ['L1', 'L2', 'L3'], added_ids: ['L1', 'L2', 'L3'], forced_ids: ['L2', 'L3'] });
+    expect([stage('L1'), stage('L2'), stage('L3')]).toEqual(['done', 'done', 'done']);
+  });
+
+  it('[03b #79] extend: an open Ready of L1, L2 and a press picking L3 → old alert closed overridden, one new alert (dedupe <base>:+L3) listing L1–L3; picking L1 again → already', async () => {
+    openDay(hub);
+    const cookWho = await cookSignedIn();
+    const order_id = takeaway(['L1', 'L2', 'L3']);
+    cook(order_id, ['L1', 'L2']);
+    const first = (await ready(cookWho, order_id)).result!.alert_id as string;
+    cook(order_id, ['L3']);
+
+    const reply = await ready(cookWho, order_id, { ids: ['L3'], counted: true });
+    expect(reply.status, JSON.stringify(reply.error)).toBe(200);
+    expect(lastStatements).toBe(3);
+    const second = reply.result!.alert_id as string;
+    expect(second).not.toBe(first);
+    expect(alertRow(first)).toMatchObject({ state: 'closed', close_reason: 'overridden' });
+    expect(alertRow(second)).toMatchObject({ state: 'open', dedupe_key: `${order_id}:${POINT}:-:+L3` });
+    expect(JSON.parse(alertRow(second).details_json!)).toEqual({ identifier: '#1', lines: [naan(), naan(), naan()] });
+    expect(reply.events.find((e) => e.event_type === 'ReadyToServe')!.payload).toMatchObject({ order_item_ids: ['L1', 'L2', 'L3'], added_ids: ['L3'], forced_ids: [], alert_id: second });
+    expect(passOrder(order_id)).toMatchObject({ ready_alert_id: second });
+
+    const before = eventCount();
+    const again = await ready(cookWho, order_id, { ids: ['L1'] });
+    expect(again.result).toEqual({ alert_id: second, already: true });
+    expect(eventCount()).toBe(before);
   });
 
   it('[03b #28] a station session calling MarkReadyToServe / UndoReadyToServe → PERMISSION_DENIED { session_kind: station }; staff without run-pass → PERMISSION_DENIED', async () => {
@@ -361,12 +451,12 @@ describe('UndoReadyToServe (03b §3.5, §6.7)', () => {
     const before = eventCount();
     const reply = await undo(cookWho, order_id, { counted: true });
     expect(reply.error).toEqual({ code: 'PASS_UNDO_WINDOW_CLOSED', details: { order_id, point_id: POINT } });
-    expect(lastStatements).toBe(2);
+    expect(lastStatements).toBe(2); // refused before the 03b v1.0.10 forced_ids read
     expect(eventCount()).toBe(before);
     expect(alertRow(alert_id).state).toBe('open');
   });
 
-  it('[03b #23] ≤ 30 s → ReadyToServeUndone + alert closed undone; 2 statements; the Ready is gone', async () => {
+  it('[03b #23] ≤ 30 s → ReadyToServeUndone + alert closed undone; 3 statements (03b v1.0.10: + the latest ReadyToServe); the Ready is gone', async () => {
     openDay(hub);
     const cookWho = await cookSignedIn();
     const order_id = takeaway(['L1']);
@@ -376,7 +466,7 @@ describe('UndoReadyToServe (03b §3.5, §6.7)', () => {
 
     const reply = await undo(cookWho, order_id, { counted: true });
     expect(reply.status, JSON.stringify(reply.error)).toBe(200);
-    expect(lastStatements).toBe(2);
+    expect(lastStatements).toBe(3);
     expect(reply.result).toEqual({ alert_id });
     expect(reply.events.map((e) => e.event_type)).toEqual(['ReadyToServeUndone', 'AlertClosed']);
     expect(reply.events[0]!.payload).toEqual({ order_id, point_id: POINT, alert_id });
@@ -387,6 +477,50 @@ describe('UndoReadyToServe (03b §3.5, §6.7)', () => {
     // a fresh Ready after the undo raises a new alert
     const again = await ready(cookWho, order_id);
     expect(again.result!.alert_id).not.toBe(alert_id);
+  });
+
+  it('[03b #80] a Ready that forced L2 (cooking) and L3 (not started): Undo → ItemDoneUndone for both (back to cooking), ReadyToServeUndone, alert closed undone; L1 stays done', async () => {
+    openDay(hub);
+    const cookWho = await cookSignedIn();
+    const order_id = takeaway(['L1', 'L2', 'L3']);
+    cook(order_id, ['L1']);
+    cook(order_id, ['L2'], { done: false });
+    const alert_id = (await ready(cookWho, order_id, { ids: ['L1', 'L2', 'L3'] })).result!.alert_id as string;
+
+    const reply = await undo(cookWho, order_id);
+    expect(reply.status, JSON.stringify(reply.error)).toBe(200);
+    expect(reply.events.map((e) => e.event_type)).toEqual(['ItemDoneUndone', 'ItemDoneUndone', 'ReadyToServeUndone', 'AlertClosed']);
+    expect(reply.events.slice(0, 2).map((e) => e.payload)).toEqual([{ order_item_id: 'L2' }, { order_item_id: 'L3' }]);
+    expect(alertRow(alert_id)).toMatchObject({ state: 'closed', close_reason: 'undone' });
+    expect([stage('L1'), stage('L2'), stage('L3')]).toEqual(['done', 'cooking', 'cooking']);
+  });
+
+  it('[03b #80] Undo after an extending press takes back only that press: alert closed undone, a new alert for L1, L2, ReadyToServe { [L1, L2], added_ids [L1, L2] }, the forced L3 back to cooking; a second Undo → ReadyToServeUndone', async () => {
+    openDay(hub);
+    const cookWho = await cookSignedIn();
+    const order_id = takeaway(['L1', 'L2', 'L3']);
+    cook(order_id, ['L1', 'L2']);
+    await ready(cookWho, order_id);
+    cook(order_id, ['L3'], { done: false });
+    const extended = (await ready(cookWho, order_id, { ids: ['L3'] })).result!.alert_id as string;
+
+    const reply = await undo(cookWho, order_id);
+    expect(reply.status, JSON.stringify(reply.error)).toBe(200);
+    const types = reply.events.map((e) => e.event_type);
+    expect(types).not.toContain('ReadyToServeUndone');
+    expect(types[0]).toBe('ItemDoneUndone');
+    expect(alertRow(extended)).toMatchObject({ state: 'closed', close_reason: 'undone' });
+    const rest = reply.events.find((e) => e.event_type === 'ReadyToServe')!.payload;
+    expect(rest).toMatchObject({ order_item_ids: ['L1', 'L2'], added_ids: ['L1', 'L2'], forced_ids: [] });
+    const fresh = rest.alert_id as string;
+    expect(reply.result).toEqual({ alert_id: fresh });
+    expect(alertRow(fresh)).toMatchObject({ state: 'open', dedupe_key: `${order_id}:${POINT}:-:-L3` });
+    expect(JSON.parse(alertRow(fresh).details_json!)).toEqual({ identifier: '#1', lines: [naan(), naan()] });
+    expect(stage('L3')).toBe('cooking');
+
+    const second = await undo(cookWho, order_id);
+    expect(second.events.map((e) => e.event_type)).toEqual(['ReadyToServeUndone', 'AlertClosed']);
+    expect(alertRow(fresh)).toMatchObject({ state: 'closed', close_reason: 'undone' });
   });
 
   it('[03b #23] later than 30 s, no open Ready, or a Handover since → PASS_UNDO_WINDOW_CLOSED, nothing written', async () => {

@@ -212,7 +212,7 @@ function withOrder(s: EngineState, o: { order_id: string; placed_at: number; ord
     last_served_at: null,
     last_line_fold_at: o.placed_at,
     next_group_index: 1,
-    groups: { [`${o.order_id}:0`]: { target_land_ms: o.placed_at + 3_600_000, line_ids: [] } },
+    groups: { [`${o.order_id}:0`]: { target_land_ms: o.placed_at + 3_600_000, line_ids: [], priority_land_ms: null, priority_delay_ms: null } }, // v5 (03a v1.2.10)
   };
   return { ...s, orders: { ...s.orders, [o.order_id]: order } };
 }
@@ -261,6 +261,9 @@ function withLine(s: EngineState, p: Placed): EngineState {
     expedited: false,
     rounds: null,
     done_undone: false,
+    max_delay_ms: null, // v5 (03a v1.2.10 §3.3)
+    priority_at: null,
+    arrived_at: s.orders[p.order]!.placed_at,
   };
   const st = s.stations[station_id]!;
   const order = s.orders[p.order]!;

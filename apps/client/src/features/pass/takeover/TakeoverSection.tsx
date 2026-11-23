@@ -10,6 +10,7 @@ import { LaneControl } from '../../kds/header/LaneControl';
 import { lineActions, onSlotsChanged, runSlotAction, type SlotAction } from '../../kds/slots';
 import { LineRow } from '../../kds/station/LineRow';
 import { NextColumn } from '../../kds/station/NextColumn';
+import { groupNow, roundsOf } from '../../kds/station/parts';
 import { nowOrder } from '../../kds/station/StationView';
 import type { KdsStoreImpl } from '../../kds/store';
 
@@ -20,7 +21,8 @@ import type { KdsStoreImpl } from '../../kds/store';
 // the rows only. The row's slot actions (03c Reprint) are asked with surface 'takeover' and the takeover body's
 // `has_printer` (kept by `station_notice { kind: 'output' }`); K2's LineRow asks its own with surface 'kds', so it is
 // given `hasPrinter={false}` here and this section renders the takeover actions itself. A slot run is one at a time
-// per row (ref guard); its toast goes to the page's toast bus. Re-renders on notifySlots.
+// per row (ref guard); its toast goes to the page's toast bus. Re-renders on notifySlots. 03b v1.0.11 §3.6 (STAB-5):
+// the rows group a split line's parts as the KDS (§3.3); a grouped row's tap sends one command per part.
 
 export interface TakeoverSectionProps {
   store: KdsStoreImpl;
@@ -38,6 +40,7 @@ export interface TakeoverSectionProps {
 
 export function TakeoverSection({ store, name, api, canRun, archived = false, up, nowMs, utcOffsetMs, timers, onToast }: TakeoverSectionProps) {
   const view = useSyncExternalStore(store.subscribe, store.snapshot);
+  const rounds = roundsOf(view); // ⚠️ 03b v1.0.13 §3.3 (STAB-6): the takeover station's round tags
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => onSlotsChanged(rerender), []);
   const actions = useKdsActions(api, timers, () => undefined);
@@ -82,7 +85,7 @@ export function TakeoverSection({ store, name, api, canRun, archived = false, up
       </div>
       <div className="tko__b">
         <div className="kcards">
-          {nowOrder(view.rows).map((row) => {
+          {nowOrder(groupNow(view.rows)).map((row) => {
             const state = actions.stateOf(row.order_item_id);
             const slot = row.detail === null || archived ? [] : lineActions(row.detail, { station_id: station.station_id, has_printer: station.has_printer, surface: 'takeover' });
             return (
@@ -95,6 +98,7 @@ export function TakeoverSection({ store, name, api, canRun, archived = false, up
                 compact
                 stationId={station.station_id}
                 hasPrinter={false}
+                {...(row.load_id != null && row.stage !== 'done' && rounds.has(row.load_id) ? { round: rounds.get(row.load_id)! } : {})}
                 message={<InlineError msg={state.msg} />}
                 actions={
                   canRun || slot.length > 0 ? (
@@ -112,7 +116,7 @@ export function TakeoverSection({ store, name, api, canRun, archived = false, up
             );
           })}
         </div>
-        <NextColumn plan={view.plan} details={view.details} nowMs={nowMs} />
+        <NextColumn plan={view.plan} details={view.details} nowMs={nowMs} rounds={rounds} {...(view.flagged === undefined ? {} : { flagged: view.flagged })} />
       </div>
     </section>
   );

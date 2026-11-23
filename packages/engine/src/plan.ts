@@ -7,7 +7,10 @@ import { InvalidEvent } from './invalid-event.js';
 import { effectiveCapacity } from './capacity.js';
 import { liveInterval, liveProfiles } from './live.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval } from './profile.js';
-import { applyMoves, bookingAt, capacityFor, fixedProfiles, heldAfterFrozen, isFifo, isFifoLine, isHidden, pass1, placeFrozen, placementCap, sortUnfired, stationPolicy, syncOrder, type FrozenStep, type Move, type NewLine, type Placement } from './replan.js';
+import { applyMoves, bookingAt, capacityFor, combine, fixedProfiles, heldAfterFrozen, isFifo, isFifoLine, isHidden, pass1, placeFrozen, placementCap, profileOf, sortUnfired, stationPolicy, syncOrder, type FrozenStep, type Move, type NewLine, type Pass1Options, type Placement } from './replan.js';
+import { priorityCmp, priorityRank, type PriorityRank } from './priority.js';
+import { priorityTerms } from './slip.js';
+import { isHiddenUnfired } from './stock.js';
 import { chooseImmediate, rerouted, routeCtx, routeOptions, type RouteOption } from './route.js';
 import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, immediateJoin, joinAdvance, joinLine, nameLoads, placedUnderOldType, replaced, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import type { Diagnostic, EngineLine, EngineState, Load, Profile, StationRuntime } from './state.js';
@@ -384,7 +387,7 @@ function placeSequence(
   floor: number | null,
   o: SequenceOptions,
   event_id = '',
-): { placements: Map<string, Routed>; targets: number[]; fifo: Set<string>; moves: Map<string, Move>; loads: Loads; fallbacks: Pass1Result['fallbacks']; base: EngineState; frozen: FrozenStep | null; observed: PlanObserved } {
+): { placements: Map<string, Routed>; targets: number[]; fifo: Set<string>; moves: Map<string, Move>; loads: Loads; fallbacks: Pass1Result['fallbacks']; lands: Pass1Result['lands']; base: EngineState; frozen: FrozenStep | null; observed: PlanObserved } {
   const stations = state.stations;
   const ctx = routeCtx(state);
   const all = [...immediates, ...syncGroups.flat()];
@@ -395,7 +398,7 @@ function placeSequence(
   const placed = boosted === null ? null : placeReturnBoost(state, ctx, boosted, uses, t, event_id, o);
   const base = placed?.base ?? state;
   const rest = boosted === null ? all : all.filter((l) => !boosted.has(l.order_item_id));
-  const p1 = pass1(placed?.work ?? state, uses, rest, t, { prune: o.prune, strict: o.strict, ...(placed === null ? {} : { late: placed.frozen.late, held: heldAfterFrozen(placed.frozen) }) });
+  const p1 = pass1P(placed?.work ?? state, uses, rest, t, { prune: o.prune, strict: o.strict, ...(placed === null ? {} : { late: placed.frozen.late, held: heldAfterFrozen(placed.frozen) }) });
   let profiles: Record<string, Profile> = p1.profiles;
   // Task 13: the batch stations' loads after pass 1; the new lines join or form loads in them.
   let loads: Loads = { ...p1.loads };
@@ -440,7 +443,7 @@ function placeSequence(
     }
     targets.push(r.T);
   }
-  return { placements, targets, fifo, moves: p1.moves, loads, fallbacks: p1.fallbacks, base, frozen: placed?.frozen ?? null, observed: { replaced: p1.replaced, probes: p1.probes } };
+  return { placements, targets, fifo, moves: p1.moves, loads, fallbacks: p1.fallbacks, lands: p1.lands, base, frozen: placed?.frozen ?? null, observed: { replaced: p1.replaced, probes: p1.probes } };
 }
 
 // §3.8a returns_boost: the return lines of a batch placed as a boost, each with its allowed stations. AD-29 Q11 P8, owner
@@ -523,7 +526,7 @@ export function replanDisturbed(state: EngineState, station_ids: readonly string
   if (station_ids.length === 0) return state;
   const step = placeFrozen(state, station_ids, t, { strict: o.strict, oldType, ...(held === undefined ? {} : { held }) });
   const s1 = applyPass1(state, step, event_id, o.strict);
-  const p1 = pass1(s1, station_ids, [], t, { prune: false, strict: o.strict, late: step.late, held: heldAfterFrozen(step, held) });
+  const p1 = pass1P(s1, station_ids, [], t, { prune: false, strict: o.strict, late: step.late, held: heldAfterFrozen(step, held) });
   return markFrozen(applyPass1(s1, p1, event_id, o.strict), step);
 }
 
@@ -745,9 +748,127 @@ function fallbackDiagnostics(state: EngineState, fallbacks: Pass1Result['fallbac
   return { ...state, diagnostics: [...state.diagnostics, ...ds] };
 }
 
-// Pass 1's stored effect: the slot moves (applyMoves), the batch stations' loads, the reserve fallbacks.
-export function applyPass1(state: EngineState, p1: Pick<Pass1Result, 'moves' | 'loads' | 'fallbacks'>, event_id: string, strict: boolean): EngineState {
-  return fallbackDiagnostics(storeAllLoads(applyMoves(state, p1.moves, event_id, strict), p1.loads, event_id, strict), p1.fallbacks, event_id);
+// Pass 1's stored effect: the slot moves (applyMoves), the batch stations' loads, the reserve fallbacks, and (§3.5.7
+// PR-4) the priority lands its priority step set.
+export function applyPass1(state: EngineState, p1: Pick<Pass1Result, 'moves' | 'loads' | 'fallbacks'> & Partial<Pick<Pass1Result, 'lands'>>, event_id: string, strict: boolean): EngineState {
+  const next = fallbackDiagnostics(storeAllLoads(applyMoves(state, p1.moves, event_id, strict), p1.loads, event_id, strict), p1.fallbacks, event_id);
+  return p1.lands === undefined ? next : storeLands(next, p1.lands);
+}
+
+// ---- 03a v1.2.10 §3.5.7 PR-4, PR-5 (STAB-7): the priority step of a re-plan -----------------------------------------
+//
+// Before pass 1 places the hidden lines of a station, the priority groups with a hidden priority line on it are placed
+// first, in the priority order (priority.ts), each as one group: one hold-and-fire loop over the group's hidden priority
+// lines on slot stations (their own station, never re-routed: PR-9), against the fixed input (live intervals, frozen
+// lines, held lines; every hidden line out of the way) and the groups placed before it. The loop's floor is the group's
+// priority_land_ms (Sticky: never earlier), the live F(g, t) (PR-2, overruns included), the planned land of every other
+// open line of the group that does not move here (frozen, held, a batch member: re-review R-4) and the pickup (§3.9 B3).
+// Its result is the group's priority_land_ms (the first placement of a group that has none sets it, re-review m-3; a
+// later one moves it only when the loop cannot land the group by it, PR-4 "Sticky"). A group with priority lines but none
+// movable here and no priority_land_ms takes the floor (a frozen line made hidden and held by a D15 exception, test 176).
+// Proposed (implementer) readings: the loop is the hold-and-fire of a new sync group (§3.5.1 step 4), so each line lands
+// exactly at the group's land (a fit "within [d_p − max_early_ms, d_p]" at its latest end); a station of the step is not
+// pruned (D25), so no pruned line keeps capacity a priority line takes.
+export type PriorityPlan = { placed: ReadonlyMap<string, Placement>; lands: ReadonlyMap<string, { order_id: string; land: number }>; stations: ReadonlySet<string> };
+const NO_PRIORITY: PriorityPlan = { placed: new Map(), lands: new Map(), stations: new Set() };
+const NO_IDS: ReadonlySet<string> = new Set();
+
+function slotPriority(state: EngineState, l: EngineLine, t: number): boolean {
+  const st = state.stations[l.station_id];
+  return l.priority_at !== null && st !== undefined && st.type !== 'batch' && !isFifo(state, l.station_id) && isHidden(state, l, t);
+}
+
+// `late`: the frozen lines a D15 exception pushed past their deadline (placeFrozen); a priority one among them is placed
+// here (any placement is at ≥ t, so it moves only later), never by the §3.5.6 search (PR-6).
+export function priorityPlan(state: EngineState, station_ids: Iterable<string>, t: number, o: { strict: boolean; held?: ReadonlySet<string>; late?: ReadonlySet<string> }): PriorityPlan {
+  const held = o.held ?? NO_IDS;
+  const late = o.late ?? NO_IDS;
+  const movableLine = (l: EngineLine): boolean =>
+    !held.has(l.order_item_id) && (slotPriority(state, l, t) || (late.has(l.order_item_id) && l.priority_at !== null && l.booked !== null && state.stations[l.station_id]?.type !== 'batch' && !isFifo(state, l.station_id)));
+  const gids = new Map<string, string>();
+  for (const sid of new Set(station_ids)) {
+    const st = state.stations[sid];
+    if (st === undefined || st.type === 'batch') continue;
+    for (const x of st.unfired) {
+      const l = state.lines[x];
+      if (l !== undefined && (slotPriority(state, l, t) || movableLine(l))) gids.set(l.group_id, l.order_id);
+    }
+  }
+  if (gids.size === 0) return NO_PRIORITY;
+  const ranks = [...gids].map(([g, oid]) => priorityRank(state, oid, g)).filter((r): r is PriorityRank => r !== null);
+  ranks.sort(priorityCmp(state));
+  const movable = new Map<string, EngineLine[]>();
+  const stations = new Set<string>();
+  for (const r of ranks) {
+    const g = state.orders[r.first.order_id]!.groups[r.group_id]!;
+    const lines = g.line_ids.map((id) => state.lines[id]).filter((l): l is EngineLine => l !== undefined && movableLine(l));
+    movable.set(r.group_id, lines);
+    for (const l of lines) stations.add(l.station_id);
+  }
+  // Every hidden, not held line of the step's stations out of the way.
+  const live = liveProfiles(state, stations, t);
+  let profiles: Record<string, Profile> = {};
+  for (const sid of Object.keys(live)) {
+    const out = state.stations[sid]!.unfired.flatMap((x) => {
+      const l = state.lines[x];
+      return l !== undefined && l.booked !== null && !held.has(x) && (isHidden(state, l, t) || late.has(x)) ? [l.booked] : [];
+    });
+    profiles[sid] = combine(live[sid]!, profileOf(out), -1, o.strict ? undefined : () => undefined);
+  }
+  const ctx = routeCtx(state);
+  const placed = new Map<string, Placement>();
+  const lands = new Map<string, { order_id: string; land: number }>();
+  for (const r of ranks) {
+    const order = state.orders[r.first.order_id]!;
+    const g = order.groups[r.group_id]!;
+    const lines = movable.get(r.group_id)!;
+    const moving = new Set(lines.map((l) => l.order_item_id));
+    let floor = Math.max(g.priority_land_ms ?? Number.NEGATIVE_INFINITY, priorityTerms(state, order.order_id, r.group_id, t)?.fixed ?? Number.NEGATIVE_INFINITY, order.pickup_at_ms ?? Number.NEGATIVE_INFINITY);
+    for (const id of g.line_ids) {
+      const l = state.lines[id];
+      if (l === undefined || moving.has(id) || l.stage !== 'added' || l.fired_at !== null) continue;
+      // A hidden batch priority line of the group follows priority_land_ms (PR-4 batch): no floor.
+      if (l.priority_at !== null && state.stations[l.station_id]?.type === 'batch' && isHiddenUnfired(state, l, t)) continue;
+      const iv = liveInterval(state, id, t);
+      if (iv !== null) floor = Math.max(floor, iv.end + l.carry_ms);
+    }
+    if (lines.length === 0) {
+      if (g.priority_land_ms === null && floor !== Number.NEGATIVE_INFINITY) lands.set(r.group_id, { order_id: order.order_id, land: floor });
+      continue;
+    }
+    for (const l of lines) stationOf(state.stations, l);
+    const options = new Map(lines.map((l) => [l.order_item_id, [optionOwn(routeOptions(ctx, l, true), l, placementCap(state, l))]]));
+    const loop = holdAndFire(state, profiles, lines, options, t, floor === Number.NEGATIVE_INFINITY ? null : floor);
+    profiles = loop.profiles;
+    for (const l of lines) {
+      const pl = loop.placements.get(l.order_item_id)!;
+      placed.set(l.order_item_id, { fire: pl.fire, booked: pl.booked });
+    }
+    if (loop.T !== g.priority_land_ms) lands.set(r.group_id, { order_id: order.order_id, land: loop.T });
+  }
+  return { placed, lands, stations };
+}
+
+// Pass 1 with its priority step (§3.5.7 PR-4): the step's stations join the pass, so a group's lines on another station
+// move with it (the AD-11 re-loop of "Sticky").
+export function pass1P(state: EngineState, station_ids: Iterable<string>, newLines: readonly NewLine[], t: number, o: Pass1Options): Pass1Result {
+  const ids = [...station_ids];
+  const pr = priorityPlan(state, ids, t, { strict: o.strict, ...(o.held === undefined ? {} : { held: o.held }), ...(o.late === undefined ? {} : { late: o.late }) });
+  if (pr === NO_PRIORITY) return pass1(state, ids, newLines, t, o);
+  return { ...pass1(state, [...ids, ...pr.stations], newLines, t, { ...o, priority: pr }), lands: pr.lands };
+}
+
+// §3.5.7 PR-4: the groups' new priority_land_ms.
+export function storeLands(state: EngineState, lands: ReadonlyMap<string, { order_id: string; land: number }>): EngineState {
+  if (lands.size === 0) return state;
+  const orders = { ...state.orders };
+  for (const [gid, { order_id, land }] of lands) {
+    const o = orders[order_id];
+    const g = o?.groups[gid];
+    if (o === undefined || g === undefined) continue;
+    orders[order_id] = { ...o, groups: { ...o.groups, [gid]: { ...g, priority_land_ms: land } } };
+  }
+  return { ...state, orders };
 }
 
 // Books new lines (AD-7: `booked` on the line, added to the stored profile; fire_ms set) and re-sorts `unfired`
@@ -862,7 +983,7 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
   }
   const moved = applyMoves(placed.base, placed.moves, event_id, o.strict);
   const booked = bookNew(moved, pending, placed.placements, deadlines, event_id);
-  return markFrozen(fallbackDiagnostics(storeAllLoads(booked, placed.loads, event_id, o.strict), placed.fallbacks, event_id), placed.frozen);
+  return markFrozen(storeLands(fallbackDiagnostics(storeAllLoads(booked, placed.loads, event_id, o.strict), placed.fallbacks, event_id), placed.lands), placed.frozen);
 }
 
 // §3.5.3 triggers (D13): ItemRemoved / ItemVoided re-plan "that station", and "the group's T may move earlier,
@@ -897,7 +1018,7 @@ export function replanEnded(state: EngineState, ended: EngineLine, t: number, ev
   // §3.5.3 / AD-14: a FIFO line is never re-looped (no re-plan of older lines); its land is a floor below.
   const movable = siblings.filter((l) => isHidden(state, l, t) && !isFifo(state, l.station_id));
   const held = new Set(movable.map((l) => l.order_item_id).filter((id) => id !== ended.order_item_id));
-  const p1 = pass1(state, [ended.station_id], [], t, { prune: false, held, strict: o.strict });
+  const p1 = pass1P(state, [ended.station_id], [], t, { prune: false, held, strict: o.strict });
   let next = applyPass1(state, p1, event_id, o.strict);
   if (siblings.length === 0) return next;
 
@@ -1019,7 +1140,7 @@ export function placeExpedites(state: EngineState, ids: readonly string[], t: nu
   const ctx0 = routeCtx(state);
   const opts = new Map(ids.map((id) => [id, routeOptions(ctx0, state.lines[id]!, true)]));
   const uses = [...new Set([...opts.values()].flatMap((os) => os.map((x) => x.station_id)))];
-  const p1 = pass1(state, uses, [], t, { prune: false, held: new Set(ids), strict: o.strict });
+  const p1 = pass1P(state, uses, [], t, { prune: false, held: new Set(ids), strict: o.strict });
   let next = applyPass1(state, p1, event_id, o.strict);
   const ctx = routeCtx(next);
   for (const id of ids) {

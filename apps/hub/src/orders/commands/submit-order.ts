@@ -12,6 +12,7 @@ import { branchConfig } from '../../sync/branch-config-holder.js';
 import { requireLock } from '../../tables/lock.js';
 import { seatingOf, zoneOf } from '../../tables/reads.js';
 import { buildSubmit } from '../build-submit.js';
+import { expandParts } from '../expand-parts.js';
 import type { BuildSubmitCtx, SubmitInput } from '../contracts.js';
 import { isFoodLine } from '../food.js';
 import { zoneAlertDrafts } from '../zone-alerts.js';
@@ -47,6 +48,8 @@ export const Line = z
       .optional(),
     kitchen_note: z.string().max(80).optional(),
     from_zone: z.boolean().optional(),
+    // ⚠️ 02b v1.0.21 §6.1 (STAB-5, owner option C): the line's serve choice; wins over the order's and the item's
+    serve_mode: z.enum(['sync', 'immediate']).optional(),
   })
   .strict();
 
@@ -62,6 +65,8 @@ export const PayloadObject = z
       .strict()
       .optional(),
     order_note: z.string().max(200).optional(),
+    // ⚠️ 02b v1.0.21 §6.1 (STAB-5, owner option C): the order's serve choice for every line without its own
+    serve_mode: z.enum(['sync', 'immediate']).optional(),
     // ⚠️ Changed by 05 (row Q-6), 02b v1.0.16 §6.1: takeaway only (§3.2 step 2).
     adds_to_order_id: z.string().min(1).optional(),
     lines: z.array(Line).min(1).max(40),
@@ -98,7 +103,7 @@ export function checkOrderFields(p: Pick<Payload, 'order_type' | 'table_id' | 's
 }
 
 // Every line id of the payload (lines, linked option children, deal parts and their children), in payload order.
-function payloadIds(lines: Payload['lines']): Array<{ id: string; path: Array<string | number> }> {
+function payloadIds(lines: SubmitInput['lines']): Array<{ id: string; path: Array<string | number> }> {
   const out: Array<{ id: string; path: Array<string | number> }> = [];
   const add = (id: string | undefined, path: Array<string | number>): void => {
     if (id !== undefined) out.push({ id, path: [...path, 'order_item_id'] });
@@ -124,7 +129,7 @@ interface SubmitResult {
 function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']): { events: EventDraft[]; result: SubmitResult } {
   const state = ctx.state as EngineState;
   const db = ctx.tx.db;
-  const input: SubmitInput = payload;
+  const payloadInput: SubmitInput = payload;
 
   // Step 1: an open day (O8); business_date from it.
   const dayStart = openDayStartMs(state);
@@ -150,8 +155,17 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
   // (02b v1.0.17 §3.1): the addition carries only its own payload's customer fields; nothing is copied from the root.
   const addsTo = payload.adds_to_order_id === undefined ? null : additionTarget(db, payload.adds_to_order_id, business_date);
 
-  // Step 3: ids already used (orders ∪ order_lines, or live in EngineState).
-  requireIdsFree(ctx, state, payload);
+  // 02b v1.0.20 §3.2 step 4a (STAB-5): a slot-station piece line of quantity n becomes n one-unit parts (pure, before
+  // the build); the day sale unit comes from the engine state, so no statement.
+  const itemsById = new Map(config.items.map((i) => [i.item_id, i]));
+  const dayUnits = stockUnitsOf(config);
+  const input: SubmitInput = expandParts(config, payloadInput, {
+    primary_table_id,
+    draws: (item_id) => dayDraws(state, itemsById.get(item_id)!, dayUnits),
+  });
+
+  // Step 3: ids already used (orders ∪ order_lines, or live in EngineState); ⚠️ 02b v1.0.20: the parts' ids too.
+  requireIdsFree(ctx, state, input);
 
   // §3.3 follow_up (dine-in): an order of the current seating has a served food line.
   const follow_up = payload.order_type === 'dine_in' && seatingHasServedFood(db, payload.seating_id!);
@@ -323,7 +337,7 @@ export function zoneServe(db: Database.Database, primary_table_id: string | null
 
 // §3.2 step 3 (O3): 1 statement over orders ∪ order_lines; then EngineState. The order id is reported first, then the
 // first line id in payload order.
-function requireIdsFree(ctx: CommandCtx, state: EngineState, payload: Payload): void {
+function requireIdsFree(ctx: CommandCtx, state: EngineState, payload: Pick<SubmitInput, 'order_id' | 'lines'>): void {
   const ids = payloadIds(payload.lines).map((x) => x.id);
   const rows = ctx.tx.db
     .prepare(
@@ -415,7 +429,10 @@ export function soldOutDetails(
 ): { item_id: string | null; available: number } {
   const index = lines.findIndex((l) => l.order_item_id === refusedId);
   const line = lines[index]!;
-  const earlier = new Set(lines.slice(0, index).map((l) => l.order_item_id));
+  // ⚠️ 02b v1.0.20 (STAB-5): a part's own siblings (same part_of) are not "earlier lines": the available reported is the
+  // cart line's, before any of its parts claimed ("4 ordered, 3 left" → available 3, not 0).
+  const root = line.part_of;
+  const earlier = new Set(lines.slice(0, index).filter((l) => root === undefined || l.part_of !== root).map((l) => l.order_item_id));
   const item = config.items.find((i) => i.item_id === line.item_id)!;
   const perUnit = new Map(dayDraws(state, item, configStockUnits).stock_draws.map((d) => [d.stock_item_id, d.quantity_per_sale_unit]));
   const available = Math.min(

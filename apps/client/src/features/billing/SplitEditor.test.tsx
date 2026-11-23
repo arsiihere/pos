@@ -98,6 +98,51 @@ const cols = (v: Mounted) => [...v.container.querySelectorAll<HTMLElement>('.b5-
 const colText = (c: HTMLElement) => [...c.querySelectorAll('.b5-su')].map((u) => `${u.querySelector('span')?.textContent} ${u.querySelector('.q')?.textContent}`);
 const primary = (v: Mounted) => v.container.querySelector<HTMLButtonElement>('.acts .btn--primary')!;
 
+describe('[05 v1.0.33 §8, #96] split lines in the split editor (STAB-5)', () => {
+  const part = (id: string) => ({ ...line(id, 'Karahi', 1), part_of: 'K' });
+  const parted = () => bill({ lines: [part('K'), part('K-p2'), part('K-p3'), part('K-p4'), part('K-p5'), { ...line('N', 'Naan', 2), part_of: null }] });
+  const group = (c: HTMLElement) => c.querySelector<HTMLElement>('.b5-su[data-group="K"]');
+
+  it('[05 #96] a grouped row has a count stepper in every split; + in split 2 takes two parts; Save sends part ids of one unit each', async () => {
+    const s = setup();
+    const v = await show(s, parted());
+    const [c1, c2] = cols(v);
+    expect(group(c1!)?.querySelector('.q')?.textContent).toBe('5 of 5');
+    expect(group(c2!)?.querySelector('.q')?.textContent).toBe('0 of 5');
+    // a row of one line keeps the tap-to-move unit
+    expect(colText(c1!)).toContain('Naan 2 of 2');
+    const more = () => group(cols(v)[1]!)!.querySelector<HTMLButtonElement>('button[aria-label="One more"]')!;
+    v.click(more());
+    await flush();
+    v.click(more());
+    await flush();
+    expect(group(cols(v)[0]!)?.querySelector('.q')?.textContent).toBe('3 of 5');
+    expect(group(cols(v)[1]!)?.querySelector('.q')?.textContent).toBe('2 of 5');
+    v.click(primary(v));
+    await flush();
+    const [type, payload] = s.command.mock.calls[0]!;
+    expect(type).toBe('SetSplits');
+    expect(payload).toEqual({
+      bill_ref: { bill_id: 'B7' },
+      mode: 'items',
+      splits: [
+        { split_no: 1, lines: [{ order_item_id: 'K', units: 1 }, { order_item_id: 'K-p2', units: 1 }, { order_item_id: 'K-p3', units: 1 }, { order_item_id: 'N', units: 2 }] },
+        { split_no: 2, lines: [{ order_item_id: 'K-p4', units: 1 }, { order_item_id: 'K-p5', units: 1 }] },
+      ],
+    });
+  });
+
+  it('[05 #96] − returns a part to the not-placed pool; the pool row says how many are left', async () => {
+    const v = await show(setup(), parted());
+    const splits = () => [...v.container.querySelectorAll<HTMLElement>('.b5-scol:not(.add):not(.pool)')];
+    v.click(group(splits()[0]!)!.querySelector<HTMLButtonElement>('button[aria-label="One less"]')!);
+    await flush();
+    expect(group(splits()[0]!)?.querySelector('.q')?.textContent).toBe('4 of 5');
+    const pool = v.container.querySelector<HTMLElement>('.b5-scol.pool')!;
+    expect(group(pool)?.querySelector('.q')?.textContent).toBe('1 of 5');
+  });
+});
+
 describe('[05 §8 Splits; §6.5] split editor (task 36)', () => {
   it('by items: every open unit starts in split 1 with an empty split 2; tap an item then a split moves one unit ("3 of 6")', async () => {
     const s = setup();

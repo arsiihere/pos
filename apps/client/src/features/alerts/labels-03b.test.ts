@@ -130,6 +130,8 @@ describe('03b / 03c alert labels (A5)', () => {
 
     expect(closedText03b('printer_problem', { close_reason: 'done', problem: 'ticket_not_built' })).toBe('Dismissed');
     expect(closedText03b('printer_problem', { close_reason: 'done', problem: 'ticket_not_built' })).not.toMatch(/·/);
+    // 03b v1.0.10 §3.5 step 3 (STAB-2): an extended Ready's earlier card closes overridden → "Updated"
+    expect(closedText03b('ready_to_serve', { close_reason: 'overridden' })).toBe('Updated — see the newer card');
   });
 
   it('[03c §6.12] 404 ALERT_NOT_FOUND / 409 ALERT_ALREADY_CLOSED → card refreshed', async () => {

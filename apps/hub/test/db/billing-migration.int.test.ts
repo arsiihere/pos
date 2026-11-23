@@ -176,7 +176,7 @@ describe('[05 v1.0.11 §5, R-56] hub migration 0024_billing_payments_shift', () 
 
   it('[05 v1.0.11 §5, R-56] a fresh database and a database at 23 both end at 25 (0024 adds the index); re-run is a no-op', async () => {
     const fresh = await migrated();
-    expect(fresh.pragma('user_version', { simple: true })).toBe(25); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+    expect(fresh.pragma('user_version', { simple: true })).toBe(26); // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     expect(names(fresh, 'index')).toContain('bill_payments_shift');
 
     const fx = freshDb();
@@ -212,7 +212,7 @@ describe('[05 v1.0.24 §5, R-85] hub migration 0025_billing_z_reports_key', () =
     insert(db, 'z_reports', { business_date: '2026-11-20', z_no: 2, issued_at: 2, report_json: '{"a":2}' });
     const before = db.prepare('SELECT * FROM z_reports ORDER BY z_no').all();
     const result = await runMigrations(db, { dir: migrations, clock: fixedClock(T) });
-    expect(result).toEqual({ from: 24, to: 25, applied: [Z_KEY_MIGRATION] });
+    expect(result).toEqual({ from: 24, to: 26, applied: [Z_KEY_MIGRATION, '0026_order_line_part_of.sql'] }); // +0026 (02b v1.0.20, STAB-5)
     expect(db.prepare('SELECT * FROM z_reports ORDER BY z_no').all(), 'rows kept').toEqual(before);
     const pk = (db.pragma('table_info(z_reports)') as Array<{ name: string; pk: number }>).filter((c) => c.pk > 0).map((c) => c.name);
     expect(pk).toEqual(['z_no']);
@@ -222,7 +222,7 @@ describe('[05 v1.0.24 §5, R-85] hub migration 0025_billing_z_reports_key', () =
     insert(db, 'z_reports', { business_date: '2026-11-20', z_no: 3, issued_at: 3, report_json: '{}' }); // same date, next Z
     expect(() => insert(db, 'z_reports', { business_date: '2026-11-21', z_no: 3, issued_at: 4, report_json: '{}' })).toThrow(/UNIQUE constraint failed: z_reports.z_no/);
     expect(lf(readFileSync(billingMigrationPath, 'utf8')), '0023 never edited').not.toMatch(/z_reports_day/);
-    expect(await runMigrations(db, { dir: migrations, clock: fixedClock(T + 1) })).toEqual({ from: 25, to: 25, applied: [] });
+    expect(await runMigrations(db, { dir: migrations, clock: fixedClock(T + 1) })).toEqual({ from: 26, to: 26, applied: [] });
   });
 });
 
@@ -515,6 +515,7 @@ const auditCheckpoint = (db: Database.Database): number | undefined =>
 /** Back to a pre-0023 hub (as 0022 left it): 0023's tables gone, its checksum row gone, user_version 22; checkpoints kept. */
 function toPre0023(db: Database.Database): void {
   dropBilling0023(db);
+  db.exec('ALTER TABLE order_lines DROP COLUMN part_of'); // 0026 (02b v1.0.20, STAB-5) runs after it
   db.prepare('DELETE FROM migration_checksums WHERE version >= 23').run();
   db.pragma('user_version = 22');
 }
@@ -542,7 +543,7 @@ describe('[05 #87 rebuild half] [04 v1.0.7 V-3] 0023 deletes the audit checkpoin
     let live: Row[] = [];
     await bootOnce(configPath, WALL + 30_000, (deps) => {
       const db = deps.db;
-      expect(db.pragma('user_version', { simple: true })).toBe(25); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+      expect(db.pragma('user_version', { simple: true })).toBe(26); // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
       const rows = auditRows(db);
       expect(rows.filter((r) => r['action'] === 'bill_requested').map((r) => r['seq']), 'the old BillRequested is in the log').toEqual(oldBillRequested);
       expect(rows.filter((r) => r['action'] !== 'bill_requested'), 'every earlier row, column for column').toEqual(before);

@@ -85,10 +85,12 @@ function show(s: ReturnType<typeof shellWith>) {
     </ShellContext.Provider>,
   );
 }
+const salad = () => m.container.querySelector('.pl[data-id="SALAD"]')!;
 const actsOf = (id: string) => [...(m.container.querySelector(`.pl[data-id="${id}"] .pl__a`)?.querySelectorAll('button') ?? [])].map((b) => b.textContent);
 
 describe('[03b Q-45] screenless lines on the Pass', () => {
-  it('[03b Q-45] Start / Done (and Undo) only on lines of screenless stations; "Not due yet" for a line not fired', async () => {
+  // ⚠️ 03b v1.0.10 (STAB-3, #81): Start / Done on every station's lines, not only screenless ones
+  it('[03b Q-45, #81] Start / Done (and Undo) on lines of every station; "Not due yet" for a line not fired', async () => {
     const view: PointViewBody = {
       point_id: 'PT',
       stations: [st('COLD', true), st('TANDOOR', false), st('KARAHI')],
@@ -102,15 +104,15 @@ describe('[03b Q-45] screenless lines on the Pass', () => {
     });
     show(s);
     expect(actsOf('SALAD')).toEqual(['Start', 'Done']);
-    expect(actsOf('NAAN')).toEqual([]);
-    expect(actsOf('KARAHI')).toEqual([]); // no screenless flag (before HK2): nothing
-    m.click(m.button('Start'));
+    expect(actsOf('NAAN')).toEqual(['Start', 'Done']); // a station with a screen too (tandoor, #81)
+    expect(actsOf('KARAHI')).toEqual(['Start', 'Done']);
+    m.click(m.button('Start', salad()));
     await flush();
     expect(s.sent[0]).toMatchObject({ type: 'StartItem', payload: { order_item_id: 'SALAD' } });
     expect(m.container.querySelector('.pc__msg.c-warn')?.textContent).toBe('Not due yet');
 
     // fired now: Start → the ItemStarted frame → Done only
-    m.click(m.button('Start'));
+    m.click(m.button('Start', salad()));
     await flush();
     s.live.frame({ type: 'event', seq: 2, event: { event_id: 'E2', event_type: 'ItemStarted', schema_version: 1, payload: { order_item_id: 'SALAD' } } });
     await flush();
@@ -119,12 +121,12 @@ describe('[03b Q-45] screenless lines on the Pass', () => {
     expect(m.container.querySelector('.pc__msg')).toBeNull();
 
     // Done → frame → Undo with the time left; after the window the hub refuses → "Too late to undo"
-    m.click(m.button('Done'));
+    m.click(m.button('Done', salad()));
     await flush();
     s.live.frame({ type: 'event', seq: 3, event: { event_id: 'E3', event_type: 'ItemDone', schema_version: 1, payload: { order_item_id: 'SALAD' } } });
     await flush();
     expect(actsOf('SALAD')).toEqual(['Undo 0:30']);
-    m.click(m.button('Undo'));
+    m.click(m.button('Undo', salad()));
     await flush();
     expect(s.sent.map((c) => c.type)).toEqual(['StartItem', 'StartItem', 'DoneItem', 'UndoDone']);
     expect(m.container.querySelector('.pc__msg.c-danger')?.textContent).toBe('Too late to undo');

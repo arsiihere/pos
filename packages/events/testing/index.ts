@@ -788,6 +788,20 @@ function station(eventType: string, streamId: string, payload: Record<string, un
   return { ...envelope, stream_type: 'station', stream_id: streamId, event_type: eventType, payload };
 }
 
+// 03a v1.2.10 §4.2, §3.5.7 PR-3 (STAB-7): one group's not-started lines become priority (fires_alerts writes it).
+export function aLinePrioritized(overrides?: Overrides): PosEvent {
+  return build(
+    order('LinePrioritized', ORDER_ID, {
+      order_id: ORDER_ID,
+      group_id: `${ORDER_ID}:0`,
+      order_item_ids: ['L1'],
+      delay_ms: 300_001,
+      at_ms: ORDER_TARGET + 300_001,
+    }),
+    overrides,
+  );
+}
+
 export function aFireDispatched(overrides?: Overrides): PosEvent {
   return build(
     station('FireDispatched', 'S1', {

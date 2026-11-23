@@ -135,6 +135,8 @@ export function closedText03b(
     case 'ready_to_serve':
       if (c.close_reason === 'undone') return t('alerts.closed.undone');
       if (c.close_reason === 'done') return t('alerts.closed.served');
+      // 03b v1.0.10 §3.5 step 3 (STAB-2): the Pass added items, a newer card lists them all
+      if (c.close_reason === 'overridden') return t('alerts.closed.updated');
       if (c.close_reason === 'obsolete') {
         const table = tableLabel(c.moved_to);
         return table === null ? t('alerts.closed.moved_plain') : fill(t('alerts.closed.moved'), { table });

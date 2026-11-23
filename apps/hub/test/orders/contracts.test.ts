@@ -65,6 +65,7 @@ describe('[02b §4.2] contracts', () => {
       options: Array<{ name: string; quantity: number }>; // 02b v1.0.11 §4.2 (Q-7)
       tax_profile_id: string | null; // ⚠️ 02b v1.0.16 §4.2 (05 row Q-1)
       unit_price_minor: number | null; // ⚠️ 02b v1.0.16 §4.2 (05 R-7, R-17)
+      part_of: string | null; // ⚠️ 02b v1.0.20 §5 (STAB-5): order_lines.part_of, migration 0026
     }>();
     // plan "02b exports" OrderView, plus the §5 orders columns (no contact values: has_phone only, O17).
     expectTypeOf<OrderView>().toEqualTypeOf<{
@@ -143,7 +144,8 @@ describe('[02b §4.2] contracts', () => {
         ctx: BuildSubmitCtx,
       ) => { proposed: ProposedOrder; itemAdded: ItemAddedPayload[]; zoneCandidates: string[] }
     >();
-    expectTypeOf<SubmitOption>().toEqualTypeOf<{ option_id: string; quantity: number; order_item_id?: string }>();
+    // ⚠️ 02b v1.0.20 §3.2 step 4a (STAB-5): part_of is set by expandParts only; the §6.1 zod payload (.strict) never takes it
+    expectTypeOf<SubmitOption>().toEqualTypeOf<{ option_id: string; quantity: number; order_item_id?: string; part_of?: string }>();
     // §6.1 SubmitOrder payload.
     expectTypeOf<SubmitInput>().toEqualTypeOf<{
       order_id: string;
@@ -153,21 +155,25 @@ describe('[02b §4.2] contracts', () => {
       takeaway?: { customer_name?: string; phone?: string };
       parking?: { car_number: string; car_type: 'sedan' | 'mini' | 'large'; phone?: string };
       order_note?: string;
+      serve_mode?: 'sync' | 'immediate'; // 02b v1.0.21
       lines: Array<{
         order_item_id: string;
         item_id?: string;
         deal_id?: string;
         variant_id?: string;
         quantity?: number;
-        options?: Array<{ option_id: string; quantity: number; order_item_id?: string }>;
+        options?: Array<{ option_id: string; quantity: number; order_item_id?: string; part_of?: string }>;
         deal_choices?: Array<{
           deal_part_id: string;
           item_id: string;
           order_item_id: string;
-          options?: Array<{ option_id: string; quantity: number; order_item_id?: string }>;
+          options?: Array<{ option_id: string; quantity: number; order_item_id?: string; part_of?: string }>;
+          part_of?: string; // ⚠️ 02b v1.0.22 (STAB-5): set by expandParts on a split deal's choices only
         }>;
         kitchen_note?: string;
         from_zone?: boolean;
+        part_of?: string; // 02b v1.0.20: set by expandParts only
+        serve_mode?: 'sync' | 'immediate'; // 02b v1.0.21
       }>;
     }>();
     // index.ts entry points.

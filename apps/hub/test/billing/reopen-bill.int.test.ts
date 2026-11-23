@@ -1151,3 +1151,25 @@ describe('[05 §6.9, R-73 (owner ruling, 05 v1.0.20)] AddPayment empty-close sta
     expect(handled['add-payment']).toBe(NONE_OPEN + 2 + RAISE_RESULT);
   });
 });
+
+describe('[05 v1.0.34 §3.16, #98] the credit note of a split line (STAB-5 Q7)', () => {
+  it('[05 #98] five naan parts closed and reopened: the credit copies part_of, its note prints one row "Naan -150.00" / "  5 x …"; a separate cart line stays its own row', async () => {
+    await start();
+    const parts = ['CR_N', 'CR_N-p2', 'CR_N-p3', 'CR_N-p4', 'CR_N-p5'].map((order_item_id) => ({ order_item_id, item_id: FX.naan, item: { part_of: 'CR_N' } }));
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: [...parts, { order_item_id: 'CR_W', item_id: FX.naan }] });
+    const ref = { order_id };
+    const v = await view(ref);
+    const due = v.splits[0]!.totals.cash.total_minor;
+    ok(await pay(cashier, ref, 1, 'cash', due));
+    ok(await close(cashier, ref, 1, due));
+    const r = ok(await reopen(manager, { bill_id: billOfOrder(order_id), reason_code: 'price_error' }));
+    const credit = ofType(r, 'InvoiceCredited')[0]!.payload as { invoice_id: string; lines: Array<{ order_item_id: string; part_of?: string }> };
+    expect(credit.lines.map((l) => l.part_of ?? null)).toEqual(['CR_N', 'CR_N', 'CR_N', 'CR_N', 'CR_N', null]);
+    const job = ok(await post(hub, cashier, 'print-bill-document', 'PrintBillDocument', { doc: 'credit_note', ref_id: credit.invoice_id }));
+    const doc = (JSON.parse(one('SELECT payload FROM print_jobs WHERE job_id = ?', job.result!['job_id']) as string) as { doc: { blocks: Array<{ text?: string }> } }).doc;
+    const texts = doc.blocks.flatMap((b) => (b.text === undefined ? [] : [b.text]));
+    const naan = texts.filter((t) => t.startsWith('Naan'));
+    expect(naan).toHaveLength(2);
+    expect(texts.filter((t) => /^ {2}5 x /.test(t))).toHaveLength(1);
+  });
+});

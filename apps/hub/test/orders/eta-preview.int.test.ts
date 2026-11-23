@@ -81,6 +81,13 @@ interface SubmitResult {
 
 let commandSeq = 0;
 
+/** 02b v1.0.20 §3.2 step 4a: a part id `<key>-p<k>` is part k of `<key>`; `<key>` itself is part 1 when it has parts. */
+function partKey(id: string, result: { lines: Array<{ order_item_id: string }> }): { key: string; part?: number } {
+  const m = /^(.*)-p(\d+)$/.exec(id);
+  if (m !== null) return { key: m[1]!, part: Number(m[2]) };
+  return result.lines.some((l) => l.order_item_id === `${id}-p2`) ? { key: id, part: 1 } : { key: id };
+}
+
 /** Submits the draft with each key as its id (keys → order_item_id) and returns the result in the preview's shape. */
 async function submitDraft(who: Who, order_id: string, draft: Record<string, unknown>): Promise<{ status: number; asPreview: Omit<Preview, 'as_of_seq'>; placed: Record<string, unknown> }> {
   const payload = JSON.parse(JSON.stringify({ order_id, ...draft }).replace(/"key":/g, '"order_item_id":')) as Record<string, unknown>;
@@ -108,8 +115,11 @@ async function submitDraft(who: Who, order_id: string, draft: Record<string, unk
   return {
     status: res.statusCode,
     asPreview: {
-      groups: result.groups.map((g) => ({ promise_ms: g.promise_ms, keys: g.order_item_ids })),
-      lines: result.lines.map(({ order_item_id, ...rest }) => ({ key: order_item_id, ...rest })),
+      groups: result.groups.map((g) => ({ promise_ms: g.promise_ms, keys: [...new Set(g.order_item_ids.map((id) => partKey(id, result).key))] })),
+      lines: result.lines.map(({ order_item_id, ...rest }) => {
+        const { key, part } = partKey(order_item_id, result);
+        return { key, ...(part === undefined ? {} : { part }), ...rest };
+      }),
     },
     placed: JSON.parse(placed) as Record<string, unknown>,
   };
@@ -167,8 +177,9 @@ describe('02b eta-preview (§6.14)', () => {
     expect(engine()).toBe(state); // no fold ran: nothing appended
     expect(stockLeft()).toBe(stock); // reserveStock claimed nothing
     expect(r.data!.as_of_seq).toBe(hub.deps.writer.lastSeq());
-    expect(r.data!.lines.map((l) => l.key)).toEqual(['c1', 'c1o', 'c2', 'c3', 'c4', 'c4a', 'c4b']);
-    for (const l of r.data!.lines) expect(Object.keys(l).sort()).toEqual(['eta_ms', 'from_stock', 'key', 'zone_served']);
+    // ⚠️ 02b v1.0.20 §3.2 step 4a, §6.14 (STAB-5): naan ×2 on the slot station is two parts, each with `part`
+    expect(r.data!.lines.map((l) => [l.key, (l as { part?: number }).part])).toEqual([['c1', undefined], ['c1o', undefined], ['c2', 1], ['c2', 2], ['c3', undefined], ['c4', undefined], ['c4a', undefined], ['c4b', undefined]]);
+    for (const l of r.data!.lines) expect(Object.keys(l).sort()).toEqual(l.key === 'c2' ? ['eta_ms', 'from_stock', 'key', 'part', 'zone_served'] : ['eta_ms', 'from_stock', 'key', 'zone_served']);
     for (const g of r.data!.groups) expect(Object.keys(g).sort()).toEqual(['keys', 'promise_ms']);
     // The same preview twice reads the same state.
     expect((await preview(ali, takeaway(fullCart()))).data).toEqual(r.data);
@@ -368,5 +379,57 @@ describe('02b eta-preview (§6.14)', () => {
     expect(s.status).toBe(200);
     expect(s.asPreview.lines[0]!.eta_ms).not.toBe(before.data!.lines[0]!.eta_ms);
     expect({ groups: after.data!.groups, lines: after.data!.lines }).toEqual(s.asPreview);
+  });
+});
+
+// ⚠️ 02b v1.0.23 §3.2 step 4a (STAB-6; 03a v1.2.10 BQ-6, #145): a batch-station piece line is split per unit, so its
+// first parts fill the room of the next unfired load and the rest form the next load.
+describe('02b eta-preview and SubmitOrder on a batch station (v1.0.23, STAB-6)', () => {
+  const COOK = 180_000;
+  function tandoorMenu(): BranchConfig {
+    const base = fixtureMenu();
+    const naan = base.items.find((i) => i.item_id === FX.naan)!;
+    return {
+      ...base,
+      stations: [
+        ...base.stations,
+        {
+          ...base.stations[0]!,
+          station_id: 'S_TANDOOR',
+          name: 'Tandoor',
+          station_type: 'batch',
+          capacity: 8,
+          freshness_window_ms: 120_000,
+          programs: [{ program_id: 'PR', name: 'Bake', cook_time_ms: COOK, is_archived: false }],
+        },
+      ],
+      items: [...base.items, { ...naan, item_id: 'I_BREAD', name: 'Tandoori naan', station_id: 'S_TANDOOR', program_id: 'PR', serve_mode: 'immediate', stock_draws: [] }],
+    };
+  }
+
+  it('[02b #56] naan ×10 on a batch station of capacity 8 whose next unfired load holds 5 → 3 parts at that load\'s eta_ms, 7 at the next; the submit lists N, N-p2 … N-p10 and folds as the preview', async () => {
+    await setUp({ menu: tandoorMenu() });
+    const ali = signIn();
+    const now = hub.clock.branchNow();
+    expect((await submitDraft(ali, 'O0', takeaway([line('A', 'I_BREAD', 5)]))).status).toBe(200);
+    const first = Object.values(engine().stations.S_TANDOOR!.loads);
+    expect(first).toHaveLength(1);
+    expect(first[0]!.order_item_ids).toHaveLength(5);
+    const end1 = first[0]!.booked.end;
+    expect(end1).toBe(now + COOK);
+    const r = await preview(ali, takeaway([line('N', 'I_BREAD', 10)]));
+    expect(r.status).toBe(200);
+    const etas = r.data!.lines.map((l) => [l.key, (l as { part?: number }).part, l.eta_ms]);
+    expect(etas).toEqual(Array.from({ length: 10 }, (_, i) => ['N', i + 1, i < 3 ? end1 : end1 + COOK]));
+    const s = await submitDraft(ali, 'O1', takeaway([line('N', 'I_BREAD', 10)]));
+    expect(s.status).toBe(200);
+    expect({ groups: r.data!.groups, lines: r.data!.lines }).toEqual(s.asPreview);
+    const added = hub.deps.db
+      .prepare("SELECT json_extract(payload, '$.order_item_id') FROM events WHERE event_type = 'ItemAdded' AND stream_id = 'O1' ORDER BY seq")
+      .pluck()
+      .all();
+    expect(added).toEqual(Array.from({ length: 10 }, (_, i) => (i === 0 ? 'N' : `N-p${i + 1}`)));
+    const loads = Object.values(engine().stations.S_TANDOOR!.loads).sort((a, b) => a.booked.start - b.booked.start);
+    expect(loads.map((l) => l.order_item_ids.filter((id) => id.startsWith('N')).length)).toEqual([3, 7]);
   });
 });

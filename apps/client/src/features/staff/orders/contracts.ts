@@ -53,6 +53,8 @@ export interface LineView {
   line_total_minor: number | null;
   billed_minor: number;
   return_of: string | null;
+  /** 02b v1.0.21 §8 (STAB-5): the first part's id of a line sent as one-unit parts; null = not split (absent from an older hub) */
+  part_of?: string | null;
   served_from_zone_id: string | null;
   zone_served: boolean;
   /** recorded_at of the ItemAdded (zone undo window, hub clock) */
@@ -130,7 +132,8 @@ export interface OpenOrdersBody {
 export interface EtaPreviewBody {
   as_of_seq: number;
   groups: Array<{ promise_ms: number; keys: string[] }>;
-  lines: Array<{ key: string; eta_ms: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
+  /** ⚠️ 02b v1.0.20 §6.14 (STAB-5): `part` (1…n) on each part of a line split per unit, same key */
+  lines: Array<{ key: string; part?: number; eta_ms: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
 }
 
 /** 02b §6.17 (hub ZoneStockBody). */
@@ -164,7 +167,12 @@ export interface SubmitLine {
   deal_choices?: Array<{ deal_part_id: string; item_id: string; order_item_id: string; options?: SubmitOption[] }>;
   kitchen_note?: string;
   from_zone?: boolean;
+  /** 02b v1.0.21 §6.1 (STAB-5): the line's serve choice, wins over the order's */
+  serve_mode?: ServeMode;
 }
+
+/** 02b v1.0.21: 'sync' = served together, 'immediate' = as ready */
+export type ServeMode = 'sync' | 'immediate';
 
 /** 02b §6.1 payload (hub submit-order.ts PayloadObject). */
 export interface SubmitOrderPayload {
@@ -175,6 +183,8 @@ export interface SubmitOrderPayload {
   takeaway?: { customer_name?: string; phone?: string };
   parking?: { car_number: string; car_type: CarType; phone?: string };
   order_note?: string;
+  /** 02b v1.0.21 §6.1: the order's serve choice for every line without its own */
+  serve_mode?: ServeMode;
   lines: SubmitLine[];
 }
 
@@ -194,6 +204,7 @@ export interface EtaDraft {
   takeaway?: SubmitOrderPayload['takeaway'];
   parking?: SubmitOrderPayload['parking'];
   order_note?: string;
+  serve_mode?: ServeMode;
   lines: Array<
     Omit<SubmitLine, 'order_item_id' | 'options' | 'deal_choices'> & {
       key: string;
@@ -223,6 +234,8 @@ export type CompResult = { comped: true; value_minor: number } | { alert_id: str
 
 /** 02b §6.1–§6.10 and §6.14–§6.18a (`api.ts` createOrdersApi). */
 export interface OrdersApi {
+  /** ⚠️ 02b v1.0.19 §8 (STAB-4): 03a §6.5 `GET /queries/stations-live`, the tiles' station wait */
+  stationsLive?(): Promise<HubResult<{ stations: unknown }>>;
   /** queueable: a replay passes the entry's `commandId` and `queuedAt` (02b §3.12) */
   submitOrder(p: SubmitOrderPayload, opts?: CommandOptions): Promise<HubResult<SubmitResult>>;
   removeItems(p: RemoveItemsPayload): Promise<HubResult<{ removed: Array<{ order_item_id: string; units: number }>; cancelled: boolean; comp_requests_closed: string[] }>>;

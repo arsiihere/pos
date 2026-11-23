@@ -292,6 +292,10 @@ export function detailLine(card: AlertCard | undefined, withAmount: boolean): Re
   const d = card?.details;
   if (d === null || d === undefined) return null;
   const parts: ReactNode[] = [];
+  // 03b v1.0.10 §3.5 step 5 (STAB-2): a ready card lists what is ready, "Seekh kebab ×2 · Naan ×4"
+  if (card?.kind_label_key === 'alert.ready_to_serve.card' && d.lines !== undefined && d.lines.length > 0) {
+    parts.push(<bdi key="l">{d.lines.map((l) => `${l.name} ×${l.quantity}`).join(' · ')}</bdi>);
+  }
   if (d.item !== undefined) {
     parts.push(
       <bdi key="i">

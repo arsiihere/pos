@@ -618,6 +618,28 @@ describe('[05 §6.1] GET /queries/bill', () => {
   });
 });
 
+describe('[05 v1.0.33 §6.1, #92] split lines on the bill view (STAB-5)', () => {
+  beforeEach(() => start());
+
+  it('[05 #92] a karahi ×5 split into parts → five lines with part_of K, units 1, Σ base = the unsplit line; an unsplit line part_of null; statements unchanged', async () => {
+    const part = (order_item_id: string) => ({ order_item_id, item_id: FX.piece, item: { part_of: 'K' } });
+    const split = appendOrder(hub, { order_type: 'takeaway', lines: [part('K'), part('K-p2'), part('K-p3'), part('K-p4'), part('K-p5')] });
+    const whole = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'W', item_id: FX.piece, quantity: 5 }] });
+    const v = (await bill(cashier, { order_id: split.order_id })).data;
+    expect(v.lines.map((l) => [l.order_item_id, l.part_of, l.units])).toEqual([
+      ['K', 'K', 1],
+      ['K-p2', 'K', 1],
+      ['K-p3', 'K', 1],
+      ['K-p4', 'K', 1],
+      ['K-p5', 'K', 1],
+    ]);
+    const w = (await bill(cashier, { order_id: whole.order_id })).data;
+    expect(w.lines.map((l) => [l.order_item_id, l.part_of, l.units])).toEqual([['W', null, 5]]);
+    expect(v.lines.reduce((n, l) => n + l.base_minor, 0)).toBe(w.lines[0]!.base_minor);
+    expect(await handlerStatements(cashier, 'bill', { order_id: split.order_id })).toBeLessThanOrEqual(8);
+  });
+});
+
 // ================================================================================================= open bills
 
 describe('[05 §6.2] GET /queries/open-bills', () => {

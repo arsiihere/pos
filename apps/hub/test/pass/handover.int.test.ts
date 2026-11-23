@@ -233,7 +233,7 @@ describe('Handover (03b §3.5, §6.8)', () => {
     const types = reply.events.map((e) => e.event_type);
     expect(types[0]).toBe('ReadyToServe');
     expect(types[types.length - 1]).toBe('Handover');
-    expect(reply.events[0]!.payload).toEqual({ order_id, point_id: POINT, order_item_ids: ['L1', 'L2'], table_id: FX.table, alert_id: null });
+    expect(reply.events[0]!.payload).toEqual({ order_id, point_id: POINT, order_item_ids: ['L1', 'L2'], added_ids: ['L1', 'L2'], forced_ids: [], table_id: FX.table, alert_id: null }); // 03b v1.0.10: v2
     expect(reply.events[types.length - 1]!.payload).toEqual({
       handover_id,
       order_id,

@@ -224,8 +224,8 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
   const inserted = tx.prepare(
     `INSERT INTO order_lines (order_item_id, order_id, parent_order_item_id, line_kind, item_id, deal_id, name, sale_unit,
                               quantity, units, line_total_minor, refundable_minor, return_of, served_from_zone_id, added_at,
-                              is_food, kitchen_note, options_json, station_id, option_quantity, tax_profile_id, unit_price_minor)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              is_food, kitchen_note, options_json, station_id, option_quantity, tax_profile_id, unit_price_minor, part_of)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (order_item_id) DO NOTHING`,
   ).run(
     p.order_item_id,
@@ -255,6 +255,8 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
     p.tax_class_id,
     // ⚠️ Changed by 05 (R-7, R-17): per line kind from its own line_total_minor and units; NULL while a weight is pending.
     unitPriceMinor(p.line_total_minor, units),
+    // ⚠️ Changed by v1.0.20 (STAB-5): the first part of a split line (§3.2 step 4a); NULL = not split.
+    p.part_of ?? null,
   );
   if (inserted.changes === 1 && zoneServed && p.item_id !== null) {
     tx.prepare('UPDATE zone_stock SET on_hand = on_hand - ? WHERE zone_id = ? AND item_id = ?').run(units, p.served_from_zone_id, p.item_id);

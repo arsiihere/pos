@@ -129,6 +129,17 @@ const typeIn = (el: HTMLInputElement | null | undefined, value: string) => {
 };
 const field = (v: Mounted, label: string) => all(v, '.b5-fld').find((f) => f.querySelector('span')?.textContent === label)?.querySelector('input');
 
+describe('[05 v1.0.33 §8, #96] split lines on the bill screen (STAB-5)', () => {
+  it('[05 #96] five parts of one part_of show as one row "5× Karahi" with the summed amount; another cart line stays its own row', async () => {
+    const part = (id: string) => ({ ...line(id, 'Karahi', 1, 115_000), part_of: 'K' });
+    const b = bill({ lines: [part('K'), part('K-p2'), part('K-p3'), part('K-p4'), part('K-p5'), { ...line('W', 'Karahi', 1, 115_000), part_of: null }] });
+    const v = await show(setup({ views: [b] }));
+    const rows = all(v, '.b5-lines .ol');
+    expect(rows.map((r) => `${r.querySelector('.ol__q')?.textContent} ${r.querySelector('.ol__n b')?.textContent} ${r.querySelector('.ol__p')?.textContent}`)).toEqual(['5× Karahi 5,750.00', '1× Karahi 1,150.00']);
+    expect(text(v, '.b5-lines .end')).toContain('2');
+  });
+});
+
 describe('[05 §8 Bill screen; §6.1] header, lines, totals (task 35)', () => {
   it('reads GET /queries/bill by the ref; header with code, state chip, type, check bill printed time', async () => {
     const s = setup();

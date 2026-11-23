@@ -110,10 +110,39 @@ describe('[03b §6.14] kds_station catch-up part (b18)', () => {
       sound_volume: 70,
       has_printer: false,
       lanes: { lanes_on: 1, lane_count: 1 },
-      now: [{ ...details.get('A1')!, stage: 'added', fired_at: engine().lines.A1!.fired_at, started_at: null, mark: engine().lines.A1!.mark, done_undone: false }],
+      // ⚠️ 03b v1.0.13 §3.3 (STAB-6, STAB-7): + load_id (null on a slot line) and priority (null when not priority)
+      now: [{ ...details.get('A1')!, stage: 'added', fired_at: engine().lines.A1!.fired_at, started_at: null, mark: engine().lines.A1!.mark, done_undone: false, load_id: null, priority: null }],
       details: view.next.map((l) => details.get(l.order_item_id)!),
     });
     expect(body.now[0]!.order_id).toBe(order_id);
+  });
+
+  it('[03b v1.0.13 §3.3, #93, #94 (hub part)] a batch Now line carries its load_id and a priority line its priority; station_plan lines carry load_id (STAB-6, STAB-7)', async () => {
+    hub = await createTestHub({ provisioned: true });
+    await seedDirectory(hub, await aDirectory());
+    const base = fixtureMenu();
+    const s1 = base.stations.find((s) => s.station_id === FX.station)!;
+    const naan = base.items.find((i) => i.item_id === FX.naan)!;
+    const menu: BranchConfig = {
+      ...base,
+      stations: [...base.stations, { ...s1, station_id: 'S_B', name: 'Tandoor', station_type: 'batch', capacity: 1, programs: [{ program_id: 'PR', name: 'Bake', cook_time_ms: 480_000, is_archived: false }] }],
+      items: [...base.items, { ...naan, item_id: 'I_B', name: 'Tandoori naan', station_id: 'S_B', program_id: 'PR', cook_time_ms: 480_000 }],
+    };
+    openDay(hub, { menu });
+    const bake = { program_cook_time_ms: 480_000 };
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'B1', item_id: 'I_B', item: bake }, { order_item_id: 'B2', item_id: 'I_B', item: bake }] });
+    const l1 = engine().lines.B1!.load_id;
+    const l2 = engine().lines.B2!.load_id;
+    expect(l1).not.toBeNull();
+    expect(l2).not.toBe(l1); // capacity 1: two rounds
+    append(hub, [{ stream_type: 'station', stream_id: 'S_B', event_type: 'FireDispatched', payload: { station_id: 'S_B', order_item_ids: ['B1'], load_id: l1, due_at: now(), reason: 'pulled' } }]);
+    append(hub, [{ stream_type: 'order', stream_id: order_id, event_type: 'LinePrioritized', payload: { order_id, group_id: engine().lines.B1!.group_id, order_item_ids: ['B1'], delay_ms: 360_000, at_ms: now() } }]);
+    const kds = await socketOf('station', 'S_B');
+    const body = KdsStationBody.parse(catchUpState(kds).kds_station);
+    expect(body.now.map((l) => [l.order_item_id, l.load_id])).toEqual([['B1', l1]]);
+    expect(body.now[0]!.priority).toEqual({ since_ms: engine().lines.B1!.priority_at, minutes_late: expect.any(Number) });
+    const plans = catchUpState(kds).station_plan as Array<{ station_id: string; lines: Array<{ order_item_id: string; load_id?: string | null }> }>;
+    expect(plans.find((p) => p.station_id === 'S_B')!.lines.map((l) => [l.order_item_id, l.load_id])).toEqual([['B2', l2]]);
   });
 
   it('[03b §6.14] sound volume and lanes from kds_config rows; without a lanes row, lane_count = labelled unrevoked kds devices, all on; day not open → day_open false', async () => {
