@@ -11,7 +11,8 @@ import { authSemaphores } from '../auth/admin-session.js';
 import { currentDirectory } from '../auth/guards.js';
 import { checkPin } from '../auth/pin.js';
 import { activity, endSession, findSessionByToken, isIdleExpired, type SessionRow } from '../auth/session-store.js';
-import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
+import { deviceProfile } from '../auth/device-profile.js';
+import type { Resolution, SessionDirectory } from '../auth/staff-directory.js';
 import { readOnlyDb } from '../engine-host/read-only-tx.js';
 import type { StateHolder } from '../engine-host/state-holder.js';
 import type { Writer, WriterTx } from '../engine-host/writer.js';
@@ -86,7 +87,7 @@ async function runCommand(
     state: deps.state.get(),
     clock: deps.clock,
     actor: actorOf(session, deviceId),
-    directory: currentDirectory(app),
+    directory: currentDirectory(app).forSession(session, deviceProfile),
     branch: { tenantId: provisioned.tenant_id, branchId: provisioned.branch_id },
     config: deps.config,
     authChanged: deps.authGeneration.current() !== authGen,
@@ -121,7 +122,7 @@ async function runCommand(
   await deps.testHooks?.betweenGuardAndWriter?.();
 
   const queuedAt = queuedAtOf(request, commandDef, session, deps.clock.branchNow());
-  const commandCtx = (tx: WriterTx, permission: Resolution | null, directory: StaffDirectory): CommandCtx => ({
+  const commandCtx = (tx: WriterTx, permission: Resolution | null, directory: SessionDirectory): CommandCtx => ({
     tx,
     // R8: the writer's tx.state is the hub's EngineState (HubDeps.state).
     state: tx.state as Readonly<EngineState>,
@@ -142,7 +143,9 @@ async function runCommand(
     if (again?.kind === 'replay') throw new IdempotentReplay(again.stored);
     if (again?.kind === 'conflict') throw commandIdUsed();
     if (deps.authGeneration.current() !== authGen) recheckAuth(tx, deviceId, session.session_id);
-    const directory = currentDirectory(app);
+    // 05a §3.3a: resolved at execution time through the session view, so a queued command replayed after its
+    // device became `everyone` is masked (fail-closed).
+    const directory = currentDirectory(app).forSession(session, deviceProfile);
     const ctx = commandCtx(tx, authorize(commandDef, session, directory), directory);
     // Read before `handle`: a handler on today's path may append in `handle` itself.
     const beforeSeq = (
@@ -189,7 +192,7 @@ async function runCommand(
     } else {
       // 00 v1.6 §3.5 / §3.7 H-3: one counting transaction for both PINs (01d §3.3 rule 4 (c)–(d)).
       const hooks = commandDef.pinHooks;
-      const hookCtx = (tx: WriterTx): CommandCtx => commandCtx(tx, null, currentDirectory(app));
+      const hookCtx = (tx: WriterTx): CommandCtx => commandCtx(tx, null, currentDirectory(app).forSession(session, deviceProfile));
       body = await checkPin(
         {
           db: deps.db,
@@ -350,7 +353,7 @@ interface StoredCommand {
   response_json: string;
 }
 
-function authorize(def: CommandDef, session: SessionRow, directory: StaffDirectory): Resolution | null {
+function authorize(def: CommandDef, session: SessionRow, directory: SessionDirectory): Resolution | null {
   if (def.permission === 'checked-in-handler') {
     // 00 v1.6 §3.7 H-3: staff session only; the handler runs its own right check.
     if (session.kind === 'station') throw new DomainError('PERMISSION_DENIED', { session_kind: 'station' });
@@ -369,6 +372,10 @@ function authorize(def: CommandDef, session: SessionRow, directory: StaffDirecto
   const resolution = directory.resolve(session.staff_id, def.permission);
   if (resolution.grant === 'allowed') return resolution;
   if (resolution.grant === 'requires_approval' && def.approvable === true) return resolution;
+  // 05a §3.3a (N-6): only the pipeline (with the §3.5 checks and AnswerRequest) names the listed-only mask.
+  if (resolution.masked === 'listed_only') {
+    throw new DomainError('PERMISSION_DENIED', { permission: def.permission, grant: resolution.grant, reason: 'listed_device_only' });
+  }
   throw new DomainError('PERMISSION_DENIED', { permission: def.permission, grant: resolution.grant });
 }
 

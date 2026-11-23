@@ -8,6 +8,7 @@ import type { Writer } from '../engine-host/writer.js';
 import type { Clock } from '../lib/clock.js';
 import { sha256hex } from '../lib/hash.js';
 import { createHostMatcher, createNetMatcher } from '../lib/net.js';
+import { deviceProfile } from './device-profile.js';
 import { StaffDirectory } from './staff-directory.js';
 import { activity, endSession, findSessionByToken, idlePause, isIdleExpired, type SessionRow } from './session-store.js';
 
@@ -243,7 +244,9 @@ function requireAdmin(request: FastifyRequest, deps: GuardDeps, holder: { curren
     endIdle(deps, token!);
     throw new DomainError('ADMIN_SESSION_REQUIRED');
   }
-  if (session.staff_id === null || !holder.current.hasAdmin(session.staff_id)) {
+  // 05a §3.3a: the session's view, so an admin session bound to an `everyone` (or profile-less, R-1) device is refused
+  // here; a bootstrap session (no device) is not masked. Details unchanged (N-6).
+  if (session.staff_id === null || !holder.current.forSession(session, deviceProfile).hasAdmin(session.staff_id)) {
     throw new DomainError('PERMISSION_DENIED', { permission: 'access-hub-admin' });
   }
   request.session = session;
