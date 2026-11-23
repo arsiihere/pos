@@ -55,7 +55,7 @@ describe('GET /v1/sync/config', () => {
     const response = await poll(v.config - 1, v.directory);
     expect(response.statusCode).toBe(200);
     // 01a §6.1: ≤ 13 config-only; + 9 builder statements (01c §4.5, AD-16); + 5 (01b v1.5 B-8); + 1 zones (01a v2.2 A-1)
-    expect(counter.count).toBeLessThanOrEqual(28);
+    expect(counter.count).toBeLessThanOrEqual(33); // ⚠️ 08b A-4: + 5 inventory key reads
     const data = response.json().data;
     expect(data.directory).toBeNull();
     const snapshot = BranchConfigSnapshotSchemaV4.parse(data.config.snapshot);

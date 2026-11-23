@@ -10,6 +10,8 @@ import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 const V21_CONFIG_ONLY_200 = 23;
 // The same poll with the directory on v2.1: + loadDirectory's 9 statements (01b v1.4 B-5), within 01b v1.5 B-8's ≤ 32.
 const V21_WITH_DIRECTORY_200 = V21_CONFIG_ONLY_200 + 9;
+// ⚠️ 08b A-4 (08 Part B §5.3, B15): the inventory key's 5 builder reads, on every 200 that builds a snapshot.
+const INVENTORY_READS = 5;
 
 // 01a v2.2 A-1, v2.3 A-1 (02p §11 #4): snapshot schema 4 from the cloud.
 describe('GET /v1/sync/config: snapshot V4', () => {
@@ -72,7 +74,7 @@ describe('GET /v1/sync/config: snapshot V4', () => {
     });
     await patchTable(menu.tableIds[0], { zone_id: zoneId });
     const { config, snapshot } = await pollConfig();
-    expect(counter.count).toBe(V21_CONFIG_ONLY_200 + 2); // + zones; + billing (05 row A-1 (5))
+    expect(counter.count).toBe(V21_CONFIG_ONLY_200 + 2 + INVENTORY_READS); // + zones; + billing (05 row A-1 (5)); ⚠️ 08b A-4
     expect(SNAPSHOT_SCHEMA_VERSION).toBe(4);
     expect(config.snapshot.snapshot_schema_version).toBe(4);
     expect(config.snapshot_hash).toBe(sha256hex(canonicalJson(config.snapshot)));
@@ -87,7 +89,7 @@ describe('GET /v1/sync/config: snapshot V4', () => {
     await cloud.pool.query(`DELETE FROM zone_stock_items`);
     await cloud.pool.query(`DELETE FROM zones`);
     const empty = await pollConfig();
-    expect(counter.count).toBe(V21_CONFIG_ONLY_200 + 2); // + zones; + billing (05 row A-1 (5))
+    expect(counter.count).toBe(V21_CONFIG_ONLY_200 + 2 + INVENTORY_READS); // + zones; + billing (05 row A-1 (5)); ⚠️ 08b A-4
     expect(ground(empty.snapshot).zones).toEqual([]);
     // with the directory (directory_version 0 is always behind): + the zones read and the assignments read
     const both = await cloud.app.inject({
@@ -97,7 +99,7 @@ describe('GET /v1/sync/config: snapshot V4', () => {
     });
     expect(both.statusCode, both.body).toBe(200);
     expect(both.json().data.directory).not.toBeNull();
-    expect(counter.count).toBe(V21_WITH_DIRECTORY_200 + 3); // + billing (05 row A-1 (5))
+    expect(counter.count).toBe(V21_WITH_DIRECTORY_200 + 3 + INVENTORY_READS); // + billing (05 row A-1 (5)); ⚠️ 08b A-4
   });
 
   it('[01a #192] Snapshot V4 carries `zones[].routes[]`, `zones[].stock_items[]`, `items[].is_ready_item`', async () => {

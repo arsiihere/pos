@@ -13,6 +13,52 @@ import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
 const realFetch = globalThis.fetch;
 
+// ⚠️ 08b m-15 (01a S48 b: "about 300 KB on the wire" at 5 000 items): the gzip 200 with the inventory key.
+const GZIP_BOUND_BYTES = 300_000;
+const DAY = 86_400_000;
+
+// ⚠️ 08b m-15: 200 stock items (ingredients in g), each with a manual price and 30 days of daily market rates
+// (each rate dominates the one before it), and 300 recipes on the first 300 menu items, each with 4 versions
+// (1 published + 3 superseded) of 5 lines. Raw SQL: only the volume matters here.
+async function seedInventoryKey(cloud: TestCloud, f: Awaited<ReturnType<typeof restaurantFixture>>): Promise<void> {
+  const now = cloud.clock.branchNow();
+  const q = (text: string, params: unknown[] = []) => cloud.pool.query(text, [f.tenantId, ...params]);
+  await q(
+    `INSERT INTO stock_items (tenant_id, stock_item_id, name, stock_unit, kind, carries_over, created_at, updated_at)
+     SELECT $1, 'SK-INV-' || lpad(i::text, 3, '0'), 'Ingredient ' || i, 'g', 'ingredient', false, $2, $2 FROM generate_series(0, 199) i`,
+    [now],
+  );
+  await q(
+    `INSERT INTO item_prices (tenant_id, price_id, stock_item_id, branch_id, kind, unit_name, price_minor, stock_qty_num, stock_qty_den,
+       stock_unit, created_at, valid_until_at, note, recorded_by)
+     SELECT $1, 'PR-INV-' || lpad(i::text, 3, '0') || '-' || lpad(d::text, 2, '0'), 'SK-INV-' || lpad(i::text, 3, '0'), NULL,
+            CASE WHEN d = 0 THEN 'manual' ELSE 'market_rate' END, 'kg', 100000 + i * 10 + d, 1000, 1, 'g',
+            $2::bigint - (31 - d) * $3::bigint, CASE WHEN d = 0 THEN NULL ELSE $2::bigint - (30 - d) * $3::bigint END, NULL, $4
+       FROM generate_series(0, 199) i, generate_series(0, 30) d`,
+    [now, DAY, f.userId],
+  );
+  await q(
+    `INSERT INTO recipes (tenant_id, recipe_id, owner_type, owner_id, created_at, updated_at)
+     SELECT $1, 'RC-' || lpad(r::text, 4, '0'), 'menu_item', 'IT-' || lpad(r::text, 4, '0'), $2, $2 FROM generate_series(0, 299) r`,
+    [now],
+  );
+  await q(
+    `INSERT INTO recipe_versions (tenant_id, recipe_version_id, recipe_id, version_no, status, basis, misc_allowance_bp,
+       created_by, created_at, updated_at, published_by, published_at)
+     SELECT $1, 'RV-' || lpad(r::text, 4, '0') || '-' || n, 'RC-' || lpad(r::text, 4, '0'), n,
+            CASE WHEN n = 4 THEN 'published' ELSE 'superseded' END, 'per_unit', 500, $3, $2, $2, $3, $2::bigint - (4 - n) * $4::bigint
+       FROM generate_series(0, 299) r, generate_series(1, 4) n`,
+    [now, f.userId, DAY],
+  );
+  await q(
+    `INSERT INTO recipe_lines (tenant_id, recipe_version_id, line_no, stock_item_id, unit_name, entered_num, entered_den,
+       stock_qty_num, stock_qty_den, stock_unit, qty_basis)
+     SELECT $1, 'RV-' || lpad(r::text, 4, '0') || '-' || n, l, 'SK-INV-' || lpad(((r * 5 + l) % 200)::text, 3, '0'), 'g',
+            100 + l, 1, 100 + l, 1, 'g', 'AP'
+       FROM generate_series(0, 299) r, generate_series(1, 4) n, generate_series(1, 5) l`,
+  );
+}
+
 describe('config sync end to end (S48)', () => {
   let cloud: TestCloud;
   let counter: ReturnType<typeof pgCounter>;
@@ -33,9 +79,10 @@ describe('config sync end to end (S48)', () => {
     for (const h of hubs.splice(0)) await h.close();
   });
 
-  it('[01a §10 #140] 5 000-item branch with a deal sold there: ≤ 35 statements with the directory ([01b B-8]; 01a v2.2 A-1 +1; 01b v1.6 B-2 +1; AD-16; 01b v1.4 B-5); gzip 200 decompresses to JSON whose hash matches; the hub poller applies it through real fetch; plain without the header; a 304 has no Content-Encoding', async () => {
+  it('[01a §10 #140] [08b #25 ⚠️ A-4, m-15] 5 000-item branch with a deal sold there and an inventory key: ≤ 40 statements with the directory, gzip within S48\'s size ([01b B-8]; 01a v2.2 A-1 +1; 01b v1.6 B-2 +1; AD-16; 01b v1.4 B-5); gzip 200 decompresses to JSON whose hash matches; the hub poller applies it through real fetch; plain without the header; a 304 has no Content-Encoding', async () => {
     const f = await restaurantFixture(cloud);
     const menu = await seedMenu(cloud.pool, f, { items: 5_000 });
+    await seedInventoryKey(cloud, f); // ⚠️ 08b m-15 (A-4): the snapshot carries an inventory key of pilot-plus size
     // 01c §6.14, §6.16: one deal sold at branch A, so the builder's deal reads return rows
     const deal = await createDeal(cloud, f, {
       name: 'Family karahi deal',
@@ -81,7 +128,7 @@ describe('config sync end to end (S48)', () => {
     expect(applied.outcome).toBe('applied');
     // 01a v1.3 §6.1: ≤ 17 for a 200 (directory v2 is 8 statements, 01b §7.3); + 9 builder statements (01c §4.5, §6.17,
     // AD-16); measured 26 after 01c task 31 (builder 16); + 1 no_pin_staff read (01b v1.4 B-5, README R32 c) → 27; + 5 builder statements (01b v1.5 B-8) → ≤ 32; + 1 zones (01a v2.2 A-1) → ≤ 33; + 1 assignments (01b v1.6 B-2) → ≤ 34
-    expect(counter.count).toBeLessThanOrEqual(35); // + 1 billing (05 row A-1 (5))
+    expect(counter.count).toBeLessThanOrEqual(40); // + 1 billing (05 row A-1 (5)); ⚠️ 08b A-4, B-x: + 5 inventory key reads
     expect(seen[0]).toEqual({ status: 200, encoding: 'gzip', acceptEncoding: 'gzip' });
     const config = branchConfig();
     expect(config?.items).toHaveLength(5_000);
@@ -102,9 +149,23 @@ describe('config sync end to end (S48)', () => {
     const data = ((await plain.json()) as { data: { config: { snapshot_hash: string; snapshot: unknown } } }).data;
     expect(sha256hex(canonicalJson(data.config.snapshot))).toBe(data.config.snapshot_hash);
     expect(data.config.snapshot_hash).toBe(stored.snapshot_hash);
+
+    // ⚠️ 08b m-15 (test 25): the key is in the applied body (dominance keeps 2 prices per item: the manual and the
+    // newest daily rate), and the gzip 200 stays within S48's wire size
+    const inventory = (JSON.parse(stored.body) as { inventory: { items: unknown[]; prices: unknown[]; recipes: unknown[] } }).inventory;
+    expect(inventory.items.length).toBeGreaterThanOrEqual(200);
+    expect(inventory.prices).toHaveLength(400);
+    expect(inventory.recipes).toHaveLength(1_200);
+    const zipped = await cloud.app.inject({
+      method: 'GET',
+      url: '/v1/sync/config?config_version=0&directory_version=0',
+      headers: { authorization: `Bearer ${f.branchKey}`, 'accept-encoding': 'gzip' },
+    });
+    expect(zipped.headers['content-encoding']).toBe('gzip');
+    expect(zipped.rawPayload.length).toBeLessThanOrEqual(GZIP_BOUND_BYTES);
   }, 120_000);
 
-  it('[01d #48] [01b B-5] 200 with the directory lists two no-PIN staff with lead_staff_id in ≤ 35 statements; directory-only ≤ 17, config-only ≤ 28, 304 unchanged [01b B-8; 01a v2.2 A-1 +1; 01b v1.6 B-2 +1]; the hub applies it and keeps the PIN holder\'s lead (B-6)', async () => {
+  it('[01d #48] [01b B-5] 200 with the directory lists two no-PIN staff with lead_staff_id in ≤ 40 statements; directory-only ≤ 17, config-only ≤ 33, 304 unchanged [01b B-8; 01a v2.2 A-1 +1; 01b v1.6 B-2 +1; ⚠️ 08b A-4, B-x]; the hub applies it and keeps the PIN holder\'s lead (B-6)', async () => {
     const f = await restaurantFixture(cloud);
     await seedMenu(cloud.pool, f);
     const branch = f.branches[0];
@@ -146,7 +207,7 @@ describe('config sync end to end (S48)', () => {
     const both = await poll(0, 0);
     expect(both.statusCode, both.body).toBe(200);
     // 01b v1.5 §4.4 row 6 (B-8, README R32 c): ≤ 32 with the directory; + 1 zones (01a v2.2 A-1) → ≤ 33; + 1 assignments (01b v1.6 B-2) → ≤ 34
-    expect(counter.count).toBeLessThanOrEqual(35); // + 1 billing (05 row A-1 (5))
+    expect(counter.count).toBeLessThanOrEqual(40); // + 1 billing (05 row A-1 (5)); ⚠️ 08b A-4, B-x: + 5 inventory key reads
     const directory = DirectorySchema.parse(both.json().data.directory);
     expect(directory.no_pin_staff).toEqual([
       { staff_id: 's-adil', display_name: 'Adil', lead_staff_id: pinHolder },
@@ -163,7 +224,7 @@ describe('config sync end to end (S48)', () => {
     const configOnly = await poll(configVersion - 1, directory.directory_version);
     expect(configOnly.statusCode).toBe(200);
     expect(configOnly.json().data.directory).toBeNull();
-    expect(counter.count).toBeLessThanOrEqual(28); // + 1 zones (01a v2.2 A-1)
+    expect(counter.count).toBeLessThanOrEqual(33); // + 1 zones (01a v2.2 A-1); ⚠️ 08b A-4: + 5 inventory key reads
     const unchanged = await poll(configVersion, directory.directory_version);
     expect(unchanged.statusCode).toBe(304);
     expect(counter.count).toBe(2);

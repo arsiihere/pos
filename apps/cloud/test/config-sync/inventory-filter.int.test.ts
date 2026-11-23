@@ -6,6 +6,7 @@ import {
 } from "../../src/modules/config-sync/builder";
 import { pgCounter } from "../helpers/pg-counter";
 import {
+  owner,
   restaurantFixture,
   seedMenu,
   type RestaurantFixture,
@@ -28,7 +29,7 @@ const STOCK_ITEM_KEYS = [
   "stock_item_id",
   "stock_unit",
 ];
-// The pre-08a top-level snapshot keys (schema 4; 08a adds none, §2 / §4.3: the inventory key is 08b's).
+// The top-level snapshot keys (schema 4; 08a adds none, §2 / §4.3; ⚠️ 08b P-1, A-3: + the inventory key).
 const SNAPSHOT_KEYS = [
   "branch_id",
   "categories",
@@ -40,6 +41,7 @@ const SNAPSHOT_KEYS = [
   "engine_settings",
   "floors",
   "goes_with",
+  "inventory",
   "items",
   "modifier_groups",
   "points",
@@ -209,53 +211,67 @@ describe("[08a C-6, I9] builder lists only prepared stock items", () => {
     for (const item of items)
       for (const d of item.stock_draws)
         expect(listed.has(d.stock_item_id)).toBe(true);
-    // C-6: no statement-count change (01c §4.5, 01a §10 #5: 23).
-    expect(statements).toBe(23);
+    // C-6: no statement-count change (01c §4.5, 01a §10 #5: 23); ⚠️ 08b P-1, A-4: + 5 inventory key reads → 28.
+    expect(statements).toBe(28);
   });
 
-  it("[08a #25] prepared, ingredient and packet items, only prepared counted: the snapshot equals the one before them byte for byte (same hash, same statements)", async () => {
+  it("[08a #25 ⚠️ 08b P-1] prepared, ingredient and packet items, only prepared counted: ingredient / packet items change inventory.items[] and bump; stock_items[] stays byte for byte the same (same statements, 28)", async () => {
     await seedPrepared();
     const versionBefore = await configVersion();
     const before = await buildCounted();
     const polledBefore = await poll();
 
-    await seedInventoryOnly(false);
+    // ⚠️ 08b P-1 (B16): created through the route (01c §6.7 / 08a §6.2), which bumps every branch
+    for (const payload of [
+      { name: "Chicken (raw)", stock_unit: "g", carries_over: false, kind: "ingredient" },
+      { name: "Masala packet", stock_unit: "g", carries_over: false, kind: "packet" },
+    ]) {
+      const created = await cloud.app.inject({ method: "POST", url: "/v1/admin/stock-items", ...owner(f), payload });
+      expect(created.statusCode, created.body).toBe(201);
+    }
     const kinds = await sql(
-      `SELECT stock_item_id, kind FROM stock_items WHERE tenant_id = $1 ORDER BY stock_item_id`,
+      `SELECT kind, count(*)::int AS n FROM stock_items WHERE tenant_id = $1 GROUP BY kind ORDER BY kind`,
     );
     expect(kinds.rows).toEqual([
-      { stock_item_id: "SK-1", kind: "prepared" },
-      { stock_item_id: "SK-2", kind: "prepared" },
-      { stock_item_id: "SK-I", kind: "ingredient" },
-      { stock_item_id: "SK-K", kind: "packet" },
+      { kind: "ingredient", n: 1 },
+      { kind: "packet", n: 1 },
+      { kind: "prepared", n: 2 },
     ]);
 
     const after = await buildCounted();
     expect(Object.keys(after.snapshot).sort()).toEqual(SNAPSHOT_KEYS);
-    expect(canonicalJson(after.snapshot)).toBe(canonicalJson(before.snapshot));
-    expect(JSON.stringify(after.snapshot)).toBe(
-      JSON.stringify(before.snapshot),
+    // stock_items[] (the engine's input, I9) is unchanged byte for byte; no new keys on a stock item entry
+    expect(JSON.stringify(after.snapshot.stock_items)).toBe(
+      JSON.stringify(before.snapshot.stock_items),
     );
-    expect(sha256hex(canonicalJson(after.snapshot))).toBe(
-      sha256hex(canonicalJson(before.snapshot)),
-    );
-    // No new keys on a stock item entry.
     for (const item of after.snapshot.stock_items as Array<
       Record<string, unknown>
     >) {
       expect(Object.keys(item).sort()).toEqual(STOCK_ITEM_KEYS);
     }
+    // inventory.items[] gains the two (B15 b: every active item, every kind)
+    const inventoryKinds = (snapshot: Record<string, unknown>) =>
+      (snapshot.inventory as { items: Array<{ kind: string }> }).items
+        .map((item) => item.kind)
+        .sort();
+    expect(inventoryKinds(before.snapshot)).toEqual(["prepared", "prepared"]);
+    expect(inventoryKinds(after.snapshot)).toEqual([
+      "ingredient",
+      "packet",
+      "prepared",
+      "prepared",
+    ]);
+    expect(canonicalJson(after.snapshot)).not.toBe(
+      canonicalJson(before.snapshot),
+    );
     // The builder's statement count is unchanged by the extra items.
     expect(after.statements).toBe(before.statements);
-    expect(after.statements).toBe(23);
+    expect(after.statements).toBe(28);
 
-    // The hub's path: same config_version (raw rows bump nothing), same snapshot body, same snapshot_hash.
-    expect(await configVersion()).toBe(versionBefore);
+    // The hub's path: config_version bumped (once per POST), a new body and snapshot_hash.
+    expect(await configVersion()).toBe(versionBefore + 2n);
     const polledAfter = await poll();
-    expect(polledAfter.snapshot_hash).toBe(polledBefore.snapshot_hash);
-    expect(canonicalJson(polledAfter.snapshot)).toBe(
-      canonicalJson(polledBefore.snapshot),
-    );
+    expect(polledAfter.snapshot_hash).not.toBe(polledBefore.snapshot_hash);
     expect(polledAfter.snapshot_hash).toBe(
       sha256hex(canonicalJson(polledAfter.snapshot)),
     );
