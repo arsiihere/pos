@@ -510,7 +510,8 @@ export function walkTeam(directory: StaffDirectory, leadId: string, depth: 'dire
 export type MayAnswer = { ok: true } | { ok: false; reason: 'self' | 'not_approver' | 'out_of_range' | 'not_receiver' };
 
 /**
- * §3.3 rules 5–6, read now (A5): not self; in the hub directory with a PIN (`no_pin_staff` never answers);
+ * §3.3 rules 5–6, read now (A5): not self (05a D-2: except a `named` request whose receiver is its requester); in
+ * the hub directory with a PIN (`no_pin_staff` never answers);
  * `approval`: holds a role in `resolve(requester, base_permission).approver_role_ids` read now, and, with a
  * `range_permission`, holds it `allowed` with a scope covering the requester; `named`: is the receiver.
  * ⚠️ Changed by 05 (row D-1), 01d v1.3.4 §3.3 rule 6: `holders`: holds `base_permission` (the right's permission)
@@ -518,7 +519,10 @@ export type MayAnswer = { ok: true } | { ok: false; reason: 'self' | 'not_approv
  * own grant plays no part. The `answerers` / `holders_informed` targets read this same verdict (§3.4).
  */
 export function mayAnswer(directory: StaffDirectory, request: AlertRequestPart, requesterId: string | null, staffId: string): MayAnswer {
-  if (requesterId !== null && staffId === requesterId) return { ok: false, reason: 'self' };
+  // ⚠️ Changed by 05a (row D-2), 01d v1.3.5 §3.3 rule 5 (05a §3.9 rule 1 (a)): skipped only for a `named` request
+  // whose receiver is its requester (the downgraded raise, "Confirm on your phone"); every other request keeps it.
+  const namedSelf = request.right_mode === 'named' && requesterId !== null && request.receiver_staff_id === requesterId;
+  if (requesterId !== null && staffId === requesterId && !namedSelf) return { ok: false, reason: 'self' };
   const answerer = directory.get(staffId);
   if (request.right_mode === 'named') {
     return answerer !== undefined && staffId === request.receiver_staff_id ? { ok: true } : { ok: false, reason: 'not_receiver' };

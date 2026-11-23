@@ -17,6 +17,8 @@ import { FAKE_EFFECT_EVENT, fakeApply, registerFakes, resetFakes } from './fakes
 // 01d task 23: AnswerRequest with `pin` and `in_person` — §6.2 pinCheck row / Processing / Race, §3.3 rules
 // 2–4 (all of (a)–(d), "What a guesser learns", "PIN never stored"), §3.10 `pin_use_failed`, §4.2
 // `RequestPinFailed`, BF-1, BF-2; tests #11, #44, #54, #56 (hub), #60, #66; Review Focus 2.
+// ⚠️ Changed by 05a (row D-2; 01d v1.3.5 §3.3 rule 2): `in_person` is refused `in_person_removed` in preRead; the
+// cases that answered in person now answer with `pin` from the answerer's own seat (or a seat on the raising device).
 
 // The argon2 verify the pipeline calls, counted (the real verify still runs).
 vi.mock('@node-rs/argon2', async (importOriginal) => {
@@ -82,6 +84,13 @@ function seat(hub: TestHub, staffId: string, name: string = staffId): Seat {
   const device = pairDevice(hub, { type: 'tablet', name });
   const session = openSession(hub, { kind: 'staff', staffId, deviceId: device.deviceId });
   return { staffId, deviceId: device.deviceId, deviceToken: device.token, sessionId: session.sessionId, sessionToken: session.token };
+}
+
+/** Another person takes over a seat's device (its session ends; 05a D-2: a PIN answer on the raising device). */
+function seatOn(hub: TestHub, s: Seat, staffId: string): Seat {
+  endSessionNow(hub, s.sessionId);
+  const session = openSession(hub, { kind: 'staff', staffId, deviceId: s.deviceId });
+  return { ...s, staffId, sessionId: session.sessionId, sessionToken: session.token };
 }
 
 /** A new session on a seat's device (the old one ended). */
@@ -257,57 +266,67 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     expect(lockouts(hub, MGR, mgr.deviceId)).toEqual({ staff: 0, device: 0 });
   });
 
-  it('[01d #44] decision outside answers → 400 from preRead; in person with an unknown answerer → 404 STAFF_NOT_FOUND, not counted; a retried answered command_id replays 200 without argon2', async () => {
+  it('[01d #44; 05a #8] decision outside answers → 400 from preRead; in person (even with an unknown answerer) → 403 in_person_removed, not counted; a retried answered command_id replays 200 without argon2', async () => {
     const hub = await world(cleanups);
     const wait = seat(hub, WAIT);
+    const mgr = seat(hub, MGR, 'mgr-tab');
     const id = raiseAs(hub, wait, voidInput());
     const before = counts(hub);
     const decision = await answer(hub, wait, inPerson(id, MGR, PIN.b, 'accept'));
     expect(decision.statusCode).toBe(400);
     expect(decision.json().error).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'decision' }] } });
     const unknown = await answer(hub, wait, inPerson(id, 'S_NOBODY', PIN.b));
-    expect(unknown.statusCode).toBe(404);
-    expect(unknown.json().error).toMatchObject({ code: 'STAFF_NOT_FOUND', details: { staff_id: 'S_NOBODY' } });
+    expect(unknown.statusCode).toBe(403);
+    expect(unknown.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'in_person_removed' } });
     expect(verifySpy).not.toHaveBeenCalled();
     expect(lockouts(hub, 'S_NOBODY', wait.deviceId)).toEqual({ staff: 0, device: 0 });
     expect(counts(hub)).toEqual(before);
     // the answer, then its retry: the stored 200, no PIN check
-    const first = await answer(hub, wait, inPerson(id, MGR, PIN.b), 'cmd-44');
+    const first = await answer(hub, mgr, byPin(id, PIN.b), 'cmd-44');
     expect(first.statusCode).toBe(200);
     verifySpy.mockClear();
-    const again = await answer(hub, wait, inPerson(id, MGR, PIN.b), 'cmd-44');
+    const again = await answer(hub, mgr, byPin(id, PIN.b), 'cmd-44');
     expect(again.statusCode).toBe(200);
     expect(again.headers['idempotent-replay']).toBe('true');
     expect(again.json()).toEqual(first.json());
     expect(verifySpy).not.toHaveBeenCalled();
   });
 
-  it('[01d §3.3 rule 2] in person from a device other than raised_device_id → 403 in_person_elsewhere from preRead, no PIN verified, nothing counted', async () => {
+  it('[05a #8; 01d v1.3.5 §3.3 rule 2] in person, on the raising device or another, money or accept kind → 403 in_person_removed from preRead, no PIN verified, nothing counted (was in_person_elsewhere)', async () => {
     const hub = await world(cleanups);
     const wait = seat(hub, WAIT, 'wait-tab');
     const mgr = seat(hub, MGR, 'mgr-tab');
     const id = raiseAs(hub, wait, voidInput());
+    const accept = raiseAs(hub, wait, acceptInput());
     const before = counts(hub);
-    for (const pin of [PIN.b, WRONG]) {
-      const response = await answer(hub, mgr, inPerson(id, MGR, pin));
-      expect(response.statusCode).toBe(403);
-      expect(response.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'in_person_elsewhere' } });
-      expect(JSON.stringify(response.json())).not.toContain(pin);
+    for (const [who, alertId, answerer] of [
+      [mgr, id, MGR],
+      [wait, id, MGR],
+      [wait, accept, CASH],
+    ] as const) {
+      for (const pin of [PIN.b, WRONG]) {
+        const payload = alertId === accept ? inPerson(alertId, answerer, pin, 'accept') : inPerson(alertId, answerer, pin);
+        const response = await answer(hub, who, payload);
+        expect(response.statusCode).toBe(403);
+        expect(response.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'in_person_removed' } });
+        expect(JSON.stringify(response.json())).not.toContain(pin);
+      }
     }
-    // §3.3 rule 4 (b) order: an unknown answerer is 404 before the device check
-    expect((await answer(hub, mgr, inPerson(id, 'S_NOBODY', PIN.b))).json().error.code).toBe('STAFF_NOT_FOUND');
     expect(verifySpy).not.toHaveBeenCalled();
     expect(lockouts(hub, MGR, mgr.deviceId)).toEqual({ staff: 0, device: 0 });
+    expect(lockouts(hub, MGR, wait.deviceId)).toEqual({ staff: 0, device: 0 });
     expect(counts(hub)).toEqual(before);
     expect(alertRow(hub, id).state).toBe('open');
+    expect(alertRow(hub, accept).state).toBe('open');
   });
 
-  it('[01d §6.2] in person on the raising device: the named answerer answers, on_requester_device true; the device lockout subject is this (= the raising) device', async () => {
+  it('[01d §6.2] a pin answer on the raising device (05a D-2: was in person): the answerer signed in there answers, on_requester_device true; the device lockout subject is this (= the raising) device', async () => {
     const hub = await world(cleanups);
     const wait = seat(hub, WAIT, 'wait-tab');
     const mgr = seat(hub, MGR, 'mgr-tab');
     const id = raiseAs(hub, wait, voidInput());
-    const wrong = await answer(hub, wait, inPerson(id, MGR, WRONG));
+    const mgrThere = seatOn(hub, wait, MGR);
+    const wrong = await answer(hub, mgrThere, byPin(id, WRONG));
     expect(wrong.statusCode).toBe(401);
     expect(wrong.json().error.code).toBe('PIN_INVALID');
     expect(JSON.stringify(wrong.json())).not.toContain(WRONG);
@@ -324,7 +343,7 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
         subject_stream_type: 'order',
         subject_stream_id: 'O1',
         answerer_staff_id: MGR,
-        method: 'in_person',
+        method: 'pin',
         device_id: wait.deviceId,
         requester_staff_id: WAIT,
         outcome: 'pin_invalid',
@@ -332,54 +351,56 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
       },
     });
 
-    const ok = await answer(hub, wait, inPerson(id, MGR, PIN.b));
+    const ok = await answer(hub, mgrThere, byPin(id, PIN.b));
     expect(ok.statusCode).toBe(200);
     const answered = eventsOf(hub, 'RequestAnswered');
     expect(answered).toHaveLength(1);
     expect(answered[0]).toMatchObject({
-      actor_id: WAIT,
+      actor_id: MGR,
       device_id: wait.deviceId,
-      payload: { alert_id: id, decision: 'approve', answerer_staff_id: MGR, method: 'in_person', device_id: wait.deviceId, on_requester_device: true },
+      payload: { alert_id: id, decision: 'approve', answerer_staff_id: MGR, method: 'pin', device_id: wait.deviceId, on_requester_device: true },
     });
     const applied = fakeApply.calls.filter((c) => c.fn === 'apply' && c.alert_id === id).at(-1);
-    expect(applied?.answer).toMatchObject({ answerer_staff_id: MGR, method: 'in_person', device_id: wait.deviceId });
+    expect(applied?.answer).toMatchObject({ answerer_staff_id: MGR, method: 'pin', device_id: wait.deviceId });
     expect(alertRow(hub, id)).toMatchObject({ state: 'closed', close_reason: 'answered', decision: 'approve', closed_by_staff_id: MGR });
     // a match resets the named answerer's counter; the device counter stays
     expect(lockouts(hub, MGR, wait.deviceId)).toEqual({ staff: 0, device: 1 });
     expect(pinUseFailed(hub)).toHaveLength(0);
   });
 
-  it('[01d #54] in person on a random ULID, a closed request, out of range, self → 404 / 409 / 403, the same response for a correct and a wrong PIN; no argon2, nothing counted, nothing written', async () => {
+  it('[01d #54] a PIN answer on a random ULID, a closed request, out of range, self → 404 / 409 / 403, the same response for a correct and a wrong PIN; no argon2, nothing counted, nothing written (05a D-2: was in person)', async () => {
     const hub = await world(cleanups);
     const wait = seat(hub, WAIT, 'wait-tab');
     const mgr = seat(hub, MGR, 'mgr-tab');
+    const lead = seat(hub, LEAD, 'lead-tab');
     const open = raiseAs(hub, wait, voidInput(1));
     const closed = raiseAs(hub, wait, voidInput(2));
     expect((await answer(hub, mgr, byPin(closed, PIN.b, 'reject'))).statusCode).toBe(200);
     verifySpy.mockClear();
     const before = counts(hub);
-    const cases: Array<[string, Record<string, unknown>, Record<string, unknown>, number, string]> = [
-      ['random', inPerson('01J0000000000000000000NONE', MGR, PIN.b), inPerson('01J0000000000000000000NONE', MGR, WRONG), 404, 'ALERT_NOT_FOUND'],
-      ['closed', inPerson(closed, MGR, PIN.b), inPerson(closed, MGR, WRONG), 409, 'REQUEST_NOT_PENDING'],
-      ['out_of_range', inPerson(open, LEAD, PIN.c), inPerson(open, LEAD, WRONG), 403, 'PERMISSION_DENIED'],
-      ['self', inPerson(open, WAIT, PIN.a), inPerson(open, WAIT, WRONG), 403, 'PERMISSION_DENIED'],
+    const cases: Array<[string, Seat, Record<string, unknown>, Record<string, unknown>, number, string]> = [
+      ['random', mgr, byPin('01J0000000000000000000NONE', PIN.b), byPin('01J0000000000000000000NONE', WRONG), 404, 'ALERT_NOT_FOUND'],
+      ['closed', mgr, byPin(closed, PIN.b), byPin(closed, WRONG), 409, 'REQUEST_NOT_PENDING'],
+      ['out_of_range', lead, byPin(open, PIN.c), byPin(open, WRONG), 403, 'PERMISSION_DENIED'],
+      ['self', wait, byPin(open, PIN.a), byPin(open, WRONG), 403, 'PERMISSION_DENIED'],
     ];
-    for (const [name, right, wrong, status, code] of cases) {
-      const a = await answer(hub, wait, right);
-      const b = await answer(hub, wait, wrong);
+    for (const [name, who, right, wrong, status, code] of cases) {
+      const a = await answer(hub, who, right);
+      const b = await answer(hub, who, wrong);
       expect(a.statusCode, name).toBe(status);
       expect(a.json().error.code, name).toBe(code);
       expect(b.statusCode, name).toBe(status);
       expect(bodyOf(b), name).toEqual(bodyOf(a));
     }
     expect(verifySpy).not.toHaveBeenCalled();
-    for (const who of [MGR, LEAD, WAIT]) expect(lockouts(hub, who, wait.deviceId)).toEqual({ staff: 0, device: 0 });
+    for (const who of [mgr, lead, wait]) expect(lockouts(hub, who.staffId, who.deviceId)).toEqual({ staff: 0, device: 0 });
     expect(counts(hub)).toEqual(before);
   });
 
-  it('[01d #54] race: answered by someone else while argon2 runs → 409 for both PINs, each counted once, one RequestPinFailed answer_failed each; the correct one raises pin_use_failed and resets nothing', async () => {
+  it('[01d #54] race: answered by someone else while argon2 runs → 409 for both PINs, each counted once, one RequestPinFailed answer_failed each; no pin_use_failed for a pin answer losing to REQUEST_NOT_PENDING (BF-1; 05a D-2: was in person, which raised it)', async () => {
     const hub = await world(cleanups);
     const wait = seat(hub, WAIT, 'wait-tab');
+    const mgr = seat(hub, MGR, 'mgr-tab');
     const owner = seat(hub, OWNER, 'owner-tab');
     const results: Array<{ status: number; body: Record<string, unknown>; delta: { staff: number; device: number } }> = [];
     for (const [n, pin] of [
@@ -387,12 +408,12 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
       [2, WRONG],
     ] as const) {
       const id = raiseAs(hub, wait, voidInput(n));
-      const before = lockouts(hub, MGR, wait.deviceId);
+      const before = lockouts(hub, MGR, mgr.deviceId);
       duringArgon2(hub, async () => {
         expect((await answer(hub, owner, byPin(id, PIN.a))).statusCode).toBe(200);
       });
-      const response = await answer(hub, wait, inPerson(id, MGR, pin), `cmd-54-${n}`);
-      const after = lockouts(hub, MGR, wait.deviceId);
+      const response = await answer(hub, mgr, byPin(id, pin), `cmd-54-${n}`);
+      const after = lockouts(hub, MGR, mgr.deviceId);
       const body = bodyOf(response, id) as Record<string, unknown>;
       results.push({ status: response.statusCode, body, delta: { staff: after.staff - before.staff, device: after.device - before.device } });
       const failed = eventsOf(hub, 'RequestPinFailed').filter((e) => e.payload.alert_id === id);
@@ -402,8 +423,8 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
         subject_stream_type: 'order',
         subject_stream_id: `O${n}`,
         answerer_staff_id: MGR,
-        method: 'in_person',
-        device_id: wait.deviceId,
+        method: 'pin',
+        device_id: mgr.deviceId,
         requester_staff_id: WAIT,
         outcome: 'answer_failed',
         error_code: 'REQUEST_NOT_PENDING',
@@ -416,28 +437,9 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     expect(results[0]?.delta).toEqual({ staff: 1, device: 1 });
     expect(results[1]?.delta).toEqual({ staff: 1, device: 1 });
     // a correct PIN on the failed path resets nothing (2 failures stay)
-    expect(lockouts(hub, MGR, wait.deviceId)).toEqual({ staff: 2, device: 2 });
-    // only the correct PIN's attempt raised pin_use_failed, to the PIN owner, hidden from the sending seat
-    const notices = pinUseFailed(hub);
-    expect(notices).toHaveLength(1);
-    const first = eventsOf(hub, 'RequestPinFailed')[0]?.payload.alert_id as string;
-    expect(notices[0]).toMatchObject({
-      stream_type: 'order',
-      stream_id: 'O1',
-      payload: {
-        kind: 'pin_use_failed',
-        family: 'info',
-        target: { kind: 'person', staff_id: MGR },
-        dedupe_key: `pin_use_failed:${first}:cmd-54-1`,
-        hidden_from: { session_id: wait.sessionId, device_id: wait.deviceId },
-        request: null,
-        details: null,
-      },
-    });
-    const row = alertRow(hub, notices[0]?.payload.alert_id as string);
-    expect(row).toMatchObject({ state: 'open', hidden_session_id: wait.sessionId, hidden_device_id: wait.deviceId });
+    expect(lockouts(hub, MGR, mgr.deviceId)).toEqual({ staff: 2, device: 2 });
+    expect(pinUseFailed(hub)).toHaveLength(0);
     expect(JSON.stringify(eventsOf(hub, 'RequestPinFailed'))).not.toContain(PIN.b);
-    expect(JSON.stringify(notices)).not.toContain(PIN.b);
   });
 
   it('[01d #60] (a) accept on an approval kind → 400 before argon2; (g′) pin 1234567 → 400 from payload Zod; nothing counted', async () => {
@@ -458,24 +460,27 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     expect(counts(hub)).toEqual(before);
   });
 
-  it('[01d #60] (b′) logout during argon2: both in-person PINs get the M39 error, each counted once, one RequestPinFailed SESSION_EXPIRED each, exactly one write transaction; the correct one raises pin_use_failed there', async () => {
+  it('[01d #60] (b′) logout during argon2: both PINs get the M39 error, each counted once, one RequestPinFailed SESSION_EXPIRED each, exactly one write transaction; the correct one raises pin_use_failed there, hidden from the sending seat (05a D-2: was in person)', async () => {
     const hub = await world(cleanups);
-    let wait = seat(hub, WAIT, 'wait-tab');
+    const wait = seat(hub, WAIT, 'wait-tab');
+    let mgr = seat(hub, MGR, 'mgr-tab');
+    const sending: Seat[] = [];
     const results: Array<{ status: number; code: string; writes: number; delta: { staff: number; device: number } }> = [];
     for (const [n, pin] of [
       [1, PIN.b],
       [2, WRONG],
     ] as const) {
       const id = raiseAs(hub, wait, voidInput(n));
-      const before = lockouts(hub, MGR, wait.deviceId);
-      const sessionId = wait.sessionId;
+      const before = lockouts(hub, MGR, mgr.deviceId);
+      const sessionId = mgr.sessionId;
+      sending.push(mgr);
       let writes: ReturnType<typeof vi.spyOn> | undefined;
       duringArgon2(hub, () => {
         endSessionNow(hub, sessionId);
         writes = vi.spyOn(hub.deps.writer, 'run');
       });
-      const response = await answer(hub, wait, inPerson(id, MGR, pin));
-      const after = lockouts(hub, MGR, wait.deviceId);
+      const response = await answer(hub, mgr, byPin(id, pin));
+      const after = lockouts(hub, MGR, mgr.deviceId);
       results.push({
         status: response.statusCode,
         code: response.json().error.code as string,
@@ -485,9 +490,9 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
       writes?.mockRestore();
       const failed = eventsOf(hub, 'RequestPinFailed').filter((e) => e.payload.alert_id === id);
       expect(failed).toHaveLength(1);
-      expect(failed[0]?.payload).toMatchObject({ outcome: 'answer_failed', error_code: 'SESSION_EXPIRED', method: 'in_person', answerer_staff_id: MGR });
+      expect(failed[0]?.payload).toMatchObject({ outcome: 'answer_failed', error_code: 'SESSION_EXPIRED', method: 'pin', answerer_staff_id: MGR });
       expect(alertRow(hub, id).state).toBe('open');
-      wait = reseat(hub, wait);
+      mgr = reseat(hub, mgr);
     }
     expect(results).toEqual([
       { status: 401, code: 'SESSION_EXPIRED', writes: 1, delta: { staff: 1, device: 1 } },
@@ -495,7 +500,14 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     ]);
     const notices = pinUseFailed(hub);
     expect(notices).toHaveLength(1);
-    expect(notices[0]?.payload).toMatchObject({ target: { kind: 'person', staff_id: MGR }, values: { error_code: 'SESSION_EXPIRED' } });
+    expect(notices[0]?.payload).toMatchObject({
+      target: { kind: 'person', staff_id: MGR },
+      values: { error_code: 'SESSION_EXPIRED' },
+      hidden_from: { session_id: sending[0]?.sessionId, device_id: mgr.deviceId },
+      request: null,
+      details: null,
+    });
+    expect(alertRow(hub, notices[0]?.payload.alert_id as string)).toMatchObject({ state: 'open', hidden_session_id: sending[0]?.sessionId, hidden_device_id: mgr.deviceId });
     // in the counting transaction: the notice and the record share one commit
     const failedSeq = (eventsOf(hub, 'RequestPinFailed')[0] as unknown as { seq: number }).seq;
     const noticeSeq = (notices[0] as unknown as { seq: number }).seq;
@@ -512,8 +524,6 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     for (const [who, payload] of [
       [mgr, byPin(id, PIN.b)],
       [mgr, byPin(id, WRONG)],
-      [wait, inPerson(id, MGR, PIN.b)],
-      [wait, inPerson(id, MGR, WRONG)],
     ] as const) {
       const response = await answer(hub, who, payload);
       expect(response.statusCode).toBe(409);
@@ -521,19 +531,19 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     }
     expect(verifySpy).not.toHaveBeenCalled();
     expect(lockouts(hub, MGR, mgr.deviceId)).toEqual({ staff: 0, device: 0 });
-    expect(lockouts(hub, MGR, wait.deviceId).device).toBe(0);
     expect(eventsOf(hub, 'RequestPinFailed')).toHaveLength(0);
   });
 
-  it('[01d #60] (c″, d′) withdraw and re-raise during argon2: each guess counted once; the fifth locks the named answerer out (StaffPinLockedOut in that transaction), the next is 429 before argon2; the 10th device failure → 429 DEVICE_LOCKED_OUT', async () => {
+  it('[01d #60] (c″, d′) withdraw and re-raise during argon2: each guess counted once; the fifth locks the answerer out (StaffPinLockedOut in that transaction), the next is 429 before argon2; the 10th device failure → 429 DEVICE_LOCKED_OUT', async () => {
     const hub = await world(cleanups);
     const wait = seat(hub, WAIT, 'wait-tab');
+    const mgr = seat(hub, MGR, 'mgr-tab');
     for (let n = 1; n <= 5; n += 1) {
       const id = raiseAs(hub, wait, voidInput(n));
       duringArgon2(hub, () => withdraw(hub, wait, id));
-      const response = await answer(hub, wait, inPerson(id, MGR, n % 2 === 0 ? PIN.b : WRONG));
+      const response = await answer(hub, mgr, byPin(id, n % 2 === 0 ? PIN.b : WRONG));
       expect(response.statusCode, `attempt ${n}`).toBe(409);
-      expect(lockouts(hub, MGR, wait.deviceId)).toEqual({ staff: n, device: n });
+      expect(lockouts(hub, MGR, mgr.deviceId)).toEqual({ staff: n, device: n });
       const failed = eventsOf(hub, 'RequestPinFailed').filter((e) => e.payload.alert_id === id);
       expect(failed.map((e) => e.payload.error_code)).toEqual(['REQUEST_NOT_PENDING']);
       const locked = eventsOf(hub, 'StaffPinLockedOut');
@@ -547,24 +557,25 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
         expect(Math.abs(seq(locked[0] as PosEvent) - seq(failed[0] as PosEvent))).toBeLessThan(5);
       }
     }
-    // the in-person correct PINs (attempts 2 and 4) each raised pin_use_failed
-    expect(pinUseFailed(hub)).toHaveLength(2);
+    // BF-1: a pin answer losing to REQUEST_NOT_PENDING raises no pin_use_failed (attempts 2 and 4 matched)
+    expect(pinUseFailed(hub)).toHaveLength(0);
     hub.deps.testHooks = {};
     const id6 = raiseAs(hub, wait, voidInput(6));
     verifySpy.mockClear();
-    const locked = await answer(hub, wait, inPerson(id6, MGR, PIN.b));
+    const locked = await answer(hub, mgr, byPin(id6, PIN.b));
     expect(locked.statusCode).toBe(429);
     expect(locked.json().error.code).toBe('PIN_LOCKED_OUT');
     expect(verifySpy).not.toHaveBeenCalled();
-    // five more failures from the device (another answerer, wrong PIN): the tenth locks the device
+    // five more failures from the device (another answerer signed in there, wrong PIN): the tenth locks the device
+    const ownerThere = seatOn(hub, mgr, OWNER);
     for (let n = 6; n <= 10; n += 1) {
-      const response = await answer(hub, wait, inPerson(id6, OWNER, WRONG));
+      const response = await answer(hub, ownerThere, byPin(id6, WRONG));
       expect(response.statusCode).toBe(401);
     }
-    expect(lockouts(hub, OWNER, wait.deviceId).device).toBe(10);
+    expect(lockouts(hub, OWNER, mgr.deviceId).device).toBe(10);
     expect(eventsOf(hub, 'DevicePinLockedOut')).toHaveLength(1);
     verifySpy.mockClear();
-    const device = await answer(hub, wait, inPerson(id6, OWNER, PIN.a));
+    const device = await answer(hub, ownerThere, byPin(id6, PIN.a));
     expect(device.statusCode).toBe(429);
     expect(device.json().error.code).toBe('DEVICE_LOCKED_OUT');
     expect(verifySpy).not.toHaveBeenCalled();
@@ -619,7 +630,7 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     expect(pinUseFailed(hub)).toHaveLength(0);
   });
 
-  it('[01d BF-1] two managers approve one t_approval at once with pin: the loser gets 409, one counted failure, RequestPinFailed REQUEST_NOT_PENDING, no pin_use_failed; in person, the same race raises pin_use_failed', async () => {
+  it('[01d BF-1] two managers approve one t_approval at once with pin: the loser gets 409, one counted failure, RequestPinFailed REQUEST_NOT_PENDING, no pin_use_failed; in person is refused before the race (05a D-2)', async () => {
     const hub = await world(cleanups);
     const wait = seat(hub, WAIT, 'wait-tab');
     const mgr = seat(hub, MGR, 'mgr-tab');
@@ -643,22 +654,11 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     expect(pinUseFailed(hub)).toHaveLength(0);
     expect(eventsOf(hub, 'RequestAnswered')).toHaveLength(1);
 
-    // in person on the raising device, the same race: a correct PIN raises pin_use_failed to its owner
+    // 05a D-2: the in-person half of this race (which raised pin_use_failed) is gone: in person is refused in preRead
+    verifySpy.mockClear();
     const id2 = raiseAs(hub, wait, voidInput(2));
-    duringArgon2(hub, async () => {
-      expect((await answer(hub, owner, byPin(id2, PIN.a))).statusCode).toBe(200);
-    });
-    const inPersonLoser = await answer(hub, wait, inPerson(id2, MGR, PIN.b), 'cmd-bf1-ip');
-    expect(inPersonLoser.statusCode).toBe(409);
-    expect(eventsOf(hub, 'RequestPinFailed').filter((e) => e.payload.alert_id === id2).map((e) => e.payload.error_code)).toEqual(['REQUEST_NOT_PENDING']);
-    const notices = pinUseFailed(hub);
-    expect(notices).toHaveLength(1);
-    expect(notices[0]?.payload).toMatchObject({
-      target: { kind: 'person', staff_id: MGR },
-      dedupe_key: `pin_use_failed:${id2}:cmd-bf1-ip`,
-      hidden_from: { session_id: wait.sessionId, device_id: wait.deviceId },
-      values: { request_alert_id: id2, request_kind: 't_approval', error_code: 'REQUEST_NOT_PENDING', device_id: wait.deviceId },
-    });
+    expect((await answer(hub, wait, inPerson(id2, MGR, PIN.b))).json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'in_person_removed' } });
+    expect(verifySpy).not.toHaveBeenCalled();
   });
 
   it('[01d BF-1] method pin with an error other than REQUEST_NOT_PENDING still raises pin_use_failed on a match', async () => {
@@ -682,6 +682,7 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
   it('[01d BF-2] onPrepareFailed made to throw → the client still gets the prepare error for both PINs, never a 500', async () => {
     const hub = await world(cleanups);
     const wait = seat(hub, WAIT, 'wait-tab');
+    const mgr = seat(hub, MGR, 'mgr-tab');
     const owner = seat(hub, OWNER, 'owner-tab');
     const def = answerDef(hub);
     const original = def.pinHooks.onPrepareFailed;
@@ -698,7 +699,7 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
         duringArgon2(hub, async () => {
           expect((await answer(hub, owner, byPin(id, PIN.a))).statusCode).toBe(200);
         });
-        const response = await answer(hub, wait, inPerson(id, MGR, pin));
+        const response = await answer(hub, mgr, byPin(id, pin));
         expect(response.statusCode).toBe(409);
         expect(response.json().error.code).toBe('REQUEST_NOT_PENDING');
         bodies.push(bodyOf(response, id));
@@ -715,7 +716,7 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
   it('[01d §3.3 rule 4(d)] the pin_use_failed raise throws → still counted and recorded for both PINs: same status, body and counter delta; no notice; a safe log line', async () => {
     const hub = await world(cleanups, { mgrPin: '4711' });
     const wait = seat(hub, WAIT, 'wait-tab');
-    const owner = seat(hub, OWNER, 'owner-tab');
+    const mgr = seat(hub, MGR, 'mgr-tab');
     const original = alerts.raise.bind(alerts);
     const spy = vi.spyOn(alerts, 'raise').mockImplementation((ctx, input) => {
       if (input.kind === 'pin_use_failed') throw new DomainError('VALIDATION_FAILED', { issue: 'target_unavailable', secret: 'forced' });
@@ -728,15 +729,17 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
         [2, '4712'],
       ] as const) {
         const id = raiseAs(hub, wait, voidInput(n));
-        const before = lockouts(hub, MGR, wait.deviceId);
-        duringArgon2(hub, async () => {
-          expect((await answer(hub, owner, byPin(id, PIN.a))).statusCode).toBe(200);
+        const before = lockouts(hub, MGR, mgr.deviceId);
+        // a refusal other than REQUEST_NOT_PENDING (BF-1), so a matched pin answer tries the notice
+        duringArgon2(hub, () => {
+          fakeApply.mode = 'throw';
         });
-        const response = await answer(hub, wait, inPerson(id, MGR, pin));
-        const after = lockouts(hub, MGR, wait.deviceId);
+        const response = await answer(hub, mgr, byPin(id, pin));
+        fakeApply.mode = 'ok';
+        const after = lockouts(hub, MGR, mgr.deviceId);
         results.push({ status: response.statusCode, body: bodyOf(response, id), delta: { staff: after.staff - before.staff, device: after.device - before.device } });
         const failed = eventsOf(hub, 'RequestPinFailed').filter((e) => e.payload.alert_id === id);
-        expect(failed.map((e) => [e.payload.outcome, e.payload.error_code])).toEqual([['answer_failed', 'REQUEST_NOT_PENDING']]);
+        expect(failed.map((e) => [e.payload.outcome, e.payload.error_code])).toEqual([['answer_failed', 'ITEM_WRONG_STAGE']]);
       }
       expect(results[0]?.status).toBe(409);
       expect(results[1]).toEqual(results[0]);
@@ -792,10 +795,11 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     const payload = byPin(pinAnswer, '4711');
     const first = await answer(hub, mgr, payload, 'cmd-56');
     expect(first.statusCode).toBe(200);
-    // a wrong in-person attempt and an in-person answer, also never stored
+    // a wrong attempt and an answer on the raising device, also never stored (05a D-2: was in person)
     const ip = raiseAs(hub, wait, voidInput(2));
-    expect((await answer(hub, wait, inPerson(ip, MGR, '4712'))).statusCode).toBe(401);
-    expect((await answer(hub, wait, inPerson(ip, MGR, '4711'))).statusCode).toBe(200);
+    const mgrThere = seatOn(hub, wait, MGR);
+    expect((await answer(hub, mgrThere, byPin(ip, '4712'))).statusCode).toBe(401);
+    expect((await answer(hub, mgrThere, byPin(ip, '4711'))).statusCode).toBe(200);
     const row = hub.deps.db.prepare("SELECT * FROM processed_commands WHERE command_id = 'cmd-56'").get() as Record<string, unknown>;
     const withoutPin: Record<string, unknown> = { ...payload };
     delete withoutPin.pin;
@@ -827,10 +831,7 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     const before = counts(hub);
     for (const mode of ['append', 'onCommit', 'write', 'no_alert_id', 'other_alert_id'] as const) {
       fakeApply.mode = mode;
-      for (const [who, payload] of [
-        [mgr, byPin(id, PIN.b)],
-        [wait, inPerson(id, MGR, PIN.b)],
-      ] as const) {
+      for (const [who, payload] of [[mgr, byPin(id, PIN.b)]] as const) {
         const response = await answer(hub, who, payload);
         expect(response.statusCode, mode).toBe(500);
         expect(response.json().error.code, mode).toBe('INTERNAL_ERROR');

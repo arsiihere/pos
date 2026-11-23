@@ -457,17 +457,17 @@ describe('[05 §3.14, §6.11] WaiveBuyerId — approval path (the Cashier: requi
     expect(db().prepare('SELECT COUNT(*) FROM bill_texts').pluck().get()).toBe(0);
   });
 
-  it('[05 §3.14] approve in person on the Cashier\'s kiosk (actor Cashier ≠ answerer Manager): BuyerIdWaived { requester Cashier, approver = answerer, alert_id, note_id }', async () => {
+  it('[05 §3.14] approve by the Manager\'s PIN on his own seat (05a D-2: was in person on the Cashier\'s kiosk): BuyerIdWaived { requester Cashier, approver = answerer, alert_id, note_id }', async () => {
     await start();
     const { bill_id, seating_id } = await billOf(3, 0);
     const asked = await waive(cashier, { bill_id, note: noteSecret('approved in person 0e77') });
     const alert_id = pendingOf(asked);
     const note_id = raisedOf(alert_id).values.note_id;
-    const a = await post(hub, cashier, 'answer-request', 'AnswerRequest', { alert_id, decision: 'approve', method: 'in_person', answerer_staff_id: STAFF.manager, pin: PIN.b });
+    const a = await post(hub, manager, 'answer-request', 'AnswerRequest', { alert_id, decision: 'approve', method: 'pin', pin: PIN.b });
     expect(a.status, JSON.stringify(a.error)).toBe(200);
     const waived = a.events.filter((e) => e.event_type === 'BuyerIdWaived');
     expect(waived).toHaveLength(1);
-    expect(waived[0]).toMatchObject({ stream_type: 'bill', stream_id: bill_id, actor_id: STAFF.cashier });
+    expect(waived[0]).toMatchObject({ stream_type: 'bill', stream_id: bill_id, actor_id: STAFF.manager });
     expect(waived[0]!.payload).toEqual({ bill_id, has_note: true, note_id, requester_staff_id: STAFF.cashier, approver_staff_id: STAFF.manager, alert_id });
     expect(waivedOf(bill_id)).toBe(1);
     const v = await view({ seating_id });

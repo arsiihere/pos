@@ -790,7 +790,7 @@ describe('[05 §3.14, §6.20, #53, #53b] petty_cash requests', () => {
     expect(pettyEvents()).toEqual([]);
   });
 
-  it("[05 §3.14] approve in person on the Cashier's kiosk (actor Cashier ≠ answerer Manager): the event with requester Cashier, approver = answerer, alert_id; no kick; expected moves", async () => {
+  it("[05 §3.14] approve by the Manager's PIN on his own seat (05a D-2: was in person on the Cashier's kiosk): the event with requester Cashier, approver = answerer, alert_id; no kick; expected moves", async () => {
     await start();
     const r = await record(cashier, {
       kind: 'advance',
@@ -801,11 +801,10 @@ describe('[05 §3.14, §6.20, #53, #53b] petty_cash requests', () => {
     });
     const alert_id = pendingOf(r);
     const entry_id = r.result!.entry_id as string;
-    const a = await post(hub, cashier, 'answer-request', 'AnswerRequest', {
+    const a = await post(hub, manager, 'answer-request', 'AnswerRequest', {
       alert_id,
       decision: 'approve',
-      method: 'in_person',
-      answerer_staff_id: STAFF.manager,
+      method: 'pin',
       pin: PIN.b,
     });
     expect(a.status, JSON.stringify(a.error)).toBe(200);
@@ -814,7 +813,7 @@ describe('[05 §3.14, §6.20, #53, #53b] petty_cash requests', () => {
     expect(done[0]).toMatchObject({
       stream_type: 'shift',
       stream_id: drawerShift,
-      actor_id: STAFF.cashier,
+      actor_id: STAFF.manager,
     });
     expect(done[0]!.payload).toEqual({
       entry_id,
