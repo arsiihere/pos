@@ -21,8 +21,6 @@ type Decision = AlertView['answers'] extends readonly (infer D)[] | null | undef
 export interface SheetRow extends RowLike {
   set: AlertView['set'];
   needs_pin?: AlertView['needs_pin'];
-  /** 05a §3.9 rule 1: set on a request named to one person (a downgraded request names its requester) */
-  for_staff_id?: AlertView['for_staff_id'] | undefined;
 }
 
 export interface Toast {
@@ -186,8 +184,6 @@ export function AnswerSheet({
   const money = row.needs_pin === 'always';
   // 05a §3.9 rule 2: a money answer from an `everyone` device is refused by the hub; the sheet offers no button for it
   const sharedMoney = money && access === 'everyone';
-  // 05a §3.9 rule 1: a downgraded request is named to its requester, who confirms it on their own phone
-  const confirmOnPhone = canAnswer && !sharedMoney && row.for_staff_id != null && row.for_staff_id === me.staffId;
   const table = tableOf(row);
   const subLine = `${titleText(row)}${table === null ? '' : ` · ${table}`}`;
 
@@ -338,12 +334,6 @@ export function AnswerSheet({
               <span>{t('answer.approve_on_listed')}</span>
             </div>
           )}
-          {confirmOnPhone && open && (
-            <div className="ro" role="status">
-              <Ico name="userlock" />
-              <span>{t('answer.confirm_on_phone')}</span>
-            </div>
-          )}
           {!canAnswer && open && (
             <div className="ro" role="status">
               <Ico name={row.set === 'informed' ? 'info' : 'lock'} />
@@ -397,7 +387,7 @@ const NOTICE_ICON: Record<string, 'userlock' | 'lock' | 'checkc' | 'pulse' | 're
 };
 
 /**
- * 01d D04 (frames NoticeInPerson, NoticePinFailed, NoticePhone): family mark, the title line, a facts box, and
+ * 01d D04 (frames NoticePinFailed, NoticePhone): family mark, the title line, a facts box, and
  * for N01 / N03 the "Not you?" line. Close is the only (primary) button.
  */
 export function NoticeSheet({ row, utcOffsetMs, sheet, onClose }: { row: RowLike; utcOffsetMs: number; sheet: boolean; onClose: () => void }) {

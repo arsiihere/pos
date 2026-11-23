@@ -135,15 +135,6 @@ describe('[01d §8.1 D01] AnswerSheet', () => {
     expect(m.text()).not.toContain('Approve on a listed device');
   });
 
-  it('[05a §8; §3.9 rule 1] a downgraded request named to its requester shows "Confirm on your phone" (the sheet on their phone keeps its buttons)', () => {
-    setup({ access: 'listed', row: { for_staff_id: 'S-IMRAN' } });
-    expect(m.text()).toContain('Confirm on your phone');
-    expect(m.buttons().some((b) => b.textContent === 'Approve')).toBe(true);
-    m.unmount();
-    setup({ access: 'listed', row: { for_staff_id: 'S-OTHER' } });
-    expect(m.text()).not.toContain('Confirm on your phone');
-  });
-
   it('REQUEST_NOT_PENDING closes the sheet with "Already approved by <name>"', async () => {
     const s = setup({
       replies: [reply(409, { error: { code: 'REQUEST_NOT_PENDING', details: { close_reason: 'answered', decision: 'approve', answered_by_name: 'Sana' } } })],
