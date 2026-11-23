@@ -116,7 +116,8 @@ export async function activeVariantGroupIdsIn(repo: TenantLevelRepository, categ
 // 01c §5.1 stock_items as stored (archived_at a number).
 export type StockItemRecord = Omit<StockItemRow, 'archived_at'> & { archived_at: number | null };
 
-const STOCK_ITEM_COLUMNS = 'stock_item_id, name, stock_unit, carries_over, archived_at';
+// 08a AD-2: the four inventory columns (C-7) ride along every stock-item read / RETURNING
+const STOCK_ITEM_COLUMNS = 'stock_item_id, name, stock_unit, carries_over, archived_at, kind, code, cost_category, is_a_item';
 
 type RawStockItem = Omit<StockItemRecord, 'archived_at'> & { archived_at: string | null };
 
@@ -124,19 +125,28 @@ function stockItemRow(row: RawStockItem): StockItemRecord {
   return { ...row, archived_at: row.archived_at === null ? null : Number(row.archived_at) };
 }
 
-// §6.7: insert, no lock (the name index → 23505 stock_items_active_name).
-export async function insertStockItem(
-  repo: TenantLevelRepository,
-  row: Omit<StockItemRecord, 'archived_at'>,
-  now: number,
-): Promise<StockItemRecord> {
+// §6.7 / 08a §6.2: insert, no lock (the name index → 23505 stock_items_active_name; the code index → 23505
+// stock_items_active_code).
+export async function insertStockItem(repo: TenantLevelRepository, row: Omit<StockItemRecord, 'archived_at'>, now: number): Promise<StockItemRecord> {
   const rows = await repo.query<RawStockItem>(
-    `INSERT INTO stock_items (tenant_id, stock_item_id, name, stock_unit, carries_over, created_at, updated_at)
-     SELECT tenant_id, $2, $3, $4, $5, $6, $6 FROM tenants WHERE tenant_id = $1
+    `INSERT INTO stock_items (tenant_id, stock_item_id, name, stock_unit, carries_over, kind, code, cost_category, is_a_item, created_at, updated_at)
+     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10 FROM tenants WHERE tenant_id = $1
      RETURNING ${STOCK_ITEM_COLUMNS}`,
-    [row.stock_item_id, row.name, row.stock_unit, row.carries_over, now],
+    [row.stock_item_id, row.name, row.stock_unit, row.carries_over, row.kind, row.code, row.cost_category, row.is_a_item, now],
   );
   return stockItemRow(rows[0]!);
+}
+
+// 08a §3.3 (m-13) / §6.3 R7: is this code held by another active stock item? One plain read before the write; the
+// stock_items_active_code index is the backstop (N-7).
+export async function activeCodeTaken(repo: TenantLevelRepository, code: string, exceptStockItemId: string | null): Promise<boolean> {
+  const rows = await repo.query<{ stock_item_id: string }>(
+    `SELECT stock_item_id FROM stock_items
+      WHERE tenant_id = $1 AND code = $2 AND archived_at IS NULL AND stock_item_id IS DISTINCT FROM $3::text
+      LIMIT 1`,
+    [code, exceptStockItemId],
+  );
+  return rows.length > 0;
 }
 
 // §6 lock order 5: the §6.8 target.
@@ -150,20 +160,26 @@ export async function lockStockItem(repo: TenantLevelRepository, stockItemId: st
 
 export async function updateStockItem(repo: TenantLevelRepository, row: StockItemRecord, now: number): Promise<StockItemRecord> {
   const rows = await repo.query<RawStockItem>(
-    `UPDATE stock_items SET name = $3, stock_unit = $4, carries_over = $5, archived_at = $6, updated_at = $7
+    `UPDATE stock_items SET name = $3, stock_unit = $4, carries_over = $5, archived_at = $6, kind = $7, code = $8,
+            cost_category = $9, is_a_item = $10, updated_at = $11
       WHERE tenant_id = $1 AND stock_item_id = $2
       RETURNING ${STOCK_ITEM_COLUMNS}`,
-    [row.stock_item_id, row.name, row.stock_unit, row.carries_over, row.archived_at, now],
+    [row.stock_item_id, row.name, row.stock_unit, row.carries_over, row.archived_at, row.kind, row.code, row.cost_category, row.is_a_item, now],
   );
   return stockItemRow(rows[0]!);
 }
 
-// §6.6 statement 2: the active or the archived stock items, by lower(name), then id (C3).
-export async function selectStockItems(repo: TenantLevelRepository, o: { archived: boolean }): Promise<StockItemRecord[]> {
+// §6.6 statement 2 (08a §6.1: and the kind filter): the active or the archived stock items, by lower(name), then
+// id (C3).
+export async function selectStockItems(
+  repo: TenantLevelRepository,
+  o: { archived: boolean; kind: StockItemRecord['kind'] | null },
+): Promise<StockItemRecord[]> {
   const rows = await repo.query<RawStockItem>(
     `SELECT ${STOCK_ITEM_COLUMNS} FROM stock_items
-      WHERE tenant_id = $1 AND archived_at IS ${o.archived ? 'NOT NULL' : 'NULL'}
+      WHERE tenant_id = $1 AND archived_at IS ${o.archived ? 'NOT NULL' : 'NULL'} AND ($2::text IS NULL OR kind = $2)
       ORDER BY lower(name), stock_item_id`,
+    [o.kind],
   );
   return rows.map(stockItemRow);
 }
@@ -194,7 +210,7 @@ export interface DrawerRecord {
   quantity_per_sale_unit: number;
 }
 
-// §6.6 statement 4 and §6.8 R1 / R2: the active items drawing from these stock items, a plain read (no lock),
+// §6.6 statement 4 and §6.8 R1 / R2 (08a §6.3: and R4): the active items drawing from these stock items, a plain read (no lock),
 // by stock item, then lower(name), then item_id (C3).
 export async function selectActiveDrawers(repo: TenantLevelRepository, stockItemIds: string[]): Promise<DrawerRecord[]> {
   return repo.query<DrawerRecord>(
@@ -204,6 +220,50 @@ export async function selectActiveDrawers(repo: TenantLevelRepository, stockItem
       WHERE d.tenant_id = $1 AND d.stock_item_id = ANY($2) AND m.archived_at IS NULL
       ORDER BY d.stock_item_id, lower(m.name), d.item_id`,
     [stockItemIds],
+  );
+}
+
+// 08a §6.3 R4: the branches (any branch of the tenant, not only the JWT's) counting this stock item, a plain read
+// (the stock item FOR UPDATE serialises every §6.9 write to its rows), by branch_id.
+export async function selectStockItemBranchIds(repo: TenantLevelRepository, stockItemId: string): Promise<string[]> {
+  const rows = await repo.query<{ branch_id: string }>(
+    `SELECT branch_id FROM stock_item_branches WHERE tenant_id = $1 AND stock_item_id = $2 ORDER BY branch_id`,
+    [stockItemId],
+  );
+  return rows.map((row) => row.branch_id);
+}
+
+// One item_prices candidate as read; BIGINT columns arrive as strings (m-12: the service reads them with BigInt).
+export interface PriceCandidateRecord {
+  price_id: string;
+  stock_item_id: string;
+  branch_id: string | null;
+  kind: 'manual' | 'market_rate';
+  unit_name: string;
+  price_minor: string;
+  stock_qty_num: string;
+  stock_qty_den: string;
+  stock_unit: StockItemRow['stock_unit'];
+  created_at: string;
+  valid_until_at: string | null;
+}
+
+// 08a §6.1 statement 5 (item_prices_item): the price rows of these stock items in effect at now, every-branch or at
+// this branch (null = every-branch only); I7 picks among them in the service.
+export async function selectPriceCandidates(
+  repo: TenantLevelRepository,
+  stockItemIds: string[],
+  branchId: string | null,
+  now: number,
+): Promise<PriceCandidateRecord[]> {
+  return repo.query<PriceCandidateRecord>(
+    `SELECT price_id, stock_item_id, branch_id, kind, unit_name, price_minor, stock_qty_num, stock_qty_den, stock_unit,
+            created_at, valid_until_at
+       FROM item_prices
+      WHERE tenant_id = $1 AND stock_item_id = ANY($2) AND created_at <= $4
+        AND (valid_until_at IS NULL OR valid_until_at > $4)
+        AND (branch_id IS NULL OR branch_id = $3::text)`,
+    [stockItemIds, branchId, now],
   );
 }
 

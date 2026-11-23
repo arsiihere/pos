@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { CloudAdmin, OwnerUser } from '../../api/cloud-admin';
+import type { CloudAdmin, OwnerUser, StockItemKind } from '../../api/cloud-admin';
 import { forcedRoute, matchOwnerRoute, navigate, useHashRoute } from '../../app/router';
 import { ChangePassword } from './account/ChangePassword';
 import { ChoiceGroupForm } from './choice-groups/ChoiceGroupForm';
@@ -19,6 +19,7 @@ import { Shell } from './Shell';
 import { SizeGroupForm } from './size-groups/SizeGroupForm';
 import { SizeGroupList } from './size-groups/SizeGroupList';
 import { StockItemForm } from './stock-items/StockItemForm';
+import { StockItemInventory } from './stock-items/StockItemInventory';
 import { StockItemList } from './stock-items/StockItemList';
 import { RoleEditor } from './roles/RoleEditor';
 import { RoleList } from './roles/RoleList';
@@ -28,6 +29,12 @@ import { PointsView } from './points/PointsView';
 import { StationsView } from './stations/StationsView';
 import { StockCountingView } from './stock-counting/StockCountingView';
 import { TeamsView } from './teams/TeamsView';
+
+// 08a §8.2: `new?kind=…` is a new stock item of that kind; any other segment is the stock item's id.
+function newStockItem(id: string): { stockItemId: string; initialKind?: StockItemKind } {
+  const preset = /^new\?kind=(ingredient|packet)$/.exec(id);
+  return preset === null ? { stockItemId: id } : { stockItemId: 'new', initialKind: preset[1] as StockItemKind };
+}
 
 // §8.1: the owner app. No token (or #/login) → login. #/ is the branch picker, skipped with one branch
 // (S52); #/menu needs no branch (S52, Q7); #/floors and #/stations need one and fall back to the picker.
@@ -138,6 +145,16 @@ function Routes({
   // 01b §8: the 01b views. Staff and roles cover every branch (B8) and need no chosen branch; Teams and
   // Stock counting are per branch and fall back to the picker, as Floors and Stations do.
   const owner = matchOwnerRoute(route);
+  // 08a §8.3 (C-8): a stock item's page (Units, Menu cost, Yield); the picked branch, if any, is its menu cost's.
+  const inventory = /^\/stock-items\/([^/]+)\/inventory$/.exec(route);
+  if (inventory !== null) {
+    const id = decodeURIComponent(inventory[1]!);
+    return (
+      <Shell route={route} userName={user.display_name} counts={{ branches: allowed.length }} onSignOut={signOut}>
+        <StockItemInventory key={id} api={api} stockItemId={id} branchIds={allowed} branchId={branchId} onBranch={chooseBranch} />
+      </Shell>
+    );
+  }
   const ownerNeedsBranch = owner?.name === 'teams' || owner?.name === 'stock_counting' || owner?.name === 'billing';
   const needsBranch = route === '/floors' || route === '/stations' || route === '/points' || ownerNeedsBranch;
   if (owner !== null && (!ownerNeedsBranch || branchId !== null)) {
@@ -164,8 +181,11 @@ function Routes({
         )}
         {owner.name === 'size_groups' && <SizeGroupList api={api} />}
         {owner.name === 'size_group_edit' && <SizeGroupForm key={owner.id} api={api} groupId={owner.id} />}
-        {owner.name === 'stock_items' && <StockItemList api={api} branchIds={allowed} />}
-        {owner.name === 'stock_item_edit' && <StockItemForm key={owner.id} api={api} stockItemId={owner.id} branchIds={allowed} />}
+        {owner.name === 'stock_items' && <StockItemList api={api} branchIds={allowed} branchId={branchId} onBranch={chooseBranch} />}
+        {owner.name === 'stock_item_edit' && (
+          // 08a §8.2: #/stock-items/new?kind=ingredient|packet (the list tab's New) presets the kind.
+          <StockItemForm key={owner.id} api={api} branchIds={allowed} {...newStockItem(owner.id)} />
+        )}
         {owner.name === 'choice_groups' && <ChoiceGroupList api={api} />}
         {owner.name === 'choice_group_edit' && <ChoiceGroupForm key={owner.id} api={api} groupId={owner.id} />}
         {owner.name === 'deals' && <DealList api={api} />}

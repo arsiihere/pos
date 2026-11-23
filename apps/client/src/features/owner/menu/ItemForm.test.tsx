@@ -406,3 +406,111 @@ describe('owner item and category forms', () => {
     expect(edit.calls.find((c) => c.method === 'PATCH')?.body).toEqual({ is_ready_item: false });
   });
 });
+
+// 08a §8.6 (C-10, M-2): the stock-draw picker reads prepared stock items only; a stored draw that is missing from the
+// active read is looked up with the archived fallback, kind prepared too.
+describe('[08a §8.6] stock-draw picker', () => {
+  const stockItem = (stock_item_id: string, name: string, over: Record<string, unknown> = {}) => ({
+    stock_item_id,
+    name,
+    stock_unit: 'piece',
+    carries_over: false,
+    archived_at: null,
+    kind: 'prepared',
+    code: null,
+    cost_category: 'food',
+    is_a_item: false,
+    version: 'v1',
+    branches: [],
+    drawers: [],
+    menu_cost: null,
+    ...over,
+  });
+  const POT = stockItem('K1', 'Karahi pot');
+  const OLD_POT = stockItem('K2', 'Old pot', { archived_at: 5 });
+  const BEEF = stockItem('K3', 'Beef (raw)', { kind: 'ingredient', stock_unit: 'g' });
+
+  function stockApi() {
+    const calls: Call[] = [];
+    const api = createCloudAdmin({
+      onLoggedOut: () => {},
+      fetch: async (url, init) => {
+        calls.push({ method: init?.method ?? 'GET', url, key: undefined, body: undefined });
+        if (url.startsWith('/v1/admin/stock-items')) {
+          const query = new URLSearchParams(url.split('?')[1] ?? '');
+          const archived = query.get('status') === 'archived';
+          const all = archived ? [OLD_POT] : [POT, BEEF];
+          // The cloud filters by kind (08a §6.1); without kind every kind is listed.
+          const rows = query.get('kind') === null ? all : all.filter((s) => s.kind === query.get('kind'));
+          return json(200, { data: { can_edit_tenant: true, stock_items: rows } });
+        }
+        return json(200, { data: { stations: [SLOT] } });
+      },
+    });
+    return { api, calls };
+  }
+  const menuItem = (draw: string | null): MenuItem => ({
+    item_id: 'I5',
+    category_id: 'C1',
+    tax_class_id: null,
+    name: 'Paye Half',
+    variant_group_id: null,
+    variant_name: null,
+    description: null,
+    sort_order: 0,
+    price_minor: 90_000,
+    serve_mode: 'immediate',
+    prep_buffer_ms: 30_000,
+    cook_time_ms: 60_000,
+    stock_time_ms: null,
+    out_of_stock_behaviour: 'cook_fresh',
+    sale_unit: 'piece',
+    requires_weighing: false,
+    is_ready_item: false,
+    stock_draws: draw === null ? [] : [{ stock_item_id: draw, quantity_per_sale_unit: 1 }],
+    availability_windows: [],
+    weight_pct: 100,
+    max_early_ms: 60_000,
+    max_carry_ms: null,
+    max_late_ms: null,
+    adjust_time_ms: 180_000,
+    max_delay_ms: null,
+    max_delay_unlimited: false,
+    goes_with: [],
+    archived_at: null,
+    routes: [],
+  });
+  async function renderItem(api: ReturnType<typeof stockApi>['api'], item: MenuItem | null) {
+    act(() =>
+      root.render(
+        <ItemForm api={api} item={item} taxClasses={TAXES} categories={CATEGORIES} branchIds={['B1']} onSaved={() => {}} onCancel={() => {}} />,
+      ),
+    );
+    await flush();
+  }
+  const pickerOptions = () => [...(field('stock_item_id') as HTMLSelectElement).options].map((o) => o.textContent);
+  const stockReads = (calls: Call[]) => calls.filter((c) => c.url.startsWith('/v1/admin/stock-items')).map((c) => c.url);
+
+  it('[08a #37] the draw picker lists prepared stock items only (listStockItems({ kind: "prepared" }))', async () => {
+    const { api, calls } = stockApi();
+    await renderItem(api, null);
+    expect(stockReads(calls)).toEqual(['/v1/admin/stock-items?kind=prepared']);
+    expect(pickerOptions()).toEqual([t('item.stock_none'), 'Karahi pot']);
+  });
+
+  it('[08a #37, C-10] an archived stored draw is read with { status: "archived", kind: "prepared" }', async () => {
+    const { api, calls } = stockApi();
+    await renderItem(api, menuItem('K2'));
+    expect(stockReads(calls)).toEqual(['/v1/admin/stock-items?kind=prepared', '/v1/admin/stock-items?status=archived&kind=prepared']);
+    expect(pickerOptions()).toEqual([t('item.stock_none'), 'Karahi pot', 'Old pot']);
+    expect(container.querySelector('[data-draw-wrong-kind]')).toBeNull();
+  });
+
+  it('[08a C-10] a stored draw onto a non-prepared item shows its name with the wrong_kind text', async () => {
+    const { api } = stockApi();
+    await renderItem(api, menuItem('K3'));
+    expect(pickerOptions()).toEqual([t('item.stock_none'), 'Beef (raw)', 'Karahi pot']);
+    expect((field('stock_item_id') as HTMLSelectElement).value).toBe('K3');
+    expect(container.querySelector('[data-draw-wrong-kind]')?.textContent).toBe(t('errors.reference.wrong_kind'));
+  });
+});

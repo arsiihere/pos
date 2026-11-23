@@ -23,6 +23,15 @@ import type {
   ChangedPassword,
   JurisdictionWire,
   CreateStockItemRequest,
+  CreateItemPriceRequest,
+  CreateItemUnitRequest,
+  CreateYieldRequest,
+  InventoryDetail,
+  ItemPriceCreated,
+  ItemUnitCreated,
+  MenuCostWire,
+  StockItemKind,
+  YieldProfileCreated,
   CreateVariantGroupRequest,
   CreateDealRequest,
   DealBranchWire,
@@ -163,8 +172,18 @@ export interface StockDrawer {
   variant_name: string | null;
   quantity_per_sale_unit: number;
 }
-export type StockItem = StockItemWire & { branches: StockItemBranch[]; drawers: StockDrawer[] };
+// 08a §6.1 (C-5): each listed item adds menu_cost (I7 for the asked branch; null = no price, never 0).
+export type StockItem = StockItemWire & { branches: StockItemBranch[]; drawers: StockDrawer[]; menu_cost: MenuCost | null };
 export type StockUnit = StockItemWire['stock_unit'];
+// 08a §5.3, §6.1, §6.4–§6.7: the inventory config of a stock item (units, menu cost, yield).
+export type { StockItemKind };
+export type MenuCost = MenuCostWire;
+export type StockItemInventoryData = InventoryDetail;
+export interface StockItemListQuery {
+  status?: 'active' | 'archived';
+  kind?: StockItemKind;
+  branch_id?: string;
+}
 // 01c §5.4, §6.10–§6.12a: choice groups (code: modifier groups) and their per-branch difference lists.
 export type ModifierGroup = ModifierGroupWire;
 export type ModifierGroupBranch = ModifierGroupBranchWire;
@@ -349,6 +368,13 @@ export function createCloudAdmin(options: CloudAdminOptions) {
   }
 
   const branch = (branchId: string) => `/v1/admin/branches/${encodeURIComponent(branchId)}`;
+  // A query string from the set values, in the given order ('' when none is set).
+  const queryString = (query: object) => {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(query)) if (typeof v === 'string') params.set(k, v);
+    const text = params.toString();
+    return text === '' ? '' : `?${text}`;
+  };
   const id = encodeURIComponent;
 
   return {
@@ -488,11 +514,9 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       call<{ variant_group: VariantGroup }>('PATCH', `/v1/admin/variant-groups/${id(variantGroupId)}`, body),
 
     // 01c §6.6–§6.9 stock items and their per-branch rows (a branch PUT takes no Idempotency-Key)
-    listStockItems: (query: { status?: 'active' | 'archived' } = {}) =>
-      call<{ can_edit_tenant: boolean; stock_items: StockItem[] }>(
-        'GET',
-        `/v1/admin/stock-items${query.status === undefined ? '' : `?status=${query.status}`}`,
-      ),
+    // 08a §6.1: kind (absent = every kind) and branch_id (for menu_cost) join 01c's status.
+    listStockItems: (query: StockItemListQuery = {}) =>
+      call<{ can_edit_tenant: boolean; stock_items: StockItem[] }>('GET', `/v1/admin/stock-items${queryString(query)}`),
     createStockItem: (body: CreateStockItemRequest, key: string) =>
       call<{ stock_item: StockItemWire }>('POST', '/v1/admin/stock-items', body, key),
     patchStockItem: (stockItemId: string, body: PatchStockItemRequest) =>
@@ -503,6 +527,16 @@ export function createCloudAdmin(options: CloudAdminOptions) {
         `/v1/admin/stock-items/${id(stockItemId)}/branches/${id(branchId)}`,
         body,
       ),
+
+    // 08a §6.4–§6.7: the item page read, and its three appends (each with the form's Idempotency-Key)
+    getStockItemInventory: (stockItemId: string, query: { branch_id?: string } = {}) =>
+      call<StockItemInventoryData>('GET', `/v1/admin/stock-items/${id(stockItemId)}/inventory${queryString(query)}`),
+    createItemUnit: (stockItemId: string, body: CreateItemUnitRequest, key: string) =>
+      call<ItemUnitCreated>('POST', `/v1/admin/stock-items/${id(stockItemId)}/units`, body, key),
+    createItemPrice: (stockItemId: string, body: CreateItemPriceRequest, key: string) =>
+      call<ItemPriceCreated>('POST', `/v1/admin/stock-items/${id(stockItemId)}/prices`, body, key),
+    createYield: (stockItemId: string, body: CreateYieldRequest, key: string) =>
+      call<YieldProfileCreated>('POST', `/v1/admin/stock-items/${id(stockItemId)}/yields`, body, key),
 
     // 01c §6.13–§6.16 deals (status?: AD-30 a) and their per-branch rows (a branch PUT takes no Idempotency-Key)
     listDeals: (query: { status?: 'active' | 'archived' } = {}) =>

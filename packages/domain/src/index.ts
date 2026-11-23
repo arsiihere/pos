@@ -15,3 +15,4 @@ export * from './voids.js';
 export * from './audit.js';
 export * from './currency.js';
 export * from './billing/index.js';
+export * from './inventory/index.js';

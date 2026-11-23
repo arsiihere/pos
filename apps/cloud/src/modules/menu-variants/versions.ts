@@ -33,6 +33,11 @@ export interface StockItemRow {
   stock_unit: StockItemWire['stock_unit'];
   carries_over: boolean;
   archived_at: Bigint | null;
+  // 08a C-7
+  kind: StockItemWire['kind'];
+  code: string | null;
+  cost_category: StockItemWire['cost_category'];
+  is_a_item: boolean;
 }
 
 export interface StockItemBranchRow {
@@ -135,6 +140,11 @@ export function toStockItemWire(row: StockItemRow): StockItemWire {
     stock_unit: row.stock_unit,
     carries_over: row.carries_over,
     archived: row.archived_at !== null,
+    // 08a C-7: the version covers the inventory fields
+    kind: row.kind,
+    code: row.code,
+    cost_category: row.cost_category,
+    is_a_item: row.is_a_item,
   };
   return {
     stock_item_id: input.stock_item_id,
@@ -142,6 +152,10 @@ export function toStockItemWire(row: StockItemRow): StockItemWire {
     stock_unit: input.stock_unit,
     carries_over: input.carries_over,
     archived_at: numberOrNull(row.archived_at),
+    kind: input.kind,
+    code: input.code,
+    cost_category: input.cost_category,
+    is_a_item: input.is_a_item,
     version: hash(input),
   };
 }

@@ -1,4 +1,4 @@
-import { DomainError } from '@pos/domain';
+import { DomainError, displayPer, effectiveMenuPrice, pricePerStockUnit, type PriceRow } from '@pos/domain';
 import { canonicalJson } from '@pos/domain/hash';
 import type {
   CreateDealInput,
@@ -8,6 +8,7 @@ import type {
   DealBranchWire,
   DealListResponse,
   DealWire,
+  MenuCostWire,
   ModifierGroupBranchWire,
   ModifierGroupListResponse,
   ModifierGroupWire,
@@ -19,6 +20,7 @@ import type {
   PutModifierGroupBranchInput,
   PutStockItemBranchInput,
   StockItemBranchWire,
+  StockItemListQueryInput,
   StockItemListResponse,
   StockItemWire,
   VariantGroupWire,
@@ -42,9 +44,10 @@ import {
   shareTaxClass,
   shareVariantGroups,
 } from '../restaurant/repository.js';
-import type { OwnerRequest } from '../restaurant/service.js';
+import { assertBranchAllowed, type OwnerRequest } from '../restaurant/service.js';
 import { assertEffectiveSetLimit, type EffectiveSetItem, type LinkRow } from './effective-set.js';
 import {
+  activeCodeTaken,
   archiveOmittedOptions,
   archiveOmittedParts,
   branchAllowed,
@@ -85,7 +88,9 @@ import {
   selectModifierLinks,
   selectModifierOptions,
   selectOptionBranches,
+  selectPriceCandidates,
   selectStockItemBranch,
+  selectStockItemBranchIds,
   selectStockItemBranches,
   selectStockItems,
   updateDeal,
@@ -100,6 +105,7 @@ import {
   type DealRecord,
   type MemberRow,
   type ModifierGroupRecord,
+  type PriceCandidateRecord,
   type StockItemBranchRecord,
   type StockItemRecord,
   type VariantGroupRecord,
@@ -281,22 +287,29 @@ function hooks(deps: MenuVariantDeps): { testHooks?: CloudTestHooks } {
 
 type StockItemList = z.infer<typeof StockItemListResponse>['data'];
 
-// §6.6: 4 fixed statements (coversEveryBranch, stock items, branch rows = ANY at the JWT's allowed branches,
-// drawers joined to active items = ANY). Every allowed branch gets an entry, "no row" as station_id null with the
-// no-row version (AD-6), by branch_id.
+// §6.6 / 08a §6.1: 5 fixed statements (coversEveryBranch, stock items (status, kind?), branch rows = ANY at the JWT's
+// allowed branches, drawers joined to active items = ANY, price candidates = ANY). `branch_id` is checked against
+// the JWT (C2, 404 BRANCH_NOT_FOUND) before any SQL. Every allowed branch gets an entry, "no row" as station_id null
+// with the no-row version (AD-6), by branch_id. menu_cost = I7 for `branch_id` (without it the every-branch set).
 export async function listStockItems(
   deps: MenuVariantDeps,
   tenant: TenantContext,
   ownerUserId: string,
-  query: { status: 'active' | 'archived' },
+  query: StockItemListQueryInput,
 ): Promise<StockItemList> {
+  const priceBranchId = query.branch_id ?? null;
+  if (priceBranchId !== null) assertBranchAllowed(tenant, priceBranchId);
   const level = new TenantLevelRepository(tenant, deps.pool);
   const scoped = new TenantScopedRepository(tenant, deps.pool);
+  const now = deps.clock.branchNow();
   const canEditTenant = await coversEveryBranch(level, ownerUserId);
-  const items = await selectStockItems(level, { archived: query.status === 'archived' });
+  const items = await selectStockItems(level, { archived: query.status === 'archived', kind: query.kind ?? null });
   const ids = items.map((row) => row.stock_item_id);
   const branchRows = await selectStockItemBranches(scoped, ids);
   const drawers = await selectActiveDrawers(level, ids);
+  const candidates = await selectPriceCandidates(level, ids, priceBranchId, now);
+  const pricesOf = new Map<string, PriceCandidateRecord[]>();
+  for (const row of candidates) pricesOf.set(row.stock_item_id, [...(pricesOf.get(row.stock_item_id) ?? []), row]);
   const branchIds = [...tenant.branchIds].sort();
   return {
     can_edit_tenant: canEditTenant,
@@ -312,28 +325,99 @@ export async function listStockItems(
       drawers: drawers
         .filter((d) => d.stock_item_id === row.stock_item_id)
         .map((d) => ({ item_id: d.item_id, name: d.name, variant_name: d.variant_name, quantity_per_sale_unit: d.quantity_per_sale_unit })),
+      menu_cost: menuCost(pricesOf.get(row.stock_item_id) ?? [], priceBranchId, now, row.stock_unit),
     })),
   };
 }
 
-// §6.7 (lock order 10 only: insert, no lock): idempotency key → tenant-wide check (403) → insert (name index → 409)
-// → audit → bump every branch.
+// 08a I7 over the candidate rows (m-12: BIGINT money / quantity columns read with BigInt(String())), then §5.3
+// MenuCostWire: per_stock_unit from I6, display_per for 1 kg / 1 L / 1 piece. No candidate → null (no price, D9).
+function menuCost(rows: PriceCandidateRecord[], branchId: string | null, now: number, stockUnit: StockItemRecord['stock_unit']): MenuCostWire | null {
+  const priced: PriceRow[] = rows.map((row) => ({
+    price_id: row.price_id,
+    branch_id: row.branch_id,
+    kind: row.kind,
+    unit_name: row.unit_name,
+    price_minor: BigInt(String(row.price_minor)),
+    stock_qty_num: BigInt(String(row.stock_qty_num)),
+    stock_qty_den: BigInt(String(row.stock_qty_den)),
+    stock_unit: row.stock_unit,
+    created_at: Number(row.created_at),
+    valid_until_at: row.valid_until_at === null ? null : Number(row.valid_until_at),
+  }));
+  const chosen = effectiveMenuPrice(priced, branchId, now, stockUnit);
+  if (chosen === null) return null;
+  const per = pricePerStockUnit(chosen);
+  return {
+    branch_id: chosen.branch_id,
+    price_id: chosen.price_id,
+    per_stock_unit: { num: per.num.toString(), den: per.den.toString() },
+    display_per: displayPer(per, stockUnit),
+  };
+}
+
+// 08a §3.3 on a stock item (POST body or §6.3 merged row): R6 carries_over ⇒ prepared (400).
+function assertCarriesOverKind(row: Pick<StockItemRecord, 'carries_over' | 'kind'>): void {
+  if (row.carries_over && row.kind !== 'prepared') {
+    throw new DomainError('VALIDATION_FAILED', { issues: [{ path: 'carries_over', message: 'carries_over needs kind prepared' }] });
+  }
+}
+
+// 08a §3.3 / R5: a packet is stocked in g (422 packet_unit).
+function assertPacketUnit(row: Pick<StockItemRecord, 'kind' | 'stock_unit'>): void {
+  if (row.kind === 'packet' && row.stock_unit !== 'g') {
+    throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_unit', reason: 'packet_unit' });
+  }
+}
+
+// 08a §3.3 (m-13, N-7): the code read before the write (409 stock_item_code), and the stock_items_active_code index
+// as its backstop (a restore, two concurrent POSTs), mapped to the same 409 by constraint name, as nameTaken does.
+async function assertCodeFree(level: TenantLevelRepository, code: string, exceptStockItemId: string | null): Promise<void> {
+  if (await activeCodeTaken(level, code, exceptStockItemId)) throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'stock_item_code', code });
+}
+async function codeTaken<T>(code: string | null, write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (error) {
+    const pgError = error as { code?: string; constraint?: string };
+    if (pgError.code === '23505' && pgError.constraint === 'stock_items_active_code') {
+      throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'stock_item_code', code });
+    }
+    throw error;
+  }
+}
+
+// §6.7 / 08a §6.2 (lock order 10 only: insert, no lock): R6 on the body (400, before the transaction, with the
+// body checks) → idempotency key → tenant-wide check (403) → packet unit (422) → code read when a code is sent (409
+// stock_item_code; before the insert's name index, m-13) → insert (name index → 409 stock_item; code index → 409
+// stock_item_code) → audit → bump every branch. 8 statements, 9 with a code.
 export async function createStockItem(
   deps: MenuVariantDeps,
   req: OwnerRequest,
   body: CreateStockItemInput,
 ): Promise<IdempotentResult<{ stock_item: StockItemWire }>> {
+  const fields = {
+    kind: body.kind ?? 'prepared',
+    code: body.code ?? null,
+    cost_category: body.cost_category ?? 'food',
+    is_a_item: body.is_a_item ?? false,
+  } as const;
+  assertCarriesOverKind({ carries_over: body.carries_over, kind: fields.kind });
   return withIdempotency(
     { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
     { key: req.idempotencyKey, method: req.method, path: req.path, body },
     async (client) => {
       const level = new TenantLevelRepository(req.tenant, client);
       await assertTenantWide(level, req.ownerUserId);
-      const stockItem = await nameTaken('stock_items_active_name', 'stock_item', body.name, () =>
-        insertStockItem(
-          level,
-          { stock_item_id: deps.ids.next(), name: body.name, stock_unit: body.stock_unit, carries_over: body.carries_over },
-          deps.clock.branchNow(),
+      assertPacketUnit({ kind: fields.kind, stock_unit: body.stock_unit });
+      if (fields.code !== null) await assertCodeFree(level, fields.code, null); // null: no code, read skipped (AD-8)
+      const stockItem = await codeTaken(fields.code, () =>
+        nameTaken('stock_items_active_name', 'stock_item', body.name, () =>
+          insertStockItem(
+            level,
+            { stock_item_id: deps.ids.next(), name: body.name, stock_unit: body.stock_unit, carries_over: body.carries_over, ...fields },
+            deps.clock.branchNow(),
+          ),
         ),
       );
       await writeConfigAudit(
@@ -356,12 +440,15 @@ export async function createStockItem(
   );
 }
 
-// §6.8 (C4; lock order 5 → 10): tenant-wide check (403) → stock item FOR UPDATE (404) → version (409 CONFIG_STALE,
-// a stale no-op too) → no payload references → no-op (200, nothing written) → R2 archive with an active drawer
-// (409 CONFIG_IN_USE), then R1 a stock_unit change re-runs the V4 unit rule on every active drawer (422 unit_mismatch);
-// R2 before R1 follows §6.5's precedence 400 → 409 → 422 (AD-13; §6.8 states no order): one plain read of the active
-// drawers, only when R1 or R2 applies → R3 name (index → 409) → write → audit → bump.
-// No cascade: branch rows and draws are untouched.
+// §6.8 / 08a §6.3 (C4; lock order 5 → 10): tenant-wide check (403, every path) → stock item FOR UPDATE (404) →
+// version (409 CONFIG_STALE, a stale no-op too) → no payload references → no-op (200, nothing written) → merged
+// rules in 08a §6.3's precedence: 400 R6 (carries_over ⇒ prepared) → 409 R2 (archive with an active drawer), R4
+// (kind away from prepared: branch rows of any branch first, then an active drawer; an archived drawer does not
+// block) → 422 R1 (a stock_unit change re-runs V4 on every active drawer), R5 (packet ⇒ g) → R7 code (one read, only
+// when code is sent, differs and is not null (null clears, AD-8); 409 stock_item_code) → R3 name (index → 409;
+// the code index → 409 stock_item_code on a restore, N-7) → write → audit → bump every branch only if name,
+// stock_unit, carries_over or archived changed (I11; otherwise the two bump statements are skipped). One plain
+// drawers read serves R1, R2 and R4 (only when one applies); one plain branch-rows read for R4. No cascade.
 export async function patchStockItem(
   deps: MenuVariantDeps,
   req: OwnerRequest,
@@ -372,6 +459,7 @@ export async function patchStockItem(
     const level = new TenantLevelRepository(req.tenant, client);
     await assertTenantWide(level, req.ownerUserId);
     const before = await lockStockItem(level, stockItemId);
+    await deps.testHooks?.afterStockItemLock?.('PATCH /v1/admin/stock-items/:stock_item_id'); // 08a §10.3 (N-5); before the 404 on purpose: every path
     if (before === undefined) throw new DomainError('STOCK_ITEM_NOT_FOUND', { stock_item_id: stockItemId });
     if (body.expected_version !== toStockItemWire(before).version) {
       throw new DomainError('CONFIG_STALE', { entity: 'stock_item', id: stockItemId });
@@ -383,23 +471,41 @@ export async function patchStockItem(
       ...(body.stock_unit !== undefined ? { stock_unit: body.stock_unit } : {}),
       ...(body.carries_over !== undefined ? { carries_over: body.carries_over } : {}),
       ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+      ...(body.kind !== undefined ? { kind: body.kind } : {}),
+      ...(body.code !== undefined ? { code: body.code } : {}),
+      ...(body.cost_category !== undefined ? { cost_category: body.cost_category } : {}),
+      ...(body.is_a_item !== undefined ? { is_a_item: body.is_a_item } : {}),
     };
     if (canonicalJson(before) === canonicalJson(merged)) return { stock_item: toStockItemWire(before) };
+    // 400: R6
+    assertCarriesOverKind(merged);
     const unitChanged = merged.stock_unit !== before.stock_unit;
     const archiving = before.archived_at === null && merged.archived_at !== null;
-    if (unitChanged || archiving) {
-      const drawers = await selectActiveDrawers(level, [stockItemId]);
-      // R2 first (AD-13): archive with an active drawer
-      if (archiving && drawers.length > 0) {
-        const ids = [...new Set(drawers.map((d) => d.item_id))].sort();
-        throw new DomainError('CONFIG_IN_USE', { entity: 'stock_item', id: stockItemId, used_by: { entity: 'menu_item', ids } });
-      }
-      // R1 (V4): equal units → quantity 1; different units → the drawer sells by the piece
-      if (unitChanged && drawers.some((d) => !(d.sale_unit === merged.stock_unit ? d.quantity_per_sale_unit === 1 : d.sale_unit === 'piece'))) {
-        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_unit', reason: 'unit_mismatch' });
-      }
+    const kindAway = before.kind === 'prepared' && merged.kind !== 'prepared';
+    const drawers = unitChanged || archiving || kindAway ? await selectActiveDrawers(level, [stockItemId]) : [];
+    const countedAt = kindAway ? await selectStockItemBranchIds(level, stockItemId) : [];
+    const drawerIds = [...new Set(drawers.map((d) => d.item_id))].sort();
+    // 409: R2 (AD-13), then R4 (branch rows reported first)
+    if (archiving && drawers.length > 0) {
+      throw new DomainError('CONFIG_IN_USE', { entity: 'stock_item', id: stockItemId, used_by: { entity: 'menu_item', ids: drawerIds } });
     }
-    const stockItem = await nameTaken('stock_items_active_name', 'stock_item', merged.name, () => updateStockItem(level, merged, now));
+    if (kindAway && countedAt.length > 0) {
+      throw new DomainError('CONFIG_IN_USE', { entity: 'stock_item', id: stockItemId, used_by: { entity: 'stock_item_branch', ids: countedAt } });
+    }
+    if (kindAway && drawers.length > 0) {
+      throw new DomainError('CONFIG_IN_USE', { entity: 'stock_item', id: stockItemId, used_by: { entity: 'menu_item', ids: drawerIds } });
+    }
+    // 422: R1 (V4): equal units → quantity 1; different units → the drawer sells by the piece; then R5
+    if (unitChanged && drawers.some((d) => !(d.sale_unit === merged.stock_unit ? d.quantity_per_sale_unit === 1 : d.sale_unit === 'piece'))) {
+      throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_unit', reason: 'unit_mismatch' });
+    }
+    assertPacketUnit(merged);
+    // R7: one read when code is sent and differs (also on an archived merged row, as §6.3 states); null clears, R7 read
+    // skipped (AD-8)
+    if (merged.code !== null && merged.code !== before.code) await assertCodeFree(level, merged.code, stockItemId);
+    const stockItem = await codeTaken(merged.code, () =>
+      nameTaken('stock_items_active_name', 'stock_item', merged.name, () => updateStockItem(level, merged, now)),
+    );
     await writeConfigAudit(
       level,
       {
@@ -413,8 +519,13 @@ export async function patchStockItem(
       },
       deps,
     );
-    await deps.testHooks?.beforeBump?.();
-    await bumpEveryBranch(level);
+    // I11: only the snapshot fields bump
+    const snapshotChanged =
+      merged.name !== before.name || unitChanged || merged.carries_over !== before.carries_over || merged.archived_at !== before.archived_at;
+    if (snapshotChanged) {
+      await deps.testHooks?.beforeBump?.();
+      await bumpEveryBranch(level);
+    }
     return { stock_item: toStockItemWire(stockItem) };
   });
 }
@@ -423,7 +534,7 @@ export async function patchStockItem(
 // is bumped. Stock item FOR UPDATE (404; M4: serialises two PUTs on a row that does not exist yet) → C2 branch read
 // inside the transaction, among the JWT's allowed branches (404 BRANCH_NOT_FOUND) → stored row read without a lock
 // (P3) → version (409 CONFIG_STALE, a stale no-op too) → on a set: the stock item active (422 stock_item_id
-// archived), the station FOR SHARE, an active station of this branch (422 not_found / wrong_branch / archived) →
+// archived), then prepared (422 stock_item_id wrong_kind, 08a I9 / C-4, from the locked row), the station FOR SHARE, an active station of this branch (422 not_found / wrong_branch / archived) →
 // no-op (200, nothing written) → upsert or delete (the row's own lock, 9) → audit branch_set / branch_removed with
 // branch_id → bump that branch (10).
 export async function putStockItemBranch(
@@ -448,6 +559,10 @@ export async function putStockItemBranch(
     if (next !== null) {
       if (stockItem.archived_at !== null) {
         throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_item_id', reason: 'archived' });
+      }
+      // 08a I9 / C-4: only a prepared stock item is counted at a branch; kind from the locked row. A remove is always allowed.
+      if (stockItem.kind !== 'prepared') {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_item_id', reason: 'wrong_kind' });
       }
       const stations = await shareStationsById(scoped, [next.station_id]);
       const station = stations.find((s) => s.branch_id === branchId);

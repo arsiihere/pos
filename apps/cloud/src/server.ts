@@ -14,6 +14,7 @@ import { registerBillingSettingsRoutes } from './modules/billing-settings/routes
 import { registerConfigSyncRoutes } from './modules/config-sync/routes.js';
 import { registerHealthRoutes } from './modules/health/routes.js';
 import { registerHubRegistrationRoutes } from './modules/hub-registration/routes.js';
+import { registerInventoryRoutes } from './modules/inventory/routes.js';
 import { registerMenuVariantRoutes } from './modules/menu-variants/routes.js';
 import { registerOwnerAuthRoutes } from './modules/owner-auth/routes.js';
 import { registerRestaurantRoutes } from './modules/restaurant/routes.js';
@@ -47,6 +48,7 @@ export interface CloudTestHooks {
   guardRead?(): Promise<void>; // 01b task 35: a rejection makes the JWT guard's owner-row read fail (#107)
   onVersionCompare?(entity: 'staff' | 'role' | 'responsibility', id: string, version: string): void; // 01b task 30 (#104)
   afterOwnerRowLock?(path: 'login' | 'refresh' | 'change' | 'reset'): Promise<void>; // 01b task 42: right after each owner-row lock (#74)
+  afterStockItemLock?(route: string): Promise<void>; // 08a §10.3 (N-5, AD-1): right after the stock-item lock of the §6.3 PATCH and the §6.5–§6.7 POSTs
 }
 
 export interface CloudDeps {
@@ -93,6 +95,7 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerConfigSyncRoutes(app, deps);
   registerStaffRolesRoutes(app, deps);
   registerMenuVariantRoutes(app, deps);
+  registerInventoryRoutes(app, deps); // 08a §6.4–§6.7
   registerBillingSettingsRoutes(app, deps); // 05 row A-1 (4)
   // §7.1, S21: the built owner pages, static and without tenant scope.
   registerClientDist(app, { prefix: '/owner/', dir: CLIENT_DIST_DIR, routeConfig: { tenantScope: 'none' } });

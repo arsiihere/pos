@@ -1,7 +1,7 @@
 import { formatQuantity, parseQuantity } from '@pos/domain';
-import type { PatchStockItemRequest } from '@pos/events';
+import type { CostCategory, PatchStockItemRequest } from '@pos/events';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import type { CloudAdmin, CloudError, StockItem, StockItemBranch, StockUnit } from '../../../api/cloud-admin';
+import type { CloudAdmin, CloudError, StockItem, StockItemBranch, StockItemKind, StockUnit } from '../../../api/cloud-admin';
 import { usePhone } from '../../../app/phone';
 import { navigate } from '../../../app/router';
 import { ActionBar } from '../../../components/ActionBar';
@@ -35,6 +35,16 @@ import { loadStations, quantityAffix, quantityInput, unitOption, type StationsBy
 // With can_edit_tenant false the stock item's own fields are read-only; branch rows stay editable (§8).
 const UNITS: readonly StockUnit[] = ['piece', 'g', 'ml'];
 const MAX_THRESHOLD = 1_000_000;
+// 08a §8.2 (I1, I2, C-8): kind, code, cost category and A-item; Keeps overnight only on Prepared; a packet is in g.
+// The branch rows and the dishes (01c) stay with Prepared stock items (I9).
+const KINDS: readonly StockItemKind[] = ['prepared', 'ingredient', 'packet'];
+const COST_CATEGORIES: readonly CostCategory[] = ['food', 'packaging', 'cleaning', 'beverage'];
+const CODE_RE = /^[A-Z0-9-]{1,16}$/;
+// §3.3: trim + uppercase; empty → null (cleared, never '').
+function codeValue(text: string): string | null {
+  const v = text.trim().toUpperCase();
+  return v === '' ? null : v;
+}
 
 interface Loaded {
   canEditTenant: boolean;
@@ -54,7 +64,18 @@ async function findStockItem(api: CloudAdmin, stockItemId: string) {
   };
 }
 
-export function StockItemForm({ api, stockItemId, branchIds }: { api: CloudAdmin; stockItemId: string; branchIds: readonly string[] }) {
+export function StockItemForm({
+  api,
+  stockItemId,
+  branchIds,
+  initialKind = 'prepared',
+}: {
+  api: CloudAdmin;
+  stockItemId: string;
+  branchIds: readonly string[];
+  // 08a §8.2: the kind a new stock item starts with (the list tab it was opened from).
+  initialKind?: StockItemKind;
+}) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
@@ -90,6 +111,7 @@ export function StockItemForm({ api, stockItemId, branchIds }: { api: CloudAdmin
       api={api}
       canEditTenant={loaded.canEditTenant}
       item={stockItemId === 'new' ? null : loaded.item}
+      initialKind={initialKind}
       stations={loaded.stations}
       back={back}
       onReload={() => void load()}
@@ -110,13 +132,14 @@ function StockItemGone({ api, back }: { api: CloudAdmin; back: ReactNode }) {
   );
 }
 
-type Field = 'name' | 'stock_unit';
-const FIELD_ID: Record<Field, string> = { name: 'si-name', stock_unit: 'si-unit' };
+type Field = 'name' | 'stock_unit' | 'code';
+const FIELD_ID: Record<Field, string> = { name: 'si-name', stock_unit: 'si-unit', code: 'si-code' };
 
 function Editor({
   api,
   canEditTenant,
   item,
+  initialKind,
   stations,
   back,
   onReload,
@@ -124,6 +147,7 @@ function Editor({
   api: CloudAdmin;
   canEditTenant: boolean;
   item: StockItem | null;
+  initialKind: StockItemKind;
   stations: StationsByBranch;
   back: ReactNode;
   onReload: () => void;
@@ -132,6 +156,12 @@ function Editor({
   // Brief S07 "Counted in" default for a new stock item: piece (CHANGES §2).
   const [unit, setUnit] = useState<StockUnit>(item?.stock_unit ?? 'piece');
   const [keeps, setKeeps] = useState(item?.carries_over ?? false);
+  const [kind, setKind] = useState<StockItemKind>(item?.kind ?? initialKind);
+  const [code, setCode] = useState(item?.code ?? '');
+  const [costCategory, setCostCategory] = useState<CostCategory>(item?.cost_category ?? 'food');
+  const [aItem, setAItem] = useState(item?.is_a_item ?? false);
+  // R4 (08a §6.3): a kind change refused while counted at a branch or drawn by an active dish.
+  const [kindBlocked, setKindBlocked] = useState<string | null>(null);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [banner, setBanner] = useState<{ tone: 'danger' | 'warn'; text: string } | null>(null);
   const [stale, setStale] = useState(false);
@@ -149,19 +179,31 @@ function Editor({
   const readOnly = !canEditTenant || archived;
   const title = item === null ? t('stock_item.new_title') : item.name;
 
+  const prepared = kind === 'prepared';
+  // §3.3 R6: carries_over only on Prepared; §3.2: a packet is counted in g.
+  const sentKeeps = prepared && keeps;
+  const sentUnit: StockUnit = kind === 'packet' ? 'g' : unit;
   const patch: Omit<PatchStockItemRequest, 'expected_version'> = {};
   if (item !== null) {
     if (name.trim() !== item.name) patch.name = name.trim();
-    if (unit !== item.stock_unit) patch.stock_unit = unit;
-    if (keeps !== item.carries_over) patch.carries_over = keeps;
+    if (sentUnit !== item.stock_unit) patch.stock_unit = sentUnit;
+    if (sentKeeps !== item.carries_over) patch.carries_over = sentKeeps;
+    if (kind !== item.kind) patch.kind = kind;
+    if (codeValue(code) !== item.code) patch.code = codeValue(code);
+    if (costCategory !== item.cost_category) patch.cost_category = costCategory;
+    if (aItem !== item.is_a_item) patch.is_a_item = aItem;
   }
-  const labels: Record<Field | 'carries_over', string> = {
+  const labels: Record<Field | 'carries_over' | 'kind' | 'cost_category' | 'is_a_item', string> = {
     name: t('stock_item.name'),
     stock_unit: t('stock_item.unit'),
     carries_over: t('stock_item.keeps_short'),
+    kind: t('stock_item.f08a_kind'),
+    code: t('stock_item.f08a_code'),
+    cost_category: t('stock_item.f08a_cost_category'),
+    is_a_item: t('stock_inv.a_item'),
   };
   const changed = [
-    ...(item === null ? (name.trim() !== '' ? [labels.name] : []) : Object.keys(patch).map((k) => labels[k as Field | 'carries_over'])),
+    ...(item === null ? (name.trim() !== '' ? [labels.name] : []) : Object.keys(patch).map((k) => labels[k as keyof typeof labels])),
     ...[...rowDirty].map(branchName),
   ];
   useDirtyForm(changed.length === 0 || gone ? null : { name: name.trim() || title, fields: changed });
@@ -180,8 +222,11 @@ function Editor({
     const found: Partial<Record<Field, string>> = {};
     const trimmed = name.trim();
     if (trimmed === '' || trimmed.length > 60) found.name = t('stock_item.name_required');
+    const sentCode = codeValue(code);
+    if (sentCode !== null && !CODE_RE.test(sentCode)) found.code = t('stock_item.f08a_code_invalid');
     setErrors(found);
     setBanner(null);
+    setKindBlocked(null);
     return Object.keys(found).length === 0;
   }
 
@@ -197,7 +242,9 @@ function Editor({
       return;
     }
     if (code === 'CONFIG_NAME_TAKEN') {
-      setErrors({ name: t('errors.CONFIG_NAME_TAKEN') });
+      // 08a §3.3: a code clash names entity stock_item_code (its own text, on the code field).
+      if (error.kind === 'api' && error.details['entity'] === 'stock_item_code') setErrors({ code: t('errors.CONFIG_NAME_TAKEN_stock_item_code') });
+      else setErrors({ name: t('errors.CONFIG_NAME_TAKEN') });
       return;
     }
     if (code === 'CONFIG_REFERENCE_INVALID' && error.kind === 'api') {
@@ -208,8 +255,18 @@ function Editor({
       return;
     }
     if (code === 'CONFIG_IN_USE' && error.kind === 'api') {
-      const usedBy = error.details['used_by'] as { ids?: unknown } | undefined;
-      setInUse(Array.isArray(usedBy?.ids) ? usedBy.ids.filter((id): id is string => typeof id === 'string') : []);
+      const usedBy = error.details['used_by'] as { entity?: unknown; ids?: unknown } | undefined;
+      const ids = Array.isArray(usedBy?.ids) ? usedBy.ids.filter((id): id is string => typeof id === 'string') : [];
+      // 08a R4: a kind change away from Prepared names the branches that count it, or the dishes that draw from it.
+      if (item !== null && patch.kind !== undefined) {
+        const names =
+          usedBy?.entity === 'stock_item_branch'
+            ? ids.map(branchName)
+            : ids.map((id) => item.drawers.find((d) => d.item_id === id)?.name ?? id);
+        setKindBlocked(fill(t(usedBy?.entity === 'stock_item_branch' ? 'stock_item.f08a_kind_branches' : 'stock_item.f08a_kind_dishes'), { names: names.join(', ') }));
+        return;
+      }
+      setInUse(ids);
       return;
     }
     setBanner({ tone: error.kind === 'network' ? 'warn' : 'danger', text: errorText(error) ?? '' });
@@ -219,7 +276,19 @@ function Editor({
     if (!validate()) return;
     if (item === null) {
       setBusy(true);
-      const result = await api.createStockItem({ name: name.trim(), stock_unit: unit, carries_over: keeps }, key);
+      const sentCode = codeValue(code);
+      const result = await api.createStockItem(
+        {
+          name: name.trim(),
+          stock_unit: sentUnit,
+          carries_over: sentKeeps,
+          kind,
+          ...(sentCode === null ? {} : { code: sentCode }),
+          cost_category: costCategory,
+          is_a_item: aItem,
+        },
+        key,
+      );
       setBusy(false);
       if (result.ok) {
         renew();
@@ -283,7 +352,14 @@ function Editor({
         }
       />
     ) : undefined;
-  const unitChanged = item !== null && unit !== item.stock_unit;
+  const unitChanged = item !== null && sentUnit !== item.stock_unit;
+  const clearError = (field: Field) =>
+    setErrors((prev) => {
+      // The key goes, so the summary banner's count drops with the inline error (01c-B01).
+      const rest = { ...prev };
+      delete rest[field];
+      return rest;
+    });
 
   return (
     <Page
@@ -310,6 +386,12 @@ function Editor({
       )}
       <ErrorSummary entries={fixes} />
       {banner !== null && <Banner tone={banner.tone} text={banner.text} />}
+      {kindBlocked !== null && (
+        <div className="pos-banner pos-banner--danger" role="alert" data-kind-blocked="">
+          <Icon name="alert" />
+          <p>{kindBlocked}</p>
+        </div>
+      )}
       {archived && <Banner tone="info" text={t('stock_item.archived_note')} />}
       <div className="pos-stack pos-c01form">
         <section className="pos-section">
@@ -333,21 +415,56 @@ function Editor({
               />
               {errors.name !== undefined && <span className="pos-field__error">{errors.name}</span>}
             </label>
+            <label className="pos-field">
+              <span className="pos-field__label">{t('stock_item.f08a_kind')}</span>
+              <select
+                className="pos-select"
+                name="kind"
+                value={kind}
+                disabled={readOnly}
+                onChange={(e) => {
+                  setKind(e.target.value as StockItemKind);
+                  setKindBlocked(null);
+                }}
+              >
+                {KINDS.map((k) => (
+                  <option key={k} value={k}>
+                    {t(`stock_inv.kind_${k}`)}
+                  </option>
+                ))}
+              </select>
+              {!phone && <span className="pos-field__help">{t('stock_item.f08a_kind_help')}</span>}
+            </label>
+            <label className={`pos-field${errors.code !== undefined ? ' pos-field--error' : ''}`}>
+              <span className="pos-field__label">{t('stock_item.f08a_code')}</span>
+              <input
+                id={FIELD_ID.code}
+                className="pos-input pos-input--mono"
+                name="code"
+                maxLength={16}
+                value={code}
+                disabled={readOnly}
+                onChange={(e) => {
+                  setCode(e.target.value);
+                  clearError('code');
+                }}
+              />
+              {errors.code !== undefined ? (
+                <span className="pos-field__error">{errors.code}</span>
+              ) : (
+                <span className="pos-field__help">{t('stock_item.f08a_code_help')}</span>
+              )}
+            </label>
             <div className={`pos-field${errors.stock_unit !== undefined ? ' pos-field--error' : ''}`} id={FIELD_ID.stock_unit}>
               <span className="pos-field__label">{t('stock_item.unit')}</span>
               <Segmented<StockUnit>
                 label={t('stock_item.unit')}
                 block
-                value={unit}
-                locked={readOnly}
+                value={sentUnit}
+                locked={readOnly || kind === 'packet'}
                 onChange={(next) => {
                   setUnit(next);
-                  setErrors((prev) => {
-                    // The key goes, so the summary banner's count drops with the inline error (01c-B01).
-                    const rest = { ...prev };
-                    delete rest.stock_unit;
-                    return rest;
-                  });
+                  clearError('stock_unit');
                 }}
                 options={UNITS.map((u) => ({ value: u, label: unitOption(u) }))}
               />
@@ -357,8 +474,24 @@ function Editor({
                   {errors.stock_unit}
                 </span>
               )}
-              {!phone && <span className="pos-field__help">{t('stock_item.unit_help')}</span>}
+              {!phone && <span className="pos-field__help">{t(kind === 'packet' ? 'stock_item.f08a_packet_g' : 'stock_item.unit_help')}</span>}
             </div>
+            <label className="pos-field">
+              <span className="pos-field__label">{t('stock_item.f08a_cost_category')}</span>
+              <select
+                className="pos-select"
+                name="cost_category"
+                value={costCategory}
+                disabled={readOnly}
+                onChange={(e) => setCostCategory(e.target.value as CostCategory)}
+              >
+                {COST_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {t(`stock_item.f08a_cost_${c}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
           {unitChanged && (
             <div className="pos-banner pos-banner--warn" role="status" data-unit-notice="">
@@ -371,14 +504,35 @@ function Editor({
               </p>
             </div>
           )}
-          <Switch
-            checked={keeps}
-            disabled={readOnly}
-            label={phone ? t('stock_item.keeps_short') : t('stock_item.keeps')}
-            onChange={setKeeps}
-          />
+          {prepared && (
+            <Switch
+              checked={keeps}
+              disabled={readOnly}
+              label={phone ? t('stock_item.keeps_short') : t('stock_item.keeps')}
+              onChange={setKeeps}
+            />
+          )}
+          <div data-a-item="">
+            <Switch checked={aItem} disabled={readOnly} label={t('stock_item.f08a_a_item')} onChange={setAItem} />
+          </div>
+          {item !== null && (
+            <p className="pos-linkline">
+              <Icon name="grid" />
+              <a
+                href={`#/stock-items/${encodeURIComponent(item.stock_item_id)}/inventory`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  leave(() => navigate(`/stock-items/${encodeURIComponent(item.stock_item_id)}/inventory`));
+                }}
+              >
+                {t('stock_item.f08a_open_page')}
+                <Icon name="forward" flip />
+              </a>
+            </p>
+          )}
         </section>
 
+        {(item === null ? prepared : item.kind === 'prepared') && (
         <section className="pos-section" data-branches="">
           <div className="pos-fold__head">
             <div className="pos-section__head">
@@ -406,8 +560,9 @@ function Editor({
             </div>
           )}
         </section>
+        )}
 
-        {item !== null && (
+        {item !== null && item.kind === 'prepared' && (
           <section className="pos-section" data-dishes="">
             <div className="pos-fold__head">
               <div className="pos-section__head">

@@ -91,6 +91,11 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
       stock_unit: 'g',
       carries_over: false,
       archived_at: null,
+      // ⚠️ 08a C-7 (owner ruling 2026-11-23, AD-5): the wire is extended in place; the defaults
+      kind: 'prepared',
+      code: null,
+      cost_category: 'food',
+      is_a_item: false,
       version: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
     expect(await versions()).toEqual(before.map((v) => v + 1));
@@ -200,7 +205,7 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
     expect(unitOnly.error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'stock_unit', reason: 'unit_mismatch' } });
   });
 
-  it('[01c #35] list: 4 statements; branch rows only for allowed branches; drawers listed (active items only); by lower(name)', async () => {
+  it('[01c #35] list: 5 statements (⚠️ 08a C-5); branch rows only for allowed branches; drawers listed (active items only); by lower(name)', async () => {
     const [a, b] = f.branches;
     const pot = await createStockItem(cloud, f, { name: 'karahi pot', stock_unit: 'g' });
     const naan = await createStockItem(cloud, f, { name: 'Naan', stock_unit: 'piece', carries_over: true });
@@ -229,7 +234,7 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
 
     const response = await list('', f.tokenFor([a, b]));
     expect(response.statusCode, response.body).toBe(200);
-    expect(counter.count).toBe(4);
+    expect(counter.count).toBe(5); // ⚠️ 08a C-5 (§6.1): + the price-candidate read
     const data = response.json().data;
     expect(data.can_edit_tenant).toBe(true);
     const noRow = (branchId: string) => ({ branch_id: branchId, station_id: null, low_stock_threshold: null, version: expect.stringMatching(/^[0-9a-f]{64}$/) });
@@ -241,6 +246,7 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
           noRow(b),
         ].sort((x, y) => (x.branch_id < y.branch_id ? -1 : 1)),
         drawers: [{ item_id: half.item_id, name: 'Chicken Karahi Half', variant_name: 'Half', quantity_per_sale_unit: 500 }],
+        menu_cost: null, // ⚠️ 08a C-5 (§6.1): no price
       },
       {
         ...naan,
@@ -249,6 +255,7 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
           { item_id: basket.item_id, name: 'Bread basket', variant_name: null, quantity_per_sale_unit: 1 },
           { item_id: plate.item_id, name: 'bread plate', variant_name: null, quantity_per_sale_unit: 1 },
         ],
+        menu_cost: null, // ⚠️ 08a C-5 (§6.1): no price
       },
     ]);
     // the counted row and the no-row versions differ; the no-row versions differ per branch
@@ -258,18 +265,18 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
 
     const archived = await list('?status=archived');
     expect(archived.statusCode).toBe(200);
-    expect(counter.count).toBe(4);
+    expect(counter.count).toBe(5); // ⚠️ 08a C-5 (§6.1): + the price-candidate read
     expect(archived.json().data.stock_items).toEqual([
-      { ...old, branches: [...f.branches].sort().map((id) => noRow(id)), drawers: [] },
+      { ...old, branches: [...f.branches].sort().map((id) => noRow(id)), drawers: [], menu_cost: null /* ⚠️ 08a C-5 */ },
     ]);
     expect((await list('?status=gone')).statusCode).toBe(400);
 
-    // an empty list is still 4 statements; can_edit_tenant from the owner row
+    // an empty list is still 5 statements (⚠️ 08a C-5); can_edit_tenant from the owner row
     await cloud.pool.query(`UPDATE owner_users SET allowed_branch_ids = $3 WHERE tenant_id = $1 AND user_id = $2`, [f.tenantId, f.userId, [a]]);
     await cloud.pool.query(`UPDATE stock_items SET archived_at = 5 WHERE tenant_id = $1`, [f.tenantId]);
     const empty = await list();
     expect(empty.statusCode).toBe(200);
-    expect(counter.count).toBe(4);
+    expect(counter.count).toBe(5); // ⚠️ 08a C-5 (§6.1): + the price-candidate read
     expect(empty.json().data).toEqual({ can_edit_tenant: false, stock_items: [] });
   });
 
