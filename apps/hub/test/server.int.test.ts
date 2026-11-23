@@ -137,9 +137,7 @@ describe('hub server', () => {
     const echoed = await hub.app.inject({ method: 'GET', url: `/echo-query?t=${secret}` });
     expect(echoed.statusCode).toBe(200);
     expect(echoed.json().data.t).toBe(secret);
-    // TASK-15-EDIT: `GET /pair?t=` redaction probe; the pair page loses its `t` branch, so repoint to another secret-bearing URL or drop.
-    const page = await hub.app.inject({ method: 'GET', url: `/pair?t=${secret}` });
-    expect(page.statusCode).toBe(200);
+    // 05a H-1: the pair page has no `t` branch any more; the redaction of a `t` query value is probed on /echo-query.
     const logs = hub.logs();
     expect(logs).not.toContain(secret);
     expect(logs).toContain('[Redacted]');

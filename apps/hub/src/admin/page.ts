@@ -31,7 +31,7 @@ function phone() {
 }
 function view() {
   const name = (location.hash || '').replace(/^#/, '');
-  return ['devices', 'add-phone', 'add-tablet', 'sessions', 'lockouts'].includes(name) ? name : 'home';
+  return ['devices', 'sessions', 'lockouts'].includes(name) ? name : 'home';
 }
 function go(name) {
   state.notice = null;
@@ -129,8 +129,6 @@ function link(label, className, iconName, target) {
 const NEEDS = {
   home: ['devices', 'sessions', 'lockouts'],
   devices: ['devices', 'stations'],
-  'add-phone': ['staff'],
-  'add-tablet': [], // 00 v1.12.2 (STAB-1): nothing to pick
   sessions: ['sessions', 'stations'],
   lockouts: ['lockouts', 'staff'],
 };
@@ -251,7 +249,7 @@ function nav(current) {
   const item = (name, iconName, key) => {
     const a = node('a', 'pos-sidenav__item');
     a.href = name === 'home' ? '#' : '#' + name;
-    if (name === current || (name === 'devices' && (current === 'add-phone' || current === 'add-tablet'))) a.setAttribute('aria-current', 'page');
+    if (name === current) a.setAttribute('aria-current', 'page');
     a.appendChild(icon(iconName));
     a.appendChild(document.createTextNode(t(key)));
     if (counts[name] !== null && counts[name] !== undefined) {
@@ -638,8 +636,6 @@ function home() {
     count === 0 ? null : chip('danger', 'lock', first && count === 1 ? t('admin.locked_chip', { name: first.display_name, min: minutesLeft(first.locked_until) }) : t('admin.locked_many', { n: count })));
   const signed = countWords('admin.tile_sessions', state.data.sessions ? state.data.sessions.sessions.length : 0);
   tile('sessions', 'user', 'admin.nav_sessions', signed.num, signed.words);
-  if (can('manage-devices')) tile('add-phone', 'qr', 'admin.tile_add_phone_title', null, t('admin.tile_add_phone'));
-  if (can('manage-devices')) tile('add-tablet', 'tablet', 'admin.tile_add_tablet_title', null, t('admin.tile_add_tablet'));
   for (const p of modulePages()) {
     const data = state.tiles[p.name];
     const line = data ? tileLine(p.name, data) : NO_LINE;
@@ -701,13 +697,9 @@ function devicesView() {
   const manage = can('manage-devices') && !state.offline;
   const all = state.data.devices ? state.data.devices.devices : null;
   const tabs = deviceTabs(all);
-  const addPhone = () => link(t('devices.add_phone'), '', 'qr', 'add-phone');
-  const actions = [];
-  if (can('manage-devices')) {
-    actions.push(addPhone());
-    actions.push(link(t('devices.add_tablet'), '', 'tablet', 'add-tablet')); // 00 v1.12.2 (STAB-1)
-    actions.push(link(phone() ? t('devices.approve_short') : t('devices.approve'), 'pos-btn--primary', 'plus', '/admin/approve'));
-  }
+  // 05a H-1: every device pairs by request; Add a phone and Add a tablet (STAB-1) are gone.
+  const approve = () => link(phone() ? t('devices.approve_short') : t('devices.approve'), 'pos-btn--primary', 'plus', '/admin/approve');
+  const actions = can('manage-devices') ? [approve()] : [];
   const parts = [];
   if (phone()) {
     if (actions.length > 0) {
@@ -752,7 +744,7 @@ function devicesView() {
     callout.appendChild(text);
     if (can('manage-devices') && !phone()) {
       const act = node('div', 'pos-callout__actions');
-      act.appendChild(addPhone());
+      act.appendChild(approve());
       callout.appendChild(act);
     }
     parts.push(callout);
@@ -867,161 +859,6 @@ function removeDialog(d) {
     focus: reason,
     onConfirm: run,
   });
-}
-// --- 00-S17 add a phone ---
-let picked = null;
-let qr = null;
-function addPhoneView() {
-  const back = link(t('admin.nav_devices'), '', '', 'devices');
-  if (qr && !qr.tablet) return qrView(back);
-  const section = node('section', 'pos-admin__section pos-admin__pick');
-  const head = node('div', 'pos-section__head');
-  head.appendChild(node('h2', '', t('addphone.who')));
-  head.appendChild(node('p', '', t('addphone.who_sub')));
-  section.appendChild(head);
-  const search = node('label', 'pos-input-affix pos-admin__find');
-  const lens = node('span');
-  lens.appendChild(icon('search'));
-  search.appendChild(lens);
-  const find = node('input', 'pos-input');
-  find.type = 'search';
-  find.name = 'find';
-  find.setAttribute('aria-label', t('addphone.find'));
-  find.setAttribute('placeholder', t('addphone.find'));
-  search.appendChild(find);
-  section.appendChild(search);
-  const grid = node('div', 'pos-staff pos-admin__staff');
-  section.appendChild(grid);
-  const staff = state.data.staff ? state.data.staff.staff : null;
-  const bar = node('footer', 'pos-actionbar');
-  const info = node('div', 'pos-actionbar__info');
-  const make = button(t('addphone.make_qr'), 'pos-btn--primary pos-btn--lg', 'qr', makeQr);
-  make.name = 'make_qr';
-  const sub = (member) => (member.role_names[0] ? member.role_names[0] + ' · ' : '') + (member.phone_count === 0 ? t('addphone.no_phone') : t(member.phone_count === 1 ? 'addphone.has_phones' : 'addphone.has_phones_many', { n: member.phone_count }));
-  const paintInfo = () => {
-    make.disabled = picked === null || state.offline || !can('manage-devices');
-    if (picked === null) return info.replaceChildren(node('span', '', t('addphone.pick')));
-    info.replaceChildren(node('strong', '', picked.display_name), document.createTextNode(sub(picked)));
-  };
-  const paintTiles = () => {
-    grid.replaceChildren();
-    if (staff === null) return grid.appendChild(skeleton(3));
-    const q = find.value.trim().toLowerCase();
-    for (const member of staff.filter((m) => m.display_name.toLowerCase().includes(q))) {
-      const tile = node('button', 'pos-staff__tile', member.display_name);
-      tile.type = 'button';
-      tile.setAttribute('aria-pressed', String(picked !== null && picked.staff_id === member.staff_id));
-      tile.appendChild(node('small', '', sub(member)));
-      tile.addEventListener('click', () => {
-        picked = member;
-        paintTiles();
-        paintInfo();
-      });
-      grid.appendChild(tile);
-    }
-  };
-  find.addEventListener('input', paintTiles);
-  paintTiles();
-  paintInfo();
-  bar.appendChild(info);
-  const end = node('div', 'pos-actionbar__end');
-  end.appendChild(make);
-  bar.appendChild(end);
-  frame('add-phone', 'admin.tile_add_phone_title', phone() ? [] : [back], [section], bar);
-}
-// --- 00 v1.12.2 (STAB-1) add a shared tablet: no owner to pick, one tap makes the QR ---
-function addTabletView() {
-  const back = link(t('admin.nav_devices'), '', '', 'devices');
-  if (qr && qr.tablet) return qrView(back);
-  const section = node('section', 'pos-admin__section');
-  const head = node('div', 'pos-section__head');
-  head.appendChild(node('h2', '', t('admin.tile_add_tablet_title')));
-  head.appendChild(node('p', '', t('addtablet.intro')));
-  section.appendChild(head);
-  const bar = node('footer', 'pos-actionbar');
-  bar.appendChild(node('div', 'pos-actionbar__info'));
-  const make = button(t('addphone.make_qr'), 'pos-btn--primary pos-btn--lg', 'qr', makeQr);
-  make.name = 'make_qr';
-  make.disabled = state.offline || !can('manage-devices');
-  const end = node('div', 'pos-actionbar__end');
-  end.appendChild(make);
-  bar.appendChild(end);
-  frame('add-tablet', 'admin.tile_add_tablet_title', phone() ? [] : [back], [section], bar);
-}
-let qrCommand = null;
-async function makeQr() {
-  const tablet = view() === 'add-tablet';
-  const key = tablet ? 'tablet' : picked.staff_id;
-  // One command_id per tap; Try again after "Hub busy" repeats it.
-  const id = qrCommand && qrCommand.key === key && qrCommand.pending ? qrCommand.id : newCommandId();
-  qrCommand = { id, key, pending: true };
-  const payload = tablet ? { device_type: 'tablet' } : { device_type: 'phone', owner_staff_id: picked.staff_id };
-  const outcome = await command('generate-device-pairing-token', 'GenerateDevicePairingToken', payload, id);
-  if (outcome === null) return;
-  if (outcome.error && outcome.error.code === 'SERVICE_UNAVAILABLE') {
-    busyNotice(makeQr);
-    return paint();
-  }
-  qrCommand = null;
-  if (outcome.error) {
-    notice('danger', errorText(outcome.error));
-    return paint();
-  }
-  qr = { tablet, name: tablet ? null : picked.display_name, svg: outcome.result.pair_qr_svg, url: outcome.result.pair_url, expires_at: outcome.result.expires_at };
-  paint();
-}
-function qrView(back) {
-  const small = phone();
-  const code = node('div', 'pos-code pos-admin__qr');
-  const where = qr.tablet ? 'add-tablet' : 'add-phone';
-  code.appendChild(node('h2', small ? 'heading' : 'title', qr.tablet ? t('addtablet.scan_title') : t('addphone.scan_title', { name: qr.name })));
-  code.appendChild(node('p', 'body pos-admin__muted', t(qr.tablet ? 'addtablet.scan_body' : 'addphone.scan_body')));
-  const expired = Date.now() >= qr.expires_at;
-  if (expired) {
-    code.appendChild(node('div', 'pos-code__qr pos-code__qr--void', t('addphone.expired_qr')));
-    code.appendChild(chip('danger', 'clock', t('addphone.expired')));
-  } else {
-    const box = node('div', 'pos-code__qr');
-    box.innerHTML = qr.svg;
-    code.appendChild(box);
-    const valid = chip('warn', 'clock', '');
-    valid.name = 'qr_valid';
-    const tick = () => {
-      if (view() !== where || !qr) return;
-      if (Date.now() >= qr.expires_at) return paint();
-      const parts = T['addphone.valid'].split('{time}');
-      valid.replaceChildren(icon('clock'), document.createTextNode(parts[0]), ltr(mmss(qr.expires_at - Date.now())), document.createTextNode(parts[1] || ''));
-      setTimeout(tick, 1000);
-    };
-    tick();
-    code.appendChild(valid);
-    // pair_url is RARE: one quiet "Show link" button reveals it (no Copy: insecure origin).
-    const linkBox = node('div', 'pos-admin__link');
-    const show = button(t('addphone.show_link'), 'pos-btn--quiet', 'link', () => {
-      const url = node('p', 'pos-mono-wrap', qr.url);
-      url.name = 'pair_url';
-      linkBox.replaceChildren(url);
-    });
-    show.name = 'show_link';
-    linkBox.appendChild(show);
-    code.appendChild(linkBox);
-  }
-  const again = button(t('addphone.new_qr'), expired ? 'pos-btn--primary pos-btn--lg pos-btn--block' : 'pos-btn--lg pos-btn--block', 'reload', makeQr);
-  if (state.offline) again.disabled = true;
-  const actions = node('div', 'pos-admin__qracts');
-  actions.appendChild(again);
-  if (!expired) {
-    actions.appendChild(button(t('addphone.done'), 'pos-btn--primary pos-btn--lg pos-btn--block', 'check', () => {
-      qr = null;
-      picked = null;
-      go('devices');
-    }));
-  }
-  code.appendChild(actions);
-  if (small) return frame(where, qr.tablet ? 'devices.add_tablet' : 'devices.add_phone', [], [code]);
-  const card = node('section', 'pos-card pos-admin__qrcard');
-  card.appendChild(code);
-  frame(where, qr.tablet ? 'admin.tile_add_tablet_title' : 'admin.tile_add_phone_title', [back], [card]);
 }
 // --- 00-S18 sessions ---
 const SESSION_HEADS = ['sessions.col_who', 'sessions.col_on', 'sessions.col_activity', ''];
@@ -1228,7 +1065,7 @@ function unlockDialog(item) {
   });
 }
 // --- sign-in, sign-out, routing ---
-const VIEWS = { home, devices: devicesView, 'add-phone': addPhoneView, 'add-tablet': addTabletView, sessions: sessionsView, lockouts: lockoutsView };
+const VIEWS = { home, devices: devicesView, sessions: sessionsView, lockouts: lockoutsView };
 function paint() {
   VIEWS[view()]();
 }
