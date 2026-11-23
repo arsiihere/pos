@@ -15,7 +15,7 @@ Monorepo: pnpm + Turborepo
 | Cloud hosting | AWS ap-south-1 (Mumbai), chosen on cost (D57) |
 | Real-time (LAN) | WebSocket (ws://) hub → devices |
 | Real-time (cloud) | @fastify/websocket (wss://) for owner dashboard |
-| Client — Android | React + Capacitor (bundled assets + local SQLite command queue) |
+| Client — Android | Capacitor shell loading the hub-served `/staff/` page + native alert service (`apps/tablet`, 05b; foundation v1.16 F-1); the Android command queue moves to 06 |
 | Client — Windows cashier | Hub-served React app in Chrome or Edge kiosk mode, auto-start at login; IndexedDB command queue (D56) |
 | Client — KDS | React served by hub (browser, no offline shell needed) |
 | Shared packages | @pos/domain (types), @pos/events (Zod schemas), @pos/engine (pure timing engine) |
@@ -63,6 +63,6 @@ T2 Production. Justification: real concurrency races exist in P1 (stock reservat
 - No timing asserts in the normal gate (03a AD-32). Timing lives in `test:perf`.
 
 ## Cloud sessions and CI (owner rule, 2026-11-11)
-- **CI:** `.github/workflows/gate.yml` runs the normal gate on every PR into `main` or a `module-*` branch and on every push to them: a `postgres:16` service on port 5433 with the same three test-only settings, SQLite under `TMPDIR=/dev/shm`. A PR merges only with the gate green.
+- **CI:** `.github/workflows/gate.yml` runs the normal gate on every PR into `main` or a `module-*` branch and on every push to them: a `postgres:16` service on port 5433 with the same three test-only settings, SQLite under `TMPDIR=/dev/shm`. A PR merges only with the gate green. `.github/workflows/tablet.yml` (05b) builds the Android app (`apps/tablet`, outside the pnpm workspace, own npm lockfile) and runs its Gradle unit tests on changes under `apps/tablet/**`; it is a required check for those changes (owner sets it in branch protection).
 - **claude.ai/code cloud sessions:** the environment's setup script is `tools/cloud/environment-setup.sh` (pre-installed PostgreSQL 16 moved to port 5433, user `pos`, db `pos_test`, the same three settings); the repo's SessionStart hook `tools/cloud/session-start.sh` starts Postgres and runs `pnpm install` (cloud only; it does nothing locally). This is the cloud form of `pos-pg-test`; the local container rules above stay as they are. The hook also runs the setup script itself when the environment has not, so any cloud session or remote agent works without environment settings. Both install the exact pnpm of `package.json` "packageManager": the cloud VM ships pnpm 10, and pnpm's own version switch races under turbo's parallel spawns ("Exec format error").
 - **Never in the cloud or CI:** `pnpm test:perf`, printer and hardware checks, power-loss checks. They run on the owner's machine or the pilot hardware.

@@ -1,4 +1,5 @@
 import type { DeviceType } from '@pos/domain';
+import type { EngineState } from '@pos/engine';
 import {
   AlertLockSchema,
   WsAlertsOpen,
@@ -15,7 +16,7 @@ import { kindOf } from './kinds.js';
 import { bindingIsRoute } from './routes.js';
 import { cachedPrepare } from './statements.js';
 import { ACTIVITY_SESSIONS, isListedDevice, listedDevicesOnly, type BatchReads, type SessionRead } from './targets.js';
-import { seenByMe } from './catch-up.js';
+import { dayStartOf, FROM_DAY_COLUMN, fromBusinessDay, seenByMe } from './catch-up.js';
 import { lockView, safeBuild, type LockViewRow } from './ws-frames.js';
 
 // 01d §3.7 "Reconnect" and header, §6 batch 3 `alerts_open`, BF-5 / P-6 (`binding_route_until`, `binding_route`).
@@ -30,6 +31,8 @@ import { lockView, safeBuild, type LockViewRow } from './ws-frames.js';
 //   a request_result row. `seen_by_me` (§8.3, controller ruling on task 32): the bound person's seen
 //   (`request_seen`, or an `AlertSeen` receipt in alert_receipts), read in the same alert statement; false
 //   for a device-target row with no person (no binding, or the person's part is not sent).
+// - `from_business_day` (05b D-4, N-16): as the `alerts` catch-up rows (BF-4), from catch-up's FROM_DAY_COLUMN in the
+//   same alert statement (no statement added): an earlier business day's row is listed without sound.
 // - `binding_route_until` = the bound person's last session activity + `binding_route_idle_ms` for a session-row
 //   binding that is a route (task 17 carry: `until` alone is not enough), else null; always null for a permanent
 //   row (⚠️ Changed by 05a (row D-1): was "for a tablet").
@@ -57,6 +60,8 @@ export interface AlertSocketsEnv {
   db: Database.Database;
   branchId: string;
   clock: Clock;
+  /** The engine state: the current business day's start dates an earlier day's row (05b D-4, BF-4). */
+  state(): Readonly<EngineState> | undefined;
   ws(): WsHub;
   /** receipts.ts `recordSent`: this device was given the alert in alerts_open. */
   recordSent(deviceId: string, alertId: string): void;
@@ -79,6 +84,7 @@ interface OpenRow extends Partial<Omit<LockViewRow, 'alert_id'>> {
   step: number | null;
   to_device: 0 | 1 | null;
   bound_seen: 0 | 1 | null;
+  from_day: string | null;
 }
 
 /** The facts §3.4.3 (b), (c) need about one bound person (presence, activity, active sessions). */
@@ -106,7 +112,8 @@ const OPEN_SQL = `
          a.alert_id IN (SELECT r.alert_id FROM alert_recipients r WHERE r.device_id = dev.device_id) AS to_device,
          (EXISTS (SELECT 1 FROM request_seen s WHERE s.alert_id = a.alert_id AND s.staff_id = dev.bound_staff_id)
           OR EXISTS (SELECT 1 FROM alert_receipts r WHERE r.alert_id = a.alert_id AND r.staff_id = dev.bound_staff_id
-                      AND r.kind = 'seen')) AS bound_seen
+                      AND r.kind = 'seen')) AS bound_seen,
+         ${FROM_DAY_COLUMN}
   FROM dev LEFT JOIN alerts a
     ON a.state = 'open'
    AND (a.hidden_device_id IS NULL OR a.hidden_device_id <> dev.device_id)
@@ -171,7 +178,7 @@ export function createAlertSockets(env: AlertSocketsEnv): AlertSockets {
   }
 
   function buildOpen(deviceId: string): WsAlertsOpen {
-    const rows = env.db.prepare(OPEN_SQL).all({ device_id: deviceId }) as OpenRow[];
+    const rows = env.db.prepare(OPEN_SQL).all({ device_id: deviceId, day_start: dayStartOf(env.state()), branch_id: env.branchId }) as OpenRow[];
     const head = rows[0];
     let personPart = false;
     let until: number | null = null;
@@ -214,7 +221,11 @@ export function createAlertSockets(env: AlertSocketsEnv): AlertSockets {
       if (row.to_device !== 1 && listedDevicesOnly(kind) && !isListedDevice(deviceId)) continue;
       // §8.3: the bound person's seen (request_seen, or an AlertSeen receipt), only while their part is sent
       // §3.10: an open `closes_on: 'seen'` alert is never seen_by_me (catch-up.ts seenByMe)
-      alerts.push({ ...lockView(row as LockViewRow, kind, row.step), seen_by_me: personPart && seenByMe(kind, 'open', row.bound_seen) });
+      alerts.push({
+        ...lockView(row as LockViewRow, kind, row.step),
+        seen_by_me: personPart && seenByMe(kind, 'open', row.bound_seen),
+        from_business_day: fromBusinessDay(row.from_day, row.raised_at as number),
+      });
     }
     const frame = StrictOpen.parse({ type: 'alerts_open', alerts, binding_route_until: until });
     for (const a of frame.alerts) env.recordSent(deviceId, a.alert_id);

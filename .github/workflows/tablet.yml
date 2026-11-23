@@ -1,0 +1,152 @@
+# 05b §7 CI: builds the tablet APK and runs the native unit tests (the dev box has no Android SDK).
+# A required check next to `gate` (owner sets it in branch protection). PRs run on every change: the `changes` job
+# decides, and a PR that does not touch apps/tablet skips the build job, which GitHub counts as passed, so the
+# required check never sits waiting on PRs from other modules.
+name: tablet
+
+on:
+  pull_request:
+    branches: [main]            # lane PRs into module-05b are covered by the lane's own push run
+  push:
+    branches: [main, 'module-05b', 'lane-05b/**']
+    paths: ['apps/tablet/**', '.github/workflows/tablet.yml']
+  workflow_dispatch:
+    inputs:
+      release:                  # 05b A17: also build the release-signed APK (device-owner provisioning, M-17)
+        description: 'Build the release-signed APK and publish it to a pre-release tablet-release-<run>'
+        type: boolean
+        default: false
+
+concurrency:
+  group: tablet-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      tablet: ${{ steps.diff.outputs.tablet }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then echo tablet=true >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --name-only "$BASE" "$HEAD" | grep -qE '^(apps/tablet/|\.github/workflows/tablet\.yml$)'; then
+            echo tablet=true >> "$GITHUB_OUTPUT"
+          else
+            echo tablet=false >> "$GITHUB_OUTPUT"
+          fi
+
+  tablet:
+    name: tablet (unit tests + APK)
+    needs: changes
+    if: needs.changes.outputs.tablet == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/tablet
+    env:
+      TABLET_VERSION_CODE: ${{ github.run_number }}
+      TABLET_VERSION_NAME: 0.1.${{ github.run_number }}-${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false   # lanes share the dependency cache (Maven Central 429s on cold runs)
+      - run: npm ci --no-audit --no-fund
+      - run: npx cap sync android
+      - name: Native unit tests
+        working-directory: apps/tablet/android
+        run: ./gradlew --no-daemon testDebugUnitTest || { echo 'retry once (network flake)'; sleep 20; ./gradlew --no-daemon testDebugUnitTest; }
+      - name: Build debug APK
+        working-directory: apps/tablet/android
+        run: ./gradlew --no-daemon assembleDebug || { sleep 20; ./gradlew --no-daemon assembleDebug; }
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk "pos-tablet-${GITHUB_RUN_NUMBER}.apk"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tablet-test-reports
+          path: apps/tablet/android/app/build/reports/tests/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pos-tablet-apk
+          path: apps/tablet/pos-tablet-*.apk
+          retention-days: 30
+      - name: Publish main / module-05b builds to the rolling pre-release (direct download on the tablet)
+        if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'module-05b')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp pos-tablet-*.apk pos-tablet.apk
+          gh release view tablet-dev >/dev/null 2>&1 || \
+            gh release create tablet-dev --prerelease --target "$GITHUB_SHA" \
+              --title "Tablet app (dev builds)" --notes "Debug APK of main / module-05b. Not for device owner."
+          gh release upload tablet-dev pos-tablet.apk --clobber
+      # 05b A17 (§7, M-17, m-9): release-signed APK, on a manual run with `release: true` only. The key comes from
+      # secrets, decoded to a temp file outside the repo and deleted afterwards; without the secrets the steps skip.
+      - name: Release key present?
+        id: relkey
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        env:
+          KS_B64: ${{ secrets.TABLET_RELEASE_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.TABLET_RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.TABLET_RELEASE_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.TABLET_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASS" ]; then
+            echo "::notice title=Release build skipped::TABLET_RELEASE_* secrets are not set; no release APK built."
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          umask 077
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/tablet-release.jks"
+          echo "TABLET_RELEASE_KEYSTORE=$RUNNER_TEMP/tablet-release.jks" >> "$GITHUB_ENV"
+          echo "have=true" >> "$GITHUB_OUTPUT"
+      - name: Build release APK
+        if: steps.relkey.outputs.have == 'true'
+        working-directory: apps/tablet/android
+        env:
+          TABLET_RELEASE_STORE_PASSWORD: ${{ secrets.TABLET_RELEASE_STORE_PASSWORD }}
+          TABLET_RELEASE_KEY_ALIAS: ${{ secrets.TABLET_RELEASE_KEY_ALIAS }}
+          TABLET_RELEASE_KEY_PASSWORD: ${{ secrets.TABLET_RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon assembleRelease || { sleep 20; ./gradlew --no-daemon assembleRelease; }
+          apk=app/build/outputs/apk/release/app-release.apk
+          test -f "$apk" || { echo "::error::release APK not signed (app-release.apk missing)"; ls -R app/build/outputs/apk; exit 1; }
+          cp "$apk" "../pos-tablet-release-${GITHUB_RUN_NUMBER}.apk"
+      - name: Remove the release key
+        if: always() && steps.relkey.outputs.have == 'true'
+        run: rm -f "$RUNNER_TEMP/tablet-release.jks"
+      - uses: actions/upload-artifact@v4
+        if: steps.relkey.outputs.have == 'true'
+        with:
+          name: pos-tablet-release-apk
+          path: apps/tablet/pos-tablet-release-*.apk
+          retention-days: 90
+      - name: Publish the release APK to a pre-release
+        if: steps.relkey.outputs.have == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="tablet-release-${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" --prerelease --target "$GITHUB_SHA" \
+            --title "Tablet app release build ${GITHUB_RUN_NUMBER} (${GITHUB_REF_NAME})" \
+            --notes "Release-signed APK for device-owner provisioning (docs/plans/05b-provisioning.md). Commit ${GITHUB_SHA}." \
+            "pos-tablet-release-${GITHUB_RUN_NUMBER}.apk"

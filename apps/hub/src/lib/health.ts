@@ -12,6 +12,8 @@ export interface HealthRead {
   confirmed: boolean;
   branchId: string | null;
   clockAlarm: { wall_ms: number; last_recorded_at: number; delta_ms: number } | null;
+  // 05b H-1 (M-13): sha256 of the /staff/ index.html loaded at start; null when none is loaded.
+  staffBuild: string | null;
   db: Database.Database;
 }
 
@@ -29,6 +31,7 @@ export function registerHealth(app: FastifyInstance, read: () => HealthRead): vo
         max_seq: maxSeq(snap.db, snap.branchId),
         hub_version: HUB_VERSION,
         clock_alarm: snap.clockAlarm,
+        staff_build: snap.staffBuild,
       },
     };
   });

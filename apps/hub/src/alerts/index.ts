@@ -53,6 +53,7 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
     db: deps.db,
     branchId,
     clock: deps.clock,
+    state: () => deps.state.get(),
     ws: () => wsHubFor(app),
     recordSent: (deviceId, alertId) => receipts.recordSent(deviceId, alertId),
     log: app.log,

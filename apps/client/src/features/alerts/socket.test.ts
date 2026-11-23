@@ -41,7 +41,8 @@ const CARD = { ...LOCK, kind_label_key: 'alert.void_approval.card', details: { a
 
 function setup(deviceType: DeviceType, sessionToken: string | null, extra: Partial<AlertConnectionDeps> = {}) {
   const timers: FakeTimers = fakeTimers();
-  const store = createAlertStore({ sink: recordingSink(timers), timers, alwaysOn: deviceType === 'cashier_kiosk' });
+  const sink = recordingSink(timers);
+  const store = createAlertStore({ sink, timers, alwaysOn: deviceType === 'cashier_kiosk' });
   const sockets: FakeSocket[] = [];
   const onBindingRoute = vi.fn();
   const onEnded = vi.fn();
@@ -62,7 +63,7 @@ function setup(deviceType: DeviceType, sessionToken: string | null, extra: Parti
     ...extra,
   });
   const last = (): FakeSocket => sockets[sockets.length - 1]!;
-  return { timers, store, sockets, last, conn, onBindingRoute, onEnded };
+  return { timers, sink, store, sockets, last, conn, onBindingRoute, onEnded };
 }
 
 const catchUp = (alerts: unknown[]) => ({ type: 'catch_up', as_of_seq: 7, state: { hub: {}, alerts: { alerts } } });
@@ -379,6 +380,19 @@ describe('alert socket', () => {
     sockets[0]!.frame({ type: 'event', seq: 8, event: { event_id: 'E', event_type: 'X', schema_version: 1, payload: {} } });
     expect(onFrame.mock.calls.map((c) => (c[0] as { type: string }).type)).toEqual(['catch_up', 'event']);
     expect(conn.isUp()).toBe(true);
+  });
+
+  it('[05b D-4; 01d §8.1] alert mode: an urgent unseen alerts_open row from an earlier business day is listed — no notify, no sound, no repeat', () => {
+    const { last, store, timers, sink } = setup('phone', null);
+    last().open();
+    const row = { ...view({ alert_id: 'Y1', family: 'urgent', kind: 'call_waiter' }), seen_by_me: false, from_business_day: '2025-10-19' };
+    delete (row as { card?: unknown }).card;
+    last().frame(alertsOpen([row]));
+    timers.advance(10 * 60_000);
+    const snap = store.snapshot();
+    expect(snap.rows.map((r) => [r.alert_id, r.family, r.seen_by_me, r.from_business_day])).toEqual([['Y1', 'urgent', false, '2025-10-19']]);
+    expect(snap.banners).toEqual([]);
+    expect(sink.played).toEqual([]);
   });
 
   it('[01d §8.1] subscribe reports up / down; dispose closes and stops reconnecting', () => {

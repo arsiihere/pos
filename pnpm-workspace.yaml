@@ -1,6 +1,7 @@
 packages:
   - "packages/*"
   - "apps/*"
+  - "!apps/tablet" # 05b plan AD-2: own npm lockfile, built by tablet.yml
 
 allowBuilds:
   esbuild: true
