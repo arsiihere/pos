@@ -137,7 +137,7 @@ describe('[03b §8] Pass states', () => {
             sound_volume: 70,
             has_printer: true,
             lanes: { lanes_on: 2, lane_count: 2 },
-            now: [{ ...line('NAAN', 'added'), stage: 'added', fired_at: 1, started_at: null, mark: null, done_undone: false }],
+            now: [{ ...line('NAAN', 'added'), priority: null, stage: 'added', fired_at: 1, started_at: null, mark: null, done_undone: false }],
             details: [],
           },
         ],

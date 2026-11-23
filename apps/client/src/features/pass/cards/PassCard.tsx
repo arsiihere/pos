@@ -57,6 +57,8 @@ export interface PassCardProps {
   /** P3: a line's own actions (Start / Done); `parts` = the lines a grouped row stands for (v1.0.11, STAB-5) */
   lineActions?: (line: PointLine, parts: readonly PointLine[]) => ReactNode;
   onToast?: (text: string, tone?: 'ok' | 'warn') => void;
+  /** ⚠️ 03b v1.0.13 §3.4 (STAB-6): the point's round tags by load (cards/parts.ts passRounds) */
+  rounds?: ReadonlyMap<string, string>;
 }
 
 function Ident({ order }: { order: PointOrder }) {
@@ -92,7 +94,7 @@ function Placed({ ms, utcOffsetMs }: { ms: number; utcOffsetMs: number }) {
   );
 }
 
-export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast }: PassCardProps) {
+export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast, rounds }: PassCardProps) {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => onSlotsChanged(rerender), []);
   const running = useRef(new Set<string>());
@@ -172,7 +174,10 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
             <div key={`g-${g.station_id}`} className="pc__g">
               {st?.screenless === true ? fill(t('pass.group_no_screen'), { station: name }) : name}
             </div>,
-            ...g.rows.map((r) => <LineRow key={r.line.order_item_id} line={r.line} actions={lineActions?.(r.line, r.parts)} />),
+            ...g.rows.map((r) => {
+              const round = r.line.load_id == null ? undefined : rounds?.get(r.line.load_id);
+              return <LineRow key={r.line.order_item_id} line={r.line} actions={lineActions?.(r.line, r.parts)} {...(round === undefined ? {} : { round })} />;
+            }),
           ];
         })}
         {total > FOLD_AFTER && <div className="pc__more">{fill(t('pass.more_lines'), { n: String(total - SHOWN) })}</div>}

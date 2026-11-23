@@ -217,7 +217,8 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
       case 'ItemStarted': {
         // ⚠️ 03b v1.0.12 §6.15 (STAB-5 Q5): the start time, so a grouped Done sends the last-started part first
         const at = typeof p['started_at'] === 'number' ? p['started_at'] : deps.now();
-        return id !== null && updateLines(new Set([id]), (l) => ({ ...l, stage: 'cooking', started_at: at }));
+        // ⚠️ 03b v1.0.13 §3.4 (STAB-7): Start ends priority (03a PR-4), so the chip goes
+        return id !== null && updateLines(new Set([id]), (l) => ({ ...l, stage: 'cooking', started_at: at, priority: null }));
       }
       case 'ItemDone':
         return id !== null && updateLines(new Set([id]), (l) => ({ ...l, stage: 'done' }));
@@ -247,6 +248,10 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
         dropOrderState(order_id);
         return true;
       }
+      case 'LinePrioritized':
+        // ⚠️ 03b v1.0.14 §3.4, §6.17 (STAB-7, m-6): "Priority" at once, without minutes (never from delay_ms); the hub's
+        // next view carries them. An id this point does not hold is ignored (Q-49).
+        return updateLines(new Set(ids(p['order_item_ids'])), (l) => (l.priority != null || l.stage !== 'added' ? l : { ...l, priority: { minutes_late: null } }));
       case 'ItemsReleased':
         return updateLines(new Set([...ids(p['released']), ...ids(p['expedite'])]), (l) => ({ ...l, serve_mode: 'immediate' }));
       case 'LanesSet': {

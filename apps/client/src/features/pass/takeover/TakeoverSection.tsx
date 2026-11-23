@@ -10,7 +10,7 @@ import { LaneControl } from '../../kds/header/LaneControl';
 import { lineActions, onSlotsChanged, runSlotAction, type SlotAction } from '../../kds/slots';
 import { LineRow } from '../../kds/station/LineRow';
 import { NextColumn } from '../../kds/station/NextColumn';
-import { groupNow } from '../../kds/station/parts';
+import { groupNow, roundsOf } from '../../kds/station/parts';
 import { nowOrder } from '../../kds/station/StationView';
 import type { KdsStoreImpl } from '../../kds/store';
 
@@ -40,6 +40,7 @@ export interface TakeoverSectionProps {
 
 export function TakeoverSection({ store, name, api, canRun, archived = false, up, nowMs, utcOffsetMs, timers, onToast }: TakeoverSectionProps) {
   const view = useSyncExternalStore(store.subscribe, store.snapshot);
+  const rounds = roundsOf(view); // ⚠️ 03b v1.0.13 §3.3 (STAB-6): the takeover station's round tags
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => onSlotsChanged(rerender), []);
   const actions = useKdsActions(api, timers, () => undefined);
@@ -97,6 +98,7 @@ export function TakeoverSection({ store, name, api, canRun, archived = false, up
                 compact
                 stationId={station.station_id}
                 hasPrinter={false}
+                {...(row.load_id != null && row.stage !== 'done' && rounds.has(row.load_id) ? { round: rounds.get(row.load_id)! } : {})}
                 message={<InlineError msg={state.msg} />}
                 actions={
                   canRun || slot.length > 0 ? (
@@ -114,7 +116,7 @@ export function TakeoverSection({ store, name, api, canRun, archived = false, up
             );
           })}
         </div>
-        <NextColumn plan={view.plan} details={view.details} nowMs={nowMs} />
+        <NextColumn plan={view.plan} details={view.details} nowMs={nowMs} rounds={rounds} {...(view.flagged === undefined ? {} : { flagged: view.flagged })} />
       </div>
     </section>
   );

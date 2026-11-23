@@ -12,6 +12,7 @@ import { createPassApi, createReadyActions, readyBand, retrying, type CardMessag
 import { ReadySheet, pendingLines } from './actions/ReadySheet';
 import { ScreenlessActions } from './actions/ScreenlessActions';
 import { PassCard } from './cards/PassCard';
+import { passRounds } from './cards/parts';
 import { readiness } from './cards/readiness';
 import { Loading, Offline } from './states/Offline';
 import { PointArchived, watchPoint } from './states/PointArchived';
@@ -196,6 +197,7 @@ export function PassScreen() {
   const canRun = allowed && !archived;
   const up = shell.online;
   const orders = [...view.orders].sort((a, b) => a.placed_at - b.placed_at);
+  const rounds = passRounds(orders); // ⚠️ 03b v1.0.13 §3.4 (STAB-6): the point's round tags, oldest card first
   const onToast = (text: string, tone: 'ok' | 'warn' = 'ok') => shell.toasts.show({ text, tone });
   const setMsg = (order_id: string, msg: CardMessage | null | undefined) =>
     setMsgs((m) => {
@@ -320,6 +322,7 @@ export function PassScreen() {
                   order={o}
                   stations={view.stations}
                   pointId={view.point_id}
+                  rounds={rounds}
                   utcOffsetMs={shell.clock.utcOffsetMs}
                   up={up}
                   onToast={onToast}

@@ -20,7 +20,19 @@ export interface ServeFields {
 
 /** §6.15 a Pass line: the details plus its live stage and whether it was handed over. */
 /** ⚠️ 03b v1.0.12 §6.15 (STAB-5 Q5): `started_at` = the engine line's start (null while waiting; absent from an older hub) */
-export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean; started_at?: number | null };
+/**
+ * ⚠️ 03b v1.0.13 / v1.0.14 §6.15, §6.16 (STAB-6, STAB-7): `load_id` (the batch round; null / absent off a batch
+ * station or from an older hub) and `priority` (the hub view's minutes; `minutes_late: null` after a LinePrioritized
+ * frame alone, m-6; null / absent = not priority).
+ */
+export type PointLine = LineDetail &
+  ServeFields & {
+    stage: 'added' | 'cooking' | 'done';
+    handed_over: boolean;
+    started_at?: number | null;
+    load_id?: string | null;
+    priority?: { since_ms?: number; minutes_late: number | null } | null;
+  };
 
 export interface PointStation {
   station_id: string;
