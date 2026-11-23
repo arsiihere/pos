@@ -1,9 +1,11 @@
-import { BranchConfigSnapshotSchemaV4, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4, InventorySnapshotSchema, SNAPSHOT_SCHEMA_VERSION, type InventorySnapshot } from '@pos/events';
+import type { FastifyBaseLogger } from 'fastify';
 import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
 import { buildBillingSnapshot } from '../billing-settings/service.js';
 import { effectiveGroupIds, type LinkRow } from '../menu-variants/effective-set.js';
+import { selectSnapshotItems, selectSnapshotPrices, selectSnapshotRecipes, selectSnapshotUnits, selectSnapshotYields } from './repository.js';
 
 export interface SnapshotHeader {
   config_version: number;
@@ -83,7 +85,7 @@ interface DrawRow {
   quantity_per_sale_unit: number;
 }
 
-// §6.1 step 3, §4.3 (01c §6.17, §4.6): 23 fixed statements (⚠️ 05 row A-1 (5): + the billing key), one builder (S28): 01a's 7 + variant groups, stock
+// §6.1 step 3, §4.3 (01c §6.17, §4.6): 28 fixed statements (⚠️ 08b A-4: + 5 for the inventory key); was 23 (⚠️ 05 row A-1 (5): + the billing key), one builder (S28): 01a's 7 + variant groups, stock
 // items with this branch's rows, draws, modifier groups with options, this branch's option rows, links, this
 // branch's deal rows, the deals sold here with their active parts and choices, deal windows, schema 3's points,
 // alternates, carry times, engine settings, goes-with (01b v1.5 B-8), and schema 4's zones with their lists (01a v2.2
@@ -91,13 +93,21 @@ interface DrawRow {
 // Arrays by sort_order, then id; rows without sort_order (stations, programs, tax classes) by name, then id;
 // stock items by toLowerCase() name, then id, in JS; windows by start_ms, end_ms, window_id (S47); deal choices by
 // sort_order, then item_id (m5); zone routes and stock items by item_id (AD-12). Returns the wire object (S27).
+// ⚠️ Changed by 08b v1.0 (01a A-3, A-4; 08 Part B §5.3, B15): + the `inventory` key, + 5 statements (28). The key is
+// checked with the typed InventorySnapshotSchema; a failure logs `inventory_key_invalid` (branch id, issue paths)
+// and the key is sent as built — the sync never 500s for it (N-4); the hub schema reads it as z.unknown() (M-5).
 export async function buildSnapshot(
   client: pg.PoolClient,
   tenant: TenantContext,
   branchId: string,
   header: SnapshotHeader,
+  log?: Pick<FastifyBaseLogger, 'error'>,
 ): Promise<Record<string, unknown>> {
   const body = await buildSnapshotBody(client, tenant, branchId, header);
+  const checked = InventorySnapshotSchema.safeParse(body.inventory);
+  if (!checked.success) {
+    log?.error({ branch_id: branchId, issues: checked.error.issues.map((issue) => issue.path.map(String).join('.')) }, 'inventory_key_invalid');
+  }
   return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV4.parse(body))) as Record<string, unknown>;
 }
 
@@ -306,6 +316,8 @@ export async function buildSnapshotBody(
   const goesWith = await selectGoesWith(level);
   // 01a v2.2 / v2.3 §4.3, schema 4: one statement (§6.1 "+1").
   const zones = await selectZones(scoped, branchId);
+  // 08 Part B §5.3, B15: the inventory key, 5 statements (items, units, prices, yields, versions with lines).
+  const inventory = await buildInventoryKey(level, branchId);
 
   // §4.6: by toLowerCase() name, then id, in JavaScript string order (never the database collation).
   stockItems.sort((a, b) => compare(a.name.toLowerCase(), b.name.toLowerCase()) || compare(a.stock_item_id, b.stock_item_id));
@@ -545,7 +557,25 @@ export async function buildSnapshotBody(
     engine_settings: engineSettings,
     goes_with: goesWith,
     ...(billing !== undefined ? { billing } : {}),
+    inventory,
   };
+}
+
+// 08 Part B §5.3 (m-1): every array sorted in JS by code point — items by stock_item_id, units by (stock_item_id,
+// unit_name), prices by price_id, yields by stock_item_id, recipes by recipe_version_id (lines are in line_no order
+// from the read). No time is read (M-2): created_at is sent as stored, the hub ranks it (t-1).
+async function buildInventoryKey(level: TenantLevelRepository, branchId: string): Promise<InventorySnapshot> {
+  const items = await selectSnapshotItems(level);
+  const units = await selectSnapshotUnits(level);
+  const prices = await selectSnapshotPrices(level, branchId);
+  const yields = await selectSnapshotYields(level);
+  const recipes = await selectSnapshotRecipes(level);
+  items.sort((a, b) => compare(a.stock_item_id, b.stock_item_id));
+  units.sort((a, b) => compare(a.stock_item_id, b.stock_item_id) || compare(a.unit_name, b.unit_name));
+  prices.sort((a, b) => compare(a.price_id, b.price_id));
+  yields.sort((a, b) => compare(a.stock_item_id, b.stock_item_id));
+  recipes.sort((a, b) => compare(a.recipe_version_id, b.recipe_version_id));
+  return { items, units, prices, yields, recipes };
 }
 
 // 01a §4.3 V3: archived rows stay, as stations do, so an archived station's point_id still resolves.

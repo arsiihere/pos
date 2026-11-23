@@ -52,7 +52,7 @@ describe('hub check-in and up-to-date times (01b B19, D-11, 01a §6.1 step 6, §
   const list = () =>
     cloud.app.inject({ method: 'GET', url: '/v1/admin/branches', headers: { authorization: `Bearer ${f.token}` } });
 
-  it('[01b #67] the poll sets hub_last_seen_at on 304 and 200, hub_synced_at on 304 only; a hub stuck on an old config_version moves only hub_last_seen_at; GET /v1/admin/branches returns both; [01b B-8] query counts 2, ≤ 27 config only and ≤ 17 directory only', async () => {
+  it('[01b #67] the poll sets hub_last_seen_at on 304 and 200, hub_synced_at on 304 only; a hub stuck on an old config_version moves only hub_last_seen_at; GET /v1/admin/branches returns both; [01b B-8] query counts 2, ≤ 33 config only (⚠️ 08b A-4) and ≤ 17 directory only', async () => {
     const [a, b] = f.branches;
     const t0 = 1_761_000_100_000; // within the owner token's hour
     expect(await times(a)).toEqual({ hub_last_seen_at: null, hub_synced_at: null });
@@ -71,7 +71,7 @@ describe('hub check-in and up-to-date times (01b B19, D-11, 01a §6.1 step 6, §
       const stuck = await poll(v.config - 1, v.directory);
       expect(stuck.statusCode).toBe(200);
       // Config only (the directory is current): AD-16's config-only bound, ≤ 27 (01b v1.5 B-8); + 1 zones (01a v2.2 A-1) → ≤ 28.
-      expect(counter.count).toBeLessThanOrEqual(28);
+      expect(counter.count).toBeLessThanOrEqual(33); // ⚠️ 08b A-4: + 5 inventory key reads → ≤ 33
       expect(await times(a)).toEqual({ hub_last_seen_at: at, hub_synced_at: t0 });
     }
     // A directory behind is also a 200.

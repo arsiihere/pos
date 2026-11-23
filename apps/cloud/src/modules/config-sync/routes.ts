@@ -18,7 +18,7 @@ export function registerConfigSyncRoutes(app: FastifyInstance, deps: { pool: pg.
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('GET /v1/sync/config');
       if (request.tenant === undefined) throw new DomainError('BRANCH_API_KEY_INVALID');
-      const result = await syncConfig(deps.pool, deps.clock, request.tenant, request.query);
+      const result = await syncConfig(deps.pool, deps.clock, request.tenant, request.query, request.log);
       // the typed reply only knows the 200 object schema; S4: the 304 has no body
       const raw = reply as unknown as FastifyReply;
       if (result.kind === 'not_modified') return raw.code(304).send();

@@ -1,5 +1,6 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
 import type { DirectoryInput } from '@pos/events';
+import type { FastifyBaseLogger } from 'fastify';
 import type pg from 'pg';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
 import type { Clock } from '../../lib/clock.js';
@@ -25,8 +26,9 @@ export async function syncConfig(
   clock: Clock,
   tenant: TenantContext,
   query: SyncConfigQueryInput,
+  log?: Pick<FastifyBaseLogger, 'error'>, // 08b N-4: inventory_key_invalid
 ): Promise<SyncConfigResult> {
-  const result = await readConfig(pool, tenant, query);
+  const result = await readConfig(pool, tenant, query, log);
   await recordHubTimes(pool, clock, tenant, result.kind === 'not_modified');
   return result;
 }
@@ -40,7 +42,12 @@ async function recordHubTimes(pool: pg.Pool, clock: Clock, tenant: TenantContext
   );
 }
 
-async function readConfig(pool: pg.Pool, tenant: TenantContext, query: SyncConfigQueryInput): Promise<SyncConfigResult> {
+async function readConfig(
+  pool: pg.Pool,
+  tenant: TenantContext,
+  query: SyncConfigQueryInput,
+  log: Pick<FastifyBaseLogger, 'error'> | undefined,
+): Promise<SyncConfigResult> {
   const branchId = tenant.branchIds[0]!;
   return inTransaction(
     pool,
@@ -75,7 +82,7 @@ async function readConfig(pool: pg.Pool, tenant: TenantContext, query: SyncConfi
           tax_enabled: header.tax_enabled,
           day_stale_after_hours: header.day_stale_after_hours,
           day_min_gap_hours: header.day_min_gap_hours,
-        });
+        }, log);
         config = { snapshot_hash: sha256hex(canonicalJson(wire)), snapshot: wire };
       }
       const directory = directoryChanged ? (await loadDirectory(client, tenant.tenantId, branchId)).directory : null;
