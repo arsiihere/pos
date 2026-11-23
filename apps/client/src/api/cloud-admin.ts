@@ -79,6 +79,24 @@ import type {
   StockItemWire,
   TeamNode,
   VariantGroupWire,
+  CostWire,
+  CoverageWire,
+  CreateRecipeInput,
+  PatchRecipeInput,
+  PublishRecipeInput,
+  RecipeCreated,
+  RecipeDetailData,
+  RecipeHistoryEntry,
+  RecipeLineWire,
+  RecipeListData,
+  RecipeOwnerType,
+  RecipePatched,
+  RecipePublished,
+  RecipeSummaryWire,
+  RecipeVersionWire,
+  RecipeWarningWire,
+  DraftSaved,
+  SaveDraftRequest,
 } from '@pos/events';
 
 // §8.1: the owner app's cloud client for §6.2–§6.16 and the 00 owner login. Tokens live in
@@ -189,6 +207,25 @@ export type ModifierGroup = ModifierGroupWire;
 export type ModifierGroupBranch = ModifierGroupBranchWire;
 export type ModifierOption = ModifierGroupWire['options'][number];
 export type ModifierLink = ModifierGroupWire['links'][number];
+
+// 08 v1.1 Part B §5.4, §6.1–§6.6: recipes (AD-16 / AD-17 wires); costs are CostWire, never 0 for a missing cost (D9).
+export type {
+  CostWire,
+  CoverageWire,
+  RecipeHistoryEntry,
+  RecipeLineWire,
+  RecipeOwnerType,
+  RecipeSummaryWire,
+  RecipeVersionWire,
+  RecipeWarningWire,
+};
+export type RecipeList = RecipeListData;
+export type RecipeDetail = RecipeDetailData;
+export type SaveDraftBody = SaveDraftRequest;
+export interface RecipeListQuery {
+  branch_id?: string;
+  filter?: 'missing' | 'partial';
+}
 
 // 01c §5.4, §6.13–§6.16: deals; branch entries carry is_sold (AD-6) and list every allowed branch.
 export type DealBranch = DealBranchWire;
@@ -537,6 +574,20 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       call<ItemPriceCreated>('POST', `/v1/admin/stock-items/${id(stockItemId)}/prices`, body, key),
     createYield: (stockItemId: string, body: CreateYieldRequest, key: string) =>
       call<YieldProfileCreated>('POST', `/v1/admin/stock-items/${id(stockItemId)}/yields`, body, key),
+
+    // 08b §6.1–§6.6 recipes: the create takes an Idempotency-Key; draft save, publish and archive / restore carry
+    // expected_version (V13) instead. branch_id? picks the costs' branch (B12).
+    listRecipes: (query: RecipeListQuery = {}) => call<RecipeList>('GET', `/v1/admin/recipes${queryString(query)}`),
+    getRecipe: (recipeId: string, query: { branch_id?: string } = {}) =>
+      call<RecipeDetail>('GET', `/v1/admin/recipes/${id(recipeId)}${queryString(query)}`),
+    createRecipe: (body: CreateRecipeInput, key: string) => call<RecipeCreated>('POST', '/v1/admin/recipes', body, key),
+    // AD-26 (d): the draft PUT and the publish take branch_id? for their response's costs, as the reads.
+    saveRecipeDraft: (recipeId: string, body: SaveDraftBody, query: { branch_id?: string } = {}) =>
+      call<DraftSaved>('PUT', `/v1/admin/recipes/${id(recipeId)}/draft${queryString(query)}`, body),
+    publishRecipe: (recipeId: string, body: PublishRecipeInput, query: { branch_id?: string } = {}) =>
+      call<RecipePublished>('POST', `/v1/admin/recipes/${id(recipeId)}/publish${queryString(query)}`, body),
+    patchRecipe: (recipeId: string, body: PatchRecipeInput) =>
+      call<RecipePatched>('PATCH', `/v1/admin/recipes/${id(recipeId)}`, body),
 
     // 01c §6.13–§6.16 deals (status?: AD-30 a) and their per-branch rows (a branch PUT takes no Idempotency-Key)
     listDeals: (query: { status?: 'active' | 'archived' } = {}) =>

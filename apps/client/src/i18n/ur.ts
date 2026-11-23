@@ -64,6 +64,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'owner.nav.choice_groups': 'چوائس گروپ',
   'owner.nav.deals': 'ڈیل',
   'owner.nav.stock_items': 'اسٹاک آئٹم',
+  // 08b §8.1, §8.3: draft Urdu on the Urdu-checked nav and menu page; still on 08b/urdu-todo.md for the native read.
+  'owner.nav.recipes': 'ترکیبیں',
+  'menu.no_recipe': 'ترکیب نہیں',
   'size_groups.title': 'سائز گروپ',
   'size_groups.new': 'نیا سائز گروپ',
   'size_groups.helper': 'سائز گروپ آرڈر اسکرین پر ایک ٹائل ہے۔ ہر سائز ایک پورا آئٹم ہے۔',

@@ -466,6 +466,48 @@ describe('cloud-admin client', () => {
     }
   });
 
+  it('[08b §6.1–§6.6, §8] the six recipe calls send their method, path, query, body and key (only the create has a key)', async () => {
+    sessionStorage.setItem('owner_access_token', 'A1');
+    const draft = { expected_version: 'v3', misc_allowance_bp: 500, lines: [{ stock_item_id: 'SI1', unit_name: 'kg', qty: '0.25' }] };
+    const cases: Array<{
+      run: (api: ReturnType<typeof createCloudAdmin>) => Promise<unknown>;
+      method: string;
+      url: string;
+      body?: unknown;
+      key?: string;
+    }> = [
+      { run: (api) => api.listRecipes(), method: 'GET', url: '/v1/admin/recipes' },
+      { run: (api) => api.listRecipes({ branch_id: 'B 1', filter: 'partial' }), method: 'GET', url: '/v1/admin/recipes?branch_id=B+1&filter=partial' },
+      { run: (api) => api.getRecipe('R/1'), method: 'GET', url: '/v1/admin/recipes/R%2F1' },
+      { run: (api) => api.getRecipe('R1', { branch_id: 'B1' }), method: 'GET', url: '/v1/admin/recipes/R1?branch_id=B1' },
+      {
+        run: (api) => api.createRecipe({ owner_type: 'menu_item', owner_id: 'I1' }, 'K1'),
+        method: 'POST',
+        url: '/v1/admin/recipes',
+        body: { owner_type: 'menu_item', owner_id: 'I1' },
+        key: 'K1',
+      },
+      { run: (api) => api.saveRecipeDraft('R1', draft), method: 'PUT', url: '/v1/admin/recipes/R1/draft', body: draft },
+      { run: (api) => api.publishRecipe('R1', { expected_version: 'v4' }), method: 'POST', url: '/v1/admin/recipes/R1/publish', body: { expected_version: 'v4' } },
+      { run: (api) => api.saveRecipeDraft('R1', draft, { branch_id: 'B1' }), method: 'PUT', url: '/v1/admin/recipes/R1/draft?branch_id=B1', body: draft },
+      {
+        run: (api) => api.publishRecipe('R1', { expected_version: 'v4' }, { branch_id: 'B1' }),
+        method: 'POST',
+        url: '/v1/admin/recipes/R1/publish?branch_id=B1',
+        body: { expected_version: 'v4' },
+      },
+      { run: (api) => api.patchRecipe('R1', { expected_version: 'r2', archived: false }), method: 'PATCH', url: '/v1/admin/recipes/R1', body: { expected_version: 'r2', archived: false } },
+    ];
+    for (const c of cases) {
+      const data = { marker: c.url };
+      const { calls, fetchFn } = fakeFetch([json(200, { data })]);
+      const api = createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} });
+      expect(await c.run(api), c.url).toEqual({ ok: true, data });
+      expect(calls[0], c.url).toMatchObject({ method: c.method, url: c.url, body: c.body });
+      expect(calls[0]?.headers['Idempotency-Key'], c.url).toBe(c.key);
+    }
+  });
+
   it('[01b §8] changePassword sends both passwords and keeps the new token pair; the user no longer must change', async () => {
     sessionStorage.setItem('owner_access_token', 'A1');
     sessionStorage.setItem('owner_refresh_token', 'R1');

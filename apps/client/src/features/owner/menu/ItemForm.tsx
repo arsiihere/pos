@@ -37,6 +37,8 @@ import { idTail, useBranchName } from '../branch';
 import { apiCode, bySortThenName, referenceText } from '../c01';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey, useReveal } from '../form';
+import { RecipeInUse } from '../recipes/RecipeInUse';
+import { recipeInUseIds } from '../recipes/recipes';
 import { useDirtyForm, useLeave } from '../guard';
 import { formatMinutes, parseMinutes } from '../minutes';
 import { formatRupees, parseRupees, shownRupees } from '../money';
@@ -405,6 +407,8 @@ export function ItemForm({
   const [stations, setStations] = useState<Record<string, StationRow[]> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ⚠️ 08b v1.0 B17 (AD-9, C-14): a recipe holds the item ("archive the recipe first", with links).
+  const [recipeIds, setRecipeIds] = useState<string[] | null>(null);
   const [problems, setProblems] = useState<Problem[]>([]);
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [archiving, setArchiving] = useState(false);
@@ -698,6 +702,7 @@ export function ItemForm({
     if (found.length > 0 || next === null) return;
     setBusy(true);
     setError(null);
+    setRecipeIds(null);
     const result = base === null ? await create(next) : await update(base, next);
     setBusy(false);
     if (result === null) {
@@ -713,6 +718,11 @@ export function ItemForm({
     const field = serverProblem(result, weighedOn);
     if (field !== null) {
       setProblems([field]);
+      return;
+    }
+    const recipes = recipeInUseIds(result);
+    if (recipes !== null) {
+      setRecipeIds(recipes);
       return;
     }
     const users = inUseOf(result);
@@ -766,6 +776,11 @@ export function ItemForm({
     setBusy(false);
     if (result.ok) {
       onSaved();
+      return;
+    }
+    const recipes = recipeInUseIds(result.error);
+    if (recipes !== null) {
+      setRecipeIds(recipes);
       return;
     }
     const users = inUseOf(result.error);
@@ -934,6 +949,7 @@ export function ItemForm({
       )}
       {categoryOptions.length === 0 && <Banner tone="info" text={t('item.need_category')} />}
       {error !== null && <Banner tone="danger" text={error} />}
+      {recipeIds !== null && <RecipeInUse ids={recipeIds} />}
     </>
   );
 

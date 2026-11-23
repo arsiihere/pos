@@ -23,6 +23,8 @@ import { useBranchName } from '../branch';
 import { apiCode, BackLink, itemHref, referenceText } from '../c01';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
+import { RecipeInUse } from '../recipes/RecipeInUse';
+import { recipeInUseIds } from '../recipes/recipes';
 import { useDirtyForm, useLeave } from '../guard';
 import { Page } from '../Shell';
 import { loadStations, quantityAffix, quantityInput, unitOption, type StationsByBranch } from './stock';
@@ -163,7 +165,8 @@ function Editor({
   // R4 (08a §6.3): a kind change refused while counted at a branch or drawn by an active dish.
   const [kindBlocked, setKindBlocked] = useState<string | null>(null);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
-  const [banner, setBanner] = useState<{ tone: 'danger' | 'warn'; text: string } | null>(null);
+  // ⚠️ 08b v1.0 B17 (AD-9): `recipes` = a recipe holds the row ("archive the recipe first", with links).
+  const [banner, setBanner] = useState<{ tone: 'danger' | 'warn'; text: string; recipes?: string[] } | null>(null);
   const [stale, setStale] = useState(false);
   const [gone, setGone] = useState(false);
   const [inUse, setInUse] = useState<string[] | null>(null);
@@ -252,6 +255,11 @@ function Editor({
       const text = referenceText(error.details);
       if (field === 'stock_unit' || field === 'name') setErrors({ [field]: text });
       else setBanner({ tone: 'danger', text });
+      return;
+    }
+    const recipes = recipeInUseIds(error);
+    if (recipes !== null) {
+      setBanner({ tone: 'danger', text: '', recipes });
       return;
     }
     if (code === 'CONFIG_IN_USE' && error.kind === 'api') {
@@ -385,7 +393,7 @@ function Editor({
         />
       )}
       <ErrorSummary entries={fixes} />
-      {banner !== null && <Banner tone={banner.tone} text={banner.text} />}
+      {banner !== null && (banner.recipes !== undefined ? <RecipeInUse ids={banner.recipes} /> : <Banner tone={banner.tone} text={banner.text} />)}
       {kindBlocked !== null && (
         <div className="pos-banner pos-banner--danger" role="alert" data-kind-blocked="">
           <Icon name="alert" />
