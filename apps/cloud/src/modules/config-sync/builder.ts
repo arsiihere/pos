@@ -202,7 +202,8 @@ export async function buildSnapshotBody(
             COALESCE(r.price_minor_override, m.price_minor) AS price_minor, -- S57: the branch's effective price
             m.tax_class_id, m.serve_mode, m.prep_buffer_ms, m.cook_time_ms, m.stock_time_ms, m.out_of_stock_behaviour,
             m.sale_unit, m.requires_weighing, r.station_id, r.program_id, r.stock_program_id,
-            m.weight_pct, m.max_early_ms, m.max_carry_ms, m.max_late_ms, m.adjust_time_ms, m.is_ready_item
+            m.weight_pct, m.max_early_ms, m.max_carry_ms, m.max_late_ms, m.adjust_time_ms, m.is_ready_item,
+            m.max_delay_ms, m.max_delay_unlimited -- 01a v2.7.5 MD-5 (STAB-7): always sent
        FROM item_routes r
        JOIN menu_items m ON m.tenant_id = r.tenant_id AND m.item_id = r.item_id
       WHERE r.tenant_id = $1 AND r.branch_id = ANY($2) AND r.branch_id = $3 AND m.archived_at IS NULL
@@ -588,7 +589,8 @@ async function selectEngineSettings(scoped: TenantScopedRepository, branchId: st
             slip_threshold_ms, slip_escalate_ms, cascade_step_ms, min_gain_ms, returns_boost, order_abandon_ms, table_lock_ttl_ms,
             queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips, -- 02b A-1, AD-10
             ready_window_ms, kds_offline_ms, -- 03b A-1
-            show_part_times_to_customers -- 01a v2.7.3 PT-3 (STAB-5)
+            show_part_times_to_customers, -- 01a v2.7.3 PT-3 (STAB-5)
+            max_delay_default_ms -- 01a v2.7.5 MD-5 (STAB-7): always sent, null kept
        FROM branch_engine_settings
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3`,
     [branchId],

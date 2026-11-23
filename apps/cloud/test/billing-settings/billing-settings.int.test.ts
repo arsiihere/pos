@@ -118,7 +118,8 @@ function pkPb(b: BillingSettings & { version: string; branch_id: string }, patch
 
 beforeAll(async () => {
   // ⚠️ 01a v2.7.3 PT-1 (STAB-5): to 0016, as the snapshot builder reads branch_engine_settings.show_part_times_to_customers
-  ({ pool } = await scratchDatabaseAt(16));
+  // ⚠️ 01a v2.7.5 MD-1–MD-3 (STAB-7): to 0017, as the menu read and the builder read the max-delay columns
+  ({ pool } = await scratchDatabaseAt(17));
   app = buildCloudServer({ pool, env, clock, ids: seedIds('A'), secrets: testSecrets() });
   await app.ready();
   pk = await tenant('PKR', 'pk');

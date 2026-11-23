@@ -5,7 +5,7 @@ import type { KdsRow, KdsView } from '../store';
 import { LineRow } from './LineRow';
 import { isReturn, ON_TOP } from './MarkTag';
 import { nextOf, NextColumn } from './NextColumn';
-import { groupNow, partsOf } from './parts';
+import { groupNow, partsOf, roundsOf } from './parts';
 
 // 03b v1.0.8 §3.3, §8, #70, Q-50 (K2; frames 03b-S01 Kds, Kds1280, KdsRush, KdsRush1280, KdsEmpty): the station
 // view. Now = the store's rows in append order (new lines join at the end, Done leaves after its undo window, nothing
@@ -60,6 +60,7 @@ export function StationView({ view, nowMs, utcOffsetMs, up, banner, actionsFor, 
   useEffect(() => onSlotsChanged(() => rerender((n) => n + 1)), []);
   const station = view.station;
   const rows = nowOrder(groupNow(view.rows));
+  const rounds = roundsOf(view);
   const empty = rows.length === 0 && nextOf(view.plan).next.length === 0;
   const classes = ['kgrid'];
   if (banner !== undefined && banner !== null && banner !== false) classes.push('kgrid--bar');
@@ -102,6 +103,7 @@ export function StationView({ view, nowMs, utcOffsetMs, up, banner, actionsFor, 
                 stationId={station?.station_id ?? ''}
                 hasPrinter={station?.has_printer ?? false}
                 highlight={partsOf(row).some((p) => highlight?.has(p.order_item_id) === true)}
+                {...(row.load_id != null && row.stage !== 'done' && rounds.has(row.load_id) ? { round: rounds.get(row.load_id)! } : {})}
                 {...(actionsFor === undefined ? {} : { actions: actionsFor(row) })}
                 {...(messageFor === undefined ? {} : { message: messageFor(row) })}
               />
@@ -109,7 +111,7 @@ export function StationView({ view, nowMs, utcOffsetMs, up, banner, actionsFor, 
           </div>
         </section>
       )}
-      <NextColumn plan={view.plan} details={view.details} nowMs={nowMs} {...(nextFooter === undefined ? {} : { footer: nextFooter })} />
+      <NextColumn plan={view.plan} details={view.details} nowMs={nowMs} rounds={rounds} {...(view.flagged === undefined ? {} : { flagged: view.flagged })} {...(nextFooter === undefined ? {} : { footer: nextFooter })} />
     </main>
   );
 }

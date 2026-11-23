@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Category, MenuItem } from '../../../api/cloud-admin';
 import { t } from '../../../i18n';
+import { fill } from '../../../i18n/en';
 import { button, click, fail, fakeApi, flush, mount, ok, setValue, type Call, type Mounted } from '../test-api';
 import { GuardProvider } from '../guard';
 import { CategoryForm } from './CategoryForm';
@@ -31,7 +32,7 @@ function dish(id: string, name: string, extra: Partial<MenuItem> = {}): MenuItem
     sort_order: 0, price_minor: 115_000, serve_mode: 'immediate', prep_buffer_ms: 0, cook_time_ms: 600_000,
     stock_time_ms: null, out_of_stock_behaviour: 'cook_fresh', sale_unit: 'piece', requires_weighing: false, is_ready_item: false,
     stock_draws: [], availability_windows: [], weight_pct: 100, max_early_ms: 60_000, max_carry_ms: null,
-    max_late_ms: null, adjust_time_ms: 180_000, goes_with: [], archived_at: null, routes: [], ...extra,
+    max_late_ms: null, adjust_time_ms: 180_000, max_delay_ms: null, max_delay_unlimited: false, goes_with: [], archived_at: null, routes: [], ...extra,
   };
 }
 const link = (target_kind: 'category' | 'item', target_id: string, excluded = false) => ({
@@ -142,6 +143,63 @@ describe('owner item Timing group and goes-with', () => {
     setValue(field('max_late_minutes'), '');
     await click(button(ui.container, t('item.save')));
     expect(patches(calls)).toEqual([{ max_late_ms: null }]);
+  });
+
+  // 01a v2.7.5 §8.1 MD-6, #205 (STAB-7; re-review F-1): Max delay next to "Can be ready early by"; empty = the
+  // branch default (its current value shown), 1–30 minutes, or "No limit (priority after 30 min)".
+  const settings = (max_delay_default_ms: number | null) => (call: Call) =>
+    call.url === '/v1/admin/branches/B1/settings' ? ok({ branch: { branch_id: 'B1', max_delay_default_ms, version: 'v1' } }) : undefined;
+  const noLimit = () => q<HTMLButtonElement>('[data-field="max_delay"] [role="switch"]')!;
+
+  it('[01a v2.7.5 #205] Max delay sits next to "Can be ready early by"; empty shows "Branch default (5 min)" from the branch settings', async () => {
+    const { api } = server(settings(300_000));
+    await renderItem(api, dish('I1', 'Chicken Karahi'));
+    const early = q('#item-max_early_minutes')!.closest('label')!;
+    const delay = q('#item-max_delay_minutes')!.closest('label')!;
+    expect(early.nextElementSibling).toBe(delay.closest('[data-field="max_delay"]') ?? delay);
+    expect((field('max_delay_minutes') as HTMLInputElement).value).toBe('');
+    expect((field('max_delay_minutes') as HTMLInputElement).placeholder).toBe(fill(t('item.timing.max_delay_default'), { n: '5' }));
+    expect(q('[data-field="max_delay"]')!.textContent).toContain(t('timing.max_delay_no_limit'));
+    expect(noLimit().getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('[01a v2.7.5 #205] saving 10 sends max_delay_ms 600 000; 30 is accepted; 0 and 31 are refused before sending', async () => {
+    const { api, calls } = server(settings(300_000));
+    await renderItem(api, dish('I1', 'Chicken Karahi'));
+    for (const typed of ['0', '31']) {
+      setValue(field('max_delay_minutes'), typed);
+      await click(button(ui.container, t('item.save')));
+      expect(patches(calls), typed).toEqual([]);
+    }
+    setValue(field('max_delay_minutes'), '30');
+    await click(button(ui.container, t('item.save')));
+    expect(patches(calls)).toEqual([{ max_delay_ms: 1_800_000 }]);
+  });
+
+  it('[01a v2.7.5 #205] "No limit" sends max_delay_unlimited true with max_delay_ms null; a new item posts 10 min as 600 000', async () => {
+    const { api, calls } = server(settings(null));
+    await renderItem(api, dish('I1', 'Chicken Karahi', { max_delay_ms: 600_000 }));
+    expect((field('max_delay_minutes') as HTMLInputElement).value).toBe('10');
+    await click(noLimit());
+    await click(button(ui.container, t('item.save')));
+    expect(patches(calls)).toEqual([{ max_delay_ms: null, max_delay_unlimited: true }]);
+  });
+
+  it('[01a v2.7.5 #205] a new item posts the typed max delay; an item stored as "No limit" shows the switch on', async () => {
+    const { api, calls } = server(settings(300_000));
+    await renderItem(api, null);
+    setValue(field('name'), 'Daal');
+    setValue(field('price'), '300');
+    setValue(field('cook_minutes'), '10');
+    setValue(field('max_delay_minutes'), '10');
+    await click(button(ui.container, t('item.add')));
+    expect(calls.find((c) => c.method === 'POST')!.body).toMatchObject({ max_delay_ms: 600_000, max_delay_unlimited: false });
+    ui.unmount();
+    ui = mount();
+    const again = server(settings(300_000));
+    await renderItem(again.api, dish('I1', 'Chicken Karahi', { max_delay_unlimited: true }));
+    expect(noLimit().getAttribute('aria-checked')).toBe('true');
+    expect((field('max_delay_minutes') as HTMLInputElement).disabled).toBe(true);
   });
 
   it('[01a A-11] a new item POSTs the five knobs and offers no goes-with picker', async () => {

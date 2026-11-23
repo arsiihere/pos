@@ -90,7 +90,8 @@ describe('buildSnapshot', () => {
       carry_times: [],
     };
     // 01a v2.3 §4.3 V4: is_ready_item at its default (false) rides with the knobs.
-    const itemKnobs = { weight_pct: 100, max_early_ms: 60000, max_carry_ms: null, max_late_ms: null, adjust_time_ms: 180000, is_ready_item: false };
+    // ⚠️ 01a v2.7.5 MD-5 (STAB-7): the builder always sends each item's max_delay_ms / max_delay_unlimited
+    const itemKnobs = { weight_pct: 100, max_early_ms: 60000, max_carry_ms: null, max_late_ms: null, adjust_time_ms: 180000, is_ready_item: false, max_delay_ms: null, max_delay_unlimited: false };
     expect(snapshot).toEqual({
       snapshot_schema_version: 4,
       config_version: 42,
@@ -201,6 +202,7 @@ describe('buildSnapshot', () => {
         ready_window_ms: 60000, // 03b A-1
         kds_offline_ms: 30000, // 03b A-1
         show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §5.2a PT-1 (STAB-5)
+        max_delay_default_ms: 300_000, // ⚠️ 01a v2.7.5 §5.2a MD-2, MD-5 (STAB-7): always sent
       },
       goes_with: [],
       items: [

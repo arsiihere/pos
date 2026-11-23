@@ -34,6 +34,9 @@ export const KDS_LINE_EVENT_TYPES = [
   'ItemsReleased',
   'FireDispatched',
   'StationCapacitySet',
+  // ⚠️ 03b v1.0.13 §6.17 (STAB-7; 03a v1.2.10 §4.2): the stations of its listed lines and their points' Pass sockets, as
+  // OrderBoosted; the KDS / Pass set the "Priority" chip (§3.3, §3.4)
+  'LinePrioritized',
 ] as const;
 
 export const KDS_PASS_EVENT_TYPES = ['ReadyToServe', 'ReadyToServeUndone', 'Handover', 'ReadyRetargeted'] as const;

@@ -147,6 +147,8 @@ describe('owner menu read', () => {
         max_carry_ms: null,
         max_late_ms: null,
         adjust_time_ms: 180000,
+        max_delay_ms: null, // ⚠️ 01a v2.7.5 MD-4 (STAB-7)
+        max_delay_unlimited: false,
         goes_with: [],
         archived_at: null,
         routes: all.items.find((i) => i.item_id === 'MI-000')!.routes,

@@ -245,6 +245,8 @@ describe('owner item and category forms', () => {
       max_carry_ms: null,
       max_late_ms: null,
       adjust_time_ms: 180_000,
+      max_delay_ms: null, // ⚠️ 01a v2.7.5 MD-4 (STAB-7)
+      max_delay_unlimited: false,
       goes_with: [],
       archived_at: null,
       routes: [],
@@ -383,6 +385,8 @@ describe('owner item and category forms', () => {
       max_carry_ms: null,
       max_late_ms: null,
       adjust_time_ms: 180_000,
+      max_delay_ms: null, // ⚠️ 01a v2.7.5 MD-4 (STAB-7)
+      max_delay_unlimited: false,
       goes_with: [],
       archived_at: null,
       routes: [],

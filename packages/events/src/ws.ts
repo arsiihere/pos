@@ -65,6 +65,9 @@ export type WsAlertClosed = z.infer<typeof WsAlertClosed>;
 export const WsBindingRoute = z.object({ type: z.literal('binding_route'), until: z.number().int().nullable() });
 export type WsBindingRoute = z.infer<typeof WsBindingRoute>;
 
+// ⚠️ 03a v1.2.10 §3.5.7 PR-8 (STAB-7): a priority line's view fields.
+const LinePrioritySchema = z.object({ since_ms: z.number().int(), minutes_late: z.number().int().nonnegative() });
+
 // 03a §3.6.3 (v0.2 pre-G2 #12): one station's plan — every unfired line, from `stationPlan(state, station_id, now)`.
 // The catch-up part `station_plan` carries the same body per station. mark as in the §3.3 Line; fire_ms narrowed from it
 // to a number (task 16b): a line is listed once placed, and a placed line always has a planned fire.
@@ -75,9 +78,12 @@ export const StationPlanLine = z.object({
   deadline_ms: z.number().int(),
   mark: z.enum(['expedite', 'boost', 'pulled', 'return', 'moved']).nullable(),
   frozen: z.boolean(),
+  // ⚠️ 03b v1.0.13 §3.3 (STAB-6; 03a v1.2.10 To 03b #9): the line's EngineLine.load_id (a stored load's members carry it
+  // before the fire; null off a batch station), so the KDS keys Next rows per round. Additive.
+  load_id: Id.nullable().optional(),
   // ⚠️ 03a v1.2.10 §3.5.7 PR-8 (STAB-7): on a priority line only (additive): since_ms = priority_at, minutes_late =
   // max(0, ceil((the group's estimate at now − T) / 60 000)).
-  priority: z.object({ since_ms: z.number().int(), minutes_late: z.number().int().nonnegative() }).optional(),
+  priority: LinePrioritySchema.optional(),
 });
 export type StationPlanLine = z.infer<typeof StationPlanLine>;
 
@@ -131,7 +137,15 @@ export type WsKdsLines = z.infer<typeof WsKdsLines>;
 export const WsPointLines = z.object({
   type: z.literal('point_lines'),
   point_id: Id,
-  lines: z.array(LineDetailSchema.extend({ group_id: Id, serve_mode: z.enum(['sync', 'immediate']) })),
+  lines: z.array(
+    LineDetailSchema.extend({
+      group_id: Id,
+      serve_mode: z.enum(['sync', 'immediate']),
+      // ⚠️ 03b v1.0.13 §6.16 (STAB-6, STAB-7): additive; absent from an older hub = null
+      load_id: Id.nullable().optional(),
+      priority: LinePrioritySchema.nullable().optional(),
+    }),
+  ),
 });
 export type WsPointLines = z.infer<typeof WsPointLines>;
 
@@ -151,6 +165,9 @@ export const KdsStationBody = z.object({
       mark: z.enum(['expedite', 'boost', 'pulled', 'return', 'moved']).nullable(),
       // ⚠️ Changed by v1.0.5 (owner 2026-11-12, B2-3): from the engine line (03a v1.2.2); the KDS shows "tap Done" (§3.3).
       done_undone: z.boolean(),
+      // ⚠️ 03b v1.0.13 §3.3 (STAB-6, STAB-7): the stationView line's load_id and priority; additive, absent = null
+      load_id: Id.nullable().optional(),
+      priority: LinePrioritySchema.nullable().optional(),
     }),
   ),
   details: z.array(LineDetailSchema),

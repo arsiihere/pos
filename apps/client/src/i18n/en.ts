@@ -1343,6 +1343,14 @@ export const en = {
   'branches.timing.part_times_on': "Customers see each part's ready time",
   'branches.timing.part_times_off': "Customers see the order's time only",
   'branches.timing.part_times_help': 'The takeaway receipt prints when each part of a large order is ready ("4 ready ~2:20 PM · 1 ready ~2:40 PM").',
+  // ⚠️ 01a v2.7.5 §8.1 MD-6 (STAB-7): the branch default max delay and the item field
+  'branches.timing.max_delay_default_ms': 'Default max delay',
+  'branches.timing.max_delay_help': "If an item's food runs this many minutes late, the kitchen cooks it next (priority). Items with an empty max delay use this.",
+  'timing.max_delay_no_limit': 'No limit (priority after 30 min)',
+  'item.timing.max_delay': 'Max delay (min)',
+  'item.timing.max_delay_default': 'Branch default ({n} min)',
+  'item.timing.max_delay_default_unknown': 'Branch default',
+  'item.timing.max_delay_help': "If this item's food runs this many minutes late, the kitchen cooks it next (priority).",
   'branches.timing.returns_help': 'A dish sent back is cooked next, ahead of waiting orders.',
   'item.timing': 'Timing',
   'item.timing_help': 'How the kitchen engine plans this dish. The standard values suit most dishes.',
@@ -2461,6 +2469,12 @@ export const en = {
   'kds.batch_started': 'One tap started the whole load ({n} lines)',
   'kds.batch_done': 'One tap finished the whole load — Undo on any line undoes all',
   'kds.ready_made': 'Ready-made',
+  // ⚠️ 03b v1.0.13 / v1.0.14 §3.3, §8 (STAB-6, STAB-7): the batch round tag and the priority chip
+  'kds.round.this': 'this round',
+  'kds.round.next': 'next round',
+  'kds.round.n': 'round {n}',
+  'kds.priority': 'Priority · {n} min late',
+  'kds.priority_short': 'Priority',
   // Pass (03b-S02, S03, D01)
   'pass.title': '{point}',
   'pass.ready': 'Ready',

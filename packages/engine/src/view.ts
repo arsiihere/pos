@@ -132,6 +132,7 @@ export function stationPlan(state: EngineState, station_id: string, now: number)
         deadline_ms: line.deadline_ms,
         mark: line.mark,
         frozen,
+        load_id: line.load_id, // ⚠️ 03b v1.0.13 §3.3 (STAB-6, To 03b #9): the round of a batch line
         ...(priority === undefined ? {} : { priority }),
       };
     }),
