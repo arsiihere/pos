@@ -12,6 +12,7 @@ import { attachRouteGuards } from '../auth/guards.js';
 import { startTickLoop } from '../alerts/tick.js';
 import { idlePause } from '../auth/session-store.js';
 import { startSweeper } from '../auth/session-sweeper.js';
+import { upgradeDevices } from '../auth/device-upgrade.js';
 import { StaffDirectory } from '../auth/staff-directory.js';
 import { loadHubConfig } from '../config/load.js';
 import { isConfirmed, isProvisioned, type HubConfig } from '../config/schema.js';
@@ -184,6 +185,10 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     void StaffDirectory.load(db);
     current = '4b';
     restoreEmptyStaffSessions(db, deps.writer, deps.clock, provisioned.branch_id);
+    current = '4c';
+    // 05a §5.3, §6.10: the upgrade step — after the catch-up (device_profiles is current), before the server build and
+    // listen (its maps load the new profiles): 1 read, one writer.run, nothing on a later boot.
+    upgradeDevices(deps);
     // 00 M95: every device starts paused at HubStarted.hub_down_at (boot time on a first boot), before any contact.
     const hubDownAt = readHeartbeat(db, provisioned.branch_id);
     idlePause.boot(db, hubDownAt ?? deps.clock.branchNow());
