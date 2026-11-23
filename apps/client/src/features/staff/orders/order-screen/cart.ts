@@ -234,7 +234,7 @@ export function toEtaDraft(cart: Cart, target: DraftTarget): EtaDraft {
     ...(target.table_id === undefined ? {} : { table_id: target.table_id }),
     ...(target.seating_id === undefined ? {} : { seating_id: target.seating_id }),
     ...(cart.order_note === undefined ? {} : { order_note: cart.order_note }),
-    ...(target.order_type === 'takeaway' && cart.takeaway !== undefined ? { takeaway: { ...cart.takeaway } } : {}),
+    // 02b-TK C1-2: the takeaway contact is not timing; it never travels in the preview's query string
     ...(target.order_type === 'parking' && cart.parking !== undefined ? { parking: { ...cart.parking } } : {}),
     ...(cart.serve_mode === undefined ? {} : { serve_mode: cart.serve_mode }),
     lines: cart.lines.map((l) => ({

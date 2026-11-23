@@ -6,6 +6,7 @@ import { TABLE_ERROR_CODES, tableErrorKey } from '../../tables/errors';
 import type { Enqueue } from '../../tables/contracts';
 import type { CarType, Draft, DraftStore, EtaPreviewBody, LineOption, SubmitOrderPayload, SubmitResult } from '../contracts';
 import { toSubmitLines, type Cart, type CartLine, type DraftTarget } from '../order-screen/cart';
+import { takeawayContact } from '../order-screen/contact';
 import { preselect } from '../sheets/preselect';
 
 // 02b §8 Ordering screen (Send freezes the cart), Types, Queue; §3.1, §3.2, §3.11, §6.1; §10 #35 (no "sent" before a
@@ -13,8 +14,8 @@ import { preselect } from '../sheets/preselect';
 // 25b), #36 (zone-empty flip, day not started). Send: build the SubmitOrder payload once and freeze it (deep copy,
 // Object.freeze), hand it to the one queue (`Enqueue`, 25b: stored before the first send), and read its answer.
 
-/** 02b §8 Types: phone 10–13 digits (hub submit-order.ts :20-48), plate /^[A-Za-z0-9 -]{2,12}$/, car type. */
-export const PHONE_RE = /^\d{10,13}$/;
+/** 02b §8 Types: phone 10–13 digits (order-screen/contact.ts, as hub submit-order.ts), plate /^[A-Za-z0-9 -]{2,12}$/, car type. */
+export { PHONE_RE } from '../order-screen/contact';
 export const PLATE_RE = /^[A-Za-z0-9 -]{2,12}$/;
 
 export interface OrderDetails {
@@ -37,7 +38,8 @@ export function freezeSubmit(cart: Cart, target: DraftTarget, order_id: string):
     order_type: target.order_type,
     ...(target.table_id === undefined ? {} : { table_id: target.table_id }),
     ...(target.seating_id === undefined ? {} : { seating_id: target.seating_id }),
-    ...(target.order_type === 'takeaway' && cart.takeaway !== undefined ? { takeaway: { ...cart.takeaway } } : {}),
+    // 02b-TK C1-2: the name trimmed, the phone as the hub's digits; nothing typed → no takeaway part
+    ...(target.order_type === 'takeaway' && takeawayContact(cart.takeaway) !== undefined ? { takeaway: takeawayContact(cart.takeaway)! } : {}),
     ...(target.order_type === 'parking' && cart.parking !== undefined ? { parking: { ...cart.parking } } : {}),
     ...(cart.order_note === undefined ? {} : { order_note: cart.order_note }),
     ...(cart.serve_mode === undefined ? {} : { serve_mode: cart.serve_mode }),

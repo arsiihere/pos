@@ -1599,4 +1599,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.dayclose.close_shift': 'یہ شفٹ بند کریں',
   // ---- 02b-TK client (batch C1): docs/design/handoff/02b-tk/strings-table.md ----
   'c.times_day': 'دن شروع ہونے پر وقت دکھے گا',
+  'c.name': 'نام',
+  'c.phone': 'فون',
+  'c.optional': 'اختیاری',
+  'c.name_ph': 'گاہک کا نام',
+  'c.phone_err': '+92 کے بعد 10 ہندسے لکھیں',
 };

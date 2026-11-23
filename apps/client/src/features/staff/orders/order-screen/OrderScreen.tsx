@@ -47,6 +47,8 @@ import { OptionsSheet } from '../sheets/OptionsSheet';
 import { createPreview, type PreviewState } from './preview';
 import { DayNotStarted, canStartDay } from './DayNotStarted';
 import { createDayWatch } from './day-open';
+import { phoneBad } from './contact';
+import { CustomerRow } from './CustomerRow';
 import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
 import { announceCompIt, freezeSubmit, refusalText, sendOrder, timeUpdated, toCart, zoneEmpty } from '../send/send';
@@ -497,8 +499,10 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const count = cartCount(cart, unitOf);
   const total = cartTotal(config, cart, unitOf);
   const ready = readyBy(body);
-  // dine-in: Send waits for the seating on the map, and follows the table lock
-  const canSend = order_type !== 'dine_in' || (seat !== null && lock.canSend);
+  // dine-in: Send waits for the seating on the map, and follows the table lock; 02b-TK C1-2: a typed takeaway phone
+  // the hub would refuse waits to be fixed or cleared (R1: the phone stays optional)
+  const contactBad = order_type === 'takeaway' && phoneBad(cart.takeaway?.phone);
+  const canSend = (order_type !== 'dine_in' || (seat !== null && lock.canSend)) && !contactBad;
   const blocked = order_type === 'dine_in' && seatMissing ? t('order.seating_missing') : null;
   // 26d: Send freezes the cart (#35), enqueues it first (stored before the first send, 25b), then the queue submits
   const onSend = async () => {
@@ -513,7 +517,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       order_type === 'dine_in'
         ? fill(t('send.label_table'), { table: title ?? '' })
         : order_type === 'takeaway'
-          ? t('order.takeaway') + (frozen.takeaway?.customer_name === undefined ? '' : ` · ${frozen.takeaway.customer_name}`)
+          ? t('order.takeaway') + (payload.takeaway?.customer_name === undefined ? '' : ` · ${payload.takeaway.customer_name}`)
           : `${t('order.parking')} · ${frozen.parking?.car_number ?? ''}`;
     setSend({ kind: 'sending', sub: [title, fill(t('cart.items'), { n: String(count) })].filter((x) => x !== null).join(' · ') });
     let outcome: Awaited<ReturnType<typeof sendOrder>>;
@@ -592,6 +596,21 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins
     serve: { state: serveState(cart, config), onSet: (mode: ServeMode) => (sending.current ? undefined : setCart((c) => ({ ...c, serve_mode: mode }))) },
   };
+  const customer =
+    order_type !== 'takeaway' ? null : (
+      <CustomerRow
+        value={cart.takeaway}
+        disabled={sending.current}
+        onChange={(next) => {
+          if (sending.current) return; // the cart is frozen while it is sent
+          setCart((c) => {
+            const { takeaway: _drop, ...rest } = c;
+            void _drop;
+            return next === undefined ? rest : { ...rest, takeaway: next };
+          });
+        }}
+      />
+    );
   const keepDraft = () => navigate(seat === null ? '/tables' : tableHref(seat.ref.table_id, id));
 
   const menu = (
@@ -741,7 +760,10 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
               {menu}
             </>
           ) : (
-            <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} />
+            <>
+              {customer}
+              <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} />
+            </>
           )}
         </div>
         {cartProps.day}
@@ -759,7 +781,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       <div className="osc">
         <MenuRail categories={rail} current={current} onPick={setCategory} />
         {menu}
-        <Cart {...cartProps} />
+        <Cart {...cartProps} customer={customer} />
       </div>
       {draftBack}
       {sheetView}
