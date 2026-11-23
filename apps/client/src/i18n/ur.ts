@@ -1611,4 +1611,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'opt.save': 'تبدیلیاں محفوظ کریں',
   'opt.more': 'ایک اور {option}',
   'opt.less': 'ایک کم {option}',
+  'l.title': 'یہ آرڈر نہیں گیا',
+  'l.body': '{n} آئٹم · {money}۔ اس کا کیا کریں؟',
+  'l.hold': 'ہولڈ کریں',
+  'l.discard': 'ختم کریں',
+  'l.stay': 'یہیں رہیں',
 };

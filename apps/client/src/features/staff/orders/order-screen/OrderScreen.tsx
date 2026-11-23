@@ -7,7 +7,7 @@ import { fill } from '../../../../i18n/en';
 import { Ico, Ring } from '../../../alerts/ui';
 import { timeText } from '../../../alerts/labels';
 import { useShell } from '../../shell/hooks';
-import { tableHref } from '../../shell/routes';
+import { orderHref, tableHref } from '../../shell/routes';
 import { LockBanner } from '../../tables/lock/LockBanner';
 import { useTableLock } from '../../tables/lock/useTableLock';
 import { OfflineBar } from '../../tables/offline/OfflineBar';
@@ -49,6 +49,8 @@ import { DayNotStarted, canStartDay } from './DayNotStarted';
 import { createDayWatch } from './day-open';
 import { phoneBad } from './contact';
 import { CustomerRow } from './CustomerRow';
+import { LeaveGuard, useLeaveGuard } from './LeaveGuard';
+import { money } from '../money';
 import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
 import { announceCompIt, freezeSubmit, refusalText, sendOrder, sentToastText, timeUpdated, toCart, zoneEmpty } from '../send/send';
@@ -288,8 +290,16 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     if (staffId === null) return;
     setRestored(false);
     let live = true;
-    const done = (d: Draft | undefined) => {
+    const done = (d: Draft | undefined, heldHere = false) => {
       if (!live) return;
+      // 02b-TK C1-5: this route's draft was held (auto-hold at sign out / idle lock): it stays in Held, and the
+      // screen starts the next order on a new draft id (its own route), so an empty cart never removes the held one
+      if (d === undefined && heldHere && order_type !== 'dine_in') {
+        draftId.current = newUlid();
+        navigate(orderHref(order_type, draftId.current));
+        setRestored(true);
+        return;
+      }
       draftId.current = d?.draft_id ?? (order_type === 'dine_in' ? newUlid() : id);
       // IR-7 / IR-8: a queue-log copy ({ copy_of, from_entry_id }) becomes a cart with fresh ids
       const stored = d === undefined ? null : toCart(d.cart, newUlid);
@@ -306,13 +316,34 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     };
     drafts
       .list(deviceId, staffId)
-      .then((list) => done(list.find((x) => !x.held && (order_type === 'dine_in' ? x.order_type === 'dine_in' && x.seating_id === id : x.draft_id === id))))
+      .then((list) =>
+        done(
+          list.find((x) => !x.held && (order_type === 'dine_in' ? x.order_type === 'dine_in' && x.seating_id === id : x.draft_id === id)),
+          list.some((x) => x.held && x.draft_id === id),
+        ),
+      )
       .catch(() => done(undefined));
     return () => {
       live = false;
     };
   }, [drafts, deviceId, staffId, id, order_type]);
   const seatTable = seat?.ref.table_id ?? null;
+  // 02b-TK C1-5 (02b §8 Held, Device idle lock; shell.me.signout_sub "Unsent orders are held first"): sign out, Switch
+  // user and the idle lock take the person away from this screen without asking — their unsent takeaway is held. They
+  // leave the route as it is; a navigation (the guard's choices, a deep link that returns, 01d #105) does not hold.
+  const restoredRef = useRef(restored);
+  restoredRef.current = restored;
+  useEffect(() => {
+    if (staffId === null || order_type !== 'takeaway') return;
+    const sid = staffId;
+    return () => {
+      if (leaving.current || sending.current || !restoredRef.current || cartRef.current.lines.length === 0) return;
+      if (window.location.hash.replace(/^#/, '') !== orderHref(order_type, id)) return;
+      void drafts
+        .put({ draft_id: draftId.current, device_id: deviceId, staff_id: sid, order_type, cart: cartRef.current, updated_at: Math.floor(shellRef.current.clock.nowMs()), held: true })
+        .catch(() => undefined);
+    };
+  }, [staffId, drafts, deviceId, order_type, id]);
   useEffect(() => {
     if (!restored || staffId === null || leaving.current) return;
     const saved = blank(cart) ? drafts.remove(draftId.current) : drafts.put({
@@ -354,6 +385,8 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const dayNotOpen = dayClosed || pv.kind === 'day_not_open' || dayWatch.state() === 'closed';
   /** #35: one Send at a time — a ref, so two taps inside one render cannot both enqueue */
   const sending = useRef(false);
+  // 02b-TK C1-5 (frame LeaveGuard): leaving the takeaway screen with an unsent cart asks first
+  const guard = useLeaveGuard(orderHref(order_type, id), () => order_type === 'takeaway' && cartRef.current.lines.length > 0 && !sending.current && !leaving.current);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -583,7 +616,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   };
   const goBack = () => navigate(order_type === 'dine_in' ? (seat === null ? '/tables' : tableHref(seat.ref.table_id, id)) : '/orders');
   // Hold (02-S08): the draft stays on this device, held for this person; the screen goes back
-  const onHold = async () => {
+  const onHold = async (to?: string) => {
     if (sending.current || staffId === null || cart.lines.length === 0) return;
     leaving.current = true;
     await drafts
@@ -598,8 +631,36 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         held: true,
       })
       .catch(() => undefined);
-    goBack();
+    if (to === undefined) goBack();
+    else navigate(to);
   };
+  // the leave guard's Throw away: the draft goes, then the person goes where they were going
+  const onDiscard = async (to: string) => {
+    if (sending.current) return;
+    leaving.current = true;
+    setCart(EMPTY_CART);
+    await drafts.remove(draftId.current).catch(() => undefined);
+    navigate(to);
+  };
+  const leaveView =
+    guard.pending === null ? null : (
+      <LeaveGuard
+        items={String(count)}
+        money={total === null ? '—' : money(total)}
+        sheet={shell.phone || shell.portrait}
+        onStay={guard.clear}
+        onHold={() => {
+          const to = guard.pending!;
+          guard.clear();
+          void onHold(to);
+        }}
+        onDiscard={() => {
+          const to = guard.pending!;
+          guard.clear();
+          void onDiscard(to);
+        }}
+      />
+    );
   const compItLine = cart.lines.find((l) => l.comp_it === true);
   const compItInfo = () => fill(t('compit.cart_info'), { item: config.items.find((i) => i.item_id === compItLine?.item_id)?.name ?? '', table: seat?.name ?? '' });
   const cartProps = {
@@ -802,6 +863,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         {sheetView}
         {sendView}
         {newOrderView}
+        {leaveView}
       </div>
     );
   }
@@ -817,6 +879,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       {sheetView}
       {sendView}
       {newOrderView}
+      {leaveView}
     </div>
   );
 }
