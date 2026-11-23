@@ -17,6 +17,7 @@ const ON: IsAvailable = () => true;
 function menu(defaultMs: number | null | 'missing' = 300_000): BranchConfig {
   const base = fixtureMenu();
   const { max_delay_default_ms: _drop, ...settings } = base.engine_settings;
+  void _drop;
   return {
     ...base,
     engine_settings: defaultMs === 'missing' ? settings : { ...settings, max_delay_default_ms: defaultMs },
