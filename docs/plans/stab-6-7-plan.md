@@ -78,6 +78,54 @@ load may land up to `keep` earlier by BQ-2's own keep cushion (asserted: never l
 
 Phases 5–6 built (tasks 14–23), full gate green 2026-11-23: 749 files passed (1 skipped), 7 998 tests passed (1 skipped, 1 todo). Commits 14–16 were first made on `spec-05a` by a checkout switch and cherry-picked here (new hashes below). #172 (task 22) is in `test:perf` only and not run here (owner, real disk); a 600-order smoke of the same option runs in the normal gate. The priority drafts are written by a second tick `fires_alerts_priority` registered right after `fires_alerts` (its own transaction, the pass's last).
 
+## Build status (chunk 3, 2026-11-23)
+
+Phases 7–10 built (tasks 4, 24–34), full gate green 2026-11-23: 754 files passed (1 skipped), 8 045 tests passed (1 skipped, 1 todo); the run before it failed only on the takeover-body fix (`3fa96f0d`) and the known load flakes engine boot and 04 #24b, which pass alone. Task 35 (owner checks) is the owner's.
+
+### Where the plan and code did not fit (chunk 3)
+
+1. **0017 bumps every branch** (01a MD-3: the item columns are tenant-wide), a branch without a settings row too, unlike
+   0012 / 0016. The earlier migration tests that run the whole folder count one more bump; the billing-settings scratch
+   DB migrates to 0017 (the menu read and the builder read the new columns), as it did for 0016.
+2. **`400 VALIDATION_FAILED { field }`** is read as the cloud's existing Zod refusal shape,
+   `details.issues[].path = 'max_delay_ms'` / `'max_delay_default_ms'` (the range and the "No limit" + number
+   combination are in the Zod schema, so the refusal comes before any statement); no separate `field` key was added.
+3. **Tasks 4, 26 and the branch half of 27 are one commit:** the client settings test lists one input per
+   `BRANCH_ENGINE_SETTING_KEYS` key, so the wire key and the "Default max delay" field go green together; the item
+   strings (en / ur) land in that commit too. **Tasks 30 and 31 are one commit** (the grouping key, the store and the
+   row render are shared).
+4. **"Branch default (n min)"** on the item form reads each branch's settings (one `GET` per branch of the form); when
+   the branches differ the values are joined ("5 / 10 min"); a stored "No limit" default reads
+   "Branch default (No limit (priority after 30 min))"; a failed read shows "Branch default".
+5. **02b additions:** in this build an addition is a new `SubmitOrder` (its own order), and the only `OrderLinesAdded`
+   writer is `ReturnToKitchen`; step 4b lives in `buildSubmit`, so additions follow it. A fix / remake copies the served
+   line's `ItemAdded` (`...base`), so it carries the served value with no code change; test 58 pins it after a config
+   change.
+6. **`load_id` on the KDS wire:** 03b §3.3 has the KDS read `load_id` from `station_plan` / the station view, but
+   `StationPlanLine` (03a §3.6.3, `@pos/events`) had none. Added as additive optional fields: `station_plan` lines carry
+   `load_id`, `kds_station` Now lines carry `load_id` and `priority` (from `stationView`), `point_lines` lines carry
+   `load_id` and `priority`. No 03b edit; 03a §3.6.3 can name the field at its next version (wording only).
+7. **Next keeps its on-screen order** (03b v1.0.14 m-5, D17): rows already shown keep their places and every newly
+   visible row is appended at the bottom in plan order (a priority row too, "like any new row"); before, Next re-sorted
+   by `fire_ms` at each `station_plan` frame.
+8. **"Priority" alone** needs a fifth string, `kds.priority_short` (03b §8 lists `kds.round.this`, `kds.round.next`,
+   `kds.round.n`, `kds.priority`; m-7 added the bare word). English and Urdu.
+9. **Minutes on a fired row:** `station_plan` lists only unfired lines, so a fired-not-started priority row takes n from
+   the plan line it fired from or from the next catch-up (`kds_station`); a `LinePrioritized` frame on it shows
+   "Priority". On the Pass, `point_lines` sends a line once per id, so a held line that becomes priority shows
+   "Priority" from the frame and its n at the next catch-up. Both follow "n only from the view" (m-6).
+10. **Pass round tags:** the Pass has no fire times. Reading of "in fire order" there: per station, over the point's
+    held lines, the loads with a started member first, then card order (oldest first) and line order.
+11. **Task 33:** the engine property #174 already folds batch parts, a capacity drop and `LinePrioritized` with
+    snapshot + replay = full replay, and `boot.int.test.ts` (#57 / #160) already boots a v4 snapshot from the day-close
+    checkpoint; the hub #59 property now gives every line a max delay so the real tick writes `LinePrioritized`
+    (22 of 50 seeds today).
+12. **TDD order:** the hub `kds_station` / `station_plan` test of task 30 (`kds-catch-up.int.test.ts`) was written
+    right after the hub code, not before; every other test was seen failing first. The full gate then found that the
+   Pass takeover body builds its own Now lines (`point-catch-up.ts`), fixed in `3fa96f0d`.
+13. **README rows** (task 34) are left alone: branch `module-05a` bumps the spec README rows next; the plan and
+    `stab-bugs.md` carry the build status.
+
 ## Phase 1 — events and types (`@pos/events`, `@pos/domain`)
 
 1. **[x] (`01fcf3ef`) `ItemAdded.max_delay_ms?`** — `z.number().int().min(60000).max(1800000).nullable().optional()` on `ItemAdded.v1.ts`
@@ -91,7 +139,7 @@ Phases 5–6 built (tasks 14–23), full gate green 2026-11-23: 749 files passed
    `engine_settings.max_delay_default_ms` (`number | null`), all optional in `config.ts` (V4). The hub reader in
    `branchConfig()`: a **missing** key → `null` / `false` / `300000`; an explicit `null` default stays `null` (never
    `?? 300000`). Test 01a #204 (parser and reader part, both fixtures). `[01a v2.7.5 §4.3 MD-5; STAB-7; review M-8]`
-4. **[ ] (deferred to phase 7, with task 24 / 26) `BranchEngineSettings` wire** (01b owner settings) and `BRANCH_ENGINE_SETTING_KEYS` gain
+4. **[x] (`43e20d8b`, built with task 26 in phase 7) `BranchEngineSettings` wire** (01b owner settings) and `BRANCH_ENGINE_SETTING_KEYS` gain
    `max_delay_default_ms: number | null` (60 000–1 800 000; re-review F-1). Test 01b #115 (wire and versions part), 01a #204 (wire
    part). `[01b v1.10.3 §6.10; 01a v2.7.5 §5.2a MD-2; STAB-7; review M-9]`
 
@@ -208,47 +256,47 @@ Phases 5–6 built (tasks 14–23), full gate green 2026-11-23: 749 files passed
 
 ## Phase 7 — 01a cloud setting and migration (`apps/cloud`)
 
-24. **Migration `0017_max_delay.sql`** — failing #202: the three `ADD COLUMN`s with their CHECKs (60 000–1 800 000, re-review F-1);
+24. **[x] (`6be21317`) Migration `0017_max_delay.sql`** — failing #202: the three `ADD COLUMN`s with their CHECKs (60 000–1 800 000, re-review F-1);
     existing rows `null` / `false` / `300000`; `config_version` + 1 for every branch; no audit row.
     `[01a v2.7.5 §5.2a MD-1–MD-3; review M-7; re-review F-1]`
-25. **Menu-item write and read** — failing #203: `POST` / `PATCH` `max_delay_ms`, `max_delay_unlimited` (range 60 000–1 800 000 and
+25. **[x] (`579e447f`) Menu-item write and read** — failing #203: `POST` / `PATCH` `max_delay_ms`, `max_delay_unlimited` (range 60 000–1 800 000 and
     the combination → `400 VALIDATION_FAILED { field: 'max_delay_ms' }`, re-review F-1, F-2; every merged-row combination of MD-4; the no-op
     compare, bump, audit); `GET /v1/admin/menu`. `[01a v2.7.5 §6.14, §6.15, §6.11 MD-4; review M-7, m-11; re-review F-1, F-2]`
-26. **Branch setting + snapshot builder** — failing #204 and 01b #115: `max_delay_default_ms` through the owner settings
+26. **[x] (`43e20d8b`, with task 4 and the branch half of 27) Branch setting + snapshot builder** — failing #204 and 01b #115: `max_delay_default_ms` through the owner settings
     `PATCH` (S26 no-op, `400` on the field and 60 000–1 800 000, re-review F-1, F-2; explicit `null` kept); the builder always sends the three keys.
     `[01a v2.7.5 §4.3, §5.2a MD-2, MD-5; 01b v1.10.3 §6.10; review M-8, M-9; re-review F-1, F-2]`
-27. **Owner app fields** — failing #205: item form "Max delay" next to "Can be ready early by" (empty = "Branch default
+27. **[x] (`43e20d8b` branch settings, `52e8fb04` item form) Owner app fields** — failing #205: item form "Max delay" next to "Can be ready early by" (empty = "Branch default
     (n min)", 1–30 minutes (0 and 31 refused, re-review F-1), "No limit (priority after 30 min)"); branch settings "Default max delay"; English and Urdu.
     `[01a v2.7.5 §8.1 MD-6; review M-7, M-10; re-review F-1]`
 
 ## Phase 8 — 02b copy of max delay (`apps/hub/src/orders/build-submit.ts`)
 
-28. **Step 4b** — failing #58: every engine line (parts, option children, deal parts, additions) gets the effective
+28. **[x] (`9521e49f`) Step 4b** — failing #58: every engine line (parts, option children, deal parts, additions) gets the effective
     value (unlimited → `null`; item; else the branch default, an explicit `null` kept; only a snapshot **without** the
     key → 300 000); a `deal` header `null`; a remake copies the served line's value.
     `[02b v1.0.24 §3.2 step 4b, §6.19; 03a v1.2.10 To 02 #13; review M-8]`
 
 ## Phase 9 — 03b screens (`apps/hub/src/kds`, `apps/hub/src/pass`, `apps/client/src/features/kds`, `.../pass`)
 
-29. **Hub: Pass lines and audiences** — failing #91 (`point_view` / `point_lines` lines carry `load_id`, `priority`;
+29. **[x] (`dff98415`) Hub: Pass lines and audiences** — failing #91 (`point_view` / `point_lines` lines carry `load_id`, `priority`;
     `load_id` set before a fire too; statements unchanged) and #92 (`LinePrioritized` audiences).
     `[03b v1.0.14 §6.15, §6.16, §6.17; review m-8]`
-30. **KDS rows per round** — failing #93: grouping key + `load_id` at a batch station, the station-wide round tag,
+30. **[x] (`85690d41`, one commit with 31) KDS rows per round** — failing #93: grouping key + `load_id` at a batch station, the station-wide round tag,
     Start on a row acts on its load only; slot unchanged (Q7). `[03b v1.0.14 §3.3; 03a v1.2.10 To 03b #9; review m-8]`
-31. **KDS priority chip** — failing #94, #95: "Priority · n min late", "Priority" alone at 0; a `LinePrioritized`
+31. **[x] (`85690d41`, one commit with 30) KDS priority chip** — failing #94, #95: "Priority · n min late", "Priority" alone at 0; a `LinePrioritized`
     frame sets "Priority" with no minutes, the next `station_plan` sets n (re-review m-6); a priority row entering Next is
     appended below the older rows (re-review m-5); rows on screen never move; a boost mark stays above it.
     `[03b v1.0.14 §3.3, §8; review m-7; re-review m-5, m-6]`
-32. **Pass rows and chip** — failing #96: card rows per round, the pick sheet stepper per row, the chip on cards and
+32. **[x] (`a61a1426`) Pass rows and chip** — failing #96: card rows per round, the pick sheet stepper per row, the chip on cards and
     takeover sections. `[03b v1.0.14 §3.4]`
 
 ## Phase 10 — replay check, full gate and hand-off
 
-33. **Property test live = replay** — extend the 03a property test (#59) with batch parts, capacity drops and
+33. **[x] (`d7e90732`) Property test live = replay** — extend the 03a property test (#59) with batch parts, capacity drops and
     `LinePrioritized` events; snapshot + replay = full replay with priority groups (`priority_land_ms`,
     `priority_delay_ms`, `priority_due` equal; `priority_parked` is host memory and is not compared); the hub boot replay test after an update from v4 state (from a
     day-close checkpoint). `[03a v1.2.10 §10.2, §10.3g #160; review m-13]`
-34. **Gate** — `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` green;
+34. **[x] (gate green 2026-11-23, this commit) Gate** — `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` green;
     `docs/plans/stab-bugs.md` STAB-6, STAB-7 → "fixed (gate green <date>); owner to test"; README rows "built".
 35. **Owner checks (manual, not in the cloud):** `pnpm test:perf` on the real disk (with #172's report); the after-hours
     update on the hub (Q14): **first confirm the day's `BusinessDayClosed` and its day-close checkpoint row exist**
