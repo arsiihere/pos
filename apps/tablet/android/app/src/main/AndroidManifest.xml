@@ -81,6 +81,7 @@
 
         <!-- 05b A13 / A14: the watchdog alarm (M-6) and the PackageInstaller status (M-15), both in :alerts, unexported -->
         <receiver android:name=".WatchdogReceiver" android:process=":alerts" android:exported="false" />
+        <receiver android:name=".InstallResultReceiver" android:process=":alerts" android:exported="false" />
 
         <receiver
             android:name=".PosDeviceAdmin"
