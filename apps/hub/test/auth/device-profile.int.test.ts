@@ -85,8 +85,11 @@ describe('[05a §4.2] deviceProfile memory map', () => {
     const h = await hub();
     const { deviceId } = pairDevice(h, { type: 'tablet' });
     h.deps.db.prepare(`INSERT INTO device_profiles VALUES (?, 'everyone', '["dine_in"]', 1, 0)`).run(deviceId);
-    h.deps.writer.run((tx) => tx.append([draft(h, 'DeviceRoleSet', deviceId, { device_id: deviceId, point_id: null, lane_label: null })]));
+    // 05a K-1 (board PC-2 re-check): a DeviceRoleSet point is no longer written to devices.point_id, so the profile
+    // map cannot go stale on it
+    h.deps.writer.run((tx) => tx.append([draft(h, 'DeviceRoleSet', deviceId, { device_id: deviceId, point_id: 'P9', lane_label: null })]));
     expect(deviceProfile(deviceId)).toBeUndefined();
+    expect(h.deps.db.prepare('SELECT point_id FROM devices WHERE device_id = ?').get(deviceId)).toEqual({ point_id: null });
   });
 
   it('[05a RF-2] after DeviceRevoked, deviceProfile(id) is undefined and the M-8 count drops the device', async () => {

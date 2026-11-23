@@ -17,7 +17,7 @@ import { defineQuery, queryRegistry, type QueryCtx } from './registry.js';
 type ScreenState = 'connected' | 'signed_out' | 'offline';
 
 const DEVICES_SQL = `SELECT device_id, device_name, device_type, station_id, point_id, lane_label FROM devices
-  WHERE revoked_at IS NULL AND ((device_type = 'kds' AND station_id IS NOT NULL) OR (device_type = 'tablet' AND point_id IS NOT NULL))
+  WHERE revoked_at IS NULL AND ((device_type = 'kds' AND station_id IS NOT NULL) OR (device_type <> 'kds' AND point_id IS NOT NULL))
   ORDER BY paired_at, device_id`;
 
 interface DeviceRow {
@@ -86,8 +86,9 @@ export function registerKdsConfigQuery(app: FastifyInstance): void {
               dark: presence.get(s.station_id)?.dark ?? false,
             };
           });
+        // 05a K-1: every unrevoked non-kds device with a point
         const pass_tablets = devices
-          .filter((d) => d.device_type === 'tablet')
+          .filter((d) => d.device_type !== 'kds')
           .map((d) => ({ device_id: d.device_id, name: d.device_name, point_id: d.point_id!, state: stateOf(d.device_id) }));
         // Q-48: every point of the config (archived included) and the station name on each warning (archived stations included).
         const points = (config?.points ?? []).map((p) => ({ point_id: p.point_id, name: p.name, is_archived: p.is_archived }));
