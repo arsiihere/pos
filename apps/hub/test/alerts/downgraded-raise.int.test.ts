@@ -1,6 +1,8 @@
 import type { Permission } from '@pos/domain';
 import type { AlertRaisedPayloadV5 } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { APPROVAL_TIER_STEPS, defineAlertKind, unregisterAlertKind } from '../../src/alerts/kinds';
 import { alerts, type RaiseInput } from '../../src/alerts/raise';
 import { deviceProfile } from '../../src/auth/device-profile';
 import { currentDirectory } from '../../src/auth/guards';
@@ -326,5 +328,55 @@ describe('[05a §3.9 rule 1, 01d §4.2] no statement added', () => {
     // and the profile map are memory. Each VoidItems request command costs the same, statement for statement.
     expect(types).toEqual([['AlertRaised', 'AttemptSent'], ['AlertRaised', 'AttemptSent'], ['AlertRaised', 'AttemptSent']]);
     expect([approval, holders, named]).toEqual([51, 51, 51]);
+  });
+});
+
+describe('[05a §3.3a, 01d §4.2 G-d] a downgraded grant raises only a money kind', () => {
+  it('[05a §3.9 rule 1] raising a NON-money approval kind from a ctx with `masked: downgraded` throws /not a money permission/', async () => {
+    hub = await startVoids();
+    const who = kiosk(MGR);
+    defineAlertKind({
+      kind: 't_nonmoney_approval',
+      family: 'urgent',
+      subject: 'order',
+      steps: APPROVAL_TIER_STEPS,
+      closes_on: 'owner',
+      values_schema: z.object({}),
+      details_schema: null,
+      lead_fallback: false,
+      expires_at_day_close: true,
+      silent: false,
+      labels: { card: 'alert.t.card', lock: 'alert.t.lock' },
+      request: { answers: ['approve', 'reject'], right: { mode: 'approval', base_permission: 'move-item-to-stock' }, needs_pin: 'never', apply: () => [] },
+    });
+    try {
+      const directory = currentDirectory(hub.app);
+      const raise = () =>
+        hub.deps.writer.run((tx) => {
+          const ctx = {
+            tx,
+            state: tx.state,
+            clock: tx.clock,
+            ids: tx.ids,
+            actor: { kind: 'device', staffId: MGR, stationId: null, sessionId: who.sessionId, deviceId: who.deviceId },
+            branch: { tenantId: 'tenant-a', branchId: 'branch-1' },
+            directory,
+            permission: { grant: 'requires_approval', scope: 'branch', approver_role_ids: ['R_MGR'], masked: 'downgraded' },
+            queuedAt: null,
+          } as unknown as CommandCtx;
+          alerts.raise(ctx, {
+            kind: 't_nonmoney_approval',
+            subject: { stream_type: 'order', stream_id: 'O1' },
+            target: { kind: 'answerers' },
+            display: { kind_label_key: 'alert.t.lock' },
+            dedupe_key: 'nonmoney:O1',
+            requester_staff_id: MGR,
+            request: { approver_role_ids: ['R_MGR'] },
+          });
+        });
+      expect(raise).toThrow(/not a money permission/);
+    } finally {
+      unregisterAlertKind('t_nonmoney_approval');
+    }
   });
 });

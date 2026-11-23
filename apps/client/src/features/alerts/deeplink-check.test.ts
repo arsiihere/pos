@@ -456,3 +456,11 @@ describe('[01d v1.3 §3.13.3] open check: slip_warning while open (m5)', () => {
     });
   });
 });
+
+describe('[05a §3.10; 01d v1.3.5 §3.13.3 row devices, owner Q-2 (a)] open check: devices', () => {
+  it('[05a §3.10, Q-2 (a)] `{ type: devices }` is always open: #/devices with no focus, no read', async () => {
+    const d = deps({});
+    expect(await checkTarget(row('device_waiting', { type: 'devices' }), d)).toEqual({ kind: 'open', href: '/devices', focus: null });
+    expect(d.calls).toEqual({ orderView: [], zoneStock: [], tableMap: [] });
+  });
+});

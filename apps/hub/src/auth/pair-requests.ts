@@ -134,18 +134,17 @@ function createRequest(deps: HubDeps, tx: WriterTx, deviceName: string, hardware
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(requestId, branchId, sha256hex(pollSecret), displayCode, deviceName, requesterIp, now, expiresAt, hardwareHint);
-  // 05a §3.10 / §6.1 (row D-3): raise `device_waiting` when none is open (+1 read, + the raise). Raised as the hub
-  // (actor null, device 'hub'); no values and a label key only: never the code or the requester's device name.
-  if (alerts.byDedupeKey(tx.db, DEVICE_WAITING.kind, DEVICE_WAITING_KEY) === null) {
-    const raised = alerts.raise(alerts.tickCtx(tx, now), {
-      kind: DEVICE_WAITING.kind,
-      subject: { stream_type: 'hub', stream_id: branchId },
-      target: { kind: 'permission', permission: 'manage-devices' },
-      display: { kind_label_key: DEVICE_WAITING.labels.lock },
-      dedupe_key: DEVICE_WAITING_KEY,
-    });
-    tx.append(raised.events);
-  }
+  // 05a §3.10 / §6.1 (row D-3): raise `device_waiting` when none is open. `raise`'s own dedupe read is the "when none
+  // is open" check (1 statement; an open one → `deduped`, nothing to append, no other read). Raised as the hub (actor
+  // null, device 'hub'); no values and a label key only: never the code or the requester's device name.
+  const raised = alerts.raise(alerts.tickCtx(tx, now), {
+    kind: DEVICE_WAITING.kind,
+    subject: { stream_type: 'hub', stream_id: branchId },
+    target: { kind: 'permission', permission: 'manage-devices' },
+    display: { kind_label_key: DEVICE_WAITING.labels.lock },
+    dedupe_key: DEVICE_WAITING_KEY,
+  });
+  if (!raised.deduped) tx.append(raised.events);
   const host = deps.config.advertised_host ?? '';
   const approveUrl = `http://${host}:${deps.config.http_port}/admin/approve?r=${requestId}`;
   return {

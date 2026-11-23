@@ -24,7 +24,7 @@ import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { ConnectedSession, WsHub } from '../ws/server.js';
 import { kindOf, REQUEST_RESULT, safeLink, type AlertKind } from './kinds.js';
 import { registeredRoutes } from './routes.js';
-import { mayAnswer, type AlertRequestPart } from './targets.js';
+import { isListedDevice, listedDevicesOnly, mayAnswer, type AlertRequestPart } from './targets.js';
 import { cachedPrepare } from './statements.js';
 
 // 01d §6 batch 3 / §3.6 / §3.12: the alert frames (`alert`, `alert_closed`, `alert_seen`), sent from the
@@ -169,7 +169,7 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
         const request = row.request_json === null ? null : (JSON.parse(row.request_json) as AlertRequestPart);
         const canAnswer = (staffId: string): boolean =>
           request !== null && mayAnswer(dir(), request, row.requester_staff_id, staffId).ok;
-        send(ws, planStep(row, payload.recipients, payload.routes, views, sessions, alertDevices, request !== null, canAnswer));
+        send(ws, planStep(row, payload.recipients, payload.routes, views, sessions, alertDevices, request !== null, canAnswer, listedDevicesOnly(kind)));
         sendRoutes(row, kind, payload, views);
       }, { alert_id: row.alert_id, kind: row.kind, step: payload.step });
     }
@@ -482,6 +482,7 @@ function planStep(
   alertDevices: ReadonlySet<string>,
   request: boolean,
   canAnswer: (staffId: string) => boolean,
+  listedOnly: boolean,
 ): Batch[] {
   const hidden = hiddenOf(row);
   const deviceTarget = new Set<string>();
@@ -527,6 +528,9 @@ function planStep(
       (card ??= cardRule({ deviceTarget: false, set: r.set, for_staff_id: r.for_staff_id, request, canAnswer: request && canAnswer(staffId) }));
     for (const s of sessions) {
       if (s.kind !== 'staff' || s.staffId !== staffId || hidden.session(s)) continue;
+      // 05a §3.9 rule 3, §3.10 (01d v1.3.5 §3.4.3 "Listed devices only"): a money request or `device_waiting` never
+      // reaches a person's session on a device that is not `listed` (its screen route was dropped at resolve)
+      if (listedOnly && !isListedDevice(s.deviceId)) continue;
       const socket = `s:${s.sessionId}`;
       if (deviceTarget.has(socket)) continue; // a device-target socket gets lock only (§6 batch 3)
       claim(
