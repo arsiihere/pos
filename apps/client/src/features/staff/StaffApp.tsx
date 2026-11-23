@@ -25,7 +25,7 @@ import { createAlertStore, type AlertRow, type AlertStore, type Timers } from '.
 import type { WsAlertClosed } from '@pos/events';
 import { TestAlert } from '../alerts/TestAlert';
 import { FamilyPill, Ico, isRequest } from '../alerts/ui';
-import { createStaffApi, type Device, type PageMeta, type Resolution, type RosterPerson, type SignedIn } from './api';
+import { createStaffApi, type Device, type PageMeta, type Resolution, type RosterPerson, type SessionInfo, type SignedIn } from './api';
 import { SignIn } from './SignIn';
 import { createOrdersApi } from './orders/api';
 import { pendingCompsOf } from './orders/actions/pending-comps';
@@ -54,6 +54,8 @@ import { MeTab, PhoneTabs, type PhoneTab } from './tables/PhoneTabs';
 import { TopBar } from './tables/TopBar';
 import { createPrintSkipDismiss } from '../alerts/labels-03b';
 import { AuditLog } from '../audit/AuditLog';
+import { createDevicesApi } from '../devices/api';
+import { DeviceList } from '../devices/DeviceList';
 import { checkTarget } from '../alerts/deeplink-check';
 import { tapAlert } from '../alerts/deeplink-tap';
 import { dropHandover } from './orders/preload';
@@ -106,6 +108,9 @@ const browserSink = webAudioSink(() => {
   }
 });
 
+/** 05a §6.7: what `GET /queries/session` says of this device (null before sign-in, or on a hub that sends none) */
+type DeviceView = NonNullable<SessionInfo['device']>;
+
 interface Me {
   staffId: string;
   name: string;
@@ -135,6 +140,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const portrait = useMedia(PORTRAIT_QUERY);
   const route = useHashRoute();
   const [me, setMe] = useState<Me | null>(null);
+  const [deviceView, setDeviceView] = useState<DeviceView | null>(null);
   const meRef = useRef<Me | null>(null);
   meRef.current = me;
   const signOutRef = useRef<() => void>(() => {});
@@ -407,6 +413,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     if (info.ok) {
       const allowed = new Set(Object.entries(info.data.permissions).filter(([, r]) => r.grant === 'allowed').map(([p]) => p));
       setMe((m) => (m === null || m.staffId !== who.staff_id ? m : { ...m, allowed, permissions: info.data.permissions }));
+      setDeviceView(info.data.device ?? null);
     }
     void loadInbox(null);
     const people = await api.roster();
@@ -426,6 +433,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       setRequests([]);
       setCursor(null);
       setMe(null);
+      setDeviceView(null);
       if (callHub) {
         void api.signOut();
         setBindingUntil(null); // a logout ends the binding (§3.7); an idle sign-out keeps it
@@ -500,6 +508,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const showTest = !phone && allowed.has('manage-devices');
   // 04 §8 (VU2, R5): the audit log with view-audit-log granted outright (the hub refuses anything else), laptop and tablet
   const showAudit = !phone && allowed.has('view-audit-log');
+  // 05a §8 (task 31): the device list, manage-devices unmasked (a listed device); width never decides (C-1)
+  const showDevices = allowed.has('manage-devices');
+  const devicesApi = useMemo(() => createDevicesApi(api), [api]);
   // 05 §8 Cashier screen (task 34, R5): the open-bills list with take-payment, kiosk and tablet
   const showBills = !phone && allowed.has('take-payment');
   // 05 §8 Shift (task 39, R5): My shift with manage-own-shift granted outright (the hub's registry grant), every device
@@ -591,6 +602,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const returnTarget = async (rec: ReturnRecord): Promise<string | null> => {
     const path = routePath(rec.from);
     if (path === '/audit') return showAudit ? rec.from : null;
+    if (path === '/devices') return showDevices ? rec.from : null;
     if (path === '/bills' || path === '/bill') return showBills ? rec.from : null;
     if (path === '/shift') return showShift ? rec.from : null;
     if (path === '/reports') return showReports ? rec.from : null;
@@ -656,6 +668,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       tables: tablesApi,
       heldMap: () => sharedMapStore(tablesApi, liveBus).current(),
       openSlips: () => (liveBus.part('orders') as OrdersCatchUp | undefined)?.open_slips,
+      screens: () => deviceView?.screens, // 05a §8 (M-11): absent → today's route
       seen: () => seenHere(row),
       openSheet: () => openSheet(row),
       navigate: deepNavigate,
@@ -715,6 +728,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
   } else if (path === '/audit' && showAudit) {
     page = <AuditLog />;
+  } else if (path === '/devices' && showDevices) {
+    // §8: the QR / link `#/devices?r=<request_id>` opens that request's approve form (code still typed)
+    page = <DeviceList api={devicesApi} openRequestId={new URLSearchParams(route.split('?')[1] ?? '').get('r')} />;
   } else if (path === '/shift' && (showShift || (shiftQueryId !== null && allowed.has('close-shift-for-others')))) {
     // task 41: #/shift?shift_id=… opens that shift (day close's Close this shift, close-shift-for-others)
     page = <ShiftScreen key={route} {...(shiftQueryId === null ? {} : { shiftId: shiftQueryId })} />;
@@ -877,14 +893,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
             key={sheetRow.alert_id}
             row={sheetRow}
             canAnswer={'can_answer' in sheetRow ? sheetRow.can_answer : sheetRow.set === 'answerer' && (sheetRow.answers?.length ?? 0) > 0}
-            deviceId={device.id}
+            access={deviceView?.access}
             me={{ staffId: me.staffId, name: me.name }}
             sender={sender}
             link={conn}
-            loadApprovers={async () => {
-              const answer = await api.roster();
-              return answer.ok ? answer.data.staff.filter((s) => s.locked_until == null) : [];
-            }}
             nowMs={nowMs}
             utcOffsetMs={offset}
             sheet={phone || portrait}

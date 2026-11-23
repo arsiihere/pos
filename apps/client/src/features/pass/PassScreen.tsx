@@ -128,7 +128,7 @@ export function PassScreen() {
   useEffect(() => {
     const ask = () => {
       const hash = window.location.hash.replace(/^#/, '');
-      const route = matchStaffRoute(hash, 'tablet');
+      const route = matchStaffRoute(hash, shell.device.type);
       if (route.name !== 'pass' || route.focus?.kind !== 'order') return;
       const id = route.focus.order_id;
       const card = pass.store.snapshot().view?.orders.find((o) => o.order_id === id);
@@ -137,7 +137,7 @@ export function PassScreen() {
     ask();
     window.addEventListener('hashchange', ask);
     return () => window.removeEventListener('hashchange', ask);
-  }, [pass]);
+  }, [pass, shell.device.type]);
   // IR-6: a newer Handover of another tablet (or a catch-up) wins over this tablet's older hand-over reply
   useEffect(
     () =>

@@ -9,11 +9,18 @@ import type { SocketLike } from '../alerts/socket';
 import { fakeTimers, recordingSink } from '../alerts/test-fakes';
 import type { Device, PageMeta } from '../staff/api';
 import { ShellContext, type Shell } from '../staff/shell/hooks';
+import { matchStaffRoute } from '../staff/shell/routes';
 import { createLiveBus } from '../staff/shell/live';
 import { StaffApp } from '../staff/StaffApp';
 import { passLiveOf } from './live';
 import { passOpenedText, passPlace } from './pass-place';
 import { PassScreen } from './PassScreen';
+
+// 05a §8: PassScreen parses its route with the device's own type (the spy below records it).
+vi.mock('../staff/shell/routes', async (original) => {
+  const actual = await original<typeof import('../staff/shell/routes')>();
+  return { ...actual, matchStaffRoute: vi.fn(actual.matchStaffRoute) };
+});
 
 // 01d v1.3 §3.13.5 rows Pass / Inbox, the devices table (Pass, m12), §3.13.7 lock panel; test 95. Integrator ruling
 // (a) for cp7: a tap on #/pass whose order's Pass card is on the screen glows it in place (pass-place.ts, one block in
@@ -60,6 +67,7 @@ function passShell() {
   const live = createLiveBus();
   const shell = {
     live,
+    device: { token: 'DEV', id: 'D-P1', type: 'phone' },
     clock: { nowMs: () => 0, utcOffsetMs: 0 },
     api: {
       roster: () => new Promise(() => undefined),
@@ -226,6 +234,17 @@ describe('[01d #95] Pass and Inbox places', () => {
     navigate('/pass?focus=order:O1');
     await settle();
     expect(scrolls).toEqual([card, m.container.querySelector('article.pc[data-order="O1"]')]);
+  });
+
+  it('[05a §8] PassScreen parses #/pass with the device\'s own type, not the literal \'tablet\'', async () => {
+    window.location.hash = '/pass?focus=order:O2';
+    await settle(0);
+    vi.mocked(matchStaffRoute).mockClear();
+    showPass(passShell());
+    await settle();
+    const types = vi.mocked(matchStaffRoute).mock.calls.map((c) => c[1]);
+    expect(types.length).toBeGreaterThan(0);
+    expect(new Set(types)).toEqual(new Set(['phone']));
   });
 
   it('[01d §3.13.7] Inbox: #/inbox?focus=alert:<id> glows that card only and opens nothing; no such card → nothing', async () => {

@@ -169,7 +169,7 @@ describe('[02a §8 Handover waiting card] sender', () => {
     expect(h.queries.every((q) => q === '/queries/my-requests')).toBe(true);
   });
 
-  it('[02a §8 Handover waiting card] my-requests ask_in_person → "ask her in person", lead told', async () => {
+  it('[02a §8 Handover waiting card] my-requests ask_in_person → "Waiting — find a manager" (05a D-2, request.find_approver), lead told', async () => {
     h = harness({ replies: [[req({ alert_id: 'H1', raised_at: NOW - 2 * 60_000, ask_in_person: true })]] });
     pendingHandovers.connect({ staff_id: h.staff_id, load: async () => ({ ok: true, data: { requests: [] } }), now: () => NOW });
     pendingHandovers.remember({ alert_id: 'H1', table_id: 'TB-F4', seating_id: 'SE-4', receiver_name: 'Sara' });
@@ -181,7 +181,7 @@ describe('[02a §8 Handover waiting card] sender', () => {
     );
     await flush();
     const card = h.m.container.querySelector('.wcard')!;
-    expect(card.querySelector('b')?.textContent).toBe('Waiting for Sara — 2 min · ask her in person');
+    expect(card.querySelector('b')?.textContent).toBe('Waiting — find a manager');
     expect(card.querySelector('small')?.textContent).toBe('Your lead was told');
   });
 

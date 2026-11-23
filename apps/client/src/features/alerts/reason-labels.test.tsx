@@ -29,11 +29,9 @@ function approverCard(reason: string) {
     <AnswerSheet
       row={r}
       canAnswer
-      deviceId="D9"
       me={{ staffId: 'S-IMRAN', name: 'Imran' }}
       sender={sender}
       link={hub}
-      loadApprovers={async () => []}
       nowMs={NOW}
       utcOffsetMs={0}
       sheet={false}
