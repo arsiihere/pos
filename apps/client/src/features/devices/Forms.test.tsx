@@ -71,7 +71,7 @@ describe('[05a §6.3] form defaults by hint', () => {
     m.render(<ApproveForm key="t" api={api} request={req('tablet')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
     expect(m.container.querySelector('[data-field="people"]')).toBeNull();
-    expect(screensChecked()).toEqual(['Dine-in', 'Manager']);
+    expect(screensChecked()).toEqual(['Dine-in', 'Back office']);
   });
 
   it('[05a §3.6] a phone is not offered Cashier; a kiosk is', async () => {
@@ -79,11 +79,11 @@ describe('[05a §6.3] form defaults by hint', () => {
     m.render(<ApproveForm api={api} request={req('phone')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
     const offered = [...m.container.querySelectorAll('[data-field="screens"] label')].map((l) => l.textContent);
-    expect(offered).toEqual(screensOffered('phone').map((s) => ({ dine_in: 'Dine-in', takeaway: 'Takeaway', parking: 'Parking', cashier: 'Cashier', pass: 'Pass', manager: 'Manager' })[s]));
-    expect(offered).not.toContain('Cashier');
+    expect(offered).toEqual(screensOffered('phone').map((s) => ({ dine_in: 'Dine-in', takeaway: 'Takeaway', parking: 'Parking', cashier: 'Cashier desk', pass: 'Pass', manager: 'Back office' })[s]));
+    expect(offered).not.toContain('Cashier desk');
     m.render(<ApproveForm key="k" api={api} request={req('cashier_kiosk')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
-    expect(m.text()).toContain('Cashier');
+    expect(m.text()).toContain('Cashier desk');
   });
 });
 
