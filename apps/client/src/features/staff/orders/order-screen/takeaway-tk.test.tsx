@@ -183,3 +183,110 @@ describe('[02b-TK C1-1] day not open from eta-preview and the socket', () => {
     w.dispose();
   });
 });
+
+/** React reads a typed value through the native setter and an `input` event. */
+const type = (el: Element | null, value: string) => {
+  const input = el as HTMLInputElement;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+  act(() => void input.dispatchEvent(new Event('input', { bubbles: true })));
+};
+const nameInput = (m: ReturnType<typeof mount>) => m.container.querySelector<HTMLInputElement>('.cust input[name="customer_name"]');
+const phoneInput = (m: ReturnType<typeof mount>) => m.container.querySelector<HTMLInputElement>('.cust input[name="phone"]');
+
+describe('[02b-TK C1-2] takeaway name / phone inline in the cart', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] }));
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+    nav.to = [];
+  });
+
+  it('[02b §3.1, §6.1; R1] both optional: Send with neither sends no takeaway part', async () => {
+    const h = harness();
+    const m = h.render();
+    await flush();
+    expect(m.text()).toContain('Name · optional');
+    expect(m.text()).toContain('Phone · optional');
+    const phone = phoneInput(m)!;
+    expect(phone.getAttribute('inputmode')).toBe('tel');
+    expect(phone.getAttribute('dir')).toBe('ltr');
+    expect(phone.getAttribute('placeholder')).toBe('+92 3xx xxxxxxx');
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    m.click(m.button('Send to kitchen'));
+    await flush();
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]!.payload.takeaway).toBeUndefined();
+    m.unmount();
+  });
+
+  it('[02b §3.1, §6.1; 02b-TK C1-2] a typed name and a +92 phone are sent as SubmitOrder.takeaway (digits, as the hub stores them)', async () => {
+    const h = harness();
+    const m = h.render();
+    await flush();
+    type(nameInput(m), '  Usman ');
+    type(phoneInput(m), '+92 300-1234567');
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    await tick();
+    // the contact is not timing: it never travels in the eta-preview query string
+    expect(h.previews.at(-1)!.takeaway).toBeUndefined();
+    m.click(m.button('Send to kitchen'));
+    await flush();
+    expect(h.sent[0]!.payload.takeaway).toEqual({ customer_name: 'Usman', phone: '923001234567' });
+    expect(h.sent[0]!.meta.label).toBe('Takeaway · Usman');
+    m.unmount();
+  });
+
+  it('[02b §3.1; R1; frame PhoneInvalid] a typed phone that is not 10–13 digits shows "Enter 10 digits after +92" and Send waits; clearing it lets Send go', async () => {
+    const h = harness();
+    const m = h.render();
+    await flush();
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    type(phoneInput(m), '300 12345');
+    expect(m.text()).toContain('Enter 10 digits after +92');
+    expect(phoneInput(m)!.getAttribute('aria-invalid')).toBe('true');
+    expect((m.button('Send to kitchen') as HTMLButtonElement).disabled).toBe(true);
+    m.click(m.button('Send to kitchen'));
+    await flush();
+    expect(h.sent).toEqual([]);
+    for (const bad of ['0300+1234567', '03OO1234567', '12345678901234']) {
+      type(phoneInput(m), bad);
+      expect(m.text()).toContain('Enter 10 digits after +92');
+    }
+    type(phoneInput(m), '');
+    expect(m.text()).not.toContain('Enter 10 digits after +92');
+    expect((m.button('Send to kitchen') as HTMLButtonElement).disabled).toBe(false);
+    m.unmount();
+  });
+
+  it('[02b §8 Ordering screen #35] the typed contact is kept in the draft and comes back on reload', async () => {
+    const drafts = createMemoryDraftStore();
+    const h = harness({ drafts });
+    const m = h.render();
+    await flush();
+    type(nameInput(m), 'Usman');
+    type(phoneInput(m), '0300 1234567');
+    await flush();
+    expect((await drafts.list('DV1', 'ST1'))[0]!.cart).toMatchObject({ takeaway: { customer_name: 'Usman', phone: '0300 1234567' } });
+    m.unmount();
+    const again = harness({ drafts }).render();
+    await flush();
+    expect(nameInput(again)!.value).toBe('Usman');
+    expect(phoneInput(again)!.value).toBe('0300 1234567');
+    again.unmount();
+  });
+
+  it('[02b-TK C1-2; frame PhoneCart] phone layout: the contact row sits on the Cart tab', async () => {
+    const h = harness({ phone: true });
+    const m = h.render();
+    await flush();
+    expect(phoneInput(m)).toBeNull();
+    m.click(m.button('Cart'));
+    expect(phoneInput(m)).not.toBeNull();
+    type(phoneInput(m), '123');
+    expect((m.container.querySelector('.sbar .btn--primary') as HTMLButtonElement).disabled).toBe(true);
+    m.unmount();
+  });
+});

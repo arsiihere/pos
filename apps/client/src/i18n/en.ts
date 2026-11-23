@@ -4129,6 +4129,11 @@ export const en = {
   'native.health.api': 'App interface',
   // ---- 02b-TK client (batch C1): docs/design/handoff/02b-tk/strings-table.md ----
   'c.times_day': 'Times show after Start day',
+  'c.name': 'Name',
+  'c.phone': 'Phone',
+  'c.optional': 'optional',
+  'c.name_ph': 'Customer name',
+  'c.phone_err': 'Enter 10 digits after +92',
 } as const;
 
 export type MessageKey = keyof typeof en;

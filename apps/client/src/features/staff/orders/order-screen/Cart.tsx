@@ -31,6 +31,8 @@ export interface CartProps {
   blocked: string | null;
   /** #36 day not started: replaces the footer's actions (02b-B11); the ready line says "Times show after Start day" */
   day: ReactNode;
+  /** 02b-TK C1-2: the takeaway customer row (name / phone) over the lines, or absent */
+  customer?: ReactNode;
   /** an info line over the cart (E-7 CompItCart: "…After Send you'll be asked to comp it") */
   info: string | null;
   actions: LineActions;
@@ -106,6 +108,7 @@ export function Cart(p: CartProps) {
         </h2>
         <span>{fill(t('cart.items'), { n: String(p.count) })}</span>
       </div>
+      {p.customer}
       {p.info !== null && (
         <div className="msg cart__msg c-info" role="status">
           <Ico name="info" />
