@@ -202,6 +202,21 @@ describe('[05a §3.5] sign-in check on /auth/pin and /admin/auth', () => {
       expect(adminSessions(h, tablet.deviceId)).toEqual([]);
     });
 
+    it('[05a §3.5] /admin/auth: the person taken off the list while argon2 ran → 403 DEVICE_ACCESS_DENIED, no admin session', async () => {
+      const h = await hub();
+      const tablet = pairDevice(h, { type: 'tablet', profile: { access: 'listed', staff_ids: [ALI, 'S_OWNER'], screens: ['dine_in'] } });
+      const actual = await vi.importActual<typeof import('@node-rs/argon2')>('@node-rs/argon2');
+      verifySpy.mockImplementationOnce((hash, pinValue) => {
+        withProfile(h, tablet.deviceId, { access: 'listed', staff_ids: [ALI], screens: ['dine_in'] });
+        return actual.verify(hash, pinValue);
+      });
+      const res = await adminLogin(h, tablet.token, 'S_OWNER', PIN.a);
+      expect(verifySpy).toHaveBeenCalledTimes(1);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toMatchObject({ code: 'DEVICE_ACCESS_DENIED', details: { device_id: tablet.deviceId } });
+      expect(adminSessions(h, tablet.deviceId)).toEqual([]);
+    });
+
     it('[05a §3.5] /auth/pin: the person taken off the list while argon2 ran → 403 DEVICE_ACCESS_DENIED, no session', async () => {
       const h = await hub();
       const tablet = pairDevice(h, { type: 'tablet', profile: { access: 'listed', staff_ids: [ALI, BILAL], screens: ['dine_in'] } });

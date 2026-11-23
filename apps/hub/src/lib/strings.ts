@@ -383,6 +383,8 @@ export const EN = {
   'errors.DEVICE_REVOKED': 'This screen must be paired again.',
   'errors.DEVICE_TYPE_NOT_ALLOWED': 'This kind of screen cannot do that.',
   'errors.DEVICE_NOT_OWNED': 'This phone belongs to someone else.',
+  // 05a §3.5 m-8: returned instead of DEVICE_NOT_OWNED; both codes map to the same text.
+  'errors.DEVICE_ACCESS_DENIED': 'This phone belongs to someone else.',
   'errors.GUEST_NETWORK_FORBIDDEN': 'Connect to the staff Wi-Fi.',
   'errors.CLIENT_UPGRADE_REQUIRED': 'Update the app.',
   'errors.INTERNAL_ERROR': 'Something went wrong on the hub. Try again.',

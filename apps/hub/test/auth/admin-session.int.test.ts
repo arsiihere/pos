@@ -192,7 +192,7 @@ describe('admin session', () => {
   it('[00 §10 #114] unknown staff is STAFF_NOT_FOUND on /auth/pin and /admin/auth, not counted; a locked staff is PIN_LOCKED_OUT on admin login', async () => {
     const hub = await open();
     const tablet = pairDevice(hub, { type: 'tablet' });
-    const adminDevice = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
+    const adminDevice = pairDevice(hub, { type: 'tablet', profile: { ...ADMIN_LIST, staff_ids: [...ADMIN_LIST.staff_ids!, 'S_MISSING'] } });
     const events = () => hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get() as number;
     const before = events();
     const staffPin = await hub.app.inject({
@@ -208,11 +208,11 @@ describe('admin session', () => {
       hub.deps.db.prepare(`SELECT COUNT(*) FROM auth_lockouts WHERE subject_type = 'staff' AND subject_id = 'S_MISSING'`).pluck().get(),
     ).toBe(0);
     expect(events()).toBe(before);
-    // 05a §3.5: on a listed device an id off its list is refused before 00 §3.5 step 2, not counted
+    // the 05a §3.5 check passes (the id is on the device's list), so 00 §3.5 step 4 answers
     const missing = await login(hub, adminDevice.token, 'S_MISSING', PIN.a);
-    expect(missing.statusCode).toBe(403);
-    expect(missing.json().error.code).toBe('DEVICE_ACCESS_DENIED');
-    expect(missing.json().error.details).toEqual({ device_id: adminDevice.deviceId });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().error.code).toBe('STAFF_NOT_FOUND');
+    expect(missing.json().error.details).toEqual({ staff_id: 'S_MISSING' });
     expect(
       hub.deps.db.prepare(`SELECT COUNT(*) FROM auth_lockouts WHERE subject_type = 'staff' AND subject_id = 'S_MISSING'`).pluck().get(),
     ).toBe(0);
@@ -222,6 +222,19 @@ describe('admin session', () => {
     const locked = await login(hub, adminDevice.token, 'S_OWNER', PIN.a);
     expect(locked.statusCode).toBe(429);
     expect(locked.json().error.code).toBe('PIN_LOCKED_OUT');
+  });
+
+  it('[05a §3.5] /admin/auth with an unknown id that is not on the listed device\'s list → 403 DEVICE_ACCESS_DENIED before step 2, not counted', async () => {
+    const hub = await open();
+    const adminDevice = pairDevice(hub, { type: 'tablet', profile: ADMIN_LIST });
+    const events = () => hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get() as number;
+    const before = events();
+    const missing = await login(hub, adminDevice.token, 'S_MISSING', PIN.a);
+    expect(missing.statusCode).toBe(403);
+    expect(missing.json().error.code).toBe('DEVICE_ACCESS_DENIED');
+    expect(missing.json().error.details).toEqual({ device_id: adminDevice.deviceId });
+    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM auth_lockouts').pluck().get()).toBe(0);
+    expect(events()).toBe(before);
   });
 });
 

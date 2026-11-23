@@ -57,19 +57,18 @@ export function registerStaffSessionRoutes(app: FastifyInstance, deps: HubDeps, 
         } catch (error) {
           return { refused: error as DomainError };
         }
-        return { opened: openStaffSession(app, tx, device.device_id, body.staff_id, body.takeover) };
+        // 05a §6.5: the device block as `GET /queries/session` reads it (§6.7), read with the check it answers; no
+        // profile reads as `everyone`.
+        const profile = deviceProfile(device.device_id);
+        return {
+          opened: openStaffSession(app, tx, device.device_id, body.staff_id, body.takeover),
+          device: { screens: profile?.screens ?? [], access: profile?.access ?? 'everyone', point_id: profile?.point_id ?? null },
+        };
       },
     );
     if ('refused' in outcome) throw outcome.refused;
     activity.touch(outcome.opened.session_id, deps.clock.branchNow());
-    // 05a §6.5: the device block as `GET /queries/session` reads it (§6.7); no profile reads as `everyone`.
-    const profile = deviceProfile(device.device_id);
-    return {
-      data: {
-        ...outcome.opened,
-        device: { screens: profile?.screens ?? [], access: profile?.access ?? 'everyone', point_id: profile?.point_id ?? null },
-      },
-    };
+    return { data: { ...outcome.opened, device: outcome.device } };
   });
 
   app.post(
