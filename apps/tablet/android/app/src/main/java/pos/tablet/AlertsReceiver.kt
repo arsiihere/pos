@@ -29,6 +29,8 @@ class AlertsReceiver : BroadcastReceiver() {
             Ipc.OP_SET_SESSION -> {
                 AlertsMemory.signedIn = body.optBoolean("signed_in", false)
                 AlertsMemory.staffId = body.optString("staff_id", "").takeIf { it.isNotEmpty() }
+                // 05b A14: signing out may open the install window (D-3).
+                if (AlertsMemory.signedIn == false) Updates.client(ctx).windowMayHaveOpened()
                 IpcReply.reply(ctx, reqId, JSONObject().put("ok", true))
             }
             Ipc.OP_SET_DEVICE_CONTEXT -> async {
@@ -53,9 +55,18 @@ class AlertsReceiver : BroadcastReceiver() {
                 AlertService.instance?.applyLocksAsync()
                 IpcReply.reply(ctx, reqId, JSONObject().put("ok", true))
             }
-            // A14 builds the update client; until then there is never an update.
             Ipc.OP_CLEAR_PAIRING -> async { AlertService.revoked(ctx, "hub_address_changed") }
-            Ipc.OP_CHECK_FOR_UPDATE -> IpcReply.reply(ctx, reqId, JSONObject().put("state", "none"))
+            // 05b A14: checkForUpdate() runs a check now and answers { state } (M-15, §4.2).
+            Ipc.OP_CHECK_FOR_UPDATE -> {
+                val pending = goAsync()
+                try {
+                    Updates.client(ctx).checkNow("check_for_update") { s ->
+                        try { IpcReply.reply(ctx, reqId, JSONObject().put("state", s.wire)) } finally { pending.finish() }
+                    }
+                } catch (e: Exception) {
+                    pending.finish()
+                }
+            }
             else -> AlertLog.ev("ipc_unknown_op", mapOf("op" to op))
         }
     }
