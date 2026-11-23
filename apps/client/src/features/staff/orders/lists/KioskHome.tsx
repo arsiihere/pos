@@ -8,6 +8,7 @@ import { orderHref } from '../../shell/routes';
 import type { DraftStore } from '../contracts';
 import { createIdbDraftStore } from '../drafts/idb-drafts';
 import { DraftStoreContext } from '../order-screen/OrderScreen';
+import { heldOnDevice } from '../order-screen/held-list';
 import { OpenOrdersCard, useLiveRefetch } from './OpenOrders';
 
 // 02b v1.0.11 §8 Open orders (frame 02-S07 OpenOrdersKiosk): the cashier kiosk's home (#/) = the open orders list
@@ -29,14 +30,14 @@ export function KioskHome() {
   const staffId = shell.me?.staff_id ?? null;
   const deviceId = shell.device.id;
   const [tick, setTick] = useState(0);
-  // the count follows this person's held drafts on this screen; re-read on a reconnect / the page returning
+  // the count follows the held drafts of this screen (held-list.ts); re-read on a reconnect / the page returning
   useLiveRefetch(shell.live, () => setTick((n) => n + 1), NO_FRAMES);
   useEffect(() => {
     if (staffId === null) return;
     let live = true;
-    void drafts
-      .list(deviceId, staffId)
-      .then((all) => live && setHeld(all.filter((d) => d.held).length))
+    // 02b-TK C2-5: the counter's held drafts (everyone's on this device, R3)
+    void heldOnDevice(drafts, deviceId, staffId)
+      .then((all) => live && setHeld(all.length))
       .catch(() => undefined);
     return () => {
       live = false;

@@ -55,6 +55,7 @@ import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
 import { announceCompIt, freezeSubmit, refusalText, sendOrder, sentToastText, timeUpdated, toCart, zoneEmpty } from '../send/send';
 import { createTokenBook } from '../takeaway/book';
+import { heldOnDevice } from './held-list';
 import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
 import type { QueueToken } from '../takeaway/queue-model';
 import { createHandovers } from '../takeaway/handover';
@@ -406,9 +407,9 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   useEffect(() => {
     if (order_type !== 'takeaway' || staffId === null) return;
     let live = true;
-    void drafts
-      .list(deviceId, staffId)
-      .then((all) => live && setHeldCount(all.filter((d) => d.held).length))
+    // 02b-TK C2-5: the counter's held drafts (everyone's on this device, R3)
+    void heldOnDevice(drafts, deviceId, staffId)
+      .then((all) => live && setHeldCount(all.length))
       .catch(() => undefined);
     return () => {
       live = false;

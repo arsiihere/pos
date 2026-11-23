@@ -34,6 +34,11 @@ export function createIdbDraftStore(o: IdbOptions = {}): DraftStore {
       const all = await inTransaction(factory, DRAFTS, 'readonly', (s) => s.index(DRAFTS_BY_OWNER).getAll([device_id, staff_id]), (r) => r.result as Draft[]);
       return all.map(draftRecord).sort(byUpdatedAt);
     },
+    // 02b-TK C2-5: every person's drafts of this device (a handful; the whole store is read and filtered)
+    async listDevice(device_id) {
+      const all = await inTransaction(factory, DRAFTS, 'readonly', (s) => s.getAll(), (r) => r.result as Draft[]);
+      return all.filter((d) => d.device_id === device_id).map(draftRecord).sort(byUpdatedAt);
+    },
     remove: (draft_id) => inTransaction<void>(factory, DRAFTS, 'readwrite', (s) => s.delete(draft_id)),
   };
 }

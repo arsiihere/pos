@@ -4308,6 +4308,9 @@ export const en = {
   'v.refund_first': 'Paid: reopen the bill first (Bill → Reopen), then take the item off here — the bill shows the refund to give',
   'line.err.closed_split': 'This item is on a paid part of the bill — reopen the bill to refund it',
   'line.err.void_not_allowed': 'This item can’t be voided now — refreshed',
+  // 02b-TK C2-5 (frame HeldDrawer "Held … · by Sana"; R3): not in strings-table.md; Urdu to confirm
+  'h.by': 'by {name}',
+  'h.shared': 'Everyone on this counter sees these. Table orders stay with who held them.',
 } as const;
 
 export type MessageKey = keyof typeof en;
