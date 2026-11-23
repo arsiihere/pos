@@ -151,7 +151,7 @@ describe('[05a §3.9 rule 2, D-2] AnswerRequest by device access', () => {
     const tablet = device(listed([STAFF.manager]), 'Manager tablet');
     const manager = on(tablet, STAFF.manager);
     hub.deps.testHooks = {
-      betweenVerifyAndWriter() {
+      async betweenVerifyAndWriter() {
         appendDeviceProfile(hub, tablet.deviceId, EVERYONE);
       },
     };
