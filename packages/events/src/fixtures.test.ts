@@ -325,7 +325,8 @@ describe("fixtures", () => {
     expect(schema.safeParse({ ...base, access: "nobody" }).success).toBe(false);
     expect(schema.safeParse({ ...base, profile_version: 0 }).success).toBe(false);
     expect(schema.safeParse({ ...base, extra: 1 }).success).toBe(false);
-    const { needs_review: _n, ...missing } = base;
+    const missing: Record<string, unknown> = { ...base };
+    delete missing.needs_review;
     expect(schema.safeParse(missing).success).toBe(false);
   });
 

@@ -2860,6 +2860,7 @@ export const en = {
   'audit.action.device_paired': 'Screen paired',
   'audit.action.device_revoked': 'Screen removed',
   'audit.action.pairing_token_generated': 'Pairing code made',
+  'audit.action.device_profile_set': 'Screen settings changed', // 05a §4.5 A-1
   'audit.action.station_paused': 'Station paused',
   'audit.action.station_capacity_set': 'Station capacity changed',
   'audit.action.item_availability_set': 'Item turned on or off',

@@ -62,6 +62,7 @@ export const ACTION_META: Record<AuditAction, ActionMeta> = {
   device_paired: { group: 'screens_pins', tone: 'info', icon: 'tablet' },
   device_revoked: { group: 'screens_pins', tone: 'danger', icon: 'tablet' },
   pairing_token_generated: { group: 'screens_pins', tone: 'info', icon: 'tablet' },
+  device_profile_set: { group: 'screens_pins', tone: 'info', icon: 'tablet' }, // 05a §4.5 A-1 (04 v1.0.8)
   // Bills and payments (05 row V-3, R-28)
   bill_opened: { group: 'bills_payments', tone: 'info', icon: 'list' },
   check_bill_printed: { group: 'bills_payments', tone: 'mute', icon: 'list' },
