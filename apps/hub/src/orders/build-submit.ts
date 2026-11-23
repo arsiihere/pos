@@ -19,7 +19,7 @@ import {
   type Position,
 } from '@pos/domain';
 import type { ProposedLine, ProposedOrder } from '@pos/engine';
-import type { BranchConfig, ConfigCategory, ConfigDeal, ConfigItem, ConfigModifierGroup, ConfigStation, ItemAddedPayload } from '@pos/events';
+import { itemMaxDelay, maxDelayDefaultMs, type BranchConfig, type ConfigCategory, type ConfigDeal, type ConfigItem, type ConfigModifierGroup, type ConfigStation, type ItemAddedPayload } from '@pos/events';
 import type { BuildSubmit, BuildSubmitCtx, OrderType, SubmitInput, SubmitOption } from './contracts.js';
 
 type Line = SubmitInput['lines'][number];
@@ -148,6 +148,14 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
 
   // §3.10 / O4: the zone route of the primary table's zone (dine-in only), else the branch route.
   const routeOf = (item: ConfigItem): string => zone?.routes.find((r) => r.item_id === item.item_id)?.station_id ?? item.station_id;
+  // 02b v1.0.24 §3.2 step 4b (STAB-7; 01a v2.7.5 MD-5, review M-8): the line's own item's effective max delay —
+  // "No limit" → null; else the item's number; else the branch default, an explicit null kept (only a snapshot
+  // without the key gives 300 000, maxDelayDefaultMs). The engine turns null into priority at 30 min (03a PR-1).
+  const branchMaxDelay = maxDelayDefaultMs(config);
+  const maxDelayOf = (item: ConfigItem): number | null => {
+    const own = itemMaxDelay(item);
+    return own.max_delay_unlimited ? null : (own.max_delay_ms ?? branchMaxDelay);
+  };
   // 01c §4.3: the D25 copies of the line's item; B1: program cook times from the routed station's programs[] (batch only).
   const fromItem = (item: ConfigItem, quantity: number | null) => {
     const station_id = routeOf(item);
@@ -176,6 +184,7 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
       // 01c §3.5.2: stock units for the whole line; a weight still pending has none (a weighed item has no draws, V18).
       stock_draws: quantity === null ? [] : day.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity_per_sale_unit * quantity })),
       is_ready_item: item.is_ready_item,
+      max_delay_ms: maxDelayOf(item),
     };
   };
   const none = {
@@ -349,6 +358,7 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
       }),
       kitchen_note: line.kitchen_note ?? null,
       is_ready_item: false,
+      max_delay_ms: null, // 02b v1.0.24 §3.2 step 4b: a deal header is no engine line
       // 02b v1.0.22 §3.2 step 4a: a split deal's header carries part 1's header id
       ...(line.part_of === undefined ? {} : { part_of: line.part_of }),
     };
