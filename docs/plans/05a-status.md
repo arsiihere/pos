@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~14:45 PKT: **Merged: L1 (tasks 9–12), D (22), B13 (13)** → with R (29), B14 (14), K (27–28): **10 tasks merged**. Owner ruled **G-e (a), G-f (a)** → spec **05a v1.0.2** (now the build's spec). In fix rounds: C1 (35: "Confirm on your phone" shows for any named request; must be downgraded only), C2 (32: G-e / G-f). Next: task 15 (one commit, Opus), then 16, 17. Carry-overs: `STALE_ON` gains `DeviceProfileSet` (D review, before the first command that appends it: task 15); B3 review minors (preRead / PIN-hook view test, `/admin/auth` view → task 17, legacy fixture phone = owner only).
 > - 2026-11-23 ~13:50 PKT: **Tasks 27–28 merged** (lane K: Pass readers K-1 / D-4, upgrade boot step), Opus review APPROVE after one fix round. 3 lanes merged so far (R, B14, K).
 > - 2026-11-23 ~13:30 PKT: **Task 14 merged** (pair request hint + poll screens; review APPROVE).
 > - 2026-11-23 ~13:20 PKT: **Task 29 (recovery link) merged** into `build/05a` (`1b5b5c61`), Opus review APPROVE.
@@ -88,11 +89,11 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 6 | B2 | profile projections | HIGH | `8259743d` | **done** (review APPROVE) |
 | 7 | B2 | `deviceProfile` map + M-8 count | HIGH | `7f1190f8` | **done** (review APPROVE) |
 | 8 | B2 | profile test fixture | NORMAL | `d1ebd94d` | **done** (review APPROVE) |
-| 9 | B3 | `forSession` view | HIGH | `42c4b122` | done, review with 10–12 |
-| 10 | B3 | pipeline / query / PIN call sites | HIGH | | running (`lane-05aL1/05a-10-12`) |
-| 11 | B3 | admin guard + print route | HIGH | | running (`lane-05aL1/05a-10-12`) |
-| 12 | B3 | `/queries/session` | NORMAL | | running (`lane-05aL1/05a-10-12`) |
-| 13 | B4 | request-based pairing fixture | NORMAL | | |
+| 9 | B3 | `forSession` view | HIGH | `42c4b122` | **done** (Opus review APPROVE with 10–12) |
+| 10 | B3 | pipeline / query / PIN call sites | HIGH | `e74f372f` | **done** (Opus review APPROVE; reading: `openSession` legacy fixture profile) |
+| 11 | B3 | admin guard + print route | HIGH | `6996a1d5` | **done** (Opus review APPROVE; `/admin/auth` view → task 17) |
+| 12 | B3 | `/queries/session` | NORMAL | `92fe7062` | **done** (Opus review APPROVE) |
+| 13 | B4 | request-based pairing fixture | NORMAL | `9f567176`, `d802168c`, `cc9c85c7` | **done** (Sonnet review FIX → markers → done; `TASK-15-DELETE/EDIT` markers list task 15's test work) |
 | 14 | B4 | pair request hint + poll screens | NORMAL | `9a61c55b` | **done** (Sonnet review APPROVE; no-profile poll → `screens: []`, an inference from §3.6, noted) |
 | 15 | B4 | approve v2 **+ STAB-1 removal (one commit)** | HIGH | | |
 | 16 | B4 | pair page text + hint | NORMAL | | |
@@ -101,7 +102,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 19 | B5 | `SetDeviceProfile` | HIGH | | |
 | 20 | B5 | revoke both + device list | NORMAL | | |
 | 21 | B5 | directory apply | HIGH | | |
-| 22 | B6 | D-1 bindings | HIGH | | |
+| 22 | B6 | D-1 bindings | HIGH | `e9cd26d1` | **done** (Opus review APPROVE, 300-sequence rebuild fuzz; `alert-sockets.ts` as-built outside the Files column, required by 01d §3.7) |
 | 23 | B6 | D-2 answers | HIGH | | |
 | 24 | B6 | D-2 downgraded raise | HIGH | | |
 | 25 | B6 | D-2 routing | HIGH | | |
@@ -155,6 +156,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | S-1 | G0.1 | `git merge` into `module-05a` refused by the auto-mode classifier | **closed** 03:53: owner allowed it; merged |
 | S-2 | P0.3 | Push target for `module-05a` under the `module-*` ruleset with no PRs | **closed** 03:53: (a) `build/05a` |
 | S-3 | P0.2 | G-b: names in the `device_profile_set` audit detail | **closed** 03:53: (a), in 05a v1.0.1 §4.2; 04 v1.0.8 §8 maps the ids through `audit-staff` (no query change) |
+| S-5 | 32 | G-e: clearing `point_id` / `staff_ids` in `SetDeviceProfile`; G-f: people-picker source | **closed** 2026-11-23 (cloud): owner ruled both (a) → **05a v1.0.2** (§6.4 derived clear; §6.8 `staff`), 00 v1.12.3 §6.17 note |
 | S-4 | P0.5 | 01d Q-1 – Q-3 (top of this file) | **closed** 2026-11-23 (cloud): owner ruled all three (a) |
 
 Scan for P0.1: every local and remote branch and both open PRs (#121, #126) were checked for 00 > v1.12.2, 01d > v1.3.4, 03b > v1.0.14, 04 > v1.0.7, Foundation > v1.15 and hub migrations ≥ `0027`. Nothing is claimed. The bumps are patch steps, like the other cross-module rows (e.g. 00 v1.12.1 → v1.12.2 for STAB-1).
