@@ -1,0 +1,47 @@
+/* 05b §8.1 / §8.4 bundled pages: plain CSS, big touch targets, sized for a 10" tablet. */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 22px; line-height: 1.4; color: #1f2933; background: #f4f5f7;
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+main { max-width: 760px; margin: 0 auto; padding: 48px 32px; }
+h1 { font-size: 36px; margin: 0 0 8px; }
+p.lead { margin: 0 0 32px; color: #52606d; }
+.card { background: #fff; border-radius: 16px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,.12); margin-bottom: 24px; }
+label { display: block; font-weight: 600; margin-bottom: 12px; }
+input[type=text] {
+  width: 100%; font-size: 30px; padding: 18px 20px; border: 2px solid #cbd2d9; border-radius: 12px;
+  -webkit-user-select: text; user-select: text; font-variant-numeric: tabular-nums;
+}
+input[type=text]:focus { outline: none; border-color: #2563eb; }
+button {
+  font: inherit; font-weight: 600; min-height: 72px; padding: 16px 32px; border-radius: 12px; border: 0;
+  background: #2563eb; color: #fff; cursor: pointer; touch-action: manipulation;
+}
+button.wide { width: 100%; margin-top: 20px; }
+button.secondary { background: #e4e7eb; color: #1f2933; }
+button:disabled { background: #9aa5b1; color: #f4f5f7; }
+.msg { min-height: 1.4em; margin-top: 20px; font-weight: 600; }
+.msg.error { color: #b91c1c; }
+.msg.ok { color: #047857; }
+.msg.info { color: #52606d; }
+.hidden { display: none !important; }
+.step { display: flex; align-items: center; gap: 20px; padding: 20px 0; border-bottom: 1px solid #e4e7eb; }
+.step:last-child { border-bottom: 0; }
+.step .text { flex: 1; }
+.step .title { font-weight: 600; }
+.step .hint { color: #52606d; font-size: 18px; }
+.step .state { font-weight: 700; min-width: 110px; text-align: right; }
+.step.done .state { color: #047857; }
+.step.todo .state { color: #b45309; }
+.step button { min-width: 200px; }
+.big-status { font-size: 28px; font-weight: 700; margin: 0 0 12px; overflow-wrap: anywhere; }
+.hold { position: relative; overflow: hidden; }
+.hold .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: rgba(37,99,235,.25); pointer-events: none; }
+.hold span { position: relative; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: 32px; }
+.overlay .card { max-width: 620px; width: 100%; }
+.row { display: flex; gap: 16px; margin-top: 24px; }
+.row button { flex: 1; }
