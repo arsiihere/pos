@@ -329,6 +329,90 @@ export async function insertLines(db: TenantSql, versionId: string, lines: reado
   );
 }
 
+// ------------------------------------------------------------------------------------ §6.5 publish (r2)
+
+// §6 lock order kind 0: the tenant publish lock, before any row lock and before the graph read (B6, B-1). 8020 =
+// 08b's advisory namespace. One statement; released at COMMIT / ROLLBACK.
+export async function takePublishLock(db: TenantSql): Promise<void> {
+  // the key is hashtext($1) itself (no tenants row read); the WHERE only satisfies TenantLevelRepository's `tenant_id = $1` guard
+  await db.query(`SELECT pg_advisory_xact_lock(8020, hashtext($1)) FROM (SELECT $1::text AS tenant_id) x WHERE x.tenant_id = $1`);
+}
+
+// §6.5 "draft with lines" (under the recipe lock): the draft and the published version (if any), both with their
+// lines, in one statement — the published one is superseded below and its content is the audit row's `before`
+// (an archived recipe's published version is not in the graph read).
+export async function selectPublishVersions(db: TenantSql, recipeId: string): Promise<{ draft?: VersionRecord; published?: VersionRecord }> {
+  const rows = await db.query<RawVersion>(
+    `SELECT ${VERSION_COLUMNS}, ${LINES_JSON} AS lines
+       FROM recipe_versions v WHERE v.tenant_id = $1 AND v.recipe_id = $2 AND v.status IN ('draft', 'published')`,
+    [recipeId],
+  );
+  const versions = rows.map(versionRecord);
+  const draft = versions.find((v) => v.status === 'draft');
+  const published = versions.find((v) => v.status === 'published');
+  return { ...(draft !== undefined ? { draft } : {}), ...(published !== undefined ? { published } : {}) };
+}
+
+export interface GraphVersion {
+  version: VersionRecord;
+  owner_type: OwnerType;
+  owner_id: string;
+  /** Each line stock item's current kind (null when the row is gone), for the prepared-chain depth (B6). */
+  lineKinds: Map<string, string | null>;
+}
+
+// §6.5 graph read = the cost context's read 5 (§6): every non-archived recipe's published version with its lines
+// (json_agg), each line with its stock item's current kind. One statement, under the publish lock.
+export async function selectPublishGraph(db: TenantSql): Promise<GraphVersion[]> {
+  const rows = await db.query<RawVersion & { owner_type: OwnerType; owner_id: string; kinds: Array<{ stock_item_id: string; kind: string | null }> }>(
+    `SELECT ${VERSION_COLUMNS.split(', ')
+      .map((c) => `v.${c}`)
+      .join(', ')}, r.owner_type, r.owner_id, ${LINES_JSON} AS lines,
+            COALESCE((SELECT json_agg(json_build_object('stock_item_id', l.stock_item_id, 'kind', s.kind))
+                        FROM recipe_lines l
+                        LEFT JOIN stock_items s ON s.tenant_id = l.tenant_id AND s.stock_item_id = l.stock_item_id
+                       WHERE l.tenant_id = v.tenant_id AND l.recipe_version_id = v.recipe_version_id), '[]'::json) AS kinds
+       FROM recipe_versions v
+       JOIN recipes r ON r.tenant_id = v.tenant_id AND r.recipe_id = v.recipe_id
+      WHERE v.tenant_id = $1 AND v.status = 'published' AND r.archived_at IS NULL
+      ORDER BY v.recipe_version_id`,
+  );
+  return rows.map(({ kinds, owner_type, owner_id, ...row }) => ({
+    version: versionRecord(row),
+    owner_type,
+    owner_id,
+    lineKinds: new Map(kinds.map((k) => [k.stock_item_id, k.kind])),
+  }));
+}
+
+// §6.5 / B8: the old published version becomes superseded — its status only (published content is immutable).
+export async function supersedeVersion(db: TenantSql, versionId: string): Promise<void> {
+  const rows = await db.query(
+    `UPDATE recipe_versions SET status = 'superseded'
+      WHERE tenant_id = $1 AND recipe_version_id = $2 AND status = 'published'
+      RETURNING recipe_version_id`,
+    [versionId],
+  );
+  if (rows.length !== 1) throw new Error('published version not superseded');
+}
+
+// §6.5 / B8: the draft becomes the published version (published_at = now, no backdating).
+export async function publishDraft(db: TenantSql, draft: VersionRecord, publishedBy: string, now: number): Promise<VersionRecord> {
+  const rows = await db.query<RawVersion>(
+    `UPDATE recipe_versions SET status = 'published', published_by = $3, published_at = $4::bigint, updated_at = $4::bigint
+      WHERE tenant_id = $1 AND recipe_version_id = $2 AND status = 'draft'
+      RETURNING ${VERSION_COLUMNS}`,
+    [draft.recipe_version_id, publishedBy, now],
+  );
+  if (rows[0] === undefined) throw new Error('draft not published');
+  return { ...versionRecord(rows[0]), lines: draft.lines };
+}
+
+// §6.5 T-1: publishing an archived recipe's draft un-archives the recipe (after every B6 check passed).
+export async function unarchiveRecipe(db: TenantSql, recipeId: string, now: number): Promise<void> {
+  await db.query(`UPDATE recipes SET archived_at = NULL, updated_at = $3::bigint WHERE tenant_id = $1 AND recipe_id = $2`, [recipeId, now]);
+}
+
 // ------------------------------------------------------------------------------------- line references
 
 export interface UnitRecord {
@@ -439,7 +523,14 @@ export interface CostContext {
 // name, I5 step 2); (3) price rows: 08a's selectPriceCandidates for `branchId` and every branch (time-filtered at
 // `now`, N-3); (4) active yields (latest per ingredient); (5) every non-archived recipe's published version with
 // its lines (json_agg) — the publish graph read (§6.5). Mapped to CloudCostRows (AD-18): BIGINT as strings.
-export async function selectCostContext(db: TenantSql, branchId: string | null, now: number): Promise<CostContext> {
+// `graph` (§6.5, r2): the version elements of a graph read already made in this request — read 5 is then not run
+// again (the publish's graph read IS the cost context's fifth read).
+export async function selectCostContext(
+  db: TenantSql,
+  branchId: string | null,
+  now: number,
+  graph?: readonly Record<string, unknown>[],
+): Promise<CostContext> {
   const items = await db.query<RawStockItem & { code: string | null; cost_category: string; is_a_item: boolean }>(
     `SELECT ${STOCK_ITEM_COLUMNS}, code, cost_category, is_a_item FROM stock_items
       WHERE tenant_id = $1 AND (kind = 'prepared' OR archived_at IS NULL)
@@ -466,7 +557,7 @@ export async function selectCostContext(db: TenantSql, branchId: string | null, 
       WHERE y.tenant_id = $1 AND s.archived_at IS NULL AND s.kind = 'ingredient'
       ORDER BY y.stock_item_id, y.created_at DESC, y.yield_profile_id DESC`,
   );
-  const recipes = await db.query<RawVersion & { owner_type: OwnerType; owner_id: string }>(
+  const recipes = graph !== undefined ? [] : await db.query<RawVersion & { owner_type: OwnerType; owner_id: string }>(
     `SELECT ${VERSION_COLUMNS.split(', ')
       .map((c) => `v.${c}`)
       .join(', ')}, r.owner_type, r.owner_id, ${LINES_JSON} AS lines
@@ -503,7 +594,7 @@ export async function selectCostContext(db: TenantSql, branchId: string | null, 
         valid_until_at: row.valid_until_at,
       })),
       yields: yields.map((row) => ({ stock_item_id: row.stock_item_id, yield_bp: Number(row.yield_bp) })),
-      recipes: recipes.map((row) => costVersionElement(versionRecord(row), row.owner_type, row.owner_id)),
+      recipes: graph !== undefined ? [...graph] : recipes.map((row) => costVersionElement(versionRecord(row), row.owner_type, row.owner_id)),
     },
   };
 }
