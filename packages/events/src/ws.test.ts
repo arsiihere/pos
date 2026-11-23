@@ -131,6 +131,14 @@ describe('ws', () => {
     expect(WsAlertsOpen.safeParse({ type: 'alerts_open', alerts: [{ ...row, seen_by_me: 'no' }], binding_route_until: null }).success).toBe(false);
   });
 
+  it('[05b D-4] alerts_open rows take from_business_day (additive: absent, null or a YYYY-MM-DD date; nothing else)', () => {
+    const open = (extra: Record<string, unknown>) => WsAlertsOpen.safeParse({ type: 'alerts_open', alerts: [{ ...lockOnlyRow, ...extra }], binding_route_until: null });
+    expect(open({}).success).toBe(true);
+    expect(open({ from_business_day: null }).success).toBe(true);
+    expect(open({ from_business_day: '2025-10-19' }).success).toBe(true);
+    for (const bad of ['19-10-2025', '', 20251019]) expect(open({ from_business_day: bad }).success, String(bad)).toBe(false);
+  });
+
   it('[01d BF-5] binding_route { until: null } and alerts_open.binding_route_until parse', () => {
     expect(WsServerMessage.safeParse({ type: 'binding_route', until: null }).success).toBe(true);
     expect(WsServerMessage.safeParse({ type: 'binding_route', until: 1761907200000 }).success).toBe(true);

@@ -245,6 +245,7 @@ describe('01d alert-mode delivery (task 32)', () => {
           raised_at: hub.clock.branchNow(),
           seen_by_me: false, // §8.3 (task 34): a device-target row with no person
           target: null, // ⚠️ 01d v1.3 §3.13.1 (dl h1): every view carries target; t_info has no link
+          from_business_day: null, // 05b D-4: as the catch-up rows (BF-4); today's row
         },
       ],
       binding_route_until: null,
@@ -415,7 +416,7 @@ describe('01d alert-mode delivery (task 32)', () => {
     const sockets = createAlertSockets({
       db: hub.deps.db,
       branchId: 'branch-1',
-      clock: hub.clock,
+      clock: hub.clock, state: () => hub.deps.state.get(),
       ws: () => wsHubFor(hub.app),
       recordSent: () => undefined,
       log: { error: () => undefined },
@@ -478,6 +479,7 @@ describe('01d alert-mode delivery (task 32)', () => {
       raised_at: hub.clock.branchNow(),
       seen_by_me: false, // §8.3 (task 34): the bound approver has not seen it
       target: null, // ⚠️ 01d v1.3 §3.13.1 (dl h1): every view carries target; t_approval has no link
+      from_business_day: null, // 05b D-4: as the catch-up rows (BF-4); today's row
     });
     const kWs = await alertSocket(kds);
     expect(ids(kWs)).toEqual(['A_KDS']);

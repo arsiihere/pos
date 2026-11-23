@@ -1,6 +1,6 @@
 import { SCREEN_KEYS } from '@pos/domain';
 import { z } from 'zod';
-import { AlertCloseReasonSchema, AlertViewSchema, RequestDecisionSchema } from './alerts.js';
+import { AlertCloseReasonSchema, AlertsCatchUpRow, AlertViewSchema, RequestDecisionSchema } from './alerts.js';
 
 const Id = z.string().min(1);
 
@@ -31,10 +31,11 @@ export type WsClientMessage = z.infer<typeof WsClientMessage>;
 // 01d §6 batch 3: `alerts_open` never carries `card` or `details`, nor the signed-in AD-23 fields `answers`,
 // `needs_pin`, `silent`, nor AD-165's `raised_device_id` (strict). The spec example row has no `escalation`, `set` or `for_staff_id`, so they are
 // optional here. `outcome` (AD-82) is lock-safe; `seen_by_me` (§8.3) is the bound person's seen, false for a
-// device-target row with no person (optional: the spec example row has none).
+// device-target row with no person (optional: the spec example row has none). 05b D-4 (N-16): `from_business_day`
+// as the `alerts` catch-up rows carry it (BF-4), additive (optional), so an earlier day's row is listed without sound.
 export const WsAlertsOpenRow = AlertViewSchema.omit({ card: true, answers: true, needs_pin: true, silent: true, raised_device_id: true })
   .partial({ escalation: true, set: true, for_staff_id: true })
-  .extend({ seen_by_me: z.boolean().optional() })
+  .extend({ seen_by_me: z.boolean().optional(), from_business_day: AlertsCatchUpRow.shape.from_business_day.optional() })
   .strict();
 export type WsAlertsOpenRow = z.infer<typeof WsAlertsOpenRow>;
 
