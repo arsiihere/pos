@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~19:10 PKT: **Task 34 merged** (shell tabs). **25 tasks merged.** Left: 24 (fix round), 25, 30 (running), then Z1.
 > - 2026-11-23 ~18:55 PKT: **Task 33 merged** (hub admin devices, Recover admin access, K-2). **24 tasks merged.** Fix rounds: 24, 34. Running: 25. Left after these: 30, Z1.
 > - 2026-11-23 ~18:40 PKT: **Task 23 merged** (answers). **23 tasks merged.** Owner ruled **G-h (a)** → **05a v1.0.4** ("connected now" is route-level). Fix rounds: 24, 33, 34. Starting 25 (routing).
 > - 2026-11-23 ~18:00 PKT: **Task 26 merged** (`device_waiting`). **22 tasks merged.** Owner ruled **G-g (a)** → **05a v1.0.3** (recovery signal in login-roster's 403). In review: 24, 34. Fix rounds: 33 (G-g, K-2 `?edit=`). Running: 23.
@@ -125,7 +126,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 31 | B8 | device list page | NORMAL | `02677131` | **done** (Sonnet review; built against the §6.8 shape, hub side = task 20) |
 | 32 | B8 | approve + edit forms | NORMAL | `cdd79520` … `8790e5ee` | **done** (Sonnet review FIX → owner G-e / G-f → 05a v1.0.2; `#/devices?r=` opens the request, code empty; one screen-label set `alerts.screen.*`) |
 | 33 | B8 | hub admin pages, recovery, K-2 | NORMAL | `907aa2f1`, `3d0fa85b`, fix `a5cf1211` | **done** (Sonnet review FIX → owner G-g → 05a v1.0.3; `#/devices?edit=` opens the edit form; `/admin/recovery-link` also returns `first_admin_qr_svg`, additive as setup does; the unauthenticated `?r=` hint read removed) |
-| 34 | B8 | shell tabs (C-1) | NORMAL | | |
+| 34 | B8 | shell tabs (C-1) | NORMAL | `7193332b`, `c6e8ab2c`, fix `e6312da0` | **done** (Sonnet review FIX → 1 round: downgraded money actions — void / cancel, comp, discount, reopen — keep their button and show "Confirm on your phone"; `listed_only` hidden). Notes for the owner: the client has **no live-view screen** yet, so `manager` holds reports, day close, audit, test alert, devices (§3.6 lists "live view" too); `parking` opens `#/orders`; no client button gates on `apply-refund` (refunds are bill payments out) |
 | 35 | B8 | deep links, answer sheet, Pass parse | NORMAL | `c8249ee0`, `e816be7c`, fix `a8374df5` | **done** (Sonnet review FIX → 1 round: "Confirm on your phone" removed from the answer sheet, it belongs to task 34's downgraded action buttons). Screen labels: Dine in, Takeaway, Parking, Cash desk, Pass, Manager tools (spec names none) |
 | 36 | B8 | audit screen names for `device_profile_set` (G-b) | NORMAL | `c978d0fe` | **done** (Sonnet review APPROVE) |
 | Z1 | Z | acceptance map | — | | |
