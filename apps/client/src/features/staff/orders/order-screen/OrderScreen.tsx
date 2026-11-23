@@ -54,7 +54,9 @@ import { money } from '../money';
 import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
 import { announceCompIt, freezeSubmit, refusalText, sendOrder, sentToastText, timeUpdated, toCart, zoneEmpty } from '../send/send';
-import { WaitingToSend } from '../queue/WaitingToSend';
+import { createTokenBook } from '../takeaway/book';
+import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
+import type { QueueToken } from '../takeaway/queue-model';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
 // Menu / Cart tabs + sticky Send; 02-B03 draft back, B04 offline, B05 / B07 line problems), 02a §8 Order screen (the
@@ -390,7 +392,26 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [tab, setTab] = useState<'menu' | 'cart'>('menu');
+  const [tab, setTab] = useState<'menu' | 'cart' | 'queue'>('menu');
+  // 02b-TK C2-1: the takeaway queue rail (its book of tokens, names and phones from this device's frames, R3)
+  const book = useMemo(() => (order_type === 'takeaway' ? createTokenBook(shell.live) : null), [shell.live, order_type]);
+  useEffect(() => () => book?.dispose(), [book]);
+  const [heldCount, setHeldCount] = useState(0);
+  useEffect(() => {
+    if (order_type !== 'takeaway' || staffId === null) return;
+    let live = true;
+    void drafts
+      .list(deviceId, staffId)
+      .then((all) => live && setHeldCount(all.filter((d) => d.held).length))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [drafts, deviceId, staffId, order_type, restored]);
+  // the token's own view (the order view of its newest order until the token drawer, C2-2)
+  const onOpenToken = (q: QueueToken) => navigate(`/orders/${encodeURIComponent(q.newest_order_id)}`);
+  const railVariant: RailVariant = shell.phone || shell.portrait ? 'tab' : shell.device.type === 'cashier_kiosk' ? 'column' : 'strip';
+  const queueRail = (variant: RailVariant) => (book === null ? null : <QueueRail variant={variant} book={book} selected={null} onOpen={onOpenToken} heldCount={heldCount} />);
 
   if (config === null) {
     return (
@@ -714,7 +735,6 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     <>
       {!shell.online && <OfflineBar variant="order" />}
       {order_type === 'dine_in' && <LockBanner state={lock.banner} onKeepDraft={keepDraft} />}
-      {order_type === 'takeaway' && <WaitingToSend />}
     </>
   );
   // 26c: the sheet a tile, Edit or Order note asked for
@@ -831,6 +851,11 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
           <button type="button" aria-pressed={tab === 'cart'} onClick={() => setTab('cart')}>
             {t('order.tab.cart')} <span className="n num">{count}</span>
           </button>
+          {book !== null && (
+            <button type="button" aria-pressed={tab === 'queue'} onClick={() => setTab('queue')}>
+              {t('q.tab')}
+            </button>
+          )}
         </div>
         {blocked !== null && (
           <div className="msg cart__msg c-warn" role="alert">
@@ -845,7 +870,9 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
           </div>
         )}
         <div className="ph-body">
-          {tab === 'menu' ? (
+          {tab === 'queue' && book !== null ? (
+            queueRail(railVariant)
+          ) : tab === 'menu' ? (
             <>
               <MenuPills categories={rail} current={current} onPick={setCategory} />
               {menu}
@@ -870,9 +897,18 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   return (
     <div className="col grow order" dir={ur ? 'rtl' : 'ltr'}>
       {banners}
-      <div className="osc">
+      <div className={book === null ? 'osc' : 'osc osc--tk'}>
+        {/* 02b-TK C2-1 (frames HomeKiosk, QueueTablet): kiosk queue rail | menu | cart; a tablet's ready strip over the menu */}
+        {railVariant === 'column' && queueRail('column')}
         <MenuRail categories={rail} current={current} onPick={setCategory} />
-        {menu}
+        {railVariant === 'strip' && book !== null ? (
+          <div className="tk-mid">
+            {queueRail('strip')}
+            {menu}
+          </div>
+        ) : (
+          menu
+        )}
         <Cart {...cartProps} customer={customer} />
       </div>
       {draftBack}

@@ -1,0 +1,250 @@
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { navigate } from '../../../../app/router';
+import { t } from '../../../../i18n';
+import { timeText } from '../../../alerts/labels';
+import { Ico } from '../../../alerts/ui';
+import { useShell } from '../../shell/hooks';
+import type { OpenOrder } from '../contracts';
+import { useLiveRefetch } from '../lists/OpenOrders';
+import { WaitingRows } from '../queue/WaitingToSend';
+import type { TokenBook } from './book';
+import { buildQueue, knownOrders, matchesQuery, type QueueModel, type QueueToken } from './queue-model';
+import './styles';
+
+// 02b-TK C2-1 (02b v1.0.24 §6.16, §8; frames HomeKiosk, ReadyTiles, QueueTablet, PhoneQueue; CHANGES §1; R3): the
+// takeaway queue rail beside the menu and the cart — search, Ready — hand over (tiles), Cooking (rows by time, the
+// queued "Waiting to send" rows first), Phone orders — later, and at the foot Held (n) and All orders. One
+// `open-orders` read, again (debounced) on order frames, a reconnect and the page becoming visible; the names and
+// phones come only from what the kiosk was sent (catch-up, OrderContactSet: book.ts), never asked of the hub (R3).
+// Kiosk: a column; a landscape tablet: the ready strip with the whole queue behind "All orders"; phone: the Queue tab.
+
+export type RailVariant = 'column' | 'strip' | 'tab';
+
+/** The rail's data: the open-orders read, the rows seen before, and the book. */
+export function useTakeawayQueue(book: TokenBook): { model: QueueModel | null; failed: boolean; loadedAt: number | null; retry(): void } {
+  const shell = useShell();
+  const shellRef = useRef(shell);
+  shellRef.current = shell;
+  const [rows, setRows] = useState<OpenOrder[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
+  const seen = useRef(new Map<string, OpenOrder>());
+  const request = useRef(0);
+  const load = useCallback(async () => {
+    const mine = ++request.current;
+    let answer: Awaited<ReturnType<typeof shellRef.current.orders.openOrders>>;
+    try {
+      answer = await shellRef.current.orders.openOrders({ order_type: 'takeaway' });
+    } catch {
+      answer = { ok: false, error: { kind: 'network' } };
+    }
+    if (mine !== request.current) return;
+    if (!answer.ok) return setFailed(true);
+    for (const r of answer.data.orders) seen.current.set(r.order_id, r);
+    setFailed(false);
+    setRows(answer.data.orders);
+    setLoadedAt(shellRef.current.clock.nowMs());
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useLiveRefetch(shell.live, () => void load());
+  const version = useSyncExternalStore(book.subscribe, book.version);
+  const model = useMemo(() => (rows === null ? null : buildQueue(knownOrders(rows, seen.current, book.get))), [rows, book, version]);
+  return { model, failed, loadedAt, retry: () => void load() };
+}
+
+export interface QueueRailProps {
+  variant: RailVariant;
+  book: TokenBook;
+  /** the token whose view is open (its tile / row is selected) */
+  selected: string | null;
+  onOpen(token: QueueToken): void;
+  heldCount: number;
+}
+
+function ReadyTile({ q, selected, onOpen }: { q: QueueToken; selected: boolean; onOpen(): void }) {
+  const shell = useShell();
+  const cls = ['tk-rt', q.part ? 'tk-rt--part' : q.paid ? null : 'tk-rt--due', selected ? 'is-sel' : null].filter((c) => c !== null).join(' ');
+  return (
+    <button type="button" className={cls} aria-pressed={selected} onClick={onOpen} data-token={q.key}>
+      <span className="tok" dir="ltr">
+        {q.token ?? '—'}
+      </span>
+      <span className={`tk-chip ${q.paid ? 'tk-chip--ok' : 'tk-chip--solid-danger'}`}>
+        <Ico name={q.paid ? 'check' : 'warn'} />
+        {t(q.paid ? 'q.paid' : 'q.due')}
+      </span>
+      <span className="tk-rt__who" dir="auto">
+        {q.customer_name ?? t('order.takeaway')}
+      </span>
+      <span className="tk-rt__act">
+        {q.part ? (
+          <>
+            {t('q.part')}{' '}
+            {q.promise_ms !== null && (
+              <span className="time" dir="ltr">
+                {timeText(q.promise_ms, shell.clock.utcOffsetMs)}
+              </span>
+            )}
+          </>
+        ) : (
+          t(q.paid ? 'q.collect' : 'q.collect_pay')
+        )}
+      </span>
+    </button>
+  );
+}
+
+function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; onOpen(): void }) {
+  const shell = useShell();
+  return (
+    <button type="button" className={selected ? 'tk-qr is-sel' : 'tk-qr'} aria-pressed={selected} onClick={onOpen} data-token={q.key}>
+      <span className="tk-tok" dir="ltr">
+        {q.token ?? '—'}
+      </span>
+      <span className="tk-qr__m">
+        <b dir="auto">{q.customer_name ?? t('order.takeaway')}</b>
+        {q.summary !== '' && <small dir="auto">{q.summary}</small>}
+      </span>
+      <span className="tk-qr__r">
+        {q.promise_ms !== null && (
+          <span className="time" dir="ltr">
+            {timeText(q.promise_ms, shell.clock.utcOffsetMs)}
+          </span>
+        )}
+        <span className={`tk-chip ${q.paid ? 'tk-chip--ok' : 'tk-chip--danger'}`}>{t(q.paid ? 'q.paid' : 'q.due')}</span>
+      </span>
+    </button>
+  );
+}
+
+export function QueueRail({ variant, book, selected, onOpen, heldCount }: QueueRailProps) {
+  const shell = useShell();
+  const { model, failed, loadedAt, retry } = useTakeawayQueue(book);
+  const [query, setQuery] = useState('');
+  const [all, setAll] = useState(false);
+  const pick = (list: QueueToken[]) => list.filter((q) => matchesQuery(q, query));
+  const ready = pick(model?.ready ?? []);
+  const cooking = pick(model?.cooking ?? []);
+  const later = pick(model?.later ?? []);
+  const open = (q: QueueToken) => {
+    setAll(false);
+    onOpen(q);
+  };
+  const tiles = ready.map((q) => <ReadyTile key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} />);
+
+  if (variant === 'strip' && !all)
+    return (
+      <div className="tk-rstrip" role="region" aria-label={t('q.ready')}>
+        {tiles}
+        <button type="button" className="tk-rstrip__q" onClick={() => setAll(true)}>
+          <span>
+            {t('q.all')} · <span className="num">{(model?.ready.length ?? 0) + (model?.cooking.length ?? 0) + (model?.later.length ?? 0)}</span>
+          </span>
+          <small>
+            <span className="num">{model?.cooking.length ?? 0}</span> {t('q.cooking')}
+          </small>
+        </button>
+      </div>
+    );
+
+  const empty = model !== null && model.ready.length + model.cooking.length + model.later.length === 0;
+  const body = (
+    <>
+      <div className="tk-q__top">
+        <label className="tk-search" role="search">
+          <Ico name="eye" />
+          <input type="search" value={query} placeholder={t('q.search')} aria-label={t('q.search')} onChange={(e) => setQuery(e.target.value)} />
+        </label>
+        {!shell.online && loadedAt !== null && (
+          <span className="tk-hint">
+            {t('q.as_of')}{' '}
+            <span className="time" dir="ltr">
+              {timeText(loadedAt, shell.clock.utcOffsetMs)}
+            </span>
+          </span>
+        )}
+      </div>
+      <div className="tk-q__scroll">
+        {failed && (
+          <div className="tk-msg tk-msg--danger" role="alert">
+            <Ico name="warn" />
+            <span>{t('q.failed')}</span>
+            <button type="button" className="tk-btn" onClick={retry}>
+              {t('q.retry')}
+            </button>
+          </div>
+        )}
+        {model === null && !failed && <p className="tk-hint">{t('common.loading')}</p>}
+        {ready.length > 0 && (
+          <>
+            <div className="tk-sec">
+              <Ico name="checkc" />
+              {t('q.ready')}
+              <span className="tk-chip tk-chip--ok num">{ready.length}</span>
+            </div>
+            <div className="tk-ready">{tiles}</div>
+          </>
+        )}
+        <WaitingRows />
+        {cooking.length > 0 && (
+          <>
+            <div className="tk-sec">
+              <Ico name="pulse" />
+              {t('q.cooking')}
+              <span className="tk-chip num">{cooking.length}</span>
+            </div>
+            {cooking.map((q) => (
+              <QueueRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} />
+            ))}
+          </>
+        )}
+        {later.length > 0 && (
+          <>
+            <div className="tk-sec">
+              <Ico name="clock" />
+              {t('q.later')}
+              <span className="tk-chip tk-chip--info num">{later.length}</span>
+            </div>
+            {later.map((q) => (
+              <QueueRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} />
+            ))}
+          </>
+        )}
+        {empty && (
+          <div className="tk-empty">
+            <span className="tk-empty__ic">
+              <Ico name="tray" />
+            </span>
+            <b>{t('q.empty_t')}</b>
+            <p>{t('q.empty_p')}</p>
+          </div>
+        )}
+      </div>
+      <div className="tk-q__foot">
+        <button type="button" className="tk-btn" onClick={() => navigate('/held')}>
+          {t('q.held')}
+          {heldCount > 0 && <span className="tk-chip tk-chip--brand num">{heldCount}</span>}
+        </button>
+        <button type="button" className="tk-btn" onClick={() => navigate('/orders')}>
+          {t('q.all')}
+        </button>
+      </div>
+    </>
+  );
+  if (variant === 'strip')
+    return (
+      <>
+        <button type="button" className="tk-scrim--fixed" aria-label={t('common.close')} onClick={() => setAll(false)} />
+        <aside className="tk-drawer tk-q" role="dialog" aria-label={t('q.all')}>
+          {body}
+        </aside>
+      </>
+    );
+  return (
+    <aside className={variant === 'tab' ? 'tk-q tk-q--tab' : 'tk-q'} aria-label={t('q.all')}>
+      {body}
+    </aside>
+  );
+}

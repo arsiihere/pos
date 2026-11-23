@@ -351,6 +351,8 @@ describe('[02b §8 Ordering screen] order screen', () => {
     expect([...tabs].map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([
       ['Menu', 'true'],
       ['Cart 0', 'false'],
+      // 02b-TK C2-1 (frame PhoneQueue): a takeaway phone has the Queue tab too
+      ['Queue', 'false'],
     ]);
     expect(phone.container.querySelector('.sbar .btn--primary')?.textContent).toBe('Send');
     expect(phone.container.querySelector('.cats')).toBeNull();

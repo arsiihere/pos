@@ -1616,4 +1616,23 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'l.hold': 'ہولڈ کریں',
   'l.discard': 'ختم کریں',
   'l.stay': 'یہیں رہیں',
+  // ---- 02b-TK client (batch C2): docs/design/handoff/02b-tk/strings-table.md ----
+  'q.search': 'ٹوکن، نام یا فون',
+  'q.ready': 'تیار — حوالے کریں',
+  'q.cooking': 'بن رہا ہے',
+  'q.later': 'فون آرڈر — بعد میں',
+  'q.collect': 'حوالے کریں',
+  'q.collect_pay': 'پیسے لیں',
+  'q.part': 'کچھ دیا · باقی',
+  'q.paid': 'ادا',
+  'q.due': 'باقی',
+  'q.held': 'ہولڈ',
+  'q.all': 'سب آرڈر',
+  'q.empty_t': 'ابھی کوئی ٹیک اوے آرڈر نہیں',
+  'q.empty_p': 'بھیجے گئے آرڈر یہاں رہیں گے جب تک گاہک لے نہ جائے۔',
+  'q.failed': 'آرڈر لوڈ نہیں ہوئے',
+  'q.retry': 'دوبارہ کوشش',
+  'q.as_of': 'آخری اپ ڈیٹ',
+  // 02b-TK C2-1 (frame PhoneQueue tab): not in strings-table.md; Urdu to confirm
+  'q.tab': 'قطار',
 };

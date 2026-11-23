@@ -4262,6 +4262,25 @@ export const en = {
   'l.hold': 'Hold it',
   'l.discard': 'Throw away',
   'l.stay': 'Stay here',
+  // ---- 02b-TK client (batch C2): docs/design/handoff/02b-tk/strings-table.md ----
+  'q.search': 'Token, name or phone',
+  'q.ready': 'Ready — hand over',
+  'q.cooking': 'Cooking',
+  'q.later': 'Phone orders — later',
+  'q.collect': 'Hand over',
+  'q.collect_pay': 'Take payment',
+  'q.part': 'Part given · rest',
+  'q.paid': 'Paid',
+  'q.due': 'Due',
+  'q.held': 'Held',
+  'q.all': 'All orders',
+  'q.empty_t': 'No takeaway orders yet',
+  'q.empty_p': 'Orders you send show here until the customer collects them.',
+  'q.failed': 'Couldn’t load orders',
+  'q.retry': 'Try again',
+  'q.as_of': 'Last updated',
+  // 02b-TK C2-1 (frame PhoneQueue tab): not in strings-table.md; Urdu to confirm
+  'q.tab': 'Queue',
 } as const;
 
 export type MessageKey = keyof typeof en;
