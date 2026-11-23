@@ -1604,4 +1604,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'c.optional': 'اختیاری',
   'c.name_ph': 'گاہک کا نام',
   'c.phone_err': '+92 کے بعد 10 ہندسے لکھیں',
+  't.sent': 'بھیج دیا · تیار',
+  't.queued': 'ابھی نہیں گیا — ہب واپس آنے پر ٹوکن ملے گا',
+  'q.waiting_send': 'بھیجنے کا انتظار',
 };

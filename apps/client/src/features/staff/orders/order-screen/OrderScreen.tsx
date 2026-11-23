@@ -51,7 +51,8 @@ import { phoneBad } from './contact';
 import { CustomerRow } from './CustomerRow';
 import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
-import { announceCompIt, freezeSubmit, refusalText, sendOrder, timeUpdated, toCart, zoneEmpty } from '../send/send';
+import { announceCompIt, freezeSubmit, refusalText, sendOrder, sentToastText, timeUpdated, toCart, zoneEmpty } from '../send/send';
+import { WaitingToSend } from '../queue/WaitingToSend';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
 // Menu / Cart tabs + sticky Send; 02-B03 draft back, B04 offline, B05 / B07 line problems), 02a §8 Order screen (the
@@ -519,7 +520,13 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         : order_type === 'takeaway'
           ? t('order.takeaway') + (payload.takeaway?.customer_name === undefined ? '' : ` · ${payload.takeaway.customer_name}`)
           : `${t('order.parking')} · ${frozen.parking?.car_number ?? ''}`;
-    setSend({ kind: 'sending', sub: [title, fill(t('cart.items'), { n: String(count) })].filter((x) => x !== null).join(' · ') });
+    // 02b-TK C1-3 (02b §6.1, §3.12; frames SentToast, SentQueued; audit #7, #27): a takeaway sends in the background —
+    // no dialog, a fresh cart at once (it takes no tap until the queue answered, #35), a toast with the token after;
+    // a refusal brings the frozen cart back. Dine-in and parking keep the Send dialog.
+    const background = order_type === 'takeaway';
+    const restore = () => (background ? setCart(frozen) : undefined);
+    if (background) setCart(EMPTY_CART);
+    else setSend({ kind: 'sending', sub: [title, fill(t('cart.items'), { n: String(count) })].filter((x) => x !== null).join(' · ') });
     let outcome: Awaited<ReturnType<typeof sendOrder>>;
     try {
       outcome = await sendOrder(shellRef.current.enqueue, payload, label);
@@ -527,7 +534,25 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       // the queue never rejects by contract; if it does, "Sending…" does not stay up — the cart is kept
       sending.current = false;
       setSend(null);
+      restore();
       shellRef.current.toasts.show({ text: t('send.failed'), tone: 'warn' });
+      return;
+    }
+    if (background && (outcome.kind === 'sent' || outcome.kind === 'queued')) {
+      sending.current = false;
+      if (outcome.kind === 'sent') {
+        announceCompIt(payload, frozen);
+        const r = outcome.result;
+        const moved = r === undefined ? null : timeUpdated(config, frozen, before, r);
+        shellRef.current.toasts.show({
+          text: sentToastText(r, payload.takeaway?.customer_name, shellRef.current.clock.utcOffsetMs),
+          ...(moved === null ? {} : { sub: fill(t('send.time_updated'), { item: moved.name, time: timeText(moved.eta_ms, shellRef.current.clock.utcOffsetMs) }) }),
+          tone: 'ok',
+        });
+      } else {
+        announceCompIt(payload, frozen, { queued: true });
+        shellRef.current.toasts.show(outcome.logged === true ? { text: t('queue.in_log'), tone: 'warn' } : { text: t('t.queued'), tone: 'info' });
+      }
       return;
     }
     if (outcome.kind === 'sent') {
@@ -543,11 +568,13 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     } else if (outcome.kind === 'day_not_open') {
       sending.current = false;
       setSend(null);
+      restore();
       setDayClosed(true);
     } else {
       // refused: the cart is kept; the reason by its code
       sending.current = false;
       setSend(null);
+      restore();
       shellRef.current.toasts.show({ text: refusalText(config, outcome), tone: 'warn' });
       if (outcome.kind === 'refused' && outcome.error.code === 'TABLE_SEATING_CHANGED') setSeatReload((n) => n + 1);
       // a line refusal: the preview runs again so the line shows its problem (B05 / B07)
@@ -626,6 +653,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     <>
       {!shell.online && <OfflineBar variant="order" />}
       {order_type === 'dine_in' && <LockBanner state={lock.banner} onKeepDraft={keepDraft} />}
+      {order_type === 'takeaway' && <WaitingToSend />}
     </>
   );
   // 26c: the sheet a tile, Edit or Order note asked for

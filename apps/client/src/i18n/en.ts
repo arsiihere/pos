@@ -4250,6 +4250,9 @@ export const en = {
   'c.optional': 'optional',
   'c.name_ph': 'Customer name',
   'c.phone_err': 'Enter 10 digits after +92',
+  't.sent': 'sent · ready',
+  't.queued': 'Not sent yet — token comes when the hub is back',
+  'q.waiting_send': 'Waiting to send',
 } as const;
 
 export type MessageKey = keyof typeof en;
