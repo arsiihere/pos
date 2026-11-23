@@ -29,7 +29,7 @@ import './styles';
 // (Waiting / Cooking / Ready / Handed over) from `order-view` (§6.18a) of every order of the token; the bill from
 // `bill?order_id=` of the token's NEWEST order (05 #44e: after the root bill closed an addition opens a new bill on the
 // same key; then the root's bill shows too). Actions: Give ready items now (MarkServed of the ready lines), Hand over
-// all, Take payment (the bill screen), Add items, Remove / cancel, Call, Bill.
+// all, Take payment (the pay panel over the cart, C3-1; hidden offline), Add items, Remove / cancel, Call, Bill.
 // R2 (no hub guard, 05 B16 as approved): on a Due bill Hand over all is greyed; a MANAGER may hand over unpaid. The
 // client's rule for "manager": the session holds `apply-discount` outright (grant `allowed`) — the Manager / Owner
 // default roles; the Cashier default holds it only with approval. Hand-overs go through the 5 s Undo (handover.ts).
@@ -42,6 +42,8 @@ export interface TokenViewProps {
   onHandOver(lines: GroupedLine[]): void;
   /** C2-3: add items to this token */
   onAddItems?: (() => void) | undefined;
+  /** C3-1: Take payment opens the pay panel (else the bill screen) */
+  onPay?: (() => void) | undefined;
 }
 
 /** R2: who may hand over a Due order (documented rule: `apply-discount` granted outright). */
@@ -76,7 +78,7 @@ export function billFact(b: BillView): { paid: boolean; amount_minor: number; bi
   return { paid: false, amount_minor: open.length === 0 ? b.totals_default.total_minor : owed, bill_id: b.bill_id };
 }
 
-export function TokenView({ token, book, onClose, onHandOver, onAddItems }: TokenViewProps) {
+export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay }: TokenViewProps) {
   const shell = useShell();
   const shellRef = useRef(shell);
   shellRef.current = shell;
@@ -266,8 +268,9 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems }: Toke
               {giveText}
             </button>
           )}
-          {due && may('take-payment') && (
-            <button type="button" className="tk-btn tk-btn--xl tk-btn--primary" onClick={toBill}>
+          {/* 02b-TK C3-1 (05 B12): money needs the hub — offline Take payment is hidden and the token stays Due */}
+          {due && may('take-payment') && shell.online && (
+            <button type="button" className="tk-btn tk-btn--xl tk-btn--primary" onClick={onPay ?? toBill}>
               {t('v.pay')} · <span dir={MONEY_DIR}>{money(bill!.current!.amount_minor)}</span>
             </button>
           )}

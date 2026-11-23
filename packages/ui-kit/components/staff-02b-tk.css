@@ -158,3 +158,58 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
   .tk-facts { grid-template-columns: 1fr 1fr; }
   .tk-grid3 { grid-template-columns: 1fr 1fr; }
 }
+
+/* ---------- batch C3: the pay panel over the cart (frames PayCash, PayCashShort, PayCard, PayDone, PayError) ---------- */
+.tk-paypanel { position: absolute; inset: 0; z-index: 22; background: var(--surface-raised); display: flex; flex-direction: column; }
+.tk-pay__h { flex: none; padding: 16px 16px 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
+.tk-pay__h .tk-tok { height: 60px; min-width: 72px; font-size: 32px; }
+.tk-pay__due { padding: 14px 16px; display: flex; align-items: baseline; gap: 12px; }
+.tk-pay__due span { font-size: 17px; font-weight: 700; color: var(--ink-muted); }
+.tk-pay__due .money { margin-inline-start: auto; font: 800 48px/1 var(--font-sans); color: var(--ink); }
+.tk-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0 16px; }
+.tk-mode { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 72px; border-radius: 16px; border: 2px solid var(--control-edge); background: var(--surface-soft); font-weight: 800; font-size: 17px; }
+.tk-mode.is-sel { background: var(--chrome); color: var(--on-chrome); border-color: var(--chrome); }
+.tk-notes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 0 16px; }
+.tk-notes button { min-height: 64px; border-radius: 14px; border: 1.5px solid var(--control-edge); background: var(--surface-raised); font: 800 20px/1 var(--font-sans); }
+.tk-notes button.is-sel { background: var(--accent-tint); border-color: var(--accent); color: var(--accent-ink); }
+.tk-notes button small { display: block; font: 700 13px/1.4 var(--font-sans); color: var(--ink-muted); }
+.tk-change { margin: 0 16px; padding: 14px 16px; border-radius: 16px; background: var(--ok-tint); display: flex; align-items: center; gap: 12px; }
+.tk-change span { font-weight: 800; font-size: 18px; color: var(--ok); }
+.tk-change .money { margin-inline-start: auto; font: 800 44px/1 var(--font-sans); color: var(--ok); }
+.tk-change--short { background: var(--danger-tint); }
+.tk-change--short span, .tk-change--short .money { color: var(--danger); }
+.tk-tendered { margin: 10px 16px 10px; display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 16px; border-radius: 14px; border: 2px solid var(--accent); background: var(--surface-raised); }
+.tk-tendered span { font-weight: 700; color: var(--ink-muted); }
+.tk-tendered .money { margin-inline-start: auto; font: 800 30px/1 var(--font-sans); }
+.tk-qrbox { margin: 14px 16px 0; padding: 18px; border-radius: 20px; background: var(--surface-soft); display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.tk-field { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.tk-field > span { font-size: 14px; font-weight: 700; color: var(--ink-muted); }
+.tk-input { display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 14px; border-radius: 12px; border: 1.5px solid var(--control-edge); background: var(--surface-raised); font-size: 18px; font-weight: 600; min-width: 0; }
+.tk-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); outline: none; }
+.tk-foot { flex: none; border-top: 1px solid var(--line); padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 10px; background: var(--surface-raised); }
+.tk-acts { display: grid; grid-template-columns: 1fr 1.25fr; gap: 10px; }
+/* in the app (not in the hand-off): the panel's parts and states */
+.osc--tk > .cart { position: relative; }
+.tk-paypanel--fixed { position: fixed; z-index: 31; }
+.tk-pay__t { font-size: 20px; }
+.tk-pay__b { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding-bottom: 12px; }
+.tk-pay__b > * { flex: none; }
+.tk-pay__pad { margin: 14px 16px 0; }
+.tk-pay__sec { padding: 14px 16px 4px; }
+.tk-tendered input { margin-inline-start: auto; min-width: 0; width: 60%; border: 0; background: transparent; text-align: end; font: 800 30px/1 var(--font-sans); color: var(--ink); outline: none; }
+.tk-change--block { margin: 0; width: 100%; }
+.tk-qrbox--start { align-items: stretch; text-align: start; }
+.tk-qrbox--start > b { font-size: 19px; }
+.tk-pay__err { margin: 16px; padding: 24px; border-radius: var(--radius-xl); background: var(--danger-tint); display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.tk-pay__err h2 { margin: 0; display: flex; align-items: center; gap: 10px; font: 800 24px/1.2 var(--font-display); color: var(--danger); }
+[dir="rtl"] .tk-pay__err h2 { font-family: var(--font-urdu); line-height: 1.6; }
+.tk-pay__err p { margin: 0; font-size: 17px; color: var(--ink-muted); }
+.tk-pay__err .tk-pay__why { color: var(--ink); font-weight: 700; }
+.tk-pay__done { flex: 1 1 auto; gap: 16px; }
+.tk-pay__done b { font-size: 30px; }
+.tk-empty__ic--ok { width: 120px; height: 120px; background: var(--ok-fill); color: #fff; }
+.tk-empty__ic--ok .ico { width: 56px; height: 56px; }
+.tk-acts--one { grid-template-columns: 1fr; }
+.tk-acts--one:has(> :nth-child(2)) { grid-template-columns: 1fr 1.25fr; }
+.tk-hint--warn { background: var(--warn-tint); color: var(--warn); padding: 10px 14px; border-radius: var(--radius-md); font-weight: 600; }
+.cart__foot .tk-btn[disabled] { opacity: .45; box-shadow: none; }

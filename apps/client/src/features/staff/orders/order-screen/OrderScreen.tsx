@@ -60,6 +60,7 @@ import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
 import type { QueueToken } from '../takeaway/queue-model';
 import { createHandovers } from '../takeaway/handover';
 import { readyNow, TokenView } from '../takeaway/TokenView';
+import { PayPanel, type PayTarget } from '../takeaway/PayPanel';
 import { servedPayload } from '../actions/MarkServedSheet';
 import { showEnqueued } from '../view/LineActions';
 import { groupParts, type GroupedLine } from '../view/parts';
@@ -417,6 +418,25 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   }, [drafts, deviceId, staffId, order_type, restored]);
   // 02b-TK C2-2: the token view drawer over the menu and the cart (the cart is kept)
   const [openToken, setOpenToken] = useState<QueueToken | null>(null);
+  // 02b-TK C3-1: the pay panel over the cart (Send & pay, or Take payment of a token)
+  const [pay, setPay] = useState<PayTarget | null>(null);
+  const payToken = (q: QueueToken) => {
+    setOpenToken(null);
+    setPay({ order_id: q.newest_order_id, ident: q.token === null ? null : String(q.token), name: q.customer_name, promise_ms: q.promise_ms });
+  };
+  // 02b-TK C3-1 (frame HomeKiosk keys): F8 Send & pay, F9 Send · pay later — only on the bare screen (no sheet, drawer
+  // or panel over it)
+  const sendKeys = useRef<((pay: boolean) => void) | null>(null);
+  useEffect(() => {
+    if (order_type !== 'takeaway') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F8' && e.key !== 'F9') return;
+      e.preventDefault();
+      sendKeys.current?.(e.key === 'F8');
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [order_type]);
   // hand-overs wait UNDO_MS before MarkServed is sent (frame HandoverUndo); the page hiding or the screen closing sends them
   const handovers = useMemo(
     () =>
@@ -454,7 +474,6 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   };
   const pendingKeys = new Set(handovers.pending().map((h) => h.token_key));
   const lastHandover = handovers.pending().at(-1) ?? null;
-  const toBill = (q: QueueToken) => navigate(`/bill?order_id=${encodeURIComponent(q.newest_order_id)}`);
   const railVariant: RailVariant = shell.phone || shell.portrait ? 'tab' : shell.device.type === 'cashier_kiosk' ? 'column' : 'strip';
   const queueRail = (variant: RailVariant) =>
     book === null ? null : (
@@ -465,14 +484,16 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         onOpen={setOpenToken}
         heldCount={heldCount}
         onHandOver={(q) => void handOverTile(q)}
-        onPay={toBill}
+        onPay={payToken}
         hidden={pendingKeys}
       />
     );
   const tokenView =
     openToken === null || book === null ? null : (
-      <TokenView token={openToken} book={book} onClose={() => setOpenToken(null)} onHandOver={(lines) => handOver(openToken, lines)} onAddItems={() => addTo(openToken)} />
+      <TokenView token={openToken} book={book} onClose={() => setOpenToken(null)} onHandOver={(lines) => handOver(openToken, lines)} onAddItems={() => addTo(openToken)} onPay={() => payToken(openToken)} />
     );
+  const payView = (fixed: boolean) =>
+    pay === null ? null : <PayPanel key={pay.order_id ?? 'sending'} target={pay} fixed={fixed} onLater={() => setPay(null)} onDone={() => setPay(null)} />;
   const undoToast =
     lastHandover === null ? null : (
       <div className="tk-toast tk-toast--ok tk-toast--bottom" role="status">
@@ -631,10 +652,15 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const contactBad = order_type === 'takeaway' && phoneBad(cart.takeaway?.phone);
   const canSend = (order_type !== 'dine_in' || (seat !== null && lock.canSend)) && !contactBad;
   const blocked = order_type === 'dine_in' && seatMissing ? t('order.seating_missing') : null;
+  // 02b-TK C3-1 (frames HomeKiosk, HomeOffline): a takeaway of a take-payment holder sends and pays, or pays later; an
+  // addition to a token keeps its one "Add to token 53" (it is paid from the token view)
+  const canPay = order_type === 'takeaway' && cart.adds_to === undefined && shell.permissions.allowed('take-payment');
   // 26d: Send freezes the cart (#35), enqueues it first (stored before the first send, 25b), then the queue submits
-  const onSend = async () => {
+  const onSend = async (opts: { pay?: boolean } = {}) => {
     // the button's state is not the only guard: lock, line problems and the day are checked here too
     if (sending.current || target === null || cart.lines.length === 0 || !canSend || problems.size > 0 || dayNotOpen) return;
+    // 02b-TK C3-1 (05 B12): money is never queued — Send & pay only for a take-payment holder while the hub is live
+    const andPay = opts.pay === true && canPay && shellRef.current.online;
     sending.current = true;
     const frozen = cart;
     const before = body;
@@ -650,7 +676,12 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     // no dialog, a fresh cart at once (it takes no tap until the queue answered, #35), a toast with the token after;
     // a refusal brings the frozen cart back. Dine-in and parking keep the Send dialog.
     const background = order_type === 'takeaway';
-    const restore = () => (background ? setCart(frozen) : undefined);
+    const restore = () => {
+      if (andPay) setPay(null);
+      if (background) setCart(frozen);
+    };
+    // 02b-TK C3-1 (frame PayCash): the pay panel opens at once over the fresh cart; its bill is read once the order is in
+    if (andPay) setPay({ order_id: null, ident: null, name: payload.takeaway?.customer_name ?? null, promise_ms: null });
     if (background) setCart(EMPTY_CART);
     else setSend({ kind: 'sending', sub: [title, fill(t('cart.items'), { n: String(count) })].filter((x) => x !== null).join(' · ') });
     let outcome: Awaited<ReturnType<typeof sendOrder>>;
@@ -669,6 +700,10 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       if (outcome.kind === 'sent') {
         announceCompIt(payload, frozen);
         const r = outcome.result;
+        if (andPay) {
+          const promises = r?.groups.map((g) => g.promise_ms) ?? [];
+          setPay({ order_id: payload.order_id, ident: r?.token == null ? null : String(r.token), name: payload.takeaway?.customer_name ?? null, promise_ms: promises.length === 0 ? null : Math.max(...promises) });
+        }
         const moved = r === undefined ? null : timeUpdated(config, frozen, before, r);
         shellRef.current.toasts.show({
           text: sentToastText(r, payload.takeaway?.customer_name, shellRef.current.clock.utcOffsetMs),
@@ -676,6 +711,8 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
           tone: 'ok',
         });
       } else {
+        // queued (the hub is not answering): no payment now — the order stays Due (05 B12)
+        if (andPay) setPay(null);
         announceCompIt(payload, frozen, { queued: true });
         shellRef.current.toasts.show(outcome.logged === true ? { text: t('queue.in_log'), tone: 'warn' } : { text: t('t.queued'), tone: 'info' });
       }
@@ -706,6 +743,11 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       // a line refusal: the preview runs again so the line shows its problem (B05 / B07)
       else if (target !== null) preview.set(toEtaDraft(frozen, target));
     }
+  };
+  sendKeys.current = (andPay: boolean) => {
+    if (sheet !== null || openToken !== null || pay !== null || send !== null || guard.pending !== null) return;
+    if (andPay && !(canPay && shell.online)) return;
+    void onSend({ pay: andPay });
   };
   const goBack = () => navigate(order_type === 'dine_in' ? (seat === null ? '/tables' : tableHref(seat.ref.table_id, id)) : '/orders');
   // Hold (02-S08): the draft stays on this device, held for this person; the screen goes back
@@ -777,6 +819,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     onNote: () => (sending.current ? undefined : setSheet({ kind: 'order_note' })),
     onHold: () => void onHold(),
     onSend: () => void onSend(),
+    pay: canPay ? { online: shell.online, onSendPay: () => void onSend({ pay: true }) } : undefined,
     day: dayNotOpen ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
     info: cart.lines.find((l) => l.comp_it === true) === undefined ? null : compItInfo(),
     // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins
@@ -983,13 +1026,14 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
           )}
         </div>
         {cartProps.day}
-        {!dayNotOpen && <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} primary={primary} onSend={() => void onSend()} />}
+        {!dayNotOpen && <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} primary={primary} pay={cartProps.pay} onSend={() => void onSend()} />}
         {draftBack}
         {sheetView}
         {sendView}
         {newOrderView}
         {leaveView}
         {tokenView}
+        {payView(true)}
         {undoToast}
       </div>
     );
@@ -1009,7 +1053,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         ) : (
           menu
         )}
-        <Cart {...cartProps} customer={customer} />
+        <Cart {...cartProps} customer={customer} overlay={payView(false)} />
       </div>
       {draftBack}
       {sheetView}

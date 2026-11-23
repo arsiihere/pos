@@ -4195,6 +4195,33 @@ export const en = {
   // 02b-TK C2-5 (frame HeldDrawer "Held … · by Sana"; R3): not in strings-table.md; Urdu to confirm
   'h.by': 'by {name}',
   'h.shared': 'Everyone on this counter sees these. Table orders stay with who held them.',
+  // ---- 02b-TK client (batch C3): docs/design/handoff/02b-tk/strings-table.md ----
+  'c.send_later': 'Send · pay later',
+  'c.send_pay': 'Send & pay',
+  'c.queued_pay': 'Payment needs the hub. Send now; take payment when Live.',
+  'p.title': 'Take payment',
+  'p.due': 'To pay',
+  'p.given': 'Customer gave',
+  'p.exact': 'Exact',
+  'p.change': 'Give change',
+  'p.short': 'Short by',
+  'p.done': 'Paid · print receipt',
+  'p.later': 'Pay later',
+  'p.machine': 'Card machine approved?',
+  'p.ref': 'Last 4 digits / slip no.',
+  'p.paid_t': 'Paid',
+  'p.change_big': 'Give change',
+  'p.receipt': 'Receipt is printing',
+  'p.next': 'Next customer',
+  'p.err': 'Payment didn’t go through',
+  'p.err_sub': 'Nothing was charged. Try again or choose another way.',
+  'p.offline': 'Hub offline — payment can’t be recorded now',
+  // 02b-TK C3-1 (frame PayError note; 05 §6.9 / §6.12 refusals): not in strings-table.md; Urdu to confirm
+  'p.err_kitchen': 'Pay later keeps it Due — the order is already in the kitchen.',
+  'p.err_day': 'The day hasn’t started — start the day before taking money',
+  'p.close_err': 'The bill didn’t close',
+  'p.close_err_sub': 'The payment is in. Try again, or open the bill to finish it.',
+  'p.open_bill': 'Open bill',
 } as const;
 
 export type MessageKey = keyof typeof en;

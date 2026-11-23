@@ -45,6 +45,13 @@ export interface CartProps {
   bare?: boolean;
   /** 02b-TK C2-3 (frame TokenAddItems): the primary's words in place of Send ("Add to token 53") */
   primary?: string | undefined;
+  /**
+   * 02b-TK C3-1 (frames HomeKiosk, HomeOffline): a takeaway cart of a take-payment holder — "Send · pay later" (F9, the
+   * Send above) and the primary "Send & pay" (F8); offline only pay later, with "Payment needs the hub…".
+   */
+  pay?: { online: boolean; onSendPay(): void } | undefined;
+  /** 02b-TK C3-1: the pay panel over the cart */
+  overlay?: ReactNode;
 }
 
 function GroupHead({ group, utcOffsetMs }: { group: CartGroup; utcOffsetMs: number }) {
@@ -161,19 +168,43 @@ export function Cart(p: CartProps) {
                 {t('cart.hold')}
               </button>
             </div>
-            <button type="button" className="btn btn--primary btn--lg btn--block" disabled={empty || p.problems > 0 || !p.canSend} onClick={p.onSend}>
-              <Ico name="send" />
-              {sendLabel(p)}
-            </button>
+            {p.pay !== undefined && p.problems === 0 ? (
+              <PayActions pay={p.pay} off={empty || !p.canSend} onSend={p.onSend} />
+            ) : (
+              <button type="button" className="btn btn--primary btn--lg btn--block" disabled={empty || p.problems > 0 || !p.canSend} onClick={p.onSend}>
+                <Ico name="send" />
+                {sendLabel(p)}
+              </button>
+            )}
           </>
         )}
       </div>
+      {p.overlay}
     </aside>
   );
 }
 
+/** 02b-TK C3-1 (frames HomeKiosk, HomeOffline): Send · pay later (F9) and Send & pay (F8); offline pay later only. */
+function PayActions({ pay, off, onSend }: { pay: NonNullable<CartProps['pay']>; off: boolean; onSend(): void }) {
+  return (
+    <>
+      {!pay.online && <div className="tk-hint tk-hint--warn">{t('c.queued_pay')}</div>}
+      <div className={pay.online ? 'tk-acts' : 'tk-acts tk-acts--one'}>
+        <button type="button" className={pay.online ? 'tk-btn tk-btn--lg' : 'tk-btn tk-btn--xl tk-btn--primary'} disabled={off} onClick={onSend}>
+          {t('c.send_later')} <span className="tk-kbd" dir="ltr">F9</span>
+        </button>
+        {pay.online && (
+          <button type="button" className="tk-btn tk-btn--xl tk-btn--primary" disabled={off} onClick={pay.onSendPay}>
+            {t('c.send_pay')} <span className="tk-kbd" dir="ltr">F8</span>
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
 /** 02-S10 sticky Send bar: total, "6 items · 8:27 PM", Send. */
-export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' | 'utcOffsetMs' | 'problems' | 'canSend' | 'onSend' | 'primary'>) {
+export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' | 'utcOffsetMs' | 'problems' | 'canSend' | 'onSend' | 'primary' | 'pay'>) {
   const sub = fill(t('cart.items'), { n: String(p.count) }) + (p.ready_by === null ? '' : ` · ${timeText(p.ready_by, p.utcOffsetMs)}`);
   return (
     <div className="sbar">
@@ -181,10 +212,23 @@ export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' 
         <b dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</b>
         <small>{sub}</small>
       </div>
-      <button type="button" className="btn btn--primary btn--lg" disabled={p.count === 0 || p.problems > 0 || !p.canSend} onClick={p.onSend}>
-        <Ico name="send" />
-        {p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : (p.primary ?? t('cart.send_short'))}
-      </button>
+      {p.pay !== undefined && p.problems === 0 ? (
+        <>
+          <button type="button" className={p.pay.online ? 'btn btn--lg' : 'btn btn--primary btn--lg'} disabled={p.count === 0 || !p.canSend} onClick={p.onSend}>
+            {t('c.send_later')}
+          </button>
+          {p.pay.online && (
+            <button type="button" className="btn btn--primary btn--lg" disabled={p.count === 0 || !p.canSend} onClick={p.pay.onSendPay}>
+              {t('c.send_pay')}
+            </button>
+          )}
+        </>
+      ) : (
+        <button type="button" className="btn btn--primary btn--lg" disabled={p.count === 0 || p.problems > 0 || !p.canSend} onClick={p.onSend}>
+          <Ico name="send" />
+          {p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : (p.primary ?? t('cart.send_short'))}
+        </button>
+      )}
     </div>
   );
 }
