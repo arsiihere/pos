@@ -226,9 +226,11 @@ describe('client-dist', () => {
     expect(page.body).toContain(`<meta name="pos-branch-name" content="${provisioned.branch_name}">`);
     expect(page.body).toMatch(/<meta name="pos-hub-now-ms" content="\d+">/);
     expect(page.body).toMatch(/<meta name="pos-hub-utc-offset-ms" content="-?\d+">/);
-    // the same page meta as /staff/ (one source), ids and clock only: no token or secret
+    // the same page meta as /staff/ (one source), ids and clock only: no token or secret. 05b H-1 (O-17): only
+    // /staff/ adds pos-staff-build.
     const metaOf = (html: string) => [...html.matchAll(/<meta name="(pos-[^"]+)"/g)].map((m) => m[1]);
-    expect(metaOf(page.body)).toEqual(metaOf(staff.body));
+    expect(metaOf(page.body)).toEqual(metaOf(staff.body).filter((name) => name !== 'pos-staff-build'));
+    expect(metaOf(page.body)).not.toContain('pos-staff-build');
     expect(page.body).not.toMatch(/token|secret|api_key/i);
     const js = await hub.app.inject({ method: 'GET', url: '/kds/assets/k1.js' });
     expect(js.statusCode).toBe(200);

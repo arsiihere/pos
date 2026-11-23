@@ -28,7 +28,7 @@ import { registerAlertProjections } from '../projections/alerts.js';
 import { registerRestaurantProjections } from '../projections/branch-config.js';
 import { deviceProfilesProjection } from '../projections/device-profiles.js';
 import { createProjectionRegistry, type ProjectionRegistry } from '../projections/registry.js';
-import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
+import { buildHubServer, installHubErrors, staffBuildFor, type HubDeps } from '../server.js';
 import { registerOrdersProjection } from '../orders/index.js';
 import { registerKdsProjections } from '../kds/index.js';
 import { registerPrintProjections } from '../print/index.js';
@@ -131,7 +131,7 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
       attachRouteGuards(app, deps);
       phase = 'setup';
       current = '7';
-      registerHealth(app, () => healthRead(phase, current, false, false, null, null, db));
+      registerHealth(app, () => healthRead(phase, current, false, false, null, null, null, db));
       registerUiAssets(app);
       registerSetupRoutes(app, {
         ...deps,
@@ -203,7 +203,7 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     // 05a §5.2, D-6: logged here, where the hub logger exists (device ids only: no name, no token)
     if (ownerlessPhones.length > 0) app.log.warn({ device_ids: ownerlessPhones }, 'upgrade skipped phones with no owner; they stay without a profile');
     registerHealth(app, () =>
-      healthRead(phase, current, true, isConfirmed(config), provisioned.branch_id, opened.alarm, db),
+      healthRead(phase, current, true, isConfirmed(config), provisioned.branch_id, opened.alarm, staffBuildFor(app), db),
     );
     await runStep('5', ctx);
     current = '6';
@@ -300,9 +300,10 @@ function healthRead(
   confirmed: boolean,
   branchId: string | null,
   clockAlarm: { wall_ms: number; last_recorded_at: number; delta_ms: number } | null,
+  staffBuild: string | null,
   db: Database.Database,
 ) {
-  return { status, bootStep, provisioned, confirmed, branchId, clockAlarm, db };
+  return { status, bootStep, provisioned, confirmed, branchId, clockAlarm, staffBuild, db };
 }
 
 async function runStep(step: BootStep, ctx: BootContext): Promise<void> {

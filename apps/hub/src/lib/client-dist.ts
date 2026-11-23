@@ -1,4 +1,5 @@
 /// <reference types="node" />
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,7 +62,8 @@ function withMeta(body: Buffer, meta: Record<string, string> | null): Buffer {
 // effect at the next restart. Only listed files with a mapped extension are servable, so `.vite/manifest.json`
 // and `../` paths never are. A missing build is logged and its routes answer 404; the server still starts.
 // The cloud has the same helper (§7.1: moved to a shared place only if the two copies drift, §12.4).
-export function registerClientDist(app: FastifyInstance, o: ClientDistOptions): void {
+// 05b H-1 (M-13): it returns the sha256 (hex) of the index.html it loaded, or null when the build has none.
+export function registerClientDist(app: FastifyInstance, o: ClientDistOptions): { indexSha256: string | null } {
   const files = load(app, o.dir);
   const send = (reply: FastifyReply, name: string): FastifyReply => {
     const file = files.get(name);
@@ -73,6 +75,8 @@ export function registerClientDist(app: FastifyInstance, o: ClientDistOptions): 
   app.get(`${o.prefix}*`, { config: o.routeConfig }, async (request, reply) =>
     send(reply, (request.params as { '*': string })['*']),
   );
+  const index = files.get('index.html');
+  return { indexSha256: index === undefined ? null : createHash('sha256').update(index.body).digest('hex') };
 }
 
 function load(app: FastifyInstance, dir: string): Map<string, ClientFile> {
