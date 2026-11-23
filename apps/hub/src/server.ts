@@ -23,6 +23,7 @@ import { registerBilling } from './billing/index.js';
 import { registerAppUpdateRoutes } from './app-update/routes.js';
 import { registerAdminBootstrapRoutes } from './auth/admin-bootstrap.js';
 import { registerAdminRoutes } from './auth/admin-session.js';
+import { loadDeviceProfiles, refreshDeviceProfilesAfter } from './auth/device-profile.js';
 import { registerStaffSessionRoutes } from './auth/staff-session.js';
 import { registerStationSessionRoutes } from './auth/station-session.js';
 import { attachRouteGuards, swapDirectory, type RouteGroup } from './auth/guards.js';
@@ -173,6 +174,9 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
     clock: deps.clock,
     authGeneration: deps.authGeneration,
   });
+  // 05a §4.2: the deviceProfile map, built here (after boot's catch-up) and rebuilt after device commits
+  loadDeviceProfiles(deps.db);
+  deps.writer.addAfterCommit(refreshDeviceProfilesAfter(deps.db));
   registerCommandRoutes(app, deps, options.testCommands === true);
   registerGenerateDevicePairingToken(app);
   registerApprovePairingRequest(app, deps);
