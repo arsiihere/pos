@@ -19,6 +19,7 @@ export interface BIds {
   stockItemId: string;
   modifierGroupId: string;
   dealId: string;
+  recipeId: string; // 08b AD-2
   roleId: string;
   staffId: string;
   refreshToken: string;
@@ -146,6 +147,12 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   'POST /v1/admin/stock-items/:stock_item_id/yields': (ids) => ({
     url: `/v1/admin/stock-items/${ids.stockItemId}/yields`,
     payload: { yield_bp: 7120 },
+  }),
+  // 08b §6.3, §6.4 (AD-2)
+  'POST /v1/admin/recipes': (ids) => ({ url: '/v1/admin/recipes', payload: { owner_type: 'menu_item', owner_id: ids.itemId } }),
+  'PUT /v1/admin/recipes/:recipe_id/draft': (ids) => ({
+    url: `/v1/admin/recipes/${ids.recipeId}/draft`,
+    payload: { expected_version: null, lines: [] },
   }),
   'GET /v1/admin/modifier-groups': () => ({ url: '/v1/admin/modifier-groups' }),
   'POST /v1/admin/modifier-groups': (ids) => ({

@@ -17,6 +17,7 @@ import { registerHubRegistrationRoutes } from './modules/hub-registration/routes
 import { registerInventoryRoutes } from './modules/inventory/routes.js';
 import { registerMenuVariantRoutes } from './modules/menu-variants/routes.js';
 import { registerOwnerAuthRoutes } from './modules/owner-auth/routes.js';
+import { registerRecipeRoutes } from './modules/recipes/routes.js';
 import { registerRestaurantRoutes } from './modules/restaurant/routes.js';
 import { registerStaffRolesRoutes } from './modules/staff-roles/routes.js';
 import { registerTenantScope } from './plugins/tenant-scope.js';
@@ -98,6 +99,7 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerStaffRolesRoutes(app, deps);
   registerMenuVariantRoutes(app, deps);
   registerInventoryRoutes(app, deps); // 08a §6.4–§6.7
+  registerRecipeRoutes(app, deps); // 08b §6
   registerBillingSettingsRoutes(app, deps); // 05 row A-1 (4)
   // §7.1, S21: the built owner pages, static and without tenant scope.
   registerClientDist(app, { prefix: '/owner/', dir: CLIENT_DIST_DIR, routeConfig: { tenantScope: 'none' } });
