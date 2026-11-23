@@ -369,6 +369,41 @@ describe('01d alert-mode delivery (task 32)', () => {
     ]);
   });
 
+  it('[05a #14a §3.8 D-1] a one-person listed kiosk binds its person permanently and routes: alerts_open lists the person\'s alert with binding_route_until null; a raise routes alert_connection to it', async () => {
+    const kiosk = pairDevice(hub, { type: 'cashier_kiosk', name: 'kiosk', profile: { access: 'listed', staff_ids: [ALI], screens: [] } });
+    devices.set(kiosk.deviceId, kiosk.token);
+    expect(hub.deps.db.prepare('SELECT staff_id, session_id FROM device_bindings WHERE device_id = ?').all(kiosk.deviceId)).toEqual([
+      { staff_id: ALI, session_id: null },
+    ]);
+    seedUrgent({ id: 'A_ALI', staffId: ALI });
+    const kWs = await alertSocket(kiosk.deviceId);
+    expect(ids(kWs)).toEqual(['A_ALI']);
+    expect(openOf(kWs).binding_route_until).toBeNull();
+
+    const action = raise(toPerson(1, ALI, 't_action'));
+    const step = hub.deps.db
+      .prepare(`SELECT payload FROM events WHERE event_type = 'AttemptSent' AND json_extract(payload, '$.alert_id') = ?`)
+      .get(action) as { payload: string };
+    const p = JSON.parse(step.payload) as { recipients: Array<Record<string, unknown>>; routes: Array<{ staff_id: string | null; route: string; ref: string }> };
+    expect(p.recipients).toEqual([{ staff_id: ALI, device_id: null, for_staff_id: null, set: 'recipient' }]);
+    expect(p.routes).toContainEqual({ staff_id: ALI, route: 'alert_connection', ref: kiosk.deviceId });
+  });
+
+  it('[05a §3.8 D-1] a phone that is not one-person binds by the tablet rule: alerts_open lists the person\'s alert while (c) holds, binding_route_until = last activity + idle', async () => {
+    const phone = pairDevice(hub, { type: 'phone', name: 'phone', profile: { access: 'everyone', screens: [] } });
+    devices.set(phone.deviceId, phone.token);
+    const t0 = hub.clock.branchNow();
+    signOut(signIn(ALI, phone.deviceId), 'idle_timeout');
+    seedUrgent({ id: 'A_ALI', staffId: ALI });
+    const pWs = await alertSocket(phone.deviceId);
+    expect(ids(pWs)).toEqual(['A_ALI']);
+    expect(openOf(pWs).binding_route_until).toBe(t0 + IDLE);
+    hub.clock.set(t0 + IDLE + 1);
+    const idle = await alertSocket(phone.deviceId);
+    expect(ids(idle)).toEqual([]);
+    expect(openOf(idle).binding_route_until).toBeNull();
+  });
+
   // ---------------------------------------------------------------------------------------------- §3.7
 
   it('[01d §3.7] alerts_open takes ≤ 3 statements (alerts, presence, activity), 1 for an unbound device, the same for 1 and 20 open alerts', async () => {

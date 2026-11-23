@@ -95,6 +95,28 @@ function ended(sessionId: string, staffId: string | null, reason: string, kind: 
   });
 }
 
+// 05a §4.2: a DeviceProfileSet v1 (the whole profile); only access and staff_ids matter to the bindings.
+let profileVersion = 0;
+function profiled(deviceId: string, access: 'everyone' | 'listed', staffIds: string[] = []): PosEvent {
+  profileVersion += 1;
+  return {
+    ...aDevicePaired({ stream_id: deviceId }),
+    event_type: 'DeviceProfileSet',
+    schema_version: 1,
+    payload: {
+      device_id: deviceId,
+      device_name: deviceId,
+      access,
+      staff_ids: access === 'listed' ? staffIds : [],
+      screens: [],
+      point_id: null,
+      profile_version: profileVersion,
+      cause: 'edited',
+      needs_review: false,
+    },
+  } as PosEvent;
+}
+
 function revoked(deviceId: string): PosEvent {
   return aDeviceRevoked({ stream_id: deviceId, payload: { device_id: deviceId } });
 }
@@ -367,5 +389,99 @@ describe('01d device_bindings projection', () => {
     cleanups.push(() => void hub.close());
     hub.deps.writer.run((tx) => tx.append([draft(paired('dev-w', 'tablet')), draft(started('s-w', 'dev-w', ALI))]));
     expect(binding(hub.deps.db, 'dev-w')).toMatchObject({ staff_id: ALI, session_id: 's-w' });
+  });
+
+  // ------------------------------------------------------------------------------- 05a §3.8 (row D-1)
+
+  const rows = (db: Database.Database) => bindings(db).map((row) => [row.device_id, row.staff_id, row.session_id]);
+
+  async function rebuilt(h: Harness): Promise<BindingRow[]> {
+    h.db.prepare(`DELETE FROM projection_checkpoints WHERE projection = 'device_bindings'`).run();
+    const fresh = createProjectionRegistry();
+    registerAlertProjections(fresh);
+    fresh.catchUp(h.db, BRANCH);
+    return bindings(h.db);
+  }
+
+  it('[05a #14a §3.8] a one-person listed tablet binds permanently; 1 → 2 people drops it and the next sign-in binds (tablet rule); 2 → everyone on a phone follows the tablet rule; → 1 person binds permanently again; a one-person kiosk binds permanently; reset + replay gives the same rows', async () => {
+    const h = await harness(cleanups);
+    h.append(paired(TAB, 'tablet'), paired(PHONE, 'phone', OWNER), paired(KIOSK, 'cashier_kiosk'));
+    h.append(started('s0', TAB, BILAL));
+    expect(binding(h.db, TAB)).toMatchObject({ staff_id: BILAL, session_id: 's0' });
+
+    // one person P on a tablet → (TAB, P, NULL) replaces the session row; session events never touch it
+    h.clock.advance(1_000);
+    h.append(profiled(TAB, 'listed', [ALI]));
+    expect(binding(h.db, TAB)).toEqual({ device_id: TAB, staff_id: ALI, session_id: null, since: T + 1_000 });
+    h.append(started('s1', TAB, BILAL), ended('s0', BILAL, 'logout'), ended('s1', BILAL, 'forced'), aBusinessDayClosed());
+    expect(binding(h.db, TAB)).toEqual({ device_id: TAB, staff_id: ALI, session_id: null, since: T + 1_000 });
+
+    // 1 → 2 people: the permanent row goes; the next sign-in binds by the tablet rule
+    h.append(profiled(TAB, 'listed', [ALI, BILAL]));
+    expect(binding(h.db, TAB)).toBeUndefined();
+    h.append(started('s2', TAB, BILAL));
+    expect(binding(h.db, TAB)).toMatchObject({ staff_id: BILAL, session_id: 's2' });
+
+    // a phone with several people, then everyone: the tablet rule (the owner row goes with the first profile)
+    h.append(profiled(PHONE, 'listed', [ALI, BILAL]));
+    expect(binding(h.db, PHONE)).toBeUndefined();
+    h.append(started('s3', PHONE, ALI));
+    expect(binding(h.db, PHONE)).toMatchObject({ staff_id: ALI, session_id: 's3' });
+    h.append(profiled(PHONE, 'everyone'));
+    expect(binding(h.db, PHONE)).toMatchObject({ staff_id: ALI, session_id: 's3' });
+    h.append(started('s4', PHONE, BILAL));
+    expect(binding(h.db, PHONE)).toMatchObject({ staff_id: BILAL, session_id: 's4' });
+    h.append(ended('s4', BILAL, 'logout'));
+    expect(binding(h.db, PHONE)).toBeUndefined();
+
+    // → 1 person again: permanent on the phone and on the tablet (replacing the session row s2)
+    h.append(profiled(PHONE, 'listed', [OWNER]), profiled(TAB, 'listed', [BILAL]));
+    // a one-person kiosk binds permanently (BF-3 only for a kiosk that is not one-person)
+    h.append(profiled(KIOSK, 'listed', [ALI]), started('s5', KIOSK, BILAL));
+    const live = rows(h.db);
+    expect(live).toEqual([
+      [KIOSK, ALI, null],
+      [PHONE, OWNER, null],
+      [TAB, BILAL, null],
+    ]);
+
+    // away from one person on the kiosk: no row, and a sign-in binds no one (kiosk rule)
+    h.append(profiled(KIOSK, 'everyone'), started('s6', KIOSK, BILAL));
+    expect(binding(h.db, KIOSK)).toBeUndefined();
+
+    const before = bindings(h.db);
+    expect(await rebuilt(h)).toEqual(before);
+  });
+
+  it('[05a #14b §3.8] replay of an old phone: bound to DevicePaired.owner_staff_id until its first DeviceProfileSet, then by the profile', async () => {
+    const h = await harness(cleanups);
+    h.append(paired(PHONE, 'phone', OWNER), paired('dev-phone2', 'phone', null));
+    // no profile yet: today's phone rule (owner row; sessions ignored, a phone with no owner binds no one)
+    h.append(started('s1', PHONE, ALI), started('s2', 'dev-phone2', ALI));
+    expect(rows(h.db)).toEqual([[PHONE, OWNER, null]]);
+    // the upgrade profile: everyone → the owner row goes, the next sign-in binds by the tablet rule
+    h.append(profiled(PHONE, 'everyone'), profiled('dev-phone2', 'listed', [BILAL]));
+    expect(rows(h.db)).toEqual([['dev-phone2', BILAL, null]]);
+    h.append(started('s3', PHONE, ALI));
+    expect(rows(h.db)).toEqual([
+      [PHONE, ALI, 's3'],
+      ['dev-phone2', BILAL, null],
+    ]);
+    const live = bindings(h.db);
+    expect(await rebuilt(h)).toEqual(live);
+  });
+
+  it('[05a §3.8 D-1] DeviceProfileSet reads nothing (its own map, no device_profiles row) and runs 1 statement; a SessionStarted on a one-person device runs none', async () => {
+    const h = await harness(cleanups);
+    h.append(paired(TAB, 'tablet'), paired(PHONE, 'phone'));
+    h.counted.splice(0);
+    h.append(profiled(TAB, 'listed', [ALI]), profiled(PHONE, 'everyone'), started('s1', TAB, BILAL), started('s2', PHONE, BILAL), profiled(TAB, 'everyone'));
+    expect(h.counted.map((c) => [c.event_type, c.reads, c.total])).toEqual([
+      ['DeviceProfileSet', 0, 1],
+      ['DeviceProfileSet', 0, 1],
+      ['SessionStarted', 0, 0],
+      ['SessionStarted', 0, 1],
+      ['DeviceProfileSet', 0, 1],
+    ]);
   });
 });
