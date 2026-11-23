@@ -1505,9 +1505,9 @@ export const en = {
   'alerts.screen.dine_in': 'Dine in',
   'alerts.screen.takeaway': 'Takeaway',
   'alerts.screen.parking': 'Parking',
-  'alerts.screen.cashier': 'Cashier',
+  'alerts.screen.cashier': 'Cash desk',
   'alerts.screen.pass': 'Pass',
-  'alerts.screen.manager': 'Manager',
+  'alerts.screen.manager': 'Manager tools',
   // 05a §8 (D-2): no "Approve here"; an everyone device cannot answer a money card; the downgraded request's text
   'answer.approve_on_listed': 'Approve on a listed device',
   'answer.confirm_on_phone': 'Confirm on your phone',
