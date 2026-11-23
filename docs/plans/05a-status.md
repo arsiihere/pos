@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~20:00 PKT: **Task 30 merged** (counter check). **27 tasks merged.** Left: 25 (in review), the #15 refusal test, then Z1.
 > - 2026-11-23 ~19:35 PKT: **Task 24 merged** (downgraded raise). **26 tasks merged.** Left: 25, 30 (running), then Z1.
 > - 2026-11-23 ~19:10 PKT: **Task 34 merged** (shell tabs). **25 tasks merged.** Left: 24 (fix round), 25, 30 (running), then Z1.
 > - 2026-11-23 ~18:55 PKT: **Task 33 merged** (hub admin devices, Recover admin access, K-2). **24 tasks merged.** Fix rounds: 24, 34. Running: 25. Left after these: 30, Z1.
@@ -123,7 +124,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 27 | B7 | K-1 + D-4 Pass readers | HIGH | `d1d88e71` | **done** (Opus review APPROVE; PC-4) |
 | 28 | B7 | upgrade boot step | HIGH | `773e939a`, fix `87d22dc2` | **done** (Opus review FIX → 1 round → APPROVE; PC-3; RF-1 exception: an ownerless phone (raw SQL only) stays unprofiled, warned each boot) |
 | 29 | B7 | recovery link | HIGH | `72933db1` (merge `1b5b5c61`) | **done** (Opus review APPROVE; carry-overs: #16a "owner approves their phone" `it.todo` → task 15; MINORs m1 empty `advertised_host`, m2 count-0 cases at the route, m3 unprovisioned refusal test → with task 15/18) |
-| 30 | B7 | counter check (fresh implementer) | HIGH | | |
+| 30 | B7 | counter check (fresh implementer) | HIGH | `d4560510` | **done** (Opus review APPROVE; 3 mutations caught: money mask dropped, a counter permission masked, G-h device-level; no production bug found. Minor follow-ups: comp / reopen cashier requests, N-8 cross-ref) |
 | 31 | B8 | device list page | NORMAL | `02677131` | **done** (Sonnet review; built against the §6.8 shape, hub side = task 20) |
 | 32 | B8 | approve + edit forms | NORMAL | `cdd79520` … `8790e5ee` | **done** (Sonnet review FIX → owner G-e / G-f → 05a v1.0.2; `#/devices?r=` opens the request, code empty; one screen-label set `alerts.screen.*`) |
 | 33 | B8 | hub admin pages, recovery, K-2 | NORMAL | `907aa2f1`, `3d0fa85b`, fix `a5cf1211` | **done** (Sonnet review FIX → owner G-g → 05a v1.0.3; `#/devices?edit=` opens the edit form; `/admin/recovery-link` also returns `first_admin_qr_svg`, additive as setup does; the unauthenticated `?r=` hint read removed) |
