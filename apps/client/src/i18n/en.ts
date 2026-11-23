@@ -4303,6 +4303,11 @@ export const en = {
   // 02b-TK C2-3 (02b §3.2 step 2 errors; a busy cart): not in strings-table.md; Urdu to confirm
   'c.add_gone': 'This token can’t take more items (closed, cancelled or another day) — send them as a new order',
   'c.add_busy': 'Send or hold this cart first, then add to the token',
+  'v.remove': 'Remove / cancel',
+  // 02b-TK C2-4 (05 §3.10 refund path; 02b §6.2 / 04 §6.1 errors): not in strings-table.md; Urdu to confirm
+  'v.refund_first': 'Paid: reopen the bill first (Bill → Reopen), then take the item off here — the bill shows the refund to give',
+  'line.err.closed_split': 'This item is on a paid part of the bill — reopen the bill to refund it',
+  'line.err.void_not_allowed': 'This item can’t be voided now — refreshed',
 } as const;
 
 export type MessageKey = keyof typeof en;

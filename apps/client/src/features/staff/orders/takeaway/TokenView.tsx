@@ -12,7 +12,12 @@ import type { OrderViewBody, SeatingLine } from '../contracts';
 import { useLiveRefetch } from '../lists/OpenOrders';
 import { MONEY_DIR, money } from '../money';
 import { groupParts, type GroupedLine } from '../view/parts';
-import { isServed, isWeightPending, servable } from '../view/stage';
+import { atStageOne, isServed, isWeightPending, servable } from '../view/stage';
+import { voidOffered, type LineOrder } from '../view/LineActions';
+import { RemoveSheet } from '../actions/RemoveSheet';
+import { VoidSheet } from '../../../voids/VoidSheet';
+import { VoidButton } from '../../../voids/ui';
+import { MaskedAction } from '../../shell/MaskedAction';
 import type { TokenBook } from './book';
 import { maskPhone } from './mask';
 import type { QueueToken } from './queue-model';
@@ -80,6 +85,9 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems }: Toke
   const [gone, setGone] = useState(false);
   const [bill, setBill] = useState<BillFacts | null>(null);
   const [call, setCall] = useState(false);
+  // 02b-TK C2-4: Remove / cancel shows each line's way off the order; the sheet open for one line
+  const [removing, setRemoving] = useState(false);
+  const [sheet, setSheet] = useState<{ kind: 'remove' | 'void'; line: SeatingLine; order: LineOrder } | null>(null);
   const ids = token.order_ids.join(' ');
   const request = useRef(0);
   const load = useCallback(async () => {
@@ -124,6 +132,20 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems }: Toke
   const ident = token.token === null ? '—' : String(token.token);
   const what = `${t('order.takeaway')} · ${ident}`;
   const toBill = () => navigate(`/bill?order_id=${encodeURIComponent(token.newest_order_id)}`);
+  // 02b §6.2 / 04 §6.1: one order's lines for the Remove and Void sheets (an addition is its own order)
+  const lineOrder = (order_id: string): LineOrder | null => {
+    const o = orders?.find((x) => x.order_id === order_id);
+    return o === undefined ? null : { order_id, order_type: 'takeaway', ident, billed: o.billed, lines: groupParts(o.lines) };
+  };
+  const voidGrant = shell.permissions.resolution('void-item').grant;
+  const canRemove = may('take-order') || voidGrant === 'allowed' || voidGrant === 'requires_approval';
+  // 05 §3.10 / §6.9: a paid (closed) bill takes nothing off here — the bill is reopened (ReopenBill, approvable), then
+  // the item removed or voided, and the bill shows the refund to give (AddPayment out) before it closes again
+  const refundFirst = removing && (paid || (orders ?? []).some((o) => o.billed));
+  const done = () => {
+    setSheet(null);
+    void load();
+  };
   const qty = (l: SeatingLine) => (l.sale_unit === 'piece' ? `${l.live_units}×` : '');
   const giveText = readyLines.length === 1 ? ` · ${qty(readyLines[0]!)} ${readyLines[0]!.name}` : ` · ${readyLines.length}`;
 
@@ -217,10 +239,20 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems }: Toke
                     {l.kitchen_note !== null && <small dir="auto">{l.kitchen_note}</small>}
                   </div>
                   <span className={`tk-chip ${chip.tone}`}>{t(chip.key)}</span>
+                  {removing && <RemoveActions line={l} order={lineOrder(l.order_id)} onPick={(kind, order) => setSheet({ kind, line: l, order })} />}
                 </div>
               );
             })}
           </div>
+          {refundFirst && (
+            <div className="tk-msg" role="status">
+              <Ico name="info" />
+              <span>{t('v.refund_first')}</span>
+              <button type="button" className="tk-btn" onClick={toBill}>
+                {t('v.bill')}
+              </button>
+            </div>
+          )}
           {due && !manager && candidates.length > 0 && (
             <p className="tk-hint" role="note">
               {t('v.pay_first')}
@@ -246,6 +278,11 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems }: Toke
                 {t('v.add')}
               </button>
             )}
+            {canRemove && (
+              <button type="button" className="tk-btn" aria-pressed={removing} onClick={() => setRemoving((r) => !r)}>
+                {t('v.remove')}
+              </button>
+            )}
             {phoned !== null && may('view-customer-contact') && (
               <button type="button" className="tk-btn" onClick={() => setCall(true)}>
                 {t('v.call')}
@@ -258,6 +295,51 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems }: Toke
         </div>
       </section>
       {call && phoned !== null && <ContactSheet order_id={phoned.order_id} what={what} onClose={() => setCall(false)} />}
+      {sheet?.kind === 'remove' && (
+        <RemoveSheet
+          order={sheet.order}
+          from={sheet.line.order_item_id}
+          onClose={() => setSheet(null)}
+          onDone={done}
+          onChanged={() => void load()}
+          onVoid={voidGrant === 'allowed' || voidGrant === 'requires_approval' ? (line) => setSheet({ kind: 'void', line, order: sheet.order }) : undefined}
+        />
+      )}
+      {sheet?.kind === 'void' && (
+        <VoidSheet
+          line={sheet.line}
+          order={sheet.order}
+          onClose={() => setSheet(null)}
+          onDone={done}
+          onChanged={() => void load()}
+          onRemove={may('take-order') ? () => setSheet({ ...sheet, kind: 'remove' }) : undefined}
+        />
+      )}
     </>
+  );
+}
+
+/**
+ * 02b §3.5 / §6.2 (RemoveItems before the kitchen starts, free) and 04 §6.1 (VoidItems after, `void-item`; with
+ * `requires_approval` it raises a request and the line waits for the manager): the way off the order for one line.
+ */
+function RemoveActions({ line, order, onPick }: { line: SeatingLine; order: LineOrder | null; onPick(kind: 'remove' | 'void', order: LineOrder): void }) {
+  const shell = useShell();
+  if (order === null || line.live_units === 0 || isServed(line)) return null;
+  if (atStageOne(line, order.lines))
+    return shell.permissions.allowed('take-order') && !order.billed ? (
+      <span className="tk-il__acts">
+        <button type="button" className="tk-btn" onClick={() => onPick('remove', order)}>
+          {t('line.remove')}
+        </button>
+      </span>
+    ) : null;
+  if (!voidOffered(shell, line, order)) return null;
+  return (
+    <span className="tk-il__acts">
+      <MaskedAction permissions={shell.permissions} permission="void-item">
+        <VoidButton approval={shell.permissions.resolution('void-item').grant === 'requires_approval'} onClick={() => onPick('void', order)} />
+      </MaskedAction>
+    </span>
   );
 }

@@ -12,6 +12,8 @@ import { maskPhone, hideName, hidePhone } from './mask';
 import type { QueueToken } from './queue-model';
 import { TokenView } from './TokenView';
 import { aLine, at } from './test-fixtures';
+import { orderErrorKey } from '../view/LineActions';
+import { voidErrorText } from '../../../voids/errors';
 
 // 02b-TK C2-2 (02b v1.0.24 §3.7, §6.4, §6.18, §6.18a; 05 v1.0.34 §6.1, B16; frames TokenDue, TokenReady, TokenPartial,
 // HandoverUndo; ruling R2): the token view drawer and the 5 s hand-over Undo.
@@ -66,6 +68,7 @@ const tok = (o: Partial<QueueToken> = {}): QueueToken => ({
 function setup(o: { views: Record<string, OrderViewBody>; bills: Record<string, unknown>; grants?: Record<string, unknown> }) {
   const live = createLiveBus();
   const query = vi.fn(async (path: string) => {
+    if (!path.startsWith('/queries/bill?')) return { ok: false, error: { kind: 'network' } };
     const id = new URLSearchParams(path.split('?')[1]).get('order_id')!;
     return o.bills[id] === undefined ? { ok: false, error: { kind: 'api', status: 404, code: 'BILL_NOT_FOUND', details: {} } } : { ok: true, data: o.bills[id] };
   });
@@ -255,6 +258,76 @@ describe('[02b-TK C2-2] hand-over Undo', () => {
     expect(hideName(' Usman ')).toBe('U•••');
     expect(hideName('')).toBeNull();
     expect(maskPhone(null)).toBeNull();
+  });
+});
+
+describe('[02b-TK C2-4] remove / cancel from a token', () => {
+  const cookingAndNew = () => view('O54', [sl('O54', 'A', 'Paye', 'cooking', { units: 2, live_units: 2 }), sl('O54', 'B', 'Lassi', 'added', { fired: false })]);
+
+  it('[02b §3.5, §6.2] before the kitchen starts: Remove → RemoveItems on that order', async () => {
+    const s = setup({ views: { O54: cookingAndNew() }, bills: { O54: bill(null, 'projected', 180_000) }, grants: { 'take-order': { grant: 'allowed', scope: 'branch' } } });
+    const command = s.shell.api.command as ReturnType<typeof vi.fn>;
+    command.mockResolvedValue({ ok: true, data: { removed: [{ order_item_id: 'B', units: 1 }], cancelled: false, comp_requests_closed: [] } });
+    const v = await show(s, tok());
+    v.click(v.button('Remove / cancel'));
+    const lassi = v.container.querySelector('[data-line="B"]')!;
+    const paye = v.container.querySelector('[data-line="A"]')!;
+    expect(paye.querySelector('button')).toBeNull();
+    v.click(v.button('Remove', lassi));
+    await flush();
+    v.click(v.button('Remove 1', document.body));
+    await flush();
+    expect(command.mock.calls[0]![0]).toBe('RemoveItems');
+    expect(command.mock.calls[0]![1]).toEqual({ order_id: 'O54', lines: [{ order_item_id: 'B', units: 1 }] });
+  });
+
+  it('[04 §6.1] after the kitchen started: Void, marked for approval when void-item needs it', async () => {
+    const s = setup({ views: { O54: cookingAndNew() }, bills: { O54: bill(null, 'projected', 180_000) }, grants: { 'void-item': { grant: 'requires_approval', scope: 'branch' } } });
+    const v = await show(s, tok());
+    v.click(v.button('Remove / cancel'));
+    const paye = v.container.querySelector('[data-line="A"]')!;
+    expect(paye.querySelector('.btn--void')?.textContent).toContain('Void');
+    expect(paye.querySelector('.btn--void .ntag')).not.toBeNull();
+    // no take-order: the not-started line offers nothing
+    expect(v.container.querySelector('[data-line="B"] button')).toBeNull();
+    v.click(paye.querySelector('.btn--void'));
+    await flush();
+    expect(document.body.querySelector('.dlg')).not.toBeNull();
+  });
+
+  it('[05 §3.10, §6.9] paid: nothing comes off here — reopen the bill first; Bill opens it', async () => {
+    const s = setup({
+      views: { O48: view('O48', [sl('O48', 'A', 'Karahi', 'cooking')], { billed: true }) },
+      bills: { O48: bill('B48', 'closed', 205_000) },
+      grants: { 'take-order': { grant: 'allowed', scope: 'branch' }, 'void-item': { grant: 'allowed', scope: 'branch' } },
+    });
+    const v = await show(s, tok({ order_ids: ['O48'], newest_order_id: 'O48', paid: true }));
+    v.click(v.button('Remove / cancel'));
+    expect(v.text()).toContain('Paid: reopen the bill first');
+    expect(v.container.querySelector('[data-line="A"] button')).toBeNull();
+    v.click(v.button('Bill', v.container.querySelector('.tk-msg')!));
+    expect(nav.to).toEqual(['/bill?order_id=O48']);
+  });
+
+  it('[02b §6.2; 04 §6.1; audit #15] every RemoveItems / VoidItems refusal has its own message', () => {
+    const api = (status: number, code: string, details: Record<string, unknown> = {}) => ({ kind: 'api' as const, status, code, details });
+    const remove = [api(400, 'VALIDATION_FAILED'), api(404, 'ORDER_NOT_FOUND'), api(409, 'ORDER_BILLED'), api(409, 'ITEM_WRONG_STAGE'), api(409, 'VOID_PENDING'), api(409, 'LINE_IN_CLOSED_SPLIT'), api(403, 'PERMISSION_DENIED')];
+    const keys = remove.map((e) => orderErrorKey(e));
+    expect(keys).toEqual(['tables.err.VALIDATION_FAILED', 'line.err.gone', 'line.err.billed', 'line.err.stage', 'void.err.VOID_PENDING', 'line.err.closed_split', 'tables.err.PERMISSION_DENIED']);
+    const voids = [...remove, api(409, 'COMP_PENDING'), api(409, 'VOID_NOT_ALLOWED', { reason: 'not_movable_stage' }), api(409, 'VOID_NOT_ALLOWED', { reason: 'something_new' })].map((e) => voidErrorText(e).key);
+    expect(voids).toEqual([
+      'void.err.VALIDATION_FAILED',
+      'line.err.gone',
+      'void.err.ORDER_BILLED',
+      'line.err.stage',
+      'void.err.VOID_PENDING',
+      'line.err.closed_split',
+      'tables.err.PERMISSION_DENIED',
+      'void.err.COMP_PENDING',
+      'void.block.not_movable_stage',
+      'line.err.void_not_allowed',
+    ]);
+    for (const k of [...keys, ...voids]) expect(k).not.toMatch(/unknown/);
   });
 });
 

@@ -59,6 +59,11 @@ const ORDER_ERRORS: Record<string, MessageKey> = {
   ORDER_NOT_IN_ENGINE: 'return.closed',
   ORDER_NOT_FOUND: 'line.err.gone',
   LINE_NOT_WEIGHED: 'line.err.not_weighed',
+  // 02b-TK C2-4 (02b §6.2, 04 §6.1, 05 §3.10 / §6.9; audit #15): the rest of RemoveItems' and VoidItems' refusals
+  VOID_PENDING: 'void.err.VOID_PENDING',
+  COMP_PENDING: 'void.err.COMP_PENDING',
+  LINE_IN_CLOSED_SPLIT: 'line.err.closed_split',
+  VOID_NOT_ALLOWED: 'line.err.void_not_allowed',
 };
 
 /** The toast key of an 02b line command's error; table / permission codes as 02a's (§9). */
