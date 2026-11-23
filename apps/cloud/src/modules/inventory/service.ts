@@ -1,8 +1,11 @@
-import { activeYield, BUILTIN_UNITS, DomainError, effectiveMenuPrice, reduceFraction, yieldBpFromTest, type BuiltinUnitName, type Unit } from '@pos/domain';
+import { activeYield, BUILTIN_UNITS, DomainError, effectiveMenuPrice, reduceFraction, resolveUnit, yieldBpFromTest, type BuiltinUnitName, type Unit } from '@pos/domain';
 import type {
+  CreateItemPriceInput,
   CreateItemUnitInput,
   CreateYieldInput,
   InventoryDetail,
+  ItemPriceCreated,
+  ItemPriceWire,
   ItemUnitCreated,
   ItemUnitWire,
   YieldProfileCreated,
@@ -20,7 +23,10 @@ import type { CloudTestHooks } from '../../server.js';
 import { assertBranchAllowed, type OwnerRequest } from '../restaurant/service.js';
 import { toStockItemWire } from '../menu-variants/versions.js';
 import {
+  branchExists,
+  insertItemPrice,
   selectItemUnits,
+  selectItemUnitsNamed,
   selectOwnerNames,
   selectPriceCandidates,
   selectPriceHistory,
@@ -163,7 +169,7 @@ export async function createItemUnit(
 
 // The audit row's `after`: the stored row as the wire shows it (decimal strings, no bigint), without the
 // display-only fields (recorded_by_name, is_current).
-function auditAfter(stockItemId: string, wire: ItemUnitWire | YieldProfileWire): object {
+function auditAfter(stockItemId: string, wire: ItemUnitWire | ItemPriceWire | YieldProfileWire): object {
   const after: Record<string, unknown> = { stock_item_id: stockItemId, ...wire };
   delete after.recorded_by_name;
   delete after.is_current;
@@ -171,6 +177,74 @@ function auditAfter(stockItemId: string, wire: ItemUnitWire | YieldProfileWire):
 }
 
 // ------------------------------------------------------------------------------------------ §6.6 prices POST
+
+export const PRICES_ROUTE = 'POST /v1/admin/stock-items/:stock_item_id/prices';
+
+// 9 fixed statements, 10 with branch_id (S7, I11): key → tenant-wide (403) → stock item FOR SHARE (404, kind 5) →
+// active (422) → [branch, C1] → units of that name → resolveUnit with the locked stock_unit (422) → insert with
+// the frozen conversion (I6) → candidates (I7 for the price's branch_id) → audit → key response → prune. No bump.
+// The body is validated by CreateItemPriceBody (400: manual + branch_id / valid_for_hours, ranges, kind).
+export async function createItemPrice(
+  deps: InventoryDeps,
+  req: OwnerRequest,
+  stockItemId: string,
+  body: CreateItemPriceInput,
+): Promise<IdempotentResult<ItemPriceCreated>> {
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const level = new TenantLevelRepository(req.tenant, client);
+      await assertTenantWide(level, req.ownerUserId);
+      const item = await lockActiveStockItem(deps, level, stockItemId, PRICES_ROUTE);
+      if (body.branch_id !== null && !(await branchExists(level, body.branch_id))) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'branch_id', reason: 'not_found' });
+      }
+      const units = await selectItemUnitsNamed(level, stockItemId, body.unit_name);
+      const conversion = resolveUnit(item, body.unit_name, units);
+      if (conversion === null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'unit_name', reason: 'not_convertible' });
+
+      const now = deps.clock.branchNow();
+      const { price, recordedByName } = await insertItemPrice(level, {
+        price_id: deps.ids.next(),
+        stock_item_id: stockItemId,
+        branch_id: body.branch_id,
+        kind: body.kind,
+        unit_name: body.unit_name,
+        price_minor: BigInt(body.price_minor),
+        stock_qty_num: conversion.num,
+        stock_qty_den: conversion.den,
+        stock_unit: item.stock_unit,
+        created_at: now,
+        valid_until_at: body.valid_for_hours === null ? null : now + body.valid_for_hours * 3_600_000,
+        note: body.note,
+        recorded_by: req.ownerUserId,
+      });
+      const candidates = await selectPriceCandidates(level, [stockItemId], price.branch_id, now);
+      const wire = itemPriceWire(price, new Map([[price.recorded_by, recordedByName]]));
+      await writeConfigAudit(
+        level,
+        {
+          actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+          entity: 'item_price',
+          entityId: price.price_id,
+          branchId: price.branch_id, // §6.0: the price's scope, not the writer's
+          action: 'create',
+          before: null,
+          after: auditAfter(stockItemId, wire),
+        },
+        deps,
+      );
+      return {
+        status: 201,
+        body: {
+          price: wire,
+          menu_cost: menuCostWire(effectiveMenuPrice(candidates, price.branch_id, now, item.stock_unit), item.stock_unit),
+        },
+      };
+    },
+  );
+}
 
 // ------------------------------------------------------------------------------------------ §6.7 yields POST
 

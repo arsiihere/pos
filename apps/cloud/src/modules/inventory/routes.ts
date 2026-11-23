@@ -1,9 +1,11 @@
 import { DomainError } from '@pos/domain';
 import {
+  CreateItemPriceBody,
   CreateItemUnitBody,
   CreateYieldBody,
   InventoryDetailQuery,
   InventoryDetailResponse,
+  ItemPriceResponse,
   ItemUnitResponse,
   YieldProfileResponse,
 } from '@pos/events';
@@ -12,7 +14,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { OwnerRequest } from '../restaurant/service.js';
 import { sendIdempotent } from '../../lib/idempotency.js';
-import { createItemUnit, createYieldProfile, getInventoryDetail, UNITS_ROUTE, YIELDS_ROUTE, type InventoryDeps } from './service.js';
+import { createItemPrice, createItemUnit, createYieldProfile, getInventoryDetail, PRICES_ROUTE, UNITS_ROUTE, YIELDS_ROUTE, type InventoryDeps } from './service.js';
 
 const StockItemParams = z.object({ stock_item_id: z.string().min(1) });
 
@@ -49,6 +51,17 @@ export function registerInventoryRoutes(app: FastifyInstance, deps: InventoryDep
   );
 
   // §6.6 prices POST
+  routes.post(
+    '/v1/admin/stock-items/:stock_item_id/prices',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: StockItemParams, body: CreateItemPriceBody, response: { 201: ItemPriceResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.(PRICES_ROUTE);
+      return sendIdempotent(reply, await createItemPrice(deps, ownerRequest(app, request), request.params.stock_item_id, request.body));
+    },
+  );
 
   // §6.7 yields POST
   routes.post(
