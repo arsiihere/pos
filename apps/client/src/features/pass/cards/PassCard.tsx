@@ -59,6 +59,10 @@ export interface PassCardProps {
   onToast?: (text: string, tone?: 'ok' | 'warn') => void;
   /** ⚠️ 03b v1.0.13 §3.4 (STAB-6): the point's round tags by load (cards/parts.ts passRounds) */
   rounds?: ReadonlyMap<string, string>;
+  /** 02b-tk C3-4 (frame PackerPass): the first card of the Takeaway filter ("Pack next") */
+  next?: boolean;
+  /** 02b-tk C3-4: the takeaway order's promise (open-orders), "Ready by {time}"; null / absent = not shown */
+  readyBy?: number | null;
 }
 
 function Ident({ order }: { order: PointOrder }) {
@@ -94,7 +98,7 @@ function Placed({ ms, utcOffsetMs }: { ms: number; utcOffsetMs: number }) {
   );
 }
 
-export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast, rounds }: PassCardProps) {
+export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast, rounds, next = false, readyBy = null }: PassCardProps) {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => onSlotsChanged(rerender), []);
   const running = useRef(new Set<string>());
@@ -138,12 +142,22 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
     );
   };
   const footer = buttons.length + slot.length > 0;
+  const classes = ['pc', r.state === 'ready' || r.state === 'hold' || r.state === 'sent' ? r.state : null, next ? 'pc--next' : null].filter((c) => c !== null).join(' ');
+  const [byBefore, byAfter = ''] = t('pass.ready_by').split('{time}');
 
   return (
-    <article className={r.state === 'ready' || r.state === 'hold' || r.state === 'sent' ? `pc ${r.state}` : 'pc'} data-order={order.order_id}>
+    <article className={classes} data-order={order.order_id}>
       <div className="pc__h">
         <div className="pc__id">
           <Ident order={order} />
+          {next && <b className="pc__next">{t('pass.pack_next')}</b>}
+          {readyBy !== null && (
+            <span className="pc__m">
+              {byBefore}
+              <span className="num">{timeText(readyBy, utcOffsetMs)}</span>
+              {byAfter}
+            </span>
+          )}
           <Placed ms={order.placed_at} utcOffsetMs={utcOffsetMs} />
         </div>
         {pill !== null && (
