@@ -189,4 +189,34 @@ describe('pair page in the tablet app (05b H-2, N-9; gate test 8)', () => {
     expect(textOf(page.screen)).toContain('Approve this tablet as a Tablet');
     expect(page.assigned).toEqual([]);
   });
+  it('[05b O-13] any other bridge rejection (NOT_ALLOWED_HERE) keeps the keys and opens /staff/ — on approval and on resumePaired', async () => {
+    const approve = fakeBridge({ code: 'NOT_ALLOWED_HERE', message: 'guard' });
+    const posts: string[] = [];
+    const a = await runPage(pairPage(), {
+      userAgent: ANDROID_TABLET,
+      window: approve.window,
+      fetch: (url) => {
+        if (url === '/pair/requests') posts.push(url);
+        return Promise.resolve(url === '/pair/requests' ? requestReply() : approvedReply('tablet'));
+      },
+    });
+    for (let i = 0; i < 40 && a.assigned.length === 0; i += 1) await a.advance();
+    expect(a.store.get('token')).toBe('tok-1');
+    expect(a.store.get('device_type')).toBe('tablet');
+    expect(a.assigned).toEqual(['/staff/']);
+    expect(posts.length).toBe(1);
+
+    const resume = fakeBridge({ code: 'NOT_ALLOWED_HERE', message: 'guard' });
+    const r = await runPage(pairPage(), {
+      userAgent: ANDROID_TABLET,
+      window: resume.window,
+      store: { token: 'stored', device_id: 'T9', device_type: 'tablet' },
+      fetch: (url) => {
+        throw new Error(`unexpected ${url}`);
+      },
+    });
+    for (let i = 0; i < 20 && (await r.advance()); i += 1);
+    expect(r.store.get('token')).toBe('stored');
+    expect(r.assigned).toEqual(['/staff/']);
+  });
 });
