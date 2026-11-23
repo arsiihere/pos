@@ -45,6 +45,18 @@ class MainActivity : BridgeActivity() {
         }, "hub-probe").start()
     }
 
+    // 05b A15: M-17 (N-4, O-19) lock task follows main_plain `lock_task` at every resume, and when the plugin's
+    // setDeviceContext changes it (PosNativePlugin calls applyLockTask on the UI thread). No page-callable exit.
+    override fun onResume() {
+        super.onResume()
+        applyLockTask(resumed = true) // the Lifecycle reaches RESUMED only after onResume returns
+    }
+
+    fun applyLockTask(resumed: Boolean = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+        if (isFinishing || isDestroyed) return
+        DeviceOwner.apply(this, MainStore.lockTask(this), resumed)
+    }
+
     /** The first call (from `BridgeActivity.onCreate`) is deferred; [start] makes the real one. */
     override fun load() {
         if (loadAllowed) super.load()
