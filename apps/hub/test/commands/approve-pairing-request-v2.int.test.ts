@@ -317,7 +317,7 @@ describe('ApprovePairingRequest v2 (05a §6.3)', () => {
     expect(count(hub, 'SELECT COUNT(*) FROM device_profiles WHERE device_id = ?', id)).toBe(1);
   });
 
-  it('[05a §6.3 Statements] request read (1), INSERT devices, UPDATE pair_requests, appends (2 for a staff device, 1 for kds); no statement for the step 3 checks', async () => {
+  it('[05a §6.3 Statements] request read (1), INSERT devices, UPDATE pair_requests, appends (2 for a staff device, 1 for kds), pending read for the close (1) + the close (AlertClosed: the only request); no statement for the step 3 checks', async () => {
     const hub = await open();
     registerStationValidator((_tx, id) => id === 'STATION-1');
     const admin = adminApprover(hub);
@@ -339,7 +339,9 @@ describe('ApprovePairingRequest v2 (05a §6.3)', () => {
       return { sql, stop: () => void (db.prepare = prepare) };
     };
     const own = (sql: string[]) => ({
-      requestReads: sql.filter((s) => /^SELECT .* FROM pair_requests WHERE/.test(s)).length,
+      requestReads: sql.filter((s) => /^SELECT \w.* FROM pair_requests WHERE/.test(s)).length,
+      // 05a §3.10 (task 26): the pending read for the `device_waiting` close
+      pendingReads: sql.filter((s) => /^SELECT \( ?SELECT COUNT\(\*\) FROM pair_requests WHERE/.test(s)).length,
       deviceInserts: sql.filter((s) => s.startsWith('INSERT INTO devices ')).length,
       requestUpdates: sql.filter((s) => s.startsWith('UPDATE pair_requests SET approved_at')).length,
       appends: sql.filter((s) => s.startsWith('INSERT INTO events')).length,
@@ -347,15 +349,16 @@ describe('ApprovePairingRequest v2 (05a §6.3)', () => {
       staffOrPointReads: sql.filter((s) => /FROM (staff|staff_roles|points|branch_config|config_\w+)\b(?! *WHERE token_hash)/.test(s) && !s.includes('FROM staff_sessions')).length,
     });
     for (const [payload, appends] of [
-      [{ device_type: 'phone', access: 'listed', staff_ids: ['S_WAIT', 'S_MGR'], screens: ['pass', 'dine_in'], point_id: 'P1' }, 2],
-      [{ device_type: 'kds', station_id: 'STATION-1' }, 1],
+      // + 1 append: AlertClosed of `device_waiting` (each request is the only pending one)
+      [{ device_type: 'phone', access: 'listed', staff_ids: ['S_WAIT', 'S_MGR'], screens: ['pass', 'dine_in'], point_id: 'P1' }, 3],
+      [{ device_type: 'kds', station_id: 'STATION-1' }, 2],
     ] as const) {
       const req = await request(hub);
       const rec = record();
       const res = await approve(hub, admin, { request_id: req.request_id, display_code: req.display_code, device_name: 'D', ...payload });
       rec.stop();
       expect(res.statusCode).toBe(200);
-      expect(own(rec.sql), payload.device_type).toEqual({ requestReads: 1, deviceInserts: 1, requestUpdates: 1, appends, staffOrPointReads: 0 });
+      expect(own(rec.sql), payload.device_type).toEqual({ requestReads: 1, pendingReads: 1, deviceInserts: 1, requestUpdates: 1, appends, staffOrPointReads: 0 });
     }
   });
 });

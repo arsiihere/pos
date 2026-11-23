@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { encodeCrockford128 } from '../auth/pair-page.js';
+import { closeDeviceWaitingWhenIdle } from '../auth/pair-requests.js';
 import { stationExists } from '../auth/station-validator.js';
 import type { SessionDirectory } from '../auth/staff-directory.js';
 import { sha256hex } from '../lib/hash.js';
@@ -678,6 +679,8 @@ export function registerApprovePairingRequest(app: FastifyInstance, deps: HubDep
             device_id: ctx.actor.deviceId,
           });
         }
+        // Step 4, last (05a §3.10, row D-3): close `device_waiting` `done` when no other request is pending (1 read + the close)
+        events.push(...closeDeviceWaitingWhenIdle(ctx, now, 'done'));
         // Step 5 (refresh `deviceProfile`) is the `refreshDeviceProfilesAfter` commit hook (server.ts, §4.2).
         return {
           events,

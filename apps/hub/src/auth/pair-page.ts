@@ -16,6 +16,12 @@ export function encodeCrockford128(bytes: Uint8Array): string {
 
 // 00-S10 … 00-S15 (docs/design/handoff/00/00-design.md §1): every device asks to be paired by request (05a H-1:
 // the phone / tablet token branch ?t= / &d= is removed). Rules: §8.2 "Kiosk and KDS pairing".
+// 05a §6.1: a default for the approval form only. iPadOS reports a desktop agent and Android tablets omit `Mobile`,
+// so those requests carry no hint.
+export function hardwareHintFor(userAgent: string): 'phone' | null {
+  return /iPhone|Android.*Mobile/.test(userAgent) ? 'phone' : null;
+}
+
 export function pairPage(): string {
   return `${pageHead({ title: 'pairing.title', theme: 'dark' })}
 <body class="pos-root">
@@ -23,6 +29,7 @@ export function pairPage(): string {
 <div id="screen" class="pos-page"></div>
 <script>
 ${encodeCrockford128.toString()}
+${hardwareHintFor.toString()}
 ${clientPrelude()}
 ${globalStateClient()}
 function openDeviceDb() {
@@ -152,12 +159,13 @@ function askAgain(start, body, waitMs, kind, iconName) {
 }
 function pairScreen(db) {
   let retried = false;
+  const hint = hardwareHintFor(navigator.userAgent);
   const start = () => {
     show(stateScreen('info', 'sync', t('pairing.starting'), t('pairing.starting_body')));
     fetchRetry('/pair/requests', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ device_name: 'screen' }),
+      body: JSON.stringify(hint ? { device_name: 'screen', hardware_hint: hint } : { device_name: 'screen' }),
     }).then(async (res) => {
       const body = await json(res);
       const error = body.error || {};
@@ -222,8 +230,8 @@ function pairScreen(db) {
   };
   start();
 }
-// 00-S13: iOS Safari outside the Home Screen app never pairs (§8.2 phone rule 2). Not called since the token branch
-// went (05a H-1); 05a plan task 16 puts it in front of the request flow (§8).
+// 00-S13: iOS Safari outside the Home Screen app never pairs (00 §8.2 rule 2). 05a §8: shown first, the request
+// follows from the Home Screen app.
 function iosSteps() {
   const page = node('main', 'pos-content pos-phonepair pos-phonepair--ios');
   const head = node('div', 'pos-phonepair__head');
@@ -241,8 +249,12 @@ function iosSteps() {
     list.appendChild(item);
   });
   page.appendChild(list);
-  page.appendChild(banner('info', t('pairing.ios_link_time'), '', '', 'clock'));
   show(page);
+}
+function needsHomeScreen() {
+  if (!/iPhone|iPad|iPod/.test(navigator.userAgent)) return false;
+  const standalone = navigator.standalone === true || (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches);
+  return !standalone;
 }
 openDeviceDb().then(async (db) => {
   const deviceToken = await readKey(db, 'token');
@@ -256,6 +268,8 @@ openDeviceDb().then(async (db) => {
   // Kiosk and kitchen screens fit the screen: no page scroll, no scrollbars.
   screen.classList.add('pos-page--fit');
   if (deviceToken) return await resumePaired(db);
+  // 05a §8: iOS keeps "Add to Home Screen" first; the request is made from the Home Screen app.
+  if (needsHomeScreen()) return iosSteps();
   return pairScreen(db);
 });
 </script>

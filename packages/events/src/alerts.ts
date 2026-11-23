@@ -113,6 +113,7 @@ export const AlertLinkTargetSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('order'), order_id: Id }).strict(), // one order (a round of a seating, or a takeaway / parking order)
   z.object({ type: z.literal('table'), table_id: Id, seating_id: Id }).strict(), // a seated table: the seating and its table at raise (M1)
   z.object({ type: z.literal('zone_item'), zone_id: Id, item_id: Id }).strict(), // a zone stock row
+  z.object({ type: z.literal('devices') }).strict(), // the device list, Waiting group (05a §3.10, §8) ⚠️ Changed by 05a (row D-3)
 ]);
 export type AlertLinkTarget = z.infer<typeof AlertLinkTargetSchema>;
 

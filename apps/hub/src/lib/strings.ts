@@ -150,7 +150,7 @@ export const EN = {
   'approve.failed': 'Not approved',
   'approve.retry': 'Try again',
 
-  'pairing.title': 'Ask a manager to pair this screen',
+  'pairing.title': 'Ask someone with hub access to approve this screen',
   'pairing.how': "On a manager's phone or tablet: open Approve a screen, then scan this QR or type the code.",
   'pairing.code_aria': 'Pairing code',
   'pairing.starting': 'Getting a pairing code…',
@@ -172,7 +172,6 @@ export const EN = {
   'pairing.ios_step_1': 'Tap Share at the bottom of Safari',
   'pairing.ios_step_2': 'Tap "Add to Home Screen", then Add',
   'pairing.ios_step_3': 'Open the new POS icon on your Home Screen',
-  'pairing.ios_link_time': 'This link works for 10 minutes.',
 
   // 00-F01…F08 (docs/design/handoff/00/00-design.md §2), shown by lib/global-state.ts.
   'global.hub_down_title': "Can't reach the hub — retrying…",
@@ -435,7 +434,7 @@ export const UR: Partial<Record<StringKey, string>> = {
   // Urdu draft — needs native review (Pulse 00 CHANGES §3).
   'approve.outcome': 'نئی اسکرین یوں کھلے گی: {what}۔ {next}',
 
-  'pairing.title': 'مینیجر سے کہیں کہ اس اسکرین کو جوڑیں',
+  'pairing.title': 'ہب تک رسائی رکھنے والے سے کہیں کہ اس اسکرین کو منظور کریں',
   'pairing.how': 'مینیجر کے فون یا ٹیبلٹ پر «اسکرین منظور کریں» کھولیں، پھر یہ QR اسکین کریں یا کوڈ لکھیں۔',
   'pairing.expires_in': 'ختم ہونے میں {time}',
   'pairing.ios_title': 'ہوم اسکرین پر شامل کریں، پھر وہیں سے کھولیں',
@@ -443,7 +442,6 @@ export const UR: Partial<Record<StringKey, string>> = {
   'pairing.ios_step_1': 'نیچے «شیئر» پر ٹیپ کریں',
   'pairing.ios_step_2': '«ہوم اسکرین میں شامل کریں» پر ٹیپ کریں',
   'pairing.ios_step_3': 'ہوم اسکرین پر نیا POS آئیکن کھولیں',
-  'pairing.ios_link_time': 'یہ لنک 10 منٹ چلتا ہے۔',
 
   'admin.nav_devices': 'اسکرینیں اور فون',
   'admin.nav_sessions': 'ابھی سائن اِن',
