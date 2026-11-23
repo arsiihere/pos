@@ -250,7 +250,8 @@ describe('changed_versions and one version builder (01b B23, §5.3, §6)', () =>
     const hits = walk(src)
       .filter((file) => !file.endsWith('.test.ts') && readFileSync(file, 'utf8').includes('sha256hex(canonicalJson('))
       .map((file) => relative(src, file));
-    expect(hits.sort()).toEqual(['modules/billing-settings/versions.ts', 'modules/config-sync/service.ts', 'modules/menu-variants/versions.ts', 'modules/restaurant/versions.ts', 'modules/staff-roles/versions.ts']);
+    // ⚠️ 08b v1.0 (r1, AD-22): the recipes module's own V13 version builder
+    expect(hits.sort()).toEqual(['modules/billing-settings/versions.ts', 'modules/config-sync/service.ts', 'modules/menu-variants/versions.ts', 'modules/recipes/versions.ts', 'modules/restaurant/versions.ts', 'modules/staff-roles/versions.ts']);
   });
 });
 
