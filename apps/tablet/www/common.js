@@ -1,3 +1,4 @@
+/* global window, document, setTimeout, clearTimeout, setInterval, clearInterval, console, Promise, location */
 /*
  * 05b §8.1 / §8.4 bundled pages — shared helpers. Plain JS, no framework, no network calls: everything goes
  * through window.Capacitor.Plugins.PosNative (H-3), and each method is feature-checked (M-14).
