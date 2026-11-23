@@ -49,6 +49,8 @@ export interface CloudTestHooks {
   onVersionCompare?(entity: 'staff' | 'role' | 'responsibility', id: string, version: string): void; // 01b task 30 (#104)
   afterOwnerRowLock?(path: 'login' | 'refresh' | 'change' | 'reset'): Promise<void>; // 01b task 42: right after each owner-row lock (#74)
   afterStockItemLock?(route: string): Promise<void>; // 08a §10.3 (N-5, AD-1): right after the stock-item lock of the §6.3 PATCH and the §6.5–§6.7 POSTs
+  afterRecipeLock?(route: string): Promise<void>; // 08b §6.4 / §10.4 (m-14): right after the recipe lock (kind 0.5) of the §6.4 draft save
+  afterPublishLock?(route: string): Promise<void>; // 08b §6.5 / §6.6 (B-1, N-2): right after the publish lock (kind 0) of a publish or a restore
 }
 
 export interface CloudDeps {
