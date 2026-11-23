@@ -1,0 +1,71 @@
+# 05b §7 CI: builds the tablet APK and runs the native unit tests (the dev box has no Android SDK).
+# A required check next to `gate` for merging 05b (owner sets it in branch protection).
+name: tablet
+
+on:
+  pull_request:
+    branches: [main, 'module-*']
+    paths: ['apps/tablet/**', '.github/workflows/tablet.yml']
+  push:
+    branches: [main, 'module-05b', 'lane-05b/**']
+    paths: ['apps/tablet/**', '.github/workflows/tablet.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: tablet-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  tablet:
+    name: tablet (unit tests + APK)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/tablet
+    env:
+      TABLET_VERSION_CODE: ${{ github.run_number }}
+      TABLET_VERSION_NAME: 0.1.${{ github.run_number }}-${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci --no-audit --no-fund
+      - run: npx cap sync android
+      - name: Native unit tests
+        working-directory: apps/tablet/android
+        run: ./gradlew --no-daemon testDebugUnitTest
+      - name: Build debug APK
+        working-directory: apps/tablet/android
+        run: ./gradlew --no-daemon assembleDebug
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk "pos-tablet-${GITHUB_RUN_NUMBER}.apk"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tablet-test-reports
+          path: apps/tablet/android/app/build/reports/tests/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pos-tablet-apk
+          path: apps/tablet/pos-tablet-*.apk
+          retention-days: 30
+      - name: Publish module-05b builds to the rolling pre-release (direct download on the tablet)
+        if: github.event_name == 'push' && github.ref_name == 'module-05b'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp pos-tablet-*.apk pos-tablet.apk
+          gh release view tablet-dev >/dev/null 2>&1 || \
+            gh release create tablet-dev --prerelease --target "$GITHUB_SHA" \
+              --title "Tablet app (module-05b dev builds)" --notes "Debug APK of module-05b. Not for device owner."
+          gh release upload tablet-dev pos-tablet.apk --clobber
