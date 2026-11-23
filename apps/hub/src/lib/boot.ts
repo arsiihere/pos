@@ -25,6 +25,7 @@ import { createWriter } from '../engine-host/writer.js';
 import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projections/access-reconcile.js';
 import { registerAlertProjections } from '../projections/alerts.js';
 import { registerRestaurantProjections } from '../projections/branch-config.js';
+import { deviceProfilesProjection } from '../projections/device-profiles.js';
 import { createProjectionRegistry, type ProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
 import { registerOrdersProjection } from '../orders/index.js';
@@ -318,6 +319,7 @@ export function registerHubProjections(projections: ProjectionRegistry): void {
   registerPrintProjections(projections);
   registerAuditProjections(projections); // 04 §6.6: events only, order free (§5)
   registerBillingProjections(projections); // 05 §5, G-20: after orders, tables and audit
+  projections.register(deviceProfilesProjection()); // 05a §5.1: after 03b device_roles (its point_id wins a catch-up)
 }
 
 function createDeps(
