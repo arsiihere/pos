@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > - **Q-3** The G1-9d shortcut (01d §3.5:637) applies to kinds whose `right.mode` is `'approval'`. A downgraded raise stores `named` or `holders` on an approval kind. **(a, Rec)** Key on the **stored** right: a downgraded request gets no shortcut, like other `named` / `holders` requests today; it still escalates by its steps. (b) Key on the kind's right: the shortcut also runs for a downgraded `holders` request.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~05:45 PKT: **Batch B1 done** (tasks 1–4; review APPROVE). Stab `85690d41` merged (no spec change, no hub migration). Gate before B2 running.
 > - 2026-11-23 ~05:20 PKT: Gate before B1 green (see "Stab merges"; two shared-DB clashes, no code cause). **Batch B1 started** (tasks 1, 2, 4, 3).
 > - 2026-11-23 ~04:35 PKT: Phase 0 bumps: **00 v1.12.3** (`0ddb82cb`), **03b v1.0.15** (`f45df89a`), **04 v1.0.8** (`f1cc15bc`), **01d v1.3.5** (committed with **Q-1 – Q-3 marked open**), F §6.2 append (`855e87eb`). Each was checked by a fresh reviewer, and the findings are fixed. Stab tip `943e1cb6` merged (no spec change); gate running before batch B1.
 > - 2026-11-23 (after 03:53 PKT): Owner rulings 03:53: `git merge` allowed, push target **`build/05a`**, G-b (a). `spec/05a-device-access` merged into `module-05a` (`866f74c3`; README conflict resolved: 05 row from stab, 05a row from the spec branch); pushed as `build/05a`. **05a v1.0.1** written (R-1, G-b). F §6.2 append done (`855e87eb`). The 00 / 01d / 03b / 04 bumps are being written; baseline gate running.
@@ -51,10 +52,10 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | P0.6 | 0 | 03b bump (K-1, K-2) | NORMAL | `f45df89a` | **done** (review APPROVE) |
 | P0.7 | 0 | 04 bump (A-1) | NORMAL | `f1cc15bc` | **done** (review APPROVE; G-b read path via `audit-staff`) |
 | P0.8 | 0 | F §6.2 append, README | NORMAL | `855e87eb` (F) | F done; README rows after the bumps |
-| 1 | B1 | permission lists + screens | NORMAL | | |
-| 2 | B1 | error codes | NORMAL | | |
-| 3 | B1 | audit action | NORMAL | | |
-| 4 | B1 | events | NORMAL | | |
+| 1 | B1 | permission lists + screens | NORMAL | `e3639876` | **done** (review APPROVE) |
+| 2 | B1 | error codes | NORMAL | `63bbc278` | **done** (review APPROVE) |
+| 3 | B1 | audit action | NORMAL | `652d2e01` | **done** (review APPROVE) |
+| 4 | B1 | events | NORMAL | `1d23c70c` | **done** (review APPROVE) |
 | 5 | B2 | migration 0027 | HIGH | | |
 | 6 | B2 | profile projections | HIGH | | |
 | 7 | B2 | `deviceProfile` map + M-8 count | HIGH | | |
@@ -104,6 +105,12 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | G-b | Store `staff_ids` in the `device_profile_set` audit detail; names looked up when the log is read, as 04 does; in 05a v1.0.1 with R-1 | 2026-11-23 03:53 PKT | 05a v1.0.1 §4.2, 04 v1.0.8 (P0.7), task 3 |
 | R-1 | **Staff device with no profile: split rule** (was gap G-a). (1) **Permissions:** treat it as `access = 'everyone'` (masked, fail-closed). (2) **Sign-in:** today's rule, **not** `everyone`. A `phone` accepts only its `owner_staff_id`; a `tablet` / `cashier_kiosk` accepts any directory staff. Never let a phone without a profile accept any PIN but its owner's. Goes in as a §3.3a / §3.5 note in **05a v1.0.1** (owner-approved now; written by P0.2's spec patch), tested in task 9 (mask) and task 17 (sign-in check) | 2026-11-23 03:35 PKT | plan D-6, Review Focus 1, P0.2, tasks 9, 17 |
 
+## Plan corrections during the build
+
+| # | Task | Correction |
+|---|---|---|
+| PC-1 | 2 | The plan named a `PermissionDeniedReason` type; none exists. `DomainError` details are `Record<string, unknown>`, so the three reasons are plain strings in `details.reason`, as other reasons are today. No type added |
+
 ## Owner rulings during the build
 
 | # | Ruling | When | Where it landed |
@@ -126,4 +133,5 @@ Scan for P0.1: every local and remote branch and both open PRs (#121, #126) were
 | When | Stab sha | Spec change in 00 / 01d / 03b / 04? | Gate after |
 |---|---|---|---|
 | cut | `44112286` | — (baseline: 00 v1.12.2, 01d v1.3.4, 03b v1.0.14, 04 v1.0.7) | — |
+| before B2 | `85690d41` | none | running |
 | before B1 | `943e1cb6` (merge `ad0864ad`), then `6be21317` (cloud `0017`) | none | **green**: typecheck + lint + hub pass. Run 1: 95 cloud files failed (the shared `pos_test` DB already had cloud `0017` from the newer stab commit), fixed by merging `6be21317`. Run 2: 51 cloud files and 1 hub timeout (deadlocks / duplicate keys while the `~/pos` stab session tested the same DB). Rerun of `apps/cloud` + `voids/guards` under the lock: 116 files, 809 tests green |
