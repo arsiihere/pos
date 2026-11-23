@@ -60,6 +60,8 @@ export function Shell({
     { href: '#/choice-groups', icon: 'sliders', label: t('owner.nav.choice_groups'), current: route.startsWith('/choice-groups'), group: menu },
     { href: '#/deals', icon: 'tag', label: t('owner.nav.deals'), current: route.startsWith('/deals'), group: menu },
     { href: '#/stock-items', icon: 'pot', label: t('owner.nav.stock_items'), current: route.startsWith('/stock-items'), group: menu },
+    // 08b §8.1: Recipes (plate cost and coverage)
+    { href: '#/recipes', icon: 'box', label: t('owner.nav.recipes'), current: route.startsWith('/recipes'), group: menu },
     {
       href: '#/floors',
       icon: 'grid',

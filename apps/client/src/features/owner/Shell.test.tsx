@@ -71,6 +71,7 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       'Choice groups',
       'Deals',
       'Stock items',
+      'Recipes', // ⚠️ 08b v1.0 §8.1: the Recipes page joins the Menu section
       '# Restaurant',
       'Floors and tables',
       'Kitchen stations',
@@ -102,6 +103,7 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       'چوائس گروپ',
       'ڈیل',
       'اسٹاک آئٹم',
+      'ترکیبیں', // ⚠️ 08b v1.0 §8.1 (draft Urdu, 08b/urdu-todo.md)
       '# ریسٹورنٹ',
       'فلور اور میزیں',
       'کچن اسٹیشن',
@@ -141,6 +143,7 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       '#/choice-groups',
       '#/deals',
       '#/stock-items',
+      '#/recipes', // ⚠️ 08b v1.0 §8.1
       '#/floors',
       '#/stations',
       '#/points',

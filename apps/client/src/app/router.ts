@@ -41,7 +41,10 @@ export type OwnerRoute =
   | { name: 'choice_groups' }
   | { name: 'choice_group_edit'; id: string }
   | { name: 'deals' }
-  | { name: 'deal_edit'; id: string };
+  | { name: 'deal_edit'; id: string }
+  // 08b §8.1, §8.2: the Recipes page and a recipe's editor
+  | { name: 'recipes' }
+  | { name: 'recipe_edit'; id: string };
 
 const FIXED: Record<string, OwnerRoute> = {
   '/staff': { name: 'staff' },
@@ -56,6 +59,7 @@ const FIXED: Record<string, OwnerRoute> = {
   '/stock-items': { name: 'stock_items' },
   '/choice-groups': { name: 'choice_groups' },
   '/deals': { name: 'deals' },
+  '/recipes': { name: 'recipes' },
 };
 
 // 01b §8, B05: while the owner must change the password every view redirects to #/account/password.
@@ -81,6 +85,8 @@ export function matchOwnerRoute(path: string): OwnerRoute | null {
   if (choiceGroup !== null) return { name: 'choice_group_edit', id: decodeURIComponent(choiceGroup[1]!) };
   const deal = /^\/deals\/([^/]+)$/.exec(path);
   if (deal !== null) return { name: 'deal_edit', id: decodeURIComponent(deal[1]!) };
+  const recipe = /^\/recipes\/([^/]+)$/.exec(path);
+  if (recipe !== null) return { name: 'recipe_edit', id: decodeURIComponent(recipe[1]!) };
   const settings = /^\/branches\/([^/]+)\/settings$/.exec(path);
   if (settings !== null) return { name: 'branch_settings', id: decodeURIComponent(settings[1]!) };
   return null;
