@@ -68,7 +68,8 @@ describe('[08a §5.1, #27] cloud migration 0018_inventory_config.sql', () => {
       { stock_item_id: 's4', kind: 'prepared', code: null, cost_category: 'food', is_a_item: false },
     ]);
     const versions = (await q(`SELECT branch_id, config_version FROM branches ORDER BY branch_id`)).rows.map((r) => [r.branch_id, BigInt(String(r.config_version))]);
-    expect(versions).toEqual(preVersions);
+    // ⚠️ 08b v1.0 A-6: the whole folder runs, and 0019_recipes.sql bumps every branch once (0018 itself bumps none)
+    expect(versions).toEqual(preVersions.map(([b, v]) => [b, v + 1n]));
     expect((await q(`SELECT count(*)::int AS n FROM config_audit`)).rows[0]).toEqual({ n: 0 });
   });
 
@@ -188,9 +189,10 @@ describe('[08a §5.1, #27] cloud migration 0018_inventory_config.sql', () => {
     const before = [...preEntityDef.matchAll(/'([a-z_]+)'::text/g)].map((m) => m[1]!);
     expect(before).toHaveLength(23);
     const after = [...(await constraintDef('config_audit_entity_check')).matchAll(/'([a-z_]+)'::text/g)].map((m) => m[1]!);
-    expect(after).toEqual([...before, 'stock_item_unit', 'item_price', 'yield_profile']);
-    expect(await constraintDef('config_audit_action_check')).toBe(preActionDef); // actions unchanged
+    // ⚠️ 08b v1.0 A-5: the whole folder runs, and 0019_recipes.sql adds recipe, recipe_version and the action publish
+    expect(after).toEqual([...before, 'stock_item_unit', 'item_price', 'yield_profile', 'recipe', 'recipe_version']);
+    expect(await constraintDef('config_audit_action_check')).toBe(preActionDef.replace("'branch_removed'::text", "'branch_removed'::text, 'publish'::text")); // 0018: actions unchanged
     for (const entity of after) await ins(entity);
-    await expect(ins('recipe')).rejects.toMatchObject({ code: '23514', constraint: 'config_audit_entity_check' });
+    await expect(ins('recipe_line')).rejects.toMatchObject({ code: '23514', constraint: 'config_audit_entity_check' });
   });
 });
