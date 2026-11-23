@@ -1,0 +1,6 @@
+{
+  "appId": "pk.arifchatkhara.pos",
+  "appName": "Arif POS",
+  "webDir": "www",
+  "android": { "allowMixedContent": false }
+}
