@@ -1,5 +1,14 @@
 # 05a Device Access + Screens — build board
 
+> ## ✅ BUILD CODE-COMPLETE (2026-11-23 ~21:00 PKT) — owner's turn
+>
+> All 36 tasks and Z1 are merged into **`build/05a`**; gate **green** (run 45149160196 @ `d4b094b6`, then Z1 docs). Spec **05a v1.0.4** (owner rulings G-e, G-f, G-g, G-h today), 01d v1.3.5 with Q-1 – Q-3 (a), 00 v1.12.3. Acceptance map: `docs/plans/05a-acceptance.md`.
+>
+> **Waiting on the owner:**
+> 1. **Z2** — the hand checks on the pilot devices: `docs/plans/05a-manual-checks.md`.
+> 2. **Z3** — the PR `build/05a` → `main`, after the stab PR, only on the owner's word (no PR opened).
+> 3. Optional calls: **PC-6** (re-dirty `no_approver` on `DeviceProfileSet`: one line + a 01d §3.9 sentence); task 25 nit (`device_waiting` inbox row as a card on an `everyone` device after sign-in); `device_waiting` copy ("A device is waiting for approval" / "Device waiting", Urdu in urdu-todo); no live-view screen in the client yet (`manager` screen has reports, day close, audit, test alert, devices).
+
 Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. Spec: `05a_Device_Access_Screens_Spec_v1.0.1.md` (APPROVED; v1.0 2026-11-23 03:24 PKT, v1.0.1 rulings 03:35 / 03:53 PKT). Integration branch: `module-05a`, **cut from `fix/stab-tablet-pairing`; the 05a PR comes after the stab PR** (owner D-7). Stab work comes in only by `git merge fix/stab-tablet-pairing`, before each batch, then the gate. Pushed to **`build/05a`** after every task (owner 03:53, no PRs). Only the integrator edits this file.
 
 > ## ✅ Q-1 – Q-3 ruled (owner, 2026-11-23, cloud session): all three **(a)**
@@ -11,6 +20,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~21:00 PKT: **Z1 merged; build code-complete** (see the box at the top). Stab `origin/fix/stab-tablet-pairing` @ `b72d290c` unchanged all day (no 00 / 01d / 03b / 04 version from STAB).
 > - 2026-11-23 ~20:45 PKT: **Task 25 merged — all 36 build tasks are merged into `build/05a`.** Next: Z1 acceptance map (draft ready), then the owner's Z2 hand checks and Z3 (PR to `main`, after the stab PR, on the owner's word).
 > - 2026-11-23 ~20:00 PKT: **Task 30 merged** (counter check). **27 tasks merged.** Left: 25 (in review), the #15 refusal test, then Z1.
 > - 2026-11-23 ~19:35 PKT: **Task 24 merged** (downgraded raise). **26 tasks merged.** Left: 25, 30 (running), then Z1.
@@ -132,7 +142,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 34 | B8 | shell tabs (C-1) | NORMAL | `7193332b`, `c6e8ab2c`, fix `e6312da0` | **done** (Sonnet review FIX → 1 round: downgraded money actions — void / cancel, comp, discount, reopen — keep their button and show "Confirm on your phone"; `listed_only` hidden). Notes for the owner: the client has **no live-view screen** yet, so `manager` holds reports, day close, audit, test alert, devices (§3.6 lists "live view" too); `parking` opens `#/orders`; no client button gates on `apply-refund` (refunds are bill payments out) |
 | 35 | B8 | deep links, answer sheet, Pass parse | NORMAL | `c8249ee0`, `e816be7c`, fix `a8374df5` | **done** (Sonnet review FIX → 1 round: "Confirm on your phone" removed from the answer sheet, it belongs to task 34's downgraded action buttons). Screen labels: Dine in, Takeaway, Parking, Cash desk, Pass, Manager tools (spec names none) |
 | 36 | B8 | audit screen names for `device_profile_set` (G-b) | NORMAL | `c978d0fe` | **done** (Sonnet review APPROVE) |
-| Z1 | Z | acceptance map | — | | |
+| Z1 | Z | acceptance map | — | `683d17af` | **done**: `docs/plans/05a-acceptance.md` — all 43 §10 cases cite a test (0 pending, 0 missing); every §4.5 row, RF-1–RF-5, §12.4, rulings and owner notes |
 | Z2 | Z | manual checks (owner) | — | | |
 | Z3 | Z | `module-05a` → `main` | — | | |
 
