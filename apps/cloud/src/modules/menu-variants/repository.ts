@@ -116,7 +116,8 @@ export async function activeVariantGroupIdsIn(repo: TenantLevelRepository, categ
 // 01c §5.1 stock_items as stored (archived_at a number).
 export type StockItemRecord = Omit<StockItemRow, 'archived_at'> & { archived_at: number | null };
 
-const STOCK_ITEM_COLUMNS = 'stock_item_id, name, stock_unit, carries_over, archived_at';
+// 08a AD-2: the four inventory columns (C-7) ride along every stock-item read / RETURNING
+const STOCK_ITEM_COLUMNS = 'stock_item_id, name, stock_unit, carries_over, archived_at, kind, code, cost_category, is_a_item';
 
 type RawStockItem = Omit<StockItemRecord, 'archived_at'> & { archived_at: string | null };
 
@@ -127,7 +128,7 @@ function stockItemRow(row: RawStockItem): StockItemRecord {
 // §6.7: insert, no lock (the name index → 23505 stock_items_active_name).
 export async function insertStockItem(
   repo: TenantLevelRepository,
-  row: Omit<StockItemRecord, 'archived_at'>,
+  row: Omit<StockItemRecord, 'archived_at' | 'kind' | 'code' | 'cost_category' | 'is_a_item'>, // 08a AD-2: DB defaults until c1
   now: number,
 ): Promise<StockItemRecord> {
   const rows = await repo.query<RawStockItem>(

@@ -312,6 +312,7 @@ export async function listStockItems(
       drawers: drawers
         .filter((d) => d.stock_item_id === row.stock_item_id)
         .map((d) => ({ item_id: d.item_id, name: d.name, variant_name: d.variant_name, quantity_per_sale_unit: d.quantity_per_sale_unit })),
+      menu_cost: null, // 08a AD-2: c1 fills it (§6.1, I7)
     })),
   };
 }
