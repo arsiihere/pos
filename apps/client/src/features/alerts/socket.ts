@@ -4,8 +4,8 @@ import type { AlertStore, IncomingRow, Timers } from './store';
 
 // 01d §8.1, §3.7, §6 batch 3 (00 §6.21, H-1): the page's hub socket. Signed in, it is the staff-session socket
 // (`auth` with `session_token`); with no session, the kiosk and phone pages open alert mode (`auth` with the
-// device token only) and close it on sign-in. The tablet's page never opens alert mode (only the 9b background
-// service does, else the two close each other with 4409 in a loop), and neither does the KDS page.
+// device token only) and close it on sign-in. The tablet's page never opens alert mode (only the 05b AlertService
+// does, else the two close each other with 4409 in a loop), nor any page inside the 05b app (D-2), nor the KDS page.
 // Alert frames go to the store; one `receipt delivered` per (alert_id, step) shown. Browser WebSocket, no library.
 
 /** §8.2 / §5.4: reconnect backoff, capped at 5 s */
@@ -59,6 +59,13 @@ export interface AlertConnectionDeps {
   onEnded?: (code: number, reason: string) => void;
   /** `catch_up`, `event` and `error` frames, for the other features on this socket */
   onFrame?: (frame: WsServerMessage) => void;
+  /**
+   * 05b D-2 (M-4): the page runs inside the tablet app (`PosNative` present): it never opens alert mode, whatever
+   * the device type (the app's AlertService holds that socket).
+   */
+  nativeShell?: boolean;
+  /** 05b M-8: every (alert_id, step) handed to the store (the caller reports each once to native) */
+  onShown?: (row: { alert_id: string; step: number }) => void;
 }
 
 export interface AlertConnection {
@@ -68,6 +75,8 @@ export interface AlertConnection {
   /** authenticated: the hub has sent its first frame (nothing is sent before auth succeeds, 00 §6.21) */
   isUp(): boolean;
   subscribe(listener: () => void): () => void;
+  /** 05b §3.5 (N-5): after a final close the native check kept the device: open again in the current mode */
+  retry(): void;
   dispose(): void;
 }
 
@@ -89,6 +98,7 @@ export function createAlertConnection(deps: AlertConnectionDeps): AlertConnectio
 
   function modeFor(token: string | null): SocketMode {
     if (token !== null) return 'session';
+    if (deps.nativeShell === true) return 'none'; // 05b D-2: never alert mode inside the app
     // §3.7 m13: only the hub-served kiosk and phone pages; never the tablet page, never the KDS page
     return deps.deviceType === 'cashier_kiosk' || deps.deviceType === 'phone' ? 'alert' : 'none';
   }
@@ -132,6 +142,10 @@ export function createAlertConnection(deps: AlertConnectionDeps): AlertConnectio
     if (send(s, { type: 'receipt', alert_id: row.alert_id, kind: 'delivered', step: row.step })) receipted.add(key);
   }
 
+  function shown(row: { alert_id: string; step: number }): void {
+    deps.onShown?.({ alert_id: row.alert_id, step: row.step });
+  }
+
   function onMessage(s: SocketLike, data: unknown): void {
     let raw: unknown;
     try {
@@ -147,6 +161,7 @@ export function createAlertConnection(deps: AlertConnectionDeps): AlertConnectio
     switch (frame.type) {
       case 'alert':
         deps.store.onAlert(frame.alert);
+        shown(frame.alert);
         receipt(s, frame.alert);
         return;
       case 'alert_seen':
@@ -157,7 +172,10 @@ export function createAlertConnection(deps: AlertConnectionDeps): AlertConnectio
         return;
       case 'alerts_open':
         deps.store.onCatchUp(frame.alerts as IncomingRow[]);
-        for (const row of frame.alerts) receipt(s, row);
+        for (const row of frame.alerts) {
+          shown(row);
+          receipt(s, row);
+        }
         deps.onBindingRoute?.(frame.binding_route_until);
         return;
       case 'binding_route':
@@ -168,7 +186,10 @@ export function createAlertConnection(deps: AlertConnectionDeps): AlertConnectio
         const part = AlertsCatchUpPart.safeParse(frame.state.alerts);
         if (part.success) {
           deps.store.onCatchUp(part.data.alerts);
-          for (const row of part.data.alerts) receipt(s, row);
+          for (const row of part.data.alerts) {
+            shown(row);
+            receipt(s, row);
+          }
         }
         deps.onFrame?.(frame);
         return;
@@ -229,6 +250,11 @@ export function createAlertConnection(deps: AlertConnectionDeps): AlertConnectio
     },
     mode: () => (socket === null && retry === null ? 'none' : modeFor(session)),
     isUp: () => up,
+    retry() {
+      if (disposed || socket !== null || retry !== null) return;
+      attempt = 0;
+      open();
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => void listeners.delete(listener);
