@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Clock } from '../lib/clock.js';
+import { deviceProfile } from '../auth/device-profile.js';
 import { defineQuery, queryRegistry } from './registry.js';
 
 export function registerStaffRosterQuery(app: FastifyInstance, clock: Clock): void {
@@ -25,10 +26,15 @@ export function registerStaffRosterQuery(app: FastifyInstance, clock: Clock): vo
              LIMIT 1`,
           )
           .get(ctx.device?.device_id ?? '') as { staff_id: string } | undefined;
-        const owner = ctx.device?.device_type === 'phone' ? ctx.device.owner_staff_id : undefined;
+        // 05a §6.6: a `listed` device shows only its people; `everyone` the whole directory. Memory, no statement. A
+        // device with no profile (R-1) keeps the pre-05a rule: a phone shows only its owner.
+        const profile = deviceProfile(ctx.device?.device_id ?? '');
+        const owner = profile === undefined && ctx.device?.device_type === 'phone' ? ctx.device.owner_staff_id : undefined;
+        const listed = profile?.access === 'listed' ? profile.staff_ids : undefined;
         const staff = ctx.directory
           .list()
           .filter((row) => owner === undefined || row.staff_id === owner)
+          .filter((row) => listed === undefined || listed.has(row.staff_id))
           .map((row) => ({
             staff_id: row.staff_id,
             display_name: row.display_name,
