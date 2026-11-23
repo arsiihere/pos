@@ -40,8 +40,26 @@ interface FakeNative extends NativeBridge {
   fire(s: Partial<NativeState>): void;
   confirmAnswer: ConfirmRevoked | null;
   infoAnswer: NativeInfo | null;
-  healthAnswer: NativeHealth | null;
+  healthAnswer: NativeHealth | null | 'hang';
 }
+
+const HEALTHY: NativeHealth = {
+  service_connected: true,
+  alert_socket: 'up',
+  last_frame_age_ms: 1_000,
+  wake_lock: true,
+  store_readable: true,
+  replaced_by_other: false,
+  device_owner: false,
+  lock_task_state: 'none',
+  post_notifications: true,
+  fsi_allowed: true,
+  battery_exempt: true,
+  exact_alarms: true,
+  can_install: true,
+  native_api: 1,
+  version_name: '1.0.0',
+};
 
 function fakeNative(): FakeNative {
   let listener: ((s: NativeState) => void) | null = null;
@@ -50,14 +68,18 @@ function fakeNative(): FakeNative {
     calls,
     confirmAnswer: { revoked: true, reason: 'DEVICE_REVOKED' },
     infoAnswer: { native_api: 1, version_code: 1, version_name: '1.0.0', device_owner: false },
-    healthAnswer: null,
+    healthAnswer: HEALTHY,
     fire: (s) => listener?.({ paired: true, alert_socket: 'up', binding_route_until: null, update_ready: false, ...s }),
     info: async () => (calls.push(['info', null]), n.infoAnswer),
     confirmRevoked: async () => (calls.push(['confirmRevoked', null]), n.confirmAnswer),
     setSession: async (s) => void calls.push(['setSession', s]),
     setDeviceContext: async (c) => void calls.push(['setDeviceContext', c]),
     reportShown: async (r) => void calls.push(['reportShown', r]),
-    health: async () => (calls.push(['health', null]), n.healthAnswer),
+    health: () => {
+      calls.push(['health', null]);
+      const a = n.healthAnswer;
+      return a === 'hang' ? new Promise<NativeHealth | null>(() => {}) : Promise.resolve(a);
+    },
     openSetting: async (o) => void calls.push(['openSetting', o]),
     setWakeLock: async (o) => void calls.push(['setWakeLock', o]),
     checkForUpdate: async () => (calls.push(['checkForUpdate', null]), { state: 'none' as const }),
@@ -76,6 +98,8 @@ const of = (n: FakeNative, name: string) => n.calls.filter(([c]) => c === name).
 interface HubOpts {
   roster?: () => Response;
   staffBuild?: string | null;
+  /** POST /auth/logout; default 200 at once */
+  logout?: () => Promise<Response>;
 }
 
 function hub(o: HubOpts = {}) {
@@ -103,6 +127,7 @@ function hub(o: HubOpts = {}) {
       case 'GET /queries/table-map':
         return reply(200, { data: { as_of_seq: 0, floors: [] } });
       case 'POST /auth/logout':
+        if (o.logout !== undefined) return o.logout();
         return reply(200, { data: { already_ended: false } });
       default:
         return reply(404, { error: { code: 'NOT_FOUND', message: `${method} ${path}`, details: {} } });
@@ -357,6 +382,75 @@ describe('[05b test 6, §3.5, N-5, N-9] unpair triggers go through confirmRevoke
     expect(wiped).toBe(0);
   });
 
+  it('roster 401 DEVICE_TOKEN_INVALID inside the app → confirmRevoked first; revoked: true → wipe and /pair', async () => {
+    const n = fakeNative();
+    n.confirmAnswer = { revoked: true, reason: 'DEVICE_TOKEN_INVALID' };
+    render(n, hub({ roster: () => reply(401, { error: { code: 'DEVICE_TOKEN_INVALID', message: 'unknown', details: {} } }) }));
+    await until(() => pairs.length > 0);
+    expect(of(n, 'confirmRevoked')).toHaveLength(1);
+    expect(wiped).toBe(1);
+    expect(pairs).toEqual(['/pair']);
+  });
+
+  it('roster DEVICE_REVOKED, HOST_NOT_ALLOWED → "Open the hub by its address", keys kept', async () => {
+    const n = fakeNative();
+    n.confirmAnswer = { revoked: false, reason: 'HOST_NOT_ALLOWED' };
+    render(n, hub({ roster: revokedRoster }));
+    await until(() => m.text().includes('Open the hub by its address'));
+    expect(m.container.querySelector('[data-native="notice"]')!.textContent).toContain('Open the hub by its address');
+    expect(wiped).toBe(0);
+    expect(pairs).toEqual([]);
+  });
+
+  it('[O-20] native cleared its own token on a confirmed revoke: paired: false then revoked: true → one wipe, one /pair, pos-native-context cleared', async () => {
+    window.localStorage.setItem('pos-native-context', JSON.stringify({ always_on: true, language: 'en', lock_task: true }));
+    const n = fakeNative();
+    render(n);
+    await flush();
+    n.fire({ paired: false, alert_socket: 'down' });
+    await until(() => pairs.length > 0);
+    n.fire({ paired: false, alert_socket: 'down' });
+    sockets.at(-1)?.onclose?.({ code: 4403, reason: 'revoked' });
+    await flush(6);
+    expect(wiped).toBe(1);
+    expect(pairs).toEqual(['/pair']);
+    expect(window.localStorage.getItem('pos-native-context')).toBeNull();
+  });
+
+  it('NO_NATIVE_TOKEN after the one offer → "Can\'t confirm this tablet with the hub — ask the manager", no second /pair', async () => {
+    window.sessionStorage.setItem('pos-native-offered', '1');
+    const n = fakeNative();
+    n.confirmAnswer = { revoked: false, reason: 'NO_NATIVE_TOKEN' };
+    render(n);
+    await flush();
+    n.fire({ paired: false, alert_socket: 'down' });
+    await until(() => m.text().includes("Can't confirm this tablet with the hub"));
+    expect(m.text()).toContain("Can't confirm this tablet with the hub — ask the manager");
+    expect(pairs).toEqual([]);
+    expect(wiped).toBe(0);
+  });
+
+  it('a lasting keep answer → the notice; the 5 s retry backs off to 60 s after 5 tries', async () => {
+    const n = fakeNative();
+    n.confirmAnswer = { revoked: false, reason: '200' };
+    render(n, hub({ roster: revokedRoster }));
+    await until(() => of(n, 'confirmRevoked').length === 1);
+    expect(m.container.querySelector('[data-native="notice"]')).toBeNull(); // one keep answer: the trigger is retried
+    for (let i = 2; i <= 5; i += 1) {
+      timers.advance(5_000);
+      await until(() => of(n, 'confirmRevoked').length === i);
+    }
+    expect(of(n, 'confirmRevoked')).toHaveLength(5);
+    expect(m.text()).toContain("Can't confirm this tablet with the hub — ask the manager");
+    timers.advance(5_000);
+    await flush(8);
+    expect(of(n, 'confirmRevoked')).toHaveLength(5); // backed off
+    timers.advance(55_000);
+    await until(() => of(n, 'confirmRevoked').length === 6);
+    expect(of(n, 'confirmRevoked')).toHaveLength(6);
+    expect(wiped).toBe(0);
+  });
+
   it('state paired: false, revoked: true → wipe, then /pair (no page keys left)', async () => {
     const n = fakeNative();
     render(n);
@@ -390,6 +484,80 @@ describe('[05b M-18] red bar when the alert service is disconnected for 60 s', (
   });
 });
 
+describe('[05b M-18] red bar from health() polled every 20 s while visible', () => {
+  const bar = () => m.container.querySelector('[data-native="alerts-down"]');
+  const setVisibility = (v: 'visible' | 'hidden') => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+  };
+  afterEach(() => setVisibility('visible'));
+
+  it('the service died without a state event: service_connected: false → the bar after 60 s; back → gone', async () => {
+    const n = fakeNative();
+    render(n);
+    await flush();
+    n.fire({ alert_socket: 'up' });
+    n.healthAnswer = { ...HEALTHY, service_connected: false, alert_socket: null };
+    timers.advance(20_000);
+    await flush();
+    timers.advance(59_000);
+    await flush();
+    expect(bar()).toBeNull();
+    timers.advance(1_000);
+    await flush();
+    expect(bar()).not.toBeNull();
+    n.healthAnswer = HEALTHY;
+    timers.advance(20_000);
+    await flush();
+    expect(bar()).toBeNull();
+  });
+
+  it('a call that does not answer (timeout) or rejects counts as down', async () => {
+    const n = fakeNative();
+    render(n);
+    await flush();
+    n.fire({ alert_socket: 'up' });
+    n.healthAnswer = 'hang';
+    timers.advance(25_000);
+    await flush();
+    timers.advance(60_000);
+    await flush();
+    expect(bar()).not.toBeNull();
+    n.healthAnswer = HEALTHY;
+    timers.advance(15_000); // to the next poll (at 100 s), before its own 5 s timeout
+    await flush();
+    expect(bar()).toBeNull();
+    n.healthAnswer = null; // bridge.ts answers null for a rejection
+    timers.advance(20_000);
+    await flush();
+    timers.advance(60_000);
+    await flush();
+    expect(bar()).not.toBeNull();
+  });
+
+  it('no polling while the page is hidden; visible again → polled at once', async () => {
+    const n = fakeNative();
+    render(n);
+    await flush();
+    timers.advance(20_000);
+    await flush();
+    const polled = of(n, 'health').length;
+    expect(polled).toBeGreaterThanOrEqual(2);
+    setVisibility('hidden');
+    timers.advance(120_000);
+    await flush();
+    expect(of(n, 'health')).toHaveLength(polled);
+    setVisibility('visible');
+    await flush();
+    expect(of(n, 'health')).toHaveLength(polled + 1);
+    timers.advance(20_000);
+    await flush();
+    expect(of(n, 'health')).toHaveLength(polled + 2);
+  });
+});
+
 describe('[05b M-13, O-17] staff build', () => {
   it('differs while signed out → reload; no PosNative → no check at all', async () => {
     const h = render(fakeNative(), hub({ staffBuild: 'NEW' }), TABLET, 'OLD');
@@ -417,6 +585,48 @@ describe('[05b M-13, O-17] staff build', () => {
     expect(m.text()).toContain('Update ready — sign out to load it');
     expect(reloads).toBe(0);
     await signOutOnMe();
+    expect(reloads).toBe(1);
+  });
+
+  it('sign-out with the reload waiting: the logout is awaited (at most 3 s) before the reload', async () => {
+    let build = 'OLD';
+    let endLogout: (r: Response) => void = () => {};
+    const h = hub({ logout: () => new Promise<Response>((r) => (endLogout = r)) });
+    const base = h.fetch.getMockImplementation()!;
+    h.fetch.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.startsWith('/health') ? reply(200, { data: { status: 'ready', staff_build: build } }) : base(url, init),
+    );
+    render(fakeNative(), h, TABLET, 'OLD');
+    await signIn();
+    build = 'NEW';
+    sockets[0]!.frame({ type: 'catch_up', as_of_seq: 0, state: {} });
+    await until(() => m.text().includes('Update ready'));
+    await signOutOnMe();
+    expect(h.calls.some((c) => c.path === '/auth/logout')).toBe(true);
+    expect(reloads).toBe(0); // the logout has not answered
+    endLogout(reply(200, { data: { already_ended: false } }));
+    await flush(4);
+    expect(reloads).toBe(1);
+  });
+
+  it('sign-out with the reload waiting: a logout that never answers → reload after 3 s', async () => {
+    let build = 'OLD';
+    const h = hub({ logout: () => new Promise<Response>(() => {}) });
+    const base = h.fetch.getMockImplementation()!;
+    h.fetch.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.startsWith('/health') ? reply(200, { data: { status: 'ready', staff_build: build } }) : base(url, init),
+    );
+    render(fakeNative(), h, TABLET, 'OLD');
+    await signIn();
+    build = 'NEW';
+    sockets[0]!.frame({ type: 'catch_up', as_of_seq: 0, state: {} });
+    await until(() => m.text().includes('Update ready'));
+    await signOutOnMe();
+    timers.advance(2_999);
+    await flush();
+    expect(reloads).toBe(0);
+    timers.advance(1);
+    await flush(4);
     expect(reloads).toBe(1);
   });
 

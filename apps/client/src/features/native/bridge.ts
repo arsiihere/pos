@@ -186,10 +186,13 @@ export function readStaffBuild(doc: Document = document): string | null {
 }
 
 /** §3.5 / 00 §8.4: the notice key for a `confirmRevoked` answer that kept the keys; null = the hub answered (nothing to show). */
-export type RevokeNoticeKey = 'native.notice.staff_wifi' | 'native.notice.hub_address' | 'native.notice.unreachable';
+export type RevokeNoticeKey = 'native.notice.staff_wifi' | 'native.notice.hub_address' | 'native.notice.unreachable' | 'native.notice.cannot_confirm';
 export function revokeNotice(reason: string | null | undefined): RevokeNoticeKey | null {
   if (reason === 'GUEST_NETWORK_FORBIDDEN') return 'native.notice.staff_wifi';
   if (reason === 'HOST_NOT_ALLOWED') return 'native.notice.hub_address';
+  // N-9: native holds no token (the page's keys were already offered once through /pair, or setDeviceToken refused
+  // them as TOKEN_REVOKED): nothing on this tablet can confirm it with the hub
+  if (reason === 'NO_NATIVE_TOKEN') return 'native.notice.cannot_confirm';
   if (reason === 'UNREACHABLE' || reason === 'no_answer' || reason === undefined || reason === null) return 'native.notice.unreachable';
   return null;
 }

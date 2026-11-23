@@ -3974,6 +3974,7 @@ export const en = {
   'native.notice.staff_wifi': 'Connect to the staff Wi-Fi',
   'native.notice.hub_address': 'Open the hub by its address',
   'native.notice.unreachable': "Can't reach the hub",
+  'native.notice.cannot_confirm': "Can't confirm this tablet with the hub — ask the manager",
   'native.alerts_down': 'Alerts are not reaching this tablet — open Me to check it',
   'native.update_ready': 'Update ready — sign out to load it',
   'native.update_app': 'Update the app',

@@ -98,6 +98,8 @@ describe('[05b §3.5, M-21] notice and context helpers', () => {
     expect(revokeNotice('no_answer')).toBe('native.notice.unreachable');
     expect(revokeNotice(null)).toBe('native.notice.unreachable');
     expect(revokeNotice('200')).toBeNull();
+    // review B-client #1: native holds no token (after the one offer) → the page cannot confirm the tablet
+    expect(revokeNotice('NO_NATIVE_TOKEN')).toBe('native.notice.cannot_confirm');
   });
   it('always_on = a point is set; lock_task = audience everyone', () => {
     expect(deviceContextOf({ access: 'everyone', point_id: 'PT-1' }, 'ur')).toEqual({ always_on: true, language: 'ur', lock_task: true });
