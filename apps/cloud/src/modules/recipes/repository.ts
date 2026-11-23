@@ -534,3 +534,147 @@ export function costVersionElement(v: VersionRecord, ownerType: OwnerType, owner
     })),
   };
 }
+
+// ============================================================================================ §6.1 / §6.2 reads (r4)
+
+// An owner as the reads list it: name, archived (an option is archived with its group too), and a menu item's
+// sale_unit (the plate-cost line's unit, B10).
+export interface ListedOwner {
+  owner_type: OwnerType;
+  owner_id: string;
+  name: string;
+  archived: boolean;
+  sale_unit: StockUnit | null;
+}
+
+const HAS_RECIPE = (ownerType: OwnerType, alias: string, idColumn: string) =>
+  `EXISTS (SELECT 1 FROM recipes r WHERE r.tenant_id = ${alias}.tenant_id AND r.owner_type = '${ownerType}' AND r.owner_id = ${alias}.${idColumn})`;
+
+// §6.1 statement 2: every active menu item (each variant row is its own sellable, R39 (d)), plus archived ones that
+// have a recipe (B17: "owner archived").
+export async function selectListedMenuItems(db: TenantSql): Promise<ListedOwner[]> {
+  const rows = await db.query<{ item_id: string; name: string; sale_unit: StockUnit; archived_at: Big | null }>(
+    `SELECT m.item_id, m.name, m.sale_unit, m.archived_at FROM menu_items m
+      WHERE m.tenant_id = $1 AND (m.archived_at IS NULL OR ${HAS_RECIPE('menu_item', 'm', 'item_id')})`,
+  );
+  return rows.map((row) => ({ owner_type: 'menu_item', owner_id: row.item_id, name: row.name, archived: row.archived_at !== null, sale_unit: row.sale_unit }));
+}
+
+// §6.1 statement 3: every active plain option (B2: linked options own no recipe), plus any option that has a recipe
+// (archived, or linked since its recipe was archived).
+export async function selectListedOptions(db: TenantSql): Promise<ListedOwner[]> {
+  const rows = await db.query<{ option_id: string; name: string; archived: boolean }>(
+    `SELECT o.option_id, o.name, (o.archived_at IS NOT NULL OR g.archived_at IS NOT NULL) AS archived
+       FROM modifier_options o
+       JOIN modifier_groups g ON g.tenant_id = o.tenant_id AND g.modifier_group_id = o.modifier_group_id
+      WHERE o.tenant_id = $1
+        AND ((o.linked_item_id IS NULL AND o.archived_at IS NULL AND g.archived_at IS NULL) OR ${HAS_RECIPE('modifier_option', 'o', 'option_id')})`,
+  );
+  return rows.map((row) => ({ owner_type: 'modifier_option', owner_id: row.option_id, name: row.name, archived: row.archived, sale_unit: null }));
+}
+
+export interface RecipeState extends RecipeRecord {
+  has_draft: boolean;
+  published: { recipe_version_id: string; version_no: number; published_at: number } | null;
+}
+
+type RawRecipeState = RawRecipe & { has_draft: boolean; published_id: string | null; version_no: number | null; published_at: Big | null };
+
+const SELECT_RECIPE_STATE = `SELECT r.recipe_id, r.owner_type, r.owner_id, r.archived_at,
+         EXISTS (SELECT 1 FROM recipe_versions d WHERE d.tenant_id = r.tenant_id AND d.recipe_id = r.recipe_id AND d.status = 'draft') AS has_draft,
+         p.recipe_version_id AS published_id, p.version_no, p.published_at
+    FROM recipes r
+    LEFT JOIN recipe_versions p ON p.tenant_id = r.tenant_id AND p.recipe_id = r.recipe_id AND p.status = 'published'`;
+
+const recipeState = (row: RawRecipeState): RecipeState => ({
+  recipe_id: row.recipe_id,
+  owner_type: row.owner_type,
+  owner_id: row.owner_id,
+  archived_at: msOrNull(row.archived_at),
+  has_draft: row.has_draft,
+  published:
+    row.published_id === null ? null : { recipe_version_id: row.published_id, version_no: Number(row.version_no), published_at: ms(row.published_at!) },
+});
+
+// §6.1 statement 4: every recipe of the tenant (archived too) with its draft / published flags. One statement.
+export async function selectRecipeStates(db: TenantSql): Promise<RecipeState[]> {
+  return (await db.query<RawRecipeState>(`${SELECT_RECIPE_STATE} WHERE r.tenant_id = $1`)).map(recipeState);
+}
+
+// §6.2 statement 2: one recipe with its flags. undefined = unknown or another tenant's (404 RECIPE_NOT_FOUND).
+export async function selectRecipeState(db: TenantSql, recipeId: string): Promise<RecipeState | undefined> {
+  const rows = await db.query<RawRecipeState>(`${SELECT_RECIPE_STATE} WHERE r.tenant_id = $1 AND r.recipe_id = $2`, [recipeId]);
+  return rows[0] === undefined ? undefined : recipeState(rows[0]);
+}
+
+// §6.2 statement 3: the recipe's owner row, no lock. undefined only on a dangling owner (owners are never deleted).
+export async function selectOwnerRow(db: TenantSql, ownerType: OwnerType, ownerId: string): Promise<ListedOwner | undefined> {
+  const sql =
+    ownerType === 'menu_item'
+      ? `SELECT name, sale_unit, archived_at IS NOT NULL AS archived FROM menu_items WHERE tenant_id = $1 AND item_id = $2`
+      : ownerType === 'modifier_option'
+        ? `SELECT o.name, NULL::text AS sale_unit, (o.archived_at IS NOT NULL OR g.archived_at IS NOT NULL) AS archived
+             FROM modifier_options o
+             JOIN modifier_groups g ON g.tenant_id = o.tenant_id AND g.modifier_group_id = o.modifier_group_id
+            WHERE o.tenant_id = $1 AND o.option_id = $2`
+        : `SELECT name, NULL::text AS sale_unit, archived_at IS NOT NULL AS archived FROM stock_items WHERE tenant_id = $1 AND stock_item_id = $2`;
+  const row = (await db.query<{ name: string; sale_unit: StockUnit | null; archived: boolean }>(sql, [ownerId]))[0];
+  return row === undefined ? undefined : { owner_type: ownerType, owner_id: ownerId, name: row.name, archived: row.archived, sale_unit: row.sale_unit };
+}
+
+export interface HistoryRecord {
+  recipe_version_id: string;
+  version_no: number;
+  status: VersionRecord['status'];
+  published_at: number | null;
+  published_by: string | null;
+}
+
+export const RECIPE_HISTORY_LIMIT = 50; // §6.2
+
+// §6.2 statement 4: the recipe's versions, newest first, ≤ 50. One statement.
+export async function selectVersionHistory(db: TenantSql, recipeId: string): Promise<HistoryRecord[]> {
+  const rows = await db.query<Omit<HistoryRecord, 'published_at'> & { published_at: Big | null }>(
+    `SELECT recipe_version_id, version_no, status, published_at, published_by FROM recipe_versions
+      WHERE tenant_id = $1 AND recipe_id = $2
+      ORDER BY version_no DESC
+      LIMIT ${RECIPE_HISTORY_LIMIT}`,
+    [recipeId],
+  );
+  return rows.map((row) => ({ ...row, version_no: Number(row.version_no), published_at: msOrNull(row.published_at) }));
+}
+
+// §6.2 statement 5: the draft and the published version with their lines (json_agg). The published one is read
+// here too, since the cost context holds only non-archived recipes' versions (an archived recipe's detail still
+// shows its published version). One statement.
+export async function selectDraftAndPublished(db: TenantSql, recipeId: string): Promise<{ draft: VersionRecord | null; published: VersionRecord | null }> {
+  const rows = await db.query<RawVersion>(
+    `SELECT ${VERSION_COLUMNS}, ${LINES_JSON} AS lines
+       FROM recipe_versions v WHERE v.tenant_id = $1 AND v.recipe_id = $2 AND v.status IN ('draft', 'published')`,
+    [recipeId],
+  );
+  const versions = rows.map(versionRecord);
+  return { draft: versions.find((v) => v.status === 'draft') ?? null, published: versions.find((v) => v.status === 'published') ?? null };
+}
+
+// §6.2 statement 6 ("owner names = ANY"): owner-user display names, and the line stock items' names and kinds
+// (an archived recipe's line may name an item the cost context no longer holds). One statement, runs for no ids too.
+export async function selectDetailNames(
+  db: TenantSql,
+  userIds: readonly string[],
+  stockItemIds: readonly string[],
+): Promise<{ users: Map<string, string>; stockItems: Map<string, { name: string; kind: string }> }> {
+  const rows = await db.query<{ k: 'user' | 'stock'; id: string; name: string; kind: string | null }>(
+    `SELECT 'user' AS k, user_id AS id, display_name AS name, NULL::text AS kind FROM owner_users WHERE tenant_id = $1 AND user_id = ANY($2)
+     UNION ALL
+     SELECT 'stock', stock_item_id, name, kind FROM stock_items WHERE tenant_id = $1 AND stock_item_id = ANY($3)`,
+    [[...new Set(userIds)], [...new Set(stockItemIds)]],
+  );
+  const users = new Map<string, string>();
+  const stockItems = new Map<string, { name: string; kind: string }>();
+  for (const row of rows) {
+    if (row.k === 'user') users.set(row.id, row.name);
+    else stockItems.set(row.id, { name: row.name, kind: row.kind ?? '' });
+  }
+  return { users, stockItems };
+}

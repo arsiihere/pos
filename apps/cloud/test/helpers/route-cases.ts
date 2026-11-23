@@ -154,6 +154,9 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
     url: `/v1/admin/recipes/${ids.recipeId}/draft`,
     payload: { expected_version: null, lines: [] },
   }),
+  // 08b §6.1, §6.2 (AD-2)
+  'GET /v1/admin/recipes': () => ({ url: '/v1/admin/recipes' }),
+  'GET /v1/admin/recipes/:recipe_id': (ids) => ({ url: `/v1/admin/recipes/${ids.recipeId}` }),
   'GET /v1/admin/modifier-groups': () => ({ url: '/v1/admin/modifier-groups' }),
   'POST /v1/admin/modifier-groups': (ids) => ({
     url: '/v1/admin/modifier-groups',

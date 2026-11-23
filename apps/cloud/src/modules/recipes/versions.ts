@@ -1,7 +1,7 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import type { CostWire, RecipeSummaryWire, RecipeVersionWire } from '@pos/events';
+import type { CostWire, RecipeHistoryEntry, RecipeSummaryWire, RecipeVersionWire } from '@pos/events';
 import type { VersionCosts } from './costs.js';
-import type { LineRecord, OwnerType, RecipeRecord, StockItemRow, VersionRecord } from './repository.js';
+import type { HistoryRecord, LineRecord, ListedOwner, OwnerType, RecipeRecord, RecipeState, StockItemRow, VersionRecord } from './repository.js';
 
 // 08 v1.1 Part B §5.4 (+ AD-16), 01c V13 (as menu-variants/versions.ts): the only place that builds a recipe summary
 // or version wire and its `version`. A version input has fixed keys, every BIGINT as a decimal string, nullable
@@ -119,5 +119,37 @@ export function toRecipeVersionWire(
     published_by_name: v.published_by === null ? null : (names.get(v.published_by) ?? ''),
     published_at: v.published_at,
     version: versionVersion(v),
+  };
+}
+
+// ============================================================================================ §6.1 / §6.2 reads (r4)
+
+// §6.1 / §6.2 row: an owner with its recipe (toRecipeSummaryWire), or without one (AD-16: recipe_id / version null).
+export function toListedSummaryWire(owner: ListedOwner, state: RecipeState | undefined, plateCost: CostWire): RecipeSummaryWire {
+  if (state !== undefined) {
+    return toRecipeSummaryWire(state, { name: owner.name, archived: owner.archived }, { has_draft: state.has_draft, published: state.published }, plateCost);
+  }
+  return {
+    recipe_id: null,
+    owner_type: owner.owner_type,
+    owner_id: owner.owner_id,
+    owner_name: owner.name,
+    owner_archived: owner.archived,
+    archived: false,
+    has_draft: false,
+    published: null,
+    plate_cost: plateCost,
+    version: null,
+  };
+}
+
+// §6.2 history entry.
+export function toHistoryEntry(h: HistoryRecord, names: ReadonlyMap<string, string>): RecipeHistoryEntry {
+  return {
+    recipe_version_id: h.recipe_version_id,
+    version_no: h.version_no,
+    status: h.status,
+    published_at: h.published_at,
+    published_by_name: h.published_by === null ? null : (names.get(h.published_by) ?? ''),
   };
 }
