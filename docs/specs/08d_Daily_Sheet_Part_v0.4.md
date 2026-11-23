@@ -1,5 +1,7 @@
 # 08d — Inventory & Costing: A-item daily sheet — Module Spec part v0.4 (DRAFT)
 
+> **Folded into `08_Inventory_Costing_Spec_v1.2.md` (Part D, v1.0 — APPROVED owner 2026-11-24).** This part file is kept as history.
+
 **v0.4 — DRAFT (2026-11-24), fixes the targeted check** (`docs/reviews/08d_v0.3_targeted_check.md`: 0 BLOCKER, 4 MAJOR, 7 MINOR, 2 NIT; resolution table at the end of that file). Next: quick check of the changed lines only. Markers "⚠️ v0.4 (id)". One line per item:
 - **N-1** every move carries an **ordering position `order_seq`** (its own `seq`; a reversal's replacement takes the **reversed event's** `order_seq`). The fold, the recompute reads, "moves after count" and `count_seq_by_item` all order by `(order_seq, seq)`; a replacement is always applied by recompute (`foldItemCost`), never as a tail step; affected items = reversed ∪ replacement items. Test 14 / 2b hold by construction (S7, S14, S19, §5.2, §6.5).
 - **N-2** the day's required set is written into the day's **first `CountRecorded`** (`required_set`), so a rebuild reproduces it; `inventory_day_sets` is derived from that field only (S2, §5.3, §6.4, tests 22, 33).
