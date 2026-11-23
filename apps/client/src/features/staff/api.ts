@@ -65,6 +65,8 @@ export type Resolution =
 
 export interface SessionInfo {
   permissions: Record<string, Resolution>;
+  /** 05a §6.7: this device's profile (`access`, `screens`); absent on a hub that does not send it yet */
+  device?: { device_id: string; screens: string[]; access: 'everyone' | 'listed'; point_id: string | null } | undefined;
 }
 
 /**

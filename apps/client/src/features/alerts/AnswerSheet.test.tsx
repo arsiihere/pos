@@ -5,8 +5,8 @@ import { createAnswerSender, type HubLink } from './answer';
 import { AnswerSheet } from './AnswerSheet';
 
 // 01d §8.1, §6.2 (D01, D02, B02–B04): Approve / Reject with the PIN pad on a money kind, one tap on an accept
-// kind; "Approve here" only on the raising device (AD-165); each §8.1 error maps to its text; details only
-// on a signed-in card (§3.12).
+// kind; no "Approve here" (05a D-2); on an `everyone` device a money card says "Approve on a listed device"; each
+// §8.1 error maps to its text; details only on a signed-in card (§3.12).
 
 let m: Mounted;
 afterEach(() => m?.unmount());
@@ -27,7 +27,7 @@ function link(up = true): HubLink & { set(v: boolean): void } {
 const CTX = { deviceToken: 'dev', sessionToken: 'sess', tenantId: 'T1', branchId: 'B1', deviceId: 'D1', staffId: 'S-IMRAN' };
 const OK = { data: { result: { alert_id: 'R1', decision: 'approve', answered_at: NOW } } };
 
-function setup(o: { replies?: Response[]; up?: boolean; row?: Partial<Parameters<typeof requestRow>[0]>; canAnswer?: boolean; deviceId?: string } = {}) {
+function setup(o: { replies?: Response[]; up?: boolean; row?: Partial<Parameters<typeof requestRow>[0]>; canAnswer?: boolean; access?: 'everyone' | 'listed' } = {}) {
   const hub = link(o.up ?? true);
   const replies = [...(o.replies ?? [reply(200, OK)])];
   const fetch = vi.fn(async () => replies.shift() ?? reply(200, OK));
@@ -40,11 +40,10 @@ function setup(o: { replies?: Response[]; up?: boolean; row?: Partial<Parameters
     <AnswerSheet
       row={r}
       canAnswer={o.canAnswer ?? r.can_answer}
-      deviceId={o.deviceId ?? 'D9'}
+      {...(o.access === undefined ? {} : { access: o.access })}
       me={{ staffId: 'S-IMRAN', name: 'Imran' }}
       sender={sender}
       link={hub}
-      loadApprovers={async () => [{ staff_id: 'S-SANA', display_name: 'Sana' }]}
       nowMs={NOW}
       utcOffsetMs={0}
       sheet={false}
@@ -108,12 +107,41 @@ describe('[01d §8.1 D01] AnswerSheet', () => {
     expect(m.container.querySelector('.pin__keys')).not.toBeNull();
   });
 
-  it('"Approve here" shows only when this device raised the request (raised_device_id)', () => {
-    setup({ row: { raised_device_id: 'D1' }, deviceId: 'D9' });
+  it('[05a §8; D-2] no "Approve here" and no in-person path, whichever device raised the request', () => {
+    setup({ row: { raised_device_id: 'D1' } });
     expect(m.text()).not.toContain('Approve here');
+    expect(m.container.querySelector('.here')).toBeNull();
+  });
+
+  it('[05a §8; §3.9 rule 2] everyone device, money card: "Approve on a listed device", no Approve / Reject button, Close only', () => {
+    const s = setup({ access: 'everyone' });
+    expect(m.text()).toContain('Approve on a listed device');
+    expect(m.container.querySelector('.acts')).toBeNull();
+    expect(m.buttons().some((b) => b.textContent === 'Approve' || b.textContent === 'Reject')).toBe(false);
+    m.click(m.button('Close', m.container.querySelector('.dlg')!));
+    expect(s.onClose).toHaveBeenCalled();
+  });
+
+  it('[05a §8; §3.9 rule 2] a listed device (or no device view yet) keeps Reject / Approve on a money card; an everyone device keeps one-tap accept kinds', () => {
+    setup({ access: 'listed' });
+    expect(m.buttons().some((b) => b.textContent === 'Approve')).toBe(true);
+    expect(m.text()).not.toContain('Approve on a listed device');
     m.unmount();
-    setup({ row: { raised_device_id: 'D1' }, deviceId: 'D1' });
-    expect(m.text()).toContain('Approve here');
+    setup();
+    expect(m.buttons().some((b) => b.textContent === 'Approve')).toBe(true);
+    m.unmount();
+    setup({ access: 'everyone', row: { kind: 'table_handover', family: 'action', answers: ['accept', 'decline'], needs_pin: 'never', card: { ...VOID_CARD, details: null } } });
+    expect(m.buttons().some((b) => b.textContent === 'Accept')).toBe(true);
+    expect(m.text()).not.toContain('Approve on a listed device');
+  });
+
+  it('[05a §8; §3.9 rule 1] a downgraded request named to its requester shows "Confirm on your phone" (the sheet on their phone keeps its buttons)', () => {
+    setup({ access: 'listed', row: { for_staff_id: 'S-IMRAN' } });
+    expect(m.text()).toContain('Confirm on your phone');
+    expect(m.buttons().some((b) => b.textContent === 'Approve')).toBe(true);
+    m.unmount();
+    setup({ access: 'listed', row: { for_staff_id: 'S-OTHER' } });
+    expect(m.text()).not.toContain('Confirm on your phone');
   });
 
   it('REQUEST_NOT_PENDING closes the sheet with "Already approved by <name>"', async () => {
@@ -135,6 +163,10 @@ describe('[01d §8.1 D01] AnswerSheet', () => {
     [403, 'PERMISSION_DENIED', { reason: 'out_of_range' }, 'Not your team — a manager can approve.'],
     [403, 'PERMISSION_DENIED', { reason: 'self' }, "You can't approve your own request."],
     [404, 'ALERT_NOT_FOUND', {}, 'This request is no longer there.'],
+    [403, 'DEVICE_ACCESS_DENIED', { device_id: 'D1' }, 'This device is not set up for you'],
+    [403, 'DEVICE_NOT_OWNED', {}, 'This device is not set up for you'],
+    [403, 'PERMISSION_DENIED', { reason: 'listed_device_only' }, 'Do this on your own phone'],
+    [422, 'DEVICE_ACCESS_SELF', { device_id: 'D1' }, 'You would lose access on this device'],
   ])('%s %s shows "%s"', async (status, code, details, text) => {
     const s = setup({ replies: [reply(status, { error: { code, details } })] });
     m.click(m.button('Approve'));
@@ -300,11 +332,9 @@ describe('[02a §8 Table sheet, 02b §3.9] AnswerSheet for the 02 kinds (23b)', 
       <AnswerSheet
         row={requestRow({ alert_id: 'R1', ...HANDOVER })}
         canAnswer
-        deviceId="D9"
         me={{ staffId: 'S-SARA', name: 'Sara' }}
         sender={sender}
         link={hub}
-        loadApprovers={async () => []}
         nowMs={NOW}
         utcOffsetMs={0}
         sheet

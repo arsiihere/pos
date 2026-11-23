@@ -3,16 +3,16 @@ import type { AlertView } from '@pos/events';
 import { t } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { createPinPad, type AnswerInput, type AnswerOutcome, type AnswerSender, type HubLink } from './answer';
-import { InPersonPick, type Approver } from './InPerson';
 import { alertText, closedText, inPersonTitle, reasonText, timeText, titleText, waitingText } from './labels';
 import { PinStep, type PinError } from './PinStep';
 import { VoidFacts } from '../voids/VoidFacts';
 import { CloseX, Dialog, FamilyPill, FromLine, Ico, Msg, Ring, Tag, Tags, amountText, tableOf, toneOf, type RowLike } from './ui';
 
 // 01d §8.1, §6.2 (D01–D03, B02–B04; frames Answer, AnswerAccept, AnswerDone, AnswerPortrait, AnswerKiosk,
-// AnswerHere, Pin*, InPerson*, AnswerReadOnly, AnswerInformed, AnswerOffline, AnswerOwn, AnswerTaken).
+// Pin*, AnswerReadOnly, AnswerInformed, AnswerOffline, AnswerOwn, AnswerTaken).
 // Money kinds (needs_pin 'always') answer through the PIN step; accept kinds are one tap (method session).
-// "Approve here" only when this device raised the request (AD-165). The PIN stays in the pad (answer.ts) and is
+// 05a §8 (D-2): no "Approve here" (in-person answering is removed); on an `everyone` device a money card shows
+// "Approve on a listed device" and no button (the hub refuses it, §3.9 rule 2). The PIN stays in the pad (answer.ts) and is
 // cleared after every response. After success a short "Approved" / "Rejected", then the sheet closes; this seat
 // gets no receipt (§3.10).
 
@@ -21,7 +21,8 @@ type Decision = AlertView['answers'] extends readonly (infer D)[] | null | undef
 export interface SheetRow extends RowLike {
   set: AlertView['set'];
   needs_pin?: AlertView['needs_pin'];
-  raised_device_id?: string | undefined;
+  /** 05a §3.9 rule 1: set on a request named to one person (a downgraded request names its requester) */
+  for_staff_id?: AlertView['for_staff_id'] | undefined;
 }
 
 export interface Toast {
@@ -37,8 +38,6 @@ export const DONE_MS = 1_500;
 type Step =
   | { k: 'detail' }
   | { k: 'pin'; decision: Decision }
-  | { k: 'pick' }
-  | { k: 'herepin'; who: Approver; decision: Decision }
   | { k: 'done'; decision: Decision };
 
 function decisionsOf(row: SheetRow): { yes: Decision; no: Decision } {
@@ -143,11 +142,10 @@ function Facts({ row }: { row: SheetRow }) {
 export function AnswerSheet({
   row,
   canAnswer,
-  deviceId,
+  access,
   me,
   sender,
   link,
-  loadApprovers,
   nowMs,
   utcOffsetMs,
   sheet,
@@ -156,11 +154,11 @@ export function AnswerSheet({
 }: {
   row: SheetRow;
   canAnswer: boolean;
-  deviceId: string | null;
+  /** 05a §6.7: this device's access from `GET /queries/session` `device`; absent (a hub without it) = as a listed device */
+  access?: 'everyone' | 'listed' | undefined;
   me: { staffId: string; name: string };
   sender: AnswerSender;
   link: HubLink;
-  loadApprovers: () => Promise<Approver[]>;
   nowMs: number;
   utcOffsetMs: number;
   sheet: boolean;
@@ -179,7 +177,6 @@ export function AnswerSheet({
   const [stale, setStale] = useState(false);
   // 04 v1.0.4 §8: a void approve refused because the line was served meanwhile: Approve off, Reject stays
   const [served, setServed] = useState(false);
-  const [approvers, setApprovers] = useState<Approver[] | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (closeTimer.current !== null) clearTimeout(closeTimer.current);
@@ -187,8 +184,10 @@ export function AnswerSheet({
 
   const { yes, no } = decisionsOf(row);
   const money = row.needs_pin === 'always';
-  // AD-165: only the device the request was raised on offers the in-person answer
-  const here = deviceId !== null && row.raised_device_id !== undefined && row.raised_device_id === deviceId;
+  // 05a §3.9 rule 2: a money answer from an `everyone` device is refused by the hub; the sheet offers no button for it
+  const sharedMoney = money && access === 'everyone';
+  // 05a §3.9 rule 1: a downgraded request is named to its requester, who confirms it on their own phone
+  const confirmOnPhone = canAnswer && !sharedMoney && row.for_staff_id != null && row.for_staff_id === me.staffId;
   const table = tableOf(row);
   const subLine = `${titleText(row)}${table === null ? '' : ` · ${table}`}`;
 
@@ -240,13 +239,6 @@ export function AnswerSheet({
       case 'VOID_NOT_ALLOWED':
         if (outcome.details['hint'] === 'withdraw_and_reask') setServed(true);
         break;
-      case 'STAFF_NOT_FOUND':
-        if (where === 'herepin') {
-          go({ k: 'pick' });
-          setMessage(outcome.message);
-          return;
-        }
-        break;
       default:
         break;
     }
@@ -269,11 +261,6 @@ export function AnswerSheet({
   const choose = (decision: Decision) => {
     if (money) go({ k: 'pin', decision });
     else void send({ alert_id: row.alert_id, decision, method: 'session' }, 'detail');
-  };
-
-  const openHere = () => {
-    go({ k: 'pick' });
-    if (approvers === null) void loadApprovers().then(setApprovers, () => setApprovers([]));
   };
 
   // the row is live (StaffApp): closed while open (answered elsewhere, withdrawn, expired) → back to the detail
@@ -309,51 +296,19 @@ export function AnswerSheet({
         onClose={onClose}
       />
     );
-  } else if (view.k === 'pick') {
-    body = (
-      <InPersonPick
-        people={approvers}
-        sub={requestLine(row)}
-        error={message}
-        onPick={(who) => go({ k: 'herepin', who, decision: yes })}
-        onBack={() => go({ k: 'detail' })}
-        onClose={onClose}
-      />
-    );
-  } else if (view.k === 'herepin') {
-    const who = view.who;
-    body = (
-      <PinStep
-        title={fill(t('answer.their_pin'), { name: who.display_name })}
-        sub={requestLine(row)}
-        pad={pad}
-        link={link}
-        actionLabel={t(LABEL[view.decision] as 'answer.approve')}
-        onSubmit={() =>
-          void send({ alert_id: row.alert_id, decision: view.decision, method: 'in_person', answerer_staff_id: who.staff_id }, 'herepin')
-        }
-        error={pinError}
-        locked={locked}
-        help={fill(t('answer.here_help'), { name: who.display_name })}
-        topMessage={message}
-        onBack={() => go({ k: 'pick' })}
-        onClose={onClose}
-      />
-    );
   } else {
     const open = !closed;
-    const roText = here
-      ? fill(t('answer.waiting_for'), { name: t('answer.an_approver') })
-      : row.set === 'informed'
-        ? fill(t('answer.ro_informed'), { name: t('answer.an_approver') })
-        : fill(t('answer.ro_team'), { name: t('answer.an_approver') });
+    const roText =
+      row.set === 'informed' ? fill(t('answer.ro_informed'), { name: t('answer.an_approver') }) : fill(t('answer.ro_team'), { name: t('answer.an_approver') });
+    // 05a §8: on an `everyone` device a money card cannot be answered: no Approve / Reject, only the line and Close
+    const answerHere = canAnswer && !sharedMoney;
     const off = !up || busy || stale;
     body = (
       <>
         <div className="dlg__h">
           {table !== null && <span className="tcode">{table}</span>}
           <div className="dlg__t">
-            <Tags row={row} readOnly={!canAnswer && !here} />
+            <Tags row={row} readOnly={!answerHere} />
             <h2 id="dt">{titleText(row)}</h2>
             <FromLine row={row} utcOffsetMs={utcOffsetMs}>
               {open && (
@@ -377,14 +332,26 @@ export function AnswerSheet({
               <span>{closedText({ close_reason: row.close_reason ?? null, decision: row.decision ?? undefined, by_name: row.by_name, kind: row.kind, problem: row.card?.details?.problem }, utcOffsetMs)}</span>
             </div>
           )}
+          {sharedMoney && open && (
+            <div className="ro" role="status">
+              <Ico name="userlock" />
+              <span>{t('answer.approve_on_listed')}</span>
+            </div>
+          )}
+          {confirmOnPhone && open && (
+            <div className="ro" role="status">
+              <Ico name="userlock" />
+              <span>{t('answer.confirm_on_phone')}</span>
+            </div>
+          )}
           {!canAnswer && open && (
             <div className="ro" role="status">
-              <Ico name={here ? 'clock' : row.set === 'informed' ? 'info' : 'lock'} />
+              <Ico name={row.set === 'informed' ? 'info' : 'lock'} />
               <span>{roText}</span>
             </div>
           )}
         </div>
-        {canAnswer ? (
+        {answerHere ? (
           <div className="acts">
             <button type="button" className={`btn btn--tone c-${yes === 'accept' ? 'mute' : 'danger'}`} disabled={off || closed} onClick={() => choose(no)}>
               <Ico name="x" />
@@ -402,19 +369,11 @@ export function AnswerSheet({
             </button>
           </div>
         ) : (
-          (!here || closed) && (
-            <button type="button" className="btn btn--block btn--lg" onClick={onClose}>
-              {t('common.close')}
-            </button>
-          )
-        )}
-        {canAnswer && open && !closed && row.kind === 'void_approval' && <p className="muted pinboth">{t('void.answer.pin_both')}</p>}
-        {here && open && (
-          <button type="button" className="here" disabled={!up} onClick={openHere}>
-            <Ico name="userlock" />
-            {t('answer.here')}
+          <button type="button" className="btn btn--block btn--lg" onClick={onClose}>
+            {t('common.close')}
           </button>
         )}
+        {answerHere && open && !closed && row.kind === 'void_approval' && <p className="muted pinboth">{t('void.answer.pin_both')}</p>}
       </>
     );
   }

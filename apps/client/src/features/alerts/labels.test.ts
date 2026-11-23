@@ -185,6 +185,11 @@ describe('[01d §8.1] times, header and errors', () => {
     expect(e('PERMISSION_DENIED', { reason: 'out_of_range' })).toBe('Not your team — a manager can approve.');
     expect(e('PERMISSION_DENIED', { reason: 'in_person_elsewhere' })).toBe("In person only on the requester's device.");
     expect(e('PERMISSION_DENIED', { reason: 'self' })).toBe("You can't approve your own request.");
+    // 05a §8 Errors
+    expect(e('PERMISSION_DENIED', { reason: 'listed_device_only' })).toBe('Do this on your own phone');
+    expect(e('DEVICE_ACCESS_DENIED', { device_id: 'D1' })).toBe('This device is not set up for you');
+    expect(e('DEVICE_NOT_OWNED', {})).toBe('This device is not set up for you');
+    expect(e('DEVICE_ACCESS_SELF', { device_id: 'D1' })).toBe('You would lose access on this device');
     expect(e('PERMISSION_DENIED', { reason: 'not_approver' })).toBe("You can't approve this.");
     expect(e('PIN_INVALID', {})).toBe('Wrong PIN.');
     expect(e('PIN_LOCKED_OUT', { retry_after_ms: 90_000 })).toBe('Too many tries — wait 2 min.');
