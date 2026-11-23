@@ -11,6 +11,15 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > - **Q-3** The G1-9d shortcut (01d §3.5:637) applies to kinds whose `right.mode` is `'approval'`. A downgraded raise stores `named` or `holders` on an approval kind. **(a, Rec)** Key on the **stored** right: a downgraded request gets no shortcut, like other `named` / `holders` requests today; it still escalates by its steps. (b) Key on the kind's right: the shortcut also runs for a downgraded `holders` request.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~11:35 PKT: **Owner: finish the rest in the cloud, CI on GitHub runners, 5–6 agents at once.** CI now runs on pushes to `build/**` and `lane-05a*/**` (`39b6519b`). Six lanes:
+>   - **L1** (local, Opus): B3 → B4 → B5 (tasks 9–21, the core chain) on `module-05a`.
+>   - **K** (cloud, Opus): `lane-05aK/05a-27-28` (Pass readers K-1 / D-4, upgrade boot step).
+>   - **R** (cloud, Opus): `lane-05aR/05a-29` (recovery link).
+>   - **D** (cloud, Opus): `lane-05aD/05a-22` (bindings D-1).
+>   - **C1** (cloud, Sonnet): `lane-05aC1/05a-35-36` (deep links, answer sheet, audit names).
+>   - **C2** (cloud, Sonnet): `lane-05aC2/05a-31-32` (device list, approve / edit forms).
+>
+>   Each cloud lane branches from `build/05a` @ `39b6519b` and must be CI-green. A fresh reviewer checks it, then the integrator merges it into `module-05a` (pushed as `build/05a`). Still waiting: tasks 23–26 (01d answers / raise / routing / `device_waiting`: B3–B5 plus your Q-1 – Q-3), 30 (counter), 33, 34 (client, after B4 / B3). No PRs.
 > - 2026-11-23 11:20 PKT: Gate before B3 **fully green** (759 files, 8 081 tests). The first B3 implementer stalled for ~4 h after the carry-over commit (`443084d8`: B2 review M1, M4, M5); it was stopped and **B3 (tasks 9–12) relaunched**.
 > - 2026-11-23 ~06:45 PKT: **Batch B2 done** (tasks 5–8; Opus review APPROVE, 5 MINORs: M1, M4 and M5 go into B3, M2 and M3 are notes below). Stab `3fa96f0d` merged: the stab session fixed its lint line and the Pass `load_id` test. Gate before B3 running.
 > - 2026-11-23 ~06:05 PKT: The gate before B2 found three gaps from B1, now fixed: the client audit label for `device_profile_set`, the pinned action count 66 → 67, the audit projection's pinned event list, and a lint error in B1's fixtures test. Also one stab lint error (`max-delay-copy.test.ts:19`, stab `9521e49f`), fixed with one line. **Known red from the stab branch, outside 05a:** `apps/hub/test/kds/point-catch-up.int.test.ts` "[03b #65] point_view ≤ 4 statements…" expects `load_id: null` on Pass lines. It **also fails at the stab tip itself** (`d7e90732`, run detached in `~/pos-05a`), from stab commit `dff98415`. Not touched here; the stab session owns it. Everything else is green. **B2 starts.**
