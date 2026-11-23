@@ -1,3 +1,4 @@
+import { SCREEN_KEYS } from '@pos/domain';
 import { z } from 'zod';
 import { AlertCloseReasonSchema, AlertViewSchema, RequestDecisionSchema } from './alerts.js';
 
@@ -194,6 +195,15 @@ export type WsStationNotice = z.infer<typeof WsStationNotice>;
 export const WsPrintedLines = z.object({ type: z.literal('printed_lines'), station_id: Id, order_item_ids: z.array(Id) });
 export type WsPrintedLines = z.infer<typeof WsPrintedLines>;
 
+// 05a §6.4 step 6: after a `SetDeviceProfile` commit, to every socket of the edited device (the tabs redraw).
+export const WsDeviceProfile = z.object({
+  type: z.literal('device_profile'),
+  screens: z.array(z.enum(SCREEN_KEYS)),
+  access: z.enum(['everyone', 'listed']),
+  point_id: Id.nullable(),
+});
+export type WsDeviceProfile = z.infer<typeof WsDeviceProfile>;
+
 export const WsServerMessage = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('catch_up'),
@@ -228,6 +238,7 @@ export const WsServerMessage = z.discriminatedUnion('type', [
   WsStationTakeover,
   WsStationNotice,
   WsPrintedLines,
+  WsDeviceProfile,
 ]);
 export type WsServerMessage = z.infer<typeof WsServerMessage>;
 
