@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { alerts, bindAlertEnv, type AlertCtx, type RaiseInput } from '../../src/alerts/raise';
 import { unregisterTargetResolver } from '../../src/alerts/targets';
+import { loadDeviceProfiles } from '../../src/auth/device-profile';
 import { StaffDirectory, type DirectoryCore } from '../../src/auth/staff-directory';
 import type { CommandCtx } from '../../src/commands/registry';
 import { runMigrations } from '../../src/db/migrate';
@@ -130,6 +131,11 @@ function insertDevice(db: Database.Database, deviceId: string, type: string): vo
     `INSERT INTO devices (device_id, branch_id, token_hash, device_name, device_type, station_id, owner_staff_id, paired_at, paired_by)
      VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, 'S_ADMIN')`,
   ).run(deviceId, BRANCH, `hash-${deviceId}`, deviceId, type, T);
+  // 05a §3.9 rule 3 (task 25): a money request routes only to `listed` devices; these pre-05a seats are listed
+  if (type !== 'kds') {
+    db.prepare(`INSERT INTO device_profiles (device_id, access, screens, profile_version, needs_review) VALUES (?, 'listed', '["manager"]', 1, 0)`).run(deviceId);
+    loadDeviceProfiles(db);
+  }
 }
 
 function insertSession(db: Database.Database, o: { id: string; staff: string; device: string; last: number; ended?: boolean }): void {
@@ -252,6 +258,7 @@ describe('01d alerts.raise / raiseMany', () => {
 
   it('[01d §6.1] AlertRaised payload: request part copied, details stored, envelope device = the raising device', async () => {
     const h = await harness(cleanups);
+    insertDevice(h.db, 'D_IMRAN', 'tablet'); // 05a §3.9 rule 3 (task 25): a listed device, so a money request reaches it
     h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_IMRAN', sessionId: 'S1', kind: 'staff', stationId: null }];
     const r = h.writer.run((tx) => alerts.raise(cmdCtx(tx), voidInput())).result;
     expect(types(r.events)).toEqual(['AlertRaised', 'AttemptSent']);
@@ -574,6 +581,7 @@ describe('01d alerts.raise / raiseMany', () => {
 
   it('[01d §3.3 rule 4(d)] a raise through readOnlyTx(tx) (the PIN prepare view) returns drafts and writes nothing', async () => {
     const h = await harness(cleanups);
+    insertDevice(h.db, 'D_IMRAN', 'tablet'); // 05a §3.9 rule 3 (task 25): a listed device, so a money request reaches it
     h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_IMRAN', sessionId: 'S1', kind: 'staff', stationId: null }];
     const changes = (): number => (h.db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
     const { result, appended } = h.writer.run((tx) => {

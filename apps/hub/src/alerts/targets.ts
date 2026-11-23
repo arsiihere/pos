@@ -1,10 +1,11 @@
 import { DomainError, type DeviceType, type Permission } from '@pos/domain';
 import type { AlertRaisedPayloadV5, AlertTarget } from '@pos/events';
+import { deviceProfile } from '../auth/device-profile.js';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import type { WsHub } from '../ws/server.js';
-import { kindOf, type RecipientSet, type StepDef } from './kinds.js';
+import { kindOf, type AlertKind, type RecipientSet, type StepDef } from './kinds.js';
 import { cachedPrepare } from './statements.js';
 
 // 01d §3.4: who a step reaches. A target is resolved at each step from the batch reads (§3.5 "Reads per
@@ -553,4 +554,24 @@ export function mayAnswer(directory: StaffDirectory, request: AlertRequestPart, 
 export function isPresent(reads: BatchReads, staffId: string): boolean {
   if (reads.presence.get(staffId) !== false) return true;
   return reads.sessions.some((session) => session.staff_id === staffId);
+}
+
+// ------------------------------------------------------------------------------------ listed devices only
+
+/**
+ * ⚠️ Changed by 05a (rows D-2, D-3): 01d v1.3.5 §3.4.3 "Listed devices only, for money requests and `device_waiting`"
+ * (05a §3.9 rule 3, M-5; §3.10). A request of a money kind (`needs_pin: 'always'`) or `device_waiting`: its person
+ * routes 1 (screen) and 2 (alert connection) to a device that is not `listed` are dropped at resolve (routes.ts),
+ * and the step frames skip such sessions (ws-frames.ts). Device targets keep their lock-only line.
+ */
+export function listedDevicesOnly(kind: Pick<AlertKind, 'kind' | 'request'>): boolean {
+  return kind.request?.needs_pin === 'always' || kind.kind === 'device_waiting';
+}
+
+/**
+ * 05a §3.9 rule 3: a device whose profile is `access = 'listed'` (the in-memory `deviceProfile` map, no statement).
+ * A device with no profile counts as `everyone` (05a R-1, fail-closed).
+ */
+export function isListedDevice(deviceId: string): boolean {
+  return deviceProfile(deviceId)?.access === 'listed';
 }

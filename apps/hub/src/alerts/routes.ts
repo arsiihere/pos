@@ -5,7 +5,7 @@ import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { WsHub } from '../ws/server.js';
 import type { AlertKind } from './kinds.js';
-import { isPresent, managers, targetKey, type BatchReads, type BindingRead, type Recipient, type RecipientRow } from './targets.js';
+import { isListedDevice, isPresent, listedDevicesOnly, managers, targetKey, type BatchReads, type BindingRead, type Recipient, type RecipientRow } from './targets.js';
 
 // 01d §3.4.3 routes of a person (screen, alert connection (a)(b)(c), registered routes), the no-route rule
 // with its "for" rows (lead_fallback kinds only), the §3.4.2 table-team fallback, and §3.8 registerRoute.
@@ -143,8 +143,13 @@ function lastActivity(reads: BatchReads, staffId: string): number | null {
 
 // ------------------------------------------------------------------------------------------- routes
 
-/** §3.4.3 routes of one person: screen sockets, binding routes, registered routes (deduped). */
-function personRoutes(staffId: string, reads: BatchReads, ws: WsHub, now: number): RouteRow[] {
+/**
+ * §3.4.3 routes of one person: screen sockets, binding routes, registered routes (deduped). ⚠️ Changed by 05a (rows
+ * D-2, D-3; 01d v1.3.5 §3.4.3 "Listed devices only"): with `listedOnly` (a money request kind or `device_waiting`), a
+ * screen or alert-connection route to a device that is not `listed` (R-1: no profile counts as `everyone`) is
+ * dropped; a person left with none is a person with no route (the G1-9d shortcut, 05a test 7a). Memory only.
+ */
+function personRoutes(staffId: string, reads: BatchReads, ws: WsHub, now: number, listedOnly: boolean): RouteRow[] {
   const out: RouteRow[] = [];
   const seen = new Set<string>();
   const push = (route: string, ref: string): void => {
@@ -153,8 +158,11 @@ function personRoutes(staffId: string, reads: BatchReads, ws: WsHub, now: number
     seen.add(key);
     out.push({ staff_id: staffId, route, ref });
   };
-  for (const s of ws.connectedSessions()) if (s.kind === 'staff' && s.staffId === staffId) push('screen', s.deviceId);
-  for (const b of reads.bindings) if (b.staff_id === staffId && bindingIsRoute(b, reads, ws, now).route) push('alert_connection', b.device_id);
+  const reaches = (deviceId: string): boolean => !listedOnly || isListedDevice(deviceId);
+  for (const s of ws.connectedSessions()) if (s.kind === 'staff' && s.staffId === staffId && reaches(s.deviceId)) push('screen', s.deviceId);
+  for (const b of reads.bindings) {
+    if (b.staff_id === staffId && reaches(b.device_id) && bindingIsRoute(b, reads, ws, now).route) push('alert_connection', b.device_id);
+  }
   for (const hit of reads.routes?.get(staffId) ?? []) push(hit.route, hit.ref);
   return out;
 }
@@ -200,11 +208,12 @@ export function routeRecipients(
       routeRows.push(r);
     }
   };
+  const listedOnly = listedDevicesOnly(kind); // 05a §3.9 rule 3, §3.10
   const routeCache = new Map<string, RouteRow[]>();
   const routesOf = (staffId: string): RouteRow[] => {
     let list = routeCache.get(staffId);
     if (list === undefined) {
-      list = personRoutes(staffId, reads, ws, now);
+      list = personRoutes(staffId, reads, ws, now, listedOnly);
       routeCache.set(staffId, list);
     }
     return list;
