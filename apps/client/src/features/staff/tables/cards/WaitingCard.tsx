@@ -46,10 +46,9 @@ export function WaitingCard({ table_id, table_code }: { table_id: string; seatin
   const waited = waiting.raised_at === null ? 0 : Math.max(0, now - waiting.raised_at);
   const minutes = Math.floor(waited / 60_000);
   const late = waiting.ask_in_person;
+  // 05a §3.9 rule 4 (D-2): in-person answering is gone; once the escalation went out the text is "Waiting — find a manager"
   const title = late
-    ? waiting.receiver_name === null
-      ? fill(t('handover.waiting_answer_late'), { n: String(minutes) })
-      : fill(t('handover.waiting_late'), { name: waiting.receiver_name, n: String(minutes) })
+    ? t('request.find_approver')
     : waiting.receiver_name === null
       ? t('handover.waiting_answer')
       : fill(t('handover.waiting'), { name: waiting.receiver_name });

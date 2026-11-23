@@ -1500,6 +1500,22 @@ export const en = {
   'alerts.open': 'Open',
   'alerts.more_new': '{n} more new',
   'alerts.open_inbox': 'Open inbox',
+  // 05a §8 (M-11): a deep link to a screen this device does not have
+  'alerts.open_elsewhere': 'Open this on a device with {screen}',
+  'alerts.screen.dine_in': 'Dine in',
+  'alerts.screen.takeaway': 'Takeaway',
+  'alerts.screen.parking': 'Parking',
+  'alerts.screen.cashier': 'Cash desk',
+  'alerts.screen.pass': 'Pass',
+  'alerts.screen.manager': 'Manager tools',
+  // 05a §8 (D-2): no "Approve here"; an everyone device cannot answer a money card; the downgraded request's text
+  'answer.approve_on_listed': 'Approve on a listed device',
+  'answer.confirm_on_phone': 'Confirm on your phone',
+  'request.find_approver': 'Waiting — find a manager',
+  // 05a §8 Errors
+  'answer.error.device_not_set_up': 'This device is not set up for you',
+  'answer.error.listed_device_only': 'Do this on your own phone',
+  'answer.error.device_access_self': 'You would lose access on this device',
   // 01d v1.3 §3.13.2 rules 2, 6; §3.13.6 n4: deep links (the toast, the kiosk Back chip, the polite live region)
   'alerts.target_closed': 'This item is no longer open.',
   'alerts.back': 'Back',
@@ -1533,10 +1549,6 @@ export const en = {
   'answer.done_approved': 'Approved',
   'answer.done_rejected': 'Rejected',
   'answer.waiting_for': 'Waiting for {name} or a manager.',
-  'answer.here': 'Approve here',
-  'answer.who': 'Who is approving?',
-  'answer.their_pin': '{name}’s PIN',
-  'answer.here_help': '{name} will be told on his own devices that he approved here.',
   'answer.ro_team': 'You can’t approve this — not your team. Find {name} or a manager.',
   'answer.ro_informed': 'For your information. Find {name} or a manager.',
   'answer.ro_removed': 'You can’t approve this any more.',

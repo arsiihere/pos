@@ -158,6 +158,46 @@ describe('[01d v1.3 §3.13.2] tapAlert', () => {
     document.body.querySelectorAll('[data-test-place]').forEach((el) => el.remove());
   });
 
+  it('[05a #23] a deep link to #/tables/… on a device without dine_in falls back to #/inbox?focus=alert:<id> with the toast; nothing is glowed or opened', async () => {
+    const { deps, log } = fakes();
+    deps.screens = () => ['takeaway', 'cashier'];
+    const outcome = await tapAlert(tapRow('engine_line_dropped', LINE_T), deps);
+    expect(outcome).toBe('navigated');
+    expect(log.navigated).toEqual(['/inbox?focus=alert%3AA1']);
+    expect(log.toasts).toEqual(['Open this on a device with Dine in']);
+    expect(log.seen).toBe(1);
+    expect(log.sheet).toBe(0);
+    // a request this person can answer still gets its sheet on the inbox
+    const answerable = fakes();
+    answerable.deps.screens = () => ['takeaway'];
+    await tapAlert(tapRow('void_approval', LINE_T, { answers: ['approve', 'reject'] }), answerable.deps);
+    expect(answerable.log.navigated).toEqual(['/inbox?focus=alert%3AA1']);
+    expect(answerable.log.sheet).toBe(1);
+  });
+
+  it('[05a §8 M-11] #/orders/<id> without takeaway / parking falls back the same way; a device that has the screen, or no device view, keeps today\'s route', async () => {
+    for (const [order_type, screen, label] of [['takeaway', 'parking', 'Takeaway'], ['parking', 'takeaway', 'Parking']] as const) {
+      const miss = fakes({ view: { ok: true, data: { kind: 'order', order: body({ order_type, seating_id: null }) } } });
+      miss.deps.screens = () => ['dine_in', screen];
+      await tapAlert(tapRow('ready_to_serve', { type: 'order', order_id: 'O1' }), miss.deps);
+      expect(miss.log.navigated, order_type).toEqual(['/inbox?focus=alert%3AA1']);
+      expect(miss.log.toasts, order_type).toEqual([`Open this on a device with ${label}`]);
+    }
+    const view = { ok: true as const, data: { kind: 'order' as const, order: body({ order_type: 'takeaway', seating_id: null }) } };
+    const has = fakes({ view });
+    has.deps.screens = () => ['takeaway'];
+    await tapAlert(tapRow('ready_to_serve', { type: 'order', order_id: 'O1' }), has.deps);
+    expect(has.log.navigated).toEqual(['/orders/O1?focus=order%3AO1']);
+    expect(has.log.toasts).toEqual([]);
+    const unknown = fakes({ view });
+    await tapAlert(tapRow('ready_to_serve', { type: 'order', order_id: 'O1' }), unknown.deps);
+    expect(unknown.log.navigated).toEqual(['/orders/O1?focus=order%3AO1']);
+    const dine = fakes();
+    dine.deps.screens = () => ['dine_in'];
+    await tapAlert(tapRow('engine_line_dropped', LINE_T), dine.deps);
+    expect(dine.log.navigated).toEqual(['/tables/T4?seating_id=S4&focus=line%3AL1']);
+  });
+
   it('[01d #74] open: navigate to the §3.13.5 hash, scroll the place, glow it for --motion-glow (1500ms), "Opened …", seen once, focus dropped by replaceState', async () => {
     vi.useFakeTimers();
     m = mount();

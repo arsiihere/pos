@@ -5,12 +5,12 @@ import { timeText } from '../alerts/labels';
 import { initial } from '../alerts/ui';
 import { money, MONEY_DIR } from '../staff/orders/money';
 import { useShell } from '../staff/shell/hooks';
-import type { AuditEntryView, AuditQuery } from './api';
+import type { AuditEntryView, AuditQuery, AuditStaffRow } from './api';
 import { dayCount, dayStart, dayText, presetOf, rangeInSentence, rangeText, todayRange, type DayRange } from './days';
 import { collect, csvOf, exportFileName, saveInBrowser } from './export';
 import { ActionsPopover, DatePopover, StaffPopover } from './Filters';
 import { AIco, type AuditIconName } from './icons';
-import { actionMeta, actionText, detailOf, methodOf, outcomeOf, reasonText, shortId, targetOf, VOIDS_PRESET, type AuditTone } from './labels';
+import { actionMeta, actionText, detailOf, methodOf, outcomeOf, profileStaffIds, reasonText, shortId, targetOf, VOIDS_PRESET, type AuditTone } from './labels';
 
 // 04 v1.0.4 §8 Audit log screen (VU2; 04-S03, frames Audit, AuditLoading, AuditEmpty, AuditError, AuditTablet, AuditUrdu):
 // `view-audit-log` only (R5). Filters Date (default today on the hub clock, whole days, [from, to)), Staff, Actions;
@@ -79,6 +79,19 @@ export function AuditLog({ save = saveInBrowser }: AuditLogProps = {}) {
   const defaults = useCallback((): AuditFilters => ({ range: todayRange(shell.clock.nowMs(), off), staff: null, actions: [] }), [shell.clock, off]);
   const [filters, setFilters] = useState<AuditFilters>(defaults);
   const [list, setList] = useState<ListState>({ status: 'loading' });
+  // 05a A-1, G-b: names of a device_profile_set row's staff_ids, from §6.5b audit-staff (leavers included), read once and only
+  // when a shown row needs it
+  const [people, setPeople] = useState<ReadonlyMap<string, AuditStaffRow> | null>(null);
+  const needPeople = list.status === 'ready' && list.entries.some((e) => profileStaffIds(e).length > 0);
+  const askedPeople = useRef(false);
+  useEffect(() => {
+    if (!needPeople || askedPeople.current) return;
+    askedPeople.current = true;
+    void api.auditStaff().then((a) => {
+      if (a.ok) setPeople(new Map(a.data.map((s) => [s.staff_id, s])));
+      else askedPeople.current = false;
+    });
+  }, [needPeople, api]);
   // one filter popover at a time (04-C04–C06); closing gives the focus back to its filter
   const [open, setOpen] = useState<'date' | 'staff' | 'actions' | null>(null);
   const fltRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -325,10 +338,10 @@ export function AuditLog({ save = saveInBrowser }: AuditLogProps = {}) {
             </div>,
           );
         }
-        rows.push(<TabletRow key={e.seq} e={e} off={off} />);
+        rows.push(<TabletRow key={e.seq} e={e} off={off} people={people} />);
       }
     } else {
-      for (const e of list.entries) rows.push(<LaptopRow key={e.seq} e={e} off={off} />);
+      for (const e of list.entries) rows.push(<LaptopRow key={e.seq} e={e} off={off} people={people} />);
     }
     let end: ReactNode;
     if (list.more === 'failed') {
@@ -509,18 +522,40 @@ function approverName(e: AuditEntryView): string | null {
   return e.approver_staff_id === null ? null : shortId(e.approver_staff_id);
 }
 
-function Target({ e, detail }: { e: AuditEntryView; detail: Record<string, unknown> }) {
+type People = ReadonlyMap<string, AuditStaffRow> | null;
+
+/** 05a A-1, G-b: "Imran, Danish left": the names of a device_profile_set row's staff_ids ("left" mark kept; an id with no name its short id). */
+function Staff({ ids, people }: { ids: readonly string[]; people: People }) {
+  if (ids.length === 0 || people === null) return null;
+  return (
+    <span className="ppl sub2">
+      {ids.map((id, i) => {
+        const s = people.get(id);
+        return (
+          <span key={id}>
+            {i > 0 && ', '}
+            {s === undefined ? <span className="id ltr">{shortId(id)}</span> : <bdi>{s.display_name}</bdi>}
+            {s !== undefined && !s.in_directory && <span className="left">{t('audit.staff.left')}</span>}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function Target({ e, detail, people }: { e: AuditEntryView; detail: Record<string, unknown>; people: People }) {
   const target = targetOf(e, detail);
   if (target.table === null && target.text === null) return <Dash />;
   return (
     <>
       {target.table !== null && <span className="tcode tcode--sm ltr">{target.table}</span>}
       {target.text !== null && <b>{target.text}</b>}
+      <Staff ids={profileStaffIds(e, detail)} people={people} />
     </>
   );
 }
 
-function LaptopRow({ e, off }: { e: AuditEntryView; off: number }) {
+function LaptopRow({ e, off, people }: { e: AuditEntryView; off: number; people: People }) {
   const detail = detailOf(e);
   const reason = reasonText(e.action, e.reason);
   const approver = approverName(e);
@@ -531,7 +566,7 @@ function LaptopRow({ e, off }: { e: AuditEntryView; off: number }) {
       <Who e={e} />
       <Action action={e.action} />
       <span className="tg">
-        <Target e={e} detail={detail} />
+        <Target e={e} detail={detail} people={people} />
       </span>
       <span className="rs">{reason ?? <Dash />}</span>
       <Outcome outcome={e.outcome} />
@@ -555,7 +590,7 @@ function LaptopRow({ e, off }: { e: AuditEntryView; off: number }) {
   );
 }
 
-function TabletRow({ e, off }: { e: AuditEntryView; off: number }) {
+function TabletRow({ e, off, people }: { e: AuditEntryView; off: number; people: People }) {
   const detail = detailOf(e);
   const reason = reasonText(e.action, e.reason);
   const approver = approverName(e);
@@ -572,6 +607,7 @@ function TabletRow({ e, off }: { e: AuditEntryView; off: number }) {
           </span>
         )}
         {reason !== null && <span className="sub2">“{reason}”</span>}
+        <Staff ids={profileStaffIds(e, detail)} people={people} />
       </span>
       <span className="stack">
         <Who e={e} />

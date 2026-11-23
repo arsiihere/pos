@@ -206,6 +206,13 @@ export function targetOf(e: AuditEntryView, detail: Record<string, unknown> = de
   return { table, text: parts.length === 0 ? null : parts.join(' ') };
 }
 
+/** 05a §4.5 A-1, G-b: the `staff_ids` of a `device_profile_set` row's detail (ids only; the names come from audit-staff at read). */
+export function profileStaffIds(e: AuditEntryView, detail: Record<string, unknown> = detailOf(e)): string[] {
+  if (e.action !== 'device_profile_set') return [];
+  const ids = detail['staff_ids'];
+  return Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : [];
+}
+
 /** The approver's method tag (§8: "in person", "on requester's device"; O3: the tag in sentence case). */
 export type MethodTag = 'in_person' | 'on_requester_device';
 
