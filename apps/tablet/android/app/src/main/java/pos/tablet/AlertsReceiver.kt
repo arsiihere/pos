@@ -29,6 +29,7 @@ class AlertsReceiver : BroadcastReceiver() {
             Ipc.OP_SET_SESSION -> {
                 AlertsMemory.signedIn = body.optBoolean("signed_in", false)
                 AlertsMemory.staffId = body.optString("staff_id", "").takeIf { it.isNotEmpty() }
+                AlertService.instance?.onPageStateChanged() // 05b A10 / A11: hold flush, repeat take-over / hand-back
                 IpcReply.reply(ctx, reqId, JSONObject().put("ok", true))
             }
             Ipc.OP_SET_DEVICE_CONTEXT -> async {
@@ -40,11 +41,15 @@ class AlertsReceiver : BroadcastReceiver() {
             Ipc.OP_REPORT_SHOWN -> {
                 val id = body.optString("alert_id", "")
                 val step = body.opt("step")
-                if (id.isNotEmpty() && step is Number) AlertsMemory.addReported(id, step.toInt())
+                if (id.isNotEmpty() && step is Number) {
+                    AlertsMemory.addReported(id, step.toInt())
+                    AlertService.instance?.onReportShown(id, step.toInt()) // 05b A11 (M-8): drop a held post
+                }
                 IpcReply.reply(ctx, reqId, JSONObject().put("ok", true))
             }
             Ipc.OP_ACTIVITY_VISIBLE -> {
                 AlertsMemory.activityVisible = body.optBoolean("visible", false) // O-18 hand-over: A10
+                AlertService.instance?.onPageStateChanged() // 05b A10 (O-18): take over / hand back
                 IpcReply.reply(ctx, reqId, JSONObject().put("ok", true))
             }
             Ipc.OP_HEALTH -> async { IpcReply.reply(ctx, reqId, health(ctx)) }
