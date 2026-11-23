@@ -1692,4 +1692,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'p.close_err': 'بل بند نہیں ہوا',
   'p.close_err_sub': 'ادائیگی ہو گئی ہے۔ دوبارہ کوشش کریں، یا بل کھول کر مکمل کریں۔',
   'p.open_bill': 'بل کھولیں',
+  // 02b-TK C3-2 (05 §6.3 errors on the token view / adding cart): not in strings-table.md; Urdu to confirm
+  'v.check_day': 'دن شروع نہیں ہوا — ابھی چیک بل نہیں',
+  'v.check_denied': 'آپ اس آرڈر کا چیک بل پرنٹ نہیں کر سکتے',
 };

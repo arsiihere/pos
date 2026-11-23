@@ -52,6 +52,8 @@ export interface CartProps {
   pay?: { online: boolean; onSendPay(): void } | undefined;
   /** 02b-TK C3-1: the pay panel over the cart */
   overlay?: ReactNode;
+  /** 02b-TK C3-2 (R6): Print check bill of the sent token this cart adds to (an unsent cart has none) */
+  checkBill?: ReactNode;
 }
 
 function GroupHead({ group, utcOffsetMs }: { group: CartGroup; utcOffsetMs: number }) {
@@ -168,6 +170,7 @@ export function Cart(p: CartProps) {
                 {t('cart.hold')}
               </button>
             </div>
+            {p.checkBill}
             {p.pay !== undefined && p.problems === 0 ? (
               <PayActions pay={p.pay} off={empty || !p.canSend} onSend={p.onSend} />
             ) : (

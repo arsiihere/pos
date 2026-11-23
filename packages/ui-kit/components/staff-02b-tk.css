@@ -213,3 +213,5 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .tk-acts--one:has(> :nth-child(2)) { grid-template-columns: 1fr 1.25fr; }
 .tk-hint--warn { background: var(--warn-tint); color: var(--warn); padding: 10px 14px; border-radius: var(--radius-md); font-weight: 600; }
 .cart__foot .tk-btn[disabled] { opacity: .45; box-shadow: none; }
+/* C3-2: Print check bill in the cart of an addition (a full-width row under Order note · Hold) */
+.cart__foot > .tk-btn, .ph-body > .tk-btn { width: 100%; }

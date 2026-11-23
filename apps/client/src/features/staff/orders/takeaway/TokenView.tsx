@@ -15,6 +15,7 @@ import { groupParts, type GroupedLine } from '../view/parts';
 import { atStageOne, isServed, isWeightPending, servable } from '../view/stage';
 import { voidOffered, type LineOrder } from '../view/LineActions';
 import { RemoveSheet } from '../actions/RemoveSheet';
+import { CheckBill } from './CheckBill';
 import { VoidSheet } from '../../../voids/VoidSheet';
 import { VoidButton } from '../../../voids/ui';
 import { MaskedAction } from '../../shell/MaskedAction';
@@ -286,6 +287,8 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
                 {t('v.remove')}
               </button>
             )}
+            {/* 02b-TK C3-2 (05 §6.3; R6): the check bill of the token's newest order while it is Due */}
+            {due && may('take-order') && <CheckBill order_id={token.newest_order_id} />}
             {phoned !== null && may('view-customer-contact') && (
               <button type="button" className="tk-btn" onClick={() => setCall(true)}>
                 {t('v.call')}
