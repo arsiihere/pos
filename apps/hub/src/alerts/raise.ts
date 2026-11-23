@@ -191,11 +191,14 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
   const kinds = inputs.map((input) => kindFor(input.kind)); // §6.1 (1)
   const env = envelopeOf(ctx);
   // 05a §3.9 rule 1 / 01d §4.2 G-d: `ctx.permission` read only for `masked === 'downgraded'` (a tick's is null); the
-  // socket lists are read only for a downgraded approval raise, once per requester per call (memory, no statement)
-  const downgradedGrant = 'actor' in ctx && ctx.permission?.masked === 'downgraded';
+  // grant is read only when an approval kind is raised, and the socket lists only for a downgraded one, once per
+  // requester per call (memory, no statement); other raises (close's request_result, notices) never read it
+  let downgradedGrant: boolean | undefined;
   const connected = new Map<string, boolean>();
   const downgradedFor = (kind: AlertKind, requester: string | null): Downgraded | null => {
-    if (!downgradedGrant || kind.request?.right.mode !== 'approval') return null;
+    if (kind.request?.right.mode !== 'approval') return null;
+    downgradedGrant ??= 'actor' in ctx && ctx.permission?.masked === 'downgraded';
+    if (!downgradedGrant) return null;
     if (requester === null) return { named: null };
     let on = connected.get(requester);
     if (on === undefined) {

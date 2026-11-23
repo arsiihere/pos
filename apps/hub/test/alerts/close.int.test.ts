@@ -111,6 +111,8 @@ async function harness(cleanups: Array<() => void>): Promise<Harness> {
   return { db: fx.db, writer, clock };
 }
 
+// ⚠️ Changed by 05a (row D-2), 01d v1.3.5 §4.2 gap G-d: the setup raises read `ctx.permission` to test
+// `masked === 'downgraded'`, so the ctx carries an unmasked grant (was: a getter that throws, "never read").
 function cmdCtx(tx: WriterTx, staffId: string = IMRAN, deviceId: string = IMRAN_DEV): AlertCtx {
   const ctx = {
     tx,
@@ -120,9 +122,7 @@ function cmdCtx(tx: WriterTx, staffId: string = IMRAN, deviceId: string = IMRAN_
     actor: { kind: 'staff', staffId, stationId: null, sessionId: 'SESS', deviceId },
     branch: { tenantId: TENANT, branchId: BRANCH },
     directory: dir,
-    get permission(): never {
-      throw new Error('close read ctx.permission');
-    },
+    permission: { grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' },
   };
   return ctx as unknown as CommandCtx;
 }
