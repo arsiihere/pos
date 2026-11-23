@@ -89,7 +89,7 @@ function WaitingItem({ r, onApprove }: { r: PendingRequest; onApprove: (r: Pendi
 
 type State = { status: 'loading' } | { status: 'error' } | { status: 'ready'; data: DevicesData };
 
-export function DeviceList({ api, openRequestId = null }: { api: DevicesApi; openRequestId?: string | null }) {
+export function DeviceList({ api, openRequestId = null, openEditId = null }: { api: DevicesApi; openRequestId?: string | null; openEditId?: string | null }) {
   const [state, setState] = useState<State>({ status: 'loading' });
 
   const load = useCallback(async () => {
@@ -114,18 +114,21 @@ export function DeviceList({ api, openRequestId = null }: { api: DevicesApi; ope
           {t('devices.reload')}
         </button>
       )}
-      {state.status === 'ready' && <Ready api={api} data={state.data} reload={() => void load()} openRequestId={openRequestId} />}
+      {state.status === 'ready' && <Ready api={api} data={state.data} reload={() => void load()} openRequestId={openRequestId} openEditId={openEditId} />}
     </section>
   );
 }
 
 type Open = { kind: 'approve'; request: PendingRequest } | { kind: 'edit'; device: DeviceRow } | null;
 
-function Ready({ api, data, reload, openRequestId }: { api: DevicesApi; data: DevicesData; reload: () => void; openRequestId: string | null }) {
+function Ready({ api, data, reload, openRequestId, openEditId }: { api: DevicesApi; data: DevicesData; reload: () => void; openRequestId: string | null; openEditId: string | null }) {
   // `r` names a pending request: its form opens at once; an unknown `r` shows just the list
   const [open, setOpen] = useState<Open>(() => {
     const request = openRequestId === null ? undefined : data.pending_requests.find((r) => r.request_id === openRequestId);
-    return request === undefined ? null : { kind: 'approve', request };
+    if (request !== undefined) return { kind: 'approve', request };
+    // K-2: `#/devices?edit=<device_id>` opens that device's edit form; an unknown, removed or kitchen id shows just the list
+    const device = openEditId === null ? undefined : data.devices.find((d) => d.device_id === openEditId && d.revoked_at === null && d.device_type !== 'kds');
+    return device === undefined ? null : { kind: 'edit', device };
   });
   const done = () => {
     setOpen(null);

@@ -1327,6 +1327,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'kitchen_screens.title': 'کچن اسکرینیں',
   'kitchen_screens.point': 'پوائنٹ: {point}',
   'kitchen_screens.volume': 'آواز',
+  'kitchen_screens.bind_help': 'پاس خود ڈیوائس پر طے ہوتا ہے۔ کوئی ڈیوائس کھولیں اور اس کی پاس اسکرین اور پوائنٹ چنیں۔',
   'kitchen_screens.lanes': '{count} میں سے {on} لین چالو',
   'kitchen_screens.lanes_custom': 'خاص گنجائش',
   'kitchen_screens.state.connected': 'جڑی ہوئی',

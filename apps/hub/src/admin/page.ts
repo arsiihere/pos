@@ -25,7 +25,8 @@ const ctx = ${scriptJson(ctx)};
 const screen = document.getElementById('screen');
 const KDS_SILENT_MS = 120000; // Q8: a kitchen screen unseen for 2 min gets a warning
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const state = { auth: null, deviceId: null, data: {}, tiles: {}, loadedAt: null, offline: false, notice: null, showRemoved: false, devicesWithRemoved: false, removedCount: null, lockoutsOpen: false, stopReconnect: null };
+const SCREEN_KEY = { dine_in: 'screen.dine_in', takeaway: 'screen.takeaway', parking: 'screen.parking', cashier: 'screen.cashier', pass: 'screen.pass', manager: 'screen.manager' };
+const state = { recovery: false, auth: null, deviceId: null, data: {}, tiles: {}, loadedAt: null, offline: false, notice: null, showRemoved: false, devicesWithRemoved: false, removedCount: null, lockoutsOpen: false, stopReconnect: null };
 function phone() {
   return typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches;
 }
@@ -641,7 +642,7 @@ function home() {
     const line = data ? tileLine(p.name, data) : NO_LINE;
     tile(p.href, p.icon, p.key, line.num, line.small, line.chipNode);
   }
-  const parts = [tiles];
+  const parts = adminWarnings().concat([tiles]);
   // A phone has no side nav: the other jobs, the hub line and Sign out stay under the tiles.
   if (phone()) {
     const others = otherLinks('pos-btn pos-btn--block');
@@ -656,6 +657,56 @@ function home() {
   }
   const end = can('manage-devices') ? [link(phone() ? t('devices.approve_short') : t('devices.approve'), 'pos-btn--primary', 'plus', '/admin/approve')] : [];
   frame('home', 'admin.title', end, parts);
+}
+// 05a §6.11: "Recover admin access" at zero admin devices. The roster's recovery_available shows it (this tab's device
+// token is the credential); the first press makes the link and shows it as a QR, a second says when it stops working.
+function recoverControl() {
+  const box = node('div', 'pos-stack pos-admin__recover');
+  box.name = 'recover';
+  const out = node('div', 'pos-stack');
+  out.name = 'recover_out';
+  const press = async () => {
+    let res;
+    try {
+      res = await call('/admin/recovery-link', { method: 'POST', headers: state.auth });
+    } catch {
+      return out.replaceChildren(banner('danger', t('devices.recover_failed')));
+    }
+    const data = res.body && res.body.data;
+    if (res.status === 200 && data && data.already_issued_until !== undefined) {
+      return out.replaceChildren(banner('info', t('devices.recover_until', { time: hhmm(data.already_issued_until) })));
+    }
+    if (res.status === 200 && data && data.first_admin_url) {
+      const qr = node('div', 'pos-qr');
+      qr.name = 'recover_qr';
+      qr.innerHTML = data.first_admin_qr_svg || '';
+      const url = node('a', 'pos-link', data.first_admin_url);
+      url.href = data.first_admin_url;
+      return out.replaceChildren(node('p', 'caption', t('devices.recover_scan')), qr, url);
+    }
+    if (res.status === 403) {
+      state.recovery = false;
+      return box.replaceChildren();
+    }
+    out.replaceChildren(banner('danger', t('devices.recover_failed')));
+  };
+  const b = button(t('devices.recover'), 'pos-btn--primary', 'lock', press);
+  b.name = 'recover_admin';
+  box.appendChild(b);
+  box.appendChild(out);
+  return box;
+}
+// M-8 (§6.8 admin_warning): 0 or 1 unrevoked listed devices whose people can manage devices.
+function adminWarnings() {
+  const data = state.data.devices;
+  const parts = [];
+  if (!data) return parts;
+  if (data.admin_warning === 0) {
+    parts.push(banner('danger', t('devices.warn_none')));
+    if (state.recovery && state.auth && state.auth.authorization) parts.push(recoverControl());
+  }
+  if (data.admin_warning === 1) parts.push(banner('warn', t('devices.warn_one')));
+  return parts;
 }
 // --- 00-S16 devices ---
 const GROUPS = [['cashier_kiosk', 'devices.group_cashier'], ['kds', 'devices.group_kitchen'], ['tablet', 'devices.group_tablet'], ['phone', 'devices.group_phone']];
@@ -710,6 +761,7 @@ function devicesView() {
     parts.push(tabs);
   }
   if (!can('manage-devices')) parts.push(banner('info', t('devices.read_only'), t('devices.read_only_body')));
+  for (const part of adminWarnings()) parts.push(part);
   const end = phone() ? [] : [tabs].concat(actions);
   if (all === null) {
     parts.push(skeleton(4, 'pos-list--devices', DEVICE_HEADS));
@@ -722,6 +774,19 @@ function devicesView() {
     return frame('devices', 'devices.title', end, parts);
   }
   const live = all.filter((d) => d.revoked_at === null);
+  // §6.8: requests waiting for approval (never their code); each opens the approve form for that request.
+  const waiting = state.data.devices.pending_requests || [];
+  if (waiting.length > 0 && can('manage-devices')) {
+    ul.appendChild(node('li', 'pos-list__group', t('devices.pending_title')));
+    for (const r of waiting) {
+      const li = node('li', 'pos-list__row');
+      li.name = 'request_' + r.request_id;
+      const go = link(t('devices.approve_short'), 'pos-btn--primary', 'plus', '/admin/approve?r=' + encodeURIComponent(r.request_id));
+      li.appendChild(nameBlock(TYPE_ICON[r.hardware_hint] || 'screen', r.device_name, []));
+      li.appendChild(go);
+      ul.appendChild(li);
+    }
+  }
   for (const [key, devices] of GROUPS.map(([type, groupKey]) => [groupKey, live.filter((d) => d.device_type === type)])) {
     if (devices.length === 0) continue;
     const group = node('li', 'pos-list__group', t(key));
@@ -762,22 +827,29 @@ function deviceRow(d, manage) {
   const seenText = ago(d.last_seen_at);
   const notSeen = silent ? chip('warn', 'clock', t('devices.not_seen', { n: d.last_seen_at === null ? '—' : Math.floor((Date.now() - d.last_seen_at) / 60000) })) : null;
   const who = d.active_session ? (d.active_session.kind === 'station' ? t('devices.kitchen_session') : d.active_session.display_name || '—') : t('devices.nobody');
-  // 00 v1.9.2 §8.2 (Q-43): a tablet can become a Pass tablet on the Kitchen screens page (its bind dialog).
+  // 05a K-2 (§8): Pass is set on the device itself; every non-kds row links to its edit form (the staff #/devices page).
   let passLink = null;
-  if (!removed && d.device_type === 'tablet' && modulePages().some((p) => p.name === 'kitchenScreens')) {
-    passLink = node('a', 'pos-link', t('devices.use_as_pass'));
-    passLink.href = '/admin/kitchen-screens/#bind=' + encodeURIComponent(d.device_id);
+  if (!removed && d.device_type !== 'kds' && can('manage-devices')) {
+    passLink = node('a', 'pos-link', t('devices.edit'));
+    passLink.name = 'edit_' + d.device_id;
+    passLink.href = '/staff/#/devices?edit=' + encodeURIComponent(d.device_id);
   }
+  // §6.8: who can sign in and the screens, from the profile (a kitchen screen has none).
+  const profileText = d.device_type === 'kds' || !d.access ? null
+    : (d.access === 'listed' ? t('devices.access_listed', { names: (d.people || []).map((p) => p.display_name).join(', ') }) : t('devices.access_everyone'))
+      + ' · ' + (d.screens || []).map((key) => t(SCREEN_KEY[key])).join(', ');
+  if (d.needs_review && !removed) tags.push(chip('warn', 'alert', t('devices.needs_review')));
   // ⋯ holds the rare facts (paired, how) and Remove; read-only admins get no menu (frame DevicesReadOnly).
   const more = removed || !can('manage-devices') ? null : moreMenu(li, {
     name: 'more_' + d.device_id,
     label: t('devices.more', { name: d.device_name }),
     title: d.device_name,
-    info: { title: t('devices.menu_paired', { date: day(d.paired_at), name: d.paired_by_name || '—' }), detail: t('devices.source_request') },
+    info: { title: t('devices.menu_paired', { date: day(d.paired_at), name: d.paired_by_name || '—' }), detail: profileText },
     items: [{ name: 'remove_' + d.device_id, label: t('devices.menu_remove', { name: d.device_name }), icon: 'x', danger: true, disabled: !manage, onSelect: () => removeDialog(d) }],
   });
   if (phone()) {
     const lines = [deviceType(d)];
+    if (profileText && !removed) lines.push(profileText);
     if (!removed && !notSeen) lines.push(seenText + ' · ' + who);
     if (passLink) lines.push(passLink);
     if (notSeen) tags.push(notSeen);
@@ -788,7 +860,7 @@ function deviceRow(d, manage) {
     li.appendChild(row);
     return li;
   }
-  li.appendChild(nameBlock(TYPE_ICON[d.device_type], d.device_name, passLink ? [deviceType(d), passLink] : [deviceType(d)], tags));
+  li.appendChild(nameBlock(TYPE_ICON[d.device_type], d.device_name, [deviceType(d)].concat(profileText && !removed ? [profileText] : [], passLink ? [passLink] : []), tags));
   if (removed) {
     const box = node('div', 'pos-list__tags pos-admin__span3');
     box.appendChild(removedChip);
@@ -1082,6 +1154,8 @@ function signIn() {
     left.appendChild(node('h1', 'title', t('approve.who')));
     const roster = node('div', 'pos-staff');
     left.appendChild(roster);
+    const recoverSlot = node('div');
+    left.appendChild(recoverSlot);
     const card = node('form', 'pos-card pos-stack');
     card.addEventListener('submit', (event) => event.preventDefault());
     const split = node('div', 'pos-split');
@@ -1094,7 +1168,15 @@ function signIn() {
     adminSignIn({
       roster,
       card,
-      load: () => call('/admin/login-roster', { headers: state.auth }),
+      load: async () => {
+        const res = await call('/admin/login-roster', { headers: state.auth });
+        // §6.11 (v1.0.3 G-g): the 200 roster says it, and so does the 403 listed_device_only of an everyone device.
+        const says = res.status === 200 ? res.body.data.recovery_available
+          : res.status === 403 && res.body.error && res.body.error.details ? res.body.error.details.recovery_available : false;
+        state.recovery = says === true && Boolean(state.auth.authorization);
+        recoverSlot.replaceChildren(...(state.recovery ? [recoverControl()] : []));
+        return res;
+      },
       login: (staffId, pin) => call('/admin/auth', { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, state.auth), body: JSON.stringify({ staff_id: staffId, pin }) }),
       onDone: (data) => {
         sessionStorage.setItem('admin_session_token', data.admin_session_token);

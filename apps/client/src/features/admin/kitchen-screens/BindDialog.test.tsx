@@ -39,65 +39,41 @@ function dialog(): HTMLElement {
   return d;
 }
 
-function choose(select: HTMLSelectElement, value: string) {
-  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, value);
-  select.dispatchEvent(new Event('change', { bubbles: true }));
-}
-
-describe('bind dialog (03b-D03)', () => {
-  it('[03b §3.8] bind dialog: point picker from kds-config points (archived points marked); SetDeviceRole; lane label only on a kds device', async () => {
+describe('bind dialog (05a K-2, 03b-D03)', () => {
+  it('[05a K-2] "Use a tablet as Pass tablet" lists every unrevoked non-kds device with a link to its edit form; no point picker, nothing sent', async () => {
     const hub = setup();
     await flush();
     m.click(m.button('Use a tablet as Pass tablet'));
     await flush();
     expect(hub.reads('/admin/queries/devices')).toBe(1);
-    // tablets only (00 devices), never a kds or phone device
-    const options = [...dialog().querySelectorAll('option')].map((o) => o.value).filter((v) => v !== '');
-    expect(options).toEqual(['T-PASS', 'T-DEGH', 'T5']);
-    const tiles = [...dialog().querySelectorAll<HTMLButtonElement>('.pos-tile')];
-    expect(tiles.map((b) => b.firstChild?.textContent)).toEqual(['Pass', 'Degh', 'Old pass']);
-    // the stations of each point under its name
-    expect(tiles[0]?.querySelector('small')?.textContent).toBe('Tandoor, Fryer, Cold');
-    const archived = tiles[2]!;
-    expect(archived.disabled).toBe(true);
-    expect(archived.textContent).toContain('Point archived');
-    act(() => choose(dialog().querySelector('select')!, 'T5'));
-    m.click(tiles[1]);
-    expect(tiles[1]?.getAttribute('aria-pressed')).toBe('true');
-    m.click(m.button('Save', dialog()));
-    await flush();
-    expect(hub.commands('SetDeviceRole')).toEqual([{ device_id: 'T5', point_id: 'P-DEGH' }]);
-    expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+    // every non-kds row (tablets and the phone), never the kitchen screen
+    const rows = [...dialog().querySelectorAll<HTMLElement>('[data-device]')];
+    expect(rows.map((r) => r.dataset['device'])).toEqual(['T-PASS', 'T-DEGH', 'T5', 'PH1']);
+    expect(rows.map((r) => r.querySelector('a')?.getAttribute('href'))).toEqual([
+      '/staff/#/devices?edit=T-PASS',
+      '/staff/#/devices?edit=T-DEGH',
+      '/staff/#/devices?edit=T5',
+      '/staff/#/devices?edit=PH1',
+    ]);
+    expect(dialog().querySelector('.pos-tile')).toBeNull();
+    expect(() => m.button('Save', dialog())).toThrow();
+    expect(hub.commands('SetDeviceRole')).toEqual([]);
     // lane labels: on kitchen screen rows only, never on a Pass tablet row
+    m.click(m.button('Cancel', dialog()));
     const tablets = m.container.querySelector<HTMLElement>('[data-section="pass-tablets"]')!;
     expect(() => m.button('Lane label', tablets)).toThrow();
     expect(m.button('Lane label').closest('[data-section="pass-tablets"]')).toBeNull();
   });
 
-  it('[03b §3.8] Change on a Pass tablet preselects its point; "Stop using as Pass tablet" sends point_id null', async () => {
+  it('[05a K-2] Change on a Pass tablet lists that device first, linking to its edit form; there is no "Stop using" command any more', async () => {
     const hub = setup();
     await flush();
     const tablets = m.container.querySelector<HTMLElement>('[data-section="pass-tablets"]')!;
-    m.click(m.button('Change', tablets));
+    m.click(m.button('Change', [...tablets.querySelectorAll<HTMLElement>('.scr')][1]!));
     await flush();
-    expect(dialog().querySelector<HTMLSelectElement>('select')?.value).toBe('T-PASS');
-    expect(dialog().querySelector('.pos-tile[aria-pressed="true"]')?.firstChild?.textContent).toBe('Pass');
-    m.click(m.button('Stop using as Pass tablet', dialog()));
-    await flush();
-    expect(hub.commands('SetDeviceRole')).toEqual([{ device_id: 'T-PASS', point_id: null }]);
-  });
-
-  it('[03b §3.8] 404 POINT_NOT_FOUND keeps the dialog with "That point no longer exists" and reloads the points', async () => {
-    const hub = setup({ 'POST /admin/commands/set-device-role': refused(404, 'POINT_NOT_FOUND', { point_id: 'P-DEGH' }) });
-    await flush();
-    m.click(m.button('Use a tablet as Pass tablet'));
-    await flush();
-    act(() => choose(dialog().querySelector('select')!, 'T5'));
-    m.click(m.button('Degh', dialog()));
-    m.click(m.button('Save', dialog()));
-    await flush();
-    expect(dialog().textContent).toContain('That point no longer exists');
-    expect(hub.reads('/admin/queries/kds-config')).toBe(2);
+    expect(dialog().querySelector<HTMLElement>('[data-device]')?.dataset['device']).toBe('T-DEGH');
+    expect(() => m.button('Stop using as Pass tablet', dialog())).toThrow();
+    expect(hub.commands('SetDeviceRole')).toEqual([]);
   });
 
   it('[03b §3.8] lane label dialog: Save sends the trimmed label; Remove label sends null; VALIDATION_FAILED → "Lane labels are only for kitchen screens"', async () => {
