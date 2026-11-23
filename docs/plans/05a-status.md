@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~13:30 PKT: **Task 14 merged** (pair request hint + poll screens; review APPROVE).
 > - 2026-11-23 ~13:20 PKT: **Task 29 (recovery link) merged** into `build/05a` (`1b5b5c61`), Opus review APPROVE.
 > - 2026-11-23 ~13:10 PKT: **8 lanes running** (6 saved + new B13, B14 for B4). **K (27–28)** done, CI green, Opus review FIX (1 MAJOR: no test pins "after catchUp"), fix round 1 running. **R (29)** done, CI green, Opus review running. npm registry was blocked in this cloud env: new personal env `pos-build` (package registries only) fixed it.
 > - 2026-11-23 ~12:05 PKT (07:05 UTC): **Cloud integrator started** on `build/05a` @ `6935a2d3` (CI green). Stab: `origin/fix/stab-tablet-pairing` @ `b72d290c` is already in `build/05a` (nothing new; no 00 / 01d / 03b / 04 version change). Owner answered **Q-1 – Q-3: all (a)**. Next: finish the six saved lanes (L1, K, R, D, C1, C2) in parallel cloud agents, CI on GitHub runners, then a fresh review each, then `merge --no-ff`.
@@ -91,7 +92,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 11 | B3 | admin guard + print route | HIGH | | running (`lane-05aL1/05a-10-12`) |
 | 12 | B3 | `/queries/session` | NORMAL | | running (`lane-05aL1/05a-10-12`) |
 | 13 | B4 | request-based pairing fixture | NORMAL | | |
-| 14 | B4 | pair request hint + poll screens | NORMAL | | |
+| 14 | B4 | pair request hint + poll screens | NORMAL | `9a61c55b` | **done** (Sonnet review APPROVE; no-profile poll → `screens: []`, an inference from §3.6, noted) |
 | 15 | B4 | approve v2 **+ STAB-1 removal (one commit)** | HIGH | | |
 | 16 | B4 | pair page text + hint | NORMAL | | |
 | 17 | B5 | sign-in checks | HIGH | | |
