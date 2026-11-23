@@ -29,6 +29,8 @@ object Guard {
         "checkForUpdate" to Rule.HUB_OR_BUNDLED,
         "openSetting" to Rule.HUB_OR_BUNDLED,
         "addListener" to Rule.HUB_OR_BUNDLED,
+        // plan batch A-2: debug builds only (the plugin refuses it in release); bundled first-run page only
+        "debugPairing" to Rule.BUNDLED_ONLY,
     )
 
     /** (scheme, host, effective port, raw path); null when the URL is not a plain absolute http(s) URL. */
