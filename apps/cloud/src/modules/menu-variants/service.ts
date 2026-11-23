@@ -449,8 +449,9 @@ export async function createStockItem(
 // block), then 08b C-11 / P-2 (a non-archived recipe: archive while a draft or published line uses the item;
 // stock_unit while a published line freezes it or the item owns one; any kind change while it owns one) →
 // 422 R1 (a stock_unit change re-runs V4 on every active drawer), R5 (packet ⇒ g) → R7 code (one read, only when code is sent, differs and is not null (null clears, AD-8); 409 stock_item_code) → R3 name (index → 409;
-// the code index → 409 stock_item_code on a restore, N-7) → write → audit → bump every branch only if name,
-// stock_unit, carries_over or archived changed (I11; otherwise the two bump statements are skipped). One plain
+// the code index → 409 stock_item_code on a restore, N-7) → write → audit → bump every branch (2, the last lock): every
+// field the PATCH changes is in a snapshot (name / stock_unit / carries_over / archived in 01c's stock, and with
+// kind / code / cost_category / is_a_item in `inventory.items[]`; 08b B16, P-1 replaces I11). One plain
 // drawers read serves R1, R2 and R4 (only when one applies); one plain branch-rows read for R4; one plain recipes read
 // (C-16, no lock) when archiving or stock_unit or kind changes. No cascade.
 export async function patchStockItem(
@@ -536,13 +537,10 @@ export async function patchStockItem(
       },
       deps,
     );
-    // I11: only the snapshot fields bump
-    const snapshotChanged =
-      merged.name !== before.name || unitChanged || merged.carries_over !== before.carries_over || merged.archived_at !== before.archived_at;
-    if (snapshotChanged) {
-      await deps.testHooks?.beforeBump?.();
-      await bumpEveryBranch(level);
-    }
+    // 08b B16 (P-1): every merged field is in a snapshot (stock_items[] or inventory.items[]), so every real change
+    // bumps (the no-op returned above); an extra bump for an item archived before and after is harmless
+    await deps.testHooks?.beforeBump?.();
+    await bumpEveryBranch(level);
     return { stock_item: toStockItemWire(stockItem) };
   });
 }

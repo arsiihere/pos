@@ -8,7 +8,7 @@ import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 import { inventoryFixture, stockItem, type InventoryFixture } from './fixtures';
 
 // 08a §10.2: the changed 01c stock-item routes (§6.1 list, §6.2 POST, §6.3 PATCH) with the inventory fields.
-describe('08a stock items (§6.1–§6.3, I2, I9, I11, C-5)', () => {
+describe('08a stock items (§6.1–§6.3, I2, I9, I11 → 08b B16, C-5)', () => {
   let cloud: TestCloud;
   let fx: InventoryFixture;
   let counter: ReturnType<typeof pgCounter>;
@@ -128,7 +128,7 @@ describe('08a stock items (§6.1–§6.3, I2, I9, I11, C-5)', () => {
     expect(keys.rows[0]).toEqual({ n: 5 + 5 }); // the fixture's five, these five; the refused POSTs stored no key
   });
 
-  it('[08a #8] code: uppercased; active clash → 409 stock_item_code; archived-only clash → 201; name and code taken → 409 stock_item_code (m-13); restore onto a held code → 409 stock_item_code, nothing written (N-7)', async () => {
+  it('[08a #8 ⚠️ 08b P-1] code: uppercased; active clash → 409 stock_item_code; archived-only clash → 201; name and code taken → 409 stock_item_code (m-13); restore onto a held code → 409 stock_item_code, nothing written (N-7)', async () => {
     const created = await post({ name: 'Qeema packet', stock_unit: 'g', kind: 'packet', code: ' qm-1 ' });
     expect(created.statusCode, created.body).toBe(201);
     expect(created.json().data.stock_item.code).toBe('QM-1');
@@ -161,14 +161,14 @@ describe('08a stock items (§6.1–§6.3, I2, I9, I11, C-5)', () => {
     expect(taken.error).toMatchObject({ code: 'CONFIG_NAME_TAKEN', details: { entity: 'stock_item_code' } });
     const coded = await patch(fx.ids.beef, { expected_version: beef.version, code: 'bf-1' });
     expect(coded.statusCode, coded.body).toBe(200);
-    expect(counter.count).toBe(5); // tenant-wide, lock, code read, update, audit (no bump: code is not in any snapshot)
+    expect(counter.count).toBe(7); // tenant-wide, lock, code read, update, audit, 2 bump (⚠️ 08b P-1: code is in inventory.items[])
     expect(coded.json().data.stock_item.code).toBe('BF-1');
     const recoded = await patch(fx.ids.beef, { expected_version: coded.json().data.stock_item.version, code: 'BF-1', is_a_item: true });
     expect(recoded.statusCode, recoded.body).toBe(200);
-    expect(counter.count).toBe(4); // same code: no code read
+    expect(counter.count).toBe(6); // same code: no code read (⚠️ 08b P-1: + 2 bump)
     const cleared = await patch(fx.ids.beef, { expected_version: recoded.json().data.stock_item.version, code: null });
     expect(cleared.statusCode, cleared.body).toBe(200);
-    expect(counter.count).toBe(4); // null clears, R7 read skipped (AD-8): tenant-wide, lock, update, audit
+    expect(counter.count).toBe(6); // null clears, R7 read skipped (AD-8): tenant-wide, lock, update, audit, 2 bump (⚠️ 08b P-1)
     expect(cleared.json().data.stock_item.code).toBeNull();
     // R7 also on an archived merged row: archive + a code an active item holds → 409, nothing written
     const plain = cleared.json().data.stock_item as StockItemWire;
@@ -178,17 +178,17 @@ describe('08a stock items (§6.1–§6.3, I2, I9, I11, C-5)', () => {
     expect(counter.count).toBe(5); // tenant-wide, lock, drawers read (archiving), recipes read (archiving; ⚠️ 08b v1.0 C-11), code read
   });
 
-  it('[08a #9] PATCH only is_a_item → 200, one audit row, no config_version change; statements = the bump path − 2 (I11, N-6)', async () => {
+  it('[08a #9 ⚠️ 08b P-1] PATCH only is_a_item → 200, one audit row, bumps every branch; statements = the bump path (B16)', async () => {
     const before = await versions();
     const beef = await stockItem(cloud, fx.f, fx.ids.beef);
     const auditBefore = (await auditRows()).length;
     const response = await patch(fx.ids.beef, { expected_version: beef.version, is_a_item: true });
     expect(response.statusCode, response.body).toBe(200);
-    expect(counter.count).toBe(4); // tenant-wide, lock, update, audit
+    expect(counter.count).toBe(6); // tenant-wide, lock, update, audit, 2 bump (⚠️ 08b P-1: was the bump path − 2)
     const wire = response.json().data.stock_item as StockItemWire;
     expect(wire).toMatchObject({ is_a_item: true, kind: 'ingredient' });
     expect(wire.version).not.toBe(beef.version);
-    expect(await versions()).toEqual(before);
+    expect(await versions()).toEqual(before.map((v) => v + 1)); // ⚠️ 08b P-1: is_a_item is in inventory.items[]
     const audit = await auditRows();
     expect(audit).toHaveLength(auditBefore + 1);
     expect(audit.at(-1)).toMatchObject({
@@ -198,20 +198,20 @@ describe('08a stock items (§6.1–§6.3, I2, I9, I11, C-5)', () => {
       after: expect.objectContaining({ is_a_item: true }),
     });
 
-    // the bump path for the same item: a snapshot field (name) changes → 6
+    // the bump path for the same item: a field of 01c's stock (name) changes → 6, the same count
     const renamed = await patch(fx.ids.beef, { expected_version: wire.version, name: 'Beef boneless' });
     expect(renamed.statusCode, renamed.body).toBe(200);
-    expect(counter.count).toBe(4 + 2);
+    expect(counter.count).toBe(6);
 
-    // cost_category / kind (ingredient → prepared, nothing in use) / code are no-bump too
+    // cost_category / kind (ingredient → prepared, nothing in use) bump every branch too (⚠️ 08b P-1)
     const v = await versions();
     const cat = await patch(fx.ids.beef, { expected_version: renamed.json().data.stock_item.version, cost_category: 'beverage' });
     expect(cat.statusCode, cat.body).toBe(200);
-    expect(counter.count).toBe(4);
+    expect(counter.count).toBe(6); // ⚠️ 08b P-1: + 2 bump
     const toPrepared = await patch(fx.ids.beef, { expected_version: cat.json().data.stock_item.version, kind: 'prepared' });
     expect(toPrepared.statusCode, toPrepared.body).toBe(200);
-    expect(counter.count).toBe(5); // a change to prepared reads no drawers or branch rows; + the recipes read (⚠️ 08b v1.0 P-2: any kind change)
-    expect(await versions()).toEqual(v);
+    expect(counter.count).toBe(7); // a change to prepared reads no drawers or branch rows; + the recipes read (⚠️ 08b v1.0 P-2: any kind change); + 2 bump (⚠️ 08b P-1)
+    expect(await versions()).toEqual(v.map((x) => x + 2));
   });
 
   it('[08a #10] PATCH name + is_a_item → 200, one audit row, every branch bumped', async () => {
@@ -237,7 +237,7 @@ describe('08a stock items (§6.1–§6.3, I2, I9, I11, C-5)', () => {
     expect((await auditRows()).at(-1)).toMatchObject({ entity_id: fx.ids.ghee, action: 'restore' });
   });
 
-  it('[08a #11] PATCH kind away from prepared: branch row → 409 stock_item_branch; only an active drawer → 409 menu_item; only an archived drawer → 200 (R4)', async () => {
+  it('[08a #11 ⚠️ 08b P-1] PATCH kind away from prepared: branch row → 409 stock_item_branch; only an active drawer → 409 menu_item; only an archived drawer → 200 (R4)', async () => {
     const payeCooked = await stockItem(cloud, fx.f, fx.ids.payeCooked);
     // carries_over off first (R6 would answer 400 otherwise, test 14)
     const off = await patch(fx.ids.payeCooked, { expected_version: payeCooked.version, carries_over: false });
@@ -263,9 +263,9 @@ describe('08a stock items (§6.1–§6.3, I2, I9, I11, C-5)', () => {
     const before = await versions();
     const changed = await patch(fx.ids.payeCooked, { expected_version: v1, kind: 'ingredient' });
     expect(changed.statusCode, changed.body).toBe(200);
-    expect(counter.count).toBe(7); // tenant-wide, lock, drawers read, branch-rows read, recipes read (⚠️ 08b v1.0 P-2), update, audit; no bump (I11)
+    expect(counter.count).toBe(9); // tenant-wide, lock, drawers read, branch-rows read, recipes read (⚠️ 08b v1.0 P-2), update, audit, 2 bump (⚠️ 08b P-1)
     expect(changed.json().data.stock_item).toMatchObject({ kind: 'ingredient' });
-    expect(await versions()).toEqual(before);
+    expect(await versions()).toEqual(before.map((v) => v + 1)); // ⚠️ 08b P-1: kind is in inventory.items[]
 
     // a branch row only at a branch outside the token still blocks
     const pot = await createStockItem(cloud, fx.f, { name: 'Karahi pot', stock_unit: 'g' });

@@ -7,7 +7,8 @@ import { inventoryFixture, type InventoryFixture } from './fixtures';
 
 // 08a §6.6: POST /v1/admin/stock-items/:stock_item_id/prices — validate → key → tenant-wide → stock item FOR SHARE →
 // active → [branch read, C1] → units read → resolveUnit (I5) → insert with the frozen conversion (I6) → candidates
-// (I7) → audit → key response → prune: 9 statements, 10 with branch_id. No bump (I11). Unit rows are seeded with
+// (I7) → audit → bump → key response → prune: 11 statements, 11 with branch_id (⚠️ 08b P-1: were 9 / 10; B16 bumps
+// every branch for branch_id null, that branch only for a branch market rate). Unit rows are seeded with
 // SQL (the units POST is §6.5's).
 const HOUR = 3_600_000;
 
@@ -63,7 +64,7 @@ describe('08a prices POST (§6.6)', () => {
       .rows[0]!.display_name;
   const refused = (body: string) => JSON.parse(body).error as { code: string; details?: unknown };
 
-  it('[08a #31] manual + branch_id 400; branch_id unknown / foreign 422 not_found; market rate at a branch 201; 9 / 10 statements; audit branch_id = the price', async () => {
+  it('[08a #31 ⚠️ 08b P-1] manual + branch_id 400; branch_id unknown / foreign 422 not_found; market rate at a branch 201; 11 / 11 statements; audit branch_id = the price', async () => {
     const fx = await inventoryFixture(cloud);
     const beef = fx.ids.beef;
 
@@ -80,17 +81,17 @@ describe('08a prices POST (§6.6)', () => {
     expect(await audits(fx)).toEqual([]);
 
     const before = await versions(fx);
-    // every-branch manual: 9 statements
+    // every-branch manual: 11 statements (⚠️ 08b P-1: + 2 bump statements, every branch)
     const every = await post(fx, beef, { kind: 'manual', unit_name: 'kg', price_minor: 200_000 });
     expect(every.statusCode, every.body).toBe(201);
-    expect(counter.count).toBe(9);
+    expect(counter.count).toBe(11);
     const everyData = every.json().data as ItemPriceCreated;
     expect(everyData.menu_cost).toMatchObject({ branch_id: null, price_id: everyData.price.price_id });
 
-    // market rate at Lake City: 10 statements (+ the branch read); menu_cost = I7 for Lake City
+    // market rate at Lake City: 11 statements (+ the branch read; ⚠️ 08b P-1: + 1 bump statement, Lake City only); menu_cost = I7 for Lake City
     const branch = await post(fx, beef, { kind: 'market_rate', branch_id: fx.lakeCity, unit_name: 'kg', price_minor: 180_000 });
     expect(branch.statusCode, branch.body).toBe(201);
-    expect(counter.count).toBe(10);
+    expect(counter.count).toBe(11);
     const data = branch.json().data as ItemPriceCreated;
     expect(data.price).toEqual({
       price_id: data.price.price_id,
@@ -129,7 +130,7 @@ describe('08a prices POST (§6.6)', () => {
       cloud.clock.set(now);
     }
 
-    // §6.0: one audit row per POST, item_price / create, branch_id = the price's; no bump (I11)
+    // §6.0: one audit row per POST, item_price / create, branch_id = the price's
     expect(await audits(fx)).toEqual(
       expect.arrayContaining([
         { entity: 'item_price', entity_id: everyData.price.price_id, action: 'create', branch_id: null, actor_owner_user_id: fx.f.userId },
@@ -142,7 +143,13 @@ describe('08a prices POST (§6.6)', () => {
     delete stored.recorded_by_name;
     const after = await cloud.pool.query(`SELECT after FROM config_audit WHERE tenant_id = $1 AND entity_id = $2`, [fx.f.tenantId, data.price.price_id]);
     expect(after.rows[0].after).toEqual({ stock_item_id: beef, ...stored });
-    expect(await versions(fx)).toEqual(before);
+    // ⚠️ 08b P-1 (B16): the every-branch price bumped every branch, the Lake City market rate Lake City only
+    expect(await versions(fx)).toEqual(
+      before.map((row: { branch_id: string; config_version: string }) => ({
+        ...row,
+        config_version: String(Number(row.config_version) + (row.branch_id === fx.lakeCity ? 2 : 1)),
+      })),
+    );
   });
 
   it('[08a §6.6, I10, S7] owner not covering every branch 403; foreign / unknown item 404; replay; nothing written', async () => {

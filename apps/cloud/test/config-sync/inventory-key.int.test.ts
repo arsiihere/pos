@@ -24,6 +24,7 @@ import { owner } from '../helpers/restaurant';
 import { dropScratchDatabases, scratchDatabaseAt } from '../helpers/scratch-db';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 import { recipeFixture, type RecipeFixture } from '../recipes/fixtures';
+import { stockItem } from '../inventory/fixtures';
 
 // 08 v1.1 Part B §10.3 (tests 23–25, 27, 27b, 28, 33's key): the snapshot `inventory` key (B15, §5.3; 01a A-3, A-4;
 // 01b B-x). Recipes are inserted by SQL (lane R's routes are not this task's); prices with chosen times by SQL too.
@@ -616,5 +617,140 @@ describe('[08b #33, A-6] release: the pre-migration version gets the inventory k
       yields: [],
       recipes: [],
     });
+  });
+});
+
+// 08b test 26 (B16, rows P-1, A-2′): a write bumps exactly the branches whose snapshot it changes. Every bump is the
+// write's last lock (01a S8: branch rows last): the beforeBump hook fires after the write's other statements, and
+// only the bump (2 statements every branch, 1 for one branch) plus withIdempotency's key response and prune follow.
+// Recipe create / draft save (bump none) are lane R's routes (r1 / r2), not registered here.
+describe('[08b #26, B16] bump rule on the 08a writes', () => {
+  let cloud: TestCloud;
+  let counter: ReturnType<typeof pgCounter>;
+  let fx: RecipeFixture;
+  let atBump: number | null = null;
+
+  beforeAll(async () => {
+    cloud = await createTestCloud({
+      testHooks: {
+        handlerStart: () => {
+          counter.reset();
+          atBump = null;
+        },
+        beforeBump: async () => {
+          atBump = counter.count;
+        },
+      },
+    });
+    counter = pgCounter(cloud.pool);
+    await cloud.app.ready();
+  });
+  afterAll(async () => {
+    await cloud.close();
+  });
+  beforeEach(async () => {
+    cloud.clock.set(T);
+    fx = await recipeFixture(cloud);
+  }, 60_000);
+
+  const tenantCtx = () => Object.freeze({ tenantId: fx.f.tenantId, branchIds: Object.freeze([...fx.f.branches]) });
+  const versions = async () =>
+    Object.fromEntries(
+      (
+        await cloud.pool.query<{ branch_id: string; config_version: string }>(
+          `SELECT branch_id, config_version FROM branches WHERE tenant_id = $1 ORDER BY branch_id`,
+          [fx.f.tenantId],
+        )
+      ).rows.map((row) => [row.branch_id, Number(row.config_version)]),
+    );
+  // every branch's built snapshot (fixed header, so a branch whose rows did not change builds the same bytes)
+  const snapshots = async () => {
+    const client = await cloud.pool.connect();
+    try {
+      const out: Record<string, { body: string; inventory: string }> = {};
+      for (const branchId of fx.f.branches) {
+        const snapshot = await buildSnapshot(client, tenantCtx(), branchId, HEADER);
+        out[branchId] = { body: sha256hex(canonicalJson(snapshot)), inventory: sha256hex(canonicalJson(snapshot.inventory)) };
+      }
+      return out;
+    } finally {
+      client.release();
+    }
+  };
+  const write = async (method: 'POST' | 'PATCH', url: string, payload: object, status: number) => {
+    const response = await cloud.app.inject({ method, url, ...owner(fx.f), payload });
+    expect(response.statusCode, response.body).toBe(status);
+    return { statements: counter.count, atBump, data: response.json().data };
+  };
+  // the bumped branches gain exactly 1 and their inventory changes; every other branch keeps its version and its
+  // whole snapshot
+  const expectBumped = async (run: () => Promise<unknown>, bumped: readonly string[]) => {
+    const v0 = await versions();
+    const s0 = await snapshots();
+    await run();
+    const v1 = await versions();
+    const s1 = await snapshots();
+    for (const branchId of fx.f.branches) {
+      if (bumped.includes(branchId)) {
+        expect(v1[branchId], branchId).toBe(v0[branchId]! + 1);
+        expect(s1[branchId]!.inventory, branchId).not.toBe(s0[branchId]!.inventory);
+      } else {
+        expect(v1[branchId], branchId).toBe(v0[branchId]);
+        expect(s1[branchId]!.body, branchId).toBe(s0[branchId]!.body);
+      }
+    }
+  };
+
+  it('[08b #26] item unit POST bumps every branch: 9 statements, the bump last', async () => {
+    await expectBumped(async () => {
+      const r = await write('POST', `/v1/admin/stock-items/${fx.ids.beef}/units`, { unit_name: 'tin', factor_num: 16_000 }, 201);
+      expect(r.statements).toBe(9);
+      expect(r.atBump).toBe(9 - 4); // then 2 bump, key response, prune
+    }, fx.f.branches);
+  });
+
+  it('[08b #26] yield POST bumps every branch: 9 statements, the bump last', async () => {
+    await expectBumped(async () => {
+      const r = await write('POST', `/v1/admin/stock-items/${fx.stock.onion}/yields`, { yield_bp: 9_000 }, 201);
+      expect(r.statements).toBe(9);
+      expect(r.atBump).toBe(9 - 4);
+    }, fx.f.branches);
+  });
+
+  it('[08b #26] every-branch price POST bumps every branch: 11 statements, the bump last', async () => {
+    await expectBumped(async () => {
+      const r = await write('POST', `/v1/admin/stock-items/${fx.stock.onion}/prices`, { kind: 'manual', unit_name: 'kg', price_minor: 12_000 }, 201);
+      expect(r.statements).toBe(11);
+      expect(r.atBump).toBe(11 - 4);
+    }, fx.f.branches);
+  });
+
+  it('[08b #26] a branch market rate bumps that branch only (1 statement): 11 statements, the bump last; other branches unchanged', async () => {
+    await expectBumped(async () => {
+      const r = await write(
+        'POST',
+        `/v1/admin/stock-items/${fx.ids.beef}/prices`,
+        { kind: 'market_rate', branch_id: fx.lakeCity, unit_name: 'kg', price_minor: 170_000, valid_for_hours: 24 },
+        201,
+      );
+      expect(r.statements).toBe(11);
+      expect(r.atBump).toBe(11 - 3); // then 1 bump, key response, prune
+    }, [fx.lakeCity]);
+    expect(fx.f.branches.length).toBeGreaterThan(1);
+  });
+
+  it('[08b #26] stock-item PATCH of is_a_item / kind / code / cost_category bumps every branch, the bump last', async () => {
+    const patch = async (payload: object) => {
+      const fresh = await stockItem(cloud, fx.f, fx.stock.onion);
+      return write('PATCH', `/v1/admin/stock-items/${fx.stock.onion}`, { expected_version: fresh.version, ...payload }, 200);
+    };
+    await expectBumped(async () => {
+      const r = await patch({ is_a_item: true });
+      expect(r.statements).toBe(6); // tenant-wide, lock, update, audit, 2 bump
+      expect(r.atBump).toBe(6 - 2);
+    }, fx.f.branches);
+    await expectBumped(() => patch({ cost_category: 'beverage' }), fx.f.branches);
+    await expectBumped(() => patch({ code: 'ON-1' }), fx.f.branches);
+    await expectBumped(() => patch({ kind: 'packet' }), fx.f.branches);
   });
 });
