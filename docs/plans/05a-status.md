@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > - **Q-3** The G1-9d shortcut (01d §3.5:637) applies to kinds whose `right.mode` is `'approval'`. A downgraded raise stores `named` or `holders` on an approval kind. **(a, Rec)** Key on the **stored** right: a downgraded request gets no shortcut, like other `named` / `holders` requests today; it still escalates by its steps. (b) Key on the kind's right: the shortcut also runs for a downgraded `holders` request.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 11:20 PKT: Gate before B3 **fully green** (759 files, 8 081 tests). The first B3 implementer stalled for ~4 h after the carry-over commit (`443084d8`: B2 review M1, M4, M5); it was stopped and **B3 (tasks 9–12) relaunched**.
 > - 2026-11-23 ~06:45 PKT: **Batch B2 done** (tasks 5–8; Opus review APPROVE, 5 MINORs: M1, M4 and M5 go into B3, M2 and M3 are notes below). Stab `3fa96f0d` merged: the stab session fixed its lint line and the Pass `load_id` test. Gate before B3 running.
 > - 2026-11-23 ~06:05 PKT: The gate before B2 found three gaps from B1, now fixed: the client audit label for `device_profile_set`, the pinned action count 66 → 67, the audit projection's pinned event list, and a lint error in B1's fixtures test. Also one stab lint error (`max-delay-copy.test.ts:19`, stab `9521e49f`), fixed with one line. **Known red from the stab branch, outside 05a:** `apps/hub/test/kds/point-catch-up.int.test.ts` "[03b #65] point_view ≤ 4 statements…" expects `load_id: null` on Pass lines. It **also fails at the stab tip itself** (`d7e90732`, run detached in `~/pos-05a`), from stab commit `dff98415`. Not touched here; the stab session owns it. Everything else is green. **B2 starts.**
 > - 2026-11-23 ~05:45 PKT: **Batch B1 done** (tasks 1–4; review APPROVE). Stab `85690d41` merged (no spec change, no hub migration). Gate before B2 running.
@@ -136,6 +137,6 @@ Scan for P0.1: every local and remote branch and both open PRs (#121, #126) were
 | When | Stab sha | Spec change in 00 / 01d / 03b / 04? | Gate after |
 |---|---|---|---|
 | cut | `44112286` | — (baseline: 00 v1.12.2, 01d v1.3.4, 03b v1.0.14, 04 v1.0.7) | — |
-| before B3 | `3fa96f0d` | none | running |
+| before B3 | `3fa96f0d` | none | **green** (759 files, 8 081 tests) |
 | before B2 | `85690d41` | none | **green except 1 stab-red test** (`point-catch-up` #65, red at the stab tip too); 3 B1 gaps fixed (`fix(05a)`, `test(04)` commits); 1 stab lint line fixed |
 | before B1 | `943e1cb6` (merge `ad0864ad`), then `6be21317` (cloud `0017`) | none | **green**: typecheck + lint + hub pass. Run 1: 95 cloud files failed (the shared `pos_test` DB already had cloud `0017` from the newer stab commit), fixed by merging `6be21317`. Run 2: 51 cloud files and 1 hub timeout (deadlocks / duplicate keys while the `~/pos` stab session tested the same DB). Rerun of `apps/cloud` + `voids/guards` under the lock: 116 files, 809 tests green |
