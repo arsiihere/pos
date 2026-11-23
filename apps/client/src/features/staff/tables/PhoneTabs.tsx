@@ -64,7 +64,19 @@ export function TabGlyph({ screen }: { screen: ScreenKey }) {
 }
 
 /** The Me tab: who is signed in, and sign out (it used to be the second tab of the 01d bar). */
-export function MeTab({ name, onSignOut, onShift }: { name: string; onSignOut: () => void; /** 05 §8 Shift (task 39): manage-own-shift */ onShift?: () => void }) {
+export function MeTab({
+  name,
+  onSignOut,
+  onShift,
+  children,
+}: {
+  name: string;
+  onSignOut: () => void;
+  /** 05 §8 Shift (task 39): manage-own-shift */
+  onShift?: () => void;
+  /** 05b M-18: the device-health card inside the tablet app */
+  children?: ReactNode;
+}) {
   return (
     <main className="ph-body">
       <div className="card col signin__phone">
@@ -81,6 +93,7 @@ export function MeTab({ name, onSignOut, onShift }: { name: string; onSignOut: (
           {t('alerts.sign_out_short')}
         </button>
       </div>
+      {children}
     </main>
   );
 }
