@@ -1,11 +1,12 @@
 /// <reference types="node" />
 import { fileURLToPath } from 'node:url';
-import type { DeviceType, ScreenKey, SessionEndReason, SessionKind } from '@pos/domain';
+import { screensOffered, type DeviceType, type ScreenKey, type SessionEndReason, type SessionKind } from '@pos/domain';
 import { initialEngineState, type EngineState } from '@pos/engine';
 import type { DeviceProfileSetPayload, DirectoryInput, PosEvent } from '@pos/events';
 import type { InjectOptions } from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { applyStaffDirectory } from '../../src/auth/apply-directory';
+import { loadDeviceProfiles } from '../../src/auth/device-profile';
 import { currentDirectory, swapDirectory } from '../../src/auth/guards';
 import { createSession, endSession, type SessionRow } from '../../src/auth/session-store';
 import { openReadOnly } from '../../src/db/connection';
@@ -225,7 +226,9 @@ export function appendDeviceProfile(h: TestHub, deviceId: string, p: DeviceProfi
       | undefined;
     if (device === undefined) throw new Error(`device ${deviceId} not found`);
     if (device.device_type === 'kds') throw new Error(`appendDeviceProfile: kds device ${deviceId} has no profile`);
-    const prev = tx.db.prepare('SELECT profile_version FROM device_profiles WHERE device_id = ?').get(deviceId) as { profile_version: number } | undefined;
+    // A fixture-only legacy row (`profile_version` 0, see `openSession`) counts as no profile.
+    const row = tx.db.prepare('SELECT profile_version FROM device_profiles WHERE device_id = ?').get(deviceId) as { profile_version: number } | undefined;
+    const prev = row === undefined || row.profile_version === 0 ? undefined : row;
     const payload: DeviceProfileSetPayload = {
       device_id: deviceId,
       device_name: device.device_name,
@@ -252,11 +255,25 @@ export function appendDeviceProfile(h: TestHub, deviceId: string, p: DeviceProfi
   });
 }
 
+/**
+ * A staff or admin session written straight to the session store.
+ *
+ * 05a §3.3a (R-1): a staff device with no profile is masked as `everyone`. Tests written before 05a open a manager's
+ * session on a `pairDevice` device with no profile and expect today's (unmasked) rights, so unless `legacyProfile` is
+ * false a staff / admin session on a non-kds device with no `device_profiles` row puts its person on a fixture-only
+ * **legacy** profile: `listed`, the screens offered for the hardware (`pass` only with a `point_id`),
+ * `profile_version` 0. It is written to the projection tables directly (no event, as `pairDevice` writes `devices`),
+ * and the next session's person is added to it. `appendDeviceProfile` treats such a row as no profile. Tests of
+ * 05a set an explicit profile (`pairDevice({ profile })`, `withProfile`) or pass `legacyProfile: false`.
+ */
 export function openSession(
   h: TestHub,
-  o: { kind: SessionKind; staffId?: string; deviceId?: string; stationId?: string },
+  o: { kind: SessionKind; staffId?: string; deviceId?: string; stationId?: string; legacyProfile?: boolean },
 ): { sessionId: string; token: string } {
   const station = o.kind === 'station';
+  if (!station && o.deviceId !== undefined && o.staffId !== undefined && o.legacyProfile !== false) {
+    legacyProfile(h, o.deviceId, o.staffId);
+  }
   return h.deps.writer.run((tx) =>
     createSession(tx, {
       kind: o.kind,
@@ -267,6 +284,25 @@ export function openSession(
       eventDeviceId: o.deviceId ?? (o.kind === 'admin' ? 'hub-admin' : 'hub'),
     }),
   ).result;
+}
+
+function legacyProfile(h: TestHub, deviceId: string, staffId: string): void {
+  const db = h.deps.db;
+  const device = db.prepare('SELECT device_type, point_id FROM devices WHERE device_id = ?').get(deviceId) as
+    | { device_type: DeviceType; point_id: string | null }
+    | undefined;
+  if (device === undefined || device.device_type === 'kds') return;
+  const row = db.prepare('SELECT profile_version FROM device_profiles WHERE device_id = ?').get(deviceId) as { profile_version: number } | undefined;
+  if (row !== undefined && row.profile_version !== 0) return;
+  if (row === undefined) {
+    const screens = screensOffered(device.device_type).filter((k) => k !== 'pass' || device.point_id !== null);
+    db.prepare("INSERT INTO device_profiles (device_id, access, screens, profile_version, needs_review) VALUES (?, 'listed', ?, 0, 0)").run(
+      deviceId,
+      JSON.stringify(device.point_id === null ? screens : ['pass', ...screens.filter((k) => k !== 'pass')]),
+    );
+  }
+  db.prepare('INSERT OR IGNORE INTO device_people (device_id, staff_id) VALUES (?, ?)').run(deviceId, staffId);
+  loadDeviceProfiles(db);
 }
 
 export function endSessionNow(h: TestHub, id: string, reason: SessionEndReason = 'logout'): void {
