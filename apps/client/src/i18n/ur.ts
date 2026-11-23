@@ -1654,4 +1654,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // 02b-TK C2-3 (02b §3.2 step 2 errors; a busy cart): not in strings-table.md; Urdu to confirm
   'c.add_gone': 'اس ٹوکن میں مزید آئٹم نہیں ڈل سکتے (بند، منسوخ یا دوسرے دن کا) — نیا آرڈر بھیجیں',
   'c.add_busy': 'پہلے یہ کارٹ بھیجیں یا ہولڈ کریں، پھر ٹوکن میں ڈالیں',
+  'v.remove': 'ہٹائیں / منسوخ',
+  // 02b-TK C2-4 (05 §3.10 refund path; 02b §6.2 / 04 §6.1 errors): not in strings-table.md; Urdu to confirm
+  'v.refund_first': 'ادا ہو چکا: پہلے بل دوبارہ کھولیں (بل ← دوبارہ کھولیں)، پھر یہاں آئٹم ہٹائیں — بل واپسی کی رقم دکھائے گا',
+  'line.err.closed_split': 'یہ آئٹم بل کے ادا شدہ حصے پر ہے — واپسی کیلئے بل دوبارہ کھولیں',
+  'line.err.void_not_allowed': 'یہ آئٹم ابھی void نہیں ہو سکتا — تازہ کر دیا',
 };
