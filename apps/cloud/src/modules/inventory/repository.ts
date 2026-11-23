@@ -172,6 +172,98 @@ export async function selectOwnerNames(db: TenantSql, userIds: readonly string[]
 
 // ------------------------------------------------------------------------------------------------ §6.5 units
 
+// §6 lock order kind 5 (§6.5 – §6.7): the stock item FOR SHARE, so a concurrent stock-item PATCH (FOR UPDATE:
+// archive, stock_unit or kind) serialises with the POST and its rules read the locked row. undefined = unknown or
+// another tenant's.
+export async function shareStockItem(db: TenantSql, stockItemId: string): Promise<StockItemRecord | undefined> {
+  const rows = await db.query<RawStockItem>(
+    `SELECT ${STOCK_ITEM_COLUMNS} FROM stock_items WHERE tenant_id = $1 AND stock_item_id = $2 FOR SHARE`,
+    [stockItemId],
+  );
+  return rows[0] === undefined ? undefined : stockItemRecord(rows[0]);
+}
+
+// The columns of a `WITH inserted AS (INSERT … RETURNING …)` CTE, qualified for the owner_users join.
+export const inserted = (columns: string): string =>
+  columns
+    .split(', ')
+    .map((column) => `inserted.${column}`)
+    .join(', ');
+
+export interface NewItemUnit {
+  unit_row_id: string;
+  stock_item_id: string;
+  unit_name: string;
+  base_unit: ItemUnitRow['base_unit'];
+  factor_num: bigint;
+  factor_den: bigint;
+  note: string | null;
+  recorded_by: string;
+  created_at: number;
+}
+
+// §6.5 insert (I4, append-only), one statement: the row and the recorder's display_name (§5.3 recorded_by_name).
+export async function insertItemUnit(db: TenantSql, row: NewItemUnit): Promise<{ unit: ItemUnitRecord; recordedByName: string }> {
+  const rows = await db.query<RawUnit & { recorded_by_name: string }>(
+    `WITH inserted AS (
+       INSERT INTO stock_item_units (tenant_id, unit_row_id, stock_item_id, unit_name, base_unit, factor_num, factor_den, note, recorded_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING ${UNIT_COLUMNS})
+     SELECT ${inserted(UNIT_COLUMNS)}, owner_users.display_name AS recorded_by_name
+       FROM inserted JOIN owner_users ON owner_users.tenant_id = $1 AND owner_users.user_id = inserted.recorded_by`,
+    [
+      row.unit_row_id,
+      row.stock_item_id,
+      row.unit_name,
+      row.base_unit,
+      row.factor_num.toString(),
+      row.factor_den.toString(),
+      row.note,
+      row.recorded_by,
+      row.created_at,
+    ],
+  );
+  const { recorded_by_name: recordedByName, ...unit } = rows[0]!;
+  return { unit: itemUnitRecord(unit), recordedByName };
+}
+
 // ----------------------------------------------------------------------------------------------- §6.6 prices
 
 // ----------------------------------------------------------------------------------------------- §6.7 yields
+
+export interface NewYieldProfile {
+  yield_profile_id: string;
+  stock_item_id: string;
+  yield_bp: number;
+  test_ap_qty: bigint | null;
+  test_ep_qty: bigint | null;
+  test_unit: ItemUnitRow['base_unit'] | null;
+  note: string | null;
+  recorded_by: string;
+  created_at: number;
+}
+
+// §6.7 insert (I8, append-only), one statement: the row and the recorder's display_name (§5.3 recorded_by_name).
+export async function insertYieldProfile(db: TenantSql, row: NewYieldProfile): Promise<{ profile: YieldProfileRecord; recordedByName: string }> {
+  const rows = await db.query<RawYield & { recorded_by_name: string }>(
+    `WITH inserted AS (
+       INSERT INTO yield_profiles (tenant_id, yield_profile_id, stock_item_id, yield_bp, test_ap_qty, test_ep_qty, test_unit, note, recorded_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING ${YIELD_COLUMNS})
+     SELECT ${inserted(YIELD_COLUMNS)}, owner_users.display_name AS recorded_by_name
+       FROM inserted JOIN owner_users ON owner_users.tenant_id = $1 AND owner_users.user_id = inserted.recorded_by`,
+    [
+      row.yield_profile_id,
+      row.stock_item_id,
+      row.yield_bp,
+      row.test_ap_qty?.toString() ?? null,
+      row.test_ep_qty?.toString() ?? null,
+      row.test_unit,
+      row.note,
+      row.recorded_by,
+      row.created_at,
+    ],
+  );
+  const { recorded_by_name: recordedByName, ...profile } = rows[0]!;
+  return { profile: yieldProfileRecord(profile), recordedByName };
+}
