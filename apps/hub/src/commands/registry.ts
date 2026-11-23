@@ -8,7 +8,7 @@ import type { WriterTx } from '../engine-host/writer.js';
 import type { Clock } from '../lib/clock.js';
 import type { IdGen } from '../lib/ids.js';
 import type { SecretGen } from '../lib/secrets.js';
-import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
+import type { Resolution, SessionDirectory } from '../auth/staff-directory.js';
 
 export interface CommandCtx {
   tx: WriterTx;
@@ -25,7 +25,8 @@ export interface CommandCtx {
   };
   permission: Resolution | null;
   branch: { tenantId: string; branchId: string };
-  directory: StaffDirectory;
+  /** 05a §3.3a: the session view (`forSession`) of the current directory. */
+  directory: SessionDirectory;
   config: HubConfig;
   /** 00 v1.8 H-1 (b): `X-Queued-At` clamped to `[started_at - 120 000, now]`; null unless the command is queueable with a valid header. */
   queuedAt: number | null;
@@ -41,7 +42,8 @@ export interface PreReadCtx {
   state: Readonly<EngineState>;
   clock: Clock;
   actor: CommandCtx['actor'];
-  directory: StaffDirectory;
+  /** 05a §3.3a: the session view (`forSession`) of the current directory. */
+  directory: SessionDirectory;
   branch: CommandCtx['branch'];
   config: HubConfig;
   authChanged: boolean;

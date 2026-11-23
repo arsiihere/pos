@@ -108,7 +108,7 @@ const MAPPED_EVENT_TYPES = [
   'AlertRaised', 'RequestAnswered', 'RequestWithdrawn', 'RequestPinFailed', 'ItemVoided', 'ItemMovedToStock', 'ItemRemoved',
   'LineComped', 'ItemReturned', 'OrderLinesAdded', 'LineWeightSet', 'OrderBoosted', 'OrderCancelled', 'BusinessDayOpened',
   'BusinessDayClosed', 'TableLockReleased', 'TableHolderChanged', 'StaffPinLockedOut', 'DevicePinLockedOut', 'PinLockoutCleared',
-  'DevicePaired', 'DeviceRevoked', 'DevicePairingTokenGenerated', 'StationPauseSet', 'StationCapacitySet', 'ItemMadeAvailable',
+  'DevicePaired', 'DeviceRevoked', 'DevicePairingTokenGenerated', 'DeviceProfileSet' /* 05a row A-1 */, 'StationPauseSet', 'StationCapacitySet', 'ItemMadeAvailable',
   'ItemMadeUnavailable', 'AlertClosed', 'StockSet', 'StockAdded', 'ZoneStockSet', 'ZoneStockAdded', 'StockTransferredOut',
 ];
 

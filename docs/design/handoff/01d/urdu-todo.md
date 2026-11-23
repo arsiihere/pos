@@ -42,10 +42,6 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `answer.done_approved` | Approved |  |
 | `answer.done_rejected` | Rejected |  |
 | `answer.waiting_for` | Waiting for {name} or a manager. |  |
-| `answer.here` | Approve here |  |
-| `answer.who` | Who is approving? |  |
-| `answer.their_pin` | {name}’s PIN |  |
-| `answer.here_help` | {name} will be told on his own devices that he approved here. |  |
 | `answer.ro_team` | You can’t approve this — not your team. Find {name} or a manager. |  |
 | `answer.ro_informed` | For your information. Find {name} or a manager. | task 41: spec §8.1 / brief B02 copy ("Find <approver> or a manager") |
 | `answer.ro_removed` | You can’t approve this any more. |  |
@@ -159,3 +155,32 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `alerts.opened.zone_item` | Opened stock row {name} | اسٹاک {name} کھولا گیا |
 | `alerts.opened.pass` | Opened Pass card {name} | پاس کارڈ {name} کھولا گیا |
 | `alerts.opened.inbox` | Opened alert {name} | الرٹ {name} کھولا گیا |
+
+## 05a client (task 35) — no Urdu yet
+
+05a §8 (D-2, M-11): the answer sheet without "Approve here", the everyone-device money card, the requester text, the error texts and the deep-link fallback. No entry in `ur.ts`; they show in English until a native speaker translates them. `answer.here`, `answer.who`, `answer.their_pin` and `answer.here_help` are gone (the in-person path is removed).
+
+| Key | English | Note |
+|---|---|---|
+| `answer.approve_on_listed` | Approve on a listed device | everyone device, money card, no button |
+| `answer.confirm_on_phone` | Confirm on your phone | downgraded request, named to its requester |
+| `request.find_approver` | Waiting — find a manager | requester's waiting card once `ask_in_person` is true |
+| `answer.error.device_not_set_up` | This device is not set up for you | `DEVICE_ACCESS_DENIED`, `DEVICE_NOT_OWNED` |
+| `answer.error.listed_device_only` | Do this on your own phone | `PERMISSION_DENIED { reason: 'listed_device_only' }` |
+| `answer.error.device_access_self` | You would lose access on this device | `DEVICE_ACCESS_SELF` |
+| `alerts.open_elsewhere` | Open this on a device with {screen} | deep link to a screen the device does not have; `{screen}` is one of the six names below |
+| `alerts.screen.dine_in` | Dine in |  |
+| `alerts.screen.takeaway` | Takeaway |  |
+| `alerts.screen.parking` | Parking |  |
+| `alerts.screen.cashier` | Cashier |  |
+| `alerts.screen.pass` | Pass |  |
+| `alerts.screen.manager` | Manager |  |
+
+## 05a client (task 25, carry-over from the task 26 review) — `device_waiting`, no Urdu yet
+
+05a §3.10 (row D-3): the `device_waiting` kind's labels. No spec wording: proposed at the task 26 review (the owner may change them). No entry in `ur.ts`; they show in English until a native speaker translates them.
+
+| Key | English | Note |
+|---|---|---|
+| `alert.device_waiting.card` | A device is waiting for approval | never the code, the device name or a count (05a A-5) |
+| `alert.device_waiting.lock` | Device waiting | lock line, same rule |

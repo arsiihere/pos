@@ -2,7 +2,7 @@
 
 These keys in `apps/hub/src/lib/strings.ts` have English only; the pages show the English text in Urdu mode until `UR` has them (M83). Urdu so far comes from the *Urdu frames; a native reviewer should check all of it before release.
 
-242 keys, generated 2026-10-26.
+243 keys, generated 2026-10-26 (+1 from 05a, 2026-11-23).
 
 ## setup
 
@@ -214,6 +214,7 @@ These keys in `apps/hub/src/lib/strings.ts` have English only; the pages show th
 - `errors.DEVICE_REVOKED` — This screen must be paired again.
 - `errors.DEVICE_TYPE_NOT_ALLOWED` — This kind of screen cannot do that.
 - `errors.DEVICE_NOT_OWNED` — This phone belongs to someone else.
+- `errors.DEVICE_ACCESS_DENIED` — This phone belongs to someone else. (05a §3.5 m-8)
 - `errors.GUEST_NETWORK_FORBIDDEN` — Connect to the staff Wi-Fi.
 - `errors.CLIENT_UPGRADE_REQUIRED` — Update the app.
 - `errors.INTERNAL_ERROR` — Something went wrong on the hub. Try again.

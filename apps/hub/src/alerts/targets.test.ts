@@ -365,7 +365,14 @@ describe('01d §3.3 rule 6 mayAnswer', () => {
 
   it('[01d §3.3 rule 6] the requester → self', () => {
     expect(mayAnswer(dir, VOID, ALI, ALI)).toEqual({ ok: false, reason: 'self' });
-    expect(mayAnswer(dir, named(ALI), ALI, ALI)).toEqual({ ok: false, reason: 'self' });
+    expect(mayAnswer(dir, named(BILAL), ALI, ALI)).toEqual({ ok: false, reason: 'self' });
+  });
+
+  it('[05a §3.9 rule 1 (a), D-2; 01d v1.3.5 §3.3 rule 5] rule 5 is skipped only for a `named` request whose receiver is its requester', () => {
+    expect(mayAnswer(dir, named(ALI), ALI, ALI)).toEqual({ ok: true });
+    expect(mayAnswer(dir, named(ALI), ALI, BILAL)).toEqual({ ok: false, reason: 'not_receiver' });
+    expect(mayAnswer(dir, named(ALI), null, ALI)).toEqual({ ok: true });
+    expect(mayAnswer(dir, VOID, ALI, ALI)).toEqual({ ok: false, reason: 'self' });
   });
 
   it('[01d §3.3 rule 6] approver_role_ids read now are empty → not_approver', () => {

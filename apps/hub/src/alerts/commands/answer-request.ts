@@ -11,6 +11,7 @@ import {
 } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
+import { deviceProfile } from '../../auth/device-profile.js';
 import type { StaffDirectory } from '../../auth/staff-directory.js';
 import type { CommandCtx, PreReadCtx } from '../../commands/registry.js';
 import { defineCommand } from '../../commands/registry.js';
@@ -38,13 +39,15 @@ import { checkAlertIds, pendingRequest, readAlert, recordOf, requestKindOf, sess
 // PIN method) re-runs every check authoritatively and returns the drafts; the pipeline appends them, so a
 // second answer serialised behind the first sees the alert closed (first answer wins, test #6).
 // The answered alert's `alert_closed` frames are sent after commit by ws-frames.ts (task 20), not here.
-// PIN and in-person answers (task 23): `pinCheck` names the PIN owner (the session staff for `pin`, the
-// named answerer for `in_person`); `pinHooks` record every counted failure as `RequestPinFailed` and, when
+// PIN answers (task 23): `pinCheck` names the PIN owner (the session staff); `pinHooks` record every counted failure as `RequestPinFailed` and, when
 // a matched PIN's answer failed, raise `pin_use_failed` to its owner in the same transaction (§3.3 rule 4
 // (d), BF-1). The PIN itself never leaves `pinCheck` → `checkPin` (§3.3 "PIN never stored", §7).
 // Personal notices (task 24, §3.3 rule 7, §3.10): `handle` adds `approval_receipt` (money kinds, any method)
 // and `answered_on_requester_device` (answer on the raising device) to the answerer, hidden from the answering
 // seat, in one `raiseMany` with `request_result` (the fixed reads once; §3.5 "Several raises").
+// ⚠️ Changed by 05a (row D-2; 05a §3.9 rule 2, 01d v1.3.5 §3.3 rules 2, 2a, 5): `in_person` is refused
+// (`in_person_removed`, the payload enum keeps the value), a money answer needs a session on a `listed` device
+// (`listed_device_only`), both in `check`, so in `preRead` before argon2 and again in `prepare`.
 
 type Payload = AnswerRequestPayload;
 
@@ -58,20 +61,25 @@ interface Checked {
 
 /**
  * 00 v1.6 §3.7 H-3: a staff session (the pipeline's `authorize` says the same inside the writer). The
- * answerer is the session's staff, or for `in_person` the named `answerer_staff_id` (§3.3 rule 2).
+ * answerer is the session's staff (05a D-2: `in_person`, which named another answerer, is refused in `check`).
  */
-function answererOf(actor: CommandCtx['actor'], payload: Payload): string {
-  const staffId = sessionStaff(actor);
-  // payload Zod: answerer_staff_id is present iff in_person
-  if (payload.method === 'in_person') return payload.answerer_staff_id ?? '';
-  return staffId;
+function answererOf(actor: CommandCtx['actor']): string {
+  return sessionStaff(actor);
+}
+
+/**
+ * 05a §3.9 rule 2 / §3.3a (01d v1.3.5 §3.3 rule 2a): the session's device is `listed`. A device with no profile
+ * counts as `everyone` (05a v1.0.1 R-1, fail-closed). Memory, no statement.
+ */
+function onListedDevice(deviceId: string): boolean {
+  return deviceProfile(deviceId)?.access === 'listed';
 }
 
 /**
  * §3.3 rule 4 (b) order (= §6.2 Processing (1)–(5)): rule 1 (404 / 409), the decision in the kind's answers
- * (400), rule 3 (422), in person: the named answerer in the directory (404 STAFF_NOT_FOUND) and the raising
- * device (403 in_person_elsewhere), rule 5 (403 self), rule 6 (403 not_approver / out_of_range /
- * not_receiver). Directory in memory; no statement. ⚠️ Changed by 05 (row D-1), 01d v1.3.4 §3.3 rule 6: rule 6
+ * (400), rule 3 (422), ⚠️ Changed by 05a (row D-2): rule 2a, a money answer from an `everyone` device (403
+ * listed_device_only), rule 2, `in_person` (403 in_person_removed; was: the named answerer in the directory and the
+ * raising device), rule 5 (403 self), rule 6 (403 not_approver / out_of_range / not_receiver). Directory in memory; no statement. ⚠️ Changed by 05 (row D-1), 01d v1.3.4 §3.3 rule 6: rule 6
  * also covers the `holders` right (targets.ts `mayAnswer`: not_approver / out_of_range, never self).
  */
 function check(
@@ -92,13 +100,14 @@ function check(
   if (part.needs_pin === 'always' && payload.method === 'session') {
     throw new DomainError('REQUEST_PIN_REQUIRED', { alert_id: row.alert_id, kind: row.kind });
   }
-  if (payload.method === 'in_person') {
-    // (4′) rule 2: the named answerer is in the hub directory, i.e. has a PIN (v0.5 m2; not counted)
-    if (directory.get(answerer) === undefined) throw new DomainError('STAFF_NOT_FOUND', { staff_id: answerer });
-    // (4″) rule 2: in person only on the device the request was raised on (v1.0 #2, R2)
-    if (deviceId !== row.raised_device_id) throw new DomainError('PERMISSION_DENIED', { reason: 'in_person_elsewhere' });
+  // (4′) rule 2a (05a D-2): a money answer needs a session on a listed device; before rules 5–6, whose session-view
+  // reads would otherwise refuse it `not_approver` (the answerer's range permission is masked there)
+  if (part.needs_pin === 'always' && !onListedDevice(deviceId)) {
+    throw new DomainError('PERMISSION_DENIED', { reason: 'listed_device_only' });
   }
-  // (5) rules 5–6, read now (A5)
+  // (4″) rule 2 (05a D-2, O-7): no in-person answers; the payload enum keeps the value
+  if (payload.method === 'in_person') throw new DomainError('PERMISSION_DENIED', { reason: 'in_person_removed' });
+  // (5) rules 5–6, read now (A5); rule 5 is skipped for a `named` request whose receiver is its requester (05a D-2)
   const verdict = mayAnswer(directory, part, row.requester_staff_id, answerer);
   if (!verdict.ok) throw new DomainError('PERMISSION_DENIED', { reason: verdict.reason });
 
@@ -133,7 +142,7 @@ function recheckSession(db: Database.Database, actor: CommandCtx['actor']): void
 }
 
 function preRead(db: Database.Database, payload: Payload, ctx: PreReadCtx): void {
-  const answerer = answererOf(ctx.actor, payload);
+  const answerer = answererOf(ctx.actor);
   const c = check(readAlert(db, payload.alert_id), payload, answerer, ctx.directory, payload.alert_id, ctx.actor.deviceId);
   if (ctx.authChanged) recheckSession(db, ctx.actor);
   // the read-only part of `prepare` (v1.0 #1, R1): apply on a read-only view, drafts discarded
@@ -211,7 +220,7 @@ function noticeInputs(c: Checked, payload: Payload, answered: RequestAnsweredPay
 
 /** §6.2 Processing (1)–(9): authoritative, drafts only (the pipeline appends them: (10)). */
 function handle(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; result: { alert_id: string; decision: Payload['decision']; answered_at: number } } {
-  const answerer = answererOf(ctx.actor, payload);
+  const answerer = answererOf(ctx.actor);
   const c = check(readAlert(ctx.tx.db, payload.alert_id, ctx.actor.deviceId), payload, answerer, ctx.directory, payload.alert_id, ctx.actor.deviceId);
   const now = ctx.clock.branchNow();
   const subject = c.record.subject as { stream_type: PosEvent['stream_type']; stream_id: string };
@@ -267,9 +276,12 @@ function handle(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; resu
   return { events, result: { alert_id: c.record.alert_id, decision: payload.decision, answered_at: now } };
 }
 
-/** §6.2 pinCheck row: whose PIN is checked (and counted): the session staff (`pin`), the named answerer (`in_person`). */
-function pinOwnerOf(payload: Payload, actor: CommandCtx['actor']): string {
-  return payload.method === 'in_person' ? (payload.answerer_staff_id ?? '') : (actor.staffId ?? '');
+/**
+ * §6.2 pinCheck row: whose PIN is checked (and counted): the session staff. 05a D-2: an `in_person` answer is
+ * refused in `preRead` before any PIN, so it never names another PIN owner.
+ */
+function pinOwnerOf(actor: CommandCtx['actor']): string {
+  return actor.staffId ?? '';
 }
 
 /** The prepare error's catalogue code; anything else (a bug, 500) is INTERNAL_ERROR. Never the message (§7). */
@@ -296,7 +308,7 @@ function pinFailed(
     alert_id: row.alert_id,
     subject_stream_type: row.subject_stream_type,
     subject_stream_id: row.subject_stream_id,
-    answerer_staff_id: pinOwnerOf(payload, ctx.actor),
+    answerer_staff_id: pinOwnerOf(ctx.actor),
     method: payload.method,
     device_id: ctx.actor.deviceId,
     requester_staff_id: row.requester_staff_id ?? '',
@@ -376,7 +388,7 @@ function onPrepareFailed(
   if (matched && !honestRace) {
     try {
       // raise only reads and returns drafts, so a throw leaves nothing to undo
-      events.push(...alerts.raise(ctx, pinUseFailedInput(failed.row, pinOwnerOf(payload, ctx.actor), code, ctx, cmd)).events);
+      events.push(...alerts.raise(ctx, pinUseFailedInput(failed.row, pinOwnerOf(ctx.actor), code, ctx, cmd)).events);
     } catch (raiseError) {
       log.error(
         { err: safeErr(raiseError), alert_id: failed.row.alert_id, command: 'AnswerRequest', phase: 'pin_use_failed' },
@@ -395,12 +407,11 @@ export function registerAnswerRequest(app: FastifyInstance): void {
       sessionKind: 'device',
       permission: 'checked-in-handler',
       preRead,
-      // §6.2 pinCheck row: the PIN of the session staff (pin) or of the named answerer (in_person); `pin` is
-      // left out of payload_hash (H-9). `session` → no PIN. The device lockout subject is this device (the
-      // pipeline's), which for in_person is the raising device (preRead refuses any other).
+      // §6.2 pinCheck row: the PIN of the session staff (`in_person` never gets here: preRead refuses it, 05a
+      // D-2); `pin` is left out of payload_hash (H-9). `session` → no PIN. The device lockout subject is this device.
       pinCheck(payload, ctx) {
         if (payload.method === 'session') return null;
-        return { staff_id: pinOwnerOf(payload, ctx.actor), pin: payload.pin ?? '', field: 'pin' };
+        return { staff_id: pinOwnerOf(ctx.actor), pin: payload.pin ?? '', field: 'pin' };
       },
       pinHooks: {
         onMismatch: (tx, payload, ctx) => onMismatch(tx, payload, ctx),

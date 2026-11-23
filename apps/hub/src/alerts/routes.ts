@@ -5,7 +5,7 @@ import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { WsHub } from '../ws/server.js';
 import type { AlertKind } from './kinds.js';
-import { isPresent, managers, targetKey, type BatchReads, type BindingRead, type Recipient, type RecipientRow } from './targets.js';
+import { isListedDevice, isPresent, listedDevicesOnly, managers, targetKey, type BatchReads, type BindingRead, type Recipient, type RecipientRow } from './targets.js';
 
 // 01d §3.4.3 routes of a person (screen, alert connection (a)(b)(c), registered routes), the no-route rule
 // with its "for" rows (lead_fallback kinds only), the §3.4.2 table-team fallback, and §3.8 registerRoute.
@@ -106,17 +106,21 @@ export function routeAsk(steps: ReadonlyArray<{ recipients: readonly Recipient[]
 /**
  * §3.4.3 alert connection, §3.7: a binding is a route only while (a) its device is connected now (an
  * alert-mode socket or a session socket of that device), (b) the person is not absent (§3.4.1 safety rule),
- * and, for a tablet, (c) the person's last session activity is within `binding_route_idle_ms` of `now`.
- * Only tablets and phones route (a kiosk or KDS row never does, BF-3); a device not in read (5) never does.
- * `until` (BF-5 `binding_route_until`) = last activity + idle for a tablet with known activity, else null.
+ * and, for a session row, (c) the person's last session activity is within `binding_route_idle_ms` of `now`.
+ * ⚠️ Changed by 05a (row D-1) (05a §3.8): a permanent row (`session_id` NULL: a phone owner or a one-person
+ * `listed` device) routes on any hardware with (a) and (b) only, `until` null; a session row routes only on a
+ * tablet or phone (a kiosk or KDS session row never does, BF-3); a device not in read (5) never routes.
+ * `until` (BF-5 `binding_route_until`) = last activity + idle for a session row with known activity, else null.
  */
 export function bindingIsRoute(binding: BindingRead, reads: BatchReads, ws: WsHub, now: number): { route: boolean; until: number | null } {
   const device = reads.devices.find((d) => d.device_id === binding.device_id);
-  if (device === undefined || (device.device_type !== 'tablet' && device.device_type !== 'phone')) return { route: false, until: null };
+  if (device === undefined) return { route: false, until: null };
+  const permanent = binding.session_id === null;
+  if (!permanent && device.device_type !== 'tablet' && device.device_type !== 'phone') return { route: false, until: null };
   const connected =
     ws.alertSockets().some((s) => s.deviceId === binding.device_id) || ws.connectedSessions().some((s) => s.deviceId === binding.device_id);
   const present = isPresent(reads, binding.staff_id);
-  if (device.device_type === 'phone') return { route: connected && present, until: null };
+  if (permanent) return { route: connected && present, until: null };
   const last = lastActivity(reads, binding.staff_id);
   if (last === null) return { route: false, until: null };
   const until = last + ALERT_CONSTANTS.binding_route_idle_ms;
@@ -139,8 +143,13 @@ function lastActivity(reads: BatchReads, staffId: string): number | null {
 
 // ------------------------------------------------------------------------------------------- routes
 
-/** §3.4.3 routes of one person: screen sockets, binding routes, registered routes (deduped). */
-function personRoutes(staffId: string, reads: BatchReads, ws: WsHub, now: number): RouteRow[] {
+/**
+ * §3.4.3 routes of one person: screen sockets, binding routes, registered routes (deduped). ⚠️ Changed by 05a (rows
+ * D-2, D-3; 01d v1.3.5 §3.4.3 "Listed devices only"): with `listedOnly` (a money request kind or `device_waiting`), a
+ * screen or alert-connection route to a device that is not `listed` (R-1: no profile counts as `everyone`) is
+ * dropped; a person left with none is a person with no route (the G1-9d shortcut, 05a test 7a). Memory only.
+ */
+function personRoutes(staffId: string, reads: BatchReads, ws: WsHub, now: number, listedOnly: boolean): RouteRow[] {
   const out: RouteRow[] = [];
   const seen = new Set<string>();
   const push = (route: string, ref: string): void => {
@@ -149,8 +158,11 @@ function personRoutes(staffId: string, reads: BatchReads, ws: WsHub, now: number
     seen.add(key);
     out.push({ staff_id: staffId, route, ref });
   };
-  for (const s of ws.connectedSessions()) if (s.kind === 'staff' && s.staffId === staffId) push('screen', s.deviceId);
-  for (const b of reads.bindings) if (b.staff_id === staffId && bindingIsRoute(b, reads, ws, now).route) push('alert_connection', b.device_id);
+  const reaches = (deviceId: string): boolean => !listedOnly || isListedDevice(deviceId);
+  for (const s of ws.connectedSessions()) if (s.kind === 'staff' && s.staffId === staffId && reaches(s.deviceId)) push('screen', s.deviceId);
+  for (const b of reads.bindings) {
+    if (b.staff_id === staffId && reaches(b.device_id) && bindingIsRoute(b, reads, ws, now).route) push('alert_connection', b.device_id);
+  }
   for (const hit of reads.routes?.get(staffId) ?? []) push(hit.route, hit.ref);
   return out;
 }
@@ -196,11 +208,12 @@ export function routeRecipients(
       routeRows.push(r);
     }
   };
+  const listedOnly = listedDevicesOnly(kind); // 05a §3.9 rule 3, §3.10
   const routeCache = new Map<string, RouteRow[]>();
   const routesOf = (staffId: string): RouteRow[] => {
     let list = routeCache.get(staffId);
     if (list === undefined) {
-      list = personRoutes(staffId, reads, ws, now);
+      list = personRoutes(staffId, reads, ws, now, listedOnly);
       routeCache.set(staffId, list);
     }
     return list;

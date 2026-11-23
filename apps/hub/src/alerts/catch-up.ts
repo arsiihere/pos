@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { CatchUpPart, SocketCtx } from '../ws/catch-up.js';
 import { kindOf, type AlertKind } from './kinds.js';
-import { mayAnswer, type AlertRequestPart } from './targets.js';
+import { isListedDevice, mayAnswer, type AlertRequestPart } from './targets.js';
 import { cardRule, lockOnlyView, safeBuild, signedInView, StrictCardView, StrictLockView, type ViewRow } from './ws-frames.js';
 
 // 01d §6 batch 3 "A missed frame is covered by … the `alerts` catch-up part" (H-7: built with the socket
@@ -168,6 +168,11 @@ export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
     const rows = db.prepare(ROWS_SQL).all(params) as CatchUpRow[];
     const out: PartRow[] = [];
     const listed = new Set<string>();
+    // ⚠️ Changed by 05a (row D-2; 05a §3.9 rules 2–3, M-5; 01d v1.3.5 §3.4.3): on a device that is not `listed` (R-1: no
+    // profile = `everyone`) a money request (`needs_pin: 'always'`) is never answerable: an inbox row stays a read-only
+    // lock row, and the "may answer now" part leaves it out. Memory (`deviceProfile`), no statement.
+    const onListed = isListedDevice(socket.deviceId);
+    const answerableHere = (request: AlertRequestPart): boolean => onListed || request.needs_pin !== 'always';
     let directory: StaffDirectory | undefined;
     const dir = (): StaffDirectory => (directory ??= env.directory());
     const push = (row: CatchUpRow, kind: AlertKind, signedIn: boolean, fallbackSet: z.infer<typeof StrictLockView>['set']): void => {
@@ -192,7 +197,7 @@ export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
       if (kind === undefined) continue; // P-8: an unknown kind has no labels
       // a station socket has no person; otherwise the one card rule (a device-target socket gets lock only)
       const request = row.request_json === null ? null : (JSON.parse(row.request_json) as AlertRequestPart);
-      const canAnswer = staffId !== null && request !== null && mayAnswer(dir(), request, row.requester_staff_id, staffId).ok;
+      const canAnswer = staffId !== null && request !== null && answerableHere(request) && mayAnswer(dir(), request, row.requester_staff_id, staffId).ok;
       const fallbackSet = request === null ? 'recipient' : canAnswer ? 'answerer' : 'informed';
       const place = placeOf(row.mine_json, fallbackSet);
       const signedIn =
@@ -206,7 +211,8 @@ export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
         if (listed.has(row.alert_id) || row.request_json === null) continue;
         const kind = kindOf(row.kind);
         if (kind === undefined) continue;
-        if (!mayAnswer(dir(), JSON.parse(row.request_json) as AlertRequestPart, row.requester_staff_id, staffId).ok) continue;
+        const request = JSON.parse(row.request_json) as AlertRequestPart;
+        if (!answerableHere(request) || !mayAnswer(dir(), request, row.requester_staff_id, staffId).ok) continue;
         push(row, kind, true, 'answerer');
       }
     }

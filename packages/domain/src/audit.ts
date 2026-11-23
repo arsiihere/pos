@@ -152,6 +152,8 @@ export const AUDIT_ACTIONS = [
   'drawer_opened',
   'orders_carried_over',
   'z_report_issued',
+  // 05a row A-1 (04 v1.0.8 §3.6)
+  'device_profile_set',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -490,6 +492,24 @@ const BUILT_IN: Record<string, AuditMap> = {
         device_type: str(p, 'device_type'),
         station_id: str(p, 'station_id'),
         owner_staff_id: str(p, 'owner_staff_id'),
+      },
+    };
+  },
+
+  // 05a row A-1 (04 v1.0.8 §3.6): ids only, names are looked up at read; actor = envelope actor (null for upgrade / directory).
+  DeviceProfileSet: (e) => {
+    const p = e.payload;
+    return {
+      action: 'device_profile_set',
+      subject_type: 'device',
+      subject_id: str(p, 'device_id') ?? e.stream_id,
+      detail: {
+        device_name: str(p, 'device_name'),
+        access: str(p, 'access'),
+        staff_ids: Array.isArray(p.staff_ids) ? p.staff_ids : [],
+        screens: Array.isArray(p.screens) ? p.screens : [],
+        point_id: str(p, 'point_id'),
+        cause: str(p, 'cause'),
       },
     };
   },

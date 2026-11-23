@@ -1,4 +1,4 @@
-import { PERMISSIONS, type Permission } from '@pos/domain';
+import { MONEY_PERMISSIONS, PERMISSIONS, type Permission } from '@pos/domain';
 import type { EngineState } from '@pos/engine';
 import type { AlertClosedPayload, AlertTarget, EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
@@ -9,7 +9,7 @@ import type { HubDeps } from '../server.js';
 import { kindOf, NO_APPROVER, PERSONAL_NOTICE_KINDS, registeredAlertKinds, stepAt, type AlertKind, type NoApproverValues } from './kinds.js';
 import { alertDirectoryOf, alerts, draftOn, routeSteps, stepPayload, type RaiseInput, type StepItem } from './raise.js';
 import { cachedPrepare } from './statements.js';
-import { batchReads, stepTargets, type AlertRequestPart, type AlertRow } from './targets.js';
+import { batchReads, isListedDevice, stepTargets, type AlertRequestPart, type AlertRow } from './targets.js';
 
 // 01d §3.5 "The tick" (A8, G1-16) and §4.2 `registerTick`: the hub's one tick loop (00 H-8 timers row).
 // - Every TICK_MS a pass reads `now = clock.branchNow()` ONCE and gives it to every registered tick, in
@@ -223,6 +223,9 @@ const CLEAR_NO_APPROVER_SQL = `UPDATE alert_flags SET dirty = 0 WHERE name = 'no
 
 const NO_APPROVER_PREFIX = 'no_approver:';
 
+/** 05a `MONEY_PERMISSIONS` (owner Q-1 (a)). */
+const MONEY: ReadonlySet<Permission> = new Set(MONEY_PERMISSIONS);
+
 interface FlagRow {
   alert_id: string;
   kind: string;
@@ -240,7 +243,7 @@ interface FlagRow {
  * approval kind gives the permission a `range_permission`, holds that permission `allowed` at branch scope.
  * Per permission only: the requester being the only approver signed in still counts (§12.4).
  */
-function unapprovable(directory: StaffDirectory, signedIn: ReadonlySet<string>): Permission[] {
+function unapprovable(directory: StaffDirectory, signedIn: ReadonlySet<string>, signedInListed: ReadonlySet<string>): Permission[] {
   const approverRoles = new Map<Permission, Set<string>>();
   for (const { staff_id } of directory.list()) {
     for (const permission of PERMISSIONS) {
@@ -262,7 +265,9 @@ function unapprovable(directory: StaffDirectory, signedIn: ReadonlySet<string>):
   const out: Permission[] = [];
   for (const [permission, roles] of approverRoles) {
     const range = [...(ranges.get(permission) ?? [])];
-    const eligible = [...signedIn].some((staffId) => {
+    // ⚠️ Changed by 05a (row D-2; owner Q-1 (a); 01d v1.3.5 §3.9): for a money permission only a session on a
+    // `listed` device (or one with no device) counts as signed in
+    const eligible = [...(MONEY.has(permission) ? signedInListed : signedIn)].some((staffId) => {
       const person = directory.get(staffId);
       if (person === undefined || !person.role_ids.some((role) => roles.has(role))) return false;
       return range.every((p) => {
@@ -292,8 +297,12 @@ function flagIntents(tx: WriterTx, state: Readonly<EngineState>, now: number, cl
   const directory = alertDirectoryOf(tx);
   const reads = batchReads(tx, [], { previousStep: false }); // (3)–(6), (9): cached per transaction
   const signedIn = new Set(reads.sessions.map((s) => s.staff_id));
+  // 05a §3.9 rule 3, owner Q-1 (a): a session on a device that is not `listed` (R-1: no profile counts as `everyone`)
+  // does not count for a money permission. In memory, no statement. (A session with no device, the bootstrap admin,
+  // would count; read (3) holds `kind = 'staff'` sessions only, which always have a device, as before.)
+  const signedInListed = new Set(reads.sessions.filter((s) => isListedDevice(s.device_id)).map((s) => s.staff_id));
   const day = (state as Partial<EngineState>).business_day ?? null;
-  const wanted = new Set<string>(day !== null && day.closed_at === null ? unapprovable(directory, signedIn) : []);
+  const wanted = new Set<string>(day !== null && day.closed_at === null ? unapprovable(directory, signedIn, signedInListed) : []);
   const rows = cachedPrepare(tx.db, FLAG_ALERTS_SQL).all(JSON.stringify([NO_APPROVER.kind, ...PERSONAL_NOTICE_KINDS])) as FlagRow[];
   const env = tickEnvelope(now);
   const drafts: EventDraft[] = [];

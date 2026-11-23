@@ -17,7 +17,7 @@ import { currentConfigEntry, swapBranchConfig } from '../../src/sync/branch-conf
 import { alerts } from '../../src/alerts/raise';
 import { currentDirectory } from '../../src/auth/guards';
 import { statementCounter } from '../helpers/statement-counter';
-import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { appendDeviceProfile, createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { openDay, toStage, voidsMenu } from '../voids/fixtures';
 import { fakeAdapter } from './fiscal/fake-adapter';
 import {
@@ -28,7 +28,6 @@ import {
   drawerDevice,
   FX,
   openSeating,
-  PIN,
   post,
   raiseVoid,
   signIn,
@@ -233,9 +232,6 @@ const pay = (who: Who, bill_ref: Record<string, string>, split_no: number, mode_
 const close = (who: Who, bill_ref: Record<string, string>, split_no: number, expected_total_minor: number) =>
   post(hub, who, 'close-split', 'CloseSplit', { bill_ref, split_no, expected_total_minor });
 const reopen = (who: Who, payload: Record<string, unknown>, commandId?: string) => post(hub, who, 'reopen-bill', 'ReopenBill', payload, commandId);
-/** 01d in person (R-66 house rule: actor ≠ answerer): the requester's session, the Manager's PIN. */
-const approveInPerson = (requester: Who, alert_id: string) =>
-  post(hub, requester, 'answer-request', 'AnswerRequest', { alert_id, decision: 'approve', method: 'in_person', answerer_staff_id: STAFF.manager, pin: PIN.b });
 
 const billOfSeating = (seating_id: string) => one('SELECT bill_id FROM bills WHERE seating_id = ? ORDER BY opened_at LIMIT 1', seating_id) as string;
 const billOfOrder = (order_id: string) => one('SELECT bill_id FROM bill_orders WHERE order_id = ? LIMIT 1', order_id) as string;
@@ -604,7 +600,7 @@ describe('[05 §6.13, §3.10, #37] ReopenBill (direct) — credits, OrdersUnbill
 // ================================================================================================= approval path
 
 describe('[05 §6.13, §3.14, R-66 / G-62] ReopenBill (approval) — credit ids minted at raise, apply mints nothing', () => {
-  it('[05 #39, #37j, R-66, #91c] raise: values carry one ULID credit id per invoice in order, the note at raise; approve in person (actor ≠ answerer): every draft carries the alert_id, the credits take the minted ids, approver = answerer, closed_by = requester', async () => {
+  it('[05 #39, #37j, R-66, #91c] raise: values carry one ULID credit id per invoice in order, the note at raise; approve (05a D-2: by the Manager PIN on his own seat; in person, actor ≠ answerer, is removed): every draft carries the alert_id, the credits take the minted ids, approver = answerer, closed_by = requester', async () => {
     await start();
     const b = await closedTwoSplits('AP');
     const sales = b.sales.map(invoiceIdOf);
@@ -617,11 +613,11 @@ describe('[05 §6.13, §3.14, R-66 / G-62] ReopenBill (approval) — credit ids 
     expect(new Set(values.credit_invoice_ids).size).toBe(2);
     expect(written()).toMatchObject({ credits: 0, reopen_events: 0, texts: 1 });
 
-    const a = ok(await approveInPerson(cashier, alert_id));
+    const a = ok(await answer(hub, manager, alert_id, 'approve'));
     const effect = a.events.filter((e) => ['BillReopened', 'InvoiceCredited', 'OrdersUnbilled', 'SeatingReopened', 'TableMarksChanged'].includes(e.event_type));
     expect(effect.map((e) => e.event_type)).toEqual(['BillReopened', 'InvoiceCredited', 'InvoiceCredited', 'OrdersUnbilled', 'SeatingReopened']);
     for (const e of effect) expect(e.payload['alert_id'], e.event_type).toBe(alert_id);
-    expect(effect[0]!.actor_id).toBe(STAFF.cashier); // in person: the requester's session
+    expect(effect[0]!.actor_id).toBe(STAFF.manager); // the answering session (05a D-2: was the requester's, in person)
     expect(effect[0]!.payload).toMatchObject({ mode: 'full', reason_code: 'other', has_note: true, note_id: values['note_id'], requester_staff_id: STAFF.cashier, approver_staff_id: STAFF.manager });
     const credits = ofType(a, 'InvoiceCredited').map((e) => e.payload);
     expect(credits.map((c) => [c['invoice_id'], c['ref_invoice_id'], c['closed_by']])).toEqual([
@@ -630,6 +626,19 @@ describe('[05 §6.13, §3.14, R-66 / G-62] ReopenBill (approval) — credit ids 
     ]);
     expect(db().prepare(`SELECT invoice_id FROM invoices WHERE series = 'credit' ORDER BY number`).pluck().all()).toEqual(values.credit_invoice_ids);
     expect(one('SELECT state FROM alerts WHERE alert_id = ?', alert_id)).toBe('closed');
+  });
+
+  it('[05a #7b, §3.9 rule 3] a cashier’s ReopenBill (`requires_approval`) on an `everyone` counter raises the request: an approval request, stored as such (no downgrade), pending', async () => {
+    await start();
+    const b = await closedTakeaway('EV');
+    appendDeviceProfile(hub, cashier.deviceId, { access: 'everyone', screens: ['takeaway', 'cashier'] });
+    const raise = ok(await reopen(cashier, { bill_id: b.bill_id, reason_code: 'other', note: secret('NOTE-7b') }));
+    const alert_id = (raise.result as { pending: { alert_id: string } }).pending.alert_id;
+    expect(typesOf(raise)[0]).toBe('AlertRaised');
+    expect(typesOf(raise).filter((t) => ['BillReopened', 'InvoiceCredited'].includes(t))).toEqual([]);
+    const request = JSON.parse(one('SELECT request_json FROM alerts WHERE alert_id = ?', alert_id) as string) as Record<string, unknown>;
+    expect(request).toMatchObject({ right_mode: 'approval', base_permission: 'reopen-bill', needs_pin: 'always' });
+    expect(one('SELECT state FROM alerts WHERE alert_id = ?', alert_id)).toBe('open');
   });
 
   it('[05 #6c, R-43 / G-40] approve of a PARTLY_PAID dine-in bill on an open seating: TableMarksChanged { seating_id, alert_id } and checkAlertIds accepts the answer', async () => {

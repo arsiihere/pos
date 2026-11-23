@@ -49,12 +49,12 @@ const V125 = {
   catchUp: 2,
   /** whole AnswerRequest reject command, writer db (inject), linked kind without result_also_to
    *  (+1 since 05 task 7: the `billing` projection checkpoint UPDATE per append; +1 since 05 task 8: the `shifts` one;
-   *  +1 since 05 task 11: the `billing_prints` one) */
-  rejectWithout: 65,
+   *  +1 since 05 task 11: the `billing_prints` one; +1 since 05a task 6: the `device_profiles` one) */
+  rejectWithout: 66,
   /** … linked kind with result_also_to, the :also raised (holder ≠ requester) */
-  rejectWithAlso: 75,
+  rejectWithAlso: 76,
   /** … linked kind with result_also_to, the :also dropped (holder = requester): +2 over without, as 01d #67 */
-  rejectWithAlsoDropped: 67,
+  rejectWithAlsoDropped: 68,
 };
 
 async function directory(): Promise<DirectoryInput> {

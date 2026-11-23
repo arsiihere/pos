@@ -118,12 +118,12 @@ describe('admin list queries (§6.18a–c, M88)', () => {
 
     const counter = statementCounter(hub.deps.readDb);
     const live = await get2(hub, admin, '/admin/queries/devices');
-    expect(counter.count).toBe(1);
+    expect(counter.count).toBe(3); // 05a §6.8: today's 1 + device_profiles + pending requests
     expect(live.json().data.devices.map((d: { device_id: string }) => d.device_id)).toEqual([admin.device.deviceId]);
     expect(live.json().data.devices[0]).toMatchObject({ owner_name: null, revoked_by_name: null, revoked_reason: null });
 
     const all = await get2(hub, admin, '/admin/queries/devices?include_revoked=true');
-    expect(counter.count).toBe(3);
+    expect(counter.count).toBe(7); // cumulative: 3 + (today's 2 + 2)
     const byId = new Map(all.json().data.devices.map((d: { device_id: string }) => [d.device_id, d]));
     expect(byId.get(phone.deviceId)).toMatchObject({ owner_staff_id: 'S_CASH', owner_name: 'Cashier', revoked_by_name: 'Manager', revoked_reason: 'Lost in the car park' });
     expect(byId.get(kiosk.deviceId)).toMatchObject({ owner_name: null, revoked_by_name: 'Manager', revoked_reason: null });
@@ -153,21 +153,22 @@ describe('admin list queries (§6.18a–c, M88)', () => {
     expect((await get(hub, waiter, 'lockouts')).statusCode).toBe(403);
   });
 
-  it('[00 §10 #146] M88 staff: every directory staff member with role names and non-revoked phone count; one query', async () => {
+  it('[00 §10 #146; 05a H-4] M88 staff: every directory staff member with role names and device_count (unrevoked listed devices naming them, any hardware); one query', async () => {
     const hub = await open();
-    const admin = adminOn(hub, 'S_MGR');
-    pairDevice(hub, { type: 'phone', ownerStaffId: 'S_CASH' });
-    const old = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_CASH' });
-    pairDevice(hub, { type: 'phone', ownerStaffId: 'S_CASH' });
+    const admin = adminOn(hub, 'S_MGR'); // its fixture profile lists S_MGR
+    pairDevice(hub, { type: 'phone', ownerStaffId: 'S_WAIT', profile: { access: 'listed', staff_ids: ['S_CASH'], screens: ['dine_in'] } });
+    const old = pairDevice(hub, { type: 'phone', profile: { access: 'listed', staff_ids: ['S_CASH'], screens: ['dine_in'] } });
+    pairDevice(hub, { type: 'tablet', profile: { access: 'listed', staff_ids: ['S_CASH', 'S_MGR'], screens: ['dine_in'] } });
+    pairDevice(hub, { type: 'cashier_kiosk', profile: { access: 'everyone', screens: ['cashier'] } });
     await revoke(hub, admin, 'S_MGR', old.deviceId);
     const counter = statementCounter(hub.deps.readDb);
     const res = await get(hub, admin, 'staff');
     expect(counter.count).toBe(1);
     expect(res.json().data.staff).toEqual([
-      { staff_id: 'S_CASH', display_name: 'Cashier', role_names: ['Cashier'], phone_count: 2 },
-      { staff_id: 'S_MGR', display_name: 'Manager', role_names: ['Manager'], phone_count: 0 },
-      { staff_id: 'S_WAIT', display_name: 'Order taker', role_names: ['Order taker'], phone_count: 0 },
-      { staff_id: 'S_OWNER', display_name: 'Owner', role_names: ['Owner'], phone_count: 0 },
+      { staff_id: 'S_CASH', display_name: 'Cashier', role_names: ['Cashier'], device_count: 2 },
+      { staff_id: 'S_MGR', display_name: 'Manager', role_names: ['Manager'], device_count: 2 },
+      { staff_id: 'S_WAIT', display_name: 'Order taker', role_names: ['Order taker'], device_count: 0 },
+      { staff_id: 'S_OWNER', display_name: 'Owner', role_names: ['Owner'], device_count: 0 },
     ]);
   });
 });

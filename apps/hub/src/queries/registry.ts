@@ -7,7 +7,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z, type ZodError } from 'zod';
 import { currentDirectory, type RequestDevice } from '../auth/guards.js';
 import { activity, endSession, findSessionByToken, isIdleExpired, type SessionRow } from '../auth/session-store.js';
-import type { StaffDirectory } from '../auth/staff-directory.js';
+import { deviceProfile } from '../auth/device-profile.js';
+import type { SessionDirectory } from '../auth/staff-directory.js';
 import type { StateHolder } from '../engine-host/state-holder.js';
 import type { Writer } from '../engine-host/writer.js';
 import type { Clock } from '../lib/clock.js';
@@ -16,7 +17,8 @@ import { branchConfig } from '../sync/branch-config-holder.js';
 export interface QueryCtx {
   db: Database.Database;
   page: { cursor: string | null; limit: number };
-  directory: StaffDirectory;
+  /** 05a §3.3a: the request session's view (`forSession`); no session → nothing masked. */
+  directory: SessionDirectory;
   device: RequestDevice | undefined;
   session: SessionRow | undefined;
   // 01a S16: read-only engine state and the in-memory branch config (S40 N9).
@@ -28,7 +30,8 @@ export interface QueryCtx {
 
 export interface QueryDef<Q extends z.ZodType = z.ZodType> {
   resource: string;
-  sessionKind: 'device' | 'admin';
+  /** 00 §3.7 (05a H-6): `'both'` is registered on `GET /queries/` and `GET /admin/queries/`. */
+  sessionKind: 'device' | 'admin' | 'both';
   session: 'required' | 'none';
   allowStation?: boolean;
   deviceTypes?: DeviceType[];
@@ -103,7 +106,7 @@ function runQuery(
 ): { data: unknown; meta?: unknown } {
   const params = request.params as { resource?: string };
   const def = registry.byResource(params.resource ?? '');
-  if (def === undefined || def.sessionKind !== routeKind) throw new DomainError('ROUTE_NOT_FOUND');
+  if (def === undefined || (def.sessionKind !== routeKind && def.sessionKind !== 'both')) throw new DomainError('ROUTE_NOT_FOUND');
   if (routeKind === 'device' && def.session === 'required') requireDeviceSession(request, deps, def.allowStation === true);
   const deviceType = request.device?.device_type;
   if (def.deviceTypes !== undefined && (deviceType === undefined || !def.deviceTypes.includes(deviceType))) {
@@ -116,7 +119,10 @@ function runQuery(
     {
       db: deps.readDb,
       page,
-      directory: currentDirectory(app),
+      directory: currentDirectory(app).forSession(
+        { staff_id: request.session?.staff_id ?? null, device_id: request.session?.device_id ?? null },
+        deviceProfile,
+      ),
       device: request.device,
       session: request.session,
       state: deps.state.get(),

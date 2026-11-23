@@ -5,119 +5,55 @@ import { Dialog } from '../../../components/Dialog';
 import { Skeleton } from '../../../components/Skeleton';
 import { t } from '../../../i18n';
 import { fill } from '../../../i18n/en';
-import type { HubDevice, KdsPoint, KdsScreen, KdsStation } from './api';
+import type { HubDevice, KdsScreen } from './api';
 
 // 03b §3.8, §6.10; 03b-D03 (frames KitchenScreensBind, KitchenScreensLane).
 
 export const LANE_LABEL_MAX = 20;
 
 /**
- * Bind a tablet to a point (handoff Q-16): the tablet picker is fed by 00's `devices` query (unrevoked tablets
- * only); the point tiles come from kds-config `points` (Q-48, archived ones shown marked and not pickable), each
- * with the names of its stations. Save → SetDeviceRole { device_id, point_id }; "Stop using as Pass tablet" →
- * point_id null (shown for a tablet that has a point).
+ * 05a K-2 (§8, §4.5; task 33): Pass is set on the device itself (`point_id` is the device's profile, K-1), so this dialog
+ * no longer picks a point and sends nothing. It lists every unrevoked non-kds device (00's `devices` query), each with a
+ * link to its edit form (`#/devices` in /staff/, §8); the device asked for with `#bind=` comes first.
  */
 export function BindDialog({
-  tablets,
-  points,
-  stations,
+  devices,
   initialDeviceId,
-  pointOf,
-  busy,
   error,
-  onSave,
-  onUnbind,
   onClose,
 }: {
-  tablets: readonly HubDevice[] | null;
-  points: readonly KdsPoint[];
-  stations: readonly KdsStation[];
+  devices: readonly HubDevice[] | null;
   initialDeviceId: string | null;
-  pointOf: (deviceId: string) => string | null;
-  busy: boolean;
   error: string | null;
-  onSave: (deviceId: string, pointId: string) => void;
-  onUnbind: (deviceId: string) => void;
   onClose: () => void;
 }) {
-  const [deviceId, setDeviceId] = useState<string | null>(initialDeviceId);
-  const [pointId, setPointId] = useState<string | null>(initialDeviceId === null ? null : pointOf(initialDeviceId));
-  const shown = tablets?.filter((d) => d.device_type === 'tablet' && d.revoked_at === null) ?? null;
-  const device = shown?.find((d) => d.device_id === deviceId) ?? null;
-  const bound = deviceId === null ? null : pointOf(deviceId);
-
-  const pick = (id: string) => {
-    setDeviceId(id === '' ? null : id);
-    setPointId(id === '' ? null : pointOf(id));
-  };
-
+  const shown = devices?.filter((d) => d.device_type !== 'kds' && d.revoked_at === null) ?? null;
+  const ordered = shown === null ? null : [...shown].sort((a, b) => Number(b.device_id === initialDeviceId) - Number(a.device_id === initialDeviceId));
   return (
     <Dialog
       title={t('kitchen_screens.bind')}
       onClose={onClose}
       footer={
-        <>
-          {bound !== null && deviceId !== null && (
-            <button type="button" className="pos-btn pos-btn--ghost" disabled={busy} onClick={() => onUnbind(deviceId)}>
-              {t('kitchen_screens.unbind')}
-            </button>
-          )}
-          <button type="button" className="pos-btn" onClick={onClose}>
-            {t('common.cancel')}
-          </button>
-          <BusyButton
-            primary
-            busy={busy}
-            disabled={deviceId === null || pointId === null || pointId === bound}
-            onClick={() => {
-              if (deviceId !== null && pointId !== null) onSave(deviceId, pointId);
-            }}
-          >
-            {t('kitchen_screens.save')}
-          </BusyButton>
-        </>
+        <button type="button" className="pos-btn" onClick={onClose}>
+          {t('common.cancel')}
+        </button>
       }
     >
-      {device !== null && <p className="pos-dialog__body">{fill(t('kitchen_screens.bind_body'), { name: device.device_name })}</p>}
+      <p className="pos-dialog__body">{t('kitchen_screens.bind_help')}</p>
       {error !== null && <Banner tone="danger" text={error} />}
-      {shown === null ? (
+      {ordered === null ? (
         <Skeleton lines={2} />
       ) : (
-        <>
-          <label className="pos-field">
-            <span className="pos-field__label">{t('kitchen_screens.tablet')}</span>
-            <select className="pos-select" value={deviceId ?? ''} onChange={(e) => pick(e.target.value)}>
-              {device === null && <option value="">{t('kitchen_screens.pick_tablet')}</option>}
-              {shown.map((d) => (
-                <option key={d.device_id} value={d.device_id}>
-                  {d.device_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="pos-tiles pos-tiles--pick">
-            {points.map((p) => (
-              <button
-                key={p.point_id}
-                type="button"
-                className="pos-tile"
-                aria-pressed={p.point_id === pointId}
-                disabled={p.is_archived || busy}
-                onClick={() => setPointId(p.point_id)}
-              >
-                {p.name}
-                <small>
-                  {p.is_archived
-                    ? t('kitchen_screens.point_archived_short')
-                    : stations
-                        .filter((s) => s.point_id === p.point_id)
-                        .map((s) => s.name)
-                        .join(', ')}
-                </small>
-              </button>
-            ))}
-          </div>
-        </>
+        <ul className="pos-list" data-section="bind-devices">
+          {ordered.map((d) => (
+            <li key={d.device_id} className="pos-list__row" data-device={d.device_id}>
+              <b>{d.device_name}</b>
+              <a className="pos-link" href={`/staff/#/devices?edit=${encodeURIComponent(d.device_id)}`}>
+                {t('devices.edit')}
+              </a>
+            </li>
+          ))}
+        </ul>
       )}
     </Dialog>
   );

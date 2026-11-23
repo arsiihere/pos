@@ -1,0 +1,201 @@
+# 05a Device Access + Screens — build board
+
+> ## ✅ BUILD CODE-COMPLETE (2026-11-23 ~21:00 PKT) — owner's turn
+>
+> All 36 tasks and Z1 are merged into **`build/05a`**; gate **green** (run 45149160196 @ `d4b094b6`, then Z1 docs). Spec **05a v1.0.4** (owner rulings G-e, G-f, G-g, G-h today), 01d v1.3.5 with Q-1 – Q-3 (a), 00 v1.12.3. Acceptance map: `docs/plans/05a-acceptance.md`.
+>
+> **Waiting on the owner:**
+> 1. **Z2** — the hand checks on the pilot devices: `docs/plans/05a-manual-checks.md`.
+> 2. **Z3** — the PR `build/05a` → `main`, after the stab PR, only on the owner's word (no PR opened).
+> 3. Optional calls: **PC-6** (re-dirty `no_approver` on `DeviceProfileSet`: one line + a 01d §3.9 sentence); task 25 nit (`device_waiting` inbox row as a card on an `everyone` device after sign-in); `device_waiting` copy ("A device is waiting for approval" / "Device waiting", Urdu in urdu-todo); no live-view screen in the client yet (`manager` screen has reports, day close, audit, test alert, devices).
+
+Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. Spec: `05a_Device_Access_Screens_Spec_v1.0.1.md` (APPROVED; v1.0 2026-11-23 03:24 PKT, v1.0.1 rulings 03:35 / 03:53 PKT). Integration branch: `module-05a`, **cut from `fix/stab-tablet-pairing`; the 05a PR comes after the stab PR** (owner D-7). Stab work comes in only by `git merge fix/stab-tablet-pairing`, before each batch, then the gate. Pushed to **`build/05a`** after every task (owner 03:53, no PRs). Only the integrator edits this file.
+
+> ## ✅ Q-1 – Q-3 ruled (owner, 2026-11-23, cloud session): all three **(a)**
+>
+> - **Q-1 (a):** for a money kind, a session on an `everyone` device no longer counts in the 01d §3.9 `no_approver` warning (listed-device routes only).
+> - **Q-2 (a):** `{ type: 'devices' }` is always open, no read.
+> - **Q-3 (a):** the G1-9d shortcut keys on the **stored** right; a downgraded `named` / `holders` request gets no shortcut and escalates by its steps.
+>
+> They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
+
+> **Status (owner summary, newest first):**
+> - 2026-11-23 ~21:00 PKT: **Z1 merged; build code-complete** (see the box at the top). Stab `origin/fix/stab-tablet-pairing` moved to `011d4bf2` (one docs-only commit, STAB-6/7 status): merged; no 00 / 01d / 03b / 04 version from STAB.
+> - 2026-11-23 ~20:45 PKT: **Task 25 merged — all 36 build tasks are merged into `build/05a`.** Next: Z1 acceptance map (draft ready), then the owner's Z2 hand checks and Z3 (PR to `main`, after the stab PR, on the owner's word).
+> - 2026-11-23 ~20:00 PKT: **Task 30 merged** (counter check). **27 tasks merged.** Left: 25 (in review), the #15 refusal test, then Z1.
+> - 2026-11-23 ~19:35 PKT: **Task 24 merged** (downgraded raise). **26 tasks merged.** Left: 25, 30 (running), then Z1.
+> - 2026-11-23 ~19:10 PKT: **Task 34 merged** (shell tabs). **25 tasks merged.** Left: 24 (fix round), 25, 30 (running), then Z1.
+> - 2026-11-23 ~18:55 PKT: **Task 33 merged** (hub admin devices, Recover admin access, K-2). **24 tasks merged.** Fix rounds: 24, 34. Running: 25. Left after these: 30, Z1.
+> - 2026-11-23 ~18:40 PKT: **Task 23 merged** (answers). **23 tasks merged.** Owner ruled **G-h (a)** → **05a v1.0.4** ("connected now" is route-level). Fix rounds: 24, 33, 34. Starting 25 (routing).
+> - 2026-11-23 ~18:00 PKT: **Task 26 merged** (`device_waiting`). **22 tasks merged.** Owner ruled **G-g (a)** → **05a v1.0.3** (recovery signal in login-roster's 403). In review: 24, 34. Fix rounds: 33 (G-g, K-2 `?edit=`). Running: 23.
+> - 2026-11-23 ~17:20 PKT: **Task 16 merged**: B4 complete. **21 tasks merged.**
+> - 2026-11-23 ~17:10 PKT: **Task 21 merged**. **20 tasks merged**; B3, B5 complete. Starting B6: 23 (answers), 24 (downgraded raise), 26 (`device_waiting`) in parallel; 25 after 23.
+> - 2026-11-23 ~17:00 PKT: **Tasks 17–18 merged** (sign-in checks, rosters). **19 tasks merged**: 9–15, 17–20, 22, 27–29, 31, 32, 35, 36. Next: 16 (approved, merging after its merge of build/05a), 21 (in review), 33, 34 (running); then 23–26, 30.
+> - 2026-11-23 ~16:45 PKT: **Task 15 merged** (approve tablet / phone by request; token pairing and the STAB-1 Add a phone / Add a tablet removed). 17 tasks merged. Approved, merging next: 16, 17 (re-check), 18. In review: 21. Running: 34.
+> - 2026-11-23 ~16:20 PKT: **Task 20 merged**. 16 tasks merged. Fix rounds: 15 (tablet / phone on `/admin/approve` until task 33), 17 (tests). Running: 16, 18, 21.
+> - 2026-11-23 ~15:55 PKT: **Task 19 merged** (SetDeviceProfile, Opus APPROVE). 15 tasks merged. In review: 15, 17, 20. Running: 16.
+> - 2026-11-23 ~15:40 PKT: **Tasks 31–32 merged** (lane C2). **14 tasks merged**; all six saved laptop lanes are in. In review: 15 (approve v2 + token-pairing removal), 19 (SetDeviceProfile). Running: 16 (stacked on 15), 17, 20.
+> - 2026-11-23 ~15:15 PKT: **Tasks 35–36 merged** (lane C1). 12 tasks merged. CI red on `build/05a` at `c55e600e` (task 13 × 14 fixture hint) fixed in `423c6cf4`, green. Running: 15, 17, 19, 20 (B4/B5 in parallel), C2 fix round.
+> - 2026-11-23 ~14:45 PKT: **Merged: L1 (tasks 9–12), D (22), B13 (13)** → with R (29), B14 (14), K (27–28): **10 tasks merged**. Owner ruled **G-e (a), G-f (a)** → spec **05a v1.0.2** (now the build's spec). In fix rounds: C1 (35: "Confirm on your phone" shows for any named request; must be downgraded only), C2 (32: G-e / G-f). Next: task 15 (one commit, Opus), then 16, 17. Carry-overs: `STALE_ON` gains `DeviceProfileSet` (D review, before the first command that appends it: task 15); B3 review minors (preRead / PIN-hook view test, `/admin/auth` view → task 17, legacy fixture phone = owner only).
+> - 2026-11-23 ~13:50 PKT: **Tasks 27–28 merged** (lane K: Pass readers K-1 / D-4, upgrade boot step), Opus review APPROVE after one fix round. 3 lanes merged so far (R, B14, K).
+> - 2026-11-23 ~13:30 PKT: **Task 14 merged** (pair request hint + poll screens; review APPROVE).
+> - 2026-11-23 ~13:20 PKT: **Task 29 (recovery link) merged** into `build/05a` (`1b5b5c61`), Opus review APPROVE.
+> - 2026-11-23 ~13:10 PKT: **8 lanes running** (6 saved + new B13, B14 for B4). **K (27–28)** done, CI green, Opus review FIX (1 MAJOR: no test pins "after catchUp"), fix round 1 running. **R (29)** done, CI green, Opus review running. npm registry was blocked in this cloud env: new personal env `pos-build` (package registries only) fixed it.
+> - 2026-11-23 ~12:05 PKT (07:05 UTC): **Cloud integrator started** on `build/05a` @ `6935a2d3` (CI green). Stab: `origin/fix/stab-tablet-pairing` @ `b72d290c` is already in `build/05a` (nothing new; no 00 / 01d / 03b / 04 version change). Owner answered **Q-1 – Q-3: all (a)**. Next: finish the six saved lanes (L1, K, R, D, C1, C2) in parallel cloud agents, CI on GitHub runners, then a fresh review each, then `merge --no-ff`.
+> - 2026-11-23 ~12:10 PKT: **Everything saved to GitHub; the build moves to a claude.ai/code cloud session.** All laptop agents were stopped and their unfinished work was committed as `wip(05a)` and pushed. None of it is reviewed:
+>   - `lane-05aL1/05a-10-12` @ `0a80fb86` (B3 tasks 10–12; task 9 is on `build/05a`);
+>   - `lane-05aK/05a-27-28` @ `a02b0ce8` (task 27 mostly done, task 28 started);
+>   - `lane-05aR/05a-29` @ `fd9bba83` (recovery link);
+>   - `lane-05aD/05a-22` @ `4e8c93fc` (bindings);
+>   - `lane-05aC1/05a-35-36` @ `c9eeb04b` (task 36 committed and finished, task 35 partly done);
+>   - `lane-05aC2/05a-31-32` @ `99202a64` (device list and forms).
+>
+>   The next integrator starts from these branches (handover §3).
+> - 2026-11-23 ~11:40 PKT: **New integrator took over** on `build/05a` @ `8a78a2e4`. Stab: `origin/fix/stab-tablet-pairing` has nothing new (no merge needed; no new 00 / 01d / 03b / 04 version). Lanes K, R, D, C1, C2 (and L1) are worktree agents **on the laptop**, not in the cloud (coordinator confirmed); reports come via the coordinator. **B3 tasks 10–12** given to an Opus implementer on `lane-05aL1/05a-10-12` (from `wip/05a-task10`); then an Opus review of 9–12.
+> - 2026-11-23 ~11:45 PKT: **The integrator moved to the cloud** (the laptop goes offline). Handover: `docs/plans/05a-handover.md`. Integration branch: `build/05a`. Lane L1 (local) stopped: task 9 done (`42c4b122`); unfinished task 10 saved on `wip/05a-task10`. The cloud lanes K, R, D, C1 and C2 keep running.
+> - 2026-11-23 ~11:35 PKT: **Owner: finish the rest in the cloud, CI on GitHub runners, 5–6 agents at once.** CI now runs on pushes to `build/**` and `lane-05a*/**` (`39b6519b`). Six lanes:
+>   - **L1** (local, Opus): B3 → B4 → B5 (tasks 9–21, the core chain) on `module-05a`.
+>   - **K** (cloud, Opus): `lane-05aK/05a-27-28` (Pass readers K-1 / D-4, upgrade boot step).
+>   - **R** (cloud, Opus): `lane-05aR/05a-29` (recovery link).
+>   - **D** (cloud, Opus): `lane-05aD/05a-22` (bindings D-1).
+>   - **C1** (cloud, Sonnet): `lane-05aC1/05a-35-36` (deep links, answer sheet, audit names).
+>   - **C2** (cloud, Sonnet): `lane-05aC2/05a-31-32` (device list, approve / edit forms).
+>
+>   Each cloud lane branches from `build/05a` @ `39b6519b` and must be CI-green. A fresh reviewer checks it, then the integrator merges it into `module-05a` (pushed as `build/05a`). Still waiting: tasks 23–26 (01d answers / raise / routing / `device_waiting`: B3–B5 plus your Q-1 – Q-3), 30 (counter), 33, 34 (client, after B4 / B3). No PRs.
+> - 2026-11-23 11:20 PKT: Gate before B3 **fully green** (759 files, 8 081 tests). The first B3 implementer stalled for ~4 h after the carry-over commit (`443084d8`: B2 review M1, M4, M5); it was stopped and **B3 (tasks 9–12) relaunched**.
+> - 2026-11-23 ~06:45 PKT: **Batch B2 done** (tasks 5–8; Opus review APPROVE, 5 MINORs: M1, M4 and M5 go into B3, M2 and M3 are notes below). Stab `3fa96f0d` merged: the stab session fixed its lint line and the Pass `load_id` test. Gate before B3 running.
+> - 2026-11-23 ~06:05 PKT: The gate before B2 found three gaps from B1, now fixed: the client audit label for `device_profile_set`, the pinned action count 66 → 67, the audit projection's pinned event list, and a lint error in B1's fixtures test. Also one stab lint error (`max-delay-copy.test.ts:19`, stab `9521e49f`), fixed with one line. **Known red from the stab branch, outside 05a:** `apps/hub/test/kds/point-catch-up.int.test.ts` "[03b #65] point_view ≤ 4 statements…" expects `load_id: null` on Pass lines. It **also fails at the stab tip itself** (`d7e90732`, run detached in `~/pos-05a`), from stab commit `dff98415`. Not touched here; the stab session owns it. Everything else is green. **B2 starts.**
+> - 2026-11-23 ~05:45 PKT: **Batch B1 done** (tasks 1–4; review APPROVE). Stab `85690d41` merged (no spec change, no hub migration). Gate before B2 running.
+> - 2026-11-23 ~05:20 PKT: Gate before B1 green (see "Stab merges"; two shared-DB clashes, no code cause). **Batch B1 started** (tasks 1, 2, 4, 3).
+> - 2026-11-23 ~04:35 PKT: Phase 0 bumps: **00 v1.12.3** (`0ddb82cb`), **03b v1.0.15** (`f45df89a`), **04 v1.0.8** (`f1cc15bc`), **01d v1.3.5** (committed with **Q-1 – Q-3 marked open**), F §6.2 append (`855e87eb`). Each was checked by a fresh reviewer, and the findings are fixed. Stab tip `943e1cb6` merged (no spec change); gate running before batch B1.
+> - 2026-11-23 (after 03:53 PKT): Owner rulings 03:53: `git merge` allowed, push target **`build/05a`**, G-b (a). `spec/05a-device-access` merged into `module-05a` (`866f74c3`; README conflict resolved: 05 row from stab, 05a row from the spec branch); pushed as `build/05a`. **05a v1.0.1** written (R-1, G-b). F §6.2 append done (`855e87eb`). The 00 / 01d / 03b / 04 bumps are being written; baseline gate running.
+> - 2026-11-23 (after 03:45 PKT): Owner D-7: don't wait for the stab merge. `module-05a` cut locally from the stab tip `44112286`; P0.1 and the P0.2 sweep done; **stopped**: the merge is blocked by permissions, plus a push decision and G-b (see the top).
+> - 2026-11-23 03:35 PKT: Owner confirmed the plan readings PL-1 – PL-4 and ruled the no-profile device rule (R-1, below). **The build still waits for the `fix/stab-tablet-pairing` merge** (G0.1).
+> - 2026-11-23: Plan ready for the owner's review. **The build starts after `fix/stab-tablet-pairing` is merged to `main`** (G0.1). Nothing has started yet.
+
+## Gates
+
+| Check | State |
+|---|---|
+| G0.1 (D-7) `module-05a` cut from the stab tip + `spec/05a-device-access` merged in | **met**: cut from `44112286`, merged `866f74c3`, pushed as `build/05a` |
+| No new 00 / 01d / 03b / 04 version at the stab tip | **met** at `44112286` (00 v1.12.2, 01d v1.3.4, 03b v1.0.14, 04 v1.0.7) |
+| Plan readings PL-1 – PL-4 confirmed by the owner | **met** — 2026-11-23 03:35 PKT (rulings below) |
+
+## Version numbers (P0.1, read at the stab tip `44112286`, 2026-11-23)
+
+| Target | Rows | Version on `main` | Claimed elsewhere | 05a version |
+|---|---|---|---|---|
+| 00 | H-1 – H-7, K-2 (§8.2) | v1.12.2 | none | **v1.12.3** |
+| 01d | D-1 – D-4 (+ G-d) | v1.3.4 | none | **v1.3.5** |
+| 03b | K-1, K-2 | v1.0.14 | none | **v1.0.15** |
+| 04 | A-1 | v1.0.7 | none | **v1.0.8** |
+| F §6.2 | F-1 (append, no bump) | v1.15 | none | — (append in v1.15) |
+| 05 | B-1 (no bump, PL-2) | v1.0.34 | none | — |
+| Hub migration | `0027_device_profiles.sql` | last: `0026_order_line_part_of.sql` | none (every local and remote branch scanned) | **`0027`** (free) |
+
+## Tasks
+
+| # | Batch | Task | Tier | PR | State |
+|---|---|---|---|---|---|
+| G0.1 | 0 | cut from stab tip + merge the 05a docs (D-7) | — | `866f74c3` | **done** |
+| P0.1 | 0 | version numbers | NORMAL | — (on `spec/05a-device-access`) | **done** |
+| P0.2 | 0 | gap sweep (G-b, G-c + moved cites; G-a ruled as R-1) + **05a v1.0.1** patch (R-1 notes) | NORMAL | `def937e8` | **done** (sweep + v1.0.1) |
+| P0.3 | 0 | cut `module-05a`, cleanup file (no labels: no PRs) | NORMAL | | cut; `build/05a` pushed; cleanup file with P0.8 |
+| P0.4 | 0 | 00 bump (H-1 – H-7) | NORMAL | `0ddb82cb` | **done** (review: 1 MAJOR table fix + MINORs, fixed) |
+| P0.5 | 0 | 01d bump (D-1 – D-4) | NORMAL | see log | **done except Q-1 – Q-3** (review: 2 MAJOR + 6 MINOR, fixed) |
+| P0.6 | 0 | 03b bump (K-1, K-2) | NORMAL | `f45df89a` | **done** (review APPROVE) |
+| P0.7 | 0 | 04 bump (A-1) | NORMAL | `f1cc15bc` | **done** (review APPROVE; G-b read path via `audit-staff`) |
+| P0.8 | 0 | F §6.2 append, README | NORMAL | `855e87eb` (F) | F done; README rows after the bumps |
+| 1 | B1 | permission lists + screens | NORMAL | `e3639876` | **done** (review APPROVE) |
+| 2 | B1 | error codes | NORMAL | `63bbc278` | **done** (review APPROVE) |
+| 3 | B1 | audit action | NORMAL | `652d2e01` | **done** (review APPROVE) |
+| 4 | B1 | events | NORMAL | `1d23c70c` | **done** (review APPROVE) |
+| 5 | B2 | migration 0027 | HIGH | `d4b2e47c` | **done** (review APPROVE) |
+| 6 | B2 | profile projections | HIGH | `8259743d` | **done** (review APPROVE) |
+| 7 | B2 | `deviceProfile` map + M-8 count | HIGH | `7f1190f8` | **done** (review APPROVE) |
+| 8 | B2 | profile test fixture | NORMAL | `d1ebd94d` | **done** (review APPROVE) |
+| 9 | B3 | `forSession` view | HIGH | `42c4b122` | **done** (Opus review APPROVE with 10–12) |
+| 10 | B3 | pipeline / query / PIN call sites | HIGH | `e74f372f` | **done** (Opus review APPROVE; reading: `openSession` legacy fixture profile) |
+| 11 | B3 | admin guard + print route | HIGH | `6996a1d5` | **done** (Opus review APPROVE; `/admin/auth` view → task 17) |
+| 12 | B3 | `/queries/session` | NORMAL | `92fe7062` | **done** (Opus review APPROVE) |
+| 13 | B4 | request-based pairing fixture | NORMAL | `9f567176`, `d802168c`, `cc9c85c7` | **done** (Sonnet review FIX → markers → done; `TASK-15-DELETE/EDIT` markers list task 15's test work) |
+| 14 | B4 | pair request hint + poll screens | NORMAL | `9a61c55b` | **done** (Sonnet review APPROVE; no-profile poll → `screens: []`, an inference from §3.6, noted) |
+| 15 | B4 | approve v2 **+ STAB-1 removal (one commit)** | HIGH | `8a3645e8`, fix `c1035209` | **done** (Opus review FIX → 1 round → APPROVE). Task commit is one commit (D-3); the fix commit adds Tablet / My phone to `/admin/approve` until task 33 so a tablet and a phone stay pairable through a UI (D-3), plus tests. `/admin/approve?r=` reads `hardware_hint` (1 unauthenticated read, only the hint; task 33 may move it after sign-in) |
+| 16 | B4 | pair page text + hint | NORMAL | `3927fd47`, `289e37af` | **done** (Sonnet review APPROVE; iOS Safari outside the Home Screen shows "Add to Home Screen" and makes no request, per §8 "then the request from the home-screen app") |
+| 17 | B5 | sign-in checks | HIGH | `1f2e66ae`, `a1b47393`, fix `2eb9daad` | **done** (Opus review FIX → 1 round → APPROVE). #114: the 00 404 half kept (unknown id on the list → 404); an unknown id off a listed device's list → 403 `DEVICE_ACCESS_DENIED` first (05a §3.5 order); note for Z1 / the next 00 bump |
+| 18 | B5 | staff / login roster | NORMAL | `19e3cdbb` | **done** (Sonnet review APPROVE; a no-profile phone's roster = its owner, read from §3.5 R-1) |
+| 19 | B5 | `SetDeviceProfile` | HIGH | `cac60851` | **done** (Opus review APPROVE; PC-5) |
+| 20 | B5 | revoke both + device list | NORMAL | `547702b2`, fix `961da1e3` | **done** (Sonnet review FIX → 1 round: a no-profile staff device lists as `everyone` v0 so task 19 can edit it) |
+| 21 | B5 | directory apply | HIGH | `f3ab0b3c` | **done** (Opus review APPROVE; one wider `device_people` read; no `device_profile` push for `directory` events, none needed: screens / point never change; a `directory` event clears an earlier `needs_review`, literal §4.2 / §6.9) |
+| 22 | B6 | D-1 bindings | HIGH | `e9cd26d1` | **done** (Opus review APPROVE, 300-sequence rebuild fuzz; `alert-sockets.ts` as-built outside the Files column, required by 01d §3.7) |
+| 23 | B6 | D-2 answers | HIGH | `11c9b4c2`, `de764770` | **done** (Opus review APPROVE; order rule 3 → 2a → 2 → 5 → 6 per 01d §3.3 rule 4 (b); named-self skip only reachable through task 24's raise; requester routing at `targets.ts:373` is fixed in task 24) |
+| 24 | B6 | D-2 downgraded raise | HIGH | `da5e608a`, `add4f0ca`, fix `ce6083a2` | **done** (Opus review FIX (BLOCKER: named-to-self rang nobody, `targets.ts` requester skip) → 1 round → APPROVE; owner G-h → v1.0.4 route-level; a downgraded raise of a non-money kind throws; carry-over: one test for that guard) |
+| 25 | B6 | D-2 routing | HIGH | `a72eb6ac`, carry-overs `c30f1604`, fix `ba0286c7` | **done** (Opus review FIX (2 MAJOR: money / `device_waiting` replayed on `everyone` devices at catch-up and reconnect) → 1 round → APPROVE; Q-1 (a) in the `no_approver` tick; PC-6 owner note). Nit: catch-up on an `everyone` device still shows a `device_waiting` inbox row as a card (01d §3.4.3 lets inbox rows show at next sign-in) |
+| 26 | B6 | D-3 `device_waiting` | HIGH | `248f9b22` | **done** (Opus review APPROVE). Until task 25, `device_waiting` also reaches `everyone` devices (label only, no code / name / count); row 25 widened to carry that drop + the #21 delivery test. Carry-overs to task 25: MINOR-1 (raise without the extra pre-read), MINOR-2 (`deeplink-check` `devices` → open, not `no_place`), MINOR-3 (01d #69 counts 20 kinds). Client copy `alert.device_waiting.card` / `.lock` (EN + UR) has no spec wording: proposed "A device is waiting for approval" / "Device waiting", in task 25's client follow-up unless the owner says otherwise |
+| 27 | B7 | K-1 + D-4 Pass readers | HIGH | `d1d88e71` | **done** (Opus review APPROVE; PC-4) |
+| 28 | B7 | upgrade boot step | HIGH | `773e939a`, fix `87d22dc2` | **done** (Opus review FIX → 1 round → APPROVE; PC-3; RF-1 exception: an ownerless phone (raw SQL only) stays unprofiled, warned each boot) |
+| 29 | B7 | recovery link | HIGH | `72933db1` (merge `1b5b5c61`) | **done** (Opus review APPROVE; carry-overs: #16a "owner approves their phone" `it.todo` → task 15; MINORs m1 empty `advertised_host`, m2 count-0 cases at the route, m3 unprovisioned refusal test → with task 15/18) |
+| 30 | B7 | counter check (fresh implementer) | HIGH | `d4560510` | **done** (Opus review APPROVE; 3 mutations caught: money mask dropped, a counter permission masked, G-h device-level; no production bug found. Minor follow-ups: comp / reopen cashier requests, N-8 cross-ref) |
+| 31 | B8 | device list page | NORMAL | `02677131` | **done** (Sonnet review; built against the §6.8 shape, hub side = task 20) |
+| 32 | B8 | approve + edit forms | NORMAL | `cdd79520` … `8790e5ee` | **done** (Sonnet review FIX → owner G-e / G-f → 05a v1.0.2; `#/devices?r=` opens the request, code empty; one screen-label set `alerts.screen.*`) |
+| 33 | B8 | hub admin pages, recovery, K-2 | NORMAL | `907aa2f1`, `3d0fa85b`, fix `a5cf1211` | **done** (Sonnet review FIX → owner G-g → 05a v1.0.3; `#/devices?edit=` opens the edit form; `/admin/recovery-link` also returns `first_admin_qr_svg`, additive as setup does; the unauthenticated `?r=` hint read removed) |
+| 34 | B8 | shell tabs (C-1) | NORMAL | `7193332b`, `c6e8ab2c`, fix `e6312da0` | **done** (Sonnet review FIX → 1 round: downgraded money actions — void / cancel, comp, discount, reopen — keep their button and show "Confirm on your phone"; `listed_only` hidden). Notes for the owner: the client has **no live-view screen** yet, so `manager` holds reports, day close, audit, test alert, devices (§3.6 lists "live view" too); `parking` opens `#/orders`; no client button gates on `apply-refund` (refunds are bill payments out) |
+| 35 | B8 | deep links, answer sheet, Pass parse | NORMAL | `c8249ee0`, `e816be7c`, fix `a8374df5` | **done** (Sonnet review FIX → 1 round: "Confirm on your phone" removed from the answer sheet, it belongs to task 34's downgraded action buttons). Screen labels: Dine in, Takeaway, Parking, Cash desk, Pass, Manager tools (spec names none) |
+| 36 | B8 | audit screen names for `device_profile_set` (G-b) | NORMAL | `c978d0fe` | **done** (Sonnet review APPROVE) |
+| Z1 | Z | acceptance map | — | `683d17af` | **done**: `docs/plans/05a-acceptance.md` — all 43 §10 cases cite a test (0 pending, 0 missing); every §4.5 row, RF-1–RF-5, §12.4, rulings and owner notes |
+| Z2 | Z | manual checks (owner) | — | | |
+| Z3 | Z | `module-05a` → `main` | — | | |
+
+## Owner rulings
+
+| # | Ruling | When | Where it landed |
+|---|---|---|---|
+| PL-1 | Yes: the client screens are built on existing page patterns, with no 05a design handoff. Pulse mapping happens later, for all modules in one pass | 2026-11-23 03:35 PKT | plan D-5, batch B8 |
+| PL-2 | Yes: B-1 and C-1 are not version bumps. If the gap sweep finds approved text that contradicts them → **STOP** and ask | 2026-11-23 03:35 PKT | plan D-5, P0.2 (G-c), P0.8 |
+| PL-3 | Yes: integration branch `module-05a`, cut from `main` after `fix/stab-tablet-pairing` merges | 2026-11-23 03:35 PKT | plan D-5, P0.3 |
+| PL-4 | Yes: a fresh **Opus** reviewer for the migration, the permission mask, sign-in, approvals and the recovery link; **Sonnet** for the rest | 2026-11-23 03:35 PKT | plan D-5, §1 tiers |
+| D-7 | Don't wait for the stab merge: cut `module-05a` from the stab tip; stab work only by `git merge`, before each batch, then the gate; STAB never bumps 00 / 01d / 03b / 04 again (else STOP); the 05a PR after the stab PR | 2026-11-23 03:44–03:45 PKT | plan D-7, G0.1, Z3 |
+| W-1 | `git merge` allowed (via /permissions); push `module-05a` to **`build/05a`** after every task; no PRs | 2026-11-23 03:53 PKT | §1 rules, board header |
+| G-b | Store `staff_ids` in the `device_profile_set` audit detail; names looked up when the log is read, as 04 does; in 05a v1.0.1 with R-1 | 2026-11-23 03:53 PKT | 05a v1.0.1 §4.2, 04 v1.0.8 (P0.7), task 3 |
+| R-1 | **Staff device with no profile: split rule** (was gap G-a). (1) **Permissions:** treat it as `access = 'everyone'` (masked, fail-closed). (2) **Sign-in:** today's rule, **not** `everyone`. A `phone` accepts only its `owner_staff_id`; a `tablet` / `cashier_kiosk` accepts any directory staff. Never let a phone without a profile accept any PIN but its owner's. Goes in as a §3.3a / §3.5 note in **05a v1.0.1** (owner-approved now; written by P0.2's spec patch), tested in task 9 (mask) and task 17 (sign-in check) | 2026-11-23 03:35 PKT | plan D-6, Review Focus 1, P0.2, tasks 9, 17 |
+
+## Plan corrections during the build
+
+| # | Task | Correction |
+|---|---|---|
+| PC-6 | 25 | Owner note (task 25 review MINOR-1, spec gap, not built): the 01d §3.9 `no_approver` flag is set dirty only by session, directory and business-day events, not by `DeviceProfileSet`. With Q-1 (a), a manager whose only device flips listed ↔ `everyone` keeps a stale warning until the next such event. Fix would be one line (`DeviceProfileSet` in the `alert_flags` projection's event list) plus a 01d §3.9 text addition: **owner to decide** |
+| PC-5 | 19 | As built (Opus review): session ends of §6.4 step 6 run **inside** the command's transaction (the `RevokeDevice` pattern), not after it: all-or-nothing, 1 UPDATE + 1 `SessionEnded` per ended session, as §6.4 counts. Wire order: the `device_profile` push reaches a removed session's socket just before its 4401 close. A staff device with no profile row is edited from `expected_version: 0` (R-1: masked as `everyone`, no screens). A kept point that was archived blocks any edit until `pass` is dropped or the point changed (literal "§6.3 step 3 on the merged profile"). Carry-over tests: everyone → listed ends an unlisted staff session; `expected_version: 0` on a no-profile device |
+| PC-4 | 27, 33 | Lane K review m-2: from task 27 until task 33 (K-2), `SetDeviceRole` drops a sent `point_id` (03b v1.0.15 §6.10, pinned), so the old client "Use as Pass tablet" (`BindDialog.tsx`, `admin/page.ts`) answers 200 and does nothing. Task 33 replaces it with the edit-form link. Not a hand-check item before 33 lands |
+| PC-3 | 28 | The upgrade boot step runs inline in `boot()` as step **4c** (after catchUp and `restoreEmptyStaffSessions`, before `buildHubServer` and listen), not through `registerBootStep`: `BootStep` has no slot between catchUp and the server build (lane K review m-3; §6.10 satisfied). A phone with `owner_staff_id` NULL (only possible by raw SQL after 0027) is skipped and left unprofiled, which R-1 / D-6 already cover (masked as `everyone`, refuses every PIN). The #15 refusal half (`it.todo`) lands with tasks 10–11 and goes in Z1 under #15 |
+| PC-2 | 7 | Task 7 also wires 3 lines in `apps/hub/src/server.ts` (`buildHubServer`: load the map + the post-commit refresh), where the 03b device-roles map is wired. B2 review M2: until task 27 (K-1), a `DeviceRoleSet` still writes `devices.point_id` and does not refresh `deviceProfile`, so its `point_id` can be stale; task 27 removes that writer and must re-check `test/auth/device-profile.int.test.ts:84`. M3: the map is per process, like device-roles; a test that builds a hub without `buildHubServer` calls `loadDeviceProfiles(db)` itself |
+| PC-1 | 2 | The plan named a `PermissionDeniedReason` type; none exists. `DomainError` details are `Record<string, unknown>`, so the three reasons are plain strings in `details.reason`, as other reasons are today. No type added |
+
+## Owner rulings during the build
+
+| # | Ruling | When | Where it landed |
+|---|---|---|---|
+| — | | | |
+
+## STOPs / needs-ruling
+
+| # | Task | Question | State |
+|---|---|---|---|
+| S-1 | G0.1 | `git merge` into `module-05a` refused by the auto-mode classifier | **closed** 03:53: owner allowed it; merged |
+| S-2 | P0.3 | Push target for `module-05a` under the `module-*` ruleset with no PRs | **closed** 03:53: (a) `build/05a` |
+| S-3 | P0.2 | G-b: names in the `device_profile_set` audit detail | **closed** 03:53: (a), in 05a v1.0.1 §4.2; 04 v1.0.8 §8 maps the ids through `audit-staff` (no query change) |
+| S-7 | 24 | G-h: §3.9 rule 1 (a) "connected now" device-level vs route-level | **closed** 2026-11-23 (cloud): owner ruled (a) route-level → **05a v1.0.4**; 01d v1.3.5 §3.3 note |
+| S-6 | 33 | G-g: the recovery signal never reaches an `everyone` device (login-roster refuses it), the main recovery case after the upgrade | **closed** 2026-11-23 (cloud): owner ruled (a) → **05a v1.0.3**: the 403 carries `recovery_available`; 00 v1.12.3 §6.13 note |
+| S-5 | 32 | G-e: clearing `point_id` / `staff_ids` in `SetDeviceProfile`; G-f: people-picker source | **closed** 2026-11-23 (cloud): owner ruled both (a) → **05a v1.0.2** (§6.4 derived clear; §6.8 `staff`), 00 v1.12.3 §6.17 note |
+| S-4 | P0.5 | 01d Q-1 – Q-3 (top of this file) | **closed** 2026-11-23 (cloud): owner ruled all three (a) |
+
+Scan for P0.1: every local and remote branch and both open PRs (#121, #126) were checked for 00 > v1.12.2, 01d > v1.3.4, 03b > v1.0.14, 04 > v1.0.7, Foundation > v1.15 and hub migrations ≥ `0027`. Nothing is claimed. The bumps are patch steps, like the other cross-module rows (e.g. 00 v1.12.1 → v1.12.2 for STAB-1).
+
+## Stab merges
+
+| When | Stab sha | Spec change in 00 / 01d / 03b / 04? | Gate after |
+|---|---|---|---|
+| cut | `44112286` | — (baseline: 00 v1.12.2, 01d v1.3.4, 03b v1.0.14, 04 v1.0.7) | — |
+| after Z1 | `011d4bf2` | none (docs only) | CI on `build/05a` |
+| before B3 | `3fa96f0d` | none | **green** (759 files, 8 081 tests) |
+| before B2 | `85690d41` | none | **green except 1 stab-red test** (`point-catch-up` #65, red at the stab tip too); 3 B1 gaps fixed (`fix(05a)`, `test(04)` commits); 1 stab lint line fixed |
+| before B1 | `943e1cb6` (merge `ad0864ad`), then `6be21317` (cloud `0017`) | none | **green**: typecheck + lint + hub pass. Run 1: 95 cloud files failed (the shared `pos_test` DB already had cloud `0017` from the newer stab commit), fixed by merging `6be21317`. Run 2: 51 cloud files and 1 hub timeout (deadlocks / duplicate keys while the `~/pos` stab session tested the same DB). Rerun of `apps/cloud` + `voids/guards` under the lock: 116 files, 809 tests green |

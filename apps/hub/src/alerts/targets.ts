@@ -1,10 +1,11 @@
 import { DomainError, type DeviceType, type Permission } from '@pos/domain';
 import type { AlertRaisedPayloadV5, AlertTarget } from '@pos/events';
+import { deviceProfile } from '../auth/device-profile.js';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import type { WsHub } from '../ws/server.js';
-import { kindOf, type RecipientSet, type StepDef } from './kinds.js';
+import { kindOf, type AlertKind, type RecipientSet, type StepDef } from './kinds.js';
 import { cachedPrepare } from './statements.js';
 
 // 01d §3.4: who a step reaches. A target is resolved at each step from the batch reads (§3.5 "Reads per
@@ -83,7 +84,8 @@ export interface DeviceRead {
   device_id: string;
   device_type: DeviceType;
   /**
-   * 01d v1.2.3 D-5: the point a tablet is bound to (`devices.point_id`); `always_on` reaches point-bound tablets.
+   * 01d v1.2.3 D-5: the point a device is bound to (`devices.point_id`); `always_on` reaches point-bound non-kds
+   * devices (05a row D-4; was tablets only).
    * Read (5) always selects it; optional only so hand-built reads for one binding (alert-sockets.ts) stay valid
    * (absent = not bound).
    */
@@ -128,7 +130,8 @@ export interface AlertTxCache {
  * BF-6: an append of one of these drops the cached fixed reads (the projections changed what they read).
  * `DevicePaired` / `BusinessDayClosed` (devices, bindings, presence) are a controller-ruled superset.
  */
-const STALE_ON: ReadonlySet<string> = new Set(['SessionStarted', 'SessionEnded', 'DeviceRevoked', 'PresenceSet', 'DevicePaired', 'BusinessDayClosed']);
+// 05a §3.8 (D-1), §5.1: `DeviceProfileSet` changes device_bindings and devices.point_id.
+const STALE_ON: ReadonlySet<string> = new Set(['SessionStarted', 'SessionEnded', 'DeviceRevoked', 'PresenceSet', 'DevicePaired', 'DeviceProfileSet', 'BusinessDayClosed']);
 /** A close of an alert in the transaction frees its key (a later raise with the key is a new alert). */
 const CLOSES: ReadonlySet<string> = new Set(['AlertClosed', 'RequestAnswered', 'RequestWithdrawn']);
 const txCaches = new WeakMap<WriterTx, AlertTxCache>();
@@ -365,10 +368,13 @@ export function resolveStep(step: StepDef, alert: AlertRow, reads: BatchReads, d
   const markers = new Set<string>();
   // 01d D-3: `skip_requester` leaves the requester out of every set (answerer entries always skip him, §3.3 rule 5)
   const skipRequester = kindOf(alert.kind)?.skip_requester === true;
+  const namedToSelf = alert.request?.right_mode === 'named' && alert.request.receiver_staff_id === alert.requester_staff_id;
   for (const { target, set } of stepTargets(step, alert)) {
     const found = resolveTarget(target, alert, reads, directory);
     for (const staffId of found.staff_ids) {
-      if ((set === 'answerer' || skipRequester) && staffId === alert.requester_staff_id) continue;
+      // ⚠️ Changed by 05a (row D-2), 05a §3.9 rule 1 (a): a `named` request whose receiver is its requester (the
+      // downgraded raise, "Confirm on your phone") keeps the requester as its one answerer
+      if ((set === 'answerer' || skipRequester) && staffId === alert.requester_staff_id && !namedToSelf) continue;
       add(people, staffId, { staff_id: staffId, device_id: null, set });
     }
     for (const deviceId of found.device_ids) add(devices, deviceId, { staff_id: null, device_id: deviceId, set });
@@ -418,7 +424,8 @@ function resolveTarget(target: AlertTarget, alert: AlertRow, reads: BatchReads, 
     }
     case 'always_on': {
       // §3.4 (v1.2.3 D-5, 03b B1-2): kiosks, KDS screens and the unrevoked tablets bound to a point, all from read (5).
-      // ⚠️ Changed by v1.2.4 (owner 2026-11-12, 03b P18-1, D-6): a tablet only when its point is active (not archived)
+      // 05a D-4: any unrevoked non-kds device bound to a point, not only a tablet.
+      // ⚠️ Changed by v1.2.4 (owner 2026-11-12, 03b P18-1, D-6): such a device only when its point is active (not archived)
       // in branchConfig().points; filtered in memory after read (5), no statement added. No config yet → no point.
       const active = activePointIds();
       return { staff_ids: [], device_ids: reads.devices.filter((d) => isAlwaysOn(d, active)).map((d) => d.device_id) };
@@ -440,7 +447,8 @@ function activePointIds(): ReadonlySet<string> {
 
 function isAlwaysOn(d: DeviceRead, activePoints: ReadonlySet<string>): boolean {
   if (d.device_type === 'cashier_kiosk' || d.device_type === 'kds') return true;
-  const point = d.device_type === 'tablet' ? (d.point_id ?? null) : null;
+  // 05a D-4: any unrevoked non-kds device with point_id set to an active point (was `tablet` only)
+  const point = d.point_id ?? null;
   return point !== null && activePoints.has(point);
 }
 
@@ -506,7 +514,8 @@ export function walkTeam(directory: StaffDirectory, leadId: string, depth: 'dire
 export type MayAnswer = { ok: true } | { ok: false; reason: 'self' | 'not_approver' | 'out_of_range' | 'not_receiver' };
 
 /**
- * §3.3 rules 5–6, read now (A5): not self; in the hub directory with a PIN (`no_pin_staff` never answers);
+ * §3.3 rules 5–6, read now (A5): not self (05a D-2: except a `named` request whose receiver is its requester); in
+ * the hub directory with a PIN (`no_pin_staff` never answers);
  * `approval`: holds a role in `resolve(requester, base_permission).approver_role_ids` read now, and, with a
  * `range_permission`, holds it `allowed` with a scope covering the requester; `named`: is the receiver.
  * ⚠️ Changed by 05 (row D-1), 01d v1.3.4 §3.3 rule 6: `holders`: holds `base_permission` (the right's permission)
@@ -514,7 +523,10 @@ export type MayAnswer = { ok: true } | { ok: false; reason: 'self' | 'not_approv
  * own grant plays no part. The `answerers` / `holders_informed` targets read this same verdict (§3.4).
  */
 export function mayAnswer(directory: StaffDirectory, request: AlertRequestPart, requesterId: string | null, staffId: string): MayAnswer {
-  if (requesterId !== null && staffId === requesterId) return { ok: false, reason: 'self' };
+  // ⚠️ Changed by 05a (row D-2), 01d v1.3.5 §3.3 rule 5 (05a §3.9 rule 1 (a)): skipped only for a `named` request
+  // whose receiver is its requester (the downgraded raise, "Confirm on your phone"); every other request keeps it.
+  const namedSelf = request.right_mode === 'named' && requesterId !== null && request.receiver_staff_id === requesterId;
+  if (requesterId !== null && staffId === requesterId && !namedSelf) return { ok: false, reason: 'self' };
   const answerer = directory.get(staffId);
   if (request.right_mode === 'named') {
     return answerer !== undefined && staffId === request.receiver_staff_id ? { ok: true } : { ok: false, reason: 'not_receiver' };
@@ -545,4 +557,24 @@ export function mayAnswer(directory: StaffDirectory, request: AlertRequestPart, 
 export function isPresent(reads: BatchReads, staffId: string): boolean {
   if (reads.presence.get(staffId) !== false) return true;
   return reads.sessions.some((session) => session.staff_id === staffId);
+}
+
+// ------------------------------------------------------------------------------------ listed devices only
+
+/**
+ * ⚠️ Changed by 05a (rows D-2, D-3): 01d v1.3.5 §3.4.3 "Listed devices only, for money requests and `device_waiting`"
+ * (05a §3.9 rule 3, M-5; §3.10). A request of a money kind (`needs_pin: 'always'`) or `device_waiting`: its person
+ * routes 1 (screen) and 2 (alert connection) to a device that is not `listed` are dropped at resolve (routes.ts),
+ * and the step frames skip such sessions (ws-frames.ts). Device targets keep their lock-only line.
+ */
+export function listedDevicesOnly(kind: Pick<AlertKind, 'kind' | 'request'>): boolean {
+  return kind.request?.needs_pin === 'always' || kind.kind === 'device_waiting';
+}
+
+/**
+ * 05a §3.9 rule 3: a device whose profile is `access = 'listed'` (the in-memory `deviceProfile` map, no statement).
+ * A device with no profile counts as `everyone` (05a R-1, fail-closed).
+ */
+export function isListedDevice(deviceId: string): boolean {
+  return deviceProfile(deviceId)?.access === 'listed';
 }

@@ -118,11 +118,9 @@ describe('[03b W0.6] alert screen hooks for the 03b / 03c kinds', () => {
       <AnswerSheet
         row={{ ...row({ alert_id: 'R', kind: 'ready_to_serve', family: 'urgent', state: 'closed', close_reason: 'undone' }), answers: [], can_answer: false } as never}
         canAnswer={false}
-        deviceId="D9"
         me={{ staffId: 'S-IMRAN', name: 'Imran' }}
         sender={sender}
         link={link}
-        loadApprovers={async () => []}
         nowMs={NOW}
         utcOffsetMs={0}
         sheet={false}

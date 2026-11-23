@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { encodeCrockford128 } from '../../src/auth/pair-page';
-import { HUB_VERSION } from '../../src/lib/health';
-import { sha256hex } from '../../src/lib/hash';
-import { aDirectory } from '../helpers/fixtures';
 import { EN } from '../../src/lib/strings';
 import { jsonResponse, runPage, textOf } from '../helpers/page-sandbox';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -12,167 +9,6 @@ const cleanups: Array<() => Promise<void>> = [];
 describe('device pairing', () => {
   afterEach(async () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
-  });
-
-  it('[00 §10 #29] happy path; expired token → 401; used token by another request → 401; device_type mismatch → 403', async () => {
-    const hub = await open();
-    const token = await pairingToken(hub, { device_type: 'tablet' });
-    const requestId = hub.deps.ids.next();
-    const paired = await pair(hub, { pairing_token: token.pairing_token, pair_request_id: requestId, device_name: 'Till', device_type: 'tablet' });
-    expect(paired.statusCode).toBe(200);
-    const data = paired.json().data;
-    expect(data.device_type).toBe('tablet');
-    expect(data.owner_staff_id).toBeNull();
-    expect(data.branch_id).toBe('branch-1');
-    expect(data.branch_name).toBe('Main');
-    expect(data.hub_version).toBe(HUB_VERSION);
-    const row = hub.deps.db
-      .prepare('SELECT token_hash, device_name, paired_by FROM devices WHERE device_id = ?')
-      .get(data.device_id) as { token_hash: string; device_name: string; paired_by: string };
-    expect(row).toEqual({ token_hash: sha256hex(data.device_token), device_name: 'Till', paired_by: 'S_OWNER' });
-    const event = hub.deps.db.prepare(`SELECT stream_id, payload FROM events WHERE event_type = 'DevicePaired'`).get() as {
-      stream_id: string;
-      payload: string;
-    };
-    expect(event.stream_id).toBe(data.device_id);
-    expect(JSON.parse(event.payload)).toMatchObject({
-      device_id: data.device_id,
-      pairing_token_id: token.pairing_token_id,
-      pairing_request_id: null,
-      owner_staff_id: null,
-    });
-
-    const expiredToken = await pairingToken(hub, { device_type: 'tablet' }, 'cmd-expired');
-    hub.clock.advance(600_000);
-    const expired = await pair(hub, {
-      pairing_token: expiredToken.pairing_token,
-      pair_request_id: hub.deps.ids.next(),
-      device_name: 'Late',
-      device_type: 'tablet',
-    });
-    expect(expired.statusCode).toBe(401);
-    expect(expired.json().error.code).toBe('PAIRING_TOKEN_INVALID');
-
-    const used = await pairingToken(hub, { device_type: 'tablet' }, 'cmd-used');
-    const firstId = hub.deps.ids.next();
-    expect((await pair(hub, { pairing_token: used.pairing_token, pair_request_id: firstId, device_name: 'A', device_type: 'tablet' })).statusCode).toBe(200);
-    const other = await pair(hub, {
-      pairing_token: used.pairing_token,
-      pair_request_id: hub.deps.ids.next(),
-      device_name: 'B',
-      device_type: 'tablet',
-    });
-    expect(other.statusCode).toBe(401);
-    expect(other.json().error.code).toBe('PAIRING_TOKEN_INVALID');
-
-    const mismatchToken = await pairingToken(hub, { device_type: 'tablet' }, 'cmd-mismatch');
-    const mismatch = await pair(hub, {
-      pairing_token: mismatchToken.pairing_token,
-      pair_request_id: hub.deps.ids.next(),
-      device_name: 'Phone',
-      device_type: 'phone',
-    });
-    expect(mismatch.statusCode).toBe(403);
-    expect(mismatch.json().error.code).toBe('DEVICE_TYPE_NOT_ALLOWED');
-    expect(mismatch.json().error.details).toEqual({ device_type: 'phone', allowed: ['tablet'] });
-  });
-
-  it('[00 §10 #30] Retry with same pair_request_id → new token works, old token → 401, one DevicePaired, one DeviceTokenRotated', async () => {
-    const hub = await open();
-    const token = await pairingToken(hub, { device_type: 'tablet' });
-    const requestId = hub.deps.ids.next();
-    const first = await pair(hub, { pairing_token: token.pairing_token, pair_request_id: requestId, device_name: 'Till', device_type: 'tablet' });
-    const second = await pair(hub, { pairing_token: token.pairing_token, pair_request_id: requestId, device_name: 'Till', device_type: 'tablet' });
-    expect(second.statusCode).toBe(200);
-    expect(second.json().data.device_token).not.toBe(first.json().data.device_token);
-    expect(second.json().data.device_id).toBe(first.json().data.device_id);
-    const oldRoster = await hub.app.inject({
-      method: 'GET',
-      url: '/admin/login-roster',
-      headers: { authorization: `Bearer ${first.json().data.device_token}` },
-    });
-    expect(oldRoster.statusCode).toBe(401);
-    const newRoster = await hub.app.inject({
-      method: 'GET',
-      url: '/admin/login-roster',
-      headers: { authorization: `Bearer ${second.json().data.device_token}` },
-    });
-    expect(newRoster.statusCode).toBe(200);
-    expect(hub.deps.db.prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'DevicePaired'`).pluck().get()).toBe(1);
-    expect(hub.deps.db.prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'DeviceTokenRotated'`).pluck().get()).toBe(1);
-    const rotated = JSON.parse(
-      (hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'DeviceTokenRotated'`).pluck().get() as string),
-    ) as { device_id: string; pair_request_id: string };
-    expect(rotated).toEqual({ device_id: first.json().data.device_id, pair_request_id: requestId });
-  });
-
-  it('[00 §10 #84] Pairing a phone whose owner was removed after the token was generated → 401 PAIRING_TOKEN_INVALID', async () => {
-    const hub = await open();
-    const token = await pairingToken(hub, { device_type: 'phone', owner_staff_id: 'S_OWNER' });
-    const next = await aDirectory({ directory_version: 2 });
-    next.staff = next.staff.filter((staff) => staff.staff_id !== 'S_OWNER');
-    await seedDirectory(hub, next);
-    const paired = await pair(hub, {
-      pairing_token: token.pairing_token,
-      pair_request_id: hub.deps.ids.next(),
-      device_name: 'Phone',
-      device_type: 'phone',
-    });
-    expect(paired.statusCode).toBe(401);
-    expect(paired.json().error.code).toBe('PAIRING_TOKEN_INVALID');
-    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM devices').pluck().get()).toBe(1);
-  });
-
-  it('[00 §10 #150] M92: POST /devices/pair for a phone returns owner_name', async () => {
-    const hub = await open();
-    const token = await pairingToken(hub, { device_type: 'phone', owner_staff_id: 'S_OWNER' }, 'cmd-phone-name');
-    const paired = await pair(hub, { pairing_token: token.pairing_token, pair_request_id: hub.deps.ids.next(), device_name: 'Phone', device_type: 'phone' });
-    expect(paired.json().data).toMatchObject({ owner_staff_id: 'S_OWNER', owner_name: 'Owner' });
-  });
-
-  it('[00 §6.8] a phone pair stores owner_staff_id', async () => {
-    const hub = await open();
-    const token = await pairingToken(hub, { device_type: 'phone', owner_staff_id: 'S_OWNER' }, 'cmd-phone');
-    const paired = await pair(hub, {
-      pairing_token: token.pairing_token,
-      pair_request_id: hub.deps.ids.next(),
-      device_name: 'Phone',
-      device_type: 'phone',
-    });
-    expect(paired.statusCode).toBe(200);
-    expect(paired.json().data.owner_staff_id).toBe('S_OWNER');
-    const row = hub.deps.db.prepare('SELECT owner_staff_id FROM devices WHERE device_id = ?').get(paired.json().data.device_id);
-    expect(row).toEqual({ owner_staff_id: 'S_OWNER' });
-  });
-
-  it('[00 §10 #118] /devices/pair: old client → 426; guest IP → 403; rotation 10 min + 1 s after consumption → 401; rotation for a revoked device → 401', async () => {
-    const hub = await open();
-    const token = await pairingToken(hub, { device_type: 'tablet' });
-    const requestId = hub.deps.ids.next();
-    const body = { pairing_token: token.pairing_token, pair_request_id: requestId, device_name: 'Till', device_type: 'tablet' };
-    const old = await pair(hub, body, { 'x-client-version': '0.9.0' });
-    expect(old.statusCode).toBe(426);
-    expect(old.json().error.code).toBe('CLIENT_UPGRADE_REQUIRED');
-    const guest = await pair(hub, body, {}, '192.168.20.7');
-    expect(guest.statusCode).toBe(403);
-    expect(guest.json().error.code).toBe('GUEST_NETWORK_FORBIDDEN');
-
-    const paired = await pair(hub, body);
-    expect(paired.statusCode).toBe(200);
-    hub.clock.advance(600_001);
-    const late = await pair(hub, body);
-    expect(late.statusCode).toBe(401);
-    expect(late.json().error.code).toBe('PAIRING_TOKEN_INVALID');
-
-    const fresh = await pairingToken(hub, { device_type: 'tablet' }, 'cmd-revoke');
-    const revokeId = hub.deps.ids.next();
-    const revokeBody = { pairing_token: fresh.pairing_token, pair_request_id: revokeId, device_name: 'Till', device_type: 'tablet' };
-    const created = await pair(hub, revokeBody);
-    expect(created.statusCode).toBe(200);
-    hub.deps.db.prepare('UPDATE devices SET revoked_at = ? WHERE device_id = ?').run(hub.clock.branchNow(), created.json().data.device_id);
-    const revoked = await pair(hub, revokeBody);
-    expect(revoked.statusCode).toBe(401);
-    expect(revoked.json().error.code).toBe('PAIRING_TOKEN_INVALID');
   });
 
   it('[00 §8.4] hub unreachable at page load: the screen says so, retries with backoff capped at 5 s, and recovers once the hub is up', async () => {
@@ -263,76 +99,7 @@ describe('device pairing', () => {
     expect(locked.findAll((el) => el.className === 'pos-ltr', again)[0]!.textContent).toBe('3:52');
   });
 
-  it('[00 §10 #139] phone pairing asks for the name in a field, never window.prompt; an empty name sends nothing; a name pairs; 401 shows the expired-QR screen', async () => {
-    const hub = await open();
-    const html = (await hub.app.inject({ method: 'GET', url: '/pair?t=tok' })).body;
-    const sent: Array<Record<string, unknown>> = [];
-    const answers = [jsonResponse(401, { error: { code: 'PAIRING_TOKEN_INVALID', details: {} } })];
-    const expired = await runPage(html, {
-      search: '?t=tok',
-      fetch: (url, init) => {
-        if (url !== '/devices/pair') throw new Error(`unexpected ${url}`);
-        sent.push(JSON.parse((init as { body: string }).body));
-        return Promise.resolve(answers.shift());
-      },
-    });
-    expect(expired.prompts).toBe(0);
-    const name = expired.find('device_name');
-    if (name === undefined) throw new Error('device name field missing');
-    const form = expired.findAll((child) => child.tagName === 'form')[0];
-    if (form === undefined) throw new Error('name form missing');
-    name.value = '   ';
-    await expired.submit(form);
-    expect(sent).toHaveLength(0);
-    expect(expired.findAll((el) => el.classList.contains('pos-field--error'))).toHaveLength(1);
-    name.value = ' Bilal phone ';
-    await expired.submit(form);
-    expect(sent[0]).toMatchObject({ pairing_token: 'tok', device_name: 'Bilal phone', device_type: 'phone' });
-    expect(sent[0]!.pair_request_id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
-    expect(textOf(expired.screen)).toContain(EN['pairing.token_expired']);
-    expect(textOf(expired.screen)).toContain(EN['pairing.token_expired_body']);
-    expect(expired.store.get('pair_request_id')).toBeUndefined();
-
-    const paired = await runPage(html, {
-      search: '?t=tok',
-      fetch: () =>
-        Promise.resolve(
-          jsonResponse(200, { data: { device_id: 'P1', device_token: 'phone-tok', device_type: 'phone', owner_staff_id: 'S_OWNER' } }),
-        ),
-    });
-    paired.find('device_name')!.value = 'Bilal phone';
-    await paired.submit(paired.findAll((child) => child.tagName === 'form')[0]!);
-    expect(paired.store.get('token')).toBe('phone-tok');
-    expect(textOf(paired.screen)).toContain(EN['pairing.paired_title']);
-    expect(paired.prompts).toBe(0);
-  });
-
-  it('[00 §10 #151] M91/M92: /pair?t= turns light, /pair stays dark; the paired phone names its owner; an approved kds names its station', async () => {
-    const hub = await open();
-    const screenHtml = (await hub.app.inject({ method: 'GET', url: '/pair' })).body;
-    const phoneHtml = (await hub.app.inject({ method: 'GET', url: '/pair?t=tok' })).body;
-    const phone = await runPage(phoneHtml, {
-      search: '?t=tok',
-      fetch: () => Promise.resolve(jsonResponse(200, { data: { device_id: 'P1', device_token: 'phone-tok', device_type: 'phone', owner_staff_id: 'S_WAIT', owner_name: 'Bilal' } })),
-    });
-    expect(phone.documentElement.theme).toBe('light');
-    phone.find('device_name')!.value = 'Bilal phone';
-    await phone.submit(phone.findAll((child) => child.tagName === 'form')[0]!);
-    expect(textOf(phone.screen)).toContain(EN['pairing.paired_body'].replace('{owner}', 'Bilal'));
-
-    const kds = await runPage(screenHtml, {
-      fetch: (url) => {
-        if (url === '/pair/requests') return Promise.resolve(jsonResponse(200, { data: { request_id: 'R1', poll_secret: 'p', display_code: 'ABCDEF', approve_qr_svg: '<svg></svg>', expires_at: Date.now() + 600_000 } }));
-        if (url === '/pair/requests/R1') return Promise.resolve(jsonResponse(200, { data: { status: 'approved', device_id: 'K1', device_token: 'tok', device_type: 'kds', station_id: 'T', station_name: 'Tandoor' } }));
-        return Promise.resolve(jsonResponse(200, { data: {} }));
-      },
-    });
-    expect(kds.documentElement.theme).toBe('');
-    for (let i = 0; i < 40 && kds.store.get('token') === undefined; i += 1) await kds.advance();
-    expect(textOf(kds.screen)).toContain(EN['pairing.approved_body'].replace('{station}', 'Tandoor'));
-  });
-
-  it('[00 §10 #94] the served page logs out an admin session and clears sessionStorage before pairing, and uses neither randomUUID nor serviceWorker; after the logout call the admin token → 401', async () => {
+  it('[00 §10 #94] [05a H-1] the served page logs out an admin session and clears sessionStorage before pairing, and uses neither randomUUID nor serviceWorker; after the logout call the admin token → 401', async () => {
     const hub = await open();
     const page = await hub.app.inject({ method: 'GET', url: '/pair' });
     expect(page.statusCode).toBe(200);
@@ -341,28 +108,28 @@ describe('device pairing', () => {
     const boot = html.slice(html.lastIndexOf('openDeviceDb().then('));
     expect(boot.indexOf('/admin/auth/logout')).toBeGreaterThan(-1);
     expect(boot.indexOf('/admin/auth/logout')).toBeLessThan(boot.indexOf('pairScreen(db)'));
-    expect(boot.indexOf('/admin/auth/logout')).toBeLessThan(boot.indexOf('pairPhone(db, pairingToken)'));
     expect(html).toContain('sessionStorage.removeItem');
-    expect(html).toContain('crypto.getRandomValues');
     expect(html).toContain('indexedDB');
     expect(html).toContain('onupgradeneeded');
     expect(html).toContain('encodeCrockford128');
-    expect(html).toContain("readKey(db, 'pair_request_id')");
     const logoutAt = html.indexOf('/admin/auth/logout');
     expect(html.slice(logoutAt, logoutAt + 400)).toContain('authorization');
-    const noToken = html.match(/if \(!pairingToken\) \{[\s\S]*?return pairScreen\(db\);\s*\}/)?.[0] ?? '';
-    expect(noToken.indexOf('await resumePaired(db)')).toBeGreaterThan(-1);
+    expect(boot.indexOf('await resumePaired(db)')).toBeGreaterThan(-1);
+    expect(boot.indexOf('await resumePaired(db)')).toBeLessThan(boot.indexOf('pairScreen(db)'));
     const screenBlock = html.match(/function pairScreen\(db\) \{[\s\S]*?\n\}/)?.[0] ?? '';
     expect(screenBlock).toContain("fetchRetry('/pair/requests'");
     expect(screenBlock).toContain('retry_after_ms');
-    expect(html.match(/writeKey\(db, 'device_id'/g)?.length).toBe(2);
+    expect(html.match(/writeKey\(db, 'device_id'/g)?.length).toBe(1);
     expect(screenBlock).toContain('res.status !== 200');
     // 00 v1.9.2 §8.2 (Q-42, M53): the KDS entry owns the station session; this page never signs a station in.
     expect(html).not.toContain('/auth/station');
     expect(html).toContain('status === 404');
-    expect(html).toContain('Ask a manager');
-    expect(html).toContain('pairing.ios_title');
-    expect(html).toContain('pairing.token_expired');
+    // 05a H-1: no token branch: no POST /devices/pair, no `t` / `d` reading, no expired-QR screen.
+    expect(html).not.toContain('/devices/pair');
+    expect(html).not.toContain(".get('t')");
+    expect(html).not.toContain(".get('d')");
+    expect(html).not.toContain('function tokenExpired');
+    expect(html).not.toContain('function pairPhone');
     expect(html).not.toContain('randomUUID');
     expect(html).not.toContain('serviceWorker');
     expect(encodeCrockford128(new Uint8Array(16))).toBe('0'.repeat(26));
@@ -375,21 +142,7 @@ describe('device pairing', () => {
       headers: { 'x-admin-session': session.token },
     });
     expect(logout.statusCode).toBe(200);
-    const after = await hub.app.inject({
-      method: 'POST',
-      url: '/admin/commands/generate-device-pairing-token',
-      headers: { 'x-admin-session': session.token },
-      payload: {
-        command_id: 'cmd-after-logout',
-        tenant_id: 'tenant-a',
-        branch_id: 'branch-1',
-        command_type: 'GenerateDevicePairingToken',
-        payload: { device_type: 'tablet' },
-        occurred_at: hub.clock.branchNow(),
-        actor_id: 'S_OWNER',
-        device_id: 'hub-admin',
-      },
-    });
+    const after = await hub.app.inject({ method: 'GET', url: '/admin/queries/sessions', headers: { 'x-admin-session': session.token } });
     expect(after.statusCode).toBe(401);
   });
 });
@@ -401,37 +154,6 @@ async function open(): Promise<TestHub> {
   const device = pairDevice(hub, { type: 'tablet' });
   const session = openSession(hub, { kind: 'admin', staffId: 'S_OWNER', deviceId: device.deviceId });
   return Object.assign(hub, { adminDevice: device, adminSession: session });
-}
-
-async function pairingToken(
-  hub: TestHub & { adminDevice?: { deviceId: string; token: string }; adminSession?: { token: string } },
-  payload: Record<string, unknown>,
-  commandId = 'cmd-generate-device-pairing-token',
-): Promise<{ pairing_token: string; pairing_token_id: string }> {
-  const device = hub.adminDevice;
-  const session = hub.adminSession;
-  if (device === undefined || session === undefined) throw new Error('admin missing');
-  const response = await hub.app.inject({
-    method: 'POST',
-    url: '/admin/commands/generate-device-pairing-token',
-    headers: { authorization: `Bearer ${device.token}`, 'x-admin-session': session.token },
-    payload: {
-      command_id: commandId,
-      tenant_id: 'tenant-a',
-      branch_id: 'branch-1',
-      command_type: 'GenerateDevicePairingToken',
-      payload,
-      occurred_at: hub.clock.branchNow(),
-      actor_id: 'S_OWNER',
-      device_id: device.deviceId,
-    },
-  });
-  expect(response.statusCode).toBe(200);
-  return response.json().data.result as { pairing_token: string; pairing_token_id: string };
-}
-
-function pair(hub: TestHub, payload: Record<string, unknown>, headers: Record<string, string> = {}, remoteAddress?: string) {
-  return hub.app.inject({ method: 'POST', url: '/devices/pair', headers, payload, remoteAddress });
 }
 
 // ------------------------------------------------------------------------------------------- 00 v1.9.1 §8.2 (H8)
@@ -500,81 +222,31 @@ describe('pair page opens the staff or KDS entry (00 v1.9.1 / v1.9.2 §8.2; Q-13
     }
   });
 
-  it('[00 §10 #168] /pair?t=tok&d=tablet (00 v1.12.2, STAB-1): tablet texts, POST /devices/pair with device_type tablet, token stored, → /staff/; /pair?t=tok still sends phone', async () => {
-    const html = await pairHtml('?t=tok&d=tablet');
-    const sent: Array<Record<string, unknown>> = [];
-    const tablet = await runPage(html, {
-      search: '?t=tok&d=tablet',
-      fetch: (url, init) => {
-        if (url !== '/devices/pair') throw new Error(`unexpected ${url}`);
-        sent.push(JSON.parse((init as { body: string }).body));
-        return Promise.resolve(jsonResponse(200, { data: { device_id: 'T1', device_token: 'tablet-tok', device_type: 'tablet', owner_staff_id: null, owner_name: null } }));
-      },
-    });
-    const text = textOf(tablet.screen);
-    expect(text).toContain(EN['pairing.tablet_title']);
-    expect(text).toContain(EN['pairing.tablet_note']);
-    expect(text).not.toContain(EN['pairing.only_you']);
-    tablet.find('device_name')!.value = 'Pass 1';
-    await tablet.submit(tablet.findAll((child) => child.tagName === 'form')[0]!);
-    expect(sent[0]).toMatchObject({ pairing_token: 'tok', device_name: 'Pass 1', device_type: 'tablet' });
-    expect(tablet.store.get('token')).toBe('tablet-tok');
-    expect(tablet.store.get('device_type')).toBe('tablet');
-    expect(textOf(tablet.screen)).toContain(EN['pairing.paired_body_any']);
-    await drain(tablet);
-    expect(tablet.assigned).toEqual(['/staff/']);
-
-    const phoneSent: Array<Record<string, unknown>> = [];
-    const phone = await runPage(await pairHtml('?t=tok'), {
-      search: '?t=tok',
-      fetch: (_url, init) => {
-        phoneSent.push(JSON.parse((init as { body: string }).body));
-        return Promise.resolve(jsonResponse(200, { data: { device_id: 'P1', device_token: 'phone-tok', device_type: 'phone', owner_staff_id: 'S_WAIT', owner_name: 'Bilal' } }));
-      },
-    });
-    expect(textOf(phone.screen)).toContain(EN['pairing.only_you']);
-    phone.find('device_name')!.value = 'Bilal phone';
-    await phone.submit(phone.findAll((child) => child.tagName === 'form')[0]!);
-    expect(phoneSent[0]).toMatchObject({ device_type: 'phone' });
-  });
-
-  it('[00 §8.2 v1.9.1 Q-29] /pair?t= → POST /devices/pair 200 → /staff/; an already-paired phone opening /pair?t= → /staff/', async () => {
-    const html = await pairHtml('?t=tok');
-    const urls: string[] = [];
-    const phone = await runPage(html, {
-      search: '?t=tok',
-      fetch: (url) => {
-        urls.push(url);
-        return Promise.resolve(jsonResponse(200, { data: { device_id: 'P1', device_token: 'phone-tok', device_type: 'phone', owner_staff_id: 'S_WAIT', owner_name: 'Bilal' } }));
-      },
-    });
-    phone.find('device_name')!.value = 'Bilal phone';
-    await phone.submit(phone.findAll((child) => child.tagName === 'form')[0]!);
-    expect(urls).toEqual(['/devices/pair']);
-    expect(phone.store.get('token')).toBe('phone-tok');
-    expect(textOf(phone.screen)).toContain(EN['pairing.paired_title']);
-    expect(phone.assigned).toEqual([]);
-    await drain(phone);
-    expect(phone.assigned).toEqual(['/staff/']);
-
-    // a failed pair (401, expired QR) stays on the page
-    const expired = await runPage(html, { search: '?t=tok', fetch: () => Promise.resolve(jsonResponse(401, { error: { code: 'PAIRING_TOKEN_INVALID', details: {} } })) });
-    expired.find('device_name')!.value = 'Bilal phone';
-    await expired.submit(expired.findAll((child) => child.tagName === 'form')[0]!);
-    await drain(expired);
-    expect(expired.assigned).toEqual([]);
-
-    // phone rule 1: already paired → the token in the URL is ignored and the page opens /staff/
-    const again = await runPage(html, {
-      search: '?t=tok',
-      store: { token: 'phone-tok', device_id: 'P1', device_type: 'phone' },
-      fetch: (url) => {
-        throw new Error(`unexpected ${url}`);
-      },
-    });
-    expect(textOf(again.screen)).toContain(EN['pairing.paired_title']);
-    await drain(again);
-    expect(again.assigned).toEqual(['/staff/']);
+  it('[05a #1] [05a H-1] an old token link /pair?t=tok&d=tablet has no phone form: it asks for a pairing request like /pair, never POST /devices/pair', async () => {
+    for (const search of ['?t=tok&d=tablet', '?t=tok']) {
+      const html = await pairHtml(search);
+      const urls: string[] = [];
+      const page = await runPage(html, {
+        search,
+        fetch: (url) => {
+          urls.push(url);
+          if (url === '/pair/requests') {
+            return Promise.resolve(jsonResponse(200, { data: { request_id: 'R1', poll_secret: 'p', display_code: 'ABCDEF', approve_qr_svg: '<svg></svg>', expires_at: Date.now() + 600_000 } }));
+          }
+          if (url === '/pair/requests/R1') {
+            return Promise.resolve(jsonResponse(200, { data: { status: 'approved', device_id: 'T1', device_token: 'tok-1', device_type: 'tablet', station_id: null, screens: ['dine_in'] } }));
+          }
+          throw new Error(`unexpected ${url}`);
+        },
+      });
+      expect(page.find('device_name'), search).toBeUndefined();
+      for (let i = 0; i < 40 && page.store.get('token') === undefined; i += 1) await page.advance();
+      expect(page.store.get('token'), search).toBe('tok-1');
+      await drain(page);
+      expect(page.assigned, search).toEqual(['/staff/']);
+      expect(urls[0], search).toBe('/pair/requests');
+      expect(urls, search).not.toContain('/devices/pair');
+    }
   });
 
   // ----------------------------------------------------------------------------------------- 00 v1.9.2 §8.2 (HK4)

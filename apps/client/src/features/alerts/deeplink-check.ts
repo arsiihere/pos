@@ -33,7 +33,8 @@ export interface CheckDeps {
 export type Preload = { order_view: OrderViewBody } | { zone_stock: ZoneStockBody[] };
 
 export type CheckResult =
-  | { kind: 'open'; href: string; focus: StaffFocus; preload?: Preload }
+  /** `focus` null: a route with no place to glow (05a §3.10 `{ type: 'devices' }` → `#/devices`) */
+  | { kind: 'open'; href: string; focus: StaffFocus | null; preload?: Preload }
   | { kind: 'not_open' }
   /** §3.13.3 / rule 4 (B2): the request itself is closed; the only result that stops an AnswerSheet */
   | { kind: 'request_closed' }
@@ -174,5 +175,9 @@ export async function checkTarget(row: CheckRow, deps: CheckDeps): Promise<Check
       return checkZoneItem(target.zone_id, target.item_id, deps);
     case 'table':
       return checkTable(row, target.table_id, target.seating_id, deps);
+    case 'devices':
+      // 05a §3.10 (row D-3): always open, no read (01d v1.3.5 §3.13.3 row `devices`, owner Q-2 (a)): `#/devices`, no
+      // focus. (`tapAlert` routes it to #/devices before any check, task 31.)
+      return { kind: 'open', href: '/devices', focus: null };
   }
 }

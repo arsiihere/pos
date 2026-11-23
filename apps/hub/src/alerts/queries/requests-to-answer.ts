@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registry.js';
 import { dayStartOf, FROM_DAY_COLUMN, fromBusinessDay, NOT_HIDDEN, PERSON_COLUMNS, placeOf, seenByMe } from '../catch-up.js';
 import { kindOf } from '../kinds.js';
-import { mayAnswer, type AlertRequestPart } from '../targets.js';
+import { isListedDevice, mayAnswer, type AlertRequestPart } from '../targets.js';
 import { cardRule, lockOnlyView, safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
 
 // 01d §6.9 `GET /queries/requests-to-answer` (AD-13: `data.requests`, view + can_answer + seen_by_me; BF-4 /
@@ -18,6 +18,9 @@ import { cardRule, lockOnlyView, safeBuild, signedInView, type ViewRow } from '.
 //   gets my signed-in view (card with details, AD-23 fields); a read-only row, or any row on a device that is
 //   a device target of the request (a kiosk, an always-on tablet), gets the lock-only view. Each row + `seen_by_me`
 //   (catch-up.ts seenByMe) + `from_business_day`.
+// - ⚠️ Changed by 05a (row D-2; 05a §3.9 rule 3, M-5): on a device that is not `listed` (`everyone`, or no profile,
+//   R-1; the in-memory `deviceProfile`, no statement), money requests (`needs_pin: 'always'`) are omitted: they
+//   cannot be answered there (§3.9 rule 2).
 // - Never a row hidden from this session or device (§3.10; a request is never hidden in practice, the filter
 //   is the catch-up's). Order: raised_at, then alert_id (oldest waiting first).
 // Statements: 2 ((1) every open request by index alerts_open_requests, with my latest set, my seen and the
@@ -66,10 +69,13 @@ function build(ctx: QueryCtx, branchId: string): z.infer<typeof RequestsToAnswer
   }) as DbRow[];
   const inbox = new Set(ctx.db.prepare(INBOX_SQL).pluck().all({ staff_id: staffId }) as string[]);
   const requests: Array<z.infer<typeof RequestToAnswerRow>> = [];
+  const listed = isListedDevice(ctx.device.device_id);
   for (const row of open) {
     const kind = kindOf(row.kind);
     if (kind === undefined) continue; // P-8: an unknown kind has no labels
-    const can = mayAnswer(ctx.directory, JSON.parse(row.request_json) as AlertRequestPart, row.requester_staff_id, staffId).ok;
+    const request = JSON.parse(row.request_json) as AlertRequestPart;
+    if (!listed && request.needs_pin === 'always') continue; // 05a §3.9 rule 3: no money request on a shared device
+    const can = mayAnswer(ctx.directory, request, row.requester_staff_id, staffId).ok;
     if (!can && !inbox.has(row.alert_id)) continue;
     const place = { escalation: kind.steps[row.step]?.escalation === true, ...placeOf(row.mine_json, can ? 'answerer' : 'informed') };
     const card = cardRule({ deviceTarget: row.to_device === 1, set: place.set, for_staff_id: place.for_staff_id, request: true, canAnswer: can });

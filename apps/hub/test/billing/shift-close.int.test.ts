@@ -20,7 +20,7 @@ import { createProjectionRegistry } from '../../src/projections/registry';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
-import type { TestHub } from '../helpers/test-hub';
+import { appendDeviceProfile, endSessionNow, type TestHub } from '../helpers/test-hub';
 import { append as appendRaw, openVoidsDay } from '../voids/fixtures';
 import {
   answer,
@@ -704,18 +704,17 @@ describe('[05 §6.17, #46, #50, #50d] CountShift — counts and closes in one tr
 // ================================================================================================= the sign-off
 
 describe('[05 §3.14 shift_variance, #50, #50b, #50c, #47b] the sign-off apply', () => {
-  it("[05 #50] a Manager approves in person on the Cashier's kiosk (actor Cashier ≠ answerer Manager) → ShiftVarianceSignedOff { approved, approver = answerer, business_date = today }; never reopens", async () => {
-    const { cashier, drawer } = await start();
+  it("[05 #50] a Manager approves by his PIN on his own seat (05a D-2: was in person on the Cashier's kiosk) → ShiftVarianceSignedOff { approved, approver = answerer, business_date = today }; never reopens", async () => {
+    const { cashier, manager, drawer } = await start();
     const today = hub.deps.state.get().business_day!.business_date;
     const alert_id = (
       (await count(cashier, { shift_id: drawer, counted_minor: 700_000 }))
         .result!.sign_off as { alert_id: string }
     ).alert_id;
-    const a = await post(hub, cashier, 'answer-request', 'AnswerRequest', {
+    const a = await post(hub, manager, 'answer-request', 'AnswerRequest', {
       alert_id,
       decision: 'approve',
-      method: 'in_person',
-      answerer_staff_id: STAFF.manager,
+      method: 'pin',
       pin: PIN.b,
     });
     expect(a.status, JSON.stringify(a.error)).toBe(200);
@@ -726,7 +725,7 @@ describe('[05 §3.14 shift_variance, #50, #50b, #50c, #47b] the sign-off apply',
     expect(signed[0]).toMatchObject({
       stream_type: 'shift',
       stream_id: drawer,
-      actor_id: STAFF.cashier,
+      actor_id: STAFF.manager,
     });
     expect(signed[0]!.payload).toEqual({
       shift_id: drawer,
@@ -747,6 +746,33 @@ describe('[05 §3.14 shift_variance, #50, #50b, #50c, #47b] the sign-off apply',
         business_date: today,
       }),
     ]);
+  });
+
+  it('[05a #28, §3.3 N-8, §3.9 rule 2] on an `everyone` kiosk a Manager counts and closes another cashier\'s shift with a variance; the sign-off is raised and is answered from a listed device, never from the kiosk', async () => {
+    const { kiosk, cashier, owner, drawer } = await start();
+    appendDeviceProfile(hub, kiosk.deviceId, { access: 'everyone', screens: ['takeaway', 'cashier'] });
+    // the counter: the Manager takes the kiosk and counts the Cashier's drawer (close-shift-for-others is not masked)
+    endSessionNow(hub, cashier.sessionId);
+    const managerOnKiosk = signInOn(hub, STAFF.manager, kiosk);
+    seats.push(managerOnKiosk);
+    const counted = await count(managerOnKiosk, { shift_id: drawer, counted_minor: 700_000 });
+    expect(counted.status, JSON.stringify(counted.error)).toBe(200);
+    const alert_id = (counted.result!.sign_off as { alert_id: string }).alert_id;
+    expect(shiftRow(drawer)).toMatchObject({ state: 'closed', variance_state: 'pending' });
+    // from the kiosk: refused before any PIN, for the counter and for another approver who signs in there
+    const fromKiosk = await answer(hub, managerOnKiosk, alert_id, 'approve');
+    expect(fromKiosk.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'listed_device_only' } });
+    endSessionNow(hub, managerOnKiosk.sessionId);
+    const ownerOnKiosk = signInOn(hub, OWNER, kiosk);
+    seats.push(ownerOnKiosk);
+    const ownerKiosk = await answer(hub, ownerOnKiosk, alert_id, 'approve');
+    expect(ownerKiosk.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'listed_device_only' } });
+    expect(db().prepare('SELECT COUNT(*) FROM auth_lockouts').pluck().get()).toBe(0);
+    expect(db().prepare("SELECT COUNT(*) FROM events WHERE event_type IN ('RequestPinFailed', 'ShiftVarianceSignedOff')").pluck().get()).toBe(0);
+    // from the Owner's own listed tablet: answered
+    const a = await answer(hub, owner, alert_id, 'approve');
+    expect(a.status, JSON.stringify(a.error)).toBe(200);
+    expect(a.events.find((e) => e.event_type === 'ShiftVarianceSignedOff')?.payload).toMatchObject({ outcome: 'approved', approver_staff_id: OWNER, alert_id });
   });
 
   it('[05 #50, Q-4] reject → ShiftVarianceSignedOff { disputed }: a record only — the shift stays closed, no recount (a second CountShift is refused)', async () => {

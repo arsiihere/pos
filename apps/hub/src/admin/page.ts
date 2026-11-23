@@ -25,13 +25,14 @@ const ctx = ${scriptJson(ctx)};
 const screen = document.getElementById('screen');
 const KDS_SILENT_MS = 120000; // Q8: a kitchen screen unseen for 2 min gets a warning
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const state = { auth: null, deviceId: null, data: {}, tiles: {}, loadedAt: null, offline: false, notice: null, showRemoved: false, devicesWithRemoved: false, removedCount: null, lockoutsOpen: false, stopReconnect: null };
+const SCREEN_KEY = { dine_in: 'screen.dine_in', takeaway: 'screen.takeaway', parking: 'screen.parking', cashier: 'screen.cashier', pass: 'screen.pass', manager: 'screen.manager' };
+const state = { recovery: false, auth: null, deviceId: null, data: {}, tiles: {}, loadedAt: null, offline: false, notice: null, showRemoved: false, devicesWithRemoved: false, removedCount: null, lockoutsOpen: false, stopReconnect: null };
 function phone() {
   return typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches;
 }
 function view() {
   const name = (location.hash || '').replace(/^#/, '');
-  return ['devices', 'add-phone', 'add-tablet', 'sessions', 'lockouts'].includes(name) ? name : 'home';
+  return ['devices', 'sessions', 'lockouts'].includes(name) ? name : 'home';
 }
 function go(name) {
   state.notice = null;
@@ -129,8 +130,6 @@ function link(label, className, iconName, target) {
 const NEEDS = {
   home: ['devices', 'sessions', 'lockouts'],
   devices: ['devices', 'stations'],
-  'add-phone': ['staff'],
-  'add-tablet': [], // 00 v1.12.2 (STAB-1): nothing to pick
   sessions: ['sessions', 'stations'],
   lockouts: ['lockouts', 'staff'],
 };
@@ -251,7 +250,7 @@ function nav(current) {
   const item = (name, iconName, key) => {
     const a = node('a', 'pos-sidenav__item');
     a.href = name === 'home' ? '#' : '#' + name;
-    if (name === current || (name === 'devices' && (current === 'add-phone' || current === 'add-tablet'))) a.setAttribute('aria-current', 'page');
+    if (name === current) a.setAttribute('aria-current', 'page');
     a.appendChild(icon(iconName));
     a.appendChild(document.createTextNode(t(key)));
     if (counts[name] !== null && counts[name] !== undefined) {
@@ -638,14 +637,12 @@ function home() {
     count === 0 ? null : chip('danger', 'lock', first && count === 1 ? t('admin.locked_chip', { name: first.display_name, min: minutesLeft(first.locked_until) }) : t('admin.locked_many', { n: count })));
   const signed = countWords('admin.tile_sessions', state.data.sessions ? state.data.sessions.sessions.length : 0);
   tile('sessions', 'user', 'admin.nav_sessions', signed.num, signed.words);
-  if (can('manage-devices')) tile('add-phone', 'qr', 'admin.tile_add_phone_title', null, t('admin.tile_add_phone'));
-  if (can('manage-devices')) tile('add-tablet', 'tablet', 'admin.tile_add_tablet_title', null, t('admin.tile_add_tablet'));
   for (const p of modulePages()) {
     const data = state.tiles[p.name];
     const line = data ? tileLine(p.name, data) : NO_LINE;
     tile(p.href, p.icon, p.key, line.num, line.small, line.chipNode);
   }
-  const parts = [tiles];
+  const parts = adminWarnings().concat([tiles]);
   // A phone has no side nav: the other jobs, the hub line and Sign out stay under the tiles.
   if (phone()) {
     const others = otherLinks('pos-btn pos-btn--block');
@@ -660,6 +657,56 @@ function home() {
   }
   const end = can('manage-devices') ? [link(phone() ? t('devices.approve_short') : t('devices.approve'), 'pos-btn--primary', 'plus', '/admin/approve')] : [];
   frame('home', 'admin.title', end, parts);
+}
+// 05a §6.11: "Recover admin access" at zero admin devices. The roster's recovery_available shows it (this tab's device
+// token is the credential); the first press makes the link and shows it as a QR, a second says when it stops working.
+function recoverControl() {
+  const box = node('div', 'pos-stack pos-admin__recover');
+  box.name = 'recover';
+  const out = node('div', 'pos-stack');
+  out.name = 'recover_out';
+  const press = async () => {
+    let res;
+    try {
+      res = await call('/admin/recovery-link', { method: 'POST', headers: state.auth });
+    } catch {
+      return out.replaceChildren(banner('danger', t('devices.recover_failed')));
+    }
+    const data = res.body && res.body.data;
+    if (res.status === 200 && data && data.already_issued_until !== undefined) {
+      return out.replaceChildren(banner('info', t('devices.recover_until', { time: hhmm(data.already_issued_until) })));
+    }
+    if (res.status === 200 && data && data.first_admin_url) {
+      const qr = node('div', 'pos-qr');
+      qr.name = 'recover_qr';
+      qr.innerHTML = data.first_admin_qr_svg || '';
+      const url = node('a', 'pos-link', data.first_admin_url);
+      url.href = data.first_admin_url;
+      return out.replaceChildren(node('p', 'caption', t('devices.recover_scan')), qr, url);
+    }
+    if (res.status === 403) {
+      state.recovery = false;
+      return box.replaceChildren();
+    }
+    out.replaceChildren(banner('danger', t('devices.recover_failed')));
+  };
+  const b = button(t('devices.recover'), 'pos-btn--primary', 'lock', press);
+  b.name = 'recover_admin';
+  box.appendChild(b);
+  box.appendChild(out);
+  return box;
+}
+// M-8 (§6.8 admin_warning): 0 or 1 unrevoked listed devices whose people can manage devices.
+function adminWarnings() {
+  const data = state.data.devices;
+  const parts = [];
+  if (!data) return parts;
+  if (data.admin_warning === 0) {
+    parts.push(banner('danger', t('devices.warn_none')));
+    if (state.recovery && state.auth && state.auth.authorization) parts.push(recoverControl());
+  }
+  if (data.admin_warning === 1) parts.push(banner('warn', t('devices.warn_one')));
+  return parts;
 }
 // --- 00-S16 devices ---
 const GROUPS = [['cashier_kiosk', 'devices.group_cashier'], ['kds', 'devices.group_kitchen'], ['tablet', 'devices.group_tablet'], ['phone', 'devices.group_phone']];
@@ -701,13 +748,9 @@ function devicesView() {
   const manage = can('manage-devices') && !state.offline;
   const all = state.data.devices ? state.data.devices.devices : null;
   const tabs = deviceTabs(all);
-  const addPhone = () => link(t('devices.add_phone'), '', 'qr', 'add-phone');
-  const actions = [];
-  if (can('manage-devices')) {
-    actions.push(addPhone());
-    actions.push(link(t('devices.add_tablet'), '', 'tablet', 'add-tablet')); // 00 v1.12.2 (STAB-1)
-    actions.push(link(phone() ? t('devices.approve_short') : t('devices.approve'), 'pos-btn--primary', 'plus', '/admin/approve'));
-  }
+  // 05a H-1: every device pairs by request; Add a phone and Add a tablet (STAB-1) are gone.
+  const approve = () => link(phone() ? t('devices.approve_short') : t('devices.approve'), 'pos-btn--primary', 'plus', '/admin/approve');
+  const actions = can('manage-devices') ? [approve()] : [];
   const parts = [];
   if (phone()) {
     if (actions.length > 0) {
@@ -718,6 +761,7 @@ function devicesView() {
     parts.push(tabs);
   }
   if (!can('manage-devices')) parts.push(banner('info', t('devices.read_only'), t('devices.read_only_body')));
+  for (const part of adminWarnings()) parts.push(part);
   const end = phone() ? [] : [tabs].concat(actions);
   if (all === null) {
     parts.push(skeleton(4, 'pos-list--devices', DEVICE_HEADS));
@@ -730,6 +774,19 @@ function devicesView() {
     return frame('devices', 'devices.title', end, parts);
   }
   const live = all.filter((d) => d.revoked_at === null);
+  // §6.8: requests waiting for approval (never their code); each opens the approve form for that request.
+  const waiting = state.data.devices.pending_requests || [];
+  if (waiting.length > 0 && can('manage-devices')) {
+    ul.appendChild(node('li', 'pos-list__group', t('devices.pending_title')));
+    for (const r of waiting) {
+      const li = node('li', 'pos-list__row');
+      li.name = 'request_' + r.request_id;
+      const go = link(t('devices.approve_short'), 'pos-btn--primary', 'plus', '/admin/approve?r=' + encodeURIComponent(r.request_id));
+      li.appendChild(nameBlock(TYPE_ICON[r.hardware_hint] || 'screen', r.device_name, []));
+      li.appendChild(go);
+      ul.appendChild(li);
+    }
+  }
   for (const [key, devices] of GROUPS.map(([type, groupKey]) => [groupKey, live.filter((d) => d.device_type === type)])) {
     if (devices.length === 0) continue;
     const group = node('li', 'pos-list__group', t(key));
@@ -752,7 +809,7 @@ function devicesView() {
     callout.appendChild(text);
     if (can('manage-devices') && !phone()) {
       const act = node('div', 'pos-callout__actions');
-      act.appendChild(addPhone());
+      act.appendChild(approve());
       callout.appendChild(act);
     }
     parts.push(callout);
@@ -770,22 +827,29 @@ function deviceRow(d, manage) {
   const seenText = ago(d.last_seen_at);
   const notSeen = silent ? chip('warn', 'clock', t('devices.not_seen', { n: d.last_seen_at === null ? '—' : Math.floor((Date.now() - d.last_seen_at) / 60000) })) : null;
   const who = d.active_session ? (d.active_session.kind === 'station' ? t('devices.kitchen_session') : d.active_session.display_name || '—') : t('devices.nobody');
-  // 00 v1.9.2 §8.2 (Q-43): a tablet can become a Pass tablet on the Kitchen screens page (its bind dialog).
+  // 05a K-2 (§8): Pass is set on the device itself; every non-kds row links to its edit form (the staff #/devices page).
   let passLink = null;
-  if (!removed && d.device_type === 'tablet' && modulePages().some((p) => p.name === 'kitchenScreens')) {
-    passLink = node('a', 'pos-link', t('devices.use_as_pass'));
-    passLink.href = '/admin/kitchen-screens/#bind=' + encodeURIComponent(d.device_id);
+  if (!removed && d.device_type !== 'kds' && can('manage-devices')) {
+    passLink = node('a', 'pos-link', t('devices.edit'));
+    passLink.name = 'edit_' + d.device_id;
+    passLink.href = '/staff/#/devices?edit=' + encodeURIComponent(d.device_id);
   }
+  // §6.8: who can sign in and the screens, from the profile (a kitchen screen has none).
+  const profileText = d.device_type === 'kds' || !d.access ? null
+    : (d.access === 'listed' ? t('devices.access_listed', { names: (d.people || []).map((p) => p.display_name).join(', ') }) : t('devices.access_everyone'))
+      + ' · ' + (d.screens || []).map((key) => t(SCREEN_KEY[key])).join(', ');
+  if (d.needs_review && !removed) tags.push(chip('warn', 'alert', t('devices.needs_review')));
   // ⋯ holds the rare facts (paired, how) and Remove; read-only admins get no menu (frame DevicesReadOnly).
   const more = removed || !can('manage-devices') ? null : moreMenu(li, {
     name: 'more_' + d.device_id,
     label: t('devices.more', { name: d.device_name }),
     title: d.device_name,
-    info: { title: t('devices.menu_paired', { date: day(d.paired_at), name: d.paired_by_name || '—' }), detail: t(d.pairing_source === 'request' ? 'devices.source_request' : 'devices.source_token') },
+    info: { title: t('devices.menu_paired', { date: day(d.paired_at), name: d.paired_by_name || '—' }), detail: profileText },
     items: [{ name: 'remove_' + d.device_id, label: t('devices.menu_remove', { name: d.device_name }), icon: 'x', danger: true, disabled: !manage, onSelect: () => removeDialog(d) }],
   });
   if (phone()) {
     const lines = [deviceType(d)];
+    if (profileText && !removed) lines.push(profileText);
     if (!removed && !notSeen) lines.push(seenText + ' · ' + who);
     if (passLink) lines.push(passLink);
     if (notSeen) tags.push(notSeen);
@@ -796,7 +860,7 @@ function deviceRow(d, manage) {
     li.appendChild(row);
     return li;
   }
-  li.appendChild(nameBlock(TYPE_ICON[d.device_type], d.device_name, passLink ? [deviceType(d), passLink] : [deviceType(d)], tags));
+  li.appendChild(nameBlock(TYPE_ICON[d.device_type], d.device_name, [deviceType(d)].concat(profileText && !removed ? [profileText] : [], passLink ? [passLink] : []), tags));
   if (removed) {
     const box = node('div', 'pos-list__tags pos-admin__span3');
     box.appendChild(removedChip);
@@ -867,161 +931,6 @@ function removeDialog(d) {
     focus: reason,
     onConfirm: run,
   });
-}
-// --- 00-S17 add a phone ---
-let picked = null;
-let qr = null;
-function addPhoneView() {
-  const back = link(t('admin.nav_devices'), '', '', 'devices');
-  if (qr && !qr.tablet) return qrView(back);
-  const section = node('section', 'pos-admin__section pos-admin__pick');
-  const head = node('div', 'pos-section__head');
-  head.appendChild(node('h2', '', t('addphone.who')));
-  head.appendChild(node('p', '', t('addphone.who_sub')));
-  section.appendChild(head);
-  const search = node('label', 'pos-input-affix pos-admin__find');
-  const lens = node('span');
-  lens.appendChild(icon('search'));
-  search.appendChild(lens);
-  const find = node('input', 'pos-input');
-  find.type = 'search';
-  find.name = 'find';
-  find.setAttribute('aria-label', t('addphone.find'));
-  find.setAttribute('placeholder', t('addphone.find'));
-  search.appendChild(find);
-  section.appendChild(search);
-  const grid = node('div', 'pos-staff pos-admin__staff');
-  section.appendChild(grid);
-  const staff = state.data.staff ? state.data.staff.staff : null;
-  const bar = node('footer', 'pos-actionbar');
-  const info = node('div', 'pos-actionbar__info');
-  const make = button(t('addphone.make_qr'), 'pos-btn--primary pos-btn--lg', 'qr', makeQr);
-  make.name = 'make_qr';
-  const sub = (member) => (member.role_names[0] ? member.role_names[0] + ' · ' : '') + (member.phone_count === 0 ? t('addphone.no_phone') : t(member.phone_count === 1 ? 'addphone.has_phones' : 'addphone.has_phones_many', { n: member.phone_count }));
-  const paintInfo = () => {
-    make.disabled = picked === null || state.offline || !can('manage-devices');
-    if (picked === null) return info.replaceChildren(node('span', '', t('addphone.pick')));
-    info.replaceChildren(node('strong', '', picked.display_name), document.createTextNode(sub(picked)));
-  };
-  const paintTiles = () => {
-    grid.replaceChildren();
-    if (staff === null) return grid.appendChild(skeleton(3));
-    const q = find.value.trim().toLowerCase();
-    for (const member of staff.filter((m) => m.display_name.toLowerCase().includes(q))) {
-      const tile = node('button', 'pos-staff__tile', member.display_name);
-      tile.type = 'button';
-      tile.setAttribute('aria-pressed', String(picked !== null && picked.staff_id === member.staff_id));
-      tile.appendChild(node('small', '', sub(member)));
-      tile.addEventListener('click', () => {
-        picked = member;
-        paintTiles();
-        paintInfo();
-      });
-      grid.appendChild(tile);
-    }
-  };
-  find.addEventListener('input', paintTiles);
-  paintTiles();
-  paintInfo();
-  bar.appendChild(info);
-  const end = node('div', 'pos-actionbar__end');
-  end.appendChild(make);
-  bar.appendChild(end);
-  frame('add-phone', 'admin.tile_add_phone_title', phone() ? [] : [back], [section], bar);
-}
-// --- 00 v1.12.2 (STAB-1) add a shared tablet: no owner to pick, one tap makes the QR ---
-function addTabletView() {
-  const back = link(t('admin.nav_devices'), '', '', 'devices');
-  if (qr && qr.tablet) return qrView(back);
-  const section = node('section', 'pos-admin__section');
-  const head = node('div', 'pos-section__head');
-  head.appendChild(node('h2', '', t('admin.tile_add_tablet_title')));
-  head.appendChild(node('p', '', t('addtablet.intro')));
-  section.appendChild(head);
-  const bar = node('footer', 'pos-actionbar');
-  bar.appendChild(node('div', 'pos-actionbar__info'));
-  const make = button(t('addphone.make_qr'), 'pos-btn--primary pos-btn--lg', 'qr', makeQr);
-  make.name = 'make_qr';
-  make.disabled = state.offline || !can('manage-devices');
-  const end = node('div', 'pos-actionbar__end');
-  end.appendChild(make);
-  bar.appendChild(end);
-  frame('add-tablet', 'admin.tile_add_tablet_title', phone() ? [] : [back], [section], bar);
-}
-let qrCommand = null;
-async function makeQr() {
-  const tablet = view() === 'add-tablet';
-  const key = tablet ? 'tablet' : picked.staff_id;
-  // One command_id per tap; Try again after "Hub busy" repeats it.
-  const id = qrCommand && qrCommand.key === key && qrCommand.pending ? qrCommand.id : newCommandId();
-  qrCommand = { id, key, pending: true };
-  const payload = tablet ? { device_type: 'tablet' } : { device_type: 'phone', owner_staff_id: picked.staff_id };
-  const outcome = await command('generate-device-pairing-token', 'GenerateDevicePairingToken', payload, id);
-  if (outcome === null) return;
-  if (outcome.error && outcome.error.code === 'SERVICE_UNAVAILABLE') {
-    busyNotice(makeQr);
-    return paint();
-  }
-  qrCommand = null;
-  if (outcome.error) {
-    notice('danger', errorText(outcome.error));
-    return paint();
-  }
-  qr = { tablet, name: tablet ? null : picked.display_name, svg: outcome.result.pair_qr_svg, url: outcome.result.pair_url, expires_at: outcome.result.expires_at };
-  paint();
-}
-function qrView(back) {
-  const small = phone();
-  const code = node('div', 'pos-code pos-admin__qr');
-  const where = qr.tablet ? 'add-tablet' : 'add-phone';
-  code.appendChild(node('h2', small ? 'heading' : 'title', qr.tablet ? t('addtablet.scan_title') : t('addphone.scan_title', { name: qr.name })));
-  code.appendChild(node('p', 'body pos-admin__muted', t(qr.tablet ? 'addtablet.scan_body' : 'addphone.scan_body')));
-  const expired = Date.now() >= qr.expires_at;
-  if (expired) {
-    code.appendChild(node('div', 'pos-code__qr pos-code__qr--void', t('addphone.expired_qr')));
-    code.appendChild(chip('danger', 'clock', t('addphone.expired')));
-  } else {
-    const box = node('div', 'pos-code__qr');
-    box.innerHTML = qr.svg;
-    code.appendChild(box);
-    const valid = chip('warn', 'clock', '');
-    valid.name = 'qr_valid';
-    const tick = () => {
-      if (view() !== where || !qr) return;
-      if (Date.now() >= qr.expires_at) return paint();
-      const parts = T['addphone.valid'].split('{time}');
-      valid.replaceChildren(icon('clock'), document.createTextNode(parts[0]), ltr(mmss(qr.expires_at - Date.now())), document.createTextNode(parts[1] || ''));
-      setTimeout(tick, 1000);
-    };
-    tick();
-    code.appendChild(valid);
-    // pair_url is RARE: one quiet "Show link" button reveals it (no Copy: insecure origin).
-    const linkBox = node('div', 'pos-admin__link');
-    const show = button(t('addphone.show_link'), 'pos-btn--quiet', 'link', () => {
-      const url = node('p', 'pos-mono-wrap', qr.url);
-      url.name = 'pair_url';
-      linkBox.replaceChildren(url);
-    });
-    show.name = 'show_link';
-    linkBox.appendChild(show);
-    code.appendChild(linkBox);
-  }
-  const again = button(t('addphone.new_qr'), expired ? 'pos-btn--primary pos-btn--lg pos-btn--block' : 'pos-btn--lg pos-btn--block', 'reload', makeQr);
-  if (state.offline) again.disabled = true;
-  const actions = node('div', 'pos-admin__qracts');
-  actions.appendChild(again);
-  if (!expired) {
-    actions.appendChild(button(t('addphone.done'), 'pos-btn--primary pos-btn--lg pos-btn--block', 'check', () => {
-      qr = null;
-      picked = null;
-      go('devices');
-    }));
-  }
-  code.appendChild(actions);
-  if (small) return frame(where, qr.tablet ? 'devices.add_tablet' : 'devices.add_phone', [], [code]);
-  const card = node('section', 'pos-card pos-admin__qrcard');
-  card.appendChild(code);
-  frame(where, qr.tablet ? 'admin.tile_add_tablet_title' : 'admin.tile_add_phone_title', [back], [card]);
 }
 // --- 00-S18 sessions ---
 const SESSION_HEADS = ['sessions.col_who', 'sessions.col_on', 'sessions.col_activity', ''];
@@ -1228,7 +1137,7 @@ function unlockDialog(item) {
   });
 }
 // --- sign-in, sign-out, routing ---
-const VIEWS = { home, devices: devicesView, 'add-phone': addPhoneView, 'add-tablet': addTabletView, sessions: sessionsView, lockouts: lockoutsView };
+const VIEWS = { home, devices: devicesView, sessions: sessionsView, lockouts: lockoutsView };
 function paint() {
   VIEWS[view()]();
 }
@@ -1245,6 +1154,8 @@ function signIn() {
     left.appendChild(node('h1', 'title', t('approve.who')));
     const roster = node('div', 'pos-staff');
     left.appendChild(roster);
+    const recoverSlot = node('div');
+    left.appendChild(recoverSlot);
     const card = node('form', 'pos-card pos-stack');
     card.addEventListener('submit', (event) => event.preventDefault());
     const split = node('div', 'pos-split');
@@ -1257,7 +1168,15 @@ function signIn() {
     adminSignIn({
       roster,
       card,
-      load: () => call('/admin/login-roster', { headers: state.auth }),
+      load: async () => {
+        const res = await call('/admin/login-roster', { headers: state.auth });
+        // §6.11 (v1.0.3 G-g): the 200 roster says it, and so does the 403 listed_device_only of an everyone device.
+        const says = res.status === 200 ? res.body.data.recovery_available
+          : res.status === 403 && res.body.error && res.body.error.details ? res.body.error.details.recovery_available : false;
+        state.recovery = says === true && Boolean(state.auth.authorization);
+        recoverSlot.replaceChildren(...(state.recovery ? [recoverControl()] : []));
+        return res;
+      },
       login: (staffId, pin) => call('/admin/auth', { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, state.auth), body: JSON.stringify({ staff_id: staffId, pin }) }),
       onDone: (data) => {
         sessionStorage.setItem('admin_session_token', data.admin_session_token);

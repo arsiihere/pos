@@ -154,8 +154,6 @@ describe('online-only answers', () => {
     type(pad, '4711');
     await sender.answer({ alert_id: 'A1', decision: 'approve', method: 'pin' }, pad);
     await sender.answer({ alert_id: 'A2', decision: 'accept', method: 'session' });
-    type(pad, '123456');
-    await sender.answer({ alert_id: 'A3', decision: 'reject', method: 'in_person', answerer_staff_id: 'S-SANA' }, pad);
 
     const [url, init] = fetch.mock.calls[0]!;
     expect(url).toBe('http://hub.local/commands/answer-request');
@@ -177,10 +175,6 @@ describe('online-only answers', () => {
       device_id: 'D1',
     });
     expect(bodies[1]).toMatchObject({ command_id: 'CMD2', payload: { alert_id: 'A2', decision: 'accept', method: 'session' } });
-    expect(bodies[2]).toMatchObject({
-      command_id: 'CMD3',
-      payload: { alert_id: 'A3', decision: 'reject', method: 'in_person', answerer_staff_id: 'S-SANA', pin: '123456' },
-    });
     noStorageWrites();
   });
 

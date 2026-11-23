@@ -750,7 +750,7 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
 
   // -------------------------------------------------------------------------------------------- #55
 
-  it('[01d #55; AD-164] in person on the raising tablet: answered_on_requester_device and a silent approval_receipt reach Imran on his screen and bound tablet, never on a short-code route (pager); in person from tablet B → 403 in_person_elsewhere, no PIN verified, nothing counted', async () => {
+  it('[01d #55; AD-164] Imran answers with his PIN on the raising tablet (05a D-2: was in person): answered_on_requester_device and a silent approval_receipt reach Imran on his screen and bound tablet, never on a short-code route (pager); in person, from tablet B or the raising tablet → 403 in_person_removed, no PIN verified, nothing counted', async () => {
     const hamza = seat(WAIT, 'Hamza tablet');
     const imranTab = device('tablet', 'Imran tablet');
     const imran = signIn(MGR, imranTab);
@@ -761,17 +761,20 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
     await fence();
     const before = new Map(clients.map((c) => [c, alertFrames(c).length]));
 
-    // tablet B: Hamza signed in as himself on another tablet → 403 before any PIN check
+    // 05a D-2: in person is removed, on another tablet and on the raising one → 403 before any PIN check
     const tabletB = seat(WAIT, 'tablet B');
-    const elsewhere = await answer(tabletB, inPerson(id, MGR, PIN.b));
-    expect(elsewhere.statusCode).toBe(403);
-    expect(elsewhere.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED', details: { reason: 'in_person_elsewhere' } } });
+    for (const from of [tabletB, hamza]) {
+      const refused = await answer(from, inPerson(id, MGR, PIN.b));
+      expect(refused.statusCode).toBe(403);
+      expect(refused.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED', details: { reason: 'in_person_removed' } } });
+    }
     expect(verifySpy).not.toHaveBeenCalled();
     expect(hub.deps.db.prepare('SELECT COUNT(*) FROM auth_lockouts').pluck().get()).toBe(0);
     expect(eventsOf('RequestPinFailed')).toHaveLength(0);
 
-    expect((await answer(hamza, inPerson(id, MGR, PIN.b))).statusCode).toBe(200);
-    expect(eventsOf('RequestAnswered')[0]?.payload).toMatchObject({ method: 'in_person', device_id: hamza.deviceId, on_requester_device: true });
+    const imranThere = signInOn(hamza, MGR);
+    expect((await answer(imranThere, byPin(id, PIN.b))).statusCode).toBe(200);
+    expect(eventsOf('RequestAnswered')[0]?.payload).toMatchObject({ method: 'pin', device_id: hamza.deviceId, on_requester_device: true });
     const [notice] = raisedOf('answered_on_requester_device');
     const [receipt] = raisedOf('approval_receipt');
     await fence();
@@ -936,7 +939,10 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
     const id = raiseAs(hamza, voidInput());
     await fence();
     const before = alertFrames(ownerWs).length;
-    expect((await answer(hamza, inPerson(id, MGR, PIN.b))).statusCode).toBe(200);
+    // 05a D-2: no in-person answers; Imran answers with his PIN on Hamza's tablet and signs out at once
+    const imranThere = signInOn(hamza, MGR);
+    expect((await answer(imranThere, byPin(id, PIN.b))).statusCode).toBe(200);
+    endSessionNow(hub, imranThere.sessionId);
     const notices = [...raisedOf('answered_on_requester_device'), ...raisedOf('approval_receipt')];
     expect(notices).toHaveLength(2);
     await fence();

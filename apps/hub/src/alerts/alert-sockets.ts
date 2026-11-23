@@ -14,23 +14,25 @@ import type { WsHub } from '../ws/server.js';
 import { kindOf } from './kinds.js';
 import { bindingIsRoute } from './routes.js';
 import { cachedPrepare } from './statements.js';
-import { ACTIVITY_SESSIONS, type BatchReads, type SessionRead } from './targets.js';
+import { ACTIVITY_SESSIONS, isListedDevice, listedDevicesOnly, type BatchReads, type SessionRead } from './targets.js';
 import { seenByMe } from './catch-up.js';
 import { lockView, safeBuild, type LockViewRow } from './ws-frames.js';
 
 // 01d §3.7 "Reconnect" and header, §6 batch 3 `alerts_open`, BF-5 / P-6 (`binding_route_until`, `binding_route`).
 // - `alerts_open` (the first frame of an alert-mode socket): open alerts where this device is in any step's
 //   recipients, plus those where its bound person is in `alert_inbox` (cumulative, §3.5). The bound person's
-//   part only while the binding passes §3.4.3 (b) present and (c) recently active (tablets) and the device is
-//   a tablet or phone (v0.5 m7); a kiosk / KDS has no binding row (BF-3). Never an alert hidden from this
+//   part only while the binding passes §3.4.3 (b) present and (c) recently active (session rows) and the device is
+//   a tablet or phone (v0.5 m7) or has a permanent row (⚠️ Changed by 05a (row D-1)); a kiosk that is not
+//   one-person and a KDS have no binding row (BF-3). Never an alert hidden from this
 //   device (§3.10). Rows are lock-only (ws-frames' one lock-view builder): never `card` or `details`
 //   (`details_json` is not even read), checked by a strict schema before it leaves (§7). Every listed alert
 //   is "sent" to the device for the receipt check (recordSent, §6 batch 3). AD-82's `outcome` (lock-safe) rides on
 //   a request_result row. `seen_by_me` (§8.3, controller ruling on task 32): the bound person's seen
 //   (`request_seen`, or an `AlertSeen` receipt in alert_receipts), read in the same alert statement; false
 //   for a device-target row with no person (no binding, or the person's part is not sent).
-// - `binding_route_until` = the bound person's last session activity + `binding_route_idle_ms` for a tablet
-//   whose binding is a route (task 17 carry: `until` alone is not enough), else null.
+// - `binding_route_until` = the bound person's last session activity + `binding_route_idle_ms` for a session-row
+//   binding that is a route (task 17 carry: `until` alone is not enough), else null; always null for a permanent
+//   row (⚠️ Changed by 05a (row D-1): was "for a tablet").
 // - `binding_route { until }`: after commit of a step (raise or tick) that routes to a tablet through its
 //   binding (`alert_connection` route with a person), to that device's sockets, only when the value differs
 //   from the last one this hub sent it (alerts_open included). The last-sent map lives in this instance (one
@@ -160,7 +162,8 @@ export function createAlertSockets(env: AlertSocketsEnv): AlertSockets {
       : ws;
     const result = bindingIsRoute(reads.bindings[0] as BatchReads['bindings'][number], reads, view, env.clock.branchNow());
     // task 17 carry: `until` is set even when (a) or (b) fails; the header shows it only for a route
-    return { route: result.route, until: result.route && f.device_type === 'tablet' ? result.until : null };
+    // 05a (row D-1): null for every permanent row (bindingIsRoute gives null), a value for a routing session row
+    return { route: result.route, until: result.route ? result.until : null };
   }
 
   function alertsOpen(deviceId: string): WsAlertsOpen {
@@ -172,7 +175,12 @@ export function createAlertSockets(env: AlertSocketsEnv): AlertSockets {
     const head = rows[0];
     let personPart = false;
     let until: number | null = null;
-    if (head !== undefined && head.bound_staff_id !== null && (head.device_type === 'tablet' || head.device_type === 'phone')) {
+    // 05a (row D-1): a tablet or phone, or any device with a permanent row (session_id NULL)
+    if (
+      head !== undefined &&
+      head.bound_staff_id !== null &&
+      (head.device_type === 'tablet' || head.device_type === 'phone' || head.bound_session_id === null)
+    ) {
       const staffId = head.bound_staff_id;
       const presence = env.db.prepare(PRESENCE_SQL).get(staffId) as { present: number } | undefined;
       const act = env.db.prepare(ACTIVITY_SQL).get({ branch_id: env.branchId, staff_id: staffId }) as
@@ -200,6 +208,10 @@ export function createAlertSockets(env: AlertSocketsEnv): AlertSockets {
       if (row.to_device !== 1 && !personPart) continue; // the bound person's part only while a route (m7)
       const kind = kindOf(row.kind as string);
       if (kind === undefined) continue; // P-8: an unknown kind has no lock label
+      // ⚠️ Changed by 05a (row D-2, D-3; 01d v1.3.5 §3.4.3, §3.7; 05a §3.9 rule 3, M-5): the bound person's part never
+      // replays a money request or `device_waiting` to a device that is not `listed` (route 2 is dropped there);
+      // a device-target row keeps its lock line. Memory (`deviceProfile`), no statement.
+      if (row.to_device !== 1 && listedDevicesOnly(kind) && !isListedDevice(deviceId)) continue;
       // §8.3: the bound person's seen (request_seen, or an AlertSeen receipt), only while their part is sent
       // §3.10: an open `closes_on: 'seen'` alert is never seen_by_me (catch-up.ts seenByMe)
       alerts.push({ ...lockView(row as LockViewRow, kind, row.step), seen_by_me: personPart && seenByMe(kind, 'open', row.bound_seen) });

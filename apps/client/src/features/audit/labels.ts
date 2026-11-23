@@ -62,6 +62,7 @@ export const ACTION_META: Record<AuditAction, ActionMeta> = {
   device_paired: { group: 'screens_pins', tone: 'info', icon: 'tablet' },
   device_revoked: { group: 'screens_pins', tone: 'danger', icon: 'tablet' },
   pairing_token_generated: { group: 'screens_pins', tone: 'info', icon: 'tablet' },
+  device_profile_set: { group: 'screens_pins', tone: 'info', icon: 'tablet' }, // 05a §4.5 A-1 (04 v1.0.8)
   // Bills and payments (05 row V-3, R-28)
   bill_opened: { group: 'bills_payments', tone: 'info', icon: 'list' },
   check_bill_printed: { group: 'bills_payments', tone: 'mute', icon: 'list' },
@@ -203,6 +204,13 @@ export function targetOf(e: AuditEntryView, detail: Record<string, unknown> = de
   const units = typeof detail['units'] === 'number' ? detail['units'] : null;
   const parts = [item, units === null ? null : `×${units}`].filter((p): p is string => p !== null);
   return { table, text: parts.length === 0 ? null : parts.join(' ') };
+}
+
+/** 05a §4.5 A-1, G-b: the `staff_ids` of a `device_profile_set` row's detail (ids only; the names come from audit-staff at read). */
+export function profileStaffIds(e: AuditEntryView, detail: Record<string, unknown> = detailOf(e)): string[] {
+  if (e.action !== 'device_profile_set') return [];
+  const ids = detail['staff_ids'];
+  return Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : [];
 }
 
 /** The approver's method tag (§8: "in person", "on requester's device"; O3: the tag in sentence case). */

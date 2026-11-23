@@ -858,6 +858,19 @@ describe('[05 §8; E2E E-1] split, discount and service charge on the bill', () 
     expect(v.buttons().some((b) => b.textContent?.startsWith('Discount'))).toBe(false);
   });
 
+  it('[05a §3.3a] Discount downgraded: the button stays, with "Confirm on your phone" and still opens the sheet; listed_only hides it', async () => {
+    const down = { 'apply-discount': { grant: 'requires_approval', approver_role_ids: [], scope: 'branch', masked: 'downgraded' } };
+    let v = await show(setup({ grants: down }));
+    expect(v.text()).toContain('Confirm on your phone');
+    v.click(v.button('Discount'));
+    await flush();
+    expect(dlg(v)).toBe('Discount the bill');
+    v.unmount();
+    v = await show(setup({ grants: { 'apply-discount': { grant: 'not_granted', masked: 'listed_only' } } }));
+    expect(v.buttons().some((b) => b.textContent?.startsWith('Discount'))).toBe(false);
+    expect(v.text()).not.toContain('Confirm on your phone');
+  });
+
   it('a discount on the bill: its row has Remove discount → the remove sheet', async () => {
     const d = { kind: 'percent' as const, value: 1_000, reason_code: 'regular_customer', frozen_minor: null, discount_minor: 66_240 };
     const v = await show(setup({ grants: { 'apply-discount': grant('allowed') }, views: [bill({ discount: d, splits: [split({ totals: { ...split().totals, cash: { ...split().totals.cash, discount_minor: 66_240 } } })] })] }));
@@ -1426,6 +1439,18 @@ describe('[05 §8 Reopen, §6.13; #37k] reopen a closed bill', () => {
     v.unmount();
     v = await show(setup({ grants: g('allowed') }));
     expect(v.buttons().some((b) => b.textContent === 'Reopen')).toBe(false);
+  });
+
+  it('[05a §3.3a] Reopen downgraded: Reopen stays with "Confirm on your phone" and opens the sheet; listed_only hides it', async () => {
+    let v = await show(setup({ grants: { 'reopen-bill': { grant: 'requires_approval', approver_role_ids: [], scope: 'branch', masked: 'downgraded' } }, views: [closed()] }));
+    expect(v.text()).toContain('Confirm on your phone');
+    v.click(v.button('Reopen'));
+    await flush();
+    expect(v.container.querySelector('.dlg__t h2')?.textContent).toBe('Reopen bill');
+    v.unmount();
+    v = await show(setup({ grants: { 'reopen-bill': { grant: 'not_granted', masked: 'listed_only' } }, views: [closed()] }));
+    expect(v.buttons().some((b) => b.textContent === 'Reopen')).toBe(false);
+    expect(v.text()).not.toContain('Confirm on your phone');
   });
 
   it('[review m1] requires_approval: the Reopen action carries "Needs approval"', async () => {

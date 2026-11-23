@@ -67,7 +67,7 @@ function withoutRoleNames(value: unknown): unknown {
 async function outcomes(hub: TestHub, d: DirectoryInput) {
   const dir = currentDirectory(hub.app);
   const staffIds = d.staff.map((s) => s.staff_id);
-  const tablet = pairDevice(hub, { type: 'tablet' });
+  const tablet = pairDevice(hub, { type: 'tablet', profile: { access: 'listed', staff_ids: staffIds, screens: ['manager'] } });
   const roster = (await get(hub, '/admin/login-roster', tablet.token)).json();
   const perStaff: Record<string, unknown> = {};
   for (const staffId of staffIds) {

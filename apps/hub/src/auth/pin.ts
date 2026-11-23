@@ -7,6 +7,7 @@ import type { Writer, WriterTx } from '../engine-host/writer.js';
 import type { HubConfig } from '../config/schema.js';
 import type { Clock } from '../lib/clock.js';
 import { Semaphore, SemaphoreTimeoutError } from '../lib/semaphore.js';
+import type { DeviceProfile } from './device-profile.js';
 import type { StaffDirectory } from './staff-directory.js';
 
 export interface RateSubject {
@@ -28,6 +29,25 @@ interface LockView {
 }
 
 const WAIT_MS = 2_000;
+
+/**
+ * 05a §3.5: the sign-in check of `POST /auth/pin` and `POST /admin/auth`, run before 00 §3.5 step 2 (no counter, no
+ * argon2, no statement: the profile is the in-memory `deviceProfile` map). A `listed` device accepts only its people;
+ * an `everyone` device accepts any directory staff. A device with **no profile** keeps today's rule (v1.0.1 R-1): a
+ * `phone` accepts only its `owner_staff_id` (none when it is null), a tablet or kiosk any staff. `DEVICE_NOT_OWNED`
+ * is no longer returned (m-8).
+ */
+export function checkDeviceAccess(
+  device: { device_id: string; device_type: string; owner_staff_id: string | null },
+  staffId: string,
+  profile: DeviceProfile | undefined,
+): void {
+  const allowed =
+    profile === undefined
+      ? device.device_type !== 'phone' || (device.owner_staff_id !== null && device.owner_staff_id === staffId)
+      : profile.access === 'everyone' || profile.staff_ids.has(staffId);
+  if (!allowed) throw new DomainError('DEVICE_ACCESS_DENIED', { device_id: device.device_id });
+}
 
 // 00 v1.6 H-3: a PIN-bearing command decides its answer in ONE counting transaction for both PINs.
 export interface CheckPinHooks<P> {

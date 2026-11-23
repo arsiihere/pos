@@ -6,6 +6,7 @@ import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
+// STAYS unless the pairing_tokens table goes: 05a spec H-1 keeps `pairing_tokens` (unused; the sweeper purges it), so task 15 leaves these rows alone.
 const cleanups: Array<() => Promise<void>> = [];
 
 describe('access queries', () => {
@@ -13,20 +14,6 @@ describe('access queries', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
     activity.drain();
     activity.drainDevices();
-  });
-
-  it('[00 §10 #134] a token-paired tablet still reports pairing_source token after retention deletes its pairing token; an approved kds reports request', async () => {
-    const hub = await open();
-    const adminDevice = pairDevice(hub, { type: 'tablet' });
-    const admin = openSession(hub, { kind: 'admin', staffId: 'S_OWNER', deviceId: adminDevice.deviceId });
-    const tablet = pairDevice(hub, { type: 'tablet' });
-    markTokenPaired(hub, tablet.deviceId);
-    hub.deps.db.prepare('DELETE FROM pairing_tokens WHERE device_id = ?').run(tablet.deviceId);
-    const kds = pairDevice(hub, { type: 'kds', stationId: 'STATION-1' });
-    const res = await adminGet(hub, adminDevice.token, admin.token, '/admin/queries/devices');
-    const listed = res.json().data.devices as Array<{ device_id: string; pairing_source: string }>;
-    expect(listed.find((row) => row.device_id === tablet.deviceId)?.pairing_source).toBe('token');
-    expect(listed.find((row) => row.device_id === kds.deviceId)?.pairing_source).toBe('request');
   });
 
   it('[00 §10 #45] lists, fixed query count (statement counter = 1) with 1 and 20 devices', async () => {
@@ -37,7 +24,7 @@ describe('access queries', () => {
     counter.reset();
     const one = await adminGet(hub, adminDevice.token, admin.token, '/admin/queries/devices');
     expect(one.statusCode).toBe(200);
-    expect(counter.count).toBe(1);
+    expect(counter.count).toBe(3);
     expect(one.json().data.devices).toHaveLength(1);
     counter.reset();
     const oneSessions = await adminGet(hub, adminDevice.token, admin.token, '/admin/queries/sessions');
@@ -54,7 +41,7 @@ describe('access queries', () => {
     counter.reset();
     const devices = await adminGet(hub, adminDevice.token, admin.token, '/admin/queries/devices');
     expect(devices.statusCode).toBe(200);
-    expect(counter.count).toBe(1);
+    expect(counter.count).toBe(3);
     const listedDevices = devices.json().data.devices as Array<Record<string, unknown>>;
     expect(listedDevices).toHaveLength(2);
     expect(listedDevices.find((row) => row.device_id === target.deviceId)).toEqual({
@@ -64,7 +51,12 @@ describe('access queries', () => {
       station_id: null,
       owner_staff_id: 'S_OWNER',
       owner_name: 'Owner',
-      pairing_source: 'token',
+      point_id: null,
+      access: 'listed',
+      people: [{ staff_id: 'S_CASH', display_name: 'Cashier' }],
+      screens: ['dine_in', 'takeaway', 'parking', 'manager'],
+      profile_version: 0,
+      needs_review: false,
       paired_at: hub.clock.branchNow(),
       paired_by_name: 'Manager',
       last_seen_at: hub.clock.branchNow() - 50,
@@ -74,14 +66,13 @@ describe('access queries', () => {
       active_session: { session_id: staff.sessionId, kind: 'staff', staff_id: 'S_CASH', display_name: 'Cashier' },
     });
     expect(listedDevices.find((row) => row.device_id === adminDevice.deviceId)).toMatchObject({
-      pairing_source: 'token',
       last_seen_at: hub.clock.branchNow(),
       active_session: null,
     });
 
     const sessions = await adminGet(hub, adminDevice.token, admin.token, '/admin/queries/sessions');
     expect(sessions.statusCode).toBe(200);
-    expect(counter.count).toBe(2);
+    expect(counter.count).toBe(4);
     const listed = sessions.json().data.sessions as Array<Record<string, unknown>>;
     expect(listed.map((row) => row.session_id).sort()).toEqual([admin.sessionId, staff.sessionId].sort());
     expect(listed.find((row) => row.session_id === staff.sessionId)).toEqual({
@@ -107,7 +98,7 @@ describe('access queries', () => {
     }
     counter.reset();
     const twenty = await adminGet(hub, adminDevice.token, admin.token, '/admin/queries/devices');
-    expect(counter.count).toBe(1);
+    expect(counter.count).toBe(3);
     expect(twenty.json().data.devices).toHaveLength(20);
     counter.reset();
     const twentySessions = await adminGet(hub, adminDevice.token, admin.token, '/admin/queries/sessions');
@@ -121,14 +112,14 @@ describe('access queries', () => {
 
     counter.reset();
     const many = await adminGet(hub, adminDevice.token, admin.token, '/admin/queries/devices');
-    expect(counter.count).toBe(1);
+    expect(counter.count).toBe(3);
     const ids = (many.json().data.devices as Array<{ device_id: string }>).map((row) => row.device_id);
     expect(ids).toHaveLength(19);
     expect(ids).not.toContain(revoked);
     counter.reset();
     // M87: one more statement for the removal reasons of revoked rows.
     const withRevoked = await adminGet(hub, adminDevice.token, admin.token, '/admin/queries/devices?include_revoked=true');
-    expect(counter.count).toBe(2);
+    expect(counter.count).toBe(4);
     expect(withRevoked.json().data.devices).toHaveLength(20);
 
     counter.reset();
@@ -152,7 +143,7 @@ describe('access queries', () => {
 
     const hub = await open(await manyStaff(30));
     const counter = statementCounter(hub.deps.readDb);
-    const device = pairDevice(hub, { type: 'cashier_kiosk' });
+    const device = pairDevice(hub, { type: 'cashier_kiosk', profile: { access: 'everyone', staff_ids: [], screens: ['cashier'] } });
     const session = openSession(hub, { kind: 'staff', staffId: 'S_00', deviceId: device.deviceId });
     hub.deps.db
       .prepare(
@@ -246,6 +237,22 @@ describe('access queries', () => {
     expect(byId.get('S_WAIT')).toEqual(['count_stock']);
     expect(byId.get('S_MGR')).toEqual([]);
     expect(byId.get('S_OWNER')).toEqual([]);
+  });
+
+  it('[05a #3] roster: a listed device shows only its people, an everyone device the whole directory; 2 statements', async () => {
+    const hub = await open();
+    const counter = statementCounter(hub.deps.readDb);
+    const listed = pairDevice(hub, { type: 'tablet', profile: { access: 'listed', staff_ids: ['S_CASH', 'S_MGR'], screens: ['cashier'] } });
+    const everyone = pairDevice(hub, { type: 'tablet', profile: { access: 'everyone', staff_ids: [], screens: ['cashier'] } });
+    counter.reset();
+    const some = await deviceGet(hub, listed.token, '/queries/staff-roster');
+    expect(some.statusCode).toBe(200);
+    expect(counter.count).toBe(2);
+    expect((some.json().data.staff as Array<{ staff_id: string }>).map((row) => row.staff_id).sort()).toEqual(['S_CASH', 'S_MGR']);
+    counter.reset();
+    const all = await deviceGet(hub, everyone.token, '/queries/staff-roster');
+    expect(counter.count).toBe(2);
+    expect(all.json().data.staff).toHaveLength(currentDirectory(hub.app).list().length);
   });
 
   it('[00 §10 #82] phone roster lists only the owner', async () => {

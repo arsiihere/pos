@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { alerts, bindAlertEnv, type AlertCtx, type RaiseInput } from '../../src/alerts/raise';
 import { unregisterTargetResolver } from '../../src/alerts/targets';
+import { loadDeviceProfiles } from '../../src/auth/device-profile';
 import { StaffDirectory, type DirectoryCore } from '../../src/auth/staff-directory';
 import type { CommandCtx } from '../../src/commands/registry';
 import { runMigrations } from '../../src/db/migrate';
@@ -130,6 +131,11 @@ function insertDevice(db: Database.Database, deviceId: string, type: string): vo
     `INSERT INTO devices (device_id, branch_id, token_hash, device_name, device_type, station_id, owner_staff_id, paired_at, paired_by)
      VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, 'S_ADMIN')`,
   ).run(deviceId, BRANCH, `hash-${deviceId}`, deviceId, type, T);
+  // 05a §3.9 rule 3 (task 25): a money request routes only to `listed` devices; these pre-05a seats are listed
+  if (type !== 'kds') {
+    db.prepare(`INSERT INTO device_profiles (device_id, access, screens, profile_version, needs_review) VALUES (?, 'listed', '["manager"]', 1, 0)`).run(deviceId);
+    loadDeviceProfiles(db);
+  }
 }
 
 function insertSession(db: Database.Database, o: { id: string; staff: string; device: string; last: number; ended?: boolean }): void {
@@ -139,8 +145,12 @@ function insertSession(db: Database.Database, o: { id: string; staff: string; de
   ).run(o.id, BRANCH, `tok-${o.id}`, o.staff, o.device, o.last, o.last, o.ended === true ? o.last + 300_000 : null, o.ended === true ? 'idle_timeout' : null);
 }
 
-/** A command ctx whose `permission` getter throws: `raise` never reads it (§4.2, v0.4 m7). */
-function cmdCtx(tx: WriterTx, staffId: string = ALI, deviceId: string = ALI_DEV): AlertCtx {
+/**
+ * A command ctx with an unmasked `permission`. ⚠️ Changed by 05a (row D-2), 01d v1.3.5 §4.2 gap G-d: `raise` reads
+ * `ctx.permission` only to test `masked === 'downgraded'` (05a §3.9 rule 1; test/alerts/downgraded-raise.int.test.ts),
+ * so an unmasked grant leaves every raise here as before. Was: a getter that throws ("never read", v0.4 m7).
+ */
+function cmdCtx(tx: WriterTx, staffId: string = ALI, deviceId: string = ALI_DEV, o: { permissionThrows?: boolean } = {}): AlertCtx {
   const ctx = {
     tx,
     state: {},
@@ -149,10 +159,16 @@ function cmdCtx(tx: WriterTx, staffId: string = ALI, deviceId: string = ALI_DEV)
     actor: { kind: 'staff', staffId, stationId: null, sessionId: 'SESS', deviceId },
     branch: { tenantId: 'tenant-1', branchId: BRANCH },
     directory: dir,
-    get permission(): never {
-      throw new Error('raise read ctx.permission');
-    },
+    permission: { grant: 'requires_approval', approver_role_ids: ['R2', 'R3'], scope: 'branch' },
   };
+  if (o.permissionThrows === true) {
+    // pins "never read": a named / notice raise never reads ctx.permission (01d §4.2 G-d)
+    Object.defineProperty(ctx, 'permission', {
+      get(): never {
+        throw new Error('ctx.permission read');
+      },
+    });
+  }
   return ctx as unknown as CommandCtx;
 }
 
@@ -199,10 +215,10 @@ describe('01d alerts.raise / raiseMany', () => {
     for (const cleanup of cleanups.splice(0)) cleanup();
   });
 
-  it('[01d #15] raise twice with one dedupe_key → second deduped, no events; after close, raise again → new alert', async () => {
+  it('[01d #15] raise twice with one dedupe_key → second deduped, no events; after close, raise again → new alert; a notice raise never reads ctx.permission (G-d)', async () => {
     const h = await harness(cleanups);
     const first = h.writer.run((tx) => {
-      const r = alerts.raise(cmdCtx(tx), infoInput());
+      const r = alerts.raise(cmdCtx(tx, ALI, ALI_DEV, { permissionThrows: true }), infoInput());
       tx.append(r.events);
       return r;
     }).result;
@@ -252,6 +268,7 @@ describe('01d alerts.raise / raiseMany', () => {
 
   it('[01d §6.1] AlertRaised payload: request part copied, details stored, envelope device = the raising device', async () => {
     const h = await harness(cleanups);
+    insertDevice(h.db, 'D_IMRAN', 'tablet'); // 05a §3.9 rule 3 (task 25): a listed device, so a money request reaches it
     h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_IMRAN', sessionId: 'S1', kind: 'staff', stationId: null }];
     const r = h.writer.run((tx) => alerts.raise(cmdCtx(tx), voidInput())).result;
     expect(types(r.events)).toEqual(['AlertRaised', 'AttemptSent']);
@@ -355,10 +372,10 @@ describe('01d alerts.raise / raiseMany', () => {
     });
   });
 
-  it('[01d §6.1] named kind: receiver copied into the request part; raise never reads ctx.permission', async () => {
+  it('[01d §6.1] named kind: receiver copied into the request part; a named raise never reads ctx.permission (G-d)', async () => {
     const h = await harness(cleanups);
     const r = h.writer.run((tx) =>
-      alerts.raise(cmdCtx(tx), {
+      alerts.raise(cmdCtx(tx, ALI, ALI_DEV, { permissionThrows: true }), {
         kind: 't_accept',
         subject: { stream_type: 'table', stream_id: 'T12' },
         target: { kind: 'person', staff_id: KAMRAN },
@@ -525,6 +542,16 @@ describe('01d alerts.raise / raiseMany', () => {
     ['DeviceRevoked', () => aDeviceRevoked({ stream_id: 'D_X', payload: { device_id: 'D_X' } })],
     ['PresenceSet', () => aPresenceSet({ payload: { staff_ids: [KAMRAN], present: false, set_by: IMRAN } })],
     ['DevicePaired', () => aDevicePaired({ stream_id: 'D_NEW', payload: { device_id: 'D_NEW', device_type: 'tablet' } })],
+    // 05a §3.8 (D-1), §5.1: a profile changes device_bindings and devices.point_id
+    [
+      'DeviceProfileSet',
+      () => ({
+        ...aDevicePaired({ stream_id: 'D_X' }),
+        event_type: 'DeviceProfileSet',
+        schema_version: 1,
+        payload: { device_id: 'D_X', device_name: 'Tab', access: 'listed', staff_ids: [KAMRAN], screens: ['dine_in'], point_id: null, profile_version: 1, cause: 'approved', needs_review: false },
+      }),
+    ],
     ['BusinessDayClosed', () => aBusinessDayClosed()],
   ])('[01d BF-6] appending %s in the transaction drops the cached fixed reads; other events keep them', async (_type, event) => {
     const h = await harness(cleanups);
@@ -564,6 +591,7 @@ describe('01d alerts.raise / raiseMany', () => {
 
   it('[01d §3.3 rule 4(d)] a raise through readOnlyTx(tx) (the PIN prepare view) returns drafts and writes nothing', async () => {
     const h = await harness(cleanups);
+    insertDevice(h.db, 'D_IMRAN', 'tablet'); // 05a §3.9 rule 3 (task 25): a listed device, so a money request reaches it
     h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_IMRAN', sessionId: 'S1', kind: 'staff', stationId: null }];
     const changes = (): number => (h.db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
     const { result, appended } = h.writer.run((tx) => {

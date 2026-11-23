@@ -12,6 +12,7 @@ import { attachRouteGuards } from '../auth/guards.js';
 import { startTickLoop } from '../alerts/tick.js';
 import { idlePause } from '../auth/session-store.js';
 import { startSweeper } from '../auth/session-sweeper.js';
+import { upgradeDevices } from '../auth/device-upgrade.js';
 import { StaffDirectory } from '../auth/staff-directory.js';
 import { loadHubConfig } from '../config/load.js';
 import { isConfirmed, isProvisioned, type HubConfig } from '../config/schema.js';
@@ -25,6 +26,7 @@ import { createWriter } from '../engine-host/writer.js';
 import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projections/access-reconcile.js';
 import { registerAlertProjections } from '../projections/alerts.js';
 import { registerRestaurantProjections } from '../projections/branch-config.js';
+import { deviceProfilesProjection } from '../projections/device-profiles.js';
 import { createProjectionRegistry, type ProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
 import { registerOrdersProjection } from '../orders/index.js';
@@ -183,6 +185,13 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     void StaffDirectory.load(db);
     current = '4b';
     restoreEmptyStaffSessions(db, deps.writer, deps.clock, provisioned.branch_id);
+    current = '4c';
+    // 05a §5.3, §6.10: the upgrade step — after the catch-up (device_profiles is current), before the server build and
+    // listen (its maps load the new profiles): 1 read, one writer.run, nothing on a later boot.
+    let ownerlessPhones: string[] = [];
+    upgradeDevices(deps, (ids) => {
+      ownerlessPhones = ids;
+    });
     // 00 M95: every device starts paused at HubStarted.hub_down_at (boot time on a first boot), before any contact.
     const hubDownAt = readHeartbeat(db, provisioned.branch_id);
     idlePause.boot(db, hubDownAt ?? deps.clock.branchNow());
@@ -191,6 +200,8 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     const publish = publisherFor(app);
     if (publish !== undefined) publishSlot.current = publish;
     ctx.app = app;
+    // 05a §5.2, D-6: logged here, where the hub logger exists (device ids only: no name, no token)
+    if (ownerlessPhones.length > 0) app.log.warn({ device_ids: ownerlessPhones }, 'upgrade skipped phones with no owner; they stay without a profile');
     registerHealth(app, () =>
       healthRead(phase, current, true, isConfirmed(config), provisioned.branch_id, opened.alarm, db),
     );
@@ -318,6 +329,7 @@ export function registerHubProjections(projections: ProjectionRegistry): void {
   registerPrintProjections(projections);
   registerAuditProjections(projections); // 04 §6.6: events only, order free (§5)
   registerBillingProjections(projections); // 05 §5, G-20: after orders, tables and audit
+  projections.register(deviceProfilesProjection()); // 05a §5.1: after 03b device_roles (its point_id wins a catch-up)
 }
 
 function createDeps(

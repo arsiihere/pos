@@ -148,3 +148,22 @@ export const ALLOWED_ONLY_PERMISSIONS = [
 // 01b B17: stable handles of the default roles (roles.default_key).
 export const DEFAULT_KEYS = ['owner', 'manager', 'cashier', 'order_taker', 'waiter', 'cook'] as const;
 export type DefaultKey = (typeof DEFAULT_KEYS)[number];
+
+// 05a §3.3: permissions usable only on a device whose access is `listed`, and money permissions an `everyone` device downgrades.
+export const LISTED_ONLY_PERMISSIONS: readonly Permission[] = [
+  'access-hub-admin',
+  'manage-devices',
+  'manage-staff',
+  'manage-roles',
+  'manage-fiscal-settings',
+  'approve-void',
+  'view-audit-log',
+];
+
+export const MONEY_PERMISSIONS: readonly Permission[] = [
+  'void-item',
+  'apply-discount',
+  'apply-comp',
+  'apply-refund',
+  'reopen-bill',
+];

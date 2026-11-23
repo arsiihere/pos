@@ -313,7 +313,7 @@ describe('01d my-requests and requests-to-answer (task 35)', () => {
 
   // -------------------------------------------------------------------------------------------- #10
 
-  it('[01d #10] self answer → 403 self (session, pin, in person naming the requester), no PIN verified; the requester who is the only in-range approver → no answerer, the shortcut writes the escalation step at the raise, pending, my-requests ask_in_person true at once; no per-request warning', async () => {
+  it('[01d #10] self answer → 403 self (pin; in person → in_person_removed, 05a D-2), no PIN verified; a named request to its own requester is answered by him (05a D-2); the requester who is the only in-range approver → no answerer, the shortcut writes the escalation step at the raise, pending, my-requests ask_in_person true at once; no per-request warning', async () => {
     const imran = seat(LEAD, 'imran tablet');
     await socketOf(imran); // Imran has a route, but he is the requester: left out of the answerers
     const before = eventsOf('AlertRaised').length;
@@ -329,19 +329,23 @@ describe('01d my-requests and requests-to-answer (task 35)', () => {
     ]);
 
     const accept = raiseAs(imran, acceptInput(1, LEAD, LEAD));
-    const cases: Array<Record<string, unknown>> = [
-      byPin(req, PIN.c),
-      { alert_id: req, decision: 'approve', method: 'in_person', answerer_staff_id: LEAD, pin: PIN.c },
-      { alert_id: accept, decision: 'accept', method: 'session' },
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [byPin(req, PIN.c), 'self'],
+      // 05a D-2 (01d v1.3.5 §3.3 rule 2): in person is removed, refused before rule 5
+      [{ alert_id: req, decision: 'approve', method: 'in_person', answerer_staff_id: LEAD, pin: PIN.c }, 'in_person_removed'],
     ];
-    for (const payload of cases) {
+    for (const [payload, reason] of cases) {
       const response = await answer(imran, payload);
       expect(response.statusCode, JSON.stringify(payload)).toBe(403);
-      expect(response.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'self' } });
+      expect(response.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason } });
     }
     expect(verifySpy).not.toHaveBeenCalled();
     expect(alertOf(req).state).toBe('open');
     expect(eventsOf('RequestAnswered')).toEqual([]);
+    // ⚠️ Changed by 05a (row D-2), 01d v1.3.5 §3.3 rule 5: a `named` request whose receiver is its requester skips
+    // rule 5, so its requester answers it (was: 403 self)
+    const own = await answer(imran, { alert_id: accept, decision: 'accept', method: 'session' });
+    expect(own.statusCode, JSON.stringify(own.json())).toBe(200);
   });
 
   // -------------------------------------------------------------------------------------------- #41

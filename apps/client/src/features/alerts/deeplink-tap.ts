@@ -4,7 +4,7 @@ import { t, type MessageKey } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { orderErrorKey } from '../staff/orders/view/LineActions';
 import { handOver } from '../staff/orders/preload';
-import { consumeFocus, matchStaffRoute, type StaffFocus } from '../staff/shell/routes';
+import { consumeFocus, inboxHref, matchStaffRoute, type StaffFocus } from '../staff/shell/routes';
 import { checkTarget, REQUEST_KINDS, type CheckDeps, type CheckResult } from './deeplink-check';
 import { passOpenedText, passPlace } from '../pass/pass-place';
 import { tablePlace } from '../staff/tables/map/table-place';
@@ -47,6 +47,8 @@ export interface TapDeps extends CheckDeps {
   openSheet(): void;
   navigate(href: string): void;
   toast(text: string): void;
+  /** 05a §8 (M-11): the screens this device has (`GET /queries/session` `device.screens`); undefined = not known, today's behaviour */
+  screens?: () => readonly string[] | undefined;
   /** the glow once the place is on screen (default: `glowOnArrival`) */
   arrive?: (href: string, focus: StaffFocus, label: string) => Promise<boolean> | void;
   /** false once this tap is stale: a newer tap, a sign-in or sign-out, or a route change happened during the check.
@@ -254,6 +256,18 @@ function sheetLoadedWithoutCard(order_id: string, alert_id: string, opts: { movi
   });
 }
 
+/** 05a §8 (M-11): the screen a place needs: `#/tables/…` → dine_in, `#/orders/<id>` → takeaway / parking by the order's type. */
+function screenOf(result: Extract<CheckResult, { kind: 'open' }>): string | null {
+  const route = matchStaffRoute(result.href, 'tablet');
+  if (route.name === 'table') return 'dine_in';
+  if (route.name === 'pass') return 'pass';
+  if (route.name === 'order_view') {
+    const view = result.preload !== undefined && 'order_view' in result.preload ? result.preload.order_view : null;
+    return view !== null && (view.order_type === 'takeaway' || view.order_type === 'parking') ? view.order_type : null;
+  }
+  return null;
+}
+
 /** §3.13.2: a tap on an alert row, from any surface. */
 export async function tapAlert(row: TapRow, deps: TapDeps): Promise<TapOutcome> {
   deps.seen(); // rule 3: seen in every case, before any read (rule 7: the banner hides)
@@ -262,6 +276,13 @@ export async function tapAlert(row: TapRow, deps: TapDeps): Promise<TapOutcome> 
   if (target === null) {
     deps.openSheet();
     return 'sheet';
+  }
+  // 05a §3.10 (D-3, task 31): the `device_waiting` link `{ type: 'devices' }` is a plain route, no open check and no
+  // sheet. Read through `string` so it compiles before and after the link type reaches AlertLinkTarget (task 26).
+  if ((target as { type: string }).type === 'devices') {
+    deps.navigate('/devices');
+    deps.settled?.();
+    return 'navigated';
   }
   // §3.13.5 m12 (dl cp7, integrator ruling (a)): on #/pass, an order whose Pass card is on the screen glows in place:
   // no read, no navigation. Seen above, once (rule 3); a stale tap does nothing. Rule 4 (DL Q-1 (a)): a row this viewer
@@ -304,6 +325,23 @@ export async function tapAlert(row: TapRow, deps: TapDeps): Promise<TapOutcome> 
   }
   switch (result.kind) {
     case 'open': {
+      if (result.focus === null) {
+        // 05a §3.10: a plain route with no place to glow (`#/devices`); tapAlert routes `devices` above, so not reached today
+        deps.navigate(result.href);
+        deps.settled?.();
+        return 'navigated';
+      }
+      // 05a §8 (M-11): a place whose screen this device does not have falls back to the inbox with the alert selected
+      // and a toast; a request this person answers (or a notice) still gets its sheet there
+      const needs = screenOf(result);
+      const has = deps.screens?.();
+      if (needs !== null && has !== undefined && !has.includes(needs)) {
+        deps.navigate(inboxHref({ kind: 'alert', alert_id: row.alert_id }));
+        deps.toast(fill(t('alerts.open_elsewhere'), { screen: t(`alerts.screen.${needs}` as MessageKey) }));
+        if (answerable || notice) deps.openSheet();
+        deps.settled?.();
+        return 'navigated';
+      }
       const moving = window.location.hash !== `#${result.href}`;
       if (result.preload !== undefined) handOver(result.preload); // §3.13.3 m3: the screen reuses this read (dl cp6)
       deps.navigate(result.href);

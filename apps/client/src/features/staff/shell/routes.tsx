@@ -2,8 +2,8 @@ import type { DeviceType } from '@pos/domain';
 import type { OrderType } from '../orders/contracts';
 
 // 02a §8, 02b §8 (W0.6): the staff entry's hash routes (S35 b, app/router.ts). The 01d views keep theirs
-// (#/inbox, #/requests, #/test-alert, #/receipts/<id>); anything unknown falls back to the inbox. The cashier
-// kiosk's home `#/` is KioskHome (02b §8 Open orders).
+// (#/inbox, #/requests, #/test-alert, #/receipts/<id>); anything unknown falls back to the inbox. 05a C-1: the
+// home is the device's first screen (shell/screens.ts), `#/takeaway` is KioskHome (A-7).
 
 // 01d v1.3 §3.13.5: the element a deep link glows, from the one optional `focus` parameter. Valid only on the
 // table, order view, zones, pass and inbox routes (m11), and only in the forms of that place; anything else is
@@ -27,7 +27,8 @@ export type StaffRoute =
   | { name: 'zones'; focus: StaffFocus | null }
   | { name: 'queue' }
   | { name: 'me' }
-  | { name: 'kiosk_home' }
+  | { name: 'takeaway' } // 05a A-7: KioskHome, retired as `kiosk_home`; the `takeaway` screen
+  | { name: 'manager' } // 05a §3.6
   | { name: 'pass'; focus: StaffFocus | null } // 03b W0.6: the Pass screen (a device with a point)
   | { name: 'inbox'; focus: StaffFocus | null }
   | { name: 'requests' }
@@ -40,6 +41,8 @@ const FIXED: Record<string, StaffRoute> = {
   '/held': { name: 'held' },
   '/queue': { name: 'queue' },
   '/me': { name: 'me' },
+  '/takeaway': { name: 'takeaway' },
+  '/manager': { name: 'manager' },
   '/requests': { name: 'requests' },
   '/test-alert': { name: 'test_alert' },
 };
@@ -157,9 +160,11 @@ export function orderHref(order_type: OrderType, id: string): string {
   return `/order/${order_type}/${encodeURIComponent(id)}`;
 }
 
-export function matchStaffRoute(hash: string, deviceType: DeviceType): StaffRoute {
+/** `_deviceType` is kept for the callers; the route never depends on it (05a C-1). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function matchStaffRoute(hash: string, _deviceType?: DeviceType): StaffRoute {
   const [path = '/', search = ''] = hash.split('?');
-  if (path === '/' || path === '') return deviceType === 'cashier_kiosk' ? { name: 'kiosk_home' } : { name: 'inbox', focus: null };
+  if (path === '/' || path === '') return { name: 'inbox', focus: null };
   const fixed = FIXED[path];
   if (fixed !== undefined) return fixed;
   if (path === '/zones') return { name: 'zones', focus: parseFocus(search, FOCUS_ON.zones) };

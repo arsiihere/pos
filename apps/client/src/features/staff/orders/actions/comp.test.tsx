@@ -354,4 +354,48 @@ describe('[02b §3.9] comp — review #183', () => {
     v.select('Z');
     expect([...(v.ctrl()?.querySelectorAll('button') ?? [])].map((b) => b.textContent)).not.toContain('Comp');
   });
+
+  // 05a §3.3a, §3.9 rule 1, §8: a downgraded money grant keeps its button, with "Confirm on your phone"; listed_only hides it
+  const DOWN = (p: string): Record<string, Resolution> => ({
+    ...PERMS,
+    [p]: { grant: 'requires_approval', approver_role_ids: [], scope: 'branch', masked: 'downgraded' } as Resolution,
+  });
+  const HIDDEN = (p: string): Record<string, Resolution> => ({ ...PERMS, [p]: { grant: 'not_granted', masked: 'listed_only' } as Resolution });
+  const labels = (v: ReturnType<typeof render>) => [...(v.ctrl()?.querySelectorAll('button') ?? [])].map((b) => b.textContent);
+
+  it('[05a §3.3a] comp downgraded: Comp stays with "Confirm on your phone", and the request is still sent', async () => {
+    const s = makeShell({ perms: DOWN('apply-comp') });
+    const v = render(s.shell, <View o={order([sline('K')])} />);
+    v.select('K');
+    expect(v.ctrl()?.textContent).toContain('Confirm on your phone');
+    v.m.click(v.m.button('Comp', v.ctrl()!));
+    const dlg = v.m.container.querySelector('.dlg')!;
+    v.m.click(v.m.button('Quality', dlg));
+    v.m.click(v.m.button('Ask for approval', dlg));
+    await flush();
+    expect(s.calls('CompLine').length).toBe(1);
+  });
+
+  it('[05a §3.3a] comp listed_only: no Comp and no hint', () => {
+    const s = makeShell({ perms: HIDDEN('apply-comp') });
+    const v = render(s.shell, <View o={order([sline('K')])} />);
+    v.select('K');
+    expect(labels(v)).not.toContain('Comp');
+    expect(v.ctrl()?.textContent ?? '').not.toContain('Confirm on your phone');
+  });
+
+  it('[05a §3.3a] void downgraded: Void stays with "Confirm on your phone" and is still pressable; listed_only hides it', () => () => {
+    const s = makeShell({ perms: DOWN('void-item') });
+    const v = render(s.shell, <View o={order([sline('K', { stage: 'cooking', fired: true })])} />);
+    v.select('K');
+    expect(labels(v).some((l) => l?.startsWith('Void'))).toBe(true);
+    expect(v.ctrl()?.textContent).toContain('Confirm on your phone');
+    expect(v.m.button('Void', v.ctrl()!).getAttribute('aria-disabled')).toBeNull(); // still pressable
+    v.m.unmount();
+    const h = makeShell({ perms: HIDDEN('void-item') });
+    const w = render(h.shell, <View o={order([sline('K', { stage: 'cooking', fired: true })])} />);
+    w.select('K');
+    expect(labels(w).some((l) => l?.startsWith('Void'))).toBe(false);
+    expect(w.ctrl()?.textContent ?? '').not.toContain('Confirm on your phone');
+  });
 });

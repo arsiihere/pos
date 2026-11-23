@@ -22,6 +22,7 @@ import { concerns, createLiveReader, idsOf, ORDER_FRAMES, type LiveReader } from
 import { enqueueMeta, LineActions, servedCandidatesOf, showOrderError, type LineOrder } from './LineActions';
 import { LineRow } from './LineRow';
 import { isServed, readyCount } from './stage';
+import { MaskedAction } from '../../shell/MaskedAction';
 
 // 02b v1.0.11 §8 Table view, Open orders; §6.18a (frame 02b-S11 OrderView, Boost): one takeaway / parking order at
 // #/orders/<order_id> — the token (or plate) big, Ready n/m, the promise, who placed it; Call / Boost / Mark served
@@ -305,10 +306,12 @@ export function OrderView({ order_id }: OrderViewProps) {
                 </button>
               )}
               {showCancel && (
-                <button type="button" className="btn btn--act" onClick={() => setOpen('cancel')}>
-                  <VIco name="bin" />
-                  {t('void.cancel_order')}
-                </button>
+                <MaskedAction permissions={shell.permissions} permission="void-item">
+                  <button type="button" className="btn btn--act" onClick={() => setOpen('cancel')}>
+                    <VIco name="bin" />
+                    {t('void.cancel_order')}
+                  </button>
+                </MaskedAction>
               )}
             </div>
           )}
