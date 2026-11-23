@@ -17,7 +17,7 @@ import { currentConfigEntry, swapBranchConfig } from '../../src/sync/branch-conf
 import { alerts } from '../../src/alerts/raise';
 import { currentDirectory } from '../../src/auth/guards';
 import { statementCounter } from '../helpers/statement-counter';
-import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { appendDeviceProfile, createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { openDay, toStage, voidsMenu } from '../voids/fixtures';
 import { fakeAdapter } from './fiscal/fake-adapter';
 import {
@@ -626,6 +626,19 @@ describe('[05 §6.13, §3.14, R-66 / G-62] ReopenBill (approval) — credit ids 
     ]);
     expect(db().prepare(`SELECT invoice_id FROM invoices WHERE series = 'credit' ORDER BY number`).pluck().all()).toEqual(values.credit_invoice_ids);
     expect(one('SELECT state FROM alerts WHERE alert_id = ?', alert_id)).toBe('closed');
+  });
+
+  it('[05a #7b, §3.9 rule 3] a cashier’s ReopenBill (`requires_approval`) on an `everyone` counter raises the request: an approval request, stored as such (no downgrade), pending', async () => {
+    await start();
+    const b = await closedTakeaway('EV');
+    appendDeviceProfile(hub, cashier.deviceId, { access: 'everyone', screens: ['takeaway', 'cashier'] });
+    const raise = ok(await reopen(cashier, { bill_id: b.bill_id, reason_code: 'other', note: secret('NOTE-7b') }));
+    const alert_id = (raise.result as { pending: { alert_id: string } }).pending.alert_id;
+    expect(typesOf(raise)[0]).toBe('AlertRaised');
+    expect(typesOf(raise).filter((t) => ['BillReopened', 'InvoiceCredited'].includes(t))).toEqual([]);
+    const request = JSON.parse(one('SELECT request_json FROM alerts WHERE alert_id = ?', alert_id) as string) as Record<string, unknown>;
+    expect(request).toMatchObject({ right_mode: 'approval', base_permission: 'reopen-bill', needs_pin: 'always' });
+    expect(one('SELECT state FROM alerts WHERE alert_id = ?', alert_id)).toBe('open');
   });
 
   it('[05 #6c, R-43 / G-40] approve of a PARTLY_PAID dine-in bill on an open seating: TableMarksChanged { seating_id, alert_id } and checkAlertIds accepts the answer', async () => {

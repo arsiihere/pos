@@ -58,7 +58,9 @@ const needsApproval = (permission: Grant['permission'], approvers: string[]): Gr
  * One permission needs approval (void-item, by R_MGR / R_SUP); R_MGR holds approve-void branch-wide, R_SUP
  * only my_team. OWNER is a manager (§3.4 `managers`) but holds no approver role.
  */
-async function directory(o: { without?: string[]; noPin?: string[]; version?: number; extra?: number; discount?: boolean } = {}): Promise<DirectoryInput> {
+async function directory(
+  o: { without?: string[]; noPin?: string[]; version?: number; extra?: number; discount?: boolean; nonMoney?: boolean } = {},
+): Promise<DirectoryInput> {
   const base = await aDirectory();
   const pin = (base.staff[0] as DirectoryInput['staff'][number]).pin_hash;
   const person = (staff_id: string, role_ids: string[]): DirectoryInput['staff'][number] => ({
@@ -77,6 +79,8 @@ async function directory(o: { without?: string[]; noPin?: string[]; version?: nu
   for (let i = 0; i < (o.extra ?? 0); i += 1) staff.push(person(`S_X${String(i).padStart(3, '0')}`, ['R_WAIT']));
   // `discount`: a second permission that needs approval (by R_MGR only), so the flag pass raises two warnings
   const wait = o.discount === true ? [needsApproval('void-item', ['R_MGR', 'R_SUP']), needsApproval('apply-discount', ['R_MGR'])] : [needsApproval('void-item', ['R_MGR', 'R_SUP'])];
+  // `nonMoney` (05a owner Q-1 (a)): a permission outside MONEY_PERMISSIONS that needs approval (by R_MGR only)
+  if (o.nonMoney === true) wait.push(needsApproval('move-item-to-stock', ['R_MGR']));
   return {
     ...base,
     directory_version: o.version ?? (base.directory_version ?? 1) + (o.without?.length ?? 0) + (o.noPin?.length ?? 0),
@@ -254,6 +258,44 @@ describe('01d no_approver and BF-7 (task 31)', () => {
     const closed = events(alert.alert_id).filter((e) => e.event_type === 'AlertClosed');
     expect(closed.map((e) => e.payload)).toEqual([{ alert_id: alert.alert_id, reason: 'done', by_staff_id: null, note: null }]);
     expect(log.error).not.toHaveBeenCalled();
+  });
+
+  // ------------------------------------------------------------------- 05a row D-2, owner Q-1 (a): money permissions
+
+  it('[05a §3.9 rule 3, 01d #32 note, Q-1 (a)] money permission: approvers signed in only on `everyone` devices (or one with no profile, R-1) → no_approver open; one signs in on a listed device → closed done; the non-money permission is unchanged', async () => {
+    await seedDirectory(hub, await directory({ nonMoney: true, without: [ALI] }));
+    const shared = pairDevice(hub, { type: 'tablet', name: 'Shared', profile: { access: 'everyone', screens: ['takeaway', 'manager'] } });
+    const bare = pairDevice(hub, { type: 'tablet', name: 'Bare' });
+    const phone = pairDevice(hub, { type: 'phone', name: 'MGR phone', profile: { access: 'listed', staff_ids: [MGR], screens: ['manager'] } });
+    openDay();
+    openSession(hub, { kind: 'staff', staffId: MGR, deviceId: shared.deviceId, legacyProfile: false });
+    openSession(hub, { kind: 'staff', staffId: SUP, deviceId: bare.deviceId, legacyProfile: false });
+    start();
+    await pass();
+    // void-item (money): MGR is only on an `everyone` device, SUP has no branch scope → warned;
+    // move-item-to-stock (not money): MGR's session on the shared tablet still counts → no warning
+    expect(openNoApprover()).toEqual(['no_approver:void-item']);
+
+    openSession(hub, { kind: 'staff', staffId: MGR, deviceId: phone.deviceId, legacyProfile: false });
+    await pass();
+    expect(openNoApprover()).toEqual([]);
+    expect(rows('no_approver')).toEqual([expect.objectContaining({ dedupe_key: 'no_approver:void-item', state: 'closed', close_reason: 'done' })]);
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it('[05a Q-1 (a)] money permission: the approver on a listed device counts from the first pass (no warning); a non-money permission whose only approver is on an `everyone` device is not warned', async () => {
+    await seedDirectory(hub, await directory({ nonMoney: true, without: [ALI] }));
+    const floor = pairDevice(hub, { type: 'tablet', name: 'Floor', profile: { access: 'listed', staff_ids: [MGR, WAIT], screens: ['manager'] } });
+    openDay();
+    const s = openSession(hub, { kind: 'staff', staffId: MGR, deviceId: floor.deviceId, legacyProfile: false });
+    start();
+    await pass();
+    expect(openNoApprover()).toEqual([]);
+    endSessionNow(hub, s.sessionId);
+    const shared = pairDevice(hub, { type: 'tablet', name: 'Shared', profile: { access: 'everyone', screens: ['takeaway', 'manager'] } });
+    openSession(hub, { kind: 'staff', staffId: MGR, deviceId: shared.deviceId, legacyProfile: false });
+    await pass();
+    expect(openNoApprover()).toEqual(['no_approver:void-item']);
   });
 
   it('[01d #32] no business day open → no warning; the flag is still cleared', async () => {
