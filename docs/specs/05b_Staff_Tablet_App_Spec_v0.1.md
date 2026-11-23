@@ -234,7 +234,7 @@ Tools: `spike/lock-alerts/scripts` (fire, log receiver, analyse) carried to `too
 
 ## §11. Build order
 
-1. `apps/tablet/` Capacitor project, pinned versions; CI workflow builds the debug APK; runtime `server.url` (M-1) proven on the device with the bridge present on the hub origin. **If Capacitor refuses the runtime config, STOP and ask** (fallback: a native WebView host without Capacitor's bridge, plugin calls via `addJavascriptInterface`).
+1. `apps/tablet/` Capacitor project, pinned versions; CI workflow builds the debug APK; runtime `server.url` (M-1) proven on the device with the bridge present on the hub origin. Checked in the Capacitor 8.6.2 source (2026-11-23): `CapConfig.Builder.setServerUrl()` / `setAllowNavigation()` exist, `BridgeActivity.config` is passed to `Bridge.Builder.setConfig()` in `onCreate`, and the server URL is added to the bridge's allowed origins (`Bridge.java:241`), so `MainActivity` sets `config` before `super.onCreate` and calls `recreate()` after the first-run page saves the address. **If the device disagrees, STOP and ask** (fallback: a native WebView host without Capacitor's bridge, plugin calls via `addJavascriptInterface`).
 2. `PosNative` storage methods + first-run page + hub-unreachable page (M-1, M-2, M-16).
 3. `AlertService` from the spike, hardened (M-4–M-7, M-19); channels and urgent repeat (M-9–M-11); tap (M-12).
 4. Hub H-1, H-2 (TDD, gate); client D-2, C-1, `bridge.ts` (tests 1–7).
