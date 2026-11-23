@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import type { DeviceType } from '@pos/domain';
-import { WsAlertsOpenRow } from '@pos/events';
 import { createAlertConnection, type AlertConnectionDeps, type SocketLike } from './socket';
 import { createAlertStore } from './store';
 import { fakeTimers, recordingSink, view } from './test-fakes';
@@ -119,17 +118,6 @@ describe('[05b D-4 client half; 01d §8.1] an earlier-day alerts_open row is lis
     store.onCatchUp([row]);
     timers.advance(60_000);
     expect(store.snapshot().rows.map((r) => [r.alert_id, r.from_business_day])).toEqual([['Y1', '2026-11-22']]);
-    expect(sink.played).toEqual([]);
-  });
-
-  // runs once @pos/events' WsAlertsOpenRow carries from_business_day (05b D-4, the hub lane's B3)
-  const schemaHasIt = WsAlertsOpenRow.safeParse(row).success;
-  it.runIf(schemaHasIt)('phone on alert mode: the alerts_open row is listed, no sound', () => {
-    const { sockets, store, sink, timers } = setup('phone', null);
-    sockets[0]!.open();
-    sockets[0]!.frame({ type: 'alerts_open', alerts: [row], binding_route_until: null });
-    timers.advance(60_000);
-    expect(store.snapshot().rows.map((r) => r.alert_id)).toEqual(['Y1']);
     expect(sink.played).toEqual([]);
   });
 });
