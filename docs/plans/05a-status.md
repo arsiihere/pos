@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~13:10 PKT: **8 lanes running** (6 saved + new B13, B14 for B4). **K (27–28)** done, CI green, Opus review FIX (1 MAJOR: no test pins "after catchUp"), fix round 1 running. **R (29)** done, CI green, Opus review running. npm registry was blocked in this cloud env: new personal env `pos-build` (package registries only) fixed it.
 > - 2026-11-23 ~12:05 PKT (07:05 UTC): **Cloud integrator started** on `build/05a` @ `6935a2d3` (CI green). Stab: `origin/fix/stab-tablet-pairing` @ `b72d290c` is already in `build/05a` (nothing new; no 00 / 01d / 03b / 04 version change). Owner answered **Q-1 – Q-3: all (a)**. Next: finish the six saved lanes (L1, K, R, D, C1, C2) in parallel cloud agents, CI on GitHub runners, then a fresh review each, then `merge --no-ff`.
 > - 2026-11-23 ~12:10 PKT: **Everything saved to GitHub; the build moves to a claude.ai/code cloud session.** All laptop agents were stopped and their unfinished work was committed as `wip(05a)` and pushed. None of it is reviewed:
 >   - `lane-05aL1/05a-10-12` @ `0a80fb86` (B3 tasks 10–12; task 9 is on `build/05a`);
@@ -133,6 +134,8 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 
 | # | Task | Correction |
 |---|---|---|
+| PC-4 | 27, 33 | Lane K review m-2: from task 27 until task 33 (K-2), `SetDeviceRole` drops a sent `point_id` (03b v1.0.15 §6.10, pinned), so the old client "Use as Pass tablet" (`BindDialog.tsx`, `admin/page.ts`) answers 200 and does nothing. Task 33 replaces it with the edit-form link. Not a hand-check item before 33 lands |
+| PC-3 | 28 | The upgrade boot step runs inline in `boot()` as step **4c** (after catchUp and `restoreEmptyStaffSessions`, before `buildHubServer` and listen), not through `registerBootStep`: `BootStep` has no slot between catchUp and the server build (lane K review m-3; §6.10 satisfied). A phone with `owner_staff_id` NULL (only possible by raw SQL after 0027) is skipped and left unprofiled, which R-1 / D-6 already cover (masked as `everyone`, refuses every PIN). The #15 refusal half (`it.todo`) lands with tasks 10–11 and goes in Z1 under #15 |
 | PC-2 | 7 | Task 7 also wires 3 lines in `apps/hub/src/server.ts` (`buildHubServer`: load the map + the post-commit refresh), where the 03b device-roles map is wired. B2 review M2: until task 27 (K-1), a `DeviceRoleSet` still writes `devices.point_id` and does not refresh `deviceProfile`, so its `point_id` can be stale; task 27 removes that writer and must re-check `test/auth/device-profile.int.test.ts:84`. M3: the map is per process, like device-roles; a test that builds a hub without `buildHubServer` calls `loadDeviceProfiles(db)` itself |
 | PC-1 | 2 | The plan named a `PermissionDeniedReason` type; none exists. `DomainError` details are `Record<string, unknown>`, so the three reasons are plain strings in `details.reason`, as other reasons are today. No type added |
 
