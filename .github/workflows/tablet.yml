@@ -10,6 +10,11 @@ on:
     branches: [main, 'module-05b', 'lane-05b/**']
     paths: ['apps/tablet/**', '.github/workflows/tablet.yml']
   workflow_dispatch:
+    inputs:
+      release:                  # 05b A17: also build the release-signed APK (device-owner provisioning, M-17)
+        description: 'Build the release-signed APK and publish it to a pre-release tablet-release-<run>'
+        type: boolean
+        default: false
 
 concurrency:
   group: tablet-${{ github.ref }}
@@ -71,3 +76,54 @@ jobs:
             gh release create tablet-dev --prerelease --target "$GITHUB_SHA" \
               --title "Tablet app (module-05b dev builds)" --notes "Debug APK of module-05b. Not for device owner."
           gh release upload tablet-dev pos-tablet.apk --clobber
+      # 05b A17 (§7, M-17, m-9): release-signed APK, on a manual run with `release: true` only. The key comes from
+      # secrets, decoded to a temp file outside the repo and deleted afterwards; without the secrets the steps skip.
+      - name: Release key present?
+        id: relkey
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        env:
+          KS_B64: ${{ secrets.TABLET_RELEASE_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.TABLET_RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.TABLET_RELEASE_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.TABLET_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASS" ]; then
+            echo "::notice title=Release build skipped::TABLET_RELEASE_* secrets are not set; no release APK built."
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          umask 077
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/tablet-release.jks"
+          echo "TABLET_RELEASE_KEYSTORE=$RUNNER_TEMP/tablet-release.jks" >> "$GITHUB_ENV"
+          echo "have=true" >> "$GITHUB_OUTPUT"
+      - name: Build release APK
+        if: steps.relkey.outputs.have == 'true'
+        working-directory: apps/tablet/android
+        env:
+          TABLET_RELEASE_STORE_PASSWORD: ${{ secrets.TABLET_RELEASE_STORE_PASSWORD }}
+          TABLET_RELEASE_KEY_ALIAS: ${{ secrets.TABLET_RELEASE_KEY_ALIAS }}
+          TABLET_RELEASE_KEY_PASSWORD: ${{ secrets.TABLET_RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon assembleRelease || { sleep 20; ./gradlew --no-daemon assembleRelease; }
+          apk=app/build/outputs/apk/release/app-release.apk
+          test -f "$apk" || { echo "::error::release APK not signed (app-release.apk missing)"; ls -R app/build/outputs/apk; exit 1; }
+          cp "$apk" "../pos-tablet-release-${GITHUB_RUN_NUMBER}.apk"
+      - name: Remove the release key
+        if: always() && steps.relkey.outputs.have == 'true'
+        run: rm -f "$RUNNER_TEMP/tablet-release.jks"
+      - uses: actions/upload-artifact@v4
+        if: steps.relkey.outputs.have == 'true'
+        with:
+          name: pos-tablet-release-apk
+          path: apps/tablet/pos-tablet-release-*.apk
+          retention-days: 90
+      - name: Publish the release APK to a pre-release
+        if: steps.relkey.outputs.have == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="tablet-release-${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" --prerelease --target "$GITHUB_SHA" \
+            --title "Tablet app release build ${GITHUB_RUN_NUMBER} (${GITHUB_REF_NAME})" \
+            --notes "Release-signed APK for device-owner provisioning (docs/plans/05b-provisioning.md). Commit ${GITHUB_SHA}." \
+            "pos-tablet-release-${GITHUB_RUN_NUMBER}.apk"
