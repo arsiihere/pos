@@ -168,7 +168,7 @@ describe('hub admin page (M86)', () => {
     for (const hash of ['#add-phone', '#add-tablet']) {
       const gone = textOf((await runPage(source, { store: STORE, session: SESSION, fetch: fakeHub().fetch, hash })).screen);
       expect(gone, hash).toContain(EN['admin.tile_devices'].replace('{n}', '3'));
-      expect(gone, hash).not.toContain(EN['addphone.make_qr']);
+      expect(gone, hash).not.toContain('Make QR');
     }
   });
 
