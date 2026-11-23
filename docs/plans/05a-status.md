@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~13:20 PKT: **Task 29 (recovery link) merged** into `build/05a` (`1b5b5c61`), Opus review APPROVE.
 > - 2026-11-23 ~13:10 PKT: **8 lanes running** (6 saved + new B13, B14 for B4). **K (27–28)** done, CI green, Opus review FIX (1 MAJOR: no test pins "after catchUp"), fix round 1 running. **R (29)** done, CI green, Opus review running. npm registry was blocked in this cloud env: new personal env `pos-build` (package registries only) fixed it.
 > - 2026-11-23 ~12:05 PKT (07:05 UTC): **Cloud integrator started** on `build/05a` @ `6935a2d3` (CI green). Stab: `origin/fix/stab-tablet-pairing` @ `b72d290c` is already in `build/05a` (nothing new; no 00 / 01d / 03b / 04 version change). Owner answered **Q-1 – Q-3: all (a)**. Next: finish the six saved lanes (L1, K, R, D, C1, C2) in parallel cloud agents, CI on GitHub runners, then a fresh review each, then `merge --no-ff`.
 > - 2026-11-23 ~12:10 PKT: **Everything saved to GitHub; the build moves to a claude.ai/code cloud session.** All laptop agents were stopped and their unfinished work was committed as `wip(05a)` and pushed. None of it is reviewed:
@@ -105,7 +106,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 26 | B6 | D-3 `device_waiting` | HIGH | | |
 | 27 | B7 | K-1 + D-4 Pass readers | HIGH | | |
 | 28 | B7 | upgrade boot step | HIGH | | |
-| 29 | B7 | recovery link | HIGH | | |
+| 29 | B7 | recovery link | HIGH | `72933db1` (merge `1b5b5c61`) | **done** (Opus review APPROVE; carry-overs: #16a "owner approves their phone" `it.todo` → task 15; MINORs m1 empty `advertised_host`, m2 count-0 cases at the route, m3 unprovisioned refusal test → with task 15/18) |
 | 30 | B7 | counter check (fresh implementer) | HIGH | | |
 | 31 | B8 | device list page | NORMAL | | |
 | 32 | B8 | approve + edit forms | NORMAL | | |
