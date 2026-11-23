@@ -87,7 +87,26 @@ class PosNativePlugin : Plugin() {
     @PluginMethod
     fun info(call: PluginCall) {
         if (!allowed(call, "info")) return
-        call.resolve(JSObject.fromJSONObject(MainHealth.info(BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME, isDeviceOwner())))
+        call.resolve(JSObject.fromJSONObject(MainHealth.info(BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME, isDeviceOwner()).put("debug", BuildConfig.DEBUG)))
+    }
+
+    /**
+     * Plan batch A-2, DEBUG BUILDS ONLY: pair natively with a token minted by tools/tablet-soak, until phase B's
+     * hub pair page calls setDeviceToken (spec H-2). Release builds refuse it.
+     */
+    @PluginMethod
+    fun debugPairing(call: PluginCall) {
+        if (!BuildConfig.DEBUG) return call.reject("NOT_ALLOWED_HERE", "NOT_ALLOWED_HERE")
+        if (!allowed(call, "debugPairing")) return
+        val origin = HubOrigin.normalize(call.getString("origin")) ?: return call.reject(BAD_ORIGIN_MESSAGE)
+        val token = call.getString("token")?.trim()
+        if (token.isNullOrEmpty()) return call.reject("token required")
+        ipc.send(
+            Ipc.OP_SET_DEVICE_TOKEN,
+            org.json.JSONObject().put("token", token).put("device_id", call.getString("device_id") ?: "debug")
+                .put("device_type", "tablet").put("hub_origin", origin),
+        )
+        call.resolve()
     }
 
     @PluginMethod
