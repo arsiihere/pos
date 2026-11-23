@@ -68,6 +68,8 @@ class Notifier(private val ctx: Context) {
         val text = try { LockText.render(ctx, item.kind, lock, language) } catch (e: Exception) { item.kind }
         val sound = try { LockText.soundFamily(ctx, item.kind, item.family, lock) } catch (e: Exception) { item.family }
         val urgent = sound == "urgent"
+        // LockText returns "none" for a silent kind or a withdrawn request_result (the page plays nothing): post without sound.
+        val noSound = sound == "none"
         val tap = Intent(Intent.ACTION_MAIN)
             .addCategory(Intent.CATEGORY_LAUNCHER)
             .setClassName(ctx, "pos.tablet.MainActivity")
@@ -85,7 +87,7 @@ class Notifier(private val ctx: Context) {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(pi)
-            .setSilent(!withSound)
+            .setSilent(!withSound || noSound)
         item.raisedAt?.let { b.setWhen(it).setShowWhen(true) }
         if (urgent && withSound) onUrgentPosted?.invoke(item, b) // A10–A12: FSI / repeat attach here, before notify
         try {

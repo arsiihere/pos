@@ -27,6 +27,7 @@ object Ipc {
     const val OP_HEALTH = "health"                       // reply json: the :alerts half of M-18
     const val OP_SET_WAKE_LOCK = "set_wake_lock"         // json { on }                      (M-5)
     const val OP_CHECK_FOR_UPDATE = "check_for_update"   // reply json { state }             (M-15)
+    const val OP_CLEAR_PAIRING = "clear_pairing"         // M-16: hub address changed → this tablet must pair again
 
     // :alerts → main
     const val OP_REPLY = "reply"                         // json = the reply body
