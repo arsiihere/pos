@@ -106,17 +106,21 @@ export function routeAsk(steps: ReadonlyArray<{ recipients: readonly Recipient[]
 /**
  * §3.4.3 alert connection, §3.7: a binding is a route only while (a) its device is connected now (an
  * alert-mode socket or a session socket of that device), (b) the person is not absent (§3.4.1 safety rule),
- * and, for a tablet, (c) the person's last session activity is within `binding_route_idle_ms` of `now`.
- * Only tablets and phones route (a kiosk or KDS row never does, BF-3); a device not in read (5) never does.
- * `until` (BF-5 `binding_route_until`) = last activity + idle for a tablet with known activity, else null.
+ * and, for a session row, (c) the person's last session activity is within `binding_route_idle_ms` of `now`.
+ * ⚠️ Changed by 05a (row D-1) (05a §3.8): a permanent row (`session_id` NULL: a phone owner or a one-person
+ * `listed` device) routes on any hardware with (a) and (b) only, `until` null; a session row routes only on a
+ * tablet or phone (a kiosk or KDS session row never does, BF-3); a device not in read (5) never routes.
+ * `until` (BF-5 `binding_route_until`) = last activity + idle for a session row with known activity, else null.
  */
 export function bindingIsRoute(binding: BindingRead, reads: BatchReads, ws: WsHub, now: number): { route: boolean; until: number | null } {
   const device = reads.devices.find((d) => d.device_id === binding.device_id);
-  if (device === undefined || (device.device_type !== 'tablet' && device.device_type !== 'phone')) return { route: false, until: null };
+  if (device === undefined) return { route: false, until: null };
+  const permanent = binding.session_id === null;
+  if (!permanent && device.device_type !== 'tablet' && device.device_type !== 'phone') return { route: false, until: null };
   const connected =
     ws.alertSockets().some((s) => s.deviceId === binding.device_id) || ws.connectedSessions().some((s) => s.deviceId === binding.device_id);
   const present = isPresent(reads, binding.staff_id);
-  if (device.device_type === 'phone') return { route: connected && present, until: null };
+  if (permanent) return { route: connected && present, until: null };
   const last = lastActivity(reads, binding.staff_id);
   if (last === null) return { route: false, until: null };
   const until = last + ALERT_CONSTANTS.binding_route_idle_ms;

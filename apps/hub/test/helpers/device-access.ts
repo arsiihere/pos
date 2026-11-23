@@ -24,10 +24,11 @@ export function withProfile(h: TestHub, deviceId: string, p: DeviceProfileInput)
 /**
  * A staff session for the person on the device, written straight to the session store. It **bypasses the PIN path**
  * (`POST /auth/pin`): no §3.5 sign-in check, no argon2, no counter. Tests of §3.5, the staff roster or `/admin/auth`
- * (plan tasks 17, 18) must use the real routes, not this helper.
+ * (plan tasks 17, 18) must use the real routes, not this helper. A device with no profile keeps none (no legacy
+ * profile, see `openSession`), so the R-1 fallback applies.
  */
 export function signInOn(h: TestHub, deviceId: string, staffId: string): { sessionId: string; token: string } {
-  return openSession(h, { kind: 'staff', staffId, deviceId });
+  return openSession(h, { kind: 'staff', staffId, deviceId, legacyProfile: false });
 }
 
 /**

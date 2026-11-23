@@ -6,8 +6,7 @@ import { devicePoint } from '../../src/kds/contracts';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
-import { swapBranchConfig } from '../../src/sync/branch-config-holder';
-import { FX, fixtureMenu, openDay, pairKds } from './fixtures';
+import { FX, openDay, pairKds } from './fixtures';
 
 // 03b b7: SetStationScreen (§6.9) and SetDeviceRole (§6.10), admin session, manage-devices (§3.9). Test 50.
 
@@ -100,7 +99,7 @@ describe('03b admin commands SetStationScreen, SetDeviceRole (b7)', () => {
     const onDevice: Admin = { device: tablet, session: staff };
     for (const [path, type, payload] of [
       ['set-station-screen', 'SetStationScreen', { station_id: FX.station, sound_volume: 10 }],
-      ['set-device-role', 'SetDeviceRole', { device_id: tablet.deviceId, point_id: 'P1' }],
+      ['set-device-role', 'SetDeviceRole', { device_id: tablet.deviceId }],
     ] as const) {
       const res = await post(hub, onDevice, path, type, payload, { route: 'device' });
       expect(res.statusCode, path).toBe(404);
@@ -119,7 +118,7 @@ describe('03b admin commands SetStationScreen, SetDeviceRole (b7)', () => {
     const session = openSession(hub, { kind: 'admin', staffId: 'S_OWNER', deviceId: device.deviceId });
     for (const [path, type, payload] of [
       ['set-station-screen', 'SetStationScreen', { station_id: FX.station, sound_volume: 10 }],
-      ['set-device-role', 'SetDeviceRole', { device_id: device.deviceId, point_id: 'P1' }],
+      ['set-device-role', 'SetDeviceRole', { device_id: device.deviceId }],
     ] as const) {
       const res = await post(hub, { device, session }, path, type, payload);
       expect(res.statusCode, path).toBe(403);
@@ -127,12 +126,15 @@ describe('03b admin commands SetStationScreen, SetDeviceRole (b7)', () => {
     }
   });
 
-  it('[03b #50, §6.10] SetDeviceRole: DeviceRoleSet, devices row and devicePoint refreshed; omitted fields keep their value; 1 handler statement', async () => {
+  it('[03b #50, §6.10] [05a row K-1] SetDeviceRole: DeviceRoleSet carries the device\'s current point unchanged; the fold writes the lane label only; omitted fields keep their value; 1 handler statement', async () => {
     const { hub, admin } = await open();
-    const tablet = pairDevice(hub, { type: 'tablet' });
+    // the point is set by 05a's DeviceProfileSet (its fold is the one writer of devices.point_id)
+    const tablet = pairDevice(hub, { type: 'tablet', profile: { access: 'everyone', screens: ['pass', 'dine_in'], point_id: 'P1' } });
     const kds = pairKds(hub, { stationId: FX.station });
+    expect(devicePoint(tablet.deviceId)).toBe('P1');
     const count = handlerStatements(hub, 'set-device-role');
-    const set = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: tablet.deviceId, point_id: 'P1' });
+    // point_id is no longer in the payload (05a M-6): a sent one is dropped, never POINT_NOT_FOUND
+    const set = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: tablet.deviceId, point_id: 'P_NONE' });
     expect(set.statusCode, set.body).toBe(200);
     expect(set.json().data.result).toEqual({ device_id: tablet.deviceId, point_id: 'P1', lane_label: null });
     expect(count.last()).toBe(1);
@@ -140,33 +142,21 @@ describe('03b admin commands SetStationScreen, SetDeviceRole (b7)', () => {
 
     const lane = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: kds.deviceId, lane_label: 'Lane A' });
     expect(lane.statusCode, lane.body).toBe(200);
-    const pointToo = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: kds.deviceId, point_id: 'P1' });
-    expect(pointToo.json().data.result).toEqual({ device_id: kds.deviceId, point_id: 'P1', lane_label: 'Lane A' });
-    const cleared = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: tablet.deviceId, point_id: null });
-    expect(cleared.json().data.result).toEqual({ device_id: tablet.deviceId, point_id: null, lane_label: null });
-    expect(devicePoint(tablet.deviceId)).toBeNull();
+    const again = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: kds.deviceId, point_id: 'P1' });
+    expect(again.json().data.result).toEqual({ device_id: kds.deviceId, point_id: null, lane_label: 'Lane A' });
+    const cleared = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: kds.deviceId, lane_label: null });
+    expect(cleared.json().data.result).toEqual({ device_id: kds.deviceId, point_id: null, lane_label: null });
     expect(eventsOf(hub, 'DeviceRoleSet')).toEqual([
       { device_id: tablet.deviceId, point_id: 'P1', lane_label: null },
       { device_id: kds.deviceId, point_id: null, lane_label: 'Lane A' },
-      { device_id: kds.deviceId, point_id: 'P1', lane_label: 'Lane A' },
-      { device_id: tablet.deviceId, point_id: null, lane_label: null },
+      { device_id: kds.deviceId, point_id: null, lane_label: 'Lane A' },
+      { device_id: kds.deviceId, point_id: null, lane_label: null },
     ]);
-    expect(hub.deps.db.prepare('SELECT point_id, lane_label FROM devices WHERE device_id = ?').get(kds.deviceId)).toEqual({ point_id: 'P1', lane_label: 'Lane A' });
+    expect(hub.deps.db.prepare('SELECT point_id, lane_label FROM devices WHERE device_id = ?').get(tablet.deviceId)).toEqual({ point_id: 'P1', lane_label: null });
+    expect(hub.deps.db.prepare('SELECT point_id, lane_label FROM devices WHERE device_id = ?').get(kds.deviceId)).toEqual({ point_id: null, lane_label: null });
   });
 
-  it('[03b §3.8] SetDeviceRole to an archived point → 404 POINT_NOT_FOUND; nothing written', async () => {
-    const { hub, admin } = await open();
-    const menu = fixtureMenu();
-    const archived = { ...menu, points: [...menu.points, { point_id: 'P_OLD', name: 'Old pass', sort_order: 9, is_archived: true }] };
-    swapBranchConfig({ config: archived, snapshotHash: 'd'.repeat(64), configVersion: archived.config_version, snapshotSchemaVersion: 4, appliedAt: hub.clock.branchNow() });
-    const tablet = pairDevice(hub, { type: 'tablet' });
-    const res = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: tablet.deviceId, point_id: 'P_OLD' });
-    expect(res.statusCode).toBe(404);
-    expect(res.json().error).toMatchObject({ code: 'POINT_NOT_FOUND', details: { point_id: 'P_OLD' } });
-    expect(eventsOf(hub, 'DeviceRoleSet')).toEqual([]);
-  });
-
-  it('[03b #50, §3.8] SetDeviceRole errors: lane label on a non-kds device → 400; unknown / revoked device → 404 DEVICE_NOT_FOUND; unknown point → 404 POINT_NOT_FOUND; nothing written', async () => {
+  it('[03b #50, §3.8] SetDeviceRole errors: lane label on a non-kds device → 400; unknown / revoked device → 404 DEVICE_NOT_FOUND; nothing written', async () => {
     const { hub, admin } = await open();
     const tablet = pairDevice(hub, { type: 'tablet' });
     const revoked = pairDevice(hub, { type: 'tablet' });
@@ -178,13 +168,10 @@ describe('03b admin commands SetStationScreen, SetDeviceRole (b7)', () => {
     const long = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: tablet.deviceId, lane_label: 'x'.repeat(21) });
     expect(long.statusCode).toBe(400);
     for (const id of ['D_NONE', revoked.deviceId]) {
-      const missing = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: id, point_id: 'P1' });
+      const missing = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: id });
       expect(missing.statusCode).toBe(404);
       expect(missing.json().error).toMatchObject({ code: 'DEVICE_NOT_FOUND', details: { device_id: id } });
     }
-    const point = await post(hub, admin, 'set-device-role', 'SetDeviceRole', { device_id: tablet.deviceId, point_id: 'P_NONE' });
-    expect(point.statusCode).toBe(404);
-    expect(point.json().error).toMatchObject({ code: 'POINT_NOT_FOUND', details: { point_id: 'P_NONE' } });
     expect(eventsOf(hub, 'DeviceRoleSet')).toEqual([]);
   });
 });

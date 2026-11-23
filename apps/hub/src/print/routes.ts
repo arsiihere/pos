@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { deviceProfile } from '../auth/device-profile.js';
 import { currentDirectory } from '../auth/guards.js';
 import type { HubDeps } from '../server.js';
 import { encodeDoc } from './escpos.js';
@@ -108,7 +109,9 @@ function testDoc(p: PrinterRow, at: number, utc_offset_ms: number): Doc {
 
 function requireManageDevices(app: FastifyInstance, request: FastifyRequest): void {
   const staffId = request.session?.staff_id ?? null;
-  const resolution = staffId === null ? ({ grant: 'not_granted' } as const) : currentDirectory(app).resolve(staffId, 'manage-devices');
+  // 05a §3.3a (B-1): resolved through the session's view; the 403 keeps its details (N-6).
+  const view = currentDirectory(app).forSession({ staff_id: staffId, device_id: request.session?.device_id ?? null }, deviceProfile);
+  const resolution = staffId === null ? ({ grant: 'not_granted' } as const) : view.resolve(staffId, 'manage-devices');
   if (resolution.grant !== 'allowed') throw new DomainError('PERMISSION_DENIED', { permission: 'manage-devices', grant: resolution.grant });
 }
 

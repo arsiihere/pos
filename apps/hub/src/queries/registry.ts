@@ -7,7 +7,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z, type ZodError } from 'zod';
 import { currentDirectory, type RequestDevice } from '../auth/guards.js';
 import { activity, endSession, findSessionByToken, isIdleExpired, type SessionRow } from '../auth/session-store.js';
-import type { StaffDirectory } from '../auth/staff-directory.js';
+import { deviceProfile } from '../auth/device-profile.js';
+import type { SessionDirectory } from '../auth/staff-directory.js';
 import type { StateHolder } from '../engine-host/state-holder.js';
 import type { Writer } from '../engine-host/writer.js';
 import type { Clock } from '../lib/clock.js';
@@ -16,7 +17,8 @@ import { branchConfig } from '../sync/branch-config-holder.js';
 export interface QueryCtx {
   db: Database.Database;
   page: { cursor: string | null; limit: number };
-  directory: StaffDirectory;
+  /** 05a §3.3a: the request session's view (`forSession`); no session → nothing masked. */
+  directory: SessionDirectory;
   device: RequestDevice | undefined;
   session: SessionRow | undefined;
   // 01a S16: read-only engine state and the in-memory branch config (S40 N9).
@@ -116,7 +118,10 @@ function runQuery(
     {
       db: deps.readDb,
       page,
-      directory: currentDirectory(app),
+      directory: currentDirectory(app).forSession(
+        { staff_id: request.session?.staff_id ?? null, device_id: request.session?.device_id ?? null },
+        deviceProfile,
+      ),
       device: request.device,
       session: request.session,
       state: deps.state.get(),

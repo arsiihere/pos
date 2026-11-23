@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { deviceProfile } from '../../src/auth/device-profile';
 import { currentDirectory } from '../../src/auth/guards';
 import { ALI, BILAL, directoryWith, signInOn, withProfile } from '../helpers/device-access';
-import { createTestHub, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { createTestHub, endSessionNow, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 // 05a §10 fixture self-test (plan task 8): profiles through the writer, a sign-in on a device, the directory.
 
@@ -81,5 +81,30 @@ describe('[05a §10] device-access fixture', () => {
     const { sessionId, token } = signInOn(h, deviceId, ALI);
     expect(token).toEqual(expect.any(String));
     expect(h.deps.db.prepare('SELECT kind, staff_id, device_id, ended_at FROM staff_sessions WHERE session_id = ?').get(sessionId)).toEqual({ kind: 'staff', staff_id: ALI, device_id: deviceId, ended_at: null });
+  });
+
+  it('[05a §3.3a R-1] openSession on a no-profile device: a fixture-only legacy `listed` profile (version 0, no event) holding each person; signInOn and legacyProfile: false keep none; withProfile replaces it as the first profile', async () => {
+    const h = await hub();
+    const before = h.published.length;
+    const tablet = pairDevice(h, { type: 'tablet' }).deviceId;
+    endSessionNow(h, openSession(h, { kind: 'staff', staffId: ALI, deviceId: tablet }).sessionId);
+    openSession(h, { kind: 'admin', staffId: BILAL, deviceId: tablet });
+    expect(deviceProfile(tablet)).toMatchObject({ access: 'listed', staff_ids: new Set([ALI, BILAL]), screens: ['dine_in', 'takeaway', 'parking', 'cashier', 'manager'] });
+    expect(h.deps.db.prepare('SELECT profile_version FROM device_profiles WHERE device_id = ?').get(tablet)).toEqual({ profile_version: 0 });
+    expect(h.published.slice(before).flat().filter((e) => e.event_type === 'DeviceProfileSet')).toEqual([]);
+    const kds = pairDevice(h, { type: 'kds', stationId: 'st-1' }).deviceId;
+    const bare = pairDevice(h, { type: 'cashier_kiosk' }).deviceId;
+    const explicit = pairDevice(h, { type: 'phone', ownerStaffId: ALI, profile: { access: 'everyone', screens: ['dine_in'] } }).deviceId;
+    openSession(h, { kind: 'staff', staffId: ALI, deviceId: kds });
+    endSessionNow(h, signInOn(h, bare, ALI).sessionId);
+    openSession(h, { kind: 'staff', staffId: ALI, deviceId: bare, legacyProfile: false });
+    openSession(h, { kind: 'staff', staffId: ALI, deviceId: explicit });
+    expect(deviceProfile(kds)).toBeUndefined();
+    expect(deviceProfile(bare)).toBeUndefined();
+    expect(deviceProfile(explicit)).toMatchObject({ access: 'everyone', staff_ids: new Set() });
+    withProfile(h, tablet, { access: 'everyone', screens: ['dine_in'] });
+    const last = h.published.flat().filter((e) => e.event_type === 'DeviceProfileSet').at(-1);
+    expect(last?.payload).toMatchObject({ device_id: tablet, profile_version: 1, cause: 'approved' });
+    expect(deviceProfile(tablet)).toMatchObject({ access: 'everyone', staff_ids: new Set() });
   });
 });

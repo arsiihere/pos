@@ -168,19 +168,19 @@ describe('[03b §3.6, §6.20] kds_presence tick (b20)', () => {
     expect(alertRows()).toHaveLength(1);
   });
 
-  it('[03b §3.1] a device with a point that is not a tablet (cashier kiosk on P1) is no Pass: devicePoint null, no takeover frame', async () => {
+  it('[03b §3.1] [05a row K-1] a device with a point that is not a tablet (cashier kiosk on P1) is a Pass: devicePoint P1, takeover frame', async () => {
     const { pass: passWs, t0 } = await start();
     const kiosk = pairDevice(hub, { type: 'cashier_kiosk' });
     hub.deps.db.prepare("UPDATE devices SET point_id = 'P1' WHERE device_id = ?").run(kiosk.deviceId);
     loadDeviceMaps(hub.deps.db);
-    expect(devicePoint(kiosk.deviceId)).toBeNull();
+    expect(devicePoint(kiosk.deviceId)).toBe('P1');
     const kioskWs = await connect(kiosk.token, openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: kiosk.deviceId }).token);
     lineInNow();
     pass(t0);
     expect(pass(t0 + OFFLINE_MS).due).toBe(true);
     await settle();
     expect(takeovers(passWs)).toHaveLength(1);
-    expect(takeovers(kioskWs)).toEqual([]);
+    expect(takeovers(kioskWs)).toHaveLength(1);
   });
 
   it('[03b §6.17] a config apply moves a dark station to another point: its takeover ends at the old point and starts at the new one', async () => {

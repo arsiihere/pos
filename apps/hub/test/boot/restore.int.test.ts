@@ -14,6 +14,7 @@ import { createTestHub } from '../helpers/test-hub';
 import { offlineCloud } from '../helpers/stub-cloud';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 
+// TASK-15-EDIT: the pairing_tokens inserts and consume (lines ~52-71, 135) seed a token-pairing restore case. Table STAYS (H-1); if that case pins GenerateDevicePairingToken behaviour, task 15 edits it, else leave.
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const WALL = 1_761_000_000_000;
 const BRANCH = 'branch-1';
@@ -225,7 +226,7 @@ describe('access reconciliation', () => {
     await normal.stop();
   });
 
-  it('[00 §10 #128] a live /devices/pair rotation keeps the new token_hash (the new token works after the live access_reconcile apply); the same event in boot catch-up sets \'rotated:<event_id>\'', async () => {
+  it('[00 §10 #128] a live device-token rotation keeps the new token_hash (the new token works after the live access_reconcile apply); the same event in boot catch-up sets \'rotated:<event_id>\'', async () => {
     const h = await createTestHub();
     const dir = h.deps.config.data_dir;
     const late: { booted?: Awaited<ReturnType<typeof boot>> } = {};
