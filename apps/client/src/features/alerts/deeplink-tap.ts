@@ -260,6 +260,7 @@ function sheetLoadedWithoutCard(order_id: string, alert_id: string, opts: { movi
 function screenOf(result: Extract<CheckResult, { kind: 'open' }>): string | null {
   const route = matchStaffRoute(result.href, 'tablet');
   if (route.name === 'table') return 'dine_in';
+  if (route.name === 'pass') return 'pass';
   if (route.name === 'order_view') {
     const view = result.preload !== undefined && 'order_view' in result.preload ? result.preload.order_view : null;
     return view !== null && (view.order_type === 'takeaway' || view.order_type === 'parking') ? view.order_type : null;

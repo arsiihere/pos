@@ -95,6 +95,7 @@ function setup(o: { runPass?: boolean; answers?: Record<string, Array<HubResult<
     online: true,
     portrait: false,
     me: { staff_id: 'S1', name: 'Asif' },
+    device: { token: 'DEV', id: 'D-P1', type: 'tablet' },
   } as unknown as Shell;
   const pass: PassLive = passLiveOf(shell);
   const raw = (f: WsServerMessage) => {

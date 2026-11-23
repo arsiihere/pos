@@ -66,6 +66,7 @@ function shellWith(view: PointViewBody, answers: Record<string, Array<HubResult<
     online: true,
     portrait: false,
     me: { staff_id: 'S1', name: 'Asif' },
+    device: { token: 'DEV', id: 'D-P1', type: 'tablet' },
   } as unknown as Shell;
   // the page creates its Pass live before the socket's first catch-up (W0.6, IR-17b)
   passLiveOf(shell);

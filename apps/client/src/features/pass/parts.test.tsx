@@ -67,6 +67,7 @@ function shellWith(answers: Record<string, Array<HubResult<unknown>>>) {
     online: true,
     portrait: false,
     me: { staff_id: 'S1', name: 'Asif' },
+    device: { token: 'DEV', id: 'D-P1', type: 'tablet' },
   } as unknown as Shell;
   const pass = passLiveOf(shell);
   const raw = (f: WsServerMessage) => {
