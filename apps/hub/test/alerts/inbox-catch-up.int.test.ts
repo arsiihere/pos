@@ -737,7 +737,7 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
     const sockets = createAlertSockets({
       db: hub.deps.db,
       branchId: BRANCH,
-      clock: hub.clock,
+      clock: hub.clock, state: () => hub.deps.state.get(),
       ws: () => wsHubFor(hub.app),
       recordSent: () => undefined,
       log: { error: () => undefined },
@@ -745,6 +745,52 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
     const counter = statementCounter(hub.deps.db);
     counter.reset();
     expect(sockets.alertsOpen(tab).alerts).toHaveLength(2);
+    expect(counter.count).toBeLessThanOrEqual(3);
+  });
+
+  // ---------------------------------------------------------------------------------- 05b D-4 (N-16)
+
+  it('[05b #9] [05b D-4] alerts_open rows carry from_business_day exactly as the alerts catch-up rows (BF-4): the business date for a row raised before the current day opened, else null; still ≤ 3 statements', async () => {
+    const tab = device('tablet', 'tablet');
+    const localDate = (ms: number): string => {
+      const d = new Date(ms);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const raisedAt = (id: string): number => hub.deps.db.prepare('SELECT raised_at FROM alerts WHERE alert_id = ?').pluck().get(id) as number;
+    const before = raise(toDevice(tab, 'before')); // before any business day
+    expect(openRows(await alertSocket(tab))).toEqual([expect.objectContaining({ alert_id: before, from_business_day: null })]);
+    hub.clock.advance(60_000);
+    append([aBusinessDayOpened({ stream_id: BRANCH, payload: { business_date: '2025-10-19' } })]);
+    hub.clock.advance(60_000);
+    const yesterday = raise(toDevice(tab, 'yesterday'));
+    hub.clock.advance(60_000);
+    append([aBusinessDayClosed({ stream_id: BRANCH })]);
+    hub.clock.advance(8 * 3_600_000);
+    append([aBusinessDayOpened({ stream_id: BRANCH, payload: { business_date: '2025-10-20' } })]);
+    hub.clock.advance(1_000);
+    const today = raise(toDevice(tab, 'today'));
+    const expected = [
+      { alert_id: before, from_business_day: localDate(raisedAt(before)) },
+      { alert_id: yesterday, from_business_day: '2025-10-19' },
+      { alert_id: today, from_business_day: null },
+    ];
+    const rows = openRows(await alertSocket(tab));
+    expect(rows.map((r) => ({ alert_id: r.alert_id, from_business_day: r.from_business_day }))).toEqual(expected);
+    // the same values a session socket's alerts catch-up gives for those rows
+    const caught = catchUpOf(await socketOf(signIn(MGR, tab)));
+    expect(caught.map((r) => ({ alert_id: r.alert_id, from_business_day: r.from_business_day }))).toEqual(expected);
+    const sockets = createAlertSockets({
+      db: hub.deps.db,
+      branchId: BRANCH,
+      clock: hub.clock,
+      state: () => hub.deps.state.get(),
+      ws: () => wsHubFor(hub.app),
+      recordSent: () => undefined,
+      log: { error: () => undefined },
+    });
+    const counter = statementCounter(hub.deps.db);
+    counter.reset();
+    expect(sockets.alertsOpen(tab).alerts.map((r) => r.from_business_day)).toEqual(expected.map((r) => r.from_business_day));
     expect(counter.count).toBeLessThanOrEqual(3);
   });
 
