@@ -3,6 +3,7 @@
 Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part B** (APPROVED 2026-11-24), with Part A P-1 – P-3, 01a v2.9 (A-2′ – A-6), 01b v1.10.4 (B-x), 01c v1.3 (C-11 – C-16), foundation v1.16 §6.2 (F-1). Integration branch: `module-08b`. Only the integrator (orchestrator session) edits this file.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-24 (later): **merged** s1 #482, g1 #480, r1 #481 (each: fresh reviewers — two on HIGH — findings fixed, gate green; r1 gate try 1 red on 01b #104's hash-builder list → AD-22). r1 review found a real race (option owner read `FOR SHARE OF g` returned a stale option row) → fixed with `FOR SHARE OF g, o` + race test. Running: s2, r2 ∥ r4; u1 built on stubs, waits for the R routes.
 > - 2026-11-24: **Phase 0 merged** (#479 → `module-08b` @ `263c157`; gate green on try 2 — try 1 red on a collation-dependent `ORDER BY name` in the fixture test, fixed with `COLLATE "C"`). Every finding of the 4 fresh reviewers fixed (2 MAJOR: `RECIPE_NOT_FOUND` missing; B7 cap per option instead of per stock item per sale line). Lanes s1, r1, g1, u1 running in parallel.
 > - 2026-11-24: `module-08b` cut from `main` @ `325903dd` (PR #477 merged, gate green on that commit). P0.0 gap sweep done: **one spec–code contradiction (G-1, package graph) — owner ruled (a)**; the other gaps are small and recorded as AD-1 – AD-17 with the plan's Rec applied. Phase 0 (P0.1 – P0.5) built, one PR (AD-10).
 
@@ -72,6 +73,16 @@ Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part
 | AD-17 | §6.6 names no response body, and its counts (2 / 3 / 4 / 5 / 6 / 9 / 10) leave no room for the cost context | `PatchRecipeResponse = { data: { recipe: { recipe_id, archived, version } } }` | P0.4 |
 | AD-18 | §4.2 says `CloudCostRows` = "the five cost-context row sets as the cloud repository returns them" but fixes no shape | `CloudCostRows = { source: 'cloud', items, units, prices, yields, recipes }` with **the snapshot key's element shapes** (BIGINT as strings; `created_at` / `valid_until_at` / `published_at` / `base_qty` as numbers; versions carry `status: 'published'` and `lines`); `source: 'cloud'` keeps the real `created_at` (rows are time-filtered for `now`; no t-1 rank). r4 / r1 map pg rows to it | P0.3, r1, r4 |
 | AD-19 | `RECIPE_NOT_FOUND` (F-1) is in the P0.3 row; foundation v1.16 already carries the append marker | added to `packages/domain/src/errors.ts` in P0.3 (review fix) | P0.3 |
+| AD-20 | The builder has no logger for `inventory_key_invalid` | `syncConfig` takes an optional `log`; the sync route passes `request.log` (`config-sync/service.ts`, `routes.ts`) | s1 |
+| AD-21 | A-4's file list misses two 01c tests that pin the builder at 23 (`menu-variants/snapshot-deals`, `snapshot-modifiers`) | 23 → 28 with the "⚠️ 08b A-4" marker | s1 |
+| AD-22 | 01b #104 (`staff-roles/versions.int.test.ts`) lists every `sha256hex(canonicalJson(` builder | + `modules/recipes/versions.ts` (the recipes module's V13 builder), marked | r1 |
+| AD-23 | P-2's recipes read: built first on "kind away from prepared" only | **spec-literal (orchestrator ruling):** one `recipes` read on **any** `kind` change; 08a #9 4 → 5 | g1 |
+| AD-24 | §6.3 / §6.4 option owner read under `FOR SHARE OF g` returns the option row as of statement start (READ COMMITTED re-fetches locked tables only) | `FOR SHARE OF g, o` (one statement, counts unchanged) + race test (create ∥ option link → 422 `linked_option`) | r1 |
+| AD-25 | r1 review: an empty menu-item / stock-item version costed "Rs 0" (engine: empty = known) | the cloud's `CostWire` maps an empty **non-option** version to `partial`, `minor: null` (D9); an empty option stays `costed "0"` (t-6) | r1 |
+| AD-26 | r1 rulings: (a) the stored `409` body sent by a module-local helper (`lib/idempotency.ts` unchanged); (b) `no_yield_defaulted_ap` derived from data (any AP ingredient line without an active yield outside `per_batch`; reads cannot tell a default); (c) `main_line_off` checked only on AP ingredient lines whose stock unit = the owner's `sale_unit`; (d) `branch_id?` query on the draft PUT (C2 first); (e) create on an archived owner allowed (§3.3 checks existence); a draft on an archived recipe whose owner changed kind / link is saved (publish refuses, spec letter); `created_by` keeps the draft's creator; `CONFIG_STALE` details name the draft version | as listed | r1 |
+| AD-27 | g1: the 409 error `entity` / `id` follow the route's resource (`stock_item`, `menu_item`, `modifier_group`); only `used_by` is fixed by the spec | as built | g1 |
+| AD-28 | u1 (pending review): browser live cost for ingredient / packet lines from 08a's inventory reads, prepared lines "Shown after Save draft"; Restore on archived list rows; `docs/design/handoff/08b/urdu-todo.md` (08a convention); "makes N piece" for plates (spec wording note for Z1) | as built, reviewed with u1 | u1 |
+| AD-29 | Test 26's "recipe create, draft save, archive of a never-published recipe bump none" needs the recipe routes, absent from s2's base | **r3** adds those three no-bump cases (as `[08b #26]`) next to its archive tests; r1's create / draft counts already carry no bump statement | s2, r3 |
 
 ## Tasks
 
@@ -83,14 +94,14 @@ Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part
 | P0.3 | Cost engine + `lb` / `oz` | `lane-0/p0` | #479 | 1–11, 27 (t-1), 08a #1 | 2026-11-24 | Shared, HIGH; 2 reviewers; G-1 |
 | P0.4 | Wires + schemas | `lane-0/p0` | #479 | 24, 27 (M-5), 27b (schema level), AD-12 pin | 2026-11-24 | Shared |
 | P0.5 | Hooks + fixtures | `lane-0/p0` | #479 | fixture smoke | 2026-11-24 | Cross |
-| s1 | Snapshot key | `lane-S/s1` | | 23–25, 27, 27b, 28, 33 (key), 08a #25 | | HIGH, Cross |
+| s1 | Snapshot key | `lane-S/s1` | #482 | 23–25, 27, 27b, 28, 33 (key), 08a #25 | 2026-11-24 | HIGH, Cross |
 | s2 | Bump rule on 08a writes | `lane-S/s2` | | 26, 08a #9 #28 #31 #35 | | HIGH, Cross |
-| r1 | Recipes module + create + draft | `lane-R/r1` | | 12, 13 | | HIGH |
+| r1 | Recipes module + create + draft | `lane-R/r1` | #481 | 12, 13 | 2026-11-24 | HIGH |
 | r2 | Publish | `lane-R/r2` | | 14–17 | | HIGH |
 | r3 | Archive / restore | `lane-R/r3` | | 18, 18b, 37, 38 | | HIGH |
 | r4 | Reads | `lane-R/r4` | | 19, 20 | | — |
 | r5 | Audit + route cases | `lane-R/r5` | | 21 | | — |
-| g1 | Recipe in-use guards | `lane-G/g1` | | 22 | | HIGH, Cross |
+| g1 | Recipe in-use guards | `lane-G/g1` | #480 | 22 | 2026-11-24 | HIGH, Cross |
 | t1 | Races (fresh session) | `lane-T/t1` | | 34, 35, 36 | | HIGH |
 | u1 | Owner app | `lane-U/u1` | | 29–32 | | UI, Cross |
 
@@ -99,18 +110,18 @@ Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part
 | Test | Task | PR |
 |---|---|---|
 | 1–11 | P0.3 | #479 |
-| 12, 13 | r1 | |
+| 12, 13 | r1 | #481 |
 | 14–17 | r2 | |
 | 18, 18b, 37, 38 | r3 | |
 | 19, 20 | r4 | |
 | 21 | r5 | |
-| 22 | g1 | |
-| 23–25, 27, 27b, 28 | s1 (+ P0.3 / P0.4 schema-level parts) | |
+| 22 | g1 | #480 |
+| 23–25, 27, 27b, 28 | s1 (+ P0.3 / P0.4 schema-level parts) | #482 (+ #479) |
 | 26 | s2 | |
 | 29–32 | u1 | |
-| 33 | P0.2 (+ s1, AD-7) | #479 (+ s1) |
+| 33 | P0.2 (+ s1, AD-7) | #479 + #482 |
 | 34–36 | t1 | |
 | 08a #1 | P0.3 | #479 |
-| 08a #25 | s1 | |
+| 08a #25 | s1 | #482 |
 | 08a #9, #28, #31, #35 | s2 | |
 | drill 2 | — (owner's paper figures, OQ-1) | |
