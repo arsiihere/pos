@@ -2576,6 +2576,7 @@ export const en = {
   'kitchen_screens.lane_label_help': 'Give each screen of a big station its own name, like Left or Right.',
   'kitchen_screens.pass_tablets': 'Pass tablets',
   'kitchen_screens.bind': 'Use as Pass tablet for…',
+  'kitchen_screens.bind_help': 'Pass is set on the device itself. Open a device and choose its Pass screen and point.',
   'kitchen_screens.unbind': 'Stop using as Pass tablet',
   'kitchen_screens.warn.archived_open_lines': '{station} is archived but still has open tickets',
   'kitchen_screens.warn.dark': '{station} screen is offline',

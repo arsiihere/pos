@@ -42,10 +42,13 @@ async function html(): Promise<string> {
 
 const DEVICES = {
   devices: [
-    { device_id: 'D1', device_name: 'Counter 1', device_type: 'cashier_kiosk', station_id: null, owner_staff_id: null, owner_name: null, pairing_source: 'request', paired_at: NOW - 86_400_000, paired_by_name: 'Arif', last_seen_at: NOW, revoked_at: null, revoked_by_name: null, revoked_reason: null, active_session: { session_id: 'SS1', kind: 'staff', staff_id: 'S_CASH', display_name: 'Cashier' } },
-    { device_id: 'D2', device_name: 'Degh', device_type: 'kds', station_id: 'DG', owner_staff_id: null, owner_name: null, pairing_source: 'request', paired_at: NOW - 86_400_000, paired_by_name: 'Arif', last_seen_at: NOW - 360_000, revoked_at: null, revoked_by_name: null, revoked_reason: null, active_session: { session_id: 'SS2', kind: 'station', staff_id: null, display_name: null } },
-    { device_id: 'D3', device_name: "Bilal's phone", device_type: 'phone', station_id: null, owner_staff_id: 'S_WAIT', owner_name: 'Bilal', pairing_source: 'token', paired_at: NOW, paired_by_name: 'Imran', last_seen_at: NOW - 10_800_000, revoked_at: null, revoked_by_name: null, revoked_reason: null, active_session: null },
+    { device_id: 'D1', device_name: 'Counter 1', device_type: 'cashier_kiosk', station_id: null, owner_staff_id: null, owner_name: null, access: 'everyone', people: [], screens: ['takeaway', 'cashier', 'manager'], point_id: null, profile_version: 1, needs_review: false, paired_at: NOW - 86_400_000, paired_by_name: 'Arif', last_seen_at: NOW, revoked_at: null, revoked_by_name: null, revoked_reason: null, active_session: { session_id: 'SS1', kind: 'staff', staff_id: 'S_CASH', display_name: 'Cashier' } },
+    { device_id: 'D2', device_name: 'Degh', device_type: 'kds', station_id: 'DG', owner_staff_id: null, owner_name: null, access: null, people: [], screens: [], point_id: null, profile_version: null, needs_review: false, paired_at: NOW - 86_400_000, paired_by_name: 'Arif', last_seen_at: NOW - 360_000, revoked_at: null, revoked_by_name: null, revoked_reason: null, active_session: { session_id: 'SS2', kind: 'station', staff_id: null, display_name: null } },
+    { device_id: 'D3', device_name: "Bilal's phone", device_type: 'phone', station_id: null, owner_staff_id: 'S_WAIT', owner_name: 'Bilal', access: 'listed', people: [{ staff_id: 'S_WAIT', display_name: 'Bilal' }], screens: ['dine_in'], point_id: null, profile_version: 2, needs_review: true, paired_at: NOW, paired_by_name: 'Imran', last_seen_at: NOW - 10_800_000, revoked_at: null, revoked_by_name: null, revoked_reason: null, active_session: null },
   ],
+  pending_requests: [{ request_id: 'RQ1', device_name: 'New screen', hardware_hint: 'tablet', created_at: NOW }],
+  admin_warning: null,
+  staff: [{ staff_id: 'S_WAIT', display_name: 'Bilal' }],
 };
 const SESSIONS = {
   sessions: [
@@ -130,7 +133,7 @@ describe('hub admin page (M86)', () => {
     const script = page.body.slice(page.body.indexOf('<script>'));
     const urls = new Set([...script.matchAll(/'(\/(?:admin|auth|queries|commands)[a-z/_-]*)/g)].map((m) => m[1]));
     // 00 v1.9.2 (Q-43): plus 03b's kds-config and 03c's print-queue for the two home tiles, and the two pages' links
-    expect([...urls].sort()).toEqual(['/admin/approve', '/admin/auth', '/admin/auth/logout', '/admin/commands/', '/admin/fiscal/', '/admin/kitchen-screens/', '/admin/login-roster', '/admin/printers/', '/admin/queries/devices', '/admin/queries/kds-config', '/admin/queries/lockouts', '/admin/queries/print-queue', '/admin/queries/sessions', '/admin/queries/staff', '/admin/queries/stations', '/admin/stock/'].sort());
+    expect([...urls].sort()).toEqual(['/admin/approve', '/admin/auth', '/admin/auth/logout', '/admin/commands/', '/admin/fiscal/', '/admin/kitchen-screens/', '/admin/login-roster', '/admin/printers/', '/admin/queries/devices', '/admin/queries/kds-config', '/admin/queries/lockouts', '/admin/queries/print-queue', '/admin/queries/sessions', '/admin/queries/staff', '/admin/queries/stations', '/admin/recovery-link', '/admin/stock/'].sort());
     expect([...script.matchAll(/command\('([a-z-]+)'/g)].map((m) => m[1]).sort()).toEqual(['clear-pin-lockout', 'force-logout-session', 'revoke-device']);
   });
 
@@ -194,7 +197,8 @@ describe('hub admin page (M86)', () => {
     const [pairedHead, pairedTail] = EN['devices.menu_paired'].split('{date}');
     expect(textOf(row)).toContain(pairedHead! + EN['devices.today'].split('{time}')[0]);
     expect(textOf(row)).toContain(pairedTail!.replace('{name}', 'Imran'));
-    expect(textOf(row)).toContain(EN['devices.source_request']);
+    // 05a §6.8: the menu says who can sign in and the screens (no more one-line source shim)
+    expect(textOf(row)).toContain(`${EN['devices.access_listed'].replace('{names}', 'Bilal')} · ${EN['screen.dine_in']}`);
     await page.click(page.find('remove_D3', row)!);
     expect(more.getAttribute('aria-expanded')).toBe('false');
     expect(page.findAll((el) => el.className.split(' ').includes('pos-menu'), row)).toHaveLength(0);
@@ -414,7 +418,7 @@ describe('hub admin page: kitchen screens and printers entries (00 v1.9.2 §8.2,
     jobs: [],
     no_printer: 0,
   };
-  const TABLET = { device_id: 'D4', device_name: 'Pass tablet', device_type: 'tablet', station_id: null, owner_staff_id: null, owner_name: null, pairing_source: 'request', paired_at: NOW, paired_by_name: 'Arif', last_seen_at: NOW, revoked_at: null, revoked_by_name: null, revoked_reason: null, active_session: null };
+  const TABLET = { device_id: 'D4', device_name: 'Pass tablet', device_type: 'tablet', station_id: null, owner_staff_id: null, owner_name: null, access: 'everyone', people: [], screens: ['pass'], point_id: 'P1', profile_version: 1, needs_review: false, paired_at: NOW, paired_by_name: 'Arif', last_seen_at: NOW, revoked_at: null, revoked_by_name: null, revoked_reason: null, active_session: null };
   const sideNav = (page: PageSandbox) => page.findAll((el) => el.className === 'pos-sidenav')[0]!;
   const tileOf = (page: PageSandbox, href: string) => page.findAll((el) => el.className === 'pos-tile' && el.href === href)[0];
 
@@ -521,23 +525,107 @@ describe('hub admin page: kitchen screens and printers entries (00 v1.9.2 §8.2,
     expect(textOf(none.screen)).not.toContain(EN['admin.nav_fiscal']);
   });
 
-  it('[00 §10 #165] a tablet Devices row links /admin/kitchen-screens/#bind=<device_id>; a kds / phone row does not', async () => {
-    dist.kitchen = build();
+  it('[05a K-2] every non-kds Devices row links to the device edit form; a kds row, a read-only admin and a removed row do not', async () => {
     const source = await html();
     const hub = fakeHub();
-    hub.answers['/admin/queries/devices'] = () => jsonResponse(200, { data: { devices: [...DEVICES.devices, TABLET] } });
+    hub.answers['/admin/queries/devices'] = () => jsonResponse(200, { data: { ...DEVICES, devices: [...DEVICES.devices, TABLET] } });
     const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#devices' });
-    const bindLinks = (root: StubElement) => page.findAll((el) => el.tagName === 'a' && String(el.href).startsWith('/admin/kitchen-screens/'), root);
-    const tablet = bindLinks(page.find('device_D4')!);
-    expect(tablet.map((el) => el.href)).toEqual(['/admin/kitchen-screens/#bind=D4']);
-    expect(textOf(tablet[0]!)).toBe(EN['devices.use_as_pass']);
-    for (const id of ['D1', 'D2', 'D3']) expect(bindLinks(page.find(`device_${id}`)!), id).toHaveLength(0);
-
-    // read-only admins and a hub without the build get no link
+    const editLinks = (root: StubElement) => page.findAll((el) => el.tagName === 'a' && String(el.href).startsWith('/staff/#/devices?edit='), root);
+    for (const id of ['D1', 'D3', 'D4']) {
+      const links = editLinks(page.find(`device_${id}`)!);
+      expect(links.map((el) => el.href), id).toEqual([`/staff/#/devices?edit=${id}`]);
+      expect(textOf(links[0]!)).toBe(EN['devices.edit']);
+    }
+    expect(editLinks(page.find('device_D2')!)).toHaveLength(0);
+    // no more link into the kitchen screens bind dialog
+    expect(page.findAll((el) => el.tagName === 'a' && String(el.href).startsWith('/admin/kitchen-screens/#bind='))).toHaveLength(0);
     const viewer = await runPage(source, { store: STORE, session: { ...SESSION, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': true }) }, fetch: hub.fetch, hash: '#devices' });
-    expect(bindLinks(viewer.find('device_D4')!)).toHaveLength(0);
-    dist.kitchen = '/nonexistent/admin-kitchen-screens/';
-    const plain = await runPage(await html(), { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#devices' });
-    expect(bindLinks(plain.find('device_D4')!)).toHaveLength(0);
+    expect(editLinks(viewer.find('device_D4')!)).toHaveLength(0);
+  });
+
+  it('[05a §6.8] the devices view shows access, people, screens, needs-review, the waiting requests and the admin warning from the new query', async () => {
+    const source = await html();
+    const hub = fakeHub();
+    hub.answers['/admin/queries/devices'] = () => jsonResponse(200, { data: { ...DEVICES, devices: [...DEVICES.devices, TABLET], admin_warning: 1 } });
+    const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#devices' });
+    const text = textOf(page.screen);
+    expect(textOf(page.find('device_D1')!)).toContain(`${EN['devices.access_everyone']} · ${EN['screen.takeaway']}, ${EN['screen.cashier']}, ${EN['screen.manager']}`);
+    expect(textOf(page.find('device_D3')!)).toContain(`${EN['devices.access_listed'].replace('{names}', 'Bilal')} · ${EN['screen.dine_in']}`);
+    expect(textOf(page.find('device_D3')!)).toContain(EN['devices.needs_review']);
+    expect(textOf(page.find('device_D1')!)).not.toContain(EN['devices.needs_review']);
+    expect(text).toContain(EN['devices.warn_one']);
+    // a kitchen screen has no profile line
+    expect(textOf(page.find('device_D2')!)).not.toContain(EN['devices.access_everyone']);
+    // the waiting request links to the approve form for it, and shows no code
+    const waiting = page.find('request_RQ1')!;
+    expect(textOf(waiting)).toContain('New screen');
+    expect(page.findAll((el) => el.tagName === 'a', waiting).map((el) => el.href)).toEqual(['/admin/approve?r=RQ1']);
+    const none = fakeHub();
+    none.answers['/admin/queries/devices'] = () => jsonResponse(200, { data: { ...DEVICES, admin_warning: 0 } });
+    const zero = await runPage(source, { store: STORE, session: SESSION, fetch: none.fetch, hash: '#devices' });
+    expect(textOf(zero.screen)).toContain(EN['devices.warn_none']);
+    expect(textOf(zero.screen)).not.toContain(EN['devices.warn_one']);
+  });
+});
+
+describe('hub admin page: recover admin access (05a §6.11, M-8)', () => {
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
+  const roster = (recovery: boolean) => jsonResponse(200, { data: { staff: [], recovery_available: recovery } });
+  const recovering = (recovery: boolean, answers: Array<ReturnType<typeof jsonResponse>>) => {
+    const calls: Array<{ url: string; method?: string; headers?: Record<string, string> }> = [];
+    const fetch = (url: string, init?: unknown) => {
+      const request = (init ?? {}) as { method?: string; headers?: Record<string, string> };
+      calls.push({ url, ...request });
+      if (url === '/admin/login-roster') return Promise.resolve(roster(recovery));
+      if (url === '/admin/recovery-link') return Promise.resolve(answers.shift());
+      return Promise.reject(new Error(`unexpected ${url}`));
+    };
+    return { calls, fetch };
+  };
+
+  it('[05a §6.11] the button shows only when the roster says recovery_available (the count is 0), never otherwise', async () => {
+    const source = await html();
+    const off = recovering(false, []);
+    const hidden = await runPage(source, { store: STORE, fetch: off.fetch });
+    expect(hidden.find('recover_admin')).toBeUndefined();
+    expect(textOf(hidden.screen)).not.toContain(EN['devices.recover']);
+    const on = recovering(true, []);
+    const shown = await runPage(source, { store: STORE, fetch: on.fetch });
+    expect(textOf(shown.find('recover_admin')!)).toBe(EN['devices.recover']);
+    // a bootstrap admin has no device token, so no recovery either
+    const bootstrap = await runPage(source, { session: { admin_bootstrap: '1' }, fetch: on.fetch });
+    expect(bootstrap.find('recover_admin')).toBeUndefined();
+  });
+
+  it('[05a §6.11] first press asks the hub with the device token and shows the link as a QR; a second press shows "A recovery link was already made — it works until <time>"', async () => {
+    const source = await html();
+    const until = Date.now() + 1_800_000;
+    const hub = recovering(true, [
+      jsonResponse(200, { data: { first_admin_url: 'http://192.168.10.2:3000/admin/bootstrap#t=TOK', first_admin_qr_svg: '<svg id="qr"></svg>', expires_at: until } }),
+      jsonResponse(200, { data: { already_issued_until: until } }),
+    ]);
+    const page = await runPage(source, { store: STORE, fetch: hub.fetch });
+    await page.click(page.find('recover_admin')!);
+    const first = hub.calls.find((c) => c.url === '/admin/recovery-link')!;
+    expect(first.method).toBe('POST');
+    expect(first.headers?.authorization).toBe('Bearer tablet-token');
+    expect(page.find('recover_qr')!.innerHTML).toBe('<svg id="qr"></svg>');
+    expect(textOf(page.find('recover_out')!)).toContain('http://192.168.10.2:3000/admin/bootstrap#t=TOK');
+    await page.click(page.find('recover_admin')!);
+    const d = new Date(until);
+    const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    expect(textOf(page.find('recover_out')!)).toBe(`A recovery link was already made — it works until ${time}`);
+    expect(EN['devices.recover']).toBe('Recover admin access');
+    expect(page.find('recover_qr')).toBeUndefined();
+  });
+
+  it('[05a §6.11] 403 recovery_not_needed (a backup appeared) hides the button', async () => {
+    const source = await html();
+    const hub = recovering(true, [jsonResponse(403, { error: { code: 'PERMISSION_DENIED', details: { reason: 'recovery_not_needed' } } })]);
+    const page = await runPage(source, { store: STORE, fetch: hub.fetch });
+    await page.click(page.find('recover_admin')!);
+    expect(page.find('recover_admin')).toBeUndefined();
   });
 });
