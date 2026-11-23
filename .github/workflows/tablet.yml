@@ -1,11 +1,12 @@
 # 05b §7 CI: builds the tablet APK and runs the native unit tests (the dev box has no Android SDK).
-# A required check next to `gate` for merging 05b (owner sets it in branch protection).
+# A required check next to `gate` (owner sets it in branch protection). PRs run on every change: the `changes` job
+# decides, and a PR that does not touch apps/tablet skips the build job, which GitHub counts as passed, so the
+# required check never sits waiting on PRs from other modules.
 name: tablet
 
 on:
   pull_request:
     branches: [main]            # lane PRs into module-05b are covered by the lane's own push run
-    paths: ['apps/tablet/**', '.github/workflows/tablet.yml']
   push:
     branches: [main, 'module-05b', 'lane-05b/**']
     paths: ['apps/tablet/**', '.github/workflows/tablet.yml']
@@ -24,8 +25,30 @@ permissions:
   contents: write
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      tablet: ${{ steps.diff.outputs.tablet }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then echo tablet=true >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --name-only "$BASE" "$HEAD" | grep -qE '^(apps/tablet/|\.github/workflows/tablet\.yml$)'; then
+            echo tablet=true >> "$GITHUB_OUTPUT"
+          else
+            echo tablet=false >> "$GITHUB_OUTPUT"
+          fi
+
   tablet:
     name: tablet (unit tests + APK)
+    needs: changes
+    if: needs.changes.outputs.tablet == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -66,15 +89,15 @@ jobs:
           name: pos-tablet-apk
           path: apps/tablet/pos-tablet-*.apk
           retention-days: 30
-      - name: Publish module-05b builds to the rolling pre-release (direct download on the tablet)
-        if: github.event_name == 'push' && github.ref_name == 'module-05b'
+      - name: Publish main / module-05b builds to the rolling pre-release (direct download on the tablet)
+        if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'module-05b')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp pos-tablet-*.apk pos-tablet.apk
           gh release view tablet-dev >/dev/null 2>&1 || \
             gh release create tablet-dev --prerelease --target "$GITHUB_SHA" \
-              --title "Tablet app (module-05b dev builds)" --notes "Debug APK of module-05b. Not for device owner."
+              --title "Tablet app (dev builds)" --notes "Debug APK of main / module-05b. Not for device owner."
           gh release upload tablet-dev pos-tablet.apk --clobber
       # 05b A17 (§7, M-17, m-9): release-signed APK, on a manual run with `release: true` only. The key comes from
       # secrets, decoded to a temp file outside the repo and deleted afterwards; without the secrets the steps skip.
