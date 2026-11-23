@@ -225,7 +225,7 @@ describe('access reconciliation', () => {
     await normal.stop();
   });
 
-  it('[00 §10 #128] a live /devices/pair rotation keeps the new token_hash (the new token works after the live access_reconcile apply); the same event in boot catch-up sets \'rotated:<event_id>\'', async () => {
+  it('[00 §10 #128] a live device-token rotation keeps the new token_hash (the new token works after the live access_reconcile apply); the same event in boot catch-up sets \'rotated:<event_id>\'', async () => {
     const h = await createTestHub();
     const dir = h.deps.config.data_dir;
     const late: { booted?: Awaited<ReturnType<typeof boot>> } = {};
