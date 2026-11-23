@@ -2,6 +2,8 @@ import { DomainError } from '@pos/domain';
 import {
   CreateRecipeBody,
   CreateRecipeResponse,
+  PatchRecipeBody,
+  PatchRecipeResponse,
   PublishRecipeBody,
   PublishRecipeResponse,
   RecipeDetailQuery,
@@ -16,6 +18,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { IdempotentResult } from '../../lib/idempotency.js';
 import type { OwnerRequest } from '../restaurant/service.js';
+import { patchRecipe, PATCH_ROUTE } from './patch.js';
 import { publishRecipe, PUBLISH_ROUTE } from './publish.js';
 import { DETAIL_ROUTE, getRecipeDetail, LIST_ROUTE, listRecipes } from './reads.js';
 import { createRecipe, CREATE_ROUTE, DRAFT_ROUTE, saveDraft, type RecipeDeps } from './service.js';
@@ -81,6 +84,16 @@ export function registerRecipeRoutes(app: FastifyInstance, deps: RecipeDeps): vo
     async (request, reply) => {
       deps.testHooks?.handlerStart?.(PUBLISH_ROUTE);
       return reply.send({ data: await publishRecipe(deps, ownerRequest(app, request), request.params.recipe_id, request.body, request.query) });
+    },
+  );
+
+  // §6.6 (r3): archive / restore
+  routes.patch(
+    '/v1/admin/recipes/:recipe_id',
+    { config: { tenantScope: 'jwt' }, schema: { params: RecipeParams, body: PatchRecipeBody, response: { 200: PatchRecipeResponse } } },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.(PATCH_ROUTE);
+      return reply.send({ data: await patchRecipe(deps, ownerRequest(app, request), request.params.recipe_id, request.body) });
     },
   );
 }

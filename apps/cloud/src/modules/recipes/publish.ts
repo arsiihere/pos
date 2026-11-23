@@ -117,10 +117,10 @@ export async function publishRecipe(
   });
 }
 
-// B6 on the locked current rows (T-1, T-2, N-1), in this order: owner kind (linked_option / wrong_kind), basis and
+// B6 on the locked current rows (T-1, T-2, N-1; also §6.6 restore, r3), in this order: owner kind (linked_option / wrong_kind), basis and
 // measure_unit vs the owner (basis_mismatch), the batch yield and its frozen unit, the lines (archived /
 // unit_changed), at least one line except for an option owner (empty).
-function checkVersion(draft: VersionRecord, owner: RecipeOwner, stock: ReadonlyMap<string, StockItemRow>): void {
+export function checkVersion(draft: VersionRecord, owner: RecipeOwner, stock: ReadonlyMap<string, StockItemRow>): void {
   if (owner.owner_type === 'modifier_option' && owner.linked_item_id !== null) throw refused('owner_id', 'linked_option');
   if (owner.owner_type === 'stock_item' && owner.kind !== 'prepared') throw refused('owner_id', 'wrong_kind');
   const derived = deriveBasis(owner);
