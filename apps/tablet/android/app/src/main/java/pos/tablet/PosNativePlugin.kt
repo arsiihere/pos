@@ -189,6 +189,7 @@ class PosNativePlugin : Plugin() {
         val language = call.getString("language") ?: return call.reject("language is required")
         val lockTask = call.getBoolean("lock_task") ?: return call.reject("lock_task is required")
         MainStore.setLockTask(context, lockTask) // M-17 / N-4: the activity applies it at the next resume
+        activity?.runOnUiThread { (activity as? MainActivity)?.applyLockTask() } // 05b A15: re-evaluate now (M-17)
         ipc.send(Ipc.OP_SET_DEVICE_CONTEXT, JSONObject().put("always_on", alwaysOn).put("language", language).put("lock_task", lockTask))
         call.resolve()
     }
