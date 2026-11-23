@@ -11,7 +11,7 @@ import { assertTenantWide, bumpConfigVersion, bumpEveryBranch, coversEveryBranch
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
-import { activeDealIdsWith, activeVariantGroupIdsIn, shareItemsById } from '../menu-variants/repository.js';
+import { activeDealIdsWith, activeVariantGroupIdsIn, ownedRecipeIds, shareItemsById } from '../menu-variants/repository.js';
 import { assertItemEffectiveSets } from '../menu-variants/service.js';
 import { toVariantGroupWire } from '../menu-variants/versions.js';
 import {
@@ -1663,7 +1663,7 @@ type ItemRule = (p: ItemPatch) => void | Promise<void>;
 const invalidReference = (field: string, reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field, reason });
 const groupOf = (p: ItemPatch) => p.groups.find((g) => g.variant_group_id === p.merged.variant_group_id);
 const isActive = (p: ItemPatch) => p.merged.archived_at === null;
-const inUse = (p: ItemPatch, entity: 'modifier_group' | 'deal' | 'zone', ids: string[]) =>
+const inUse = (p: ItemPatch, entity: 'modifier_group' | 'deal' | 'zone' | 'recipe', ids: string[]) =>
   new DomainError('CONFIG_IN_USE', { entity: 'menu_item', id: p.before.item_id, used_by: { entity, ids } });
 // R4 and R10 share one read (§6.5 R10: "the same read as R4"); read once per attempt.
 const linkingGroups = async (p: ItemPatch) => (p.linkingGroupIds ??= await linkingGroupIds(p.level, p.before.item_id));
@@ -1712,7 +1712,7 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
     },
   ],
   ['400 A-13 self link', (p) => assertNoSelfLink(p.links)],
-  // (2) 409 CONFIG_IN_USE: R4, R10, R6
+  // (2) 409 CONFIG_IN_USE: R4, R10, R6, AD-6, 08b C-14
   // (V16, D-3; P1). Plain reads after the item lock, no lock taken (§6 "Lock order").
   [
     '409 R4 archive while linked or offered',
@@ -1753,6 +1753,16 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       if (!archiving && !awayFromPiece && !weighingOn) return;
       const zoneIds = await activeZoneIdsNamingItem(p.level, p.before.item_id, !archiving);
       if (zoneIds.length > 0) throw inUse(p, 'zone', zoneIds);
+    },
+  ],
+  // 08b C-14 (B17, T-2): any sale_unit change (g ↔ ml included) of an item owning a non-archived recipe; one plain
+  // recipes read without a lock (C-16; a recipe create serialises on this item's FOR UPDATE), only when sale_unit changes
+  [
+    '409 C-14 sale_unit of a recipe owner',
+    async (p) => {
+      if (p.merged.sale_unit === p.before.sale_unit) return;
+      const recipeIds = await ownedRecipeIds(p.level, 'menu_item', [p.before.item_id]);
+      if (recipeIds.length > 0) throw inUse(p, 'recipe', recipeIds);
     },
   ],
   // (3) 422: 01a's first, then R1, R1a, R2, R3, R7 draw part, R8, R9, R9b (08a C-9)
