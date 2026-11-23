@@ -14,7 +14,7 @@ import type { WsHub } from '../ws/server.js';
 import { kindOf } from './kinds.js';
 import { bindingIsRoute } from './routes.js';
 import { cachedPrepare } from './statements.js';
-import { ACTIVITY_SESSIONS, type BatchReads, type SessionRead } from './targets.js';
+import { ACTIVITY_SESSIONS, isListedDevice, listedDevicesOnly, type BatchReads, type SessionRead } from './targets.js';
 import { seenByMe } from './catch-up.js';
 import { lockView, safeBuild, type LockViewRow } from './ws-frames.js';
 
@@ -208,6 +208,10 @@ export function createAlertSockets(env: AlertSocketsEnv): AlertSockets {
       if (row.to_device !== 1 && !personPart) continue; // the bound person's part only while a route (m7)
       const kind = kindOf(row.kind as string);
       if (kind === undefined) continue; // P-8: an unknown kind has no lock label
+      // ⚠️ Changed by 05a (row D-2, D-3; 01d v1.3.5 §3.4.3, §3.7; 05a §3.9 rule 3, M-5): the bound person's part never
+      // replays a money request or `device_waiting` to a device that is not `listed` (route 2 is dropped there);
+      // a device-target row keeps its lock line. Memory (`deviceProfile`), no statement.
+      if (row.to_device !== 1 && listedDevicesOnly(kind) && !isListedDevice(deviceId)) continue;
       // §8.3: the bound person's seen (request_seen, or an AlertSeen receipt), only while their part is sent
       // §3.10: an open `closes_on: 'seen'` alert is never seen_by_me (catch-up.ts seenByMe)
       alerts.push({ ...lockView(row as LockViewRow, kind, row.step), seen_by_me: personPart && seenByMe(kind, 'open', row.bound_seen) });

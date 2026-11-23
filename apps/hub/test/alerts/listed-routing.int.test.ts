@@ -214,4 +214,82 @@ describe('[05a §3.9 rule 3, M-5; 01d §3.4.3] money requests and device_waiting
     expect(alertIds(tabletWs)).toEqual([]);
     expect(alertIds(ownerWs)).toEqual([]);
   });
+
+});
+
+/** A non-money alert to the manager (no_approver, as a person target): the control row. */
+function infoToManager(): string {
+  return hub.deps.writer.run((tx) => {
+    const r = alerts.raise(alerts.tickCtx(tx, hub.clock.branchNow()), {
+      kind: 'no_approver',
+      subject: { stream_type: 'hub', stream_id: 'branch-1' },
+      target: { kind: 'person', staff_id: STAFF.manager },
+      values: { permission: 'void-item' },
+      display: { kind_label_key: 'alert.no_approver.lock' },
+      dedupe_key: 'no_approver:control',
+    });
+    tx.append(r.events);
+    return r.alert_id;
+  }).result;
+}
+
+async function deviceWaiting(): Promise<string> {
+  const res = await hub.app.inject({ method: 'POST', url: '/pair/requests', remoteAddress: '10.25.1.1', payload: { device_name: 'Counter 3' } });
+  expect(res.statusCode, res.body).toBe(200);
+  return hub.deps.db.prepare(`SELECT alert_id FROM alerts WHERE kind = 'device_waiting' AND state = 'open'`).pluck().get() as string;
+}
+
+type Row = { alert_id: string } & Record<string, unknown>;
+const catchUpRows = (ws: WsClient): Row[] => (ws.messages[0] as { state: { alerts: { alerts: Row[] } } }).state.alerts.alerts;
+const openRows = (ws: WsClient): Row[] => (ws.messages[0] as { alerts: Row[] }).alerts;
+
+describe('[05a §3.9 rules 2–3, M-5; 01d §3.4.3, §3.7] catch-up and reconnect on a device that is not listed (task 25 review)', () => {
+  it('[05a §3.9 rule 3, 01d §3.4.3] staff catch-up on an `everyone` tablet: the manager’s money request is a read-only lock row (no card, no answers); on his listed phone it is an answerable card', async () => {
+    hub = await startVoids();
+    const cashier = on(device('cashier_kiosk', EVERYONE, 'Counter'), STAFF.cashier);
+    const id = await askVoid(cashier, 'C1');
+    const shared = await live(on(device('tablet', EVERYONE, 'Shared tablet'), STAFF.manager));
+    const sharedRow = catchUpRows(shared).find((r) => r.alert_id === id);
+    expect(sharedRow).toBeDefined(); // the inbox row stays (§3.4.3), read-only
+    expect(sharedRow).not.toHaveProperty('card');
+    expect(sharedRow).not.toHaveProperty('answers');
+    const phone = await live(on(device('phone', listed([STAFF.manager]), 'Manager phone'), STAFF.manager));
+    expect(catchUpRows(phone).find((r) => r.alert_id === id)).toMatchObject({ alert_id: id, answers: ['approve', 'reject'] });
+  });
+
+  it('[05a §3.9 rule 3, 01d §6.9 row 3] a may-answer-now money request with no inbox row is not added on an `everyone` tablet; it is on a listed one', async () => {
+    hub = await startVoids();
+    const cashier = on(device('cashier_kiosk', EVERYONE, 'Counter'), STAFF.cashier);
+    const id = await askVoid(cashier, 'C2');
+    hub.deps.db.prepare('DELETE FROM alert_inbox WHERE alert_id = ? AND staff_id = ?').run(id, STAFF.manager); // a late approver
+    const shared = await live(on(device('tablet', EVERYONE, 'Shared tablet'), STAFF.manager));
+    expect(catchUpRows(shared).map((r) => r.alert_id)).not.toContain(id);
+    const floor = await live(on(device('tablet', listed([STAFF.manager, STAFF.orderTaker]), 'Floor tablet'), STAFF.manager));
+    expect(catchUpRows(floor).find((r) => r.alert_id === id)).toMatchObject({ answers: ['approve', 'reject'] });
+  });
+
+  it('[05a M-5, 01d §3.7 Reconnect] alerts_open on an `everyone` tablet bound by a session row: no money request, no device_waiting; a non-money alert still replays', async () => {
+    hub = await startVoids();
+    const cashier = on(device('cashier_kiosk', EVERYONE, 'Counter'), STAFF.cashier);
+    const shared = device('tablet', EVERYONE, 'Shared tablet');
+    const mgr = on(shared, STAFF.manager);
+    endSessionNow(hub, mgr.sessionId, 'idle_timeout'); // the session binding stays
+    const money = await askVoid(cashier, 'O1');
+    const waiting = await deviceWaiting();
+    const info = infoToManager();
+    const ids = openRows(await alertMode(shared)).map((r) => r.alert_id);
+    expect(ids).toContain(info);
+    expect(ids).not.toContain(money);
+    expect(ids).not.toContain(waiting);
+  });
+
+  it('[05a M-5, 01d §3.7 Reconnect] control: a one-person listed tablet (permanent binding) replays the money request and device_waiting', async () => {
+    hub = await startVoids();
+    const cashier = on(device('cashier_kiosk', EVERYONE, 'Counter'), STAFF.cashier);
+    const own = device('tablet', listed([STAFF.manager]), 'Manager tablet');
+    const money = await askVoid(cashier, 'O2');
+    const waiting = await deviceWaiting();
+    const ids = openRows(await alertMode(own)).map((r) => r.alert_id);
+    expect(ids).toEqual(expect.arrayContaining([money, waiting]));
+  });
 });
