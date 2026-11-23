@@ -1,3 +1,5 @@
+> **Superseded (2026-11-23) by `docs/plans/05b-plan.md`** — 05b Staff Tablet App v1.0 builds this batch (01d v1.3.6 row D-1). Kept as history.
+
 # 01d Tablet app (batch 9b) — Implementation Plan (short)
 
 > **Status: BLOCKED — tablet model (OQ2).** Do not start until the developer names the pilot tablet (model, Android version, whether it can be provisioned as device owner). Runs alongside 01e. **Not required for the 01d merge; required before the pilot** (01d plan AD-1, like 01b T59–T62).

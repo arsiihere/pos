@@ -239,7 +239,7 @@ describe('[01d #71] statement counts with a linked kind = v1.2.5 (dl h5)', () =>
     const tab = device('mgr bound tablet');
     seat(MGR, tab);
     raiseAs(seat(WAIT), voidInput(LINKED));
-    const sockets = createAlertSockets({ db: hub.deps.db, branchId: BRANCH, clock: hub.clock, ws: () => wsHubFor(hub.app), recordSent: () => undefined, log: { error: () => undefined } });
+    const sockets = createAlertSockets({ db: hub.deps.db, branchId: BRANCH, clock: hub.clock, state: () => hub.deps.state.get(), ws: () => wsHubFor(hub.app), recordSent: () => undefined, log: { error: () => undefined } });
     const counter = statementCounter(hub.deps.db);
     counter.reset();
     const open = sockets.alertsOpen(tab);

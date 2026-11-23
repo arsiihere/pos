@@ -165,6 +165,8 @@ export async function runPage(
     language?: string;
     local?: Record<string, string>;
     innerWidth?: number;
+    /** extra `window` properties, e.g. a fake `Capacitor` bridge (05b H-2) */
+    window?: Record<string, unknown>;
   },
 ): Promise<PageSandbox> {
   focused = null;
@@ -237,6 +239,7 @@ export async function runPage(
         counters.prompts += 1;
         return null;
       },
+      ...o.window,
     },
     crypto: webcrypto,
     URLSearchParams,

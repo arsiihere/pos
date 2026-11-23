@@ -66,6 +66,8 @@ import type { OrdersCatchUp } from './orders/contracts';
 import { LiveRegion } from '../alerts/LiveRegion';
 import { PrintSkipContext, type PrintSkipCtx } from '../alerts/ui';
 import { passLiveOf } from '../pass/live';
+import { deviceContextOf, nativeBridge, needsAppUpdate, readStaffBuild, revokeNotice, staffBuildAction, type NativeBridge, type NativeState, type RevokeNoticeKey } from '../native/bridge';
+import { DeviceHealth } from '../native/DeviceHealth';
 
 // 01d task 41: the hub-served staff entry /staff/ (spec §8.1; hand-off PROMPT "Staff entry shell"). Maroon 80 px
 // top bar: brand block (mark, branch, device; the third line is the B05 slot, task 42), the segmented nav
@@ -82,6 +84,51 @@ import { passLiveOf } from '../pass/live';
 // closed); a request_result row is told to the pending-comp store; the map's New order opens 02b's New order sheet.
 
 const TICK_MS = 15_000;
+/** 05b M-13: the staff-build check besides every socket (re)connect */
+const STAFF_BUILD_CHECK_MS = 600_000;
+/** 05b M-18: the red bar after the alert service has been disconnected this long */
+const ALERTS_DOWN_MS = 60_000;
+/** 05b §3.5 (N-5): a kept device is checked again / its trigger retried after this */
+const NATIVE_RETRY_MS = 5_000;
+/** review B-client #1: after this many checks in a row the retry backs off to NATIVE_BACKOFF_MS */
+const NATIVE_RETRY_TRIES = 5;
+const NATIVE_BACKOFF_MS = 60_000;
+/** 05b M-18: PosNative.health() is polled this often while the page is visible; no answer within the timeout = down */
+const HEALTH_POLL_MS = 20_000;
+const HEALTH_TIMEOUT_MS = 5_000;
+/** 05b M-13: at sign-out the staff-build reload waits for the logout at most this long */
+const SIGN_OUT_RELOAD_WAIT_MS = 3_000;
+/** 05b M-21: the last device context this page sent (not a secret), so a page load can send it before sign-in */
+const NATIVE_CONTEXT_KEY = 'pos-native-context';
+/** 05b N-9: the page's token was offered to native through /pair once in this tab */
+const NATIVE_OFFERED_KEY = 'pos-native-offered';
+
+function storageGet(kind: 'local' | 'session', key: string): string | null {
+  try {
+    return (kind === 'local' ? window.localStorage : window.sessionStorage).getItem(key);
+  } catch {
+    return null;
+  }
+}
+function storageSet(kind: 'local' | 'session', key: string, value: string | null): void {
+  try {
+    const st = kind === 'local' ? window.localStorage : window.sessionStorage;
+    if (value === null) st.removeItem(key);
+    else st.setItem(key, value);
+  } catch {
+    // storage blocked: nothing kept
+  }
+}
+type NativeContext = { always_on: boolean; language: string; lock_task: boolean };
+function cachedContext(): NativeContext | null {
+  try {
+    const v = JSON.parse(storageGet('local', NATIVE_CONTEXT_KEY) ?? 'null') as Partial<NativeContext> | null;
+    if (v === null || typeof v.always_on !== 'boolean' || typeof v.lock_task !== 'boolean') return null;
+    return { always_on: v.always_on, lock_task: v.lock_task, language: typeof v.language === 'string' ? v.language : 'en' };
+  } catch {
+    return null;
+  }
+}
 const SEEN_FLUSH_MS = 250;
 const SEEN_BATCH = 50;
 
@@ -136,9 +183,23 @@ export interface StaffAppProps {
   wipeKeys?: () => Promise<void>;
   /** 02a §8 Login (tests): where PairAgain's button goes; default `location.assign` */
   goToPair?: (path: string) => void;
+  /** 05b §4.2: the tablet app's PosNative (tests inject a fake); default read from `window.Capacitor`; null = a browser */
+  native?: NativeBridge | null;
+  /** 05b M-13 (tests): this page's `pos-staff-build` meta; default read from the page */
+  staffBuild?: string | null;
+  /** 05b M-13 (tests): default `location.reload` */
+  reload?: () => void;
 }
 
-export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipeKeys, goToPair }: StaffAppProps) {
+export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipeKeys, goToPair, native: nativeProp, staffBuild: staffBuildProp, reload: reloadProp }: StaffAppProps) {
+  // 05b §4.2: the bridge once per page (undefined → read from the window)
+  const [native] = useState<NativeBridge | null>(() => (nativeProp === undefined ? nativeBridge() : nativeProp));
+  const [pageBuild] = useState<string | null>(() => (staffBuildProp === undefined ? readStaffBuild() : staffBuildProp));
+  const reloadPage = reloadProp ?? (() => window.location.reload());
+  const nativeTimers = timers ?? browserTimers;
+  const pairPath = goToPair ?? ((path: string) => window.location.assign(path));
+  // 05b M-8: each (alert_id, step) the page shows is reported once
+  const reported = useRef(new Set<string>());
   const phone = useMedia(PHONE_QUERY);
   const portrait = useMedia(PORTRAIT_QUERY);
   const route = useHashRoute();
@@ -149,6 +210,20 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const signOutRef = useRef<() => void>(() => {});
   // 02a §8 Login (Q-13): the hub no longer knows this device (roster 401 / 403, socket close 4403)
   const unpairRef = useRef<() => void>(() => {});
+  const wipeAndPairRef = useRef<() => void>(() => {});
+  // 05b §3.5 (N-5, N-9): the confirmRevoked check (set below)
+  const nativeCheckRef = useRef<() => void>(() => {});
+  const [nativeNotice, setNativeNotice] = useState<RevokeNoticeKey | null>(null);
+  // 05b M-13 / M-14 / M-18
+  const [updateReady, setUpdateReady] = useState(false);
+  const updateReadyRef = useRef(false);
+  updateReadyRef.current = updateReady;
+  const reloadRef = useRef(reloadPage);
+  reloadRef.current = reloadPage;
+  const [appUpdate, setAppUpdate] = useState(false);
+  const [alertsDown, setAlertsDown] = useState(false);
+  // a SignIn remount reads the roster again (a kept device's trigger retried, §3.5)
+  const [signInKey, setSignInKey] = useState(0);
   const [unpaired, setUnpaired] = useState(false);
   const [wipe, setWipe] = useState<'pending' | 'done' | 'failed'>('pending');
   // the hub counts every accepted command as session activity (commands/route.ts); queries never (§6.7–6.10)
@@ -223,6 +298,15 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         timers: timers ?? browserTimers,
         onBindingRoute: setBindingUntil,
         ...(createSocket === undefined ? {} : { createSocket }),
+        // 05b D-2: inside the app the page never opens alert mode (AlertService holds it)
+        nativeShell: native !== null,
+        onShown: (row) => {
+          if (native === null) return;
+          const key = `${row.alert_id}:${row.step}`;
+          if (reported.current.has(key)) return;
+          reported.current.add(key);
+          void native.reportShown({ alert_id: row.alert_id, step: row.step });
+        },
         onFrame: (frame) => {
           liveBus.frame(frame);
           pass.frame(frame);
@@ -235,11 +319,14 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         },
         onEnded: (code, reason) => {
           if (code === 4409 || reason === REPLACED_REASON) setReplaced(true);
-          else if (code === 4401) signOutRef.current();
-          else if (code === 4403) unpairRef.current();
+          else if (code === 4401) {
+            signOutRef.current();
+            // 05b §3.5 (N-5): a session-socket 4401 is an unpair trigger inside the app too
+            if (native !== null) nativeCheckRef.current();
+          } else if (code === 4403) unpairRef.current();
         },
       }),
-    [device, socketStore, timers, createSocket, liveBus, pass],
+    [device, socketStore, timers, createSocket, liveBus, pass, native],
   );
   useEffect(() => () => conn.dispose(), [conn]);
   useEffect(() => () => store.dispose(), [store]);
@@ -473,20 +560,46 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       setCursor(null);
       setMe(null);
       setDeviceView(null);
+      let loggedOut: Promise<unknown> = Promise.resolve();
       if (callHub) {
-        void api.signOut();
+        loggedOut = api.signOut();
         setBindingUntil(null); // a logout ends the binding (§3.7); an idle sign-out keeps it
       }
       else api.drop();
       conn.setSession(null);
+      // 05b M-13: a newer staff build waited for this sign-out; the logout reaches the hub first (at most 3 s), so a
+      // reload never leaves the session open on the hub
+      if (updateReadyRef.current) {
+        let done = false;
+        const go = () => {
+          if (done) return;
+          done = true;
+          nativeTimers.clearTimeout(wait);
+          reloadRef.current();
+        };
+        const wait = nativeTimers.setTimeout(go, SIGN_OUT_RELOAD_WAIT_MS);
+        void loggedOut.then(go, go);
+      }
     },
-    [api, conn],
+    [api, conn, nativeTimers],
   );
   signOutRef.current = () => signOut(false);
   // the pairing keys go (the command queue and the drafts stay), the session and the socket end, PairAgain shows
   // review #193: a ref, not the state — a queue revoke and a socket 4403 in the same tick wipe once
   const unpairedRef = useRef(false);
+  // 05b §3.4 / §3.5: inside the app every way to /pair goes through here, once per page
+  const pairedOnce = useRef(false);
+  const goPairOnce = () => {
+    if (pairedOnce.current) return;
+    pairedOnce.current = true;
+    pairPath('/pair');
+  };
+  // 05b §3.5 (N-5): inside the app every unpair trigger asks native first; only `revoked: true` wipes
   unpairRef.current = () => {
+    if (native === null) wipeAndPair();
+    else nativeCheckRef.current();
+  };
+  const wipeAndPair = () => {
     if (unpairedRef.current) return;
     unpairedRef.current = true;
     sessionGen.current += 1;
@@ -505,12 +618,238 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     conn.dispose();
     setUnpaired(true);
     setWipe('pending');
+    // M-17 / M-21: the device context this page sent belongs to the old pairing
+    storageSet('local', NATIVE_CONTEXT_KEY, null);
     (wipeKeys ?? wipeDeviceKeys)().then(
-      () => setWipe('done'),
+      () => {
+        setWipe('done');
+        // 05b §3.4: inside the app a confirmed revoke goes straight to /pair (no page keys left)
+        if (native !== null) goPairOnce();
+      },
       () => setWipe('failed'),
     );
   };
+  wipeAndPairRef.current = wipeAndPair;
   const onUnpaired = useCallback(() => unpairRef.current(), []);
+
+  // ------------------------------------------------------------------------------------- 05b native shell
+  // M-21: setSession at load and on every change of the signed-in person (sign-in, sign-out, idle, takeover, 4401)
+  const sessionMsg: { signed_in: boolean; staff_id?: string } = me === null ? { signed_in: false } : { signed_in: true, staff_id: me.staffId };
+  const sessionRef = useRef(sessionMsg);
+  sessionRef.current = sessionMsg;
+  const meKey = me?.staffId ?? null;
+  useEffect(() => {
+    if (native !== null) void native.setSession(sessionRef.current);
+  }, [native, meKey]);
+  // M-21: setDeviceContext from the 05a device block (session read, /auth/pin, device_profile push); at a page load
+  // before any sign-in, the last context this page sent (native keeps its own copy too, N-1)
+  const lastCtx = useRef<NativeContext | null>(null);
+  const sentCtx = useRef<string | null>(null);
+  const [loadedCtx] = useState(() => cachedContext());
+  if (lastCtx.current === null && loadedCtx !== null) lastCtx.current = { ...loadedCtx, language: language() };
+  const sendCtx = useCallback(
+    (force: boolean) => {
+      const c = lastCtx.current;
+      if (native === null || c === null) return;
+      const key = JSON.stringify(c);
+      if (!force && key === sentCtx.current) return;
+      sentCtx.current = key;
+      void native.setDeviceContext(c);
+    },
+    [native],
+  );
+  const deviceCtx = deviceView === null ? null : deviceContextOf(deviceView, language());
+  const deviceCtxKey = deviceCtx === null ? null : JSON.stringify(deviceCtx);
+  useEffect(() => {
+    if (native === null) return;
+    if (deviceCtxKey !== null) {
+      lastCtx.current = JSON.parse(deviceCtxKey) as NativeContext;
+      storageSet('local', NATIVE_CONTEXT_KEY, deviceCtxKey);
+    }
+    sendCtx(false);
+  }, [native, deviceCtxKey, sendCtx]);
+
+  // §3.5 (N-5, N-9): one confirmRevoked at a time; revoked → wipe + /pair; kept → the 00 §8.4 text, checked again
+  const checking = useRef(false);
+  const nativeRetry = useRef<unknown>(null);
+  // checks in a row without a confirmed answer; reset once the session socket is up again (the device works)
+  const nativeTries = useRef(0);
+  useEffect(() => {
+    if (!up || native === null) return;
+    nativeTries.current = 0;
+    setNativeNotice(null);
+  }, [up, native]);
+  nativeCheckRef.current = () => {
+    if (native === null || checking.current || unpairedRef.current) return;
+    checking.current = true;
+    void native.confirmRevoked().then((r) => {
+      checking.current = false;
+      if (unpairedRef.current) return;
+      if (r?.revoked === true) {
+        setNativeNotice(null);
+        wipeAndPairRef.current();
+        return;
+      }
+      // N-9: native holds no token while the page still has its keys: offer them once (the pair page's resumePaired
+      // calls setDeviceToken, which is allowed on /pair only); after that, the cannot-confirm notice
+      if (r?.reason === 'NO_NATIVE_TOKEN' && storageGet('session', NATIVE_OFFERED_KEY) === null) {
+        storageSet('session', NATIVE_OFFERED_KEY, '1');
+        goPairOnce();
+        return;
+      }
+      nativeTries.current += 1;
+      const reasonNotice = revokeNotice(r === null ? 'no_answer' : r.reason);
+      // the hub answered and native's token stands: the trigger is retried; a keep that lasts (the trigger keeps
+      // coming back) is shown, never a silent loop
+      const hubAnswered = reasonNotice === null;
+      setNativeNotice(hubAnswered && nativeTries.current >= 2 ? 'native.notice.cannot_confirm' : reasonNotice);
+      if (nativeRetry.current !== null) return;
+      // review B-client #1: 5 s for the first tries, then 60 s
+      const delay = nativeTries.current >= NATIVE_RETRY_TRIES ? NATIVE_BACKOFF_MS : NATIVE_RETRY_MS;
+      nativeRetry.current = nativeTimers.setTimeout(() => {
+        nativeRetry.current = null;
+        if (!hubAnswered) nativeCheckRef.current();
+        else {
+          conn.retry();
+          setSignInKey((k) => k + 1);
+        }
+      }, delay);
+    });
+  };
+  useEffect(
+    () => () => {
+      if (nativeRetry.current !== null) nativeTimers.clearTimeout(nativeRetry.current);
+    },
+    [nativeTimers],
+  );
+
+  // §4.2 `state`: needs_context (N-1), paired: false (§3.5, N-9), the alert socket for the red bar (M-18)
+  const [socketState, setSocketState] = useState<NativeState['alert_socket'] | null>(null);
+  const gotState = useRef(false);
+  const pairedFalseRef = useRef<() => void>(() => {});
+  pairedFalseRef.current = () => {
+    if (unpairedRef.current) {
+      if (wipe === 'done') goPairOnce(); // no page keys left
+      return;
+    }
+    nativeCheckRef.current();
+  };
+  useEffect(() => {
+    if (native === null) return;
+    const off = native.onState((st) => {
+      gotState.current = true;
+      if (st.needs_context === true) {
+        void native.setSession(sessionRef.current);
+        sendCtx(true);
+      }
+      if (st.alert_socket === 'up' || st.alert_socket === 'connecting' || st.alert_socket === 'down') setSocketState(st.alert_socket);
+      if (st.paired === true) storageSet('session', NATIVE_OFFERED_KEY, null);
+      if (st.paired === false) pairedFalseRef.current();
+    });
+    // M-18: until the first state event, the service's own answer
+    void native.health().then((h) => {
+      if (h === null || gotState.current) return;
+      setSocketState(h.service_connected ? (h.alert_socket ?? 'down') : 'down');
+    });
+    // M-14: an app older than this page → "Update the app" and an update check
+    void native.info().then((info) => {
+      if (!needsAppUpdate(info)) return;
+      setAppUpdate(true);
+      void native.checkForUpdate();
+    });
+    return off;
+  }, [native, sendCtx]);
+  // M-18: health() every 20 s while the page is visible — the state event stops when :alerts dies, so the page asks;
+  // service_connected false, a rejection (null) or no answer within 5 s is down
+  const [healthDown, setHealthDown] = useState(false);
+  useEffect(() => {
+    if (native === null) return;
+    let stopped = false;
+    let gen = 0;
+    let next: unknown = null;
+    const visible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
+    const poll = () => {
+      gen += 1;
+      const mine = gen;
+      let settled = false;
+      const settle = (down: boolean) => {
+        if (settled || stopped || mine !== gen) return;
+        settled = true;
+        nativeTimers.clearTimeout(timeout);
+        setHealthDown(down);
+      };
+      const timeout = nativeTimers.setTimeout(() => settle(true), HEALTH_TIMEOUT_MS);
+      void native.health().then(
+        (h) => settle(h === null || h.service_connected !== true),
+        () => settle(true),
+      );
+    };
+    const schedule = () => {
+      next = nativeTimers.setTimeout(() => {
+        next = null;
+        if (!visible()) return;
+        poll();
+        schedule();
+      }, HEALTH_POLL_MS);
+    };
+    const onVisibility = () => {
+      if (next !== null) nativeTimers.clearTimeout(next);
+      next = null;
+      if (!visible()) return;
+      poll();
+      schedule();
+    };
+    if (visible()) schedule(); // the first answer is the load-time health() above
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      stopped = true;
+      if (next !== null) nativeTimers.clearTimeout(next);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [native, nativeTimers]);
+  const alertsNotUp = healthDown || (socketState !== null && socketState !== 'up');
+  useEffect(() => {
+    if (!alertsNotUp) {
+      setAlertsDown(false);
+      return;
+    }
+    const h = nativeTimers.setTimeout(() => setAlertsDown(true), ALERTS_DOWN_MS);
+    return () => nativeTimers.clearTimeout(h);
+  }, [alertsNotUp, nativeTimers]);
+
+  // M-13 (O-17): tablets only — the page's build against the hub's, at load, on every socket (re)connect, every 10 min
+  const checkBuild = useCallback(async () => {
+    if (native === null || pageBuild === null) return;
+    let hubBuild: unknown;
+    try {
+      const res = await (fetch ?? ((input: string) => window.fetch(input)))('/health');
+      const body = (await res.json()) as { data?: { staff_build?: unknown } } | null;
+      hubBuild = body?.data?.staff_build ?? null;
+    } catch {
+      return;
+    }
+    const action = staffBuildAction({ native: true, pageBuild, hubBuild: typeof hubBuild === 'string' ? hubBuild : null, signedIn: meRef.current !== null });
+    if (action === 'reload') reloadRef.current();
+    else if (action === 'banner') setUpdateReady(true);
+  }, [native, pageBuild, fetch]);
+  useEffect(() => {
+    if (native === null || pageBuild === null) return;
+    void checkBuild();
+    let handle: unknown = null;
+    const loop = () => {
+      handle = nativeTimers.setTimeout(() => {
+        void checkBuild();
+        loop();
+      }, STAFF_BUILD_CHECK_MS);
+    };
+    loop();
+    return () => nativeTimers.clearTimeout(handle);
+  }, [native, pageBuild, checkBuild, nativeTimers]);
+  const buildWasUp = useRef(false);
+  useEffect(() => {
+    if (up && !buildWasUp.current) void checkBuild();
+    buildWasUp.current = up;
+  }, [up, checkBuild]);
 
   const sender = useMemo(
     () =>
@@ -762,6 +1101,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         : [];
     page = (
       <SignIn
+        key={signInKey}
         api={api}
         phone={phone}
         lockPanel={lockRows.length === 0 ? null : <LockPanel rows={lockRows} utcOffsetMs={offset} />}
@@ -771,7 +1111,11 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       />
     );
   } else if (staffRoute.name === 'me') {
-    page = <MeTab name={me.name} onSignOut={() => signOut(true)} {...(showShift ? { onShift: () => navigate('/shift') } : {})} />;
+    page = (
+      <MeTab name={me.name} onSignOut={() => signOut(true)} {...(showShift ? { onShift: () => navigate('/shift') } : {})}>
+        {native !== null && <DeviceHealth native={native} />}
+      </MeTab>
+    );
   } else if (isSlotRoute(staffRoute)) {
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
   } else if (path === '/manager' && has('manager')) {
@@ -939,6 +1283,42 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
             <button type="button" className="btn" onClick={() => (setReplaced(false), conn.setSession(api.sessionToken()))}>
               {t('alerts.use_here')}
             </button>
+          </div>
+        </div>
+      )}
+      {/* 05b §3.5 / 00 §8.4: a kept device's reason, while native checks again */}
+      {nativeNotice !== null && (
+        <div className="staff__warn">
+          <div className="warnbar" role="status" data-native="notice">
+            <Ico name="wifioff" />
+            {t(nativeNotice)}
+          </div>
+        </div>
+      )}
+      {/* 05b M-18: the alert service disconnected for 60 s, on every staff screen */}
+      {alertsDown && (
+        <div className="staff__warn">
+          {/* the kit's warnbar has no danger tone: the danger icon and a danger status chip */}
+          <div className="warnbar c-danger" role="alert" data-native="alerts-down">
+            <Ico name="warn" className="ico--danger" />
+            <span className="st c-danger">{t('native.alerts_down')}</span>
+          </div>
+        </div>
+      )}
+      {/* 05b M-13 / M-14 */}
+      {updateReady && (
+        <div className="staff__warn">
+          <div className="warnbar" role="status" data-native="update-ready">
+            <Ico name="info" />
+            {t('native.update_ready')}
+          </div>
+        </div>
+      )}
+      {appUpdate && (
+        <div className="staff__warn">
+          <div className="warnbar" role="status" data-native="update-app">
+            <Ico name="info" />
+            {t('native.update_app')}
           </div>
         </div>
       )}

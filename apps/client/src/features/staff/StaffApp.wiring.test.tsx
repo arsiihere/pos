@@ -11,6 +11,7 @@ import { queueOf } from './orders/queue/enqueue';
 import { LateAlertsContext, type LateAlertRow } from './orders/late/late-groups';
 import { useShell, type Shell } from './shell/hooks';
 import { StaffApp } from './StaffApp';
+import type { NativeBridge } from '../native/bridge';
 
 // 02 combined wiring (02a v1.1.6 §8; 02b v1.0.11 §3.12, §8; IR-5, IR-7, IR-11, IR-12): what the staff shell connects
 // between the lanes once 02a and 02b sit in one tree. The kiosk home is a probe here: it hands the test the shell
@@ -102,16 +103,18 @@ function hub(o: HubOpts = {}) {
 let m: Mounted;
 let sockets: FakeSocket[];
 let wiped: number;
+let pairs: string[];
 beforeEach(() => {
   sockets = [];
   wiped = 0;
+  pairs = [];
   probe.shell = null;
   probe.late = [];
   window.location.hash = '';
 });
 afterEach(() => m?.unmount());
 
-function render(device: Device, fetch: (u: string, i?: RequestInit) => Promise<Response>) {
+function render(device: Device, fetch: (u: string, i?: RequestInit) => Promise<Response>, native?: NativeBridge) {
   const timers = fakeTimers();
   m = mount();
   m.render(
@@ -129,7 +132,8 @@ function render(device: Device, fetch: (u: string, i?: RequestInit) => Promise<R
       wipeKeys={async () => {
         wiped += 1;
       }}
-      goToPair={() => {}}
+      goToPair={(p) => pairs.push(p)}
+      {...(native === undefined ? {} : { native })}
     />,
   );
 }
@@ -246,6 +250,37 @@ describe('[02 wiring] queue', () => {
     expect(m.text()).toContain('This screen must be paired again');
     expect(enqueue.pendingCount()).toBe(2);
     expect(queueOf(enqueue)!.queued().map((e) => (e.payload as { order_id: string }).order_id)).toEqual(['O-1', 'O-2']);
+  });
+
+  it('[05b §3.5 N-5; review B-client nit] inside the tablet app a queued send 403 DEVICE_REVOKED asks native first; revoked: true → one wipe, /pair, the queue kept', async () => {
+    const confirms: number[] = [];
+    const native: NativeBridge = {
+      info: async () => ({ native_api: 1, version_code: 1, version_name: '1.0.0', device_owner: false }),
+      confirmRevoked: async () => (confirms.push(1), { revoked: true, reason: 'DEVICE_REVOKED' }),
+      setSession: async () => {},
+      setDeviceContext: async () => {},
+      reportShown: async () => {},
+      health: async () => null,
+      openSetting: async () => {},
+      setWakeLock: async () => {},
+      checkForUpdate: async () => null,
+      onState: () => () => {},
+    };
+    let revoked = false;
+    const h = hub({ submit: () => (revoked ? reply(403, { error: { code: 'DEVICE_REVOKED', message: 'revoked', details: {} } }) : 'down') });
+    render(KIOSK, h.fetch, native);
+    await signIn();
+    expect((await enqueueOrder()).status).toBe('queued');
+    const enqueue = probe.shell!.enqueue;
+    revoked = true;
+    sock().frame({ type: 'catch_up', as_of_seq: 0, state: {} });
+    sock().onclose?.({ code: 1006, reason: '' });
+    sock().frame({ type: 'catch_up', as_of_seq: 0, state: {} });
+    await until(() => pairs.length > 0);
+    expect(confirms.length).toBeGreaterThanOrEqual(1);
+    expect(wiped).toBe(1);
+    expect(pairs).toEqual(['/pair']);
+    expect(enqueue.pendingCount()).toBe(1);
   });
 
   it('[02b §3.12; IR-12] an entry that went straight to the queue log answers queued with logged: true', async () => {

@@ -138,6 +138,12 @@ export interface BuildHubOptions {
   testCommands?: boolean;
 }
 
+// 05b H-1: the staff build each server loaded at start, read by boot's /health (as publisherFor reads the publisher).
+const staffBuilds = new WeakMap<FastifyInstance, string | null>();
+export function staffBuildFor(app: FastifyInstance): string | null {
+  return staffBuilds.get(app) ?? null;
+}
+
 export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): FastifyInstance {
   const app = Fastify({
     // 02b §6.14 / AD-26: eta-preview drafts ride in the GET query string; Node default 16 KB gives 431.
@@ -246,7 +252,14 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
       'pos-hub-utc-offset-ms': String(time.utc_offset_ms),
     };
   };
-  registerClientDist(app, { prefix: '/staff/', dir: STAFF_DIST_DIR, routeConfig: { group: 'admin-page' }, indexMeta: pageMeta });
+  // 05b H-1 (M-13, O-17): /staff/ alone adds the build it loaded at start, so a tablet sees a new release.
+  let staffBuild: string | null = null;
+  const staffMeta = (): Record<string, string> | null => {
+    const meta = pageMeta();
+    return meta === null || staffBuild === null ? meta : { ...meta, 'pos-staff-build': staffBuild };
+  };
+  staffBuild = registerClientDist(app, { prefix: '/staff/', dir: STAFF_DIST_DIR, routeConfig: { group: 'admin-page' }, indexMeta: staffMeta }).indexSha256;
+  staffBuilds.set(app, staffBuild);
   // 00 v1.9.2 §8.2 (Q-42): the 03b KDS entry, with the same page meta; it signs in as its station itself (M53).
   registerClientDist(app, { prefix: '/kds/', dir: KDS_DIST_DIR, routeConfig: { group: 'admin-page' }, indexMeta: pageMeta });
   // 00 v1.9.2 §8.2 (Q-43): the 03b / 03c admin entries, like /admin/stock/ (no meta, no credentials).

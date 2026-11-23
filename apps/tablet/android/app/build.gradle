@@ -1,0 +1,96 @@
+apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    // 05b plan AD-1: code namespace stays neutral; the installed id is the applicationId below (changeable until device owner, A15)
+    namespace = "pos.tablet"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "pk.arifchatkhara.pos"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        // 05b M-14 / M-15: version_code drives the APK update; CI sets it from the run number
+        versionCode = Integer.parseInt(System.getenv("TABLET_VERSION_CODE") ?: "1")
+        versionName = System.getenv("TABLET_VERSION_NAME") ?: "0.1.0-dev"
+        buildConfigField "int", "NATIVE_API", "1"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    kotlinOptions {
+        jvmTarget = '21'
+    }
+    buildFeatures {
+        buildConfig = true
+    }
+    testOptions {
+        unitTests.returnDefaultValues = true
+        unitTests.includeAndroidResources = true
+    }
+    signingConfigs {
+        // Debug builds: the committed debug key, so a new CI APK installs over the last one. Never for device owner (05b §7, m-9).
+        devDebug {
+            storeFile file('../debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        // Release builds: key from CI secrets only (05b plan A17); absent locally.
+        if (System.getenv("TABLET_RELEASE_KEYSTORE") != null) {
+            release {
+                storeFile file(System.getenv("TABLET_RELEASE_KEYSTORE"))
+                storePassword System.getenv("TABLET_RELEASE_STORE_PASSWORD")
+                keyAlias System.getenv("TABLET_RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("TABLET_RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.devDebug
+        }
+        release {
+            if (System.getenv("TABLET_RELEASE_KEYSTORE") != null) signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    // 05b §7 pinned: OkHttp (TQ1), Keystore-backed prefs, core-ktx
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    implementation "androidx.security:security-crypto:1.0.0"
+    implementation "androidx.core:core-ktx:$androidxCoreVersion"
+    testImplementation "junit:junit:$junitVersion"
+    testImplementation "com.squareup.okhttp3:mockwebserver:4.12.0"
+    testImplementation "org.json:json:20240303"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

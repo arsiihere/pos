@@ -1,0 +1,17 @@
+{
+  "name": "@pos/tablet",
+  "private": true,
+  "version": "0.1.0",
+  "description": "05b Staff Tablet App: Capacitor shell + native AlertService. Not a pnpm workspace member (own npm lockfile) [05b v1.0 §7; plan AD-2]",
+  "scripts": {
+    "sync": "cap sync android",
+    "gen:lock-strings": "node scripts/gen-lock-strings.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/core": "8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2"
+  }
+}

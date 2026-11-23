@@ -57,6 +57,40 @@ function writeKey(db, key, value) {
     write.onerror = () => resolve();
   });
 }
+function deleteKey(db, key) {
+  return new Promise((resolve) => {
+    const removal = db.transaction('device', 'readwrite').objectStore('device').delete(key);
+    removal.onsuccess = () => resolve();
+    removal.onerror = () => resolve();
+  });
+}
+// 05b H-2 (M-3, N-9): the page inside the tablet app. The page never imports Capacitor; it reads the bridge.
+function posNative() {
+  const cap = typeof window !== 'undefined' ? window.Capacitor : undefined;
+  if (!cap || typeof cap.isNativePlatform !== 'function' || cap.isNativePlatform() !== true) return null;
+  return (cap.Plugins && cap.Plugins.PosNative) || null;
+}
+// Native's refusals that end these keys, with a fallback text: a non-tablet approval (M-3, NOT_TABLET) and a token
+// native saw revoked (05b O-20, TOKEN_REVOKED).
+const KEY_REFUSALS = { NOT_TABLET: 'Approve this tablet as a Tablet', TOKEN_REVOKED: 'This tablet was removed. Pair it again.' };
+// Hands the page's keys to native (its copy for the alert service). Resolves null when accepted, or when the bridge
+// fails for another reason (the page keys stand; native recovers its copy on a later load); the refusal's text
+// when native refuses the keys (KEY_REFUSALS).
+async function giveNativeKeys(native, keys) {
+  try {
+    await native.setDeviceToken(keys);
+    return null;
+  } catch (error) {
+    const code = error && error.code;
+    if (code !== 'NOT_TABLET' && code !== 'TOKEN_REVOKED') return null;
+    return error.message || KEY_REFUSALS[code];
+  }
+}
+async function wipeDeviceKeys(db) {
+  await deleteKey(db, 'token');
+  await deleteKey(db, 'device_id');
+  await deleteKey(db, 'device_type');
+}
 const screen = document.getElementById('screen');
 const status = document.getElementById('pair_status');
 // Kitchen-size screens (1920 wide) get the wall size: QR 320, code 112, title 60, button 88 (frames Pair*, 00-F02 Kds).
@@ -129,8 +163,19 @@ function showPaired(deviceType, stationName) {
   else openStaffEntry();
 }
 // A stored token: no new request and no hub call here; the entry's own requests meet a revoked token (§8.4).
+// 05b N-9: inside the app native gets the stored keys first, so it recovers its copy.
 async function resumePaired(db) {
-  showPaired(await readKey(db, 'device_type'));
+  const deviceType = await readKey(db, 'device_type');
+  const native = posNative();
+  if (native) {
+    const refused = await giveNativeKeys(native, { token: await readKey(db, 'token'), device_id: await readKey(db, 'device_id'), device_type: deviceType });
+    if (refused) {
+      await wipeDeviceKeys(db);
+      pairNotice = refused;
+      return pairScreen(db);
+    }
+  }
+  showPaired(deviceType);
 }
 // 00-S11: expired (warn, clock), too many (danger, lock), hub busy (warn, sync); the 72 px button (88 on the wall) asks again.
 function askAgain(start, body, waitMs, kind, iconName) {
@@ -157,9 +202,13 @@ function askAgain(start, body, waitMs, kind, iconName) {
     tick();
   }
 }
+// 05b M-3: native refused the last approval; its text stays over the new code.
+let pairNotice = '';
 function pairScreen(db) {
   let retried = false;
-  const hint = hardwareHintFor(navigator.userAgent);
+  // 05b H-2 / N-9: inside the app always 'tablet', whatever the query; ?hint=tablet is the same signal.
+  const tabletHint = posNative() !== null || new URLSearchParams(location.search).get('hint') === 'tablet';
+  const hint = tabletHint ? 'tablet' : hardwareHintFor(navigator.userAgent);
   const start = () => {
     show(stateScreen('info', 'sync', t('pairing.starting'), t('pairing.starting_body')));
     fetchRetry('/pair/requests', {
@@ -192,6 +241,7 @@ function pairScreen(db) {
       const meta = node('p', 'pos-code__meta');
       code.appendChild(meta);
       const waiting = node('main', 'pos-screen pos-pair');
+      if (pairNotice) waiting.appendChild(banner('danger', pairNotice, '', '', 'alert'));
       waiting.appendChild(node('h1', 'pos-screen__title', t('pairing.title')));
       waiting.appendChild(node('p', 'pos-screen__body', t('pairing.how')));
       waiting.appendChild(code);
@@ -218,6 +268,16 @@ function pairScreen(db) {
             await writeKey(db, 'token', update.data.device_token);
             await writeKey(db, 'device_id', update.data.device_id);
             await writeKey(db, 'device_type', update.data.device_type);
+            const native = posNative();
+            if (native) {
+              const refused = await giveNativeKeys(native, { token: update.data.device_token, device_id: update.data.device_id, device_type: update.data.device_type });
+              if (refused) {
+                await wipeDeviceKeys(db);
+                pairNotice = refused;
+                start();
+                return;
+              }
+            }
             showPaired(update.data.device_type, update.data.station_name);
             return;
           }
