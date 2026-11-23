@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > - **Q-3** The G1-9d shortcut (01d §3.5:637) applies to kinds whose `right.mode` is `'approval'`. A downgraded raise stores `named` or `holders` on an approval kind. **(a, Rec)** Key on the **stored** right: a downgraded request gets no shortcut, like other `named` / `holders` requests today; it still escalates by its steps. (b) Key on the kind's right: the shortcut also runs for a downgraded `holders` request.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~11:45 PKT: **The integrator moved to the cloud** (the laptop goes offline). Handover: `docs/plans/05a-handover.md`. Integration branch: `build/05a`. Lane L1 (local) stopped: task 9 done (`42c4b122`); unfinished task 10 saved on `wip/05a-task10`. The cloud lanes K, R, D, C1 and C2 keep running.
 > - 2026-11-23 ~11:35 PKT: **Owner: finish the rest in the cloud, CI on GitHub runners, 5–6 agents at once.** CI now runs on pushes to `build/**` and `lane-05a*/**` (`39b6519b`). Six lanes:
 >   - **L1** (local, Opus): B3 → B4 → B5 (tasks 9–21, the core chain) on `module-05a`.
 >   - **K** (cloud, Opus): `lane-05aK/05a-27-28` (Pass readers K-1 / D-4, upgrade boot step).
