@@ -19,7 +19,7 @@ Phase A's app can be soaked against today's hub with a token minted by `tools/ta
 
 - **Dependencies** (pinned exactly): `@capacitor/core`, `@capacitor/android`, `@capacitor/cli` **8.6.2**; OkHttp **4.12.0**; `androidx.security:security-crypto` **1.0.0**; `androidx.core:core-ktx` (Capacitor's `androidxCoreVersion`); Kotlin Gradle plugin **2.2.20**; AGP **8.13.0** (Capacitor 8.6.2's template). Anything else → ask.
 - **Language:** Kotlin for all native code (TQ2). `MainActivity` too.
-- **Package:** `pk.arifchatkhara.pos` — ⚠️ proposed (AD-1); application id is permanent once a tablet is device owner.
+- **Package:** `pk.arifchatkhara.pos` — **confirmed** by the owner 2026-11-23 15:39 PKT (AD-1); application id is permanent once a tablet is device owner.
 - **Signing:** debug builds use the committed `apps/tablet/android/debug.keystore` (never for device owner); release builds use the release key from CI secrets (`TABLET_RELEASE_KEYSTORE_B64`, `…_PASSWORD`), never in the repo (spec §7, m-9).
 - **Exports:** only `MainActivity`, `BootReceiver`, `PosDeviceAdmin` (spec §7).
 - **No spike code is merged.** Phase A ports the spike's logic into the 05b structure; `spike/lock-alerts` is deleted after S1–S7.
@@ -85,5 +85,5 @@ Phase A's app can be soaked against today's hub with a token minted by `tools/ta
 
 | # | Decision | Status |
 |---|---|---|
-| AD-1 | Application id `pk.arifchatkhara.pos`, app name "Arif POS" | proposed — owner to confirm before A15 (device owner makes it permanent) |
+| AD-1 | Application id `pk.arifchatkhara.pos`, app name "Arif POS" | **confirmed** (owner, 2026-11-23 15:39 PKT) — permanent once a tablet is device owner |
 | AD-2 | `apps/tablet` is a pnpm workspace member (Capacitor CLI via pnpm); it has no `typecheck` / `test` scripts, so turbo skips it | proposed |
