@@ -6,6 +6,7 @@ import { fill } from '../../../../i18n/en';
 import { CloseX, Dialog } from '../../../alerts/ui';
 import { MONEY_DIR, money } from '../money';
 import type { CartOption, UnitOf } from '../order-screen/cart';
+import { OptionStepper, stepOption, stepsOption } from './OptionStepper';
 import { groupsOf, partViolations } from './preselect';
 
 // Owner ruling Q-64 (a), 01c V9 (02b §8 Ordering screen, deal sheet): a deal part offers its item's **plain** options —
@@ -95,6 +96,8 @@ export function PartOptionsSheet(p: PartOptionsSheetProps) {
                 {g.options.map((o) => {
                   const picked = options.find((x) => x.option_id === o.option_id);
                   const charge = optionChargeMinor(o.price_minor, 1, optionParent, 'piece');
+                  // 02b-TK C1-4: an option taken more than once has its stepper below the chips
+                  if (stepsOption(g, o)) return null;
                   return (
                     <button key={o.option_id} type="button" className="chip" aria-pressed={picked !== undefined} onClick={() => tap(g, o.option_id)}>
                       {o.name}
@@ -108,6 +111,33 @@ export function PartOptionsSheet(p: PartOptionsSheetProps) {
                   );
                 })}
               </div>
+              {g.options
+                .filter((o) => stepsOption(g, o))
+                .map((o) => {
+                  const charge = optionChargeMinor(o.price_minor, 1, optionParent, 'piece');
+                  return (
+                    <OptionStepper
+                      key={o.option_id}
+                      group={g}
+                      option={o}
+                      options={options}
+                      onStep={(d) => {
+                        setFull(null);
+                        setOptions((cur) => stepOption(cur, g, o, d));
+                      }}
+                      label={
+                        <>
+                          <b>{o.name}</b>
+                          {charge > 0 && (
+                            <small dir={MONEY_DIR}>
+                              {' '}+{money(charge)}
+                            </small>
+                          )}
+                        </>
+                      }
+                    />
+                  );
+                })}
             </div>
           );
         })}

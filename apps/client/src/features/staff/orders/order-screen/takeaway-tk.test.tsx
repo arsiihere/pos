@@ -431,3 +431,26 @@ describe('[02b-TK C1-3] Send in the background', () => {
     m.unmount();
   });
 });
+
+describe('[02b-TK C1-4] editing a cart line', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('[02b-TK C1-4; frame ItemSheetEdit] Edit opens the sheet with "Save changes"; its Remove takes the line off the cart', async () => {
+    const h = harness();
+    const m = h.render();
+    await flush();
+    m.click(tile(m, 'Chicken Karahi'));
+    expect(m.container.querySelector('.acts .btn--primary')?.textContent).toBe('Add to order');
+    m.click(m.button('Add to order'));
+    expect(m.container.querySelectorAll('.ln')).toHaveLength(1);
+    m.click(m.container.querySelector('.ln__m'));
+    m.click(m.button('Edit'));
+    expect(m.container.querySelector('.acts .btn--primary')?.textContent).toBe('Save changes');
+    m.click(m.button('Remove', m.container.querySelector('.dlg .qline')!));
+    expect(m.container.querySelector('.dlg')).toBeNull();
+    expect(m.container.querySelectorAll('.ln')).toHaveLength(0);
+    m.unmount();
+  });
+});

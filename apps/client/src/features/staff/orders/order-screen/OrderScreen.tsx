@@ -671,7 +671,9 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       if (item?.variant_group_id == null) return [item_id];
       return config.items.filter((i) => i.variant_group_id === item.variant_group_id).sort((a, b) => a.sort_order - b.sort_order).map((i) => i.item_id);
     };
-    const common = { config, inputs, unitOf, sheet: sheetAsBottom, newKey, onAdd, onClose: closeSheet };
+    // 02b-TK C1-4: an edited line's sheet offers Remove (Save changes is the sheets' primary)
+    const onRemove = editing === null ? {} : { onRemove: () => (setCart((c) => removeLine(c, editing.key)), setSheet(null)) };
+    const common = { config, inputs, unitOf, sheet: sheetAsBottom, newKey, onAdd, onClose: closeSheet, ...onRemove };
     // O15: what is left for this line once the cart's other lines of the item are counted
     const sheetCap = (item_id: string) => {
       const cap = capOf(item_id);

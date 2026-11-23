@@ -486,7 +486,7 @@ describe('[02b §8 Ordering screen] Send', () => {
     expect(m.container.querySelector('#opt-t')?.textContent).toBe('Karahi');
     // the sheet comes up with nothing ticked (the priced default is not chosen for the guest); Add keeps the mark
     expect(m.button('Extra masala').getAttribute('aria-pressed')).toBe('false');
-    m.click(m.button('Add to order'));
+    m.click(m.button('Save changes')); // 02b-TK C1-4: the line is in the cart already
     expect(m.container.querySelector('.ln')?.textContent).toContain('Sent again · asks to comp');
     expect(m.container.querySelector('.ln__p')?.textContent).toBe('Rs 2,200'); // no +Rs 50
     m.unmount();

@@ -1607,4 +1607,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   't.sent': 'بھیج دیا · تیار',
   't.queued': 'ابھی نہیں گیا — ہب واپس آنے پر ٹوکن ملے گا',
   'q.waiting_send': 'بھیجنے کا انتظار',
+  // 02b-TK C1-4 (frames ItemSheetEdit, ItemSheet): not in strings-table.md; Urdu to confirm
+  'opt.save': 'تبدیلیاں محفوظ کریں',
+  'opt.more': 'ایک اور {option}',
+  'opt.less': 'ایک کم {option}',
 };

@@ -9,6 +9,7 @@ import type { ServeMode } from '../contracts';
 import { MONEY_DIR, money } from '../money';
 import { cartLineMoney, type CartLine, type CartOption, type UnitOf } from '../order-screen/cart';
 import { KITCHEN_NOTE_MAX, NoteSheet } from './NoteSheet';
+import { OptionStepper, stepOption, stepsOption } from './OptionStepper';
 import { defaultOptions, groupsOf } from './preselect';
 import { WeightChoice, gramsOf, type WeightMode } from './WeightChoice';
 
@@ -35,6 +36,8 @@ export interface OptionsSheetProps {
   sheet: boolean;
   newKey(): string;
   onAdd(line: CartLine): void;
+  /** 02b-TK C1-4: editing a cart line offers Remove (on the left); absent = no Remove */
+  onRemove?(): void;
   onClose(): void;
 }
 
@@ -130,6 +133,9 @@ export function OptionsSheet(p: OptionsSheetProps) {
       return had.quantity < option.max_quantity && groupTotal < g.max_choices ? cur.map((o) => (o.option_id === option_id ? { ...o, quantity: o.quantity + 1 } : o)) : rest;
     });
   };
+  const step = (g: ConfigModifierGroup, option: ConfigModifierGroup['options'][number], delta: 1 | -1) =>
+    setOptions((cur) => stepOption(cur, g, option, delta, () => (option.linked_item_id === null ? {} : { order_item_id: p.newKey() })));
+  const editing = p.initial !== null;
   const switchItem = (id: string) => {
     const next = items.find((i) => i.item_id === id)!;
     setItemId(id);
@@ -200,6 +206,8 @@ export function OptionsSheet(p: OptionsSheetProps) {
                   const state = optionState(o);
                   // ticked, but its linked item cannot be made for this many: the chip says why (it stays tappable)
                   const short = picked !== undefined && violations.some((v) => v.reason === 'linked_not_orderable' && v.option_id === o.option_id);
+                  // 02b-TK C1-4: an option taken more than once has its stepper below the chips
+                  if (stepsOption(g, o) && (state.on || picked !== undefined)) return null;
                   if (!state.on && picked === undefined)
                     return (
                       <button key={o.option_id} type="button" className="chip" disabled>
@@ -221,11 +229,42 @@ export function OptionsSheet(p: OptionsSheetProps) {
                   );
                 })}
               </div>
+              {g.options
+                .filter((o) => stepsOption(g, o) && (optionState(o).on || options.some((x) => x.option_id === o.option_id)))
+                .map((o) => {
+                  const state = optionState(o);
+                  const short = violations.some((v) => v.reason === 'linked_not_orderable' && v.option_id === o.option_id);
+                  return (
+                    <OptionStepper
+                      key={o.option_id}
+                      group={g}
+                      option={o}
+                      options={options}
+                      onStep={(d) => step(g, o, d)}
+                      label={
+                        <>
+                          <b>{o.name}</b>
+                          {o.price_minor > 0 && (
+                            <small dir={MONEY_DIR}>
+                              {' '}+{money(o.price_minor)}
+                            </small>
+                          )}
+                          {short && <> · {t(state.on ? 'opt.reason.sold_out' : REASON_KEY[state.reason])}</>}
+                        </>
+                      }
+                    />
+                  );
+                })}
             </div>
           );
         })}
       </div>
       <div className="qline">
+        {editing && p.onRemove !== undefined && (
+          <button type="button" className="btn" onClick={p.onRemove}>
+            {t('cart.remove')}
+          </button>
+        )}
         {weighed ? (
           <b dir="auto">{quantity === null ? `${item.name} · ${money(item.price_minor)} ${t(unit === 'g' ? 'menu.per.kg' : 'menu.per.l')}` : `${quantity / 1000} ${unit === 'g' ? 'kg' : 'L'} × ${money(item.price_minor)}`}</b>
         ) : (
@@ -267,7 +306,7 @@ export function OptionsSheet(p: OptionsSheetProps) {
             p.onAdd({ ...line, key: p.initial?.key ?? p.newKey() });
           }}
         >
-          {canAdd || violations.length === 0 ? t('opt.add') : missingText(violations, groups)}
+          {canAdd || violations.length === 0 ? t(editing ? 'opt.save' : 'opt.add') : missingText(violations, groups)}
         </button>
       </div>
     </Dialog>

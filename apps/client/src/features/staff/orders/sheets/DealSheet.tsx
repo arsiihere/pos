@@ -27,6 +27,8 @@ export interface DealSheetProps {
   sheet: boolean;
   newKey(): string;
   onAdd(line: CartLine): void;
+  /** 02b-TK C1-4: editing a cart line offers Remove (on the left); absent = no Remove */
+  onRemove?(): void;
   onClose(): void;
   /** a toast (the screen's): the open part picker's item left the menu */
   onNotice?(text: string): void;
@@ -253,6 +255,11 @@ export function DealSheet(p: DealSheetProps) {
         })}
       </div>
       <div className="qline">
+        {p.initial !== null && p.onRemove !== undefined && (
+          <button type="button" className="btn" onClick={p.onRemove}>
+            {t('cart.remove')}
+          </button>
+        )}
         <span className="step" role="group" aria-label={t('cart.quantity')}>
           <button type="button" aria-label={t('cart.less')} disabled={qty <= 1} onClick={() => setQty((q) => Math.max(1, q - 1))}>
             −
@@ -281,7 +288,7 @@ export function DealSheet(p: DealSheetProps) {
           }}
         >
           {missing < 0
-            ? t('opt.add')
+            ? t(p.initial !== null ? 'opt.save' : 'opt.add')
             : missingOptions
               ? fill(t('deal.options_missing'), { part: fill(t('deal.part_n'), { n: String(missing + 1) }) })
               : fill(t('opt.choose_missing'), { n: '1', group: fill(t('deal.part_n'), { n: String(missing + 1) }) })}
