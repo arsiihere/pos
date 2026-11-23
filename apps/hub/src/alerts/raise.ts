@@ -1,4 +1,4 @@
-import { DomainError, OWNER_CLOSE_REASONS, type REQUEST_DECISIONS } from '@pos/domain';
+import { DomainError, MONEY_PERMISSIONS, OWNER_CLOSE_REASONS, type REQUEST_DECISIONS } from '@pos/domain';
 import {
   latestVersion,
   type AlertClosedPayload,
@@ -109,6 +109,9 @@ function envelopeOf(ctx: AlertCtx): { now: number; actor_id: string | null; devi
   return { now: ctx.now, actor_id: ctx.actor_id, device_id: ctx.device_id };
 }
 
+/** 05a §3.3 `MONEY_PERMISSIONS`: the permissions whose `allowed` grant the session view downgrades. */
+const MONEY: ReadonlySet<string> = new Set(MONEY_PERMISSIONS);
+
 const dedupeKey = (kind: string, key: string): string => `${kind}\u0000${key}`;
 
 function kindFor(name: string): AlertKind {
@@ -125,14 +128,20 @@ function invalid(issue: 'values_invalid' | 'details_invalid', kind: string, path
 /**
  * ⚠️ Changed by 05a (row D-2), 05a §3.9 rule 1 (a), 01d v1.3.5 §3.3 "Raise from a downgraded grant": the requester is
  * on ≥ 1 unrevoked `listed` device (the in-memory `deviceProfile` map holds unrevoked devices only) that is connected
- * now: an open session socket or an alert-mode socket of that device in the hub's socket lists. Memory, no statement.
+ * now. ⚠️ Changed by 05a v1.0.4 (G-h (a)): route-level — the device counts only if it would reach the requester now:
+ * the requester's OWN open staff session socket on it, or its alert-mode socket when it is bound to them permanently
+ * (`listed` with exactly one person, §3.8). Someone else signed in on a listed device listing them does not count.
+ * The hub's in-memory socket lists, no statement.
  */
 function listedDeviceConnected(ws: WsHub, staffId: string): boolean {
-  const listed = (deviceId: string): boolean => {
+  const listed = (deviceId: string, only: boolean): boolean => {
     const profile = deviceProfile(deviceId);
-    return profile !== undefined && profile.access === 'listed' && profile.staff_ids.has(staffId);
+    return profile !== undefined && profile.access === 'listed' && profile.staff_ids.has(staffId) && (!only || profile.staff_ids.size === 1);
   };
-  return ws.connectedSessions().some((s) => listed(s.deviceId)) || ws.alertSockets().some((s) => listed(s.deviceId));
+  return (
+    ws.connectedSessions().some((s) => s.kind === 'staff' && s.staffId === staffId && listed(s.deviceId, false)) ||
+    ws.alertSockets().some((s) => listed(s.deviceId, true))
+  );
 }
 
 /** The downgraded raise's stored right (05a §3.9 rule 1): `named` to this person, or (null) `holders`. Chosen once, at raise. */
@@ -199,6 +208,10 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
     if (kind.request?.right.mode !== 'approval') return null;
     downgradedGrant ??= 'actor' in ctx && ctx.permission?.masked === 'downgraded';
     if (!downgradedGrant) return null;
+    // a downgraded grant is a money permission's (05a §3.3a): the kind it raises must be a money kind's own request
+    if (!MONEY.has(kind.request.right.base_permission)) {
+      throw new Error(`alerts.raise('${kind.kind}'): downgraded grant raising a kind whose base_permission is not a money permission`);
+    }
     if (requester === null) return { named: null };
     let on = connected.get(requester);
     if (on === undefined) {

@@ -113,7 +113,7 @@ async function harness(cleanups: Array<() => void>): Promise<Harness> {
 
 // ⚠️ Changed by 05a (row D-2), 01d v1.3.5 §4.2 gap G-d: the setup raises read `ctx.permission` to test
 // `masked === 'downgraded'`, so the ctx carries an unmasked grant (was: a getter that throws, "never read").
-function cmdCtx(tx: WriterTx, staffId: string = IMRAN, deviceId: string = IMRAN_DEV): AlertCtx {
+function cmdCtx(tx: WriterTx, staffId: string = IMRAN, deviceId: string = IMRAN_DEV, o: { permissionThrows?: boolean } = {}): AlertCtx {
   const ctx = {
     tx,
     state: {},
@@ -124,8 +124,19 @@ function cmdCtx(tx: WriterTx, staffId: string = IMRAN, deviceId: string = IMRAN_
     directory: dir,
     permission: { grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' },
   };
+  if (o.permissionThrows === true) {
+    // pins "never read": close / closeMany (and the request_result raises they make) never reads ctx.permission (01d §4.2 G-d)
+    Object.defineProperty(ctx, 'permission', {
+      get(): never {
+        throw new Error('ctx.permission read');
+      },
+    });
+  }
   return ctx as unknown as CommandCtx;
 }
+
+/** close / closeMany never read ctx.permission (01d §4.2 G-d: only an approval raise reads it). */
+const closeCtx = (tx: WriterTx): AlertCtx => cmdCtx(tx, IMRAN, IMRAN_DEV, { permissionThrows: true });
 
 const display = { kind_label_key: 'alert.t_approval.kind', table_code: '12', requester_name: 'Ali' };
 const voidInput = (n: number | string = 1): RaiseInput => ({
@@ -179,7 +190,7 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
     h.clock.advance(1_000);
 
     const { result: events, appended } = h.writer.run((tx) => {
-      const out = alerts.close(cmdCtx(tx), req, 'obsolete', 'stale at day close');
+      const out = alerts.close(closeCtx(tx), req, 'obsolete', 'stale at day close');
       tx.append(out);
       return out;
     });
@@ -225,7 +236,7 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
       tx.append([draft(aRequestAnswered({ stream_type: 'order', stream_id: 'O2', payload: { alert_id: answered, answerer_staff_id: IMRAN } }))]),
     );
     expect(row(h.db, answered)).toMatchObject({ state: 'closed', close_reason: 'answered' });
-    expect(h.writer.run((tx) => alerts.close(cmdCtx(tx), answered, 'obsolete', 'late')).result).toEqual([]);
+    expect(h.writer.run((tx) => alerts.close(closeCtx(tx), answered, 'obsolete', 'late')).result).toEqual([]);
   });
 
   it("[01d §3.3] 'overridden' also raises request_result; 'done' / 'undone' raise none; a non-request gets none; closed → []", async () => {
@@ -233,10 +244,10 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
     const [a, b, c, info] = raiseAll(h, [voidInput(1), voidInput(2), voidInput(3), infoInput('i1')]) as [string, string, string, string];
     const out = h.writer.run((tx) => {
       const r = {
-        overridden: alerts.close(cmdCtx(tx), a, 'overridden'),
-        done: alerts.close(cmdCtx(tx), b, 'done'),
-        undone: alerts.close(cmdCtx(tx), c, 'undone'),
-        info: alerts.close(cmdCtx(tx), info, 'obsolete', 'x'),
+        overridden: alerts.close(closeCtx(tx), a, 'overridden'),
+        done: alerts.close(closeCtx(tx), b, 'done'),
+        undone: alerts.close(closeCtx(tx), c, 'undone'),
+        info: alerts.close(closeCtx(tx), info, 'obsolete', 'x'),
       };
       tx.append(Object.values(r).flat());
       return r;
@@ -254,19 +265,19 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
     for (const id of [a, b, c, info]) expect(row(h.db, id)?.state).toBe('closed');
     expect(h.db.prepare(`SELECT COUNT(*) AS n FROM alerts WHERE kind = 'request_result'`).get()).toEqual({ n: 1 });
     // closing a closed alert, or an id the hub no longer has (retention), is a no-op
-    expect(h.writer.run((tx) => alerts.close(cmdCtx(tx), a, 'obsolete')).result).toEqual([]);
-    expect(h.writer.run((tx) => alerts.close(cmdCtx(tx), 'NO_SUCH_ALERT', 'done')).result).toEqual([]);
+    expect(h.writer.run((tx) => alerts.close(closeCtx(tx), a, 'obsolete')).result).toEqual([]);
+    expect(h.writer.run((tx) => alerts.close(closeCtx(tx), 'NO_SUCH_ALERT', 'done')).result).toEqual([]);
   });
 
   it('[01d §3.3] a second close of the same alert in one transaction returns [] (before or after the append)', async () => {
     const h = await harness(cleanups);
     const [a] = raiseAll(h, [voidInput(1)]) as [string];
     const r = h.writer.run((tx) => {
-      const first = alerts.close(cmdCtx(tx), a, 'obsolete');
-      const second = alerts.close(cmdCtx(tx), a, 'obsolete');
-      const many = alerts.closeMany(cmdCtx(tx), [{ alert_id: a, reason: 'done' }]);
+      const first = alerts.close(closeCtx(tx), a, 'obsolete');
+      const second = alerts.close(closeCtx(tx), a, 'obsolete');
+      const many = alerts.closeMany(closeCtx(tx), [{ alert_id: a, reason: 'done' }]);
       tx.append(first);
-      const after = alerts.close(cmdCtx(tx), a, 'done');
+      const after = alerts.close(closeCtx(tx), a, 'done');
       return { first, second, many, after };
     }).result;
     expect(types(r.first)).toEqual(['AlertClosed', 'AlertRaised', 'AttemptSent']);
@@ -278,7 +289,7 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
   it("[01d §4.2] a reason outside done / obsolete / overridden / undone throws (the tick's 'expired' is not an owner close)", async () => {
     const h = await harness(cleanups);
     const [a] = raiseAll(h, [voidInput(1)]) as [string];
-    expect(() => h.writer.run((tx) => alerts.close(cmdCtx(tx), a, 'expired' as never))).toThrow(/reason/);
+    expect(() => h.writer.run((tx) => alerts.close(closeCtx(tx), a, 'expired' as never))).toThrow(/reason/);
     expect(row(h.db, a)?.state).toBe('open');
   });
 
@@ -294,7 +305,7 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
       h.writer.run((tx) => {
         counter.reset();
         const events = alerts.closeMany(
-          cmdCtx(tx),
+          closeCtx(tx),
           batch.map((alert_id) => ({ alert_id, reason: 'obsolete' as const, note: 'day close' })),
         );
         const count = counter.count;
@@ -325,7 +336,7 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
     const r = h.writer.run((tx) => {
       counter.reset();
       const events = alerts.closeMany(
-        cmdCtx(tx),
+        closeCtx(tx),
         ids.map((alert_id) => ({ alert_id, reason: 'done' as const })),
       );
       return { events, count: counter.count };
@@ -342,7 +353,7 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
     const [second] = raiseAll(h, [voidInput(2)]) as [string];
     h.clock.advance(1_000);
     const [third, info] = raiseAll(h, [voidInput(3), infoInput('i1')]) as [string, string];
-    h.writer.run((tx) => tx.append(alerts.close(cmdCtx(tx), third, 'done')));
+    h.writer.run((tx) => tx.append(alerts.close(closeCtx(tx), third, 'done')));
 
     const counter = statementCounter(h.db);
     const listed = alerts.listOpen(h.db, { kind: 't_approval' });
@@ -385,7 +396,7 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
     counter.reset();
     expect(alerts.byDedupeKey(h.db, 't_info', 'void:O1:L1')).toBeNull();
     expect(counter.count).toBe(1);
-    h.writer.run((tx) => tx.append(alerts.close(cmdCtx(tx), a, 'done')));
+    h.writer.run((tx) => tx.append(alerts.close(closeCtx(tx), a, 'done')));
     expect(alerts.byDedupeKey(h.db, 't_approval', 'void:O1:L1')).toBeNull();
   });
 
@@ -430,7 +441,7 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
       tx.append(r.flatMap((x) => x.events));
       return r.map((x) => x.alert_id);
     }).result as [string];
-    expect(types(h.writer.run((tx) => alerts.close(cmdCtx(tx), a, 'obsolete')).result)).toEqual(['AlertClosed']);
+    expect(types(h.writer.run((tx) => alerts.close(closeCtx(tx), a, 'obsolete')).result)).toEqual(['AlertClosed']);
   });
 
   it('[01d §3.10 positive control] an AlertRaised of request_result replayed at boot is a known kind: no unknown_kind line', async () => {
@@ -501,7 +512,7 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
     const changes = (): number => (h.db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
     const { result, appended } = h.writer.run((tx) => {
       const before = changes();
-      const events = alerts.closeMany(cmdCtx(readOnlyTx(tx)), [
+      const events = alerts.closeMany(closeCtx(readOnlyTx(tx)), [
         { alert_id: a, reason: 'obsolete', note: 'stale' },
         { alert_id: b, reason: 'overridden' },
       ]);

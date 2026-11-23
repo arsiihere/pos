@@ -144,7 +144,7 @@ function insertSession(db: Database.Database, o: { id: string; staff: string; de
  * `ctx.permission` only to test `masked === 'downgraded'` (05a §3.9 rule 1; test/alerts/downgraded-raise.int.test.ts),
  * so an unmasked grant leaves every raise here as before. Was: a getter that throws ("never read", v0.4 m7).
  */
-function cmdCtx(tx: WriterTx, staffId: string = ALI, deviceId: string = ALI_DEV): AlertCtx {
+function cmdCtx(tx: WriterTx, staffId: string = ALI, deviceId: string = ALI_DEV, o: { permissionThrows?: boolean } = {}): AlertCtx {
   const ctx = {
     tx,
     state: {},
@@ -155,6 +155,14 @@ function cmdCtx(tx: WriterTx, staffId: string = ALI, deviceId: string = ALI_DEV)
     directory: dir,
     permission: { grant: 'requires_approval', approver_role_ids: ['R2', 'R3'], scope: 'branch' },
   };
+  if (o.permissionThrows === true) {
+    // pins "never read": a named / notice raise never reads ctx.permission (01d §4.2 G-d)
+    Object.defineProperty(ctx, 'permission', {
+      get(): never {
+        throw new Error('ctx.permission read');
+      },
+    });
+  }
   return ctx as unknown as CommandCtx;
 }
 
@@ -201,10 +209,10 @@ describe('01d alerts.raise / raiseMany', () => {
     for (const cleanup of cleanups.splice(0)) cleanup();
   });
 
-  it('[01d #15] raise twice with one dedupe_key → second deduped, no events; after close, raise again → new alert', async () => {
+  it('[01d #15] raise twice with one dedupe_key → second deduped, no events; after close, raise again → new alert; a notice raise never reads ctx.permission (G-d)', async () => {
     const h = await harness(cleanups);
     const first = h.writer.run((tx) => {
-      const r = alerts.raise(cmdCtx(tx), infoInput());
+      const r = alerts.raise(cmdCtx(tx, ALI, ALI_DEV, { permissionThrows: true }), infoInput());
       tx.append(r.events);
       return r;
     }).result;
@@ -357,10 +365,10 @@ describe('01d alerts.raise / raiseMany', () => {
     });
   });
 
-  it('[01d §6.1] named kind: receiver copied into the request part', async () => {
+  it('[01d §6.1] named kind: receiver copied into the request part; a named raise never reads ctx.permission (G-d)', async () => {
     const h = await harness(cleanups);
     const r = h.writer.run((tx) =>
-      alerts.raise(cmdCtx(tx), {
+      alerts.raise(cmdCtx(tx, ALI, ALI_DEV, { permissionThrows: true }), {
         kind: 't_accept',
         subject: { stream_type: 'table', stream_id: 'T12' },
         target: { kind: 'person', staff_id: KAMRAN },

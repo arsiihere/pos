@@ -13,7 +13,7 @@ import { PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { pairDevice, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
-import { answer, post, stagedOrder, startVoids, STAFF, type Reply, type Who } from '../voids/fixtures';
+import { answer, post, stagedOrder, startVoids, STAFF, voidsDirectory, type Reply, type Who } from '../voids/fixtures';
 
 // 05a v1.0.2 plan task 24 (B6, row D-2): the raise from a downgraded grant. 05a §3.9 rule 1, §3.3a, A-2; 01d v1.3.5
 // §3.3 "Raise from a downgraded grant", §3.5 G1-9d shortcut (owner Q-3 (a): keyed on the STORED right), §4.2 raise
@@ -89,17 +89,30 @@ describe('[05a #17] downgrade with a listed device connected now → named to th
   it('[05a #17, §3.9 rule 1 (a)] a manager’s direct void on an `everyone` kiosk, their listed phone connected (session socket) → `named`, receiver = themself', async () => {
     hub = await startVoids();
     const at = kiosk(MGR);
-    await connect(phone(MGR), 'session');
+    const mgrPhone = phone(MGR);
+    await connect(mgrPhone, 'session');
     expect(currentDirectory(hub.app).forSession({ staff_id: MGR, device_id: at.deviceId }, deviceProfile).resolve(MGR, 'void-item')).toMatchObject({ grant: 'requires_approval', masked: 'downgraded' });
-    const r = raisedOf(await voidServed(at, 'A'));
+    const reply = await voidServed(at, 'A');
+    const r = raisedOf(reply);
     expect(r.payload.kind).toBe('void_approval');
     expect(r.payload.requester_staff_id).toBe(MGR);
     expect(r.payload.request).toMatchObject({ ...named(MGR), answers: ['approve', 'reject'], needs_pin: 'always' });
     // the kind's own request: same kind and steps (step 0 sent, no shortcut: Q-3 (a), the stored right is named)
     expect(r.types).toEqual(['AlertRaised', 'AttemptSent']);
+    // "it rings their listed phone": step 0's one answerer is the requester (rule 5 skipped for named-to-self), routed
+    // to the phone's screen (the drop of the kiosk route for a money kind is task 25, §3.9 rule 3)
+    const step0 = reply.events.find((e) => e.event_type === 'AttemptSent')!.payload as { recipients: unknown[]; routes: unknown[] };
+    expect(step0.recipients).toEqual([{ staff_id: MGR, device_id: null, for_staff_id: null, set: 'answerer' }]);
+    expect(step0.routes).toContainEqual({ staff_id: MGR, route: 'screen', ref: mgrPhone.deviceId });
     // stored, never changes (§3.9 rule 1, N-3): the projection row holds the named right
     const row = hub.deps.db.prepare('SELECT request_json FROM alerts WHERE alert_id = ?').get(r.alert_id) as { request_json: string };
     expect(JSON.parse(row.request_json)).toMatchObject(named(MGR));
+    // answering it from the `everyone` kiosk → 403 listed_device_only (§3.9 rule 2); on the listed phone with their own
+    // PIN it applies (01d rule 5 skipped for a named request whose receiver is its requester)
+    refused(await answer(hub, at, r.alert_id, 'approve', PIN.b), 'listed_device_only');
+    const ok = await answer(hub, mgrPhone, r.alert_id, 'approve', PIN.b);
+    expect(ok.status, JSON.stringify(ok.error)).toBe(200);
+    expect(ok.events.filter((e) => e.event_type === 'ItemVoided').map((e) => e.payload)).toEqual([expect.objectContaining({ requester_staff_id: MGR, approver_staff_id: MGR })]);
   });
 
   it('[05a #17, §3.9 rule 1 (a)] an alert-mode socket of the listed phone also counts as connected now', async () => {
@@ -144,13 +157,14 @@ describe('[05a #17a, #18] downgrade with no listed device connected now → hold
     await connect(ownerPhone, 'session');
     const r = raisedOf(await voidServed(at, 'F'));
     expect(r.payload.request).toMatchObject(holdersOf('approve-void'));
-    refused(await answer(hub, at, r.alert_id, 'approve', PIN.b), 'self');
+    // the requester, on a listed device signed in after the raise (the kiosk would refuse listed_device_only first)
+    refused(await answer(hub, phone(MGR), r.alert_id, 'approve', PIN.b), 'self');
     const ok = await answer(hub, ownerPhone, r.alert_id, 'approve', PIN.a);
     expect(ok.status, JSON.stringify(ok.error)).toBe(200);
     expect(ok.events.filter((e) => e.event_type === 'ItemVoided').map((e) => e.payload)).toEqual([expect.objectContaining({ requester_staff_id: MGR, approver_staff_id: OWNER })]);
   });
 
-  it('[05a §3.9 rule 1 (a)] a connected listed device that does not list the requester, or an `everyone` device of theirs, is not theirs → holders', async () => {
+  it('[05a §3.9 rule 1 (a)] a connected listed device that does not list the requester does not count; nor does their own connected session on another `everyone` device → holders', async () => {
     hub = await startVoids();
     const at = kiosk(MGR);
     await connect(phone(OWNER), 'session'); // listed, lists only the Owner
@@ -158,11 +172,25 @@ describe('[05a #17a, #18] downgrade with no listed device connected now → hold
     expect(raisedOf(await voidServed(at, 'G')).payload.request).toMatchObject(holdersOf('approve-void'));
   });
 
-  it('[05a §3.9 rule 1 (a)] a listed device of the requester connected through someone else’s session still counts (the device is connected now)', async () => {
+  it('[05a v1.0.4 G-h (a)] route-level: a listed device listing the requester with only someone else signed in does NOT count → holders', async () => {
     hub = await startVoids();
     const at = kiosk(MGR);
-    await connect(phone(OWNER, [OWNER, MGR]), 'session'); // lists both; the Owner is signed in on it
-    expect(raisedOf(await voidServed(at, 'H')).payload.request).toMatchObject(named(MGR));
+    await connect(phone(OWNER, [OWNER, MGR]), 'session'); // lists both; only the Owner is signed in on it
+    expect(raisedOf(await voidServed(at, 'H')).payload.request).toMatchObject(holdersOf('approve-void'));
+  });
+
+  it('[05a v1.0.4 G-h (a)] route-level: the alert-mode socket of a listed device with two people is not bound to the requester → holders', async () => {
+    hub = await startVoids();
+    const at = kiosk(MGR);
+    await connect(phone(OWNER, [OWNER, MGR]), 'alert');
+    expect(raisedOf(await voidServed(at, 'I')).payload.request).toMatchObject(holdersOf('approve-void'));
+  });
+
+  it('[05a v1.0.4 G-h (a)] route-level: the requester’s own session on a shared listed device counts → named', async () => {
+    hub = await startVoids();
+    const at = kiosk(MGR);
+    await connect(phone(MGR, [OWNER, MGR]), 'session'); // lists both; MGR signed in
+    expect(raisedOf(await voidServed(at, 'H2')).payload.request).toMatchObject(named(MGR));
   });
 });
 
@@ -233,7 +261,7 @@ describe('[05a #19] downgraded discount, comp and reopen follow tests 17–18', 
       await connect(ownerPhone, 'session');
       const r = raiseAs(at, c.permission, c.input());
       expect(r.payload.request).toMatchObject(holdersOf(c.permission));
-      refused(await answer(hub, at, r.alert_id, 'reject', PIN.b), 'self');
+      refused(await answer(hub, phone(MGR), r.alert_id, 'reject', PIN.b), 'self'); // a listed device, signed in after the raise
       const ok = await answer(hub, ownerPhone, r.alert_id, 'reject', PIN.a);
       expect(ok.status, JSON.stringify(ok.error)).toBe(200);
       expect(ok.events.find((e) => e.event_type === 'RequestAnswered')?.payload).toMatchObject({ alert_id: r.alert_id, decision: 'reject' });
@@ -269,13 +297,16 @@ describe('[01d §3.5 G1-9d, owner Q-3 (a)] the shortcut keys on the stored right
 });
 
 describe('[05a §3.9 rule 1, 01d §4.2] no statement added', () => {
-  it('[05a §3.9 rule 1] the downgraded raise (either path) costs no more statements than the non-downgraded request raise', async () => {
-    hub = await startVoids();
+  it('[05a §3.9 rule 1] the downgraded raise (either path) costs no added statement: approval, holders and named requests cost 51 each', async () => {
+    // a second manager, MGR2 (R_MGR: a cashier's approver and an approve-void holder), signed in on a listed phone, so
+    // every one of the three requests has a routed step-0 answerer: none takes the G1-9d shortcut
+    const base = await voidsDirectory();
+    const mgr = base.staff.find((p) => p.staff_id === MGR)!;
+    hub = await startVoids({ directory: { ...base, staff: [...base.staff, { ...mgr, staff_id: 'S_MGR2', display_name: 'Manager 2' }] } });
     const counter = statementCounter(hub.deps.db); // before any cached statement of the raise is prepared
     const mgrKiosk = kiosk(MGR);
     const cashKiosk = kiosk(CASH);
-    const ownerPhone = phone(OWNER);
-    await connect(ownerPhone, 'session'); // an approver routed for each request: no shortcut anywhere
+    await connect(phone('S_MGR2'), 'session');
     // warm every cached statement once
     raisedOf(await voidServed(cashKiosk, 'W1'));
     raisedOf(await voidServed(mgrKiosk, 'W2'));
@@ -283,16 +314,17 @@ describe('[05a §3.9 rule 1, 01d §4.2] no statement added', () => {
     const cost = async (who: Who, o: (typeof orders)[number]): Promise<number> => {
       counter.reset();
       const r = await post(hub, who, 'void-items', 'VoidItems', { order_id: o.order_id, reason_code: 'quality', note: null, disposition_note: null, lines: [{ order_item_id: o.served, disposition: 'wastage' }] });
-      raisedOf(r);
+      types.push(raisedOf(r).types);
       return counter.count;
     };
+    const types: string[][] = [];
     const approval = await cost(cashKiosk, orders[0]!);
     const holders = await cost(mgrKiosk, orders[1]!);
     await connect(phone(MGR), 'session');
     const named = await cost(mgrKiosk, orders[2]!);
-    // the socket lists and the profile map are memory: neither path adds a statement to the request raise it replaces
-    // (a stored `approval` right also resolves its G1-9d escalation step at raise; a stored `named` / `holders` one does not)
-    expect(holders).toBeLessThanOrEqual(approval);
-    expect(named).toBeLessThanOrEqual(approval);
+    // like for like (step 0 sent, no shortcut on any of them), the stored right changes no statement: the socket lists
+    // and the profile map are memory. Each VoidItems request command costs the same, statement for statement.
+    expect(types).toEqual([['AlertRaised', 'AttemptSent'], ['AlertRaised', 'AttemptSent'], ['AlertRaised', 'AttemptSent']]);
+    expect([approval, holders, named]).toEqual([51, 51, 51]);
   });
 });
