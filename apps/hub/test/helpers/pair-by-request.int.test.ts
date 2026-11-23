@@ -11,6 +11,7 @@ describe('pairByRequest fixture', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
+  // TASK-15-EDIT: the profile count of 1 stays right only once the fixture stops double-writing; update with the fixture.
   it('[05a #13 fixture] a cashier_kiosk paired by request has a working token, a device row paired by the approver and an optional profile', async () => {
     const hub: TestHub = await createTestHub();
     cleanups.push(() => hub.close());

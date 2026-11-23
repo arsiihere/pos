@@ -135,6 +135,7 @@ describe('pairing requests', () => {
     expect(full.json().error.code).toBe('SERVICE_UNAVAILABLE');
   });
 
+  // TASK-15-EDIT: the pairing-token QR half calls the removed generate-device-pairing-token command; drop that half, keep setup and request QRs.
   it('[00 §10 #131] the setup, pairing-token and pairing-request responses carry an SVG equal to qrSvg(their URL), with no <script>', async () => {
     const setup = await provision();
     expect(setup.first_admin_qr_svg).toBe(qrSvg(setup.first_admin_url));

@@ -9,6 +9,9 @@ import { appendDeviceProfile, openSession, pairDevice, type DeviceProfileInput, 
 // `kds`; `tablet` and `phone` are added by task 15, and until then this helper throws for them: such a test keeps
 // `pairDevice` (a direct row) and is listed for task 15.
 
+// TASK-15-EDIT: `profile` is applied by appendDeviceProfile below; once approve takes it, send it in the payload instead.
+// Each call also adds one admin tablet device row (the approver) and an admin session; count devices accordingly.
+
 let nextIp = 1;
 
 export interface PairedByRequest {
@@ -76,6 +79,7 @@ export async function pairByRequest(
   const body = polled.json().data as Record<string, unknown>;
   if (polled.statusCode !== 200 || body.status !== 'approved') throw new Error(`pairByRequest: poll -> ${polled.statusCode} ${polled.body}`);
   const deviceId = body.device_id as string;
+  // TASK-15-EDIT: pass `profile` in the approve payload and delete this appendDeviceProfile call (approve v2 writes DeviceProfileSet itself).
   if (o.profile !== undefined) appendDeviceProfile(h, deviceId, o.profile);
   return { deviceId, token: body.device_token as string, poll: body };
 }
