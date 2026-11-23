@@ -1,10 +1,20 @@
 import { DomainError } from '@pos/domain';
-import { CreateRecipeBody, CreateRecipeResponse, RecipeDetailQuery, SaveDraftBody, SaveDraftResponse } from '@pos/events';
+import {
+  CreateRecipeBody,
+  CreateRecipeResponse,
+  RecipeDetailQuery,
+  RecipeDetailResponse,
+  RecipeListQuery,
+  RecipeListResponse,
+  SaveDraftBody,
+  SaveDraftResponse,
+} from '@pos/events';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { IdempotentResult } from '../../lib/idempotency.js';
 import type { OwnerRequest } from '../restaurant/service.js';
+import { DETAIL_ROUTE, getRecipeDetail, LIST_ROUTE, listRecipes } from './reads.js';
 import { createRecipe, CREATE_ROUTE, DRAFT_ROUTE, saveDraft, type RecipeDeps } from './service.js';
 
 const RecipeParams = z.object({ recipe_id: z.string().min(1) });
@@ -31,6 +41,30 @@ export function registerRecipeRoutes(app: FastifyInstance, deps: RecipeDeps): vo
     async (request, reply) => {
       deps.testHooks?.handlerStart?.(DRAFT_ROUTE);
       return reply.send({ data: await saveDraft(deps, ownerRequest(app, request), request.params.recipe_id, request.body, request.query) });
+    },
+  );
+
+  // ---------------------------------------------------------------------------------- §6.1 / §6.2 reads (r4)
+
+  // §6.1
+  routes.get(
+    '/v1/admin/recipes',
+    { config: { tenantScope: 'jwt' }, schema: { querystring: RecipeListQuery, response: { 200: RecipeListResponse } } },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.(LIST_ROUTE);
+      const { tenant, ownerUserId } = ownerRequest(app, request);
+      return reply.send({ data: await listRecipes(deps, tenant, ownerUserId, request.query) });
+    },
+  );
+
+  // §6.2
+  routes.get(
+    '/v1/admin/recipes/:recipe_id',
+    { config: { tenantScope: 'jwt' }, schema: { params: RecipeParams, querystring: RecipeDetailQuery, response: { 200: RecipeDetailResponse } } },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.(DETAIL_ROUTE);
+      const { tenant, ownerUserId } = ownerRequest(app, request);
+      return reply.send({ data: await getRecipeDetail(deps, tenant, ownerUserId, request.params.recipe_id, request.query) });
     },
   );
 }

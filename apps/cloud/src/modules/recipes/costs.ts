@@ -1,4 +1,4 @@
-import { buildCostInputs, recipeCost, roundMinor, stockItemUnitCost, type CloudCostRows, type CostInputs, type Fraction } from '@pos/domain';
+import { buildCostInputs, plateCost, recipeCost, roundMinor, stockItemUnitCost, type CloudCostRows, type CostInputs, type Fraction } from '@pos/domain';
 import type { CostWire, RecipeWarningWire } from '@pos/events';
 import { costVersionElement, type OwnerType, type StockUnit, type VersionRecord } from './repository.js';
 
@@ -61,7 +61,7 @@ export function versionCosts(
   const cost =
     version.lines.length === 0 && ownerType !== 'modifier_option'
       ? ({ status: 'partial', minor: null, unknown_items: [] } satisfies CostWire)
-      : costWire(recipeCost(inputs, version.recipe_version_id, branchId, nowMs, { top: true }));
+      : costWire(recipeCost(inputs, version.recipe_version_id, branchId, nowMs, { top: version.basis !== 'per_batch' })); // B5 / B9 (a), AD-30: never misc on a batch
   const lineCosts = new Map<number, CostWire>();
   const warnings: RecipeWarningWire[] = [];
   for (const line of version.lines) {
@@ -91,4 +91,34 @@ function mainLineOff(inputs: CostInputs, version: VersionRecord, ownerSaleUnit: 
   if (checked.length === 0) return false;
   // 0.8 × base ≤ num / den ≤ 1.2 × base, in integers: 4 × base × den ≤ 5 × num ≤ 6 × base × den
   return !checked.some((line) => 4n * base * line.stock_qty_den <= 5n * line.stock_qty_num && 5n * line.stock_qty_num <= 6n * base * line.stock_qty_den);
+}
+
+// ============================================================================================ §6.1 / §6.2 plate cost (r4)
+
+// A summary row's plate_cost (§5.4 CostWire, B12 "Plate cost (menu cost)"), from the owner's published version in
+// the cost context (non-archived recipes only; none → no_recipe), rounded once:
+// - menu item: the engine's plateCost for ONE sale unit of the owner's current sale_unit, no options — 1 piece, or
+//   base_qty g / ml for a per_measure recipe (its own "per kg / per litre"); plateCost's T-2 backstop makes a
+//   recipe that no longer fits the sale unit partial;
+// - plain option: the version's own top cost; prepared stock item: its batch cost, no misc (B5 / B9 (a), AD-30) —
+//   both as the version's RecipeVersionWire `cost`.
+// unknown_items: the version's unknown stock items (plateCost names none).
+export function ownerPlateCost(
+  inputs: CostInputs,
+  owner: { owner_type: OwnerType; owner_id: string; sale_unit: StockUnit | null },
+  branchId: string | null,
+  nowMs: number,
+): CostWire {
+  const versionId = inputs.publishedByOwner.get(`${owner.owner_type}:${owner.owner_id}`);
+  if (versionId === undefined) return NO_RECIPE_COST;
+  const version = inputs.versions.get(versionId);
+  // B5 / B9 (a), AD-30: misc never applies to a per_batch recipe (a prepared owner's row is its batch cost)
+  const top = recipeCost(inputs, versionId, branchId, nowMs, { top: version?.basis !== 'per_batch' });
+  if (owner.owner_type !== 'menu_item') return costWire(top);
+  if (owner.sale_unit === null) return { status: 'partial', minor: null, unknown_items: top.unknown };
+  const quantity = owner.sale_unit !== 'piece' && version?.basis === 'per_measure' && version.base_qty !== null ? version.base_qty : 1n;
+  const plate = plateCost(inputs, { kind: 'item', item_id: owner.owner_id, quantity, sale_unit: owner.sale_unit, options: [] }, branchId, nowMs);
+  if (plate.status === 'no_recipe') return NO_RECIPE_COST;
+  // AD-25: the same costWire mapping (known false → minor null)
+  return costWire({ value: plate.value, status: plate.status, unknown: top.unknown, known: plate.known });
 }
