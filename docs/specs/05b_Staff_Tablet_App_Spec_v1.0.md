@@ -191,7 +191,7 @@ A refused call rejects with `NOT_ALLOWED_HERE` and is logged (M-19).
 
 `native_api` = **1**.
 
-### 4.5 Changes to other specs (R26) — *Approved 2026-11-23 with v1.0; applied by the 05b plan's phase 0* ⚠️ Changed by v0.2 (M-3, B-4, M-5, m-13)
+### 4.5 Changes to other specs (R26) — *Approved 2026-11-23 with v1.0; **applied** by the 05b plan phase B P0.1: Foundation v1.16 (F-1, with CLAUDE.md and README R33), 00 v1.12.4 (H-1–H-4), 01d v1.3.6 (D-1–D-4), 05a v1.0.5 (A-1); C-1 is code* ⚠️ Changed by v0.2 (M-3, B-4, M-5, m-13)
 
 | Row | Target | Change |
 |---|---|---|
