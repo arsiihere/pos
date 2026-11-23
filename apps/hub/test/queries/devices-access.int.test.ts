@@ -57,7 +57,7 @@ describe('[05a §6.8] devices query', () => {
     for (const d of [one.d, two.d]) h.deps.db.prepare('UPDATE devices SET revoked_at = ? WHERE device_id = ?').run(h.clock.branchNow(), d.deviceId);
     const { loadDeviceProfiles } = await import('../../src/auth/device-profile');
     loadDeviceProfiles(h.deps.db);
-    const bootstrap = openSession(h, { kind: 'admin', staffId: 'S_OWNER', deviceId: null });
+    const bootstrap = openSession(h, { kind: 'admin', staffId: 'S_OWNER' });
     const r0 = await h.app.inject({ method: 'GET', url: '/admin/queries/devices', headers: { 'x-admin-session': bootstrap.token } });
     expect(r0.statusCode).toBe(200);
     expect(r0.json().data.admin_warning).toBe(0);
