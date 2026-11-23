@@ -2,7 +2,7 @@
 
 > **For agentic workers:** one task = one commit citing the spec (`[05b §x; test n]`). JS / hub tasks are TDD in the normal gate (failing test first). Native tasks are tested by Gradle unit tests in `tablet.yml` (CI builds the APK; this dev box has no Android SDK) and by the manual checks on the tablet (`docs/plans/05b-manual-checks.md`). Board: `docs/plans/05b-status.md`.
 
-**Spec:** `docs/specs/05b_Staff_Tablet_App_Spec_v1.0.md` (APPROVED 2026-11-23 12:24 PKT, every §4.5 row). Reviews: `docs/reviews/05b_v0.1_hostile_review.md`, `05b_v0.2_targeted_check.md`. Do **not** build §1 "Out of scope" or §12.3.
+**Spec:** `docs/specs/05b_Staff_Tablet_App_Spec_v1.0.1.md` (APPROVED 2026-11-23 12:24 PKT, every §4.5 row). Reviews: `docs/reviews/05b_v0.1_hostile_review.md`, `05b_v0.2_targeted_check.md`. Do **not** build §1 "Out of scope" or §12.3.
 
 **Goal:** the Android staff app: a Capacitor shell that loads the hub's `/staff/` page, a native `AlertService` in its own process on the 01d alert-mode socket, guarded `PosNative`, native lock text and sounds, APK self-update, device owner with lock task and Home; plus the small hub and client changes (§4.5).
 

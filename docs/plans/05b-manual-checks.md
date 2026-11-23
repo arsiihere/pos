@@ -1,6 +1,6 @@
 # 05b manual checks and soak (plan A18)
 
-Hand checks for the staff tablet app (spec `docs/specs/05b_Staff_Tablet_App_Spec_v1.0.md` §10.3 tests 18–28 and §10.4 soak S1–S7), run by the owner / developer on the pilot tablets. Nothing here is run or ticked by the build or CI (CLAUDE.md: no hardware checks in the cloud or CI).
+Hand checks for the staff tablet app (spec `docs/specs/05b_Staff_Tablet_App_Spec_v1.0.1.md` §10.3 tests 18–28 and §10.4 soak S1–S7), run by the owner / developer on the pilot tablets. Nothing here is run or ticked by the build or CI (CLAUDE.md: no hardware checks in the cloud or CI).
 
 Definition of Done (§12): tests 18–28 recorded **per pilot model and on one Android 14+ unit**; S1–S7 **PASS on the pilot model(s)**.
 

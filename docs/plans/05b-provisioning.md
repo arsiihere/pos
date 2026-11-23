@@ -1,6 +1,6 @@
 # 05b — Tablet provisioning runbook (device owner + lock task)
 
-Spec: `docs/specs/05b_Staff_Tablet_App_Spec_v1.0.md` M-17 (N-4, N-12, N-13, O-16, O-19), §7, §8 item 5, §10.3 test 20. Plan: A15, A17.
+Spec: `docs/specs/05b_Staff_Tablet_App_Spec_v1.0.1.md` M-17 (N-4, N-12, N-13, O-16, O-19), §7, §8 item 5, §10.3 test 20. Plan: A15, A17.
 
 Every restaurant tablet is **device owner** (R33, O-5). `everyone` tablets (kitchen, floor) run in lock task with the app as Home; approver (`listed`) tablets are device owner too, but keep the normal launcher and are not locked. The app decides that by itself from the device profile it gets from the hub (`setDeviceContext.lock_task`); nothing in this runbook sets it per tablet.
 
