@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~18:40 PKT: **Task 23 merged** (answers). **23 tasks merged.** Owner ruled **G-h (a)** → **05a v1.0.4** ("connected now" is route-level). Fix rounds: 24, 33, 34. Starting 25 (routing).
 > - 2026-11-23 ~18:00 PKT: **Task 26 merged** (`device_waiting`). **22 tasks merged.** Owner ruled **G-g (a)** → **05a v1.0.3** (recovery signal in login-roster's 403). In review: 24, 34. Fix rounds: 33 (G-g, K-2 `?edit=`). Running: 23.
 > - 2026-11-23 ~17:20 PKT: **Task 16 merged**: B4 complete. **21 tasks merged.**
 > - 2026-11-23 ~17:10 PKT: **Task 21 merged**. **20 tasks merged**; B3, B5 complete. Starting B6: 23 (answers), 24 (downgraded raise), 26 (`device_waiting`) in parallel; 25 after 23.
@@ -112,7 +113,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 20 | B5 | revoke both + device list | NORMAL | `547702b2`, fix `961da1e3` | **done** (Sonnet review FIX → 1 round: a no-profile staff device lists as `everyone` v0 so task 19 can edit it) |
 | 21 | B5 | directory apply | HIGH | `f3ab0b3c` | **done** (Opus review APPROVE; one wider `device_people` read; no `device_profile` push for `directory` events, none needed: screens / point never change; a `directory` event clears an earlier `needs_review`, literal §4.2 / §6.9) |
 | 22 | B6 | D-1 bindings | HIGH | `e9cd26d1` | **done** (Opus review APPROVE, 300-sequence rebuild fuzz; `alert-sockets.ts` as-built outside the Files column, required by 01d §3.7) |
-| 23 | B6 | D-2 answers | HIGH | | |
+| 23 | B6 | D-2 answers | HIGH | `11c9b4c2`, `de764770` | **done** (Opus review APPROVE; order rule 3 → 2a → 2 → 5 → 6 per 01d §3.3 rule 4 (b); named-self skip only reachable through task 24's raise; requester routing at `targets.ts:373` is fixed in task 24) |
 | 24 | B6 | D-2 downgraded raise | HIGH | | |
 | 25 | B6 | D-2 routing | HIGH | | |
 | 26 | B6 | D-3 `device_waiting` | HIGH | `248f9b22` | **done** (Opus review APPROVE). Until task 25, `device_waiting` also reaches `everyone` devices (label only, no code / name / count); row 25 widened to carry that drop + the #21 delivery test. Carry-overs to task 25: MINOR-1 (raise without the extra pre-read), MINOR-2 (`deeplink-check` `devices` → open, not `no_place`), MINOR-3 (01d #69 counts 20 kinds). Client copy `alert.device_waiting.card` / `.lock` (EN + UR) has no spec wording: proposed "A device is waiting for approval" / "Device waiting", in task 25's client follow-up unless the owner says otherwise |
