@@ -220,6 +220,7 @@ describe('buildSnapshotBody: schema 3', () => {
       ready_window_ms: 60000, // 03b A-1
       kds_offline_ms: 30000, // 03b A-1
       show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §5.2a PT-1 (STAB-5)
+      max_delay_default_ms: 300_000, // ⚠️ 01a v2.7.5 §5.2a MD-2, MD-5 (STAB-7): always sent
     });
     await sql(`DELETE FROM branch_engine_settings WHERE tenant_id = $1 AND branch_id = $2`, [a]);
     await expect(raw()).rejects.toThrow(/engine settings/);

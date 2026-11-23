@@ -15,7 +15,7 @@ import { formatMinutes, parseMinutes } from '../minutes';
 // 01a v2.4.3 (03b v1.0.3 §4.5 A-2, owner ruling P15-1 (a) 2026-11-11): the Ready window (15–300 s) and KDS offline
 // (10–300 s) are typed in whole seconds (10 s is not two-decimal minutes); the served estimate stays in minutes.
 // 01a v2.7.3 §8.1 PT-4 (STAB-5): show_part_times_to_customers is a switch, like returns_boost
-type NumericKey = Exclude<keyof BranchEngineSettings, 'returns_boost' | 'comp_reason_chips' | 'served_estimate_ms' | 'show_part_times_to_customers'>;
+type NumericKey = Exclude<keyof BranchEngineSettings, 'returns_boost' | 'comp_reason_chips' | 'served_estimate_ms' | 'show_part_times_to_customers' | 'max_delay_default_ms'>;
 const storedOf = (base: BranchEngineSettings, key: NumericKey): number => base[key];
 interface Spec {
   key: NumericKey;
@@ -64,13 +64,23 @@ const SPECS: Spec[] = [...WEIGHTS, ...PADDINGS, ...OTHERS, ...ORDERING, ...KDS];
 const SERVED = { min: 60_000, max: 1_800_000 };
 // Shown in the box when the stored value is Off and the owner turns it On.
 const SERVED_DEFAULT_MS = 180_000;
+// 01a v2.7.5 §8.1 MD-6 (STAB-7; re-review F-1): the default max delay, 1–30 min, or "No limit" (null); 5 min shown in
+// the box when the stored value is "No limit".
+export const MAX_DELAY = { min: 60_000, max: 1_800_000, fallback: 300_000 } as const;
 
 const SECOND_MS = 1000;
 const formatSeconds = (ms: number): string => String(Math.round(ms / SECOND_MS));
 const formatOf = (spec: Spec, ms: number): string =>
   spec.kind === 'pct' ? String(ms) : spec.kind === 'sec' ? formatSeconds(ms) : formatMinutes(ms);
 
-export type EngineState = Record<NumericKey, string> & { returns_boost: boolean; show_part_times_to_customers: boolean; served_estimate_ms: string; served_estimate_on: boolean };
+export type EngineState = Record<NumericKey, string> & {
+  returns_boost: boolean;
+  show_part_times_to_customers: boolean;
+  served_estimate_ms: string;
+  served_estimate_on: boolean;
+  max_delay_default_ms: string;
+  max_delay_unlimited: boolean;
+};
 
 export function engineState(base: BranchEngineSettings): EngineState {
   const state = {
@@ -78,6 +88,8 @@ export function engineState(base: BranchEngineSettings): EngineState {
     show_part_times_to_customers: base.show_part_times_to_customers,
     served_estimate_on: base.served_estimate_ms !== null,
     served_estimate_ms: formatMinutes(base.served_estimate_ms ?? SERVED_DEFAULT_MS),
+    max_delay_default_ms: formatMinutes(base.max_delay_default_ms ?? MAX_DELAY.fallback),
+    max_delay_unlimited: base.max_delay_default_ms === null,
   } as EngineState;
   for (const spec of SPECS) state[spec.key] = formatOf(spec, storedOf(base, spec.key));
   return state;
@@ -126,6 +138,17 @@ export function enginePatch(
       errors['served_estimate_ms'] = fill(t('branches.timing_minutes_range'), { min: formatMinutes(SERVED.min), max: formatMinutes(SERVED.max) });
     } else if (value !== stored) patch['served_estimate_ms'] = value;
   }
+  // "No limit" sends null and the box is not checked; otherwise the box like the served estimate.
+  if (state.max_delay_unlimited) {
+    if (base.max_delay_default_ms !== null) patch['max_delay_default_ms'] = null;
+  } else {
+    const stored = base.max_delay_default_ms;
+    const text = state.max_delay_default_ms;
+    const value = stored !== null && text === formatMinutes(stored) ? stored : parseMinutes(text);
+    if (value === null || value < MAX_DELAY.min || value > MAX_DELAY.max) {
+      errors['max_delay_default_ms'] = fill(t('branches.timing_minutes_range'), { min: formatMinutes(MAX_DELAY.min), max: formatMinutes(MAX_DELAY.max) });
+    } else if (value !== stored) patch['max_delay_default_ms'] = value;
+  }
   return { patch: patch as Partial<BranchEngineSettings>, errors };
 }
 
@@ -133,6 +156,7 @@ export const engineFieldLabel = (key: string): string | undefined => {
   if (key === 'returns_boost') return t('branches.timing.returns_boost');
   if (key === 'show_part_times_to_customers') return t('branches.timing.part_times');
   if (key === 'served_estimate_ms') return t('branches.timing.served_estimate_ms');
+  if (key === 'max_delay_default_ms') return t('branches.timing.max_delay_default_ms');
   const spec = SPECS.find((s) => s.key === key);
   return spec === undefined ? undefined : t(spec.label);
 };
@@ -197,6 +221,32 @@ export function KitchenTiming({
           onChange={(next) => onChange({ ...state, returns_boost: next })}
         />
         <span className="pos-field__help">{t('branches.timing.returns_help')}</span>
+      </div>
+      {/* 01a v2.7.5 §8.1 MD-6 (STAB-7): the branch default max delay (03a v1.2.10 §3.5.7) */}
+      <div className={`pos-field${errors['max_delay_default_ms'] !== undefined ? ' pos-field--error' : ''}`} data-field="max_delay_default_ms">
+        <label className="pos-field__label" htmlFor="max_delay_default_ms">
+          {t('branches.timing.max_delay_default_ms')}
+        </label>
+        <span className="pos-input-affix pos-settings__hours">
+          <input
+            id="max_delay_default_ms"
+            className="pos-input pos-input--mono"
+            name="max_delay_default_ms"
+            inputMode="decimal"
+            disabled={state.max_delay_unlimited}
+            value={state.max_delay_default_ms}
+            onChange={(e) => onChange({ ...state, max_delay_default_ms: e.target.value })}
+          />
+          <span>{t('branches.timing.unit_min')}</span>
+        </span>
+        <Switch
+          checked={state.max_delay_unlimited}
+          name={t('timing.max_delay_no_limit')}
+          label={t('timing.max_delay_no_limit')}
+          onChange={(next) => onChange({ ...state, max_delay_unlimited: next })}
+        />
+        <span className="pos-field__help">{t('branches.timing.max_delay_help')}</span>
+        {errors['max_delay_default_ms'] !== undefined && <span className="pos-field__error">{errors['max_delay_default_ms']}</span>}
       </div>
       {/* 01a v2.7.3 §8.1 PT-4 (STAB-5): the takeaway receipt's per-part ready times (05 v1.0.33 §3.16) */}
       <div className="pos-field" data-field="show_part_times_to_customers">

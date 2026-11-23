@@ -55,6 +55,7 @@ const STORED = {
   ready_window_ms: 60_000,
   kds_offline_ms: 30_000,
   show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §8.1 PT-4 (STAB-5): a switch, not a box
+  max_delay_default_ms: 300_000, // ⚠️ 01a v2.7.5 §8.1 MD-6 (STAB-7): a box in minutes and a "No limit" switch
   version: 'v1',
 };
 
@@ -170,6 +171,43 @@ describe('[01b §8] branch settings', () => {
     await click(sw);
     await click(button(m.container, t('branches.save_settings')));
     expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ expected_version: 'v1', show_part_times_to_customers: false });
+  });
+
+  // 01a v2.7.5 §8.1 MD-6, #205 (STAB-7; re-review F-1): Default max delay, 1–30 minutes, or "No limit" (null).
+  const noLimit = () => m.container.querySelector<HTMLButtonElement>(`[data-field="max_delay_default_ms"] [role="switch"]`)!;
+
+  it('[01a v2.7.5 #205] default max delay: shows 5 min; 10 is sent as 600 000; 30 is accepted, 0 and 31 refused (STAB-7)', async () => {
+    const calls = await render();
+    expect(field('max_delay_default_ms')!.value).toBe('5');
+    expect(noLimit().getAttribute('aria-checked')).toBe('false');
+    expect(m.container.querySelector('[data-field="max_delay_default_ms"]')!.textContent).toContain(t('timing.max_delay_no_limit'));
+    for (const typed of ['0', '31']) {
+      setValue(field('max_delay_default_ms'), typed);
+      await click(button(m.container, t('branches.save_settings')));
+      expect(calls.filter((c) => c.method === 'PATCH'), typed).toEqual([]);
+    }
+    setValue(field('max_delay_default_ms'), '30');
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ expected_version: 'v1', max_delay_default_ms: 1_800_000 });
+  });
+
+  it('[01a v2.7.5 #205] default max delay: "No limit" is sent as null; a stored null shows the switch on (STAB-7)', async () => {
+    const calls = await render();
+    setValue(field('max_delay_default_ms'), '10');
+    await click(noLimit());
+    expect(noLimit().getAttribute('aria-checked')).toBe('true');
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ expected_version: 'v1', max_delay_default_ms: null });
+  });
+
+  it('[01a v2.7.5 #205] a stored null default max delay reads "No limit"; turning it off sends the typed minutes (STAB-7)', async () => {
+    const calls = await render(undefined, { ...STORED, max_delay_default_ms: null });
+    expect(noLimit().getAttribute('aria-checked')).toBe('true');
+    expect(field('max_delay_default_ms')!.disabled).toBe(true);
+    await click(noLimit());
+    setValue(field('max_delay_default_ms'), '10');
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ expected_version: 'v1', max_delay_default_ms: 600_000 });
   });
 
   // 03b §4.5 B-2 (owner ruling (a), 2026-11-11): Ready window, KDS offline, Served estimate (1–30 min or Off).
