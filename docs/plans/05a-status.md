@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > - **Q-3** The G1-9d shortcut (01d §3.5:637) applies to kinds whose `right.mode` is `'approval'`. A downgraded raise stores `named` or `holders` on an approval kind. **(a, Rec)** Key on the **stored** right: a downgraded request gets no shortcut, like other `named` / `holders` requests today; it still escalates by its steps. (b) Key on the kind's right: the shortcut also runs for a downgraded `holders` request.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~05:20 PKT: Gate before B1 green (see "Stab merges"; two shared-DB clashes, no code cause). **Batch B1 started** (tasks 1, 2, 4, 3).
 > - 2026-11-23 ~04:35 PKT: Phase 0 bumps: **00 v1.12.3** (`0ddb82cb`), **03b v1.0.15** (`f45df89a`), **04 v1.0.8** (`f1cc15bc`), **01d v1.3.5** (committed with **Q-1 – Q-3 marked open**), F §6.2 append (`855e87eb`). Each was checked by a fresh reviewer, and the findings are fixed. Stab tip `943e1cb6` merged (no spec change); gate running before batch B1.
 > - 2026-11-23 (after 03:53 PKT): Owner rulings 03:53: `git merge` allowed, push target **`build/05a`**, G-b (a). `spec/05a-device-access` merged into `module-05a` (`866f74c3`; README conflict resolved: 05 row from stab, 05a row from the spec branch); pushed as `build/05a`. **05a v1.0.1** written (R-1, G-b). F §6.2 append done (`855e87eb`). The 00 / 01d / 03b / 04 bumps are being written; baseline gate running.
 > - 2026-11-23 (after 03:45 PKT): Owner D-7: don't wait for the stab merge. `module-05a` cut locally from the stab tip `44112286`; P0.1 and the P0.2 sweep done; **stopped**: the merge is blocked by permissions, plus a push decision and G-b (see the top).
@@ -125,4 +126,4 @@ Scan for P0.1: every local and remote branch and both open PRs (#121, #126) were
 | When | Stab sha | Spec change in 00 / 01d / 03b / 04? | Gate after |
 |---|---|---|---|
 | cut | `44112286` | — (baseline: 00 v1.12.2, 01d v1.3.4, 03b v1.0.14, 04 v1.0.7) | — |
-| before B1 | `943e1cb6` (merge `ad0864ad`) | none | running |
+| before B1 | `943e1cb6` (merge `ad0864ad`), then `6be21317` (cloud `0017`) | none | **green**: typecheck + lint + hub pass. Run 1: 95 cloud files failed (the shared `pos_test` DB already had cloud `0017` from the newer stab commit), fixed by merging `6be21317`. Run 2: 51 cloud files and 1 hub timeout (deadlocks / duplicate keys while the `~/pos` stab session tested the same DB). Rerun of `apps/cloud` + `voids/guards` under the lock: 116 files, 809 tests green |
