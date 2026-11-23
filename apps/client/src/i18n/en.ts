@@ -4222,6 +4222,9 @@ export const en = {
   'p.close_err': 'The bill didn’t close',
   'p.close_err_sub': 'The payment is in. Try again, or open the bill to finish it.',
   'p.open_bill': 'Open bill',
+  // 02b-TK C3-2 (05 §6.3 errors on the token view / adding cart): not in strings-table.md; Urdu to confirm
+  'v.check_day': 'The day hasn’t started — no check bill yet',
+  'v.check_denied': 'You can’t print the check bill for this order',
 } as const;
 
 export type MessageKey = keyof typeof en;

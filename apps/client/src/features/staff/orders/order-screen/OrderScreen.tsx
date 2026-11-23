@@ -61,6 +61,7 @@ import type { QueueToken } from '../takeaway/queue-model';
 import { createHandovers } from '../takeaway/handover';
 import { readyNow, TokenView } from '../takeaway/TokenView';
 import { PayPanel, type PayTarget } from '../takeaway/PayPanel';
+import { CheckBill } from '../takeaway/CheckBill';
 import { servedPayload } from '../actions/MarkServedSheet';
 import { showEnqueued } from '../view/LineActions';
 import { groupParts, type GroupedLine } from '../view/parts';
@@ -427,6 +428,8 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   // 02b-TK C3-1 (frame HomeKiosk keys): F8 Send & pay, F9 Send · pay later — only on the bare screen (no sheet, drawer
   // or panel over it)
   const sendKeys = useRef<((pay: boolean) => void) | null>(null);
+  // 02b-TK C3-2: the newest order of the token an addition is for (its bill is the one to print; 05 #44e)
+  const addingNewest = useRef<{ root: string; newest: string } | null>(null);
   useEffect(() => {
     if (order_type !== 'takeaway') return;
     const onKey = (e: KeyboardEvent) => {
@@ -469,6 +472,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     if (sending.current) return;
     if (cartRef.current.lines.length > 0) return shellRef.current.toasts.show({ text: t('c.add_busy'), tone: 'warn' });
     setCart((c) => ({ ...c, adds_to: { order_id: q.order_ids[0]!, token: q.token } }));
+    addingNewest.current = { root: q.order_ids[0]!, newest: q.newest_order_id };
     setOpenToken(null);
     setTab('menu');
   };
@@ -802,6 +806,9 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const addingTo = order_type === 'takeaway' ? (cart.adds_to ?? null) : null;
   const addingToken = addingTo === null ? '' : addingTo.token === null ? '—' : String(addingTo.token);
   const primary = addingTo === null ? undefined : `${t('c.add_to')} ${addingToken}`;
+  // 02b-TK C3-2 (05 §6.3; R6): the cart of an addition prints the sent token's check bill (a restored draft: its root's)
+  const checkOrder = addingTo === null ? null : addingNewest.current?.root === addingTo.order_id ? addingNewest.current.newest : addingTo.order_id;
+  const checkBill = checkOrder !== null && shell.permissions.allowed('take-order') ? <CheckBill order_id={checkOrder} /> : undefined;
   const cartProps = {
     primary,
     config,
@@ -820,6 +827,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     onHold: () => void onHold(),
     onSend: () => void onSend(),
     pay: canPay ? { online: shell.online, onSendPay: () => void onSend({ pay: true }) } : undefined,
+    checkBill,
     day: dayNotOpen ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
     info: cart.lines.find((l) => l.comp_it === true) === undefined ? null : compItInfo(),
     // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins
@@ -1022,6 +1030,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
             <>
               {customer}
               <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} />
+              {checkBill}
             </>
           )}
         </div>
