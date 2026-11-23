@@ -2,7 +2,7 @@
 // Browser-safe: no node:* import.
 import type { Unit } from '../units.js';
 
-export type BuiltinUnitName = 'kg' | 'pao' | 'maund' | 'l' | 'darjan';
+export type BuiltinUnitName = 'kg' | 'pao' | 'maund' | 'l' | 'darjan' | 'lb' | 'oz';
 
 export interface Fraction {
   num: bigint;
@@ -16,6 +16,10 @@ export const BUILTIN_UNITS: Readonly<Record<BuiltinUnitName, Readonly<{ base: Un
   maund: Object.freeze({ base: 'g' as Unit, num: 40000n, den: 1n }),
   l: Object.freeze({ base: 'ml' as Unit, num: 1000n, den: 1n }),
   darjan: Object.freeze({ base: 'piece' as Unit, num: 12n, den: 1n }),
+  // ⚠️ Changed by 08b v1.0 (P-3): imperial built-ins, exact (1 lb = 453.59237 g, 1 oz = 1/16 lb); constants, so
+  // stock_item_units' factor_den ≤ 10^6 does not bind them. No gallon.
+  lb: Object.freeze({ base: 'g' as Unit, num: 45_359_237n, den: 100_000n }),
+  oz: Object.freeze({ base: 'g' as Unit, num: 45_359_237n, den: 1_600_000n }),
 });
 
 // I4: one item unit row ("1 unit_name = factor_num / factor_den base_unit"). BIGINT values as bigint (m-12).

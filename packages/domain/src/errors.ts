@@ -40,6 +40,7 @@ export const ErrorCatalogue = {
   ROLE_NOT_FOUND: { status: 404 },
   VARIANT_GROUP_NOT_FOUND: { status: 404 },
   STOCK_ITEM_NOT_FOUND: { status: 404 },
+  RECIPE_NOT_FOUND: { status: 404 }, // 08 v1.1 Part B §9 (F-1; foundation v1.16 §6.2 append)
   MODIFIER_GROUP_NOT_FOUND: { status: 404 },
   DEAL_NOT_FOUND: { status: 404 },
   ALERT_NOT_FOUND: { status: 404 },
