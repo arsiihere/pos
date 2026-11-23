@@ -232,12 +232,12 @@ export async function buildSnapshotBody(
       ORDER BY sort_order, variant_group_id`,
     [[...new Set(items.flatMap((item) => (item.variant_group_id === null ? [] : [item.variant_group_id])))]],
   );
-  // 01c §4.6 rule 4: the active stock items counted at this branch.
+  // 01c §4.6 rule 4: the active stock items counted at this branch, only kind = 'prepared' (08a C-6, I9).
   const stockItems = await scoped.query<StockItemRow>(
     `SELECT s.stock_item_id, s.name, s.stock_unit, s.carries_over, b.station_id, b.low_stock_threshold
        FROM stock_item_branches b
        JOIN stock_items s ON s.tenant_id = b.tenant_id AND s.stock_item_id = b.stock_item_id
-      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = $3 AND s.archived_at IS NULL`,
+      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = $3 AND s.archived_at IS NULL AND s.kind = 'prepared'`,
     [branchId],
   );
   // 01c V12: the draws of this snapshot's items (the deprecated item unit columns are never read).
