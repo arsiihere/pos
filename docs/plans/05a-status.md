@@ -20,7 +20,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
-> - 2026-11-23 ~21:00 PKT: **Z1 merged; build code-complete** (see the box at the top). Stab `origin/fix/stab-tablet-pairing` @ `b72d290c` unchanged all day (no 00 / 01d / 03b / 04 version from STAB).
+> - 2026-11-23 ~21:00 PKT: **Z1 merged; build code-complete** (see the box at the top). Stab `origin/fix/stab-tablet-pairing` moved to `011d4bf2` (one docs-only commit, STAB-6/7 status): merged; no 00 / 01d / 03b / 04 version from STAB.
 > - 2026-11-23 ~20:45 PKT: **Task 25 merged — all 36 build tasks are merged into `build/05a`.** Next: Z1 acceptance map (draft ready), then the owner's Z2 hand checks and Z3 (PR to `main`, after the stab PR, on the owner's word).
 > - 2026-11-23 ~20:00 PKT: **Task 30 merged** (counter check). **27 tasks merged.** Left: 25 (in review), the #15 refusal test, then Z1.
 > - 2026-11-23 ~19:35 PKT: **Task 24 merged** (downgraded raise). **26 tasks merged.** Left: 25, 30 (running), then Z1.
@@ -195,6 +195,7 @@ Scan for P0.1: every local and remote branch and both open PRs (#121, #126) were
 | When | Stab sha | Spec change in 00 / 01d / 03b / 04? | Gate after |
 |---|---|---|---|
 | cut | `44112286` | — (baseline: 00 v1.12.2, 01d v1.3.4, 03b v1.0.14, 04 v1.0.7) | — |
+| after Z1 | `011d4bf2` | none (docs only) | CI on `build/05a` |
 | before B3 | `3fa96f0d` | none | **green** (759 files, 8 081 tests) |
 | before B2 | `85690d41` | none | **green except 1 stab-red test** (`point-catch-up` #65, red at the stab tip too); 3 B1 gaps fixed (`fix(05a)`, `test(04)` commits); 1 stab lint line fixed |
 | before B1 | `943e1cb6` (merge `ad0864ad`), then `6be21317` (cloud `0017`) | none | **green**: typecheck + lint + hub pass. Run 1: 95 cloud files failed (the shared `pos_test` DB already had cloud `0017` from the newer stab commit), fixed by merging `6be21317`. Run 2: 51 cloud files and 1 hub timeout (deadlocks / duplicate keys while the `~/pos` stab session tested the same DB). Rerun of `apps/cloud` + `voids/guards` under the lock: 116 files, 809 tests green |
