@@ -106,6 +106,7 @@ export function fixtures(): Array<{ action: string; event: AuditEvent }> {
     { action: 'device_pin_locked_out', event: ev('DevicePinLockedOut', { subject_type: 'device', subject_id: 'dev-3', locked_until: 9_000, failed_count: 10 }, { stream_type: 'hub', stream_id: 'br-1', actor_id: null }) },
     { action: 'pin_lockout_cleared', event: ev('PinLockoutCleared', { subject_type: 'staff', subject_id: 'st-ali' }, { stream_type: 'staff', stream_id: 'st-ali' }) },
     { action: 'device_paired', event: ev('DevicePaired', { device_id: 'dev-4', device_name: 'Tab 4', device_type: 'tablet', station_id: null, owner_staff_id: null, pairing_token_id: 'pt-1', pairing_request_id: null }, { stream_type: 'hub', stream_id: 'br-1' }) },
+    { action: 'device_profile_set', event: ev('DeviceProfileSet', { device_id: 'dev-4', device_name: 'Tab 4', access: 'everyone', staff_ids: [], screens: ['dine_in', 'manager'], point_id: null, profile_version: 1, cause: 'approved', needs_review: false }, { stream_type: 'hub', stream_id: 'br-1' }) },
     { action: 'device_revoked', event: ev('DeviceRevoked', { device_id: 'dev-4', reason: 'lost', cause: 'manual' }, { stream_type: 'hub', stream_id: 'br-1' }) },
     { action: 'pairing_token_generated', event: ev('DevicePairingTokenGenerated', { pairing_token_id: 'pt-1', device_type: 'tablet', owner_staff_id: null, expires_at: 9_000 }, { stream_type: 'hub', stream_id: 'br-1' }) },
     { action: 'station_paused', event: ev('StationPauseSet', { station_id: 'grill', paused: true }, { stream_type: 'station', stream_id: 'grill' }) },

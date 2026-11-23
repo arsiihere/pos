@@ -32,6 +32,8 @@ describe('AUDIT_ACTIONS', () => {
         'fiscal_rejected', 'comp_removed', 'money_request_raised', 'money_request_answered', 'shift_opened', 'shift_counted',
         'shift_count_skipped', 'handover_counted', 'shift_closed', 'shift_variance_signed_off', 'bill_closed_empty',
         'petty_cash', 'drawer_opened', 'orders_carried_over', 'z_report_issued',
+        // 05a row A-1 (04 v1.0.8 §3.6)
+        'device_profile_set',
       ].sort(),
     );
   });
@@ -256,5 +258,23 @@ describe('registerRequestAction [05 row V-3, G-19]', () => {
     expect(() => registerRequestAction('discount', pair)).not.toThrow();
     resetAuditActions();
     expect(() => registerRequestAction('discount', pair)).not.toThrow();
+  });
+
+  it('[05a §4.5 A-1] DeviceProfileSet maps to device_profile_set: detail has ids (never names), actor = the envelope actor', () => {
+    const payload = {
+      device_id: 'dev-9', device_name: 'Counter 2', access: 'listed', staff_ids: ['st-ali', 'st-hamza'],
+      screens: ['takeaway', 'cashier'], point_id: 'pt-1', profile_version: 3, cause: 'edited', needs_review: false,
+    };
+    const e = toAuditEntry(ev('DeviceProfileSet', payload, { stream_type: 'hub', stream_id: 'br-1' }), L)!;
+    expect(e.action).toBe('device_profile_set');
+    expect(e.subject_type).toBe('device');
+    expect(e.subject_id).toBe('dev-9');
+    expect(e.actor_staff_id).toBe(ENV_ACTOR);
+    expect(e.detail).toStrictEqual({
+      device_name: 'Counter 2', access: 'listed', staff_ids: ['st-ali', 'st-hamza'], screens: ['takeaway', 'cashier'],
+      point_id: 'pt-1', cause: 'edited', envelope_actor_id: ENV_ACTOR,
+    });
+    const sys = toAuditEntry(ev('DeviceProfileSet', { ...payload, cause: 'directory' }, { stream_type: 'hub', stream_id: 'br-1', actor_id: null }), L)!;
+    expect(sys.actor_staff_id).toBeNull();
   });
 });
