@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~15:40 PKT: **Tasks 31–32 merged** (lane C2). **14 tasks merged**; all six saved laptop lanes are in. In review: 15 (approve v2 + token-pairing removal), 19 (SetDeviceProfile). Running: 16 (stacked on 15), 17, 20.
 > - 2026-11-23 ~15:15 PKT: **Tasks 35–36 merged** (lane C1). 12 tasks merged. CI red on `build/05a` at `c55e600e` (task 13 × 14 fixture hint) fixed in `423c6cf4`, green. Running: 15, 17, 19, 20 (B4/B5 in parallel), C2 fix round.
 > - 2026-11-23 ~14:45 PKT: **Merged: L1 (tasks 9–12), D (22), B13 (13)** → with R (29), B14 (14), K (27–28): **10 tasks merged**. Owner ruled **G-e (a), G-f (a)** → spec **05a v1.0.2** (now the build's spec). In fix rounds: C1 (35: "Confirm on your phone" shows for any named request; must be downgraded only), C2 (32: G-e / G-f). Next: task 15 (one commit, Opus), then 16, 17. Carry-overs: `STALE_ON` gains `DeviceProfileSet` (D review, before the first command that appends it: task 15); B3 review minors (preRead / PIN-hook view test, `/admin/auth` view → task 17, legacy fixture phone = owner only).
 > - 2026-11-23 ~13:50 PKT: **Tasks 27–28 merged** (lane K: Pass readers K-1 / D-4, upgrade boot step), Opus review APPROVE after one fix round. 3 lanes merged so far (R, B14, K).
@@ -112,8 +113,8 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 28 | B7 | upgrade boot step | HIGH | `773e939a`, fix `87d22dc2` | **done** (Opus review FIX → 1 round → APPROVE; PC-3; RF-1 exception: an ownerless phone (raw SQL only) stays unprofiled, warned each boot) |
 | 29 | B7 | recovery link | HIGH | `72933db1` (merge `1b5b5c61`) | **done** (Opus review APPROVE; carry-overs: #16a "owner approves their phone" `it.todo` → task 15; MINORs m1 empty `advertised_host`, m2 count-0 cases at the route, m3 unprovisioned refusal test → with task 15/18) |
 | 30 | B7 | counter check (fresh implementer) | HIGH | | |
-| 31 | B8 | device list page | NORMAL | | |
-| 32 | B8 | approve + edit forms | NORMAL | | |
+| 31 | B8 | device list page | NORMAL | `02677131` | **done** (Sonnet review; built against the §6.8 shape, hub side = task 20) |
+| 32 | B8 | approve + edit forms | NORMAL | `cdd79520` … `8790e5ee` | **done** (Sonnet review FIX → owner G-e / G-f → 05a v1.0.2; `#/devices?r=` opens the request, code empty; one screen-label set `alerts.screen.*`) |
 | 33 | B8 | hub admin pages, recovery, K-2 | NORMAL | | |
 | 34 | B8 | shell tabs (C-1) | NORMAL | | |
 | 35 | B8 | deep links, answer sheet, Pass parse | NORMAL | `c8249ee0`, `e816be7c`, fix `a8374df5` | **done** (Sonnet review FIX → 1 round: "Confirm on your phone" removed from the answer sheet, it belongs to task 34's downgraded action buttons). Screen labels: Dine in, Takeaway, Parking, Cash desk, Pass, Manager tools (spec names none) |
