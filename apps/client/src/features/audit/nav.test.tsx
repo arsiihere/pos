@@ -90,6 +90,9 @@ describe('[04 §8; R5] staff nav: Audit log', () => {
 
     const h = hub({ 'view-audit-log': { grant: 'allowed', scope: 'branch' } });
     await signIn(h.fetch);
+    // 05a C-1: the audit log is an item of the manager screen
+    window.location.hash = '#/manager';
+    await flush(6);
     m.click(auditButton());
     await flush(6);
     expect(window.location.hash).toBe('#/audit');

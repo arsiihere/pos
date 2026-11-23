@@ -1511,6 +1511,9 @@ export const en = {
   // 05a §8 (D-2): no "Approve here"; an everyone device cannot answer a money card; the downgraded request's text
   'answer.approve_on_listed': 'Approve on a listed device',
   'answer.confirm_on_phone': 'Confirm on your phone',
+  // 05a §8 C-1: the tab under the person was taken off this device
+  'shell.tab_removed': 'This screen was taken off this device',
+  'shell.manager.title': 'Manager tools',
   'request.find_approver': 'Waiting — find a manager',
   // 05a §8 Errors
   'answer.error.device_not_set_up': 'This device is not set up for you',

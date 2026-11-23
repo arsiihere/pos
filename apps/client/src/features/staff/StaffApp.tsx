@@ -41,6 +41,8 @@ import { createLiveBus } from './shell/live';
 import { createPermissions } from './shell/permissions';
 import { pendingVoidsOf } from '../voids/pending';
 import { PHONE_QUERY, PORTRAIT_QUERY } from './shell/layout';
+import { ManagerScreen } from './shell/ManagerScreen';
+import { fallbackScreens, homeOf, landingOf, rememberTab, screenOfPath, tabsOf, visibleScreens } from './shell/screens';
 import { consumeFocus, matchStaffRoute, routePath, withoutFocus } from './shell/routes';
 import { isSlotRoute, RouteSlot } from './shell/slots';
 import { createToastBus, ToastView } from './shell/toast';
@@ -51,6 +53,7 @@ import { sharedMapStore } from './tables/map/map-store';
 import { PairAgain } from './tables/PairAgain';
 import { createLocalFlags } from './tables/local-flags';
 import { MeTab, PhoneTabs, type PhoneTab } from './tables/PhoneTabs';
+import type { ScreenKey } from '@pos/domain';
 import { TopBar } from './tables/TopBar';
 import { createPrintSkipDismiss } from '../alerts/labels-03b';
 import { AuditLog } from '../audit/AuditLog';
@@ -223,6 +226,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         onFrame: (frame) => {
           liveBus.frame(frame);
           pass.frame(frame);
+          // 05a §6.4 step 6, C-1: the device's profile changed; the tabs redraw
+          if (frame.type === 'device_profile') {
+            setDeviceView((v) => ({ device_id: v?.device_id ?? device.id, screens: frame.screens, access: frame.access, point_id: frame.point_id }));
+          }
           // AD-K12 / W-3: the landing is for arrival only; a first catch-up with no point_view ends it
           if (frame.type === 'catch_up' && pass.store.snapshot().view === null) landOnPass.current = false;
         },
@@ -384,6 +391,27 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   }, [resultIds, ordersApi, liveBus]);
 
   // ------------------------------------------------------------------------------------------ session
+  /** The session read's permissions (with `masked`) and device profile, for the person `staffId` (a stale reply is dropped). */
+  const applySession = useCallback((staffId: string, info: SessionInfo) => {
+    const allowed = new Set(Object.entries(info.permissions).filter(([, r]) => r.grant === 'allowed').map(([p]) => p));
+    setMe((m) => (m === null || m.staffId !== staffId ? m : { ...m, allowed, permissions: info.permissions }));
+    setDeviceView(info.device ?? null);
+  }, []);
+  // 05a §10 RF-5, C-1: a `device_profile` push missed while offline is not replayed; after a reconnect the session read
+  // gives the current screens (and the masked permissions), so the tabs redraw without it
+  useEffect(
+    () =>
+      liveBus.subscribe((msg) => {
+        const who = meRef.current;
+        if (msg.kind !== 'reconnect' || who === null) return;
+        const gen = sessionGen.current;
+        void api.session().then((info) => {
+          if (gen === sessionGen.current && info.ok) applySession(who.staffId, info.data);
+        });
+      }),
+    [liveBus, api, applySession],
+  );
+
   const signedIn = async (who: SignedIn) => {
     sessionGen.current += 1;
     closedSeen.current.clear();
@@ -397,23 +425,34 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     // §3.7: a sign-in refreshes the header; the hub's own deadline (session end + 2 h) replaces this one when it sends it
     setBoundName(who.display_name);
     setBindingUntil(clock.nowMs() + ALERT_CONSTANTS.binding_route_idle_ms);
-    // 02a §8 / handoff 02-S03: the staff app lands on the table map; the cashier kiosk on its home (#/ = KioskHome)
-    // 03b W0.6 (handoff Q-6): a Pass tablet (point_view in the catch-up) lands on the Pass; the socket opens with the
-    // session, so its catch-up usually comes after this: the effect below moves the landing then
+    // 05a §3.6, §8 C-1: the landing is the last tab, else the first screen of the device's profile, known once the
+    // session read answers (below). 03b W0.6 (handoff Q-6): with no profile, a Pass tablet (point_view in the catch-up)
+    // lands on the Pass; the socket opens with the session, so its catch-up usually comes after this: the effect below
+    // moves the landing then.
     // 01d v1.3.2 §3.13.4 (9b, test 91): only the 9b form, #/inbox?focus=alert:<id> (a notification tap while signed
     // out), is kept through the sign-in: no landing, so the Inbox glows that card. Any other focus lands as today.
-    const landing = matchStaffRoute(window.location.hash.replace(/^#/, ''), device.type);
+    const landing = matchStaffRoute(window.location.hash.replace(/^#/, ''));
     const keepFocus = landing.name === 'inbox' && landing.focus?.kind === 'alert';
-    landOnPass.current = device.type !== 'cashier_kiosk' && !keepFocus;
-    if (!keepFocus) navigate(device.type === 'cashier_kiosk' ? '/' : pass.store.snapshot().view !== null ? '/pass' : '/tables');
+    landOnPass.current = false;
     const [info, time] = await Promise.all([api.session(), api.hubTime(), shellConfig.refresh()]);
     if (gen !== sessionGen.current) return;
     // S47: re-sync the hub clock from branch-config hub_time (the page's clock is from when it loaded)
     if (time.ok && time.data !== null) setClock(createHubClock(time.data));
     if (info.ok) {
-      const allowed = new Set(Object.entries(info.data.permissions).filter(([, r]) => r.grant === 'allowed').map(([p]) => p));
-      setMe((m) => (m === null || m.staffId !== who.staff_id ? m : { ...m, allowed, permissions: info.data.permissions }));
-      setDeviceView(info.data.device ?? null);
+      applySession(who.staff_id, info.data);
+      if (!keepFocus) {
+        const profile = info.data.device;
+        if (profile === undefined || profile === null) {
+          // a hub with no profile: today's landing (the Pass on a point tablet, once the catch-up says so)
+          const fb = fallbackScreens(device.type, pass.store.snapshot().view !== null);
+          landOnPass.current = !fb.includes('pass') && liveBus.lastSeq() < 0;
+          navigate(landingOf(device.id, visibleScreens(fb, createPermissions(info.data.permissions))));
+        } else {
+          navigate(landingOf(device.id, visibleScreens(profile.screens, createPermissions(info.data.permissions))));
+        }
+      }
+    } else if (!keepFocus) {
+      navigate('/inbox');
     }
     void loadInbox(null);
     const people = await api.roster();
@@ -505,22 +544,31 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const allowed = me?.allowed ?? new Set<string>();
   // AD-T41-10 (review fix): from the hub's own list, never from a permission name
   const showRequests = requests.length > 0;
-  const showTest = !phone && allowed.has('manage-devices');
+  // 05a §3.6, C-1: items follow the profile's screens and the masked permissions, never the width or the device type
+  const permissions = useMemo(() => createPermissions(me?.permissions ?? null), [me?.permissions]);
+  const hasPoint = useSyncExternalStore(pass.store.subscribe, () => pass.store.snapshot().view !== null);
+  const profileScreens = useMemo(
+    () => (deviceView === null ? fallbackScreens(device.type, hasPoint) : deviceView.screens),
+    [deviceView, device.type, hasPoint],
+  );
+  const screens: ScreenKey[] = useMemo(() => (me === null ? [] : visibleScreens(profileScreens, permissions)), [me, profileScreens, permissions]);
+  const has = (k: ScreenKey) => screens.includes(k);
+  const tabs = useMemo(() => tabsOf(screens), [screens]);
+  const showTest = has('manager') && allowed.has('manage-devices');
   // 04 §8 (VU2, R5): the audit log with view-audit-log granted outright (the hub refuses anything else), laptop and tablet
-  const showAudit = !phone && allowed.has('view-audit-log');
+  const showAudit = has('manager') && allowed.has('view-audit-log');
   // 05a §8 (task 31): the device list, manage-devices unmasked (a listed device); width never decides (C-1)
-  const showDevices = allowed.has('manage-devices');
+  const showDevices = has('manager') && allowed.has('manage-devices');
   const devicesApi = useMemo(() => createDevicesApi(api), [api]);
   // 05 §8 Cashier screen (task 34, R5): the open-bills list with take-payment, kiosk and tablet
-  const showBills = !phone && allowed.has('take-payment');
+  const showBills = has('cashier') && allowed.has('take-payment');
   // 05 §8 Shift (task 39, R5): My shift with manage-own-shift granted outright (the hub's registry grant), every device
   const showShift = allowed.has('manage-own-shift');
   // 05 §8 Reports (task 42, R5): X and the Z list with view-reports, kiosk and tablet (frames at 1920 and 1280)
-  const showReports = !phone && allowed.has('view-reports');
+  const showReports = has('manager') && allowed.has('view-reports');
   // 05 §8 Day close (task 41, R5): close-business-day, kiosk and tablet (frames at 1920 and 1280)
-  const showDayClose = !phone && allowed.has('close-business-day');
+  const showDayClose = has('manager') && allowed.has('close-business-day');
   // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
-  const hasPoint = useSyncExternalStore(pass.store.subscribe, () => pass.store.snapshot().view !== null);
   // AD-K12 / W-3: leaving the landing route ends the landing too (a late catch-up never moves a person mid-task)
   useEffect(() => {
     if (route !== '/tables') landOnPass.current = false;
@@ -649,7 +697,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     if (rec === null) return;
     setBack(null);
     const here = matchStaffRoute(routeNow, device.type);
-    const sheetFallback = here.name === 'table' ? '/tables' : here.name === 'order_view' ? (device.type === 'cashier_kiosk' ? '/' : '/orders') : null;
+    const sheetFallback = here.name === 'table' ? '/tables' : here.name === 'order_view' ? (has('takeaway') ? '/takeaway' : '/orders') : null;
     landWhenStill(returnTarget(rec), sheetFallback ?? rec.from);
   };
   // 01d v1.3 §3.13.2: every tappable surface (Inbox cards, requests-to-answer rows, banners, the call banner) goes
@@ -726,6 +774,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     page = <MeTab name={me.name} onSignOut={() => signOut(true)} {...(showShift ? { onShift: () => navigate('/shift') } : {})} />;
   } else if (isSlotRoute(staffRoute)) {
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
+  } else if (path === '/manager' && has('manager')) {
+    page = <ManagerScreen permissions={permissions} onNavigate={navigate} />;
   } else if (path === '/audit' && showAudit) {
     page = <AuditLog />;
   } else if (path === '/devices' && showDevices) {
@@ -815,10 +865,32 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
           onSelect: (floor_id: string) => navigate(floorHref(floor_id)),
         }
       : null;
-  const routedTab = phoneTabOf(staffRoute);
-  // no Requests tab without requests to answer: #/requests then shows the inbox, so the tab and title say Inbox
-  const phoneTab: PhoneTab = routedTab === 'requests' && !showRequests ? 'inbox' : routedTab;
-  const phoneTitle = phoneTab === 'tables' ? t('tabs.tables') : phoneTab === 'orders' ? t('tabs.orders') : phoneTab === 'me' ? t('tabs.me') : phoneTab === 'requests' ? t('alerts.nav.requests') : t('alerts.nav.inbox');
+  // C-1: the tab the route belongs to; a route shared by two screens (the order view, zones, held) keeps the last tab
+  const orderTypeOf = staffRoute.name === 'order' ? staffRoute.order_type : undefined;
+  const routeKey = staffRoute.name === 'me' ? 'me' : screenOfPath(path, orderTypeOf);
+  const shared = staffRoute.name === 'order_view' || staffRoute.name === 'zones' || staffRoute.name === 'held' || staffRoute.name === 'queue';
+  const [lastTab, setLastTab] = useState<ScreenKey | null>(null);
+  const routeScreen = routeKey !== null && routeKey !== 'me' && screens.includes(routeKey) ? routeKey : null;
+  const currentTab: PhoneTab | null = routeKey === 'me' ? 'me' : (routeScreen ?? (shared && lastTab !== null && screens.includes(lastTab) ? lastTab : null));
+  useEffect(() => {
+    // not before the session read: a hash left from before the sign-in is not a choice of this person
+    if (me === null || me.permissions === null || routeScreen === null) return;
+    setLastTab(routeScreen);
+    rememberTab(device.id, routeScreen);
+  }, [me, routeScreen, device.id]);
+  // C-1: a screen taken off this device while the person is on it → the first remaining tab, and a toast
+  const seenScreens = useRef<ScreenKey[]>([]);
+  useEffect(() => {
+    const before = seenScreens.current;
+    seenScreens.current = screens;
+    if (me === null) return;
+    const here = screenOfPath(path, orderTypeOf);
+    if (here !== null && before.includes(here) && !screens.includes(here)) {
+      toasts.show({ text: t('shell.tab_removed'), tone: 'warn' });
+      navigate(homeOf(screens));
+    }
+  }, [screens]);
+  const phoneTitle = currentTab === 'me' ? t('tabs.me') : currentTab !== null ? t(`alerts.screen.${currentTab}`) : path === '/requests' && showRequests ? t('alerts.nav.requests') : t('alerts.nav.inbox');
   const body = (
     <div className={`pu v-brand staff${phone ? ' phone' : ''}`} lang={lang} dir={lang === 'ur' ? 'rtl' : 'ltr'} data-theme="light">
       <TopBar
@@ -833,13 +905,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         person={me === null ? null : { name: me.name }}
         requests={showRequests ? answerable : null}
         inbox={snap.unseen}
-        testAlert={showTest}
-        pass={me !== null && hasPoint}
-        audit={showAudit}
-        bills={showBills}
+        tabs={tabs}
+        currentTab={currentTab}
         shift={showShift}
-        reports={showReports}
-        dayClose={showDayClose}
         title={me === null ? meta.branchName : phoneTitle}
         phoneSub={
           me === null ? (
@@ -884,7 +952,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         </div>
       )}
       {page}
-      {phone && me !== null && <PhoneTabs current={phoneTab} inbox={snap.unseen} requests={showRequests ? answerable : null} />}
+      {phone && me !== null && <PhoneTabs tabs={tabs} current={currentTab} />}
       {me !== null && opened === null && (
         <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} onOpen={(r) => tap(r, 'banner')} onOpenInbox={() => navigate('/inbox')} />
       )}
@@ -929,7 +997,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     orders: ordersApi,
     live: liveBus,
     config: shellConfig,
-    permissions: createPermissions(me?.permissions ?? null),
+    permissions,
     toasts,
     enqueue,
     localFlags,
@@ -971,29 +1039,4 @@ function LockPanel({ rows, utcOffsetMs }: { rows: readonly AlertRow[]; utcOffset
       ))}
     </section>
   );
-}
-
-/** 02a §8 Top bar, phone: which tab a route belongs to. 01d v1.3 §3.13.5 (m1): a `focus` keeps its route's tab (a
- *  table, or a dine-in order, line or slip → Tables; `#/orders/<id>` and `#/zones` → Orders; `#/inbox` → Inbox). */
-export function phoneTabOf(route: ReturnType<typeof matchStaffRoute>): PhoneTab {
-  switch (route.name) {
-    case 'tables':
-    case 'table':
-      return 'tables';
-    case 'order':
-      return route.order_type === 'dine_in' ? 'tables' : 'orders';
-    case 'orders':
-    case 'order_view':
-    case 'held':
-    case 'zones':
-    case 'queue':
-    case 'kiosk_home':
-      return 'orders';
-    case 'requests':
-      return 'requests';
-    case 'me':
-      return 'me';
-    default:
-      return 'inbox';
-  }
 }

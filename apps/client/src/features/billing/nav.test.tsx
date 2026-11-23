@@ -101,6 +101,20 @@ async function signedIn(): Promise<void> {
   await flush(4);
 }
 
+/** 05a C-1: the cash desk is a tab of the kiosk's screens (fallback profile: no `device` in the reply) */
+async function openCashDesk(): Promise<void> {
+  const tab = [...m.container.querySelectorAll('header.top nav.tabs-top a')].find((a) => a.textContent === 'Cash desk');
+  m.click(tab);
+  await flush(6);
+}
+
+async function atManager(label: string): Promise<void> {
+  window.location.hash = '#/manager';
+  await flush(6);
+  m.click(m.button(label));
+  await flush(6);
+}
+
 async function at(hash: string): Promise<Element | null> {
   window.location.hash = hash;
   await flush(6);
@@ -108,11 +122,10 @@ async function at(hash: string): Promise<Element | null> {
 }
 
 describe('[05 §8 Cashier screen] Bills in the staff nav (R5)', () => {
-  it('with take-payment: the Bills button opens #/bills, which mounts the open-bills list', async () => {
+  it('with take-payment: the Cash desk tab opens #/bills, which mounts the open-bills list', async () => {
     PERMS = { 'take-payment': { grant: 'allowed', scope: 'branch' } };
     await signedIn();
-    m.click(m.button('Bills'));
-    await flush(6);
+    await openCashDesk();
     expect(window.location.hash).toBe('#/bills');
     expect(m.container.querySelector('[data-probe]')?.getAttribute('data-probe')).toBe('bills');
   });
@@ -127,8 +140,7 @@ describe('[05 §8 Cashier screen] Bills in the staff nav (R5)', () => {
   it('[task 35] a row opens #/bill?<ref>, which mounts the bill screen with that ref; a bad ref mounts nothing', async () => {
     PERMS = { 'take-payment': { grant: 'allowed', scope: 'branch' } };
     await signedIn();
-    m.click(m.button('Bills'));
-    await flush(6);
+    await openCashDesk();
     m.click(m.button('open T7'));
     await flush(6);
     expect(window.location.hash).toBe('#/bill?seating_id=S%207');
@@ -158,11 +170,10 @@ describe('[05 §8 Shift; task 39] My shift in the staff nav (R5)', () => {
 });
 
 describe('[05 §8 Reports; task 42] Reports in the staff nav (R5)', () => {
-  it('with view-reports: the Reports button opens #/reports, which mounts the reports screen', async () => {
+  it('with view-reports: the manager screen Reports button opens #/reports, which mounts the reports screen', async () => {
     PERMS = { 'view-reports': { grant: 'allowed', scope: 'branch' } };
     await signedIn();
-    m.click(m.button('Reports'));
-    await flush(6);
+    await atManager('Reports');
     expect(window.location.hash).toBe('#/reports');
     expect(m.container.querySelector('[data-probe]')?.getAttribute('data-probe')).toBe('reports');
   });
@@ -176,11 +187,10 @@ describe('[05 §8 Reports; task 42] Reports in the staff nav (R5)', () => {
 });
 
 describe('[05 §8 Day close; task 41] Close day in the staff nav (R5)', () => {
-  it('with close-business-day: the Close day button opens #/day-close, which mounts the day-close screen', async () => {
+  it('with close-business-day: the manager screen Close day button opens #/day-close, which mounts the day-close screen', async () => {
     PERMS = { 'close-business-day': { grant: 'allowed', scope: 'branch' } };
     await signedIn();
-    m.click(m.button('Close day'));
-    await flush(6);
+    await atManager('Close day');
     expect(window.location.hash).toBe('#/day-close');
     expect(m.container.querySelector('[data-probe]')?.getAttribute('data-probe')).toBe('dayclose');
   });
