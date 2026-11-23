@@ -32,7 +32,6 @@ function props(over: Partial<TopBarProps> = {}): TopBarProps {
     person: { name: 'Ali' },
     requests: null,
     inbox: 0,
-    testAlert: false,
     title: 'Tables',
     phoneSub: 'Live',
     onNavigate: () => {},
