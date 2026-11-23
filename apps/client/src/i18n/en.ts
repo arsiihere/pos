@@ -4137,6 +4137,10 @@ export const en = {
   't.sent': 'sent · ready',
   't.queued': 'Not sent yet — token comes when the hub is back',
   'q.waiting_send': 'Waiting to send',
+  // 02b-TK C1-4 (frames ItemSheetEdit, ItemSheet): not in strings-table.md; Urdu to confirm
+  'opt.save': 'Save changes',
+  'opt.more': 'One more {option}',
+  'opt.less': 'One less {option}',
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -130,9 +130,9 @@ describe('[02b §8 Ordering screen] sheets', () => {
     expect(add.hasAttribute('disabled')).toBe(true);
     // pick Thick, Extra naan ×2 → Add on; the price = parent + 2 × 1 naan child line
     m.click(m.button('Thick'));
-    m.click(m.button('Extra naan'));
-    m.click(m.button('Extra naan'));
-    expect(m.button('Extra naan').textContent).toContain('×2');
+    m.click(m.button('One more Extra naan'));
+    m.click(m.button('One more Extra naan'));
+    expect(m.container.querySelector('[aria-label="Extra naan"] output')?.textContent).toBe('2');
     expect(m.container.querySelector('.qline .pv strong')?.textContent).toBe('Rs 1,280');
     m.click(m.button('Add to order'));
     expect(added).toEqual([{ key: expect.any(String), item_id: 'I1', quantity: 1, options: [{ option_id: 'THK', quantity: 1 }, { option_id: 'NAAN', quantity: 2, order_item_id: expect.any(String) }] }]);
@@ -381,7 +381,7 @@ describe('[02b §8 Ordering screen] sheets', () => {
     const m = mount();
     m.render(<OptionsSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} item_ids={['I2']} initial={null} capOf={() => null} sheet={false} newKey={newKey} onAdd={() => {}} onClose={() => {}} />);
     m.click(m.button('Weigh later'));
-    m.click(m.button('Extra naan'));
+    m.click(m.button('One more Extra naan'));
     // a g parent: childQuantity = the option qty → 1 naan Rs 40 billed now (build-submit.ts :214, :233)
     expect(m.container.querySelector('.qline .pv strong')?.textContent).toBe('Rs 40 now · the rest after weighing');
     expect(m.container.querySelector('.ac__who')?.textContent).toContain('rounds to 50 g');
@@ -447,8 +447,8 @@ describe('[02b §8 Ordering screen] sheets', () => {
     expect(m.button('Raita · sold out', m.container.querySelector('.acts')!).hasAttribute('disabled')).toBe(true);
     // Extra naan ×2 at 2 karahi: 4 naan child lines — Rs 2,400 + 4 × Rs 40 + Raita off
     m.click(m.button('Raita'));
-    m.click(m.button('Extra naan'));
-    m.click(m.button('Extra naan'));
+    m.click(m.button('One more Extra naan'));
+    m.click(m.button('One more Extra naan'));
     expect(m.container.querySelector('.qline .pv strong')?.textContent).toBe('Rs 2,560');
     m.unmount();
   });
@@ -502,9 +502,9 @@ describe('[02b §8 Ordering screen] sheets', () => {
     m.click(m.button('Naan'));
     m.click(m.button('Options', m.container.querySelectorAll('.dsh')[1]!)); // the Bread part's
     // one Butter on 4 naan × 2 deals = 8 pieces → Rs 80 (once per deal would be Rs 20)
-    expect(m.button('Butter').textContent).toContain('+Rs 80');
-    m.click(m.button('Butter'));
-    m.click(m.button('Butter')); // ×2
+    expect(m.container.querySelector('[aria-label="Butter"]')?.textContent).toContain('+Rs 80');
+    m.click(m.button('One more Butter'));
+    m.click(m.button('One more Butter')); // ×2
     m.click(m.button('Done', m.container.querySelector('.acts')!));
     // hub (build-submit.ts :281-286, :330-340): 2 × 320 000 + optionChargeMinor(1 000, 2, 4 × 2, 'piece') = 640 000 + 16 000
     // (once per deal: 640 000 + 4 000; per option qty 1: 640 000 + 8 000)
@@ -658,5 +658,84 @@ describe('[02b §8 Ordering screen] sheets', () => {
     expect(m.text()).toContain('Up to 2 in Toppings');
     expect(m.button('Done', m.container.querySelector('.acts')!).hasAttribute('disabled')).toBe(false);
     m.unmount();
+  });
+
+  // ------------------------------------------------------------------ 02b-TK C1-4 (frames ItemSheet, ItemSheetEdit, DealSheet)
+  it('[01c §4.4; 02b §3.2; 02b-TK C1-4] an add-on with max_quantity > 1 has a stepper up to max_quantity and the group max_choices (quantity counts)', () => {
+    const base = cfg();
+    // Extra naan up to 5, the group up to 3; Raita (max 1) stays a chip
+    const config: BranchConfig = { ...base, modifier_groups: base.modifier_groups.map((g) => (g.modifier_group_id === 'G2' ? { ...g, options: g.options.map((o) => (o.option_id === 'NAAN' ? { ...o, max_quantity: 5 } : o)) } : g)) };
+    const added: CartLine[] = [];
+    const m = mount();
+    m.render(<OptionsSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} item_ids={['I1']} initial={null} capOf={() => null} sheet={false} newKey={newKey} onAdd={(l) => added.push(l)} onClose={() => {}} />);
+    const row = m.container.querySelector('[aria-label="Extra naan"]')!;
+    expect(row.querySelector('output')?.textContent).toBe('0');
+    expect(m.button('One less Extra naan').hasAttribute('disabled')).toBe(true);
+    expect(m.button('Raita').getAttribute('aria-pressed')).toBe('false');
+    m.click(m.button('One more Extra naan'));
+    m.click(m.button('One more Extra naan'));
+    m.click(m.button('One more Extra naan'));
+    expect(row.querySelector('output')?.textContent).toBe('3');
+    // 3 of 3 in the group: no more (option max 5 not reached)
+    expect(m.button('One more Extra naan').hasAttribute('disabled')).toBe(true);
+    m.click(m.button('One less Extra naan'));
+    expect(row.querySelector('output')?.textContent).toBe('2');
+    m.click(m.button('Add to order'));
+    expect(added[0]!.options).toEqual([{ option_id: 'REG', quantity: 1 }, { option_id: 'NAAN', quantity: 2, order_item_id: expect.any(String) }]);
+    m.unmount();
+    // the option's own max_quantity stops it too
+    const m2 = mount();
+    m2.render(<OptionsSheet config={cfg()} unitOf={configUnits(cfg())} inputs={inputs(cfg())} item_ids={['I1']} initial={null} capOf={() => null} sheet={false} newKey={newKey} onAdd={() => {}} onClose={() => {}} />);
+    m2.click(m2.button('One more Extra naan'));
+    m2.click(m2.button('One more Extra naan'));
+    expect(m2.button('One more Extra naan').hasAttribute('disabled')).toBe(true);
+    // down to 0 takes it off the line
+    m2.click(m2.button('One less Extra naan'));
+    m2.click(m2.button('One less Extra naan'));
+    expect(m2.container.querySelector('[aria-label="Extra naan"] output')?.textContent).toBe('0');
+    m2.unmount();
+  });
+
+  it('[02b-TK C1-4; frame ItemSheetEdit] editing a cart line: the primary says "Save changes" and Remove sits on the left', () => {
+    const config = cfg();
+    const added: CartLine[] = [];
+    let removed = 0;
+    const line: CartLine = { key: 'L1', item_id: 'I1', quantity: 1, options: [{ option_id: 'REG', quantity: 1 }] };
+    const m = mount();
+    m.render(<OptionsSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} item_ids={['I1', 'I3']} initial={line} capOf={() => null} sheet={false} newKey={newKey} onAdd={(l) => added.push(l)} onRemove={() => (removed += 1)} onClose={() => {}} />);
+    expect(m.container.querySelector('.acts .btn--primary')?.textContent).toBe('Save changes');
+    expect(m.text()).not.toContain('Add to order');
+    const qline = m.container.querySelector('.step[aria-label="Quantity"]')!.parentElement!;
+    const remove = m.button('Remove', qline);
+    expect(qline.firstElementChild).toBe(remove);
+    m.click(m.button('Save changes'));
+    expect(added[0]!.key).toBe('L1');
+    m.click(remove);
+    expect(removed).toBe(1);
+    m.unmount();
+    // a new line: Add to order, no Remove
+    const m2 = mount();
+    m2.render(<OptionsSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} item_ids={['I1']} initial={null} capOf={() => null} sheet={false} newKey={newKey} onAdd={() => {}} onRemove={() => {}} onClose={() => {}} />);
+    expect(m2.container.querySelector('.acts .btn--primary')?.textContent).toBe('Add to order');
+    expect(m2.buttons().some((b) => b.textContent === 'Remove')).toBe(false);
+    m2.unmount();
+  });
+
+  it('[02b-TK C1-4; frame DealSheet] editing a deal line: "Save changes" and Remove', () => {
+    const config = cfg();
+    const added: CartLine[] = [];
+    let removed = 0;
+    const m = mount();
+    m.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} deal_id="D1" initial={null} sheet={false} newKey={newKey} onAdd={(l) => added.push(l)} onClose={() => {}} />);
+    m.click(m.button('Chicken Karahi — Half'));
+    m.click(m.button('Naan'));
+    m.click(m.button('Add to order'));
+    m.unmount();
+    const e = mount();
+    e.render(<DealSheet config={config} unitOf={configUnits(config)} inputs={inputs(config)} deal_id="D1" initial={added[0]!} sheet={false} newKey={newKey} onAdd={(l) => added.push(l)} onRemove={() => (removed += 1)} onClose={() => {}} />);
+    expect(e.container.querySelector('.acts .btn--primary')?.textContent).toBe('Save changes');
+    e.click(e.button('Remove', e.container.querySelector('.qline')!));
+    expect(removed).toBe(1);
+    e.unmount();
   });
 });
