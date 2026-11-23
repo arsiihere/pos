@@ -553,7 +553,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   );
   const screens: ScreenKey[] = useMemo(() => (me === null ? [] : visibleScreens(profileScreens, permissions)), [me, profileScreens, permissions]);
   const has = (k: ScreenKey) => screens.includes(k);
-  const tabs = useMemo(() => tabsOf(screens, permissions), [screens, permissions]);
+  const tabs = useMemo(() => tabsOf(screens), [screens]);
   const showTest = has('manager') && allowed.has('manage-devices');
   // 04 §8 (VU2, R5): the audit log with view-audit-log granted outright (the hub refuses anything else), laptop and tablet
   const showAudit = has('manager') && allowed.has('view-audit-log');
@@ -561,7 +561,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const showDevices = has('manager') && allowed.has('manage-devices');
   const devicesApi = useMemo(() => createDevicesApi(api), [api]);
   // 05 §8 Cashier screen (task 34, R5): the open-bills list with take-payment, kiosk and tablet
-  const showBills = has('cashier') && (allowed.has('take-payment') || permissions.masked('take-payment') === 'downgraded');
+  const showBills = has('cashier') && allowed.has('take-payment');
   // 05 §8 Shift (task 39, R5): My shift with manage-own-shift granted outright (the hub's registry grant), every device
   const showShift = allowed.has('manage-own-shift');
   // 05 §8 Reports (task 42, R5): X and the Z list with view-reports, kiosk and tablet (frames at 1920 and 1280)

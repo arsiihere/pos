@@ -16,7 +16,7 @@ export function ManagerScreen({ permissions, onNavigate }: { permissions: Permis
   ];
   return (
     <main className="ph-body">
-      <div className="card col signin__phone">
+      <div className="card col manager__list">
         <b>{t('shell.manager.title')}</b>
         {items
           .filter((i) => i.on)

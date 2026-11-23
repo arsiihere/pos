@@ -30,11 +30,11 @@ export function fallbackScreens(type: DeviceType, hasPoint: boolean): ScreenKey[
   return out;
 }
 
-/** §3.6 O-16: a screen is hidden when the person holds none of its permissions. A downgraded grant is still held. */
+/** §3.6 O-16: a screen is hidden when the person holds none of its permissions (`take-payment` is never masked, §3.3). */
 export function screenHeld(key: ScreenKey, p: Permissions): boolean {
   switch (key) {
     case 'cashier':
-      return p.allowed('take-payment') || p.masked('take-payment') === 'downgraded';
+      return p.allowed('take-payment');
     case 'manager':
       return MANAGER_PERMISSIONS.some((x) => p.allowed(x));
     default:
@@ -62,12 +62,12 @@ export interface TabItem {
   hint: string | null;
 }
 
-export function tabsOf(screens: readonly ScreenKey[], p: Permissions): TabItem[] {
+export function tabsOf(screens: readonly ScreenKey[]): TabItem[] {
   return screens.map((key) => ({
     key,
     path: SCREEN_ROUTE[key],
     label: t(`alerts.screen.${key}`),
-    hint: key === 'cashier' && p.masked('take-payment') === 'downgraded' ? t('answer.confirm_on_phone') : null,
+    hint: null,
   }));
 }
 

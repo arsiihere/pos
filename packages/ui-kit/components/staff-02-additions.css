@@ -46,3 +46,4 @@
 :where(.pu) .tabbar--n5 { grid-template-columns: repeat(5, 1fr); }
 :where(.pu) .tabbar--n6 { grid-template-columns: repeat(6, 1fr); }
 :where(.pu) .tabbar--n7 { grid-template-columns: repeat(7, 1fr); }
+:where(.pu) .manager__list { padding: 18px; gap: 14px; align-items: center; }

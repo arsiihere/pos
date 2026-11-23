@@ -8,7 +8,7 @@ import type { Device, PageMeta } from './api';
 import { StaffApp } from './StaffApp';
 import { MaskedAction } from './shell/MaskedAction';
 import { createPermissions } from './shell/permissions';
-import { fallbackScreens, tabsOf, visibleScreens } from './shell/screens';
+import { fallbackScreens, tabsOf } from './shell/screens';
 
 // 05a §3.6, §8, C-1: the staff shell's tabs come from the device profile (`GET /queries/session` `device.screens`,
 // the `device_profile` push), the permissions after the mask decide what is hidden, and width only picks the layout.
@@ -211,18 +211,17 @@ describe('[05a §3.6, §8, C-1] shell tabs from the device screens', () => {
     expect(wideTabs()).toEqual(['Dine in', 'Cash desk', 'Manager tools']);
   });
 
-  it('[05a §3.3a] a listed_only permission is hidden; a downgraded one shows "Confirm on your phone"', () => {
+  it('[05a §3.3a] MaskedAction: listed_only hidden; downgraded keeps the action and adds "Confirm on your phone"; take-payment is never downgraded, so no cashier hint', () => {
     const p = createPermissions({
-      'manage-devices': { grant: 'not_granted', masked: 'listed_only' },
-      'apply-refund': { grant: 'requires_approval', approver_role_ids: [], scope: { kind: 'branch' }, masked: 'downgraded' },
-      'take-payment': { grant: 'requires_approval', approver_role_ids: [], scope: { kind: 'branch' }, masked: 'downgraded' },
-      'void-item': ALLOWED as never,
+      'apply-refund': { grant: 'requires_approval', approver_role_ids: [], scope: 'branch', masked: 'downgraded' },
+      'void-item': { grant: 'allowed', scope: 'branch' },
+      'apply-comp': { grant: 'not_granted', masked: 'listed_only' },
     } as never);
     m = mount();
     m.render(
       <div>
-        <MaskedAction permissions={p} permission="manage-devices">
-          <button type="button">Devices</button>
+        <MaskedAction permissions={p} permission="apply-comp">
+          <button type="button">Comp</button>
         </MaskedAction>
         <MaskedAction permissions={p} permission="apply-refund">
           <button type="button">Refund</button>
@@ -232,12 +231,10 @@ describe('[05a §3.6, §8, C-1] shell tabs from the device screens', () => {
         </MaskedAction>
       </div>,
     );
-    expect(m.text()).not.toContain('Devices');
+    expect([...m.container.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Refund', 'Void']);
+    expect(m.container.querySelectorAll('.masked-action').length).toBe(1);
     expect(m.text()).toContain('Confirm on your phone');
-    expect(m.container.querySelector('button')?.textContent).toBe('Void'); // no Refund button, only the hint
-    // a downgraded take-payment keeps the cash desk (held), with the hint on its tab
-    expect(visibleScreens(['cashier', 'manager'], p)).toEqual(['cashier']);
-    expect(tabsOf(['cashier'], p)[0]!.hint).toBe('Confirm on your phone');
+    expect(tabsOf(['cashier'])[0]!.hint).toBeNull();
   });
 
   it('[05a C-1] a 700 px kiosk shows the same items as a 1280 px one; only the layout differs', async () => {

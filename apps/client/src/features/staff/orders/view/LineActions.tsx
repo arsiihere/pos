@@ -17,6 +17,7 @@ import { useLinePendingVoid } from '../../../voids/pending';
 import type { OrderType, SeatingLine } from '../contracts';
 import { atStageOne, isReady, isServed, isWeightPending, lineStage, servable } from './stage';
 import { PopupLayer } from '../../shell/popup-layer';
+import { MaskedAction } from '../../shell/MaskedAction';
 
 // 02b v1.0.11 §8 Table view: the actions of the selected line, from the session's permissions (R5) and the line's
 // stage — Mark served (fired lines, §3.7), Remove (stage 1, §3.5), Void past stage 1 (04 §8, features/voids), Enter
@@ -238,13 +239,15 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
         </button>
       )}
       {showVoid && (
-        <VoidButton
-          approval={voidResolution === 'requires_approval'}
-          onClick={() => {
-            setVoidOf(line);
-            setOpen('void');
-          }}
-        />
+        <MaskedAction permissions={shell.permissions} permission="void-item">
+          <VoidButton
+            approval={voidResolution === 'requires_approval'}
+            onClick={() => {
+              setVoidOf(line);
+              setOpen('void');
+            }}
+          />
+        </MaskedAction>
       )}
       {canReturn && (
         <button type="button" className="btn" onClick={() => setOpen('send_back')}>
@@ -259,10 +262,12 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
         </button>
       )}
       {canComp && (
-        <button type="button" className="btn" onClick={() => setOpen('comp')}>
-          <Ico name="checkc" />
-          {t('comp.do')}
-        </button>
+        <MaskedAction permissions={shell.permissions} permission="apply-comp">
+          <button type="button" className="btn" onClick={() => setOpen('comp')}>
+            <Ico name="checkc" />
+            {t('comp.do')}
+          </button>
+        </MaskedAction>
       )}
       {may('set-line-weight') && weighable && (
         <button type="button" className="btn" onClick={() => setOpen('weight')}>
