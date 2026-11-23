@@ -118,12 +118,12 @@ describe('admin list queries (§6.18a–c, M88)', () => {
 
     const counter = statementCounter(hub.deps.readDb);
     const live = await get2(hub, admin, '/admin/queries/devices');
-    expect(counter.count).toBe(1);
+    expect(counter.count).toBe(3); // 05a §6.8: today's 1 + device_profiles + pending requests
     expect(live.json().data.devices.map((d: { device_id: string }) => d.device_id)).toEqual([admin.device.deviceId]);
     expect(live.json().data.devices[0]).toMatchObject({ owner_name: null, revoked_by_name: null, revoked_reason: null });
 
     const all = await get2(hub, admin, '/admin/queries/devices?include_revoked=true');
-    expect(counter.count).toBe(3);
+    expect(counter.count).toBe(7); // cumulative: 3 + (today's 2 + 2)
     const byId = new Map(all.json().data.devices.map((d: { device_id: string }) => [d.device_id, d]));
     expect(byId.get(phone.deviceId)).toMatchObject({ owner_staff_id: 'S_CASH', owner_name: 'Cashier', revoked_by_name: 'Manager', revoked_reason: 'Lost in the car park' });
     expect(byId.get(kiosk.deviceId)).toMatchObject({ owner_name: null, revoked_by_name: 'Manager', revoked_reason: null });
