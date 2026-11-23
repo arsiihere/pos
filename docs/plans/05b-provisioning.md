@@ -33,6 +33,10 @@ keytool -genkeypair -v -keystore pos-tablet-release.jks -alias pos-tablet \
 
 1.2 Record the certificate fingerprint (used in step 3.3 to check every APK):
 
+> **Done 2026-11-23** (owner, `tools/tablet-release/make-release-key.sh`; the 4 `TABLET_RELEASE_*` secrets are set). Release certificate SHA-256 (public, safe to record):
+> `32:27:77:2A:88:80:D6:E0:74:01:3B:05:86:9B:C2:71:CD:C9:E0:0B:0D:85:B5:6C:52:B3:59:D8:04:F7:49:45`
+
+
 ```bash
 keytool -list -v -keystore pos-tablet-release.jks -alias pos-tablet | grep 'SHA256:'
 ```
