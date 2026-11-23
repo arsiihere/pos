@@ -18,7 +18,7 @@ describe('pairByRequest fixture', () => {
     await seedDirectory(hub);
     const kiosk = await pairByRequest(hub, {
       device_type: 'cashier_kiosk',
-      hardware_hint: 'iPad',
+      hardware_hint: 'tablet', // a hint that differs from the approved type: the fixture never relies on it (05a §6.1)
       profile: { access: 'everyone', screens: ['cashier'] },
     });
     const row = hub.deps.db.prepare('SELECT device_type, paired_by FROM devices WHERE device_id = ?').get(kiosk.deviceId);

@@ -25,7 +25,7 @@ export async function pairByRequest(
   h: TestHub,
   o: {
     device_type: DeviceType;
-    hardware_hint?: string;
+    hardware_hint?: 'tablet' | 'cashier_kiosk' | 'kds' | 'phone';
     profile?: DeviceProfileInput;
     /** kds only; the caller registers the station validator. */
     station_id?: string;
