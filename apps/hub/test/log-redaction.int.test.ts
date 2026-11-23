@@ -4,6 +4,7 @@ import { loadHubConfig } from '../src/config/load';
 import { writeHubConfigAtomic } from '../src/config/write';
 import { registerSetupRoutes } from '../src/setup/provision';
 import { PIN, aDirectory, pinHash } from './helpers/fixtures';
+import { pairByRequest } from './helpers/pair-by-request';
 import { stubCloud } from './helpers/stub-cloud';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from './helpers/test-hub';
 
@@ -17,7 +18,7 @@ describe('log redaction', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  it('[00 §10 #73] no secret from setup, bootstrap, admin auth, pairing token, pair, pairing request, PIN login, station login, logout appears in the logs', async () => {
+  it('[00 §10 #73] no secret from setup, bootstrap, admin auth, pairing request, pair, PIN login, station login, logout appears in the logs', async () => {
     const setupSecrets = await runSetup();
     const authSecrets = await runAuth();
     expect(setupSecrets.length).toBeGreaterThan(0);
@@ -84,37 +85,8 @@ async function runAuth(): Promise<string[]> {
   await seedDirectory(hub, directory);
   const adminDevice = pairDevice(hub, { type: 'tablet' });
   const adminSession = openSession(hub, { kind: 'admin', staffId: 'S_OWNER', deviceId: adminDevice.deviceId });
-  const generated = await hub.app.inject({
-    method: 'POST',
-    url: '/admin/commands/generate-device-pairing-token',
-    headers: { authorization: `Bearer ${adminDevice.token}`, 'x-admin-session': adminSession.token },
-    payload: {
-      command_id: 'cmd-redact-pair',
-      tenant_id: 'tenant-a',
-      branch_id: 'branch-1',
-      command_type: 'GenerateDevicePairingToken',
-      payload: { device_type: 'tablet' },
-      occurred_at: hub.clock.branchNow(),
-      actor_id: 'S_OWNER',
-      device_id: adminDevice.deviceId,
-    },
-  });
-  expect(generated.statusCode).toBe(200);
-  const pairingToken = generated.json().data.result.pairing_token as string;
-  const pairPage = await hub.app.inject({ method: 'GET', url: `/pair?t=${pairingToken}` });
-  expect(pairPage.statusCode).toBe(200);
-  const paired = await hub.app.inject({
-    method: 'POST',
-    url: '/devices/pair',
-    payload: {
-      pairing_token: pairingToken,
-      pair_request_id: hub.deps.ids.next(),
-      device_name: 'Till',
-      device_type: 'tablet',
-    },
-  });
-  expect(paired.statusCode).toBe(200);
-  const deviceToken = paired.json().data.device_token as string;
+  const paired = await pairByRequest(hub, { device_type: 'cashier_kiosk' });
+  const deviceToken = paired.token;
 
   const requested = await hub.app.inject({
     method: 'POST',
@@ -171,7 +143,6 @@ async function runAuth(): Promise<string[]> {
   const secrets = [
     adminDevice.token,
     adminSession.token,
-    pairingToken,
     deviceToken,
     pollSecret,
     tablet.token,

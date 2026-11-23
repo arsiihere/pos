@@ -79,14 +79,13 @@ describe('route guards', () => {
     for (const target of [
       { method: 'GET' as const, url: '/health' },
       { method: 'POST' as const, url: '/admin/auth' },
-      { method: 'POST' as const, url: '/devices/pair' },
       { method: 'POST' as const, url: '/pair/requests' },
     ]) {
       const auth = target.url === '/admin/auth' ? { authorization: `Bearer ${device.token}` } : {};
       const denied = await hub.app.inject({ ...target, headers: { host: 'evil.example:3000', ...auth } });
       expect(denied.statusCode).toBe(403);
       expect(denied.json().error.code).toBe('HOST_NOT_ALLOWED');
-      const passed = target.url === '/admin/auth' || target.url === '/devices/pair' || target.url === '/pair/requests' ? 400 : 200;
+      const passed = target.url === '/admin/auth' || target.url === '/pair/requests' ? 400 : 200;
       expect((await hub.app.inject({ ...target, headers: { host: 'localhost:3000', ...auth } })).statusCode).toBe(passed);
       expect((await hub.app.inject({ ...target, headers: { host: '192.168.10.2:3000', ...auth } })).statusCode).toBe(passed);
     }

@@ -14,7 +14,6 @@ const DEVICE_ROUTES = [
   { method: 'POST' as const, url: '/auth/station' },
   { method: 'POST' as const, url: '/auth/logout' },
   { method: 'GET' as const, url: '/pair' },
-  { method: 'POST' as const, url: '/devices/pair' },
   { method: 'POST' as const, url: '/pair/requests' },
   { method: 'GET' as const, url: '/pair/requests/01ARZ3NDEKTSV4RRFFQ69G5FAV' },
 ];
