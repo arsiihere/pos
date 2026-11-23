@@ -29,7 +29,7 @@ export interface CartProps {
   canSend: boolean;
   /** why Send is off besides problems (dine-in seating not found), or null */
   blocked: string | null;
-  /** #36 day not started: replaces the footer (02b-B11) */
+  /** #36 day not started: replaces the footer's actions (02b-B11); the ready line says "Times show after Start day" */
   day: ReactNode;
   /** an info line over the cart (E-7 CompItCart: "…After Send you'll be asked to comp it") */
   info: string | null;
@@ -126,17 +126,14 @@ export function Cart(p: CartProps) {
       )}
       <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} />
       <div className="cart__foot">
-        {p.day !== null ? (
-          p.day
-        ) : (
-          <>
         <div className="total">
           <div className="total__ready">
             <Ring size={56} pct={null} tone={p.ready_by === null ? 'mute' : 'ok'}>
               <Ico name="clock" />
             </Ring>
             {p.ready_by === null ? (
-              <div>{t('cart.times_later')}</div>
+              // 02b-TK C1-1: no day open → "Times show after Start day", not "set when sent"
+              <div>{p.day !== null ? t('c.times_day') : t('cart.times_later')}</div>
             ) : (
               <div>
                 {t('cart.all_ready')}
@@ -146,19 +143,23 @@ export function Cart(p: CartProps) {
           </div>
           <strong dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</strong>
         </div>
-        {p.serve !== undefined && !empty && <ServeSwitch state={p.serve.state} onSet={p.serve.onSet} />}
-        <div className="duo">
-          <button type="button" className="btn" onClick={p.onNote}>
-            {t('cart.note')}
-          </button>
-          <button type="button" className="btn" disabled={empty} onClick={p.onHold}>
-            {t('cart.hold')}
-          </button>
-        </div>
-        <button type="button" className="btn btn--primary btn--lg btn--block" disabled={empty || p.problems > 0 || !p.canSend} onClick={p.onSend}>
-          <Ico name="send" />
-          {sendLabel(p)}
-        </button>
+        {p.day !== null ? (
+          p.day
+        ) : (
+          <>
+            {p.serve !== undefined && !empty && <ServeSwitch state={p.serve.state} onSet={p.serve.onSet} />}
+            <div className="duo">
+              <button type="button" className="btn" onClick={p.onNote}>
+                {t('cart.note')}
+              </button>
+              <button type="button" className="btn" disabled={empty} onClick={p.onHold}>
+                {t('cart.hold')}
+              </button>
+            </div>
+            <button type="button" className="btn btn--primary btn--lg btn--block" disabled={empty || p.problems > 0 || !p.canSend} onClick={p.onSend}>
+              <Ico name="send" />
+              {sendLabel(p)}
+            </button>
           </>
         )}
       </div>

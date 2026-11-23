@@ -117,4 +117,17 @@ describe('[02b §8 Ordering screen] eta preview', () => {
     const s = h.preview.state();
     expect(s.kind === 'ok' ? s.body.groups[0]!.promise_ms : null).toBe(2_000_000);
   });
+
+  it('[02b §6.14; 02b-TK C1-1] 409 BUSINESS_DAY_NOT_OPEN keeps its code: day_not_open; a catch-up with `stock` asks again', async () => {
+    let closed = true;
+    const h = harness({ reply: () => Promise.resolve(closed ? ({ ok: false, error: { kind: 'api', status: 409, code: 'BUSINESS_DAY_NOT_OPEN', details: {} } } as HubResult<EtaPreviewBody>) : { ok: true, data: body(1_000_000) }) });
+    h.preview.set(draft(1));
+    await h.advance(250);
+    expect(h.preview.state()).toEqual({ kind: 'day_not_open' });
+    closed = false;
+    h.live.frame({ type: 'catch_up', as_of_seq: 9, state: { stock: { business_day: null, business_day_started_at: null, items: {} } } });
+    await h.advance(250);
+    expect(h.calls).toHaveLength(2);
+    expect(h.preview.state().kind).toBe('ok');
+  });
 });

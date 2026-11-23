@@ -4127,6 +4127,8 @@ export const en = {
   'native.health.wake_turn_off': 'Turn off',
   'native.health.version': 'App version',
   'native.health.api': 'App interface',
+  // ---- 02b-TK client (batch C1): docs/design/handoff/02b-tk/strings-table.md ----
+  'c.times_day': 'Times show after Start day',
 } as const;
 
 export type MessageKey = keyof typeof en;
