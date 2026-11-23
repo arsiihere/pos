@@ -61,38 +61,53 @@ export interface QueueRailProps {
   selected: string | null;
   onOpen(token: QueueToken): void;
   heldCount: number;
+  /** 02b-TK C2-2 (frame ReadyTiles): a paid ready tile's one-tap Hand over (5 s Undo); absent → the tile opens the view */
+  onHandOver?: ((token: QueueToken) => void) | undefined;
+  /** a due ready tile's Take payment */
+  onPay?: ((token: QueueToken) => void) | undefined;
+  /** tokens handed over in the Undo window: not shown */
+  hidden?: ReadonlySet<string>;
 }
 
-function ReadyTile({ q, selected, onOpen }: { q: QueueToken; selected: boolean; onOpen(): void }) {
+function ReadyTile({ q, selected, onOpen, onHandOver, onPay }: { q: QueueToken; selected: boolean; onOpen(): void; onHandOver?: (() => void) | undefined; onPay?: (() => void) | undefined }) {
   const shell = useShell();
   const cls = ['tk-rt', q.part ? 'tk-rt--part' : q.paid ? null : 'tk-rt--due', selected ? 'is-sel' : null].filter((c) => c !== null).join(' ');
+  // R2: a paid, all-ready token hands over in one tap; a due one only offers Take payment; part given opens the view
+  const act = q.part ? undefined : q.paid ? onHandOver : onPay;
+  const actText = q.part ? (
+    <>
+      {t('q.part')}{' '}
+      {q.promise_ms !== null && (
+        <span className="time" dir="ltr">
+          {timeText(q.promise_ms, shell.clock.utcOffsetMs)}
+        </span>
+      )}
+    </>
+  ) : (
+    t(q.paid ? 'q.collect' : 'q.collect_pay')
+  );
   return (
-    <button type="button" className={cls} aria-pressed={selected} onClick={onOpen} data-token={q.key}>
-      <span className="tok" dir="ltr">
-        {q.token ?? '—'}
-      </span>
-      <span className={`tk-chip ${q.paid ? 'tk-chip--ok' : 'tk-chip--solid-danger'}`}>
-        <Ico name={q.paid ? 'check' : 'warn'} />
-        {t(q.paid ? 'q.paid' : 'q.due')}
-      </span>
-      <span className="tk-rt__who" dir="auto">
-        {q.customer_name ?? t('order.takeaway')}
-      </span>
-      <span className="tk-rt__act">
-        {q.part ? (
-          <>
-            {t('q.part')}{' '}
-            {q.promise_ms !== null && (
-              <span className="time" dir="ltr">
-                {timeText(q.promise_ms, shell.clock.utcOffsetMs)}
-              </span>
-            )}
-          </>
-        ) : (
-          t(q.paid ? 'q.collect' : 'q.collect_pay')
-        )}
-      </span>
-    </button>
+    <div className={cls} data-token={q.key}>
+      <button type="button" className="tk-rt__open" aria-pressed={selected} onClick={onOpen}>
+        <span className="tok" dir="ltr">
+          {q.token ?? '—'}
+        </span>
+        <span className={`tk-chip ${q.paid ? 'tk-chip--ok' : 'tk-chip--solid-danger'}`}>
+          <Ico name={q.paid ? 'check' : 'warn'} />
+          {t(q.paid ? 'q.paid' : 'q.due')}
+        </span>
+        <span className="tk-rt__who" dir="auto">
+          {q.customer_name ?? t('order.takeaway')}
+        </span>
+      </button>
+      {act === undefined ? (
+        <span className="tk-rt__act">{actText}</span>
+      ) : (
+        <button type="button" className="tk-rt__act" onClick={act}>
+          {actText}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -119,12 +134,12 @@ function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; o
   );
 }
 
-export function QueueRail({ variant, book, selected, onOpen, heldCount }: QueueRailProps) {
+export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOver, onPay, hidden }: QueueRailProps) {
   const shell = useShell();
   const { model, failed, loadedAt, retry } = useTakeawayQueue(book);
   const [query, setQuery] = useState('');
   const [all, setAll] = useState(false);
-  const pick = (list: QueueToken[]) => list.filter((q) => matchesQuery(q, query));
+  const pick = (list: QueueToken[]) => list.filter((q) => !(hidden?.has(q.key) ?? false) && matchesQuery(q, query));
   const ready = pick(model?.ready ?? []);
   const cooking = pick(model?.cooking ?? []);
   const later = pick(model?.later ?? []);
@@ -132,7 +147,16 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount }: QueueR
     setAll(false);
     onOpen(q);
   };
-  const tiles = ready.map((q) => <ReadyTile key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} />);
+  const tiles = ready.map((q) => (
+    <ReadyTile
+      key={q.key}
+      q={q}
+      selected={selected === q.key}
+      onOpen={() => open(q)}
+      onHandOver={onHandOver === undefined ? undefined : () => onHandOver(q)}
+      onPay={onPay === undefined ? undefined : () => onPay(q)}
+    />
+  ));
 
   if (variant === 'strip' && !all)
     return (

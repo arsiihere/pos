@@ -1635,4 +1635,21 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'q.as_of': 'آخری اپ ڈیٹ',
   // 02b-TK C2-1 (frame PhoneQueue tab): not in strings-table.md; Urdu to confirm
   'q.tab': 'قطار',
+  'v.placed': '{t} پر {who} نے لیا',
+  'v.ready_at': 'تیار ہوگا',
+  'v.bill': 'بل',
+  'v.waiting': 'انتظار',
+  'v.cooking': 'بن رہا ہے',
+  'v.ready': 'تیار',
+  'v.given': 'دے دیا',
+  'v.collected': 'سب حوالے کریں',
+  'v.give_ready': 'تیار چیزیں ابھی دیں',
+  'v.pay': 'پیسے لیں',
+  'v.add': 'مزید ڈالیں',
+  'v.call': 'فون',
+  't.collected': 'حوالے کر دیا',
+  't.undo': 'واپس کریں',
+  // 02b-TK C2-2 (ruling R2: Due greys Hand over, a manager may override): not in strings-table.md; Urdu to confirm
+  'v.pay_first': 'پہلے پیسے لیں — مینیجر بغیر ادائیگی حوالے کر سکتا ہے',
+  'v.override': 'بغیر ادائیگی حوالے کریں · مینیجر',
 };

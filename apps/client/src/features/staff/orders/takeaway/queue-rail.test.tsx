@@ -5,99 +5,18 @@ import { ShellContext, type Shell } from '../../shell/hooks';
 import { createLiveBus, type LiveBus } from '../../shell/live';
 import { createPermissions } from '../../shell/permissions';
 import { createToastBus } from '../../shell/toast';
-import type { CatchUpOrder, LineView, OpenOrder, OpenOrdersBody } from '../contracts';
+import type { CatchUpOrder, OpenOrder, OpenOrdersBody } from '../contracts';
 import { createTokenBook, type TokenBook } from './book';
 import { buildQueue, knownOrders, matchesQuery } from './queue-model';
 import { QueueRail } from './QueueRail';
+import { aCaught, aLine, aRow, at } from './test-fixtures';
 
 // 02b-TK C2-1 (02b v1.0.24 §6.16, §6.19, §8; frames HomeKiosk, ReadyTiles, PhoneQueue; R3): the takeaway queue rail.
 
 const nav = vi.hoisted(() => ({ to: [] as string[] }));
 vi.mock('../../../../app/router', async (orig) => ({ ...(await orig<object>()), navigate: (p: string) => nav.to.push(p) }));
 
-const at = (h: number, m: number) => Date.UTC(2026, 10, 24, h, m);
 const NOW = at(13, 20);
-
-export function aRow(over: Partial<OpenOrder> & { order_id: string }): OpenOrder {
-  return {
-    order_type: 'takeaway',
-    table_key: `takeaway:${over.order_id}`,
-    token: 50,
-    car_number: null,
-    car_type: null,
-    has_phone: false,
-    placed_at: at(13, 0),
-    business_date: '2026-11-24',
-    from_date: null,
-    ready: { n: 0, m: 2 },
-    promise_ms: at(13, 30),
-    abandoned: false,
-    ...over,
-  };
-}
-
-export function aLine(order_id: string, order_item_id: string, name: string, o: Partial<LineView> = {}): LineView {
-  return {
-    order_item_id,
-    order_id,
-    parent_order_item_id: null,
-    line_kind: 'item',
-    item_id: 'I1',
-    deal_id: null,
-    name,
-    sale_unit: 'piece',
-    quantity: 1,
-    units: 1,
-    live_units: 1,
-    comped_units: 0,
-    removed_units: 0,
-    voided_units: 0,
-    returned_units: 0,
-    refundable_minor: 0,
-    comp_minor: 0,
-    comp_voided_minor: 0,
-    removed_minor: 0,
-    refund_minor: 0,
-    line_total_minor: 10_000,
-    billed_minor: 10_000,
-    return_of: null,
-    served_from_zone_id: null,
-    zone_served: false,
-    added_at: at(13, 0),
-    served_at: null,
-    served_source: null,
-    is_food: true,
-    kitchen_note: null,
-    ...o,
-  };
-}
-
-export function aCaught(order_id: string, token: number, lines: LineView[], o: Partial<CatchUpOrder> = {}): CatchUpOrder {
-  return {
-    order_id,
-    order_type: 'takeaway',
-    table_key: `takeaway:${order_id}`,
-    business_date: '2026-11-24',
-    token,
-    car_number: null,
-    car_type: null,
-    order_note: null,
-    placed_by: 'sana',
-    placed_at: at(13, 0),
-    follow_up: false,
-    cancelled: false,
-    cancelled_at: null,
-    billed: false,
-    billed_at: null,
-    day_closed_at: null,
-    sent_after_reconnect: false,
-    has_phone: false,
-    lines,
-    customer_name: null,
-    phone: null,
-    ...o,
-  };
-}
 
 const ROWS: OpenOrder[] = [
   aRow({ order_id: 'O48', token: 48, ready: { n: 2, m: 2 }, promise_ms: at(13, 12) }),
