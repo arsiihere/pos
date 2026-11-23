@@ -11,6 +11,7 @@ const HEALTHY: NativeHealth = {
   last_frame_age_ms: 12_400,
   wake_lock: true,
   store_readable: true,
+  replaced_by_other: false,
   device_owner: false,
   lock_task_state: 'none',
   post_notifications: true,
@@ -49,7 +50,7 @@ describe('[05b M-18, C-1] device-health card', () => {
     m.render(<DeviceHealth native={bridge(HEALTHY)} />);
     await flush();
     expect(m.text()).toContain('Device health');
-    for (const k of ['service', 'socket', 'last_frame', 'notifications', 'channels', 'fsi', 'battery', 'exact', 'install', 'store', 'owner', 'lock', 'wake', 'version', 'api']) expect(row(k), k).not.toBeNull();
+    for (const k of ['service', 'socket', 'last_frame', 'notifications', 'channel:pos_urgent_v1', 'replaced', 'fsi', 'battery', 'exact', 'install', 'store', 'owner', 'lock', 'wake', 'version', 'api']) expect(row(k), k).not.toBeNull();
     expect(m.container.querySelectorAll('[data-ok="false"]')).toHaveLength(0);
     expect(row('last_frame')!.textContent).toContain('12 s ago');
     expect(row('version')!.textContent).toContain('1.0.3');
@@ -85,6 +86,44 @@ describe('[05b M-18, C-1] device-health card', () => {
     expect(row('battery')!.dataset['ok']).toBe('false');
     expect(row('owner')!.textContent).toContain('Yes');
     expect(m.text()).not.toContain('Fix');
+  });
+
+  it('[§3.5 4409] replaced_by_other → a red "Replaced by another connection" row', async () => {
+    m = mount();
+    m.render(<DeviceHealth native={bridge({ ...HEALTHY, replaced_by_other: true })} />);
+    await flush();
+    expect(row('replaced')!.dataset['ok']).toBe('false');
+    expect(row('replaced')!.textContent).toContain('Replaced by another connection');
+    m.unmount();
+    m = mount();
+    m.render(<DeviceHealth native={bridge({ ...HEALTHY, replaced_by_other: false })} />);
+    await flush();
+    expect(row('replaced')!.dataset['ok']).toBe('true');
+  });
+
+  it('one row per channel: pos_urgent_v1 needs importance >= 4 and a sound; the others exist with importance >= 3', async () => {
+    const channels = {
+      pos_urgent_v1: { exists: true, importance: 3, sound: 'x' },
+      pos_action_v1: { exists: true, importance: 3, sound: null },
+      pos_info_v1: { exists: true, importance: 2, sound: 'x' },
+      pos_result_v1: { exists: false, importance: null, sound: null },
+      pos_status_v1: { exists: true, importance: 4, sound: null },
+    };
+    m = mount();
+    m.render(<DeviceHealth native={bridge({ ...HEALTHY, channels })} />);
+    await flush();
+    const ok = (id: string) => row(`channel:${id}`)!.dataset['ok'];
+    expect(ok('pos_urgent_v1')).toBe('false');
+    expect(ok('pos_action_v1')).toBe('true');
+    expect(ok('pos_info_v1')).toBe('false');
+    expect(ok('pos_result_v1')).toBe('false');
+    expect(ok('pos_status_v1')).toBe('true');
+    expect(row('channel:pos_urgent_v1')!.textContent).toContain('pos_urgent_v1');
+    m.unmount();
+    m = mount();
+    m.render(<DeviceHealth native={bridge({ ...HEALTHY, channels: { pos_urgent_v1: { exists: true, importance: 4, sound: null } } })} />);
+    await flush();
+    expect(ok('pos_urgent_v1')).toBe('false'); // no sound
   });
 
   it('no answer → "The tablet did not answer"', async () => {
