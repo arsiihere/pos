@@ -1,8 +1,8 @@
 /// <reference types="node" />
 import { fileURLToPath } from 'node:url';
-import type { DeviceType, SessionEndReason, SessionKind } from '@pos/domain';
+import type { DeviceType, ScreenKey, SessionEndReason, SessionKind } from '@pos/domain';
 import { initialEngineState, type EngineState } from '@pos/engine';
-import type { DirectoryInput, PosEvent } from '@pos/events';
+import type { DeviceProfileSetPayload, DirectoryInput, PosEvent } from '@pos/events';
 import type { InjectOptions } from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { applyStaffDirectory } from '../../src/auth/apply-directory';
@@ -171,9 +171,17 @@ export async function seedDirectory(h: TestHub, d?: DirectoryInput): Promise<voi
   });
 }
 
+/** 05a §4.2: a device profile as a test sets it (plan task 8); `staff_ids` only for `listed`. */
+export interface DeviceProfileInput {
+  access: 'everyone' | 'listed';
+  staff_ids?: string[];
+  screens: ScreenKey[];
+  point_id?: string | null;
+}
+
 export function pairDevice(
   h: TestHub,
-  o: { type: DeviceType; stationId?: string; ownerStaffId?: string; name?: string },
+  o: { type: DeviceType; stationId?: string; ownerStaffId?: string; name?: string; profile?: DeviceProfileInput },
 ): { deviceId: string; token: string } {
   const branchId = h.deps.config.provisioned?.branch_id;
   if (branchId === undefined) throw new Error('pairDevice requires a provisioned hub');
@@ -197,7 +205,44 @@ export function pairDevice(
       h.clock.branchNow(),
       'S_MGR',
     );
+  if (o.profile !== undefined) appendDeviceProfile(h, deviceId, o.profile);
   return { deviceId, token };
+}
+
+/**
+ * 05a §4.2: appends a `DeviceProfileSet` v1 for the device through the writer, so the `device_profiles` projection and
+ * the `deviceProfile` map see it. `profile_version` = the previous one + 1 (N-4); `cause` = `approved` for the first,
+ * `edited` after; `device_name` = the device's current name.
+ */
+export function appendDeviceProfile(h: TestHub, deviceId: string, p: DeviceProfileInput): void {
+  h.deps.writer.run((tx) => {
+    const device = tx.db.prepare('SELECT device_name FROM devices WHERE device_id = ?').get(deviceId) as { device_name: string } | undefined;
+    if (device === undefined) throw new Error(`device ${deviceId} not found`);
+    const prev = tx.db.prepare('SELECT profile_version FROM device_profiles WHERE device_id = ?').get(deviceId) as { profile_version: number } | undefined;
+    const payload: DeviceProfileSetPayload = {
+      device_id: deviceId,
+      device_name: device.device_name,
+      access: p.access,
+      staff_ids: p.access === 'listed' ? (p.staff_ids ?? []) : [],
+      screens: p.screens,
+      point_id: p.point_id ?? null,
+      profile_version: (prev?.profile_version ?? 0) + 1,
+      cause: prev === undefined ? 'approved' : 'edited',
+      needs_review: false,
+    };
+    tx.append([
+      {
+        stream_type: 'hub',
+        stream_id: deviceId,
+        event_type: 'DeviceProfileSet',
+        schema_version: 1,
+        payload,
+        occurred_at: h.clock.branchNow(),
+        actor_id: 'S_MGR',
+        device_id: 'hub-admin',
+      },
+    ]);
+  });
 }
 
 export function openSession(
