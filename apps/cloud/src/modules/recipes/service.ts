@@ -74,7 +74,7 @@ interface DerivedBasis {
 }
 
 // B3 (T-1, T-2): basis, measure_unit and batch_stock_unit follow the locked owner row.
-function deriveBasis(owner: RecipeOwner): DerivedBasis {
+export function deriveBasis(owner: RecipeOwner): DerivedBasis {
   if (owner.owner_type === 'menu_item') {
     return owner.sale_unit === 'piece' ? { basis: 'per_unit', measure_unit: null, stock_unit: null } : { basis: 'per_measure', measure_unit: owner.sale_unit, stock_unit: null };
   }

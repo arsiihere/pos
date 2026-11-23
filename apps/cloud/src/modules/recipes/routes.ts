@@ -2,6 +2,8 @@ import { DomainError } from '@pos/domain';
 import {
   CreateRecipeBody,
   CreateRecipeResponse,
+  PublishRecipeBody,
+  PublishRecipeResponse,
   RecipeDetailQuery,
   RecipeDetailResponse,
   RecipeListQuery,
@@ -14,6 +16,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { IdempotentResult } from '../../lib/idempotency.js';
 import type { OwnerRequest } from '../restaurant/service.js';
+import { publishRecipe, PUBLISH_ROUTE } from './publish.js';
 import { DETAIL_ROUTE, getRecipeDetail, LIST_ROUTE, listRecipes } from './reads.js';
 import { createRecipe, CREATE_ROUTE, DRAFT_ROUTE, saveDraft, type RecipeDeps } from './service.js';
 
@@ -65,6 +68,19 @@ export function registerRecipeRoutes(app: FastifyInstance, deps: RecipeDeps): vo
       deps.testHooks?.handlerStart?.(DETAIL_ROUTE);
       const { tenant, ownerUserId } = ownerRequest(app, request);
       return reply.send({ data: await getRecipeDetail(deps, tenant, ownerUserId, request.params.recipe_id, request.query) });
+    },
+  );
+
+  // §6.5 (r2; branch_id? for the response's costs, as §6.4)
+  routes.post(
+    '/v1/admin/recipes/:recipe_id/publish',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: RecipeParams, querystring: RecipeDetailQuery, body: PublishRecipeBody, response: { 200: PublishRecipeResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.(PUBLISH_ROUTE);
+      return reply.send({ data: await publishRecipe(deps, ownerRequest(app, request), request.params.recipe_id, request.body, request.query) });
     },
   );
 }
