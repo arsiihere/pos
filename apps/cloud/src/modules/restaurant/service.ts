@@ -153,6 +153,7 @@ import type {
   PatchTaxClassInput,
   PatchZoneInput,
   PutItemRouteInput,
+  StockItemKind,
 } from '@pos/events';
 import type { MenuQueryInput } from './schemas.js';
 import { bumpDirectoryVersion } from '../staff-roles/repository.js';
@@ -1457,7 +1458,8 @@ function decodeCursor(cursor: string): { n: string; id: string } {
 
 // §6.14 on the common write script (01c §6.4): key → tenant-wide 403 (§6 C4, before all) → route branches allowed
 // (404) → stock ≤ cook (422) → references FOR SHARE in the §6
-// lock order: variant group (3), the draw's stock item (5), category (6), tax class (7), stations then programs (8;
+// lock order: variant group (3), the draw's stock item (5; not_found / archived, then 08a I9 wrong_kind from the same
+// FOR SHARE read, C-3), category (6), tax class (7), stations then programs (8;
 // one statement per kind) → the §3.3 item rows (category equals the group's, the V4 draw unit rule, a weighed item
 // has no draw, the effective-set limit: one links read) → item, draw, routes, windows (one INSERT each; branch rows last, 9) → one audit INSERT → bump every
 // branch (10, S8). The deprecated columns are written as §5.1 says (P-11) and are not on the wire.
@@ -1481,7 +1483,10 @@ export async function createMenuItem(
       if (body.variant_group_id !== null) assertReference('variant_group_id', group);
       const draw = body.stock_draws[0];
       const stockItem = draw === undefined ? undefined : await shareStockItem(level, draw.stock_item_id);
-      if (draw !== undefined) assertReference('stock_draws.0.stock_item_id', stockItem);
+      if (draw !== undefined) {
+        assertReference('stock_draws.0.stock_item_id', stockItem);
+        assertPreparedDraw(stockItem);
+      }
       assertReference('category_id', await shareCategory(level, body.category_id));
       if (body.tax_class_id !== null) assertReference('tax_class_id', await shareTaxClass(level, body.tax_class_id));
       await assertRoutes(scoped, body.routes);
@@ -1647,7 +1652,7 @@ interface ItemPatch {
   groups: readonly SharedGroup[];
   restoring: boolean;
   routes: RouteRow[];
-  stockItem?: { stock_unit: string; archived_at: number | null } | undefined;
+  stockItem?: { stock_unit: string; archived_at: number | null; kind: StockItemKind } | undefined;
   category?: { archived_at: number | null } | undefined;
   taxClass?: { archived_at: number | null } | undefined;
   linkingGroupIds?: string[] | undefined;
@@ -1683,6 +1688,7 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       }
       if (p.body.stock_draws !== undefined && p.draw !== undefined) {
         assertReference('stock_draws.0.stock_item_id', p.stockItem, active);
+        assertPreparedDraw(p.stockItem);
       }
       if (p.body.category_id !== undefined) assertReference('category_id', p.category, active);
       if (p.body.tax_class_id !== undefined && p.merged.tax_class_id !== null) assertReference('tax_class_id', p.taxClass, active);
@@ -1749,7 +1755,7 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       if (zoneIds.length > 0) throw inUse(p, 'zone', zoneIds);
     },
   ],
-  // (3) 422: 01a's first, then R1, R1a, R2, R3, R7 draw part, R8, R9
+  // (3) 422: 01a's first, then R1, R1a, R2, R3, R7 draw part, R8, R9, R9b (08a C-9)
   [
     '422 01a stock_time_exceeds_cook_time',
     (p) => {
@@ -1836,6 +1842,14 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       if (p.restoring && p.draw !== undefined && p.stockItem?.archived_at !== null) {
         throw invalidReference('stock_draws.0.stock_item_id', 'archived');
       }
+    },
+  ],
+  // 08a I9 / C-9 (R9b, the stored half of the draw rule): a merged-active item that keeps its stored draw (a
+  // restore, or a PATCH over raw-edited data) needs it prepared; kind is read under R9's FOR SHARE (+0 statements).
+  [
+    '422 R9b stored draw’s stock item is prepared',
+    (p) => {
+      if (isActive(p) && p.body.stock_draws === undefined && p.draw !== undefined) assertPreparedDraw(p.stockItem);
     },
   ],
   ['422 A-13 goes_with targets', (p) => assertGoesWithTargets(p.level, p.links)],
@@ -2111,6 +2125,14 @@ async function replaceGoesWith(
 function assertDrawUnits(saleUnit: string, stockUnit: string, draw: DrawRow): void {
   const ok = saleUnit === stockUnit ? draw.quantity_per_sale_unit === 1 : saleUnit === 'piece';
   if (!ok) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_draws.0.stock_item_id', reason: 'unit_mismatch' });
+}
+
+// 08a I9 (C-3, C-9): an item draws only from a prepared stock item; `kind` comes from the FOR SHARE read
+// (shareStockItem). Called after the draw's assertReference, so the row is present.
+function assertPreparedDraw(stockItem: { kind: StockItemKind } | undefined): void {
+  if (stockItem !== undefined && stockItem.kind !== 'prepared') {
+    throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_draws.0.stock_item_id', reason: 'wrong_kind' });
+  }
 }
 
 // §3.3: an item references an active category and (when not null) an active tax class; an archived item may keep
