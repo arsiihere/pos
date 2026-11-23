@@ -134,6 +134,7 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
     url: `/v1/admin/stock-items/${ids.stockItemId}/branches/${ids.branchId}`,
     payload: { expected_version: 'stale', station_id: ids.stationId },
   }),
+  'GET /v1/admin/stock-items/:stock_item_id/inventory': (ids) => ({ url: `/v1/admin/stock-items/${ids.stockItemId}/inventory` }),
   'GET /v1/admin/modifier-groups': () => ({ url: '/v1/admin/modifier-groups' }),
   'POST /v1/admin/modifier-groups': (ids) => ({
     url: '/v1/admin/modifier-groups',
