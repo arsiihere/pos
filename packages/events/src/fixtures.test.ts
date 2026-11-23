@@ -18,7 +18,7 @@ describe("fixtures", () => {
         version: Number(match[2]),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    expect(versioned).toHaveLength(71); // ⚠️ Changed by 05 (P0.G G-16): + AlertRaised.v5; 05 task 5 (§6.29): + 30 v1 fixtures (v1.0.7: + DiscountFrozen)
+    expect(versioned).toHaveLength(73); // ⚠️ Changed by 05 (P0.G G-16): + AlertRaised.v5; 05 task 5 (§6.29): + 30 v1 fixtures (v1.0.7: + DiscountFrozen); 05a task 4: + DeviceProfileSet.v1, AdminBootstrapTokenIssued.v2
     for (const { name, type } of versioned) {
       const stored = JSON.parse(
         readFileSync(join(dir, name), "utf8"),
@@ -303,5 +303,46 @@ describe("fixtures", () => {
       }
     }
     expect(envelopes).toBeGreaterThan(38);
+  });
+
+  it("[05a §4.2] DeviceProfileSet v1 carries the whole profile; listed/everyone, screens and cause are checked", () => {
+    const schema = payloadSchema("DeviceProfileSet", 1);
+    const base = {
+      device_id: "d",
+      device_name: "Counter 2",
+      access: "everyone" as const,
+      staff_ids: [] as string[],
+      screens: ["takeaway", "cashier"],
+      point_id: null,
+      profile_version: 1,
+      cause: "approved" as const,
+      needs_review: false,
+    };
+    expect(schema.safeParse(base).success).toBe(true);
+    expect(schema.safeParse({ ...base, access: "listed", staff_ids: ["s1"], point_id: "p1", cause: "upgrade", needs_review: true }).success).toBe(true);
+    expect(schema.safeParse({ ...base, cause: "owner_removed" }).success).toBe(false);
+    expect(schema.safeParse({ ...base, screens: ["kitchen"] }).success).toBe(false);
+    expect(schema.safeParse({ ...base, access: "nobody" }).success).toBe(false);
+    expect(schema.safeParse({ ...base, profile_version: 0 }).success).toBe(false);
+    expect(schema.safeParse({ ...base, extra: 1 }).success).toBe(false);
+    const { needs_review: _n, ...missing } = base;
+    expect(schema.safeParse(missing).success).toBe(false);
+  });
+
+  it("[05a §4.2] AdminBootstrapTokenIssued v2 adds issued_by 'recovery'; a v1 payload upcasts unchanged", () => {
+    const v1 = payloadSchema("AdminBootstrapTokenIssued", 1);
+    const v2 = payloadSchema("AdminBootstrapTokenIssued", 2);
+    const base = { bootstrap_token_id: "b", expires_at: 1, issued_by: "recovery" };
+    expect(v2.safeParse(base).success).toBe(true);
+    expect(v1.safeParse(base).success).toBe(false);
+    for (const by of ["setup", "cli", "restore"]) {
+      expect(v2.safeParse({ ...base, issued_by: by }).success, by).toBe(true);
+    }
+    expect(v2.safeParse({ ...base, issued_by: "owner" }).success).toBe(false);
+    const dir = fileURLToPath(new URL("../fixtures/", import.meta.url));
+    const stored = JSON.parse(readFileSync(join(dir, "AdminBootstrapTokenIssued.v1.json"), "utf8")) as { payload: unknown };
+    const upcast = parseEvent(stored);
+    expect(upcast.schema_version).toBe(2);
+    expect(upcast.payload).toEqual(stored.payload);
   });
 });
