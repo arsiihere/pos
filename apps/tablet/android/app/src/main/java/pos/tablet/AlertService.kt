@@ -142,6 +142,7 @@ class AlertService : Service() {
         instance = null
         worker.post {
             stopped = true
+            hold?.clear(); player?.stop() // 05b A10 / A11
             socket.stop()
             releaseLocks()
             unregisterNetworkCallback()
@@ -159,6 +160,7 @@ class AlertService : Service() {
 
     private fun ensureIntake() {
         if (intake != null) return
+        ensureRepeat() // 05b A10 / A11
         intake = AlertIntake(
             Dedupe(AlertsStore.dedupeStore(this)),
             OpenUrgent(AlertsStore.openUrgentStore(this)),
@@ -173,8 +175,9 @@ class AlertService : Service() {
     private val sink = object : IntakeSink {
         override fun isSilentKind(item: AlertItem): Boolean =
             try { LockText.isSilent(this@AlertService, item.kind) } catch (_: Exception) { false }
+        // 05b A11 (M-8): the post goes through the 1 s reportShown hold.
         override fun post(item: AlertItem, withSound: Boolean) =
-            notifier.post(item, withSound, AlertsStore.language(this@AlertService))
+            hold?.submit(item, withSound) ?: postNow(item, withSound)
         override fun cancel(alertId: String) = notifier.cancel(alertId)
         override fun send(text: String): Boolean = socket.send(text)
         override fun log(ev: String, fields: Map<String, Any?>) = AlertLog.ev(ev, fields)
@@ -209,6 +212,7 @@ class AlertService : Service() {
             }
             ensureIntake()
             intake?.onFrame(frame, recvT)
+            repeatOnFrame(frame) // 05b A10 (M-10): seen / closed / alerts_open
         }
 
         override fun checkToken(origin: String, token: String, done: (CloseCodes.Check) -> Unit) {
@@ -238,6 +242,71 @@ class AlertService : Service() {
 
         override fun log(ev: String, fields: Map<String, Any?>) = AlertLog.ev(ev, fields)
     }
+
+    // ------------------------------------------------------------------ 05b A10 / A11: hold + urgent repeat (M-8, M-10, O-15, O-18)
+
+    private var hold: ShownHold? = null
+    private var repeat: UrgentRepeat? = null
+    private var player: AlarmPlayer? = null
+
+    private fun pageState() = PageState(AlertsMemory.signedIn, AlertsMemory.activityVisible)
+
+    private fun isUrgentSound(item: AlertItem): Boolean =
+        try { LockText.soundFamily(this, item.kind, item.family, item.lockForText()) == "urgent" } catch (_: Exception) { item.family == "urgent" }
+
+    private fun ensureRepeat() {
+        if (repeat != null) return
+        val p = AlarmPlayer(this, worker).also { player = it }
+        val r = UrgentRepeat(urgentRepeatStore(this), worker, object : RepeatSink {
+            override fun play(gain: Float) = p.play(gain)
+            override fun postSilent(item: AlertItem) = notifier.post(item, false, AlertsStore.language(this@AlertService))
+            override fun cancelNotification(alertId: String) = notifier.cancel(alertId)
+            override fun log(ev: String, fields: Map<String, Any?>) = AlertLog.ev(ev, fields)
+        }) { AlertsStore.alwaysOn(this) }
+        repeat = r
+        hold = ShownHold(
+            worker, ::pageState, AlertsMemory::wasReported,
+            post = { item, withSound -> postNow(item, withSound) },
+            dropped = { item, withSound -> if (withSound && isUrgentSound(item)) r.onPageOwned(item) },
+            log = { ev, f -> AlertLog.ev(ev, f) },
+        )
+        r.restore() // M-10: re-arm after a restart without a first ring
+        r.onPageState(pageState())
+    }
+
+    private fun postNow(item: AlertItem, withSound: Boolean) {
+        notifier.post(item, withSound, AlertsStore.language(this))
+        if (withSound && isUrgentSound(item)) repeat?.onServicePosted(item)
+    }
+
+    private fun repeatOnFrame(frame: Frame) {
+        val r = repeat ?: return
+        when (frame) {
+            is Frame.Seen -> r.onSeen(frame.alertId)
+            is Frame.Closed -> r.onClosed(frame.alertId)
+            is Frame.Alert -> if (frame.item.seenByMe) r.onSeen(frame.item.alertId)
+            is Frame.AlertsOpen -> {
+                r.retainOnly(frame.rows.map { it.alertId }.toSet())
+                frame.rows.filter { it.seenByMe }.forEach { r.onSeen(it.alertId) }
+            }
+            else -> {}
+        }
+    }
+
+    /** REPORT_SHOWN (AlertsReceiver, any thread). */
+    fun onReportShown(alertId: String, step: Int) = worker.post { if (!stopped) hold?.onReported(alertId, step) }
+
+    /** ACTIVITY_VISIBLE / SET_SESSION changed AlertsMemory (AlertsReceiver, any thread). */
+    fun onPageStateChanged() = worker.post {
+        if (stopped) return@post
+        hold?.onPageState()
+        repeat?.onPageState(pageState())
+    }
+
+    /** A14's install window: open unseen urgent alerts (page- or service-owned). Worker thread. */
+    fun openUnseenUrgent(): Int = repeat?.openUnseenCount() ?: 0
+
+    // ------------------------------------------------------------------ 05b A10 / A11 end
 
     private fun setBindingRoute(until: Long?) {
         if (until == bindingRouteUntil) return
