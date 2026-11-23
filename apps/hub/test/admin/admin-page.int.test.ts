@@ -183,7 +183,7 @@ describe('hub admin page (M86)', () => {
     const [pairedHead, pairedTail] = EN['devices.menu_paired'].split('{date}');
     expect(textOf(row)).toContain(pairedHead! + EN['devices.today'].split('{time}')[0]);
     expect(textOf(row)).toContain(pairedTail!.replace('{name}', 'Imran'));
-    expect(textOf(row)).toContain(EN['devices.source_token']);
+    expect(textOf(row)).toContain(EN['devices.source_request']);
     await page.click(page.find('remove_D3', row)!);
     expect(more.getAttribute('aria-expanded')).toBe('false');
     expect(page.findAll((el) => el.className.split(' ').includes('pos-menu'), row)).toHaveLength(0);
