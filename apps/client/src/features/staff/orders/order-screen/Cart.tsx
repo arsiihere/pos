@@ -43,6 +43,8 @@ export interface CartProps {
   serve?: { state: ServeMode | 'mixed'; onSet(mode: ServeMode): void };
   /** phone / portrait: the list only (the sticky bar carries Send) */
   bare?: boolean;
+  /** 02b-TK C2-3 (frame TokenAddItems): the primary's words in place of Send ("Add to token 53") */
+  primary?: string | undefined;
 }
 
 function GroupHead({ group, utcOffsetMs }: { group: CartGroup; utcOffsetMs: number }) {
@@ -74,8 +76,8 @@ function GroupHead({ group, utcOffsetMs }: { group: CartGroup; utcOffsetMs: numb
   );
 }
 
-export function sendLabel(p: { problems: number }): string {
-  return p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : t('cart.send');
+export function sendLabel(p: { problems: number; primary?: string | undefined }): string {
+  return p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : (p.primary ?? t('cart.send'));
 }
 
 export function CartList(p: Pick<CartProps, 'config' | 'unitOf' | 'utcOffsetMs' | 'groups' | 'actions'>) {
@@ -171,7 +173,7 @@ export function Cart(p: CartProps) {
 }
 
 /** 02-S10 sticky Send bar: total, "6 items · 8:27 PM", Send. */
-export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' | 'utcOffsetMs' | 'problems' | 'canSend' | 'onSend'>) {
+export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' | 'utcOffsetMs' | 'problems' | 'canSend' | 'onSend' | 'primary'>) {
   const sub = fill(t('cart.items'), { n: String(p.count) }) + (p.ready_by === null ? '' : ` · ${timeText(p.ready_by, p.utcOffsetMs)}`);
   return (
     <div className="sbar">
@@ -181,7 +183,7 @@ export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' 
       </div>
       <button type="button" className="btn btn--primary btn--lg" disabled={p.count === 0 || p.problems > 0 || !p.canSend} onClick={p.onSend}>
         <Ico name="send" />
-        {p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : t('cart.send_short')}
+        {p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : (p.primary ?? t('cart.send_short'))}
       </button>
     </div>
   );

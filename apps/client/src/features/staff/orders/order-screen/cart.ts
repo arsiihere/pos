@@ -52,6 +52,8 @@ export interface Cart {
   from_entry_id?: string;
   /** 02b v1.0.21 §8 (STAB-5): the order switch next to Send; unset = each line's menu setting */
   serve_mode?: ServeMode;
+  /** 02b-TK C2-3 (02b §3.2 step 2, 05 #44a): a takeaway addition to a sent token — its root order and token */
+  adds_to?: { order_id: string; token: number | null };
 }
 
 /**

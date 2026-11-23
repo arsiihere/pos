@@ -442,6 +442,15 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     if (lines.length === 0 || !lines.every(readyNow)) return setOpenToken(q);
     handOver(q, lines);
   };
+  // 02b-TK C2-3 (02b §3.2 step 2; 05 #44a): Add items starts an addition to the token's root on an empty cart (a cart
+  // with lines is another customer's: it is sent or held first)
+  const addTo = (q: QueueToken) => {
+    if (sending.current) return;
+    if (cartRef.current.lines.length > 0) return shellRef.current.toasts.show({ text: t('c.add_busy'), tone: 'warn' });
+    setCart((c) => ({ ...c, adds_to: { order_id: q.order_ids[0]!, token: q.token } }));
+    setOpenToken(null);
+    setTab('menu');
+  };
   const pendingKeys = new Set(handovers.pending().map((h) => h.token_key));
   const lastHandover = handovers.pending().at(-1) ?? null;
   const toBill = (q: QueueToken) => navigate(`/bill?order_id=${encodeURIComponent(q.newest_order_id)}`);
@@ -460,7 +469,9 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       />
     );
   const tokenView =
-    openToken === null || book === null ? null : <TokenView token={openToken} book={book} onClose={() => setOpenToken(null)} onHandOver={(lines) => handOver(openToken, lines)} />;
+    openToken === null || book === null ? null : (
+      <TokenView token={openToken} book={book} onClose={() => setOpenToken(null)} onHandOver={(lines) => handOver(openToken, lines)} onAddItems={() => addTo(openToken)} />
+    );
   const undoToast =
     lastHandover === null ? null : (
       <div className="tk-toast tk-toast--ok tk-toast--bottom" role="status">
@@ -744,7 +755,12 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     );
   const compItLine = cart.lines.find((l) => l.comp_it === true);
   const compItInfo = () => fill(t('compit.cart_info'), { item: config.items.find((i) => i.item_id === compItLine?.item_id)?.name ?? '', table: seat?.name ?? '' });
+  // 02b-TK C2-3 (frame TokenAddItems): adding to a sent token says so and its primary is "Add to token 53"
+  const addingTo = order_type === 'takeaway' ? (cart.adds_to ?? null) : null;
+  const addingToken = addingTo === null ? '' : addingTo.token === null ? '—' : String(addingTo.token);
+  const primary = addingTo === null ? undefined : `${t('c.add_to')} ${addingToken}`;
   const cartProps = {
+    primary,
     config,
     utcOffsetMs,
     round: order_type === 'dine_in' ? (seat?.round ?? null) : null,
@@ -795,6 +811,27 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     <>
       {!shell.online && <OfflineBar variant="order" />}
       {order_type === 'dine_in' && <LockBanner state={lock.banner} onKeepDraft={keepDraft} />}
+      {addingTo !== null && (
+        <div className="tk-banner" role="status">
+          <Ico name="repeat" />
+          <span>
+            {t('ctx.adding')} <b dir="ltr">{addingToken}</b>
+          </span>
+          <button
+            type="button"
+            className="tk-btn"
+            onClick={() =>
+              setCart((c) => {
+                const { adds_to: _drop, ...rest } = c;
+                void _drop;
+                return rest;
+              })
+            }
+          >
+            {t('common.cancel')}
+          </button>
+        </div>
+      )}
     </>
   );
   // 26c: the sheet a tile, Edit or Order note asked for
@@ -945,7 +982,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
           )}
         </div>
         {cartProps.day}
-        {!dayNotOpen && <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} onSend={() => void onSend()} />}
+        {!dayNotOpen && <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} primary={primary} onSend={() => void onSend()} />}
         {draftBack}
         {sheetView}
         {sendView}
