@@ -7,6 +7,8 @@ import { Skeleton } from '../../components/Skeleton';
 import { t } from '../../i18n';
 import type { MessageKey } from '../../i18n/en';
 import type { DeviceRow, DevicesApi, DevicesData, PendingRequest } from './api';
+import { ApproveForm } from './ApproveForm';
+import { EditForm } from './EditForm';
 
 // 05a §6.8 (page groups), §3.2 M-8 (warnings), §8 (task 31): the staff `#/devices` page, `manage-devices` holders on a
 // listed device. Existing page pattern (PL-1): a title, banners, grouped lists of rows, a Reload on a failed read.
@@ -50,7 +52,7 @@ export function HardwareIcon({ hardware }: { hardware: DeviceType | null }) {
 const groupTitle = (g: GroupKey) => t(`devices.group.${g}` as MessageKey);
 const screenText = (s: ScreenKey) => t(`devices.screen.${s}` as MessageKey);
 
-function DeviceItem({ d }: { d: DeviceRow }) {
+function DeviceItem({ d, onEdit }: { d: DeviceRow; onEdit: (d: DeviceRow) => void }) {
   const who = d.access === 'listed' ? d.people.map((p) => p.display_name).join(', ') : t('devices.everyone');
   return (
     <li className="dv__row" data-device={d.device_id}>
@@ -62,17 +64,25 @@ function DeviceItem({ d }: { d: DeviceRow }) {
         </small>
       </div>
       {d.needs_review && <Chip tone="warn">{t('devices.needs_review')}</Chip>}
+      {d.device_type !== 'kds' && (
+        <button type="button" className="pos-btn" onClick={() => onEdit(d)}>
+          {t('devices.edit')}
+        </button>
+      )}
     </li>
   );
 }
 
-function WaitingItem({ r }: { r: PendingRequest }) {
+function WaitingItem({ r, onApprove }: { r: PendingRequest; onApprove: (r: PendingRequest) => void }) {
   return (
     <li className="dv__row" data-request={r.request_id}>
       <HardwareIcon hardware={r.hardware_hint} />
       <div className="dv__main">
         <strong>{r.device_name}</strong>
       </div>
+      <button type="button" className="pos-btn" onClick={() => onApprove(r)}>
+        {t('devices.approve')}
+      </button>
     </li>
   );
 }
@@ -104,12 +114,19 @@ export function DeviceList({ api }: { api: DevicesApi }) {
           {t('devices.reload')}
         </button>
       )}
-      {state.status === 'ready' && <Ready data={state.data} />}
+      {state.status === 'ready' && <Ready api={api} data={state.data} reload={() => void load()} />}
     </section>
   );
 }
 
-function Ready({ data }: { data: DevicesData }) {
+type Open = { kind: 'approve'; request: PendingRequest } | { kind: 'edit'; device: DeviceRow } | null;
+
+function Ready({ api, data, reload }: { api: DevicesApi; data: DevicesData; reload: () => void }) {
+  const [open, setOpen] = useState<Open>(null);
+  const done = () => {
+    setOpen(null);
+    reload();
+  };
   const live = data.devices.filter((d) => d.revoked_at === null);
   const rows = (g: GroupKey) => (g === 'waiting' ? [] : live.filter((d) => groupOf(d) === g));
   const shown = GROUPS.filter((g) => (g === 'waiting' ? data.pending_requests.length > 0 : rows(g).length > 0));
@@ -117,12 +134,14 @@ function Ready({ data }: { data: DevicesData }) {
     <>
       {data.admin_warning === 0 && <Banner tone="danger" text={t('devices.warn.none')} />}
       {data.admin_warning === 1 && <Banner tone="warn" text={t('devices.warn.one')} />}
+      {open?.kind === 'approve' && <ApproveForm key={open.request.request_id} api={api} request={open.request} onDone={done} onCancel={() => setOpen(null)} />}
+      {open?.kind === 'edit' && <EditForm key={open.device.device_id} api={api} device={open.device} onDone={done} onCancel={() => setOpen(null)} onReload={done} />}
       {shown.length === 0 && <p>{t('devices.empty')}</p>}
       {shown.map((g) => (
         <div key={g} className="dv__group" data-group={g}>
           <h2>{groupTitle(g)}</h2>
           <ul className="dv__list">
-            {g === 'waiting' ? data.pending_requests.map((r) => <WaitingItem key={r.request_id} r={r} />) : rows(g).map((d) => <DeviceItem key={d.device_id} d={d} />)}
+            {g === 'waiting' ? data.pending_requests.map((r) => <WaitingItem key={r.request_id} r={r} onApprove={(request) => setOpen({ kind: 'approve', request })} />) : rows(g).map((d) => <DeviceItem key={d.device_id} d={d} onEdit={(device) => setOpen({ kind: 'edit', device })} />)}
           </ul>
         </div>
       ))}
