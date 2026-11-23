@@ -39,6 +39,21 @@ class PosNativePlugin : Plugin() {
         ipc.start()
     }
 
+    // 05b A10 (O-18, N-1): tell :alerts when the activity starts / stops (repeat hand-back / take-over); re-sent
+    // after a :alerts restart, as `activity_visible` is memory-only there.
+    @Volatile private var visible: Boolean? = null
+
+    override fun handleOnStart() {
+        visible = true
+        if (::ipc.isInitialized) ipc.send(Ipc.OP_ACTIVITY_VISIBLE, JSONObject().put("visible", true))
+    }
+
+    override fun handleOnStop() {
+        visible = false
+        if (::ipc.isInitialized) ipc.send(Ipc.OP_ACTIVITY_VISIBLE, JSONObject().put("visible", false))
+    }
+    // 05b A10 end
+
     override fun handleOnDestroy() {
         if (::ipc.isInitialized) ipc.stop()
     }
@@ -50,7 +65,10 @@ class PosNativePlugin : Plugin() {
                 lastState = body
                 notifyListeners("state", JSObject.fromJSONObject(body), true)
             }
-            Ipc.OP_SERVICE_STARTED -> notifyListeners("state", JSObject.fromJSONObject(StateEvent.serviceStarted(lastState)), true)
+            Ipc.OP_SERVICE_STARTED -> {
+                visible?.let { ipc.send(Ipc.OP_ACTIVITY_VISIBLE, JSONObject().put("visible", it)) } // 05b A10 (N-1)
+                notifyListeners("state", JSObject.fromJSONObject(StateEvent.serviceStarted(lastState)), true)
+            }
             else -> Log.i(TAG, "ignored op $op")
         }
     }
