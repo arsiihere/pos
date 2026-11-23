@@ -40,7 +40,7 @@ describe('station validator from the branch config (§6.22)', () => {
           tenant_id: 'tenant-a',
           branch_id: BRANCH,
           command_type: 'ApprovePairingRequest',
-          payload: { request_id: request.request_id, display_code: request.display_code, device_type: 'kds', station_id: stationId },
+          payload: { request_id: request.request_id, display_code: request.display_code, device_type: 'kds', device_name: `Kitchen ${n}`, station_id: stationId },
           occurred_at: h.clock.branchNow(),
           actor_id: 'S_OWNER',
           device_id: tablet.deviceId,

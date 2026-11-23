@@ -14,7 +14,6 @@ import { createTestHub } from '../helpers/test-hub';
 import { offlineCloud } from '../helpers/stub-cloud';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 
-// TASK-15-EDIT: the pairing_tokens inserts and consume (lines ~52-71, 135) seed a token-pairing restore case. Table STAYS (H-1); if that case pins GenerateDevicePairingToken behaviour, task 15 edits it, else leave.
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const WALL = 1_761_000_000_000;
 const BRANCH = 'branch-1';

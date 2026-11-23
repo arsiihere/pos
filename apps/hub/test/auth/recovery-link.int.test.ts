@@ -53,7 +53,46 @@ describe('05a §6.11 admin recovery link', () => {
     expect(bootstrapEvents(hub)).toHaveLength(1);
   });
 
-  it.todo('[05a #16a] approve half: the owner approves their phone from the recovery session (needs task 15, ApprovePairingRequest v2 for phones)');
+  it('[05a #16a] approve half: the owner approves their phone from the recovery session; then the count is 1 and recovery is not needed', async () => {
+    const hub = await open();
+    const tablet = pairDevice(hub, { type: 'tablet', profile: { access: 'everyone', screens: ['dine_in'] } });
+    const issued = await press(hub, tablet.token);
+    expect(issued.statusCode).toBe(200);
+    const url = issued.json().data.first_admin_url as string;
+    const signedIn = await hub.app.inject({
+      method: 'POST',
+      url: '/admin/auth/bootstrap',
+      payload: { bootstrap_token: url.slice(url.indexOf('#t=') + 3), staff_id: 'S_OWNER', pin: PIN.a },
+    });
+    expect(signedIn.statusCode).toBe(200);
+    const adminToken = signedIn.json().data.admin_session_token as string;
+
+    const created = await hub.app.inject({ method: 'POST', url: '/pair/requests', remoteAddress: '10.6.0.1', payload: { device_name: 'phone', hardware_hint: 'phone' } });
+    const request = created.json().data as { request_id: string; display_code: string; poll_secret: string };
+    const approved = await hub.app.inject({
+      method: 'POST',
+      url: '/admin/commands/approve-pairing-request',
+      headers: { 'x-admin-session': adminToken },
+      payload: {
+        command_id: 'cmd-recovery-approve',
+        tenant_id: 'tenant-a',
+        branch_id: 'branch-1',
+        command_type: 'ApprovePairingRequest',
+        payload: { request_id: request.request_id, display_code: request.display_code, device_type: 'phone', device_name: "Owner's phone", access: 'listed', staff_ids: ['S_OWNER'], screens: ['dine_in', 'manager'] },
+        occurred_at: hub.clock.branchNow(),
+        actor_id: 'S_OWNER',
+        device_id: 'hub-admin',
+      },
+    });
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json().data.result).toMatchObject({ device_type: 'phone', access: 'listed', screens: ['dine_in', 'manager'] });
+    const polled = await hub.app.inject({ method: 'GET', url: `/pair/requests/${request.request_id}`, headers: { 'x-poll-secret': request.poll_secret } });
+    expect(polled.json().data).toMatchObject({ status: 'approved', device_type: 'phone' });
+
+    const notNeeded = await press(hub, tablet.token);
+    expect(notNeeded.statusCode).toBe(403);
+    expect(notNeeded.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'recovery_not_needed' } });
+  });
 
   it('[05a #16a] any live bootstrap token (here one from setup) answers already_issued_until; a consumed or expired one does not; a kds device is refused', async () => {
     const hub = await open();

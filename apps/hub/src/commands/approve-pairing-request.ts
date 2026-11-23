@@ -1,23 +1,89 @@
-import { DomainError } from '@pos/domain';
+import { DomainError, SCREEN_KEYS, screensOffered, type DeviceType, type ScreenKey } from '@pos/domain';
+import type { EventDraft } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { encodeCrockford128 } from '../auth/pair-page.js';
 import { stationExists } from '../auth/station-validator.js';
+import type { SessionDirectory } from '../auth/staff-directory.js';
 import { sha256hex } from '../lib/hash.js';
 import { signInClient } from '../auth/signin-client.js';
 import { globalStateClient } from '../lib/global-state.js';
 import { clientPrelude, iconSvg, pageHead, scriptJson, tag } from '../lib/page.js';
+import { branchConfig } from '../sync/branch-config-holder.js';
 import type { HubDeps } from '../server.js';
 import { defineCommand } from './registry.js';
 import { commandRegistry } from './route.js';
 
-const Payload = z.object({
-  request_id: z.string().min(1).optional(),
-  display_code: z.string().min(1),
-  device_type: z.enum(['cashier_kiosk', 'kds']),
-  station_id: z.string().min(1).optional(),
-});
+// 05a §6.3 (00 §6.32 changed): every device type pairs by request; a staff device gets its first profile here.
+// `kds` ⇒ `station_id` and nothing of the profile; else `access` + `screens`; `listed` ⇒ `staff_ids` 1–20 unique;
+// `everyone` ⇒ no `staff_ids` (v1.0.2 G-e is SetDeviceProfile's merge only, so nothing is derived here).
+const Payload = z
+  .object({
+    request_id: z.string().min(1).optional(),
+    display_code: z.string().min(1),
+    device_type: z.enum(['tablet', 'cashier_kiosk', 'kds', 'phone']),
+    device_name: z.string().min(1).max(40),
+    station_id: z.string().min(1).optional(),
+    access: z.enum(['everyone', 'listed']).optional(),
+    staff_ids: z.array(z.string().min(1)).min(1).max(20).optional(),
+    screens: z.array(z.enum(SCREEN_KEYS)).min(1).max(6).optional(),
+    point_id: z.string().min(1).optional(),
+  })
+  .superRefine((p, issue) => {
+    const fail = (path: string, message: string) => issue.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+    if (p.device_type === 'kds') {
+      if (p.station_id === undefined) fail('station_id', 'required for kds');
+      for (const key of ['access', 'staff_ids', 'screens', 'point_id'] as const) {
+        if (p[key] !== undefined) fail(key, 'not allowed for kds');
+      }
+      return;
+    }
+    if (p.station_id !== undefined) fail('station_id', 'kds only');
+    if (p.access === undefined) fail('access', 'required for a staff device');
+    if (p.screens === undefined) fail('screens', 'required for a staff device');
+    else if (new Set(p.screens).size !== p.screens.length) fail('screens', 'must be unique');
+    if (p.access === 'listed' && p.staff_ids === undefined) fail('staff_ids', 'required when listed');
+    if (p.access === 'everyone' && p.staff_ids !== undefined) fail('staff_ids', 'not allowed when everyone');
+    if (p.staff_ids !== undefined && new Set(p.staff_ids).size !== p.staff_ids.length) fail('staff_ids', 'must be unique');
+  });
+
+/** A staff-device profile as §6.3 step 3 checks it (also the merged profile of §6.4 step 3). */
+export interface StaffProfileInput {
+  device_type: DeviceType;
+  access: 'everyone' | 'listed';
+  staff_ids: readonly string[];
+  screens: readonly ScreenKey[];
+  point_id: string | null;
+}
+
+/**
+ * 05a §6.3 step 3, in order: people in the directory → `404 STAFF_NOT_FOUND { staff_id }`; screens offered for the
+ * hardware → `400 VALIDATION_FAILED { field: 'screens' }`; `pass` ⇔ `point_id` → `400 { field: 'point_id' }`; the
+ * point active (01a config) → `404 POINT_NOT_FOUND`. Memory only: no statement.
+ */
+export function validateStaffProfile(p: StaffProfileInput, directory: Pick<SessionDirectory, 'get'>): void {
+  for (const staff_id of p.staff_ids) {
+    if (directory.get(staff_id) === undefined) throw new DomainError('STAFF_NOT_FOUND', { staff_id });
+  }
+  const offered = screensOffered(p.device_type);
+  if (p.screens.some((screen) => !offered.includes(screen))) {
+    throw new DomainError('VALIDATION_FAILED', {
+      field: 'screens',
+      issues: [{ path: 'screens', message: `not offered on ${p.device_type}` }],
+    });
+  }
+  if (p.screens.includes('pass') !== (p.point_id !== null)) {
+    throw new DomainError('VALIDATION_FAILED', {
+      field: 'point_id',
+      issues: [{ path: 'point_id', message: 'pass needs a point_id, and a point_id needs pass' }],
+    });
+  }
+  if (p.point_id !== null) {
+    const point = branchConfig()?.points.find((candidate) => candidate.point_id === p.point_id);
+    if (point === undefined || point.is_archived) throw new DomainError('POINT_NOT_FOUND', { point_id: p.point_id });
+  }
+}
 
 // 00-S06 … 00-S09 (docs/design/handoff/00/00-design.md §1). Loads without credentials (M79); the script signs in an
 // admin in this tab, then approves by QR (?r=) or by the code on the screen.
@@ -286,12 +352,12 @@ async function approveForm(auth, deviceId, values) {
           tenant_id: ctx.tenant_id,
           branch_id: ctx.branch_id,
           command_type: 'ApprovePairingRequest',
-          payload: {
-            request_id: requestId || undefined,
-            display_code: value,
-            device_type: kind,
-            station_id: kind === 'kds' ? stationId : undefined,
-          },
+          // 05a §6.3: the v2 payload. Until the form has a name field and the profile pickers (05a plan task 33),
+          // the name is the kind's label and a cashier screen gets the §6.3 form default (everyone, takeaway +
+          // cashier + manager).
+          payload: kind === 'kds'
+            ? { request_id: requestId || undefined, display_code: value, device_type: kind, device_name: t('approve.preview_kds_name', { station: station() ? station().name : '' }).slice(0, 40), station_id: stationId }
+            : { request_id: requestId || undefined, display_code: value, device_type: kind, device_name: t('approve.kind_cashier').slice(0, 40), access: 'everyone', screens: ['takeaway', 'cashier', 'manager'] },
           occurred_at: Date.now(),
           actor_id: sessionStorage.getItem('admin_staff_id'),
           device_id: deviceId,
@@ -380,17 +446,14 @@ export function registerApprovePairingRequest(app: FastifyInstance, deps: HubDep
     defineCommand({
       commandType: 'ApprovePairingRequest',
       payloadSchema: Payload,
-      sessionKind: 'admin',
+      // 05a §6.3 (M-3): `/commands/…` from a listed device and `/admin/commands/…`; `manage-devices` through the view.
+      sessionKind: 'both',
       permission: 'manage-devices',
       handle(ctx, payload) {
         const kds = payload.device_type === 'kds';
         const stationId = payload.station_id ?? null;
-        if (kds !== (stationId !== null)) {
-          throw new DomainError('VALIDATION_FAILED', {
-            issues: [{ path: 'station_id', message: 'required iff kds' }],
-          });
-        }
         const now = ctx.clock.branchNow();
+        // Step 1 (00 §6.32): the request, by id or by its single pending code; the code always matches.
         const row =
           payload.request_id === undefined
             ? pendingByCode(ctx.tx.db, ctx.branch.branchId, payload.display_code, now)
@@ -398,11 +461,24 @@ export function registerApprovePairingRequest(app: FastifyInstance, deps: HubDep
         if (row === undefined || row.expires_at <= now || row.approved_at !== null || row.display_code !== payload.display_code) {
           throw new DomainError('PAIRING_REQUEST_NOT_FOUND');
         }
+        // Step 2: kds → its station.
         if (kds && stationId !== null && !stationExists(ctx.tx, stationId)) {
           throw new DomainError('STATION_NOT_FOUND', { station_id: stationId });
         }
+        // Step 3: a staff device's profile (the Payload refine has made access and screens present).
+        const profile = kds
+          ? null
+          : {
+              device_type: payload.device_type,
+              access: payload.access ?? 'everyone',
+              staff_ids: payload.access === 'listed' ? (payload.staff_ids ?? []) : [],
+              screens: payload.screens ?? [],
+              point_id: payload.point_id ?? null,
+            };
+        if (profile !== null) validateStaffProfile(profile, ctx.directory);
         const actor = ctx.actor.staffId;
         if (actor === null) throw new DomainError('PERMISSION_DENIED', { permission: 'manage-devices' });
+        // Step 4: the device (no owner: 05a §5.1 dropped the phone ⇔ owner check), the request, the events.
         const deviceId = ctx.ids.next();
         const deviceToken = ctx.secrets.token256();
         ctx.tx.db
@@ -412,7 +488,7 @@ export function registerApprovePairingRequest(app: FastifyInstance, deps: HubDep
               station_id, owner_staff_id, paired_at, paired_by
             ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
           )
-          .run(deviceId, ctx.branch.branchId, sha256hex(deviceToken), row.device_name, payload.device_type, stationId, now, actor);
+          .run(deviceId, ctx.branch.branchId, sha256hex(deviceToken), payload.device_name, payload.device_type, stationId, now, actor);
         ctx.tx.db
           .prepare(
             `UPDATE pair_requests
@@ -420,28 +496,59 @@ export function registerApprovePairingRequest(app: FastifyInstance, deps: HubDep
              WHERE request_id = ?`,
           )
           .run(now, actor, deviceId, deviceToken, row.request_id);
-        return {
-          events: [
-            {
-              stream_type: 'hub',
-              stream_id: deviceId,
-              event_type: 'DevicePaired',
-              schema_version: 1,
-              payload: {
-                device_id: deviceId,
-                device_name: row.device_name,
-                device_type: payload.device_type,
-                station_id: stationId,
-                owner_staff_id: null,
-                pairing_token_id: null,
-                pairing_request_id: row.request_id,
-              },
-              occurred_at: now,
-              actor_id: actor,
+        const events: EventDraft[] = [
+          {
+            stream_type: 'hub',
+            stream_id: deviceId,
+            event_type: 'DevicePaired',
+            schema_version: 1,
+            payload: {
               device_id: deviceId,
+              device_name: payload.device_name,
+              device_type: payload.device_type,
+              station_id: stationId,
+              owner_staff_id: null,
+              pairing_token_id: null,
+              pairing_request_id: row.request_id,
             },
-          ],
-          result: { device_id: deviceId, device_type: payload.device_type, station_id: stationId },
+            occurred_at: now,
+            actor_id: actor,
+            // unchanged from 00 §6.32: the DevicePaired envelope names the new device
+            device_id: deviceId,
+          },
+        ];
+        if (profile !== null) {
+          events.push({
+            stream_type: 'hub',
+            stream_id: deviceId,
+            event_type: 'DeviceProfileSet',
+            schema_version: 1,
+            payload: {
+              device_id: deviceId,
+              device_name: payload.device_name,
+              access: profile.access,
+              staff_ids: [...profile.staff_ids],
+              screens: [...profile.screens],
+              point_id: profile.point_id,
+              profile_version: 1,
+              cause: 'approved',
+              needs_review: false,
+            },
+            occurred_at: now,
+            actor_id: actor,
+            device_id: ctx.actor.deviceId,
+          });
+        }
+        // Step 5 (refresh `deviceProfile`) is the `refreshDeviceProfilesAfter` commit hook (server.ts, §4.2).
+        return {
+          events,
+          result: {
+            device_id: deviceId,
+            device_type: payload.device_type,
+            station_id: stationId,
+            screens: profile === null ? [] : [...profile.screens],
+            access: profile === null ? null : profile.access,
+          },
         };
       },
     }),

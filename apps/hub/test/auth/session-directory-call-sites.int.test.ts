@@ -64,7 +64,7 @@ describe('[05a §3.3a] session view call sites', () => {
   }
 
   it('[05a #4a] pipeline: a listed-only command (SetPresence, manage-staff) from an `everyone` device → 403 PERMISSION_DENIED with reason listed_device_only', async () => {
-    // 4a's ApprovePairingRequest variant lands with plan task 15 (the command is admin-only until then).
+    // 4a's ApprovePairingRequest variant: test/commands/approve-pairing-request-v2.int.test.ts (plan task 15).
     const h = await hub();
     const res = await setPresence(h, seat(h, 'everyone'));
     expect(res.statusCode).toBe(403);

@@ -27,14 +27,13 @@ import { loadDeviceProfiles, refreshDeviceProfilesAfter } from './auth/device-pr
 import { registerStaffSessionRoutes } from './auth/staff-session.js';
 import { registerStationSessionRoutes } from './auth/station-session.js';
 import { attachRouteGuards, swapDirectory, type RouteGroup } from './auth/guards.js';
-import { registerPairRoutes } from './auth/pairing.js';
+import { registerPairPage } from './auth/pair-page.js';
 import { registerPairRequestRoutes } from './auth/pair-requests.js';
 import { registerAddPrecookedStock } from './commands/add-precooked-stock.js';
 import { registerApprovePairingRequest } from './commands/approve-pairing-request.js';
 import { registerClearPinLockout } from './commands/clear-pin-lockout.js';
 import { registerCloseBusinessDay } from './commands/close-business-day.js';
 import { registerForceLogoutSession } from './commands/force-logout-session.js';
-import { registerGenerateDevicePairingToken } from './commands/generate-device-pairing-token.js';
 import { registerOpenBusinessDay } from './commands/open-business-day.js';
 import { registerRevokeDevice } from './commands/revoke-device.js';
 import { registerSetItemAvailability } from './commands/set-item-availability.js';
@@ -178,7 +177,6 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   loadDeviceProfiles(deps.db);
   deps.writer.addAfterCommit(refreshDeviceProfilesAfter(deps.db));
   registerCommandRoutes(app, deps, options.testCommands === true);
-  registerGenerateDevicePairingToken(app);
   registerApprovePairingRequest(app, deps);
   registerAdminPage(app, deps);
   registerRevokeDevice(app);
@@ -191,7 +189,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerSetItemAvailability(app);
   registerSetStationCapacity(app);
   registerSetStationPause(app);
-  registerPairRoutes(app, deps);
+  registerPairPage(app);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);
   registerDevicesQuery(app);
@@ -309,8 +307,6 @@ function isCorsPath(url: string): boolean {
     path.startsWith('/queries/') ||
     path === '/auth' ||
     path.startsWith('/auth/') ||
-    path === '/devices/pair' ||
-    path.startsWith('/devices/pair/') ||
     path === '/pair' ||
     path.startsWith('/pair/')
   );

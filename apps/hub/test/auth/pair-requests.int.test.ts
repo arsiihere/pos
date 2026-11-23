@@ -9,7 +9,7 @@ import { aDirectory } from '../helpers/fixtures';
 import { stubCloud } from '../helpers/stub-cloud';
 import { aBranchConfig } from '@pos/events/testing';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
-import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -184,33 +184,12 @@ describe('pairing requests', () => {
     expect(full.json().error.code).toBe('SERVICE_UNAVAILABLE');
   });
 
-  // TASK-15-EDIT: the pairing-token QR half calls the removed generate-device-pairing-token command; drop that half, keep setup and request QRs.
-  it('[00 §10 #131] the setup, pairing-token and pairing-request responses carry an SVG equal to qrSvg(their URL), with no <script>', async () => {
+  it('[00 §10 #131] the setup and pairing-request responses (05a H-1: the pairing-token QR is gone) carry an SVG equal to qrSvg(their URL), with no <script>', async () => {
     const setup = await provision();
     expect(setup.first_admin_qr_svg).toBe(qrSvg(setup.first_admin_url));
     expect(setup.first_admin_qr_svg).not.toContain('<script');
 
     const hub = await open();
-    const admin = adminOf(hub);
-    const token = await hub.app.inject({
-      method: 'POST',
-      url: '/admin/commands/generate-device-pairing-token',
-      headers: { authorization: `Bearer ${admin.device.token}`, 'x-admin-session': admin.session.token },
-      payload: {
-        command_id: 'cmd-qr',
-        tenant_id: 'tenant-a',
-        branch_id: 'branch-1',
-        command_type: 'GenerateDevicePairingToken',
-        payload: { device_type: 'tablet' },
-        occurred_at: hub.clock.branchNow(),
-        actor_id: 'S_OWNER',
-        device_id: admin.device.deviceId,
-      },
-    });
-    const issued = token.json().data.result;
-    expect(issued.pair_qr_svg).toBe(qrSvg(issued.pair_url));
-    expect(issued.pair_qr_svg).not.toContain('<script');
-
     const request = await create(hub, 'Screen', '10.5.0.1');
     const body = request.json().data;
     expect(body.approve_qr_svg).toBe(qrSvg(body.approve_url));
@@ -240,12 +219,6 @@ function poll(hub: TestHub, id: string, secret: string) {
     url: `/pair/requests/${id}`,
     headers: { 'x-poll-secret': secret },
   });
-}
-
-function adminOf(hub: TestHub): { device: { deviceId: string; token: string }; session: { token: string } } {
-  const device = pairDevice(hub, { type: 'tablet' });
-  const session = openSession(hub, { kind: 'admin', staffId: 'S_OWNER', deviceId: device.deviceId });
-  return { device, session };
 }
 
 async function provision(): Promise<{ first_admin_url: string; first_admin_qr_svg: string }> {

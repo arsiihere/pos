@@ -1,3 +1,4 @@
+import type { FastifyInstance } from 'fastify';
 import { globalStateClient } from '../lib/global-state.js';
 import { clientPrelude, pageHead } from '../lib/page.js';
 
@@ -13,8 +14,8 @@ export function encodeCrockford128(bytes: Uint8Array): string {
   return out;
 }
 
-// 00-S10 … 00-S15 (docs/design/handoff/00/00-design.md §1): a kiosk or kitchen screen asks to be paired (no t), or a
-// phone pairs with its manager's QR (?t=). Rules: §8.2 "Kiosk and KDS pairing" and "Pair page rules (phones)".
+// 00-S10 … 00-S15 (docs/design/handoff/00/00-design.md §1): every device asks to be paired by request (05a H-1:
+// the phone / tablet token branch ?t= / &d= is removed). Rules: §8.2 "Kiosk and KDS pairing".
 export function pairPage(): string {
   return `${pageHead({ title: 'pairing.title', theme: 'dark' })}
 <body class="pos-root">
@@ -47,13 +48,6 @@ function writeKey(db, key, value) {
     const write = db.transaction('device', 'readwrite').objectStore('device').put(value, key);
     write.onsuccess = () => resolve();
     write.onerror = () => resolve();
-  });
-}
-function deleteKey(db, key) {
-  return new Promise((resolve) => {
-    const del = db.transaction('device', 'readwrite').objectStore('device').delete(key);
-    del.onsuccess = () => resolve();
-    del.onerror = () => resolve();
   });
 }
 const screen = document.getElementById('screen');
@@ -228,7 +222,8 @@ function pairScreen(db) {
   };
   start();
 }
-// 00-S13: iOS Safari outside the Home Screen app never pairs (§8.2 phone rule 2).
+// 00-S13: iOS Safari outside the Home Screen app never pairs (§8.2 phone rule 2). Not called since the token branch
+// went (05a H-1); 05a plan task 16 puts it in front of the request flow (§8).
 function iosSteps() {
   const page = node('main', 'pos-content pos-phonepair pos-phonepair--ios');
   const head = node('div', 'pos-phonepair__head');
@@ -249,105 +244,6 @@ function iosSteps() {
   page.appendChild(banner('info', t('pairing.ios_link_time'), '', '', 'clock'));
   show(page);
 }
-function tokenExpired(standaloneIos) {
-  show(stateScreen('danger', 'clock', t('pairing.token_expired'), t(standaloneIos ? 'pairing.token_expired_ios' : 'pairing.token_expired_body')));
-}
-// 00-S12: name the phone, then POST /devices/pair with one pair_request_id per pairing (M14, M60).
-// 00 v1.12.2 §8.2 (STAB-1): a tablet link (d=tablet) pairs a shared tablet with the same form and its own texts.
-async function pairPhone(db, pairingToken) {
-  const tablet = new URLSearchParams(location.search).get('d') === 'tablet';
-  const TABLET_TEXT = {
-    'pairing.phone_title': 'pairing.tablet_title',
-    'pairing.phone_intro': 'pairing.tablet_intro',
-    'pairing.name_label': 'pairing.tablet_name_label',
-    'pairing.name_error': 'pairing.tablet_name_error',
-    'pairing.name_help': 'pairing.tablet_name_help',
-    'pairing.submit': 'pairing.tablet_submit',
-  };
-  const say = (key) => t(tablet ? TABLET_TEXT[key] : key);
-  const standaloneIos = /iPhone|iPad/.test(navigator.userAgent);
-  let pairRequestId = await readKey(db, 'pair_request_id');
-  if (!pairRequestId) {
-    const bytes = new Uint8Array(16);
-    crypto.getRandomValues(bytes);
-    pairRequestId = encodeCrockford128(bytes);
-    await writeKey(db, 'pair_request_id', pairRequestId);
-  }
-  const page = node('main', 'pos-content pos-phonepair');
-  // 00-F01: the hub-down banner sits above the title (frame PhoneHubDown).
-  page.appendChild(status);
-  const head = node('div', 'pos-phonepair__head');
-  head.appendChild(node('p', 'caption', t('app.brand')));
-  head.appendChild(node('h1', 'title', say('pairing.phone_title')));
-  head.appendChild(node('p', 'body', say('pairing.phone_intro')));
-  page.appendChild(head);
-  const form = node('form', 'pos-card pos-phonepair__card');
-  const nameField = node('div', 'pos-field');
-  const label = node('label', 'pos-field__label', say('pairing.name_label'));
-  label.setAttribute('for', 'device_name');
-  const nameInput = node('input', 'pos-input');
-  nameInput.name = 'device_name';
-  nameInput.id = 'device_name';
-  nameInput.autocomplete = 'off';
-  nameInput.setAttribute('maxlength', '40');
-  nameInput.setAttribute('enterkeyhint', 'done');
-  const nameError = node('p', 'pos-field__error');
-  nameError.appendChild(icon('alert'));
-  nameError.appendChild(node('span', '', say('pairing.name_error')));
-  nameField.appendChild(label);
-  nameField.appendChild(nameInput);
-  nameField.appendChild(nameError);
-  nameField.appendChild(node('p', 'pos-field__help', say('pairing.name_help')));
-  form.appendChild(nameField);
-  const formStatus = node('div', 'pos-phonepair__status');
-  form.appendChild(formStatus);
-  const submit = node('button', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block');
-  submit.type = 'submit';
-  submit.appendChild(icon(tablet ? 'tablet' : 'phone'));
-  const submitText = node('span', '', say('pairing.submit'));
-  submit.appendChild(submitText);
-  form.appendChild(submit);
-  page.appendChild(form);
-  page.appendChild(node('p', 'caption pos-phonepair__note', tablet ? t('pairing.tablet_note') : t('pairing.only_you')));
-  show(page);
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const name = nameInput.value.trim();
-    nameField.classList.toggle('pos-field--error', name.length === 0 || name.length > 40);
-    formStatus.replaceChildren();
-    if (name.length === 0 || name.length > 40 || submit.disabled) return;
-    setBusy(submit, true);
-    submitText.textContent = t('pairing.busy');
-    const send = () => fetchRetry('/devices/pair', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pairing_token: pairingToken, pair_request_id: pairRequestId, device_name: name, device_type: tablet ? 'tablet' : 'phone' }),
-    }, 'pairing.phone_hub_down_body');
-    const finish = async (res, retried) => {
-      if (res.status === 401) {
-        await deleteKey(db, 'pair_request_id');
-        return tokenExpired(standaloneIos);
-      }
-      const body = await json(res);
-      if (res.status === 200) {
-        await writeKey(db, 'token', body.data.device_token);
-        await writeKey(db, 'device_id', body.data.device_id);
-        await writeKey(db, 'device_type', body.data.device_type);
-        await deleteKey(db, 'pair_request_id');
-        const who = body.data.owner_name ? t('pairing.paired_body', { owner: body.data.owner_name }) : t('pairing.paired_body_any');
-        show(stateScreen('ok', 'check', t('pairing.paired_title'), who));
-        return openStaffEntry();
-      }
-      // M14: a 503 is retried once with the same pair_request_id.
-      if (res.status === 503 && !retried) return finish(await send(), true);
-      setBusy(submit, false);
-      submitText.textContent = say('pairing.submit');
-      if (global(body.error, 'phone')) return;
-      formStatus.replaceChildren(banner('danger', errorText(body.error)));
-    };
-    send().then((res) => finish(res, false));
-  });
-}
 openDeviceDb().then(async (db) => {
   const deviceToken = await readKey(db, 'token');
   // M43: an admin session in this tab is ended before pairing.
@@ -356,24 +252,20 @@ openDeviceDb().then(async (db) => {
     sessionStorage.removeItem('admin_session_token');
     await fetch('/admin/auth/logout', { method: 'POST', headers: { 'x-admin-session': adminToken, authorization: 'Bearer ' + (deviceToken || '') } });
   }
-  const pairingToken = new URLSearchParams(location.search).get('t');
-  if (!pairingToken) {
-    // Kiosk and kitchen screens fit the screen: no page scroll, no scrollbars.
-    screen.classList.add('pos-page--fit');
-    if (deviceToken) return await resumePaired(db);
-    return pairScreen(db);
-  }
-  // Phones use the light floor theme (frames Phone*); /pair is served dark for screens (M82).
-  if (document.documentElement && document.documentElement.setAttribute) document.documentElement.setAttribute('data-theme', 'light');
-  // Phone rule 1: already paired → the token in the URL is ignored; on to the staff entry (00 v1.9.1, Q-29).
-  if (deviceToken) {
-    show(stateScreen('ok', 'check', t('pairing.paired_title'), t('pairing.paired_body_any')));
-    return openStaffEntry();
-  }
-  if (/iPhone|iPad/.test(navigator.userAgent) && navigator.standalone !== true) return iosSteps();
-  pairPhone(db, pairingToken);
+  // 05a H-1: one flow for every device; an old token link (?t=, &d=) is read as a plain /pair.
+  // Kiosk and kitchen screens fit the screen: no page scroll, no scrollbars.
+  screen.classList.add('pos-page--fit');
+  if (deviceToken) return await resumePaired(db);
+  return pairScreen(db);
 });
 </script>
 </body>
 </html>`;
+}
+
+// 00 §8.2: the pair page. 05a H-1: `POST /devices/pair` and its module (`auth/pairing.ts`) are removed; only the page stays.
+export function registerPairPage(app: FastifyInstance): void {
+  app.get('/pair', { config: { group: 'pair' } }, async (_request, reply) => {
+    return reply.type('text/html; charset=utf-8').send(pairPage());
+  });
 }

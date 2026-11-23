@@ -129,7 +129,8 @@ export interface AlertTxCache {
  * BF-6: an append of one of these drops the cached fixed reads (the projections changed what they read).
  * `DevicePaired` / `BusinessDayClosed` (devices, bindings, presence) are a controller-ruled superset.
  */
-const STALE_ON: ReadonlySet<string> = new Set(['SessionStarted', 'SessionEnded', 'DeviceRevoked', 'PresenceSet', 'DevicePaired', 'BusinessDayClosed']);
+// 05a §3.8 (D-1), §5.1: `DeviceProfileSet` changes device_bindings and devices.point_id.
+const STALE_ON: ReadonlySet<string> = new Set(['SessionStarted', 'SessionEnded', 'DeviceRevoked', 'PresenceSet', 'DevicePaired', 'DeviceProfileSet', 'BusinessDayClosed']);
 /** A close of an alert in the transaction frees its key (a later raise with the key is a new alert). */
 const CLOSES: ReadonlySet<string> = new Set(['AlertClosed', 'RequestAnswered', 'RequestWithdrawn']);
 const txCaches = new WeakMap<WriterTx, AlertTxCache>();

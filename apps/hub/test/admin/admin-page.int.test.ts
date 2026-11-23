@@ -118,7 +118,6 @@ describe('hub admin page (M86)', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  // TASK-15-EDIT (not delete): pins the admin script's command list, which names the removed token command.
   it('[00 §10 #142] GET /admin without credentials → 200 HTML with no token; a guest IP → 403; the script signs in via /admin/auth and calls only §6.7, §6.14–§6.18c', async () => {
     const hub = await open();
     const page = await hub.app.inject({ method: 'GET', url: '/admin' });
@@ -132,10 +131,10 @@ describe('hub admin page (M86)', () => {
     const urls = new Set([...script.matchAll(/'(\/(?:admin|auth|queries|commands)[a-z/_-]*)/g)].map((m) => m[1]));
     // 00 v1.9.2 (Q-43): plus 03b's kds-config and 03c's print-queue for the two home tiles, and the two pages' links
     expect([...urls].sort()).toEqual(['/admin/approve', '/admin/auth', '/admin/auth/logout', '/admin/commands/', '/admin/fiscal/', '/admin/kitchen-screens/', '/admin/login-roster', '/admin/printers/', '/admin/queries/devices', '/admin/queries/kds-config', '/admin/queries/lockouts', '/admin/queries/print-queue', '/admin/queries/sessions', '/admin/queries/staff', '/admin/queries/stations', '/admin/stock/'].sort());
-    expect([...script.matchAll(/command\('([a-z-]+)'/g)].map((m) => m[1]).sort()).toEqual(['clear-pin-lockout', 'force-logout-session', 'generate-device-pairing-token', 'revoke-device']);
+    expect([...script.matchAll(/command\('([a-z-]+)'/g)].map((m) => m[1]).sort()).toEqual(['clear-pin-lockout', 'force-logout-session', 'revoke-device']);
   });
 
-  it('[00 §8.2 M86] home: counts, kitchen screen not seen for 6 min, lockout chip; read-only admin gets no Approve and no Add a phone', async () => {
+  it('[00 §8.2 M86] home: counts, kitchen screen not seen for 6 min, lockout chip; read-only admin gets no Approve; no Add a phone / Add a tablet (05a H-1)', async () => {
     const source = await html();
     const hub = fakeHub();
     const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch });
@@ -145,7 +144,9 @@ describe('hub admin page (M86)', () => {
     expect(text).toContain(EN['admin.tile_sessions'].replace('{n}', '3'));
     expect(text).toContain(EN['admin.locked_many'].replace('{n}', '2'));
     expect(text).toContain(EN['devices.approve']);
-    expect(text).toContain(EN['admin.tile_add_phone_title']);
+    // 05a H-1: no Add a phone / Add a tablet tile; every device pairs by request (Approve).
+    expect(text).not.toContain(EN['admin.tile_add_phone_title']);
+    expect(text).not.toContain(EN['admin.tile_add_tablet_title']);
     expect(text).toContain('Imran');
     // Pulse 00-S20: one big number per tile, no Other-jobs tile grid, "Branch hub · {host}" in the side-nav foot.
     const nums = page.findAll((el) => el.className === 'pos-tile__num').map((el) => el.textContent);
@@ -159,6 +160,16 @@ describe('hub admin page (M86)', () => {
     const viewer = await runPage(source, { store: STORE, session: { ...SESSION, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': false }) }, fetch: fakeHub().fetch });
     expect(textOf(viewer.screen)).not.toContain(EN['devices.approve']);
     expect(textOf(viewer.screen)).not.toContain(EN['admin.tile_add_phone_title']);
+    // 05a H-1: the Devices view offers Approve only; #add-phone / #add-tablet open home.
+    const list = textOf((await runPage(source, { store: STORE, session: SESSION, fetch: fakeHub().fetch, hash: '#devices' })).screen);
+    expect(list).toContain(EN['devices.approve']);
+    expect(list).not.toContain(EN['devices.add_phone']);
+    expect(list).not.toContain(EN['devices.add_tablet']);
+    for (const hash of ['#add-phone', '#add-tablet']) {
+      const gone = textOf((await runPage(source, { store: STORE, session: SESSION, fetch: fakeHub().fetch, hash })).screen);
+      expect(gone, hash).toContain(EN['admin.tile_devices'].replace('{n}', '3'));
+      expect(gone, hash).not.toContain(EN['addphone.make_qr']);
+    }
   });
 
   it('[00 §8.2 M86] screens and phones: grouped list, this screen, not-seen chip, owner; Remove asks for a reason, sends RevokeDevice and shows the result; read-only hides Remove', async () => {
@@ -256,60 +267,6 @@ describe('hub admin page (M86)', () => {
     expect(text).toContain('Lost on the family hall floor');
     expect(page.find('device_D1')).toBeUndefined();
     expect(page.find('more_D7')).toBeUndefined();
-  });
-
-  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
-  it('[00 §8.2 M86] add a phone: pick a name, Make QR sends GenerateDevicePairingToken for that owner, shows the QR, link and countdown; Done goes back to the list', async () => {
-    const source = await html();
-    const hub = fakeHub();
-    hub.answers['/admin/commands/generate-device-pairing-token'] = () => jsonResponse(200, { data: { result: { pair_url: 'http://192.168.0.107:3000/pair?t=abc', pair_qr_svg: '<svg id="q"></svg>', expires_at: Date.now() + 581_000 } } });
-    const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#add-phone' });
-    expect(page.find('make_qr')!.disabled).toBe(true);
-    expect(textOf(page.screen)).toContain(`Waiter · ${EN['addphone.no_phone']}`);
-    await page.click(byText(page, 'Ali', page.screen)!);
-    expect(page.find('make_qr')!.disabled).toBe(false);
-    await page.click(page.find('make_qr')!);
-    expect(hub.sent[0]!.body).toMatchObject({ command_type: 'GenerateDevicePairingToken', payload: { device_type: 'phone', owner_staff_id: 'S_ALI' } });
-    const text = textOf(page.screen);
-    expect(text).toContain(EN['addphone.scan_title'].replace('{name}', 'Ali'));
-    // Pulse 00-S17: pair_url (RARE) only after Show link.
-    expect(text).not.toContain('http://192.168.0.107:3000/pair?t=abc');
-    await page.click(page.find('show_link')!);
-    expect(textOf(page.screen)).toContain('http://192.168.0.107:3000/pair?t=abc');
-    expect(page.find('show_link')).toBeUndefined();
-    expect(text).toContain('9:41');
-    await page.click(byText(page, EN['addphone.done'], page.screen)!);
-    expect(textOf(page.screen)).toContain(EN['devices.group_cashier']);
-  });
-
-  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
-  it('[00 §10 #167] add a tablet (00 v1.12.2, STAB-1): home tile and Devices action with manage-devices only; Make QR sends a tablet token with no owner, shows the QR, link and countdown; Done goes back to the list', async () => {
-    const source = await html();
-    const home = await runPage(source, { store: STORE, session: SESSION, fetch: fakeHub().fetch });
-    expect(textOf(home.screen)).toContain(EN['admin.tile_add_tablet_title']);
-    const viewer = await runPage(source, { store: STORE, session: { ...SESSION, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': false }) }, fetch: fakeHub().fetch });
-    expect(textOf(viewer.screen)).not.toContain(EN['admin.tile_add_tablet_title']);
-    const list = await runPage(source, { store: STORE, session: SESSION, fetch: fakeHub().fetch, hash: '#devices' });
-    expect(textOf(list.screen)).toContain(EN['devices.add_tablet']);
-    const listViewer = await runPage(source, { store: STORE, session: { ...SESSION, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': false }) }, fetch: fakeHub().fetch, hash: '#devices' });
-    expect(textOf(listViewer.screen)).not.toContain(EN['devices.add_tablet']);
-
-    const hub = fakeHub();
-    hub.answers['/admin/commands/generate-device-pairing-token'] = () => jsonResponse(200, { data: { result: { pair_url: 'http://192.168.0.107:3000/pair?t=abc&d=tablet', pair_qr_svg: '<svg id="q"></svg>', expires_at: Date.now() + 581_000 } } });
-    const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#add-tablet' });
-    expect(textOf(page.screen)).toContain(EN['addtablet.intro']);
-    await page.click(page.find('make_qr')!);
-    expect(hub.sent).toHaveLength(1);
-    expect(hub.sent[0]!.body).toMatchObject({ command_type: 'GenerateDevicePairingToken', payload: { device_type: 'tablet' } });
-    expect((hub.sent[0]!.body.payload as Record<string, unknown>).owner_staff_id).toBeUndefined();
-    const text = textOf(page.screen);
-    expect(text).toContain(EN['addtablet.scan_title']);
-    expect(text).toContain('9:41');
-    expect(text).not.toContain('http://192.168.0.107:3000/pair?t=abc&d=tablet');
-    await page.click(page.find('show_link')!);
-    expect(textOf(page.screen)).toContain('http://192.168.0.107:3000/pair?t=abc&d=tablet');
-    await page.click(byText(page, EN['addphone.done'], page.screen)!);
-    expect(textOf(page.screen)).toContain(EN['devices.group_cashier']);
   });
 
   it('[00 §8.2 M86] signed in now: kinds, idle rules, warn when about to sign out, no Log out on own row; Log out confirms and sends ForceLogoutSession; already_ended says so', async () => {
