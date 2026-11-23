@@ -69,11 +69,29 @@ export const VariantGroupResponse = z.object({ data: z.object({ variant_group: V
 
 // ------------------------------------------------------------------------------------------------ stock items
 
-// §6.7
+// 08a I1, I2 (C-1, C-5): the inventory fields. No zod default on the body (the service applies prepared / food /
+// false on a POST), so 01c bodies parse as before.
+export const StockItemKind = z.enum(['prepared', 'ingredient', 'packet']);
+export type StockItemKind = z.infer<typeof StockItemKind>;
+export const CostCategory = z.enum(['food', 'packaging', 'cleaning', 'beverage']);
+export type CostCategory = z.infer<typeof CostCategory>;
+// 08a §3.3: null or 1–16 of A–Z 0–9 - after trim + uppercase
+export const StockItemCode = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z0-9-]{1,16}$/)
+  .nullable();
+
+// §6.7 (08a §6.2)
 export const CreateStockItemBody = z.object({
   name: Name60,
   stock_unit: Unit,
   carries_over: z.boolean().default(false),
+  kind: StockItemKind.optional(),
+  code: StockItemCode.optional(),
+  cost_category: CostCategory.optional(),
+  is_a_item: z.boolean().optional(),
 });
 
 // §6.8
@@ -84,6 +102,10 @@ export const PatchStockItemBody = z
     stock_unit: Unit.optional(),
     carries_over: z.boolean().optional(),
     archived: z.boolean().optional(),
+    kind: StockItemKind.optional(),
+    code: StockItemCode.optional(),
+    cost_category: CostCategory.optional(),
+    is_a_item: z.boolean().optional(),
   })
   .refine(notVersionOnly, VERSION_ONLY);
 
@@ -105,6 +127,11 @@ export const StockItemWire = z.object({
   stock_unit: Unit,
   carries_over: z.boolean(),
   archived_at: z.number().nullable(),
+  // 08a C-7: extended in place
+  kind: StockItemKind,
+  code: z.string().nullable(),
+  cost_category: CostCategory,
+  is_a_item: z.boolean(),
   version: z.string(),
 });
 export type StockItemWire = z.infer<typeof StockItemWire>;
@@ -118,20 +145,14 @@ export const StockItemBranchWire = z.object({
 });
 export type StockItemBranchWire = z.infer<typeof StockItemBranchWire>;
 
-const StockDrawer = z.object({
+export const StockDrawer = z.object({
   item_id: z.string(),
   name: z.string(),
   variant_name: z.string().nullable(),
   quantity_per_sale_unit: z.number(),
 });
 
-// §6.6
-export const StockItemListResponse = z.object({
-  data: z.object({
-    can_edit_tenant: z.boolean(),
-    stock_items: z.array(StockItemWire.extend({ branches: z.array(StockItemBranchWire), drawers: z.array(StockDrawer) })),
-  }),
-});
+// §6.6: StockItemListResponse lives in ./inventory.ts (08a §6.1 adds menu_cost).
 export const StockItemResponse = z.object({ data: z.object({ stock_item: StockItemWire }) });
 export const StockItemBranchResponse = z.object({ data: z.object({ branch: StockItemBranchWire.nullable() }) });
 

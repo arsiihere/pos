@@ -47,11 +47,14 @@ Plan: `08a-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.0.md` (APPRO
 | AD-1 | `testHooks.afterStockItemLock` needs a member on `CloudTestHooks` (`apps/cloud/src/server.ts`), a file P0.5's row does not name | P0.5 adds the one optional member `afterStockItemLock?(route: string): Promise<void>` to `server.ts` (type only; no-op in production) | P0.5 |
 | AD-2 | `toStockItemWire` reads its row from `STOCK_ITEM_COLUMNS` (`menu-variants/repository.ts:119`, c1's file); P0.4 cannot fill the four new wire fields without it | P0.4 adds `kind, code, cost_category, is_a_item` to `STOCK_ITEM_COLUMNS` and the record type (no new statement, no behaviour change); c1 owns everything else in that file | P0.4 |
 | AD-3 | `ROUTE_CASES` must name every registered route or the gate's route-inventory / cross-tenant tests go red; the plan gives `route-cases.ts` to i4 only | Spec §6 ("every route adds its case"): **i1, i2, i3 each add their own route's `ROUTE_CASES` entry**; i4 keeps the C7 sweep assertions (test 36), the audit tests and the append-only test (34) | i1–i4 |
+| AD-5 | **Owner ruling 2026-11-23 (G-1 below).** C-7 extends `StockItemWire` in place, so 01c tests that compare the whole wire exactly cannot stay unchanged (test 23 says "except #35") | Minimal edits, no logic or assertion change: 01c **#28** (`stock-items.int.test.ts`, expected created wire + the four defaults), **#35** (expected list rows + `menu_cost: null`; its 4 → 5 count stays c1's), `menu-variants/versions.test.ts` (version input = 01c v1.2's nine keys), client `owner/menu/ItemSections.test.tsx` fixture (+ four fields). Each line marked "⚠️ 08a C-7 / C-5". P0.4 also moves `StockItemListResponse` to `packages/events/src/admin/inventory.ts` (it gains `menu_cost`; the root export is unchanged) and lists `menu_cost: null` until c1 fills it | P0.4 |
 | AD-4 | Launch schedule: owner prompt (2026-11-23) runs c1, i1, u1, c3 together after phase 0, and i2 ∥ i3 after i1 (plan: c3 after c2; i2 → i3 in one session) | Owner's order applied; c3 needs only P0.2, i2 and i3 use separate test files and rebase on shared inventory-module files | — |
 
 ## Gaps needing an owner ruling (G)
 
-None.
+| # | Gap | Options | Ruling |
+|---|---|---|---|
+| G-1 | Spec C-7 (wire extended in place) vs test 23 / DoD ("01c suite unchanged except #35"): 01c #28's exact `toEqual` on the created wire, `versions.test.ts`'s five-key version input and the client `ItemSections.test.tsx` fixture break | (a) minimal expected-value edits, spec patch at Z1; (b) separate 08a-only wire (needs a spec bump); (c) pause for a spec patch | **(a)**, owner 2026-11-23 → AD-5. Spec patch for Z1: test 23 / §12.1 "except #35 and the wire-shape lines of #28 (+ the two non-numbered fixtures)" |
 
 ## Tasks
 
@@ -79,7 +82,7 @@ None.
 |---|---|---|
 | 1–6 | P0.3 | |
 | 7–11, 13, 14, 23 | c1 | |
-| 12 | P0.4 | |
+| 12 | P0.4 (`apps/cloud/test/inventory/versions.int.test.ts` + `menu-variants/versions.test.ts`) | |
 | 15, 16, 19 | c2 | |
 | 17, 18, 19b, 20, 21, 22, 26 | t1 | |
 | 24, 25 | c3 | |

@@ -91,6 +91,11 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
       stock_unit: 'g',
       carries_over: false,
       archived_at: null,
+      // ⚠️ 08a C-7 (owner ruling 2026-11-23, AD-5): the wire is extended in place; the defaults
+      kind: 'prepared',
+      code: null,
+      cost_category: 'food',
+      is_a_item: false,
       version: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
     expect(await versions()).toEqual(before.map((v) => v + 1));
@@ -241,6 +246,7 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
           noRow(b),
         ].sort((x, y) => (x.branch_id < y.branch_id ? -1 : 1)),
         drawers: [{ item_id: half.item_id, name: 'Chicken Karahi Half', variant_name: 'Half', quantity_per_sale_unit: 500 }],
+        menu_cost: null, // ⚠️ 08a C-5 (§6.1): no price
       },
       {
         ...naan,
@@ -249,6 +255,7 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
           { item_id: basket.item_id, name: 'Bread basket', variant_name: null, quantity_per_sale_unit: 1 },
           { item_id: plate.item_id, name: 'bread plate', variant_name: null, quantity_per_sale_unit: 1 },
         ],
+        menu_cost: null, // ⚠️ 08a C-5 (§6.1): no price
       },
     ]);
     // the counted row and the no-row versions differ; the no-row versions differ per branch
@@ -260,7 +267,7 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
     expect(archived.statusCode).toBe(200);
     expect(counter.count).toBe(4);
     expect(archived.json().data.stock_items).toEqual([
-      { ...old, branches: [...f.branches].sort().map((id) => noRow(id)), drawers: [] },
+      { ...old, branches: [...f.branches].sort().map((id) => noRow(id)), drawers: [], menu_cost: null /* ⚠️ 08a C-5 */ },
     ]);
     expect((await list('?status=gone')).statusCode).toBe(400);
 
