@@ -13,7 +13,7 @@ import { TableMap } from '../tables/map/TableMap';
 import { TableSheet } from '../tables/sheet/TableSheet';
 import { PassScreen } from '../../pass/PassScreen';
 import { createLiveBus } from './live';
-import { phoneTabOf } from '../StaffApp';
+import { screenOfPath } from './screens';
 import {
   consumeFocus,
   inboxHref,
@@ -44,7 +44,7 @@ function slot(hash: string, deviceType: 'tablet' | 'cashier_kiosk' | 'phone' = '
 }
 
 describe('[02 W0.6] staff routes', () => {
-  it('[02 W0.6] #/tables, #/tables/:id, #/order/:type/:id, #/orders, #/orders/:id, #/held, #/zones, #/queue, #/me each render their slot; kiosk #/ = KioskHome', () => {
+  it('[02 W0.6] #/tables, #/tables/:id, #/order/:type/:id, #/orders, #/orders/:id, #/held, #/zones, #/queue, #/me each render their slot; #/takeaway = KioskHome (A-7), #/ is the inbox', () => {
     expect(slot('/tables').mounts).toEqual([TableMap]);
     const table = slot(tableHref('TB 4', 'S1'));
     expect(table.route).toEqual({ name: 'table', table_id: 'TB 4', seating_id: 'S1', focus: null });
@@ -64,7 +64,9 @@ describe('[02 W0.6] staff routes', () => {
     expect(slot('/zones').mounts).toEqual([ZoneStock]);
     expect(slot('/queue').mounts).toEqual([QueueLog]);
     expect(slot('/me').route).toEqual({ name: 'me' });
-    expect(slot('/', 'cashier_kiosk').mounts).toEqual([KioskHome]);
+    expect(slot('/takeaway').mounts).toEqual([KioskHome]);
+    expect(matchStaffRoute('/', 'cashier_kiosk')).toEqual({ name: 'inbox', focus: null });
+    expect(matchStaffRoute('/manager', 'phone')).toEqual({ name: 'manager' });
     // the 01d views keep their routes; anything unknown is the inbox (a tablet's #/ too)
     expect(matchStaffRoute('/', 'tablet')).toEqual({ name: 'inbox', focus: null });
     expect(matchStaffRoute('/requests', 'tablet')).toEqual({ name: 'requests' });
@@ -184,15 +186,13 @@ describe('[01d v1.3 §3.13.5] the `focus` parameter', () => {
     expect(window.location.hash).toBe('#/inbox');
   });
 
-  it('[01d #92] phone tabs: #/zones?focus=… and #/orders/<id>?focus=… mark Orders; a dine-in line or slip marks Tables; #/inbox Inbox', () => {
-    const tab = (hash: string) => phoneTabOf(matchStaffRoute(hash, 'phone'));
-    expect(tab(zonesHref({ kind: 'item', zone_id: 'Z1', item_id: 'I1' }))).toBe('orders');
-    expect(tab(orderViewHref('O1', { kind: 'order', order_id: 'O1' }))).toBe('orders');
-    expect(tab(orderViewHref('O1', { kind: 'line', order_item_id: 'L1' }))).toBe('orders');
-    expect(tab(tableHref('T5', 'S5', { kind: 'line', order_item_id: 'L1' }))).toBe('tables');
-    expect(tab(tableHref('T5', 'S5', { kind: 'late', alert_id: 'A1' }))).toBe('tables');
-    expect(tab(tableHref('T5', 'S5', { kind: 'order', order_id: 'O1' }))).toBe('tables');
-    expect(tab(tableHref('T5', 'S5', { kind: 'table' }))).toBe('tables');
-    expect(tab(inboxHref({ kind: 'alert', alert_id: 'A1' }))).toBe('inbox');
+  it('[01d #92; 05a C-1] a focus keeps its route\'s tab: a dine-in line or slip marks Dine in; zones and the order view belong to no one screen (the last tab stays)', () => {
+    const tab = (hash: string) => screenOfPath(routePath(hash));
+    expect(tab(zonesHref({ kind: 'item', zone_id: 'Z1', item_id: 'I1' }))).toBeNull();
+    expect(tab(orderViewHref('O1', { kind: 'order', order_id: 'O1' }))).toBeNull();
+    expect(tab(tableHref('T5', 'S5', { kind: 'line', order_item_id: 'L1' }))).toBe('dine_in');
+    expect(tab(tableHref('T5', 'S5', { kind: 'late', alert_id: 'A1' }))).toBe('dine_in');
+    expect(tab(tableHref('T5', 'S5', { kind: 'table' }))).toBe('dine_in');
+    expect(tab(inboxHref({ kind: 'alert', alert_id: 'A1' }))).toBeNull();
   });
 });

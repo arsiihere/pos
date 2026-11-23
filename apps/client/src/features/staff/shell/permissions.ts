@@ -1,9 +1,11 @@
-import type { Permission, Scope } from '@pos/domain';
+import type { Masked, Permission, Scope } from '@pos/domain';
 import type { Resolution } from '../api';
 
 // 02a §3.15, §8 Rules (R5): buttons from the session's effective permissions, kept whole (grant + scope).
 // `requires_approval` counts as not granted, except where a spec offers "Ask for approval" (comp, 02b §3.9),
 // which reads `requiresApproval`. Q-15: by grant only — the client has no floor list.
+// 05a §3.3a: `masked` is the hub's mark on a result the session view changed: `listed_only` (not granted here, the
+// action is hidden) or `downgraded` (a money grant that now needs a phone: shown as "Confirm on your phone").
 
 export interface Permissions {
   resolution(p: Permission): Resolution;
@@ -12,6 +14,8 @@ export interface Permissions {
   requiresApproval(p: Permission): boolean;
   /** the scope of a granting result, else null */
   scope(p: Permission): Scope | null;
+  /** 05a §3.3a: why the hub changed this result, else null */
+  masked(p: Permission): Masked | null;
 }
 
 export function createPermissions(map: Record<string, Resolution> | null): Permissions {
@@ -24,5 +28,6 @@ export function createPermissions(map: Record<string, Resolution> | null): Permi
       const r = resolution(p);
       return 'scope' in r ? r.scope : null;
     },
+    masked: (p) => resolution(p).masked ?? null,
   };
 }

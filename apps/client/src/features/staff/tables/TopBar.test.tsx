@@ -76,10 +76,17 @@ describe('[02a §8 Top bar] TopBar', () => {
     expect(m.text()).toContain('8:15 PM');
   });
 
-  it('[02a §8 Top bar] Test alert stays reachable for manage-devices (01d), after Requests', () => {
+  it('[05a §8 C-1] the screens are tabs in list order, the current one marked; a downgraded one carries "Confirm on your phone"', () => {
+    const tabs = [
+      { key: 'takeaway' as const, path: '/takeaway', label: 'Takeaway', hint: null },
+      { key: 'cashier' as const, path: '/bills', label: 'Cash desk', hint: 'Confirm on your phone' },
+    ];
     m = mount();
-    m.render(<TopBar {...props({ testAlert: true })} />);
-    expect(m.button('Test alert')).toBeTruthy();
+    m.render(<TopBar {...props({ tabs, currentTab: 'takeaway' })} />);
+    const links = [...m.container.querySelectorAll('header.top nav.tabs-top a')];
+    expect(links.map((a) => a.textContent)).toEqual(['Takeaway', 'Cash deskConfirm on your phone']);
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['#/takeaway', '#/bills']);
+    expect(links.map((a) => a.getAttribute('aria-current'))).toEqual(['page', null]);
   });
 
   it('[02a §8 Top bar] floor control with counts; portrait puts the floors on their own row; kiosk variant', () => {
@@ -116,21 +123,26 @@ describe('[02a §8 Top bar] TopBar', () => {
     expect(m.container.querySelector('.seg')).toBeNull();
   });
 
-  it('[02a §8 Top bar] phone: top bar + tabs Tables · Orders · Inbox · Me (60 px)', () => {
+  it('[05a §8 C-1] phone: top bar (Inbox, Requests) + bottom tabs from the screens, then Me (60 px)', () => {
+    const tabs = [
+      { key: 'dine_in' as const, path: '/tables', label: 'Dine in', hint: null },
+      { key: 'takeaway' as const, path: '/takeaway', label: 'Takeaway', hint: null },
+    ];
     m = mount();
     m.render(
       <>
-        <TopBar {...props({ phone: true, title: 'Tables', phoneSub: 'Live · 8:15 PM' })} />
-        <PhoneTabs current="inbox" inbox={2} />
+        <TopBar {...props({ phone: true, title: 'Tables', phoneSub: 'Live · 8:15 PM', inbox: 2, requests: 1 })} />
+        <PhoneTabs tabs={tabs} current="takeaway" />
       </>,
     );
+    expect(names(m.container.querySelector('header.ph-top')!)).toEqual(['Requests1', 'Inbox2']);
     expect(m.container.querySelector('header.ph-top h1')?.textContent).toBe('Tables');
     expect(m.container.querySelector('header.ph-top .av')?.textContent).toBe('A');
     expect(m.container.querySelector('header.top')).toBeNull();
-    const tabs = [...m.container.querySelectorAll('nav.tabbar a.tab')];
-    expect(tabs.map((a) => a.textContent)).toEqual(['Tables', 'Orders', 'Inbox2', 'Me']);
-    expect(tabs.map((a) => a.getAttribute('href'))).toEqual(['#/tables', '#/orders', '#/inbox', '#/me']);
-    expect(tabs.map((a) => a.getAttribute('aria-current'))).toEqual([null, null, 'page', null]);
+    const links = [...m.container.querySelectorAll('nav.tabbar a.tab')];
+    expect(links.map((a) => a.textContent)).toEqual(['Dine in', 'Takeaway', 'Me']);
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['#/tables', '#/takeaway', '#/me']);
+    expect(links.map((a) => a.getAttribute('aria-current'))).toEqual([null, 'page', null]);
     // the 60 px tab height is the kit's .tab rule (pulse-staff.css), unchanged
   });
 

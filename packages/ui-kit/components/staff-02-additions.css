@@ -39,3 +39,10 @@
 :where(.pu) .serve__l small { font-weight: 600; color: var(--muted); }
 :where(.pu) .serve .seg { display: inline-flex; gap: 6px; }
 :where(.pu) .serve .seg .btn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent, #fff); border-color: var(--accent); }
+
+/* 05a C-1: the phone tab bar has one tab per screen of the device, then Me (2 to 7 columns on one row). */
+:where(.pu) .tabbar--n2 { grid-template-columns: repeat(2, 1fr); }
+:where(.pu) .tabbar--n3 { grid-template-columns: repeat(3, 1fr); }
+:where(.pu) .tabbar--n5 { grid-template-columns: repeat(5, 1fr); }
+:where(.pu) .tabbar--n6 { grid-template-columns: repeat(6, 1fr); }
+:where(.pu) .tabbar--n7 { grid-template-columns: repeat(7, 1fr); }

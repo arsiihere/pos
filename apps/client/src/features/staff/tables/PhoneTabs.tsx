@@ -1,11 +1,11 @@
+import type { ReactNode } from 'react';
+import type { ScreenKey } from '@pos/domain';
 import { t } from '../../../i18n';
-import { badgeText } from '../../alerts/labels';
 import { Ico, initial } from '../../alerts/ui';
+import type { TabItem } from '../shell/screens';
 
-// 02a §8 Top bar, phone (frame TableMapPhone; handoff Q8): tabs Tables · Orders · Inbox · Me (60 px). Plain hash
-// links: the routes are #/tables, #/orders, #/requests (approvers only, Q-73), #/inbox, #/me. Orders holds open orders and New order (02b).
-
-export type PhoneTab = 'tables' | 'orders' | 'requests' | 'inbox' | 'me';
+// 02a §8 Top bar, phone (frame TableMapPhone): the bottom tab bar (60 px). 05a §8 C-1: its tabs are the device's
+// screens in list order, then Me; plain hash links.
 
 function TabIcon({ name }: { name: 'tables' | 'orders' }) {
   return (
@@ -27,28 +27,41 @@ function TabIcon({ name }: { name: 'tables' | 'orders' }) {
   );
 }
 
-/** `requests`: answerable requests; null = not an approver / nothing to answer: no tab (Q-73, same condition as the tablet button). */
-export function PhoneTabs({ current, inbox, requests = null }: { current: PhoneTab; inbox: number; requests?: number | null }) {
-  const badge = badgeText(inbox);
-  const link = (id: PhoneTab, icon: ReactIcon, label: string, count: string | null = null) => (
-    <a className="tab" href={`#/${id}`} {...(current === id ? { 'aria-current': 'page' as const } : {})}>
+export type PhoneTab = ScreenKey | 'me';
+
+/** 05a §8 C-1: one tab per visible screen, in the profile's list order, then Me. Inbox and Requests are in the top bar. */
+export function PhoneTabs({ tabs, current }: { tabs: readonly TabItem[]; current: PhoneTab | null }) {
+  const link = (id: PhoneTab, path: string, icon: ReactNode, label: string, hint: string | null = null) => (
+    <a key={id} className="tab" href={`#${path}`} {...(current === id ? { 'aria-current': 'page' as const } : {})}>
       {icon}
       {label}
-      {count !== null && <span className="badge num">{count}</span>}
+      {hint !== null && <small className="hint">{hint}</small>}
     </a>
   );
   return (
-    <nav className={requests !== null ? 'tabbar tabbar--5' : 'tabbar'} aria-label={t('tabs.tables')}>
-      {link('tables', <TabIcon name="tables" />, t('tabs.tables'))}
-      {link('orders', <TabIcon name="orders" />, t('tabs.orders'))}
-      {requests !== null && link('requests', <Ico name="shield" />, t('alerts.nav.requests'), badgeText(requests))}
-      {link('inbox', <Ico name="tray" />, t('alerts.nav.inbox'), badge)}
-      {link('me', <Ico name="user" />, t('tabs.me'))}
+    <nav className={`tabbar tabbar--n${tabs.length + 1}`} aria-label={t('tabs.tables')}>
+      {tabs.map((tab) => link(tab.key, tab.path, <TabGlyph screen={tab.key} />, tab.label, tab.hint))}
+      {link('me', '/me', <Ico name="user" />, t('tabs.me'))}
     </nav>
   );
 }
 
-type ReactIcon = ReturnType<typeof TabIcon> | ReturnType<typeof Ico>;
+export function TabGlyph({ screen }: { screen: ScreenKey }) {
+  switch (screen) {
+    case 'dine_in':
+      return <TabIcon name="tables" />;
+    case 'takeaway':
+      return <TabIcon name="orders" />;
+    case 'parking':
+      return <Ico name="pin" />;
+    case 'cashier':
+      return <Ico name="cash" />;
+    case 'pass':
+      return <Ico name="hand" />;
+    case 'manager':
+      return <Ico name="shield" />;
+  }
+}
 
 /** The Me tab: who is signed in, and sign out (it used to be the second tab of the 01d bar). */
 export function MeTab({ name, onSignOut, onShift }: { name: string; onSignOut: () => void; /** 05 §8 Shift (task 39): manage-own-shift */ onShift?: () => void }) {

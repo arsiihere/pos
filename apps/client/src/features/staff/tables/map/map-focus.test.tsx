@@ -10,8 +10,8 @@ import { PHONE_QUERY, PORTRAIT_QUERY } from '../../shell/layout';
 import { createLiveBus } from '../../shell/live';
 import { createPermissions } from '../../shell/permissions';
 import { createToastBus } from '../../shell/toast';
-import { phoneTabOf } from '../../StaffApp';
-import { matchStaffRoute } from '../../shell/routes';
+import { screenOfPath } from '../../shell/screens';
+import { routePath } from '../../shell/routes';
 import type { Enqueue, MapTile, TableMapBody, TablesApi } from '../contracts';
 import { createLocalFlags } from '../local-flags';
 import { TableMap } from './TableMap';
@@ -224,7 +224,7 @@ describe('[01d #79] map places per device', () => {
     expect(glowing()).toEqual([header]);
   });
 
-  it('[01d #79] phone: a table target glows the sheet header; a dine-in line route marks the Tables tab', async () => {
+  it('[01d #79] phone: a table target glows the sheet header; a dine-in line route marks the Dine in tab', async () => {
     layout = 'phone';
     window.location.hash = '/tables';
     const { shell, tableMap } = shellFor({ phone: true });
@@ -234,7 +234,7 @@ describe('[01d #79] map places per device', () => {
     await tapAlert(call('F4', 'S4'), deps(shell, tableMap));
     await settle();
     expect(glowing()).toEqual([header]);
-    expect(phoneTabOf(matchStaffRoute('/tables/F4?seating_id=S4&focus=line:L1', 'tablet'))).toBe('tables');
+    expect(screenOfPath(routePath('/tables/F4?seating_id=S4&focus=line:L1'))).toBe('dine_in');
   });
 
   it('[01d #79 G-4] a seating whose primary table is archived: the sheet header glows, no tile glow', async () => {
@@ -365,7 +365,7 @@ describe('[01d #79] map places per device', () => {
     expect(await tapAlert(comp, d)).toBe('navigated');
     await settle();
     expect(window.location.hash).toBe('#/tables/F4?seating_id=S4');
-    expect(phoneTabOf(matchStaffRoute('/tables/F4?seating_id=S4', 'tablet'))).toBe('tables');
+    expect(screenOfPath(routePath('/tables/F4?seating_id=S4'))).toBe('dine_in');
     expect(glowing()).toEqual([scrim.querySelector('[data-line="L1"]')]);
   });
 });

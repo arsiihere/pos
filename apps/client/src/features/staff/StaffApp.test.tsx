@@ -41,6 +41,7 @@ let sockets: FakeSocket[];
 beforeEach(() => {
   sockets = [];
   window.location.hash = '';
+  window.localStorage.clear();
 });
 afterEach(() => m?.unmount());
 
@@ -146,8 +147,13 @@ describe('[01d task 41] staff entry', () => {
     expect(h.calls.find((c) => c.path === '/auth/pin')!.body).toEqual({ staff_id: 'S-IMRAN', pin: '1234', takeover: false });
     expect(sockets.length).toBe(1);
     expect(m.text()).toContain('Inbox');
-    expect(m.text()).not.toContain('Test alert');
     expect(m.text()).not.toContain('Requests');
+    // 05a C-1: Test alert is an item of the manager screen, only with manage-devices
+    act(() => {
+      window.location.hash = '#/manager';
+    });
+    await flush();
+    expect(m.text()).not.toContain('Test alert');
     m.unmount();
 
     // approve-void alone no longer shows Requests (AD-T41-10 review fix): only the hub's list does
@@ -158,8 +164,12 @@ describe('[01d task 41] staff entry', () => {
 
     render(TABLET, hub({ permissions: { 'manage-devices': { grant: 'allowed' } }, requests: [requestRow({ alert_id: 'R1' })] }).fetch);
     await signIn();
-    expect(m.text()).toContain('Test alert');
     expect(m.text()).toContain('Requests');
+    act(() => {
+      window.location.hash = '#/manager';
+    });
+    await flush();
+    expect(m.text()).toContain('Test alert');
   });
 
   it('AnswerRequest carries the page ids and the signed-in session (context filled from the sign-in)', async () => {
@@ -399,7 +409,7 @@ describe('[02a §8 Top bar] staff shell', () => {
     };
   }
 
-  it('[02a §8 Top bar] after sign-in the app lands on #/tables (kiosk: #/); Requests (n) only from the hub list, Inbox, person chip', async () => {
+  it('[02a §8 Top bar] after sign-in the app lands on #/tables (kiosk: #/takeaway, the first screen); Requests (n) only from the hub list, Inbox, person chip', async () => {
     render(TABLET, hub({ requests: [requestRow({ alert_id: 'R1' })] }).fetch);
     await signIn();
     expect(window.location.hash).toBe('#/tables');
@@ -413,12 +423,12 @@ describe('[02a §8 Top bar] staff shell', () => {
 
     render(KIOSK, hub().fetch);
     await signIn();
-    expect(window.location.hash).toBe('#/');
+    expect(window.location.hash).toBe('#/takeaway');
     expect(m.container.querySelector('header.top .bind')).toBeNull();
     expect(m.text()).not.toContain('Requests');
   });
 
-  it('[02a §8 Top bar] phone: top bar + tabs Tables · Orders · Inbox · Me; Me holds sign out', async () => {
+  it('[05a C-1] phone: top bar + tabs Dine in · Takeaway · Parking · Manager tools · Me; Me holds sign out', async () => {
     const restore = phoneMedia();
     try {
       const h = hub();
@@ -429,9 +439,9 @@ describe('[02a §8 Top bar] staff shell', () => {
       for (const d of '1234') m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === d));
       m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === 'Sign in'));
       await flush(8);
-      expect(m.container.querySelector('header.ph-top h1')?.textContent).toBe('Tables');
-      expect([...m.container.querySelectorAll('nav.tabbar a.tab')].map((a) => a.textContent)).toEqual(['Tables', 'Orders', 'Inbox', 'Me']);
-      expect(m.container.querySelector('nav.tabbar a[aria-current="page"]')?.textContent).toBe('Tables');
+      expect(m.container.querySelector('header.ph-top h1')?.textContent).toBe('Dine in');
+      expect([...m.container.querySelectorAll('nav.tabbar a.tab')].map((a) => a.textContent)).toEqual(['Dine in', 'Takeaway', 'Parking', 'Me']);
+      expect(m.container.querySelector('nav.tabbar a[aria-current="page"]')?.textContent).toBe('Dine in');
       act(() => {
         window.location.hash = '#/me';
       });
@@ -455,34 +465,25 @@ describe('[02a §8 Top bar] staff shell', () => {
     await flush(8);
   }
 
-  it('[02a §8 Top bar; Q-73] phone approver: a Requests tab with the count, opening the Requests page', async () => {
+  it('[02a §8 Top bar; Q-73; 05a C-1] phone approver: Requests (with the count) sits in the top bar and opens the Requests page', async () => {
     const restore = phoneMedia();
     try {
       await phoneSignIn(hub({ requests: [requestRow({ alert_id: 'R1' })] }));
-      const tabs = [...m.container.querySelectorAll('nav.tabbar a.tab')];
-      expect(tabs.map((a) => a.textContent)).toEqual(['Tables', 'Orders', 'Requests1', 'Inbox', 'Me']);
-      // five tabs fit one row at phone width: the bar carries the five-column modifier (staff-02-additions.css)
-      expect(m.container.querySelector('nav.tabbar')?.classList.contains('tabbar--5')).toBe(true);
-      const req = tabs.find((a) => a.textContent?.startsWith('Requests'))!;
-      expect(req.getAttribute('href')).toBe('#/requests');
-      expect(req.querySelector('.badge')?.textContent).toBe('1');
-      act(() => {
-        window.location.hash = '#/requests';
-      });
+      const top = m.container.querySelector('header.ph-top')!;
+      expect(m.button('Requests', top).querySelector('.badge')?.textContent).toBe('1');
+      m.click(m.button('Requests', top));
       await flush();
       expect(m.container.querySelector('header.ph-top h1')?.textContent).toBe('Requests');
-      expect(m.container.querySelector('nav.tabbar a[aria-current="page"]')?.textContent).toContain('Requests');
     } finally {
       restore();
     }
   });
 
-  it('[02a §8 Top bar; Q-73] phone non-approver (the hub lists no requests): no Requests tab, #/requests falls back to the inbox', async () => {
+  it('[02a §8 Top bar; Q-73] phone non-approver (the hub lists no requests): no Requests button, #/requests falls back to the inbox', async () => {
     const restore = phoneMedia();
     try {
       await phoneSignIn(hub());
-      expect([...m.container.querySelectorAll('nav.tabbar a.tab')].map((a) => a.textContent)).toEqual(['Tables', 'Orders', 'Inbox', 'Me']);
-      expect(m.container.querySelector('nav.tabbar')?.classList.contains('tabbar--5')).toBe(false);
+      expect(m.container.querySelector('header.ph-top')?.textContent).not.toContain('Requests');
       act(() => {
         window.location.hash = '#/requests';
       });
@@ -576,11 +577,16 @@ describe('[03b W0.6] Pass in the staff shell', () => {
     expect(window.location.hash).toBe('#/pass');
     const top = m.container.querySelector('header.top')!;
     const labels = [...top.querySelectorAll('.end button .sr')].map((s) => s.textContent);
-    expect(labels).toEqual(['Pass', 'Requests', 'Inbox']);
+    expect(labels).toEqual(['Requests', 'Inbox']);
+    // Pass is the first tab of a point tablet (05a C-1 fallback), then the rest in the hardware's order
+    expect([...top.querySelectorAll('nav.tabs-top a')].map((a) => a.textContent)[0]).toBe('Pass');
     m.click(m.button('Inbox', top));
     await flush();
     expect(window.location.hash).toBe('#/inbox');
-    m.click(m.button('Pass', top));
+    act(() => {
+      window.location.hash = '#/pass';
+    });
+    await flush();
     expect(window.location.hash).toBe('#/pass');
     m.unmount();
 
@@ -590,7 +596,7 @@ describe('[03b W0.6] Pass in the staff shell', () => {
     sockets[0]!.frame(UP);
     await flush(4);
     expect(window.location.hash).toBe('#/tables');
-    expect([...m.container.querySelectorAll('header.top .end button .sr')].map((s) => s.textContent)).not.toContain('Pass');
+    expect([...m.container.querySelectorAll('header.top nav.tabs-top a')].map((a) => a.textContent)).not.toContain('Pass');
   });
 
   it('[03b W0.6 AD-K12; W-3] the landing happens on arrival only: a point_view after the person left #/tables never moves them, not even back on #/tables', async () => {
