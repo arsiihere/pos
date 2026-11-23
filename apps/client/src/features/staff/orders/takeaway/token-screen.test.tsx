@@ -42,19 +42,23 @@ export interface ScreenHarness {
   drafts: DraftStore;
   live: ReturnType<typeof createLiveBus>;
   render(id?: string): Mounted;
+  toasts: Array<{ text: string; tone?: string }>;
 }
 
-export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, OrderViewBody>; bills?: Record<string, unknown>; grants?: Record<string, unknown>; drafts?: DraftStore; command?: (type: string, payload: unknown) => unknown } = {}): ScreenHarness {
+export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, OrderViewBody>; bills?: Record<string, unknown>; grants?: Record<string, unknown>; drafts?: DraftStore; command?: (type: string, payload: unknown) => unknown; answer?: (type: string, payload: unknown) => unknown } = {}): ScreenHarness {
   const live = createLiveBus();
   live.frame({ type: 'catch_up', as_of_seq: 1, state: { orders: { orders: [aCaught('O48', 48, [aLine('O48', 'A', 'Karahi')], { customer_name: 'Ali' })], zone_stock: [] } } });
-  const config = aBranchConfig();
+  const base = aBranchConfig();
+  const plain = (id: string, name: string) => ({ ...base.items.find((i) => i.item_id === 'I2')!, item_id: id, name, category_id: 'C2', price_minor: 4_000 });
+  const config = { ...base, categories: [...base.categories, { category_id: 'C2', name: 'Sides', sort_order: 2, availability_windows: [] }], items: [...base.items, plain('I5', 'Naan')] };
+  const toasts: Array<{ text: string; tone?: string }> = [];
   const sent: ScreenHarness['sent'] = [];
   const commands: ScreenHarness['commands'] = [];
   const drafts = o.drafts ?? createMemoryDraftStore();
   const enqueue = Object.assign(
     async (type: QueueableCommand, payload: unknown, meta: EnqueueMeta) => {
       sent.push({ type, payload, meta });
-      return { status: 'sent', result: { served: 1, skipped: [] } };
+      return o.answer?.(type, payload) ?? { status: 'sent', result: { served: 1, skipped: [] } };
     },
     { pendingFor: () => 0, pendingCount: () => 0, subscribe: () => () => {} },
   );
@@ -83,7 +87,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
       orderContact: async () => ({ ok: false, error: { kind: 'network' } }),
     },
     tables: { tableMap: async () => ({ ok: true, data: { as_of_seq: 1, floors: [] } }) },
-    toasts: { show: () => {}, current: () => null, clear: () => {}, subscribe: () => () => {} },
+    toasts: { show: (x: { text: string; tone?: string }) => toasts.push(x), current: () => null, clear: () => {}, subscribe: () => () => {} },
     permissions: createPermissions({ 'mark-served': { grant: 'allowed', scope: 'branch' }, 'take-order': { grant: 'allowed', scope: 'branch' }, 'take-payment': { grant: 'allowed', scope: 'branch' }, ...(o.grants ?? {}) } as never),
     enqueue,
     clock: { nowMs: () => at(13, 20), utcOffsetMs: 0 },
@@ -103,7 +107,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
     );
     return m;
   };
-  return { shell, sent, commands, drafts, live, render };
+  return { shell, sent, commands, drafts, live, render, toasts };
 }
 
 const tick = async (ms: number) => {
@@ -165,5 +169,87 @@ describe('[02b-TK C2-2] token view on the takeaway screen', () => {
     m.click(m.button('Hand over all'));
     m.unmount();
     expect(h.sent.map((s) => s.type)).toEqual(['MarkServed']);
+  });
+});
+
+const addNaan = (m: Mounted) => {
+  m.click(m.button('Sides', m.container.querySelector('.cats')!));
+  m.click(m.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
+};
+const openRow = async (m: Mounted) => {
+  m.click(m.container.querySelector('.tk-rt__open'));
+  await flush();
+};
+const SUBMITTED = { status: 'sent', result: { order_id: 'X', token: 48, groups: [{ group_id: 'X:0', promise_ms: at(13, 33), order_item_ids: [] }], lines: [] } };
+
+describe('[02b-TK C2-3] add items to a sent token', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+    nav.to = [];
+  });
+
+  it('[02b §3.2 step 2; 05 #44a; frame TokenAddItems] "Adding to token 48", primary "Add to token 48"; SubmitOrder names the root', async () => {
+    const h = screenHarness({ rows: [aRow({ order_id: 'O48', token: 48, ready: { n: 0, m: 1 } }), aRow({ order_id: 'O48b', token: 48, placed_at: at(13, 5), ready: { n: 0, m: 1 } })], views: { O48: view('O48', [sl('O48', 'A', 'Karahi', 'cooking')]), O48b: view('O48b', [sl('O48b', 'B', 'Naan', 'cooking')]) }, answer: (type) => (type === 'SubmitOrder' ? SUBMITTED : undefined) });
+    const m = h.render();
+    await flush();
+    m.click(m.container.querySelector('.tk-qr'));
+    await flush();
+    m.click(m.button('Add items'));
+    expect(m.container.querySelector('.tk-drawer')).toBeNull();
+    expect(m.container.querySelector('.tk-banner')?.textContent).toContain('Adding to token 48');
+    addNaan(m);
+    m.click(m.button('Add to token 48'));
+    await flush(8);
+    const submit = h.sent.find((s) => s.type === 'SubmitOrder')!;
+    expect(submit.payload).toMatchObject({ order_type: 'takeaway', adds_to_order_id: 'O48' });
+    expect(m.container.querySelector('.tk-banner')).toBeNull();
+    expect(m.text()).not.toContain('Add to token');
+    m.unmount();
+  });
+
+  it('[02b-TK C2-3] Cancel on the banner makes it a new order again', async () => {
+    const h = screenHarness({ answer: (type) => (type === 'SubmitOrder' ? SUBMITTED : undefined) });
+    const m = h.render();
+    await flush();
+    await openRow(m);
+    m.click(m.button('Add items'));
+    m.click(m.button('Cancel', m.container.querySelector('.tk-banner')!));
+    addNaan(m);
+    m.click(m.button('Send to kitchen'));
+    await flush(8);
+    expect(h.sent.find((s) => s.type === 'SubmitOrder')!.payload).not.toHaveProperty('adds_to_order_id');
+    m.unmount();
+  });
+
+  it('[02b-TK C2-3] a cart with lines is another customer\'s: Add items asks to send or hold it first', async () => {
+    const h = screenHarness();
+    const m = h.render();
+    await flush();
+    addNaan(m);
+    await openRow(m);
+    m.click(m.button('Add items'));
+    expect(h.toasts.at(-1)!.text).toBe('Send or hold this cart first, then add to the token');
+    expect(m.container.querySelector('.tk-banner')).toBeNull();
+    m.unmount();
+  });
+
+  it('[02b §3.2 step 2] 422 CONFIG_REFERENCE_INVALID { field: adds_to_order_id } / 404 ORDER_NOT_FOUND → the cart comes back with the reason', async () => {
+    for (const error of [
+      { kind: 'api', status: 422, code: 'CONFIG_REFERENCE_INVALID', details: { field: 'adds_to_order_id' } },
+      { kind: 'api', status: 404, code: 'ORDER_NOT_FOUND', details: {} },
+    ]) {
+      const h = screenHarness({ answer: (type) => (type === 'SubmitOrder' ? { status: 'refused', error } : undefined) });
+      const m = h.render();
+      await flush();
+      await openRow(m);
+      m.click(m.button('Add items'));
+      addNaan(m);
+      m.click(m.button('Add to token 48'));
+      await flush(8);
+      expect(h.toasts.at(-1)!.text).toBe('This token can’t take more items (closed, cancelled or another day) — send them as a new order');
+      expect(m.container.querySelector('.tk-banner')?.textContent).toContain('Adding to token 48');
+      expect(m.container.querySelectorAll('.ln')).toHaveLength(1);
+      m.unmount();
+    }
   });
 });

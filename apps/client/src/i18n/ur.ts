@@ -1652,4 +1652,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // 02b-TK C2-2 (ruling R2: Due greys Hand over, a manager may override): not in strings-table.md; Urdu to confirm
   'v.pay_first': 'پہلے پیسے لیں — مینیجر بغیر ادائیگی حوالے کر سکتا ہے',
   'v.override': 'بغیر ادائیگی حوالے کریں · مینیجر',
+  'ctx.adding': 'ٹوکن میں اضافہ',
+  'c.add_to': 'ٹوکن میں ڈالیں',
+  // 02b-TK C2-3 (02b §3.2 step 2 errors; a busy cart): not in strings-table.md; Urdu to confirm
+  'c.add_gone': 'اس ٹوکن میں مزید آئٹم نہیں ڈل سکتے (بند، منسوخ یا دوسرے دن کا) — نیا آرڈر بھیجیں',
+  'c.add_busy': 'پہلے یہ کارٹ بھیجیں یا ہولڈ کریں، پھر ٹوکن میں ڈالیں',
 };

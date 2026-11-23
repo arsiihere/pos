@@ -44,6 +44,8 @@ export function freezeSubmit(cart: Cart, target: DraftTarget, order_id: string):
     ...(target.order_type === 'parking' && cart.parking !== undefined ? { parking: { ...cart.parking } } : {}),
     ...(cart.order_note === undefined ? {} : { order_note: cart.order_note }),
     ...(cart.serve_mode === undefined ? {} : { serve_mode: cart.serve_mode }),
+    // 02b-TK C2-3 (02b §3.2 step 2): a takeaway addition names its root; it keeps the root's token (step 9)
+    ...(target.order_type === 'takeaway' && cart.adds_to !== undefined ? { adds_to_order_id: cart.adds_to.order_id } : {}),
     lines: toSubmitLines(cart),
   };
   return deepFreeze(structuredClone(payload));
@@ -99,6 +101,8 @@ export function refusalText(config: BranchConfig, outcome: Extract<SendOutcome, 
   if (outcome.kind === 'needs_hub') return t('send.needs_sign_in');
   const { code, details } = outcome.error;
   if (code === 'TABLE_SEATING_CHANGED') return t('tables.changed');
+  // 02b-TK C2-3 (02b §3.2 step 2): the token added to is gone (404) or not one to add to (cancelled, another day)
+  if (code === 'ORDER_NOT_FOUND' || (code === 'CONFIG_REFERENCE_INVALID' && (details as { field?: unknown } | undefined)?.field === 'adds_to_order_id')) return t('c.add_gone');
   if (ORDER_CODES.has(code)) {
     const d = (details ?? {}) as { item_id?: unknown; deal_id?: unknown };
     const item =

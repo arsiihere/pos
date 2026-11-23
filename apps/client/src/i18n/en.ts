@@ -4298,6 +4298,11 @@ export const en = {
   // 02b-TK C2-2 (ruling R2: Due greys Hand over, a manager may override): not in strings-table.md; Urdu to confirm
   'v.pay_first': 'Take payment first — a manager can hand over unpaid',
   'v.override': 'Hand over unpaid · manager',
+  'ctx.adding': 'Adding to token',
+  'c.add_to': 'Add to token',
+  // 02b-TK C2-3 (02b §3.2 step 2 errors; a busy cart): not in strings-table.md; Urdu to confirm
+  'c.add_gone': 'This token can’t take more items (closed, cancelled or another day) — send them as a new order',
+  'c.add_busy': 'Send or hold this cart first, then add to the token',
 } as const;
 
 export type MessageKey = keyof typeof en;
