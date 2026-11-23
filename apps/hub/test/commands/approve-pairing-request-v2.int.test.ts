@@ -2,7 +2,6 @@ import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { deviceProfile, listedAdminDeviceCount } from '../../src/auth/device-profile';
 import { currentDirectory } from '../../src/auth/guards';
-import { EN } from '../../src/lib/strings';
 import { jsonResponse, runPage } from '../helpers/page-sandbox';
 import { registerStationValidator } from '../../src/auth/station-validator';
 import { sha256hex } from '../../src/lib/hash';
@@ -364,10 +363,11 @@ describe('ApprovePairingRequest v2 (05a §6.3)', () => {
   });
 });
 
-describe('/admin/approve interim kinds (05a §6.3, D-3; plan task 15 review)', () => {
+describe('/admin/approve form (05a §6.3, §8, D-3; plan task 33)', () => {
   /** The page's fetch, answered by the real hub (bootstrap admin: no device token). */
-  const realFetch = (hub: Hub) => async (url: string, init?: unknown) => {
+  const realFetch = (hub: Hub, sent: Array<Record<string, unknown>> = []) => async (url: string, init?: unknown) => {
     const req = (init ?? {}) as { method?: string; headers?: Record<string, string>; body?: string };
+    if (req.body !== undefined && url.endsWith('/approve-pairing-request')) sent.push((JSON.parse(req.body) as { payload: Record<string, unknown> }).payload);
     const res = await hub.app.inject({
       method: (req.method ?? 'GET') as 'GET' | 'POST',
       url,
@@ -376,46 +376,100 @@ describe('/admin/approve interim kinds (05a §6.3, D-3; plan task 15 review)', (
     });
     return jsonResponse(res.statusCode, res.json());
   };
-
-  it('[05a §6.3] [05a D-3] a fresh hub\'s bootstrap admin pairs a tablet (everyone; dine_in, manager) and their own phone (listed [them]; dine_in) through the page\'s payload; the phone counts as a listed admin device; the kind defaults from the request\'s hint', async () => {
+  const setup = async () => {
     const hub = await open();
-    expect(listedAdminDeviceCount(currentDirectory(hub.app))).toBe(0);
     const bootstrap = openSession(hub, { kind: 'admin', staffId: 'S_OWNER' });
     const session = { admin_session_token: bootstrap.token, admin_staff_id: 'S_OWNER', admin_bootstrap: '1', admin_name: 'Owner' };
     const html = (await hub.app.inject({ method: 'GET', url: '/admin/approve' })).body;
+    return { hub, session, html };
+  };
+  const tile = (page: Awaited<ReturnType<typeof runPage>>, group: string, value: string) => page.find(group)!.children.find((el) => el.value === value)!;
+  const pressed = (page: Awaited<ReturnType<typeof runPage>>, group: string) => page.find(group)!.children.filter((el) => el.getAttribute('aria-pressed') === 'true').map((el) => el.value);
 
-    for (const [index, type] of [[1, 'tablet'], [2, 'phone']] as const) {
+  it('[05a §6.3] [05a D-3] the page submits a valid v2 payload for each hardware, with the §6.3 defaults and a suggested name; the phone counts as a listed admin device', async () => {
+    const { hub, session, html } = await setup();
+    expect(listedAdminDeviceCount(currentDirectory(hub.app))).toBe(0);
+    const cases = [
+      { index: 0, type: 'cashier_kiosk', name: 'Counter 2', access: 'everyone', screens: ['takeaway', 'cashier', 'manager'], staff: [] as string[] },
+      { index: 1, type: 'tablet', name: 'Tablet 1', access: 'everyone', screens: ['dine_in', 'manager'], staff: [] as string[] },
+      { index: 2, type: 'phone', name: "Owner's phone", access: 'listed', screens: ['dine_in'], staff: ['S_OWNER'] },
+    ];
+    for (const c of cases) {
       const req = await request(hub);
-      const page = await runPage(html, { session, fetch: realFetch(hub) });
-      const form = page.findAll((el) => el.tagName === 'form')[0]!;
+      const sent: Array<Record<string, unknown>> = [];
+      const page = await runPage(html, { session, fetch: realFetch(hub, sent) });
       page.find('display_code')!.value = req.display_code;
-      await page.click(page.find('device_type')!.children[index]!);
-      await page.submit(form);
+      await page.click(page.find('device_type')!.children[c.index]!);
+      expect(page.find('device_name')!.value, c.type).toBe(c.name);
+      await page.submit(page.findAll((el) => el.tagName === 'form')[0]!);
       await page.settle();
-      expect(page.screen.children.length, type).toBeGreaterThan(0);
+      expect(sent[0], c.type).toMatchObject({ display_code: req.display_code, device_type: c.type, device_name: c.name, access: c.access, screens: c.screens, ...(c.staff.length > 0 ? { staff_ids: c.staff } : {}) });
+      expect(sent[0], c.type).not.toHaveProperty('point_id');
       const id = hub.deps.db.prepare('SELECT device_id FROM pair_requests WHERE request_id = ?').pluck().get(req.request_id) as string | null;
-      expect(id, type).not.toBeNull();
-      expect(hub.deps.db.prepare('SELECT device_type, device_name FROM devices WHERE device_id = ?').get(id), type).toEqual({
-        device_type: type,
-        device_name: EN[type === 'tablet' ? 'approve.kind_tablet' : 'approve.kind_phone'],
-      });
+      expect(id, c.type).not.toBeNull();
       const profile = deviceProfile(id!)!;
-      if (type === 'tablet') {
-        expect({ access: profile.access, screens: profile.screens, staff: [...profile.staff_ids] }).toEqual({ access: 'everyone', screens: ['dine_in', 'manager'], staff: [] });
-        expect(listedAdminDeviceCount(currentDirectory(hub.app))).toBe(0);
-      } else {
-        expect({ access: profile.access, screens: profile.screens, staff: [...profile.staff_ids] }).toEqual({ access: 'listed', screens: ['dine_in'], staff: ['S_OWNER'] });
-        expect(listedAdminDeviceCount(currentDirectory(hub.app))).toBe(1);
-      }
+      expect({ access: profile.access, screens: profile.screens, staff: [...profile.staff_ids] }, c.type).toEqual({ access: c.access, screens: c.screens, staff: c.staff });
     }
+    expect(listedAdminDeviceCount(currentDirectory(hub.app))).toBe(1);
 
-    // M-2: a scanned ?r= of a request hinted `phone` opens with Phone picked; no hint → nothing picked.
+    // kds: a station and nothing of the profile
+    const station = aBranchConfig().stations.find((st) => !st.is_archived)?.station_id;
+    registerStationValidator(() => true);
+    expect(station).toBeDefined();
+    {
+      const req = await request(hub);
+      const sent: Array<Record<string, unknown>> = [];
+      const page = await runPage(html, { session, fetch: realFetch(hub, sent) });
+      page.find('display_code')!.value = req.display_code;
+      await page.click(page.find('device_type')!.children[3]!);
+      await page.click(page.find('station_id')!.children.find((el) => el.value === station)!);
+      await page.submit(page.findAll((el) => el.tagName === 'form')[0]!);
+      await page.settle();
+      expect(sent[0]).toMatchObject({ device_type: 'kds', station_id: station });
+      expect(sent[0]).not.toHaveProperty('access');
+      expect(sent[0]).not.toHaveProperty('screens');
+    }
+  });
+
+  it('[05a §6.3] a scanned ?r= opens with the request\'s hardware_hint from pending_requests: phone → listed, the signed-in admin picked, dine_in; no hint → nothing picked', async () => {
+    const { hub, session } = await setup();
     const hinted = await request(hub, 'phone');
     const fromQr = await runPage((await hub.app.inject({ method: 'GET', url: `/admin/approve?r=${hinted.request_id}` })).body, { session, search: `?r=${hinted.request_id}`, fetch: realFetch(hub) });
-    const pressed = (p: typeof fromQr) => p.find('device_type')!.children.map((el) => el.getAttribute('aria-pressed'));
-    expect(pressed(fromQr)).toEqual(['false', 'false', 'true', 'false']);
+    expect(fromQr.find('device_type')!.children.map((el) => el.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true', 'false']);
+    expect(pressed(fromQr, 'access')).toEqual(['listed']);
+    expect(pressed(fromQr, 'staff_ids')).toEqual(['S_OWNER']);
+    expect(pressed(fromQr, 'screens')).toEqual(['dine_in']);
+    // the people picker offers the whole directory; the code is never prefilled
+    expect(fromQr.find('staff_ids')!.children.map((el) => el.value)).toContain('S_OWNER');
+    expect(fromQr.find('display_code')!.value).toBe('');
+    // the page itself reads nothing from pair_requests
+    expect((await hub.app.inject({ method: 'GET', url: `/admin/approve?r=${hinted.request_id}` })).body).not.toContain(hinted.request_id);
     const plain = await request(hub);
     const noHint = await runPage((await hub.app.inject({ method: 'GET', url: `/admin/approve?r=${plain.request_id}` })).body, { session, search: `?r=${plain.request_id}`, fetch: realFetch(hub) });
-    expect(pressed(noHint)).toEqual(['false', 'false', 'false', 'false']);
+    expect(noHint.find('device_type')!.children.map((el) => el.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'false', 'false']);
+  });
+
+  it('[05a §6.3] pass ⇔ point: Pass offered on a tablet and phone, a Pass point is then required, sent only with pass; a kiosk offers cashier, a phone does not', async () => {
+    const { hub, session, html } = await setup();
+    const req = await request(hub);
+    const sent: Array<Record<string, unknown>> = [];
+    const page = await runPage(html, { session, fetch: realFetch(hub, sent) });
+    await page.click(page.find('device_type')!.children[1]!);
+    expect(page.find('screens')!.children.map((el) => el.value)).toEqual(['dine_in', 'takeaway', 'parking', 'cashier', 'pass', 'manager']);
+    page.find('display_code')!.value = req.display_code;
+    await page.click(tile(page, 'screens', 'pass'));
+    expect(page.find('point_id')!.children.map((el) => el.value)).toEqual(['P1']); // P_OLD is archived
+    await page.submit(page.findAll((el) => el.tagName === 'form')[0]!);
+    expect(sent).toHaveLength(0); // no point picked: nothing sent
+    await page.click(tile(page, 'point_id', 'P1'));
+    await page.submit(page.findAll((el) => el.tagName === 'form')[0]!);
+    await page.settle();
+    expect(sent[0]).toMatchObject({ device_type: 'tablet', screens: ['dine_in', 'manager', 'pass'], point_id: 'P1' });
+    const id = hub.deps.db.prepare('SELECT device_id FROM pair_requests WHERE request_id = ?').pluck().get(req.request_id) as string;
+    expect(deviceProfile(id)!.point_id).toBe('P1');
+
+    const phone = await runPage(html, { session, fetch: realFetch(hub) });
+    await phone.click(phone.find('device_type')!.children[2]!);
+    expect(phone.find('screens')!.children.map((el) => el.value)).not.toContain('cashier');
   });
 });

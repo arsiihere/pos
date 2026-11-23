@@ -161,8 +161,8 @@ export function createKitchenScreensApi(options: HubAdminOptions) {
     // §6.9
     setStationScreen: (payload: { station_id: string; sound_volume: number }, commandId: string) =>
       page.command<{ station_id: string; sound_volume: number }>('SetStationScreen', payload, commandId),
-    // §6.10: an omitted field keeps the device's value.
-    setDeviceRole: (payload: { device_id: string; point_id?: string | null; lane_label?: string | null }, commandId: string) =>
+    // §6.10: the lane label only; the device's point is its profile (05a K-1, K-2) and is no longer sent.
+    setDeviceRole: (payload: { device_id: string; lane_label?: string | null }, commandId: string) =>
       page.command<DeviceRole>('SetDeviceRole', payload, commandId),
   };
 }

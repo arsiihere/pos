@@ -1,4 +1,4 @@
-import type { DeviceType, Scope } from '@pos/domain';
+import type { DeviceType, Masked, Scope } from '@pos/domain';
 import { AlertReceiptsResponse, AlertsInboxResponse, RequestsToAnswerResponse, type SendTestAlertPayload } from '@pos/events';
 import type { HubError, HubResult } from '../../api/hub-admin';
 import { newUlid } from '../../app/ulid';
@@ -57,11 +57,12 @@ export interface SignedIn {
  * 01b §3.3 effective permission, kept whole (02a §3.15, R5): `scope` on a granting result, the approver roles on
  * `requires_approval` (shape of apps/hub/src/auth/staff-directory.ts Resolution).
  */
-export type Resolution =
+export type Resolution = (
   | { grant: 'allowed'; scope: Scope }
   | { grant: 'requires_approval'; approver_role_ids: string[]; scope: Scope }
   | { grant: 'not_granted' }
-  | { grant: 'denied' };
+  | { grant: 'denied' }
+) & { masked?: Masked };
 
 export interface SessionInfo {
   permissions: Record<string, Resolution>;

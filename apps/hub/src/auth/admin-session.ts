@@ -141,8 +141,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
   registerRecoveryLinkRoute(app, deps); // 05a §6.11
 
   app.get('/admin/login-roster', { config: { group: 'admin-bootstrap' } }, async (request) => {
-    const scope = rosterScope(deps, request);
     const directory = currentDirectory(app);
+    const scope = rosterScope(deps, request, directory);
     const listed = scope.listed;
     const locks = new Map<string, number | null>();
     const rows = deps.db
@@ -194,7 +194,7 @@ function deviceFromBearer(db: Database.Database, request: FastifyRequest): Devic
 }
 
 /** `listed: null` = bootstrap token (whole directory's admins); else the people of the calling `listed` device. */
-function rosterScope(deps: HubDeps, request: FastifyRequest): { listed: ReadonlySet<string> | null } {
+function rosterScope(deps: HubDeps, request: FastifyRequest, directory: ReturnType<typeof currentDirectory>): { listed: ReadonlySet<string> | null } {
   const bootstrap = headerValue(request, 'x-admin-bootstrap');
   if (bootstrap !== undefined) {
     if (!liveBootstrap(deps, bootstrap)) throw new DomainError('PAIRING_TOKEN_INVALID');
@@ -209,9 +209,16 @@ function rosterScope(deps: HubDeps, request: FastifyRequest): { listed: Readonly
       allowed: ['tablet', 'cashier_kiosk', 'phone'],
     });
   }
-  // 05a H-2: `everyone`, or no profile (R-1, as `everyone`), is refused.
+  // 05a H-2: `everyone`, or no profile (R-1, as `everyone`), is refused. v1.0.3 (G-g (a)): the refusal carries
+  // `recovery_available` (memory, no statement), so an upgraded `everyone` device can offer the recovery link (§6.11).
   const profile = deviceProfile(device.device_id);
-  if (profile === undefined || profile.access === 'everyone') throw listedDeviceOnly();
+  if (profile === undefined || profile.access === 'everyone') {
+    throw new DomainError('PERMISSION_DENIED', {
+      permission: 'access-hub-admin',
+      reason: 'listed_device_only',
+      recovery_available: listedAdminDeviceCount(directory) === 0,
+    });
+  }
   return { listed: profile.staff_ids };
 }
 

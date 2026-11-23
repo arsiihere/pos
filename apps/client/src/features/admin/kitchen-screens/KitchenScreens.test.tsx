@@ -110,14 +110,15 @@ describe('kitchen screens page', () => {
     expect(hub.reads('/admin/queries/kds-config')).toBe(2);
   });
 
-  it('[03b §3.8 Q-43] #bind=<device_id> opens the bind dialog for that device', async () => {
+  it('[05a K-2] [03b Q-43] #bind=<device_id> opens the bind dialog with that device first', async () => {
     window.location.hash = '#bind=T5';
     setup();
     await flush();
     const dialog = m.container.querySelector<HTMLElement>('[role="dialog"]');
     expect(dialog?.textContent).toContain('Use as Pass tablet for…');
-    expect(dialog?.querySelector<HTMLSelectElement>('select')?.value).toBe('T5');
-    expect(dialog?.textContent).toContain('“Tablet 5” will show the Pass after sign-in');
+    // 05a K-2: the asked-for device comes first, linking to its edit form
+    expect(dialog?.querySelector<HTMLElement>('[data-device]')?.dataset['device']).toBe('T5');
+    expect(dialog?.querySelector('[data-device="T5"] a')?.getAttribute('href')).toBe('/staff/#/devices?edit=T5');
   });
 
   it('[03b Q-48] warnings name the station, also an archived one; without HK6 fields → ids shown', async () => {

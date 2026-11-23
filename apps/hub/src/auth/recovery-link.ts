@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { HubDeps } from '../server.js';
 import { issueAdminBootstrap } from './bootstrap-tokens.js';
 import { listedAdminDeviceCount } from './device-profile.js';
+import { qrSvg } from '../lib/qr.js';
 import { currentDirectory } from './guards.js';
 
 // 05a §6.11 (H-7; N-7, R-1, R-2): the recovery link at zero admin devices (M-8). Group `admin-device-public`: a device
@@ -37,6 +38,7 @@ export function registerRecoveryLinkRoute(app: FastifyInstance, deps: HubDeps): 
     ).result;
     // As setup builds its first-admin URL (00 §6.4 step 8).
     const firstAdminUrl = `http://${deps.config.advertised_host ?? ''}:${deps.config.http_port}/admin/bootstrap#t=${issued.token}`;
-    return { data: { first_admin_url: firstAdminUrl, expires_at: issued.expires_at } };
+    // The QR is drawn here, as setup does (first_admin_qr_svg), so the page needs no QR code of its own.
+    return { data: { first_admin_url: firstAdminUrl, first_admin_qr_svg: qrSvg(firstAdminUrl), expires_at: issued.expires_at } };
   });
 }

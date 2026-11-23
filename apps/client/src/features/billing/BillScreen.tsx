@@ -18,6 +18,7 @@ import { billingErrorKey } from './errors';
 import { BILL_LIST_FRAMES } from './frames';
 import { amountText, billMoney, currencySymbol, MONEY_DIR, parseMinor, rateText, signedAmountText } from './money';
 import './styles';
+import { MaskedAction } from '../staff/shell/MaskedAction';
 
 // 05 v1.0.14 §8 "Bill screen", §6.1, §6.9, §6.12, §3.3, §3.5 (7) (plan §3.1 task 35; brief §3.2; frames Bill,
 // BillPadCash, BillPadCard, BillMixed, BillCloseBlocked, BillReadyToClose, BillTotalChanged, BillClosed, BillRefund,
@@ -938,17 +939,19 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
               {done.invoiceId !== null && shell.permissions.allowed('take-payment') && <ReprintButton doc="receipt" invoiceId={done.invoiceId} onPrinted={() => {}} />}
               {/* 36c, frame BillClosed: Reopen from the closed view */}
               {canReopenGrant && online && done.invoiceId !== null && bill.state === 'closed' && (
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => {
-                    setDone(null);
-                    setSheet('reopen');
-                  }}
-                >
-                  {t('billing.reopen.button')}
-                  {shell.permissions.requiresApproval('reopen-bill') && <span className="ntag">{t('billing.sheet.needs')}</span>}
-                </button>
+                <MaskedAction permissions={shell.permissions} permission="reopen-bill">
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      setDone(null);
+                      setSheet('reopen');
+                    }}
+                  >
+                    {t('billing.reopen.button')}
+                    {shell.permissions.requiresApproval('reopen-bill') && <span className="ntag">{t('billing.sheet.needs')}</span>}
+                  </button>
+                </MaskedAction>
               )}
             </div>
           )}
@@ -1000,11 +1003,13 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
                   </button>
                 )}
                 {discountGrant && canDiscount(bill) && (
-                  <button type="button" className="btn" onClick={() => setSheet('discount')}>
-                    <BIco name="bill" />
-                    {t('billing.discount.button')}
-                    {shell.permissions.requiresApproval('apply-discount') && <span className="ntag">{t('billing.sheet.needs')}</span>}
-                  </button>
+                  <MaskedAction permissions={shell.permissions} permission="apply-discount">
+                    <button type="button" className="btn" onClick={() => setSheet('discount')}>
+                      <BIco name="bill" />
+                      {t('billing.discount.button')}
+                      {shell.permissions.requiresApproval('apply-discount') && <span className="ntag">{t('billing.sheet.needs')}</span>}
+                    </button>
+                  </MaskedAction>
                 )}
               </div>
             )}
@@ -1037,10 +1042,12 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
             {!open && split !== undefined && split.invoice !== null && <div className="b5-note">{fill(t('billing.bill.paid_split'), { invoice_ref: split.invoice.invoice_ref })}</div>}
             {/* 36c: Reopen on a CLOSED bill, or on a closed split's invoice of a PARTLY_PAID bill (it reopens the whole bill) */}
             {canReopenGrant && online && split !== undefined && split.state === 'closed' && split.invoice !== null && (bill.state === 'closed' || bill.state === 'partly_paid') && (
-              <button type="button" className="btn" onClick={() => setSheet('reopen')}>
-                {t('billing.reopen.button')}
-                {shell.permissions.requiresApproval('reopen-bill') && <span className="ntag">{t('billing.sheet.needs')}</span>}
-              </button>
+              <MaskedAction permissions={shell.permissions} permission="reopen-bill">
+                <button type="button" className="btn" onClick={() => setSheet('reopen')}>
+                  {t('billing.reopen.button')}
+                  {shell.permissions.requiresApproval('reopen-bill') && <span className="ntag">{t('billing.sheet.needs')}</span>}
+                </button>
+              </MaskedAction>
             )}
             {/* §6.22, R-90: the split's current sale invoice, from the view (a later visit too; a re-close shows the new one) */}
             {!open && split !== undefined && split.invoice !== null && online && shell.permissions.allowed('take-payment') && (

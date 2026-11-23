@@ -76,12 +76,12 @@ describe('kitchen screens api', () => {
   it('[03b §6.10] an api error keeps its code and details; a network failure is { kind: network }', async () => {
     const { api } = apiWith([
       reply(200, { data: STATUS }),
-      reply(404, { error: { code: 'POINT_NOT_FOUND', details: { point_id: 'P9' } } }),
+      reply(404, { error: { code: 'DEVICE_NOT_FOUND', details: { device_id: 'T5' } } }),
       new Error('down'),
     ]);
-    expect(await api.setDeviceRole({ device_id: 'T5', point_id: 'P9' }, 'C1')).toEqual({
+    expect(await api.setDeviceRole({ device_id: 'T5', lane_label: 'Left' }, 'C1')).toEqual({
       ok: false,
-      error: { kind: 'api', status: 404, code: 'POINT_NOT_FOUND', details: { point_id: 'P9' } },
+      error: { kind: 'api', status: 404, code: 'DEVICE_NOT_FOUND', details: { device_id: 'T5' } },
     });
     expect(await api.kdsConfig()).toEqual({ ok: false, error: { kind: 'network' } });
   });

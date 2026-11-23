@@ -368,10 +368,13 @@ export function resolveStep(step: StepDef, alert: AlertRow, reads: BatchReads, d
   const markers = new Set<string>();
   // 01d D-3: `skip_requester` leaves the requester out of every set (answerer entries always skip him, §3.3 rule 5)
   const skipRequester = kindOf(alert.kind)?.skip_requester === true;
+  const namedToSelf = alert.request?.right_mode === 'named' && alert.request.receiver_staff_id === alert.requester_staff_id;
   for (const { target, set } of stepTargets(step, alert)) {
     const found = resolveTarget(target, alert, reads, directory);
     for (const staffId of found.staff_ids) {
-      if ((set === 'answerer' || skipRequester) && staffId === alert.requester_staff_id) continue;
+      // ⚠️ Changed by 05a (row D-2), 05a §3.9 rule 1 (a): a `named` request whose receiver is its requester (the
+      // downgraded raise, "Confirm on your phone") keeps the requester as its one answerer
+      if ((set === 'answerer' || skipRequester) && staffId === alert.requester_staff_id && !namedToSelf) continue;
       add(people, staffId, { staff_id: staffId, device_id: null, set });
     }
     for (const deviceId of found.device_ids) add(devices, deviceId, { staff_id: null, device_id: deviceId, set });

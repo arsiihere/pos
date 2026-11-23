@@ -12,7 +12,7 @@ import { StaffTiles, type StaffTile } from '../../../components/StaffTiles';
 import { t, type MessageKey } from '../../../i18n';
 import { adminErrorKey, fill } from '../../../i18n/en';
 import type { AudioSink } from '../../alerts/sounds';
-import type { AdminPageApi, HubDevice, HubError, KdsConfig, KdsPoint, KdsScreen, KitchenScreensApi, PassTablet } from './api';
+import type { AdminPageApi, HubDevice, HubError, KdsConfig, KdsScreen, KitchenScreensApi } from './api';
 import { BindDialog, LaneLabelDialog } from './BindDialog';
 import { PassTablets, StationRow } from './StationRow';
 import { Warnings } from './Warnings';
@@ -250,13 +250,6 @@ type Open =
   | { kind: 'bind'; deviceId: string | null }
   | null;
 
-/** Q-48: the points of the bind picker; before HK6 (no `points`) the point ids the page already knows. */
-function pickablePoints(config: KdsConfig): KdsPoint[] {
-  if (config.points !== undefined) return config.points;
-  const ids = [...new Set([...config.stations.map((s) => s.point_id), ...config.pass_tablets.map((p) => p.point_id)])];
-  return ids.map((point_id) => ({ point_id, name: point_id, is_archived: false }));
-}
-
 function KitchenScreens({ api, sink, onSignedOut }: { api: KitchenScreensApi; sink: AudioSink; onSignedOut: () => void }) {
   const phone = usePhone();
   const [config, setConfig] = useState<KdsConfig | null>(null);
@@ -352,14 +345,13 @@ function KitchenScreens({ api, sink, onSignedOut }: { api: KitchenScreensApi; si
       false,
     );
 
-  const saveRole = (payload: { device_id: string; point_id?: string | null; lane_label?: string | null }) =>
+  const saveRole = (payload: { device_id: string; lane_label?: string | null }) =>
     void run((id) => api.setDeviceRole(payload, id), close, true);
 
   const signOut = () => {
     void api.logout().then(onSignedOut);
   };
 
-  const pointOf = (deviceId: string): string | null => config?.pass_tablets.find((p: PassTablet) => p.device_id === deviceId)?.point_id ?? null;
   // Phone: problems first (frame KitchenScreensPhone: the dark station on top).
   const stations = config === null ? [] : phone ? [...config.stations].sort((a, b) => Number(b.dark) - Number(a.dark)) : config.stations;
 
@@ -439,18 +431,7 @@ function KitchenScreens({ api, sink, onSignedOut }: { api: KitchenScreensApi; si
         />
       )}
       {open?.kind === 'bind' && config !== null && (
-        <BindDialog
-          tablets={tablets}
-          points={pickablePoints(config)}
-          stations={config.stations}
-          initialDeviceId={open.deviceId}
-          pointOf={pointOf}
-          busy={busy}
-          error={dialogError}
-          onSave={(deviceId, pointId) => saveRole({ device_id: deviceId, point_id: pointId })}
-          onUnbind={(deviceId) => saveRole({ device_id: deviceId, point_id: null })}
-          onClose={close}
-        />
+        <BindDialog devices={tablets} initialDeviceId={open.deviceId} error={dialogError} onClose={close} />
       )}
       <Toast text={toast} />
     </AdminShell>

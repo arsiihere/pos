@@ -320,3 +320,35 @@ describe('[05a §8, row 32] #/devices?r=<request_id>: the QR fills the request, 
     expect(m.text()).toContain('Waiting');
   });
 });
+
+describe('[05a K-2, §8] #/devices?edit=<device_id>: opens the edit form for that non-kds row', () => {
+  const dev = (id: string, type: 'tablet' | 'kds', over: Record<string, unknown> = {}) => ({
+    device_id: id, device_name: `Dev ${id}`, device_type: type, revoked_at: null,
+    access: type === 'kds' ? null : 'everyone', people: [], screens: type === 'kds' ? [] : ['dine_in'], point_id: null, profile_version: 1, needs_review: false, ...over,
+  });
+  const api = () =>
+    createDevicesApi(
+      createStaffApi({
+        device: { token: 'DEV', id: 'D1', type: 'tablet' },
+        meta: { tenantId: 'T', branchId: 'B', branchName: 'G', hubNowMs: 0, utcOffsetMs: 0 },
+        fetch: async (url) =>
+          url === '/queries/devices'
+            ? reply(200, { data: { devices: [dev('T1', 'tablet'), dev('K1', 'kds'), dev('T2', 'tablet', { revoked_at: 5 })], pending_requests: [], admin_warning: null, staff: STAFF } })
+            : reply(404, { error: { code: 'ROUTE_NOT_FOUND' } }),
+        onSignedOut: () => {},
+      }),
+    );
+  it('a known non-kds id opens its edit form', async () => {
+    m.render(<DeviceList api={api()} openEditId="T1" />);
+    await flush();
+    expect((field('name') as HTMLInputElement).value).toBe('Dev T1');
+  });
+  it('an unknown, kitchen or removed id shows just the list', async () => {
+    for (const id of ['NOPE', 'K1', 'T2']) {
+      m.render(<DeviceList api={api()} openEditId={id} />);
+      await flush();
+      expect(m.container.querySelector('[data-field="name"]'), id).toBeNull();
+      expect(m.text()).toContain('Dev T1');
+    }
+  });
+});

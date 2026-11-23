@@ -273,8 +273,8 @@ describe('ApprovePairingRequest', () => {
       branch_id: 'branch-1',
       actor_id: 'S_OWNER',
       device_id: 'hub-admin',
-      // 05a §6.3 v2 payload: until plan task 33 the page sends the kind's label and the §6.3 kiosk default.
-      payload: { display_code: 'ABS123', device_type: 'cashier_kiosk', device_name: EN['approve.kind_cashier'], access: 'everyone', screens: ['takeaway', 'cashier', 'manager'] },
+      // 05a §6.3 v2 payload (task 33): the suggested name and the §6.3 kiosk default.
+      payload: { display_code: 'ABS123', device_type: 'cashier_kiosk', device_name: EN['approve.suggest_kiosk'], access: 'everyone', screens: ['takeaway', 'cashier', 'manager'] },
     });
     expect((sent[0]!.payload as Record<string, unknown>).station_id).toBeUndefined();
     expect(textOf(form())).toContain(EN['errors.PAIRING_REQUEST_NOT_FOUND']);

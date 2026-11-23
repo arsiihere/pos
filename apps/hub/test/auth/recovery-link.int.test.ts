@@ -23,6 +23,7 @@ describe('05a §6.11 admin recovery link', () => {
     const data = issued.json().data as { first_admin_url: string; expires_at: number };
     expect(data.expires_at).toBe(hub.clock.branchNow() + 1_800_000);
     expect(data.first_admin_url).toMatch(/^http:\/\/192\.168\.10\.2:3000\/admin\/bootstrap#t=.+$/);
+    expect(data as Record<string, unknown>).toHaveProperty('first_admin_qr_svg', expect.stringContaining('<svg'));
     const events = bootstrapEvents(hub);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ schema_version: 2, device_id: tablet.deviceId, actor_id: null, payload: { issued_by: 'recovery', expires_at: data.expires_at } });

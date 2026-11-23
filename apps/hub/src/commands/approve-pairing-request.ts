@@ -88,7 +88,7 @@ export function validateStaffProfile(p: StaffProfileInput, directory: Pick<Sessi
 
 // 00-S06 … 00-S09 (docs/design/handoff/00/00-design.md §1). Loads without credentials (M79); the script signs in an
 // admin in this tab, then approves by QR (?r=) or by the code on the screen.
-function approvePage(ctx: { tenant_id: string; branch_id: string; hint: string | null }): string {
+function approvePage(ctx: { tenant_id: string; branch_id: string; offered: Record<string, readonly string[]> }): string {
   return `${pageHead({ title: 'approve.title', theme: 'light' })}
 <body class="pos-root">
 <div class="pos-page pos-page--fit pos-approve">
@@ -113,6 +113,7 @@ const end = document.getElementById('approve_end');
 const back = document.getElementById('approve_back');
 const topBanner = document.getElementById('approve_banner');
 const KIND_KEY = { cashier_kiosk: 'approve.kind_cashier', tablet: 'approve.kind_tablet', phone: 'approve.kind_phone', kds: 'approve.kind_kitchen' };
+const SCREEN_KEY = { dine_in: 'screen.dine_in', takeaway: 'screen.takeaway', parking: 'screen.parking', cashier: 'screen.cashier', pass: 'screen.pass', manager: 'screen.manager' };
 const KIND_ICON = { cashier_kiosk: 'screen', tablet: 'tablet', phone: 'phone', kds: 'flame' };
 // Crockford base32 without I L O U (M44 display codes).
 const CODE_RE = /^[0-9A-HJKMNP-TV-Z]{6}$/;
@@ -241,9 +242,44 @@ async function approveForm(auth, deviceId, values) {
   } catch {
     topBanner.replaceChildren(renderGlobalState({ id: 'F01', mode: 'banner' }));
   }
-  // 05a §6.1 / §6.3 (M-2): the request's hardware hint (?r= only) is the form's default kind.
-  let kind = kept.kind || (requestId && requestId === fromQr ? ctx.hint : null) || null;
+  // 05a §6.8: people (staff), the waiting requests and Pass points come from the admin queries after sign-in.
+  let staff = [];
+  let pending = [];
+  let points = [];
+  try {
+    const res = await call('/admin/queries/devices', { headers: adminHeaders(auth) });
+    if (res.status === 200) {
+      staff = res.body.data.staff || [];
+      pending = res.body.data.pending_requests || [];
+    } else if (res.body.error && res.body.error.code === 'ADMIN_SESSION_REQUIRED') return restart(auth, deviceId);
+  } catch {}
+  try {
+    const res = await call('/admin/queries/kds-config', { headers: adminHeaders(auth) });
+    if (res.status === 200) points = (res.body.data.points || []).filter((item) => !item.is_archived);
+  } catch {}
+  // 05a §6.1 / §6.3 (M-2): the scanned request's hardware_hint (from pending_requests) is the form's default kind.
+  const waiting = requestId ? pending.find((item) => item.request_id === requestId) : undefined;
+  let kind = kept.kind || (waiting && waiting.hardware_hint) || null;
   let stationId = kept.stationId || null;
+  const adminId = sessionStorage.getItem('admin_staff_id');
+  const personName = (id) => { const p = staff.find((item) => item.staff_id === id); return p ? p.display_name : ''; };
+  // §6.3 "Form defaults": phone → listed, one person (the signed-in admin when listed), dine_in; tablet → everyone,
+  // dine_in + manager; kiosk or no hint → everyone, takeaway + cashier + manager.
+  const defaultsFor = (k) => {
+    if (k === 'phone') return { access: 'listed', staffIds: staff.some((p) => p.staff_id === adminId) ? [adminId] : [], screens: ['dine_in'] };
+    if (k === 'tablet') return { access: 'everyone', staffIds: [], screens: ['dine_in', 'manager'] };
+    return { access: 'everyone', staffIds: [], screens: ['takeaway', 'cashier', 'manager'] };
+  };
+  const suggestName = (k) => {
+    if (k === 'phone') { const who = personName(profile.staffIds[0]); return who ? t('approve.suggest_phone_of', { name: who }) : ''; }
+    if (k === 'cashier_kiosk') return t('approve.suggest_kiosk');
+    if (k === 'tablet') return t('approve.suggest_tablet');
+    if (k === 'kds') { const st = stations.find((item) => item.station_id === stationId); return st ? t('approve.preview_kds_name', { station: st.name }) : t('approve.suggest_kds'); }
+    return '';
+  };
+  let profile = Object.assign({ pointId: kept.pointId || null }, kept.profile || defaultsFor(kind));
+  let nameEdited = Boolean(kept.nameEdited) || Boolean(waiting && waiting.device_name);
+  let deviceName = kept.deviceName !== undefined ? kept.deviceName : waiting && waiting.device_name ? waiting.device_name : suggestName(kind);
   const form = node('form', 'pos-card pos-approve__card');
   if (requestId) form.appendChild(row([chip('ok', 'check', t('approve.from_qr'))]));
   const code = node('input', 'pos-input pos-input--code');
@@ -264,6 +300,34 @@ async function approveForm(auth, deviceId, values) {
   tiles.name = 'station_id';
   const stationField = field('approve.station_label', tiles);
   form.appendChild(stationField);
+  // §6.3: name, access, people, screens, Pass point (a staff device only).
+  const nameInput = node('input', 'pos-input');
+  nameInput.name = 'device_name';
+  nameInput.autocomplete = 'off';
+  nameInput.setAttribute('maxlength', '40');
+  nameInput.value = deviceName;
+  const nameField = field('approve.name_label', nameInput);
+  form.appendChild(nameField);
+  const accessSeg = node('div', 'pos-seg pos-seg--block');
+  accessSeg.setAttribute('role', 'group');
+  accessSeg.name = 'access';
+  const accessField = field('approve.access_label', accessSeg);
+  form.appendChild(accessField);
+  const peopleBox = node('div', 'pos-tiles');
+  peopleBox.setAttribute('role', 'group');
+  peopleBox.name = 'staff_ids';
+  const peopleField = field('approve.people_label', peopleBox);
+  form.appendChild(peopleField);
+  const screensBox = node('div', 'pos-tiles');
+  screensBox.setAttribute('role', 'group');
+  screensBox.name = 'screens';
+  const screensField = field('approve.screens_label', screensBox);
+  form.appendChild(screensField);
+  const pointBox = node('div', 'pos-tiles');
+  pointBox.setAttribute('role', 'group');
+  pointBox.name = 'point_id';
+  const pointField = field('approve.point_label', pointBox);
+  form.appendChild(pointField);
   const status = node('div', 'pos-approve__status');
   status.name = 'approve_status';
   form.appendChild(status);
@@ -302,7 +366,9 @@ async function approveForm(auth, deviceId, values) {
       kind = value;
       for (const other of opts) other.setAttribute('aria-pressed', String(other === opt));
       kindField.fail('');
-      stationField.hidden = kind !== 'kds';
+      profile = Object.assign({ pointId: null }, defaultsFor(kind));
+      if (!nameEdited) { deviceName = suggestName(kind); nameInput.value = deviceName; }
+      paintProfile();
       preview();
     });
     opts.push(opt);
@@ -318,6 +384,7 @@ async function approveForm(auth, deviceId, values) {
     tile.setAttribute('aria-pressed', String(stationId === item.station_id));
     tile.addEventListener('click', () => {
       stationId = item.station_id;
+      if (!nameEdited && kind === 'kds') { deviceName = suggestName(kind); nameInput.value = deviceName; }
       for (const other of stationTiles) other.setAttribute('aria-pressed', String(other === tile));
       stationField.fail('');
       preview();
@@ -326,20 +393,78 @@ async function approveForm(auth, deviceId, values) {
     tiles.appendChild(tile);
   }
   if (stations.length === 0) tiles.appendChild(node('p', 'body', t('approve.no_stations')));
-  stationField.hidden = kind !== 'kds';
+  const toggle = (list, value) => (list.includes(value) ? list.filter((item) => item !== value) : list.concat([value]));
+  const chooser = (box, items, isOn, onPick) => {
+    box.replaceChildren();
+    for (const [value, label] of items) {
+      const tile = node('button', 'pos-tile', label);
+      tile.type = 'button';
+      tile.value = value;
+      tile.setAttribute('aria-pressed', String(isOn(value)));
+      tile.addEventListener('click', () => onPick(value));
+      box.appendChild(tile);
+    }
+  };
+  // Every control that depends on the kind or the profile is drawn here; pass ⇔ point (§3.6, §6.3).
+  const paintProfile = () => {
+    const staffDevice = kind !== null && kind !== 'kds';
+    stationField.hidden = kind !== 'kds';
+    for (const part of [nameField, accessField, screensField]) part.hidden = kind === null;
+    accessField.hidden = !staffDevice;
+    screensField.hidden = !staffDevice;
+    peopleField.hidden = !staffDevice || profile.access !== 'listed';
+    pointField.hidden = !staffDevice || !profile.screens.includes('pass');
+    accessSeg.replaceChildren();
+    for (const [value, key] of [['everyone', 'approve.access_everyone'], ['listed', 'approve.access_listed']]) {
+      const opt = node('button', 'pos-seg__opt', t(key));
+      opt.type = 'button';
+      opt.value = value;
+      opt.setAttribute('aria-pressed', String(profile.access === value));
+      opt.addEventListener('click', () => { profile.access = value; if (value === 'everyone') profile.staffIds = []; accessField.fail(''); paintProfile(); });
+      accessSeg.appendChild(opt);
+    }
+    chooser(peopleBox, staff.map((p) => [p.staff_id, p.display_name]), (id) => profile.staffIds.includes(id), (id) => {
+      profile.staffIds = toggle(profile.staffIds, id);
+      peopleField.fail('');
+      if (kind === 'phone' && !nameEdited) { deviceName = suggestName(kind); nameInput.value = deviceName; }
+      paintProfile();
+    });
+    const offered = staffDevice ? ctx.offered[kind] || [] : [];
+    chooser(screensBox, offered.map((key) => [key, t(SCREEN_KEY[key])]), (key) => profile.screens.includes(key), (key) => {
+      profile.screens = toggle(profile.screens, key);
+      if (!profile.screens.includes('pass')) profile.pointId = null;
+      screensField.fail('');
+      paintProfile();
+    });
+    chooser(pointBox, points.map((p) => [p.point_id, p.name]), (id) => profile.pointId === id, (id) => { profile.pointId = id; pointField.fail(''); paintProfile(); });
+    if (points.length === 0) pointBox.appendChild(node('p', 'body', t('approve.no_points')));
+  };
+  nameInput.addEventListener('input', () => { nameEdited = true; deviceName = nameInput.value; nameField.fail(''); });
+  paintProfile();
   preview();
   const readOnly = () => {
-    for (const el of [code, button, ...opts, ...stationTiles]) el.disabled = true;
+    for (const el of [code, nameInput, button, ...opts, ...stationTiles]) el.disabled = true;
     button.replaceChildren(buttonText);
     status.replaceChildren(banner('info', t('errors.PERMISSION_DENIED_devices'), t('errors.PERMISSION_DENIED_devices_body'), '', 'lock'));
   };
   if (permissions()['manage-devices'] === false) readOnly();
   const approvePayload = (value) => {
-    const base = { request_id: requestId || undefined, display_code: value, device_type: kind };
-    if (kind === 'kds') return Object.assign(base, { device_name: t('approve.preview_kds_name', { station: station() ? station().name : '' }).slice(0, 40), station_id: stationId });
-    const name = t(KIND_KEY[kind]).slice(0, 40);
-    if (kind === 'phone') return Object.assign(base, { device_name: name, access: 'listed', staff_ids: [sessionStorage.getItem('admin_staff_id')], screens: ['dine_in'] });
-    return Object.assign(base, { device_name: name, access: 'everyone', screens: kind === 'tablet' ? ['dine_in', 'manager'] : ['takeaway', 'cashier', 'manager'] });
+    const name = nameInput.value.trim().slice(0, 40);
+    const base = { request_id: requestId || undefined, display_code: value, device_type: kind, device_name: name };
+    if (kind === 'kds') return Object.assign(base, { station_id: stationId });
+    const out = Object.assign(base, { access: profile.access, screens: profile.screens });
+    if (profile.access === 'listed') out.staff_ids = profile.staffIds;
+    if (profile.screens.includes('pass')) out.point_id = profile.pointId;
+    return out;
+  };
+  // The rules the hub re-checks (§6.3 step 3): name 1–40, listed ⇒ 1–20 people, ≥ 1 screen, pass ⇔ point.
+  const invalid = () => {
+    const staffDevice = kind !== 'kds';
+    nameField.fail(nameInput.value.trim() === '' ? t('approve.err_name') : '');
+    peopleField.fail(staffDevice && profile.access === 'listed' && (profile.staffIds.length < 1 || profile.staffIds.length > 20) ? t('approve.err_people') : '');
+    screensField.fail(staffDevice && profile.screens.length === 0 ? t('approve.err_screens') : '');
+    pointField.fail(staffDevice && profile.screens.includes('pass') && profile.pointId === null ? t('approve.err_point') : '');
+    return [nameField, peopleField, screensField, pointField].some((part) => part.classList.contains('pos-field--error'));
   };
   let busyRetried = false;
   const send = async () => {
@@ -348,6 +473,7 @@ async function approveForm(auth, deviceId, values) {
     kindField.fail(kind === null ? t('approve.err_kind') : '');
     stationField.fail(kind === 'kds' && stationId === null ? t('approve.err_station') : '');
     if (!CODE_RE.test(value) || kind === null || (kind === 'kds' && stationId === null)) return;
+    if (invalid()) return;
     status.replaceChildren();
     const bytes = new Uint8Array(16);
     crypto.getRandomValues(bytes);
@@ -363,10 +489,7 @@ async function approveForm(auth, deviceId, values) {
           tenant_id: ctx.tenant_id,
           branch_id: ctx.branch_id,
           command_type: 'ApprovePairingRequest',
-          // 05a §6.3: the v2 payload. Until the form has a name field and the profile pickers (05a plan task 33),
-          // the name is the kind's label and the profile is the §6.3 form default for the kind: a cashier screen
-          // everyone (takeaway, cashier, manager), a tablet everyone (dine_in, manager), a phone listed for the
-          // signed-in admin (dine_in), so the owner can pair their own phone from the bootstrap session (§6.11).
+          // 05a §6.3: the v2 payload from the form (name, access, people, screens, Pass point).
           payload: approvePayload(value),
           occurred_at: Date.now(),
           actor_id: sessionStorage.getItem('admin_staff_id'),
@@ -395,7 +518,7 @@ async function approveForm(auth, deviceId, values) {
     if (error.code === 'PERMISSION_DENIED') return readOnly();
     if (error.code === 'ADMIN_SESSION_REQUIRED') return restart(auth, deviceId);
     if (globalScreen(error, {}, { pairAgain })) return;
-    failed(auth, deviceId, error, { code: code.value, kind, stationId });
+    failed(auth, deviceId, error, { code: code.value, kind, stationId, deviceName: nameInput.value, nameEdited, profile, pointId: profile.pointId });
   };
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -448,16 +571,16 @@ export function registerApprovePairingRequest(app: FastifyInstance, deps: HubDep
   app.get('/admin/approve', { config: { group: 'admin-bootstrap' } }, async (request, reply) => {
     const provisioned = deps.config.provisioned;
     if (provisioned === undefined) throw new DomainError('HUB_NOT_PROVISIONED');
-    // 05a §6.1 (M-2): a scanned ?r= request's hardware_hint is the form's default kind (1 read; only the hint is
-    // embedded, never the code or a secret).
-    const r = (request.query as { r?: unknown }).r;
-    const hint =
-      typeof r === 'string' && r.length > 0
-        ? ((deps.db.prepare('SELECT hardware_hint FROM pair_requests WHERE request_id = ? AND branch_id = ?').pluck().get(r, provisioned.branch_id) as string | null | undefined) ?? null)
-        : null;
+    // 05a §6.1 (M-2), §6.8: the hardware hint is read after sign-in from `pending_requests`, so this page reads nothing.
     return reply
       .type('text/html; charset=utf-8')
-      .send(approvePage({ tenant_id: provisioned.tenant_id, branch_id: provisioned.branch_id, hint }));
+      .send(
+        approvePage({
+          tenant_id: provisioned.tenant_id,
+          branch_id: provisioned.branch_id,
+          offered: { cashier_kiosk: screensOffered('cashier_kiosk'), tablet: screensOffered('tablet'), phone: screensOffered('phone') },
+        }),
+      );
   });
   commandRegistry(app).register(
     defineCommand({

@@ -1511,6 +1511,9 @@ export const en = {
   // 05a §8 (D-2): no "Approve here"; an everyone device cannot answer a money card; the downgraded request's text
   'answer.approve_on_listed': 'Approve on a listed device',
   'answer.confirm_on_phone': 'Confirm on your phone',
+  // 05a §8 C-1: the tab under the person was taken off this device
+  'shell.tab_removed': 'This screen was taken off this device',
+  'shell.manager.title': 'Manager tools',
   'request.find_approver': 'Waiting — find a manager',
   // 05a §8 Errors
   'answer.error.device_not_set_up': 'This device is not set up for you',
@@ -2576,6 +2579,7 @@ export const en = {
   'kitchen_screens.lane_label_help': 'Give each screen of a big station its own name, like Left or Right.',
   'kitchen_screens.pass_tablets': 'Pass tablets',
   'kitchen_screens.bind': 'Use as Pass tablet for…',
+  'kitchen_screens.bind_help': 'Pass is set on the device itself. Open a device and choose its Pass screen and point.',
   'kitchen_screens.unbind': 'Stop using as Pass tablet',
   'kitchen_screens.warn.archived_open_lines': '{station} is archived but still has open tickets',
   'kitchen_screens.warn.dark': '{station} screen is offline',
