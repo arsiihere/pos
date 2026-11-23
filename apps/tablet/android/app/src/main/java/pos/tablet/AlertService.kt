@@ -226,10 +226,15 @@ class AlertService : Service() {
         }
 
         override fun onUpgradeRequired() {
-            // A14: checkForUpdate() goes here (M-15); the socket keeps reconnecting with backoff.
+            // 05b A14: 4426 → checkForUpdate() (M-15); the socket keeps reconnecting with backoff.
+            Updates.client(this@AlertService).checkAsync("upgrade_required")
         }
 
-        override fun onNewSocket() { intake?.onNewSocket() }
+        override fun onNewSocket() {
+            intake?.onNewSocket()
+            // 05b A14: update check after each reconnect (first frame, M-15).
+            Updates.client(this@AlertService).checkAsync("reconnect")
+        }
 
         override fun log(ev: String, fields: Map<String, Any?>) = AlertLog.ev(ev, fields)
     }

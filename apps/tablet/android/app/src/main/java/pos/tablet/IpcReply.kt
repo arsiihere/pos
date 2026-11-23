@@ -35,7 +35,7 @@ object IpcReply {
             .put("paired", paired)
             .put("alert_socket", alertSocket)
             .put("binding_route_until", bindingRouteUntil ?: JSONObject.NULL)
-            .put("update_ready", false)
+            .put("update_ready", Updates.updateReady) // 05b A14: M-15 update downloaded and verified
             .put("needs_context", false)
         send(ctx, Ipc.OP_STATE, o)
     }
