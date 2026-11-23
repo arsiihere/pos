@@ -104,7 +104,8 @@ async function runAuth(): Promise<string[]> {
   });
   expect(polled.statusCode).toBe(200);
 
-  const tablet = pairDevice(hub, { type: 'tablet' });
+  // 05a §3.5: `/admin/auth` signs in only on a listed device, and only its people
+  const tablet = pairDevice(hub, { type: 'tablet', profile: { access: 'listed', staff_ids: ['S_CASH', 'S_OWNER'], screens: ['manager'] } });
   const pinLogin = await hub.app.inject({
     method: 'POST',
     url: '/auth/pin',
