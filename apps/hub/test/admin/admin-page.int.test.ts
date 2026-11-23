@@ -118,7 +118,7 @@ describe('hub admin page (M86)', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  // TASK-15-DELETE: pairs through a pairing token / POST /devices/pair (or the token pair-page branch); plan task 15 removes it.
+  // TASK-15-EDIT (not delete): pins the admin script's command list, which names the removed token command.
   it('[00 §10 #142] GET /admin without credentials → 200 HTML with no token; a guest IP → 403; the script signs in via /admin/auth and calls only §6.7, §6.14–§6.18c', async () => {
     const hub = await open();
     const page = await hub.app.inject({ method: 'GET', url: '/admin' });
@@ -258,7 +258,7 @@ describe('hub admin page (M86)', () => {
     expect(page.find('more_D7')).toBeUndefined();
   });
 
-  // TASK-15-DELETE: pairs through a pairing token / POST /devices/pair (or the token pair-page branch); plan task 15 removes it.
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §8.2 M86] add a phone: pick a name, Make QR sends GenerateDevicePairingToken for that owner, shows the QR, link and countdown; Done goes back to the list', async () => {
     const source = await html();
     const hub = fakeHub();
@@ -282,7 +282,7 @@ describe('hub admin page (M86)', () => {
     expect(textOf(page.screen)).toContain(EN['devices.group_cashier']);
   });
 
-  // TASK-15-DELETE: pairs through a pairing token / POST /devices/pair (or the token pair-page branch); plan task 15 removes it.
+  // TASK-15-DELETE: pairs through the token command, the device-pair route or the token pair-page branch; plan task 15 removes it.
   it('[00 §10 #167] add a tablet (00 v1.12.2, STAB-1): home tile and Devices action with manage-devices only; Make QR sends a tablet token with no owner, shows the QR, link and countdown; Done goes back to the list', async () => {
     const source = await html();
     const home = await runPage(source, { store: STORE, session: SESSION, fetch: fakeHub().fetch });
