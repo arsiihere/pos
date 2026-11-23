@@ -23,7 +23,8 @@ import com.getcapacitor.WebViewListener
  *
  * `BridgeActivity.onCreate` calls `load()`; ours does nothing until the start page is chosen. The stored hub
  * origin is re-read and probed on a background thread (3 s, M-16) at every start — `setHubOrigin` +
- * `recreate()` is how the page switches. Then, on the UI thread, `config` is set and the real `load()` runs:
+ * `recreate()` is how the page switches. The probe's choice is kept and the activity recreated, and the next
+ * `onCreate` sets `config` and runs the real `load()` there (the Bridge must exist before STARTED):
  * probe OK → `server.url` = the origin only + `startPath /staff/`; otherwise no `server.url`, so the bundled
  * pages on `https://localhost` (`index.html` first run, `unreachable.html?origin&reason`).
  */
@@ -43,12 +44,26 @@ class MainActivity : BridgeActivity() {
         if (savedInstanceState == null) takeTap(intent) // 05b A12: M-12 cold start; start() applies it
         if (findViewById<WebView>(com.getcapacitor.android.R.id.webview) == null) return // no WebView installed
         showSplash()
+        // The Bridge registers activity-result launchers, which AndroidX allows only before STARTED; so it is
+        // created here in onCreate, never from a later callback (device crash 2026-11-23, TCL 9198S, API 30).
+        // The probe runs off the UI thread, keeps its choice and recreates; the new onCreate starts with it.
+        val chosen = pendingChoice
+        if (chosen != null) {
+            pendingChoice = null
+            start(chosen)
+            return
+        }
         val forced = pendingFailure
         pendingFailure = null
         val ctx = applicationContext
         Thread({
             val choice = StartPage.choose(MainStore.hubOrigin(ctx), forced, HubProbe::probe)
-            main.post { if (!isFinishing && !isDestroyed) start(choice) }
+            main.post {
+                if (!isFinishing && !isDestroyed) {
+                    pendingChoice = choice
+                    recreate()
+                }
+            }
         }, "hub-probe").start()
     }
 
@@ -164,6 +179,9 @@ class MainActivity : BridgeActivity() {
 
         /** Survives `recreate()` (same process): the failure the next start shows without probing. */
         @Volatile private var pendingFailure: String? = null
+
+        /** The probe's start page, applied by the next onCreate (survives `recreate()`; same process). */
+        @Volatile private var pendingChoice: StartChoice? = null
 
         /** 05b A12: M-12 a tapped alert not yet shown (survives `recreate()`). */
         @Volatile private var pendingFocus: String? = null
