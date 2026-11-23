@@ -77,7 +77,7 @@ describe('[05a §3.3a] session view call sites', () => {
     expect(listed.json().error?.code).toBe('BUSINESS_DAY_NOT_OPEN');
   });
 
-  it('[05a #4b] check inside a handler: the fiscal credentials query on an `everyone` device → 403 with its existing details', async () => {
+  it('[05a #4b] fiscal credentials from an admin session on an `everyone` device → 403, no `reason` (the admin guard answers first since task 11; the handler-check half is in admin-guard-mask)', async () => {
     const h = await hub();
     const s = seat(h, 'everyone', 'admin');
     const res = await h.app.inject({
@@ -86,10 +86,8 @@ describe('[05a §3.3a] session view call sites', () => {
       headers: { authorization: `Bearer ${s.deviceToken}`, 'x-admin-session': s.sessionToken },
     });
     expect(res.statusCode).toBe(403);
-    // N-6: the handler's own details, unchanged; no `reason`.
-    expect(res.json().error).toEqual(
-      expect.objectContaining({ code: 'PERMISSION_DENIED', details: { permission: 'manage-fiscal-settings', grant: 'not_granted' } }),
-    );
+    // N-6: no `reason` outside authorize, the §3.5 checks and AnswerRequest.
+    expect(res.json().error).toEqual(expect.objectContaining({ code: 'PERMISSION_DENIED', details: { permission: 'access-hub-admin' } }));
   });
 
   it('[05a #4c] query: the audit query on an `everyone` device → 403 (existing details); listed device → 200', async () => {
