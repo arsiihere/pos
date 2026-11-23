@@ -11,6 +11,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 > They land in 01d v1.3.5 (completing P0.5) before tasks 23–26.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-23 ~15:55 PKT: **Task 19 merged** (SetDeviceProfile, Opus APPROVE). 15 tasks merged. In review: 15, 17, 20. Running: 16.
 > - 2026-11-23 ~15:40 PKT: **Tasks 31–32 merged** (lane C2). **14 tasks merged**; all six saved laptop lanes are in. In review: 15 (approve v2 + token-pairing removal), 19 (SetDeviceProfile). Running: 16 (stacked on 15), 17, 20.
 > - 2026-11-23 ~15:15 PKT: **Tasks 35–36 merged** (lane C1). 12 tasks merged. CI red on `build/05a` at `c55e600e` (task 13 × 14 fixture hint) fixed in `423c6cf4`, green. Running: 15, 17, 19, 20 (B4/B5 in parallel), C2 fix round.
 > - 2026-11-23 ~14:45 PKT: **Merged: L1 (tasks 9–12), D (22), B13 (13)** → with R (29), B14 (14), K (27–28): **10 tasks merged**. Owner ruled **G-e (a), G-f (a)** → spec **05a v1.0.2** (now the build's spec). In fix rounds: C1 (35: "Confirm on your phone" shows for any named request; must be downgraded only), C2 (32: G-e / G-f). Next: task 15 (one commit, Opus), then 16, 17. Carry-overs: `STALE_ON` gains `DeviceProfileSet` (D review, before the first command that appends it: task 15); B3 review minors (preRead / PIN-hook view test, `/admin/auth` view → task 17, legacy fixture phone = owner only).
@@ -101,7 +102,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 | 16 | B4 | pair page text + hint | NORMAL | | |
 | 17 | B5 | sign-in checks | HIGH | | |
 | 18 | B5 | staff / login roster | NORMAL | | |
-| 19 | B5 | `SetDeviceProfile` | HIGH | | |
+| 19 | B5 | `SetDeviceProfile` | HIGH | `cac60851` | **done** (Opus review APPROVE; PC-5) |
 | 20 | B5 | revoke both + device list | NORMAL | | |
 | 21 | B5 | directory apply | HIGH | | |
 | 22 | B6 | D-1 bindings | HIGH | `e9cd26d1` | **done** (Opus review APPROVE, 300-sequence rebuild fuzz; `alert-sockets.ts` as-built outside the Files column, required by 01d §3.7) |
@@ -140,6 +141,7 @@ Plan: `05a-plan.md`. Hand checks: `05a-manual-checks.md`. Gaps: `05a-gaps.md`. S
 
 | # | Task | Correction |
 |---|---|---|
+| PC-5 | 19 | As built (Opus review): session ends of §6.4 step 6 run **inside** the command's transaction (the `RevokeDevice` pattern), not after it: all-or-nothing, 1 UPDATE + 1 `SessionEnded` per ended session, as §6.4 counts. Wire order: the `device_profile` push reaches a removed session's socket just before its 4401 close. A staff device with no profile row is edited from `expected_version: 0` (R-1: masked as `everyone`, no screens). A kept point that was archived blocks any edit until `pass` is dropped or the point changed (literal "§6.3 step 3 on the merged profile"). Carry-over tests: everyone → listed ends an unlisted staff session; `expected_version: 0` on a no-profile device |
 | PC-4 | 27, 33 | Lane K review m-2: from task 27 until task 33 (K-2), `SetDeviceRole` drops a sent `point_id` (03b v1.0.15 §6.10, pinned), so the old client "Use as Pass tablet" (`BindDialog.tsx`, `admin/page.ts`) answers 200 and does nothing. Task 33 replaces it with the edit-form link. Not a hand-check item before 33 lands |
 | PC-3 | 28 | The upgrade boot step runs inline in `boot()` as step **4c** (after catchUp and `restoreEmptyStaffSessions`, before `buildHubServer` and listen), not through `registerBootStep`: `BootStep` has no slot between catchUp and the server build (lane K review m-3; §6.10 satisfied). A phone with `owner_staff_id` NULL (only possible by raw SQL after 0027) is skipped and left unprofiled, which R-1 / D-6 already cover (masked as `everyone`, refuses every PIN). The #15 refusal half (`it.todo`) lands with tasks 10–11 and goes in Z1 under #15 |
 | PC-2 | 7 | Task 7 also wires 3 lines in `apps/hub/src/server.ts` (`buildHubServer`: load the map + the post-commit refresh), where the 03b device-roles map is wired. B2 review M2: until task 27 (K-1), a `DeviceRoleSet` still writes `devices.point_id` and does not refresh `deviceProfile`, so its `point_id` can be stale; task 27 removes that writer and must re-check `test/auth/device-profile.int.test.ts:84`. M3: the map is per process, like device-roles; a test that builds a hub without `buildHubServer` calls `loadDeviceProfiles(db)` itself |
