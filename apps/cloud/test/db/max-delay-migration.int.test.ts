@@ -68,10 +68,10 @@ describe('[01a v2.7.5 §5.2a, #202] cloud migration 0017_max_delay.sql (STAB-7)'
   it('[01a #202 MD-3; AD-9] 0017 bumps config_version of every branch, the one without a settings row included', async () => {
     const { rows } = await q(`SELECT branch_id, config_version FROM branches ORDER BY branch_id`);
     expect(rows.map((r) => [r.branch_id, Number(r.config_version)])).toEqual([
-      // ⚠️ 08b v1.0 A-6: 0019_recipes.sql bumps every branch once more
-      ['b0', preVersions.b0! + 2],
-      ['b1', preVersions.b1! + 2],
-      ['b2', preVersions.b2! + 2],
+      // 0019 (08b A-6) and 0021 (01a v2.11 MG-1) each bump every branch.
+      ['b0', preVersions.b0! + 3],
+      ['b1', preVersions.b1! + 3],
+      ['b2', preVersions.b2! + 3],
     ]);
   });
 

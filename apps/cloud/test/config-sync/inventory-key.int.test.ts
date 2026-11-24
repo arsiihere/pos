@@ -609,7 +609,8 @@ describe('[08b #33, A-6] release: the pre-migration version gets the inventory k
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
     const snapshot = result.data.config!.snapshot as { config_version: number; inventory: InventorySnapshot };
-    expect(snapshot.config_version).toBe(pre + 1);
+    // The full migration folder includes the every-branch bumps from 0019 and 0021.
+    expect(snapshot.config_version).toBe(pre + 2);
     expect(InventorySnapshotSchema.parse(snapshot.inventory)).toEqual({
       items: [{ stock_item_id: 's2', kind: 'ingredient', name: 'Beef', code: null, stock_unit: 'g', cost_category: 'food', is_a_item: false }],
       units: [],

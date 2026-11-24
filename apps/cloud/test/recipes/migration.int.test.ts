@@ -137,9 +137,10 @@ const line = (versionId: string, l: LineCols) =>
 describe('[08b §5.1, #33] cloud migration 0019_recipes.sql', () => {
   it('[08b #33, A-6] every branch config_version + 1; a hub on the pre-migration version gets 200 with a new snapshot; no audit row', async () => {
     const { rows } = await q(`SELECT branch_id, config_version FROM branches ORDER BY branch_id`);
+    // The full migration run includes one bump from 0019 and another from 0021 (01a v2.11 MG-1).
     expect(rows.map((r) => [r.branch_id, Number(r.config_version)])).toEqual([
-      ['b1', preVersions.b1! + 1],
-      ['b2', preVersions.b2! + 1],
+      ['b1', preVersions.b1! + 2],
+      ['b2', preVersions.b2! + 2],
     ]);
     expect((await q(`SELECT count(*)::int AS n FROM config_audit`)).rows[0]).toEqual({ n: 0 });
     const directory = Number((await q(`SELECT directory_version FROM tenants WHERE tenant_id = $1`, [TN])).rows[0].directory_version);
@@ -149,7 +150,7 @@ describe('[08b §5.1, #33] cloud migration 0019_recipes.sql', () => {
     });
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
-    expect((result.data.config!.snapshot as { config_version: number }).config_version).toBe(preVersions.b1! + 1);
+    expect((result.data.config!.snapshot as { config_version: number }).config_version).toBe(preVersions.b1! + 2);
   });
 
   it('[08b #33 §5.1] recipes: owner_type list; one recipe per owner (archived included)', async () => {

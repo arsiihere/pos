@@ -55,11 +55,11 @@ describe('[03b §4.5 A-1] cloud migration 0012_kds_settings.sql', () => {
     const { rows } = await q(`SELECT branch_id, config_version FROM branches WHERE branch_id IN ('b0', 'b1', 'b2') ORDER BY branch_id`);
     expect(rows.map((r) => [r.branch_id, Number(r.config_version)])).toEqual([
       // ⚠️ 01a v2.7.5 MD-3 (STAB-7): 0017_max_delay.sql bumps every branch, b0 included
-      // ⚠️ 08b v1.0 A-6: 0019_recipes.sql bumps every branch once more
-      ['b0', preVersions.b0! + 2],
+      // 0019 (08b A-6) and 0021 (01a v2.11 MG-1) each bump every branch.
+      ['b0', preVersions.b0! + 3],
       // ⚠️ 01a v2.7.3 PT-1 (STAB-5): the whole folder runs, so 0016_part_times.sql bumps once more (and 0017, STAB-7)
-      ['b1', preVersions.b1! + 4],
-      ['b2', preVersions.b2! + 4],
+      ['b1', preVersions.b1! + 5],
+      ['b2', preVersions.b2! + 5],
     ]);
   });
 
@@ -72,7 +72,7 @@ describe('[03b §4.5 A-1] cloud migration 0012_kds_settings.sql', () => {
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
     const snapshot = result.data.config!.snapshot as { config_version: number; engine_settings: Record<string, unknown> };
-    expect(snapshot.config_version).toBe(preVersions.b1! + 4); // ⚠️ 01a v2.7.3 PT-1 (STAB-5): + 0016's bump; ⚠️ 01a v2.7.5 MD-3 (STAB-7): + 0017's; ⚠️ 08b v1.0 A-6: + 0019's
+    expect(snapshot.config_version).toBe(preVersions.b1! + 5); // Also includes the bumps from 0016, 0017, 0019, and 0021.
     expect(snapshot.engine_settings).toMatchObject({ served_estimate_ms: 180_000, ready_window_ms: 60_000, kds_offline_ms: 30_000 });
   });
 
