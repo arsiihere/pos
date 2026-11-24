@@ -58,6 +58,15 @@ Reviewed with 00 HPA v1.13 and Foundation v1.18. Status stays DRAFT.
 | 03c v1.0.16 (row P-1) | 03c now reads `statusLink(root_order_id)?.url` with the url on `public_status.port` (its Depends line, §3.11, §4.1, test 57); P-1 is carried | §4.5 P-1 |
 | 02b v1.0.25 TK-7 | Checked: Q-1 answered by 02b §4.2 `takeawayProgress` with the same signature, filter, 2 statements and line `ready_at` rule as §3.11 cites | — |
 
+#### Owner review of the 02b-TK Part B package (24 Nov 2026)
+
+⚠️ Changed by v1.0.7 owner review, 2026-11-24; still DRAFT (hostile run 2 owed). Every other recommended default in §12.3 is **accepted** as written.
+
+| Row | Owner answer | Change here | Where |
+|---|---|---|---|
+| OR-1 (OQ-B3, O-20, 00 OD-7) | **English only, no Urdu clips.** Tokens pass 300 by mid-morning (1,500–2,000 orders a day), so numbers are **composed from pieces**: chime, "token number", one … nineteen, twenty … ninety, "hundred", "thousand"; every token 1–2000 is spoken ("token number two hundred fifty seven") | `BOARD_VOICES = ['off', 'en']`, default `en`; 31 clips (≈ 160 KB); the composer; tests 42, 49, 51 | O-20, M-11, §3.6, §4.2, §6.3, §6.4, §6.12, §7, §8, §10, §11, §12 |
+| OR-6 (OD-2) | The board runs on a PC the owner provides; tablet board stays deferred | none (plan `docs/plans/02b-tk-plan.md` "Before go-live") | — |
+
 
 ---
 
@@ -119,7 +128,7 @@ Sign-in alert with "Not me", shuffled PIN pad, PIN only while on shift, staff NF
 | O-17 | A "Confirm on your phone" request goes to the phone only while it is connected, else to the normal approvers; a phone whose list empties is always revoked; the recovery link is not reissued while one is live. | 02:55 (N-3, N-9, N-7) |
 | O-18 | ⚠️ Changed by v1.0.7 (B-1): the pickup board is a **display session kind** on a paired device (no person), **not a new device type**. | 02b-TK R7, 2026-11-24 |
 | O-19 | ⚠️ Changed by v1.0.7 (B-4): the TV board shows **tokens only, no names** (also no phone, items or amounts); overrides the hand-off answer Q1 ("first name only"). | 02b-TK R3, 2026-11-24 |
-| O-20 | ⚠️ Changed by v1.0.7 (B-6): board voice "Urdu then English, chime first"; recorded clips, no TTS, works offline on the LAN. | hand-off CHANGES.md Q4; GAPS G-9 |
+| O-20 | ⚠️ Changed by v1.0.7 (B-6): board voice ~~"Urdu then English, chime first"~~; ⚠️ Changed by v1.0.7 owner review (OR-1): **English only, chime first**; numbers composed from ~31 recorded pieces so every token 1–2000 is spoken; recorded clips, no TTS, works offline on the LAN. | hand-off CHANGES.md Q4; GAPS G-9 |
 
 ### 3.2 Decisions
 
@@ -135,7 +144,7 @@ Sign-in alert with "Not me", shuffled PIN pad, PIN only while on shift, staff NF
 | M-8 | ⚠️ Changed by v0.4 (B-2): the hub admin home and the device list warn when **0 or 1** unrevoked `listed` devices list a person whose `manage-devices` resolves `allowed`. With 1: "Only one device can manage devices — add a backup". With 0: "No device can manage devices" and the **recovery link** (§6.11). The count comes from the in-memory `deviceProfile` map and the directory; no statement. | Owner's only admin device breaks, or the upgrade leaves none (OQ-6) |
 | M-9 | ⚠️ Changed by v1.0.7 (B-1): **A board is a profile, not a device type.** `screens = ['board']` on a `cashier_kiosk` (a kiosk PC driving the TV in Chrome / Edge kiosk mode; ⚠️ Changed by v1.0.7 hostile run 1 (M-2): a tablet board is deferred, OQ-B7); `access = 'everyone'`, no `staff_ids`, no `point_id`; its only session is `display` (00 M96). `device_type` keeps its four values (§2). | Touching every `device_type` reader (01d bindings and routes, catch-ups, audiences, `as_drawer`) for a screen that has no person |
 | M-10 | ⚠️ Changed by v1.0.7 (B-2): **Nobody signs in on a board.** `POST /auth/pin`, `POST /admin/auth`, `GET /admin/login-roster`, `GET /queries/staff-roster` and `POST /admin/recovery-link` on a board device → `403 DEVICE_ACCESS_DENIED { device_id, reason: 'display_device' }`, first, from memory, no argon2, not counted. | A PIN typed on a public TV; a staff session left open on a public screen |
-| M-11 | ⚠️ Changed by v1.0.7 (B-6): **Board settings live in the profile** (`board: { voice: 'off' \| 'ur_en' \| 'ur' \| 'en' }`, default `ur_en`), set on the device edit form, read by the board with each `pickup-board` read. | Settings lost with browser storage on an unattended TV; a settings panel on a public screen |
+| M-11 | ⚠️ Changed by v1.0.7 (B-6): **Board settings live in the profile** (`board: { voice: 'off' \| 'en' }`, default `en`; ⚠️ Changed by v1.0.7 owner review (OR-1): was `'off' \| 'ur_en' \| 'ur' \| 'en'`, default `ur_en`), set on the device edit form, read by the board with each `pickup-board` read. | Settings lost with browser storage on an unattended TV; a settings panel on a public screen |
 
 ### 3.3 Listed-only and money permissions (rule 3)
 
@@ -215,7 +224,7 @@ Before 00 §3.5 step 2, both checks are not counted, run no argon2 and read the 
 
 - Tabs in list order; the device remembers its last tab.
 - ⚠️ Changed by v0.4 (M-11), kept by the owner in v0.5 (O-16, KEEP): a screen is **hidden** when the person holds none of its permissions. There are no read-only screens: `cashier` needs `take-payment`; `manager` needs one of `view-reports`, `close-business-day`, `view-audit-log`, `manage-devices` (after the mask).
-- 1–6 screens, unique, offered for the hardware; `pass` ⇔ `point_id` set. ⚠️ Changed by v1.0.7 (B-1): `board` ⇒ `screens = ['board']`, `access = 'everyone'`, no `staff_ids`, no `point_id`, and the profile's `board` settings set (default `{ voice: 'ur_en' }`); without `board` in `screens`, `board` settings are null. `screensOffered('cashier_kiosk')` adds `board` (⚠️ Changed by v1.0.7 hostile run 1 (M-2): not `tablet`); `phone` and `kds` never get it. `board` is a key, not a shell tab: the staff shell never shows it (a board device has no staff session).
+- 1–6 screens, unique, offered for the hardware; `pass` ⇔ `point_id` set. ⚠️ Changed by v1.0.7 (B-1): `board` ⇒ `screens = ['board']`, `access = 'everyone'`, no `staff_ids`, no `point_id`, and the profile's `board` settings set (default `{ voice: 'en' }`, ⚠️ Changed by v1.0.7 owner review (OR-1)); without `board` in `screens`, `board` settings are null. `screensOffered('cashier_kiosk')` adds `board` (⚠️ Changed by v1.0.7 hostile run 1 (M-2): not `tablet`); `phone` and `kds` never get it. `board` is a key, not a shell tab: the staff shell never shows it (a board device has no staff session).
 - ⚠️ Changed by v0.4 (M-11, m-11): **hardware still decides three things.** Customer contact goes to `cashier_kiosk` hardware and the placer (02b O17), so a `tablet` with `cashier` does not see it. A drawer shift needs a kiosk or a tablet with a printer route (05 `as_drawer`, `DRAWER_DEVICE_INVALID`). Bill-stream audiences are `take-payment` holders and kiosks (05 H16-6).
 
 ### 3.7 Device lifecycle
@@ -319,9 +328,9 @@ Read by `GET /queries/pickup-board` (§6.12) and by 00 v1.13 §6.41 (the custome
 | Audit action `device_profile_set` (04, row A-1) | detail `{ device_name, access, staff_ids, screens, point_id, cause }`; actor = the editor (null for `upgrade` / `directory`). ⚠️ Changed by v0.4 (M-8). ⚠️ Changed by v1.0.1 (G-b, owner 2026-11-23 03:53 PKT): the detail stores `staff_ids` (was "people: display names"); `audit-log` looks up the display names when the log is read, from `staff_names` as for every other action (04: names are never part of an entry) |
 | `DeviceRevoked.cause` | unchanged enum `['manual', 'owner_removed']`: M-5's revoke is the M38 case and keeps `owner_removed`. No schema change. ⚠️ Changed by v0.4 (M-8) |
 | `deviceProfile(device_id)` | memory `{ access, staff_ids: Set, screens, point_id, needs_review }`, refreshed after `DeviceProfileSet`, `DevicePaired`, `DeviceRevoked` commits |
-| ⚠️ Changed by v1.0.7 (B-1, M-11): **`DeviceProfileSet` v2** | v1 + `board: { voice: 'off' \| 'ur_en' \| 'ur' \| 'en' } \| null` (non-null exactly when `screens = ['board']`). Upcaster v1 → v2: `board: null`. Every writer (approve, edit, directory, upgrade) writes v2; `deviceProfile(device_id)` adds `board`. The `device_profile` push (§6.4) adds `board` |
+| ⚠️ Changed by v1.0.7 (B-1, M-11): **`DeviceProfileSet` v2** | v1 + `board: { voice: 'off' \| 'en' } \| null` (⚠️ Changed by v1.0.7 owner review (OR-1)) (non-null exactly when `screens = ['board']`). Upcaster v1 → v2: `board: null`. Every writer (approve, edit, directory, upgrade) writes v2; `deviceProfile(device_id)` adds `board`. The `device_profile` push (§6.4) adds `board` |
 | `directory.forSession(session)` | the masked view (§3.3a) |
-| `LISTED_ONLY_PERMISSIONS`, `MONEY_PERMISSIONS`, `SCREEN_KEYS`, `screensOffered(device_type)` | `@pos/domain`. ⚠️ Changed by v1.0.7 (B-1): `SCREEN_KEYS` adds `board` (after `inventory`); `screensOffered` adds it for `cashier_kiosk` only (⚠️ Changed by v1.0.7 hostile run 1 (M-2)); `BOARD_VOICES = ['off', 'ur_en', 'ur', 'en']`; `isBoard(profile)` = `screens` is exactly `['board']` |
+| `LISTED_ONLY_PERMISSIONS`, `MONEY_PERMISSIONS`, `SCREEN_KEYS`, `screensOffered(device_type)` | `@pos/domain`. ⚠️ Changed by v1.0.7 (B-1): `SCREEN_KEYS` adds `board` (after `inventory`); `screensOffered` adds it for `cashier_kiosk` only (⚠️ Changed by v1.0.7 hostile run 1 (M-2)); `BOARD_VOICES = ['off', 'en']` (⚠️ Changed by v1.0.7 owner review (OR-1)); `isBoard(profile)` = `screens` is exactly `['board']` |
 | ⚠️ Changed by v1.0.7 (B-4): `PickupBoardView` (`@pos/events`, Zod `.strict()`) | the §6.12 response shape |
 
 ### 4.5 Changes to other specs (R26) — *Approved 2026-11-23 with v1.0; applied by the 05a plan's phase 0*
@@ -479,7 +488,7 @@ Processing (`writer.run`):
    - screens must be offered for the hardware → else `400 VALIDATION_FAILED { field: 'screens' }`;
    - `pass` ⇔ `point_id` → else `400 VALIDATION_FAILED { field: 'point_id' }`;
    - the point must be active → else `404 POINT_NOT_FOUND`.
-   - ⚠️ Changed by v1.0.7 (B-1, B-3): `board` in `screens` ⇒ `screens` is exactly `['board']` → else `400 VALIDATION_FAILED { field: 'screens' }`; `device_type` is `cashier_kiosk` (`screensOffered`; ⚠️ Changed by v1.0.7 hostile run 1 (M-2)) → else `400 { field: 'screens' }`; `access = 'everyone'` → else `400 { field: 'access' }`; no `staff_ids`, no `point_id` → else `400 { field: 'staff_ids' \| 'point_id' }`; payload `board?: { voice }` (one of `BOARD_VOICES`), default `{ voice: 'ur_en' }` when absent; `board` sent without the `board` screen → `400 { field: 'board' }`.
+   - ⚠️ Changed by v1.0.7 (B-1, B-3): `board` in `screens` ⇒ `screens` is exactly `['board']` → else `400 VALIDATION_FAILED { field: 'screens' }`; `device_type` is `cashier_kiosk` (`screensOffered`; ⚠️ Changed by v1.0.7 hostile run 1 (M-2)) → else `400 { field: 'screens' }`; `access = 'everyone'` → else `400 { field: 'access' }`; no `staff_ids`, no `point_id` → else `400 { field: 'staff_ids' \| 'point_id' }`; payload `board?: { voice }` (one of `BOARD_VOICES`), default `{ voice: 'en' }` when absent (⚠️ Changed by v1.0.7 owner review (OR-1)); `board` sent without the `board` screen → `400 { field: 'board' }`.
 4. INSERT `devices` (no owner), mark the request approved, append `DevicePaired` (v1, unchanged; stream `hub` / device_id); staff device: append `DeviceProfileSet { cause: 'approved', profile_version: 1, needs_review: false }`. Close `device_waiting` if no other request is pending (§3.10).
 5. Post-commit: refresh `deviceProfile`.
 
@@ -495,14 +504,14 @@ Processing (`writer.run`):
 
 Form defaults (client): `phone` hint → `listed`, one person to pick, screen `dine_in`; `cashier_kiosk` or no hint → `everyone`, `takeaway` + `cashier` + `manager`; `tablet` → `everyone`, `dine_in` + `manager`. Name suggested ("Counter 2", "Ali's phone").
 
-⚠️ Changed by v1.0.7 (B-3, B-6): the form offers **"Pickup board (TV)"** for a `cashier_kiosk` hint or no hint (⚠️ Changed by v1.0.7 hostile run 1 (M-2): the device type must be `cashier_kiosk`): choosing it sets `screens: ['board']`, hides access, people, screens and point, and shows **Board voice**: Off / Urdu then English (default) / Urdu / English. Name suggested "Pickup board".
+⚠️ Changed by v1.0.7 (B-3, B-6): the form offers **"Pickup board (TV)"** for a `cashier_kiosk` hint or no hint (⚠️ Changed by v1.0.7 hostile run 1 (M-2): the device type must be `cashier_kiosk`): choosing it sets `screens: ['board']`, hides access, people, screens and point, and shows **Board voice**: Off / English (default) (⚠️ Changed by v1.0.7 owner review (OR-1): no Urdu choices). Name suggested "Pickup board".
 
 ### 6.4 `SetDeviceProfile` (new; `sessionKind: 'both'`)
 
 | | |
 |---|---|
 | Permission | `manage-devices` (listed-only, through the view) |
-| Board (⚠️ Changed by v1.0.7 (B-3)) | payload adds `board?: { voice }`; §6.3 step 3's board rules apply to the merged profile; the merge **drops `board` when the merged `screens` have no `board`**, and fills `{ voice: 'ur_en' }` when the merged `screens` are `['board']` and no setting exists; switching to the board also drops `staff_ids` / `point_id` and sets `access: 'everyone'` when they are **unsent** (sent values are still checked) |
+| Board (⚠️ Changed by v1.0.7 (B-3)) | payload adds `board?: { voice }`; §6.3 step 3's board rules apply to the merged profile; the merge **drops `board` when the merged `screens` have no `board`**, and fills `{ voice: 'en' }` (⚠️ Changed by v1.0.7 owner review (OR-1)) when the merged `screens` are `['board']` and no setting exists; switching to the board also drops `staff_ids` / `point_id` and sets `access: 'everyone'` when they are **unsent** (sent values are still checked) |
 | Payload | `{ device_id, expected_version, device_name?, access?, staff_ids?, screens?, point_id? }`; unsent fields kept; §6.3 step 3 rules on the merged profile. ⚠️ Changed by v1.0.2 (G-e (a), owner 2026-11-23): before the rules, the merge **drops `point_id` when the merged `screens` have no `pass`**, and **drops `staff_ids` when the merged `access` is `everyone`**; a sent `point_id` with no `pass`, or sent `staff_ids` with `everyone`, is still `400 VALIDATION_FAILED` |
 
 Processing (`writer.run`):
@@ -608,7 +617,7 @@ Runs at boot **after** the projection `catchUp` (so `device_profiles` is current
 ```ts
 PickupBoardView = {                       // Zod .strict(): no other key can appear
   business_date: string | null;            // the open day; null → both lists empty
-  voice: 'off' | 'ur_en' | 'ur' | 'en' | null;   // the calling device's board setting (memory); null on a non-board device
+  voice: 'off' | 'en' | null;   // the calling device's board setting (memory); null on a non-board device (OR-1: English only)
   ready: Array<{ token: number; state: 'ready' | 'part' | 'pay'; ready_at: number }>;
   preparing: Array<{ token: number; eta_ms: number | null; pickup_at_ms: number | null }>;
 }
@@ -634,7 +643,7 @@ Derivation, sort and the tokens-only rule: §3.11.
 
 No new timer, cache, job or dependency. Every check reads the in-memory `deviceProfile` map and the directory, refreshed on commit (YAGNI: tens of devices per branch). The `device_waiting` close on expiry rides the existing session sweeper.
 
-⚠️ Changed by v1.0.7 (B-4–B-6): still none on the hub. The board's debounce and its 60 s re-read are client timers. Static assets: the voice clips (⚠️ Changed by v1.0.7 hostile run 1 (m-5, m-6): ≈ 600 small MP3 files, ≈ 3 MB) ship in the new `board` entry of `apps/client` (`apps/client/board/`, a `board` key in `vite.config.ts` `ENTRIES`; new folder, owner decision OD-6), served by the hub like every client entry once `lib/client-dist.ts` `TYPES` maps `.mp3` to `audio/mpeg` (00 v1.13 §7.10). Load: ≤ 2 boards per branch, each ≤ 1 re-read per second in a rush (2 statements each).
+⚠️ Changed by v1.0.7 (B-4–B-6): still none on the hub. The board's debounce and its 60 s re-read are client timers. Static assets: the voice clips (⚠️ Changed by v1.0.7 hostile run 1 (m-5, m-6); ⚠️ Changed by v1.0.7 owner review (OR-1): **31** small MP3 files, ≈ 160 KB) ship in the new `board` entry of `apps/client` (`apps/client/board/`, a `board` key in `vite.config.ts` `ENTRIES`; new folder, owner decision OD-6), served by the hub like every client entry once `lib/client-dist.ts` `TYPES` maps `.mp3` to `audio/mpeg` (00 v1.13 §7.10). Load: ≤ 2 boards per branch, each ≤ 1 re-read per second in a rush (2 statements each).
 
 ## §8. Client contract
 
@@ -651,8 +660,8 @@ No new timer, cache, job or dependency. Every check reads the in-memory `deviceP
   - **Start:** page meta as `/kds/` (00 v1.13 §8.2). The device token from IndexedDB `pos-device` (none → `/pair`). `POST /auth/display` → session token in memory only (a reload makes a new session, which replaces the old one). `/ws` `auth` with it → `catch_up.pickup_board` renders.
   - **Refresh:** on `display_hint`, re-read `GET /queries/pickup-board`, debounced (1 s trailing, at most 3 s after the first hint); also every 60 s. `voice` comes with each read.
   - **Layout:** Ready (green, 104 px tokens; `pay` → "Pay at counter / کاؤنٹر پر ادائیگی", `part` → "Part ready / کچھ تیار") and Preparing (token + "~1:42 PM" from `eta_ms`, or the pickup time with a clock icon from `pickup_at_ms`). Rush (BoardRush): ≤ 24 Ready, oldest first; ≤ 16 Preparing + "+N more"; no scrolling. Empty (BoardEmpty): a welcome in English and Urdu.
-  - **Call-out (BoardCall):** a token that **enters Ready** (any state) and was not called before in this business day → tile flash and banner 3 s, then the **chime**, then the voice per `voice`: `ur_en` = Urdu "ٹوکن نمبر <n>" then English "Token number <n>"; `ur` or `en` = one; `off` = no sound (flash and banner still). One call at a time, FIFO, 1 s gap, at most 5 waiting (older ones lose the voice, keep the flash). Called tokens are kept per `business_date` in memory and `localStorage` (`pos-board-called`, try/catch), so a reload never calls again; the **first** list after a load or a reconnect calls nothing (only a diff from a list already shown calls).
-  - **Voice clips (G-9; no TTS, offline on the LAN; ⚠️ Changed by v1.0.7 hostile run 1 (m-5, m-6)):** static files in the entry's public folder **`apps/client/board/public/voice/`** (Vite's root is the entry folder): `chime.mp3`, `ur/token.mp3`, `en/token.mp3`, `ur/1.mp3` … `ur/300.mp3`, `en/1.mp3` … `en/300.mp3` (whole numbers: Urdu numbers are irregular, so no stitching inside a number; mono MP3, ≈ 5 KB each). Played in order through one `HTMLAudioElement`; `chime` and `token` loaded at start, numbers on demand. A token above **300** or a clip that fails to load → chime and banner only. Producing the clips: OQ-B3. Sound without a tap: the kiosk PC's browser starts with `--autoplay-policy=no-user-gesture-required` (installer flag, beside the kiosk flags, Foundation D56).
+  - **Call-out (BoardCall):** a token that **enters Ready** (any state) and was not called before in this business day → tile flash and banner 3 s, then the **chime**, then the voice per `voice` (⚠️ Changed by v1.0.7 owner review (OR-1)): `en` = "token number" then the composed number (below); `off` = no sound (flash and banner still). One call at a time, FIFO, 1 s gap, at most 5 waiting (older ones lose the voice, keep the flash). Called tokens are kept per `business_date` in memory and `localStorage` (`pos-board-called`, try/catch), so a reload never calls again; the **first** list after a load or a reconnect calls nothing (only a diff from a list already shown calls).
+  - **Voice clips (G-9; no TTS, offline on the LAN; ⚠️ Changed by v1.0.7 hostile run 1 (m-5, m-6); ⚠️ Changed by v1.0.7 owner review (OR-1): English only, composed numbers):** static files in the entry's public folder **`apps/client/board/public/voice/`** (Vite's root is the entry folder), **31 files**, mono MP3, ≈ 5 KB each (≈ 160 KB): `chime.mp3`, `token.mp3` ("token number"), `1.mp3` … `19.mp3`, `20.mp3`, `30.mp3` … `90.mp3`, `hundred.mp3`, `thousand.mp3`. **Composer** `tokenClips(n)` (pure, client): for 1 ≤ n ≤ 2000 — thousands `t = ⌊n / 1000⌋` → `<t>`, `thousand`; hundreds `h = ⌊(n mod 1000) / 100⌋` → `<h>`, `hundred`; rest `r = n mod 100`: `r` in 1–19 → `<r>`; else `<tens>` then `<units>` if units > 0; no "and". So 257 → `2 hundred 50 7`, 1000 → `1 thousand`, 1015 → `1 thousand 15`, 2000 → `2 thousand`. The call plays `chime`, `token`, then the pieces in order through one `HTMLAudioElement` (each piece starts on the previous one's `ended`); all 31 clips are loaded at start (they are small). A token outside 1–2000 or any clip that fails to load → chime and banner only (no half-spoken number). The old clip files ~~`ur/…`, `en/1.mp3` … `en/300.mp3`~~ are not made. Producing the clips: OQ-B3. Sound without a tap: the kiosk PC's browser starts with `--autoplay-policy=no-user-gesture-required` (installer flag, beside the kiosk flags, Foundation D56).
   - **Offline (BoardOffline):** socket down or a read fails → keep the last lists with "Updating… / اپ ڈیٹ ہو رہا ہے"; after **30 s** without the hub the Ready column greys and no call-out plays; nothing moves into Ready without a fresh read ("never shows a wrong Ready").
   - **Session:** 00 v1.13 §8.4 rows: `replaced` → stop screen with "Use this window"; other `4401` / `401` → `POST /auth/display` again after the backoff; `DISPLAY_NOT_ENABLED` → `/staff/`; `DEVICE_REVOKED` → pair again. The board opens **no** alert-mode socket.
   - **No controls on the TV:** voice is set in the device edit form (§6.3 form, §6.4).
@@ -719,8 +728,8 @@ Appended to Foundation §6.2 (row F-1) and `@pos/domain/src/errors.ts` (§11 ste
 | 27 | audit: `DeviceProfileSet` writes a `device_profile_set` row with the editor as actor |
 | 28 | ⚠️ v0.5 (N-8): on an `everyone` kiosk a manager closes another cashier's shift with a variance; the variance sign-off is raised and is answered from a listed device, never from the kiosk |
 | 29 | ⚠️ v0.5 (N-11): rebuilding the projections replays `DeviceRoleSet` (lane only) and `DeviceProfileSet` (point); `devices.point_id` ends equal to the last `DeviceProfileSet`, whatever the replay order |
-| 30 | ⚠️ Changed by v1.0.7 (B-1): approving a request with `device_type: 'cashier_kiosk'`, `screens: ['board']`, no `board` → profile `everyone`, no people, `board: { voice: 'ur_en' }`; `DeviceProfileSet` v2; ⚠️ Changed by v1.0.7 hostile run 1 (M-2): the same on a `tablet` → `400 { field: 'screens' }` |
-| 31 | board rules: `['board', 'takeaway']` → `400 { field: 'screens' }`; `board` on a `phone` → `400 screens`; `listed` + board → `400 access`; `point_id` + board → `400 point_id`; `board` settings without the screen → `400 board`; an unknown voice → `400` |
+| 30 | ⚠️ Changed by v1.0.7 (B-1): approving a request with `device_type: 'cashier_kiosk'`, `screens: ['board']`, no `board` → profile `everyone`, no people, `board: { voice: 'en' }` (⚠️ Changed by v1.0.7 owner review (OR-1)); `DeviceProfileSet` v2; ⚠️ Changed by v1.0.7 hostile run 1 (M-2): the same on a `tablet` → `400 { field: 'screens' }` |
+| 31 | board rules: `['board', 'takeaway']` → `400 { field: 'screens' }`; `board` on a `phone` → `400 screens`; `listed` + board → `400 access`; `point_id` + board → `400 point_id`; `board` settings without the screen → `400 board`; an unknown voice → `400`; ⚠️ Changed by v1.0.7 owner review (OR-1): `voice: 'ur_en'` or `'ur'` → `400 { field: 'board' }` |
 | 32 | `SetDeviceProfile` kiosk → board: its staff and admin sessions end `forced`, sockets `4401`; board → `takeaway` + `cashier`: its display session ends `forced`, display socket `4401` with zero frames; voice change only: no session ends, the board gets one `display_hint { order_ids: [] }` and its next read has the new `voice`; a sent `staff_ids` with board → `400` |
 | 33 | self-guard: an admin turning the device their session is on into the board → `422 DEVICE_ACCESS_SELF` |
 | 34 | on a board device `POST /auth/pin`, `POST /admin/auth`, `GET /admin/login-roster`, `GET /queries/staff-roster`, `POST /admin/recovery-link` → `403 DEVICE_ACCESS_DENIED { reason: 'display_device' }`; argon2 not called; no counter changed; 0 statements |
@@ -731,14 +740,15 @@ Appended to Foundation §6.2 (row F-1) and `@pos/domain/src/errors.ts` (§11 ste
 | 39 | access: a display session → 200 with its `voice`; a staff session → 200 with `voice: null`; a station session → `401 SESSION_INVALID`; no session → `401` |
 | 40 | §6.13: a display socket's `catch_up.pickup_board` equals the query body; `OrderPlaced`, `ReadyToServe`, `ItemServed`, `Handover` → one hint each with the order id; `OrdersBilled` → its `order_ids`; `BusinessDayClosed`, `DeviceProfileSet` → `[]`; a batch with only `OrderContactSet` → no hint |
 | 41 | client (fake timers): 10 hints within 1 s → 1 re-read; a steady stream → at least one re-read every 3 s; a 60 s re-read without hints |
-| 42 | client call-out: a token entering Ready → flash, chime, then `ur/token`, `ur/<n>`, `en/token`, `en/<n>` in order; `voice: 'off'` → flash and banner only; `part` → `ready` for the same token → no second call; reload → no call for tokens called today; the first list after a reconnect → no call; token 1000 → chime only; a missing clip → chime only; 7 tokens at once → 5 voiced, all flashed |
+| 42 | client call-out (⚠️ Changed by v1.0.7 owner review (OR-1)): token 12 entering Ready → flash, then `chime`, `token`, `12` in order; `voice: 'off'` → flash and banner only; `part` → `ready` for the same token → no second call; reload → no call for tokens called today; the first list after a reconnect → no call; token 2001 → chime only; a missing clip → chime only, no partial number; 7 tokens at once → 5 voiced, all flashed |
 | 43 | client offline: socket drop → "Updating…" and the last lists; at 30 s Ready greys and no call plays; recovery → a fresh read, no call for tokens that became ready while offline and are already in the list |
 | 44 | client: `replaced` → stop screen and "Use this window"; `DISPLAY_NOT_ENABLED` → `/staff/`; `/staff/` with `display_device` → `/board/`; no alert-mode socket is opened by `/board/` |
 | 45 | ⚠️ Changed by v1.0.7 hostile run 1 (M-2): `SetDeviceProfile` kiosk → board closes the kiosk's open alert-mode socket ~~`4403`~~ `4413` (⚠️ Changed by v1.0.7 (integration, 02b-TK)) `display_device` after commit, the kiosk's device token still valid; with 01d v1.3.7 D-5 the board is in no `alert_recipients` row of an `always_on` alert raised afterwards |
 | 46 | ⚠️ Changed by v1.0.7 hostile run 1 (B-1): §3.11 on a pickup order: a no-station drink line is not ready before `pickup_at_ms` (02b's hold), the group stays in Preparing; at the pickup it counts as ready |
 | 47 | ⚠️ Changed by v1.0.7 hostile run 1 (m-10, client): a kiosk with 3 queued commands switched to the board → `/staff/` sends them before opening `/board/`; one that fails stays in the queue log and the notice shows |
 | 48 | ⚠️ Changed by v1.0.7 hostile run 1 (m-11, client): `DEVICE_ACCESS_DENIED` with `reason: 'display_device'` → `/board/`, without a reason → "This device is not set up for you" |
-| 49 | ⚠️ Changed by v1.0.7 hostile run 1 (m-6, client): token 300 → voiced; token 301 → chime and banner only; no request for `ur/301.mp3` |
+| 49 | ⚠️ Changed by v1.0.7 hostile run 1 (m-6, client); ⚠️ Changed by v1.0.7 owner review (OR-1): `tokenClips` (pure unit test): 1 → `[1]`; 19 → `[19]`; 20 → `[20]`; 21 → `[20, 1]`; 100 → `[1, hundred]`; 101 → `[1, hundred, 1]`; 257 → `[2, hundred, 50, 7]`; 999 → `[9, hundred, 90, 9]`; 1000 → `[1, thousand]`; 1015 → `[1, thousand, 15]`; 1999 → `[1, thousand, 9, hundred, 90, 9]`; 2000 → `[2, thousand]`; 0 and 2001 → `null`; every piece returned for 1–2000 is one of the 31 file names |
+| 51 | ⚠️ Changed by v1.0.7 owner review (OR-1) (client): the built `board` entry ships exactly the 31 clip files of §8 under `voice/` (no `ur/` folder); the hub serves `voice/token.mp3` as `audio/mpeg` |
 | 50 | ⚠️ Changed by v1.0.7 hostile run 1 (m-14 f): a profile switch away from the board while the display socket's `catch_up` is being built → the socket closes `4401` after the `catch_up` frame and no hint follows |
 
 ## §11. Build order
@@ -756,13 +766,13 @@ Appended to Foundation §6.2 (row F-1) and `@pos/domain/src/errors.ts` (§11 ste
 11. Migration `00NN_device_profiles_board.sql` (its own file, numbered at merge; ⚠️ Changed by v1.0.7 hostile run 1 (m-4)); the fold writes `board_json`. [§5.4]
 12. Approve and `SetDeviceProfile` board rules, self-guard (c), session ends; the M-10 refusals. [§3.5, §6.3–§6.6, §6.8]
 13. After 02b v1.0.25's `takeawayProgress` and 00 v1.13's display session and WS display mode: `pickup-board`, the `pickup_board` catch-up part, the hints. [§3.11, §6.12, §6.13]
-14. Client: `/board/` entry (`apps/client/board/`, `ENTRIES` key; OD-6) and the voice assets 1–300; approve / edit form board choice; `/staff/` queue flush and redirect; retry cap. [§8] (⚠️ Changed by v1.0.7 hostile run 1)
+14. Client: `/board/` entry (`apps/client/board/`, `ENTRIES` key; OD-6) and the 31 English voice pieces with `tokenClips` (⚠️ Changed by v1.0.7 owner review (OR-1)); approve / edit form board choice; `/staff/` queue flush and redirect; retry cap. [§8] (⚠️ Changed by v1.0.7 hostile run 1)
 
 ## §12. Done, open questions, deferred
 
 ### 12.1 Definition of Done
 
-Every §10 test green in the normal gate. A manual check on a tablet, a kiosk PC, a KDS screen and an Android + iPhone phone covers: pair, sign in, refused PIN, live tab change, "Confirm on your phone", recovery link. ⚠️ Changed by v1.0.7 (B-6): plus, on the pilot TV (a kiosk PC in Chrome / Edge kiosk mode; run 1 M-2): turn a device into the board, a token called out in Urdu then English after a Pass "Bag ready", "Pay at counter" on an unpaid order, unplug the hub network for 60 s (BoardOffline), and the voice switched Off from a phone. 00 / 01d / 03b / 04 are bumped with "Changed by 05a" markers, and F §6.2 is appended.
+Every §10 test green in the normal gate. A manual check on a tablet, a kiosk PC, a KDS screen and an Android + iPhone phone covers: pair, sign in, refused PIN, live tab change, "Confirm on your phone", recovery link. ⚠️ Changed by v1.0.7 (B-6): plus, on the pilot TV (a kiosk PC in Chrome / Edge kiosk mode; run 1 M-2): turn a device into the board, a token called out in English (⚠️ OR-1: a three-digit and a four-digit token, e.g. 257 and 1015, sound right) after a Pass "Bag ready", "Pay at counter" on an unpaid order, unplug the hub network for 60 s (BoardOffline), and the voice switched Off from a phone. 00 / 01d / 03b / 04 are bumped with "Changed by 05a" markers, and F §6.2 is appended.
 
 ### 12.3 Open questions
 
@@ -778,8 +788,8 @@ Every §10 test green in the normal gate. A manual check on a tablet, a kiosk PC
 | A-6 **[ASSUMPTION]** | `DEVICE_ACCESS_SELF` stays `422` as the owner's M-6 ruling names it (review m-7 offered `409`) | Keep |
 | A-7 **[ASSUMPTION]** | `kiosk_home` is retired; its content is the `takeaway` screen | Confirm on the kiosk at the manual check |
 | OQ-B1 | ⚠️ Changed by v1.0.7: a board only on a kiosk PC (not a phone; ⚠️ Changed by v1.0.7 hostile run 1 (M-2): not a tablet in the pilot)? | Yes |
-| OQ-B2 | ⚠️ Changed by v1.0.7: voice default `ur_en` and the Urdu words "ٹوکن نمبر" before the number (Q4)? | Yes; owner checks the recordings |
-| OQ-B3 | ⚠️ Changed by v1.0.7; ⚠️ Changed by v1.0.7 hostile run 1 (m-6): **BLOCKER-for-approval (00 OD-7).** Who makes the ≈ 600 clips (1–300 in Urdu and English, plus "token number" and the chime)? | Render once with an offline voice tool, owner listens to a sample; a token above 300 plays the chime only |
+| OQ-B2 | ⚠️ Changed by v1.0.7: voice default ~~`ur_en` and the Urdu words "ٹوکن نمبر"~~ before the number (Q4)? ⚠️ Changed by v1.0.7 owner review (OR-1): **ANSWERED** — default `en`, "token number" before the number | English; owner checks the recordings |
+| OQ-B3 | ⚠️ Changed by v1.0.7; ⚠️ Changed by v1.0.7 hostile run 1 (m-6); ⚠️ Changed by v1.0.7 owner review (OR-1): **ANSWERED (owner 2026-11-24).** ~~≈ 600 clips 1–300 in Urdu and English~~ → **31 English pieces** (chime, "token number", 1–19, 20–90 by tens, "hundred", "thousand"), composed so every token 1–2000 is spoken | Render once with an offline voice tool (one voice for all 31 pieces so the joins sound even), owner listens to a sample of composed tokens; a token outside 1–2000 plays the chime only |
 | OQ-B4 | ⚠️ Changed by v1.0.7: orders carried over from an earlier business date are not on the board (§3.11) | Accept (rare; the counter queue still shows them) |
 | OQ-B5 | ⚠️ Changed by v1.0.7: an unpaid order with some items ready shows "Pay at counter", not "Part ready" (§3.11) | Accept (the customer must come to the counter anyway) |
 | OQ-B6 | ⚠️ Changed by v1.0.7: Ready greys after 30 s without the hub (BoardOffline) | Accept |

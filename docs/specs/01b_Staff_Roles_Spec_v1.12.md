@@ -22,6 +22,14 @@
 | 01a v2.11 B-1, B-2; 02b v1.0.25 TK-8 | Checked: field names, types, ranges, defaults and `issues[0].path` refusals equal 01a RO-2, TS-2, BD-2 |
 | 05c v0.2 R-1 (`manage-payment-providers`) | Not applied: carried when 05c is approved |
 
+### Owner review of the 02b-TK Part B package (24 Nov 2026)
+
+⚠️ Changed by v1.12 owner review, 2026-11-24; still DRAFT (hostile run 2 owed). 01b had no owner decision of its own; its dependencies 01a OD-6, OD-9, OD-10 were **accepted** as recommended. One row is added:
+
+| Row | Owner answer | Change here | Where |
+|---|---|---|---|
+| **B-4** (OR-2; 03b v1.0.16 §3.4 "Handed to customer") | "Give the Pass role `mark-served`" | Default **Cook** (`default_key` `cook`, the role that holds `run-pass` by default) gains **`mark-served`** (`allowed`, scope `branch`, so it covers takeaway / parking orders, 02b §3.14); `default-roles.ts` for new tenants; existing tenants by the idempotent cloud backfill **`NNNN_cook_mark_served.sql`** (the next free cloud number at merge, README "Migration numbers": `0020` on this branch today, which 08d's approved `0020_inventory_receiving.sql` also claims), the `0019_cashier_mark_served.sql` pattern (by `default_key`, active roles only, `ON CONFLICT DO NOTHING`, `directory_version` + 1 per changed tenant, no audit row). Not `boost-order`. A Cook now also may mark dine-in lines served branch-wide (accepted: the Pass already hands those over) | §5.1c, §6.15, test 118, §11 step 11 |
+
 
 
 **v1.11 — APPROVED (owner 2026-11-24 00:23 PKT, with 08d v1.0; `docs/specs/08_Inventory_Costing_Spec_v1.2.md` Part D §4.5 rows B-1, B-2; markers "⚠️ Changed by 08d v1.0 (B-n)").** (B-1) five permissions in group `menu_stock`, scope `branch`: `receive-stock`, `record-waste`, `count-inventory`, `close-daily-sheet`, `reverse-inventory-entry` (labelled "Undo own entries"; the roles editor shows it under the three recording keys and ticks it together with the first of them, the owner may untick it); all five in `ALLOWED_ONLY_PERMISSIONS`; defaults Owner + Manager in the seed and, for running tenants, through cloud migration `0020_inventory_receiving.sql` by `default_key`. (B-2) the §6.10 settings wire takes `inventory_variance_pct_bp` and `inventory_variance_value_minor`. Not yet built (08d plan). v1.10.4 kept as history.
@@ -847,6 +855,25 @@ Idempotent (a second run changes nothing and bumps nothing). Pilot tenants are p
 
 One forward-only, **idempotent** data migration for tenants seeded before 05 (precedent `0013_void_defaults_backfill.sql`, §5.1a; by `default_key`, never by name, §3.8; active roles only, `archived_at IS NULL`, for the grantee and the approver role alike). It writes the §6.15 default grants of the new `bills` permissions: Owner, Manager (without `skip-blind-count` and `manage-fiscal-settings`), Cashier and Order taker, with `ON CONFLICT DO NOTHING` (`apply-discount` already exists on Cashier and is kept, `docs/plans/05-gaps.md` G-27), `role_permission_approvers` rows for the `requires_approval` grants (approver = that tenant's active `default_key = 'manager'` role) with the dual-written `approver_role_id`, and one `tenants.directory_version` bump per tenant that changed. A second run changes nothing and bumps nothing.
 
+### 5.1c Cloud — `NNNN_cook_mark_served.sql` ⚠️ Changed by v1.12 owner review (B-4, OR-2)
+
+Next free cloud number at merge (README "Migration numbers"; `0020` on this branch today). Same shape as `0019_cashier_mark_served.sql`:
+
+```sql
+-- 01b v1.12 B-4 (owner review OR-2, 03b v1.0.16 §3.4): the Pass role (Cook) gains mark-served (allowed, branch) so the
+-- Pass can hand a takeaway / parking bag to the customer. By default_key, never by name (§3.8); archived roles skipped.
+-- Idempotent: ON CONFLICT keeps any grant the role already has; only a tenant that gained a row bumps directory_version.
+WITH granted AS (
+  INSERT INTO role_permissions (tenant_id, role_id, permission, grant_type, approver_role_id, scope)
+  SELECT tenant_id, role_id, 'mark-served', 'allowed', NULL, 'branch'
+    FROM roles
+   WHERE default_key = 'cook' AND archived_at IS NULL
+  ON CONFLICT (tenant_id, role_id, permission) DO NOTHING
+  RETURNING tenant_id)
+UPDATE tenants SET directory_version = directory_version + 1
+ WHERE tenant_id IN (SELECT tenant_id FROM granted);
+```
+
 ### 5.2 Hub — `0005_directory_v2.sql`
 
 Forward-only; `role_permissions` uses the table-rebuild pattern (F §6.8: the runner sets `PRAGMA foreign_keys = OFF` before the transaction and runs `PRAGMA foreign_key_check` before commit). All these tables are a cache replaced whole by `applyStaffDirectory` (00 §5.1), so the copy only keeps the hub working until the first v2 apply.
@@ -1095,7 +1122,7 @@ All under `/v1`, JWT, tenant guard (with 00 §6.24a's owner-row read, B5), owner
 | Cashier | `cashier` | 15 min | `apply-discount` requires approval by Manager (owner, Q1); `reprint-ticket` allowed; `take-order` (`branch`), `clean-table` allowed (⚠️ Changed by 02a v1.0, B-1); `set-line-weight`, `view-customer-contact` (`branch`) allowed, `apply-comp` requires approval by Manager (⚠️ Changed by 02b v1.0, B-1, B-5); `void-item` **requires approval by Manager**, `move-item-to-stock` **allowed** (`branch`) (⚠️ Changed by 04, row B-1); `mark-served` (`branch`) allowed (⚠️ Changed by 01b v1.8.1 (owner ruling 2026-11-12, Q-23): was not granted; `boost-order` still not); ⚠️ Changed by 05 (row B-2): `take-payment` (`branch`), `manage-own-shift`, `open-cash-drawer`, `record-petty-cash` (`allowed`; the limit still applies); `apply-discount`, `remove-service-charge`, `reopen-bill`, `remove-comp`, `close-without-buyer-id` each `requires_approval` by Manager |
 | Order taker | `order_taker` | 15 min (owner, Q12) | `mark-served`, `mark-item-returned` (⚠️ Changed by 03a v1.0, B-2, B-5); `take-order` (`branch`), `clean-table` (⚠️ Changed by 02a v1.0, B-1); `boost-order` (`branch`), `view-customer-contact` (`own_tables`), `apply-comp` requires approval by Manager (⚠️ Changed by 02b v1.0, B-5); `void-item` **requires approval by Manager**, `move-item-to-stock` **allowed** (`branch`) (⚠️ Changed by 04, row B-1); ⚠️ Changed by 05 (row B-2): `take-payment` (`own_tables`), `manage-own-shift`; 02 appends the rest, separately from Waiter (D-12); takes orders; a counter role like Cashier |
 | Waiter | `waiter` | 5 min | `mark-served` (⚠️ Changed by 03a v1.0, B-2); `clean-table` (⚠️ Changed by 02a v1.0, B-1; **not** `take-order`, D-12); 02 appends the rest (owner, Q2); team-membership role, defaults only (B17) |
-| Cook | `cook` | 5 min | ⚠️ Changed by 03b v1.0.1 (B-1): **`run-pass`, `reprint-ticket`** (`allowed`, `branch`; the Pass card reprint, 03c R-6); was "none (03b appends; owner, Q2)"; team-membership role, defaults only, station sessions (B17, 00 M30) |
+| Cook | `cook` | 5 min | ⚠️ Changed by 03b v1.0.1 (B-1): **`run-pass`, `reprint-ticket`** (`allowed`, `branch`; the Pass card reprint, 03c R-6); was "none (03b appends; owner, Q2)"; team-membership role, defaults only, station sessions (B17, 00 M30) ; ⚠️ Changed by v1.12 owner review (B-4, OR-2): **`mark-served`** (`allowed`, `branch`; the Pass's "Handed to customer", 03b v1.0.16 §3.4; backfill §5.1c) |
 
 Each role is inserted with its `default_key` (so `is_default` is true on the wire); `seed-tenant` looks roles up by `default_key` (the Owner role for the owner's staff row, Manager as Cashier's approver), not by name (§3.8). The owner staff row gets the Owner role and a PIN, as today, and `owner_users.staff_id` is set to it (B7). `default-roles.ts` gains a `default_key` per role; a later module appending a default grant to running tenants does so in a migration that selects `WHERE default_key = '<key>'`. ⚠️ Changed by 04 (row B-1): `seed-tenant` already writes `role_permission_approvers`, so the new `void-item` grants of Cashier and Order taker get Manager as their approver there; existing tenants get them from `0013_void_defaults_backfill.sql` (§5.1a). ⚠️ Changed by 05 (row B-2): `close-business-day` is granted to Owner and Manager only; new tenants get the grants of the 05 rows above through `seed-tenant`, existing tenants through `0015_billing_defaults_backfill.sql` (§5.1b).
 
@@ -1360,6 +1387,7 @@ Numbering: 01b #1–#5 are reserved by 01a §12.5 for the carried items; the res
 116. **Takeaway-counter settings on the owner settings wire (B-1).** `PATCH /v1/admin/branches/:b/settings { rush_open_orders: 30 }` → `200`, the `GET` and `GET /v1/admin/branches` return `30`, one `branch_settings` / `update` audit row whose `before` / `after` carry the field, `config_version` + 1; `4`, `101`, `15.5`, `null` → `400 VALIDATION_FAILED` with `issues[0].path = 'rush_open_orders'`; `{ takeaway_slip_on_send: false }` → stored, returned, audited, bumped; `"no"`, `null` → `400 VALIDATION_FAILED` with `issues[0].path = 'takeaway_slip_on_send'`; `5` and `100` → `200`; the settings `version` changes when only one of the new keys changes (as test 115); a new branch returns `15` / `true`; the same values again → `200`, no audit row, no bump. (01a v2.11 tests 215, 217 cover the snapshot side.)
 
 117. **Business-day end on the owner settings wire (B-1; 02b v1.0.25 TK-8).** `PATCH /v1/admin/branches/:b/settings { business_day_end_local_ms: 12600000 }` → `200`, the `GET` and `GET /v1/admin/branches` return it, one `branch_settings` / `update` audit row carrying it, `config_version` + 1, the settings `version` changes; `0` and `86399999` → `200`; `-1`, `86400000`, `1.5`, `null` → `400 VALIDATION_FAILED` with `issues[0].path = 'business_day_end_local_ms'`; together with `day_stale_after_hours` in one PATCH → both written, one audit row; a new branch returns `14400000`; the same value again → no audit row, no bump. (01a v2.11 test 218 covers the snapshot side.)
+118. **Cook `mark-served` (⚠️ Changed by v1.12 owner review (B-4, OR-2)).** `seed-tenant` gives the Cook role `mark-served` (`allowed`, `branch`); the backfill on a tenant whose Cook lacks it → one row, `directory_version` + 1, a hub directory apply then resolves `mark-served` `allowed` / `branch` for a Cook; a second run → no row, no version change; a tenant whose Cook already has `mark-served` with `own_tables` keeps it; an archived Cook role is skipped; no `boost-order` added.
 
 ### 10.11 Acceptance table
 
@@ -1429,7 +1457,7 @@ Numbering: 01b #1–#5 are reserved by 01a §12.5 for the carried items; the res
 8. Responsibilities §6.8 and the 01a stock hook (§4.4 rows 9–13). Tests 32–35, 68, 71 (server part), 80 (responsibility part), 103, 104 (responsibility part).
 9. Branches §6.9 (own script), §6.10, 01a §4.4 rows 3, 6–8, 14 (`hub_synced_at`, `hub_stale_after_ms`, `CONFIG_POLL_INTERVAL_MS`); `issue-registration-code` (§4.3 row 19). Tests 45–48, 59, 66 (CLI part), 67, 86, 88, 92, 93, 94; ⚠️ Changed by 01a v2.11 (B-2): 116, 117 (with the 01a v2.11 batch).
 10. Owner auth: `credential_version` on `owner_users` and `owner_refresh_tokens`, claim `cv`, `FOR NO KEY UPDATE` on the owner row in login, refresh, change-password and reset, guard `503` on a failed read (review 2 N1, N2, N9); §6.11 (with the hash compare-and-set), §6.13 (login re-check, refresh lock order and notice, JWT guard owner-row read, 00 §6.24a, §4.4 row 1), §6.14 and §6.15a CLIs, runbook, redaction. Tests 4, 37–44, 65, 72, 73, 74, 75, 81, 90, 91, 95, 97, 98, 99, 100, 107.
-11. `seed-tenant` defaults §6.15 with `default_key`, lookups by key; re-seed dev data. Existing tests that find a default role **by name** move to `default_key`: `apps/cloud/test/default-roles.test.ts` (`grants('Order taker')` and the others) and `apps/cloud/test/cli/seed-tenant.int.test.ts` (the expected role list and `byRole.get('Order taker')`), which also expect the six roles. The hub fixtures (`apps/hub/test/helpers/fixtures.ts`, `apps/hub/test/queries/admin-lists.int.test.ts`) keep "Order taker" only as a display name: the hub directory carries no `default_key`, and no hub code compares it. Tests 20, 62 (hub part).
+11. `seed-tenant` defaults §6.15 with `default_key`, lookups by key; re-seed dev data. Existing tests that find a default role **by name** move to `default_key`: `apps/cloud/test/default-roles.test.ts` (`grants('Order taker')` and the others) and `apps/cloud/test/cli/seed-tenant.int.test.ts` (the expected role list and `byRole.get('Order taker')`), which also expect the six roles. The hub fixtures (`apps/hub/test/helpers/fixtures.ts`, `apps/hub/test/queries/admin-lists.int.test.ts`) keep "Order taker" only as a display name: the hub directory carries no `default_key`, and no hub code compares it. Tests 20, 62 (hub part). ⚠️ Changed by v1.12 owner review (B-4, OR-2): the Cook `mark-served` default and the §5.1c backfill, test 118.
 12. Team tree §6.12. Test 61.
 13. Owner app views (§8), strings, Urdu todo; the 01a stock page's day actions under `my_stations` (§4.4 row 13). Tests 49–54, 71 (page part), 78.
 14. Repository-wide checks: the role-name grep (R5), the renamed-roles hub run (R5), and the route-inventory / cross-tenant tests over the 14 new routes (D54). Tests 55 (exact scope, §10.9a), 96.
