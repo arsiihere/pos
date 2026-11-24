@@ -1202,7 +1202,13 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         )}
       </div>
       {(tabletTakeaway || shell.phone || shell.portrait) && <MenuPills categories={rail} current={current} onPick={setCategory} />}
-      <MenuTiles tiles={tiles} onTap={onTap} tk={tk} rush={dense} />
+      <MenuTiles
+        tiles={tiles}
+        onTap={onTap}
+        tk={tk}
+        rush={dense}
+        wait={order_type === 'takeaway' && (shell.phone || shell.portrait) ? (shell.online ? 'live' : 'offline') : undefined}
+      />
       {order_type === 'takeaway' && kiosk && (
         <div className="tk-hint">
           {kbd('/')} {t('m.keys')}: {kbd('4n')} {kbd('Enter')} · {kbd('F2')} {t('ctx.new')} ·{' '}

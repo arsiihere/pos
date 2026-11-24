@@ -230,7 +230,7 @@ export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' 
         <b dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</b>
         <small>
           {p.phoneTakeaway ? (
-            <>{t('v.ready_at')} <bdi className="ph-bar__time" dir="ltr">{p.ready_by === null && p.count === 0 ? '—' : p.ready_by === null ? '' : timeText(p.ready_by, p.utcOffsetMs)}</bdi></>
+            <>{t('v.ready_at')} <bdi className="ph-bar__time" dir="ltr">{p.ready_by === null ? '—' : timeText(p.ready_by, p.utcOffsetMs)}</bdi></>
           ) : sub}
         </small>
       </div>

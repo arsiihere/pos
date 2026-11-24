@@ -136,9 +136,19 @@ export interface TakeawayTileActions {
 /** A variant tile with two or three variants shows them as buttons on the tile (frame TileStates; more: the sheet). */
 const splits = (tile: TileModel) => tile.variants !== undefined && tile.variants.length >= 2 && tile.variants.length <= 3;
 
-function SplitTile({ tile, tk }: { tile: TileModel; tk: TakeawayTileActions }) {
+type PhoneWait = 'live' | 'offline';
+
+function timeOnPhone(chip: Chip | null, state: TileState, wait: PhoneWait | undefined): Chip | null {
+  if (wait === undefined) return chip;
+  if (chip === null || wait === 'offline' && (state.kind === 'about' || state.kind === 'now')) {
+    return { tone: 'mute', icon: 'clock', text: '—' };
+  }
+  return chip;
+}
+
+function SplitTile({ tile, tk, wait }: { tile: TileModel; tk: TakeawayTileActions; wait: PhoneWait | undefined }) {
   const off = !tile.availability.orderable;
-  const chip = offChip(tile.availability.state, tile.station_name ?? null) ?? chipOf(tile.availability.state);
+  const chip = timeOnPhone(offChip(tile.availability.state, tile.station_name ?? null) ?? chipOf(tile.availability.state), tile.availability.state, wait);
   const classes = ['mi', 'mi--h', 'mi--tk', 'mi--split', off ? 'off' : null, tile.in_cart > 0 ? 'picked' : null].filter((c) => c !== null).join(' ');
   return (
     <div className={classes} role="group" aria-label={tile.name}>
@@ -181,10 +191,10 @@ function SplitTile({ tile, tk }: { tile: TileModel; tk: TakeawayTileActions }) {
   );
 }
 
-export function Tile({ tile, onTap, tk }: { tile: TileModel; onTap(tile: TileModel): void; tk?: TakeawayTileActions | undefined }) {
-  if (tk !== undefined && splits(tile)) return <SplitTile tile={tile} tk={tk} />;
+export function Tile({ tile, onTap, tk, wait }: { tile: TileModel; onTap(tile: TileModel): void; tk?: TakeawayTileActions | undefined; wait?: PhoneWait | undefined }) {
+  if (tk !== undefined && splits(tile)) return <SplitTile tile={tile} tk={tk} wait={wait} />;
   const off = !tile.availability.orderable;
-  const chip = tile.zone !== null ? null : tk !== undefined ? (offChip(tile.availability.state, tile.station_name ?? null) ?? chipOf(tile.availability.state)) : chipOf(tile.availability.state);
+  const chip = timeOnPhone(tile.zone !== null ? null : tk !== undefined ? (offChip(tile.availability.state, tile.station_name ?? null) ?? chipOf(tile.availability.state)) : chipOf(tile.availability.state), tile.availability.state, wait);
   const classes = ['mi', 'mi--h', tk !== undefined ? 'mi--tk' : null, off ? 'off' : null, tile.in_cart > 0 ? 'picked' : null].filter((c) => c !== null).join(' ');
   const tap = () => {
     if (!off) return onTap(tile);
@@ -231,11 +241,11 @@ export function Tile({ tile, onTap, tk }: { tile: TileModel; onTap(tile: TileMod
 // The grid takes pulse-02's default 2 columns (`--icols`); the kiosk's 3 and the phone's 1 need a ui-kit rule
 // (no `style` prop, S35 d) — listed in the PR as a layout difference.
 // 02b-TK A2 item 3: `tk` = the takeaway tile (frame TileStates); item 4: `rush` = the dense grid, no photos (HomeRush).
-export function MenuTiles({ tiles, onTap, tk, rush = false }: { tiles: TileModel[]; onTap(tile: TileModel): void; tk?: TakeawayTileActions | undefined; rush?: boolean }) {
+export function MenuTiles({ tiles, onTap, tk, rush = false, wait }: { tiles: TileModel[]; onTap(tile: TileModel): void; tk?: TakeawayTileActions | undefined; rush?: boolean; wait?: PhoneWait | undefined }) {
   return (
     <div className={rush ? 'items items--h items--rush' : 'items items--h'}>
       {tiles.map((tile) => (
-        <Tile key={`${tile.kind}:${tile.id}`} tile={tile} onTap={onTap} tk={tk} />
+        <Tile key={`${tile.kind}:${tile.id}`} tile={tile} onTap={onTap} tk={tk} wait={wait} />
       ))}
     </div>
   );
