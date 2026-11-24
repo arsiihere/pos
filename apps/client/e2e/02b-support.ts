@@ -46,26 +46,24 @@ export async function openOrder(page: Page, lang: Lang, table: string): Promise<
 }
 
 /**
- * A new takeaway or parking order (02-S04): the kiosk's Takeaway tab is the order screen (02b-TK C2-1); elsewhere the
- * map's New order (02a IR-5 → 02b's New order sheet), the takeaway contact step skipped, the parking plate + Sedan.
+ * A new takeaway or parking order (02-S04): a takeaway on the Takeaway tab, which is the order screen in takeaway mode
+ * on every device (02b-TK C2-1: kiosk, tablet, phone); a parking order from the map's New order (02a IR-5 → 02b's New
+ * order sheet), the plate + Sedan.
  */
 export async function newOrder(page: Page, lang: Lang, info: TestInfo, type: 'takeaway' | 'parking', plate = 'LEA 123'): Promise<void> {
-  if (isKioskRun(info) && type === 'takeaway') {
+  if (type === 'takeaway') {
     await page.evaluate(() => (window.location.hash = '#/takeaway'));
-    await expect(page.locator('.osc--tk')).toBeVisible();
+    await expect(page.locator('.order').first()).toBeVisible();
+    await expect(page).toHaveURL(/#\/takeaway$/);
     return;
   }
   if (isKioskRun(info)) await page.evaluate(() => (window.location.hash = '#/tables'));
   const bar = isPhone(info) ? page.locator('.phbar') : page.locator('main.map');
   await bar.getByRole('button', { name: tr(lang, 'order.new') }).click();
   await dialog(page).locator('.bchip', { hasText: tr(lang, `order.${type}`) }).click();
-  if (type === 'takeaway') {
-    await dialog(page).getByRole('button', { name: tr(lang, 'order.takeaway.skip') }).click();
-  } else {
-    await dialog(page).locator('input.inp--plate').fill(plate);
-    await dialog(page).locator('.bchip', { hasText: tr(lang, 'order.parking.sedan') }).click();
-    await dialog(page).getByRole('button', { name: tr(lang, 'order.takeaway.next') }).click();
-  }
+  await dialog(page).locator('input.inp--plate').fill(plate);
+  await dialog(page).locator('.bchip', { hasText: tr(lang, 'order.parking.sedan') }).click();
+  await dialog(page).getByRole('button', { name: tr(lang, 'order.takeaway.next') }).click();
   await expect(page).toHaveURL(new RegExp(`#/order/${type}/`));
 }
 
@@ -75,3 +73,45 @@ export async function sendCart(page: Page, lang: Lang): Promise<void> {
   if (!(await send.isVisible())) await page.getByRole('button', { name: new RegExp(`^${tr(lang, 'order.tab.cart')}`) }).click();
   await send.click();
 }
+
+// ------------------------------------------------------------------------------------------------- the counter (02b-TK)
+
+/** A text as a RegExp source. */
+export function escapeRe(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** The Takeaway tab (`#/takeaway`, 05a A-7): the order screen itself — rail, menu, cart (02b-TK C2-1). */
+export async function takeawayTab(page: Page): Promise<void> {
+  await page.evaluate(() => (window.location.hash = '#/takeaway'));
+  await expect(page.locator('.osc--tk')).toBeVisible();
+  await expect(page).toHaveURL(/#\/takeaway$/);
+}
+
+/** The signed-in person's shift is open (05 §6.15): open it with Starting cash 0, or it already is. */
+export async function shiftOpen(page: Page, lang: Lang): Promise<void> {
+  await page.evaluate(() => (window.location.hash = '#/shift'));
+  const open = page.getByRole('button', { name: tr(lang, 'billing.shift.open') });
+  const title = page.getByText(tr(lang, 'billing.shift.open_title'));
+  await page.locator('main').first().waitFor();
+  if (await title.isVisible().catch(() => false)) {
+    await page.locator('.b5-card input').first().fill('0');
+    await open.click();
+    await expect(title).toHaveCount(0);
+  }
+}
+
+/** The token the sent toast names ("57 · sent · ready 1:42 PM"). */
+export async function sentToken(page: Page): Promise<string> {
+  const toast = page.locator('.toast').first();
+  await expect(toast).toContainText(/^\s*\d+/);
+  const text = (await toast.textContent()) ?? '';
+  return /\d+/.exec(text)![0];
+}
+
+/** The rail entry of a token (a ready tile or a cooking row). */
+export const railEntry = (page: Page, token: string) =>
+  page.locator('.tk-rt__open', { has: page.locator('.tok', { hasText: new RegExp(`^${token}$`) }) }).or(page.locator('.tk-qr', { has: page.locator('.tk-tok', { hasText: new RegExp(`^${token}$`) }) }));
+
+/** The ready tile of a token (02b-TK C2-1, frame ReadyTiles). */
+export const readyTile = (page: Page, token: string) => page.locator('.tk-rt', { has: page.locator('.tok', { hasText: new RegExp(`^${token}$`) }) });
