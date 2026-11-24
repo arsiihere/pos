@@ -13,6 +13,7 @@ const HEADER: SnapshotHeader = {
   tax_enabled: false,
   day_stale_after_hours: 16,
   day_min_gap_hours: 4,
+  business_day_end_local_ms: 14_400_000,
 };
 
 // 01c §4.6 rules 3 and 6 (V8, V9 has_plain_options, F1, M5, m5, m15): the modifier groups of a branch's

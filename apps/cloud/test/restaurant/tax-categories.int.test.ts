@@ -3,7 +3,7 @@ import { buildSnapshot } from '../../src/modules/config-sync/builder';
 import { owner, restaurantFixture, type RestaurantFixture } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
-const HEADER = { config_version: 1, currency_code: 'PKR', tax_enabled: true, day_stale_after_hours: 16, day_min_gap_hours: 4 };
+const HEADER = { config_version: 1, currency_code: 'PKR', tax_enabled: true, day_stale_after_hours: 16, day_min_gap_hours: 4, business_day_end_local_ms: 14_400_000 };
 
 describe('tax classes and categories', () => {
   let cloud: TestCloud;

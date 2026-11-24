@@ -57,10 +57,11 @@ async function readConfig(
         tax_enabled: boolean;
         day_stale_after_hours: number;
         day_min_gap_hours: number;
+        business_day_end_local_ms: number;
         directory_version: string;
         currency_code: string;
       }>(
-        `SELECT b.config_version, b.tax_enabled, b.day_stale_after_hours, b.day_min_gap_hours,
+        `SELECT b.config_version, b.tax_enabled, b.day_stale_after_hours, b.day_min_gap_hours, b.business_day_end_local_ms,
                 t.directory_version, t.currency_code
            FROM branches b
            JOIN tenants t ON t.tenant_id = b.tenant_id
@@ -82,6 +83,7 @@ async function readConfig(
           tax_enabled: header.tax_enabled,
           day_stale_after_hours: header.day_stale_after_hours,
           day_min_gap_hours: header.day_min_gap_hours,
+          business_day_end_local_ms: header.business_day_end_local_ms,
         }, log);
         config = { snapshot_hash: sha256hex(canonicalJson(wire)), snapshot: wire };
       }

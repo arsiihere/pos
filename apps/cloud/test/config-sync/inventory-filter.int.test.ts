@@ -20,6 +20,7 @@ const HEADER: SnapshotHeader = {
   tax_enabled: false,
   day_stale_after_hours: 16,
   day_min_gap_hours: 4,
+  business_day_end_local_ms: 14_400_000,
 };
 const STOCK_ITEM_KEYS = [
   "carries_over",
@@ -32,6 +33,7 @@ const STOCK_ITEM_KEYS = [
 // The top-level snapshot keys (schema 4; 08a adds none, §2 / §4.3; ⚠️ 08b P-1, A-3: + the inventory key).
 const SNAPSHOT_KEYS = [
   "branch_id",
+  "business_day_end_local_ms",
   "categories",
   "config_version",
   "currency_code",
