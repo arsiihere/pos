@@ -40,7 +40,9 @@ export interface CartProps {
   onHold(): void;
   onSend(): void;
   /** 02b v1.0.21 §8 (STAB-5): the order's serve switch */
-  serve?: { state: ServeMode | 'mixed'; onSet(mode: ServeMode): void };
+  serve?: { state: ServeMode | 'mixed'; onSet(mode: ServeMode): void } | undefined;
+  /** 02b-TK A2 item 5b (frame ServeChoice): the takeaway's plain serve question, in place of the switch */
+  serveChoice?: ReactNode;
   /** phone / portrait: the list only (the sticky bar carries Send) */
   bare?: boolean;
   /** 02b-TK C2-3 (frame TokenAddItems): the primary's words in place of Send ("Add to token 53") */
@@ -166,6 +168,7 @@ export function Cart(p: CartProps) {
         ) : (
           <>
             {p.serve !== undefined && !empty && <ServeSwitch state={p.serve.state} onSet={p.serve.onSet} />}
+            {!empty && p.serveChoice}
             <div className="duo">
               <button type="button" className="btn" onClick={p.onNote}>
                 {t('cart.note')}

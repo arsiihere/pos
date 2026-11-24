@@ -304,3 +304,11 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 /* ---------- A2 batch 2 item 5a: the Ready by reason line (frame CartTimeDelta) ---------- */
 .tk-delta { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 8px 12px; border-radius: 10px; background: var(--warn-tint); color: var(--warn); font-weight: 700; font-size: 15px; }
 .tk-delta .ico { width: 18px; height: 18px; flex: none; }
+
+/* ---------- A2 batch 2 item 5b: the serve question (frame ServeChoice) ---------- */
+.tk-serve { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--info-tint); }
+.tk-serve b { font-size: 16px; color: var(--info); }
+.tk-serve .tk-pick { display: flex; gap: 6px; }
+.tk-serve .tk-pick button { flex: 1 1 0; min-height: 52px; padding: 0 8px; border-radius: 12px; border: 1.5px solid var(--control-edge); background: var(--surface-raised); font-weight: 700; font-size: 16px; }
+.tk-serve .tk-pick button.is-sel { background: var(--info-fill); border-color: var(--info-fill); color: #fff; }
+.tk-serve .time { unicode-bidi: isolate; white-space: nowrap; }

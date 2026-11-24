@@ -72,6 +72,7 @@ import { takeawayContext } from '../../shell/context-slot';
 import { keyEntries, keyMatches, parseKeyQuery, type KeyEntry } from './keyboard';
 import { readRushOverride, rushOn, toggledOverride, writeRushOverride } from '../takeaway/rush';
 import { deltaText } from './delta';
+import { ServeChoice } from './ServeChoice';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
 // Menu / Cart tabs + sticky Send; 02-B03 draft back, B04 offline, B05 / B07 line problems), 02a §8 Order screen (the
@@ -948,6 +949,20 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   // 02b-TK C3-2 (05 §6.3; R6): the cart of an addition prints the sent token's check bill (a restored draft: its root's)
   const checkOrder = addingTo === null ? null : addingNewest.current?.root === addingTo.order_id ? addingNewest.current.newest : addingTo.order_id;
   const checkBill = checkOrder !== null && shell.permissions.allowed('take-order') ? <CheckBill order_id={checkOrder} /> : undefined;
+  const setServe = (mode: ServeMode) => (sending.current ? undefined : setCart((c) => ({ ...c, serve_mode: mode })));
+  // 02b-TK A2 item 5b: the lines ready now — a ready item, or a stock item served at once (stock_time_ms 0, in stock:
+  // the tile's "Now", 02b-tk C3-3) — named in cart order; null unless the order also has a kitchen line
+  const readyNowNames = (() => {
+    const isNow = (item_id: string | undefined) => {
+      const item = item_id === undefined ? undefined : config.items.find((i) => i.item_id === item_id);
+      if (item === undefined) return false;
+      const left = inputs?.stock.available(item.item_id) ?? null;
+      return item.is_ready_item || (item.stock_time_ms === 0 && left !== null && left >= 1);
+    };
+    const now = cart.lines.filter((l) => l.deal_id === undefined && isNow(l.item_id));
+    if (now.length === 0 || now.length === cart.lines.length) return null;
+    return [...new Set(now.map((l) => config.items.find((i) => i.item_id === l.item_id)!.name))];
+  })();
   const cartProps = {
     primary,
     config,
@@ -972,8 +987,14 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     qchips: order_type === 'takeaway',
     day: dayNotOpen ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
     info: cart.lines.find((l) => l.comp_it === true) === undefined ? null : compItInfo(),
-    // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins
-    serve: { state: serveState(cart, config), onSet: (mode: ServeMode) => (sending.current ? undefined : setCart((c) => ({ ...c, serve_mode: mode }))) },
+    // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins. 02b-TK A2
+    // item 5b (frame ServeChoice): a takeaway asks the plain question instead, and only when something is ready now
+    // and something comes from the kitchen
+    serve: order_type === 'takeaway' ? undefined : { state: serveState(cart, config), onSet: setServe },
+    serveChoice:
+      order_type !== 'takeaway' || readyNowNames === null ? null : (
+        <ServeChoice now={readyNowNames} ready_by={ready} utcOffsetMs={utcOffsetMs} state={serveState(cart, config)} onSet={setServe} />
+      ),
   };
   const customer =
     order_type !== 'takeaway' ? null : (

@@ -4266,6 +4266,12 @@ export const en = {
   // 02b-TK A2 item 5a (a busy band, or no station news): not in strings-table.md; Urdu to confirm
   'c.delta_busy': '{item} adds {n} min — the {station} station is busy',
   'c.delta_plain': '{item} adds {n} min',
+  // ---- 02b-TK client (A2 batch 2, item 5b serve question: frame ServeChoice): strings-table.md (sample "Paye" → {item}) ----
+  'c.serve_q': '{item} is ready now. Give it now?',
+  'c.serve_together': 'All together {t}',
+  'c.serve_now': '{item} now, rest {t}',
+  // 02b-TK A2 item 5b (two or more things ready now): not in strings-table.md; Urdu to confirm
+  'c.serve_q_many': '{item} are ready now. Give them now?',
 } as const;
 
 export type MessageKey = keyof typeof en;

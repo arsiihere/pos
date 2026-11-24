@@ -11,6 +11,8 @@ import { TK_TILES } from './global-setup';
 //   "Name / phone" button and the compact queue; a second tap goes back to Live and the normal layout.
 // Item 5a — the Ready by reason line (frame CartTimeDelta): Naan ×8 on the fixture's slot station S1 (capacity 4) puts
 //   the last units into a later slot, so Ready by moves later and the Naan line says "Naan adds N min …".
+// Item 5b — the serve question (frame ServeChoice): Water (a ready item) + Naan (kitchen) asks "Water is ready now.
+//   Give it now?" with All together / Water now, rest {time}; no Together / As ready switch on takeaway.
 // Ali (order-taker) is on both devices.
 
 const RUNS_ON = ['kiosk', 'tablet-landscape'];
@@ -120,6 +122,31 @@ for (const lang of LANGS) {
       await expect(why).toBeVisible();
       await expect(why).toContainText('Naan');
       await expect(why).toContainText(/\d+/);
+    } finally {
+      await signOut(page, info, lang);
+    }
+  });
+
+  test(`[02b-TK TK-S02; frame ServeChoice] a mixed takeaway asks one plain question; a choice is pressed (${lang})`, async ({ page }, info) => {
+    runsHere(info);
+    await signInOn(page, deviceFor(info), lang);
+    try {
+      await takeawayTab(page);
+      await menuTile(page, 'Naan').click();
+      await expect(page.locator('.cart .tk-serve')).toHaveCount(0);
+      await menuTile(page, 'Water').click();
+      const q = page.locator('.cart .tk-serve');
+      await expect(q.locator('b')).toHaveText(tr(lang, 'c.serve_q', { item: 'Water' }));
+      await expect(page.locator('.cart .serve')).toHaveCount(0);
+      const [before] = tr(lang, 'c.serve_now', { item: 'Water' }).split('{t}');
+      const now = q.locator('button').nth(1);
+      await expect(now).toContainText(before!.trim());
+      await expect(q.locator('button').first()).toContainText(tr(lang, 'c.serve_together').split('{t}')[0]!.trim());
+      await now.click();
+      await expect(now).toHaveAttribute('aria-pressed', 'true');
+      await q.locator('button').first().click();
+      await expect(q.locator('button').first()).toHaveAttribute('aria-pressed', 'true');
+      await expect(now).toHaveAttribute('aria-pressed', 'false');
     } finally {
       await signOut(page, info, lang);
     }

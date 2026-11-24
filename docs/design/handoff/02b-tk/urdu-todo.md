@@ -61,3 +61,6 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `c.delta` (placeholders for the table's "2nd karahi" / "karahi station") | {item} adds {n} min — the {station} station is full | {item} سے {n} منٹ بڑھ گئے — {station} اسٹیشن بھرا ہے |
 | `c.delta_busy` | {item} adds {n} min — the {station} station is busy | {item} سے {n} منٹ بڑھ گئے — {station} اسٹیشن مصروف ہے |
 | `c.delta_plain` | {item} adds {n} min | {item} سے {n} منٹ بڑھ گئے |
+| `c.serve_q` (placeholder for the table's "Paye") | {item} is ready now. Give it now? | {item} ابھی تیار ہیں۔ ابھی دے دیں؟ |
+| `c.serve_now` (placeholder for the table's "Paye") | {item} now, rest {t} | {item} ابھی، باقی {t} |
+| `c.serve_q_many` | {item} are ready now. Give them now? | {item} ابھی تیار ہیں۔ ابھی دے دیں؟ |

@@ -1733,4 +1733,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // 02b-TK A2 item 5a (a busy band, or no station news): not in strings-table.md; Urdu to confirm
   'c.delta_busy': '{item} سے {n} منٹ بڑھ گئے — {station} اسٹیشن مصروف ہے',
   'c.delta_plain': '{item} سے {n} منٹ بڑھ گئے',
+  // ---- 02b-TK client (A2 batch 2, item 5b serve question: frame ServeChoice): strings-table.md (sample "Paye" → {item}) ----
+  'c.serve_q': '{item} ابھی تیار ہیں۔ ابھی دے دیں؟',
+  'c.serve_together': 'سب ایک ساتھ {t}',
+  'c.serve_now': '{item} ابھی، باقی {t}',
+  // 02b-TK A2 item 5b (two or more things ready now): not in strings-table.md; Urdu to confirm
+  'c.serve_q_many': '{item} ابھی تیار ہیں۔ ابھی دے دیں؟',
 };
