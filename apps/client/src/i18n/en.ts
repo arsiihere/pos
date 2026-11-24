@@ -4251,6 +4251,13 @@ export const en = {
   'm.hint_initials': 'half karahi',
   'm.hint_add': 'add',
   'm.hint_clear': 'clear',
+  // ---- 02b-TK client (A2 batch 2, item 3 tiles: frame TileStates): strings-table.md (the sample names / times are placeholders) ----
+  'm.sold_out': 'Sold out',
+  'm.not_now': 'From {time}',
+  'm.paused': '{station} paused',
+  't.sold_out': '{item} is sold out — ask the kitchen',
+  // 02b-TK A2 item 3 (frame TileStates "tap shows why" for the other reasons): not in strings-table.md; Urdu to confirm
+  't.off_reason': '{item} — {reason}',
 } as const;
 
 export type MessageKey = keyof typeof en;

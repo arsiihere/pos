@@ -77,7 +77,10 @@ function whyText(p: LineProblem): string {
   }
 }
 
-export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions }: { view: LineView; config: BranchConfig; unitOf: UnitOf; utcOffsetMs: number; actions: LineActions }) {
+/** 02b-TK A2 item 3 (frame HomeRush; CHANGES §4 #6 "four quantity chips"): the open line's ×2 ×4 ×6 ×8. */
+export const QTY_CHIPS = [2, 4, 6, 8] as const;
+
+export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions, qchips = false }: { view: LineView; config: BranchConfig; unitOf: UnitOf; utcOffsetMs: number; actions: LineActions; qchips?: boolean }) {
   const { line } = view;
   const m = cartLineMoney(config, line, unitOf);
   // a pending weight shows what is billed now (its linked children) or "—"; missing menu data shows "—"
@@ -171,6 +174,15 @@ export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions }: { vi
           <button type="button" className="btn btn--quiet ln__rm" aria-label={t('cart.remove')} onClick={() => actions.remove(line.key)}>
             <Ico name="x" />
           </button>
+        </div>
+      )}
+      {qchips && piece && view.open && view.problem === null && (
+        <div className="tk-qchips" role="group" aria-label={t('cart.quantity')}>
+          {QTY_CHIPS.map((n) => (
+            <button key={n} type="button" dir="ltr" aria-pressed={line.quantity === n} disabled={view.cap !== null && n > view.cap} onClick={() => actions.setUnits(line.key, n)}>
+              ×{n}
+            </button>
+          ))}
         </div>
       )}
     </li>

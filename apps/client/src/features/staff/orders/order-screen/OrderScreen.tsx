@@ -40,7 +40,8 @@ import {
 import { Cart, CartList, SendBar } from './Cart';
 import type { LineView } from './CartLine';
 import { MenuPills, MenuRail, type RailCategory } from './MenuRail';
-import { MenuTiles, itemSub, variantsSub, type TileModel } from './MenuTiles';
+import { MenuTiles, itemSub, offToast, variantsSub, type TakeawayTileActions, type TileModel } from './MenuTiles';
+import { groupsOf } from '../sheets/preselect';
 import { DealSheet } from '../sheets/DealSheet';
 import { NoteSheet, ORDER_NOTE_MAX } from '../sheets/NoteSheet';
 import { OptionsSheet } from '../sheets/OptionsSheet';
@@ -89,7 +90,8 @@ export interface OrderScreenProps {
 /** What a tile tap or Edit asks the sheets (26c) to open. */
 export type SheetRequest =
   | { kind: 'item'; item_id: string; from_zone: boolean }
-  | { kind: 'variants'; variant_group_id: string }
+  /** `item_id`: 02b-TK A2 item 3 — the variant tapped on the tile, chosen in the sheet */
+  | { kind: 'variants'; variant_group_id: string; item_id?: string }
   | { kind: 'deal'; deal_id: string }
   | { kind: 'edit'; key: string }
   | { kind: 'order_note' };
@@ -128,6 +130,16 @@ function blank(c: CartModel): boolean {
 /** A tile tap adds a line straight away only for a plain piece item; anything with a choice opens a sheet (26c). */
 function needsSheet(item: ConfigItem, unit: Unit | null): boolean {
   return item.modifier_group_ids.length > 0 || item.requires_weighing || unit !== 'piece' || item.variant_group_id !== null;
+}
+
+/**
+ * 02b-TK A2 item 3 (frame TileStates "half/full on tile"; 01c §3.4.6): a variant tapped on its tile is added at once
+ * unless it needs a choice — a required group, a default option (the sheet shows the defaults), a weight or a
+ * non-piece unit: then its sheet opens with that variant chosen.
+ */
+function variantNeedsSheet(config: BranchConfig, item: ConfigItem, unit: Unit | null): boolean {
+  if (item.requires_weighing || unit !== 'piece') return true;
+  return groupsOf(config, item).some((g) => g.min_choices > 0 || g.options.some((o) => o.is_default));
 }
 
 /** The sheet's item / deal is still on the menu (an edited line still in the cart and on the menu). */
@@ -604,6 +616,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const keyedIds = new Set(keyed?.map((e) => e.id) ?? []);
   const inView = (category_id: string, name: string, id?: string) =>
     q === '' ? category_id === current : name.toLowerCase().includes(q) || (id !== undefined && keyedIds.has(id));
+  /** 02b-TK A2 item 3 (frame TileStates "Tandoor paused"): the paused station's name */
+  const stationName = (a: ItemAvailability): string | null => (a.state.kind !== 'paused' ? null : (config.stations.find((st) => st.station_id === (a.state as { station_id: string }).station_id)?.name ?? null));
   const tiles: TileModel[] = [];
   const seenGroups = new Set<string>();
   for (const item of [...config.items].sort((a, b) => a.sort_order - b.sort_order)) {
@@ -614,6 +628,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       const variants = config.items.filter((i) => i.variant_group_id === item.variant_group_id);
       const name = vg?.name ?? item.name;
       if (!inView(item.category_id, name) && !variants.some((v) => keyedIds.has(v.item_id))) continue;
+      const groupAvail = bestOf(variants.map((v) => avail(v.item_id)));
       tiles.push({
         id: item.variant_group_id,
         kind: 'variants',
@@ -622,9 +637,16 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         price_minor: Math.min(...variants.map((v) => v.price_minor)),
         from: variants.length > 1,
         per: null,
-        availability: bestOf(variants.map((v) => avail(v.item_id))),
+        availability: groupAvail,
         zone: null,
         in_cart: variants.reduce((n, v) => n + unitsOf(cart, v.item_id), 0),
+        // 02b-TK A2 item 3: Half / Full on the tile (takeaway)
+        ...(order_type !== 'takeaway'
+          ? {}
+          : {
+              variants: [...variants].sort((a, b) => a.sort_order - b.sort_order).map((v) => ({ item_id: v.item_id, name: v.variant_name ?? v.name, price_minor: v.price_minor, availability: avail(v.item_id) })),
+              station_name: stationName(groupAvail),
+            }),
       });
       continue;
     }
@@ -641,6 +663,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       availability: z === null ? avail(item.item_id) : zoneAvail(avail(item.item_id), z.on_hand),
       zone: z === null ? null : { on_hand: z.on_hand, zone_name: zone?.name ?? null },
       in_cart: unitsOf(cart, item.item_id),
+      station_name: stationName(avail(item.item_id)),
     });
   }
   for (const deal of [...config.deals].sort((a, b) => a.sort_order - b.sort_order)) {
@@ -672,6 +695,23 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     if (cap !== null && kitchenUnits(next, item.item_id, zoneCovered(next, (id) => zoneItem(id)?.on_hand ?? null)) > cap) return;
     setCart(next);
   };
+  // 02b-TK A2 item 3 (frame TileStates): Half / Full on the tile, and an off tile's tap says why (never silent)
+  const tk: TakeawayTileActions | undefined =
+    order_type !== 'takeaway'
+      ? undefined
+      : {
+          onOff: (name, state, station) => shell.toasts.show({ text: offToast(name, state, station), tone: 'warn' }),
+          onVariant: (tile, item_id) => {
+            if (sending.current) return;
+            const item = config.items.find((i) => i.item_id === item_id);
+            if (item === undefined) return;
+            if (variantNeedsSheet(config, item, unitOf(item_id))) return setSheet({ kind: 'variants', variant_group_id: tile.id, item_id });
+            const next = addTap(cart, item_id, newKey);
+            const cap = capOf(item_id);
+            if (cap !== null && kitchenUnits(next, item_id, zoneCovered(next, () => null)) > cap) return;
+            setCart(next);
+          },
+        };
 
   // ------------------------------------------------------------------------------------------- cart view
   const problems = lineProblems(cart, body, capOf, covered);
@@ -899,6 +939,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     pay: canPay ? { online: shell.online, onSendPay: () => void onSend({ pay: true }) } : undefined,
     checkBill,
     holdKey: order_type === 'takeaway' && shell.device.type === 'cashier_kiosk' && !shell.phone && !shell.portrait,
+    // 02b-TK A2 item 3 (frame HomeRush): ×2 ×4 ×6 ×8 on the open line
+    qchips: order_type === 'takeaway',
     day: dayNotOpen ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
     info: cart.lines.find((l) => l.comp_it === true) === undefined ? null : compItInfo(),
     // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins
@@ -1059,7 +1101,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           </div>
         )}
       </div>
-      <MenuTiles tiles={tiles} onTap={onTap} />
+      <MenuTiles tiles={tiles} onTap={onTap} tk={tk} />
       {order_type === 'takeaway' && kiosk && (
         <div className="tk-hint">
           {kbd('/')} {t('m.keys')}: {kbd('4n')} {kbd('Enter')} · {kbd('F2')} {t('ctx.new')} ·{' '}
@@ -1151,6 +1193,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           {...common}
           item_ids={config.items.filter((i) => i.variant_group_id === sheet.variant_group_id).sort((a, b) => a.sort_order - b.sort_order).map((i) => i.item_id)}
           initial={null}
+          {...(sheet.item_id === undefined ? {} : { start_item_id: sheet.item_id })}
           capOf={sheetCap}
         />
       );
@@ -1243,7 +1286,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           ) : (
             <>
               {customer}
-              <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} />
+              <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} qchips={order_type === 'takeaway'} />
               {checkBill}
             </>
           )}

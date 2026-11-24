@@ -267,3 +267,22 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .menu > .tk-hint { display: block; line-height: 2; margin: 0 0 14px; padding: 10px 14px; border-radius: var(--radius-md); background: var(--surface-sunken); font-weight: 600; }
 .tk-sugg .tk-hint, .menu > .tk-hint { color: var(--ink-muted); }
 .tk-hint .tk-kbd { color: var(--ink); }
+
+/* ---------- A2 batch 2 item 3: menu tile states (frame TileStates; MAPPING TK-C01) ---------- */
+/* an off takeaway tile keeps its price readable: a reason chip, never a strike-through (pulse-staff strikes .mi.off) */
+:where(.pu) .mi--tk.off .price { text-decoration: none; }
+.mi--tk.off { cursor: pointer; }
+/* Half / Full on the tile: one tap each */
+.mi--split .mi__body { gap: 8px; }
+.tk-split { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+.tk-split button { min-height: 56px; border-radius: 12px; border: 1.5px solid var(--control-edge); background: var(--surface-soft); font-weight: 800; font-size: 16px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.tk-split button small { font-weight: 700; font-size: 15px; color: var(--ink-muted); white-space: nowrap; }
+.tk-split button[aria-disabled="true"] { opacity: .5; }
+[dir="rtl"] .tk-split button { min-height: 66px; line-height: 1.5; }
+[dir="rtl"] .tk-split button small { line-height: 1.2; }
+/* ×2 ×4 ×6 ×8 on the open cart line */
+.tk-qchips { grid-column: 2 / -1; display: flex; gap: 6px; padding-top: 8px; }
+.tk-qchips button { min-width: 64px; min-height: 48px; border-radius: 12px; border: 1.5px solid var(--control-edge); background: var(--surface-raised); font-weight: 800; font-size: 16px; }
+.tk-qchips button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-tint); }
+.tk-qchips button:disabled { opacity: .45; }

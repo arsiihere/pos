@@ -54,3 +54,7 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `m.hint_initials` | half karahi | آدھی کڑاہی |
 | `m.hint_add` | add | ڈالیں |
 | `m.hint_clear` | clear | صاف کریں |
+| `t.off_reason` | {item} — {reason} | {item} — {reason} |
+| `m.not_now` (placeholder for the table's "From 7 PM") | From {time} | {time} سے |
+| `m.paused` (placeholder for the table's "Tandoor paused") | {station} paused | {station} رکا ہوا |
+| `t.sold_out` (placeholder for the table's "Chicken Tikka") | {item} is sold out — ask the kitchen | {item} ختم ہے — کچن سے پوچھیں |

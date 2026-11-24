@@ -13,6 +13,7 @@ import type { HubResult } from '../../../../api/hub-admin';
 //   off          manual Off (01a S30: Off wins over every window)                 → "Not available"
 //   not_now      outside its own or its category's windows (S47)                   → "Not now · {window}"
 //   unavailable  a required group no option can satisfy (01c §3.4.6, V11 d)        → "Not available"
+//   paused       its home station is paused (stations-live `paused`, 03a §6.5; the engine refuses it) → "{station} paused"
 //   not_counted  a sold_out item whose stock has no valid count today (S41, Q1)    → "Not counted today"
 //   sold_out     a sold_out item with 0 sale units left (O15)                      → "Sold out"
 //   left         a sold_out item at `low` (Q1: "N left" only at low)              → "{n} left"
@@ -33,6 +34,8 @@ export type TileState =
   | { kind: 'off' }
   | { kind: 'not_now'; windows: AvailabilityWindow[] }
   | { kind: 'unavailable' }
+  /** 02b-TK A2 item 3 (frame TileStates "Station paused"): the item's home station is paused (03a §6.5, §6.7) */
+  | { kind: 'paused'; station_id: string }
   | { kind: 'not_counted' }
   | { kind: 'sold_out' }
   | { kind: 'left'; n: number }
@@ -41,7 +44,7 @@ export type TileState =
 
 export interface ItemAvailability {
   state: TileState;
-  /** false for off, not_now, unavailable, not_counted, sold_out */
+  /** false for off, not_now, unavailable, paused, not_counted, sold_out */
   orderable: boolean;
   /** the stepper's maximum; null = no stock cap */
   cap: number | null;
@@ -60,6 +63,8 @@ export interface AvailabilityInputs {
   slowThresholdMs: number | null;
   /** the station's wait_ms from stations_live; null when not known */
   stationWaitMs: (station_id: string) => number | null;
+  /** 02b-TK A2 item 3: the station is paused (stations-live `paused`); absent = none paused */
+  stationPaused?: (station_id: string) => boolean;
   /** the order being built (02b-tk C3-3: home station and padding); absent = dine_in */
   orderType?: OrderType;
 }
@@ -143,6 +148,9 @@ export function itemAvailability(item_id: string, inp: AvailabilityInputs): Item
   const others = isAvailableFn(inp);
   const groupsOk: IsAvailable = (id, quantity) => id === item_id || others(id, quantity);
   if (!isItemOrderable(item, groupsById(inp.config), itemsById(inp.config), 'line', 1, groupsOk)) return closed({ kind: 'unavailable' });
+  // 02b-TK A2 item 3 (03a §6.7): a paused station takes no new work (eta-preview refuses STATION_PAUSED)
+  const home = homeStationId(inp.config, item.station_id, inp.orderType ?? 'dine_in');
+  if (inp.stationPaused?.(home) === true) return closed({ kind: 'paused', station_id: home });
 
   const left = inp.stock.available(item_id);
   const level = inp.stock.level(item_id);
@@ -242,9 +250,17 @@ function waits(part: unknown): Map<string, number> | null {
   return out;
 }
 
+/** 02b-TK A2 item 3 (03a §6.5): the paused stations of a stations-live body, or null when it has none. */
+function pausedIds(part: unknown): Set<string> | null {
+  const stations = (part as { stations?: unknown } | undefined)?.stations;
+  if (!Array.isArray(stations)) return null;
+  return new Set((stations as Array<{ station_id?: unknown; paused?: unknown }>).flatMap((s) => (typeof s.station_id === 'string' && s.paused === true ? [s.station_id] : [])));
+}
+
 export function createAvailability(o: AvailabilityOptions): Availability {
   let off = new Set(offIds(o.live.part('availability')) ?? []);
   let stationWaits = waits(o.live.part('stations_live')) ?? new Map<string, number>();
+  let paused = pausedIds(o.live.part('stations_live')) ?? new Set<string>();
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const l of [...listeners]) l();
@@ -264,6 +280,7 @@ export function createAvailability(o: AvailabilityOptions): Availability {
     const w = waits(answer.data);
     if (w === null) return;
     stationWaits = w;
+    paused = pausedIds(answer.data) ?? paused;
     notify();
   };
   const schedule = () => {
@@ -280,6 +297,7 @@ export function createAvailability(o: AvailabilityOptions): Availability {
       if (ids !== null) off = new Set(ids);
       const w = waits(m.state['stations_live']);
       if (w !== null) stationWaits = w;
+      paused = pausedIds(m.state['stations_live']) ?? paused;
       notify();
     } else if (m.kind === 'event' && (m.event.event_type === 'ItemMadeUnavailable' || m.event.event_type === 'ItemMadeAvailable')) {
       const id = m.event.payload['item_id'];
@@ -309,6 +327,7 @@ export function createAvailability(o: AvailabilityOptions): Availability {
       utcOffsetMs: clock.utcOffsetMs,
       slowThresholdMs: o.config.config()?.slow_item_threshold_ms ?? null,
       stationWaitMs: (id) => stationWaits.get(id) ?? null,
+      stationPaused: (id) => paused.has(id),
       orderType: o.orderType ?? 'dine_in',
     };
   };

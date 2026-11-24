@@ -56,6 +56,8 @@ export interface CartProps {
   checkBill?: ReactNode;
   /** 02b-TK A2 item 2 (frame KeyboardMode "Hold F4"): the kiosk's keyboard: Hold shows its key */
   holdKey?: boolean;
+  /** 02b-TK A2 item 3 (frame HomeRush): the open line's ×2 ×4 ×6 ×8 chips (takeaway) */
+  qchips?: boolean;
 }
 
 function GroupHead({ group, utcOffsetMs }: { group: CartGroup; utcOffsetMs: number }) {
@@ -91,7 +93,7 @@ export function sendLabel(p: { problems: number; primary?: string | undefined })
   return p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : (p.primary ?? t('cart.send'));
 }
 
-export function CartList(p: Pick<CartProps, 'config' | 'unitOf' | 'utcOffsetMs' | 'groups' | 'actions'>) {
+export function CartList(p: Pick<CartProps, 'config' | 'unitOf' | 'utcOffsetMs' | 'groups' | 'actions' | 'qchips'>) {
   return (
     <ul className="lines">
       {p.groups.length === 0 && (
@@ -104,7 +106,7 @@ export function CartList(p: Pick<CartProps, 'config' | 'unitOf' | 'utcOffsetMs' 
       )}
       {p.groups.map(({ group, lines }, i) => [
         <GroupHead key={`g${i}`} group={group} utcOffsetMs={p.utcOffsetMs} />,
-        ...lines.map((v) => <CartLineRow key={v.line.key} view={v} config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} actions={p.actions} />),
+        ...lines.map((v) => <CartLineRow key={v.line.key} view={v} config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} actions={p.actions} qchips={p.qchips === true} />),
       ])}
     </ul>
   );
@@ -140,7 +142,7 @@ export function Cart(p: CartProps) {
           <span>{fill(t('cart.cant_send'), { n: String(p.problems) })}</span>
         </div>
       )}
-      <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} />
+      <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} qchips={p.qchips === true} />
       <div className="cart__foot">
         <div className="total">
           <div className="total__ready">

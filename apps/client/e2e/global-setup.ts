@@ -335,6 +335,29 @@ function menuWithKheer(menu: BranchConfig): BranchConfig {
   };
 }
 
+/**
+ * 02b-TK A2 batch 2 (frame TileStates): a "Paye" variant group (Half / Full, plain pieces at the Dessert station, so
+ * one tap on the tile adds the variant) and a sold-out "Tikka" (its stock item counted at 0), in a category of their
+ * own after the fixture's, so no other flow sees them.
+ */
+export const TK_TILES = { category: "Paye", group: "Paye", half: "Half", full: "Full", soldOut: "Tikka", stock: "K_TIKKA" } as const;
+function menuWithTiles(menu: BranchConfig): BranchConfig {
+  const raita = menu.items.find((i) => i.item_id === FX.optionItem)!;
+  const plain = { ...raita, station_id: E2E_STATION, modifier_group_ids: [], category_id: "C_TK", max_early_ms: 3_600_000 };
+  return {
+    ...menu,
+    categories: [...menu.categories, { category_id: "C_TK", name: TK_TILES.category, sort_order: 99, availability_windows: [] }],
+    variant_groups: [...menu.variant_groups, { variant_group_id: "V_PAYE", category_id: "C_TK", name: TK_TILES.group, description: null, sort_order: 1 }],
+    stock_items: [...menu.stock_items, { stock_item_id: TK_TILES.stock, name: "Tikka", stock_unit: "piece", carries_over: false, station_id: E2E_STATION, low_stock_threshold: null }],
+    items: [
+      ...menu.items,
+      { ...plain, item_id: "I_PAYE_H", name: "Paye — Half", variant_group_id: "V_PAYE", variant_name: TK_TILES.half, price_minor: 40_000, sort_order: 20 },
+      { ...plain, item_id: "I_PAYE_F", name: "Paye — Full", variant_group_id: "V_PAYE", variant_name: TK_TILES.full, price_minor: 70_000, sort_order: 21 },
+      { ...plain, item_id: "I_TIKKA", name: TK_TILES.soldOut, price_minor: 65_000, sort_order: 22, out_of_stock_behaviour: "sold_out", stock_draws: [{ stock_item_id: TK_TILES.stock, quantity_per_sale_unit: 1 }] },
+    ],
+  };
+}
+
 /** A free local port: the hub checks Host = advertised_host:http_port (00 host guard), so it is fixed before boot. */
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -360,8 +383,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   await seedDirectory(hub, await directory());
   // task 28: the 02b fixture menu (Chicken Karahi, Naan, Cola, …) on the e2e floors, the business day open, stock counted
   openDay(hub, {
-    menu: menuWithKheer(menuWith03({ ...fixtureMenu(), floors: floors() })),
-    stock: { [FX.stock]: 1_000_000 },
+    menu: menuWithTiles(menuWithKheer(menuWith03({ ...fixtureMenu(), floors: floors() }))),
+    stock: { [FX.stock]: 1_000_000, [TK_TILES.stock]: 0 },
   });
   for (const zone of ["Z-FL-G", "Z-FL-R"])
     setZoneStock(hub, zone, FX.zoneItem, 500);

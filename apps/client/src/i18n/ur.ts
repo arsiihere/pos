@@ -1718,4 +1718,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'm.hint_initials': 'آدھی کڑاہی',
   'm.hint_add': 'ڈالیں',
   'm.hint_clear': 'صاف کریں',
+  // ---- 02b-TK client (A2 batch 2, item 3 tiles: frame TileStates): strings-table.md (the sample names / times are placeholders) ----
+  'm.sold_out': 'ختم',
+  'm.not_now': '{time} سے',
+  'm.paused': '{station} رکا ہوا',
+  't.sold_out': '{item} ختم ہے — کچن سے پوچھیں',
+  // 02b-TK A2 item 3 (frame TileStates "tap shows why" for the other reasons): not in strings-table.md; Urdu to confirm
+  't.off_reason': '{item} — {reason}',
 };
