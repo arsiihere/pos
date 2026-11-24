@@ -300,3 +300,7 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 /* the customer row folded into one "Name / phone" button */
 .cust--compact { display: flex; }
 .cust--compact .tk-btn { flex: 1; justify-content: flex-start; min-height: 52px; }
+
+/* ---------- A2 batch 2 item 5a: the Ready by reason line (frame CartTimeDelta) ---------- */
+.tk-delta { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 8px 12px; border-radius: 10px; background: var(--warn-tint); color: var(--warn); font-weight: 700; font-size: 15px; }
+.tk-delta .ico { width: 18px; height: 18px; flex: none; }

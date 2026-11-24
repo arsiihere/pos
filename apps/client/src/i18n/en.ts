@@ -4261,6 +4261,11 @@ export const en = {
   // ---- 02b-TK client (A2 batch 2, item 4 rush mode: frame HomeRush): strings-table.md ----
   'shell.rush': 'Rush mode',
   'c.who_add': 'Name / phone',
+  // ---- 02b-TK client (A2 batch 2, item 5a Ready by reason: frame CartTimeDelta): strings-table.md (sample → placeholders) ----
+  'c.delta': '{item} adds {n} min — the {station} station is full',
+  // 02b-TK A2 item 5a (a busy band, or no station news): not in strings-table.md; Urdu to confirm
+  'c.delta_busy': '{item} adds {n} min — the {station} station is busy',
+  'c.delta_plain': '{item} adds {n} min',
 } as const;
 
 export type MessageKey = keyof typeof en;

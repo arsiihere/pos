@@ -22,6 +22,8 @@ export interface LineView {
   cap: number | null;
   /** 02b v1.0.21 §8 (STAB-5): a split line's distinct part times with their counts, earliest first */
   parts?: Array<{ n: number; eta_ms: number }>;
+  /** 02b-TK A2 item 5a (frame CartTimeDelta): why this line moved Ready by later */
+  delta?: string;
 }
 
 export interface LineActions {
@@ -131,6 +133,12 @@ export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions, qchips
       {view.parts !== undefined && view.zone_name === null && (
         <div className="ln__parts" dir="ltr">
           {view.parts.map((p) => fill(t('cart.part_ready'), { n: String(p.n), time: timeText(p.eta_ms, utcOffsetMs) })).join(' · ')}
+        </div>
+      )}
+      {view.delta !== undefined && (
+        <div className="tk-delta" role="status">
+          <Ico name="clock" />
+          <span>{view.delta}</span>
         </div>
       )}
       {view.problem !== null && (

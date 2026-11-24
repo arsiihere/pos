@@ -9,6 +9,8 @@ import { TK_TILES } from './global-setup';
 // Item 4 — rush mode (frame HomeRush; R9 UI only): the e2e hub has far fewer than 15 open tokens, so the pill's manual
 //   toggle is walked: "Rush mode · n" (.tk-live--rush), dense tiles (.items--rush, no photos), the folded
 //   "Name / phone" button and the compact queue; a second tap goes back to Live and the normal layout.
+// Item 5a — the Ready by reason line (frame CartTimeDelta): Naan ×8 on the fixture's slot station S1 (capacity 4) puts
+//   the last units into a later slot, so Ready by moves later and the Naan line says "Naan adds N min …".
 // Ali (order-taker) is on both devices.
 
 const RUNS_ON = ['kiosk', 'tablet-landscape'];
@@ -98,6 +100,26 @@ for (const lang of LANGS) {
       await expect(pill).not.toHaveClass(/tk-live--rush/);
       await expect(pill).toHaveText(tr(lang, 'alerts.live'));
       await expect(page.locator('.menu .items--rush')).toHaveCount(0);
+    } finally {
+      await signOut(page, info, lang);
+    }
+  });
+
+  test(`[02b-TK TK-S02; frame CartTimeDelta] more units that move Ready by later: the line says why (${lang})`, async ({ page }, info) => {
+    runsHere(info);
+    await signInOn(page, deviceFor(info), lang);
+    try {
+      await takeawayTab(page);
+      await menuTile(page, 'Naan').click();
+      const line = cartLines(page).first();
+      // the first preview answered (a time on the line), then ×8
+      await expect(line.locator('.eta .num')).toBeVisible();
+      await line.locator('.ln__m').click();
+      await line.locator('.tk-qchips button', { hasText: '×8' }).click();
+      const why = line.locator('.tk-delta');
+      await expect(why).toBeVisible();
+      await expect(why).toContainText('Naan');
+      await expect(why).toContainText(/\d+/);
     } finally {
       await signOut(page, info, lang);
     }

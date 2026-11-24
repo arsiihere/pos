@@ -71,6 +71,7 @@ import { servable } from '../view/stage';
 import { takeawayContext } from '../../shell/context-slot';
 import { keyEntries, keyMatches, parseKeyQuery, type KeyEntry } from './keyboard';
 import { readRushOverride, rushOn, toggledOverride, writeRushOverride } from '../takeaway/rush';
+import { deltaText } from './delta';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
 // Menu / Cart tabs + sticky Send; 02-B03 draft back, B04 offline, B05 / B07 line problems), 02a §8 Order screen (the
@@ -741,6 +742,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   // ------------------------------------------------------------------------------------------- cart view
   const problems = lineProblems(cart, body, capOf, covered);
   const moved = pv.kind === 'ok' ? pv.moved : new Set<string>();
+  // 02b-TK A2 item 5a (frame CartTimeDelta): the line that moved Ready by later says why (takeaway)
+  const delta = order_type === 'takeaway' && pv.kind === 'ok' && body !== null ? pv.delta : null;
   const groups = groupCart(cart, body).map((group) => ({
     group,
     lines: group.lines.map(
@@ -755,6 +758,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           open: openKey === s.line.key,
           cap,
           ...(s.parts === undefined ? {} : { parts: s.parts }),
+          ...(delta === null || delta.key !== s.line.key ? {} : { delta: deltaText(config, s.line, delta.ms, order_type, (id) => inputs?.stationBand?.(id) ?? null) }),
         };
       },
     ),

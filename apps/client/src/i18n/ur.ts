@@ -1728,4 +1728,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // ---- 02b-TK client (A2 batch 2, item 4 rush mode: frame HomeRush): strings-table.md ----
   'shell.rush': 'رش موڈ',
   'c.who_add': 'نام / فون',
+  // ---- 02b-TK client (A2 batch 2, item 5a Ready by reason: frame CartTimeDelta): strings-table.md (sample → placeholders) ----
+  'c.delta': '{item} سے {n} منٹ بڑھ گئے — {station} اسٹیشن بھرا ہے',
+  // 02b-TK A2 item 5a (a busy band, or no station news): not in strings-table.md; Urdu to confirm
+  'c.delta_busy': '{item} سے {n} منٹ بڑھ گئے — {station} اسٹیشن مصروف ہے',
+  'c.delta_plain': '{item} سے {n} منٹ بڑھ گئے',
 };

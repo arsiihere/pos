@@ -65,16 +65,21 @@ export interface AvailabilityInputs {
   stationWaitMs: (station_id: string) => number | null;
   /** 02b-TK A2 item 3: the station is paused (stations-live `paused`); absent = none paused */
   stationPaused?: (station_id: string) => boolean;
+  /** 02b-TK A2 item 5a: the station's pressure band (stations-live `band`); absent / null = not known */
+  stationBand?: (station_id: string) => StationBand | null;
   /** the order being built (02b-tk C3-3: home station and padding); absent = dine_in */
   orderType?: OrderType;
 }
+
+/** 03a §6.5 `band` (engine PressureBand). */
+export type StationBand = 'green' | 'amber' | 'red';
 
 const MINUTE_MS = 60_000;
 /** frame TileStates: "Long wait ≥ 20 min = amber" */
 const LONG_WAIT_MS = 20 * MINUTE_MS;
 
 /** 03a §3.5.5 (D9): the alternate home for the order type, else the item's own station (`routeFromConfig`). */
-function homeStationId(config: BranchConfig, station_id: string, order_type: OrderType): string {
+export function homeStationId(config: BranchConfig, station_id: string, order_type: OrderType): string {
   const routed = config.stations.find((s) => s.station_id === station_id);
   const home = routed?.alternates.find((a) => a.order_types.includes(order_type) && a.home_for_order_types.includes(order_type));
   return home?.station_id ?? station_id;
@@ -250,6 +255,16 @@ function waits(part: unknown): Map<string, number> | null {
   return out;
 }
 
+/** 02b-TK A2 item 5a (03a §6.5): each station's band, or null when the body has no stations. */
+function bands(part: unknown): Map<string, StationBand> | null {
+  const stations = (part as { stations?: unknown } | undefined)?.stations;
+  if (!Array.isArray(stations)) return null;
+  const out = new Map<string, StationBand>();
+  for (const s of stations as Array<{ station_id?: unknown; band?: unknown }>)
+    if (typeof s.station_id === 'string' && (s.band === 'green' || s.band === 'amber' || s.band === 'red')) out.set(s.station_id, s.band);
+  return out;
+}
+
 /** 02b-TK A2 item 3 (03a §6.5): the paused stations of a stations-live body, or null when it has none. */
 function pausedIds(part: unknown): Set<string> | null {
   const stations = (part as { stations?: unknown } | undefined)?.stations;
@@ -261,6 +276,7 @@ export function createAvailability(o: AvailabilityOptions): Availability {
   let off = new Set(offIds(o.live.part('availability')) ?? []);
   let stationWaits = waits(o.live.part('stations_live')) ?? new Map<string, number>();
   let paused = pausedIds(o.live.part('stations_live')) ?? new Set<string>();
+  let stationBands = bands(o.live.part('stations_live')) ?? new Map<string, StationBand>();
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const l of [...listeners]) l();
@@ -281,6 +297,7 @@ export function createAvailability(o: AvailabilityOptions): Availability {
     if (w === null) return;
     stationWaits = w;
     paused = pausedIds(answer.data) ?? paused;
+    stationBands = bands(answer.data) ?? stationBands;
     notify();
   };
   const schedule = () => {
@@ -298,6 +315,7 @@ export function createAvailability(o: AvailabilityOptions): Availability {
       const w = waits(m.state['stations_live']);
       if (w !== null) stationWaits = w;
       paused = pausedIds(m.state['stations_live']) ?? paused;
+      stationBands = bands(m.state['stations_live']) ?? stationBands;
       notify();
     } else if (m.kind === 'event' && (m.event.event_type === 'ItemMadeUnavailable' || m.event.event_type === 'ItemMadeAvailable')) {
       const id = m.event.payload['item_id'];
@@ -328,6 +346,7 @@ export function createAvailability(o: AvailabilityOptions): Availability {
       slowThresholdMs: o.config.config()?.slow_item_threshold_ms ?? null,
       stationWaitMs: (id) => stationWaits.get(id) ?? null,
       stationPaused: (id) => paused.has(id),
+      stationBand: (id) => stationBands.get(id) ?? null,
       orderType: o.orderType ?? 'dine_in',
     };
   };

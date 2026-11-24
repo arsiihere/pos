@@ -58,3 +58,6 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `m.not_now` (placeholder for the table's "From 7 PM") | From {time} | {time} سے |
 | `m.paused` (placeholder for the table's "Tandoor paused") | {station} paused | {station} رکا ہوا |
 | `t.sold_out` (placeholder for the table's "Chicken Tikka") | {item} is sold out — ask the kitchen | {item} ختم ہے — کچن سے پوچھیں |
+| `c.delta` (placeholders for the table's "2nd karahi" / "karahi station") | {item} adds {n} min — the {station} station is full | {item} سے {n} منٹ بڑھ گئے — {station} اسٹیشن بھرا ہے |
+| `c.delta_busy` | {item} adds {n} min — the {station} station is busy | {item} سے {n} منٹ بڑھ گئے — {station} اسٹیشن مصروف ہے |
+| `c.delta_plain` | {item} adds {n} min | {item} سے {n} منٹ بڑھ گئے |
