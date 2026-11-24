@@ -1,3 +1,46 @@
+# 02b-TK spec status — owner review + hostile run 2 (2026-11-24)
+
+**Owner review (24 Nov):** every recommended default accepted except OR-1 – OR-7 (`docs/plans/02b-tk-rulings.md` "Owner review"), plus three owner messages the same day: OR-7 unpaid hand-over as a 01d request; the **Pass role** correction (new default role `pass`, Cook unchanged); **Pass points by order type** (01a PT-1 – PT-6, 03b PT-1 – PT-8, rows PT-R1 to 02b, PT-R2 to 03a). All specs stay **DRAFT**; nothing is built against them.
+
+**Hostile run 2** (fresh sub-sessions, one file per spec in `docs/reviews/*_hostile_run2.md`); every finding is fixed in place ("⚠️ Changed by … hostile run 2 (<id>)", a "Hostile run 2 fixes" table per spec).
+
+| Spec | Run 2 verdict | B / M / m | After the fix pass |
+|---|---|---|---|
+| 02b v1.0.25 | FIX THEN RE-REVIEW | 1 / 8 / 12 | run 3 owed (OR-7 rewritten, `priceCartDraft`) |
+| 01d v1.3.7 | FIX THEN RE-REVIEW | 2 / 4 / 9 | run 3 owed (`when_none`, route presence) |
+| 03b v1.0.16 | FIX THEN RE-REVIEW | 1 / 6 / 11 | run 3 owed (+ Pass by order type, not yet reviewed) |
+| 03a v1.2.11 | FIX THEN RE-REVIEW | 1 / 3 / 11 | run 3 owed (re-plan chain) |
+| 05 v1.0.35 | FIX THEN RE-REVIEW | 1 / 6 / 8 | run 3 owed (`PrintCartCheckBill`) |
+| 05c v0.2 | FIX THEN RE-REVIEW | 0 / 7 / 17 | targeted re-review (port, state machine, §6.3 / §6.4) |
+| 00 HPA v1.13 | FIX THEN RE-REVIEW | 0 / 2 / 7 | targeted check of R2-M-1 (public listener limits) |
+| 01b v1.12 | FIX THEN RE-REVIEW (narrow) | 0 / 3 / 12 | targeted check of §5.1c and tests 118 / 119 |
+| 01a v2.11 | APPROVE WITH WORDING FIXES | 0 / 3 / 13 | targeted check of the new PT rows only |
+| 05a v1.0.7 | APPROVE WITH WORDING FIXES | 0 / 1 / 7 | **ready for approval** |
+| 03c v1.0.16 | APPROVE WITH WORDING FIXES | 0 / 1 / 5 | **ready for approval** |
+| 01c v1.5 | APPROVE WITH WORDING FIXES | 0 / 0 / 7 | **ready for approval** |
+| Foundation v1.18 | APPROVE WITH WORDING FIXES | 0 / 0 / 4 | **ready for approval** |
+
+The package is approved together (01d, 05a, 00 HPA and F are approvable only with each other and 03b / 02b / 05c). **04** needs a small bump (audit actions `cart_check_bill_printed`, `unpaid_handover_approved`; `board` in the `device_profile_set` detail) written when the package is approved.
+
+## Owner short list (run 2; each default is already written into the specs)
+
+| # | Question | Recommended default (written) | Spec |
+|---|---|---|---|
+| 1 | **Readiness after a boost** (Q-PK-9): a boosted pickup order (Q-PK-1 clears `pickup_at_ms`) can turn Ready, ring the counter and enable "Handed to customer" before its drinks are poured | **Not written** (Q-PK-1 kept as you accepted it). Recommended: keep `pickup_at_ms` on a boost, turn off only the hold and the slip through `EngineOrder.boosted`, keep whole-order readiness | 03a §12.3, 03b |
+| 2 | Pass points: does every Pass point cover every station? | Yes; limiting a point to some stations is deferred; a line keeps the point it was sent to (no re-routing); a tie also warns | 01a PT, 03b PT |
+| 3 | Unsent-cart check bill: audit trail and addition carts | `CartCheckBillPrinted` event + audit `cart_check_bill_printed` (no bill); a token with unsent lines prints **one** combined paper ("Includes items not sent yet") | 05 §6.3a |
+| 4 | Weighed item on an unsent-cart check bill | Prints "weighed at the counter"; total reads "Total (+ weighed items)" | 05 §6.3a |
+| 5 | Unpaid hand-over details | Parking included (`token: null`, "PARKING"); on a Due order "Give ready items now" / Mark served never serves the **last** line without the approval; the asking manager cannot approve their own request; request family `urgent` | 02b TK-Q18 – Q21 |
+| 6 | Owner fallback for unapplied card money (`when_none`) | Fires only when no manager is present = none **ticked present**; the Owner is a manager by default, so it reaches him even when he is ticked absent; `manage-payment-providers` Owner-only | 01d Q-37h, 05c |
+| 7 | Card payment while an earlier card attempt is "unknown" | Any `AddPayment` (cash, card machine) on that split is held while the intent is watched; a manager (`close-shift-for-others`) overrides, recorded on the payment | 05c R2-M-5 |
+| 8 | When may 05c start building? | STOP-0 = Paymob document + Paymob's **written** OK of the 05b host app + a server confirmation path; before that only pure rules and client mocks (no migration, event or permission) | 05c R2-M-6 |
+| 9 | Pass details | Parking: a Pass→staff Handover is auto-served after `served_estimate_ms` (takeaway waits for the customer); `done` at another point counts as ready for the tap; Pass-role people can receive Handovers (own tile hidden), release items and mark dine-in served | 03b, 01b m-7 |
+| 10 | Board voice range and reconnect | Speaks 1–9999 (same 31 clips); after a drop < 5 min, tokens that went Ready during the drop are called | 05a |
+
+Smaller defaults written without a question: `business_day_end_local_ms` in whole minutes; rush mode counts tokens; `SessionStarted` / `SessionEnded` v2 for the `display` kind.
+
+---
+
 # 02b-TK spec status (integration pass, 2026-11-24)
 
 Part B of `docs/plans/02b-tk-rulings.md` (owner rulings R1–R9). Every spec below is a **DRAFT** that had hostile run 1 in a fresh session and a fix pass, then the integration pass (marker "⚠️ Changed by … (integration, 02b-TK)", changelog "Integration pass (02b-TK cross-spec rows)"). None is approved; no code is built against them. The approved version of each stays current in `docs/specs/README.md` until the owner approves the package. Every verdict was **FIX THEN RE-REVIEW**; a re-review in a fresh session is still owed for each.
