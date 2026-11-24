@@ -343,6 +343,8 @@ const BranchConfigSnapshotSchemaV4Base = BranchConfigSnapshotSchemaV3Shape.exten
     kds_offline_ms: int.optional(),
     // 01a v2.7.3 §4.3 row PT-3 (STAB-5): optional, no version bump (R29); absent → true (05 v1.0.33 §3.16)
     show_part_times_to_customers: z.boolean().optional(),
+    // 01a v2.11 TS-3: older snapshots omit the key and hub readers default to true.
+    takeaway_slip_on_send: z.boolean().optional(),
     // 01a v2.7.5 §4.3 MD-5 (STAB-7): optional; a MISSING key → 300 000, an explicit null (no limit) stays null
     // (maxDelayDefaultMs; review M-8).
     max_delay_default_ms: int.nullable().optional(),
@@ -520,6 +522,7 @@ export { BUSINESS_DAY_END_LOCAL_MS_DEFAULT } from '@pos/domain';
 export const HUB_ENGINE_SETTING_DEFAULTS = Object.freeze({
   ready_window_ms: 60_000,
   kds_offline_ms: 30_000,
+  takeaway_slip_on_send: true,
 } as const);
 
 export type BranchConfigSnapshotV4 = z.infer<typeof BranchConfigSnapshotSchemaV4>;

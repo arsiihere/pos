@@ -68,7 +68,7 @@ describe('GET /v1/sync/config', () => {
     expect(ahead.json().data.config.snapshot.config_version).toBe(v.config);
   });
 
-  it('[01a v2.11 #214, #218] sends the day end within the existing query bound', async () => {
+  it('[01a v2.11 #214, #217, #218] sends the takeaway settings within the existing query bound', async () => {
     const [branchId] = f.branches;
     const v = await versions();
     const readSnapshot = async () => {
@@ -82,13 +82,19 @@ describe('GET /v1/sync/config', () => {
 
     expect(await readSnapshot()).toMatchObject({
       business_day_end_local_ms: 14_400_000,
+      engine_settings: { takeaway_slip_on_send: true },
     });
     await cloud.pool.query(
       'UPDATE branches SET business_day_end_local_ms = 12600000 WHERE tenant_id = $1 AND branch_id = $2',
       [f.tenantId, branchId],
     );
+    await cloud.pool.query(
+      'UPDATE branch_engine_settings SET takeaway_slip_on_send = false WHERE tenant_id = $1 AND branch_id = $2',
+      [f.tenantId, branchId],
+    );
     expect(await readSnapshot()).toMatchObject({
       business_day_end_local_ms: 12_600_000,
+      engine_settings: { takeaway_slip_on_send: false },
     });
   });
 

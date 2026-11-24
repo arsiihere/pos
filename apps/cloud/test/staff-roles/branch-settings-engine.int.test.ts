@@ -167,7 +167,7 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
   });
 
   it('[01b B-6; 03b §4.5 B-2] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV4 (served_estimate_ms, ready_window_ms, kds_offline_ms included)', () => {
-    expect(Object.keys(DEFAULTS).sort()).toEqual(Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).sort());
+    expect([...Object.keys(DEFAULTS), 'takeaway_slip_on_send'].sort()).toEqual(Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).sort());
   });
 
   it('[01b B-6] a missing settings row on read is an error, not a default', async () => {
@@ -441,6 +441,7 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     expect(snapshot.config_version).toBe(held + 1);
     expect(snapshot.engine_settings).toEqual({
       ...DEFAULTS,
+      takeaway_slip_on_send: true,
       served_estimate_ms: null,
       ready_window_ms: 60_000, // 03b A-1
       kds_offline_ms: 30_000, // 03b A-1

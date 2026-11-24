@@ -204,6 +204,7 @@ describe('buildSnapshot', () => {
         ready_window_ms: 60000, // 03b A-1
         kds_offline_ms: 30000, // 03b A-1
         show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §5.2a PT-1 (STAB-5)
+        takeaway_slip_on_send: true,
         max_delay_default_ms: 300_000, // ⚠️ 01a v2.7.5 §5.2a MD-2, MD-5 (STAB-7): always sent
       },
       goes_with: [],
