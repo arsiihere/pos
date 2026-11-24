@@ -121,7 +121,8 @@ beforeAll(async () => {
   // ⚠️ 01a v2.7.5 MD-1–MD-3 (STAB-7): to 0017, as the menu read and the builder read the max-delay columns
   // ⚠️ 08a v1.0 C-6 (owner ruling 2026-11-23, AD-6): to 0018, as the builder reads stock_items.kind
   // ⚠️ 08b v1.0 A-3 (AD-6): to 0019, as the builder reads the recipe tables for the inventory key
-  ({ pool } = await scratchDatabaseAt(19));
+  // 01a v2.11 TS-3: the builder reads takeaway_slip_on_send from migration 0021.
+  ({ pool } = await scratchDatabaseAt(21));
   app = buildCloudServer({ pool, env, clock, ids: seedIds('A'), secrets: testSecrets() });
   await app.ready();
   pk = await tenant('PKR', 'pk');

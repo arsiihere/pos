@@ -580,7 +580,7 @@ describe('BranchConfigSnapshotSchemaV4', () => {
     // ⚠️ 01a v2.7.3 §4.3 PT-3 (STAB-5): + the optional show_part_times_to_customers.
     // ⚠️ 01a v2.7.5 §4.3 MD-5 (STAB-7): + the optional max_delay_default_ms (a snapshot key, not an EngineSettings field).
     expect(declared.sort()).toEqual(
-      [...Object.keys(EngineSettings.shape), 'table_lock_ttl_ms', ...Object.keys(V4_SETTINGS), 'ready_window_ms', 'kds_offline_ms', 'show_part_times_to_customers', 'max_delay_default_ms'].sort(),
+      [...Object.keys(EngineSettings.shape), 'table_lock_ttl_ms', ...Object.keys(V4_SETTINGS), 'ready_window_ms', 'kds_offline_ms', 'show_part_times_to_customers', 'max_delay_default_ms', 'takeaway_slip_on_send'].sort(),
     );
   });
 
@@ -736,8 +736,23 @@ describe('[03b §4.5 A-1] ready_window_ms, kds_offline_ms: optional V4 engine_se
     }
   });
 
+  it('[01a v2.11 #214, #217, TS-3] defaults an omitted slip setting and preserves explicit false', () => {
+    const snapshot = exampleV4();
+    const absent = BranchConfigSnapshotSchemaV4.parse(snapshot).engine_settings;
+    expect(absent).not.toHaveProperty('takeaway_slip_on_send');
+    expect(absent.takeaway_slip_on_send ?? HUB_ENGINE_SETTING_DEFAULTS.takeaway_slip_on_send).toBe(true);
+
+    const withSlip = (value: unknown) => BranchConfigSnapshotSchemaV4.safeParse({
+      ...snapshot,
+      engine_settings: { ...absent, takeaway_slip_on_send: value },
+    });
+    expect(withSlip(false).data?.engine_settings.takeaway_slip_on_send).toBe(false);
+    expect(withSlip(true).data?.engine_settings.takeaway_slip_on_send).toBe(true);
+    expect(withSlip('false').error?.issues[0]?.path).toEqual(['engine_settings', 'takeaway_slip_on_send']);
+  });
+
   it('[03b §4.5 A-1] HUB_ENGINE_SETTING_DEFAULTS holds the spec values exactly', () => {
-    expect(HUB_ENGINE_SETTING_DEFAULTS).toStrictEqual({ ready_window_ms: 60_000, kds_offline_ms: 30_000 });
+    expect(HUB_ENGINE_SETTING_DEFAULTS).toStrictEqual({ ready_window_ms: 60_000, kds_offline_ms: 30_000, takeaway_slip_on_send: true });
     expect(Object.isFrozen(HUB_ENGINE_SETTING_DEFAULTS)).toBe(true);
   });
 });

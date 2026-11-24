@@ -622,6 +622,7 @@ async function selectEngineSettings(scoped: TenantScopedRepository, branchId: st
             queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips, -- 02b A-1, AD-10
             ready_window_ms, kds_offline_ms, -- 03b A-1
             show_part_times_to_customers, -- 01a v2.7.3 PT-3 (STAB-5)
+            takeaway_slip_on_send, -- 01a v2.11 TS-3
             max_delay_default_ms -- 01a v2.7.5 MD-5 (STAB-7): always sent, null kept
        FROM branch_engine_settings
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3`,
