@@ -171,6 +171,34 @@ describe('counter-facing display [02b §8/O17; CustomerDisplay]', () => {
     }
   });
 
+  it('shows the queued token’s confirmed amount and change, then goes idle on Next customer', async () => {
+    const total = { subtotal_minor: 4000, discount_minor: 0, service_charge_minor: 0, taxes: [], rounding_minor: 0, total_minor: 4000 };
+    const h = screenHarness({
+      bills: { O48: { state: 'projected', currency: { code: 'PKR', exponent: 2 }, splits: [{ split_no: 1, state: 'open', payments: [], totals: { cash: total, digital: total, as_paid: total }, balance_minor: 4000 }] } },
+      command: (type) => type === 'AddPayment'
+        ? { ok: true, data: { totals: { as_paid: total }, balance_minor: 0 } }
+        : { ok: true, data: { total_minor: 4000, change_minor: 600, bill_state: 'closed', receipt: { job_id: null } } },
+    });
+    view.render(<CustomerDisplay utcOffsetMs={0} />);
+    const order = h.render();
+    try {
+      await flush();
+      order.click(order.button('Take payment', order.container.querySelector('.tk-rt')!));
+      await flush(8);
+      expect(view.text()).toContain('Welcome');
+      order.click(order.button('Exact'));
+      order.click(order.button('Paid · print receipt'));
+      await flush(8);
+      expect(view.text()).toContain('Paid');
+      expect(view.text()).toContain('Rs 40');
+      expect(view.text()).toContain('Rs 6');
+      expect(view.text()).not.toContain('Ali');
+      order.click(order.button('Next customer'));
+      await flush();
+      expect(view.text()).toContain('Welcome');
+    } finally { order.unmount(); }
+  });
+
   it('keeps idle when the channel constructor throws', () => {
     vi.stubGlobal('BroadcastChannel', class { constructor() { throw new Error('blocked'); } });
     expect(openDisplayChannel()).toBeNull();

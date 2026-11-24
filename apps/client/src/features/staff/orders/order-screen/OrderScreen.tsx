@@ -487,7 +487,9 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     lang,
     (line) => line.item_id !== undefined && unitOf(line.item_id) !== 'piece' ? 1 : line.quantity ?? 1,
   );
-  const displayMessage = pay?.display ?? displayCart;
+  // Next customer clears the public screen even when a different unsent draft was kept behind the pay panel.
+  const [clearedDisplayCart, setClearedDisplayCart] = useState<CartModel | null>(null);
+  const displayMessage = pay?.display ?? (clearedDisplayCart === cart ? idleDisplay(lang) : displayCart);
   const publisher = useRef<ReturnType<typeof createDisplayPublisher> | null>(null);
   useEffect(() => {
     if (!mirrorCart) return;
@@ -610,10 +612,13 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         target={pay}
         fixed={fixed}
         onLater={() => setPay(null)}
-        onDone={() => setPay(null)}
+        onDone={() => {
+          if (pay.display?.kind === 'paid') setClearedDisplayCart(cart);
+          setPay(null);
+        }}
         onClosed={(payment, totalMinor) => {
-          setPay((current) => current?.order_id === pay.order_id && current.display !== undefined
-            ? { ...current, display: { ...current.display, ...payment, total_minor: totalMinor } }
+          setPay((current) => mirrorCart && current !== null && current.order_id === pay.order_id
+            ? { ...current, display: { ...(current.display ?? idleDisplay(lang)), ...payment, total_minor: totalMinor } }
             : current);
         }}
       />

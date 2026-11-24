@@ -76,6 +76,7 @@ export function CustomerDisplay({ utcOffsetMs }: { utcOffsetMs?: number } = {}) 
         {message.kind === 'paid' && (
           <div className="cd-paid">
             <h1 className="cd-big"><Ico name="check" /> <Bilingual label="cd.paid" /></h1>
+            <div className="cd-label"><Bilingual label="cd.total" /> <Amount minor={message.total_minor} /></div>
             {message.change_minor !== undefined && (
               <div className="cd-label"><Bilingual label="cd.change" /> <Amount minor={message.change_minor} /></div>
             )}
