@@ -162,6 +162,10 @@ export const ErrorCatalogue = {
   SERVICE_UNAVAILABLE: { status: 503 },
   // 02b v1.0.25 §9
   PICKUP_TIME_INVALID: { status: 422 },
+  // 00 HPA v1.13 §9
+  DISPLAY_NOT_ENABLED: { status: 403 },
+  TRACKING_LINK_INVALID: { status: 404 },
+  RATE_LIMITED: { status: 429 },
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCatalogue;
