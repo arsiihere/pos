@@ -415,8 +415,101 @@ export const SnapshotBillingSchema = BillingSettings.extend({
 export type SnapshotBillingRule = z.infer<typeof SnapshotBillingRuleSchema>;
 export type SnapshotBilling = z.infer<typeof SnapshotBillingSchema>;
 
+// ⚠️ Changed by 08b v1.0 (01a A-3; 08 v1.1 Part B §5.3, B15): the optional `inventory` key. The typed schema is for
+// the cloud builder (safeParse + log, N-4) and tests only — never a hub consumer's "configured?" check (T-3). No
+// object is .strict() (unknown fields stripped, so 08d may add fields). BIGINT values as decimal strings (m-16).
+const decimal = z.string().regex(/^[0-9]+$/);
+const signedDecimal = z.string().regex(/^-?[0-9]+$/);
+const InventoryItemSchema = z.object({
+  stock_item_id: z.string(),
+  kind: z.enum(['prepared', 'ingredient', 'packet']),
+  name: z.string(),
+  code: z.string().nullable(),
+  stock_unit: unit,
+  cost_category: z.string(),
+  is_a_item: z.boolean(),
+});
+const InventoryUnitSchema = z.object({ stock_item_id: z.string(), unit_name: z.string(), factor_num: decimal, factor_den: decimal });
+const InventoryPriceSchema = z.object({
+  price_id: z.string(),
+  stock_item_id: z.string(),
+  branch_id: z.string().nullable(),
+  kind: z.enum(['manual', 'market_rate']),
+  unit_name: z.string(),
+  stock_unit: unit,
+  price_minor: decimal,
+  stock_qty_num: decimal,
+  stock_qty_den: decimal,
+  created_at: int,
+  valid_until_at: int.nullable(),
+});
+const InventoryYieldSchema = z.object({ stock_item_id: z.string(), yield_bp: int });
+const InventoryRecipeLineSchema = z.object({
+  stock_item_id: z.string(),
+  stock_qty_num: signedDecimal,
+  stock_qty_den: decimal,
+  stock_unit: unit,
+  qty_basis: z.enum(['AP', 'EP']),
+});
+const InventoryRecipeSchema = z.object({
+  recipe_version_id: z.string(),
+  status: z.enum(['published', 'superseded']),
+  owner_type: z.enum(['menu_item', 'modifier_option', 'stock_item']),
+  owner_id: z.string(),
+  basis: z.enum(['per_unit', 'per_measure', 'per_batch']),
+  base_qty: int.nullable(),
+  measure_unit: z.enum(['g', 'ml']).nullable(),
+  recipe_archived: z.boolean(),
+  batch_yield_qty: decimal.nullable(),
+  batch_stock_unit: unit.nullable(),
+  misc_allowance_bp: int,
+  published_at: int,
+  lines: z.array(InventoryRecipeLineSchema),
+});
+export const InventorySnapshotSchema = z.object({
+  items: z.array(InventoryItemSchema),
+  units: z.array(InventoryUnitSchema),
+  prices: z.array(InventoryPriceSchema),
+  yields: z.array(InventoryYieldSchema),
+  recipes: z.array(InventoryRecipeSchema),
+});
+export type InventorySnapshot = z.infer<typeof InventorySnapshotSchema>;
+export type InventorySnapshotItem = z.infer<typeof InventoryItemSchema>;
+export type InventorySnapshotPrice = z.infer<typeof InventoryPriceSchema>;
+export type InventorySnapshotRecipe = z.infer<typeof InventoryRecipeSchema>;
+
+// t-5: the lenient element set — the same objects, enum-like fields as plain strings — one schema per element kind,
+// for an element-by-element parse (a failing element is dropped and counted; an unknown enum value is kept and the
+// engine treats it as unknown). @pos/domain's buildCostInputs runs the same checks by hand (AD-12; the domain has
+// no zod); `config.test.ts` pins the two together.
+// Quantities that divide (factors, price quantities, line quantities, batch yields) must be non-zero: a zero there
+// can only come from a broken key, and the element is dropped rather than costed (the DB CHECKs never store one).
+const lenientUnit = z.string();
+// zod runs a refinement even after the regex fails, so each one re-tests the pattern before BigInt()
+const positive = decimal.refine((v) => /^[0-9]+$/.test(v) && BigInt(v) > 0n);
+const nonZero = signedDecimal.refine((v) => /^-?[0-9]+$/.test(v) && BigInt(v) !== 0n);
+export const InventoryElementsLenient = {
+  item: InventoryItemSchema.extend({ kind: z.string(), stock_unit: lenientUnit }),
+  unit: InventoryUnitSchema.extend({ factor_num: positive, factor_den: positive }),
+  price: InventoryPriceSchema.extend({ kind: z.string(), stock_unit: lenientUnit, stock_qty_num: positive, stock_qty_den: positive }),
+  yield: InventoryYieldSchema.extend({ yield_bp: int.min(1).max(50_000) }), // 08a I8 range
+  line: InventoryRecipeLineSchema.extend({ stock_unit: lenientUnit, qty_basis: z.string(), stock_qty_num: nonZero, stock_qty_den: positive }),
+  recipe: InventoryRecipeSchema.extend({
+    status: z.string(),
+    owner_type: z.string(),
+    basis: z.string(),
+    measure_unit: z.string().nullable(),
+    batch_yield_qty: positive.nullable(),
+    batch_stock_unit: z.string().nullable(),
+    misc_allowance_bp: int.min(0).max(5_000), // the DB CHECK range
+    lines: z.array(z.unknown()),
+  }),
+} as const;
+
 export const BranchConfigSnapshotSchemaV4 = BranchConfigSnapshotSchemaV4Base.extend({
   billing: SnapshotBillingSchema.optional(),
+  // ⚠️ Changed by 08b v1.0 (01a A-3, B15 c): stored and hashed raw; nothing on the hub reads it until 08c (M-5)
+  inventory: z.unknown().optional(),
 });
 
 // 03b §4.5 A-1: the hub defaults of the optional engine_settings keys (the cloud columns default to the same values).

@@ -16,7 +16,7 @@ import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantContext } from '../../db/tenant-scoped-repository.js';
 import type { Clock } from '../../lib/clock.js';
 import { writeConfigAudit } from '../../lib/config-audit.js';
-import { assertTenantWide, coversEveryBranch } from '../../lib/config-version.js';
+import { assertTenantWide, bumpConfigVersion, bumpEveryBranch, coversEveryBranch } from '../../lib/config-version.js';
 import type { IdGen } from '../../lib/ids.js';
 import { withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { CloudTestHooks } from '../../server.js';
@@ -40,7 +40,8 @@ import {
 import { builtinUnitWires, currentUnitRowIds, itemPriceWire, itemUnitWire, menuCostWire, yieldProfileWire } from './wires.js';
 
 // 08a §6: owner routes. Reads are owner-level; the §6.5–§6.7 POSTs are tenant-level writes (I10, assertTenantWide),
-// append-only, audited, no bump (I11).
+// append-only, audited, and bump the branches whose snapshot `inventory` key they change (08b B16, P-1; was I11's
+// no-bump rule). The bump is each write's last lock (01a S8: branch rows last, kind 10).
 
 export interface InventoryDeps {
   pool: pg.Pool;
@@ -118,9 +119,9 @@ function assertUnitName(unitName: string, stockUnit: Unit): void {
   if (builtin !== undefined && builtin.base === stockUnit) throw invalid('unit_name', 'a built-in unit of the stock unit already converts');
 }
 
-// §6.5, 7 fixed statements (m-2): key → tenant-wide (403) → stock item FOR SHARE (404) → active (422 archived) →
-// I4 name rules on the locked stock unit (400) → reduce by gcd → insert (base_unit = the locked stock unit) →
-// audit stock_item_unit / create → key response → prune. No bump (I11).
+// §6.5, 9 fixed statements (m-2; ⚠️ 08b P-1: was 7): key → tenant-wide (403) → stock item FOR SHARE (404) → active
+// (422 archived) → I4 name rules on the locked stock unit (400) → reduce by gcd → insert (base_unit = the locked stock
+// unit) → audit stock_item_unit / create → bump every branch (2, B16) → key response → prune.
 export async function createItemUnit(
   deps: InventoryDeps,
   req: OwnerRequest,
@@ -162,6 +163,8 @@ export async function createItemUnit(
         },
         deps,
       );
+      await deps.testHooks?.beforeBump?.();
+      await bumpEveryBranch(level);
       return { status: 201, body: { unit: wire } };
     },
   );
@@ -180,9 +183,10 @@ function auditAfter(stockItemId: string, wire: ItemUnitWire | ItemPriceWire | Yi
 
 export const PRICES_ROUTE = 'POST /v1/admin/stock-items/:stock_item_id/prices';
 
-// 9 fixed statements, 10 with branch_id (S7, I11): key → tenant-wide (403) → stock item FOR SHARE (404, kind 5) →
-// active (422) → [branch, C1] → units of that name → resolveUnit with the locked stock_unit (422) → insert with
-// the frozen conversion (I6) → candidates (I7 for the price's branch_id) → audit → key response → prune. No bump.
+// 11 fixed statements without branch_id, 11 with (S7; ⚠️ 08b P-1: were 9 / 10): key → tenant-wide (403) → stock item
+// FOR SHARE (404, kind 5) → active (422) → [branch, C1] → units of that name → resolveUnit with the locked stock_unit
+// (422) → insert with the frozen conversion (I6) → candidates (I7 for the price's branch_id) → audit → bump (B16:
+// every branch, 2, for branch_id null; that branch only, 1, for a branch market rate) → key response → prune.
 // The body is validated by CreateItemPriceBody (400: manual + branch_id / valid_for_hours, ranges, kind).
 export async function createItemPrice(
   deps: InventoryDeps,
@@ -235,6 +239,9 @@ export async function createItemPrice(
         },
         deps,
       );
+      await deps.testHooks?.beforeBump?.();
+      if (price.branch_id === null) await bumpEveryBranch(level);
+      else await bumpConfigVersion(level, { kind: 'branch', branchId: price.branch_id });
       return {
         status: 201,
         body: {
@@ -250,9 +257,9 @@ export async function createItemPrice(
 
 export const YIELDS_ROUTE = 'POST /v1/admin/stock-items/:stock_item_id/yields';
 
-// §6.7, 7 fixed statements: key → tenant-wide (403) → stock item FOR SHARE (404) → active (422 archived) →
+// §6.7, 9 fixed statements (⚠️ 08b P-1: was 7): key → tenant-wide (403) → stock item FOR SHARE (404) → active (422 archived) →
 // kind = ingredient (422 wrong_kind, I8) → insert (yield_bp sent or yieldBpFromTest; test_unit = the locked stock
-// unit) → audit yield_profile / create → key response → prune. No bump (I11).
+// unit) → audit yield_profile / create → bump every branch (2, B16) → key response → prune.
 export async function createYieldProfile(
   deps: InventoryDeps,
   req: OwnerRequest,
@@ -295,6 +302,8 @@ export async function createYieldProfile(
         },
         deps,
       );
+      await deps.testHooks?.beforeBump?.();
+      await bumpEveryBranch(level);
       return { status: 201, body: { yield: wire } };
     },
   );

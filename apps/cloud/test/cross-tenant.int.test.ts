@@ -103,6 +103,11 @@ describe('cross-tenant', () => {
       `INSERT INTO deals (tenant_id, deal_id, category_id, name, price_minor, created_at, updated_at) VALUES ($1, $2, $3, 'B deal', 0, 0, 0)`,
       [f.other.tenantId, dealId, categoryId],
     );
+    const recipeId = 'B-RECIPE-0000000000000000001'; // 08b AD-2
+    await cloud.pool.query(
+      `INSERT INTO recipes (tenant_id, recipe_id, owner_type, owner_id, created_at, updated_at) VALUES ($1, $2, 'menu_item', $3, 0, 0)`,
+      [f.other.tenantId, recipeId, itemId],
+    );
     const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1 ORDER BY staff_id`, [
       f.other.tenantId,
     ]);
@@ -127,6 +132,7 @@ describe('cross-tenant', () => {
       stockItemId,
       modifierGroupId,
       dealId,
+      recipeId,
       roleId: roles.rows[0]!.role_id,
       staffId: staff.rows[0]!.staff_id,
       refreshToken: loginB.json().data.refresh_token as string,
@@ -149,6 +155,7 @@ describe('cross-tenant', () => {
       ids.stockItemId,
       ids.modifierGroupId,
       ids.dealId,
+      ids.recipeId,
       ...staff.rows.map((row) => row.staff_id),
       ...roles.rows.map((row) => row.role_id),
     ];

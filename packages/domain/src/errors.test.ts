@@ -79,6 +79,7 @@ describe('errors', () => {
   it('[01c §9] 01c codes have their statuses', () => {
     expect(statusOf('VARIANT_GROUP_NOT_FOUND')).toBe(404);
     expect(statusOf('STOCK_ITEM_NOT_FOUND')).toBe(404);
+    expect(statusOf('RECIPE_NOT_FOUND')).toBe(404); // [08b F-1]
     expect(statusOf('MODIFIER_GROUP_NOT_FOUND')).toBe(404);
     expect(statusOf('DEAL_NOT_FOUND')).toBe(404);
   });

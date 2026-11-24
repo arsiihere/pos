@@ -20,6 +20,8 @@ import { useBranchName } from '../branch';
 import { apiCode, BackLink, referenceText } from '../c01';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
+import { RecipeInUse } from '../recipes/RecipeInUse';
+import { recipeInUseIds } from '../recipes/recipes';
 import { useDirtyForm, useLeave } from '../guard';
 import type { WholeMenu } from '../menu-pages';
 import { formatRupees, parseRupees } from '../money';
@@ -201,9 +203,11 @@ function Editor({
     isNew: boolean;
   } | null>(null);
   const [errors, setErrors] = useState<Errors>(NO_ERRORS);
+  // ⚠️ 08b v1.0 B17 (AD-9, C-15): `recipes` = an option's recipe holds the change ("archive the recipe first").
   const [banner, setBanner] = useState<{
     tone: 'danger' | 'warn';
     text: string;
+    recipes?: string[];
   } | null>(null);
   const [stale, setStale] = useState(false);
   const [gone, setGone] = useState(false);
@@ -386,6 +390,11 @@ function Editor({
     }
     if (code === 'MODIFIER_GROUP_NOT_FOUND') {
       setGone(true);
+      return;
+    }
+    const recipes = recipeInUseIds(error);
+    if (recipes !== null) {
+      setBanner({ tone: 'danger', text: '', recipes });
       return;
     }
     if (error.kind === 'api' && code === 'CONFIG_NAME_TAKEN') {
@@ -593,7 +602,7 @@ function Editor({
     >
       {stale && <StaleBanner onReload={onReload} />}
       <ErrorSummary entries={fixes} />
-      {banner !== null && <Banner tone={banner.tone} text={banner.text} />}
+      {banner !== null && (banner.recipes !== undefined ? <RecipeInUse ids={banner.recipes} /> : <Banner tone={banner.tone} text={banner.text} />)}
       {archived && <Banner tone="info" text={t('choice_group.archived_note')} />}
       {menuError !== null && <MenuRetry error={menuError} onRetry={onRetryMenu} />}
       <div className="pos-stack pos-c01form pos-cgform">

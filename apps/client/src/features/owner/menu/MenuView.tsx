@@ -314,6 +314,20 @@ export function MenuView({ api }: { api: CloudAdmin }) {
     void load();
   }, [load]);
 
+  // ⚠️ Changed by 08b v1.0 (C-12): "No recipe" on every active item without a published, non-archived recipe, from
+  // GET /v1/admin/recipes (08b §6.1; m-17). A failed read shows no badge.
+  const [noRecipe, setNoRecipe] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    let live = true;
+    void api.listRecipes().then((result) => {
+      if (!live || !result.ok || !Array.isArray(result.data.rows)) return;
+      setNoRecipe(new Set(result.data.rows.filter((r) => r.owner_type === 'menu_item' && (r.published === null || r.archived)).map((r) => r.owner_id)));
+    });
+    return () => {
+      live = false;
+    };
+  }, [api]);
+
   // "Draws {qty} from {stock}" on size rows (§6.6); without it the rows show their description.
   useEffect(() => {
     let live = true;
@@ -687,8 +701,16 @@ export function MenuView({ api }: { api: CloudAdmin }) {
                           <span className="pos-ltr">{`${t('owner.menu.rupees')} ${shownRupees(r.price_minor_override ?? 0)}`}</span>
                         </Chip>
                       ));
+                    const missingRecipe = !archived && noRecipe.has(row.item_id);
                     const marks = (
                       <>
+                        {missingRecipe && (
+                          <span data-no-recipe="">
+                            <Chip tone="warn" icon="alert">
+                              {t('menu.no_recipe')}
+                            </Chip>
+                          </span>
+                        )}
                         {archived && (
                           <Chip tone="warn" icon="archive">
                             {t('owner.common.archived')}
@@ -725,7 +747,7 @@ export function MenuView({ api }: { api: CloudAdmin }) {
                         <span className="pos-list__name" data-item-id={row.item_id}>
                           <strong>{rowName}</strong>
                           <span>{`${categoryName(row.category_id)} · ${soldText}`}</span>
-                          {(overrides.length > 0 || archived) && (
+                          {(overrides.length > 0 || archived || missingRecipe) && (
                             <span className="pos-list__tags">
                               {overrides}
                               {marks}

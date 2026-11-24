@@ -223,6 +223,45 @@ export async function selectActiveDrawers(repo: TenantLevelRepository, stockItem
   );
 }
 
+// 08b B17 / C-11, P-2 (01c §6.8 R2, 08a R4): the non-archived recipes a stock-item PATCH would corrupt, one plain read
+// without a lock (C-16), by recipe_id: those whose version of a `lineStatuses` status has a line on the item (draft +
+// published when archiving, published when stock_unit changes), and, when `owned`, the one the item owns (a prepared
+// owner's stock_unit or kind change). Archived recipes never block (m-10).
+export async function stockItemRecipeIds(
+  repo: TenantLevelRepository,
+  stockItemId: string,
+  lineStatuses: ReadonlyArray<'draft' | 'published'>,
+  owned: boolean,
+): Promise<string[]> {
+  const rows = await repo.query<{ recipe_id: string }>(
+    `SELECT r.recipe_id FROM recipes r
+      WHERE r.tenant_id = $1 AND r.archived_at IS NULL
+        AND (($4 AND r.owner_type = 'stock_item' AND r.owner_id = $2)
+          OR EXISTS (SELECT 1 FROM recipe_versions v
+                       JOIN recipe_lines l ON l.tenant_id = v.tenant_id AND l.recipe_version_id = v.recipe_version_id
+                      WHERE v.tenant_id = r.tenant_id AND v.recipe_id = r.recipe_id AND v.status = ANY($3) AND l.stock_item_id = $2))
+      ORDER BY r.recipe_id COLLATE "C"`,
+    [stockItemId, lineStatuses, owned],
+  );
+  return rows.map((row) => row.recipe_id);
+}
+
+// 08b B17 / C-14, C-15 (01c §6.5, §6.12): the non-archived recipes these owners own, one plain read without a lock
+// (C-16; the owner row's own lock serialises a recipe create, §6 note), by recipe_id.
+export async function ownedRecipeIds(
+  repo: TenantLevelRepository,
+  ownerType: 'menu_item' | 'modifier_option',
+  ownerIds: string[],
+): Promise<string[]> {
+  const rows = await repo.query<{ recipe_id: string }>(
+    `SELECT recipe_id FROM recipes
+      WHERE tenant_id = $1 AND owner_type = $2 AND owner_id = ANY($3) AND archived_at IS NULL
+      ORDER BY recipe_id COLLATE "C"`,
+    [ownerType, ownerIds],
+  );
+  return rows.map((row) => row.recipe_id);
+}
+
 // 08a §6.3 R4: the branches (any branch of the tenant, not only the JWT's) counting this stock item, a plain read
 // (the stock item FOR UPDATE serialises every §6.9 write to its rows), by branch_id.
 export async function selectStockItemBranchIds(repo: TenantLevelRepository, stockItemId: string): Promise<string[]> {

@@ -8,7 +8,8 @@ import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 import { inventoryFixture, stockItem, type InventoryFixture } from './fixtures';
 
 // 08a §6.5: POST /v1/admin/stock-items/:stock_item_id/units — I4 name rules against the locked stock unit, gcd
-// reduction, base_unit = the locked stock unit, 7 fixed statements (m-2), no bump (I11), audit stock_item_unit /
+// reduction, base_unit = the locked stock unit, 9 fixed statements (m-2; ⚠️ 08b P-1: was 7), bumps every branch (08b B16;
+// was I11's no bump), audit stock_item_unit /
 // create; is_current per N-1 after stock_unit changes (test 29).
 describe('08a item units POST (§6.5)', () => {
   let cloud: TestCloud;
@@ -88,7 +89,7 @@ describe('08a item units POST (§6.5)', () => {
     });
   });
 
-  it('[08a #28] 201 wire, row, audit stock_item_unit / create, no bump; 7 statements; replay → stored 201', async () => {
+  it('[08a #28 ⚠️ 08b P-1] 201 wire, row, audit stock_item_unit / create, bumps every branch; 9 statements; replay → stored 201', async () => {
     const fx = await inventoryFixture(cloud);
     const versions = async () =>
       (await cloud.pool.query(`SELECT branch_id, config_version FROM branches WHERE tenant_id = $1 ORDER BY branch_id`, [fx.f.tenantId])).rows;
@@ -103,7 +104,7 @@ describe('08a item units POST (§6.5)', () => {
     const headers = owner(fx.f).headers;
     counter.reset();
     const response = await post(fx, fx.ids.beef, { unit_name: 'Peti', factor_num: 12_000 }, headers);
-    expect(counter.count).toBe(7);
+    expect(counter.count).toBe(9); // ⚠️ 08b P-1: + 2 bump statements
     expect(response.statusCode, response.body).toBe(201);
     const unit = response.json().data.unit as ItemUnitWire;
     expect(unit).toEqual({
@@ -128,7 +129,7 @@ describe('08a item units POST (§6.5)', () => {
       [fx.f.tenantId],
     );
     expect(audit.rows).toEqual([{ entity: 'stock_item_unit', entity_id: unit.unit_row_id, action: 'create', branch_id: null, actor_owner_user_id: fx.f.userId }]);
-    expect(await versions()).toEqual(before); // I11: no bump
+    expect(await versions()).toEqual(before.map((row: { branch_id: string; config_version: string }) => ({ ...row, config_version: String(Number(row.config_version) + 1) }))); // ⚠️ 08b P-1 (B16): every branch
 
     // retry with the same key: the stored 201, nothing new written
     const replay = await post(fx, fx.ids.beef, { unit_name: 'Peti', factor_num: 12_000 }, headers);

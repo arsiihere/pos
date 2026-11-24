@@ -21,6 +21,8 @@ import { SizeGroupList } from './size-groups/SizeGroupList';
 import { StockItemForm } from './stock-items/StockItemForm';
 import { StockItemInventory } from './stock-items/StockItemInventory';
 import { StockItemList } from './stock-items/StockItemList';
+import { RecipeEditor } from './recipes/RecipeEditor';
+import { RecipeList } from './recipes/RecipeList';
 import { RoleEditor } from './roles/RoleEditor';
 import { RoleList } from './roles/RoleList';
 import { StaffForm } from './staff/StaffForm';
@@ -190,6 +192,11 @@ function Routes({
         {owner.name === 'choice_group_edit' && <ChoiceGroupForm key={owner.id} api={api} groupId={owner.id} />}
         {owner.name === 'deals' && <DealList api={api} />}
         {owner.name === 'deal_edit' && <DealForm key={owner.id} api={api} dealId={owner.id} />}
+        {/* 08b §8.1, §8.2: plate cost for the picked branch, as the stock items' menu cost */}
+        {owner.name === 'recipes' && <RecipeList api={api} branchIds={allowed} branchId={branchId} onBranch={chooseBranch} />}
+        {owner.name === 'recipe_edit' && (
+          <RecipeEditor key={owner.id} api={api} recipeId={owner.id} branchIds={allowed} branchId={branchId} onBranch={chooseBranch} />
+        )}
       </Shell>
     );
   }

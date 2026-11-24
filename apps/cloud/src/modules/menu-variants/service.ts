@@ -80,6 +80,7 @@ import {
   lockStockItem,
   lockVariantGroup,
   moveMembers,
+  ownedRecipeIds,
   selectActiveDrawers,
   selectActiveOptionBranchRows,
   selectActiveOptionIds,
@@ -93,6 +94,7 @@ import {
   selectStockItemBranchIds,
   selectStockItemBranches,
   selectStockItems,
+  stockItemRecipeIds,
   updateDeal,
   updateModifierGroup,
   updateStockItem,
@@ -444,11 +446,14 @@ export async function createStockItem(
 // version (409 CONFIG_STALE, a stale no-op too) → no payload references → no-op (200, nothing written) → merged
 // rules in 08a §6.3's precedence: 400 R6 (carries_over ⇒ prepared) → 409 R2 (archive with an active drawer), R4
 // (kind away from prepared: branch rows of any branch first, then an active drawer; an archived drawer does not
-// block) → 422 R1 (a stock_unit change re-runs V4 on every active drawer), R5 (packet ⇒ g) → R7 code (one read, only
-// when code is sent, differs and is not null (null clears, AD-8); 409 stock_item_code) → R3 name (index → 409;
-// the code index → 409 stock_item_code on a restore, N-7) → write → audit → bump every branch only if name,
-// stock_unit, carries_over or archived changed (I11; otherwise the two bump statements are skipped). One plain
-// drawers read serves R1, R2 and R4 (only when one applies); one plain branch-rows read for R4. No cascade.
+// block), then 08b C-11 / P-2 (a non-archived recipe: archive while a draft or published line uses the item;
+// stock_unit while a published line freezes it or the item owns one; any kind change while it owns one) →
+// 422 R1 (a stock_unit change re-runs V4 on every active drawer), R5 (packet ⇒ g) → R7 code (one read, only when code is sent, differs and is not null (null clears, AD-8); 409 stock_item_code) → R3 name (index → 409;
+// the code index → 409 stock_item_code on a restore, N-7) → write → audit → bump every branch (2, the last lock): every
+// field the PATCH changes is in a snapshot (name / stock_unit / carries_over / archived in 01c's stock, and with
+// kind / code / cost_category / is_a_item in `inventory.items[]`; 08b B16, P-1 replaces I11). One plain
+// drawers read serves R1, R2 and R4 (only when one applies); one plain branch-rows read for R4; one plain recipes read
+// (C-16, no lock) when archiving or stock_unit or kind changes. No cascade.
 export async function patchStockItem(
   deps: MenuVariantDeps,
   req: OwnerRequest,
@@ -495,6 +500,19 @@ export async function patchStockItem(
     if (kindAway && drawers.length > 0) {
       throw new DomainError('CONFIG_IN_USE', { entity: 'stock_item', id: stockItemId, used_by: { entity: 'menu_item', ids: drawerIds } });
     }
+    // 08b B17, after 01c / 08a's 409s: C-11 (R2: archive while a draft / published line of a non-archived recipe uses
+    // it; stock_unit while a published line freezes it or it owns one) and P-2 (R4: any kind change while it owns
+    // one). One plain recipes read (C-16, no lock), only on those changes.
+    const kindChanged = merged.kind !== before.kind;
+    const lineStatuses: Array<'draft' | 'published'> = [];
+    if (archiving) lineStatuses.push('draft', 'published');
+    else if (unitChanged) lineStatuses.push('published');
+    const ownedChecked = unitChanged || kindChanged;
+    const recipeIds =
+      lineStatuses.length > 0 || ownedChecked ? await stockItemRecipeIds(level, stockItemId, lineStatuses, ownedChecked) : [];
+    if (recipeIds.length > 0) {
+      throw new DomainError('CONFIG_IN_USE', { entity: 'stock_item', id: stockItemId, used_by: { entity: 'recipe', ids: recipeIds } });
+    }
     // 422: R1 (V4): equal units → quantity 1; different units → the drawer sells by the piece; then R5
     if (unitChanged && drawers.some((d) => !(d.sale_unit === merged.stock_unit ? d.quantity_per_sale_unit === 1 : d.sale_unit === 'piece'))) {
       throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_unit', reason: 'unit_mismatch' });
@@ -519,13 +537,10 @@ export async function patchStockItem(
       },
       deps,
     );
-    // I11: only the snapshot fields bump
-    const snapshotChanged =
-      merged.name !== before.name || unitChanged || merged.carries_over !== before.carries_over || merged.archived_at !== before.archived_at;
-    if (snapshotChanged) {
-      await deps.testHooks?.beforeBump?.();
-      await bumpEveryBranch(level);
-    }
+    // 08b B16 (P-1): every merged field is in a snapshot (stock_items[] or inventory.items[]), so every real change
+    // bumps (the no-op returned above); an extra bump for an item archived before and after is harmless
+    await deps.testHooks?.beforeBump?.();
+    await bumpEveryBranch(level);
     return { stock_item: toStockItemWire(stockItem) };
   });
 }
@@ -770,8 +785,9 @@ function sortedUnique(ids: readonly string[]): string[] {
 // archive of the omitted active rows, V14) when sent, the links (delete + multi-row insert) when sent → one audit
 // row, whole active lists before / after (V15) → bump every branch (10) → the group's branch rows (response).
 // Merged-row rules after the no-op, in order: R1 min ≤ max (400), R2 choices_unsatisfiable, R3 defaults_exceed_max
-// (422), R4 option names (409 modifier_option, one statement, options sent), R5 effective-set limit (links sent,
-// merged group active),
+// (422), R4 option names (409 modifier_option, one statement, options sent), 08b C-15 (409 recipe: a stored plain
+// option owning a non-archived recipe gains a linked_item_id; one recipes read, only then), R5 effective-set limit
+// (links sent, merged group active),
 // R6 linked items on a restore without options (the stored active options' linked items join the items' FOR SHARE
 // only then, §12.7 T1).
 export async function patchModifierGroup(
@@ -869,6 +885,18 @@ export async function patchModifierGroup(
     if (body.options !== undefined) {
       const repeated = await firstRepeatedName(level, body.options.map((o) => o.name));
       if (repeated !== undefined) throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'modifier_option', name: repeated });
+    }
+    // 08b C-15 (B17): a stored plain option gaining a linked_item_id must own no non-archived recipe (its cost would
+    // count twice); one plain recipes read (C-16, no lock), only when an option becomes linked
+    if (body.options !== undefined) {
+      const becomingLinked = body.options
+        .filter((o) => o.option_id !== undefined && o.linked_item_id !== null)
+        .map((o) => o.option_id!)
+        .filter((id) => storedOptions.some((stored) => stored.option_id === id && stored.linked_item_id === null));
+      const recipeIds = becomingLinked.length > 0 ? await ownedRecipeIds(level, 'modifier_option', sortedUnique(becomingLinked)) : [];
+      if (recipeIds.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'modifier_group', id: modifierGroupId, used_by: { entity: 'recipe', ids: recipeIds } });
+      }
     }
     // R5 (V8): the effective-set limit when links are sent and the merged group is active (an archived group is in no
     // effective set, V8 / m15; a restore that sends links is checked); one read, nothing when no attach link
