@@ -14,12 +14,13 @@ import { StaffApp } from './StaffApp';
 import type { NativeBridge } from '../native/bridge';
 
 // 02 combined wiring (02a v1.1.6 §8; 02b v1.0.11 §3.12, §8; IR-5, IR-7, IR-11, IR-12): what the staff shell connects
-// between the lanes once 02a and 02b sit in one tree. The kiosk home is a probe here: it hands the test the shell
-// the slots see and the late-card alert rows (LateAlertsContext), so the queue is driven exactly as a screen drives it.
+// between the lanes once 02a and 02b sit in one tree. The kiosk home (the Takeaway tab, 02b-TK C2-1) is a probe here:
+// it hands the test the shell the slots see and the late-card alert rows (LateAlertsContext), so the queue is driven
+// exactly as a screen drives it.
 
 const probe = vi.hoisted(() => ({ shell: null as Shell | null, late: [] as readonly LateAlertRow[] }));
-vi.mock('./orders/lists/KioskHome', () => ({
-  KioskHome: () => {
+vi.mock('./orders/takeaway/TakeawayHome', () => ({
+  TakeawayHome: () => {
     probe.shell = useShell();
     probe.late = useContext(LateAlertsContext);
     return <div data-probe="kiosk-home" />;

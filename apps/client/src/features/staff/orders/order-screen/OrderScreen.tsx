@@ -55,6 +55,7 @@ import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
 import { announceCompIt, freezeSubmit, refusalText, sendOrder, sentToastText, timeUpdated, toCart, zoneEmpty } from '../send/send';
 import { createTokenBook } from '../takeaway/book';
+import { setCurrentTakeawayDraft } from '../takeaway/current-draft';
 import { heldOnDevice } from './held-list';
 import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
 import type { QueueToken } from '../takeaway/queue-model';
@@ -78,6 +79,9 @@ import { servable } from '../view/stage';
 export interface OrderScreenProps {
   order_type: OrderType;
   id: string;
+  /** 02b-TK C2-1 (CHANGES §1): the Takeaway tab (`#/takeaway`, TakeawayHome) — the screen stays after Hold with a
+   *  fresh cart on a new current draft; its route is the tab's */
+  home?: boolean;
 }
 
 /** What a tile tap or Edit asks the sheets (26c) to open. */
@@ -154,7 +158,7 @@ function zoneCounts(part: unknown): ZoneStockBody[] {
   return Array.isArray(zs) ? zs : [];
 }
 
-export function OrderScreen({ order_type, id }: OrderScreenProps) {
+export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) {
   const shell = useShell();
   const shellRef = useRef(shell);
   shellRef.current = shell;
@@ -292,6 +296,13 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const draftId = useRef<string>(id);
   const staffId = shell.me?.staff_id ?? null;
   const deviceId = shell.device.id;
+  // this screen's route: the Takeaway tab's, or #/order/<type>/<id>
+  const here = home ? '/takeaway' : orderHref(order_type, id);
+  // 02b-TK C2-1: the Takeaway tab's next customer starts on a new current draft (current-draft.ts)
+  const nextDraft = () => {
+    draftId.current = newUlid();
+    setCurrentTakeawayDraft(deviceId, staffId, draftId.current);
+  };
   // #35: the stored draft is read once per (person, order): the effect's deps are strings, so a re-render with a new
   // `me` object (the shell builds one on every render) reads nothing; a StrictMode remount reads again, which is
   // harmless. It never lands over lines typed meanwhile, and a store that cannot be read still saves.
@@ -306,8 +317,11 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       // 02b-TK C1-5: this route's draft was held (auto-hold at sign out / idle lock): it stays in Held, and the
       // screen starts the next order on a new draft id (its own route), so an empty cart never removes the held one
       if (d === undefined && heldHere && order_type !== 'dine_in') {
-        draftId.current = newUlid();
-        navigate(orderHref(order_type, draftId.current));
+        if (home) nextDraft();
+        else {
+          draftId.current = newUlid();
+          navigate(orderHref(order_type, draftId.current));
+        }
         setRestored(true);
         return;
       }
@@ -337,7 +351,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     return () => {
       live = false;
     };
-  }, [drafts, deviceId, staffId, id, order_type]);
+  }, [drafts, deviceId, staffId, id, order_type, home]);
   const seatTable = seat?.ref.table_id ?? null;
   // 02b-TK C1-5 (02b §8 Held, Device idle lock; shell.me.signout_sub "Unsent orders are held first"): sign out, Switch
   // user and the idle lock take the person away from this screen without asking — their unsent takeaway is held. They
@@ -349,12 +363,12 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     const sid = staffId;
     return () => {
       if (leaving.current || sending.current || !restoredRef.current || cartRef.current.lines.length === 0) return;
-      if (window.location.hash.replace(/^#/, '') !== orderHref(order_type, id)) return;
+      if (window.location.hash.replace(/^#/, '') !== here) return;
       void drafts
         .put({ draft_id: draftId.current, device_id: deviceId, staff_id: sid, order_type, cart: cartRef.current, updated_at: Math.floor(shellRef.current.clock.nowMs()), held: true })
         .catch(() => undefined);
     };
-  }, [staffId, drafts, deviceId, order_type, id]);
+  }, [staffId, drafts, deviceId, order_type, id, here]);
   useEffect(() => {
     if (!restored || staffId === null || leaving.current) return;
     const saved = blank(cart) ? drafts.remove(draftId.current) : drafts.put({
@@ -397,7 +411,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   /** #35: one Send at a time — a ref, so two taps inside one render cannot both enqueue */
   const sending = useRef(false);
   // 02b-TK C1-5 (frame LeaveGuard): leaving the takeaway screen with an unsent cart asks first
-  const guard = useLeaveGuard(orderHref(order_type, id), () => order_type === 'takeaway' && cartRef.current.lines.length > 0 && !sending.current && !leaving.current);
+  const guard = useLeaveGuard(here, () => order_type === 'takeaway' && cartRef.current.lines.length > 0 && !sending.current && !leaving.current);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -406,6 +420,8 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const book = useMemo(() => (order_type === 'takeaway' ? createTokenBook(shell.live) : null), [shell.live, order_type]);
   useEffect(() => () => book?.dispose(), [book]);
   const [heldCount, setHeldCount] = useState(0);
+  // a Hold that stays on the screen (the Takeaway tab) counts again
+  const [heldTick, setHeldTick] = useState(0);
   useEffect(() => {
     if (order_type !== 'takeaway' || staffId === null) return;
     let live = true;
@@ -416,7 +432,7 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     return () => {
       live = false;
     };
-  }, [drafts, deviceId, staffId, order_type, restored]);
+  }, [drafts, deviceId, staffId, order_type, restored, heldTick]);
   // 02b-TK C2-2: the token view drawer over the menu and the cart (the cart is kept)
   const [openToken, setOpenToken] = useState<QueueToken | null>(null);
   // 02b-TK C3-1: the pay panel over the cart (Send & pay, or Take payment of a token)
@@ -753,8 +769,10 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     if (andPay && !(canPay && shell.online)) return;
     void onSend({ pay: andPay });
   };
-  const goBack = () => navigate(order_type === 'dine_in' ? (seat === null ? '/tables' : tableHref(seat.ref.table_id, id)) : '/orders');
-  // Hold (02-S08): the draft stays on this device, held for this person; the screen goes back
+  // 02b-TK C2-1: a takeaway goes back to the Takeaway tab (the order screen with a fresh cart), not the open-orders list
+  const goBack = () => navigate(order_type === 'dine_in' ? (seat === null ? '/tables' : tableHref(seat.ref.table_id, id)) : order_type === 'takeaway' ? '/takeaway' : '/orders');
+  // Hold (02-S08): the draft stays on this device, held for this person; the screen goes back — on the Takeaway tab it
+  // stays, with a fresh cart on a new draft (02b-TK C2-1)
   const onHold = async (to?: string) => {
     if (sending.current || staffId === null || cart.lines.length === 0) return;
     leaving.current = true;
@@ -770,6 +788,14 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         held: true,
       })
       .catch(() => undefined);
+    if (to === undefined && home) {
+      nextDraft();
+      setCart(EMPTY_CART);
+      setBack(null);
+      leaving.current = false;
+      setHeldTick((n) => n + 1);
+      return;
+    }
     if (to === undefined) goBack();
     else navigate(to);
   };

@@ -72,7 +72,8 @@ describe('[02b §8 Ordering screen] Hold, Held, day not started', () => {
     m.click(m.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
     m.click(m.button('Hold'));
     await flush();
-    expect(nav.to).toEqual(['/orders']);
+    // 02b-TK C2-1: a takeaway goes back to the Takeaway tab (the order screen), not the open-orders list
+    expect(nav.to).toEqual(['/takeaway']);
     m.unmount();
     // 02b-TK C2-5 (R3): another person's takeaway held on this device is listed (a counter is shared); another device's is not
     await drafts.put(draft({ draft_id: 'X1', staff_id: 'ST2' }));

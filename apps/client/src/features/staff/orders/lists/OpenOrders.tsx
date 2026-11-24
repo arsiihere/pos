@@ -79,7 +79,7 @@ function isManager(shell: Shell): boolean {
   return shell.permissions.allowed('force-release-table-lock') && shell.permissions.scope('force-release-table-lock') === 'branch';
 }
 
-/** The open-orders list with its filter; `KioskHome` mounts the same card. */
+/** The open-orders list with its filter (#/orders; the takeaway rail's All orders, 02b-TK C2-1). */
 export function OpenOrdersCard() {
   const shell = useShell();
   const shellRef = useRef(shell);

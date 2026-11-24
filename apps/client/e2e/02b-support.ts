@@ -46,24 +46,25 @@ export async function openOrder(page: Page, lang: Lang, table: string): Promise<
 }
 
 /**
- * A new takeaway or parking order (02-S04): the kiosk's home buttons; elsewhere the map's New order (02a IR-5 → 02b's
- * New order sheet), the takeaway contact step skipped, the parking plate + Sedan.
+ * A new takeaway or parking order (02-S04): the kiosk's Takeaway tab is the order screen (02b-TK C2-1); elsewhere the
+ * map's New order (02a IR-5 → 02b's New order sheet), the takeaway contact step skipped, the parking plate + Sedan.
  */
 export async function newOrder(page: Page, lang: Lang, info: TestInfo, type: 'takeaway' | 'parking', plate = 'LEA 123'): Promise<void> {
   if (isKioskRun(info) && type === 'takeaway') {
-    await page.locator('.bchip', { hasText: tr(lang, 'order.takeaway') }).click();
+    await page.evaluate(() => (window.location.hash = '#/takeaway'));
+    await expect(page.locator('.osc--tk')).toBeVisible();
+    return;
+  }
+  if (isKioskRun(info)) await page.evaluate(() => (window.location.hash = '#/tables'));
+  const bar = isPhone(info) ? page.locator('.phbar') : page.locator('main.map');
+  await bar.getByRole('button', { name: tr(lang, 'order.new') }).click();
+  await dialog(page).locator('.bchip', { hasText: tr(lang, `order.${type}`) }).click();
+  if (type === 'takeaway') {
+    await dialog(page).getByRole('button', { name: tr(lang, 'order.takeaway.skip') }).click();
   } else {
-    if (isKioskRun(info)) await page.evaluate(() => (window.location.hash = '#/tables'));
-    const bar = isPhone(info) ? page.locator('.phbar') : page.locator('main.map');
-    await bar.getByRole('button', { name: tr(lang, 'order.new') }).click();
-    await dialog(page).locator('.bchip', { hasText: tr(lang, `order.${type}`) }).click();
-    if (type === 'takeaway') {
-      await dialog(page).getByRole('button', { name: tr(lang, 'order.takeaway.skip') }).click();
-    } else {
-      await dialog(page).locator('input.inp--plate').fill(plate);
-      await dialog(page).locator('.bchip', { hasText: tr(lang, 'order.parking.sedan') }).click();
-      await dialog(page).getByRole('button', { name: tr(lang, 'order.takeaway.next') }).click();
-    }
+    await dialog(page).locator('input.inp--plate').fill(plate);
+    await dialog(page).locator('.bchip', { hasText: tr(lang, 'order.parking.sedan') }).click();
+    await dialog(page).getByRole('button', { name: tr(lang, 'order.takeaway.next') }).click();
   }
   await expect(page).toHaveURL(new RegExp(`#/order/${type}/`));
 }

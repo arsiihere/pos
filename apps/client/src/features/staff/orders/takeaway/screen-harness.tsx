@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { aBranchConfig } from '@pos/events/testing';
 import { mount, type Mounted } from '../../../../../test/dom';
 import { ShellContext, type Shell } from '../../shell/hooks';
@@ -7,6 +8,7 @@ import type { EnqueueMeta, QueueableCommand } from '../../tables/contracts';
 import type { DraftStore, OpenOrder, OrderViewBody, SeatingLine } from '../contracts';
 import { createMemoryDraftStore } from '../drafts/memory-drafts';
 import { DraftStoreContext, OrderScreen } from '../order-screen/OrderScreen';
+import { TakeawayHome } from './TakeawayHome';
 import { aCaught, aLine, aRow, at } from './test-fixtures';
 
 // 02b-TK C2 / C3 tests only: the takeaway order screen with a fake shell (open-orders, order-view, bill, commands).
@@ -34,12 +36,14 @@ export interface ScreenHarness {
   drafts: DraftStore;
   live: ReturnType<typeof createLiveBus>;
   render(id?: string): Mounted;
+  /** the Takeaway tab (`#/takeaway`): the order screen on this device's current takeaway draft */
+  renderHome(): Mounted;
   toasts: Array<{ text: string; tone?: string }>;
   /** every query path read */
   queries: string[];
 }
 
-export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, OrderViewBody>; bills?: Record<string, unknown>; grants?: Record<string, unknown>; drafts?: DraftStore; command?: (type: string, payload: unknown) => unknown; answer?: (type: string, payload: unknown) => unknown; bill?: (order_id: string) => unknown; online?: boolean } = {}): ScreenHarness {
+export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, OrderViewBody>; bills?: Record<string, unknown>; grants?: Record<string, unknown>; drafts?: DraftStore; command?: (type: string, payload: unknown) => unknown; answer?: (type: string, payload: unknown) => unknown; bill?: (order_id: string) => unknown; online?: boolean; device?: 'cashier_kiosk' | 'tablet'; phone?: boolean } = {}): ScreenHarness {
   const live = createLiveBus();
   live.frame({ type: 'catch_up', as_of_seq: 1, state: { orders: { orders: [aCaught('O48', 48, [aLine('O48', 'A', 'Karahi')], { customer_name: 'Ali' })], zone_stock: [] } } });
   const base = aBranchConfig();
@@ -59,7 +63,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
   );
   const bills = o.bills ?? { O48: { bill_id: 'B48', state: 'closed', splits: [], totals_default: { total_minor: 205_000 } } };
   const shell = {
-    device: { token: 'tok', id: 'DV1', type: 'cashier_kiosk' },
+    device: { token: 'tok', id: 'DV1', type: o.device ?? 'cashier_kiosk' },
     live,
     api: {
       query: async (path: string) => {
@@ -90,20 +94,20 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
     clock: { nowMs: () => at(13, 20), utcOffsetMs: 0 },
     me: { staff_id: 'sana', name: 'Sana' },
     online: o.online ?? true,
-    phone: false,
+    phone: o.phone === true,
     portrait: false,
   } as unknown as Shell;
-  const render = (id = 'D1') => {
+  const show = (node: ReactNode) => {
     const m = mount();
     m.render(
       <ShellContext.Provider value={shell}>
-        <DraftStoreContext.Provider value={drafts}>
-          <OrderScreen order_type="takeaway" id={id} />
-        </DraftStoreContext.Provider>
+        <DraftStoreContext.Provider value={drafts}>{node}</DraftStoreContext.Provider>
       </ShellContext.Provider>,
     );
     return m;
   };
-  return { shell, sent, commands, drafts, live, render, toasts, queries };
+  const render = (id = 'D1') => show(<OrderScreen order_type="takeaway" id={id} />);
+  const renderHome = () => show(<TakeawayHome />);
+  return { shell, sent, commands, drafts, live, render, renderHome, toasts, queries };
 }
 
