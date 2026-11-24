@@ -15,7 +15,7 @@ import { formatMinutes, parseMinutes } from '../minutes';
 // 01a v2.4.3 (03b v1.0.3 §4.5 A-2, owner ruling P15-1 (a) 2026-11-11): the Ready window (15–300 s) and KDS offline
 // (10–300 s) are typed in whole seconds (10 s is not two-decimal minutes); the served estimate stays in minutes.
 // 01a v2.7.3 §8.1 PT-4 (STAB-5): show_part_times_to_customers is a switch, like returns_boost
-type NumericKey = Exclude<keyof BranchEngineSettings, 'returns_boost' | 'comp_reason_chips' | 'served_estimate_ms' | 'show_part_times_to_customers' | 'max_delay_default_ms'>;
+type NumericKey = Exclude<keyof BranchEngineSettings, 'returns_boost' | 'comp_reason_chips' | 'served_estimate_ms' | 'show_part_times_to_customers' | 'max_delay_default_ms' | 'takeaway_slip_on_send'>;
 const storedOf = (base: BranchEngineSettings, key: NumericKey): number => base[key];
 interface Spec {
   key: NumericKey;

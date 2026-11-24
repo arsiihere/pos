@@ -138,14 +138,19 @@ export interface BranchRow {
   status: 'pending_hub' | 'active';
   hub_last_seen_at: number | null;
   hub_synced_at: number | null;
+  business_day_end_local_ms: number;
+  takeaway_slip_on_send: boolean;
 }
 
 // §6.7b (S58): the caller's branches, by name; v1.3 (01b B19) with the hub's two times.
 export async function selectBranches(repo: TenantScopedRepository): Promise<BranchRow[]> {
   const rows = await repo.query<Omit<BranchRow, 'hub_last_seen_at' | 'hub_synced_at'> & { hub_last_seen_at: string | null; hub_synced_at: string | null }>(
-    `SELECT branch_id, name, status, hub_last_seen_at, hub_synced_at FROM branches
-      WHERE tenant_id = $1 AND branch_id = ANY($2)
-      ORDER BY name, branch_id`,
+    `SELECT b.branch_id, b.name, b.status, b.hub_last_seen_at, b.hub_synced_at,
+            b.business_day_end_local_ms, e.takeaway_slip_on_send
+       FROM branches b
+       JOIN branch_engine_settings e ON e.tenant_id = b.tenant_id AND e.branch_id = b.branch_id
+      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2)
+      ORDER BY b.name, b.branch_id`,
   );
   return rows.map((row) => ({
     ...row,

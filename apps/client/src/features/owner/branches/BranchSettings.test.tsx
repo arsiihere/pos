@@ -28,6 +28,8 @@ const STORED = {
   tax_enabled: false,
   day_stale_after_hours: 16,
   day_min_gap_hours: 4,
+  business_day_end_local_ms: 14_400_000,
+  takeaway_slip_on_send: true,
   // 01a A-12 defaults.
   weight_dine_in_pct: 100,
   weight_takeaway_pct: 200,
@@ -136,7 +138,7 @@ describe('[01b §8] branch settings', () => {
     const ordering = ['queue_auto_send_max_ms', 'zone_undo_ms', 'slow_item_threshold_ms'];
     expect(names.sort()).toEqual(
       // ⚠️ 01a v2.7.3 §8.1 PT-4 (STAB-5): show_part_times_to_customers is a switch, like returns_boost
-      [...new Set([...BRANCH_ENGINE_SETTING_KEYS, ...ordering])].filter((k) => k !== 'returns_boost' && k !== 'comp_reason_chips' && k !== 'show_part_times_to_customers').sort(),
+      [...new Set([...BRANCH_ENGINE_SETTING_KEYS, ...ordering])].filter((k) => k !== 'returns_boost' && k !== 'comp_reason_chips' && k !== 'show_part_times_to_customers' && k !== 'takeaway_slip_on_send').sort(),
     );
     const value = (name: string) => group.querySelector<HTMLInputElement>(`input[name="${name}"]`)!.value;
     expect(value('weight_follow_up_pct')).toBe('300');
