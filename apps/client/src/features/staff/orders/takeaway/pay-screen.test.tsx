@@ -142,6 +142,25 @@ describe('[02b-TK C3-1] Send & pay / Send · pay later', () => {
     m.unmount();
   });
 
+  it('[frame ReadyTiles; R2] a Due ready tile shows the amount due and its Take payment opens the pay panel over the cart', async () => {
+    const h = screenHarness({
+      openBills: [{ bill_id: null, seating_id: null, order_id: 'O48', identifier: '#48', order_type: 'takeaway', state: 'projected', total_default_minor: 119_000, paid_minor: 0, check_printed_at: null, opened_at: at(13, 0), open_minutes: 20, flagged: false, partly_paid: false, has_open_request: false }],
+      bills: {},
+      bill: () => aBill(119_000),
+    });
+    const m = h.render();
+    await flush();
+    const tile = m.container.querySelector('.tk-rt--due')!;
+    expect(tile.querySelector('.tk-rt__who')?.textContent).toBe('Rs 1,190');
+    m.click(m.button('Take payment', tile));
+    await flush();
+    expect(m.container.querySelector('.cart .tk-paypanel')).not.toBeNull();
+    expect(m.container.querySelector('.tk-pay__h .tk-tok')?.textContent).toBe('48');
+    expect(h.queries.filter((q) => q === '/queries/open-bills')).toHaveLength(1);
+    expect(h.queries).toContain('/queries/bill?order_id=O48');
+    m.unmount();
+  });
+
   it('[frame TokenDue] Take payment on the token view opens the same panel for the token\'s NEWEST order (05 #44e)', async () => {
     const h = screenHarness({
       rows: [aRow({ order_id: 'O48', token: 48, ready: { n: 0, m: 1 } }), aRow({ order_id: 'O48b', token: 48, placed_at: at(13, 5), ready: { n: 0, m: 1 } })],

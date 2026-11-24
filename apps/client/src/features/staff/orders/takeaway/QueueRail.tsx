@@ -3,9 +3,12 @@ import { navigate } from '../../../../app/router';
 import { t } from '../../../../i18n';
 import { timeText } from '../../../alerts/labels';
 import { Ico } from '../../../alerts/ui';
+import { billingApi } from '../../../billing/api';
+import { BILL_LIST_FRAMES } from '../../../billing/frames';
 import { useShell } from '../../shell/hooks';
 import type { OpenOrder } from '../contracts';
 import { useLiveRefetch } from '../lists/OpenOrders';
+import { MONEY_DIR, money } from '../money';
 import { WaitingRows } from '../queue/WaitingToSend';
 import type { TokenBook } from './book';
 import { buildQueue, knownOrders, matchesQuery, type QueueModel, type QueueToken } from './queue-model';
@@ -54,6 +57,58 @@ export function useTakeawayQueue(book: TokenBook): { model: QueueModel | null; f
   return { model, failed, loadedAt, retry: () => void load() };
 }
 
+const NO_FRAMES: ReadonlySet<string> = new Set();
+
+/** A ready tile that owes money: all ready (not part given) and not paid. */
+const dueReady = (q: QueueToken) => !q.part && !q.paid;
+
+/**
+ * 02b-TK R2 (05 v1.0.34 §6.1, §6.2; frame ReadyTiles): what each Due ready tile still owes — ONE `open-bills` read for
+ * the whole rail (no read per tile), only while a Due ready tile is shown and the person holds take-payment (the
+ * query's permission), again (debounced) on bill / order / table frames, a reconnect and the page returning. A takeaway
+ * row is one per bill_key, its `order_id` the key's root unbilled order, so a token finds its row by any of its orders;
+ * owed = the open remainder at the default class less what is paid. Keyed by order id.
+ */
+function useDueAmounts(model: QueueModel | null): ReadonlyMap<string, number> {
+  const shell = useShell();
+  const shellRef = useRef(shell);
+  shellRef.current = shell;
+  const [owed, setOwed] = useState<ReadonlyMap<string, number>>(new Map());
+  const wanted = shell.permissions.allowed('take-payment') && (model?.ready.some(dueReady) ?? false);
+  // a new Due ready tile reads again (its bill may be newer than the last read)
+  const dueKeys = wanted ? model!.ready.filter(dueReady).map((q) => q.key).join(' ') : '';
+  const request = useRef(0);
+  const load = useCallback(async () => {
+    const mine = ++request.current;
+    let answer: Awaited<ReturnType<ReturnType<typeof billingApi>['openBills']>>;
+    try {
+      answer = await billingApi(shellRef.current.api).openBills();
+    } catch {
+      return;
+    }
+    if (mine !== request.current || !answer.ok) return;
+    const next = new Map<string, number>();
+    for (const b of answer.data.bills) if (b.order_type === 'takeaway' && b.order_id !== null) next.set(b.order_id, Math.max(0, b.total_default_minor - b.paid_minor));
+    setOwed(next);
+  }, []);
+  useEffect(() => {
+    if (dueKeys !== '') void load();
+  }, [dueKeys, load]);
+  const wantedRef = useRef(wanted);
+  wantedRef.current = wanted;
+  useLiveRefetch(shell.live, () => (wantedRef.current ? void load() : undefined), wanted ? BILL_LIST_FRAMES : NO_FRAMES);
+  return owed;
+}
+
+/** The amount a token owes: its row by its newest order first (05 #44e: a new bill on the same key). */
+function owedBy(q: QueueToken, owed: ReadonlyMap<string, number>): number | null {
+  for (const id of [...q.order_ids].reverse()) {
+    const n = owed.get(id);
+    if (n !== undefined) return n;
+  }
+  return null;
+}
+
 export interface QueueRailProps {
   variant: RailVariant;
   book: TokenBook;
@@ -69,7 +124,7 @@ export interface QueueRailProps {
   hidden?: ReadonlySet<string>;
 }
 
-function ReadyTile({ q, selected, onOpen, onHandOver, onPay }: { q: QueueToken; selected: boolean; onOpen(): void; onHandOver?: (() => void) | undefined; onPay?: (() => void) | undefined }) {
+function ReadyTile({ q, selected, owed, onOpen, onHandOver, onPay }: { q: QueueToken; selected: boolean; owed: number | null; onOpen(): void; onHandOver?: (() => void) | undefined; onPay?: (() => void) | undefined }) {
   const shell = useShell();
   const cls = ['tk-rt', q.part ? 'tk-rt--part' : q.paid ? null : 'tk-rt--due', selected ? 'is-sel' : null].filter((c) => c !== null).join(' ');
   // R2: a paid, all-ready token hands over in one tap; a due one only offers Take payment; part given opens the view
@@ -96,9 +151,18 @@ function ReadyTile({ q, selected, onOpen, onHandOver, onPay }: { q: QueueToken; 
           <Ico name={q.paid ? 'check' : 'warn'} />
           {t(q.paid ? 'q.paid' : 'q.due')}
         </span>
-        <span className="tk-rt__who" dir="auto">
-          {q.customer_name ?? t('order.takeaway')}
-        </span>
+        {dueReady(q) ? (
+          // R2 (frame ReadyTiles): a Due tile shows what is owed, not the name — "Take payment first"
+          <span className="tk-rt__who">
+            <span className="money" dir={MONEY_DIR}>
+              {owed === null ? '—' : money(owed)}
+            </span>
+          </span>
+        ) : (
+          <span className="tk-rt__who" dir="auto">
+            {q.customer_name ?? t('order.takeaway')}
+          </span>
+        )}
       </button>
       {act === undefined ? (
         <span className="tk-rt__act">{actText}</span>
@@ -137,6 +201,7 @@ function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; o
 export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOver, onPay, hidden }: QueueRailProps) {
   const shell = useShell();
   const { model, failed, loadedAt, retry } = useTakeawayQueue(book);
+  const owed = useDueAmounts(model);
   const [query, setQuery] = useState('');
   const [all, setAll] = useState(false);
   const pick = (list: QueueToken[]) => list.filter((q) => !(hidden?.has(q.key) ?? false) && matchesQuery(q, query));
@@ -152,6 +217,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
       key={q.key}
       q={q}
       selected={selected === q.key}
+      owed={owedBy(q, owed)}
       onOpen={() => open(q)}
       onHandOver={onHandOver === undefined ? undefined : () => onHandOver(q)}
       onPay={onPay === undefined ? undefined : () => onPay(q)}

@@ -31,17 +31,26 @@ const CAUGHT: CatchUpOrder[] = [
   aCaught('O52', 52, [aLine('O52', 'L52a', 'Paye', { served_at: at(13, 10) }), aLine('O52', 'L52b', 'Karahi')], { customer_name: 'Ayesha' }),
 ];
 
-function setup(o: { rows?: OpenOrder[]; caught?: CatchUpOrder[]; online?: boolean } = {}) {
+/** 05 §6.2 open-bills rows (a projected takeaway bill per bill_key; its order_id = the key's root unbilled order). */
+const BILLS = [
+  { bill_id: null, seating_id: null, order_id: 'O48', identifier: '#48', order_type: 'takeaway', state: 'projected', total_default_minor: 119_000, paid_minor: 0, check_printed_at: null, opened_at: at(13, 0), open_minutes: 20, flagged: false, partly_paid: false, has_open_request: false },
+  { bill_id: 'B9', seating_id: 'S9', order_id: null, identifier: 'T9', order_type: 'dine_in', state: 'open', total_default_minor: 50_000, paid_minor: 0, check_printed_at: null, opened_at: at(12, 0), open_minutes: 80, flagged: false, partly_paid: false, has_open_request: false },
+];
+
+function setup(o: { rows?: OpenOrder[]; caught?: CatchUpOrder[]; online?: boolean; bills?: unknown[]; takePayment?: boolean } = {}) {
   const live = createLiveBus();
   live.frame({ type: 'catch_up', as_of_seq: 1, state: { orders: { orders: o.caught ?? CAUGHT, zone_stock: [] } } });
   let rows = o.rows ?? ROWS;
   const openOrders = vi.fn(async (): Promise<{ ok: true; data: OpenOrdersBody }> => ({ ok: true, data: { orders: rows } }));
   const orderContact = vi.fn();
+  let bills = o.bills ?? BILLS;
+  const query = vi.fn(async (path: string) => (path === '/queries/open-bills' ? { ok: true, data: { bills, as_of_seq: 1 } } : { ok: false, error: { kind: 'network' } }));
   const shell = {
+    api: { query, page: vi.fn(), command: vi.fn() },
     device: { token: 'D', id: 'dev-1', type: 'cashier_kiosk' },
     orders: { openOrders, orderContact },
     live,
-    permissions: createPermissions({}),
+    permissions: createPermissions(o.takePayment === false ? {} : ({ 'take-payment': { grant: 'allowed', scope: 'branch' } } as never)),
     toasts: createToastBus(),
     enqueue: Object.assign(async () => ({ status: 'needs_hub' }), { pendingFor: () => 0, pendingCount: () => 0, subscribe: () => () => {} }),
     clock: { nowMs: () => NOW, utcOffsetMs: 0 },
@@ -50,7 +59,7 @@ function setup(o: { rows?: OpenOrder[]; caught?: CatchUpOrder[]; online?: boolea
     phone: false,
     portrait: false,
   } as unknown as Shell;
-  return { shell, live, openOrders, orderContact, setRows: (r: OpenOrder[]) => (rows = r) };
+  return { shell, live, openOrders, orderContact, query, setRows: (r: OpenOrder[]) => (rows = r), setBills: (b: unknown[]) => (bills = b) };
 }
 
 let view: Mounted | null = null;
@@ -66,12 +75,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function show(s: ReturnType<typeof setup>, onOpen = vi.fn(), heldCount = 0) {
+async function show(s: ReturnType<typeof setup>, onOpen = vi.fn(), heldCount = 0, onPay?: (q: unknown) => void) {
   book = createTokenBook(s.live);
   view = mount();
   view.render(
     <ShellContext.Provider value={s.shell}>
-      <QueueRail variant="column" book={book} selected={null} onOpen={onOpen} heldCount={heldCount} />
+      <QueueRail variant="column" book={book} selected={null} onOpen={onOpen} heldCount={heldCount} onPay={onPay} />
     </ShellContext.Provider>,
   );
   await flush();
@@ -95,7 +104,7 @@ describe('[02b-TK C2-1] the takeaway queue rail', () => {
     const v = await show(setup());
     expect(v.text()).toContain('Ready — hand over');
     expect(tiles(v).map((x) => x.querySelector('.tok')!.textContent)).toEqual(['48', '52']);
-    expect(tiles(v)[0]!.textContent).toContain('Ali');
+    // a Due tile shows the amount due, not the name (05 §6.1; R2; frame ReadyTiles)
     expect(tiles(v)[0]!.textContent).toContain('Due');
     expect(tiles(v)[0]!.textContent).toContain('Take payment');
     // part given: a served line, the rest cooking → dashed tile "Part given · rest 1:31 PM"
@@ -107,6 +116,53 @@ describe('[02b-TK C2-1] the takeaway queue rail', () => {
     expect(rows(v)[1]!.textContent).toContain('Bilal');
     expect(rows(v)[1]!.textContent).toContain('Half Chicken Karahi · 4× Roghni Naan');
     expect(rows(v)[0]!.textContent).toContain('Takeaway');
+  });
+
+  it('[05 §6.1, §6.2; R2; frame ReadyTiles] a Due ready tile shows the amount due (Rs, LTR) and Take payment, not the name; one open-bills read for the rail', async () => {
+    const s = setup();
+    const onPay = vi.fn();
+    const v = await show(s, vi.fn(), 0, onPay);
+    const due = tiles(v)[0]!;
+    const amount = due.querySelector('.tk-rt__who .money')!;
+    expect(amount.textContent).toBe('Rs 1,190');
+    expect(amount.getAttribute('dir')).toBe('ltr');
+    expect(due.querySelector('.tk-rt__who')!.textContent).not.toContain('Ali');
+    v.click(v.button('Take payment', due));
+    expect(onPay.mock.calls[0]![0]).toMatchObject({ token: 48, newest_order_id: 'O48' });
+    // the part-given tile (paid or not) keeps its text; the Cooking rows read no bill
+    expect(tiles(v)[1]!.querySelector('.money')).toBeNull();
+    expect(s.query.mock.calls.map((c) => c[0])).toEqual(['/queries/open-bills']);
+  });
+
+  it('[05 §6.2] the amount follows the bill: a PaymentAdded frame reads open-bills again (debounced), still one read', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const s = setup();
+    const v = await show(s);
+    s.setBills([{ ...BILLS[0]!, state: 'partly_paid', partly_paid: true, paid_minor: 19_000 }]);
+    act(() => s.live.frame(ev(2, 'PaymentAdded', { bill_id: 'B48' })));
+    act(() => s.live.frame(ev(3, 'PaymentAdded', { bill_id: 'B48' })));
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    await flush();
+    expect(tiles(v)[0]!.querySelector('.tk-rt__who .money')!.textContent).toBe('Rs 1,000');
+    expect(s.query.mock.calls.filter((c) => c[0] === '/queries/open-bills')).toHaveLength(2);
+  });
+
+  it('[05 §6.2] no Due ready tile → no open-bills read; a paid tile keeps the name', async () => {
+    const s = setup();
+    const v = await show(s);
+    s.query.mockClear();
+    act(() => s.live.frame(ev(2, 'OrdersBilled', { order_ids: ['O48'], bill_id: 'B48' })));
+    await flush();
+    const paid = tiles(v)[0]!;
+    expect(paid.textContent).toContain('Paid');
+    expect(paid.querySelector('.tk-rt__who')!.textContent).toBe('Ali');
+    expect(paid.querySelector('.money')).toBeNull();
+    const none = setup({ rows: [aRow({ order_id: 'O53', token: 53 })] });
+    view?.unmount();
+    await show(none);
+    expect(none.query).not.toHaveBeenCalled();
   });
 
   it('[R3] search by token, by name, by the last 4 phone digits — on the device; no contact query', async () => {
