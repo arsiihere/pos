@@ -752,7 +752,7 @@ function group<R extends { staff_id: string }, V>(rows: R[], value: (row: R) => 
 // 01b §5.3 BranchWire; one statement, joined to the branch's A-12 row (v1.5 B-6). CL-3: every branch has exactly
 // one A-12 row, so a missing one is an error, never a default (the left join tells it from an unknown branch).
 // BIGINTs through Number().
-const BRANCH_WIRE_COLUMNS = `b.branch_id, b.name, b.status, b.hub_last_seen_at, b.hub_synced_at, b.tax_enabled, b.day_stale_after_hours, b.day_min_gap_hours, ${BRANCH_ENGINE_SETTING_KEYS.map((key) => `e.${key}`).join(', ')}`;
+const BRANCH_WIRE_COLUMNS = `b.branch_id, b.name, b.status, b.hub_last_seen_at, b.hub_synced_at, b.tax_enabled, b.day_stale_after_hours, b.day_min_gap_hours, b.business_day_end_local_ms, ${BRANCH_ENGINE_SETTING_KEYS.map((key) => `e.${key}`).join(', ')}`;
 
 export async function selectBranchWire(db: TenantSql, branchId: string): Promise<BranchWire | undefined> {
   const rows = await db.query<BranchRow>(
@@ -791,11 +791,11 @@ export async function updateBranchName(db: TenantSql, branchId: string, name: st
 export async function updateBranchSettings(
   db: TenantSql,
   branchId: string,
-  s: { tax_enabled: boolean; day_stale_after_hours: number; day_min_gap_hours: number },
+  s: Pick<BranchRow, 'tax_enabled' | 'day_stale_after_hours' | 'day_min_gap_hours' | 'business_day_end_local_ms'>,
 ): Promise<void> {
   await db.query(
-    `UPDATE branches SET tax_enabled = $3, day_stale_after_hours = $4, day_min_gap_hours = $5 WHERE tenant_id = $1 AND branch_id = $2`,
-    [branchId, s.tax_enabled, s.day_stale_after_hours, s.day_min_gap_hours],
+    `UPDATE branches SET tax_enabled = $3, day_stale_after_hours = $4, day_min_gap_hours = $5, business_day_end_local_ms = $6 WHERE tenant_id = $1 AND branch_id = $2`,
+    [branchId, s.tax_enabled, s.day_stale_after_hours, s.day_min_gap_hours, s.business_day_end_local_ms],
   );
 }
 

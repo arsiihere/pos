@@ -63,7 +63,7 @@ const RANGES: Array<[string, number, number]> = [
   // ⚠️ 01a v2.7.5 MD-2 / 01b v1.10.3 §6.10 (STAB-7; re-review F-1): the 0017 CHECK.
   ['max_delay_default_ms', 60_000, 1_800_000],
 ];
-const BRANCH_SETTINGS = { tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4 };
+const BRANCH_SETTINGS = { tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4, business_day_end_local_ms: 14_400_000 };
 describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b v1.5 §6.10, B-6; 01a v2.1 A-12)', () => {
   let cloud: TestCloud;
   let f: RestaurantFixture;
@@ -115,6 +115,55 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     expect(Object.keys(branch).sort()).toEqual(
       ['branch_id', 'name', 'status', 'hub_last_seen_at', 'hub_synced_at', 'version', ...Object.keys(BRANCH_SETTINGS), ...Object.keys(DEFAULTS)].sort(),
     );
+  });
+
+  it('[01b v1.12 #117, 01a #218] updates the day end with other settings once', async () => {
+    const initial = await branchOf();
+    expect(initial.business_day_end_local_ms).toBe(14_400_000);
+    const config = await configVersion();
+    const settings = { business_day_end_local_ms: 12_600_000, day_stale_after_hours: 18 };
+    const changed = await patchSettings({ expected_version: initial.version, ...settings });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(counter.count).toBe(7);
+    const stored = await branchOf();
+    expect(stored).toMatchObject(settings);
+    expect(stored.version).not.toBe(initial.version);
+    expect(changed.json().data.branch).toEqual(stored);
+    expect(await configVersion()).toBe(config + 1);
+    const audit = await audits();
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      action: 'update',
+      before: { business_day_end_local_ms: 14_400_000, day_stale_after_hours: 16 },
+      after: settings,
+    });
+    const noop = await patchSettings({ expected_version: stored.version, ...settings });
+    expect(noop.statusCode).toBe(200);
+    expect(counter.count).toBe(3);
+    expect(noop.json().data.branch.version).toBe(stored.version);
+    expect(await audits()).toEqual(audit);
+    expect(await configVersion()).toBe(config + 1);
+  });
+
+  it('[01b v1.12 #117, 01a #218] accepts only whole minutes from 00:00 through 23:59', async () => {
+    for (const end of [0, 86_340_000]) {
+      const response = await patchCurrent({ business_day_end_local_ms: end });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().data.branch.business_day_end_local_ms).toBe(end);
+    }
+    const before = await branchOf();
+    const config = await configVersion();
+    const audit = await audits();
+    for (const end of [-1, 1.5, 12_630_000, 86_340_001, 86_399_999, 86_400_000, null]) {
+      const response = await patchSettings({ expected_version: before.version, business_day_end_local_ms: end });
+      expect(response.statusCode, response.body).toBe(400);
+      const { error } = response.json();
+      expect(error.code).toBe('VALIDATION_FAILED');
+      expect(error.details.issues[0]).toMatchObject({ path: 'business_day_end_local_ms' });
+    }
+    expect(await branchOf()).toEqual(before);
+    expect(await configVersion()).toBe(config);
+    expect(await audits()).toEqual(audit);
   });
 
   it('[01b B-6; 03b §4.5 B-2] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV4 (served_estimate_ms, ready_window_ms, kds_offline_ms included)', () => {

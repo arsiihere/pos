@@ -131,6 +131,9 @@ export const BranchEngineSettings = z.object({
 export type BranchEngineSettings = z.infer<typeof BranchEngineSettings>;
 export const BRANCH_ENGINE_SETTING_KEYS = Object.keys(BranchEngineSettings.shape) as (keyof BranchEngineSettings)[];
 
+// 01a v2.11 BD-2: milliseconds after local midnight, aligned to a whole minute.
+const BusinessDayEndLocalMs = z.number().int().min(0).max(86_340_000).multipleOf(60_000);
+
 export const BranchWire = z.object({
   branch_id: z.string(),
   name: z.string(),
@@ -140,6 +143,7 @@ export const BranchWire = z.object({
   tax_enabled: z.boolean(),
   day_stale_after_hours: z.number().int(),
   day_min_gap_hours: z.number().int(),
+  business_day_end_local_ms: BusinessDayEndLocalMs,
   ...BranchEngineSettings.shape,
   version: Version,
 });
@@ -241,6 +245,7 @@ export const BranchSettingsPatchBody = z
     tax_enabled: z.boolean().optional(),
     day_stale_after_hours: z.number().int().min(1).max(48).optional(),
     day_min_gap_hours: z.number().int().min(0).max(12).optional(),
+    business_day_end_local_ms: BusinessDayEndLocalMs.optional(),
     ...BranchEngineSettings.partial().shape,
   })
   .refine((body) => Object.keys(body).length > 1, {
