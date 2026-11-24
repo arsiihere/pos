@@ -1,0 +1,73 @@
+# 02b-TK backend — Codex lanes (parallel tasks)
+
+Split of `docs/plans/02b-tk-backend-plan.md` (task ids below are that plan's) into **independent Codex cloud tasks**. Written 2026-11-24 after the owner's answers (05c parked; short list accepted). **No code is written by this file.**
+
+## Rules for every lane (read first)
+
+- Repo rules: `AGENTS.md` (= `CLAUDE.md`). TDD, one plan task per commit, commit message cites the spec §, gate: `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"`. Never `pnpm test:perf`, printer or power-loss checks in the cloud.
+- Build base: branch `module-02b-tk` (created by lane **L0**, task B1-0) = `origin/main` + `claude/02b-tk-specs`. Each lane works on its own branch `module-02b-tk-<lane>` and opens a PR into `module-02b-tk`; CI `gate.yml` must be green.
+- **Owned paths only.** A lane may edit only the paths in its "May touch" column. Anything else it needs (an error code, an event schema, a shared type, a snapshot key) is in **L0** and must be merged first. If a lane finds it needs a file it does not own: stop and report — do not edit it.
+- **Never edit `docs/specs/**`** (spec changes go back to the spec lane). Lanes may append to their own `docs/plans/02b-tk-<lane>-status.md` only.
+- **Migrations** use the number **reserved** below (owner rule 2026-11-24: hub `0030+`, cloud `0130+`, no overlaps). The cloud runner reads the folder in version order (`apps/cloud/src/db/migrate.ts`, `readdirSync`); L0 checks that a gap (`0019` → `0130`) is accepted by both runners and the CI fresh-DB run; if a runner refuses gaps, L0 reports it and the reserved order is kept with the next free numbers instead. The README "Migration numbers" line is updated by the spec lane, not by Codex.
+- **05c is parked** (owner 2026-11-24): no 05c task, no `when_none`, no `payment_*` kinds, no `manage-payment-providers`. Cards stay the manual counter-machine mode.
+- **Client work is not here.** The client lane (`claude/gracious-hawking-9670fy`) owns `apps/client/**`; it must also remove R2's "Hand over anyway" override (02b v1.0.25 §3.7a: until the manager request ships a Due order cannot be handed over).
+
+## Reserved migration numbers
+
+| Number | File | Lane | Spec |
+|---|---|---|---|
+| hub `0030` | `0030_orders_takeaway.sql` | L-ORDERS | 02b v1.0.25 §5 (incl. `unpaid_handover_approved_at`) |
+| hub `0031` | `0031_display_sessions.sql` | L-ACCESS | 00 HPA v1.13 §5.1 H-8 |
+| hub `0032` | `0032_device_profiles_board.sql` | L-ACCESS | 05a v1.0.7 §5.4 |
+| cloud `0130` | `0130_cashier_mark_served.sql` (rename of the branch's `0019_cashier_mark_served.sql`; `main` has `0019_recipes.sql`) | L0 | 01b v1.8.1 / Part A1 |
+| cloud `0131` | `0131_takeaway_menu.sql` | L-CLOUD | 01a v2.11 §5, 01c v1.5 |
+| cloud `0132` | `0132_takeaway_role_grants.sql` | L-ROLES | 01b v1.12 §5.1c (B-4 Pass role, B-5 `hand-over-unpaid`) |
+| cloud `0133` | `0133_point_order_types.sql` | L-PT | 01a v2.11 PT-1 – PT-6 |
+
+Hub `0028` / `0029` stay free for 08's drafts; nothing here uses them.
+
+## Readiness
+
+- **Ready now** (specs passed run 2 with wording fixes only): 05a v1.0.7, 03c v1.0.16, 01c v1.5, Foundation v1.18, 01a v2.11 **except** the new PT rows. The owner still approves the package before merge to `main`; lanes marked NOW may be built and merged into `module-02b-tk` now.
+- **Waits for run 3** (`docs/reviews/run3-prompts/`): 02b, 01d, 03b (incl. Pass by order type), 03a, 05, 01b (targeted), 00 HPA (targeted: public listener only), 01a PT rows. A lane marked "run 3" starts when its spec's run-3 review is clean (or its fixes are merged into `claude/02b-tk-specs`).
+- **Waits for 04 v1.0.9** (not drafted yet): L-AUDIT.
+
+## Lanes
+
+Lanes in the same wave never share a file. Waves: **W0** (alone) → **W1** (in parallel) → **W2** (in parallel, after run 3) → **W3**.
+
+| Lane | Wave | Start | Tasks (backend plan ids) | May touch (only) | Spec §§ | Migration | Depends on | Tests | Done when |
+|---|---|---|---|---|---|---|---|---|---|
+| **L0a** contracts (ready specs) | W0 | **NOW** | B1-0 (branch + rename), B1-1, B1-6, H-1, A-1 (domain/events part), S-3 (error code only), C-2 (error code only) | `packages/domain/src/{errors,screens,ids}.ts` + tests, a new `packages/domain/src/business-day.ts` (+ test), `packages/events/src/config.ts`, `packages/events/src/events/hub/{SessionStarted,SessionEnded,DeviceProfileSet}.v2.ts` + upcasters + the events index, `packages/events/src/ws.ts` (`display_hint`), `apps/cloud/src/db/migrations/0130_cashier_mark_served.sql` (rename) + its test | F v1.18 §6.2 (all F-7 / F-12 codes: `PICKUP_TIME_INVALID`, `DISPLAY_NOT_ENABLED`, `TRACKING_LINK_INVALID`, `RATE_LIMITED`, `SHORT_CODE_IN_USE`, `TAKEAWAY_SLIP_NOT_ALLOWED`), D46 (v2 rule); 01a v2.11 `businessDayLatestMs`, snapshot keys `business_day_end_local_ms`, `engine_settings.rush_open_orders`, `takeaway_slip_on_send`; 05a §3.6, §4.2 (`SCREEN_KEYS` + `board`, `BOARD_VOICES = ['off','en']`, `isBoard`, `DeviceProfileSet` v2, `PickupBoardView`) | cloud `0130` (rename) | — | F §6.2 catalogue test; 01a test 218 (six helper cases); 05a 10, 30, 35 (schema parts); 00 HPA 152–158-style upcaster tests | gate green; `module-02b-tk` exists; every later lane can import these names |
+| **L-CLOUD** menu + settings | W1 | **NOW** (after L0a) | C-1, C-2 (rest), C-3, C-4 | `apps/cloud/src/modules/restaurant/**`, `apps/cloud/src/modules/config-sync/**`, `apps/cloud/src/modules/staff-roles/{service,repository,versions}.ts` (settings wire only), `packages/events/src/admin/{restaurant,staff}.ts`, `apps/cloud/test/**` for these, `0131_takeaway_menu.sql` | 01a v2.11 §3.3, §5, §6.14, §6.15, §6.10 / 01b v1.12 B-1 (wire only), 01c v1.5 §6.4, §6.5 | cloud `0131` | L0a | 01a 207–218, 01b 116, 117, 01c tests named in §10 | gate green; snapshot carries the three settings and companions / short codes |
+| **L-PRINT** token slip | W1 | **NOW** (after L0a) | S-1, S-2, S-3 (rest), S-4 | `apps/hub/src/print/**`, `apps/hub/src/billing/print/ready-times.ts` (import change only), `apps/hub/test/print/**` | 03c v1.0.16 §3.9, §3.11, §4.2, §11 tasks 29–32 | — | L0a | 03c 57–63 (and 05 #92–#97b unchanged) | gate green; `queueTakeawaySlipOnSubmit` exists with `statusLink` **injected** (real one from L-STATUS) and the setting read with `HUB_ENGINE_SETTING_DEFAULTS` |
+| **L-ACCESS** display session + board | W1 | **NOW** (after L0a) | H-2, A-2, H-3, A-3, H-4, H-5, H-6 | `apps/hub/src/auth/**`, `apps/hub/src/ws/{server,catch-up}.ts`, `apps/hub/src/queries/registry.ts`, `apps/hub/src/lib/client-dist.ts`, `apps/hub/src/admin/page.ts`, `apps/hub/src/commands/set-device-profile.ts` (and the approve command), `apps/hub/test/{auth,ws,admin}/**`, `0031_display_sessions.sql`, `0032_device_profiles_board.sql` | 00 HPA v1.13 M96, §3.4a, §5.1, §6.21, §6.39, §8.2; 05a v1.0.7 §3.5, §3.6, §5.4, §6.3, §6.4, §8 (hub parts) | hub `0031`, `0032` | L0a | 00 HPA tests of M96 / §6.39 / §6.21 (incl. 203); 05a 30–35, 45, 50, 52 (hub parts) | gate green; a paired kiosk can be turned into a board and opens a display session + display socket (no pickup data yet) |
+| **L-STATUS-A** link + limiter | W1 | **NOW** (after L0a) | H-7, H-8, P-4 | `apps/hub/src/status/{link,rate-limit}.ts` (new folder, OD-6), `apps/hub/src/setup/**` (key provisioning), `apps/hub/src/server.ts` (`redactQueryToken` only), `apps/hub/test/status/**` | 00 HPA v1.13 M98, M99, M100, §6.40 (link), §7.12; 02b TK-6 (1) | — | L0a | 00 HPA link / limiter tests (M98, M99, 187, 200) | gate green; `statusLink(order_id)` usable by L-PRINT |
+| **L-ENG** 03a whole-order hold | W2 | run 3 (03a) | E-1 … E-10 | `packages/engine/**`, `apps/hub/test/engine/**`, `docs/plans/03a-manual-checks.md` | 03a v1.2.11 §3.5.8 PK-1 – PK-12, §3.8, §12.3 Q-PK-9 answer (boost keeps `pickup_at_ms`, `boosted` stops the hold), §11 | — | L0a | 03a 178–194 (194 is `test:perf`, owner machine only), 31, 56, 186, 191 rewritten | gate green; engine state v6 with fixtures; after-hours install note written |
+| **L-BILL** 05 reads + check bill | W2 | run 3 (05) | B1-3, CB-2, U-3 (05 parts: last `CloseSplit` and day-close close of `hand_over_unpaid`) | `apps/hub/src/billing/**` (except `print/ready-times.ts`, owned by L-PRINT in W1), `apps/hub/test/billing/**` (the event schema is L0b's) | 05 v1.0.35 §6.2a `keyBalances`, §6.3a `PrintCartCheckBill`, §4.5 TK-15, V-4 | — | L0a, L0b (event index), L-PRINT (doc job) | 05 #60f – #60k, #83 | gate green |
+| **L-KDS** 03b hub | W2 | run 3 (03b) | B1-4, B1-5, K-1, K-2, K-3, PT-4 | `apps/hub/src/kds/**`, `apps/hub/src/ws/{kds-audiences,point-catch-up}.ts`, `apps/hub/src/queries/kds-config.ts`, `apps/hub/test/{kds,pass}/**` | 03b v1.0.16 §3.4, §3.5, §4.2, §6.12, §6.15, §6.17, §6.21, PT-1 – PT-8 | — | L0a, L0b, L-ALERTS (N-2 before K-2) | 03b 97–131 (hub parts) | gate green |
+| **L-ALERTS** 01d | W2 | run 3 (01d) | N-1, N-2, N-3 | `apps/hub/src/alerts/**`, `packages/events/src/alerts.ts`, `apps/hub/test/alerts/**`, `apps/hub/src/lib/boot.ts` (boot order line only) | 01d v1.3.7 §3.4, §3.5 (no `when_none`: parked), §5.4, §6, §11 (a) – (c) | — | L0a | 01d 106–118, 120, 122 | gate green |
+| **L0b** contracts (run-3 specs) | W2 (first) | run 3 (02b, 03b, 01b, 01a PT) | PT-1, R-1 (domain part), R-2, U-1 (event schema), CB-2 (event schema) | `packages/domain/src/{permissions,kds,screens}.ts` + tests, `packages/events/src/events/order/UnpaidHandoverApproved.v1.ts`, `packages/events/src/events/hub/CartCheckBillPrinted.v1.ts`, the events index, `packages/events/src/config.ts` (`points[].order_types`) | 01b v1.12 B-4, B-5; 05a L-1; 03b PT-1 `routePoint`; 02b §6.19; 05 §6.3a | — | L0a merged | 01b 119 (domain part), 03b 125–127, 05a 52 | gate green; L-ORDERS / L-KDS / L-BILL / L-ROLES / L-PT can import |
+| **L-ROLES** Pass role + grant | W2 | run 3 (01b targeted) | R-1 (cloud part) | `apps/cloud/src/modules/staff-roles/default-roles.ts`, `apps/cloud/test/**` for it, `0132_takeaway_role_grants.sql` | 01b v1.12 §5.1c, §6.15, B-4, B-5 | cloud `0132` | L0b; L-CLOUD merged (same module folder, different files; merged first to avoid rebase pain) | 01b 20, 118, 119 | gate green |
+| **L-PT** points by order type (cloud) | W2 | run 3 (01a PT, 03b PT) | PT-2 | `apps/cloud/src/modules/restaurant/points*`, `0133_point_order_types.sql`, its tests | 01a v2.11 PT-1 – PT-6 | cloud `0133` | L0b; L-CLOUD merged (shares `modules/restaurant/` and `config-sync/`: runs **after** L-CLOUD, never beside it) | 01a 219–222 | gate green |
+| **L-ORDERS** 02b hub | W2 → W3 | run 3 (02b) | B1-2, B2-1 … B2-4, P-1, P-2, P-3, P-5, P-6, PT-3 (submit part), U-1 (fold + row), U-2, U-3 (02b parts), U-4, CB-1, S-5 | `apps/hub/src/orders/**`, `apps/hub/test/orders/**`, `0030_orders_takeaway.sql`; `apps/hub/src/queries/registry.ts` **only after L-ACCESS is merged** (it adds its query lines on top) | 02b v1.0.25 §3.2 (steps 2b, 3, 6 PT-R1, 10a), §3.3, §3.7, §3.7a, §4.2 (`takeawayProgress`, `priceCartDraft`), §5, §6.4a, §6.12a, §6.14, §6.16, §6.18 – §6.18c | hub `0030` | L0a, L0b, L-BILL (B1-3 `keyBalances`), L-KDS (B1-4, B1-5), L-ENG (for P-1 only: E-10), L-PRINT (S-4, for S-5) | 02b 59–93 | gate green; order: B1-2 → B2-1 → B2-2 → B2-4 (G-1 first) → P-1 … |
+| **L-STATUS-B** public listener + board read | W3 | run 3 (00 HPA targeted) + L-ORDERS B2-4 | H-9, H-10, H-11, A-4 | `apps/hub/src/status/{listener,page,read}.ts`, `apps/hub/src/server.ts`, `apps/hub/src/main.ts`, `apps/hub/src/queries/pickup-board.ts`, `apps/hub/src/ws/display-*.ts` (new files; `ws/server.ts` stays L-ACCESS's), runbook doc | 00 HPA v1.13 M97, §6.40, §6.41, §7.12, §7.13; 05a v1.0.7 §3.11, §6.12, §6.13 | — | L-ACCESS, L-STATUS-A, L-ORDERS (B2-4) | 00 HPA 183, 187, 191–204; 05a 36–41, 46 | gate green |
+| **L-AUDIT** 04 audit actions | W3 | 04 v1.0.9 approved | AU-1, U-4 (audit part) | `packages/domain/src/audit.ts`, `audit.test.ts` | 04 v1.0.9 (to draft: `cart_check_bill_printed`, `unpaid_handover_*`, `board` in `device_profile_set` detail) | — | L0b | 04's tests | gate green |
+| **L-CLOSE** acceptance | W3 (last) | all lanes merged | X-1, X-2 | `docs/plans/02b-tk-backend-plan.md` (status), `docs/plans/03c-manual-checks.md`, `docs/plans/03a-manual-checks.md` | every spec's §12.2 endpoint checklist | — | all | — | checklists ticked; `test:perf` hand-off list for the owner's machine |
+
+### Conflict notes (why the split looks like this)
+
+- `packages/domain/src/errors.ts`, `packages/events/src/config.ts`, the events index and `permissions.ts` / `screens.ts` are touched by many plan tasks → they live **only** in L0a / L0b, run alone.
+- `apps/hub/src/orders/build-submit.ts` (P-1 pickup, PT-3 `routePoint`) and `submit-order.ts` (P-1, P-3, S-5) → all in L-ORDERS.
+- `apps/hub/src/server.ts` (P-4 redaction, H-9 listener) → L-STATUS-A in W1, L-STATUS-B in W3: never at the same time.
+- `apps/hub/src/queries/registry.ts` → L-ACCESS (W1); L-ORDERS edits it only after L-ACCESS is merged.
+- `apps/cloud/src/modules/restaurant/**` and `config-sync/**` → L-CLOUD (W1), then L-PT (W2) after it.
+- `apps/hub/src/billing/print/ready-times.ts` → L-PRINT in W1; L-BILL (W2) owns the rest of `billing/**`.
+
+## Start order for Codex today
+
+1. **L0a** alone (W0).
+2. Then in parallel: **L-CLOUD**, **L-PRINT**, **L-ACCESS**, **L-STATUS-A** (W1).
+3. In parallel with W1 (docs only): the eight run-3 reviews from `docs/reviews/run3-prompts/`.
+4. After run 3 is clean: **L0b**, then **L-ENG**, **L-BILL**, **L-KDS**, **L-ALERTS**, **L-ROLES**, **L-PT** (W2) and **L-ORDERS** (starts B1-2 / G-1 as soon as L0b, L-BILL's B1-3 and L-KDS's B1-4 / B1-5 land).
+5. W3: **L-STATUS-B**, **L-AUDIT** (after 04 v1.0.9), **L-CLOSE**.
