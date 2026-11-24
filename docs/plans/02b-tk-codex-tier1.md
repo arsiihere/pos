@@ -28,7 +28,7 @@ You are OpenAI Codex working in this repository (restaurant POS monorepo, pnpm +
 - **TDD:** write the failing test first (spec test numbers from §10), then the code. A task is not done without passing tests.
 - **One plan task per commit**; the message cites the spec §, e.g. `feat(orders): open-orders keeps paid takeaway until handed over [02b v1.0.25 §3.3, §6.16]`.
 - **Full gate before every push:** `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` (Postgres test DB on port 5433 as `AGENTS.md` describes). All green, no skipped or disabled tests. **Never** run `pnpm test:perf`, printer, hardware or power-loss checks.
-- **Migrations:** use exactly the reserved numbers in `docs/plans/02b-tk-lanes.md` (hub `0030`; cloud `0130`, `0131`, `0132`, `0133`). Never edit a migration already merged to `main`. No N+1: list endpoints keep the spec's statement counts (statement-counter tests).
+- **Migrations:** the runners refuse gaps, so use the **next free number on `module-02b-tk` when your PR is merged** (cloud is at `0020`, hub at `0027` today); renumber before merge if another lane took it. Never edit or renumber a merged migration.
 - Build only what the spec asks: no extra layers, dependencies or "for later" code.
 - Keep a short log per lane in `docs/plans/02b-tk-<lane>-status.md` (task, commit, tests, notes). That file is the only doc you write.
 
@@ -53,7 +53,7 @@ Stop (end the task, report, wait for the owner) at each of these:
 
 1. **After each lane** is merged into `module-02b-tk`: report the lane, commits, tests added, statement counts checked, anything you could not do.
 2. **Before any lane that waits for run 3 or for 04 v1.0.9** (steps 3, 4, 6): check `docs/reviews/` for `<spec>_hostile_run3.md` of every spec the lane needs and confirm with the owner that its fixes are merged into `claude/02b-tk-specs` (then merge that branch into `module-02b-tk` first). If not, stop and report which review is missing.
-3. **L0a's migration-gap check:** if either migration runner (hub or cloud, `apps/*/src/db/migrate*.ts`) or the CI fresh-DB run refuses the jump `0019` → `0130` (or `0027` → `0030` on the hub), stop and report before renumbering anything.
+3. **B1-0 is done:** the Part A migration is already renumbered to cloud `0020_cashier_mark_served.sql` on `module-02b-tk` (the runners refuse gaps, so the old `0130` idea is dropped). L0a starts at B1-1.
 4. Any **spec / code disagreement**, a **file outside the lane's owned paths**, a gate you cannot get green, or a merge conflict outside your lane: stop and report.
 5. **After L-CLOSE-1:** report Tier 1 done (checklists, endpoints, open items, the `test:perf` and manual checks the owner must run on real hardware). **Do not start Tier 2.**
 
