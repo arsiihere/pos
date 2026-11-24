@@ -339,7 +339,8 @@ function menuWithKheer(menu: BranchConfig): BranchConfig {
 /**
  * 02b-TK A2 batch 2 (frame TileStates): a "Paye" variant group (Half / Full, plain pieces at the Dessert station, so
  * one tap on the tile adds the variant) and a sold-out "Tikka" (its stock item counted at 0), in a category of their
- * own after the fixture's, so no other flow sees them.
+ * own after the fixture's, so no other flow sees them. Tikka has a stock cook time: 01c V12 tracks stock only for an
+ * item that draws and has one (engine stock.ts, the client's stock mirror), so without it the count of 0 never applies.
  */
 export const TK_TILES = { category: "Paye", group: "Paye", half: "Half", full: "Full", soldOut: "Tikka", stock: "K_TIKKA" } as const;
 function menuWithTiles(menu: BranchConfig): BranchConfig {
@@ -354,7 +355,7 @@ function menuWithTiles(menu: BranchConfig): BranchConfig {
       ...menu.items,
       { ...plain, item_id: "I_PAYE_H", name: "Paye — Half", variant_group_id: "V_PAYE", variant_name: TK_TILES.half, price_minor: 40_000, sort_order: 20 },
       { ...plain, item_id: "I_PAYE_F", name: "Paye — Full", variant_group_id: "V_PAYE", variant_name: TK_TILES.full, price_minor: 70_000, sort_order: 21 },
-      { ...plain, item_id: "I_TIKKA", name: TK_TILES.soldOut, price_minor: 65_000, sort_order: 22, out_of_stock_behaviour: "sold_out", stock_draws: [{ stock_item_id: TK_TILES.stock, quantity_per_sale_unit: 1 }] },
+      { ...plain, item_id: "I_TIKKA", name: TK_TILES.soldOut, price_minor: 65_000, sort_order: 22, out_of_stock_behaviour: "sold_out", stock_time_ms: 300_000, stock_draws: [{ stock_item_id: TK_TILES.stock, quantity_per_sale_unit: 1 }] },
     ],
   };
 }
