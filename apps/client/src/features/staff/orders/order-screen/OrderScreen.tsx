@@ -1200,6 +1200,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           </div>
         )}
       </div>
+      {(tabletTakeaway || shell.phone || shell.portrait) && <MenuPills categories={rail} current={current} onPick={setCategory} />}
       <MenuTiles tiles={tiles} onTap={onTap} tk={tk} rush={dense} />
       {order_type === 'takeaway' && kiosk && (
         <div className="tk-hint">
@@ -1347,7 +1348,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
 
   if (shell.phone || shell.portrait) {
     return (
-      <div className="col grow order order--phone" dir={ur ? 'rtl' : 'ltr'} ref={rootRef}>
+      <div className={book === null ? "col grow order order--phone" : "col grow order order--phone order--tk-phone"} dir={ur ? 'rtl' : 'ltr'} ref={rootRef}>
         {banners}
         <div className="ptabs">
           <button type="button" aria-pressed={tab === 'menu'} onClick={() => setTab('menu')}>
@@ -1378,20 +1379,17 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           {tab === 'queue' && book !== null ? (
             queueRail(railVariant)
           ) : tab === 'menu' ? (
-            <>
-              <MenuPills categories={rail} current={current} onPick={setCategory} />
-              {menu}
-            </>
+            menu
           ) : (
             <>
               {customer}
-              <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} qchips={order_type === 'takeaway'} />
+              <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} qchips={order_type === 'takeaway'} phoneTakeaway={book !== null} />
               {checkBill}
             </>
           )}
         </div>
         {cartProps.day}
-        {!dayNotOpen && <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} primary={primary} pay={cartProps.pay} onSend={() => void onSend()} />}
+        {!dayNotOpen && <SendBar phoneTakeaway={book !== null} count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} primary={primary} pay={cartProps.pay} onSend={() => void onSend()} />}
         {draftBack}
         {sheetView}
         {sendView}
@@ -1413,7 +1411,6 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         {tabletTakeaway ? (
           <div className="tk-mid">
             {queueRail('strip')}
-            <MenuPills categories={rail} current={current} onPick={setCategory} />
             {menu}
           </div>
         ) : (
