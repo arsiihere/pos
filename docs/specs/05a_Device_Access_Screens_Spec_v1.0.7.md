@@ -66,6 +66,7 @@ Reviewed with 00 HPA v1.13 and Foundation v1.18. Status stays DRAFT.
 |---|---|---|---|
 | OR-1 (OQ-B3, O-20, 00 OD-7) | **English only, no Urdu clips.** Tokens pass 300 by mid-morning (1,500–2,000 orders a day), so numbers are **composed from pieces**: chime, "token number", one … nineteen, twenty … ninety, "hundred", "thousand"; every token 1–2000 is spoken ("token number two hundred fifty seven") | `BOARD_VOICES = ['off', 'en']`, default `en`; 31 clips (≈ 160 KB); the composer; tests 42, 49, 51 | O-20, M-11, §3.6, §4.2, §6.3, §6.4, §6.12, §7, §8, §10, §11, §12 |
 | OR-6 (OD-2) | The board runs on a PC the owner provides; tablet board stays deferred | none (plan `docs/plans/02b-tk-plan.md` "Before go-live") | — |
+| **L-1** (OR-7; 02b v1.0.25 §3.7a) | The unpaid hand-over is approved by a manager "on 'only these people' devices" | `hand-over-unpaid` (01b v1.12 B-5) joins **`LISTED_ONLY_PERMISSIONS`**; its 01d kind `hand_over_unpaid` is a money kind (`needs_pin: 'always'`), so `AnswerRequest` already needs a listed device (§3.9); test 52 | §3.3, §10 |
 
 
 ---
@@ -150,7 +151,7 @@ Sign-in alert with "Not me", shuffled PIN pad, PIN only while on shift, staff NF
 
 ⚠️ Changed by v0.4 (B-1, M-1, M-2, m-16). Two lists in `@pos/domain/src/permissions.ts`:
 
-- **`LISTED_ONLY_PERMISSIONS`** (masked to `not_granted`): `access-hub-admin`, `manage-devices`, `manage-staff`, `manage-roles`, `manage-fiscal-settings`, `approve-void`, `view-audit-log`, `close-daily-sheet` (⚠️ Changed by 08d v1.0 (D-1): closing and correcting the daily sheet is a manager act, done on a listed person's session).
+- **`LISTED_ONLY_PERMISSIONS`** (masked to `not_granted`): `access-hub-admin`, `manage-devices`, `manage-staff`, `manage-roles`, `manage-fiscal-settings`, `approve-void`, `view-audit-log`, `close-daily-sheet` (⚠️ Changed by 08d v1.0 (D-1): closing and correcting the daily sheet is a manager act, done on a listed person's session), `hand-over-unpaid` (⚠️ Changed by v1.0.7 owner review (L-1, OR-7): approving an unpaid hand-over, 02b §3.7a, is done on the manager's own listed device).
 - **`MONEY_PERMISSIONS`** (an `allowed` grant is downgraded): `void-item`, `apply-discount`, `apply-comp`, `apply-refund` (no command today; refunds go through `reopen-bill`, 05 S-8), `reopen-bill`.
 - **Answering a 01d request of a money kind** (`needs_pin: 'always'`) needs a listed device (§3.9). This is the one rule that is not a permission, so it lives in `AnswerRequest` (§4.5 D-2).
 
@@ -749,6 +750,7 @@ Appended to Foundation §6.2 (row F-1) and `@pos/domain/src/errors.ts` (§11 ste
 | 48 | ⚠️ Changed by v1.0.7 hostile run 1 (m-11, client): `DEVICE_ACCESS_DENIED` with `reason: 'display_device'` → `/board/`, without a reason → "This device is not set up for you" |
 | 49 | ⚠️ Changed by v1.0.7 hostile run 1 (m-6, client); ⚠️ Changed by v1.0.7 owner review (OR-1): `tokenClips` (pure unit test): 1 → `[1]`; 19 → `[19]`; 20 → `[20]`; 21 → `[20, 1]`; 100 → `[1, hundred]`; 101 → `[1, hundred, 1]`; 257 → `[2, hundred, 50, 7]`; 999 → `[9, hundred, 90, 9]`; 1000 → `[1, thousand]`; 1015 → `[1, thousand, 15]`; 1999 → `[1, thousand, 9, hundred, 90, 9]`; 2000 → `[2, thousand]`; 0 and 2001 → `null`; every piece returned for 1–2000 is one of the 31 file names |
 | 51 | ⚠️ Changed by v1.0.7 owner review (OR-1) (client): the built `board` entry ships exactly the 31 clip files of §8 under `voice/` (no `ur/` folder); the hub serves `voice/token.mp3` as `audio/mpeg` |
+| 52 | ⚠️ Changed by v1.0.7 owner review (L-1, OR-7): a Manager's session on an `everyone` kiosk resolves `hand-over-unpaid` to `not_granted / listed_only`; `AnswerRequest` approve of a `hand_over_unpaid` request from there → `403 PERMISSION_DENIED { reason: 'listed_device_only' }`; the same Manager on their listed phone → approved |
 | 50 | ⚠️ Changed by v1.0.7 hostile run 1 (m-14 f): a profile switch away from the board while the display socket's `catch_up` is being built → the socket closes `4401` after the `catch_up` frame and no hint follows |
 
 ## §11. Build order
