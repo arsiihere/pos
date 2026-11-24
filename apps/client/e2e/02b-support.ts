@@ -1,5 +1,5 @@
 import { expect, type APIRequestContext, type Page, type TestInfo } from '@playwright/test';
-import { dialog, hub, isPhone, pairAs, sheet, tapTile, tr, type Lang } from './02a-support';
+import { dialog, hub, isPhone, landing, pairAs, sheet, tapTile, tr, type Lang } from './02a-support';
 import { E2E_STATION, KHEER, type E2eDevice } from './global-setup';
 
 // 02b flows (task 28; 02b §8, §10 #35, #36): helpers on top of 02a's. The fixture menu is the hub's 02b test menu
@@ -26,11 +26,13 @@ export async function signInOn(page: Page, device: E2eDevice, lang: Lang, name =
     for (const digit of pin) await pad.locator('.btn', { hasText: new RegExp(`^${digit}$`) }).click();
     await pad.locator('.btn--primary').click();
   };
+  const landed = landing(page);
   await enter();
   const taken = page.locator('.pin__err');
   await Promise.race([pad.waitFor({ state: 'detached' }), taken.waitFor({ state: 'visible' })]);
   if (await taken.isVisible()) await enter();
   await expect(pad).toHaveCount(0);
+  await landed;
 }
 
 /** A menu tile of the order screen (02-S05), by the item's name. */

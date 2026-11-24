@@ -62,6 +62,15 @@ export async function pairAs(page: Page, device: E2eDevice, lang: Lang): Promise
   await page.reload();
 }
 
+/**
+ * 05a §8 C-1: after a sign-in the shell lands on the last tab or the profile's first screen once the session read
+ * answers, then reads the inbox (StaffApp `signedIn`: navigate, then `loadInbox`). A spec that moves the hash before
+ * that landing is sent back by it; so the sign-in helpers wait for the inbox read. Arm it before the PIN is sent.
+ */
+export function landing(page: Page): Promise<unknown> {
+  return page.waitForRequest((r) => r.method() === 'GET' && r.url().includes('/queries/alerts-inbox'), { timeout: 15_000 });
+}
+
 /** Name tile, then the PIN keys, then Sign in. Resolves when the sign-in screen is gone and the map is up. A session a
  * run left on this device asks for the PIN again to take over (DEVICE_SESSION_ACTIVE): it is typed once more. */
 export async function signIn(page: Page, name: string, pin: string = PIN_ALI): Promise<void> {
