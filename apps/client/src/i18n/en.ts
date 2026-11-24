@@ -4166,6 +4166,14 @@ export const en = {
   // 02b-TK C2-1 (frame PhoneQueue tab): not in strings-table.md; Urdu to confirm
   'q.tab': 'Queue',
   'v.placed': 'Placed {t} by {who}',
+  'cd.welcome': 'Welcome', // not in strings-table.md; Urdu to confirm
+  'cd.order': 'Your order', // not in strings-table.md; Urdu to confirm
+  'cd.total': 'Total', // not in strings-table.md; Urdu to confirm
+  'cd.paid': 'Paid', // not in strings-table.md; Urdu to confirm
+  'cd.change': 'Change', // not in strings-table.md; Urdu to confirm
+  'cd.thanks': 'Thank you!', // from CustomerDisplay.dc.html; Urdu to confirm
+  'cd.open': 'Customer screen', // not in strings-table.md; Urdu to confirm
+  'c.ready_by': 'Ready by',
   'v.ready_at': 'Ready by',
   'v.bill': 'Bill',
   'v.waiting': 'Waiting',

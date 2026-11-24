@@ -23,6 +23,7 @@ import {
   addTap,
   replaceLine,
   cartCount,
+  cartLineMoney,
   cartTotal,
   groupCart,
   kitchenUnits,
@@ -52,6 +53,7 @@ import { phoneBad } from './contact';
 import { CustomerRow } from './CustomerRow';
 import { LeaveGuard, useLeaveGuard } from './LeaveGuard';
 import { money } from '../money';
+import { cartDisplay, createDisplayPublisher, idleDisplay, type DisplayMessage } from '../customer-display/channel';
 import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
 import { announceCompIt, freezeSubmit, refusalText, sendOrder, sentToastText, timeUpdated, toCart, zoneEmpty } from '../send/send';
@@ -188,7 +190,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const shellRef = useRef(shell);
   shellRef.current = shell;
   const drafts = useDrafts();
-  const ur = language() === 'ur';
+  const lang = language();
+  const ur = lang === 'ur';
 
   // ------------------------------------------------------------------------------------- live inputs
   const configVersion = useVersion(shell.config.subscribe);
@@ -466,7 +469,39 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   // 02b-TK C2-2: the token view drawer over the menu and the cart (the cart is kept)
   const [openToken, setOpenToken] = useState<QueueToken | null>(null);
   // 02b-TK C3-1: the pay panel over the cart (Send & pay, or Take payment of a token)
-  const [pay, setPay] = useState<PayTarget | null>(null);
+  const [pay, setPay] = useState<(PayTarget & { display?: DisplayMessage | undefined }) | null>(null);
+  const mirrorCart = order_type === 'takeaway' && shell.device.type === 'cashier_kiosk';
+  const total = config === null ? null : cartTotal(config, cart, unitOf);
+  const ready = readyBy(body);
+  const displayCart = !mirrorCart || config === null ? idleDisplay(lang) : cartDisplay(
+    cart,
+    (line) => line.deal_id === undefined
+      ? config.items.find((item) => item.item_id === line.item_id)?.name ?? '—'
+      : config.deals.find((deal) => deal.deal_id === line.deal_id)?.name ?? '—',
+    (line) => {
+      const price = cartLineMoney(config, line, unitOf);
+      return price.kind === 'unknown' || (price.kind === 'pending' && price.minor === 0) ? null : price.minor;
+    },
+    total,
+    ready,
+    lang,
+    (line) => line.item_id !== undefined && unitOf(line.item_id) !== 'piece' ? 1 : line.quantity ?? 1,
+  );
+  const displayMessage = pay?.display ?? displayCart;
+  const publisher = useRef<ReturnType<typeof createDisplayPublisher> | null>(null);
+  useEffect(() => {
+    if (!mirrorCart) return;
+    const feed = createDisplayPublisher(lang);
+    publisher.current = feed;
+    const clear = () => feed.publish(idleDisplay(lang));
+    window.addEventListener('pagehide', clear);
+    return () => {
+      window.removeEventListener('pagehide', clear);
+      publisher.current = null;
+      feed.close();
+    };
+  }, [mirrorCart, lang]);
+  useEffect(() => publisher.current?.publish(displayMessage), [displayMessage]);
   const payToken = (q: QueueToken) => {
     setOpenToken(null);
     setPay({ order_id: q.newest_order_id, ident: q.token === null ? null : String(q.token), name: q.customer_name, promise_ms: q.promise_ms });
@@ -568,7 +603,20 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       <TokenView token={openToken} book={book} onClose={() => setOpenToken(null)} onHandOver={(lines) => handOver(openToken, lines)} onAddItems={() => addTo(openToken)} onPay={() => payToken(openToken)} />
     );
   const payView = (fixed: boolean) =>
-    pay === null ? null : <PayPanel key={pay.order_id ?? 'sending'} target={pay} fixed={fixed} onLater={() => setPay(null)} onDone={() => setPay(null)} />;
+    pay === null ? null : (
+      <PayPanel
+        key={pay.order_id ?? 'sending'}
+        target={pay}
+        fixed={fixed}
+        onLater={() => setPay(null)}
+        onDone={() => setPay(null)}
+        onClosed={(payment, totalMinor) => {
+          setPay((current) => current?.order_id === pay.order_id && current.display !== undefined
+            ? { ...current, display: { ...current.display, ...payment, total_minor: totalMinor } }
+            : current);
+        }}
+      />
+    );
   const undoToast =
     lastHandover === null ? null : (
       <div className="tk-toast tk-toast--ok tk-toast--bottom" role="status">
@@ -777,8 +825,6 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   };
   const utcOffsetMs = shell.clock.utcOffsetMs;
   const count = cartCount(cart, unitOf);
-  const total = cartTotal(config, cart, unitOf);
-  const ready = readyBy(body);
   // dine-in: Send waits for the seating on the map, and follows the table lock; 02b-TK C1-2: a typed takeaway phone
   // the hub would refuse waits to be fixed or cleared (R1: the phone stays optional)
   const contactBad = order_type === 'takeaway' && phoneBad(cart.takeaway?.phone);
@@ -813,7 +859,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       if (background) setCart(frozen);
     };
     // 02b-TK C3-1 (frame PayCash): the pay panel opens at once over the fresh cart; its bill is read once the order is in
-    if (andPay) setPay({ order_id: null, ident: null, name: payload.takeaway?.customer_name ?? null, promise_ms: null });
+    const paymentDisplay = andPay && mirrorCart ? displayCart : undefined;
+    if (andPay) setPay({ order_id: null, ident: null, name: payload.takeaway?.customer_name ?? null, promise_ms: null, display: paymentDisplay });
     if (background) setCart(EMPTY_CART);
     else setSend({ kind: 'sending', sub: [title, fill(t('cart.items'), { n: String(count) })].filter((x) => x !== null).join(' · ') });
     let outcome: Awaited<ReturnType<typeof sendOrder>>;
@@ -834,7 +881,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         const r = outcome.result;
         if (andPay) {
           const promises = r?.groups.map((g) => g.promise_ms) ?? [];
-          setPay({ order_id: payload.order_id, ident: r?.token == null ? null : String(r.token), name: payload.takeaway?.customer_name ?? null, promise_ms: promises.length === 0 ? null : Math.max(...promises) });
+          setPay({ order_id: payload.order_id, ident: r?.token == null ? null : String(r.token), name: payload.takeaway?.customer_name ?? null, promise_ms: promises.length === 0 ? null : Math.max(...promises), display: paymentDisplay });
         }
         const moved = r === undefined ? null : timeUpdated(config, frozen, before, r);
         shellRef.current.toasts.show({

@@ -1633,6 +1633,14 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // 02b-TK C2-1 (frame PhoneQueue tab): not in strings-table.md; Urdu to confirm
   'q.tab': 'قطار',
   'v.placed': '{t} پر {who} نے لیا',
+  'cd.welcome': 'خوش آمدید', // not in strings-table.md; Urdu to confirm
+  'cd.order': 'آپ کا آرڈر', // not in strings-table.md; Urdu to confirm
+  'cd.total': 'کل', // not in strings-table.md; Urdu to confirm
+  'cd.paid': 'ادا ہو گیا', // not in strings-table.md; Urdu to confirm
+  'cd.change': 'بقایا رقم', // not in strings-table.md; Urdu to confirm
+  'cd.thanks': 'شکریہ! اپنا ٹوکن پرچی پر دیکھیں', // from CustomerDisplay.dc.html; Urdu to confirm
+  'cd.open': 'گاہک کی اسکرین', // not in strings-table.md; Urdu to confirm
+  'c.ready_by': 'تیار ہوگا',
   'v.ready_at': 'تیار ہوگا',
   'v.bill': 'بل',
   'v.waiting': 'انتظار',

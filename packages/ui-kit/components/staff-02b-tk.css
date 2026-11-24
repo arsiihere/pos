@@ -312,3 +312,28 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .tk-serve .tk-pick button { flex: 1 1 0; min-height: 52px; padding: 0 8px; border-radius: 12px; border: 1.5px solid var(--control-edge); background: var(--surface-raised); font-weight: 700; font-size: 16px; }
 .tk-serve .tk-pick button.is-sel { background: var(--info-fill); border-color: var(--info-fill); color: #fff; }
 .tk-serve .time { unicode-bidi: isolate; white-space: nowrap; }
+
+/* 02b-TK A2 item 6 (CustomerDisplay). */
+.cd { position: fixed; inset: 0; display: grid; grid-template-columns: 1.2fr 1fr; min-height: 0; }
+.cd-l { min-width: 0; padding: 40px 48px; overflow: auto; background: var(--surface); }
+.cd-l h2 { margin: 0; font: 800 40px/1.1 var(--font-display); }
+.cd-l ul { padding: 0; margin: 14px 0 0; list-style: none; }
+.cd-row { display: flex; align-items: center; gap: 18px; font-size: 28px; font-weight: 700; padding: 12px 0; border-bottom: 2px solid var(--line); }
+.cd-row .q { min-width: 60px; color: var(--accent-ink); font-weight: 800; }
+.cd-price { margin-inline-start: auto; font-weight: 800; }
+.cd-r { min-width: 0; background: var(--chrome); color: var(--on-chrome); padding: 40px 48px; display: flex; flex-direction: column; gap: 20px; align-items: center; justify-content: center; text-align: center; }
+.cd-centered { grid-column: 1 / -1; }
+.cd-header:empty { display: none; }
+.cd-mark { display: grid; place-items: center; width: 96px; height: 96px; border-radius: var(--radius-lg); background: var(--action); color: var(--on-action); font: 800 40px/1 var(--font-display); }
+.cd-big { margin: 0; font: 800 clamp(40px, 5vw, 96px)/1.2 var(--font-sans); }
+.cd-label, .cd-footer { font-size: 30px; font-weight: 700; }
+.cd-footer bdi { display: block; font-size: 36px; }
+.cd-paid .ico { width: 48px; height: 48px; }
+.cd-r .tk-readyby { box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 14px; width: 100%; padding: 20px 28px; border-radius: var(--radius-md); background: var(--ok-tint); color: var(--ok); }
+.cd-r .cd-time { font: 800 48px/1.1 var(--font-sans); }
+.cd-r .tk-readyby__t small { display: block; color: var(--ink-muted); font-size: 22px; font-weight: 700; }
+.cd-r .tk-readyby__ic { display: grid; place-items: center; flex: none; width: 72px; height: 72px; border-radius: 50%; background: var(--ok-fill); color: var(--on-action); }
+.cd-r .tk-readyby__ic .ico { width: 36px; height: 36px; }
+.cd [lang="ur"] { font-family: var(--font-urdu); line-height: 1.6; }
+.cd [dir="ltr"] { font-family: var(--font-sans); font-variant-numeric: tabular-nums; unicode-bidi: isolate; white-space: nowrap; }
+.cd-open { min-height: 30px; padding-inline: 8px; font-size: 14px; }
