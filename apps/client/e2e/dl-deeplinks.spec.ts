@@ -433,7 +433,7 @@ test('[01d §3.13.2 rule 4, §3.13.3; dl t1] a request closed since: the toast, 
 // ------------------------------------------------------------------------------------------------------------------
 // 4. §3.13.7, §3.13.5, §3.13.6 (tests 75, 77, 86): the zone banner's Open lands on #/zones and glows the zone stock row.
 //    Landscape: the animated glow. Portrait under prefers-reduced-motion: no animation, the static outline ring
-//    (v1.3.1). Kiosk: the Back chip returns to the kiosk home. Phone: the Orders tab is marked (m1).
+//    (v1.3.1). Kiosk: the Back chip returns to the kiosk home. Phone: the tab Ali was on stays marked (05a C-1; was m1).
 test('[01d §3.13.5, §3.13.6, §3.13.7; dl t1] zone banner → #/zones row glows (reduced motion: the outline ring)', async ({ browser, request }, info) => {
   test.skip(isPhone(info) && info.project.name !== 'phone-390', 'one phone width is enough here');
   test.setTimeout(120_000);
@@ -460,7 +460,9 @@ test('[01d §3.13.5, §3.13.6, §3.13.7; dl t1] zone banner → #/zones row glow
     }
     await shot(ali, info, reduced ? 'zone-reduced-motion' : 'zone-glow');
     await expect.poll(() => hash(ali)).toBe('#/zones');
-    if (isPhone(info)) await expect(phoneTab(ali)).toHaveAttribute('href', '#/orders');
+    // 05a C-1: the phone's tabs are the profile's screens; #/zones is no screen's route, so the tab Ali was on stays
+    // marked: Dine in, the phone's first screen (was 01d m1: the fixed Orders tab)
+    if (isPhone(info)) await expect(phoneTab(ali)).toHaveAttribute('href', '#/tables');
     if (isKiosk(info)) {
       const back = backChip(ali);
       await expect(back).toBeVisible();
