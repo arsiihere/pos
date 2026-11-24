@@ -95,8 +95,11 @@ export async function shiftOpen(page: Page, lang: Lang): Promise<void> {
   await page.evaluate(() => (window.location.hash = '#/shift'));
   const open = page.getByRole('button', { name: tr(lang, 'billing.shift.open') });
   const title = page.getByText(tr(lang, 'billing.shift.open_title'));
-  await page.locator('main').first().waitFor();
-  if (await title.isVisible().catch(() => false)) {
+  // the shift screen reads the person's shift first: wait for its answer — the open form, or the open shift's state
+  // chip — before deciding (a check while it still loads skipped opening, and the payment later got SHIFT_NOT_OPEN)
+  const isOpen = page.locator('.b5-bh .st.c-ok');
+  await expect(title.or(isOpen).first()).toBeVisible({ timeout: 15_000 });
+  if (await title.isVisible()) {
     await page.locator('.b5-card input').first().fill('0');
     await open.click();
     await expect(title).toHaveCount(0);
