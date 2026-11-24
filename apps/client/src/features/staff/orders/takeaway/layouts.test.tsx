@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { flush } from '../../../../../test/dom';
 import { screenHarness } from './screen-harness';
@@ -49,6 +50,62 @@ describe('02b §8 takeaway device layouts', () => {
       expect(bar?.textContent).toContain('Rs 0');
       m.click(m.button('Cart'));
       expect(m.container.querySelector('input[name="phone"]')?.getAttribute('inputmode')).toBe('tel');
+    } finally { m.unmount(); }
+  });
+
+  it('7d opens a full-screen PhoneToken from PhoneQueue and returns to the queue', async () => {
+    const m = screenHarness({ phone: true }).render();
+    try {
+      await flush();
+      m.click(m.button('Queue'));
+      await flush();
+      expect(m.container.querySelector('.tk-q--tab .tk-ready')).not.toBeNull();
+      m.click(m.container.querySelector('.tk-rt__open'));
+      await flush();
+      const token = m.container.querySelector('.tk-drawer--phone');
+      expect(token?.textContent).toContain('Hand over all');
+      expect(token?.textContent).not.toContain('Ali');
+      m.click(m.button('Close', token!));
+      expect(m.container.querySelector('.tk-q--tab')).not.toBeNull();
+    } finally { m.unmount(); }
+  });
+
+  it('7d keeps contact out of the phone sent toast and queue label without a grant', async () => {
+    const h = screenHarness({ phone: true, rows: [], answer: () => ({ status: 'sent', result: { token: 49, groups: [], lines: [] } }) });
+    const m = h.render();
+    try {
+      await flush();
+      const input = m.container.querySelector<HTMLInputElement>('input[name="customer_name"]');
+      expect(input).toBeNull();
+      m.click(m.button('Cart'));
+      const name = m.container.querySelector<HTMLInputElement>('input[name="customer_name"]')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Sample Customer');
+        name.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      m.click(m.button('Menu'));
+      m.click(m.button('Sides'));
+      m.click(m.container.querySelector('.mi[aria-label="Naan"]'));
+      m.click(m.button('Send'));
+      await flush(8);
+      expect(h.sent[0]?.payload).toMatchObject({ takeaway: { customer_name: 'Sample Customer' } });
+      expect(h.sent[0]?.meta.label).not.toContain('Sample Customer');
+      expect(h.toasts.at(-1)?.text).not.toContain('Sample Customer');
+    } finally { m.unmount(); }
+  });
+
+  it('7e PhoneOffline shows unavailable times and queues Send without Pay', async () => {
+    const h = screenHarness({ phone: true, online: false, rows: [], answer: () => ({ status: 'queued', entry_id: 'Q1' }) });
+    const m = h.render();
+    try {
+      await flush();
+      m.click(m.button('Sides'));
+      m.click(m.container.querySelector('.mi[aria-label="Naan"]'));
+      expect(m.container.querySelector('.ph-bar__time')?.textContent).toBe('—');
+      m.click(m.button('Send'));
+      await flush();
+      expect(h.sent.some(({ type }) => type === 'SubmitOrder')).toBe(true);
+      expect(m.buttons().some((button) => button.textContent?.includes('Send & pay'))).toBe(false);
     } finally { m.unmount(); }
   });
 });

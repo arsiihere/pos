@@ -592,8 +592,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         selected={openToken?.key ?? null}
         onOpen={setOpenToken}
         heldCount={heldCount}
-        onHandOver={(q) => void handOverTile(q)}
-        onPay={payToken}
+        onHandOver={shell.permissions.allowed('mark-served') ? (q) => void handOverTile(q) : undefined}
+        onPay={shell.online && shell.permissions.allowed('take-payment') ? payToken : undefined}
         hidden={pendingKeys}
         onCount={setOpenCount}
         compact={dense}
@@ -844,12 +844,13 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     const frozen = cart;
     const before = body;
     const payload = freezeSubmit(frozen, target, newUlid());
+    const shownName = railVariant === 'column' || seeContact ? payload.takeaway?.customer_name : undefined;
     const title = order_type === 'dine_in' ? (seat?.name ?? null) : null;
     const label =
       order_type === 'dine_in'
         ? fill(t('send.label_table'), { table: title ?? '' })
         : order_type === 'takeaway'
-          ? t('order.takeaway') + (payload.takeaway?.customer_name === undefined ? '' : ` · ${payload.takeaway.customer_name}`)
+          ? t('order.takeaway') + (shownName === undefined ? '' : ` · ${shownName}`)
           : `${t('order.parking')} · ${frozen.parking?.car_number ?? ''}`;
     // 02b-TK C1-3 (02b §6.1, §3.12; frames SentToast, SentQueued; audit #7, #27): a takeaway sends in the background —
     // no dialog, a fresh cart at once (it takes no tap until the queue answered, #35), a toast with the token after;
@@ -861,7 +862,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     };
     // 02b-TK C3-1 (frame PayCash): the pay panel opens at once over the fresh cart; its bill is read once the order is in
     const paymentDisplay = andPay && mirrorCart ? displayCart : undefined;
-    if (andPay) setPay({ order_id: null, ident: null, name: payload.takeaway?.customer_name ?? null, promise_ms: null, display: paymentDisplay });
+    if (andPay) setPay({ order_id: null, ident: null, name: shownName ?? null, promise_ms: null, display: paymentDisplay });
     if (background) setCart(EMPTY_CART);
     else setSend({ kind: 'sending', sub: [title, fill(t('cart.items'), { n: String(count) })].filter((x) => x !== null).join(' · ') });
     let outcome: Awaited<ReturnType<typeof sendOrder>>;
@@ -882,11 +883,11 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         const r = outcome.result;
         if (andPay) {
           const promises = r?.groups.map((g) => g.promise_ms) ?? [];
-          setPay({ order_id: payload.order_id, ident: r?.token == null ? null : String(r.token), name: payload.takeaway?.customer_name ?? null, promise_ms: promises.length === 0 ? null : Math.max(...promises), display: paymentDisplay });
+          setPay({ order_id: payload.order_id, ident: r?.token == null ? null : String(r.token), name: shownName ?? null, promise_ms: promises.length === 0 ? null : Math.max(...promises), display: paymentDisplay });
         }
         const moved = r === undefined ? null : timeUpdated(config, frozen, before, r);
         shellRef.current.toasts.show({
-          text: sentToastText(r, payload.takeaway?.customer_name, shellRef.current.clock.utcOffsetMs),
+          text: sentToastText(r, shownName, shellRef.current.clock.utcOffsetMs),
           ...(moved === null ? {} : { sub: fill(t('send.time_updated'), { item: moved.name, time: timeText(moved.eta_ms, shellRef.current.clock.utcOffsetMs) }) }),
           tone: 'ok',
         });
@@ -1389,7 +1390,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           )}
         </div>
         {cartProps.day}
-        {!dayNotOpen && <SendBar phoneTakeaway={book !== null} count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} primary={primary} pay={cartProps.pay} onSend={() => void onSend()} />}
+        {!dayNotOpen && tab !== 'queue' && <SendBar phoneTakeaway={book !== null} count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} primary={primary} pay={cartProps.pay} onSend={() => void onSend()} />}
         {draftBack}
         {sheetView}
         {sendView}
