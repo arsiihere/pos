@@ -40,7 +40,7 @@ export interface ResponsibilityRow {
 
 // 01b v1.5 B-6: what the settings PATCH replaces, so its version input and its audit shape (not name, status
 // or the hub times: a rename must not make a settings form stale, B23).
-export type BranchSettings = Pick<BranchWire, 'tax_enabled' | 'day_stale_after_hours' | 'day_min_gap_hours'> & BranchEngineSettings;
+export type BranchSettings = Pick<BranchWire, 'tax_enabled' | 'day_stale_after_hours' | 'day_min_gap_hours' | 'business_day_end_local_ms'> & BranchEngineSettings;
 export type BranchRow = Omit<BranchWire, 'version'>;
 
 type Unversioned<T> = Omit<T, 'version'>;
@@ -121,7 +121,13 @@ export function responsibilitySetVersion(branchId: string, set: ResponsibilityWi
 
 export function toBranchSettings(row: BranchSettings): BranchSettings {
   const engine = Object.fromEntries(BRANCH_ENGINE_SETTING_KEYS.map((key) => [key, row[key]])) as BranchEngineSettings;
-  return { tax_enabled: row.tax_enabled, day_stale_after_hours: row.day_stale_after_hours, day_min_gap_hours: row.day_min_gap_hours, ...engine };
+  return {
+    tax_enabled: row.tax_enabled,
+    day_stale_after_hours: row.day_stale_after_hours,
+    day_min_gap_hours: row.day_min_gap_hours,
+    business_day_end_local_ms: row.business_day_end_local_ms,
+    ...engine,
+  };
 }
 
 export function branchSettingsVersion(branchId: string, settings: BranchSettings): string {

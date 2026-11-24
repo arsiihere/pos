@@ -97,8 +97,8 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings (01b §6.10, B16)',
         actor_kind: 'owner',
         actor_owner_user_id: f.userId,
         action: 'update',
-        before: { tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4, ...ENGINE_DEFAULTS },
-        after: { tax_enabled: true, day_stale_after_hours: 20, day_min_gap_hours: 4, ...ENGINE_DEFAULTS },
+        before: { tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4, business_day_end_local_ms: 14_400_000, ...ENGINE_DEFAULTS },
+        after: { tax_enabled: true, day_stale_after_hours: 20, day_min_gap_hours: 4, business_day_end_local_ms: 14_400_000, ...ENGINE_DEFAULTS },
       },
     ]);
 
@@ -171,6 +171,7 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings (01b §6.10, B16)',
       tax_enabled: true,
       day_stale_after_hours: 30,
       day_min_gap_hours: 6,
+      business_day_end_local_ms: 14_400_000,
       ...ENGINE_DEFAULTS,
       version: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
