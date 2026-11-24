@@ -314,6 +314,8 @@ describe('[02b-TK C2-4] remove / cancel from a token', () => {
     const remove = [api(400, 'VALIDATION_FAILED'), api(404, 'ORDER_NOT_FOUND'), api(409, 'ORDER_BILLED'), api(409, 'ITEM_WRONG_STAGE'), api(409, 'VOID_PENDING'), api(409, 'LINE_IN_CLOSED_SPLIT'), api(403, 'PERMISSION_DENIED')];
     const keys = remove.map((e) => orderErrorKey(e));
     expect(keys).toEqual(['tables.err.VALIDATION_FAILED', 'line.err.gone', 'line.err.billed', 'line.err.stage', 'void.err.VOID_PENDING', 'line.err.closed_split', 'tables.err.PERMISSION_DENIED']);
+    // review 6: a line command's COMP_PENDING (an open comp request on the line) has its own message too
+    expect(orderErrorKey(api(409, 'COMP_PENDING'))).toBe('void.err.COMP_PENDING');
     const voids = [...remove, api(409, 'COMP_PENDING'), api(409, 'VOID_NOT_ALLOWED', { reason: 'not_movable_stage' }), api(409, 'VOID_NOT_ALLOWED', { reason: 'something_new' })].map((e) => voidErrorText(e).key);
     expect(voids).toEqual([
       'void.err.VALIDATION_FAILED',
