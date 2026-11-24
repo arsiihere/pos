@@ -240,9 +240,10 @@ describe('[02b §8 Ordering screen] Send', () => {
     m.unmount();
   });
 
+  // 02b-TK C1-3: a takeaway sends in the background (order-screen/takeaway-tk.test.tsx); parking keeps the dialog
   it('[02b §8 Queue] offline Send → SentQueued "Not sent yet", token after sending', async () => {
     const h = harness({ answer: async () => ({ status: 'queued', entry_id: 'Q1' }) });
-    const m = h.render('takeaway', 'D1');
+    const m = h.render('parking', 'D1');
     await flush();
     pick(m, 'Sides');
     m.click(tile(m, 'Naan'));
@@ -256,7 +257,7 @@ describe('[02b §8 Ordering screen] Send', () => {
 
   it('[02b §3.12; IR-12] Send that went straight to the queue log (session ended) → "Not sent — see the queue log", not "when the hub is back"', async () => {
     const h = harness({ answer: async () => ({ status: 'queued', entry_id: 'Q1', logged: true }) });
-    const m = h.render('takeaway', 'D1');
+    const m = h.render('parking', 'D1');
     await flush();
     pick(m, 'Sides');
     m.click(tile(m, 'Naan'));
@@ -281,7 +282,7 @@ describe('[02b §8 Ordering screen] Send', () => {
     m.unmount();
   });
 
-  it('[02b §8 Types] takeaway: the big token after Send; parking: the plate', async () => {
+  it('[02b §8 Types; 02b-TK C1-3] takeaway: the token after Send, in the toast (no dialog)', async () => {
     const drafts = createMemoryDraftStore();
     await drafts.put({ draft_id: 'D1', device_id: 'DV1', staff_id: 'ST1', order_type: 'takeaway', cart: { lines: [], takeaway: { customer_name: 'Usman', phone: '03001234567' } }, updated_at: T, held: false });
     const h = harness({ drafts, answer: async (p) => ({ status: 'sent', result: result(p, { token: 57 }) }) });
@@ -292,9 +293,8 @@ describe('[02b §8 Ordering screen] Send', () => {
     m.click(m.button('Send to kitchen'));
     await flush();
     expect(h.sent[0]!.payload).toMatchObject({ order_type: 'takeaway', takeaway: { customer_name: 'Usman', phone: '03001234567' } });
-    expect(m.container.querySelector('.token b')?.textContent).toBe('57');
-    expect(m.container.querySelector('.token')?.textContent).toContain('Takeaway · Usman · ready by 8:29 PM');
-    expect(m.button('New takeaway')).toBeTruthy();
+    expect(m.container.querySelector('.token')).toBeNull();
+    expect(h.toasts.at(-1)).toBe('57 · Usman · sent · ready 8:29 PM');
     m.unmount();
   });
 
@@ -486,7 +486,7 @@ describe('[02b §8 Ordering screen] Send', () => {
     expect(m.container.querySelector('#opt-t')?.textContent).toBe('Karahi');
     // the sheet comes up with nothing ticked (the priced default is not chosen for the guest); Add keeps the mark
     expect(m.button('Extra masala').getAttribute('aria-pressed')).toBe('false');
-    m.click(m.button('Add to order'));
+    m.click(m.button('Save changes')); // 02b-TK C1-4: the line is in the cart already
     expect(m.container.querySelector('.ln')?.textContent).toContain('Sent again · asks to comp');
     expect(m.container.querySelector('.ln__p')?.textContent).toBe('Rs 2,200'); // no +Rs 50
     m.unmount();

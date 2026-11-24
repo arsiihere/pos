@@ -25,6 +25,8 @@ import { glowOnArrival } from '../alerts/deeplink-tap';
 import { identifierText } from '../kds/station/Identifier';
 import { matchStaffRoute } from '../staff/shell/routes';
 import { passOpenedText } from './pass-place';
+import { PASS_FILTERS, ordersFor, orderTypeOf, typeCounts, type PassFilter } from './order-filter';
+import { createTakeawayPromises } from './takeaway-promises';
 
 // 03b v1.0.8 §3.4, §8 Pass screen (`/staff/` `#/pass` on a device with a point; W0.6 mounts it; P2). The page's Pass
 // live (P1, `passLiveOf`) holds the point's view; the screen draws the station strip and the cards oldest first
@@ -32,7 +34,10 @@ import { passOpenedText } from './pass-place';
 // Buttons need `run-pass`. P3: per card Hand over (a done line here) and Ready to serve (no open Ready), the Ready
 // band ("Ready · time · name", count-up, Undo for 30 s), the card's line (B13, hand-over results), the Hand over sheet,
 // Start / Done / Undo on screenless lines (Q-45). P4: the takeover sections above the cards (§3.6) and the
-// "{Station} screen is back" toast (Q-56). P5: the offline warn bar (buttons off), the read-only line (no run-pass),
+// "{Station} screen is back" toast (Q-56). 02b-tk C3-4 (frame PackerPass): the filter chip by order type (All /
+// Dine-in / Takeaway / Parking, order-filter.ts); Takeaway sorted by promise (open-orders, read only while that filter
+// is on, takeaway-promises.ts), its first card "Pack next", "Ready by {time}"; a takeaway card's ready button reads
+// "Bag ready" (the same MarkReadyToServe and pick sheet, §6.6). No bill fields (no bill read here). P5: the offline warn bar (buttons off), the read-only line (no run-pass),
 // the archived point (404 POINT_NOT_FOUND → actions hidden until the next catch-up), the loading skeleton.
 // IR-15 (03c §3.5, Q-50, Q-52): 03c's `printed` tag is registered when this module loads (the staff page imports it
 // with its routes, before the socket's first catch-up). Its Pass card Reprint runs on ONE transport for the page's
@@ -116,6 +121,17 @@ export function PassScreen() {
   const [sheet, setSheet] = useState<string | null>(null);
   // 03b v1.0.10 §3.4: the order whose Ready pick sheet is open
   const [picking, setPicking] = useState<string | null>(null);
+  // 02b-tk C3-4: the filter chip and, while Takeaway is on, the takeaway promises
+  const [filter, setFilter] = useState<PassFilter>('all');
+  const apiRef = useRef(shell.api);
+  apiRef.current = shell.api;
+  const takeaway = useMemo(() => createTakeawayPromises({ live: shell.live, read: () => apiRef.current.query('/queries/open-orders?order_type=takeaway') }), [shell.live]);
+  useEffect(() => {
+    if (filter !== 'takeaway') return;
+    takeaway.start();
+    return () => takeaway.stop();
+  }, [filter, takeaway]);
+  const promises = useSyncExternalStore(takeaway.subscribe, takeaway.promises);
   const toastRef = useRef((text: string) => shell.toasts.show({ text, tone: 'ok' }));
   toastRef.current = (text: string) => shell.toasts.show({ text, tone: 'ok' });
 
@@ -198,6 +214,8 @@ export function PassScreen() {
   const up = shell.online;
   const orders = [...view.orders].sort((a, b) => a.placed_at - b.placed_at);
   const rounds = passRounds(orders); // ⚠️ 03b v1.0.13 §3.4 (STAB-6): the point's round tags, oldest card first
+  const counts = typeCounts(orders);
+  const shown = ordersFor(orders, filter, promises);
   const onToast = (text: string, tone: 'ok' | 'warn' = 'ok') => shell.toasts.show({ text, tone });
   const setMsg = (order_id: string, msg: CardMessage | null | undefined) =>
     setMsgs((m) => {
@@ -253,6 +271,14 @@ export function PassScreen() {
       {!up && <Offline />}
       {archived ? <PointArchived /> : !allowed && <ReadOnly />}
       <StationStrip stations={view.stations} api={canRun ? kds : null} up={up} wrap={shell.portrait} />
+      <div className="seg pfilter" role="group" aria-label={t('pass.filter.label')}>
+        {PASS_FILTERS.map((f) => (
+          <button key={f} type="button" data-filter={f} aria-pressed={filter === f} onClick={() => setFilter(f)}>
+            {t(`pass.filter.${f}`)}
+            {f !== 'all' && counts[f] > 0 && <span className="n num">{counts[f]}</span>}
+          </button>
+        ))}
+      </div>
       <div className="pscroll">
         {[...pass.takeovers.stores()].map(([station_id, store]) => (
           <TakeoverSection
@@ -269,7 +295,7 @@ export function PassScreen() {
             onToast={onToast}
           />
         ))}
-        {orders.length === 0 ? (
+        {shown.length === 0 ? (
           <div className="empty empty--pass">
             <Ring size={96} pct={100} tone="ok">
               <svg className="ico ico--36" viewBox="0 0 24 24" aria-hidden="true">
@@ -281,13 +307,14 @@ export function PassScreen() {
                 <path d="M18 15v5" />
               </svg>
             </Ring>
-            <b>{t('pass.empty')}</b>
+            <b>{filter === 'all' ? t('pass.empty') : t(`pass.empty.${filter}`)}</b>
             <span>{t('pass.empty_sub')}</span>
           </div>
         ) : (
           <div className={shell.portrait ? 'pcards pcards--1' : 'pcards'}>
-            {orders.map((o) => {
+            {shown.map((o, i) => {
               const state = readiness(o).state;
+              const isTakeaway = orderTypeOf(o) === 'takeaway';
               const buttons = [];
               if (canRun && doneToHand(o).length > 0)
                 buttons.push(
@@ -306,10 +333,17 @@ export function PassScreen() {
                 const b = busy.has(o.order_id);
                 buttons.push(
                   <button key="ready" type="button" className={b ? 'btn btn--ready busy' : 'btn btn--ready'} aria-busy={b} disabled={!up} onClick={() => tapReady(o)}>
-                    <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M5 12.5l4.5 4.5L19 7.5" />
-                    </svg>
-                    {t('pass.mark_ready')}
+                    {isTakeaway ? (
+                      <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 8h14l-1.2 12.5H6.2z" />
+                        <path d="M9 8V6.5a3 3 0 0 1 6 0V8" />
+                      </svg>
+                    ) : (
+                      <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 12.5l4.5 4.5L19 7.5" />
+                      </svg>
+                    )}
+                    {t(isTakeaway ? 'pass.bag_ready' : 'pass.mark_ready')}
                   </button>,
                 );
               }
@@ -323,6 +357,8 @@ export function PassScreen() {
                   stations={view.stations}
                   pointId={view.point_id}
                   rounds={rounds}
+                  next={filter === 'takeaway' && i === 0}
+                  readyBy={filter === 'takeaway' ? (promises.get(o.order_id) ?? null) : null}
                   utcOffsetMs={shell.clock.utcOffsetMs}
                   up={up}
                   onToast={onToast}

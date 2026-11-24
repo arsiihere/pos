@@ -6,7 +6,8 @@ import type { Permissions } from './permissions';
 // the signed-in person holds after the mask (O-16). Never from `device_type` or the screen width: with no profile
 // (a hub that sends none) the offered set of the hardware stands in, once, here.
 
-/** The hash route each screen opens. `parking` is the open-orders list (its New car order); `takeaway` is KioskHome (A-7). */
+/** The hash route each screen opens. `parking` is the open-orders list (its New car order); `takeaway` is the takeaway order
+ *  screen (A-7; 02b-TK C2-1). */
 export const SCREEN_ROUTE: Record<ScreenKey, string> = {
   dine_in: '/tables',
   takeaway: '/takeaway',

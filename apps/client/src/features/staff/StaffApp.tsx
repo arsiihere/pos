@@ -31,6 +31,7 @@ import { createOrdersApi } from './orders/api';
 import { pendingCompsOf } from './orders/actions/pending-comps';
 import { LateAlertsContext, type LateAlertRow } from './orders/late/late-groups';
 import { IdleLock } from './orders/lock/IdleLock';
+import { letLeavePass } from './orders/order-screen/leave-pass';
 import { NewOrderSheet } from './orders/new-order/NewOrderSheet';
 import { QueuedSentCard } from './orders/queue/QueuedSentCard';
 import { createEnqueue } from './orders/queue/enqueue';
@@ -973,6 +974,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       }
       setBack({ from, to: withoutFocus(href), seat });
     }
+    // 02b-TK C1-5: a deep link leaves a takeaway cart without the leave guard (its Back returns to it, #105)
+    letLeavePass(href);
     navigate(href);
   };
   const routeNow = withoutFocus(route);

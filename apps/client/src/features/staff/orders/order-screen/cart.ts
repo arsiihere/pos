@@ -52,6 +52,8 @@ export interface Cart {
   from_entry_id?: string;
   /** 02b v1.0.21 §8 (STAB-5): the order switch next to Send; unset = each line's menu setting */
   serve_mode?: ServeMode;
+  /** 02b-TK C2-3 (02b §3.2 step 2, 05 #44a): a takeaway addition to a sent token — its root order and token */
+  adds_to?: { order_id: string; token: number | null };
 }
 
 /**
@@ -234,7 +236,7 @@ export function toEtaDraft(cart: Cart, target: DraftTarget): EtaDraft {
     ...(target.table_id === undefined ? {} : { table_id: target.table_id }),
     ...(target.seating_id === undefined ? {} : { seating_id: target.seating_id }),
     ...(cart.order_note === undefined ? {} : { order_note: cart.order_note }),
-    ...(target.order_type === 'takeaway' && cart.takeaway !== undefined ? { takeaway: { ...cart.takeaway } } : {}),
+    // 02b-TK C1-2: the takeaway contact is not timing; it never travels in the preview's query string
     ...(target.order_type === 'parking' && cart.parking !== undefined ? { parking: { ...cart.parking } } : {}),
     ...(cart.serve_mode === undefined ? {} : { serve_mode: cart.serve_mode }),
     lines: cart.lines.map((l) => ({

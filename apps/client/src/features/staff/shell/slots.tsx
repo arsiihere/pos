@@ -3,9 +3,9 @@ import type { AlertRow } from '../../alerts/store';
 import { PassScreen } from '../../pass/PassScreen';
 import { Held } from '../orders/order-screen/Held';
 import { OrderScreen } from '../orders/order-screen/OrderScreen';
-import { KioskHome } from '../orders/lists/KioskHome';
 import { OpenOrders } from '../orders/lists/OpenOrders';
 import { QueueLog } from '../orders/queue/QueueLog';
+import { TakeawayHome } from '../orders/takeaway/TakeawayHome';
 import { OrderView } from '../orders/view/OrderView';
 import { ZoneStock } from '../orders/zones/ZoneStock';
 import { TableMap } from '../tables/map/TableMap';
@@ -61,7 +61,8 @@ export function slotContent(route: SlotRoute, props: SlotProps = {}): ReactNode 
       // 20b (lane A): the phone's Me tab (person, sign out); the shell draws nothing here yet
       return null;
     case 'takeaway':
-      return <KioskHome />;
+      // 02b-TK C2-1 (CHANGES §1): the Takeaway tab is the order screen in takeaway mode
+      return <TakeawayHome />;
     case 'pass':
       return <PassScreen />; // 03b W0.6 (Q-58)
   }

@@ -2,10 +2,12 @@ import type { BranchConfig } from '@pos/events';
 import type { HubError } from '../../../../api/hub-admin';
 import { t, type MessageKey } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
+import { timeText } from '../../../alerts/labels';
 import { TABLE_ERROR_CODES, tableErrorKey } from '../../tables/errors';
 import type { Enqueue } from '../../tables/contracts';
 import type { CarType, Draft, DraftStore, EtaPreviewBody, LineOption, SubmitOrderPayload, SubmitResult } from '../contracts';
 import { toSubmitLines, type Cart, type CartLine, type DraftTarget } from '../order-screen/cart';
+import { takeawayContact } from '../order-screen/contact';
 import { preselect } from '../sheets/preselect';
 
 // 02b §8 Ordering screen (Send freezes the cart), Types, Queue; §3.1, §3.2, §3.11, §6.1; §10 #35 (no "sent" before a
@@ -13,8 +15,8 @@ import { preselect } from '../sheets/preselect';
 // 25b), #36 (zone-empty flip, day not started). Send: build the SubmitOrder payload once and freeze it (deep copy,
 // Object.freeze), hand it to the one queue (`Enqueue`, 25b: stored before the first send), and read its answer.
 
-/** 02b §8 Types: phone 10–13 digits (hub submit-order.ts :20-48), plate /^[A-Za-z0-9 -]{2,12}$/, car type. */
-export const PHONE_RE = /^\d{10,13}$/;
+/** 02b §8 Types: phone 10–13 digits (order-screen/contact.ts, as hub submit-order.ts), plate /^[A-Za-z0-9 -]{2,12}$/, car type. */
+export { PHONE_RE } from '../order-screen/contact';
 export const PLATE_RE = /^[A-Za-z0-9 -]{2,12}$/;
 
 export interface OrderDetails {
@@ -37,10 +39,13 @@ export function freezeSubmit(cart: Cart, target: DraftTarget, order_id: string):
     order_type: target.order_type,
     ...(target.table_id === undefined ? {} : { table_id: target.table_id }),
     ...(target.seating_id === undefined ? {} : { seating_id: target.seating_id }),
-    ...(target.order_type === 'takeaway' && cart.takeaway !== undefined ? { takeaway: { ...cart.takeaway } } : {}),
+    // 02b-TK C1-2: the name trimmed, the phone as the hub's digits; nothing typed → no takeaway part
+    ...(target.order_type === 'takeaway' && takeawayContact(cart.takeaway) !== undefined ? { takeaway: takeawayContact(cart.takeaway)! } : {}),
     ...(target.order_type === 'parking' && cart.parking !== undefined ? { parking: { ...cart.parking } } : {}),
     ...(cart.order_note === undefined ? {} : { order_note: cart.order_note }),
     ...(cart.serve_mode === undefined ? {} : { serve_mode: cart.serve_mode }),
+    // 02b-TK C2-3 (02b §3.2 step 2): a takeaway addition names its root; it keeps the root's token (step 9)
+    ...(target.order_type === 'takeaway' && cart.adds_to !== undefined ? { adds_to_order_id: cart.adds_to.order_id } : {}),
     lines: toSubmitLines(cart),
   };
   return deepFreeze(structuredClone(payload));
@@ -96,6 +101,8 @@ export function refusalText(config: BranchConfig, outcome: Extract<SendOutcome, 
   if (outcome.kind === 'needs_hub') return t('send.needs_sign_in');
   const { code, details } = outcome.error;
   if (code === 'TABLE_SEATING_CHANGED') return t('tables.changed');
+  // 02b-TK C2-3 (02b §3.2 step 2): the token added to is gone (404) or not one to add to (cancelled, another day)
+  if (code === 'ORDER_NOT_FOUND' || (code === 'CONFIG_REFERENCE_INVALID' && (details as { field?: unknown } | undefined)?.field === 'adds_to_order_id')) return t('c.add_gone');
   if (ORDER_CODES.has(code)) {
     const d = (details ?? {}) as { item_id?: unknown; deal_id?: unknown };
     const item =
@@ -106,6 +113,16 @@ export function refusalText(config: BranchConfig, outcome: Extract<SendOutcome, 
   }
   if ((TABLE_ERROR_CODES as readonly string[]).includes(code)) return t(tableErrorKey(outcome.error));
   return fill(t('send.refused_why'), { why: t('queue.why.other') });
+}
+
+/**
+ * 02b-TK C1-3 (frame SentToast; 02b §6.1 result): the background Send's toast — "57 · Usman · sent · ready 1:42 PM"
+ * (the token, the name if typed, the latest group promise); a 2xx without a result (the hub had it already) → "Sent".
+ */
+export function sentToastText(result: SubmitResult | undefined, customer_name: string | undefined, utcOffsetMs: number): string {
+  if (result === undefined || result.groups.length === 0) return t('send.sent');
+  const ready = Math.max(...result.groups.map((g) => g.promise_ms));
+  return [result.token === null ? null : String(result.token), customer_name ?? null, `${t('t.sent')} ${timeText(ready, utcOffsetMs)}`].filter((x) => x !== null).join(' · ');
 }
 
 const nameOf = (config: BranchConfig, line: CartLine): string =>

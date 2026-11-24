@@ -181,6 +181,8 @@ export interface SubmitOrderPayload {
   table_id?: string;
   seating_id?: string;
   takeaway?: { customer_name?: string; phone?: string };
+  /** 02b §6.1 (05 row Q-6): a takeaway addition to this order of the same day; it keeps that order's token */
+  adds_to_order_id?: string;
   parking?: { car_number: string; car_type: CarType; phone?: string };
   order_note?: string;
   /** 02b v1.0.21 §6.1: the order's serve choice for every line without its own */
@@ -345,6 +347,8 @@ export interface Draft {
 export interface DraftStore {
   put(draft: Draft): Promise<void>;
   list(device_id: string, staff_id: string): Promise<Draft[]>;
+  /** 02b-TK C2-5 (R3): every person's drafts of this device (the shared Held list) */
+  listDevice?(device_id: string): Promise<Draft[]>;
   remove(draft_id: string): Promise<void>;
 }
 

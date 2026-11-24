@@ -99,6 +99,7 @@ describe('seed-tenant', () => {
       { permission: 'clean-table', grant_type: 'allowed', approver: null },
       { permission: 'close-without-buyer-id', grant_type: 'requires_approval', approver: 'Manager' }, // 05 B-2 (01b v1.10)
       { permission: 'manage-own-shift', grant_type: 'allowed', approver: null },
+      { permission: 'mark-served', grant_type: 'allowed', approver: null }, // 01b v1.8.1 Q-23
       { permission: 'move-item-to-stock', grant_type: 'allowed', approver: null }, // 04 B-1 (01b v1.9)
       { permission: 'open-cash-drawer', grant_type: 'allowed', approver: null },
       { permission: 'record-petty-cash', grant_type: 'allowed', approver: null },
@@ -227,6 +228,7 @@ describe('seed-tenant', () => {
       { permission: 'clean-table', grant_type: 'allowed', approver_role_id: null },
       { permission: 'close-without-buyer-id', grant_type: 'requires_approval', approver_role_id: roleId('manager') }, // 05 B-2 (01b v1.10)
       { permission: 'manage-own-shift', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'mark-served', grant_type: 'allowed', approver_role_id: null }, // 01b v1.8.1 Q-23
       { permission: 'move-item-to-stock', grant_type: 'allowed', approver_role_id: null }, // 04 B-1 (01b v1.9)
       { permission: 'open-cash-drawer', grant_type: 'allowed', approver_role_id: null },
       { permission: 'record-petty-cash', grant_type: 'allowed', approver_role_id: null },

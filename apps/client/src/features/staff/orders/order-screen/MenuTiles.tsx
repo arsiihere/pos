@@ -58,7 +58,7 @@ export function opensText(windows: readonly AvailabilityWindow[]): string {
   return `${a.text} ${a.ampm}`;
 }
 
-export function chipOf(state: TileState): { tone: Tone; icon: IconName; text: string } | null {
+export function chipOf(state: TileState): { tone: Tone; icon: IconName; text: string; title?: string } | null {
   switch (state.kind) {
     case 'ok':
       return null;
@@ -73,8 +73,11 @@ export function chipOf(state: TileState): { tone: Tone; icon: IconName; text: st
       return { tone: 'danger', icon: 'x', text: t('menu.sold_out') };
     case 'left':
       return { tone: 'warn', icon: 'warn', text: fill(t('menu.left'), { n: String(state.n) }) };
-    case 'slow':
-      return { tone: 'warn', icon: 'clock', text: fill(t('menu.slow'), { n: String(state.minutes) }) };
+    // 02b-tk C3-3 (03a To 02 #9): an estimate, not the promise (the cart's eta-preview is); amber when long
+    case 'now':
+      return { tone: 'ok', icon: 'check', text: t('menu.now') };
+    case 'about':
+      return { tone: state.long ? 'warn' : 'mute', icon: 'clock', text: fill(t('menu.about'), { n: String(state.minutes) }), title: t('menu.estimate_hint') };
   }
 }
 
@@ -112,7 +115,7 @@ export function Tile({ tile, onTap }: { tile: TileModel; onTap(tile: TileModel):
             </span>
           )}
           {chip !== null && (
-            <span className={`tag c-${chip.tone}`}>
+            <span className={`tag c-${chip.tone}`} title={chip.title}>
               <Ico name={chip.icon} />
               {chip.text}
             </span>

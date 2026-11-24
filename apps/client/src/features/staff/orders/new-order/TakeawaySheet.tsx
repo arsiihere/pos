@@ -2,19 +2,13 @@ import { useState } from 'react';
 import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
 import { CloseX, Dialog, Ico } from '../../../alerts/ui';
-import { PHONE_RE } from '../send/send';
+import { NAME_MAX, PHONE_RE, phoneDigits } from '../order-screen/contact';
 
 // 02-D03 Takeaway (02b §8 Types): name and phone both optional; a phone that is not 10–13 digits shows the inline
-// error and Next waits (hub submit-order.ts phone rule). Spaces and dashes typed in a phone are dropped. The token
-// comes after Send.
+// error and Next waits (hub submit-order.ts phone rule). Spaces, dashes and a leading + typed in a phone are dropped
+// (02b-TK C1-2, as the hub does). The token comes after Send.
 
-export const NAME_MAX = 40;
-
-/** "0300 1234567" → "03001234567"; null when empty. */
-export function phoneDigits(text: string): string | null {
-  const d = text.replace(/[\s-]/g, '');
-  return d === '' ? null : d;
-}
+export { NAME_MAX, phoneDigits };
 
 export function TakeawaySheet({ sheet, onNext, onClose }: { sheet: boolean; onNext(details: { customer_name?: string; phone?: string }): void; onClose(): void }) {
   const [name, setName] = useState('');

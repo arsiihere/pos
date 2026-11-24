@@ -6,6 +6,10 @@ import { fakeTimers, recordingSink } from '../alerts/test-fakes';
 import type { Device, PageMeta } from '../staff/api';
 import { StaffApp } from '../staff/StaffApp';
 
+// 02b-TK C2-1: the kiosk lands on #/takeaway, now the takeaway order screen; these tests are about the shell, so
+// it is a probe
+vi.mock('../staff/orders/takeaway/TakeawayHome', () => ({ TakeawayHome: () => <div data-probe="takeaway-home" /> }));
+
 // 05 §8 "Cashier screen" (plan §3.1 task 34; brief §3.1.1 Entry): the staff nav's "Bills" (R5: shown with
 // `take-payment`) and #/bills mount the open-bills list; without the grant neither shows. The list is a probe here.
 

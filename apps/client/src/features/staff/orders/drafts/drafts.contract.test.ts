@@ -76,6 +76,18 @@ describe.each(impls)('[02b Q-1] draft store contract — $name', (impl) => {
     expect(await reloaded.list('dev-2', 'staff-sara')).toEqual([]);
   });
 
+  it('[02b-TK C2-5; R3] listDevice lists every person\'s drafts of one device, after a reload too', async () => {
+    const storage = impl.fresh();
+    const store = storage.open();
+    await store.put(draft({ draft_id: 'D1' }));
+    await store.put(draft({ draft_id: 'D3', staff_id: 'staff-sara', updated_at: 500 }));
+    await store.put(draft({ draft_id: 'D4', device_id: 'dev-2' }));
+    const reloaded = storage.open();
+    expect((await reloaded.listDevice!('dev-1')).map((d) => d.draft_id)).toEqual(['D3', 'D1']);
+    expect((await reloaded.listDevice!('dev-2')).map((d) => d.draft_id)).toEqual(['D4']);
+    expect(await reloaded.listDevice!('dev-3')).toEqual([]);
+  });
+
   it('[02b §3.12] put with the same draft_id replaces it; remove deletes it, also after a reload', async () => {
     const storage = impl.fresh();
     const store = storage.open();

@@ -1,13 +1,13 @@
 import { inAvailabilityWindows, localTimeOfDayMs, type Unit } from '@pos/domain';
 import type { BranchConfig, ConfigItem } from '@pos/events';
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { navigate } from '../../../../app/router';
 import { language, t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
 import { Ico, Ring } from '../../../alerts/ui';
 import { timeText } from '../../../alerts/labels';
 import { useShell } from '../../shell/hooks';
-import { tableHref } from '../../shell/routes';
+import { orderHref, tableHref } from '../../shell/routes';
 import { LockBanner } from '../../tables/lock/LockBanner';
 import { useTableLock } from '../../tables/lock/useTableLock';
 import { OfflineBar } from '../../tables/offline/OfflineBar';
@@ -46,9 +46,27 @@ import { NoteSheet, ORDER_NOTE_MAX } from '../sheets/NoteSheet';
 import { OptionsSheet } from '../sheets/OptionsSheet';
 import { createPreview, type PreviewState } from './preview';
 import { DayNotStarted, canStartDay } from './DayNotStarted';
+import { createDayWatch } from './day-open';
+import { phoneBad } from './contact';
+import { CustomerRow } from './CustomerRow';
+import { LeaveGuard, useLeaveGuard } from './LeaveGuard';
+import { money } from '../money';
 import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
-import { announceCompIt, freezeSubmit, refusalText, sendOrder, timeUpdated, toCart, zoneEmpty } from '../send/send';
+import { announceCompIt, freezeSubmit, refusalText, sendOrder, sentToastText, timeUpdated, toCart, zoneEmpty } from '../send/send';
+import { createTokenBook } from '../takeaway/book';
+import { setCurrentTakeawayDraft } from '../takeaway/current-draft';
+import { heldOnDevice } from './held-list';
+import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
+import type { QueueToken } from '../takeaway/queue-model';
+import { createHandovers } from '../takeaway/handover';
+import { readyNow, TokenView } from '../takeaway/TokenView';
+import { PayPanel, type PayTarget } from '../takeaway/PayPanel';
+import { CheckBill } from '../takeaway/CheckBill';
+import { servedPayload } from '../actions/MarkServedSheet';
+import { showEnqueued } from '../view/LineActions';
+import { groupParts, type GroupedLine } from '../view/parts';
+import { servable } from '../view/stage';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
 // Menu / Cart tabs + sticky Send; 02-B03 draft back, B04 offline, B05 / B07 line problems), 02a §8 Order screen (the
@@ -61,6 +79,9 @@ import { announceCompIt, freezeSubmit, refusalText, sendOrder, timeUpdated, toCa
 export interface OrderScreenProps {
   order_type: OrderType;
   id: string;
+  /** 02b-TK C2-1 (CHANGES §1): the Takeaway tab (`#/takeaway`, TakeawayHome) — the screen stays after Hold with a
+   *  fresh cart on a new current draft; its route is the tab's */
+  home?: boolean;
 }
 
 /** What a tile tap or Edit asks the sheets (26c) to open. */
@@ -137,7 +158,7 @@ function zoneCounts(part: unknown): ZoneStockBody[] {
   return Array.isArray(zs) ? zs : [];
 }
 
-export function OrderScreen({ order_type, id }: OrderScreenProps) {
+export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) {
   const shell = useShell();
   const shellRef = useRef(shell);
   shellRef.current = shell;
@@ -157,8 +178,10 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         clock: () => shellRef.current.clock,
         // 02b v1.0.19 §8 (STAB-4): the tiles' station wait follows the kitchen, not only the catch-up
         fetchStationsLive: () => shellRef.current.orders.stationsLive?.() ?? Promise.resolve({ ok: false, error: { kind: 'network' } } as const),
+        // 02b-tk C3-3: the tile estimate reads this order type's home station and padding
+        orderType: order_type,
       }),
-    [shell.live, shell.config, mirror],
+    [shell.live, shell.config, mirror, order_type],
   );
   useEffect(() => () => {
     availability.dispose();
@@ -169,6 +192,10 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   useEffect(() => () => preview.dispose(), [preview]);
   useVersion(preview.subscribe);
   const pv: PreviewState = preview.state();
+  // 02b-TK C1-1: no business day open (catch-up `stock`, BusinessDay* frames), known before the first item
+  const dayWatch = useMemo(() => createDayWatch(shell.live), [shell.live]);
+  useEffect(() => () => dayWatch.dispose(), [dayWatch]);
+  useVersion(dayWatch.subscribe);
   // a reply's times stand only while the hub is reachable: offline they read "—" at once (the reconnect refetches)
   const body = pv.kind === 'ok' && shell.online ? pv.body : null;
   // 01c V20: the day-frozen sale unit (the mirror's BusinessDay), the config's until the mirror is seeded
@@ -269,6 +296,13 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const draftId = useRef<string>(id);
   const staffId = shell.me?.staff_id ?? null;
   const deviceId = shell.device.id;
+  // this screen's route: the Takeaway tab's, or #/order/<type>/<id>
+  const here = home ? '/takeaway' : orderHref(order_type, id);
+  // 02b-TK C2-1: the Takeaway tab's next customer starts on a new current draft (current-draft.ts)
+  const nextDraft = () => {
+    draftId.current = newUlid();
+    setCurrentTakeawayDraft(deviceId, staffId, draftId.current);
+  };
   // #35: the stored draft is read once per (person, order): the effect's deps are strings, so a re-render with a new
   // `me` object (the shell builds one on every render) reads nothing; a StrictMode remount reads again, which is
   // harmless. It never lands over lines typed meanwhile, and a store that cannot be read still saves.
@@ -278,8 +312,19 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     if (staffId === null) return;
     setRestored(false);
     let live = true;
-    const done = (d: Draft | undefined) => {
+    const done = (d: Draft | undefined, heldHere = false) => {
       if (!live) return;
+      // 02b-TK C1-5: this route's draft was held (auto-hold at sign out / idle lock): it stays in Held, and the
+      // screen starts the next order on a new draft id (its own route), so an empty cart never removes the held one
+      if (d === undefined && heldHere && order_type !== 'dine_in') {
+        if (home) nextDraft();
+        else {
+          draftId.current = newUlid();
+          navigate(orderHref(order_type, draftId.current));
+        }
+        setRestored(true);
+        return;
+      }
       draftId.current = d?.draft_id ?? (order_type === 'dine_in' ? newUlid() : id);
       // IR-7 / IR-8: a queue-log copy ({ copy_of, from_entry_id }) becomes a cart with fresh ids
       const stored = d === undefined ? null : toCart(d.cart, newUlid);
@@ -296,13 +341,34 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     };
     drafts
       .list(deviceId, staffId)
-      .then((list) => done(list.find((x) => !x.held && (order_type === 'dine_in' ? x.order_type === 'dine_in' && x.seating_id === id : x.draft_id === id))))
+      .then((list) =>
+        done(
+          list.find((x) => !x.held && (order_type === 'dine_in' ? x.order_type === 'dine_in' && x.seating_id === id : x.draft_id === id)),
+          list.some((x) => x.held && x.draft_id === id),
+        ),
+      )
       .catch(() => done(undefined));
     return () => {
       live = false;
     };
-  }, [drafts, deviceId, staffId, id, order_type]);
+  }, [drafts, deviceId, staffId, id, order_type, home]);
   const seatTable = seat?.ref.table_id ?? null;
+  // 02b-TK C1-5 (02b §8 Held, Device idle lock; shell.me.signout_sub "Unsent orders are held first"): sign out, Switch
+  // user and the idle lock take the person away from this screen without asking — their unsent takeaway is held. They
+  // leave the route as it is; a navigation (the guard's choices, a deep link that returns, 01d #105) does not hold.
+  const restoredRef = useRef(restored);
+  restoredRef.current = restored;
+  useEffect(() => {
+    if (staffId === null || order_type !== 'takeaway') return;
+    const sid = staffId;
+    return () => {
+      if (leaving.current || sending.current || !restoredRef.current || cartRef.current.lines.length === 0) return;
+      if (window.location.hash.replace(/^#/, '') !== here) return;
+      void drafts
+        .put({ draft_id: draftId.current, device_id: deviceId, staff_id: sid, order_type, cart: cartRef.current, updated_at: Math.floor(shellRef.current.clock.nowMs()), held: true })
+        .catch(() => undefined);
+    };
+  }, [staffId, drafts, deviceId, order_type, id, here]);
   useEffect(() => {
     if (!restored || staffId === null || leaving.current) return;
     const saved = blank(cart) ? drafts.remove(draftId.current) : drafts.put({
@@ -339,12 +405,126 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const [dayClosed, setDayClosed] = useState(false);
   // a BusinessDayOpened frame, or a catch-up after a reconnect (a frame may have been missed), lets Send try again
   useEffect(() => shell.live.subscribe((m) => ((m.kind === 'event' && m.event.event_type === 'BusinessDayOpened') || m.kind === 'catch_up' ? setDayClosed(false) : undefined)), [shell.live]);
+  // 02b-TK C1-1 (02b §6.14, §8; audit #1): Send refused, eta-preview answered BUSINESS_DAY_NOT_OPEN, or the socket
+  // says no day is open: the cart shows "Times show after Start day" and the day block instead of Send
+  const dayNotOpen = dayClosed || pv.kind === 'day_not_open' || dayWatch.state() === 'closed';
   /** #35: one Send at a time — a ref, so two taps inside one render cannot both enqueue */
   const sending = useRef(false);
+  // 02b-TK C1-5 (frame LeaveGuard): leaving the takeaway screen with an unsent cart asks first
+  const guard = useLeaveGuard(here, () => order_type === 'takeaway' && cartRef.current.lines.length > 0 && !sending.current && !leaving.current);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [tab, setTab] = useState<'menu' | 'cart'>('menu');
+  const [tab, setTab] = useState<'menu' | 'cart' | 'queue'>('menu');
+  // 02b-TK C2-1: the takeaway queue rail (its book of tokens, names and phones from this device's frames, R3)
+  const book = useMemo(() => (order_type === 'takeaway' ? createTokenBook(shell.live) : null), [shell.live, order_type]);
+  useEffect(() => () => book?.dispose(), [book]);
+  const [heldCount, setHeldCount] = useState(0);
+  // a Hold that stays on the screen (the Takeaway tab) counts again
+  const [heldTick, setHeldTick] = useState(0);
+  useEffect(() => {
+    if (order_type !== 'takeaway' || staffId === null) return;
+    let live = true;
+    // 02b-TK C2-5: the counter's held drafts (everyone's on this device, R3)
+    void heldOnDevice(drafts, deviceId, staffId)
+      .then((all) => live && setHeldCount(all.length))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [drafts, deviceId, staffId, order_type, restored, heldTick]);
+  // 02b-TK C2-2: the token view drawer over the menu and the cart (the cart is kept)
+  const [openToken, setOpenToken] = useState<QueueToken | null>(null);
+  // 02b-TK C3-1: the pay panel over the cart (Send & pay, or Take payment of a token)
+  const [pay, setPay] = useState<PayTarget | null>(null);
+  const payToken = (q: QueueToken) => {
+    setOpenToken(null);
+    setPay({ order_id: q.newest_order_id, ident: q.token === null ? null : String(q.token), name: q.customer_name, promise_ms: q.promise_ms });
+  };
+  // 02b-TK C3-1 (frame HomeKiosk keys): F8 Send & pay, F9 Send · pay later — only on the bare screen (no sheet, drawer
+  // or panel over it)
+  const sendKeys = useRef<((pay: boolean) => void) | null>(null);
+  // 02b-TK C3-2: the newest order of the token an addition is for (its bill is the one to print; 05 #44e)
+  const addingNewest = useRef<{ root: string; newest: string } | null>(null);
+  useEffect(() => {
+    if (order_type !== 'takeaway') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F8' && e.key !== 'F9') return;
+      e.preventDefault();
+      sendKeys.current?.(e.key === 'F8');
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [order_type]);
+  // hand-overs wait UNDO_MS before MarkServed is sent (frame HandoverUndo); the page hiding or the screen closing sends them
+  const handovers = useMemo(
+    () =>
+      createHandovers({
+        send: (h) => {
+          const s = shellRef.current;
+          void s.enqueue('MarkServed', h.payload, { label: `${t('served.title')} · ${h.ident}` }).then((r) => showEnqueued(s, r, 'order.toast.served', () => {}));
+        },
+      }),
+    [],
+  );
+  useEffect(() => handovers.attach(), [handovers]);
+  useSyncExternalStore(handovers.subscribe, handovers.version);
+  const handOver = (q: QueueToken, lines: readonly GroupedLine[]) => {
+    if (lines.length === 0) return;
+    handovers.start({ id: newUlid(), token_key: q.key, ident: q.token === null ? '—' : String(q.token), payload: servedPayload(lines) });
+    setOpenToken(null);
+  };
+  // the ready tile's one tap: the token's lines from order-view, every servable one ready → handed over (R2: paid only)
+  const handOverTile = async (q: QueueToken) => {
+    if (!shellRef.current.permissions.allowed('mark-served')) return setOpenToken(q);
+    const views = await Promise.all(q.order_ids.map((oid) => shellRef.current.orders.orderView(oid)));
+    const lines = views.flatMap((v) => (v.ok && v.data.kind === 'order' ? groupParts(v.data.order.lines) : [])).filter(servable);
+    if (lines.length === 0 || !lines.every(readyNow)) return setOpenToken(q);
+    handOver(q, lines);
+  };
+  // 02b-TK C2-3 (02b §3.2 step 2; 05 #44a): Add items starts an addition to the token's root on an empty cart (a cart
+  // with lines is another customer's: it is sent or held first)
+  const addTo = (q: QueueToken) => {
+    if (sending.current) return;
+    if (cartRef.current.lines.length > 0) return shellRef.current.toasts.show({ text: t('c.add_busy'), tone: 'warn' });
+    setCart((c) => ({ ...c, adds_to: { order_id: q.order_ids[0]!, token: q.token } }));
+    addingNewest.current = { root: q.order_ids[0]!, newest: q.newest_order_id };
+    setOpenToken(null);
+    setTab('menu');
+  };
+  const pendingKeys = new Set(handovers.pending().map((h) => h.token_key));
+  const lastHandover = handovers.pending().at(-1) ?? null;
+  const railVariant: RailVariant = shell.phone || shell.portrait ? 'tab' : shell.device.type === 'cashier_kiosk' ? 'column' : 'strip';
+  const queueRail = (variant: RailVariant) =>
+    book === null ? null : (
+      <QueueRail
+        variant={variant}
+        book={book}
+        selected={openToken?.key ?? null}
+        onOpen={setOpenToken}
+        heldCount={heldCount}
+        onHandOver={(q) => void handOverTile(q)}
+        onPay={payToken}
+        hidden={pendingKeys}
+      />
+    );
+  const tokenView =
+    openToken === null || book === null ? null : (
+      <TokenView token={openToken} book={book} onClose={() => setOpenToken(null)} onHandOver={(lines) => handOver(openToken, lines)} onAddItems={() => addTo(openToken)} onPay={() => payToken(openToken)} />
+    );
+  const payView = (fixed: boolean) =>
+    pay === null ? null : <PayPanel key={pay.order_id ?? 'sending'} target={pay} fixed={fixed} onLater={() => setPay(null)} onDone={() => setPay(null)} />;
+  const undoToast =
+    lastHandover === null ? null : (
+      <div className="tk-toast tk-toast--ok tk-toast--bottom" role="status">
+        <span>
+          <b dir="ltr">{lastHandover.ident}</b> {t('t.collected')}
+        </span>
+        <button type="button" className="tk-btn" onClick={() => handovers.undo(lastHandover.id)}>
+          {t('t.undo')}
+        </button>
+      </div>
+    );
 
   if (config === null) {
     return (
@@ -487,13 +667,20 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
   const count = cartCount(cart, unitOf);
   const total = cartTotal(config, cart, unitOf);
   const ready = readyBy(body);
-  // dine-in: Send waits for the seating on the map, and follows the table lock
-  const canSend = order_type !== 'dine_in' || (seat !== null && lock.canSend);
+  // dine-in: Send waits for the seating on the map, and follows the table lock; 02b-TK C1-2: a typed takeaway phone
+  // the hub would refuse waits to be fixed or cleared (R1: the phone stays optional)
+  const contactBad = order_type === 'takeaway' && phoneBad(cart.takeaway?.phone);
+  const canSend = (order_type !== 'dine_in' || (seat !== null && lock.canSend)) && !contactBad;
   const blocked = order_type === 'dine_in' && seatMissing ? t('order.seating_missing') : null;
+  // 02b-TK C3-1 (frames HomeKiosk, HomeOffline): a takeaway of a take-payment holder sends and pays, or pays later; an
+  // addition to a token keeps its one "Add to token 53" (it is paid from the token view)
+  const canPay = order_type === 'takeaway' && cart.adds_to === undefined && shell.permissions.allowed('take-payment');
   // 26d: Send freezes the cart (#35), enqueues it first (stored before the first send, 25b), then the queue submits
-  const onSend = async () => {
+  const onSend = async (opts: { pay?: boolean } = {}) => {
     // the button's state is not the only guard: lock, line problems and the day are checked here too
-    if (sending.current || target === null || cart.lines.length === 0 || !canSend || problems.size > 0 || dayClosed) return;
+    if (sending.current || target === null || cart.lines.length === 0 || !canSend || problems.size > 0 || dayNotOpen) return;
+    // 02b-TK C3-1 (05 B12): money is never queued — Send & pay only for a take-payment holder while the hub is live
+    const andPay = opts.pay === true && canPay && shellRef.current.online;
     sending.current = true;
     const frozen = cart;
     const before = body;
@@ -503,9 +690,20 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       order_type === 'dine_in'
         ? fill(t('send.label_table'), { table: title ?? '' })
         : order_type === 'takeaway'
-          ? t('order.takeaway') + (frozen.takeaway?.customer_name === undefined ? '' : ` · ${frozen.takeaway.customer_name}`)
+          ? t('order.takeaway') + (payload.takeaway?.customer_name === undefined ? '' : ` · ${payload.takeaway.customer_name}`)
           : `${t('order.parking')} · ${frozen.parking?.car_number ?? ''}`;
-    setSend({ kind: 'sending', sub: [title, fill(t('cart.items'), { n: String(count) })].filter((x) => x !== null).join(' · ') });
+    // 02b-TK C1-3 (02b §6.1, §3.12; frames SentToast, SentQueued; audit #7, #27): a takeaway sends in the background —
+    // no dialog, a fresh cart at once (it takes no tap until the queue answered, #35), a toast with the token after;
+    // a refusal brings the frozen cart back. Dine-in and parking keep the Send dialog.
+    const background = order_type === 'takeaway';
+    const restore = () => {
+      if (andPay) setPay(null);
+      if (background) setCart(frozen);
+    };
+    // 02b-TK C3-1 (frame PayCash): the pay panel opens at once over the fresh cart; its bill is read once the order is in
+    if (andPay) setPay({ order_id: null, ident: null, name: payload.takeaway?.customer_name ?? null, promise_ms: null });
+    if (background) setCart(EMPTY_CART);
+    else setSend({ kind: 'sending', sub: [title, fill(t('cart.items'), { n: String(count) })].filter((x) => x !== null).join(' · ') });
     let outcome: Awaited<ReturnType<typeof sendOrder>>;
     try {
       outcome = await sendOrder(shellRef.current.enqueue, payload, label);
@@ -513,7 +711,31 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       // the queue never rejects by contract; if it does, "Sending…" does not stay up — the cart is kept
       sending.current = false;
       setSend(null);
+      restore();
       shellRef.current.toasts.show({ text: t('send.failed'), tone: 'warn' });
+      return;
+    }
+    if (background && (outcome.kind === 'sent' || outcome.kind === 'queued')) {
+      sending.current = false;
+      if (outcome.kind === 'sent') {
+        announceCompIt(payload, frozen);
+        const r = outcome.result;
+        if (andPay) {
+          const promises = r?.groups.map((g) => g.promise_ms) ?? [];
+          setPay({ order_id: payload.order_id, ident: r?.token == null ? null : String(r.token), name: payload.takeaway?.customer_name ?? null, promise_ms: promises.length === 0 ? null : Math.max(...promises) });
+        }
+        const moved = r === undefined ? null : timeUpdated(config, frozen, before, r);
+        shellRef.current.toasts.show({
+          text: sentToastText(r, payload.takeaway?.customer_name, shellRef.current.clock.utcOffsetMs),
+          ...(moved === null ? {} : { sub: fill(t('send.time_updated'), { item: moved.name, time: timeText(moved.eta_ms, shellRef.current.clock.utcOffsetMs) }) }),
+          tone: 'ok',
+        });
+      } else {
+        // queued (the hub is not answering): no payment now — the order stays Due (05 B12)
+        if (andPay) setPay(null);
+        announceCompIt(payload, frozen, { queued: true });
+        shellRef.current.toasts.show(outcome.logged === true ? { text: t('queue.in_log'), tone: 'warn' } : { text: t('t.queued'), tone: 'info' });
+      }
       return;
     }
     if (outcome.kind === 'sent') {
@@ -529,20 +751,29 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     } else if (outcome.kind === 'day_not_open') {
       sending.current = false;
       setSend(null);
+      restore();
       setDayClosed(true);
     } else {
       // refused: the cart is kept; the reason by its code
       sending.current = false;
       setSend(null);
+      restore();
       shellRef.current.toasts.show({ text: refusalText(config, outcome), tone: 'warn' });
       if (outcome.kind === 'refused' && outcome.error.code === 'TABLE_SEATING_CHANGED') setSeatReload((n) => n + 1);
       // a line refusal: the preview runs again so the line shows its problem (B05 / B07)
       else if (target !== null) preview.set(toEtaDraft(frozen, target));
     }
   };
-  const goBack = () => navigate(order_type === 'dine_in' ? (seat === null ? '/tables' : tableHref(seat.ref.table_id, id)) : '/orders');
-  // Hold (02-S08): the draft stays on this device, held for this person; the screen goes back
-  const onHold = async () => {
+  sendKeys.current = (andPay: boolean) => {
+    if (sheet !== null || openToken !== null || pay !== null || send !== null || guard.pending !== null) return;
+    if (andPay && !(canPay && shell.online)) return;
+    void onSend({ pay: andPay });
+  };
+  // 02b-TK C2-1: a takeaway goes back to the Takeaway tab (the order screen with a fresh cart), not the open-orders list
+  const goBack = () => navigate(order_type === 'dine_in' ? (seat === null ? '/tables' : tableHref(seat.ref.table_id, id)) : order_type === 'takeaway' ? '/takeaway' : '/orders');
+  // Hold (02-S08): the draft stays on this device, held for this person; the screen goes back — on the Takeaway tab it
+  // stays, with a fresh cart on a new draft (02b-TK C2-1)
+  const onHold = async (to?: string) => {
     if (sending.current || staffId === null || cart.lines.length === 0) return;
     leaving.current = true;
     await drafts
@@ -557,11 +788,55 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
         held: true,
       })
       .catch(() => undefined);
-    goBack();
+    if (to === undefined && home) {
+      nextDraft();
+      setCart(EMPTY_CART);
+      setBack(null);
+      leaving.current = false;
+      setHeldTick((n) => n + 1);
+      return;
+    }
+    if (to === undefined) goBack();
+    else navigate(to);
   };
+  // the leave guard's Throw away: the draft goes, then the person goes where they were going
+  const onDiscard = async (to: string) => {
+    if (sending.current) return;
+    leaving.current = true;
+    setCart(EMPTY_CART);
+    await drafts.remove(draftId.current).catch(() => undefined);
+    navigate(to);
+  };
+  const leaveView =
+    guard.pending === null ? null : (
+      <LeaveGuard
+        items={String(count)}
+        money={total === null ? '—' : money(total)}
+        sheet={shell.phone || shell.portrait}
+        onStay={guard.clear}
+        onHold={() => {
+          const to = guard.pending!;
+          guard.clear();
+          void onHold(to);
+        }}
+        onDiscard={() => {
+          const to = guard.pending!;
+          guard.clear();
+          void onDiscard(to);
+        }}
+      />
+    );
   const compItLine = cart.lines.find((l) => l.comp_it === true);
   const compItInfo = () => fill(t('compit.cart_info'), { item: config.items.find((i) => i.item_id === compItLine?.item_id)?.name ?? '', table: seat?.name ?? '' });
+  // 02b-TK C2-3 (frame TokenAddItems): adding to a sent token says so and its primary is "Add to token 53"
+  const addingTo = order_type === 'takeaway' ? (cart.adds_to ?? null) : null;
+  const addingToken = addingTo === null ? '' : addingTo.token === null ? '—' : String(addingTo.token);
+  const primary = addingTo === null ? undefined : `${t('c.add_to')} ${addingToken}`;
+  // 02b-TK C3-2 (05 §6.3; R6): the cart of an addition prints the sent token's check bill (a restored draft: its root's)
+  const checkOrder = addingTo === null ? null : addingNewest.current?.root === addingTo.order_id ? addingNewest.current.newest : addingTo.order_id;
+  const checkBill = checkOrder !== null && shell.permissions.allowed('take-order') ? <CheckBill order_id={checkOrder} /> : undefined;
   const cartProps = {
+    primary,
     config,
     utcOffsetMs,
     round: order_type === 'dine_in' ? (seat?.round ?? null) : null,
@@ -577,11 +852,28 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     onNote: () => (sending.current ? undefined : setSheet({ kind: 'order_note' })),
     onHold: () => void onHold(),
     onSend: () => void onSend(),
-    day: dayClosed ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
+    pay: canPay ? { online: shell.online, onSendPay: () => void onSend({ pay: true }) } : undefined,
+    checkBill,
+    day: dayNotOpen ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
     info: cart.lines.find((l) => l.comp_it === true) === undefined ? null : compItInfo(),
     // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins
     serve: { state: serveState(cart, config), onSet: (mode: ServeMode) => (sending.current ? undefined : setCart((c) => ({ ...c, serve_mode: mode }))) },
   };
+  const customer =
+    order_type !== 'takeaway' ? null : (
+      <CustomerRow
+        value={cart.takeaway}
+        disabled={sending.current}
+        onChange={(next) => {
+          if (sending.current) return; // the cart is frozen while it is sent
+          setCart((c) => {
+            const { takeaway: _drop, ...rest } = c;
+            void _drop;
+            return next === undefined ? rest : { ...rest, takeaway: next };
+          });
+        }}
+      />
+    );
   const keepDraft = () => navigate(seat === null ? '/tables' : tableHref(seat.ref.table_id, id));
 
   const menu = (
@@ -597,6 +889,27 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
     <>
       {!shell.online && <OfflineBar variant="order" />}
       {order_type === 'dine_in' && <LockBanner state={lock.banner} onKeepDraft={keepDraft} />}
+      {addingTo !== null && (
+        <div className="tk-banner" role="status">
+          <Ico name="repeat" />
+          <span>
+            {t('ctx.adding')} <b dir="ltr">{addingToken}</b>
+          </span>
+          <button
+            type="button"
+            className="tk-btn"
+            onClick={() =>
+              setCart((c) => {
+                const { adds_to: _drop, ...rest } = c;
+                void _drop;
+                return rest;
+              })
+            }
+          >
+            {t('common.cancel')}
+          </button>
+        </div>
+      )}
     </>
   );
   // 26c: the sheet a tile, Edit or Order note asked for
@@ -614,7 +927,9 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
       if (item?.variant_group_id == null) return [item_id];
       return config.items.filter((i) => i.variant_group_id === item.variant_group_id).sort((a, b) => a.sort_order - b.sort_order).map((i) => i.item_id);
     };
-    const common = { config, inputs, unitOf, sheet: sheetAsBottom, newKey, onAdd, onClose: closeSheet };
+    // 02b-TK C1-4: an edited line's sheet offers Remove (Save changes is the sheets' primary)
+    const onRemove = editing === null ? {} : { onRemove: () => (setCart((c) => removeLine(c, editing.key)), setSheet(null)) };
+    const common = { config, inputs, unitOf, sheet: sheetAsBottom, newKey, onAdd, onClose: closeSheet, ...onRemove };
     // O15: what is left for this line once the cart's other lines of the item are counted
     const sheetCap = (item_id: string) => {
       const cap = capOf(item_id);
@@ -711,6 +1026,11 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
           <button type="button" aria-pressed={tab === 'cart'} onClick={() => setTab('cart')}>
             {t('order.tab.cart')} <span className="n num">{count}</span>
           </button>
+          {book !== null && (
+            <button type="button" aria-pressed={tab === 'queue'} onClick={() => setTab('queue')}>
+              {t('q.tab')}
+            </button>
+          )}
         </div>
         {blocked !== null && (
           <div className="msg cart__msg c-warn" role="alert">
@@ -725,36 +1045,58 @@ export function OrderScreen({ order_type, id }: OrderScreenProps) {
           </div>
         )}
         <div className="ph-body">
-          {tab === 'menu' ? (
+          {tab === 'queue' && book !== null ? (
+            queueRail(railVariant)
+          ) : tab === 'menu' ? (
             <>
               <MenuPills categories={rail} current={current} onPick={setCategory} />
               {menu}
             </>
           ) : (
-            <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} />
+            <>
+              {customer}
+              <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} />
+              {checkBill}
+            </>
           )}
         </div>
         {cartProps.day}
-        {!dayClosed && <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} onSend={() => void onSend()} />}
+        {!dayNotOpen && <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} primary={primary} pay={cartProps.pay} onSend={() => void onSend()} />}
         {draftBack}
         {sheetView}
         {sendView}
         {newOrderView}
+        {leaveView}
+        {tokenView}
+        {payView(true)}
+        {undoToast}
       </div>
     );
   }
   return (
     <div className="col grow order" dir={ur ? 'rtl' : 'ltr'}>
       {banners}
-      <div className="osc">
+      <div className={book === null ? 'osc' : 'osc osc--tk'}>
+        {/* 02b-TK C2-1 (frames HomeKiosk, QueueTablet): kiosk queue rail | menu | cart; a tablet's ready strip over the menu */}
+        {railVariant === 'column' && queueRail('column')}
         <MenuRail categories={rail} current={current} onPick={setCategory} />
-        {menu}
-        <Cart {...cartProps} />
+        {railVariant === 'strip' && book !== null ? (
+          <div className="tk-mid">
+            {queueRail('strip')}
+            {menu}
+          </div>
+        ) : (
+          menu
+        )}
+        <Cart {...cartProps} customer={customer} overlay={payView(false)} />
       </div>
       {draftBack}
       {sheetView}
       {sendView}
       {newOrderView}
+      {leaveView}
+      {tokenView}
+      {undoToast}
     </div>
   );
 }

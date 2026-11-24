@@ -29,8 +29,10 @@ export interface CartProps {
   canSend: boolean;
   /** why Send is off besides problems (dine-in seating not found), or null */
   blocked: string | null;
-  /** #36 day not started: replaces the footer (02b-B11) */
+  /** #36 day not started: replaces the footer's actions (02b-B11); the ready line says "Times show after Start day" */
   day: ReactNode;
+  /** 02b-TK C1-2: the takeaway customer row (name / phone) over the lines, or absent */
+  customer?: ReactNode;
   /** an info line over the cart (E-7 CompItCart: "…After Send you'll be asked to comp it") */
   info: string | null;
   actions: LineActions;
@@ -41,6 +43,17 @@ export interface CartProps {
   serve?: { state: ServeMode | 'mixed'; onSet(mode: ServeMode): void };
   /** phone / portrait: the list only (the sticky bar carries Send) */
   bare?: boolean;
+  /** 02b-TK C2-3 (frame TokenAddItems): the primary's words in place of Send ("Add to token 53") */
+  primary?: string | undefined;
+  /**
+   * 02b-TK C3-1 (frames HomeKiosk, HomeOffline): a takeaway cart of a take-payment holder — "Send · pay later" (F9, the
+   * Send above) and the primary "Send & pay" (F8); offline only pay later, with "Payment needs the hub…".
+   */
+  pay?: { online: boolean; onSendPay(): void } | undefined;
+  /** 02b-TK C3-1: the pay panel over the cart */
+  overlay?: ReactNode;
+  /** 02b-TK C3-2 (R6): Print check bill of the sent token this cart adds to (an unsent cart has none) */
+  checkBill?: ReactNode;
 }
 
 function GroupHead({ group, utcOffsetMs }: { group: CartGroup; utcOffsetMs: number }) {
@@ -72,8 +85,8 @@ function GroupHead({ group, utcOffsetMs }: { group: CartGroup; utcOffsetMs: numb
   );
 }
 
-export function sendLabel(p: { problems: number }): string {
-  return p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : t('cart.send');
+export function sendLabel(p: { problems: number; primary?: string | undefined }): string {
+  return p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : (p.primary ?? t('cart.send'));
 }
 
 export function CartList(p: Pick<CartProps, 'config' | 'unitOf' | 'utcOffsetMs' | 'groups' | 'actions'>) {
@@ -106,6 +119,7 @@ export function Cart(p: CartProps) {
         </h2>
         <span>{fill(t('cart.items'), { n: String(p.count) })}</span>
       </div>
+      {p.customer}
       {p.info !== null && (
         <div className="msg cart__msg c-info" role="status">
           <Ico name="info" />
@@ -126,17 +140,14 @@ export function Cart(p: CartProps) {
       )}
       <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} />
       <div className="cart__foot">
-        {p.day !== null ? (
-          p.day
-        ) : (
-          <>
         <div className="total">
           <div className="total__ready">
             <Ring size={56} pct={null} tone={p.ready_by === null ? 'mute' : 'ok'}>
               <Ico name="clock" />
             </Ring>
             {p.ready_by === null ? (
-              <div>{t('cart.times_later')}</div>
+              // 02b-TK C1-1: no day open → "Times show after Start day", not "set when sent"
+              <div>{p.day !== null ? t('c.times_day') : t('cart.times_later')}</div>
             ) : (
               <div>
                 {t('cart.all_ready')}
@@ -146,28 +157,57 @@ export function Cart(p: CartProps) {
           </div>
           <strong dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</strong>
         </div>
-        {p.serve !== undefined && !empty && <ServeSwitch state={p.serve.state} onSet={p.serve.onSet} />}
-        <div className="duo">
-          <button type="button" className="btn" onClick={p.onNote}>
-            {t('cart.note')}
-          </button>
-          <button type="button" className="btn" disabled={empty} onClick={p.onHold}>
-            {t('cart.hold')}
-          </button>
-        </div>
-        <button type="button" className="btn btn--primary btn--lg btn--block" disabled={empty || p.problems > 0 || !p.canSend} onClick={p.onSend}>
-          <Ico name="send" />
-          {sendLabel(p)}
-        </button>
+        {p.day !== null ? (
+          p.day
+        ) : (
+          <>
+            {p.serve !== undefined && !empty && <ServeSwitch state={p.serve.state} onSet={p.serve.onSet} />}
+            <div className="duo">
+              <button type="button" className="btn" onClick={p.onNote}>
+                {t('cart.note')}
+              </button>
+              <button type="button" className="btn" disabled={empty} onClick={p.onHold}>
+                {t('cart.hold')}
+              </button>
+            </div>
+            {p.checkBill}
+            {p.pay !== undefined && p.problems === 0 ? (
+              <PayActions pay={p.pay} off={empty || !p.canSend} onSend={p.onSend} />
+            ) : (
+              <button type="button" className="btn btn--primary btn--lg btn--block" disabled={empty || p.problems > 0 || !p.canSend} onClick={p.onSend}>
+                <Ico name="send" />
+                {sendLabel(p)}
+              </button>
+            )}
           </>
         )}
       </div>
+      {p.overlay}
     </aside>
   );
 }
 
+/** 02b-TK C3-1 (frames HomeKiosk, HomeOffline): Send · pay later (F9) and Send & pay (F8); offline pay later only. */
+function PayActions({ pay, off, onSend }: { pay: NonNullable<CartProps['pay']>; off: boolean; onSend(): void }) {
+  return (
+    <>
+      {!pay.online && <div className="tk-hint tk-hint--warn">{t('c.queued_pay')}</div>}
+      <div className={pay.online ? 'tk-acts' : 'tk-acts tk-acts--one'}>
+        <button type="button" className={pay.online ? 'tk-btn tk-btn--lg' : 'tk-btn tk-btn--xl tk-btn--primary'} disabled={off} onClick={onSend}>
+          {t('c.send_later')} <span className="tk-kbd" dir="ltr">F9</span>
+        </button>
+        {pay.online && (
+          <button type="button" className="tk-btn tk-btn--xl tk-btn--primary" disabled={off} onClick={pay.onSendPay}>
+            {t('c.send_pay')} <span className="tk-kbd" dir="ltr">F8</span>
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
 /** 02-S10 sticky Send bar: total, "6 items · 8:27 PM", Send. */
-export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' | 'utcOffsetMs' | 'problems' | 'canSend' | 'onSend'>) {
+export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' | 'utcOffsetMs' | 'problems' | 'canSend' | 'onSend' | 'primary' | 'pay'>) {
   const sub = fill(t('cart.items'), { n: String(p.count) }) + (p.ready_by === null ? '' : ` · ${timeText(p.ready_by, p.utcOffsetMs)}`);
   return (
     <div className="sbar">
@@ -175,10 +215,23 @@ export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' 
         <b dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</b>
         <small>{sub}</small>
       </div>
-      <button type="button" className="btn btn--primary btn--lg" disabled={p.count === 0 || p.problems > 0 || !p.canSend} onClick={p.onSend}>
-        <Ico name="send" />
-        {p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : t('cart.send_short')}
-      </button>
+      {p.pay !== undefined && p.problems === 0 ? (
+        <>
+          <button type="button" className={p.pay.online ? 'btn btn--lg' : 'btn btn--primary btn--lg'} disabled={p.count === 0 || !p.canSend} onClick={p.onSend}>
+            {t('c.send_later')}
+          </button>
+          {p.pay.online && (
+            <button type="button" className="btn btn--primary btn--lg" disabled={p.count === 0 || !p.canSend} onClick={p.pay.onSendPay}>
+              {t('c.send_pay')}
+            </button>
+          )}
+        </>
+      ) : (
+        <button type="button" className="btn btn--primary btn--lg" disabled={p.count === 0 || p.problems > 0 || !p.canSend} onClick={p.onSend}>
+          <Ico name="send" />
+          {p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : (p.primary ?? t('cart.send_short'))}
+        </button>
+      )}
     </div>
   );
 }

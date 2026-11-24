@@ -72,9 +72,10 @@ describe('[02b §8 Ordering screen] Hold, Held, day not started', () => {
     m.click(m.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
     m.click(m.button('Hold'));
     await flush();
-    expect(nav.to).toEqual(['/orders']);
+    // 02b-TK C2-1: a takeaway goes back to the Takeaway tab (the order screen), not the open-orders list
+    expect(nav.to).toEqual(['/takeaway']);
     m.unmount();
-    // another person's and another device's held drafts are not listed
+    // 02b-TK C2-5 (R3): another person's takeaway held on this device is listed (a counter is shared); another device's is not
     await drafts.put(draft({ draft_id: 'X1', staff_id: 'ST2' }));
     await drafts.put(draft({ draft_id: 'X2', device_id: 'DV2' }));
     const mine = await drafts.list('DV1', 'ST1');
@@ -89,8 +90,8 @@ describe('[02b §8 Ordering screen] Hold, Held, day not started', () => {
       </ShellContext.Provider>,
     );
     await flush();
-    expect(held.container.querySelectorAll('.ql')).toHaveLength(1);
-    expect(held.text()).toContain('Only Ali sees these.');
+    expect(held.container.querySelectorAll('.ql')).toHaveLength(2);
+    expect(held.text()).toContain('Everyone on this counter sees these.');
     expect(held.container.querySelector('.ql')?.textContent).toContain('held 8:00 PM');
     held.click(held.button('Resume'));
     await flush();
@@ -109,7 +110,7 @@ describe('[02b §8 Ordering screen] Hold, Held, day not started', () => {
     await flush();
     again.click(again.button('Discard'));
     await flush();
-    expect(again.container.querySelectorAll('.ql')).toHaveLength(0);
+    expect(again.container.querySelectorAll('.ql')).toHaveLength(1);
     expect(await drafts.list('DV1', 'ST1')).toEqual([]);
     again.unmount();
   });

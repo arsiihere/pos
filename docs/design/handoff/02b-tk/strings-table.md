@@ -1,0 +1,167 @@
+| Key | English | Urdu |
+|---|---|---|
+| `shell.back` | Back | واپس |
+| `shell.tab.takeaway` | Takeaway | ٹیک اوے |
+| `shell.tab.parking` | Parking | پارکنگ |
+| `shell.tab.dine_in` | Tables | میزیں |
+| `shell.tab.cashier` | Bills | بل |
+| `shell.live` | Live | لائیو |
+| `shell.offline` | Hub offline | ہب بند ہے |
+| `shell.rush` | Rush mode | رش موڈ |
+| `shell.requests` | Requests | درخواستیں |
+| `shell.inbox` | Inbox | اِن باکس |
+| `shell.me.switch` | Switch user | یوزر بدلیں |
+| `shell.me.switch_sub` | Hand the counter to someone else | کاؤنٹر کسی اور کو دیں |
+| `shell.me.lock` | Lock screen | اسکرین لاک کریں |
+| `shell.me.lock_sub` | Your orders stay as they are | آپ کے آرڈر ویسے ہی رہیں گے |
+| `shell.me.shift` | My shift | میری شفٹ |
+| `shell.me.signout` | Sign out | سائن آؤٹ |
+| `shell.me.signout_sub` | Unsent orders are held first | نہ بھیجے آرڈر پہلے ہولڈ ہوں گے |
+| `shell.day.closed` | Day not started — orders can’t be sent and times can’t show | دن شروع نہیں ہوا — آرڈر نہیں جا سکتے، وقت نہیں دکھ سکتا |
+| `shell.day.start` | Start day | دن شروع کریں |
+| `shell.day.ask` | Ask the manager to start the day | مینیجر سے دن شروع کروائیں |
+| `shell.shift.closed` | No shift open — cash can’t be taken | شفٹ نہیں کھلی — کیش نہیں لے سکتے |
+| `shell.shift.open` | Open my shift | میری شفٹ کھولیں |
+| `ctx.new` | New takeaway | نیا ٹیک اوے |
+| `ctx.token_after` | Token after Send | ٹوکن بھیجنے کے بعد |
+| `ctx.adding` | Adding to token | ٹوکن میں اضافہ |
+| `ctx.phone_order` | Phone order | فون آرڈر |
+| `q.search` | Token, name or phone | ٹوکن، نام یا فون |
+| `q.ready` | Ready — hand over | تیار — حوالے کریں |
+| `q.cooking` | Cooking | بن رہا ہے |
+| `q.later` | Phone orders — later | فون آرڈر — بعد میں |
+| `q.waiting_send` | Waiting to send | بھیجنے کا انتظار |
+| `q.collect` | Hand over | حوالے کریں |
+| `q.collect_pay` | Take payment | پیسے لیں |
+| `q.waiting_min` | {n} min · Call | {n} منٹ · فون |
+| `q.part` | Part given · rest | کچھ دیا · باقی |
+| `q.paid` | Paid | ادا |
+| `q.due` | Due | باقی |
+| `q.held` | Held | ہولڈ |
+| `q.more` | +{n} more | +{n} اور |
+| `c.who_add` | Name / phone | نام / فون |
+| `q.all` | All orders | سب آرڈر |
+| `q.empty_t` | No takeaway orders yet | ابھی کوئی ٹیک اوے آرڈر نہیں |
+| `q.empty_p` | Orders you send show here until the customer collects them. | بھیجے گئے آرڈر یہاں رہیں گے جب تک گاہک لے نہ جائے۔ |
+| `q.failed` | Couldn’t load orders | آرڈر لوڈ نہیں ہوئے |
+| `q.retry` | Try again | دوبارہ کوشش |
+| `q.as_of` | Last updated | آخری اپ ڈیٹ |
+| `q.ready_at` | ready | تیار |
+| `q.pickup` | pickup | لینے آئیں گے |
+| `m.search` | Type item — e.g. 4 naan | آئٹم لکھیں — مثلاً 4 نان |
+| `m.all` | Top now | ابھی سب سے زیادہ |
+| `m.now` | Now | ابھی |
+| `m.min` | {n} min | {n} منٹ |
+| `m.sold_out` | Sold out | ختم |
+| `m.not_now` | From 7 PM | شام 7 بجے سے |
+| `m.paused` | Tandoor paused | تندور رکا ہوا |
+| `m.left` | {n} left | {n} باقی |
+| `m.here` | {n} ready | {n} تیار |
+| `m.half` | Half | آدھی |
+| `m.full` | Full | پوری |
+| `m.kg` | By kg | کلو |
+| `m.pinned` | Most ordered this hour | اس گھنٹے سب سے زیادہ |
+| `m.keys` | Keys | کیز |
+| `c.name` | Name | نام |
+| `c.phone` | Phone | فون |
+| `c.optional` | optional | اختیاری |
+| `c.required` | needed for later pickup | بعد میں لینے کیلئے ضروری |
+| `c.name_ph` | Customer name | گاہک کا نام |
+| `c.pickup` | Pickup | کب لیں گے |
+| `c.pick_now` | Now | ابھی |
+| `c.pick_15` | +15 min | 15 منٹ بعد |
+| `c.pick_30` | +30 min | 30 منٹ بعد |
+| `c.pick_45` | +45 min | 45 منٹ بعد |
+| `c.pick_time` | Time… | وقت… |
+| `c.match` | Usman · 6 orders | عثمان · 6 آرڈر |
+| `c.match_last` | Last: Half karahi, 4 roghni naan, 2 lassi · 12 Nov | پچھلا: آدھی کڑاہی، 4 روغنی نان، 2 لسی · 12 نومبر |
+| `c.repeat` | Repeat | دوبارہ |
+| `c.phone_err` | Enter 10 digits after +92 | +92 کے بعد 10 ہندسے لکھیں |
+| `c.empty_t` | Tap an item or type it | آئٹم دبائیں یا لکھیں |
+| `c.ask_time` | Kitna time? Right now: | کتنا وقت؟ ابھی: |
+| `c.items` | {n} items | {n} آئٹم |
+| `c.ready_by` | Ready by | تیار ہوگا |
+| `c.ready_now` | Everything ready now | سب کچھ ابھی تیار |
+| `c.ready_by_sub` | Tell the customer | گاہک کو بتائیں |
+| `c.ready_later` | Kitchen times it for | کچن اس وقت کیلئے بنائے گا |
+| `c.times_none` | Times show when the hub is back | ہب واپس آنے پر وقت دکھے گا |
+| `c.times_day` | Times show after Start day | دن شروع ہونے پر وقت دکھے گا |
+| `c.delta` | 2nd karahi adds {n} min — the karahi station is full | دوسری کڑاہی سے {n} منٹ بڑھ گئے — کڑاہی اسٹیشن بھرا ہے |
+| `c.add_n` | +{n} {item} | +{n} {item} |
+| `c.note_add` | Add note | نوٹ لکھیں |
+| `c.note_edit` | Edit note | نوٹ بدلیں |
+| `c.total` | Total | کل |
+| `c.hold` | Hold | ہولڈ |
+| `c.send_later` | Send · pay later | بھیجیں · پیسے بعد میں |
+| `c.send_pay` | Send & pay | بھیجیں اور پیسے لیں |
+| `c.schedule` | Schedule for | اس وقت کیلئے بھیجیں |
+| `c.add_to` | Add to token | ٹوکن میں ڈالیں |
+| `c.fix_first` | Fix 1 item first | پہلے 1 آئٹم ٹھیک کریں |
+| `c.serve_q` | Paye is ready now. Give it now? | پائے ابھی تیار ہیں۔ ابھی دے دیں؟ |
+| `c.serve_together` | All together {t} | سب ایک ساتھ {t} |
+| `c.serve_now` | Paye now, rest {t} | پائے ابھی، باقی {t} |
+| `c.counter` | From the counter | کاؤنٹر سے |
+| `c.kitchen` | From the kitchen | کچن سے |
+| `c.queued_pay` | Payment needs the hub. Send now; take payment when Live. | پیسوں کیلئے ہب چاہیے۔ ابھی بھیجیں، لائیو ہونے پر پیسے لیں۔ |
+| `t.sent` | sent · ready | بھیج دیا · تیار |
+| `t.print` | Print again | دوبارہ پرنٹ |
+| `t.open` | Open | کھولیں |
+| `t.queued` | Not sent yet — token comes when the hub is back | ابھی نہیں گیا — ہب واپس آنے پر ٹوکن ملے گا |
+| `t.collected` | handed over | حوالے کر دیا |
+| `t.undo` | Undo | واپس کریں |
+| `t.sold_out` | Chicken Tikka is sold out — ask the kitchen | چکن تکہ ختم ہے — کچن سے پوچھیں |
+| `p.title` | Take payment | پیسے لیں |
+| `p.due` | To pay | ادا کرنا ہے |
+| `p.cash` | Cash | کیش |
+| `p.card` | Card | کارڈ |
+| `p.raast` | Raast QR | راست QR |
+| `p.given` | Customer gave | گاہک نے دیے |
+| `p.exact` | Exact | پورے |
+| `p.change` | Give change | بقایا دیں |
+| `p.short` | Short by | کم ہیں |
+| `p.done` | Paid · print receipt | ادا · رسید پرنٹ |
+| `p.later` | Pay later | بعد میں |
+| `p.nfc` | Tap the card on the back of this tablet | کارڈ ٹیبلٹ کی پشت پر لگائیں |
+| `p.nfc_sub` | Waiting for card… Rs amount shows on the customer screen | کارڈ کا انتظار… |
+| `p.machine` | Card machine approved? | کارڈ مشین سے منظور؟ |
+| `p.ref` | Last 4 digits / slip no. | آخری 4 ہندسے / سلپ نمبر |
+| `p.qr_t` | Customer scans with any bank app | گاہک کسی بھی بینک ایپ سے اسکین کرے |
+| `p.qr_wait` | Waiting for payment… closes by itself when paid | ادائیگی کا انتظار… ادا ہوتے ہی خود بند ہوگا |
+| `p.paid_t` | Paid | ادا ہو گیا |
+| `p.change_big` | Give change | بقایا دیں |
+| `p.receipt` | Receipt is printing | رسید پرنٹ ہو رہی ہے |
+| `p.next` | Next customer | اگلا گاہک |
+| `p.err` | Payment didn’t go through | ادائیگی نہیں ہوئی |
+| `p.err_sub` | Nothing was charged. Try again or choose another way. | کچھ نہیں کٹا۔ دوبارہ کوشش کریں یا دوسرا طریقہ چنیں۔ |
+| `p.offline` | Hub offline — payment can’t be recorded now | ہب بند — ابھی ادائیگی درج نہیں ہو سکتی |
+| `v.placed` | Placed {t} by {who} | {t} پر {who} نے لیا |
+| `v.status` | Status | حالت |
+| `v.ready_at` | Ready by | تیار ہوگا |
+| `v.bill` | Bill | بل |
+| `v.waiting` | Waiting | انتظار |
+| `v.cooking` | Cooking | بن رہا ہے |
+| `v.ready` | Ready | تیار |
+| `v.given` | Handed over | دے دیا |
+| `v.collected` | Hand over all | سب حوالے کریں |
+| `v.give_ready` | Give ready items now | تیار چیزیں ابھی دیں |
+| `v.pay` | Take payment | پیسے لیں |
+| `v.add` | Add items | مزید ڈالیں |
+| `v.remove` | Remove / cancel | ہٹائیں / منسوخ |
+| `v.call` | Call | فون |
+| `v.print` | Print token | ٹوکن پرنٹ |
+| `v.hurry` | Hurry kitchen | کچن کو جلدی |
+| `v.note` | Note | نوٹ |
+| `v.late` | Ready 17 min ago — not collected | 17 منٹ سے تیار — کوئی نہیں آیا |
+| `l.title` | This order isn’t sent | یہ آرڈر نہیں گیا |
+| `l.body` | {n} items · {money}. What should happen to it? | {n} آئٹم · {money}۔ اس کا کیا کریں؟ |
+| `l.hold` | Hold it | ہولڈ کریں |
+| `l.discard` | Throw away | ختم کریں |
+| `l.stay` | Stay here | یہیں رہیں |
+| `h.title` | Held on this counter | اس کاؤنٹر پر ہولڈ |
+| `h.resume` | Resume | جاری رکھیں |
+| `h.discard` | Throw away | ختم کریں |
+| `b.ready` | Ready | تیار ہے |
+| `b.prep` | Preparing | بن رہا ہے |
+| `b.come` | please come to the counter | کاؤنٹر پر تشریف لائیں |
+| `b.foot` | Find your token number on your slip | اپنا ٹوکن نمبر پرچی پر دیکھیں |
+| `b.scan` | Scan the slip QR to follow your order | پرچی کا QR اسکین کریں |

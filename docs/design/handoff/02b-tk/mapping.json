@@ -1,0 +1,753 @@
+[
+ {
+  "screen": "TK-SH01",
+  "name": "Shell — proposed: top bar, context slot, screen tabs, Live/Offline/Rush pill, badges, day / shift banners",
+  "kind": "shell · K T P",
+  "components": "`.tk-top` `.tk-ctx` `.tk-tabs` `.tk-tab.is-sel` `.tk-live(--off|--rush)` `.tk-ibtn` `.tk-me` `.tk-banner`",
+  "data": "catch-up `business_day`, `GET /queries/shift`, alerts store (Requests / Inbox counts), live socket state, device profile `screens` (05a)",
+  "frames": [
+   {
+    "file": "design/ShellAnatomy.dc.html",
+    "png": "design/screens/ShellAnatomy.png",
+    "state": "normal",
+    "device": "component",
+    "lang": "en",
+    "title": "Shell — proposed: top bar parts, tab active state, offline, rush, day/shift banners"
+   }
+  ]
+ },
+ {
+  "screen": "TK-SH02",
+  "name": "Person chip menu",
+  "kind": "popover · K T",
+  "components": "`.tk-pop` `.tk-mi`",
+  "data": "session; `POST /auth/logout`; 05a switch-user flow; `GET /queries/shift`",
+  "frames": [
+   {
+    "file": "design/PersonMenu.dc.html",
+    "png": "design/screens/PersonMenu.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Person chip menu — Switch user · Lock · My shift · Sign out (never one-tap sign out)"
+   }
+  ]
+ },
+ {
+  "screen": "TK-SH03",
+  "name": "Day not started (before the first item)",
+  "kind": "banner · K T P",
+  "components": "`.tk-banner--warn`, cart disabled, `.tk-readyby--none`",
+  "data": "catch-up business day; `BusinessDayOpened` frame; Start day → `/admin/stock/` (02b Q-20)",
+  "frames": [
+   {
+    "file": "design/DayNotStarted.dc.html",
+    "png": "design/screens/DayNotStarted.png",
+    "state": "error",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Day not started — blocked before the first item, times explain why"
+   }
+  ]
+ },
+ {
+  "screen": "TK-S01",
+  "name": "Takeaway home = queue + menu + cart (order first)",
+  "kind": "screen · K T P",
+  "components": "`.tk-q` (queue rail) `.tk-mid` (menu) `.tk-cart` · `.tk-tile` `.tk-split` `.tk-grid(--rush)` `.tk-line` `.tk-step` `.tk-qchips` `.tk-readyby` `.tk-foot` `.tk-acts`",
+  "data": "`GET /queries/open-orders` (+ GAPS G-1 fields), `GET /queries/eta-preview` (250 ms debounce), `GET /queries/stations-live`, `zone-stock`, branch-config, stock mirror; drafts (IndexedDB); `SubmitOrder` (queueable)",
+  "frames": [
+   {
+    "file": "design/HomeKiosk.dc.html",
+    "png": "design/screens/HomeKiosk.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Takeaway home — queue · menu · cart in one screen; live “Ready by 1:42 PM”; Send & pay"
+   },
+   {
+    "file": "design/HomeEmpty.dc.html",
+    "png": "design/screens/HomeEmpty.png",
+    "state": "empty",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Start of lunch — no orders, empty cart answers “kitna time?” from live station waits"
+   },
+   {
+    "file": "design/HomeRush.dc.html",
+    "png": "design/screens/HomeRush.png",
+    "state": "rush",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "RUSH — 40 open: rush mode (dense 5-col tiles, half/full on the tile, top items pinned, compact queue)"
+   },
+   {
+    "file": "design/HomeOffline.dc.html",
+    "png": "design/screens/HomeOffline.png",
+    "state": "offline",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Hub offline — orders queue (token after sending), times “—”, payment waits; queue frozen “as of”"
+   },
+   {
+    "file": "design/HomeError.dc.html",
+    "png": "design/screens/HomeError.png",
+    "state": "error",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Errors — queue read failed (retry), a cart line problem blocks Send (“Fix 1 item first”)"
+   },
+   {
+    "file": "design/HomeUrdu.dc.html",
+    "png": "design/screens/HomeUrdu.png",
+    "state": "urdu",
+    "device": "kiosk",
+    "lang": "ur",
+    "title": "Urdu RTL — mirrored layout; tokens, money, times, phones stay LTR"
+   },
+   {
+    "file": "design/HomeRushUrdu.dc.html",
+    "png": "design/screens/HomeRushUrdu.png",
+    "state": "rush · urdu",
+    "device": "kiosk",
+    "lang": "ur",
+    "title": "Rush mode in Urdu"
+   },
+   {
+    "file": "design/HomeTablet.dc.html",
+    "png": "design/screens/HomeTablet.png",
+    "state": "normal",
+    "device": "tablet",
+    "lang": "en",
+    "title": "Tablet 1280×800 — ready strip on top (tap = hand over / pay), menu 3 columns, cart 440; queue opens as a drawer"
+   },
+   {
+    "file": "design/HomeTabletUrdu.dc.html",
+    "png": "design/screens/HomeTabletUrdu.png",
+    "state": "urdu",
+    "device": "tablet",
+    "lang": "ur",
+    "title": "Tablet in Urdu"
+   },
+   {
+    "file": "design/PhoneMenu.dc.html",
+    "png": "design/screens/PhoneMenu.png",
+    "state": "normal",
+    "device": "phone",
+    "lang": "en",
+    "title": "Phone — Menu tab, 2 columns, wait on every tile, sticky bar with total + Ready by"
+   },
+   {
+    "file": "design/PhoneCart.dc.html",
+    "png": "design/screens/PhoneCart.png",
+    "state": "normal",
+    "device": "phone",
+    "lang": "en",
+    "title": "Phone — Cart tab: name / phone / pickup, lines with steppers and times"
+   },
+   {
+    "file": "design/PhoneCartUrdu.dc.html",
+    "png": "design/screens/PhoneCartUrdu.png",
+    "state": "urdu",
+    "device": "phone",
+    "lang": "ur",
+    "title": "Phone cart in Urdu"
+   },
+   {
+    "file": "design/PhoneOffline.dc.html",
+    "png": "design/screens/PhoneOffline.png",
+    "state": "offline",
+    "device": "phone",
+    "lang": "en",
+    "title": "Phone offline — times “—”, Send queues, Pay hidden (needs hub)"
+   }
+  ]
+ },
+ {
+  "screen": "TK-S02",
+  "name": "Order building helpers: keyboard mode, time delta, companions, note, serve question",
+  "kind": "cart / menu · K T P",
+  "components": "`.tk-sugg` `.tk-hint` `.tk-delta` `.tk-addon-sugg` `.tk-note--set` `.tk-serve`",
+  "data": "`eta-preview` (previous vs new reply → delta), `stations-live` (station full), companions (GAPS G-5), `SubmitOrder.order_note`, `serve_mode`",
+  "frames": [
+   {
+    "file": "design/KeyboardMode.dc.html",
+    "png": "design/screens/KeyboardMode.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Keyboard speed mode — type “4n”, Enter adds 4 roghni naan; shortcuts always shown"
+   },
+   {
+    "file": "design/CartTimeDelta.dc.html",
+    "png": "design/screens/CartTimeDelta.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "USP — 2nd karahi pushes Ready by from 1:42 to 2:00 PM; the line says why, so the cashier can tell the customer"
+   },
+   {
+    "file": "design/CartSuggest.dc.html",
+    "png": "design/screens/CartSuggest.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Companion suggestions — under Half karahi: “+4 Roghni naan” “+Salad” (one tap each)"
+   },
+   {
+    "file": "design/CartNote.dc.html",
+    "png": "design/screens/CartNote.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Order note visible in the cart (saffron), button reads “Edit note”"
+   },
+   {
+    "file": "design/ServeChoice.dc.html",
+    "png": "design/screens/ServeChoice.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Mixed order — one plain question in the footer: “Paye is ready now. Give it now?” (replaces Together / As ready jargon)"
+   }
+  ]
+ },
+ {
+  "screen": "TK-S03",
+  "name": "Token view (drawer / phone screen) + Add items + queue drawer",
+  "kind": "drawer · K T P",
+  "components": "`.tk-drawer` `.tk-tv__tok` `.tk-facts` `.tk-fact(--due|--paid)` `.tk-il` `.tk-banner--info` (adding)",
+  "data": "`GET /queries/order-view`, `GET /queries/bill?order_id`, `order-contact` (Call), `MarkServed` (hand over / give ready items), `SubmitOrder{adds_to_order_id}` (Add items), `BoostOrder`, `PrintBillDocument`",
+  "frames": [
+   {
+    "file": "design/TokenDue.dc.html",
+    "png": "design/screens/TokenDue.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Token view (drawer) — 54 unpaid: stages per item, Give ready items now, Take payment as the primary"
+   },
+   {
+    "file": "design/TokenReady.dc.html",
+    "png": "design/screens/TokenReady.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Token 48 ready + paid — one primary: Hand over all (Enter); undo for 5 s after"
+   },
+   {
+    "file": "design/TokenPartial.dc.html",
+    "png": "design/screens/TokenPartial.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Split pickup — paye handed over, karahi cooking; Hand over waits for 1:31 PM"
+   },
+   {
+    "file": "design/TokenLate.dc.html",
+    "png": "design/screens/TokenLate.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Not collected — ready 17 min ago: amber, Call shows the phone (view-customer-contact)"
+   },
+   {
+    "file": "design/TokenUrdu.dc.html",
+    "png": "design/screens/TokenUrdu.png",
+    "state": "urdu",
+    "device": "kiosk",
+    "lang": "ur",
+    "title": "Token view in Urdu"
+   },
+   {
+    "file": "design/TokenAddItems.dc.html",
+    "png": "design/screens/TokenAddItems.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Add items to a sent token — same token 53, banner says so, primary “Add to token 53”"
+   },
+   {
+    "file": "design/QueueTablet.dc.html",
+    "png": "design/screens/QueueTablet.png",
+    "state": "rush",
+    "device": "tablet",
+    "lang": "en",
+    "title": "Tablet — full queue as a drawer (40 open, search by token / name / last 4 digits)"
+   },
+   {
+    "file": "design/PhoneQueue.dc.html",
+    "png": "design/screens/PhoneQueue.png",
+    "state": "normal",
+    "device": "phone",
+    "lang": "en",
+    "title": "Phone — Queue tab: ready first (hand over / pay), then cooking, then phone orders"
+   },
+   {
+    "file": "design/PhoneToken.dc.html",
+    "png": "design/screens/PhoneToken.png",
+    "state": "normal",
+    "device": "phone",
+    "lang": "en",
+    "title": "Phone — one token full screen: stages, Hand over / Pay, Add items"
+   }
+  ]
+ },
+ {
+  "screen": "TK-S04",
+  "name": "Held on this counter",
+  "kind": "drawer · K T P",
+  "components": "`.tk-drawer` `.tk-il`",
+  "data": "device drafts (IndexedDB), all people of this device (GAPS G-6)",
+  "frames": [
+   {
+    "file": "design/HeldDrawer.dc.html",
+    "png": "design/screens/HeldDrawer.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Held on this counter — everyone signed in here sees them (not only who held); Resume / Throw away; held at + by whom"
+   }
+  ]
+ },
+ {
+  "screen": "TK-S05",
+  "name": "Pickup board (TV)",
+  "kind": "screen · TV 1920×1080",
+  "components": "`.bd-*`",
+  "data": "`GET /queries/pickup-board` + live audience `display` (GAPS G-8), voice clips (G-9)",
+  "frames": [
+   {
+    "file": "design/Board.dc.html",
+    "png": "design/screens/Board.png",
+    "state": "normal",
+    "device": "tv",
+    "lang": "en",
+    "title": "Pickup board (TV) — Ready (green, big) / Preparing (with ~time); English + Urdu; no names for unpaid; phone orders by first name"
+   },
+   {
+    "file": "design/BoardCall.dc.html",
+    "png": "design/screens/BoardCall.png",
+    "state": "normal",
+    "device": "tv",
+    "lang": "en",
+    "title": "Call-out — a token turns ready: tile flashes, banner + chime + recorded Urdu voice “Token number sattavan”"
+   },
+   {
+    "file": "design/BoardRush.dc.html",
+    "png": "design/screens/BoardRush.png",
+    "state": "rush",
+    "device": "tv",
+    "lang": "en",
+    "title": "RUSH — 40 open: oldest ready first, Preparing shows 16 + “+18 more”; no scrolling"
+   },
+   {
+    "file": "design/BoardEmpty.dc.html",
+    "png": "design/screens/BoardEmpty.png",
+    "state": "empty",
+    "device": "tv",
+    "lang": "en",
+    "title": "Board with no orders — welcome in English + Urdu"
+   },
+   {
+    "file": "design/BoardOffline.dc.html",
+    "png": "design/screens/BoardOffline.png",
+    "state": "offline",
+    "device": "tv",
+    "lang": "en",
+    "title": "Board lost the hub — keeps the last list, “Updating…”, never shows a wrong Ready"
+   }
+  ]
+ },
+ {
+  "screen": "TK-S06",
+  "name": "Packer / Pass — takeaway filter",
+  "kind": "screen · T",
+  "components": "`.pk` `.pk--next` `.pk--ready`",
+  "data": "03b `GET /queries/pass`, `MarkReadyToServe` (Bag ready), `Handover`; bill state (GAPS G-7)",
+  "frames": [
+   {
+    "file": "design/PackerPass.dc.html",
+    "png": "design/screens/PackerPass.png",
+    "state": "normal",
+    "device": "tablet",
+    "lang": "en",
+    "title": "Packer / Pass (tablet) — takeaway filter: “Pack next” by time; Bag ready = ReadyToServe → board + cashier tile"
+   }
+  ]
+ },
+ {
+  "screen": "TK-S07",
+  "name": "Customer status page (slip QR)",
+  "kind": "web page · customer phone",
+  "components": "`.cs-*`",
+  "data": "public LAN route `/t/<id>.<sig>` (GAPS G-10)",
+  "frames": [
+   {
+    "file": "design/StatusCooking.dc.html",
+    "png": "design/screens/StatusCooking.png",
+    "state": "normal",
+    "device": "phone",
+    "lang": "en",
+    "title": "Customer status page (slip QR → restaurant Wi-Fi) — token, “Ready around 1:42 PM”, items"
+   },
+   {
+    "file": "design/StatusReady.dc.html",
+    "png": "design/screens/StatusReady.png",
+    "state": "normal",
+    "device": "phone",
+    "lang": "en",
+    "title": "Customer status page — ready (green), beeps, “show this screen at the counter”"
+   },
+   {
+    "file": "design/StatusUrdu.dc.html",
+    "png": "design/screens/StatusUrdu.png",
+    "state": "urdu",
+    "device": "phone",
+    "lang": "ur",
+    "title": "Customer status page in Urdu"
+   }
+  ]
+ },
+ {
+  "screen": "TK-S08",
+  "name": "Counter-facing customer display",
+  "kind": "second monitor · 1920×1080",
+  "components": "`.cd-*`",
+  "data": "client-only mirror of the cart (BroadcastChannel), Raast QR state (GAPS G-12, G-14)",
+  "frames": [
+   {
+    "file": "design/CustomerDisplay.dc.html",
+    "png": "design/screens/CustomerDisplay.png",
+    "state": "normal",
+    "device": "display",
+    "lang": "en",
+    "title": "Customer-facing display at the counter — cart mirror with total and Ready by, while the cashier types"
+   },
+   {
+    "file": "design/CustomerDisplayRaast.dc.html",
+    "png": "design/screens/CustomerDisplayRaast.png",
+    "state": "normal",
+    "device": "display",
+    "lang": "en",
+    "title": "Customer display during Raast — big QR for this amount, auto “Paid ✓” when the bank confirms"
+   }
+  ]
+ },
+ {
+  "screen": "TK-D01",
+  "name": "Customer: name / phone (+92 mask, keypad), match + Repeat",
+  "kind": "inline in cart · K T P",
+  "components": "`.tk-cust` `.tk-field` `.tk-input(.is-focus|.is-err)` `.tk-match` `.tk-keypad`",
+  "data": "`SubmitOrder.takeaway{customer_name, phone}`; `GET /queries/customer-orders?phone` (GAPS G-4)",
+  "frames": [
+   {
+    "file": "design/PhoneRepeat.dc.html",
+    "png": "design/screens/PhoneRepeat.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Phone typed → match “Usman · 6 orders” → Repeat last order in one tap; numeric pad with +92 mask"
+   },
+   {
+    "file": "design/PhoneInvalid.dc.html",
+    "png": "design/screens/PhoneInvalid.png",
+    "state": "error",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Phone too short — inline error, Send still allowed without phone? No: a typed phone must be valid (clear it or fix it)"
+   }
+  ]
+ },
+ {
+  "screen": "TK-D02",
+  "name": "Pickup time (Now / +15 / +30 / +45 / Time…)",
+  "kind": "inline in cart · K T P",
+  "components": "`.tk-pick` `.tk-readyby--later`",
+  "data": "`SubmitOrder.pickup_at_ms` + eta-preview draft (GAPS G-2)",
+  "frames": [
+   {
+    "file": "design/PickupLater.dc.html",
+    "png": "design/screens/PickupLater.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Phone-ahead order — pickup 2:00 PM; name + phone required; kitchen times it to land at 2:00; “Schedule for 2:00 PM”"
+   },
+   {
+    "file": "design/PickupLaterUrdu.dc.html",
+    "png": "design/screens/PickupLaterUrdu.png",
+    "state": "urdu",
+    "device": "kiosk",
+    "lang": "ur",
+    "title": "Phone-ahead order in Urdu"
+   }
+  ]
+ },
+ {
+  "screen": "TK-D03",
+  "name": "Item sheet (size, add-ons with steppers, cooking choices, kg, note)",
+  "kind": "sheet · K T P",
+  "components": "`.tk-sheet` `.tk-vars` `.tk-var` `.tk-opts` `.tk-opt(--off)` `.tk-step--sm` `.tk-keypad`",
+  "data": "branch-config items / modifier groups (`max_choices`, option `max_quantity`), availability; `Option.quantity` already in `SubmitOrder`",
+  "frames": [
+   {
+    "file": "design/ItemSheet.dc.html",
+    "png": "design/screens/ItemSheet.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Item sheet — size, add-ons WITH quantity steppers (karahi + 4 naan), cooking choices, note; “usually 4 naan” hint"
+   },
+   {
+    "file": "design/ItemSheetEdit.dc.html",
+    "png": "design/screens/ItemSheetEdit.png",
+    "state": "edit",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Editing a cart line — CTA says “Save changes”, Remove on the left (fixes “Add to order” on edit)"
+   },
+   {
+    "file": "design/ItemSheetKg.dc.html",
+    "png": "design/screens/ItemSheetKg.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Karahi by kg — weight pad, 0.5/0.75/1 kg chips, or Weigh later"
+   },
+   {
+    "file": "design/ItemSheetUrdu.dc.html",
+    "png": "design/screens/ItemSheetUrdu.png",
+    "state": "urdu",
+    "device": "kiosk",
+    "lang": "ur",
+    "title": "Item sheet in Urdu"
+   }
+  ]
+ },
+ {
+  "screen": "TK-D04",
+  "name": "Deal sheet",
+  "kind": "sheet · K T P",
+  "components": "as TK-D03 + `.tk-il`",
+  "data": "branch-config deals",
+  "frames": [
+   {
+    "file": "design/DealSheet.dc.html",
+    "png": "design/screens/DealSheet.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Family deal — each part listed, choices as big buttons, extra naan with a stepper"
+   }
+  ]
+ },
+ {
+  "screen": "TK-D05",
+  "name": "Send without a dialog (toast) / queued",
+  "kind": "toast · K T P",
+  "components": "`.tk-toast(--ok)` `.tk-toast__tok`",
+  "data": "`SubmitOrder` result `token`, `groups[].promise_ms`; queue (25b)",
+  "frames": [
+   {
+    "file": "design/SentToast.dc.html",
+    "png": "design/screens/SentToast.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "After Send — no dialog: fresh cart at once, token 57 toast (print again), token on top of Cooking"
+   },
+   {
+    "file": "design/SentQueued.dc.html",
+    "png": "design/screens/SentQueued.png",
+    "state": "offline",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Sent while offline — “Not sent yet — token comes when the hub is back”; row dashed “Waiting to send”"
+   }
+  ]
+ },
+ {
+  "screen": "TK-D06",
+  "name": "Pay panel: cash notes / card ref / NFC / Raast QR / paid / error",
+  "kind": "panel over cart · K T P",
+  "components": "`.tk-paypanel` `.tk-modes` `.tk-notes` `.tk-tendered` `.tk-change(--short)` `.tk-qrbox` `.tk-nfc`",
+  "data": "`GET /queries/bill?order_id`, `AddPayment`, `CloseSplit` (receipt), payment modes; NFC / Raast (GAPS G-12)",
+  "frames": [
+   {
+    "file": "design/PayCash.dc.html",
+    "png": "design/screens/PayCash.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Send & pay → pay panel over the cart (menu + queue stay live): Exact / 4,000 / 5,000 / 10,000, change shown huge"
+   },
+   {
+    "file": "design/PayCashShort.dc.html",
+    "png": "design/screens/PayCashShort.png",
+    "state": "error",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Typed less than due — “Short by Rs 650” in red, Paid stays off"
+   },
+   {
+    "file": "design/PayCard.dc.html",
+    "png": "design/screens/PayCard.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Card on the kiosk — counter machine, last 4 digits as the reference (05 reference_required)"
+   },
+   {
+    "file": "design/PayRaast.dc.html",
+    "png": "design/screens/PayRaast.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Raast — dynamic QR for this amount; closes itself when the bank confirms; mirrored on the customer screen"
+   },
+   {
+    "file": "design/PayDone.dc.html",
+    "png": "design/screens/PayDone.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Paid — change Rs 1,350 huge, receipt printing, Enter = next customer (fresh cart already behind)"
+   },
+   {
+    "file": "design/PayError.dc.html",
+    "png": "design/screens/PayError.png",
+    "state": "error",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Payment failed — nothing charged, Try again or Pay later (order is already in the kitchen)"
+   },
+   {
+    "file": "design/PayUrdu.dc.html",
+    "png": "design/screens/PayUrdu.png",
+    "state": "urdu",
+    "device": "kiosk",
+    "lang": "ur",
+    "title": "Pay panel in Urdu"
+   },
+   {
+    "file": "design/PayNfcTablet.dc.html",
+    "png": "design/screens/PayNfcTablet.png",
+    "state": "normal",
+    "device": "tablet",
+    "lang": "en",
+    "title": "Card by NFC on the tablet (Paymob) — “Tap the card on the back of this tablet”"
+   }
+  ]
+ },
+ {
+  "screen": "TK-D07",
+  "name": "Remove / cancel from a token",
+  "kind": "dialog · K T P",
+  "components": "`.tk-dlg` `.tk-il` `.tk-step--sm`",
+  "data": "`RemoveItems` (not started), `VoidItems` (04, approval), bill refund through 05 reopen rules",
+  "frames": [
+   {
+    "file": "design/TokenRemove.dc.html",
+    "png": "design/screens/TokenRemove.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Remove / cancel — not started: remove (units stepper); cooking: void → approval (04); paid → refund on the bill"
+   }
+  ]
+ },
+ {
+  "screen": "TK-D08",
+  "name": "Leave guard",
+  "kind": "dialog · K T P",
+  "components": "`.tk-dlg`",
+  "data": "drafts (Hold = `held: true`)",
+  "frames": [
+   {
+    "file": "design/LeaveGuard.dc.html",
+    "png": "design/screens/LeaveGuard.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Leaving with an unsent cart (any tab, Back, sign out) — Hold it / Throw away / Stay here. Never silent."
+   }
+  ]
+ },
+ {
+  "screen": "TK-C01",
+  "name": "Menu tile — states",
+  "kind": "component",
+  "components": "`.tk-tile` and modifiers",
+  "data": "availability, stock mirror, stations-live",
+  "frames": [
+   {
+    "file": "design/TileStates.dc.html",
+    "png": "design/screens/TileStates.png",
+    "state": "all",
+    "device": "component",
+    "lang": "en",
+    "title": "Menu tile — every state: wait chip, now, zone count, in cart, keyboard focus, sold out (no strike-through), not now, paused, half/full on tile, rush tile"
+   }
+  ]
+ },
+ {
+  "screen": "TK-C02",
+  "name": "Ready tile + queue row — states, hand-over undo",
+  "kind": "component",
+  "components": "`.tk-rt(--due|--late|--part)` `.tk-qr(--q)` `.tk-tok`",
+  "data": "open-orders (G-1), `MarkServed` delayed 5 s for Undo (client)",
+  "frames": [
+   {
+    "file": "design/HandoverUndo.dc.html",
+    "png": "design/screens/HandoverUndo.png",
+    "state": "normal",
+    "device": "kiosk",
+    "lang": "en",
+    "title": "Hand over in one tap from the ready tile — toast “48 handed over · Undo” for 5 s; the board clears 48"
+   },
+   {
+    "file": "design/ReadyTiles.dc.html",
+    "png": "design/screens/ReadyTiles.png",
+    "state": "all",
+    "device": "component",
+    "lang": "en",
+    "title": "Ready tile — paid · due (tap = pay first) · waiting long (call) · partial (some given) · selected"
+   }
+  ]
+ },
+ {
+  "screen": "TK-P01",
+  "name": "Token slip (80 mm)",
+  "kind": "print",
+  "components": "`.slip`",
+  "data": "03c slip doc (GAPS G-11)",
+  "frames": [
+   {
+    "file": "design/TokenSlip.dc.html",
+    "png": "design/screens/TokenSlip.png",
+    "state": "normal",
+    "device": "slip",
+    "lang": "en",
+    "title": "Token slip (80 mm) — token huge, ready ~time, Urdu line, QR to the status page; receipt stays as 05 prints it"
+   }
+  ]
+ },
+ {
+  "screen": "TK-HR",
+  "name": "Hostile review — before / after",
+  "kind": "review",
+  "components": "—",
+  "data": "—",
+  "frames": [
+   {
+    "file": "design/HostileReview.dc.html",
+    "png": "design/screens/HostileReview.png",
+    "state": "review",
+    "device": "component",
+    "lang": "en",
+    "title": "Hostile review — tired cashier, 1:30 PM, 15 in queue: what could lose an order or money, before → after"
+   }
+  ]
+ }
+]

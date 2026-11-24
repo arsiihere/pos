@@ -85,6 +85,9 @@ function show(shell: Shell) {
   );
 }
 
+// 02b-tk C3-4: the order-type filter chips are a view control (no command), on whatever the socket or the grant
+const actions = () => m.buttons().filter((b) => b.closest('.pfilter') === null);
+
 describe('[03b §8] Pass states', () => {
   it('[03b §8] socket down → offline banner, every button off, cards stay', () => {
     const s = setup({ online: false });
@@ -93,7 +96,7 @@ describe('[03b §8] Pass states', () => {
     expect(bar?.getAttribute('role')).toBe('status');
     expect(bar?.textContent).toBe('No connection to the hub — reconnecting…Buttons are off; taps are not saved');
     expect(m.container.querySelectorAll('article.pc')).toHaveLength(1);
-    const buttons = m.buttons();
+    const buttons = actions();
     expect(buttons.length).toBeGreaterThan(0);
     expect(buttons.every((b) => b.hasAttribute('disabled'))).toBe(true);
   });
@@ -103,7 +106,7 @@ describe('[03b §8] Pass states', () => {
     show(s.shell);
     expect(m.container.querySelector('main.pass > .ro[role="status"]')?.textContent).toBe('You can see the Pass but not run it. Ask a manager.');
     expect(m.container.querySelectorAll('article.pc')).toHaveLength(1);
-    expect(m.buttons()).toHaveLength(0);
+    expect(actions()).toHaveLength(0);
     expect(m.container.querySelector('.warnbar')).toBeNull();
   });
 
@@ -118,12 +121,12 @@ describe('[03b §8] Pass states', () => {
     expect(s.sent).toEqual(['MarkReadyToServe']);
     expect(m.container.querySelector('main.pass > .msg.c-danger[role="alert"]')?.textContent).toBe('This Pass point is archived. Ask a manager to set up this tablet again.');
     expect(m.container.querySelectorAll('article.pc')).toHaveLength(1);
-    expect(m.buttons()).toHaveLength(0);
+    expect(actions()).toHaveLength(0);
     // a new catch-up (the tablet bound again, or the point back) clears it
     s.live.frame({ type: 'catch_up', as_of_seq: 9, state: { point_view: VIEW } });
     await flush();
     expect(m.container.querySelector('.msg.c-danger')).toBeNull();
-    expect(m.buttons().length).toBeGreaterThan(0);
+    expect(actions().length).toBeGreaterThan(0);
   });
 
   it('[03b §3.10; #208 P-7] point archived → a takeover row\'s Reprint goes too, the rows stay', async () => {
