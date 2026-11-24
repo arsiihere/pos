@@ -1,4 +1,4 @@
-import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type Page, type TestInfo, type WebSocketRoute } from '@playwright/test';
 import { deviceFor, escapeRe, landing, LANGS, menuTile, rushOff, signInOn, signOut, takeawayTab, tr, type Lang } from './02b-support';
 
 // 02b-TK Part A2 batch 1 against the e2e test hub (kiosk 1920×1080 and landscape tablet 1280×800, en + ur).
@@ -105,17 +105,34 @@ for (const lang of LANGS) {
     }
   });
 
-  test(`[02b-TK TK-SH02; 02b §8 Device idle lock] Lock screen locks now; its Sign in brings the name tiles (${lang})`, async ({ page }, info) => {
+  // 02b §8 Device idle lock: the lock shows, drains the queue, sends the logout and offers login. With the hub there the
+  // logout goes through at once and the hub closes the staff socket (4401), so the page goes straight to the name tiles;
+  // the lock screen stays only while the logout is owed (02b-idle.spec.ts): the hub is gone here when Lock is tapped.
+  test(`[02b-TK TK-SH02; 02b §8 Device idle lock] Lock screen locks now; its Sign in brings the name tiles (${lang})`, async ({ page, context }, info) => {
     runsHere(info);
+    const sockets: WebSocketRoute[] = [];
+    await page.routeWebSocket(/\/ws$/, (ws) => {
+      ws.connectToServer();
+      sockets.push(ws);
+    });
     await signInOn(page, deviceFor(info), lang);
-    await takeawayTab(page);
-    await chip(page).click();
-    await menuItem(page, lang, 'shell.me.lock').click();
-    const lock = page.locator('.idle');
-    await expect(lock).toBeVisible();
-    await expect(lock.locator('h1')).toHaveText(tr(lang, 'shell.locked'));
-    await lock.getByRole('button', { name: tr(lang, 'alerts.signin.submit') }).click();
-    await expect(page.locator('.who__t').first()).toBeVisible();
+    try {
+      await takeawayTab(page);
+      await context.setOffline(true);
+      for (const ws of sockets) await ws.close({ code: 1006 });
+      await chip(page).click();
+      await menuItem(page, lang, 'shell.me.lock').click();
+      const lock = page.locator('.idle');
+      await expect(lock).toBeVisible();
+      await expect(lock.locator('h1')).toHaveText(tr(lang, 'shell.locked'));
+      await context.setOffline(false);
+      await lock.getByRole('button', { name: tr(lang, 'alerts.signin.submit') }).click();
+      await expect(lock).toHaveCount(0);
+      await expect(page.locator('.who__t').first()).toBeVisible();
+    } finally {
+      await context.setOffline(false);
+      await signOut(page, info, lang);
+    }
   });
 
   test(`[02b-TK TK-SH01; 05 §6.16] the Owner's shift: the banner with Open my shift when none is open, else My shift says when it opened (${lang})`, async ({ page }, info) => {
