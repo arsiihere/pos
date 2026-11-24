@@ -27,3 +27,17 @@ Answers to the open questions of the 02b-TK backend audit (hand-off `docs/design
 
 - **Part A (no spec bump):** A1 H10 Cashier `mark-served` + cloud backfill (next free number); A2 client-only bundle on what is built (audit §2). Plan: `docs/plans/02b-tk-plan.md`.
 - **Part B (spec bumps, then STOP for owner review before code):** 02b v1.0.25, 03a, 03b v1.0.16, 00 Hub Platform Access + Foundation + 05a, 03c v1.0.16 + 05 §3.16, 01a v2.11, new 05c — each through a hostile review in a fresh session (`docs/reviews/`).
+
+## Owner review of the Part B package (24 Nov 2026, final answers)
+
+Every recommended default in "Owner decisions blocking approval" (`docs/plans/02b-tk-spec-status.md`) is **accepted**, except these, which bind like R1–R9:
+
+| # | Topic | Answer | Lands in |
+|---|---|---|---|
+| OR-1 | Board voice (05a OQ-B3 / O-20, 00 OD-7) | **English only**, no Urdu clips. Numbers are composed from ~31 pieces (chime, "token number", one–nineteen, twenty…ninety, "hundred", "thousand"), so every token 1–2000 is spoken ("token number two hundred fifty seven"). | 05a v1.0.7 §8, 00 HPA v1.13 OD-7, F v1.18 stack row |
+| OR-2 | Pass hands the bag to the customer (03b OQ-9 / 02b TK-Q12) | A Pass action **"Handed to customer"** on takeaway / parking cards sends `MarkServed` for the order's lines (collected, closes the Ready, clears the board). The Pass role (Cook) gets `mark-served` (default + backfill). The Pass→staff Handover is unchanged. | 03b v1.0.16 §3.4, 02b v1.0.25 §8, 01b v1.12 B-4 |
+| OR-3 | Raast (05c) | **Out of the pilot.** Paymob SoftPOS card part kept (Q-B – Q-E as recommended); everything Raast in 05c §13 "Later". Card machine with a manual reference stays the fallback. | 05c v0.2 |
+| OR-4 | `payment_unapplied` with no manager present (05c Q-E / 01d Q-37f) | Also sent to the **Owner** role. | 01d v1.3.7 §3.5 `when_none`, 05c D-1 |
+| OR-5 | Check bill (03c / 05 D-7) | A check bill can be printed **any time until the bill is paid**: unsent cart → "NOT SENT YET — CHECK BILL" document job, no token, no bill on the hub; sent token with money due → `PrintCheckBill`; paid → "Print receipt again". | 05 v1.0.35 §6.3a, 03c v1.0.16, 02b §8 |
+| OR-6 | Hardware | Board on an owner-provided PC (OD-2 kept); a router that gives guest Wi-Fi only the public status port (OD-5 kept). | `docs/plans/02b-tk-plan.md` "Before go-live" |
+| OR-7 | Unpaid hand-over (replaces R2's client override) | The counter sends a **01d request** "Hand over unpaid token N" to holders of the new permission **`hand-over-unpaid`** on their own `listed` devices; a manager approves; Hand over unlocks for that order only. **Until it ships, a Due order cannot be handed over.** R2's "no hub guard" stays. | 02b v1.0.25 §3.7a, 01b v1.12 B-5, 05a v1.0.7 L-1, 01d v1.3.7 To 02b, 03b §3.4 |
