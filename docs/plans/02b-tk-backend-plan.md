@@ -199,39 +199,9 @@ Gate. ≈ 22 h.
 
 Gate. ≈ 12 h.
 
-## Batch 15 — 05c before STOP-0 (1 backend task)
+## ~~Batch 15 — 05c~~ and ~~Behind STOP-0 / STOP-C~~ — REMOVED (owner 2026-11-24)
 
-| ID | Task | Spec § | Migration | Files | Tests | Size | Depends on |
-|---|---|---|---|---|---|---|---|
-| PC-1 | Pure payment-intent state machine and apply decision (code, not a contract: changeable until STOP-0). Client mocks (05c task 4) are the client lane | 05c v0.2 §11 task 3, §3 | — | `packages/domain/src/payments/` | 05c 1, 2 | M 5 h | approval of 05c v0.2 |
-
-Gate. ≈ 5 h.
-
-## Behind STOP-0 / STOP-C (BLOCKED, not in the total)
-
-Nothing here merges before STOP-0 (05c v0.2 §11); if any STOP-0 item is "no", card stays manual and only PC-1 exists. Event payloads and the port are re-reviewed and frozen at STOP-0.
-
-| ID | Task (05c §11 number) | Migration | Tests | Size |
-|---|---|---|---|---|
-| PS-1 | 4a: §9 codes (F-1), permission `manage-payment-providers` (R-1), kinds `payment_unapplied`, `payment_relay_unhealthy` | — | 05c (codes) | S 2 h |
-| PS-2 | 01d v1.3.7 (d) 05c kinds and (e) OR-4 `when_none` (`kinds.ts` `StepTo.when_none`, `targets.ts` second pass, `routes.ts` presence exemption) — only consumer is `payment_unapplied`, so it lands here | — | 01d 119, 121 | M 5 h |
-| PS-3 | 4b: `payment_references.source` (05 rows B-4, B-6, B-7) | **hub `0030_payment_reference_source.sql` (provisional; next free at merge, hub order #4)** | 05c 11a; 05 re-run | S 3 h |
-| PS-4 | 5: event schemas + fixtures | — | 05c 3 | M 4 h |
-| PS-5 | 6: billing settings `provider` + PUT checks (A-1; owner form = client lane) | — | 05c 4, 6 | M 4 h |
-| PS-6 | 7: intents tables + projections | **hub `0031_payment_intents.sql` (provisional, hub order #5)** | 05c (projection) | M 4 h |
-| PS-7 | 8: 05 row B-1 exports | — | — | S 2 h |
-| PS-8 | 9: port, registry, `fake` (test harness only), `SetPaymentCredential` + admin query | — | 05c 11 | M 5 h |
-| PS-9 | 10: `StartPaymentIntent`, `CancelPaymentIntent`, `ReportPaymentIntentResult` | — | 05c 5, 7–10e, 12, 22 | L 8 h |
-| PS-10 | 11: worker (create, poll, deadlines, watch, apply, health) | — | 05c 13–17, 19a, 20, 21, 21a, 23, 26 | L 10 h |
-| PS-11 | 12: guards Q-1, T-1, A-2, B-2, B-3, V-1 | — | 05c 24a–24h, 25 | L 8 h |
-| PS-12 | 13: `ResolveUnappliedPayment`, queries §6.6–§6.8, re-raise | — | 05c 16e, 16f | M 5 h |
-| PS-13 | 14 (relay, only if Paymob confirms by webhook): cloud relay, guard scope `webhook-endpoint` | **cloud `0022_payment_relay.sql` (provisional; next free at merge, after cloud order #4)** | 05c 27–29a | L 8 h |
-| PS-14 | 15: hub relay pull, cursor-stop rule, unknown-intent rows, health | — | 05c 18, 18a, 18b, 19b–19d | M 6 h |
-| PC-2 | STOP-C 17: `paymob_softpos` adapter + verifier (05c 16 / 18 are `apps/tablet` / client; 19 manual NFC) | — | 05c 30, 30b | M 5 h |
-
-≈ 79 h behind STOP-0 / STOP-C (15 tasks).
-
----
+Paymob is out for now: the whole of 05c is parked ("§13 Later"); the pilot takes cards on the counter machine with a typed reference (works today). Tasks PC-1, PC-2 and PS-1 – PS-14 are removed, with 01d's `when_none` and the 05c alert kinds (their only consumer). No other task depended on them. **Totals below: 72 tasks, ≈ 292 h** (Batch 15's 1 task / 5 h removed).
 
 ## Inconsistencies found while planning (for the spec owners; no spec edited here)
 
