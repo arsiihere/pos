@@ -41,7 +41,10 @@ describe('[02b-TK C2-2] token view on the takeaway screen', () => {
     // the token leaves the rail while it can still be undone
     expect(m.container.querySelector('.tk-rt')).toBeNull();
     expect(h.sent).toEqual([]);
-    await tick(UNDO_MS);
+    // review 6: nothing goes before the full 5 s
+    await tick(UNDO_MS - 1);
+    expect(h.sent).toEqual([]);
+    await tick(1);
     expect(h.sent).toEqual([{ type: 'MarkServed', payload: { lines: [{ order_id: 'O48', order_item_ids: ['A'] }] }, meta: { label: 'Mark served · 48' } }]);
     expect(m.container.querySelector('.tk-toast')).toBeNull();
     m.unmount();
@@ -155,5 +158,17 @@ describe('[02b-TK C2-3] add items to a sent token', () => {
       expect(m.container.querySelectorAll('.ln')).toHaveLength(1);
       m.unmount();
     }
+    // review 6: a CONFIG_REFERENCE_INVALID on another field is not the token's: it keeps its own message
+    const other = screenHarness({ answer: (type) => (type === 'SubmitOrder' ? { status: 'refused', error: { kind: 'api', status: 422, code: 'CONFIG_REFERENCE_INVALID', details: { field: 'item_id' } } } : undefined) });
+    const m = other.render();
+    await flush();
+    await openRow(m);
+    m.click(m.button('Add items'));
+    addNaan(m);
+    m.click(m.button('Add to token 48'));
+    await flush(8);
+    expect(other.toasts.length).toBeGreaterThan(0);
+    expect(other.toasts.at(-1)!.text).not.toBe('This token can’t take more items (closed, cancelled or another day) — send them as a new order');
+    m.unmount();
   });
 });
