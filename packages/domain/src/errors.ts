@@ -166,6 +166,8 @@ export const ErrorCatalogue = {
   DISPLAY_NOT_ENABLED: { status: 403 },
   TRACKING_LINK_INVALID: { status: 404 },
   RATE_LIMITED: { status: 429 },
+  // 03c v1.0.16 §9
+  TAKEAWAY_SLIP_NOT_ALLOWED: { status: 409 },
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCatalogue;

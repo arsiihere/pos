@@ -21,6 +21,10 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 describe('errors', () => {
+  it('[S-3; 03c v1.0.16 §9; F §6.2] registers the new error statuses', () => {
+    expect(ErrorCatalogue).toHaveProperty('TAKEAWAY_SLIP_NOT_ALLOWED', { status: 409 });
+  });
+
   it('[H-1; 00 HPA v1.13 §9; F §6.2] registers the new error statuses', () => {
     expect(ErrorCatalogue).toHaveProperty('DISPLAY_NOT_ENABLED', { status: 403 });
     expect(ErrorCatalogue).toHaveProperty('TRACKING_LINK_INVALID', { status: 404 });
