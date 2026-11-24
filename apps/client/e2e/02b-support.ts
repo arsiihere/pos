@@ -86,7 +86,7 @@ export function escapeRe(text: string): string {
 /** The Takeaway tab (`#/takeaway`, 05a A-7): the order screen itself — rail, menu, cart (02b-TK C2-1). */
 export async function takeawayTab(page: Page): Promise<void> {
   await page.evaluate(() => (window.location.hash = '#/takeaway'));
-  await expect(page.locator('.osc--tk')).toBeVisible();
+  await expect(page.locator('.osc--tk, .order--tk-phone')).toBeVisible();
   await expect(page).toHaveURL(/#\/takeaway$/);
 }
 
