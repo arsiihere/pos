@@ -43,7 +43,7 @@ export interface ScreenHarness {
   queries: string[];
 }
 
-export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, OrderViewBody>; bills?: Record<string, unknown>; grants?: Record<string, unknown>; drafts?: DraftStore; command?: (type: string, payload: unknown) => unknown; answer?: (type: string, payload: unknown) => unknown; bill?: (order_id: string) => unknown; online?: boolean; device?: 'cashier_kiosk' | 'tablet'; phone?: boolean } = {}): ScreenHarness {
+export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, OrderViewBody>; bills?: Record<string, unknown>; grants?: Record<string, unknown>; drafts?: DraftStore; command?: (type: string, payload: unknown) => unknown; answer?: (type: string, payload: unknown) => unknown; bill?: (order_id: string) => unknown; online?: boolean; device?: 'cashier_kiosk' | 'tablet'; phone?: boolean; openBills?: unknown[] } = {}): ScreenHarness {
   const live = createLiveBus();
   live.frame({ type: 'catch_up', as_of_seq: 1, state: { orders: { orders: [aCaught('O48', 48, [aLine('O48', 'A', 'Karahi')], { customer_name: 'Ali' })], zone_stock: [] } } });
   const base = aBranchConfig();
@@ -68,6 +68,8 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
     api: {
       query: async (path: string) => {
         queries.push(path);
+        // 05 §6.2 open-bills (the rail's Due amounts)
+        if (path.startsWith('/queries/open-bills')) return { ok: true, data: { bills: o.openBills ?? [], as_of_seq: 1 } };
         const id = new URLSearchParams(path.split('?')[1]).get('order_id')!;
         const found = bills[id] ?? o.bill?.(id);
         return found === undefined ? { ok: false, error: { kind: 'network' } } : { ok: true, data: found };

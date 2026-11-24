@@ -125,6 +125,9 @@
 .tk-rstrip { display: flex; gap: 8px; align-items: stretch; }
 .tk-rstrip .tk-rt { min-height: 84px; flex: 1 1 0; min-width: 0; padding: 8px 10px; }
 .tk-rstrip .tk-rt__who { display: none; }
+/* 02b-tk R2 (frames ReadyTiles, HomeTablet): a Due tile shows the amount owed, the strip's too */
+.tk-rt .tk-rt__who .money { font-variant-numeric: tabular-nums; unicode-bidi: isolate; direction: ltr; white-space: nowrap; }
+.tk-rstrip .tk-rt--due .tk-rt__who { display: block; font-size: 14px; }
 .tk-rstrip .tk-rt__act { font-size: 14px; }
 .tk-rstrip .tk-rt .tok { font-size: 34px; }
 .tk-rstrip .tk-rt .tk-chip { height: 26px; font-size: 13px; padding: 0 8px; }
