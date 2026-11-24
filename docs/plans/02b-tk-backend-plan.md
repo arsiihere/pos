@@ -25,6 +25,17 @@
 
 ---
 
+## Tiers (owner 2026-11-24) — the order changes, nothing is dropped
+
+**Tier 1** is built and merged first, **Tier 2** after. The lane split, start order and parallel groups are in `docs/plans/02b-tk-lanes.md`; the Codex instruction for Tier 1 is `docs/plans/02b-tk-codex-tier1.md`.
+
+| Tier | Tasks |
+|---|---|
+| **Tier 1** — takeaway counter on day 1 | B1-0, B1-1, B1-2, B1-3, B1-4, B1-6; B2-1, B2-2, B2-3; E-1 … E-10; P-1, P-2; C-1 (whole migration), C-3 / C-4 (`business_day_end_local_ms`, `takeaway_slip_on_send` only); R-1, R-2; PT-1 … PT-4; N-1, N-2; K-1, K-2, K-3; AU-1 (Tier 1 actions, after the 04 v1.0.9 draft); U-1 … U-4; CB-1, CB-2; S-1 … S-5 (slip without the QR until Tier 2); X-1 / X-2 (Tier 1 parts); all new error codes (in L0a) |
+| **Tier 2** — after Tier 1 is merged | B1-5, B2-4; P-3, P-4, P-5, P-6; C-2, C-3 / C-4 (companions, short codes, `rush_open_orders`); H-1 (session kind / events), A-1 (board contracts), H-2 … H-11; A-2 … A-4; N-3; AU-1 (`board` detail); X-1 / X-2 (rest) |
+
+Batch numbers below are the original dependency order; within a tier, follow the lanes file.
+
 ## Batch 1 — Prerequisites for G-1 and the pickup (7 tasks)
 
 | ID | Task | Spec § | Migration | Files | Tests | Size | Depends on |
