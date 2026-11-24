@@ -21,6 +21,10 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 describe('errors', () => {
+  it('[C-2; 01a v2.11 §9; F §6.2] registers the new error statuses', () => {
+    expect(ErrorCatalogue).toHaveProperty('SHORT_CODE_IN_USE', { status: 409 });
+  });
+
   it('[S-3; 03c v1.0.16 §9; F §6.2] registers the new error statuses', () => {
     expect(ErrorCatalogue).toHaveProperty('TAKEAWAY_SLIP_NOT_ALLOWED', { status: 409 });
   });

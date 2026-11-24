@@ -168,6 +168,8 @@ export const ErrorCatalogue = {
   RATE_LIMITED: { status: 429 },
   // 03c v1.0.16 §9
   TAKEAWAY_SLIP_NOT_ALLOWED: { status: 409 },
+  // 01a v2.11 §9
+  SHORT_CODE_IN_USE: { status: 409 },
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCatalogue;
