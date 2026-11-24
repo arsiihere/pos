@@ -2137,6 +2137,7 @@ Each task is TDD (failing test first) and is one commit citing its sections. v0.
     - the owner app fields (test 216) [§8.1];
     - `SHORT_CODE_IN_USE` in `errors.ts` and F §6.2 [§9].
 
+35. ⚠️ Changed by v2.11 owner clarification (PT-1 – PT-6): **Pass points by order type** — cloud migration `NNNN_point_order_types.sql` (next free at merge, after `NNNN_takeaway_role_grants.sql`, README), the points `POST` / `PATCH` `order_types` validation, snapshot `points[].order_types`, owner form field; tests 219–222; then 03b's `routePoint` / `routing_gaps` (03b tasks 49–51) and 02b's submit lookup (row PT-R1). [§5.2a, §6.9a, §4.3; 03b PT]
 ---
 
 ## §12. Definition of Done, checklist, open questions, deferred
