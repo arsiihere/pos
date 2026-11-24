@@ -29,7 +29,9 @@ for (const lang of LANGS) {
       await pairAs(other, h.device2, lang);
       await signIn(other, 'Manager', '0123');
       await tapTile(other, table);
-      await sheet(other).getByRole('button', { name: tr(lang, 'sheet.take_order_busy', { name: 'Ali' }) }).click({ force: true });
+      // a dispatched tap: alert banners sit above route sheets (01d v1.3.3 §3.13.6a K-1), so a forced click at the
+      // button's point lands on whatever banner the shared hub shows the Manager there (kitchen screens offline …)
+      await sheet(other).getByRole('button', { name: tr(lang, 'sheet.take_order_busy', { name: 'Ali' }) }).dispatchEvent('click');
       await dialog(other).getByRole('button', { name: tr(lang, 'sheet.act.release_other', { name: 'Ali' }) }).click();
       await dialog(other).locator('.chips .chip').first().click();
       await dialog(other).getByRole('button', { name: tr(lang, 'release.go') }).click();
