@@ -632,6 +632,8 @@ export const BranchListResponse = z.object({
         status: z.enum(['pending_hub', 'active']),
         hub_last_seen_at: z.number().int().nullable(),
         hub_synced_at: z.number().int().nullable(),
+        business_day_end_local_ms: z.number().int().min(0).max(86_340_000).multipleOf(60_000),
+        takeaway_slip_on_send: z.boolean(),
       }),
     ),
     hub_stale_after_ms: z.number().int(),

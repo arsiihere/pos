@@ -124,6 +124,7 @@ export const BranchEngineSettings = z.object({
   kds_offline_ms: z.number().int().min(10_000).max(300_000),
   // 01a v2.7.3 §5.2a row PT-2 (STAB-5): the takeaway receipt prints a split line's per-part ready times (05 v1.0.33 §3.16)
   show_part_times_to_customers: z.boolean(),
+  takeaway_slip_on_send: z.boolean(), // 01b v1.12 B-1, 01a v2.11 TS-2
   // 01a v2.7.5 §5.2a row MD-2, 01b v1.10.3 §6.10 (STAB-7; re-review F-1): the branch default max delay, 1–30 min in
   // ms, or null = "No limit" (the engine prioritises at 30 min late, 03a v1.2.10 §3.5.7 PR-1). Default 300 000.
   max_delay_default_ms: z.number().int().min(60_000).max(1_800_000).nullable(),

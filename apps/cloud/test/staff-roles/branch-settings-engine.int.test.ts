@@ -34,6 +34,7 @@ const DEFAULTS = {
   served_estimate_ms: null,
   ready_window_ms: 60_000,
   kds_offline_ms: 30_000,
+  takeaway_slip_on_send: true,
   show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §5.2a PT-1 (STAB-5)
   max_delay_default_ms: 300_000, // ⚠️ 01a v2.7.5 §5.2a MD-2 (STAB-7)
 };
@@ -117,6 +118,59 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     );
   });
 
+  it('[01b v1.12 #116, 01a #217] saves the slip switch, publishes it, and treats a repeat as a no-op', async () => {
+    const initial = await branchOf();
+    expect(initial.takeaway_slip_on_send).toBe(true);
+    const config = await configVersion();
+    const [branchId] = f.branches;
+    const otherConfig = await configVersion(f.branches[1]);
+    const directory = (await cloud.pool.query<{ directory_version: string }>(
+      'SELECT directory_version FROM tenants WHERE tenant_id = $1', [f.tenantId],
+    )).rows[0]!.directory_version;
+    const changed = await patchSettings({ expected_version: initial.version, takeaway_slip_on_send: false });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(counter.count).toBe(7);
+    const stored = await branchOf();
+    expect(stored.takeaway_slip_on_send).toBe(false);
+    expect(stored.version).not.toBe(initial.version);
+    expect(changed.json().data.branch).toEqual(stored);
+    expect((await engineRow()).takeaway_slip_on_send).toBe(false);
+    expect(await configVersion()).toBe(config + 1);
+    expect(await configVersion(f.branches[1])).toBe(otherConfig);
+    const audit = await audits();
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      entity_id: branchId,
+      action: 'update',
+      before: { takeaway_slip_on_send: true },
+      after: { takeaway_slip_on_send: false },
+    });
+
+    const repeat = await patchSettings({ expected_version: stored.version, takeaway_slip_on_send: false });
+    expect(repeat.statusCode).toBe(200);
+    expect(counter.count).toBe(3);
+    expect(repeat.json().data.branch.version).toBe(stored.version);
+    for (const invalid of ['no', null]) {
+      const refused = await patchSettings({ expected_version: stored.version, takeaway_slip_on_send: invalid });
+      expect(refused.statusCode).toBe(400);
+      const { error } = refused.json();
+      expect(error.code).toBe('VALIDATION_FAILED');
+      expect(error.details.issues[0]).toMatchObject({ path: 'takeaway_slip_on_send' });
+    }
+    expect(await branchOf()).toEqual(stored);
+    expect(await audits()).toEqual(audit);
+    expect(await configVersion()).toBe(config + 1);
+
+    const synced = await cloud.app.inject({
+      method: 'GET',
+      url: `/v1/sync/config?config_version=${config}&directory_version=${directory}`,
+      headers: { authorization: `Bearer ${f.branchKey}` },
+    });
+    expect(synced.statusCode, synced.body).toBe(200);
+    expect(counter.count).toBeLessThanOrEqual(33);
+    expect(BranchConfigSnapshotSchemaV4.parse(synced.json().data.config.snapshot).engine_settings.takeaway_slip_on_send).toBe(false);
+  });
+
   it('[01b v1.12 #117, 01a #218] updates the day end with other settings once', async () => {
     const initial = await branchOf();
     expect(initial.business_day_end_local_ms).toBe(14_400_000);
@@ -167,7 +221,7 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
   });
 
   it('[01b B-6; 03b §4.5 B-2] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV4 (served_estimate_ms, ready_window_ms, kds_offline_ms included)', () => {
-    expect([...Object.keys(DEFAULTS), 'takeaway_slip_on_send'].sort()).toEqual(Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).sort());
+    expect(Object.keys(DEFAULTS).sort()).toEqual(Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).sort());
   });
 
   it('[01b B-6] a missing settings row on read is an error, not a default', async () => {
@@ -441,7 +495,6 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     expect(snapshot.config_version).toBe(held + 1);
     expect(snapshot.engine_settings).toEqual({
       ...DEFAULTS,
-      takeaway_slip_on_send: true,
       served_estimate_ms: null,
       ready_window_ms: 60_000, // 03b A-1
       kds_offline_ms: 30_000, // 03b A-1

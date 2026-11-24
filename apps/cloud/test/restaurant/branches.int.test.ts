@@ -37,14 +37,17 @@ describe('branch list (§6.7b, S58)', () => {
     );
     await cloud.pool.query(`UPDATE branches SET name = 'Alpha Johar Town' WHERE branch_id = $1`, [c]);
 
+    await cloud.pool.query('UPDATE branches SET business_day_end_local_ms = 12600000 WHERE branch_id = $1', [a]);
+    await cloud.pool.query('UPDATE branch_engine_settings SET takeaway_slip_on_send = false WHERE branch_id = $1', [a]);
+
     const response = await list(f.tokenFor([a, c, f.other.branchId]));
     expect(response.statusCode, response.body).toBe(200);
     expect(response.json()).toEqual({
       data: {
-        // v1.3 (01b B19, D-11): the hub's times and the warning threshold.
+        // 01a #217–218 / 01b #116–117: branch-specific values and defaults ride the existing list read.
         branches: [
-          { branch_id: c, name: 'Alpha Johar Town', status: 'pending_hub', hub_last_seen_at: null, hub_synced_at: null },
-          { branch_id: a, name: 'Zeta Gulberg', status: 'active', hub_last_seen_at: null, hub_synced_at: null },
+          { branch_id: c, name: 'Alpha Johar Town', status: 'pending_hub', hub_last_seen_at: null, hub_synced_at: null, business_day_end_local_ms: 14_400_000, takeaway_slip_on_send: true },
+          { branch_id: a, name: 'Zeta Gulberg', status: 'active', hub_last_seen_at: null, hub_synced_at: null, business_day_end_local_ms: 12_600_000, takeaway_slip_on_send: false },
         ],
         hub_stale_after_ms: 180_000,
       },

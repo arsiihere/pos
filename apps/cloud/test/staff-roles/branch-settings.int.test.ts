@@ -31,6 +31,7 @@ const ENGINE_DEFAULTS = {
   served_estimate_ms: null,
   ready_window_ms: 60_000,
   kds_offline_ms: 30_000,
+  takeaway_slip_on_send: true,
   show_part_times_to_customers: true, // ⚠️ 01a v2.7.3 §5.2a PT-1 (STAB-5)
   max_delay_default_ms: 300_000, // ⚠️ 01a v2.7.5 §5.2a MD-2 (STAB-7)
 };
