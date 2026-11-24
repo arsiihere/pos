@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Permission } from "@pos/domain";
-import type { DirectoryInput, EventDraft } from "@pos/events";
+import type { BranchConfig, DirectoryInput, EventDraft } from "@pos/events";
 import { cryptoSecrets } from "../../hub/src/lib/secrets";
 import { aDirectory } from "../../hub/test/helpers/fixtures";
 import {
@@ -50,6 +50,8 @@ export interface E2eHub {
   printer_address: string;
   /** `pass:<key>` Pass tablets and `kds:<key>` kitchen screens of the 03b flows (03b-fixture.ts) */
   devices03: Record<string, { token: string; device_id: string }>;
+  /** 02b-TK hand-over flows: the tablet the kitchen's people sign in on to make a token ready (02b-support `kitchenReady`) */
+  kitchen: E2eDevice;
 }
 
 /** 02a flows: tables the specs take one by one (a flow never reuses a table another run left seated). */
@@ -314,6 +316,25 @@ function dlSeedTables(hub: TestHub): void {
     }
 }
 
+/**
+ * 02b-TK hand-over flows (02b-support `kitchenPull`): the e2e hub's clock is fixed and has no fires tick, so a line is
+ * fired only by GiveMeMore (03b §6.4), which pulls a line whose fire is still ahead and within its max_early_ms. Kheer
+ * (1 min) cooks at its own station (S1's copy at point P1, capacity 20, so the 03b and dl lines S1 keeps cooking take
+ * no room): ordered with Naan (5 min, due now) it fires 4 min later, and an hour of max_early_ms lets the kitchen pull
+ * it at once.
+ */
+export const E2E_STATION = "S-E2E";
+export const KHEER = { item_id: "I_KHEER", name: "Kheer" } as const;
+function menuWithKheer(menu: BranchConfig): BranchConfig {
+  const s1 = menu.stations.find((s) => s.station_id === "S1")!;
+  const raita = menu.items.find((i) => i.item_id === FX.optionItem)!;
+  return {
+    ...menu,
+    stations: [...menu.stations, { ...s1, station_id: E2E_STATION, name: "Dessert", capacity: 20 }],
+    items: [...menu.items, { ...raita, item_id: KHEER.item_id, name: KHEER.name, station_id: E2E_STATION, sort_order: 7, max_early_ms: 3_600_000 }],
+  };
+}
+
 /** A free local port: the hub checks Host = advertised_host:http_port (00 host guard), so it is fixed before boot. */
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -339,7 +360,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   await seedDirectory(hub, await directory());
   // task 28: the 02b fixture menu (Chicken Karahi, Naan, Cola, …) on the e2e floors, the business day open, stock counted
   openDay(hub, {
-    menu: menuWith03({ ...fixtureMenu(), floors: floors() }),
+    menu: menuWithKheer(menuWith03({ ...fixtureMenu(), floors: floors() })),
     stock: { [FX.stock]: 1_000_000 },
   });
   for (const zone of ["Z-FL-G", "Z-FL-R"])
@@ -356,6 +377,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     ownerStaffId: "S_ALI",
     name: "Ali phone",
   });
+  const kitchen = pairDevice(hub, { type: "tablet", name: "Kitchen e2e" });
   const dev = (
     d: { token: string; deviceId: string },
     device_type: E2eDevice["device_type"] = "tablet",
@@ -380,6 +402,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     branch_id: "branch-1",
     printer_address: printer.address,
     devices03,
+    kitchen: dev(kitchen),
   };
   const file = join(tmpdir(), `pos-e2e-hub-${process.pid}.json`);
   writeFileSync(file, JSON.stringify(info));
