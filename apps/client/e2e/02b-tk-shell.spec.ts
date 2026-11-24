@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { deviceFor, escapeRe, LANGS, menuTile, signInOn, signOut, takeawayTab, tr, type Lang } from './02b-support';
+import { deviceFor, escapeRe, LANGS, menuTile, rushOff, signInOn, signOut, takeawayTab, tr, type Lang } from './02b-support';
 
 // 02b-TK Part A2 batch 1 against the e2e test hub (kiosk 1920×1080 and landscape tablet 1280×800, en + ur).
 // Item 1 — the shell (frames ShellAnatomy, PersonMenu, DayNotStarted; MAPPING TK-SH01–03; 05a v1.0.6 C-1):
@@ -8,12 +8,15 @@ import { deviceFor, escapeRe, LANGS, menuTile, signInOn, signOut, takeawayTab, t
 //   unsent cart first (02b-TK C1-5) and hands the counter to the next person; Lock screen is the idle-lock screen now;
 //   the business day of the fixture is open, so no day banner; the shift banner follows 05 v1.0.34 §6.16.
 // Ali (order-taker) and the Owner (every permission) are on both devices (02b-tk-handover.spec.ts).
+// The shell of the normal layout: seed03's open tokens put the screen in rush mode (R9), so the override is off here
+// (02b-support rushOff; rush mode is 02b-tk-tiles.spec.ts's).
 
 const RUNS_ON = ['kiosk', 'tablet-landscape'];
 const runsHere = (info: TestInfo) => {
   test.skip(!RUNS_ON.includes(info.project.name), 'the takeaway shell runs at the kiosk and landscape tablet viewports');
   test.setTimeout(60_000);
 };
+test.beforeEach(async ({ page }) => rushOff(page));
 
 const chip = (page: Page) => page.locator('header.top button.me');
 const menu = (page: Page) => page.locator('[role="menu"]');

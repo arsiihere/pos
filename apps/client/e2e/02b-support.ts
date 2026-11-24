@@ -90,6 +90,21 @@ export async function takeawayTab(page: Page): Promise<void> {
   await expect(page).toHaveURL(/#\/takeaway$/);
 }
 
+/**
+ * 02b-TK R9 (rush.ts): the e2e hub always holds at least 40 open takeaway tokens (03b-fixture seed03: one fired
+ * takeaway order per 03b run), above RUSH_OPEN_ORDERS (15), so the takeaway screen opens in rush mode. A spec of the
+ * normal layout pins this device's manual override (`pos.tk.rush`, localStorage) to off before the page loads.
+ */
+export async function rushOff(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem('pos.tk.rush', 'off');
+    } catch {
+      // blocked storage: the count decides
+    }
+  });
+}
+
 /** The signed-in person's shift is open (05 §6.15): open it with Starting cash 0, or it already is. */
 export async function shiftOpen(page: Page, lang: Lang): Promise<void> {
   await page.evaluate(() => (window.location.hash = '#/shift'));

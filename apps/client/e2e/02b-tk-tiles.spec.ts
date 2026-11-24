@@ -1,14 +1,16 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { deviceFor, LANGS, menuTile, signInOn, signOut, takeawayTab, tr } from './02b-support';
+import { deviceFor, escapeRe, LANGS, menuTile, rushOff, signInOn, signOut, takeawayTab, tr } from './02b-support';
 import { TK_TILES } from './global-setup';
 
 // 02b-TK Part A2 batch 2 against the e2e test hub (kiosk 1920×1080 and landscape tablet 1280×800, en + ur).
 // Item 3 — the tiles (frame TileStates; MAPPING TK-C01): Half / Full on the "Paye" variant tile add that variant in one
 //   tap; the open cart line's ×2 ×4 ×6 ×8 chips set its quantity; the sold-out "Tikka" shows "Sold out", its price
 //   not struck through, and a tap says why in a toast (global-setup TK_TILES).
-// Item 4 — rush mode (frame HomeRush; R9 UI only): the e2e hub has far fewer than 15 open tokens, so the pill's manual
-//   toggle is walked: "Rush mode · n" (.tk-live--rush), dense tiles (.items--rush, no photos), the folded
-//   "Name / phone" button and the compact queue; a second tap goes back to Live and the normal layout.
+// Item 4 — rush mode (frame HomeRush; R9 UI only): the e2e hub holds at least 40 open takeaway tokens (seed03), over
+//   RUSH_OPEN_ORDERS (15), so the screen opens in rush mode by the count: "Rush mode · n" (.tk-live--rush), dense tiles
+//   (.items--rush, no photos), the folded "Name / phone" button and the compact queue; a tap on the pill goes back to
+//   Live and the normal layout (the manual override), a second tap to rush again. The other tests here are of the
+//   normal layout: the override is off for them (02b-support rushOff).
 // Item 5a — the Ready by reason line (frame CartTimeDelta): Naan ×8 on the fixture's slot station S1 (capacity 4) puts
 //   the last units into a later slot, so Ready by moves later and the Naan line says "Naan adds N min …".
 // Item 5b — the serve question (frame ServeChoice): Water (a ready item) + Naan (kitchen) asks "Water is ready now.
@@ -20,6 +22,10 @@ const runsHere = (info: TestInfo) => {
   test.skip(!RUNS_ON.includes(info.project.name), 'the takeaway tiles run at the kiosk and landscape tablet viewports');
   test.setTimeout(60_000);
 };
+/** The rush test opens on the count; every other test here on the normal layout. */
+test.beforeEach(async ({ page }, info) => {
+  if (!info.title.includes('[02b-TK R9;')) await rushOff(page);
+});
 
 /** The Paye category of the menu rail (its tiles are not on the first category). */
 async function payeCategory(page: Page): Promise<void> {
@@ -89,20 +95,25 @@ for (const lang of LANGS) {
     try {
       await takeawayTab(page);
       const pill = page.locator('header.top button.live.tk-live');
-      await expect(pill).toHaveText(tr(lang, 'alerts.live'));
-      await pill.click();
+      // on by the count: "Rush mode · n", n at least RUSH_OPEN_ORDERS (15)
       await expect(pill).toHaveClass(/tk-live--rush/);
-      await expect(pill).toContainText(tr(lang, 'shell.rush'));
+      await expect(pill).toHaveText(new RegExp(`^${escapeRe(tr(lang, 'shell.rush'))} · (1[5-9]|[2-9]\\d|\\d{3,})$`));
       await expect(page.locator('.menu .items--rush')).toBeVisible();
       await expect(page.locator('.menu .items--rush .photo').first()).toBeHidden();
       await expect(page.locator('.cart input[name="customer_name"]')).toHaveCount(0);
       await page.locator('.cart .cust--compact').getByRole('button', { name: tr(lang, 'c.who_add') }).click();
       await expect(page.locator('.cart input[name="customer_name"]')).toBeVisible();
       if (info.project.name === 'kiosk') await expect(page.locator('aside.tk-q.tk-q--compact')).toBeVisible();
+      // a tap: back to Live and the normal layout (the manual override); a second tap: rush again
       await pill.click();
       await expect(pill).not.toHaveClass(/tk-live--rush/);
       await expect(pill).toHaveText(tr(lang, 'alerts.live'));
       await expect(page.locator('.menu .items--rush')).toHaveCount(0);
+      await expect(page.locator('.cart input[name="customer_name"]')).toBeVisible();
+      await expect(page.locator('aside.tk-q.tk-q--compact')).toHaveCount(0);
+      await pill.click();
+      await expect(pill).toHaveClass(/tk-live--rush/);
+      await expect(page.locator('.menu .items--rush')).toBeVisible();
     } finally {
       await signOut(page, info, lang);
     }
