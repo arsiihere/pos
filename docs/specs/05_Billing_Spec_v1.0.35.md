@@ -123,6 +123,8 @@ Still DRAFT, version kept. Binding owner answer: OR-5 (`docs/plans/02b-tk-ruling
 | 02b v1.0.25 TK-5 (review M-4) | Test **#83**: since 02b v1.0.25 §3.3 / §6.16 a takeaway stays open while it is billed and has a live line not served, so the billed takeaway `b` of the fixture (one unserved line) **is** in `openOrderRows` (`apps/hub/test/orders/billing-rows.int.test.ts:111`: `not.toContain(b)` → `toContain(b)`); the `billed_at` and `ORDER_BILLED` assertions are unchanged | §10 #83 |
 | 02b v1.0.25 TK-5 / 05 row Q-8 | `keyBalances` shape checked against 02b v1.0.25 §4.1, §4.2, §6.16 (`Map<bill_key, { due_minor, state }>`, the same four `state` values, 1 statement, 0 for no key): equal | — |
 | 05c v0.2 §4.5 B-1 – B-4, B-6, B-7 | Listed in §4.5 as **carried when 05c is approved** (rows 05c-B-1 … 05c-B-7); no 05c behaviour is written into this version | §4.5 |
+| 02b v1.0.25 TK-15 (OR-7; ⚠️ Changed in v1.0.35 hostile run 2 (integration)) | 05 closes an open 02b `hand_over_unpaid` request `obsolete` (01d `alerts.close`) in the transaction of the **bill's last `CloseSplit`** (the bill is paid, the request is moot) and adds the kind to its **day-close** closing set (`BusinessDayClosed`, beside the 05 kinds it already closes); +1 statement (the open request by `dedupe_key = 'hand_over_unpaid:' + bill_key`) on each path; tests #60j (paid → closed `obsolete`), #60k (day close → closed) | §6.12, §6.26 |
+| 05c v0.2 hostile run 2 R2-M-5 (row B-2) | **Carried when 05c is approved:** row B-2 now also adds `AddPayment.override_watched?: true` and **`PaymentAdded` v2** (`overrides_intent_id: string \| null`, identity upcaster v1 → v2 gives `null`); nothing changes in 05 before then | §4.5 |
 
 #### Owner review of the 02b-TK Part B package (24 Nov 2026)
 
