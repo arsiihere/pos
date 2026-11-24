@@ -52,6 +52,16 @@ Batches of about five tasks, one commit each, in order.
 
 02b v1.0.25 · 03a v1.2.11 · 03b v1.0.16 · 00 Hub Platform Access v1.13 + Foundation v1.18 + 05a v1.0.7 · 03c v1.0.16 + 05 v1.0.35 (§3.16) · 01a v2.11 · new 05c v0.1. Each through a hostile review in a fresh session (`docs/reviews/`).
 
+## Before go-live (owner review 2026-11-24, no spec change)
+
+| # | Item | Who | Spec |
+|---|---|---|---|
+| G-1 | **Board PC.** The pickup board runs on a PC the owner provides (Chrome / Edge kiosk mode, `--autoplay-policy=no-user-gesture-required`, speakers on); paired as a `cashier_kiosk` and turned into the board on the device form. No tablet board in the pilot. | owner | 00 HPA v1.13 OD-2, 05a v1.0.7 §3.6, §8 |
+| G-2 | **Guest Wi-Fi router.** The owner buys a router that can give the guest Wi-Fi **only** the public status port (`public_status.port`, default `http_port + 1`) of the hub and nothing else on the staff LAN (WPA3 / OWE guest SSID recommended). Until it is in place `public_status.enabled` stays false at that branch and slips print without a QR. | owner | 00 HPA v1.13 OD-5, §7.13 step 2 |
+| G-3 | **Voice clips.** The 31 English pieces (chime, "token number", 1–19, 20–90, "hundred", "thousand") rendered once with one offline voice; the owner listens to a sample of composed tokens (e.g. 7, 57, 257, 1015, 2000). | owner + developer | 05a v1.0.7 §8, OQ-B3 |
+
+**Client lane note (owner OR-7, 2026-11-24):** the R2 client override ("Hand over anyway" for a manager on a Due token, built in Part A C2) must go: until 02b v1.0.25 §3.7a (the `hand_over_unpaid` request) ships, a Due order cannot be handed over at all.
+
 ## Status (2026-11-24)
 
 | Task | State | Commit(s) |
