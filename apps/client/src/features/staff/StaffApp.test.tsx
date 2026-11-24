@@ -245,7 +245,8 @@ describe('[01d task 41] staff entry', () => {
     const h = hub();
     render(TABLET, h.fetch);
     await signIn();
-    m.click(m.button('Imran — sign out'));
+    m.click(m.container.querySelector('header.top button.me')); // 02b-TK TK-SH02: the chip opens the menu
+    m.click(m.button('Sign out', m.container.querySelector('[role="menu"]')!));
     await flush();
     expect(h.calls.some((c) => c.path === '/auth/logout' && c.headers['X-Session-Token'] === 'SESS-1')).toBe(true);
     expect(m.text()).toContain('Who is signing in?');
@@ -289,7 +290,8 @@ describe('[01d #57 client] tablet alerts header in the shell', () => {
   it('[01d #57 client] signing out ends the binding (logout), so the header reads none', async () => {
     render(TABLET, hub().fetch);
     await signIn();
-    m.click(m.button('Imran — sign out'));
+    m.click(m.container.querySelector('header.top button.me')); // 02b-TK TK-SH02: the chip opens the menu
+    m.click(m.button('Sign out', m.container.querySelector('[role="menu"]')!));
     await flush();
     expect(bind()).toBe('Alerts: none');
   });
@@ -362,7 +364,8 @@ describe('[01d task 41 fixes] live sheet, inbox retry, sessions, clock', () => {
     const old = { alert_id: 'OLD', kind: 'test_alert', family: 'info', step: 0, escalation: false, set: 'recipient', for_staff_id: null, lock: { kind_label_key: 'alert.test_alert.lock', requester_name: 'Arif' }, raised_at: NOW, seen_by_me: false, moved_to_name: null, for_staff_name: null, state: 'open', close_reason: null };
     render(TABLET, hub({ inbox: [() => stale] }).fetch);
     await signIn();
-    m.click(m.button('Imran — sign out'));
+    m.click(m.container.querySelector('header.top button.me')); // 02b-TK TK-SH02: the chip opens the menu
+    m.click(m.button('Sign out', m.container.querySelector('[role="menu"]')!));
     await flush();
     await signIn();
     release(reply(200, { data: { alerts: [old] }, meta: { next_cursor: null } }));
@@ -420,7 +423,8 @@ describe('[02a §8 Top bar] staff shell', () => {
     const top = m.container.querySelector('header.top')!;
     expect(m.button('Requests', top).querySelector('.badge')?.textContent).toBe('1');
     expect(m.button('Inbox', top)).toBeTruthy();
-    expect(m.button('Imran — sign out', top)).toBeTruthy();
+    // 02b-TK TK-SH02: the person chip opens the menu (never a one-tap sign out)
+    expect(top.querySelector('button.me[aria-haspopup="menu"]')?.textContent).toContain('Imran');
     // no floors until the map store is wired: no floor control
     expect(top.querySelector('.seg')).toBeNull();
     m.unmount();
@@ -804,7 +808,8 @@ describe('[03b W0.6] Pass in the staff shell', () => {
     expect(dismissButton()).toBeUndefined();
     expect(m.container.textContent).toContain('Stays until day close');
 
-    m.click(m.button('Dana — sign out'));
+    m.click(m.container.querySelector('header.top button.me')); // 02b-TK TK-SH02: the chip opens the menu
+    m.click(m.button('Sign out', m.container.querySelector('[role="menu"]')!));
     await flush(4);
     await signInAs('Eli');
     expect(dismissButton()).toBeDefined();

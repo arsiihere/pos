@@ -1691,4 +1691,23 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // 02b-TK C3-2 (05 §6.3 errors on the token view / adding cart): not in strings-table.md; Urdu to confirm
   'v.check_day': 'دن شروع نہیں ہوا — ابھی چیک بل نہیں',
   'v.check_denied': 'آپ اس آرڈر کا چیک بل پرنٹ نہیں کر سکتے',
+  // ---- 02b-TK client (A2 batch 1, item 1 shell: frames ShellAnatomy, PersonMenu, DayNotStarted): strings-table.md ----
+  'shell.back': 'واپس',
+  'shell.me.switch': 'یوزر بدلیں',
+  'shell.me.switch_sub': 'کاؤنٹر کسی اور کو دیں',
+  'shell.me.lock': 'اسکرین لاک کریں',
+  'shell.me.lock_sub': 'آپ کے آرڈر ویسے ہی رہیں گے',
+  'shell.me.shift': 'میری شفٹ',
+  'shell.me.signout': 'سائن آؤٹ',
+  'shell.me.signout_sub': 'نہ بھیجے آرڈر پہلے ہولڈ ہوں گے',
+  'shell.day.closed': 'دن شروع نہیں ہوا — آرڈر نہیں جا سکتے، وقت نہیں دکھ سکتا',
+  'shell.day.start': 'دن شروع کریں',
+  'shell.day.ask': 'مینیجر سے دن شروع کروائیں',
+  'shell.shift.closed': 'شفٹ نہیں کھلی — کیش نہیں لے سکتے',
+  'shell.shift.open': 'میری شفٹ کھولیں',
+  'ctx.new': 'نیا ٹیک اوے',
+  'ctx.token_after': 'ٹوکن بھیجنے کے بعد',
+  // 02b-TK A2 item 1 (frame PersonMenu "Opened 7:02 AM · float Rs 5,000"; the lock screen opened from the menu): not in strings-table.md; Urdu to confirm
+  'shell.me.shift_open': '{time} پر کھلی · فلوٹ {money}',
+  'shell.locked': 'اسکرین لاک ہے',
 };

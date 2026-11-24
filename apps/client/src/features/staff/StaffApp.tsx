@@ -37,6 +37,12 @@ import { QueuedSentCard } from './orders/queue/QueuedSentCard';
 import { createEnqueue } from './orders/queue/enqueue';
 import { createShellHooks } from './orders/queue/shell-hooks';
 import { createShellConfig, type BranchConfigReply } from './shell/config';
+import { createContextSlot } from './shell/context-slot';
+import { readOwnShift, shiftEvent, type OwnShift } from './shell/own-shift';
+import { ShellBanners } from './shell/ShellBanners';
+import { createDayWatch } from './orders/order-screen/day-open';
+import { canStartDay } from './orders/order-screen/DayNotStarted';
+import { money } from './orders/money';
 import { ShellContext, type Shell } from './shell/hooks';
 import { createLiveBus } from './shell/live';
 import { createPermissions } from './shell/permissions';
@@ -83,6 +89,10 @@ import { DeviceHealth } from '../native/DeviceHealth';
 // unpair path; the queued-and-sent token card sits at the root (also over the sign-in screen, so a sign-in drain is
 // caught); the idle lock gets the login's TTL and signs the page out; the late cards get every alert row (open and
 // closed); a request_result row is told to the pending-comp store; the map's New order opens 02b's New order sheet.
+// 02b-TK A2 item 1 (frames ShellAnatomy, PersonMenu, DayNotStarted; MAPPING TK-SH01–03): the screen's context slot in
+// the bar, the person chip's menu (Switch user = the name tiles + PIN with takeover, 00 HPA §6.9 M20; Lock = the idle
+// lock now; My shift; Sign out — never one tap), the day / shift banners under the bar on the takeaway screens (the
+// catch-up business day; 05 §6.16 own shift, 404 = none). Leaving the order screen holds its unsent cart (C1-5).
 
 const TICK_MS = 15_000;
 /** 05b M-13: the staff-build check besides every socket (re)connect */
@@ -254,6 +264,15 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   apiRef.current = api;
   const pass = useMemo(() => passLiveOf({ live: liveBus, clock: { nowMs: () => clockRef.current.nowMs() }, api: { roster: () => apiRef.current.roster() } }), [liveBus]);
   const toasts = useMemo(() => createToastBus(), []);
+  // 02b-TK TK-SH01: the context slot the screen on the route fills; the day watch for the banner under the bar
+  const contextSlot = useMemo(() => createContextSlot(), []);
+  const ctxValue = useSyncExternalStore(contextSlot.subscribe, contextSlot.get);
+  const dayWatch = useMemo(() => createDayWatch(liveBus), [liveBus]);
+  useEffect(() => () => dayWatch.dispose(), [dayWatch]);
+  const dayOpen = useSyncExternalStore(dayWatch.subscribe, dayWatch.state);
+  // 02b-TK TK-SH02: Switch user (the name tiles over the signed-in page); Lock screen (each tap a new value)
+  const [switching, setSwitching] = useState(false);
+  const [lockTick, setLockTick] = useState(0);
   const tablesApi = useMemo(() => createTablesApi(api), [api]);
   const ordersApi = useMemo(() => createOrdersApi(api), [api]);
   const localFlags = useMemo(() => createLocalFlags(), []);
@@ -502,6 +521,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
 
   const signedIn = async (who: SignedIn) => {
     sessionGen.current += 1;
+    setSwitching(false);
     closedSeen.current.clear();
     seenSent.current.clear();
     dropHandover(); // dl cp6: a held tap read never outlives the session
@@ -556,6 +576,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       consumeFocus(); // §3.13.4 (#264 review): no focus of this person's carries into the next sign-in
       setOpened(null);
       setNewOrder(false);
+      setSwitching(false);
       setCloses(new Map());
       setRequests([]);
       setCursor(null);
@@ -610,6 +631,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     consumeFocus(); // §3.13.4 (#264 review): no focus of this person's carries into the next sign-in
     setOpened(null);
     setNewOrder(false);
+    setSwitching(false);
     setCloses(new Map());
     setRequests([]);
     setCursor(null);
@@ -1113,6 +1135,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         onSignedIn={(who) => void signedIn(who)}
       />
     );
+  } else if (switching) {
+    // 02b-TK TK-SH02 Switch user: the route's screen goes (its unsent takeaway is held, C1-5); the PIN takes over
+    page = <SignIn api={api} phone={phone} lockPanel={null} hooks={shellHooks} onUnpaired={onUnpaired} onSignedIn={(who) => void signedIn(who)} onBack={() => setSwitching(false)} />;
   } else if (staffRoute.name === 'me') {
     page = (
       <MeTab name={me.name} onSignOut={() => signOut(true)} {...(showShift ? { onShift: () => navigate('/shift') } : {})}>
@@ -1186,12 +1211,12 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const deviceWord = t(`alerts.device.${device.type}`);
   const live =
     mode === 'none' ? null : up ? (
-      <span className="live">
+      <span className="live tk-live">
         <Ico name="wifi" />
         {t('alerts.live')}
       </span>
     ) : (
-      <span className="live live--off">
+      <span className="live live--off tk-live--off">
         <Ico name="wifioff" />
         {t('alerts.hub_offline')}
       </span>
@@ -1237,6 +1262,33 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       navigate(homeOf(screens));
     }
   }, [screens]);
+  // 02b-TK TK-SH01, TK-SH02: the person's own shift (05 §6.16; 404 = none) for the shift banner and My shift's line,
+  // read for a manage-own-shift holder on sign-in, on arriving at a takeaway screen, on a reconnect and a shift event
+  const takeawayRoute = routeKey === 'takeaway';
+  const shiftReadable = me !== null && allowed.has('manage-own-shift');
+  const [ownShift, setOwnShift] = useState<OwnShift | null>(null);
+  const readShift = useRef<() => void>(() => {});
+  readShift.current = () => {
+    if (!shiftReadable) return setOwnShift(null);
+    const gen = sessionGen.current;
+    void readOwnShift(() => api.query('/queries/shift')).then((v) => {
+      if (gen === sessionGen.current) setOwnShift(v);
+    });
+  };
+  useEffect(() => readShift.current(), [shiftReadable, meKey, takeawayRoute]);
+  useEffect(
+    () =>
+      liveBus.subscribe((msg) => {
+        if (msg.kind === 'reconnect' || (msg.kind === 'event' && shiftEvent(msg.event.event_type))) readShift.current();
+      }),
+    [liveBus],
+  );
+  const shiftSub =
+    ownShift?.kind === 'open'
+      ? fill(t('shell.me.shift_open'), { time: timeText(ownShift.opened_at, offset), money: money(ownShift.float_minor) })
+      : ownShift?.kind === 'none'
+        ? t('shell.shift.closed')
+        : null;
   const phoneTitle = currentTab === 'me' ? t('tabs.me') : currentTab !== null ? t(`alerts.screen.${currentTab}`) : path === '/requests' && showRequests ? t('alerts.nav.requests') : t('alerts.nav.inbox');
   const body = (
     <div className={`pu v-brand staff${phone ? ' phone' : ''}`} lang={lang} dir={lang === 'ur' ? 'rtl' : 'ltr'} data-theme="light">
@@ -1255,6 +1307,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         tabs={tabs}
         currentTab={currentTab}
         shift={showShift}
+        context={me !== null && !switching && takeawayRoute ? ctxValue : null}
+        menu={{ onSwitch: () => setSwitching(true), onLock: () => setLockTick((n) => n + 1), shiftSub }}
         title={me === null ? meta.branchName : phoneTitle}
         phoneSub={
           me === null ? (
@@ -1269,6 +1323,16 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         onNavigate={navigate}
         onSignOut={() => signOut(true)}
       />
+      {/* 02b-TK TK-SH01, TK-SH03: the day / shift banners under the bar, on the takeaway screens */}
+      {me !== null && !switching && takeawayRoute && (
+        <ShellBanners
+          day={dayOpen}
+          canStartDay={canStartDay(permissions)}
+          place={`${meta.branchName} · ${timeText(nowMs, offset)}`}
+          shift={allowed.has('take-payment') ? ownShift : null}
+          onOpenShift={showShift ? () => navigate('/shift') : null}
+        />
+      )}
       {/* 01d v1.3.3 §3.13.6a: the kiosk Back chip in the alert layer (top-start, above route sheets), not in the top bar */}
       {device.type === 'cashier_kiosk' && back !== null && me !== null && (
         <div className="abk">
@@ -1361,7 +1425,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
       {me !== null && (
         <>
           <HandoverLayer />
-          <IdleLock {...(fetch === undefined ? {} : { fetch })} />
+          <IdleLock key={me.staffId} lockNow={lockTick} {...(fetch === undefined ? {} : { fetch })} />
           {newOrder && <NewOrderSheet onClose={() => setNewOrder(false)} />}
         </>
       )}
@@ -1392,6 +1456,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     idleTtlMs: me?.idleTtlMs ?? null,
     signOut: () => signOut(false),
     closeRouteSheet,
+    contextSlot,
   };
   voidShell.current = shell;
   // IR-11: the late cards read every alert row the page holds, open and closed (a slip closed without ItemsReleased)

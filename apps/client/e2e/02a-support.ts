@@ -88,7 +88,9 @@ export async function signOut(page: Page, info: TestInfo, lang: Lang): Promise<v
       });
       await page.getByRole('button', { name: tr(lang, 'alerts.sign_out_short') }).click({ timeout: 3000 });
     } else {
+      // 02b-TK TK-SH02: the person chip opens the menu; Sign out is in it (never a one-tap sign out)
       await page.locator('header.top .me').click({ timeout: 3000 });
+      await page.locator('[role="menu"] .tk-mi--danger').click({ timeout: 3000 });
     }
   } catch {
     // the page may already be closed or signed out

@@ -4,6 +4,7 @@ import type { Device, PageMeta, StaffApi } from '../api';
 import type { OrdersApi } from '../orders/contracts';
 import type { Enqueue, LocalFlags, TablesApi } from '../tables/contracts';
 import type { ShellConfig } from './config';
+import type { ContextSlotStore } from './context-slot';
 import type { LiveBus } from './live';
 import type { Permissions } from './permissions';
 import type { ToastBus } from './toast';
@@ -47,6 +48,8 @@ export interface Shell {
    * Absent outside StaffApp: the sheet navigates to `fallback` itself.
    */
   closeRouteSheet?: (fallback: string) => void;
+  /** 02b-TK TK-SH01: the top bar's context slot the screen on the route fills (and clears); absent outside StaffApp */
+  contextSlot?: ContextSlotStore;
 }
 
 /**

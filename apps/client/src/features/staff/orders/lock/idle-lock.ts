@@ -32,6 +32,8 @@ export interface DeviceIdleLock extends IdleLock {
   start(): void;
   /** stops it for good: no timer, no lock, every tap passes */
   dispose(): void;
+  /** 02b-TK A2 item 1 (frame PersonMenu "Lock screen"): lock now, before the TTL (once started) */
+  lockNow(): void;
 }
 
 const browserTimers: IdleTimers = {
@@ -102,6 +104,9 @@ export function createIdleLock(o: IdleLockOptions): DeviceIdleLock {
     dispose() {
       disposed = true;
       clear();
+    },
+    lockNow() {
+      if (started) lock();
     },
   };
 }

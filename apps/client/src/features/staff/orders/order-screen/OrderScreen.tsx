@@ -67,6 +67,7 @@ import { servedPayload } from '../actions/MarkServedSheet';
 import { showEnqueued } from '../view/LineActions';
 import { groupParts, type GroupedLine } from '../view/parts';
 import { servable } from '../view/stage';
+import { takeawayContext } from '../../shell/context-slot';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
 // Menu / Cart tabs + sticky Send; 02-B03 draft back, B04 offline, B05 / B07 line problems), 02a §8 Order screen (the
@@ -526,6 +527,26 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         </button>
       </div>
     );
+
+  // 02b-TK A2 item 1 (frames ShellAnatomy, TokenReady, PayCard; MAPPING TK-SH01; R3): this screen fills the top bar's
+  // context slot — the pay panel, the open token view, an addition or the new cart — and clears it when it goes
+  const seeContact = shell.permissions.allowed('view-customer-contact');
+  const slotJson =
+    order_type !== 'takeaway'
+      ? null
+      : JSON.stringify(
+          takeawayContext({
+            adding: cart.adds_to === undefined ? null : { token: cart.adds_to.token },
+            token: openToken === null ? null : { token: openToken.token, name: openToken.customer_name, paid: openToken.paid },
+            paying: pay === null ? null : { ident: pay.ident, name: pay.name },
+            cartName: cart.takeaway?.customer_name ?? null,
+            seeContact,
+          }),
+        );
+  useEffect(() => {
+    if (slotJson !== null) shellRef.current.contextSlot?.set(JSON.parse(slotJson) as ReturnType<typeof takeawayContext>);
+  }, [slotJson]);
+  useEffect(() => () => shellRef.current.contextSlot?.set(null), []);
 
   if (config === null) {
     return (

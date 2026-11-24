@@ -4224,6 +4224,25 @@ export const en = {
   // 02b-TK C3-2 (05 §6.3 errors on the token view / adding cart): not in strings-table.md; Urdu to confirm
   'v.check_day': 'The day hasn’t started — no check bill yet',
   'v.check_denied': 'You can’t print the check bill for this order',
+  // ---- 02b-TK client (A2 batch 1, item 1 shell: frames ShellAnatomy, PersonMenu, DayNotStarted): strings-table.md ----
+  'shell.back': 'Back',
+  'shell.me.switch': 'Switch user',
+  'shell.me.switch_sub': 'Hand the counter to someone else',
+  'shell.me.lock': 'Lock screen',
+  'shell.me.lock_sub': 'Your orders stay as they are',
+  'shell.me.shift': 'My shift',
+  'shell.me.signout': 'Sign out',
+  'shell.me.signout_sub': 'Unsent orders are held first',
+  'shell.day.closed': 'Day not started — orders can’t be sent and times can’t show',
+  'shell.day.start': 'Start day',
+  'shell.day.ask': 'Ask the manager to start the day',
+  'shell.shift.closed': 'No shift open — cash can’t be taken',
+  'shell.shift.open': 'Open my shift',
+  'ctx.new': 'New takeaway',
+  'ctx.token_after': 'Token after Send',
+  // 02b-TK A2 item 1 (frame PersonMenu "Opened 7:02 AM · float Rs 5,000"; the lock screen opened from the menu): not in strings-table.md; Urdu to confirm
+  'shell.me.shift_open': 'Opened {time} · float {money}',
+  'shell.locked': 'Screen locked',
 } as const;
 
 export type MessageKey = keyof typeof en;
