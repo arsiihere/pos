@@ -143,7 +143,9 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
   const promises = (orders ?? []).flatMap((o) => (o.promise_ms === null ? [] : [o.promise_ms]));
   const promise = promises.length === 0 ? token.promise_ms : Math.max(...promises);
   const phoned = orders?.find((o) => o.has_phone) ?? null;
-  const masked = maskPhone(token.phone ?? book.get(token.order_ids[0]!)?.phone);
+  const fullScreen = shell.phone || shell.portrait;
+  const showContact = !fullScreen && shell.device.type === 'cashier_kiosk' || may('view-customer-contact');
+  const masked = showContact ? maskPhone(token.phone ?? book.get(token.order_ids[0]!)?.phone) : null;
   const ident = token.token === null ? '—' : String(token.token);
   const what = `${t('order.takeaway')} · ${ident}`;
   const toBill = () => navigate(`/bill?order_id=${encodeURIComponent(token.newest_order_id)}`);
@@ -188,14 +190,14 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
 
   return (
     <>
-      <button type="button" className="tk-scrim--fixed" aria-label={t('common.close')} onClick={onClose} />
-      <section className="tk-drawer" role="dialog" aria-modal="true" aria-label={what} data-token={token.key}>
+      {!fullScreen && <button type="button" className="tk-scrim--fixed" aria-label={t('common.close')} onClick={onClose} />}
+      <section className={fullScreen ? "tk-drawer tk-drawer--phone" : "tk-drawer"} role="dialog" aria-modal="true" aria-label={what} data-token={token.key}>
         <div className="tk-drawer__h">
           <span className="tk-tv__tok" dir="ltr">
             {ident}
           </span>
           <div className="tk-tv__who">
-            <b dir="auto">{token.customer_name ?? t('order.takeaway')}</b>
+            <b dir="auto">{(showContact ? token.customer_name : null) ?? t('order.takeaway')}</b>
             {first !== null && (
               <small>
                 {fill(t('v.placed'), { t: timeText(first.placed_at, offset), who: first.placed_by.name ?? '—' })}

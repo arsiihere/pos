@@ -305,7 +305,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
             <div className="tk-ready">{ready.map(tile)}</div>
           </>
         )}
-        <WaitingRows />
+        <WaitingRows showContact={seeContact} />
         {cooking.length > 0 && (
           <>
             <div className="tk-sec">

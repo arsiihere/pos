@@ -392,3 +392,11 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .order--tk-phone .ln { grid-template-columns: auto minmax(0, 1fr) auto; padding: 8px 2px; }
 .order--tk-phone .ln > .step { align-self: start; }
 .order--tk-phone .ln .step button { width: 38px; min-height: 44px; }
+
+/* 02b-TK PhoneQueue and PhoneToken. */
+.order--tk-phone .tk-q--tab .tk-ready { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tk-drawer.tk-drawer--phone { inset: 0; width: 100%; max-width: none; }
+.tk-drawer--phone .tk-drawer__h { background: var(--chrome); color: var(--on-chrome); padding: 10px 12px; }
+.tk-drawer--phone .tk-drawer__b { padding: 12px; }
+.tk-drawer--phone .tk-drawer__f { padding: 10px 12px max(12px, env(safe-area-inset-bottom)); overflow-y: auto; max-height: 40dvh; }
+.tk-drawer--phone .tk-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
