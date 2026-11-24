@@ -13,6 +13,7 @@ const HEADER: SnapshotHeader = {
   tax_enabled: false,
   day_stale_after_hours: 16,
   day_min_gap_hours: 4,
+  business_day_end_local_ms: 14_400_000,
 };
 
 type ListedDeal = DealWire & { branches: DealBranchWire[] };

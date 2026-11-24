@@ -13,6 +13,7 @@ export interface SnapshotHeader {
   tax_enabled: boolean;
   day_stale_after_hours: number;
   day_min_gap_hours: number;
+  business_day_end_local_ms: number;
 }
 
 interface WindowRow {
@@ -531,6 +532,7 @@ export async function buildSnapshotBody(
     tax_enabled: header.tax_enabled,
     day_stale_after_hours: header.day_stale_after_hours,
     day_min_gap_hours: header.day_min_gap_hours,
+    business_day_end_local_ms: header.business_day_end_local_ms,
     floors: floors.map((floor) => ({
       ...floor,
       zones: zonesByFloor.get(floor.floor_id) ?? [],

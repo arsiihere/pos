@@ -32,7 +32,7 @@ import { stockItem } from '../inventory/fixtures';
 const T = 1_761_000_000_000; // the test cloud's fixed clock: the fixture's route-written rows carry it
 const H = 3_600_000;
 const D = 24 * H;
-const HEADER: SnapshotHeader = { config_version: 42, currency_code: 'PKR', tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4 };
+const HEADER: SnapshotHeader = { config_version: 42, currency_code: 'PKR', tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4, business_day_end_local_ms: 14_400_000 };
 const byCodePoint = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 describe('[08b §5.3, B15] snapshot inventory key', () => {

@@ -578,7 +578,7 @@ describe('[05 R-31 01a v2.7] tax class fiscal_category', () => {
 async function snapshotOf(t: Tenant): Promise<Record<string, unknown> & { tax_classes: unknown[]; billing?: unknown }> {
   const client = await pool.connect();
   try {
-    const header = { config_version: 1, currency_code: 'PKR', tax_enabled: true, day_stale_after_hours: 20, day_min_gap_hours: 4 };
+    const header = { config_version: 1, currency_code: 'PKR', tax_enabled: true, day_stale_after_hours: 20, day_min_gap_hours: 4, business_day_end_local_ms: 14_400_000 };
     const ctx = Object.freeze({ tenantId: t.tenantId, branchIds: Object.freeze([t.branchId, t.otherBranchId]) });
     return (await buildSnapshot(client, ctx, t.branchId, header)) as Record<string, unknown> & { tax_classes: unknown[]; billing?: unknown };
   } finally {

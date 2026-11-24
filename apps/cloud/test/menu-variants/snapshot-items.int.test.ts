@@ -12,6 +12,7 @@ const HEADER: SnapshotHeader = {
   tax_enabled: false,
   day_stale_after_hours: 16,
   day_min_gap_hours: 4,
+  business_day_end_local_ms: 14_400_000,
 };
 
 // 01c §4.6 rules 1 and 4, V2, V18: what an item written through the API carries in the schema-3 snapshot.

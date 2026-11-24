@@ -68,6 +68,30 @@ describe('GET /v1/sync/config', () => {
     expect(ahead.json().data.config.snapshot.config_version).toBe(v.config);
   });
 
+  it('[01a v2.11 #214, #218] sends the day end within the existing query bound', async () => {
+    const [branchId] = f.branches;
+    const v = await versions();
+    const readSnapshot = async () => {
+      const response = await poll(v.config - 1, v.directory);
+      expect(response.statusCode).toBe(200);
+      expect(counter.count).toBeLessThanOrEqual(33);
+      const { snapshot, snapshot_hash } = response.json().data.config;
+      expect(snapshot_hash).toBe(sha256hex(canonicalJson(snapshot)));
+      return BranchConfigSnapshotSchemaV4.parse(snapshot);
+    };
+
+    expect(await readSnapshot()).toMatchObject({
+      business_day_end_local_ms: 14_400_000,
+    });
+    await cloud.pool.query(
+      'UPDATE branches SET business_day_end_local_ms = 12600000 WHERE tenant_id = $1 AND branch_id = $2',
+      [f.tenantId, branchId],
+    );
+    expect(await readSnapshot()).toMatchObject({
+      business_day_end_local_ms: 12_600_000,
+    });
+  });
+
   it('[01a §10 #3] directory_version behind only → config null, directory equals loadDirectory', async () => {
     const v = await versions();
     const response = await poll(v.config, v.directory - 1);
