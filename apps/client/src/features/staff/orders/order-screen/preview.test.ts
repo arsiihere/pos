@@ -130,4 +130,37 @@ describe('[02b §8 Ordering screen] eta preview', () => {
     expect(h.calls).toHaveLength(2);
     expect(h.preview.state().kind).toBe('ok');
   });
+
+  it('[02b-TK A2 item 5a, frame CartTimeDelta] Ready by later by ≥ 1 min after a cart change: the line that moved it; the next stable reply clears it', async () => {
+    // A = karahi ×1 (ready 1:42), then ×2 (ready 2:00: +18 min); then N = naan added (ready stays); then a refetch
+    const two = (a: number, b: number | null): EtaPreviewBody => ({
+      as_of_seq: 1,
+      groups: [{ promise_ms: a, keys: ['A'] }, ...(b === null ? [] : [{ promise_ms: b, keys: ['N'] }])],
+      lines: [{ key: 'A', eta_ms: a, from_stock: false, zone_served: false }, ...(b === null ? [] : [{ key: 'N', eta_ms: b, from_stock: false, zone_served: false }])],
+    });
+    const T0 = 1_000 * 60_000;
+    const replies = [two(T0, null), two(T0 + 18 * 60_000, null), two(T0 + 18 * 60_000, T0), two(T0 + 18 * 60_000, T0), two(T0 + 18 * 60_000 + 30_000, T0)];
+    let i = 0;
+    const h = harness({ reply: async () => ({ ok: true, data: replies[i++]! }) });
+    const lines = (a: number, naan: boolean): EtaDraft => ({ order_type: 'takeaway', lines: [{ key: 'A', item_id: 'I1', quantity: a }, ...(naan ? [{ key: 'N', item_id: 'I5', quantity: 1 }] : [])] });
+    const delta = () => (h.preview.state() as { delta?: unknown }).delta;
+    h.preview.set(lines(1, false));
+    await h.advance(250);
+    expect(delta()).toBeNull();
+    h.preview.set(lines(2, false));
+    await h.advance(250);
+    expect(delta()).toEqual({ key: 'A', ms: 18 * 60_000 });
+    // a change that does not move Ready by: cleared
+    h.preview.set(lines(2, true));
+    await h.advance(250);
+    expect(delta()).toBeNull();
+    // a refetch with no cart change names no line
+    h.live.frame(ev(1, 'StockReserved'));
+    await h.advance(250);
+    expect(delta()).toBeNull();
+    // less than a minute later is not a move
+    h.preview.set(lines(3, true));
+    await h.advance(250);
+    expect(delta()).toBeNull();
+  });
 });

@@ -442,9 +442,9 @@ describe('[02b-TK C1-4] editing a cart line', () => {
     const h = harness();
     const m = h.render();
     await flush();
-    m.click(tile(m, 'Chicken Karahi'));
-    expect(m.container.querySelector('.acts .btn--primary')?.textContent).toBe('Add to order');
-    m.click(m.button('Add to order'));
+    // 02b-TK A2 item 3 (frame TileStates): Half on the tile adds the line in one tap (no sheet)
+    m.click(m.button('Chicken Karahi · Half'));
+    expect(m.container.querySelector('.dlg')).toBeNull();
     expect(m.container.querySelectorAll('.ln')).toHaveLength(1);
     m.click(m.container.querySelector('.ln__m'));
     m.click(m.button('Edit'));

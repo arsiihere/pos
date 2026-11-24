@@ -218,3 +218,185 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .cart__foot .tk-btn[disabled] { opacity: .45; box-shadow: none; }
 /* C3-2: Print check bill in the cart of an addition (a full-width row under Order note · Hold) */
 .cart__foot > .tk-btn, .ph-body > .tk-btn { width: 100%; }
+
+/* ---------- A2 batch 1 item 1: the shell (frames ShellAnatomy, PersonMenu, DayNotStarted; MAPPING TK-SH01–03) ---------- */
+/* the context slot in place of the brand block */
+.top .tk-ctx { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0 16px 0 8px; height: 60px; border-radius: var(--radius-md); background: var(--chrome-raise); color: var(--on-chrome); }
+[dir="rtl"] .top .tk-ctx { padding: 0 8px 0 16px; }
+.tk-ctx__ic { flex: none; width: 44px; height: 44px; border-radius: 12px; background: var(--action); color: var(--on-action); display: grid; place-items: center; }
+.tk-ctx b { display: block; font: 800 20px/1.1 var(--font-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[dir="rtl"] .tk-ctx b { font-family: var(--font-urdu); font-size: 19px; line-height: 1.5; }
+.tk-ctx small { display: block; font-size: 15px; color: var(--on-chrome-muted); white-space: nowrap; }
+.tk-ctx .num { unicode-bidi: isolate; }
+/* the ONE selected style on the screen tabs: cream fill + saffron underline */
+.top .tabs-top .btn.is-sel { background: var(--surface); color: var(--accent-ink); box-shadow: inset 0 -4px 0 var(--action); }
+/* Live / Hub offline: the offline pill is red */
+.top .live.tk-live--off { background: var(--danger-fill); color: #fff; }
+.top .live.tk-live--off .ico { color: #fff; }
+/* the person chip and its menu */
+.tk-mewrap { position: relative; }
+.tk-mewrap .me .ico--sm { width: 18px; height: 18px; }
+.tk-pop { position: absolute; z-index: 60; top: calc(100% + 8px); inset-inline-end: 0; min-width: 320px; background: var(--surface-raised); color: var(--ink); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); padding: 10px; }
+.tk-pop__h { padding: 10px 12px 12px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.tk-pop__h b { display: block; font-size: 18px; }
+.tk-mi { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 60px; padding: 0 14px; border: 0; border-radius: 12px; background: transparent; color: inherit; font-weight: 700; font-size: 17px; text-align: start; }
+.tk-mi:hover, .tk-mi:focus-visible { background: var(--surface-soft); }
+.tk-mi small { display: block; font-weight: 500; color: var(--ink-muted); font-size: 14px; }
+.tk-mi--danger { color: var(--danger); }
+/* the day / shift banners under the bar */
+.tk-banners { flex: none; display: flex; flex-direction: column; }
+.tk-banner--warn { background: var(--warn-tint); color: var(--warn); border-bottom: 2px solid var(--warn-fill); }
+.tk-banner span.muted { font-weight: 500; }
+.tk-banner a.tk-btn { min-height: 48px; margin-inline-start: auto; text-decoration: none; }
+.tk-banner__ask { margin-inline-start: auto; font-weight: 600; }
+/* Switch user over a signed-in page: Back + what this is */
+.signin__switch { display: flex; align-items: center; gap: 14px; }
+.signin__switch b { font-size: 20px; }
+
+/* ---------- A2 batch 1 item 2: keyboard speed mode (frame KeyboardMode; MAPPING TK-S02) ---------- */
+.tk-ksearch { position: relative; }
+.menu .search .tk-kbd { margin-inline-start: auto; color: var(--ink-faint); }
+.tk-sugg { position: absolute; z-index: 20; top: calc(100% + 6px); inset-inline-start: 0; inset-inline-end: 0; background: var(--surface-raised); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); padding: 8px; }
+.tk-sugg__r { display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 0 14px; border-radius: 12px; font-size: 17px; cursor: pointer; }
+.tk-sugg__r.is-sel { background: var(--accent-tint); }
+.tk-sugg__r b { font-size: 18px; }
+.tk-sugg__r .num { unicode-bidi: isolate; }
+.tk-sugg__r .tk-kbd { margin-inline-start: auto; }
+.tk-sugg .tk-hint { margin-top: 6px; }
+/* the shortcut hint row under the tiles (kiosk) */
+.menu > .tk-hint { display: block; line-height: 2; margin: 0 0 14px; padding: 10px 14px; border-radius: var(--radius-md); background: var(--surface-sunken); font-weight: 600; }
+.tk-sugg .tk-hint, .menu > .tk-hint { color: var(--ink-muted); }
+.tk-hint .tk-kbd { color: var(--ink); }
+
+/* ---------- A2 batch 2 item 3: menu tile states (frame TileStates; MAPPING TK-C01) ---------- */
+/* an off takeaway tile keeps its price readable: a reason chip, never a strike-through (pulse-staff strikes .mi.off) */
+:where(.pu) .mi--tk.off .price { text-decoration: none; }
+.mi--tk.off { cursor: pointer; }
+/* Half / Full on the tile: one tap each */
+.mi--split .mi__body { gap: 8px; }
+.tk-split { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+.tk-split button { min-height: 56px; border-radius: 12px; border: 1.5px solid var(--control-edge); background: var(--surface-soft); font-weight: 800; font-size: 16px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.tk-split button small { font-weight: 700; font-size: 15px; color: var(--ink-muted); white-space: nowrap; }
+.tk-split button[aria-disabled="true"] { opacity: .5; }
+[dir="rtl"] .tk-split button { min-height: 66px; line-height: 1.5; }
+[dir="rtl"] .tk-split button small { line-height: 1.2; }
+/* ×2 ×4 ×6 ×8 on the open cart line */
+.tk-qchips { grid-column: 2 / -1; display: flex; gap: 6px; padding-top: 8px; }
+.tk-qchips button { min-width: 64px; min-height: 48px; border-radius: 12px; border: 1.5px solid var(--control-edge); background: var(--surface-raised); font-weight: 800; font-size: 16px; }
+.tk-qchips button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-tint); }
+.tk-qchips button:disabled { opacity: .45; }
+
+/* ---------- A2 batch 2 item 4: rush mode (frame HomeRush; MAPPING TK-S01 rush, TK-SH01 .tk-live--rush) ---------- */
+/* the Live pill is the rush toggle on the takeaway screen */
+.top button.live { border: 0; font: inherit; cursor: pointer; }
+.top .live.tk-live--rush { background: var(--warn-fill); color: #fff; }
+.top .live.tk-live--rush .ico { color: #fff; }
+/* dense tiles: 4 columns, no photo, no sub line */
+.items.items--rush { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.items--rush .photo, .items--rush .mi__sub { display: none; }
+.items--rush .mi--h { min-height: 96px; }
+.items--rush .mi--h .qty { inset-inline-start: auto; inset-inline-end: 8px; }
+/* the customer row folded into one "Name / phone" button */
+.cust--compact { display: flex; }
+.cust--compact .tk-btn { flex: 1; justify-content: flex-start; min-height: 52px; }
+
+/* ---------- A2 batch 2 item 5a: the Ready by reason line (frame CartTimeDelta) ---------- */
+.tk-delta { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 8px 12px; border-radius: 10px; background: var(--warn-tint); color: var(--warn); font-weight: 700; font-size: 15px; }
+.tk-delta .ico { width: 18px; height: 18px; flex: none; }
+
+/* ---------- A2 batch 2 item 5b: the serve question (frame ServeChoice) ---------- */
+.tk-serve { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--info-tint); }
+.tk-serve b { font-size: 16px; color: var(--info); }
+.tk-serve .tk-pick { display: flex; gap: 6px; }
+.tk-serve .tk-pick button { flex: 1 1 0; min-height: 52px; padding: 0 8px; border-radius: 12px; border: 1.5px solid var(--control-edge); background: var(--surface-raised); font-weight: 700; font-size: 16px; }
+.tk-serve .tk-pick button.is-sel { background: var(--info-fill); border-color: var(--info-fill); color: #fff; }
+.tk-serve .time { unicode-bidi: isolate; white-space: nowrap; }
+
+/* 02b-TK A2 item 6 (CustomerDisplay). */
+.cd { position: fixed; inset: 0; display: grid; grid-template-columns: 1.2fr 1fr; min-height: 0; }
+.cd-l { min-width: 0; padding: 40px 48px; overflow: auto; background: var(--surface); }
+.cd-l h2 { margin: 0; font: 800 40px/1.1 var(--font-display); }
+.cd-l ul { padding: 0; margin: 14px 0 0; list-style: none; }
+.cd-row { display: flex; align-items: center; gap: 18px; font-size: 28px; font-weight: 700; padding: 12px 0; border-bottom: 2px solid var(--line); }
+.cd-row .q { min-width: 60px; color: var(--accent-ink); font-weight: 800; }
+.cd-price { margin-inline-start: auto; font-weight: 800; }
+.cd-r { min-width: 0; background: var(--chrome); color: var(--on-chrome); padding: 40px 48px; display: flex; flex-direction: column; gap: 20px; align-items: center; justify-content: center; text-align: center; }
+.cd-centered { grid-column: 1 / -1; }
+.cd-header:empty { display: none; }
+.cd-mark { display: grid; place-items: center; width: 96px; height: 96px; border-radius: var(--radius-lg); background: var(--action); color: var(--on-action); font: 800 40px/1 var(--font-display); }
+.cd-big { margin: 0; font: 800 clamp(40px, 5vw, 96px)/1.2 var(--font-sans); }
+.cd-label, .cd-footer { font-size: 30px; font-weight: 700; }
+.cd-footer bdi { display: block; font-size: 36px; }
+.cd-paid .ico { width: 48px; height: 48px; }
+.cd-r .tk-readyby { box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 14px; width: 100%; padding: 20px 28px; border-radius: var(--radius-md); background: var(--ok-tint); color: var(--ok); }
+.cd-r .cd-time { font: 800 48px/1.1 var(--font-sans); }
+.cd-r .tk-readyby__t small { display: block; color: var(--ink-muted); font-size: 22px; font-weight: 700; }
+.cd-r .tk-readyby__ic { display: grid; place-items: center; flex: none; width: 72px; height: 72px; border-radius: 50%; background: var(--ok-fill); color: var(--on-action); }
+.cd-r .tk-readyby__ic .ico { width: 36px; height: 36px; }
+.cd [lang="ur"] { font-family: var(--font-urdu); line-height: 1.6; }
+.cd [dir="ltr"] { font-family: var(--font-sans); font-variant-numeric: tabular-nums; unicode-bidi: isolate; white-space: nowrap; }
+.cd-open { min-height: 30px; padding-inline: 8px; font-size: 14px; }
+
+/* 02b-TK HomeTablet and HomeTabletUrdu. */
+.osc--tk-tablet > .cart { width: 440px; max-width: 44%; }
+.osc--tk-tablet .tk-mid { padding: 12px 12px 0; gap: 10px; }
+.osc--tk-tablet .tk-rstrip { padding: 0; overflow-x: auto; }
+.osc--tk-tablet .tk-rstrip .tk-rt { flex: 1 0 112px; }
+.osc--tk-tablet .tk-rstrip__q { position: sticky; inset-inline-end: 0; flex: 0 0 112px; }
+.osc--tk-tablet .menu { padding: 0 0 10px; }
+.osc--tk-tablet .items { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.osc--tk-tablet .mi--h { min-height: 124px; }
+.osc--tk-tablet .mi--h .photo { width: 52px; }
+.osc--tk-tablet :is(.cust, .cart__foot) { padding-inline: 12px; }
+
+/* 02b-TK QueueTablet. */
+.tk-q.tk-q--drawer { width: 460px; max-width: 100vw; border-inline-start: 1px solid var(--line); }
+.tk-q--drawer .tk-drawer__h { justify-content: space-between; }
+.tk-q--drawer .tk-q__scroll { flex: 1; min-height: 0; }
+
+/* 02b-TK PhoneMenu, PhoneCart and PhoneCartUrdu. */
+.order--tk-phone { min-height: 0; }
+.order--tk-phone .ptabs { flex: none; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 6px; border-radius: 0; background: var(--chrome-deep); }
+.order--tk-phone .ptabs button { min-height: 52px; border-radius: 12px; color: var(--on-chrome-muted); }
+.order--tk-phone .ptabs button[aria-pressed="true"] { background: var(--surface); color: var(--accent-ink); box-shadow: inset 0 -4px 0 var(--action); }
+.order--tk-phone .ph-body { overflow-y: auto; padding: 12px; gap: 10px; }
+.order--tk-phone .menu { padding: 0; }
+.order--tk-phone .items { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.order--tk-phone .mi--h { min-height: 118px; padding: 10px; }
+.order--tk-phone .mi--h .photo { width: 40px; }
+.order--tk-phone .mi__name, .order--tk-phone .ln__m { font-size: 16px; }
+.order--tk-phone .ln__ctrl .step button { min-width: 38px; min-height: 44px; }
+.ph-bar { gap: 10px; padding: 10px 12px 14px; background: var(--surface-raised); border-top: 1px solid var(--line); }
+.ph-bar .sbar__t b { font-size: 24px; }
+.ph-bar .sbar__t small { color: var(--ok); font-size: 14px; font-weight: 700; }
+.ph-bar__time { white-space: nowrap; }
+
+.ph-top--takeaway { gap: 8px; padding: 10px 12px; }
+.ph-top--takeaway .tk-ctx__ic { flex: none; width: 40px; height: 40px; }
+.ph-top--takeaway .grow { min-width: 0; }
+.ph-top--takeaway h1 { font-size: 19px; overflow-wrap: anywhere; }
+.ph-top__live { color: var(--on-chrome-muted); font-size: 13px; }
+.ph-top--takeaway .end { gap: 4px; }
+
+.ph-top--takeaway { background: var(--chrome); color: var(--on-chrome); }
+.pu .ph-top--takeaway .sub { color: var(--on-chrome-muted); }
+.ph-top--takeaway .end .av { background: var(--action); color: var(--on-action); }
+.order--tk-phone .cust.duo { grid-template-columns: minmax(0, 1fr); margin: 0; }
+.order--tk-phone .cust input,
+.order--tk-phone .search input,
+.osc--tk-tablet .search input { width: 100%; min-width: 0; }
+.order--tk-phone .search input,
+.osc--tk-tablet .search input { border: 0; background: transparent; font: inherit; }
+.order--tk-phone .mi--h .photo { height: 40px; border-radius: 50%; align-self: start; }
+.order--tk-phone .ln { grid-template-columns: auto minmax(0, 1fr) auto; padding: 8px 2px; }
+.order--tk-phone .ln > .step { align-self: start; }
+.order--tk-phone .ln .step button { width: 38px; min-height: 44px; }
+
+/* 02b-TK PhoneQueue and PhoneToken. */
+.order--tk-phone .tk-q--tab .tk-ready { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tk-drawer.tk-drawer--phone { inset: 0; width: 100%; max-width: none; }
+.tk-drawer--phone .tk-drawer__h { background: var(--chrome); color: var(--on-chrome); padding: 10px 12px; }
+.tk-drawer--phone .tk-drawer__b { padding: 12px; }
+.tk-drawer--phone .tk-drawer__f { padding: 10px 12px max(12px, env(safe-area-inset-bottom)); overflow-y: auto; max-height: 40dvh; }
+.tk-drawer--phone .tk-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }

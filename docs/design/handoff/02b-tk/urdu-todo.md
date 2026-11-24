@@ -33,8 +33,7 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `opt.more` | One more {option} | ایک اور {option} |
 | `opt.less` | One less {option} | ایک کم {option} |
 | `q.tab` | Queue | قطار |
-| `v.pay_first` | Take payment first — a manager can hand over unpaid | پہلے پیسے لیں — مینیجر بغیر ادائیگی حوالے کر سکتا ہے |
-| `v.override` | Hand over unpaid · manager | بغیر ادائیگی حوالے کریں · مینیجر |
+| `v.pay_first` | Take payment first | پہلے پیسے لیں |
 | `c.add_gone` | This token can’t take more items (closed, cancelled or another day) — send them as a new order | اس ٹوکن میں مزید آئٹم نہیں ڈل سکتے (بند، منسوخ یا دوسرے دن کا) — نیا آرڈر بھیجیں |
 | `c.add_busy` | Send or hold this cart first, then add to the token | پہلے یہ کارٹ بھیجیں یا ہولڈ کریں، پھر ٹوکن میں ڈالیں |
 | `v.refund_first` | Paid: reopen the bill first (Bill → Reopen), then take the item off here — the bill shows the refund to give | ادا ہو چکا: پہلے بل دوبارہ کھولیں (بل ← دوبارہ کھولیں)، پھر یہاں آئٹم ہٹائیں — بل واپسی کی رقم دکھائے گا |
@@ -49,3 +48,34 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `p.open_bill` | Open bill | بل کھولیں |
 | `v.check_day` | The day hasn’t started — no check bill yet | دن شروع نہیں ہوا — ابھی چیک بل نہیں |
 | `v.check_denied` | You can’t print the check bill for this order | آپ اس آرڈر کا چیک بل پرنٹ نہیں کر سکتے |
+| `shell.me.shift_open` | Opened {time} · float {money} | {time} پر کھلی · فلوٹ {money} |
+| `shell.locked` | Screen locked | اسکرین لاک ہے |
+| `m.hint_qty` | 4 × naan | 4 × نان |
+| `m.hint_initials` | half karahi | آدھی کڑاہی |
+| `m.hint_add` | add | ڈالیں |
+| `m.hint_clear` | clear | صاف کریں |
+| `t.off_reason` | {item} — {reason} | {item} — {reason} |
+| `m.not_now` (placeholder for the table's "From 7 PM") | From {time} | {time} سے |
+| `m.paused` (placeholder for the table's "Tandoor paused") | {station} paused | {station} رکا ہوا |
+| `t.sold_out` (placeholder for the table's "Chicken Tikka") | {item} is sold out — ask the kitchen | {item} ختم ہے — کچن سے پوچھیں |
+| `c.delta` (placeholders for the table's "2nd karahi" / "karahi station") | {item} adds {n} min — the {station} station is full | {item} سے {n} منٹ بڑھ گئے — {station} اسٹیشن بھرا ہے |
+| `c.delta_busy` | {item} adds {n} min — the {station} station is busy | {item} سے {n} منٹ بڑھ گئے — {station} اسٹیشن مصروف ہے |
+| `c.delta_plain` | {item} adds {n} min | {item} سے {n} منٹ بڑھ گئے |
+| `c.serve_q` (placeholder for the table's "Paye") | {item} is ready now. Give it now? | {item} ابھی تیار ہیں۔ ابھی دے دیں؟ |
+| `c.serve_now` (placeholder for the table's "Paye") | {item} now, rest {t} | {item} ابھی، باقی {t} |
+| `c.serve_q_many` | {item} are ready now. Give them now? | {item} ابھی تیار ہیں۔ ابھی دے دیں؟ |
+| `cd.welcome` | Welcome | خوش آمدید |
+| `cd.order` | Your order | آپ کا آرڈر |
+| `cd.total` | Total | کل |
+| `cd.paid` | Paid | ادا ہو گیا |
+| `cd.change` | Change | بقایا رقم |
+| `cd.open` | Customer screen | گاہک کی اسکرین |
+| `cd.thanks` | Thank you! | شکریہ! اپنا ٹوکن پرچی پر دیکھیں |
+| `q.search_token` | Token number | ٹوکن نمبر |
+| `c.phone_pay` | Pay | ادائیگی |
+
+Historical copy for Urdu review. OR-7 disabled the client override.
+
+| Key | English | Urdu |
+| --- | --- | --- |
+| `v.override` | Hand over unpaid · manager | بغیر ادائیگی حوالے کریں · مینیجر |

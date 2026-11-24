@@ -24,7 +24,9 @@ for (const lang of LANGS) {
       await tapTile(other, mine);
       await expect(sheet(other)).toContainText(tr(lang, 'sheet.ordering', { name: 'Ali' }));
       // the primary action says who is ordering (drawn off, aria-disabled, but it still answers a tap with TableBusy)
-      await sheet(other).getByRole('button', { name: tr(lang, 'sheet.take_order_busy', { name: 'Ali' }) }).click({ force: true });
+      // a dispatched tap: alert banners sit above route sheets (01d v1.3.3 §3.13.6a K-1), so a forced click at the
+      // button's point lands on whatever banner the shared hub shows the Manager there (kitchen screens offline …)
+      await sheet(other).getByRole('button', { name: tr(lang, 'sheet.take_order_busy', { name: 'Ali' }) }).dispatchEvent('click');
       await expect(dialog(other)).toContainText(tr(lang, 'busy.title', { name: 'Ali' }));
       await expect(dialog(other)).toContainText(tr(lang, 'busy.still_can'));
       // Release Ali's lock: a reason is required

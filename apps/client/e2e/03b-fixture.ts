@@ -1,7 +1,7 @@
 import type { BranchConfig, ConfigItem, EventDraft } from '@pos/events';
 import { appendOrder, fireLines, pairDevice, pairPassTablet } from '../../hub/test/kds/fixtures';
 import { fakeLanPrinter, type FakeLanPrinter } from '../../hub/test/print/fixtures';
-import type { TestHub } from '../../hub/test/helpers/test-hub';
+import { appendDeviceProfile, type TestHub } from '../../hub/test/helpers/test-hub';
 
 // 03b / 03c client flows (Z1; 03b v1.0.8 §8, §10 #70–#76, 03c v1.0.9 §8): the fixture on top of 02's e2e hub. Every
 // (flow, viewport, language) run gets its own station with its own lines, so runs never meet (as 02a's table pairs).
@@ -86,7 +86,11 @@ export async function seed03(hub: TestHub): Promise<{ printer: FakeLanPrinter; d
           devices[`kds:${key}`] = { token: k.token, device_id: k.deviceId };
         }
         if (flow === 'pass' || flow === 'takeover') {
-          const t = pairPassTablet(hub, { pointId: pointOf(flow, project, lang), name: `Pass tablet ${key}` });
+          const point_id = pointOf(flow, project, lang);
+          const t = pairPassTablet(hub, { pointId: point_id, name: `Pass tablet ${key}` });
+          // 05a v1.0.6 §3.6, M-6: a Pass tablet's profile is the `pass` screen with its point (`pass` ⇔ `point_id`), shared
+          // by the kitchen (`everyone`); the profile's fold writes the same devices.point_id
+          appendDeviceProfile(hub, t.deviceId, { access: 'everyone', screens: ['pass'], point_id });
           devices[`pass:${key}`] = { token: t.token, device_id: t.deviceId };
         }
         const lines = LINES_03.map((l) => ({ order_item_id: lineId(key, l.n), item_id: itemId(key, l.n), quantity: l.units }));

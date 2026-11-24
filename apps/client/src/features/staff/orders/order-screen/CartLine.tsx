@@ -22,6 +22,8 @@ export interface LineView {
   cap: number | null;
   /** 02b v1.0.21 §8 (STAB-5): a split line's distinct part times with their counts, earliest first */
   parts?: Array<{ n: number; eta_ms: number }>;
+  /** 02b-TK A2 item 5a (frame CartTimeDelta): why this line moved Ready by later */
+  delta?: string;
 }
 
 export interface LineActions {
@@ -77,7 +79,10 @@ function whyText(p: LineProblem): string {
   }
 }
 
-export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions }: { view: LineView; config: BranchConfig; unitOf: UnitOf; utcOffsetMs: number; actions: LineActions }) {
+/** 02b-TK A2 item 3 (frame HomeRush; CHANGES §4 #6 "four quantity chips"): the open line's ×2 ×4 ×6 ×8. */
+export const QTY_CHIPS = [2, 4, 6, 8] as const;
+
+export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions, qchips = false, alwaysStepper = false }: { view: LineView; config: BranchConfig; unitOf: UnitOf; utcOffsetMs: number; actions: LineActions; qchips?: boolean; alwaysStepper?: boolean }) {
   const { line } = view;
   const m = cartLineMoney(config, line, unitOf);
   // a pending weight shows what is billed now (its linked children) or "—"; missing menu data shows "—"
@@ -85,11 +90,27 @@ export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions }: { vi
   const options = optionsText(config, line);
   const piece = line.quantity !== null && (line.deal_id !== undefined || (line.item_id !== undefined && unitOf(line.item_id) === 'piece'));
   const classes = ['ln', view.open ? 'open' : null, view.problem !== null ? 'prob' : null].filter((c) => c !== null).join(' ');
+  const stepper = piece && view.problem === null ? (
+    <span className="step" role="group" aria-label={t('cart.quantity')}>
+      <button type="button" aria-label={t('cart.less')} disabled={(line.quantity ?? 1) <= 1} onClick={() => actions.setUnits(line.key, (line.quantity ?? 1) - 1)}>
+        <Glyph d={MINUS} />
+      </button>
+      <output className="num">{line.quantity}</output>
+      <button
+        type="button"
+        aria-label={t('cart.more')}
+        disabled={view.cap !== null && (line.quantity ?? 0) >= view.cap}
+        onClick={() => actions.setUnits(line.key, (line.quantity ?? 0) + 1)}
+      >
+        <Glyph d={PLUS} />
+      </button>
+    </span>
+  ) : null;
   return (
     <li className={classes} data-key={line.key}>
-      <span className="ln__q" dir="ltr">
-        {qtyText(line, unitOf)}
-      </span>
+      {alwaysStepper && stepper !== null ? stepper : (
+        <span className="ln__q" dir="ltr">{qtyText(line, unitOf)}</span>
+      )}
       <div className="ln__m" role="button" tabIndex={0} onClick={() => actions.toggle(line.key)} onKeyDown={(e) => (e.key === 'Enter' ? actions.toggle(line.key) : undefined)}>
         <b>{nameOf(config, line)}</b>
         {options !== null && <span>{options}</span>}
@@ -130,6 +151,12 @@ export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions }: { vi
           {view.parts.map((p) => fill(t('cart.part_ready'), { n: String(p.n), time: timeText(p.eta_ms, utcOffsetMs) })).join(' · ')}
         </div>
       )}
+      {view.delta !== undefined && (
+        <div className="tk-delta" role="status">
+          <Ico name="clock" />
+          <span>{view.delta}</span>
+        </div>
+      )}
       {view.problem !== null && (
         <div className="ln__prob">
           <span className="why">
@@ -148,29 +175,23 @@ export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions }: { vi
       )}
       {view.open && view.problem === null && (
         <div className="ln__ctrl">
-          {piece && (
-            <span className="step" role="group" aria-label={t('cart.quantity')}>
-              <button type="button" aria-label={t('cart.less')} disabled={(line.quantity ?? 1) <= 1} onClick={() => actions.setUnits(line.key, (line.quantity ?? 1) - 1)}>
-                <Glyph d={MINUS} />
+          {!alwaysStepper && stepper}
+              <button type="button" className="btn" onClick={() => actions.edit(line.key)}>
+                <Glyph d={PEN} />
+                {t('cart.edit')}
               </button>
-              <output className="num">{line.quantity}</output>
-              <button
-                type="button"
-                aria-label={t('cart.more')}
-                disabled={view.cap !== null && (line.quantity ?? 0) >= view.cap}
-                onClick={() => actions.setUnits(line.key, (line.quantity ?? 0) + 1)}
-              >
-                <Glyph d={PLUS} />
+              <button type="button" className="btn btn--quiet ln__rm" aria-label={t('cart.remove')} onClick={() => actions.remove(line.key)}>
+                <Ico name="x" />
               </button>
-            </span>
-          )}
-          <button type="button" className="btn" onClick={() => actions.edit(line.key)}>
-            <Glyph d={PEN} />
-            {t('cart.edit')}
-          </button>
-          <button type="button" className="btn btn--quiet ln__rm" aria-label={t('cart.remove')} onClick={() => actions.remove(line.key)}>
-            <Ico name="x" />
-          </button>
+        </div>
+      )}
+      {qchips && piece && view.open && view.problem === null && (
+        <div className="tk-qchips" role="group" aria-label={t('cart.quantity')}>
+          {QTY_CHIPS.map((n) => (
+            <button key={n} type="button" dir="ltr" aria-pressed={line.quantity === n} disabled={view.cap !== null && n > view.cap} onClick={() => actions.setUnits(line.key, n)}>
+              ×{n}
+            </button>
+          ))}
         </div>
       )}
     </li>

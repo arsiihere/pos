@@ -1,6 +1,6 @@
 import { inAvailabilityWindows, localTimeOfDayMs, type Unit } from '@pos/domain';
 import type { BranchConfig, ConfigItem } from '@pos/events';
-import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { navigate } from '../../../../app/router';
 import { language, t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
@@ -23,6 +23,7 @@ import {
   addTap,
   replaceLine,
   cartCount,
+  cartLineMoney,
   cartTotal,
   groupCart,
   kitchenUnits,
@@ -40,7 +41,8 @@ import {
 import { Cart, CartList, SendBar } from './Cart';
 import type { LineView } from './CartLine';
 import { MenuPills, MenuRail, type RailCategory } from './MenuRail';
-import { MenuTiles, itemSub, variantsSub, type TileModel } from './MenuTiles';
+import { MenuTiles, itemSub, offToast, variantsSub, type TakeawayTileActions, type TileModel } from './MenuTiles';
+import { groupsOf } from '../sheets/preselect';
 import { DealSheet } from '../sheets/DealSheet';
 import { NoteSheet, ORDER_NOTE_MAX } from '../sheets/NoteSheet';
 import { OptionsSheet } from '../sheets/OptionsSheet';
@@ -51,6 +53,7 @@ import { phoneBad } from './contact';
 import { CustomerRow } from './CustomerRow';
 import { LeaveGuard, useLeaveGuard } from './LeaveGuard';
 import { money } from '../money';
+import { cartDisplay, createDisplayPublisher, idleDisplay, type DisplayMessage } from '../customer-display/channel';
 import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
 import { announceCompIt, freezeSubmit, refusalText, sendOrder, sentToastText, timeUpdated, toCart, zoneEmpty } from '../send/send';
@@ -60,13 +63,18 @@ import { heldOnDevice } from './held-list';
 import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
 import type { QueueToken } from '../takeaway/queue-model';
 import { createHandovers } from '../takeaway/handover';
-import { readyNow, TokenView } from '../takeaway/TokenView';
+import { allLiveReady, TokenView } from '../takeaway/TokenView';
 import { PayPanel, type PayTarget } from '../takeaway/PayPanel';
 import { CheckBill } from '../takeaway/CheckBill';
 import { servedPayload } from '../actions/MarkServedSheet';
 import { showEnqueued } from '../view/LineActions';
 import { groupParts, type GroupedLine } from '../view/parts';
 import { servable } from '../view/stage';
+import { takeawayContext } from '../../shell/context-slot';
+import { keyEntries, keyMatches, parseKeyQuery, type KeyEntry } from './keyboard';
+import { readRushOverride, rushOn, toggledOverride, writeRushOverride } from '../takeaway/rush';
+import { deltaText } from './delta';
+import { ServeChoice } from './ServeChoice';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
 // Menu / Cart tabs + sticky Send; 02-B03 draft back, B04 offline, B05 / B07 line problems), 02a §8 Order screen (the
@@ -87,7 +95,8 @@ export interface OrderScreenProps {
 /** What a tile tap or Edit asks the sheets (26c) to open. */
 export type SheetRequest =
   | { kind: 'item'; item_id: string; from_zone: boolean }
-  | { kind: 'variants'; variant_group_id: string }
+  /** `item_id`: 02b-TK A2 item 3 — the variant tapped on the tile, chosen in the sheet */
+  | { kind: 'variants'; variant_group_id: string; item_id?: string }
   | { kind: 'deal'; deal_id: string }
   | { kind: 'edit'; key: string }
   | { kind: 'order_note' };
@@ -128,6 +137,16 @@ function needsSheet(item: ConfigItem, unit: Unit | null): boolean {
   return item.modifier_group_ids.length > 0 || item.requires_weighing || unit !== 'piece' || item.variant_group_id !== null;
 }
 
+/**
+ * 02b-TK A2 item 3 (frame TileStates "half/full on tile"; 01c §3.4.6): a variant tapped on its tile is added at once
+ * unless it needs a choice — a required group, a default option (the sheet shows the defaults), a weight or a
+ * non-piece unit: then its sheet opens with that variant chosen.
+ */
+function variantNeedsSheet(config: BranchConfig, item: ConfigItem, unit: Unit | null): boolean {
+  if (item.requires_weighing || unit !== 'piece') return true;
+  return groupsOf(config, item).some((g) => g.min_choices > 0 || g.options.some((o) => o.is_default));
+}
+
 /** The sheet's item / deal is still on the menu (an edited line still in the cart and on the menu). */
 function sheetTargetPresent(sheet: SheetRequest, config: BranchConfig, cart: CartModel): boolean {
   const item = (id: string | undefined) => id !== undefined && config.items.some((i) => i.item_id === id);
@@ -148,6 +167,14 @@ function sheetTargetPresent(sheet: SheetRequest, config: BranchConfig, cart: Car
   }
 }
 
+/** 02b-TK A2 item 2: a key typed here is text for that field (name, phone, a note…), never a shortcut or the search. */
+function editable(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
+  return target instanceof HTMLInputElement && !['button', 'checkbox', 'radio', 'submit', 'reset'].includes(target.type);
+}
+
 /** The variant group tile: orderable when any variant is; else the first variant's state. */
 function bestOf(states: ItemAvailability[]): ItemAvailability {
   return states.find((s) => s.orderable) ?? states[0]!;
@@ -163,7 +190,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const shellRef = useRef(shell);
   shellRef.current = shell;
   const drafts = useDrafts();
-  const ur = language() === 'ur';
+  const lang = language();
+  const ur = lang === 'ur';
 
   // ------------------------------------------------------------------------------------- live inputs
   const configVersion = useVersion(shell.config.subscribe);
@@ -415,6 +443,11 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  // 02b-TK A2 item 2 (frame KeyboardMode): the search's chosen suggestion, the search field, this screen's root
+  const [sel, setSel] = useState(0);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const keysRef = useRef<((e: KeyboardEvent) => void) | null>(null);
   const [tab, setTab] = useState<'menu' | 'cart' | 'queue'>('menu');
   // 02b-TK C2-1: the takeaway queue rail (its book of tokens, names and phones from this device's frames, R3)
   const book = useMemo(() => (order_type === 'takeaway' ? createTokenBook(shell.live) : null), [shell.live, order_type]);
@@ -436,7 +469,41 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   // 02b-TK C2-2: the token view drawer over the menu and the cart (the cart is kept)
   const [openToken, setOpenToken] = useState<QueueToken | null>(null);
   // 02b-TK C3-1: the pay panel over the cart (Send & pay, or Take payment of a token)
-  const [pay, setPay] = useState<PayTarget | null>(null);
+  const [pay, setPay] = useState<(PayTarget & { display?: DisplayMessage | undefined }) | null>(null);
+  const mirrorCart = order_type === 'takeaway' && shell.device.type === 'cashier_kiosk';
+  const total = config === null ? null : cartTotal(config, cart, unitOf);
+  const ready = readyBy(body);
+  const displayCart = !mirrorCart || config === null ? idleDisplay(lang) : cartDisplay(
+    cart,
+    (line) => line.deal_id === undefined
+      ? config.items.find((item) => item.item_id === line.item_id)?.name ?? '—'
+      : config.deals.find((deal) => deal.deal_id === line.deal_id)?.name ?? '—',
+    (line) => {
+      const price = cartLineMoney(config, line, unitOf);
+      return price.kind === 'unknown' || (price.kind === 'pending' && price.minor === 0) ? null : price.minor;
+    },
+    total,
+    ready,
+    lang,
+    (line) => line.item_id !== undefined && unitOf(line.item_id) !== 'piece' ? 1 : line.quantity ?? 1,
+  );
+  // Next customer clears the public screen even when a different unsent draft was kept behind the pay panel.
+  const [clearedDisplayCart, setClearedDisplayCart] = useState<CartModel | null>(null);
+  const displayMessage = pay?.display ?? (clearedDisplayCart === cart ? idleDisplay(lang) : displayCart);
+  const publisher = useRef<ReturnType<typeof createDisplayPublisher> | null>(null);
+  useEffect(() => {
+    if (!mirrorCart) return;
+    const feed = createDisplayPublisher(lang);
+    publisher.current = feed;
+    const clear = () => feed.publish(idleDisplay(lang));
+    window.addEventListener('pagehide', clear);
+    return () => {
+      window.removeEventListener('pagehide', clear);
+      publisher.current = null;
+      feed.close();
+    };
+  }, [mirrorCart, lang]);
+  useEffect(() => publisher.current?.publish(displayMessage), [displayMessage]);
   const payToken = (q: QueueToken) => {
     setOpenToken(null);
     setPay({ order_id: q.newest_order_id, ident: q.token === null ? null : String(q.token), name: q.customer_name, promise_ms: q.promise_ms });
@@ -449,7 +516,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   useEffect(() => {
     if (order_type !== 'takeaway') return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'F8' && e.key !== 'F9') return;
+      if (e.key !== 'F8' && e.key !== 'F9') return keysRef.current?.(e);
       e.preventDefault();
       sendKeys.current?.(e.key === 'F8');
     };
@@ -474,13 +541,14 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     handovers.start({ id: newUlid(), token_key: q.key, ident: q.token === null ? '—' : String(q.token), payload: servedPayload(lines) });
     setOpenToken(null);
   };
-  // the ready tile's one tap: the token's lines from order-view, every servable one ready → handed over (R2: paid only)
+  // the ready tile's one tap: the token's lines from order-view; every live one ready (a line not yet sent to the
+  // kitchen counts too, owner ruling 2026-11-24 #1) → its servable lines handed over (R2: paid only); else the view
   const handOverTile = async (q: QueueToken) => {
     if (!shellRef.current.permissions.allowed('mark-served')) return setOpenToken(q);
     const views = await Promise.all(q.order_ids.map((oid) => shellRef.current.orders.orderView(oid)));
-    const lines = views.flatMap((v) => (v.ok && v.data.kind === 'order' ? groupParts(v.data.order.lines) : [])).filter(servable);
-    if (lines.length === 0 || !lines.every(readyNow)) return setOpenToken(q);
-    handOver(q, lines);
+    const lines = views.flatMap((v) => (v.ok && v.data.kind === 'order' ? groupParts(v.data.order.lines) : []));
+    if (!allLiveReady(lines)) return setOpenToken(q);
+    handOver(q, lines.filter(servable));
   };
   // 02b-TK C2-3 (02b §3.2 step 2; 05 #44a): Add items starts an addition to the token's root on an empty cart (a cart
   // with lines is another customer's: it is sent or held first)
@@ -492,9 +560,32 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     setOpenToken(null);
     setTab('menu');
   };
+  // 02b-TK A2 item 4 (frame HomeRush; R9 UI only): rush mode at RUSH_OPEN_ORDERS open tokens (the rail's count) or by
+  // the shell's pill (a manual override kept on this device); dense tiles, the folded customer row, the compact queue
+  const [openCount, setOpenCount] = useState(0);
+  const [rushManual, setRushManual] = useState<boolean | null>(() => (order_type === 'takeaway' ? readRushOverride() : null));
+  const rush = order_type === 'takeaway' && rushOn(openCount, rushManual);
+  const rushCount = useRef(openCount);
+  rushCount.current = openCount;
+  useEffect(() => {
+    if (book === null) return;
+    shellRef.current.rush?.set({
+      on: rush,
+      count: openCount,
+      toggle: () =>
+        setRushManual((manual) => {
+          const next = toggledOverride(rushCount.current, manual);
+          writeRushOverride(next);
+          return next;
+        }),
+    });
+  }, [book, rush, openCount]);
+  useEffect(() => () => shellRef.current.rush?.set(null), []);
+  const dense = rush && !shell.phone && !shell.portrait;
   const pendingKeys = new Set(handovers.pending().map((h) => h.token_key));
   const lastHandover = handovers.pending().at(-1) ?? null;
   const railVariant: RailVariant = shell.phone || shell.portrait ? 'tab' : shell.device.type === 'cashier_kiosk' ? 'column' : 'strip';
+  const tabletTakeaway = book !== null && railVariant === 'strip';
   const queueRail = (variant: RailVariant) =>
     book === null ? null : (
       <QueueRail
@@ -503,9 +594,11 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         selected={openToken?.key ?? null}
         onOpen={setOpenToken}
         heldCount={heldCount}
-        onHandOver={(q) => void handOverTile(q)}
-        onPay={payToken}
+        onHandOver={shell.permissions.allowed('mark-served') ? (q) => void handOverTile(q) : undefined}
+        onPay={shell.online && shell.permissions.allowed('take-payment') ? payToken : undefined}
         hidden={pendingKeys}
+        onCount={setOpenCount}
+        compact={dense}
       />
     );
   const tokenView =
@@ -513,7 +606,23 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       <TokenView token={openToken} book={book} onClose={() => setOpenToken(null)} onHandOver={(lines) => handOver(openToken, lines)} onAddItems={() => addTo(openToken)} onPay={() => payToken(openToken)} />
     );
   const payView = (fixed: boolean) =>
-    pay === null ? null : <PayPanel key={pay.order_id ?? 'sending'} target={pay} fixed={fixed} onLater={() => setPay(null)} onDone={() => setPay(null)} />;
+    pay === null ? null : (
+      <PayPanel
+        key={pay.order_id ?? 'sending'}
+        target={pay}
+        fixed={fixed}
+        onLater={() => setPay(null)}
+        onDone={() => {
+          if (pay.display?.kind === 'paid') setClearedDisplayCart(cart);
+          setPay(null);
+        }}
+        onClosed={(payment, totalMinor) => {
+          setPay((current) => mirrorCart && current !== null && current.order_id === pay.order_id
+            ? { ...current, display: { ...(current.display ?? idleDisplay(lang)), ...payment, total_minor: totalMinor } }
+            : current);
+        }}
+      />
+    );
   const undoToast =
     lastHandover === null ? null : (
       <div className="tk-toast tk-toast--ok tk-toast--bottom" role="status">
@@ -525,6 +634,26 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         </button>
       </div>
     );
+
+  // 02b-TK A2 item 1 (frames ShellAnatomy, TokenReady, PayCard; MAPPING TK-SH01; R3): this screen fills the top bar's
+  // context slot — the pay panel, the open token view, an addition or the new cart — and clears it when it goes
+  const seeContact = shell.permissions.allowed('view-customer-contact');
+  const slotJson =
+    order_type !== 'takeaway'
+      ? null
+      : JSON.stringify(
+          takeawayContext({
+            adding: cart.adds_to === undefined ? null : { token: cart.adds_to.token },
+            token: openToken === null ? null : { token: openToken.token, name: openToken.customer_name, paid: openToken.paid },
+            paying: pay === null ? null : { ident: pay.ident, name: pay.name },
+            cartName: cart.takeaway?.customer_name ?? null,
+            seeContact,
+          }),
+        );
+  useEffect(() => {
+    if (slotJson !== null) shellRef.current.contextSlot?.set(JSON.parse(slotJson) as ReturnType<typeof takeawayContext>);
+  }, [slotJson]);
+  useEffect(() => () => shellRef.current.contextSlot?.set(null), []);
 
   if (config === null) {
     return (
@@ -560,8 +689,16 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     return { category_id: c.category_id, name: c.name, items: items.filter((i) => i.variant_group_id === null).length + groups.size, deals: config.deals.filter((d) => d.category_id === c.category_id).length, closed };
   });
   const current = category ?? rail[0]?.category_id ?? null;
-  const q = query.trim().toLowerCase();
-  const inView = (category_id: string, name: string) => (q === '' ? category_id === current : name.toLowerCase().includes(q));
+  // 02b-TK A2 item 2 (frame KeyboardMode): on takeaway a number prefix is the quantity ("4n"); the rest also finds by
+  // word starts and initials (keyboard.ts); the tiles show every match
+  const keyQuery = order_type === 'takeaway' ? parseKeyQuery(query) : { qty: null, term: query.trim().toLowerCase() };
+  const q = keyQuery.term;
+  const keyed = order_type !== 'takeaway' || q === '' ? null : keyMatches(keyEntries(config), q);
+  const keyedIds = new Set(keyed?.map((e) => e.id) ?? []);
+  const inView = (category_id: string, name: string, id?: string) =>
+    q === '' ? category_id === current : name.toLowerCase().includes(q) || (id !== undefined && keyedIds.has(id));
+  /** 02b-TK A2 item 3 (frame TileStates "Tandoor paused"): the paused station's name */
+  const stationName = (a: ItemAvailability): string | null => (a.state.kind !== 'paused' ? null : (config.stations.find((st) => st.station_id === (a.state as { station_id: string }).station_id)?.name ?? null));
   const tiles: TileModel[] = [];
   const seenGroups = new Set<string>();
   for (const item of [...config.items].sort((a, b) => a.sort_order - b.sort_order)) {
@@ -571,7 +708,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       const vg = config.variant_groups.find((v) => v.variant_group_id === item.variant_group_id);
       const variants = config.items.filter((i) => i.variant_group_id === item.variant_group_id);
       const name = vg?.name ?? item.name;
-      if (!inView(item.category_id, name)) continue;
+      if (!inView(item.category_id, name) && !variants.some((v) => keyedIds.has(v.item_id))) continue;
+      const groupAvail = bestOf(variants.map((v) => avail(v.item_id)));
       tiles.push({
         id: item.variant_group_id,
         kind: 'variants',
@@ -580,13 +718,20 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         price_minor: Math.min(...variants.map((v) => v.price_minor)),
         from: variants.length > 1,
         per: null,
-        availability: bestOf(variants.map((v) => avail(v.item_id))),
+        availability: groupAvail,
         zone: null,
         in_cart: variants.reduce((n, v) => n + unitsOf(cart, v.item_id), 0),
+        // 02b-TK A2 item 3: Half / Full on the tile (takeaway)
+        ...(order_type !== 'takeaway'
+          ? {}
+          : {
+              variants: [...variants].sort((a, b) => a.sort_order - b.sort_order).map((v) => ({ item_id: v.item_id, name: v.variant_name ?? v.name, price_minor: v.price_minor, availability: avail(v.item_id) })),
+              station_name: stationName(groupAvail),
+            }),
       });
       continue;
     }
-    if (!inView(item.category_id, item.name)) continue;
+    if (!inView(item.category_id, item.name, item.item_id)) continue;
     const z = zoneItem(item.item_id);
     tiles.push({
       id: item.item_id,
@@ -599,10 +744,11 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       availability: z === null ? avail(item.item_id) : zoneAvail(avail(item.item_id), z.on_hand),
       zone: z === null ? null : { on_hand: z.on_hand, zone_name: zone?.name ?? null },
       in_cart: unitsOf(cart, item.item_id),
+      station_name: stationName(avail(item.item_id)),
     });
   }
   for (const deal of [...config.deals].sort((a, b) => a.sort_order - b.sort_order)) {
-    if (!inView(deal.category_id, deal.name)) continue;
+    if (!inView(deal.category_id, deal.name, deal.deal_id)) continue;
     tiles.push({
       id: deal.deal_id,
       kind: 'deal',
@@ -630,10 +776,29 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     if (cap !== null && kitchenUnits(next, item.item_id, zoneCovered(next, (id) => zoneItem(id)?.on_hand ?? null)) > cap) return;
     setCart(next);
   };
+  // 02b-TK A2 item 3 (frame TileStates): Half / Full on the tile, and an off tile's tap says why (never silent)
+  const tk: TakeawayTileActions | undefined =
+    order_type !== 'takeaway'
+      ? undefined
+      : {
+          onOff: (name, state, station) => shell.toasts.show({ text: offToast(name, state, station), tone: 'warn' }),
+          onVariant: (tile, item_id) => {
+            if (sending.current) return;
+            const item = config.items.find((i) => i.item_id === item_id);
+            if (item === undefined) return;
+            if (variantNeedsSheet(config, item, unitOf(item_id))) return setSheet({ kind: 'variants', variant_group_id: tile.id, item_id });
+            const next = addTap(cart, item_id, newKey);
+            const cap = capOf(item_id);
+            if (cap !== null && kitchenUnits(next, item_id, zoneCovered(next, () => null)) > cap) return;
+            setCart(next);
+          },
+        };
 
   // ------------------------------------------------------------------------------------------- cart view
   const problems = lineProblems(cart, body, capOf, covered);
   const moved = pv.kind === 'ok' ? pv.moved : new Set<string>();
+  // 02b-TK A2 item 5a (frame CartTimeDelta): the line that moved Ready by later says why (takeaway)
+  const delta = order_type === 'takeaway' && pv.kind === 'ok' && body !== null ? pv.delta : null;
   const groups = groupCart(cart, body).map((group) => ({
     group,
     lines: group.lines.map(
@@ -648,6 +813,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           open: openKey === s.line.key,
           cap,
           ...(s.parts === undefined ? {} : { parts: s.parts }),
+          ...(delta === null || delta.key !== s.line.key ? {} : { delta: deltaText(config, s.line, delta.ms, order_type, (id) => inputs?.stationBand?.(id) ?? null) }),
         };
       },
     ),
@@ -665,8 +831,6 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   };
   const utcOffsetMs = shell.clock.utcOffsetMs;
   const count = cartCount(cart, unitOf);
-  const total = cartTotal(config, cart, unitOf);
-  const ready = readyBy(body);
   // dine-in: Send waits for the seating on the map, and follows the table lock; 02b-TK C1-2: a typed takeaway phone
   // the hub would refuse waits to be fixed or cleared (R1: the phone stays optional)
   const contactBad = order_type === 'takeaway' && phoneBad(cart.takeaway?.phone);
@@ -685,12 +849,13 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     const frozen = cart;
     const before = body;
     const payload = freezeSubmit(frozen, target, newUlid());
+    const shownName = railVariant === 'column' || seeContact ? payload.takeaway?.customer_name : undefined;
     const title = order_type === 'dine_in' ? (seat?.name ?? null) : null;
     const label =
       order_type === 'dine_in'
         ? fill(t('send.label_table'), { table: title ?? '' })
         : order_type === 'takeaway'
-          ? t('order.takeaway') + (payload.takeaway?.customer_name === undefined ? '' : ` · ${payload.takeaway.customer_name}`)
+          ? t('order.takeaway') + (shownName === undefined ? '' : ` · ${shownName}`)
           : `${t('order.parking')} · ${frozen.parking?.car_number ?? ''}`;
     // 02b-TK C1-3 (02b §6.1, §3.12; frames SentToast, SentQueued; audit #7, #27): a takeaway sends in the background —
     // no dialog, a fresh cart at once (it takes no tap until the queue answered, #35), a toast with the token after;
@@ -701,7 +866,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       if (background) setCart(frozen);
     };
     // 02b-TK C3-1 (frame PayCash): the pay panel opens at once over the fresh cart; its bill is read once the order is in
-    if (andPay) setPay({ order_id: null, ident: null, name: payload.takeaway?.customer_name ?? null, promise_ms: null });
+    const paymentDisplay = andPay && mirrorCart ? displayCart : undefined;
+    if (andPay) setPay({ order_id: null, ident: null, name: shownName ?? null, promise_ms: null, display: paymentDisplay });
     if (background) setCart(EMPTY_CART);
     else setSend({ kind: 'sending', sub: [title, fill(t('cart.items'), { n: String(count) })].filter((x) => x !== null).join(' · ') });
     let outcome: Awaited<ReturnType<typeof sendOrder>>;
@@ -722,11 +888,11 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         const r = outcome.result;
         if (andPay) {
           const promises = r?.groups.map((g) => g.promise_ms) ?? [];
-          setPay({ order_id: payload.order_id, ident: r?.token == null ? null : String(r.token), name: payload.takeaway?.customer_name ?? null, promise_ms: promises.length === 0 ? null : Math.max(...promises) });
+          setPay({ order_id: payload.order_id, ident: r?.token == null ? null : String(r.token), name: shownName ?? null, promise_ms: promises.length === 0 ? null : Math.max(...promises), display: paymentDisplay });
         }
         const moved = r === undefined ? null : timeUpdated(config, frozen, before, r);
         shellRef.current.toasts.show({
-          text: sentToastText(r, payload.takeaway?.customer_name, shellRef.current.clock.utcOffsetMs),
+          text: sentToastText(r, shownName, shellRef.current.clock.utcOffsetMs),
           ...(moved === null ? {} : { sub: fill(t('send.time_updated'), { item: moved.name, time: timeText(moved.eta_ms, shellRef.current.clock.utcOffsetMs) }) }),
           tone: 'ok',
         });
@@ -817,11 +983,13 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         onHold={() => {
           const to = guard.pending!;
           guard.clear();
-          void onHold(to);
+          // 02b-TK A2 item 2: F2 on the Takeaway tab asked with this route: Hold it = Hold (a fresh cart here)
+          void onHold(to === here ? undefined : to);
         }}
         onDiscard={() => {
           const to = guard.pending!;
           guard.clear();
+          if (to === here) return void (sending.current ? undefined : setCart(EMPTY_CART));
           void onDiscard(to);
         }}
       />
@@ -835,6 +1003,20 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   // 02b-TK C3-2 (05 §6.3; R6): the cart of an addition prints the sent token's check bill (a restored draft: its root's)
   const checkOrder = addingTo === null ? null : addingNewest.current?.root === addingTo.order_id ? addingNewest.current.newest : addingTo.order_id;
   const checkBill = checkOrder !== null && shell.permissions.allowed('take-order') ? <CheckBill order_id={checkOrder} /> : undefined;
+  const setServe = (mode: ServeMode) => (sending.current ? undefined : setCart((c) => ({ ...c, serve_mode: mode })));
+  // 02b-TK A2 item 5b: the lines ready now — a ready item, or a stock item served at once (stock_time_ms 0, in stock:
+  // the tile's "Now", 02b-tk C3-3) — named in cart order; null unless the order also has a kitchen line
+  const readyNowNames = (() => {
+    const isNow = (item_id: string | undefined) => {
+      const item = item_id === undefined ? undefined : config.items.find((i) => i.item_id === item_id);
+      if (item === undefined) return false;
+      const left = inputs?.stock.available(item.item_id) ?? null;
+      return item.is_ready_item || (item.stock_time_ms === 0 && left !== null && left >= 1);
+    };
+    const now = cart.lines.filter((l) => l.deal_id === undefined && isNow(l.item_id));
+    if (now.length === 0 || now.length === cart.lines.length) return null;
+    return [...new Set(now.map((l) => config.items.find((i) => i.item_id === l.item_id)!.name))];
+  })();
   const cartProps = {
     primary,
     config,
@@ -854,16 +1036,26 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     onSend: () => void onSend(),
     pay: canPay ? { online: shell.online, onSendPay: () => void onSend({ pay: true }) } : undefined,
     checkBill,
+    holdKey: order_type === 'takeaway' && shell.device.type === 'cashier_kiosk' && !shell.phone && !shell.portrait,
+    // 02b-TK A2 item 3 (frame HomeRush): ×2 ×4 ×6 ×8 on the open line
+    qchips: order_type === 'takeaway',
     day: dayNotOpen ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
     info: cart.lines.find((l) => l.comp_it === true) === undefined ? null : compItInfo(),
-    // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins
-    serve: { state: serveState(cart, config), onSet: (mode: ServeMode) => (sending.current ? undefined : setCart((c) => ({ ...c, serve_mode: mode }))) },
+    // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins. 02b-TK A2
+    // item 5b (frame ServeChoice): a takeaway asks the plain question instead, and only when something is ready now
+    // and something comes from the kitchen
+    serve: order_type === 'takeaway' ? undefined : { state: serveState(cart, config), onSet: setServe },
+    serveChoice:
+      order_type !== 'takeaway' || readyNowNames === null ? null : (
+        <ServeChoice now={readyNowNames} ready_by={ready} utcOffsetMs={utcOffsetMs} state={serveState(cart, config)} onSet={setServe} />
+      ),
   };
   const customer =
     order_type !== 'takeaway' ? null : (
       <CustomerRow
         value={cart.takeaway}
         disabled={sending.current}
+        compact={dense}
         onChange={(next) => {
           if (sending.current) return; // the cart is frozen while it is sent
           setCart((c) => {
@@ -876,13 +1068,163 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     );
   const keepDraft = () => navigate(seat === null ? '/tables' : tableHref(seat.ref.table_id, id));
 
+  // ------------------------------------------------------------------------- 02b-TK A2 item 2: keyboard speed mode
+  // (frame KeyboardMode; MAPPING TK-S02): "/" focuses the search, typing on the bare screen goes to it (never from the
+  // name / phone field or any other field), a number prefix is the quantity ("4n" Enter = 4 naan), ↑ / ↓ choose, Enter
+  // adds, Esc clears the search; Esc on the screen closes the token view; F2 new takeaway, F4 Hold. F8 / F9 above.
+  const kiosk = shell.device.type === 'cashier_kiosk' && !shell.phone && !shell.portrait;
+  const orderable = (e: KeyEntry) => (e.kind === 'deal' ? inputs === null || dealAvailability(e.id, inputs).orderable : avail(e.id).orderable);
+  const suggestions = keyed === null ? [] : keyed.filter(orderable).slice(0, 3);
+  const qty = keyQuery.qty ?? 1;
+  const chosen = Math.min(sel, Math.max(0, suggestions.length - 1));
+  const addKey = (e: KeyEntry) => {
+    setQuery('');
+    setSel(0);
+    if (sending.current) return;
+    if (e.kind === 'deal') return setSheet({ kind: 'deal', deal_id: e.id });
+    const item = config.items.find((i) => i.item_id === e.id);
+    if (item === undefined) return;
+    // the variant is already chosen by the search: a sheet only for options, weight or a non-piece unit
+    if (item.modifier_group_ids.length > 0 || item.requires_weighing || unitOf(item.item_id) !== 'piece') return setSheet({ kind: 'item', item_id: item.item_id, from_zone: false });
+    setCart((c) => {
+      let next = c;
+      const cap = capOf(item.item_id);
+      for (let n = 0; n < qty; n += 1) {
+        const more = addTap(next, item.item_id, newKey);
+        if (cap !== null && kitchenUnits(more, item.item_id, zoneCovered(more, () => null)) > cap) break;
+        next = more;
+      }
+      return next;
+    });
+  };
+  const overlay = sheet !== null || pay !== null || send !== null || guard.pending !== null || newOrder !== null;
+  const newTakeaway = () => {
+    if (!home) return navigate('/takeaway'); // the leave guard asks on the way if the cart has lines
+    setOpenToken(null);
+    if (cart.lines.length > 0) return guard.ask(here);
+    if (cart.adds_to !== undefined) setCart(EMPTY_CART);
+    searchRef.current?.focus();
+  };
+  keysRef.current = (e: KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+    const target = e.target instanceof Element ? e.target : null;
+    // another layer (a dialog, a menu, the lock) or another part of the page owns this key
+    if (target?.closest('[role="dialog"]:not(.tk-drawer), [role="menu"], [role="alertdialog"], .idle') != null) return;
+    if (target !== null && target !== document.body && !(rootRef.current?.contains(target) ?? false)) return;
+    if (e.key === 'Escape') {
+      if (target === searchRef.current || openToken === null || overlay) return;
+      e.preventDefault();
+      return setOpenToken(null);
+    }
+    if (e.key === 'F4' || e.key === 'F2') {
+      e.preventDefault();
+      if (overlay) return;
+      if (e.key === 'F2') return newTakeaway();
+      if (openToken === null && cart.lines.length > 0) void onHold();
+      return;
+    }
+    if (editable(target) || overlay || openToken !== null || searchRef.current === null) return;
+    if (e.key === '/') {
+      e.preventDefault();
+      return searchRef.current.focus();
+    }
+    if ([...e.key].length !== 1 || e.key === ' ') return;
+    e.preventDefault();
+    searchRef.current.focus();
+    setQuery((v) => v + e.key);
+    setSel(0);
+  };
+  const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (order_type !== 'takeaway') return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSel(Math.max(0, Math.min(suggestions.length - 1, chosen + (e.key === 'ArrowDown' ? 1 : -1))));
+    } else if (e.key === 'Enter') {
+      const pick = suggestions[chosen];
+      if (pick === undefined) return;
+      e.preventDefault();
+      addKey(pick);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setQuery('');
+      setSel(0);
+      e.currentTarget.blur();
+    }
+  };
+  const kbd = (k: string) => (
+    <span className="tk-kbd" dir="ltr">
+      {k}
+    </span>
+  );
   const menu = (
     <section className="menu">
-      <label className="search" role="search">
-        <Ico name="eye" />
-        <input type="search" value={query} placeholder={t('menu.search')} aria-label={t('menu.search')} onChange={(e) => setQuery(e.target.value)} />
-      </label>
-      <MenuTiles tiles={tiles} onTap={onTap} />
+      <div className="tk-ksearch">
+        <label className="search" role="search">
+          <Ico name="eye" />
+          <input
+            ref={searchRef}
+            type="search"
+            value={query}
+            placeholder={t(order_type === 'takeaway' ? 'm.search' : 'menu.search')}
+            aria-label={t(order_type === 'takeaway' ? 'm.search' : 'menu.search')}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSel(0);
+            }}
+            onKeyDown={onSearchKey}
+          />
+          {order_type === 'takeaway' && kiosk && kbd('/')}
+        </label>
+        {suggestions.length > 0 && (
+          <div className="tk-sugg" role="listbox" aria-label={t('m.search')}>
+            {suggestions.map((e, i) => (
+              <div
+                key={e.id}
+                role="option"
+                aria-selected={i === chosen}
+                className={i === chosen ? 'tk-sugg__r is-sel' : 'tk-sugg__r'}
+                onMouseDown={(ev) => {
+                  ev.preventDefault();
+                  addKey(e);
+                }}
+              >
+                <b>
+                  <span className="num" dir="ltr">
+                    {qty}×
+                  </span>{' '}
+                  {e.name}
+                </b>
+                <span className="muted" dir="ltr">
+                  {money(e.price_minor * qty)}
+                </span>
+                {kbd(i === chosen ? 'Enter' : '↓')}
+              </div>
+            ))}
+            <div className="tk-hint">
+              {kbd('4n')} = {t('m.hint_qty')} · {kbd('hk')} = {t('m.hint_initials')} · {kbd('Enter')} {t('m.hint_add')} · {kbd('Esc')} {t('m.hint_clear')}
+            </div>
+          </div>
+        )}
+      </div>
+      {(tabletTakeaway || shell.phone || shell.portrait) && <MenuPills categories={rail} current={current} onPick={setCategory} />}
+      <MenuTiles
+        tiles={tiles}
+        onTap={onTap}
+        tk={tk}
+        rush={dense}
+        wait={order_type === 'takeaway' && (shell.phone || shell.portrait) ? (shell.online ? 'live' : 'offline') : undefined}
+      />
+      {order_type === 'takeaway' && kiosk && (
+        <div className="tk-hint">
+          {kbd('/')} {t('m.keys')}: {kbd('4n')} {kbd('Enter')} · {kbd('F2')} {t('ctx.new')} ·{' '}
+          {canPay && (
+            <>
+              {kbd('F8')} {t('c.send_pay')} · {kbd('F9')} {t('c.send_later')} ·{' '}
+            </>
+          )}
+          {kbd('Esc')} {t('shell.back')}
+        </div>
+      )}
     </section>
   );
   const banners = (
@@ -963,6 +1305,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           {...common}
           item_ids={config.items.filter((i) => i.variant_group_id === sheet.variant_group_id).sort((a, b) => a.sort_order - b.sort_order).map((i) => i.item_id)}
           initial={null}
+          {...(sheet.item_id === undefined ? {} : { start_item_id: sheet.item_id })}
           capOf={sheetCap}
         />
       );
@@ -1017,7 +1360,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
 
   if (shell.phone || shell.portrait) {
     return (
-      <div className="col grow order order--phone" dir={ur ? 'rtl' : 'ltr'}>
+      <div className={book === null ? "col grow order order--phone" : "col grow order order--phone order--tk-phone"} dir={ur ? 'rtl' : 'ltr'} ref={rootRef}>
         {banners}
         <div className="ptabs">
           <button type="button" aria-pressed={tab === 'menu'} onClick={() => setTab('menu')}>
@@ -1048,20 +1391,17 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           {tab === 'queue' && book !== null ? (
             queueRail(railVariant)
           ) : tab === 'menu' ? (
-            <>
-              <MenuPills categories={rail} current={current} onPick={setCategory} />
-              {menu}
-            </>
+            menu
           ) : (
             <>
               {customer}
-              <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} />
+              <CartList config={config} unitOf={unitOf} utcOffsetMs={utcOffsetMs} groups={groups} actions={actions} qchips={order_type === 'takeaway'} phoneTakeaway={book !== null} />
               {checkBill}
             </>
           )}
         </div>
         {cartProps.day}
-        {!dayNotOpen && <SendBar count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} primary={primary} pay={cartProps.pay} onSend={() => void onSend()} />}
+        {!dayNotOpen && tab !== 'queue' && <SendBar phoneTakeaway={book !== null} count={count} total_minor={total} ready_by={ready} utcOffsetMs={utcOffsetMs} problems={problems.size} canSend={canSend} primary={primary} pay={cartProps.pay} onSend={() => void onSend()} />}
         {draftBack}
         {sheetView}
         {sendView}
@@ -1074,13 +1414,13 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     );
   }
   return (
-    <div className="col grow order" dir={ur ? 'rtl' : 'ltr'}>
+    <div className="col grow order" dir={ur ? 'rtl' : 'ltr'} ref={rootRef}>
       {banners}
-      <div className={book === null ? 'osc' : 'osc osc--tk'}>
+      <div className={['osc', book && 'osc--tk', dense && 'osc--rush', tabletTakeaway && 'osc--tk-tablet'].filter(Boolean).join(' ')}>
         {/* 02b-TK C2-1 (frames HomeKiosk, QueueTablet): kiosk queue rail | menu | cart; a tablet's ready strip over the menu */}
         {railVariant === 'column' && queueRail('column')}
-        <MenuRail categories={rail} current={current} onPick={setCategory} />
-        {railVariant === 'strip' && book !== null ? (
+        {!tabletTakeaway && <MenuRail categories={rail} current={current} onPick={setCategory} />}
+        {tabletTakeaway ? (
           <div className="tk-mid">
             {queueRail('strip')}
             {menu}

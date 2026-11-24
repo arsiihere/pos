@@ -110,16 +110,55 @@ jobs:
       - run: pnpm --filter @pos/client build
       - run: pnpm exec vitest run --project @pos/client --project @pos/domain --project @pos/engine --project @pos/events
 
+  # Owner ruling 2026-11-24 #4: browser e2e on every gate run — the takeaway specs plus one smoke spec per screen
+  # (sign-in, dine-in map, parking, bill, Pass, kitchen screen, hub admin), on the kiosk and the landscape tablet in
+  # parallel (~6–8 min each). The full five-project suite stays a local / pre-merge run (docs/plans/e2e-baseline.md).
+  e2e:
+    name: e2e (${{ matrix.project }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [kiosk, tablet-landscape]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Playwright's Chromium (the build apps/client's @playwright/test pins)
+        run: pnpm --filter @pos/client exec playwright install --with-deps chromium
+      - run: pnpm --filter @pos/client build
+      - name: Takeaway specs + one smoke spec per screen
+        working-directory: apps/client
+        run: >-
+          pnpm exec playwright test --project ${{ matrix.project }} --trace off
+          e2e/02b-takeaway.spec.ts e2e/02b-queue.spec.ts e2e/02b-tk-flows.spec.ts e2e/02b-tk-handover.spec.ts
+          e2e/02b-tk-shell.spec.ts e2e/02b-tk-tiles.spec.ts
+          e2e/smoke.spec.ts e2e/02a-map.spec.ts e2e/02b-parking.spec.ts e2e/02b-bill.spec.ts
+          e2e/03b-pass.spec.ts e2e/03b-kds.spec.ts e2e/03b-admin.spec.ts
+      - name: Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ matrix.project }}
+          path: /dev/shm/pos-client-e2e-results   # playwright.config.ts outputDir = tmpdir() (TMPDIR=/dev/shm)
+          retention-days: 7
+
   # The required status check. `always()` + the result test: a skipped or cancelled job is never read as green.
   gate:
     name: gate
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: always()
-    needs: [checks, test-hub, test-cloud, test-client-packages]
+    needs: [checks, test-hub, test-cloud, test-client-packages, e2e]
     steps:
       - name: Every gate job succeeded
         run: |
           echo '${{ toJSON(needs) }}'
           [ "${{ needs.checks.result }}" = success ] && [ "${{ needs.test-hub.result }}" = success ] \
-            && [ "${{ needs.test-cloud.result }}" = success ] && [ "${{ needs.test-client-packages.result }}" = success ]
+            && [ "${{ needs.test-cloud.result }}" = success ] && [ "${{ needs.test-client-packages.result }}" = success ] \
+            && [ "${{ needs.e2e.result }}" = success ]

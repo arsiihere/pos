@@ -3,6 +3,9 @@ import type { MessageKey } from './en';
 // S49: Urdu texts, same keys as en.ts; a missing key falls back to English
 // (docs/design/handoff/01a/urdu-todo.md). Source: frames OwnerMenuUrdu and StockUrdu.
 export const ur: Partial<Record<MessageKey, string>> = {
+  // 08b recipes catalogue. Urdu review is tracked in 08b/urdu-todo.md.
+  'owner.nav.recipes': 'ترکیبیں',
+  'menu.no_recipe': 'ترکیب نہیں',
   'owner.title': 'ریسٹورنٹ سیٹ اپ',
   'owner.nav.menu': 'مینیو',
   'owner.nav.floors': 'فلور اور میزیں',
@@ -64,9 +67,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'owner.nav.choice_groups': 'چوائس گروپ',
   'owner.nav.deals': 'ڈیل',
   'owner.nav.stock_items': 'اسٹاک آئٹم',
-  // 08b §8.1, §8.3: draft Urdu on the Urdu-checked nav and menu page; still on 08b/urdu-todo.md for the native read.
-  'owner.nav.recipes': 'ترکیبیں',
-  'menu.no_recipe': 'ترکیب نہیں',
   'size_groups.title': 'سائز گروپ',
   'size_groups.new': 'نیا سائز گروپ',
   'size_groups.helper': 'سائز گروپ آرڈر اسکرین پر ایک ٹائل ہے۔ ہر سائز ایک پورا آئٹم ہے۔',
@@ -1617,6 +1617,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'l.discard': 'ختم کریں',
   'l.stay': 'یہیں رہیں',
   // ---- 02b-TK client (batch C2): docs/design/handoff/02b-tk/strings-table.md ----
+  'q.search_token': 'ٹوکن نمبر', // not in strings-table.md; Urdu to confirm
   'q.search': 'ٹوکن، نام یا فون',
   'q.ready': 'تیار — حوالے کریں',
   'q.cooking': 'بن رہا ہے',
@@ -1636,6 +1637,14 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // 02b-TK C2-1 (frame PhoneQueue tab): not in strings-table.md; Urdu to confirm
   'q.tab': 'قطار',
   'v.placed': '{t} پر {who} نے لیا',
+  'cd.welcome': 'خوش آمدید', // not in strings-table.md; Urdu to confirm
+  'cd.order': 'آپ کا آرڈر', // not in strings-table.md; Urdu to confirm
+  'cd.total': 'کل', // not in strings-table.md; Urdu to confirm
+  'cd.paid': 'ادا ہو گیا', // not in strings-table.md; Urdu to confirm
+  'cd.change': 'بقایا رقم', // not in strings-table.md; Urdu to confirm
+  'cd.thanks': 'شکریہ! اپنا ٹوکن پرچی پر دیکھیں', // from CustomerDisplay.dc.html; Urdu to confirm
+  'cd.open': 'گاہک کی اسکرین', // not in strings-table.md; Urdu to confirm
+  'c.ready_by': 'تیار ہوگا',
   'v.ready_at': 'تیار ہوگا',
   'v.bill': 'بل',
   'v.waiting': 'انتظار',
@@ -1649,8 +1658,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'v.call': 'فون',
   't.collected': 'حوالے کر دیا',
   't.undo': 'واپس کریں',
-  // 02b-TK C2-2 (ruling R2: Due greys Hand over, a manager may override): not in strings-table.md; Urdu to confirm
-  'v.pay_first': 'پہلے پیسے لیں — مینیجر بغیر ادائیگی حوالے کر سکتا ہے',
+  // 02b-TK C2-2 (ruling R2; owner ruling 2026-11-24 #2: Due greys Hand over, no override in the pilot): not in strings-table.md; Urdu to confirm
+  'v.pay_first': 'پہلے پیسے لیں',
+  // Historical R2 copy. OR-7 disabled the client override. Urdu to confirm.
   'v.override': 'بغیر ادائیگی حوالے کریں · مینیجر',
   'ctx.adding': 'ٹوکن میں اضافہ',
   'c.add_to': 'ٹوکن میں ڈالیں',
@@ -1667,6 +1677,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'h.shared': 'اس کاؤنٹر پر سب یہ دیکھتے ہیں۔ میز کے آرڈر اسی کے پاس رہتے ہیں جس نے ہولڈ کیے۔',
   // ---- 02b-TK client (batch C3): docs/design/handoff/02b-tk/strings-table.md ----
   'c.send_later': 'بھیجیں · پیسے بعد میں',
+  'c.phone_pay': 'ادائیگی', // PhoneMenu; Urdu to confirm
   'c.send_pay': 'بھیجیں اور پیسے لیں',
   'c.queued_pay': 'پیسوں کیلئے ہب چاہیے۔ ابھی بھیجیں، لائیو ہونے پر پیسے لیں۔',
   'p.title': 'پیسے لیں',
@@ -1695,4 +1706,52 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // 02b-TK C3-2 (05 §6.3 errors on the token view / adding cart): not in strings-table.md; Urdu to confirm
   'v.check_day': 'دن شروع نہیں ہوا — ابھی چیک بل نہیں',
   'v.check_denied': 'آپ اس آرڈر کا چیک بل پرنٹ نہیں کر سکتے',
+  // ---- 02b-TK client (A2 batch 1, item 1 shell: frames ShellAnatomy, PersonMenu, DayNotStarted): strings-table.md ----
+  'shell.back': 'واپس',
+  'shell.me.switch': 'یوزر بدلیں',
+  'shell.me.switch_sub': 'کاؤنٹر کسی اور کو دیں',
+  'shell.me.lock': 'اسکرین لاک کریں',
+  'shell.me.lock_sub': 'آپ کے آرڈر ویسے ہی رہیں گے',
+  'shell.me.shift': 'میری شفٹ',
+  'shell.me.signout': 'سائن آؤٹ',
+  'shell.me.signout_sub': 'نہ بھیجے آرڈر پہلے ہولڈ ہوں گے',
+  'shell.day.closed': 'دن شروع نہیں ہوا — آرڈر نہیں جا سکتے، وقت نہیں دکھ سکتا',
+  'shell.day.start': 'دن شروع کریں',
+  'shell.day.ask': 'مینیجر سے دن شروع کروائیں',
+  'shell.shift.closed': 'شفٹ نہیں کھلی — کیش نہیں لے سکتے',
+  'shell.shift.open': 'میری شفٹ کھولیں',
+  'ctx.new': 'نیا ٹیک اوے',
+  'ctx.token_after': 'ٹوکن بھیجنے کے بعد',
+  // 02b-TK A2 item 1 (frame PersonMenu "Opened 7:02 AM · float Rs 5,000"; the lock screen opened from the menu): not in strings-table.md; Urdu to confirm
+  'shell.me.shift_open': '{time} پر کھلی · فلوٹ {money}',
+  'shell.locked': 'اسکرین لاک ہے',
+  // ---- 02b-TK client (A2 batch 1, item 2 keyboard speed mode: frame KeyboardMode): strings-table.md ----
+  'm.search': 'آئٹم لکھیں — مثلاً 4 نان',
+  'm.keys': 'کیز',
+  // 02b-TK A2 item 2 (frame KeyboardMode hint "4n = 4 × naan · hk = half karahi · Enter add · Esc clear"): not in strings-table.md; Urdu to confirm
+  'm.hint_qty': '4 × نان',
+  'm.hint_initials': 'آدھی کڑاہی',
+  'm.hint_add': 'ڈالیں',
+  'm.hint_clear': 'صاف کریں',
+  // ---- 02b-TK client (A2 batch 2, item 3 tiles: frame TileStates): strings-table.md (the sample names / times are placeholders) ----
+  'm.sold_out': 'ختم',
+  'm.not_now': '{time} سے',
+  'm.paused': '{station} رکا ہوا',
+  't.sold_out': '{item} ختم ہے — کچن سے پوچھیں',
+  // 02b-TK A2 item 3 (frame TileStates "tap shows why" for the other reasons): not in strings-table.md; Urdu to confirm
+  't.off_reason': '{item} — {reason}',
+  // ---- 02b-TK client (A2 batch 2, item 4 rush mode: frame HomeRush): strings-table.md ----
+  'shell.rush': 'رش موڈ',
+  'c.who_add': 'نام / فون',
+  // ---- 02b-TK client (A2 batch 2, item 5a Ready by reason: frame CartTimeDelta): strings-table.md (sample → placeholders) ----
+  'c.delta': '{item} سے {n} منٹ بڑھ گئے — {station} اسٹیشن بھرا ہے',
+  // 02b-TK A2 item 5a (a busy band, or no station news): not in strings-table.md; Urdu to confirm
+  'c.delta_busy': '{item} سے {n} منٹ بڑھ گئے — {station} اسٹیشن مصروف ہے',
+  'c.delta_plain': '{item} سے {n} منٹ بڑھ گئے',
+  // ---- 02b-TK client (A2 batch 2, item 5b serve question: frame ServeChoice): strings-table.md (sample "Paye" → {item}) ----
+  'c.serve_q': '{item} ابھی تیار ہیں۔ ابھی دے دیں؟',
+  'c.serve_together': 'سب ایک ساتھ {t}',
+  'c.serve_now': '{item} ابھی، باقی {t}',
+  // 02b-TK A2 item 5b (two or more things ready now): not in strings-table.md; Urdu to confirm
+  'c.serve_q_many': '{item} ابھی تیار ہیں۔ ابھی دے دیں؟',
 };

@@ -282,4 +282,24 @@ describe('[02b §8 Ordering screen] availability', () => {
     expect(itemAvailability('I2', inputs({ config: required, off: new Set(['I4']) })).state).toEqual({ kind: 'unavailable' });
     expect(itemAvailability('I2', inputs({ config: required, stationWaitMs: () => null })).state).toEqual({ kind: 'ok' });
   });
+
+  it('[02b-TK A2 item 3, frame TileStates "Station paused"; 03a §6.5] a paused home station: the tile is off with the station (not orderable)', () => {
+    const paused = (id: string) => id === 'S1';
+    expect(itemAvailability('I2', inputs({ stationPaused: paused }))).toEqual({ state: { kind: 'paused', station_id: 'S1' }, orderable: false, cap: null });
+    // manual Off and hours still come first
+    expect(itemAvailability('I2', inputs({ stationPaused: paused, off: new Set(['I2']) })).state).toEqual({ kind: 'off' });
+    expect(itemAvailability('I2', inputs({ stationPaused: () => false })).orderable).toBe(true);
+  });
+
+  it('[02b-TK A2 item 3; 03a §6.5] the live availability reads `paused` from stations_live (catch-up and the query)', () => {
+    const config = cfg();
+    const live = createLiveBus();
+    const a = createAvailability({ live, config: { snapshot: () => config, config: () => null, subscribe: () => () => {} }, stock: fakeStock({}), clock: () => clockAt(() => T), setInterval: () => 0, clearInterval: () => {} });
+    expect(a.item('I2')!.orderable).toBe(true);
+    live.frame({ type: 'catch_up', as_of_seq: 2, state: { stations_live: { stations: [{ station_id: 'S1', paused: true, wait_ms: 0, band: 'green' }] } } });
+    expect(a.item('I2')!.state).toEqual({ kind: 'paused', station_id: 'S1' });
+    live.frame({ type: 'catch_up', as_of_seq: 3, state: { stations_live: { stations: [{ station_id: 'S1', paused: false, wait_ms: 0, band: 'green' }] } } });
+    expect(a.item('I2')!.orderable).toBe(true);
+    a.dispose();
+  });
 });

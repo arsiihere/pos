@@ -19,6 +19,7 @@ import {
   createTestHub,
   pairDevice,
   seedDirectory,
+  type DeviceProfileInput,
   type TestHub,
 } from "../../hub/test/helpers/test-hub";
 import { startTickLoop } from "../../hub/src/alerts/tick";
@@ -335,6 +336,37 @@ function menuWithKheer(menu: BranchConfig): BranchConfig {
   };
 }
 
+/**
+ * 02b-TK A2 batch 2 (frame TileStates): a "Paye" variant group (Half / Full, plain pieces at the Dessert station, so
+ * one tap on the tile adds the variant) and a sold-out "Tikka" (its stock item counted at 0), in a category of their
+ * own after the fixture's, so no other flow sees them. Tikka has a stock cook time: 01c V12 tracks stock only for an
+ * item that draws and has one (engine stock.ts, the client's stock mirror), so without it the count of 0 never applies.
+ */
+export const TK_TILES = { category: "Paye", group: "Paye", half: "Half", full: "Full", soldOut: "Tikka", stock: "K_TIKKA" } as const;
+function menuWithTiles(menu: BranchConfig): BranchConfig {
+  const raita = menu.items.find((i) => i.item_id === FX.optionItem)!;
+  const plain = { ...raita, station_id: E2E_STATION, modifier_group_ids: [], category_id: "C_TK", max_early_ms: 3_600_000 };
+  return {
+    ...menu,
+    categories: [...menu.categories, { category_id: "C_TK", name: TK_TILES.category, sort_order: 99, availability_windows: [] }],
+    variant_groups: [...menu.variant_groups, { variant_group_id: "V_PAYE", category_id: "C_TK", name: TK_TILES.group, description: null, sort_order: 1 }],
+    stock_items: [...menu.stock_items, { stock_item_id: TK_TILES.stock, name: "Tikka", stock_unit: "piece", carries_over: false, station_id: E2E_STATION, low_stock_threshold: null }],
+    items: [
+      ...menu.items,
+      { ...plain, item_id: "I_PAYE_H", name: "Paye — Half", variant_group_id: "V_PAYE", variant_name: TK_TILES.half, price_minor: 40_000, sort_order: 20 },
+      { ...plain, item_id: "I_PAYE_F", name: "Paye — Full", variant_group_id: "V_PAYE", variant_name: TK_TILES.full, price_minor: 70_000, sort_order: 21 },
+      { ...plain, item_id: "I_TIKKA", name: TK_TILES.soldOut, price_minor: 65_000, sort_order: 22, out_of_stock_behaviour: "sold_out", stock_time_ms: 300_000, stock_draws: [{ stock_item_id: TK_TILES.stock, quantity_per_sale_unit: 1 }] },
+    ],
+  };
+}
+
+/** 05a v1.0.6 §5.3: the screens of each hardware, in the upgrade's order (the first is the device's home, C-1). */
+const TABLET_SCREENS: DeviceProfileInput["screens"] = ["dine_in", "takeaway", "parking", "cashier", "manager"];
+const KIOSK_SCREENS: DeviceProfileInput["screens"] = ["takeaway", "parking", "dine_in", "cashier", "manager"];
+const PHONE_SCREENS: DeviceProfileInput["screens"] = ["dine_in", "takeaway", "parking", "manager"];
+const listedOn = (staff_ids: string[], screens: DeviceProfileInput["screens"]): DeviceProfileInput => ({ access: "listed", staff_ids, screens });
+const everyoneOn = (screens: DeviceProfileInput["screens"]): DeviceProfileInput => ({ access: "everyone", screens });
+
 /** A free local port: the hub checks Host = advertised_host:http_port (00 host guard), so it is fixed before boot. */
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -360,24 +392,36 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   await seedDirectory(hub, await directory());
   // task 28: the 02b fixture menu (Chicken Karahi, Naan, Cola, …) on the e2e floors, the business day open, stock counted
   openDay(hub, {
-    menu: menuWithKheer(menuWith03({ ...fixtureMenu(), floors: floors() })),
-    stock: { [FX.stock]: 1_000_000 },
+    menu: menuWithTiles(menuWithKheer(menuWith03({ ...fixtureMenu(), floors: floors() }))),
+    stock: { [FX.stock]: 1_000_000, [TK_TILES.stock]: 0 },
   });
   for (const zone of ["Z-FL-G", "Z-FL-R"])
     setZoneStock(hub, zone, FX.zoneItem, 500);
   seedOfflineTables(hub);
   dlSeedTables(hub);
   const { printer, devices: devices03 } = await seed03(hub);
-  const tablet = pairDevice(hub, { type: "tablet", name: "Tablet e2e" });
-  const tablet2 = pairDevice(hub, { type: "tablet", name: "Tablet e2e 2" });
-  const tablet3 = pairDevice(hub, { type: "tablet", name: "Tablet e2e 3" });
-  const kiosk = pairDevice(hub, { type: "cashier_kiosk", name: "Kiosk e2e" });
+  // 05a v1.0.6 §3.3a, §3.5, §3.6, §5.3: every staff device the seed pairs carries the profile its flows need, as a
+  // `DeviceProfileSet` through the writer (test-hub `appendDeviceProfile`: the event `SetDeviceProfile` appends; the
+  // projection and the in-memory `deviceProfile` map see it). A device someone answers approvals or runs hub admin on is
+  // `listed` (rule 3: no listed-only permission and no money answer on an `everyone` device); the others are
+  // `everyone`, as the upgrade leaves a shared tablet.
+  // tablet: Ali's floor flows, the Owner's takeaway counter (02b-TK), the Manager's hub admin (03b admin flows)
+  const tablet = pairDevice(hub, { type: "tablet", name: "Tablet e2e", profile: listedOn(["S_ALI", "S_OWNER", "S_MGR"], TABLET_SCREENS) });
+  // tablet 2: the Manager who approves (02a busy, 02b comp / order, dl), Sara (02a hand-over), Bilal (02a call), Ali (03b Pass taker)
+  const tablet2 = pairDevice(hub, { type: "tablet", name: "Tablet e2e 2", profile: listedOn(["S_MGR", "S_ALI", "S_SARA", "S_BILAL"], TABLET_SCREENS) });
+  // tablet 3: Bilal and Sara (dl call and zone set-up), no approvals: a shared floor tablet
+  const tablet3 = pairDevice(hub, { type: "tablet", name: "Tablet e2e 3", profile: everyoneOn(TABLET_SCREENS) });
+  // kiosk: Ali and the Owner at the counter (02b takeaway, 02b-TK), the Manager answering a void from it (dl t1 on the kiosk)
+  const kiosk = pairDevice(hub, { type: "cashier_kiosk", name: "Kiosk e2e", profile: listedOn(["S_ALI", "S_OWNER", "S_MGR"], KIOSK_SCREENS) });
+  // Ali's phone: `listed` [its owner] (§5.3)
   const phone = pairDevice(hub, {
     type: "phone",
     ownerStaffId: "S_ALI",
     name: "Ali phone",
+    profile: listedOn(["S_ALI"], PHONE_SCREENS),
   });
-  const kitchen = pairDevice(hub, { type: "tablet", name: "Kitchen e2e" });
+  // the 02b-TK kitchen tablet (the Owner reads, the Cook runs the Pass and kitchen-screen commands): shared
+  const kitchen = pairDevice(hub, { type: "tablet", name: "Kitchen e2e", profile: everyoneOn(TABLET_SCREENS) });
   const dev = (
     d: { token: string; deviceId: string },
     device_type: E2eDevice["device_type"] = "tablet",
