@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { deviceFor, escapeRe, LANGS, menuTile, rushOff, signInOn, signOut, takeawayTab, tr, type Lang } from './02b-support';
+import { deviceFor, escapeRe, landing, LANGS, menuTile, rushOff, signInOn, signOut, takeawayTab, tr, type Lang } from './02b-support';
 
 // 02b-TK Part A2 batch 1 against the e2e test hub (kiosk 1920×1080 and landscape tablet 1280×800, en + ur).
 // Item 1 — the shell (frames ShellAnatomy, PersonMenu, DayNotStarted; MAPPING TK-SH01–03; 05a v1.0.6 C-1):
@@ -23,11 +23,14 @@ const menu = (page: Page) => page.locator('[role="menu"]');
 const menuItem = (page: Page, lang: Lang, key: 'shell.me.switch' | 'shell.me.lock' | 'shell.me.shift' | 'shell.me.signout') =>
   menu(page).locator('[role="menuitem"]', { hasText: tr(lang, key) });
 
-/** The PIN keys of the open pad, then Sign in. */
+/** The PIN keys of the open pad, then Sign in; resolves once the shell has landed (05a §8 C-1, 02a-support `landing`:
+ *  a hash moved before the landing is sent back by it). */
 async function typePin(page: Page, pin = '1234'): Promise<void> {
   const pad = page.locator('.pin__keys');
   for (const digit of pin) await pad.locator('.btn', { hasText: new RegExp(`^${digit}$`) }).click();
+  const landed = landing(page);
   await pad.locator('.btn--primary').click();
+  await landed;
 }
 
 for (const lang of LANGS) {
