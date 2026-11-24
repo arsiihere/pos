@@ -68,8 +68,8 @@ describe('[08a §5.1, #27] cloud migration 0018_inventory_config.sql', () => {
       { stock_item_id: 's4', kind: 'prepared', code: null, cost_category: 'food', is_a_item: false },
     ]);
     const versions = (await q(`SELECT branch_id, config_version FROM branches ORDER BY branch_id`)).rows.map((r) => [r.branch_id, BigInt(String(r.config_version))]);
-    // ⚠️ 08b v1.0 A-6: the whole folder runs, and 0019_recipes.sql bumps every branch once (0018 itself bumps none)
-    expect(versions).toEqual(preVersions.map(([b, v]) => [b, v + 1n]));
+    // The whole folder runs. 0019 (08b A-6) and 0021 (01a v2.11 MG-1) each bump every branch.
+    expect(versions).toEqual(preVersions.map(([b, v]) => [b, v + 2n]));
     expect((await q(`SELECT count(*)::int AS n FROM config_audit`)).rows[0]).toEqual({ n: 0 });
   });
 

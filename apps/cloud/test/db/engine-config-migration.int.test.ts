@@ -116,7 +116,8 @@ describe('[01a §5.2a] cloud migration 0007_engine_config.sql', () => {
     // ⚠️ 01a v2.7.3 PT-1 (STAB-5): 0016_part_times.sql bumps once more, as 0012 → 3.
     // ⚠️ 01a v2.7.5 MD-3 (STAB-7): 0017_max_delay.sql bumps every branch once more → 4.
     // ⚠️ 08b v1.0 A-6: 0019_recipes.sql bumps every branch once more → 5.
-    expect(rows).toEqual([{ v: 5 }]);
+    // 0021 (01a v2.11 MG-1) bumps every branch once more → 6.
+    expect(rows).toEqual([{ v: 6 }]);
     const { rows: stations } = await pool.query(
       `SELECT DISTINCT updated_at::text AS u FROM stations WHERE tenant_id = $1 AND station_id = 'fryer-b1'`,
       [TN],
