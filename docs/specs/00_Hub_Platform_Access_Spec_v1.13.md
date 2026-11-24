@@ -2,6 +2,8 @@
 
 **v1.13 (2026-11-24; DRAFT (pending hostile review + owner)): changes driven by the 02b-TK owner rulings R3, R5, R7** (`docs/plans/02b-tk-rulings.md`, 24 Nov 2026; hand-off `docs/design/handoff/02b-tk/` GAPS G-8, G-9, G-10, frames Board* and Status*; written together with **Foundation v1.18** and **05a v1.0.7**, both DRAFT). **H-1** a fourth session kind **`display`** (M96): a paired `cashier_kiosk` whose 05a profile is the pickup board opens it (run 1: tablet boards deferred, OD-2) with the new **`POST /auth/display`** (§6.39): no person, no PIN, no idle TTL; the board is a session kind on a paired device, **not a new device type** (R7). **H-2** `/ws` **display mode** (§6.21): a display socket gets a `catch_up` from display parts only and `display_hint` frames that carry **order ids only** (never an event, never a name, R3), and is kept out of every audience, alert and device-send list. **H-3** client entry **`/board/`** and the pair-page routing for a board (§8.2). **H-4** route group **`public`** (M97; run 1 M-4: served by its **own listener** on `public_status.port`, so the main listener keeps the guest guard everywhere), for exactly two routes: the customer status page **`GET /t/<order_id>.<mac>`** and its JSON read **`GET /t/<order_id>.<mac>/status`** (§6.40, §6.41; R5). **H-5** the status link is the order id plus an 80-bit truncated HMAC-SHA256 under a new hub secret **`status_link_key`** (M98, M100, §3.10), built by the export `statusLink()` for 03c's token slip QR. **H-6** an in-memory per-IP and global token-bucket **rate limiter** on the `public` group (M99, §7.12). **H-7** security headers and URL-free logging on public responses (§7.2, §7.13). **H-8** hub migration **`00NN_display_sessions.sql`** (number rechecked at build) rebuilds `staff_sessions` for the new kind (§5.1); 05a v1.0.7 adds one column in the same file. **H-9** error codes `DISPLAY_NOT_ENABLED` (403), `TRACKING_LINK_INVALID` (404), `RATE_LIMITED` (429) (§9; appended to Foundation §6.2 by v1.18 row F-7). **H-10** endpoint count 30 → 33 (§6.33). **H-11** guest-network / router runbook note (§7.13). **H-12** scope: customer-facing routes are in for the takeaway status page only; §12.4's security-headers row is done for `public` (§1, §12.4). Marker "⚠️ Changed by 00 v1.13 (row H-n)". v1.12.4 kept as history.
 
+**v1.13 owner review (2026-11-24; still DRAFT, hostile run 2 owed):** OD-7 answered (English-only composed voice, OR-1); every other OD accepted as recommended; see "Owner review of the 02b-TK Part B package" under "Changes in v1.13".
+
 **v1.13 hostile run 1 fixes (2026-11-24; still DRAFT):** `docs/reviews/00_v1.13_hostile_run1.md` (1 BLOCKER, 6 MAJOR, 16 MINOR) fixed in place, marker "⚠️ Changed by 00 v1.13 hostile run 1 (<id>)"; the finding → resolution map is the sub-section "Hostile run 1 fixes" under "Changes in v1.13". Main changes: the board and status reads consume **02b v1.0.25 §4.2 `takeawayProgress`** exactly (2 statements, 02b's one line-`ready_at` rule; B-1); a session-kind writer / reader table with `sessionStream()` (M-1); boards refused in alert mode (M-2, with 01d v1.3.7 row D-5); `statusLink() → { path, url } | null` behind a hub config switch `public_status.enabled` (M-3); the public routes move to **their own listener `public_status.port`** (default `http_port + 1`), so the main listener keeps the guest guard on every route (M-4); valid-link, invalid-link and per-order buckets (M-5); the public listener's own error, not-found and log handling (M-6). A board is a **`cashier_kiosk` only** in the pilot (tablet boards deferred, owner decision OD-2). Folded rows: 05c v0.2 H-1–H-3, 02b v1.0.25 TK-6. Owner decisions that block approval: §12.3 "Owner decisions".
 
 **v1.12.4 (2026-11-23; APPROVED (owner, 2026-11-23 12:24 PKT, with 05b v1.0, "approve"; applied by the 05b plan phase B task P0.1)): changes driven by 05b Staff Tablet App v1.0** (`docs/specs/05b_Staff_Tablet_App_Spec_v1.0.md` §4.5 rows H-1–H-4): `/health` and the `/staff/` page carry the staff build; the pair page hands the token to the tablet app; §8.1 is now the 05b tablet app; the app's close-code handling is 05b §3.5. Details in "Changes in v1.12.4".
@@ -113,6 +115,15 @@
 | 02b v1.0.25 (OD-10) | 02b now checks `SubmitOrder.order_id` against `ULID_RE` (02b §3.2 step 3, test 84, TK-Q17 = OD-10) | §12.3 OD-10 |
 | 03c v1.0.16 (M-3, M-4) | Checked: 03c now prints `statusLink(root)?.url` with the url on `public_status.port` | — |
 | 05c v0.2 H-1 – H-3 | Checked: folded as H-13 – H-15 with the same text | — |
+
+#### Owner review of the 02b-TK Part B package (24 Nov 2026)
+
+⚠️ Changed by 00 v1.13 owner review, 2026-11-24; still DRAFT (hostile run 2 owed). The owner **accepted** the recommended default of OD-1 – OD-6 and OD-8 – OD-10 as written; OD-7 is changed.
+
+| Row | Owner answer | Change here | Where |
+|---|---|---|---|
+| OR-1 (OD-7) | Board voice **English only**, numbers composed from ~31 pieces so every token 1–2000 is spoken (05a v1.0.7 §8) | OD-7 answered; the `.mp3` type in `lib/client-dist.ts` stays (31 files instead of ≈ 600) | §12.3 OD-7 |
+| OR-6 (OD-2, OD-5) | The owner provides the board PC (kept: kiosk PC only) and buys a router that can give guest Wi-Fi only the public status port (kept) | none; both are go-live items in `docs/plans/02b-tk-plan.md` "Before go-live" | §12.3 OD-2, OD-5 |
 
 
 ### Changes in v1.12.4 (05b Staff Tablet App v1.0, `docs/specs/05b_Staff_Tablet_App_Spec_v1.0.md` §4.5 rows H-1–H-4)
@@ -2589,16 +2600,16 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 
 | # | Decision | Recommended default (written in) | Finding |
 |---|---|---|---|
-| OD-1 | Line readiness: 02b v1.0.25 §4.2's rule counts the engine `done` as ready **even at a point that has a Pass**, so the board / status page may show Ready before the Pass bags the order. Keep 02b's rule, or "Pass mark only where the point has a Pass" (a 02b change)? | Keep 02b's rule as written (one rule, owned by 02b); revisit after the pilot | B-1 |
-| OD-2 | Pilot boards only on a `cashier_kiosk`-class PC in Chrome / Edge kiosk mode; a tablet board (05b app, R33 lock-task) deferred | Yes (written in M96, §6.39, 05a §3.6) | M-2, m-12 |
-| OD-3 | The status page on a **separate port** `public_status.port` (default `http_port + 1`) | Yes (M97, §7.13) | M-4 |
-| OD-4 | Accept the ULID time leak and the clear-HTTP link on guest Wi-Fi (MQ14) | Accept; WPA3 / OWE recommended | M98, m-13 |
-| OD-5 | Each pilot router can open only the public port to guests (MQ15); else `public_status.enabled` stays false there and slips print without a QR | Yes | M-4, M-5 |
-| OD-6 | New folders `apps/hub/src/status/` and `apps/client/board/` (MQ17) | Yes | m-5, m-15 |
-| OD-7 | Voice clips 1–300 (Urdu, English) and who makes them (05a OQ-B3) | 1–300, rendered once offline, owner checks a sample | m-6 |
-| OD-8 | Keep `DEVICE_ACCESS_DENIED` + `reason: 'display_device'` (clients branch on `reason` first) or a new code `DISPLAY_DEVICE` (05a OQ-B8) | Keep, with the client rule and test | m-11 |
-| OD-9 | Link lifetime (MQ13) | `min(day close + 2 h, business day + 36 h)` | m-3 |
-| OD-10 | 02b `SubmitOrder.order_id` must match `ULID_RE` (breaking before the pilot, R29; owed by 02b; ⚠️ Changed by 00 v1.13 (integration, 02b-TK): written in 02b v1.0.25 §3.2 step 3, test 84, TK-Q17) | Yes; until it lands `statusLink` returns `null` for such ids | M-3 |
+| OD-1 | **ACCEPTED (owner 2026-11-24).** Line readiness: 02b v1.0.25 §4.2's rule counts the engine `done` as ready **even at a point that has a Pass**, so the board / status page may show Ready before the Pass bags the order. Keep 02b's rule, or "Pass mark only where the point has a Pass" (a 02b change)? | Keep 02b's rule as written (one rule, owned by 02b); revisit after the pilot | B-1 |
+| OD-2 | **ACCEPTED (owner 2026-11-24).** Pilot boards only on a `cashier_kiosk`-class PC in Chrome / Edge kiosk mode; a tablet board (05b app, R33 lock-task) deferred | Yes (written in M96, §6.39, 05a §3.6) | M-2, m-12 |
+| OD-3 | **ACCEPTED (owner 2026-11-24).** The status page on a **separate port** `public_status.port` (default `http_port + 1`) | Yes (M97, §7.13) | M-4 |
+| OD-4 | **ACCEPTED (owner 2026-11-24).** Accept the ULID time leak and the clear-HTTP link on guest Wi-Fi (MQ14) | Accept; WPA3 / OWE recommended | M98, m-13 |
+| OD-5 | **ACCEPTED (owner 2026-11-24).** Each pilot router can open only the public port to guests (MQ15); else `public_status.enabled` stays false there and slips print without a QR | Yes | M-4, M-5 |
+| OD-6 | **ACCEPTED (owner 2026-11-24).** New folders `apps/hub/src/status/` and `apps/client/board/` (MQ17) | Yes | m-5, m-15 |
+| OD-7 | ~~Voice clips 1–300 (Urdu, English)~~ and who makes them (05a OQ-B3). ⚠️ Changed by 00 v1.13 owner review (OR-1): **ANSWERED — English only**, 31 pieces (chime, "token number", 1–19, 20–90 by tens, "hundred", "thousand") composed so every token 1–2000 is spoken | Rendered once offline with one voice, owner checks a sample of composed tokens | m-6 |
+| OD-8 | **ACCEPTED (owner 2026-11-24).** Keep `DEVICE_ACCESS_DENIED` + `reason: 'display_device'` (clients branch on `reason` first) or a new code `DISPLAY_DEVICE` (05a OQ-B8) | Keep, with the client rule and test | m-11 |
+| OD-9 | **ACCEPTED (owner 2026-11-24).** Link lifetime (MQ13) | `min(day close + 2 h, business day + 36 h)` | m-3 |
+| OD-10 | **ACCEPTED (owner 2026-11-24).** 02b `SubmitOrder.order_id` must match `ULID_RE` (breaking before the pilot, R29; owed by 02b; ⚠️ Changed by 00 v1.13 (integration, 02b-TK): written in 02b v1.0.25 §3.2 step 3, test 84, TK-Q17) | Yes; until it lands `statusLink` returns `null` for such ids | M-3 |
 
 ### 12.4 Deferred until needed
 

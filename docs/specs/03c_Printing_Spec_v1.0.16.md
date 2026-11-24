@@ -74,6 +74,14 @@
 | 02b v1.0.25 TK-4 | Q-TK-1 – Q-TK-4 checked: present in 02b v1.0.25 with the same names, payload keys, statement counts and result shape | §4.4 |
 | Foundation v1.18 §6.2 | `TAKEAWAY_SLIP_NOT_ALLOWED` (409) appended there (§9 here unchanged) | — |
 
+#### Owner review of the 02b-TK Part B package (24 Nov 2026)
+
+⚠️ Changed by v1.0.16 owner review, 2026-11-24; still DRAFT (hostile run 2 owed). The owner **accepted** D-1 – D-6 and the D-8 wording as recommended; **D-7's default is replaced**.
+
+| Row | Owner answer | Change here | Where |
+|---|---|---|---|
+| OR-5 (D-7, 05 D-7) | **A check bill can be printed at any time until the bill is paid.** Unsent cart: printed from the cart through **this spec's `document` job**, headed "NOT SENT YET — CHECK BILL", items, total, no token, no bill on the hub. Sent token with money due: `PrintCheckBill` as today. Paid: "Print receipt again" | 05 v1.0.35 §6.3a `PrintCartCheckBill` calls `printDocument(tx, printer_id, doc, { kind_label: 'Check bill (not sent)' })` (§3.9 unchanged: `order_id` absent → NULL, so it is never mistaken for a token slip, §3.11 Duplicates); §4.3 row; D-7 answered | §3.9, §4.3, §12.3 D-7 |
+
 ---
 
 ## §1. Header
@@ -231,7 +239,7 @@ Catch-up part `kds_printed` (station sockets: its station; Pass sockets: their p
 
 ### 3.9 Print API for 05
 
-`printDocument(tx, printer_id, doc, meta?: { kind_label: string, order_id?: string })` → a `document` job in the caller's transaction (⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1): optional `meta.order_id` is stored in the existing `print_jobs.order_id` column, NULL when absent as today; only the token slip sets it, §3.11; no migration, statements unchanged); unknown / archived → `404 PRINTER_NOT_FOUND`. Drawer kick = a `Doc` with `{ drawer: true }`. Preview: `renderText(doc, width)`.
+`printDocument(tx, printer_id, doc, meta?: { kind_label: string, order_id?: string })` → a `document` job in the caller's transaction (⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1): optional `meta.order_id` is stored in the existing `print_jobs.order_id` column, NULL when absent as today; only the token slip sets it, §3.11; no migration, statements unchanged; ⚠️ Changed by v1.0.16 owner review (OR-5): 05's `PrintCartCheckBill` passes `kind_label: 'Check bill (not sent)'` and no `order_id`); unknown / archived → `404 PRINTER_NOT_FOUND`. Drawer kick = a `Doc` with `{ drawer: true }`. Preview: `renderText(doc, width)`.
 
 ### 3.10 Permissions
 
@@ -353,7 +361,7 @@ Catch-up part `kds_printed` (station sockets: its station; Pass sockets: their p
 | 00 HPA v1.13 (⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1)) | No change: its §4.2 already exports `statusLink` with 03c as the consumer; the status page shows the token's whole group (M98 lifetime rule). |
 | 01a v2.11 (⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1)) | Rows TS-1…TS-4 (§4.4). |
 | 05 v1.0.35 (⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1)) | §3.16: the receipt default is unchanged; the token slip is not a bill or fiscal document; the receipt's line time is `customerReadyAt`'s (written once, §4.2). |
-| 02b-TK client (⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1)) | §8: `takeaway.print_slip: true` on *Send · pay later*; `PrintTakeawaySlip` for a Send & pay panel closed unpaid (`pay_later`, retried with the same `command_id`) and for Print slip (`reprint`); Print check bill = 05 `PrintCheckBill { bill_ref: { order_id } }` (exists). |
+| 02b-TK client (⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1)) | §8: `takeaway.print_slip: true` on *Send · pay later*; `PrintTakeawaySlip` for a Send & pay panel closed unpaid (`pay_later`, retried with the same `command_id`) and for Print slip (`reprint`); Print check bill = 05 `PrintCheckBill { bill_ref: { order_id } }` (exists) on a sent token with money due; ⚠️ Changed by v1.0.16 owner review (OR-5): on an **unsent** cart = 05 v1.0.35 `PrintCartCheckBill { draft }` (a `document` job `kind_label 'Check bill (not sent)'`, no `order_id`); on a paid token "Print receipt again" = 05 `PrintBillDocument { receipt }`. |
 
 ### 4.4 Changes to other specs (R26) — *Proposed — needs approval*; applied with 03b's rows, one bump per target (03b §4.5 note, task 0d)
 
@@ -694,14 +702,15 @@ Gate green; every §10 test passes; §12.2 ticked; §4.4 bumps approved and appl
 
 | # | Question | Owner |
 |---|---|---|
-| D-1 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **BLOCKER-for-approval** | **Trigger** (B-2). Written default: the *Send · pay later* slip rides on `SubmitOrder` (`takeaway.print_slip`, queued in its transaction, 02b rows Q-TK-1…Q-TK-3); a queued replay prints within `TAKEAWAY_SLIP_REPLAY_MS` (2 min) of its `queued_at`; `PrintTakeawaySlip` covers a Send & pay panel closed unpaid and reprints. Alternative: the client-sent command only (v1.0.16's first draft). | owner |
-| D-2 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **BLOCKER-for-approval** | **Pickup order's Ready line** (M-4). Written default: the pickup time itself (no padding) while no line lands after it; the latest customer time when the kitchen is late. | owner |
-| D-3 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **BLOCKER-for-approval** | **Who may print / reprint a slip** (M-3). Written default: any `take-order` holder for any token (shared counter, R3), scope not applied, `requires_approval` reads as allowed. Alternative: 05's `covers()` scope rule (a cashier with `own_tables` reprints only tokens they placed). | owner |
-| D-4 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **BLOCKER-for-approval** | **Audit event** (M-2 (d)). Written default: no event; slip jobs carry the root `order_id` for 7 days and show in `print-queue`. Alternative: `TakeawaySlipPrinted { order_id, reason, job_id }` on the order stream for 04's audit. | owner |
-| D-5 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **BLOCKER-for-approval** | **Partly paid bill** (m-2). Written default: still pay-later, the slip prints. Alternative: `skipped: 'part_paid'`. | owner |
-| D-6 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **BLOCKER-for-approval** | **Setting default and the doc-kind deviation** (m-13). Written default: `takeaway_slip_on_send` = true (R6; the hand-off's Q3 asked about paper cost); a `document` job labelled `Token slip`, not the ruling's `takeaway_slip` doc kind (no migration; a dedicated kind would need a `print_jobs` rebuild `NNNN_print_jobs_takeaway_slip.sql`). | owner |
+| D-1 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **ACCEPTED (owner 2026-11-24)** (was BLOCKER-for-approval) | **Trigger** (B-2). Written default: the *Send · pay later* slip rides on `SubmitOrder` (`takeaway.print_slip`, queued in its transaction, 02b rows Q-TK-1…Q-TK-3); a queued replay prints within `TAKEAWAY_SLIP_REPLAY_MS` (2 min) of its `queued_at`; `PrintTakeawaySlip` covers a Send & pay panel closed unpaid and reprints. Alternative: the client-sent command only (v1.0.16's first draft). | owner |
+| D-2 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **ACCEPTED (owner 2026-11-24)** (was BLOCKER-for-approval) | **Pickup order's Ready line** (M-4). Written default: the pickup time itself (no padding) while no line lands after it; the latest customer time when the kitchen is late. | owner |
+| D-3 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **ACCEPTED (owner 2026-11-24)** (was BLOCKER-for-approval) | **Who may print / reprint a slip** (M-3). Written default: any `take-order` holder for any token (shared counter, R3), scope not applied, `requires_approval` reads as allowed. Alternative: 05's `covers()` scope rule (a cashier with `own_tables` reprints only tokens they placed). | owner |
+| D-4 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **ACCEPTED (owner 2026-11-24)** (was BLOCKER-for-approval) | **Audit event** (M-2 (d)). Written default: no event; slip jobs carry the root `order_id` for 7 days and show in `print-queue`. Alternative: `TakeawaySlipPrinted { order_id, reason, job_id }` on the order stream for 04's audit. | owner |
+| D-5 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **ACCEPTED (owner 2026-11-24)** (was BLOCKER-for-approval) | **Partly paid bill** (m-2). Written default: still pay-later, the slip prints. Alternative: `skipped: 'part_paid'`. | owner |
+| D-6 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **ACCEPTED (owner 2026-11-24)** (was BLOCKER-for-approval) | **Setting default and the doc-kind deviation** (m-13). Written default: `takeaway_slip_on_send` = true (R6; the hand-off's Q3 asked about paper cost); a `document` job labelled `Token slip`, not the ruling's `takeaway_slip` doc kind (no migration; a dedicated kind would need a `print_jobs` rebuild `NNNN_print_jobs_takeaway_slip.sql`). | owner |
 | D-7 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **BLOCKER-for-approval** | **"Print check bill on the cart"** (M-5, R6). Written default: an unsent cart shows its total on screen (no paper); the paper check bill is `PrintCheckBill` on a sent token's cart and token view. Alternative: a new hub `PrintCartEstimate` for an unsent cart (no bill, no event), not specified. Same row in 05 v1.0.35 §12.3. | owner |
-| D-8 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) | **Wording and size**: the Roman Urdu lines ("Aap ka token: 57", "Paise counter par dein", "Order dekhne ke liye scan karein"); the token at `Doc` size 2 (a larger ESC/POS size would need a new `Doc` size, not proposed). | owner |
+| D-7 answer | ⚠️ Changed by v1.0.16 owner review (OR-5): **ANSWERED (owner 2026-11-24), default replaced** — a check bill at any time until paid: unsent cart → 05 `PrintCartCheckBill` (this spec's `document` job, "NOT SENT YET — CHECK BILL", no token, no bill); sent with money due → `PrintCheckBill`; paid → "Print receipt again" | written (05 §6.3a) |
+| D-8 ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1) **ACCEPTED (owner 2026-11-24)** | **Wording and size**: the Roman Urdu lines ("Aap ka token: 57", "Paise counter par dein", "Order dekhne ke liye scan karein"); the token at `Doc` size 2 (a larger ESC/POS size would need a new `Doc` size, not proposed). | owner |
 | ~~OQ-C2…OQ-C7~~ | ⚠️ Changed by v1.0.16 (02b-TK R6; hostile run 1): replaced by D-1…D-8 (OQ-C3 closed by m-3: the slip always shows its time). | — |
 | OQ-C1 | ~~Pilot printers at go-live~~ **Answered (owner, 2026-11-11): yes, the pilot attaches kitchen printers.** 03c is needed **before go-live** (milestone A, 2027-02-28), not only before 05; manual checks (task 28) run on the pilot's own printers. | closed |
 
