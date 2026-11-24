@@ -1614,6 +1614,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'l.discard': 'ختم کریں',
   'l.stay': 'یہیں رہیں',
   // ---- 02b-TK client (batch C2): docs/design/handoff/02b-tk/strings-table.md ----
+  'q.search_token': 'ٹوکن نمبر', // not in strings-table.md; Urdu to confirm
   'q.search': 'ٹوکن، نام یا فون',
   'q.ready': 'تیار — حوالے کریں',
   'q.cooking': 'بن رہا ہے',

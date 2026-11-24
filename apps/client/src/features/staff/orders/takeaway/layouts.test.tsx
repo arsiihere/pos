@@ -15,4 +15,28 @@ describe('02b §8 takeaway device layouts', () => {
       expect(m.container.querySelector('.osc--tk-tablet > .cart')).not.toBeNull();
     } finally { m.unmount(); }
   });
+
+  it('7b QueueTablet keeps the strip mounted, masks contact and offers a drawer close control', async () => {
+    const m = screenHarness({ device: 'tablet' }).render();
+    try {
+      await flush();
+      m.click(m.button('All orders'));
+      const drawer = m.container.querySelector('.tk-q--drawer');
+      expect(drawer?.textContent).not.toContain('Ali');
+      expect(m.container.querySelector('.tk-rstrip')).not.toBeNull();
+      m.click(m.button('Close', drawer!));
+      expect(m.container.querySelector('.tk-q--drawer')).toBeNull();
+    } finally { m.unmount(); }
+  });
+
+  it('7b closes the tablet queue drawer before showing the payment panel', async () => {
+    const m = screenHarness({ device: 'tablet', bills: {} }).render();
+    try {
+      await flush();
+      m.click(m.button('All orders'));
+      m.click(m.button('Take payment', m.container.querySelector('.tk-q--drawer')!));
+      expect(m.container.querySelector('.tk-q--drawer')).toBeNull();
+      expect(m.container.querySelector('.tk-paypanel')).not.toBeNull();
+    } finally { m.unmount(); }
+  });
 });
