@@ -74,7 +74,8 @@ for (const lang of LANGS) {
       await expect(tikka).toHaveAttribute('aria-disabled', 'true');
       await expect(tikka.locator('.tag')).toHaveText(tr(lang, 'm.sold_out'));
       await expect(tikka.locator('.price')).not.toHaveCSS('text-decoration-line', 'line-through');
-      await tikka.click();
+      // Playwright's click waits for an enabled element, and aria-disabled="true" is not one: a dispatched tap
+      await tikka.dispatchEvent('click');
       await expect(page.locator('.toast').first()).toContainText(tr(lang, 't.sold_out', { item: TK_TILES.soldOut }));
       await expect(cartLines(page)).toHaveCount(0);
     } finally {
