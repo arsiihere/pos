@@ -23,3 +23,21 @@ export function customerReadyAt(state: ReadyState, line: ReadyLine): { land_at: 
   if (order === undefined || land === null) return null;
   return { land_at: land, ready_at: land + (order.promise_ms - order.target_land_ms) };
 }
+
+type TokenState = ReadyState & { lines: Record<string, ReadyLine & Pick<EngineLine, 'stage'>> };
+
+/** 03c §3.11: time for the token's non-cancelled orders, across both serve modes. */
+export function takeawaySlipReadyAt(state: TokenState, orderIds: readonly string[], pickupAt: number | null): number | null {
+  const included = new Set(orderIds);
+  let latestLand: number | null = null;
+  let latestReady: number | null = null;
+  for (const line of Object.values(state.lines)) {
+    if (!included.has(line.order_id) || (line.stage !== 'added' && line.stage !== 'cooking' && line.stage !== 'done')) continue;
+    const time = customerReadyAt(state, line);
+    if (time === null) return null;
+    latestLand = Math.max(latestLand ?? time.land_at, time.land_at);
+    latestReady = Math.max(latestReady ?? time.ready_at, time.ready_at);
+  }
+  if (pickupAt !== null && latestLand !== null && latestLand <= pickupAt) return pickupAt;
+  return latestReady;
+}
