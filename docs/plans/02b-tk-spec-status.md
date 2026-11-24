@@ -22,7 +22,9 @@
 
 The package is approved together (01d, 05a, 00 HPA and F are approvable only with each other and 03b / 02b / 05c). **04** needs a small bump (audit actions `cart_check_bill_printed`, `unpaid_handover_approved`; `board` in the `device_profile_set` detail) written when the package is approved.
 
-## Owner short list (run 2; each default is already written into the specs)
+**Owner answers (2026-11-24, later the same day):** all 10 short-list answers **ACCEPTED as recommended**; #1 is now written in (03a Q-PK-9 answer: a boost keeps `pickup_at_ms`, `boosted` stops the hold and the held slip, readiness stays whole-order with held lines included; 03b and 02b notes). **05c is PARKED** as a whole (Paymob out for now, card SoftPOS included): cards go on the counter machine with a typed reference; #6 – #8 are parked with it; 05c is out of the approval package and the backend plan.
+
+## Owner short list (run 2; each default is already written into the specs) — **ACCEPTED (owner 2026-11-24)**
 
 | # | Question | Recommended default (written) | Spec |
 |---|---|---|---|
