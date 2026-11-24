@@ -7,10 +7,10 @@ import { fixedClock } from '../../src/lib/clock';
 import { dropScratchDatabases, scratchDatabaseAt } from '../helpers/scratch-db';
 
 // 01b v1.8.1 §6.15 (owner Q-23, Q-34): a scratch database migrated to 0018 with tenants seeded before the Cashier
-// default gained mark-served, then the real folder (with 0019_cashier_mark_served.sql).
+// default gained mark-served, then the real folder (with 0020_cashier_mark_served.sql).
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
-const backfill = fileURLToPath(new URL('../../src/db/migrations/0019_cashier_mark_served.sql', import.meta.url));
+const backfill = fileURLToPath(new URL('../../src/db/migrations/0020_cashier_mark_served.sql', import.meta.url));
 const T = 1_761_000_000_000;
 
 let pool: pg.Pool;
@@ -69,8 +69,8 @@ afterAll(async () => {
   await dropScratchDatabases();
 }, 40_000);
 
-describe('[01b v1.8.1 §6.15] cloud migration 0019_cashier_mark_served.sql', () => {
-  it("[01b v1.8.1 Q-34] 0019: an existing tenant's active cashier role gets mark-served allowed at branch; directory_version +1 once", async () => {
+describe('[01b v1.8.1 §6.15] cloud migration 0020_cashier_mark_served.sql', () => {
+  it("[01b v1.8.1 Q-34] 0020: an existing tenant's active cashier role gets mark-served allowed at branch; directory_version +1 once", async () => {
     expect((await markServed()).filter((r) => (r as { tenant_id: string }).tenant_id === 'tA')).toEqual([
       { tenant_id: 'tA', role_id: 'rA-cash', grant_type: 'allowed', approver_role_id: null, scope: 'branch' },
       { tenant_id: 'tA', role_id: 'rA-ot', grant_type: 'allowed', approver_role_id: null, scope: 'branch' },
