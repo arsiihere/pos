@@ -189,12 +189,18 @@ describe('[02b-TK C2-2] token view', () => {
     expect(nav.to).toEqual(['/bill?order_id=O50']);
   });
 
-  it('[R2] a manager (apply-discount granted outright) may hand over unpaid', async () => {
-    const s = setup({ views: { O50: view('O50', [sl('O50', 'A', 'Karahi', 'done')]) }, bills: { O50: bill('B50', 'open', 119_000) }, grants: { 'apply-discount': { grant: 'allowed', scope: 'branch' } } });
+  it('[R2; owner ruling 2026-11-24 #2] no unpaid override in the pilot: a manager / Owner session on a Due token sees Hand over all greyed and "Take payment first"', async () => {
+    const owner = { 'apply-discount': { grant: 'allowed', scope: 'branch' }, 'take-order': { grant: 'allowed', scope: 'branch' }, 'void-item': { grant: 'allowed', scope: 'branch' }, 'view-customer-contact': { grant: 'allowed', scope: 'branch' } };
+    const s = setup({ views: { O50: view('O50', [sl('O50', 'A', 'Karahi', 'done')]) }, bills: { O50: bill('B50', 'open', 119_000) }, grants: owner });
     const onHandOver = vi.fn();
     const v = await show(s, tok({ order_ids: ['O50'], newest_order_id: 'O50' }), onHandOver);
-    v.click(v.button('Hand over unpaid · manager'));
-    expect(onHandOver.mock.calls[0]![0].map((l: SeatingLine) => l.order_item_id)).toEqual(['A']);
+    expect(v.text()).not.toContain('Hand over unpaid');
+    expect(v.text()).not.toContain('manager');
+    const all = v.button('Hand over all');
+    expect(all.getAttribute('aria-disabled')).toBe('true');
+    v.click(all);
+    expect(onHandOver).not.toHaveBeenCalled();
+    expect(v.container.querySelector('[role="note"]')?.textContent).toBe('Take payment first');
   });
 
   it('[frame TokenReady] paid and all ready: Hand over all hands every servable line over', async () => {

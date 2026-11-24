@@ -33,8 +33,7 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `opt.more` | One more {option} | ایک اور {option} |
 | `opt.less` | One less {option} | ایک کم {option} |
 | `q.tab` | Queue | قطار |
-| `v.pay_first` | Take payment first — a manager can hand over unpaid | پہلے پیسے لیں — مینیجر بغیر ادائیگی حوالے کر سکتا ہے |
-| `v.override` | Hand over unpaid · manager | بغیر ادائیگی حوالے کریں · مینیجر |
+| `v.pay_first` | Take payment first | پہلے پیسے لیں |
 | `c.add_gone` | This token can’t take more items (closed, cancelled or another day) — send them as a new order | اس ٹوکن میں مزید آئٹم نہیں ڈل سکتے (بند، منسوخ یا دوسرے دن کا) — نیا آرڈر بھیجیں |
 | `c.add_busy` | Send or hold this cart first, then add to the token | پہلے یہ کارٹ بھیجیں یا ہولڈ کریں، پھر ٹوکن میں ڈالیں |
 | `v.refund_first` | Paid: reopen the bill first (Bill → Reopen), then take the item off here — the bill shows the refund to give | ادا ہو چکا: پہلے بل دوبارہ کھولیں (بل ← دوبارہ کھولیں)، پھر یہاں آئٹم ہٹائیں — بل واپسی کی رقم دکھائے گا |

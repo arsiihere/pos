@@ -4179,9 +4179,8 @@ export const en = {
   'v.call': 'Call',
   't.collected': 'handed over',
   't.undo': 'Undo',
-  // 02b-TK C2-2 (ruling R2: Due greys Hand over, a manager may override): not in strings-table.md; Urdu to confirm
-  'v.pay_first': 'Take payment first — a manager can hand over unpaid',
-  'v.override': 'Hand over unpaid · manager',
+  // 02b-TK C2-2 (ruling R2; owner ruling 2026-11-24 #2: Due greys Hand over, no override in the pilot): not in strings-table.md; Urdu to confirm
+  'v.pay_first': 'Take payment first',
   'ctx.adding': 'Adding to token',
   'c.add_to': 'Add to token',
   // 02b-TK C2-3 (02b §3.2 step 2 errors; a busy cart): not in strings-table.md; Urdu to confirm

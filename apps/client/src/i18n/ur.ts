@@ -1646,9 +1646,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'v.call': 'فون',
   't.collected': 'حوالے کر دیا',
   't.undo': 'واپس کریں',
-  // 02b-TK C2-2 (ruling R2: Due greys Hand over, a manager may override): not in strings-table.md; Urdu to confirm
-  'v.pay_first': 'پہلے پیسے لیں — مینیجر بغیر ادائیگی حوالے کر سکتا ہے',
-  'v.override': 'بغیر ادائیگی حوالے کریں · مینیجر',
+  // 02b-TK C2-2 (ruling R2; owner ruling 2026-11-24 #2: Due greys Hand over, no override in the pilot): not in strings-table.md; Urdu to confirm
+  'v.pay_first': 'پہلے پیسے لیں',
   'ctx.adding': 'ٹوکن میں اضافہ',
   'c.add_to': 'ٹوکن میں ڈالیں',
   // 02b-TK C2-3 (02b §3.2 step 2 errors; a busy cart): not in strings-table.md; Urdu to confirm

@@ -6,7 +6,7 @@ import { timeText } from '../../../alerts/labels';
 import { Ico } from '../../../alerts/ui';
 import { billingApi } from '../../../billing/api';
 import type { BillView } from '../../../billing/contracts';
-import { useShell, type Shell } from '../../shell/hooks';
+import { useShell } from '../../shell/hooks';
 import { ContactSheet } from '../actions/ContactSheet';
 import type { OrderViewBody, SeatingLine } from '../contracts';
 import { useLiveRefetch } from '../lists/OpenOrders';
@@ -31,9 +31,9 @@ import './styles';
 // `bill?order_id=` of the token's NEWEST order (05 #44e: after the root bill closed an addition opens a new bill on the
 // same key; then the root's bill shows too). Actions: Give ready items now (MarkServed of the ready lines), Hand over
 // all, Take payment (the pay panel over the cart, C3-1; hidden offline), Add items, Remove / cancel, Call, Bill.
-// R2 (no hub guard, 05 B16 as approved): on a Due bill Hand over all is greyed; a MANAGER may hand over unpaid. The
-// client's rule for "manager": the session holds `apply-discount` outright (grant `allowed`) — the Manager / Owner
-// default roles; the Cashier default holds it only with approval. Hand-overs go through the 5 s Undo (handover.ts).
+// R2 (no hub guard, 05 B16 as approved): on a Due bill Hand over all is greyed with "Take payment first" until it is
+// paid — for everyone: the pilot has NO client manager override (owner ruling 2026-11-24 #2). Hand-overs go through
+// the 5 s Undo (handover.ts).
 
 export interface TokenViewProps {
   token: QueueToken;
@@ -45,11 +45,6 @@ export interface TokenViewProps {
   onAddItems?: (() => void) | undefined;
   /** C3-1: Take payment opens the pay panel (else the bill screen) */
   onPay?: (() => void) | undefined;
-}
-
-/** R2: who may hand over a Due order (documented rule: `apply-discount` granted outright). */
-export function isManager(shell: Pick<Shell, 'permissions'>): boolean {
-  return shell.permissions.allowed('apply-discount');
 }
 
 /** A line the counter can hand over now: the kitchen has it done, or it never went to a station. */
@@ -142,7 +137,6 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
   const giveReady = readyLines.length > 0 && !allReady;
   const paid = bill?.current?.paid ?? token.paid;
   const due = bill?.current !== null && bill?.current !== undefined && !bill.current.paid;
-  const manager = isManager(shell);
   const may = shell.permissions.allowed;
   const canServe = may('mark-served');
   const first = orders?.[0] ?? null;
@@ -173,14 +167,14 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
   const handOverAll = (
     <button
       type="button"
-      className={`tk-btn tk-btn--xl ${allReady && (paid || manager) ? 'tk-btn--ok' : ''}`}
-      aria-disabled={!allReady || (!paid && !manager)}
+      className={`tk-btn tk-btn--xl ${allReady && paid ? 'tk-btn--ok' : ''}`}
+      aria-disabled={!allReady || !paid}
       onClick={() => {
-        if (!allReady || (!paid && !manager)) return;
+        if (!allReady || !paid) return;
         onHandOver(candidates);
       }}
     >
-      {t(!paid && manager ? 'v.override' : 'v.collected')}
+      {t('v.collected')}
       {!allReady && promise !== null && (
         <>
           {' · '}
@@ -274,7 +268,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
               </button>
             </div>
           )}
-          {due && !manager && candidates.length > 0 && (
+          {due && live.length > 0 && (
             <p className="tk-hint" role="note">
               {t('v.pay_first')}
             </p>
