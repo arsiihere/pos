@@ -64,3 +64,10 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `c.serve_q` (placeholder for the table's "Paye") | {item} is ready now. Give it now? | {item} ابھی تیار ہیں۔ ابھی دے دیں؟ |
 | `c.serve_now` (placeholder for the table's "Paye") | {item} now, rest {t} | {item} ابھی، باقی {t} |
 | `c.serve_q_many` | {item} are ready now. Give them now? | {item} ابھی تیار ہیں۔ ابھی دے دیں؟ |
+| `cd.welcome` | Welcome | خوش آمدید |
+| `cd.order` | Your order | آپ کا آرڈر |
+| `cd.total` | Total | کل |
+| `cd.paid` | Paid | ادا ہو گیا |
+| `cd.change` | Change | بقایا رقم |
+| `cd.open` | Customer screen | گاہک کی اسکرین |
+| `cd.thanks` | Thank you! | شکریہ! اپنا ٹوکن پرچی پر دیکھیں |

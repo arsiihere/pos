@@ -8,6 +8,8 @@ import { initial } from '../alerts/ui';
 import { nativeBridge } from '../native/bridge';
 import { readPageMeta } from './api';
 import { StaffApp } from './StaffApp';
+import { CustomerDisplay } from './orders/customer-display/CustomerDisplay';
+import { DISPLAY_ROUTE } from './orders/customer-display/channel';
 import { PairAgain } from './tables/PairAgain';
 
 // 01d task 41: the /staff/ entry. Not mount() (app/mount.tsx), which loads the 00 kit bundle: this entry loads
@@ -25,9 +27,13 @@ function localStorageOrNull(): Storage | null {
 }
 
 async function start(): Promise<void> {
-  initLanguage({ search: window.location.search, storage: localStorageOrNull(), navigatorLanguage: navigator.language });
   const container = document.getElementById('root');
   if (!container) throw new Error('#root missing');
+  if (window.location.hash === `#${DISPLAY_ROUTE}`) {
+    createRoot(container).render(<CustomerDisplay />);
+    return;
+  }
+  initLanguage({ search: window.location.search, storage: localStorageOrNull(), navigatorLanguage: navigator.language });
   const [token, id, type] = await Promise.all([readDeviceKey('token'), readDeviceKey('device_id'), readDeviceKey('device_type')]);
   const meta = readPageMeta();
   const root = createRoot(container);

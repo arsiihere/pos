@@ -28,6 +28,8 @@ import { FamilyPill, Ico, isRequest } from '../alerts/ui';
 import { createStaffApi, type Device, type PageMeta, type Resolution, type RosterPerson, type SessionInfo, type SignedIn } from './api';
 import { SignIn } from './SignIn';
 import { createOrdersApi } from './orders/api';
+import { CustomerDisplay } from './orders/customer-display/CustomerDisplay';
+import { DISPLAY_CHANNEL, DISPLAY_ROUTE } from './orders/customer-display/channel';
 import { pendingCompsOf } from './orders/actions/pending-comps';
 import { LateAlertsContext, type LateAlertRow } from './orders/late/late-groups';
 import { IdleLock } from './orders/lock/IdleLock';
@@ -203,7 +205,15 @@ export interface StaffAppProps {
   reload?: () => void;
 }
 
-export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipeKeys, goToPair, native: nativeProp, staffBuild: staffBuildProp, reload: reloadProp }: StaffAppProps) {
+export function StaffApp(props: StaffAppProps | { device?: undefined; utcOffsetMs?: number }) {
+  const route = useHashRoute();
+  if (route === DISPLAY_ROUTE) {
+    return <CustomerDisplay utcOffsetMs={props.device === undefined ? props.utcOffsetMs ?? 0 : props.meta.utcOffsetMs} />;
+  }
+  return props.device === undefined ? null : <StaffSession {...props} />;
+}
+
+function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKeys, goToPair, native: nativeProp, staffBuild: staffBuildProp, reload: reloadProp }: StaffAppProps) {
   // 05b §4.2: the bridge once per page (undefined → read from the window)
   const [native] = useState<NativeBridge | null>(() => (nativeProp === undefined ? nativeBridge() : nativeProp));
   const [pageBuild] = useState<string | null>(() => (staffBuildProp === undefined ? readStaffBuild() : staffBuildProp));
@@ -1316,7 +1326,15 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
         portrait={portrait}
         brandName={meta.branchName}
         deviceLine={`${meta.branchName} · ${deviceWord}`}
-        bind={device.type === 'tablet' ? <BindingHeader binding={binding} nowMs={clock.nowMs} utcOffsetMs={offset} timers={timers ?? browserTimers} sink={sink ?? browserSink} /> : null}
+        bind={
+          device.type === 'tablet' ? (
+            <BindingHeader binding={binding} nowMs={clock.nowMs} utcOffsetMs={offset} timers={timers ?? browserTimers} sink={sink ?? browserSink} />
+          ) : device.type === 'cashier_kiosk' && me !== null && !switching ? (
+            <button type="button" className="tk-btn tk-btn--chrome cd-open" onClick={() => window.open(`/staff/#${DISPLAY_ROUTE}`, DISPLAY_CHANNEL)}>
+              {t('cd.open')}
+            </button>
+          ) : null
+        }
         floors={floors}
         live={live}
         clock={timeText(nowMs, offset)}
