@@ -161,7 +161,7 @@ This spec was asked for by the 02b-TK hand-off, gap **G-12** (`docs/design/hando
 | Ordered guard lists: 02b `registerLineGuard` (04 first, then 05, by registration order; asked once per line-changing command), 02a `registerMergeGuard`, 01a `registerDayCloseGuard` | `apps/hub/src/orders/line-guard.ts`, `tables/merge-guard.ts`, `commands/close-business-day.ts` |
 | Remote calls go through a worker: the fiscal outbox worker posts outside any request and appends its answer as a system event (`actor_id null`, `device_id 'hub'`) | 05 §3.15; `billing/fiscal/worker.ts` |
 | Hub secrets: write-only admin command, hub-only table, never synced / logged / returned / in an event; carried by the USB backup | 05 B22, §6.28a |
-| **Hub state that is not an event** (accepted, like `payment_references` and the fiscal outbox's worker columns): provider data of an intent (`payment_intent_provider`: display data, provider refs, the device's hint and its outcome, attempts), the relay cursor and relay-pending rows, credentials | 05 B30 precedent; review m-4 |
+| **Hub state that is not an event** (accepted, like `payment_references` and the fiscal outbox's worker columns): provider data of an intent (`payment_intent_provider`: display data, provider refs, the device's hint and its outcome, attempts), the relay cursor and relay-pending rows, ⚠️ Changed by v0.2 hostile run 2 (R2-M-4): the unknown-intent relay rows (`payment_relay_unknown`), credentials | 05 B30 precedent; review m-4 |
 | Cloud tenant scope: guard scopes `jwt \| branch-key \| registration-code \| none`; credential lookups only in `db/credential-lookup.ts`, importable only by the guard plugins (M55 (b)); allowlist `TENANT_SCOPE_ALLOWLIST` | 00 D54, M55; `apps/cloud/src/plugins/tenant-scope.ts:9-17` |
 | The hub is LAN-only (no inbound internet) and calls out | 00 §3.1; 05 K-16 |
 | Hub tests never reach a cloud host | `apps/hub/test/no-cloud-network.int.test.ts` |
@@ -198,7 +198,7 @@ This spec was asked for by the 02b-TK hand-off, gap **G-12** (`docs/design/hando
 ### 3.2 State machine
 
 ```
-StartPaymentIntent ─► creating ──(provider create ok)──► ready ──(device hint, or provider 'pending' after a tap)──► confirming
+StartPaymentIntent ─► creating ──(provider create ok)──► ready ──(device hint, or provider 'in_progress' (R2-M-1))──► confirming
                          │                                 │                                                        │
        create rejected / │ no answer in 20 s               │ server paid ─► SUCCEEDED (applied | unapplied)        │ server paid ─► SUCCEEDED
                          ▼                                 │ server failed ─► FAILED (not paid)                    │ server failed / expired ─► FAILED / EXPIRED{not_paid}
@@ -207,10 +207,13 @@ StartPaymentIntent ─► creating ──(provider create ok)──► ready ─
                                                            │ CancelPaymentIntent ─► CANCELLED                       │ (no cancel by staff while confirming)
    ended, outcome ≠ not_paid ─► watched until watch_until ─► late server paid ─► SUCCEEDED (applied if P8 allows)
    SUCCEEDED ─► a different provider ref confirmed ─► second provider payment (unapplied 'second_payment')
+   watched ─► server failed / expired, or last status at watch_until ─► WatchEnded{not_paid|no_answer} (R2-m-6)
+   FAILED ─► a late server-confirmed paid (relay) ─► SUCCEEDED (after_state 'failed'; R2-M-2)
 ```
 
 - `CancelPaymentIntent` is allowed in `creating` and `ready`, never in `confirming` (a card was read; only the server decides).
 - `failed` is the only state the client may call "not charged".
+- ⚠️ Changed by v0.2 hostile run 2 (R2-M-1): a provider `pending` in `ready` keeps `ready` (Cancel still allowed) until the tap deadline; only a device hint or `in_progress` moves it to `confirming`.
 
 ### 3.3 Command processing order
 
@@ -221,16 +224,18 @@ payload Zod (`400`) → session + permission (pipeline, `403`) → ensure bill /
 ```ts
 export interface PaymentProvider {
   key: string;                                   // 'fake' | 'paymob_softpos' (OR-3: 'alfalah_raast' is §13 Later)
-  display: 'device_sdk';                         // ⇒ a tablet with PosNative (native_api ≥ 2); OR-3: 'qr' is added by §13 Later
+  // R2-m-2: no `display` field in the pilot; every pilot provider is a tablet SDK (PosNative, native_api ≥ 2); §13 adds it
   has_status: boolean; has_webhook: boolean;     // at least one true (startup check)
-  timings: { display_ttl_ms: number; confirm_window_ms: number; late_window_ms: number };   // P9, P9a (pending docs)
+  timings: { tap_window_ms: number; confirm_window_ms: number; late_window_ms: number };   // P9, P9a (pending docs); R2-m-1: was display_ttl_ms
   accepts_kinds: 'card'[];                       // OR-3: 'wallet' | 'online' with §13 Later
   settingsSchema: ZodType;                       // opaque: environment, account ids, base URL; never a secret
   credentialNames: string[];
   create(req: Req): Promise<{ outcome: 'ok'; provider_intent_ref: string | null; display: unknown } | { outcome: 'retry' | 'rejected'; error_code: string }>;
   status(req: Req & { provider_intent_ref: string | null; device_txn_ref: string | null }):
     Promise<{ outcome: 'paid'; provider_txn_ref: string; amount_minor: number; currency_code: string }
-          | { outcome: 'pending' } | { outcome: 'failed' | 'expired'; error_code: string | null } | { outcome: 'retry'; error_code: string }>;
+          | { outcome: 'pending' } | { outcome: 'in_progress' }   // R2-M-1: pending = no attempt known; in_progress = an authorisation attempt exists
+          | { outcome: 'failed' | 'expired'; error_code: string | null }   // R2-M-2: order-final only (below)
+          | { outcome: 'retry'; error_code: string }>;
   cancel(req: Req & { provider_intent_ref: string | null }): Promise<'ok' | 'not_supported' | 'retry'>;   // never "not paid" by itself
   health(): Promise<'ok' | 'failing'>;
 }
@@ -238,7 +243,7 @@ type Req = { intent_id: string; amount_minor: number; currency_code: string; cur
              settings: unknown; credentials: Record<string, string> };
 ```
 
-`display` is opaque to the core: the adapter returns it and `payment-intent-device` passes it on (`device_sdk`: the SDK parameters; ⚠️ Changed by v0.2 owner review (OR-3): `qr` is §13). The adapter refuses a tenant currency it cannot take (`create` → `rejected`, `currency`). Transport: Node 22 `fetch`, `AbortSignal.timeout(5_000)` on `create`, 10 000 on the others. `error_code` ≤ 20 printable characters, never a provider text. **Cloud side** (`apps/cloud/src/modules/payments/providers/<key>.ts`): `verify({ headers, query, rawBody }, secret) → boolean` and `extract(...) → Notification | null` (§5.3), both pending docs.
+⚠️ Changed by v0.2 hostile run 2 (R2-M-1, R2-M-2) — **status contract:** `pending` = the provider knows no attempt on this intent; `in_progress` = an authorisation attempt exists and its result is not final; `failed` / `expired` = **the provider guarantees that this intent can no longer be paid** (a declined attempt after which the same order can still be paid maps to `in_progress` or `pending`, never to `failed`); the adapter owns this mapping (test 30b, an X-2 question). ⚠️ Changed by v0.2 hostile run 2 (R2-m-2): "a `device_sdk` intent" in this spec means every intent of the pilot. `display` (in `create`'s answer) is opaque to the core: the adapter returns it and `payment-intent-device` passes it on (`device_sdk`: the SDK parameters; ⚠️ Changed by v0.2 owner review (OR-3): `qr` is §13). The adapter refuses a tenant currency it cannot take (`create` → `rejected`, `currency`). Transport: Node 22 `fetch`, `AbortSignal.timeout(5_000)` on `create`, 10 000 on the others. `error_code` ≤ 20 printable characters, never a provider text. **Cloud side** (`apps/cloud/src/modules/payments/providers/<key>.ts`): `verify({ headers, query, rawBody }, secret) → boolean` and `extract(...) → Notification | null` (§5.3), both pending docs.
 
 ### 3.5 `fake` adapter (tests only)
 
@@ -250,11 +255,11 @@ type Req = { intent_id: string; amount_minor: number; currency_code: string; cur
 
 | Item | Draft |
 |---|---|
-| Integration | An SDK inside the 05b app, **or** a separate Paymob app called by Android intent. Which one decides rows N-1 / N-2 (pending docs, STOP-C) |
+| Integration | An SDK inside the 05b app (rows N-1 / N-2). ~~or a separate Paymob app called by Android intent~~ ⚠️ Changed by v0.2 hostile run 2 (R2-m-3): a separate app is Q-B's "no": the counter card machine stays and 05c-C is not built |
 | Host-app eligibility (X-6) | The 05b app is sideloaded and self-updated from the hub, device owner, lock task, WebView bridge, LAN cleartext. Whether SoftPOS (MPoC / CPoC) attestation accepts that host must be **confirmed in writing** (STOP-C, Q-B) |
 | `create` | Server-created order / token, or none (pending docs). If the SDK parameters are a bearer token, they are classed **secret**: never logged and served only to the intent's device (§6.6b) |
 | Device step | Page → `PosNative.startCardPayment({ intent_id })` → native fetches amount / currency / parameters from `payment-intent-device` → SDK → result whitelist → page → `ReportPaymentIntentResult` (a hint, P7) |
-| `status` | Transaction inquiry by our reference or the SDK's transaction id (pending docs). **If there is no server confirmation at all, card stays manual** (Q-C) |
+| `status` | Transaction inquiry by our reference or the SDK's transaction id (pending docs). **If there is no server confirmation at all, card stays manual** (Q-C; ⚠️ Changed by v0.2 hostile run 2 (R2-M-6): part of STOP-0). ⚠️ Changed by v0.2 hostile run 2 (R2-M-2): if Paymob reports failure per transaction, the adapter answers `failed` only when the order itself can no longer be paid |
 | Webhook | Paymob callback and its HMAC scheme (pending docs) |
 | `cancel` | Only a pending order, if supported; a void is a refund → out of scope |
 | Card data | **No card data reaches our code**: PAN, masked PAN, expiry, cardholder name and EMV tags never cross the bridge, are never logged and never stored |
@@ -305,28 +310,30 @@ type Req = { intent_id: string; amount_minor: number; currency_code: string; cur
 
 | Export | Shape | Used by |
 |---|---|---|
-| Events (bill stream) `PaymentIntentCreated`, `PaymentIntentReady`, `PaymentIntentConfirming`, `PaymentIntentSucceeded`, `PaymentIntentFailed`, `PaymentIntentExpired`, `PaymentIntentCancelled`, `ProviderPaymentResolved`; (hub stream) `PaymentCredentialSet`. All v1, **frozen at STOP-0** | `@pos/events/src/events/{bill,hub}/` | 06, 07, 04 audit view |
+| Events (bill stream) `PaymentIntentCreated`, `PaymentIntentReady`, `PaymentIntentConfirming`, `PaymentIntentSucceeded`, `PaymentIntentFailed`, `PaymentIntentExpired`, `PaymentIntentCancelled`, `PaymentIntentWatchEnded` (⚠️ Changed by v0.2 hostile run 2 (R2-m-6)), `ProviderPaymentResolved`; (hub stream) `PaymentCredentialSet`. All v1, **frozen at STOP-0** | `@pos/events/src/events/{bill,hub}/` | 06, 07, 04 audit view |
 | `openIntentOf(db, { bill_id } \| { order_id } \| { seating_ids, order_ids }) → { intent_id, split_no, shift_id } \| null`; `openIntentsOfShift(db, shift_id)`; `anyOpenIntent(db)` (1 statement each) | `apps/hub/src/payments/exports.ts` | guards (P11), 05 rows B-2 / B-3, 04 row V-1 |
 
 ### 4.3 Requirements carried to other modules
 
 | To | Requirement |
 |---|---|
-| 06 | Sync carries the nine events. `payment_intent_provider`, `payment_credentials`, `payment_relay_cursor`, `payment_relay_pending` are hub state, **never synced**. After a restore, the worker resumes from the projections; intents past their deadlines follow P9 / P9a at the first tick |
+| 06 | Sync carries the ten events (⚠️ Changed by v0.2 hostile run 2 (R2-m-12)). `payment_intent_provider`, `payment_credentials`, `payment_relay_cursor`, `payment_relay_pending`, `payment_relay_unknown` (R2-M-4) are hub state, **never synced**. After a restore, the worker resumes from the projections; intents past their deadlines follow P9 / P9a at the first tick |
 | 07 | Payments by provider = `PaymentAdded` joined to `PaymentIntentSucceeded { applied: true }.payment_id`. Unapplied = `applied: false` minus `ProviderPaymentResolved` (`applied_to_bill` is then counted once, through its manual `PaymentAdded`) |
 
 ### 4.4 Story → build part
 
-05c-1: M-3 rule, `source` column, alert kinds, permission, pure rules, client mocks. 05c-2: P1–P15 (incl. P13 credentials), §6.1–§6.9 on `fake`. 05c-C: §3.7, rows N-1 / N-2. ~~05c-R: §3.6, §8.2 – 8.3~~ (⚠️ Changed by v0.2 owner review (OR-3): §13). The relay (§6.10 – §6.12) ships with Paymob if Paymob has `has_webhook`.
+05c-1: pure rules, client mocks (⚠️ Changed by v0.2 hostile run 2 (R2-M-6): the M-3 rule, `source` column, codes, alert kinds and permission move to 05c-2, after STOP-0). 05c-2: those, then P1–P15 (incl. P13 credentials), §6.1–§6.9 on `fake`. 05c-C: §3.7, rows N-1 / N-2. ~~05c-R: §3.6, §8.2 – 8.3~~ (⚠️ Changed by v0.2 owner review (OR-3): §13). The relay (§6.10 – §6.12) ships with Paymob if Paymob has `has_webhook`.
 
 ### 4.5 Changes to other specs (R26) — *proposed, applied when 05c is approved*, each target bumped with a changelog and "⚠️ Changed by 05c (row X)" markers
+
+⚠️ Changed by v0.2 hostile run 2 (R2-M-7): **every row below is carried when 05c is approved**, and nothing of it is built before (the 05 v1.0.35 form, 05 §4.5 rows 05c-B-1 … 05c-B-7). Foundation v1.18 (rows F-10, F-11, and the 05c codes of F-12(b) / §6.2) and 00 HPA v1.13 (rows H-13 – H-15: M55, §5.2, §6.2) today carry rows F-1 – F-3 and H-1 – H-3 as normative text. **Those two specs must mark them "carried when 05c is approved"** (or state that the 05c text is inert until 05c is approved and is not built before then), and HPA v1.13 must re-letter the new M55 webhook item **(g)** (M55 (f) is already the query guard write). Their writers own them; this spec does not edit them. Until then 05c rows F-1 – F-3 and H-1 – H-3 apply only through 05c's approval.
 
 | Row | Target → section | Change | Why |
 |---|---|---|---|
 | B-1 | **05** §6.9, §4.2 | Export `providerPaymentDrafts` (AddPayment's money checks; no session, permission, scope, shift resolution, fiscal gate or P11 hold; taker and shift given; reference written with `source 'provider'`; statements ≤ 6), and export unchanged `splitDues`, `fiscalGate`, `moneyShiftOf`, `billAccess`. **§6.9 reference source:** a payment reference is either typed by staff (`source 'staff'`) or the provider's transaction ref (`source 'provider'`); both only in `payment_references` | P5 |
-| B-2 | **05** §6.5, §6.6, §6.8, §6.9, §6.12, §6.13, §6.17, §6.18 | `409 PAYMENT_INTENT_PENDING { intent_id }` while `openIntentOf` is not null: `AddPayment` and `CloseSplit` when the intent's `split_no` is theirs; `SetSplits`, `ApplyDiscount`, `RemoveServiceCharge`, `ReopenBill` on the bill; `CountShift` / `CloseShift` of the intent's shift. +1 statement each | P11 (e) |
+| B-2 | **05** §6.5, §6.6, §6.8, §6.9, §6.12, §6.13, §6.17, §6.18 | `409 PAYMENT_INTENT_PENDING { intent_id }` while `openIntentOf` is not null: `AddPayment` and `CloseSplit` when the intent's `split_no` is theirs; `SetSplits`, `ApplyDiscount`, `RemoveServiceCharge`, `ReopenBill` on the bill; `CountShift` / `CloseShift` of the intent's shift. +1 statement each. ⚠️ Changed by v0.2 hostile run 2 (R2-M-5) — **OWNER (default written):** `AddPayment { direction: 'in' }` (any mode) on the split of a **watched** intent (`watch_until` not null) → `409 PAYMENT_INTENT_PENDING { intent_id, reason: 'previous_watched' }` (the same read, `payment_intents_watched`); `AddPayment` gains `override_watched?: true`, allowed only to a holder of `close-shift-for-others` (else `403 PERMISSION_DENIED`), recorded in the payment as `PaymentAdded.overrides_intent_id: string \| null` (`PaymentAdded` v2; the v1 → v2 upcaster gives `null`) | P11 (e), P9a |
 | B-3 | **05** §3.14 kinds | The `apply` of `discount`, `remove_service_charge`, `reopen_bill` refuses with `409 PAYMENT_INTENT_PENDING` while the bill has an open intent (request stays pending) | P11 (d) |
-| B-4 | **05** §5 | `payment_references.source TEXT NOT NULL DEFAULT 'staff' CHECK (source IN ('staff','provider'))` (05c's hub migration `0030`, the only 05c migration merged before STOP-0; ⚠️ Changed by v0.2 (integration, 02b-TK): `0030` is provisional, the number is the next free one at merge) | P5 |
+| B-4 | **05** §5 | `payment_references.source TEXT NOT NULL DEFAULT 'staff' CHECK (source IN ('staff','provider'))` (05c's hub migration `0030`; ~~the only 05c migration merged before STOP-0~~ ⚠️ Changed by v0.2 hostile run 2 (R2-M-6): merged after STOP-0, with 05c-2; ⚠️ Changed by v0.2 (integration, 02b-TK): `0030` is provisional, the number is the next free one at merge) | P5 |
 | B-6 | **05** §6.10 | `RemovePayment` of a payment whose reference has `source = 'provider'` → `409 PAYMENT_PROVIDER_FINAL { payment_id }` (the payment read joins `payment_references`, 0 extra statements). Money back = portal refund + manual `AddPayment { direction: 'out' }` | review M-3 |
 | B-7 | **05** audit map (`billing/audit-map.ts`) | `payment_added`: `actor_staff_id = taken_by_staff_id` when the envelope's `actor_id` is null | review m-5 |
 | ~~B-5~~ | — | Deleted (v0.2, m-5): 05c runs its own wiring check at registration (its event list: audience + audit map, `PaymentIntentReady` and `PaymentIntentConfirming` with no audit action); 05 does not import 05c | — |
@@ -335,18 +342,18 @@ type Req = { intent_id: string; amount_minor: number; currency_code: string; cur
 | A-1 | **01a** billing settings document, `packages/events/src/admin/billing.ts`, owner page | `PaymentMode.provider?: { provider_key, settings } \| null` (additive, default `null`); PUT checks of P2; owner form "Take this payment through: none / Paymob SoftPOS" (⚠️ Changed by v0.2 owner review (OR-3): no Raast choice in the pilot) + settings; the webhook endpoint form (§6.12). The existing authority-code rule (`billing.ts:377-384`) is **unchanged** | P2, P16 |
 | A-2 | **01a** §6.18b day-close guard list | 05c's guard: any open intent → `409 PAYMENT_INTENT_PENDING { intent_id }` (1 statement) | P11 (c) |
 | V-1 | **04** void kind `apply` | Refuse with `409 PAYMENT_INTENT_PENDING` while the void's order's bill has an open intent (request stays pending) | P11 (d) |
-| R-1 | **01b** §4.2, `permissions.ts` | `manage-payment-providers`: group `bills`, scope `branch`, Owner only by default | P13 |
-| D-1 | **01d v1.3.7** (in progress by another writer, who was told to add `payment_unapplied`) | Exact declaration needed: `defineAlertKind({ kind: 'payment_unapplied', family: 'action', subject: 'bill', steps: [{ at: { ms: 0 }, to: [{ target: { kind: 'managers' }, set: 'recipient' }, { target: { kind: 'permission', permission: 'manage-payment-providers' }, set: 'recipient', when_none: true }] }] (⚠️ Changed by v0.2 owner review (OR-4): no manager present → the Owner role, 01d v1.3.7 §3.5 `when_none`), closes_on: 'owner', expires_at_day_close: true, silent: false, lead_fallback: false, skip_requester: false, values_schema: z.object({ provider_payment_id: z.string().min(1), bill_id: z.string().min(1), amount_minor: z.number().int(), provider_key: z.string().min(1), reason: z.string().min(1) }), details_schema: ~~<AlertDetailsBase + { ref_last4: string \| null, token: string \| null }>~~ ⚠️ Changed by v0.2 (integration, 02b-TK) (01d v1.3.7 Q-37e): `AlertDetailsBase.pick({ identifier: true, amount: true, problem: true })` (`identifier` = the token, else the bill; `amount` = the paid amount; `problem` = provider + reference last 4, ≤ 40; no extra fields), labels: { card: 'alert.payment_unapplied.card', lock: 'alert.payment_unapplied.lock' }, request: null })`. ~~The lock `display` shows only amount and provider; `ref_last4` is in `details` (signed-in only, 01d §3.12).~~ ⚠️ Changed by v0.2 (integration, 02b-TK): the lock shows the **kind label only** (`display: { kind_label_key }`); amount, provider and reference last 4 are card-only, in the base detail fields (signed-in only, 01d §3.12). Carried in 01d v1.3.7 §4.3 To 05c. **Closed by 05c** on `ProviderPaymentResolved`. **Expiry:** it expires at day close (forced by `closes_on: 'owner'`) and **05c raises it again after each `BusinessDayOpened`** while the provider payment is unresolved (as 05 raises `fiscal_outbox_stuck` again while stuck) | P8, review M-7 |
-| D-2 | **01d v1.3.7** | `defineAlertKind({ kind: 'payment_relay_unhealthy', family: 'action', subject: 'hub', steps: [{ at: { ms: 0 }, to: [{ target: { kind: 'managers' }, set: 'recipient' }] }], closes_on: 'owner', expires_at_day_close: true, lead_fallback: false, values_schema: z.object({ provider_key: z.string().min(1), reason: z.enum(['signature_failures', 'confirm_stuck', 'pull_failing']) }), details_schema: null, request: null, … })`; closed by 05c when healthy again; raised again after each day open while unhealthy | P14, review M-6 |
+| R-1 | **01b** §4.2, `permissions.ts` | `manage-payment-providers`: group `bills`, scope `branch`, Owner only by default. ⚠️ Changed by v0.2 hostile run 2 (R2-m-15): the Owner default role holds both `manage-payment-providers` and `close-shift-for-others`, so the D-1 `when_none` recipient can open the list and resolve | P13 |
+| D-1 | **01d v1.3.7** (in progress by another writer, who was told to add `payment_unapplied`) | Exact declaration needed: `defineAlertKind({ kind: 'payment_unapplied', family: 'action', subject: 'bill', steps: [{ at: { ms: 0 }, to: [{ target: { kind: 'managers' }, set: 'recipient' }, { target: { kind: 'permission', permission: 'manage-payment-providers' }, set: 'recipient', when_none: true }] }] (⚠️ Changed by v0.2 owner review (OR-4): no manager present → the Owner role, 01d v1.3.7 §3.5 `when_none`), closes_on: 'owner', expires_at_day_close: true, silent: false, lead_fallback: false, skip_requester: false, values_schema: z.object({ provider_payment_id: z.string().min(1), bill_id: z.string().min(1), amount_minor: z.number().int(), provider_key: z.string().min(1), reason: z.string().min(1) }), details_schema: ~~<AlertDetailsBase + { ref_last4: string \| null, token: string \| null }>~~ ⚠️ Changed by v0.2 (integration, 02b-TK) (01d v1.3.7 Q-37e): `AlertDetailsBase.pick({ identifier: true, amount: true, problem: true })` (`identifier` = the token, else the bill; `amount` = the paid amount; `problem` = provider + reference last 4, ≤ 40; no extra fields), labels: { card: 'alert.payment_unapplied.card', lock: 'alert.payment_unapplied.lock' }, request: null })`, ⚠️ Changed by v0.2 hostile run 2 (R2-m-10): `dedupe_key = 'payment_unapplied:' + provider_payment_id`, no `link` (as 01d v1.3.7 l. 1330). ~~The lock `display` shows only amount and provider; `ref_last4` is in `details` (signed-in only, 01d §3.12).~~ ⚠️ Changed by v0.2 (integration, 02b-TK): the lock shows the **kind label only** (`display: { kind_label_key }`); amount, provider and reference last 4 are card-only, in the base detail fields (signed-in only, 01d §3.12). Carried in 01d v1.3.7 §4.3 To 05c. **Closed by 05c** on `ProviderPaymentResolved`. **Expiry:** it expires at day close (forced by `closes_on: 'owner'`) and **05c raises it again after each `BusinessDayOpened`** while the provider payment is unresolved (as 05 raises `fiscal_outbox_stuck` again while stuck) | P8, review M-7 |
+| D-2 | **01d v1.3.7** | `defineAlertKind({ kind: 'payment_relay_unhealthy', family: 'action', subject: 'hub', steps: [{ at: { ms: 0 }, to: [{ target: { kind: 'managers' }, set: 'recipient' }] }], closes_on: 'owner', expires_at_day_close: true, lead_fallback: false, values_schema: z.object({ provider_key: z.string().min(1), reason: z.enum(['signature_failures', 'confirm_stuck', 'pull_failing', 'unknown_intent']) }), details_schema: null, request: null, … })`; closed by 05c when healthy again; raised again after each day open while unhealthy. ⚠️ Changed by v0.2 hostile run 2 (R2-M-4): reason **`unknown_intent`** (a `paid` relay row of this branch for an intent the hub does not find) is raised once per row's day and expires at day close; it is not re-raised (the row stays in `payment_relay_unknown`; reconciliation is R7). `dedupe_key = 'payment_relay_unhealthy:' + provider_key + ':' + reason` (as 01d v1.3.7) | P14, review M-6, R2-M-4 |
 | H-1 | **00 HPA** §5.2, M55, `plugins/tenant-scope.ts`, `db/credential-lookup.ts` | New guard scope **`webhook-endpoint`**: lookup by `endpoint_id` in `credential-lookup.ts` (`paymentWebhookEndpointById`), then `setTenant`; the route has a `TenantContext`. Index `payment_webhook_endpoints_endpoint (endpoint_id)` named as an **M55 (a)-style pre-tenant override**. Route inventory and cross-tenant tests | review M-5 |
 | H-2 | **00 HPA** §5.2 | `GET /v1/sync/payment-notifications` on the branch API key | P14 |
 | H-3 | **00 HPA** §6.2 query auth | Query `payment-intent-device` takes the **device token only** (no staff session), answers only the intent's own device (05b native) | P10, review M-8 |
 | F-1 | Foundation §6.2 status map | §9 codes appended (no bump, R34). ⚠️ Changed by v0.2 (integration, 02b-TK): appended in F v1.18 §6.2 (hub codes and the two cloud codes, with this §9's statuses) | §9 |
 | F-2 | **Foundation, next version** (v1.18 DRAFT is another writer's: fold in there if accepted, else v1.19; ⚠️ Changed by v0.2 (integration, 02b-TK): folded in F v1.18 row F-10) §6.4 "Auth groups" | Replace with: "`/v1/sync/*` uses the branch API key; `/v1/owner/*` and `/v1/admin/*` use the JWT; `/v1/auth/*` and `/v1/health` are the tenant-scope allowlist (D54); ⚠️ Changed by 05c (F-2): **`/v1/payments/webhooks/:endpoint_id` uses a webhook endpoint credential** (the guard resolves the tenant from `endpoint_id`; the request is authenticated by the provider's signature, checked in the handler before any write), and needs no `Idempotency-Key` (idempotent by the provider's event id and outcome)". Also F D53 note: "hub backups carry `fiscal_credentials` and `payment_credentials`" | review M-5, m-11 |
 | F-3 | **Foundation, next version** D54 (⚠️ Changed by v0.2 (integration, 02b-TK): folded in F v1.18 row F-11) | The list of tenant-scope credential types gains `webhook-endpoint` (as 00 row H-1) | review M-5 |
-| N-1 | **05b → v1.1** §4.2, §3.6 | `PosNative` gains `cardPaymentInfo() → { available, reason? }`, `startCardPayment({ intent_id }) → { outcome: 'approved' \| 'declined' \| 'cancelled' \| 'error', device_txn_ref?, error_code? }` (native fetches amount / currency / parameters from `payment-intent-device` with its device token; the page never passes an amount), `cancelCardPayment({ intent_id })`. Allowed from the hub origin, path `/staff/` only. **Result whitelist**: only those three fields leave native; everything else from the SDK is dropped and never logged. **`native_api` = 2**; the page keeps `MIN_NATIVE_API` 1 and feature-checks the methods (M-14). If Paymob's product is a separate app (§3.7), N-1 is rewritten at STOP-C | P7, P10, review M-8 |
+| N-1 | **05b → v1.1** §4.2, §3.6 | `PosNative` gains `cardPaymentInfo() → { available, reason? }`, `startCardPayment({ intent_id }) → { outcome: 'approved' \| 'declined' \| 'cancelled' \| 'error', device_txn_ref?, error_code? }` (native fetches amount / currency / parameters from `payment-intent-device` with its device token; the page never passes an amount), `cancelCardPayment({ intent_id })`. Allowed from the hub origin, path `/staff/` only. **Result whitelist**: only those three fields leave native; everything else from the SDK is dropped and never logged. **`native_api` = 2**; the page keeps `MIN_NATIVE_API` 1 and feature-checks the methods (M-14). ~~If Paymob's product is a separate app (§3.7), N-1 is rewritten at STOP-C~~ ⚠️ Changed by v0.2 hostile run 2 (R2-m-3): a separate app = Q-B "no", no N-1 | P7, P10, review M-8 |
 | N-2 | **05b → v1.1** §10, `tablet.yml` | Paymob SDK as a Gradle / Maven dependency (exact version), its private repository credentials as a CI secret in `tablet.yml`, the licence file in `apps/tablet`; NFC permission; Gradle tests: guard (`/staff/` only), result whitelist, amount taken from the hub answer; manual NFC check per pilot model | review M-8 |
-| M-1 | **README** module map | Row `05c Payments integration | v0.2 | DRAFT | G-12 | 05, 05b, 01a, 01d | STOP-0 / STOP-C / STOP-R (§11)` | review m-1 |
+| M-1 | **README** module map | Row `05c Payments integration | v0.2 | DRAFT | G-12 | 05, 05b, 01a, 01d | STOP-0 / STOP-C (§11)` (⚠️ Changed by v0.2 hostile run 2 (R2-m-1): no STOP-R, §13) | review m-1 |
 | — | 03a, 03c | No change | — |
 
 ---
@@ -359,22 +366,23 @@ Numbers assume hub `0028` (08d, 02b-TK `0028_orders_takeaway`) and `0029` (HPA v
 
 | Event (stream) | Payload | Audit action | WS audience |
 |---|---|---|---|
-| `PaymentIntentCreated` (bill) | `{ intent_id, bill_id, split_no, order_ids: string[1..40], mode_id, provider_key, amount_minor, currency_code, shift_id, started_by_staff_id, device_id, display_kind: 'device_sdk' (OR-3: `'qr'` added by §13 as a new enum value), fiscal_checked: boolean, overrides_intent_id: string \| null }` | `payment_intent_started` | `billAudience` |
+| `PaymentIntentCreated` (bill) | `{ intent_id, bill_id, split_no, order_ids: string[1..40], mode_id, provider_key, amount_minor, currency_code, shift_id, started_by_staff_id, device_id, ~~display_kind~~ (⚠️ Changed by v0.2 hostile run 2 (R2-m-2): dropped; §13 adds it), fiscal_checked: boolean, overrides_intent_id: string \| null }` | `payment_intent_started` | `billAudience` |
 | `PaymentIntentReady` (bill) | `{ intent_id, expires_at }` | none | `billAudience` |
-| `PaymentIntentConfirming` (bill) | `{ intent_id, trigger: 'device_hint' \| 'provider_pending' }` | none | `billAudience` |
-| `PaymentIntentSucceeded` (bill) | `{ intent_id, provider_payment_id, payment_no: int ≥ 1, applied: boolean, payment_id: string \| null, amount_minor, unapplied_reason: null \| 'split_closed' \| 'bill_not_open' \| 'exceeds_due' \| 'shift_closed' \| 'mode_inactive' \| 'day_closed' \| 'amount_mismatch' \| 'second_payment' \| 'duplicate_txn', after_state: null \| 'expired' \| 'cancelled', source: 'status' \| 'webhook' }` | `payment_intent_succeeded` | `billAudience` |
+| `PaymentIntentConfirming` (bill) | `{ intent_id, trigger: 'device_hint' \| 'provider_in_progress' }` (⚠️ Changed by v0.2 hostile run 2 (R2-M-1): was `'provider_pending'`) | none | `billAudience` |
+| `PaymentIntentSucceeded` (bill) | `{ intent_id, provider_payment_id, payment_no: int ≥ 1, applied: boolean, payment_id: string \| null, amount_minor, unapplied_reason: null \| 'split_closed' \| 'bill_not_open' \| 'exceeds_due' \| 'shift_closed' \| 'mode_inactive' \| 'day_closed' \| 'amount_mismatch' \| 'second_payment' \| 'duplicate_txn', after_state: null \| 'expired' \| 'cancelled' \| 'failed', source: 'status' \| 'webhook' }` (⚠️ Changed by v0.2 hostile run 2 (R2-M-2): `'failed'` added) | `payment_intent_succeeded` | `billAudience` |
 | `PaymentIntentFailed` (bill) | `{ intent_id, reason: 'provider_refused' \| 'provider_unreachable' \| 'declined', error_code: string (≤ 20) \| null }` — **server-final only** (or nothing created) | `payment_intent_failed` | `billAudience` |
 | `PaymentIntentExpired` (bill) | `{ intent_id, outcome: 'not_paid' \| 'unknown', watch_until: number \| null }` (`watch_until` null only for `not_paid`) | `payment_intent_expired` | `billAudience` |
-| `PaymentIntentCancelled` (bill) | `{ intent_id, cancelled_by_staff_id, watch_until }` | `payment_intent_cancelled` | `billAudience` |
+| `PaymentIntentCancelled` (bill) | `{ intent_id, cancelled_by_staff_id, watch_until: number \| null }` (⚠️ Changed by v0.2 hostile run 2 (R2-m-7): null for a cancel in `creating`) | `payment_intent_cancelled` | `billAudience` |
+| `PaymentIntentWatchEnded` (bill) (⚠️ Changed by v0.2 hostile run 2 (R2-m-6)) | `{ intent_id, outcome: 'not_paid' \| 'no_answer' }` — `not_paid`: the server said `failed` / `expired` during the watch; `no_answer`: the last status call at `watch_until` found nothing | `payment_intent_watch_ended` | `billAudience` |
 | `ProviderPaymentResolved` (bill) | `{ provider_payment_id, intent_id, resolution: 'applied_to_bill' \| 'refunded' \| 'kept', payment_id: string \| null, has_note }` | `provider_payment_resolved` | `billAudience` |
 | `PaymentCredentialSet` (hub) | `{ provider_key, name }` | `payment_credential_changed` | admin only |
 
 No event carries a provider ref, QR payload, SDK parameter, secret, card or payer detail (B30). Worker events: `actor_id null`, `device_id 'hub'`. The device hint itself is hub state (§2); `PaymentIntentConfirming` is the fact the bill needs (it stays held).
 
-### 5.2 Hub — `0030_payment_reference_source.sql` (05c-1) and `0031_payment_intents.sql` (05c-2, after STOP-0)
+### 5.2 Hub — `0030_payment_reference_source.sql` and `0031_payment_intents.sql` (05c-2, after STOP-0; ⚠️ Changed by v0.2 hostile run 2 (R2-M-6): `0030` was 05c-1)
 
 ```sql
--- 0030 (05c-1, row B-4): certain now, independent of any provider
+-- 0030 (05c-2, row B-4; R2-M-6: after STOP-0, a "no" from Paymob would leave it dead)
 ALTER TABLE payment_references ADD COLUMN source TEXT NOT NULL DEFAULT 'staff' CHECK (source IN ('staff','provider'));
 ```
 
@@ -386,7 +394,7 @@ CREATE TABLE payment_intents (
   bill_id TEXT NOT NULL, split_no INTEGER NOT NULL, mode_id TEXT NOT NULL, provider_key TEXT NOT NULL,
   amount_minor INTEGER NOT NULL CHECK (amount_minor > 0), currency_code TEXT NOT NULL,
   shift_id TEXT NOT NULL, started_by_staff_id TEXT NOT NULL, device_id TEXT NOT NULL,
-  display_kind TEXT NOT NULL CHECK (display_kind IN ('device_sdk')),   -- OR-3: §13 adds 'qr' by a table-rebuild migration
+  -- R2-m-2: no display_kind column in the pilot (§13 adds it, without a CHECK)
   state TEXT NOT NULL CHECK (state IN ('creating','ready','confirming','succeeded','failed','expired','cancelled')),
   outcome TEXT CHECK (outcome IN ('not_paid','unknown')),
   created_at INTEGER NOT NULL, expires_at INTEGER, ended_at INTEGER, watch_until INTEGER);
@@ -409,9 +417,13 @@ CREATE TABLE provider_payments (           -- one per confirmed provider payment
   applied INTEGER NOT NULL CHECK (applied IN (0,1)), payment_id TEXT, amount_minor INTEGER NOT NULL,
   unapplied_reason TEXT, recorded_at INTEGER NOT NULL,
   resolution TEXT CHECK (resolution IN ('applied_to_bill','refunded','kept')), resolved_at INTEGER,
+  resolved_payment_id TEXT,                -- R2-m-11: the manual PaymentAdded an 'applied_to_bill' resolution names
   UNIQUE (intent_id, payment_no));
--- unapplied-payments query: unresolved first, cursor by (recorded_at, provider_payment_id)
-CREATE INDEX provider_payments_unapplied ON provider_payments (recorded_at, provider_payment_id) WHERE applied = 0;
+-- R2-m-16: unapplied-payments, one list per state, each with its own index; cursor (recorded_at, provider_payment_id) desc
+CREATE INDEX provider_payments_unresolved ON provider_payments (recorded_at, provider_payment_id) WHERE applied = 0 AND resolution IS NULL;
+CREATE INDEX provider_payments_resolved ON provider_payments (recorded_at, provider_payment_id) WHERE applied = 0 AND resolution IS NOT NULL;
+-- R2-m-11: one manual payment resolves at most one provider payment
+CREATE UNIQUE INDEX provider_payments_resolved_payment ON provider_payments (resolved_payment_id) WHERE resolved_payment_id IS NOT NULL;
 
 CREATE TABLE payment_intent_provider (     -- worker-owned provider data (P10); never synced, logged or in an event
   intent_id TEXT PRIMARY KEY REFERENCES payment_intents,
@@ -432,15 +444,21 @@ CREATE TABLE payment_credentials (         -- P13: written only by SetPaymentCre
 
 CREATE TABLE payment_relay_cursor (id INTEGER PRIMARY KEY CHECK (id = 1), after_seq INTEGER NOT NULL DEFAULT 0, stuck_since INTEGER);
 INSERT INTO payment_relay_cursor (id, after_seq) VALUES (1, 0);
+
+CREATE TABLE payment_relay_unknown (       -- R2-M-4, hub state: a paid relay row of this branch whose intent the hub does not find
+  seq INTEGER PRIMARY KEY,                 -- the cloud row's seq
+  provider_key TEXT NOT NULL, intent_id TEXT, provider_intent_ref TEXT, provider_txn_ref TEXT,
+  amount_minor INTEGER, currency_code TEXT, received_at INTEGER NOT NULL);
 ```
 
-Folds: `Created` inserts the intent and its orders; `Ready` sets `state`, `expires_at`; `Confirming` sets `state`; `Failed` / `Expired` / `Cancelled` set `state`, `ended_at`, `outcome`, `watch_until`; `Succeeded` inserts a `provider_payments` row and sets `state = 'succeeded'`, `watch_until = NULL` (a later different ref is a new row); `ProviderPaymentResolved` sets `resolution`, `resolved_at`. Registered with `registerHubProjections`, checkpointed.
+Folds: `Created` inserts the intent and its orders; `Ready` sets `state`, `expires_at`; `Confirming` sets `state` and `expires_at = event time + confirm_window_ms` (⚠️ Changed by v0.2 hostile run 2 (R2-m-5): the worker's one rule is "open and `expires_at ≤ now`"); `Failed` / `Expired` / `Cancelled` set `state`, `ended_at`, `outcome`, `watch_until`; `Succeeded` inserts a `provider_payments` row and sets `state = 'succeeded'`, `watch_until = NULL` (a later different ref is a new row); `ProviderPaymentResolved` sets `resolution`, `resolved_at`, `resolved_payment_id` (R2-m-11); `WatchEnded` sets `watch_until = NULL`, and `outcome = 'not_paid'` when its outcome is `not_paid` (⚠️ Changed by v0.2 hostile run 2 (R2-m-6)). Registered with `registerHubProjections`, checkpointed.
 
 ### 5.3 Cloud — `0022_payment_relay.sql` (with the first webhook provider)
 
 ```sql
 CREATE TABLE payment_webhook_endpoints (    -- P14: one per tenant per provider account (Q-D)
   tenant_id TEXT NOT NULL, provider_key TEXT NOT NULL, account_label TEXT NOT NULL,  -- e.g. 'main', or a branch name
+  branch_id TEXT,                           -- R2-M-4: the account's branch; NULL = a tenant-wide account
   endpoint_id TEXT NOT NULL,                -- 32 hex random, the URL segment; not a secret by itself
   secret TEXT NOT NULL,                     -- webhook signing secret; write-only, never returned or logged
   failures_window_start BIGINT, failures_count INT NOT NULL DEFAULT 0,   -- M-6: 401 counter
@@ -452,13 +470,14 @@ CREATE UNIQUE INDEX payment_webhook_endpoints_endpoint ON payment_webhook_endpoi
 CREATE TABLE payment_notifications (        -- extractor fields only; no raw body, no payer data
   seq BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   tenant_id TEXT NOT NULL, provider_key TEXT NOT NULL, account_label TEXT NOT NULL,
+  branch_id TEXT,                           -- R2-M-4: copied from the endpoint
   provider_event_id TEXT NOT NULL,          -- the provider's notification id, or its txn id when it has none (pending docs)
   intent_id TEXT, provider_intent_ref TEXT, -- M-4: one of the two
-  outcome TEXT NOT NULL CHECK (outcome IN ('paid','failed','expired','pending')),
+  outcome TEXT NOT NULL CHECK (outcome IN ('paid','failed','expired','pending','in_progress')),   -- R2-M-1: in_progress added
   amount_minor BIGINT, currency_code CHAR(3), provider_txn_ref TEXT, error_code TEXT, received_at BIGINT NOT NULL,
   CHECK (intent_id IS NOT NULL OR provider_intent_ref IS NOT NULL),
   UNIQUE (tenant_id, provider_key, provider_event_id, outcome));          -- M-4 (1): pending then paid both kept
--- hub pull: WHERE tenant_id = $1 AND seq > $2 ORDER BY seq LIMIT n
+-- hub pull (R2-M-4): WHERE tenant_id = $1 AND (branch_id = $2 OR branch_id IS NULL) AND seq > $3 ORDER BY seq LIMIT n
 CREATE INDEX payment_notifications_pull ON payment_notifications (tenant_id, seq);
 ```
 
@@ -477,7 +496,7 @@ Hub commands: `sessionKind: 'device'` unless stated, **not queueable**, idempote
 | | |
 |---|---|
 | Script | Zod → ensure bill (05, 1) → open or watched intent of the bill (`payment_intents_open_bill` / `_watched`, 1): open → `409 { reason: 'open' }`; watched and no `override_watched` → `409 { reason: 'previous_watched' }`; `override_watched` and the caller lacks `close-shift-for-others` → `403` → split open (1) → mode active (`404`) → provider binding (`422`) → registered + credential names present (1) + health ≤ 60 s `ok` (`409`) → `device_sdk` ⇒ caller's device is a tablet (`422`) → `fiscalGate` (`422`) → `moneyShiftOf` (1) → `409 SHIFT_NOT_OPEN` → orders, lines, pending voids, payments of the split (3) → `card_due` → P4 (`422`) → **`billAccess(… ['take-payment'])`** (0, C8, M-1) → append `PaymentIntentCreated` (`order_ids` from the orders read, `fiscal_checked: true`, `overrides_intent_id`) → after commit: wake the worker |
-| Result | `{ intent_id, state: 'creating', amount_minor, display_kind }` |
+| Result | `{ intent_id, state: 'creating', amount_minor }` (⚠️ Changed by v0.2 hostile run 2 (R2-m-2): no `display_kind`) |
 | Statements | ≤ 8 |
 
 | Edge | Answer |
@@ -490,11 +509,11 @@ Hub commands: `sessionKind: 'device'` unless stated, **not queueable**, idempote
 
 #### 6.2 `CancelPaymentIntent` — `{ intent_id }` (`take-payment`)
 
-Intent read (1) → `404` → state `creating` or `ready`, else `409 PAYMENT_INTENT_FINAL { state }` (`confirming` included: a card was read) → `billAccess` (bill head + placers read, 1) → append `PaymentIntentCancelled { watch_until: now + late_window_ms }` → after commit: best-effort provider `cancel`. Result `{ intent_id, state: 'cancelled', watch_until }`. Statements 2. A later confirmed payment is P8's case; the client never says "not charged" (§8.5).
+Intent read (1) → `404` → state `creating` or `ready`, else `409 PAYMENT_INTENT_FINAL { state }` (`confirming` included: a card was read) → `billAccess` (bill head + placers read, 1) → append `PaymentIntentCancelled { watch_until: now + late_window_ms }` from `ready`; from `creating` `watch_until: null` (⚠️ Changed by v0.2 hostile run 2 (R2-m-7): no device ever got SDK parameters, so it cannot be paid) → after commit: best-effort provider `cancel`. Result `{ intent_id, state: 'cancelled', watch_until }`. Statements 2. A later confirmed payment is P8's case; the client never says "not charged" (§8.5).
 
 #### 6.3 `ReportPaymentIntentResult` — `{ intent_id, outcome: 'approved' | 'declined' | 'cancelled' | 'error', device_txn_ref?: 1–64, error_code?: 1–20 }` (`take-payment`)
 
-Intent read (1) → `404` → caller's device = `payment_intents.device_id`, else `403 DEVICE_ACCESS_DENIED` → state `ready` or `confirming`, else: `succeeded` / ended → result `{ state }` (no error, no write); `creating` → `409 PAYMENT_INTENT_FINAL { state }` → `billAccess` (1) → store hint, `device_txn_ref`, `error_code` on `payment_intent_provider` (1) → if `ready`: append `PaymentIntentConfirming { trigger: 'device_hint' }` → wake the worker for an immediate `status`. **Every outcome, `declined` included, leads to `confirming`; only the server ends it** (B-1). `hashOmit: ['device_txn_ref']`. Statements ≤ 3. Result `{ intent_id, state }`.
+Intent read (1) → `404` → caller's device = `payment_intents.device_id`, else `403 DEVICE_ACCESS_DENIED` → state `ready` or `confirming`, else: ~~`succeeded` / ended → result `{ state }` (no error, no write)~~ ⚠️ Changed by v0.2 hostile run 2 (R2-M-3): a **watched** ended intent (`watch_until > now`) → `billAccess` (1) → store the hint, `device_txn_ref`, `error_code` on `payment_intent_provider` (1, hub state, no event) → wake the worker for an immediate `status` (it may need that ref) → result `{ state }`; `succeeded` or an unwatched ended intent → result `{ state }` (no error, no write); `creating` → `409 PAYMENT_INTENT_FINAL { state }` → `billAccess` (1) → store hint, `device_txn_ref`, `error_code` on `payment_intent_provider` (1) → if `ready`: append `PaymentIntentConfirming { trigger: 'device_hint' }` → wake the worker for an immediate `status`. **Every outcome, `declined` included, leads to `confirming`; only the server ends it** (B-1). `hashOmit: ['device_txn_ref']`. Statements ≤ 3. Result `{ intent_id, state }`.
 
 #### 6.4 Payments worker (`apps/hub/src/payments/worker.ts`, no route)
 
@@ -502,20 +521,20 @@ Loop every 1 s, woken by after-commit hooks. Each tick reads, with a fixed numbe
 
 | Step | Action |
 |---|---|
-| `creating` | `create` (5 s timeout; the same `intent_id` on every retry; backoff 1 / 2 / 4 s; budget 20 s). `ok` → tx: still `creating` → provider row + `PaymentIntentReady { expires_at }`. `rejected` → `Failed { provider_refused }`. Budget over → `Failed { provider_unreachable }`: nothing was shown to the customer or sent to a device, so nothing can be paid (a create the provider took after all has no QR on any screen and no SDK call; a relay row for it would still be recorded as a late success, unapplied if needed) |
-| `ready` / `confirming` | `status` every 3 s (immediately after a hint or a relay row). `paid` → **apply**. `failed` → `Failed { declined, error_code }`. `expired` → `Expired { not_paid }`. `pending` on a `device_sdk` intent in `ready` → `Confirming { provider_pending }`. `retry` → next check |
-| Deadlines | `device_sdk` in `ready` at `expires_at` (no tap) → final status → `paid` apply / `failed`·`expired` → `Expired { not_paid }` / else `Expired { unknown, watch_until }` + best-effort cancel (⚠️ Changed by v0.2 owner review (OR-3): the `qr` deadline is §13). `confirming` at `confirm_window_ms` after it began → `Expired { unknown, watch_until }`. **The clock never writes `not_paid`** |
-| Watched | every 15 s `status`; `paid` → apply (late); at `watch_until` one last status, then the intent leaves the list |
-| Relay pull (P14) | every 5 s: `GET …?after=<cursor>`; for each row in order: intent by `intent_id` or `provider_intent_ref` (1); not ours → skip; `paid` → confirm by `status` when `has_status` (P7) — confirmed → apply; `status` `retry` / no answer → **stop here** (cursor stays before this row; `stuck_since` set; > 10 min → `payment_relay_unhealthy { confirm_stuck }`); `failed` / `expired` on an open intent → as a status answer; `pending` → `Confirming` if `ready`. Cursor update per row passed (1). Response flag `endpoint_unhealthy` → `payment_relay_unhealthy { signature_failures }` |
+| `creating` | `create` (5 s timeout; the same `intent_id` on every retry; backoff 1 / 2 / 4 s; budget 20 s). `ok` → tx: still `creating` → provider row + `PaymentIntentReady { expires_at }`. `rejected` → `Failed { provider_refused }`. Budget over → `Failed { provider_unreachable }`: nothing was shown to the customer or sent to a device, so nothing can be paid (a create the provider took after all has no SDK parameters on any device and no SDK call, ⚠️ Changed by v0.2 hostile run 2 (R2-m-1); a relay row for it would still be recorded as a late success, unapplied if needed) |
+| `ready` / `confirming` | `status` every 3 s (immediately after a hint or a relay row). `paid` → **apply**. `failed` → `Failed { declined, error_code }`. `expired` → `Expired { not_paid }`. ~~`pending` on a `device_sdk` intent in `ready` → `Confirming { provider_pending }`~~ ⚠️ Changed by v0.2 hostile run 2 (R2-M-1): `in_progress` in `ready` → `Confirming { provider_in_progress }`; `pending` → no change (a `ready` intent waits for its tap deadline). `retry` → next check |
+| Deadlines | `device_sdk` in `ready` at `expires_at` (no tap) → final status → `paid` apply / `failed`·`expired` → `Expired { not_paid }` / else `Expired { unknown, watch_until }` + best-effort cancel (⚠️ Changed by v0.2 owner review (OR-3): the `qr` deadline is §13). `confirming` at `expires_at` (= the `Confirming` time + `confirm_window_ms`, ⚠️ Changed by v0.2 hostile run 2 (R2-m-5)) → `Expired { unknown, watch_until }`. **The clock never writes `not_paid`** |
+| Watched | every 15 s `status` (by `provider_intent_ref` and the stored `device_txn_ref`, R2-M-3); `paid` → apply (late); ⚠️ Changed by v0.2 hostile run 2 (R2-m-6): `failed` / `expired` → `WatchEnded { not_paid }`; at `watch_until` one last status, then `WatchEnded { no_answer }` (unless `paid`), and the intent leaves the list |
+| Relay pull (P14) | every 5 s: `GET …?after=<cursor>`; for each row in order: intent by `intent_id` or `provider_intent_ref` (1); ~~not ours → skip~~ ⚠️ Changed by v0.2 hostile run 2 (R2-M-4): the pull returns only this branch's and tenant-wide rows; intent not found → a `paid` row of this branch → insert into `payment_relay_unknown` (1) + `payment_relay_unhealthy { unknown_intent }` (never skipped silently); a tenant-wide row or a non-`paid` row → skip, logged; `paid` → confirm by `status` when `has_status` (P7) — confirmed → apply (a `failed` intent included, `after_state 'failed'`, R2-M-2); `status` `retry` / no answer → **stop here** (cursor stays before this row; `stuck_since` set; > 10 min → `payment_relay_unhealthy { confirm_stuck }`); `failed` / `expired` on an open or watched intent → ⚠️ Changed by v0.2 hostile run 2 (R2-M-2): when `has_status`, a status call, and only its answer counts (never ends the intent by itself); without `has_status`, as a status answer; `in_progress` → `Confirming` if `ready` (R2-M-1); `pending` → no change. Cursor update per row passed (1). Response flag `endpoint_unhealthy` → `payment_relay_unhealthy { signature_failures }` |
 | **Apply** | tx: re-read intent (1) → pre-read the ref in `provider_payment_refs` (1): same intent → `duplicate` (no-op, logged); another intent → unapplied `duplicate_txn` → amount / currency ≠ intent → `amount_mismatch` → intent already has an applied provider payment → `second_payment` → day of the intent closed → `day_closed` → frozen shift closed → `shift_closed` → else `providerPaymentDrafts` (05, ≤ 6): applied → `PaymentAdded` + `payment_references (source 'provider')` + ref row + `PaymentIntentSucceeded { applied: true, payment_no, after_state }`; not applied → `PaymentIntentSucceeded { applied: false, unapplied_reason }` + ref row + 01d `payment_unapplied`. ≤ 11 statements |
 | Re-raise | after a `BusinessDayOpened`: unresolved provider payments → raise `payment_unapplied` again (1 read); relay still unhealthy → `payment_relay_unhealthy` again |
-| Health | every 30 s per bound provider: `health()` and, for a provider with `has_webhook` and not `has_status`, last successful pull ≤ 30 s → in-memory `{ at, result }` read by §6.1 |
+| Health | every 30 s per bound provider: `health()` and, for a provider with `has_webhook` and not `has_status`, last successful pull ≤ 30 s → in-memory `{ at, result }` read by §6.1. ⚠️ Changed by v0.2 hostile run 2 (R2-m-9): a pull failing (network, `401`, `5xx`) for > 2 min → `payment_relay_unhealthy { pull_failing }`; closed by the next successful pull |
 
 Logs: intent id, provider key, outcome, short code only.
 
 #### 6.5 `ResolveUnappliedPayment` — `{ provider_payment_id, resolution: 'applied_to_bill' | 'refunded' | 'kept', payment_id?, note? }` (`close-shift-for-others`)
 
-Row read (1) → `404 PROVIDER_PAYMENT_NOT_FOUND` → `applied = 0` and unresolved, else `409 PROVIDER_PAYMENT_RESOLVED` → `applied_to_bill` needs `payment_id` of a live `PaymentAdded` with a `staff` reference (1) (else `400`); `kept` needs a note → note to 05's `bill_texts` (1, when given) → append `ProviderPaymentResolved` → close the alert (01d). Statements ≤ 4. `hashOmit: ['note']`.
+Row read (1) → `404 PROVIDER_PAYMENT_NOT_FOUND` → `applied = 0` and unresolved, else `409 PROVIDER_PAYMENT_RESOLVED` → `applied_to_bill` needs `payment_id` of a live `PaymentAdded` with a `staff` reference (1) (⚠️ Changed by v0.2 hostile run 2 (R2-m-11): on the same `bill_id`, `direction 'in'`, amount equal to the provider payment's, and not named by another resolution (`provider_payments_resolved_payment`, read in the same statement)) (else `400`); `kept` needs a note → note to 05's `bill_texts` (1, when given) → append `ProviderPaymentResolved` → close the alert (01d). Statements ≤ 4. `hashOmit: ['note']`.
 
 ### Batch 2 — reads and admin
 
@@ -531,9 +550,9 @@ Answers only when the token's device = `payment_intents.device_id` and the state
 
 The bill's intents, newest first, at most 20 (a bill is bounded), with state, outcome, amount, provider, `error_code`, watch. 1 statement.
 
-#### 6.8 `GET /queries/unapplied-payments?cursor&limit` (`close-shift-for-others`)
+#### 6.8 `GET /queries/unapplied-payments?state=unresolved|resolved&cursor&limit` (`close-shift-for-others`)
 
-Unapplied provider payments, unresolved first, then by `recorded_at` desc; cursor (F §6.3, default 50, max 200): bill / token, amount, provider, reason, last 4 of the ref, resolution. Reads only 05c's tables. 1 statement.
+⚠️ Changed by v0.2 hostile run 2 (R2-m-16): ~~unresolved first, then by `recorded_at` desc~~ one list per `state` (default `unresolved`), each on its own index (`provider_payments_unresolved` / `_resolved`), ordered by `(recorded_at, provider_payment_id)` desc, cursor = that pair (F §6.3, default 50, max 200): bill / token, amount, provider, reason, last 4 of the ref, resolution. Reads only 05c's tables. 1 statement.
 
 #### 6.9 `SetPaymentCredential` (admin, `manage-payment-providers`) and `GET /admin/queries/payment-credentials`
 
@@ -547,7 +566,7 @@ Guard: `endpoint_id` → endpoint (1, `credential-lookup.ts`) → unknown → `4
 
 #### 6.11 `GET /v1/sync/payment-notifications?after=<seq>&limit=` (cloud, branch API key, row H-2)
 
-The key's **tenant** rows (`payment_notifications_pull`), `limit` default 50 / max 200: `{ items: [...], next_after, endpoint_unhealthy: [{ provider_key, account_label }] }` (endpoints with ≥ 3 `401`s in the last 10 min). 2 statements.
+The key's **branch** rows plus the tenant's null-branch rows (⚠️ Changed by v0.2 hostile run 2 (R2-M-4); `payment_notifications_pull`), `limit` default 50 / max 200: `{ items: [...], next_after, endpoint_unhealthy: [{ provider_key, account_label }] }` (endpoints with ≥ 3 `401`s in the last 10 min). 2 statements.
 
 #### 6.12 `PUT /v1/admin/payment-webhooks/:provider_key/:account_label` — `{ secret }`, and `GET /v1/admin/payment-webhooks` (cloud, JWT owner)
 
@@ -563,13 +582,14 @@ PUT: upsert (a new `endpoint_id` only on first set) (1) + config audit row `paym
 |---|---|
 | Logging | ids, provider key, outcome, short code only; never secrets, QR payloads, SDK parameters, provider refs, card or payer data |
 | Privacy / PCI | No card data in our code or storage (§3.7); the cloud keeps no raw body and no payer data; ref last 4 to managers only, in `details` |
-| Unknown outcome | Never shown as "not paid"; watched (P9a); a new charge on the same bill needs a manager (P9a) |
+| Unknown outcome | Never shown as "not paid"; watched (P9a); a new charge on the intent's split needs a manager (P9a): a new tablet start, and (⚠️ Changed by v0.2 hostile run 2 (R2-M-5), **OWNER (default written)**) a manual `AddPayment` `in` on any mode, card machine and cash included (row B-2) |
 | Webhook abuse | Guard read + body limit + signature before any write; timestamp tolerance when signed; failure counter (M-6). No extra limiter → §12.4 |
 | Clock | All deadlines from `branchNow`; `steppingClock` in tests |
 | Hub internet down | Start refused once health `failing` (≤ 60 s old); open intents become `unknown` and watched; late money via status or relay when the link returns |
 | Cloud down | Providers with a status query still confirm; webhook-only providers are `failing` after 30 s without a pull |
 | Restart mid-intent | Projections survive; the worker resumes; `create` retried with the same `intent_id` |
 | Backups | USB backups carry `payment_credentials` (as `fiscal_credentials`, 05 B22) |
+| LAN cleartext (⚠️ Changed by v0.2 hostile run 2 (R2-m-14)) | Native fetches the amount and `sdk_params` over LAN cleartext HTTP (05b H-3): a LAN attacker could read a bearer `sdk_params` or change the displayed amount. **Accepted residual risk** (05b O-14 form). The money taken is bounded by the provider's server-side order made by `create` with the intent's amount, so the device amount is display only, if Paymob confirms it (X-2 question); a mismatch is caught by P7's `amount_mismatch` |
 | Performance | ≤ 1 open intent per bill; the worker reads 3 statements per tick; pull every 5 s per hub (≈ 17 000 small requests per hub per day) |
 
 ### 7.2 Middleware
@@ -581,11 +601,11 @@ Cloud webhook route: guard scope `webhook-endpoint` (tenant from the URL), then 
 | # | Dependency | Blocks | State (2026-11-24) |
 |---|---|---|---|
 | ~~X-1~~ | ⚠️ Changed by v0.2 owner review (OR-3): Bank Alfalah Raast API — §13 | — | — |
-| X-2 | **Paymob SoftPOS**: merchant onboarding (MID / terminal), SDK licence + Gradle artefact and repository credentials, SDK-vs-separate-app, server inquiry / callback, idempotent create | **STOP-0** (⚠️ Changed by v0.2 owner review (OR-3): the only provider), STOP-C | Not started |
+| X-2 | **Paymob SoftPOS**: merchant onboarding (MID / terminal), SDK licence + Gradle artefact and repository credentials, SDK-vs-separate-app, server inquiry / callback, idempotent create. ⚠️ Changed by v0.2 hostile run 2 (R2-M-2, R2-m-14): whether a declined attempt ends the order or can be followed by an approved one on the same order (order-final `failed`, §3.4); the status values and their meaning (fixtures for test 30b); whether the charged amount comes from the server-side order only | **STOP-0** (⚠️ Changed by v0.2 owner review (OR-3): the only provider), STOP-C | Not started |
 | X-3 | Paymob sandbox credentials (⚠️ Changed by v0.2 owner review (OR-3): was "for both"), a sandbox webhook pointed at the staging cloud | manual checks | Not started |
 | ~~X-4~~ | ⚠️ Changed by v0.2 owner review (OR-3): PRA's code for Raast / QR (A13) — §13 | — | — |
 | X-5 | Pilot tablet models certified by Paymob (NFC, Android version) | STOP-C | To check against 05b's models |
-| X-6 | **Paymob's written confirmation that the 05b host app is eligible** (sideloaded, self-updated from the hub, device owner, lock task, WebView, LAN cleartext) | **STOP-C** | Not asked |
+| X-6 | **Paymob's written confirmation that the 05b host app is eligible** (sideloaded, self-updated from the hub, device owner, lock task, WebView, LAN cleartext) | **STOP-0** (⚠️ Changed by v0.2 hostile run 2 (R2-M-6): was STOP-C) | Not asked |
 
 ---
 
@@ -593,13 +613,13 @@ Cloud webhook route: guard scope `webhook-endpoint` (tenant from the URL), then 
 
 1. **Take-payment sheet** (`apps/client/src/features/billing/`): a provider-bound mode opens its panel instead of the amount pad's "Add". The amount shown is `card_due`, editable down (P4).
 2. ~~Raast QR panel~~ and 3. ~~Customer display~~ — ⚠️ Changed by v0.2 owner review (OR-3): §13 Later.
-4. **Card on tablet** (`PayNfcTablet`, phase 05c-C): shown only when `cardPaymentInfo().available` (native_api ≥ 2). Start → on `Ready`: `startCardPayment({ intent_id })` → "Tap the card on the back of this tablet — Rs 3,650 · waiting for card…" → any SDK result → `ReportPaymentIntentResult` → **"Checking with the bank… do not charge again"** until the server's answer (`Succeeded` → "Paid"; `Failed` → §8.5). Cancel is offered only before a tap (`ready`).
+4. **Card on tablet** (`PayNfcTablet`, phase 05c-C): shown only when `cardPaymentInfo().available` (native_api ≥ 2). Start → on `Ready`: `startCardPayment({ intent_id })` → "Tap the card on the back of this tablet — Rs 3,650 · waiting for card…" → any SDK result → `ReportPaymentIntentResult` → **"Checking with the bank… do not charge again"** until the server's answer (`Succeeded` → "Paid"; `Failed` → §8.5). Cancel is offered only before a tap (`ready`). ⚠️ Changed by v0.2 hostile run 2 (R2-m-8): on `PaymentIntentCancelled`, `PaymentIntentExpired` or `PaymentIntentFailed` for its own intent, the tablet page calls `cancelCardPayment({ intent_id })`, so the SDK stops waiting for a tap.
 5. **Outcome panels** (`PayError`):
    - `PaymentIntentFailed` (server-final): "Payment didn't go through. Nothing was charged. Try again or choose another way." + short code (e.g. "card declined (05)"), "Try again" / "Pay later".
-   - `Expired { outcome: 'unknown' }`, `Cancelled`, or a watched intent: "**We could not confirm this payment.** If the customer was charged, it will appear here by itself. Do not charge again." With "Customer says paid — keep waiting" (stays on the panel until `watch_until`) and "Charge again (manager)" (`override_watched`, needs `close-shift-for-others`). **Never "Nothing was charged".**
+   - `Expired { outcome: 'unknown' }`, `Cancelled`, or a watched intent: "**We could not confirm this payment.** If the customer was charged, it will appear here by itself. Do not charge again." With "Customer says paid — keep waiting" (stays on the panel until `watch_until`) and "Charge again (manager)" (`override_watched`, needs `close-shift-for-others`; ⚠️ Changed by v0.2 hostile run 2 (R2-M-5): the same override is needed for the card machine or cash on that split, `AddPayment.override_watched`). **Never "Nothing was charged".**
    - `Expired { outcome: 'not_paid' }`: "No payment arrived. Try again or choose another way."
 6. **Errors:** `PAYMENT_INTENT_PENDING` → "Another payment is in progress on this bill" (`open`) / "The last payment may still arrive" (`previous_watched`); `PAYMENT_PROVIDER_UNAVAILABLE` → "Card is not available right now — use the card machine, take cash or pay later" (⚠️ Changed by v0.2 owner review (OR-3)); `PAYMENT_MODE_NOT_FISCAL` → "This payment type can't be used on a tax invoice yet"; `PAYMENT_PROVIDER_FINAL` → "Card payments taken on the tablet can't be removed; refund in the provider portal" (⚠️ Changed by v0.2 owner review (OR-3)).
-7. **Manager:** "Unapplied payments" (§6.8) with a resolve sheet (§6.5); the `payment_unapplied` alert taps into it.
+7. **Manager:** "Unapplied payments" (§6.8) with a resolve sheet (§6.5). ~~the `payment_unapplied` alert taps into it~~ ⚠️ Changed by v0.2 hostile run 2 (R2-m-10, R2-m-15): the alert has no `link` (01d v1.3.7), so its tap is today's tap; a recipient without `close-shift-for-others` (a custom role reached through `when_none`) sees the alert card only.
 8. **Hub admin** `/admin/payments/`: credentials (set / replaced on date). **Owner app:** provider per mode + settings (A-1); webhook endpoints with the URL to copy (§6.12).
 9. Urdu strings to the urdu-todo list; 05c prints nothing.
 
@@ -646,14 +666,15 @@ Hub tests on `fake` and `fakeRelay`, no network; `steppingClock`. Each numbered 
 | 6 | **PRA** (⚠️ Changed by v0.2 owner review (OR-3): was the Raast case, now §13): `PK-PB`, takeaway fiscalized, the Paymob card mode with `PRA` code `2` → Start passes the gate; the code removed in a later snapshot while the hub still has a stale mode → Start `422 PAYMENT_MODE_NOT_FISCAL`; a bound card mode without a `PRA` code → the settings PUT `422 CONFIG_REFERENCE_INVALID { field: 'payment_modes.N.authority_codes' }` |
 | 7 | One test per §3.8 error of §6.1 (`PAYMENT_MODE_NOT_FOUND`, `PAYMENT_MODE_NO_PROVIDER`, `PAYMENT_PROVIDER_UNAVAILABLE` ×2, `PAYMENT_PROVIDER_DEVICE_UNSUPPORTED`, `SHIFT_NOT_OPEN`, `PAYMENT_INTENT_PENDING` ×2, `BILL_NOT_OPEN`, `PAYMENT_EXCEEDS_BALANCE`); partial amount |
 | 8 | Retransmit → one intent; the command is not queueable |
-| 9 | `CancelPaymentIntent`: `ready` → cancelled with `watch_until`; `confirming` → `409 PAYMENT_INTENT_FINAL`; unknown → `404 PAYMENT_INTENT_NOT_FOUND` |
+| 9 | `CancelPaymentIntent`: `ready` → cancelled with `watch_until`; `creating` → cancelled with `watch_until: null`, not watched (⚠️ Changed by v0.2 hostile run 2 (R2-m-7)); `confirming` → `409 PAYMENT_INTENT_FINAL`; unknown → `404 PAYMENT_INTENT_NOT_FOUND` |
 | 9a | Scope (M-1): a waiter scoped to own tables → `403` on Start, Cancel, Report for another's bill |
-| 9b | `override_watched` without `close-shift-for-others` → `403`; with it → new intent with `overrides_intent_id` |
+| 9b | `override_watched` without `close-shift-for-others` → `403`; with it → new intent with `overrides_intent_id`; ⚠️ Changed by v0.2 hostile run 2 (R2-M-5): the same for 05 `AddPayment.override_watched` → `PaymentAdded.overrides_intent_id` |
 | 10a | Report `declined` → `confirming` (not cancelled, not failed); the bill stays held |
 | 10b | Report `error`, then provider `paid` → one `PaymentAdded`; the client text was never "Nothing was charged" |
 | 10c | Report from another device → `403 DEVICE_ACCESS_DENIED` |
 | 10d | Report after success → `{ state: 'succeeded' }`, no write; unknown → `404` (⚠️ Changed by v0.2 owner review (OR-3): the `qr` half is §13) |
 | 10e | Report `approved` stores `device_txn_ref` (hub state, not in any event); status called at once |
+| 10f | ⚠️ Changed by v0.2 hostile run 2 (R2-M-3): cancel from the kiosk, then an `approved` report with a txn ref from the tablet → `{ state: 'cancelled' }`, ref stored, no event; status by that ref → late success applied (`after_state 'cancelled'`); a report on an unwatched ended intent → no write |
 | 11 | `SetPaymentCredential` write-only (never in result, log, event, `processed_commands`); bad name → `400`; the query never selects the secret |
 | 11a | **M-3:** `RemovePayment` of a provider-settled payment → `409 PAYMENT_PROVIDER_FINAL`; a staff-typed payment on the same mode is still removable |
 | 12 | Permissions: `take-payment` (6.1–6.3, 6.6–6.7), `close-shift-for-others` (6.5, 6.8, override), `manage-payment-providers` (6.9) |
@@ -668,18 +689,24 @@ Hub tests on `fake` and `fakeRelay`, no network; `steppingClock`. Each numbered 
 | 15a | Card, no tap by `expires_at` (⚠️ Changed by v0.2 owner review (OR-3): was QR): final `pending` → `Expired { unknown }` + watched; final `expired` → `Expired { not_paid }`, not watched |
 | 15b | Card tapped at `expires_at − 5 s` (hint) → no `Expired` while the provider says `pending`; after `confirm_window_ms` without an answer → `Expired { unknown }` |
 | 15c | Provider `failed` → `Failed { declined }` — the only path to "not charged" for a card |
+| 15d | ⚠️ Changed by v0.2 hostile run 2 (R2-M-1): `pending` polls in `ready` keep `ready` and Cancel is still allowed; `in_progress` → `Confirming { provider_in_progress }` |
 | 16a | Paid 30 s after a cancel, status-only provider (no webhook) → found by the watch poll → applied (`after_state 'cancelled'`) |
 | 16b | Paid after the split closed → unapplied `split_closed` + `payment_unapplied` |
 | 16c | Paid after the day closed → unapplied `day_closed` |
 | 16d | A second, different ref on a succeeded intent → `payment_no 2`, unapplied `second_payment` + alert |
-| 16e | `ResolveUnappliedPayment` `applied_to_bill` / `refunded` / `kept` (note) → `ProviderPaymentResolved`, alert closed; second resolve → `409 PROVIDER_PAYMENT_RESOLVED`; unknown → `404 PROVIDER_PAYMENT_NOT_FOUND` |
+| 16e | `ResolveUnappliedPayment` `applied_to_bill` / `refunded` / `kept` (note) → `ProviderPaymentResolved`, alert closed; ⚠️ Changed by v0.2 hostile run 2 (R2-m-11): `applied_to_bill` with a payment of another bill, another amount, or one already used by another resolution → `400`; second resolve → `409 PROVIDER_PAYMENT_RESOLVED`; unknown → `404 PROVIDER_PAYMENT_NOT_FOUND` |
 | 16f | An unresolved `payment_unapplied` expires at day close and is raised again after the next `BusinessDayOpened` |
+| 16g | ⚠️ Changed by v0.2 hostile run 2 (R2-M-2): relay `failed` then `paid` on the same intent (`has_status`) → the `failed` row only triggers a status call; one success; the client never showed "Nothing was charged" before the status answer |
+| 16h | ⚠️ Changed by v0.2 hostile run 2 (R2-M-2): a late server-confirmed `paid` on a `failed` intent → `Succeeded { after_state: 'failed' }` (applied per P8) |
+| 16i | ⚠️ Changed by v0.2 hostile run 2 (R2-m-6): watched + server `expired` → `WatchEnded { not_paid }`, `previous_watched` no longer answered; watch runs out → `WatchEnded { no_answer }` |
 | 17 | Amount mismatch → unapplied `amount_mismatch` |
-| 18 | Relay: a row for another branch's intent is skipped; cursor advances; a row with only `provider_intent_ref` resolves its intent |
+| 18 | Relay: a row for another branch's intent is not pulled (⚠️ Changed by v0.2 hostile run 2 (R2-M-4): branch filter); cursor advances; a row with only `provider_intent_ref` resolves its intent |
+| 18b | ⚠️ Changed by v0.2 hostile run 2 (R2-M-4): a hub restored from a backup pulls a `paid` row of its branch for an intent it does not have → a `payment_relay_unknown` row + `payment_relay_unhealthy { unknown_intent }`; never skipped silently |
 | 18a | Relay `paid` whose confirming status answers `retry` → the cursor stays; retried next tick; stuck 10 min → `payment_relay_unhealthy { confirm_stuck }` |
 | 19a | Health `failing` → Start refused; recovered → accepted; a record older than 60 s → refused |
 | 19b | Webhook-only provider with no successful pull for 30 s → `failing` |
 | 19c | Pull answers `endpoint_unhealthy` → `payment_relay_unhealthy { signature_failures }` |
+| 19d | ⚠️ Changed by v0.2 hostile run 2 (R2-m-9): pull failing for > 2 min → `payment_relay_unhealthy { pull_failing }`; closed by the next successful pull |
 | 20 | Restart: an open intent past its deadline at boot is handled by the first tick |
 
 ### 10.4 Races and guards (`apps/hub/test/payments/races.int.test.ts`)
@@ -694,7 +721,7 @@ Hub tests on `fake` and `fakeRelay`, no network; `steppingClock`. Each numbered 
 | 24b | Merge guard: `MergeTables`, `SplitSeating` with the bill's seating → `409` |
 | 24c | Day close with an open intent → `409`; with a watched one only → allowed |
 | 24d | Approval `apply` of `discount`, `remove_service_charge`, `reopen_bill`, 04 void while open → refused, request still pending; accepted after the intent ends |
-| 24e | 05: `AddPayment` / `CloseSplit` on the intent's split → `409`; on another split → allowed (m-10) |
+| 24e | 05: `AddPayment` / `CloseSplit` on the intent's split → `409`; on another split → allowed (m-10); ⚠️ Changed by v0.2 hostile run 2 (R2-M-5): `AddPayment` `in` on any mode (card machine, cash) on a **watched** intent's split → `409 { reason: 'previous_watched' }`; after `WatchEnded` → allowed |
 | 24f | 05: `SetSplits`, `ApplyDiscount`, `RemoveServiceCharge`, `ReopenBill` → `409` |
 | 24g | `CountShift` / `CloseShift` of the frozen shift → `409` |
 | 24h | `SubmitOrder` adding to the bill, `RemoveDiscount` → allowed while open |
@@ -708,12 +735,13 @@ Hub tests on `fake` and `fakeRelay`, no network; `steppingClock`. Each numbered 
 | 27 | Webhook: good signature → row; bad → `401` + counter; unknown endpoint → `404`; > 16 KB → `400`; ignored type → `200`, no row; no payer field stored |
 | 27a | `pending` then `paid` for the same provider txn → both rows kept (dedupe includes `outcome`); the same `paid` twice → one row, both `200` |
 | 27b | A row with only `provider_intent_ref` is stored; neither ref → `400` (extractor refuses) |
-| 27c | One endpoint per tenant account: rows of branch B's intents reach both hubs' pulls; hub A ignores them |
+| 27c | ~~One endpoint per tenant account: rows of branch B's intents reach both hubs' pulls; hub A ignores them~~ ⚠️ Changed by v0.2 hostile run 2 (R2-M-4): a per-branch endpoint's rows reach only that branch's pull; a tenant-wide endpoint's rows reach both pulls and the hub that does not find the intent skips and logs them |
 | 28 | Pull: tenant filter, cursor, limit cap, `endpoint_unhealthy` after 3 `401`s in 10 min |
 | 28a | Cross-tenant: an endpoint of tenant A never writes a row for tenant B; route inventory includes the `webhook-endpoint` scope |
 | 29 | Endpoint PUT write-only; `endpoint_id` stable across secret changes |
 | 29a | `credential-lookup.ts` is the only importer of the endpoint lookup (M55 (b) lint) |
 | 30 | Verifier fixtures per provider (from the provider document, after its STOP) |
+| 30b | ⚠️ Changed by v0.2 hostile run 2 (R2-m-13): Paymob status fixtures map to `pending` / `in_progress` / `paid` / `failed` (order-final only) / `expired` / `retry` |
 
 ### 10.6 Client and native
 
@@ -743,15 +771,17 @@ Hub tests on `fake` and `fakeRelay`, no network; `steppingClock`. Each numbered 
 
 ## §11. Build order
 
-**05c-1 — provider-neutral, now** (each task: tests first):
-1. §9 codes in `errors.ts` (row F-1); permission `manage-payment-providers` (R-1); alert kinds `payment_unapplied`, `payment_relay_unhealthy` (D-1, D-2, with 01d v1.3.7).
-2. Hub `0030_payment_reference_source.sql`; 05 rows B-4, B-6, B-7 — test 11a; 05 tests re-run.
+**05c-1 — provider-neutral, now** (each task: tests first). ⚠️ Changed by v0.2 hostile run 2 (R2-M-6) — **OWNER (default written):** only pure rules and client mocks; tasks 1–2 move behind STOP-0 because a "no" from Paymob would leave them dead (codes, a permission in the roles editor, two alert kinds nothing raises, a migration, a 05 behaviour change).
+1. ~~§9 codes in `errors.ts` (row F-1); permission `manage-payment-providers` (R-1); alert kinds `payment_unapplied`, `payment_relay_unhealthy` (D-1, D-2, with 01d v1.3.7).~~ → after STOP-0 (task 4a).
+2. ~~Hub `0030_payment_reference_source.sql`; 05 rows B-4, B-6, B-7 — test 11a; 05 tests re-run.~~ → after STOP-0 (task 4b).
 3. Pure state machine and apply decision (`packages/domain/src/payments/`) — tests 1, 2 (code, not a contract: changeable until STOP-0).
 4. Client panels and outcome texts on client-side mocks — test 33 (part).
 
-**STOP-0 — the Paymob document (X-2) is in hand** (⚠️ Changed by v0.2 owner review (OR-3): was "X-1 or X-2"). Re-review §3.4, §5.1, §5.2 against it in a fresh session; then freeze the event payloads and the port. Nothing below is merged before.
+**STOP-0 — the Paymob document (X-2) is in hand** (⚠️ Changed by v0.2 owner review (OR-3): was "X-1 or X-2"); ⚠️ Changed by v0.2 hostile run 2 (R2-M-6) — **OWNER (default written):** **and** Paymob's written host-app eligibility (X-6, Q-B) **and** a proven server confirmation path (inquiry or callback, Q-C). Re-review §3.4, §5.1, §5.2 against it in a fresh session; then freeze the event payloads and the port. Nothing below is merged before. If any of the three is "no", card stays manual (Q-B / Q-C) and nothing of 05c beyond tasks 3–4 exists.
 
 **05c-2 — core (on `fake`):**
+4a. §9 codes in `errors.ts` (row F-1); permission `manage-payment-providers` (R-1); alert kinds `payment_unapplied`, `payment_relay_unhealthy` (D-1, D-2, with 01d v1.3.7) (⚠️ Changed by v0.2 hostile run 2 (R2-M-6): was task 1).
+4b. Hub `0030_payment_reference_source.sql`; 05 rows B-4, B-6, B-7 — test 11a; 05 tests re-run (⚠️ Changed by v0.2 hostile run 2 (R2-M-6): was task 2).
 5. Event schemas + fixtures — test 3.
 6. Billing settings `provider` field + PUT checks + owner form (A-1) — tests 4, 6.
 7. Hub `0031_payment_intents.sql` + projections.
@@ -759,26 +789,26 @@ Hub tests on `fake` and `fakeRelay`, no network; `steppingClock`. Each numbered 
 9. Port, registry, `fake`; 05c's own wiring check; `SetPaymentCredential` + admin query (P13) — test 11.
 10. `StartPaymentIntent`, `CancelPaymentIntent`, `ReportPaymentIntentResult` — tests 5, 7–10e, 12, 22.
 11. Worker: create, poll, deadlines, watch, apply, health — tests 13–17, 19a, 20, 21, 21a, 23, 26.
-12. Guards: rows Q-1, T-1, A-2, B-2, B-3, V-1 — tests 24a–24h, 25.
+12. Guards: rows Q-1, T-1, A-2, B-2 (with the R2-M-5 `AddPayment` watched hold), B-3, V-1 — tests 24a–24h, 25.
 13. `ResolveUnappliedPayment`, queries §6.6–§6.8, re-raise — tests 16e, 16f.
 
 **Relay (with Paymob, if it confirms by webhook):**
 14. Cloud `0022_payment_relay.sql`, guard scope `webhook-endpoint` (H-1, F-2, F-3), §6.10–§6.12 (H-2) — tests 27–29a.
-15. Hub relay pull, cursor-stop rule, health — tests 18, 18a, 19b, 19c.
+15. Hub relay pull, cursor-stop rule, unknown-intent rows (R2-M-4), health — tests 18, 18a, 18b, 19b, 19c, 19d.
 
-**05c-C — card. STOP-C: X-2, X-3, X-5, X-6 in writing, and owner Q-B / Q-C answered:**
-16. 05b rows N-1, N-2 (plugin, `native_api` 2, whitelist, Gradle, CI secret) — test 34. 17. `paymob_softpos` adapter + verifier — test 30. 18. Card panel, `payment-intent-device` (H-3) — test 32. 19. Manual NFC check — test 35.
+**05c-C — card. STOP-C: X-3 (sandbox) and X-5 (certified pilot tablet models)** (⚠️ Changed by v0.2 hostile run 2 (R2-m-4, R2-M-6): X-2, X-6 and the server confirmation are STOP-0; Q-B / Q-C are answered):
+16. 05b rows N-1, N-2 (plugin, `native_api` 2, whitelist, Gradle, CI secret) — test 34. 17. `paymob_softpos` adapter + verifier — tests 30, 30b. 18. Card panel, `payment-intent-device` (H-3) — test 32. 19. Manual NFC check — test 35.
 
 ~~**05c-R — Raast, optional.**~~ ⚠️ Changed by v0.2 owner review (OR-3): tasks 20–22 moved to §13 Later.
 
-19 tasks (⚠️ Changed by v0.2 owner review (OR-3): was 22). 4 device commands + 1 admin command + 4 queries + 1 admin query + 4 cloud routes (webhook, pull, endpoint PUT, endpoint GET) = **14** endpoints: above the ~10 of v0.1, within the README size budget (~30).
+19 tasks (⚠️ Changed by v0.2 owner review (OR-3): was 22; ⚠️ Changed by v0.2 hostile run 2 (R2-M-6): tasks 1–2 renumbered 4a–4b, same count). 4 device commands + 1 admin command + 4 queries + 1 admin query + 4 cloud routes (webhook, pull, endpoint PUT, endpoint GET) = **14** endpoints: above the ~10 of v0.1, within the README size budget (~30).
 
 ---
 
 ## §12. Definition of Done, checklist, open questions, deferred
 
 ### 12.1 Definition of Done
-- Tests 1–30 and 32–34 green in the gate (`tablet.yml` for 34); 35 done on sandbox and the pilot tablets (⚠️ Changed by v0.2 owner review (OR-3): 31 and 36 are §13).
+- Tests 1–30b and 32–34 green in the gate (`tablet.yml` for 34); ⚠️ Changed by v0.2 hostile run 2 (R2-m-13): the relay tests (18, 18a, 18b, 19b – 19d, 27 – 29a, the verifier part of 30) only when the relay ships (Paymob `has_webhook`); 35 done on sandbox and the pilot tablets (⚠️ Changed by v0.2 owner review (OR-3): 31 and 36 are §13).
 - 05, 02b, 02a, 01a, 04, 01b, 01d, 00 HPA, 05b v1.1, Foundation (F-2, F-3), README carry the §4.5 rows.
 - A counter dry run on sandbox: 10 card payments, including one Wi-Fi drop mid-tap and one card intent cancelled before a tap (⚠️ Changed by v0.2 owner review (OR-3)). Each has exactly one `PaymentAdded` or one unapplied provider payment resolved by a manager, and the Z by mode matches the provider's sandbox list.
 
@@ -799,7 +829,7 @@ Hub tests on `fake` and `fakeRelay`, no network; `steppingClock`. Each numbered 
 | 6.11 | cloud pull | 200, 400, 401 |
 | 6.12 | cloud endpoint PUT / GET | 200, 400, 401 |
 
-### 12.3 Owner decisions — **BLOCKER-for-approval** (review Q-A … Q-E), each with the recommended default
+### 12.3 Owner decisions — answered (⚠️ Changed by v0.2 hostile run 2 (R2-m-4): was "BLOCKER-for-approval"; every question is answered, owner 2026-11-24; the run 2 OWNER defaults R2-M-5, R2-M-6 are written into P9a, row B-2 and §11, pending the owner)
 
 | # | Decision | Recommended default |
 |---|---|---|
@@ -814,9 +844,9 @@ Hub tests on `fake` and `fakeRelay`, no network; `steppingClock`. Each numbered 
 | # | Question | Default |
 |---|---|---|
 | OQ-2 | Card-by-NFC at the table by waiters, or at the counter only? (B11 lands it in the waiter's own shift) | Any tablet whose person has `take-payment` and an open shift |
-| OQ-5 | Manual `AddPayment` on a provider-bound mode (customer paid from the bank app without our QR) | Allowed, as today; reference per the mode's `reference_required` |
+| OQ-5 | Manual `AddPayment` on a provider-bound mode (the card machine, without the tablet; ⚠️ Changed by v0.2 hostile run 2 (R2-m-1)) | Allowed, as today; reference per the mode's `reference_required`; ⚠️ Changed by v0.2 hostile run 2 (R2-M-5): held while an intent of that split is open or watched (manager override) |
 | OQ-7 | Migration numbers hub `0030` / `0031`, cloud `0022` | Renumber at build |
-| OQ-8 | `display_ttl_ms`, `confirm_window_ms`, `late_window_ms` (defaults 120 s / 90 s / 10 min card; ⚠️ Changed by v0.2 owner review (OR-3): the Raast defaults are §13) | Paymob's values once known |
+| OQ-8 | `tap_window_ms` (⚠️ Changed by v0.2 hostile run 2 (R2-m-1): was `display_ttl_ms`), `confirm_window_ms`, `late_window_ms` (defaults 120 s / 90 s / 10 min card; ⚠️ Changed by v0.2 owner review (OR-3): the Raast defaults are §13) | Paymob's values once known |
 | OQ-9 | New permission `manage-payment-providers` or reuse `manage-fiscal-settings` | New key |
 | OQ-10 | Approval `apply` refused while an intent is open (P11 (d)): refuse (approver retries), or hold the answer until the intent ends? | Refuse |
 
@@ -852,13 +882,13 @@ Hub tests on `fake` and `fakeRelay`, no network; `steppingClock`. Each numbered 
 | Remote call on the request path | None (health is a cached record) |
 | N+1 | Every query ≤ 2 statements; the worker reads 3 per tick |
 | Over-engineering | `currencies`, per-mode core `environment`, `device_types`, two-speed pull cut; no outbox, no push channel, no new stream type |
-| Event count | Nine: the asked five + `Ready` (the QR exists only after the provider answers), `Confirming` (a held bill waiting for the server, B-1), `ProviderPaymentResolved` (M-7), `PaymentCredentialSet` (audit) |
+| Event count | ⚠️ Changed by v0.2 hostile run 2 (R2-m-12, R2-m-6): **Ten** (nine on the bill stream, one hub): the asked five + `Ready` (the SDK parameters exist only after `create`), `Confirming` (a held bill waiting for the server, B-1), `WatchEnded` (the watch's outcome, R2-m-6), `ProviderPaymentResolved` (M-7), `PaymentCredentialSet` (audit) |
 
 ---
 
 ## §13. Later — Raast (out of the pilot) ⚠️ Changed by v0.2 owner review (OR-3)
 
-The owner took Raast out of the pilot on 2026-11-24. Nothing below is built for the pilot; it is kept so a later bump can restore it. The counter card machine with a typed reference is the fallback for card, and cash for everything else. When Raast comes back, this section goes through its own re-review and owner approval, and adds: the `qr` value of the port's `display`, of `PaymentIntentCreated.display_kind` (a new enum value) and of `payment_intents.display_kind` (a table-rebuild migration, the 05a `0027` pattern); the QR deadline (v0.2 P9: `expires_at = ready_at + display ttl`, default 300 s, a final status call, `not_paid` / `unknown`); the 30 min watch window default (P9a); the QR display of P10 and §6.6 (`display: { kind: 'qr', qr_payload, qr_svg } | null`, the hub's `qrcode` 1.5.4); `ReportPaymentIntentResult` refusing a `qr` intent (`400`); kinds `online` / `wallet` in P2; the owner form choice "Bank Alfalah Raast" (row A-1).
+The owner took Raast out of the pilot on 2026-11-24. Nothing below is built for the pilot; it is kept so a later bump can restore it. The counter card machine with a typed reference is the fallback for card, and cash for everything else. When Raast comes back, this section goes through its own re-review and owner approval, and adds: ~~the `qr` value of the port's `display`, of `PaymentIntentCreated.display_kind` (a new enum value) and of `payment_intents.display_kind` (a table-rebuild migration, the 05a `0027` pattern)~~ ⚠️ Changed by v0.2 hostile run 2 (R2-m-2): the port's `display` field, `display_kind` on `PaymentIntentCreated` (a new event version) and a `payment_intents.display_kind` column without a CHECK (the pilot has none); the QR deadline (v0.2 P9: `expires_at = ready_at + display ttl`, default 300 s, a final status call, `not_paid` / `unknown`); the 30 min watch window default (P9a); the QR display of P10 and §6.6 (`display: { kind: 'qr', qr_payload, qr_svg } | null`, the hub's `qrcode` 1.5.4); `ReportPaymentIntentResult` refusing a `qr` intent (`400`); kinds `online` / `wallet` in P2; the owner form choice "Bank Alfalah Raast" (row A-1).
 
 ### 13.1 `alfalah_raast` (was §3.6)
 
