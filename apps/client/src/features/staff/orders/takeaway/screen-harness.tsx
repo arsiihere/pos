@@ -4,6 +4,7 @@ import { mount, type Mounted } from '../../../../../test/dom';
 import { ShellContext, type Shell } from '../../shell/hooks';
 import { createLiveBus } from '../../shell/live';
 import { createPermissions } from '../../shell/permissions';
+import { createRushSlot } from '../../shell/rush-slot';
 import type { EnqueueMeta, QueueableCommand } from '../../tables/contracts';
 import type { BranchConfig } from '@pos/events';
 import type { DraftStore, EtaDraft, OpenOrder, OrderViewBody, SeatingLine } from '../contracts';
@@ -100,6 +101,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
     online: o.online ?? true,
     phone: o.phone === true,
     portrait: false,
+    rush: createRushSlot(),
   } as unknown as Shell;
   const show = (node: ReactNode) => {
     const m = mount();

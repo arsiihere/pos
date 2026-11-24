@@ -230,10 +230,10 @@ export function Tile({ tile, onTap, tk }: { tile: TileModel; onTap(tile: TileMod
 
 // The grid takes pulse-02's default 2 columns (`--icols`); the kiosk's 3 and the phone's 1 need a ui-kit rule
 // (no `style` prop, S35 d) — listed in the PR as a layout difference.
-// 02b-TK A2 item 3: `tk` = the takeaway tile (frame TileStates).
-export function MenuTiles({ tiles, onTap, tk }: { tiles: TileModel[]; onTap(tile: TileModel): void; tk?: TakeawayTileActions | undefined }) {
+// 02b-TK A2 item 3: `tk` = the takeaway tile (frame TileStates); item 4: `rush` = the dense grid, no photos (HomeRush).
+export function MenuTiles({ tiles, onTap, tk, rush = false }: { tiles: TileModel[]; onTap(tile: TileModel): void; tk?: TakeawayTileActions | undefined; rush?: boolean }) {
   return (
-    <div className="items items--h">
+    <div className={rush ? 'items items--h items--rush' : 'items items--h'}>
       {tiles.map((tile) => (
         <Tile key={`${tile.kind}:${tile.id}`} tile={tile} onTap={onTap} tk={tk} />
       ))}

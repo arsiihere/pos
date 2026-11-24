@@ -17,18 +17,21 @@ import { StaffApp } from './StaffApp';
 
 // the Takeaway tab: a probe that fills the context slot as the order screen does (the screen's own wiring is tested
 // with it, takeaway-tk-shell.test.tsx); its unmount stands for the order screen's auto-hold (02b-TK C1-5)
-const probe = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
+const probe = vi.hoisted(() => ({ mounts: 0, unmounts: 0, rush: null as { on: boolean; count: number } | null, toggles: 0 }));
 vi.mock('./orders/takeaway/TakeawayHome', () => ({
   TakeawayHome: () => {
     const shell = useShell();
     useEffect(() => {
       probe.mounts += 1;
       shell.contextSlot?.set({ label: 'New takeaway', token: null, name: 'Usman', sub: 'Token after Send' });
+      // 02b-TK A2 item 4: the screen's rush state for the pill (its own wiring: takeaway-rush.test.tsx)
+      if (probe.rush !== null) shell.rush?.set({ ...probe.rush, toggle: () => (probe.toggles += 1) });
       return () => {
         probe.unmounts += 1;
         shell.contextSlot?.set(null);
+        shell.rush?.set(null);
       };
-    }, [shell.contextSlot]);
+    }, [shell.contextSlot, shell.rush]);
     return <div data-probe="takeaway-home" />;
   },
 }));
@@ -60,6 +63,8 @@ beforeEach(() => {
   sockets = [];
   probe.mounts = 0;
   probe.unmounts = 0;
+  probe.rush = null;
+  probe.toggles = 0;
   window.location.hash = '';
   window.localStorage.clear();
 });
@@ -150,6 +155,42 @@ describe('[02b-TK TK-SH01] the shell around the Takeaway tab', () => {
     window.location.hash = '#/inbox';
     await flush();
     expect(m.container.querySelector('.tk-ctx')).toBeNull();
+  });
+});
+
+describe('[02b-TK A2 item 4] the Live / Rush pill', () => {
+  it('[frames HomeRush, ShellAnatomy] the takeaway screen in rush: "Rush mode · 40" (.tk-live--rush); a tap toggles it; offline wins', async () => {
+    probe.rush = { on: true, count: 40 };
+    render(hub().fetch);
+    await pin('Imran');
+    sockets.at(-1)!.frame({ type: 'catch_up', as_of_seq: 0, state: {} });
+    await flush();
+    const pill = m.container.querySelector<HTMLButtonElement>('header.top button.live.tk-live.tk-live--rush');
+    expect(pill?.textContent).toBe('Rush mode · 40');
+    expect(pill?.getAttribute('aria-pressed')).toBe('true');
+    m.click(pill);
+    expect(probe.toggles).toBe(1);
+    sockets.at(-1)!.onclose?.({ code: 1006, reason: '' });
+    await flush();
+    expect(m.container.querySelector('header.top .tk-live--rush')).toBeNull();
+    expect(m.container.querySelector('header.top .live.tk-live--off')?.textContent).toBe('Hub offline');
+  });
+
+  it('[frame ShellAnatomy] not in rush: the pill reads Live and is the toggle; another screen: a plain Live pill', async () => {
+    probe.rush = { on: false, count: 3 };
+    render(hub().fetch);
+    await pin('Imran');
+    sockets.at(-1)!.frame({ type: 'catch_up', as_of_seq: 0, state: {} });
+    await flush();
+    const pill = m.container.querySelector<HTMLButtonElement>('header.top button.live.tk-live');
+    expect(pill?.textContent).toBe('Live');
+    expect(pill?.getAttribute('aria-pressed')).toBe('false');
+    m.click(pill);
+    expect(probe.toggles).toBe(1);
+    window.location.hash = '#/inbox';
+    await flush();
+    expect(m.container.querySelector('header.top button.live')).toBeNull();
+    expect(m.container.querySelector('header.top span.live.tk-live')?.textContent).toBe('Live');
   });
 });
 

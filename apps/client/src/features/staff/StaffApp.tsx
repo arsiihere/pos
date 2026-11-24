@@ -38,6 +38,7 @@ import { createEnqueue } from './orders/queue/enqueue';
 import { createShellHooks } from './orders/queue/shell-hooks';
 import { createShellConfig, type BranchConfigReply } from './shell/config';
 import { createContextSlot } from './shell/context-slot';
+import { createRushSlot } from './shell/rush-slot';
 import { readOwnShift, shiftEvent, type OwnShift } from './shell/own-shift';
 import { ShellBanners } from './shell/ShellBanners';
 import { createDayWatch } from './orders/order-screen/day-open';
@@ -267,6 +268,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   // 02b-TK TK-SH01: the context slot the screen on the route fills; the day watch for the banner under the bar
   const contextSlot = useMemo(() => createContextSlot(), []);
   const ctxValue = useSyncExternalStore(contextSlot.subscribe, contextSlot.get);
+  // 02b-TK A2 item 4 (frame HomeRush): the takeaway screen's rush state; the Live pill is its toggle
+  const rushSlot = useMemo(() => createRushSlot(), []);
+  const rushValue = useSyncExternalStore(rushSlot.subscribe, rushSlot.get);
   const dayWatch = useMemo(() => createDayWatch(liveBus), [liveBus]);
   useEffect(() => () => dayWatch.dispose(), [dayWatch]);
   const dayOpen = useSyncExternalStore(dayWatch.subscribe, dayWatch.state);
@@ -1210,7 +1214,22 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
   const noApprover = me !== null && snap.rows.some((r) => r.kind === 'no_approver' && r.state === 'open');
   const deviceWord = t(`alerts.device.${device.type}`);
   const live =
-    mode === 'none' ? null : up ? (
+    mode === 'none' ? null : up && rushValue !== null ? (
+      // 02b-TK A2 item 4 (frames HomeRush, ShellAnatomy): on the takeaway screen the pill switches rush mode by hand
+      <button type="button" className={rushValue.on ? 'live tk-live tk-live--rush' : 'live tk-live'} aria-pressed={rushValue.on} title={t('shell.rush')} onClick={rushValue.toggle}>
+        <Ico name="wifi" />
+        {rushValue.on ? (
+          <>
+            {t('shell.rush')} ·{' '}
+            <span className="num" dir="ltr">
+              {rushValue.count}
+            </span>
+          </>
+        ) : (
+          t('alerts.live')
+        )}
+      </button>
+    ) : up ? (
       <span className="live tk-live">
         <Ico name="wifi" />
         {t('alerts.live')}
@@ -1457,6 +1476,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, wipe
     signOut: () => signOut(false),
     closeRouteSheet,
     contextSlot,
+    rush: rushSlot,
   };
   voidShell.current = shell;
   // IR-11: the late cards read every alert row the page holds, open and closed (a slip closed without ItemsReleased)

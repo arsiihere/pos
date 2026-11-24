@@ -5,6 +5,7 @@ import type { OrdersApi } from '../orders/contracts';
 import type { Enqueue, LocalFlags, TablesApi } from '../tables/contracts';
 import type { ShellConfig } from './config';
 import type { ContextSlotStore } from './context-slot';
+import type { RushSlotStore } from './rush-slot';
 import type { LiveBus } from './live';
 import type { Permissions } from './permissions';
 import type { ToastBus } from './toast';
@@ -50,6 +51,8 @@ export interface Shell {
   closeRouteSheet?: (fallback: string) => void;
   /** 02b-TK TK-SH01: the top bar's context slot the screen on the route fills (and clears); absent outside StaffApp */
   contextSlot?: ContextSlotStore;
+  /** 02b-TK A2 item 4: the takeaway screen's rush state for the Live / Rush pill; absent outside StaffApp */
+  rush?: RushSlotStore;
 }
 
 /**

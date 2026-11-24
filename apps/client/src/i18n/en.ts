@@ -4258,6 +4258,9 @@ export const en = {
   't.sold_out': '{item} is sold out — ask the kitchen',
   // 02b-TK A2 item 3 (frame TileStates "tap shows why" for the other reasons): not in strings-table.md; Urdu to confirm
   't.off_reason': '{item} — {reason}',
+  // ---- 02b-TK client (A2 batch 2, item 4 rush mode: frame HomeRush): strings-table.md ----
+  'shell.rush': 'Rush mode',
+  'c.who_add': 'Name / phone',
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -122,6 +122,10 @@ export interface QueueRailProps {
   onPay?: ((token: QueueToken) => void) | undefined;
   /** tokens handed over in the Undo window: not shown */
   hidden?: ReadonlySet<string>;
+  /** 02b-TK A2 item 4 (R9): the open takeaway tokens the rail holds, for rush mode (each read) */
+  onCount?: ((n: number) => void) | undefined;
+  /** 02b-TK A2 item 4 (frame HomeRush): the compact queue */
+  compact?: boolean;
 }
 
 function ReadyTile({ q, selected, owed, onOpen, onHandOver, onPay }: { q: QueueToken; selected: boolean; owed: number | null; onOpen(): void; onHandOver?: (() => void) | undefined; onPay?: (() => void) | undefined }) {
@@ -198,9 +202,15 @@ function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; o
   );
 }
 
-export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOver, onPay, hidden }: QueueRailProps) {
+export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOver, onPay, hidden, onCount, compact = false }: QueueRailProps) {
   const shell = useShell();
   const { model, failed, loadedAt, retry } = useTakeawayQueue(book);
+  const open_n = model === null ? null : model.ready.length + model.cooking.length + model.later.length;
+  const countRef = useRef(onCount);
+  countRef.current = onCount;
+  useEffect(() => {
+    if (open_n !== null) countRef.current?.(open_n);
+  }, [open_n]);
   const owed = useDueAmounts(model);
   const [query, setQuery] = useState('');
   const [all, setAll] = useState(false);
@@ -333,7 +343,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
       </>
     );
   return (
-    <aside className={variant === 'tab' ? 'tk-q tk-q--tab' : 'tk-q'} aria-label={t('q.all')}>
+    <aside className={['tk-q', variant === 'tab' ? 'tk-q--tab' : null, compact ? 'tk-q--compact' : null].filter((c) => c !== null).join(' ')} aria-label={t('q.all')}>
       {body}
     </aside>
   );

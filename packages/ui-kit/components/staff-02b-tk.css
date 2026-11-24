@@ -286,3 +286,17 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .tk-qchips button { min-width: 64px; min-height: 48px; border-radius: 12px; border: 1.5px solid var(--control-edge); background: var(--surface-raised); font-weight: 800; font-size: 16px; }
 .tk-qchips button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-tint); }
 .tk-qchips button:disabled { opacity: .45; }
+
+/* ---------- A2 batch 2 item 4: rush mode (frame HomeRush; MAPPING TK-S01 rush, TK-SH01 .tk-live--rush) ---------- */
+/* the Live pill is the rush toggle on the takeaway screen */
+.top button.live { border: 0; font: inherit; cursor: pointer; }
+.top .live.tk-live--rush { background: var(--warn-fill); color: #fff; }
+.top .live.tk-live--rush .ico { color: #fff; }
+/* dense tiles: 4 columns, no photo, no sub line */
+.items.items--rush { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.items--rush .photo, .items--rush .mi__sub { display: none; }
+.items--rush .mi--h { min-height: 96px; }
+.items--rush .mi--h .qty { inset-inline-start: auto; inset-inline-end: 8px; }
+/* the customer row folded into one "Name / phone" button */
+.cust--compact { display: flex; }
+.cust--compact .tk-btn { flex: 1; justify-content: flex-start; min-height: 52px; }

@@ -70,6 +70,7 @@ import { groupParts, type GroupedLine } from '../view/parts';
 import { servable } from '../view/stage';
 import { takeawayContext } from '../../shell/context-slot';
 import { keyEntries, keyMatches, parseKeyQuery, type KeyEntry } from './keyboard';
+import { readRushOverride, rushOn, toggledOverride, writeRushOverride } from '../takeaway/rush';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
 // Menu / Cart tabs + sticky Send; 02-B03 draft back, B04 offline, B05 / B07 line problems), 02a §8 Order screen (the
@@ -520,6 +521,28 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     setOpenToken(null);
     setTab('menu');
   };
+  // 02b-TK A2 item 4 (frame HomeRush; R9 UI only): rush mode at RUSH_OPEN_ORDERS open tokens (the rail's count) or by
+  // the shell's pill (a manual override kept on this device); dense tiles, the folded customer row, the compact queue
+  const [openCount, setOpenCount] = useState(0);
+  const [rushManual, setRushManual] = useState<boolean | null>(() => (order_type === 'takeaway' ? readRushOverride() : null));
+  const rush = order_type === 'takeaway' && rushOn(openCount, rushManual);
+  const rushCount = useRef(openCount);
+  rushCount.current = openCount;
+  useEffect(() => {
+    if (book === null) return;
+    shellRef.current.rush?.set({
+      on: rush,
+      count: openCount,
+      toggle: () =>
+        setRushManual((manual) => {
+          const next = toggledOverride(rushCount.current, manual);
+          writeRushOverride(next);
+          return next;
+        }),
+    });
+  }, [book, rush, openCount]);
+  useEffect(() => () => shellRef.current.rush?.set(null), []);
+  const dense = rush && !shell.phone && !shell.portrait;
   const pendingKeys = new Set(handovers.pending().map((h) => h.token_key));
   const lastHandover = handovers.pending().at(-1) ?? null;
   const railVariant: RailVariant = shell.phone || shell.portrait ? 'tab' : shell.device.type === 'cashier_kiosk' ? 'column' : 'strip';
@@ -534,6 +557,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         onHandOver={(q) => void handOverTile(q)}
         onPay={payToken}
         hidden={pendingKeys}
+        onCount={setOpenCount}
+        compact={dense}
       />
     );
   const tokenView =
@@ -951,6 +976,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       <CustomerRow
         value={cart.takeaway}
         disabled={sending.current}
+        compact={dense}
         onChange={(next) => {
           if (sending.current) return; // the cart is frozen while it is sent
           setCart((c) => {
@@ -1101,7 +1127,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           </div>
         )}
       </div>
-      <MenuTiles tiles={tiles} onTap={onTap} tk={tk} />
+      <MenuTiles tiles={tiles} onTap={onTap} tk={tk} rush={dense} />
       {order_type === 'takeaway' && kiosk && (
         <div className="tk-hint">
           {kbd('/')} {t('m.keys')}: {kbd('4n')} {kbd('Enter')} · {kbd('F2')} {t('ctx.new')} ·{' '}
@@ -1307,7 +1333,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   return (
     <div className="col grow order" dir={ur ? 'rtl' : 'ltr'} ref={rootRef}>
       {banners}
-      <div className={book === null ? 'osc' : 'osc osc--tk'}>
+      <div className={book === null ? 'osc' : dense ? 'osc osc--tk osc--rush' : 'osc osc--tk'}>
         {/* 02b-TK C2-1 (frames HomeKiosk, QueueTablet): kiosk queue rail | menu | cart; a tablet's ready strip over the menu */}
         {railVariant === 'column' && queueRail('column')}
         <MenuRail categories={rail} current={current} onPick={setCategory} />

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { t } from '../../../../i18n';
 import { Ico } from '../../../alerts/ui';
 import type { Cart } from './cart';
@@ -11,10 +12,38 @@ import { NAME_MAX, phoneBad } from './contact';
 
 export type Contact = NonNullable<Cart['takeaway']>;
 
-export function CustomerRow({ value, disabled, onChange }: { value: Cart['takeaway']; disabled: boolean; onChange(next: Cart['takeaway']): void }) {
+// 02b-TK A2 item 4 (frame HomeRush; CHANGES §3 Cart "In rush mode it collapses to one Name / phone button"): `compact`
+// folds the row into one button (the name and phone when typed); a tap, or a phone to fix, opens the fields.
+export function CustomerRow({ value, disabled, onChange, compact = false }: { value: Cart['takeaway']; disabled: boolean; onChange(next: Cart['takeaway']): void; compact?: boolean }) {
   const name = value?.customer_name ?? '';
   const phone = value?.phone ?? '';
   const bad = phoneBad(value?.phone);
+  const [unfolded, setUnfolded] = useState(false);
+  if (compact && !unfolded && !bad) {
+    const typed = [name, phone].filter((x) => x !== '');
+    return (
+      <div className="cust cust--compact">
+        <button type="button" className="tk-btn" disabled={disabled} onClick={() => setUnfolded(true)}>
+          <Ico name="user" />
+          {typed.length === 0 ? (
+            t('c.who_add')
+          ) : (
+            <span dir="auto">
+              {name}
+              {phone !== '' && (
+                <>
+                  {name !== '' && ' · '}
+                  <span className="num" dir="ltr">
+                    {phone}
+                  </span>
+                </>
+              )}
+            </span>
+          )}
+        </button>
+      </div>
+    );
+  }
   const set = (next: Contact) => {
     const n = next.customer_name ?? '';
     const p = next.phone ?? '';
