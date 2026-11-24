@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DomainError, ErrorCatalogue, statusOf } from './errors';
+import * as domain from './index';
 
 function walk(dir: string, out: string[] = []): string[] {
   let names: string[];
@@ -162,6 +163,11 @@ describe('[02a §9] table codes', () => {
 });
 
 describe('[02b §9] ordering codes', () => {
+  it('[02b v1.0.25 §3.2 step 2b, §9] exports the ten-minute lead and the 422 pickup error', () => {
+    expect(domain).toHaveProperty('PICKUP_MIN_LEAD_MS', 600_000);
+    expect(ErrorCatalogue).toHaveProperty('PICKUP_TIME_INVALID', { status: 422 });
+  });
+
   it('[02b §9] each new code has its status', () => {
     const expected: Record<string, number> = {
       ORDER_NOT_FOUND: 404,

@@ -160,6 +160,8 @@ export const ErrorCatalogue = {
   LOGIN_LOCKED_OUT: { status: 429 },
   INTERNAL_ERROR: { status: 500 },
   SERVICE_UNAVAILABLE: { status: 503 },
+  // 02b v1.0.25 §9
+  PICKUP_TIME_INVALID: { status: 422 },
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCatalogue;
