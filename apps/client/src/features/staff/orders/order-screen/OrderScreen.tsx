@@ -60,7 +60,7 @@ import { heldOnDevice } from './held-list';
 import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
 import type { QueueToken } from '../takeaway/queue-model';
 import { createHandovers } from '../takeaway/handover';
-import { readyNow, TokenView } from '../takeaway/TokenView';
+import { allLiveReady, TokenView } from '../takeaway/TokenView';
 import { PayPanel, type PayTarget } from '../takeaway/PayPanel';
 import { CheckBill } from '../takeaway/CheckBill';
 import { servedPayload } from '../actions/MarkServedSheet';
@@ -474,13 +474,14 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     handovers.start({ id: newUlid(), token_key: q.key, ident: q.token === null ? '—' : String(q.token), payload: servedPayload(lines) });
     setOpenToken(null);
   };
-  // the ready tile's one tap: the token's lines from order-view, every servable one ready → handed over (R2: paid only)
+  // the ready tile's one tap: the token's lines from order-view; every live one ready (a line not yet sent to the
+  // kitchen counts too, owner ruling 2026-11-24 #1) → its servable lines handed over (R2: paid only); else the view
   const handOverTile = async (q: QueueToken) => {
     if (!shellRef.current.permissions.allowed('mark-served')) return setOpenToken(q);
     const views = await Promise.all(q.order_ids.map((oid) => shellRef.current.orders.orderView(oid)));
-    const lines = views.flatMap((v) => (v.ok && v.data.kind === 'order' ? groupParts(v.data.order.lines) : [])).filter(servable);
-    if (lines.length === 0 || !lines.every(readyNow)) return setOpenToken(q);
-    handOver(q, lines);
+    const lines = views.flatMap((v) => (v.ok && v.data.kind === 'order' ? groupParts(v.data.order.lines) : []));
+    if (!allLiveReady(lines)) return setOpenToken(q);
+    handOver(q, lines.filter(servable));
   };
   // 02b-TK C2-3 (02b §3.2 step 2; 05 #44a): Add items starts an addition to the token's root on an empty cart (a cart
   // with lines is another customer's: it is sent or held first)

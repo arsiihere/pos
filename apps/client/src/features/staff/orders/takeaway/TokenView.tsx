@@ -55,6 +55,21 @@ export function isManager(shell: Pick<Shell, 'permissions'>): boolean {
 /** A line the counter can hand over now: the kitchen has it done, or it never went to a station. */
 export const readyNow = (l: SeatingLine): boolean => l.stage === 'done' || l.stage === null || l.stage === 'out_of_engine' || l.zone_served;
 
+/**
+ * Owner ruling 2026-11-24 #1 (02b v1.0.24 §3.7, §6.4): the token's live lines — every line of the root and its
+ * additions still to give: not a deal header, not removed / voided, not served; a no-station option child goes with
+ * its parent. A line not yet sent to the kitchen is live (and not ready).
+ */
+export function liveLines<L extends SeatingLine>(lines: readonly L[]): L[] {
+  return lines.filter((l) => l.line_kind !== 'deal' && l.live_units > 0 && !isServed(l) && l.stage !== 'removed' && l.stage !== 'voided' && !(l.line_kind === 'option_child' && l.stage === null));
+}
+
+/** Hand over all only when EVERY live line can be handed over now — not only the lines sent to the kitchen. */
+export function allLiveReady(lines: readonly SeatingLine[]): boolean {
+  const live = liveLines(lines);
+  return live.length > 0 && live.every((l) => servable(l) && readyNow(l));
+}
+
 function chipOf(l: SeatingLine): { key: MessageKey; tone: string } {
   if (isWeightPending(l)) return { key: 'stage.weight_pending', tone: 'tk-chip--warn' };
   if (l.stage === 'returned' || l.returned_units > 0) return { key: 'stage.sent_back', tone: 'tk-chip--danger' };
@@ -121,7 +136,10 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
   const shown = lines.filter((l) => l.line_kind !== 'deal' && l.line_kind !== 'option_child' && l.live_units > 0);
   const candidates = lines.filter(servable);
   const readyLines = candidates.filter(readyNow);
-  const allReady = candidates.length > 0 && readyLines.length === candidates.length;
+  const live = liveLines(lines);
+  const allReady = allLiveReady(lines);
+  // some ready, not all: Give ready items now in place of Hand over all (owner ruling 2026-11-24 #1)
+  const giveReady = readyLines.length > 0 && !allReady;
   const paid = bill?.current?.paid ?? token.paid;
   const due = bill?.current !== null && bill?.current !== undefined && !bill.current.paid;
   const manager = isManager(shell);
@@ -263,7 +281,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
           )}
         </div>
         <div className="tk-drawer__f">
-          {canServe && readyLines.length > 0 && !allReady && (
+          {canServe && giveReady && (
             <button type="button" className="tk-btn tk-btn--lg" onClick={() => onHandOver(readyLines)}>
               {t('v.give_ready')}
               {giveText}
@@ -275,7 +293,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
               {t('v.pay')} · <span dir={MONEY_DIR}>{money(bill!.current!.amount_minor)}</span>
             </button>
           )}
-          {canServe && candidates.length > 0 && handOverAll}
+          {canServe && live.length > 0 && !giveReady && handOverAll}
           <div className="tk-grid3">
             {onAddItems !== undefined && may('take-order') && (
               <button type="button" className="tk-btn" onClick={onAddItems}>
