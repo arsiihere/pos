@@ -37,8 +37,9 @@ for (const lang of LANGS) {
     try {
       await takeawayTab(page);
       const ctx = page.locator('header.top .tk-ctx');
-      await expect(ctx.locator('b')).toHaveText(tr(lang, 'ctx.new'));
-      await expect(ctx.locator('small')).toHaveText(tr(lang, 'ctx.token_after'));
+      // the slot's own line and sub-line (TopBar.tsx): on a tablet the binding header sits in the slot too, with its own <b>
+      await expect(ctx.locator(':scope > div > b')).toHaveText(tr(lang, 'ctx.new'));
+      await expect(ctx.locator(':scope > div > small')).toHaveText(tr(lang, 'ctx.token_after'));
       await expect(page.locator('header.top nav.tabs-top a.is-sel')).toHaveAttribute('href', '#/takeaway');
       await expect(page.locator('header.top nav.tabs-top a.is-sel')).toHaveAttribute('aria-current', 'page');
       await expect(page.locator('header.top .live.tk-live')).toHaveText(tr(lang, 'alerts.live'));
