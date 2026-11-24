@@ -29,7 +29,7 @@ test.beforeEach(async ({ page }, info) => {
 
 /** The Paye category of the menu rail (its tiles are not on the first category). */
 async function payeCategory(page: Page): Promise<void> {
-  await page.locator('.cats').getByRole('button', { name: new RegExp(`^${TK_TILES.category}`) }).click();
+  await page.locator('.cats, .pills').getByRole('button', { name: new RegExp(`^${TK_TILES.category}`) }).click();
 }
 const cartLines = (page: Page) => page.locator('.cart .ln');
 

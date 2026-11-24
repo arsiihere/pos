@@ -178,7 +178,7 @@ function harness(): Harness {
 }
 
 const tile = (m: ReturnType<typeof mount>, name: string) => m.container.querySelector<HTMLElement>(`.mi[aria-label="${name}"]`)!;
-const pick = (m: ReturnType<typeof mount>, category: string) => m.click(m.button(category, m.container.querySelector('.cats')!));
+const pick = (m: ReturnType<typeof mount>, category: string) => m.click(m.button(category, m.container.querySelector('.cats, .pills')!));
 const tick = async (ms = 300) => {
   await act(async () => {
     vi.advanceTimersByTime(ms);
@@ -370,7 +370,7 @@ describe('[02b §8 Ordering screen] order screen', () => {
     const ur = harness().render({ order_type: 'takeaway', id: 'D3' });
     await flush();
     expect(ur.container.querySelector('.order')?.getAttribute('dir')).toBe('rtl');
-    expect(ur.container.querySelector('.order .osc > .cats')).not.toBeNull(); // the rail is the row's first: on the right in RTL
+    expect(ur.container.querySelector('.order .osc--tk-tablet .pills')).not.toBeNull(); // tablet categories stay in the RTL menu column
     expect([...ur.container.querySelectorAll('.price')].every((p) => p.getAttribute('dir') === 'ltr')).toBe(true);
     expect(ur.container.querySelector('.cart__foot strong')?.getAttribute('dir')).toBe('ltr');
     ur.unmount();
