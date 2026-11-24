@@ -3,6 +3,7 @@
 Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part B** (APPROVED 2026-11-24), with Part A P-1 – P-3, 01a v2.9 (A-2′ – A-6), 01b v1.10.4 (B-x), 01c v1.3 (C-11 – C-16), foundation v1.16 §6.2 (F-1). Integration branch: `module-08b`. Only the integrator (orchestrator session) edits this file.
 
 > **Status (owner summary, newest first):**
+> - 2026-11-24 (close): **all 16 tasks merged** into `module-08b` — P0.1–P0.5 #479, s1 #482, s2 #483, r1 #481, r2 #485, r3 #486, r4 #484, r5 #488, g1 #480, t1 #489, u1 #487. Every HIGH task had two fresh reviewers (plus a re-review of each MAJOR fix). **One race failed (t1 #36, G-3: archive skipped its B16 bump behind a first publish)** — owner ruled the fresh read in the write; fixed in r3 before merge, t1 8 / 8 green × 5. **Z1 below** (acceptance map, as-built list for 08 v1.1.1); **Z2** hand-check list for the owner (deferred to the module-08 end). Open: **G-2** (non-blocking). Z3 (`module-08b` → `main`) waits for the owner.
 > - 2026-11-24 (later): **merged** s2 #483 (lane S done), r4 #484. r2 #485 rebased on r4 (additive conflicts in `recipes/routes.ts`, `route-cases.ts` resolved by the integrator; recipe tests 62 / 62 green). r3 running (stacked on r2). Open for the owner: **G-2** (non-blocking).
 > - 2026-11-24 (later): **merged** s1 #482, g1 #480, r1 #481 (each: fresh reviewers — two on HIGH — findings fixed, gate green; r1 gate try 1 red on 01b #104's hash-builder list → AD-22). r1 review found a real race (option owner read `FOR SHARE OF g` returned a stale option row) → fixed with `FOR SHARE OF g, o` + race test. Running: s2, r2 ∥ r4; u1 built on stubs, waits for the R routes.
 > - 2026-11-24: **Phase 0 merged** (#479 → `module-08b` @ `263c157`; gate green on try 2 — try 1 red on a collation-dependent `ORDER BY name` in the fixture test, fixed with `COLLATE "C"`). Every finding of the 4 fresh reviewers fixed (2 MAJOR: `RECIPE_NOT_FOUND` missing; B7 cap per option instead of per stock item per sale line). Lanes s1, r1, g1, u1 running in parallel.
@@ -51,6 +52,7 @@ Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part
 |---|---|---|---|
 | G-1 | **Package graph vs B§4.2 / B15 (c) / t-5.** The spec puts `buildCostInputs` in `@pos/domain` and has it parse "with `InventoryElementsLenient`", which it exports from `@pos/events`. `@pos/events` depends on `@pos/domain`, and `@pos/domain` has no dependencies (no zod), so the domain cannot import that schema | **(a) Rec, built:** `buildCostInputs` runs the same element checks by hand (no zod); `@pos/events` exports `InventoryElementsLenient` as zod schemas; a test (`packages/events/src/config-inventory.test.ts`, "[08b AD-12]") pins that both keep and drop exactly the same elements. No signature or behaviour changes. **(b)** `@pos/domain` gets a zod dependency and the lenient schemas live there, re-exported by `@pos/events`. **(c)** `buildCostInputs` takes the lenient set as a parameter (a signature change) | **(a)**, owner 2026-11-24 → AD-12. Spec patch for Z1 (08 v1.1.1): §4.2 / t-5 "`buildCostInputs` runs the lenient element checks itself; `InventoryElementsLenient` (`@pos/events`) is the same set as zod, pinned by a test" |
 | G-2 | r2 review: an 08a stock-item `kind` change ingredient → prepared of an item that is a line of published recipes adds a prepared level without the publish lock or the depth check, so a chain can reach depth 4 without any publish | (a) **Rec:** accept — the engine treats depth > 3 as `partial` (B9, B11 backstop), no publish is ever refused wrongly; note it in 08 v1.1.1. (b) 08a's `kind` PATCH to `prepared` takes lock 0 and runs the graph depth check (a new 08a lock + rule) | *open (non-blocking)* |
+| G-3 | **Race failed (t1 #36):** an archive waiting behind the recipe's FIRST publish read `has_published` from an EXISTS inside its `SELECT … FOR UPDATE` — the pre-wait snapshot under READ COMMITTED (only the locked row is re-fetched) — and skipped its B16 bump | (a) **fresh read in the write** — `UPDATE recipes … RETURNING EXISTS(published)`, same §6.6 counts; (b) a separate read (+1 statement); (c) archive takes kind 0 (lock-table change) | **(a)**, owner 2026-11-24; fixed in r3 #486 (regression test fails on the old code); t1 #36 green × 5 |
 
 ## As-built decisions (AD): small gaps, plan Rec applied
 
@@ -88,6 +90,8 @@ Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part
 | AD-30 | r4 review (MAJOR): a prepared owner's row and every `per_batch` version's `cost` added the misc allowance | B5 / B9 (a): `recipeCost(…, { top: version.basis !== 'per_batch' })` in `costs.ts` (r1's `versionCosts`, r4's `ownerPlateCost`); the stored `misc_allowance_bp` of a batch version is kept, unused | r4 |
 | AD-31 | r4 rulings: a menu-item row's plate cost = `plateCost` of one sale unit (1 piece, or `base_qty` g / ml on `per_measure`); §6.2's draft read also returns the published version (one statement; archived recipes); the owner-names read also returns line stock-item names (one `UNION ALL`); an option counts archived when its group is; `pct_bp` rounded down, 0 with no items; `filter` = row status; owner id code-point tiebreak | as built | r4 |
 | AD-32 | r2 rulings: the draft read also returns the published version (one statement); error fields `basis` (basis / `measure_unit`), `owner_id` (`linked_option`, `wrong_kind`), `batch_yield_qty`, `lines.N.stock_item_id`, `lines` (`empty`, `cycle`, `too_deep`); depth = prepared stock-item levels incl. a recipe-less prepared leaf (the engine's own depth); supersede writes `status` only; the owner / line checks run before the graph read (a refusal saves one statement); `takePublishLock` keys on `hashtext($1)` only | as built | r2 |
+| AD-33 | S26 says audit `before` / `after` = "the row in its wire shape"; the recipe audit stores the **stored-row shape** (ids, `created_by`, `published_by`, frozen `stock_qty_*`, `archived_at`), without the derived cost / warnings / names / V13 version (recomputed, never stored) — as 08a #36 | as built; note for 01a at the 08 v1.1.1 patch | r1–r3, r5 |
+| AD-34 | r3: `afterRecipeLock` also fires on the §6.6 PATCH (a test seam, no-op in production, used by t1 #36); the recipe-level version hashes id / owner / archived, so archive → restore gives the pre-archive version back | as built | r3 |
 
 ## Tasks
 
@@ -100,33 +104,54 @@ Plan: `08b-plan.md`. Spec: `docs/specs/08_Inventory_Costing_Spec_v1.1.md` **Part
 | P0.4 | Wires + schemas | `lane-0/p0` | #479 | 24, 27 (M-5), 27b (schema level), AD-12 pin | 2026-11-24 | Shared |
 | P0.5 | Hooks + fixtures | `lane-0/p0` | #479 | fixture smoke | 2026-11-24 | Cross |
 | s1 | Snapshot key | `lane-S/s1` | #482 | 23–25, 27, 27b, 28, 33 (key), 08a #25 | 2026-11-24 | HIGH, Cross |
-| s2 | Bump rule on 08a writes | `lane-S/s2` | | 26, 08a #9 #28 #31 #35 | | HIGH, Cross |
+| s2 | Bump rule on 08a writes | `lane-S/s2` | #483 | 26, 08a #9 #28 #31 #35 | 2026-11-24 | HIGH, Cross |
 | r1 | Recipes module + create + draft | `lane-R/r1` | #481 | 12, 13 | 2026-11-24 | HIGH |
-| r2 | Publish | `lane-R/r2` | | 14–17 | | HIGH |
-| r3 | Archive / restore | `lane-R/r3` | | 18, 18b, 37, 38 | | HIGH |
-| r4 | Reads | `lane-R/r4` | | 19, 20 | | — |
-| r5 | Audit + route cases | `lane-R/r5` | | 21 | | — |
+| r2 | Publish | `lane-R/r2` | #485 | 14–17 | 2026-11-24 | HIGH |
+| r3 | Archive / restore | `lane-R/r3` | #486 | 18, 18b, 37, 38 | 2026-11-24 | HIGH; G-3 fix |
+| r4 | Reads | `lane-R/r4` | #484 | 19, 20 | 2026-11-24 | — |
+| r5 | Audit + route cases | `lane-R/r5` | #488 | 21 | 2026-11-24 | — |
 | g1 | Recipe in-use guards | `lane-G/g1` | #480 | 22 | 2026-11-24 | HIGH, Cross |
-| t1 | Races (fresh session) | `lane-T/t1` | | 34, 35, 36 | | HIGH |
-| u1 | Owner app | `lane-U/u1` | | 29–32 | | UI, Cross |
+| t1 | Races (fresh session) | `lane-T/t1` | #489 | 34, 35, 36 | 2026-11-24 | HIGH; found G-3 |
+| u1 | Owner app | `lane-U/u1` | #487 | 29–32 | 2026-11-24 | UI, Cross |
 
-## Acceptance map (B§10.6; filled at Z1)
+## Acceptance map (B§10.6) — Z1
 
-| Test | Task | PR |
-|---|---|---|
-| 1–11 | P0.3 | #479 |
-| 12, 13 | r1 | #481 |
-| 14–17 | r2 | |
-| 18, 18b, 37, 38 | r3 | |
-| 19, 20 | r4 | |
-| 21 | r5 | |
-| 22 | g1 | #480 |
-| 23–25, 27, 27b, 28 | s1 (+ P0.3 / P0.4 schema-level parts) | #482 (+ #479) |
-| 26 | s2 | |
-| 29–32 | u1 | |
-| 33 | P0.2 (+ s1, AD-7) | #479 + #482 |
-| 34–36 | t1 | |
-| 08a #1 | P0.3 | #479 |
-| 08a #25 | s1 | #482 |
-| 08a #9, #28, #31, #35 | s2 | |
-| drill 2 | — (owner's paper figures, OQ-1) | |
+| Test | What | Task | PR |
+|---|---|---|---|
+| 1–11 | pure engine (`costing.test.ts`) | P0.3 | #479 |
+| 12 | §6.4 draft save | r1 | #481 |
+| 13 | §6.3 create (+ option-owner race, AD-24) | r1 | #481 |
+| 14–17 | §6.5 publish, refusals, B-1 race, bump | r2 | #485 |
+| 18, 18b | §6.6 archive / restore, the way forward | r3 | #486 |
+| 19, 20 | §6.1 / §6.2 reads | r4 | #484 |
+| 21 | audit rows + C7 sweep | r5 | #488 |
+| 22 | B17 guards (restore half in #486) | g1 | #480 (+ #486) |
+| 23, 24, 25, 27, 27b, 28 | snapshot `inventory` key, bounds, hash, hub | s1 (+ schema level P0.3 / P0.4) | #482 (+ #479) |
+| 26 | B16 bump rule (no-bump recipe cases AD-29 in #486) | s2 | #483 (+ #486) |
+| 29–32 | owner app (+ client–route contract test) | u1 | #487 |
+| 33 | release bump (key part AD-7) | P0.2 + s1 | #479 + #482 |
+| 34, 35, 36 | races | t1 | #489 |
+| 37, 38 | restore races | r3 | #486 |
+| 08a #1 ⚠️ P-3 | `lb` / `oz` | P0.3 | #479 |
+| 08a #25 ⚠️ P-1 | inverted: ingredient / packet change `inventory.items[]` and bump | s1 | #482 |
+| 08a #9, #28, #31, #35 ⚠️ P-1 | counts 9 / 11 / 11 / 9; #9 bumps every branch | s2 | #483 |
+| 08a #8, #11 ⚠️ C-11 / P-2; 01c #29 ⚠️ C-11 | +1 recipes read (g1), + bump (s2) | g1, s2 | #480, #483 |
+| drill 2 | owner's paper numbers (OQ-1) | — | **not yet** (needs the owner's figures; Z2 item 1) |
+
+**DoD (B§12.1):** tests 1–38, 18b, 27b green on `module-08b` (gate green on every merge); hub / engine / 02b suites unchanged (test 28 grep + gate); drill 2 waits for the owner's paper figures.
+
+## Z1 — as-built list for the 08 v1.1.1 patch
+
+Spec text to patch (no behaviour change unless marked): **G-1** (§4.2 / t-5: lenient checks inside `buildCostInputs`, zod twin pinned); **G-3** (§6.6: `has_published` read in the write); **G-2** open (note the engine backstop); AD-1 (config-sync `repository.ts`), AD-5 (sign-aware fractions), AD-12 (lenient set refuses zero divisors), AD-13 (`recipeCost.known`), AD-14 (`stockItemUnitCost` `null` for a partial batch), AD-15 (warning codes `ep_in_batch`, `ep_no_yield`, `no_menu_cost`), AD-16 (`RecipeSummaryWire.recipe_id` / `version` nullable), AD-17 (§6.6 response), AD-18 (`CloudCostRows` shape), AD-19 (`RECIPE_NOT_FOUND` in errors.ts), AD-20 (sync logger), AD-21 / AD-22 / AD-4 / AD-6 / AD-8 (test files A-4 did not list), AD-23 (P-2 read on any `kind` change), AD-24 (`FOR SHARE OF g, o`), AD-25 (empty non-option recipe → partial), AD-26 (r1 rulings), AD-27 (409 entity per route), AD-28 (u1 live cost, urdu-todo, "makes N piece" for plates), AD-29 (test 26 no-bump cases in r3), AD-30 (no misc on a batch), AD-31 (r4 rulings), AD-32 (r2 rulings: error fields, depth definition), AD-33 (audit stored-row shape; also a 01a S26 note), AD-34 (PATCH test seam, recipe version hash).
+
+## Z2 — owner hand check (deferred to the module-08 end, owner 2026-11-23)
+
+1. **Drill 2:** Tawa piece plate cost vs the paper figure, within Rs 1; Half paye, anda tikki, 1 kg karahi the same (then `[08b drill 2]` becomes a test).
+2. Paye Half = **Rs 231** with misc 5 % applied once (PAYE-COOKED Rs 200 + shorba Rs 20) — no misc on the PAYE-COOKED batch row.
+3. Karahi priced per kg (`per_measure` g) and lassi per litre (`per_measure` ml): a 1 250 g karahi line = × 5/4.
+4. A cycle refused at publish (PAYE-COOKED → QEEMA-COOKED → PAYE-COOKED) with the refusal text.
+5. Restore refused with "Make a new recipe version" after a `sale_unit` change; then the new draft + publish brings the recipe back.
+6. "No recipe" badge on the menu page for an item without a published recipe.
+7. Coverage % on the Recipes page ("N of M items have a recipe").
+8. A partial cost shows "· partial" and "Missing cost: …", never "Rs 0".
+9. A hub snapshot that gained `inventory` after the 0019 release bump and kept applying (no `schema_invalid`, ordering unchanged).
