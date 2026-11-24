@@ -19,6 +19,7 @@ import {
   createTestHub,
   pairDevice,
   seedDirectory,
+  type DeviceProfileInput,
   type TestHub,
 } from "../../hub/test/helpers/test-hub";
 import { startTickLoop } from "../../hub/src/alerts/tick";
@@ -358,6 +359,13 @@ function menuWithTiles(menu: BranchConfig): BranchConfig {
   };
 }
 
+/** 05a v1.0.6 §5.3: the screens of each hardware, in the upgrade's order (the first is the device's home, C-1). */
+const TABLET_SCREENS: DeviceProfileInput["screens"] = ["dine_in", "takeaway", "parking", "cashier", "manager"];
+const KIOSK_SCREENS: DeviceProfileInput["screens"] = ["takeaway", "parking", "dine_in", "cashier", "manager"];
+const PHONE_SCREENS: DeviceProfileInput["screens"] = ["dine_in", "takeaway", "parking", "manager"];
+const listedOn = (staff_ids: string[], screens: DeviceProfileInput["screens"]): DeviceProfileInput => ({ access: "listed", staff_ids, screens });
+const everyoneOn = (screens: DeviceProfileInput["screens"]): DeviceProfileInput => ({ access: "everyone", screens });
+
 /** A free local port: the hub checks Host = advertised_host:http_port (00 host guard), so it is fixed before boot. */
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -391,16 +399,28 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   seedOfflineTables(hub);
   dlSeedTables(hub);
   const { printer, devices: devices03 } = await seed03(hub);
-  const tablet = pairDevice(hub, { type: "tablet", name: "Tablet e2e" });
-  const tablet2 = pairDevice(hub, { type: "tablet", name: "Tablet e2e 2" });
-  const tablet3 = pairDevice(hub, { type: "tablet", name: "Tablet e2e 3" });
-  const kiosk = pairDevice(hub, { type: "cashier_kiosk", name: "Kiosk e2e" });
+  // 05a v1.0.6 §3.3a, §3.5, §3.6, §5.3: every staff device the seed pairs carries the profile its flows need, as a
+  // `DeviceProfileSet` through the writer (test-hub `appendDeviceProfile`: the event `SetDeviceProfile` appends; the
+  // projection and the in-memory `deviceProfile` map see it). A device someone answers approvals or runs hub admin on is
+  // `listed` (rule 3: no listed-only permission and no money answer on an `everyone` device); the others are
+  // `everyone`, as the upgrade leaves a shared tablet.
+  // tablet: Ali's floor flows, the Owner's takeaway counter (02b-TK), the Manager's hub admin (03b admin flows)
+  const tablet = pairDevice(hub, { type: "tablet", name: "Tablet e2e", profile: listedOn(["S_ALI", "S_OWNER", "S_MGR"], TABLET_SCREENS) });
+  // tablet 2: the Manager who approves (02a busy, 02b comp / order, dl), Sara (02a hand-over), Bilal (02a call), Ali (03b Pass taker)
+  const tablet2 = pairDevice(hub, { type: "tablet", name: "Tablet e2e 2", profile: listedOn(["S_MGR", "S_ALI", "S_SARA", "S_BILAL"], TABLET_SCREENS) });
+  // tablet 3: Bilal and Sara (dl call and zone set-up), no approvals: a shared floor tablet
+  const tablet3 = pairDevice(hub, { type: "tablet", name: "Tablet e2e 3", profile: everyoneOn(TABLET_SCREENS) });
+  // kiosk: Ali and the Owner at the counter (02b takeaway, 02b-TK), the Manager answering a void from it (dl t1 on the kiosk)
+  const kiosk = pairDevice(hub, { type: "cashier_kiosk", name: "Kiosk e2e", profile: listedOn(["S_ALI", "S_OWNER", "S_MGR"], KIOSK_SCREENS) });
+  // Ali's phone: `listed` [its owner] (§5.3)
   const phone = pairDevice(hub, {
     type: "phone",
     ownerStaffId: "S_ALI",
     name: "Ali phone",
+    profile: listedOn(["S_ALI"], PHONE_SCREENS),
   });
-  const kitchen = pairDevice(hub, { type: "tablet", name: "Kitchen e2e" });
+  // the 02b-TK kitchen tablet (the Owner reads, the Cook runs the Pass and kitchen-screen commands): shared
+  const kitchen = pairDevice(hub, { type: "tablet", name: "Kitchen e2e", profile: everyoneOn(TABLET_SCREENS) });
   const dev = (
     d: { token: string; deviceId: string },
     device_type: E2eDevice["device_type"] = "tablet",
