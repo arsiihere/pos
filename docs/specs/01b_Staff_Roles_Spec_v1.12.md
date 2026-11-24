@@ -28,7 +28,8 @@
 
 | Row | Owner answer | Change here | Where |
 |---|---|---|---|
-| **B-4** (OR-2; 03b v1.0.16 §3.4 "Handed to customer") | "Give the Pass role `mark-served`" | Default **Cook** (`default_key` `cook`, the role that holds `run-pass` by default) gains **`mark-served`** (`allowed`, scope `branch`, so it covers takeaway / parking orders, 02b §3.14); `default-roles.ts` for new tenants; existing tenants by the idempotent cloud backfill **`NNNN_cook_mark_served.sql`** (the next free cloud number at merge, README "Migration numbers": `0020` on this branch today, which 08d's approved `0020_inventory_receiving.sql` also claims), the `0019_cashier_mark_served.sql` pattern (by `default_key`, active roles only, `ON CONFLICT DO NOTHING`, `directory_version` + 1 per changed tenant, no audit row). Not `boost-order`. A Cook now also may mark dine-in lines served branch-wide (accepted: the Pass already hands those over) | §5.1c, §6.15, test 118, §11 step 11 |
+| **B-4** (OR-2; 03b v1.0.16 §3.4 "Handed to customer") | "Give the Pass role `mark-served`" | Default **Cook** (`default_key` `cook`, the role that holds `run-pass` by default) gains **`mark-served`** (`allowed`, scope `branch`, so it covers takeaway / parking orders, 02b §3.14); `default-roles.ts` for new tenants; existing tenants by the idempotent cloud backfill **`NNNN_takeaway_role_grants.sql`** (⚠️ Changed by v1.12 owner review (B-5, OR-7): one file for B-4 and B-5; was `NNNN_cook_mark_served.sql`) (the next free cloud number at merge, README "Migration numbers": `0020` on this branch today, which 08d's approved `0020_inventory_receiving.sql` also claims), the `0019_cashier_mark_served.sql` pattern (by `default_key`, active roles only, `ON CONFLICT DO NOTHING`, `directory_version` + 1 per changed tenant, no audit row). Not `boost-order`. A Cook now also may mark dine-in lines served branch-wide (accepted: the Pass already hands those over) | §5.1c, §6.15, test 118, §11 step 11 |
+| **B-5** (OR-7; 02b v1.0.25 §3.7a) | The unpaid hand-over approval is a 01d request answered by holders of a new permission | New permission **`hand-over-unpaid`** (group `orders`, scope `branch` only, label `perm.hand-over-unpaid` "Approve handing over an unpaid order"); in **`ALLOWED_ONLY_PERMISSIONS`** (an answer right: `requires_approval` makes no sense, `422 CONFIG_REFERENCE_INVALID { field: 'grants.N.grant_type' }` as today); listed-only on the device (05a v1.0.7 row L-1). Defaults: **Owner** (every permission) and **Manager** (every permission but `manage-roles`) through `default-roles.ts`; not Cashier, Order taker, Waiter or Cook. Running tenants get it from the **same** backfill as B-4 (§5.1c, renamed `NNNN_takeaway_role_grants.sql`) | §3.3, §5.1c, §6.15, test 119 |
 
 
 
@@ -448,6 +449,7 @@ Grant on a role, per permission: `grant_type ∈ allowed, requires_approval` (ab
 | Permission | Scopes | Who enforces |
 |---|---|---|
 | `take-order-anywhere` | `branch`, `my_floors` | 02 |
+| `hand-over-unpaid` (⚠️ Changed by v1.12 owner review (B-5, OR-7)) | `branch` | 02b (§3.7a request answer right; allowed-only; listed-only, 05a) |
 | `force-release-table-lock` | `branch`, `my_floors` | 02 |
 | `take-order` | `branch`, `my_floors`, `own_tables` | 02a, 02b (⚠️ Changed by 02a v1.0, B-1; 02b v1.0, B-4) |
 | `clean-table` | `branch` | 02a (⚠️ Changed by 02a v1.0, B-1) |
@@ -855,7 +857,7 @@ Idempotent (a second run changes nothing and bumps nothing). Pilot tenants are p
 
 One forward-only, **idempotent** data migration for tenants seeded before 05 (precedent `0013_void_defaults_backfill.sql`, §5.1a; by `default_key`, never by name, §3.8; active roles only, `archived_at IS NULL`, for the grantee and the approver role alike). It writes the §6.15 default grants of the new `bills` permissions: Owner, Manager (without `skip-blind-count` and `manage-fiscal-settings`), Cashier and Order taker, with `ON CONFLICT DO NOTHING` (`apply-discount` already exists on Cashier and is kept, `docs/plans/05-gaps.md` G-27), `role_permission_approvers` rows for the `requires_approval` grants (approver = that tenant's active `default_key = 'manager'` role) with the dual-written `approver_role_id`, and one `tenants.directory_version` bump per tenant that changed. A second run changes nothing and bumps nothing.
 
-### 5.1c Cloud — `NNNN_cook_mark_served.sql` ⚠️ Changed by v1.12 owner review (B-4, OR-2)
+### 5.1c Cloud — `NNNN_takeaway_role_grants.sql` ⚠️ Changed by v1.12 owner review (B-4, OR-2); ⚠️ Changed by v1.12 owner review (B-5, OR-7)
 
 Next free cloud number at merge (README "Migration numbers"; `0020` on this branch today). Same shape as `0019_cashier_mark_served.sql`:
 
@@ -873,6 +875,23 @@ WITH granted AS (
 UPDATE tenants SET directory_version = directory_version + 1
  WHERE tenant_id IN (SELECT tenant_id FROM granted);
 ```
+
+The same file then grants **`hand-over-unpaid`** (B-5) to the active default Owner and Manager roles, in one statement so a tenant's `directory_version` rises once for the file:
+
+```sql
+-- 01b v1.12 B-5 (owner review OR-7, 02b v1.0.25 §3.7a): Owner and Manager may approve handing over an unpaid order.
+WITH granted AS (
+  INSERT INTO role_permissions (tenant_id, role_id, permission, grant_type, approver_role_id, scope)
+  SELECT tenant_id, role_id, 'hand-over-unpaid', 'allowed', NULL, 'branch'
+    FROM roles
+   WHERE default_key IN ('owner', 'manager') AND archived_at IS NULL
+  ON CONFLICT (tenant_id, role_id, permission) DO NOTHING
+  RETURNING tenant_id)
+UPDATE tenants SET directory_version = directory_version + 1
+ WHERE tenant_id IN (SELECT DISTINCT tenant_id FROM granted);
+```
+
+(Two statements in one file; a tenant gaining both grants bumps `directory_version` by 2, harmless: the hub only compares versions.)
 
 ### 5.2 Hub — `0005_directory_v2.sql`
 
@@ -1388,6 +1407,7 @@ Numbering: 01b #1–#5 are reserved by 01a §12.5 for the carried items; the res
 
 117. **Business-day end on the owner settings wire (B-1; 02b v1.0.25 TK-8).** `PATCH /v1/admin/branches/:b/settings { business_day_end_local_ms: 12600000 }` → `200`, the `GET` and `GET /v1/admin/branches` return it, one `branch_settings` / `update` audit row carrying it, `config_version` + 1, the settings `version` changes; `0` and `86399999` → `200`; `-1`, `86400000`, `1.5`, `null` → `400 VALIDATION_FAILED` with `issues[0].path = 'business_day_end_local_ms'`; together with `day_stale_after_hours` in one PATCH → both written, one audit row; a new branch returns `14400000`; the same value again → no audit row, no bump. (01a v2.11 test 218 covers the snapshot side.)
 118. **Cook `mark-served` (⚠️ Changed by v1.12 owner review (B-4, OR-2)).** `seed-tenant` gives the Cook role `mark-served` (`allowed`, `branch`); the backfill on a tenant whose Cook lacks it → one row, `directory_version` + 1, a hub directory apply then resolves `mark-served` `allowed` / `branch` for a Cook; a second run → no row, no version change; a tenant whose Cook already has `mark-served` with `own_tables` keeps it; an archived Cook role is skipped; no `boost-order` added.
+119. **`hand-over-unpaid` (⚠️ Changed by v1.12 owner review (B-5, OR-7)).** In `PERMISSION_CATALOGUE` (group `orders`, scopes `['branch']`) and `ALLOWED_ONLY_PERMISSIONS`; a role PATCH with `requires_approval` → `422 CONFIG_REFERENCE_INVALID { field: 'grants.N.grant_type' }`; scope `my_floors` → `422`; `seed-tenant` gives it to Owner and Manager only; the §5.1c backfill on a tenant without it → Owner and Manager rows, idempotent on a second run, archived roles skipped; the hub directory resolves it `allowed` / `branch` for a Manager.
 
 ### 10.11 Acceptance table
 
