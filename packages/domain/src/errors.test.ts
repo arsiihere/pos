@@ -21,6 +21,12 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 describe('errors', () => {
+  it('[H-1; 00 HPA v1.13 §9; F §6.2] registers the new error statuses', () => {
+    expect(ErrorCatalogue).toHaveProperty('DISPLAY_NOT_ENABLED', { status: 403 });
+    expect(ErrorCatalogue).toHaveProperty('TRACKING_LINK_INVALID', { status: 404 });
+    expect(ErrorCatalogue).toHaveProperty('RATE_LIMITED', { status: 429 });
+  });
+
   it('[F §6.2] every DomainError code used in source is in the catalogue', () => {
     const root = fileURLToPath(new URL('../../..', import.meta.url));
     const files = [...walk(join(root, 'apps')), ...walk(join(root, 'packages'))].filter((path) =>
