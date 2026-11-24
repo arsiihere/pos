@@ -61,3 +61,25 @@ describe('availability windows', () => {
     expect(root.localTimeOfDayMs).toBe(localTimeOfDayMs);
   });
 });
+
+describe('[01a v2.11 test 218] businessDayLatestMs', () => {
+  const local = (day: number, hour: number, minute = 0) =>
+    Date.UTC(2026, 10, day, hour, minute) - KARACHI;
+
+  it.each([
+    ['wraps to tomorrow', local(24, 8), 4, at(4), local(25, 4)],
+    ['includes the exact minimum gap', local(24, 0), 4, at(4), local(24, 4)],
+    ['uses the configured end time', local(24, 10), 4, at(23), local(24, 23)],
+    ['skips an end inside the minimum gap', local(24, 1), 4, at(4), local(25, 4)],
+    ['supports zero minimum gap', local(24, 3, 55), 0, at(4), local(24, 4)],
+    ['keeps the end of a day left open', local(23, 8), 4, at(4), local(24, 4)],
+  ] as const)('%s', (_name, openedAt, gap, end, latest) => {
+    expect(root.businessDayLatestMs(openedAt, gap, end, KARACHI)).toBe(latest);
+  });
+
+  it('uses the supplied offset and exports the 04:00 default', () => {
+    expect(root.BUSINESS_DAY_END_LOCAL_MS_DEFAULT).toBe(14_400_000);
+    expect(root.businessDayLatestMs(local(24, 8), 4, root.BUSINESS_DAY_END_LOCAL_MS_DEFAULT, 0))
+      .toBe(Date.UTC(2026, 10, 25, 4));
+  });
+});
