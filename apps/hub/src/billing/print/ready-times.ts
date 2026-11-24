@@ -1,6 +1,7 @@
 import type { FiscalSaleInvoiceFields } from '@pos/domain';
 import type { EngineLine, EngineState } from '@pos/engine';
 import { clock12 } from '../../print/render/jobs.js';
+import { customerReadyAt } from '../../print/render/ready-at.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 
 // 05 v1.0.33 §3.16 (STAB-5; proposal §6 Q2, 01a v2.7.3 `show_part_times_to_customers`, default on): the ready times a
@@ -15,14 +16,6 @@ import { branchConfig } from '../../sync/branch-config-holder.js';
 
 const LIVE = new Set<EngineLine['stage']>(['added', 'cooking', 'done']);
 
-function landOf(state: EngineState, l: EngineLine): number | null {
-  if (l.done_at !== null) return l.done_at + l.carry_ms;
-  const booked = l.booked ?? (l.load_id === null ? null : (state.stations[l.station_id]?.loads[l.load_id]?.booked ?? null));
-  if (booked !== null) return booked.end + l.carry_ms;
-  const start = l.started_at ?? l.fired_at ?? l.fire_ms;
-  return start === null ? null : start + l.cook_ms + l.carry_ms;
-}
-
 export function customerReadyTimes(state: EngineState, invoice: Pick<FiscalSaleInvoiceFields, 'order_type' | 'lines'>, utc_offset_ms: number): string[] {
   // ⚠️ 05 v1.0.34 §3.16 (owner 2026-11-22, STAB-5 Q4): parking too
   if (invoice.order_type !== 'takeaway' && invoice.order_type !== 'parking') return [];
@@ -32,10 +25,9 @@ export function customerReadyTimes(state: EngineState, invoice: Pick<FiscalSaleI
   for (const il of invoice.lines) {
     const l = state.lines[il.order_item_id];
     if (l === undefined || !LIVE.has(l.stage)) continue;
-    const order = state.orders[l.order_id];
-    const land = landOf(state, l);
-    if (order === undefined || land === null) continue;
-    const at = land + (order.promise_ms - order.target_land_ms);
+    const ready = customerReadyAt(state, l);
+    if (ready === null) continue;
+    const at = ready.ready_at;
     if (l.serve_mode === 'sync') {
       together.push(at);
       continue;
