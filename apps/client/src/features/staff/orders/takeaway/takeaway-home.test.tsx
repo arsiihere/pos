@@ -52,6 +52,10 @@ describe('[02b-TK C2-1] the current takeaway draft of a device', () => {
     // held (Hold, auto-hold at sign out): no longer current
     await drafts.put({ draft_id: 'D8', device_id: 'DV1', staff_id: 'sana', order_type: 'takeaway', cart: { lines: [] }, updated_at: 6, held: true });
     expect(await currentTakeawayDraft(drafts, 'DV1', 'sana', newId)).toBe('D9');
+    // review 6: the current one held and no unsent draft left → a fresh id, never the held one
+    await drafts.put({ draft_id: 'D7', device_id: 'DV1', staff_id: 'sana', order_type: 'takeaway', cart: { lines: [] }, updated_at: 7, held: true });
+    await drafts.put({ draft_id: 'D9', device_id: 'DV1', staff_id: 'sana', order_type: 'takeaway', cart: { lines: [] }, updated_at: 8, held: true });
+    expect(await currentTakeawayDraft(drafts, 'DV1', 'sana', newId)).toBe('N3');
   });
 });
 
