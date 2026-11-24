@@ -9,11 +9,11 @@ import { hub, LANGS, menuTile, signInOn, signOut, tr, type Lang } from './02b-su
 
 const kioskOnly = (name: string) => test.skip(name !== 'kiosk', 'the takeaway counter flows run at the kiosk viewport');
 
-/** The kiosk's takeaway screen (KioskHome `#/takeaway`, 05a A-7: its Takeaway chip). */
-async function takeaway(page: Page, lang: Lang): Promise<void> {
+/** The kiosk's Takeaway tab (`#/takeaway`, 05a A-7): the order screen itself — rail, menu, cart (02b-TK C2-1). */
+async function takeaway(page: Page): Promise<void> {
   await page.evaluate(() => (window.location.hash = '#/takeaway'));
-  await page.locator('.bchip', { hasText: tr(lang, 'order.takeaway') }).click();
-  await expect(page).toHaveURL(/#\/order\/takeaway\//);
+  await expect(page.locator('.osc--tk > .tk-q')).toBeVisible();
+  await expect(page).toHaveURL(/#\/takeaway$/);
 }
 
 /** The signed-in person's shift is open (05 §6.15): open it with Starting cash 0, or it already is. */
@@ -47,7 +47,7 @@ for (const lang of LANGS) {
     await signInOn(page, hub().kiosk, lang, 'Owner');
     try {
       await shiftOpen(page, lang);
-      await takeaway(page, lang);
+      await takeaway(page);
       await menuTile(page, 'Naan').click();
       await page.getByRole('button', { name: new RegExp(`^${escape(tr(lang, 'c.send_pay'))}`) }).click();
       const panel = page.locator('.cart .tk-paypanel');
@@ -73,7 +73,7 @@ for (const lang of LANGS) {
     await signInOn(page, hub().kiosk, lang, 'Owner');
     try {
       await shiftOpen(page, lang);
-      await takeaway(page, lang);
+      await takeaway(page);
       await menuTile(page, 'Water').click();
       await page.getByRole('button', { name: new RegExp(`^${escape(tr(lang, 'c.send_later'))}`) }).click();
       const token = await sentToken(page);
@@ -98,7 +98,7 @@ for (const lang of LANGS) {
     kioskOnly(info.project.name);
     await signInOn(page, hub().kiosk, lang, 'Owner');
     try {
-      await takeaway(page, lang);
+      await takeaway(page);
       await menuTile(page, 'Naan').click();
       await page.getByRole('button', { name: new RegExp(`^${escape(tr(lang, 'c.send_later'))}`) }).click();
       const token = await sentToken(page);
@@ -124,10 +124,13 @@ for (const lang of LANGS) {
   test(`[02b-TK C2-5; R3] held drafts are shared on the device, the name masked without view-customer-contact (${lang})`, async ({ page }, info) => {
     kioskOnly(info.project.name);
     await signInOn(page, hub().kiosk, lang, 'Owner');
-    await takeaway(page, lang);
+    await takeaway(page);
     await page.locator('.cart input').first().fill('Usman');
     await menuTile(page, 'Naan').click();
     await page.getByRole('button', { name: tr(lang, 'cart.hold') }).click();
+    // 02b-TK C2-1: the cashier stays on the Takeaway tab with a fresh cart
+    await expect(page).toHaveURL(/#\/takeaway$/);
+    await expect(page.locator('.cart .ln')).toHaveCount(0);
     await signOut(page, info, lang);
     await signInOn(page, hub().kiosk, lang);
     try {

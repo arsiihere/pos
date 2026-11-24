@@ -10,6 +10,10 @@ import { MaskedAction } from './shell/MaskedAction';
 import { createPermissions } from './shell/permissions';
 import { fallbackScreens, tabsOf } from './shell/screens';
 
+// 02b-TK C2-1: the kiosk lands on #/takeaway, now the takeaway order screen; these tests are about the shell, so
+// it is a probe
+vi.mock('./orders/takeaway/TakeawayHome', () => ({ TakeawayHome: () => <div data-probe="takeaway-home" /> }));
+
 // 05a §3.6, §8, C-1: the staff shell's tabs come from the device profile (`GET /queries/session` `device.screens`,
 // the `device_profile` push), the permissions after the mask decide what is hidden, and width only picks the layout.
 

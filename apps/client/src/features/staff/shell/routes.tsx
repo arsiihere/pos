@@ -3,7 +3,8 @@ import type { OrderType } from '../orders/contracts';
 
 // 02a §8, 02b §8 (W0.6): the staff entry's hash routes (S35 b, app/router.ts). The 01d views keep theirs
 // (#/inbox, #/requests, #/test-alert, #/receipts/<id>); anything unknown falls back to the inbox. 05a C-1: the
-// home is the device's first screen (shell/screens.ts), `#/takeaway` is KioskHome (A-7).
+// home is the device's first screen (shell/screens.ts), `#/takeaway` is the takeaway order screen (A-7;
+// 02b-TK C2-1: TakeawayHome).
 
 // 01d v1.3 §3.13.5: the element a deep link glows, from the one optional `focus` parameter. Valid only on the
 // table, order view, zones, pass and inbox routes (m11), and only in the forms of that place; anything else is
@@ -27,7 +28,7 @@ export type StaffRoute =
   | { name: 'zones'; focus: StaffFocus | null }
   | { name: 'queue' }
   | { name: 'me' }
-  | { name: 'takeaway' } // 05a A-7: KioskHome, retired as `kiosk_home`; the `takeaway` screen
+  | { name: 'takeaway' } // 05a A-7: the `takeaway` screen; 02b-TK C2-1: the takeaway order screen (TakeawayHome)
   | { name: 'manager' } // 05a §3.6
   | { name: 'pass'; focus: StaffFocus | null } // 03b W0.6: the Pass screen (a device with a point)
   | { name: 'inbox'; focus: StaffFocus | null }

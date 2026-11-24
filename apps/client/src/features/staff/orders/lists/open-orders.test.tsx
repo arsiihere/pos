@@ -7,7 +7,6 @@ import { createPermissions } from '../../shell/permissions';
 import { createToastBus } from '../../shell/toast';
 import type { CatchUpOrder, DraftStore, OpenOrder, OpenOrdersBody } from '../contracts';
 import { DraftStoreContext } from '../order-screen/OrderScreen';
-import { KioskHome } from './KioskHome';
 import { OpenOrders } from './OpenOrders';
 
 // 02b v1.0.11 §8 Open orders, §6.16 (27b1; frames 02-S07 OpenOrdersKiosk / OpenOrdersAbandoned / OpenOrdersPhone):
@@ -282,38 +281,9 @@ describe('[02b §8 Open orders] open orders list', () => {
     expect(rowsOf(v)).toHaveLength(4);
   });
 
-  it('[02b §8 Open orders] kiosk home = open orders + Takeaway / Parking', async () => {
-    const held: DraftStore = {
-      put: async () => {},
-      remove: async () => {},
-      list: async () => [{ draft_id: 'a', held: true }, { draft_id: 'b', held: false }, { draft_id: 'c', held: true }] as never,
-    };
-    const v = await show(setup({ device: 'cashier_kiosk', takeOrder: true }), <KioskHome />, held);
-    expect(rowsOf(v)).toHaveLength(4);
-    expect(v.text()).toContain('New order');
-    expect(v.button('Held').querySelector('.cnt')?.textContent).toBe('2');
-    v.click(v.button('Takeaway', v.container.querySelector('.bchips')!));
-    expect(window.location.hash).toMatch(/^#\/order\/takeaway\/[0-9A-Z]{26}$/);
-    v.click(v.button('Parking', v.container.querySelector('.bchips')!));
-    expect(window.location.hash).toMatch(/^#\/order\/parking\/[0-9A-Z]{26}$/);
-    v.click(v.button('Tables'));
-    expect(window.location.hash).toBe('#/tables');
-    v.click(v.button('Held'));
-    expect(window.location.hash).toBe('#/held');
-  });
-
   it('[02b §8 Open orders] phone: chips and rows', async () => {
     const v = await show(setup({ phone: true }));
     expect(v.container.querySelector('.chipsx .chip[aria-pressed="true"]')?.textContent).toContain('All');
     expect(rowsOf(v)).toHaveLength(4);
-  });
-
-  it('[02b §8 Rules] kiosk home: Takeaway / Parking follow the take-order grant (R5); Tables and Held stay', async () => {
-    const v = await show(setup({ device: 'cashier_kiosk' }), <KioskHome />);
-    expect(v.container.querySelector('.bchips')).toBeNull();
-    expect(v.text()).not.toContain('New order');
-    expect(rowsOf(v)).toHaveLength(4);
-    v.click(v.button('Tables'));
-    expect(window.location.hash).toBe('#/tables');
   });
 });

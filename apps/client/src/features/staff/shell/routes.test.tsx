@@ -2,7 +2,6 @@ import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Held } from '../orders/order-screen/Held';
 import { OrderScreen } from '../orders/order-screen/OrderScreen';
-import { KioskHome } from '../orders/lists/KioskHome';
 import { OpenOrders } from '../orders/lists/OpenOrders';
 import { createEnqueue } from '../orders/queue/enqueue';
 import { createShellHooks } from '../orders/queue/shell-hooks';
@@ -12,6 +11,7 @@ import { ZoneStock } from '../orders/zones/ZoneStock';
 import { TableMap } from '../tables/map/TableMap';
 import { TableSheet } from '../tables/sheet/TableSheet';
 import { PassScreen } from '../../pass/PassScreen';
+import { TakeawayHome } from '../orders/takeaway/TakeawayHome';
 import { createLiveBus } from './live';
 import { screenOfPath } from './screens';
 import {
@@ -44,7 +44,7 @@ function slot(hash: string, deviceType: 'tablet' | 'cashier_kiosk' | 'phone' = '
 }
 
 describe('[02 W0.6] staff routes', () => {
-  it('[02 W0.6] #/tables, #/tables/:id, #/order/:type/:id, #/orders, #/orders/:id, #/held, #/zones, #/queue, #/me each render their slot; #/takeaway = KioskHome (A-7), #/ is the inbox', () => {
+  it('[02 W0.6] #/tables, #/tables/:id, #/order/:type/:id, #/orders, #/orders/:id, #/held, #/zones, #/queue, #/me each render their slot; #/takeaway = the takeaway order screen (A-7; 02b-TK C2-1), #/ is the inbox', () => {
     expect(slot('/tables').mounts).toEqual([TableMap]);
     const table = slot(tableHref('TB 4', 'S1'));
     expect(table.route).toEqual({ name: 'table', table_id: 'TB 4', seating_id: 'S1', focus: null });
@@ -64,7 +64,7 @@ describe('[02 W0.6] staff routes', () => {
     expect(slot('/zones').mounts).toEqual([ZoneStock]);
     expect(slot('/queue').mounts).toEqual([QueueLog]);
     expect(slot('/me').route).toEqual({ name: 'me' });
-    expect(slot('/takeaway').mounts).toEqual([KioskHome]);
+    expect(slot('/takeaway').mounts).toEqual([TakeawayHome]);
     expect(matchStaffRoute('/', 'cashier_kiosk')).toEqual({ name: 'inbox', focus: null });
     expect(matchStaffRoute('/manager', 'phone')).toEqual({ name: 'manager' });
     // the 01d views keep their routes; anything unknown is the inbox (a tablet's #/ too)
