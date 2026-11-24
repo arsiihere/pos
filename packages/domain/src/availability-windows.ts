@@ -3,6 +3,8 @@
 
 const DAY_MS = 86_400_000;
 
+export const BUSINESS_DAY_END_LOCAL_MS_DEFAULT = 14_400_000;
+
 export interface AvailabilityWindow {
   start_ms: number;
   end_ms: number;
@@ -10,6 +12,18 @@ export interface AvailabilityWindow {
 
 export function localTimeOfDayMs(nowMs: number, utcOffsetMs: number): number {
   return (((nowMs + utcOffsetMs) % DAY_MS) + DAY_MS) % DAY_MS;
+}
+
+// 01a §3.3 BD-3: the first configured local day end at or after the minimum gap.
+export function businessDayLatestMs(
+  openedAtMs: number,
+  dayMinGapHours: number,
+  businessDayEndLocalMs: number,
+  utcOffsetMs: number,
+): number {
+  const base = openedAtMs + dayMinGapHours * 3_600_000;
+  const untilDayEnd = businessDayEndLocalMs - localTimeOfDayMs(base, utcOffsetMs);
+  return base + (((untilDayEnd % DAY_MS) + DAY_MS) % DAY_MS);
 }
 
 export function inAvailabilityWindows(windows: readonly AvailabilityWindow[], localTimeOfDayMs: number): boolean {

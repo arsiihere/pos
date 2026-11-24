@@ -3,6 +3,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import { aBranchConfig, aBranchConfigItemStock, anEngineConfigApplied } from '../testing/index';
 import {
   BranchConfigSnapshotSchemaV4,
+  BUSINESS_DAY_END_LOCAL_MS_DEFAULT,
   SNAPSHOT_SCHEMA_VERSION,
   SyncConfigEnvelopeSchema,
   isStockTracked,
@@ -183,6 +184,30 @@ function snapV2(): SnapV2 {
 function snapV4(): SnapV2 {
   return exampleV4() as unknown as SnapV2;
 }
+
+describe('BranchConfigSnapshotSchemaV4 business day end', () => {
+  it('[01a v2.11 test 214, BD-3] accepts an older snapshot and falls back to 04:00', () => {
+    const parsed = BranchConfigSnapshotSchemaV4.parse(exampleV4());
+    expect(parsed).not.toHaveProperty('business_day_end_local_ms');
+    expect(parsed.business_day_end_local_ms ?? BUSINESS_DAY_END_LOCAL_MS_DEFAULT).toBe(14_400_000);
+  });
+
+  it.each([0, 12_600_000, 86_340_000])('[01a v2.11 test 218, BD-3] keeps %s ms', (end) => {
+    const parsed = BranchConfigSnapshotSchemaV4.parse({ ...exampleV4(), business_day_end_local_ms: end });
+    expect(parsed.business_day_end_local_ms).toBe(end);
+  });
+
+  it.each([-1, 1.5, 12_600_001, 86_340_001, 86_399_999, 86_400_000, null])(
+    '[01a v2.11 tests 214 and 218, BD-3] rejects %s as a business day end',
+    (end) => {
+      const parsed = BranchConfigSnapshotSchemaV4.safeParse({ ...exampleV4(), business_day_end_local_ms: end });
+      expect(parsed.success).toBe(false);
+      expect(parsed.error?.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['business_day_end_local_ms'] }),
+      ]));
+    },
+  );
+});
 
 describe('BranchConfigSnapshotSchemaV4: the 01a rules kept from schema 1', () => {
   it('[01a §4.3] SNAPSHOT_SCHEMA_VERSION is 4 (02a A-1, 02b A-1)', () => {

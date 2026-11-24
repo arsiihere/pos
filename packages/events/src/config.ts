@@ -306,6 +306,8 @@ const BranchConfigSnapshotSchemaV3Shape = SnapshotBase.extend({
 const v3Shape = BranchConfigSnapshotSchemaV3Shape.shape;
 
 const BranchConfigSnapshotSchemaV4Base = BranchConfigSnapshotSchemaV3Shape.extend({
+  // 01a v2.11 BD-3: older snapshots omit the key and hub readers fall back to 04:00.
+  business_day_end_local_ms: int.min(0).max(86_340_000).multipleOf(60_000).optional(),
   floors: z.array(
     baseShape.floors.element.extend({
       zones: z.array(
@@ -511,6 +513,8 @@ export const BranchConfigSnapshotSchemaV4 = BranchConfigSnapshotSchemaV4Base.ext
   // ⚠️ Changed by 08b v1.0 (01a A-3, B15 c): stored and hashed raw; nothing on the hub reads it until 08c (M-5)
   inventory: z.unknown().optional(),
 });
+
+export { BUSINESS_DAY_END_LOCAL_MS_DEFAULT } from '@pos/domain';
 
 // 03b §4.5 A-1: the hub defaults of the optional engine_settings keys (the cloud columns default to the same values).
 export const HUB_ENGINE_SETTING_DEFAULTS = Object.freeze({
