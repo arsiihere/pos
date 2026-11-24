@@ -63,6 +63,12 @@ export function identifierText(id: Identifier): string {
   return `PARKING ${id.car_number} ${id.car_type.toUpperCase()}`;
 }
 
+/** Branch-local date on paper, "24 Nov 2026". */
+export function dayText(at: number, utc_offset_ms: number): string {
+  const d = new Date(at + utc_offset_ms);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 /** 12-hour branch-local time, "1:22 PM". */
 export function clock12(at: number, utc_offset_ms: number): string {
   const d = new Date(at + utc_offset_ms);
