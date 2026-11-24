@@ -618,6 +618,8 @@ interface EngineLine {
 }
 ```
 
+> ⚠️ Changed by 03b v1.0.16 owner clarification (PT-R2): `ProposedOrder.lines[].point_id` and `EngineLine.point_id` are the point as given by 02b (03b `routePoint`, Pass points by order type), copied verbatim. The engine never derives a point from `station.point_id` and never re-routes. `reachHiddenRoutes` (AD-25) and alternate moves (AD-17) read `carry_times` for `line.point_id`. `EngineConfigApplied` does not carry `points[].order_types`. Text only, no code change.
+
 > ⚠️ **Changed by v1.2.2 (owner 2026-11-11, B2-2):** `EngineLine.done_undone` (default `false` at `ItemAdded`) is set to `true` by the fold of `ItemDoneUndone` and cleared by nothing. It is derived from the log, so replay and a checkpoint rebuild give the same value; the state shape changes, so `ENGINE_STATE_VERSION` becomes **4** (D62): new fixtures `engine-log.v4.json` / `engine-state.v4.json` and a v4 key-set entry for test 56; the v3 entries stay as written. The day-close checkpoint (§3.12, `checkpoint_schema: 1`) holds no lines, so it does not change.
 
 > ⚠️ **Changed in v1.0.1 (state fields as built; v3 was never released, so its key set stayed editable; `ENGINE_STATE_VERSION` stays 3, D62):**
