@@ -4205,6 +4205,7 @@ export const en = {
   'h.shared': 'Everyone on this counter sees these. Table orders stay with who held them.',
   // ---- 02b-TK client (batch C3): docs/design/handoff/02b-tk/strings-table.md ----
   'c.send_later': 'Send · pay later',
+  'c.phone_pay': 'Pay', // PhoneMenu; Urdu to confirm
   'c.send_pay': 'Send & pay',
   'c.queued_pay': 'Payment needs the hub. Send now; take payment when Live.',
   'p.title': 'Take payment',

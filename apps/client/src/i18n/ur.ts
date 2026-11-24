@@ -1672,6 +1672,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'h.shared': 'اس کاؤنٹر پر سب یہ دیکھتے ہیں۔ میز کے آرڈر اسی کے پاس رہتے ہیں جس نے ہولڈ کیے۔',
   // ---- 02b-TK client (batch C3): docs/design/handoff/02b-tk/strings-table.md ----
   'c.send_later': 'بھیجیں · پیسے بعد میں',
+  'c.phone_pay': 'ادائیگی', // PhoneMenu; Urdu to confirm
   'c.send_pay': 'بھیجیں اور پیسے لیں',
   'c.queued_pay': 'پیسوں کیلئے ہب چاہیے۔ ابھی بھیجیں، لائیو ہونے پر پیسے لیں۔',
   'p.title': 'پیسے لیں',

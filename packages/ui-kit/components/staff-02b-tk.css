@@ -354,3 +354,41 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .tk-q.tk-q--drawer { width: 460px; max-width: 100vw; border-inline-start: 1px solid var(--line); }
 .tk-q--drawer .tk-drawer__h { justify-content: space-between; }
 .tk-q--drawer .tk-q__scroll { flex: 1; min-height: 0; }
+
+/* 02b-TK PhoneMenu, PhoneCart and PhoneCartUrdu. */
+.order--tk-phone { min-height: 0; }
+.order--tk-phone .ptabs { flex: none; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 6px; border-radius: 0; background: var(--chrome-deep); }
+.order--tk-phone .ptabs button { min-height: 52px; border-radius: 12px; color: var(--on-chrome-muted); }
+.order--tk-phone .ptabs button[aria-pressed="true"] { background: var(--surface); color: var(--accent-ink); box-shadow: inset 0 -4px 0 var(--action); }
+.order--tk-phone .ph-body { overflow-y: auto; padding: 12px; gap: 10px; }
+.order--tk-phone .menu { padding: 0; }
+.order--tk-phone .items { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.order--tk-phone .mi--h { min-height: 118px; padding: 10px; }
+.order--tk-phone .mi--h .photo { width: 40px; }
+.order--tk-phone .mi__name, .order--tk-phone .ln__m { font-size: 16px; }
+.order--tk-phone .ln__ctrl .step button { min-width: 38px; min-height: 44px; }
+.ph-bar { gap: 10px; padding: 10px 12px 14px; background: var(--surface-raised); border-top: 1px solid var(--line); }
+.ph-bar .sbar__t b { font-size: 24px; }
+.ph-bar .sbar__t small { color: var(--ok); font-size: 14px; font-weight: 700; }
+.ph-bar__time { white-space: nowrap; }
+
+.ph-top--takeaway { gap: 8px; padding: 10px 12px; }
+.ph-top--takeaway .tk-ctx__ic { flex: none; width: 40px; height: 40px; }
+.ph-top--takeaway .grow { min-width: 0; }
+.ph-top--takeaway h1 { font-size: 19px; overflow-wrap: anywhere; }
+.ph-top__live { color: var(--on-chrome-muted); font-size: 13px; }
+.ph-top--takeaway .end { gap: 4px; }
+
+.ph-top--takeaway { background: var(--chrome); color: var(--on-chrome); }
+.pu .ph-top--takeaway .sub { color: var(--on-chrome-muted); }
+.ph-top--takeaway .end .av { background: var(--action); color: var(--on-action); }
+.order--tk-phone .cust.duo { grid-template-columns: minmax(0, 1fr); margin: 0; }
+.order--tk-phone .cust input,
+.order--tk-phone .search input,
+.osc--tk-tablet .search input { width: 100%; min-width: 0; }
+.order--tk-phone .search input,
+.osc--tk-tablet .search input { border: 0; background: transparent; font: inherit; }
+.order--tk-phone .mi--h .photo { height: 40px; border-radius: 50%; align-self: start; }
+.order--tk-phone .ln { grid-template-columns: auto minmax(0, 1fr) auto; padding: 8px 2px; }
+.order--tk-phone .ln > .step { align-self: start; }
+.order--tk-phone .ln .step button { width: 38px; min-height: 44px; }

@@ -39,4 +39,16 @@ describe('02b §8 takeaway device layouts', () => {
       expect(m.container.querySelector('.tk-paypanel')).not.toBeNull();
     } finally { m.unmount(); }
   });
+
+  it('7c PhoneMenu and PhoneCart share a compact total and Ready by bar', async () => {
+    const m = screenHarness({ phone: true, rows: [] }).render();
+    try {
+      await flush();
+      const bar = m.container.querySelector('.ph-bar');
+      expect(bar?.textContent).toContain('Ready by');
+      expect(bar?.textContent).toContain('Rs 0');
+      m.click(m.button('Cart'));
+      expect(m.container.querySelector('input[name="phone"]')?.getAttribute('inputmode')).toBe('tel');
+    } finally { m.unmount(); }
+  });
 });

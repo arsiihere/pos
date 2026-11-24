@@ -62,14 +62,40 @@ function IconButton({ icon, label, count, onClick }: { icon: IconName; label: st
   );
 }
 
+function TakeawayLabel({ context }: { context: ContextSlotValue }) {
+  return (
+    <>
+      {context.label}
+      {context.token !== null && (
+        <>
+          {' '}
+          <span dir="ltr" className="num">
+            {context.token}
+          </span>
+        </>
+      )}
+      {context.name !== null && (
+        <>
+          {' · '}
+          <bdi>{context.name}</bdi>
+        </>
+      )}
+    </>
+  );
+}
+
 export function TopBar(p: TopBarProps) {
   if (p.phone) {
     return (
-      <header className="ph-top">
+      <header className={p.context ? "ph-top ph-top--takeaway" : "ph-top"}>
+        {p.context !== null && p.context !== undefined && (
+          <span className="tk-ctx__ic"><TabGlyph screen="takeaway" /></span>
+        )}
         <div className="grow">
-          <h1>{p.title}</h1>
-          <span className="sub">{p.phoneSub}</span>
+          <h1>{p.context ? <TakeawayLabel context={p.context} /> : p.title}</h1>
+          <span className="sub">{p.context?.sub ?? p.phoneSub}</span>
         </div>
+        {p.context && <span className="ph-top__live">{p.phoneSub}</span>}
         {p.person !== null && (
           <div className="end">
             {p.requests !== null && <IconButton icon="shield" label={t('alerts.nav.requests')} count={p.requests} onClick={() => p.onNavigate('/requests')} />}
@@ -94,21 +120,7 @@ export function TopBar(p: TopBarProps) {
             </span>
             <div>
               <b>
-                {p.context.label}
-                {p.context.token !== null && (
-                  <>
-                    {' '}
-                    <span dir="ltr" className="num">
-                      {p.context.token}
-                    </span>
-                  </>
-                )}
-                {p.context.name !== null && (
-                  <>
-                    {' · '}
-                    <bdi>{p.context.name}</bdi>
-                  </>
-                )}
+                <TakeawayLabel context={p.context} />
               </b>
               {p.context.sub !== null && <small>{p.context.sub}</small>}
               {p.bind}
