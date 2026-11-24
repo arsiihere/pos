@@ -50,3 +50,7 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `v.check_denied` | You can’t print the check bill for this order | آپ اس آرڈر کا چیک بل پرنٹ نہیں کر سکتے |
 | `shell.me.shift_open` | Opened {time} · float {money} | {time} پر کھلی · فلوٹ {money} |
 | `shell.locked` | Screen locked | اسکرین لاک ہے |
+| `m.hint_qty` | 4 × naan | 4 × نان |
+| `m.hint_initials` | half karahi | آدھی کڑاہی |
+| `m.hint_add` | add | ڈالیں |
+| `m.hint_clear` | clear | صاف کریں |

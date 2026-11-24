@@ -54,6 +54,8 @@ export interface CartProps {
   overlay?: ReactNode;
   /** 02b-TK C3-2 (R6): Print check bill of the sent token this cart adds to (an unsent cart has none) */
   checkBill?: ReactNode;
+  /** 02b-TK A2 item 2 (frame KeyboardMode "Hold F4"): the kiosk's keyboard: Hold shows its key */
+  holdKey?: boolean;
 }
 
 function GroupHead({ group, utcOffsetMs }: { group: CartGroup; utcOffsetMs: number }) {
@@ -168,6 +170,14 @@ export function Cart(p: CartProps) {
               </button>
               <button type="button" className="btn" disabled={empty} onClick={p.onHold}>
                 {t('cart.hold')}
+                {p.holdKey === true && (
+                  <>
+                    {' '}
+                    <span className="tk-kbd" dir="ltr">
+                      F4
+                    </span>
+                  </>
+                )}
               </button>
             </div>
             {p.checkBill}

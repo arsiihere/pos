@@ -11,8 +11,11 @@ import { takeLeavePass } from './leave-pass';
 // person was going. A deep link passes (leave-pass.ts, 01d #105: its Back returns to the cart). Sign out and the idle
 // lock do not ask: the screen holds the cart itself (OrderScreen auto-hold).
 
-/** Arms the guard on this route; `pending` is where the person was going, null while nobody is leaving. */
-export function useLeaveGuard(here: string, armed: () => boolean): { pending: string | null; clear(): void } {
+/**
+ * Arms the guard on this route; `pending` is where the person was going, null while nobody is leaving. `ask(to)` asks
+ * without a hash change (02b-TK A2 item 2: F2 New takeaway on the Takeaway tab, `to` = this route = a fresh cart).
+ */
+export function useLeaveGuard(here: string, armed: () => boolean): { pending: string | null; clear(): void; ask(to: string): void } {
   const [pending, setPending] = useState<string | null>(null);
   const armedRef = useRef(armed);
   armedRef.current = armed;
@@ -29,7 +32,7 @@ export function useLeaveGuard(here: string, armed: () => boolean): { pending: st
     window.addEventListener('hashchange', onHash, true);
     return () => window.removeEventListener('hashchange', onHash, true);
   }, [here]);
-  return { pending, clear: () => setPending(null) };
+  return { pending, clear: () => setPending(null), ask: (to: string) => setPending(to) };
 }
 
 export function LeaveGuard(p: { items: string; money: string; sheet: boolean; onHold(): void; onDiscard(): void; onStay(): void }) {

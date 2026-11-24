@@ -132,4 +132,86 @@ for (const lang of LANGS) {
       await signOut(page, info, lang);
     }
   });
+
+  // Item 2 — keyboard speed mode (frame KeyboardMode; MAPPING TK-S02). The fixture menu has Naan and Chicken Karahi.
+  test(`[02b-TK TK-S02] "/" focuses the search; "4naan" Enter adds 4 Naan; Esc leaves the search; F4 holds (${lang})`, async ({ page }, info) => {
+    runsHere(info);
+    await signInOn(page, deviceFor(info), lang);
+    try {
+      await takeawayTab(page);
+      const search = page.locator('.menu input[type="search"]');
+      await expect(search).toHaveAttribute('placeholder', tr(lang, 'm.search'));
+      await page.locator('.cart__head').click(); // the focus on the page, in no field
+      await page.keyboard.press('/');
+      await expect(search).toBeFocused();
+      // "4n" of the frame is the vitest suite's (the fixture menu may hold other n… items): the full word here
+      await page.keyboard.type('4naan');
+      const first = page.locator('.tk-sugg [role="option"]').first();
+      await expect(first).toContainText('4×');
+      await expect(first).toContainText('Naan');
+      await expect(first).toHaveAttribute('aria-selected', 'true');
+      await page.keyboard.press('Enter');
+      const line = page.locator('.cart .ln', { hasText: 'Naan' });
+      await expect(line).toHaveCount(1);
+      await expect(line).toContainText('4');
+      await expect(search).toHaveValue('');
+      await page.keyboard.type('nan');
+      await page.keyboard.press('Escape');
+      await expect(search).toHaveValue('');
+      await expect(search).not.toBeFocused();
+      // F4 holds the cart: a fresh one on the Takeaway tab
+      await page.keyboard.press('F4');
+      await expect(page.locator('.cart .ln')).toHaveCount(0);
+    } finally {
+      await signOut(page, info, lang);
+    }
+  });
+
+  test(`[02b-TK TK-S02] digits typed in the phone field stay in the phone field, never in the item search (${lang})`, async ({ page }, info) => {
+    runsHere(info);
+    await signInOn(page, deviceFor(info), lang);
+    try {
+      await takeawayTab(page);
+      const phone = page.locator('.cust input[name="phone"]');
+      await phone.click();
+      await page.keyboard.type('03001234567');
+      await expect(phone).toHaveValue('03001234567');
+      await expect(page.locator('.menu input[type="search"]')).toHaveValue('');
+      await expect(page.locator('.tk-sugg')).toHaveCount(0);
+      // typing on the bare screen goes to the search
+      await page.locator('.cart__head').click();
+      await page.keyboard.type('4');
+      await expect(page.locator('.menu input[type="search"]')).toBeFocused();
+      await expect(page.locator('.menu input[type="search"]')).toHaveValue('4');
+      await page.keyboard.press('Escape');
+      // the phone stays on the cart, not sent: clear it for the next run (the draft is per device and person)
+      await phone.fill('');
+    } finally {
+      await signOut(page, info, lang);
+    }
+  });
+
+  test(`[02b-TK TK-S02] F2 with an unsent cart asks first (Hold it / Throw away / Stay here); the hint row on the kiosk only (${lang})`, async ({ page }, info) => {
+    runsHere(info);
+    await signInOn(page, deviceFor(info), lang);
+    try {
+      await takeawayTab(page);
+      const hint = page.locator('.menu > .tk-hint');
+      if (info.project.name === 'kiosk') {
+        await expect(hint).toContainText('F2');
+        await expect(hint).toContainText(tr(lang, 'ctx.new'));
+        await expect(hint).toContainText(tr(lang, 'shell.back'));
+      } else await expect(hint).toHaveCount(0);
+      await menuTile(page, 'Naan').click();
+      await page.locator('.cart__head').click();
+      await page.keyboard.press('F2');
+      const guard = page.locator('.dlg[role="dialog"]', { hasText: tr(lang, 'l.title') });
+      await expect(guard).toBeVisible();
+      await guard.getByRole('button', { name: tr(lang, 'l.discard') }).click();
+      await expect(page.locator('.cart .ln')).toHaveCount(0);
+      await expect(page).toHaveURL(/#\/takeaway$/);
+    } finally {
+      await signOut(page, info, lang);
+    }
+  });
 }

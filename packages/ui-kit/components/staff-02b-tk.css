@@ -252,3 +252,18 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 /* Switch user over a signed-in page: Back + what this is */
 .signin__switch { display: flex; align-items: center; gap: 14px; }
 .signin__switch b { font-size: 20px; }
+
+/* ---------- A2 batch 1 item 2: keyboard speed mode (frame KeyboardMode; MAPPING TK-S02) ---------- */
+.tk-ksearch { position: relative; }
+.menu .search .tk-kbd { margin-inline-start: auto; color: var(--ink-faint); }
+.tk-sugg { position: absolute; z-index: 20; top: calc(100% + 6px); inset-inline-start: 0; inset-inline-end: 0; background: var(--surface-raised); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); padding: 8px; }
+.tk-sugg__r { display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 0 14px; border-radius: 12px; font-size: 17px; cursor: pointer; }
+.tk-sugg__r.is-sel { background: var(--accent-tint); }
+.tk-sugg__r b { font-size: 18px; }
+.tk-sugg__r .num { unicode-bidi: isolate; }
+.tk-sugg__r .tk-kbd { margin-inline-start: auto; }
+.tk-sugg .tk-hint { margin-top: 6px; }
+/* the shortcut hint row under the tiles (kiosk) */
+.menu > .tk-hint { display: block; line-height: 2; margin: 0 0 14px; padding: 10px 14px; border-radius: var(--radius-md); background: var(--surface-sunken); font-weight: 600; }
+.tk-sugg .tk-hint, .menu > .tk-hint { color: var(--ink-muted); }
+.tk-hint .tk-kbd { color: var(--ink); }

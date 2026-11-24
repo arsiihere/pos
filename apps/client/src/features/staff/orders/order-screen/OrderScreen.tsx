@@ -1,6 +1,6 @@
 import { inAvailabilityWindows, localTimeOfDayMs, type Unit } from '@pos/domain';
 import type { BranchConfig, ConfigItem } from '@pos/events';
-import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { navigate } from '../../../../app/router';
 import { language, t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
@@ -68,6 +68,7 @@ import { showEnqueued } from '../view/LineActions';
 import { groupParts, type GroupedLine } from '../view/parts';
 import { servable } from '../view/stage';
 import { takeawayContext } from '../../shell/context-slot';
+import { keyEntries, keyMatches, parseKeyQuery, type KeyEntry } from './keyboard';
 
 // 02b §8 Ordering screen (02-S05 Order, OrderEmpty, OrderLoading, OrderKiosk, OrderPortrait, OrderUrdu; 02-S10 phone
 // Menu / Cart tabs + sticky Send; 02-B03 draft back, B04 offline, B05 / B07 line problems), 02a §8 Order screen (the
@@ -147,6 +148,14 @@ function sheetTargetPresent(sheet: SheetRequest, config: BranchConfig, cart: Car
     case 'order_note':
       return true;
   }
+}
+
+/** 02b-TK A2 item 2: a key typed here is text for that field (name, phone, a note…), never a shortcut or the search. */
+function editable(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
+  return target instanceof HTMLInputElement && !['button', 'checkbox', 'radio', 'submit', 'reset'].includes(target.type);
 }
 
 /** The variant group tile: orderable when any variant is; else the first variant's state. */
@@ -416,6 +425,11 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  // 02b-TK A2 item 2 (frame KeyboardMode): the search's chosen suggestion, the search field, this screen's root
+  const [sel, setSel] = useState(0);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const keysRef = useRef<((e: KeyboardEvent) => void) | null>(null);
   const [tab, setTab] = useState<'menu' | 'cart' | 'queue'>('menu');
   // 02b-TK C2-1: the takeaway queue rail (its book of tokens, names and phones from this device's frames, R3)
   const book = useMemo(() => (order_type === 'takeaway' ? createTokenBook(shell.live) : null), [shell.live, order_type]);
@@ -450,7 +464,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   useEffect(() => {
     if (order_type !== 'takeaway') return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'F8' && e.key !== 'F9') return;
+      if (e.key !== 'F8' && e.key !== 'F9') return keysRef.current?.(e);
       e.preventDefault();
       sendKeys.current?.(e.key === 'F8');
     };
@@ -582,8 +596,14 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     return { category_id: c.category_id, name: c.name, items: items.filter((i) => i.variant_group_id === null).length + groups.size, deals: config.deals.filter((d) => d.category_id === c.category_id).length, closed };
   });
   const current = category ?? rail[0]?.category_id ?? null;
-  const q = query.trim().toLowerCase();
-  const inView = (category_id: string, name: string) => (q === '' ? category_id === current : name.toLowerCase().includes(q));
+  // 02b-TK A2 item 2 (frame KeyboardMode): on takeaway a number prefix is the quantity ("4n"); the rest also finds by
+  // word starts and initials (keyboard.ts); the tiles show every match
+  const keyQuery = order_type === 'takeaway' ? parseKeyQuery(query) : { qty: null, term: query.trim().toLowerCase() };
+  const q = keyQuery.term;
+  const keyed = order_type !== 'takeaway' || q === '' ? null : keyMatches(keyEntries(config), q);
+  const keyedIds = new Set(keyed?.map((e) => e.id) ?? []);
+  const inView = (category_id: string, name: string, id?: string) =>
+    q === '' ? category_id === current : name.toLowerCase().includes(q) || (id !== undefined && keyedIds.has(id));
   const tiles: TileModel[] = [];
   const seenGroups = new Set<string>();
   for (const item of [...config.items].sort((a, b) => a.sort_order - b.sort_order)) {
@@ -593,7 +613,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       const vg = config.variant_groups.find((v) => v.variant_group_id === item.variant_group_id);
       const variants = config.items.filter((i) => i.variant_group_id === item.variant_group_id);
       const name = vg?.name ?? item.name;
-      if (!inView(item.category_id, name)) continue;
+      if (!inView(item.category_id, name) && !variants.some((v) => keyedIds.has(v.item_id))) continue;
       tiles.push({
         id: item.variant_group_id,
         kind: 'variants',
@@ -608,7 +628,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       });
       continue;
     }
-    if (!inView(item.category_id, item.name)) continue;
+    if (!inView(item.category_id, item.name, item.item_id)) continue;
     const z = zoneItem(item.item_id);
     tiles.push({
       id: item.item_id,
@@ -624,7 +644,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     });
   }
   for (const deal of [...config.deals].sort((a, b) => a.sort_order - b.sort_order)) {
-    if (!inView(deal.category_id, deal.name)) continue;
+    if (!inView(deal.category_id, deal.name, deal.deal_id)) continue;
     tiles.push({
       id: deal.deal_id,
       kind: 'deal',
@@ -839,11 +859,13 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         onHold={() => {
           const to = guard.pending!;
           guard.clear();
-          void onHold(to);
+          // 02b-TK A2 item 2: F2 on the Takeaway tab asked with this route: Hold it = Hold (a fresh cart here)
+          void onHold(to === here ? undefined : to);
         }}
         onDiscard={() => {
           const to = guard.pending!;
           guard.clear();
+          if (to === here) return void (sending.current ? undefined : setCart(EMPTY_CART));
           void onDiscard(to);
         }}
       />
@@ -876,6 +898,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     onSend: () => void onSend(),
     pay: canPay ? { online: shell.online, onSendPay: () => void onSend({ pay: true }) } : undefined,
     checkBill,
+    holdKey: order_type === 'takeaway' && shell.device.type === 'cashier_kiosk' && !shell.phone && !shell.portrait,
     day: dayNotOpen ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
     info: cart.lines.find((l) => l.comp_it === true) === undefined ? null : compItInfo(),
     // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins
@@ -898,13 +921,156 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     );
   const keepDraft = () => navigate(seat === null ? '/tables' : tableHref(seat.ref.table_id, id));
 
+  // ------------------------------------------------------------------------- 02b-TK A2 item 2: keyboard speed mode
+  // (frame KeyboardMode; MAPPING TK-S02): "/" focuses the search, typing on the bare screen goes to it (never from the
+  // name / phone field or any other field), a number prefix is the quantity ("4n" Enter = 4 naan), ↑ / ↓ choose, Enter
+  // adds, Esc clears the search; Esc on the screen closes the token view; F2 new takeaway, F4 Hold. F8 / F9 above.
+  const kiosk = shell.device.type === 'cashier_kiosk' && !shell.phone && !shell.portrait;
+  const orderable = (e: KeyEntry) => (e.kind === 'deal' ? inputs === null || dealAvailability(e.id, inputs).orderable : avail(e.id).orderable);
+  const suggestions = keyed === null ? [] : keyed.filter(orderable).slice(0, 3);
+  const qty = keyQuery.qty ?? 1;
+  const chosen = Math.min(sel, Math.max(0, suggestions.length - 1));
+  const addKey = (e: KeyEntry) => {
+    setQuery('');
+    setSel(0);
+    if (sending.current) return;
+    if (e.kind === 'deal') return setSheet({ kind: 'deal', deal_id: e.id });
+    const item = config.items.find((i) => i.item_id === e.id);
+    if (item === undefined) return;
+    // the variant is already chosen by the search: a sheet only for options, weight or a non-piece unit
+    if (item.modifier_group_ids.length > 0 || item.requires_weighing || unitOf(item.item_id) !== 'piece') return setSheet({ kind: 'item', item_id: item.item_id, from_zone: false });
+    setCart((c) => {
+      let next = c;
+      const cap = capOf(item.item_id);
+      for (let n = 0; n < qty; n += 1) {
+        const more = addTap(next, item.item_id, newKey);
+        if (cap !== null && kitchenUnits(more, item.item_id, zoneCovered(more, () => null)) > cap) break;
+        next = more;
+      }
+      return next;
+    });
+  };
+  const overlay = sheet !== null || pay !== null || send !== null || guard.pending !== null || newOrder !== null;
+  const newTakeaway = () => {
+    if (!home) return navigate('/takeaway'); // the leave guard asks on the way if the cart has lines
+    setOpenToken(null);
+    if (cart.lines.length > 0) return guard.ask(here);
+    if (cart.adds_to !== undefined) setCart(EMPTY_CART);
+    searchRef.current?.focus();
+  };
+  keysRef.current = (e: KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+    const target = e.target instanceof Element ? e.target : null;
+    // another layer (a dialog, a menu, the lock) or another part of the page owns this key
+    if (target?.closest('[role="dialog"]:not(.tk-drawer), [role="menu"], [role="alertdialog"], .idle') != null) return;
+    if (target !== null && target !== document.body && !(rootRef.current?.contains(target) ?? false)) return;
+    if (e.key === 'Escape') {
+      if (target === searchRef.current || openToken === null || overlay) return;
+      e.preventDefault();
+      return setOpenToken(null);
+    }
+    if (e.key === 'F4' || e.key === 'F2') {
+      e.preventDefault();
+      if (overlay) return;
+      if (e.key === 'F2') return newTakeaway();
+      if (openToken === null && cart.lines.length > 0) void onHold();
+      return;
+    }
+    if (editable(target) || overlay || openToken !== null || searchRef.current === null) return;
+    if (e.key === '/') {
+      e.preventDefault();
+      return searchRef.current.focus();
+    }
+    if ([...e.key].length !== 1 || e.key === ' ') return;
+    e.preventDefault();
+    searchRef.current.focus();
+    setQuery((v) => v + e.key);
+    setSel(0);
+  };
+  const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (order_type !== 'takeaway') return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSel(Math.max(0, Math.min(suggestions.length - 1, chosen + (e.key === 'ArrowDown' ? 1 : -1))));
+    } else if (e.key === 'Enter') {
+      const pick = suggestions[chosen];
+      if (pick === undefined) return;
+      e.preventDefault();
+      addKey(pick);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setQuery('');
+      setSel(0);
+      e.currentTarget.blur();
+    }
+  };
+  const kbd = (k: string) => (
+    <span className="tk-kbd" dir="ltr">
+      {k}
+    </span>
+  );
   const menu = (
     <section className="menu">
-      <label className="search" role="search">
-        <Ico name="eye" />
-        <input type="search" value={query} placeholder={t('menu.search')} aria-label={t('menu.search')} onChange={(e) => setQuery(e.target.value)} />
-      </label>
+      <div className="tk-ksearch">
+        <label className="search" role="search">
+          <Ico name="eye" />
+          <input
+            ref={searchRef}
+            type="search"
+            value={query}
+            placeholder={t(order_type === 'takeaway' ? 'm.search' : 'menu.search')}
+            aria-label={t(order_type === 'takeaway' ? 'm.search' : 'menu.search')}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSel(0);
+            }}
+            onKeyDown={onSearchKey}
+          />
+          {order_type === 'takeaway' && kiosk && kbd('/')}
+        </label>
+        {suggestions.length > 0 && (
+          <div className="tk-sugg" role="listbox" aria-label={t('m.search')}>
+            {suggestions.map((e, i) => (
+              <div
+                key={e.id}
+                role="option"
+                aria-selected={i === chosen}
+                className={i === chosen ? 'tk-sugg__r is-sel' : 'tk-sugg__r'}
+                onMouseDown={(ev) => {
+                  ev.preventDefault();
+                  addKey(e);
+                }}
+              >
+                <b>
+                  <span className="num" dir="ltr">
+                    {qty}×
+                  </span>{' '}
+                  {e.name}
+                </b>
+                <span className="muted" dir="ltr">
+                  {money(e.price_minor * qty)}
+                </span>
+                {kbd(i === chosen ? 'Enter' : '↓')}
+              </div>
+            ))}
+            <div className="tk-hint">
+              {kbd('4n')} = {t('m.hint_qty')} · {kbd('hk')} = {t('m.hint_initials')} · {kbd('Enter')} {t('m.hint_add')} · {kbd('Esc')} {t('m.hint_clear')}
+            </div>
+          </div>
+        )}
+      </div>
       <MenuTiles tiles={tiles} onTap={onTap} />
+      {order_type === 'takeaway' && kiosk && (
+        <div className="tk-hint">
+          {kbd('/')} {t('m.keys')}: {kbd('4n')} {kbd('Enter')} · {kbd('F2')} {t('ctx.new')} ·{' '}
+          {canPay && (
+            <>
+              {kbd('F8')} {t('c.send_pay')} · {kbd('F9')} {t('c.send_later')} ·{' '}
+            </>
+          )}
+          {kbd('Esc')} {t('shell.back')}
+        </div>
+      )}
     </section>
   );
   const banners = (
@@ -1039,7 +1205,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
 
   if (shell.phone || shell.portrait) {
     return (
-      <div className="col grow order order--phone" dir={ur ? 'rtl' : 'ltr'}>
+      <div className="col grow order order--phone" dir={ur ? 'rtl' : 'ltr'} ref={rootRef}>
         {banners}
         <div className="ptabs">
           <button type="button" aria-pressed={tab === 'menu'} onClick={() => setTab('menu')}>
@@ -1096,7 +1262,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     );
   }
   return (
-    <div className="col grow order" dir={ur ? 'rtl' : 'ltr'}>
+    <div className="col grow order" dir={ur ? 'rtl' : 'ltr'} ref={rootRef}>
       {banners}
       <div className={book === null ? 'osc' : 'osc osc--tk'}>
         {/* 02b-TK C2-1 (frames HomeKiosk, QueueTablet): kiosk queue rail | menu | cart; a tablet's ready strip over the menu */}

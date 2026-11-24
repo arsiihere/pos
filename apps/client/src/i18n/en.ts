@@ -4243,6 +4243,14 @@ export const en = {
   // 02b-TK A2 item 1 (frame PersonMenu "Opened 7:02 AM · float Rs 5,000"; the lock screen opened from the menu): not in strings-table.md; Urdu to confirm
   'shell.me.shift_open': 'Opened {time} · float {money}',
   'shell.locked': 'Screen locked',
+  // ---- 02b-TK client (A2 batch 1, item 2 keyboard speed mode: frame KeyboardMode): strings-table.md ----
+  'm.search': 'Type item — e.g. 4 naan',
+  'm.keys': 'Keys',
+  // 02b-TK A2 item 2 (frame KeyboardMode hint "4n = 4 × naan · hk = half karahi · Enter add · Esc clear"): not in strings-table.md; Urdu to confirm
+  'm.hint_qty': '4 × naan',
+  'm.hint_initials': 'half karahi',
+  'm.hint_add': 'add',
+  'm.hint_clear': 'clear',
 } as const;
 
 export type MessageKey = keyof typeof en;
