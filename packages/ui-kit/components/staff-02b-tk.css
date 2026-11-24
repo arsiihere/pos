@@ -337,3 +337,15 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .cd [lang="ur"] { font-family: var(--font-urdu); line-height: 1.6; }
 .cd [dir="ltr"] { font-family: var(--font-sans); font-variant-numeric: tabular-nums; unicode-bidi: isolate; white-space: nowrap; }
 .cd-open { min-height: 30px; padding-inline: 8px; font-size: 14px; }
+
+/* 02b-TK HomeTablet and HomeTabletUrdu. */
+.osc--tk-tablet > .cart { width: 440px; max-width: 44%; }
+.osc--tk-tablet .tk-mid { padding: 12px 12px 0; gap: 10px; }
+.osc--tk-tablet .tk-rstrip { padding: 0; overflow-x: auto; }
+.osc--tk-tablet .tk-rstrip .tk-rt { flex: 1 0 112px; }
+.osc--tk-tablet .tk-rstrip__q { position: sticky; inset-inline-end: 0; flex: 0 0 112px; }
+.osc--tk-tablet .menu { padding: 0 0 10px; }
+.osc--tk-tablet .items { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.osc--tk-tablet .mi--h { min-height: 124px; }
+.osc--tk-tablet .mi--h .photo { width: 52px; }
+.osc--tk-tablet :is(.cust, .cart__foot) { padding-inline: 12px; }

@@ -583,6 +583,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const pendingKeys = new Set(handovers.pending().map((h) => h.token_key));
   const lastHandover = handovers.pending().at(-1) ?? null;
   const railVariant: RailVariant = shell.phone || shell.portrait ? 'tab' : shell.device.type === 'cashier_kiosk' ? 'column' : 'strip';
+  const tabletTakeaway = book !== null && railVariant === 'strip';
   const queueRail = (variant: RailVariant) =>
     book === null ? null : (
       <QueueRail
@@ -1405,13 +1406,14 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   return (
     <div className="col grow order" dir={ur ? 'rtl' : 'ltr'} ref={rootRef}>
       {banners}
-      <div className={book === null ? 'osc' : dense ? 'osc osc--tk osc--rush' : 'osc osc--tk'}>
+      <div className={['osc', book && 'osc--tk', dense && 'osc--rush', tabletTakeaway && 'osc--tk-tablet'].filter(Boolean).join(' ')}>
         {/* 02b-TK C2-1 (frames HomeKiosk, QueueTablet): kiosk queue rail | menu | cart; a tablet's ready strip over the menu */}
         {railVariant === 'column' && queueRail('column')}
-        <MenuRail categories={rail} current={current} onPick={setCategory} />
-        {railVariant === 'strip' && book !== null ? (
+        {!tabletTakeaway && <MenuRail categories={rail} current={current} onPick={setCategory} />}
+        {tabletTakeaway ? (
           <div className="tk-mid">
             {queueRail('strip')}
+            <MenuPills categories={rail} current={current} onPick={setCategory} />
             {menu}
           </div>
         ) : (
