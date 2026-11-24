@@ -349,3 +349,8 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .osc--tk-tablet .mi--h { min-height: 124px; }
 .osc--tk-tablet .mi--h .photo { width: 52px; }
 .osc--tk-tablet :is(.cust, .cart__foot) { padding-inline: 12px; }
+
+/* 02b-TK QueueTablet. */
+.tk-q.tk-q--drawer { width: 460px; max-width: 100vw; border-inline-start: 1px solid var(--line); }
+.tk-q--drawer .tk-drawer__h { justify-content: space-between; }
+.tk-q--drawer .tk-q__scroll { flex: 1; min-height: 0; }

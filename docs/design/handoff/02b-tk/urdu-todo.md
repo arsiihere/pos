@@ -71,3 +71,4 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `cd.change` | Change | بقایا رقم |
 | `cd.open` | Customer screen | گاہک کی اسکرین |
 | `cd.thanks` | Thank you! | شکریہ! اپنا ٹوکن پرچی پر دیکھیں |
+| `q.search_token` | Token number | ٹوکن نمبر |

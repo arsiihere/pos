@@ -4147,6 +4147,7 @@ export const en = {
   'l.discard': 'Throw away',
   'l.stay': 'Stay here',
   // ---- 02b-TK client (batch C2): docs/design/handoff/02b-tk/strings-table.md ----
+  'q.search_token': 'Token number', // not in strings-table.md; Urdu to confirm
   'q.search': 'Token, name or phone',
   'q.ready': 'Ready — hand over',
   'q.cooking': 'Cooking',
