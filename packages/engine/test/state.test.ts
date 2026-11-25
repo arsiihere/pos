@@ -41,7 +41,7 @@ function deepFreeze<T>(value: T): T {
 // new entry is written, and that entry needs ENGINE_STATE_VERSION bumped to its number.
 // AD-6: EngineState.diagnostics is host-side scratch (logged at warn and cleared after commit), not part of
 // snapshots / checkpoints, so it stays outside every key set.
-const KEY_SETS = {
+const historicalKeySets = {
   3: {
     EngineState: ['stock', 'business_day', 'config', 'stations', 'orders', 'lines', 'slips', 'next_alert_due_at', 'slip_due'],
     StockEntry: ['on_hand', 'reserved', 'set_at', 'unit'],
@@ -132,6 +132,8 @@ const KEY_SETS = {
   },
 } as const;
 
+const KEY_SETS = { ...historicalKeySets, 6: historicalKeySets[5] } as const;
+
 type Current = (typeof KEY_SETS)[typeof ENGINE_STATE_VERSION];
 type SameKeys<T, K extends readonly PropertyKey[]> = [Exclude<keyof T, K[number]>, Exclude<K[number], keyof T>] extends [
   never,
@@ -187,11 +189,11 @@ function configEvent(stations: Array<Partial<EngineConfig['stations'][number]>>,
   return anEngineConfigApplied({ recorded_at, occurred_at: recorded_at, payload: { stations: stations.map((s) => ({ ...S1, ...s })) } });
 }
 
-describe('@pos/engine EngineState v5', () => {
-  it('[03a #56, #160] buildEngineState(engine-log.v5.json) deep-equals engine-state.v5.json; the key set is snapshotted per ENGINE_STATE_VERSION', () => {
+describe('@pos/engine EngineState v6', () => {
+  it('[03a #56, #160] buildEngineState(engine-log.v6.json) deep-equals engine-state.v6.json; the key set is snapshotted per ENGINE_STATE_VERSION', () => {
     // ⚠️ 03a v1.2.10 §3.3 (STAB-6, STAB-7): v5 (was 4) adds max_delay_ms, priority_at, arrived_at on a line, the two
     // priority fields on a group and EngineState.priority_due. 03a v1.2.2 (B2-2): v4 (was 3) added done_undone.
-    expect(ENGINE_STATE_VERSION).toBe(5);
+    expect(ENGINE_STATE_VERSION).toBe(6);
     const log = (fixture(`engine-log.v${ENGINE_STATE_VERSION}.json`) as unknown[]).map((e) => parseEvent(e));
     expect(log.map((e) => e.event_type)).toEqual([
       'EngineConfigApplied', 'BusinessDayOpened', 'StockSet', 'OrderPlaced', 'ItemAdded', 'ItemAdded', 'FireDispatched',

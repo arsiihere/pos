@@ -35,6 +35,17 @@ function fold(events: PosEvent[], state: EngineState = initialEngineState(), opt
 }
 
 describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0', () => {
+  it.each([-1, 0, 1])('[03a #180] a pickup offset of %i ms is compared to recorded_at', (offset) => {
+    const pickup = T0 + offset;
+    const batch = anOrderBatch({ order: { pickup_at_ms: pickup }, lines: [{ order_item_id: 'L1' }], recorded_at: T0 });
+    const state = fold([config([{ station_id: 'S1' }]), ...batch]);
+    expect(state.orders.O1!.pickup_at_ms).toBe(offset > 0 ? pickup : null);
+    if (offset <= 0) {
+      const ordinary = anOrderBatch({ order: { pickup_at_ms: null }, lines: [{ order_item_id: 'L1' }], recorded_at: T0 });
+      expect(state).toEqual(fold([config([{ station_id: 'S1' }]), ...ordinary]));
+    }
+  });
+
   it('[03a #16] "Roti ×4" holds 4 units; capacity 30 with 28 used → the line waits for the blocking interval', () => {
     const cfg = config([{ station_id: 'S1', capacity: 30 }]);
     const blocking = anOrderBatch({ order_id: 'O1', lines: [{ order_item_id: 'L1', item: { name: 'Roti', quantity: 28 } }], recorded_at: T0, seq: 1 });
@@ -549,13 +560,13 @@ describe('@pos/engine E-4: the first OrderLinesAdded creates the engine order; t
     expect(getAlertIntents(s, due).slips.map((x) => x.table_key)).toEqual(['dine_in:T12']);
   });
 
-  it('[03a #132] the log of #131 → buildEngineState = applyEvents = live; ENGINE_STATE_VERSION 5 (03a v1.2.10 STAB-6/7: was 4)', () => {
+  it('[03a #132] the log of #131 → buildEngineState = applyEvents = live; ENGINE_STATE_VERSION 6', () => {
     const log = [cfg(), drinks(), addition(), ...food('O1', ['F1', 'F2']), stamp(aFireDispatched({ payload: { station_id: 'S1', order_item_ids: ['F1', 'F2'], due_at: T1 } }), T1)];
     const live = fold(log, initialEngineState(), { strict: false });
     expect(live.orders.O1).toBeDefined();
     expect(buildEngineState(log)).toEqual(live);
     expect(applyEvents(initialEngineState(), log)).toEqual(live);
-    expect(ENGINE_STATE_VERSION).toBe(5); // ⚠️ 03a v1.2.10 §3.3 (STAB-6/7): v5
+    expect(ENGINE_STATE_VERSION).toBe(6);
   });
 
   it('[03a #135] safety net: non-empty order_item_ids without order_header on an order the engine does not hold → InvalidEvent(order_not_in_engine) with order_item_ids[0]', () => {
