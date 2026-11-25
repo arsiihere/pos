@@ -1,5 +1,11 @@
 # Spec index
 
+## Run 3 reconcile
+
+| Item | Change | Where |
+|---|---|---|
+| e / D6 | Record cloud migrations 0020 and 0021 and assign numbers at merge. | Migration numbers |
+
 Specs are the source of truth (CLAUDE.md). Module specs inherit the Shared Standards in the foundation spec (§6) and do not redefine them. The foundation changes only through a version bump approved by the owner, with a changelog and "Changed by" markers, like any module spec (R34); appending an error code that a module spec defines (foundation §6.2) needs no bump.
 
 > ⚠️ Changed by 01d v1.0 (R-5): was "The foundation is frozen at v1.7 (D64): later issues are fixed in module specs or covered by unit tests." See R34.
@@ -44,7 +50,7 @@ This map replaces the "Suggested module spec order" table in foundation §9 (R2)
 
 **Build-order note:** 02 calls `calculateETA` and needs the hub engine host, both owned by 03a. 03a is built **before or alongside 02**, even though it is numbered after it (R4).
 
-**Migration numbers** (⚠️ Changed by README (integration, 02b-TK), 2026-11-24): a draft names a new migration with the **next free number at merge** (`NNNN` / `00NN`); the number is assigned when it merges, in merge order, and a merged file is never edited or renumbered. Known clashes today: **cloud `0019`** — `0019_cashier_mark_served.sql` (02b-TK Part A, task A1; on branch `claude/gracious-hawking-9670fy`) vs approved 08b `0019_recipes.sql` and 08d `0020_inventory_receiving.sql` (01a v2.11 owner decision OD-8); 01a v2.11's `NNNN_takeaway_menu.sql` follows whichever lands. **Hub `0028`** — 08 Part D `0028_inventory.sql` vs 02b v1.0.25 (`NNNN_orders_takeaway.sql`, first drafted as `0028`); after them 00 HPA v1.13 `00NN_display_sessions.sql`, 05a v1.0.7 `00NN_device_profiles_board.sql`, and 05c v0.2's provisional hub `0030` / `0031` and cloud `0022`. `main` holds hub `0027` and cloud `0018`. ⚠️ Changed by README (02b-TK hostile run 2), 2026-11-24: `origin/main` now holds cloud **`0019_recipes.sql`**, so the branch's `0019_cashier_mark_served.sql` is **renumbered** at merge. 02b-TK cloud files merge in this order, each at the next free number: `cashier_mark_served` (01b v1.8.1 / Part A1), 01a v2.11 `NNNN_takeaway_menu.sql`, 01b v1.12 `NNNN_takeaway_role_grants.sql` (Pass role + `hand-over-unpaid`), 01a v2.11 `NNNN_point_order_types.sql` (Pass points by order type); none reads another's objects. 05c's provisional hub `0030` / `0031` and cloud `0022` follow STOP-0.
+**Migration numbers** (⚠️ Changed by run 3 reconcile (e), D6): On `module-02b-tk`, cloud `0020_cashier_mark_served.sql` and `0021_takeaway_menu.sql` have landed. The latest hub migration is `0027`. No numbers are reserved. Drafts use `NNNN_<name>.sql`, and each PR takes the next free contiguous number at merge on `module-02b-tk` (currently cloud `0022` and hub `0028`). Merged files are never edited or renumbered.
 
 ## Milestones
 
