@@ -4,8 +4,10 @@ import { mount, type Mounted } from '../../../../../test/dom';
 import { ShellContext, type Shell } from '../../shell/hooks';
 import { createLiveBus } from '../../shell/live';
 import { createPermissions } from '../../shell/permissions';
+import { createRushSlot } from '../../shell/rush-slot';
 import type { EnqueueMeta, QueueableCommand } from '../../tables/contracts';
-import type { DraftStore, OpenOrder, OrderViewBody, SeatingLine } from '../contracts';
+import type { BranchConfig } from '@pos/events';
+import type { DraftStore, EtaDraft, OpenOrder, OrderViewBody, SeatingLine } from '../contracts';
 import { createMemoryDraftStore } from '../drafts/memory-drafts';
 import { DraftStoreContext, OrderScreen } from '../order-screen/OrderScreen';
 import { TakeawayHome } from './TakeawayHome';
@@ -43,12 +45,13 @@ export interface ScreenHarness {
   queries: string[];
 }
 
-export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, OrderViewBody>; bills?: Record<string, unknown>; grants?: Record<string, unknown>; drafts?: DraftStore; command?: (type: string, payload: unknown) => unknown; answer?: (type: string, payload: unknown) => unknown; bill?: (order_id: string) => unknown; online?: boolean; device?: 'cashier_kiosk' | 'tablet'; phone?: boolean; openBills?: unknown[] } = {}): ScreenHarness {
+export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, OrderViewBody>; bills?: Record<string, unknown>; grants?: Record<string, unknown>; drafts?: DraftStore; command?: (type: string, payload: unknown) => unknown; answer?: (type: string, payload: unknown) => unknown; bill?: (order_id: string) => unknown; online?: boolean; device?: 'cashier_kiosk' | 'tablet'; phone?: boolean; openBills?: unknown[]; config?: (base: BranchConfig) => BranchConfig; preview?: (draft: EtaDraft) => unknown } = {}): ScreenHarness {
   const live = createLiveBus();
   live.frame({ type: 'catch_up', as_of_seq: 1, state: { orders: { orders: [aCaught('O48', 48, [aLine('O48', 'A', 'Karahi')], { customer_name: 'Ali' })], zone_stock: [] } } });
   const base = aBranchConfig();
   const plain = (id: string, name: string) => ({ ...base.items.find((i) => i.item_id === 'I2')!, item_id: id, name, category_id: 'C2', price_minor: 4_000 });
-  const config = { ...base, categories: [...base.categories, { category_id: 'C2', name: 'Sides', sort_order: 2, availability_windows: [] }], items: [...base.items, plain('I5', 'Naan')] };
+  const built: BranchConfig = { ...base, categories: [...base.categories, { category_id: 'C2', name: 'Sides', sort_order: 2, availability_windows: [] }], items: [...base.items, plain('I5', 'Naan')] };
+  const config = o.config?.(built) ?? built;
   const toasts: Array<{ text: string; tone?: string }> = [];
   const sent: ScreenHarness['sent'] = [];
   const commands: ScreenHarness['commands'] = [];
@@ -83,7 +86,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
     },
     config: { config: () => null, snapshot: () => config, refresh: async () => {}, subscribe: () => () => {}, dispose: () => {} },
     orders: {
-      etaPreview: async () => ({ ok: false, error: { kind: 'network' } }),
+      etaPreview: async (d: EtaDraft) => o.preview?.(d) ?? { ok: false, error: { kind: 'network' } },
       seatingOrders: async () => ({ ok: true, data: { orders: [], total_minor: 0 } }),
       openOrders: async () => ({ ok: true, data: { orders: o.rows ?? [aRow({ order_id: 'O48', token: 48, ready: { n: 1, m: 1 }, promise_ms: at(13, 12) })] } }),
       orderView: async (id: string) => ({ ok: true, data: { kind: 'order', order: (o.views ?? { O48: view('O48', [sl('O48', 'A', 'Karahi', 'done')]) })[id] } }),
@@ -98,6 +101,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
     online: o.online ?? true,
     phone: o.phone === true,
     portrait: false,
+    rush: createRushSlot(),
   } as unknown as Shell;
   const show = (node: ReactNode) => {
     const m = mount();

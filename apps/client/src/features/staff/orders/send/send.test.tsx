@@ -116,7 +116,7 @@ function harness(o: { answer: (p: SubmitOrderPayload) => Promise<Answer>; previe
 }
 
 const tile = (m: ReturnType<typeof mount>, name: string) => m.container.querySelector<HTMLElement>(`.mi[aria-label="${name}"]`)!;
-const pick = (m: ReturnType<typeof mount>, category: string) => m.click(m.button(category, m.container.querySelector('.cats')!));
+const pick = (m: ReturnType<typeof mount>, category: string) => m.click(m.button(category, m.container.querySelector('.cats, .pills')!));
 const tick = async (ms = 300) => {
   await act(async () => {
     vi.advanceTimersByTime(ms);
@@ -294,7 +294,7 @@ describe('[02b §8 Ordering screen] Send', () => {
     await flush();
     expect(h.sent[0]!.payload).toMatchObject({ order_type: 'takeaway', takeaway: { customer_name: 'Usman', phone: '03001234567' } });
     expect(m.container.querySelector('.token')).toBeNull();
-    expect(h.toasts.at(-1)).toBe('57 · Usman · sent · ready 8:29 PM');
+    expect(h.toasts.at(-1)).toBe('57 · sent · ready 8:29 PM');
     m.unmount();
   });
 

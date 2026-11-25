@@ -156,10 +156,11 @@ describe('[05 §8 Cashier screen] Bills in the staff nav (R5)', () => {
 });
 
 describe('[05 §8 Shift; task 39] My shift in the staff nav (R5)', () => {
-  it('with manage-own-shift: the My shift button opens #/shift, which mounts the shift screen', async () => {
+  it('with manage-own-shift: My shift (in the person menu, 02b-TK TK-SH02) opens #/shift, which mounts the shift screen', async () => {
     PERMS = { 'manage-own-shift': { grant: 'allowed', scope: 'branch' } };
     await signedIn();
-    m.click(m.button('My shift'));
+    m.click(m.container.querySelector('header.top button.me'));
+    m.click(m.button('My shift', m.container.querySelector('[role="menu"]')!));
     await flush(6);
     expect(window.location.hash).toBe('#/shift');
     expect(m.container.querySelector('[data-probe]')?.getAttribute('data-probe')).toBe('shift');

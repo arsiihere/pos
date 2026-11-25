@@ -40,7 +40,9 @@ export interface CartProps {
   onHold(): void;
   onSend(): void;
   /** 02b v1.0.21 §8 (STAB-5): the order's serve switch */
-  serve?: { state: ServeMode | 'mixed'; onSet(mode: ServeMode): void };
+  serve?: { state: ServeMode | 'mixed'; onSet(mode: ServeMode): void } | undefined;
+  /** 02b-TK A2 item 5b (frame ServeChoice): the takeaway's plain serve question, in place of the switch */
+  serveChoice?: ReactNode;
   /** phone / portrait: the list only (the sticky bar carries Send) */
   bare?: boolean;
   /** 02b-TK C2-3 (frame TokenAddItems): the primary's words in place of Send ("Add to token 53") */
@@ -54,6 +56,10 @@ export interface CartProps {
   overlay?: ReactNode;
   /** 02b-TK C3-2 (R6): Print check bill of the sent token this cart adds to (an unsent cart has none) */
   checkBill?: ReactNode;
+  /** 02b-TK A2 item 2 (frame KeyboardMode "Hold F4"): the kiosk's keyboard: Hold shows its key */
+  holdKey?: boolean;
+  /** 02b-TK A2 item 3 (frame HomeRush): the open line's ×2 ×4 ×6 ×8 chips (takeaway) */
+  qchips?: boolean;
 }
 
 function GroupHead({ group, utcOffsetMs }: { group: CartGroup; utcOffsetMs: number }) {
@@ -89,7 +95,7 @@ export function sendLabel(p: { problems: number; primary?: string | undefined })
   return p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : (p.primary ?? t('cart.send'));
 }
 
-export function CartList(p: Pick<CartProps, 'config' | 'unitOf' | 'utcOffsetMs' | 'groups' | 'actions'>) {
+export function CartList(p: Pick<CartProps, 'config' | 'unitOf' | 'utcOffsetMs' | 'groups' | 'actions' | 'qchips'> & { phoneTakeaway?: boolean }) {
   return (
     <ul className="lines">
       {p.groups.length === 0 && (
@@ -102,7 +108,7 @@ export function CartList(p: Pick<CartProps, 'config' | 'unitOf' | 'utcOffsetMs' 
       )}
       {p.groups.map(({ group, lines }, i) => [
         <GroupHead key={`g${i}`} group={group} utcOffsetMs={p.utcOffsetMs} />,
-        ...lines.map((v) => <CartLineRow key={v.line.key} view={v} config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} actions={p.actions} />),
+        ...lines.map((v) => <CartLineRow key={v.line.key} view={v} config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} actions={p.actions} qchips={p.qchips === true} alwaysStepper={p.phoneTakeaway === true} />),
       ])}
     </ul>
   );
@@ -138,7 +144,7 @@ export function Cart(p: CartProps) {
           <span>{fill(t('cart.cant_send'), { n: String(p.problems) })}</span>
         </div>
       )}
-      <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} />
+      <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} qchips={p.qchips === true} />
       <div className="cart__foot">
         <div className="total">
           <div className="total__ready">
@@ -162,12 +168,21 @@ export function Cart(p: CartProps) {
         ) : (
           <>
             {p.serve !== undefined && !empty && <ServeSwitch state={p.serve.state} onSet={p.serve.onSet} />}
+            {!empty && p.serveChoice}
             <div className="duo">
               <button type="button" className="btn" onClick={p.onNote}>
                 {t('cart.note')}
               </button>
               <button type="button" className="btn" disabled={empty} onClick={p.onHold}>
                 {t('cart.hold')}
+                {p.holdKey === true && (
+                  <>
+                    {' '}
+                    <span className="tk-kbd" dir="ltr">
+                      F4
+                    </span>
+                  </>
+                )}
               </button>
             </div>
             {p.checkBill}
@@ -207,22 +222,26 @@ function PayActions({ pay, off, onSend }: { pay: NonNullable<CartProps['pay']>; 
 }
 
 /** 02-S10 sticky Send bar: total, "6 items · 8:27 PM", Send. */
-export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' | 'utcOffsetMs' | 'problems' | 'canSend' | 'onSend' | 'primary' | 'pay'>) {
+export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' | 'utcOffsetMs' | 'problems' | 'canSend' | 'onSend' | 'primary' | 'pay'> & { phoneTakeaway?: boolean }) {
   const sub = fill(t('cart.items'), { n: String(p.count) }) + (p.ready_by === null ? '' : ` · ${timeText(p.ready_by, p.utcOffsetMs)}`);
   return (
-    <div className="sbar">
+    <div className={p.phoneTakeaway ? "sbar ph-bar" : "sbar"}>
       <div className="sbar__t">
         <b dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</b>
-        <small>{sub}</small>
+        <small>
+          {p.phoneTakeaway ? (
+            <>{t('v.ready_at')} <bdi className="ph-bar__time" dir="ltr">{p.ready_by === null ? '—' : timeText(p.ready_by, p.utcOffsetMs)}</bdi></>
+          ) : sub}
+        </small>
       </div>
       {p.pay !== undefined && p.problems === 0 ? (
         <>
           <button type="button" className={p.pay.online ? 'btn btn--lg' : 'btn btn--primary btn--lg'} disabled={p.count === 0 || !p.canSend} onClick={p.onSend}>
-            {t('c.send_later')}
+            {t(p.phoneTakeaway ? 'cart.send_short' : 'c.send_later')}
           </button>
           {p.pay.online && (
             <button type="button" className="btn btn--primary btn--lg" disabled={p.count === 0 || !p.canSend} onClick={p.pay.onSendPay}>
-              {t('c.send_pay')}
+              {t(p.phoneTakeaway ? 'c.phone_pay' : 'c.send_pay')}
             </button>
           )}
         </>

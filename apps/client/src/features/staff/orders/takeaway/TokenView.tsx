@@ -6,7 +6,7 @@ import { timeText } from '../../../alerts/labels';
 import { Ico } from '../../../alerts/ui';
 import { billingApi } from '../../../billing/api';
 import type { BillView } from '../../../billing/contracts';
-import { useShell, type Shell } from '../../shell/hooks';
+import { useShell } from '../../shell/hooks';
 import { ContactSheet } from '../actions/ContactSheet';
 import type { OrderViewBody, SeatingLine } from '../contracts';
 import { useLiveRefetch } from '../lists/OpenOrders';
@@ -31,9 +31,9 @@ import './styles';
 // `bill?order_id=` of the token's NEWEST order (05 #44e: after the root bill closed an addition opens a new bill on the
 // same key; then the root's bill shows too). Actions: Give ready items now (MarkServed of the ready lines), Hand over
 // all, Take payment (the pay panel over the cart, C3-1; hidden offline), Add items, Remove / cancel, Call, Bill.
-// R2 (no hub guard, 05 B16 as approved): on a Due bill Hand over all is greyed; a MANAGER may hand over unpaid. The
-// client's rule for "manager": the session holds `apply-discount` outright (grant `allowed`) — the Manager / Owner
-// default roles; the Cashier default holds it only with approval. Hand-overs go through the 5 s Undo (handover.ts).
+// R2 (no hub guard, 05 B16 as approved): on a Due bill Hand over all is greyed with "Take payment first" until it is
+// paid — for everyone: the pilot has NO client manager override (owner ruling 2026-11-24 #2). Hand-overs go through
+// the 5 s Undo (handover.ts).
 
 export interface TokenViewProps {
   token: QueueToken;
@@ -47,13 +47,23 @@ export interface TokenViewProps {
   onPay?: (() => void) | undefined;
 }
 
-/** R2: who may hand over a Due order (documented rule: `apply-discount` granted outright). */
-export function isManager(shell: Pick<Shell, 'permissions'>): boolean {
-  return shell.permissions.allowed('apply-discount');
-}
-
 /** A line the counter can hand over now: the kitchen has it done, or it never went to a station. */
 export const readyNow = (l: SeatingLine): boolean => l.stage === 'done' || l.stage === null || l.stage === 'out_of_engine' || l.zone_served;
+
+/**
+ * Owner ruling 2026-11-24 #1 (02b v1.0.24 §3.7, §6.4): the token's live lines — every line of the root and its
+ * additions still to give: not a deal header, not removed / voided, not served; a no-station option child goes with
+ * its parent. A line not yet sent to the kitchen is live (and not ready).
+ */
+export function liveLines<L extends SeatingLine>(lines: readonly L[]): L[] {
+  return lines.filter((l) => l.line_kind !== 'deal' && l.live_units > 0 && !isServed(l) && l.stage !== 'removed' && l.stage !== 'voided' && !(l.line_kind === 'option_child' && l.stage === null));
+}
+
+/** Hand over all only when EVERY live line can be handed over now — not only the lines sent to the kitchen. */
+export function allLiveReady(lines: readonly SeatingLine[]): boolean {
+  const live = liveLines(lines);
+  return live.length > 0 && live.every((l) => servable(l) && readyNow(l));
+}
 
 function chipOf(l: SeatingLine): { key: MessageKey; tone: string } {
   if (isWeightPending(l)) return { key: 'stage.weight_pending', tone: 'tk-chip--warn' };
@@ -121,17 +131,21 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
   const shown = lines.filter((l) => l.line_kind !== 'deal' && l.line_kind !== 'option_child' && l.live_units > 0);
   const candidates = lines.filter(servable);
   const readyLines = candidates.filter(readyNow);
-  const allReady = candidates.length > 0 && readyLines.length === candidates.length;
+  const live = liveLines(lines);
+  const allReady = allLiveReady(lines);
+  // some ready, not all: Give ready items now in place of Hand over all (owner ruling 2026-11-24 #1)
+  const giveReady = readyLines.length > 0 && !allReady;
   const paid = bill?.current?.paid ?? token.paid;
   const due = bill?.current !== null && bill?.current !== undefined && !bill.current.paid;
-  const manager = isManager(shell);
   const may = shell.permissions.allowed;
   const canServe = may('mark-served');
   const first = orders?.[0] ?? null;
   const promises = (orders ?? []).flatMap((o) => (o.promise_ms === null ? [] : [o.promise_ms]));
   const promise = promises.length === 0 ? token.promise_ms : Math.max(...promises);
   const phoned = orders?.find((o) => o.has_phone) ?? null;
-  const masked = maskPhone(token.phone ?? book.get(token.order_ids[0]!)?.phone);
+  const fullScreen = shell.phone || shell.portrait;
+  const showContact = !fullScreen && shell.device.type === 'cashier_kiosk' || may('view-customer-contact');
+  const masked = showContact ? maskPhone(token.phone ?? book.get(token.order_ids[0]!)?.phone) : null;
   const ident = token.token === null ? '—' : String(token.token);
   const what = `${t('order.takeaway')} · ${ident}`;
   const toBill = () => navigate(`/bill?order_id=${encodeURIComponent(token.newest_order_id)}`);
@@ -155,14 +169,14 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
   const handOverAll = (
     <button
       type="button"
-      className={`tk-btn tk-btn--xl ${allReady && (paid || manager) ? 'tk-btn--ok' : ''}`}
-      aria-disabled={!allReady || (!paid && !manager)}
+      className={`tk-btn tk-btn--xl ${allReady && paid ? 'tk-btn--ok' : ''}`}
+      aria-disabled={!allReady || !paid}
       onClick={() => {
-        if (!allReady || (!paid && !manager)) return;
+        if (!allReady || !paid) return;
         onHandOver(candidates);
       }}
     >
-      {t(!paid && manager ? 'v.override' : 'v.collected')}
+      {t('v.collected')}
       {!allReady && promise !== null && (
         <>
           {' · '}
@@ -176,14 +190,14 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
 
   return (
     <>
-      <button type="button" className="tk-scrim--fixed" aria-label={t('common.close')} onClick={onClose} />
-      <section className="tk-drawer" role="dialog" aria-modal="true" aria-label={what} data-token={token.key}>
+      {!fullScreen && <button type="button" className="tk-scrim--fixed" aria-label={t('common.close')} onClick={onClose} />}
+      <section className={fullScreen ? "tk-drawer tk-drawer--phone" : "tk-drawer"} role="dialog" aria-modal="true" aria-label={what} data-token={token.key}>
         <div className="tk-drawer__h">
           <span className="tk-tv__tok" dir="ltr">
             {ident}
           </span>
           <div className="tk-tv__who">
-            <b dir="auto">{token.customer_name ?? t('order.takeaway')}</b>
+            <b dir="auto">{(showContact ? token.customer_name : null) ?? t('order.takeaway')}</b>
             {first !== null && (
               <small>
                 {fill(t('v.placed'), { t: timeText(first.placed_at, offset), who: first.placed_by.name ?? '—' })}
@@ -256,14 +270,14 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
               </button>
             </div>
           )}
-          {due && !manager && candidates.length > 0 && (
+          {due && live.length > 0 && (
             <p className="tk-hint" role="note">
               {t('v.pay_first')}
             </p>
           )}
         </div>
         <div className="tk-drawer__f">
-          {canServe && readyLines.length > 0 && !allReady && (
+          {canServe && giveReady && (
             <button type="button" className="tk-btn tk-btn--lg" onClick={() => onHandOver(readyLines)}>
               {t('v.give_ready')}
               {giveText}
@@ -275,7 +289,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
               {t('v.pay')} · <span dir={MONEY_DIR}>{money(bill!.current!.amount_minor)}</span>
             </button>
           )}
-          {canServe && candidates.length > 0 && handOverAll}
+          {canServe && live.length > 0 && !giveReady && handOverAll}
           <div className="tk-grid3">
             {onAddItems !== undefined && may('take-order') && (
               <button type="button" className="tk-btn" onClick={onAddItems}>

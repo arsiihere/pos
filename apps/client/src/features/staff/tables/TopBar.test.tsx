@@ -55,7 +55,10 @@ describe('[02a §8 Top bar] TopBar', () => {
     m.click(m.button('Requests', header));
     m.click(m.button('Inbox', header));
     expect(go.mock.calls).toEqual([['/requests'], ['/inbox']]);
-    m.click(m.button('Ali — sign out', header));
+    // 02b-TK TK-SH02: the chip opens the person menu; Sign out is in it
+    m.click(header.querySelector('button.me'));
+    expect(out).not.toHaveBeenCalled();
+    m.click(m.button('Sign out', header.querySelector('[role="menu"]')!));
     expect(out).toHaveBeenCalledTimes(1);
     m.unmount();
 

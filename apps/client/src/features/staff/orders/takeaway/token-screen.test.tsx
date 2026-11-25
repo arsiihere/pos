@@ -66,6 +66,21 @@ describe('[02b-TK C2-2] token view on the takeaway screen', () => {
     m.unmount();
   });
 
+  it('[owner ruling 2026-11-24 #1] the paid ready tile\'s one tap with a line not yet sent to the kitchen opens the view, hands nothing over', async () => {
+    const unsent = { ...sl('O48', 'B', 'Kheer', 'added'), fired: false };
+    const h = screenHarness({ views: { O48: view('O48', [sl('O48', 'A', 'Karahi', 'done'), unsent]) } });
+    const m = h.render();
+    await flush();
+    act(() => h.live.frame({ type: 'event', seq: 2, event: { event_id: 'E2', event_type: 'OrdersBilled', schema_version: 1, payload: { order_ids: ['O48'], bill_id: 'B48' } } }));
+    m.click(m.button('Hand over', m.container.querySelector('.tk-rt')!));
+    await flush();
+    expect(m.container.querySelector('.tk-toast')).toBeNull();
+    expect(m.container.querySelector('.tk-drawer')?.textContent).toContain('Give ready items now');
+    await tick(UNDO_MS * 2);
+    expect(h.sent).toEqual([]);
+    m.unmount();
+  });
+
   it('[02b-TK C2-2] leaving the screen sends a waiting hand-over at once', async () => {
     const h = screenHarness();
     const m = h.render();

@@ -147,6 +147,35 @@ describe('[02b-TK C2-2] token view', () => {
     expect(onHandOver.mock.calls[0]![0].map((l: SeatingLine) => l.order_item_id)).toEqual(['A']);
   });
 
+  it('[02b §3.7, §6.4; owner ruling 2026-11-24 #1] a line not yet sent to the kitchen keeps the token not all ready: Give ready items now, no Hand over all', async () => {
+    const s = setup({
+      views: { O48: view('O48', [sl('O48', 'A', 'Karahi', 'done'), sl('O48', 'B', 'Kheer', 'added', { fired: false }), sl('O48', 'C', 'Raita', 'removed', { live_units: 0 }), sl('O48', 'D', 'Naan', 'served', { served_at: at(13, 10) })]) },
+      bills: { O48: bill('B48', 'closed', 205_000) },
+    });
+    const onHandOver = vi.fn();
+    const v = await show(s, tok({ order_ids: ['O48'], newest_order_id: 'O48', paid: true }), onHandOver);
+    expect(v.text()).not.toContain('Hand over all');
+    v.click(v.button('Give ready items now'));
+    expect(onHandOver.mock.calls[0]![0].map((l: SeatingLine) => l.order_item_id)).toEqual(['A']);
+  });
+
+  it('[owner ruling 2026-11-24 #1] an addition\'s unsent line counts too; every live line ready (served and removed ones aside) → Hand over all', async () => {
+    const root = view('O48', [sl('O48', 'A', 'Karahi', 'done'), sl('O48', 'C', 'Raita', 'removed', { live_units: 0 }), sl('O48', 'D', 'Naan', 'served', { served_at: at(13, 10) })]);
+    const tk = tok({ order_ids: ['O48', 'O48b'], newest_order_id: 'O48b', paid: true });
+    const bills = { O48: bill('B48', 'closed', 205_000), O48b: bill('B48', 'closed', 205_000) };
+    const notYet = await show(setup({ views: { O48: root, O48b: view('O48b', [sl('O48b', 'B', 'Kheer', 'added', { fired: false })]) }, bills }), tk);
+    expect(notYet.text()).not.toContain('Hand over all');
+    expect(notYet.text()).toContain('Give ready items now');
+    notYet.unmount();
+    m = null;
+    book?.dispose();
+    const onHandOver = vi.fn();
+    const v = await show(setup({ views: { O48: root, O48b: view('O48b', [sl('O48b', 'B', 'Kheer', 'done')]) }, bills }), tk, onHandOver);
+    expect(v.text()).not.toContain('Give ready items now');
+    v.click(v.button('Hand over all'));
+    expect(onHandOver.mock.calls[0]![0].map((l: SeatingLine) => l.order_item_id)).toEqual(['A', 'B']);
+  });
+
   it('[R2; 05 B16] a Due bill greys Hand over all for a cashier; Take payment opens the bill', async () => {
     const s = setup({ views: { O50: view('O50', [sl('O50', 'A', 'Karahi', 'done'), sl('O50', 'B', 'Naan', 'done')]) }, bills: { O50: bill('B50', 'open', 119_000) }, grants: { 'apply-discount': { grant: 'requires_approval' } } });
     const onHandOver = vi.fn();
@@ -160,12 +189,18 @@ describe('[02b-TK C2-2] token view', () => {
     expect(nav.to).toEqual(['/bill?order_id=O50']);
   });
 
-  it('[R2] a manager (apply-discount granted outright) may hand over unpaid', async () => {
-    const s = setup({ views: { O50: view('O50', [sl('O50', 'A', 'Karahi', 'done')]) }, bills: { O50: bill('B50', 'open', 119_000) }, grants: { 'apply-discount': { grant: 'allowed', scope: 'branch' } } });
+  it('[R2; owner ruling 2026-11-24 #2] no unpaid override in the pilot: a manager / Owner session on a Due token sees Hand over all greyed and "Take payment first"', async () => {
+    const owner = { 'apply-discount': { grant: 'allowed', scope: 'branch' }, 'take-order': { grant: 'allowed', scope: 'branch' }, 'void-item': { grant: 'allowed', scope: 'branch' }, 'view-customer-contact': { grant: 'allowed', scope: 'branch' } };
+    const s = setup({ views: { O50: view('O50', [sl('O50', 'A', 'Karahi', 'done')]) }, bills: { O50: bill('B50', 'open', 119_000) }, grants: owner });
     const onHandOver = vi.fn();
     const v = await show(s, tok({ order_ids: ['O50'], newest_order_id: 'O50' }), onHandOver);
-    v.click(v.button('Hand over unpaid · manager'));
-    expect(onHandOver.mock.calls[0]![0].map((l: SeatingLine) => l.order_item_id)).toEqual(['A']);
+    expect(v.text()).not.toContain('Hand over unpaid');
+    expect(v.text()).not.toContain('manager');
+    const all = v.button('Hand over all');
+    expect(all.getAttribute('aria-disabled')).toBe('true');
+    v.click(all);
+    expect(onHandOver).not.toHaveBeenCalled();
+    expect(v.container.querySelector('[role="note"]')?.textContent).toBe('Take payment first');
   });
 
   it('[frame TokenReady] paid and all ready: Hand over all hands every servable line over', async () => {

@@ -98,7 +98,8 @@ export async function pairKdsScreen(
     request,
     "approve-pairing-request",
     "ApprovePairingRequest",
-    { display_code: code, device_type: "kds", station_id: station },
+    // 05a v1.0 §6.3: the approval names the device (`device_name`, 1–40 characters)
+    { display_code: code, device_type: "kds", device_name: `Screen ${station}`.slice(0, 40), station_id: station },
   );
   expect(done.status, "approve-pairing-request").toBe(200);
   await page.waitForURL(/\/kds\/$/, { timeout: 15_000 });

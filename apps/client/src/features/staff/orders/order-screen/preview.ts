@@ -9,13 +9,22 @@ import type { EtaDraft, EtaPreviewBody } from '../contracts';
 // → no times ("—", "Times will be set when sent"); Send stays on (it queues, 26d). 02b-TK C1-1 (02b §6.14, §8; audit
 // #1): a `409 BUSINESS_DAY_NOT_OPEN` keeps its code as `day_not_open` (the cart says "Times show after Start day" and
 // Send waits); a catch-up carrying `stock` (its business day) refetches too. Logs nothing.
+// 02b-TK A2 item 5a (frame CartTimeDelta; MAPPING TK-S02 "previous vs new reply → delta"): `delta` names the cart line
+// whose change (new, or more units, against the draft of the previous reply) moved Ready by (the latest group promise)
+// later by ≥ 60 s, and by how much; any other reply (no cart change, Ready by not later) clears it.
 
 export const PREVIEW_DEBOUNCE_MS = 250;
+
+/** 02b-TK A2 item 5a: the line that moved Ready by later, and by how much (ms, ≥ MOVED_MS). */
+export interface PreviewDelta {
+  key: string;
+  ms: number;
+}
 export const MOVED_MS = 60_000;
 
 export type PreviewState =
   | { kind: 'none' }
-  | { kind: 'ok'; body: EtaPreviewBody; moved: ReadonlySet<string> }
+  | { kind: 'ok'; body: EtaPreviewBody; moved: ReadonlySet<string>; delta: PreviewDelta | null }
   | { kind: 'failed' }
   /** the hub answered 409 BUSINESS_DAY_NOT_OPEN: no day is open, nothing can be sent or timed */
   | { kind: 'day_not_open' };
@@ -53,6 +62,15 @@ export interface Preview {
   dispose(): void;
 }
 
+const readyOf = (body: EtaPreviewBody): number | null => (body.groups.length === 0 ? null : Math.max(...body.groups.map((g) => g.promise_ms)));
+
+/** The last line of `now` that is new against `before`, or holds more units. */
+function changedLine(before: EtaDraft, now: EtaDraft): string | null {
+  const was = new Map(before.lines.map((l) => [l.key, l.quantity ?? 0]));
+  const changed = now.lines.filter((l) => !was.has(l.key) || (l.quantity ?? 0) > was.get(l.key)!);
+  return changed.at(-1)?.key ?? null;
+}
+
 /** Each line's group promise (key → promise_ms). */
 function promiseByKey(body: EtaPreviewBody): Map<string, number> {
   const out = new Map<string, number>();
@@ -66,6 +84,8 @@ export function createPreview(o: PreviewOptions): Preview {
   let draft: EtaDraft | null = null;
   let state: PreviewState = { kind: 'none' };
   let last: EtaPreviewBody | null = null;
+  /** the draft the last reply answered */
+  let lastDraft: EtaDraft | null = null;
   let timer: unknown = null;
   let generation = 0;
   let disposed = false;
@@ -80,7 +100,8 @@ export function createPreview(o: PreviewOptions): Preview {
     const gen = ++generation;
     if (draft === null) return publish({ kind: 'none' });
     if (!o.online()) return publish({ kind: 'failed' });
-    const answer = await o.etaPreview(draft);
+    const sent = draft;
+    const answer = await o.etaPreview(sent);
     if (disposed || gen !== generation) return;
     if (!answer.ok) return publish(answer.error.kind === 'api' && answer.error.code === 'BUSINESS_DAY_NOT_OPEN' ? { kind: 'day_not_open' } : { kind: 'failed' });
     const before = last === null ? null : promiseByKey(last);
@@ -92,8 +113,14 @@ export function createPreview(o: PreviewOptions): Preview {
         if (was !== undefined && Math.abs(p - was) >= MOVED_MS) moved.add(k);
       }
     }
+    // 02b-TK A2 item 5a: Ready by later by ≥ 1 min after a cart change → that line
+    const wasReady = last === null ? null : readyOf(last);
+    const isReady = readyOf(answer.data);
+    const key = lastDraft === null ? null : changedLine(lastDraft, sent);
+    const delta = wasReady !== null && isReady !== null && key !== null && isReady - wasReady >= MOVED_MS ? { key, ms: isReady - wasReady } : null;
     last = answer.data;
-    publish({ kind: 'ok', body: answer.data, moved });
+    lastDraft = sent;
+    publish({ kind: 'ok', body: answer.data, moved, delta });
   };
   const schedule = () => {
     if (disposed) return;
@@ -111,6 +138,7 @@ export function createPreview(o: PreviewOptions): Preview {
       draft = next;
       if (next === null) {
         last = null;
+        lastDraft = null;
         if (timer !== null) cancel(timer);
         timer = null;
         generation += 1;

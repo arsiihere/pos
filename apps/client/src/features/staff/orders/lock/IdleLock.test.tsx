@@ -338,3 +338,28 @@ describe('[02b §8 Device idle lock] lock screen', () => {
     expect(signOut).toHaveBeenCalledTimes(1);
   });
 });
+
+// 02b-TK A2 item 1 (frame PersonMenu "Lock screen · Your orders stay as they are"; MAPPING TK-SH02): the person menu's
+// Lock is this lock screen now, before the TTL — the same drain + logout; the title says the screen was locked.
+describe('[02b-TK TK-SH02] Lock screen from the person menu', () => {
+  it('a new lockNow value locks at once: drain, then POST /auth/logout; the token leaves the api; "Screen locked"', async () => {
+    const s = setup();
+    await s.api.signIn('ali', '1', false);
+    view = mount();
+    const at = (n: number) => (
+      <ShellContext.Provider value={s.shell}>
+        <IdleLock now={s.now} timers={noTimers} fetch={s.fetch} lockNow={n} />
+      </ShellContext.Provider>
+    );
+    view.render(at(0));
+    await flush();
+    expect(view.container.querySelector('.idle')).toBeNull();
+    view.render(at(1));
+    await flush(8);
+    const lock = view.container.querySelector('.idle');
+    expect(lock?.textContent).toContain('Screen locked');
+    expect(lock?.textContent).toContain('Your order is kept.');
+    expect(s.calls.map((c) => c.path)).toEqual(['/auth/logout']);
+    expect(s.api.sessionToken()).toBeNull();
+  });
+});
