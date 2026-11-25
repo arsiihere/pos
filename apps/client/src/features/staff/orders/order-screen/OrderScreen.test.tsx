@@ -178,7 +178,7 @@ function harness(): Harness {
 }
 
 const tile = (m: ReturnType<typeof mount>, name: string) => m.container.querySelector<HTMLElement>(`.mi[aria-label="${name}"]`)!;
-const pick = (m: ReturnType<typeof mount>, category: string) => m.click(m.button(category, m.container.querySelector('.cats')!));
+const pick = (m: ReturnType<typeof mount>, category: string) => m.click(m.button(category, m.container.querySelector('.cats, .pills')!));
 const tick = async (ms = 300) => {
   await act(async () => {
     vi.advanceTimersByTime(ms);
@@ -370,7 +370,7 @@ describe('[02b §8 Ordering screen] order screen', () => {
     const ur = harness().render({ order_type: 'takeaway', id: 'D3' });
     await flush();
     expect(ur.container.querySelector('.order')?.getAttribute('dir')).toBe('rtl');
-    expect(ur.container.querySelector('.order .osc > .cats')).not.toBeNull(); // the rail is the row's first: on the right in RTL
+    expect(ur.container.querySelector('.order .osc--tk-tablet .pills')).not.toBeNull(); // tablet categories stay in the RTL menu column
     expect([...ur.container.querySelectorAll('.price')].every((p) => p.getAttribute('dir') === 'ltr')).toBe(true);
     expect(ur.container.querySelector('.cart__foot strong')?.getAttribute('dir')).toBe('ltr');
     ur.unmount();
@@ -512,11 +512,15 @@ describe('[02b §8 Ordering screen] order screen', () => {
 
   it('[02b §8 Ordering screen] a menu change removing the open sheet\'s item closes it: "This item changed — pick again"', async () => {
     const h = harness();
+    // 02b-TK A2 item 3 (frame TileStates): a takeaway variant tile adds Half / Full in one tap; a variant that needs a
+    // choice (a required group here) still opens the variants sheet
+    const c = cfg();
+    const spice = { modifier_group_id: 'G9', name: 'Spice', min_choices: 1, max_choices: 1, sort_order: 1, has_plain_options: true, options: [{ option_id: 'OP9', name: 'Mild', price_minor: 0, max_quantity: 1, is_default: false, linked_item_id: null, sort_order: 1 }] };
+    h.setConfig({ ...c, modifier_groups: [spice], items: c.items.map((i) => (i.item_id === 'I3' ? { ...i, modifier_group_ids: ['G9'] } : i)) });
     const m = h.render({ order_type: 'takeaway', id: 'D9' });
     await flush();
-    m.click(tile(m, 'Chicken Karahi')); // the variants sheet
+    m.click(m.button('Chicken Karahi · Full')); // the variants sheet
     expect(m.container.querySelector('.dlg')).not.toBeNull();
-    const c = cfg();
     h.setConfig({ ...c, items: c.items.filter((i) => i.variant_group_id === null) });
     await flush();
     expect(m.container.querySelector('.dlg')).toBeNull();

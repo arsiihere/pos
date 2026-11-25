@@ -40,6 +40,8 @@ export interface PayPanelProps {
   onLater(): void;
   /** Next customer (after the bill closed) */
   onDone(): void;
+  /** A completed first close of the whole bill, for the counter display. */
+  onClosed?(payment: { kind: 'paid'; change_minor: number }, totalMinor: number): void;
   /** phone / portrait: over the whole screen (no cart column to cover) */
   fixed?: boolean;
 }
@@ -70,7 +72,7 @@ function dueAt(split: BillViewSplit, mode: Mode): number {
   return mode.payment_class === 'cash' ? dues.cash_due_minor : dues.card_due_minor;
 }
 
-export function PayPanel({ target, onLater, onDone, fixed }: PayPanelProps) {
+export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelProps) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
   const modes = useSyncExternalStore(shell.config.subscribe, () => activeModes(shell.config.snapshot()));
@@ -124,7 +126,7 @@ export function PayPanel({ target, onLater, onDone, fixed }: PayPanelProps) {
     return refusalText(e, ctxOf(b, s));
   };
 
-  const close = async (b: BillView, s: BillViewSplit, expected: number) => {
+  const close = async (b: BillView, s: BillViewSplit, expected: number, report?: PayPanelProps['onClosed']) => {
     const answer = await api.closeSplit({ bill_ref: billRef, split_no: s.split_no, expected_total_minor: expected });
     if (!answer.ok) {
       const e = answer.error;
@@ -146,6 +148,7 @@ export function PayPanel({ target, onLater, onDone, fixed }: PayPanelProps) {
     const r = answer.data;
     if ('empty' in r) {
       setPhase({ kind: 'done', total_minor: 0, change_minor: 0, receipt: false });
+      report?.({ kind: 'paid', change_minor: 0 }, 0);
       return;
     }
     if (r.bill_state !== 'closed') {
@@ -155,6 +158,7 @@ export function PayPanel({ target, onLater, onDone, fixed }: PayPanelProps) {
       return;
     }
     setPhase({ kind: 'done', total_minor: r.total_minor, change_minor: r.change_minor, receipt: r.receipt.job_id !== null });
+    report?.({ kind: 'paid', change_minor: r.change_minor }, r.total_minor);
   };
 
   const pay = async () => {
@@ -199,7 +203,7 @@ export function PayPanel({ target, onLater, onDone, fixed }: PayPanelProps) {
         }
         expected = answer.data.totals?.as_paid?.total_minor ?? expected;
       }
-      await close(bill, split, expected);
+      await close(bill, split, expected, onClosed);
     } finally {
       busy.current = false;
     }

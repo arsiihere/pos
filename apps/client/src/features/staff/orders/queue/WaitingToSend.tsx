@@ -20,7 +20,7 @@ export function waitingTakeaways(entries: QueueEntry[]): Array<{ entry_id: strin
   });
 }
 
-export function WaitingRows() {
+export function WaitingRows({ showContact }: { showContact: boolean }) {
   const shell = useShell();
   const queue = queueOf(shell.enqueue);
   const [, setVersion] = useState(0);
@@ -36,7 +36,7 @@ export function WaitingRows() {
             —
           </span>
           <span className="tk-qr__m">
-            <b dir="auto">{r.name ?? t('order.takeaway')}</b>
+            <b dir="auto">{(showContact ? r.name : null) ?? t('order.takeaway')}</b>
             <small>{fill(t('cart.items'), { n: String(r.lines) })}</small>
           </span>
           <span className="tk-qr__r">

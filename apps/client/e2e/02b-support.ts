@@ -1,5 +1,5 @@
 import { expect, type APIRequestContext, type Page, type TestInfo } from '@playwright/test';
-import { dialog, hub, isPhone, pairAs, sheet, tapTile, tr, type Lang } from './02a-support';
+import { dialog, hub, isPhone, landing, pairAs, sheet, tapTile, tr, type Lang } from './02a-support';
 import { E2E_STATION, KHEER, type E2eDevice } from './global-setup';
 
 // 02b flows (task 28; 02b §8, §10 #35, #36): helpers on top of 02a's. The fixture menu is the hub's 02b test menu
@@ -26,11 +26,13 @@ export async function signInOn(page: Page, device: E2eDevice, lang: Lang, name =
     for (const digit of pin) await pad.locator('.btn', { hasText: new RegExp(`^${digit}$`) }).click();
     await pad.locator('.btn--primary').click();
   };
+  const landed = landing(page);
   await enter();
   const taken = page.locator('.pin__err');
   await Promise.race([pad.waitFor({ state: 'detached' }), taken.waitFor({ state: 'visible' })]);
   if (await taken.isVisible()) await enter();
   await expect(pad).toHaveCount(0);
+  await landed;
 }
 
 /** A menu tile of the order screen (02-S05), by the item's name. */
@@ -84,8 +86,23 @@ export function escapeRe(text: string): string {
 /** The Takeaway tab (`#/takeaway`, 05a A-7): the order screen itself — rail, menu, cart (02b-TK C2-1). */
 export async function takeawayTab(page: Page): Promise<void> {
   await page.evaluate(() => (window.location.hash = '#/takeaway'));
-  await expect(page.locator('.osc--tk')).toBeVisible();
+  await expect(page.locator('.osc--tk, .order--tk-phone')).toBeVisible();
   await expect(page).toHaveURL(/#\/takeaway$/);
+}
+
+/**
+ * 02b-TK R9 (rush.ts): the e2e hub always holds at least 40 open takeaway tokens (03b-fixture seed03: one fired
+ * takeaway order per 03b run), above RUSH_OPEN_ORDERS (15), so the takeaway screen opens in rush mode. A spec of the
+ * normal layout pins this device's manual override (`pos.tk.rush`, localStorage) to off before the page loads.
+ */
+export async function rushOff(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem('pos.tk.rush', 'off');
+    } catch {
+      // blocked storage: the count decides
+    }
+  });
 }
 
 /** The signed-in person's shift is open (05 §6.15): open it with Starting cash 0, or it already is. */
@@ -93,8 +110,11 @@ export async function shiftOpen(page: Page, lang: Lang): Promise<void> {
   await page.evaluate(() => (window.location.hash = '#/shift'));
   const open = page.getByRole('button', { name: tr(lang, 'billing.shift.open') });
   const title = page.getByText(tr(lang, 'billing.shift.open_title'));
-  await page.locator('main').first().waitFor();
-  if (await title.isVisible().catch(() => false)) {
+  // the shift screen reads the person's shift first: wait for its answer — the open form, or the open shift's state
+  // chip — before deciding (a check while it still loads skipped opening, and the payment later got SHIFT_NOT_OPEN)
+  const isOpen = page.locator('.b5-bh .st.c-ok');
+  await expect(title.or(isOpen).first()).toBeVisible({ timeout: 15_000 });
+  if (await title.isVisible()) {
     await page.locator('.b5-card input').first().fill('0');
     await open.click();
     await expect(title).toHaveCount(0);

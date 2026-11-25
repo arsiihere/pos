@@ -597,7 +597,8 @@ describe('[01d v1.3 §3.13.7] the staff shell\'s surfaces use the tap rule', () 
     await flush(4);
     mm.click(mm.container.querySelector('[data-alert="A-DROP"]'));
     await flush(4);
-    mm.click(mm.button('Imran — sign out'));
+    mm.click(mm.container.querySelector('header.top button.me')); // 02b-TK TK-SH02: the chip opens the menu
+    mm.click(mm.button('Sign out', mm.container.querySelector('[role="menu"]')!));
     await flush(8);
     const after = window.location.hash;
     release();
@@ -743,7 +744,8 @@ describe('[01d v1.3 §3.13.7] the staff shell\'s surfaces use the tap rule', () 
     await flush(8);
     await wait(300);
     expect(seenCalls(h)).toHaveLength(1);
-    mm.click(mm.button('Imran — sign out'));
+    mm.click(mm.container.querySelector('header.top button.me')); // 02b-TK TK-SH02: the chip opens the menu
+    mm.click(mm.button('Sign out', mm.container.querySelector('[role="menu"]')!));
     await flush(8);
     mm.click(mm.button('Imran'));
     const keys = mm.container.querySelector('.pin__keys')!;

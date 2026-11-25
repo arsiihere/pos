@@ -165,7 +165,8 @@ describe('[01d v1.3.2 §3.13.4] 9b: focus kept through the sign-in', () => {
     window.history.replaceState(null, '', '#/inbox');
     const order = { order_id: 'O5', order_type: 'takeaway', seating_id: null } as unknown as OrderViewBody;
     handOver({ order_view: order });
-    mm.click(mm.button('Imran — sign out'));
+    mm.click(mm.container.querySelector('header.top button.me')); // 02b-TK TK-SH02: the chip opens the menu
+    mm.click(mm.button('Sign out', mm.container.querySelector('[role="menu"]')!));
     await flush(8);
     // on O5's own route (no screen there to take it while signed out), within the handover's 4 s: nothing is held
     window.history.replaceState(null, '', '#/orders/O5');
@@ -186,7 +187,8 @@ describe('[01d v1.3.2 §3.13.4] 9b: focus kept through the sign-in', () => {
     const { mm, sockets } = await openSignedOut('#/inbox', [CARD]);
     await signIn(mm, sockets); // A
     window.history.replaceState(null, '', '#/inbox?focus=alert%3AA-9B'); // A's focus, not consumed yet
-    mm.click(mm.button('Imran — sign out'));
+    mm.click(mm.container.querySelector('header.top button.me')); // 02b-TK TK-SH02: the chip opens the menu
+    mm.click(mm.button('Sign out', mm.container.querySelector('[role="menu"]')!));
     await flush(8);
     expect(window.location.hash).toBe('#/inbox'); // stripped at sign-out (replaceState)
     await signIn(mm, sockets); // B

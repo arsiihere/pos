@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { escapeRe as escape, hub, LANGS, menuTile, railEntry, sentToken, shiftOpen, signInOn, signOut, takeawayTab, tr } from './02b-support';
+import { escapeRe as escape, hub, LANGS, menuTile, railEntry, rushOff, sentToken, shiftOpen, signInOn, signOut, takeawayTab, tr } from './02b-support';
 
 // 02b-TK C3-5 (CLAUDE.md pipeline 9; docs/plans/02b-tk-plan.md C3-5): the takeaway counter flows on the cashier kiosk
 // against the e2e test hub — walk-in Send & pay with cash (C3-1), Send · pay later then pay and hand over (C2-2, C3-1),
@@ -97,6 +97,8 @@ for (const lang of LANGS) {
 
   test(`[02b-TK C2-5; R3] held drafts are shared on the device, the name masked without view-customer-contact (${lang})`, async ({ page }, info) => {
     kioskOnly(info.project.name);
+    // the name field of the normal layout: rush mode (seed03's open tokens, R9) folds it into "Name / phone"
+    await rushOff(page);
     await signInOn(page, hub().kiosk, lang, 'Owner');
     await takeaway(page);
     await page.locator('.cart input').first().fill('Usman');

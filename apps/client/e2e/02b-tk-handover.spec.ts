@@ -27,11 +27,12 @@ import {
 //      after the window and the token leaves the queue.
 //   b. Give ready items now: one line of two is ready → only it is served; the token stays (part given) with the other
 //      line; when the rest is ready it is paid and handed over, and the token leaves the queue.
-//   c. A Due token: Hand over greyed for a non-manager (R2) → the Owner takes cash → Paid → Hand over → handed over.
+//   b2. Owner ruling 2026-11-24 #1: one line ready, one not yet sent to the kitchen (never fired, never pulled) →
+//      Give ready items now, no Hand over all; the ready line is given and the token stays.
+//   c. A Due token: Hand over greyed with "Take payment first" for Ali and for the Owner alike (R2; owner ruling
+//      2026-11-24 #2: no manager override in the pilot) → the Owner takes cash → Paid → Hand over → handed over.
 // The Owner (every permission) takes the money with an open shift (05 B11); Ali (order-taker role: take-order,
-// mark-served, no take-payment) is the non-manager. The R2 manager override is not walked: on these shared devices
-// (access `everyone`, 05a §3.3a) `apply-discount` is masked `downgraded` for every session, so the client's manager
-// rule (TokenView isManager: apply-discount `allowed`) never holds there — an open finding of the 02b-TK e2e review.
+// mark-served, no take-payment) cannot.
 // Flow b orders Naan (5 min) and Kheer (1 min, global-setup): Kheer fires 4 min after Naan, and only a fired line can be
 // handed over (stage.ts servable), so the kitchen pulls Kheer onto Now first (GiveMeMore, `kitchenPull`); Naan is made
 // ready at the Pass, Kheer later on the kitchen screen's StartItem / DoneItem (`kitchenReady`).
@@ -186,10 +187,56 @@ for (const lang of LANGS) {
     }
   });
 
+  test(`[02b §3.7, §6.4; owner ruling 2026-11-24 #1] a line not yet sent to the kitchen: Give ready items now, no Hand over all (${lang})`, async ({ page, request }, info) => {
+    runsHere(info);
+    const sent = watchServed(page);
+    await signInOn(page, deviceFor(info), lang, 'Owner');
+    try {
+      await shiftOpen(page, lang);
+      await takeawayTab(page);
+      const token = await sendLater(page, lang, [NAAN.name, KHEER.name], true);
+      // Naan is fired at Send and made ready; Kheer fires 4 min later — never fired, never pulled (not sent to the kitchen)
+      const [first] = await kitchenReady(request, token, [NAAN.item_id]);
+      await openToken(page, token);
+      await expect(drawerLine(page, NAAN.name).locator('.tk-chip')).toHaveText(tr(lang, 'v.ready'));
+      await expect(drawerLine(page, KHEER.name).locator('.tk-chip')).toHaveText(tr(lang, 'v.waiting'));
+      const give = drawer(page).getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'v.give_ready'))}`) });
+      await expect(give).toContainText(NAAN.name);
+      await expect(drawer(page).getByRole('button', { name: tr(lang, 'v.collected') })).toHaveCount(0);
+      // give the ready line: only it is served; the token stays with the unsent line
+      const served = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/commands/mark-served'), { timeout: UNDO_MS + 10_000 });
+      await give.click();
+      await expect(undoToast(page, lang, token)).toBeVisible();
+      expect((await served).status()).toBe(200);
+      expect(servedIds(sent)).toEqual([first]);
+      await expect(undoToast(page, lang, token)).toHaveCount(0);
+      await expect(railEntry(page, token).first()).toBeVisible();
+      await openToken(page, token);
+      await expect(drawerLine(page, NAAN.name).locator('.tk-chip')).toHaveText(tr(lang, 'v.given'));
+      await expect(drawerLine(page, KHEER.name).locator('.tk-chip')).toHaveText(tr(lang, 'v.waiting'));
+      await closeDrawer(page, lang);
+
+      // the token leaves the queue (no open token for the next flow): Kheer made ready at the Pass, paid, Hand over all
+      const [second] = await kitchenReady(request, token, [KHEER.item_id]);
+      await openToken(page, token);
+      await expect(drawerLine(page, KHEER.name).locator('.tk-chip')).toHaveText(tr(lang, 'v.ready'));
+      await payCash(page, lang, token);
+      await openToken(page, token);
+      await expect(drawer(page).locator('.tk-fact--paid')).toBeVisible();
+      const rest = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/commands/mark-served'), { timeout: UNDO_MS + 10_000 });
+      await drawer(page).getByRole('button', { name: tr(lang, 'v.collected') }).click();
+      expect((await rest).status()).toBe(200);
+      expect(servedIds(sent)).toEqual([first, second]);
+      await expect(railEntry(page, token)).toHaveCount(0);
+    } finally {
+      await signOut(page, info, lang);
+    }
+  });
+
   test(`[02b-TK C2-2, C3-1; 05 B16; R2] a Due token: Hand over greyed, Take payment, then handed over (${lang})`, async ({ page, request }, info) => {
     runsHere(info);
     const sent = watchServed(page);
-    // Ali (no manager, no take-payment) sends it to pay later; the kitchen makes it ready
+    // Ali (no take-payment) sends it to pay later; the kitchen makes it ready
     await signInOn(page, deviceFor(info), lang);
     const token = await (async () => {
       try {
@@ -206,7 +253,7 @@ for (const lang of LANGS) {
       await expect(tile).toBeVisible({ timeout: 15_000 });
       await expect(tile).toContainText(tr(lang, 'q.due'));
       await openToken(page, token);
-      // R2: Hand over is greyed on a Due order for a non-manager; the hint says take payment first
+      // R2: Hand over is greyed on a Due order; the hint says take payment first
       const handOver = drawer(page).getByRole('button', { name: tr(lang, 'v.collected') });
       await expect(handOver).toHaveAttribute('aria-disabled', 'true');
       await expect(drawer(page).getByRole('note')).toHaveText(tr(lang, 'v.pay_first'));
@@ -217,13 +264,20 @@ for (const lang of LANGS) {
     } finally {
       await signOut(page, info, lang);
     }
-    // the Owner takes the cash: Paid, Hand over enabled, handed over after the Undo window, the token leaves the queue
+    // the Owner: no unpaid override either (owner ruling 2026-11-24 #2) — Hand over greyed, the same hint; then the
+    // Owner takes the cash: Paid, Hand over enabled, handed over after the Undo window, the token leaves the queue
     await signInOn(page, deviceFor(info), lang, 'Owner');
     try {
       await shiftOpen(page, lang);
       await takeawayTab(page);
       await expect(readyTile(page, token)).toBeVisible({ timeout: 15_000 });
       await openToken(page, token);
+      const unpaid = drawer(page).getByRole('button', { name: tr(lang, 'v.collected') });
+      await expect(unpaid).toHaveAttribute('aria-disabled', 'true');
+      await expect(drawer(page).getByRole('note')).toHaveText(tr(lang, 'v.pay_first'));
+      await expect(drawer(page).locator('.tk-drawer__f .tk-btn--xl')).toHaveCount(2); // Take payment + the greyed Hand over all only
+      await unpaid.click({ force: true });
+      await expect(undoToast(page, lang, token)).toHaveCount(0);
       await payCash(page, lang, token);
       await openToken(page, token);
       await expect(drawer(page).locator('.tk-fact--paid')).toBeVisible();

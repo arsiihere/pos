@@ -21,6 +21,9 @@ import { createPendingLogout, pendingLogoutOf } from './pending-logout';
 //   it waits at most SIGN_IN_WAIT_MS (review #193: a stalled drain / logout never keeps the page locked; the owed
 //   logout stays in memory for the sign-in hooks), busy meanwhile.
 // - the draft is kept: the lock never touches the draft store ("Your order is kept").
+// 02b-TK A2 item 1 (frame PersonMenu "Lock screen · Your orders stay as they are"; MAPPING TK-SH02): the person menu's
+// Lock is this screen now — a new `lockNow` value locks before the TTL (the same drain + logout); the title then reads
+// "Screen locked". The cart behind is held when the page signs out (02b-TK C1-5).
 
 /** the lock's Sign in waits this long for the drain + logout, then signs the page out anyway (review #193) */
 export const SIGN_IN_WAIT_MS = 5_000;
@@ -35,9 +38,11 @@ export interface IdleLockProps {
   now?: () => number;
   timers?: IdleTimers;
   fetch?: (input: string, init?: RequestInit) => Promise<Response>;
+  /** 02b-TK TK-SH02: each new value above 0 locks now (the person menu's Lock screen) */
+  lockNow?: number;
 }
 
-export function IdleLock({ now, timers, fetch }: IdleLockProps = {}) {
+export function IdleLock({ now, timers, fetch, lockNow = 0 }: IdleLockProps = {}) {
   const shell = useShell();
   const { api, enqueue, device, live } = shell;
   const wall = useMemo(() => now ?? (() => Date.now()), [now]);
@@ -136,6 +141,17 @@ export function IdleLock({ now, timers, fetch }: IdleLockProps = {}) {
     };
   }, [ttlMs, wall, timers, enqueue, api, pending, settle]);
 
+  // the person menu's Lock: now (the lock is started after its commit, so a request made earlier waits for it)
+  const [manual, setManual] = useState(false);
+  // the value at mount is not a request (a remount for the next person keeps the shell's count)
+  const wantLock = useRef(lockNow);
+  useEffect(() => {
+    if (lockNow <= 0 || wantLock.current === lockNow) return;
+    if (lock === null) return; // the TTL is not known yet: the lock is made with it, then this runs again
+    wantLock.current = lockNow;
+    setManual(true);
+    void Promise.resolve().then(() => lock.lockNow());
+  }, [lockNow, lock]);
   const locked = useSyncExternalStore(lock?.subscribe ?? noSubscribe, () => lock?.locked() ?? false);
   const overlay = useRef<HTMLDivElement | null>(null);
 
@@ -204,7 +220,7 @@ export function IdleLock({ now, timers, fetch }: IdleLockProps = {}) {
       <Ring size={110} pct={null} tone="brand">
         <Ico name="lock" />
       </Ring>
-      <h1>{fill(t('idle.title'), { n: String(minutes) })}</h1>
+      <h1>{manual ? t('shell.locked') : fill(t('idle.title'), { n: String(minutes) })}</h1>
       <p>{sentFirst > 0 ? fill(t('idle.sub'), { n: String(sentFirst) }) : t('idle.sub_none')}</p>
       {failed && <p>{t('tables.toast.needs_hub')}</p>}
       <button type="button" className="btn btn--primary btn--lg" disabled={leaving} aria-busy={leaving} onClick={signIn}>

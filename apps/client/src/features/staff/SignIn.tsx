@@ -12,6 +12,9 @@ import type { ShellHooks } from './shell/hooks';
 // AdminLogin), on the device route (00 `GET /queries/staff-roster`, `POST /auth/pin`) and in the Pulse tiles
 // (.who). People without a PIN are never on the roster (01b B3). The roster retries while the hub is away.
 // The PIN stays in this component until the answer, then it is dropped, also on an error.
+// 02b-TK A2 item 1 (frame PersonMenu "Switch user"; 00 HPA v1.12.4 §6.9 M20): with `onBack` this is the person menu's
+// Switch user over a signed-in page — the same tiles and PIN, sent with takeover: true at once (the holder chose to
+// hand the counter over: no second "is logged in" question), and a Back to the person who is still signed in.
 
 export const ROSTER_RETRY_MS = 5_000;
 
@@ -61,6 +64,7 @@ export function SignIn({
   hooks = NO_HOOKS,
   onUnpaired,
   onSignedIn,
+  onBack,
 }: {
   api: Pick<StaffApi, 'roster' | 'signIn'>;
   phone: boolean;
@@ -71,7 +75,10 @@ export function SignIn({
   /** 02a §8 Login: staff-roster answered 401 DEVICE_TOKEN_INVALID / 403 DEVICE_REVOKED */
   onUnpaired?: () => void;
   onSignedIn: (who: SignedIn) => void;
+  /** 02b-TK TK-SH02: Switch user — the PIN takes the session over; Back returns to the signed-in person */
+  onBack?: () => void;
 }) {
+  const switching = onBack !== undefined;
   const queueLine = useSyncExternalStore(hooks.subscribe, hooks.queueLine);
   const [staff, setStaff] = useState<RosterPerson[] | null>(null);
   const [offline, setOffline] = useState(false);
@@ -126,7 +133,7 @@ export function SignIn({
     setError(null);
     // 02b §3.12: the queue is drained before a new login (a failed drain does not block it)
     await hooks.beforeSignIn().catch(() => {});
-    const answer = await api.signIn(who.staff_id, typed, takeover);
+    const answer = await api.signIn(who.staff_id, typed, takeover || switching);
     setBusy(false);
     if (answer.ok) {
       onSignedIn(answer.data);
@@ -199,6 +206,16 @@ export function SignIn({
     <main className="body body--signin">
       {lockPanel}
       {offline && <OfflineLine />}
+      {switching && (
+        <div className="signin__switch">
+          <button type="button" className="btn" onClick={onBack}>
+            <Ico name="back" />
+            {t('shell.back')}
+          </button>
+          <b>{t('shell.me.switch')}</b>
+          <span className="muted">{t('shell.me.switch_sub')}</span>
+        </div>
+      )}
       <div>
         <h1 className="signin__h1">{t('alerts.signin.who')}</h1>
         <p className="muted signin__p">{t('alerts.signin.pick')}</p>

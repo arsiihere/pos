@@ -28,6 +28,8 @@ export interface OptionsSheetProps {
   item_ids: string[];
   /** Edit: the line as it is; else a new line */
   initial: CartLine | null;
+  /** 02b-TK A2 item 3 (frame TileStates): the variant tapped on the tile, chosen when the sheet opens */
+  start_item_id?: string;
   /** Q-7: a preselection (by name) instead of the defaults */
   preset?: CartOption[] | null;
   from_zone?: boolean;
@@ -71,7 +73,11 @@ export function OptionsSheet(p: OptionsSheetProps) {
   // the screen closes the sheet when a menu change removed its item (it never renders us without one)
   const added = useRef(false);
   const items = p.item_ids.flatMap((id) => p.config.items.filter((i) => i.item_id === id));
-  const startItem = items.find((i) => i.item_id === p.initial?.item_id) ?? items.find((i) => p.inputs === null || itemAvailability(i.item_id, p.inputs).orderable) ?? items[0]!;
+  const startItem =
+    items.find((i) => i.item_id === p.initial?.item_id) ??
+    items.find((i) => i.item_id === p.start_item_id) ??
+    items.find((i) => p.inputs === null || itemAvailability(i.item_id, p.inputs).orderable) ??
+    items[0]!;
   const [itemId, setItemId] = useState(startItem.item_id);
   const item: ConfigItem = items.find((i) => i.item_id === itemId) ?? startItem;
   const [options, setOptions] = useState<CartOption[]>(() => p.initial?.options ?? p.preset ?? defaultOptions(p.config, startItem, p.newKey));

@@ -122,6 +122,10 @@ export interface QueueRailProps {
   onPay?: ((token: QueueToken) => void) | undefined;
   /** tokens handed over in the Undo window: not shown */
   hidden?: ReadonlySet<string>;
+  /** 02b-TK A2 item 4 (R9): the open takeaway tokens the rail holds, for rush mode (each read) */
+  onCount?: ((n: number) => void) | undefined;
+  /** 02b-TK A2 item 4 (frame HomeRush): the compact queue */
+  compact?: boolean;
 }
 
 function ReadyTile({ q, selected, owed, onOpen, onHandOver, onPay }: { q: QueueToken; selected: boolean; owed: number | null; onOpen(): void; onHandOver?: (() => void) | undefined; onPay?: (() => void) | undefined }) {
@@ -198,13 +202,36 @@ function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; o
   );
 }
 
-export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOver, onPay, hidden }: QueueRailProps) {
+export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOver, onPay, hidden, onCount, compact = false }: QueueRailProps) {
   const shell = useShell();
   const { model, failed, loadedAt, retry } = useTakeawayQueue(book);
+  const open_n = model === null ? null : model.ready.length + model.cooking.length + model.later.length;
+  const countRef = useRef(onCount);
+  countRef.current = onCount;
+  useEffect(() => {
+    if (open_n !== null) countRef.current?.(open_n);
+  }, [open_n]);
   const owed = useDueAmounts(model);
   const [query, setQuery] = useState('');
   const [all, setAll] = useState(false);
-  const pick = (list: QueueToken[]) => list.filter((q) => !(hidden?.has(q.key) ?? false) && matchesQuery(q, query));
+  const seeContact = variant === 'column' || shell.permissions.allowed('view-customer-contact');
+  const searchLabel = t(seeContact ? 'q.search' : 'q.search_token');
+  const drawerSearch = useRef<HTMLInputElement>(null);
+  const pick = (list: QueueToken[], search = true) => list
+    .map((q) => seeContact ? q : { ...q, customer_name: null, phone: null })
+    .filter((q) => !(hidden?.has(q.key) ?? false) && (!search || matchesQuery(q, query)));
+  useEffect(() => {
+    if (variant !== 'strip' || !all) return;
+    drawerSearch.current?.focus();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault();
+        setAll(false);
+      }
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [variant, all]);
   const ready = pick(model?.ready ?? []);
   const cooking = pick(model?.cooking ?? []);
   const later = pick(model?.later ?? []);
@@ -212,22 +239,21 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
     setAll(false);
     onOpen(q);
   };
-  const tiles = ready.map((q) => (
+  const tile = (q: QueueToken) => (
     <ReadyTile
       key={q.key}
       q={q}
       selected={selected === q.key}
       owed={owedBy(q, owed)}
       onOpen={() => open(q)}
-      onHandOver={onHandOver === undefined ? undefined : () => onHandOver(q)}
-      onPay={onPay === undefined ? undefined : () => onPay(q)}
+      onHandOver={onHandOver === undefined ? undefined : () => { setAll(false); onHandOver(q); }}
+      onPay={onPay === undefined ? undefined : () => { setAll(false); onPay(q); }}
     />
-  ));
+  );
 
-  if (variant === 'strip' && !all)
-    return (
-      <div className="tk-rstrip" role="region" aria-label={t('q.ready')}>
-        {tiles}
+  const strip = variant === 'strip' && (
+    <div className="tk-rstrip" role="region" aria-label={t('q.ready')}>
+        {pick(model?.ready ?? [], false).map(tile)}
         <button type="button" className="tk-rstrip__q" onClick={() => setAll(true)}>
           <span>
             {t('q.all')} · <span className="num">{(model?.ready.length ?? 0) + (model?.cooking.length ?? 0) + (model?.later.length ?? 0)}</span>
@@ -239,13 +265,15 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
       </div>
     );
 
+  if (variant === 'strip' && !all) return strip;
+
   const empty = model !== null && model.ready.length + model.cooking.length + model.later.length === 0;
   const body = (
     <>
       <div className="tk-q__top">
         <label className="tk-search" role="search">
           <Ico name="eye" />
-          <input type="search" value={query} placeholder={t('q.search')} aria-label={t('q.search')} onChange={(e) => setQuery(e.target.value)} />
+          <input type="search" value={query} ref={variant === "strip" ? drawerSearch : undefined} placeholder={searchLabel} aria-label={searchLabel} onChange={(e) => setQuery(e.target.value)} />
         </label>
         {!shell.online && loadedAt !== null && (
           <span className="tk-hint">
@@ -274,10 +302,10 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
               {t('q.ready')}
               <span className="tk-chip tk-chip--ok num">{ready.length}</span>
             </div>
-            <div className="tk-ready">{tiles}</div>
+            <div className="tk-ready">{ready.map(tile)}</div>
           </>
         )}
-        <WaitingRows />
+        <WaitingRows showContact={seeContact} />
         {cooking.length > 0 && (
           <>
             <div className="tk-sec">
@@ -326,14 +354,19 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
   if (variant === 'strip')
     return (
       <>
-        <button type="button" className="tk-scrim--fixed" aria-label={t('common.close')} onClick={() => setAll(false)} />
-        <aside className="tk-drawer tk-q" role="dialog" aria-label={t('q.all')}>
+        <div inert>{strip}</div>
+        <button type="button" className="tk-scrim--fixed" tabIndex={-1} aria-label={t('common.close')} onClick={() => setAll(false)} />
+        <aside className={'tk-drawer tk-q tk-q--drawer' + (compact ? ' tk-q--compact' : '')} role="dialog" aria-modal="true" aria-label={t('q.all')}>
+          <div className="tk-drawer__h">
+            <h2>{t('q.all')}</h2>
+            <button type="button" className="tk-x" aria-label={t('common.close')} onClick={() => setAll(false)}><Ico name="x" /></button>
+          </div>
           {body}
         </aside>
       </>
     );
   return (
-    <aside className={variant === 'tab' ? 'tk-q tk-q--tab' : 'tk-q'} aria-label={t('q.all')}>
+    <aside className={['tk-q', variant === 'tab' ? 'tk-q--tab' : null, compact ? 'tk-q--compact' : null].filter((c) => c !== null).join(' ')} aria-label={t('q.all')}>
       {body}
     </aside>
   );
