@@ -16,6 +16,10 @@ import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, immediate
 import type { Diagnostic, EngineLine, EngineState, Load, Profile, StationRuntime } from './state.js';
 import type { Pass1Result } from './replan.js';
 
+export function futurePickup(pickup: number | null, at: number): number | null {
+  return pickup !== null && pickup > at ? pickup : null;
+}
+
 // §3.2: a line is an ItemAdded with station_id not null and line_kind ≠ 'deal' (01c §3.4.7).
 export function isEngineLine(item: Pick<ItemAddedPayload, 'station_id' | 'line_kind'>): boolean {
   return item.station_id !== null && item.line_kind !== 'deal';
@@ -1321,7 +1325,7 @@ export function planOrderObserved(
     [sync],
     planLines.map((l) => l.order_item_id),
     now,
-    proposed.order.pickup_at_ms,
+    futurePickup(proposed.order.pickup_at_ms, now),
     { prune: o.prune, strict: false },
   );
 
