@@ -1,5 +1,9 @@
 # 02b-TK spec status — owner review + hostile run 2 (2026-11-24)
 
+> **⚠️ 02b-TK pilot package APPROVED (owner, 2026-11-26 01:33 PKT)** after hostile run 3 and its verification (`docs/reviews/*_hostile_run3.md`, `docs/reviews/02b-tk_run3_verify.md`; decisions `docs/plans/02b-tk-run3-decisions.md`). Approved versions, superseding the "DRAFT / pending owner" marks in the table below: **Foundation v1.18**, **00 HPA v1.13**, **01a v2.11**, **01b v1.12**, **01c v1.5**, **01d v1.3.7** (pilot slice; 05c parts parked in §12.10), **02b v1.0.25**, **03a v1.2.11**, **03b v1.0.16**, **03c v1.0.16**, **04 v1.0.9**, **05 v1.0.35**, **05a v1.0.7**. **05c v0.2 stays parked** (not in the pilot).
+
+Tier 1 lanes may start (docs/plans/02b-tk-lanes.md, docs/plans/02b-tk-codex-tier1.md): run 3 is clean for every spec and 04 v1.0.9 is approved.
+
 **Owner review (24 Nov):** every recommended default accepted except OR-1 – OR-7 (`docs/plans/02b-tk-rulings.md` "Owner review"), plus three owner messages the same day: OR-7 unpaid hand-over as a 01d request; the **Pass role** correction (new default role `pass`, Cook unchanged); **Pass points by order type** (01a PT-1 – PT-6, 03b PT-1 – PT-8, rows PT-R1 to 02b, PT-R2 to 03a). All specs stay **DRAFT**; nothing is built against them.
 
 **Hostile run 2** (fresh sub-sessions, one file per spec in `docs/reviews/*_hostile_run2.md`); every finding is fixed in place ("⚠️ Changed by … hostile run 2 (<id>)", a "Hostile run 2 fixes" table per spec).
