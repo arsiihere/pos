@@ -698,7 +698,7 @@ defineAlertKind({
 
 Registered by 02b ~~(`apps/hub/src/orders/kinds.ts`)~~ (⚠️ Changed by v1.0.25 hostile run 2 (R2-m-8): `apps/hub/src/orders/hand-over-unpaid-kind.ts`, imported statically before the alerts replay, as `comp-kind.ts`; 01d P-8) through 01d `defineAlertKind`:
 
-⚠️ Changed by run 3 (R3-B-1): Register `AlertRaised` **v6** in the pilot slice before OR-7 is enabled. The holders right stores `hand-over-unpaid` in `request.base_permission`. Freeze the v1–v5 persisted permission enums, including prior persisted target branches using the shared enum, and use the widened schema in v6. Register the identity v5→v6 upcaster (Foundation D46/D5); old raise fixtures replay unchanged and the new request appends and replays as v6. 01b B-5 and 01d use this same version.
+⚠️ Changed by run 3 reconcile (AlertRaised v6): `AlertRaised` v6 is **defined once in 01d v1.3.7 §5.4** (the permission target arm, `request.base_permission` and `request.range_permission` all frozen at v1–v5); this paragraph only says how 02b uses it. ⚠️ Changed by run 3 (R3-B-1): Register `AlertRaised` **v6** in the pilot slice before OR-7 is enabled. The holders right stores `hand-over-unpaid` in `request.base_permission`. Freeze the v1–v5 persisted permission enums, including prior persisted target branches using the shared enum, and use the widened schema in v6. Register the identity v5→v6 upcaster (Foundation D46/D5); old raise fixtures replay unchanged and the new request appends and replays as v6. 01b B-5 and 01d use this same version.
 
 ```ts
 defineAlertKind({
