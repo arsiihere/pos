@@ -11,6 +11,8 @@ import { defineQuery, queryRegistry, type QueryCtx } from './registry.js';
 // archived one that still has pending jobs or unresolved suspects. `no_printer` (review of c20): pending jobs whose station
 // has no printer now (output removed or set to screen without one) — they wait and never print; each such job is
 // flagged `no_printer: true` (counted in the jobs statement, a window over all pending rows before the LIMIT).
+// ⚠️ 03c v1.0.16 §6.7 (02b-TK R6; hostile run 1): each job row also carries `kind_label` (the document payload's, in
+// the same JOBS_SQL statement; null for non-document jobs), so a slip shows as "Token slip" with its order_id.
 
 export const PRINT_QUEUE_JOBS_LIMIT = 100;
 
@@ -35,7 +37,8 @@ SELECT p.printer_id, p.name, COALESCE(r.last_status, 'unknown') AS status,
 
 const JOBS_SQL = `
 SELECT job_id, kind, to_printer AS printer_id, station_id, ticket_id, order_id, created_at, sent_at, attempts, last_error,
-       is_reprint, suspect_at, COUNT(*) FILTER (WHERE to_printer IS NULL) OVER () AS no_printer_total
+       is_reprint, suspect_at, CASE WHEN kind = 'document' THEN json_extract(payload, '$.kind_label') END AS kind_label,
+       COUNT(*) FILTER (WHERE to_printer IS NULL) OVER () AS no_printer_total
   FROM (${PENDING}) ORDER BY created_at DESC, job_id DESC LIMIT ${PRINT_QUEUE_JOBS_LIMIT}`;
 
 function requireManageDevices(ctx: QueryCtx): void {
