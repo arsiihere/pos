@@ -250,7 +250,7 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
       const fake: FakeOrder = {
         order_id: o.order_id,
         actor_id: 'S_CASH',
-        order: { order_type: o.order_type, table_id: o.table_id, table_key: o.table_key, follow_up: o.follow_up, pickup_at_ms: o.pickup_at_ms + shift },
+        order: { order_type: o.order_type, table_id: o.table_id, table_key: o.table_key, follow_up: o.follow_up, pickup_at_ms: o.pickup_at_ms === null ? null : o.pickup_at_ms + shift },
         lines: o.lines.map((l) => ({ order_item_id: l.order_item_id, station_id: l.station_id, item: itemOf(stations.get(l.station_id)!) })),
       };
       const out = fakeSubmitOrRefuse(h.deps, fake, { dayStartMs: openDayStartMs(engine()) ?? 0, stockItems: config.stock_items as ConfigStockItem[] });

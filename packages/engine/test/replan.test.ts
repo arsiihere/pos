@@ -127,10 +127,20 @@ function submit(
   const p = proposed(order_id, items, o);
   const plan = opts?.prune === false ? planOrderWith(state, p, now, {}, { prune: false }) : planOrder(state, p, now, {});
   const s = fold(state, batch(order_id, items, recorded_at, plan.groups, o), opts);
-  if (recorded_at === now) {
-    for (const l of plan.lines) expect(s.lines[l.order_item_id]!.booked!.end + l.carry_ms).toBe(l.eta_ms);
-  }
+  if (recorded_at === now) expectEtas(s, plan);
   return { plan, state: s };
+}
+
+// planOrder's eta_ms = the fold's land (booked end + carry); ⚠️ 03a v1.2.11 §3.5.8 PK-2 (m-6): a held line's (an
+// immediate line of an order with an effective pickup, Waada Guard here) is its T_L = max(pickup, land), not its early land.
+function expectEtas(s: EngineState, plan: PlanResult): void {
+  for (const l of plan.lines) {
+    const line = s.lines[l.order_item_id]!;
+    const order = s.orders[line.order_id]!;
+    const land = line.booked!.end + l.carry_ms;
+    const pickup = order.boosted ? null : order.pickup_at_ms;
+    expect(pickup !== null && line.serve_mode !== 'sync' ? Math.max(pickup, land) : land, l.order_item_id).toBe(l.eta_ms);
+  }
 }
 
 function fire(ids: string[], recorded_at: number, station_id = 'S1'): PosEvent {
@@ -547,7 +557,7 @@ describe('@pos/engine Review Focus 2: equal recorded_at and equal fire_ms across
         const events = batch(`R${run}O${k}`, items, t, plan.groups, { pickup_at_ms: pickup });
         live = fold(live, events);
         log.push(...events);
-        for (const l of plan.lines) expect(live.lines[l.order_item_id]!.booked!.end + l.carry_ms).toBe(l.eta_ms);
+        expectEtas(live, plan);
       }
       const rebuilt = buildEngineState(log.map((e) => deepFreeze(e)));
       expect(rebuilt.lines).toEqual(live.lines);

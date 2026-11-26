@@ -143,27 +143,28 @@ function nothingLate(s: EngineState, order_id: string): void {
 }
 
 describe('@pos/engine policies (§3.5.2–§3.5.4, D3, AD-14)', () => {
-  it('[03a #24] FIFO: earliest fit in submit order, no hold (pickup ignored), no re-plan of older lines; target = land, padding 0', () => {
+  it('[03a #24] FIFO: earliest fit in submit order, no hold, no re-plan of older lines; target = land, padding 0; ⚠️ v1.2.11 PK-4: a pickup order is held', () => {
     let s = kitchen([{ station_id: 'S1', capacity: 1, policy: 'fifo' }]);
     // Z busy until 12:10.
     ({ state: s } = submit(s, 'OZ', [{ id: 'Z', cook: 10, mode: 'immediate' }], at(0)));
-    // A (cook 10) for a pickup at 12:30: FIFO fires it at its earliest fit 12:10, never held to 12:20.
+    // ⚠️ Changed by 03a v1.2.11 §3.5.8 PK-4 (was: "A for a pickup at 12:30 fires at its earliest fit 12:10, pickup
+    // ignored"): A (cook 10) for a pickup at 12:30 is placed by the PK-2 chain, landing at 12:30; its deadline is its fire.
     const a = submit(s, 'OA', [{ id: 'A', cook: 10 }], at(0), { pickup_at_ms: at(30) });
     s = a.state;
-    expect(fireOf(s, 'A')).toBe(at(10));
-    expect(s.lines.A!.booked).toEqual({ start: at(10), end: at(20), units: 1 });
-    expect(s.lines.A!.deadline_ms).toBe(at(10)); // AD-14: target = land, deadline = its fire
-    expect(group(a.plan).target_land_ms).toBe(at(30)); // group T ≥ the pickup (as before)
+    expect(fireOf(s, 'A')).toBe(at(20));
+    expect(s.lines.A!.booked).toEqual({ start: at(20), end: at(30), units: 1 });
+    expect(s.lines.A!.deadline_ms).toBe(at(20)); // AD-14: deadline = its fire (m-4)
+    expect(group(a.plan).target_land_ms).toBe(at(30));
     expect(group(a.plan).promise_ms).toBe(at(30)); // padding 0 (D3)
-    // B (shorter, cook 5) at 12:01 queues behind A in submit order; A (hidden) is not re-planned.
+    // B (cook 5, no pickup) at 12:01 takes its earliest fit in the gap before A; A (hidden, older) is not re-planned.
     const aBefore = s.lines.A!;
     const b = submit(s, 'OB', [{ id: 'B', cook: 5 }], at(1));
     expect(b.state.lines.A).toEqual(aBefore);
-    expect(fireOf(b.state, 'B')).toBe(at(20));
-    expect(b.state.lines.B!.deadline_ms).toBe(at(20));
-    expect(group(b.plan).target_land_ms).toBe(at(25));
-    expect(group(b.plan).promise_ms).toBe(at(25));
-    expect(b.state.stations.S1!.profile).toEqual({ t: [at(0), at(25)], u: [1, 0] });
+    expect(fireOf(b.state, 'B')).toBe(at(10));
+    expect(b.state.lines.B!.deadline_ms).toBe(at(10));
+    expect(group(b.plan).target_land_ms).toBe(at(15));
+    expect(group(b.plan).promise_ms).toBe(at(15));
+    expect(b.state.stations.S1!.profile).toEqual({ t: [at(0), at(15), at(20), at(30)], u: [1, 0, 1, 0] });
     nothingLate(b.state, 'OB');
   });
 
@@ -198,9 +199,11 @@ describe('@pos/engine policies (§3.5.2–§3.5.4, D3, AD-14)', () => {
     expect(group(r2.plan).target_land_ms).toBe(at(20));
     nothingLate(r2.state, 'OH');
 
-    // A delivery pickup still floors T; the FIFO line ignores it.
+    // A delivery pickup floors T. ⚠️ Changed by 03a v1.2.11 §3.5.8 PK-4 (was: "the FIFO line ignores it", fire 12:00):
+    // the FIFO line of a pickup order is held too and lands at the pickup; its deadline is its fire.
     const r3 = submit(s, 'OD', [{ id: 'X3', st: 'F', cook: 5 }, { id: 'Y3', st: 'W', cook: 5 }], at(0), { pickup_at_ms: at(40), order_type: 'delivery' });
-    expect(fireOf(r3.state, 'X3')).toBe(at(0));
+    expect(fireOf(r3.state, 'X3')).toBe(at(35));
+    expect(r3.state.lines.X3!.deadline_ms).toBe(at(35));
     expect(group(r3.plan).target_land_ms).toBe(at(40));
     expect(fireOf(r3.state, 'Y3')).toBe(at(35));
     nothingLate(r3.state, 'OD');
