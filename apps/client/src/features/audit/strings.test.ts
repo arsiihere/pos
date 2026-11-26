@@ -44,6 +44,17 @@ describe('[04 §8 Rules] audit strings', () => {
     }
   });
 
+  it('[04 v1.0.9 §3.6] the takeaway pilot actions sit in Bills and payments, have en labels and are in the 02b-TK section of urdu-todo.md', () => {
+    const tk = ['cart_check_bill_printed', 'unpaid_handover_requested', 'unpaid_handover_answered', 'unpaid_handover_approved'] as const;
+    for (const a of tk) expect(ACTION_META[a].group, a).toBe('bills_payments');
+    expect(en['audit.action.cart_check_bill_printed']).toBe('Cart check bill printed');
+    expect(en['audit.action.unpaid_handover_requested']).toBe('Unpaid hand-over asked');
+    expect(en['audit.action.unpaid_handover_answered']).toBe('Unpaid hand-over answered');
+    expect(en['audit.action.unpaid_handover_approved']).toBe('Unpaid hand-over approved');
+    const section = todoText.split(/^## /m).find((x) => x.startsWith('02b-TK')) ?? '';
+    for (const a of tk) expect(section, a).toContain(`| \`audit.action.${a}\` |`);
+  });
+
   it('[04 §8 R20] every audit.* key is in ur or in docs/design/handoff/04/urdu-todo.md (not both); ur keeps the placeholders', () => {
     const urKeys = ur as Record<string, string | undefined>;
     const enKeys = en as Record<string, string>;
