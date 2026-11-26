@@ -1905,3 +1905,4 @@ New reason `weigh_required` on `422 CONFIG_REFERENCE_INVALID` (S4); new reason `
 | Re-pricing a corrected sheet at today's cost | O-10: corrections keep the first close's costs |
 | Cloud copy of the sheet / owner-app report | Needs 06 sync; 07 |
 | Variance × shift roster | POST |
+| ⚠️ Owner idea (2026-11-26, not in force): **leftover cooked stock carries to the next day** marked "from yesterday"; the order-taker and takeaway screens show a **"sell these first"** list so it sells before it spoils | A later 08 slice, after the 02b-TK pilot; Tier 1 only keeps a waiting pickup order's reservation over the day close (03a PK-10, ruling DC-1) |
