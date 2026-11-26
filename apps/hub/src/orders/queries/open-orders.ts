@@ -79,7 +79,10 @@ export function openOrderRows(db: Database.Database, types: readonly OrderType[]
   return db.prepare(OPEN_ORDERS).all({ all: types === 'all' ? 1 : 0, types: JSON.stringify(types === 'all' ? [] : types) }) as OpenOrderRow[];
 }
 
-/** An open order as OrderView (§4.2): never cancelled, billed or day-closed (the `orders_open` condition). No contact. */
+/**
+ * An open order as OrderView (§4.2): never cancelled or day-closed (the openOrderRows condition). No contact.
+ * ⚠️ v1.0.25 §6.18 (G-1, M-4): `billed` / `billed_at` are the row's (a paid takeaway not yet handed over is listed).
+ */
 export function openOrderView(r: OpenOrderRow, lines: LineView[]): OrderView {
   return {
     order_id: r.order_id,
@@ -95,8 +98,8 @@ export function openOrderView(r: OpenOrderRow, lines: LineView[]): OrderView {
     follow_up: r.follow_up === 1,
     cancelled: false,
     cancelled_at: null,
-    billed: false,
-    billed_at: null,
+    billed: r.billed_at !== null,
+    billed_at: r.billed_at,
     day_closed_at: null,
     sent_after_reconnect: r.sent_after_reconnect === 1,
     has_phone: r.has_phone === 1,
