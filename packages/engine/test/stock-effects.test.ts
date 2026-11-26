@@ -1,7 +1,7 @@
 // 03a §3.7 / §6.1f (task 12b): stockEffects per cause (per-cause table, Q14, move to stock, StockAdded reserve),
 // the StockReserved flip (from_stock false → true: stock cook, stock program, BF-7 re-place of that line only),
 // the re-plan of a recount / close at its own event after its releases (§3.5.3), BF-1, BF-8.
-import { parseEvent, type ConfigStockItem, type EventDraft, type PosEvent } from '@pos/events';
+import { parseEvent, type ConfigStockItem, type EngineConfig, type EventDraft, type PosEvent } from '@pos/events';
 import {
   aBusinessDayClosed,
   aBusinessDayOpened,
@@ -18,7 +18,7 @@ import {
   aStockSet,
 } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
-import { applyEvent, buildEngineState, initialEngineState, stockEffects, stockOf, type EngineState, type StockCtx } from '../src/index';
+import { applyEvent, buildEngineState, initialEngineState, isOrderInEngine, stockEffects, stockOf, type EngineState, type StockCtx } from '../src/index';
 import { batchConfig, loadOf } from './batch-kit';
 
 const T = 1_761_000_000_000;
@@ -338,6 +338,37 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
     expect(stockOf(state, 'KB')).toMatchObject({ on_hand: 5, reserved: 4 });
     expect(state.lines.C).toMatchObject({ from_stock: false, reserved_seq: null });
     expect(state.lines.A).toMatchObject({ from_stock: true });
+  });
+
+  it.each(['waada_guard', 'edf', 'fifo'] as const)('[03a #188 DC-1] %s keeps held stock and its booking through close', policy => {
+    const body = cfg().payload as unknown as EngineConfig;
+    const setup = anEngineConfigApplied({ recorded_at: DAY, payload: { stations: [
+      { ...body.stations[0]!, station_id: 'S1', policy }, { ...body.stations[0]!, station_id: 'S2', policy: 'waada_guard' },
+    ] } });
+    const pickup = T + 3_600_000;
+    const drink = hidden('O1', [{ id: 'H', draws: kb(), from_stock: true }], pickup)
+      .map(e => e.event_type === 'ItemAdded' ? { ...e, payload: { ...e.payload, serve_mode: 'immediate' } } : e);
+    const other = anOrderBatch({ order_id: 'O2', recorded_at: T, seq: nextSeq(4),
+      lines: [{ order_item_id: 'N', item: { station_id: 'S2', stock_time_ms: STOCK_COOK, stock_draws: kb() },
+        line: { station_id: 'S2', from_stock: true } }],
+      order: { pickup_at_ms: pickup, groups: [{ group_id: 'O2:0', target_land_ms: pickup, promise_ms: pickup, order_item_ids: ['N'] }] },
+      reserved: [{ order_item_id: 'N', stock_item_id: 'KB', quantity: 1 }],
+    });
+    const neighbour = hidden('O3', [{ id: 'U' }], pickup + COOK);
+    const head = [setup, opened(DAY), set('KB', 2, DAY), ...drink, ...other, ...neighbour];
+    const before = fold(head);
+    const at = pickup - 1_800_000;
+    const close = commit(before, [closed(at)], at);
+    expect(close.events.map(brief)).toEqual([
+      { type: 'StockReleased', id: 'KB', line: 'N', q: 1, reason: 'day_closed' }, { type: 'BusinessDayClosed' },
+    ]);
+    expect(close.state.lines.H).toEqual(before.lines.H);
+    if (policy === 'fifo') expect(close.state.lines.U).toEqual(before.lines.U);
+    expect(stockOf(close.state, 'KB').reserved).toBe(1);
+    expect(isOrderInEngine(close.state, 'O1', pickup + 86_400_000)).toBe(true);
+    expect(replay([...head, ...close.events])).toEqual(close.state);
+    const start = started('O1', 'H', pickup);
+    expect(stockEffects(close.state, draftOf(start), CTX).map(brief)).toEqual([{ type: 'StockConsumed', id: 'KB', line: 'H', q: 1 }]);
   });
 
   it('[03a #88] stockEffects per trigger: removed, voided per unit, Start consumes a live reservation', () => {

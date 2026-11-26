@@ -23,7 +23,7 @@ import type {
   StockTransferredOutPayload,
 } from '@pos/events';
 import { addInterval, occupancy, removeInterval, type Underflow } from './profile.js';
-import { applyMoves, capacityFor, flipPlacement, isFifo, isHidden, placeBatchPriority, placementCap, sortUnfired, stationPolicy } from './replan.js';
+import { applyMoves, capacityFor, flipPlacement, heldPickup, isFifo, isHidden, placeBatchPriority, placementCap, sortUnfired, stationPolicy } from './replan.js';
 import { deadlineFor } from './priority.js';
 import { liveInterval } from './live.js';
 import {
@@ -1060,9 +1060,9 @@ function foldStockSet(state: EngineState, event: PosEvent, strict: boolean): Eng
 // on the given stations at recorded_at with no new line (no pivot, nothing pruned), stored as any re-plan (applyPass1).
 // The released lines go back to their full cook (and a batch line to its fresh program, BF-1) here; FIFO stations
 // re-place nothing (AD-14).
-function replanStations(state: EngineState, station_ids: readonly string[], event: PosEvent, o: SequenceOptions): EngineState {
+function replanStations(state: EngineState, station_ids: readonly string[], event: PosEvent, o: SequenceOptions, held = new Set<string>()): EngineState {
   if (station_ids.length === 0) return state;
-  const p1 = pass1P(state, station_ids, [], event.recorded_at, { prune: false, strict: o.strict });
+  const p1 = pass1P(state, station_ids, [], event.recorded_at, { prune: false, strict: o.strict, held });
   return applyPass1(state, p1, event.event_id, o.strict);
 }
 
@@ -1499,7 +1499,8 @@ function fold(state: EngineState, event: PosEvent, o: FoldOptions): EngineState 
       // §3.8): an order carried over the close that is still late slips afresh by the crossing rule.
       const exited = removeOrders(state, closeExitIds(state), event, o);
       // §3.5.3 (task 12b): the close re-plans every station with an unfired line, once, after its releases.
-      const replanned = replanStations(exited, Object.keys(exited.stations).filter((sid) => exited.stations[sid]!.unfired.length > 0), event, o);
+      const held = new Set(Object.values(exited.lines).filter(l => heldPickup(exited, l) !== null).map(l => l.order_item_id));
+      const replanned = replanStations(exited, Object.keys(exited.stations).filter((sid) => exited.stations[sid]!.unfired.length > 0), event, o, held);
       const slips = Object.keys(replanned.slips).length === 0 ? replanned.slips : {};
       return { ...replanned, business_day: { ...day, closed_at: event.recorded_at }, slips };
     }
