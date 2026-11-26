@@ -224,6 +224,7 @@ describe('checkPin hooks (one counting transaction)', () => {
     const writer: Writer = {
       lastSeq: () => real.lastSeq(),
       addAfterCommit: (fn) => real.addAfterCommit(fn),
+      addBeforeCommit: (fn) => real.addBeforeCommit(fn), // 03b v1.0.16 §3.5 (D8)
       run(fn) {
         runs += 1;
         order.push('run');

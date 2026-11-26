@@ -17,10 +17,25 @@ export interface WriterTx {
   onCommit(fn: () => void): void;
 }
 
+/**
+ * ⚠️ 03b v1.0.16 §3.5 (run 3 R3-B-3, D8): what a before-commit hook gets: the events the transaction appended so far
+ * (after their projections) and `tx()`, the transaction with `state` folded through them (folded on first call).
+ */
+export interface PreCommit {
+  appended: readonly PosEvent[];
+  tx(): WriterTx;
+}
+
 export interface Writer {
   run<T>(fn: (tx: WriterTx) => T): { result: T; appended: PosEvent[] };
   lastSeq(): number;
   addAfterCommit(fn: (appended: PosEvent[]) => void): void;
+  /**
+   * ⚠️ 03b v1.0.16 §3.5 (R3-B-3): runs once per transaction that appended something, inside it, after `fn` and before
+   * COMMIT. It may append (those events commit, fold and publish with the rest, and are not passed to the hooks again);
+   * a throw rolls the whole transaction back. Live writes only: boot replay does not use the writer.
+   */
+  addBeforeCommit(fn: (pre: PreCommit) => void): void;
 }
 
 export function createWriter<S>(o: {
@@ -41,11 +56,15 @@ export function createWriter<S>(o: {
     }
   ).seq;
   const afterCommit: Array<(appended: PosEvent[]) => void> = [];
+  const beforeCommit: Array<(pre: PreCommit) => void> = [];
   const authEvents = new Set<string>(AUTH_EVENTS);
   return {
     lastSeq: () => lastSeq,
     addAfterCommit(fn) {
       afterCommit.push(fn);
+    },
+    addBeforeCommit(fn) {
+      beforeCommit.push(fn);
     },
     run(fn) {
       const onCommit: Array<() => void> = [];
@@ -75,6 +94,12 @@ export function createWriter<S>(o: {
             },
           };
           const value = fn(tx);
+          if (beforeCommit.length > 0 && appended.length > 0) {
+            const own = [...appended];
+            let staged: WriterTx | undefined;
+            const pre: PreCommit = { appended: own, tx: () => (staged ??= { ...tx, state: o.state.fold(o.state.get() as S, own) as Readonly<unknown> }) };
+            for (const hook of beforeCommit) hook(pre);
+          }
           if (appended.length > 0) next = o.state.fold(next, appended);
           o.testHooks?.beforeCommit?.();
           return value;
