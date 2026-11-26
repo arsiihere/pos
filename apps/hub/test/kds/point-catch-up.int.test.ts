@@ -82,6 +82,9 @@ function detailsCounter(db: Database.Database): { readonly count: number; reset(
   };
 }
 
+/** ⚠️ 03b v1.0.16 §6.15 (run 3): the metadata of a card with no pickup time. */
+const NO_PICKUP = { pickup_at_ms: null, boosted: false, pickup_readiness: null, no_station_lines: [] };
+
 describe('[03b §6.15] point_view catch-up part (b21)', () => {
   it('[03b #65] a Pass socket gets its point body (stations, orders oldest first with stage / handed_over / ready); other sockets get none', async () => {
     const cook = await start();
@@ -108,8 +111,9 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
             { ...details.get('A2')!, ...serve('A2'), stage: 'added', handed_over: false, started_at: null },
           ],
           ready: null,
+          ...NO_PICKUP, // ⚠️ 03b v1.0.16 §6.15 (run 3 R3-B-1, R3-M-5)
         },
-        { order_id: b, identifier: details.get('B1')!.identifier, placed_at: engine().orders[b]!.placed_at, lines: [{ ...details.get('B1')!, ...serve('B1'), stage: 'added', handed_over: false, started_at: null }], ready: null },
+        { order_id: b, identifier: details.get('B1')!.identifier, placed_at: engine().orders[b]!.placed_at, lines: [{ ...details.get('B1')!, ...serve('B1'), stage: 'added', handed_over: false, started_at: null }], ready: null, ...NO_PICKUP },
       ],
       takeovers: [],
     });
@@ -360,7 +364,14 @@ describe('[03b §6.16] point_lines frame (b21)', () => {
     await settle();
     const frames = pointLines(pass);
     expect(ids(frames)).toEqual([['B1', 'B2']]);
-    expect(WsPointLines.parse(frames[0])).toEqual({ type: 'point_lines', point_id: 'P1', lines: [...buildLineDetails(hub.deps.db, engine(), ['B1', 'B2']).values()].map((d) => ({ ...d, ...serve(d.order_item_id) })) });
+    // ⚠️ 03b v1.0.16 §6.16 (R3-M-5): the newly shown order's metadata rides along, once (the Fire commit changes none)
+    const b = engine().lines.B1!.order_id;
+    expect(WsPointLines.parse(frames[0])).toEqual({
+      type: 'point_lines',
+      point_id: 'P1',
+      lines: [...buildLineDetails(hub.deps.db, engine(), ['B1', 'B2']).values()].map((d) => ({ ...d, ...serve(d.order_item_id) })),
+      orders: [{ order_id: b, ...NO_PICKUP }],
+    });
   });
 
   it('[03b v1.0.4 §6.16] a held line whose live units change (partial remove / void) is re-sent; one buildLineDetails per commit (B3-3)', async () => {

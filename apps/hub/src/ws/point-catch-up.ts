@@ -1,6 +1,6 @@
 import type { LineDetail } from '@pos/domain';
 import { isOrderInEngine, priorityOfLine, stationView, type EngineState, type LinePriority } from '@pos/engine';
-import type { KdsStationBody, WsPointLines } from '@pos/events';
+import type { KdsStationBody, PointOrderMeta, WsPointLines } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { buildLineDetails, devicePoint, pointOfLine } from '../kds/contracts.js';
@@ -50,7 +50,13 @@ export interface PointViewBody {
   point_id: string;
   stations: Array<{ station_id: string; name: string; lanes: KdsStationBody['lanes']; dark: boolean; screenless: boolean }>;
   // ⚠️ 03b v1.0.10 §6.15 (STAB-2): ready.lines = the Ready's unsettled own lines
-  orders: Array<{ order_id: string; identifier: LineDetail['identifier']; placed_at: number; lines: PointLine[]; ready: { at: number; by: string | null; lines: string[] } | null }>;
+  // ⚠️ 03b v1.0.16 §6.15 (run 3 R3-B-1, R3-M-5): + the order metadata (pickup_at_ms, boosted, pickup_readiness, no_station_lines)
+  orders: Array<
+    { order_id: string; identifier: LineDetail['identifier']; placed_at: number; lines: PointLine[]; ready: { at: number; by: string | null; lines: string[] } | null } & Omit<
+      PointOrderMeta,
+      'order_id'
+    >
+  >;
   takeovers: KdsStationBody[];
 }
 
@@ -71,6 +77,58 @@ function pointLineIds(state: EngineState, point_id: string, now: number): string
     if (keep) ids.push(id);
   }
   return ids;
+}
+
+// ⚠️ 03b v1.0.16 §3.4, §6.15 (run 3 R3-M-5): the live unserved non-deal station-less lines of pickup orders, one batched
+// read (only when a listed order has a pickup time). A zone-served line is served at once, so it never shows.
+const NO_STATION_SQL = `SELECT order_id, order_item_id, name AS item_name, units - removed_units - voided_units AS units FROM order_lines
+  WHERE order_id IN (SELECT value FROM json_each(?)) AND station_id IS NULL AND line_kind <> 'deal' AND served_at IS NULL
+    AND units - removed_units - voided_units > 0
+  ORDER BY added_at, order_item_id`;
+
+const ENGINE_OPEN = new Set(['added', 'cooking']);
+
+/**
+ * ⚠️ 03b v1.0.16 §3.4, §6.15 (run 3 R3-B-1, R3-M-5): a card's order metadata. `pickup_at_ms` and `boosted` are the
+ * engine order's (Boost keeps the time, D1). A pickup card adds `pickup_readiness`: every live engine line of the order,
+ * at any point, done or settled (`all_engine_lines_done`), and the station-less hold, the pickup time while a live
+ * station-less line remains and the order is not boosted (else null; clients compare it with hub time); and its
+ * `no_station_lines`. Engine facts are memory; 1 statement for the station-less lines, only with a pickup order.
+ */
+export function orderMetaOf(db: Database.Database, state: EngineState, order_ids: readonly string[]): Map<string, PointOrderMeta> {
+  const pickups = order_ids.filter((id) => (state.orders[id]?.pickup_at_ms ?? null) !== null);
+  const stationLess = new Map<string, PointOrderMeta['no_station_lines']>();
+  if (pickups.length > 0) {
+    const rows = db.prepare(NO_STATION_SQL).all(JSON.stringify(pickups)) as Array<{ order_id: string; order_item_id: string; item_name: string; units: number }>;
+    for (const r of rows) {
+      const list = stationLess.get(r.order_id) ?? [];
+      list.push({ order_item_id: r.order_item_id, item_name: r.item_name, units: r.units });
+      stationLess.set(r.order_id, list);
+    }
+  }
+  const out = new Map<string, PointOrderMeta>();
+  for (const order_id of order_ids) {
+    const order = state.orders[order_id];
+    if (order === undefined) continue;
+    const pickup = order.pickup_at_ms;
+    if (pickup === null) {
+      out.set(order_id, { order_id, pickup_at_ms: null, boosted: order.boosted, pickup_readiness: null, no_station_lines: [] });
+      continue;
+    }
+    const lines = stationLess.get(order_id) ?? [];
+    const all_engine_lines_done = order.line_ids.every((id) => {
+      const l = state.lines[id];
+      return l === undefined || !ENGINE_OPEN.has(l.stage);
+    });
+    out.set(order_id, {
+      order_id,
+      pickup_at_ms: pickup,
+      boosted: order.boosted,
+      pickup_readiness: { all_engine_lines_done, station_less_hold_until: order.boosted || lines.length === 0 ? null : pickup },
+      no_station_lines: lines,
+    });
+  }
+  return out;
 }
 
 /** The stations of `point_id` under takeover (memory). */
@@ -121,7 +179,7 @@ const lanesOf = (s: SettingsRow): KdsStationBody['lanes'] => {
   return { lanes_on: s.has_lanes === 1 ? s.lanes_on : lane_count, lane_count };
 };
 
-/** §6.15: the `point_view` body; 4 statements. */
+/** §6.15: the `point_view` body; 4 statements (5 with a pickup order, §6.15 run 3). */
 export function pointViewBody(db: Database.Database, state: EngineState, point_id: string, now: number): PointViewBody {
   const stations = (branchConfig()?.stations ?? []).filter((s) => s.point_id === point_id && !s.is_archived);
   const takeovers = takeoverIdsOf(db, point_id);
@@ -153,6 +211,7 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
 
   const lineSet = new Set(lineIds);
   const memo = new Map<string, number>();
+  const meta = orderMetaOf(db, state, orderIds);
   const orders: PointViewBody['orders'] = [];
   for (const order_id of orderIds) {
     const order = state.orders[order_id]!;
@@ -162,7 +221,9 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
       return [{ ...d, ...serveOf(state, id, now, memo), stage: state.lines[id]!.stage as PointLine['stage'], handed_over: handed.has(id), started_at: state.lines[id]!.started_at }];
     });
     if (lines.length === 0) continue;
-    orders.push({ order_id, identifier: lines[0]!.identifier, placed_at: order.placed_at, lines, ready: ready.get(order_id) ?? null });
+    const { order_id: _id, ...m } = meta.get(order_id)!;
+    void _id;
+    orders.push({ order_id, identifier: lines[0]!.identifier, placed_at: order.placed_at, lines, ready: ready.get(order_id) ?? null, ...m });
   }
   orders.sort((a, b) => a.placed_at - b.placed_at || (a.order_id < b.order_id ? -1 : a.order_id > b.order_id ? 1 : 0));
 
@@ -229,7 +290,13 @@ export function markPointGiven(db: Database.Database, sessionIds: readonly strin
   }
 }
 
-export function pointViewPart(deps: Pick<HubDeps, 'clock'>, onBuilt?: (sessionId: string, ids: readonly string[]) => void): CatchUpPart {
+/** ⚠️ 03b v1.0.16 §6.16 (R3-M-5): the metadata a socket was given, per order (its JSON), to send only changes. */
+const metaKey = (m: PointOrderMeta): string => JSON.stringify(m);
+
+export function pointViewPart(
+  deps: Pick<HubDeps, 'clock'>,
+  onBuilt?: (sessionId: string, ids: readonly string[], meta: ReadonlyMap<string, string>) => void,
+): CatchUpPart {
   return {
     part: 'point_view',
     appliesTo: (socket) => socket.kind === 'staff' && devicePoint(socket.deviceId) !== null,
@@ -237,7 +304,13 @@ export function pointViewPart(deps: Pick<HubDeps, 'clock'>, onBuilt?: (sessionId
       const point_id = devicePoint(socket.deviceId);
       if (!isEngineState(raw) || point_id === null) return null;
       const body = pointViewBody(db, raw, point_id, deps.clock.branchNow());
-      onBuilt?.(socket.sessionId, bodyIds(body));
+      const meta = new Map(
+        body.orders.map((o) => [
+          o.order_id,
+          metaKey({ order_id: o.order_id, pickup_at_ms: o.pickup_at_ms, boosted: o.boosted, pickup_readiness: o.pickup_readiness, no_station_lines: o.no_station_lines }),
+        ]),
+      );
+      onBuilt?.(socket.sessionId, bodyIds(body), meta);
       return body;
     },
   };
@@ -247,8 +320,15 @@ export function pointViewPart(deps: Pick<HubDeps, 'clock'>, onBuilt?: (sessionId
 export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void {
   const given = new Map<string, Set<string>>();
   givenByDb.set(deps.db, given);
+  // ⚠️ 03b v1.0.16 §6.16 (R3-M-5): per Pass socket, order → the metadata it holds (catch-up or an earlier frame)
+  const metaGiven = new Map<string, Map<string, string>>();
   // A catch-up starts a new socket (also a reconnect on the same session token): it replaces the record.
-  const stopPart = registerCatchUp(pointViewPart(deps, (sessionId, ids) => given.set(sessionId, new Set(ids))));
+  const stopPart = registerCatchUp(
+    pointViewPart(deps, (sessionId, ids, meta) => {
+      given.set(sessionId, new Set(ids));
+      metaGiven.set(sessionId, new Map(meta));
+    }),
+  );
   app.addHook('onClose', async () => stopPart());
 
   deps.writer.addAfterCommit((appended) => {
@@ -260,6 +340,7 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
       });
     const live = new Set(sessions.map((s) => s.sessionId));
     for (const id of given.keys()) if (!live.has(id)) given.delete(id);
+    for (const id of metaGiven.keys()) if (!live.has(id)) metaGiven.delete(id);
     if (sessions.length === 0) return;
     const state = deps.state.get();
     if (!isEngineState(state)) return;
@@ -274,16 +355,24 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
     // Q-47 (§6.16): the orders of the seatings a table event of this commit touched (1 statement, only with such an event).
     const moved = tableMovedOrderIds(deps.db, appended);
 
+    // ⚠️ 03b v1.0.16 §6.16 (R3-M-5): the orders this commit named (OrderBoosted, cooking or settlement at any point,
+    // additions, returns, PassBagReadyChanged: all on the order stream); their metadata goes to every Pass showing them
+    const named = new Set(appended.filter((e) => e.stream_type === 'order').map((e) => e.stream_id));
     const byPoint = new Map<string, Set<string>>();
+    const ordersAt = new Map<string, Set<string>>();
     const missing = new Map<string, string[]>();
     const all = new Set<string>();
+    const metaWanted = new Set<string>();
     for (const s of sessions) {
       let shown = byPoint.get(s.point_id);
       if (shown === undefined) {
-        shown = new Set(pointLineIds(state, s.point_id, now));
+        const own = pointLineIds(state, s.point_id, now);
+        ordersAt.set(s.point_id, new Set(own.map((id) => state.lines[id]!.order_id)));
+        shown = new Set(own);
         for (const station_id of takeoverIdsOf(deps.db, s.point_id)) for (const id of stationShownIds(state, station_id)) shown.add(id);
         byPoint.set(s.point_id, shown);
       }
+      for (const order_id of ordersAt.get(s.point_id)!) if (named.has(order_id)) metaWanted.add(order_id);
       const had = given.get(s.sessionId) ?? new Set<string>();
       for (const id of had) if (!shown.has(id)) had.delete(id);
       given.set(s.sessionId, had);
@@ -295,22 +384,36 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
       missing.set(s.sessionId, send);
       for (const id of send) all.add(id);
     }
-    if (all.size === 0) return;
+    if (all.size === 0 && metaWanted.size === 0) return;
 
-    const details = buildLineDetails(deps.db, state, [...all]);
+    const details = all.size === 0 ? new Map<string, LineDetail>() : buildLineDetails(deps.db, state, [...all]);
+    // §6.15 metadata of the named orders shown anywhere (1 statement, only with a pickup order among them)
+    const meta = metaWanted.size === 0 ? new Map<string, PointOrderMeta>() : orderMetaOf(deps.db, state, [...metaWanted]);
     const ws = wsHubFor(app);
     const memo = new Map<string, number>();
     for (const s of sessions) {
-      const ids = missing.get(s.sessionId);
-      if (ids === undefined) continue;
+      const ids = missing.get(s.sessionId) ?? [];
       const lines = ids.flatMap((id) => {
         const d = details.get(id);
         return d === undefined || state.lines[id] === undefined ? [] : [{ ...d, ...serveOf(state, id, now, memo) }];
       });
       const had = given.get(s.sessionId)!;
       for (const id of ids) had.add(id);
-      if (lines.length === 0) continue;
-      const frame: WsPointLines = { type: 'point_lines', point_id: s.point_id, lines };
+      // metadata the socket does not hold yet (a newly shown order, or a change), for orders this commit named
+      let heldMeta = metaGiven.get(s.sessionId);
+      if (heldMeta === undefined) metaGiven.set(s.sessionId, (heldMeta = new Map()));
+      for (const order_id of heldMeta.keys()) if (!ordersAt.get(s.point_id)!.has(order_id)) heldMeta.delete(order_id);
+      const orders: PointOrderMeta[] = [];
+      for (const order_id of ordersAt.get(s.point_id)!) {
+        const m = meta.get(order_id);
+        if (m === undefined) continue;
+        const key = metaKey(m);
+        if (heldMeta.get(order_id) === key) continue;
+        heldMeta.set(order_id, key);
+        orders.push(m);
+      }
+      if (lines.length === 0 && orders.length === 0) continue;
+      const frame: WsPointLines = { type: 'point_lines', point_id: s.point_id, lines, ...(orders.length === 0 ? {} : { orders }) };
       ws.sendToSessions([s.sessionId], frame);
     }
   });
