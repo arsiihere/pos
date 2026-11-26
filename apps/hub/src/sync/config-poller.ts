@@ -1,3 +1,4 @@
+import { DomainError } from '@pos/domain';
 import {
   BranchConfigSnapshotSchemaV4,
   CONFIG_POLL_INTERVAL_MS,
@@ -26,6 +27,10 @@ export interface PollProblem {
   outcome: 'rejected' | 'unauthorized';
   reason: RejectReason | null;
   at: number;
+  // ⚠️ 01a v2.11 §6.21 (run 3 R3-B-1): an apply refused with a DomainError (a D7 archive with no active destination)
+  // adds its code and details (§6.9a VALIDATION_FAILED, details.issues); absent otherwise.
+  code?: string;
+  details?: unknown;
 }
 
 export interface PollResult {
@@ -101,8 +106,8 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
     return result;
   }
 
-  function reject(reason: RejectReason, at: number): void {
-    problem = { outcome: 'rejected', reason, at };
+  function reject(reason: RejectReason, at: number, error?: unknown): void {
+    problem = { outcome: 'rejected', reason, at, ...(error instanceof DomainError ? { code: error.code, details: error.details } : {}) };
   }
 
   async function poll(): Promise<PollResult> {
@@ -179,7 +184,7 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
     } catch (error) {
       // S43: visible problem, then each part alone, the directory first.
       deps.log.error({ err: error }, 'config apply failed');
-      reject('apply_failed', now);
+      reject('apply_failed', now, error);
       let directoryVersion = currentDirectory;
       let configVersion = currentConfig;
       if (directoryPart !== null) {
@@ -200,6 +205,8 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
           configVersion = part.config.config_version;
         } catch (partError) {
           deps.log.error({ err: partError, part: 'config' }, 'config apply failed');
+          // ⚠️ 01a §6.21 (R3-B-1): the config part's own error is the one config status reports.
+          reject('apply_failed', now, partError);
         }
       }
       return finish({
