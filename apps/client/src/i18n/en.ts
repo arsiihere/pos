@@ -1192,6 +1192,7 @@ export const en = {
   'perm.remove-comp': 'Remove a comp',
   'perm.close-without-buyer-id': 'Close a bill without buyer ID',
   'perm.manage-fiscal-settings': 'Change fiscal settings',
+  'perm.hand-over-unpaid': 'Approve handing over an unpaid order', // 01b v1.12 B-5 (R3-M-3)
   'errors.ROLE_NOT_FOUND': 'This role no longer exists. The page is refreshed.',
   'errors.STAFF_NAME_TAKEN': 'Someone working at this branch already has this name. Add a surname or an initial.',
   'errors.LAST_ADMIN_REQUIRED': 'Each branch needs someone who can sign in to the hub admin. Give that to someone else first.',

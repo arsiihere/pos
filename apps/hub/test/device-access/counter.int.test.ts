@@ -141,7 +141,7 @@ describe('[05a §3.3 counter check, #7c] counter work on an `everyone` kiosk nev
       expect(MONEY_PERMISSIONS, p).not.toContain(p);
     }
     expect([...LISTED_ONLY_PERMISSIONS].sort()).toEqual(
-      ['access-hub-admin', 'approve-void', 'manage-devices', 'manage-fiscal-settings', 'manage-roles', 'manage-staff', 'view-audit-log'].sort(),
+      ['access-hub-admin', 'approve-void', 'hand-over-unpaid', 'manage-devices', 'manage-fiscal-settings', 'manage-roles', 'manage-staff', 'view-audit-log'].sort(),
     );
     expect([...MONEY_PERMISSIONS].sort()).toEqual(['apply-comp', 'apply-discount', 'apply-refund', 'reopen-bill', 'void-item'].sort());
   });
