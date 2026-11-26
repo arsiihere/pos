@@ -1,18 +1,19 @@
 {
   "stock": {
     "I1": {
-      "on_hand": 10,
-      "reserved": 0,
-      "set_at": 1761000002000,
+      "on_hand": 4,
+      "reserved": 1,
+      "set_at": 1760996520000,
       "unit": "piece"
     }
   },
   "business_day": {
     "business_date": "2025-10-20",
-    "opened_at": 1761000001000,
+    "opened_at": 1760996460000,
     "closed_at": null,
     "stock_units": {
-      "I1": "piece"
+      "I1": "piece",
+      "I3": "g"
     },
     "draws": {
       "I1": {
@@ -21,6 +22,15 @@
           {
             "stock_item_id": "I1",
             "quantity_per_sale_unit": 1
+          }
+        ]
+      },
+      "I3": {
+        "sale_unit": "piece",
+        "stock_draws": [
+          {
+            "stock_item_id": "I3",
+            "quantity_per_sale_unit": 250
           }
         ]
       }
@@ -33,9 +43,9 @@
         "station_id": "S1",
         "name": "Karahi",
         "station_type": "slot",
-        "capacity": 4,
+        "capacity": 2,
         "freshness_window_ms": null,
-        "completion_mode": "auto_done",
+        "completion_mode": "two_tap",
         "policy": "waada_guard",
         "freeze_ms": 120000,
         "min_slack_keep_ms": 60000,
@@ -85,6 +95,56 @@
         ],
         "reference_cook_ms": 240000,
         "is_archived": false
+      },
+      {
+        "station_id": "S3",
+        "name": "Drinks",
+        "station_type": "slot",
+        "capacity": 1,
+        "freshness_window_ms": null,
+        "completion_mode": "two_tap",
+        "policy": "fifo",
+        "freeze_ms": 120000,
+        "min_slack_keep_ms": 60000,
+        "promise_padding_ms": null,
+        "pressure_window_ms": 900000,
+        "pressure_amber_bp": 8000,
+        "pressure_red_bp": 10000,
+        "pressure_alert_ms": 300000,
+        "pause_enabled": false,
+        "lane_units": null,
+        "reserve_units": 0,
+        "point_id": "P1",
+        "alternates": [],
+        "carry_times": [],
+        "programs": [],
+        "reference_cook_ms": 120000,
+        "is_archived": false
+      },
+      {
+        "station_id": "S4",
+        "name": "Counter",
+        "station_type": "slot",
+        "capacity": 1,
+        "freshness_window_ms": null,
+        "completion_mode": "two_tap",
+        "policy": "waada_guard",
+        "freeze_ms": 120000,
+        "min_slack_keep_ms": 60000,
+        "promise_padding_ms": null,
+        "pressure_window_ms": 900000,
+        "pressure_amber_bp": 8000,
+        "pressure_red_bp": 10000,
+        "pressure_alert_ms": 300000,
+        "pause_enabled": false,
+        "lane_units": null,
+        "reserve_units": 0,
+        "point_id": "P1",
+        "alternates": [],
+        "carry_times": [],
+        "programs": [],
+        "reference_cook_ms": 0,
+        "is_archived": false
       }
     ],
     "settings": {
@@ -109,14 +169,25 @@
     "S1": {
       "station_id": "S1",
       "type": "slot",
-      "capacity": 4,
+      "capacity": 2,
       "capacity_override": null,
       "paused": false,
       "profile": {
-        "t": [],
-        "u": []
+        "t": [
+          1761002940000,
+          1761003420000,
+          1761003540000
+        ],
+        "u": [
+          1,
+          2,
+          0
+        ]
       },
-      "unfired": [],
+      "unfired": [
+        "K1",
+        "K2"
+      ],
       "loads": {}
     },
     "S2": {
@@ -126,40 +197,201 @@
       "capacity_override": null,
       "paused": false,
       "profile": {
+        "t": [
+          1761003360000,
+          1761003600000
+        ],
+        "u": [
+          2,
+          0
+        ]
+      },
+      "unfired": [
+        "K3"
+      ],
+      "loads": {
+        "S2:K3": {
+          "load_id": "S2:K3",
+          "program_id": "PR1",
+          "order_item_ids": [
+            "K3"
+          ],
+          "fire_ms": 1761003360000,
+          "booked": {
+            "start": 1761003360000,
+            "end": 1761003600000,
+            "units": 2
+          }
+        }
+      }
+    },
+    "S3": {
+      "station_id": "S3",
+      "type": "slot",
+      "capacity": 1,
+      "capacity_override": null,
+      "paused": false,
+      "profile": {
+        "t": [
+          1761003480000,
+          1761003600000
+        ],
+        "u": [
+          1,
+          0
+        ]
+      },
+      "unfired": [
+        "K4"
+      ],
+      "loads": {}
+    },
+    "S4": {
+      "station_id": "S4",
+      "type": "slot",
+      "capacity": 1,
+      "capacity_override": null,
+      "paused": false,
+      "profile": {
         "t": [],
         "u": []
       },
-      "unfired": [],
+      "unfired": [
+        "K5"
+      ],
       "loads": {}
     }
   },
   "orders": {
     "O1": {
       "order_id": "O1",
-      "order_type": "dine_in",
-      "table_key": "dine_in:T12",
-      "table_id": "T12",
+      "order_type": "takeaway",
+      "table_key": "takeaway:O1",
+      "table_id": null,
       "follow_up": false,
-      "pickup_at_ms": null,
-      "placed_at": 1761000060000,
+      "pickup_at_ms": 1761003600000,
+      "placed_at": 1761000000000,
       "placed_by": null,
-      "target_land_ms": 1761001500000,
-      "promise_ms": 1761001680000,
+      "target_land_ms": 1761003600000,
+      "promise_ms": 1761003780000,
       "boosted": false,
       "line_ids": [
-        "L1",
-        "L2"
+        "K1",
+        "K2",
+        "K3",
+        "K4",
+        "K5"
       ],
       "awaiting": 0,
       "last_served_at": null,
-      "last_line_fold_at": 1761000381000,
-      "next_group_index": 1,
+      "last_line_fold_at": 1761000000000,
+      "next_group_index": 5,
       "groups": {
         "O1:0": {
-          "target_land_ms": 1761001500000,
+          "target_land_ms": 1761003600000,
           "line_ids": [
-            "L1",
-            "L2"
+            "K1"
+          ],
+          "priority_land_ms": null,
+          "priority_delay_ms": null
+        },
+        "O1:1": {
+          "target_land_ms": 1761003600000,
+          "line_ids": [
+            "K2"
+          ],
+          "priority_land_ms": null,
+          "priority_delay_ms": null
+        },
+        "O1:2": {
+          "target_land_ms": 1761003600000,
+          "line_ids": [
+            "K3"
+          ],
+          "priority_land_ms": null,
+          "priority_delay_ms": null
+        },
+        "O1:3": {
+          "target_land_ms": 1761003600000,
+          "line_ids": [
+            "K4"
+          ],
+          "priority_land_ms": null,
+          "priority_delay_ms": null
+        },
+        "O1:4": {
+          "target_land_ms": 1761003600000,
+          "line_ids": [
+            "K5"
+          ],
+          "priority_land_ms": null,
+          "priority_delay_ms": null
+        }
+      }
+    },
+    "O2": {
+      "order_id": "O2",
+      "order_type": "takeaway",
+      "table_key": "takeaway:O2",
+      "table_id": null,
+      "follow_up": false,
+      "pickup_at_ms": 1761002400000,
+      "placed_at": 1761000000000,
+      "placed_by": null,
+      "target_land_ms": 1761000660000,
+      "promise_ms": 1761002580000,
+      "boosted": true,
+      "line_ids": [
+        "B1",
+        "D1"
+      ],
+      "awaiting": 0,
+      "last_served_at": null,
+      "last_line_fold_at": 1761000660000,
+      "next_group_index": 2,
+      "groups": {
+        "O2:0": {
+          "target_land_ms": 1761000660000,
+          "line_ids": [
+            "B1"
+          ],
+          "priority_land_ms": null,
+          "priority_delay_ms": null
+        },
+        "O2:1": {
+          "target_land_ms": 1761000180000,
+          "line_ids": [
+            "D1"
+          ],
+          "priority_land_ms": null,
+          "priority_delay_ms": null
+        }
+      }
+    },
+    "O3": {
+      "order_id": "O3",
+      "order_type": "dine_in",
+      "table_key": "dine_in:T3",
+      "table_id": "T3",
+      "follow_up": false,
+      "pickup_at_ms": null,
+      "placed_at": 1761000000000,
+      "placed_by": null,
+      "target_land_ms": 1761000120000,
+      "promise_ms": 1761000120000,
+      "boosted": false,
+      "line_ids": [
+        "N1"
+      ],
+      "awaiting": 0,
+      "last_served_at": null,
+      "last_line_fold_at": 1761000060000,
+      "next_group_index": 1,
+      "groups": {
+        "O3:0": {
+          "target_land_ms": 1761000120000,
+          "line_ids": [
+            "N1"
           ],
           "priority_land_ms": null,
           "priority_delay_ms": null
@@ -168,8 +400,8 @@
     }
   },
   "lines": {
-    "L1": {
-      "order_item_id": "L1",
+    "K1": {
+      "order_item_id": "K1",
       "order_id": "O1",
       "group_id": "O1:0",
       "serve_mode": "sync",
@@ -179,8 +411,8 @@
       "carry_ms": 0,
       "units": 1,
       "prep_ms": 0,
-      "cook_ms": 300000,
-      "full_cook_ms": 300000,
+      "cook_ms": 600000,
+      "full_cook_ms": 600000,
       "from_stock": false,
       "program_id": null,
       "stock_cook_ms": null,
@@ -191,38 +423,136 @@
       "max_early_ms": 60000,
       "max_late_ms": null,
       "max_carry_ms": null,
-      "stage": "cooking",
-      "fire_ms": 1761000060000,
-      "deadline_ms": 1761001200000,
-      "fired_at": 1761000060000,
-      "started_at": 1761000061000,
+      "stage": "added",
+      "fire_ms": 1761002940000,
+      "deadline_ms": 1761003000000,
+      "fired_at": null,
+      "started_at": null,
       "done_at": null,
-      "mark": "pulled",
+      "mark": null,
       "return_of": null,
       "load_id": null,
-      "booked": null,
+      "booked": {
+        "start": 1761002940000,
+        "end": 1761003540000,
+        "units": 1
+      },
       "capped": false,
       "routed_station_id": "S1",
       "expedited": false,
       "rounds": null,
-      "done_undone": true,
-      "max_delay_ms": 300000,
+      "done_undone": false,
+      "max_delay_ms": null,
       "priority_at": null,
-      "arrived_at": 1761000060000
+      "arrived_at": 1761000000000
     },
-    "L2": {
-      "order_item_id": "L2",
+    "K2": {
+      "order_item_id": "K2",
       "order_id": "O1",
-      "group_id": "O1:0",
-      "serve_mode": "sync",
+      "group_id": "O1:1",
+      "serve_mode": "immediate",
       "station_id": "S1",
       "alternates": [],
       "point_id": null,
       "carry_ms": 0,
       "units": 1,
       "prep_ms": 0,
-      "cook_ms": 480000,
-      "full_cook_ms": 480000,
+      "cook_ms": 120000,
+      "full_cook_ms": 360000,
+      "from_stock": true,
+      "program_id": null,
+      "stock_cook_ms": 120000,
+      "stock_program_id": null,
+      "draws": [
+        {
+          "stock_item_id": "I1",
+          "quantity": 1,
+          "reserved": 1
+        }
+      ],
+      "reserved_seq": 10,
+      "weight_pct": 100,
+      "max_early_ms": 60000,
+      "max_late_ms": null,
+      "max_carry_ms": null,
+      "stage": "added",
+      "fire_ms": 1761003420000,
+      "deadline_ms": 1761003480000,
+      "fired_at": null,
+      "started_at": null,
+      "done_at": null,
+      "mark": null,
+      "return_of": null,
+      "load_id": null,
+      "booked": {
+        "start": 1761003420000,
+        "end": 1761003540000,
+        "units": 1
+      },
+      "capped": false,
+      "routed_station_id": "S1",
+      "expedited": false,
+      "rounds": null,
+      "done_undone": false,
+      "max_delay_ms": null,
+      "priority_at": null,
+      "arrived_at": 1761000000000
+    },
+    "K3": {
+      "order_item_id": "K3",
+      "order_id": "O1",
+      "group_id": "O1:2",
+      "serve_mode": "immediate",
+      "station_id": "S2",
+      "alternates": [],
+      "point_id": null,
+      "carry_ms": 0,
+      "units": 1,
+      "prep_ms": 0,
+      "cook_ms": 240000,
+      "full_cook_ms": 240000,
+      "from_stock": false,
+      "program_id": "PR1",
+      "stock_cook_ms": null,
+      "stock_program_id": null,
+      "draws": [],
+      "reserved_seq": null,
+      "weight_pct": 100,
+      "max_early_ms": 60000,
+      "max_late_ms": null,
+      "max_carry_ms": null,
+      "stage": "added",
+      "fire_ms": 1761003360000,
+      "deadline_ms": 1761003360000,
+      "fired_at": null,
+      "started_at": null,
+      "done_at": null,
+      "mark": null,
+      "return_of": null,
+      "load_id": "S2:K3",
+      "booked": null,
+      "capped": false,
+      "routed_station_id": "S2",
+      "expedited": false,
+      "rounds": null,
+      "done_undone": false,
+      "max_delay_ms": null,
+      "priority_at": null,
+      "arrived_at": 1761000000000
+    },
+    "K4": {
+      "order_item_id": "K4",
+      "order_id": "O1",
+      "group_id": "O1:3",
+      "serve_mode": "immediate",
+      "station_id": "S3",
+      "alternates": [],
+      "point_id": null,
+      "carry_ms": 0,
+      "units": 1,
+      "prep_ms": 0,
+      "cook_ms": 120000,
+      "full_cook_ms": 120000,
       "from_stock": false,
       "program_id": null,
       "stock_cook_ms": null,
@@ -233,13 +563,105 @@
       "max_early_ms": 60000,
       "max_late_ms": null,
       "max_carry_ms": null,
-      "stage": "cooking",
-      "fire_ms": 1761000060000,
-      "deadline_ms": 1761001020000,
-      "fired_at": 1761000060000,
-      "started_at": 1761000061000,
+      "stage": "added",
+      "fire_ms": 1761003480000,
+      "deadline_ms": 1761003480000,
+      "fired_at": null,
+      "started_at": null,
       "done_at": null,
-      "mark": "pulled",
+      "mark": null,
+      "return_of": null,
+      "load_id": null,
+      "booked": {
+        "start": 1761003480000,
+        "end": 1761003600000,
+        "units": 1
+      },
+      "capped": false,
+      "routed_station_id": "S3",
+      "expedited": false,
+      "rounds": null,
+      "done_undone": false,
+      "max_delay_ms": null,
+      "priority_at": null,
+      "arrived_at": 1761000000000
+    },
+    "K5": {
+      "order_item_id": "K5",
+      "order_id": "O1",
+      "group_id": "O1:4",
+      "serve_mode": "immediate",
+      "station_id": "S4",
+      "alternates": [],
+      "point_id": null,
+      "carry_ms": 0,
+      "units": 1,
+      "prep_ms": 0,
+      "cook_ms": 0,
+      "full_cook_ms": 0,
+      "from_stock": false,
+      "program_id": null,
+      "stock_cook_ms": null,
+      "stock_program_id": null,
+      "draws": [],
+      "reserved_seq": null,
+      "weight_pct": 100,
+      "max_early_ms": 60000,
+      "max_late_ms": null,
+      "max_carry_ms": null,
+      "stage": "added",
+      "fire_ms": 1761003540000,
+      "deadline_ms": 1761003600000,
+      "fired_at": null,
+      "started_at": null,
+      "done_at": null,
+      "mark": null,
+      "return_of": null,
+      "load_id": null,
+      "booked": {
+        "start": 1761003540000,
+        "end": 1761003540000,
+        "units": 1
+      },
+      "capped": false,
+      "routed_station_id": "S4",
+      "expedited": false,
+      "rounds": null,
+      "done_undone": false,
+      "max_delay_ms": null,
+      "priority_at": null,
+      "arrived_at": 1761000000000
+    },
+    "B1": {
+      "order_item_id": "B1",
+      "order_id": "O2",
+      "group_id": "O2:0",
+      "serve_mode": "sync",
+      "station_id": "S1",
+      "alternates": [],
+      "point_id": null,
+      "carry_ms": 0,
+      "units": 1,
+      "prep_ms": 0,
+      "cook_ms": 600000,
+      "full_cook_ms": 600000,
+      "from_stock": false,
+      "program_id": null,
+      "stock_cook_ms": null,
+      "stock_program_id": null,
+      "draws": [],
+      "reserved_seq": null,
+      "weight_pct": 100,
+      "max_early_ms": 60000,
+      "max_late_ms": null,
+      "max_carry_ms": null,
+      "stage": "done",
+      "fire_ms": 1761000060000,
+      "deadline_ms": 1761000060000,
+      "fired_at": 1761000060000,
+      "started_at": 1761000060000,
+      "done_at": 1761000660000,
+      "mark": "boost",
       "return_of": null,
       "load_id": null,
       "booked": null,
@@ -250,11 +672,103 @@
       "done_undone": false,
       "max_delay_ms": null,
       "priority_at": null,
-      "arrived_at": 1761000060000
+      "arrived_at": 1761000000000
+    },
+    "D1": {
+      "order_item_id": "D1",
+      "order_id": "O2",
+      "group_id": "O2:1",
+      "serve_mode": "immediate",
+      "station_id": "S4",
+      "alternates": [],
+      "point_id": null,
+      "carry_ms": 0,
+      "units": 1,
+      "prep_ms": 0,
+      "cook_ms": 120000,
+      "full_cook_ms": 120000,
+      "from_stock": false,
+      "program_id": null,
+      "stock_cook_ms": null,
+      "stock_program_id": null,
+      "draws": [],
+      "reserved_seq": null,
+      "weight_pct": 100,
+      "max_early_ms": 60000,
+      "max_late_ms": null,
+      "max_carry_ms": null,
+      "stage": "cooking",
+      "fire_ms": 1761000060000,
+      "deadline_ms": 1761000060000,
+      "fired_at": 1761000060000,
+      "started_at": 1761000060000,
+      "done_at": null,
+      "mark": "boost",
+      "return_of": null,
+      "load_id": null,
+      "booked": null,
+      "capped": false,
+      "routed_station_id": "S4",
+      "expedited": false,
+      "rounds": null,
+      "done_undone": false,
+      "max_delay_ms": null,
+      "priority_at": null,
+      "arrived_at": 1761000000000
+    },
+    "N1": {
+      "order_item_id": "N1",
+      "order_id": "O3",
+      "group_id": "O3:0",
+      "serve_mode": "immediate",
+      "station_id": "S3",
+      "alternates": [],
+      "point_id": null,
+      "carry_ms": 0,
+      "units": 1,
+      "prep_ms": 0,
+      "cook_ms": 120000,
+      "full_cook_ms": 120000,
+      "from_stock": false,
+      "program_id": null,
+      "stock_cook_ms": null,
+      "stock_program_id": null,
+      "draws": [],
+      "reserved_seq": null,
+      "weight_pct": 100,
+      "max_early_ms": 60000,
+      "max_late_ms": null,
+      "max_carry_ms": null,
+      "stage": "cooking",
+      "fire_ms": 1761000000000,
+      "deadline_ms": 1761000000000,
+      "fired_at": 1761000060000,
+      "started_at": 1761000060000,
+      "done_at": null,
+      "mark": null,
+      "return_of": null,
+      "load_id": null,
+      "booked": null,
+      "capped": false,
+      "routed_station_id": "S3",
+      "expedited": false,
+      "rounds": null,
+      "done_undone": false,
+      "max_delay_ms": null,
+      "priority_at": null,
+      "arrived_at": 1761000000000
     }
   },
   "slips": {},
-  "next_alert_due_at": null,
-  "slip_due": {},
-  "priority_due": {}
+  "next_alert_due_at": 1761003120001,
+  "slip_due": {
+    "takeaway:O1": 1761003120001
+  },
+  "priority_due": {
+    "O1:0": 1761004800001,
+    "O1:1": 1761005280001,
+    "O1:2": 1761005160001,
+    "O1:3": 1761005280001,
+    "O1:4": 1761005400001
+  }
 }
