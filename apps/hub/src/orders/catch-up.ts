@@ -12,8 +12,11 @@ import { zoneStockBody, type ZoneStockBody } from './queries/zone-stock.js';
 // Built per socket (H-7): `customer_name` / `phone` only for cashier kiosks and the placer's sockets (O17); everyone
 // else sees `has_phone`. ⚠️ v1.0.11 (Q-10): plus `open_slips`, the branch's open `slip_warning`s with their
 // `values.order_ids` (one alerts.listOpen). Statements: 4.
+// ⚠️ v1.0.25 §6.18 (02b-TK R3, G-1; run 1 M-4): "open" = §3.3 Open (lists), the same openOrderRows as open-orders, so a
+// paid takeaway not yet handed over is in the part with its real `billed` / `billed_at`, plus `pickup_at_ms`; no
+// `bill`, `ready_at`, `handed` or `lines_summary` (open-orders carries them). Statements unchanged (4).
 
-export type CatchUpOrder = OrderView & { customer_name?: string | null; phone?: string | null };
+export type CatchUpOrder = OrderView & { pickup_at_ms: number | null; customer_name?: string | null; phone?: string | null };
 
 export interface OrdersCatchUp {
   orders: CatchUpOrder[];
@@ -41,7 +44,7 @@ export function ordersCatchUpPart(): CatchUpPart {
       const lines = orderLines(db, rows.map((r) => r.order_id));
       return {
         orders: rows.map((r) => {
-          const view = openOrderView(r, lines.get(r.order_id)!);
+          const view: CatchUpOrder = { ...openOrderView(r, lines.get(r.order_id)!), pickup_at_ms: r.pickup_at_ms };
           return seesContact(socket, r.placed_by) ? { ...view, customer_name: r.customer_name, phone: r.phone } : view;
         }),
         zone_stock: zoneStockBody(db, branchConfig()),

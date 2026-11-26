@@ -1189,3 +1189,32 @@ describe('[02b #66 #67 #80] open-orders takeaway until handed over (§3.3, §6.1
     expect(counter.count).toBe(5);
   });
 });
+
+// ------------------------------------------------------------------------------------------- #68 (L-ORDERS-1 B2-2)
+
+describe('[02b #68] catch-up part `orders` reads openOrderRows (§6.18 v1.0.25, R3, G-1)', () => {
+  it('[02b #68] a paid, not handed-over takeaway is in it with billed: true and its billed_at, pickup_at_ms; contact for kiosk and placer only; leaves after its last line is served; 4 statements', async () => {
+    const pickup = hub.clock.branchNow() + 1_800_000;
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'PF', placed_by: OT1, pickup_at_ms: pickup, lines: [{ order_item_id: 'PF1', item_id: FX.naan }, { order_item_id: 'PF2', item_id: FX.piece }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'UB', placed_by: OT2, lines: [{ order_item_id: 'UB1', item_id: FX.naan }] });
+    append(draft('order', 'PF', 'OrderContactSet', { order_id: 'PF', customer_name: 'Ali', phone: '03001234567' }, OT1));
+    append(draft('order', 'PF', 'OrdersBilled', { order_ids: ['PF'], bill_id: 'BL1' }));
+    const billedAt = (hub.deps.db.prepare('SELECT billed_at FROM orders WHERE order_id = ?').get('PF') as { billed_at: number }).billed_at;
+    type Built = { orders: Array<{ order_id: string; billed: boolean; billed_at: number | null; pickup_at_ms: number | null; customer_name?: string | null; bill?: unknown; handed?: unknown }> };
+    const build = (o: Partial<SocketCtx>): Built => ordersCatchUpPart().build(hub.deps.db, engine(), socketCtx(o)) as Built;
+
+    const db = statementCounter(hub.deps.db);
+    const placer = build({ staffId: OT1 });
+    expect(db.count).toBe(4);
+    const pf = placer.orders.find((o) => o.order_id === 'PF')!;
+    expect(pf).toMatchObject({ billed: true, billed_at: billedAt, pickup_at_ms: pickup, customer_name: 'Ali' });
+    expect(pf).not.toHaveProperty('bill');
+    expect(pf).not.toHaveProperty('handed');
+    expect(placer.orders.find((o) => o.order_id === 'UB')).toMatchObject({ billed: false, billed_at: null, pickup_at_ms: null });
+    expect(build({ deviceType: 'cashier_kiosk', staffId: CASHIER }).orders.find((o) => o.order_id === 'PF')).toMatchObject({ customer_name: 'Ali' });
+    expect(build({ staffId: WAITER }).orders.find((o) => o.order_id === 'PF')).not.toHaveProperty('customer_name');
+
+    served('PF', 'PF1', 'PF2');
+    expect(build({ staffId: OT1 }).orders.map((o) => o.order_id)).toEqual(['UB']);
+  });
+});
