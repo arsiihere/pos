@@ -86,6 +86,11 @@ export const ACTION_META: Record<AuditAction, ActionMeta> = {
   bill_closed_empty: { group: 'bills_payments', tone: 'mute', icon: 'x' },
   money_request_raised: { group: 'bills_payments', tone: 'brand', icon: 'hourglass' },
   money_request_answered: { group: 'bills_payments', tone: 'info', icon: 'shield' },
+  // 02b-TK takeaway pilot (04 v1.0.9 §3.6: 05 V-4, 02b TK-16)
+  cart_check_bill_printed: { group: 'bills_payments', tone: 'mute', icon: 'list' },
+  unpaid_handover_requested: { group: 'bills_payments', tone: 'brand', icon: 'hourglass' },
+  unpaid_handover_answered: { group: 'bills_payments', tone: 'info', icon: 'shield' },
+  unpaid_handover_approved: { group: 'bills_payments', tone: 'warn', icon: 'check' },
   // Shifts and cash (05 row V-3, R-28)
   shift_opened: { group: 'shifts_cash', tone: 'ok', icon: 'clock' },
   shift_counted: { group: 'shifts_cash', tone: 'info', icon: 'check' },

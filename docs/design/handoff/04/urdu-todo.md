@@ -293,3 +293,16 @@ Keys in `apps/client/src/i18n/en.ts` added by 05 task P0.15 with no entry in `ur
 | `audit.actions.group.bills_payments` | Bills and payments |  |
 | `audit.actions.group.shifts_cash` | Shifts and cash |  |
 | `audit.reason.walk_out` | Walked out without paying | reason shown on an audit row |
+
+## 02b-TK (04 v1.0.9)
+
+Audit actions of the takeaway pilot (04 v1.0.9 §3.6: 05 V-4, 02b TK-16). Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts`; they show in English on an Urdu page until translated (01a S49 fallback).
+
+4 keys.
+
+| Key | English | Note |
+|---|---|---|
+| `audit.action.cart_check_bill_printed` | Cart check bill printed | check bill printed from a cart before Send |
+| `audit.action.unpaid_handover_requested` | Unpaid hand-over asked | counter asked a manager to hand over an unpaid order |
+| `audit.action.unpaid_handover_answered` | Unpaid hand-over answered |  |
+| `audit.action.unpaid_handover_approved` | Unpaid hand-over approved |  |

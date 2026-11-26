@@ -3142,6 +3142,10 @@ export const en = {
   'audit.action.bill_closed_empty': 'Empty bill closed',
   'audit.action.money_request_raised': 'Money request asked',
   'audit.action.money_request_answered': 'Money request answered',
+  'audit.action.cart_check_bill_printed': 'Cart check bill printed', // 04 v1.0.9 §3.6 (05 V-4)
+  'audit.action.unpaid_handover_requested': 'Unpaid hand-over asked', // 04 v1.0.9 §3.6 (02b TK-16)
+  'audit.action.unpaid_handover_answered': 'Unpaid hand-over answered',
+  'audit.action.unpaid_handover_approved': 'Unpaid hand-over approved',
   'audit.action.shift_opened': 'Shift opened',
   'audit.action.shift_counted': 'Shift counted',
   'audit.action.shift_count_skipped': 'Shift count skipped',
