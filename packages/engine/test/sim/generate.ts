@@ -34,7 +34,8 @@ export type SimOrder = {
   follow_up: boolean;
   table_id: string | null;
   table_key: string;
-  pickup_at_ms: number;
+  // ⚠️ 03a v1.2.11 §10.6 (R2-m-8): null on the pickup day for every order but its pickup orders.
+  pickup_at_ms: number | null;
   lines: SimLine[];
 };
 

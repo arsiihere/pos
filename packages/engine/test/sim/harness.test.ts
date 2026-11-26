@@ -370,8 +370,14 @@ describe('[03a §10.6 harness] policy report (D22)', () => {
   });
 
   it('[03a §10.6 harness] hold-and-fire against firing at once: FIFO lands lines colder than Waada Guard (D3, D16)', () => {
-    expect(reports.fifo.mean_cold_ms).toBeGreaterThan(reports.waada_guard.mean_cold_ms);
-  });
+    // ⚠️ 03a v1.2.11 §3.5.8 PK-4: a FIFO line of a pickup order is held toward the pickup too, and every order of the
+    // normal day carries the drill target as its pickup (R2-m-8), so the contrast is measured on the same day's orders
+    // without pickup (FIFO fires at its earliest fit, AD-14; Waada Guard holds the group's shorter lines, D16).
+    const noPickup = { ...day, orders: day.orders.map((o) => ({ ...o, pickup_at_ms: null })) };
+    const fifo = policyReport(runDay(noPickup, { policy: 'fifo' }));
+    const waada = policyReport(runDay(noPickup, { policy: 'waada_guard' }));
+    expect(fifo.mean_cold_ms).toBeGreaterThan(waada.mean_cold_ms);
+  }, 120_000);
 
   it('[03a §10.6 harness] the report hand-checked on a one-order day: wait, promise, cold, utilisation', () => {
     const one = generateDay(7, { orders: 200 });
