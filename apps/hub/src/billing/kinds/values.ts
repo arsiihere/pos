@@ -25,6 +25,12 @@ export const BILL_REQUEST_KINDS = [
 ] as const;
 export type BillRequestKind = (typeof BILL_REQUEST_KINDS)[number];
 
+/**
+ * ⚠️ 05 v1.0.35 §6.12, §6.25 (run 3 R3-M-4; 02b TK-15 (2)): 02b's `hand_over_unpaid` request (02b §6.12a, subject the
+ * named order). 02b registers the kind; 05 only closes it `obsolete` at the bill's last close and at day close.
+ */
+export const HAND_OVER_UNPAID_KIND = 'hand_over_unpaid';
+
 /** §4.2 export `BILL_KINDS`: the seven kind names of §3.14 + `fiscal_outbox_stuck` (§3.15). */
 export const BILL_KINDS = [...BILL_REQUEST_KINDS, 'fiscal_outbox_stuck'] as const;
 export type BillKind = (typeof BILL_KINDS)[number];

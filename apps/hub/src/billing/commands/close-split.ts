@@ -64,6 +64,7 @@ import { pendingVoids } from '../../voids/exports.js';
 import { ruleInForce, type HubBilling } from '../defaults.js';
 import { NONE_ADAPTER_KEY } from '../fiscal/none.js';
 import { fiscalAdapterFor } from '../fiscal/port.js';
+import { HAND_OVER_UNPAID_KIND } from '../kinds/values.js';
 import {
   BILL_REQUEST_KINDS,
   billAccess,
@@ -432,7 +433,8 @@ function closeSplitCommand(log: Log) {
         }
       }
       // H1-23, H6-2: comp / remove_comp requests on the units this split invoices; at the last close every one on the
-      // bill's orders and every open 05 request on the bill — `obsolete`, note `bill_closed`
+      // bill's orders, ⚠️ run 3 (R3-M-4) every 02b hand_over_unpaid request whose named order is one of the bill's, and
+      // every open 05 request on the bill — `obsolete`, note `bill_closed`; one closeMany, none for an empty set
       const invoiced = new Set(invoice.lines.filter((l) => l.units > 0).map((l) => l.order_item_id));
       const orderSet = new Set(order_ids);
       const stale: CloseItem[] = open
@@ -441,6 +443,7 @@ function closeSplitCommand(log: Log) {
             const id = (a.values as { order_item_id?: unknown }).order_item_id;
             return lastOpen || (typeof id === 'string' && invoiced.has(id));
           }
+          if (a.kind === HAND_OVER_UNPAID_KIND) return lastOpen && a.subject.stream_type === 'order' && orderSet.has(a.subject.stream_id);
           return lastOpen && onBill(a) && (BILL_REQUEST_KINDS as readonly string[]).includes(a.kind);
         })
         .map((a) => ({ alert_id: a.alert_id, reason: 'obsolete' as const, note: 'bill_closed' }));
@@ -530,7 +533,8 @@ ORDER BY c.number`;
  * §6.12 step 3, §3.10, §6.29 (H6-6, H7-3, H8-4, H8-5, H8-10): the drafts of an empty close — `BillClosedEmpty
  * { bill_id, seating_id, credit_invoice_ids }` (`seating_id` only under §6.12's BillClosed rule: dine-in, the seating
  * not CLOSED and holding no other open bill; else null), then the open-request closes of a last close (`obsolete`,
- * note `bill_closed`): every open `comp` / `remove_comp` request on `order_ids` and every open 05 request on the bill.
+ * note `bill_closed`): every open `comp` / `remove_comp` / ⚠️ run 3 (R3-M-4) 02b `hand_over_unpaid` request on
+ * `order_ids` and every open 05 request on the bill.
  * No sale invoice, `OrdersBilled`, fiscal row or receipt. The caller has checked that every order of the bill is
  * cancelled and every split's balance is 0, and appends the drafts in its own transaction. Exported for task 19's
  * order-cancelled hook and `AddPayment { out }` paths (inside an `apply`, the hook stamps `alert_id`, row Q-7).
@@ -556,7 +560,7 @@ export function emptyCloseDrafts(
   const stale: CloseItem[] = open
     .filter(
       (a) =>
-        ((a.kind === 'comp' || a.kind === 'remove_comp') && a.subject.stream_type === 'order' && orders.has(a.subject.stream_id)) ||
+        ((a.kind === 'comp' || a.kind === 'remove_comp' || a.kind === HAND_OVER_UNPAID_KIND) && a.subject.stream_type === 'order' && orders.has(a.subject.stream_id)) ||
         (a.subject.stream_type === 'bill' && a.subject.stream_id === o.bill_id && (BILL_REQUEST_KINDS as readonly string[]).includes(a.kind)),
     )
     .map((a) => ({ alert_id: a.alert_id, reason: 'obsolete' as const, note: 'bill_closed' }));
