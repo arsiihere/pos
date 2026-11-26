@@ -27,3 +27,17 @@ export function handoversDue(db: Database.Database, now: number, older_than_ms: 
   for (const l of lines) byHandover.get(l.handover_id)?.push(l.order_item_id);
   return rows.map((r) => ({ handover_id: r.handover_id, order_id: r.order_id, order_item_ids: byHandover.get(r.handover_id)! }));
 }
+
+// 03b v1.0.16 §4.2 `readyAtOf` (02b-tk R8; hostile run 1 M-3, m-10): per order, the largest `pass_orders.ready_at`
+// over its points. `ready_at` is the recorded_at of the latest ReadyToServe at the point (Handover's own Ready
+// included) and is cleared only by ReadyToServeUndone, so it survives the Ready's alert closing or expiring (a carried
+// order keeps its time). 02b's open-orders reads it (TK-3). 1 statement, 0 for [].
+export const READY_AT_OF_SQL = `SELECT order_id, MAX(ready_at) AS ready_at FROM pass_orders
+  WHERE ready_at IS NOT NULL AND order_id IN (SELECT value FROM json_each(?)) GROUP BY order_id`;
+
+/** §4.2; 1 statement (0 for an empty list). */
+export function readyAtOf(db: Database.Database, order_ids: readonly string[]): Map<string, number> {
+  if (order_ids.length === 0) return new Map();
+  const rows = db.prepare(READY_AT_OF_SQL).all(JSON.stringify(order_ids)) as Array<{ order_id: string; ready_at: number }>;
+  return new Map(rows.map((r) => [r.order_id, r.ready_at]));
+}
