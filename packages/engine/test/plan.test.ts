@@ -10,6 +10,8 @@ import {
   initialEngineState,
   isEngineLine,
   planOrder,
+  pullEarly,
+  getTickIntents,
   type EngineState,
   type PlanResult,
   type ProposedOrder,
@@ -248,6 +250,29 @@ describe('@pos/engine planOrder / calculateETA / checkOrderable: hold-and-fire, 
     expect(live.lines.first!.fire_ms).toBe(pickup - 120_000);
     expect(live.lines.second!.booked!.end).toBe(live.lines.first!.fire_ms);
     expect(plan.lines.map(l => l.eta_ms)).toEqual([pickup, pickup]);
+  });
+
+  it('[03a #185] pass 1 keeps five pickup drinks on time when their windows overlap', () => {
+    let state = fold([config([{ station_id: 'S1', capacity: 1 }])]);
+    const pickup = T0 + 3_600_000;
+    for (let i = 0; i < 6; i++) {
+      const id = String(i);
+      const now = T0 + i * 60_000;
+      const order = proposed([{ id, item: { serve_mode: 'immediate', cook_time_ms: 120_000 } }],
+        { pickup_at_ms: i < 5 ? pickup : null }, 'O' + id);
+      const plan = planOrder(state, order, now, {});
+      state = fold(batchFrom(order, plan, now), state);
+      for (const line of Object.values(state.lines)) {
+        expect(line.booked!.end).toBeLessThanOrEqual(pickup);
+        expect(line.fire_ms!).toBeGreaterThanOrEqual(now);
+      }
+      if (i === 0) {
+        const earliest = pickup - 180_000;
+        expect(pullEarly(state, 'S1', 1, earliest - 1)).toBeNull();
+        expect(getTickIntents(state, earliest - 1).some(d => d.event_type === 'FireDispatched')).toBe(false);
+        expect(pullEarly(state, 'S1', 1, earliest)?.payload.order_item_ids).toEqual([id]);
+      }
+    }
   });
 
   it('[03a BF-2] planOrder uses the from_stock map (stock_time_ms when true, the full cook when false); calculateETA without it = fresh', () => {

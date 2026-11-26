@@ -93,6 +93,7 @@ export class Work implements Profile {
 export type OverloadLine = Pick<EngineLine, 'order_item_id' | 'deadline_ms' | 'max_early_ms' | 'max_late_ms' | 'units' | 'prep_ms' | 'cook_ms'> & {
   w: number;
   urgency: number;
+  held?: boolean;
   cap?: number;
 };
 
@@ -111,7 +112,7 @@ function ascending<X extends { key: number; L: OverloadLine }>(xs: X[]): X[] {
   return xs.sort((a, b) => a.key - b.key || b.L.urgency - a.L.urgency || byId(a.L.order_item_id, b.L.order_item_id));
 }
 
-const loOf = (L: OverloadLine, t: number): number => Math.max(t, L.deadline_ms - L.max_early_ms);
+const loOf = (L: OverloadLine, t: number): number => L.held ? t : Math.max(t, L.deadline_ms - L.max_early_ms);
 // Λ × 100 / w in integer ms; a weight below 1 % is read as 1 % (no division by zero).
 const stretch = (L: OverloadLine, lambda: number): number => Math.floor((lambda * 100) / Math.max(1, L.w));
 
