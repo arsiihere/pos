@@ -144,7 +144,7 @@ describe('[02b-TK C3-1] Send & pay / Send · pay later', () => {
 
   it('[frame ReadyTiles; R2] a Due ready tile shows the amount due and its Take payment opens the pay panel over the cart', async () => {
     const h = screenHarness({
-      openBills: [{ bill_id: null, seating_id: null, order_id: 'O48', identifier: '#48', order_type: 'takeaway', state: 'projected', total_default_minor: 119_000, paid_minor: 0, check_printed_at: null, opened_at: at(13, 0), open_minutes: 20, flagged: false, partly_paid: false, has_open_request: false }],
+      openBills: [{ bill_id: null, seating_id: null, order_id: 'O48', identifier: '#48', order_type: 'takeaway', state: 'projected', total_default_minor: 119_000, paid_minor: 0, due_minor: 119_000, check_printed_at: null, opened_at: at(13, 0), open_minutes: 20, flagged: false, partly_paid: false, has_open_request: false }],
       bills: {},
       bill: () => aBill(119_000),
     });

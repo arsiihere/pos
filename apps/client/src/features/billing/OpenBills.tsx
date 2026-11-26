@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { t } from '../../i18n';
 import { fill, type MessageKey } from '../../i18n/en';
 import { timeText } from '../alerts/labels';
@@ -54,6 +54,19 @@ function Slot({ text, name, children }: { text: string; name: string; children: 
   );
 }
 
+/** A copy text with several `{name}` placeholders, each slot rendered where its placeholder sits (any language order). */
+function Slots({ text, slots }: { text: string; slots: Record<string, ReactNode> }) {
+  const parts = text.split(/(\{\w+\})/);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const name = /^\{(\w+)\}$/.exec(part)?.[1];
+        return <Fragment key={i}>{name !== undefined && name in slots ? slots[name] : part}</Fragment>;
+      })}
+    </>
+  );
+}
+
 function Badges({ row, utcOffsetMs }: { row: OpenBillRow; utcOffsetMs: number }) {
   return (
     <span className="bds">
@@ -105,12 +118,23 @@ function Row({ row, currency, stale, utcOffsetMs, onOpen }: { row: OpenBillRow; 
       <span className="am">
         <b dir={MONEY_DIR}>{money(row.total_default_minor)}</b>
         {row.paid_minor > 0 && (
+          // ⚠️ 05 v1.0.35 §6.2 (run 3 R3-B-1, D3): what is left is the row's due_minor (Σ open split balances)
           <span className="paid">
-            <Slot text={t('billing.list.paid')} name="amount">
-              <span className="num" dir={MONEY_DIR}>
-                {money(row.paid_minor)}
-              </span>
-            </Slot>
+            <Slots
+              text={t('billing.dues.paid_left')}
+              slots={{
+                paid: (
+                  <span className="num" dir={MONEY_DIR}>
+                    {money(row.paid_minor)}
+                  </span>
+                ),
+                left: (
+                  <span className="num" dir={MONEY_DIR}>
+                    {money(row.due_minor)}
+                  </span>
+                ),
+              }}
+            />
           </span>
         )}
       </span>
