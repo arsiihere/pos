@@ -624,6 +624,11 @@ export function anOrderPlaced(overrides?: Overrides): PosEvent {
   return build(order('OrderPlaced', ORDER_ID, orderPlacedPayload(ORDER_ID, ['L1'])), overrides);
 }
 
+// ⚠️ 02b v1.0.25 §6.19 (R3-M-8): a bill change touching O1 and O2 that ended O2's effective approval.
+export function anOpenOrderBillChanged(overrides?: Overrides): PosEvent {
+  return build(order('OpenOrderBillChanged', ORDER_ID, { order_ids: [ORDER_ID, 'O2'], approval_cleared_order_ids: ['O2'] }), overrides);
+}
+
 export function anItemAdded(overrides?: Overrides): PosEvent {
   return build(order('ItemAdded', ORDER_ID, itemAddedPayload(ORDER_ID, 'L1')), overrides);
 }

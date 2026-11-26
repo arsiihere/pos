@@ -24,6 +24,7 @@ export const ORDER_EVENT_TYPES = [
   'OrderFoodCleared',
   'OrdersBilled',
   'OrdersUnbilled', // ⚠️ Changed by 05 (row Q-2), 02b v1.0.16 §6.19: the audience of OrdersBilled
+  'OpenOrderBillChanged', // ⚠️ 02b v1.0.25 §6.19 (run 3 R3-M-8): delivered like OrdersBilled; ids only, no amount or contact
   'LineWeightSet',
 ] as const;
 

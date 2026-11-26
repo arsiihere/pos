@@ -34,6 +34,7 @@ const builderNames = [
   'anOrderPlaced',
   'anItemAdded',
   'anOrderLinesAdded',
+  'anOpenOrderBillChanged', // 02b v1.0.25 §6.19 (R3-M-8)
   'anItemStarted',
   'anItemDone',
   'aFireDispatched',
