@@ -12,7 +12,7 @@ import { InvalidEvent } from './invalid-event.js';
 import { closedOrderIds, isOpen, orderInEngine } from './lifecycle.js';
 import { isEngineLine, type ProposedLine, type ProposedOrder } from './plan.js';
 import { placedUnderOldType } from './batch.js';
-import { stationPolicy } from './replan.js';
+import { heldPickup, stationPolicy } from './replan.js';
 import type { DayDraws, EngineLine, EngineState, StockEntry } from './state.js';
 
 const NO_ENTRY: StockEntry = { on_hand: 0, reserved: 0, set_at: null, unit: 'piece' };
@@ -400,7 +400,7 @@ function closeReleases(state: EngineState, t: number): StockReleasedDraft[] {
     if (l.reserved_seq === null) continue;
     const order = state.orders[l.order_id];
     const out_of_engine = order === undefined || closing.has(l.order_id) || !orderInEngine(state, order, t);
-    if (out_of_engine || isHiddenUnfired(state, l, t)) out.push(...lineReleases(l, 'day_closed'));
+    if (out_of_engine || (heldPickup(state, l) === null && isHiddenUnfired(state, l, t))) out.push(...lineReleases(l, 'day_closed'));
   }
   return out;
 }
