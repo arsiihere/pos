@@ -61,6 +61,8 @@ interface PrinterRow {
 /** What a check bill is made of: the totals at the default class, its lines and its Doc input (no time, no width). */
 export interface CheckBill {
   totals_default: Totals;
+  /** ⚠️ 05 v1.0.35 §6.3 (run 3 R3-M-1, D3): remaining payable = Σ the open splits' balance_minor (own payments only) */
+  due_minor: number;
   line_count: number;
   orders: BillOrder[];
   doc: (o: { printed_at: number; width_cols: 32 | 48; utc_offset_ms: number; branch_name: string }) => Doc;
@@ -95,6 +97,8 @@ export function checkBillOf(db: Database.Database, config: BranchConfig, head: B
   const result: ComputeBillResult = computeBill({ ...input, plan: planOf(head, openSplits), payments });
 
   const t = result.totals_default;
+  // D3: each open split's own balance (its total less its own net payments); closed splits are not in the result
+  const due_minor = result.splits.reduce((a, x) => a + x.balance_minor, 0);
   const docTax = (x: { label: string; rate_bp: number; payment_class: DocTaxRow['payment_class']; tax_minor: number }): DocTaxRow => ({
     label: x.label,
     rate_bp: x.rate_bp,
@@ -137,6 +141,7 @@ export function checkBillOf(db: Database.Database, config: BranchConfig, head: B
   const identifier = identifierOf(head, config, orders, business_date);
   return {
     totals_default: toTotals(t),
+    due_minor,
     line_count: docLines.length,
     orders,
     doc: (o) =>
@@ -151,6 +156,7 @@ export function checkBillOf(db: Database.Database, config: BranchConfig, head: B
           taxes: t.taxes.map(docTax),
           rounding_minor: t.rounding_minor,
           cash_total_minor: t.total_minor,
+          due_minor,
           digital_total_minor: result.totals_default_digital.total_minor,
           prices_include_tax: input.rules.prices_include_tax,
           service_charge_taxes,
@@ -258,7 +264,7 @@ export const printCheckBillCommand = defineCommand({
     }
     return {
       events: drafts,
-      result: { bill_id, printed: job !== null, job_id: job?.job_id ?? null, printer_name: printer?.name ?? null, totals_default: check.totals_default },
+      result: { bill_id, printed: job !== null, job_id: job?.job_id ?? null, printer_name: printer?.name ?? null, totals_default: check.totals_default, due_minor: check.due_minor },
     };
   },
 });
