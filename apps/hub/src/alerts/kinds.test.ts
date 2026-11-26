@@ -1,5 +1,6 @@
 import { ALERT_CONSTANTS } from '@pos/domain';
 import { afterEach, describe, expect, it } from 'vitest';
+import { AlertDetailsBase } from '@pos/events';
 import { z } from 'zod';
 import { registerFakes, resetFakes } from '../../test/alerts/fakes';
 import {
@@ -241,5 +242,65 @@ describe('test fakes', () => {
     for (const kind of FAKES) expect(kindOf(kind), kind).toBeUndefined();
     registerFakes();
     resetFakes();
+  });
+});
+
+// 01d v1.3.7 §3.5 (03b v1.0.16 D-7; hostile run 1 M-3, m-2), test 107: the `screen_devices` entry and `counter_card`.
+describe('[01d v1.3.7 #107] screen_devices and counter_card startup checks', () => {
+  const counterValues = z.object({ order_id: z.string().min(1), counter_screen: z.enum(['takeaway', 'parking']).optional() });
+  const toCounter: StepDef = {
+    at: { ms: 0 },
+    to: [{ target: 'raised_target', set: 'recipient' }, { target: { kind: 'screen_devices', screen_from_value: 'counter_screen' }, set: 'recipient' }],
+  };
+  const counterDef = (over: Partial<Def> = {}): Def =>
+    infoDef({
+      kind: 'k_counter',
+      steps: [toCounter],
+      values_schema: counterValues,
+      details_schema: AlertDetailsBase.pick({ identifier: true, lines: true }) as unknown as Def['details_schema'],
+      lead_fallback: false,
+      counter_card: true,
+      ...over,
+    });
+
+  it('accepts a counter kind (optional enum gate, recipient set, allowed details)', () => {
+    expect(() => define(counterDef())).not.toThrow();
+    expect(kindOf('k_counter')?.counter_card).toBe(true);
+  });
+
+  it('refuses a screen_from_value key that is undeclared, required, or an enum with pass or board', () => {
+    const steps = (key: string): StepDef[] => [{ at: { ms: 0 }, to: [{ target: { kind: 'screen_devices', screen_from_value: key }, set: 'recipient' }] }];
+    expect(() => define(counterDef({ kind: 'k_c1', steps: steps('screen') }))).toThrow(/screen_from_value 'screen' is not in values_schema/);
+    const required = z.object({ order_id: z.string().min(1), counter_screen: z.enum(['takeaway', 'parking']) });
+    expect(() => define(counterDef({ kind: 'k_c2', values_schema: required }))).toThrow(/screen_from_value 'counter_screen' must be an optional enum/);
+    const withPass = z.object({ order_id: z.string().min(1), counter_screen: z.enum(['takeaway', 'pass']).optional() });
+    expect(() => define(counterDef({ kind: 'k_c3', values_schema: withPass }))).toThrow(/screen_from_value 'counter_screen' must be an optional enum/);
+    const withBoard = z.object({ order_id: z.string().min(1), counter_screen: z.enum(['takeaway', 'board']).optional() });
+    expect(() => define(counterDef({ kind: 'k_c4', values_schema: withBoard }))).toThrow(/screen_from_value 'counter_screen' must be an optional enum/);
+    const notScreen = z.object({ order_id: z.string().min(1), counter_screen: z.enum(['takeaway', 'kitchen']).optional() });
+    expect(() => define(counterDef({ kind: 'k_c5', values_schema: notScreen }))).toThrow(/screen_from_value 'counter_screen' must be an optional enum/);
+    const str = z.object({ order_id: z.string().min(1), counter_screen: z.string().optional() });
+    expect(() => define(counterDef({ kind: 'k_c6', values_schema: str }))).toThrow(/screen_from_value 'counter_screen' must be an optional enum/);
+  });
+
+  it("refuses a screen_devices entry with set 'informed' (on a request kind too)", () => {
+    const informed: StepDef = { at: { ms: 0 }, to: [{ target: { kind: 'screen_devices', screen_from_value: 'counter_screen' }, set: 'informed' }] };
+    expect(() =>
+      define(requestDef({ kind: 'k_c7', values_schema: counterValues, steps: [{ ...APPROVAL_TIER_STEPS[0]!, to: [...APPROVAL_TIER_STEPS[0]!.to, ...informed.to] }, ...APPROVAL_TIER_STEPS.slice(1)] })),
+    ).toThrow(/screen_devices.*set 'informed'/);
+  });
+
+  it('refuses counter_card on a request kind, without a screen_devices entry, or with details outside the allow-list', () => {
+    expect(() => define(requestDef({ kind: 'k_c8', counter_card: true }))).toThrow(/counter_card: true on a request kind/);
+    expect(() => define(counterDef({ kind: 'k_c9', steps: [toRaised] }))).toThrow(/counter_card: true needs a screen_devices entry/);
+    const amount = AlertDetailsBase.pick({ identifier: true, amount: true }) as unknown as Def['details_schema'];
+    expect(() => define(counterDef({ kind: 'k_c10', details_schema: amount }))).toThrow(/counter_card: true with details key 'amount'/);
+    const allowed = AlertDetailsBase.pick({ identifier: true, lines: true, item: true, quantity: true, station_name: true, minutes_late: true });
+    expect(() => define(counterDef({ kind: 'k_c11', details_schema: allowed as unknown as Def['details_schema'] }))).not.toThrow();
+    expect(() => define(counterDef({ kind: 'k_c12', details_schema: null }))).not.toThrow();
+  });
+
+  it('a screen_devices entry without counter_card is allowed (lock only)', () => {
+    expect(() => define(counterDef({ kind: 'k_c13', counter_card: false }))).not.toThrow();
   });
 });
