@@ -6,7 +6,7 @@
 // dropped; stage and hand-overs stay; a later config does not move them back (live = full rebuild). With no active
 // destination the apply is refused and nothing commits.
 import { initialEngineState, type EngineState } from '@pos/engine';
-import type { BranchConfig, PosEvent } from '@pos/events';
+import { ConfigStatusResponse, type BranchConfig, type PosEvent } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { replayEngine } from '../../src/engine-host/replay';
 import { buildLineDetails } from '../../src/kds/contracts';
@@ -149,6 +149,10 @@ describe('[03b #132, 03a #195] D7: a config apply that archives a Pass moves its
     const seq = hub.deps.writer.lastSeq();
     const result = await apply(menu(2, { s1Point: 'MAIN', main: { is_archived: true }, ta: { is_archived: true } }));
     expect(result).toMatchObject({ outcome: 'rejected', reason: 'apply_failed' });
+    // 01a §6.21 (R3-B-1): config status reports apply_failed with the §6.9a code and details.issues.
+    const problem = configPoller(hub.app).lastProblem();
+    expect(problem).toMatchObject({ outcome: 'rejected', reason: 'apply_failed', code: 'VALIDATION_FAILED', details: { issues: [{ path: 'archived', message: 'Activate another Pass point first' }] } });
+    expect(ConfigStatusResponse.shape.data.shape.last_problem.parse(problem)).toEqual(problem);
     expect(branchConfig()?.config_version).toBe(1);
     expect(hub.deps.db.prepare("SELECT count(*) AS n FROM events WHERE seq > ? AND event_type IN ('BranchConfigApplied', 'PassPointLinesMoved')").get(seq)).toEqual({ n: 0 });
     expect(engine().lines.C1).toEqual(line);

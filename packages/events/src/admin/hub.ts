@@ -57,6 +57,10 @@ export const ConfigStatusResponse = z.object({
         outcome: z.enum(['rejected', 'unauthorized']),
         reason: z.enum(['malformed', 'hash_mismatch', 'schema_unsupported', 'schema_invalid', 'apply_failed']).nullable(),
         at: int,
+        // ⚠️ 01a v2.11 §6.21 (run 3 R3-B-1): a D7 archive refused at apply adds the §6.9a VALIDATION_FAILED code and
+        // details.issues ("Activate another Pass point first"); absent otherwise and from an older hub.
+        code: z.string().optional(),
+        details: z.unknown().optional(),
       })
       .nullable(),
     // 01d AD-123: "Stuck alerts: N", open alerts retired because a step cannot be computed
