@@ -108,12 +108,16 @@ describe('[05 row Q-2] OrdersUnbilled (02b v1.0.16 §3.3)', () => {
     expect(order(a.order_id)).toMatchObject({ billed_at: null });
     expect(order(b.order_id)).toMatchObject({ billed_at: at });
     expect(openIds()).toContain(a.order_id);
-    expect(openIds()).not.toContain(b.order_id);
+    // ⚠️ 02b v1.0.25 §3.3 Open (lists) (G-1, TK-5): the billed b is a paid takeaway not yet handed over, so it stays listed
+    expect(openIds()).toContain(b.order_id);
     expect(await removeItems(a.order_id, 'A1')).toMatchObject({ status: 200 });
     expect(await removeItems(b.order_id, 'B1')).toMatchObject({ status: 409, code: 'ORDER_BILLED' });
     // billed again later: a new billed_at
     const again = append(billed([a.order_id]));
     expect(order(a.order_id)).toMatchObject({ billed_at: again });
+    // handed over (served) and billed → gone (02b v1.0.25 §3.3)
+    append(served(b.order_id, ['B1']));
+    expect(openIds()).not.toContain(b.order_id);
   });
 
   it('[05 #83b] OrdersUnbilled clears day_closed_at: a billed order that left at the close is open again', async () => {

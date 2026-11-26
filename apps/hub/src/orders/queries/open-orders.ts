@@ -5,6 +5,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { StaffDirectory } from '../../auth/staff-directory.js';
 import { defineQuery, queryRegistry } from '../../queries/registry.js';
+import { keyBalances } from '../../billing/queries/key-balances.js';
+import { passReadyTimesOf } from '../../kds/exports.js';
 import { currentTableOf } from '../../tables/reads.js';
 import type { CarType, LineView, OrderType, OrderView } from '../contracts.js';
 import { orderLines } from '../exports.js';
@@ -46,20 +48,35 @@ export interface OpenOrderRow {
   has_phone: number;
   customer_name: string | null;
   phone: string | null;
+  billed_at: number | null;
+  bill_key: string | null;
+  pickup_at_ms: number | null;
+  pickup_boosted: number;
+  unpaid_handover_approved_at: number | null;
+  unpaid_handover_approved_due_minor: number | null;
 }
 
-// `orders_open` (§5): its partial-index condition, the types as a JSON list ('all types' = 1).
-const OPEN_ORDERS = `SELECT o.order_id, o.order_type, o.table_key, o.business_date, o.token, o.car_number, o.car_type,
+const COLS = `o.order_id, o.order_type, o.table_key, o.business_date, o.token, o.car_number, o.car_type,
        o.order_note, o.placed_by, o.placed_at, o.follow_up, o.sent_after_reconnect, o.phone IS NOT NULL AS has_phone,
-       o.customer_name, o.phone
-  FROM orders o
- WHERE o.billed_at IS NULL AND o.cancelled_at IS NULL AND o.day_closed_at IS NULL
-   AND (? = 1 OR o.order_type IN (SELECT value FROM json_each(?)))
- ORDER BY o.placed_at, o.order_id`;
+       o.customer_name, o.phone, o.billed_at, o.bill_key, o.pickup_at_ms, o.pickup_boosted,
+       o.unpaid_handover_approved_at, o.unpaid_handover_approved_due_minor`;
 
-/** The branch's open orders of `types` ('all' = every type). 1 statement. */
+// §6.16 v1.0.25: `orders_open` (§5, unchanged) UNION ALL `orders_open_takeaway_paid` (a billed takeaway with a live
+// line not yet handed over: no deal header, live units > 0, `served_at` NULL). The types as a JSON list ('all' = 1).
+const OPEN_ORDERS = `SELECT ${COLS} FROM orders o
+ WHERE o.billed_at IS NULL AND o.cancelled_at IS NULL AND o.day_closed_at IS NULL
+   AND (@all = 1 OR o.order_type IN (SELECT value FROM json_each(@types)))
+UNION ALL
+SELECT ${COLS} FROM orders o
+ WHERE o.order_type = 'takeaway' AND o.billed_at IS NOT NULL AND o.cancelled_at IS NULL AND o.day_closed_at IS NULL
+   AND (@all = 1 OR 'takeaway' IN (SELECT value FROM json_each(@types)))
+   AND EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id = o.order_id AND l.line_kind <> 'deal'
+                 AND l.served_at IS NULL AND l.units - l.removed_units - l.voided_units > 0)
+ ORDER BY placed_at, order_id`;
+
+/** The branch's open orders of `types` ('all' = every type), §3.3 Open (lists). 1 statement. */
 export function openOrderRows(db: Database.Database, types: readonly OrderType[] | 'all'): OpenOrderRow[] {
-  return db.prepare(OPEN_ORDERS).all(types === 'all' ? 1 : 0, JSON.stringify(types === 'all' ? [] : types)) as OpenOrderRow[];
+  return db.prepare(OPEN_ORDERS).all({ all: types === 'all' ? 1 : 0, types: JSON.stringify(types === 'all' ? [] : types) }) as OpenOrderRow[];
 }
 
 /** An open order as OrderView (§4.2): never cancelled, billed or day-closed (the `orders_open` condition). No contact. */
@@ -109,6 +126,45 @@ export interface OpenOrder {
   ready: { n: number; m: number };
   promise_ms: number | null;
   abandoned: boolean;
+  /** §6.16 v1.0.25: takeaway / parking only (dine-in null); `paid` once billed, else 05 `keyBalances` due */
+  bill: { state: 'due' | 'paid'; due_minor: number } | null;
+  /** §6.16 (R3-M-9): takeaway / parking = the D8 whole-bag epoch, dine-in = the Pass point history; null without one */
+  ready_at: number | null;
+  /** §6.16 (D8): the epoch's frozen window; null without an epoch (and for dine-in) */
+  bag_ready_window_ms: number | null;
+  /** §6.16: m = live lines (no deal header), n = those handed over (`served_at`) */
+  handed: { n: number; m: number };
+  /** §6.16: at most 6 live root lines, merged by part_of and then by name */
+  lines_summary: Array<{ name: string; qty: number }>;
+  lines_more: number;
+  /** §6.16 (R3-M-1): the retained `orders.pickup_at_ms`; the effective one is null once boosted (§3.8) */
+  pickup_at_ms: number | null;
+  effective_pickup_at_ms: number | null;
+}
+
+const SUMMARY_MAX = 6;
+
+/** §6.16 `lines_summary`: live root lines (item, deal) in added_at order, merged by part_of then by equal name. */
+function linesSummary(lines: readonly LineView[]): { lines_summary: OpenOrder['lines_summary']; lines_more: number } {
+  const roots = lines
+    .filter((l) => (l.line_kind === 'item' || l.line_kind === 'deal') && l.return_of === null && l.live_units > 0)
+    .sort((a, b) => a.added_at - b.added_at);
+  const byPart = new Map<string, { name: string; qty: number }>();
+  for (const l of roots) {
+    const key = l.part_of ?? l.order_item_id;
+    const qty = l.sale_unit === 'piece' ? l.live_units : 1; // a weighed line counts 1
+    const e = byPart.get(key);
+    if (e === undefined) byPart.set(key, { name: l.name, qty });
+    else e.qty += qty;
+  }
+  const byName = new Map<string, { name: string; qty: number }>();
+  for (const e of byPart.values()) {
+    const n = byName.get(e.name);
+    if (n === undefined) byName.set(e.name, { ...e });
+    else n.qty += e.qty;
+  }
+  const all = [...byName.values()];
+  return { lines_summary: all.slice(0, SUMMARY_MAX), lines_more: Math.max(0, all.length - SUMMARY_MAX) };
 }
 
 export type OpenOrdersFilter = { order_type: 'takeaway' | 'parking' | 'all'; abandoned: boolean };
@@ -128,6 +184,7 @@ export function openOrdersBody(
   const day = state.business_day;
   const today = day !== null && day.closed_at === null ? day.business_date : null;
   const out: OpenOrder[] = [];
+  const billOf = new Map<string, OpenOrderRow>(); // takeaway / parking rows listed
   for (const r of rows) {
     const own = lines.get(r.order_id)!;
     const inEngine = isOrderInEngine(state, r.order_id, now);
@@ -154,7 +211,34 @@ export function openOrdersBody(
       ready: { n: ready, m: live.length },
       promise_ms: inEngine ? state.orders[r.order_id]!.promise_ms : null,
       abandoned,
+      bill: null,
+      ready_at: null,
+      bag_ready_window_ms: null,
+      handed: { n: live.filter((l) => l.served_at !== null).length, m: live.length },
+      ...linesSummary(own),
+      pickup_at_ms: r.pickup_at_ms,
+      effective_pickup_at_ms: (inEngine ? state.orders[r.order_id]!.boosted : r.pickup_boosted === 1) ? null : r.pickup_at_ms,
     });
+    if (r.order_type !== 'dine_in') billOf.set(r.order_id, r);
+  }
+  // §6.16 (B-1): one 05 keyBalances read for every unbilled takeaway / parking key, none when there is none
+  const keys = [...new Set([...billOf.values()].filter((r) => r.billed_at === null && r.bill_key !== null).map((r) => r.bill_key!))];
+  const balances = keys.length > 0 ? keyBalances(db, keys) : new Map<string, { due_minor: number }>();
+  // §6.16 (R3-M-9): one 03b passReadyTimesOf read, only with a row
+  const times = out.length > 0 ? passReadyTimesOf(db, out.map((o) => o.order_id)) : new Map();
+  for (const o of out) {
+    const t = times.get(o.order_id);
+    const r = billOf.get(o.order_id);
+    if (r === undefined) {
+      o.ready_at = t?.ready_at ?? null; // dine-in: the existing point-history meaning
+      continue;
+    }
+    o.ready_at = t?.bag_ready_since ?? null;
+    o.bag_ready_window_ms = t?.bag_ready_window_ms ?? null;
+    o.bill =
+      r.billed_at !== null
+        ? { state: 'paid', due_minor: 0 }
+        : { state: 'due', due_minor: r.bill_key === null ? 0 : (balances.get(r.bill_key)?.due_minor ?? 0) };
   }
   // §6.16 v1.0.11 (Q-9): one batched 02a read, only when a dine-in row is listed
   const dineIn = out.filter((o) => o.order_type === 'dine_in');

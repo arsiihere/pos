@@ -482,8 +482,9 @@ describe('statement counts (§6.15–§6.18, catch-up)', () => {
       return counter.count;
     };
     expect(await count(mgr, 'seating-orders?seating_id=SEAT1')).toBe(3); // ⚠️ 02b v1.0.11 §6.15 (Q-11): + the open comp requests (G-2)
-    expect(await count(mgr, 'open-orders')).toBe(2);
-    expect(await count(mgr, 'open-orders?abandoned=true')).toBe(2);
+    // ⚠️ 02b v1.0.25 §6.16 (run 1 B-1, M-2): + keyBalances (unbilled takeaway rows) + passReadyTimesOf → 4
+    expect(await count(mgr, 'open-orders')).toBe(4);
+    expect(await count(mgr, 'open-orders?abandoned=true')).toBe(4);
     expect(await count(mgr, 'zone-stock')).toBe(1);
     expect(await count(mgr, 'order-contact?order_id=T1')).toBe(1); // branch scope
     expect(await count(ot, 'order-contact?order_id=T1')).toBe(1); // own_tables, placed by the caller
@@ -732,7 +733,8 @@ describe('[02b #48] open-orders placed_by and table_id (§6.16 v1.0.11, Q-9)', (
     expect(after.find((o) => o.order_id === 'DI')!.table_id).toBe(FX.zoneTable);
   });
 
-  it('[02b #48] statements: 2 with no dine-in row, 3 with one', async () => {
+  // ⚠️ 02b v1.0.25 §6.16 (run 1 B-1, M-2): unbilled takeaway rows add keyBalances and passReadyTimesOf (2 → 4, 3 → 5)
+  it('[02b #48] statements: 4 with no dine-in row, 5 with one', async () => {
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
     appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'DI', lines: [{ order_item_id: 'DI1', item_id: FX.piece }] });
     appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', placed_by: OT1, lines: [{ order_item_id: 'TA1', item_id: FX.naan }] });
@@ -746,17 +748,17 @@ describe('[02b #48] open-orders placed_by and table_id (§6.16 v1.0.11, Q-9)', (
       return { n: counter.count, rows: r.data.orders };
     };
     // the dine-in DI is open but not abandoned (unfired, still in the engine): no dine-in row is listed
-    expect(await count('open-orders')).toMatchObject({ n: 2 });
+    expect(await count('open-orders')).toMatchObject({ n: 4 });
     const quiet = await count('open-orders?abandoned=true');
     expect(quiet.rows.map((o) => o.order_type)).not.toContain('dine_in');
-    expect(quiet.n).toBe(2);
+    expect(quiet.n).toBe(4);
     fire('DI1');
     hub.clock.advance(5 * 3_600_000);
     mgr = signIn(MGR); // the earlier session went idle over the 5 h
     const loud = await count('open-orders?abandoned=true');
     expect(loud.rows.filter((o) => o.order_type === 'dine_in').map((o) => o.order_id)).toEqual(['DI']);
-    expect(loud.n).toBe(3);
-    expect(await count('open-orders')).toMatchObject({ n: 2 }); // without the flag no dine-in row is ever listed
+    expect(loud.n).toBe(5);
+    expect(await count('open-orders')).toMatchObject({ n: 4 }); // without the flag no dine-in row is ever listed
   });
 });
 
@@ -993,5 +995,197 @@ describe('[02b #50] pending_comp statement counts (§6.15, §6.18a; Q-11)', () =
       expect(counter.count, id).toBe(3);
       expect(v.data.lines[0]!.pending_comp, id).toMatchObject({ units: 1 });
     }
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #66, #67, #80 (L-ORDERS-1 B2-1)
+
+// 02b v1.0.25 §3.3 Open (lists), §6.16 (02b-TK R3, G-1; run 1 B-1, M-2, m-5; run 3 R3-M-1, R3-M-5, R3-M-9): a takeaway
+// stays listed until billed and handed over; rows carry bill, ready_at (+ its frozen window), handed, lines_summary,
+// pickup_at_ms / effective_pickup_at_ms and no contact. Imports stay inside the block (this file is append-only per lane).
+describe('[02b #66 #67 #80] open-orders takeaway until handed over (§3.3, §6.16 v1.0.25)', () => {
+  const billedEv = (order_ids: string[], bill_id = 'BL1') => draft('order', order_ids[0]!, 'OrdersBilled', { order_ids, bill_id });
+  const cancelled = (order_id: string) => draft('order', order_id, 'OrderCancelled', { order_id });
+  const rowsOf = async (path = 'open-orders', who: Who = signIn(CASHIER)) => (await query<Open>(who, path)).data.orders;
+  const row = (rows: Open['orders'], id: string) => rows.find((o) => o.order_id === id);
+  /** The 03b D8 epoch row (pass_bag_ready, migration 0028) as its fold writes it; its own lifecycle is L-KDS's tests. */
+  const bagReady = (order_id: string, since: number, window_ms: number) =>
+    hub.deps.db.prepare("INSERT INTO pass_bag_ready (order_id, bag_ready_since, bag_ready_window_ms, alert_id, point_id) VALUES (?, ?, ?, NULL, 'P1')").run(order_id, since, window_ms);
+
+  it('[02b #66] pay-first takeaway listed while cooking and on the counter; partial hand-over stays; last line served → gone; unbilled served stays; billed parking, cancelled → gone', async () => {
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'PF', lines: [{ order_item_id: 'PF1', item_id: FX.piece }, { order_item_id: 'PF2', item_id: FX.naan }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'SU', lines: [{ order_item_id: 'SU1', item_id: FX.naan }] });
+    appendOrder(hub, { order_type: 'parking', order_id: 'PK', car_number: 'LEB-1', lines: [{ order_item_id: 'PK1', item_id: FX.naan }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'CX', lines: [{ order_item_id: 'CX1', item_id: FX.naan }] });
+    append(billedEv(['PF']), billedEv(['PK'], 'BL2'));
+    served('SU', 'SU1');
+    append(cancelled('CX'));
+
+    let rows = await rowsOf();
+    expect(rows.map((o) => o.order_id).sort()).toEqual(['PF', 'SU']);
+    expect(row(rows, 'PF')).toMatchObject({ bill: { state: 'paid', due_minor: 0 }, handed: { n: 0, m: 2 } });
+    expect(row(rows, 'SU')).toMatchObject({ bill: { state: 'due' }, handed: { n: 1, m: 1 } });
+    // the takeaway filter lists it too; the parking filter not
+    expect((await rowsOf('open-orders?order_type=takeaway')).map((o) => o.order_id).sort()).toEqual(['PF', 'SU']);
+    expect(await rowsOf('open-orders?order_type=parking')).toEqual([]);
+
+    served('PF', 'PF2'); // partial hand-over
+    rows = await rowsOf();
+    expect(row(rows, 'PF')).toMatchObject({ handed: { n: 1, m: 2 } });
+    served('PF', 'PF1'); // the last live line handed over
+    expect((await rowsOf()).map((o) => o.order_id)).toEqual(['SU']);
+    append(billedEv(['SU'], 'BL3')); // served before paid: leaves once billed
+    expect(await rowsOf()).toEqual([]);
+  });
+
+  it('[02b #66] a removed or voided last unserved line does not keep a paid takeaway listed; a deal header never does', async () => {
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'RM', lines: [{ order_item_id: 'RM1', item_id: FX.naan }, { order_item_id: 'RM2', item_id: FX.piece }] });
+    appendOrder(hub, {
+      order_type: 'takeaway',
+      order_id: 'DL',
+      lines: [
+        { order_item_id: 'DL1', deal_id: FX.deal, quantity: 1 },
+        { order_item_id: 'DL1a', deal_id: FX.deal, deal_part_id: FX.dealParts[0], item_id: FX.piece, parent_order_item_id: 'DL1' },
+        { order_item_id: 'DL1b', deal_id: FX.deal, deal_part_id: FX.dealParts[1], item_id: FX.naan, parent_order_item_id: 'DL1' },
+      ],
+    });
+    served('RM', 'RM1');
+    append(draft('order', 'RM', 'ItemRemoved', { order_item_id: 'RM2' }));
+    served('DL', 'DL1a', 'DL1b'); // the parts handed over; the header carries no served_at
+    append(billedEv(['RM']), billedEv(['DL'], 'BL2'));
+    expect(await rowsOf()).toEqual([]);
+  });
+
+  it('[02b #66] day close: a paid, not handed-over takeaway leaves (TK-Q7); the abandoned list is unchanged', async () => {
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'PF', lines: [{ order_item_id: 'PF1', item_id: FX.naan }] });
+    append(billedEv(['PF']));
+    expect((await rowsOf()).map((o) => o.order_id)).toEqual(['PF']);
+    closeDay();
+    expect(await rowsOf()).toEqual([]);
+    expect(await rowsOf('open-orders?abandoned=true', signIn(MGR))).toEqual([]);
+  });
+
+  it('[02b #66] root paid, then an addition: the root reads paid, the addition due with keyBalances\' balance', async () => {
+    const { keyBalances } = await import('../../src/billing/queries/key-balances');
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'RT', lines: [{ order_item_id: 'RT1', item_id: FX.piece }] });
+    append(billedEv(['RT']));
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'AD', adds_to_order_id: 'RT', lines: [{ order_item_id: 'AD1', item_id: FX.naan, quantity: 2 }] });
+    const rows = await rowsOf();
+    expect(row(rows, 'RT')!.bill).toEqual({ state: 'paid', due_minor: 0 });
+    const key = (hub.deps.db.prepare('SELECT bill_key FROM orders WHERE order_id = ?').get('AD') as { bill_key: string }).bill_key;
+    const due = keyBalances(hub.deps.db, [key]).get(key)!.due_minor;
+    expect(due).toBeGreaterThan(0);
+    expect(row(rows, 'AD')!.bill).toEqual({ state: 'due', due_minor: due });
+  });
+
+  it('[02b #67] fields: bill null for dine-in; ready_at = the D8 epoch with its frozen window (null without); pickup_at_ms kept, effective null once boosted', async () => {
+    const pickup = hub.clock.branchNow() + 3_600_000;
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', pickup_at_ms: pickup, lines: [{ order_item_id: 'TA1', item_id: FX.piece }] });
+    appendOrder(hub, { order_type: 'parking', order_id: 'PK', lines: [{ order_item_id: 'PK1', item_id: FX.naan }] });
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'DI', lines: [{ order_item_id: 'DI1', item_id: FX.piece }] });
+    let rows = await rowsOf();
+    expect(row(rows, 'TA')).toMatchObject({ ready_at: null, bag_ready_window_ms: null, pickup_at_ms: pickup, effective_pickup_at_ms: pickup });
+    expect(row(rows, 'PK')).toMatchObject({ pickup_at_ms: null, effective_pickup_at_ms: null, ready_at: null });
+
+    bagReady('TA', 1_000_000, 300_000);
+    bagReady('PK', 2_000_000, 120_000);
+    append(draft('order', 'TA', 'OrderBoosted', { order_id: 'TA' }));
+    rows = await rowsOf();
+    expect(row(rows, 'TA')).toMatchObject({ ready_at: 1_000_000, bag_ready_window_ms: 300_000, pickup_at_ms: pickup, effective_pickup_at_ms: null });
+    expect(row(rows, 'PK')).toMatchObject({ ready_at: 2_000_000, bag_ready_window_ms: 120_000 });
+
+    // the abandoned list's dine-in row: bill null, ready_at the point history (none here)
+    fire('DI1');
+    hub.clock.advance(5 * 3_600_000);
+    const all = await rowsOf('open-orders?abandoned=true', signIn(MGR));
+    expect(row(all, 'DI')).toMatchObject({ abandoned: true, bill: null, ready_at: null, bag_ready_window_ms: null });
+    // out of the engine: the folded orders.pickup_boosted keeps the effective pickup null
+    expect(row(all, 'TA')).toMatchObject({ pickup_at_ms: pickup, effective_pickup_at_ms: null });
+  });
+
+  it('[02b #67] lines_summary: a split naan ×10 is one entry, a removed unit lowers qty, a deal once, no option children / deal parts / return lines; 8 entries → 6 + lines_more 2', async () => {
+    const naans = Array.from({ length: 10 }, (_, i) => ({ order_item_id: `N${i}`, item_id: FX.naan, item: { part_of: 'N0' } }));
+    appendOrder(hub, {
+      order_type: 'takeaway',
+      order_id: 'SM',
+      lines: [
+        ...naans,
+        { order_item_id: 'K1', item_id: FX.piece },
+        { order_item_id: 'K1o', option_id: FX.option, parent_order_item_id: 'K1' },
+        { order_item_id: 'DL1', deal_id: FX.deal, quantity: 1 },
+        { order_item_id: 'DL1a', deal_id: FX.deal, deal_part_id: FX.dealParts[0], item_id: FX.piece, parent_order_item_id: 'DL1' },
+        { order_item_id: 'DL1b', deal_id: FX.deal, deal_part_id: FX.dealParts[1], item_id: FX.naan, parent_order_item_id: 'DL1' },
+        { order_item_id: 'W1', item_id: FX.ready, quantity: 3 },
+      ],
+    });
+    append(draft('order', 'SM', 'ItemRemoved', { order_item_id: 'N3' }));
+    append(draft('order', 'SM', 'ItemRemoved', { order_item_id: 'W1', units: 1 }));
+    const sm = row(await rowsOf(), 'SM')!;
+    expect(sm.lines_summary).toEqual([
+      { name: 'Naan', qty: 9 },
+      { name: 'Chicken Karahi', qty: 1 },
+      { name: 'Karahi combo', qty: 1 },
+      { name: 'Water', qty: 2 },
+    ]);
+    expect(sm.lines_more).toBe(0);
+    // handed m: live non-deal lines (split parts, option child, deal parts counted)
+    expect(sm.handed).toEqual({ n: 0, m: 9 + 1 + 1 + 2 + 1 });
+
+    const eight = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((n) => ({ order_item_id: `E${n}`, item_id: FX.naan, item: { name: `Item ${n}` } }));
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'E8', lines: eight });
+    const e8 = row(await rowsOf(), 'E8')!;
+    expect(e8.lines_summary.map((l) => l.name)).toEqual(['Item A', 'Item B', 'Item C', 'Item D', 'Item E', 'Item F']);
+    expect(e8.lines_more).toBe(2);
+  });
+
+  it('[02b #67] no customer_name, phone or phone_last4 in the body for a kiosk, the placer or a waiter; has_phone kept', async () => {
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'CT', placed_by: OT1, lines: [{ order_item_id: 'CT1', item_id: FX.naan }] });
+    append(draft('order', 'CT', 'OrderContactSet', { order_id: 'CT', customer_name: 'Ali', phone: '03001234567' }, OT1));
+    for (const who of [signIn(CASHIER, 'cashier_kiosk'), signIn(OT1), signIn(WAITER)]) {
+      const body = await query<Open>(who, 'open-orders');
+      expect(body.status).toBe(200);
+      const text = JSON.stringify(body.data);
+      for (const k of ['customer_name', '"phone"', 'phone_last4', 'Ali', '1234567']) expect(text, k).not.toContain(k);
+      expect(row(body.data.orders, 'CT')!.has_phone).toBe(true);
+    }
+  });
+
+  it('[02b #67 #80] statements: 1 with no row (orderLines reads nothing for no id), 4 with an unbilled takeaway, 3 when every row is billed, ≤ 5 with an abandoned dine-in; the same for 1 and 50 rows', async () => {
+    const mgr = signIn(MGR);
+    const counter = statementCounter(hub.deps.readDb);
+    const count = async (path = 'open-orders'): Promise<number> => {
+      counter.reset();
+      const r = await query<Open>(mgr, path);
+      expect(r.status, path).toBe(200);
+      return counter.count;
+    };
+    expect(await count()).toBe(1);
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'B0', lines: [{ order_item_id: 'B0a', item_id: FX.naan }] });
+    append(billedEv(['B0']));
+    expect(await count()).toBe(3); // orders, lines, passReadyTimesOf
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'U0', lines: [{ order_item_id: 'U0a', item_id: FX.naan }] });
+    expect(await count()).toBe(4); // + keyBalances
+    const one = await count();
+    // 50 rows: mixed billed / unbilled, takeaway and parking, D8 epochs on some
+    for (let n = 1; n < 50; n += 1) {
+      const id = `M${n}`;
+      appendOrder(hub, { order_type: n % 3 === 0 ? 'parking' : 'takeaway', order_id: id, lines: [{ order_item_id: `${id}a`, item_id: FX.naan }, { order_item_id: `${id}b`, item_id: FX.piece }] });
+      if (n % 2 === 0 && n % 3 !== 0) append(billedEv([id], `BL${n}`));
+      if (n % 5 === 0) bagReady(id, 1_000 * n, 60_000);
+    }
+    const rows = (await query<Open>(mgr, 'open-orders')).data.orders;
+    expect(rows.length).toBeGreaterThanOrEqual(50);
+    expect(await count()).toBe(one);
+    // an abandoned dine-in row adds currentTableOf
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'DI', lines: [{ order_item_id: 'DI1', item_id: FX.piece }] });
+    fire('DI1');
+    hub.clock.advance(5 * 3_600_000);
+    const fresh = signIn(MGR);
+    counter.reset();
+    const r = await query<Open>(fresh, 'open-orders?abandoned=true');
+    expect(r.data.orders.some((o) => o.order_type === 'dine_in')).toBe(true);
+    expect(counter.count).toBe(5);
   });
 });
