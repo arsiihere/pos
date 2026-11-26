@@ -223,7 +223,16 @@ describe('[03a AD-28] applyEvents = the per-event fold', () => {
     // run has no Undo); with it stripped it is the old ad0ddb7f…. ⚠️ 03a v1.2.10 §3.3 (STAB-6/7): v5 moved it for the new
     // keys (with them stripped it was the old 38138ee7… before the queue, task 5), then the queue moved the events.
     expect(run.liveState.priority_due).toEqual({});
-    expect(sha(run.liveState)).toBe('08d2a11863863b7dc41878625872204a5ebb5679940ce22cb981880d9f476fc4');
+    // ⚠️ 03a v1.2.11 §3.3 D7: v6 lines gain from_point_id / from_point_name (null: the run moves no line); with them
+    // stripped the state is the old 08d2a118….
+    const stripped = { ...run.liveState, lines: Object.fromEntries(Object.entries(run.liveState.lines).map(([id, l]) => {
+      const rest: Partial<typeof l> = { ...l };
+      delete rest.from_point_id;
+      delete rest.from_point_name;
+      return [id, rest];
+    })) };
+    expect(sha(stripped)).toBe('08d2a11863863b7dc41878625872204a5ebb5679940ce22cb981880d9f476fc4');
+    expect(sha(run.liveState)).toBe('c74e3b6fc266a56b645f7393691a6ee3706096bab887cb830ce98a91f6a108d3');
   }, 120_000);
 });
 

@@ -315,6 +315,8 @@ function listLines(
       max_delay_ms: null,
       priority_at: null,
       arrived_at: recorded_at,
+      from_point_id: null, // ⚠️ 03a v1.2.11 §3.3 D7: not moved
+      from_point_name: null,
     });
   }
   p.groups.forEach((g, i) => {
@@ -1354,6 +1356,37 @@ function foldAlertClosed(state: EngineState, event: PosEvent): EngineState {
 // nothing and keeps priority_land_ms null (m-3). Proposed (implementer) reading: with no waiting line left the delay is
 // measured on the group's live F (its estimate), never below 0.
 // The scope: LinePrioritized is in REPLANS (whole), so the upkeep compares the whole maps.
+// ⚠️ 03a v1.2.11 §3.3 "D7 Pass archive fold" (run 3 reconcile (a); 03b v1.0.16 §6.22): each recorded move sets the
+// named line's point_id, carry_ms and alternates to the recorded destination facts and keeps the source point; stage,
+// fire and bookings are not touched and nothing is re-planned. The facts come from the event only (never from config),
+// so live, snapshot-tail replay and full rebuild agree. A move naming a line the engine does not hold for this order is
+// skipped.
+// The PassPointLinesMoved v1 payload as @pos/events validates it (03b §6.22).
+interface PassPointLinesMovedPayload {
+  order_id: string;
+  moves: Array<{ order_item_id: string; from_point_id: string; from_point_name: string; to_point_id: string; carry_ms: number; alternates: Array<{ station_id: string; carry_ms: number; home: boolean }> }>;
+}
+
+function foldPassPointLinesMoved(state: EngineState, event: PosEvent): EngineState {
+  const p = event.payload as unknown as PassPointLinesMovedPayload;
+  checkStream(event, p.order_id, p.moves[0]?.order_item_id ?? '');
+  let lines: EngineState['lines'] | null = null;
+  for (const m of p.moves) {
+    const line = (lines ?? state.lines)[m.order_item_id];
+    if (line === undefined || line.order_id !== p.order_id) continue;
+    lines ??= { ...state.lines };
+    lines[m.order_item_id] = {
+      ...line,
+      point_id: m.to_point_id,
+      carry_ms: m.carry_ms,
+      alternates: m.alternates.map((a) => ({ ...a })),
+      from_point_id: m.from_point_id,
+      from_point_name: m.from_point_name,
+    };
+  }
+  return lines === null ? state : { ...state, lines };
+}
+
 function foldLinePrioritized(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as LinePrioritizedPayload;
   const t = event.recorded_at;
@@ -1547,6 +1580,8 @@ function fold(state: EngineState, event: PosEvent, o: FoldOptions): EngineState 
       return foldStationPause(state, event);
     case 'LinePrioritized':
       return foldLinePrioritized(state, event, o);
+    case 'PassPointLinesMoved':
+      return foldPassPointLinesMoved(state, event);
     default:
       replayType satisfies never;
       return state;

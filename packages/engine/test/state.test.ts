@@ -133,7 +133,12 @@ const historicalKeySets = {
   },
 } as const;
 
-const KEY_SETS = { ...historicalKeySets, 6: historicalKeySets[5] } as const;
+// ⚠️ 03a v1.2.11 §3.3 D7 (run 3 reconcile (a); v6 unreleased, owner 2026-11-26): v6 = v5's key set + EngineLine
+// from_point_id, from_point_name (the recorded PassPointLinesMoved source).
+const KEY_SETS = {
+  ...historicalKeySets,
+  6: { ...historicalKeySets[5], EngineLine: [...historicalKeySets[5].EngineLine, 'from_point_id', 'from_point_name'] },
+} as const;
 
 type Current = (typeof KEY_SETS)[typeof ENGINE_STATE_VERSION];
 type SameKeys<T, K extends readonly PropertyKey[]> = [Exclude<keyof T, K[number]>, Exclude<K[number], keyof T>] extends [
@@ -234,11 +239,13 @@ describe('@pos/engine EngineState v6', () => {
     }
     // "No limit" lines (max_delay_ms null) of the waiting pickup groups cross from T_L (PK-6, PR-3); the rest have started.
     expect(Object.keys(state.priority_due).sort()).toEqual(['O1:0', 'O1:1', 'O1:2', 'O1:3', 'O1:4']);
-    for (const line of Object.values(state.lines)) expect(Object.keys(line).sort()).toEqual([...KEY_SETS[5].EngineLine].sort());
-    // The v5 log (frozen, R2-m-4: no pickup order) folds to the v5 state unchanged under the v6 meaning.
+    for (const line of Object.values(state.lines)) expect(Object.keys(line).sort()).toEqual([...KEY_SETS[6].EngineLine].sort());
+    // The v5 log (frozen, R2-m-4: no pickup order) folds to the v5 state unchanged under the v6 meaning, its lines
+    // with the v6 defaults (⚠️ 03a v1.2.11 §3.3 D7: from_point_id / from_point_name null, not moved).
     const { diagnostics: v5Diagnostics, ...v5 } = buildEngineState(deepFreeze((fixture('engine-log.v5.json') as unknown[]).map((e) => parseEvent(e))));
     expect(v5Diagnostics).toEqual([]);
-    expect(v5).toEqual(fixture('engine-state.v5.json'));
+    const v5State = fixture('engine-state.v5.json') as EngineState;
+    expect(v5).toEqual({ ...v5State, lines: Object.fromEntries(Object.entries(v5State.lines).map(([id, l]) => [id, { ...l, from_point_id: null, from_point_name: null }])) });
     // The older logs still fold (the v4 and v3 files stay as written); the v5 engine adds its keys with the defaults.
     const { diagnostics: v4Diagnostics, ...v4 } = buildEngineState(deepFreeze((fixture('engine-log.v4.json') as unknown[]).map((e) => parseEvent(e))));
     expect(v4Diagnostics).toEqual([]);
@@ -361,7 +368,7 @@ describe('@pos/engine EngineState v6', () => {
       order: [
         'OrderPlaced', 'OrderLinesAdded', 'ItemAdded', 'ItemStarted', 'ItemDone', 'ItemDoneUndone', 'ItemServed',
         'ItemRemoved', 'ItemVoided', 'ItemMovedToStock', 'ItemReturned', 'OrderBoosted', 'ItemsReleased', 'SlipWarned',
-        'AlertClosed', 'LinePrioritized',
+        'AlertClosed', 'LinePrioritized', 'PassPointLinesMoved', // ⚠️ 03a v1.2.11 §3.12 D7
       ],
       station: ['FireDispatched', 'ReservationsShifted', 'EngineConfigApplied', 'StationCapacitySet', 'StationPauseSet'],
       stock: ['StockSet', 'StockAdded', 'StockReserved', 'StockReleased', 'StockConsumed', 'StockTransferredOut'],

@@ -444,7 +444,9 @@
       "done_undone": false,
       "max_delay_ms": null,
       "priority_at": null,
-      "arrived_at": 1761000000000
+      "arrived_at": 1761000000000,
+      "from_point_id": null,
+      "from_point_name": null
     },
     "K2": {
       "order_item_id": "K2",
@@ -496,7 +498,9 @@
       "done_undone": false,
       "max_delay_ms": null,
       "priority_at": null,
-      "arrived_at": 1761000000000
+      "arrived_at": 1761000000000,
+      "from_point_id": null,
+      "from_point_name": null
     },
     "K3": {
       "order_item_id": "K3",
@@ -538,7 +542,9 @@
       "done_undone": false,
       "max_delay_ms": null,
       "priority_at": null,
-      "arrived_at": 1761000000000
+      "arrived_at": 1761000000000,
+      "from_point_id": null,
+      "from_point_name": null
     },
     "K4": {
       "order_item_id": "K4",
@@ -584,7 +590,9 @@
       "done_undone": false,
       "max_delay_ms": null,
       "priority_at": null,
-      "arrived_at": 1761000000000
+      "arrived_at": 1761000000000,
+      "from_point_id": null,
+      "from_point_name": null
     },
     "K5": {
       "order_item_id": "K5",
@@ -630,7 +638,9 @@
       "done_undone": false,
       "max_delay_ms": null,
       "priority_at": null,
-      "arrived_at": 1761000000000
+      "arrived_at": 1761000000000,
+      "from_point_id": null,
+      "from_point_name": null
     },
     "B1": {
       "order_item_id": "B1",
@@ -672,7 +682,9 @@
       "done_undone": false,
       "max_delay_ms": null,
       "priority_at": null,
-      "arrived_at": 1761000000000
+      "arrived_at": 1761000000000,
+      "from_point_id": null,
+      "from_point_name": null
     },
     "D1": {
       "order_item_id": "D1",
@@ -714,7 +726,9 @@
       "done_undone": false,
       "max_delay_ms": null,
       "priority_at": null,
-      "arrived_at": 1761000000000
+      "arrived_at": 1761000000000,
+      "from_point_id": null,
+      "from_point_name": null
     },
     "N1": {
       "order_item_id": "N1",
@@ -756,7 +770,9 @@
       "done_undone": false,
       "max_delay_ms": null,
       "priority_at": null,
-      "arrived_at": 1761000000000
+      "arrived_at": 1761000000000,
+      "from_point_id": null,
+      "from_point_name": null
     }
   },
   "slips": {},
