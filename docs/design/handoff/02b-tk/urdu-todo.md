@@ -93,6 +93,17 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `kitchen_screens.gap.fallback` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | {type} orders from {station} have no {type} Pass — they go to {point} | {station} کے {type} آرڈرز کا کوئی {type} پاس نہیں — یہ {point} پر جاتے ہیں |
 | `kitchen_screens.gap.tie` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | {type} orders from {station} match {n} Passes: {points} — they go to {point} | {station} کے {type} آرڈرز {n} پاس سے ملتے ہیں: {points} — یہ {point} پر جاتے ہیں |
 | `kitchen_screens.gap.detail` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Change Receives on the owner app's Points page, then Reload here once the hub has the change. | مالک کی ایپ کے پوائنٹس صفحے پر "کون سے آرڈر لیتا ہے" بدلیں، پھر ہب پر تبدیلی آنے کے بعد یہاں دوبارہ لوڈ کریں۔ |
+| `pass.handed_to_customer` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | Handed to customer | گاہک کو دے دیا |
+| `pass.take_payment_first` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | Take payment first | پہلے پیسے لیں |
+| `pass.other_items_not_ready` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | Other items of this order are not ready yet | اس آرڈر کی باقی چیزیں ابھی تیار نہیں |
+| `pass.handed_undo` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | {identifier} handed to customer · Undo | {identifier} گاہک کو دے دیا · واپس کریں |
+| `pass.offline_counter` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | Offline — hand over at the counter | آف لائن — کاؤنٹر پر حوالے کریں |
+| `pass.pickup_at` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | Pickup at {time} — use 'Customer is here' at the counter | {time} پر لینا ہے — کاؤنٹر پر 'گاہک آ گیا' استعمال کریں |
+| `pass.due` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | Due — customer pays at counter | باقی — گاہک کاؤنٹر پر ادا کرے گا |
+| `pass.waiting_bill` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | Waiting for the bill | بل کا انتظار |
+| `pass.pickup_label` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | Pickup {time} | لینا ہے {time} |
+| `pass.hand_at_counter` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | Hand over at the counter | کاؤنٹر پر حوالے کریں |
+| `pass.outside_scope` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | This order is not one of yours — hand over at the counter | یہ آرڈر آپ کا نہیں — کاؤنٹر پر حوالے کریں |
 
 Historical copy for Urdu review. OR-7 disabled the client override.
 

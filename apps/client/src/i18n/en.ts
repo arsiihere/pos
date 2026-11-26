@@ -4421,6 +4421,18 @@ export const en = {
   'kitchen_screens.gap.fallback': '{type} orders from {station} have no {type} Pass — they go to {point}',
   'kitchen_screens.gap.tie': '{type} orders from {station} match {n} Passes: {points} — they go to {point}',
   'kitchen_screens.gap.detail': 'Change Receives on the owner app\'s Points page, then Reload here once the hub has the change.',
+  // ---- 02b-TK L-CLIENT-1 item 1 (03b v1.0.16 §3.4 Pickup identity, Readiness, Handed to customer, Bill freshness, Tap and send; §8): Pass pickup cards and the customer hand-over ----
+  'pass.handed_to_customer': 'Handed to customer',
+  'pass.take_payment_first': 'Take payment first',
+  'pass.other_items_not_ready': 'Other items of this order are not ready yet',
+  'pass.handed_undo': '{identifier} handed to customer · Undo',
+  'pass.offline_counter': 'Offline — hand over at the counter',
+  'pass.pickup_at': 'Pickup at {time} — use \'Customer is here\' at the counter',
+  'pass.due': 'Due — customer pays at counter',
+  'pass.waiting_bill': 'Waiting for the bill',
+  'pass.pickup_label': 'Pickup {time}',
+  'pass.hand_at_counter': 'Hand over at the counter',
+  'pass.outside_scope': 'This order is not one of yours — hand over at the counter',
 } as const;
 
 export type MessageKey = keyof typeof en;

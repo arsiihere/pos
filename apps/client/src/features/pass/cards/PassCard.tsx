@@ -63,6 +63,8 @@ export interface PassCardProps {
   next?: boolean;
   /** 02b-tk C3-4: the takeaway order's promise (open-orders), "Ready by {time}"; null / absent = not shown */
   readyBy?: number | null;
+  /** ⚠️ 03b v1.0.16 §3.4 (R3-M-5): hub now, for a pickup card's station-less hold (absent: the hold never passes) */
+  nowMs?: number;
 }
 
 function Ident({ order }: { order: PointOrder }) {
@@ -98,12 +100,12 @@ function Placed({ ms, utcOffsetMs }: { ms: number; utcOffsetMs: number }) {
   );
 }
 
-export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast, rounds, next = false, readyBy = null }: PassCardProps) {
+export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast, rounds, next = false, readyBy = null, nowMs }: PassCardProps) {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => onSlotsChanged(rerender), []);
   const running = useRef(new Set<string>());
 
-  const r = readiness(order);
+  const r = readiness(order, nowMs);
   const pill = r.state === 'none' ? null : PILL[r.state];
   const note = order.lines.find((l) => l.order_note !== null)?.order_note ?? null;
 
@@ -144,6 +146,11 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
   const footer = buttons.length + slot.length > 0;
   const classes = ['pc', r.state === 'ready' || r.state === 'hold' || r.state === 'sent' ? r.state : null, next ? 'pc--next' : null].filter((c) => c !== null).join(' ');
   const [byBefore, byAfter = ''] = t('pass.ready_by').split('{time}');
+  // ⚠️ 03b v1.0.16 §3.4 (R3-B-1, R3-M-5): the pickup time (Boost keeps it) and the pickup card's station-less lines,
+  // under "From the counter", outside the pick and Handover sheets
+  const pickup = order.pickup_at_ms ?? null;
+  const [puBefore, puAfter = ''] = t('pass.pickup_label').split('{time}');
+  const counter = pickup === null ? [] : (order.no_station_lines ?? []);
 
   return (
     <article className={classes} data-order={order.order_id}>
@@ -156,6 +163,13 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
               {byBefore}
               <span className="num">{timeText(readyBy, utcOffsetMs)}</span>
               {byAfter}
+            </span>
+          )}
+          {pickup !== null && (
+            <span className="pc__m pc__pickup">
+              {puBefore}
+              <span className="num">{timeText(pickup, utcOffsetMs)}</span>
+              {puAfter}
             </span>
           )}
           <Placed ms={order.placed_at} utcOffsetMs={utcOffsetMs} />
@@ -194,6 +208,19 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
             }),
           ];
         })}
+        {counter.length > 0 && [
+          <div key="g-counter" className="pc__g">
+            {t('cart.from_counter')}
+          </div>,
+          ...counter.map((l) => (
+            <div key={l.order_item_id} className="pl pl--counter" data-id={l.order_item_id}>
+              <span className="pl__t">
+                <span className="q">{l.units} x</span>
+                {l.item_name}
+              </span>
+            </div>
+          )),
+        ]}
         {total > FOLD_AFTER && <div className="pc__more">{fill(t('pass.more_lines'), { n: String(total - SHOWN) })}</div>}
       </div>
       {band}
