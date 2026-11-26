@@ -66,3 +66,58 @@ export function sumOptionTexts(lists: ReadonlyArray<readonly string[]>): string[
     }
   return [...sums].map(([name, q]) => (q > 1 ? `${q} x ${name}` : name));
 }
+
+// ⚠️ 03b v1.0.16 owner clarification (PT-1, PT-2, PT-6), run 3 (R3-M-1, R3-M-2), §4.4: Pass points by order type.
+// Pure, no I/O, browser-safe. A line goes to the active point that accepts the order's type; of several, the most
+// specific (fewest accepted types; absent or 'all' = every type) wins; a tie or no match goes to the station's
+// effective default (D7). Every active point covers every station (PT-2). The result does not depend on input order.
+export const POINT_ORDER_TYPES = ['dine_in', 'takeaway', 'delivery', 'parking'] as const; // the 01a A-9 / PT-2 enum
+export type PointOrderType = (typeof POINT_ORDER_TYPES)[number];
+// kds-config routing_gaps (PT-6); 'delivery' joins when delivery orders ship.
+export const ROUTING_WARN_ORDER_TYPES = ['dine_in', 'takeaway', 'parking'] as const;
+
+export interface RoutablePoint {
+  point_id: string;
+  name: string;
+  sort_order: number;
+  is_archived: boolean;
+  order_types?: 'all' | readonly PointOrderType[];
+}
+export interface RoutedPoint {
+  point_id: string;
+  reason: 'match' | 'tie' | 'fallback';
+  tied_point_ids: string[];
+}
+
+const lexical = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+function acceptedCount(p: RoutablePoint): number {
+  return p.order_types === undefined || p.order_types === 'all' ? POINT_ORDER_TYPES.length : new Set(p.order_types).size;
+}
+
+function accepts(p: RoutablePoint, order_type: PointOrderType): boolean {
+  return p.order_types === undefined || p.order_types === 'all' || p.order_types.includes(order_type);
+}
+
+// R3-M-1 (01a §6.9): the station's configured point while it is active; else the first active point named `Pass`,
+// then by sort_order, then lexically by point_id. `active` is non-empty.
+function effectiveDefault(active: readonly RoutablePoint[], station: { point_id: string }): string {
+  if (active.some((p) => p.point_id === station.point_id)) return station.point_id;
+  const pass = (p: RoutablePoint): number => (p.name === 'Pass' ? 0 : 1);
+  return [...active].sort((a, b) => pass(a) - pass(b) || a.sort_order - b.sort_order || lexical(a.point_id, b.point_id))[0]!.point_id;
+}
+
+// null when the branch has no active point (D7 refuses the archive that would make it so).
+export function routePoint(points: readonly RoutablePoint[], station: { point_id: string }, order_type: PointOrderType): RoutedPoint | null {
+  const active = points.filter((p) => !p.is_archived);
+  if (active.length === 0) return null;
+  const matches = active.filter((p) => accepts(p, order_type));
+  if (matches.length === 0) return { point_id: effectiveDefault(active, station), reason: 'fallback', tied_point_ids: [] };
+  const fewest = Math.min(...matches.map(acceptedCount));
+  const best = matches
+    .filter((p) => acceptedCount(p) === fewest)
+    .map((p) => p.point_id)
+    .sort(lexical);
+  if (best.length === 1) return { point_id: best[0]!, reason: 'match', tied_point_ids: [] };
+  return { point_id: effectiveDefault(active, station), reason: 'tie', tied_point_ids: best };
+}
