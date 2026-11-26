@@ -43,6 +43,7 @@ describe('[03b §4.4] kds types', () => {
       placed_by_name: string | null;
       // ⚠️ 03b v1.0.11 §4.4 (STAB-5): the first part of a split line; null = not split, absent from an older hub
       part_of?: string | null;
+      moved_from?: string; // ⚠️ 03b v1.0.16 §3.10 D7 (R3-M-1)
     }>();
     const line: LineDetail = {
       order_item_id: 'L1',

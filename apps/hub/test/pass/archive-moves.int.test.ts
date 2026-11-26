@@ -9,6 +9,7 @@ import { initialEngineState, type EngineState } from '@pos/engine';
 import type { BranchConfig, PosEvent } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { replayEngine } from '../../src/engine-host/replay';
+import { buildLineDetails } from '../../src/kds/contracts';
 import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { configPoller } from '../../src/sync/config-poller';
 import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cloud';
@@ -115,6 +116,12 @@ describe('[03b #132, 03a #195] D7: a config apply that archives a Pass moves its
     const closed = commit.filter((e) => e.event_type === 'AlertClosed').map((e) => e.payload as { alert_id: string; reason: string });
     expect(closed).toEqual(expect.arrayContaining([expect.objectContaining({ alert_id: alertId, reason: 'obsolete' })]));
     expect(hub.deps.db.prepare("SELECT count(*) AS n FROM pass_ready_lines WHERE settled_at IS NULL AND point_id = 'TA'").get()).toEqual({ n: 0 });
+
+    // The receiving Pass shows "Moved from Takeaway Pass" (LineDetail.moved_from; absent on a line never moved).
+    const details = buildLineDetails(hub.deps.db, engine(), ['A1', 'A2R', 'A2']);
+    expect(details.get('A1')).toMatchObject({ point_id: 'MAIN', moved_from: 'Takeaway Pass' });
+    expect(details.get('A2R')).toMatchObject({ point_id: 'MAIN', moved_from: 'Takeaway Pass' });
+    expect(details.get('A2')).not.toHaveProperty('moved_from');
 
     // Routing changes again (TA restored and now taking every type): nothing moves back; live = full rebuild.
     expect((await apply(menu(4, { s1Point: 'MAIN', ta: { order_types: 'all' } }))).outcome).toBe('applied');

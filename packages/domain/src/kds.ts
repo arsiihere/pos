@@ -29,6 +29,8 @@ export interface LineDetail {
   placed_by_name: string | null; // order taker (03c ticket toggle)
   /** 03b v1.0.11 §4.4 (STAB-5): order_lines.part_of, the first part of a split line (02b v1.0.20 §3.2 step 4a); null = not split; absent from an older hub */
   part_of?: string | null;
+  /** ⚠️ 03b v1.0.16 §3.10 D7 (run 3 R3-M-1): the old point's name of a line moved by a Pass archive ("Moved from …"); absent = never moved, or an older hub */
+  moved_from?: string;
 }
 
 // 03b v1.0.11 §3.3, §3.4, 03c v1.0.15 §3.3 (STAB-5): a slot-station line of quantity n is sent as n one-unit parts

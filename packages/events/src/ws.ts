@@ -129,6 +129,8 @@ export const LineDetailSchema = z.object({
   placed_by_name: z.string().nullable(),
   // ⚠️ 03b v1.0.11 §4.4 (STAB-5): the first part of a split line (02b v1.0.20 §3.2 step 4a); additive, optional
   part_of: Id.nullable().optional(),
+  // ⚠️ 03b v1.0.16 §3.10 D7 (run 3 R3-M-1): "Moved from <old point>" on a line a Pass archive moved; additive, optional
+  moved_from: z.string().optional(),
 });
 
 // 03b §6.16: details for the line ids a commit gained, per station socket set / per point (Pass) socket set.
