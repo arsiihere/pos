@@ -8,7 +8,7 @@ import { commandRegistry } from '../../src/commands/route';
 import { markReadyToServeCommand, undoReadyToServeCommand } from '../../src/kds/commands/ready';
 import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { statementCounter } from '../helpers/statement-counter';
-import { createTestHub, openSession, pairDevice, type TestHub } from '../helpers/test-hub';
+import { createTestHub, openSession, pairDevice, type DeviceProfileInput, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
 import { COOK, FX, append, appendOrder, fireLines, openDay, openSeating, pairKds, serveLines, signInCook } from '../kds/fixtures';
 
@@ -127,9 +127,9 @@ async function cookSignedIn(): Promise<Who> {
   const c = await signInCook(hub, { pointId: POINT });
   return { staffId: COOK.staff, deviceId: c.deviceId, token: c.token, sessionToken: c.sessionToken };
 }
-function staffOn(staffId: string): Who {
-  const device = pairDevice(hub, { type: 'tablet' });
-  const session = openSession(hub, { kind: 'staff', staffId, deviceId: device.deviceId });
+function staffOn(staffId: string, profile?: DeviceProfileInput): Who {
+  const device = pairDevice(hub, profile === undefined ? { type: 'tablet' } : { type: 'tablet', profile });
+  const session = openSession(hub, { kind: 'staff', staffId, deviceId: device.deviceId, ...(profile === undefined ? {} : { legacyProfile: false }) });
   return { staffId, deviceId: device.deviceId, token: device.token, sessionToken: session.token };
 }
 async function stationOn(stationId: string): Promise<Who> {
@@ -294,7 +294,9 @@ describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
 
   it('[03b #21] takeaway → person placed_by; the card shows the token "#1"; 3 statements (no currentTableOf)', async () => {
     openDay(hub);
-    const taker = staffOn('S_CASH');
+    // ⚠️ 03b v1.0.16 §6.21 (run 3 verify): the per-point Ready skips devices showing the takeaway screen (the counter
+    // gets the order-level alert), so the placer reads this card on a device without it
+    const taker = staffOn('S_CASH', { access: 'everyone', screens: ['dine_in'] });
     const ws = await online(taker);
     const cookWho = await cookSignedIn();
     const order_id = takeaway(['L1'], 'S_CASH');
@@ -309,7 +311,8 @@ describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
     expect(JSON.parse(row.values_json)).toEqual({ order_id, point_id: POINT, table_id: '', window_ms: 60_000 });
     expect(row.dedupe_key).toBe(`${order_id}:${POINT}:-`);
     expect(JSON.parse(row.details_json!)).toEqual({ identifier: '#1', lines: [naan()] });
-    expect(JSON.parse(row.display_json)).toMatchObject({ table_code: null, point_code: 'Pass' });
+    // ⚠️ 03b v1.0.16 §3.5 step 5 (02b-tk R8): the lock names the takeaway by its token
+    expect(JSON.parse(row.display_json)).toMatchObject({ table_code: '#1', point_code: 'Pass' });
     expect(reply.events.find((e) => e.event_type === 'ReadyToServe')!.payload).toMatchObject({ table_id: null, alert_id });
     const card = await cardFrame(ws, alert_id);
     expect((card.card as { details: unknown }).details).toEqual({ identifier: '#1', lines: [naan()] });
@@ -549,5 +552,58 @@ describe('UndoReadyToServe (03b §3.5, §6.7)', () => {
     expect(alertRow(alert_id).state).toBe('open');
 
     expect((await undo(cookWho, handed, { point_id: 'P_NONE' })).error).toMatchObject({ code: 'POINT_NOT_FOUND' });
+  });
+});
+
+// ⚠️ 03b v1.0.16 (02b-tk R8; plan K-2, 03b task 43): the per-point Ready of a takeaway / parking order.
+describe('[03b v1.0.16 §3.5, §6.21] per-point Ready, counter (K-2)', () => {
+  it('#99 (per-point): the point Ready omits counter_screen; its lock names the order "#<token>" / "PARKING"', async () => {
+    openDay(hub);
+    const cookWho = await cookSignedIn();
+    const t = takeaway(['L1']);
+    cook(t, ['L1']);
+    const tr = await ready(cookWho, t);
+    expect(tr.status, JSON.stringify(tr.error)).toBe(200);
+    const row = alertRow(tr.result!.alert_id as string);
+    expect(JSON.parse(row.values_json)).not.toHaveProperty('counter_screen');
+    expect(JSON.parse(row.display_json)).toMatchObject({ table_code: '#1', point_code: 'Pass', kind_label_key: 'alert.ready_to_serve' });
+    const p = appendOrder(hub, { order_type: 'parking', car_number: 'LEB 1234', lines: [{ order_item_id: 'P1L', item_id: FX.naan }] }).order_id;
+    cook(p, ['P1L']);
+    const pr = await ready(cookWho, p);
+    expect(JSON.parse(alertRow(pr.result!.alert_id as string).display_json)).toMatchObject({ table_code: 'PARKING' });
+  });
+
+  it('§6.21 (run 3 verify): the placer signed in on a takeaway counter gets nothing of the per-point Ready; on a phone without the screen, the card', async () => {
+    openDay(hub);
+    const onCounter = staffOn('S_CASH', { access: 'everyone', screens: ['takeaway', 'cashier'] });
+    const onPhone = staffOn('S_CASH', { access: 'everyone', screens: ['dine_in'] });
+    const counterWs = await online(onCounter);
+    const phoneWs = await online(onPhone);
+    const cookWho = await cookSignedIn();
+    const order_id = takeaway(['L1'], 'S_CASH');
+    cook(order_id, ['L1']);
+    const reply = await ready(cookWho, order_id);
+    const alert_id = reply.result!.alert_id as string;
+    expect((await cardFrame(phoneWs, alert_id)).card).toBeDefined();
+    const onK = (counterWs.messages as Array<{ type: string; alert?: { alert_id: string } }>).filter((m) => m.type === 'alert' && m.alert?.alert_id === alert_id);
+    expect(onK).toEqual([]);
+    const step = hub.deps.db.prepare("SELECT payload FROM events WHERE event_type = 'AttemptSent' AND json_extract(payload, '$.alert_id') = ?").get(alert_id) as { payload: string };
+    expect((JSON.parse(step.payload) as { routes: Array<{ ref: string }> }).routes.map((r) => r.ref)).not.toContain(onCounter.deviceId);
+  });
+
+  it('§3.5 step 2a (run 3 R3-M-5, #111): a pickup refuses a forced pick of an unmade line; done lines still go', async () => {
+    openDay(hub);
+    const cookWho = await cookSignedIn();
+    const order_id = appendOrder(hub, {
+      order_type: 'takeaway',
+      pickup_at_ms: hub.clock.branchNow() + 3_600_000,
+      lines: ['L1', 'L2'].map((order_item_id) => ({ order_item_id, item_id: FX.naan })),
+    }).order_id;
+    cook(order_id, ['L1']);
+    cook(order_id, ['L2'], { done: false });
+    const forced = await ready(cookWho, order_id, { ids: ['L1', 'L2'] });
+    expect(forced.status).toBe(409);
+    expect(forced.error).toMatchObject({ code: 'ITEM_WRONG_STAGE', details: { order_item_id: 'L2', stage: 'cooking' } });
+    expect((await ready(cookWho, order_id, { ids: ['L1'] })).status).toBe(200);
   });
 });

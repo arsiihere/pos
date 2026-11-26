@@ -11,18 +11,24 @@ describe('[03b #53, 03c #54] 03b / 03c alert kinds', () => {
   it('[03b #53, 03c #54] ready_to_serve, served_card, kds_offline, printer_problem are registered as specced', () => {
     for (const k of [READY_TO_SERVE, SERVED_CARD, KDS_OFFLINE, PRINTER_PROBLEM]) expect(kindOf(k.kind)).toBe(k);
     expect(READY_TO_SERVE).toMatchObject({ kind: 'ready_to_serve', family: 'action', subject: 'order', closes_on: 'owner', lead_fallback: false, request: null });
+    // ⚠️ 03b v1.0.16 §6.21 (02b-tk R8): + COUNTER (screen_devices gated by counter_screen) at 0, 1× and 2×; counter_card
+    const COUNTER = { target: { kind: 'screen_devices', screen_from_value: 'counter_screen' }, set: 'recipient' };
     expect(READY_TO_SERVE.steps).toEqual([
-      { at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] },
-      { at: { value: 'window_ms', times: 1 }, to: [{ target: 'raised_target', set: 'recipient' }] },
+      { at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }, COUNTER] },
+      { at: { value: 'window_ms', times: 1 }, to: [{ target: 'raised_target', set: 'recipient' }, COUNTER] },
       {
         at: { value: 'window_ms', times: 2 },
         escalation: true,
         to: [
           { target: { kind: 'point', from_value: 'point_id' }, set: 'recipient' },
           { target: { kind: 'managers' }, set: 'recipient' }, // G-14
+          COUNTER,
         ],
       },
     ]);
+    expect(READY_TO_SERVE.counter_card).toBe(true);
+    expect(READY_TO_SERVE.values_schema.safeParse({ order_id: 'O1', point_id: 'P1', table_id: '', window_ms: 1, counter_screen: 'parking' }).success).toBe(true);
+    expect(READY_TO_SERVE.values_schema.safeParse({ order_id: 'O1', point_id: 'P1', table_id: '', window_ms: 1, counter_screen: 'dine_in' }).success).toBe(false);
     expect(SERVED_CARD).toMatchObject({ kind: 'served_card', family: 'info', subject: 'order', lead_fallback: false });
     expect(KDS_OFFLINE).toMatchObject({ kind: 'kds_offline', family: 'action', subject: 'hub', lead_fallback: true });
     expect(KDS_OFFLINE.steps).toEqual([{ at: { ms: 0 }, to: [{ target: { kind: 'managers' }, set: 'recipient' }] }]);

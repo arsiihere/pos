@@ -204,9 +204,11 @@ function handover(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; re
   });
   events.push(...raised.events);
 
-  // §3.5 step 7: no Ready line left un-handed and unserved → close the open Ready `done`
+  // §3.5 step 7: no Ready line left un-handed and unserved → close the open Ready `done`. ⚠️ 03b v1.0.16 (02b-tk R8;
+  // hostile run 1 M-3): not for a takeaway / parking order: the bag handed to staff is not collected yet, so the Ready
+  // stays open (`ready_alert_closed: null`) and pass_closures closes it when its lines settle
   let ready_alert_closed: string | null = null;
-  if (ready?.ready_alert_id != null) {
+  if (ready?.ready_alert_id != null && order.order_type === 'dine_in') {
     const now_handed = new Set(lines);
     const left = readyLines.filter((id) => {
       const line = ctx.state.lines[id];
