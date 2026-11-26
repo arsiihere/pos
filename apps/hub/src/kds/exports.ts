@@ -10,9 +10,13 @@ export const HANDOVERS_DUE_LIMIT = 200;
 
 // Only hand-overs that still have an unsettled line row count toward the LIMIT (open_lines > 0 with none cannot be
 // built by the pass fold; such a row would take a slot and serve nothing).
+// ⚠️ 02b v1.0.25 §3.7 (run 1 M-2, row TK-9; owner 2026-11-26): a takeaway's hand-over is Pass → counter, never to the
+// customer, so 02b's served_estimate tick skips it; filtered here (0 extra statements) so takeaway hand-overs, which
+// stay unsettled until the counter's MarkServed, never fill the LIMIT ahead of dine-in / parking ones.
 export const HANDOVERS_DUE_SQL = `SELECT handover_id, order_id FROM handovers
   WHERE open_lines > 0 AND handed_at <= ?
     AND EXISTS (SELECT 1 FROM handover_lines l WHERE l.handover_id = handovers.handover_id AND l.settled_at IS NULL)
+    AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.order_id = handovers.order_id AND o.order_type = 'takeaway')
   ORDER BY handed_at, handover_id LIMIT ${HANDOVERS_DUE_LIMIT}`;
 
 export const HANDOVERS_DUE_LINES_SQL = `SELECT handover_id, order_item_id FROM handover_lines

@@ -28,7 +28,8 @@ function cook(order_id: string, ids: string[]): void {
   append(hub, ids.map((order_item_id) => on(order_id, 'ItemStarted', { order_item_id, started_at: hub.clock.branchNow() + 1_000, source: 'tap' })));
   append(hub, ids.map((order_item_id) => on(order_id, 'ItemDone', { order_item_id, done_at: hub.clock.branchNow() + 1_000, source: 'tap' })));
 }
-const takeaway = (ids: string[]) => appendOrder(hub, { order_type: 'takeaway', lines: ids.map((order_item_id) => ({ order_item_id, item_id: FX.naan })) }).order_id;
+// ⚠️ 02b v1.0.25 §3.7 (M-2): takeaway hand-overs are never estimated; parking keeps the estimate
+const parking = (ids: string[]) => appendOrder(hub, { order_type: 'parking', lines: ids.map((order_item_id) => ({ order_item_id, item_id: FX.naan })) }).order_id;
 
 interface Who {
   deviceId: string;
@@ -68,9 +69,9 @@ describe('handoversDue (03b §4.2)', () => {
   it('[03b #27] only hand-overs with unsettled lines handed at or before the cut-off, with only their unsettled ids; 2 statements', async () => {
     openDay(hub);
     const who = await seed();
-    const a = takeaway(['A1', 'A2', 'A3']);
-    const b = takeaway(['B1']);
-    const c = takeaway(['C1']);
+    const a = parking(['A1', 'A2', 'A3']);
+    const b = parking(['B1']);
+    const c = parking(['C1']);
     cook(a, ['A1', 'A2', 'A3']);
     cook(b, ['B1']);
     cook(c, ['C1']);
@@ -108,7 +109,7 @@ describe('handoversDue (03b §4.2)', () => {
   it('[03b #27, §3.5 Day close] a Served card expired at day close does not stop the estimate: its unsettled lines stay due', async () => {
     openDay(hub);
     const who = await seed();
-    const a = takeaway(['A1', 'A2']);
+    const a = parking(['A1', 'A2']);
     cook(a, ['A1', 'A2']);
     const { handover_id, served_card_alert_id } = await handover(who, a);
     append(hub, [on(a, 'AlertClosed', { alert_id: served_card_alert_id, reason: 'expired', by_staff_id: null, note: null })], { actor: null, device: 'hub' });
@@ -136,5 +137,18 @@ describe('handoversDue (03b §4.2)', () => {
     expect(due).toHaveLength(HANDOVERS_DUE_LIMIT);
     expect(due[0]).toEqual({ handover_id: 'H000', order_id: 'O000', order_item_ids: ['L000'] });
     expect(due[due.length - 1]!.handover_id).toBe('H199');
+  });
+
+  it(`[02b #76 §3.7 v1.0.25] a takeaway's hand-overs are never due, and ${HANDOVERS_DUE_LIMIT} of them do not crowd out a parking one; 2 statements`, () => {
+    openDay(hub);
+    const t = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'T1', item_id: FX.naan }] }).order_id;
+    const p = parking(['P1']);
+    const handed = (order_id: string, n: string, line: string) =>
+      on(order_id, 'Handover', { handover_id: `H${n}`, order_id, point_id: POINT, receiver_staff_id: 'S_OWNER', order_item_ids: [line], alert_id: `A${n}`, ready_alert_closed: null });
+    for (let i = 0; i < HANDOVERS_DUE_LIMIT; i += 1) append(hub, [handed(t, `T${String(i).padStart(3, '0')}`, 'T1')], { advanceMs: 10 });
+    append(hub, [handed(p, 'P000', 'P1')], { advanceMs: 10 });
+    const counter = statementCounter(hub.deps.db);
+    expect(handoversDue(hub.deps.db, hub.clock.branchNow(), 0)).toEqual([{ handover_id: 'HP000', order_id: p, order_item_ids: ['P1'] }]);
+    expect(counter.count).toBe(2);
   });
 });
