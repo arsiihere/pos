@@ -7,7 +7,7 @@ import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registr
 import { placeOf, seenByMe } from '../catch-up.js';
 import { kindOf, PERSONAL_NOTICE_KINDS } from '../kinds.js';
 import { mayAnswer, type AlertRequestPart } from '../targets.js';
-import { cardRule, lockOnlyView, safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
+import { cardRule, counterRow, lockOnlyView, safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
 
 // 01d §6.7 `GET /queries/alerts-inbox` (AD-13 containers `data.alerts`, `meta.next_cursor`; AD-22 state and
 // close_reason on each row).
@@ -153,7 +153,10 @@ function buildInbox(ctx: QueryCtx): z.infer<typeof AlertsInboxResponse> {
     const canAnswer = request !== null && mayAnswer(directory, request, v.requester_staff_id, staffId).ok;
     const fallback = request === null ? 'recipient' : canAnswer ? 'answerer' : 'informed';
     const place = { escalation: kind.steps[step]?.escalation === true, ...placeOf(v.mine_json, fallback) };
-    const card = cardRule({ deviceTarget: v.to_device === 1, set: place.set, for_staff_id: place.for_staff_id, request: request !== null, canAnswer });
+    // 01d v1.3.7 §6 batch 3 / §6.7 (M-5): the viewer's own row read from a session on a device with a counter row of
+    // the alert gets the card, so frame, catch-up and inbox agree
+    const counter = v.to_device === 1 && counterRow(kind, v.values_json, ctx.device.device_id);
+    const card = counter || cardRule({ deviceTarget: v.to_device === 1, set: place.set, for_staff_id: place.for_staff_id, request: request !== null, canAnswer });
     alerts.push(
       AlertInboxRow.parse({
         ...(card ? signedInView(v, kind, step, place) : lockOnlyView(v, kind, step, place)),

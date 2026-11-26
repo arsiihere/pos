@@ -6,7 +6,7 @@ import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { CatchUpPart, SocketCtx } from '../ws/catch-up.js';
 import { kindOf, type AlertKind } from './kinds.js';
 import { isListedDevice, mayAnswer, type AlertRequestPart } from './targets.js';
-import { cardRule, lockOnlyView, safeBuild, signedInView, StrictCardView, StrictLockView, type ViewRow } from './ws-frames.js';
+import { cardRule, counterRow, lockOnlyView, safeBuild, signedInView, StrictCardView, StrictLockView, type ViewRow } from './ws-frames.js';
 
 // 01d §6 batch 3 "A missed frame is covered by … the `alerts` catch-up part" (H-7: built with the socket
 // context), §3.10 hiding, §6.9 / N3 may-answer rows, §8.3 `seen_by_me`.
@@ -151,6 +151,30 @@ export function dayStartOf(state: Readonly<EngineState> | undefined): number | n
   return state?.business_day?.opened_at ?? null;
 }
 
+/** The hub's `alerts` catch-up part, by server (bindAlertsCatchUp in registerAlerts). */
+const partByApp = new WeakMap<object, CatchUpPart>();
+
+/** registerAlerts: the part this server registered, for the live counter view refresh (R3-M-2). */
+export function bindAlertsCatchUp(app: object, part: CatchUpPart): void {
+  partByApp.set(app, part);
+}
+
+/**
+ * 01d v1.3.7 §6 batch 3 (run 3 R3-M-2), live counter view refresh: the session's complete `alerts` part, built by the
+ * same builder (and card predicate) as a reconnect, against the current profile map. Staff sockets only; the
+ * catch-up statement bound per socket, no per-alert read. Undefined before registerAlerts ran on this server.
+ */
+export function alertsPartForSession(
+  app: object,
+  db: Database.Database,
+  state: unknown,
+  socket: Pick<SocketCtx, 'deviceId' | 'deviceType' | 'sessionId' | 'staffId'>,
+): AlertsCatchUpPart | undefined {
+  const part = partByApp.get(app);
+  if (part === undefined) return undefined;
+  return part.build(db, state, { ...socket, kind: 'staff', stationId: null, asOfSeq: 0 }) as AlertsCatchUpPart;
+}
+
 export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
   function build(db: Database.Database, state: unknown, socket: SocketCtx): AlertsCatchUpPart {
     return safeBuild('alerts catch-up', () => buildRows(db, state as Readonly<EngineState> | undefined, socket));
@@ -200,10 +224,13 @@ export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
       const canAnswer = staffId !== null && request !== null && answerableHere(request) && mayAnswer(dir(), request, row.requester_staff_id, staffId).ok;
       const fallbackSet = request === null ? 'recipient' : canAnswer ? 'answerer' : 'informed';
       const place = placeOf(row.mine_json, fallbackSet);
+      // 01d v1.3.7 §6 batch 3 (Q-37a): a counter row of this device gives a staff socket the card, as the frames do
+      const counter = staffId !== null && row.to_device === 1 && counterRow(kind, row.values_json, socket.deviceId);
       const signedIn =
-        staffId !== null &&
-        row.in_inbox === 1 &&
-        cardRule({ deviceTarget: row.to_device === 1, set: place.set, for_staff_id: place.for_staff_id, request: request !== null, canAnswer });
+        counter ||
+        (staffId !== null &&
+          row.in_inbox === 1 &&
+          cardRule({ deviceTarget: row.to_device === 1, set: place.set, for_staff_id: place.for_staff_id, request: request !== null, canAnswer }));
       push(row, kind, signedIn, fallbackSet);
     }
     if (staffId !== null) {
