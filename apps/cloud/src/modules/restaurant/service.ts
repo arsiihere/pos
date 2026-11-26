@@ -17,7 +17,7 @@ import { toVariantGroupWire } from '../menu-variants/versions.js';
 import {
   activeItemIdsWith,
   activeRouteItemIds,
-  activeStationIdsAtPoint,
+  anotherActivePoint,
   activeStationsNamingAlternate,
   activeStockItemIdsAt,
   activeTableIds,
@@ -54,6 +54,7 @@ import {
   lockFloor,
   lockZone,
   lockPoint,
+  lockPointArchives,
   lockItemRoute,
   lockMenuItem,
   readMenuItem,
@@ -1026,8 +1027,11 @@ export async function createPoint(
   return result;
 }
 
-// §6.9a PATCH: lock (Q-v2.1-1 404) → version (R30 409 CONFIG_STALE, a stale no-op too) → no-op (200, nothing written)
-// → archive with an active station (Q-v2.1-2 409) → name (index → 409, a rename or a restore) → write → audit → bump.
+// §6.9a PATCH: [an archive: the branch's archive lock, D7] → lock (Q-v2.1-1 404) → version (R30 409 CONFIG_STALE, a
+// stale no-op too) → no-op (200, nothing written) → [an archive: another active point must remain, else 400, D7] →
+// name (index → 409, a rename or a restore) → write → audit → bump. ⚠️ Changed by 01a v2.11 PT-6 / D7 (run 3 R3-B-1):
+// a station naming the point no longer blocks its archive (was Q-v2.1-2's 409 CONFIG_IN_USE); the hub routes its work
+// and the station's fallback when the archive is applied.
 export async function patchPoint(
   deps: RestaurantDeps,
   req: OwnerRequest,
@@ -1039,6 +1043,7 @@ export async function patchPoint(
   return inTransaction(deps.pool, async (client) => {
     const scoped = new TenantScopedRepository(req.tenant, client);
     const level = new TenantLevelRepository(req.tenant, client);
+    if (body.archived === true) await lockPointArchives(scoped, branchId);
     const before = await lockPoint(scoped, branchId, pointId);
     if (before === undefined) throw new DomainError('POINT_NOT_FOUND', { point_id: pointId });
     await deps.testHooks?.afterTargetLock?.('PATCH /v1/admin/branches/:branch_id/points/:point_id');
@@ -1055,11 +1060,8 @@ export async function patchPoint(
       ...(body.order_types !== undefined ? { order_types: storedOrderTypes(body.order_types) } : {}),
     };
     if (unchangedRow(before, merged)) return { point: toPointWire(before) };
-    if (before.archived_at === null && merged.archived_at !== null) {
-      const ids = await activeStationIdsAtPoint(scoped, branchId, pointId);
-      if (ids.length > 0) {
-        throw new DomainError('CONFIG_IN_USE', { entity: 'point', id: pointId, used_by: { entity: 'station', ids } });
-      }
+    if (before.archived_at === null && merged.archived_at !== null && !(await anotherActivePoint(scoped, branchId, pointId))) {
+      throw new DomainError('VALIDATION_FAILED', { issues: [{ path: 'archived', message: 'Activate another Pass point first' }] });
     }
     const point = await nameTaken('points_branch_name_active', 'point', merged.name, () => updatePoint(scoped, branchId, merged, now));
     await writeConfigAudit(

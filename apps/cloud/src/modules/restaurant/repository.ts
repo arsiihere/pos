@@ -603,15 +603,25 @@ export async function updatePoint(repo: TenantScopedRepository, branchId: string
   return withArchivedAt<PointRow>(rows[0]!);
 }
 
-// Q-v2.1-2: the active stations naming the point (index stations_point). A plain read after the point's lock.
-export async function activeStationIdsAtPoint(repo: TenantScopedRepository, branchId: string, pointId: string): Promise<string[]> {
-  const rows = await repo.query<{ station_id: string }>(
-    `SELECT station_id FROM stations
-      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND point_id = $4 AND archived_at IS NULL
-      ORDER BY station_id`,
+// ⚠️ 01a v2.11 PT-6, D7 (run 3 R3-B-1), §6.9a: archive transitions of a branch's points are serialised before the
+// target point lock. A transaction-scoped advisory lock keyed by tenant and branch, so the S8 order (branch rows last)
+// is untouched; only archiving PATCHes take it.
+export async function lockPointArchives(repo: TenantScopedRepository, branchId: string): Promise<void> {
+  await repo.query(
+    `SELECT pg_advisory_xact_lock(hashtextextended('point_archive:' || tenant_id || ':' || branch_id, 0)) FROM branches
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3`,
+    [branchId],
+  );
+}
+
+// D7: is another active point left in the branch besides the one being archived? (One read, before the write.)
+export async function anotherActivePoint(repo: TenantScopedRepository, branchId: string, pointId: string): Promise<boolean> {
+  const rows = await repo.query<{ found: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM points
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND point_id <> $4 AND archived_at IS NULL) AS found`,
     [branchId, pointId],
   );
-  return rows.map((row) => row.station_id);
+  return rows[0]!.found;
 }
 
 // §6.9: a locked station's lists, in a statement of their own: run after the lock, it sees what a write it waited for
