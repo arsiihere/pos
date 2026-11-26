@@ -20,9 +20,9 @@ const NEW_BILLS = [
 ];
 
 describe('default roles', () => {
-  it('[03b #60] run-pass defaults to Owner, Manager and Cook; Cook also gets reprint-ticket; both allowed at branch scope', () => {
-    expect(holders('run-pass')).toEqual(['owner', 'manager', 'cook']);
-    expect(holders('reprint-ticket')).toEqual(['owner', 'manager', 'cashier', 'cook']);
+  it('[03b #60] run-pass defaults to Owner, Manager and Cook (and Pass, 01b v1.12 B-4); Cook also gets reprint-ticket; both allowed at branch scope', () => {
+    expect(holders('run-pass')).toEqual(['owner', 'manager', 'cook', 'pass']);
+    expect(holders('reprint-ticket')).toEqual(['owner', 'manager', 'cashier', 'cook', 'pass']);
     const cook = DEFAULT_ROLES.find((r) => r.default_key === 'cook')!;
     expect([...cook.grants].sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
       { permission: 'reprint-ticket', grant_type: 'allowed' },
@@ -41,8 +41,8 @@ describe('default roles', () => {
     expect(holders('manage-stations')).toEqual(['owner', 'manager']);
   });
 
-  it('[01b B-2] mark-served defaults to Owner, Manager, Cashier, Order taker and Waiter (01b v1.8.1 Q-23: Cashier)', () => {
-    expect(holders('mark-served')).toEqual(['owner', 'manager', 'cashier', 'order_taker', 'waiter']);
+  it('[01b B-2] mark-served defaults to Owner, Manager, Cashier, Order taker and Waiter (01b v1.8.1 Q-23: Cashier; v1.12 B-4: Pass)', () => {
+    expect(holders('mark-served')).toEqual(['owner', 'manager', 'cashier', 'order_taker', 'waiter', 'pass']);
   });
 
   it('[01b v1.8.1] Cashier gains mark-served (allowed, branch), not boost-order', () => {
@@ -182,6 +182,25 @@ describe('default roles', () => {
       for (const g of role.grants) {
         if (g.grant_type === 'requires_approval') expect(ALLOWED_ONLY_PERMISSIONS as readonly string[], g.permission).not.toContain(g.permission);
       }
+    }
+  });
+
+  it('[01b #20, #118] the Pass default role: key pass, 5 min, exactly run-pass, mark-served, reprint-ticket (allowed, branch); Cook unchanged', () => {
+    const pass = DEFAULT_ROLES.find((r) => r.default_key === 'pass')!;
+    expect(pass).toMatchObject({ default_key: 'pass', name: 'Pass', session_idle_ttl_ms: 300_000 });
+    expect([...pass.grants].sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
+      { permission: 'mark-served', grant_type: 'allowed' },
+      { permission: 'reprint-ticket', grant_type: 'allowed' },
+      { permission: 'run-pass', grant_type: 'allowed' },
+    ]);
+    expect([...grants('cook')].sort()).toEqual(['reprint-ticket', 'run-pass']);
+    expect(DEFAULT_ROLES.map((r) => r.default_key)).toEqual(['owner', 'manager', 'cashier', 'order_taker', 'waiter', 'cook', 'pass']);
+  });
+
+  it('[01b #119 seed half] hand-over-unpaid defaults to Owner and Manager only, allowed at branch', () => {
+    expect(holders('hand-over-unpaid')).toEqual(['owner', 'manager']);
+    for (const key of ['owner', 'manager']) {
+      expect(DEFAULT_ROLES.find((r) => r.default_key === key)!.grants.find((g) => g.permission === 'hand-over-unpaid')).toEqual({ permission: 'hand-over-unpaid', grant_type: 'allowed' });
     }
   });
 });

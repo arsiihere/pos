@@ -33,7 +33,8 @@ afterEach(async () => {
 });
 
 /** default_key → the hub role_id this file uses (aDirectory's ids for the four it has). */
-const ROLE_OF = { owner: 'R_OWNER', manager: 'R_MGR', cashier: 'R_CASH', order_taker: 'R_WAIT', waiter: 'R_WAITER', cook: 'R_COOK' } as const;
+// ⚠️ 01b v1.12 B-4: + the Pass role.
+const ROLE_OF = { owner: 'R_OWNER', manager: 'R_MGR', cashier: 'R_CASH', order_taker: 'R_WAIT', waiter: 'R_WAITER', cook: 'R_COOK', pass: 'R_PASS' } as const;
 
 type Grant = DirectoryInput['roles'][number]['permissions'][number];
 const allowed = (permission: Permission, scope: Grant['scope'] = 'branch'): Grant => ({ permission, grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope });
