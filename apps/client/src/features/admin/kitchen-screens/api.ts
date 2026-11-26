@@ -30,6 +30,16 @@ export interface KdsConfig {
   pass_tablets: Array<{ device_id: string; name: string; point_id: string; state: ScreenState }>;
   points?: Array<{ point_id: string; name: string; is_archived: boolean }>;
   warnings: Array<{ station_id: string; kind: 'archived_open_lines' | 'dark'; name?: string }>;
+  /** 03b v1.0.16 §6.12 (run 3 R3-M-2): absent from an older hub (R3-M-8), which shows no routing warning. */
+  routing_gaps?: Array<{
+    station_id: string;
+    station_name: string;
+    order_type: 'dine_in' | 'takeaway' | 'parking';
+    reason: 'fallback' | 'tie';
+    point_id: string;
+    point_name: string;
+    tied_point_ids: string[];
+  }>;
 }
 
 export type KdsStation = KdsConfig['stations'][number];
@@ -37,6 +47,7 @@ export type KdsScreen = KdsStation['screens'][number];
 export type PassTablet = KdsConfig['pass_tablets'][number];
 export type KdsPoint = NonNullable<KdsConfig['points']>[number];
 export type KdsWarning = KdsConfig['warnings'][number];
+export type RoutingGap = NonNullable<KdsConfig['routing_gaps']>[number];
 
 /** 00 §6.14 `GET /admin/queries/devices` (only the fields this page reads). */
 export interface HubDevice {

@@ -75,6 +75,24 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `c.phone_pay` | Pay | ادائیگی |
 | `billing.already_paid` (05 §6.3, R3-M-1) | Already paid | پہلے ادا شدہ |
 | `billing.remaining_payable` (05 §6.3, R3-M-1) | Remaining payable | باقی قابلِ ادائیگی |
+| `owner.points.edit` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Edit | ترمیم |
+| `owner.points.edit_title` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Edit point | پوائنٹ میں ترمیم |
+| `owner.points.receives` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Receives | کون سے آرڈر لیتا ہے |
+| `owner.points.receives_all` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | All order types | تمام آرڈر کی قسمیں |
+| `owner.points.receives_help` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Each line goes to the Pass that takes its order type; with none, to the station's Pass. | ہر آئٹم اس پاس پر جاتا ہے جو اس کے آرڈر کی قسم لیتا ہے؛ کوئی نہ ہو تو اسٹیشن کے پاس پر۔ |
+| `owner.points.receives_n` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Receives: {types} | لیتا ہے: {types} |
+| `owner.points.type.dine_in` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Dine-in | میز پر |
+| `owner.points.type.takeaway` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Takeaway | ٹیک اوے |
+| `owner.points.type.parking` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Parking | پارکنگ |
+| `owner.points.type.delivery` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Delivery | ڈیلیوری |
+| `owner.points.delivery_readonly` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Kept as saved. Delivery orders are not taken yet. | جیسا محفوظ تھا ویسا رہے گا۔ ڈیلیوری کے آرڈر ابھی نہیں لیے جاتے۔ |
+| `owner.points.archive_moves_body` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Orders still waiting here move to the Pass that takes them now. You can restore it later. | یہاں انتظار کرنے والے آرڈر اس پاس پر چلے جائیں گے جو انہیں اب لیتا ہے۔ بعد میں بحال کر سکتے ہیں۔ |
+| `owner.points.archive_refused` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Activate another Pass point first | پہلے کوئی اور پاس پوائنٹ فعال کریں |
+| `owner.stations.default_pass` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Default Pass | بنیادی پاس |
+| `owner.stations.default_pass_help` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Used when no Pass takes the order's type, and for ties. | جب کوئی پاس آرڈر کی قسم نہ لے، اور برابری کی صورت میں۔ |
+| `kitchen_screens.gap.fallback` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | {type} orders from {station} have no {type} Pass — they go to {point} | {station} کے {type} آرڈرز کا کوئی {type} پاس نہیں — یہ {point} پر جاتے ہیں |
+| `kitchen_screens.gap.tie` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | {type} orders from {station} match {n} Passes: {points} — they go to {point} | {station} کے {type} آرڈرز {n} پاس سے ملتے ہیں: {points} — یہ {point} پر جاتے ہیں |
+| `kitchen_screens.gap.detail` (01a v2.11 §6.9a / 03b §3.8, L-CLIENT-1 item 4) | Change Receives on the owner app's Points page, then Reload here once the hub has the change. | مالک کی ایپ کے پوائنٹس صفحے پر "کون سے آرڈر لیتا ہے" بدلیں، پھر ہب پر تبدیلی آنے کے بعد یہاں دوبارہ لوڈ کریں۔ |
 
 Historical copy for Urdu review. OR-7 disabled the client override.
 
