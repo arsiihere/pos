@@ -128,6 +128,7 @@ interface SubmitResult {
   token: number | null;
   groups: Array<{ group_id: string; promise_ms: number; order_item_ids: string[] }>;
   lines: Array<{ order_item_id: string; eta_ms: number | null; from_stock: boolean; zone_served: boolean }>;
+  slip?: { printed: boolean; job_id: string | null; skipped: string | null } | null;
 }
 
 interface Reply {
@@ -332,6 +333,7 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
         from_stock: id === 'L1' || id === 'D1a',
         zone_served: false,
       })),
+      slip: null, // ⚠️ 02b v1.0.25 §3.2 step 11 (03c Q-TK-3): additive, null without takeaway.print_slip
     });
     expect(JSON.stringify(r.body)).not.toContain('target_land_ms');
     expect(state.orders.O1).toMatchObject({ table_key: 'dine_in:SEAT1', table_id: FX.table, placed_by: 'S_ALI' });
@@ -1270,5 +1272,117 @@ describe('[02b #59 #60 #61 #63 #78] SubmitOrder pickup_at_ms (§3.2 step 2b)', (
     const r = await submit(cashier, takeaway('S1', [item('S1a', FX.naan)], { pickup_at_ms: localAt(1, 12) }));
     expect(r.error).toMatchObject({ code: 'PICKUP_TIME_INVALID', details: { reason: 'no_time_left', earliest_ms: localAt(1, 11) + 10 * MIN, latest_ms: localAt(1, 4) } });
     expect((await submit(cashier, takeaway('S2', [item('S2a', FX.naan)]))).status).toBe(200);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- token slip (L-ORDERS-1 S-5)
+
+// ⚠️ 02b v1.0.25 §3.2 steps 2b (takeaway.print_slip), 10a, 11 (M-1 (c); 03c v1.0.16 Q-TK-1–Q-TK-3; owner ruling R6: a slip
+// only for pay-later takeaway); test 82; 03c test 65 (SubmitOrder part).
+describe('[02b #82] [03c #65] SubmitOrder takeaway.print_slip (§3.2 step 10a)', () => {
+  const branchId = () => hub.deps.config.provisioned?.branch_id ?? 'branch-1';
+  function routeDefault(): void {
+    const at = hub.clock.branchNow();
+    hub.deps.writer.run((tx) =>
+      tx.append([
+        { stream_type: 'hub', stream_id: branchId(), event_type: 'PrinterSaved', schema_version: 1, payload: { printer_id: 'PR_DEF', name: 'Counter', connection: 'lan', address: '192.168.1.60:9100', paper_width_mm: 80, archived: false }, occurred_at: at, actor_id: null, device_id: 'hub' },
+        { stream_type: 'hub', stream_id: branchId(), event_type: 'BillRouteSet', schema_version: 1, payload: { scope: 'default', ref_id: '', printer_id: 'PR_DEF' }, occurred_at: at, actor_id: null, device_id: 'hub' },
+      ] as EventDraft[]),
+    );
+  }
+  const slips = () =>
+    hub.deps.db.prepare("SELECT order_id, payload FROM print_jobs WHERE kind = 'document' AND json_extract(payload, '$.kind_label') = 'Token slip' ORDER BY rowid").all() as Array<{ order_id: string; payload: string }>;
+  const payLater = { print_slip: true };
+
+  it('[02b #82] a root with print_slip: the slip job in the submit transaction, result slip, + 3 statements; absent / false → slip null, not called, + 0', async () => {
+    await setUp();
+    routeDefault();
+    const cashier = signIn('S_CASHIER');
+    // whole-request counts: the flag path appends inside handle (step 10a), the plain one in the route; the rest is equal
+    const whole = statementCounter(hub.deps.db);
+    const counted = { calls: [] as number[] };
+    const measure = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      whole.reset();
+      const r = await fn();
+      counted.calls.push(whole.count);
+      return r;
+    };
+    const plain = await measure(() => submit(cashier, takeaway('T0', [item('L0', FX.naan)])));
+    const off = await measure(() => submit(cashier, takeaway('T1', [item('L1', FX.naan)], { takeaway: { print_slip: false } })));
+    const on = await measure(() => submit(cashier, takeaway('T2', [item('L2', FX.naan)], { takeaway: payLater })));
+    expect(plain.result!.slip).toBeNull();
+    expect(off.result!.slip).toBeNull();
+    expect(on.status, JSON.stringify(on.body)).toBe(200);
+    expect(on.result!.slip).toMatchObject({ printed: true, skipped: null });
+    expect(slips().map((j) => j.order_id)).toEqual(['T2']);
+    expect(slips()[0]!.payload).toContain(on.result!.slip!.job_id === null ? 'never' : 'Token');
+    expect(counted.calls[1]).toBe(counted.calls[0]);
+    expect(counted.calls[2]).toBe(counted.calls[0]! + 3);
+    // the batch is the same: OrderPlaced and its ItemAdded, then the result's event ids
+    expect(on.events.map((e) => e.event_type)).toEqual(['OrderPlaced', 'ItemAdded', ...plain.events.slice(2).map((e) => e.event_type)]);
+    // the Ready line comes from the OrderPlaced groups (the latest promise)
+    const { clock12 } = await import('../../src/print/render/jobs');
+    const latest = Math.max(...on.result!.groups.map((g) => g.promise_ms));
+    expect(slips()[0]!.payload).toContain(`Ready around ${clock12(latest, hubTime(hub.clock).utc_offset_ms)}`);
+  });
+
+  it('[02b #82] an addition: the hook runs (+ 4 with the root billed); an unbilled root → slip_held', async () => {
+    await setUp();
+    routeDefault();
+    const cashier = signIn('S_CASHIER');
+    expect((await submit(cashier, takeaway('R1', [item('R1a', FX.naan)]))).status).toBe(200);
+    const whole = statementCounter(hub.deps.db);
+    const counted = { calls: [] as number[] };
+    const measure = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      whole.reset();
+      const r = await fn();
+      counted.calls.push(whole.count);
+      return r;
+    };
+    const plainAdd = await measure(() => submit(cashier, takeaway('R2', [item('R2a', FX.naan)], { adds_to_order_id: 'R1' })));
+    const held = await measure(() => submit(cashier, takeaway('R3', [item('R3a', FX.naan)], { adds_to_order_id: 'R1', takeaway: payLater })));
+    append({ stream_type: 'order', stream_id: 'R1', event_type: 'OrdersBilled', payload: { order_ids: ['R1', 'R2', 'R3'], bill_id: 'BL1' } });
+    const printed = await measure(() => submit(cashier, takeaway('R4', [item('R4a', FX.naan)], { adds_to_order_id: 'R1', takeaway: payLater })));
+    expect(held.result!.slip).toMatchObject({ printed: false, skipped: 'slip_held' });
+    expect(printed.result!.slip).toMatchObject({ printed: true });
+    expect(slips().map((j) => j.order_id)).toEqual(['R1']); // the root's order_id
+    expect(counted.calls[2]).toBe(counted.calls[0]! + 4);
+    void plainAdd;
+  });
+
+  it('[02b #82] a D32 replay returns the stored slip, no second job; print_slip not boolean or on dine-in → 400; a refused order queues no slip', async () => {
+    await setUp();
+    routeDefault();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const cashier = signIn('S_CASHIER');
+    const first = await submit(cashier, takeaway('D1', [item('D1a', FX.naan)], { takeaway: payLater }), { command_id: 'same' });
+    const again = await submit(cashier, takeaway('D1', [item('D1a', FX.naan)], { takeaway: payLater }), { command_id: 'same' });
+    expect(again.result!.slip).toEqual(first.result!.slip);
+    expect(slips()).toHaveLength(1);
+    const yes = await submit(cashier, takeaway('D2', [item('D2a', FX.naan)], { takeaway: { print_slip: 'yes' } }));
+    expect(yes.error).toMatchObject({ code: 'VALIDATION_FAILED' });
+    expect(JSON.stringify(yes.error!.details)).toContain('takeaway.print_slip');
+    const dine = await submit(signIn('S_ALI'), dineIn('D3', [item('D3a', FX.naan)], { takeaway: payLater }));
+    expect(dine.status).toBe(400);
+    const refused = await submit(cashier, takeaway('D4', [item('D4a', FX.naan)], { takeaway: payLater, pickup_at_ms: hub.clock.branchNow() + 60_000 }));
+    expect(refused.error?.code).toBe('PICKUP_TIME_INVALID');
+    expect(slips()).toHaveLength(1);
+  });
+
+  it('[03c #65] queued 60 s before acceptance → prints; 180 s → replay_late; the setting off → setting_off; no route → no_printer and the order commits', async () => {
+    await setUp();
+    const cashier = signIn('S_CASHIER');
+    const noRoute = await submit(cashier, takeaway('Q0', [item('Q0a', FX.naan)], { takeaway: payLater }));
+    expect(noRoute.status).toBe(200);
+    expect(noRoute.result!.slip).toMatchObject({ printed: false, skipped: 'no_printer' });
+    expect(orderRow('Q0')).toBeDefined();
+    routeDefault();
+    hub.clock.advance(200_000);
+    const now = hub.clock.branchNow();
+    expect((await submit(cashier, takeaway('Q1', [item('Q1a', FX.naan)], { takeaway: payLater }), { queuedAt: now - 60_000 })).result!.slip).toMatchObject({ printed: true });
+    expect((await submit(cashier, takeaway('Q2', [item('Q2a', FX.naan)], { takeaway: payLater }), { queuedAt: now - 180_000 })).result!.slip).toEqual({ printed: false, job_id: null, skipped: 'replay_late' });
+    const config = branchConfig()!;
+    swapBranchConfig({ config: { ...config, engine_settings: { ...config.engine_settings, takeaway_slip_on_send: false } }, snapshotHash: 'o'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 4, appliedAt: hub.clock.branchNow() });
+    expect((await submit(cashier, takeaway('Q3', [item('Q3a', FX.naan)], { takeaway: payLater }))).result!.slip).toMatchObject({ printed: false, skipped: 'setting_off' });
   });
 });
