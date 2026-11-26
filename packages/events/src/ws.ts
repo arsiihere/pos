@@ -136,6 +136,18 @@ export const WsKdsLines = z.object({ type: z.literal('kds_lines'), station_id: I
 export type WsKdsLines = z.infer<typeof WsKdsLines>;
 // ⚠️ Changed by v1.0.8 (owner 2026-11-13, Q-46): a Pass line also carries its serve group and serve mode (engine line), so the Pass
 // computes Ready / HOLD itself; `kds_lines` is unchanged.
+// ⚠️ 03b v1.0.16 §6.15, §6.16 (run 3 R3-B-1, R3-M-5): the order metadata of a Pass card, in point_view and, for an
+// order a commit changed, in `point_lines.orders`: the stable pickup time and boost state (engine memory), and on a
+// pickup card the whole-order readiness and its live station-less lines. The client replaces the order's prior metadata.
+export const PointOrderMetaSchema = z.object({
+  order_id: Id,
+  pickup_at_ms: z.number().int().nullable(),
+  boosted: z.boolean(),
+  pickup_readiness: z.object({ all_engine_lines_done: z.boolean(), station_less_hold_until: z.number().int().nullable() }).nullable(),
+  no_station_lines: z.array(z.object({ order_item_id: Id, item_name: z.string(), units: z.number().int().min(1) })),
+});
+export type PointOrderMeta = z.infer<typeof PointOrderMetaSchema>;
+
 export const WsPointLines = z.object({
   type: z.literal('point_lines'),
   point_id: Id,
@@ -148,6 +160,8 @@ export const WsPointLines = z.object({
       priority: LinePrioritySchema.nullable().optional(),
     }),
   ),
+  // ⚠️ 03b v1.0.16 §6.16 (R3-M-5): additive; may come with an empty `lines`; absent from an older hub
+  orders: z.array(PointOrderMetaSchema).optional(),
 });
 export type WsPointLines = z.infer<typeof WsPointLines>;
 

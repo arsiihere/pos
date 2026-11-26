@@ -199,6 +199,8 @@ export interface FixtureOrder {
   follow_up?: boolean;
   /** takeaway only (05 row Q-6): an addition keeps this order's token and carries `adds_to_order_id` on OrderPlaced */
   adds_to_order_id?: string;
+  /** 02b v1.0.25 §3.2 (R4): OrderPlaced.pickup_at_ms of a takeaway; default null (03b v1.0.16 K-3 / D8 tests) */
+  pickup_at_ms?: number | null;
 }
 
 /**
@@ -259,7 +261,7 @@ export function appendOrder(hub: TestHub, o: FixtureOrder): { order_id: string; 
 
 // §3.1 order identity: table_key, the engine's order fields, the E-1 OrderPlaced fields and the table's zone.
 function orderFields(tx: WriterTx, config: BranchConfig, o: FixtureOrder, order_id: string, business_date: string) {
-  const base = { order_type: o.order_type, follow_up: o.follow_up ?? false, pickup_at_ms: null };
+  const base = { order_type: o.order_type, follow_up: o.follow_up ?? false, pickup_at_ms: o.pickup_at_ms ?? null };
   if (o.order_type === 'dine_in') {
     if (o.seating_id === undefined) throw new Error('appendOrder: dine_in needs seating_id');
     const row = tx.db.prepare(`SELECT primary_table_id FROM seatings WHERE seating_id = ? AND state <> 'CLOSED'`).get(o.seating_id) as { primary_table_id: string } | undefined;
