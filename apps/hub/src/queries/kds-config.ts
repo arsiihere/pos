@@ -1,4 +1,5 @@
-import { DomainError } from '@pos/domain';
+import { DomainError, ROUTING_WARN_ORDER_TYPES, routePoint, type RoutablePoint } from '@pos/domain';
+import type { BranchConfig } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution } from '../auth/staff-directory.js';
@@ -97,8 +98,53 @@ export function registerKdsConfigQuery(app: FastifyInstance): void {
           ...archivedOpen(ctx.state, config, ctx.now).map((a) => ({ station_id: a.station_id, kind: 'archived_open_lines' as const, name: stationNames.get(a.station_id) ?? a.station_id })),
           ...stations.filter((s) => s.dark).map((s) => ({ station_id: s.station_id, kind: 'dark' as const, name: s.name })),
         ];
-        return { data: { stations, pass_tablets, points, warnings } };
+        return { data: { stations, pass_tablets, points, warnings, routing_gaps: routingGaps(config) } };
       },
     }),
   );
+}
+
+/** 03b v1.0.16 §6.12 (run 3 R3-M-2): one `routing_gaps` row. */
+export interface RoutingGap {
+  station_id: string;
+  station_name: string;
+  order_type: (typeof ROUTING_WARN_ORDER_TYPES)[number];
+  reason: 'fallback' | 'tie';
+  point_id: string;
+  point_name: string;
+  tied_point_ids: string[];
+}
+
+/**
+ * 03b v1.0.16 §6.12, §3.8, PT-6: every active station × order type (dine_in, takeaway, parking) whose routePoint result
+ * is a fallback or a tie. Ties are suppressed only in the legacy setup (every active point `'all'` or absent), where
+ * every type ties at the station default by design. Order: station name, order type, station id; tied ids lexical
+ * (routePoint). From branchConfig() only: memory, 0 statements, at most stations × 3 rows.
+ */
+export function routingGaps(config: BranchConfig | null): RoutingGap[] {
+  if (config === null) return [];
+  const points: RoutablePoint[] = config.points;
+  const active = points.filter((p) => !p.is_archived);
+  const legacy = active.every((p) => p.order_types === undefined || p.order_types === 'all');
+  const names = new Map(config.points.map((p) => [p.point_id, p.name]));
+  const out: RoutingGap[] = [];
+  for (const station of config.stations) {
+    if (station.is_archived) continue;
+    for (const order_type of ROUTING_WARN_ORDER_TYPES) {
+      const routed = routePoint(points, station, order_type);
+      if (routed === null || routed.reason === 'match' || (routed.reason === 'tie' && legacy)) continue;
+      out.push({
+        station_id: station.station_id,
+        station_name: station.name,
+        order_type,
+        reason: routed.reason,
+        point_id: routed.point_id,
+        point_name: names.get(routed.point_id) ?? routed.point_id,
+        tied_point_ids: routed.tied_point_ids,
+      });
+    }
+  }
+  const typeIndex = (t: RoutingGap['order_type']): number => ROUTING_WARN_ORDER_TYPES.indexOf(t);
+  const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+  return out.sort((a, b) => byText(a.station_name, b.station_name) || typeIndex(a.order_type) - typeIndex(b.order_type) || byText(a.station_id, b.station_id));
 }
