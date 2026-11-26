@@ -13,7 +13,7 @@ export interface DefaultGrant {
 
 export interface DefaultRole {
   default_key: DefaultKey;
-  name: 'Owner' | 'Manager' | 'Cashier' | 'Order taker' | 'Waiter' | 'Cook';
+  name: 'Owner' | 'Manager' | 'Cashier' | 'Order taker' | 'Waiter' | 'Cook' | 'Pass';
   session_idle_ttl_ms: number;
   grants: readonly DefaultGrant[];
 }
@@ -100,4 +100,13 @@ export const DEFAULT_ROLES: readonly DefaultRole[] = [
   // ⚠️ Changed by 03b v1.0.1 B-1 (01b v1.8): run-pass, and reprint-ticket for the Pass card reprint (03c R-6);
   // overrides M29 / B17 "Cook has no permissions". Existing tenants are re-seeded (R29, G-5: no migration).
   { default_key: 'cook', name: 'Cook', session_idle_ttl_ms: 300_000, grants: [allowed('run-pass'), allowed('reprint-ticket')] },
+  // ⚠️ Changed by 01b v1.12 B-4 (OR-2; owner correction 2026-11-24; 03b v1.0.16 §3.4 "Handed to customer"): the dedicated
+  // person who runs the Pass point (a sign-in role); Cook is unchanged (no mark-served). Existing tenants get it from
+  // 0022_takeaway_role_grants.sql (§5.1c).
+  {
+    default_key: 'pass',
+    name: 'Pass',
+    session_idle_ttl_ms: 300_000,
+    grants: [allowed('run-pass'), allowed('mark-served'), allowed('reprint-ticket')],
+  },
 ];

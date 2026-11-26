@@ -95,4 +95,25 @@ describe('[04 #32, 01b #110] allowed-only move-item-to-stock (B-2, G-19)', () =>
     expect(response.statusCode, response.body).toBe(422);
     expect(response.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'grants.0.approver_role_ids' } });
   });
+
+  it('[01b #119] hand-over-unpaid: requires_approval → 422 grants.N.grant_type on POST and PATCH; scope my_floors → 422 scope_not_allowed; allowed at branch → 200', async () => {
+    const manager = await roleId('manager');
+    const before = await state();
+    const created = await create({ name: 'Counter lead', idle_minutes: 15, grants: [{ permission: 'hand-over-unpaid', grant_type: 'requires_approval', approver_role_ids: [manager] }] });
+    expectGrantType422(created, 0);
+    const scoped = await create({ name: 'Counter lead', idle_minutes: 15, grants: [{ permission: 'hand-over-unpaid', grant_type: 'allowed', approver_role_ids: [], scope: 'my_floors' }] });
+    expect(scoped.statusCode, scoped.body).toBe(422);
+    expect(scoped.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'grants.0.scope', reason: 'scope_not_allowed' } });
+    expect(await state()).toEqual(before);
+
+    const ok = await create({ name: 'Counter lead', idle_minutes: 15, grants: [] });
+    expect(ok.statusCode, ok.body).toBe(200);
+    const role = ok.json().data.role as { role_id: string; version: string };
+    const afterCreate = await state();
+    expectGrantType422(await patch(role.role_id, { expected_version: role.version, grants: [{ permission: 'hand-over-unpaid', grant_type: 'requires_approval', approver_role_ids: [manager] }] }), 0);
+    expect(await state()).toEqual(afterCreate);
+    const allowed = await patch(role.role_id, { expected_version: role.version, grants: [{ permission: 'hand-over-unpaid', grant_type: 'allowed', approver_role_ids: [] }] });
+    expect(allowed.statusCode, allowed.body).toBe(200);
+    expect(allowed.json().data.role.grants).toEqual([{ permission: 'hand-over-unpaid', grant_type: 'allowed', approver_role_ids: [], scope: 'branch' }]);
+  });
 });

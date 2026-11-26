@@ -179,7 +179,7 @@ describe('permissions', () => {
     expect(allowedOnly).toContain('hand-over-unpaid');
   });
 
-  it('[01b B17] DEFAULT_KEYS is the six keys in order', () => {
-    expect([...DEFAULT_KEYS]).toEqual(['owner', 'manager', 'cashier', 'order_taker', 'waiter', 'cook']);
+  it('[01b B17, v1.12 B-4] DEFAULT_KEYS is the seven keys in order (+ pass)', () => {
+    expect([...DEFAULT_KEYS]).toEqual(['owner', 'manager', 'cashier', 'order_taker', 'waiter', 'cook', 'pass']);
   });
 });

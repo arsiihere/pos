@@ -154,7 +154,8 @@ export const ALLOWED_ONLY_PERMISSIONS = [
 ] as const satisfies readonly Permission[];
 
 // 01b B17: stable handles of the default roles (roles.default_key).
-export const DEFAULT_KEYS = ['owner', 'manager', 'cashier', 'order_taker', 'waiter', 'cook'] as const;
+// ⚠️ Changed by 01b v1.12 B-4 (OR-2; owner correction 2026-11-24): + pass, the dedicated person at the Pass point.
+export const DEFAULT_KEYS = ['owner', 'manager', 'cashier', 'order_taker', 'waiter', 'cook', 'pass'] as const;
 export type DefaultKey = (typeof DEFAULT_KEYS)[number];
 
 // 05a §3.3: permissions usable only on a device whose access is `listed`, and money permissions an `everyone` device downgrades.

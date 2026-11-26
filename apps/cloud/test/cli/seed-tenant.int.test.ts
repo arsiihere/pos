@@ -51,13 +51,14 @@ describe('seed-tenant', () => {
       `SELECT name, session_idle_ttl_ms FROM roles WHERE tenant_id = $1 ORDER BY name`,
       [created.tenant_id],
     );
-    // 01b §6.15 (00 v1.5 M29): six default roles
+    // 01b §6.15 (00 v1.5 M29): seven default roles (⚠️ 01b v1.12 B-4: + Pass)
     expect(roles.rows).toEqual([
       { name: 'Cashier', session_idle_ttl_ms: 900_000 },
       { name: 'Cook', session_idle_ttl_ms: 300_000 },
       { name: 'Manager', session_idle_ttl_ms: 3_600_000 },
       { name: 'Order taker', session_idle_ttl_ms: 900_000 },
       { name: 'Owner', session_idle_ttl_ms: 3_600_000 },
+      { name: 'Pass', session_idle_ttl_ms: 300_000 },
       { name: 'Waiter', session_idle_ttl_ms: 300_000 },
     ]);
 
@@ -124,6 +125,14 @@ describe('seed-tenant', () => {
       { permission: 'reprint-ticket', grant_type: 'allowed', approver: null },
       { permission: 'run-pass', grant_type: 'allowed', approver: null },
     ]);
+    // ⚠️ 01b v1.12 B-4 (#118): Pass gets exactly run-pass, mark-served, reprint-ticket; Cook has no mark-served.
+    expect((byRole.get('Pass') ?? []).slice().sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
+      { permission: 'mark-served', grant_type: 'allowed', approver: null },
+      { permission: 'reprint-ticket', grant_type: 'allowed', approver: null },
+      { permission: 'run-pass', grant_type: 'allowed', approver: null },
+    ]);
+    // ⚠️ 01b v1.12 B-5 (#119): hand-over-unpaid for Owner and Manager only.
+    expect([...byRole].filter(([, gs]) => gs.some((g) => g.permission === 'hand-over-unpaid')).map(([name]) => name).sort()).toEqual(['Manager', 'Owner']);
     expect(ownerGrants.some((grant) => grant.permission === 'run-pass')).toBe(true);
     expect(managerGrants.some((grant) => grant.permission === 'run-pass')).toBe(true);
 
@@ -180,7 +189,7 @@ describe('seed-tenant', () => {
     ).rejects.toThrow(/email/);
   });
 
-  it('[01b #20] six default roles by default_key; distinct Order taker and Waiter; one staff row can hold both;owner staff linked; a rename keeps the key', async () => {
+  it('[01b #20] seven default roles by default_key (v1.12 B-4: + pass); distinct Order taker and Waiter; one staff row can hold both;owner staff linked; a rename keeps the key', async () => {
     await truncateAll(pool);
     const created = await seedTenant(
       new SystemContext(pool),
@@ -195,7 +204,7 @@ describe('seed-tenant', () => {
       name: string;
     }>(`SELECT role_id, default_key, session_idle_ttl_ms, archived_at, name FROM roles WHERE tenant_id = $1`, [created.tenant_id]);
     const byKey = new Map(roles.rows.map((row) => [row.default_key, row]));
-    expect([...byKey.keys()].sort()).toEqual(['cashier', 'cook', 'manager', 'order_taker', 'owner', 'waiter']);
+    expect([...byKey.keys()].sort()).toEqual(['cashier', 'cook', 'manager', 'order_taker', 'owner', 'pass', 'waiter']);
     expect(Object.fromEntries([...byKey].map(([key, row]) => [key, row.session_idle_ttl_ms / 60_000]))).toEqual({
       owner: 60,
       manager: 60,
@@ -203,6 +212,7 @@ describe('seed-tenant', () => {
       order_taker: 15,
       waiter: 5,
       cook: 5,
+      pass: 5,
     });
     const roleId = (key: string) => byKey.get(key)!.role_id;
     expect(roleId('order_taker')).not.toBe(roleId('waiter'));
@@ -263,6 +273,12 @@ describe('seed-tenant', () => {
     ]);
     // 03b B-1 (01b v1.8), #60: Cook seeded with run-pass and reprint-ticket by default_key.
     expect(of('cook').map(({ permission, grant_type, scope }) => ({ permission, grant_type, scope })).sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
+      { permission: 'reprint-ticket', grant_type: 'allowed', scope: 'branch' },
+      { permission: 'run-pass', grant_type: 'allowed', scope: 'branch' },
+    ]);
+    // ⚠️ 01b v1.12 B-4 (#20, #118): Pass seeded by default_key.
+    expect(of('pass').map(({ permission, grant_type, scope }) => ({ permission, grant_type, scope })).sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
+      { permission: 'mark-served', grant_type: 'allowed', scope: 'branch' },
       { permission: 'reprint-ticket', grant_type: 'allowed', scope: 'branch' },
       { permission: 'run-pass', grant_type: 'allowed', scope: 'branch' },
     ]);
@@ -407,7 +423,7 @@ describe('seed-tenant', () => {
 
   it('[01b §6.15] seed-tenant.ts contains no default role name; it looks roles up by default_key', () => {
     const source = readFileSync(fileURLToPath(new URL('../../src/cli/seed-tenant.ts', import.meta.url)), 'utf8');
-    for (const name of ['Owner', 'Manager', 'Cashier', 'Order taker', 'Waiter', 'Cook']) {
+    for (const name of ['Owner', 'Manager', 'Cashier', 'Order taker', 'Waiter', 'Cook', 'Pass']) {
       expect(source, name).not.toMatch(new RegExp(`['"]${name}['"]`));
     }
     expect(source).toMatch(/default_key/);
