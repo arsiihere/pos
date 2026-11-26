@@ -290,6 +290,16 @@ describe('@pos/engine pressure bands (§3.10, D20)', () => {
 });
 
 describe('@pos/engine READY and hold at pass (§3.4, §3 #9, §6.1i)', () => {
+  it('[03a #191] boosting a pickup keeps a waiting drink in whole-order readiness', () => {
+    const k = new Kitchen([SLOT(2)]);
+    k.submit('O1', [{ id: 'food', cook: M }, { id: 'drink', cook: M, mode: 'immediate' }], T0, { pickup: at(60) });
+    k.apply([orderEv('OrderBoosted', 'O1', { order_id: 'O1' }, at(1)), fireEv('S1', ['food', 'drink'], at(1)),
+      startEv('O1', 'food', at(1)), doneEv('O1', 'food', at(2))]);
+    expect(groupReadiness(k.state, 'O1', at(2)).flatMap(g => g.waiting)).toEqual(['drink']);
+    k.apply([startEv('O1', 'drink', at(2)), doneEv('O1', 'drink', at(3))]);
+    expect(groupReadiness(k.state, 'O1', at(3)).flatMap(g => g.waiting)).toEqual([]);
+  });
+
   it('[03a #50] READY = every sync line done; hold for a done line with an undone sibling, immediate lines never held', () => {
     const k = new Kitchen([SLOT(4)]);
     k.submit('O1', [{ id: 'A', cook: 5 * M }, { id: 'B', cook: 10 * M }, { id: 'I', cook: M, mode: 'immediate' }], T0);

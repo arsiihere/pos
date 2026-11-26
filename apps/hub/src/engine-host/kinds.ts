@@ -1,4 +1,4 @@
-import { goesWith, planRelease, type EngineState, type GoesWithLine } from '@pos/engine';
+import { goesWith, isSlipLine, planRelease, type EngineState, type GoesWithLine } from '@pos/engine';
 import { AlertDetailsBase, type EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
@@ -73,12 +73,14 @@ export function readLineFacts(db: Database.Database, state: EngineState, order_i
 const isPlaceholder = (l: EngineState['lines'][string]): boolean => l.units === 0 && l.fire_ms === null && l.booked === null;
 
 /** The open sync lines of the orders (the slip's groups), in order_ids then line_ids order. */
-function syncLines(state: EngineState, order_ids: readonly string[]): Array<EngineState['lines'][string]> {
+function slipLines(state: EngineState, order_ids: readonly string[], includeHeld: boolean): Array<EngineState['lines'][string]> {
   const out: Array<EngineState['lines'][string]> = [];
   for (const order_id of new Set(order_ids)) {
-    for (const id of state.orders[order_id]?.line_ids ?? []) {
+    const order = state.orders[order_id];
+    if (order === undefined) continue;
+    for (const id of order.line_ids) {
       const l = state.lines[id];
-      if (l === undefined || isPlaceholder(l) || l.serve_mode !== 'sync') continue;
+      if (l === undefined || isPlaceholder(l) || !(includeHeld ? isSlipLine(order, l) : l.serve_mode === 'sync')) continue;
       if (l.stage === 'added' || l.stage === 'cooking' || l.stage === 'done') out.push(l);
     }
   }
@@ -102,7 +104,7 @@ export function slipDetails(
 ): SlipWarningDetails {
   return {
     minutes_late: Math.max(0, Math.ceil((slip.estimate - slip.target) / MIN)),
-    lines: syncLines(state, slip.order_ids).map((l) => {
+    lines: slipLines(state, slip.order_ids, true).map((l) => {
       const f = facts.get(l.order_item_id);
       return { name: f?.name || l.order_item_id, quantity: l.units, state: l.stage };
     }),
@@ -117,7 +119,7 @@ export function slipDetails(
 function preTicks(db: Database.Database, state: EngineState, order_ids: readonly string[]): string[] {
   const links = branchConfig()?.goes_with ?? [];
   if (links.length === 0) return [];
-  const lines = syncLines(state, order_ids);
+  const lines = slipLines(state, order_ids, false);
   const released = lines.filter((l) => l.stage === 'done');
   const open = lines.filter((l) => l.stage !== 'done');
   if (released.length === 0 || open.length === 0) return [];

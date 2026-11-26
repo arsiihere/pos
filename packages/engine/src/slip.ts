@@ -193,14 +193,19 @@ function abandonTime(state: EngineState, order: EngineOrder): number {
 type SyncGroup = { order: EngineOrder; target: number; lines: EngineLine[] };
 
 // R3: the order's groups with a sync line, each with its sync lines (placeholders and absent ids left out).
-function syncGroups(state: EngineState, order: EngineOrder): SyncGroup[] {
+export function isSlipLine(order: EngineOrder, line: EngineLine): boolean {
+  return line.serve_mode === 'sync' ||
+    (order.pickup_at_ms !== null && !order.boosted && line.return_of === null && !line.expedited);
+}
+
+function slipGroups(state: EngineState, order: EngineOrder): SyncGroup[] {
   const out: SyncGroup[] = [];
   for (const gid of Object.keys(order.groups).sort(byId)) {
     const g = order.groups[gid]!;
     const lines: EngineLine[] = [];
     for (const id of g.line_ids) {
       const l = state.lines[id];
-      if (l !== undefined && l.order_id === order.order_id && l.serve_mode === 'sync' && !isPlaceholder(l)) lines.push(l);
+      if (l !== undefined && l.order_id === order.order_id && isSlipLine(order, l) && !isPlaceholder(l)) lines.push(l);
     }
     if (lines.length > 0) out.push({ order, target: g.target_land_ms, lines });
   }
@@ -213,7 +218,7 @@ function groupResolved(g: SyncGroup): boolean {
 
 // R4: every sync group resolved; an order still awaiting listed lines is not.
 function orderResolved(state: EngineState, order: EngineOrder): boolean {
-  return order.awaiting === 0 && syncGroups(state, order).every(groupResolved);
+  return order.awaiting === 0 && slipGroups(state, order).every(groupResolved);
 }
 
 // ---- estimate and crossing (slipCrossing) ---------------------------------------------------------------------------
@@ -352,7 +357,7 @@ function keyDue(ctx: Ctx, key: string, orders: readonly EngineOrder[]): number |
   let best = INF;
   for (const order of orders) {
     if (order.awaiting > 0) continue;
-    for (const g of syncGroups(ctx.state, order)) {
+    for (const g of slipGroups(ctx.state, order)) {
       if (!groupResolved(g)) best = Math.min(best, groupCrossing(ctx, g, levelOf(g, slip, th)));
     }
   }
@@ -396,7 +401,7 @@ export function slipGroupsAt(state: EngineState, key: string, t: number): Array<
   const out: Array<{ order_id: string; placed_at: number; level: number; crossing: number; estimate: number }> = [];
   for (const order of ordersByKey(state, new Set([key])).get(key) ?? []) {
     if (order.awaiting > 0 || !orderInEngine(state, order, t)) continue;
-    for (const g of syncGroups(state, order)) {
+    for (const g of slipGroups(state, order)) {
       if (groupResolved(g)) continue;
       const level = levelOf(g, slip, th);
       let est = Number.NEGATIVE_INFINITY;
@@ -829,7 +834,7 @@ function slipItem(ctx: Ctx, key: string, orders: readonly EngineOrder[], th: num
   let best: { estimate: number; target: number; order: EngineOrder } | null = null;
   for (const order of orders) {
     if (order.awaiting > 0 || !orderInEngine(ctx.state, order, now)) continue;
-    for (const g of syncGroups(ctx.state, order)) {
+    for (const g of slipGroups(ctx.state, order)) {
       if (groupResolved(g) || groupCrossing(ctx, g, levelOf(g, slip, th)) > now) continue;
       let est = Number.NEGATIVE_INFINITY;
       for (const l of g.lines) est = Math.max(est, lineEstimate(ctx, l, now) ?? Number.NEGATIVE_INFINITY);
