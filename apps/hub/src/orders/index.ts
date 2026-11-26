@@ -4,6 +4,8 @@ import './zone-kinds.js';
 import './comp-kind.js';
 // ⚠️ 02b v1.0.25 §6.12a (OR-7): kind `hand_over_unpaid`, the same way (top level, before the boot replay).
 import './hand-over-unpaid-kind.js';
+// ⚠️ 02b v1.0.25 TK-16 (R3-m-4): its audit actions, before the audit projection seals the registry.
+import './unpaid-audit-map.js';
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../projections/registry.js';
 import { registerMarkServed } from './commands/mark-served.js';

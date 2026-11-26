@@ -220,3 +220,17 @@ describe('[02b #93] frame audience', () => {
     expect(audienceAllows(e, socket({ kind: 'station', staffId: null, stationId: 'S1', deviceType: 'kds' as never }))).toBe(false);
   });
 });
+
+describe('[02b #94] audit', () => {
+  it('the request, its answer and UnpaidHandoverApproved write unpaid_handover_requested / _answered / _approved (not the generic request_answered)', async () => {
+    const { ali, managerPhone } = await start();
+    const order_id = takeaway();
+    const alert_id = (await ask(ali, order_id)).result!.alert_id as string;
+    expect((await answer(managerPhone, alert_id, 'approve')).status).toBe(200);
+    const rows = hub.deps.db
+      .prepare("SELECT action, subject_type, subject_id, actor_staff_id, approver_staff_id, amount_minor FROM audit_entries WHERE action LIKE 'unpaid_handover_%' OR action = 'request_answered' ORDER BY seq")
+      .all() as Array<Record<string, unknown>>;
+    expect(rows.map((r) => r.action)).toEqual(['unpaid_handover_requested', 'unpaid_handover_answered', 'unpaid_handover_approved']);
+    expect(rows[2]).toMatchObject({ subject_type: 'order', subject_id: order_id, approver_staff_id: 'S_MGR', amount_minor: naanPrice() });
+  });
+});
