@@ -7,6 +7,8 @@ import { defineCommand } from '../../src/commands/registry';
 import type { CommandCtx } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
 import { handoverCommand, passScopedOrders } from '../../src/kds/commands/handover';
+import { readyAtOf } from '../../src/kds/exports';
+import { passClosuresTick } from '../../src/kds/ticks';
 import { checkOrderScope, scopedOrders } from '../../src/orders/commands/mark-served';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, endSessionNow, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -268,9 +270,11 @@ describe('Handover (03b §3.5, §6.8)', () => {
     serveLines(hub, order_id, ['L2']); // the waiter's own MarkServed of a ready line
     const last = await handover(cook_, { order_id, point_id: POINT, receiver_staff_id: 'S_BRANCH' }); // every done line not handed: L3
     expect(last.status, JSON.stringify(last.error)).toBe(200);
-    expect(last.events.find((e) => e.event_type === 'Handover')!.payload).toMatchObject({ order_item_ids: ['L3'], ready_alert_closed: ready_id });
-    expect(last.events.filter((e) => e.event_type === 'AlertClosed').map((e) => e.payload)).toEqual([expect.objectContaining({ alert_id: ready_id, reason: 'done' })]);
-    expect(alertRow(ready_id)).toMatchObject({ state: 'closed', close_reason: 'done' });
+    // ⚠️ 03b v1.0.16 §3.5 step 7 (02b-tk R8; M-3): a takeaway's bag handed to staff is not collected yet, so the Ready
+    // stays open (the dine-in close is test 104's, kds/ready-counter.int.test.ts)
+    expect(last.events.find((e) => e.event_type === 'Handover')!.payload).toMatchObject({ order_item_ids: ['L3'], ready_alert_closed: null });
+    expect(last.events.filter((e) => e.event_type === 'AlertClosed')).toEqual([]);
+    expect(alertRow(ready_id).state).toBe('open');
   });
 
   it('[03b §3.5 step 3] lines must be at this point, done, not handed over, not served; none done → ITEM_WRONG_STAGE; nothing written', async () => {
@@ -381,8 +385,9 @@ describe('[03b §3.5 step 3, B4-2] no named lines: at most 40 in line order; res
     expect(second.status, JSON.stringify(second.error)).toBe(200);
     expect(lastStatements).toBe(4);
     expect(second.result).toMatchObject({ remaining: 0 });
-    expect(second.events.find((e) => e.event_type === 'Handover')!.payload).toMatchObject({ order_item_ids: ids.slice(40), ready_alert_closed: ready_id });
-    expect(alertRow(ready_id)).toMatchObject({ state: 'closed', close_reason: 'done' });
+    // ⚠️ 03b v1.0.16 §3.5 step 7 (R8; M-3): a takeaway Ready stays open after the last hand-over
+    expect(second.events.find((e) => e.event_type === 'Handover')!.payload).toMatchObject({ order_item_ids: ids.slice(40), ready_alert_closed: null });
+    expect(alertRow(ready_id).state).toBe('open');
 
     const named = await handover(cook_, { order_id, point_id: POINT, receiver_staff_id: 'S_BRANCH', order_item_ids: ids.slice(0, 41) });
     expect(named.status).toBe(400); // named lists stay 1–40
@@ -464,3 +469,41 @@ describe('GET /queries/pass-receivers (03b §6.11)', () => {
   });
 });
 
+
+// ⚠️ 03b v1.0.16 §3.5 step 7 (02b-tk R8; hostile run 1 M-3; plan K-2): test 104.
+describe('[03b v1.0.16 §3.5 step 7, #104] Handover of every Ready line', () => {
+  const closures = (): void => {
+    const now = hub.clock.branchNow();
+    hub.deps.writer.run((tx) => tx.append(passClosuresTick.intents(tx, tx.state as EngineState, now)));
+  };
+
+  it('takeaway: ready_alert_closed null, the Ready stays open and readyAtOf stays set; the customer\'s MarkServed → pass_closures closes it done', async () => {
+    openDay(hub);
+    const cook_ = await seed({ receiver: true });
+    const order_id = takeaway(['L1', 'L2']);
+    cook(order_id, ['L1', 'L2']);
+    const ready_id = await markReady(cook_, order_id);
+    const all = await handover(cook_, { order_id, point_id: POINT, receiver_staff_id: 'S_BRANCH' });
+    expect(all.status, JSON.stringify(all.error)).toBe(200);
+    expect(all.events.find((e) => e.event_type === 'Handover')!.payload).toMatchObject({ order_item_ids: ['L1', 'L2'], ready_alert_closed: null });
+    expect(alertRow(ready_id).state).toBe('open');
+    expect(readyAtOf(hub.deps.db, [order_id]).has(order_id)).toBe(true);
+    closures();
+    expect(alertRow(ready_id).state).toBe('open'); // nothing settled yet
+    serveLines(hub, order_id, ['L1', 'L2']);
+    closures();
+    expect(alertRow(ready_id)).toMatchObject({ state: 'closed', close_reason: 'done' });
+  });
+
+  it('dine-in: a Handover of every Ready line still closes the Ready done', async () => {
+    openDay(hub);
+    const cook_ = await seed({ receiver: true });
+    const order_id = dineIn(['L1', 'L2']);
+    cook(order_id, ['L1', 'L2']);
+    const ready_id = await markReady(cook_, order_id);
+    const all = await handover(cook_, { order_id, point_id: POINT, receiver_staff_id: 'S_BRANCH' });
+    expect(all.status, JSON.stringify(all.error)).toBe(200);
+    expect(all.events.find((e) => e.event_type === 'Handover')!.payload).toMatchObject({ ready_alert_closed: ready_id });
+    expect(alertRow(ready_id)).toMatchObject({ state: 'closed', close_reason: 'done' });
+  });
+});

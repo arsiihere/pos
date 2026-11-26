@@ -5,6 +5,7 @@ import type { HubDeps } from '../../server.js';
 import { registerKdsConfigQuery } from '../../queries/kds-config.js';
 import { registerKdsConfigHook } from '../config-hook.js';
 import { provideKds } from '../contracts.js';
+import { registerOrderScreens } from '../order-screens.js';
 import { registerKdsAudiences } from '../../ws/kds-audiences.js';
 import { registerPointCatchUp } from '../../ws/point-catch-up.js';
 import { bindPresence, KDS_PRESENCE_TICK, kdsPresenceTick, stationPresenceOf } from '../presence.js';
@@ -22,6 +23,8 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   registerPointCatchUp(app, deps);
   // b22 (§6.17): line and Pass event audiences (incl. the takeover set)
   registerKdsAudiences(app, deps);
+  // ⚠️ 03b v1.0.16 §3.5 step 4, §6.21 (run 3 verify): the order → counter screen map of the ready_to_serve device filter
+  registerOrderScreens(deps);
   // b23 (§3.10, §6.12): the archived-station hook + station_notice; GET /admin/queries/kds-config
   registerKdsConfigHook(app);
   registerKdsConfigQuery(app);

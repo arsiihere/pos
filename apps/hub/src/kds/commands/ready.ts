@@ -82,7 +82,7 @@ export interface PassOrder {
   placed_by: string;
   /** current primary table (dine-in), else null */
   table_id: string | null;
-  /** §3.5 step 5: the primary table's name when it is all digits, else null */
+  /** §3.5 step 5: the primary table's name when it is all digits, else null; ⚠️ v1.0.16: '#token' / 'PARKING' */
   table_code: string | null;
   /** §3.1 identifier text, ≤ 40 (D-2 `details.identifier`) */
   identifier: string;
@@ -109,7 +109,10 @@ export function passOrderFacts(ctx: CommandCtx, order_id: string): PassOrder {
     (JSON.parse(row.lines_json) as Array<{ id: string; name: string; units: number; part_of: string | null }>).map((l) => [l.id, { name: l.name, units: l.units, part_of: l.part_of }] as const),
   );
   if (row.order_type !== 'dine_in') {
-    return { order_type: row.order_type, placed_by: row.placed_by, table_id: null, table_code: null, identifier: identifierText(identifierOf(ctx, row, null)), names };
+    // ⚠️ 03b v1.0.16 §3.5 step 5 (02b-tk R8; 03b OQ-8): the lock names the order without the card: '#' + token for a
+    // takeaway, 'PARKING' for parking (no reader prefixes "T" to a non-digit value, 01d v1.3.7 m-6)
+    const table_code = row.order_type === 'takeaway' ? `#${row.token ?? 0}` : 'PARKING';
+    return { order_type: row.order_type, placed_by: row.placed_by, table_id: null, table_code, identifier: identifierText(identifierOf(ctx, row, null)), names };
   }
   const seating = currentTableOf(ctx.tx.db, [order_id]).get(order_id);
   const ids =
@@ -272,6 +275,11 @@ function markReadyToServe(ctx: CommandCtx, payload: MarkPayload): { events: Even
     throw new DomainError('ITEM_WRONG_STAGE', { order_id, stage: stageOf(candidates[0]!) });
   }
   const forced = picked.filter((id) => stageOf(id) !== 'done');
+  // ⚠️ 03b v1.0.16 §3.5 step 2a (run 3 R3-M-5): a pickup refuses a forced pick (Start / Done make unmade food)
+  const first = forced[0];
+  if (first !== undefined && (ctx.state.orders[order_id]?.pickup_at_ms ?? null) !== null) {
+    throw new DomainError('ITEM_WRONG_STAGE', { order_item_id: first, stage: stageOf(first) });
+  }
   const taken = new Set([...picked, ...(open === undefined ? [] : [...open.lines].filter((id) => isCandidate.has(id)))]);
   const lines = candidates.filter((id) => taken.has(id)); // the order's line order
   // Step 3: extend — the open alert still holds the base key in this transaction, so the new one takes a suffix.

@@ -1,6 +1,8 @@
 import { AlertDetailsBase } from '@pos/events';
 import { z } from 'zod';
-import { defineAlertKind } from '../alerts/kinds.js';
+import { defineAlertKind, type StepTo } from '../alerts/kinds.js';
+import { showsScreen } from '../alerts/targets.js';
+import { counterScreenOfOrder } from './order-screens.js';
 
 // 03b v1.0.1 §6.21: the kinds 03b registers, at the top level of this module (kds/index.ts imports it statically, so
 // the kinds exist before boot replays the `alerts` projection, 01d P-8). Manager steps are written
@@ -15,6 +17,9 @@ export const ReadyToServeValues = z.object({
   point_id: z.string().min(1),
   table_id: z.string(),
   window_ms: z.number(),
+  // ⚠️ 03b v1.0.16 §6.21 (R8; run 3 verify V-03): the order-level counter alert's gate (01d v1.3.7 D-7); a per-point
+  // Ready omits it, so its COUNTER entries reach nobody
+  counter_screen: z.enum(['takeaway', 'parking']).optional(),
 });
 export type ReadyToServeValues = z.infer<typeof ReadyToServeValues>;
 
@@ -22,22 +27,41 @@ export type ReadyToServeValues = z.infer<typeof ReadyToServeValues>;
 export const ReadyToServeDetails = AlertDetailsBase.pick({ identifier: true, lines: true });
 export type ReadyToServeDetails = z.infer<typeof ReadyToServeDetails>;
 
+/** ⚠️ 03b v1.0.16 §6.21 (02b-tk R8): the counter devices of the alert's `counter_screen` (01d v1.3.7 D-7). */
+const COUNTER: StepTo = { target: { kind: 'screen_devices', screen_from_value: 'counter_screen' }, set: 'recipient' };
+
+/**
+ * ⚠️ 03b v1.0.16 §3.5 step 4, §6.21 (run 3 verify R3-B-3): for a takeaway / parking order, a device showing the order's
+ * counter screen gets Ready only from the order-level alert (`counter_screen` set); a per-point Ready never reaches it,
+ * on any step or route (the placer signed in there included). Dine-in and delivery keep their delivery. Memory.
+ */
+export function readyExcludesDevice(values: ReadyToServeValues, device_id: string): boolean {
+  if (values.counter_screen !== undefined) return false;
+  const screen = counterScreenOfOrder(values.order_id);
+  return screen !== null && showsScreen(device_id, screen);
+}
+
 export const READY_TO_SERVE = defineAlertKind<ReadyToServeValues, ReadyToServeDetails>({
   kind: READY_TO_SERVE_KIND,
   family: 'action',
   subject: 'order',
+  // ⚠️ 03b v1.0.16 §6.21 (R8; run 1 m-4, OQ-13): + the counter at 0, 1× and 2×
   steps: [
-    { at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] },
-    { at: { value: 'window_ms', times: 1 }, to: [{ target: 'raised_target', set: 'recipient' }] },
+    { at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }, COUNTER] },
+    { at: { value: 'window_ms', times: 1 }, to: [{ target: 'raised_target', set: 'recipient' }, COUNTER] },
     {
       at: { value: 'window_ms', times: 2 },
       escalation: true,
       to: [
         { target: { kind: 'point', from_value: 'point_id' }, set: 'recipient' },
         { target: { kind: 'managers' }, set: 'recipient' },
+        COUNTER,
       ],
     },
   ],
+  // ⚠️ 03b v1.0.16 §6.21 (run 1 B-1): a signed-in counter socket gets the card (01d v1.3.7 counter row)
+  counter_card: true,
+  excludesDevice: readyExcludesDevice,
   closes_on: 'owner',
   values_schema: ReadyToServeValues,
   details_schema: ReadyToServeDetails,
