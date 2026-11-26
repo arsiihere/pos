@@ -56,6 +56,18 @@ describe('[05a §6.7] GET /queries/session — device block and masked permissio
     expect(masked).toBeGreaterThan(2);
   });
 
+  it('[05a #52 (mask), L-1; 01b #119] hand-over-unpaid: masked `not_granted / listed_only` on an `everyone` kiosk; `allowed / branch` on the manager\'s listed phone', async () => {
+    const h = await hub();
+    expect(currentDirectory(h.app).resolve(ALI, 'hand-over-unpaid')).toMatchObject({ grant: 'allowed', scope: 'branch' });
+    const kiosk = pairDevice(h, { type: 'cashier_kiosk', profile: { access: 'everyone', screens: ['takeaway', 'cashier'] } });
+    const onKiosk = (await get(h, kiosk.token, signInOn(h, kiosk.deviceId, ALI).token)).json().data;
+    expect(onKiosk.permissions['hand-over-unpaid']).toEqual({ grant: 'not_granted', masked: 'listed_only' });
+    const phone = pairDevice(h, { type: 'phone', ownerStaffId: ALI, profile: { access: 'listed', staff_ids: [ALI], screens: ['manager'] } });
+    const onPhone = (await get(h, phone.token, signInOn(h, phone.deviceId, ALI).token)).json().data;
+    expect(onPhone.permissions['hand-over-unpaid']).toMatchObject({ grant: 'allowed', scope: 'branch' });
+    expect(onPhone.permissions['hand-over-unpaid']).not.toHaveProperty('masked');
+  });
+
   it('[05a #4g] listed device: nothing masked (no `masked` key anywhere); device block with its point', async () => {
     const h = await hub();
     const device = pairDevice(h, { type: 'phone', ownerStaffId: ALI, profile: { access: 'listed', staff_ids: [ALI], screens: ['pass', 'dine_in'], point_id: 'pt-1' } });

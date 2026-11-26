@@ -12,6 +12,7 @@ describe('device screens and permission lists', () => {
       'manage-fiscal-settings',
       'approve-void',
       'view-audit-log',
+      'hand-over-unpaid', // 05a v1.0.7 L-1 (OR-7): approved on the manager's own listed device
     ]);
   });
 

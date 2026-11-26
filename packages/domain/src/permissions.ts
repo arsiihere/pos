@@ -40,6 +40,10 @@ export const PERMISSIONS = [
   'remove-comp',
   'close-without-buyer-id',
   'manage-fiscal-settings',
+  // ⚠️ Changed by 01b v1.12 B-5 (OR-7; 02b v1.0.25 §3.7a): approve handing over an unpaid takeaway / parking order
+  // (02b's `hand_over_unpaid` holders right; group orders, scope branch, allowed-only, listed-only). Persisted alert
+  // permission enums carry it from AlertRaised v6 on (01d v1.3.7 §5.4; v1–v5 are frozen without it).
+  'hand-over-unpaid',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -124,6 +128,8 @@ const GROUPS: Record<Permission, PermissionGroup> = {
   'remove-comp': 'bills',
   'close-without-buyer-id': 'bills',
   'manage-fiscal-settings': 'bills',
+  // ⚠️ Changed by 01b v1.12 B-5 (§4.2): scope `branch` only (the default)
+  'hand-over-unpaid': 'orders',
 };
 
 export const PERMISSION_CATALOGUE: readonly { key: Permission; group: PermissionGroup; scopes: readonly Scope[] }[] =
@@ -143,6 +149,8 @@ export const ALLOWED_ONLY_PERMISSIONS = [
   'close-business-day',
   'open-cash-drawer',
   'manage-fiscal-settings',
+  // ⚠️ Changed by 01b v1.12 B-5 (§3.3, R2-M-3): an answer right; `requires_approval` makes no sense
+  'hand-over-unpaid',
 ] as const satisfies readonly Permission[];
 
 // 01b B17: stable handles of the default roles (roles.default_key).
@@ -158,6 +166,8 @@ export const LISTED_ONLY_PERMISSIONS: readonly Permission[] = [
   'manage-fiscal-settings',
   'approve-void',
   'view-audit-log',
+  // ⚠️ Changed by 05a v1.0.7 L-1 (OR-7; 02b TK-13): approving an unpaid hand-over is done on the manager's own listed device
+  'hand-over-unpaid',
 ];
 
 export const MONEY_PERMISSIONS: readonly Permission[] = [

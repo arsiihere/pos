@@ -34,7 +34,7 @@ describe('permissions', () => {
     expect(() => assertKnownPermissions(['manage-devices', 'access-hub-admin'])).not.toThrow();
   });
 
-  it('[00 §3.6, 01a S18, 01b B-1, B-2] catalogue has 39 unique entries (03b B-1: + run-pass; 05 row B-1: + 11 bills)', () => {
+  it('[00 §3.6, 01a S18, 01b B-1, B-2] catalogue has 40 unique entries (03b B-1: + run-pass; 05 row B-1: + 11 bills; 01b v1.12 B-5: + hand-over-unpaid)', () => {
     expect([...PERMISSIONS]).toEqual([
       'void-item',
       'move-item-to-stock',
@@ -65,8 +65,9 @@ describe('permissions', () => {
       'view-customer-contact',
       'run-pass',
       ...BILLS,
+      'hand-over-unpaid',
     ]);
-    expect(new Set(PERMISSIONS).size).toBe(39);
+    expect(new Set(PERMISSIONS).size).toBe(40);
   });
 
   it('[01b §3.3] PERMISSION_SCOPES', () => {
@@ -163,11 +164,19 @@ describe('permissions', () => {
       'close-business-day',
       'open-cash-drawer',
       'manage-fiscal-settings',
+      'hand-over-unpaid',
     ]);
     const allowedOnly: readonly string[] = ALLOWED_ONLY_PERMISSIONS;
     for (const key of ['apply-discount', 'remove-service-charge', 'reopen-bill', 'remove-comp', 'close-without-buyer-id', 'record-petty-cash', 'apply-refund']) {
       expect(allowedOnly, key).not.toContain(key);
     }
+  });
+
+  it('[01b v1.12 B-5, #119] hand-over-unpaid: group orders, scope branch only, allowed-only (an answer right)', () => {
+    expect(PERMISSION_CATALOGUE.find((row) => row.key === 'hand-over-unpaid')).toEqual({ key: 'hand-over-unpaid', group: 'orders', scopes: ['branch'] });
+    expect(PERMISSION_SCOPES['hand-over-unpaid']).toEqual(['branch']);
+    const allowedOnly: readonly string[] = ALLOWED_ONLY_PERMISSIONS;
+    expect(allowedOnly).toContain('hand-over-unpaid');
   });
 
   it('[01b B17] DEFAULT_KEYS is the six keys in order', () => {

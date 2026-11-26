@@ -73,7 +73,29 @@ describe('[01d v1.3.7 §5.4, #123] AlertRaised v6', () => {
     }
     for (const permission of PERMISSIONS) expect(accepts(6, permission), permission).toBe(true);
     for (const version of [1, 2, 3, 4, 5, 6]) expect(accepts(version, 'not-a-permission'), `v${version}`).toBe(false);
-    // the freeze is today's list exactly (01b v1.12 B-5 adds the first key after it)
-    expect([...ALERT_RAISED_PERMISSIONS_V1_V5]).toEqual([...PERMISSIONS]);
+    // the freeze is the list before 01b v1.12 B-5: the live list minus its one new key
+    expect([...ALERT_RAISED_PERMISSIONS_V1_V5]).toEqual(PERMISSIONS.filter((p) => p !== 'hand-over-unpaid'));
+  });
+
+  it('hand-over-unpaid: v6 accepts it in the permission target arm, base_permission and range_permission; v1–v5 refuse it', () => {
+    expect(accepts(6, 'hand-over-unpaid')).toBe(true);
+    for (const version of [1, 2, 3, 4, 5]) expect(accepts(version, 'hand-over-unpaid'), `v${version}`).toBe(false);
+    // the OR-7 holders request as 02b's hand_over_unpaid kind writes it, appended and replayed at v6
+    const stored = v5Holders();
+    const or7 = {
+      ...stored,
+      schema_version: 6,
+      payload: {
+        ...(stored.payload as Record<string, unknown>),
+        kind: 'hand_over_unpaid',
+        target: { kind: 'answerers' },
+        request: { ...((stored.payload as Record<string, unknown>).request as Record<string, unknown>), base_permission: 'hand-over-unpaid', range_permission: null },
+      },
+    };
+    expect(parseEvent(or7)).toEqual(or7);
+    expect(parseEvent(JSON.parse(JSON.stringify(or7)))).toEqual(or7);
+    // the v5 payload schema itself refuses the OR-7 payload (parseEvent validates the upcast result at the latest version)
+    expect(payloadSchema('AlertRaised', 5).safeParse(or7.payload).success).toBe(false);
+    expect(payloadSchema('AlertRaised', 6).safeParse(or7.payload).success).toBe(true);
   });
 });
