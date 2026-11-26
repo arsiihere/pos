@@ -217,6 +217,7 @@ describe('02a tick table_locks (§3.4, §6.5, T14)', () => {
       expect(counter.count).toBe(1);
       // 03b §6.20 (b20): registerKds adds kds_presence to every test hub too; this test counts the ticks
       unregisterTick('kds_presence');
+      unregisterTick('bag_ready_deadline'); // 03b v1.0.16 §3.5 (R8, D8): lane B6 adds it to every test hub too
       // 05 §3.15 (task 31): registerBilling adds the fiscal_outbox_stuck tick (1 indexed SELECT per pass) to every test hub too; this file counts the ticks
       unregisterTick('fiscal_outbox_stuck');
       // the loop: only table_locks and the alerts tick are registered; no dirty alert flag

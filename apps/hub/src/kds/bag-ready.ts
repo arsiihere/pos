@@ -11,9 +11,12 @@
 // Statements: 0 without a candidate order; else ≤ 2 batched reads (Ready / Handover / epoch facts; order and line
 // facts) + one alerts.closeMany + one alerts.raiseMany with 01d's fixed bounds.
 import type { Identifier } from '@pos/domain';
+import type Database from 'better-sqlite3';
 import { HUB_ENGINE_SETTING_DEFAULTS, type EventDraft, type PassBagReadyChangedPayload, type PosEvent } from '@pos/events';
 import type { EngineState } from '@pos/engine';
 import { alerts, type RaiseInput } from '../alerts/raise.js';
+import type { TickDef } from '../alerts/tick.js';
+import { rawDbOf } from '../engine-host/read-only-tx.js';
 import type { PreCommit, WriterTx } from '../engine-host/writer.js';
 import type { HubDeps } from '../server.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
@@ -118,8 +121,8 @@ export function registerBagReady(deps: Pick<HubDeps, 'writer' | 'db'>): void {
 }
 
 /** The orders of `db`'s hub with a running epoch (memory; the deadline tick). */
-export function runningEpochs(db: object): ReadonlySet<string> {
-  return epochsByDb.get(db) ?? new Set();
+export function runningEpochs(db: Database.Database): ReadonlySet<string> {
+  return epochsByDb.get(rawDbOf(db)) ?? new Set();
 }
 
 const counterScreen = (t: string | undefined): 'takeaway' | 'parking' | null => (t === 'takeaway' || t === 'parking' ? t : null);
@@ -319,3 +322,47 @@ function counterInput(
     dedupe_key: `counter-ready:${order_id}`,
   };
 }
+
+// ------------------------------------------------------------------------------------------- pickup deadline tick
+
+export const BAG_READY_DEADLINE_TICK = 'bag_ready_deadline';
+
+// Per hub db: order → the pickup time whose deadline was rechecked (a boost or a new pickup time rechecks again).
+const handledByDb = new WeakMap<object, Map<string, number>>();
+
+/**
+ * §3.5 (R3-B-3): a held station-less line blocks the bag until the pickup time. Candidates (memory): a takeaway /
+ * parking engine order, not boosted, its pickup time reached, no running epoch, and every live engine line done; each
+ * pickup time is rechecked once. The recheck is the reconciliation itself (it fires only when every other condition
+ * still holds): its ≤ 2 batched reads for all candidates together, one raiseMany. Events are appended in `intents`.
+ */
+function deadlineCandidates(db: Database.Database, state: Readonly<EngineState>, now: number): Array<{ order_id: string; pickup: number }> {
+  const epochs = runningEpochs(db);
+  const handled = handledByDb.get(rawDbOf(db)); // `due` gets the read-only view, `intents` the writer's db
+  const out: Array<{ order_id: string; pickup: number }> = [];
+  for (const id in state.orders) {
+    const order = state.orders[id]!;
+    if (counterScreen(order.order_type) === null || order.boosted || order.pickup_at_ms === null || order.pickup_at_ms > now) continue;
+    if (epochs.has(id) || handled?.get(id) === order.pickup_at_ms) continue;
+    const live = order.line_ids.filter((l) => ENGINE_LIVE.has(state.lines[l]?.stage ?? ''));
+    if (live.length > 0 && live.every((l) => state.lines[l]!.stage === 'done')) out.push({ order_id: id, pickup: order.pickup_at_ms });
+  }
+  return out;
+}
+
+export const bagReadyDeadlineTick: TickDef = {
+  name: BAG_READY_DEADLINE_TICK,
+  due(db, state, now) {
+    return deadlineCandidates(db, state, now).length > 0;
+  },
+  intents(tx, state, now) {
+    const candidates = deadlineCandidates(tx.db, state, now);
+    if (candidates.length === 0) return [];
+    const key = rawDbOf(tx.db);
+    let handled = handledByDb.get(key);
+    if (handled === undefined) handledByDb.set(key, (handled = new Map()));
+    reconcileOrders(tx, candidates.map((c) => c.order_id));
+    for (const c of candidates) handled.set(c.order_id, c.pickup);
+    return [];
+  },
+};

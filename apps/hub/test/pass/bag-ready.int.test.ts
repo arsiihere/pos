@@ -3,7 +3,9 @@ import type { AlertView, BranchConfig } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { alerts } from '../../src/alerts/raise';
 import { activity } from '../../src/auth/session-store';
+import { bagReadyDeadlineTick } from '../../src/kds/bag-ready';
 import { passClosuresTick } from '../../src/kds/ticks';
+import { readOnlyDb } from '../../src/engine-host/read-only-tx';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { wsHubFor } from '../../src/ws/server';
 import { statementCounter } from '../helpers/statement-counter';
@@ -301,5 +303,43 @@ describe('[03b v1.0.16 §3.5, R8 / D8] order-level counter alert', () => {
     const now = hub.clock.branchNow();
     hub.deps.writer.run((tx) => tx.append(passClosuresTick.intents(tx, tx.state as EngineState, now)));
     expect(hub.deps.db.prepare('SELECT state, close_reason FROM alerts WHERE alert_id = ?').get(r.result!.alert_id)).toEqual({ state: 'closed', close_reason: 'done' });
+  });
+
+  it('#111 / #116 (R8): a time-held station-less line blocks the counter alert after engine Done and Ready; the deadline tick rechecks at the pickup time and raises once', async () => {
+    const { p1 } = await start();
+    const pickup = hub.clock.branchNow() + 3_600_000;
+    const order_id = appendOrder(hub, {
+      order_type: 'takeaway',
+      pickup_at_ms: pickup,
+      lines: [{ order_item_id: 'A1', item_id: FX.naan }, { order_item_id: 'C1', item_id: FX.optionItem, item: { station_id: null } }],
+    }).order_id;
+    cook(order_id, ['A1']);
+    expect((await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' })).status).toBe(200);
+    expect(counterAlerts(order_id), 'the station-less Cola is held until the pickup').toEqual([]);
+    const tick = (): boolean => {
+      const now = hub.clock.branchNow();
+      if (!bagReadyDeadlineTick.due(readOnlyDb(hub.deps.db), engine(), now)) return false;
+      hub.deps.writer.run((tx) => tx.append(bagReadyDeadlineTick.intents(tx, tx.state as EngineState, now)));
+      return true;
+    };
+    expect(tick(), 'before the pickup: not due').toBe(false);
+    hub.clock.set(pickup);
+    expect(tick()).toBe(true);
+    expect(counterAlerts(order_id)).toHaveLength(1);
+    expect(tick(), 'handled once').toBe(false);
+  });
+
+  it('#116 (R8): Boost before the pickup clears the station-less hold, so the bag is complete at once', async () => {
+    const { p1 } = await start();
+    const order_id = appendOrder(hub, {
+      order_type: 'takeaway',
+      pickup_at_ms: hub.clock.branchNow() + 3_600_000,
+      lines: [{ order_item_id: 'A1', item_id: FX.naan }, { order_item_id: 'C1', item_id: FX.optionItem, item: { station_id: null } }],
+    }).order_id;
+    cook(order_id, ['A1']);
+    await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' });
+    expect(counterAlerts(order_id)).toEqual([]);
+    append(hub, [on(order_id, 'OrderBoosted', { order_id })]);
+    expect(counterAlerts(order_id)).toHaveLength(1);
   });
 });
