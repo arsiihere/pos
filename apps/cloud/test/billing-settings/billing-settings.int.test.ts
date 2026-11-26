@@ -122,7 +122,8 @@ beforeAll(async () => {
   // ⚠️ 08a v1.0 C-6 (owner ruling 2026-11-23, AD-6): to 0018, as the builder reads stock_items.kind
   // ⚠️ 08b v1.0 A-3 (AD-6): to 0019, as the builder reads the recipe tables for the inventory key
   // 01a v2.11 TS-3: the builder reads takeaway_slip_on_send from migration 0021.
-  ({ pool } = await scratchDatabaseAt(21));
+  // ⚠️ 01b v1.12 §5.1c (0022): to 0022, as seed-tenant now writes the Pass role (default_key 'pass', widened CHECK).
+  ({ pool } = await scratchDatabaseAt(22));
   app = buildCloudServer({ pool, env, clock, ids: seedIds('A'), secrets: testSecrets() });
   await app.ready();
   pk = await tenant('PKR', 'pk');

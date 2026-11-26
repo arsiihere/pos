@@ -35,7 +35,9 @@ async function versions(): Promise<Record<string, number>> {
 }
 async function markServed(): Promise<unknown[]> {
   const { rows } = await q(
-    `SELECT tenant_id, role_id, grant_type, approver_role_id, scope FROM role_permissions WHERE permission = 'mark-served' ORDER BY tenant_id, role_id`,
+    // ⚠️ 01b v1.12 §5.1c: the real folder also runs 0022, whose Pass roles hold mark-served; they are left out here.
+    `SELECT tenant_id, role_id, grant_type, approver_role_id, scope FROM role_permissions
+      WHERE permission = 'mark-served' AND role_id NOT IN (SELECT role_id FROM roles WHERE default_key = 'pass') ORDER BY tenant_id, role_id`,
   );
   return rows;
 }
@@ -75,10 +77,12 @@ describe('[01b v1.8.1 §6.15] cloud migration 0020_cashier_mark_served.sql', () 
       { tenant_id: 'tA', role_id: 'rA-cash', grant_type: 'allowed', approver_role_id: null, scope: 'branch' },
       { tenant_id: 'tA', role_id: 'rA-ot', grant_type: 'allowed', approver_role_id: null, scope: 'branch' },
     ]);
-    expect((await versions()).tA).toBe(before.tA! + 1);
+    // +1 by 0020; ⚠️ 01b v1.12 §5.1c: + 1 by 0022 (the same run adds every tenant's Pass role).
+    expect((await versions()).tA).toBe(before.tA! + 2);
     // only mark-served: no boost-order, no other role touched
     expect((await q(`SELECT count(*)::int AS n FROM role_permissions WHERE permission = 'boost-order'`)).rows[0]).toEqual({ n: 0 });
-    expect((await q(`SELECT count(*)::int AS n FROM role_permissions WHERE role_id = 'rA-man'`)).rows[0]).toEqual({ n: 0 });
+    // ⚠️ 01b v1.12 §5.1c: 0022's hand-over-unpaid row on the manager is left out.
+    expect((await q(`SELECT count(*)::int AS n FROM role_permissions WHERE role_id = 'rA-man' AND permission <> 'hand-over-unpaid'`)).rows[0]).toEqual({ n: 0 });
     // a migration is not an owner write
     expect((await q(`SELECT count(*)::int AS n FROM config_audit`)).rows[0]).toEqual({ n: 0 });
   });
@@ -89,8 +93,9 @@ describe('[01b v1.8.1 §6.15] cloud migration 0020_cashier_mark_served.sql', () 
       { tenant_id: 'tB', role_id: 'rB-cash', grant_type: 'requires_approval', approver_role_id: 'rB-man', scope: 'own_tables' },
     ]);
     const after = await versions();
-    expect(after.tB).toBe(before.tB);
-    expect(after.tC).toBe(before.tC); // archived default cashier and the key-less "Cashier" both skipped
+    // ⚠️ 01b v1.12 §5.1c: + 1 by 0022 only (its Pass role); 0020 bumps neither.
+    expect(after.tB).toBe(before.tB! + 1);
+    expect(after.tC).toBe(before.tC! + 1); // archived default cashier and the key-less "Cashier" both skipped by 0020
 
     const grantsBefore = await allGrants();
     await q(readFileSync(backfill, 'utf8'));

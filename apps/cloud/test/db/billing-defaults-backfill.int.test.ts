@@ -58,6 +58,11 @@ describe('[05 #90] [B-2] cloud migration 0015_billing_defaults_backfill.sql', ()
 
   beforeAll(async () => {
     ({ pool } = await scratchDatabaseAt(15));
+    // ⚠️ 01b v1.12 §5.1c (0022): seed-tenant now writes the Pass role; widen the default_key CHECK as 0022 does, so
+    // the seed runs on this 0015 database (the Pass role holds none of the B-2 permissions).
+    await pool.query(`ALTER TABLE roles DROP CONSTRAINT roles_default_key_check;
+      ALTER TABLE roles ADD CONSTRAINT roles_default_key_check
+        CHECK (default_key IN ('owner','manager','cashier','order_taker','waiter','cook','pass'))`);
     sql = readFileSync(backfill, 'utf8');
   });
   afterAll(async () => {
