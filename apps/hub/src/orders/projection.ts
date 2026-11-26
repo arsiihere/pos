@@ -14,7 +14,9 @@ import type {
   OrdersBilledPayload,
   OrdersCarriedOverPayload,
   OrdersUnbilledPayload,
+  OpenOrderBillChangedPayload,
   PosEvent,
+  UnpaidHandoverApprovedPayload,
   ZoneStockAddedPayload,
   ZoneStockSetPayload,
 } from '@pos/events';
@@ -49,6 +51,10 @@ export const ORDERS_EVENT_TYPES: readonly string[] = [
   'ZoneStockSet',
   // ⚠️ Changed by v1.0.25 run 3 (R3-M-1), §5: pickup_boosted (0029_orders_takeaway)
   'OrderBoosted',
+  // ⚠️ Changed by v1.0.25 run 3 (R3-M-2, R3-M-5, R3-M-8), §5, §6.19 (D2): the named order's unpaid hand-over approval
+  // and its clear (OrdersBilled / OrdersUnbilled clear it too)
+  'UnpaidHandoverApproved',
+  'OpenOrderBillChanged',
 ];
 
 /** §5: the `orders` projection. */
@@ -145,6 +151,7 @@ function applyOrders(tx: Database.Database, event: PosEvent): void {
         at,
         JSON.stringify(p.order_ids),
       );
+      clearApprovals(tx, p.order_ids); // ⚠️ 02b v1.0.25 §6.19 (R3-M-5): the last close ends the effective approval
       return;
     }
     case 'OrdersUnbilled': {
@@ -153,6 +160,19 @@ function applyOrders(tx: Database.Database, event: PosEvent): void {
       tx.prepare('UPDATE orders SET billed_at = NULL, day_closed_at = NULL WHERE order_id IN (SELECT value FROM json_each(?))').run(
         JSON.stringify(p.order_ids),
       );
+      clearApprovals(tx, p.order_ids); // ⚠️ 02b v1.0.25 §6.19 (R3-M-5): a reopen ends the effective approval
+      return;
+    }
+    case 'UnpaidHandoverApproved': {
+      // ⚠️ 02b v1.0.25 §5, §6.19 (R3-M-2, R3-M-8; D2): the named order only, with the due verified at approval time
+      const p = event.payload as UnpaidHandoverApprovedPayload;
+      tx.prepare('UPDATE orders SET unpaid_handover_approved_at = ?, unpaid_handover_approved_due_minor = ? WHERE order_id = ?').run(at, p.due_minor, p.order_id);
+      return;
+    }
+    case 'OpenOrderBillChanged': {
+      // ⚠️ 02b v1.0.25 §6.19 (R3-M-3, R3-M-5, R3-M-8; D2): the writer decided which approvals ended; no billing read here
+      const p = event.payload as OpenOrderBillChangedPayload;
+      clearApprovals(tx, p.approval_cleared_order_ids);
       return;
     }
     case 'LineCompRemoved': {
@@ -415,4 +435,12 @@ function zoneAdd(tx: Database.Database, zoneId: string, itemId: string, quantity
     `INSERT INTO zone_stock (zone_id, item_id, on_hand) VALUES (?, ?, ?)
      ON CONFLICT (zone_id, item_id) DO UPDATE SET on_hand = on_hand + excluded.on_hand`,
   ).run(zoneId, itemId, quantity);
+}
+
+// ⚠️ 02b v1.0.25 §6.19 (D2): both approval columns back to null for these orders (one statement).
+function clearApprovals(tx: Database.Database, order_ids: readonly string[]): void {
+  if (order_ids.length === 0) return;
+  tx.prepare(
+    'UPDATE orders SET unpaid_handover_approved_at = NULL, unpaid_handover_approved_due_minor = NULL WHERE order_id IN (SELECT value FROM json_each(?)) AND unpaid_handover_approved_at IS NOT NULL',
+  ).run(JSON.stringify(order_ids));
 }
