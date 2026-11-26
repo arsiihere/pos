@@ -1,3 +1,4 @@
+import { phoneKey } from './phone-key.js';
 import type {
   ItemAddedPayload,
   ItemRemovedPayload,
@@ -46,6 +47,8 @@ export const ORDERS_EVENT_TYPES: readonly string[] = [
   'BusinessDayClosed',
   'ZoneStockAdded',
   'ZoneStockSet',
+  // ⚠️ Changed by v1.0.25 run 3 (R3-M-1), §5: pickup_boosted (0029_orders_takeaway)
+  'OrderBoosted',
 ];
 
 /** §5: the `orders` projection. */
@@ -115,7 +118,19 @@ function applyOrders(tx: Database.Database, event: PosEvent): void {
     case 'OrderContactSet': {
       // O17: the contact columns come only from this event.
       const p = event.payload as OrderContactSetPayload;
-      tx.prepare('UPDATE orders SET customer_name = ?, phone = ? WHERE order_id = ?').run(p.customer_name, p.phone, p.order_id);
+      // ⚠️ Changed by v1.0.25 (02b-TK R1), §3.1, §5: + phone_key, the matching key (never leaves the hub)
+      tx.prepare('UPDATE orders SET customer_name = ?, phone = ?, phone_key = ? WHERE order_id = ?').run(
+        p.customer_name,
+        p.phone,
+        p.phone === null ? null : phoneKey(p.phone),
+        p.order_id,
+      );
+      return;
+    }
+    case 'OrderBoosted': {
+      // ⚠️ Changed by v1.0.25 run 3 (R3-M-1), §3.8, D1: a boost of a pickup order keeps the pickup time and marks it
+      const p = event.payload as { order_id: string };
+      tx.prepare('UPDATE orders SET pickup_boosted = 1 WHERE order_id = ? AND pickup_at_ms IS NOT NULL').run(p.order_id);
       return;
     }
     case 'OrderCancelled': {
@@ -182,8 +197,8 @@ function applyPlaced(tx: Database.Database, event: PosEvent): void {
   if (p.order_type === 'delivery' || p.business_date === undefined || event.actor_id === null) return;
   tx.prepare(
     `INSERT INTO orders (order_id, order_type, table_key, business_date, token, car_number, car_type, order_note,
-                         placed_by, placed_at, follow_up, sent_after_reconnect, bill_key)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                         placed_by, placed_at, follow_up, sent_after_reconnect, bill_key, pickup_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     p.order_id,
     p.order_type,
@@ -198,6 +213,8 @@ function applyPlaced(tx: Database.Database, event: PosEvent): void {
     p.follow_up ? 1 : 0,
     p.sent_after_reconnect === true ? 1 : 0,
     billKey(tx, p),
+    // ⚠️ Changed by v1.0.25 (02b-TK R4), §5: the event's pickup (null on every order logged before v1.0.25)
+    p.pickup_at_ms ?? null,
   );
 }
 
@@ -224,8 +241,9 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
   const inserted = tx.prepare(
     `INSERT INTO order_lines (order_item_id, order_id, parent_order_item_id, line_kind, item_id, deal_id, name, sale_unit,
                               quantity, units, line_total_minor, refundable_minor, return_of, served_from_zone_id, added_at,
-                              is_food, kitchen_note, options_json, station_id, option_quantity, tax_profile_id, unit_price_minor, part_of)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              is_food, kitchen_note, options_json, station_id, option_quantity, tax_profile_id, unit_price_minor, part_of,
+                              option_id, deal_part_id, option_refs_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (order_item_id) DO NOTHING`,
   ).run(
     p.order_item_id,
@@ -257,6 +275,10 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
     unitPriceMinor(p.line_total_minor, units),
     // ⚠️ Changed by v1.0.20 (STAB-5): the first part of a split line (§3.2 step 4a); NULL = not split.
     p.part_of ?? null,
+    // ⚠️ Changed by v1.0.25 (02b-TK R1, G-4), §5: the line's refs (customer-orders); options as [{ option_id, quantity }]
+    p.option_id,
+    p.deal_part_id,
+    p.options.length === 0 ? null : JSON.stringify(p.options.map((o) => ({ option_id: o.option_id, quantity: o.quantity }))),
   );
   if (inserted.changes === 1 && zoneServed && p.item_id !== null) {
     tx.prepare('UPDATE zone_stock SET on_hand = on_hand - ? WHERE zone_id = ? AND item_id = ?').run(units, p.served_from_zone_id, p.item_id);
