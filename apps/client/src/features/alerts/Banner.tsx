@@ -8,7 +8,7 @@ import { ShellContext } from '../staff/shell/hooks';
 import type { AlertRow } from './store';
 import { FromLine, Ico, Tags, WaitRing, detailLine, tableOf, toneOf } from './ui';
 import { handoverDetailsText, titleText } from './labels';
-import { escalatedWho03b } from './labels-03b';
+import { counterReady03b, escalatedWho03b } from './labels-03b';
 
 // 01d §8.1 B01 (frames BannerUrgent, BannerStack, BannerResult, BannerKiosk, BannerPhone, BannerPortrait, DQ1, DQ3):
 // floating cards at the top-end under the top bar, at most 2 (newest on top), then the maroon "{n} more new ·
@@ -28,6 +28,7 @@ export function Banners({
   nowMs,
   lockOnly,
   variant = 'side',
+  counterScreens = [],
   onOpen,
   onOpenInbox,
 }: {
@@ -36,6 +37,8 @@ export function Banners({
   /** F01: lock text only (an always-on screen, or nobody signed in) */
   lockOnly: boolean;
   variant?: 'side' | 'wide' | 'phone';
+  /** 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.5 R8): the device profile's screens; `takeaway` / `parking` = a counter */
+  counterScreens?: readonly string[];
   onOpen: (row: AlertRow) => void;
   onOpenInbox: () => void;
 }) {
@@ -98,20 +101,29 @@ export function Banners({
     // which lands on its row (#/zones?focus=item:…)
     const open = () => onOpen(b);
     const who03b = escalatedWho03b(row, nowMs);
+    // 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.5 R8): the order-level counter Ready on a counter device; amber from 1×
+    const counter = counterReady03b(row, counterScreens, nowMs);
+    const cls = counter === null ? `abn c-${tone}` : `abn abn--counter c-${counter.late ? 'warn' : tone}`;
     return (
-      <div key={b.alert_id} className={`abn c-${tone}${row.family === 'info' ? ' abn--info' : ''}`} role="alert" data-alert={b.alert_id}>
+      <div key={b.alert_id} className={`${cls}${row.family === 'info' ? ' abn--info' : ''}`} role="alert" data-alert={b.alert_id}>
         <WaitRing row={row} nowMs={nowMs} size={56} />
         <div className="ac__body">
           <Tags row={row} />
           <div className="ac__title">
             {table !== null && <span className="tcode tcode--sm">{table}</span>}
-            <b>{titleText(row)}</b>
+            <b>{counter?.title ?? titleText(row)}</b>
           </div>
           {/* IR-22 (frame PassEscalated): an escalated Ready's who line reads "Pass · nobody came for 2 min" */}
-          {who03b === null ? <FromLine row={row} utcOffsetMs={0} time={false} /> : <div className="ac__who">{who03b}</div>}
+          {counter?.line != null ? (
+            <div className="ac__who">{counter.line}</div>
+          ) : who03b === null || counter !== null ? (
+            <FromLine row={row} utcOffsetMs={0} time={false} />
+          ) : (
+            <div className="ac__who">{who03b}</div>
+          )}
           {det !== null && <div className="ac__det">{det}</div>}
         </div>
-        <button type="button" className={`btn btn--tone c-${tone}`} onClick={open}>
+        <button type="button" className={`btn btn--tone c-${counter?.late === true ? 'warn' : tone}`} onClick={open}>
           {t('alerts.open')}
           <Ico name="chev" />
         </button>

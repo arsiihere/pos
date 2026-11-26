@@ -28,7 +28,7 @@ import { passOpenedText } from './pass-place';
 import { PASS_FILTERS, ordersFor, orderTypeOf, typeCounts, type PassFilter } from './order-filter';
 import { createTakeawayPromises } from './takeaway-promises';
 import { createBillEligibility, createCustomerHandover, customerButton, customerIdent, eligibilityOf } from './actions/customer';
-import { isPickup, pickupReady } from './cards/readiness';
+import { isPickup, notCollectedMin, pickupReady } from './cards/readiness';
 import { createHandovers } from '../staff/orders/takeaway/handover';
 import '../staff/orders/takeaway/styles';
 
@@ -435,6 +435,8 @@ export function PassScreen() {
                     {t('pass.handed_to_customer')}
                   </button>,
                 );
+              // 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.4 Not collected, R8): amber on every point's card of the bag
+              const late = notCollectedMin(o, nowMs);
               const band = o.ready === null ? null : readyBand(o.ready, nowMs, shell.clock.utcOffsetMs, pass.names);
               const h = handed.get(o.order_id);
               const msg = msgs.get(o.order_id) ?? (h === undefined ? null : handedLine(h, o));
@@ -448,6 +450,7 @@ export function PassScreen() {
                   next={filter === 'takeaway' && i === 0}
                   readyBy={filter === 'takeaway' ? (promises.get(o.order_id) ?? null) : null}
                   nowMs={nowMs}
+                  late={late}
                   utcOffsetMs={shell.clock.utcOffsetMs}
                   up={up}
                   onToast={onToast}
@@ -482,6 +485,11 @@ export function PassScreen() {
                       {msg !== null && (
                         <div className={`pc__msg c-${msg.tone}`}>
                           <span>{msg.text}</span>
+                        </div>
+                      )}
+                      {late !== null && (
+                        <div className="pc__msg c-warn pc__late">
+                          <span>{fill(t('pass.not_collected'), { n: String(late) })}</span>
                         </div>
                       )}
                       {/* ⚠️ 03b v1.0.16 §3.4: a known Due row; the greyed customer action says why */}

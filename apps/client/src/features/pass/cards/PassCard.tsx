@@ -65,6 +65,8 @@ export interface PassCardProps {
   readyBy?: number | null;
   /** ⚠️ 03b v1.0.16 §3.4 (R3-M-5): hub now, for a pickup card's station-less hold (absent: the hold never passes) */
   nowMs?: number;
+  /** 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.4 Not collected): minutes since the whole bag was ready, past its window */
+  late?: number | null;
 }
 
 function Ident({ order }: { order: PointOrder }) {
@@ -100,7 +102,7 @@ function Placed({ ms, utcOffsetMs }: { ms: number; utcOffsetMs: number }) {
   );
 }
 
-export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast, rounds, next = false, readyBy = null, nowMs }: PassCardProps) {
+export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast, rounds, next = false, readyBy = null, nowMs, late = null }: PassCardProps) {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => onSlotsChanged(rerender), []);
   const running = useRef(new Set<string>());
@@ -144,7 +146,7 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
     );
   };
   const footer = buttons.length + slot.length > 0;
-  const classes = ['pc', r.state === 'ready' || r.state === 'hold' || r.state === 'sent' ? r.state : null, next ? 'pc--next' : null].filter((c) => c !== null).join(' ');
+  const classes = ['pc', r.state === 'ready' || r.state === 'hold' || r.state === 'sent' ? r.state : null, next ? 'pc--next' : null, late !== null ? 'pc--late' : null].filter((c) => c !== null).join(' ');
   const [byBefore, byAfter = ''] = t('pass.ready_by').split('{time}');
   // ⚠️ 03b v1.0.16 §3.4 (R3-B-1, R3-M-5): the pickup time (Boost keeps it) and the pickup card's station-less lines,
   // under "From the counter", outside the pick and Handover sheets

@@ -41,3 +41,16 @@ Each image shows the hand-off frame on the left (PackerPass, 1280 × 800) and th
 - "Handed to customer" shows only on takeaway / parking cards for a person holding `run-pass` and `mark-served` (the e2e Pass person Pervez); Cook has no button. Today's hub sends no `bill` on `open-orders`, so the button stays greyed with "Waiting for the bill". It enables by itself for a Paid row, and a Due row shows "Due — customer pays at counter" with "Take payment first" (unit tests).
 - The frame's Due chip sits under the token; the build puts it in the card's message band (red), the same place as the other card messages. The 5 s "{identifier} handed to customer · Undo" toast (frame HandoverUndo) reuses the takeaway screen's `tk-toast`; no e2e capture, because no e2e order can be Paid until the hub sends `bill`.
 - The "Ask a manager" request for a Due card (OR-7) is not built: its backend has not shipped.
+
+## L-CLIENT-1 item 2 "Not collected" amber and the counter Ready
+
+Each image shows the hand-off frame on the left and the running client on the right, captured from `apps/client/e2e/02b-tk-pass.spec.ts` at device scale 2.
+
+| State | Frame | English | Urdu |
+| --- | --- | --- | --- |
+| Pass card past the R8 window (landscape tablet) | ReadyTiles (the late tile) | [PassNotCollected](PassNotCollected.png) | [PassNotCollected-Urdu](PassNotCollected-Urdu.png) |
+| Counter Ready at the kiosk (1920 × 1080) | TokenLate | [CounterReady](CounterReady.png) | [CounterReady-Urdu](CounterReady-Urdu.png) |
+
+- Every Pass card of a takeaway / parking order shows "Ready {n} min ago — not collected" (amber message) once hub now ≥ `bag_ready_since` + `bag_ready_window_ms`; the pair comes from the catch-up, `point_lines.orders` and `PassBagReadyChanged`, and clears when the bag is incomplete again or collected. The e2e fast-forwards the page's clock past the hub's 60 s window. The card carries `pc--late`, which ui-kit does not style yet, so only the message is amber (the frames' amber card border needs a ui-kit rule).
+- On a counter device (profile screens include takeaway / parking) the order-level `ready_to_serve` card reads "Bag ready — hand over at the counter" with the token chip and the ready lines; from 1× the window it is amber with "Ready {n} min ago — not collected", and at the 2× escalation "Not collected for {n} min — managers told" (unit tests; the e2e hub's clock is fixed, so only step 0 is captured). Other devices keep the Pass wording.
+- The counter's ready tile amber clock (frames ReadyTiles, TokenLate) is not built: it needs `open-orders` `ready_at` (02b B2-1).

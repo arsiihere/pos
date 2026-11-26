@@ -1438,7 +1438,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       {page}
       {phone && me !== null && <PhoneTabs tabs={tabs} current={currentTab} />}
       {me !== null && opened === null && (
-        <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} onOpen={(r) => tap(r, 'banner')} onOpenInbox={() => navigate('/inbox')} />
+        <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} counterScreens={profileScreens} onOpen={(r) => tap(r, 'banner')} onOpenInbox={() => navigate('/inbox')} />
       )}
       {me !== null && sheetRow !== null &&
         (isRequest(sheetRow) ? (

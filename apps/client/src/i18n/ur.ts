@@ -1781,4 +1781,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.pickup_label': 'لینا ہے {time}', // not in strings-table.md; Urdu to confirm
   'pass.hand_at_counter': 'کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
   'pass.outside_scope': 'یہ آرڈر آپ کا نہیں — کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
+  // ---- 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.4 Not collected, §3.5 R8 order-level counter alert, §8): amber Pass card and the counter Ready ----
+  'pass.not_collected': '{n} منٹ سے تیار — کوئی نہیں آیا', // not in strings-table.md; Urdu to confirm
+  'alert.ready_to_serve.counter': 'بیگ تیار — کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
+  'alert.ready_to_serve.counter_escalated': '{n} منٹ سے کوئی نہیں آیا — مینیجر کو بتا دیا', // not in strings-table.md; Urdu to confirm
 };
