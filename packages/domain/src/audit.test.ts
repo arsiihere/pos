@@ -34,6 +34,8 @@ describe('AUDIT_ACTIONS', () => {
         'petty_cash', 'drawer_opened', 'orders_carried_over', 'z_report_issued',
         // 05a row A-1 (04 v1.0.8 §3.6)
         'device_profile_set',
+        // 05 V-4 and 02b TK-16 (04 v1.0.9 §3.6, Tier 1)
+        'cart_check_bill_printed', 'unpaid_handover_requested', 'unpaid_handover_answered', 'unpaid_handover_approved',
       ].sort(),
     );
   });
@@ -258,6 +260,31 @@ describe('registerRequestAction [05 row V-3, G-19]', () => {
     expect(() => registerRequestAction('discount', pair)).not.toThrow();
     resetAuditActions();
     expect(() => registerRequestAction('discount', pair)).not.toThrow();
+  });
+
+  it('[04 v1.0.9 §3.6, #62, #63] hand_over_unpaid registered by 02b: requested row on the named order, answered row with the kind (never request_answered)', () => {
+    registerRequestAction('hand_over_unpaid', { requested: 'unpaid_handover_requested', answered: 'unpaid_handover_answered' });
+    const payload = {
+      ...raised('hand_over_unpaid', true, { alert_id: 'H1', dedupe_key: 'hand_over_unpaid:O7' }),
+      values: { order_id: 'O7', token: 12, due_minor: 85000 },
+      display: { kind_label_key: 'alert.hand_over_unpaid.lock', table_code: null, requester_name: 'Hamza' },
+      details: { identifier: '#12', amount: 85000 },
+    };
+    const r = toAuditEntry(ev('AlertRaised', payload), L)!;
+    expect(r).toMatchObject({
+      action: 'unpaid_handover_requested', subject_type: 'order', subject_id: 'O7', order_id: 'O7',
+      actor_staff_id: 'st-hamza', approver_staff_id: null, amount_minor: 85000,
+    });
+    expect(r.detail).toStrictEqual({ alert_id: 'H1', order_item_id: null, item: null, units: null, envelope_actor_id: ENV_ACTOR });
+    const lookups = { ...L, requestOf: () => ({ kind: 'hand_over_unpaid', requester_staff_id: 'st-hamza', order_id: 'O7', table_code: null, answerer_staff_id: null }) };
+    for (const [decision, outcome] of [['approve', 'approved'], ['reject', 'rejected']] as const) {
+      const a = toAuditEntry(ev('RequestAnswered', { alert_id: 'H1', decision, method: 'pin', answerer_staff_id: 'st-imran', on_requester_device: true }), lookups)!;
+      expect(a).toMatchObject({
+        action: 'unpaid_handover_answered', subject_type: 'order', subject_id: 'O7', actor_staff_id: 'st-hamza',
+        approver_staff_id: 'st-imran', method: 'pin', outcome,
+      });
+      expect(a.detail).toStrictEqual({ alert_id: 'H1', kind: 'hand_over_unpaid', on_requester_device: true, envelope_actor_id: ENV_ACTOR });
+    }
   });
 
   it('[05a §4.5 A-1] DeviceProfileSet maps to device_profile_set: detail has ids (never names), actor = the envelope actor', () => {

@@ -154,6 +154,13 @@ export const AUDIT_ACTIONS = [
   'z_report_issued',
   // 05a row A-1 (04 v1.0.8 §3.6)
   'device_profile_set',
+  // 05 V-4 and 02b TK-16 (04 v1.0.9 §3.6, Tier 1): mapped through billing's registerAuditAction
+  // (CartCheckBillPrinted, subject type `hub`) and orders' registerRequestAction('hand_over_unpaid', …) /
+  // registerAuditAction('UnpaidHandoverApproved', …)
+  'cart_check_bill_printed',
+  'unpaid_handover_requested',
+  'unpaid_handover_answered',
+  'unpaid_handover_approved',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

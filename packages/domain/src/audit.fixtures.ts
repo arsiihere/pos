@@ -12,6 +12,8 @@ export const FROM_05 = [
   'fiscal_rejected', 'comp_removed', 'money_request_raised', 'money_request_answered', 'shift_opened', 'shift_counted',
   'shift_count_skipped', 'handover_counted', 'shift_closed', 'shift_variance_signed_off', 'bill_closed_empty',
   'petty_cash', 'drawer_opened', 'orders_carried_over', 'z_report_issued',
+  // 05 V-4 and 02b TK-16 (04 v1.0.9 §3.6): also mapped through registration (billing / orders), not built in
+  'cart_check_bill_printed', 'unpaid_handover_requested', 'unpaid_handover_answered', 'unpaid_handover_approved',
 ];
 
 export const ENV_ACTOR = 'st-env';
