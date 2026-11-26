@@ -21,6 +21,7 @@ export {
 } from './tick.js';
 export {
   getAlertIntents,
+  isSlipLine,
   goesWith,
   MAX_DELAY_NO_LIMIT_MS,
   nextAlertDueAt,

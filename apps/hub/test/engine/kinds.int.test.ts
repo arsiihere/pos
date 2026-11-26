@@ -346,6 +346,25 @@ describe('03a task 23: the engine alert kinds', () => {
     expect((raised[0]!.payload as { request: unknown }).request).toMatchObject({ right_mode: 'named', receiver_staff_id: WAITER, needs_pin: 'never', answers: ['accept', 'decline'] });
   });
 
+  it('[03a #190e] the slip card stays open with the burger done and the held drink late', async () => {
+    kitchen();
+    const key = 'takeaway:O1';
+    const pickup = hub.clock.branchNow() + 30 * MIN;
+    submit({ order_id: 'O1', order: { order_type: 'takeaway', table_key: key, pickup_at_ms: pickup }, lines: [
+      { order_item_id: 'burger', item: { name: 'Burger' } },
+      { order_item_id: 'drink', item: { name: 'Drink', serve_mode: 'immediate' } },
+    ] });
+    await pass(engine().lines.burger!.fire_ms!);
+    fakeTap(hub.deps, 'start', 'burger');
+    fakeTap(hub.deps, 'done', 'burger');
+    await pass(pickup + 30 * MIN);
+    expect(engine().slips[key]?.resolved_at).toBeNull();
+    expect(slipAlerts()[0]).toMatchObject({ state: 'open', details: { lines: [
+      { name: 'Burger', state: 'done' }, { name: 'Drink', state: 'added' },
+    ] } });
+    expect(stored('SlipWarned')[0]?.payload.target_land_ms).toBe(pickup);
+  });
+
   it('[03a §3.8, AD-37 (3)] minutes_late = ceil((estimate − target) / 1 min), never below 0, whatever the promise', () => {
     const T = 1_000_000;
     const at = (late_ms: number, promise = T + 3 * MIN): number => {

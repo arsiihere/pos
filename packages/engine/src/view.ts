@@ -168,11 +168,11 @@ export function groupReadiness(state: EngineState, order_id: string, now: number
     for (const id of order.groups[group_id]!.line_ids) {
       const line = state.lines[id];
       if (line !== undefined && !isPlaceholder(line)) priority ??= priorityOfLine(state, line, now);
-      if (line === undefined || line.serve_mode !== 'sync' || isPlaceholder(line)) continue;
+      if (line === undefined || (order.pickup_at_ms === null && line.serve_mode !== 'sync') || isPlaceholder(line)) continue;
       if (line.stage === 'added' || line.stage === 'cooking') waiting.push(id);
       else if (line.stage === 'done' || line.stage === 'served') {
         done.push(id);
-        atPass ||= line.stage === 'done';
+        atPass ||= line.stage === 'done' && line.serve_mode === 'sync';
       }
     }
     return { group_id, done, waiting, hold: atPass && waiting.length > 0, ...(priority === undefined ? {} : { priority }) };
