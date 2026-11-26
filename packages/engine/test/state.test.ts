@@ -8,6 +8,7 @@ import {
   buildEngineState,
   ENGINE_REPLAY_EVENTS,
   ENGINE_STATE_VERSION,
+  groupReadiness,
   initialEngineState,
   type BusinessDay,
   type DayDraws,
@@ -195,28 +196,49 @@ describe('@pos/engine EngineState v6', () => {
     // priority fields on a group and EngineState.priority_due. 03a v1.2.2 (B2-2): v4 (was 3) added done_undone.
     expect(ENGINE_STATE_VERSION).toBe(6);
     const log = (fixture(`engine-log.v${ENGINE_STATE_VERSION}.json`) as unknown[]).map((e) => parseEvent(e));
+    // ⚠️ 03a v1.2.11 §3.5.8 PK-11, test 189 (M-7, m-13, R2-m-4): the v6 log holds pickup orders. O1 (pickup +60) has
+    // a sync karahi and four held lines: a from-stock kebab (immediate), fries on the batch fryer, a drink on the FIFO
+    // counter and a ready item (cook 0); O2 (pickup +40) is boosted at +1, its burger done and its drink cooking
+    // (R3-B-1); O3 is a dine-in order without pickup.
     expect(log.map((e) => e.event_type)).toEqual([
-      'EngineConfigApplied', 'BusinessDayOpened', 'StockSet', 'OrderPlaced', 'ItemAdded', 'ItemAdded', 'FireDispatched',
-      'ItemStarted', 'ItemStarted', 'ItemDone', 'ItemDoneUndone',
+      'EngineConfigApplied', 'BusinessDayOpened', 'StockSet',
+      'OrderPlaced', 'ItemAdded', 'ItemAdded', 'ItemAdded', 'ItemAdded', 'ItemAdded', 'StockReserved',
+      'OrderPlaced', 'ItemAdded', 'ItemAdded', 'OrderPlaced', 'ItemAdded',
+      'OrderBoosted', 'FireDispatched', 'FireDispatched', 'FireDispatched', 'ItemStarted', 'ItemStarted', 'ItemStarted', 'ItemDone',
     ]);
     const { diagnostics, ...state } = buildEngineState(deepFreeze(log));
     expect(diagnostics).toEqual([]);
     expect(state).toEqual(fixture(`engine-state.v${ENGINE_STATE_VERSION}.json`));
-    expect(state.lines.L1).toMatchObject({ stage: 'cooking', done_at: null, done_undone: true });
-    expect(state.lines.L2).toMatchObject({ stage: 'cooking', done_undone: false });
-    // v5 defaults: the ItemAdded copy (L1 carries 300 000, L2 has no key → null), no priority, arrival = the listing
-    // OrderPlaced's recorded_at; the group has no priority fields set; no priority crossing.
+    const p1 = T0 + 3_600_000;
+    expect(state.orders.O1).toMatchObject({ pickup_at_ms: p1, boosted: false });
+    expect(Object.values(state.orders.O1!.groups).map((g) => g.target_land_ms)).toEqual([p1, p1, p1, p1, p1]);
+    expect(state.lines.K2).toMatchObject({ serve_mode: 'immediate', from_stock: true, stage: 'added', fired_at: null });
+    expect(state.lines.K3!.load_id).not.toBeNull();
+    expect(state.config!.stations.find((s) => s.station_id === 'S3')!.policy).toBe('fifo');
+    expect(state.lines.K4).toMatchObject({ station_id: 'S3', serve_mode: 'immediate', fired_at: null });
+    expect(state.lines.K5).toMatchObject({ station_id: 'S4', cook_ms: 0, fired_at: null });
+    for (const id of ['K2', 'K3', 'K4', 'K5']) expect(state.lines[id]!.fire_ms, id).toBeGreaterThan(T0 + 45 * 60_000);
+    expect(state.orders.O2).toMatchObject({ pickup_at_ms: T0 + 2_400_000, boosted: true });
+    expect(state.lines.B1!.stage).toBe('done');
+    expect(state.lines.D1!.stage).toBe('cooking');
+    expect(state.orders.O3!.pickup_at_ms).toBeNull();
+    // v5 fields keep their defaults: no ItemAdded here carries max_delay_ms, no priority, arrival = the listing
+    // OrderPlaced's recorded_at; the groups have no priority fields set; no priority crossing.
     const placed = log.find((e) => e.event_type === 'OrderPlaced')!;
-    expect(state.lines.L1).toMatchObject({ max_delay_ms: 300_000, priority_at: null, arrived_at: placed.recorded_at });
-    expect(state.lines.L2).toMatchObject({ max_delay_ms: null, priority_at: null, arrived_at: placed.recorded_at });
+    for (const line of Object.values(state.lines)) expect(line).toMatchObject({ max_delay_ms: null, priority_at: null, arrived_at: placed.recorded_at });
     for (const order of Object.values(state.orders)) {
       for (const g of Object.values(order.groups)) {
         expect(g).toMatchObject({ priority_land_ms: null, priority_delay_ms: null });
         expect(Object.keys(g).sort()).toEqual([...KEY_SETS[5].EngineOrderGroup].sort());
       }
     }
-    expect(state.priority_due).toEqual({});
+    // "No limit" lines (max_delay_ms null) of the waiting pickup groups cross from T_L (PK-6, PR-3); the rest have started.
+    expect(Object.keys(state.priority_due).sort()).toEqual(['O1:0', 'O1:1', 'O1:2', 'O1:3', 'O1:4']);
     for (const line of Object.values(state.lines)) expect(Object.keys(line).sort()).toEqual([...KEY_SETS[5].EngineLine].sort());
+    // The v5 log (frozen, R2-m-4: no pickup order) folds to the v5 state unchanged under the v6 meaning.
+    const { diagnostics: v5Diagnostics, ...v5 } = buildEngineState(deepFreeze((fixture('engine-log.v5.json') as unknown[]).map((e) => parseEvent(e))));
+    expect(v5Diagnostics).toEqual([]);
+    expect(v5).toEqual(fixture('engine-state.v5.json'));
     // The older logs still fold (the v4 and v3 files stay as written); the v5 engine adds its keys with the defaults.
     const { diagnostics: v4Diagnostics, ...v4 } = buildEngineState(deepFreeze((fixture('engine-log.v4.json') as unknown[]).map((e) => parseEvent(e))));
     expect(v4Diagnostics).toEqual([]);
@@ -230,13 +252,50 @@ describe('@pos/engine EngineState v6', () => {
     const keys = KEY_SETS[ENGINE_STATE_VERSION];
     expect(Object.values(keysMatch).every(Boolean)).toBe(true);
     expect(Object.keys(state).sort()).toEqual([...keys.EngineState].sort());
-    expect(Object.keys(state.stations)).toEqual(['S1', 'S2']);
+    expect(Object.keys(state.stations)).toEqual(['S1', 'S2', 'S3', 'S4']);
     for (const station of Object.values(state.stations)) {
       expect(Object.keys(station).sort()).toEqual([...keys.StationRuntime].sort());
     }
     const { diagnostics: initialDiagnostics, ...initial } = initialEngineState();
     expect(initialDiagnostics).toEqual([]);
     expect(Object.keys(initial).sort()).toEqual([...keys.EngineState].sort());
+  });
+
+  it('[03a #189 R3-B-1] the boosted burger-done / drink-waiting state: original pickup, boosted, unready in live, full replay and v6 snapshot recovery; drink Done makes it Ready', () => {
+    const log = (fixture(`engine-log.v${ENGINE_STATE_VERSION}.json`) as unknown[]).map((e) => deepFreeze(parseEvent(e)));
+    let live = initialEngineState();
+    for (const e of log) live = applyEvent(live, e);
+    const cut = log.findIndex((e) => e.event_type === 'OrderBoosted') + 1;
+    // A v6 snapshot row is the JSON of the state at its seq (§3.12); recovery folds the rest of the log onto it.
+    let snapshot = JSON.parse(JSON.stringify(buildEngineState(log.slice(0, cut)))) as EngineState;
+    for (const e of log.slice(cut)) snapshot = applyEvent(snapshot, e);
+    const replay = buildEngineState(log);
+    const last = log[log.length - 1]!;
+    const now = last.recorded_at;
+    const doneAt = now + 60_000;
+    const drinkDone = deepFreeze({ ...last, seq: last.seq + 1, event_id: '01J00000000000000000000999', recorded_at: doneAt, occurred_at: doneAt, payload: { order_item_id: 'D1', done_at: doneAt, source: 'tap' } }) as PosEvent;
+    const ready = (s: EngineState, t: number): boolean => groupReadiness(s, 'O2', t).every((g) => g.waiting.length === 0);
+    for (const [name, s] of [['live', live], ['full replay', replay], ['snapshot', snapshot]] as const) {
+      expect(s.orders.O2, name).toMatchObject({ pickup_at_ms: T0 + 2_400_000, boosted: true });
+      expect(s.lines.B1!.stage, name).toBe('done');
+      expect(ready(s, now), name).toBe(false);
+      expect(groupReadiness(s, 'O2', now).flatMap((g) => g.waiting), name).toEqual(['D1']);
+      const after = applyEvent(s, drinkDone);
+      expect(after.lines.D1!.stage, name).toBe('done');
+      expect(ready(after, doneAt), name).toBe(true);
+    }
+    expect(snapshot).toEqual(replay);
+    expect(live).toEqual(replay);
+  });
+
+  it('[03a #189] OrderPlaced v1 fixtures: a pickup timestamp and null parse unchanged; an omitted pickup_at_ms is rejected (03a §4.2: required, nullable)', () => {
+    const log = fixture(`engine-log.v${ENGINE_STATE_VERSION}.json`) as Array<{ event_type: string; payload: Record<string, unknown> }>;
+    const placed = log.filter((e) => e.event_type === 'OrderPlaced');
+    expect(placed.map((e) => e.payload.pickup_at_ms)).toEqual([T0 + 3_600_000, T0 + 2_400_000, null]);
+    for (const raw of placed) expect(parseEvent(raw).payload).toEqual(raw.payload);
+    const without: Record<string, unknown> = { ...placed[2]!.payload };
+    delete without.pickup_at_ms;
+    expect(() => parseEvent({ ...placed[2]!, payload: without })).toThrow();
   });
 
   it('[03a AD-6] the key-set guard ignores diagnostics and still fails at compile time when a real key is added', () => {
