@@ -153,7 +153,19 @@ export function registerKdsAudiences(app: FastifyInstance, deps: Pick<HubDeps, '
     return false;
   };
 
+  // ⚠️ 03b v1.0.16 §6.17, §6.22 (run 3 R3-M-1): PassPointLinesMoved → the Pass sockets of every recorded from and to
+  // point (both views refresh), by the recorded ids; plus the counter audience below (R8 invalidation). Memory.
+  const movedAudience = (event: PosEvent, socket: SocketCtx): boolean => {
+    if (socket.kind !== 'staff') return false;
+    const point = devicePoint(socket.deviceId);
+    if (point === null) return false;
+    const moves = (event.payload as { moves?: Array<{ from_point_id?: unknown; to_point_id?: unknown }> }).moves ?? [];
+    return moves.some((m) => m.from_point_id === point || m.to_point_id === point);
+  };
+
   const stops = [
+    registerEventAudience('PassPointLinesMoved', movedAudience),
+    registerEventAudience('PassPointLinesMoved', counterAudience),
     registerEventAudience('PassBagReadyChanged', orderPassAudience),
     registerEventAudience('PassBagReadyChanged', counterAudience),
     ...KDS_LINE_EVENT_TYPES.map((t) => registerEventAudience(t, lineAudience)),

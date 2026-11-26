@@ -37,6 +37,8 @@ export const PASS_EVENT_TYPES: readonly string[] = [
   'OrderCancelled',
   // ⚠️ 03b v1.0.16 §5 (run 3 R3-B-3, R3-M-9): the R8 epoch (pass_bag_ready)
   'PassBagReadyChanged',
+  // ⚠️ 03b v1.0.16 §5 (run 3 R3-M-1): a D7 archive move drops the moved lines' old Ready memberships
+  'PassPointLinesMoved',
 ];
 
 /** The one `kds.fold_skipped` line (ids and counts only). */
@@ -143,6 +145,18 @@ function applyPass(tx: Database.Database, event: PosEvent, emit: Emit): void {
       return settleAtZero(tx, at, (event.payload as ItemVoidedPayload).order_item_id, emit);
     case 'OrderCancelled':
       return settleOrder(tx, at, (event.payload as OrderCancelledPayload).order_id, emit);
+    case 'PassPointLinesMoved': {
+      // ⚠️ 03b v1.0.16 §5 (R3-M-1): one batched write: each moved line's unsettled membership at its recorded old point
+      // (so LINE_READY_AT_SQL forgets the old Ready time); hand-overs are unchanged
+      const p = event.payload as { moves: Array<{ order_item_id: string; from_point_id: string }> };
+      tx.prepare(
+        `DELETE FROM pass_ready_lines WHERE settled_at IS NULL AND EXISTS (
+           SELECT 1 FROM json_each(?) m
+            WHERE json_extract(m.value, '$.order_item_id') = pass_ready_lines.order_item_id
+              AND json_extract(m.value, '$.from_point_id') = pass_ready_lines.point_id)`,
+      ).run(JSON.stringify(p.moves));
+      return;
+    }
     case 'PassBagReadyChanged': {
       // ⚠️ 03b v1.0.16 §5 (R3-M-9): one statement: set / replace the epoch, or delete it
       const p = event.payload as PassBagReadyChangedPayload;
