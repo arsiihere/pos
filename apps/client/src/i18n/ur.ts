@@ -1506,6 +1506,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.type.parking': 'پارکنگ',
   // ---- 05 client (task 38): frame BillUrdu ----
   'billing.check_bill': 'چیک بل پرنٹ',
+  'billing.gross_total': 'کل رقم', // 05 v1.0.35 §6.3 (R3-M-1); not in strings-table.md; Urdu to confirm
+  'billing.remaining_payable': 'باقی قابلِ ادائیگی', // 05 v1.0.35 §6.3 (R3-M-1); not in strings-table.md; Urdu to confirm
   // ---- 05 client (task 35): frame BillUrdu ----
   'billing.state.open': 'کھلا',
   'billing.state.partly_paid': 'جزوی ادائیگی',

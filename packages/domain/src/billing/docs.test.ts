@@ -191,6 +191,7 @@ describe('check bill (B17)', () => {
       taxes: [{ label: 'PST', rate_bp: 1600, payment_class: 'cash', tax_minor: 91_360 }],
       rounding_minor: 40,
       cash_total_minor: 662_400,
+      due_minor: 662_400,
       digital_total_minor: 599_600,
       prices_include_tax: false,
       service_charge_taxes: [],
@@ -235,6 +236,19 @@ describe('check bill (B17)', () => {
     const pst = texts(doc).filter((x) => x.startsWith('PST'));
     expect(pst).toHaveLength(1);
     expect(pst[0]).toContain('913.60');
+  });
+
+  // ⚠️ 05 v1.0.35 §6.3 (run 3 R3-M-1, D3)
+  it('[05 §6.3, R3-M-1, D3] gross total and remaining payable print as two separately labelled lines', () => {
+    // Rs 6,624 gross, Rs 2,000 already paid on the open split → Rs 4,624 left
+    const doc = buildCheckBillDoc(checkBill({ due_minor: 462_400 }), ctx());
+    expect(lineWith(doc, 'Gross total')).toMatch(/^Gross total +6,624\.00$/);
+    expect(lineWith(doc, 'Remaining payable')).toMatch(/^Remaining payable +4,624\.00$/);
+    const out = texts(doc);
+    expect(out.indexOf(lineWith(doc, 'Gross total')!)).toBeLessThan(out.indexOf(lineWith(doc, 'Remaining payable')!));
+    // nothing paid yet: both still print, with the same figure; a negative remainder (reopened, lower total) keeps its sign
+    expect(lineWith(buildCheckBillDoc(checkBill(), ctx()), 'Remaining payable')).toContain('6,624.00');
+    expect(lineWith(buildCheckBillDoc(checkBill({ due_minor: -25_000 }), ctx()), 'Remaining payable')).toContain('-250.00');
   });
 
   // 05 v1.0.33 §3.16 (STAB-5)
@@ -592,6 +606,7 @@ describe('32 and 48 columns', () => {
           taxes: [],
           rounding_minor: 0,
           cash_total_minor: 191_000,
+          due_minor: 191_000,
           digital_total_minor: null,
           prices_include_tax: false,
           service_charge_taxes: [],
@@ -748,6 +763,7 @@ describe('[05 4b] QR block (row P-3; B21, §6.22, A3, R-26)', () => {
         taxes: [],
         rounding_minor: 0,
         cash_total_minor: 0,
+        due_minor: 0,
         digital_total_minor: null,
         prices_include_tax: false,
         service_charge_taxes: [],
@@ -903,6 +919,7 @@ describe('[05 4b] inclusive prices: the memo tax block (G-24)', () => {
         taxes: t.taxes.map((x) => ({ label: x.label, rate_bp: x.rate_bp, payment_class: x.payment_class, tax_minor: x.tax_minor })),
         rounding_minor: t.rounding_minor,
         cash_total_minor: t.total_minor,
+        due_minor: t.total_minor,
         digital_total_minor: null,
         prices_include_tax: true,
         service_charge_taxes: scRows,
@@ -947,6 +964,7 @@ describe('[05 4b] check bill digital line from totals_default_digital (G-25, P0.
         taxes: c.taxes.map((x) => ({ label: 'PST', rate_bp: x.rate_bp, payment_class: x.payment_class, tax_minor: x.tax_minor })),
         rounding_minor: c.rounding_minor,
         cash_total_minor: c.total_minor,
+        due_minor: c.total_minor,
         digital_total_minor: r.totals_default_digital.total_minor,
         prices_include_tax: false,
         service_charge_taxes: [],

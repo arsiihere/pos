@@ -2,7 +2,7 @@
 // 05-plan §3 row 11): #58, #59 (extended: the command half; the Doc half is 4a / 4b's), #6b (print half). Real events
 // through the hub's writer, the real `billing` fold, the command over HTTP as the client sends it, 03c's real
 // print_config fold for printers and bill routes (P-1), and the check bill read back from 03c's `print_jobs` payload.
-import { renderText, type Doc } from '@pos/domain';
+import { formatMinor, renderText, type Doc } from '@pos/domain';
 import { BillRouteSet, BillSplitsSet, DiscountApplied, parseEvent, PaymentAdded, PrinterSaved, SnapshotBillingSchema, rateBpRates, type BranchConfig, type EventDef, type EventDraft, type PosEvent, type SnapshotBilling } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { z } from 'zod';
@@ -159,7 +159,8 @@ describe('[05 §6.3, #59] PrintCheckBill', () => {
       job_id: job!.job_id,
       source: 'manual',
     });
-    expect(r.result).toEqual({ bill_id, printed: true, job_id: job!.job_id, printer_name: `Printer ${P.zone}`, totals_default: view.totals_default });
+    // ⚠️ 05 v1.0.35 §6.3 (R3-M-1): + due_minor, nothing paid → the gross total
+    expect(r.result).toEqual({ bill_id, printed: true, job_id: job!.job_id, printer_name: `Printer ${P.zone}`, totals_default: view.totals_default, due_minor: view.totals_default.total_minor });
     expect(billJobs()).toEqual([{ job_id: job!.job_id, bill_id, doc_kind: 'check', ref_id: null, created_at: expect.any(Number) }]);
     // the billing fold took the print time (§6.4a check_printed_at)
     expect(db().prepare('SELECT check_printed_at FROM bills WHERE bill_id = ?').pluck().get(bill_id)).toBe(hub.clock.branchNow());
@@ -623,6 +624,42 @@ describe('[05 §6.4, #58] BillRequested → check bill (live only)', () => {
     expect(r.status).toBe(200);
     expect((r.result as { totals_default: unknown }).totals_default).toEqual(view.totals_default);
     expect((r.events.find((e) => e.event_type === 'CheckBillPrinted')!.payload as { total_default_minor: number }).total_default_minor).toBe(view.totals_default.total_minor);
+  });
+
+  // ⚠️ 05 v1.0.35 §6.3 (run 3 R3-M-1, D3)
+  it('[05 §6.3, R3-M-1, D3] result and paper: gross total and remaining payable (Σ open split balances) apart; a partly paid split leaves less to pay', async () => {
+    await start();
+    printers([{ scope: 'default', ref_id: '', printer_id: P.fallback }]);
+    const s = seatingWith(VX.tables.T4, 3);
+    const first = await print({ bill_ref: { seating_id: s.seating_id } });
+    expect(first.status, JSON.stringify(first.error)).toBe(200);
+    const bill_id = first.events[0]!.stream_id;
+    // nothing paid: remaining payable = the gross total
+    expect(first.result).toMatchObject({ due_minor: (first.result as { totals_default: { total_minor: number } }).totals_default.total_minor });
+    const appendBill = (def: EventDef<z.ZodType>, payload: unknown) => {
+      hub.clock.advance(1_000);
+      const env = { stream_type: 'bill' as const, stream_id: bill_id, occurred_at: hub.clock.branchNow(), actor_id: STAFF.cashier, device_id: 'D_FIXTURE' };
+      hub.deps.writer.run((tx) => tx.append([{ ...env, event_type: def.eventType, schema_version: def.version, payload: def.payload.parse(payload) as PosEvent['payload'] }]));
+    };
+    appendBill(BillSplitsSet as unknown as EventDef<z.ZodType>, { ...(aBillSplitsSet().payload as object), bill_id, mode: 'equal', splits: [{ split_no: 1, lines: null, share_minor: null }, { split_no: 2, lines: null, share_minor: null }] });
+    appendBill(PaymentAdded as unknown as EventDef<z.ZodType>, {
+      ...(aPaymentAdded().payload as object),
+      payment_id: 'PAY_D3', bill_id, split_no: 1, mode_id: 'cash', payment_class: 'cash', direction: 'in', amount_minor: 1_000, tendered_minor: 1_000, change_minor: 0, has_reference: false, taken_by_staff_id: STAFF.cashier, shift_id: 'SHIFT_1',
+    });
+    const view = await billView({ bill_id });
+    const due = view.splits.filter((x) => x.state === 'open').reduce((a, x) => a + x.balance_minor, 0);
+    const gross = view.totals_default.total_minor;
+    // D3: each split rounds on its own, so the due is the open splits' balances, never gross − bill-wide payments
+    expect(view.splits.map((x) => x.balance_minor)).toEqual([5_700 - 1_000, 5_700]);
+    expect([due, gross]).toEqual([10_400, 11_500]);
+    expect(gross - 1_000).not.toBe(due);
+    const r = await print({ bill_ref: { bill_id } });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(r.result).toMatchObject({ due_minor: due, totals_default: { total_minor: gross } });
+    const text = textOf(jobs().at(-1)!);
+    const amount = (label: string) => text.split('\n').find((l) => l.startsWith(label))?.slice(label.length).trim();
+    expect(amount('Gross total')).toBe(formatMinor(gross, 2));
+    expect(amount('Remaining payable')).toBe(formatMinor(due, 2));
   });
 
   it('[05 G-24] inclusive prices: the charge\'s own tax row above the total (with its label), the rest as a memo; total = the bill view', async () => {
