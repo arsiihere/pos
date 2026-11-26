@@ -121,6 +121,8 @@ export * from './events/order/TicketReprinted.v1.js';
 export * from './events/hub/BillRouteSet.v1.js';
 export * from './events/hub/PrinterSaved.v1.js';
 export * from './events/hub/StationOutputSet.v1.js';
+// 02b-TK Tier 1 (L0b): 02b v1.0.25 §6.19
+export * from './events/order/UnpaidHandoverApproved.v1.js';
 export * from './admin/billing.js';
 export * from './admin/jurisdiction-seeds.js';
 export * from './admin/fiscal-adapters/none.js';
