@@ -364,7 +364,7 @@ describe('[03b §7] pass folds: fixed statement counts', () => {
     return n;
   }
 
-  it('[03b §7] ReadyToServe 3, Handover 3, AlertClosed 2, ItemServed over 3 hand-overs 3, OrderCancelled 3, partial ItemRemoved to 0 3 (and above 0 3)', async () => {
+  it('[03b §7] ReadyToServe 3, Handover 3, AlertClosed 3 (⚠️ v1.0.16 R3-M-9: + the pass_bag_ready link), ItemServed over 3 hand-overs 3, OrderCancelled 3, partial ItemRemoved to 0 3 (and above 0 3)', async () => {
     hub = await createTestHub({ provisioned: true });
     openDay(hub);
     const order_id = takeaway(['L1', 'L2', 'L3', 'L4'], 2);
@@ -377,7 +377,8 @@ describe('[03b §7] pass folds: fixed statement counts', () => {
 
     expect(foldStatements(order_id, 'ReadyToServe', { order_id, point_id: POINT, order_item_ids: ['L1', 'L2', 'L3', 'L4'], table_id: null, alert_id: 'A_R2' })).toBe(3);
     expect(foldStatements(order_id, 'Handover', { handover_id: 'H9', order_id, point_id: POINT, receiver_staff_id: 'S_WAIT', order_item_ids: ['L5', 'L6'], alert_id: 'A_C9', ready_alert_closed: null })).toBe(3);
-    expect(foldStatements('branch-1', 'AlertClosed', { alert_id: 'A_CARD_H1', reason: 'done', by_staff_id: null, note: null }, 'hub')).toBe(2);
+    // ⚠️ 03b v1.0.16 §5 (R3-M-9): + one indexed update clearing a counter alert's pass_bag_ready link
+    expect(foldStatements('branch-1', 'AlertClosed', { alert_id: 'A_CARD_H1', reason: 'done', by_staff_id: null, note: null }, 'hub')).toBe(3);
     expect(foldStatements(order_id, 'ItemServed', { order_item_ids: ['L1', 'L2', 'L3'], source: 'tap' })).toBe(3);
     expect(foldStatements(order_id, 'OrderCancelled', { order_id })).toBe(3);
     expect(foldStatements(order_id, 'ItemRemoved', { order_item_id: 'L3', units: 1 })).toBe(3); // live 2 → not settled

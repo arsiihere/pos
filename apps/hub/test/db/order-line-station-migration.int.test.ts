@@ -17,6 +17,7 @@ import { offlineCloud } from '../helpers/stub-cloud';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
 import { appendOrder, FX, openDay, openSeating, removeLine } from '../kds/fixtures';
+import { PASS_EVENT_TYPES } from '../../src/kds/pass-projection';
 
 // 02b v1.0.12 §5 (04 §4.5 Q-14, owner 2026-11-12 20:21), task u10, test 51 (migration half): hub migration
 // 0019_order_line_station adds order_lines.station_id and deletes the `orders` checkpoint, so the next boot resets
@@ -63,6 +64,7 @@ function toPre0019(db: Database.Database): void {
   db.exec('ALTER TABLE order_lines DROP COLUMN option_quantity'); // 0020 (02b v1.0.13, 04 Q-19) re-adds it
   db.exec('ALTER TABLE order_lines DROP COLUMN station_id');
   db.exec('DROP TABLE device_people; DROP TABLE device_profiles; ALTER TABLE pair_requests DROP COLUMN hardware_hint'); // 0027 (05a §5.1) runs after it; its devices rebuild needs no undo
+  db.exec('DROP TABLE pass_bag_ready; ALTER TABLE pass_orders DROP COLUMN ready_explicit'); // 0028 (03b v1.0.16 §5, R3-M-9) runs after it
   db.exec('ALTER TABLE order_lines DROP COLUMN part_of'); // 0026 (02b v1.0.20, STAB-5) runs after it
   db.prepare('DELETE FROM migration_checksums WHERE version >= 19').run();
   db.pragma('user_version = 18');
@@ -116,7 +118,7 @@ describe('[02b #51] hub migration 0019_order_line_station (02b v1.0.12 §5; 04 Q
     expect(checkpoint(copy, 'kitchen_tickets')).toBe(maxSeq);
     // 0019 applied on the copy before boot: the orders row is gone, the forward-only kitchen_tickets row is still there.
     // (02b v1.0.13: 0020 runs after it, and deletes the orders row too; 02b v1.0.16: so do 0021 and 0022; 05 0023 deletes the audit row)
-    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0020_order_line_option_quantity.sql', '0021_orders_billing.sql', '0022_bill_routes.sql', '0023_billing.sql', '0024_billing_payments_shift.sql', '0025_billing_z_reports_key.sql', '0026_order_line_part_of.sql', '0027_device_profiles.sql']); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0020_order_line_option_quantity.sql', '0021_orders_billing.sql', '0022_bill_routes.sql', '0023_billing.sql', '0024_billing_payments_shift.sql', '0025_billing_z_reports_key.sql', '0026_order_line_part_of.sql', '0027_device_profiles.sql', '0028_pass_bag_ready.sql']); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     expect(checkpoint(copy, 'orders')).toBeUndefined();
     expect(checkpoint(copy, 'kitchen_tickets'), '0019 keeps the kitchen_tickets checkpoint row').toBe(maxSeq);
     copy.close();
@@ -125,7 +127,7 @@ describe('[02b #51] hub migration 0019_order_line_station (02b v1.0.12 §5; 04 Q
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(27); // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+    expect(db.pragma('user_version', { simple: true })).toBe(28); // +0028: 03b v1.0.16 0028_pass_bag_ready; // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     const after = db.prepare('SELECT event_type FROM events WHERE seq > ? ORDER BY seq').pluck().all(maxSeq);
     expect(after[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(rowsOf(db), 'every old line has its station_id; rows equal the fresh fold').toEqual(live);
@@ -139,7 +141,9 @@ describe('[02b #51] hub migration 0019_order_line_station (02b v1.0.12 §5; 04 Q
     expect(ordersEvents).toBeGreaterThan(0);
     const auditEvents = countOf(auditProjection().eventTypes); // boot already sealed the registry; this only reads it
     const started = db.prepare("SELECT payload FROM events WHERE event_type = 'HubStarted' ORDER BY seq DESC LIMIT 1").pluck().get() as string;
-    expect((JSON.parse(started) as { events_replayed: number }).events_replayed, 'replayed = orders + audit only; kitchen_tickets 0').toBe(ordersEvents + auditEvents);
+    // ⚠️ + `pass` (03b v1.0.16 0028_pass_bag_ready deletes its checkpoint: ReadyToServe refolds with ready_explicit)
+    const passEvents = countOf(PASS_EVENT_TYPES);
+    expect((JSON.parse(started) as { events_replayed: number }).events_replayed, 'replayed = orders + audit + pass only; kitchen_tickets 0').toBe(ordersEvents + auditEvents + passEvents);
   });
 });
 

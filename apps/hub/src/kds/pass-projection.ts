@@ -6,6 +6,7 @@ import type {
   ItemServedPayload,
   ItemVoidedPayload,
   OrderCancelledPayload,
+  PassBagReadyChangedPayload,
   PosEvent,
   ReadyRetargetedPayload,
   ReadyToServePayload,
@@ -14,7 +15,8 @@ import type {
 import type Database from 'better-sqlite3';
 import type { Projection, ProjectionRegistry } from '../projections/registry.js';
 
-// 03b §5 projection `pass` (with reset): pass_orders, pass_ready_lines, handovers, handover_lines. §3.5 Settling:
+// 03b §5 projection `pass` (with reset): pass_orders, pass_ready_lines, handovers, handover_lines; ⚠️ v1.0.16 (R3-M-9):
+// + pass_bag_ready (PassBagReadyChanged) and pass_orders.ready_explicit (ReadyToServe.alert_id ≠ null). §3.5 Settling:
 // ItemServed, ItemReturned, OrderCancelled and a whole-line ItemRemoved settle the lines; ItemRemoved { units } /
 // ItemVoided { units } settle when the line's live units (`order_lines`: units − removed_units − voided_units, the
 // 02b T19 exception) reach 0. Settling touches only rows with settled_at IS NULL, and handovers.open_lines drops by
@@ -33,6 +35,8 @@ export const PASS_EVENT_TYPES: readonly string[] = [
   'ItemRemoved',
   'ItemVoided',
   'OrderCancelled',
+  // ⚠️ 03b v1.0.16 §5 (run 3 R3-B-3, R3-M-9): the R8 epoch (pass_bag_ready)
+  'PassBagReadyChanged',
 ];
 
 /** The one `kds.fold_skipped` line (ids and counts only). */
@@ -78,6 +82,7 @@ export function passProjection(projections?: ProjectionRegistry): Projection {
       tx.prepare('DELETE FROM pass_ready_lines').run();
       tx.prepare('DELETE FROM handovers').run();
       tx.prepare('DELETE FROM handover_lines').run();
+      tx.prepare('DELETE FROM pass_bag_ready').run();
     },
   };
 }
@@ -93,7 +98,7 @@ function applyPass(tx: Database.Database, event: PosEvent, emit: Emit): void {
       // §3.5 UndoReadyToServe / §3.2 step 5: the Ready is gone (its alert closes `undone` by its own AlertClosed).
       const p = event.payload as ReadyToServeUndonePayload;
       tx.prepare(
-        `UPDATE pass_orders SET ready_at = NULL, ready_by = NULL, ready_alert_id = NULL, ready_table_id = NULL
+        `UPDATE pass_orders SET ready_at = NULL, ready_by = NULL, ready_alert_id = NULL, ready_table_id = NULL, ready_explicit = 0
          WHERE order_id = ? AND point_id = ?`,
       ).run(p.order_id, p.point_id);
       tx.prepare('DELETE FROM pass_ready_lines WHERE order_id = ? AND point_id = ?').run(p.order_id, p.point_id);
@@ -116,6 +121,8 @@ function applyPass(tx: Database.Database, event: PosEvent, emit: Emit): void {
       // A closed Ready alert leaves pass_orders_open (ready_at / ready_by stay); a closed Served card gets card_closed_at.
       const p = event.payload as AlertClosedPayload;
       tx.prepare('UPDATE pass_orders SET ready_alert_id = NULL WHERE ready_alert_id = ?').run(p.alert_id);
+      // ⚠️ 03b v1.0.16 §5 (R3-M-9): the counter alert's link only; the epoch (since, window) stays
+      tx.prepare('UPDATE pass_bag_ready SET alert_id = NULL WHERE alert_id = ?').run(p.alert_id);
       tx.prepare(
         `UPDATE handovers SET card_closed_at = ?
          WHERE served_card_alert_id = ? AND served_card_alert_id IS NOT NULL AND card_closed_at IS NULL`,
@@ -136,6 +143,19 @@ function applyPass(tx: Database.Database, event: PosEvent, emit: Emit): void {
       return settleAtZero(tx, at, (event.payload as ItemVoidedPayload).order_item_id, emit);
     case 'OrderCancelled':
       return settleOrder(tx, at, (event.payload as OrderCancelledPayload).order_id, emit);
+    case 'PassBagReadyChanged': {
+      // ⚠️ 03b v1.0.16 §5 (R3-M-9): one statement: set / replace the epoch, or delete it
+      const p = event.payload as PassBagReadyChangedPayload;
+      if (p.ready === null) tx.prepare('DELETE FROM pass_bag_ready WHERE order_id = ?').run(p.order_id);
+      else {
+        tx.prepare(
+          `INSERT INTO pass_bag_ready (order_id, bag_ready_since, bag_ready_window_ms, alert_id, point_id) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (order_id) DO UPDATE SET bag_ready_since = excluded.bag_ready_since, bag_ready_window_ms = excluded.bag_ready_window_ms,
+             alert_id = excluded.alert_id, point_id = excluded.point_id`,
+        ).run(p.order_id, p.ready.bag_ready_since, p.ready.bag_ready_window_ms, p.ready.alert_id, p.ready.point_id);
+      }
+      return;
+    }
     default:
       return;
   }
@@ -145,12 +165,12 @@ function applyPass(tx: Database.Database, event: PosEvent, emit: Emit): void {
 // replaces the lines of an earlier one (only its own lines keep it open, §3.5 Closing).
 function applyReady(tx: Database.Database, event: PosEvent, p: ReadyToServePayload): void {
   tx.prepare(
-    `INSERT INTO pass_orders (order_id, point_id, ready_at, ready_by, ready_alert_id, ready_table_id)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO pass_orders (order_id, point_id, ready_at, ready_by, ready_alert_id, ready_table_id, ready_explicit)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (order_id, point_id) DO UPDATE SET
        ready_at = excluded.ready_at, ready_by = excluded.ready_by,
-       ready_alert_id = excluded.ready_alert_id, ready_table_id = excluded.ready_table_id`,
-  ).run(p.order_id, p.point_id, event.recorded_at, event.actor_id, p.alert_id, p.table_id);
+       ready_alert_id = excluded.ready_alert_id, ready_table_id = excluded.ready_table_id, ready_explicit = excluded.ready_explicit`,
+  ).run(p.order_id, p.point_id, event.recorded_at, event.actor_id, p.alert_id, p.table_id, p.alert_id === null ? 0 : 1);
   tx.prepare('DELETE FROM pass_ready_lines WHERE order_id = ? AND point_id = ?').run(p.order_id, p.point_id);
   tx.prepare(
     `INSERT OR IGNORE INTO pass_ready_lines (order_item_id, order_id, point_id, settled_at)
