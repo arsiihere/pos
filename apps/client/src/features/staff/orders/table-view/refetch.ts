@@ -29,6 +29,7 @@ export const ORDER_FRAMES: ReadonlySet<string> = new Set([
   'OrderFoodCleared',
   'OrdersBilled',
   'OrdersUnbilled',
+  'OpenOrderBillChanged', // 02b v1.0.25 §6.19 (R3-M-8): a takeaway / parking due or approval changed (ids only)
   'LineWeightSet',
   'LineComped',
   'LineCompRemoved',

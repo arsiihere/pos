@@ -33,7 +33,7 @@ const ev = (seq: number, event_type: string, payload: Record<string, unknown>) =
 
 describe('[02b Q-6] live re-read', () => {
   it('[02b Q-6] an order frame or ItemStarted / ItemDone / ItemDoneUndone / FireDispatched for an open view → one seating-orders read, debounced 250 ms; no Refresh line; "Updated {time}" only offline', async () => {
-    for (const type of ['ItemStarted', 'ItemDone', 'ItemDoneUndone', 'FireDispatched', 'ItemServed', 'OrderBoosted']) expect(ORDER_FRAMES.has(type), type).toBe(true);
+    for (const type of ['ItemStarted', 'ItemDone', 'ItemDoneUndone', 'FireDispatched', 'ItemServed', 'OrderBoosted', 'OpenOrderBillChanged']) expect(ORDER_FRAMES.has(type), type).toBe(true); // 02b v1.0.25 §6.19 (R3-M-8): + OpenOrderBillChanged
     const live = createLiveBus();
     const timers = fakeTimers();
     const query = vi.fn(async () => ({ ok: true as const, data: { orders: [], total_minor: 0 } }));
