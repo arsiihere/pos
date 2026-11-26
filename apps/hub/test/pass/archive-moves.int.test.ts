@@ -184,4 +184,18 @@ describe('[03b #132, 03a #195] D7: a config apply that archives a Pass moves its
     expect(got[0]!.view!.point_id).toBe('MAIN');
     expect(got[0]!.view!.orders.flatMap((o) => o.lines)).toEqual([expect.objectContaining({ order_item_id: 'D1', moved_from: 'Takeaway Pass' })]);
   });
+
+  it('[03b #130] an ordinary routing edit (TA takeaway → parking) leaves an existing takeaway line at TA; a carry edit for TA recalculates its hidden line from TA; cold replay agrees', async () => {
+    openDay(hub, { menu: menu(1, { s1Point: 'TA' }) });
+    // A pickup two hours ahead: its line stays hidden and unfired on the (Waada Guard) station.
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'O5', pickup_at_ms: hub.clock.branchNow() + 7_200_000, lines: [{ order_item_id: 'E1', item_id: FX.naan }] });
+    expect(engine().lines.E1).toMatchObject({ point_id: 'TA', fired_at: null });
+    const edited = menu(2, { s1Point: 'MAIN', ta: { order_types: ['parking'] } });
+    edited.stations = edited.stations.map((st) => (st.station_id === FX.station ? { ...st, carry_times: [{ point_id: 'TA', carry_ms: 45_000 }, { point_id: 'MAIN', carry_ms: 0 }] } : st));
+    expect((await apply(edited)).outcome).toBe('applied');
+    expect(lastCommit().some((e) => e.event_type === 'PassPointLinesMoved')).toBe(false);
+    expect(engine().lines.E1).toMatchObject({ point_id: 'TA', carry_ms: 45_000, from_point_id: null });
+    const rebuilt = replayEngine(hub.deps.db, BRANCH, 0, initialEngineState(), () => undefined).state;
+    expect(withoutDiagnostics(rebuilt)).toEqual(withoutDiagnostics(engine()));
+  });
 });
