@@ -1,0 +1,146 @@
+// ⚠️ 03b v1.0.16 §3.10 "Pass archive (D7)", §6.22, §11 task 51, test 132 (hub part); 01a v2.11 §6.9a Archive (R3-B-1);
+// 03a v1.2.11 §3.3 D7 fold, test 195 (hub part). A real config apply (the poller, a stub cloud) whose snapshot archives a
+// Pass point: the same commit holds BranchConfigApplied and one PassPointLinesMoved per affected order; the engine
+// lines move to the point routePoint picks among the incoming active points (a routing-only point; a station default
+// with the effective active fallback); an old point Ready whose lines all moved is closed `obsolete` and its memberships
+// dropped; stage and hand-overs stay; a later config does not move them back (live = full rebuild). With no active
+// destination the apply is refused and nothing commits.
+import { initialEngineState, type EngineState } from '@pos/engine';
+import type { BranchConfig, PosEvent } from '@pos/events';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { replayEngine } from '../../src/engine-host/replay';
+import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
+import { configPoller } from '../../src/sync/config-poller';
+import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cloud';
+import { createTestHub, type TestHub } from '../helpers/test-hub';
+import { fakeReturnDrafts } from '../engine/fakes';
+import { COOK, FX, append, appendOrder, fireLines, fixtureMenu, openDay, serveLines, signInCook } from '../kds/fixtures';
+
+const BRANCH = 'branch-1';
+const CONFIRMED = { tenant_id: 'tenant-a', branch_id: BRANCH, branch_name: 'Main', branch_api_key: 'key-1', confirmed_at: 1 };
+
+let hub: TestHub;
+let cloud: StubConfigCloud;
+beforeEach(async () => {
+  cloud = stubConfigCloud();
+  hub = await createTestHub({ configClient: cloud, config: { provisioned: { ...CONFIRMED } } });
+});
+afterEach(async () => {
+  swapBranchConfig(null);
+  await hub.close();
+});
+
+const engine = (): EngineState => hub.deps.state.get();
+const point = (point_id: string, name: string, sort_order: number, o: Partial<BranchConfig['points'][number]> = {}) => ({ point_id, name, sort_order, is_archived: false, ...o });
+
+/** fixtureMenu with Main (all) and a Takeaway Pass; S1's default `s1Point`; S1 carries 30 s to TA, 0 to Main. */
+function menu(version: number, o: { s1Point: string; ta?: Partial<BranchConfig['points'][number]>; main?: Partial<BranchConfig['points'][number]> }): BranchConfig {
+  const base = fixtureMenu();
+  return {
+    ...base,
+    branch_id: BRANCH,
+    config_version: version,
+    points: [point('MAIN', 'Main Pass', 0, o.main), point('TA', 'Takeaway Pass', 1, { order_types: ['takeaway'], ...o.ta })],
+    stations: base.stations.map((s) => ({
+      ...s,
+      point_id: s.station_id === FX.station ? o.s1Point : 'MAIN',
+      carry_times: [{ point_id: 'TA', carry_ms: 30_000 }, { point_id: 'MAIN', carry_ms: 0 }],
+    })),
+  };
+}
+async function apply(config: BranchConfig) {
+  cloud.respondWithSnapshot(config as unknown as Record<string, unknown>);
+  return configPoller(hub.app).pollOnce();
+}
+const lastCommit = (): PosEvent[] => hub.published.at(-1) ?? [];
+const withoutDiagnostics = (s: EngineState) => ({ ...s, diagnostics: [] });
+
+describe('[03b #132, 03a #195] D7: a config apply that archives a Pass moves its outstanding work in the same commit', () => {
+  it('a routing-only point: cooking and returned lines move to Main with the carry facts and source name; its Ready alert closes obsolete; a later config keeps them; live = rebuild', async () => {
+    const pass = await signInCook(hub, { pointId: 'TA' });
+    // Orders placed while S1's default was TA (their lines record TA); then an ordinary edit makes Main S1's default.
+    openDay(hub, { menu: menu(1, { s1Point: 'TA' }) });
+    const o1 = appendOrder(hub, { order_type: 'takeaway', order_id: 'O1', lines: [{ order_item_id: 'A1', item_id: FX.naan }, { order_item_id: 'A2', item_id: FX.naan }] });
+    expect(engine().lines.A1).toMatchObject({ point_id: 'TA' });
+    fireLines(hub, FX.station, ['A1']);
+    append(hub, [{ stream_type: 'order', stream_id: 'O1', event_type: 'ItemStarted', payload: { order_item_id: 'A1', started_at: hub.clock.branchNow(), source: 'tap' } }]);
+    // A2 cooked, served and returned (remake): the return line A2R is outstanding at TA.
+    fireLines(hub, FX.station, ['A2']);
+    append(hub, [
+      { stream_type: 'order', stream_id: 'O1', event_type: 'ItemStarted', payload: { order_item_id: 'A2', started_at: hub.clock.branchNow(), source: 'tap' } },
+      { stream_type: 'order', stream_id: 'O1', event_type: 'ItemDone', payload: { order_item_id: 'A2', done_at: hub.clock.branchNow(), source: 'tap' } },
+    ]);
+    serveLines(hub, 'O1', ['A2']);
+    const a2Added = o1.events.find((e) => e.event_type === 'ItemAdded' && (e.payload as { order_item_id: string }).order_item_id === 'A2')!;
+    // The return line records the served line's point (02b PT-R1's return routing is not built: set here).
+    hub.deps.writer.run((tx) =>
+      tx.append(
+        fakeReturnDrafts(tx.state as EngineState, a2Added, 'remake', tx.clock.branchNow()).map((d) =>
+          d.event_type !== 'OrderLinesAdded' ? d : { ...d, payload: { ...d.payload, lines: (d.payload.lines as Array<Record<string, unknown>>).map((l) => ({ ...l, point_id: 'TA' })) } },
+        ),
+      ),
+    );
+    expect(engine().lines.A2R).toMatchObject({ point_id: 'TA', stage: 'added' });
+    // A1 done and marked Ready at TA (its alert open).
+    append(hub, [{ stream_type: 'order', stream_id: 'O1', event_type: 'ItemDone', payload: { order_item_id: 'A1', done_at: hub.clock.branchNow(), source: 'tap' } }]);
+    const ready = await hub.app.inject({
+      method: 'POST',
+      url: '/commands/mark-ready-to-serve',
+      headers: { authorization: `Bearer ${pass.token}`, 'x-session-token': pass.sessionToken },
+      payload: { command_id: 'ready-1', tenant_id: 'tenant-a', branch_id: BRANCH, command_type: 'MarkReadyToServe', payload: { order_id: 'O1', point_id: 'TA' }, occurred_at: hub.clock.branchNow(), actor_id: COOK.staff, device_id: pass.deviceId },
+    });
+    expect(ready.statusCode, ready.body).toBe(200);
+    const alertId = (hub.deps.db.prepare("SELECT ready_alert_id FROM pass_orders WHERE order_id = 'O1' AND point_id = 'TA'").get() as { ready_alert_id: string }).ready_alert_id;
+    expect(alertId).toEqual(expect.any(String));
+    expect((await apply(menu(2, { s1Point: 'MAIN' }))).outcome).toBe('applied');
+    expect(engine().lines.A1!.point_id).toBe('TA'); // an ordinary edit leaves recorded points in place
+    const before = { A1: engine().lines.A1!, A2R: engine().lines.A2R! };
+
+    expect((await apply(menu(3, { s1Point: 'MAIN', ta: { is_archived: true } }))).outcome).toBe('applied');
+    const commit = lastCommit();
+    expect(commit.map((e) => e.event_type)).toEqual(expect.arrayContaining(['BranchConfigApplied', 'PassPointLinesMoved']));
+    const moved = commit.filter((e) => e.event_type === 'PassPointLinesMoved');
+    expect(moved).toHaveLength(1);
+    expect(moved[0]!.payload).toEqual({
+      order_id: 'O1',
+      moves: [
+        { order_item_id: 'A1', from_point_id: 'TA', from_point_name: 'Takeaway Pass', to_point_id: 'MAIN', carry_ms: 0, alternates: [] },
+        { order_item_id: 'A2R', from_point_id: 'TA', from_point_name: 'Takeaway Pass', to_point_id: 'MAIN', carry_ms: 0, alternates: [] },
+      ],
+    });
+    for (const id of ['A1', 'A2R'] as const) {
+      expect(engine().lines[id], id).toMatchObject({ point_id: 'MAIN', carry_ms: 0, from_point_id: 'TA', from_point_name: 'Takeaway Pass', stage: before[id].stage, booked: before[id].booked });
+    }
+    // The old Ready had only A1: its alert closed obsolete in the same commit and its membership dropped.
+    const closed = commit.filter((e) => e.event_type === 'AlertClosed').map((e) => e.payload as { alert_id: string; reason: string });
+    expect(closed).toEqual(expect.arrayContaining([expect.objectContaining({ alert_id: alertId, reason: 'obsolete' })]));
+    expect(hub.deps.db.prepare("SELECT count(*) AS n FROM pass_ready_lines WHERE settled_at IS NULL AND point_id = 'TA'").get()).toEqual({ n: 0 });
+
+    // Routing changes again (TA restored and now taking every type): nothing moves back; live = full rebuild.
+    expect((await apply(menu(4, { s1Point: 'MAIN', ta: { order_types: 'all' } }))).outcome).toBe('applied');
+    expect(lastCommit().some((e) => e.event_type === 'PassPointLinesMoved')).toBe(false);
+    expect(engine().lines.A1).toMatchObject({ point_id: 'MAIN', from_point_name: 'Takeaway Pass' });
+    const rebuilt = replayEngine(hub.deps.db, BRANCH, 0, initialEngineState(), () => undefined).state;
+    expect(withoutDiagnostics(rebuilt)).toEqual(withoutDiagnostics(engine()));
+  });
+
+  it("a station's default Pass: its lines move to the effective active fallback by order type", async () => {
+    openDay(hub, { menu: menu(1, { s1Point: 'MAIN', ta: { order_types: 'all' } }) });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'O2', lines: [{ order_item_id: 'B1', item_id: FX.naan }] });
+    expect(engine().lines.B1!.point_id).toBe('MAIN');
+    expect((await apply(menu(2, { s1Point: 'MAIN', ta: { order_types: 'all' }, main: { is_archived: true } }))).outcome).toBe('applied');
+    expect(engine().lines.B1).toMatchObject({ point_id: 'TA', carry_ms: 30_000, from_point_id: 'MAIN', from_point_name: 'Main Pass' });
+  });
+
+  it('no active destination: the apply is refused, nothing commits (no move, no BranchConfigApplied, the last config kept)', async () => {
+    openDay(hub, { menu: menu(1, { s1Point: 'MAIN' }) });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'O3', lines: [{ order_item_id: 'C1', item_id: FX.naan }] });
+    const line = engine().lines.C1!;
+    const seq = hub.deps.writer.lastSeq();
+    const result = await apply(menu(2, { s1Point: 'MAIN', main: { is_archived: true }, ta: { is_archived: true } }));
+    expect(result).toMatchObject({ outcome: 'rejected', reason: 'apply_failed' });
+    expect(branchConfig()?.config_version).toBe(1);
+    expect(hub.deps.db.prepare("SELECT count(*) AS n FROM events WHERE seq > ? AND event_type IN ('BranchConfigApplied', 'PassPointLinesMoved')").get(seq)).toEqual({ n: 0 });
+    expect(engine().lines.C1).toEqual(line);
+  });
+});
