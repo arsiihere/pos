@@ -1,6 +1,7 @@
 import type { EngineState } from '@pos/engine';
 import type { PosEvent } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
+import { deviceProfile } from '../auth/device-profile.js';
 import { devicePoint, pointOfLine } from '../kds/contracts.js';
 import { takeoverStations } from '../kds/presence.js';
 import type { HubDeps } from '../server.js';
@@ -11,7 +12,8 @@ import type { SocketCtx } from './catch-up.js';
 // 03b §6.17 (task b22): event audiences, all memory (0 statements).
 // - Line events → the station sockets of the line's station; the staff sockets whose devicePoint is the line's point
 //   (pointOfLine, §3.1); the staff sockets of the station's point while that station is under takeover (§3.6).
-// - Pass events (ReadyToServe, ReadyToServeUndone, Handover, ReadyRetargeted) → the staff sockets of the payload's point.
+// - Pass events (ReadyToServe, ReadyToServeUndone, Handover, ReadyRetargeted) → the staff sockets of the payload's point;
+//   ⚠️ 03b v1.0.16 (R8): + for a takeaway / parking order, the staff sockets of its counter devices (not ReadyRetargeted).
 // G-10: audiences are OR-ed (ws/audience.ts), so 03b only adds sockets; 02b / 03a already send ItemRemoved, ItemVoided,
 // ItemServed, OrderBoosted, ItemsReleased and StationCapacitySet wider — accepted. The sets above are 03b's minimum,
 // not exact: 02b v1.0.11 H1 also sends ItemStarted, ItemDone, ItemDoneUndone, FireDispatched to every staff socket and
@@ -41,6 +43,15 @@ export const KDS_LINE_EVENT_TYPES = [
 
 export const KDS_PASS_EVENT_TYPES = ['ReadyToServe', 'ReadyToServeUndone', 'Handover', 'ReadyRetargeted'] as const;
 
+/**
+ * ⚠️ 03b v1.0.16 §6.17 (02b-tk R8; hostile run 1 M-2, m-1, m-11): the Pass events that also reach the counter devices
+ * of a takeaway / parking order. ReadyRetargeted is dine-in only, so it never does.
+ */
+export const KDS_COUNTER_EVENT_TYPES = ['ReadyToServe', 'ReadyToServeUndone', 'Handover'] as const;
+
+/** §6.17: the 05a screen a counter device shows for the order type (takeaway / parking); null for dine-in, delivery. */
+const COUNTER_SCREEN: Readonly<Record<string, 'takeaway' | 'parking'>> = { takeaway: 'takeaway', parking: 'parking' };
+
 interface LineFacts {
   station_id: string;
   point_id: string | null;
@@ -56,6 +67,10 @@ const stationPointOf = (station_id: string): string | null => branchConfig()?.st
 export function registerKdsAudiences(app: FastifyInstance, deps: Pick<HubDeps, 'db' | 'state' | 'writer'>): void {
   const lines = new Map<string, LineFacts>();
   const gone = new Set<string>();
+  // ⚠️ 03b v1.0.16 §6.17 (R8): order_id → order_type, kept like `lines` (an order the engine drops in a commit stays
+  // typed for that commit's publish and is dropped one commit later)
+  const orderTypes = new Map<string, string>();
+  const goneOrders = new Set<string>();
   const refresh = (): void => {
     const state = deps.state.get();
     if (!isEngineState(state)) return;
@@ -66,6 +81,10 @@ export function registerKdsAudiences(app: FastifyInstance, deps: Pick<HubDeps, '
       const l = state.lines[id]!;
       lines.set(id, { station_id: l.station_id, point_id: pointOfLine(state, id), order_id: l.order_id });
     }
+    for (const id of goneOrders) if (state.orders[id] === undefined) orderTypes.delete(id);
+    goneOrders.clear();
+    for (const id of orderTypes.keys()) if (state.orders[id] === undefined) goneOrders.add(id);
+    for (const id in state.orders) orderTypes.set(id, state.orders[id]!.order_type);
   };
   refresh();
   deps.writer.addAfterCommit(refresh);
@@ -111,9 +130,22 @@ export function registerKdsAudiences(app: FastifyInstance, deps: Pick<HubDeps, '
     return socket.kind === 'staff' && typeof point_id === 'string' && devicePoint(socket.deviceId) === point_id;
   };
 
+  // ⚠️ 03b v1.0.16 §6.17 (R8): a second, additive registration (G-10): a staff socket on a device whose current 05a
+  // profile shows the order's counter screen, whatever its hardware or point. Memory, 0 statements; staff sockets only
+  // (an alert-mode socket gets none; a station or display socket never qualifies).
+  const counterAudience = (event: PosEvent, socket: SocketCtx): boolean => {
+    if (socket.kind !== 'staff') return false;
+    const order_id = (event.payload as { order_id?: unknown }).order_id;
+    if (typeof order_id !== 'string') return false;
+    const type = orderTypes.get(order_id);
+    const screen = type === undefined ? undefined : COUNTER_SCREEN[type];
+    return screen !== undefined && deviceProfile(socket.deviceId)?.screens.includes(screen) === true;
+  };
+
   const stops = [
     ...KDS_LINE_EVENT_TYPES.map((t) => registerEventAudience(t, lineAudience)),
     ...KDS_PASS_EVENT_TYPES.map((t) => registerEventAudience(t, passAudience)),
+    ...KDS_COUNTER_EVENT_TYPES.map((t) => registerEventAudience(t, counterAudience)),
     registerEventAudience('LanesSet', (_e, s) => s.kind === 'staff' || s.kind === 'station'),
     registerEventAudience('StationScreenSet', (e, s) => s.kind === 'station' && s.stationId === (e.payload as { station_id?: unknown }).station_id),
     registerEventAudience('BusinessDayOpened', (_e, s) => s.kind === 'station'),
