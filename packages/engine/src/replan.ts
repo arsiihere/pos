@@ -379,7 +379,8 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
       const w = targetOf(opt.station_id);
       const lo = Math.max(t, d - L.max_early_ms);
       const keep = stationPolicy(state, opt.station_id).keep_ms;
-      const fire = latestFit(w, lo, d - keep, L.prep_ms, L.cook_ms, L.units, opt.cap) ?? latestFit(w, lo, d, L.prep_ms, L.cook_ms, L.units, opt.cap);
+      const fire = latestFit(w, lo, d - keep, L.prep_ms, L.cook_ms, L.units, opt.cap) ?? latestFit(w, lo, d, L.prep_ms, L.cook_ms, L.units, opt.cap) ??
+        (heldPickup(state, L) === null ? null : latestFit(w, t, d, L.prep_ms, L.cook_ms, L.units, opt.cap));
       if (fire === null) continue;
       const booked = bookingAt(L, opt.cap, fire);
       landOn(opt.station_id, booked);
@@ -487,7 +488,8 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
       const lo = Math.max(t, L.deadline_ms - L.max_early_ms);
       const fire =
         latestFit(work, lo, L.deadline_ms - pol.keep_ms, L.prep_ms, L.cook_ms, L.units, own.cap) ??
-        latestFit(work, lo, L.deadline_ms, L.prep_ms, L.cook_ms, L.units, own.cap);
+        latestFit(work, lo, L.deadline_ms, L.prep_ms, L.cook_ms, L.units, own.cap) ??
+        (heldPickup(state, L) === null ? null : latestFit(work, t, L.deadline_ms, L.prep_ms, L.cook_ms, L.units, own.cap));
       if (fire === null) {
         const r = options.length > 1 ? reroute(L, options, own) : null;
         if (r !== null) away.push(r);
@@ -514,7 +516,7 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
         ]
           .map((L): OverloadLine => {
             const w = weightOf(state, L);
-            return { ...L, w, urgency: w * (t - (state.orders[L.order_id]?.placed_at ?? t)), cap: caps.get(L.order_item_id)! };
+            return { ...L, held: heldPickup(state, L) !== null && !o.late?.has(L.order_item_id), w, urgency: w * (t - (state.orders[L.order_id]?.placed_at ?? t)), cap: caps.get(L.order_item_id)! };
           })
           .concat(blocks.map((b) => blockUnit(state, b, capacityFor(station, firstId), t))),
         capacityFor(station, firstId),
