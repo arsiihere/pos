@@ -7,7 +7,7 @@
 // `computeBill` (half up per tax of each profile's list,
 // capped discount spread), fed the same per-line rows in the same order through the bill view's `openComputeLines`, so
 // the total equals the bill view's except pending voids, which the list does not subtract ("before pending voids").
-import { computeBill, DomainError, type ComputeDiscount, type ComputeLine, type ComputeRules } from '@pos/domain';
+import { computeBill, DomainError, type ComputeDiscount, type ComputeLine, type ComputePayment, type ComputeRules } from '@pos/domain';
 import type { BranchConfig } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
@@ -17,7 +17,7 @@ import { tableLabel } from '../../kds/details.js';
 import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registry.js';
 import { billingAt, type BillDiscountState, type BillOrderType, type BillRounding } from '../commands/ensure-bill.js';
 import type { HubBilling } from '../defaults.js';
-import { BILL_REQUEST_KINDS, openComputeLines } from './bill.js';
+import { BILL_REQUEST_KINDS, openComputeLines, planOf } from './bill.js';
 
 // 02b §3.4 billed_minor per line (the same expression as orders/exports.ts BILLED, which 02b does not export), with the
 // §3.1 base rules on top: a deal part and a return line 0, never below 0. Pinned against the bill view by the tests.
@@ -36,10 +36,24 @@ export const NOT_IN_CORRECTIONS = `NOT EXISTS (SELECT 1 FROM bill_orders bo JOIN
  * The lines of `orders` (a FROM clause naming `o` and the joined `l`) as JSON rows, in the bill view's order (orders by
  * placed_at, order_id; lines by added_at, insertion): id, kind, profile, §3.1 base, live units, unit price (H6-18).
  */
-const lineRows = (from: string): string => `(SELECT json_group_array(json_object('id', z.id, 'k', z.k, 'p', z.p, 'b', z.b, 'u', z.u, 'up', z.up)) FROM (
+export const lineRows = (from: string): string => `(SELECT json_group_array(json_object('id', z.id, 'k', z.k, 'p', z.p, 'b', z.b, 'u', z.u, 'up', z.up)) FROM (
   SELECT l.order_item_id AS id, l.line_kind AS k, l.tax_profile_id AS p, ${LINE_BASE} AS b,
          l.units - l.removed_units - l.voided_units AS u, l.unit_price_minor AS up
   FROM ${from} ORDER BY o.placed_at, o.order_id, l.added_at, l.rowid) z)`;
+
+/**
+ * ⚠️ 05 v1.0.35 §6.2, §6.2a (run 3 R3-B-1): the columns of bill `b`'s split plan — the number of its split rows and its
+ * OPEN splits in split order, each with its plan, item-plan rows and live payments (class, direction, amount, tendered),
+ * each collection aggregated in its own subquery (no join multiplies lines by payments). Read by `openPart`.
+ */
+export const OPEN_SPLIT_COLUMNS = `(SELECT COUNT(*) FROM bill_splits s WHERE s.bill_id = b.bill_id) AS split_count,
+  (SELECT json_group_array(json_object('split_no', s.split_no, 'plan_json', s.plan_json,
+            'plan_lines_json', json((SELECT json_group_array(json_object('order_item_id', pl.order_item_id, 'units', pl.units))
+                                  FROM (SELECT order_item_id, units FROM bill_split_lines
+                                        WHERE bill_id = s.bill_id AND split_no = s.split_no ORDER BY order_item_id) pl)),
+            'payments', json((SELECT json_group_array(json_object('c', p.payment_class, 'd', p.direction, 'a', p.amount_minor, 't', p.tendered_minor))
+                                FROM bill_payments p WHERE p.bill_id = s.bill_id AND p.split_no = s.split_no AND p.removed_at IS NULL))))
+     FROM (SELECT * FROM bill_splits WHERE bill_id = b.bill_id AND state = 'open' ORDER BY split_no) s) AS open_splits`;
 
 // 1: one row always (the business date of billing_day), then one per open seating with its unbilled orders' sums.
 const SEATINGS = `
@@ -78,6 +92,7 @@ SELECT b.bill_id, b.scope, b.seating_id, b.table_key, b.order_type, b.state, b.o
        (SELECT json_group_array(json_object('id', c.order_item_id, 'units', c.units, 'share', c.share_minor))
           FROM closed_split_units c WHERE c.bill_id = b.bill_id) AS closed,
        (SELECT json_group_array(d.order_item_id) FROM bill_discount_lines d WHERE d.bill_id = b.bill_id) AS discount_line_ids,
+       b.split_mode, ${OPEN_SPLIT_COLUMNS},
        CASE WHEN b.reopen_mode = 'corrections' THEN ${lineRows(
          `orders o JOIN order_lines l ON l.order_id = o.order_id
             WHERE o.cancelled_at IS NULL AND o.order_id IN (SELECT order_id FROM bill_orders WHERE bill_id = b.bill_id)`,
@@ -93,7 +108,7 @@ FROM bills b LEFT JOIN seatings s ON s.seating_id = b.seating_id
 WHERE b.state <> 'closed' AND b.absorbed_into IS NULL`;
 
 /** One line row of `lineRows`. */
-interface Sum {
+export interface Sum {
   id: string;
   k: ComputeLine['line_kind'];
   p: string | null;
@@ -150,6 +165,9 @@ interface BillRow {
   closed_discount: number;
   closed: string;
   discount_line_ids: string;
+  split_mode: 'items' | 'amount' | 'equal' | null;
+  split_count: number;
+  open_splits: string;
   own_sums: string | null;
   own_root: string | null;
   has_open_request: number;
@@ -164,6 +182,8 @@ export interface OpenBillRow {
   state: 'projected' | 'open' | 'partly_paid';
   total_default_minor: number;
   paid_minor: number;
+  /** ⚠️ 05 v1.0.35 §6.2 (run 3 R3-B-1, D3): Σ the open splits' balance_minor; closed splits add 0 */
+  due_minor: number;
   check_printed_at: number | null;
   opened_at: number;
   open_minutes: number;
@@ -173,7 +193,7 @@ export interface OpenBillRow {
 }
 
 interface Candidate {
-  row: Omit<OpenBillRow, 'identifier' | 'total_default_minor' | 'open_minutes' | 'flagged'>;
+  row: Omit<OpenBillRow, 'identifier' | 'total_default_minor' | 'due_minor' | 'open_minutes' | 'flagged'>;
   sums: Sum[];
   closed: Array<{ id: string; units: number; share: number }>;
   /** dine-in: the seating for scope and the identifier; key: who placed its orders, its root */
@@ -301,9 +321,9 @@ export function openBills(c: OpenBillsCtx): { bills: OpenBillRow[]; as_of_seq: n
   const at = business_date === null ? null : billingAt(config, business_date);
   const rows: OpenBillRow[] = visible.map((x) => {
     const { billing, rules } = at!;
-    const total = totalDefault(billing, rules, business_date!, x);
+    const { total_default_minor, due_minor } = openPart(billing, rules, business_date!, { order_type: x.row.order_type, sums: x.sums, closed: x.closed, bill: x.bill });
     const open_minutes = Math.max(0, Math.floor((c.now - x.row.opened_at) / 60_000));
-    return { ...x.row, identifier: identifierOf(x, nameOf, c.openDay), total_default_minor: total, open_minutes, flagged: open_minutes > billing.settings.open_bill_flag_minutes };
+    return { ...x.row, identifier: identifierOf(x, nameOf, c.openDay), total_default_minor, due_minor, open_minutes, flagged: open_minutes > billing.settings.open_bill_flag_minutes };
   });
   rows.sort((a, b) => {
     if (a.check_printed_at !== b.check_printed_at) {
@@ -322,8 +342,41 @@ function maxOrNull(a: number | null, b: number | null): number | null {
   return Math.max(a, b);
 }
 
-/** The open remainder at the default class (cash), no payments: `computeBill` over one compute line per bill line (shared openComputeLines). */
-function totalDefault(billing: HubBilling, atDay: ComputeRules, business_date: string, x: Candidate): number {
+/** The bill-row fields `openPart` reads (BILLS and keyBalances' statement both return them). */
+export interface OpenPartBill {
+  sc_bp: number;
+  sc_removed: number;
+  discount_json: string | null;
+  prices_include_tax: number;
+  rounding_json: string;
+  closed_discount: number;
+  discount_line_ids: string;
+  split_mode: 'items' | 'amount' | 'equal' | null;
+  split_count: number;
+  open_splits: string;
+}
+
+interface OpenSplit {
+  split_no: number;
+  plan_json: string | null;
+  plan_lines_json: Array<{ order_item_id: string; units: number }>;
+  payments: Array<{ c: 'cash' | 'digital'; d: 'in' | 'out'; a: number; t: number | null }>;
+}
+
+/**
+ * The open remainder of a bill (§6.2, §6.2a), before pending voids, as the bill view computes it (H6-18): one
+ * `computeBill` over one compute line per bill line (shared openComputeLines), the bill's frozen rules, discount and
+ * sticky service charge, its open splits' plan and their live payments. `total_default_minor` = the open remainder's
+ * total at the default class; ⚠️ run 3 (R3-B-1, D3) `due_minor` = Σ the open splits' `balance_minor` (each split's total
+ * less its own net payments; closed splits add 0; negative kept). A projected bill (or a bill with no split row yet):
+ * one open split, no payments. Pure.
+ */
+export function openPart(
+  billing: HubBilling,
+  atDay: ComputeRules,
+  business_date: string,
+  x: { order_type: BillOrderType; sums: readonly Sum[]; closed: ReadonlyArray<{ id: string; units: number; share: number }>; bill: OpenPartBill | null },
+): { total_default_minor: number; due_minor: number } {
   const b = x.bill;
   const rules = b === null ? atDay : { ...atDay, prices_include_tax: b.prices_include_tax === 1, rounding: { ...(JSON.parse(b.rounding_json) as BillRounding) } };
   const closed = new Map(x.closed.map((c) => [c.id, { units: c.units, share: c.share }]));
@@ -340,7 +393,10 @@ function totalDefault(billing: HubBilling, atDay: ComputeRules, business_date: s
           value: d.value,
           frozen: d.frozen_minor === null ? null : { amount_minor: d.frozen_minor, closed_discount_minor: b!.closed_discount, line_ids: JSON.parse(b!.discount_line_ids) as string[] },
         };
-  const sc = b === null ? { rate_bp: billing.settings.service_charge_bp[x.row.order_type], removed: false } : { rate_bp: b.sc_bp, removed: b.sc_removed === 1 };
+  const sc = b === null ? { rate_bp: billing.settings.service_charge_bp[x.order_type], removed: false } : { rate_bp: b.sc_bp, removed: b.sc_removed === 1 };
+  const open: OpenSplit[] = b === null || b.split_count === 0 ? [{ split_no: 1, plan_json: null, plan_lines_json: [], payments: [] }] : (JSON.parse(b.open_splits) as OpenSplit[]);
+  if (open.length === 0) return { total_default_minor: 0, due_minor: 0 };
+  const payments: ComputePayment[] = open.flatMap((s) => s.payments.map((p) => ({ split_no: s.split_no, payment_class: p.c, direction: p.d, amount_minor: p.a, tendered_minor: p.t })));
   const result = computeBill({
     business_date,
     rules,
@@ -348,10 +404,13 @@ function totalDefault(billing: HubBilling, atDay: ComputeRules, business_date: s
     lines,
     discount,
     service_charge: { ...sc, tax_profile_id: billing.settings.service_charge_tax_profile_id },
-    plan: { mode: 'none', split_no: 1 },
-    payments: [],
+    plan: planOf(
+      { split_mode: b === null ? null : b.split_mode },
+      open.map((s) => ({ split_no: s.split_no, plan_json: s.plan_json, plan_lines_json: JSON.stringify(s.plan_lines_json) })),
+    ),
+    payments,
   });
-  return result.totals_default.total_minor;
+  return { total_default_minor: result.totals_default.total_minor, due_minor: result.splits.reduce((a, s) => a + s.balance_minor, 0) };
 }
 
 function identifierOf(x: Candidate, nameOf: ReadonlyMap<string, string>, today: string | null): string {
