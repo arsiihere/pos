@@ -24,7 +24,7 @@ import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { ConnectedSession, WsHub } from '../ws/server.js';
 import { counterScreenKey, kindOf, REQUEST_RESULT, safeLink, type AlertKind } from './kinds.js';
 import { registeredRoutes } from './routes.js';
-import { isListedDevice, listedDevicesOnly, mayAnswer, showsScreen, type AlertRequestPart } from './targets.js';
+import { deviceAllowed, isListedDevice, listedDevicesOnly, mayAnswer, showsScreen, valuesOf, type AlertRequestPart } from './targets.js';
 import { cachedPrepare } from './statements.js';
 
 // 01d §6 batch 3 / §3.6 / §3.12: the alert frames (`alert`, `alert_closed`, `alert_seen`), sent from the
@@ -170,7 +170,10 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
         const canAnswer = (staffId: string): boolean =>
           request !== null && mayAnswer(dir(), request, row.requester_staff_id, staffId).ok;
         const counter = (deviceId: string): boolean => counterRow(kind, row.values_json, deviceId);
-        send(ws, planStep(row, payload.recipients, payload.routes, views, sessions, alertDevices, request !== null, canAnswer, listedDevicesOnly(kind), counter));
+        // ⚠️ 03b v1.0.16 §6.21 (run 3 verify): the kind's excludesDevice, before any card, lock or repeat
+        const values = valuesOf(row.values_json);
+        const allowed = (deviceId: string): boolean => deviceAllowed(kind, values, deviceId);
+        send(ws, planStep(row, payload.recipients, payload.routes, views, sessions, alertDevices, request !== null, canAnswer, listedDevicesOnly(kind), counter, allowed));
         sendRoutes(row, kind, payload, views);
       }, { alert_id: row.alert_id, kind: row.kind, step: payload.step });
     }
@@ -506,6 +509,7 @@ function planStep(
   canAnswer: (staffId: string) => boolean,
   listedOnly: boolean,
   counter: (deviceId: string) => boolean = () => false,
+  allowed: (deviceId: string) => boolean = () => true,
 ): Batch[] {
   const hidden = hiddenOf(row);
   const deviceTarget = new Set<string>();
@@ -526,6 +530,7 @@ function planStep(
   for (const r of recipients) {
     if (r.device_id === null) continue;
     const deviceId = r.device_id;
+    if (!allowed(deviceId)) continue;
     const frame = (): WsServerMessage => views.lock(r.set, null);
     // 01d v1.3.7 §6 batch 3 (Q-37a): a counter row's signed-in staff sockets get the card (AD-75 / AD-162 not applied);
     // its alert-mode socket and station sockets keep lock
@@ -555,7 +560,7 @@ function planStep(
     const cardFor = (): boolean =>
       (card ??= cardRule({ deviceTarget: false, set: r.set, for_staff_id: r.for_staff_id, request, canAnswer: request && canAnswer(staffId) }));
     for (const s of sessions) {
-      if (s.kind !== 'staff' || s.staffId !== staffId || hidden.session(s)) continue;
+      if (s.kind !== 'staff' || s.staffId !== staffId || hidden.session(s) || !allowed(s.deviceId)) continue;
       // 05a §3.9 rule 3, §3.10 (01d v1.3.5 §3.4.3 "Listed devices only"): a money request or `device_waiting` never
       // reaches a person's session on a device that is not `listed` (its screen route was dropped at resolve)
       if (listedOnly && !isListedDevice(s.deviceId)) continue;
@@ -570,7 +575,7 @@ function planStep(
     }
     for (const deviceId of bound.get(staffId) ?? []) {
       const socket = `a:${deviceId}`;
-      if (!alertDevices.has(deviceId) || hidden.device(deviceId) || deviceTarget.has(socket)) continue;
+      if (!alertDevices.has(deviceId) || hidden.device(deviceId) || deviceTarget.has(socket) || !allowed(deviceId)) continue;
       claim(socket, r.for_staff_id, () => views.lock(r.set, r.for_staff_id), { device: deviceId });
     }
   }

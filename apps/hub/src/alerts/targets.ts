@@ -387,15 +387,19 @@ export function resolveStep(step: StepDef, alert: AlertRow, reads: BatchReads, d
   // 01d D-3: `skip_requester` leaves the requester out of every set (answerer entries always skip him, §3.3 rule 5)
   const skipRequester = kindOf(alert.kind)?.skip_requester === true;
   const namedToSelf = alert.request?.right_mode === 'named' && alert.request.receiver_staff_id === alert.requester_staff_id;
+  const kindDef = kindOf(alert.kind);
   for (const { target, set } of stepTargets(step, alert)) {
     const found = resolveTarget(target, alert, reads, directory);
+    // ⚠️ 03b v1.0.16 §6.21 (run 3 verify): a device the kind excludes for this alert gets no row (a local copy: `found`
+    // may be a resolver result shared by other alerts of the batch)
+    const deviceIds = found.device_ids.filter((id) => deviceAllowed(kindDef, alert.values, id));
     for (const staffId of found.staff_ids) {
       // ⚠️ Changed by 05a (row D-2), 05a §3.9 rule 1 (a): a `named` request whose receiver is its requester (the
       // downgraded raise, "Confirm on your phone") keeps the requester as its one answerer
       if ((set === 'answerer' || skipRequester) && staffId === alert.requester_staff_id && !namedToSelf) continue;
       add(people, staffId, { staff_id: staffId, device_id: null, set });
     }
-    for (const deviceId of found.device_ids) add(devices, deviceId, { staff_id: null, device_id: deviceId, set });
+    for (const deviceId of deviceIds) add(devices, deviceId, { staff_id: null, device_id: deviceId, set });
     // §3.4.2 / D-1 (c): keep the table holder's origin (`owner_staff_id`), read before the presence filter.
     if (target.kind !== 'table_team') continue;
     const owner = resolved(target, reads).owner_staff_id;
@@ -599,6 +603,29 @@ export function isPresent(reads: BatchReads, staffId: string): boolean {
  */
 export function listedDevicesOnly(kind: Pick<AlertKind, 'kind' | 'request'>): boolean {
   return kind.request?.needs_pin === 'always' || kind.kind === 'device_waiting';
+}
+
+/**
+ * ⚠️ 03b v1.0.16 §6.21 (run 3 verify): the one guard around a kind's `excludesDevice` (alerts/kinds.ts): may this alert
+ * reach `deviceId`? Memory only; a throw counts as allowed (the hook never stops delivery elsewhere).
+ */
+export function deviceAllowed(kind: Pick<AlertKind, 'excludesDevice'> | undefined, values: Record<string, unknown>, deviceId: string): boolean {
+  if (kind?.excludesDevice === undefined) return true;
+  try {
+    return !kind.excludesDevice(values, deviceId);
+  } catch {
+    return true;
+  }
+}
+
+/** The stored `values_json` of an alert row as a record ({} when unreadable). */
+export function valuesOf(valuesJson: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(valuesJson) as unknown;
+    return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
 /**

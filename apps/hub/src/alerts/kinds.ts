@@ -127,6 +127,13 @@ export interface AlertKindDef<V = Record<string, unknown>, D = AlertDetails> {
    * `screen_devices` entry and details limited to COUNTER_DETAIL_KEYS.
    */
   counter_card?: boolean;
+  /**
+   * ⚠️ 03b v1.0.16 §3.5 step 4, §6.21 (run 3 verify R3-B-3): this alert never reaches `device_id` (pure, memory, from the
+   * alert's stored values): no device row at resolve, no screen or alert-connection route of a person there (fallback
+   * levels included), no step frame, and no row in that device's `alerts` catch-up, `alerts-inbox` or `alerts_open`.
+   * Absent → every device. Called through `deviceAllowed`, so a throw counts as allowed.
+   */
+  excludesDevice?(values: V, device_id: string): boolean;
 }
 
 /** 01d v1.3.7 §3.5: the only details a `counter_card` kind may carry (no amount, reason, problem or disposition). */
