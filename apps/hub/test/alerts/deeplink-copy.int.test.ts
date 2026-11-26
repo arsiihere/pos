@@ -338,6 +338,7 @@ describe('[01d #72] (b) (c), [01d #71] copy kinds when the request kind has no l
     // - requests-to-answer 4 = 2 query statements (2 → 2; 01d §6.9 pin) + 2 auth
     // - answer 56 (+1, 05 task 7; +1, 05 task 8; +1, 05 task 11; +1, 05a task 6): AnswerRequest accept with the request_result raise (values.link from the RequestRow, no read added)
     // - closeMany 43 (+1, 05 task 7; +1, 05 task 8; +1, 05 task 11; +1, 05a task 6): one close obsolete with its request_result raise (values_json in the same alert SELECT, 1 → 1)
-    expect(real).toEqual({ raise: 46, inbox: 4, inboxQuery: 2, requestsToAnswer: 4, requestsToAnswerQuery: 2, answer: 56, closeMany: 43 });
+    // ⚠️ closeMany 44: + 1, 03b v1.0.16 §5 (R3-M-9): the pass fold of AlertClosed also clears a counter alert's pass_bag_ready link
+    expect(real).toEqual({ raise: 46, inbox: 4, inboxQuery: 2, requestsToAnswer: 4, requestsToAnswerQuery: 2, answer: 56, closeMany: 44 });
   });
 });

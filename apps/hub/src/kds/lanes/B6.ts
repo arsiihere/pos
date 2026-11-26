@@ -5,6 +5,7 @@ import type { HubDeps } from '../../server.js';
 import { registerKdsConfigQuery } from '../../queries/kds-config.js';
 import { registerKdsConfigHook } from '../config-hook.js';
 import { provideKds } from '../contracts.js';
+import { registerBagReady } from '../bag-ready.js';
 import { registerOrderScreens } from '../order-screens.js';
 import { registerKdsAudiences } from '../../ws/kds-audiences.js';
 import { registerPointCatchUp } from '../../ws/point-catch-up.js';
@@ -25,6 +26,8 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   registerKdsAudiences(app, deps);
   // ⚠️ 03b v1.0.16 §3.5 step 4, §6.21 (run 3 verify): the order → counter screen map of the ready_to_serve device filter
   registerOrderScreens(deps);
+  // ⚠️ 03b v1.0.16 §3.5 (R8, D8; run 3 R3-B-3): the order-level counter alert and R8 epoch, before every commit
+  registerBagReady(deps);
   // b23 (§3.10, §6.12): the archived-station hook + station_notice; GET /admin/queries/kds-config
   registerKdsConfigHook(app);
   registerKdsConfigQuery(app);

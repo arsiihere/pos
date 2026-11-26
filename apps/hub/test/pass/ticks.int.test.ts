@@ -357,7 +357,9 @@ describe('tick pass_closures (03b §3.5 Closing, §6.19)', () => {
     voidLine(hub, voided, 'V1', 1);
     append(hub, [on(cancelled, 'OrderCancelled', { order_id: cancelled })]);
     pass(passClosuresTick);
-    expect(calls.closeMany).toEqual([3]);
+    // ⚠️ 03b v1.0.16 §3.5 (R8, D8): each takeaway's order-level counter alert closed in its own settling commit (one
+    // closeMany each), then the tick's one closeMany for the three point Readies
+    expect(calls.closeMany).toEqual([1, 1, 1, 3]);
     for (const id of readies) expect(alertRow(id)).toMatchObject({ state: 'closed', close_reason: 'done' });
   });
 
