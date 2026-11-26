@@ -18,7 +18,7 @@ describe("fixtures", () => {
         version: Number(match[2]),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    expect(versioned).toHaveLength(73); // ⚠️ Changed by 05 (P0.G G-16): + AlertRaised.v5; 05 task 5 (§6.29): + 30 v1 fixtures (v1.0.7: + DiscountFrozen); 05a task 4: + DeviceProfileSet.v1, AdminBootstrapTokenIssued.v2
+    expect(versioned).toHaveLength(74); // 01d v1.3.7 §5.4: + AlertRaised.v6; ⚠️ Changed by 05 (P0.G G-16): + AlertRaised.v5; 05 task 5 (§6.29): + 30 v1 fixtures (v1.0.7: + DiscountFrozen); 05a task 4: + DeviceProfileSet.v1, AdminBootstrapTokenIssued.v2
     for (const { name, type } of versioned) {
       const stored = JSON.parse(
         readFileSync(join(dir, name), "utf8"),

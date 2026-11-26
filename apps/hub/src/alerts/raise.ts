@@ -5,7 +5,7 @@ import {
   type AlertDetails,
   type AlertDisplay,
   type AlertLinkTarget,
-  type AlertRaisedPayloadV5,
+  type AlertRaisedPayloadV6,
   type AlertTarget,
   type EventDraft,
   type PosEvent,
@@ -188,7 +188,7 @@ interface Pending {
   kind: AlertKind;
   input: RaiseInput;
   row: AlertRow;
-  payload: AlertRaisedPayloadV5;
+  payload: AlertRaisedPayloadV6;
   /** the G1-9d candidate: the kind's first escalation step, for approval kinds */
   escalation: number | null;
 }
@@ -271,7 +271,7 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
     const requester = input.requester_staff_id ?? null;
     const request = requestPart(kind, input, downgradedFor(kind, requester));
     const valuesOut = values.data as Record<string, unknown>;
-    const payload: AlertRaisedPayloadV5 = {
+    const payload: AlertRaisedPayloadV6 = {
       alert_id,
       kind: kind.kind,
       family: kind.family,

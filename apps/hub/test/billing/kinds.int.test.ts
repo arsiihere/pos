@@ -252,7 +252,7 @@ describe('[05 §3.14, rows B-2 / D-1] approvals route to the B-2 approver roles'
       if (grant.grant !== 'requires_approval') throw new Error('unreachable');
       const id = raiseAs(hub, cashier, { kind: name, target: { kind: 'answerers' }, display: { kind_label_key: `alert.${name}.lock` }, requester_staff_id: STAFF.cashier, request: { approver_role_ids: grant.approver_role_ids }, ...RAISE[name] });
       const raised = eventsOf(hub, 'AlertRaised', id)[0]!;
-      expect(raised.schema_version, name).toBe(5);
+      expect(raised.schema_version, name).toBe(6); // 01d v1.3.7 §5.4: AlertRaised v6
       expect((raised.payload as { request: unknown }).request, name).toMatchObject({ right_mode: 'approval', base_permission: permission, approver_role_ids: ['R_MGR'], needs_pin: 'always' });
       expect(step0(hub, id, 'answerer'), name).toEqual([STAFF.manager]);
     }

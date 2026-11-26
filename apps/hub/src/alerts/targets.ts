@@ -1,5 +1,5 @@
 import { DomainError, type DeviceType, type Permission, type ScreenKey } from '@pos/domain';
-import type { AlertRaisedPayloadV5, AlertTarget } from '@pos/events';
+import type { AlertRaisedPayloadV6, AlertTarget } from '@pos/events';
 import { deviceProfile } from '../auth/device-profile.js';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { WriterTx } from '../engine-host/writer.js';
@@ -15,9 +15,9 @@ import { cachedPrepare } from './statements.js';
 
 /**
  * §3.2 `request`, as stored (`alerts.request_json` = the AlertRaised payload's request part). ⚠️ Changed by 05
- * (row D-1; G-16): the v5 part, whose `right_mode` may be `holders` (`base_permission` = the holders permission).
+ * (row D-1; G-16): the v5 part, whose `right_mode` may be `holders` (`base_permission` = the holders permission); 01d v1.3.7 §5.4: v6.
  */
-export type AlertRequestPart = NonNullable<AlertRaisedPayloadV5['request']>;
+export type AlertRequestPart = NonNullable<AlertRaisedPayloadV6['request']>;
 
 /** The `alerts` row fields that resolution needs, parsed (task 18 reads it; the tick selects it). */
 export interface AlertRow {

@@ -1,7 +1,7 @@
 import type {
   AlertClosedPayload,
   AlertDeliveredPayload,
-  AlertRaisedPayloadV5,
+  AlertRaisedPayloadV6,
   AlertSeenPayload,
   AlertTarget,
   AttemptSentPayload,
@@ -201,7 +201,7 @@ export function countStuckAlerts(db: Database.Database): number {
 }
 
 function applyRaised(tx: Database.Database, event: PosEvent, slot: LogSlot, stuck: StuckSink): void {
-  const p = event.payload as AlertRaisedPayloadV5; // ⚠️ Changed by 05 (row D-1, G-16): the latest, v5
+  const p = event.payload as AlertRaisedPayloadV6; // ⚠️ Changed by 05 (row D-1, G-16): the latest, v5; 01d v1.3.7 §5.4: v6
   const kind = kindOf(p.kind);
   if (kind === undefined) {
     // P-8: keep the row open, never due; one line, no payload values (details stay out of logs, §7).

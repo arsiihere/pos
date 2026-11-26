@@ -186,7 +186,7 @@ describe('[05 #53b, 01d v1.3.4 §3.3 rule 6] holders right through raise and Ans
 
       const first = raiseAs(hub, seats[CASH]!, pettyInput(1));
       const raised = eventsOf(hub, 'AlertRaised').find((e) => (e.payload as { alert_id: string }).alert_id === first)!;
-      expect(raised.schema_version).toBe(5);
+      expect(raised.schema_version).toBe(6); // 01d v1.3.7 §5.4: AlertRaised v6
       expect((raised.payload as { request: unknown }).request).toEqual({
         answers: ['approve', 'reject'],
         right_mode: 'holders',
