@@ -200,6 +200,56 @@ describe('@pos/engine planOrder / calculateETA / checkOrderable: hold-and-fire, 
     expect(group(now, 'O1:0').target_land_ms).toBe(T0 + COOK);
   });
 
+  it('[03a #31, #178] same-station pickup reserves sync first and places the immediate before it', () => {
+    const state = fold([config([{ station_id: 'S1', capacity: 1 }])]);
+    const pickup = T0 + 3_600_000;
+    const order = proposed([
+      { id: 'burger', item: { cook_time_ms: 600_000 } },
+      { id: 'fries', item: { serve_mode: 'immediate', cook_time_ms: 300_000 } },
+    ], { order_type: 'delivery', pickup_at_ms: pickup });
+    const plan = planOrder(state, order, T0, {});
+    const live = fold(batchFrom(order, plan, T0), state);
+    expect(live.lines.burger!.fire_ms).toBe(pickup - 600_000);
+    expect(live.lines.fries!.fire_ms).toBe(pickup - 900_000);
+    expect(live.lines.fries!.deadline_ms).toBe(pickup - 300_000);
+    expect(eta(plan, 'fries')).toBe(pickup);
+    expect(plan.groups.map(g => [g.target_land_ms, g.promise_ms])).toEqual([
+      [pickup, pickup + PAD], [pickup, pickup + PAD],
+    ]);
+  });
+
+  it('[03a #179, #181] pickup uses ready and stock durations and reports an unavoidable late arrival', () => {
+    const state = fold([config([{ station_id: 'S1', capacity: 1 }])]);
+    const pickup = T0 + 3_600_000;
+    const order = proposed([
+      { id: 'ready', engine: { carry_ms: 30_000 }, item: { serve_mode: 'immediate', cook_time_ms: 0 } },
+      { id: 'stock', engine: { carry_ms: 30_000 }, item: { serve_mode: 'immediate', cook_time_ms: 600_000, stock_time_ms: 120_000, prep_buffer_ms: 60_000 } },
+    ], { pickup_at_ms: pickup });
+    const plan = planOrder(state, order, T0, { stock: true });
+    expect(plan.lines.map(l => l.eta_ms)).toEqual([pickup, pickup]);
+    const live = fold(batchFrom(order, plan, T0), state);
+    expect(live.lines.ready!.fire_ms).toBe(pickup - 30_000);
+    expect(live.lines.ready!.booked).toMatchObject({ start: pickup - 30_000, end: pickup - 30_000 });
+    expect(live.lines.stock!.fire_ms).toBe(pickup - 210_000);
+    const busy = withBookings(state, 'S1', [[T0, pickup + 600_000]]);
+    const late = planOrder(busy, order, T0, { stock: true });
+    expect(eta(late, 'stock')).toBe(pickup + 600_000 + 120_000 + 30_000);
+    expect(group(late, 'O1:1').target_land_ms).toBe(eta(late, 'stock'));
+  });
+
+  it.each([0, 60_000])('[03a #178] two shakes with %i ms early allowance both land by pickup', (early) => {
+    const state = fold([config([{ station_id: 'S1', capacity: 1 }])]);
+    const pickup = T0 + 3_600_000;
+    const order = proposed(['first', 'second'].map(id => ({
+      id, item: { serve_mode: 'immediate', cook_time_ms: 120_000 }, engine: { max_early_ms: early },
+    })), { pickup_at_ms: pickup });
+    const plan = planOrder(state, order, T0, {});
+    const live = fold(batchFrom(order, plan, T0), state);
+    expect(live.lines.first!.fire_ms).toBe(pickup - 120_000);
+    expect(live.lines.second!.booked!.end).toBe(live.lines.first!.fire_ms);
+    expect(plan.lines.map(l => l.eta_ms)).toEqual([pickup, pickup]);
+  });
+
   it('[03a BF-2] planOrder uses the from_stock map (stock_time_ms when true, the full cook when false); calculateETA without it = fresh', () => {
     const state = fold([config([{ station_id: 'S1' }])]);
     const p = proposed([{ id: 'L1', item: { stock_time_ms: 300_000 } }]);

@@ -283,6 +283,7 @@ function placeImmediate(
   profiles: Record<string, Profile>,
   loads: Loads,
   t: number,
+  pickup: number | null = null,
 ): { placement: Routed; profiles: Record<string, Profile>; loads: Loads; formed: boolean } {
   const only = opts.length === 1 ? opts[0]! : undefined;
   if (only !== undefined && state.stations[only.station_id]!.type === 'batch') {
@@ -296,7 +297,13 @@ function placeImmediate(
     };
   }
   const tries = opts.map((x) => {
-    const fire = earliestFit(profiles[x.station_id]!, t, line.prep_ms, line.cook_ms, line.units, x.cap);
+    const profile = profiles[x.station_id]!;
+    const args = [line.prep_ms, line.cook_ms, line.units, x.cap] as const;
+    const deadline = pickup === null ? t : fireEndingAt(line, x.cap, pickup - x.carry_ms);
+    const onTime = pickup === null ? null :
+      latestFit(profile, Math.max(t, deadline - line.max_early_ms), deadline, ...args) ??
+      latestFit(profile, t, deadline, ...args);
+    const fire = onTime ?? earliestFit(profile, Math.max(t, deadline), ...args);
     return { fire, booked: bookingAt(line, x.cap, fire) };
   });
   const k = chooseImmediate(
@@ -417,12 +424,16 @@ function placeSequence(
   const step3 = [...immediates.filter((l) => boosted?.has(l.order_item_id) !== true), ...syncGroups.flat().filter((l) => fifo.has(l.order_item_id))].sort(
     (a, b) => (rank.get(a.order_item_id) ?? 0) - (rank.get(b.order_item_id) ?? 0),
   );
-  for (const line of step3) {
-    const r = placeImmediate(state, ctx, line, options.get(line.order_item_id)!, profiles, loads, t);
+  const afterSync = step3.filter(l => floor !== null && l.return_of == null && !fifo.has(l.order_item_id));
+  const deferred = new Set(afterSync);
+  function placeListed(line: PlanLine): void {
+    const pickup = line.return_of == null ? floor : null;
+    const r = placeImmediate(state, ctx, line, options.get(line.order_item_id)!, profiles, loads, t, pickup);
     profiles = r.profiles;
     loads = r.loads;
     placements.set(line.order_item_id, r.placement);
   }
+  for (const line of step3) if (!deferred.has(line)) placeListed(line);
   const targets: number[] = [];
   for (const group of syncGroups) {
     if (group.length === 0) continue;
@@ -447,6 +458,7 @@ function placeSequence(
     }
     targets.push(r.T);
   }
+  for (const line of afterSync) placeListed(line);
   return { placements, targets, fifo, moves: p1.moves, loads, fallbacks: p1.fallbacks, lands: p1.lands, base, frozen: placed?.frozen ?? null, observed: { replaced: p1.replaced, probes: p1.probes } };
 }
 
@@ -1332,6 +1344,7 @@ export function planOrderObserved(
   const order_type = proposed.order.order_type;
   const placementOf = (l: PlanLine): Routed => placed.placements.get(l.order_item_id)!;
   const land = (l: PlanLine): number => placementOf(l).booked.end + placementOf(l).carry_ms;
+  const immediateTarget = (l: PlanLine): number => Math.max(land(l), l.return_of == null ? proposed.order.pickup_at_ms ?? -Infinity : -Infinity);
   let index = state.orders[proposed.order_id]?.next_group_index ?? 0;
   const groups: PlanResult['groups'] = [];
   if (sync.length > 0) {
@@ -1340,7 +1353,7 @@ export function planOrderObserved(
     groups.push({ group_id: `${proposed.order_id}:${index++}`, target_land_ms: T, promise_ms: T + padding, order_item_ids: sync.map((l) => l.order_item_id) });
   }
   for (const l of immediates) {
-    const T = land(l);
+    const T = immediateTarget(l);
     groups.push({
       group_id: `${proposed.order_id}:${index++}`,
       target_land_ms: T,
@@ -1363,7 +1376,7 @@ export function planOrderObserved(
           point_id: engineLines[i]!.point_id,
           carry_ms: r.carry_ms,
           from_stock: l.from_stock,
-          eta_ms: land(l),
+          eta_ms: l.serve_mode === 'immediate' ? immediateTarget(l) : land(l),
         };
       }),
     },
