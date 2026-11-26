@@ -17,6 +17,7 @@ import type { CommandCtx } from '../../commands/registry.js';
 import { defineCommand } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
+import { carryTo, routedPointOf } from '../build-submit.js';
 import type { LineView, OrderType } from '../contracts.js';
 import { orderLines } from '../exports.js';
 import { foodDrafts } from '../food.js';
@@ -158,6 +159,28 @@ function checkScope(ctx: CommandCtx, order_id: string, order: EngineState['order
  * groups and lines, `order_header`) → its `ItemAdded` (the copy except money and links, `return_of`, AD-15) →
  * `ItemReturned` (remake) → `OrderFoodCleared` (a non-food return leaving no live unserved food line, §3.3).
  */
+/**
+ * ⚠️ 02b v1.0.25 §3.2 step 6 / §3.8, 03b v1.0.16 PT-R1, decision D7 (03b test 132 return part): a return copies the
+ * served line's recorded point while that point is active; when it is archived (or gone from the config), the return
+ * goes to the active point `routePoint` picks for the station and the order type, and its carry (and each alternate's)
+ * is the station's carry_times row for that point (missing = 0). In memory, 0 statements.
+ */
+function returnRoute(served: EngineState['lines'][string], order_type: OrderType): Pick<ProposedLine, 'point_id' | 'carry_ms' | 'alternates'> {
+  const kept = { point_id: served.point_id, carry_ms: served.carry_ms, alternates: served.alternates.map((a) => ({ ...a })) };
+  const config = branchConfig();
+  if (config === null || served.point_id === null) return kept;
+  if (config.points.some((p) => p.point_id === served.point_id && !p.is_archived)) return kept;
+  const stations = new Map(config.stations.map((st) => [st.station_id, st]));
+  const station = stations.get(served.station_id);
+  if (station === undefined) return kept;
+  const point_id = routedPointOf(config, station, order_type);
+  return {
+    point_id,
+    carry_ms: carryTo(stations, served.station_id, point_id),
+    alternates: served.alternates.map((a) => ({ ...a, carry_ms: carryTo(stations, a.station_id, point_id) })),
+  };
+}
+
 function returnToKitchen(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; result: { eta_ms: number; promise_ms: number } } {
   const db = ctx.tx.db;
   const now = ctx.clock.branchNow();
@@ -214,12 +237,13 @@ function returnToKitchen(ctx: CommandCtx, payload: Payload): { events: EventDraf
   };
   // The engine knobs and station of the served line as the engine holds it (03a §3.8a: its station, alternates allowed).
   const served = state.lines[id]!;
+  const route = returnRoute(served, order.order_type as OrderType);
   const proposedLine: ProposedLine = {
     ...added,
     station_id: served.station_id,
-    alternates: served.alternates.map((a) => ({ ...a })),
-    point_id: served.point_id,
-    carry_ms: served.carry_ms,
+    alternates: route.alternates,
+    point_id: route.point_id,
+    carry_ms: route.carry_ms,
     weight_pct: served.weight_pct,
     max_early_ms: served.max_early_ms,
     max_late_ms: served.max_late_ms,

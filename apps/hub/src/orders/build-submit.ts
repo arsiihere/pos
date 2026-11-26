@@ -13,6 +13,7 @@ import {
   localTimeOfDayMs,
   optionChargeMinor,
   orderLineTotalMinor,
+  routePoint,
   type AvailabilityWindow,
   type ChosenOption,
   type IsAvailable,
@@ -74,6 +75,21 @@ export function zoneOf(config: BranchConfig, input: SubmitInput, table_id: strin
   if (input.order_type !== 'dine_in' || table_id === null) return null;
   const zone_id = config.floors.flatMap((f) => f.tables).find((t) => t.table_id === table_id)?.zone_id ?? null;
   return config.floors.flatMap((f) => f.zones).find((z) => z.zone_id === zone_id && !z.is_archived) ?? null;
+}
+
+/**
+ * ⚠️ 03b v1.0.16 §3.1 Routed point, §4.5 PT-R1 (owner clarification; 01a v2.11 PT-3, PT-6 (b)): an engine line's Pass
+ * point = `routePoint(config.points, station, order_type)` (`@pos/domain`), not `station.point_id`; with no active
+ * point at all routePoint answers null and the station's own point stands. Shared with ReturnToKitchen (D7: a served
+ * line whose recorded point is archived). Pure, 0 statements.
+ */
+export function routedPointOf(config: Pick<BranchConfig, 'points'>, station: Pick<ConfigStation, 'point_id'>, order_type: OrderType): string {
+  return routePoint(config.points, station, order_type)?.point_id ?? station.point_id;
+}
+
+/** 01a A-10: a station's carry to `point_id` from its carry_times row; a missing row (or station) = 0. */
+export function carryTo(stations: ReadonlyMap<string, Pick<ConfigStation, 'carry_times'>>, station_id: string, point_id: string | null): number {
+  return stations.get(station_id)?.carry_times.find((c) => c.point_id === point_id)?.carry_ms ?? 0;
 }
 
 export const buildSubmit: BuildSubmit = (config, input, ctx) => {
@@ -413,14 +429,15 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
     }
   });
 
-  // 03a §4.2 / §3.5.5 (D8, D9), 01a A-9 / A-10: the line's point is its station's; the alternates are the station's rows
-  // allowing the order type (home = the row listing it in home_for_order_types); carry = the station's carry_times row
-  // for that point, a missing row = 0. The 01a A-11 knobs are the line item's D25 copies.
+  // 03a §4.2 / §3.5.5 (D8, D9), 01a A-9 / A-10: ⚠️ 03b v1.0.16 PT-R1: the line's point is the one routePoint picks for
+  // its station and the order type (was: its station's point); the alternates are the station's rows allowing the order
+  // type (home = the row listing it in home_for_order_types); carry = each station's carry_times row for that routed
+  // point, a missing row = 0. The 01a A-11 knobs are the line item's D25 copies.
   const engineLine = (a: ItemAddedPayload): ProposedLine => {
     const item = a.item_id === null ? undefined : itemsById[a.item_id];
     const station = a.station_id === null ? undefined : stations.get(a.station_id);
-    const point_id = station?.point_id ?? null;
-    const carryOf = (station_id: string): number => stations.get(station_id)?.carry_times.find((c) => c.point_id === point_id)?.carry_ms ?? 0;
+    const point_id = station === undefined ? null : routedPointOf(config, station, input.order_type);
+    const carryOf = (station_id: string): number => carryTo(stations, station_id, point_id);
     const rows = station?.alternates.filter((r) => r.order_types.includes(order.order_type)) ?? [];
     const home = rows.find((r) => r.home_for_order_types.includes(order.order_type))?.station_id;
     const ids = [...new Set(rows.map((r) => r.station_id))].filter((id) => id !== station?.station_id);

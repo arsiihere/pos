@@ -740,3 +740,72 @@ describe('buildSubmit — pure, config at submit [02b #3 pure, D25]', () => {
     expect(JSON.stringify([before, after, input])).toBe(snapshot);
   });
 });
+
+// ⚠️ 03b v1.0.16 §3.1 Routed point, §4.5 PT-R1 (01a v2.11 PT-3, PT-6 (b)): the line's point is routePoint's for the
+// order type; carry (primary and alternates) is read for that routed point. L-ORDERS-1 PT-3.
+describe('[01a #221 hub] [03b #129 #130] buildSubmit routed point (PT-R1)', () => {
+  /** Main (P1, 'all', S1's default) and TA (P_TA, takeaway only); S1 carries 30 s to P1, 90 s to TA; S2 (alternate) 60 s / 120 s. */
+  function routed(ta: Array<'dine_in' | 'takeaway' | 'parking'> = ['takeaway']): BranchConfig {
+    const base = menu();
+    const p1 = base.points.find((p) => p.point_id === 'P1')!;
+    return {
+      ...base,
+      points: [{ ...p1, order_types: 'all' }, { point_id: 'P_TA', name: 'Takeaway pass', sort_order: 5, is_archived: false, order_types: ta }],
+      stations: base.stations.map((s) =>
+        s.station_id === FX.station
+          ? {
+              ...s,
+              alternates: [{ station_id: FX.zoneStation, order_types: ['takeaway', 'dine_in'], home_for_order_types: [] }],
+              carry_times: [
+                { point_id: 'P1', carry_ms: 30_000 },
+                { point_id: 'P_TA', carry_ms: 90_000 },
+              ],
+            }
+          : s.station_id === FX.zoneStation
+            ? { ...s, carry_times: [{ point_id: 'P1', carry_ms: 60_000 }, { point_id: 'P_TA', carry_ms: 120_000 }] }
+            : s,
+      ),
+    };
+  }
+  const line = [{ order_item_id: 'L1', item_id: FX.piece, quantity: 1 }];
+  const take = (config: BranchConfig) => buildSubmit(config, { order_id: 'O1', order_type: 'takeaway', lines: line }, ctx({ primary_table_id: null })).proposed.lines[0]!;
+
+  it('[01a #221 hub] a takeaway line goes to the takeaway-only point with that point\'s carry (primary and alternate); dine-in and parking stay at Main', () => {
+    const config = routed();
+    expect(take(config)).toMatchObject({ point_id: 'P_TA', carry_ms: 90_000, alternates: [{ station_id: FX.zoneStation, carry_ms: 120_000 }] });
+    expect(buildSubmit(config, dineIn(line), ctx()).proposed.lines[0]).toMatchObject({ point_id: 'P1', carry_ms: 30_000, alternates: [{ station_id: FX.zoneStation, carry_ms: 60_000 }] });
+    const park = buildSubmit(config, { order_id: 'O2', order_type: 'parking', parking: { car_number: 'LEB-1', car_type: 'sedan' }, lines: line }, ctx({ primary_table_id: null }));
+    expect(park.proposed.lines[0]).toMatchObject({ point_id: 'P1', carry_ms: 30_000 });
+  });
+
+  it('[03b #130 submit part] switching TA to parking only: a later takeaway goes to Main, a parking order to TA', () => {
+    const config = routed(['parking']);
+    expect(take(config)).toMatchObject({ point_id: 'P1', carry_ms: 30_000 });
+    const park = buildSubmit(config, { order_id: 'O2', order_type: 'parking', parking: { car_number: 'LEB-1', car_type: 'sedan' }, lines: line }, ctx({ primary_table_id: null }));
+    expect(park.proposed.lines[0]).toMatchObject({ point_id: 'P_TA', carry_ms: 90_000 });
+  });
+
+  it('[03b #129 submit part] two dine-in-only points tie: each station\'s line goes to its own default point', () => {
+    const base = menu();
+    const p1 = base.points.find((p) => p.point_id === 'P1')!;
+    const config: BranchConfig = {
+      ...base,
+      points: [
+        { ...p1, order_types: ['dine_in'] },
+        { point_id: 'P_G', name: 'Grill pass', sort_order: 1, is_archived: false, order_types: ['dine_in'] },
+      ],
+      stations: base.stations.map((s) => (s.station_id === FX.zoneStation ? { ...s, point_id: 'P_G' } : s)),
+      items: base.items.map((i) => (i.item_id === FX.naan ? { ...i, station_id: FX.zoneStation } : i)),
+    };
+    const out = buildSubmit(config, dineIn([{ order_item_id: 'K1', item_id: FX.piece, quantity: 1 }, { order_item_id: 'N1', item_id: FX.naan, quantity: 1 }]), ctx({ primary_table_id: null }));
+    const byId = new Map(out.proposed.lines.map((l) => [l.order_item_id, l]));
+    expect(byId.get('K1')).toMatchObject({ station_id: FX.station, point_id: 'P1' });
+    expect(byId.get('N1')).toMatchObject({ station_id: FX.zoneStation, point_id: 'P_G' });
+  });
+
+  it('[03b PT-R1] with no active point at all, the station\'s own point stands', () => {
+    const config = routed();
+    const none = { ...config, points: config.points.map((p) => ({ ...p, is_archived: true })) };
+    expect(take(none)).toMatchObject({ point_id: 'P1' });
+  });
+});

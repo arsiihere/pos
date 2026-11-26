@@ -818,3 +818,40 @@ describe('ReturnToKitchen scope (02b §3.14 "as MarkServed", C8)', () => {
     expect((await ret(signIn('S_TAKER'), { order_item_id: 'M1', return_order_item_id: 'R4', mode: 'fix' })).status).toBe(200);
   });
 });
+
+// ⚠️ 02b v1.0.25 §3.2 step 6 / §3.8, 03b v1.0.16 PT-R1, decision D7 (03b test 132 return part). L-ORDERS-1 PT-3.
+describe('[03b #132 return part] ReturnToKitchen of a served line whose recorded point is archived (D7)', () => {
+  /** The applied config with P1 archived, an active P2 (P2 'all') and S1 carrying 45 s to P2, S2 75 s. */
+  function archiveP1(): void {
+    const c = branchConfig()!;
+    const p1 = c.points.find((p) => p.point_id === 'P1')!;
+    const config = {
+      ...c,
+      points: [{ ...p1, is_archived: true }, { point_id: 'P2', name: 'New pass', sort_order: 1, is_archived: false, order_types: 'all' as const }],
+      stations: c.stations.map((s) => ({ ...s, carry_times: [...s.carry_times, { point_id: 'P2', carry_ms: s.station_id === FX.station ? 45_000 : 75_000 }] })),
+    };
+    swapBranchConfig({ config, snapshotHash: 'd'.repeat(64), configVersion: c.config_version + 1, snapshotSchemaVersion: 4, appliedAt: hub.clock.branchNow() });
+  }
+  const addedLine = (reply: Reply) => (reply.events[0]!.payload as { lines: Array<{ point_id: string | null; carry_ms: number; alternates: Array<{ station_id: string; carry_ms: number }> }> }).lines[0]!;
+
+  it('[03b #132] the return goes to the active point routePoint picks, with that point\'s carry; the served line keeps its recorded point', async () => {
+    open();
+    servedNaan();
+    expect(engine().lines.N1!.point_id).toBe('P1');
+    archiveP1();
+    const reply = await ret(signIn('S_TAKER'), { order_item_id: 'N1', return_order_item_id: 'R1', mode: 'remake' });
+    expect(reply.status, JSON.stringify(reply.body)).toBe(200);
+    expect(addedLine(reply)).toMatchObject({ point_id: 'P2', carry_ms: 45_000 });
+    expect(engine().lines.R1!.point_id).toBe('P2');
+    expect(engine().lines.N1!.point_id).toBe('P1');
+  });
+
+  it('[02b §3.8] while the recorded point is active, the return copies it and its carry (unchanged)', async () => {
+    open();
+    servedNaan();
+    const served = engine().lines.N1!;
+    const reply = await ret(signIn('S_TAKER'), { order_item_id: 'N1', return_order_item_id: 'R1', mode: 'fix' });
+    expect(reply.status).toBe(200);
+    expect(addedLine(reply)).toMatchObject({ point_id: served.point_id, carry_ms: served.carry_ms });
+  });
+});
