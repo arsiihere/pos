@@ -292,7 +292,8 @@ export function TimingFields({
       </div>
       <div className="pos-grid pos-grid--3">
         <label className={`pos-field${issues['point_id'] !== undefined ? ' pos-field--error' : ''}`}>
-          <span className="pos-field__label">{t('owner.stations.point')}</span>
+          {/* 01a v2.11 §8.1 PT-4: the station's Pass is the fallback (and tie-break) of per-point order types */}
+          <span className="pos-field__label">{t('owner.stations.default_pass')}</span>
           <select className="pos-select" name="point_id" value={state.point_id} onChange={(e) => set({ point_id: e.target.value })}>
             {pointChoices.map((p) => (
               <option key={p.point_id} value={p.point_id}>
@@ -300,7 +301,7 @@ export function TimingFields({
               </option>
             ))}
           </select>
-          {issues['point_id'] !== undefined && <span className="pos-field__help">{issues['point_id']}</span>}
+          <span className="pos-field__help">{issues['point_id'] ?? t('owner.stations.default_pass_help')}</span>
         </label>
         <label className="pos-field">
           <span className="pos-field__label">{t('owner.stations.policy')}</span>

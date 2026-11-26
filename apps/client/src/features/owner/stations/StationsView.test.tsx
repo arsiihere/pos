@@ -375,6 +375,14 @@ describe('owner station form: Timing group (03a A-2–A-10)', () => {
     expect(options).toEqual(['PT1', 'PT2']);
   });
 
+  it('[01a v2.11 §8.1 PT-4; test 222] the station form\'s point picker is labelled "Default Pass" and says when it is used', async () => {
+    const { api } = setup(STATIONS);
+    await openEditor(api);
+    const field = input('S1', 'point_id')?.closest('label');
+    expect(field?.querySelector('.pos-field__label')?.textContent).toBe('Default Pass');
+    expect(field?.querySelector('.pos-field__help')?.textContent).toBe(t('owner.stations.default_pass_help'));
+  });
+
   it('[01a §6.9; 03a A-4, A-7] a changed value is sent in ms (percent as basis points); only changed fields are sent', async () => {
     const { api, calls } = setup(STATIONS);
     await openEditor(api);

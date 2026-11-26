@@ -152,6 +152,38 @@ describe('kitchen screens page', () => {
     expect(m.container.querySelector('[data-section="pass-tablets"]')?.textContent).toContain('Point: P-OLD');
   });
 
+  it('[03b v1.0.16 §3.8, §6.12 (R3-M-2); 01a v2.11 PT-4] one warning per routing gap: a fallback names where it goes, a tie names the tied Passes', async () => {
+    const gaps: KdsConfig = {
+      ...CONFIG,
+      points: [...(CONFIG.points ?? []), { point_id: 'P-BAG', name: 'Bag counter', is_archived: false }],
+      routing_gaps: [
+        { station_id: 'S-F', station_name: 'Fryer', order_type: 'parking', reason: 'fallback', point_id: 'P-PASS', point_name: 'Pass', tied_point_ids: [] },
+        {
+          station_id: 'S-T',
+          station_name: 'Tandoor',
+          order_type: 'takeaway',
+          reason: 'tie',
+          point_id: 'P-PASS',
+          point_name: 'Pass',
+          tied_point_ids: ['P-BAG', 'P-DEGH', 'P-GONE'],
+        },
+      ],
+    };
+    setup({}, gaps);
+    await flush();
+    const lines = [...m.container.querySelectorAll<HTMLElement>('.pos-banners [data-routing-gap]')].map((b) => b.textContent ?? '');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('Parking orders from Fryer have no Parking Pass — they go to Pass');
+    expect(lines[1]).toContain('Takeaway orders from Tandoor match 3 Passes: Bag counter, Degh, P-GONE — they go to Pass');
+  });
+
+  it('[03b v1.0.16 §6.12 (R3-M-8)] an older hub without routing_gaps shows no routing warning', async () => {
+    setup({}, CONFIG);
+    await flush();
+    expect(m.container.querySelector('[data-routing-gap]')).toBeNull();
+    expect(m.container.querySelector('.pos-banners')).toBeNull();
+  });
+
   it('[03b Q-54] no timer: reads kds-config on open, on Refresh and once after each own command', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
     const { hub } = setup({

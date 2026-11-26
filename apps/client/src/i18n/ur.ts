@@ -560,20 +560,14 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'owner.points.add': 'پوائنٹ شامل کریں',
   'owner.points.new_title': 'پوائنٹ شامل کریں',
   'owner.points.new_body': 'جہاں تیار کھانا حوالے کیا جاتا ہے۔',
-  'owner.points.rename_title': 'پوائنٹ کا نام بدلیں',
-  'owner.points.rename': 'نام بدلیں',
   'owner.points.save': 'پوائنٹ محفوظ کریں',
   'owner.points.name': 'پوائنٹ کا نام',
   'owner.points.sort': 'ترتیب (نمبر؛ چھوٹا پہلے آتا ہے)',
   'owner.points.position_n': 'ترتیب {n}',
   'owner.points.more': 'پوائنٹس کے مزید اختیارات',
   'owner.points.hide_archived': 'آرکائیو پوائنٹس چھپائیں',
-  'owner.points.archive_body': 'اس کے بعد کوئی اسٹیشن یہاں کھانا نہیں بھیج سکے گا۔ بعد میں بحال کر سکتے ہیں۔',
-  'owner.points.blocked_body': '{name} کو ابھی {n} اسٹیشن استعمال کرتے ہیں: {names}۔ پہلے انہیں دوسرے پوائنٹ پر لے جائیں۔',
-  'owner.points.open_stations': 'اسٹیشن کھولیں',
   'owner.stations.timing': 'وقت',
   'owner.stations.timing_body': 'کچن اس اسٹیشن کی منصوبہ بندی کیسے کرتا ہے۔ عام طور پر ڈیفالٹ ٹھیک رہتے ہیں۔',
-  'owner.stations.point': 'کھانا یہاں حوالے کرتا ہے',
   'owner.stations.policy': 'آرڈر کی ترتیب',
   'owner.stations.policy.waada_guard': 'وعدے کا وقت محفوظ رکھیں (ڈیفالٹ)',
   'owner.stations.policy.edf': 'جس کا وعدہ پہلے، وہ پہلے',
@@ -1756,4 +1750,23 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'c.serve_now': '{item} ابھی، باقی {t}',
   // 02b-TK A2 item 5b (two or more things ready now): not in strings-table.md; Urdu to confirm
   'c.serve_q_many': '{item} ابھی تیار ہیں۔ ابھی دے دیں؟',
+  // ---- 02b-TK L-CLIENT-1 item 4 (01a v2.11 §6.9a, test 222): Points page Receives, archive refusal (D7), Default Pass; 03b v1.0.16 §3.8 routing_gaps warnings ----
+  'owner.points.edit': 'ترمیم', // not in strings-table.md; Urdu to confirm
+  'owner.points.edit_title': 'پوائنٹ میں ترمیم', // not in strings-table.md; Urdu to confirm
+  'owner.points.receives': 'کون سے آرڈر لیتا ہے', // not in strings-table.md; Urdu to confirm
+  'owner.points.receives_all': 'تمام آرڈر کی قسمیں', // not in strings-table.md; Urdu to confirm
+  'owner.points.receives_help': 'ہر آئٹم اس پاس پر جاتا ہے جو اس کے آرڈر کی قسم لیتا ہے؛ کوئی نہ ہو تو اسٹیشن کے پاس پر۔', // not in strings-table.md; Urdu to confirm
+  'owner.points.receives_n': 'لیتا ہے: {types}', // not in strings-table.md; Urdu to confirm
+  'owner.points.type.dine_in': 'میز پر', // not in strings-table.md; Urdu to confirm
+  'owner.points.type.takeaway': 'ٹیک اوے', // not in strings-table.md; Urdu to confirm
+  'owner.points.type.parking': 'پارکنگ', // not in strings-table.md; Urdu to confirm
+  'owner.points.type.delivery': 'ڈیلیوری', // not in strings-table.md; Urdu to confirm
+  'owner.points.delivery_readonly': 'جیسا محفوظ تھا ویسا رہے گا۔ ڈیلیوری کے آرڈر ابھی نہیں لیے جاتے۔', // not in strings-table.md; Urdu to confirm
+  'owner.points.archive_moves_body': 'یہاں انتظار کرنے والے آرڈر اس پاس پر چلے جائیں گے جو انہیں اب لیتا ہے۔ بعد میں بحال کر سکتے ہیں۔', // not in strings-table.md; Urdu to confirm
+  'owner.points.archive_refused': 'پہلے کوئی اور پاس پوائنٹ فعال کریں', // not in strings-table.md; Urdu to confirm
+  'owner.stations.default_pass': 'بنیادی پاس', // not in strings-table.md; Urdu to confirm
+  'owner.stations.default_pass_help': 'جب کوئی پاس آرڈر کی قسم نہ لے، اور برابری کی صورت میں۔', // not in strings-table.md; Urdu to confirm
+  'kitchen_screens.gap.fallback': '{station} کے {type} آرڈرز کا کوئی {type} پاس نہیں — یہ {point} پر جاتے ہیں', // not in strings-table.md; Urdu to confirm
+  'kitchen_screens.gap.tie': '{station} کے {type} آرڈرز {n} پاس سے ملتے ہیں: {points} — یہ {point} پر جاتے ہیں', // not in strings-table.md; Urdu to confirm
+  'kitchen_screens.gap.detail': 'مالک کی ایپ کے پوائنٹس صفحے پر "کون سے آرڈر لیتا ہے" بدلیں، پھر ہب پر تبدیلی آنے کے بعد یہاں دوبارہ لوڈ کریں۔', // not in strings-table.md; Urdu to confirm
 };

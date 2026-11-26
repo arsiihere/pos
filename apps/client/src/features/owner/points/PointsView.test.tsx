@@ -1,6 +1,7 @@
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { fill } from '../../../i18n/en';
+import { en, fill } from '../../../i18n/en';
+import { ur } from '../../../i18n/ur';
 import { t } from '../../../i18n';
 import { PointsView } from './PointsView';
 import { button, click, fail, fakeApi, flush, mount, ok, setValue, type Call, type Mounted } from '../test-api';
@@ -18,7 +19,7 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-const point = (id: string, name: string, extra: object = {}) => ({ point_id: id, name, sort_order: 0, archived_at: null, version: `v-${id}`, ...extra });
+const point = (id: string, name: string, extra: object = {}) => ({ point_id: id, name, sort_order: 0, archived_at: null, version: `v-${id}`, order_types: 'all', ...extra });
 const PASS = point('PT1', 'Pass');
 const WINDOW = point('PT2', 'Tandoor window', { sort_order: 3 });
 const OLD = point('PT3', 'Old counter', { archived_at: 9 });
@@ -74,7 +75,7 @@ describe('owner points page (03a A-1; 01a §6.9a)', () => {
   it('[01a §6.9a; R30] Rename PATCHes only the changed field with the held expected_version', async () => {
     const { api, calls } = setup();
     await open(api);
-    await click(button(row('PT2'), t('owner.points.rename')));
+    await click(button(row('PT2'), t('owner.points.edit')));
     const form = dialog().querySelector('form') as HTMLFormElement;
     expect(form.querySelector<HTMLInputElement>('input[name="name"]')?.value).toBe('Tandoor window');
     setValue(form.querySelector<HTMLInputElement>('input[name="name"]'), 'Tandoor');
@@ -91,7 +92,7 @@ describe('owner points page (03a A-1; 01a §6.9a)', () => {
   it('[01a §6.9a; 01c-B03] a stale rename shows "changed elsewhere" with Reload and keeps the typed name', async () => {
     const { api, calls } = setup(() => fail(409, 'CONFIG_STALE'));
     await open(api);
-    await click(button(row('PT1'), t('owner.points.rename')));
+    await click(button(row('PT1'), t('owner.points.edit')));
     const form = dialog().querySelector('form') as HTMLFormElement;
     setValue(form.querySelector<HTMLInputElement>('input[name="name"]'), 'Hand-off');
     await act(async () => {
@@ -130,16 +131,18 @@ describe('owner points page (03a A-1; 01a §6.9a)', () => {
     });
   });
 
-  it('[01a §6.9a; 03a A-1] 409 CONFIG_IN_USE names the stations that use the point', async () => {
-    const { api } = setup(() => fail(409, 'CONFIG_IN_USE', { entity: 'point', id: 'PT1', used_by: { entity: 'station', ids: ['S1', 'S3', 'S9'] } }));
+  it('[01a v2.11 §6.9a, D7] an archive the cloud refuses (no other active Pass) says "Activate another Pass point first"', async () => {
+    const { api } = setup(() => fail(400, 'VALIDATION_FAILED', { issues: [{ path: 'archived', message: 'server words' }] }));
     await open(api);
     await click(button(row('PT1'), t('owner.common.archive')));
+    expect(dialog().textContent).toContain(t('owner.points.archive_moves_body'));
     await click(button(dialog(), fill(t('archive.archive_name'), { name: 'Pass' })));
-    const blocked = dialog();
-    expect(blocked.textContent).toContain(fill(t('archive.blocked_title'), { name: 'Pass' }));
-    expect(blocked.textContent).toContain(fill(t('owner.points.blocked_body'), { name: 'Pass', n: '3', names: 'Karahi, Fryer' }));
-    expect(blocked.querySelector('[data-in-use]')?.textContent).toContain('Karahi');
-    expect(blocked.querySelector('[data-in-use]')?.textContent).toContain('Fryer');
+    expect(en['owner.points.archive_refused']).toBe('Activate another Pass point first');
+    const banner = m.container.querySelector('.pos-banner--danger');
+    expect(banner?.textContent).toContain(t('owner.points.archive_refused'));
+    expect(banner?.textContent).not.toContain(t('errors.VALIDATION_FAILED'));
+    expect(banner?.textContent).not.toContain('server words');
+    expect(m.container.querySelector('[role="dialog"]')).toBeNull();
     expect(rows().map((r) => r.dataset['pointId'])).toEqual(['PT1', 'PT2']);
   });
 
@@ -173,12 +176,144 @@ describe('owner points page (03a A-1; 01a §6.9a)', () => {
   it('[01a §6.9a] saving a rename with nothing changed closes without sending', async () => {
     const { api, calls } = setup();
     await open(api);
-    await click(button(row('PT1'), t('owner.points.rename')));
+    await click(button(row('PT1'), t('owner.points.edit')));
     await act(async () => {
       (dialog().querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
     await flush();
     expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
     expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+  });
+});
+
+// 01a v2.11 §6.9a, §8.1 PT-4 (run 3 R3-m-1): per-point order types ("Receives").
+describe('owner points page: Receives (01a v2.11 PT-4; test 222)', () => {
+  // the house tick (Timing's alternates): a button with role="checkbox"
+  const box = (name: 'receives_all' | 'order_type', value?: string) =>
+    dialog().querySelector<HTMLButtonElement>(name === 'receives_all' ? '[data-receives-all]' : `[data-receives-type="${value}"]`);
+  const ticked = (el: HTMLElement | null) => el?.getAttribute('aria-checked') === 'true';
+  const save = () => dialog().querySelector<HTMLButtonElement>('button[type="submit"]') as HTMLButtonElement;
+  async function submit() {
+    await act(async () => {
+      (dialog().querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+  }
+  const labels = () => [...dialog().querySelectorAll('[data-receives] [role="checkbox"]')].map((l) => l.textContent?.trim());
+  const DELIVERY = point('PT4', 'Rider window', { order_types: ['delivery'] });
+
+  it('[test 222] a new point shows "All order types"; unticking All shows Dine-in / Takeaway / Parking; Save waits for one; Takeaway saves [takeaway]', async () => {
+    const { api, calls } = setup();
+    await open(api);
+    await click(button(m.container.querySelector('.pos-appbar') as HTMLElement, t('owner.points.add')));
+    expect(dialog().textContent).toContain(t('owner.points.receives'));
+    expect(dialog().textContent).toContain(t('owner.points.receives_help'));
+    expect(ticked(box('receives_all'))).toBe(true);
+    expect(labels()).toEqual([en['owner.points.receives_all']]);
+    expect(box('order_type')).toBeNull();
+    setValue(dialog().querySelector<HTMLInputElement>('input[name="name"]'), 'Bag counter');
+    await click(box('receives_all') as HTMLButtonElement);
+    expect(ticked(box('receives_all'))).toBe(false);
+    expect(labels()).toEqual(['All order types', 'Dine-in', 'Takeaway', 'Parking']);
+    expect(box('order_type', 'delivery')).toBeNull();
+    expect(save().disabled).toBe(true);
+    await submit();
+    expect(calls.some((c) => c.method === 'POST')).toBe(false);
+    await click(box('order_type', 'takeaway') as HTMLButtonElement);
+    expect(save().disabled).toBe(false);
+    await submit();
+    expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ name: 'Bag counter', order_types: ['takeaway'] });
+  });
+
+  it('[01a v2.11 PT-2] a new point left on All sends no order_types (the cloud stores all)', async () => {
+    const { api, calls } = setup();
+    await open(api);
+    await click(button(m.container.querySelector('.pos-appbar') as HTMLElement, t('owner.points.add')));
+    setValue(dialog().querySelector<HTMLInputElement>('input[name="name"]'), 'Bar');
+    await submit();
+    expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ name: 'Bar' });
+  });
+
+  it('[test 222] a [delivery] point shows a read-only Delivery chip; a rename sends no order_types', async () => {
+    const { api, calls } = setup(undefined, [PASS, DELIVERY]);
+    await open(api);
+    expect(row('PT4').textContent).toContain(fill(t('owner.points.receives_n'), { types: t('owner.points.type.delivery') }));
+    expect(row('PT1').textContent).toContain(fill(t('owner.points.receives_n'), { types: t('owner.points.receives_all') }));
+    await click(button(row('PT4'), t('owner.points.edit')));
+    expect(ticked(box('receives_all'))).toBe(false);
+    const chip = dialog().querySelector('[data-receives] [data-readonly-type="delivery"]');
+    expect(chip?.textContent).toContain(t('owner.points.type.delivery'));
+    expect(box('order_type', 'delivery')).toBeNull();
+    expect(save().disabled).toBe(false);
+    setValue(dialog().querySelector<HTMLInputElement>('input[name="name"]'), 'Riders');
+    await submit();
+    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ expected_version: 'v-PT4', name: 'Riders' });
+  });
+
+  it('[test 222] ticking Takeaway on the [delivery] point saves both types in a routing-only PATCH', async () => {
+    const { api, calls } = setup(undefined, [PASS, DELIVERY]);
+    await open(api);
+    await click(button(row('PT4'), t('owner.points.edit')));
+    await click(box('order_type', 'takeaway') as HTMLButtonElement);
+    await submit();
+    expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({
+      url: '/v1/admin/branches/B1/points/PT4',
+      body: { expected_version: 'v-PT4', order_types: ['delivery', 'takeaway'] },
+    });
+    expect(Object.keys(calls.find((c) => c.method === 'PATCH')?.body as object).sort()).toEqual(['expected_version', 'order_types']);
+  });
+
+  it('[01a v2.11 §8.1] ticking All on a specific point saves all; unticking what was ticked again sends nothing', async () => {
+    const SPECIFIC = point('PT5', 'Car window', { order_types: ['parking', 'takeaway'] });
+    const { api, calls } = setup(undefined, [PASS, SPECIFIC]);
+    await open(api);
+    await click(button(row('PT5'), t('owner.points.edit')));
+    expect(ticked(box('order_type', 'parking'))).toBe(true);
+    expect(ticked(box('order_type', 'takeaway'))).toBe(true);
+    expect(ticked(box('order_type', 'dine_in'))).toBe(false);
+    await click(box('order_type', 'dine_in') as HTMLButtonElement);
+    await click(box('order_type', 'dine_in') as HTMLButtonElement);
+    await submit();
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+    await click(button(row('PT5'), t('owner.points.edit')));
+    await click(box('receives_all') as HTMLButtonElement);
+    await submit();
+    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ expected_version: 'v-PT5', order_types: 'all' });
+  });
+
+  it('[01a v2.11 §6.9a R3-M-4] an order_types issue from the cloud shows under Receives', async () => {
+    const { api } = setup(() => fail(400, 'VALIDATION_FAILED', { issues: [{ path: 'order_types.0', message: 'repeated order type' }] }));
+    await open(api);
+    await click(button(m.container.querySelector('.pos-appbar') as HTMLElement, t('owner.points.add')));
+    setValue(dialog().querySelector<HTMLInputElement>('input[name="name"]'), 'Bag counter');
+    await click(box('receives_all') as HTMLButtonElement);
+    await click(box('order_type', 'takeaway') as HTMLButtonElement);
+    await submit();
+    expect(dialog().querySelector('[data-receives]')?.classList.contains('pos-field--error')).toBe(true);
+  });
+
+  it('[test 222] the Receives, refusal and Default Pass strings have Urdu', () => {
+    const keys = [
+      'owner.points.edit',
+      'owner.points.edit_title',
+      'owner.points.receives',
+      'owner.points.receives_all',
+      'owner.points.receives_help',
+      'owner.points.receives_n',
+      'owner.points.type.dine_in',
+      'owner.points.type.takeaway',
+      'owner.points.type.parking',
+      'owner.points.type.delivery',
+      'owner.points.delivery_readonly',
+      'owner.points.archive_moves_body',
+      'owner.points.archive_refused',
+      'owner.stations.default_pass',
+      'owner.stations.default_pass_help',
+    ] as const;
+    for (const key of keys) {
+      expect(en[key], key).toBeTruthy();
+      expect(ur[key], key).toBeTruthy();
+    }
+    expect(en['owner.stations.default_pass']).toBe('Default Pass');
   });
 });
