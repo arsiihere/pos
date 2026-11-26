@@ -602,11 +602,8 @@ export function replanCapacity(before: EngineState, after: EngineState, station_
 //      (§3.5.1 step 3, §3.2 "no hold"), its own group's T = its land. Alternative: hold immediates to T_b too.
 //   B2 a line that cannot move (fired, COOKING, FIFO) of those groups floors T_b at its live land (sync lands together,
 //      as AD-11 and AD-14 do); done lines do not. Alternative: T_b below a COOKING sibling's land.
-//   B3 (developer ruling AD-29 Q11): T_b = max(pickup_at_ms, loop result), as §3.5.1 step 4: a group with a pickup is held
-//      to it, a boost never lands it before pickup, and still re-places first and may displace others. proposed
-//      (implementer): an immediate line of the order keeps its earliest fit, as at submit (§3.5.1 step 3 has no floor).
-//   B4 FIFO (AD-14; §3.9 does not name FIFO, §3.5.3 "no re-plan of older lines"): a FIFO line of the order stays where
-//      it is, unmarked, and nothing on a FIFO station moves. Alternative: the boosted line jumps the FIFO queue.
+//   PK-5 supersedes B3/B4 for pickup orders: cook now, keep the original pickup and promise, and
+//   rebook only this order's held FIFO lines against all other FIFO bookings.
 //   B5 a batch line leaves its stored load (which keeps its name and booking while it has members) and forms or joins a
 //      load of the boosted lines only (§3.9 "against the fixed lines"; a frozen load of others is pushed, not joined).
 //   B6 a boost with no movable line only sets boosted (nothing to re-place; T kept). A repeat boost runs again.
@@ -615,7 +612,7 @@ export function boostOrder(state: EngineState, order_id: string, t: number, even
   const unfired = order.line_ids
     .map((id) => state.lines[id])
     .filter((l): l is EngineLine => l !== undefined && l.stage === 'added' && l.fired_at === null && l.fire_ms !== null);
-  const movable = unfired.filter((l) => !isFifo(state, l.station_id) && !placedUnderOldType(state, l));
+  const movable = unfired.filter((l) => (!isFifo(state, l.station_id) || (order.pickup_at_ms !== null && !order.boosted && l.return_of === null && !l.expedited)) && !placedUnderOldType(state, l));
   if (movable.length === 0) return { ...state, orders: { ...state.orders, [order_id]: { ...order, boosted: true } } };
   const ids = new Set(movable.map((l) => l.order_item_id));
   const ctx = routeCtx(state);
@@ -623,17 +620,18 @@ export function boostOrder(state: EngineState, order_id: string, t: number, even
   for (const l of movable) {
     const frozen = l.fire_ms! <= t + stationPolicy(state, l.station_id).freeze_ms;
     const all = routeOptions(ctx, l, true);
-    if (!frozen && all.length > 0) options.set(l.order_item_id, all);
+    if (!frozen && !isFifo(state, l.station_id) && all.length > 0) options.set(l.order_item_id, all);
     else options.set(l.order_item_id, [optionOwn(all, l, placementCap(state, l))]);
   }
   for (const l of movable) stationOf(state.stations, l);
   const uses = [...new Set([...options.values()].flatMap((os) => os.map((x) => x.station_id)))];
-  let profiles = fixedProfiles(state, uses, t, o.strict);
+  const fixedFifo = new Set(uses.filter(sid => isFifo(state, sid)).flatMap(sid => state.stations[sid]!.unfired.filter(id => !ids.has(id))));
+  let profiles = fixedProfiles(state, uses, t, o.strict, fixedFifo);
   let loads: Loads = {};
   const placements = new Map<string, Routed>();
   // The immediate lines first, then one hold-and-fire over the sync lines (§3.5.1 steps 3–4; B1).
-  const immediate = movable.filter((l) => l.serve_mode === 'immediate');
-  const sync = movable.filter((l) => l.serve_mode === 'sync');
+  const immediate = movable.filter((l) => l.serve_mode === 'immediate' || isFifo(state, l.station_id));
+  const sync = movable.filter((l) => l.serve_mode === 'sync' && !isFifo(state, l.station_id));
   for (const l of immediate) {
     const r = placeImmediate(state, ctx, l, options.get(l.order_item_id)!, profiles, loads, t);
     profiles = r.profiles;
@@ -641,7 +639,12 @@ export function boostOrder(state: EngineState, order_id: string, t: number, even
     placements.set(l.order_item_id, r.placement);
   }
   const groupIds = new Set(sync.map((l) => l.group_id));
-  let floor: number | null = order.pickup_at_ms;
+  let floor: number | null = null;
+  for (const l of immediate) {
+    if (!isFifo(state, l.station_id)) continue;
+    const pl = placements.get(l.order_item_id)!;
+    floor = Math.max(floor ?? -Infinity, pl.booked.end + pl.carry_ms);
+  }
   for (const gid of groupIds) {
     for (const x of order.groups[gid]?.line_ids ?? []) {
       const l = state.lines[x];
@@ -688,7 +691,7 @@ export function boostOrder(state: EngineState, order_id: string, t: number, even
     if (pl.fallback === 'reserve') fallbacks.push({ order_item_id: l.order_item_id, station_id: pl.station_id, capacity: effectiveCapacity(next.stations[pl.station_id]!), reserve_units: ctx.reserve.get(pl.station_id) ?? 0 });
     const g = groups[l.group_id];
     if (g === undefined) continue;
-    groups[l.group_id] = { ...g, target_land_ms: l.serve_mode === 'sync' ? T_b! : pl.booked.end + pl.carry_ms };
+    groups[l.group_id] = { ...g, target_land_ms: l.serve_mode === 'sync' ? T_b ?? floor ?? pl.booked.end + pl.carry_ms : pl.booked.end + pl.carry_ms };
   }
   const target_land_ms = Math.max(...Object.values(groups).map((g) => g.target_land_ms));
   next = { ...next, lines, orders: { ...next.orders, [order_id]: { ...order, boosted: true, groups, target_land_ms } } };
@@ -848,7 +851,7 @@ export function priorityPlan(state: EngineState, station_ids: Iterable<string>, 
     const g = order.groups[r.group_id]!;
     const lines = movable.get(r.group_id)!;
     const moving = new Set(lines.map((l) => l.order_item_id));
-    let floor = Math.max(g.priority_land_ms ?? Number.NEGATIVE_INFINITY, priorityTerms(state, order.order_id, r.group_id, t)?.fixed ?? Number.NEGATIVE_INFINITY, order.pickup_at_ms ?? Number.NEGATIVE_INFINITY);
+    let floor = Math.max(g.priority_land_ms ?? Number.NEGATIVE_INFINITY, priorityTerms(state, order.order_id, r.group_id, t)?.fixed ?? Number.NEGATIVE_INFINITY, (order.boosted ? null : order.pickup_at_ms) ?? Number.NEGATIVE_INFINITY);
     for (const id of g.line_ids) {
       const l = state.lines[id];
       if (l === undefined || moving.has(id) || l.stage !== 'added' || l.fired_at !== null) continue;
@@ -984,7 +987,7 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
     groups,
     pending.map((l) => l.order_item_id),
     t,
-    order.pickup_at_ms,
+    order.boosted ? null : order.pickup_at_ms,
     o,
     event_id,
   );
@@ -1047,7 +1050,7 @@ export function replanEnded(state: EngineState, ended: EngineLine, t: number, ev
   let next = applyPass1(state, p1, event_id, o.strict);
   if (siblings.length === 0) return next;
 
-  let floor = order!.pickup_at_ms ?? Number.NEGATIVE_INFINITY;
+  let floor = (order!.boosted ? null : order!.pickup_at_ms) ?? Number.NEGATIVE_INFINITY;
   for (const l of siblings) {
     if (held.has(l.order_item_id)) continue;
     const iv = liveInterval(next, l.order_item_id, t);
@@ -1119,7 +1122,7 @@ export function requeueGroup(state: EngineState, order_id: string, group_id: str
   if (movable.length === 0) return state;
   const held = new Set(movable.map((l) => l.order_item_id));
   const T = group.target_land_ms;
-  let floor = Math.max(T, order.pickup_at_ms ?? Number.NEGATIVE_INFINITY);
+  let floor = Math.max(T, (order.boosted ? null : order.pickup_at_ms) ?? Number.NEGATIVE_INFINITY);
   for (const l of siblings) {
     if (held.has(l.order_item_id)) continue;
     const iv = liveInterval(state, l.order_item_id, t);
@@ -1340,20 +1343,22 @@ export function planOrderObserved(
   });
   const immediates = planLines.filter((l) => l.serve_mode === 'immediate');
   const sync = planLines.filter((l) => l.serve_mode === 'sync');
+  const existing = state.orders[proposed.order_id];
+  const pickup = existing === undefined ? futurePickup(proposed.order.pickup_at_ms, now) : existing.boosted ? null : existing.pickup_at_ms;
   const placed = placeSequence(
     state,
     immediates,
     [sync],
     planLines.map((l) => l.order_item_id),
     now,
-    futurePickup(proposed.order.pickup_at_ms, now),
+    pickup,
     { prune: o.prune, strict: false },
   );
 
   const order_type = proposed.order.order_type;
   const placementOf = (l: PlanLine): Routed => placed.placements.get(l.order_item_id)!;
   const land = (l: PlanLine): number => placementOf(l).booked.end + placementOf(l).carry_ms;
-  const immediateTarget = (l: PlanLine): number => Math.max(land(l), l.return_of == null ? proposed.order.pickup_at_ms ?? -Infinity : -Infinity);
+  const immediateTarget = (l: PlanLine): number => Math.max(land(l), l.return_of == null ? pickup ?? -Infinity : -Infinity);
   let index = state.orders[proposed.order_id]?.next_group_index ?? 0;
   const groups: PlanResult['groups'] = [];
   if (sync.length > 0) {

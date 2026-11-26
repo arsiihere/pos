@@ -1426,7 +1426,7 @@ function setLand(state: EngineState, order_id: string, group_id: string, land: n
 function provisionalLand(state: EngineState, order_id: string, group_id: string, batch: readonly string[], t: number, strict: boolean): number {
   const order = state.orders[order_id]!;
   const g = order.groups[group_id]!;
-  let P = Math.max(priorityTerms(state, order_id, group_id, t)?.fixed ?? Number.NEGATIVE_INFINITY, order.pickup_at_ms ?? Number.NEGATIVE_INFINITY);
+  let P = Math.max(priorityTerms(state, order_id, group_id, t)?.fixed ?? Number.NEGATIVE_INFINITY, (order.boosted ? null : order.pickup_at_ms) ?? Number.NEGATIVE_INFINITY);
   const own = new Set(batch);
   for (const id of g.line_ids) {
     const l = state.lines[id];
