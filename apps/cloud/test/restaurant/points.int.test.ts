@@ -7,6 +7,7 @@ interface PointWire {
   name: string;
   sort_order: number;
   archived_at: number | null;
+  order_types: 'all' | string[];
   version: string;
 }
 
@@ -81,7 +82,7 @@ describe('points', () => {
     const created = await post({ name: '  Window  ', sort_order: 4 });
     expect(created.statusCode).toBe(201);
     const point = created.json().data.point as PointWire;
-    expect(point).toEqual({ point_id: point.point_id, name: 'Window', sort_order: 4, archived_at: null, version: expect.any(String) });
+    expect(point).toEqual({ point_id: point.point_id, name: 'Window', sort_order: 4, archived_at: null, order_types: 'all', version: expect.any(String) }); // ⚠️ 01a v2.11 PT-2
     expect((await add('Door')).sort_order).toBe(0);
     expect(await versionOf()).toBe(before + 2);
     expect(await versionOf(f.branches[1])).toBe(sibling);
@@ -328,5 +329,106 @@ describe('points', () => {
       code: 'CONFIG_IN_USE',
       details: { used_by: { entity: 'station', ids: [created.json().data.station.station_id] } },
     });
+  });
+
+  // ---- ⚠️ 01a v2.11 PT-2 (run 3 R3-M-2, R3-M-3, R3-M-4), §6.9a, test 220: points by order type --------------------
+  const stored = async (pointId: string) =>
+    (await cloud.pool.query<{ order_types: string[] | null }>(`SELECT order_types FROM points WHERE point_id = $1`, [pointId])).rows[0]!.order_types;
+
+  it("[01a #220 PT-2] POST with omitted order_types → 'all' (SQL NULL); with ['takeaway'] the set is stored", async () => {
+    const all = await add('Window');
+    expect(all.order_types).toBe('all');
+    expect(await stored(all.point_id)).toBeNull();
+    const created = await post({ name: 'Takeaway Pass', order_types: ['takeaway'] });
+    expect(created.statusCode, created.body).toBe(201);
+    const ta = created.json().data.point as PointWire;
+    expect(ta.order_types).toEqual(['takeaway']);
+    expect(await stored(ta.point_id)).toEqual(['takeaway']);
+    const listed = await cloud.app.inject({ method: 'GET', url: `/v1/admin/branches/${f.branches[0]}/stations`, ...owner(f) });
+    expect((listed.json().data.points as PointWire[]).find((p) => p.point_id === ta.point_id)).toEqual(ta);
+  });
+
+  it("[01a #220 R3-M-3] a pre-release 201 replayed with the same key and omitted types → 'all', the original token, the replay header; no new writes or bump", async () => {
+    const key = '01J0000000000000000000PT22';
+    const first = await cloud.app.inject({ method: 'POST', url: pointsUrl(f.branches[0]), headers: { ...owner(f).headers, 'idempotency-key': key }, payload: { name: 'Window' } });
+    expect(first.statusCode, first.body).toBe(201);
+    const point = first.json().data.point as PointWire;
+    // The row a pre-release cloud stored: the same 201 without order_types.
+    await cloud.pool.query(`UPDATE idempotency_keys SET response_body = response_body #- '{point,order_types}' WHERE idempotency_key = $1`, [key]);
+    const audit = (await pointAudit()).length;
+    const version = await versionOf();
+    const replay = await cloud.app.inject({ method: 'POST', url: pointsUrl(f.branches[0]), headers: { ...owner(f).headers, 'idempotency-key': key }, payload: { name: 'Window' } });
+    expect(replay.statusCode, replay.body).toBe(201);
+    expect(replay.headers['idempotent-replay']).toBe('true');
+    expect(replay.json().data.point).toEqual({ ...point, order_types: 'all' });
+    expect((await pointAudit()).length).toBe(audit);
+    expect(await versionOf()).toBe(version);
+    expect((await cloud.pool.query(`SELECT count(*)::int AS n FROM points WHERE name = 'Window'`)).rows[0]).toEqual({ n: 1 });
+  });
+
+  it('[01a #220 R3-M-2] PATCH a set → sorted answer, new version, one audit, one bump; the reversed set is a no-op; the pre-edit token → 409; an explicit four-type set → all changes the token and stores NULL', async () => {
+    const point = await add('Window');
+    const audit = (await pointAudit()).length;
+    const version = await versionOf();
+    const set = await patch(point.point_id, { expected_version: point.version, order_types: ['takeaway', 'dine_in'] });
+    expect(set.statusCode, set.body).toBe(200);
+    const edited = set.json().data.point as PointWire;
+    expect(edited.order_types).toEqual(['dine_in', 'takeaway']);
+    expect(edited.version).not.toBe(point.version);
+    expect(await stored(point.point_id)).toEqual(['dine_in', 'takeaway']);
+    expect((await pointAudit()).length).toBe(audit + 1);
+    expect(await versionOf()).toBe(version + 1);
+
+    const reversed = await patch(point.point_id, { expected_version: edited.version, order_types: ['takeaway', 'dine_in'] });
+    expect(reversed.statusCode).toBe(200);
+    expect(reversed.json().data.point).toEqual(edited);
+    expect((await pointAudit()).length).toBe(audit + 1);
+    expect(await versionOf()).toBe(version + 1);
+
+    const stale = await patch(point.point_id, { expected_version: point.version, order_types: ['parking'] });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error).toMatchObject({ code: 'CONFIG_STALE', details: { entity: 'point', id: point.point_id } });
+
+    // An omitted order_types keeps the stored set.
+    const renamed = await patch(point.point_id, { expected_version: edited.version, name: 'Door' });
+    expect((renamed.json().data.point as PointWire).order_types).toEqual(['dine_in', 'takeaway']);
+    const four = await patch(point.point_id, { expected_version: (renamed.json().data.point as PointWire).version, order_types: ['parking', 'delivery', 'takeaway', 'dine_in'] });
+    const explicit = four.json().data.point as PointWire;
+    expect(explicit.order_types).toEqual(['delivery', 'dine_in', 'parking', 'takeaway']);
+    const toAll = await patch(point.point_id, { expected_version: explicit.version, order_types: 'all' });
+    expect(toAll.statusCode).toBe(200);
+    const all = toAll.json().data.point as PointWire;
+    expect(all.order_types).toBe('all');
+    expect(all.version).not.toBe(explicit.version);
+    expect(await stored(point.point_id)).toBeNull();
+    // 'all' keeps the legacy version: the same as the point renamed before any set (the member is omitted for NULL).
+    const back = await patch(point.point_id, { expected_version: all.version, name: 'Window' });
+    expect((back.json().data.point as PointWire).version).toBe(point.version);
+  });
+
+  it("[01a #220 R3-M-4] [], null and 'some' → 400 at order_types; a repeated or unknown element → 400 at order_types.1; nothing written", async () => {
+    const point = await add('Window');
+    const audit = (await pointAudit()).length;
+    const version = await versionOf();
+    const cases: Array<[unknown, string, string | undefined]> = [
+      [[], 'order_types', undefined],
+      [null, 'order_types', undefined],
+      ['some', 'order_types', undefined],
+      [['takeaway', 'takeaway'], 'order_types.1', 'repeated order type'],
+      [['takeaway', 'pickup'], 'order_types.1', undefined],
+    ];
+    for (const [order_types, path, message] of cases) {
+      for (const response of [await post({ name: 'Other', order_types }), await patch(point.point_id, { expected_version: point.version, order_types })]) {
+        expect(response.statusCode, JSON.stringify(order_types)).toBe(400);
+        const issue = (response.json().error as { code: string; details: { issues: Array<{ path: string; message: string }> } });
+        expect(issue.code).toBe('VALIDATION_FAILED');
+        expect(issue.details.issues[0]!.path, JSON.stringify(order_types)).toBe(path);
+        if (message !== undefined) expect(issue.details.issues[0]!.message).toBe(message);
+      }
+    }
+    expect((await pointAudit()).length).toBe(audit);
+    expect(await versionOf()).toBe(version);
+    // expected_version plus order_types alone is a valid PATCH shape.
+    expect((await patch(point.point_id, { expected_version: point.version, order_types: ['parking'] })).statusCode).toBe(200);
   });
 });

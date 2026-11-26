@@ -482,8 +482,9 @@ describe('station engine fields', () => {
     expect(counter.count).toBe(3);
     const body = listed.json().data;
     expect(body.points).toEqual([
-      { point_id: pass, name: 'Pass', sort_order: 0, archived_at: null, version: expect.any(String) },
-      { point_id: 'PT-X', name: 'Old', sort_order: 3, archived_at: 1, version: expect.any(String) },
+      // ⚠️ 01a v2.11 PT-2: the field rides on the existing points statement (still 3 statements).
+      { point_id: pass, name: 'Pass', sort_order: 0, archived_at: null, order_types: 'all', version: expect.any(String) },
+      { point_id: 'PT-X', name: 'Old', sort_order: 3, archived_at: 1, order_types: 'all', version: expect.any(String) },
     ]);
     expect(body.stations.map((s: { station_id: string }) => s.station_id)).toEqual([a, b, fryer]);
     expect(body.stations[0]).toMatchObject({
