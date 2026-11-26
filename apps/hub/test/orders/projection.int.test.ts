@@ -107,14 +107,21 @@ describe('[02b §5] orders projection folds', () => {
       sent_after_reconnect: 0,
       bill_key: null, // ⚠️ 02b v1.0.16 (05 row Q-6, migration 0021); folded by P0.13
       carried_over: 0, // ⚠️ 02b v1.0.16 (05 row Q-5, migration 0021)
+      // ⚠️ 02b v1.0.25 §5 (0029_orders_takeaway): no pickup, no key, no approval, no cutoff
+      pickup_at_ms: null,
+      pickup_boosted: 0,
+      phone_key: null,
+      unpaid_handover_approved_at: null,
+      unpaid_handover_approved_due_minor: null,
+      tracking_close_cutoff_ms: null,
     });
     expect(order(take.order_id)).toMatchObject({ order_type: 'takeaway', table_key: `takeaway:${take.order_id}`, token: 1, placed_by: 'S_CASH', follow_up: 0 });
     expect(order(park.order_id)).toMatchObject({ order_type: 'parking', table_key: 'parking:LEB77', car_number: 'leb-77', car_type: 'sedan', token: null });
 
     append(on(take.order_id, 'OrderContactSet', { order_id: take.order_id, customer_name: 'Ali', phone: '03001234567' }));
-    expect(order(take.order_id)).toMatchObject({ customer_name: 'Ali', phone: '03001234567' });
+    expect(order(take.order_id)).toMatchObject({ customer_name: 'Ali', phone: '03001234567', phone_key: '923001234567' }); // ⚠️ v1.0.25 #64
     append(on(take.order_id, 'OrderContactSet', { order_id: take.order_id, customer_name: null, phone: null }));
-    expect(order(take.order_id)).toMatchObject({ customer_name: null, phone: null });
+    expect(order(take.order_id)).toMatchObject({ customer_name: null, phone: null, phone_key: null });
   });
 
   it('[02b §3.1] an OrderPlaced that is not a 02b order (delivery, or no business_date) writes no orders row', async () => {

@@ -59,6 +59,16 @@ function toPre0020(db: Database.Database): void {
   db.exec('ALTER TABLE order_lines DROP COLUMN option_quantity');
   db.exec('DROP TABLE device_people; DROP TABLE device_profiles; ALTER TABLE pair_requests DROP COLUMN hardware_hint'); // 0027 (05a §5.1) runs after it; its devices rebuild needs no undo
   db.exec('DROP TABLE pass_bag_ready; ALTER TABLE pass_orders DROP COLUMN ready_explicit'); // 0028 (03b v1.0.16 §5, R3-M-9) runs after it
+  db.exec('DROP INDEX orders_open_takeaway_paid; DROP INDEX orders_phone; DROP INDEX orders_placed'); // 0029 (02b v1.0.25 §5) runs after it
+  db.exec('ALTER TABLE orders DROP COLUMN pickup_at_ms');
+  db.exec('ALTER TABLE orders DROP COLUMN pickup_boosted');
+  db.exec('ALTER TABLE orders DROP COLUMN phone_key');
+  db.exec('ALTER TABLE orders DROP COLUMN unpaid_handover_approved_at');
+  db.exec('ALTER TABLE orders DROP COLUMN unpaid_handover_approved_due_minor');
+  db.exec('ALTER TABLE orders DROP COLUMN tracking_close_cutoff_ms');
+  db.exec('ALTER TABLE order_lines DROP COLUMN option_id');
+  db.exec('ALTER TABLE order_lines DROP COLUMN deal_part_id');
+  db.exec('ALTER TABLE order_lines DROP COLUMN option_refs_json');
   db.exec('ALTER TABLE order_lines DROP COLUMN part_of'); // 0026 (02b v1.0.20, STAB-5) runs after it
   db.prepare('DELETE FROM migration_checksums WHERE version >= 20').run();
   db.pragma('user_version = 19');
@@ -114,7 +124,7 @@ describe('[02b #39] hub migration 0020_order_line_option_quantity (02b v1.0.13 �
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(28); // +0028: 03b v1.0.16 0028_pass_bag_ready; // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // 02b v1.0.16: 0021, 03c 0022, 05 0023, 0024 and 0025 run after it // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+    expect(db.pragma('user_version', { simple: true })).toBe(29); // +0029: 02b v1.0.25 0029_orders_takeaway; // +0028: 03b v1.0.16 0028_pass_bag_ready; // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // 02b v1.0.16: 0021, 03c 0022, 05 0023, 0024 and 0025 run after it // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     expect(db.prepare('SELECT event_type FROM events WHERE seq > ? ORDER BY seq').pluck().all(maxSeq)[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(rowsOf(db), 'every old line has its option_quantity; rows equal the fresh fold').toEqual(live);
     expect(checkpoint(db, 'orders')).toBeGreaterThanOrEqual(maxSeq);

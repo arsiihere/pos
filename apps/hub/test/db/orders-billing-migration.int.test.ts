@@ -51,6 +51,16 @@ function toPre0021(db: Database.Database): void {
   db.exec('ALTER TABLE order_lines DROP COLUMN unit_price_minor; ALTER TABLE order_lines DROP COLUMN tax_profile_id');
   db.exec('DROP TABLE device_people; DROP TABLE device_profiles; ALTER TABLE pair_requests DROP COLUMN hardware_hint'); // 0027 (05a §5.1) runs after it; its devices rebuild needs no undo
   db.exec('DROP TABLE pass_bag_ready; ALTER TABLE pass_orders DROP COLUMN ready_explicit'); // 0028 (03b v1.0.16 §5, R3-M-9) runs after it
+  db.exec('DROP INDEX orders_open_takeaway_paid; DROP INDEX orders_phone; DROP INDEX orders_placed'); // 0029 (02b v1.0.25 §5) runs after it
+  db.exec('ALTER TABLE orders DROP COLUMN pickup_at_ms');
+  db.exec('ALTER TABLE orders DROP COLUMN pickup_boosted');
+  db.exec('ALTER TABLE orders DROP COLUMN phone_key');
+  db.exec('ALTER TABLE orders DROP COLUMN unpaid_handover_approved_at');
+  db.exec('ALTER TABLE orders DROP COLUMN unpaid_handover_approved_due_minor');
+  db.exec('ALTER TABLE orders DROP COLUMN tracking_close_cutoff_ms');
+  db.exec('ALTER TABLE order_lines DROP COLUMN option_id');
+  db.exec('ALTER TABLE order_lines DROP COLUMN deal_part_id');
+  db.exec('ALTER TABLE order_lines DROP COLUMN option_refs_json');
   db.exec('ALTER TABLE order_lines DROP COLUMN part_of'); // 0026 (02b v1.0.20, STAB-5) runs after it
   db.prepare('DELETE FROM migration_checksums WHERE version >= 21').run();
   db.pragma('user_version = 20');
@@ -187,7 +197,7 @@ describe('[05 #82] hub migration 0021_orders_billing (02b v1.0.16 §5; 05 rows Q
     toPre0021(copy);
     expect(checkpoint(copy, 'orders')).toBe(maxSeq);
     expect(checkpoint(copy, 'kitchen_tickets')).toBe(maxSeq);
-    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0022_bill_routes.sql', '0023_billing.sql', '0024_billing_payments_shift.sql', '0025_billing_z_reports_key.sql', '0026_order_line_part_of.sql', '0027_device_profiles.sql', '0028_pass_bag_ready.sql']); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+    expect((await runMigrations(copy, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, '0022_bill_routes.sql', '0023_billing.sql', '0024_billing_payments_shift.sql', '0025_billing_z_reports_key.sql', '0026_order_line_part_of.sql', '0027_device_profiles.sql', '0028_pass_bag_ready.sql', '0029_orders_takeaway.sql']); // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     expect(checkpoint(copy, 'orders')).toBeUndefined();
     expect(checkpoint(copy, 'kitchen_tickets'), '0021 keeps the kitchen_tickets checkpoint row').toBe(maxSeq);
     expect(copy.prepare("SELECT COUNT(*) FROM order_lines WHERE tax_profile_id IS NOT NULL OR unit_price_minor IS NOT NULL").pluck().get(), 'no UPDATE: the refold fills them').toBe(0);
@@ -197,7 +207,7 @@ describe('[05 #82] hub migration 0021_orders_billing (02b v1.0.16 §5; 05 rows Q
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(28); // +0028: 03b v1.0.16 0028_pass_bag_ready; // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+    expect(db.pragma('user_version', { simple: true })).toBe(29); // +0029: 02b v1.0.25 0029_orders_takeaway; // +0028: 03b v1.0.16 0028_pass_bag_ready; // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     expect(db.prepare('SELECT event_type FROM events WHERE seq > ? ORDER BY seq').pluck().all(maxSeq)[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(rowsOf(db), 'every old line has tax_profile_id and unit_price_minor; rows equal the live fold').toEqual(liveLines);
     expect(ordersOf(db), 'orders rows equal the live fold').toEqual(liveOrders);

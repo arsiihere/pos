@@ -176,7 +176,7 @@ describe('[05 v1.0.11 §5, R-56] hub migration 0024_billing_payments_shift', () 
 
   it('[05 v1.0.11 §5, R-56] a fresh database and a database at 23 both end at 25 (0024 adds the index); re-run is a no-op', async () => {
     const fresh = await migrated();
-    expect(fresh.pragma('user_version', { simple: true })).toBe(28); // +0028: 03b v1.0.16 0028_pass_bag_ready; // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+    expect(fresh.pragma('user_version', { simple: true })).toBe(29); // +0029: 02b v1.0.25 0029_orders_takeaway; // +0028: 03b v1.0.16 0028_pass_bag_ready; // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     expect(names(fresh, 'index')).toContain('bill_payments_shift');
 
     const fx = freshDb();
@@ -212,7 +212,7 @@ describe('[05 v1.0.24 §5, R-85] hub migration 0025_billing_z_reports_key', () =
     insert(db, 'z_reports', { business_date: '2026-11-20', z_no: 2, issued_at: 2, report_json: '{"a":2}' });
     const before = db.prepare('SELECT * FROM z_reports ORDER BY z_no').all();
     const result = await runMigrations(db, { dir: migrations, clock: fixedClock(T) });
-    expect(result).toEqual({ from: 24, to: 28, applied: [Z_KEY_MIGRATION, '0026_order_line_part_of.sql', '0027_device_profiles.sql', '0028_pass_bag_ready.sql'] }); // +0026 (02b v1.0.20, STAB-5)
+    expect(result).toEqual({ from: 24, to: 29, applied: [Z_KEY_MIGRATION, '0026_order_line_part_of.sql', '0027_device_profiles.sql', '0028_pass_bag_ready.sql', '0029_orders_takeaway.sql'] }); // +0026 (02b v1.0.20, STAB-5)
     expect(db.prepare('SELECT * FROM z_reports ORDER BY z_no').all(), 'rows kept').toEqual(before);
     const pk = (db.pragma('table_info(z_reports)') as Array<{ name: string; pk: number }>).filter((c) => c.pk > 0).map((c) => c.name);
     expect(pk).toEqual(['z_no']);
@@ -222,7 +222,7 @@ describe('[05 v1.0.24 §5, R-85] hub migration 0025_billing_z_reports_key', () =
     insert(db, 'z_reports', { business_date: '2026-11-20', z_no: 3, issued_at: 3, report_json: '{}' }); // same date, next Z
     expect(() => insert(db, 'z_reports', { business_date: '2026-11-21', z_no: 3, issued_at: 4, report_json: '{}' })).toThrow(/UNIQUE constraint failed: z_reports.z_no/);
     expect(lf(readFileSync(billingMigrationPath, 'utf8')), '0023 never edited').not.toMatch(/z_reports_day/);
-    expect(await runMigrations(db, { dir: migrations, clock: fixedClock(T + 1) })).toEqual({ from: 28, to: 28, applied: [] });
+    expect(await runMigrations(db, { dir: migrations, clock: fixedClock(T + 1) })).toEqual({ from: 29, to: 29, applied: [] });
   });
 });
 
@@ -517,6 +517,16 @@ function toPre0023(db: Database.Database): void {
   dropBilling0023(db);
   db.exec('DROP TABLE device_people; DROP TABLE device_profiles; ALTER TABLE pair_requests DROP COLUMN hardware_hint'); // 0027 (05a §5.1) runs after it; its devices rebuild needs no undo
   db.exec('DROP TABLE pass_bag_ready; ALTER TABLE pass_orders DROP COLUMN ready_explicit'); // 0028 (03b v1.0.16 §5, R3-M-9) runs after it
+  db.exec('DROP INDEX orders_open_takeaway_paid; DROP INDEX orders_phone; DROP INDEX orders_placed'); // 0029 (02b v1.0.25 §5) runs after it
+  db.exec('ALTER TABLE orders DROP COLUMN pickup_at_ms');
+  db.exec('ALTER TABLE orders DROP COLUMN pickup_boosted');
+  db.exec('ALTER TABLE orders DROP COLUMN phone_key');
+  db.exec('ALTER TABLE orders DROP COLUMN unpaid_handover_approved_at');
+  db.exec('ALTER TABLE orders DROP COLUMN unpaid_handover_approved_due_minor');
+  db.exec('ALTER TABLE orders DROP COLUMN tracking_close_cutoff_ms');
+  db.exec('ALTER TABLE order_lines DROP COLUMN option_id');
+  db.exec('ALTER TABLE order_lines DROP COLUMN deal_part_id');
+  db.exec('ALTER TABLE order_lines DROP COLUMN option_refs_json');
   db.exec('ALTER TABLE order_lines DROP COLUMN part_of'); // 0026 (02b v1.0.20, STAB-5) runs after it
   db.prepare('DELETE FROM migration_checksums WHERE version >= 23').run();
   db.pragma('user_version = 22');
@@ -545,7 +555,7 @@ describe('[05 #87 rebuild half] [04 v1.0.7 V-3] 0023 deletes the audit checkpoin
     let live: Row[] = [];
     await bootOnce(configPath, WALL + 30_000, (deps) => {
       const db = deps.db;
-      expect(db.pragma('user_version', { simple: true })).toBe(28); // +0028: 03b v1.0.16 0028_pass_bag_ready; // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+      expect(db.pragma('user_version', { simple: true })).toBe(29); // +0029: 02b v1.0.25 0029_orders_takeaway; // +0028: 03b v1.0.16 0028_pass_bag_ready; // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
       const rows = auditRows(db);
       expect(rows.filter((r) => r['action'] === 'bill_requested').map((r) => r['seq']), 'the old BillRequested is in the log').toEqual(oldBillRequested);
       expect(rows.filter((r) => r['action'] !== 'bill_requested'), 'every earlier row, column for column').toEqual(before);

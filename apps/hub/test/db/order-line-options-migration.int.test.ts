@@ -54,7 +54,7 @@ const linesOf = (db: Database.Database) => db.prepare('SELECT order_item_id, opt
 
 /** Back to a pre-0016 hub: the column gone, 0016 (and the later 04 0017 / 0018, 02b v1.0.12 0019, v1.0.13 0020, v1.0.16 0021, 03c 0022, 05 0023, 0024) not applied; every
  *  projection (and checkpoint) as it was. */
-const LATER = ['0017_staff_names.sql', '0018_audit.sql', '0019_order_line_station.sql', '0020_order_line_option_quantity.sql', '0021_orders_billing.sql', '0022_bill_routes.sql', '0023_billing.sql', '0024_billing_payments_shift.sql', '0025_billing_z_reports_key.sql', '0026_order_line_part_of.sql', '0027_device_profiles.sql', '0028_pass_bag_ready.sql']; // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+const LATER = ['0017_staff_names.sql', '0018_audit.sql', '0019_order_line_station.sql', '0020_order_line_option_quantity.sql', '0021_orders_billing.sql', '0022_bill_routes.sql', '0023_billing.sql', '0024_billing_payments_shift.sql', '0025_billing_z_reports_key.sql', '0026_order_line_part_of.sql', '0027_device_profiles.sql', '0028_pass_bag_ready.sql', '0029_orders_takeaway.sql']; // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
 function toPre0016(db: Database.Database): void {
   // 0021 (02b v1.0.16, 05 Q-1 / Q-5 / Q-6, R-7 / R-17) re-adds these and orders_token_day / orders_bill_key
   dropBilling0023(db); // 0023 (05 v1.0.7 §5) runs after 0022
@@ -69,6 +69,16 @@ function toPre0016(db: Database.Database): void {
   db.exec('DROP TABLE staff_names; DROP TABLE audit_entries; DROP TABLE audit_requests; DROP TABLE audit_orders');
   db.exec('DROP TABLE device_people; DROP TABLE device_profiles; ALTER TABLE pair_requests DROP COLUMN hardware_hint'); // 0027 (05a §5.1) runs after it; its devices rebuild needs no undo
   db.exec('DROP TABLE pass_bag_ready; ALTER TABLE pass_orders DROP COLUMN ready_explicit'); // 0028 (03b v1.0.16 §5, R3-M-9) runs after it
+  db.exec('DROP INDEX orders_open_takeaway_paid; DROP INDEX orders_phone; DROP INDEX orders_placed'); // 0029 (02b v1.0.25 §5) runs after it
+  db.exec('ALTER TABLE orders DROP COLUMN pickup_at_ms');
+  db.exec('ALTER TABLE orders DROP COLUMN pickup_boosted');
+  db.exec('ALTER TABLE orders DROP COLUMN phone_key');
+  db.exec('ALTER TABLE orders DROP COLUMN unpaid_handover_approved_at');
+  db.exec('ALTER TABLE orders DROP COLUMN unpaid_handover_approved_due_minor');
+  db.exec('ALTER TABLE orders DROP COLUMN tracking_close_cutoff_ms');
+  db.exec('ALTER TABLE order_lines DROP COLUMN option_id');
+  db.exec('ALTER TABLE order_lines DROP COLUMN deal_part_id');
+  db.exec('ALTER TABLE order_lines DROP COLUMN option_refs_json');
   db.exec('ALTER TABLE order_lines DROP COLUMN part_of'); // 0026 (02b v1.0.20, STAB-5) runs after it
   db.prepare('DELETE FROM migration_checksums WHERE version >= 16').run();
   db.pragma('user_version = 15');
@@ -122,6 +132,9 @@ describe('[02b v1.0.7 / v1.0.9 §5] hub migration 0016_order_line_options', () =
       delete r.option_quantity;
       delete r.tax_profile_id; // 0021 (02b v1.0.16), refold-filled as well
       delete r.unit_price_minor;
+      delete r.option_id; // 0029 (02b v1.0.25 §5), refold-filled as well
+      delete r.deal_part_id;
+      delete r.option_refs_json;
       return r;
     });
     const all = allRows();
@@ -159,7 +172,7 @@ describe('[02b v1.0.7 / v1.0.9 §5] hub migration 0016_order_line_options', () =
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(28); // +0028: 03b v1.0.16 0028_pass_bag_ready; // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
+    expect(db.pragma('user_version', { simple: true })).toBe(29); // +0029: 02b v1.0.25 0029_orders_takeaway; // +0028: 03b v1.0.16 0028_pass_bag_ready; // +0027: 05a §5.1 0027_device_profiles // +0026: 02b v1.0.20 migration 0026_order_line_part_of (STAB-5) // +0025: 05 hub migration 0025_billing_z_reports_key (05 task 25, R-85)
     const after = db.prepare('SELECT event_type FROM events WHERE seq > (SELECT MAX(seq) FROM events WHERE recorded_at <= ?) ORDER BY seq').pluck().all(lastRecordedAt);
     expect(after[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(linesOf(db)).toEqual(live);
