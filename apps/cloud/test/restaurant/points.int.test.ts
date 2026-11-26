@@ -239,22 +239,22 @@ describe('points', () => {
     expect(patched.json().error.code).toBe('BRANCH_NOT_FOUND');
   });
 
-  it('[01a §12.3 Q-v2.1-2] archiving a point an active station names → 409 CONFIG_IN_USE with the active ids only', async () => {
+  // ⚠️ Changed by 01a v2.11 PT-6 / D7 (run 3 R3-B-1; was Q-v2.1-2's 409 CONFIG_IN_USE): a station naming the point no
+  // longer blocks its archive; the station uses the active fallback once the archive is effective (§6.9, hub apply).
+  it('[01a #220 D7] archiving a point active stations name (their default Pass) with another active point → 200, archive audit, one bump', async () => {
     const point = await add('Window');
     const a = await addStation('A', point.point_id);
-    const b = await addStation('B', point.point_id);
-    const gone = await addStation('Gone', point.point_id);
-    await archiveStation(gone);
     const audit = (await pointAudit()).length;
     const version = await versionOf();
-    const refused = await patch(point.point_id, { expected_version: point.version, archived: true });
-    expect(refused.statusCode).toBe(409);
-    expect(refused.json().error).toMatchObject({
-      code: 'CONFIG_IN_USE',
-      details: { entity: 'point', id: point.point_id, used_by: { entity: 'station', ids: [a, b].sort() } },
-    });
-    expect((await pointAudit()).length).toBe(audit);
-    expect(await versionOf()).toBe(version);
+    const archived = await patch(point.point_id, { expected_version: point.version, archived: true });
+    expect(archived.statusCode, archived.body).toBe(200);
+    const wire = archived.json().data.point as PointWire;
+    expect(wire.archived_at).toEqual(expect.any(Number));
+    expect(wire.version).not.toBe(point.version);
+    expect((await pointAudit()).slice(audit).map((row) => row.action)).toEqual(['archive']);
+    expect(await versionOf()).toBe(version + 1);
+    // the station keeps naming it (Snapshot schema 4 carries the same point_id; the hub resolves the fallback)
+    expect((await cloud.pool.query(`SELECT point_id FROM stations WHERE station_id = $1`, [a])).rows).toEqual([{ point_id: point.point_id }]);
   });
 
   it('[01a §12.3 Q-v2.1-2] a point only archived stations name archives → 200', async () => {
@@ -308,7 +308,7 @@ describe('points', () => {
     expect(station.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'point_id', reason: 'archived' } });
   });
 
-  it('[01a §12.3 Q-v2.1-2] a station POST holding the point FOR SHARE: the archive waits, then sees the station → 409', async () => {
+  it('[01a §12.3 Q-v2.1-2, D7] a station POST holding the point FOR SHARE: the archive waits, then archives (the station does not block it)', async () => {
     const point = await add('Window');
     let held!: () => void;
     const isHeld = new Promise<void>((resolve) => {
@@ -324,11 +324,7 @@ describe('points', () => {
     const archive = await patch(point.point_id, { expected_version: point.version, archived: true });
     const created = await station;
     expect(created.statusCode).toBe(201);
-    expect(archive.statusCode).toBe(409);
-    expect(archive.json().error).toMatchObject({
-      code: 'CONFIG_IN_USE',
-      details: { used_by: { entity: 'station', ids: [created.json().data.station.station_id] } },
-    });
+    expect(archive.statusCode, archive.body).toBe(200);
   });
 
   // ---- ⚠️ 01a v2.11 PT-2 (run 3 R3-M-2, R3-M-3, R3-M-4), §6.9a, test 220: points by order type --------------------
@@ -430,5 +426,54 @@ describe('points', () => {
     expect(await versionOf()).toBe(version);
     // expected_version plus order_types alone is a valid PATCH shape.
     expect((await patch(point.point_id, { expected_version: point.version, order_types: ['parking'] })).statusCode).toBe(200);
+  });
+
+  // ---- ⚠️ 01a v2.11 PT-6, D7 (run 3 R3-B-1), §6.9a Archive, test 220 (cloud part) -------------------------------------
+  const LAST_POINT = { code: 'VALIDATION_FAILED', details: { issues: [{ path: 'archived', message: 'Activate another Pass point first' }] } };
+
+  it('[01a #220 D7] a routing-only Pass archives (version changes); the last active point is refused with the §6.9a error and zero writes', async () => {
+    const created = await post({ name: 'Takeaway Pass', order_types: ['takeaway'] });
+    const ta = created.json().data.point as PointWire;
+    const archived = await patch(ta.point_id, { expected_version: ta.version, archived: true });
+    expect(archived.statusCode, archived.body).toBe(200);
+    expect((archived.json().data.point as PointWire).version).not.toBe(ta.version);
+
+    // Only "Pass" is active now (its station default too): archiving it is refused.
+    const listed = await cloud.app.inject({ method: 'GET', url: `/v1/admin/branches/${f.branches[0]}/stations`, ...owner(f) });
+    const pass = (listed.json().data.points as PointWire[]).find((p) => p.name === 'Pass')!;
+    await addStation('Karahi', pass.point_id);
+    const audit = (await pointAudit()).length;
+    const version = await versionOf();
+    const refused = await patch(pass.point_id, { expected_version: pass.version, archived: true });
+    expect(refused.statusCode, refused.body).toBe(400);
+    expect(refused.json().error).toMatchObject(LAST_POINT);
+    expect((await pointAudit()).length).toBe(audit);
+    expect(await versionOf()).toBe(version);
+    expect((await cloud.pool.query(`SELECT archived_at FROM points WHERE point_id = $1`, [pass.point_id])).rows).toEqual([{ archived_at: null }]);
+    // An archived point's restore and an ordinary edit are not archives: no such check.
+    expect((await patch(pass.point_id, { expected_version: pass.version, name: 'Main Pass' })).statusCode).toBe(200);
+  });
+
+  it('[01a #220 D7] two active points and concurrent archives of both → exactly one succeeds, the other gets the §6.9a error', async () => {
+    const listed = await cloud.app.inject({ method: 'GET', url: `/v1/admin/branches/${f.branches[0]}/stations`, ...owner(f) });
+    const pass = (listed.json().data.points as PointWire[]).find((p) => p.name === 'Pass')!;
+    const other = await add('Window');
+    let locked!: () => void;
+    const isLocked = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    hooks.afterTargetLock = async () => {
+      locked();
+      await pause();
+    };
+    const first = patch(pass.point_id, { expected_version: pass.version, archived: true });
+    await isLocked;
+    delete hooks.afterTargetLock;
+    const second = await patch(other.point_id, { expected_version: other.version, archived: true });
+    const results = [await first, second];
+    expect(results.map((r) => r.statusCode).sort()).toEqual([200, 400]);
+    expect(results.find((r) => r.statusCode === 400)!.json().error).toMatchObject(LAST_POINT);
+    const active = await cloud.pool.query(`SELECT count(*)::int AS n FROM points WHERE branch_id = $1 AND archived_at IS NULL`, [f.branches[0]]);
+    expect(active.rows).toEqual([{ n: 1 }]);
   });
 });
