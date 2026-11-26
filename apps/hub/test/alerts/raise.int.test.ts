@@ -317,12 +317,12 @@ describe('01d alerts.raise / raiseMany', () => {
       return out;
     }).result;
     const raised = r.events[0] as EventDraft;
-    expect(raised.schema_version).toBe(5); // ⚠️ Changed by 05 (row D-1, G-16): latest is v5
+    expect(raised.schema_version).toBe(6); // ⚠️ Changed by 05 (row D-1, G-16): latest is v5; 01d v1.3.7 §5.4: v6
     expect((raised.payload as { details: unknown }).details).toEqual(details);
     const row = h.db.prepare('SELECT details_json FROM alerts WHERE alert_id = ?').get(r.alert_id) as { details_json: string };
     expect(JSON.parse(row.details_json)).toEqual(details);
     const stored = h.db.prepare("SELECT schema_version, payload FROM events WHERE event_type = 'AlertRaised'").get() as { schema_version: number; payload: string };
-    expect(stored.schema_version).toBe(5); // ⚠️ Changed by 05 (row D-1, G-16)
+    expect(stored.schema_version).toBe(6); // ⚠️ Changed by 05 (row D-1, G-16); 01d v1.3.7 §5.4: v6
     expect((JSON.parse(stored.payload) as { details: unknown }).details).toEqual(details);
   });
 

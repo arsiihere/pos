@@ -1,5 +1,5 @@
 import type { Permission } from '@pos/domain';
-import type { AlertRaisedPayloadV5 } from '@pos/events';
+import type { AlertRaisedPayloadV6 } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { APPROVAL_TIER_STEPS, defineAlertKind, unregisterAlertKind } from '../../src/alerts/kinds';
@@ -73,12 +73,12 @@ function voidServed(who: Who, prefix: string): Promise<Reply> {
 }
 
 /** The request was raised (no ItemVoided); its AlertRaised payload and the raise's alert event types. */
-function raisedOf(r: Reply): { alert_id: string; payload: AlertRaisedPayloadV5; types: string[] } {
+function raisedOf(r: Reply): { alert_id: string; payload: AlertRaisedPayloadV6; types: string[] } {
   expect(r.status, JSON.stringify(r.error)).toBe(200);
   expect(r.events.filter((e) => e.event_type === 'ItemVoided')).toEqual([]);
   const raised = r.events.filter((e) => e.event_type === 'AlertRaised');
   expect(raised).toHaveLength(1);
-  const payload = raised[0]!.payload as unknown as AlertRaisedPayloadV5;
+  const payload = raised[0]!.payload as unknown as AlertRaisedPayloadV6;
   const alertTypes = new Set(['AlertRaised', 'AttemptSent', 'EscalationStepped', 'StepSkipped']);
   return { alert_id: payload.alert_id, payload, types: r.events.filter((e) => alertTypes.has(e.event_type)).map((e) => e.event_type) };
 }
@@ -198,7 +198,7 @@ describe('[05a #17a, #18] downgrade with no listed device connected now → hold
 
 describe('[05a #19] downgraded discount, comp and reopen follow tests 17–18', () => {
   /** alerts.raise as the owning command does it: ctx.permission = the session view's resolution of `permission`. */
-  function raiseAs(who: Who, permission: Permission, input: Omit<RaiseInput, 'requester_staff_id' | 'request' | 'display' | 'target'>): { alert_id: string; payload: AlertRaisedPayloadV5; types: string[] } {
+  function raiseAs(who: Who, permission: Permission, input: Omit<RaiseInput, 'requester_staff_id' | 'request' | 'display' | 'target'>): { alert_id: string; payload: AlertRaisedPayloadV6; types: string[] } {
     const directory = currentDirectory(hub.app).forSession({ staff_id: who.staffId, device_id: who.deviceId }, deviceProfile);
     const grant = directory.resolve(who.staffId, permission);
     expect(grant).toMatchObject({ grant: 'requires_approval', approver_role_ids: [], masked: 'downgraded' });
@@ -222,7 +222,7 @@ describe('[05a #19] downgraded discount, comp and reopen follow tests 17–18', 
         request: { approver_role_ids: 'approver_role_ids' in grant ? grant.approver_role_ids : [] },
       });
       tx.append(res.events);
-      const payload = res.events[0]!.payload as unknown as AlertRaisedPayloadV5;
+      const payload = res.events[0]!.payload as unknown as AlertRaisedPayloadV6;
       return { alert_id: res.alert_id, payload, types: res.events.map((e) => e.event_type) };
     }).result;
   }

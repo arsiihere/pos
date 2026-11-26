@@ -618,6 +618,38 @@ describe('01d alerts projections', () => {
     expect(dump(h.db)).toEqual(live);
   });
 
+  it('[01d v1.3.7 §5.4, #123] a stored v5 request replays through the v5 → v6 upcaster to the same request projection as v6', async () => {
+    const h = await harness(cleanups);
+    // 05's holders request: A6 written now (the writer appends the latest, v6); A5 the same request as an older hub
+    // stored it, with schema_version 5 (events are immutable, so the row is inserted as such)
+    const holders = { ...approvalRequest, right_mode: 'holders', base_permission: 'close-shift-for-others', range_permission: null, approver_role_ids: [] };
+    const target = { kind: 'permission', permission: 'close-shift-for-others' };
+    const [v6] = h.append(raised('A6', 't_approval', { request: holders, target, values: { order_id: 'O1' } }));
+    expect(v6!.schema_version).toBe(6);
+    const v5 = raised('A5', 't_approval', { request: holders, target, values: { order_id: 'O1' } });
+    const seq = (h.db.prepare('SELECT MAX(seq) AS s FROM events').get() as { s: number }).s + 1;
+    h.db
+      .prepare(
+        `INSERT INTO events (event_id, tenant_id, branch_id, stream_type, stream_id, event_type, schema_version, payload,
+           occurred_at, recorded_at, actor_id, device_id, seq) VALUES (?, ?, ?, ?, ?, 'AlertRaised', 5, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run('evt-v5', v6!.tenant_id, v6!.branch_id, v5.stream_type, v5.stream_id, JSON.stringify(v5.payload), v6!.occurred_at, v6!.recorded_at, v5.actor_id, v5.device_id, seq);
+    h.db.prepare(`DELETE FROM projection_checkpoints WHERE projection IN ('alerts', 'alert_flags', 'alert_receipts', 'presence_today')`).run();
+    const fresh = createProjectionRegistry();
+    registerAlertProjections(fresh);
+    expect(fresh.catchUp(h.db, BRANCH).replayed.alerts).toBe(2);
+    const rows = h.db.prepare("SELECT * FROM alerts WHERE alert_id IN ('A5', 'A6') ORDER BY alert_id").all() as Array<Record<string, unknown>>;
+    const same = (r: Record<string, unknown>) => {
+      const { alert_id, dedupe_key, raised_seq, raised_event_id, ...rest } = r;
+      void alert_id; void dedupe_key; void raised_seq; void raised_event_id;
+      return rest;
+    };
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.request_json).toBe(rows[1]!.request_json);
+    expect(JSON.parse(String(rows[0]!.request_json))).toMatchObject({ right_mode: 'holders', base_permission: 'close-shift-for-others' });
+    expect(same(rows[0]!)).toEqual(same(rows[1]!));
+  });
+
   it('[01d §3.5 AD-123] a step whose targets cannot be computed retires the alert: next_due_at NULL, one live error line (no values); replay gives the same rows and logs nothing', async () => {
     const h = await harness(cleanups);
     h.append(
