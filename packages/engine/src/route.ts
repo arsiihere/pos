@@ -177,7 +177,8 @@ export function optionOn(options: readonly RouteOption[], station_id: string): R
 
 // §3.5.5 immediate line: the minimum arrival (land at the station + carry; ties in preference order, D9); if it
 // beats the home station by less than min_gain_ms, the home station. `arrivals[i]` belongs to `options[i]`.
-export function chooseImmediate(ctx: RouteCtx, options: readonly RouteOption[], arrivals: readonly number[]): number {
+export function chooseImmediate(ctx: RouteCtx, options: readonly RouteOption[], lands: readonly number[], pickup: number | null = null): number {
+  const arrivals = pickup === null ? lands : lands.map(land => Math.max(land, pickup));
   let best = 0;
   for (let i = 1; i < options.length; i++) if (arrivals[i]! < arrivals[best]!) best = i;
   const home = options.findIndex((o) => o.home);

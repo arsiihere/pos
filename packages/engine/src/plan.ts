@@ -119,6 +119,16 @@ type PlanLine = Pick<
   'order_item_id' | 'station_id' | 'units' | 'prep_ms' | 'cook_ms' | 'carry_ms' | 'max_early_ms' | 'from_stock' | 'program_id' | 'stock_program_id'
 > & { return_of?: EngineLine['return_of'] };
 
+// PK-2: prefer the freshness window, then an earlier on-time fit, then the earliest late fit.
+function pickupFit(profile: Profile, line: PlanLine, cap: number, t: number, deadline: number) {
+  const args = [line.prep_ms, line.cook_ms, line.units, cap] as const;
+  const fresh = latestFit(profile, Math.max(t, deadline - line.max_early_ms), deadline, ...args);
+  if (fresh !== null) return { fire: fresh, step: 1 };
+  const early = latestFit(profile, t, deadline, ...args);
+  if (early !== null) return { fire: early, step: 2 };
+  return { fire: earliestFit(profile, Math.max(t, deadline), ...args), step: 3 };
+}
+
 // A placement with the station it was made on (§3.5.5) and that station's carry to the point.
 // fallback = 'reserve': no allowed station could take the line, booked on its own at full capacity (route.ts).
 // On a batch station (task 13) `booked` is the line's load booking (the whole station) and `fire` the load's fire;
@@ -171,6 +181,7 @@ function trySyncAt(
   t: number,
   loads: Readonly<Loads>,
   windows: ReadonlyMap<string, number>,
+  pickupHold: boolean,
 ): { ok: true; placements: Map<string, Routed>; profiles: Record<string, Profile>; loads: Loads } | { ok: false; advance: number } {
   const cur: Record<string, Profile> = { ...profiles };
   const curLoads: Loads = { ...loads };
@@ -208,7 +219,7 @@ function trySyncAt(
       if (fifo.has(sid)) {
         // §3.5.3 / AD-14 (task 11 review): a FIFO station takes the line at its earliest fit from t, never held;
         // it fits at T when it lands by T (its land floors the group's T), else T must reach that land.
-        const e = earliestFit(here, t, line.prep_ms, line.cook_ms, line.units, cap);
+        const e = pickupHold ? pickupFit(here, line, cap, t, f0).fire : earliestFit(here, t, line.prep_ms, line.cook_ms, line.units, cap);
         const land = bookingAt(line, cap, e).end + o.carry_ms;
         if (land <= T) fire = e;
         else a = land - T;
@@ -298,19 +309,13 @@ function placeImmediate(
   }
   const tries = opts.map((x) => {
     const profile = profiles[x.station_id]!;
-    const args = [line.prep_ms, line.cook_ms, line.units, x.cap] as const;
-    const deadline = pickup === null ? t : fireEndingAt(line, x.cap, pickup - x.carry_ms);
-    const onTime = pickup === null ? null :
-      latestFit(profile, Math.max(t, deadline - line.max_early_ms), deadline, ...args) ??
-      latestFit(profile, t, deadline, ...args);
-    const fire = onTime ?? earliestFit(profile, Math.max(t, deadline), ...args);
-    return { fire, booked: bookingAt(line, x.cap, fire) };
+    const fit = pickup === null
+      ? { fire: earliestFit(profile, t, line.prep_ms, line.cook_ms, line.units, x.cap), step: 1 }
+      : pickupFit(profile, line, x.cap, t, fireEndingAt(line, x.cap, pickup - x.carry_ms));
+    return { ...fit, booked: bookingAt(line, x.cap, fit.fire) };
   });
-  const k = chooseImmediate(
-    ctx,
-    opts,
-    tries.map((x, i) => x.booked.end + opts[i]!.carry_ms),
-  );
+  const step = Math.min(...tries.map(x => x.step));
+  const k = chooseImmediate(ctx, opts, tries.map((x, i) => x.step === step ? x.booked.end + opts[i]!.carry_ms : Infinity), pickup);
   const { fire, booked } = tries[k]!;
   const sid = opts[k]!.station_id;
   return {
@@ -335,6 +340,7 @@ function holdAndFire(
   t: number,
   floor: number | null,
   loads: Readonly<Loads> = {},
+  pickupHold = false,
 ): { T: number; placements: Map<string, Routed>; profiles: Record<string, Profile>; loads: Loads } {
   const windows = batchWindows(state);
   let T = floor ?? Number.NEGATIVE_INFINITY;
@@ -355,7 +361,7 @@ function holdAndFire(
   const order = syncOrder(state, lines);
   const fifo = routeCtx(state).fifo;
   for (;;) {
-    const r = trySyncAt(profiles, order, options, fifo, T, t, loads, windows);
+    const r = trySyncAt(profiles, order, options, fifo, T, t, loads, windows, pickupHold);
     if (r.ok) return { T, placements: r.placements, profiles: r.profiles, loads: r.loads };
     // Unreachable: capacity < 1 is already refused by stationOf / capacityFor before any loop runs (and route.ts
     // never offers a station where the line's capacity is < 1), and with capacity ≥ 1 every advance comes from a
@@ -448,7 +454,7 @@ function placeSequence(
       targets.push(g);
       continue;
     }
-    const r = holdAndFire(state, profiles, held, options, t, g === Number.NEGATIVE_INFINITY ? null : g, loads);
+    const r = holdAndFire(state, profiles, held, options, t, g === Number.NEGATIVE_INFINITY ? null : g, loads, floor !== null);
     profiles = r.profiles;
     loads = r.loads;
     for (const [id, pl] of r.placements) {
@@ -987,7 +993,7 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
     const pl = placed.placements.get(l.order_item_id)!;
     const T = order.groups[l.group_id]?.target_land_ms ?? pl.booked.end + pl.carry_ms;
     // §3.5.3 / AD-14: a FIFO line's target is its own land time, so its deadline is its fire.
-    if (placed.fifo.has(l.order_item_id)) {
+    if (placed.fifo.has(l.order_item_id) || (order.pickup_at_ms !== null && isFifo(state, pl.station_id))) {
       deadlines.set(l.order_item_id, pl.fire);
       continue;
     }
@@ -1062,7 +1068,7 @@ export function replanEnded(state: EngineState, ended: EngineLine, t: number, ev
         : removeInterval(profiles[l.station_id]!, b, b.units, () => undefined);
     }
     for (const l of lines) stationOf(next.stations, l);
-    loop = holdAndFire(next, profiles, lines, options, t, floor === Number.NEGATIVE_INFINITY ? null : floor);
+    loop = holdAndFire(next, profiles, lines, options, t, floor === Number.NEGATIVE_INFINITY ? null : floor, {}, order!.pickup_at_ms !== null && !order!.boosted);
     if (!(loop.T < T)) return next;
     const moves = new Map<string, Move>();
     for (const l of lines) {
@@ -1128,7 +1134,7 @@ export function requeueGroup(state: EngineState, order_id: string, group_id: str
   }
   // stationOf throws InvalidEvent for a line whose station is gone (as in replanEnded); kept for that throw.
   for (const l of movable) stationOf(state.stations, l);
-  const loop = holdAndFire(state, profiles, movable, options, t, floor);
+  const loop = holdAndFire(state, profiles, movable, options, t, floor, {}, order.pickup_at_ms !== null && !order.boosted);
   let lines: Record<string, EngineLine> | null = null;
   for (const l of movable) {
     const pl = loop.placements.get(l.order_item_id);
