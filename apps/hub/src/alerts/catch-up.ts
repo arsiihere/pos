@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { CatchUpPart, SocketCtx } from '../ws/catch-up.js';
 import { kindOf, type AlertKind } from './kinds.js';
-import { isListedDevice, mayAnswer, type AlertRequestPart } from './targets.js';
+import { deviceAllowed, isListedDevice, mayAnswer, valuesOf, type AlertRequestPart } from './targets.js';
 import { cardRule, counterRow, lockOnlyView, safeBuild, signedInView, StrictCardView, StrictLockView, type ViewRow } from './ws-frames.js';
 
 // 01d §6 batch 3 "A missed frame is covered by … the `alerts` catch-up part" (H-7: built with the socket
@@ -216,9 +216,12 @@ export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
       }
       listed.add(row.alert_id);
     };
+    // ⚠️ 03b v1.0.16 §6.21 (run 3 verify): an alert its kind excludes from this device is not listed here
+    const shownHere = (row: CatchUpRow, kind: AlertKind): boolean => deviceAllowed(kind, valuesOf(row.values_json), socket.deviceId);
     for (const row of rows) {
       const kind = kindOf(row.kind);
       if (kind === undefined) continue; // P-8: an unknown kind has no labels
+      if (!shownHere(row, kind)) continue;
       // a station socket has no person; otherwise the one card rule (a device-target socket gets lock only)
       const request = row.request_json === null ? null : (JSON.parse(row.request_json) as AlertRequestPart);
       const canAnswer = staffId !== null && request !== null && answerableHere(request) && mayAnswer(dir(), request, row.requester_staff_id, staffId).ok;
@@ -237,7 +240,7 @@ export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
       for (const row of db.prepare(REQUESTS_SQL).all(params) as CatchUpRow[]) {
         if (listed.has(row.alert_id) || row.request_json === null) continue;
         const kind = kindOf(row.kind);
-        if (kind === undefined) continue;
+        if (kind === undefined || !shownHere(row, kind)) continue;
         const request = JSON.parse(row.request_json) as AlertRequestPart;
         if (!answerableHere(request) || !mayAnswer(dir(), request, row.requester_staff_id, staffId).ok) continue;
         push(row, kind, true, 'answerer');

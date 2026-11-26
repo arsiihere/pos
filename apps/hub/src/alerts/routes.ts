@@ -5,7 +5,7 @@ import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { WsHub } from '../ws/server.js';
 import type { AlertKind } from './kinds.js';
-import { isListedDevice, isPresent, listedDevicesOnly, managers, targetKey, type BatchReads, type BindingRead, type Recipient, type RecipientRow } from './targets.js';
+import { deviceAllowed, isListedDevice, isPresent, listedDevicesOnly, managers, targetKey, type BatchReads, type BindingRead, type Recipient, type RecipientRow } from './targets.js';
 
 // 01d §3.4.3 routes of a person (screen, alert connection (a)(b)(c), registered routes), the no-route rule
 // with its "for" rows (lead_fallback kinds only), the §3.4.2 table-team fallback, and §3.8 registerRoute.
@@ -149,7 +149,7 @@ function lastActivity(reads: BatchReads, staffId: string): number | null {
  * screen or alert-connection route to a device that is not `listed` (R-1: no profile counts as `everyone`) is
  * dropped; a person left with none is a person with no route (the G1-9d shortcut, 05a test 7a). Memory only.
  */
-function personRoutes(staffId: string, reads: BatchReads, ws: WsHub, now: number, listedOnly: boolean): RouteRow[] {
+function personRoutes(staffId: string, reads: BatchReads, ws: WsHub, now: number, listedOnly: boolean, allowed: (deviceId: string) => boolean = () => true): RouteRow[] {
   const out: RouteRow[] = [];
   const seen = new Set<string>();
   const push = (route: string, ref: string): void => {
@@ -158,7 +158,8 @@ function personRoutes(staffId: string, reads: BatchReads, ws: WsHub, now: number
     seen.add(key);
     out.push({ staff_id: staffId, route, ref });
   };
-  const reaches = (deviceId: string): boolean => !listedOnly || isListedDevice(deviceId);
+  // ⚠️ 03b v1.0.16 §6.21 (run 3 verify): + the kind's excludesDevice for this alert (`allowed`)
+  const reaches = (deviceId: string): boolean => (!listedOnly || isListedDevice(deviceId)) && allowed(deviceId);
   for (const s of ws.connectedSessions()) if (s.kind === 'staff' && s.staffId === staffId && reaches(s.deviceId)) push('screen', s.deviceId);
   for (const b of reads.bindings) {
     if (b.staff_id === staffId && reaches(b.device_id) && bindingIsRoute(b, reads, ws, now).route) push('alert_connection', b.device_id);
@@ -193,6 +194,7 @@ export function routeRecipients(
   ws: WsHub,
   now: number,
   requesterId: string | null = null,
+  values: Record<string, unknown> = {},
 ): { recipients: RecipientRow[]; routes: RouteRow[]; no_route: string[] } {
   if (routes.size > 0 && reads.routes === undefined) {
     throw new Error('routeRecipients: reads.routes is missing while a route is registered (askRoutes before routing)');
@@ -213,7 +215,7 @@ export function routeRecipients(
   const routesOf = (staffId: string): RouteRow[] => {
     let list = routeCache.get(staffId);
     if (list === undefined) {
-      list = personRoutes(staffId, reads, ws, now, listedOnly);
+      list = personRoutes(staffId, reads, ws, now, listedOnly, (deviceId) => deviceAllowed(kind, values, deviceId));
       routeCache.set(staffId, list);
     }
     return list;

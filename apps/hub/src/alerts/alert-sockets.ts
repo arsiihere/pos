@@ -15,7 +15,7 @@ import type { WsHub } from '../ws/server.js';
 import { kindOf } from './kinds.js';
 import { bindingIsRoute } from './routes.js';
 import { cachedPrepare } from './statements.js';
-import { ACTIVITY_SESSIONS, isListedDevice, listedDevicesOnly, type BatchReads, type SessionRead } from './targets.js';
+import { ACTIVITY_SESSIONS, deviceAllowed, isListedDevice, listedDevicesOnly, valuesOf, type BatchReads, type SessionRead } from './targets.js';
 import { dayStartOf, FROM_DAY_COLUMN, fromBusinessDay, seenByMe } from './catch-up.js';
 import { lockView, safeBuild, type LockViewRow } from './ws-frames.js';
 
@@ -219,6 +219,8 @@ export function createAlertSockets(env: AlertSocketsEnv): AlertSockets {
       // replays a money request or `device_waiting` to a device that is not `listed` (route 2 is dropped there);
       // a device-target row keeps its lock line. Memory (`deviceProfile`), no statement.
       if (row.to_device !== 1 && listedDevicesOnly(kind) && !isListedDevice(deviceId)) continue;
+      // ⚠️ 03b v1.0.16 §6.21 (run 3 verify): an alert its kind excludes from this device is not replayed here
+      if (!deviceAllowed(kind, valuesOf(row.values_json ?? '{}'), deviceId)) continue;
       // §8.3: the bound person's seen (request_seen, or an AlertSeen receipt), only while their part is sent
       // §3.10: an open `closes_on: 'seen'` alert is never seen_by_me (catch-up.ts seenByMe)
       alerts.push({
