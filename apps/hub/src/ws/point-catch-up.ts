@@ -1,6 +1,6 @@
 import type { LineDetail } from '@pos/domain';
 import { isOrderInEngine, priorityOfLine, stationView, type EngineState, type LinePriority } from '@pos/engine';
-import type { KdsStationBody, PointOrderMeta, WsPointLines } from '@pos/events';
+import type { KdsStationBody, PointOrderMeta, WsPointLines, WsPointViewRefresh } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { buildLineDetails, devicePoint, pointOfLine } from '../kds/contracts.js';
@@ -369,6 +369,39 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
     if (!isEngineState(state)) return;
     const now = deps.clock.branchNow();
 
+    // ⚠️ 03b v1.0.16 §6.16 (run 3 R3-M-1): a commit holding D7 Pass archive moves refreshes the Pass sockets at every
+    // moved-from and moved-to point: the full view of a receiving point, null on an archived one (moves only leave
+    // archived points). The refresh replaces the socket's held ids and metadata and supersedes this commit's frames.
+    const refreshed = new Set<string>();
+    const movesIn = appended.filter((e) => e.event_type === 'PassPointLinesMoved');
+    if (movesIn.length > 0) {
+      const retired = new Set<string>();
+      const affected = new Set<string>();
+      for (const e of movesIn) {
+        for (const m of (e.payload as { moves: Array<{ from_point_id: string; to_point_id: string }> }).moves) {
+          retired.add(m.from_point_id);
+          affected.add(m.from_point_id);
+          affected.add(m.to_point_id);
+        }
+      }
+      const as_of_seq = appended[appended.length - 1]!.seq;
+      const views = new Map<string, PointViewBody>();
+      const ws = wsHubFor(app);
+      for (const s of sessions) {
+        if (!affected.has(s.point_id)) continue;
+        let view: PointViewBody | null = null;
+        if (!retired.has(s.point_id)) {
+          view = views.get(s.point_id) ?? pointViewBody(deps.db, state, s.point_id, now);
+          views.set(s.point_id, view);
+        }
+        given.set(s.sessionId, new Set(view === null ? [] : bodyIds(view)));
+        metaGiven.set(s.sessionId, new Map());
+        refreshed.add(s.sessionId);
+        const frame: WsPointViewRefresh = { type: 'point_view_refresh', as_of_seq, view: view as unknown as Record<string, unknown> | null };
+        ws.sendToSessions([s.sessionId], frame);
+      }
+    }
+
     // B3-3 (§6.16, v1.0.4): lines whose live units changed in this commit (memory), sent again to sockets holding them.
     const changed = new Set<string>();
     for (const e of appended) {
@@ -387,6 +420,7 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
     const all = new Set<string>();
     const metaWanted = new Set<string>();
     for (const s of sessions) {
+      if (refreshed.has(s.sessionId)) continue;
       let shown = byPoint.get(s.point_id);
       if (shown === undefined) {
         const own = pointLineIds(state, s.point_id, now);
@@ -418,6 +452,7 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
     const ws = wsHubFor(app);
     const memo = new Map<string, number>();
     for (const s of sessions) {
+      if (refreshed.has(s.sessionId)) continue;
       const ids = missing.get(s.sessionId) ?? [];
       const lines = ids.flatMap((id) => {
         const d = details.get(id);

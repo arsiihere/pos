@@ -13,6 +13,7 @@ import { buildLineDetails } from '../../src/kds/contracts';
 import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { configPoller } from '../../src/sync/config-poller';
 import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cloud';
+import { connectWs, type WsClient } from '../helpers/ws-client';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
 import { fakeReturnDrafts } from '../engine/fakes';
 import { COOK, FX, append, appendOrder, fireLines, fixtureMenu, openDay, serveLines, signInCook } from '../kds/fixtures';
@@ -26,7 +27,9 @@ beforeEach(async () => {
   cloud = stubConfigCloud();
   hub = await createTestHub({ configClient: cloud, config: { provisioned: { ...CONFIRMED } } });
 });
+const sockets: WsClient[] = [];
 afterEach(async () => {
+  for (const ws of sockets.splice(0)) ws.close();
   swapBranchConfig(null);
   await hub.close();
 });
@@ -149,5 +152,32 @@ describe('[03b #132, 03a #195] D7: a config apply that archives a Pass moves its
     expect(branchConfig()?.config_version).toBe(1);
     expect(hub.deps.db.prepare("SELECT count(*) AS n FROM events WHERE seq > ? AND event_type IN ('BranchConfigApplied', 'PassPointLinesMoved')").get(seq)).toEqual({ n: 0 });
     expect(engine().lines.C1).toEqual(line);
+  });
+
+  it('[03b §6.16 R3-M-1] after the commit, Pass sockets at the moved-from and moved-to points get point_view_refresh { as_of_seq, view }: null on the archived point, the new view (with the moved lines and moved_from) on the receiving one', async () => {
+    const atTa = await signInCook(hub, { pointId: 'TA' });
+    const atMain = await signInCook(hub, { pointId: 'MAIN' });
+    openDay(hub, { menu: menu(1, { s1Point: 'TA' }) });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'O4', lines: [{ order_item_id: 'D1', item_id: FX.naan }] });
+    expect((await apply(menu(2, { s1Point: 'MAIN' }))).outcome).toBe('applied');
+    const connect = async (who: { token: string; sessionToken: string }) => {
+      const ws = await connectWs(hub.app);
+      sockets.push(ws);
+      ws.send({ type: 'auth', device_token: who.token, session_token: who.sessionToken });
+      await ws.untilCount(1);
+      return ws;
+    };
+    const ta = await connect(atTa);
+    const main = await connect(atMain);
+    expect((await apply(menu(3, { s1Point: 'MAIN', ta: { is_archived: true } }))).outcome).toBe('applied');
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const lastSeq = hub.deps.writer.lastSeq();
+    const refresh = (ws: WsClient) => ws.messages.filter((m) => (m as { type?: string }).type === 'point_view_refresh') as Array<{ as_of_seq: number; view: { point_id: string; orders: Array<{ lines: Array<{ order_item_id: string; moved_from?: string }> }> } | null }>;
+    expect(refresh(ta)).toEqual([{ type: 'point_view_refresh', as_of_seq: lastSeq, view: null }]);
+    const got = refresh(main);
+    expect(got).toHaveLength(1);
+    expect(got[0]!.as_of_seq).toBe(lastSeq);
+    expect(got[0]!.view!.point_id).toBe('MAIN');
+    expect(got[0]!.view!.orders.flatMap((o) => o.lines)).toEqual([expect.objectContaining({ order_item_id: 'D1', moved_from: 'Takeaway Pass' })]);
   });
 });

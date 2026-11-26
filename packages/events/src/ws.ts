@@ -170,6 +170,16 @@ export const WsPointLines = z.object({
 });
 export type WsPointLines = z.infer<typeof WsPointLines>;
 
+// ⚠️ 03b v1.0.16 §6.16 (run 3 R3-M-1): after a routing-affecting config commit (a D7 Pass archive move), the full §6.15
+// point_view body of the socket's point, or null when its point was retired; it replaces the Pass's cards and held
+// ids, superseding frames through as_of_seq.
+export const WsPointViewRefresh = z.object({
+  type: z.literal('point_view_refresh'),
+  as_of_seq: z.number().int(),
+  view: z.record(z.string(), z.unknown()).nullable(),
+});
+export type WsPointViewRefresh = z.infer<typeof WsPointViewRefresh>;
+
 // 03b §6.14: the `kds_station` catch-up body; the takeover frame's `view` (§3.6) is the same body.
 export const KdsStationBody = z.object({
   station_id: Id,
@@ -258,6 +268,7 @@ export const WsServerMessage = z.discriminatedUnion('type', [
   WsStationPlan,
   WsKdsLines,
   WsPointLines,
+  WsPointViewRefresh,
   WsStationTakeover,
   WsStationNotice,
   WsPrintedLines,
