@@ -7,7 +7,7 @@
 //   'unbilled_orders'   orders with billed_at and cancelled_at NULL, not carried for the open day (1).
 // Appender (row A-4), drafts in this order: `AlertClosed { reason: 'obsolete', note: 'day_closed' }` (+ 01d's
 // request_result raises) for every open 05 request but `shift_variance` (none is open here, R-76) and every open 02b
-// `comp` request; then `ZReportIssued { business_date, z_no, report }` (hub stream; `report` = buildReport's Z).
+// `comp` and `hand_over_unpaid` request (⚠️ run 3 R3-M-4); then `ZReportIssued { business_date, z_no, report }` (hub stream; `report` = buildReport's Z).
 // 01a then appends 03a's releases and BusinessDayClosed.
 // Statements (01d's closeMany / raiseMany excluded: their own bound): the guard ≤ 3 (it stops at its first hit); the
 // appender 8 — open requests (1, `alerts.listOpen`), Z number (1), buildReport's facts through 26b's loadReportInput
@@ -24,7 +24,7 @@ import { COMP_KIND } from '../../orders/line-change.js';
 import type { ReadOrderHead } from '../../orders/exports.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 import { voidIdentifier } from '../../voids/identifier.js';
-import { BILL_REQUEST_KINDS } from '../kinds/values.js';
+import { BILL_REQUEST_KINDS, HAND_OVER_UNPAID_KIND } from '../kinds/values.js';
 import { loadReportInput } from '../queries/reports.js';
 
 /** §3.13: at most this many rows listed per reason; `count` is all of them. */
@@ -194,15 +194,18 @@ export const billingDayCloseGuard: DayCloseGuard = (db: Database.Database, state
 
 // ------------------------------------------------------------------------------------------------ appender
 
-/** §3.13: the 05 request kinds the appender closes (`shift_variance` is never open at a close, R-76) + 02b's `comp`. */
-const CLOSED_AT_DAY_CLOSE: ReadonlySet<string> = new Set([...BILL_REQUEST_KINDS.filter((k) => k !== 'shift_variance'), COMP_KIND]);
+/**
+ * §3.13: the 05 request kinds the appender closes (`shift_variance` is never open at a close, R-76) + 02b's `comp` and
+ * ⚠️ run 3 (R3-M-4) 02b's `hand_over_unpaid` (§6.25; carried orders included): one closeMany from the one open list.
+ */
+const CLOSED_AT_DAY_CLOSE: ReadonlySet<string> = new Set([...BILL_REQUEST_KINDS.filter((k) => k !== 'shift_variance'), COMP_KIND, HAND_OVER_UNPAID_KIND]);
 
 // The next Z number: MAX + 1. 1 statement. (The last Z's carried forward, today's brought forward, is 26b's
 // loadReportInput statement 6.)
 const Z_NO = `SELECT COALESCE(MAX(z_no), 0) + 1 FROM z_reports`;
 
 /**
- * §6.25 05 appender (row A-4): `AlertClosed` (obsolete, `day_closed`) for the open 05 and 02b comp requests, then
+ * §6.25 05 appender (row A-4): `AlertClosed` (obsolete, `day_closed`) for the open 05 and 02b comp / hand_over_unpaid requests, then
  * `ZReportIssued`. buildReport's warnings (R-84 (2)) are logged with ids only and never block. 8 statements.
  */
 export const billingDayCloseAppender: DayCloseAppender = (ctx: CommandCtx): EventDraft[] => {
