@@ -1099,3 +1099,176 @@ describe('02b SubmitOrder split per unit (v1.0.20, STAB-5)', () => {
     expect(eventCount()).toBe(before);
   });
 });
+
+// ------------------------------------------------------------------------------------------- pickup (L-ORDERS-1 P-1)
+
+// ⚠️ 02b v1.0.25 §3.1 Pickup time, §3.2 step 2b (R4, G-2; run 1 M-3, m-7, m-14; run 3 R3-M-1); 03a 02b-R4-1 / -2.
+// Times are placed at hub-local clock times (hubTime's offset, S47), so the tests do not depend on the OS zone.
+describe('[02b #59 #60 #61 #63 #78] SubmitOrder pickup_at_ms (§3.2 step 2b)', () => {
+  const H = 3_600_000;
+  const MIN = 60_000;
+  /** The instant at local `hh:mm` on day `d` (0 = the hub's start day). */
+  function localAt(d: number, hh: number, mm = 0): number {
+    const t0 = 1_761_000_000_000;
+    const off = hubTime({ branchNow: () => t0 } as Parameters<typeof hubTime>[0]).utc_offset_ms;
+    return t0 - localTimeOfDayMs(t0, off) + d * 24 * H + hh * H + mm * MIN;
+  }
+  async function dayFrom(opened: number, menu?: BranchConfig): Promise<{ business_date: string; opened_at: number }> {
+    hub = await createTestHub();
+    await seedDirectory(hub, await directory());
+    hub.clock.set(opened);
+    return openDay(hub, menu === undefined ? {} : { menu });
+  }
+  const pickupError = (r: Reply) => ({ status: r.status, code: r.error?.code, reason: r.error?.details.reason });
+  const placedOf = (r: Reply) => r.events.find((e) => e.event_type === 'OrderPlaced')!.payload;
+  const pickupRow = (order_id: string) => (hub.deps.db.prepare('SELECT pickup_at_ms FROM orders WHERE order_id = ?').get(order_id) as { pickup_at_ms: number | null }).pickup_at_ms;
+
+  it('[02b #59] a takeaway with a pickup in 30 min: OrderPlaced, buildSubmit and orders carry it; every promise ≥ the pickup, a water included; no pickup → null; statements unchanged; no name or phone needed', async () => {
+    await dayFrom(localAt(0, 10));
+    const cashier = signIn('S_CASHIER');
+    const pickup = hub.clock.branchNow() + 30 * MIN;
+    const payload = takeaway('PU1', [item('L1', FX.naan), item('L2', FX.ready)], { pickup_at_ms: pickup });
+    const counted = countHandle();
+    const r = await submit(cashier, payload);
+    const plain = await submit(cashier, takeaway('PU2', [item('M1', FX.naan), item('M2', FX.ready)]));
+    counted.restore();
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(placedOf(r).pickup_at_ms).toBe(pickup);
+    expect(pickupRow('PU1')).toBe(pickup);
+    expect(engine().orders.PU1!.pickup_at_ms).toBe(pickup);
+    for (const g of r.result!.groups) expect(g.promise_ms).toBeGreaterThanOrEqual(pickup);
+    expect(r.result!.groups.flatMap((g) => g.order_item_ids)).toContain('L2');
+    // the pure builder carries it too
+    const config = branchConfig()!;
+    const { now_ms, utc_offset_ms } = hubTime(hub.clock);
+    const built = buildSubmit(config, { ...(payload as unknown as SubmitInput), order_id: 'PU3' }, {
+      now: now_ms,
+      utc_offset_ms,
+      isAvailable: () => true,
+      draws: (item_id) => dayDraws(engine(), config.items.find((i) => i.item_id === item_id)!, {}),
+      primary_table_id: null,
+      follow_up: false,
+    });
+    expect(built.proposed.order.pickup_at_ms).toBe(pickup);
+    // no pickup → null as before, and the same statement count
+    expect(plain.status).toBe(200);
+    expect(placedOf(plain).pickup_at_ms).toBeNull();
+    expect(pickupRow('PU2')).toBeNull();
+    expect(counted.calls[0]).toBe(counted.calls[1]);
+  });
+
+  it('[02b #60] takeaway_only on dine-in / parking; not an integer → 400; too_early at 9:59, accepted at 10:00; nothing appended on a refusal', async () => {
+    await dayFrom(localAt(0, 10));
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const ali = signIn('S_ALI');
+    const cashier = signIn('S_CASHIER');
+    const at = hub.clock.branchNow();
+    const before = eventCount();
+    const dine = await submit(ali, dineIn('D1', [item('LD', FX.naan)], { pickup_at_ms: at + H }));
+    expect(dine.status).toBe(400);
+    expect(dine.error).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'pickup_at_ms', message: 'takeaway_only' }] } });
+    const park = await submit(cashier, { order_id: 'K1', order_type: 'parking', parking: { car_number: 'LEB-1', car_type: 'sedan' }, pickup_at_ms: at + H, lines: [item('LK', FX.naan)] });
+    expect(park.status).toBe(400);
+    expect((await submit(cashier, takeaway('F1', [item('LF', FX.naan)], { pickup_at_ms: at + 1.5 }))).status).toBe(400);
+    const early = await submit(cashier, takeaway('E1', [item('LE', FX.naan)], { pickup_at_ms: at + 10 * MIN - 1_000 }));
+    expect(early.status).toBe(422);
+    expect(early.error).toMatchObject({ code: 'PICKUP_TIME_INVALID', details: { reason: 'too_early', pickup_at_ms: at + 10 * MIN - 1_000, earliest_ms: at + 10 * MIN } });
+    expect(eventCount()).toBe(before);
+    expect((await submit(cashier, takeaway('E2', [item('LE2', FX.naan)], { pickup_at_ms: at + 10 * MIN }))).status).toBe(200);
+  });
+
+  it('[02b #60] day opened 08:00, day end 04:00: a 00:30 pickup at 22:00 and 04:00 accepted, 04:00 + 1 ms after_day_end with latest_ms = businessDayLatestMs; another day end moves it, day_stale_after_hours does not', async () => {
+    const { businessDayLatestMs } = await import('@pos/domain');
+    const opened = localAt(0, 8);
+    const day = await dayFrom(opened);
+    hub.clock.set(localAt(0, 22));
+    const cashier = signIn('S_CASHIER');
+    const { utc_offset_ms } = hubTime(hub.clock);
+    const latest = businessDayLatestMs(day.opened_at, 4, 14_400_000, utc_offset_ms);
+    expect(latest).toBe(localAt(1, 4));
+    expect((await submit(cashier, takeaway('N1', [item('A1', FX.naan)], { pickup_at_ms: localAt(1, 0, 30) }))).status).toBe(200);
+    expect((await submit(cashier, takeaway('N2', [item('A2', FX.naan)], { pickup_at_ms: latest }))).status).toBe(200);
+    const late = await submit(cashier, takeaway('N3', [item('A3', FX.naan)], { pickup_at_ms: latest + 1 }));
+    expect(late.error).toMatchObject({ code: 'PICKUP_TIME_INVALID', details: { reason: 'after_day_end', latest_ms: latest } });
+    // the setting moves the bound (05:00); day_stale_after_hours does not
+    swapBranchConfig({ config: { ...branchConfig()!, business_day_end_local_ms: 5 * H, day_stale_after_hours: 1 }, snapshotHash: 'e'.repeat(64), configVersion: branchConfig()!.config_version, snapshotSchemaVersion: 4, appliedAt: hub.clock.branchNow() });
+    expect((await submit(cashier, takeaway('N4', [item('A4', FX.naan)], { pickup_at_ms: latest + 1 }))).status).toBe(200);
+    const later = await submit(cashier, takeaway('N5', [item('A5', FX.naan)], { pickup_at_ms: localAt(1, 5) + 1 }));
+    expect(later.error).toMatchObject({ details: { reason: 'after_day_end', latest_ms: localAt(1, 5) } });
+  });
+
+  it('[02b #60] latest_ms equals businessDayLatestMs for the six cases of 01a test 218 (opened 08:00, 03:00, 03:59, 04:00, 23:30; end 00:00)', async () => {
+    const { businessDayLatestMs } = await import('@pos/domain');
+    const cases: Array<[number, number, number]> = [
+      [8, 0, 4 * H],
+      [3, 0, 4 * H],
+      [3, 59, 4 * H],
+      [4, 0, 4 * H],
+      [23, 30, 4 * H],
+      [8, 0, 0],
+    ];
+    for (const [hh, mm, end] of cases) {
+      const day = await dayFrom(localAt(0, hh, mm), { ...fixtureMenu(), business_day_end_local_ms: end });
+      const { utc_offset_ms } = hubTime(hub.clock);
+      const r = await submit(signIn('S_CASHIER'), takeaway('X1', [item('X1a', FX.naan)], { pickup_at_ms: day.opened_at + 72 * H }));
+      expect(r.error, `${hh}:${mm}`).toMatchObject({ details: { latest_ms: businessDayLatestMs(day.opened_at, 4, end, utc_offset_ms) } });
+      await hub.close();
+    }
+    hub = await createTestHub(); // afterEach closes it
+  });
+
+  it('[02b #61] queued at T with pickup T + 30 min, replayed at T + 40 min → accepted as given, promise later than the pickup; T + 5 min queued → too_early; the same not queued → too_early', async () => {
+    await dayFrom(localAt(0, 12));
+    const cashier = signIn('S_CASHIER');
+    const T = hub.clock.branchNow();
+    hub.clock.advance(40 * MIN);
+    const r = await submit(cashier, takeaway('Q1', [item('Q1a', FX.naan)], { pickup_at_ms: T + 30 * MIN }), { queuedAt: T });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(placedOf(r).pickup_at_ms).toBe(T + 30 * MIN);
+    expect(pickupRow('Q1')).toBe(T + 30 * MIN);
+    // EngineOrder.pickup_at_ms is 03a's: its v1.2.11 row 02b-R4-2 stores an elapsed pickup as null (planned as now),
+    // while 02b test 61 (run 3) says "as given" — a spec conflict reported to the owner, not asserted here.
+    expect(Math.min(...r.result!.groups.map((g) => g.promise_ms))).toBeGreaterThan(T + 30 * MIN);
+    expect(pickupError(await submit(cashier, takeaway('Q2', [item('Q2a', FX.naan)], { pickup_at_ms: T + 5 * MIN }), { queuedAt: T }))).toEqual({ status: 422, code: 'PICKUP_TIME_INVALID', reason: 'too_early' });
+    expect(pickupError(await submit(cashier, takeaway('Q3', [item('Q3a', FX.naan)], { pickup_at_ms: T + 30 * MIN })))).toEqual({ status: 422, code: 'PICKUP_TIME_INVALID', reason: 'too_early' });
+  });
+
+  it('[02b #61] (m-7) a queued pickup for a day closed and reopened before the replay → other_day, nothing appended', async () => {
+    await dayFrom(localAt(0, 8));
+    hub.clock.set(localAt(0, 21));
+    const cashier = signIn('S_CASHIER');
+    const T = hub.clock.branchNow();
+    hub.clock.set(localAt(0, 21, 40));
+    closeDay();
+    hub.clock.set(localAt(0, 21, 45));
+    openDay(hub);
+    hub.clock.set(localAt(0, 21, 50));
+    const before = eventCount();
+    const r = await submit(cashier, takeaway('OD', [item('ODa', FX.naan)], { pickup_at_ms: localAt(0, 21, 30) }), { queuedAt: T });
+    expect(pickupError(r)).toEqual({ status: 422, code: 'PICKUP_TIME_INVALID', reason: 'other_day' });
+    expect(eventCount()).toBe(before);
+  });
+
+  it('[02b #63] an addition copies no pickup from its root; an addition with its own pickup is checked by step 2b', async () => {
+    await dayFrom(localAt(0, 12));
+    const cashier = signIn('S_CASHIER');
+    const at = hub.clock.branchNow();
+    expect((await submit(cashier, takeaway('R1', [item('R1a', FX.naan)], { pickup_at_ms: at + H }))).status).toBe(200);
+    const add = await submit(cashier, takeaway('R2', [item('R2a', FX.naan)], { adds_to_order_id: 'R1' }));
+    expect(add.status).toBe(200);
+    expect(placedOf(add).pickup_at_ms).toBeNull();
+    expect(pickupRow('R1')).toBe(at + H);
+    expect(pickupError(await submit(cashier, takeaway('R3', [item('R3a', FX.naan)], { adds_to_order_id: 'R1', pickup_at_ms: at + MIN })))).toEqual({ status: 422, code: 'PICKUP_TIME_INVALID', reason: 'too_early' });
+    const own = await submit(cashier, takeaway('R4', [item('R4a', FX.naan)], { adds_to_order_id: 'R1', pickup_at_ms: at + 2 * H }));
+    expect(placedOf(own).pickup_at_ms).toBe(at + 2 * H);
+  });
+
+  it('[02b #78] a stale day (open since yesterday 08:00, now 11:00): latest 04:00 today < earliest → any pickup no_time_left; a plain takeaway accepted', async () => {
+    await dayFrom(localAt(0, 8));
+    hub.clock.set(localAt(1, 11));
+    const cashier = signIn('S_CASHIER');
+    const r = await submit(cashier, takeaway('S1', [item('S1a', FX.naan)], { pickup_at_ms: localAt(1, 12) }));
+    expect(r.error).toMatchObject({ code: 'PICKUP_TIME_INVALID', details: { reason: 'no_time_left', earliest_ms: localAt(1, 11) + 10 * MIN, latest_ms: localAt(1, 4) } });
+    expect((await submit(cashier, takeaway('S2', [item('S2a', FX.naan)]))).status).toBe(200);
+  });
+});

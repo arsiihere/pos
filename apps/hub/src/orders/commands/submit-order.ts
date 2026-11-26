@@ -1,5 +1,5 @@
-import { DomainError } from '@pos/domain';
-import { availableStock, checkOrderable, dayDraws, openDayStartMs, planOrder, reserveStock, saleUnitsAvailable, type EngineState } from '@pos/engine';
+import { BUSINESS_DAY_END_LOCAL_MS_DEFAULT, businessDayLatestMs, DomainError, PICKUP_MIN_LEAD_MS } from '@pos/domain';
+import { availableStock, checkOrderable, dayDraws, openDayStartMs, planOrder, reserveStock, saleUnitsAvailable, type BusinessDay, type EngineState } from '@pos/engine';
 import type { BranchConfig, EventDraft, ItemAddedPayload, OrderPlacedPayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
@@ -69,6 +69,8 @@ export const PayloadObject = z
     serve_mode: z.enum(['sync', 'immediate']).optional(),
     // ⚠️ Changed by 05 (row Q-6), 02b v1.0.16 §6.1: takeaway only (§3.2 step 2).
     adds_to_order_id: z.string().min(1).optional(),
+    // ⚠️ 02b v1.0.25 §3.2 step 2b (R4, G-2; m-14): takeaway only (checkOrderFields); absent or null = no pickup
+    pickup_at_ms: z.number().int().nullable().optional(),
     lines: z.array(Line).min(1).max(40),
   })
   .strict();
@@ -90,7 +92,7 @@ function checkShape(p: Payload, rc: z.RefinementCtx): void {
 
 // §3.1 / §3.2 step 2: each order type carries only its own fields; dine-in needs both table_id and seating_id.
 // Shared with eta-preview's draft (§6.14).
-export function checkOrderFields(p: Pick<Payload, 'order_type' | 'table_id' | 'seating_id' | 'takeaway' | 'parking'>, rc: z.RefinementCtx): void {
+export function checkOrderFields(p: Pick<Payload, 'order_type' | 'table_id' | 'seating_id' | 'takeaway' | 'parking' | 'pickup_at_ms'>, rc: z.RefinementCtx): void {
   const issue = (path: string, message: string): void => rc.addIssue({ code: 'custom', path: [path], message });
   const dineIn = p.order_type === 'dine_in';
   for (const key of ['table_id', 'seating_id'] as const) {
@@ -100,6 +102,30 @@ export function checkOrderFields(p: Pick<Payload, 'order_type' | 'table_id' | 's
   if (p.order_type !== 'takeaway' && p.takeaway !== undefined) issue('takeaway', 'only on takeaway');
   if (p.order_type === 'parking' && p.parking === undefined) issue('parking', 'parking needs car_number and car_type');
   if (p.order_type !== 'parking' && p.parking !== undefined) issue('parking', 'only on parking');
+  // ⚠️ 02b v1.0.25 §3.2 step 2b (m-14): Foundation §6.1 issue shape, message `takeaway_only`
+  if (p.order_type !== 'takeaway' && p.pickup_at_ms !== undefined && p.pickup_at_ms !== null) issue('pickup_at_ms', 'takeaway_only');
+}
+
+/**
+ * ⚠️ 02b v1.0.25 §3.2 step 2b (R4, G-2; run 1 M-3, m-7): a pickup's bounds in the open `day`, both inclusive.
+ * earliest = t0 + PICKUP_MIN_LEAD_MS (t0 = now, or the accepted queued_at); latest = 01a v2.11 `businessDayLatestMs`
+ * (never re-derived here; an absent snapshot key → BUSINESS_DAY_END_LOCAL_MS_DEFAULT). 0 statements. Shared with
+ * eta-preview's `pickup_bounds` (§6.14).
+ */
+export function pickupBounds(day: BusinessDay, config: BranchConfig, t0: number, utc_offset_ms: number): { earliest_ms: number; latest_ms: number } {
+  const end = config.business_day_end_local_ms ?? BUSINESS_DAY_END_LOCAL_MS_DEFAULT;
+  return { earliest_ms: t0 + PICKUP_MIN_LEAD_MS, latest_ms: businessDayLatestMs(day.opened_at, config.day_min_gap_hours, end, utc_offset_ms) };
+}
+
+/** §3.2 step 2b: refusals in the spec's order, each `422 PICKUP_TIME_INVALID { reason, pickup_at_ms, earliest_ms, latest_ms }`. */
+export function checkPickup(pickup_at_ms: number, day: BusinessDay, bounds: { earliest_ms: number; latest_ms: number }): void {
+  const refuse = (reason: 'no_time_left' | 'other_day' | 'too_early' | 'after_day_end'): never => {
+    throw new DomainError('PICKUP_TIME_INVALID', { reason, pickup_at_ms, ...bounds });
+  };
+  if (bounds.earliest_ms > bounds.latest_ms) refuse('no_time_left');
+  if (pickup_at_ms < day.opened_at) refuse('other_day');
+  if (pickup_at_ms < bounds.earliest_ms) refuse('too_early');
+  if (pickup_at_ms > bounds.latest_ms) refuse('after_day_end');
 }
 
 // Every line id of the payload (lines, linked option children, deal parts and their children), in payload order.
@@ -136,6 +162,14 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
   const config = branchConfig();
   if (dayStart === null || state.business_day === null || config === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
   const business_date = state.business_day.business_date;
+  const { now_ms: now, utc_offset_ms } = hubTime(ctx.clock);
+
+  // ⚠️ Step 2b (02b v1.0.25, R4, G-2; M-3, m-7): a takeaway's pickup within the open day; a queued submit is checked
+  // against its accepted queued_at (TK-Q3), so an elapsed pickup replayed later is kept as given. 0 statements.
+  if (payload.order_type === 'takeaway' && payload.pickup_at_ms !== undefined && payload.pickup_at_ms !== null) {
+    const day = state.business_day;
+    checkPickup(payload.pickup_at_ms, day, pickupBounds(day, config, ctx.queuedAt ?? now, utc_offset_ms));
+  }
 
   // Step 2: dine-in seating (T18) and the lock (02a requireLock; AD-1: a queued call never takes or moves a lock).
   let lockDrafts: EventDraft[] = [];
@@ -172,7 +206,6 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
 
   // Step 4 (and 6, 7): lines from config. AD-21: isAvailable is the manual Off only; sold out is step 8's.
   const configStockUnits = stockUnitsOf(config);
-  const { now_ms: now, utc_offset_ms } = hubTime(ctx.clock);
   const built = buildSubmit(config, input, submitBuildCtx(db, state, config, input, { now, utc_offset_ms }, primary_table_id, follow_up));
 
   // Step 5 (O5, §3.10, AD-8): the candidates the zone count covers are zone-served, the rest stay kitchen lines.

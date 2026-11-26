@@ -189,6 +189,8 @@ export interface SubmitInput {
   order_note?: string;
   /** 02b v1.0.21 §6.1: the order's serve choice; a line's own `serve_mode` wins; absent → the item's */
   serve_mode?: 'sync' | 'immediate';
+  /** ⚠️ 02b v1.0.25 §3.1 Pickup time, §3.2 step 2b (R4, G-2): takeaway only; checked by SubmitOrder before the build */
+  pickup_at_ms?: number | null;
   /** 1–40 */
   lines: Array<{
     order_item_id: string;
