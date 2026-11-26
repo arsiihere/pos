@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import type { WriterTx } from '../engine-host/writer.js';
 import { onBranchConfigApplied } from '../sync/branch-config-holder.js';
 import { wsHubFor } from '../ws/server.js';
+import { archiveMovesHook } from './archive-moves.js';
 import { devicePoint } from './contracts.js';
 
 // 03b §3.10 (task b23): the archived-station config reaction. An onBranchConfigApplied hook lists the stations archived
@@ -59,5 +60,13 @@ export function kdsConfigHook(app: FastifyInstance): (prev: BranchConfig | null,
 /** Called once per server from lane B6's register(); removed on close. */
 export function registerKdsConfigHook(app: FastifyInstance): void {
   const stop = onBranchConfigApplied(kdsConfigHook(app));
-  app.addHook('onClose', async () => stop());
+  // ⚠️ 03b v1.0.16 §3.10 D7 (run 3 R3-M-1): the Pass archive moves. Unlike the notice above it may throw: a refusal fails
+  // the whole apply (S43; 01a §6.9a, §6.21).
+  const stopMoves = onBranchConfigApplied((prev, next, tx) => {
+    archiveMovesHook(prev, next, tx);
+  });
+  app.addHook('onClose', async () => {
+    stop();
+    stopMoves();
+  });
 }
