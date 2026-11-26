@@ -31,7 +31,7 @@ import {
 import { planOrderObserved } from '../../src/plan';
 import { priorityRank } from '../../src/priority';
 import { priorityTerms } from '../../src/slip';
-import { generateDay, TICK_MS, type GenerateOptions, type SimDay, type SimOrder, type SimStation } from './generate';
+import { generateDay, TICK_MS, type GenerateOptions, type SimDay, type SimLine, type SimOrder, type SimStation } from './generate';
 
 export type Policy = 'waada_guard' | 'edf' | 'fifo';
 export type RunOptions = {
@@ -108,14 +108,16 @@ function configEvent(stations: readonly SimStation[], policy: Policy, at: number
   });
 }
 
-export function itemFields(s: SimStation, maxDelay?: number | null): Record<string, unknown> {
+export function itemFields(s: SimStation, maxDelay?: number | null, drink?: SimLine['drink']): Record<string, unknown> {
   return {
     ...(maxDelay === undefined ? {} : { max_delay_ms: maxDelay }),
     station_id: s.station_id,
-    item_id: s.station_id,
+    item_id: drink === undefined ? s.station_id : `${s.station_id}-${drink}`,
     name: s.station_id,
     cook_time_ms: s.cook_ms,
     ...(s.type === 'batch' ? { program_id: PROGRAM(s.station_id), program_cook_time_ms: s.cook_ms } : {}),
+    // ⚠️ 03a v1.2.11 §10.6 (M-6): the pickup day's drinks are immediate (a ready drink has cook 0).
+    ...(drink === undefined ? {} : { serve_mode: 'immediate', ...(drink === 'ready' ? { cook_time_ms: 0, is_ready_item: true } : {}) }),
   };
 }
 
@@ -135,7 +137,7 @@ export function proposedOf(order: SimOrder, stations: ReadonlyMap<string, SimSta
       ...base,
       order_id: order.order_id,
       order_item_id: l.order_item_id,
-      ...itemFields(stations.get(l.station_id)!, maxDelay?.(l.order_item_id)),
+      ...itemFields(stations.get(l.station_id)!, maxDelay?.(l.order_item_id), l.drink),
       alternates: [],
       point_id: null,
       carry_ms: 0,
@@ -232,7 +234,7 @@ class Sim {
         const p = placed.get(l.order_item_id)!;
         return {
           order_item_id: l.order_item_id,
-          item: itemFields(stations.get(l.station_id)!, md?.(l.order_item_id)),
+          item: itemFields(stations.get(l.station_id)!, md?.(l.order_item_id), l.drink),
           line: { station_id: p.station_id, alternates: p.alternates, point_id: p.point_id, carry_ms: p.carry_ms, from_stock: p.from_stock },
         };
       }),
