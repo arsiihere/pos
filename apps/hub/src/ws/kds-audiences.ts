@@ -142,7 +142,20 @@ export function registerKdsAudiences(app: FastifyInstance, deps: Pick<HubDeps, '
     return screen !== undefined && deviceProfile(socket.deviceId)?.screens.includes(screen) === true;
   };
 
+  // ⚠️ 03b v1.0.16 §6.22 (run 3 R3-B-3): PassBagReadyChanged → the Pass sockets of the points the order's lines route
+  // to, and (R8 counter invalidation) the order's counter devices. Memory, 0 statements.
+  const orderPassAudience = (event: PosEvent, socket: SocketCtx): boolean => {
+    if (socket.kind !== 'staff') return false;
+    const order_id = (event.payload as { order_id?: unknown }).order_id;
+    const point = devicePoint(socket.deviceId);
+    if (typeof order_id !== 'string' || point === null) return false;
+    for (const f of lines.values()) if (f.order_id === order_id && f.point_id === point) return true;
+    return false;
+  };
+
   const stops = [
+    registerEventAudience('PassBagReadyChanged', orderPassAudience),
+    registerEventAudience('PassBagReadyChanged', counterAudience),
     ...KDS_LINE_EVENT_TYPES.map((t) => registerEventAudience(t, lineAudience)),
     ...KDS_PASS_EVENT_TYPES.map((t) => registerEventAudience(t, passAudience)),
     ...KDS_COUNTER_EVENT_TYPES.map((t) => registerEventAudience(t, counterAudience)),

@@ -4,6 +4,7 @@ import type { KdsStationBody, PointOrderMeta, WsPointLines } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { buildLineDetails, devicePoint, pointOfLine } from '../kds/contracts.js';
+import { bagReadyAtOf } from '../kds/exports.js';
 import { screenStations } from '../kds/device-roles.js';
 import { takeoverStations } from '../kds/presence.js';
 import { stationHasPrinter } from '../print/api.js';
@@ -95,7 +96,12 @@ const ENGINE_OPEN = new Set(['added', 'cooking']);
  * station-less line remains and the order is not boosted (else null; clients compare it with hub time); and its
  * `no_station_lines`. Engine facts are memory; 1 statement for the station-less lines, only with a pickup order.
  */
-export function orderMetaOf(db: Database.Database, state: EngineState, order_ids: readonly string[]): Map<string, PointOrderMeta> {
+export function orderMetaOf(
+  db: Database.Database,
+  state: EngineState,
+  order_ids: readonly string[],
+  pairs: ReadonlyMap<string, { bag_ready_since: number; bag_ready_window_ms: number }>,
+): Map<string, PointOrderMeta> {
   const pickups = order_ids.filter((id) => (state.orders[id]?.pickup_at_ms ?? null) !== null);
   const stationLess = new Map<string, PointOrderMeta['no_station_lines']>();
   if (pickups.length > 0) {
@@ -111,8 +117,11 @@ export function orderMetaOf(db: Database.Database, state: EngineState, order_ids
     const order = state.orders[order_id];
     if (order === undefined) continue;
     const pickup = order.pickup_at_ms;
+    // ⚠️ 03b v1.0.16 §6.15 (R3-M-9): the R8 pair, given by the caller's batched read
+    const pair = pairs.get(order_id);
+    const bag = { bag_ready_since: pair?.bag_ready_since ?? null, bag_ready_window_ms: pair?.bag_ready_window_ms ?? null };
     if (pickup === null) {
-      out.set(order_id, { order_id, pickup_at_ms: null, boosted: order.boosted, pickup_readiness: null, no_station_lines: [] });
+      out.set(order_id, { order_id, pickup_at_ms: null, boosted: order.boosted, pickup_readiness: null, no_station_lines: [], ...bag });
       continue;
     }
     const lines = stationLess.get(order_id) ?? [];
@@ -126,6 +135,7 @@ export function orderMetaOf(db: Database.Database, state: EngineState, order_ids
       boosted: order.boosted,
       pickup_readiness: { all_engine_lines_done, station_less_hold_until: order.boosted || lines.length === 0 ? null : pickup },
       no_station_lines: lines,
+      ...bag,
     });
   }
   return out;
@@ -163,7 +173,10 @@ SELECT 'r' AS k, order_id AS id, ready_at AS at, ready_by AS by,
  WHERE point_id = @point_id AND ready_at IS NOT NULL AND order_id IN (SELECT value FROM json_each(@orders))
 UNION ALL
 SELECT 'h' AS k, order_item_id AS id, NULL AS at, NULL AS by, NULL AS rl FROM handover_lines
- WHERE order_item_id IN (SELECT value FROM json_each(@lines))`;
+ WHERE order_item_id IN (SELECT value FROM json_each(@lines))
+UNION ALL
+SELECT 'b' AS k, order_id AS id, bag_ready_since AS at, NULL AS by, bag_ready_window_ms AS rl FROM pass_bag_ready
+ WHERE order_id IN (SELECT value FROM json_each(@orders))`;
 
 interface SettingsRow {
   station_id: string;
@@ -195,23 +208,25 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
   const orderIds = [...new Set(lineIds.map((id) => state.lines[id]!.order_id))];
   const ready = new Map<string, { at: number; by: string | null; lines: string[] }>();
   const handed = new Set<string>();
+  const pairs = new Map<string, { bag_ready_since: number; bag_ready_window_ms: number }>();
   if (orderIds.length > 0) {
     const rows = db.prepare(PASS_SQL).all({ point_id, orders: JSON.stringify(orderIds), lines: JSON.stringify(lineIds) }) as Array<{
-      k: 'r' | 'h';
+      k: 'r' | 'h' | 'b';
       id: string;
       at: number | null;
       by: string | null;
-      rl: string | null;
+      rl: string | number | null;
     }>;
     for (const r of rows) {
-      if (r.k === 'r') ready.set(r.id, { at: r.at!, by: r.by, lines: JSON.parse(r.rl ?? '[]') as string[] });
+      if (r.k === 'r') ready.set(r.id, { at: r.at!, by: r.by, lines: JSON.parse(String(r.rl ?? '[]')) as string[] });
+      else if (r.k === 'b') pairs.set(r.id, { bag_ready_since: r.at!, bag_ready_window_ms: Number(r.rl) });
       else handed.add(r.id);
     }
   }
 
   const lineSet = new Set(lineIds);
   const memo = new Map<string, number>();
-  const meta = orderMetaOf(db, state, orderIds);
+  const meta = orderMetaOf(db, state, orderIds, pairs);
   const orders: PointViewBody['orders'] = [];
   for (const order_id of orderIds) {
     const order = state.orders[order_id]!;
@@ -307,7 +322,15 @@ export function pointViewPart(
       const meta = new Map(
         body.orders.map((o) => [
           o.order_id,
-          metaKey({ order_id: o.order_id, pickup_at_ms: o.pickup_at_ms, boosted: o.boosted, pickup_readiness: o.pickup_readiness, no_station_lines: o.no_station_lines }),
+          metaKey({
+            order_id: o.order_id,
+            pickup_at_ms: o.pickup_at_ms,
+            boosted: o.boosted,
+            pickup_readiness: o.pickup_readiness,
+            no_station_lines: o.no_station_lines,
+            bag_ready_since: o.bag_ready_since,
+            bag_ready_window_ms: o.bag_ready_window_ms,
+          }),
         ]),
       );
       onBuilt?.(socket.sessionId, bodyIds(body), meta);
@@ -388,7 +411,10 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
 
     const details = all.size === 0 ? new Map<string, LineDetail>() : buildLineDetails(deps.db, state, [...all]);
     // §6.15 metadata of the named orders shown anywhere (1 statement, only with a pickup order among them)
-    const meta = metaWanted.size === 0 ? new Map<string, PointOrderMeta>() : orderMetaOf(deps.db, state, [...metaWanted]);
+    // + the R8 pair of the named takeaway / parking orders (1 statement, only with one among them)
+    const counterOrders = [...metaWanted].filter((id) => ['takeaway', 'parking'].includes(state.orders[id]?.order_type ?? ''));
+    const pairs = counterOrders.length === 0 ? new Map<string, { bag_ready_since: number; bag_ready_window_ms: number }>() : bagReadyAtOf(deps.db, counterOrders);
+    const meta = metaWanted.size === 0 ? new Map<string, PointOrderMeta>() : orderMetaOf(deps.db, state, [...metaWanted], pairs);
     const ws = wsHubFor(app);
     const memo = new Map<string, number>();
     for (const s of sessions) {
