@@ -376,7 +376,7 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     k.apply([fireEv('S1', 'Q', T0 + 10 * M), startEv('O3', 'Q', T0 + 10 * M)]);
     expect(k.state.lines.H!.station_id).toBe('S1');
     let s = k.apply([boost('O1', T0 + 10 * M)]);
-    expect(s.lines.H).toMatchObject({ station_id: 'S2', fire_ms: T0 + 55 * M, mark: 'boost' });
+    expect(s.lines.H).toMatchObject({ station_id: 'S2', fire_ms: T0 + 10 * M, mark: 'boost' });
     expect(s.stations.S1!.unfired).not.toContain('H');
     expect(s.stations.S2!.unfired).toContain('H');
     expectProfileExact(s);
@@ -412,12 +412,12 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     expectProfileExact(s);
   });
 
-  it('[03a §3.9, AD-29 Q11 B3] a delivery boost keeps the pickup floor; the promise stays', () => {
+  it('[03a §3.9, AD-29 Q11 B3] a delivery boost drops its scheduling floor and retains its promise', () => {
     const k = new Kitchen([SLOT(1)]);
     const plan = k.submit('OD', [{ id: 'D', cook: 10 * M }], T0, { pickup: T0 + 60 * M });
     const s = k.apply([boost('OD', T0)]);
-    expect(s.lines.D!.fire_ms).toBe(T0 + 50 * M);
-    expect(s.orders.OD!.target_land_ms).toBe(T0 + 60 * M);
+    expect(s.lines.D!.fire_ms).toBe(T0);
+    expect(s.orders.OD!.target_land_ms).toBe(T0 + 10 * M);
     expect(s.orders.OD!.promise_ms).toBe(plan.groups[0]!.promise_ms);
   });
 
@@ -1095,19 +1095,31 @@ describe('@pos/engine disturbance invariants (§3.9, §3.10, D15)', () => {
 
 // ---- task 18d, developer ruling AD-29 Q11 -------------------------------------------------------------------------
 
-describe('@pos/engine task 18d B3: a boost keeps the pickup floor (§3.5.1 step 4, §3.9; AD-29 Q11)', () => {
-  it('[03a AD-29 Q11 B3] a boosted delivery with a far pickup lands at its pickup, not before', () => {
+describe('@pos/engine PK-5: the early customer boost removes the scheduling floor (§3.5.1 step 4, §3.9; AD-29 Q11)', () => {
+  it('[03a #186] FIFO pickup drink rebooks against another order and floors its sync sibling', () => {
+    const k = new Kitchen([{ ...SLOT(1), policy: 'fifo' }, { station_id: 'S2', capacity: 1 }]);
+    k.submit('older', [{ id: 'old', cook: 3 * M, mode: 'immediate' }], at(1));
+    k.submit('pickup', [{ id: 'drink', cook: 2 * M, mode: 'immediate' }, { id: 'food', station: 'S2', cook: M }], at(1), { pickup: at(60) });
+    const booking = k.state.lines.old!.booked;
+    const s = k.apply([boost('pickup', at(1))]);
+    expect(s.lines.old!.booked).toEqual(booking);
+    expect(s.lines.drink!.fire_ms).toBe(at(4));
+    expect(s.lines.food!.booked!.end).toBe(at(6));
+    expectRebuild(k);
+  });
+
+  it('[03a #186] a boosted delivery keeps its pickup and promise and cooks immediately', () => {
     const k = new Kitchen([SLOT(1)]);
     k.submit('O1', [{ id: 'A', cook: 5 * M }], at(0), { pickup: at(60) });
     const promise = k.state.orders.O1!.promise_ms;
     const s = k.apply([boost('O1', at(1))]);
-    expect(s.orders.O1).toMatchObject({ boosted: true, target_land_ms: at(60), promise_ms: promise });
-    expect(s.lines.A).toMatchObject({ mark: 'boost', fire_ms: at(55), booked: { start: at(55), end: at(60), units: 1 } });
+    expect(s.orders.O1).toMatchObject({ boosted: true, pickup_at_ms: at(60), target_land_ms: at(6), promise_ms: promise });
+    expect(s.lines.A).toMatchObject({ mark: 'boost', fire_ms: at(1), booked: { start: at(1), end: at(6), units: 1 } });
     expectProfileExact(s);
     expectRebuild(k);
   });
 
-  it('[03a AD-29 Q11 B3] with a near pickup the station cannot meet, the boost lands at the loop result', () => {
+  it('[03a #186] with a near pickup the station cannot meet, the boost lands at the loop result', () => {
     const k = new Kitchen([SLOT(1)]);
     k.submit('OZ', [{ id: 'Z', cook: 20 * M, mode: 'immediate' }], at(0));
     k.apply([fireEv('S1', 'Z', at(0)), startEv('OZ', 'Z', at(0))]);
@@ -1118,27 +1130,27 @@ describe('@pos/engine task 18d B3: a boost keeps the pickup floor (§3.5.1 step 
     expectRebuild(k);
   });
 
-  it('[03a AD-29 Q11 B3] a boost held to its pickup still re-places first and displaces the line in its way (§3.9)', () => {
+  it('[03a #186] a boost replans its order ahead of the later pickup booking (§3.9)', () => {
     const k = new Kitchen([SLOT(1)]);
     k.submit('O2', [{ id: 'X', cook: 10 * M }], at(0), { pickup: at(30) });
     k.submit('O1', [{ id: 'A', cook: 10 * M }], at(0), { pickup: at(30) });
     const before = k.state;
     expect(before.orders.O1!.target_land_ms).toBeGreaterThan(at(30)); // X had the slot
     const s = k.apply([boost('O1', at(1))]);
-    expect(s.orders.O1!.target_land_ms).toBe(at(30));
-    expect(s.lines.A).toMatchObject({ mark: 'boost', fire_ms: at(20), booked: { start: at(20), end: at(30), units: 1 } });
-    expect(s.lines.X!.booked!.start).toBeGreaterThanOrEqual(at(30));
+    expect(s.orders.O1!.target_land_ms).toBe(at(11));
+    expect(s.lines.A).toMatchObject({ mark: 'boost', fire_ms: at(1), booked: { start: at(1), end: at(11), units: 1 } });
+    expect(s.lines.X!.booked!.start).toBeGreaterThanOrEqual(at(11));
     expect(s.orders.O2!.promise_ms).toBe(before.orders.O2!.promise_ms);
     expectNoOverbooking(s, at(1));
     expectProfileExact(s);
     expectRebuild(k);
   });
 
-  it('[03a AD-29 Q11 B3] proposed reading: an immediate line of a boosted pickup order keeps its earliest fit, as at submit (§3.5.1 step 3)', () => {
-    const k = new Kitchen([SLOT(2)]);
-    k.submit('O1', [{ id: 'A', cook: 5 * M }, { id: 'I', cook: 2 * M, mode: 'immediate' }], at(0), { pickup: at(60) });
+  it('[03a #186] fries fire first and the sync burger lands at +16', () => {
+    const k = new Kitchen([SLOT(1)]);
+    k.submit('O1', [{ id: 'A', cook: 10 * M }, { id: 'I', cook: 5 * M, mode: 'immediate' }], at(0), { pickup: at(60) });
     const s = k.apply([boost('O1', at(1))]);
-    expect(s.lines.A!.fire_ms).toBe(at(55));
+    expect(s.lines.A!.booked!.end).toBe(at(16));
     expect(s.lines.I!.fire_ms).toBe(at(1));
     expectRebuild(k);
   });
