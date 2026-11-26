@@ -19,3 +19,10 @@ export interface Doc {
   width_cols?: 32 | 48;
   blocks: DocBlock[];
 }
+
+/**
+ * ⚠️ 03c v1.0.16 §3.11 trigger 1, §4.2 (02b-TK R6; hostile run 1): a queued Send · pay later submit prints its token
+ * slip only when `now − queued_at ≤ TAKEAWAY_SLIP_REPLAY_MS`, else `skipped: 'replay_late'` (the customer has probably
+ * left). A constant, not a setting.
+ */
+export const TAKEAWAY_SLIP_REPLAY_MS = 120_000;
