@@ -233,6 +233,9 @@ const BranchConfigSnapshotSchemaV3Shape = SnapshotBase.extend({
       name: z.string(),
       sort_order: int,
       is_archived: z.boolean(),
+      // ⚠️ Changed by 01a v2.11 PT-3 (03b v1.0.16 PT-1): the order types the point receives; optional, absent = 'all'
+      // (no SNAPSHOT_SCHEMA_VERSION bump). Read by @pos/domain routePoint.
+      order_types: z.union([z.literal('all'), z.array(orderType).min(1)]).optional(),
     }),
   ),
   stations: z.array(

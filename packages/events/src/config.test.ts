@@ -621,6 +621,23 @@ describe('BranchConfigSnapshotSchemaV4', () => {
   });
 });
 
+describe('[01a v2.11 PT-3] points[].order_types (03b PT-1), optional, absent = all', () => {
+  it.each([['all'], [['takeaway']], [['dine_in', 'parking']]] as const)('[01a #219, 03b PT-1] order_types %j parses unchanged', (order_types) => {
+    const s = exampleV4();
+    const r = BranchConfigSnapshotSchemaV4.safeParse({ ...s, points: [{ ...s.points[0], order_types }] });
+    expect(r.error).toBeUndefined();
+    expect(r.data!.points[0]!.order_types).toEqual(order_types);
+  });
+
+  it('[01a #219] absent stays absent (the hub reads it as all); an empty set or an unknown type is refused', () => {
+    const s = exampleV4();
+    expect(BranchConfigSnapshotSchemaV4.parse(s).points[0]).not.toHaveProperty('order_types');
+    for (const order_types of [[], ['counter'], 'some']) {
+      expect(BranchConfigSnapshotSchemaV4.safeParse({ ...s, points: [{ ...s.points[0], order_types }] }).success, JSON.stringify(order_types)).toBe(false);
+    }
+  });
+});
+
 describe('BranchConfigSnapshotSchemaV4: the V4 fields (01a v2.2 A-1, v2.3 A-1)', () => {
   it('[01a #192] snapshot V4 carries zones[].routes[], zones[].stock_items[], items[].is_ready_item', () => {
     const parsed = BranchConfigSnapshotSchemaV4.parse(exampleV4());
