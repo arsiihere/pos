@@ -627,15 +627,16 @@ describe('[05 §6.4, #58] BillRequested → check bill (live only)', () => {
   });
 
   // ⚠️ 05 v1.0.35 §6.3 (run 3 R3-M-1, D3)
-  it('[05 §6.3, R3-M-1, D3] result and paper: gross total and remaining payable (Σ open split balances) apart; a partly paid split leaves less to pay', async () => {
+  it('[05 §6.3, R3-M-1, D3] result: gross total and due_minor (Σ open split balances); paper: the total once, "Already paid" and "Remaining payable" only once something is paid', async () => {
     await start();
     printers([{ scope: 'default', ref_id: '', printer_id: P.fallback }]);
     const s = seatingWith(VX.tables.T4, 3);
     const first = await print({ bill_ref: { seating_id: s.seating_id } });
     expect(first.status, JSON.stringify(first.error)).toBe(200);
     const bill_id = first.events[0]!.stream_id;
-    // nothing paid: remaining payable = the gross total
+    // nothing paid: the result's due = the gross total; the paper shows the total only (owner 2026-11-26)
     expect(first.result).toMatchObject({ due_minor: (first.result as { totals_default: { total_minor: number } }).totals_default.total_minor });
+    expect(textOf(jobs().at(-1)!)).not.toMatch(/Already paid|Remaining payable|Gross total/);
     const appendBill = (def: EventDef<z.ZodType>, payload: unknown) => {
       hub.clock.advance(1_000);
       const env = { stream_type: 'bill' as const, stream_id: bill_id, occurred_at: hub.clock.branchNow(), actor_id: STAFF.cashier, device_id: 'D_FIXTURE' };
@@ -658,8 +659,10 @@ describe('[05 §6.4, #58] BillRequested → check bill (live only)', () => {
     expect(r.result).toMatchObject({ due_minor: due, totals_default: { total_minor: gross } });
     const text = textOf(jobs().at(-1)!);
     const amount = (label: string) => text.split('\n').find((l) => l.startsWith(label))?.slice(label.length).trim();
-    expect(amount('Gross total')).toBe(formatMinor(gross, 2));
+    expect(amount('Total if paid in cash')).toBe(formatMinor(gross, 2));
+    expect(amount('Already paid')).toBe(formatMinor(1_000, 2));
     expect(amount('Remaining payable')).toBe(formatMinor(due, 2));
+    expect(text).not.toContain('Gross total');
   });
 
   it('[05 G-24] inclusive prices: the charge\'s own tax row above the total (with its label), the rest as a memo; total = the bill view', async () => {

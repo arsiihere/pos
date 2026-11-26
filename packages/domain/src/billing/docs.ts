@@ -327,8 +327,13 @@ export interface CheckBillDocInput {
   rounding_minor: number;
   cash_total_minor: number;
   /**
+   * ⚠️ 05 v1.0.35 §6.3 (run 3 R3-M-1, D3; owner 2026-11-26): the net payments already on the open splits (the ones
+   * the due subtracts). 0 → the paper shows the total only; > 0 → "Already paid" then "Remaining payable".
+   */
+  paid_minor: number;
+  /**
    * ⚠️ 05 v1.0.35 §6.3 (run 3 R3-M-1, D3): the remaining payable — Σ the open splits' `balance_minor` (each split's
-   * total less its own net payments; closed splits add 0; negative kept). Printed apart from the gross total.
+   * total less its own net payments; closed splits add 0; negative kept). Printed only when something is paid.
    */
   due_minor: number;
   /** G-25: `computeBill`'s `totals_default_digital.total_minor` (P0.19d). */
@@ -366,12 +371,14 @@ export function buildCheckBillDoc(input: CheckBillDocInput, ctx: DocContext): Do
     ...lineBlocks(input.lines, money),
     { rule: true },
     ...totalBlocks(totals, money),
-    // ⚠️ run 3 (R3-M-1, D3): the gross total (the open remainder at the default class) and what is left to pay
-    ...spread('Gross total', money.m(input.cash_total_minor), cols),
-    ...spread('Remaining payable', money.m(input.due_minor), cols, true),
+    // "Total if paid in cash" is the gross total (the open remainder at the default class), printed once
     ...spread('Total if paid in cash', money.m(input.cash_total_minor), cols, true),
     ...(input.digital_total_minor !== null && input.digital_total_minor !== input.cash_total_minor
       ? spread('Total if paid by card', money.m(input.digital_total_minor), cols)
+      : []),
+    // ⚠️ run 3 (R3-M-1, D3; owner 2026-11-26): only once something is paid — what was paid, then what is left to pay
+    ...(input.paid_minor > 0
+      ? [...spread('Already paid', money.m(input.paid_minor), cols), ...spread('Remaining payable', money.m(input.due_minor), cols, true)]
       : []),
     ...memoBlocks(totals, money),
     { rule: true },

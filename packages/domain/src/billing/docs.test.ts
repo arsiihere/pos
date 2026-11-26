@@ -191,6 +191,7 @@ describe('check bill (B17)', () => {
       taxes: [{ label: 'PST', rate_bp: 1600, payment_class: 'cash', tax_minor: 91_360 }],
       rounding_minor: 40,
       cash_total_minor: 662_400,
+      paid_minor: 0,
       due_minor: 662_400,
       digital_total_minor: 599_600,
       prices_include_tax: false,
@@ -238,17 +239,24 @@ describe('check bill (B17)', () => {
     expect(pst[0]).toContain('913.60');
   });
 
-  // ⚠️ 05 v1.0.35 §6.3 (run 3 R3-M-1, D3)
-  it('[05 §6.3, R3-M-1, D3] gross total and remaining payable print as two separately labelled lines', () => {
-    // Rs 6,624 gross, Rs 2,000 already paid on the open split → Rs 4,624 left
-    const doc = buildCheckBillDoc(checkBill({ due_minor: 462_400 }), ctx());
-    expect(lineWith(doc, 'Gross total')).toMatch(/^Gross total +6,624\.00$/);
-    expect(lineWith(doc, 'Remaining payable')).toMatch(/^Remaining payable +4,624\.00$/);
+  // ⚠️ 05 v1.0.35 §6.3 (run 3 R3-M-1, D3; owner 2026-11-26: no duplicate figure). "Total if paid in cash" is the gross total.
+  it('[05 §6.3, R3-M-1] nothing paid → one total line: no "Already paid", no "Remaining payable", no second gross line', () => {
+    const out = texts(buildCheckBillDoc(checkBill({ cash_total_minor: 100_000, digital_total_minor: null, paid_minor: 0, due_minor: 100_000 }), ctx()));
+    expect(out.filter((t) => t.includes('1,000.00'))).toEqual([expect.stringMatching(/^Total if paid in cash +1,000\.00$/)]);
+    expect(out.some((t) => /Already paid|Remaining payable|Gross total/.test(t))).toBe(false);
+  });
+
+  it('[05 §6.3, R3-M-1, D3] Rs 600 of Rs 1,000 paid → the total, then "Already paid 600", then "Remaining payable 400"', () => {
+    const doc = buildCheckBillDoc(checkBill({ cash_total_minor: 100_000, digital_total_minor: null, paid_minor: 60_000, due_minor: 40_000 }), ctx());
     const out = texts(doc);
-    expect(out.indexOf(lineWith(doc, 'Gross total')!)).toBeLessThan(out.indexOf(lineWith(doc, 'Remaining payable')!));
-    // nothing paid yet: both still print, with the same figure; a negative remainder (reopened, lower total) keeps its sign
-    expect(lineWith(buildCheckBillDoc(checkBill(), ctx()), 'Remaining payable')).toContain('6,624.00');
-    expect(lineWith(buildCheckBillDoc(checkBill({ due_minor: -25_000 }), ctx()), 'Remaining payable')).toContain('-250.00');
+    const total = out.findIndex((t) => /^Total if paid in cash +1,000\.00$/.test(t));
+    const paid = out.findIndex((t) => /^Already paid +600\.00$/.test(t));
+    const left = out.findIndex((t) => /^Remaining payable +400\.00$/.test(t));
+    expect([total >= 0, paid > total, left === paid + 1]).toEqual([true, true, true]);
+    expect(out.filter((t) => t.includes('1,000.00'))).toHaveLength(1); // the gross figure prints once
+    expect(lineWith(doc, 'Gross total')).toBeUndefined();
+    // a reopened bill with a lower total keeps a negative remainder
+    expect(lineWith(buildCheckBillDoc(checkBill({ paid_minor: 70_000, due_minor: -25_000 }), ctx()), 'Remaining payable')).toContain('-250.00');
   });
 
   // 05 v1.0.33 §3.16 (STAB-5)
@@ -606,6 +614,7 @@ describe('32 and 48 columns', () => {
           taxes: [],
           rounding_minor: 0,
           cash_total_minor: 191_000,
+          paid_minor: 0,
           due_minor: 191_000,
           digital_total_minor: null,
           prices_include_tax: false,
@@ -763,6 +772,7 @@ describe('[05 4b] QR block (row P-3; B21, §6.22, A3, R-26)', () => {
         taxes: [],
         rounding_minor: 0,
         cash_total_minor: 0,
+        paid_minor: 0,
         due_minor: 0,
         digital_total_minor: null,
         prices_include_tax: false,
@@ -919,6 +929,7 @@ describe('[05 4b] inclusive prices: the memo tax block (G-24)', () => {
         taxes: t.taxes.map((x) => ({ label: x.label, rate_bp: x.rate_bp, payment_class: x.payment_class, tax_minor: x.tax_minor })),
         rounding_minor: t.rounding_minor,
         cash_total_minor: t.total_minor,
+        paid_minor: 0,
         due_minor: t.total_minor,
         digital_total_minor: null,
         prices_include_tax: true,
@@ -964,6 +975,7 @@ describe('[05 4b] check bill digital line from totals_default_digital (G-25, P0.
         taxes: c.taxes.map((x) => ({ label: 'PST', rate_bp: x.rate_bp, payment_class: x.payment_class, tax_minor: x.tax_minor })),
         rounding_minor: c.rounding_minor,
         cash_total_minor: c.total_minor,
+        paid_minor: 0,
         due_minor: c.total_minor,
         digital_total_minor: r.totals_default_digital.total_minor,
         prices_include_tax: false,
