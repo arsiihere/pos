@@ -120,7 +120,10 @@ function submit(state: EngineState, order_id: string, items: Item[], now: number
   const s = fold(state, batch(order_id, items, now, plan, o), opts);
   for (const l of plan.lines) {
     expect(s.lines[l.order_item_id]!.station_id).toBe(l.station_id);
-    expect(s.lines[l.order_item_id]!.booked!.end + l.carry_ms).toBe(l.eta_ms);
+    const live = s.lines[l.order_item_id]!;
+    const land = live.booked!.end + l.carry_ms;
+    const pickup = s.orders[order_id]!.pickup_at_ms;
+    expect(live.serve_mode === 'immediate' && pickup !== null ? Math.max(pickup, land) : land).toBe(l.eta_ms);
   }
   return { plan, state: s };
 }
@@ -167,6 +170,20 @@ function busyS1(settings: Partial<EngineConfig['settings']> = {}, extra: Array<P
 }
 
 describe('@pos/engine routing (§3.5.5)', () => {
+  it('[03a #182] home wins when the alternate can only land early', () => {
+    const kitchenState = kitchen([{ station_id: 'S1', capacity: 1 }, { station_id: 'S2', capacity: 1 }]);
+    const busy = submit(kitchenState, 'old', [{ id: 'old-line', st: 'S2', cook: 1 }], at(0), { pickup_at_ms: at(60) }).state;
+    const r = submit(busy, 'new', [{ id: 'new-line', mode: 'immediate', cook: 5, early: 2, alts: [{ station_id: 'S2', carry_ms: 0, home: false }] }], at(0), { pickup_at_ms: at(60) });
+    expect(line(r.plan, 'new-line')).toMatchObject({ station_id: 'S1', eta_ms: at(60) });
+  });
+
+  it('[03a #184] a FIFO alternate inside the sync loop fires toward pickup', () => {
+    const s = busyS1({}, [{ station_id: 'S2', capacity: 1, policy: 'fifo' }]);
+    const r = submit(s, 'ON', [{ id: 'N', cook: 5, alts: [{ station_id: 'S2', carry_ms: 0, home: false }] }], at(0), { pickup_at_ms: at(15) });
+    expect(r.state.lines.N).toMatchObject({ station_id: 'S2', fire_ms: at(10), deadline_ms: at(10) });
+    expect(r.state.lines.X).toEqual(s.lines.X);
+  });
+
   it('[03a #28] immediate: the earliest arrival wins; the station left joins alternates, the plan and the fold agree', () => {
     const s = busyS1();
     const r = submit(s, 'ON', [{ id: 'N', cook: 5, mode: 'immediate', alts: [{ station_id: 'S2', carry_ms: 0, home: false }] }], at(0));
