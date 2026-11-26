@@ -1769,4 +1769,16 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'kitchen_screens.gap.fallback': '{station} کے {type} آرڈرز کا کوئی {type} پاس نہیں — یہ {point} پر جاتے ہیں', // not in strings-table.md; Urdu to confirm
   'kitchen_screens.gap.tie': '{station} کے {type} آرڈرز {n} پاس سے ملتے ہیں: {points} — یہ {point} پر جاتے ہیں', // not in strings-table.md; Urdu to confirm
   'kitchen_screens.gap.detail': 'مالک کی ایپ کے پوائنٹس صفحے پر "کون سے آرڈر لیتا ہے" بدلیں، پھر ہب پر تبدیلی آنے کے بعد یہاں دوبارہ لوڈ کریں۔', // not in strings-table.md; Urdu to confirm
+  // ---- 02b-TK L-CLIENT-1 item 1 (03b v1.0.16 §3.4 Pickup identity, Readiness, Handed to customer, Bill freshness, Tap and send; §8): Pass pickup cards and the customer hand-over ----
+  'pass.handed_to_customer': 'گاہک کو دے دیا', // not in strings-table.md; Urdu to confirm
+  'pass.take_payment_first': 'پہلے پیسے لیں', // not in strings-table.md; Urdu to confirm
+  'pass.other_items_not_ready': 'اس آرڈر کی باقی چیزیں ابھی تیار نہیں', // not in strings-table.md; Urdu to confirm
+  'pass.handed_undo': '{identifier} گاہک کو دے دیا · واپس کریں', // not in strings-table.md; Urdu to confirm
+  'pass.offline_counter': 'آف لائن — کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
+  'pass.pickup_at': '{time} پر لینا ہے — کاؤنٹر پر \'گاہک آ گیا\' استعمال کریں', // not in strings-table.md; Urdu to confirm
+  'pass.due': 'باقی — گاہک کاؤنٹر پر ادا کرے گا', // not in strings-table.md; Urdu to confirm
+  'pass.waiting_bill': 'بل کا انتظار', // not in strings-table.md; Urdu to confirm
+  'pass.pickup_label': 'لینا ہے {time}', // not in strings-table.md; Urdu to confirm
+  'pass.hand_at_counter': 'کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
+  'pass.outside_scope': 'یہ آرڈر آپ کا نہیں — کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
 };

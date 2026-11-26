@@ -51,7 +51,23 @@ export interface PointOrder {
   /** `by` = staff id (names from `staff-roster`, Q-55); ⚠️ 03b v1.0.10 §6.15: `lines` = the Ready's unsettled own lines
    * (absent from an older hub: then every line counts as in it) */
   ready: { at: number; by: string | null; lines?: string[] } | null;
+  /**
+   * ⚠️ 03b v1.0.16 §6.15, §6.16 (run 3 R3-B-1, R3-M-5, R3-M-9): the order metadata (`PointOrderMetaSchema`), in the
+   * catch-up and in `point_lines.orders` when it changed (the store replaces it). Every field optional: absent from an
+   * older hub. A known pickup without `pickup_readiness` stays ineligible for automatic readiness until refreshed.
+   */
+  pickup_at_ms?: number | null;
+  boosted?: boolean;
+  pickup_readiness?: { all_engine_lines_done: boolean; station_less_hold_until: number | null } | null;
+  /** the live unserved non-deal station-less lines of a pickup order (shown on the card, outside pick / Handover) */
+  no_station_lines?: Array<{ order_item_id: string; item_name: string; units: number }>;
+  /** the R8 epoch (null without one): amber "not collected" at hub now ≥ their sum */
+  bag_ready_since?: number | null;
+  bag_ready_window_ms?: number | null;
 }
+
+/** §6.16 `point_lines.orders[]` / the metadata part of a `point_view` order. */
+export type PointOrderMeta = Required<Pick<PointOrder, 'order_id' | 'pickup_at_ms' | 'boosted' | 'pickup_readiness' | 'no_station_lines' | 'bag_ready_since' | 'bag_ready_window_ms'>>;
 
 /** §6.15 catch-up part `point_view` (orders oldest first; `takeovers` = the bodies of this point's dark stations). */
 export interface PointViewBody {

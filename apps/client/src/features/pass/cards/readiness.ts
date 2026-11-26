@@ -17,8 +17,28 @@ export interface Readiness {
   held: ReadonlySet<string>;
 }
 
-export function readiness(order: PointOrder): Readiness {
+/**
+ * ⚠️ 03b v1.0.16 §3.4 "Readiness" (run 3 R3-M-5): a pickup card (the order has a pickup time) uses the hub's
+ * whole-order summary: every engine line of the order, at any point, done or served, and the station-less hold
+ * (`station_less_hold_until`, the pickup time; null when boosted or none is left) reached on hub time. A known pickup
+ * without `pickup_readiness` (an older hub) is never ready by itself.
+ */
+export const isPickup = (order: PointOrder): boolean => order.pickup_at_ms != null;
+export function pickupReady(order: PointOrder, nowMs: number): boolean {
+  const r = order.pickup_readiness;
+  if (r == null) return false;
+  return r.all_engine_lines_done && (r.station_less_hold_until === null || nowMs >= r.station_less_hold_until);
+}
+
+export function readiness(order: PointOrder, nowMs = Number.NEGATIVE_INFINITY): Readiness {
   const open = order.lines.filter((l) => !l.handed_over);
+  if (isPickup(order)) {
+    // a pickup card has no HOLD hint (a held immediate group included); Ready follows the whole order
+    const none = new Set<string>();
+    if (order.ready !== null) return { state: 'sent', held: none };
+    if (open.length === 0) return { state: 'none', held: none };
+    return { state: pickupReady(order, nowMs) && open.some((l) => l.stage === 'done') ? 'ready' : 'cooking', held: none };
+  }
   const groups = new Map<string, { done: string[]; waiting: number }>();
   for (const l of open) {
     if (l.serve_mode !== 'sync' || l.group_id === undefined) continue;

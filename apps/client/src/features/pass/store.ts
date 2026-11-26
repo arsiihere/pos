@@ -1,6 +1,6 @@
 import type { LineDetail } from '@pos/domain';
 import { KdsStationBody, type WsServerMessage } from '@pos/events';
-import type { PassSnapshot, PassStore, PointLine, PointOrder, PointStation, PointViewBody, ServeFields } from './contracts';
+import type { PassSnapshot, PassStore, PointLine, PointOrder, PointOrderMeta, PointStation, PointViewBody, ServeFields } from './contracts';
 
 // 03b v1.0.8 §3.4, §3.6, §6.15–§6.17 (P1): the Pass store of the point this tablet belongs to.
 // - `catch_up` (every (re)connect) replaces everything from `point_view`; `seen_at` is emptied (catch-up orders carry
@@ -20,6 +20,10 @@ import type { PassSnapshot, PassStore, PointLine, PointOrder, PointStation, Poin
 // - §3.6: `station_takeover` opens / closes a takeover section (and the station's `dark`); `station_notice` `output`
 //   keeps the section's `has_printer`, `archived` is kept per station (§3.10). Takeover rows themselves are drawn
 //   from the section's own KDS store (P4), which reads the same frames.
+// - ⚠️ 03b v1.0.16 §6.15, §6.16 (run 3 R3-B-1, R3-M-5, R3-M-9): an order's metadata (pickup time, boost, whole-order
+//   pickup readiness, station-less lines, the R8 pair) comes with the catch-up and, when it changed, in
+//   `point_lines.orders` (possibly with no lines), applied after the frame's lines; it replaces the order's prior
+//   metadata. Metadata for an order this point does not hold yet waits for its first line (dropped on catch-up).
 
 /** What P2–P5 render: the contract snapshot plus the §3.10 archived notices since the last catch-up. */
 export interface PassView extends PassSnapshot {
@@ -61,6 +65,18 @@ function readView(v: unknown): PointViewBody | null {
   return { point_id: v['point_id'], stations, orders, takeovers };
 }
 
+/** §6.16: the metadata fields of a `point_lines.orders[]` entry (the order's prior metadata is replaced) */
+function metaFields(m: PointOrderMeta): Omit<PointOrderMeta, 'order_id'> {
+  return {
+    pickup_at_ms: m.pickup_at_ms,
+    boosted: m.boosted,
+    pickup_readiness: m.pickup_readiness,
+    no_station_lines: m.no_station_lines,
+    bag_ready_since: m.bag_ready_since,
+    bag_ready_window_ms: m.bag_ready_window_ms,
+  };
+}
+
 function serveOf(l: ServeFields): ServeFields {
   return {
     ...(l.group_id === undefined ? {} : { group_id: l.group_id }),
@@ -89,6 +105,8 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
    * before the last re-send, compared by the next removal / void of that line, then forgotten.
    */
   let unitsBefore = new Map<string, number>();
+  /** §6.16: metadata of an order not on a card yet (its first line comes later) */
+  let metaPending = new Map<string, PointOrderMeta>();
   let snap: PassView = EMPTY;
   const listeners = new Set<() => void>();
 
@@ -160,6 +178,7 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
     readyAlert = new Map();
     unitsBefore = new Map();
     handOrders = new Map();
+    metaPending = new Map();
     if (v === null) {
       point = null;
       stations = [];
@@ -204,8 +223,18 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
       } else {
         const at = deps.now();
         seen.set(d.order_id, at);
-        orders = [...orders, { order_id: d.order_id, identifier: d.identifier, placed_at: at, lines: [fresh], ready: null }];
+        const pending = metaPending.get(d.order_id);
+        metaPending.delete(d.order_id);
+        orders = [...orders, { order_id: d.order_id, identifier: d.identifier, placed_at: at, lines: [fresh], ready: null, ...(pending === undefined ? {} : metaFields(pending)) }];
       }
+    }
+    for (const m of frame.orders ?? []) {
+      if (!orders.some((o) => o.order_id === m.order_id)) {
+        metaPending.set(m.order_id, m);
+        continue;
+      }
+      hit = true;
+      orders = orders.map((o) => (o.order_id === m.order_id ? { ...o, ...metaFields(m) } : o));
     }
     return hit;
   }

@@ -154,15 +154,25 @@ async function directory(): Promise<DirectoryInput> {
     permissions: [grant("run-pass"), grant("reprint-ticket")],
   };
   const cook = { ...person("S_COOK", "Cook"), role_ids: ["R_COOK"] };
+  // 02b-TK L-CLIENT-1 (03b v1.0.16 §3.4, OR-2; 01b v1.12 B-4): the default Pass role — run-pass, mark-served (branch),
+  // reprint-ticket — and Pervez, who runs the Pass with it ("Handed to customer"); Cook keeps exactly its grants
+  const passRole = {
+    role_id: "R_PASS",
+    name: "Pass",
+    session_idle_ttl_ms: 3_600_000,
+    permissions: [grant("run-pass"), grant("mark-served"), grant("reprint-ticket")],
+  };
+  const packer = { ...person("S_PASS", "Pervez"), role_ids: ["R_PASS"] };
   return {
     ...base,
-    roles: [...base.roles, taker, cookRole],
+    roles: [...base.roles, taker, cookRole, passRole],
     staff: [
       ...base.staff,
       person("S_ALI", "Ali"),
       person("S_SARA", "Sara"),
       waiter,
       cook,
+      packer,
     ],
   };
 }

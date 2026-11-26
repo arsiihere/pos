@@ -10,7 +10,10 @@ import { appendDeviceProfile, type TestHub } from '../../hub/test/helpers/test-h
 // written as the PrinterSaved event, because SavePrinter refuses a loopback address (03c §3.2) and the fake cannot
 // have another one.
 
-export const FLOWS_03 = ['kds', 'takeover', 'pass', 'admin'] as const;
+// 'tkpass' (02b-TK L-CLIENT-1, 03b v1.0.16 §3.4): a Pass point of its own whose takeaway order has a pickup time
+export const FLOWS_03 = ['kds', 'takeover', 'pass', 'admin', 'tkpass'] as const;
+/** the 'tkpass' order's pickup: this long after the seed (the e2e hub's clock is fixed) */
+export const TK_PICKUP_AFTER_MS = 30 * 60_000;
 export type Flow03 = (typeof FLOWS_03)[number];
 const PROJECTS_03 = ['tablet-landscape', 'tablet-portrait', 'kiosk', 'phone-390', 'phone-360'] as const;
 const LANGS_03 = ['en', 'ur'] as const;
@@ -42,7 +45,7 @@ export function menuWith03(menu: BranchConfig): BranchConfig {
       for (const lang of LANGS_03) {
         const key = keyOf(flow, project, lang);
         // the Pass flows: the station sits at its own point, so a Pass tablet bound to it sees this run's orders only
-        const own = flow === 'pass' || flow === 'takeover';
+        const own = flow === 'pass' || flow === 'takeover' || flow === 'tkpass';
         const point = pointOf(flow, project, lang);
         if (own) points.push({ point_id: point, name: `Pass ${key}`, sort_order: 10, is_archived: false });
         stations.push({ ...s1, station_id: stationOf(flow, project, lang), name: `Grill ${key}`, completion_mode: 'two_tap' as const, ...(own ? { point_id: point, carry_times: [{ point_id: point, carry_ms: 0 }] } : {}) });
@@ -85,7 +88,7 @@ export async function seed03(hub: TestHub): Promise<{ printer: FakeLanPrinter; d
           const k = pairKds(hub, station, `Screen ${key}`);
           devices[`kds:${key}`] = { token: k.token, device_id: k.deviceId };
         }
-        if (flow === 'pass' || flow === 'takeover') {
+        if (flow === 'pass' || flow === 'takeover' || flow === 'tkpass') {
           const point_id = pointOf(flow, project, lang);
           const t = pairPassTablet(hub, { pointId: point_id, name: `Pass tablet ${key}` });
           // 05a v1.0.6 §3.6, M-6: a Pass tablet's profile is the `pass` screen with its point (`pass` ⇔ `point_id`), shared
@@ -94,7 +97,8 @@ export async function seed03(hub: TestHub): Promise<{ printer: FakeLanPrinter; d
           devices[`pass:${key}`] = { token: t.token, device_id: t.deviceId };
         }
         const lines = LINES_03.map((l) => ({ order_item_id: lineId(key, l.n), item_id: itemId(key, l.n), quantity: l.units }));
-        appendOrder(hub, { order_type: 'takeaway', order_id: `O3-${key}`, placed_by: 'S_ALI', lines });
+        const pickup = flow === 'tkpass' ? { pickup_at_ms: hub.clock.branchNow() + TK_PICKUP_AFTER_MS } : {};
+        appendOrder(hub, { order_type: 'takeaway', order_id: `O3-${key}`, placed_by: 'S_ALI', lines, ...pickup });
         fireLines(hub, station, lines.map((l) => l.order_item_id));
       }
   return { printer, devices };
