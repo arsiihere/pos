@@ -62,6 +62,7 @@ interface Preview {
   as_of_seq: number;
   groups: Array<{ promise_ms: number; keys: string[] }>;
   lines: PreviewLine[];
+  pickup_bounds?: { earliest_ms: number; latest_ms: number } | null;
 }
 
 async function preview(who: Who, draft: unknown, raw?: string): Promise<{ status: number; data?: Preview; error?: { code: string; details: Record<string, unknown> } }> {
@@ -431,5 +432,59 @@ describe('02b eta-preview and SubmitOrder on a batch station (v1.0.23, STAB-6)',
     expect(added).toEqual(Array.from({ length: 10 }, (_, i) => (i === 0 ? 'N' : `N-p${i + 1}`)));
     const loads = Object.values(engine().stations.S_TANDOOR!.loads).sort((a, b) => a.booked.start - b.booked.start);
     expect(loads.map((l) => l.order_item_ids.filter((id) => id.startsWith('N')).length)).toEqual([3, 7]);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- pickup (L-ORDERS-1 P-2)
+
+// ⚠️ 02b v1.0.25 §6.14 (R4, G-2; run 1 m-8, M-3): step 2b on the draft (t0 = now) and `pickup_bounds`.
+describe('[02b #62 #78] eta-preview pickup_at_ms and pickup_bounds (§6.14 v1.0.25)', () => {
+  const MIN = 60_000;
+  const bounds = async () => {
+    const { pickupBounds } = await import('../../src/orders/commands/submit-order');
+    const { hubTime } = await import('../../src/lib/hub-time');
+    const { utc_offset_ms } = hubTime(hub.clock);
+    return pickupBounds(engine().business_day!, branchConfig()!, hub.clock.branchNow(), utc_offset_ms);
+  };
+
+  it('[02b #62] a valid pickup → promise_ms equal to the SubmitOrder that follows; early / late → 422; on dine-in → 400; takeaway bounds = SubmitOrder\'s, dine-in null', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    const who = signIn();
+    const pickup = hub.clock.branchNow() + 45 * MIN;
+    const draft = { ...takeaway([line('K1', FX.naan), line('K2', FX.ready)]), pickup_at_ms: pickup };
+    const before = eventCount();
+    const p = await preview(who, draft);
+    expect(p.status, JSON.stringify(p.error)).toBe(200);
+    expect(p.data!.pickup_bounds).toEqual(await bounds());
+    for (const g of p.data!.groups) expect(g.promise_ms).toBeGreaterThanOrEqual(pickup);
+    expect(eventCount()).toBe(before);
+    const s = await submitDraft(who, 'PU1', draft);
+    expect(s.status).toBe(200);
+    expect(s.placed.pickup_at_ms).toBe(pickup);
+    expect(p.data!.groups.map((g) => g.promise_ms)).toEqual(s.asPreview.groups.map((g) => g.promise_ms));
+
+    const b = await bounds();
+    const early = await preview(who, { ...draft, pickup_at_ms: b.earliest_ms - 1 });
+    expect(early).toMatchObject({ status: 422, error: { code: 'PICKUP_TIME_INVALID', details: { reason: 'too_early', earliest_ms: b.earliest_ms, latest_ms: b.latest_ms } } });
+    const late = await preview(who, { ...draft, pickup_at_ms: b.latest_ms + 1 });
+    expect(late).toMatchObject({ status: 422, error: { code: 'PICKUP_TIME_INVALID', details: { reason: 'after_day_end' } } });
+    const dine = await preview(who, { ...dineIn([line('D1', FX.naan)]), pickup_at_ms: pickup });
+    expect(dine).toMatchObject({ status: 400, error: { code: 'VALIDATION_FAILED' } });
+    // no pickup: a takeaway draft still carries the bounds, a dine-in draft null
+    expect((await preview(who, takeaway([line('K1', FX.naan)]))).data!.pickup_bounds).toEqual(await bounds());
+    expect((await preview(who, dineIn([line('D1', FX.naan)]))).data!.pickup_bounds).toBeNull();
+  });
+
+  it('[02b #78] a stale day: pickup_bounds shows earliest_ms > latest_ms; any pickup → 422 no_time_left; a plain draft previews', async () => {
+    await setUp();
+    const { latest_ms } = await bounds();
+    hub.clock.set(latest_ms + 60 * MIN); // past this day's end, the day still open
+    const who = signIn();
+    const plain = await preview(who, takeaway([line('K1', FX.naan)]));
+    expect(plain.status).toBe(200);
+    expect(plain.data!.pickup_bounds!.earliest_ms).toBeGreaterThan(plain.data!.pickup_bounds!.latest_ms);
+    const r = await preview(who, { ...takeaway([line('K1', FX.naan)]), pickup_at_ms: latest_ms + 120 * MIN });
+    expect(r).toMatchObject({ status: 422, error: { code: 'PICKUP_TIME_INVALID', details: { reason: 'no_time_left' } } });
   });
 });
