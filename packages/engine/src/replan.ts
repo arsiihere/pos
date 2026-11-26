@@ -26,7 +26,7 @@ import { liveProfile, liveProfiles } from './live.js';
 import { bookingAt, overloadPlace, Work, type Booking, type OverloadLine, type Placement } from './overload.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval, type Underflow } from './profile.js';
 import { allFifo, homeOf, optionOn, rerouted, routeCtx, routeOptions, type Alternate, type RouteCtx, type RouteOption } from './route.js';
-import { asLoad, blockShape, compatible, currentProgram, formed, freshnessOf, joinLine, placedUnderOldType, replaced, slotEnd, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
+import { asLoad, blockShape, compatible, currentProgram, formed, freshnessOf, heldBatchFit, joinLine, placedUnderOldType, replaced, slotEnd, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import { byArrival, deadlineFor, memberOrder } from './priority.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
@@ -66,6 +66,12 @@ export function stationPolicy(state: EngineState, station_id: string): { policy:
 }
 
 // §3.5.3 / AD-14: a FIFO station places each new line at its earliest fit, never holds and never re-plans.
+export function heldPickup(state: EngineState, line: EngineLine): number | null {
+  const order = state.orders[line.order_id];
+  if (!order || order.boosted || line.expedited || line.return_of !== null) return null;
+  return line.serve_mode === 'immediate' || isFifo(state, line.station_id) ? order.pickup_at_ms : null;
+}
+
 export function isFifo(state: EngineState, station_id: string): boolean {
   return stationPolicy(state, station_id).policy === 'fifo';
 }
@@ -602,6 +608,8 @@ function batchPass1(
     let bind: EngineLine | null = null;
     const floor = Math.max(t, s_prev - b.max_prep, forced ? b.fire_ms : Number.NEGATIVE_INFINITY);
     let lo = floor;
+    let heldLo = floor;
+    let hasPickup = false;
     for (const m of [...b.members].sort()) {
       const L = state.lines[m];
       if (L === undefined) continue;
@@ -612,13 +620,15 @@ function batchPass1(
         d = dm;
         bind = L;
       }
+      if (heldPickup(state, L) !== null) hasPickup = true;
+      else heldLo = Math.max(heldLo, dL - L.max_early_ms);
       lo = Math.max(lo, dL - L.max_early_ms);
     }
     const shape = { units: Math.max(b.units, cap), prep_ms: b.max_prep, cook_ms: b.cook_ms };
-    const fire =
-      latestFit(work, lo, d - pol.keep_ms, shape.prep_ms, shape.cook_ms, shape.units, cap) ??
-      latestFit(work, lo, d, shape.prep_ms, shape.cook_ms, shape.units, cap) ??
-      earliestFit(work, floor, shape.prep_ms, shape.cook_ms, shape.units, cap);
+    const fit = (lower: number, upper: number) => latestFit(work, lower, upper, shape.prep_ms, shape.cook_ms, shape.units, cap);
+    const wasEarly = hasPickup && b.load_id !== null && b.fire_ms < lo;
+    const preferred = wasEarly ? fit(heldLo, Math.min(d, b.fire_ms)) : fit(lo, d - pol.keep_ms) ?? fit(lo, d);
+    const fire = preferred ?? (hasPickup ? fit(heldLo, d) : null) ?? earliestFit(work, floor, shape.prep_ms, shape.cook_ms, shape.units, cap);
     const booked = bookingAt(shape, cap, fire);
     work.add(booked);
     s_prev = booked.start;
@@ -678,6 +688,18 @@ function batchPass1(
     return true;
   };
   for (const L of leavers.sort(byArrival(state))) {
+    const pickup = heldPickup(state, L);
+    if (pickup !== null) {
+      const jl = joinLine(L);
+      const fit = heldBatchFit(work, cands, jl, cap, pickup - L.carry_ms, window, t);
+      if (fit.load !== undefined) cands = replaced(cands, fit.load, withMember(fit.load, jl));
+      else {
+        const booked = bookingAt(asLoad(L, cap), cap, fit.fire);
+        work.add(booked);
+        cands.push(formed(jl, fit.fire, booked));
+      }
+      continue;
+    }
     const E = slotEnd(L, cap);
     if (join(L, E - pol.keep_ms)) continue;
     const W = asLoad(L, cap);

@@ -12,7 +12,7 @@ import { priorityCmp, priorityRank, type PriorityRank } from './priority.js';
 import { priorityTerms } from './slip.js';
 import { isHiddenUnfired } from './stock.js';
 import { chooseImmediate, rerouted, routeCtx, routeOptions, type RouteOption } from './route.js';
-import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, immediateJoin, joinAdvance, joinLine, nameLoads, placedUnderOldType, replaced, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
+import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, heldBatchFit, immediateJoin, joinAdvance, joinLine, nameLoads, placedUnderOldType, replaced, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import type { Diagnostic, EngineLine, EngineState, Load, Profile, StationRuntime } from './state.js';
 import type { Pass1Result } from './replan.js';
 
@@ -271,12 +271,15 @@ function placeBatchImmediate(
   line: PlanLine,
   cap: number,
   t: number,
+  targetEnd: number | null,
+  window: number,
 ): { fire: number; booked: { start: number; end: number; units: number }; loads: WorkLoad[]; formed: boolean } {
   const W = asLoad(line, cap);
-  const fire = earliestFit(profile, t, W.prep_ms, W.cook_ms, W.units, cap);
-  const booked = bookingAt(W, cap, fire);
   const jl = joinLine(line);
-  const b = immediateJoin(list, jl, cap, booked.end, t);
+  const held = targetEnd === null ? null : heldBatchFit(profile, list, jl, cap, targetEnd, window, t);
+  const fire = held?.fire ?? earliestFit(profile, t, W.prep_ms, W.cook_ms, W.units, cap);
+  const booked = bookingAt(W, cap, fire);
+  const b = held === null ? immediateJoin(list, jl, cap, booked.end, t) : held.load;
   if (b !== undefined) {
     const j = withMember(b, jl);
     return { fire: j.fire_ms, booked: b.booked, loads: replaced(list, b, j), formed: false };
@@ -299,7 +302,7 @@ function placeImmediate(
   const only = opts.length === 1 ? opts[0]! : undefined;
   if (only !== undefined && state.stations[only.station_id]!.type === 'batch') {
     const sid = only.station_id;
-    const r = placeBatchImmediate(profiles[sid]!, loads[sid] ?? [], line, only.cap, t);
+    const r = placeBatchImmediate(profiles[sid]!, loads[sid] ?? [], line, only.cap, t, pickup === null ? null : pickup - only.carry_ms, freshnessOf(state, sid));
     return {
       placement: { fire: r.fire, booked: r.booked, station_id: sid, carry_ms: only.carry_ms, ...(only.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) },
       profiles: r.formed ? { ...profiles, [sid]: addInterval(profiles[sid]!, r.booked, r.booked.units) } : profiles,
