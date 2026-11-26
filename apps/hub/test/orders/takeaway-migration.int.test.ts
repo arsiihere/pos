@@ -44,6 +44,11 @@ function someOrders(hub: TestHub): { pickup: string; plain: string; pickupAt: nu
   const plain = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'TN', item_id: FX.naan }] }).order_id;
   append(hub, [{ stream_type: 'order', stream_id: plain, event_type: 'OrderBoosted', payload: { order_id: plain } }]); // no pickup: not a pickup boost
   append(hub, [{ stream_type: 'order', stream_id: plain, event_type: 'OrderContactSet', payload: { order_id: plain, customer_name: 'Sara', phone: null } }]); // #64: no phone → no key
+  // ⚠️ 02b v1.0.25 #65 approval half (U-1, D2): a named approval with its amount on `plain`; one on `pickup`, then its
+  // effective clear (OpenOrderBillChanged's decided subset).
+  append(hub, [{ stream_type: 'order', stream_id: plain, event_type: 'UnpaidHandoverApproved', payload: { order_id: plain, alert_id: 'AL_PLAIN', approved_by_staff_id: 'S_MGR', due_minor: 50_000 } }]);
+  append(hub, [{ stream_type: 'order', stream_id: pickup, event_type: 'UnpaidHandoverApproved', payload: { order_id: pickup, alert_id: 'AL_PICK', approved_by_staff_id: 'S_MGR', due_minor: 40_000 } }]);
+  append(hub, [{ stream_type: 'order', stream_id: pickup, event_type: 'OpenOrderBillChanged', payload: { order_ids: [pickup], approval_cleared_order_ids: [pickup] } }]);
   openSeating(hub, { table_id: FX.zoneTable, seating_id: 'SZ' });
   appendOrder(hub, {
     order_type: 'dine_in',
@@ -120,7 +125,8 @@ describe('[02b v1.0.25 §5, #65] hub migration 0029_orders_takeaway', () => {
     const liveLines = lineRows(hub.deps.db);
     const byId = new Map(liveOrders.map((r) => [r.order_id, r]));
     expect(byId.get(pickup)).toMatchObject({ pickup_at_ms: pickupAt, pickup_boosted: 1, phone: '03001234567', phone_key: '923001234567', unpaid_handover_approved_at: null, unpaid_handover_approved_due_minor: null });
-    expect(byId.get(plain)).toMatchObject({ pickup_at_ms: null, pickup_boosted: 0, customer_name: 'Sara', phone: null, phone_key: null });
+    expect(byId.get(plain)).toMatchObject({ pickup_at_ms: null, pickup_boosted: 0, customer_name: 'Sara', phone: null, phone_key: null, unpaid_handover_approved_due_minor: 50_000 });
+    expect(byId.get(plain)!.unpaid_handover_approved_at).toEqual(expect.any(Number));
     const lines = new Map(liveLines.map((r) => [r.order_item_id, r]));
     expect(lines.get('R')).toMatchObject({ option_id: FX.option, deal_part_id: null, option_refs_json: null });
     expect(lines.get('P1')).toMatchObject({ deal_part_id: FX.dealParts[0], option_id: null });
