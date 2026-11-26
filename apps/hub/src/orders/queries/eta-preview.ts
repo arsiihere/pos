@@ -11,9 +11,11 @@ import { buildSubmit } from '../build-submit.js';
 import { expandParts } from '../expand-parts.js';
 import {
   checkOrderFields,
+  checkPickup,
   Line,
   Option,
   PayloadObject,
+  pickupBounds,
   seatingHasServedFood,
   soldOutDetails,
   stockUnitsOf,
@@ -97,6 +99,8 @@ export interface EtaPreview {
   groups: Array<{ promise_ms: number; keys: string[] }>;
   // ⚠️ 02b v1.0.20 §6.14 (STAB-5): `part` (1…n) on each part of a line split per unit (§3.2 step 4a), same key
   lines: Array<{ key: string; part?: number; eta_ms: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
+  /** ⚠️ 02b v1.0.25 §6.14 (m-8): a takeaway draft's step 2b bounds at hub now (with or without a pickup); else null */
+  pickup_bounds: { earliest_ms: number; latest_ms: number } | null;
 }
 
 type Refusal = { code: string; details: Record<string, unknown> };
@@ -106,7 +110,12 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
   const config = ctx.branchConfig;
   // Step 1's day: reserveStock needs the open day (no line can be previewed without it).
   const dayStart = openDayStartMs(state);
-  if (dayStart === null || config === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
+  if (dayStart === null || config === null || state.business_day === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
+  const { now_ms: now, utc_offset_ms } = hubTime(clock);
+  // ⚠️ Step 2b (02b v1.0.25 §6.14; R4, G-2, m-8): never queued, so t0 = now; a refused pickup refuses the whole preview
+  // (422 PICKUP_TIME_INVALID), a checked one reaches proposed.order.pickup_at_ms through buildSubmit. 0 statements.
+  const pickup_bounds = draft.order_type === 'takeaway' ? pickupBounds(state.business_day, config, now, utc_offset_ms) : null;
+  if (pickup_bounds !== null && draft.pickup_at_ms !== undefined && draft.pickup_at_ms !== null) checkPickup(draft.pickup_at_ms, state.business_day, pickup_bounds);
 
   // Mint an id per key (never written anywhere); map each id back to its key and its draft line. The ids sort in draft
   // order (zero-padded): the engine breaks placement ties by order_item_id (03a), so the preview plans as a submit whose
@@ -137,7 +146,6 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
   const dineIn = draft.order_type === 'dine_in';
   const follow_up = dineIn && seatingHasServedFood(ctx.db, draft.seating_id!);
   const primary_table_id = dineIn ? draft.table_id! : null;
-  const { now_ms: now, utc_offset_ms } = hubTime(clock);
   const buildCtx = submitBuildCtx(ctx.db, state, config, input, { now, utc_offset_ms }, primary_table_id, follow_up);
   // 02b v1.0.20 §3.2 step 4a (STAB-5): the same split as SubmitOrder; each part maps back to its key and draft line,
   // with its part number.
@@ -249,7 +257,7 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
       });
     }
   });
-  return { as_of_seq: asOfSeq, groups, lines: out };
+  return { as_of_seq: asOfSeq, groups, lines: out, pickup_bounds };
 }
 
 // buildSubmit's 400 paths name the one-line input (`lines.0…order_item_id`): restate them at the draft line, by key.
