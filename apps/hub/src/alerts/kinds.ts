@@ -1,4 +1,4 @@
-import { ALERT_CONSTANTS, REQUEST_DECISIONS, type AlertFamily, type Permission, type RECIPIENT_SETS } from '@pos/domain';
+import { ALERT_CONSTANTS, REQUEST_DECISIONS, SCREEN_KEYS, type AlertFamily, type Permission, type RECIPIENT_SETS } from '@pos/domain';
 import {
   AlertDetailsBase,
   AlertLinkTargetSchema,
@@ -120,6 +120,35 @@ export interface AlertKindDef<V = Record<string, unknown>, D = AlertDetails> {
    */
   link?(values: V): AlertLinkTarget | null;
   request: AlertRequestDef<V, D> | null;
+  /**
+   * 01d v1.3.7 §3.5 / §4.2 (03b v1.0.16 D-7): a **counter row** of the alert (a device row reached through a
+   * `screen_devices` entry whose device still shows the gated screen, derived in counterRow) gets the card on a
+   * signed-in staff socket of its device (§6 batch 3). Default false. Non-request kinds only, with a
+   * `screen_devices` entry and details limited to COUNTER_DETAIL_KEYS.
+   */
+  counter_card?: boolean;
+}
+
+/** 01d v1.3.7 §3.5: the only details a `counter_card` kind may carry (no amount, reason, problem or disposition). */
+export const COUNTER_DETAIL_KEYS: readonly string[] = ['identifier', 'lines', 'item', 'quantity', 'station_name', 'minutes_late'];
+/** 01d v1.3.7 §3.5: the screen keys a `screen_from_value` enum may name (SCREEN_KEYS without `pass` and `board`). */
+const COUNTER_SCREEN_KEYS: ReadonlySet<string> = new Set(SCREEN_KEYS.filter((k: string) => k !== 'pass' && k !== 'board'));
+
+/** The `screen_from_value` key of a kind's first `screen_devices` entry (the counter gate), or null. */
+export function counterScreenKey(kind: Pick<AlertKind, 'steps'>): string | null {
+  for (const step of kind.steps) {
+    for (const { target } of step.to) if (typeof target === 'object' && target.kind === 'screen_devices') return target.screen_from_value;
+  }
+  return null;
+}
+
+/** 01d v1.3.7 §3.5: an optional enum whose options are all counter screen keys. */
+function isCounterScreenEnum(field: z.ZodType | undefined): boolean {
+  if (!(field instanceof z.ZodOptional)) return false;
+  const inner = field.unwrap();
+  if (!(inner instanceof z.ZodEnum)) return false;
+  const options = inner.options as readonly unknown[];
+  return options.length > 0 && options.every((o) => typeof o === 'string' && COUNTER_SCREEN_KEYS.has(o));
 }
 
 export type AlertKind<V = Record<string, unknown>, D = AlertDetails> = Readonly<AlertKindDef<V, D>>;
@@ -153,9 +182,26 @@ export function defineAlertKind<V extends Record<string, unknown>, D extends Ale
           fail(`step ${index} from_value '${target.from_value}' must be a required string with min length 1 in values_schema`);
         }
       }
+      if (typeof target === 'object' && target.kind === 'screen_devices') {
+        // 01d v1.3.7 §3.5 (M-3, m-2): the gate is an optional enum over the counter screens; devices are recipients only
+        const key = target.screen_from_value;
+        if (!valueKeys.has(key)) fail(`step ${index} screen_from_value '${key}' is not in values_schema`);
+        if (!isCounterScreenEnum(shape[key])) {
+          fail(`step ${index} screen_from_value '${key}' must be an optional enum over SCREEN_KEYS without pass and board in values_schema`);
+        }
+        if (set !== 'recipient') fail(`step ${index} screen_devices entry with set '${set}' (recipient only)`);
+      }
       if (set !== 'recipient' && def.request === null) fail(`step ${index} set '${set}' needs a request part`);
     }
   });
+  if (def.counter_card === true) {
+    // 01d v1.3.7 §3.5 (M-3): keeps money, PINs and answers off counter screens
+    if (def.request !== null) fail('counter_card: true on a request kind');
+    if (counterScreenKey(def) === null) fail('counter_card: true needs a screen_devices entry');
+    if (def.details_schema !== null && !(def.details_schema instanceof z.ZodObject)) fail('counter_card: true needs details_schema to be a Zod object or null');
+    const detailKeys = def.details_schema instanceof z.ZodObject ? Object.keys(def.details_schema.shape as Record<string, unknown>) : [];
+    for (const key of detailKeys) if (!COUNTER_DETAIL_KEYS.includes(key)) fail(`counter_card: true with details key '${key}' (counter screens show ${COUNTER_DETAIL_KEYS.join(', ')} only)`);
+  }
   if (def.lead_fallback && def.request !== null) fail('lead_fallback: true on a request kind');
   if (def.skip_requester === true && def.request !== null) fail('skip_requester: true on a request kind (requests already skip the requester)');
   // AD-124: requests never expire (§3.3), so such a request would stay due forever and fill the tick's LIMIT

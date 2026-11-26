@@ -46,6 +46,9 @@ export const AlertStepTargetSchema = z.union([
   z.object({ kind: z.enum(['answerers', 'holders_informed', 'always_on', 'managers', 'requester_lead']) }),
   z.object({ kind: z.enum(['point', 'zone_order_taker']), from_value: ValueKey }),
   z.object({ kind: z.literal('table_team'), from_value: ValueKey, depth: z.enum(['owner', 'direct']).optional() }),
+  // ⚠️ 01d v1.3.7 §3.4 / §5.4 (03b v1.0.16 D-7): step target only (not in AlertTargetSchema): every unrevoked device
+  // whose current 05a profile `screens` include `values[screen_from_value]`; that value absent → nobody.
+  z.object({ kind: z.literal('screen_devices'), screen_from_value: ValueKey }),
 ]);
 export type AlertStepTarget = z.infer<typeof AlertStepTargetSchema>;
 

@@ -1,4 +1,4 @@
-import { DomainError, type DeviceType, type Permission } from '@pos/domain';
+import { DomainError, type DeviceType, type Permission, type ScreenKey } from '@pos/domain';
 import type { AlertRaisedPayloadV5, AlertTarget } from '@pos/events';
 import { deviceProfile } from '../auth/device-profile.js';
 import type { StaffDirectory } from '../auth/staff-directory.js';
@@ -241,6 +241,7 @@ export function batchReads(
       const step = kind.steps[index];
       if (step === undefined) continue;
       for (const { target } of stepTargets(step, alert)) {
+        if (target.kind === 'screen_devices') continue; // memory over read (5) and the profile map, no resolver
         targets.push(target);
         if (kind.lead_fallback && zone && target.kind === 'table_team') targets.push({ kind: 'zone_order_taker', table_id: target.table_id });
       }
@@ -329,10 +330,27 @@ export function resolveTargets(tx: WriterTx, targets: readonly AlertTarget[]): M
 
 // ------------------------------------------------------------------------------------------ step targets
 
-/** §3.4 / §3.5: the concrete targets of a step for an alert (`raised_target`, step kinds, `from_value`). */
-export function stepTargets(step: StepDef, alert: Pick<AlertRow, 'target' | 'values'>): Array<{ target: AlertTarget; set: RecipientSet }> {
+/**
+ * 01d v1.3.7 §3.4 (03b v1.0.16 D-7): the concrete `screen_devices` target of a step: the gated screen, read from the
+ * alert's stored values (fixed at raise); `null` (the value absent) reaches nobody.
+ */
+export interface ScreenDevicesTarget {
+  kind: 'screen_devices';
+  screen: ScreenKey | null;
+}
+
+/** A concrete step target: a §3.4 target, or the step-only `screen_devices` target. */
+export type StepTargetValue = AlertTarget | ScreenDevicesTarget;
+
+/** §3.4 / §3.5: the concrete targets of a step for an alert (`raised_target`, step kinds, `from_value`, `screen_devices`). */
+export function stepTargets(step: StepDef, alert: Pick<AlertRow, 'target' | 'values'>): Array<{ target: StepTargetValue; set: RecipientSet }> {
   return step.to.map(({ target, set }) => {
     if (target === 'raised_target') return { target: alert.target, set };
+    if (target.kind === 'screen_devices') {
+      // the gate is optional by the startup check: absent (or not a string) → nobody, never an error
+      const value = alert.values[target.screen_from_value];
+      return { target: { kind: 'screen_devices', screen: typeof value === 'string' ? (value as ScreenKey) : null }, set };
+    }
     if (!('from_value' in target)) return { target, set };
     const value = alert.values[target.from_value];
     if (typeof value !== 'string' || value === '') {
@@ -393,7 +411,7 @@ export function resolveStep(step: StepDef, alert: AlertRow, reads: BatchReads, d
   return out;
 }
 
-function resolveTarget(target: AlertTarget, alert: AlertRow, reads: BatchReads, directory: StaffDirectory): ResolvedTarget {
+function resolveTarget(target: StepTargetValue, alert: AlertRow, reads: BatchReads, directory: StaffDirectory): ResolvedTarget {
   const present = (ids: string[]): string[] => ids.filter((id) => isPresent(reads, id));
   const staff = (staff_ids: string[]): ResolvedTarget => ({ staff_ids, device_ids: [] });
   switch (target.kind) {
@@ -438,7 +456,19 @@ function resolveTarget(target: AlertTarget, alert: AlertRow, reads: BatchReads, 
     case 'point':
     case 'zone_order_taker':
       return resolved(target, reads);
+    case 'screen_devices': {
+      // 01d v1.3.7 §3.4: every unrevoked device (read (5)) whose current 05a profile screens include the gated screen
+      // (memory; a `needs_review` profile counts, m-11); devices only, never presence-filtered; 0 statements added.
+      const screen = target.screen;
+      if (screen === null) return { staff_ids: [], device_ids: [] };
+      return { staff_ids: [], device_ids: reads.devices.filter((d) => showsScreen(d.device_id, screen)).map((d) => d.device_id) };
+    }
   }
+}
+
+/** 01d v1.3.7 §3.4 / §3.5: the device's current 05a profile shows `screen` (memory, 0 statements; no profile → false). */
+export function showsScreen(deviceId: string, screen: string): boolean {
+  return deviceProfile(deviceId)?.screens.includes(screen as ScreenKey) === true;
 }
 
 function activePointIds(): ReadonlySet<string> {
