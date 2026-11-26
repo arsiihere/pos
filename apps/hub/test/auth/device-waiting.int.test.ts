@@ -207,7 +207,7 @@ describe('[05a #21] device_waiting (hub half)', () => {
 
 // Pinned from the code (05a §6.1 / §6.3 statement rows; the counter counts every get / all / run).
 const TODAY_POST = 3; // IP read, pending read, INSERT (00 §6.30; no event today)
-const CLOSE_COST = 7; // closeMany's row read + the AlertClosed append and its alerts projection
+const CLOSE_COST = 8; // closeMany's row read + the AlertClosed append and its alerts projection; ⚠️ + 1, 03b v1.0.16 §5 (R3-M-9): the pass fold clears a counter alert's pass_bag_ready link
 // the whole /admin/commands round trip before 05a task 26 (guards, session, idempotency, request read, INSERT, UPDATE,
 // the DevicePaired + DeviceProfileSet appends and their projections); task 26 adds the one pending read
 const TODAY_APPROVE = 42;
