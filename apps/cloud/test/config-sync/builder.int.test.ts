@@ -114,7 +114,7 @@ describe('buildSnapshot', () => {
           ],
         },
       ],
-      points: [{ point_id: pass, name: 'Pass', sort_order: 0, is_archived: false }],
+      points: [{ point_id: pass, name: 'Pass', sort_order: 0, is_archived: false, order_types: 'all' }], // ⚠️ 01a v2.11 PT-3
       stations: [
         {
           ...engineStation,

@@ -581,13 +581,16 @@ async function buildInventoryKey(level: TenantLevelRepository, branchId: string)
 }
 
 // 01a §4.3 V3: archived rows stay, as stations do, so an archived station's point_id still resolves.
-function selectPoints(scoped: TenantScopedRepository, branchId: string) {
-  return scoped.query<{ point_id: string; name: string; sort_order: number; is_archived: boolean }>(
-    `SELECT point_id, name, sort_order, archived_at IS NOT NULL AS is_archived FROM points
+// ⚠️ Changed by 01a v2.11 PT-3 (R3-m-3): + order_types in the same statement (+0): SQL NULL → 'all', an explicit set
+// sorted. The builder always sends it; a hub reads an absent key as 'all'.
+async function selectPoints(scoped: TenantScopedRepository, branchId: string) {
+  const rows = await scoped.query<{ point_id: string; name: string; sort_order: number; is_archived: boolean; order_types: string[] | null }>(
+    `SELECT point_id, name, sort_order, archived_at IS NOT NULL AS is_archived, order_types FROM points
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
       ORDER BY sort_order, point_id COLLATE "C"`,
     [branchId],
   );
+  return rows.map((row) => ({ ...row, order_types: row.order_types === null ? ('all' as const) : [...row.order_types].sort() }));
 }
 
 // CL-10: a row naming an archived station, at either end, is left out (restore has no check).
