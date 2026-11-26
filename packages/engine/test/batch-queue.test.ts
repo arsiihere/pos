@@ -116,6 +116,29 @@ function withoutDiag(s: EngineState): Omit<EngineState, 'diagnostics'> {
 }
 
 describe('[03a v1.2.10 §3.3 BQ-3, BQ-4, §3.6.1 item 1] membership and pull-in', () => {
+  it('[03a #183] held immediate parts join compatible rounds and leave earlier gaps for other pickups', () => {
+    let s = submitB(queueFryer(), 'late', unitParts('L', 1), at(0), { pickup_at_ms: at(90) }).state;
+    expect(loadOf(s, 'L1')!.booked.end).toBe(at(90));
+    s = submitB(s, 'early', unitParts('E', 1), at(0), { pickup_at_ms: at(30) }).state;
+    expect(loadOf(s, 'E1')!.booked.end).toBe(at(30));
+    s = submitB(s, 'same', unitParts('J', 1), at(0), { pickup_at_ms: at(30) }).state;
+    expect(loadOf(s, 'J1')!.load_id).toBe(loadOf(s, 'E1')!.load_id);
+    s = submitB(s, 'walkin', unitParts('W', 1), at(1)).state;
+    expect(loadOf(s, 'W1')!.booked.end).toBe(at(4));
+    expect(loadOf(s, 'L1')!.booked.end).toBeLessThanOrEqual(at(90));
+  });
+
+  it('[03a #183e] when a fresh round cannot fit, join the latest earlier compatible round', () => {
+    let s = queueFryer({ F: { min_slack_keep_ms: 0 } });
+    for (const [name, minute] of [['A', 10], ['B', 20]] as const) {
+      s = submitB(s, name, unitParts(name, 1, { early: 0 }), at(0), { pickup_at_ms: at(minute) }).state;
+    }
+    s = submitB(s, 'other', unitParts('C', 8, { program: 'P2', early: 0 }), at(0), { pickup_at_ms: at(30) }).state;
+    s = submitB(s, 'join', unitParts('J', 1, { early: 0 }), at(0), { pickup_at_ms: at(30) }).state;
+    expect(loadOf(s, 'J1')!.load_id).toBe(loadOf(s, 'B1')!.load_id);
+    expect(Object.keys(s.stations.F!.loads)).toHaveLength(3);
+  });
+
   it('[03a #146] new lines never jump the queue: join the earliest load with room, else a load after the last', () => {
     // Z ×8 cooks [0, 3); A ×8 [3, 6), B ×8 [6, 9), C ×8 [9, 12) queue behind it; B1–B3 are voided (room 3 in B's load).
     const voids = (_s: EngineState, t: number) => (t === at(0.25) ? ['B1', 'B2', 'B3'].map((x) => voidB('OB', x, 1, t)) : []);

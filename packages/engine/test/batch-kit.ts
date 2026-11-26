@@ -152,7 +152,9 @@ export function submitB(state: EngineState, order_id: string, items: BItem[], no
   for (const l of plan.lines) {
     const load = loadOf(s, l.order_item_id);
     expect(load, l.order_item_id).toBeDefined();
-    expect(load!.booked.end + l.carry_ms).toBe(l.eta_ms);
+    const land = load!.booked.end + l.carry_ms;
+    const pickup = s.orders[order_id]!.pickup_at_ms;
+    expect(s.lines[l.order_item_id]!.serve_mode === 'immediate' && pickup !== null ? Math.max(pickup, land) : land).toBe(l.eta_ms);
     expect(s.lines[l.order_item_id]!).toMatchObject({ fire_ms: load!.fire_ms, load_id: load!.load_id, booked: null });
   }
   return { plan, state: s };

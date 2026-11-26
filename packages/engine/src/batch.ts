@@ -21,9 +21,9 @@
 //     (proposed (implementer, overnight) J3: in F's model a new load starts after every reservation, so joining
 //     never lands later; with gap-filling a new load may land earlier, and then it is formed).
 // Among joinable loads the first in start order is taken (F "candidate = first batch b").
-import { occupancy } from './profile.js';
+import { earliestFit, latestFit, occupancy } from './profile.js';
 import type { Booking } from './overload.js';
-import type { EngineLine, EngineState, Load } from './state.js';
+import type { EngineLine, EngineState, Load, Profile } from './state.js';
 
 // BF-1 (G4-3 #5): program_id and stock_program_id are the immutable ItemAdded copies (D25); the current program of
 // a line is derived, never stored.
@@ -115,6 +115,21 @@ const byStart = (a: WorkLoad, b: WorkLoad): number => a.booked.start - b.booked.
 export function syncJoin(loads: readonly WorkLoad[], L: JoinLine, cap: number, E: number, window: number, t: number): WorkLoad | undefined {
   const w = Math.min(window, L.max_early_ms);
   return [...loads].sort(byStart).find((b) => compatible(b, L, cap, t) && b.booked.end <= E && E - b.booked.end <= w);
+}
+
+// PK-3: the earlier compatible round is considered only after a fresh new round cannot fit.
+export function heldBatchFit(profile: Profile, loads: readonly WorkLoad[], line: JoinLine, cap: number, end: number, window: number, t: number) {
+  const shape = asLoad(line, cap);
+  const deadline = end - occupancy(shape.units, cap, shape.cook_ms).cook_ms - shape.prep_ms;
+  const args = [shape.prep_ms, shape.cook_ms, shape.units, cap] as const;
+  const fresh = syncJoin(loads, line, cap, end, window, t);
+  if (fresh !== undefined) return { load: fresh, fire: fresh.fire_ms };
+  const inWindow = latestFit(profile, Math.max(t, deadline - line.max_early_ms), deadline, ...args);
+  if (inWindow !== null) return { fire: inWindow };
+  const earlier = [...loads].sort((a, b) => byStart(b, a)).find(b => b.booked.end <= end && compatible(b, line, cap, t));
+  if (earlier !== undefined) return { load: earlier, fire: earlier.fire_ms };
+  const fire = latestFit(profile, t, deadline, ...args) ?? earliestFit(profile, Math.max(t, deadline), ...args);
+  return { fire };
 }
 
 // Immediate join (J3): the first compatible load in start order that lands no later than `newEnd`.
