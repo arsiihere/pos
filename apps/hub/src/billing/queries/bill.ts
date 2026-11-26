@@ -642,7 +642,7 @@ function billingRule(billing: HubBilling, business_date: string) {
 }
 
 /** The open splits' compute plan (§3.8): no split mode → the one open split; items → their `bill_split_lines`. */
-export function planOf(head: BillHead, openSplits: ReadonlyArray<Pick<SplitRow, 'split_no' | 'plan_json' | 'plan_lines_json'>>): ComputePlan {
+export function planOf(head: Pick<BillHead, 'split_mode'>, openSplits: ReadonlyArray<Pick<SplitRow, 'split_no' | 'plan_json' | 'plan_lines_json'>>): ComputePlan {
   const nos = openSplits.map((s) => s.split_no);
   if (head.split_mode === null) return { mode: 'none', split_no: nos[0]! };
   if (head.split_mode === 'items') {
