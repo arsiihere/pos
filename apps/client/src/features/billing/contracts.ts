@@ -14,6 +14,8 @@ export interface OpenBillRow {
   state: 'projected' | 'open' | 'partly_paid';
   total_default_minor: number;
   paid_minor: number;
+  /** ⚠️ 05 v1.0.35 §6.2 (run 3 R3-B-1, D3): Σ the open splits' balance_minor (each split's total less its own payments) */
+  due_minor: number;
   check_printed_at: number | null;
   opened_at: number;
   open_minutes: number;

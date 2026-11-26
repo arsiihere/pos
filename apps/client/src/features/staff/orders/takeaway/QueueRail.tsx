@@ -67,7 +67,7 @@ const dueReady = (q: QueueToken) => !q.part && !q.paid;
  * the whole rail (no read per tile), only while a Due ready tile is shown and the person holds take-payment (the
  * query's permission), again (debounced) on bill / order / table frames, a reconnect and the page returning. A takeaway
  * row is one per bill_key, its `order_id` the key's root unbilled order, so a token finds its row by any of its orders;
- * owed = the open remainder at the default class less what is paid. Keyed by order id.
+ * owed = the row's due_minor (⚠️ 05 v1.0.35 §6.2, D3: Σ the open splits' balances, never total − paid). Keyed by order id.
  */
 function useDueAmounts(model: QueueModel | null): ReadonlyMap<string, number> {
   const shell = useShell();
@@ -88,7 +88,7 @@ function useDueAmounts(model: QueueModel | null): ReadonlyMap<string, number> {
     }
     if (mine !== request.current || !answer.ok) return;
     const next = new Map<string, number>();
-    for (const b of answer.data.bills) if (b.order_type === 'takeaway' && b.order_id !== null) next.set(b.order_id, Math.max(0, b.total_default_minor - b.paid_minor));
+    for (const b of answer.data.bills) if (b.order_type === 'takeaway' && b.order_id !== null) next.set(b.order_id, Math.max(0, b.due_minor));
     setOwed(next);
   }, []);
   useEffect(() => {

@@ -28,6 +28,7 @@ function row(over: Partial<OpenBillRow> & { identifier: string }): OpenBillRow {
     state: 'open',
     total_default_minor: 100_000,
     paid_minor: 0,
+    due_minor: 100_000,
     check_printed_at: null,
     opened_at: at(13, 0),
     open_minutes: 40,
@@ -41,7 +42,7 @@ function row(over: Partial<OpenBillRow> & { identifier: string }): OpenBillRow {
 // server order (check bill printed first, then opened_at): the client never re-sorts (§6.2)
 const ROWS: OpenBillRow[] = [
   row({ identifier: 'T7', bill_id: 'B7', seating_id: 'S7', check_printed_at: at(13, 32), total_default_minor: 662_400, open_minutes: 46 }),
-  row({ identifier: 'T4 + T5', bill_id: 'B45', seating_id: 'S4', state: 'partly_paid', partly_paid: true, paid_minor: 146_200, total_default_minor: 365_400, open_minutes: 65 }),
+  row({ identifier: 'T4 + T5', bill_id: 'B45', seating_id: 'S4', state: 'partly_paid', partly_paid: true, paid_minor: 146_200, total_default_minor: 365_400, due_minor: 219_000, open_minutes: 65 }),
   row({ identifier: '#12', order_id: 'O12', order_type: 'takeaway', state: 'projected', total_default_minor: 171_000, open_minutes: 18 }),
   row({ identifier: 'PARKING ABC 123 SEDAN', order_id: 'O13', order_type: 'parking', state: 'projected', total_default_minor: 145_000, open_minutes: 22 }),
   row({ identifier: 'Family 2', seating_id: 'S9', state: 'projected', has_open_request: true, total_default_minor: 6_078_400, open_minutes: 72 }),
@@ -138,7 +139,8 @@ describe('[05 §8 Cashier screen; §6.2] open-bills list (task 34)', () => {
     const badges = (r: HTMLElement | undefined) => [...(r?.querySelectorAll('.b5-bd') ?? [])].map((b) => `${b.className.replace('b5-bd ', '')}:${b.textContent}`);
     expect(badges(t7)).toEqual(['c-ok:Check bill printed 1:32 PM']);
     expect(badges(t45)).toEqual(['c-info:Partly paid']);
-    expect(t45?.querySelector('.am .paid')?.textContent).toBe('Paid Rs 1,462.00');
+    // ⚠️ 05 v1.0.35 §6.2 (R3-B-1, D3): what is left is the row's due_minor (Σ open split balances)
+    expect(t45?.querySelector('.am .paid')?.textContent).toBe('Paid Rs 1,462.00 · Left Rs 2,190.00');
     expect(t7?.querySelector('.am .paid')).toBeNull();
     expect(badges(t12)).toEqual([]);
     expect(badges(fam)).toEqual(['c-info:Waiting for approval']);
@@ -146,11 +148,11 @@ describe('[05 §8 Cashier screen; §6.2] open-bills list (task 34)', () => {
   });
 
   it('[row F-6] amounts use the snapshot currency and its exponent, set LTR', async () => {
-    const v = await show(setup({ currency: 'KWD', rows: [row({ identifier: 'T1', total_default_minor: 6_624, paid_minor: 1_000, partly_paid: true })] }));
+    const v = await show(setup({ currency: 'KWD', rows: [row({ identifier: 'T1', total_default_minor: 6_624, paid_minor: 1_000, due_minor: 5_624, partly_paid: true })] }));
     const r = rowsOf(v)[0]!;
     expect(r.querySelector('.am b')?.textContent).toBe('KWD 6.624');
     expect(r.querySelector('.am b')?.getAttribute('dir')).toBe('ltr');
-    expect(r.querySelector('.am .paid')?.textContent).toBe('Paid KWD 1.000');
+    expect(r.querySelector('.am .paid')?.textContent).toBe('Paid KWD 1.000 · Left KWD 5.624');
   });
 
   it('a tap opens the bill by the bill_ref rule (bill_id, else seating_id, else order_id); no handler → rows are not buttons', async () => {

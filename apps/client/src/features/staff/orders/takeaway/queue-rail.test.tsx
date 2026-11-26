@@ -33,8 +33,8 @@ const CAUGHT: CatchUpOrder[] = [
 
 /** 05 §6.2 open-bills rows (a projected takeaway bill per bill_key; its order_id = the key's root unbilled order). */
 const BILLS = [
-  { bill_id: null, seating_id: null, order_id: 'O48', identifier: '#48', order_type: 'takeaway', state: 'projected', total_default_minor: 119_000, paid_minor: 0, check_printed_at: null, opened_at: at(13, 0), open_minutes: 20, flagged: false, partly_paid: false, has_open_request: false },
-  { bill_id: 'B9', seating_id: 'S9', order_id: null, identifier: 'T9', order_type: 'dine_in', state: 'open', total_default_minor: 50_000, paid_minor: 0, check_printed_at: null, opened_at: at(12, 0), open_minutes: 80, flagged: false, partly_paid: false, has_open_request: false },
+  { bill_id: null, seating_id: null, order_id: 'O48', identifier: '#48', order_type: 'takeaway', state: 'projected', total_default_minor: 119_000, paid_minor: 0, due_minor: 119_000, check_printed_at: null, opened_at: at(13, 0), open_minutes: 20, flagged: false, partly_paid: false, has_open_request: false },
+  { bill_id: 'B9', seating_id: 'S9', order_id: null, identifier: 'T9', order_type: 'dine_in', state: 'open', total_default_minor: 50_000, paid_minor: 0, due_minor: 50_000, check_printed_at: null, opened_at: at(12, 0), open_minutes: 80, flagged: false, partly_paid: false, has_open_request: false },
 ];
 
 function setup(o: { rows?: OpenOrder[]; caught?: CatchUpOrder[]; online?: boolean; bills?: unknown[]; takePayment?: boolean } = {}) {
@@ -138,14 +138,15 @@ describe('[02b-TK C2-1] the takeaway queue rail', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const s = setup();
     const v = await show(s);
-    s.setBills([{ ...BILLS[0]!, state: 'partly_paid', partly_paid: true, paid_minor: 19_000 }]);
+    // ⚠️ 05 v1.0.35 §6.2 (R3-B-1, D3): the tile shows due_minor (Σ open split balances), not total − paid
+    s.setBills([{ ...BILLS[0]!, state: 'partly_paid', partly_paid: true, paid_minor: 19_000, due_minor: 99_500 }]);
     act(() => s.live.frame(ev(2, 'PaymentAdded', { bill_id: 'B48' })));
     act(() => s.live.frame(ev(3, 'PaymentAdded', { bill_id: 'B48' })));
     await act(async () => {
       vi.advanceTimersByTime(300);
     });
     await flush();
-    expect(tiles(v)[0]!.querySelector('.tk-rt__who .money')!.textContent).toBe('Rs 1,000');
+    expect(tiles(v)[0]!.querySelector('.tk-rt__who .money')!.textContent).toBe('Rs 995');
     expect(s.query.mock.calls.filter((c) => c[0] === '/queries/open-bills')).toHaveLength(2);
   });
 
