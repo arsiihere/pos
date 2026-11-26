@@ -25,7 +25,9 @@ export type SimStation = {
   freshness_window_ms: number | null;
 };
 
-export type SimLine = { order_item_id: string; station_id: string };
+// ⚠️ 03a v1.2.11 §10.6 (M-6): the pickup day's drinks are immediate lines with their own cook (a ready drink, cook 0,
+// is_ready_item; a 1-min shake). Every other sim line is a sync line at its station's cook.
+export type SimLine = { order_item_id: string; station_id: string; drink?: 'ready' | 'shake' };
 
 export type SimOrder = {
   order_id: string;
@@ -49,6 +51,10 @@ export type GenerateOptions = {
   start_ms?: number;
   // Prepended to order and line ids, so the days of one log never share an id (twoDayLog).
   id_prefix?: string;
+  // ⚠️ 03a v1.2.11 §10.6 (M-6, R2-m-8; test 194): the pickup day. A one-unit drinks counter (slot, Waada Guard) is added;
+  // 30 % of the takeaway orders carry pickup_at_ms uniformly 30–240 min after `at` and one to three drinks (a ready
+  // drink or a 1-min shake); every other order carries pickup_at_ms null.
+  pickup_day?: boolean;
 };
 
 // §10.6's stations and cooks, capacities by AD-27 (01a's range 1–100, none above §10.6's value). Karahi, BBQ and tawa keep
@@ -155,6 +161,30 @@ export function demandPeakPct(day: SimDay): Record<string, number> {
   return Object.fromEntries(day.stations.map((s) => [s.station_id, (100 * peakHourUnits(day.orders, day.start_ms, s.station_id) * s.cook_ms) / (s.capacity * HOUR)]));
 }
 
+export const DRINKS_STATION = 'drinks';
+export const SHAKE_COOK_MS = 60 * SECOND;
+const PICKUP_SHARE = 0.3;
+const PICKUP_MIN_MS = 30 * 60 * SECOND;
+const PICKUP_MAX_MS = 240 * 60 * SECOND;
+
+// The pickup day (§10.6, M-6) from a normal day: its own PRNG stream, so the normal day's draws stay as they are.
+function withPickups(day: SimDay, seed: number, prefix: string): SimDay {
+  const r = prng(seed ^ 0x3c6ef372);
+  let nextLine = 1;
+  const orders = day.orders.map((o): SimOrder => {
+    if (o.order_type !== 'takeaway' || r() >= PICKUP_SHARE) return { ...o, pickup_at_ms: null };
+    const pickup = o.at_ms + PICKUP_MIN_MS + Math.round((r() * (PICKUP_MAX_MS - PICKUP_MIN_MS)) / SECOND) * SECOND;
+    const drinks = Array.from({ length: 1 + Math.floor(r() * 3) }, (): SimLine => ({
+      order_item_id: `${prefix}D${String(nextLine++).padStart(7, '0')}`,
+      station_id: DRINKS_STATION,
+      drink: r() < 0.5 ? 'ready' : 'shake',
+    }));
+    return { ...o, pickup_at_ms: pickup, lines: [...o.lines, ...drinks] };
+  });
+  const drinks: SimStation = { station_id: DRINKS_STATION, type: 'slot', capacity: 1, cook_ms: SHAKE_COOK_MS, freshness_window_ms: null };
+  return { ...day, stations: [...day.stations, drinks], orders };
+}
+
 function pickupAt(at_ms: number, station_ids: readonly string[], cookOf: ReadonlyMap<string, number>): number {
   // Proposed (implementer, overnight): §10.6 "target = max cook + 300 s" is the drill's target for every order. The
   // engine's only input for a target later than its loop result is pickup_at_ms (§3.5.1 step 4: T = max(pickup, loop
@@ -232,5 +262,6 @@ export function generateDay(seed: number, o: GenerateOptions = {}): SimDay {
     return orderOf(kinds, `${prefix}O${String(i + 1).padStart(6, '0')}`, start_ms + offset, lines, cookOf);
   });
   const day: SimDay = { seed, start_ms, stations: list, orders };
-  return o.overload === true ? withOverload(day, seed, prefix, cookOf) : day;
+  const shaped = o.overload === true ? withOverload(day, seed, prefix, cookOf) : day;
+  return o.pickup_day === true ? withPickups(shaped, seed, prefix) : shaped;
 }

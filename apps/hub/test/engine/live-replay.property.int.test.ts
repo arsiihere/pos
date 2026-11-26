@@ -16,12 +16,15 @@
 // max delay (5 min; "No limit" on the tawa), so the real fires_alerts_priority tick writes LinePrioritized under load,
 // beside the batch stations' one-unit lines in their rounds and the capacity drop; the boots compare the priority
 // groups (priority_land_ms, priority_delay_ms, priority_due) with the rest of the state (priority_parked is host memory).
+// ⚠️ 03a v1.2.11 §10.3h test 189 (PK-11, m-13): the slice is cut from the §10.6 pickup day: pickup orders (takeaway,
+// 30–240 min ahead) carry held drinks on a one-unit counter and every other order carries no pickup (R2-m-8). The
+// recount waits for a hidden reserved line (§3.7 releases hidden lines only).
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { initialEngineState, nextAlertDueAt, nextDueAt, openDayStartMs, type Diagnostic, type EngineState } from '@pos/engine';
-import { generateDay, type SimOrder, type SimStation } from '@pos/engine/sim';
+import { DRINKS_STATION, generateDay, type SimLine, type SimOrder, type SimStation } from '@pos/engine/sim';
 import type { BranchConfig, ConfigItem, ConfigStation, ConfigStockItem, DirectoryInput, PosEvent } from '@pos/events';
 import { parseEvent } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
@@ -107,7 +110,7 @@ function branchConfigOf(stations: readonly SimStation[]): BranchConfig {
 }
 
 // The ItemAdded copy of a line's item (D25), as 02 copies it from branchConfig().
-function itemOf(s: SimStation): Record<string, unknown> {
+function itemOf(s: SimStation, drink?: SimLine['drink']): Record<string, unknown> {
   return {
     station_id: s.station_id,
     item_id: s.station_id,
@@ -117,6 +120,8 @@ function itemOf(s: SimStation): Record<string, unknown> {
     max_delay_ms: s.station_id === STOCK_STATION ? null : 5 * MIN,
     ...(s.type === 'batch' ? { program_id: `${s.station_id}-p`, program_cook_time_ms: s.cook_ms } : {}),
     ...(s.station_id === STOCK_STATION ? { stock_time_ms: STOCK_COOK_MS, stock_draws: [{ stock_item_id: STOCK, quantity: 1 }], out_of_stock_behaviour: 'cook_fresh' } : {}),
+    // ⚠️ 03a v1.2.11 §10.6 (M-6): the pickup day's drinks are immediate lines (a ready drink has cook 0).
+    ...(drink === undefined ? {} : { serve_mode: 'immediate', ...(drink === 'ready' ? { cook_time_ms: 0, is_ready_item: true } : {}) }),
   };
 }
 
@@ -133,6 +138,8 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
   const slipSeeds = new Map<number, number>();
   // ⚠️ STAB-7: LinePrioritized per seed, asserted across all seeds in afterAll.
   const prioritySeeds = new Map<number, number>();
+  // ⚠️ 03a v1.2.11 test 189: pickup orders submitted per seed, asserted across all seeds in afterAll.
+  const pickupSeeds = new Map<number, number>();
 
   beforeAll(async () => {
     directory = await aDirectory();
@@ -144,6 +151,8 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
     // 45 of the 50 seeds raise a slip today (seeds 27, 32, 37, 42 and 50 do not); at least 40 must.
     if (slipSeeds.size === SEEDS.length) expect([...slipSeeds.values()].filter((n) => n > 0).length).toBeGreaterThanOrEqual(40);
     if (prioritySeeds.size === SEEDS.length) expect([...prioritySeeds.values()].filter((n) => n > 0).length, 'seeds with a LinePrioritized').toBeGreaterThanOrEqual(PRIORITY_SEEDS_MIN);
+    // Every seed's slice holds 3–13 pickup orders today (2026-11-26); each must hold one.
+    if (pickupSeeds.size === SEEDS.length) expect(Math.min(...pickupSeeds.values()), 'pickup orders per seed').toBeGreaterThanOrEqual(1);
   });
 
   afterEach(async () => {
@@ -160,7 +169,9 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
   });
 
   it.each(SEEDS)('[03a #59] seed %i: live = replay from seq 0, from a snapshot and from the checkpoint; no breach logged', async (seed) => {
-    const day = generateDay(seed);
+    // ⚠️ 03a v1.2.11 §10.3h test 189 (PK-11, m-13): the slice is cut from the §10.6 pickup day, so pickup orders with
+    // held drinks on the one-unit counter run through every disturbance (a boost may take one of them).
+    const day = generateDay(seed, { pickup_day: true });
     const stations = new Map(day.stations.map((s) => [s.station_id, s]));
     const config = branchConfigOf(day.stations);
     const from = day.orders.findIndex((o) => o.at_ms >= day.start_ms + 12 * HOUR + (seed % 7) * 10 * MIN);
@@ -251,7 +262,7 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
         order_id: o.order_id,
         actor_id: 'S_CASH',
         order: { order_type: o.order_type, table_id: o.table_id, table_key: o.table_key, follow_up: o.follow_up, pickup_at_ms: o.pickup_at_ms === null ? null : o.pickup_at_ms + shift },
-        lines: o.lines.map((l) => ({ order_item_id: l.order_item_id, station_id: l.station_id, item: itemOf(stations.get(l.station_id)!) })),
+        lines: o.lines.map((l) => ({ order_item_id: l.order_item_id, station_id: l.station_id, item: itemOf(stations.get(l.station_id)!, l.drink) })),
       };
       const out = fakeSubmitOrRefuse(h.deps, fake, { dayStartMs: openDayStartMs(engine()) ?? 0, stockItems: config.stock_items as ConfigStockItem[] });
       expect(out.refused).toEqual([]);
@@ -289,13 +300,21 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
     // -------------------------------------------------------------------------------------------- the disturbances
     const done = new Set<Disturbance>();
     const unfiredOf = (state: EngineState) => Object.values(state.lines).filter((l) => l.stage === 'added' && l.fired_at === null);
-    const capacityStation = day.stations[seed % day.stations.length]!;
+    // The kitchen stations only: the one-unit drinks counter has no capacity to take away.
+    const kitchenStations = day.stations.filter((s) => s.station_id !== DRINKS_STATION);
+    const capacityStation = kitchenStations[seed % kitchenStations.length]!;
     const tryDisturb = async (submitted: number): Promise<void> => {
       if (submitted % CHECK_EVERY === 0) await boots(`part A order ${submitted}`, false);
       const state = engine();
       if (!done.has('recount') && submitted >= 8) {
         const reserved = state.stock[STOCK]?.reserved ?? 0;
-        if (reserved >= 1) {
+        // §3.7: a recount releases hidden lines only. On the pickup day an order without pickup plans to its loop result
+        // (R2-m-8), so the recount waits for a reserved line that is still hidden (its fire after now + freeze).
+        const t = now();
+        const hidden = Object.values(state.lines).some(
+          (l) => l.reserved_seq !== null && l.stage === 'added' && l.fired_at === null && l.fire_ms !== null && l.fire_ms > t + (state.config?.stations.find((c) => c.station_id === l.station_id)?.freeze_ms ?? 0),
+        );
+        if (reserved >= 1 && hidden) {
           await adminCommand('set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: STOCK, on_hand: reserved - 1 }] });
           done.add('recount');
           await boots('recount', false);
@@ -452,7 +471,11 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
     // -------------------------------------------------------------------------------------------------- the boots
     const live = withoutDiagnostics(engine());
     expect(Object.values(live.lines).some((l) => !TERMINAL.has(l.stage))).toBe(true);
-    expect(await boots('end', true)).toEqual({ snapshot: true, checkpoint: true });
+    const end = await boots('end', true);
+    expect(end.checkpoint).toBe(true);
+    // The boot from the newest snapshot deep-equals live; that snapshot is behind the log's end, or exactly at it when
+    // the last commit crossed a multiple of 500 events (seed 41 of the pickup day).
+    expect(end.snapshot || loadEngineBase(h.deps.db, BRANCH, skip).snapshot_seq === h.deps.writer.lastSeq()).toBe(true);
 
     // Each disturbance really happened: its events are in the log (review, task 27).
     const counts = Object.fromEntries(
@@ -465,6 +488,7 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
     expect(releases).toEqual(expect.arrayContaining(['recount', 'day_closed']));
     if (seed % 2 === 1) expect(counts.ItemReturned ?? 0, 'ItemReturned').toBe(1);
     slipSeeds.set(seed, counts.SlipWarned ?? 0);
+    pickupSeeds.set(seed, h.deps.db.prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'OrderPlaced' AND json_extract(payload, '$.pickup_at_ms') IS NOT NULL AND stream_id NOT LIKE 'KEPT%'`).pluck().get() as number);
     prioritySeeds.set(seed, counts.LinePrioritized ?? 0);
 
     // No breach: not in the replays, not in the live log (AD-6, §7.2), and no tick failed.

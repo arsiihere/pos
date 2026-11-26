@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { parseEvent, type PosEvent } from '@pos/events';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { buildEngineState } from '../../src/index';
-import { demandPeakPct, generateDay, LINE_RATES, peakHourUnits, policyReport, runDay, TICK_MS, twoDayLog, type PolicyReport, type SimOrder, type SimResult } from './index';
+import { demandPeakPct, DRINKS_STATION, generateDay, LINE_RATES, peakHourUnits, policyReport, runDay, SHAKE_COOK_MS, TICK_MS, twoDayLog, type PolicyReport, type SimOrder, type SimResult } from './index';
 
 const POLICIES = ['fifo', 'edf', 'waada_guard'] as const;
 const count = (events: readonly PosEvent[], type: string): number => events.filter((e) => e.event_type === type).length;
@@ -309,6 +309,69 @@ describe('[03a §10.6 harness] a day on the real engine', () => {
     expect(count(two.events, 'OrderPlaced')).toBe(60);
     expect(buildEngineState(two.events)).toEqual(two.liveState);
     expect(Object.keys(two.liveState.orders)).toEqual([]);
+  }, 120_000);
+});
+
+describe('[03a v1.2.11 §10.6 harness] the pickup day (M-6, R2-m-8; test 194 runs it in test:perf only)', () => {
+  const MIN = 60_000;
+  const normal = generateDay(7, { orders: 300 });
+  const day = generateDay(7, { orders: 300, pickup_day: true });
+
+  it('[03a §10.6 M-6] 30 % of the takeaway orders carry a pickup 30–240 min ahead and 1–3 drinks on the one-unit counter; every other order carries null', () => {
+    expect(day.stations.map((s) => s.station_id)).toEqual([...normal.stations.map((s) => s.station_id), DRINKS_STATION]);
+    expect(day.stations.find((s) => s.station_id === DRINKS_STATION)).toEqual({ station_id: DRINKS_STATION, type: 'slot', capacity: 1, cook_ms: SHAKE_COOK_MS, freshness_window_ms: null });
+    expect(day.orders.map((o) => o.order_id)).toEqual(normal.orders.map((o) => o.order_id));
+    const pickup = day.orders.filter((o) => o.pickup_at_ms !== null);
+    const takeaway = day.orders.filter((o) => o.order_type === 'takeaway');
+    expect(pickup.length / takeaway.length).toBeGreaterThan(0.2);
+    expect(pickup.length / takeaway.length).toBeLessThan(0.4);
+    day.orders.forEach((o, i) => {
+      const food = normal.orders[i]!.lines;
+      const drinks = o.lines.slice(food.length);
+      expect(o.lines.slice(0, food.length)).toEqual(food);
+      if (o.pickup_at_ms === null) {
+        expect(drinks).toEqual([]);
+        return;
+      }
+      expect(o.order_type).toBe('takeaway');
+      expect(o.pickup_at_ms - o.at_ms).toBeGreaterThanOrEqual(30 * MIN);
+      expect(o.pickup_at_ms - o.at_ms).toBeLessThanOrEqual(240 * MIN);
+      expect(drinks.length).toBeGreaterThanOrEqual(1);
+      expect(drinks.length).toBeLessThanOrEqual(3);
+      for (const d of drinks) expect(d.station_id).toBe(DRINKS_STATION);
+    });
+    const kinds = new Set(pickup.flatMap((o) => o.lines.flatMap((l) => (l.drink === undefined ? [] : [l.drink]))));
+    expect([...kinds].sort()).toEqual(['ready', 'shake']);
+  });
+
+  it('[03a §10.6 M-6, PK-1] runDay on a pickup-day slice: the drinks are held lines landing by their pickup when the counter can, replay = live, no breach', () => {
+    const slice = { ...day, orders: day.orders.slice(0, 120) };
+    const run = runDay(slice);
+    expect(buildEngineState(run.events)).toEqual(run.liveState);
+    expect(policyReport(run).breaches).toBe(0);
+    const placed = run.events.filter((e) => e.event_type === 'OrderPlaced');
+    const pickups = placed.filter((e) => (e.payload as { pickup_at_ms: number | null }).pickup_at_ms !== null);
+    expect(pickups.length).toBeGreaterThan(0);
+    const added = run.events.filter((e) => e.event_type === 'ItemAdded' && (e.payload as { station_id: string }).station_id === DRINKS_STATION);
+    expect(added.length).toBeGreaterThan(0);
+    for (const e of added) expect((e.payload as { serve_mode: string }).serve_mode).toBe('immediate');
+    // Each drink is placed toward its pickup (PK-1, PK-2), never at once: its fire's lead on d_p (= pickup − cook, carry 0,
+    // prep 0) is at most max_early_ms (60 s) for nearly all, and a little more where the one-unit counter chains a drink
+    // early rather than late (178 (c), 185 (b)); none fires 10 min before d_p (every pickup is ≥ 30 min ahead).
+    const pickupOf = new Map(pickups.map((e) => [e.stream_id, (e.payload as { pickup_at_ms: number }).pickup_at_ms]));
+    const cookOf = new Map(added.map((e) => [(e.payload as { order_item_id: string }).order_item_id, (e.payload as { cook_time_ms: number }).cook_time_ms]));
+    const orderOf = new Map(added.map((e) => [(e.payload as { order_item_id: string }).order_item_id, e.stream_id]));
+    let fired = 0;
+    const leads: number[] = [];
+    for (const e of run.events.filter((x) => x.event_type === 'FireDispatched' && (x.payload as { station_id: string }).station_id === DRINKS_STATION)) {
+      for (const id of (e.payload as { order_item_ids: string[] }).order_item_ids) {
+        fired++;
+        leads.push(pickupOf.get(orderOf.get(id)!)! - cookOf.get(id)! - e.recorded_at);
+      }
+    }
+    expect(fired).toBe(added.length);
+    expect(Math.max(...leads)).toBeLessThan(10 * MIN);
+    expect(leads.filter((ms) => ms <= MIN).length / leads.length).toBeGreaterThanOrEqual(0.9);
   }, 120_000);
 });
 
