@@ -5,7 +5,8 @@ import { z } from 'zod';
 import { endSession, type SessionRow } from '../auth/session-store.js';
 import type { HubDeps } from '../server.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
-import { wsHubFor } from '../ws/server.js';
+import { alertsPartForSession } from '../alerts/catch-up.js';
+import { wsHubFor, type AlertModeFrame } from '../ws/server.js';
 import { defineCommand, type CommandCtx } from './registry.js';
 import { commandRegistry } from './route.js';
 
@@ -62,11 +63,39 @@ export function registerSetDeviceProfile(app: FastifyInstance, deps: HubDeps): v
   // Step 6, after the commit: the `deviceProfile` map refresh (server.ts, registered before this hook) has run, so the
   // push reads the new profile; the SessionEnded events of the same commit close their sockets 4401 at publish.
   deps.writer.addAfterCommit((appended) => {
+    // sessions this commit ended: their sockets close at publish, so they get no refreshed alert part
+    const ended = new Set(appended.filter((e) => e.event_type === 'SessionEnded').map((e) => String(e.payload.session_id)));
     for (const event of appended) {
       if (event.event_type !== 'DeviceProfileSet') continue;
       const p = event.payload as DeviceProfileSetPayload;
       if (p.cause !== 'edited') continue;
-      wsHubFor(app).sendToDevices([p.device_id], { type: 'device_profile', screens: p.screens, access: p.access, point_id: p.point_id });
+      const ws = wsHubFor(app);
+      const frame = { type: 'device_profile', screens: p.screens, access: p.access, point_id: p.point_id } as const;
+      // ⚠️ 01d v1.3.7 §6 batch 3 (run 3 R3-M-2): a surviving staff session of the device gets its complete `alerts`
+      // catch-up part with the push (the same builder and card predicate as a reconnect, against the refreshed map);
+      // every other socket of the device gets the plain push, as before.
+      const sockets = ws.connectedSessions().filter((s) => s.deviceId === p.device_id);
+      const staff = sockets.filter((s) => s.kind === 'staff' && s.staffId !== null && !ended.has(s.sessionId));
+      const deviceType = staff.length === 0 ? null : (deps.db.prepare('SELECT device_type FROM devices WHERE device_id = ?').get(p.device_id) as { device_type: DeviceType } | undefined)?.device_type;
+      if (staff.length === 0 || deviceType === undefined || deviceType === null) {
+        ws.sendToDevices([p.device_id], frame);
+        continue;
+      }
+      for (const s of staff) {
+        let alerts: ReturnType<typeof alertsPartForSession>;
+        try {
+          alerts = alertsPartForSession(app, deps.db, deps.state.get(), { deviceId: p.device_id, deviceType, sessionId: s.sessionId, staffId: s.staffId });
+        } catch (err) {
+          // after commit: never throw past the hook (publish follows); the builder's error carries name and code only
+          app.log.error({ err, device_id: p.device_id }, 'device_profile: alerts refresh failed');
+          alerts = undefined;
+        }
+        ws.sendToSessions([s.sessionId], alerts === undefined ? frame : { ...frame, alerts });
+      }
+      const others = sockets.filter((s) => !staff.includes(s)).map((s) => s.sessionId);
+      if (others.length > 0) ws.sendToSessions(others, frame);
+      // the alert-mode socket of the device got the push through sendToDevices before; keep it
+      if (ws.alertSockets().some((a) => a.deviceId === p.device_id)) ws.sendToAlertMode([p.device_id], frame as unknown as AlertModeFrame);
     }
   });
   commandRegistry(app).register(

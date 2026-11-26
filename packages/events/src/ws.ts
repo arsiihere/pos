@@ -1,6 +1,6 @@
 import { SCREEN_KEYS } from '@pos/domain';
 import { z } from 'zod';
-import { AlertCloseReasonSchema, AlertsCatchUpRow, AlertViewSchema, RequestDecisionSchema } from './alerts.js';
+import { AlertCloseReasonSchema, AlertsCatchUpPart, AlertsCatchUpRow, AlertViewSchema, RequestDecisionSchema } from './alerts.js';
 
 const Id = z.string().min(1);
 
@@ -202,6 +202,9 @@ export const WsDeviceProfile = z.object({
   screens: z.array(z.enum(SCREEN_KEYS)),
   access: z.enum(['everyone', 'listed']),
   point_id: Id.nullable(),
+  // ⚠️ 01d v1.3.7 §6 batch 3 (run 3 R3-M-2): on a staff-session socket only, the session's complete `alerts` catch-up
+  // part against the refreshed profile (counter cards become locks, or back); absent on every other socket.
+  alerts: AlertsCatchUpPart.optional(),
 });
 export type WsDeviceProfile = z.infer<typeof WsDeviceProfile>;
 

@@ -22,9 +22,9 @@ import type Database from 'better-sqlite3';
 import { z, ZodError } from 'zod';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { ConnectedSession, WsHub } from '../ws/server.js';
-import { kindOf, REQUEST_RESULT, safeLink, type AlertKind } from './kinds.js';
+import { counterScreenKey, kindOf, REQUEST_RESULT, safeLink, type AlertKind } from './kinds.js';
 import { registeredRoutes } from './routes.js';
-import { isListedDevice, listedDevicesOnly, mayAnswer, type AlertRequestPart } from './targets.js';
+import { isListedDevice, listedDevicesOnly, mayAnswer, showsScreen, type AlertRequestPart } from './targets.js';
 import { cachedPrepare } from './statements.js';
 
 // 01d §6 batch 3 / §3.6 / §3.12: the alert frames (`alert`, `alert_closed`, `alert_seen`), sent from the
@@ -169,7 +169,8 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
         const request = row.request_json === null ? null : (JSON.parse(row.request_json) as AlertRequestPart);
         const canAnswer = (staffId: string): boolean =>
           request !== null && mayAnswer(dir(), request, row.requester_staff_id, staffId).ok;
-        send(ws, planStep(row, payload.recipients, payload.routes, views, sessions, alertDevices, request !== null, canAnswer, listedDevicesOnly(kind)));
+        const counter = (deviceId: string): boolean => counterRow(kind, row.values_json, deviceId);
+        send(ws, planStep(row, payload.recipients, payload.routes, views, sessions, alertDevices, request !== null, canAnswer, listedDevicesOnly(kind), counter));
         sendRoutes(row, kind, payload, views);
       }, { alert_id: row.alert_id, kind: row.kind, step: payload.step });
     }
@@ -446,6 +447,27 @@ export function cardRule(v: CardViewer): boolean {
   return v.for_staff_id === null && v.set !== 'informed';
 }
 
+/**
+ * 01d v1.3.7 §3.5 (hostile run 1 B-3): a device row of an alert is a **counter row** iff the kind sets `counter_card`,
+ * the alert's stored `values[<screen_from_value>]` is set, and the device's CURRENT 05a profile shows that screen
+ * (memory). Derived, never stored: frames, the `alerts` catch-up and `alerts-inbox` compute the same answer at 0
+ * statements. The caller passes only devices that have a row of the alert. (The board guard, 05a D-5, is N-3.)
+ */
+export function counterRow(kind: Pick<AlertKind, 'counter_card' | 'steps'>, valuesJson: string, deviceId: string): boolean {
+  if (kind.counter_card !== true) return false;
+  const key = counterScreenKey(kind);
+  if (key === null) return false;
+  let values: unknown;
+  try {
+    values = JSON.parse(valuesJson);
+  } catch {
+    return false;
+  }
+  if (values === null || typeof values !== 'object') return false;
+  const screen = (values as Record<string, unknown>)[key];
+  return typeof screen === 'string' && showsScreen(deviceId, screen);
+}
+
 /** §3.12: lock = the lock-safe display parameters with the kind's lock key; card adds the card key and details. */
 function stepViews(row: StepAlertRow, kind: AlertKind, step: number, escalation: boolean): StepViews {
   return {
@@ -483,6 +505,7 @@ function planStep(
   request: boolean,
   canAnswer: (staffId: string) => boolean,
   listedOnly: boolean,
+  counter: (deviceId: string) => boolean = () => false,
 ): Batch[] {
   const hidden = hiddenOf(row);
   const deviceTarget = new Set<string>();
@@ -504,10 +527,15 @@ function planStep(
     if (r.device_id === null) continue;
     const deviceId = r.device_id;
     const frame = (): WsServerMessage => views.lock(r.set, null);
+    // 01d v1.3.7 §6 batch 3 (Q-37a): a counter row's signed-in staff sockets get the card (AD-75 / AD-162 not applied);
+    // its alert-mode socket and station sockets keep lock
+    let isCounter: boolean | undefined;
+    const counterCard = (): WsServerMessage => views.card(r.set, null);
     for (const s of sessions) {
       if (s.deviceId !== deviceId || hidden.session(s)) continue;
       deviceTarget.add(`s:${s.sessionId}`);
-      claim(`s:${s.sessionId}`, null, frame, { session: s.sessionId });
+      const card = s.kind === 'staff' && s.staffId !== null && (isCounter ??= counter(deviceId));
+      claim(`s:${s.sessionId}`, null, card ? counterCard : frame, { session: s.sessionId });
     }
     if (alertDevices.has(deviceId) && !hidden.device(deviceId)) {
       deviceTarget.add(`a:${deviceId}`);

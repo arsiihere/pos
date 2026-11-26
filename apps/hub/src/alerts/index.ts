@@ -10,7 +10,7 @@ import { registerSendTestAlert } from './commands/send-test-alert.js';
 import { registerSetPresence } from './commands/set-presence.js';
 import { registerWithdrawRequest } from './commands/withdraw-request.js';
 import { createAlertSockets } from './alert-sockets.js';
-import { createAlertsCatchUp } from './catch-up.js';
+import { bindAlertsCatchUp, createAlertsCatchUp } from './catch-up.js';
 import { registerAlertReceipts } from './queries/alert-receipts.js';
 import { registerAlertsInbox } from './queries/alerts-inbox.js';
 import { registerMyRequests } from './queries/my-requests.js';
@@ -63,13 +63,14 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   // §6 batch 3 / H-7 (task 34): the `alerts` catch-up part of session sockets (rows it lists are "sent" for the
   // receipt check); removed when this server closes, like 00's restaurant parts. BF-4 (task 35): the branch id
   // dates an earlier day's row from the hub stream's BusinessDayOpened
-  const stopCatchUp = registerCatchUp(
-    createAlertsCatchUp({
-      directory: () => currentDirectory(app),
-      recordSent: (deviceId, alertId) => receipts.recordSent(deviceId, alertId),
-      branchId,
-    }),
-  );
+  const alertsPart = createAlertsCatchUp({
+    directory: () => currentDirectory(app),
+    recordSent: (deviceId, alertId) => receipts.recordSent(deviceId, alertId),
+    branchId,
+  });
+  const stopCatchUp = registerCatchUp(alertsPart);
+  // 01d v1.3.7 R3-M-2: the same builder refreshes a surviving staff session's alert views after a profile edit
+  bindAlertsCatchUp(app, alertsPart);
   // §6.7 (task 34): GET /queries/alerts-inbox (registerQueryRoutes ran before)
   registerAlertsInbox(app);
   // §6.8, §6.9 (task 35): GET /queries/my-requests, GET /queries/requests-to-answer

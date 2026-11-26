@@ -231,7 +231,8 @@ describe('[05a §6.4] SetDeviceProfile', () => {
     const ws = await socketOf(mgr);
     const r = await edit(editor, { device_id: t.deviceId, expected_version: 1, screens: ['pass', 'dine_in'], point_id: 'P1' });
     expect(r.status, JSON.stringify(r.error)).toBe(200);
-    expect(await frame(ws, 'device_profile')).toEqual({ type: 'device_profile', screens: ['pass', 'dine_in'], access: 'listed', point_id: 'P1' });
+    // 01d v1.3.7 R3-M-2: a surviving staff session also gets its refreshed `alerts` part (none open here)
+    expect(await frame(ws, 'device_profile')).toEqual({ type: 'device_profile', screens: ['pass', 'dine_in'], access: 'listed', point_id: 'P1', alerts: { alerts: [] } });
     expect(session(mgr.sessionId).ended_at).toBeNull();
     expect(sessionEnded()).toEqual([]);
   });
