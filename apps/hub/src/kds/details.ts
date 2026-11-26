@@ -186,6 +186,8 @@ export function buildLineDetails(db: Database.Database, state: EngineState, orde
       placed_by_name: r.placed_by_name,
       // 03b v1.0.11 §4.4 (STAB-5): the screens and tickets group a split line's parts by it
       part_of: r.part_of,
+      // ⚠️ 03b v1.0.16 §3.10 D7 (R3-M-1): the engine's recorded move source, live and on catch-up (memory)
+      ...(line.from_point_name === null ? {} : { moved_from: line.from_point_name }),
     });
   }
   return out;
