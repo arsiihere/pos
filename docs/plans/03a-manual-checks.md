@@ -17,9 +17,9 @@ Why: v1.2.11 bumps `ENGINE_STATE_VERSION` 5 → 6 (the meaning of the folds chan
 1. [ ] The day is closed (Close business day on the staff app or `/admin/stock`), and no order is still in the kitchen (every line served, or more than 30 min since the last serve).
 2. [ ] The day-close checkpoint is written: on the mini PC, `sqlite3 <data_dir>/hub.sqlite "SELECT last_seq, datetime(taken_at / 1000, 'unixepoch', 'localtime') FROM engine_checkpoints ORDER BY last_seq DESC LIMIT 1"` (`data_dir` in `/etc/pos-hub/config.json`) shows a row taken **after** the close. If there is no such row, wait (an order kept over the close defers it, §3.12) and check again; do not install yet.
 3. [ ] `sudo systemctl stop hub`, install the build (check out the commit in `/opt/pos-hub`, ship the client), `sudo systemctl start hub`.
-4. [ ] The boot log (`journalctl -u hub -b`) has `engine boot` lines for steps 2 and 3 with `snapshot_seq: null` and `checkpoint_seq` = the row of step 2, and no `unreadable row skipped` warning for `engine_checkpoints`.
+4. [ ] The boot log (`journalctl -u hub -b`) has one `engine boot: unreadable row skipped` warning per v5 snapshot with `table: engine_snapshots`, `reason: engine_version`, `found: 5` (expected), none for `engine_checkpoints`, and `engine boot` lines for steps 2 and 3 with `snapshot_seq: null` and `checkpoint_seq` = the row of step 2.
 5. [ ] `http://<hub>/health` answers; open the next business day; a test order goes through to the KDS and back (Start, Done, Served).
-6. [ ] After about 500 events (or at the next restart) `SELECT engine_version FROM engine_snapshots` shows `6` only.
+6. [ ] Shortly after startup (a boot that loaded no v6 snapshot writes a fresh one, §3.12) `SELECT engine_version FROM engine_snapshots` shows `6` only.
 
 Notes:
 
