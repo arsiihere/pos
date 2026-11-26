@@ -156,6 +156,7 @@ describe('[02b §4.2] contracts', () => {
       parking?: { car_number: string; car_type: 'sedan' | 'mini' | 'large'; phone?: string };
       order_note?: string;
       serve_mode?: 'sync' | 'immediate'; // 02b v1.0.21
+      pickup_at_ms?: number | null; // ⚠️ 02b v1.0.25 §3.2 step 2b (R4, G-2)
       lines: Array<{
         order_item_id: string;
         item_id?: string;

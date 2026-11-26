@@ -55,7 +55,8 @@ function checkIds(input: SubmitInput): void {
 
 // §3.1: the order's engine identity. dine_in: the seating; takeaway: the order; parking: car_number_norm.
 function orderOf(input: SubmitInput, ctx: BuildSubmitCtx): ProposedOrder['order'] {
-  const base = { order_type: input.order_type, follow_up: false, pickup_at_ms: null };
+  // ⚠️ 02b v1.0.25 §3.1 Pickup time (R4, G-2): a takeaway's checked pickup (§3.2 step 2b); never another type's
+  const base = { order_type: input.order_type, follow_up: false, pickup_at_ms: input.order_type === 'takeaway' ? (input.pickup_at_ms ?? null) : null };
   switch (input.order_type) {
     case 'dine_in':
       if (input.seating_id === undefined) invalid('seating_id', 'dine_in needs seating_id');
