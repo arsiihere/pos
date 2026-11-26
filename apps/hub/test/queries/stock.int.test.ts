@@ -555,7 +555,9 @@ describe('GET /admin/queries/stock (§6.19)', () => {
       category_windows: [window],
     });
     expect(row(data.items_meta, 'I1')).toMatchObject({ is_stock_tracked: true, item_windows: [] });
-    expect(data.hub_time).toEqual({ now_ms: at(25, 6), utc_offset_ms: -new Date(at(25, 6)).getTimezoneOffset() * 60_000 });
+    // `0 -` as lib/hub-time.ts does: a unary minus on a 0 offset (UTC, or London in winter) gives -0, which toEqual
+    // tells apart from the hub's 0
+    expect(data.hub_time).toEqual({ now_ms: at(25, 6), utc_offset_ms: 0 - new Date(at(25, 6)).getTimezoneOffset() * 60_000 });
     expect(data).not.toHaveProperty('in_window');
   });
 
