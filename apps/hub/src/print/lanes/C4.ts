@@ -5,6 +5,7 @@ import { registerPrintConfigQuery } from '../../queries/print-config.js';
 import { registerPrintQueueQuery } from '../../queries/print-queue.js';
 import { registerPrintCatchUp } from '../../ws/print-catch-up.js';
 import { printDocument } from '../api.js';
+import { registerPrintTakeawaySlip } from '../commands/print-takeaway-slip.js';
 import { providePrint } from '../contracts.js';
 import { registerPrintRoutes } from '../routes.js';
 
@@ -18,6 +19,7 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   registerPrintRoutes(app, deps); // c19, §6.4 / §6.5: POST /admin/print/test, /admin/print/jobs/:job_id/cancel
   registerPrintConfigQuery(app); // c20, §6.6: GET /admin/queries/print-config
   registerPrintQueueQuery(app); // c20, §6.7: GET /admin/queries/print-queue
+  registerPrintTakeawaySlip(app); // task 31 (v1.0.16, 02b-TK R6), §6.14: PrintTakeawaySlip (owner-approved wiring 2026-11-26)
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
