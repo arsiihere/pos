@@ -216,8 +216,9 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
       'Manager:manager',
       'Order taker:order_taker',
       'Owner:owner',
+      'Pass:pass', // ⚠️ 01b v1.12 §5.1c: 0022 (same migrate run) adds the Pass role; 0005 itself creates none
     ]);
-    expect((await pool.query(`SELECT count(*)::int AS n FROM roles`)).rows).toEqual(rolesBefore.rows);
+    expect((await pool.query(`SELECT count(*)::int - 1 AS n FROM roles`)).rows).toEqual(rolesBefore.rows); // − the 0022 Pass role
     const grantsAfter = await pool.query(
       `SELECT tenant_id, role_id, permission, grant_type, approver_role_id FROM role_permissions ORDER BY role_id, permission`,
     );
@@ -257,6 +258,10 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
       'order_taker:move-item-to-stock:allowed',
       'order_taker:take-payment:allowed',
       'order_taker:void-item:requires_approval',
+      // ⚠️ 01b v1.12 §5.1c: 0022 (own test: takeaway-role-grants-migration.int.test.ts) adds the Pass role's three grants
+      'pass:mark-served:allowed',
+      'pass:reprint-ticket:allowed',
+      'pass:run-pass:allowed',
     ]);
     await expect(
       pool.query(

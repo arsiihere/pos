@@ -42,7 +42,9 @@ describe('[01b B-3] cloud migration 0011_scope_my_zones.sql', () => {
 
   it('[02p U-4] existing grants are kept and any other scope is still refused', async () => {
     const { rows } = await pool.query(
-      `SELECT permission, scope FROM role_permissions WHERE tenant_id = $1 AND permission <> 'manage-zone-stock' ORDER BY permission`,
+      // ⚠️ 01b v1.12 §5.1c: the whole folder runs, so 0022's Pass role and its grants are left out here.
+      `SELECT permission, scope FROM role_permissions WHERE tenant_id = $1 AND permission <> 'manage-zone-stock'
+          AND role_id NOT IN (SELECT role_id FROM roles WHERE tenant_id = $1 AND default_key = 'pass') ORDER BY permission`,
       [TN],
     );
     expect(rows).toEqual([
