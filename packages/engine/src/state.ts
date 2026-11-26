@@ -184,6 +184,10 @@ export interface EngineLine {
   max_delay_ms: number | null;
   priority_at: number | null;
   arrived_at: number;
+  // ⚠️ 03a v1.2.11 §3.3 "D7 Pass archive fold" (run 3 reconcile (a); 03b v1.0.16 §6.22): the source of the line's last
+  // recorded PassPointLinesMoved (null until moved), kept for Pass catch-up ("Moved from <point>"). v6 (unreleased).
+  from_point_id: string | null;
+  from_point_name: string | null;
 }
 
 // 03a §3.3: EngineState v5 (ENGINE_STATE_VERSION = 5, D62; v1.2.2 B2-2: v4 adds EngineLine.done_undone; 03a v1.2.10

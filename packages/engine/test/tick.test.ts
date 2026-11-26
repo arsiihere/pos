@@ -264,6 +264,8 @@ function withLine(s: EngineState, p: Placed): EngineState {
     max_delay_ms: null, // v5 (03a v1.2.10 §3.3)
     priority_at: null,
     arrived_at: s.orders[p.order]!.placed_at,
+    from_point_id: null, // ⚠️ 03a v1.2.11 §3.3 D7
+    from_point_name: null,
   };
   const st = s.stations[station_id]!;
   const order = s.orders[p.order]!;

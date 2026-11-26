@@ -121,6 +121,8 @@ function holderLine(order_item_id: string, draws: EngineLine['draws']): EngineLi
     max_delay_ms: null,
     priority_at: null,
     arrived_at: 0,
+    from_point_id: null, // ⚠️ 03a v1.2.11 §3.3 D7: the v6 engine line field (not moved)
+    from_point_name: null,
   };
 }
 
