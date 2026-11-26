@@ -94,6 +94,7 @@ describe('[03b §6.12] GET /admin/queries/kds-config (b23)', () => {
       ],
       points: branchConfig()!.points.map((pt) => ({ point_id: pt.point_id, name: pt.name, is_archived: pt.is_archived })),
       warnings: [],
+      routing_gaps: [], // 03b v1.0.16 §6.12 (PT-6): one legacy point, nothing to warn
     });
   });
 
