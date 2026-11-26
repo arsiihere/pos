@@ -450,6 +450,7 @@ describe('08a races (§10.3 #17–#22, I9, §6 lock order) and the engine invari
   // §10.4 #26 (I9: "no engine or hub code changes"): no file under the hub app (its tests include 02b's) or the
   // engine package differs from main. Needs the main ref (a full clone); the gate's shallow checkout has none, and
   // there the gate's hub and engine jobs passing on unedited files are the check.
+  const GUARDED_BRANCH = 'module-08a';
   const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url));
   const git = (...args: string[]) => execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   const mainRef = (() => {
@@ -463,7 +464,19 @@ describe('08a races (§10.3 #17–#22, I9, §6 lock order) and the engine invari
     }
     return null;
   })();
-  it.skipIf(mainRef === null)('[08a #26] no hub, engine or 02b test file (nor any hub / engine file) changed against main', () => {
+  // ⚠️ §10.4 #26 is the 08a branch's scope guard: other modules (02b-TK's hub and engine lanes) change these trees by
+  // design, so it runs only on module-08a (local branch, or the GitHub ref / PR base) or with POS_SCOPE_GUARD_08A=1.
+  const branch = (() => {
+    try {
+      return git('rev-parse', '--abbrev-ref', 'HEAD');
+    } catch {
+      return null;
+    }
+  })();
+  const on08a =
+    process.env.POS_SCOPE_GUARD_08A === '1' ||
+    [branch, process.env.GITHUB_HEAD_REF, process.env.GITHUB_BASE_REF, process.env.GITHUB_REF_NAME].includes(GUARDED_BRANCH);
+  it.skipIf(mainRef === null || !on08a)('[08a #26] no hub, engine or 02b test file (nor any hub / engine file) changed against main', () => {
     const base = git('merge-base', mainRef!, 'HEAD');
     // committed and working-tree changes since the merge base, plus untracked files, in the two guarded trees
     const changed = git('diff', '--name-only', base, '--', 'apps/hub', 'packages/engine');
