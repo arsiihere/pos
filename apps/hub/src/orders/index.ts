@@ -2,6 +2,8 @@
 import './zone-kinds.js';
 // 02b §6.12: kind `comp`, the same way (top level, before the boot replay).
 import './comp-kind.js';
+// ⚠️ 02b v1.0.25 §6.12a (OR-7): kind `hand_over_unpaid`, the same way (top level, before the boot replay).
+import './hand-over-unpaid-kind.js';
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../projections/registry.js';
 import { registerMarkServed } from './commands/mark-served.js';
@@ -17,6 +19,7 @@ import { registerSetLineWeight } from './commands/set-line-weight.js';
 import { registerSeatingTotals } from '../tables/handover.js';
 import { seatingTotals } from './exports.js';
 import { registerCompLine } from './commands/comp-line.js';
+import { registerRequestUnpaidHandover } from './commands/request-unpaid-handover.js';
 import { registerLineCompedAudience } from './audiences.js'; // §6.19: its fixed audiences register at this module's load
 import { registerOrdersCatchUp } from './catch-up.js';
 import { registerOpenOrdersQuery } from './queries/open-orders.js';
@@ -68,6 +71,9 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
     stopOrdersCatchUp();
     stopCompAudience();
   });
+
+  // ⚠️ 02b v1.0.25 OR-7 (lane L-ORDERS-1 unpaid, U-2): RequestUnpaidHandover (§6.4a; not queueable)
+  registerRequestUnpaidHandover(app);
 
   // wave 3 lane B (queued replays)
 
