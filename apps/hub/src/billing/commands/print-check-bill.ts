@@ -99,6 +99,8 @@ export function checkBillOf(db: Database.Database, config: BranchConfig, head: B
   const t = result.totals_default;
   // D3: each open split's own balance (its total less its own net payments); closed splits are not in the result
   const due_minor = result.splits.reduce((a, x) => a + x.balance_minor, 0);
+  // owner 2026-11-26: the net payments on those open splits, printed as "Already paid" when > 0
+  const paid_minor = payments.reduce((a, p) => a + (p.direction === 'in' ? p.amount_minor : -p.amount_minor), 0);
   const docTax = (x: { label: string; rate_bp: number; payment_class: DocTaxRow['payment_class']; tax_minor: number }): DocTaxRow => ({
     label: x.label,
     rate_bp: x.rate_bp,
@@ -156,6 +158,7 @@ export function checkBillOf(db: Database.Database, config: BranchConfig, head: B
           taxes: t.taxes.map(docTax),
           rounding_minor: t.rounding_minor,
           cash_total_minor: t.total_minor,
+          paid_minor,
           due_minor,
           digital_total_minor: result.totals_default_digital.total_minor,
           prices_include_tax: input.rules.prices_include_tax,

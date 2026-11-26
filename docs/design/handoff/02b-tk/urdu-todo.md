@@ -73,7 +73,7 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `cd.thanks` | Thank you! | شکریہ! اپنا ٹوکن پرچی پر دیکھیں |
 | `q.search_token` | Token number | ٹوکن نمبر |
 | `c.phone_pay` | Pay | ادائیگی |
-| `billing.gross_total` (05 §6.3, R3-M-1) | Gross total | کل رقم |
+| `billing.already_paid` (05 §6.3, R3-M-1) | Already paid | پہلے ادا شدہ |
 | `billing.remaining_payable` (05 §6.3, R3-M-1) | Remaining payable | باقی قابلِ ادائیگی |
 
 Historical copy for Urdu review. OR-7 disabled the client override.
