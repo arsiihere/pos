@@ -3610,11 +3610,11 @@ export const en = {
   'billing.type.dine_in': 'Dine-in',
   'billing.type.takeaway': 'Takeaway',
   'billing.type.parking': 'Parking',
-  // ---- 05 client (task 38): print status + Print check bill, brief §3.2.7 / §3.4 + frame PrintStatus (the brief's print.* keys are billing.print.*, beside 03b's print.* ticket keys and with the other billing.* keys); Urdu: BillUrdu, else docs/design/handoff/05/urdu-todo.md ----
-  'billing.check_bill': 'Print check bill',
-  // ⚠️ 05 v1.0.35 §6.3, §6.3a (run 3 R3-M-1, D3): the two check-bill figures, labelled apart; not in strings-table.md; Urdu to confirm
+  // ---- 05 v1.0.35 §6.3, §6.3a (run 3 R3-M-1, D3): the two check-bill figures, labelled apart; not in strings-table.md; Urdu to confirm ----
   'billing.gross_total': 'Gross total', // not in strings-table.md; Urdu to confirm
   'billing.remaining_payable': 'Remaining payable', // not in strings-table.md; Urdu to confirm
+  // ---- 05 client (task 38): print status + Print check bill, brief §3.2.7 / §3.4 + frame PrintStatus (the brief's print.* keys are billing.print.*, beside 03b's print.* ticket keys and with the other billing.* keys); Urdu: BillUrdu, else docs/design/handoff/05/urdu-todo.md ----
+  'billing.check_bill': 'Print check bill',
   'billing.check_sent': 'Check bill sent to {printer}',
   'billing.no_printer': 'No bill printer is set up — show the screen to the customer',
   'billing.print.kind.check': 'Check bill',
