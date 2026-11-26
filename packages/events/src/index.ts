@@ -124,6 +124,7 @@ export * from './events/hub/PrinterSaved.v1.js';
 export * from './events/hub/StationOutputSet.v1.js';
 // 02b-TK Tier 1 (L0b): 02b v1.0.25 §6.19
 export * from './events/order/UnpaidHandoverApproved.v1.js';
+export * from './events/order/OpenOrderBillChanged.v1.js';
 // 05 v1.0.35 §6.3a
 export * from './events/hub/CartCheckBillPrinted.v1.js';
 export * from './admin/billing.js';
