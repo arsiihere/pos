@@ -171,6 +171,47 @@ describe('writer', () => {
     expect(order).toEqual(['onCommit', 'afterCommit', 'beforePublish', 'publish']);
   });
 
+  // ⚠️ 03b v1.0.16 §3.5 (run 3 R3-B-3, D8): a before-commit hook runs once per writer transaction, inside it, after the
+  // transaction's own appends and their projections, with the engine state folded through them.
+  it('[03b v1.0.16 §3.5] addBeforeCommit: sees the appended events and the staged state; its own appends commit, fold and publish, and are not fed back', async () => {
+    const { db } = await migrated();
+    const state = createStateHolder({ n: 0 });
+    state.setReducer((current) => ({ n: current.n + 1 }));
+    const published: PosEvent[][] = [];
+    const writer = createWriter({ db, clock: fixedClock(T), ids: testIdGen(), tenantId: TENANT, branchId: BRANCH, projections: createProjectionRegistry(), state, authGeneration: createAuthGeneration(), publish: (e) => published.push(e) });
+    const seen: Array<{ versions: string[]; staged: number; committedState: number }> = [];
+    writer.addBeforeCommit((pre) => {
+      seen.push({ versions: pre.appended.map((e) => String(e.payload.hub_version)), staged: (pre.tx().state as { n: number }).n, committedState: state.get().n });
+      if (pre.appended.every((e) => e.payload.hub_version !== 'hook')) pre.tx().append([hub('hook')]);
+    });
+    const { appended } = writer.run((tx) => {
+      tx.append([hub('1')]);
+      tx.append([hub('2')]);
+    });
+    expect(seen).toEqual([{ versions: ['1', '2'], staged: 2, committedState: 0 }]);
+    expect(appended.map((e) => e.payload.hub_version)).toEqual(['1', '2', 'hook']);
+    expect(state.get()).toEqual({ n: 3 });
+    expect(published.map((batch) => batch.map((e) => e.payload.hub_version))).toEqual([['1', '2', 'hook']]);
+    // nothing appended → no hook call
+    writer.run(() => undefined);
+    expect(seen).toHaveLength(1);
+  });
+
+  it('[03b v1.0.16 §3.5] a throw in a before-commit hook rolls the whole transaction back', async () => {
+    const { db } = await migrated();
+    const state = createStateHolder({ n: 0 });
+    state.setReducer((current) => ({ n: current.n + 1 }));
+    const published: PosEvent[][] = [];
+    const writer = createWriter({ db, clock: fixedClock(T), ids: testIdGen(), tenantId: TENANT, branchId: BRANCH, projections: createProjectionRegistry(), state, authGeneration: createAuthGeneration(), publish: (e) => published.push(e) });
+    writer.addBeforeCommit(() => {
+      throw new Error('hook failed');
+    });
+    expect(() => writer.run((tx) => tx.append([hub('1')]))).toThrow(/hook failed/);
+    expect(db.prepare('SELECT COUNT(*) FROM events').pluck().get()).toBe(0);
+    expect(state.get()).toEqual({ n: 0 });
+    expect(published).toEqual([]);
+  });
+
   async function migrated() {
     const fx = freshDb();
     cleanups.push(fx.cleanup);
