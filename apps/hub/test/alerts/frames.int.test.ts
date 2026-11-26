@@ -23,8 +23,11 @@ const MGR2 = 'S_MGR2'; // approver, absent at raise (not a recipient), signs in 
 const CASH = 'S_CASH';
 const WAIT = 'S_WAIT'; // requester: void-item requires approval by R_MGR
 
-const DETAILS = { item: 'Mutton platter', quantity: 1, amount: 480_000, reason: 'customer changed mind' };
-const SECRET_VALUES = ['Mutton platter', '480000', '480_000', 'customer changed mind'];
+// The amount is a distinctive non-round value (Rs 314,159.27), so its digits cannot turn up by chance in a log line
+// (a pino responseTime such as 5.275548000000072 once held '480000'); the check still proves the amount never leaks.
+const SECRET_AMOUNT = 31_415_927;
+const DETAILS = { item: 'Mutton platter', quantity: 1, amount: SECRET_AMOUNT, reason: 'customer changed mind' };
+const SECRET_VALUES = ['Mutton platter', String(SECRET_AMOUNT), '31_415_927', 'customer changed mind'];
 
 async function directory(): Promise<DirectoryInput> {
   const base = await aDirectory();
