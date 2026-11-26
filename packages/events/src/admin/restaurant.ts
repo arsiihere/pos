@@ -204,11 +204,14 @@ const Station = z.object({
   carry_times: z.array(CarryTime),
 });
 
+// ⚠️ Changed by 01a v2.11 PT-2 (run 3 R3-M-4): the order types the point receives; SQL NULL is answered as 'all', an
+// explicit set sorted.
 const Point = z.object({
   point_id: z.string(),
   name: z.string(),
   sort_order: z.number(),
   archived_at: z.number().nullable(),
+  order_types: z.union([z.literal('all'), z.array(OrderType)]),
   version: z.string(),
 });
 
@@ -227,9 +230,27 @@ export const StationResponse = z.object({ data: z.object({ station: Station }) }
 // §6.9a, §5.2a A-1: names 1–40 characters after trimming.
 const PointName = z.string().trim().min(1).max(40);
 
+// ⚠️ Changed by 01a v2.11 PT-2 (run 3 R3-M-4): order_types is 'all' or the A-9 non-empty enum array with a repeat
+// issue, dispatched by the value's shape so an issue keeps its own path: 'order_types' for an empty array, null or any
+// other scalar; 'order_types.N' for an invalid or repeated element.
+const PointOrderTypesArray = z.array(OrderType).min(1).superRefine((values, ctx) => issueOnRepeat(values, ctx, [], 'repeated order type'));
+const PointOrderTypes = z
+  .custom<'all' | Array<z.infer<typeof OrderType>>>()
+  .superRefine((value, ctx) => {
+    if (!Array.isArray(value)) {
+      if (value !== 'all') ctx.addIssue({ code: 'custom', message: "expected 'all' or a non-empty list of order types", path: [] });
+      return;
+    }
+    const parsed = PointOrderTypesArray.safeParse(value);
+    if (!parsed.success) for (const issue of parsed.error.issues) ctx.addIssue({ code: 'custom', message: issue.message, path: issue.path });
+  });
+
+// ⚠️ R3-M-3: an omitted order_types stays absent (the idempotency hash of a pre-release request is unchanged); the
+// service stores SQL NULL for it.
 export const CreatePointBody = z.object({
   name: PointName,
   sort_order: SortOrder.default(0),
+  order_types: PointOrderTypes.optional(),
 });
 
 // R30, C9: expected_version is required and a body with nothing else is refused.
@@ -239,8 +260,9 @@ export const PatchPointBody = z
     name: PointName.optional(),
     sort_order: SortOrder.optional(),
     archived: z.boolean().optional(),
+    order_types: PointOrderTypes.optional(), // ⚠️ 01a v2.11 PT-2: omitted = keep the stored value
   })
-  .refine((body) => body.name !== undefined || body.sort_order !== undefined || body.archived !== undefined, {
+  .refine((body) => body.name !== undefined || body.sort_order !== undefined || body.archived !== undefined || body.order_types !== undefined, {
     message: 'a field besides expected_version is required',
   });
 

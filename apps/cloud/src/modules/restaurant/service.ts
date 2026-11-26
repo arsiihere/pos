@@ -985,7 +985,7 @@ export async function createPoint(
   body: CreatePointInput,
 ): Promise<IdempotentResult<{ point: AdminPoint }>> {
   assertBranchAllowed(req.tenant, branchId);
-  return withIdempotency(
+  const result = await withIdempotency(
     { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
     { key: req.idempotencyKey, method: req.method, path: req.path, body },
     async (client) => {
@@ -997,6 +997,7 @@ export async function createPoint(
           pointId: deps.ids.next(),
           name: body.name,
           sortOrder: body.sort_order,
+          orderTypes: storedOrderTypes(body.order_types), // ⚠️ 01a v2.11 PT-2: omitted → NULL ('all')
           now: deps.clock.branchNow(),
         }),
       );
@@ -1019,6 +1020,10 @@ export async function createPoint(
       return { status: 201, body: { point: toPointWire(point) } };
     },
   );
+  // ⚠️ 01a v2.11 PT-2 (run 3 R3-M-3): a 201 stored before order_types existed answers 'all' (the token, status and other
+  // fields as stored; no extra read, audit or bump).
+  if (result.replay && result.body.point.order_types === undefined) return { ...result, body: { point: { ...result.body.point, order_types: 'all' } } };
+  return result;
 }
 
 // §6.9a PATCH: lock (Q-v2.1-1 404) → version (R30 409 CONFIG_STALE, a stale no-op too) → no-op (200, nothing written)
@@ -1046,6 +1051,8 @@ export async function patchPoint(
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
       ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+      // ⚠️ 01a v2.11 PT-2: omitted keeps the stored value; compared as the canonical sorted set (S26).
+      ...(body.order_types !== undefined ? { order_types: storedOrderTypes(body.order_types) } : {}),
     };
     if (unchangedRow(before, merged)) return { point: toPointWire(before) };
     if (before.archived_at === null && merged.archived_at !== null) {
@@ -2028,6 +2035,11 @@ export async function putItemRoute(
 }
 
 // v1.0.2 S26: a write that changes nothing makes no row update, no audit row and no bump.
+// ⚠️ 01a v2.11 PT-2: 'all' (or omitted) is SQL NULL; an explicit set is stored sorted.
+function storedOrderTypes(value: CreatePointInput['order_types']): PointRow['order_types'] {
+  return value === undefined || value === 'all' ? null : [...value].sort();
+}
+
 function unchangedRow<T>(before: T, merged: T): boolean {
   return canonicalJson(before) === canonicalJson(merged);
 }

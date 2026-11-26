@@ -83,6 +83,8 @@ export interface PointRow {
   name: string;
   sort_order: number;
   archived_at: number | null;
+  // ⚠️ 01a v2.11 PT-1, PT-2: NULL = 'all'; an explicit set is stored sorted.
+  order_types: OrderType[] | null;
 }
 
 export interface ProgramRow {
@@ -113,7 +115,7 @@ type Raw<T> = { [K in keyof T]: K extends 'archived_at' ? string | null : T[K] }
 const FLOOR_COLUMNS = 'floor_id, name, sort_order, archived_at';
 const TABLE_COLUMNS = 'table_id, floor_id, zone_id, name, seats, sort_order, archived_at';
 const ZONE_COLUMNS = 'zone_id, floor_id, name, sort_order, archived_at';
-const POINT_COLUMNS = 'point_id, name, sort_order, archived_at';
+const POINT_COLUMNS = 'point_id, name, sort_order, archived_at, order_types';
 const STATION_COLUMNS =
   'station_id, name, location_label, station_type, capacity, freshness_window_ms, completion_mode, archived_at, ' +
   'point_id, policy, freeze_ms, min_slack_keep_ms, promise_padding_ms, pressure_window_ms, pressure_amber_bp, ' +
@@ -569,14 +571,14 @@ export async function selectPoints(repo: TenantScopedRepository, branchId: strin
 // §6.9a: a new point of the branch; undefined when the branch is gone.
 export async function insertPoint(
   repo: TenantScopedRepository,
-  input: { branchId: string; pointId: string; name: string; sortOrder: number; now: number },
+  input: { branchId: string; pointId: string; name: string; sortOrder: number; orderTypes: OrderType[] | null; now: number },
 ): Promise<PointRow | undefined> {
   const rows = await repo.query<Raw<PointRow>>(
-    `INSERT INTO points (tenant_id, branch_id, point_id, name, sort_order, created_at, updated_at)
-     SELECT tenant_id, branch_id, $4, $5, $6, $7, $7 FROM branches
+    `INSERT INTO points (tenant_id, branch_id, point_id, name, sort_order, order_types, created_at, updated_at)
+     SELECT tenant_id, branch_id, $4, $5, $6, $8, $7, $7 FROM branches
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
      RETURNING ${POINT_COLUMNS}`,
-    [input.branchId, input.pointId, input.name, input.sortOrder, input.now],
+    [input.branchId, input.pointId, input.name, input.sortOrder, input.now, input.orderTypes],
   );
   return rows[0] === undefined ? undefined : withArchivedAt<PointRow>(rows[0]);
 }
@@ -593,10 +595,10 @@ export async function lockPoint(repo: TenantScopedRepository, branchId: string, 
 
 export async function updatePoint(repo: TenantScopedRepository, branchId: string, point: PointRow, now: number): Promise<PointRow> {
   const rows = await repo.query<Raw<PointRow>>(
-    `UPDATE points SET name = $5, sort_order = $6, archived_at = $7, updated_at = $8
+    `UPDATE points SET name = $5, sort_order = $6, archived_at = $7, updated_at = $8, order_types = $9
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND point_id = $4
       RETURNING ${POINT_COLUMNS}`,
-    [branchId, point.point_id, point.name, point.sort_order, point.archived_at, now],
+    [branchId, point.point_id, point.name, point.sort_order, point.archived_at, now, point.order_types],
   );
   return withArchivedAt<PointRow>(rows[0]!);
 }
