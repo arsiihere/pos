@@ -283,6 +283,15 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
         return updateLines(new Set(ids(p['order_item_ids'])), (l) => (l.priority != null || l.stage !== 'added' ? l : { ...l, priority: { minutes_late: null } }));
       case 'ItemsReleased':
         return updateLines(new Set([...ids(p['released']), ...ids(p['expedite'])]), (l) => ({ ...l, serve_mode: 'immediate' }));
+      case 'PassBagReadyChanged': {
+        // ⚠️ 03b v1.0.16 §6.22 (R3-M-9): the order's R8 epoch starts (`ready`) or clears (null), whatever point
+        const order_id = str(p['order_id']);
+        if (order_id === null || !orders.some((o) => o.order_id === order_id)) return false;
+        const r = isObj(p['ready']) ? p['ready'] : null;
+        const pair = { bag_ready_since: r === null ? null : int(r['bag_ready_since']), bag_ready_window_ms: r === null ? null : int(r['bag_ready_window_ms']) };
+        orders = orders.map((o) => (o.order_id === order_id ? { ...o, ...pair } : o));
+        return true;
+      }
       case 'LanesSet': {
         const station_id = str(p['station_id']);
         const lanes_on = int(p['lanes_on']);

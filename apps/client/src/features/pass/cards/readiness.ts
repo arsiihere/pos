@@ -1,4 +1,5 @@
 import type { PointOrder } from '../contracts';
+import { orderTypeOf } from '../order-filter';
 
 // 03b v1.0.8 §3.4 (Q-46, #74; P2): the card's readiness, computed on the Pass from the stages it holds — the engine's
 // groupReadiness rule (packages/engine/src/view.ts) over this point's lines: per group its sync lines only; done =
@@ -59,4 +60,16 @@ export function readiness(order: PointOrder, nowMs = Number.NEGATIVE_INFINITY): 
   if (held.size > 0) return { state: 'hold', held };
   if (!waiting && open.some((l) => l.stage === 'done')) return { state: 'ready', held };
   return { state: 'cooking', held };
+}
+
+/**
+ * 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.4 "Not collected" (R3-M-9), §3.5 R8, D8): a takeaway / parking card is
+ * amber from hub now ≥ `bag_ready_since` + `bag_ready_window_ms` (the order's R8 epoch, shared by every point); the
+ * minutes since the bag was ready, else null. The hub clears the pair when the bag is incomplete again or collected.
+ */
+export function notCollectedMin(order: PointOrder, nowMs: number): number | null {
+  const since = order.bag_ready_since ?? null;
+  const win = order.bag_ready_window_ms ?? null;
+  if (since === null || win === null || orderTypeOf(order) === 'dine_in' || nowMs < since + win) return null;
+  return Math.floor((nowMs - since) / 60_000);
 }

@@ -123,6 +123,31 @@ export function escalatedWho03b(row: { kind: string; escalation: boolean; lock: 
 }
 
 /**
+ * 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.5 step 4 "the counter", "Order-level counter alert (R8, D8)", §6.21; R8):
+ * on a counter device (its profile shows the order's `takeaway` / `parking` screen) a signed-in `ready_to_serve` card
+ * for a takeaway ("#48") or parking ("PARKING") order is the order-level counter alert: the hub never sends a counter
+ * device a per-point Ready (kinds.ts `readyExcludesDevice`), and the view carries no `values.counter_screen`, so the
+ * lock-safe code and the device's screens tell it. Step 0 "Bag ready — hand over at the counter"; step 1 (1× the
+ * window) "Ready {n} min ago — not collected"; the 2× escalation (point, managers and the counter) "Not collected for
+ * {n} min — managers told"; amber from step 1. `n` = whole minutes since it was raised (hub clock). Else null.
+ */
+export function counterReady03b(
+  row: { kind: string; step: number; escalation: boolean; card?: AlertCard | undefined; raised_at: number },
+  screens: readonly string[],
+  nowMs: number,
+): { title: string; line: string | null; late: boolean } | null {
+  if (row.kind !== 'ready_to_serve' || row.card === undefined) return null;
+  const code = row.card.table_code ?? '';
+  const counter = (code.startsWith('#') && screens.includes('takeaway')) || (code === 'PARKING' && screens.includes('parking'));
+  if (!counter) return null;
+  const n = String(Math.max(0, Math.floor((nowMs - row.raised_at) / 60_000)));
+  const title = t('alert.ready_to_serve.counter');
+  if (row.escalation) return { title, line: fill(t('alert.ready_to_serve.counter_escalated'), { n }), late: true };
+  if (row.step >= 1) return { title, line: fill(t('pass.not_collected'), { n }), late: true };
+  return { title, line: null, late: false };
+}
+
+/**
  * A closed row's line for the 03b / 03c kinds (§3.5, §3.6; 03c §6.12, Q-53); null = not one of ours, or a reason the
  * kind does not name (labels.ts keeps its own text). `moved_to` is the table a re-targeted Ready moved to, when the
  * caller knows it (HK3); without it "Moved". `problem` is the printer card's `details.problem`.

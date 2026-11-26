@@ -104,6 +104,9 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `pass.pickup_label` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | Pickup {time} | لینا ہے {time} |
 | `pass.hand_at_counter` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | Hand over at the counter | کاؤنٹر پر حوالے کریں |
 | `pass.outside_scope` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 1) | This order is not one of yours — hand over at the counter | یہ آرڈر آپ کا نہیں — کاؤنٹر پر حوالے کریں |
+| `pass.not_collected` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 2) | Ready {n} min ago — not collected | {n} منٹ سے تیار — کوئی نہیں آیا |
+| `alert.ready_to_serve.counter` (03b v1.0.16 §3.5 R8, L-CLIENT-1 item 2) | Bag ready — hand over at the counter | بیگ تیار — کاؤنٹر پر حوالے کریں |
+| `alert.ready_to_serve.counter_escalated` (03b v1.0.16 §3.5 R8, L-CLIENT-1 item 2) | Not collected for {n} min — managers told | {n} منٹ سے کوئی نہیں آیا — مینیجر کو بتا دیا |
 
 Historical copy for Urdu review. OR-7 disabled the client override.
 
