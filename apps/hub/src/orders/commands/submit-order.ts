@@ -5,6 +5,7 @@ import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { defineCommand, type CommandCtx } from '../../commands/registry.js';
+import { queueTakeawaySlipOnSubmit, type SubmitSlipResult } from '../../print/slip-hook.js';
 import { commandRegistry } from '../../commands/route.js';
 import { hubTime } from '../../lib/hub-time.js';
 import { itemAvailability } from '../../projections/item-availability.js';
@@ -59,7 +60,8 @@ export const PayloadObject = z
     order_type: z.enum(['dine_in', 'takeaway', 'parking']),
     table_id: z.string().min(1).optional(),
     seating_id: z.string().min(1).optional(),
-    takeaway: z.object({ customer_name: z.string().min(1).max(40).optional(), phone: Phone.optional() }).strict().optional(),
+    // ⚠️ 02b v1.0.25 §3.2 step 2b (M-1 (c); 03c v1.0.16 Q-TK-1): `print_slip` = Send · pay later (default false)
+    takeaway: z.object({ customer_name: z.string().min(1).max(40).optional(), phone: Phone.optional(), print_slip: z.boolean().optional() }).strict().optional(),
     parking: z
       .object({ car_number: z.string().regex(/^[A-Za-z0-9 -]{2,12}$/), car_type: z.enum(['sedan', 'mini', 'large']), phone: Phone.optional() })
       .strict()
@@ -150,6 +152,8 @@ interface SubmitResult {
   token: number | null;
   groups: Array<{ group_id: string; promise_ms: number; order_item_ids: string[] }>;
   lines: Array<{ order_item_id: string; eta_ms: number | null; from_stock: boolean; zone_served: boolean }>;
+  /** ⚠️ 02b v1.0.25 §3.2 step 11 (03c Q-TK-3): the token slip's outcome; null without `takeaway.print_slip` */
+  slip: SubmitSlipResult | null;
 }
 
 function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']): { events: EventDraft[]; result: SubmitResult } {
@@ -283,10 +287,37 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
     log.info({ order_id: payload.order_id, command_type: 'SubmitOrder', order_type: payload.order_type, line_count: itemAdded.length, queued: ctx.queuedAt !== null }, 'order submitted');
   });
 
+  // ⚠️ Step 10a (02b v1.0.25, M-1 (c); 03c v1.0.16 Q-TK-2; owner ruling R6: a slip only for pay-later takeaway): with
+  // `takeaway.print_slip`, append the batch here, then call 03c's hook in the same transaction (it never throws; the job
+  // commits and rolls back with the order, D32 covers retransmits). +≤ 3 statements (root) / +≤ 4 (addition); 0 without.
+  let slip: SubmitSlipResult | null = null;
+  let returned = events;
+  if (payload.order_type === 'takeaway' && payload.takeaway?.print_slip === true) {
+    const appended = ctx.tx.append(events);
+    const orderPlaced = appended.find((e) => e.event_type === 'OrderPlaced')!;
+    slip = queueTakeawaySlipOnSubmit(
+      ctx.tx,
+      {
+        order_id: payload.order_id,
+        adds_to_order_id: addsTo === null ? null : payload.adds_to_order_id!,
+        token: token!,
+        business_date,
+        placed_at: orderPlaced.recorded_at,
+        pickup_at_ms: proposed.order.pickup_at_ms,
+        groups: plan.groups.map((g) => ({ target_land_ms: g.target_land_ms, promise_ms: g.promise_ms })),
+        device_id: ctx.actor.deviceId,
+        queued_at: ctx.queuedAt,
+        now,
+      },
+      { config: ctx.config, log },
+    );
+    returned = [];
+  }
+
   // Step 11: promise_ms only, never target_land_ms (03a #9).
   const eta = new Map(plan.lines.map((l) => [l.order_item_id, l.eta_ms]));
   return {
-    events,
+    events: returned,
     result: {
       order_id: payload.order_id,
       token,
@@ -297,6 +328,7 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
         from_stock: reserved.from_stock[a.order_item_id] === true,
         zone_served: zone.served.has(a.order_item_id),
       })),
+      slip,
     },
   };
 }
