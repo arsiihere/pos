@@ -275,6 +275,19 @@ describe('[02b §8 Open orders] open orders list', () => {
     expect(s.openOrders).toHaveBeenCalledTimes(2);
   });
 
+  it('[02b v1.0.25 §6.19 (R3-M-8), §8] OpenOrderBillChanged (a takeaway / parking due changed) re-reads the list once', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    await show(s);
+    expect(s.openOrders).toHaveBeenCalledTimes(1);
+    s.live.frame({ type: 'event', seq: 2, event: { event_id: 'E2', event_type: 'OpenOrderBillChanged', schema_version: 1, payload: { order_ids: ['O1'], approval_cleared_order_ids: [] } } } as never);
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+    });
+    await flush();
+    expect(s.openOrders).toHaveBeenCalledTimes(2);
+  });
+
   it('[02b Q-6] offline: the list stays, "Updated {time}" shows', async () => {
     const v = await show(setup({ online: false }));
     expect(v.text()).toContain('Updated 8:15 PM');
