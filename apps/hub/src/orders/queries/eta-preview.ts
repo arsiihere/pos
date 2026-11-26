@@ -1,6 +1,7 @@
 import { DomainError } from '@pos/domain';
 import { calculateETA, checkOrderable, openDayStartMs, reserveStock, type EngineState, type ProposedLine } from '@pos/engine';
-import type { ItemAddedPayload } from '@pos/events';
+import type { BranchConfig, ItemAddedPayload } from '@pos/events';
+import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Writer } from '../../engine-host/writer.js';
@@ -103,20 +104,28 @@ export interface EtaPreview {
   pickup_bounds: { earliest_ms: number; latest_ms: number } | null;
 }
 
-type Refusal = { code: string; details: Record<string, unknown> };
+export type Refusal = { code: string; details: Record<string, unknown> };
 
-function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): EtaPreview {
-  const state = ctx.state as EngineState;
-  const config = ctx.branchConfig;
-  // Step 1's day: reserveStock needs the open day (no line can be previewed without it).
-  const dayStart = openDayStartMs(state);
-  if (dayStart === null || config === null || state.business_day === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
-  const { now_ms: now, utc_offset_ms } = hubTime(clock);
-  // ⚠️ Step 2b (02b v1.0.25 §6.14; R4, G-2, m-8): never queued, so t0 = now; a refused pickup refuses the whole preview
-  // (422 PICKUP_TIME_INVALID), a checked one reaches proposed.order.pickup_at_ms through buildSubmit. 0 statements.
-  const pickup_bounds = draft.order_type === 'takeaway' ? pickupBounds(state.business_day, config, now, utc_offset_ms) : null;
-  if (pickup_bounds !== null && draft.pickup_at_ms !== undefined && draft.pickup_at_ms !== null) checkPickup(draft.pickup_at_ms, state.business_day, pickup_bounds);
+/** ⚠️ 02b v1.0.25 §4.2 `priceCartDraft` (R2-M-8): the §6.14 draft schema, shared with 05's `PrintCartCheckBill`. */
+export const EtaDraftSchema = Draft;
+export type EtaDraft = Draft;
 
+/**
+ * §6.14 (shared with §4.2 `priceCartDraft`): mint an id per key, build the SubmitInput, `submitBuildCtx` (1 statement,
+ * item_availability; 0 with no item), §3.2 step 4a `expandParts` with each part mapped back to its key and draft line,
+ * then step 4 per draft line: a step-4 refusal names its line (`refused`), a malformed line throws 400 at its draft
+ * path. Nothing is written; the ids never leave the caller.
+ */
+export function prepareDraft(
+  db: Database.Database,
+  state: EngineState,
+  config: BranchConfig,
+  draft: Draft,
+  time: { now: number; utc_offset_ms: number },
+  primary_table_id: string | null,
+  follow_up: boolean,
+) {
+  const { now, utc_offset_ms } = time;
   // Mint an id per key (never written anywhere); map each id back to its key and its draft line. The ids sort in draft
   // order (zero-padded): the engine breaks placement ties by order_item_id (03a), so the preview plans as a submit whose
   // ids the device minted in line order (ULIDs) does.
@@ -142,11 +151,7 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
   }));
   const input: SubmitInput = { ...order, order_id: PREVIEW_ORDER_ID, lines };
 
-  // §3.3 follow_up (dine-in): 1 statement. The draft's table routes the lines (§3.10; no seating read).
-  const dineIn = draft.order_type === 'dine_in';
-  const follow_up = dineIn && seatingHasServedFood(ctx.db, draft.seating_id!);
-  const primary_table_id = dineIn ? draft.table_id! : null;
-  const buildCtx = submitBuildCtx(ctx.db, state, config, input, { now, utc_offset_ms }, primary_table_id, follow_up);
+  const buildCtx = submitBuildCtx(db, state, config, input, { now, utc_offset_ms }, primary_table_id, follow_up);
   // 02b v1.0.20 §3.2 step 4a (STAB-5): the same split as SubmitOrder; each part maps back to its key and draft line,
   // with its part number.
   const expanded = expandParts(config, input, buildCtx);
@@ -191,6 +196,26 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
     }
   });
 
+  return { input, lines, keys, keyOf, lineOf, partOf, expanded, buildCtx, refused, refuse };
+}
+
+function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): EtaPreview {
+  const state = ctx.state as EngineState;
+  const config = ctx.branchConfig;
+  // Step 1's day: reserveStock needs the open day (no line can be previewed without it).
+  const dayStart = openDayStartMs(state);
+  if (dayStart === null || config === null || state.business_day === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
+  const { now_ms: now, utc_offset_ms } = hubTime(clock);
+  // ⚠️ Step 2b (02b v1.0.25 §6.14; R4, G-2, m-8): never queued, so t0 = now; a refused pickup refuses the whole preview
+  // (422 PICKUP_TIME_INVALID), a checked one reaches proposed.order.pickup_at_ms through buildSubmit. 0 statements.
+  const pickup_bounds = draft.order_type === 'takeaway' ? pickupBounds(state.business_day, config, now, utc_offset_ms) : null;
+  if (pickup_bounds !== null && draft.pickup_at_ms !== undefined && draft.pickup_at_ms !== null) checkPickup(draft.pickup_at_ms, state.business_day, pickup_bounds);
+
+  // §3.3 follow_up (dine-in): 1 statement. The draft's table routes the lines (§3.10; no seating read).
+  const dineIn = draft.order_type === 'dine_in';
+  const follow_up = dineIn && seatingHasServedFood(ctx.db, draft.seating_id!);
+  const primary_table_id = dineIn ? draft.table_id! : null;
+  const { input, lines, keys, keyOf, lineOf, partOf, expanded, buildCtx, refused, refuse } = prepareDraft(ctx.db, state, config, draft, { now, utc_offset_ms }, primary_table_id, follow_up);
   const accepted = lines.filter((_, n) => !refused.has(n));
   const eta = new Map<string, number>();
   let groups: EtaPreview['groups'] = [];

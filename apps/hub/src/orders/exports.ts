@@ -4,11 +4,15 @@
 // takes the command's `ctx` (it reads through `ctx.tx.db` inside the caller's transaction) and throws
 // `404 ORDER_NOT_FOUND`; it is still 1 statement.
 import { DomainError } from '@pos/domain';
+import type { EngineState } from '@pos/engine';
+import type { BranchConfig, ItemAddedPayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { CommandCtx } from '../commands/registry.js';
 import type { SeatingRow } from '../tables/contracts.js';
 import type { LineView, OrdersOf, OrderLines, OrderType, OrderView, SeatingTotals } from './contracts.js';
+import { buildSubmit } from './build-submit.js';
 import { billedMinor, liveUnits } from './ledger.js';
+import { prepareDraft, type EtaDraft } from './queries/eta-preview.js';
 
 // §3.4 billed_minor: item / option_child = refundable − comp − comp_voided − removed − refund; deal_part = 0;
 // deal = line_total − Σ over its parts of (comp + comp_voided + removed + refund). A pending weight has refundable 0
@@ -300,4 +304,78 @@ export function readOrder(ctx: CommandCtx, order_id: string): { order: ReadOrder
     table_ids,
   };
   return { order, lines };
+}
+
+// ⚠️ 02b v1.0.25 §4.2 `priceCartDraft` (hostile run 2 R2-M-8; run 3 R3-M-6; row TK-15): the priced bill lines of an
+// unsent takeaway / parking draft for 05's `PrintCartCheckBill`. §3.2 step 4 per draft line, then steps 4a–7 on the
+// accepted lines exactly as eta-preview (`prepareDraft`, `submitBuildCtx` with no table and follow_up false,
+// `expandParts`, `buildSubmit`); stops before step 8: no zone count, station, stock or pickup check, no engine call,
+// nothing written, no id stored. Each CartBillLine is derived as the `orders` fold derives `order_lines` (§5): units by
+// the fold's unit rule, unit_price_minor by 05 R-7, base_minor = the fresh line's billed amount. The open-day check is
+// the caller's. ≤ 1 statement (item_availability; 0 with no item).
+
+export interface CartBillLine {
+  key: string;
+  order_item_id: string;
+  parent_order_item_id: string | null;
+  line_kind: ItemAddedPayload['line_kind'];
+  name: string;
+  units: number;
+  unit_price_minor: number | null;
+  base_minor: number | null;
+  tax_profile_id: string | null;
+  options: Array<{ name: string; quantity: number }>;
+  part_of: string | null;
+  weight_pending: boolean;
+}
+
+export interface PriceCartDraftCtx {
+  db: Database.Database;
+  state: EngineState;
+  now: number;
+  utc_offset_ms: number;
+}
+
+export function priceCartDraft(config: BranchConfig, draft: EtaDraft, ctx: PriceCartDraftCtx): { lines: CartBillLine[]; refusals: Array<{ key: string; code: string; details: Record<string, unknown> }> } {
+  if (draft.order_type !== 'takeaway' && draft.order_type !== 'parking') {
+    throw new DomainError('VALIDATION_FAILED', { issues: [{ path: 'draft.order_type', message: 'takeaway_or_parking_only' }] });
+  }
+  const p = prepareDraft(ctx.db, ctx.state, config, draft, { now: ctx.now, utc_offset_ms: ctx.utc_offset_ms }, null, false);
+  const refusals = [...p.refused.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([n, r]) => ({ key: draft.lines[n]!.key, code: r.code, details: r.details }));
+  const accepted = p.expanded.lines.filter((l) => !p.refused.has(p.lineOf.get(l.order_item_id)!));
+  if (accepted.length === 0) return { lines: [], refusals };
+  const built = buildSubmit(config, { ...p.input, lines: accepted }, p.buildCtx);
+  const byId = new Map(built.itemAdded.map((a) => [a.order_item_id, a]));
+  // §3.4 Units (the fold's lineUnits): quantity for piece lines; 1 for g / ml and while a weight is pending; a g / ml
+  // deal part has its deal's units.
+  const unitsOf = (a: ItemAddedPayload): number => {
+    if (a.line_kind === 'deal_part' && a.sale_unit !== 'piece') {
+      const deal = a.parent_order_item_id === null ? undefined : byId.get(a.parent_order_item_id);
+      return deal === undefined ? 1 : unitsOf(deal);
+    }
+    return a.sale_unit !== 'piece' || a.quantity === null ? 1 : a.quantity;
+  };
+  const lines = built.itemAdded.map((a): CartBillLine => {
+    const units = unitsOf(a);
+    const pending = a.line_total_minor === null;
+    return {
+      key: p.keyOf.get(a.order_item_id)!,
+      order_item_id: a.order_item_id,
+      parent_order_item_id: a.parent_order_item_id,
+      line_kind: a.line_kind,
+      name: a.name,
+      units,
+      // 05 R-7 (the fold's unitPriceMinor): round_half_up(total ÷ units), null while a weight is pending
+      unit_price_minor: pending || units < 1 ? null : Number((2n * BigInt(a.line_total_minor!) + BigInt(units)) / (2n * BigInt(units))),
+      // §3.4 billed of a fresh line: item / option child / deal = line_total_minor, deal part 0
+      base_minor: pending ? null : a.line_kind === 'deal_part' ? 0 : a.line_total_minor,
+      tax_profile_id: a.tax_class_id,
+      options: a.options.map((o) => ({ name: o.name, quantity: o.quantity })),
+      part_of: a.part_of ?? null,
+      weight_pending: pending,
+    };
+  });
+  return { lines, refusals };
 }
