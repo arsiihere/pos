@@ -145,6 +145,9 @@ export const PointOrderMetaSchema = z.object({
   boosted: z.boolean(),
   pickup_readiness: z.object({ all_engine_lines_done: z.boolean(), station_less_hold_until: z.number().int().nullable() }).nullable(),
   no_station_lines: z.array(z.object({ order_item_id: Id, item_name: z.string(), units: z.number().int().min(1) })),
+  // ⚠️ 03b v1.0.16 §5, §6.15 (run 3 R3-M-9): the order's R8 epoch (null without one); amber at their sum on hub time
+  bag_ready_since: z.number().int().nullable(),
+  bag_ready_window_ms: z.number().int().nullable(),
 });
 export type PointOrderMeta = z.infer<typeof PointOrderMetaSchema>;
 

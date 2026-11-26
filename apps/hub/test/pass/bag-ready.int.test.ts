@@ -4,6 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { alerts } from '../../src/alerts/raise';
 import { activity } from '../../src/auth/session-store';
 import { bagReadyDeadlineTick } from '../../src/kds/bag-ready';
+import { bagReadyAtOf, passReadyTimesOf, readyAtOf } from '../../src/kds/exports';
+import { createProjectionRegistry } from '../../src/projections/registry';
+import { registerKdsProjections } from '../../src/kds/index';
+import { audienceAllows } from '../../src/ws/audience';
+import type { SocketCtx } from '../../src/ws/catch-up';
 import { passClosuresTick } from '../../src/kds/ticks';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
@@ -11,7 +16,7 @@ import { wsHubFor } from '../../src/ws/server';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, type DeviceProfileInput, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
-import { COOK, FX, append, appendOrder, fireLines, fixtureMenu, openDay, openSeating, serveLines, signInCook } from '../kds/fixtures';
+import { COOK, FX, append, appendOrder, fireLines, fixtureMenu, openDay, openSeating, pairPassTablet, serveLines, signInCook } from '../kds/fixtures';
 
 // 03b v1.0.16 §3.5 order-level counter alert (R8, D8; run 3 R3-B-3, R3-M-9), the writer reconciliation: one counter
 // alert and one R8 epoch per complete takeaway / parking bag, across every point. Tests 99, 100, 102, 103, 106, 123,
@@ -341,5 +346,81 @@ describe('[03b v1.0.16 §3.5, R8 / D8] order-level counter alert', () => {
     expect(counterAlerts(order_id)).toEqual([]);
     append(hub, [on(order_id, 'OrderBoosted', { order_id })]);
     expect(counterAlerts(order_id)).toHaveLength(1);
+  });
+
+  it('#105: passReadyTimesOf gives the historical point time and the separate R8 pair in one statement (none for []); bagReadyAtOf the pair; the pair is frozen against a later window change and survives a rebuild', async () => {
+    const { p1, p2 } = await start();
+    const order_id = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'A1', item_id: FX.naan }, { order_item_id: 'G1', item_id: 'I_GRILL' }] }).order_id;
+    const other = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'B1', item_id: FX.naan }] }).order_id;
+    cook(order_id, ['A1', 'G1']);
+    await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' });
+    hub.clock.advance(4_000);
+    await send(p2, 'MarkReadyToServe', { order_id, point_id: 'P2' });
+    const [c] = counterAlerts(order_id);
+    const since = recordedAt(c!.alert_id);
+    const counter = statementCounter(hub.deps.db);
+    expect(passReadyTimesOf(hub.deps.db, [])).toEqual(new Map());
+    expect(counter.count).toBe(0);
+    const times = passReadyTimesOf(hub.deps.db, [order_id, other]);
+    expect(counter.count).toBe(1);
+    expect(times).toEqual(
+      new Map([
+        [order_id, { ready_at: readyAtOf(hub.deps.db, [order_id]).get(order_id)!, bag_ready_since: since, bag_ready_window_ms: 60_000 }],
+        [other, { ready_at: null, bag_ready_since: null, bag_ready_window_ms: null }],
+      ]),
+    );
+    counter.reset();
+    expect(bagReadyAtOf(hub.deps.db, [order_id, other])).toEqual(new Map([[order_id, { bag_ready_since: since, bag_ready_window_ms: 60_000 }]]));
+    expect(counter.count).toBe(1);
+    // a later window change does not move the stored pair
+    const { branchConfig } = await import('../../src/sync/branch-config-holder');
+    const cfg = branchConfig()!;
+    swapBranchConfig({ config: { ...cfg, engine_settings: { ...cfg.engine_settings, ready_window_ms: 120_000 } }, snapshotHash: 'e'.repeat(64), configVersion: cfg.config_version, snapshotSchemaVersion: 4, appliedAt: hub.clock.branchNow() });
+    append(hub, [on(order_id, 'ItemStarted', { order_item_id: 'A1', started_at: hub.clock.branchNow(), source: 'tap' })]);
+    expect(bagReadyAtOf(hub.deps.db, [order_id]).get(order_id)).toEqual({ bag_ready_since: since, bag_ready_window_ms: 60_000 });
+    // rebuild reproduces the pair
+    hub.deps.db.prepare("DELETE FROM projection_checkpoints WHERE projection = 'pass'").run();
+    const fresh = createProjectionRegistry();
+    registerKdsProjections(fresh);
+    fresh.catchUp(hub.deps.db, 'branch-1');
+    expect(bagReadyAtOf(hub.deps.db, [order_id]).get(order_id)).toEqual({ bag_ready_since: since, bag_ready_window_ms: 60_000 });
+  });
+
+  it('§6.15 / §6.16 / §6.22: the pair rides on point_view and on point_lines metadata; PassBagReadyChanged reaches the Passes of the order\'s points and its counter devices only', async () => {
+    const { p1, p2 } = await start();
+    const k = device('Kiosk K', 'cashier_kiosk', TAKEAWAY);
+    const dineKiosk = device('Dine-in kiosk', 'cashier_kiosk', { access: 'everyone', screens: ['dine_in', 'cashier'] });
+    const order_id = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'A1', item_id: FX.naan }] }).order_id;
+    cook(order_id, ['A1']);
+    devices.set(p1.deviceId, p1.token); // the fence reaches the Pass tablet too
+    const live = await connectWs(hub.app);
+    clients.push(live);
+    live.send({ type: 'auth', device_token: p1.token, session_token: p1.sessionToken });
+    await live.untilCount(1);
+    await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' });
+    await fence();
+    const [c] = counterAlerts(order_id);
+    const since = recordedAt(c!.alert_id);
+    const meta = live.messages.flatMap((m) => {
+      const f = m as { type?: string; orders?: Array<Record<string, unknown>> };
+      return f.type === 'point_lines' && f.orders !== undefined ? f.orders : [];
+    });
+    expect(meta.filter((o) => o.order_id === order_id).at(-1)).toMatchObject({ bag_ready_since: since, bag_ready_window_ms: 60_000 });
+    const again = await connectWs(hub.app);
+    clients.push(again);
+    again.send({ type: 'auth', device_token: p1.token, session_token: p1.sessionToken });
+    await again.untilCount(1);
+    const view = (again.messages[0] as { state: { point_view: { orders: Array<Record<string, unknown>> } } }).state.point_view;
+    expect(view.orders.find((o) => o.order_id === order_id)).toMatchObject({ bag_ready_since: since, bag_ready_window_ms: 60_000 });
+    // the audience of PassBagReadyChanged
+    const ev = hub.deps.db.prepare("SELECT * FROM events WHERE event_type = 'PassBagReadyChanged' AND stream_id = ?").get(order_id) as Record<string, unknown>;
+    const event = { ...ev, payload: JSON.parse(String(ev.payload)) } as never;
+    const staff = (deviceId: string): SocketCtx => ({ deviceId, deviceType: 'tablet', sessionId: `X_${deviceId}`, kind: 'staff', staffId: 'S_CASH', stationId: null, asOfSeq: 0 });
+    expect(audienceAllows(event, staff(p1.deviceId))).toBe(true);
+    expect(audienceAllows(event, staff(k))).toBe(true);
+    void p2;
+    const otherPass = pairPassTablet(hub, { pointId: 'P2' }).deviceId; // no profile: not a counter device
+    expect(audienceAllows(event, staff(otherPass))).toBe(false);
+    expect(audienceAllows(event, staff(dineKiosk))).toBe(false);
   });
 });

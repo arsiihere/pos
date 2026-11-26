@@ -83,7 +83,7 @@ function detailsCounter(db: Database.Database): { readonly count: number; reset(
 }
 
 /** ⚠️ 03b v1.0.16 §6.15 (run 3): the metadata of a card with no pickup time. */
-const NO_PICKUP = { pickup_at_ms: null, boosted: false, pickup_readiness: null, no_station_lines: [] };
+const NO_PICKUP = { pickup_at_ms: null, boosted: false, pickup_readiness: null, no_station_lines: [], bag_ready_since: null, bag_ready_window_ms: null };
 
 describe('[03b §6.15] point_view catch-up part (b21)', () => {
   it('[03b #65] a Pass socket gets its point body (stations, orders oldest first with stage / handed_over / ready); other sockets get none', async () => {

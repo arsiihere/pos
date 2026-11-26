@@ -41,3 +41,35 @@ export function readyAtOf(db: Database.Database, order_ids: readonly string[]): 
   const rows = db.prepare(READY_AT_OF_SQL).all(JSON.stringify(order_ids)) as Array<{ order_id: string; ready_at: number }>;
   return new Map(rows.map((r) => [r.order_id, r.ready_at]));
 }
+
+// ⚠️ 03b v1.0.16 §4.2 (run 3 R3-M-9): the R8 epoch of each order (pass_bag_ready, §5). A missing row = no active R8
+// clock. 1 statement, 0 for [].
+export const BAG_READY_AT_OF_SQL = `SELECT order_id, bag_ready_since, bag_ready_window_ms FROM pass_bag_ready
+  WHERE order_id IN (SELECT value FROM json_each(?))`;
+
+/** §4.2 `bagReadyAtOf`; 1 statement (0 for an empty list). */
+export function bagReadyAtOf(db: Database.Database, order_ids: readonly string[]): Map<string, { bag_ready_since: number; bag_ready_window_ms: number }> {
+  if (order_ids.length === 0) return new Map();
+  const rows = db.prepare(BAG_READY_AT_OF_SQL).all(JSON.stringify(order_ids)) as Array<{ order_id: string; bag_ready_since: number; bag_ready_window_ms: number }>;
+  return new Map(rows.map((r) => [r.order_id, { bag_ready_since: r.bag_ready_since, bag_ready_window_ms: r.bag_ready_window_ms }]));
+}
+
+/** §4.2 `passReadyTimesOf`: the historical point time (readyAtOf) and the R8 pair together, per requested order. */
+export interface PassReadyTimes {
+  ready_at: number | null;
+  bag_ready_since: number | null;
+  bag_ready_window_ms: number | null;
+}
+
+// keyed by the batched order ids, left-joined to the historical aggregate and the epoch row (1 statement)
+export const PASS_READY_TIMES_OF_SQL = `SELECT j.value AS order_id,
+       (SELECT MAX(p.ready_at) FROM pass_orders p WHERE p.order_id = j.value AND p.ready_at IS NOT NULL) AS ready_at,
+       b.bag_ready_since AS bag_ready_since, b.bag_ready_window_ms AS bag_ready_window_ms
+  FROM json_each(?) j LEFT JOIN pass_bag_ready b ON b.order_id = j.value`;
+
+/** §4.2 `passReadyTimesOf`; 1 statement (0 for an empty list); every requested id is a key. */
+export function passReadyTimesOf(db: Database.Database, order_ids: readonly string[]): Map<string, PassReadyTimes> {
+  if (order_ids.length === 0) return new Map();
+  const rows = db.prepare(PASS_READY_TIMES_OF_SQL).all(JSON.stringify([...new Set(order_ids)])) as Array<PassReadyTimes & { order_id: string }>;
+  return new Map(rows.map(({ order_id, ...t }) => [order_id, t]));
+}
