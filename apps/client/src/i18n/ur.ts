@@ -1380,6 +1380,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.hand_over_sub': 'ایک ٹیپ سے یہاں کی ہر تیار لائن حوالے۔',
   // P4 (from PassTakeoverUrdu; pass.screen_back is in docs/design/handoff/03b/urdu-todo.md, lane P)
   'pass.takeover_sub': 'اس کا ناؤ اور اگلا یہاں ہے۔ اسکرین واپس آنے تک یہاں ٹیپ کریں۔',
+  'pass.takeover_no_answer': 'ہب سے جواب نہیں آیا — دوبارہ ٹیپ کریں', // QA BUG-17; Urdu to confirm
+  'pass.takeover_not_fired': 'ابھی کچن کو نہیں بھیجا گیا — پہلے پچھلے راؤنڈ', // QA BUG-17; Urdu to confirm
   // ---- lane A (03b client) ----
   // A1 kitchen screens (from KitchenScreensUrdu; the rest is in docs/design/handoff/03b/urdu-todo.md, lane A)
   'kitchen_screens.stations': 'اسٹیشن',

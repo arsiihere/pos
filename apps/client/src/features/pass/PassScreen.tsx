@@ -3,6 +3,7 @@ import { t } from '../../i18n';
 import { Ring } from '../alerts/ui';
 import { fill } from '../../i18n/en';
 import type { KdsApi } from '../kds/contracts';
+import type { CompletionMode } from '../kds/actions/actions';
 import type { PassApi } from './contracts';
 import { notifySlots } from '../kds/slots';
 import { useShell, type Shell } from '../staff/shell/hooks';
@@ -103,6 +104,13 @@ export function sendersOf(api: Shell['api']): { kds: KdsApi; pass: PassApi } {
     senders.set(api, s);
   }
   return s;
+}
+
+/** QA BUG-17: a station's completion mode from the branch config (a takeover row's Start / Done); null = not known */
+function modeOf(shell: Shell, station_id: string): CompletionMode {
+  const st = shell.config?.snapshot?.()?.stations.find((x) => x.station_id === station_id) as { completion_mode?: unknown } | undefined;
+  const m = st?.completion_mode;
+  return m === 'two_tap' || m === 'single_tap' || m === 'auto_done' ? m : null;
 }
 
 /** a display tick for the Ready count-up and the Undo times (no hub read) */
@@ -369,6 +377,7 @@ export function PassScreen() {
             utcOffsetMs={shell.clock.utcOffsetMs}
             timers={BROWSER_TIMERS}
             onToast={onToast}
+            mode={modeOf(shell, station_id)}
           />
         ))}
         {shown.length === 0 ? (
