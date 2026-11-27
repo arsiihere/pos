@@ -1068,3 +1068,32 @@ describe('[03a #179 (b), (d)] stock with a pickup', () => {
     expect(refused.drafts).toEqual([]);
   });
 });
+
+// ---- 02b-tk L-CLOSE-3: 03a v1.2.11 test 193 "the re-plan runs once at the close" (PK-10, §3.5.3 task 12b, §3.7) ----
+
+describe('[03a #193] the close re-plans once, after its releases', () => {
+  it('folding the close batch event by event: the StockReleased day_closed moves nothing; BusinessDayClosed re-places the released line at full cook, once', () => {
+    const pickup = T + 3_600_000;
+    // as the DC-1 test: A a held immediate drink of a pickup order (kept); B a sync from-stock line of another pickup
+    // order (not held: released day_closed)
+    const drink = submit('O1', [{ id: 'A', draws: kb(), from_stock: true }], T, pickup, pickup).map((e) => (e.event_type === 'ItemAdded' ? { ...e, payload: { ...e.payload, serve_mode: 'immediate' } } : e));
+    const s0 = fold([cfg(), opened(DAY), set('KB', 3, DAY), ...drink]);
+    const s1 = fold(submit('O2', [{ id: 'B', draws: kb(), from_stock: true }], T, pickup, pickup), s0);
+    const close = commit(s1, [closed(T + 60_000)], T + 60_000);
+    const types = close.events.map((e) => e.event_type);
+    expect(types).toEqual([...types.filter((t) => t === 'StockReleased'), 'BusinessDayClosed']);
+    const release = close.events.filter((e) => e.event_type === 'StockReleased');
+    expect(release.map(brief)).toEqual([{ type: 'StockReleased', id: 'KB', line: 'B', q: 1, reason: 'day_closed' }]);
+    // after the release alone: no re-plan (the placement is the one before the close)
+    const afterRelease = fold(release, s1);
+    expect(afterRelease.lines.B!.from_stock).toBe(false);
+    expect(afterRelease.lines.B!.booked).toEqual(s1.lines.B!.booked);
+    expect(afterRelease.lines.B!.fire_ms).toBe(s1.lines.B!.fire_ms);
+    // the close's one re-plan places it at its full cook by the same target
+    const afterClose = fold(close.events.filter((e) => e.event_type === 'BusinessDayClosed'), afterRelease);
+    expect(afterClose).toEqual(close.state);
+    expect(afterClose.lines.B!.booked!.end - afterClose.lines.B!.booked!.start).toBe(COOK);
+    // the held line keeps its booking (DC-1)
+    expect(afterClose.lines.A!.booked).toEqual(s1.lines.A!.booked);
+  });
+});
