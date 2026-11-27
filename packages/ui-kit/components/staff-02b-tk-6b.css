@@ -147,3 +147,23 @@
 .tk-dlg__acts .tk-btn--danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .tk-dlg__acts .tk-btn--danger .ico { width: 22px; height: 22px; }
 @media (max-width: 760px) { .pu .dlg.tk-remove { padding: 16px; } .tk-dlg__t { font-size: 24px; } }
+
+/* ---------- pay panel (frames PayCash, PayCashShort, PayCard, PayDone, PayUrdu) ---------- */
+/* a fixed width (the frame's 544 px) anchored to the cart's end edge: on a narrower cart it covers the menu's edge
+   rather than clipping "Rs 10,000" or wrapping "Paid · print receipt" */
+.tk-paypanel:not(.tk-paypanel--fixed) { inset-inline-start: auto; width: max(100%, 544px); box-shadow: var(--shadow-pop); }
+.tk-paypanel .tk-mode { flex-direction: column; gap: 6px; }
+.tk-paypanel .tk-mode .ico { width: 26px; height: 26px; }
+.tk-notes button { white-space: nowrap; padding: 0 6px; font-size: clamp(16px, 1.15vw, 20px); }
+.tk-notes button span { white-space: nowrap; }
+.tk-tendered__v { margin-inline-start: auto; display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; }
+.tk-tendered__v > span { font: 800 22px/1 var(--font-sans); color: var(--ink-muted); }
+.tk-tendered__v input { width: 7.5ch; }
+.tk-paypanel .tk-acts .tk-btn { min-width: 0; padding: 0 14px; }
+.tk-paypanel .tk-acts .tk-btn .ico { width: 22px; height: 22px; flex: none; }
+.tk-pay__go { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tk-pay__hint { color: var(--ink-muted); font-size: 15px; }
+.tk-pay__receipt { display: inline-flex; align-items: center; gap: 8px; }
+.tk-pay__receipt .ico { width: 22px; height: 22px; }
+[dir="rtl"] .tk-pay__t, [dir="rtl"] .tk-paypanel .tk-mode bdi { font-family: var(--font-urdu); }
+@media (max-width: 760px) { .tk-notes { grid-template-columns: repeat(2, 1fr); } }

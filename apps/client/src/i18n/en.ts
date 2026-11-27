@@ -4534,6 +4534,7 @@ export const en = {
   'tr.go': 'Remove {n} {item}',
   'tr.go_n': 'Remove {n} items',
   'tr.keep': 'Keep',
+  'p.card_hint': 'The card is taken on the counter machine',
   // ---- end L-CLIENT-6b ----
 } as const;
 

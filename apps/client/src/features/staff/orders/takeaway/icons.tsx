@@ -20,6 +20,7 @@ const PATHS = {
   clock: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7v5l3 2'],
   back: ['M15 6l-6 6 6 6'],
   del: ['M9 6h11v12H9l-6-6z', 'M12 10l4 4', 'M16 10l-4 4'],
+  qr: ['M4 4h6v6H4z', 'M14 4h6v6h-6z', 'M4 14h6v6H4z', 'M14 14h2v2h-2z', 'M18 18h2v2h-2z', 'M14 18h2', 'M18 14h2'],
 } as const;
 
 export type TkIconName = keyof typeof PATHS;
