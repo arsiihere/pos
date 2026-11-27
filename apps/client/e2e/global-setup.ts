@@ -24,6 +24,7 @@ import {
 } from "../../hub/test/helpers/test-hub";
 import { startTickLoop } from "../../hub/src/alerts/tick";
 import { menuWith03, seed03, startConfigDriver } from "./03b-fixture";
+import { menuWithT1, seedT1, startT1Driver, type DevicesT1 } from "./t1-fixture";
 
 // W0.7 (Q-32): one hub for the whole run — a provisioned test hub (in-memory clock, SQLite under TMPDIR), the
 // fixture staff directory and branch config, one paired tablet; it serves the built /staff/ (run the client
@@ -53,6 +54,8 @@ export interface E2eHub {
   devices03: Record<string, { token: string; device_id: string }>;
   /** 02b-TK hand-over flows: the tablet the kitchen's people sign in on to make a token ready (02b-support `kitchenReady`) */
   kitchen: E2eDevice;
+  /** L-E2E-T1 (t1-fixture.ts): `pass:<key>` / `passB:<key>` Pass tablets of the dry-run journeys, `managerPhone` */
+  devicesT1: DevicesT1;
 }
 
 /** 02a flows: tables the specs take one by one (a flow never reuses a table another run left seated). */
@@ -402,7 +405,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   await seedDirectory(hub, await directory());
   // task 28: the 02b fixture menu (Chicken Karahi, Naan, Cola, …) on the e2e floors, the business day open, stock counted
   openDay(hub, {
-    menu: menuWithTiles(menuWithKheer(menuWith03({ ...fixtureMenu(), floors: floors() }))),
+    menu: menuWithT1(menuWithTiles(menuWithKheer(menuWith03({ ...fixtureMenu(), floors: floors() })))),
     stock: { [FX.stock]: 1_000_000, [TK_TILES.stock]: 0 },
   });
   for (const zone of ["Z-FL-G", "Z-FL-R"])
@@ -410,6 +413,15 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   seedOfflineTables(hub);
   dlSeedTables(hub);
   const { printer, devices: devices03 } = await seed03(hub);
+  // L-E2E-T1: the dry-run journeys' Pass tablets and the Manager's phone; bills, receipts and token slips print on the
+  // fake LAN printer (03c §3.2 bill route `default`), so a journey reads the paper back (t1-support `printJobs`)
+  const devicesT1 = seedT1(hub);
+  hub.clock.advance(1_000);
+  hub.deps.writer.run((tx) =>
+    tx.append([
+      { stream_type: "hub", stream_id: hub.deps.config.provisioned!.branch_id, event_type: "BillRouteSet", schema_version: 1, payload: { scope: "default", ref_id: "", printer_id: "PR-E2E" }, occurred_at: hub.clock.branchNow(), actor_id: null, device_id: "hub-admin" } as EventDraft,
+    ]),
+  );
   // 05a v1.0.6 §3.3a, §3.5, §3.6, §5.3: every staff device the seed pairs carries the profile its flows need, as a
   // `DeviceProfileSet` through the writer (test-hub `appendDeviceProfile`: the event `SetDeviceProfile` appends; the
   // projection and the in-memory `deviceProfile` map see it). A device someone answers approvals or runs hub admin on is
@@ -447,6 +459,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   }, 1_000);
   // 02b-TK L-CLIENT-2 item 1 (D7): config applies a spec asks for (03b-support `hubConfig`)
   const stopConfig = startConfigDriver(hub, join(tmpdir(), `pos-e2e-hub-${process.pid}`));
+  // L-E2E-T1: print jobs, the hub clock and Pass point order types on request (t1-support `t1Hub`)
+  const stopT1 = startT1Driver(hub, join(tmpdir(), `pos-e2e-hub-${process.pid}`));
   const info: E2eHub = {
     baseURL: `http://127.0.0.1:${port}`,
     device: dev(tablet),
@@ -459,6 +473,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     printer_address: printer.address,
     devices03,
     kitchen: dev(kitchen),
+    devicesT1,
   };
   const file = join(tmpdir(), `pos-e2e-hub-${process.pid}.json`);
   writeFileSync(file, JSON.stringify(info));
@@ -467,6 +482,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     clearInterval(clockDriver);
     rmSync(clockFlag, { force: true });
     stopConfig();
+    stopT1();
     stopTick();
     await hub.close();
     await printer.close();
