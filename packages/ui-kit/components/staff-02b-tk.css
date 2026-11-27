@@ -565,3 +565,11 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
   .osc--tk > .cart .ln { padding: 6px 12px; }
   .osc--tk > .cart .ln > .step { height: 48px; min-height: 48px; }
 }
+/* L-CLIENT-6a item 8 (frame CartNote): the saved order note in the cart */
+.tk-note { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 14px; border-radius: 12px; border: 1.5px solid var(--control-edge); background: var(--surface-soft); }
+.tk-note .ico { width: 20px; height: 20px; flex: none; }
+.tk-note__t { flex: 1; min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-note--set { background: var(--warn-tint); border-color: color-mix(in oklab, var(--warn-fill) 45%, transparent); color: var(--warn); }
+.tk-note--set .tk-note__t { color: var(--ink); font-weight: 700; }
+.osc--tk > .cart .cart__foot .duo .btn { gap: 8px; }
+.osc--tk > .cart .cart__foot .duo .btn .ico { width: 20px; height: 20px; }

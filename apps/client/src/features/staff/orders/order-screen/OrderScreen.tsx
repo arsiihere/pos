@@ -1099,6 +1099,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     // ⚠️ 02b-TK L-CLIENT-5 item 1 (frame PickupLater `.tk-readyby--later`): a pickup's Ready by is "Kitchen times it for"
     readyLater: order_type === 'takeaway' && cart.pickup !== undefined,
     offline: !shell.online,
+    note: cart.order_note,
     problems: problems.size,
     canSend,
     blocked,

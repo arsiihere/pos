@@ -69,6 +69,8 @@ export interface CartProps {
   qchips?: boolean;
   /** L-CLIENT-6a item 5 (frame HomeOffline): the hub is away — "Times show when the hub is back" */
   offline?: boolean;
+  /** L-CLIENT-6a item 8 (frame CartNote): the order note, shown in a takeaway cart with Edit */
+  note?: string | undefined;
 }
 
 function GroupHead({ group, utcOffsetMs, takeaway }: { group: CartGroup; utcOffsetMs: number; takeaway: boolean }) {
@@ -185,9 +187,25 @@ export function Cart(p: CartProps) {
           <>
             {p.serve !== undefined && !empty && <ServeSwitch state={p.serve.state} onSet={p.serve.onSet} />}
             {!empty && p.serveChoice}
+            {/* L-CLIENT-6a item 8 (frame CartNote): a saved order note shows in the takeaway cart; its button edits it */}
+            {p.itemsLabel === true && p.note !== undefined && (
+              <div className="tk-note tk-note--set" data-note="">
+                <Ico name="note" />
+                <span className="tk-note__t" dir="auto">
+                  {p.note}
+                </span>
+              </div>
+            )}
             <div className="duo">
               <button type="button" className="btn" onClick={p.onNote}>
-                {t('cart.note')}
+                {p.itemsLabel === true ? (
+                  <>
+                    <Ico name="note" />
+                    {t(p.note === undefined ? 'c.note_add' : 'c.note_edit')}
+                  </>
+                ) : (
+                  t('cart.note')
+                )}
               </button>
               <button type="button" className="btn" disabled={empty} onClick={p.onHold}>
                 {t('cart.hold')}

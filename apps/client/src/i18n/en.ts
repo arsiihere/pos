@@ -4498,6 +4498,8 @@ export const en = {
   'c.counter': 'From the counter',
   'c.kitchen': 'From the kitchen',
   'c.times_none': 'Times show when the hub is back',
+  'c.note_add': 'Add note',
+  'c.note_edit': 'Edit note',
   't.print': 'Print again',
 } as const;
 

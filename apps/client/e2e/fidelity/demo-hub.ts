@@ -207,7 +207,9 @@ export async function startDemoHub(orders: DemoOrder[]): Promise<{ info: DemoHub
       ...(o.pickupMin === undefined ? {} : { pickup_at_ms: hub.clock.branchNow() + o.pickupMin * MIN }),
     });
     tokens[o.key] = res['token'] as number;
-    const all = lines.map((l) => l.order_item_id);
+    // a slot-station piece line is split per unit at Send (02b v1.0.20 §3.2): the engine's own line ids
+    const engineLines = (hub.deps.state.get() as { lines: Record<string, { order_id: string }> }).lines;
+    const all = Object.keys(engineLines).filter((id) => engineLines[id]!.order_id === order_id);
     if (o.stage === 'done') toStage(hub, order_id, all, 'done');
     if (o.stage === 'part') {
       toStage(hub, order_id, all.slice(0, 1), 'served');

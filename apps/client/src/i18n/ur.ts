@@ -1847,5 +1847,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'c.counter': 'کاؤنٹر سے',
   'c.kitchen': 'کچن سے',
   'c.times_none': 'ہب واپس آنے پر وقت دکھے گا',
+  'c.note_add': 'نوٹ لکھیں',
+  'c.note_edit': 'نوٹ بدلیں',
   't.print': 'دوبارہ پرنٹ',
 };
