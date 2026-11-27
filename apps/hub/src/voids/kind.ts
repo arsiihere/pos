@@ -1,3 +1,4 @@
+import { noteVoidApply } from './lanes/handover-close.js';
 import { DomainError, VOID_DISPOSITIONS, VOID_REASON_CODES, type VoidReasonCode } from '@pos/domain';
 import { AlertDetailsBase, type AlertDisplay, type AlertTarget, type EventDraft } from '@pos/events';
 import { z } from 'zod';
@@ -79,6 +80,8 @@ function applyVoid(ctx: AlertApplyCtx<VoidValues, VoidDetails>, answer: AnswerFa
     approver_staff_id: answer.answerer_staff_id, // V6: the answer's, never actor_id
     alert_id: ctx.alert.alert_id,
   };
+  // ⚠️ 04 v1.0.9 §6.2 (R3-M-3): the hand-over request close runs after these drafts fold, outside apply
+  noteVoidApply(order.order_id, order.order_type);
   return voidDrafts(ctx, order.order_id, planned, meta, { stale_comps: 'keep', lineChangeDrafts: voidApplyDeps.lineChangeDrafts }).drafts;
 }
 
