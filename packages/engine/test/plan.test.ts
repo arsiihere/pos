@@ -12,6 +12,7 @@ import {
   planOrder,
   pullEarly,
   getTickIntents,
+  paddingOf,
   type EngineState,
   type PlanResult,
   type ProposedOrder,
@@ -524,5 +525,29 @@ describe('@pos/engine [03a #179 (c)] station-less ready and zone lines stay no e
     expect(order.lines.filter((l) => isEngineLine(l)).map((l) => l.order_item_id)).toEqual(['burger']);
     const plan = planOrder(state, { ...order, lines: order.lines.filter((l) => isEngineLine(l)) }, T0, {});
     expect(plan.lines.map((l) => l.order_item_id)).toEqual(['burger']);
+  });
+});
+
+// ⚠️ BR-1 (owner 2026-11-27): paddingOf is exported for 03c customerReadyAt and 02b planned_ready_at_ms; behaviour
+// unchanged (03a §3.5.1 step 5, D3, D6).
+describe('@pos/engine paddingOf export (03a §3.5.1 step 5; BR-1)', () => {
+  it('the station override, else the branch value per order type; 0 on FIFO / EDF; 0 without a config', () => {
+    const state = fold([
+      config(
+        [
+          { station_id: 'S1' },
+          { station_id: 'S2', promise_padding_ms: 600_000 },
+          { station_id: 'S3', policy: 'fifo', promise_padding_ms: 900_000 },
+          { station_id: 'S4', policy: 'edf' },
+        ],
+        { promise_padding_takeaway_ms: 300_000 },
+      ),
+    ]);
+    expect(paddingOf(state, 'S1', 'dine_in')).toBe(PAD);
+    expect(paddingOf(state, 'S1', 'takeaway')).toBe(300_000);
+    expect(paddingOf(state, 'S2', 'takeaway')).toBe(600_000);
+    expect(paddingOf(state, 'S3', 'takeaway')).toBe(0);
+    expect(paddingOf(state, 'S4', 'dine_in')).toBe(0);
+    expect(paddingOf(initialEngineState(), 'S1', 'takeaway')).toBe(0);
   });
 });
