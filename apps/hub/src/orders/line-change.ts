@@ -4,7 +4,7 @@
 // AD-9: the caller's CommandCtx, so the closes carry the caller's actor and device. ⚠️ 02b v1.0.16 §3.5 (05 row Q-7):
 // after OrderCancelled, the registered order-cancelled hooks' drafts, alert_id stamped.
 import type { EventDraft, OrderCancelledPayload } from '@pos/events';
-import type { AlertApplyCtx } from '../alerts/kinds.js';
+import type { AlertApplyCtx, AlertRecord } from '../alerts/kinds.js';
 import { alerts, type CloseItem } from '../alerts/raise.js';
 import type { CommandCtx } from '../commands/registry.js';
 import type { LineChangeDrafts, LineChangeOptions, LineView, OrderCancelledHook } from './contracts.js';
@@ -56,6 +56,9 @@ function orderCancelledDrafts(ctx: CommandCtx, order_id: string): EventDraft[] {
   );
 }
 
+/** §6.12a the unpaid hand-over request kind (orders/hand-over-unpaid-kind.ts); a string here, as COMP_KIND. */
+export const HAND_OVER_UNPAID_KIND = 'hand_over_unpaid';
+
 /** §3.9: the comp request kind (defined in orders/comp-kind.ts, §6.12); a string here, as zone-alerts.ts does. */
 export const COMP_KIND = 'comp';
 
@@ -70,8 +73,15 @@ export function staleCompCloses(
   order_id: string,
   freeOf: (order_item_id: string) => number | undefined,
 ): { drafts: EventDraft[]; closed: string[] } {
+  const closes = staleCompItems(alerts.listOpen(ctx.tx.db, { kind: COMP_KIND, subject: { stream_type: 'order', stream_id: order_id } }), freeOf);
+  return { drafts: closes.length === 0 ? [] : alerts.closeMany(ctx, closes), closed: closes.map((c) => c.alert_id) };
+}
+
+/** The §3.9 stale closes among `open` (the order's open alerts; only `comp` ones are judged). 0 statements. */
+function staleCompItems(open: readonly AlertRecord[], freeOf: (order_item_id: string) => number | undefined): CloseItem[] {
   const closes: CloseItem[] = [];
-  for (const a of alerts.listOpen(ctx.tx.db, { kind: COMP_KIND, subject: { stream_type: 'order', stream_id: order_id } })) {
+  for (const a of open) {
+    if (a.kind !== COMP_KIND) continue;
     const values = a.values as { order_item_id?: unknown; units?: unknown };
     if (typeof values.order_item_id !== 'string' || typeof values.units !== 'number') continue;
     const free = freeOf(values.order_item_id);
@@ -79,7 +89,7 @@ export function staleCompCloses(
       closes.push({ alert_id: a.alert_id, reason: 'obsolete', note: `stale: ${values.order_item_id} has ${free} of ${values.units} units left to comp` });
     }
   }
-  return { drafts: closes.length === 0 ? [] : alerts.closeMany(ctx, closes), closed: closes.map((c) => c.alert_id) };
+  return closes;
 }
 
 /**
@@ -102,11 +112,13 @@ export function linesAfter(before: readonly LineView[], changes: readonly LineCh
 
 /**
  * The shared core of RemoveItems and `lineChangeDrafts`, given the order's lines BEFORE the change (the caller read
- * them). 1 statement: `alerts.listOpen({ kind: 'comp', subject: order })` (+ closeMany's own when a request closes);
+ * them). 1 statement: `alerts.listOpen({ subject: order })` (+ closeMany's own when a request closes);
  * 0 with `stale_comps: 'keep'`. §3.9 (⚠️ 04 row Q-4; G-15): only open requests on a line in `changes` are judged
  * (`freeOf` → undefined for any other id); such a request whose line is left with `live_units − comped_units` < its
  * requested units closes `obsolete` with a note; 01d tells the requester. `'keep'` judges none and skips
- * `staleCompCloses` (04's void `apply`, K-1). §3.4 deal headers: "no live line" looks at parts only.
+ * `staleCompCloses` (04's void `apply`, K-1). §3.4 deal headers: "no live line" looks at parts only. ⚠️ 02b v1.0.25
+ * §3.7a (b): a cancellation on the 'close' path also closes the order's open `hand_over_unpaid` request, from the same
+ * one open-alert read (no extra statement; 04's 'keep' apply leaves it, §4.2).
  */
 export function changeDrafts(
   ctx: CommandCtx,
@@ -118,18 +130,22 @@ export function changeDrafts(
   const after = linesAfter(before, changes);
   const byId = new Map(after.map((l) => [l.order_item_id, l]));
   const changed = new Set(changes.map((c) => c.order_item_id));
-  // A changed id the order no longer has counts as 0 free (closed); an unchanged line is not judged.
-  const stale =
-    opts.stale_comps === 'keep'
-      ? { drafts: [], closed: [] }
-      : staleCompCloses(ctx, order_id, (id) => {
-          if (!changed.has(id)) return undefined;
-          const line = byId.get(id);
-          return line === undefined ? 0 : line.live_units - line.comped_units;
-        });
-  const drafts: EventDraft[] = stale.drafts;
-  const envelope = { occurred_at: ctx.clock.branchNow(), actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
   const cancelled = !after.some((l) => l.line_kind !== 'deal' && l.live_units > 0);
+  // One open-alert read of the order on the 'close' path (none with 'keep'): its stale comp requests (§3.9; a changed
+  // id the order no longer has counts as 0 free, an unchanged line is not judged) and, when the order is cancelled,
+  // ⚠️ 02b v1.0.25 §3.7a Close (b), §4.2 (run 3 R3-M-3) its open `hand_over_unpaid` request, note `order_cancelled`.
+  const open = opts.stale_comps === 'keep' ? [] : alerts.listOpen(ctx.tx.db, { subject: { stream_type: 'order', stream_id: order_id } });
+  const stale = staleCompItems(open, (id) => {
+    if (!changed.has(id)) return undefined;
+    const line = byId.get(id);
+    return line === undefined ? 0 : line.live_units - line.comped_units;
+  });
+  const handOver: CloseItem[] = cancelled
+    ? open.filter((a) => a.kind === HAND_OVER_UNPAID_KIND).map((a) => ({ alert_id: a.alert_id, reason: 'obsolete' as const, note: 'order_cancelled' }))
+    : [];
+  const closes = [...stale, ...handOver];
+  const drafts: EventDraft[] = closes.length === 0 ? [] : alerts.closeMany(ctx, closes);
+  const envelope = { occurred_at: ctx.clock.branchNow(), actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
   if (cancelled) {
     const payload: OrderCancelledPayload = { order_id };
     drafts.push({ stream_type: 'order', stream_id: order_id, event_type: 'OrderCancelled', schema_version: 1, payload, ...envelope });
@@ -139,7 +155,7 @@ export function changeDrafts(
     // AD-10: foodDrafts has no envelope; the caller adds it.
     for (const d of foodDrafts(order_id, after, 'change')) drafts.push({ ...d, ...envelope });
   }
-  return { drafts, cancelled, comp_requests_closed: stale.closed };
+  return { drafts, cancelled, comp_requests_closed: stale.map((c) => c.alert_id) };
 }
 
 /**
