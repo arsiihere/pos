@@ -8,6 +8,7 @@ import type { StubConfigCloud } from '../../hub/test/helpers/stub-config-cloud';
 import type { EngineState } from '@pos/engine';
 import { fireLines, pairPassTablet } from '../../hub/test/kds/fixtures';
 import { appendDeviceProfile, pairDevice, type TestHub } from '../../hub/test/helpers/test-hub';
+import { openSeating } from '../../hub/test/orders/fixtures';
 
 // L-E2E-T1 (Tier 1 dry-run checklist, owner sheet "Takeaway Tier 1 — Restaurant Dry Run Checklist"): the fixture of the
 // t1-*.spec.ts journeys on top of the e2e hub. Every (viewport, language) run of a journey gets its own Pass point with a
@@ -63,10 +64,20 @@ export function menuWithT1(menu: BranchConfig): BranchConfig {
     tax_profiles: pk.tax_profiles.map((p) => ({ tax_class_id: p.tax_profile_id, taxes: p.taxes })),
     payment_modes: [...pk.settings.payment_modes.filter((m) => m.mode_id !== T1_CARD.mode_id), { mode_id: T1_CARD.mode_id, name: T1_CARD.name, kind: 'card', payment_class: 'digital', reference_required: true, is_active: true, sort_order: 1, authority_codes: [] }],
   });
-  return { ...menu, billing, points: [...menu.points, ...points], stations: [...menu.stations, ...stations], items: [...menu.items, ...items] };
+  // row #20: a small floor of its own (the 02a / dl table pool is fully taken), one table per (viewport, language)
+  const floor = {
+    floor_id: 'FL-T1',
+    name: 'T1',
+    sort_order: 90,
+    zones: [],
+    tables: T1_PROJECTS.flatMap((project) => T1_LANGS.map((lang) => t1Table(project, lang))).map((table_id, i) => ({ table_id, name: table_id, seats: 4, sort_order: i, zone_id: null })),
+  };
+  return { ...menu, billing, floors: [...menu.floors, floor] as BranchConfig['floors'], points: [...menu.points, ...points], stations: [...menu.stations, ...stations], items: [...menu.items, ...items] };
 }
 
 export const T1_CARD = { mode_id: 'card', name: 'Card' } as const;
+/** row #20's dine-in table of a (viewport, language) run, on the T1 floor */
+export const t1Table = (project: string, lang: string): string => `T1-${project === 'kiosk' ? 'K' : 'L'}-${lang.toUpperCase()}`;
 
 export interface DevicesT1 {
   /** `pass:<key>` the run point's Pass tablet; `passB:<key>` the route run's second point; `managerPhone` */
@@ -97,6 +108,8 @@ export type T1Request =
   | { kind: 'jobs'; since: number }
   | { kind: 'now' }
   | { kind: 'advance'; ms: number }
+  /** an open seating on `table_id` held by `holder` (the 02b fixture's TableOpened), for a dine-in set-up */
+  | { kind: 'seat'; table_id: string; seating_id: string; holder: string }
   /** the station's unfired live lines get a real FireDispatched (the fixed clock has no fires tick); `except` stay held */
   | { kind: 'fire'; station: string; except?: string[] }
   | { kind: 'orderTypes'; points: Record<string, Array<'dine_in' | 'takeaway' | 'parking'> | null> };
@@ -148,6 +161,9 @@ export function startT1Driver(hub: TestHub, base: string): () => void {
       case 'advance':
         hub.clock.advance(req.ms);
         return { now: hub.clock.branchNow() };
+      case 'seat':
+        openSeating(hub, { table_id: req.table_id, seating_id: req.seating_id, holder_staff_id: req.holder });
+        return { ok: true };
       case 'fire': {
         const state = hub.deps.state.get() as EngineState;
         const ids = Object.values(state.lines)
