@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { escapeRe, rushOff, shiftOpen, signInOn, takeawayTab } from './02b-support';
 import { adminCommand } from './03b-support';
 import { T1_HELD } from './t1-fixture';
-import { apiSession, capture, closeAll, hub, hubAdvance, hubNow, LANGS, queueEntry, screen, t1Hub, tr } from './t1-support';
+import { apiSession, capture, closeAll, hub, hubAdvance, hubNow, runId, LANGS, queueEntry, screen, t1Hub, tr } from './t1-support';
 
 // L-E2E-T1 rows #26 / #27 — the owner's dry-run checklist, day close, on a hub of its own (playwright.dayclose.config.ts:
 // the e2e global setup without the other flows' orders, so the day can close). The Owner at the cashier kiosk:
@@ -41,7 +41,7 @@ for (const lang of LANGS) {
       await takeawayTab(page);
 
       // a pickup order 30 min ahead (SubmitOrder pickup_at_ms, 02b §3.2 step 2b), paid in cash at the counter
-      const order_id = `T1-DC-${lang}-${Date.now().toString(36)}`.toUpperCase();
+      const order_id = runId(`T1-DC-${lang}`);
       const placed = await api.command('SubmitOrder', { order_id, order_type: 'takeaway', pickup_at_ms: (await hubNow()) + PICKUP_AHEAD_MS, lines: [{ order_item_id: `${order_id}-K`, item_id: KARAHI.item_id, quantity: 1 }] });
       expect(placed.status, JSON.stringify(placed.body.error)).toBe(200);
       const token = String((await api.query<{ orders: Array<{ order_id: string; token: number }> }>('open-orders?order_type=takeaway')).orders.find((o) => o.order_id === order_id)!.token);

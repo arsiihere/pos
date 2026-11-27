@@ -9,6 +9,8 @@ import { t1Items, t1Key, t1OtherPoint, t1Point, type T1Flow, type T1Request } fr
 export * from './03b-support';
 export { t1Items, t1Key, t1OtherPoint, t1Point };
 
+// `@gap` in a test's title: a dry-run row the e2e found unmet (a missing client feature or a bug, reported to the lane
+// that owns it). The test stays and fails until that lane's fix lands; the gate's e2e job runs with --grep-invert @gap.
 export const T1_RUNS_ON = ['kiosk', 'tablet-landscape'];
 /** the takeaway counter and the Pass run at the kiosk and landscape tablet viewports (02b-TK C2-1) */
 export function t1RunsHere(info: TestInfo, timeout = 150_000): void {
@@ -176,7 +178,17 @@ export async function apiSession(request: import('@playwright/test').APIRequestC
  */
 export async function queueEntry(page: Page, token: string): Promise<Locator> {
   const { railEntry, readyTile } = await import('./02b-support');
+  // an open token drawer covers the tablet's rail strip: close it first
+  const open = page.locator('section.tk-drawer');
+  if (await open.isVisible()) {
+    await page.keyboard.press('Escape');
+    await expect(open).toHaveCount(0);
+  }
   const strip = page.locator('.tk-rstrip');
   if ((await strip.count()) > 0 && (await readyTile(page, token).count()) === 0 && (await page.locator('.tk-qr').count()) === 0) await strip.locator('.tk-rstrip__q').click();
   return railEntry(page, token).first();
 }
+
+let idSeq = 0;
+/** An id no other run of this hub uses: the worker's pid and a counter (no wall clock, F §6.7). */
+export const runId = (prefix: string): string => `${prefix}-${process.pid}-${++idSeq}`.toUpperCase();
