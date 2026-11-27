@@ -1816,4 +1816,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'takeaway.slip.no_printer': 'پرچی کا پرنٹر نہیں لگا — ٹوکن اسکرین پر ہے', // not in strings-table.md; Urdu to confirm
   'takeaway.slip.off': 'ٹوکن پرچی بند ہے', // not in strings-table.md; Urdu to confirm
   'errors.TAKEAWAY_SLIP_NOT_ALLOWED': 'اس آرڈر کی پرچی نہیں — ادائیگی ہو چکی، منسوخ ہے یا ٹیک اوے نہیں', // not in strings-table.md; Urdu to confirm
+  // ---- 02b-TK L-CLIENT-3 01b test 119 R3-M-3 (01b v1.12 B-5, §5.1c): the hand-over-unpaid label and the role editor's out-of-date banner ----
+  'perm.hand-over-unpaid': 'بغیر ادائیگی آرڈر حوالے کرنے کی اجازت دینا', // not in strings-table.md; Urdu to confirm
+  'roles.out_of_date': 'یہ ایپ پرانی ہے — رولز بدلنے کے لیے دوبارہ لوڈ کریں', // not in strings-table.md; Urdu to confirm
+  'roles.out_of_date_body': 'اس رول میں ایسی اجازت ہے جو ایپ کا یہ ورژن نہیں جانتا۔ ابھی محفوظ کرنے سے وہ ہٹ سکتی ہے۔', // not in strings-table.md; Urdu to confirm
 };

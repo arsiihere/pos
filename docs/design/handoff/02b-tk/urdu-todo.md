@@ -130,6 +130,9 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `takeaway.slip.no_printer` (03c v1.0.16 §8; L-CLIENT-3 item 2) | No slip printer is set up — the token is on the screen | پرچی کا پرنٹر نہیں لگا — ٹوکن اسکرین پر ہے |
 | `takeaway.slip.off` (03c v1.0.16 §8; L-CLIENT-3 item 2) | Token slips are turned off | ٹوکن پرچی بند ہے |
 | `errors.TAKEAWAY_SLIP_NOT_ALLOWED` (03c v1.0.16 §8; L-CLIENT-3 item 2) | No slip for this order — it is paid, cancelled or not a takeaway | اس آرڈر کی پرچی نہیں — ادائیگی ہو چکی، منسوخ ہے یا ٹیک اوے نہیں |
+| `perm.hand-over-unpaid` (01b v1.12 B-5 R3-M-3; L-CLIENT-3 test 119) | Approve handing over an unpaid order | بغیر ادائیگی آرڈر حوالے کرنے کی اجازت دینا |
+| `roles.out_of_date` (01b v1.12 §5.1c R3-M-3; L-CLIENT-3 test 119) | This app is out of date — reload to edit roles | یہ ایپ پرانی ہے — رولز بدلنے کے لیے دوبارہ لوڈ کریں |
+| `roles.out_of_date_body` (01b v1.12 §5.1c R3-M-3; L-CLIENT-3 test 119) | This role has a permission this version of the app does not know. Saving now could remove it. | اس رول میں ایسی اجازت ہے جو ایپ کا یہ ورژن نہیں جانتا۔ ابھی محفوظ کرنے سے وہ ہٹ سکتی ہے۔ |
 
 Historical copy for Urdu review. OR-7 disabled the client override.
 

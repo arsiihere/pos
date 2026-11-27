@@ -29,6 +29,9 @@ import { joinNames } from '../staff/people';
 // choice. A PATCH sends `expected_version` and the changed fields (grants whole, §6.7). An admin guard
 // (§3.4) snaps the two admin grants back to the stored ones and says why. `409 CONFIG_STALE` shows "Changed
 // elsewhere" and keeps the draft until Reload (owner decision 2026-10-30, 01b proposal P1; same as 01c §8).
+// ⚠️ Changed by 01b v1.12 §5.1c Owner-app rollout (R3-M-3): that Reload is a full application reload (new
+// bundle and fresh roles), and a stored grant this bundle's catalogue does not know blocks every role write
+// (a replacement list would silently drop it) and asks for a full reload.
 type GrantType = 'allowed' | 'requires_approval' | 'not_granted';
 
 interface GrantDraft {
@@ -61,6 +64,21 @@ function grantsOf(role: Role | null, stored = false): Grants {
   ) as Grants;
 }
 
+// 01b v1.12 §5.1c (R3-M-3): the stored grants whose permission this bundle's PERMISSIONS does not know.
+export function unknownGrants(role: Role | null): string[] {
+  const known = PERMISSIONS as readonly string[];
+  return (role?.grants ?? []).map((g) => g.permission as string).filter((p) => !known.includes(p));
+}
+
+// The editor's one role write. A role this bundle cannot round-trip is never written (null, no request):
+// the grants list is replaced whole, so the unknown grant would be lost.
+export function writeRolePatch(api: CloudAdmin, stored: Role, patch: Omit<RolePatchRequest, 'expected_version'>) {
+  if (unknownGrants(stored).length > 0) return Promise.resolve(null);
+  return api.patchRole(stored.role_id, { expected_version: stored.version, ...patch });
+}
+
+const reloadWindow = () => window.location.reload();
+
 function wire(grants: Grants) {
   return PERMISSIONS.flatMap((permission) => {
     const g = grants[permission];
@@ -76,7 +94,7 @@ function wire(grants: Grants) {
   });
 }
 
-export function RoleEditor({ api, roleId }: { api: CloudAdmin; roleId: string }) {
+export function RoleEditor({ api, roleId, reloadApp = reloadWindow }: { api: CloudAdmin; roleId: string; reloadApp?: () => void }) {
   const [roles, setRoles] = useState<Role[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
@@ -117,7 +135,7 @@ export function RoleEditor({ api, roleId }: { api: CloudAdmin; roleId: string })
       </Page>
     );
   }
-  return <Editor key={generation} api={api} roles={roles} role={role} back={back} onReload={() => void load()} />;
+  return <Editor key={generation} api={api} roles={roles} role={role} back={back} reloadApp={reloadApp} />;
 }
 
 // Phone (RoleEditorPhone): the back arrow alone. With no Cancel on phone it is the way out, so it goes through
@@ -164,13 +182,13 @@ function Editor({
   roles,
   role,
   back,
-  onReload,
+  reloadApp,
 }: {
   api: CloudAdmin;
   roles: Role[];
   role: Role | null;
   back: ReactNode;
-  onReload: () => void;
+  reloadApp: () => void;
 }) {
   const [stored, setStored] = useState<Role | null>(role);
   const [name, setName] = useState(role?.name ?? '');
@@ -180,6 +198,7 @@ function Editor({
   const [banner, setBanner] = useState<{ tone: 'danger' | 'warn'; text: string; detail?: string } | null>(null);
   const [snapped, setSnapped] = useState<{ permissions: Permission[]; title: string; text: string; detail?: string } | null>(null);
   const [stale, setStale] = useState(false);
+  const outOfDate = unknownGrants(stored).length > 0;
   const [busy, setBusy] = useState(false);
   const { key, renew } = useIdempotencyKey();
   const down = useCloudDown(api);
@@ -310,8 +329,9 @@ function Editor({
       return;
     }
     setBusy(true);
-    const result = await api.patchRole(stored.role_id, { expected_version: stored.version, ...patch });
+    const result = await writeRolePatch(api, stored, patch);
     setBusy(false);
+    if (result === null) return; // out of date: the banner already asks for a full reload
     if (result.ok) {
       setStored(result.data.role);
       setGrants(grantsOf(result.data.role));
@@ -323,7 +343,7 @@ function Editor({
 
   // B03: while the stale banner shows, Reload is the one primary and Save is disabled and secondary.
   const saveButton = (
-    <BusyButton primary={!stale} busy={busy} disabled={down || stale} size={phone ? 'lg block' : undefined} onClick={() => void save()}>
+    <BusyButton primary={!stale && !outOfDate} busy={busy} disabled={down || stale || outOfDate} size={phone ? 'lg block' : undefined} onClick={() => void save()}>
       {t('roles.save')}
     </BusyButton>
   );
@@ -339,7 +359,22 @@ function Editor({
 
   return (
     <Page api={api} title={title} start={back} end={phone ? undefined : actions}>
-      {stale && <StaleBanner onReload={onReload} />}
+      {stale && <StaleBanner onReload={reloadApp} />}
+      {outOfDate && (
+        <div className="pos-banner pos-banner--warn" role="status" data-out-of-date="">
+          <Icon name="reload" />
+          <p>
+            {t('roles.out_of_date')}
+            <small>{t('roles.out_of_date_body')}</small>
+          </p>
+          <div className="pos-banner__action pos-row">
+            <button type="button" className="pos-btn pos-btn--primary" onClick={reloadApp}>
+              <Icon name="reload" />
+              {t('stale.reload')}
+            </button>
+          </div>
+        </div>
+      )}
       {banner !== null && <Banner tone={banner.tone} text={banner.text} detail={banner.detail} />}
       <section className="pos-section">
         <div className="pos-grid">

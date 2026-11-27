@@ -4468,6 +4468,9 @@ export const en = {
   'takeaway.slip.no_printer': 'No slip printer is set up — the token is on the screen',
   'takeaway.slip.off': 'Token slips are turned off',
   'errors.TAKEAWAY_SLIP_NOT_ALLOWED': 'No slip for this order — it is paid, cancelled or not a takeaway',
+  // ---- 02b-TK L-CLIENT-3 01b test 119 R3-M-3 (01b v1.12 B-5, §5.1c): the role editor's out-of-date banner (a grant this app does not know) ----
+  'roles.out_of_date': 'This app is out of date — reload to edit roles',
+  'roles.out_of_date_body': 'This role has a permission this version of the app does not know. Saving now could remove it.',
 } as const;
 
 export type MessageKey = keyof typeof en;
