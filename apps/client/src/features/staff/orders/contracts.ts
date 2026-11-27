@@ -122,6 +122,13 @@ export interface OpenOrder {
   placed_by?: { staff_id: string; name: string | null };
   /** H4 (Q-9), dine-in rows; absent until H4 → the map tile whose seating_id = the table_key suffix */
   table_id?: string | null;
+  /**
+   * ⚠️ 02b v1.0.25 §6.16 (R3-M-9), 03b v1.0.16 §3.4, D8 (02b-TK L-CLIENT-2 item 2): takeaway / parking = the whole-bag
+   * ready epoch (`bag_ready_since`), dine-in = the Pass point history; null without one; absent from an older hub
+   */
+  ready_at?: number | null;
+  /** ⚠️ same: the epoch's frozen R8 window; null without an epoch (and for dine-in); absent from an older hub */
+  bag_ready_window_ms?: number | null;
 }
 
 export interface OpenOrdersBody {

@@ -11,7 +11,7 @@ import { useLiveRefetch } from '../lists/OpenOrders';
 import { MONEY_DIR, money } from '../money';
 import { WaitingRows } from '../queue/WaitingToSend';
 import type { TokenBook } from './book';
-import { buildQueue, knownOrders, matchesQuery, type QueueModel, type QueueToken } from './queue-model';
+import { buildQueue, knownOrders, matchesQuery, notCollectedMinOf, type QueueModel, type QueueToken } from './queue-model';
 import './styles';
 
 // 02b-TK C2-1 (02b v1.0.24 §6.16, §8; frames HomeKiosk, ReadyTiles, QueueTablet, PhoneQueue; CHANGES §1; R3): the
@@ -58,6 +58,23 @@ export function useTakeawayQueue(book: TokenBook): { model: QueueModel | null; f
 }
 
 const NO_FRAMES: ReadonlySet<string> = new Set();
+
+/** ⚠️ 03b v1.0.16 §3.4 (R3-M-9): how often a ready tile / the token drawer re-checks the not-collected clock */
+export const LATE_TICK_MS = 15_000;
+
+/** The hub clock, re-read every LATE_TICK_MS while `on` (02b-TK L-CLIENT-2 item 2: the amber Ready tile and drawer). */
+export function useHubNow(on: boolean): number {
+  const shell = useShell();
+  const clock = useRef(shell.clock);
+  clock.current = shell.clock;
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const timer = setInterval(() => setTick((n) => n + 1), LATE_TICK_MS);
+    return () => clearInterval(timer);
+  }, [on]);
+  return clock.current.nowMs();
+}
 
 /** A ready tile that owes money: all ready (not part given) and not paid. */
 const dueReady = (q: QueueToken) => !q.part && !q.paid;
@@ -128,12 +145,26 @@ export interface QueueRailProps {
   compact?: boolean;
 }
 
-function ReadyTile({ q, selected, owed, onOpen, onHandOver, onPay }: { q: QueueToken; selected: boolean; owed: number | null; onOpen(): void; onHandOver?: (() => void) | undefined; onPay?: (() => void) | undefined }) {
+function ReadyTile({ q, selected, owed, late, onOpen, onHandOver, onPay }: { q: QueueToken; selected: boolean; owed: number | null; late: number | null; onOpen(): void; onHandOver?: (() => void) | undefined; onPay?: (() => void) | undefined }) {
   const shell = useShell();
-  const cls = ['tk-rt', q.part ? 'tk-rt--part' : q.paid ? null : 'tk-rt--due', selected ? 'is-sel' : null].filter((c) => c !== null).join(' ');
+  // ⚠️ 02b-TK L-CLIENT-2 item 2 (03b v1.0.16 §3.4 R3-M-9, §3.5, D8; frames ReadyTiles, TokenLate): not collected past
+  // the R8 window → amber; a paid one with a phone this person may see reads "{n} min · Call" and opens the token
+  // (Call and Hand over all are in the drawer); a due one keeps Take payment
+  const amber = late !== null && !q.part;
+  const call = amber && q.paid && q.phone !== null;
+  const cls = ['tk-rt', q.part ? 'tk-rt--part' : q.paid ? null : 'tk-rt--due', amber ? 'tk-rt--late' : null, selected ? 'is-sel' : null].filter((c) => c !== null).join(' ');
   // R2: a paid, all-ready token hands over in one tap; a due one only offers Take payment; part given opens the view
-  const act = q.part ? undefined : q.paid ? onHandOver : onPay;
-  const actText = q.part ? (
+  const act = q.part ? undefined : call ? onOpen : q.paid ? onHandOver : onPay;
+  const [minBefore, minAfter = ''] = t('q.waiting_min').split('{n}');
+  const actText = call ? (
+    <>
+      {minBefore}
+      <span className="num" dir="ltr">
+        {late}
+      </span>
+      {minAfter}
+    </>
+  ) : q.part ? (
     <>
       {t('q.part')}{' '}
       {q.promise_ms !== null && (
@@ -212,6 +243,8 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
     if (open_n !== null) countRef.current?.(open_n);
   }, [open_n]);
   const owed = useDueAmounts(model);
+  // ⚠️ 03b v1.0.16 §3.4 (R3-M-9): re-check the amber clock while a ready tile has a bag-ready pair
+  const nowMs = useHubNow(model?.ready.some((q) => q.late_from != null) ?? false);
   const [query, setQuery] = useState('');
   const [all, setAll] = useState(false);
   const seeContact = variant === 'column' || shell.permissions.allowed('view-customer-contact');
@@ -245,6 +278,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
       q={q}
       selected={selected === q.key}
       owed={owedBy(q, owed)}
+      late={notCollectedMinOf(q, nowMs)}
       onOpen={() => open(q)}
       onHandOver={onHandOver === undefined ? undefined : () => { setAll(false); onHandOver(q); }}
       onPay={onPay === undefined ? undefined : () => { setAll(false); onPay(q); }}

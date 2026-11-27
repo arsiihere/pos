@@ -68,3 +68,17 @@ Captured from `apps/client/e2e/02b-tk-d7.spec.ts` (landscape tablet, device scal
 - Retired: a full-screen state replaces the cards: "This point was retired — ask a manager to set this tablet to another point". It shows no station strip, filter or actions. The next catch-up brings the Pass back. 03b-B15 PassArchived (the 404 POINT_NOT_FOUND banner with the cards still on screen) stays as built for a command refused on an archived point.
 - Moved from: each moved line shows "Moved from {old point name}" as a chip on its own line under the item. The hub sends `LineDetail.moved_from` as the name string, both live and on catch-up. The KDS shows no label: §3.10 names only the receiving Pass.
 - Config status: the hub's danger banner reads "Menu update refused: activate another Pass point first." followed by the version still in use. Every other problem keeps its existing text.
+
+## L-CLIENT-2 item 2 the counter Ready tile after the R8 window
+
+Captured from `apps/client/e2e/02b-tk-late.spec.ts` at device scale 2: a paid takeaway token, its bag ready (the kitchen drives it through the hub), and the page's clock fast-forwarded past the e2e hub's 60 s window. The kiosk images put the hand-off frame on the left (ReadyTiles 1920 × 1080 and the tile capture; TokenLate and the screen capture). The landscape tablet strip's tile is shown alone.
+
+| State | Frame (left) | English | Urdu |
+| --- | --- | --- | --- |
+| Ready tile, not collected (kiosk column) | ReadyTiles | [ReadyTileLate](ReadyTileLate.png) | [ReadyTileLate-Urdu](ReadyTileLate-Urdu.png) |
+| Ready tile, not collected (landscape tablet strip) | none | [ReadyTileLate-tablet](ReadyTileLate-tablet.png) | [ReadyTileLate-tablet-Urdu](ReadyTileLate-tablet-Urdu.png) |
+| Token drawer of the late token (kiosk) | TokenLate | [TokenLate](TokenLate.png) | [TokenLate-Urdu](TokenLate-Urdu.png) |
+
+- The tile turns amber (`tk-rt--late`) once hub now ≥ open-orders `ready_at` + `bag_ready_window_ms`, the pair every Pass card uses. A token with an addition waits for the later of its orders. The rail checks the clock again every 15 s while a ready tile has the pair. When the hub clears the pair (bag incomplete again, D8) or the token is collected, the next open-orders read removes the amber.
+- A paid late tile with a phone the person can see reads "{n} min · Call" (`q.waiting_min`), and the tap opens the token, where Call and Hand over all are. A late tile with no phone keeps its Hand over. A Due late tile is amber and keeps Take payment.
+- The drawer shows "Ready {n} min ago — not collected" (`v.late`) with Call when the drawer's own read finds every live line still ready. Both strings come from strings-table.md.

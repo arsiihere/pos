@@ -21,7 +21,8 @@ import { VoidButton } from '../../../voids/ui';
 import { MaskedAction } from '../../shell/MaskedAction';
 import type { TokenBook } from './book';
 import { maskPhone } from './mask';
-import type { QueueToken } from './queue-model';
+import { notCollectedMinOf, type QueueToken } from './queue-model';
+import { useHubNow } from './QueueRail';
 import './styles';
 
 // 02b-TK C2-2 (02b v1.0.24 §3.7, §6.4, §6.18, §6.18a; 05 v1.0.34 §6.1, B16; frames TokenDue, TokenReady,
@@ -133,6 +134,10 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
   const readyLines = candidates.filter(readyNow);
   const live = liveLines(lines);
   const allReady = allLiveReady(lines);
+  // ⚠️ 02b-TK L-CLIENT-2 item 2 (03b v1.0.16 §3.4 R3-M-9, D8; frame TokenLate): past the R8 window and every live line
+  // still ready (this drawer's own read: a line back to the kitchen ends it, D8) → "Ready {n} min ago — not collected"
+  const nowMs = useHubNow(token.late_from != null);
+  const lateMin = allReady ? notCollectedMinOf(token, nowMs) : null;
   // some ready, not all: Give ready items now in place of Hand over all (owner ruling 2026-11-24 #1)
   const giveReady = readyLines.length > 0 && !allReady;
   const paid = bill?.current?.paid ?? token.paid;
@@ -209,6 +214,16 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
           </button>
         </div>
         <div className="tk-drawer__b">
+          {lateMin !== null && (
+            <div className="tk-banner tk-banner--warn" role="status" data-late="">
+              <span>{fill(t('v.late'), { n: String(lateMin) })}</span>
+              {phoned !== null && may('view-customer-contact') && (
+                <button type="button" className="tk-btn tk-btn--primary" onClick={() => setCall(true)}>
+                  {t('v.call')}
+                </button>
+              )}
+            </div>
+          )}
           <div className="tk-facts">
             <div className="tk-fact">
               <small>{t('v.ready_at')}</small>
