@@ -14,7 +14,7 @@ export default defineConfig({
   retries: 0,
   timeout: 120_000,
   reporter: [['list']],
-  use: { trace: 'off', locale: 'en-GB', timezoneId: 'Asia/Karachi', ...(process.env['POS_CHROMIUM'] ? { launchOptions: { executablePath: process.env['POS_CHROMIUM'] } } : {}) },
+  use: { trace: 'off', screenshot: 'only-on-failure', actionTimeout: 15_000, locale: 'en-GB', timezoneId: 'Asia/Karachi', ...(process.env['POS_CHROMIUM'] ? { launchOptions: { executablePath: process.env['POS_CHROMIUM'] } } : {}) },
   projects: [
     { name: '1920', use: { viewport: { width: 1920, height: 1080 } } },
     { name: '1366', use: { viewport: { width: 1366, height: 768 } } },
