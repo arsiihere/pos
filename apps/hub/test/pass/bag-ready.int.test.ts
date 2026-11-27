@@ -606,3 +606,35 @@ describe('[03b #103] Undo-rest after an extending press', () => {
     expect(epoch(order_id)).toBeUndefined();
   });
 });
+
+// ---- 02b-tk L-CLOSE-3: 03b v1.0.16 test 108 with the real ready_to_serve kind (§6.21; 01d v1.3.7 counter row) -----
+
+describe('[03b #108] reconnect with the real counter alert', () => {
+  it('K\'s staff socket reconnects → the alerts catch-up carries the open counter alert as a card; its alert-mode socket → an alerts_open row (lock, no card); kiosk M signs in → its 02b catch-up shows the bag', async () => {
+    const { p1 } = await start();
+    const k = device('Kiosk K', 'cashier_kiosk', TAKEAWAY);
+    const m = device('Kiosk M', 'cashier_kiosk', TAKEAWAY);
+    const order_id = appendOrder(hub, { order_type: 'takeaway', placed_by: 'S_CASH', lines: [{ order_item_id: 'A1', item_id: FX.naan }] }).order_id;
+    cook(order_id, ['A1']);
+    expect((await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' })).status).toBe(200);
+    const [counter] = counterAlerts(order_id);
+    // K, signed in: the catch-up's alerts part carries it as a card
+    const staffK = await socket(k, signIn('S_CASH', k).token);
+    const first = staffK.messages[0] as { type: string; state: { alerts?: { alerts: Array<Record<string, unknown>> }; orders?: { orders: Array<{ order_id: string }> } } };
+    expect(first.type).toBe('catch_up');
+    const row = first.state.alerts!.alerts.find((r) => r.alert_id === counter!.alert_id);
+    expect(row).toBeDefined();
+    expect(row).toHaveProperty('card');
+    // K's alert-mode socket (no session): alerts_open with the row, no card
+    const alertK = await socket(k);
+    const open = alertK.messages[0] as { type: string; alerts: Array<Record<string, unknown>> };
+    expect(open.type).toBe('alerts_open');
+    const lock = open.alerts.find((a) => a.alert_id === counter!.alert_id);
+    expect(lock).toBeDefined();
+    expect(lock).not.toHaveProperty('card');
+    // kiosk M signs in: its catch-up's 02b orders part shows the bag
+    const staffM = await socket(m, signIn('S_CASH', m).token);
+    const mState = (staffM.messages[0] as typeof first).state;
+    expect(mState.orders!.orders.map((o) => o.order_id)).toContain(order_id);
+  });
+});
