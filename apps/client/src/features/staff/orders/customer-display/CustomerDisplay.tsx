@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { en, type MessageKey } from '../../../../i18n/en';
 import { ur } from '../../../../i18n/ur';
 import { timeText } from '../../../alerts/labels';
-import { Ico, initial } from '../../../alerts/ui';
+import { Ico } from '../../../alerts/ui';
 import { MONEY_DIR, money } from '../money';
-import { idleDisplay, openDisplayChannel, readDisplayMessage } from './channel';
+import { DISPLAY_HELLO, idleDisplay, openDisplayChannel, readDisplayMessage } from './channel';
+import { monogram } from '../sheets/TkSheetParts';
 
 function Bilingual({ label }: { label: MessageKey }) {
   return <>{en[label]} · <bdi lang="ur" dir="rtl">{ur[label]}</bdi></>;
@@ -36,6 +37,8 @@ export function CustomerDisplay({ utcOffsetMs }: { utcOffsetMs?: number } = {}) 
       const next = readDisplayMessage(event.data);
       if (next !== null) setMessage(next);
     });
+    // BUG-11: ask the order screen for what it shows now (it answers at once)
+    channel.postMessage(DISPLAY_HELLO);
     return () => channel.close();
   }, []);
 
@@ -57,7 +60,8 @@ export function CustomerDisplay({ utcOffsetMs }: { utcOffsetMs?: number } = {}) 
       )}
       <section className={message.kind === 'cart' ? 'cd-r' : 'cd-r cd-centered'} aria-live="polite">
         <header className="cd-header">
-          {branch !== '' && <span className="cd-mark" aria-label={branch}>{initial(branch)}</span>}
+          {/* frame CustomerDisplay "AC": the name's initials (the hub serves the branch name only; the restaurant's name is an owner-data gap) */}
+          {branch !== '' && <span className="cd-mark" aria-label={branch}>{monogram(branch)}</span>}
         </header>
         {message.kind === 'idle' && <h1 className="cd-big"><Bilingual label="cd.welcome" /></h1>}
         {message.kind === 'cart' && (
@@ -82,7 +86,8 @@ export function CustomerDisplay({ utcOffsetMs }: { utcOffsetMs?: number } = {}) 
             )}
           </div>
         )}
-        <footer className="cd-footer">{en['cd.thanks']} <bdi lang="ur" dir="rtl">{ur['cd.thanks']}</bdi></footer>
+        {/* frame CustomerDisplay: the thanks line is Urdu only (the English "Thank you!" was extra) */}
+        <footer className="cd-footer"><bdi lang="ur" dir="rtl">{ur['cd.thanks']}</bdi></footer>
       </section>
     </main>
   );
