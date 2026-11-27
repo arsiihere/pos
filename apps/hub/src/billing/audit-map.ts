@@ -382,6 +382,21 @@ export const MAPS: Readonly<Record<string, (e: AuditEvent, l: AuditLookups) => A
     ...day(e),
     detail: { business_date: str(e.payload, 'business_date'), z_no: num(e.payload, 'z_no') },
   }),
+
+  // ⚠️ 05 v1.0.35 §6.3a Audit, row V-4 (R2-M-4; run 3 R3-M-7): subject the hub (the branch), ids and counts only
+  CartCheckBillPrinted: (e) => ({
+    action: 'cart_check_bill_printed',
+    subject_type: 'hub',
+    subject_id: e.stream_id,
+    amount_minor: num(e.payload, 'total_default_minor'),
+    detail: {
+      job_id: str(e.payload, 'job_id'),
+      printer_id: str(e.payload, 'printer_id'),
+      line_count: num(e.payload, 'line_count'),
+      total_default_minor: num(e.payload, 'total_default_minor'),
+      device_id: str(e.payload, 'device_id'),
+    },
+  }),
 };
 
 for (const [event_type, map] of Object.entries(MAPS)) registerAuditAction(event_type, map);

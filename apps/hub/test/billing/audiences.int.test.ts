@@ -112,14 +112,14 @@ function frames(ws: WsClient, type: string): Array<Record<string, unknown>> {
 // =========================================================================================== the wiring check
 
 describe('[05 §6.30, #91b] startup wiring check', () => {
-  it('[05 #91b] the 05 event list is exactly the bill and shift event files of @pos/events plus the three 05 hub events', () => {
+  it('[05 #91b] the 05 event list is exactly the bill and shift event files of @pos/events plus the four 05 hub events (⚠️ v1.0.35 R3-M-7: CartCheckBillPrinted v1)', () => {
     const files = (dir: string) =>
       readdirSync(`${ROOT}${dir}`)
         .filter((f) => /^[A-Z]\w+\.v1\.ts$/.test(f))
         .map((f) => f.replace('.v1.ts', ''));
-    const expected = [...files('bill'), ...files('shift'), 'OrdersCarriedOver', 'ZReportIssued', 'FiscalTokenSet'];
+    const expected = [...files('bill'), ...files('shift'), 'OrdersCarriedOver', 'ZReportIssued', 'FiscalTokenSet', 'CartCheckBillPrinted'];
     expect([...FIVE_EVENT_TYPES].sort()).toEqual(expected.sort());
-    expect(FIVE_EVENT_TYPES).toHaveLength(31);
+    expect(FIVE_EVENT_TYPES).toHaveLength(32);
     // each audience list holds exactly its stream's event folder (a moved event never gets the wrong audience)
     expect([...BILL_STREAM].sort()).toEqual(files('bill').sort());
     expect([...SHIFT_STREAM].sort()).toEqual(files('shift').sort());

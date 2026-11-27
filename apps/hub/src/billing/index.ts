@@ -15,6 +15,7 @@ import type { SocketCtx } from '../ws/catch-up.js';
 import { registerCloseSplit } from './commands/close-split.js'; // task 17
 import { registerOpenShift } from './commands/open-shift.js';
 import { registerOpenCashDrawer } from './commands/open-cash-drawer.js'; // task 23
+import { registerPrintCartCheckBill } from './commands/print-cart-check-bill.js';
 import { registerPrintCheckBill } from './commands/print-check-bill.js';
 import { registerPrintDocs } from './commands/print-docs.js'; // task 27
 import { registerPrintReport } from './commands/print-report.js'; // task 27b
@@ -79,6 +80,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerServiceCharge(app);
   // task 11 (§6.3, §6.4): PrintCheckBill; the live-only print folds' log and hub config (branch name on the slip)
   registerPrintCheckBill(app);
+  // task 11a (§6.3a, OR-5; 02b-TK CB-2): PrintCartCheckBill
+  registerPrintCartCheckBill(app);
   bindBillPrints(deps.projections, { log: (line) => app.log.warn(line, 'billing.print_skipped'), config: deps.config });
   // task 20 (§6.14)
   registerRemoveComp(app);
@@ -178,8 +181,8 @@ export const SHIFT_STREAM: readonly string[] = [
   'DrawerOpened',
 ];
 
-/** §6.29: 05's three `hub`-stream events. */
-const FIVE_HUB_EVENTS: readonly string[] = ['OrdersCarriedOver', 'ZReportIssued', 'FiscalTokenSet'];
+/** §6.29: 05's `hub`-stream events (⚠️ v1.0.35 R3-M-7: CartCheckBillPrinted v1). */
+const FIVE_HUB_EVENTS: readonly string[] = ['OrdersCarriedOver', 'ZReportIssued', 'FiscalTokenSet', 'CartCheckBillPrinted'];
 
 /** §6.29: every event 05 owns — the `bill` and `shift` streams and 05's three `hub` events. */
 export const FIVE_EVENT_TYPES: readonly string[] = [...BILL_STREAM, ...SHIFT_STREAM, ...FIVE_HUB_EVENTS];
@@ -309,6 +312,8 @@ function registerBillingAudiences(app: FastifyInstance, deps: HubDeps): () => vo
     [SHIFT_STREAM, shiftAudience],
     [REPORT_EVENTS, reportAudience],
     [['FiscalTokenSet'], adminOnly],
+    // ⚠️ 05 v1.0.35 §6.29 (run 3 R3-M-7): CartCheckBillPrinted reaches no socket (its audit row is the trail)
+    [['CartCheckBillPrinted'], adminOnly],
   ];
   const offs: Array<() => void> = [];
   for (const [types, audience] of table) {
