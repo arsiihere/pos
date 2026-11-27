@@ -1228,9 +1228,13 @@ describe('[02b #59 #60 #61 #63 #78] SubmitOrder pickup_at_ms (§3.2 step 2b)', (
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect(placedOf(r).pickup_at_ms).toBe(T + 30 * MIN);
     expect(pickupRow('Q1')).toBe(T + 30 * MIN);
-    // EngineOrder.pickup_at_ms is 03a's: its v1.2.11 row 02b-R4-2 stores an elapsed pickup as null (planned as now),
-    // while 02b test 61 (run 3) says "as given" — a spec conflict reported to the owner, not asserted here.
+    // ⚠️ owner ruling PQ-1 (2026-11-27; 03a v1.2.11 row 02b-R4-2, PK-1, PK-9): the engine stores a passed queued pickup
+    // as null and plans the order as "now"; the order keeps the asked time (above)
+    expect(engine().orders.Q1!.pickup_at_ms).toBeNull();
     expect(Math.min(...r.result!.groups.map((g) => g.promise_ms))).toBeGreaterThan(T + 30 * MIN);
+    // planned as now: no later than the same naan ordered plainly right after it
+    const plain = await submit(cashier, takeaway('Q1P', [item('Q1Pa', FX.naan)]));
+    expect(Math.max(...r.result!.groups.map((g) => g.promise_ms))).toBeLessThanOrEqual(Math.min(...plain.result!.groups.map((g) => g.promise_ms)));
     expect(pickupError(await submit(cashier, takeaway('Q2', [item('Q2a', FX.naan)], { pickup_at_ms: T + 5 * MIN }), { queuedAt: T }))).toEqual({ status: 422, code: 'PICKUP_TIME_INVALID', reason: 'too_early' });
     expect(pickupError(await submit(cashier, takeaway('Q3', [item('Q3a', FX.naan)], { pickup_at_ms: T + 30 * MIN })))).toEqual({ status: 422, code: 'PICKUP_TIME_INVALID', reason: 'too_early' });
   });
