@@ -1553,3 +1553,88 @@ describe('@pos/engine task 18d P4: an oversize load counts its rounds everywhere
     expect(liveInterval(f, 'B', T0 + M)!.end).toBe(booked.end);
   });
 });
+
+// ---- 02b-tk L-CLOSE-2: 03a v1.2.11 test 187 (PK-1, PK-7; m-8) ------------------------------------------------------
+
+describe('@pos/engine [03a #187] additions, returns and release on a pickup order (PK-1, PK-7)', () => {
+  /** An OrderLinesAdded (with ItemAdded) on `order_id` for `items`, planned with the header pickup `header` (m-8). */
+  function addLines(k: Kitchen, order_id: string, items: Item[], t: number, header: number | null): { plan: PlanResult; plain: PlanResult } {
+    const base = proposed(order_id, items, { pickup: at(60) });
+    const p = deepFreeze({ ...base, order: { ...base.order, pickup_at_ms: header } });
+    const plan = planOrder(k.state, p, t, {});
+    const plain = planOrder(k.state, deepFreeze({ ...base, order: { ...base.order, pickup_at_ms: at(60) } }), t, {});
+    const s = nextSeq(items.length);
+    const added = anItemAdded().payload;
+    const ev = (n: number, event_type: string, payload: Record<string, unknown>): PosEvent => ({
+      ...anItemStarted(),
+      event_type,
+      stream_id: order_id,
+      recorded_at: t,
+      occurred_at: t,
+      seq: s + n,
+      event_id: `01JD${String(s + n).padStart(22, '0')}`,
+      payload,
+    });
+    k.apply([
+      ev(0, 'OrderLinesAdded', {
+        order_id,
+        order_item_ids: items.map((i) => i.id),
+        groups: plan.groups,
+        lines: plan.lines.map((l) => ({ order_item_id: l.order_item_id, station_id: l.station_id, alternates: l.alternates, point_id: null, carry_ms: l.carry_ms, from_stock: false, weight_pct: 100, max_early_ms: 60_000, max_late_ms: null, max_carry_ms: null, return_of: null, cook_ms_override: null })),
+        order_header: { order_type: 'delivery', table_key: `t:${order_id}`, table_id: null, follow_up: false, pickup_at_ms: header, placed_by: null },
+      }),
+      ...items.map((i, n) => ev(n + 1, 'ItemAdded', { ...added, order_id, order_item_id: i.id, ...itemFields(i), stock_draws: [] })),
+    ]);
+    return { plan, plain };
+  }
+
+  it('[03a #187 (a)] an addition whose header carries pickup_at_ms null (or another value) plans with the stored pickup: plan = fold; an immediate line added before p lands at p', () => {
+    for (const header of [null, at(30)]) {
+      const k = new Kitchen([SLOT(2)]);
+      k.submit('O1', [{ id: 'A', cook: 10 * M }], at(0), { pickup: at(60) });
+      expect(k.state.orders.O1!.pickup_at_ms).toBe(at(60));
+      const { plan, plain } = addLines(k, 'O1', [{ id: 'D', cook: 2 * M, mode: 'immediate' }], at(5), header);
+      // the stored pickup, never the header's: the same targets as a header carrying p itself
+      expect(plan.groups).toEqual(plain.groups);
+      expect(plan.lines.find((l) => l.order_item_id === 'D')!.eta_ms).toBe(at(60));
+      expect(k.state.lines.D!.booked!.end).toBe(at(60));
+      expect(k.state.lines.D!.fire_ms).toBe(at(58));
+      expect(k.state.orders.O1!.pickup_at_ms).toBe(at(60));
+      expectRebuild(k);
+    }
+  });
+
+  it('[03a #187 (a)] added after p, the immediate line takes its earliest fit (the pickup has passed)', () => {
+    const k = new Kitchen([SLOT(1)]);
+    k.submit('O1', [{ id: 'A', cook: 10 * M }], at(0), { pickup: at(60) });
+    k.apply([fireEv('S1', 'A', at(50)), startEv('O1', 'A', at(50)), orderEv('ItemDone', 'O1', { order_item_id: 'A', done_at: at(60), source: 'tap' }, at(60))]);
+    const { plan } = addLines(k, 'O1', [{ id: 'D', cook: 2 * M, mode: 'immediate' }], at(61), null);
+    expect(k.state.lines.D!.fire_ms).toBe(at(61));
+    expect(k.state.lines.D!.booked!.end).toBe(at(63));
+    expect(plan.lines.find((l) => l.order_item_id === 'D')!.eta_ms).toBe(at(63));
+    expectRebuild(k);
+  });
+
+  it('[03a #187 (b)] a return line of a served line of a pickup order is never held: it goes at t, not toward p (§3.8a)', () => {
+    const k = new Kitchen([SLOT(1)]);
+    k.submit('O1', [{ id: 'A', cook: 2 * M, mode: 'immediate' }], at(0), { pickup: at(60) });
+    // the drink made and handed early (taps), then sent back at +10
+    k.apply([fireEv('S1', 'A', at(1)), startEv('O1', 'A', at(1)), orderEv('ItemDone', 'O1', { order_item_id: 'A', done_at: at(3), source: 'tap' }, at(3)), orderEv('ItemServed', 'O1', { order_item_ids: ['A'], source: 'tap' }, at(4))]);
+    const added = k.log.find((e) => e.event_type === 'ItemAdded')!;
+    const s = k.apply(aReturnLinesAdded(added, 'remake', { recorded_at: at(10), target_land_ms: at(12), order_item_id: 'AR' }));
+    expect(s.lines.AR).toMatchObject({ mark: 'return', fire_ms: at(10) });
+    expect(s.lines.AR!.booked!.end).toBeLessThan(at(60));
+    expectRebuild(k);
+  });
+
+  it('[03a #187 (c)] an ItemsReleased expedite line of a pickup order moves to its earliest fit when that lands before p (AD-22)', () => {
+    const k = new Kitchen([SLOT(1)]);
+    k.submit('O1', [{ id: 'A', cook: 5 * M }], at(0), { pickup: at(60) });
+    expect(k.state.lines.A!.fire_ms).toBe(at(55));
+    const s = k.apply([orderEv('ItemsReleased', 'O1', { order_id: 'O1', alert_id: null, released: [], expedite: ['A'] }, at(1))]);
+    expect(s.lines.A).toMatchObject({ expedited: true });
+    expect(s.lines.A!.fire_ms).toBe(at(1));
+    expect(s.lines.A!.booked!.end).toBe(at(6));
+    expectRebuild(k);
+  });
+});
