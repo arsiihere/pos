@@ -2950,6 +2950,9 @@ export const en = {
   'pass.handed_waiting': 'Handed to {name} · waiting for Served',
   // P4 (03b §3.6; frames PassTakeover, PassScreenBack)
   'pass.takeover_sub': 'Its Now and Next are here. Tap for the cooks until the screen is back.',
+  // QA BUG-17 (03b §3.6): a takeover tap the hub refused or did not answer
+  'pass.takeover_no_answer': 'No answer from the hub — tap again',
+  'pass.takeover_not_fired': 'Not sent to the kitchen yet — earlier rounds first',
   'pass.screen_back': '{station} screen is back',
   // P5 (03b §8; frame PassOffline)
   'pass.offline_sub': 'Buttons are off; taps are not saved',
