@@ -300,6 +300,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   useEffect(() => () => shellConfig.dispose(), [shellConfig]);
   const store = useMemo(() => createAlertStore({ sink: sink ?? browserSink, timers: timers ?? browserTimers, alwaysOn: device.type === 'cashier_kiosk' }), [sink, timers, device.type]);
   const [replaced, setReplaced] = useState(false);
+  // BUG-12 (00 HPA M46, §6.21; 02b §8): the hub ended the session (socket 4401, or a SESSION_INVALID / SESSION_EXPIRED
+  // reply): the sign-in screen says so until the next sign-in
+  const [endedByHub, setEndedByHub] = useState(false);
   // every alert_closed frame, also for requests the store does not hold (seen only through requests-to-answer)
   const [closes, setCloses] = useState<ReadonlyMap<string, WsAlertClosed>>(new Map());
   // 04 §8 Pending tag (ruling Q1 (a) on #232): a void request raised, answered, withdrawn or closed reaches this page as
@@ -549,6 +552,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     dropHandover(); // dl cp6: a held tap read never outlives the session
     const gen = sessionGen.current;
     setReplaced(false);
+    setEndedByHub(false);
     conn.setSession(who.session_token);
     setInboxLoading(true);
     setMe({ staffId: who.staff_id, name: who.display_name, allowed: new Set(), permissions: null, idleTtlMs: who.idle_ttl_ms });
@@ -611,6 +615,8 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       }
       else api.drop();
       conn.setSession(null);
+      // BUG-12: nothing of this session's catch-up seeds the next person's screens
+      liveBus.forget();
       // 05b M-13: a newer staff build waited for this sign-out; the logout reaches the hub first (at most 3 s), so a
       // reload never leaves the session open on the hub
       if (updateReadyRef.current) {
@@ -625,9 +631,12 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         void loggedOut.then(go, go);
       }
     },
-    [api, conn, nativeTimers],
+    [api, conn, nativeTimers, liveBus],
   );
-  signOutRef.current = () => signOut(false);
+  signOutRef.current = () => {
+    if (meRef.current !== null) setEndedByHub(true);
+    signOut(false);
+  };
   // the pairing keys go (the command queue and the drafts stay), the session and the socket end, PairAgain shows
   // review #193: a ref, not the state — a queue revoke and a socket 4403 in the same tick wipe once
   const unpairedRef = useRef(false);
@@ -1165,7 +1174,19 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         key={signInKey}
         api={api}
         phone={phone}
-        lockPanel={lockRows.length === 0 ? null : <LockPanel rows={lockRows} utcOffsetMs={offset} />}
+        lockPanel={
+          endedByHub || lockRows.length > 0 ? (
+            <>
+              {endedByHub && (
+                <div className="warnbar" role="status" data-signed-out="">
+                  <Ico name="lock" />
+                  {t('shell.signed_out_hub')}
+                </div>
+              )}
+              {lockRows.length > 0 && <LockPanel rows={lockRows} utcOffsetMs={offset} />}
+            </>
+          ) : null
+        }
         hooks={shellHooks}
         onUnpaired={onUnpaired}
         onSignedIn={(who) => void signedIn(who)}
