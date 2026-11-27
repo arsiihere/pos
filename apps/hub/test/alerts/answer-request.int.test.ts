@@ -12,6 +12,7 @@ import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, endSessionNow, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
 import { FAKE_EFFECT_EVENT, fakeApply, registerFakes, resetFakes } from './fakes';
+import { secretLeaks } from '../helpers/no-secret';
 
 // 01d task 22: AnswerRequest — the answer rules (§3.3 rules 1, 3, 5, 6, 7), the session method and first
 // answer wins (§6.2 Processing (0)–(10), Race), A4, A5, the §3.5 read-only contract and alert_id check;
@@ -457,7 +458,7 @@ describe('01d AnswerRequest: rules, session answers, first answer wins (task 22)
     const response = await answer(w, mgr, { alert_id: id, decision: 'approve', method: 'pin', pin: PIN.b });
     expect(response.statusCode).toBe(403);
     expect(response.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'not_approver' } });
-    expect(JSON.stringify(response.json())).not.toContain(PIN.b);
+    expect(secretLeaks(response.json(), PIN.b)).toEqual([]);
     expect(verifySpy).not.toHaveBeenCalled();
     expect(lockouts(w, MGR, mgr.deviceId)).toEqual({ staff: 0, device: 0 });
     expect(eventsOf(w, 'RequestAnswered')).toHaveLength(0);
