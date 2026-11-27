@@ -131,6 +131,12 @@ export interface OpenOrder {
   abandoned: boolean;
   /** §6.16 v1.0.25: takeaway / parking only (dine-in null); `paid` once billed, else 05 `keyBalances` due */
   bill: { state: 'due' | 'paid'; due_minor: number } | null;
+  /**
+   * ⚠️ 02b v1.0.25 §6.16 (run 3 R3-M-8; D2): true only on an open, unbilled takeaway / parking row with an effective
+   * approval (approved time and amount set) and a positive current due no higher than the approved amount; dine-in and
+   * a paid row false. From the approval columns of the orders read and the batched due (no extra statement).
+   */
+  unpaid_handover_approved: boolean;
   /** §6.16 (R3-M-9): takeaway / parking = the D8 whole-bag epoch, dine-in = the Pass point history; null without one */
   ready_at: number | null;
   /** §6.16 (D8): the epoch's frozen window; null without an epoch (and for dine-in) */
@@ -215,6 +221,7 @@ export function openOrdersBody(
       promise_ms: inEngine ? state.orders[r.order_id]!.promise_ms : null,
       abandoned,
       bill: null,
+      unpaid_handover_approved: false,
       ready_at: null,
       bag_ready_window_ms: null,
       handed: { n: live.filter((l) => l.served_at !== null).length, m: live.length },
@@ -242,6 +249,8 @@ export function openOrdersBody(
       r.billed_at !== null
         ? { state: 'paid', due_minor: 0 }
         : { state: 'due', due_minor: r.bill_key === null ? 0 : (balances.get(r.bill_key)?.due_minor ?? 0) };
+    const approvedDue = r.unpaid_handover_approved_at === null ? null : r.unpaid_handover_approved_due_minor;
+    o.unpaid_handover_approved = r.billed_at === null && approvedDue !== null && o.bill.due_minor > 0 && o.bill.due_minor <= approvedDue;
   }
   // §6.16 v1.0.11 (Q-9): one batched 02a read, only when a dine-in row is listed
   const dineIn = out.filter((o) => o.order_type === 'dine_in');
