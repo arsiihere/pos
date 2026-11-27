@@ -67,7 +67,7 @@ describe('[02b #83 perf] open-orders and the catch-up on a day of 400 paid takea
   });
 
   it(`the catch-up part orders builds in < ${CATCH_UP_MS} ms`, () => {
-    const part = ordersCatchUpPart();
+    const part = ordersCatchUpPart(hub.clock);
     const state = hub.deps.state.get() as EngineState;
     const ctx = { deviceId: 'D1', deviceType: 'cashier_kiosk' as const, sessionId: 'X', kind: 'staff' as const, staffId: 'S_CASH', stationId: null, asOfSeq: 0 };
     for (let i = 0; i < WARM_UP; i += 1) part.build(hub.deps.db, state, ctx);

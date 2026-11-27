@@ -68,7 +68,7 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
   registerZoneStockQuery(app); // §6.17
   registerOrderContactQuery(app); // §6.18 (countsAsActivity true)
   registerOrderViewQuery(app); // ⚠️ 02b v1.0.11 §6.18a (Q-8; countsAsActivity false)
-  const stopOrdersCatchUp = registerOrdersCatchUp(); // catch-up part `orders`; removed when this server closes
+  const stopOrdersCatchUp = registerOrdersCatchUp(deps.clock); // catch-up part `orders`; removed when this server closes
   const stopCompAudience = registerLineCompedAudience(app); // §6.19 LineComped (directory per server)
   app.addHook('onClose', async () => {
     stopOrdersCatchUp();
