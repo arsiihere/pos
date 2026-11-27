@@ -153,10 +153,26 @@ export function AdminSignIn({
 
   const banner = error === null ? null : loginError(error);
   const name = staff?.find((s) => s.staff_id === selected)?.display_name ?? '';
+  // BUG-15 (05a H-2; 00 HPA §6.13, M42): an `everyone` (or no-profile) device is refused the admin roster; the page
+  // says why and where to go instead — and, when the hub offers recovery (05a v1.0.3, `recovery_available`), links to
+  // the hub admin page, whose sign-in has Recover admin access
+  const listedOnly = error?.kind === 'api' && error.code === 'PERMISSION_DENIED' && error.details['reason'] === 'listed_device_only';
   return (
     <div className={`pos-page${phone ? '' : ' pos-page--fit'}`}>
       <AppBar title={title} phone={phone} after={<Chip icon="lock">{t(chip)}</Chip>} />
-      {offline ? (
+      {listedOnly ? (
+        <main className="pos-screen pos-screen--warn" data-admin-refused="listed_device_only">
+          <h2 className="pos-screen__title">{t('admin_03.login.listed_only')}</h2>
+          <p className="pos-screen__body">{t('admin_03.login.listed_only_body')}</p>
+          {error.details['recovery_available'] === true && (
+            <div className="pos-row pos-signin__retry">
+              <a className="pos-btn pos-btn--lg" href="/admin">
+                {t('admin_03.login.recover')}
+              </a>
+            </div>
+          )}
+        </main>
+      ) : offline ? (
         <main className="pos-screen pos-screen--warn">
           <h2 className="pos-screen__title">{t('admin_stock.login.offline')}</h2>
           <p className="pos-screen__body">{t('admin_stock.login.offline_body')}</p>

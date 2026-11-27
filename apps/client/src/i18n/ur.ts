@@ -1396,6 +1396,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'kitchen_screens.use_tablet': 'ٹیبلٹ کو پاس ٹیبلٹ بنائیں',
   'kitchen_screens.play': 'اس ڈیوائس پر چلائیں',
   'admin_03.nav.other_jobs': 'دوسرے کام',
+  'admin_03.login.listed_only': 'یہ اسکرین ہب ایڈمن کے صفحے نہیں کھول سکتی',
+  'admin_03.login.listed_only_body':
+    'یہ سب کے لیے ہے۔ یہ صفحہ اپنے فون پر یا ایسی ڈیوائس پر کھولیں جو "صرف درج لوگ" پر ہو اور اس میں آپ کا نام ہو۔ مینیجر اسے Devices میں بدل سکتا ہے۔',
+  'admin_03.login.recover': 'ایڈمن رسائی واپس لیں',
   // A5 alert cards (written without a frame text: listed under "Needs native review" in 03b/urdu-todo.md)
   'alerts.closed.moved_plain': 'منتقل',
   'alerts.closed.served': 'پیش ہو گیا',
