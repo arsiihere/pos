@@ -94,3 +94,49 @@ for (const lang of LANGS) {
     }
   });
 }
+
+// ⚠️ 02b-TK L-CLIENT-4 item 2 (03c v1.0.16 §3.11 trigger 2, §6.14, §8; 02b v1.0.25 §3.2 step 10a): "Send & pay" sends no
+// slip flag; its pay panel closed with the bill still open (Pay later) sends PrintTakeawaySlip { order_id, reason:
+// 'pay_later' } once (not queued), the hub queues the slip job on this device's route and the toast says "Slip printing".
+for (const lang of LANGS) {
+  test(`[03c v1.0.16 §3.11 trigger 2, §6.14, §8; 02b v1.0.25 §3.2 step 10a] Send & pay closed unpaid prints the token slip (pay_later) (${lang})`, async ({ browser, request }, info) => {
+    runsHere(info);
+    const device = deviceFor(info);
+    const context = await browser.newContext({ ...info.project.use, deviceScaleFactor: 2 });
+    const page = await context.newPage();
+    await rushOff(page);
+    await deviceRoute(request, device.device_id, printerId);
+    await signInOn(page, device, lang, 'Owner');
+    try {
+      await takeawayTab(page);
+      await menuTile(page, NAAN.name).click();
+
+      const submit = command(page, 'submit-order');
+      await page.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.send_pay'))}`) }).click();
+      const submitted = await submit;
+      expect(submitted.status()).toBe(200);
+      const sent = submitted.request().postDataJSON() as Sent<{ order_id: string; takeaway?: Record<string, unknown> }>;
+      expect(sent.payload.takeaway?.['print_slip']).toBeUndefined();
+      expect((await resultOf<{ slip: unknown }>(submitted)).slip).toBeNull();
+      const panel = page.locator('section.tk-paypanel');
+      await expect(panel.locator('.tk-pay__due .money')).toHaveText(/Rs \d/);
+
+      // the panel closed unpaid → PrintTakeawaySlip pay_later for the sent order
+      const slip = command(page, 'print-takeaway-slip');
+      await panel.getByRole('button', { name: tr(lang, 'p.later') }).click();
+      await expect(panel).toHaveCount(0);
+      const printed = await slip;
+      expect(printed.status()).toBe(200);
+      expect((printed.request().postDataJSON() as Sent<unknown>).payload).toEqual({ order_id: sent.payload.order_id, reason: 'pay_later' });
+      const result = await resultOf<{ printed: boolean; job_id: string | null; skipped: string | null }>(printed);
+      expect(result).toMatchObject({ printed: true, skipped: null });
+      expect(result.job_id).toMatch(/^[0-9A-Z]{26}$/);
+      await expect(toast(page, tr(lang, 'takeaway.slip.printing'))).toBeVisible();
+      await capture(page, info, `SlipPayLater-${info.project.name}-${lang}`);
+    } finally {
+      await signOut(page, info, lang).catch(() => undefined);
+      await context.close();
+      await deviceRoute(request, device.device_id, null);
+    }
+  });
+}

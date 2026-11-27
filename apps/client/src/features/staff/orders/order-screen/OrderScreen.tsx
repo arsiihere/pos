@@ -68,7 +68,7 @@ import { candidatesOf, checkHandover, gateOf, lineIds } from '../unpaid/candidat
 import { unpaidRequestsOf } from '../unpaid/requests';
 import { PayPanel, type PayTarget } from '../takeaway/PayPanel';
 import { CartCheckBill, SentTokenPrint } from '../takeaway/CheckBill';
-import { slipMissed, slipMissesOf } from '../takeaway/slips';
+import { printPayLaterSlip, slipMissed, slipMissesOf } from '../takeaway/slips';
 import { servedPayload } from '../actions/MarkServedSheet';
 import { showEnqueued } from '../view/LineActions';
 import { groupParts, type GroupedLine } from '../view/parts';
@@ -472,7 +472,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   // 02b-TK C2-2: the token view drawer over the menu and the cart (the cart is kept)
   const [openToken, setOpenToken] = useState<QueueToken | null>(null);
   // 02b-TK C3-1: the pay panel over the cart (Send & pay, or Take payment of a token)
-  const [pay, setPay] = useState<(PayTarget & { display?: DisplayMessage | undefined }) | null>(null);
+  // ⚠️ 02b-TK L-CLIENT-4 item 2 (03c v1.0.16 §8): `send_and_pay` = the panel Send & pay opened (closed unpaid → the slip)
+  const [pay, setPay] = useState<(PayTarget & { display?: DisplayMessage | undefined; send_and_pay?: true }) | null>(null);
   const mirrorCart = order_type === 'takeaway' && shell.device.type === 'cashier_kiosk';
   const total = config === null ? null : cartTotal(config, cart, unitOf);
   const ready = readyBy(body);
@@ -631,7 +632,12 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         key={pay.order_id ?? 'sending'}
         target={pay}
         fixed={fixed}
-        onLater={() => setPay(null)}
+        onLater={({ unpaid }) => {
+          // ⚠️ 02b-TK L-CLIENT-4 item 2 (03c v1.0.16 §3.11 trigger 2, §8; 02b v1.0.25 §3.2 step 10a): a Send & pay
+          // panel closed with the bill still open → the token slip (`pay_later`), once; Take payment of a token does not
+          if (unpaid && pay.send_and_pay === true && pay.order_id !== null) printPayLaterSlip(shellRef.current, pay.order_id);
+          setPay(null);
+        }}
         onDone={() => {
           if (pay.display?.kind === 'paid') setClearedDisplayCart(cart);
           setPay(null);
@@ -889,7 +895,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     };
     // 02b-TK C3-1 (frame PayCash): the pay panel opens at once over the fresh cart; its bill is read once the order is in
     const paymentDisplay = andPay && mirrorCart ? displayCart : undefined;
-    if (andPay) setPay({ order_id: null, ident: null, name: shownName ?? null, promise_ms: null, display: paymentDisplay });
+    if (andPay) setPay({ order_id: null, ident: null, name: shownName ?? null, promise_ms: null, display: paymentDisplay, send_and_pay: true });
     if (background) setCart(EMPTY_CART);
     else setSend({ kind: 'sending', sub: [title, fill(t('cart.items'), { n: String(count) })].filter((x) => x !== null).join(' · ') });
     let outcome: Awaited<ReturnType<typeof sendOrder>>;
@@ -910,7 +916,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         const r = outcome.result;
         if (andPay) {
           const promises = r?.groups.map((g) => g.promise_ms) ?? [];
-          setPay({ order_id: payload.order_id, ident: r?.token == null ? null : String(r.token), name: shownName ?? null, promise_ms: promises.length === 0 ? null : Math.max(...promises), display: paymentDisplay });
+          setPay({ order_id: payload.order_id, ident: r?.token == null ? null : String(r.token), name: shownName ?? null, promise_ms: promises.length === 0 ? null : Math.max(...promises), display: paymentDisplay, send_and_pay: true });
         }
         const moved = r === undefined ? null : timeUpdated(config, frozen, before, r);
         // ⚠️ 02b-TK L-CLIENT-3 item 2 (03c v1.0.16 §3.11 Result, §8; frame SentToast "slip printing"): the result's

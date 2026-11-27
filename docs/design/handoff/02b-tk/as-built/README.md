@@ -139,3 +139,17 @@ The images are the running client only, captured from `apps/client/e2e/02b-tk-un
 - U-5 is merged. `MarkServed { customer_handover: true }` rechecks the key's fresh due against the order's approval in the hub's writer transaction. It refuses with `403 PERMISSION_DENIED { reason: 'unpaid_handover_approval_required', order_id }`, the shape the client already mapped. The client needed no fix.
 - The e2e reaches that refusal from the UI. Ali sends a Naan to pay later, the kitchen makes it ready, and the Manager approves the unpaid hand-over at its due, so the client's own check passes. Ali taps Hand over all. Inside the 5 s Undo window another counter adds a Kheer to the same token, through the hub's API (`SubmitOrder` with `adds_to_order_id`, as the Owner on the kitchen tablet). That raises the key's due above the approved amount. The hub refuses the send. The toast shows the refusal, and the token offers Ask a manager again for the larger due.
 - This replaces the L-CLIENT-2 note above: the client's handling of the refusal is now covered end to end, not only by unit tests.
+
+## L-CLIENT-4 item 2 Send & pay closed unpaid prints the token slip (pay_later)
+
+Captured from `apps/client/e2e/02b-tk-slip.spec.ts` (the pay-later test) at device scale 2 against the e2e hub. The run routes its device's bills to the e2e fake LAN printer with `SetBillRoute`, so the slip is a real `document` job ("Token slip"). The images show the running client only, right after the pay panel closed. The nearest frames are PayCash (the panel) and SentToast (the toast); no frame shows this close.
+
+| State | English | Urdu |
+| --- | --- | --- |
+| Send & pay → Pay later on the panel → "Slip printing" (kiosk) | [SlipPayLater](SlipPayLater.png) | [SlipPayLater-Urdu](SlipPayLater-Urdu.png) |
+| The same on the landscape tablet | [SlipPayLater-tablet](SlipPayLater-tablet.png) | [SlipPayLater-tablet-Urdu](SlipPayLater-tablet-Urdu.png) |
+
+- Send & pay sends no `print_slip` flag (its `slip` result is `null`). When the panel that Send & pay opened closes with the bill still open, the client sends `PrintTakeawaySlip { order_id: <the sent order>, reason: 'pay_later' }` once. The panel closes through Pay later, or through its ✕ before the bill closed. A partly paid bill counts as open. The command is never queued.
+- A lost reply or a 5xx is sent again with the same `command_id`, after 1, 2, 5, 10, 20 and 30 s, while the page lives. It stops at a 2xx or a 4xx. If the last retry also fails, the token is marked "Slip not printed — Print slip" and the toast says so.
+- Results: `printed` → "Slip printing". `no_printer` → "No slip printer is set up — the token is on the screen", and the token is marked. `setting_off`, `slip_held` and `already_printed` show nothing, as at Send. A 4xx shows its `errors.*` text. The exception is `TAKEAWAY_SLIP_NOT_ALLOWED { reason: 'billed' }`, which shows nothing because the token was paid meanwhile.
+- A paid panel sends nothing: the receipt is the only paper, whether it closes with Next customer or with ✕. A pay panel opened by Take payment of a queued token also sends nothing, because that token got its slip at Send.
