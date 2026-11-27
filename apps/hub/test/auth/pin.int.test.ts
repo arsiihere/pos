@@ -9,6 +9,7 @@ import { IdempotentReplay } from '../../src/commands/replay';
 import type { Writer, WriterTx } from '../../src/engine-host/writer';
 import { aDirectory, PIN } from '../helpers/fixtures';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
+import { logLines, secretLeaks } from '../helpers/no-secret';
 
 describe('PIN verification', () => {
   const cleanups: Array<() => Promise<void>> = [];
@@ -434,7 +435,7 @@ describe('checkPin hooks (one counting transaction)', () => {
       const entry = JSON.parse(lines[0] ?? '{}') as { level: number; err?: { message?: string } };
       expect(entry.level).toBe(50);
       expect(entry.err?.message).toBe('raise blew up');
-      expect(hub.logs()).not.toContain(PIN.a);
+      expect(secretLeaks(logLines(hub.logs()), PIN.a)).toEqual([]); // structural: a timestamp may hold the digits
     }
   });
 
@@ -461,7 +462,7 @@ describe('checkPin hooks (one counting transaction)', () => {
       .split('\n')
       .filter((line) => line.includes('"phase":"onMatch"'));
     expect(lines).toHaveLength(1);
-    expect(hub.logs()).not.toContain(PIN.a);
+    expect(secretLeaks(logLines(hub.logs()), PIN.a)).toEqual([]); // structural: a timestamp may hold the digits
   });
 
   it('[00 H-3] testHooks.betweenVerifyAndWriter runs after verify and before writer.run', async () => {

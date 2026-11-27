@@ -13,6 +13,7 @@ import { payloadHash } from '../../src/lib/hash';
 import { aDirectory, PIN, pinHash } from '../helpers/fixtures';
 import { createTestHub, endSessionNow, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { FAKE_EFFECT_EVENT, fakeApply, registerFakes, resetFakes } from './fakes';
+import { secretLeaks } from '../helpers/no-secret';
 
 // 01d task 23: AnswerRequest with `pin` and `in_person` — §6.2 pinCheck row / Processing / Race, §3.3 rules
 // 2–4 (all of (a)–(d), "What a guesser learns", "PIN never stored"), §3.10 `pin_use_failed`, §4.2
@@ -309,7 +310,7 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
         const response = await answer(hub, who, payload);
         expect(response.statusCode).toBe(403);
         expect(response.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'in_person_removed' } });
-        expect(JSON.stringify(response.json())).not.toContain(pin);
+        expect(secretLeaks(response.json(), pin)).toEqual([]);
       }
     }
     expect(verifySpy).not.toHaveBeenCalled();
@@ -439,7 +440,7 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     // a correct PIN on the failed path resets nothing (2 failures stay)
     expect(lockouts(hub, MGR, mgr.deviceId)).toEqual({ staff: 2, device: 2 });
     expect(pinUseFailed(hub)).toHaveLength(0);
-    expect(JSON.stringify(eventsOf(hub, 'RequestPinFailed'))).not.toContain(PIN.b);
+    expect(secretLeaks(eventsOf(hub, 'RequestPinFailed'), PIN.b)).toEqual([]);
   });
 
   it('[01d #60] (a) accept on an approval kind → 400 before argon2; (g′) pin 1234567 → 400 from payload Zod; nothing counted', async () => {
@@ -778,7 +779,7 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
       const response = await answer(hub, who, payload);
       expect(response.statusCode, name).toBe(400);
       expect(response.json().error.code, name).toBe('VALIDATION_FAILED');
-      expect(response.body, name).not.toContain(pin);
+      expect(secretLeaks(response.json(), pin), name).toEqual([]);
     }
     expect(verifySpy).not.toHaveBeenCalled();
     expect(lockouts(hub, MGR, mgr.deviceId)).toEqual({ staff: 0, device: 0 });
