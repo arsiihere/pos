@@ -1789,4 +1789,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.point_retired': 'یہ پوائنٹ ختم کر دیا گیا — مینیجر سے کہیں کہ یہ ٹیبلٹ کسی اور پوائنٹ پر لگائیں', // not in strings-table.md; Urdu to confirm
   'pass.moved_from': '{point} سے منتقل', // not in strings-table.md; Urdu to confirm
   'admin_stock.problem.archive_refused': 'مینو کی تبدیلی رد ہوئی: پہلے کوئی اور پاس پوائنٹ فعال کریں۔', // not in strings-table.md; Urdu to confirm
+  // ---- 02b-TK L-CLIENT-2 item 2 (03b v1.0.16 §3.4 Not collected (R3-M-9), §3.5, D8; frames ReadyTiles, TokenLate): the amber counter Ready tile and the token drawer: strings-table.md (sample 17 → {n}) ----
+  'q.waiting_min': '{n} منٹ · فون',
+  'v.late': '{n} منٹ سے تیار — کوئی نہیں آیا',
 };

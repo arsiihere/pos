@@ -27,6 +27,13 @@ export interface QueueToken {
   /** some line handed over, the rest not ready yet */
   part: boolean;
   summary: string;
+  /**
+   * ⚠️ 03b v1.0.16 §3.4 "Not collected" (R3-M-9), D8 (02b-TK L-CLIENT-2 item 2): the bag-ready time and the hub time
+   * from which the token is amber — the latest of its orders' `ready_at` and `ready_at + bag_ready_window_ms`; null
+   * while any of its orders has no pair (no epoch, or an older hub). Optional: a token built elsewhere has none.
+   */
+  ready_since?: number | null;
+  late_from?: number | null;
 }
 
 export interface QueueModel {
@@ -58,6 +65,17 @@ export function knownOrders(rows: readonly OpenOrder[], seen: ReadonlyMap<string
 
 const keyOf = (r: OpenOrder) => (r.token === null ? r.order_id : `${r.business_date}:${r.token}`);
 
+/**
+ * ⚠️ 03b v1.0.16 §3.4 "Not collected" (R3-M-9), §3.5, D8: whole minutes since the token's bag was ready, once hub now ≥
+ * ready_at + window (the same rule as the Pass card, `notCollectedMin`); null before it or without the pair.
+ */
+export function notCollectedMinOf(q: QueueToken, nowMs: number): number | null {
+  const since = q.ready_since ?? null;
+  const from = q.late_from ?? null;
+  if (since === null || from === null || nowMs < from) return null;
+  return Math.floor((nowMs - since) / 60_000);
+}
+
 export function buildQueue(orders: readonly KnownOrder[]): QueueModel {
   const groups = new Map<string, KnownOrder[]>();
   for (const o of orders) groups.set(keyOf(o.row), [...(groups.get(keyOf(o.row)) ?? []), o]);
@@ -69,6 +87,8 @@ export function buildQueue(orders: readonly KnownOrder[]): QueueModel {
     const named = sorted.find((o) => (o.book?.customer_name ?? '') !== '');
     const phoned = sorted.find((o) => (o.book?.phone ?? '') !== '');
     const allReady = ready.m > 0 && ready.n === ready.m;
+    const pairs = sorted.map((o) => (o.row.ready_at == null || o.row.bag_ready_window_ms == null ? null : { since: o.row.ready_at, until: o.row.ready_at + o.row.bag_ready_window_ms }));
+    const complete = pairs.every((p) => p !== null);
     tokens.push({
       key,
       token: sorted[0]!.row.token,
@@ -85,6 +105,8 @@ export function buildQueue(orders: readonly KnownOrder[]): QueueModel {
         .map((o) => (o.book === undefined ? '' : summaryOf(o.book)))
         .filter((s) => s !== '')
         .join(' · '),
+      ready_since: complete ? Math.max(...pairs.map((p) => p!.since)) : null,
+      late_from: complete ? Math.max(...pairs.map((p) => p!.until)) : null,
     });
   }
   const byPromise = (a: QueueToken, b: QueueToken) => (a.promise_ms ?? Infinity) - (b.promise_ms ?? Infinity) || a.placed_at - b.placed_at;

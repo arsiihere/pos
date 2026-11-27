@@ -4441,6 +4441,9 @@ export const en = {
   'pass.point_retired': 'This point was retired — ask a manager to set this tablet to another point',
   'pass.moved_from': 'Moved from {point}',
   'admin_stock.problem.archive_refused': 'Menu update refused: activate another Pass point first.',
+  // ---- 02b-TK L-CLIENT-2 item 2 (03b v1.0.16 §3.4 Not collected (R3-M-9), §3.5, D8; frames ReadyTiles, TokenLate): the amber counter Ready tile and the token drawer: strings-table.md (sample 17 → {n}) ----
+  'q.waiting_min': '{n} min · Call',
+  'v.late': 'Ready {n} min ago — not collected',
 } as const;
 
 export type MessageKey = keyof typeof en;
