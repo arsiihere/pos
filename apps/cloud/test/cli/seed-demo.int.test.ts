@@ -81,6 +81,9 @@ describe('seed-demo', () => {
       const out: string[] = [];
       await seedDemo(base, 'Arif Chatkhara', { pool: cloud.pool, out: (text) => out.push(text) });
       expect(out.join('')).toContain('registration code');
+      // QA enablement: without the demo flag every branch keeps the real default gap (4 h)
+      expect((await cloud.pool.query<{ g: number }>(`SELECT day_min_gap_hours AS g FROM branches`)).rows.map((r) => r.g)).toEqual([4, 4, 4]);
+      expect(out.join('')).not.toContain('demo only');
 
       const all = await snapshots();
       expect(all.map((b) => b.name)).toEqual(['DHA', 'Gulberg', 'Johar Town']);
@@ -164,4 +167,16 @@ describe('seed-demo', () => {
     const pin = await cloud.pool.query<{ pin_hash: string | null }>(`SELECT pin_hash FROM staff WHERE display_name = 'Imran'`);
     expect(pin.rows[0]!.pin_hash).toBeNull();
   });
+
+  // QA enablement (2026-11-28; docs/manual-test-e2e.md §2b): `--day-min-gap-hours 0` lets a QA hub close a day it
+  // just opened. Demo only: through set-branch-settings (audit + config bump), every demo branch.
+  it('[01b §6.7 S33, QA] seed-demo --day-min-gap-hours 0 → every demo branch day_min_gap_hours 0, audited and bumped', async () => {
+    await truncateAll(cloud.pool);
+    const out: string[] = [];
+    expect(await seedDemo(base, 'Arif Chatkhara', { pool: cloud.pool, out: (text) => out.push(text) }, { dayMinGapHours: 0 })).toBe(0);
+    expect((await cloud.pool.query<{ g: number }>(`SELECT day_min_gap_hours AS g FROM branches`)).rows.map((r) => r.g)).toEqual([0, 0, 0]);
+    expect(out.join('')).toContain('demo only: day_min_gap_hours = 0');
+    const audits = await cloud.pool.query(`SELECT 1 FROM config_audit WHERE entity = 'branch_settings' AND action = 'update'`);
+    expect(audits.rowCount).toBe(3);
+  }, 120_000);
 });
