@@ -23,7 +23,7 @@ import { MaskedAction } from '../../shell/MaskedAction';
 import type { TokenBook } from './book';
 import { maskPhone } from './mask';
 import { notCollectedMinOf, type QueueToken } from './queue-model';
-import { useHubNow } from './QueueRail';
+import { CarriedDate, useHubNow } from './QueueRail';
 import { AskManager } from '../unpaid/AskManager';
 import { candidatesOf, checkHandover, dueGate, lineIds, type Gate } from '../unpaid/candidate';
 import { unpaidRequestsOf } from '../unpaid/requests';
@@ -259,6 +259,8 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
             {ident}
           </span>
           <div className="tk-tv__who">
+            {/* ⚠️ 02b-TK L-CLIENT-5 item 3 (02b v1.0.25 §3.3; DC-2): a carried token's date beside its number */}
+            <CarriedDate q={token} />
             <b dir="auto">{(showContact ? token.customer_name : null) ?? t('order.takeaway')}</b>
             {first !== null && (
               <small>

@@ -55,12 +55,17 @@ export function dayText(ms: number, utcOffsetMs: number): string {
   return `${d.getUTCDate()} ${month}`;
 }
 
+/** "6 Nov" of a business date (YYYY-MM-DD, the hub's local date). */
+export function businessDayText(ymd: string): string {
+  const [, month, date] = ymd.split('-').map(Number);
+  const name = t('alerts.months').split(',')[(month ?? 1) - 1] ?? '';
+  return `${date ?? ''} ${name}`;
+}
+
 /** "from 6 Nov" for a carried order (`from_date` = YYYY-MM-DD), else null. */
 export function fromText(from: string | null): string | null {
   if (from === null) return null;
-  const [, month, date] = from.split('-').map(Number);
-  const name = t('alerts.months').split(',')[(month ?? 1) - 1] ?? '';
-  return fill(t('orders.from_date'), { date: `${date ?? ''} ${name}` });
+  return fill(t('orders.from_date'), { date: businessDayText(from) });
 }
 
 function placedLine(o: OpenOrder, f: RowFacts, utcOffsetMs: number): string {

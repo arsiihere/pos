@@ -202,3 +202,15 @@ Captured from `apps/client/e2e/t1-takeaway.spec.ts` (T1 #8) against the e2e hub,
 - The button shows in the token view of a token with an order whose `effective_pickup_at_ms` is set (not boosted), to a holder of `boost-order`, while the hub is reachable (`BoostOrder` is not queueable, 02b §6.6). It sends `BoostOrder { order_id }` for each such order of the token, then toasts "The kitchen cooks it now" and hides itself. A refusal (`ORDER_NOT_IN_ENGINE`, …) toasts the order error and keeps the button. The rail and the drawer read again on `OrderBoosted`; the token leaves Phone orders — later because its effective pickup is now null.
 - The pickup time stays in the drawer and the rail (D1). Readiness stays whole-bag: the drawer offers Hand over all only when every live line is ready.
 - On the e2e hub's fixed clock the ready time did not move (11:15 PM before and after): 03a v1.2.11 PK-5 keeps the stored promise and the earlier placement shows as the kitchen fires. The e2e checks it is not later.
+
+## L-CLIENT-5 item 3 a carried token shows its date beside the number (DC-2)
+
+Captured from `apps/client/e2e/t1-dayclose.spec.ts` (its own hub, `playwright.dayclose.config.ts`, kiosk 1920 × 1080). No frame shows a carried token; the nearest frames are HomeKiosk (the row) and TokenDue (the drawer). The e2e hub's fixed clock puts the business date in October.
+
+| State | English | Urdu |
+| --- | --- | --- |
+| A carried token's queue row, "2 · 21 Oct" beside the token | [CarriedToken-row](CarriedToken-row.png) | [CarriedToken-row-Urdu](CarriedToken-row-Urdu.png) |
+| Its token view header | [CarriedToken-view](CarriedToken-view.png) | [CarriedToken-view-Urdu](CarriedToken-view-Urdu.png) |
+
+- 02b v1.0.25 §3.3 Day close: a carried order is shown under the next day "with its date beside its token" ("57 · 6 Nov"). The client reads open-orders `from_date` (the order's business date when it is not the open day's) and shows "<token> · <d Mon>" on the queue row, the ready tile and the token view header, with the month names of `alerts.months` (Urdu: نومبر …), as the open-orders list's "from 6 Nov" does. The token's own badge keeps the bare number. A token of the open day shows nothing new. 03b defines no carried date on the Pass card, so the Pass is unchanged.
+- The e2e carries an unpaid takeaway over with 05's `CarryOverOrders`, closes the day, moves the hub clock a day on and opens the next day. DC-2's own case (a paid takeaway not yet handed over stays open across the close) is not built in the hub yet (`applyDayClosed` still closes a billed order), so it cannot be reached end to end; the client shows the date for any open row with `from_date`, so it covers DC-2 once the hub keeps such orders.

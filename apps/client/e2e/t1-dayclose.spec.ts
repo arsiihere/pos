@@ -85,3 +85,59 @@ for (const lang of LANGS) {
     }
   });
 }
+
+// ⚠️ 02b-TK L-CLIENT-5 item 3 (02b v1.0.25 §3.3 Day close: a carried order "is shown under the next day with its date
+// beside its token" ("57 · 6 Nov"); §6.16 `from_date`; ruling DC-2): a takeaway the manager carries over (05 §6.24
+// CarryOverOrders, unpaid) survives the close; on the next business day (the hub clock a day on, OpenBusinessDay) the
+// counter's queue row and token view show "<token> · <date>". (DC-2's paid-not-handed-over carry is a hub rule not yet
+// built: a billed order still leaves at the close, so the carried order here is an unpaid one.)
+for (const lang of LANGS) {
+  test(`[02b-TK L-CLIENT-5 item 3] a carried token shows its date beside the number on the next day (${lang})`, async ({ browser, request }, info) => {
+    test.setTimeout(180_000);
+    await hubAdvance(DAY_MIN_GAP_MS + 60_000);
+    const api = await apiSession(request, 'S_OWNER');
+    let cash: Awaited<ReturnType<typeof screen>> | null = null;
+    try {
+      const order_id = runId(`L5-CARRY-${lang}`);
+      const placed = await api.command('SubmitOrder', { order_id, order_type: 'takeaway', lines: [{ order_item_id: `${order_id}-K`, item_id: KARAHI.item_id, quantity: 1 }] });
+      expect(placed.status, JSON.stringify(placed.body.error)).toBe(200);
+      const open = (await api.query<{ orders: Array<{ order_id: string; token: number; business_date: string; bill: { state: string } | null }> }>('open-orders?order_type=takeaway')).orders;
+      const row = open.find((o) => o.order_id === order_id)!;
+      // every unbilled order is carried (an earlier run's carried token too: 05's close guard refuses unbilled orders)
+      const unbilled = open.filter((o) => o.bill?.state !== 'paid').map((o) => o.order_id);
+      const carried = await api.command('CarryOverOrders', { order_ids: unbilled, reason_code: 'customer_will_pay_later' });
+      expect(carried.status, JSON.stringify(carried.body.error)).toBe(200);
+      const shift = await api.query<{ shift: { shift_id: string } | null } & { shift_id?: string }>('shift').catch(() => null);
+      const shift_id = shift?.shift?.shift_id ?? shift?.shift_id;
+      if (shift_id !== undefined) await api.command('CloseShift', { shift_id, skip_count: true, note: 'e2e: count skipped' });
+      const closed = await api.command('CloseBusinessDay', {});
+      expect(closed.status, JSON.stringify(closed.body.error)).toBe(200);
+      await api.close().catch(() => undefined);
+      // the next calendar day: a new business date
+      await hubAdvance(24 * 3_600_000);
+      expect((await adminCommand(request, 'open-business-day', 'OpenBusinessDay', {})).status).toBe(200);
+      await adminCommand(request, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'K1', on_hand: 1_000_000 }] }).catch(() => undefined);
+
+      cash = await screen(browser, { width: 1920, height: 1080 });
+      const page = cash.page;
+      await rushOff(page);
+      await signInOn(page, hub().kiosk, lang, 'Owner');
+      await shiftOpen(page, lang);
+      await takeawayTab(page);
+      const token = String(row.token);
+      const [, m, d] = row.business_date.split('-').map(Number);
+      const label = `${token} · ${d} ${tr(lang, 'alerts.months').split(',')[m! - 1]}`;
+      const entry = await queueEntry(page, token);
+      await expect(entry.locator('[data-carried]')).toHaveText(label);
+      await entry.scrollIntoViewIfNeeded();
+      await capture(page, info, `CarriedToken-row-${lang}`, entry);
+      await entry.click();
+      await expect(page.locator('section.tk-drawer .tk-drawer__h [data-carried]')).toHaveText(label);
+      await capture(page, info, `CarriedToken-view-${lang}`, page.locator('section.tk-drawer'));
+    } finally {
+      await api.close().catch(() => undefined);
+      if (cash !== null) await closeAll(info, lang, cash);
+      await adminCommand(request, 'open-business-day', 'OpenBusinessDay', {}).catch(() => undefined);
+    }
+  });
+}
