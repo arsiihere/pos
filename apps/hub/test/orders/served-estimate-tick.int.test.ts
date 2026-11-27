@@ -285,7 +285,7 @@ describe('[02b #76 #77] [03b #124] served_estimate skips takeaway; parking keeps
     hub.clock.advance(3_600_000);
     expect(pass()).toMatchObject({ due: false, dueStatements: 1 });
     expect(openOrderRows(hub.deps.db, ['takeaway', 'parking']).map((r) => r.order_id)).toEqual([t]);
-    const part = ordersCatchUpPart().build(hub.deps.db, engine(), { deviceId: 'D1', deviceType: 'tablet', sessionId: 'X', kind: 'staff', staffId: COOK.staff, stationId: null, asOfSeq: 0 }) as { orders: Array<{ order_id: string }> };
+    const part = ordersCatchUpPart(hub.clock).build(hub.deps.db, engine(), { deviceId: 'D1', deviceType: 'tablet', sessionId: 'X', kind: 'staff', staffId: COOK.staff, stationId: null, asOfSeq: 0 }) as { orders: Array<{ order_id: string }> };
     expect(part.orders.map((o) => o.order_id).filter((id) => id !== d)).toEqual([t]);
   });
 

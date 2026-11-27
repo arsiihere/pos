@@ -493,7 +493,7 @@ describe('statement counts (§6.15–§6.18, catch-up)', () => {
     const floor = signIn(FLOOR);
     expect(await count(floor, 'order-contact?order_id=D1')).toBe(2); // D1 is on T2, floor F1
 
-    const part = ordersCatchUpPart();
+    const part = ordersCatchUpPart(hub.clock);
     const db = statementCounter(hub.deps.db);
     const built = part.build(hub.deps.db, engine(), socketCtx({ staffId: OT1 })) as { orders: Array<{ lines: unknown[] }>; zone_stock: unknown };
     expect(db.count).toBe(4); // 02b v1.0.11 (Q-10, #49): + open_slips (one alerts.listOpen)
@@ -872,7 +872,7 @@ describe('[02b #49] slip warnings to staff and open_slips (§6.19, catch-up, Q-1
 
   it('[02b #49] catch-up orders statements 3 → 4', async () => {
     const { order_id, alert_id } = await lateSeating();
-    const part = ordersCatchUpPart();
+    const part = ordersCatchUpPart(hub.clock);
     const db = statementCounter(hub.deps.db);
     const built = part.build(hub.deps.db, engine(), socketCtx({ staffId: OT1 })) as { open_slips: unknown };
     expect(db.count).toBe(4);
@@ -959,7 +959,7 @@ describe('[02b #46] line options and order note in reads (§4.2, §6.15; Q-7)', 
     expect(read.get('T1')![0]!.options).toEqual([{ name: 'Less spicy', quantity: 1 }]);
 
     db.reset();
-    const built = ordersCatchUpPart().build(hub.deps.db, engine(), socketCtx({ staffId: OT1 })) as { orders: Array<{ order_id: string; lines: Array<{ options: unknown }> }> };
+    const built = ordersCatchUpPart(hub.clock).build(hub.deps.db, engine(), socketCtx({ staffId: OT1 })) as { orders: Array<{ order_id: string; lines: Array<{ options: unknown }> }> };
     expect(db.count).toBe(4); // orders, lines, zone_stock, open_slips (#49)
     expect(built.orders.find((o) => o.order_id === 'T2')!.lines[0]!.options).toEqual([{ name: 'Less spicy', quantity: 1 }]);
   });
@@ -1205,7 +1205,7 @@ describe('[02b #68] catch-up part `orders` reads openOrderRows (§6.18 v1.0.25, 
     append(draft('order', 'PF', 'OrdersBilled', { order_ids: ['PF'], bill_id: 'BL1' }));
     const billedAt = (hub.deps.db.prepare('SELECT billed_at FROM orders WHERE order_id = ?').get('PF') as { billed_at: number }).billed_at;
     type Built = { orders: Array<{ order_id: string; billed: boolean; billed_at: number | null; pickup_at_ms: number | null; customer_name?: string | null; bill?: unknown; handed?: unknown }> };
-    const build = (o: Partial<SocketCtx>): Built => ordersCatchUpPart().build(hub.deps.db, engine(), socketCtx(o)) as Built;
+    const build = (o: Partial<SocketCtx>): Built => ordersCatchUpPart(hub.clock).build(hub.deps.db, engine(), socketCtx(o)) as Built;
 
     const db = statementCounter(hub.deps.db);
     const placer = build({ staffId: OT1 });
