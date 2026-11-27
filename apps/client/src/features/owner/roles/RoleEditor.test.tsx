@@ -1,12 +1,13 @@
-import { PERMISSION_SCOPES } from '@pos/domain';
+import { PERMISSION_SCOPES, type Permission } from '@pos/domain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudAdmin } from '../../../api/cloud-admin';
-import { fill } from '../../../i18n/en';
+import { en, fill } from '../../../i18n/en';
+import { ur } from '../../../i18n/ur';
 import { t } from '../../../i18n';
 import { GuardProvider } from '../guard';
 import { role, ROLES } from '../staff/fixtures';
 import { button, click, fail, fakeApi, mount, ok, setValue, type Call, type Mounted } from '../test-api';
-import { RoleEditor } from './RoleEditor';
+import { RoleEditor, unknownGrants, writeRolePatch } from './RoleEditor';
 
 let m: Mounted;
 
@@ -51,10 +52,10 @@ async function openGroup(group: string): Promise<void> {
   if (groupToggle(group).getAttribute('aria-expanded') !== 'true') await click(groupToggle(group));
 }
 
-async function render(api: CloudAdmin, roleId: string) {
+async function render(api: CloudAdmin, roleId: string, reloadApp: () => void = () => {}) {
   await m.render(
     <GuardProvider>
-      <RoleEditor api={api} roleId={roleId} />
+      <RoleEditor api={api} roleId={roleId} reloadApp={reloadApp} />
     </GuardProvider>,
   );
 }
@@ -254,16 +255,10 @@ describe('[01b §8] role editor', () => {
     expect(button(m.container, t('stale.reload')).className).toContain('pos-btn--primary');
   });
 
-  it('[owner decision 2026-10-30, 01b P1] CONFIG_STALE keeps the draft until Reload; nothing is retried', async () => {
-    let stale = true;
-    const { api, calls } = fakeApi(
-      handler((call) =>
-        stale
-          ? fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_LEAD' })
-          : ok({ role: { ...ROLES[2], ...(call.body as object) }, changed_versions: { staff: [], roles: [], responsibilities: [] } }),
-      ),
-    );
-    await render(api, 'R_LEAD');
+  it('[owner decision 2026-10-30, 01b P1; 01b v1.12 §5.1c R3-M-3, #119] CONFIG_STALE keeps the draft until Reload; nothing is retried; Reload reloads the whole app', async () => {
+    const { api, calls } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_LEAD' })));
+    const reloadApp = vi.fn();
+    await render(api, 'R_LEAD', reloadApp);
     const field = () => m.container.querySelector<HTMLInputElement>('input[name="name"]')!;
     setValue(field(), 'Floor lead');
     await click(button(m.container, t('roles.save')));
@@ -278,15 +273,83 @@ describe('[01b §8] role editor', () => {
     expect(button(m.container, t('roles.save')).disabled).toBe(true);
     expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
 
-    // Reload discards the draft and shows the current version.
-    stale = false;
+    // 01b v1.12 §5.1c Owner-app rollout (R3-M-3): Reload is a full application reload (new bundle and fresh
+    // roles), not a refetch in this bundle.
     const gets = calls.filter((c) => c.method === 'GET').length;
-    await click(button(m.container, t('stale.reload')));
-    expect(calls.filter((c) => c.method === 'GET').length).toBeGreaterThan(gets);
-    expect(field().value).toBe(ROLES[2]!.name);
-    expect(m.container.querySelector('[data-stale]')).toBeNull();
-    expect(button(m.container, t('roles.save')).disabled).toBe(false);
+    await click(button(banner!, t('stale.reload')));
+    expect(reloadApp).toHaveBeenCalledTimes(1);
+    expect(calls.filter((c) => c.method === 'GET')).toHaveLength(gets);
     expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+  });
+
+  it('[01b v1.12 §5.1c R3-M-3, #119] a role with a grant this bundle does not know: Save is off, "out of date" banner with Reload, no write even if invoked', async () => {
+    const future = role({
+      role_id: 'R_FUTURE',
+      name: 'Manager',
+      grants: [
+        { permission: 'future-thing' as Permission, grant_type: 'allowed', approver_role_ids: [], scope: 'branch' },
+        { permission: 'approve-void', grant_type: 'allowed', approver_role_ids: [], scope: 'branch' },
+      ],
+    });
+    const { api, calls } = fakeApi((call) => {
+      if (call.method === 'GET' && call.url === '/v1/admin/roles') return ok({ roles: [...ROLES, future] });
+      return ok({ role: future, changed_versions: { staff: [], roles: [], responsibilities: [] } });
+    });
+    const reloadApp = vi.fn();
+    await render(api, 'R_FUTURE', reloadApp);
+
+    const outOfDate = [...m.container.querySelectorAll<HTMLElement>('.pos-banner')].find((b) => b.textContent?.includes(t('roles.out_of_date')));
+    expect(outOfDate).toBeDefined();
+    expect(outOfDate?.textContent).toContain(t('roles.out_of_date_body'));
+    // An edit does not enable Save.
+    await click(button(grantRow(t('perm.boost-order')), t('roles.grant.allowed')));
+    expect(button(m.container, t('roles.save')).disabled).toBe(true);
+    await click(button(outOfDate!, t('stale.reload')));
+    expect(reloadApp).toHaveBeenCalledTimes(1);
+
+    // The write path refuses too: a grant replacement (or any PATCH) for this role never reaches the API.
+    expect(unknownGrants(future)).toEqual(['future-thing']);
+    expect(await writeRolePatch(api, future, { grants: [] })).toBeNull();
+    expect(await writeRolePatch(api, future, { name: 'Boss' })).toBeNull();
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([]);
+  });
+
+  it('[01b v1.12 B-5, §5.1c R3-M-3, #119] after a full reload onto a bundle that knows hand-over-unpaid, editing another Manager grant keeps it as stored', async () => {
+    const manager = role({
+      role_id: 'R_MANAGER',
+      name: 'Manager',
+      is_default: true,
+      grants: [
+        { permission: 'hand-over-unpaid', grant_type: 'allowed', approver_role_ids: [], scope: 'branch' },
+        { permission: 'approve-void', grant_type: 'allowed', approver_role_ids: [], scope: 'branch' },
+      ],
+    });
+    const { api, calls } = fakeApi((call) => {
+      if (call.method === 'GET' && call.url === '/v1/admin/roles') return ok({ roles: [...ROLES, manager] });
+      if (call.method === 'PATCH') return ok({ role: manager, changed_versions: { staff: [], roles: [], responsibilities: [] } });
+      throw new Error(`unexpected ${call.method} ${call.url}`);
+    });
+    await render(api, 'R_MANAGER');
+    expect(m.container.textContent).not.toContain(t('roles.out_of_date'));
+    await click(button(grantRow(t('perm.boost-order')), t('roles.grant.allowed')));
+    await click(button(m.container, t('roles.save')));
+    const body = calls.find((c) => c.method === 'PATCH')?.body as { expected_version: string; grants: { permission: string }[] };
+    expect(body.expected_version).toBe('v-R_MANAGER');
+    expect(body.grants.find((g) => g.permission === 'hand-over-unpaid')).toEqual({
+      permission: 'hand-over-unpaid',
+      grant_type: 'allowed',
+      approver_role_ids: [],
+      scope: 'branch',
+    });
+    expect(body.grants.map((g) => g.permission).sort()).toEqual(['approve-void', 'boost-order', 'hand-over-unpaid']);
+  });
+
+  it('[01b v1.12 B-5, R3-M-3] the hand-over-unpaid label and the out-of-date banner have English and Urdu texts', () => {
+    expect(en['perm.hand-over-unpaid']).toBe('Approve handing over an unpaid order');
+    for (const key of ['perm.hand-over-unpaid', 'roles.out_of_date', 'roles.out_of_date_body'] as const) {
+      expect(en[key]).toBeTruthy();
+      expect(ur[key]).toBeTruthy();
+    }
   });
 
   it('[01b §8] Pulse: a picked approver chip shows a check', async () => {
