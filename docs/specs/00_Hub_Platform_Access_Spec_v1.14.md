@@ -1,0 +1,2686 @@
+# 00 — Hub Platform & Access — Module Spec v1.14
+
+**v1.14 (2026-11-28): owner 2026-11-28 Q8 (QA round 1 rulings, `docs/plans/02b-tk-run3-decisions.md`; QA BUG-12) — idle sign-out follows the person's input.** **H-1** new **M101**: a person's **input on the device** (a tap, a click or a key on the signed-in staff page) counts as activity for the idle timer; passive watching does not. The staff client reports input with a light signal, the query **`GET /queries/activity`** (session required, staff sessions only, `counts_as_activity: true`, **0 statements**, answers `{}`), sent at most **once per 60 s** and only after real input — never on a timer, a socket frame, a poll, page visibility or a focus change. **H-2** M59 gains the row: the activity query is the one query that opts in for input, and it must never be polled. **H-3** endpoint count +1 (§6.33). No event, migration or error code. Marker "⚠️ Changed by 00 v1.14 (owner 2026-11-28 Q8)". v1.13 (approved with the 02b-TK pilot package, owner 2026-11-26) kept as history.
+
+**v1.13 (2026-11-24; DRAFT (pending hostile review + owner)): changes driven by the 02b-TK owner rulings R3, R5, R7** (`docs/plans/02b-tk-rulings.md`, 24 Nov 2026; hand-off `docs/design/handoff/02b-tk/` GAPS G-8, G-9, G-10, frames Board* and Status*; written together with **Foundation v1.18** and **05a v1.0.7**, both DRAFT). **H-1** a fourth session kind **`display`** (M96): a paired `cashier_kiosk` whose 05a profile is the pickup board opens it (run 1: tablet boards deferred, OD-2) with the new **`POST /auth/display`** (§6.39): no person, no PIN, no idle TTL; the board is a session kind on a paired device, **not a new device type** (R7). **H-2** `/ws` **display mode** (§6.21): a display socket gets a `catch_up` from display parts only and `display_hint` frames that carry **order ids only** (never an event, never a name, R3), and is kept out of every audience, alert and device-send list. **H-3** client entry **`/board/`** and the pair-page routing for a board (§8.2). **H-4** route group **`public`** (M97; run 1 M-4: served by its **own listener** on `public_status.port`, so the main listener keeps the guest guard everywhere), for exactly two routes: the customer status page **`GET /t/<order_id>.<mac>`** and its JSON read **`GET /t/<order_id>.<mac>/status`** (§6.40, §6.41; R5). **H-5** the status link is the order id plus an 80-bit truncated HMAC-SHA256 under a new hub secret **`status_link_key`** (M98, M100, §3.10), built by the export `statusLink()` for 03c's token slip QR. **H-6** ⚠️ Changed by run 3 (R3-m-1) four in-memory token buckets (§7.12: per-IP and global invalid, per-order and global valid) on the `public` group (M99, §7.12). **H-7** ⚠️ Changed by run 3 (R3-M-3) ⚠️ Changed by run 3 (R3-M-4) security headers on public replies and URL-free summary logging (§7.2, §7.13). **H-8** hub migration **`NNNN_display_sessions.sql`** (number rechecked at build) rebuilds `staff_sessions` for the new kind (§5.1); ~~05a v1.0.7 adds one column in the same file~~ (⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-1): 05a v1.0.7's column is in its own file `NNNN_device_profiles_board.sql`). **H-9** error codes `DISPLAY_NOT_ENABLED` (403), `TRACKING_LINK_INVALID` (404), `RATE_LIMITED` (429) (§9; appended to Foundation §6.2 by v1.18 row F-7). **H-10** endpoint count 30 → 33 (§6.33). **H-11** guest-network / router runbook note (§7.13). **H-12** scope: customer-facing routes are in for the takeaway status page only; §12.4's security-headers row is done for `public` (§1, §12.4). Marker "⚠️ Changed by 00 v1.13 (row H-n)". v1.12.4 kept as history. ⚠️ Changed by run 3 (R3-M-8)
+
+**v1.13 owner review (2026-11-24; still DRAFT, hostile run 2 owed):** OD-7 answered (English-only composed voice, OR-1); every other OD accepted as recommended; see "Owner review of the 02b-TK Part B package" under "Changes in v1.13".
+
+**v1.13 hostile run 2 fixes (2026-11-24; still DRAFT):** `docs/reviews/00_v1.13_hostile_run2.md` (0 BLOCKER, 2 MAJOR, 7 MINOR) and the 05c run 2 finding R2-M-7 fixed in place, marker "⚠️ Changed by 00 v1.13 hostile run 2 (<id>)"; map in the sub-section "Hostile run 2 fixes" under "Changes in v1.13". Main changes: transport limits, a connection cap and per-minute summary logging on the public listener (R2-M-1); `pay` ignores cancelled orders (R2-M-2); `SessionStarted` / `SessionEnded` v2 (Foundation v1.18 R2-m-4); the folded 05c rows H-13 – H-15 are carried when 05c is approved.
+
+**v1.13 hostile run 1 fixes (2026-11-24; still DRAFT):** `docs/reviews/00_v1.13_hostile_run1.md` (1 BLOCKER, 6 MAJOR, 16 MINOR) fixed in place, marker "⚠️ Changed by 00 v1.13 hostile run 1 (<id>)"; the finding → resolution map is the sub-section "Hostile run 1 fixes" under "Changes in v1.13". Main changes: the board and status reads consume **02b v1.0.25 §4.2 `takeawayProgress`** exactly (2 statements, 02b's one line-`ready_at` rule; B-1); a session-kind writer / reader table with `sessionStream()` (M-1); boards refused in alert mode (M-2, with 01d v1.3.7 row D-5); `statusLink() → { path, url } | null` behind a hub config switch `public_status.enabled` (M-3); the public routes move to **their own listener `public_status.port`** (default `http_port + 1`), so the main listener keeps the guest guard on every route (M-4); valid-link, invalid-link and per-order buckets (M-5); the public listener's own error, not-found and log handling (M-6). A board is a **`cashier_kiosk` only** in the pilot (tablet boards deferred, owner decision OD-2). Folded rows: 05c v0.2 H-1–H-3, 02b v1.0.25 TK-6. Owner decisions that block approval: §12.3 "Owner decisions".
+
+**v1.12.4 (2026-11-23; APPROVED (owner, 2026-11-23 12:24 PKT, with 05b v1.0, "approve"; applied by the 05b plan phase B task P0.1)): changes driven by 05b Staff Tablet App v1.0** (`docs/specs/05b_Staff_Tablet_App_Spec_v1.0.md` §4.5 rows H-1–H-4): `/health` and the `/staff/` page carry the staff build; the pair page hands the token to the tablet app; §8.1 is now the 05b tablet app; the app's close-code handling is 05b §3.5. Details in "Changes in v1.12.4".
+
+**v1.12.3 (2026-11-23; APPROVED (owner, 2026-11-23, with 05a v1.0 / v1.0.1; applied by 05a plan phase 0 task P0.4)): changes driven by 05a Device Access + Screens v1.0.1** (`docs/specs/05a_Device_Access_Screens_Spec_v1.0.1.md` §4.5 rows H-1–H-7, and the 00 halves of K-2, D-2, D-3). **H-1** every device type pairs by request (`POST /pair/requests` + `ApprovePairingRequest`, which now takes the device profile and runs on both routes, 05a §6.3); the token flow is removed: `GenerateDevicePairingToken` (§6.7), `POST /devices/pair` (§6.8), the pair page `t` / `d` branch, the hub admin **Add a phone** (`#add-phone`) and **Add a tablet** (`#add-tablet`, v1.12.2's STAB-1) views (M86), tests 167 and 168 (replaced by 05a §10 test 1); `DeviceTokenRotated` (M14) is retired for devices. **H-2** device access checks before §3.5 step 2: `403 DEVICE_ACCESS_DENIED` on a `listed` device for anyone not listed; `/admin/auth` and `/admin/login-roster` refused on `everyone` devices (`listed_device_only`); the roster adds `recovery_available`; a staff device with no profile keeps the v1.12.2 sign-in rule (05a v1.0.1 R-1). **H-3** the listed-only mask lives in a session view of `resolve()` (`directory.forSession`), used by the pipeline's `authorize`, `requireAdmin` and the query registry; a device with no profile counts as `everyone` there (R-1). **H-4** `owner_staff_id` readers move to the profile's `staff_ids`; M38's revoke becomes 05a M-5; `phone_count` → `device_count`; `pairing_source` dropped. **H-5** hub migration `0027_device_profiles.sql`. **H-6** a query may be `sessionKind: 'both'`. **H-7** `AdminBootstrapTokenIssued` v2 (`issued_by: 'recovery'`) and `issueAdminBootstrap(…, deviceId = 'hub')`. **K-2** the Devices row "Use as Pass tablet" link becomes a link to the device edit form on every non-kds row. **D-2** §8.5's `'in_person'` mention goes. **D-3** `POST /pair/requests` raises `AlertRaised` (`device_waiting`) when none is open. Marker "⚠️ Changed by 05a (row H-n)"; removed text is struck through or marked "Removed by 05a (row H-1)" in place. v1.12.2 kept as history.
+
+**v1.12.2 (2026-11-22; APPROVED (owner, 2026-11-22, stabilization bug STAB-1: "for now add the tablet stuff by which it is easy for me to test")): patch over v1.12.1, hub-served pages only.** No screen could pair a `tablet`: M44 pairs tablets by token, but the admin page made only `phone` tokens (`#add-phone`) and the pair page always sent `device_type: 'phone'`, so no tablet (and so no Pass tablet, 03b §3.4) could exist. Now the admin page gains **Add a tablet** (`#add-tablet`, M86): one tap makes a `tablet` token (no owner) and shows its QR; the tablet's `pair_url` carries **`&d=tablet`** (§6.7; phone links unchanged) and the pair page sends `device_type` from `d` (default `phone`), with tablet wording ("anyone on staff can sign in"). Binding it to a point stays the Devices row's "Use as Pass tablet" link (v1.9.2). No endpoint, event, migration, permission or error code change. New tests 167, 168. Marker "⚠️ Changed by 00 v1.12.2 (owner, 2026-11-22, STAB-1)". v1.12.1 kept as history.
+
+**v1.12.1 (2026-11-20; APPROVED (owner rulings R-37, 2026-11-20, and R-25, 2026-11-19; owner-ruled text only, no re-review); the carried v1.11 Q-70 text stays DRAFT): patch over v1.12.** **R-37** (05 rows H-2 and A-5, plan tasks P0.5, P0.6): the hub admin sign-in `permissions` object (M89; §6.6 `POST /admin/auth`, §6.29 `POST /admin/auth/bootstrap`; `AdminAuthResponse` in `@pos/events`) gains two **additive** boolean keys, **`manage-fiscal-settings`** and **`close-business-day`**, next to `manage-devices` and `manage-staff`, each effective (D19) like the other two. The `/admin/fiscal/` side-nav item and home tile (row H-2, §8.2) are shown by `manage-fiscal-settings`; 01a v2.7.1's `/admin/stock` page shows **Close day** by `close-business-day` (01a §6.19, §8.2, row A-5). Test #147 widened. **R-25** (05 row H-1, plan task P0.4): a clarifying sentence in the §3.7 H-1 text: a `'both'` command retransmitted across routes follows the per-route M47 replay rule as written (admin first, then device → replay; device first, then admin → `400 VALIDATION_FAILED` "command_id already used"; nothing runs twice). Markers "⚠️ Changed by 05 (row H-2, R-37)" and "(R-25)". No endpoint, event, migration or error code change; the response change is additive. v1.12 kept as history.
+
+**v1.12 (2026-11-19; APPROVED for rows H-1…H-5 (owner, 2026-11-18, with 05 v1.0; applied by 05 phase 0 task P0.2b); the carried v1.11 Q-70 text stays DRAFT): changes driven by 05 Billing v1.0 (numbers as re-taken in v1.0.1)** (`docs/specs/05_Billing_Spec_v1.0.1.md` §4.5 rows H-1, H-2, H-3, H-4, H-5; applied by 05's phase 0 task P0.2b). **H-1** `defineCommand({ sessionKind })` also takes `'both'` (a command on `/commands/<name>` and `/admin/commands/<name>`, one `command_id` space, same handler, permission from the session's staff); **H-2** hub admin entry `/admin/fiscal/` (side-nav item, home tile, shown by `manage-fiscal-settings`); **H-3** the fiscal worker starts after listen beside the print worker; **H-4** `defineCommand({ hashOmit })` with dotted paths, and the rule that a secret, government ID, payment reference or free-text payload field is never hashed, stored or echoed; **H-5** `seed-tenant --currency` validated with `currencyExponent` before any write. Each changed place carries a "⚠️ Changed by 05 (row H-n)" marker. No endpoint, event, migration or error code change. v1.11 kept as history; its Q-70 text is carried unchanged and is still awaiting its own approval.
+
+**v1.11 (2026-11-17, owner ruling Q-70 = (a), 2026-11-17; DRAFT, awaiting owner approval of the spec): a socket that authenticates with a session ended by replacement closes `4401` with reason `replaced`.** A KDS window that was offline when a newer window took its station session (M53, §6.11 post-commit) reconnects later and sends `auth` with the replaced session. v1.10.1 §6.21 step 3 closed it `4401` with no reason, so the old window read an ordinary session end, called `POST /auth/station` after the backoff and took the session back. Now §6.21 step 3: when the presented session is found, belongs to the device, is of kind `staff` or `station` and has `end_reason = 'replaced'`, the close reason text is `replaced`, the same as the live close (M53); the client shows its §8.4 "replaced / Use this window" state and does not sign in again by itself. Every other failure keeps `4401` with no reason; a revoked device still closes `4403`; a staff session ended `replaced` gets the reason too (its client goes to login, §8.4). Accepted gap: a window offline longer than the 7 d session retention (M66) gets a plain `4401` once and takes the session back once. The hub reads the existing `staff_sessions.end_reason` column (§5.1): no column, migration, event, endpoint or error code change. M53, §6.21, §8.4 and §10 (new test #166, §10.3 row 6.21) carry the marker "⚠️ Changed in v1.11 (Q-70)". v1.10.1 kept as history.
+
+**v1.10.1 (2026-11-17, APPROVED (Owner, 2026-11-17, 04 Z3a)): reconcile of main v1.9.1 + v1.9.2 and module-04 v1.10; no rule changes.** Written by the `module-04` → `main` merge (04 task Z3, plan row Z3a). module-04's v1.10 was built on v1.9; main's v1.9.1 and v1.9.2 were built on v1.9 too. They edit different places (v1.10: `staff_names`, update-only checkpoints, `registerHubProjections`, tests #159–#162; v1.9.1 / v1.9.2: §8.2 pair page targets, `/kds/`, the Kitchen screens and Printers admin entries, tests #163–#165), so this file is both texts together, with every "⚠️ Changed by" marker of both sides kept. No endpoint, event, migration or error code change beyond the two sides'. v1.10, v1.9.2 and v1.9.1 kept as history.
+
+**v1.10 (2026-11-12, APPROVED (owner, 2026-11-12, with 04 v1.0, 11:58 PKT, and the 04 gap rulings, 13:17; applied by 04 phase 0 task P0.2 / spec task 0)): changes driven by 04 Voids + Audit v1.0** (`docs/specs/04_Voids_Audit_Spec_v1.0.1.md` §4.5 rows H-1, H-2; gap rulings G-1, G-2, G-3, G-4, G-6 in `docs/plans/04-gaps.md`): table `staff_names`, upserted by every directory apply and never deleted (§4.2, §5.1); `applyAll` only updates existing checkpoint rows, `catchUp` writes the first one (M48, §3.7, §3.8 step 4); `registerHubProjections(registry)`; test helpers; tests #67, #100 restated, #159–#162 new.
+
+**v1.9.2 (2026-11-13, APPROVED (owner, 2026-11-13 06:02 PKT, "Sab rec": 03b / 03c client gap rulings Q-42, Q-43 = Rec (a), with 03b v1.0.8 and 03c v1.0.9)): patch, hub-served pages only.** **Q-42** §8.2: the hub serves the 03b KDS client entry at **`/kds/`** (route group `admin-page`, page meta like `/staff/`: tenant and branch ids, branch name, hub clock); the pair page sends a paired **`kds`** device to `/kds/` (after approval, and on a later load with a stored token) instead of calling `POST /auth/station` itself, and `/kds/` calls `POST /auth/station`, so one page owns the station session (M53). **Q-43** §8.2 (M86): the hub serves two more admin entries, **`/admin/kitchen-screens/`** (03b) and **`/admin/printers/`** (03c), group `admin-page` like `/admin/stock/`; the admin home gains their side-nav items and two home tiles with a status line (from 03b's `kds-config` and 03c's `print-queue`), and each Devices row of a `tablet` gets a "Use as Pass tablet" link `/admin/kitchen-screens/#bind=<device_id>`. Static pages, not counted as endpoints (§6.33). No endpoint, event, migration or error code change. New tests 163–165 (numbers after module-04's 159–162); test 142 widened. Marker "⚠️ Changed by 00 v1.9.2 (owner ruling 2026-11-13, Q-nn)". **Fold:** module-04's v1.10 is built on v1.9 and carries neither v1.9.1 nor v1.9.2; whichever reaches `main` second folds the other (OPEN-QUESTIONS §9 02-F1, §10 03-F1). v1.9.1 kept as history.
+
+**v1.9.1 (2026-11-12, APPROVED (owner, 2026-11-12, 02a client gap ruling Q-13 = Rec, with 02a v1.1.6)): patch, pair page only.** §8.2: after approval, and on a later load with a stored token, the pair page sends every non-KDS device type to **`/staff/`** (01d's staff entry); KDS still calls `POST /auth/station`. Phones paired by link (`/pair?t=`, `POST /devices/pair`) and an already-paired phone also go to `/staff/` (Q-29). Was "others go to login" with no target (the built page stayed on "Opening the cashier screen…"). No endpoint, event, migration or error code change; v1.10 stays the next minor bump; module-04 holds a v1.10 built on v1.9: whichever of `module-02-hub-gaps` / the client branches and `module-04` reaches `main` second folds the other's bumps: 02b (v1.0.11 ↔ v1.0.10), 00 (v1.9.1 → v1.10), 01a (v2.4.4 → v2.5), 01b (v1.8.1 → v1.9; module-04's Cashier row has no `mark-served`), their README rows, and the code files `apps/hub/src/orders/exports.ts` (H2 `LINE_COLUMNS` / `toLine` vs 04's `readOrder`) and `apps/hub/src/orders/commands/comp-line.ts` (H6 pending result vs 04's `applyComp` line guard); trial merge before the module → main PR (OPEN-QUESTIONS §9 02-F1). Marker "⚠️ Changed by 00 v1.9.1 (owner ruling 2026-11-12, Q-13)". v1.9 kept as history.
+
+**v1.9 (2026-11-11, APPROVED (owner, 2026-11-11, with 03b v1.0.1 and 03c v1.0.1; applied by 03b phase 0 task P0.13 / 0d)): changes driven by 03b KDS + Pass v1.0.1 and 03c Printing v1.0.1** (`docs/specs/03b_KDS_Pass_Spec_v1.0.1.md` §4.5 rows H-9, H-10; `docs/specs/03c_Printing_Spec_v1.0.1.md` §4.4 row H-11; gap rulings G-7, G-8): `ConnectedSession.stationId` (§4.2); the writers of `devices.point_id` / `lane_label` (§5.1); the print worker starts after listen, resume through `registerBootStep('5')`, module wiring sites in `server.ts` / `main.ts` / `lib/boot.ts`, print retention from the sweeper's `purge()` (§7.3). Markers "⚠️ Changed by 03b v1.0.1 (H-n)" / "⚠️ Changed by 03c v1.0.1 (H-11)".
+
+**v1.8 (2026-11-07, developer as the owner's proxy): changes driven by 02b Ordering v1.0** (`docs/specs/02b_Ordering_Spec_v1.0.md` §4.5 row H-1, simplified by the owner, 02b §12.14; APPROVED with 02b v1.0): new **M95 — a staff session's idle clock is paused while its device has no open socket** (cap `queue_auto_send_max_ms`, 4 h); header `X-Queued-At` on queueable commands, added to the CORS preflight list; `defineCommand({ queueable })`. Ended sessions are still never accepted (M19, M39, M59 unchanged). 01e takes the next 00 bump (v1.9). Not yet built: **built in 02p** (02p §11 tasks 11, 12). *(02p task 0, m-8: was "(the 02b build implements it)".)*
+
+**v1.7 (2026-11-03, developer as the owner's proxy): changes driven by 03a Timing Engine v1.0** (`docs/specs/03a_Timing_Engine_Spec_v1.0.md` §4.5, rows H-1, H-5, H-6; APPROVED with 03a v1.0): `BootContext` gains `clock` and `missedFires` (§4.2); `devices` gains `point_id` and `lane_label` (§5.1). The planned additive patch v1.6.2 (H-1 alone) is not made: H-1 joins H-5 and H-6 here. v1.7 was reserved for 01e (README); 01e takes the next 00 bump. **Built by the 03a build** (merged to main in `3f78a44`). *(02p task 0, m-8: was "Not yet built (the 03a build implements it).")*
+
+**v1.6.1 (2026-11-02, developer): as-built patch from 01d v1.1** (`docs/specs/01d_Notifications_Requests_Spec_v1.1.md` §1 "Contract changes other modules read" and §4.5 "As built against C-00"; APPROVED by the developer 2026-11-02; patch-level so v1.7 stays free for 01e): `preRead(db, payload, ctx)` (AD-10); the early replay peek for `pinCheck` commands (AD-24); `authGen` captured before the session check (AD-25); the hooks ctx with `permission: null` (AD-26); the shared `/auth/pin` argon2 semaphore (AD-27); both `pinHooks` gain a trailing `cmd` (AD-94); the read-only view blocks `exec` / `pragma` / `transaction` (AD-21) and `rawDbOf` is exported from `engine-host/read-only-tx.ts` (AD-67); the `err` log key (AD-20, AD-28, AD-109); `startSweeper(deps, log)` (AD-29) and `startTickLoop(deps, log)` (AD-110); `due` on a read-only view (AD-111); `binding_route` on alert-mode sockets (AD-4); `4409` as the local constant `ALERT_REPLACED` (AD-30); receipt listener and builder guards, close `1011` (AD-31); `WsHub.sendToSessions` (AD-74); `/app/*` on route group `admin-device-public` and the app-release CLI through `tsx` (AD-34, AD-35); `/staff/` served with `indexMeta` `<meta>` tags (AD-T41-1). Each changed place carries a "Changed by 01d v1.1" marker. No error code, endpoint or merged migration change.
+
+**v1.6 (2026-11-01).** Changes driven by 01d Notifications and requests v1.0 (`docs/specs/01d_Notifications_Requests_Spec_v1.0.md` §4.5 C-00, rows H-1–H-14; new M94 recording the package): §3.1 M12, M38, M47, M66 notes; §3.5 / §3.7 (`pinCheck`, `preRead`, `checkPin` hooks, `'checked-in-handler'`, `payload_hash` without the PIN); §4.2 (`defineCommand`, `registerCatchUp`, `ws` exports); §5.1 (`app_releases`, `staff_sessions_staff_activity`); §6.17; §6.21 (alert mode); §6.33 (count and split rule); new §6.36–§6.38 (tablet app update); §7.3; §8.1; §8.5. See 01d §4.5.
+
+**v1.5 (2026-10-27).** Changes driven by 01b Staff & Roles v1.0 (v0.3, then hostile review 1, `docs/reviews/01b_spec_review_1.md`): §3.1 (M10, M29, M52, M57, M73, new M93), §3.6, §4.2, §5.1, §5.2, §6.5, §6.19, §6.20, §6.22, §6.23, §6.24a (new: JWT guard), §6.26, §6.27, §6.33 (note), §7.2, §7.10; §5.2 cloud migrations runner (01b review 2 N5). See 01b §4.3.
+
+## §1. Header
+
+| Field | Value |
+|-------|-------|
+| Module | 00 Hub Platform & Access |
+| Version | **v1.13 — DRAFT (pending hostile review + owner)** (2026-11-24; 02b-TK owner rulings R3, R5, R7; hostile run 1 and hostile run 2 fixed in place; folds 05c v0.2 H-1–H-3 (carried when 05c is approved, ⚠️ Changed by 00 v1.13 hostile run 2 (05c R2-M-7)) and 02b v1.0.25 TK-6 as rows H-13–H-16; rows H-1–H-16, "⚠️ Changed by 00 v1.13 (row H-n)" markers; with Foundation v1.18 and 05a v1.0.7, both DRAFT). **v1.12.4 — APPROVED** (owner, 2026-11-23, with 05b v1.0). **v1.12.3 — APPROVED** (owner, 2026-11-23, with 05a v1.0 / v1.0.1; applied by 05a plan phase 0 task P0.4): 05a §4.5 rows H-1–H-7 and the 00 halves of K-2, D-2, D-3 ("⚠️ Changed by 05a (row …)" markers); v1.12.2 kept as history. **v1.12.2 — APPROVED** (owner, 2026-11-22, STAB-1): admin `#add-tablet` (M86) and `pair_url` `&d=tablet` read by the pair page (§6.7, §8.2), tests 167–168. **v1.12.1 — APPROVED** (owner rulings R-37, 2026-11-20, and R-25, 2026-11-19; owner-ruled text only, no re-review): M89 `permissions` gains `manage-fiscal-settings` and `close-business-day` (additive; §6.6, §6.29, §8.2, test #147; "⚠️ Changed by 05 (row H-2, R-37)" markers); §3.7 H-1 cross-route retransmit sentence ("(R-25)"); **carries v1.11's Q-70 text unchanged, which stays DRAFT**; v1.12 kept as history. **v1.12 — APPROVED for the 05 rows H-1…H-5 only** (owner, 2026-11-18 16:33 PKT, with 05 v1.0; numbers as re-taken in 05 v1.0.1; applied by 05 phase 0 task P0.2b, 2026-11-19; "⚠️ Changed by 05 (row H-n)" markers); **carries v1.11's Q-70 text unchanged, which stays DRAFT, awaiting owner approval** (owner ruling Q-70 = (a), 2026-11-17); v1.11 kept as history. **v1.11 — DRAFT, awaiting owner approval** (owner ruling Q-70 = (a), 2026-11-17): §6.21 step 3, a socket auth with a session ended by replacement closes `4401` with reason `replaced` (M53); "⚠️ Changed in v1.11 (Q-70)" markers. **v1.10.1 — APPROVED** (Owner, 2026-11-17, 04 Z3a): reconcile of main v1.9.1 + v1.9.2 and module-04 v1.10; no rule changes. **v1.10 — APPROVED** (owner, 2026-11-12, with 04 v1.0 and its gap rulings; 04 §4.5 rows H-1, H-2, "⚠️ Changed by 04 (row H-n)" markers; built by 04 tasks P0.5, P0.6, u6). v1.9 — APPROVED (owner, 2026-11-11, with 03b / 03c v1.0.1). **v1.7 — APPROVED** (developer as the owner's proxy, 2026-11-03), together with 03a v1.0 (README R34 / R26): 03a §4.5 rows H-1, H-5, H-6 with "⚠️ Changed by 03a v1.0 (H-n)" markers; built by the 03a build (`3f78a44`; 02p task 0, m-8: was "not yet built (the 03a build implements it) … stays the implemented baseline until then"); v1.6.1 kept as history. **v1.6.1 — APPROVED** (developer, 2026-11-02): as-built patch from 01d v1.1 (the 00 rows of 01d v1.1 "Contract changes"; "Changed by 01d v1.1" markers); implemented by the 01d build; v1.6 kept as history. **v1.6 — APPROVED** (developer, 2026-11-01), together with 01d v1.0 (README R34 / R26): changes driven by 01d Notifications and requests v1.0 (M94, 01d §4.5 C-00 rows H-1–H-14; G4 hostile reviews runs 1–3 of 01d applied). **Supersedes v1.5**, which stays the implemented baseline until 01d's build lands; v1.5 kept as history. v1.5 — **APPROVED** by the owner (2026-10-27), together with 01b v1.0 and 01a v1.3: changes driven by 01b Staff & Roles v1.0 (M93, 01b §4.3; hostile reviews 1 and 2 of the 01b package applied). **Supersedes v1.4**, which stays the implemented baseline until 01b's build lands. v1.4 — **APPROVED** by the owner (2026-10-26, "apply what is good" on open questions Q11, Q12): phones use the light theme (M91); names in three responses (M92); §6.17 states what refreshes last-seen. v1.3 — **APPROVED** by the owner (2026-10-26, no hostile review requested): module 00 design hand-off (`docs/design/handoff/00/`): Urdu pages, hub admin home `/admin`, styled `/setup` after provisioning, setup address pick-list, three admin list queries, removal reason on the devices list, admin permissions in the sign-in response (M83–M90). v1.2.1 — editorial (2026-10-25): §4.2 names match the code (01a S25); no behaviour change. v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
+| Date | 2026-11-24 (v1.13); 2026-11-23 (v1.12.4, v1.12.3); 2026-11-22 (v1.12.2); 2026-11-20 (v1.12.1); 2026-11-19 (v1.12); 2026-11-17 (v1.11); 2026-11-02 (v1.6.1); 2026-11-01 (v1.6); 2026-10-27 (v1.5); 2026-10-26 |
+| Depends on | Foundation Spec v1.8 (APPROVED; v1.6 written against it, 01d C-F). ⚠️ Changed by 00 v1.13: v1.13 is written against **Foundation v1.18** (DRAFT, same change), **05a v1.0.7** (DRAFT, same change: screen key `board`, the `pickup-board` query) and **02b v1.0.25** (DRAFT, separate bump, run 1 fixed at `6419003a`: §4.2 export `takeawayProgress` with its line `ready_at` rule, `pickup_at_ms`, §12.4 un-defer of customer tracking; 03b v1.0.16 `LINE_READY_AT_SQL`, 02b row TK-3); **01d v1.3.7** (DRAFT, row D-5: boards are never alert recipients); **05c v0.2** (DRAFT, rows H-1–H-3 folded here) |
+| Inherits | **Shared Standards from Foundation v1.8 §6**, unchanged except where a decision in §3.1 names the section it overrides (D64 freeze rule) |
+| Tier | T2 Production (foundation §1) |
+| Already implemented | Plan task 1 (monorepo skeleton). Plan tasks 5b and 5c list what v0.6 and v1.0 change in tasks 1–5 |
+
+### Changes in v1.13 (02b-TK owner rulings R3, R5, R7, `docs/plans/02b-tk-rulings.md`; with Foundation v1.18 and 05a v1.0.7)
+
+**v1.13 — 2026-11-24 — DRAFT (pending hostile review + owner).** Each changed place carries "⚠️ Changed by 00 v1.13 (row H-n)". The board's data (screen key, query, settings, voice) is 05a v1.0.7's; this spec owns the session kind, the socket mode, the public route group, the link, the limiter and the endpoints.
+
+| Row | Change | Where |
+|---|---|---|
+| H-1 | Session kind **`display`** (M96): no person, no PIN, no idle TTL; opened by `POST /auth/display` (§6.39) on a `cashier_kiosk` whose 05a profile is the board (`screens = ['board']`); only routes that opt in with `allowDisplay` (05a's `pickup-board`), `/ws` display mode and `POST /auth/logout`; every command and every other query → `401 SESSION_INVALID`. Ends `replaced`, `forced`, `device_revoked`, `hub_restored`, `logout`. `SessionStarted` / `SessionEnded` **v2**: `kind` gains `'display'`, identity upcaster v1 → v2 (Foundation v1.18 D46; ⚠️ Changed by 00 v1.13 hostile run 2 (F R2-m-4)) (stream `hub` / device_id) | M96, §3.4, §3.9, §4.2 events, §6.39, §6.18 |
+| H-2 | `/ws` **display mode**: display sockets in a third list (not session, not alert mode); `catch_up` = 00's `hub` part + `registerDisplayCatchUp` parts; after each commit one `display_hint { seq, order_ids }` per batch that `registerDisplayHint` maps; no `event`, alert or receipt frame ever; own `SessionEnded` → close `4401` with the reason, no frame; `DeviceRevoked` → `4403`, no frame | §4.2, §6.21 |
+| H-3 | Client entry `/board/` (route group `admin-page`, page meta as `/kds/`); the pair page sends an approved board to `/board/`; `/staff/` on a board device follows `DEVICE_ACCESS_DENIED { reason: 'display_device' }` to `/board/` (05a v1.0.7 §3.5); admin rows label a display session "Pickup board" | §8.2, §8.4 |
+| H-4 | Route group **`public`** (M97; ⚠️ Changed by 00 v1.13 hostile run 1 (M-4): on its own listener `public_status.port`, ⚠️ Changed by run 3 (R3-M-7) starts only on a provisioned hub with `public_status.enabled` and a loaded key; the main listener has no exemption): exactly `GET /t/:link` and `GET /t/:link/status`; ⚠️ Changed by run 3 (R3-M-1) transport admission → Host → provisioned → link check → M99; **no guest-network guard** (~~the exemption is this group only~~ ⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-1): it has its own listener; the main listener has no exemption); route-inventory test pins both routes and their guard set | M97, §3.9, §6.40, §6.41 |
+| H-5 | **Status link** (M98): `<order_id>.<mac>`, `mac` = first 10 bytes of `HMAC-SHA256(status_link_key, "pos-status-v1:" ‖ branch_id ‖ ":" ‖ order_id)` as 16 Crockford base-32 characters; constant-time compare; lifetime ~~until 2 h after the order group's day close~~ ⚠️ Changed by run 3 (R3-M-8) the earlier of the replayable group tracking cutoff (close + 2 h) and business-date midnight + 36 h, with no revival after expiry (M98) (⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-1)). New hub secret **`status_link_key`** (M100, §3.10): written by `/setup/provision`, or once at boot on an older hub; never in SQLite, backups, sync or logs; `backup_encryption_key` is never reused. Export `statusLink(order_id)` | M98, M100, §3.10, §4.2 |
+| H-6 | **Public rate limiter** (M99, §7.12): ~~per-IP bucket (20 burst, 20 / min) + global bucket (500 burst, 50 / s); an invalid link costs 5~~ the four §7.12 buckets (invalid per IP and global; valid per order and global) (⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-1)); `429 RATE_LIMITED { retry_after_ms, scope }` + `Retry-After`; in memory, ≤ 4 096 IPs, LRU | M99, §7.12, ⚠️ Changed by run 3 (R3-m-1) config `public_status.rate` |
+| H-7 | ⚠️ Changed by run 3 (R3-M-3) ⚠️ Changed by run 3 (R3-M-4) Public replies carry the §7.13 headers. Public request-path logs contain only outcome counts. | §7.2, §7.13 |
+| H-8 | Hub migration `NNNN_display_sessions.sql` (FK-off recipe): `staff_sessions` rebuilt with kind `display` and the two widened CHECKs; its three indexes recreated, the active-device unique index over `staff`, `station`, `display`. ~~05a v1.0.7 step 2 (`device_profiles.board_json`) is in the same file~~ 05a v1.0.7's `device_profiles.board_json` is its own file `NNNN_device_profiles_board.sql` (⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-1)) | §5.1 ⚠️ Changed by run 3 (R3-M-8) |
+| H-9 | Codes `DISPLAY_NOT_ENABLED` (403), `TRACKING_LINK_INVALID` (404), `RATE_LIMITED` (429); `DEVICE_TYPE_NOT_ALLOWED` also from `/auth/display` | §9; Foundation v1.18 row F-7 |
+| H-10 | Endpoints: + §6.39, §6.40, §6.41 → hub 27, total **33** | §6.33 |
+| H-11 | ⚠️ Changed by run 3 (R3-M-2) ⚠️ Changed by run 3 (R3-M-7) Guest SSID on an isolated subnet, firewall opens only the public port, IPv4 routing by default, verified per-client limits for NAT, fixed address and pre-service commissioning. | §7.13 |
+| H-12 | Scope: customer-facing routes are in for the takeaway status page only (R5); §12.4's "security headers … revisit with customer pages" is done for the `public` group | §1, §12.4 |
+
+**Dependencies (not in this file):** 02b **v1.0.25** §4.2 `takeawayProgress(db, state, filter: { open_day: true } \| { group_of: order_id })` (`orders/exports.ts`; 2 statements whatever the size; one entry per token group; line `ready_at` by 02b's one rule: Pass ready time from 03b v1.0.16's `LINE_READY_AT_SQL`, else the engine line's `done_at`, else a no-station line's `added_at`, ⚠️ Changed by run 3 (R3-M-6) held until the effective scheduling pickup if it is non-null (D1)) and its un-defer of customer tracking (02b §12.4); 03a's in-memory `EngineOrder.promise_ms` / `pickup_at_ms` (inside the export); **01d v1.3.7 pilot slice, row D-5** keeps boards out of every alert target and refuses their alert-mode connection; 03c v1.0.16 prints `statusLink(root_order_id)?.url` as the token slip QR (⚠️ Changed by 00 v1.13 hostile run 1 (B-1, M-2, M-3)). Migration `NNNN`; events `SessionStarted` / `SessionEnded` **v2** (enum value added; identity upcaster, v2 fixtures; ~~v1 kept, no upcaster~~, ⚠️ Changed by 00 v1.13 hostile run 2 (F R2-m-4)), `DeviceProfileSet` v2 (05a's). New WS frame `display_hint`. No new permission or package dependency. ⚠️ Changed by run 3 (R3-M-6) 02b supplies the internal deal parent field (§6.41). Per D4, pilot approval and build have no dependency on 05c, `when_none`, `payment_*` alert kinds or `manage-payment-providers`. ⚠️ Changed by run 3 (R3-M-8) The same export supplies the replayable group tracking cutoff (M98). ⚠️ Changed by run 3 (R3-M-8)
+
+**Folded rows (other writers' text, copied; ⚠️ Changed by 00 v1.13 hostile run 1):**
+
+| Row | From | Change | Where |
+|---|---|---|---|
+| H-13 | 05c v0.2 row H-1 (**carried when 05c is approved** (not normative before; not built before 05c is approved); ⚠️ Changed by 00 v1.13 hostile run 2 (05c R2-M-7)) | New guard scope **`webhook-endpoint`**: lookup by `endpoint_id` in `credential-lookup.ts` (`paymentWebhookEndpointById`), then `setTenant`; the route has a `TenantContext`. Index `payment_webhook_endpoints_endpoint (endpoint_id)` named as an **M55 (a)-style pre-tenant override** (M55 (g)). Route inventory and cross-tenant tests | M55, §5.2, `plugins/tenant-scope.ts`, `db/credential-lookup.ts` |
+| H-14 | 05c v0.2 row H-2 (**carried when 05c is approved** (not normative before; not built before 05c is approved); ⚠️ Changed by 00 v1.13 hostile run 2 (05c R2-M-7)) | `GET /v1/sync/payment-notifications` on the branch API key | §5.2 |
+| H-15 | 05c v0.2 row H-3 (**carried when 05c is approved** (not normative before; not built before 05c is approved); ⚠️ Changed by 00 v1.13 hostile run 2 (05c R2-M-7)) | Query `payment-intent-device` takes the **device token only** (no staff session), answers only the intent's own device (05b native) | §6.2 query auth |
+| H-16 | 02b v1.0.25 row TK-6 (1) | The hub request-log redaction (`server.ts` `redactQueryToken`: `t`, `device_token`, `session_token`) adds **`phone`**; a test as 00's existing redaction test; `customer-orders` ships only with it | §7.2 |
+
+#### Hostile run 1 fixes (`docs/reviews/00_v1.13_hostile_run1.md`)
+
+| Finding | Resolution | Where |
+|---|---|---|
+| B-1 `takeawayProgress` unowned; readiness rule disagreed | 02b v1.0.25 (run 1, `6419003a`) now owns the export in its §4.2: signature `takeawayProgress(db, state, { open_day: true } \| { group_of })`, 2 statements, one entry per token group, and **one** line `ready_at` rule (Pass ready via 03b `LINE_READY_AT_SQL`, else engine `done_at`, else no-station `added_at`, held to the pickup). This file and 05a v1.0.7 §3.11 cite it and restate nothing. The review's alternative (engine `done` never counts where a Pass exists) is owner decision **OD-1** | header, dependencies, §6.41, §11 |
+| M-1 two-kind session code | New §3.4a: every writer and reader of the session kind, `sessionStream(kind, ids)` and `sessionActor(kind, staffId)` in `session-store.ts`, an exhaustive `switch` with a `never` default at every kind branch; reconcile reads `hub` too; tests 191–193 | §3.4a, M96, §4.2, tests 173, 191–193 |
+| M-2 boards still alert targets | 01d v1.3.7 row D-5 (written: boards skipped by every target, `SendTestAlert` refused, alert-mode refused `4403`); here §6.21: an alert-mode `auth` from a board closes `4403` reason `display_device`, and the 05a profile switch to the board closes the device's alert-mode socket after commit. Pilot boards are `cashier_kiosk` only (Chrome / Edge kiosk mode, no 05b app): no 05b bump; a tablet board is deferred (OD-2, R33) | M96, §6.21, §6.39, test 175, 194 |
+| M-3 `statusLink` contract | `statusLink(order_id) → { path, url } \| null`: `null` while the hub config switch `public_status.enabled` is not `true`, when `advertised_host` is absent, when `order_id` fails `ULID_RE` (`packages/domain/src/ids.ts`), or when no `status_link_key` is loaded. A **hub config** flag, not a 01a branch setting: it depends on this hub's router, set by the installer after the §7.13 checklist (no 01a row). 03c reads `?.url`. 02b row: `SubmitOrder.order_id` checked against `ULID_RE` (owed by 02b, §12.3) | M98, §3.10, §4.2, tests 195, 196 |
+| M-4 guest network reaches the main port | **Adopted:** the two `/t/*` routes are served by a **second listener** on `public_status.port` (default `http_port + 1`), started only when `public_status.enabled`; it registers nothing else. The main listener keeps the guest guard on **every** route; the router opens only the public port to the guest network | M97, §3.9, §6.40, §6.41, §7.13 |
+| M-5 limiter under NAT | Buckets: per IP for **invalid** links only (5 each, 20 burst, 4 / min); per **order** for valid links (10 burst, 30 / min); global **valid** (500 / 50 per s) and global **invalid** (20 / 5 per s), so guessers never starve a valid link; no "IP = global" fallback; the page's visibility fetch at most once per `poll_ms` | M99, §7.12, §8.6, tests 185, 197 |
+| M-6 errors / headers / logs | The public listener has its own `onSend` header hook, error handler (page route → HTML page with `data-code`; `/status` → JSON envelope) and not-found handler; its request serializer never logs `url` | §6.40, §6.41, §7.2, §7.13, tests 184, 187, 198 |
+| m-1 counts, race | display `catch_up` = 1 (`hub` part's `ClockAlarm` read) + 2 = 3; §6.39 re-reads the profile in the transaction; a staff session found on a board is ended `forced` with a `warn` log (assertion path); counts corrected | §6.21, §6.39 |
+| m-2 budget prose | "4 tries, then about one more every 75 s" (cost 5 against 4 tokens a minute, in the invalid bucket) | §7.12 |
+| m-3 link lifetime holes | Hard ceiling: valid until `min(latest day_closed_at + 2 h, business_date 00:00 hub local + 36 h)` | M98, test 182 |
+| m-4 migration numbers | "next free hub number at merge", clash listed (two `0028` claims) | §5.1 |
+| m-7 HEAD routes | the two routes register with `exposeHeadRoutes: false` | M97, test 178 |
+| m-8 key handling | `/setup/provision` keeps an existing key (`??`); a failed boot write logs `error`, `statusLink` → `null`, the public listener does not start; rotation in the §7.13 runbook | M100, §7.13 |
+| m-9 board retry loop | backoff 5 s → 60 s; after 10 failed rounds `/board/` stops on "Board needs attention" (`board.attention`) | §8.4, test 199 |
+| m-13 cleartext link | added to the accepted-leak sentence and MQ14; runbook recommends a WPA3 / OWE ("Enhanced Open") guest SSID | M98, §7.13, MQ14 |
+| m-14 missing tests | tests 191–200 | §10.3 |
+| m-15 owner questions | one "Owner decisions — BLOCKER-for-approval" table with recommended defaults | §12.3 |
+| m-16 CLAUDE.md | stated: the Foundation v1.18 approval commit adds the two stack rows to CLAUDE.md | §12.1 |
+| m-5, m-6, m-10, m-11, m-12 | 05a v1.0.7's (clips path and range, queue flush, code reason, R33) | 05a v1.0.7 run 1 sub-section |
+
+#### Hostile run 2 fixes (`docs/reviews/00_v1.13_hostile_run2.md`)
+
+⚠️ Changed by 00 v1.13 hostile run 2, 2026-11-24; still DRAFT.
+
+| Finding | Resolution | Where |
+|---|---|---|
+| R2-M-1 public listener unbounded | Transport limits on the public instance (`connectionTimeout` / `requestTimeout` 10 s, `keepAliveTimeout` 5 s, `maxRequestsPerSocket` 100, `bodyLimit` 1 024, `maxConnections` 256, 16 open sockets per IP, extra sockets destroyed with no reply), IPv4 bind; `429` / `unmatched` / invalid replies not logged per request, one `public_summary` line a minute; runbook step 9 (router per-client limit). Verified: `lib/boot.ts:144,225` listen with no server options; no timeout or connection option anywhere in `apps/hub/src` | M97, §7.2, §7.12, §7.13, tests 201, 202 |
+| R2-M-2 `pay` stuck on a cancelled order | `pay` reads only non-cancelled orders of the group | §6.41, test 183 |
+| R2-m-1 stale changelog | Header l. 3, H-4, H-5, H-6, H-8 struck and corrected; diagram "logout (staff/admin/display)"; §10.4 cites 05a tests 30–52 | header, H-4 – H-8, §3.4, §10.4 |
+| R2-m-2 unknown-order charging | "or an unknown / non-takeaway order" dropped from the invalid row (a valid MAC is charged as valid; the unknown order is a purged one) | §7.12 |
+| R2-m-3 main listener logs `/t/` MAC | Verified `server.ts:158–165` logs `redactQueryToken(req.url)`: the main serializer logs `/t/*` paths as `'/t/*'` | §7.2, test 187 |
+| R2-m-4 deal entry state | From its parts: all served → `collected`; every unserved part ready → `ready`; else `preparing` | §6.41, test 183 |
+| R2-m-5 reader list, PIN vs display holder | Verified `alerts/bindings.ts:123`, `projections/alerts.ts:357–360`, `alerts/targets.ts:134`, `auth/staff-session.ts:119,151`: three rows added "unchanged (display ignored)"; `/auth/pin` ends a `display` holder `'forced'` with `warn display_session_on_staff_device` (assertion path) | §3.4a, test 203 |
+| R2-m-6 public listen failure | `error public_listener_failed`, hub runs on, `statusLink` → `null`; closed with the main listener | M97, test 204 |
+| R2-m-7 leaked link starves its order | Stated as an accepted leak (no code change; key rotation ends it) | M98, MQ14 |
+| Foundation v1.18 R2-m-4 | `SessionStarted` / `SessionEnded` **v2** with an identity upcaster (the codebase's practice: `AdminBootstrapTokenIssued` v2, `StaffDirectoryApplied` v2) | H-1, dependencies, §3.4a, §4.2, test 169 |
+| 05c v0.2 run 2 R2-M-7 | H-13 – H-15 and their text (§1 cloud access, M55, §5.2, §6.2 query auth) **carried when 05c is approved** (not normative before, not built before then); the webhook item in M55 re-lettered **(g)** (the existing (f) is the query guard write) | H-13 – H-15, §1, M55, §5.2, §6.2 |
+| 05a v1.0.7 run 2 m-3 | ⚠️ Changed by run 3 (R3-m-1) Accepted in owner short-list answer 10: the composer speaks 1–9999 with the same 31 pieces (05a owns it). | OR-1 row, §12.3 OD-7 |
+
+#### Hostile run 3 fixes
+
+| Finding | What changed | § |
+|---|---|---|
+| ⚠️ Changed by run 3 verify (R3-M-6) | Verify deal isolation through the real progress export. | §6.41, #183 |
+| ⚠️ Changed by run 3 verify (R3-M-8) | Exercise the real cutoff across expiry, additions and replay. | §6.41, #182 |
+| ⚠️ Changed by run 3 verify (V-01) | Choose preparing copy from effective pickup and retain stored pickup for history. | §§6.41, 8.6, #183 |
+| R3-M-1 | ⚠️ Changed by run 3 (R3-M-1) Set receive deadlines at construction and cap per-source work before routing. | M97, §7.12–§7.13, test 201 |
+| R3-M-2 | ⚠️ Changed by run 3 (R3-M-2) Default to routed guest IPv4. Require verified per-client limits before NAT. | M97, §3.10, §7.12–§7.13, OD-5, tests 197, 201 |
+| R3-M-3 | ⚠️ Changed by run 3 (R3-M-3) Disable automatic public request logs and count outcomes once per interval. | M97, §7.2, tests 187, 202 |
+| R3-M-4 | ⚠️ Changed by run 3 (R3-M-4) Sanitize early HTTP replies, set shared headers and close parser or excess pipeline connections. | M97, §6.40–§6.41, §7.13, test 198 |
+| R3-M-5 | ⚠️ Changed by run 3 (R3-M-5) Debit bucket pairs atomically, derive retry from both deficits and distinguish burst from refill cost. | M98–M99, §7.12, test 185 |
+| R3-M-6 | ⚠️ Changed by run 3 (R3-M-6) Use the internal 02b parent key for live deal parts and keep readiness whole-order (D1). Use the 01d pilot slice (D4). | Dependencies, §6.41, §11, OD-1, test 183 |
+| R3-M-7 | ⚠️ Changed by run 3 (R3-M-7) Verify router isolation before enabling, gate the QR on successful bind and smoke-check before service. | M97–M98, §3.10, §4.2, §7.13, tests 179, 195, 204 |
+| R3-M-8 | ⚠️ Changed by run 3 (R3-M-8) Use the replayable 02b group close cutoff and make elapsed expiry irreversible. Apply D6 naming alongside the new projection dependency. | H-5, M98, §5.1, §6.41, OD-9, test 182 |
+| R3-m-1 | ⚠️ Changed by run 3 (R3-m-1) Correct the bucket summary and record accepted English voice range. No edit to the historical H-5/H-6 reference: both already cite R2-m-1 on the base branch. | Header, H-5–H-6, OR-1, OD-7 |
+| R3-m-2 | ⚠️ Changed by run 3 (R3-m-2) Compare the invalid-link response contract and check request IDs separately. | §10 test 181 |
+
+#### Integration pass (02b-TK cross-spec rows)
+
+⚠️ Changed by 00 v1.13 (integration, 02b-TK), 2026-11-24; still DRAFT.
+
+| Source row | Change here | Where |
+|---|---|---|
+| 01d v1.3.7 C-F-37 (owner decision Q-37c) | WS close code **`4413` `DISPLAY_DEVICE`** appended; a board's alert-mode `auth` and the switch to the board close with `4413`, not `4403` (the M-2 fix above said `4403`; 01d's run 1 B-2 moved it to a distinct code because clients treat `4403` as a revoke) | §6.21, §8.4, test 194 |
+| 02b v1.0.25 TK-6 | Checked: H-16 (redaction adds `phone`, test 200) and §6.41 reading `takeawayProgress` as 02b §4.2 defines it | — |
+| 02b v1.0.25 (OD-10) | 02b now checks `SubmitOrder.order_id` against `ULID_RE` (02b §3.2 step 3, test 84, TK-Q17 = OD-10) | §12.3 OD-10 |
+| 03c v1.0.16 (M-3, M-4) | Checked: 03c now prints `statusLink(root)?.url` with the url on `public_status.port` | — |
+| 05c v0.2 H-1 – H-3 | Checked: folded as H-13 – H-15 with the same text | — |
+
+#### Owner review of the 02b-TK Part B package (24 Nov 2026)
+
+⚠️ Changed by 00 v1.13 owner review, 2026-11-24; still DRAFT (hostile run 2 owed). The owner **accepted** the recommended default of OD-1 – OD-6 and OD-8 – OD-10 as written; OD-7 is changed.
+
+| Row | Owner answer | Change here | Where |
+|---|---|---|---|
+| OR-1 (OD-7) | Board voice **English only**, numbers composed from ~31 pieces ⚠️ Changed by run 3 (R3-m-1) so every token 1–9999 is spoken (05a v1.0.7 §8, accepted in owner short-list answer 10) | OD-7 answered; the `.mp3` type in `lib/client-dist.ts` stays (31 files instead of ≈ 600) | §12.3 OD-7 |
+| OR-6 (OD-2, OD-5) | The owner provides the board PC (kept: kiosk PC only) and buys a router that can give guest Wi-Fi only the public status port (kept) | none; both are go-live items in `docs/plans/02b-tk-plan.md` "Before go-live" | §12.3 OD-2, OD-5 |
+
+
+### Changes in v1.12.4 (05b Staff Tablet App v1.0, `docs/specs/05b_Staff_Tablet_App_Spec_v1.0.md` §4.5 rows H-1–H-4)
+
+**v1.12.4 — 2026-11-23 — 05b rows, applied by the 05b plan's phase B task P0.1.** Each changed place carries "⚠️ Changed by 05b (row H-n)".
+
+| Row (05b) | Change | Where |
+|---|---|---|
+| H-1 | Non-guest `/health` adds `staff_build` (sha256 of the `/staff/` `index.html` loaded at start, `null` without a staff build); `/staff/` page meta adds `pos-staff-build`; `/kds/` unchanged (05b O-17) | §6.3, §8.2 client entries |
+| H-2 | Pair page inside the tablet app (`PosNative` present): `hardware_hint: 'tablet'` (also `?hint=tablet`); on approval it writes IndexedDB as today **and** calls `PosNative.setDeviceToken({ token, device_id, device_type })` (from the approved poll, which already returns them); a `NOT_TABLET` rejection wipes the three keys, shows the message and starts a new request; the stored-keys path also hands the keys to native | §8.1, §8.2 A `TOKEN_REVOKED` rejection (05b v1.0.1 O-20) is handled the same way as `NOT_TABLET`. |
+| H-3 | §8.1 becomes "Tablet app (05b)": global cleartext permit (a network security config cannot name a typed private IP; owner O-14), the bundled pages never call the hub from JS (native probe); token in IndexedDB for the page plus the native copy (05b M-2); native calls send `X-Client-Version`; replaces "`androidScheme: 'http'`", "cleartext to private ranges only", "Keystore-only token" | §8.1 |
+| H-4 | The tablet app's alert-socket close codes follow 05b §3.5 (HTTP check before any wipe); the page's unpair triggers inside the app call `confirmRevoked()` first | §8.4 |
+
+No event, stream, error code, permission or migration change.
+
+### Changes in v1.12.3 (05a Device Access + Screens v1.0 / v1.0.1, `docs/specs/05a_Device_Access_Screens_Spec_v1.0.1.md` §4.5 rows H-1–H-7, K-2, D-2, D-3)
+
+**v1.12.3 — 2026-11-23 — 05a rows, applied by the 05a plan's phase 0 task P0.4.** Each changed place carries "⚠️ Changed by 05a (row H-n)" (several rows → listed); the 05a v1.0.1 R-1 notes carry "⚠️ Changed by 05a v1.0.1 (R-1)". Removed text is struck through or marked "Removed by 05a (row H-1)" in place; decision rows keep their number with the note.
+
+| Row (05a) | Change | Where |
+|---|---|---|
+| H-1 | Every device type pairs by request; approval takes the profile (05a §6.3: name, kitchen station **or** `access` / `staff_ids` / screens / point; `sessionKind: 'both'`; display code always typed). **Removed:** `GenerateDevicePairingToken` and `POST /devices/pair` with their registrations (`pairing_token` stays in `SECRET_FIELDS`); the pair page `t` / `d` branch; the hub admin **Add a phone** (`#add-phone`) and **Add a tablet** (`#add-tablet`, STAB-1) views; tests 167, 168 (replaced by 05a §10 test 1). `pairing_tokens` stays unused (retention purges it); the `DevicePaired` and `pairing_token_generated` audit mappers stay for history; `DeviceTokenRotated` is retired for devices. Pair page text "Ask someone with hub access to approve this screen"; `hardware_hint` on the request; `screens` on the approved poll. Other places that named the removed routes are marked too | §3.3, §6.7, §6.8, §6.30–§6.32, §8.1, §8.2, M14, M44, M86; also M60, M74, M77, M91, M92, §3.9, §4.2 events, §5.1 comments, §6.33, §7.5, §10, §12.2 |
+| H-2 | Device access checks before §3.5 step 2 (not counted, no argon2): `403 DEVICE_ACCESS_DENIED { device_id }` for a person not on a `listed` device's list; `/admin/auth` on an `everyone` device → `403 PERMISSION_DENIED { reason: 'listed_device_only' }`; `/admin/login-roster`: `everyone` → `403 listed_device_only`, `listed` → its people with `access-hub-admin` `allowed`, response adds `recovery_available`. `DEVICE_NOT_OWNED` no longer returned. Takeover between people on the same list. **R-1 (05a v1.0.1):** a staff device with no profile keeps the v1.12.2 sign-in rule | §3.5, §6.6, §6.9, §6.13; also M20, M38, M42, §3.4, §9, §10 A `TOKEN_REVOKED` rejection (05b v1.0.1 O-20) is handled the same way as `NOT_TABLET`. |
+| H-3 | The mask lives in the session view `directory.forSession(session)` of `resolve()` (05a §3.3a): on an `everyone` device the session's own `LISTED_ONLY_PERMISSIONS` grants → `not_granted` (`listed_only`), `MONEY_PERMISSIONS` grants → `requires_approval` (`downgraded`). The pipeline's `authorize`, `requireAdmin` and the query registry use the view; `403` reason `listed_device_only`; no separate pipeline guard. `GET /queries/session` reports `device` and `masked`. **R-1:** a staff device with no profile counts as `everyone` for the view | §3.6, §3.7, §6.20; also §4.2 `StaffDirectory`, §6.2, §6.6 |
+| H-4 | `owner_staff_id` readers → the profile's `staff_ids`; `phone_count` → `device_count`; M38's revoke → 05a M-5 (an emptied phone revoked `owner_removed`, any other emptied device `everyone` + `needs_review`); roster on a `listed` device = its people only; §6.17 `pairing_source` dropped, rows add the profile, response adds `pending_requests` and `admin_warning` | M38, §6.13, §6.17, §6.18c, §6.19; also §3.3, §4.2 `applyStaffDirectory`, M80, M88, §10 |
+| H-5 | Hub migration `0027_device_profiles.sql` (05a §5.1): `devices` rebuilt without the phone ⇔ owner check, projections `device_profiles` / `device_people`, `pair_requests.hardware_hint`; the `DeviceProfileSet` fold is the only writer of `devices.point_id` | §5.1 |
+| H-6 | A query may be `sessionKind: 'both'` (`GET /queries/` and `GET /admin/queries/`), like 05 row H-1 for commands; used by `devices` | §3.7, §6.2; also §4.2 `defineQuery`, §6.17 |
+| H-7 | `AdminBootstrapTokenIssued` **v2** adds `issued_by: 'recovery'` (upcaster v1 → v2 = identity); `issueAdminBootstrap(tx, issuedBy, deps, deviceId = 'hub')` writes `deviceId` as the event's `device_id`; setup, the CLI and restore keep the default; 05a §6.11 passes the caller's device | §6.29, M72, §4.2; also §3.9 |
+| K-2 (00 half) | The Devices row "Use as Pass tablet" link (bind dialog) → a link to the device edit form, shown on every non-kds row | §8.2, M86, §10 #165 |
+| D-2 (00 half) | §8.5's `'in_person'` mention goes (in-person answers removed, 01d) | §8.5 |
+| D-3 (00 half) | §6.30 "Events: none" → "`AlertRaised` (`device_waiting`) when none is open" (05a §3.10) | §6.30, §12.2 |
+
+Migration `0027`; event `AdminBootstrapTokenIssued` v2. Error codes `DEVICE_ACCESS_DENIED` (403) and `DEVICE_ACCESS_SELF` (422) are defined in 05a §9 and appended to Foundation §6.2 (05a row F-1); 00 §9 keeps `DEVICE_NOT_OWNED` catalogued, no longer returned. The endpoint count drops by two (§6.33). Removed tests: 167, 168; tests that exercised the removed token flow are marked superseded in place.
+
+### Changes in v1.12.2 (owner, 2026-11-22, stabilization bug STAB-1, `docs/plans/stab-bugs.md`)
+
+**v1.12.2 — 2026-11-22 — patch over v1.12.1, hub-served pages only.** Marker "⚠️ Changed by 00 v1.12.2 (owner, 2026-11-22, STAB-1)".
+
+| Change | Where |
+|---|---|
+| The admin page gains the view `#add-tablet` ("Add a tablet": a side-nav-free view like `#add-phone`, a home tile and a Devices action next to "Add a phone", all with `manage-devices`). Make QR sends `GenerateDevicePairingToken { device_type: 'tablet' }` (no owner) and shows the QR, countdown and Show link exactly as `#add-phone` | M86, §8.2 |
+| A `tablet` token's `pair_url` is `http://<advertised_host>:<port>/pair?t=<pairing_token>&d=tablet`; a `phone` token's is unchanged | §6.7 |
+| The pair page with `t` sends `device_type` = `d` when `d` is `tablet`, else `phone`; with `d=tablet` it says "Pair this tablet" and "Anyone on staff can sign in on this tablet." instead of the phone texts. Phone rules 1–4 apply to both | §8.2 |
+
+No column, index, migration, event, endpoint, permission or error code change. Tests 167, 168.
+
+### Changes in v1.12.1 (owner rulings R-37, 2026-11-20, and R-25, 2026-11-19; `docs/plans/05-gaps.md` G-35)
+
+**v1.12.1 — 2026-11-20 — patch over v1.12, owner-ruled text only.** R-37 has the marker "⚠️ Changed by 05 (row H-2, R-37)"; R-25 has "(R-25)". v1.11 (Q-70) is carried unchanged.
+
+| Ruling | Change | Where |
+|---|---|---|
+| R-37 | M89: the admin sign-in `permissions` gains two **additive** boolean keys, `manage-fiscal-settings` and `close-business-day` (effective, D19, like `manage-devices` and `manage-staff`); `AdminAuthResponse` (`@pos/events/src/admin/hub.ts`) and `adminPermissions()` (`apps/hub/src/auth/staff-directory.ts`) carry all four. `manage-fiscal-settings` shows the `/admin/fiscal/` side-nav item and home tile (row H-2, task P0.5); `close-business-day` shows **Close day** on 01a's `/admin/stock` page (01a v2.7.1 §6.19, §8.2, row A-5, task P0.6). `403 PERMISSION_DENIED` stays the authority | §3.1 M89, §6.6, §6.29, §8.2, §10 #147 |
+| R-25 | A `sessionKind: 'both'` command retransmitted across routes follows the per-route M47 replay rule as written: admin first, then device → replay; device first, then admin → `400 VALIDATION_FAILED` (`command_id already used`); nothing runs twice. Clarifying text only; tests in P0.4 | §3.7 |
+
+No column, index, migration, event, endpoint or error code change.
+
+### Changes in v1.12 (05 Billing v1.0, numbers as re-taken in v1.0.1, `docs/specs/05_Billing_Spec_v1.0.1.md` §4.5 rows H-1, H-2, H-3, H-4, H-5)
+
+**v1.12 — 2026-11-19 — 05 Billing rows H-1…H-5 (05 v1.0, numbers as re-taken in v1.0.1, §4.5), applied by 05's phase 0 P0.2b.** Row H-1 names §6.3 (= `/health`); applied to §3.7 and §4.2. Each changed place carries a "⚠️ Changed by 05 (row H-n)" marker. v1.11 (Q-70) is carried unchanged.
+
+| Row (05) | Change | Where |
+|---|---|---|
+| H-1 | `defineCommand({ sessionKind: 'device' \| 'admin' \| 'both' })`: `'both'` registers the command on `/commands/<name>` (staff session) **and** `/admin/commands/<name>` (admin session); one `command_id` space, same handler; permission resolved from the session's staff in both. Used by 05 `CloseBusinessDay`. Code: `apps/hub/src/commands/registry.ts`, `route.ts` | §3.7, §4.2 |
+| H-2 | Hub admin entry **`/admin/fiscal/`** (side-nav item and home tile, the v1.9.2 `/admin/printers/` pattern), shown by `manage-fiscal-settings`; the page is 05's client | §8.2 A `TOKEN_REVOKED` rejection (05b v1.0.1 O-20) is handled the same way as `NOT_TABLET`. |
+| H-3 | The **fiscal worker starts after listen**, beside the print worker (03c H-11 pattern), its stop joined in `beat.stop`; 05 provides `startFiscalWorker(deps)`. Code: `apps/hub/src/lib/boot.ts` | §7.3 |
+| H-4 | `defineCommand({ hashOmit?: string[] })` with dotted paths extends 01d H-9's single `pinCheck` omission: the listed fields are removed before `payload_hash` is computed. Rule: a payload field that is a secret, a government ID, a payment reference or free text is never hashed, stored or echoed. A hub test asserts no request body is logged for `/commands/*` and `/admin/commands/*`. Code: `apps/hub/src/lib/hash.ts`, `commands/{registry,route}.ts` | §3.7, §4.2, §7.2 |
+| H-5 | `seed-tenant --currency` is validated with `currencyExponent` (Foundation v1.14, 05 row F-6) before any write: an unknown ISO 4217 code is refused with a CLI error and nothing is written. Code: `apps/cloud/src/cli/seed-tenant.ts` | §6.26 |
+
+No column, index, migration, event, endpoint or error code change.
+
+### Changes in v1.11 (owner ruling Q-70 = (a), 2026-11-17)
+
+| Row | Change | Where |
+|---|---|---|
+| Q-70 | §6.21 step 3: after the device check passes (a revoked device still closes `4403`), a session that is found, on the same device, of kind `staff` or `station`, and ended with `end_reason = 'replaced'` → close `4401` with close reason text `replaced` (as the live close after `SessionEnded`, M53). A staff session ended `replaced` gets the reason too; the staff client follows the generic §8.4 `4401` row (go to login). Any other auth failure (unknown token, other device, other kind, ended another way, idle-expired, row already removed by retention M66) → `4401` with no reason, unchanged. Read from `staff_sessions.end_reason` (§5.1), in the same one-row lookup. The KDS client's §8.4 row applies to this close as to the live one: "This screen is open in another window", no `POST /auth/station` until "Use this window" | M53, §6.21, §8.4, §10 #166, §10.3 |
+
+No column, index, migration, event, endpoint or error code change.
+
+**Accepted gap.** Retention (M66, §5.1) deletes a session row 7 d after it ended. A window that was offline for longer than that presents an unknown session and gets a plain `4401` **once**: the KDS then calls `POST /auth/station` and takes the station session back from the newer window, which in turn shows "Use this window" (M53). That is one hand-over, not a loop, so it is accepted rather than adding a column or keeping replaced rows longer.
+
+### Changes in v1.10 (04 Voids + Audit v1.0, `docs/specs/04_Voids_Audit_Spec_v1.0.1.md` §4.5 rows H-1, H-2)
+
+**v1.10 — 2026-11-12 — 04 §4.5 rows H-1, H-2 (with gap rows G-1, G-2, G-3, G-4, G-6), approved with 04 v1.0 (owner 2026-11-12 11:58 PKT) and gap rulings (13:17).** Each changed place carries a "⚠️ Changed by 04 (row H-n)" marker.
+
+| Row (04) | Change | Where |
+|---|---|---|
+| H-1 (+ G-1, G-2) | Table `staff_names(staff_id PRIMARY KEY, display_name NOT NULL, updated_at)`, hub migration `0017_staff_names.sql`, seeded from `staff` and `no_pin_staff` with `updated_at = (SELECT COALESCE(MAX(recorded_at), 0) FROM events)` (G-1). Every directory apply upserts every person of the **input** staff list, then the input `no_pin_staff` list, before any skip, in the same transaction; a repeated id or an id in both lists keeps the **first** (as the cache, G-2); rows are never deleted. Read by 04's audit query; not used for sign-in. | §4.2 `applyStaffDirectory`, §5.1, §10 #159, #160 |
+| H-2 (+ G-3, G-4, G-6) | `applyAll` only **updates** existing `projection_checkpoints` rows; a projection's first row is written only by `catchUp`. M48 / §3.7 writer / §3.8 step 4 restated; invariant for projections without `reset` (the admin-bootstrap CLI named, G-6); one exported `registerHubProjections(registry)` used by `createDeps`, `createTestHub` and the big fixture (which derives its names through a recording stub registry, G-3, plus `access_reconcile`); `createTestHub` runs `catchUp` on the writer's branch id. Test #100 **restated**, not added (G-4); #67 seeds its row first; M48 registry test and boot-with-alarm test new. | M48, §3.7, §3.8, §10 #67, #100, #161, #162 |
+
+### Changes in v1.8 (02b Ordering v1.0, `docs/specs/02b_Ordering_Spec_v1.0.md` §4.5 row H-1, §3.12; developer as the owner's proxy, 2026-11-07)
+
+| Row (02b) | Change | Where |
+|---|---|---|
+| H-1 (a) | **M95 paused idle clock** (in memory): per device, its open sockets (session or alert mode), `paused_at` and `paused_since`. Last socket closes (incl. a missed-pong terminate) → `paused_at = paused_since = now`; at boot every device starts paused at `HubStarted.hub_down_at` (boot time on a first boot). At the device's next contact (authenticated request or socket connect), **before** M46's check: `last_activity_at += now − paused_at`, `paused_at` cleared; still no open socket → `paused_at = now` again. `paused_since` is cleared only when a socket opens. The sweeper skips a paused device's session, and its 15 s flush (M5) writes paused devices' shifted `last_activity_at`. **Cap:** `now − paused_since > queue_auto_send_max_ms` (01a v2.3 setting, default 14 400 000) → the sweeper ends the session `idle_timeout`. The shift is not activity (M59) | §3.1 M95, §3.4, §7.3 |
+| H-1 (b) | Header **`X-Queued-At`** (ms, hub time) on a **queueable** command: clamped to `[started_at − 120 000, now]` and handed to the handler as `ctx.queuedAt`; ignored on other commands. Added to §7.5's preflight allowed headers (the Capacitor tablet is cross-origin) | §3.7, §7.5 |
+| H-1 (c) | `defineCommand` gains `queueable?: boolean` (default false); modules declare their queueable commands (02b `SubmitOrder`, `MarkServed`; 02a `RequestBill`, `CleanTable`) | §4.2 |
+| H-1 (d) | M19's open item and §8.5's "02's policy" are closed by 02b §3.12: an ended session's command is never accepted; the device keeps it in its queue log for "Send again" after login. The login response already carries `idle_ttl_ms` (§6.9) for the device's own idle lock | §3.1 M19, §8.5 |
+
+Additive: in-memory state, one guard step, one sweeper condition, one header, one registry flag; no column, index, event, error code, endpoint or merged migration change.
+
+### Changes in v1.7 (03a Timing Engine v1.0, `docs/specs/03a_Timing_Engine_Spec_v1.0.md` §4.5; developer as the owner's proxy, 2026-11-03)
+
+| Row (03a) | Change | Where |
+|---|---|---|
+| H-1 | `BootContext` (`apps/hub/src/lib/boot.ts:43-49`) gains two optional fields. `clock?: Clock` is set by 00 right after it creates the clock at step 3a, so later steps (03a's step 6) read `ctx.clock.branchNow()`. `missedFires?: number` is set by 03a's step 6 and used by step 8 `HubStarted.missed_fires` (today `0`). `events_replayed` keeps its meaning; the engine's replay count is logged, not added to the event | §4.2 |
+| H-5 | `devices.point_id TEXT NULL`: the point a tablet is bound to (01a v2.1 A-1). Checked at the write against `branchConfig().points` (active points of the branch), not by a SQL FK; several tablets may share a point | §5.1 |
+| H-6 | `devices.lane_label TEXT NULL` (1–20 chars): a `kds` device with a `station_id` and a non-null `lane_label` is a lane of that station; `lane_count(station)` = such devices not revoked, else 1. Refused on another device type or without `station_id` (`400 VALIDATION_FAILED`) | §5.1 |
+| — | H-2 not needed (03a v0.2); H-3, H-4 names skipped (00 v1.6's own rows) | — |
+
+Additive: forward hub migration, two optional `BootContext` fields; no error code, endpoint, event or merged migration change. The pairing and binding UI is 03b's, the headless (ESP32) side 01e's.
+
+### Changes in v1.6.1 (as-built patch from 01d v1.1, `docs/specs/01d_Notifications_Requests_Spec_v1.1.md` §1 and §4.5; developer, 2026-11-02)
+
+| Row | Change | AD (01d v1.1) | Where |
+|---|---|---|---|
+| H-1, H-2 | Alert-mode sockets also receive `binding_route`; `4409` is the local constant `ALERT_REPLACED`, not in `WS_CLOSE`; a throwing `onReceipt` listener is logged and the socket kept; a throwing `alerts_open` or catch-up builder closes the socket `1011` | AD-4, AD-30, AD-31 | §6.21 |
+| H-3 | `preRead(db, payload, ctx)`; early replay peek for `pinCheck` commands; `authGen` captured before the session check; hooks ctx with `permission: null`; shared `/auth/pin` argon2 semaphore; `pinHooks` gain a trailing `cmd: PosCommand`; BF-2 log `{ err, phase: 'onPrepareFailed' }` | AD-10, AD-24–AD-27, AD-94, AD-20 | §3.5 |
+| H-3, H-4 | Read-only view blocks `exec` / `pragma` / `transaction`; `rawDbOf(view)` export (map key only); `WsHub.sendToSessions(sessionIds, frame)` | AD-21, AD-67, AD-74 | §4.2 |
+| H-5 | `/app/*` on route group `admin-device-public`; CLI `tsx src/app-update/cli.ts` | AD-34, AD-35 | §3.9, §6.36–§6.38 |
+| H-8 | Sweeper log key `err`, `startSweeper(deps, log)`; tick error `{ tick, err }`, `startTickLoop(deps, log)`; `due` on a read-only view | AD-28, AD-29, AD-109, AD-110, AD-111 | §7.3 |
+| — | `/staff/` (route group `admin-page`) served with `indexMeta` `<meta>` tags: tenant and branch ids, branch name, hub clock | AD-T41-1 | §3.9 |
+
+Additive or internal; no error code, endpoint, event or merged migration change.
+
+### Changes in v1.6 (01d Notifications and requests v1.0, `docs/specs/01d_Notifications_Requests_Spec_v1.0.md` §4.5 C-00)
+
+| Row | Change | Decision | Where | Test (01d) |
+|---|---|---|---|---|
+| H-1 | WS **alert mode**: `auth` without `session_token`; alert frames only, `receipt` in; separate socket list (never `deliver()`, audiences, catch-up); one alert-mode socket per device (`4409`); session sockets also accept `receipt` | M12, M94 | §6.21 | #26, #59 |
+| H-2 | `WsServerMessage` adds `alerts_open`, `alert`, `alert_seen`, `alert_closed`; `WsClientMessage` adds `receipt`; `auth.session_token` optional | M94 | §6.21 | #26, #29 A `TOKEN_REVOKED` rejection (05b v1.0.1 O-20) is handled the same way as `NOT_TABLET`. |
+| M95 | **A staff session's idle clock is paused while its device has no open socket** (02b v1.0 H-1, owner 2026-11-07). The hub keeps in memory, per device, its open sockets (session or alert mode), `paused_at` and `paused_since`. When the last socket closes (or the hub terminates it after a missed pong), `paused_at = paused_since = now`; at boot every device starts paused at `HubStarted.hub_down_at` (boot time on a first boot). At the device's next contact — an authenticated request or a socket connect — **before** M46's idle check, its staff session's in-memory `last_activity_at` moves forward by `now − paused_at` and `paused_at` is cleared; if the device still has no open socket, `paused_at = now` again. `paused_since` is cleared only when a socket of the device opens. The sweeper skips a paused device's session and its 15 s flush (M5) writes the shifted `last_activity_at` of paused devices. **Cap:** when `now − paused_since > queue_auto_send_max_ms` (01a branch setting, default 14 400 000) the sweeper ends the session `idle_timeout`. The shift is not activity (M59): a connected device that only pongs still idles out. Station and admin sessions are unchanged. | A waiter's tablet that loses Wi-Fi for longer than the idle TTL would otherwise lose its queued orders (E5); the device runs its own idle lock (02b §8), so a paused session is not a way to use someone else's login. Cost: up to 30 s of a dead link (missed pong) counts as idle; a client that ignores its own lock can use a paused session after reconnect until it idles out, bounded by the cap. | §3.4 expiry, §7.3 sweeper (M46, M5 extended) |
+| H-3 | `'checked-in-handler'` marker for `HANDLER_CHECKED_COMMANDS`; `pinCheck`, `preRead`; `checkPin` `prepare` (read-only view) / `onMatch` / `onMismatch` / `onPrepareFailed` (one counting transaction for both PINs); `testHooks.betweenVerifyAndWriter` | M94 | §3.5, §3.7, §4.2 | #33, #44, #54, #60, #66 |
+| H-4 | `ws.sendToDevices`, `ws.sendToStaff`, `ws.connectedSessions()` | M94 | §4.2 | #28, #61 |
+| H-5 | Tablet app update, pilot minimum: §6.36 `GET /app/android/latest`, §6.37 `GET /app/android/<version_code>.apk`, §6.38 CLI `app-release add` / `mark-good`; §8.1 background service | M94 | §6.36–§6.38, §8.1 | #40, #65 |
+| H-6 | Personal phones browser-only for alerts in the pilot (text only) | M38 | §3.1 | — |
+| H-7 | `registerCatchUp.build(db, state, socketCtx)` | M94 | §4.2 | #43 |
+| H-8 | Timers: hub tick, receipt flush; sweeper wrapped in try/catch | M66, M94 | §7.3 | #37, #38 |
+| H-9 | `payload_hash` without the `pinCheck` field | M47 | §3.7, §3.1 | #56 |
+| H-10 | PIN-bearing commands online-only; PINs never persisted on the device | M94 | §8.1, §8.5 | #56 |
+| H-11 | Endpoint count 32 (+ §6.36, §6.37) and 4 CLIs; the split rule applies to the cloud part only (with README R-9); **decided at approval by the developer** | M94 | §6.33 | — |
+| H-12 | 00-owned table `app_releases` created in 01d's migration `0006` | M94 | §5.1 | #40 |
+| H-13 | Last seen refreshed by alert-mode pongs too | M94 | §6.17 | #26 |
+| H-14 | Index `staff_sessions_staff_activity (staff_id, last_activity_at)` in 01d's `0006` | M94 | §5.1 | #57 |
+| M94 | **01d Notifications and requests v1.0 changes this spec as listed in 01d §4.5 C-00** (H-1–H-14). Each changed section carries a "Changed by 01d v1.0" marker. 01d owns hub migration `0006_alerts.sql`, which also creates the 00-owned `app_releases` table and the `staff_sessions_staff_activity` index; this spec's merged migrations are not edited. | One package with 01d; later modules read 00 and find the current contract. | §3.1 | — |
+
+Not in this bump: `point_id` on devices (with 01a points), `pager_bridge`, compact protocol, headless pairing (01e → a later 00 bump).
+
+### Changes in v1.5 (01b Staff & Roles v1.0, `docs/specs/01b_Staff_Roles_Spec_v1.0.md` §4.3)
+
+| Change | Decision | Where | Test (01b) |
+|---|---|---|---|
+| Cloud `staff.pin_hash` nullable (roll forward only); `pin_set_at`, `left_at`; `owner_users` password state (incl. `temp_password_expires_at`) and `staff_id` link; `roles` `default_key`, `archived_at`; `role_permissions.scope`; approver list table, `approver_role_id` dual-written (cloud `0005_staff_roles.sql`, owned by 01b) | M93 (01b B3, B5, B7, B10, B2, B17, B22) | §5.2 | 01b #6, #20, #62, #63, #75, #77, #79 |
+| Hub `0005_directory_v2.sql`; directory read in 9 statements | M93 (01b B1, B2, B4, B10) | §5.1 | 01b #22 |
+| Directory shape v2, additive (`approver_role_id` kept; `approver_role_ids`, `scope`, `lead_staff_id`, `floor_ids`, `responsibilities`; approver roles always sent; staff with no PIN not sent) | M93 (01b B3, B4, B10, B18) | §6.5, §4.2 | 01b #6, #21, #22, #24, #83 |
+| `resolve` returns `scope`; new `StaffDirectory` lookups | M10, M93 (01b B1, B2, B4) | §3.6, §4.2 | 01b #12, #19, #31, #33 |
+| `StaffDirectoryApplied` v2: `skipped.kind` adds `lead`, `responsibility`; unknown approver ids dropped, a grant left with none skipped | M52, M93 (01b B18) | §4.2 | 01b #23, #64, #84 |
+| Roster adds `responsibilities`; session adds `scope` | M93 (01b B2, B4) | §6.19, §6.20 | 01b #19, #36 |
+| Login: `must_change_password`, `lockout_notice`, expired temporary password refused, hash re-checked in the success transaction; refresh: owner row `FOR NO KEY UPDATE` first, a refresh token whose `credential_version` differs from the owner's refused, `lockout_notice`; JWT claim `cv` (the owner's `credential_version`); no `pwc` claim (01b review 2 N1, N2) | M73, M93 (01b B5) | §6.22, §6.23 | 01b #4, #41, #42, #74, #75, #81, #91, #98 |
+| JWT guard reads the owner row: claim `cv` ≠ `credential_version` → `JWT_INVALID`; a failed read → `503 SERVICE_UNAVAILABLE`, never `401`; `PASSWORD_CHANGE_REQUIRED` on `/v1/admin/*` | M93 (01b B5) | §6.24a (new) | 01b #65, #73, #91, #107 |
+| Cloud migrations runner refuses to start when the database holds a migration version this build has no file for | M93 (01b B22) | §5.2 | 01b #105 |
+| `issue-registration-code`: only qualifying admins (`access-hub-admin` and `manage-devices`); duplicate names refused; tenant lock and directory bump; branch names unique | M57, M93 (01b B7, B11, B12, D-14) | §6.27 | 01b #86, #93, #94 |
+| Default roles Owner, Manager, Cashier 15, Order taker 15 (owner, 01b Q12), Waiter, Cook, each with a `default_key`; owner staff row linked | M29, M93 (01b B6, B7, B17) | §6.26 | 01b #20, #77 |
+| `POST /v1/auth/change-password` is 01b's route (not counted here); redaction and folder notes | M93 (01b B5) | §6.33, §7.2, §7.10 | 01b #44 |
+| M93 | **01b Staff & Roles v1.0 changes this spec as listed in 01b §4.3** (rows 1–20). Each changed section carries a "Changed by 01b" marker. 01b owns the cloud migration `0005_staff_roles.sql` and the hub migration `0005_directory_v2.sql`; this spec's merged migrations are not edited. M30 (station sessions), M11, M50, M51 and M75 are unchanged; M57 is refined (§6.27). | One package for the owner to approve; later modules read 00 and find the current contract. | — |
+
+No new route in this spec (00 stays at 30 endpoints, §6.33). New event schema version: `StaffDirectoryApplied` v2 (identity upcaster). Error codes added by 01b are 01b's (01b §9).
+
+### Changes in v1.4 (open questions Q11, Q12 in `docs/design/open-questions/00-hub-platform.md`)
+
+| Change | Decision | Where | Test |
+|---|---|---|---|
+| `/pair?t=` (phones) switches to the light theme in the page script; `/pair` is still served dark for screens | M91 | §8.2 | #151 |
+| `GET /admin/login-roster` adds `role_names`; the approved `GET /pair/requests/:id` adds `station_name`; `POST /devices/pair` adds `owner_name` | M92 | §6.8, §6.13, §6.31 | #148–#150 |
+| §6.17: last-seen is refreshed by every device-authenticated request and by each WebSocket pong (Q8, written during the v1.3 build) | — (clarification) | §6.17 | keepalive unit test |
+
+Additive response fields only. No error code, event, payload, config field, migration or route changes. Q13 (address on `HOST_NOT_ALLOWED`, a foundation code) and Q14 (Urdu review) are not in this version.
+
+### Changes in v1.3 (design hand-off `docs/design/handoff/00/`, open questions `docs/design/open-questions/00-hub-platform.md`)
+
+| Change | Decision | Where | Test |
+|---|---|---|---|
+| Pages show Urdu, right to left, when the device language is Urdu; one `UR` table next to `EN` | M83 (amends M82) | §8.2 | #136 changed, #140 |
+| `GET /setup` after provisioning: still `404`, now with the kit's "This hub is already set up" page (Q2) | M84 | §3.9, §6.33 | #141 |
+| `/setup` offers this machine's own IPv4 addresses as a pick-list, plus a typed "Other address" (Q7) | M85 | §8.2 | #137 changed |
+| Hub admin home and shell: new static page `GET /admin` (Q1) | M86 | §3.9, §6.33, §8.2 | #142 |
+| `GET /admin/queries/devices` adds `revoked_reason`, `revoked_by_name`, `owner_name` (Q9) | M87 | §6.17 | #143 |
+| New admin queries `lockouts` (Q3), `stations` (approve page station tiles), `staff` (Add a phone) | M88 | §6.18a–c | #144–#146 |
+| `POST /admin/auth` and `/admin/auth/bootstrap` return the admin's `permissions` so pages hide what the admin can't do | M89 | §6.6, §6.29 | #147 |
+| Query resources on the generic route (§6.2) don't count against the endpoint budget | M90 | §6.33 | — |
+| M91 | **Phones use the light theme.** `/pair` is served with `data-theme="dark"` (M82, for kiosk and kitchen screens); with `?t=` the page script sets `data-theme="light"` before it renders, as the phone frames do. ⚠️ Changed by 05a (row H-1): the pair page's `t` branch is removed, so the `?t=` trigger no longer exists. | Phones are read in daylight on the floor; the dark theme is for glare and distance on fixed screens. | — |
+| M92 | **Responses carry the names the screens show.** `GET /admin/login-roster` staff rows add `role_names` (directory role names, for the line under each name tile); the approved `GET /pair/requests/:id` adds `station_name` (from the in-memory branch config, `null` for a cashier screen or an unknown station) so the screen can say "Opening the Tandoor kitchen screen…"; ~~`POST /devices/pair` adds `owner_name` (`StaffDirectory`, `null` for tablets) so the phone can say "Only Bilal's name will be on it".~~ (Removed by 05a (row H-1): the route is gone.) | Without them the screens fall back to generic text and the tiles to bare names. No extra query: names come from memory. | — |
+
+No error code, event, payload, config field or migration changes. No command changes. Q5 (waiter tablets) is blocked and not in this version; Q4, Q10 stay with 06 and 03b.
+
+### Changes in v1.2 (UI kit, `docs/design/ui-brief.md`)
+
+| Change | Decision | Where | Test |
+|---|---|---|---|
+| The pages need the bundled UI kit (CSS + fonts); the hub had no static-file route | M81 | §3.9, §6.33, §6.35, §12.2 | #135 |
+| The 00 pages show raw keys and hardcoded English, swallow errors (setup, bootstrap), take a raw `staff_id`, show PINs in clear and name a phone through `window.prompt` | M82 | §8.2, §8.4 | #136–#139; the two `[00 §8.4]` page tests now expect the English text |
+| M83 | **Urdu on the 00 pages (amends M82).** `strings.ts` holds `EN` and `UR` with the same keys; a key missing from `UR` falls back to `EN` (list kept in `docs/design/handoff/00/urdu-todo.md`). The server still sends `<html lang="en" dir="ltr">`; the page script picks the language once on load: `?lang=en\|ur` if present (kept in `localStorage` key `pos-lang`), else the stored value, else `ur` when `navigator.language` starts with `ur`, else `en`; it then sets `lang`, `dir` (`rtl` for Urdu) and renders every text through `t()`. Codes, PINs, addresses, links, times and counts stay LTR (`.pos-ltr`, mono classes); digits stay Latin. | D12 asks for translation keys and the design system requires Urdu RTL; the hub has no stored device language, and server-side negotiation would need per-request rendering of static pages. | — |
+| M84 | **`GET /setup` after provisioning answers `404` with the kit page "This hub is already set up"** (`setup.already_*`), no form and no hub data. | Foundation §5.6 requires `/setup` to return 404 permanently; a bare 404 sends installers to support. The status stays 404, so nothing reachable changes. | — |
+| M85 | **The setup page lists this machine's IPv4 addresses** (from `os.networkInterfaces()`: IPv4, not internal, not `169.254.0.0/16`; label = interface name, "Ethernet" first when the name starts with `en`/`eth`) as pick tiles, preselecting the first Ethernet one, plus "Other address" with the typed field. The list is rendered into the page by `GET /setup`; `POST /setup/provision` is unchanged (M58 still validates). | The two-network mistake (cable and Wi-Fi addresses differ) is the most likely setup error and is only caught by M58 after typing. | — |
+| M86 | **Hub admin home `GET /admin`** (00-S20 and S16–S19, D01–D03): a static page like M79 (guards host, provisioned, guest network; no credentials in the page). The script reuses the `/admin/approve` sign-in (device token from IndexedDB `pos-device`, admin session in `sessionStorage`; bootstrap sessions allowed). Views by hash: home, `#devices`, ~~`#add-phone`~~, `#sessions`, `#lockouts` (⚠️ Changed by 00 v1.12.2 (owner, 2026-11-22, STAB-1): also ~~`#add-tablet`~~, §8.2). It calls only ~~§6.7,~~ §6.14–§6.18c. ⚠️ Changed by 05a (row H-1): the **Add a phone** (`#add-phone`) and **Add a tablet** (`#add-tablet`, STAB-1) views are removed with §6.7; `#devices` is the 05a device list and edit form (05a §8: the §6.17 query, `ApprovePairingRequest`, 05a `SetDeviceProfile`, `RevokeDevice`). Lists refresh on open and after each action (no WebSocket). The side menu also links other modules' admin pages that exist (today `/admin/stock`). ⚠️ Changed by 00 v1.9.2 (owner ruling 2026-11-13, Q-43): also `/admin/kitchen-screens/` and `/admin/printers/` (side-nav items and home tiles; the tiles also read 03b `kds-config` and 03c `print-queue`), and a "Use as Pass tablet" link on `tablet` Devices rows (§8.2). ⚠️ Changed by 05a (row K-2): that link becomes a link to the device edit form, shown on every non-kds row (§8.2). | Foundation §5.6 sends "all later admin access" through `/admin`, but no page exists: devices, sessions and lockouts have endpoints and no screen. | — |
+| M87 | **The devices list shows why a device was removed:** §6.17 adds `revoked_reason` (from the device's latest `DeviceRevoked` payload `reason`), `revoked_by_name` (`revoked_by` through `StaffDirectory`) and `owner_name` (`owner_staff_id` through `StaffDirectory`). | A removed row without a reason or actor sends the manager to the audit log; the reason is already stored in the event. No migration: one extra read of `events` (index `events_stream`) only when `include_revoked=true`. | — ⚠️ Changed by 05a (row H-4): `owner_name` is null on devices paired after 05a (no owner); `people` (§6.17) names who may use a device |
+| M88 | **Three admin list queries:** `lockouts` (§6.18a: staff, device and IP lockouts in force), `stations` (§6.18b: active stations with what they cook, for the approve page's station tiles and station names on lists), `staff` (§6.18c: active staff with role names and phone count, ~~for "Add a phone"~~; ⚠️ Changed by 05a (rows H-1, H-4): `phone_count` → `device_count`, and the Add a phone view is removed). All `sessionKind: 'admin'`, so bootstrap admin sessions work. | Clearing a lockout you can't see is useless (`ClearPinLockout` takes `device` and `ip`); the approve page loads without a device session, so `GET /queries/branch-config` is unavailable there; `GET /admin/login-roster` lists admins only, not the waiter whose phone is being added. | — |
+| M89 | **Admin sign-in returns the admin's permissions:** §6.6 and §6.29 responses add `permissions: { 'manage-devices': boolean, 'manage-staff': boolean, 'manage-fiscal-settings': boolean, 'close-business-day': boolean }` (effective, D19). Pages hide actions the admin lacks and keep `403 PERMISSION_DENIED` as the authority (permissions may change mid-session; the page then shows its read-only state). ⚠️ Changed by 05 (row H-2, R-37): `manage-fiscal-settings` and `close-business-day` are **additive** keys (was `manage-devices` and `manage-staff` only), effective like the other two; `manage-fiscal-settings` shows the `/admin/fiscal/` side-nav item and home tile (§8.2, 05 row H-2); `close-business-day` shows **Close day** on 01a's `/admin/stock` page (01a v2.7.1 §6.19, §8.2, 05 row A-5). Code: `adminPermissions()` in `apps/hub/src/auth/staff-directory.ts`, `AdminAuthResponse` in `@pos/events/src/admin/hub.ts`. | `GET /queries/session` needs a device session, which a bootstrap admin and the admin page don't have; without this every button is shown and fails. | — |
+| M90 | **Query resources served by the generic route (§6.2) are listed in §6.33 but not counted against the endpoint budget.** They add no route, guard or pipeline; each still declares its query count. | M88 adds three resources; counting them would force the cloud-access split promised in §6.33 for no structural reason. | — |
+
+One route is added (`GET /ui/*`, a static route that §6.33 does not count, like the four page routes). No error code, event, payload, config field or migration changes.
+
+### Changes in v1.1 (build review 1, `docs/reviews/00_build_review_1.md`)
+
+| Build review item | Decision | Where | Test |
+|---|---|---|---|
+| `branch_name` is discarded at setup | M78 | §3.10, §6.4, §6.8, §6.31, M37, §12.4 | #132 |
+| A QR scan cannot open `/admin/approve` (a navigation carries no `Authorization` / `X-Admin-Session`) | M79 | §3.9, §6.32, §8.1, §8.2 | #133 |
+| `pairing_source` does not survive retention | M80 | §6.17 | #134 |
+| §10 #53 still says the 10th failure is `429` (contradicts M73) | editorial | §10 #53 | #53 (title only) |
+| §12.1 cites plan task 50 for the foundation table (it is task 51) | editorial | §12.1 | — |
+
+No error code is added. One payload field becomes optional (`ApprovePairingRequest.request_id`); one config field is added (`provisioned.branch_name`). No endpoint, event or migration changes.
+
+### Changes in v1.0.1 (patch)
+
+| Change | Decision | Where | Test |
+|---|---|---|---|
+| MQ12 closed: hub-served pages show QR codes made with the same `qrcode@1.5.4`, rendered on the hub as SVG; lint allowlist extended | M77 | §6.4, §6.7, §6.30, §7.11, §8.2, §12.3 | #131 |
+
+No rule, endpoint or schema changes; three responses gain an SVG field.
+
+### Changes in v1.0 (Review 2, `docs/reviews/00_review_2.md`)
+
+| Review 2 item | Decision | Where | Test |
+|---|---|---|---|
+| N1 — no way to regain admin access | M72 (hub CLI `issue-admin-bootstrap`; README requirement on 06) | §3.4, §4.2, §6.4, §6.29, §6.34, §7.11 | #127 |
+| N2 — login while locked reveals the right password | M73 (amends M64) | §6.22 | #109 (rewritten) |
+| A — `DeviceTokenRotated` live apply | M74 (amends M40); README requirement on 06 (re-apply directory after USB restore) | §3.1 M40 | #128 |
+| B — query guard writes | M55 (f) | §3.1 M55 | #98 (existing) |
+| C — malformed-hash row looks like a removal | M75 (amends M52) | §3.1 M52, §4.2 | #129 |
+| D — pairing-request cap can be filled by one client | M76 (amends M44) | §5.1, §6.30 | #130 |
+
+### Changes in v0.6 (Review 1, `docs/reviews/00_review_1.md`)
+
+| Review # | Decision | Where |
+|---|---|---|
+| 1 — auth re-check inside the transaction | M39 | §3.7, §4.2, §10 #85–86 |
+| 2 — restore brings back revoked devices / ended sessions | M40 | §3.4, §3.8, §5.1, §10 #87–88 |
+| 3 — provisioning stuck after the 1 h window | M41 | §3.2, §6.5, §6.27, §6.28, §10 #89–90 |
+| 4 — `/admin/auth` open to the LAN | M42, M44 | §3.5, §3.9, §6.6, §6.13, §6.29–§6.32, §10 #91–96 |
+| 5 — admin session left in the paired browser | M43 | §8.2, §10 #94 |
+| 6 — DNS rebinding | M45 | §3.9, §9, §10 #97 |
+| 7 — idle-expired session keeps working | M46 | §3.4, §3.9, §10 #98 |
+| 8 — replay ignores command type; body device id | M47 | §3.7, §5.1, §10 #99 |
+| 9 — boot work grows with history | M48 | §3.8, §5.1, §7.8, §10 #100 |
+| 10 — refresh reuse logs owner out | M49 | §6.23, §10 #54 |
+| 11 — PIN reset keeps sessions | M50 | §3.4, §4.2, §10 #101 |
+| 12 — directory version not checked | M51 | §4.2, §10 #102 |
+| 13 — weak hash behaviour | M52 | §4.2, §6.4, §10 #19, #103 |
+| 14 — two KDS tabs loop | M53 | §6.11, §6.21, §8.4, §10 #104, #166 (⚠️ Changed in v1.11 (Q-70)) |
+| 15 — BYOD threat model | M54 | §3.1, README R16 |
+| 16 — unrecorded overrides; reused codes | M55 | §3.1, §9 |
+| 17 — CLI database path | M56 | §6.26, §6.27, §7.10 |
+| 18 — `is_admin_role`; owner cannot see new branch | M57 | §5.2, §6.27, §10 #57 |
+| 19 — two owners of guest CIDRs / host | M58 | §3.10, §6.4, §10 #105 |
+| 20–21 — missing and impossible tests | — (test changes) | §10 |
+| 22 — polling defeats idle logout | M59 | §3.4, §4.2, §6.2, §10 #13 |
+| 23 — rotation not audited | M60 | §4.2, §6.8, §10 #30 |
+| 24 — admin access checked only at login | M61 | §3.9, §10 #106 |
+| 25 — counter after lock expiry | M62 | §3.5, §10 #107 |
+| 26 — `/health` on the guest network | M63 | §6.3, §10 #108 |
+| 27 — owner login enumeration / lock | M64 | §6.22, §10 #109 |
+| 28 — admin replay match | M47 | §3.7 |
+| 29 — unused `client_ip` | M65 | §5.1 |
+| 30 — retention at midnight | M66 | §7.3, §10 #121 |
+| 31 — GCM "stream" wording; leftover plaintext | M67 | §7.9, §3.8, §10 #111 |
+| 32 — malformed tables | editorial (IDs kept; tables fixed) | §1, §3.1 |
+| 33 — library notes | M68 | §7.11 |
+| 34 — §9 codes added twice | editorial | §11 |
+| 35 — `idempotency_keys` built for 01 | M69 | §5.2 |
+| 36 — command `tenant_id` unchecked | M70 | §3.7, §10 #110 |
+| 37 — `setup_attempt_id` in the event | M71 | §4.2 |
+| 38 — takeover and an open cash shift | README requirement on 05 | README |
+| Owner choice for #4/#5 — screens pair by QR + approve | M44 | §6.30–§6.32 |
+
+Decision IDs are cited by the README and the plan, so v0.6 keeps every existing ID; Review 1's request to renumber is met by fixing the table order (M37 before M38) and removing the stray row.
+
+### Earlier changes
+
+| Version | Change | Decision |
+|---|---|---|
+| v0.5 | iOS Safari (not standalone): pair page does not pair; add to Home Screen, pair from the home-screen app | client contract (§8.2) |
+| v0.4 | iOS "Add to Home Screen" hint after pairing (replaced by v0.5) | client contract |
+| v0.3 | Device type `phone` (BYOD), owner-only login, revoked when the owner leaves | M38 (README R14) |
+| v0.3 | Takeover default confirmed: any staff member with a correct PIN | README R11 |
+| v0.3 | No service worker / secure-context APIs in hub-served browsers | README R15 |
+| v0.2 | Owner review of v0.1; batches 2–3; §7–§12 | M19–M37 |
+| v0.1 | First draft | M1–M18 |
+
+### Stories covered
+
+| Story | ACs covered here | ACs covered elsewhere |
+|---|---|---|
+| E0 Staff — PIN login on shared devices | 2, 3 (actor attribution mechanism), 4, 5, 6; edge cases (shared device, guest WiFi) | 1 dropped (M27); 7 PIN set/reset → 01 |
+| E0 Hardware — printers, drawer, multiple terminals | 3 (pairing, manage-devices, audit) | 1, 2, 4, 5 → 03b; 6 kiosk shell → 03b/client |
+| E6 Custom roles and permissions | 3, 4 (effective permission on the hub, D19); 6 (default role set via seed, M29) | 1, 2, 5, 7 → 01 |
+| E5 Hub restart after power loss | 2, 3, 4 (boot orchestration, migrations, projection catch-up), 9, 10 (00's share) | 4 engine replay, 5 missed fires → 03a; 7 print queue → 03b |
+| E5 Device resilience during hub restart | 3 (hub side: replay without session, M19) | 1, 2, 4 device queue → 02 |
+| E0 Backups and restore | restore safety of access state (M40) | backups, restore flow → 06 |
+
+### In scope
+- **Hub platform:** SQLite connection, migrations runner (§6.8) with encrypted pre-migration backup (M21), event store and `appendEvents` (§4.1), `processed_commands` (D32, M47), projection registry with forward catch-up (M17, M48), commit-then-swap writer with in-transaction auth re-check (D45, M39), command and query registries with generic routes (§6.3), boot orchestrator (§5.8 steps 0, 1, 1a, 3a, 4, 4a, 4b, 7, 8), heartbeat (D41), clock and boot clock guard (D48), error handler (§6.2), route guards incl. Host guard (M45), encrypted-file helper, retention.
+- **Hub access:** `/setup` provisioning (new-branch codes) and first-admin bootstrap (M42), hub confirmation (M41), device pairing by token (tablets, phones) and by screen request (kiosk, KDS; M44), revocation, staff / admin / station sessions (§5.7, D28, M30), PIN lockouts, takeover, force logout, idle expiry (M46), staff directory cache and effective permissions (D19), restore reconciliation of access state (M40).
+- **Hub WS transport:** auth message, keepalive, ordered push with `as_of_seq` filter, catch-up and audience framework (§5.4, §6.5).
+- ⚠️ Changed by 00 v1.13 (rows H-1–H-7): **Display sessions and the customer status page:** the `display` session kind for the TV pickup board (M96, §6.39) and its WS display mode (§6.21); route group `public` with the status link, its rate limiter and the two public routes (M97–M100, §6.40, §6.41, §7.12, §7.13).
+- **Cloud access:** migrations runner, error handler, tenant-scope guard (D54) with three credential types (⚠️ Changed by 00 v1.13 hostile run 1; 05c v0.2 row H-1: four, with `webhook-endpoint`; **carried when 05c is approved** (not normative before; not built before 05c is approved), ⚠️ Changed by 00 v1.13 hostile run 2 (05c R2-M-7)), owner login/refresh/logout (JWT), registration-code exchange and hub confirmation, CLI `seed-tenant` and `issue-registration-code` with a `SystemContext` (M56), canonical staff/role tables and the permission catalogue.
+
+### Out of scope
+- Cloud staff and role admin routes and UI, PIN set/reset, staff-to-branch assignment → **01** (M27). Cloud `idempotency_keys` store → **01** (M69).
+- Engine host: reducer registration, snapshots, replay, fire-scheduler tick, missed fires (§5.8 steps 2, 3, 6) → **03a** (M28).
+- Print queue resume (step 5) → 03b. Station-scoped commands (`StartItem`, `DoneItem`) → 03b.
+- Replace-hub codes and restore flow (§5.10), sync agent, `hub_push_queue`, cloud-offset `ClockAlarm`, nightly backup, quiet-hour computation (D63) → 06.
+- Device-side command queue policy → 02 (M19). Cash shift handling on takeover → 05 (README).
+- Business commands. Customer-facing routes (P2, D20) **other than the takeaway status page** (⚠️ Changed by 00 v1.13 (row H-12): the status page `/t/<order_id>.<mac>` and its read are in, owner ruling R5, §6.40, §6.41; ordering, paying or calling staff from a customer phone stays P2).
+
+---
+
+## §2. Existing architecture that must not change
+
+| Item | Source |
+|---|---|
+| `events` table shape, indexes and immutability triggers; `sync_cursor` | §4.1 |
+| `processed_commands` (extended by M19, M47) | §4.1, D32 |
+| `PosEventSchema`, `PosCommandSchema` envelopes; ULID IDs; `schema_version` + upcasters | §4.1, D46 |
+| Durability: `BEGIN IMMEDIATE`, WAL, `synchronous=FULL`; ack only after COMMIT | §4.1, D24 |
+| Two-step idempotency check (fast path, then authoritative re-check in the transaction) | §4.1, D32 |
+| Commit-then-swap: in-memory state changes only after COMMIT | D45 |
+| Fixed command processing order; one command = one transaction; commands over HTTP only | §6.3 |
+| `seq` = `MAX(seq) + 1` per branch, gap-free | §4.1, §5.9 step 7 |
+| Device token 256-bit, stored as SHA-256; pairing token 256-bit, single-use, 10-min TTL | §5.6, D53 |
+| PIN auth on hub, no internet; lockout 5 per staff / 10 per device in 5 min, 15 min; per-role idle TTL | §5.7, D28 |
+| Hub never creates or modifies a PIN hash | D40, §3.1 |
+| `/setup` only while unprovisioned, registration code only, 404 forever after | §5.6, D38 |
+| `branchNow` from boot wall clock + monotonic; never earlier than the log | §4.7, D48 |
+| Heartbeat every 60 s into `hub_heartbeat`; `HubStarted` audit event | §5.8, D41 |
+| Envelope, error catalogue, status map, naming, test and migration rules | §6 |
+| Cloud tenant scoping: default-on guard, repository base class, route-inventory and cross-tenant tests | §3.4, D54 |
+
+---
+
+## §3. Domain rules
+
+### 3.1 Module decisions
+
+Each decision states the failure it prevents (YAGNI test) and any foundation section it overrides. Where a later decision changes an earlier one, the earlier row says so.
+
+| # | Decision | Prevents / reason | Overrides |
+|---|---|---|---|
+| M1 | **Cloud access minimum lives here:** cloud migrations runner, error handler, tenant guard (D54), owner login/refresh/logout, registration-code exchange and hub confirmation. | Provisioning (D38) needs the cloud and 01 needs owner auth; without these, 00 could not be built or tested alone. | — |
+| M2 | **Tenants and registration codes are created by a cloud CLI in P1** (§6.26, §6.27), not an HTTP route. | One tenant, three branches, installed by the developer. Revisit with replace-hub UI (06) or P3 onboarding. | — |
+| M3 | **The initial staff directory arrives in the provisioning response**; later updates through `applyStaffDirectory()` (called by 06). | Without it nobody could open admin to pair the first device until sync (06) exists. | — |
+| M4 | **Sessions are a mutable table plus events** (`SessionStarted`, `SessionEnded`). | D51 releases table locks when a session ends; the tick is a pure function of events (D44), so a session end must be an event. | — |
+| M5 | **Session activity is tracked in memory and flushed every 15 s** by the sweeper. *Which requests count: M59.* | §6.3 forbids writes in queries. Cost: after a crash a session may expire up to 15 s early. | — |
+| M6 | **One active device-bound session per device** (staff or station), enforced by a partial unique index. The same staff member logging in again replaces their own session (`'replaced'`). Another staff member: M20. Admin sessions do not occupy the device slot. | E0 edge case "previous session must be closed or timed out"; replace-by-same-staff covers a lost login response. | — |
+| M7 | **Admin session = session with `kind = 'admin'`**, requires `access-hub-admin`. *Changed by M42:* it is opened on a paired device and bound to it; only the one-time bootstrap session has no device and uses `device_id = 'hub-admin'` in events. System events use `device_id = 'hub'`. | Roles are custom (E6), so "manager" (D38) must be a permission. | — |
+| M8 | **PIN hash format is argon2id in PHC form only**, minimum `m=19456, t=2, p=1`; bcrypt not accepted. *How a weaker hash is handled: M52.* Argon2 slows online guessing only; it does not protect a copied database (M21). | We control every setting device (D40). | §5.7 "argon2id (preferred) or bcrypt" → argon2id only |
+| M9 | **Session tokens are stored as SHA-256 hashes.** | A copied database would otherwise contain live session tokens. | §5.7 (made specific) |
+| M10 | **Effective permission (D19)**: `denied` if the owner set a denial; else the most permissive grant across roles, `allowed` > `requires_approval` > `not_granted`; approver roles = union. Commands accept `requires_approval` only when they declare `approvable: true` (04). *v1.5 (01b B2, B10):* the result also carries the winning `scope`, and approvers are read from the approver list (§3.6). | Implements E6 AC3–4 once. | — |
+| M11 | **Idle TTL for a multi-role staff member** = max `session_idle_ttl_ms` across roles. | D19 "most permissive" applied to TTL. | — |
+| M12 | **WS authenticates with the first client message** `{ type: 'auth', device_token, session_token }` within 5 s, else close `4401`. Never headers, never the query string. | Browsers and the Capacitor WebView cannot set WebSocket headers; query-string tokens land in logs. | §5.4 and §6.3 `/ws` row (header and query credentials) |
+| M13 | **Provisioning finishes with a process restart** (exit 0; systemd `Restart=always`). | Avoids a second "become provisioned while running" start path. | — |
+| M14 | **Credential exchanges are retry-safe by rotation, not by stored response** (`/hubs/register` with `Idempotency-Key: <setup_attempt_id>`; ~~`/devices/pair` with `pair_request_id`~~). A repeat issues a **new** secret and revokes the previous one. ⚠️ Changed by 05a (row H-1): `POST /devices/pair` is removed (every device pairs by request, M44), so M14 now covers `/hubs/register` only; `DeviceTokenRotated` is retired for devices (no path writes it). | A lost response would leave a consumed code and no secret; a stored response would keep the plaintext secret in the database. | §6.4 stored-response idempotency, for `/v1/hubs/register` only |
+| M15 | **The tenant guard accepts a third credential type**, the registration code, on `/v1/hubs/register` only. | Keeps the unscoped allowlist unchanged and the route-inventory test meaningful. | §3.4 item 1 (credential list) |
+| M16 | **Tenant-level cloud tables** (`tenants`, `owner_users`, `owner_refresh_tokens`, `staff`, `roles`, `role_permissions`, `staff_roles`, `staff_permission_denials`) carry `tenant_id` only, through `TenantLevelRepository`. Branch-level tables keep both columns. | Staff work at several branches and roles are tenant-wide (E6). | §6.8 "every tenant table has `tenant_id` and `branch_id`" and §3.4 item 2, for these tables only |
+| M17 | **Projection checkpoints table**, updated in the same transaction as projection rows. *How it advances and how a stale projection catches up: M48.* | §5.8 step 4 "max(seq) per projection table" is unreliable for projections that delete rows. | §5.8 step 4 (mechanism) |
+| M18 | **Staff directory held in memory**, loaded at boot and swapped after the commit that applies a new one (D45 pattern). | Zero SQL per permission check. | — |
+| M19 | **Replay without a session.** On `POST /commands/:name` the idempotency fast path runs with the device token alone: a stored response for this `command_id`, from this device, with the same command type and payload (M47) is returned with `Idempotent-Replay: true` and no new effects. Otherwise the session rules apply. **Open item for 02:** queued commands never processed whose session has ended. | A tablet whose session idled out during a hub restart would otherwise never learn its order was committed. | §4.1 `processed_commands` shape; §5.7 "mutating requests carry `X-Session-Token`" (replay only) |
+| M20 | **Takeover.** Another staff member with a correct PIN on a device with an active staff session gets `409 DEVICE_SESSION_ACTIVE { …, can_take_over: true }`; retry with `takeover: true` ends the holder's session `'taken_over'` (`ended_by` = new staff); D51 releases their locks. No permission needed (README R11). ~~Not on phones (M38).~~ ⚠️ Changed by 05a (row H-2): takeover is allowed between two people on the same `listed` list and on `everyone` devices; an unlisted person never reaches it (the §3.5 device access check runs first); on a one-person device only replacement (M6) applies (05a §3.5). | A forgotten logout would block a shared tablet mid-service. | — |
+| M21 | **A copied hub database exposes PINs** (≤ 10⁶ values per PIN). No backup holds the database in plaintext. 00 encrypts its pre-migration backups (AES-256-GCM, §7.9) with `backup_encryption_key`, kept only in the hub config file. **Requirement on 06:** nightly backups encrypted with the same key, never on the USB drive; solve key availability for restore on a replacement hub. | A lost `POSBACKUP` drive would leak every PIN of the branch. | §5.8 note "PINs are already argon2id hashes" (no longer a protection claim); §6.8 pre-migration backup (now encrypted) |
+| M22 | **CLI reissue for an unconfirmed branch.** `issue-registration-code --branch-id <id>` issues a new `new_branch` code for a branch whose `hub_confirmed_at IS NULL` (M41) and expires its unconsumed codes. | A failed setup would otherwise need a second branch row. | — |
+| M23 | **Argon2 verify concurrency cap.** *Changed by M42:* two separate semaphores, `/auth/pin` (default 2, `auth.argon2_concurrency`) and admin logins (default 1, `auth.admin_argon2_concurrency`). When full, wait ≤ 2 s, then `503 SERVICE_UNAVAILABLE { retry_after_ms: 1000 }`. | A login burst would starve the thread pool; admin guessing must not block tablet logins. | §6.2 note "503 cloud only" (hub returns it here and for setup, §9) |
+| M24 | **No WS frame before auth**; `catch_up` carries the full role-scoped open state as of `as_of_seq`; client `last_seq` not needed. *Publish filter: §6.21.* | An unauthenticated socket learns nothing; no "events since N" gap path. | §5.4 ("events seq > N"; `last_seq` query) |
+| M25 | **D54 tests cover tenant-level routes** (route inventory, cross-tenant test, both repositories throw without a `TenantContext`). | M16 adds a second repository class. | — |
+| M26 | **Library versions pinned** (§7.11), checked against the npm registry on 2026-10-23. Vitest stays on 4.1.12 (foundation §6.7). | Unpinned majors drift between dev, CI and the hub. | — |
+| M27 | **01 owns cloud staff/role admin**, PIN set/reset, staff-to-branch assignment. Duplicate PINs are allowed (login is staff + PIN). | Salted hashes make duplicate detection impossible on the cloud. | E0 PIN AC1 (story) |
+| M28 | **03a owns the engine host** (§5.8 steps 2, 3, 6); 00 provides the hooks. 03a is built before or alongside 02. | — | — |
+| M29 | **`seed-tenant` seeds Owner, Manager, Cashier, Order taker** (§6.26). TTLs to confirm with the owner. No Kitchen staff role (M30). *Overridden in v1.5 by 01b B17:* the defaults are Owner, Manager, Cashier, Order taker, Waiter and Cook; Order taker and Waiter are different jobs (01b D-12; a person doing both holds both roles); Waiter and Cook are team-membership roles with no permissions, and cooks keep working through station sessions (M30 unchanged). | — | — |
+| M30 | **Station sessions** (`kind 'station'`, `device_type 'kds'` only): device bound to one `station_id`; no PIN, no idle timeout; events carry `actor_id = null`; only `stationScoped` commands; WS accepts them. | Cooks will not log in with a PIN; a shared kitchen identity would fake attribution. | §4.2 "actor_id null when source = 'inferred'" (also null for station taps); §5.7 "session identifies the staff actor" |
+| M31 | **The station binding is chosen by the approving manager.** *Changed by M44:* KDS screens pair through a pairing request; the manager picks the station when approving. Station existence is checked through `registerStationValidator` (01). Rebinding = revoke + re-pair. | The unpaired screen has no credentials to list stations. | — |
+| M32 | **Admin login roster** lists only staff whose `access-hub-admin` resolves `allowed`. *Changed by M42:* it requires a paired device token or the bootstrap token. | Admins pick a name, not a ULID. | — |
+| M33 | **Owner login protection:** opaque 256-bit refresh tokens, stored hashed, rotated on every refresh. *Reuse rule: M49. Lock and enumeration rule: M64.* | Owner login is internet-facing. | — |
+| M34 | **Replay before permission.** The idempotency fast path runs before session and permission checks; a replay returns a response authorised when produced and has no effects. | Required by M19. | — |
+| M35 | **CORS for the Capacitor origin** (`cors_origins`, default `["http://localhost"]`) on device routes only. | The WebView origin is not the hub. | — |
+| M36 | **Deploy folder** `apps/hub/deploy/` for the systemd unit. | §6.9 has no place for OS install files. | §6.9 folder list |
+| M37 | **00 contributes a `hub` catch-up part** `{ hub: { clock_alarm: { wall_ms, last_recorded_at } \| null, branch_name } }`. `branch_name` comes from the config (M78). | A KDS connecting after a `ClockAlarm` would never see the D48 banner. | — |
+| M38 | **Device type `phone` (README R14).** Hub-served browser client; owned by one staff member (`owner_staff_id`, chosen when the pairing token is generated); only the owner may log in (`403 DEVICE_NOT_OWNED`, checked before any PIN work); takeover never applies; revoked automatically (`cause: 'owner_removed'`) when `applyStaffDirectory` removes the owner. ⚠️ Changed by 05a (rows H-2, H-4): superseded for devices with a profile. `device_type = 'phone'` now means hardware only; who may sign in comes from the device profile (05a §4.2: a phone approved for one person is `listed` [that person]), checked by §3.5's device access check (`403 DEVICE_ACCESS_DENIED`; `DEVICE_NOT_OWNED` is no longer returned); takeover follows M20; `owner_staff_id` is null on new rows and its readers use the profile's `staff_ids`; the automatic revoke becomes 05a M-5 (a phone whose list a directory removal empties is revoked `cause: 'owner_removed'`; any other device whose list empties becomes `everyone` with `needs_review`, never revoked). A staff device with no profile keeps this row's sign-in rule (05a v1.0.1 R-1, §3.5). | A personal phone left paired after a staff member quits; colleagues acting as each other from a device that leaves the building. | — |
+| M39 | **Auth is re-checked inside the write transaction.** The hub keeps an in-memory `authGeneration` counter, bumped in the after-commit step of every transaction that writes `DeviceRevoked`, `DeviceTokenRotated`, `SessionEnded` or `StaffDirectoryApplied`. A guard records the generation it saw. Inside `writer.run`, right after the idempotency re-check, if the generation changed, the device row and the session row are re-read (2 PK lookups) and rejected with the guard's codes (`DEVICE_REVOKED`, `SESSION_EXPIRED`, …). The permission (§3.6) is resolved **inside** the transaction against the current directory, always. | A command that passed the guard 1 ms before a revoke, force logout, sweep or directory change would otherwise commit for a dead session, e.g. lock a table whose lock D51 can no longer release. better-sqlite3 runs commit and after-commit in one synchronous step, so no transaction can start between them. | §6.3 order: precondition checks now include the auth re-check |
+| M40 | **Access state is reconciled forward from events.** A forward-only projection `access_reconcile` (no reset) consumes `DevicePaired`, `DeviceTokenRotated`, `DeviceRevoked`, `SessionStarted`, `SessionEnded` and applies idempotent updates: `DevicePaired` → mark its pairing token / pairing request consumed; `DeviceTokenRotated` → **during boot catch-up only, never live (M74)**: set the device's `token_hash` to the unusable value `'rotated:' ‖ event_id` (the device must re-pair); `DeviceRevoked` → set `revoked_at`; `SessionEnded` → set `ended_at`. Live writes go to the tables directly; the projection's live apply is then a no-op. At boot step 4 it replays every event with `seq > checkpoint` (M48). `SessionStarted` events replayed at boot whose session has no row and no `SessionEnded` get `SessionEnded { reason: 'hub_restored' }` after the replay. `last_activity_at` and `last_seen_at` stay working data. | After a restore from a USB backup plus the cloud tail (§5.10 b), a fired employee's revoked phone and every force-logged-out session would be valid again. | §5.10 step 5 (adds access reconciliation to the rebuild) |
+| M41 | **The branch stays `pending_hub` until the hub confirms.** On the first boot after provisioning, the hub calls `POST /v1/hubs/confirm` (branch API key) in the background, retrying every 60 s until it succeeds, and then records `provisioned.confirmed_at` in its config. The cloud sets `hub_confirmed_at` and `status = 'active'`. M22 reissue is allowed while `hub_confirmed_at IS NULL`. | Lost response or internet down at setup, retried the next morning: the code is consumed and the branch was already `active`, so no code could ever be issued again. | — |
+| M42 | **Admin access needs a paired device.** `/admin/auth` and `/admin/login-roster` require a device token of type `tablet`, `cashier_kiosk` or `phone` ~~(the phone's owner only)~~ (⚠️ Changed by 05a (row H-2): `/admin/auth` only on a `listed` device and only by its people, §3.5; `/admin/login-roster` refuses an `everyone` device, §6.13). The admin session is bound to that device; every admin request carries the device token and `X-Admin-Session`. **Bootstrap:** provisioning creates one single-use first-admin token (30 min TTL); the setup page shows it as a link/QR (`/admin/bootstrap#t=…`). It opens one admin session without a device after staff + PIN + `access-hub-admin`; the PIN failures on this path count per IP (`429 IP_LOCKED_OUT`). Admin logins use their own argon2 semaphore (M23). | Any phone on the staff WiFi (R14) could otherwise lock out every admin and guess admin PINs (~480/day per admin) while starving tablet logins. | §5.6 step 1 ("admin opens hub:3000/admin in a browser"; now on a paired device) |
+| M43 | **The admin UI never leaves an admin session in a browser it pairs.** Before any same-tab navigation to `/pair` or `pair_url`, the admin UI calls `POST /admin/auth/logout` and clears `sessionStorage`. | A cook pressing Back on a freshly paired screen would hold a manager's admin session. | — ⚠️ Changed by 05a (row H-1): `pair_url` is gone with the token flow; the rule stays for `/pair` |
+| M44 | **Kiosk and KDS screens pair by request + approval.** The unpaired screen opens `/pair`, creates a pairing request (`POST /pair/requests`) and shows a QR (request id) and a 6-character display code; a manager on a paired admin device scans it and runs `ApprovePairingRequest` with the device type and, for KDS, the station; the screen polls `GET /pair/requests/:id` with its poll secret and receives its device token. ~~The token flow (`GenerateDevicePairingToken`) is for camera devices only: `tablet` and `phone`.~~ *Caps: M76.* ⚠️ Changed by 05a (row H-1): **every** device type (`tablet`, `cashier_kiosk`, `kds`, `phone`) pairs by request + approval; the token flow is removed (§6.7, §6.8). The approval takes the device name and the kitchen station (kds) or the device profile (name, `access`, `staff_ids`, screens, point; 05a §6.3), runs on `/commands` from a session on a `listed` device holding `manage-devices` or on `/admin/commands` (bootstrap admin; `sessionKind: 'both'`), and the display code is always typed (the QR fills only the request id). | Under M42 an unpaired screen cannot open admin, and screens cannot scan a QR. | §5.6 setup flow steps 2–6 (pairing token endpoint `POST /admin/devices/pairing-token` and its response) |
+| M45 | **Host guard.** Every route, including `/health` and `/ws`, rejects a `Host` header that is not `<advertised_host>:<http_port>`, `localhost:<http_port>` or `127.0.0.1:<http_port>` with `403 HOST_NOT_ALLOWED` (WS: close `4403`). In setup mode (no `advertised_host` yet) the host's own IPv4 addresses are accepted. | DNS rebinding from any web page opened on a staff phone or the kiosk would reach the hub same-origin from a staff IP. | — |
+| M46 | **Idle expiry is enforced on every request, not only by the sweeper.** The session guard and the login transaction treat `branchNow − last_activity_at > idle_ttl_ms` as ended: the guard ends the session (`SessionEnded 'idle_timeout'`, own `writer.run`) and answers `401 SESSION_EXPIRED`; the login transaction ends it before checking the device slot. | Foundation §5.7 / E0 AC4: a tap 10 s after the TTL would otherwise succeed and revive the session, and the next staff member would get `409` for a timed-out session. | — |
+| M47 | **Replay matches command type and payload.** `processed_commands` stores `command_type`, `payload_hash` (SHA-256 of the canonical JSON of `payload`) and `session_id`. A stored row with a different type or hash → `400 VALIDATION_FAILED`, never a replay. Device identity always comes from the token; a body `device_id` that differs → `400`. Admin replays match `session_id` (not `'hub-admin'`). | A client bug reusing a `command_id` for `VoidItem` would silently get the stored `SubmitOrder` answer; any device could read another's stored response by sending its id. | §4.1 `processed_commands` shape |
+| M48 | **Boot cost is bounded.** 3a reads `recorded_at` of the max-`seq` row (served by `events_branch_seq`). Every committed transaction advances every registered projection's **existing** checkpoint to its last seq (`UPDATE … WHERE branch_id = ? AND projection = ?`, never an insert); **`catchUp` writes a projection's first row** (it inserts for every registered projection on each boot). A projection whose checkpoint is behind `MAX(seq)` replays from its checkpoint; `reset` + full replay happens only when it has no checkpoint row — so a new projection, or one whose row a migration deleted, replays from seq 0 even when step 3a appends a `ClockAlarm` before catch-up ⚠️ Changed by 04 (row H-2; was: "advances every registered projection's checkpoint to its last seq", which re-created a missing row on any live append — 02b v1.0.9 B3-5). Step 4b runs only when `staff_sessions` is empty while session events exist. A boot test on a 1 M-event fixture holds 00's steps inside §7.8. | At R6 volume (≈ 40k events/day), unindexed scans and full rebuilds would eat the 90 s budget within months. | §5.8 step 4 (mechanism) |
+| M49 | **Refresh reuse grace.** The successor of a refresh token is `HMAC-SHA256(REFRESH_TOKEN_SECRET, old_token)`; presenting the same rotated token within 30 s of its rotation returns that same successor (and a new access JWT) without revoking anything; later reuse revokes all the user's refresh tokens. | Two tabs or a lost refresh response on mobile data would log the owner out everywhere. | — |
+| M50 | **A changed `pin_hash` ends that staff member's sessions** (`SessionEnded { reason: 'credentials_changed' }`), staff and admin. | A leaked PIN, reset in the cloud, would keep the thief's session for up to 60 minutes. | — |
+| M51 | **Directory versions only move forward.** `applyStaffDirectory` applies only when `directory_version > current`; equal or older → no-op, no event, logged. | A late or replayed push would bring back fired staff with their old PINs. | — |
+| M52 | **Bad directory rows are skipped, never blocking.** A staff row with a weak or malformed `pin_hash` is skipped; *what happens to that person's existing row: M75*; a role assignment or approver naming an absent role, or a permission not in this hub's catalogue, skips only that reference. Every skip is logged and listed in `StaffDirectoryApplied.skipped`. The rest applies. *v1.5 (01b B18):* a lead or a responsibility naming a staff member absent from the directory is also skipped (kinds `lead`, `responsibility`); an approver id naming an absent role is dropped from that grant's list, and a `requires_approval` grant left with no approver is skipped (kind `approver`). Supersedes the "reject" wording of M8 and v0.5 Review Focus 4. | One bad row from 01 would otherwise block every later update, including the removal of a fired employee. | — |
+| M53 | **Station replaced = stop.** When a station session is replaced, its socket receives `SessionEnded { reason: 'replaced' }` and closes `4401` with close reason text `replaced`; the client stops and shows "Open in another window" instead of calling `/auth/station` again. ⚠️ Changed in v1.11 (Q-70): the same close (`4401`, reason `replaced`) answers a later socket `auth` that presents the replaced session (a window that was offline when it was replaced), §6.21 step 3. | Two tabs on one KDS would kick each other off forever; an offline window coming back would take the session back. | — |
+| M54 | **LAN plaintext risk accepted for P1** with owner sign-off (README R16). Installation checklist: personal phones join a **separate SSID with client isolation** that can reach only the hub port; restaurant devices stay on the staff SSID. LAN TLS revisited at P3. | R14 put personal phones on the network that carries PINs and bearer tokens in plaintext (D28); isolation removes phone-to-phone sniffing on the same AP. | — |
+| M55 | ⚠️ Changed by 05c v0.2 (row H-1; folded by 00 v1.13 hostile run 1), **carried when 05c is approved** (not normative before; not built before 05c is approved) (⚠️ Changed by 00 v1.13 hostile run 2 (05c R2-M-7); re-lettered ~~(f)~~ **(g)**, the pre-existing (f) is the query guard write): (g) guard scope **`webhook-endpoint`**: lookup by `endpoint_id` in `credential-lookup.ts` (`paymentWebhookEndpointById`), then `setTenant`; the route has a `TenantContext`; index `payment_webhook_endpoints_endpoint (endpoint_id)` is an **M55 (a)-style pre-tenant override**; route inventory and cross-tenant tests (05c). **Overrides recorded from Review 1 #16:** (a) the global credential indexes (`owner_users_email`, `owner_refresh_tokens_hash`, `branch_api_keys_hash`, `branches_branch_id`, primary key `registration_codes.code_hash`) do not lead with `tenant_id`, because they serve lookups before a tenant is known; (b) `db/credential-lookup.ts` is a bounded query path outside the repository layer, importable only by `plugins/tenant-scope.ts` and `plugins/owner-credentials.ts` (lint + test) — the RLS revisit trigger in foundation §8 does not fire for these read-by-secret lookups, and any other importer would; (c) `GET /ws` auth (§6.3) per M12; (d) route groups added: `POST /auth/station`, `POST /admin/auth`, `POST /admin/auth/logout`, `POST /admin/auth/bootstrap`, `GET /admin/login-roster`, `POST /pair/requests`, `GET /pair/requests/:id`; (e) new codes `IP_LOCKED_OUT` and `STATION_LOGOUT_NOT_ALLOWED` replace the reuse of `DEVICE_LOCKED_OUT` and `DEVICE_TYPE_NOT_ALLOWED`; (f) **query guard write (Review 2 note B):** on `GET /queries/*` and `GET /admin/queries/*`, the session guard may end an idle-expired session (`SessionEnded 'idle_timeout'`) in its own `writer.run` before answering `401` (M46). The query itself still never writes. | D64 requires every override to be named. | §6.8 index rule; §8 RLS row (scope); §6.3 route groups, `/ws` row and "queries: no writes" (guard only, f); §5.6 (via M44) |
+| M56 | **CLIs live in `apps/cloud/src/cli/`** and reach the database through `SystemContext`, a class constructible only there (lint allowlist + a test that fails if any other folder imports it). | `seed-tenant` must create a tenant before any `TenantContext` can exist; the alternative is weakening the D54 lint rule. | §6.9 folder list (adds `apps/cloud/src/cli/`) |
+| M57 | **No `is_admin_role`.** A new branch gets every staff member whose roles grant `access-hub-admin`; `issue-registration-code` adds the branch to every tenant owner's `allowed_branch_ids` in the same transaction. The "at least one admin role" guard (E6 AC7) is 01's, on the permission. *v1.5 (01b §4.3 row 19, D-14):* a new branch gets only **qualifying admins** (01b B7): active staff with a PIN whose effective `access-hub-admin` **and** `manage-devices` are both `allowed` (stock counters with `access-hub-admin` alone are not assigned); if two of them share a display name (case-insensitive, trimmed, 01b B12) the CLI refuses and lists the names; it takes the tenant row lock first and bumps `directory_version` (01b B11). | A flag would contradict M7; managers with `access-hub-admin` could not pair a new branch; the owner's JWT could not see it. | — |
+| M58 | **`/setup` owns `guest_network_cidrs` and `advertised_host`.** At least one CIDR is required; `advertised_host` must be one of the host's own IPv4 addresses. The installer does not edit them in the config file. | Two writers would let a blank setup form silently disable the guest guard. | — |
+| M59 | **What counts as activity:** every command, `/auth/*` login, and queries that declare `counts_as_activity: true` (default `false`). WS pongs and acks never count. **Note for 02:** a polled query must not opt in. ⚠️ Changed by 00 v1.14 (owner 2026-11-28 Q8): the person's input on the device counts too, through M101's activity query (sent only after a tap or key, at most once per 60 s); live frames, polls and watching do not. | A 10-second table-map poll would keep order-taker sessions alive forever. | — |
+| M60 | **`DeviceTokenRotated { device_id, pair_request_id }`** is appended when `/devices/pair` rotates a token. ⚠️ Changed by 05a (row H-1): no longer written (`POST /devices/pair` is removed, M14); historic events still replay through M40 / M74. | A device credential change with no event breaks §4.1 and the E0 pairing audit; M40 needs it. | — |
+| M61 | **The admin guard resolves `access-hub-admin` on every request** (in memory, M18); not allowed → `403 PERMISSION_DENIED`. | A manager who loses the permission would keep reading device and session lists until idle. | — |
+| M62 | **The staff and device/IP counters reset to 0 when a lock expires.** | Without it one wrong PIN after expiry locks a real user again at once. | — |
+| M63 | **`/health` returns `{ status }` only to guest-network clients**; the full body to others. | Customers' phones would learn `hub_version` and `branch_id`. | — |
+| M64 | **Owner login:** *the locked-account rule is replaced by M73;* a per-IP limit (30 failures per 15 min, in memory — the cloud is one instance, D57) answers `429 IP_LOCKED_OUT`; counters change with atomic `UPDATE … SET failed_login_count = failed_login_count + 1 … RETURNING`. | Ten tries would reveal which emails exist; concurrent failures could lose counts. | — |
+| M65 | **`staff_sessions.client_ip` dropped**; IP lockouts read the request IP. | Stored and never read. | — |
+| M66 | **Retention runs in the maintenance hour, in batches.** `maintenance_hour` (local time of the hub OS, default 4) can be set by 06 from the D63 quiet hour through `setMaintenanceHour(h)`; deletes run in batches of 500 rows, one `writer.run` per batch. | A big `DELETE` at midnight during a late rush would block commands. | — |
+| M67 | **Encrypted files are written to a temp file, verified, then renamed**; a leftover plaintext pre-migration copy in `data_dir` is deleted at boot step 1. | GCM cannot authenticate before the last block; a crash between copy and encrypt would leave PINs on disk. | — |
+| M68 | **Library notes corrected:** `fastify-type-provider-zod@7.0.0` declares peer `zod >=4.1.5` (registry, 2026-10-23); foundation §6 says ≥ 4.2; the pinned `zod@4.6.7` satisfies both. ESLint pinned (`eslint@10.13.0`, `typescript-eslint@8.72.0`, flat config `eslint.config.js`) because the D54 and M55/M56 rules depend on it. | — | — |
+| M69 | **`idempotency_keys` moves to 01** (no 00 route uses it); `owner_refresh_tokens` rows expired more than 7 days are deleted on each login of that user. | Over-build; unbounded growth of refresh rows. | — |
+| M70 | **Command `tenant_id` is checked** like `branch_id` (`403 BRANCH_MISMATCH`). | The contract would otherwise accept any tenant silently. | — |
+| M71 | **`setup_attempt_id` is not in the `HubProvisioned` payload.** | The id plus a paper code would allow a re-exchange that revokes the live key. | — |
+| M72 | **Admin recovery by hub CLI.** (⚠️ Changed by 05a (row H-7): the same function also serves 05a §6.11's recovery link at zero admin devices, `issued_by: 'recovery'`, with the caller's device as the event's `device_id`; see §4.2.) `pnpm --filter hub issue-admin-bootstrap`, run as the hub service user on the hub machine (shell or physical access is the authority), opens the hub database and, in one `writer.run`: sets `expires_at = now` on every live bootstrap token, creates a new single-use token (30 min TTL), appends `AdminBootstrapTokenIssued { issued_by: 'cli' }` (`actor_id` null, `device_id 'hub'`). It prints `first_admin_url` and a terminal QR code (`qrcode@1.5.4`, CLI only). It works whether or not the hub process is running (SQLite serialises the writers; the event has no engine or WS effect). `/setup/provision` uses the same function with `issued_by: 'setup'`. **Requirement on 06:** the replace-hub restore flow issues one automatically after restore. | Without it the one-time bootstrap token is the only device-less admin entry: a late installer, a lost bootstrap response, losing every admin device, or a cloud-only restore would lock the hub out permanently, and the only recovery (re-register as a new branch) loses unsynced events. | — |
+| M73 | **A locked owner account never verifies the password** (replaces M64's locked-account rule; Review 2 N2). While `login_locked_until > now`: run the dummy hash (equal timing), answer `401 LOGIN_INVALID` whatever the password, and do not change the account counter. The per-IP limiter still counts the attempt as a failure. The owner is told about the lock out of band (requirement on 01/07; *v1.5: met by 01b's `lockout_notice` on the next successful login or rotating refresh, §6.22, §6.23*). `429 LOGIN_LOCKED_OUT` is no longer returned by login. | Under M64 a locked account still answered differently for the right password, so distributed guessing could continue through the lock. | — |
+| M74 | **`DeviceTokenRotated` is applied by `access_reconcile` only during boot catch-up** (mode `'catchup'`), never on the live path, where the new hash is written directly by `/devices/pair`. ⚠️ Changed by 05a (row H-1): no live path writes the event any more (§6.8 removed); the catch-up apply stays for history. | A live apply would overwrite the fresh hash and lock out the device that just re-paired. | — |
+| M75 | **A skipped staff row keeps its previous row.** If a staff row is skipped for a weak or malformed `pin_hash` (M52) and the hub already has a row for that staff member, the previous row (with its old hash, roles and denials as last applied) stays, and the person is **not** treated as removed: no `staff_removed` session end, no `owner_removed` phone revoke. A staff member with no previous row is simply absent. A real PIN reset (valid new hash) still ends sessions (M50). | One bad row from 01 would otherwise force a re-pair of that person's phone and end their sessions. | — |
+| M77 | **QR codes on hub-served pages use `qrcode@1.5.4`** (closes MQ12), the library M72 already pins for the CLI. QR codes are rendered **on the hub** as SVG by one helper, `apps/hub/src/lib/qr.ts` → `qrSvg(text: string): string` (synchronous: `QRCode.create(text, { errorCorrectionLevel: 'M' })`, then an SVG `<path>` built from `modules`, 4-module quiet zone). Responses carry the SVG next to the URL: `first_admin_qr_svg` (§6.4), ~~`pair_qr_svg` (§6.7)~~ (Removed by 05a (row H-1)), `approve_qr_svg` (§6.30); pages insert it as-is. No QR library is served to browsers. Lint: `qrcode` is importable only by `lib/qr.ts` and the CLI entry (`setup/issue-admin-bootstrap.ts`). | Screens cannot be paired by scanning (M44) and the first-admin link cannot be opened from a phone without a QR; rendering on the hub keeps the hub-served pages free of a bundler and of a second QR dependency, and keeps `handle` synchronous (D32 stored responses). | — |
+| M76 | **Pairing-request caps: 2 pending per requester IP, 10 pending in total.** Over the per-IP cap → `429 IP_LOCKED_OUT { retry_after_ms }` (time until that IP's oldest pending request expires); over the global cap → `503 SERVICE_UNAVAILABLE { retry_after_ms: 60000 }`. `pair_requests` stores `requester_ip`. | One client on the staff WiFi could otherwise keep the 10 slots full and block kiosk/KDS pairing. | — |
+| M78 | **`branch_name` is kept in the hub config.** `/setup/provision` writes the register response's `branch_name` to `provisioned.branch_name` (§3.10); §6.8, §6.31 and the M37 catch-up part read it from there. It is not added to `HubProvisioned` (payload frozen at v1). It shows the name at setup time; a cloud rename reaching the hub is deferred (§12.4). | §6.8, §6.31 and M37 return `branch_name`, but neither the config (§3.10) nor `HubProvisioned` (M71) stores it, so the hub could only send `''`. | — |
+| M79 | **Admin pages load without credentials; approval works without a scan.** `GET /admin/bootstrap` and `GET /admin/approve` are static pages: guards host, provisioned and guest network only; they embed no token (`/admin/approve` embeds `tenant_id` and `branch_id` only). The page script reads the device token from IndexedDB and the admin session from `sessionStorage`, and logs in an admin in the same tab when there is none (§8.2). `ApprovePairingRequest.request_id` is optional: without it the hub approves the one pending request whose `display_code` matches; none or more than one → `404 PAIRING_REQUEST_NOT_FOUND`. | A camera scan opens `approve_url` as a plain navigation in a new tab: no `Authorization`, no `X-Admin-Session`, no `sessionStorage`, so the v1.0 page (group `admin`) always answered `401`. Devices that cannot scan or whose scan opens another browser (kiosk, Capacitor tablet, iOS home-screen app, R15) had no way to approve at all. | §3.9 (route groups for the two pages); M55 (d) list |
+| M80 | **`pairing_source` is derived from `device_type`:** `tablet`, `phone` → `'token'`; `cashier_kiosk`, `kds` → `'request'` (M44 makes the source a function of the type). No column. ⚠️ Changed by 05a (row H-4): retired: `pairing_source` is dropped from §6.17 (every device pairs by request). | The v1.0 derivation from `pairing_tokens` turns every token-paired device into `'request'` once retention deletes its token (7 days after expiry). | — |
+| M81 | **The hub serves the UI kit at `GET /ui/*` (route group `static`: guards host and guest network only, no provisioned check, no credentials).** Source: `packages/ui-kit/`, a new folder with CSS, fonts and their licences only (no `package.json`, not a workspace package; the hub resolves it relative to its own source, which holds in the `/opt/pos-hub` checkout). Only `.css` and `.woff2` files are served; the file list is read once at registration, so a path that is not in it (`..`, `README.md`, `tokens.json`, licence files) is `404 ROUTE_NOT_FOUND`. Headers: `Content-Type` `text/css; charset=utf-8` or `font/woff2`; `Cache-Control: public, max-age=31536000, immutable`. Pages link the two stylesheets with `?v=<first 12 hex of sha256(tokens.css ‖ bundle.css)>` so a hub update reaches cached browsers; the query is ignored by the route. Registered on the setup-mode server too, because `/setup` uses it before provisioning. No new dependency (`node:fs`, no `@fastify/static`). Not counted in §6.33, like the page routes. | The pages run on the LAN with no internet (README R15), so fonts and CSS must come from the hub; kiosks and phones reload often, so long caching keeps the hub idle. A whitelist read at start cannot be walked out of. | §3.9 (new group row), §6.33 note |
+| M82 | **The 00 pages use the UI kit and one English string table.** Each page links `/ui/tokens.css` and `/ui/components/bundle.css`, sets `<html lang="en" dir="ltr" data-theme>` (`dark` on `/pair`, `light` elsewhere), puts `class="pos-root"` on `<body>` and keeps one inline `<script>`. Text comes from one object `EN` (`apps/hub/src/lib/strings.ts`, keys as in `docs/design/ui-brief.md`, `errors.<CODE>` for codes); the page shows the text for the key, never a raw key and never the server `message` (F §6.2). Fixes: setup shows a busy button, a slow-call banner after 3 s, a banner per error code and the failing field; the bootstrap page shows the admin roster as name tiles (no raw JSON, no `staff_id` input) and a success screen with the way to `/admin/approve`; every PIN input is `type="password"` with `inputmode="numeric"`; the phone pair page asks for the device name in a field (1–40 characters) instead of `window.prompt`. Element ids `screen`, `setup`, `login`, `roster` and class `display-code` stay; script behaviour (storage keys, requests, retries) is unchanged. Urdu (`UR`) is added later (D12). | D12 requires translation keys; the brief found the pages unusable as shipped (errors invisible, raw IDs, clear-text PINs). | §8.2, §8.4 |
+| M94 | **01d Notifications and requests v1.0 changes this spec as listed in 01d §4.5 C-00** (rows H-1–H-14; approved 2026-11-01 by the developer with 01d v1.0). Each changed section carries a "Changed by 01d v1.0" marker. 01d owns hub migration `0006_alerts.sql` (it also creates the 00-owned `app_releases` table and the `staff_sessions_staff_activity` index); this spec's merged migrations are not edited. | One package with 01d; later modules read 00 and find the current contract. | — |
+| M101 | ⚠️ Changed by 00 v1.14 (owner 2026-11-28 Q8). **Input on the device is activity.** `GET /queries/activity` (route group device session, `session: 'required'`, staff sessions only, `counts_as_activity: true`, 0 statements, `200 { data: {} }`) refreshes the session's `last_activity_at` (M5, in memory) like any activity. The staff client sends it after the signed-in person's input on the page — `pointerdown` or `keydown` on the document — at most **once per 60 s** (the first input after a quiet minute sends at once); never on a timer, a socket frame, a poll, a visibility or focus change, and never while signed out. A `401` answer signs the page out as any session read does. | Q8 / QA BUG-12: a cashier who taps through the queue and reads tokens for 15 min without sending a command was signed out mid-shift, while the device's own idle lock (02b §8) counted the taps. One cheap query per active minute keeps the hub's timer in step with the person; watching a live screen still idles out, so the rule of M59 (polling never defeats idle logout) holds. | M59, §6.33 count |
+| M96 | ⚠️ Changed by 00 v1.13 (row H-1; 02b-TK R7). **Display sessions** (`kind 'display'`): a session with **no person** for the TV pickup board. Only a paired **`cashier_kiosk`** whose 05a profile is the board (`screens = ['board']`, 05a v1.0.7 §3.6) opens one, with `POST /auth/display` (§6.39) (⚠️ Changed by 00 v1.13 hostile run 1 (M-2): a tablet board is deferred, OD-2). No PIN, no idle TTL (`idle_ttl_ms` null; the sweeper, M46 and M95 never touch it), `staff_id` and `station_id` null, events `actor_id` null. **Allowed calls:** queries registered with `allowDisplay: true` (05a's `pickup-board`), `/ws` in display mode (§6.21) and `POST /auth/logout` (ends it `'logout'`; the board page never calls it). Every command and every other query answers it `401 SESSION_INVALID`; `/admin/*` answers `401 ADMIN_SESSION_REQUIRED`. **Ends:** `replaced` (the next `POST /auth/display` on the device, M53 pattern), `forced` (`ForceLogoutSession`, or the 05a profile edit that takes `board` away, 05a §6.4), `device_revoked`, `hub_restored` (M40), `logout`. Never `idle_timeout`, `taken_over`, `staff_removed` or `credentials_changed`. A force-logged-out board signs in again by itself (bounded, §8.4), so stopping a board is a profile edit or `RevokeDevice`. One active `staff` / `station` / `display` session per device (the partial unique index, §5.1). ⚠️ Changed by 00 v1.13 hostile run 1 (M-1): every writer and reader of the kind, and the stream mapping (`hub` / device_id for every display session event, started and ended), are in **§3.4a**; a board device's alert-mode `auth` is refused (§6.21, 01d v1.3.7 D-5). | A board signed in with a staff PIN ends at the role's idle TTL (Cashier 15 min) in the middle of service, puts a PIN on a public screen and attributes nothing to anyone; a new device type would touch every `device_type` reader (05a §2); a station session is bound to a kitchen station and `stationScoped` commands. | Foundation §5.7 session kinds (v1.18 row F-2) |
+| M97 | ⚠️ Changed by 00 v1.13 (row H-4; 02b-TK R5); ⚠️ Changed by 00 v1.13 hostile run 1 (M-4, M-6, m-7). **The `public` routes have their own listener.** A second Fastify instance listens on **`public_status.port`** (default `http_port + 1`; config §3.10) and registers **exactly** `GET /t/:link` (the customer status page, §6.40) and `GET /t/:link/status` (its JSON read, §6.41), both with `exposeHeadRoutes: false`, and nothing else (no `/ui/*`, no `/health`, no WS). ⚠️ Changed by run 3 (R3-M-7) It starts after the main listener on a provisioned hub with `public_status.enabled === true` and a loaded `status_link_key` (M100). The setup-only boot leaves the public port closed. Named routes check Host (only `<advertised_host>:<public_port>`, `localhost:<public_port>`, `127.0.0.1:<public_port>`), then provisioned, then the link and M99 inside the handler. There is no guest, version, device or session guard, and no CORS header. ⚠️ Changed by run 3 (R3-M-1) **Transport admission.** Bind `0.0.0.0` (IPv4). Construct the Node HTTP server with `headersTimeout: 10000`, `requestTimeout: 10000` and `connectionsCheckingInterval: 1000`. Keep Fastify `connectionTimeout: 10000` (inactivity), `requestTimeout: 10000`, `keepAliveTimeout: 5000`, `maxRequestsPerSocket: 100` and `bodyLimit: 1024`. The absolute receive deadlines allow up to one additional 1 s scan interval on a responsive loop. ⚠️ Changed by run 3 (R3-M-3) The server caps open sockets at 256 and counts its aggregate-cap drops as overload (§7.2). Each routed source gets 16 simultaneous sockets, counted by socket remote IPv4 and released on close. Destroy over-cap sockets. Before Fastify dispatch, admit up to 40 burst and 20 requests/s per source (§7.12), including requests that would fail guards or miss routes. Close a socket over budget or carrying a GET with nonzero Content-Length or any Transfer-Encoding. ⚠️ Changed by run 3 (R3-M-2) For the single verified `nat_router_ipv4`, the aggregate 256-socket cap applies at the hub and the router enforces those per-client connection and ingress limits before translation (§7.13). Invalid M99 traffic is still keyed by the observed IP. ⚠️ Changed by run 3 (R3-M-3) ⚠️ Changed by run 3 (R3-M-4) Public HTTP replies use the header policy and early error boundary of §7.13. Public outcomes go to §7.2 counts only. **Start failure** (⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-6)): if `listen` on `public_status.port` fails (`EADDRINUSE`, `EACCES`, …) the hub logs `error { msg: 'public_listener_failed', err }` and runs on without it; `statusLink` then returns `null` (slips print without a QR); the public listener is closed with the main listener on shutdown (the `1012` path). ⚠️ Changed by run 3 (R3-M-7) **The main listener keeps the guest-network guard on every route except `/health` (M63)** (it registers no `/t/*` route), and the router opens only the public port to the guest network (§7.13). Both listeners share the process, the read connection and the engine state. The inventory test lists both listeners: the public one holds exactly the two GET routes; the main one holds no route without the guest guard but `/health` (M63). | A customer on guest Wi-Fi must reach the page from the slip QR (R5). On one shared port a wrong or stale `guest_network_cidrs` would silently open pairing, PIN sign-in and every query to the guest network; with a separate port the router stays the first barrier and the guest guard stays defence in depth. | Foundation §5.7 D28 network separation (v1.18 row F-1) |
+| M98 | ⚠️ Changed by 00 v1.13 (row H-5; R5); ⚠️ Changed by 00 v1.13 hostile run 1 (M-3, m-3, m-13). **Status link = order id + truncated HMAC.** `link = <order_id>.<mac>`. `mac` = the first **10 bytes (80 bits)** of `HMAC-SHA256(key, "pos-status-v1:" ‖ branch_id ‖ ":" ‖ order_id)` (UTF-8 message; key = the 32 bytes of `status_link_key`, M100), written as **16 Crockford base-32 characters** (alphabet `0123456789ABCDEFGHJKMNPQRSTVWXYZ`, big-endian bit order, no padding; the ULID alphabet). **Check** (in memory, 0 statements): `order_id` must match `ULID_RE` (`packages/domain/src/ids.ts`) and `mac` be 16 characters of the alphabet (lower case accepted and upper-cased first; no `I L O U` mapping), else invalid without computing; then the expected 10 bytes are recomputed and compared with `crypto.timingSafeEqual` against the decoded 10 bytes. Every failure (shape, MAC, unknown order, an order that is not `takeaway`) answers the same `404 TRACKING_LINK_INVALID { reason: 'invalid' }`. ⚠️ Changed by run 3 (R3-M-8) **Lifetime.** The link carries no expiry. The read ends at `min(tracking_close_cutoff_ms, business_date at 00:00 hub local time + STATUS_LINK_CEILING_MS)`, treating a null cutoff as unbounded on the close side. 02b §4.2 supplies `tracking_close_cutoff_ms` from its replayable group projection (§6.41). The cutoff is the latest applicable group close time + `STATUS_LINK_GRACE_MS` (7 200 000 ms). Reopen preserves the cutoff. ⚠️ Changed by run 3 (R3-M-8) Use the recorded close-event time in the 02b fold. A later applicable close may advance the cutoff only when its recorded time is earlier than the prior cutoff. Use the hub branch clock for the read-time expiry check. An expired link stays expired across additions, reopen, restart and replay. The absolute ceiling is 129 600 000 ms (36 h), including for open or carried-over orders. At or after the deadline return `404 TRACKING_LINK_INVALID { reason: 'expired' }` after a valid MAC. ⚠️ Changed by run 3 (R3-M-7) **Builder.** `statusLink(order_id) → { path: '/t/<order_id>.<mac>', url: 'http://<advertised_host>:<public_port>/t/<order_id>.<mac>' } \| null`. It returns `null` unless the provisioned hub has `public_status.enabled === true`, a successfully bound, active public listener, an advertised host, a loaded key (M100), and a matching `ULID_RE` ID. Zero statements. The URL is ASCII, ≈ 70 characters (QR version 5 at level M, under 03c’s 120-character limit). **Accepted leaks** (owner decision OD-4): a ULID's first 10 characters encode its creation time, so whoever holds the link learns when the order was placed; and the link travels as plain HTTP on a shared guest Wi-Fi, so someone with the Wi-Fi passphrase who captures traffic can read another phone's link, token and items (no money, name or phone); and whoever holds the link (a slip photo, a forwarded screenshot) can keep that order's per-order bucket (M99) empty from any IP, so the real customer sees `429` on that one page (⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-7): no code change; rotating the key, §7.13 step 7, ends it). The runbook recommends a WPA3 / OWE guest SSID (§7.13). | A guessable link (`/t/<token>`) would show any customer's order; a stored random link id needs a column and a migration on 02b's `orders`; a MAC needs neither and is checked in memory. 80 bits against a rate-limited guesser (M99: ⚠️ Changed by run 3 (R3-M-5) about 1 guess every 75 s per IP after the burst (§7.12)) is out of reach. | — |
+| M99 | ⚠️ Changed by 00 v1.13 (row H-6; R5); ⚠️ Changed by 00 v1.13 hostile run 1 (M-5). **In-memory rate limiter on the public listener** (§7.12): after the link check (memory) a request is charged to **valid** buckets (its order, and the global valid bucket) or to **invalid** buckets (its IP, and the global invalid bucket); ⚠️ Changed by run 3 (R3-M-5) Both buckets are debited together only on admission. Invalid traffic and denied polls cannot drain the global valid budget. Transport limits are separate (M97). Over → `429 RATE_LIMITED { retry_after_ms, scope: 'ip' \| 'order' \| 'valid' \| 'invalid' }` with `Retry-After`; no statement runs. No table, no event, no new dependency; lost on restart (it guards load and guessing, not money). | The guest network is the restaurant's untrusted side: one phone or script could flood SQLite reads or walk links. `@fastify/rate-limit` would be a dependency for a small bucket. | — |
+| M100 | ⚠️ Changed by 00 v1.13 (row H-5); ⚠️ Changed by 00 v1.13 hostile run 1 (m-8). **Hub secret `status_link_key`** (32 random bytes from `secrets.bytes(32)`, base64 in `config.json`, §3.10): written by `/setup/provision` with the other provisioned fields, **keeping an existing key** (`existing ?? secrets.bytes(32)`, as `backup_encryption_key`), and **once at boot** (step 0's config load) on a hub provisioned before v1.13: field absent → generate, write the config atomically (§3.10 recipe), log `{ msg: 'status_link_key_created' }`. **A failed boot write** (read-only file, full disk) logs `error { msg: 'status_link_key_write_failed', err }` and the hub runs on without links: no key is loaded, `statusLink` returns `null`, the public listener does not start. Never in SQLite, a backup, sync or a log line (redacted path, §7.2); used for nothing else, and `backup_encryption_key` is never used for links. A replacement hub (§5.10, 06) makes its own key at provision, so links printed by the old hub stop answering. **Rotation:** the runbook step in §7.13 (delete the field, restart; every printed link of the day stops answering); no route in P1. | Reusing the backup key would tie a public-facing MAC to the key that decrypts every backup; a key in SQLite would travel in backups and the cloud copy. | — |
+
+> ⚠️ Changed by 01b (B2, B10): M10 returns the winning scope and reads approvers from a list. See 01b §4.3.
+> ⚠️ Changed by 01b (B17, D-12): M29's role list is overridden (Order taker kept, Waiter and Cook added, each with a `default_key`); M30 unchanged. See 01b §4.3.
+> ⚠️ Changed by 01b (B18): M52 also skips a lead or responsibility naming an absent person, drops an unknown approver id and skips a grant left with no approver. See 01b §4.3.
+> ⚠️ Changed by 01b (B5): M73's out-of-band notice is the `lockout_notice` on login or rotating refresh. See 01b §4.3.
+> ⚠️ Changed by 01b (B7, B11, B12, review 1 m6, D-14): M57's new-branch assignment takes only qualifying admins (`access-hub-admin` and `manage-devices`), refuses duplicate names, and runs under the tenant lock. See 01b §4.3 row 19.
+> ⚠️ Changed by 01d v1.0 (H-1, H-2): M12's `auth` frame takes `session_token` optionally; without it the socket is in **alert mode** (§6.21). See 01d §4.5.
+> ⚠️ Changed by 01d v1.0 (H-6, README R14 as narrowed by 01d R-7): M38 phones are browser-only for alerts in the pilot (alerts only while the page is open); no code change. See 01d §4.5.
+> ⚠️ Changed by 01d v1.0 (H-9): M47's `payload_hash` is taken over the payload **with the field named by the command's `pinCheck` removed** (§3.7). See 01d §4.5.
+> ⚠️ Changed by 01d v1.0 (H-8): M66's retention runs inside the sweeper's try/catch (§7.3). See 01d §4.5.
+> ⚠️ Changed by 02b v1.0 (H-1): M19's open item is closed by 02b §3.12 (an ended session's command is never accepted; queue log, "Send again"); M95 added (paused idle clock). See 02b §4.5.
+
+### 3.2 Provisioning state
+
+```
+  ┌──────────────┐ POST /setup/provision ┌───────────────────┐ restart ┌──────────────────────┐ POST /v1/hubs/confirm ┌───────────┐
+  │UNPROVISIONED │──────────────────────►│PROVISIONED_PENDING│────────►│PROVISIONED_UNCONFIRMED│─────────────────────►│ CONFIRMED │
+  │no branch/key │ directory+event+config│ process exiting   │ (M13)   │ /setup → 404          │  (M41, background)   │           │
+  └──────────────┘                       └───────────────────┘         └──────────────────────┘                      └───────────┘
+```
+
+- **Provisioned** means the config contains `provisioned.branch_id` and `provisioned.branch_api_key`. **Confirmed** adds `provisioned.confirmed_at`. The hub serves normally in both provisioned states.
+- While UNPROVISIONED, every route except `GET /health`, `GET /setup`, `POST /setup/provision` returns `409 HUB_NOT_PROVISIONED`.
+- One provisioning attempt at a time (in-process flag); a second gets `409 SETUP_IN_PROGRESS`.
+- Crash between the SQLite commit and the config write: still UNPROVISIONED; the retry reuses `setup_attempt_id` (from config, not from the event, M71); within 1 h the cloud rotates the key; later, the installer asks for a reissued code (M22, M41). The hub writes `HubProvisioned` once per `branch_id`.
+- Cloud side: the branch stays `pending_hub` until confirm; the code is consumed at exchange.
+
+### 3.3 Device lifecycle
+
+⚠️ Changed by 05a (rows H-1, H-4): every device pairs by request; the token path (top line of the v1.12.2 diagram, and the `/devices/pair` retry) is removed. The lifecycle is 05a §3.7:
+
+```
+ unpaired ─POST /pair/requests─► PENDING (code on screen, 10 min)
+                                     │ ApprovePairingRequest (manage-devices, unmasked: a listed device or the bootstrap admin session; code typed)
+                                     ▼
+                                  ACTIVE ──SetDeviceProfile (05a §6.4)──► ACTIVE (name, screens, access, point; live, no re-pair)
+                                     ├── RevokeDevice ─────────────────────────────────────► REVOKED
+                                     ├── phone, list emptied (directory) ─────────────────► REVOKED 'owner_removed'
+                                     └── other device, list emptied (directory) ─────────► ACTIVE, everyone, needs_review
+```
+
+The v1.12.2 diagram, kept as history (its first line is Removed by 05a (row H-1)):
+
+```
+ tablet, phone:      GenerateDevicePairingToken ──POST /devices/pair──  [REMOVED by 05a (row H-1)] ┐
+ cashier_kiosk, kds: POST /pair/requests ──ApprovePairingRequest──GET /pair/requests/:id┤──► ACTIVE ──RevokeDevice / owner removed──► REVOKED
+                                                                                        │      │
+                                                                                        │      └─ /devices/pair retry (M14) → DeviceTokenRotated   [REMOVED by 05a (row H-1)]
+```
+
+- A device row is created only by a successful ~~pair or~~ approval (⚠️ Changed by 05a (row H-1): `ApprovePairingRequest`, for every type). REVOKED is terminal (`403 DEVICE_REVOKED`); re-pairing creates a new row.
+- `device_type ∈ { tablet, cashier_kiosk, kds, phone }`. `kds` has a `station_id` and opens station sessions only; the others open staff sessions only (`403 DEVICE_TYPE_NOT_ALLOWED`). ~~`phone` has an `owner_staff_id`; only the owner logs in (M38).~~ ⚠️ Changed by 05a (rows H-1, H-4): `device_type` now means hardware only and never changes on a row. Every non-kds device is a **staff device** with a profile (05a §4.2 `DeviceProfileSet`: `device_name`, `access` (`everyone` or `listed`), `staff_ids`, `screens`, `point_id`); a kds device has none. New rows have no `owner_staff_id` (05a §5.1). Who may sign in: §3.5.
+- Revoking ends the device's active sessions (staff/station and admin) in the same transaction (`'device_revoked'`) and closes its sockets with `4403`.
+- ⚠️ Changed by 05a (row H-4): a directory removal that empties a device's `listed` list revokes a **phone** (`cause: 'owner_removed'`, whatever its list size was) and turns **any other** device `everyone` with `needs_review` (never revoked, so its drawer shift, printer routes, device targets and point keep running) (05a M-5, §6.9).
+
+### 3.4 Session lifecycle
+
+| Kind | Opened by | Device | Actor in events | Idle TTL | Allowed calls |
+|---|---|---|---|---|---|
+| `staff` | `POST /auth/pin` | tablet, cashier_kiosk, phone ~~(owner only)~~ (⚠️ Changed by 05a (row H-2): on a `listed` device its people only, §3.5); required | `staff_id` | `ttlFor(staff)` (M11) | commands, queries, WS |
+| `station` | `POST /auth/station` | kds; required | `null` | none | `stationScoped` commands, queries with `allowStation`, WS |
+| `display` (⚠️ Changed by 00 v1.13 (row H-1), M96) | `POST /auth/display` | `cashier_kiosk` with the 05a board profile (run 1: tablet deferred, OD-2); required | `null` | none | queries with `allowDisplay`, `/ws` display mode (§6.21), `POST /auth/logout` |
+| `admin` | `POST /admin/auth` | tablet, cashier_kiosk, phone ~~(owner)~~ (⚠️ Changed by 05a (row H-2): a `listed` device only, by its people, §3.5); required and bound | `staff_id` | `ttlFor(staff)` | `/admin/*` with the same device token |
+| `admin` (bootstrap) | `POST /admin/auth/bootstrap` with a token issued by setup or the hub CLI (M72) | none (`'hub-admin'` in events) | `staff_id` | `ttlFor(staff)` | `/admin/*` without a device token |
+
+```
+                     open
+  (none) ─────────────────────────► ACTIVE ──┬── logout (staff/admin/display) ─────► ENDED 'logout'
+                                             ├── same staff, or new station session ► ENDED 'replaced'           (M6, M53)
+                                             ├── other staff, takeover: true ──────► ENDED 'taken_over'         (M20)
+                                             ├── idle > ttl (guard, login, sweeper) ► ENDED 'idle_timeout'      (M46)
+                                             ├── ForceLogoutSession ───────────────► ENDED 'forced'
+                                             ├── device revoked ───────────────────► ENDED 'device_revoked'
+                                             ├── staff removed on directory apply ─► ENDED 'staff_removed'
+                                             ├── pin_hash changed on apply ────────► ENDED 'credentials_changed' (M50)
+                                             └── restore reconciliation ───────────► ENDED 'hub_restored'       (M40, M48)
+```
+
+- Every transition to ENDED writes exactly one `SessionEnded { session_id, kind, staff_id, station_id, reason, ended_by }` and bumps `authGeneration` after commit (M39). ENDED is terminal.
+- **Activity (M59):** commands, logins and opted-in queries refresh `last_activity_at` in memory; the sweeper persists it.
+- **Expiry (M46):** guard and login transaction end idle sessions on contact; the sweeper (every 15 s) ends the rest. Station sessions never idle out. ⚠️ Changed by 00 v1.13 (row H-1): display sessions never idle out either (`idle_ttl_ms` null, M96), and M95 never pauses or ends them.
+  ⚠️ Changed by 02b v1.0 (H-1): a staff session's idle clock is paused while its device has no open socket (M95); the guard and login apply M95's shift before M46's check; the sweeper skips paused devices and ends a session paused longer than `queue_auto_send_max_ms` (`now − paused_since`) with `idle_timeout`.
+- **Restore (M40, M48):** forward reconciliation from checkpoint; step 4b runs only when `staff_sessions` is empty while session events exist (cloud-only restore) and ends every session that has `SessionStarted` and no `SessionEnded` with `'hub_restored'`.
+- An ended session token gets `401 SESSION_EXPIRED`; an unknown one `401 SESSION_INVALID` (except the M19 replay path and the logout routes).
+
+### 3.4a Session-kind writers and readers (M96) — ⚠️ Changed by 00 v1.13 hostile run 1 (M-1)
+
+The hub's session code was written for two device kinds (`staff`, `station`) and in places branches as "`station` or else staff". Adding `display` therefore changes **every** site below, and each site that branches on the kind becomes an exhaustive `switch (kind)` over `'staff' | 'admin' | 'station' | 'display'` with a `never` default (a type error when a kind is missing); no `kind === 'station' ? … : …` ternary stays.
+
+**Two helpers in `apps/hub/src/auth/session-store.ts`**, used by every writer:
+- `sessionStream(kind, { staffId, stationId, deviceId })` → `staff` / staff_id for `staff` and `admin`; `station` / station_id for `station`; **`hub` / device_id for `display`**.
+- `sessionActor(kind, staffId)` → staff_id for `staff` and `admin`; `null` for `station` and `display`.
+
+| Site (today, `main`) | Role | Change |
+|---|---|---|
+| `session-store.ts` `createSession` / `sessionEvent` (:185, :310–311) | writes `SessionStarted` | stream and actor from the helpers |
+| `session-store.ts` `endSession` (:207–208) | writes `SessionEnded` for every reason (`replaced`, `forced`, `logout`, `device_revoked`, `hub_restored`) | stream and actor from the helpers |
+| `session-store.ts` `revokeDevice` (:242–243) | ends every session of the device through `endSession` | none beyond `endSession` |
+| `projections/access-reconcile.ts` (:60–70, :155 `isKind`, :162–169 `sessionEndedDraft`) | restore reconcile (M40, step 4b) | reads `stream_type IN ('staff','station','hub') AND event_type IN ('SessionStarted','SessionEnded')`; `isKind` takes `display`; `sessionEndedDraft` uses the helpers |
+| `auth/guards.ts` `requireSession` (:218–231) | device-session guard | `display` passes only with `allowDisplay` |
+| `queries/registry.ts` `requireDeviceSession` (:140–145) | query session check | same |
+| `commands/route.ts` (:111 actor, :281 session check) | command pipeline | `display` → `401 SESSION_INVALID`; actor from `sessionActor` |
+| `ws/server.ts` `authenticate` (:465–480) | socket auth | `display` → the display list (§6.21); the `replaced` reason as for `station` |
+| `auth/staff-session.ts` logout (:83, :90) | `POST /auth/logout` | `display` ends `'logout'` (no refusal) |
+| `auth/staff-session.ts` takeover holders (:119, :151) | `/auth/pin` | ~~`display` never reached (a board refuses PIN first, 05a §3.5); the switch asserts it~~ ⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-5): holders include `display`; a board refuses PIN first (05a §3.5), so an active `display` holder here is the **assertion path**: it is ended `'forced'` (`ended_by` null) and logged `warn { msg: 'display_session_on_staff_device', device_id, session_id }` before the INSERT (mirror of §6.39), so the active-device unique index never turns sign-in into `500` |
+| `auth/session-sweeper.ts` (:49) | idle sweep | unchanged (`idle_ttl_ms IS NOT NULL` excludes display) |
+| `alerts/bindings.ts` (:122–123, `kind !== 'staff'` → return) (⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-5)) | presence binding on `SessionStarted` | unchanged (display ignored) |
+| `projections/alerts.ts` (:357–360, `alert_flags` on `SessionStarted` / `SessionEnded`) (⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-5)) | no-approver dirty flag | unchanged (display ignored: it carries no staff) |
+| `alerts/targets.ts` (:134 `STALE_ON`) (⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-5)) | target cache drop | unchanged (display ignored; a drop is harmless) |
+| `tables/tick.ts` (:19 `LIVE_SESSION`) | lock holder check | unchanged (`staff`, `station`; a board never holds a lock) |
+| `admin/page.ts` (:829, :950, :978) | admin labels | "Pickup board" for `display` |
+| `ws/catch-up.ts` (:9), `ConnectedSession` | socket context type | unchanged: display sockets never reach audiences or catch-up parts |
+| `@pos/domain` `SessionKind` (`enums.ts:3`); `@pos/events` `SessionStarted` / `SessionEnded` `kind` | types | add `'display'` in **v2** schemas (`SessionStarted.v2.ts`, `SessionEnded.v2.ts`, identity upcaster, v2 fixtures; ⚠️ Changed by 00 v1.13 hostile run 2 (F R2-m-4)) |
+
+### 3.5 PIN verification and lockout
+
+Order of checks for `POST /auth/pin`, `POST /admin/auth`, `POST /admin/auth/bootstrap`:
+
+1. Guards (§3.9). ~~Phone owner check (M38) before anything else counts.~~ ⚠️ Changed by 05a (row H-2): the **device access checks** below, before anything else counts.
+2. Rate-subject lockout — device (`/auth/pin`, `/admin/auth`) or client IP (bootstrap): `locked_until > branchNow` → `429 DEVICE_LOCKED_OUT` / `429 IP_LOCKED_OUT`. A lock that has expired resets its counter to 0 (M62).
+3. Staff lockout: `locked_until > branchNow` → `429 PIN_LOCKED_OUT`; expired → counter reset (M62).
+4. Staff in the directory, else `404 STAFF_NOT_FOUND` (not counted).
+5. Acquire the route's argon2 semaphore (M23, M42): wait ≤ 2 s, else `503 SERVICE_UNAVAILABLE { retry_after_ms: 1000 }`.
+6. `argon2.verify(pin_hash, pin)` outside any transaction, with `pin` as the received string; release the semaphore.
+7. `writer.run`: re-read both lockout rows; locked now → `429`, even if the PIN was correct.
+8. Mismatch → increment counters; on a threshold set `locked_until` and append the lockout event; commit; `401 PIN_INVALID { attempts_remaining }`.
+9. Match → reset the staff counter (device/IP counter is not reset); continue with the endpoint's success steps in the same transaction.
+
+⚠️ Changed by 05a (row H-2): **Device access checks** (05a §3.5), for `POST /auth/pin` and `POST /admin/auth`, at step 1, before step 2. They are not counted, run no argon2 and read the in-memory `deviceProfile` map (05a §4.2) with no statement:
+- device `listed` and `staff_id` not on its list → **`403 DEVICE_ACCESS_DENIED { device_id }`**;
+- `/admin/auth` on an `everyone` device → `403 PERMISSION_DENIED { permission: 'access-hub-admin', reason: 'listed_device_only' }`.
+
+⚠️ Changed by 05a v1.0.1 (R-1), part of row H-2: **a staff device with no profile** keeps the v1.12.2 sign-in rule, not `everyone`'s. A `phone` accepts only its `owner_staff_id` (another person, or any PIN when the owner is null → `403 DEVICE_ACCESS_DENIED { device_id }`, before step 2, not counted, no argon2). A `tablet` or `cashier_kiosk` accepts any directory staff. `/admin/auth` on such a device is refused as on an `everyone` device (§3.6).
+
+- The hub returns `DEVICE_ACCESS_DENIED` only. `DEVICE_NOT_OWNED` stays in §9 and `errors.ts` (a code is never renamed or reused) but is no longer returned.
+- **Takeover (M20)** is allowed between two people on the same `listed` list and on `everyone` devices. An unlisted person never reaches it (the check above runs first). On a one-person device only that person signs in, so only replacement (M6) applies.
+- `POST /admin/auth/bootstrap` has no device: unchanged.
+
+| Subject | Threshold | Window | Lock | Event |
+|---|---|---|---|---|
+| `staff` | `auth.pin_max_failures` (5) consecutive | until a success, a clear, or lock expiry | `auth.pin_lockout_ms` (900 000) | `StaffPinLockedOut` |
+| `device` | `auth.device_max_failures` (10) | fixed window `auth.device_failure_window_ms` (300 000) from the first failure | `auth.pin_lockout_ms` | `DevicePinLockedOut { subject_type: 'device' }` |
+| `ip` (bootstrap only) | same as device | same | same | `DevicePinLockedOut { subject_type: 'ip' }` |
+
+**Commands with a PIN (v1.6, 01d H-3).** A command that declares `pinCheck` (§4.2) runs the same steps 2–9 through `checkPin`, with three additions: (a) its optional **`preRead(db, payload, ctx)`** runs read-only before step 2 and before argon2 — a `DomainError` from it is returned with no PIN verified and nothing counted; (b) inside the step-7 transaction, after the lock re-read and **before** the match / mismatch branch, **`prepare(tx)`** runs on a **read-only transaction view** (`append` / `onCommit` throw; a non-`readonly` statement throws) and returns the drafts; (c) the outcome is one transaction in every case: `prepare` ok + match → reset the staff counter, `onMatch(tx, P)` appends; `prepare` ok + mismatch → step 8 plus **`onMismatch(tx)`** drafts, `401`; **`prepare` throws** → for **both** PINs, one failure is counted on the staff and the subject counters exactly as step 8 (lockout events at the threshold) and **`onPrepareFailed(tx, error, matched)`** drafts are appended, then the `prepare` error is returned (`IdempotentReplay` is not a failure: the stored response, nothing counted). So no response, counter delta or transaction count depends on whether the PIN matched. Sign-in passes none of these and behaves as today.
+
+> ⚠️ Changed by 01d v1.0 (H-3): PIN-bearing commands (`pinCheck`, `preRead`, `prepare`, `onMatch`, `onMismatch`, `onPrepareFailed`). See 01d §4.5 H-3 and 01d §3.3 rule 4.
+> ⚠️ Changed by 01d v1.1 (AD-10, AD-24–AD-27, AD-94, AD-20): as built, `preRead(db, payload, ctx)`; a `pinCheck` command peeks for a replay early (a replay with no valid token gets `401`, not the stored `200`); `authGen` is captured before the session check (at most one extra M39 re-check); the hooks ctx is built on the writable transaction with `permission: null`; PIN commands share the `/auth/pin` argon2 semaphore; both `pinHooks` gain a trailing `cmd: PosCommand` argument (only `cmd.command_id` is read, for 01d's `pin_use_failed` dedupe key); `checkPin` is unchanged; BF-2's log line is `{ err, phase: 'onPrepareFailed' }`. See 01d v1.1 §4.5.
+
+### 3.6 Effective permission (M10)
+
+```
+resolve(staff_id, permission):
+  if (staff_id, permission) in staff_permission_denials → { grant: 'denied' }
+  grants = [ rp.grant_type for rp in role_permissions
+             where rp.role_id in staff_roles(staff_id) and rp.permission = permission ]
+  if 'allowed' in grants           → { grant: 'allowed' }
+  if 'requires_approval' in grants → { grant: 'requires_approval',
+                                       approver_role_ids: sorted union of approver_role_id }
+  → { grant: 'not_granted' }
+```
+
+**v1.5 (01b §3.3):** `approver_role_ids` is the sorted union of every approver in `role_permission_approvers` for the roles granting `requires_approval`; both `allowed` and `requires_approval` results add `scope`, the widest scope among the roles granting the winning type (`branch` > `my_floors` = `my_team` = `my_stations` > `own_tables`). The precedence above is unchanged.
+
+> ⚠️ Changed by 01b (B2, B10): `resolve` returns `scope`; approvers come from the approver list. See 01b §4.3.
+
+
+⚠️ Changed by 05a (row H-3): **the listed-only mask lives in a session view of `resolve()`** (05a §3.3, §3.3a). `resolve(staff_id, permission)` above is unchanged. Every place that resolves **for a session** gets the view `directory.forSession(session)`; its `resolve(staff_id, permission)` masks **only when `staff_id` is the session's own staff and the session's device has `access = 'everyone'`**:
+
+| Session's own grant | `access = 'everyone'` device | Listed device, or a session with no device (bootstrap admin) |
+|---|---|---|
+| permission in `LISTED_ONLY_PERMISSIONS` (`access-hub-admin`, `manage-devices`, `manage-staff`, `manage-roles`, `manage-fiscal-settings`, `approve-void`, `view-audit-log`), `allowed` | `{ grant: 'not_granted', masked: 'listed_only' }` | unchanged |
+| permission in `MONEY_PERMISSIONS` (`void-item`, `apply-discount`, `apply-comp`, `apply-refund`, `reopen-bill`), `allowed` | `{ grant: 'requires_approval', approver_role_ids: [], scope, masked: 'downgraded' }` | unchanged |
+| any permission, `requires_approval` | unchanged (raising a request is never masked) | unchanged |
+| `denied`, `not_granted`, any other permission | unchanged | unchanged |
+
+- Other staff ids resolve unmasked. The two lists live in `@pos/domain/src/permissions.ts`.
+- The view is what these get, so each inherits the rule from one point: `ctx.directory` of commands, queries and PIN hooks; the pipeline's `authorize` (§3.7); the admin guard (`requireAdmin` → `hasAdmin`), `adminPermissions` and `permissionsOf`; 01d `mayAnswer`; direct routes that resolve for their session. Raw-directory reads about sockets or other people (audiences, routing) stay unmasked. The pipeline gains no separate guard.
+- A `downgraded` resolution takes the command's existing request path (`approvable: true`, §3.7); handlers do not change (05a §3.9 stores the right).
+- Queued commands are resolved at execution time, so a command queued on a listed device and replayed after the device became `everyone` is masked (fail-closed).
+- ⚠️ Changed by 05a v1.0.1 (R-1), part of row H-3: **a staff device with no profile** counts as `access = 'everyone'` for the view, so its sessions are masked (fail-closed). Permissions only; sign-in is §3.5.
+- Cost: no statement (device profile and directory in memory).
+
+**Command rule** (resolved inside the transaction, M39): staff/admin session: `allowed` → continue; `requires_approval` with `approvable: true` → continue with `ctx.permission`; otherwise `403 PERMISSION_DENIED { permission, grant }` (⚠️ Changed by 05a (row H-3): resolved through the session view; a grant masked `listed_only` adds `reason: 'listed_device_only'`). Station session: command must be `stationScoped`, else `403 PERMISSION_DENIED { permission, session_kind: 'station' }`.
+
+**Permission catalogue** (`@pos/domain/src/permissions.ts`): E6 AC2 list + `manage-devices` (D38) + `access-hub-admin` (M7). Later modules append in their own spec; a unit test fails if a command declares a permission not in the catalogue.
+
+### 3.7 Command pipeline (implements §6.3 order)
+
+```
+POST /commands/:name   or   POST /admin/commands/:name
+ ── guards (§3.9): host, provisioned, guest net, client version, device token, [admin session]
+ ── registry lookup ─────────────────────────────────── 404 ROUTE_NOT_FOUND
+ ── Zod: PosCommandSchema; :name ↔ command_type ─────── 400 VALIDATION_FAILED
+ ── body device_id = token device ('hub-admin' only for the bootstrap admin session) ─ 400 (M47)
+ ── tenant_id, branch_id = config ───────────────────── 403 BRANCH_MISMATCH (M70)
+ ── idempotency fast path (M19, M34, M47):
+      row = processed_commands[command_id]
+      row matches (device | admin session_id) AND command_type AND payload_hash → replay, Idempotent-Replay: true
+      row exists otherwise → 400 VALIDATION_FAILED (issue: command_id already used)
+ ── device session for /commands (staff or station; idle check M46) ── 401 SESSION_INVALID / SESSION_EXPIRED
+      ⚠️ Changed by 02b v1.0 (H-1): M95's shift runs first; then X-Queued-At on a queueable
+      command → ctx.queuedAt = clamp(started_at − 120 000, now); ignored on other commands
+ ── body actor_id = session staff_id (null for station) ─ 400
+ ── payload Zod ──────────────────────────────────────── 400
+ ── record g0 = authGeneration
+ ── writer.run(tx ⇒ {
+        idempotency re-check (same rules) ─────────────── hit → ROLLBACK, replay
+        if authGeneration ≠ g0: re-read device + session ─ DEVICE_REVOKED / SESSION_EXPIRED (M39)
+        kind ↔ command, permission (§3.6, current directory) ─ 403 PERMISSION_DENIED
+        { events, result } = command.handle(ctx)          synchronous; may throw DomainError
+        appended = tx.append(events)                     seq = MAX(seq)+1…, recorded_at = branchNow; projections + existing checkpoints (UPDATE only, M48; ⚠️ Changed by 04 (row H-2), was "all checkpoints")
+        INSERT processed_commands { command_id, branch_id, device_id, session_id, command_type, payload_hash,
+                                    response_json: { status: 200, body }, recorded_at }
+        nextState = appended.reduce(reducer, state)
+      })
+ ── COMMIT → swap state → after-commit hooks (authGeneration, directory) → respond 200 → ws.publish(appended)
+ ── touch session activity (M59)
+```
+
+- `handle` is synchronous. Async work (argon2) happens before the writer.
+- A `DomainError` from any step inside the transaction rolls back; nothing is stored (§6.1); a retransmit is evaluated again.
+- `payload_hash` = SHA-256 hex of the canonical JSON (keys sorted recursively, no whitespace) of `payload` **with the field named by the command's `pinCheck` removed** (`AnswerRequest`: `pin`; commands without `pinCheck`: the whole payload, unchanged). A PIN never enters `processed_commands`. M19 / M47 replay still matches on `command_id`, device (or admin `session_id`), command type and this hash; a replay that differs only in the PIN replays the stored response (no new effect). The SQL comment on `payload_hash` in `0001` is unchanged in the merged migration; the rule lives in `apps/hub/src/lib/hash.ts` and the pipeline.
+- **PIN step (v1.6, H-3):** for a command with `pinCheck`, after "payload Zod": `preRead` (read-only), then `checkPin(…)` (§3.5) whose `prepare` = idempotency re-check, M39 re-check, permission, `handle` (drafts only) and whose `onMatch` = append and `processed_commands`. **Test hook** `testHooks.betweenVerifyAndWriter` between argon2 `verify` and `writer.run` (`pin.ts:70–75`), like `betweenGuardAndWriter` (`route.ts:92`).
+- **`permission: 'checked-in-handler'` (v1.6, H-3):** a staff command whose right depends on the payload declares it; the registry accepts it **only** for `HANDLER_CHECKED_COMMANDS = ['AnswerRequest', 'WithdrawRequest', 'MarkAlertsSeen']` (any other → startup error); such a command needs a staff session (station → `403 PERMISSION_DENIED { session_kind: 'station' }`); `ctx.permission = null`; the handler runs its own right check before writing.
+
+> ⚠️ Changed by 01d v1.0 (H-3, H-9): `payload_hash` without the PIN field; the PIN step; the handler-checked marker. See 01d §4.5.
+
+> ⚠️ Changed by 05 (row H-1): a command with `sessionKind: 'both'` is registered on **both** `POST /commands/:name` and `POST /admin/commands/:name`. It is one command: one `command_id` space, the same `handle`, and the permission is resolved (§3.6) from the staff of the session the request carries (the device session on `/commands`, the admin session on `/admin/commands`). (R-25) A retransmit of the same `command_id` on the other route follows the per-route M47 replay rule as written: sent first on `/admin/commands` then on `/commands` from the same device → replay of the stored response; sent first on `/commands` then on `/admin/commands` → `400 VALIDATION_FAILED` (issue: `command_id already used`), because an admin replay matches the admin `session_id`. Nothing runs twice.
+
+> ⚠️ Changed by 05a (row H-3): the permission step (`kind ↔ command, permission`) is the pipeline's `authorize`, and it resolves through the session view `directory.forSession(session)` (§3.6). So the listed-only mask applies here with no separate guard: a grant masked `listed_only` → `403 PERMISSION_DENIED { permission, grant, reason: 'listed_device_only' }`; a grant masked `downgraded` continues as `requires_approval` on an `approvable` command, with `ctx.permission.masked = 'downgraded'` (05a §3.3a, §3.9).
+
+> ⚠️ Changed by 05a (row H-6): a **query** may also declare `sessionKind: 'both'`: it is registered on `GET /queries/<resource>` (device session) **and** `GET /admin/queries/<resource>` (admin session), one handler, permission resolved from the session's staff (through the view), as 05 row H-1 does for commands. Used by the `devices` query (§6.17).
+
+> ⚠️ Changed by 05 (row H-4): `defineCommand({ hashOmit?: string[] })` lists dotted payload paths that are removed before `payload_hash` is computed, in addition to the field named by `pinCheck` (01d H-9). A retransmit that changes only an omitted field is the same command. **A payload field that is a secret, a government ID, a payment reference or free text is never hashed, stored or echoed**: not in `processed_commands`, not in a log line, and not in `VALIDATION_FAILED.issues` (the error mapper drops `input` and received values). The rule lives in `apps/hub/src/lib/hash.ts` and `commands/{registry,route}.ts`.
+
+### 3.8 Boot sequence ownership (§5.8)
+
+| Step | What | Owner |
+|---|---|---|
+| 0 | Load and Zod-validate hub config; unprovisioned → setup mode (steps 1, 1a, then 7 with only `/health` and `/setup`) | 00 |
+| 1 | Open SQLite: WAL, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout=5000`; delete leftover `pre-migrate-*.sqlite` plaintext copies in `data_dir` (M67) | 00 |
+| 1a | Migrations: encrypted pre-migration backup when `user_version > 0` and provisioned; per-file transaction; checksum check | 00 |
+| 2–3 | Snapshot load and replay into engine state | 03a |
+| 3a | Clock guard: `last = recorded_at of the max-seq row` (M48); `Date.now() ≤ last` → `ClockAlarm { source: 'boot' }`, `branchNow` starts at `last + 1` | 00 |
+| 4 | Projection catch-up (M48): each projection with checkpoint < `MAX(seq)` replays from its checkpoint (`reset` + full replay only without a checkpoint row); includes `access_reconcile` (M40) and its `hub_restored` endings. **`catchUp` writes the first checkpoint row** of every registered projection; a live append before step 4 (setup `provision.ts`, the step 3a `ClockAlarm`) only updates rows that exist, so a new or deleted row still replays from seq 0 here ⚠️ Changed by 04 (row H-2) | 00 |
+| 4a | Load `StaffDirectory` (M18) | 00 |
+| 4b | Only if `staff_sessions` is empty and session events exist: end every open session `'hub_restored'` (M48) | 00 |
+| 5 | Print queue resume | 03b |
+| 6 | Missed fires | 03a |
+| 7 | Open HTTP + WS; start sweeper (15 s), heartbeat (60 s); if provisioned and not confirmed, start the confirm task (M41) | 00 |
+| 8 | `HubStarted { hub_down_at, hub_up_at, events_replayed, missed_fires, boot_ms }` | 00 |
+
+A failing step stops boot; the process exits non-zero; systemd restarts it. `GET /health` reports `boot_step`.
+
+> ⚠️ Changed by 04 (row H-2; G-3, G-6): **Invariant.** A projection without `reset` must be idempotent, or must not fold events written before boot step 4 (setup `provision.ts`, step 3a), because on a new install the first boot replays them from seq 0. The admin-bootstrap CLI (`apps/hub/src/setup/issue-admin-bootstrap.ts`, §6.34) registers only `access_reconcile`: under update-only checkpoints it no longer writes that row, so the next boot replays `access_reconcile` from 0, which is idempotent (M40). **No code change** in the CLI.
+>
+> **Projection registration.** `apps/hub/src/lib/boot.ts` (or a sibling `lib/projections.ts`) exports one `registerHubProjections(registry)` — today's six `register*` calls of `createDeps`, later 04's `audit` — used by `createDeps`, `createTestHub` and the big fixture, so a new projection is added in one place. `access_reconcile` stays registered outside it (after step 3a, M40).
+>
+> **Test helpers.** `apps/hub/test/helpers/test-hub.ts` registers through `registerHubProjections` and runs `projections.catchUp(fx.db, config.provisioned?.branch_id ?? 'branch-unset')` (the writer's branch id) once after migrations, so every projection has a row as on a booted hub and the statement-count tests (`set-station-capacity`, `receipts`, `fires-tick`) keep "one statement per projection". `apps/hub/test/helpers/big-fixture.ts` derives `PROJECTIONS` by passing a **recording stub registry** to `registerHubProjections` (no names API on the registry, G-3), **plus `access_reconcile`** (without its row step 4 replays it and throws `unknown event type TestNooped`); the cache key follows. 03b's forward-only projections keep their rows; 02b's B3-5 backfill is unchanged. Real hubs: no behaviour change.
+
+### 3.9 Route guards
+
+Applied by a root `onRoute` hook from each route's `config.group`. A hub route-inventory test fails if any route lacks the guard set for its group.
+
+| Guard | Applies to | Failure |
+|---|---|---|
+| host (M45) | **all routes** | `403 HOST_NOT_ALLOWED` (WS: close `4403`) |
+| provisioned | all except `/health`, `/setup*`, `/ui/*` (M81) | `409 HUB_NOT_PROVISIONED` |
+| guest network (`guest_network_cidrs`) | all except `/health` (reduced body, M63) (⚠️ Changed by 00 v1.13 (row H-4); ⚠️ Changed by 00 v1.13 hostile run 1 (M-4): **no** other exemption: the `public` routes are on their own listener, M97) | `403 GUEST_NETWORK_FORBIDDEN` (WS: close `4403`) |
+| client version (`X-Client-Version` < `min_client_version`; absent passes) | `/commands/*`, `/queries/*`, `/auth/*`, ~~`/devices/pair`~~ (Removed by 05a (row H-1)), `/pair/*`, `/ws` | `426 CLIENT_UPGRADE_REQUIRED` (WS: `4426`) |
+| device token (`Authorization: Bearer`) | `/commands/*`, `/queries/*`, `/auth/*`, `/admin/*` except `/admin/auth/bootstrap`, the static pages (M79) and requests carrying a bootstrap admin session | `401 DEVICE_TOKEN_INVALID`; revoked → `403 DEVICE_REVOKED` |
+| device session (`X-Session-Token`, staff/station, same device, idle check M46; ⚠️ Changed by 00 v1.13 (row H-1): a `display` session only on a route with `allowDisplay`, else `401 SESSION_INVALID`, M96) | `/commands/*` after the M19 fast path; `/queries/*` with `session: 'required'`; `POST /auth/logout` (accepts ended) | `401 SESSION_INVALID` / `401 SESSION_EXPIRED` |
+| admin session (`X-Admin-Session`, kind admin, same device unless bootstrap, idle check M46, `access-hub-admin` re-resolved M61) | `/admin/*` except `/admin/auth`, `/admin/auth/bootstrap`, `/admin/login-roster` (⚠️ Changed by 05a (row H-7): and 05a's `POST /admin/recovery-link`, route group `admin-device-public`, 05a §6.11) and the static pages (M79) | `401 ADMIN_SESSION_REQUIRED`; permission lost → `403 PERMISSION_DENIED` |
+| roster access | `/admin/login-roster`: device token (tablet/cashier_kiosk/phone) **or** `X-Admin-Bootstrap` header with a live bootstrap token | `401 DEVICE_TOKEN_INVALID` / `401 PAIRING_TOKEN_INVALID` |
+| static admin pages (M79, M86) | `GET /admin/bootstrap`, `GET /admin/approve`, `GET /admin`: host, provisioned, guest network only; no device token, no session; the page script sends credentials on its own requests | as the guards above |
+| UI kit (M81) | `GET /ui/*` (group `static`): host and guest network only; works before provisioning | as the guards above |
+| public listener (M97; ⚠️ Changed by 00 v1.13 (row H-4); ⚠️ Changed by 00 v1.13 hostile run 1 (M-4)) | the separate listener on `public_status.port`: exactly `GET /t/:link`, `GET /t/:link/status`; ⚠️ Changed by run 3 (R3-M-1) transport admission first, then Host (public port only), provisioned, link check and M99 in the handler; **no** guest-network, version, device or session guard; ⚠️ Changed by run 3 (R3-M-7) boot requires a provisioned hub, `public_status.enabled` and a loaded key | `403 HOST_NOT_ALLOWED`, `409 HUB_NOT_PROVISIONED`, `429 RATE_LIMITED` |
+| status link (M98) | the two public-listener routes (in handler, memory) | `404 TRACKING_LINK_INVALID` |
+| pairing token / poll secret | ~~`POST /devices/pair`,~~ (Removed by 05a (row H-1)) `GET /pair/requests/:id` (in handler) | `401 PAIRING_TOKEN_INVALID` / `404 PAIRING_REQUEST_NOT_FOUND` |
+| WS auth message | `/ws` (§6.21) | close `4401` / `4403` |
+
+Every accepted guard records `authGeneration` for the M39 re-check.
+
+> ⚠️ Changed by 01d v1.1 (AD-34, AD-T41-1): `/app/*` (§6.36, §6.37) uses route group `admin-device-public` (host, provisioned, guest network, device token: exactly the guard set above), not `device`, whose client-version guard would give an outdated tablet `426` on the endpoint it needs to update. The hub serves 01d's `staff` entry at `/staff/` on route group `admin-page`, like `/admin/stock/`; `registerClientDist({ indexMeta })` adds `<meta>` `pos-tenant-id`, `pos-branch-id`, `pos-branch-name`, `pos-hub-now-ms`, `pos-hub-utc-offset-ms` to its `index.html` on each request: ids and the clock only, no secret, as `/admin/approve` already embeds tenant and branch ids (M79). See 01d v1.1 §4.5.
+
+### 3.10 Hub config file
+
+`/etc/pos-hub/config.json`, mode `0600`, owned by the hub service user, written atomically (temp file, fsync, rename, fsync dir).
+
+```json
+{
+  "cloud_base_url": "https://api.example-pos.app/v1",
+  "http_port": 3000,
+  "data_dir": "/var/lib/pos-hub",
+  "backup_dir": "/media/POSBACKUP",
+  "cors_origins": ["http://localhost"],
+  "min_client_version": "1.0.0",
+  "maintenance_hour": 4,
+  "auth": { "pin_max_failures": 5, "device_max_failures": 10, "device_failure_window_ms": 300000,
+            "pin_lockout_ms": 900000, "argon2_concurrency": 2, "admin_argon2_concurrency": 1 },
+  "advertised_host": "192.168.10.2",
+  "guest_network_cidrs": ["192.168.20.0/24"],
+  "setup_attempt_id": "01JBF3Q8ZK4M2N6P7R9S0T1V2W",
+  "provisioned": { "tenant_id": "01JB…", "branch_id": "01JB…", "branch_name": "Gulberg", "branch_api_key": "…", "confirmed_at": 1761000000000 },
+  "backup_encryption_key": "<base64, 32 bytes>",
+  "status_link_key": "<base64, 32 bytes>",
+  "public_status": { "enabled": false, "port": 3001,
+                     "rate": { "invalid_cost": 5, "ip_burst": 20, "ip_per_min": 4, "order_burst": 10, "order_per_min": 30,
+                               "valid_burst": 500, "valid_per_s": 50, "invalid_burst": 20, "invalid_per_s": 5 } }
+}
+```
+
+| Fields | Written by |
+|---|---|
+| `cloud_base_url`, `http_port`, `data_dir`, `backup_dir`, `cors_origins`, `min_client_version`, `maintenance_hour`, `auth.*`; ⚠️ Changed by 00 v1.13 (row H-6); ⚠️ Changed by 00 v1.13 hostile run 1 (M-3, M-4, M-5): `public_status.*` (optional; `enabled` defaults to **false**; `port` to `http_port + 1`; `rate.*` to the values above, §7.12). ⚠️ Changed by run 3 (R3-M-2) `nat_router_ipv4` is an optional single fixed IPv4 address visible to the hub after verified NAT. Omit it for routed guests. ⚠️ Changed by run 3 (R3-M-7) Enable for the pre-service smoke check only after verifying router isolation. Roll back if commissioning fails (§7.13). | installer |
+| `advertised_host`, `guest_network_cidrs` (M58), `setup_attempt_id`, `provisioned.{tenant_id, branch_id, branch_name, branch_api_key}` (M78), `backup_encryption_key` | `/setup/provision` only |
+| `provisioned.confirmed_at` | the confirm task (M41) only |
+| `status_link_key` (⚠️ Changed by 00 v1.13 (row H-5), M100) | `/setup/provision`; on a hub provisioned before v1.13, boot step 0 once when absent |
+
+The branch API key and backup key never reach SQLite or a backup (D53, M21). ⚠️ Changed by 00 v1.13 (row H-5): nor does `status_link_key` (M100).
+
+---
+
+## §4. Contracts
+
+### 4.1 Consumes
+
+| From | What |
+|---|---|
+| Foundation | Envelopes and schemas (§4.1), Shared Standards (§6), `EngineState` type only |
+| 01 | Writes cloud staff/role tables (§5.2), bumps `tenants.directory_version` on every change; registers `registerStationValidator` |
+| 03a | Registers the reducer and boot steps 2, 3, 6 |
+| 06 | Calls `applyStaffDirectory`; uses `encryptFile` / `decryptFile`, `backup_encryption_key`; calls `setMaintenanceHour` |
+
+### 4.2 Exposes (later modules may rely only on these)
+
+**Hub (`apps/hub/src`):**
+
+| Export | Shape | Used by |
+|---|---|---|
+| `defineCommand` | `{ commandType, payloadSchema, queueable?: boolean (⚠️ Changed by 02b v1.0 (H-1), default false; only a queueable command reads `X-Queued-At` as `ctx.queuedAt`, §3.7), sessionKind: 'device' \| 'admin' \| 'both' (⚠️ Changed by 05 (row H-1), `'both'` is registered on `/commands/<name>` and `/admin/commands/<name>`, §3.7), hashOmit?: string[] (⚠️ Changed by 05 (row H-4), dotted payload paths removed before `payload_hash`, §3.7), permission, approvable?, stationScoped?, pinCheck?, preRead?, handle(ctx): { events: EventDraft[], result } }`. `permission` may be `null` only when `stationScoped` and the command is never allowed to staff; `'checked-in-handler'` only for `HANDLER_CHECKED_COMMANDS` (§3.7, v1.6). **`pinCheck(payload, ctx) → { staff_id, pin, field } \| null`** and **`preRead(db, payload, ctx)`** (v1.6, 01d H-3): §3.5 "Commands with a PIN". Every command counts as session activity (M59) | every module with commands |
+| `defineQuery` | `{ resource, sessionKind: 'device' \| 'admin' \| 'both' (⚠️ Changed by 05a (row H-6): `'both'` is registered on `GET /queries/<resource>` and `GET /admin/queries/<resource>`, §3.7), session: 'required' \| 'none', allowStation?, deviceTypes?, countsAsActivity?: boolean (default false, M59), querySchema, handle(ctx) }`; `ctx.db` is a read-only connection; ctx = `{ db, page, directory, device, session }` | every module with queries |
+| `CommandCtx` | `{ tx, state (read-only), clock, ids, secrets, actor: { kind, staffId \| null, stationId \| null, sessionId, deviceId }, permission, branch: { tenantId, branchId }, directory, config }` | handlers |
+
+**Socket context** passed to audiences and catch-up: `{ deviceId, deviceType, sessionId, kind, staffId, stationId, asOfSeq }`.
+
+| `EventDraft` | `PosEvent` without `event_id`, `seq`, `recorded_at`, `tenant_id`, `branch_id` | handlers |
+| `writer.run(fn)` | the only path that writes events (§3.7 inner part); `afterCommit` hooks; `lastSeq()` | registry, 03a tick, sweeper, auth routes |
+| `authGeneration` | `{ current(): number; bump(): void }` — bumped after commit by `DeviceRevoked`, `DeviceTokenRotated`, `SessionEnded`, `StaffDirectoryApplied` | guards, writer |
+| `registerProjection` | `{ name, eventTypes, apply(tx, event), reset?(tx) }` — without `reset` the projection is forward-only (M40) | modules with projection tables |
+| `state.setReducer(reducer)` | reducer `(state, event) => state`; one reducer, a later call replaces it; folded by the writer inside the transaction, and by replay (03a) | 01a, 03a |
+| `registerBootStep` | `{ step: '2' \| '3' \| '5' \| '6', run(bootCtx) }`. ⚠️ Changed by 03a v1.0 (H-1): `BootContext` gains `clock?: Clock` (set by 00 right after step 3a creates the clock; steps after 3a read `ctx.clock.branchNow()`, never the wall clock or `app` internals) and `missedFires?: number` (set by 03a's step 6; step 8 writes it as `HubStarted.missed_fires`, was always `0`). Step 6 reads the replayed state from `ctx.initialState`. `events_replayed` keeps its meaning (step-4 projection catch-up) | 03a, 03b |
+| `registerCatchUp` | `{ part, appliesTo(socketCtx), build(db, state, socketCtx) }` (v1.6, H-7: the third argument is the socket context given to `appliesTo`; additive, existing parts ignore it; `apps/hub/src/ws/catch-up.ts` passes `socket`); parts merged into `catch_up.state` | 01d, 02, 03b, 04, 05 |
+| `registerEventAudience` | `(eventType, (event, socketCtx) => boolean)`; events with no audience are not pushed | every module with pushed events |
+| `registerDisplayCatchUp` (⚠️ Changed by 00 v1.13 (row H-2)) | `{ part, build(db, state, socketCtx) }`; parts merged into a **display** socket's `catch_up.state` after 00's `hub` part (M37). Never applied to staff or station sockets; `registerCatchUp` parts are never applied to display sockets (§6.21) | 05a (`pickup_board`) |
+| `registerDisplayHint` (⚠️ Changed by 00 v1.13 (row H-2)) | `(eventType, (event) => string[])`: the order ids an event touches (`[]` = "refetch everything"); startup only. After each commit the hub sends each display socket one `display_hint` with the union of the batch's ids (§6.21); an event type with no hint sends nothing | 05a |
+| `statusLink(order_id)` (⚠️ Changed by 00 v1.13 (row H-5); ⚠️ Changed by 00 v1.13 hostile run 1 (M-3)) | `{ path, url } \| null` (M98: `null` while `public_status.enabled` is not true, without `advertised_host`, for an `order_id` that fails `ULID_RE`, with no key loaded, or ⚠️ Changed by run 3 (R3-M-7) without a successful active public bind on a provisioned hub); 0 statements; `apps/hub/src/lib/status-link.ts` (with the check `checkStatusLink(link) → { ok: true, order_id } \| { ok: false }`, used by §6.40, §6.41) | 03c v1.0.16 token slip QR (reads `?.url`) |
+| `registerStationValidator` | `(tx, stationId) => boolean`; until registered, every `station_id` is rejected | 01 |
+| `StaffDirectory` | `resolve`, `get`, `ttlFor`, `version`, `permissionsOf`; v1.5 (01b): `floorsOf`, `leadOf`, `teamOf`, `stationsOf`, `responsibilityHolders`; ⚠️ Changed by 05a (row H-3): `forSession(session)`, the masked session view (§3.6) | registry, 04 |
+| `applyStaffDirectory(tx, directory)` | v1.5: directory shape v2 (01b §4.3.1). M51 version rule, M52 skip rule; upserts `staff_names` from the **input** staff then `no_pin_staff` lists before any skip (first id wins, never deletes; ⚠️ Changed by 04 (row H-1; G-2)); replaces the cache; ends sessions of removed staff and of staff whose `pin_hash` changed (M50); ~~revokes phones of removed owners (M38)~~ (⚠️ Changed by 05a (row H-4): drops removed staff from every device list in one read, 05a §6.9: a phone left empty is revoked `owner_removed`, any other device left empty becomes `everyone` with `needs_review`); appends `StaffDirectoryApplied`; swaps after commit | 06 |
+| `setMaintenanceHour(h)` | 0–23, local hub time (M66) | 06 |
+| `issueAdminBootstrap(tx, issuedBy: 'setup' \| 'cli' \| 'restore' \| 'recovery', deps, deviceId: string = 'hub')` (⚠️ Changed by 05a (row H-7): `'recovery'` and the trailing `deviceId` added) | expires live bootstrap tokens, creates one (30 min), appends `AdminBootstrapTokenIssued` with `device_id` = `deviceId` (was hard-coded `'hub'`; setup, the CLI and restore keep the default, 05a §6.11 passes the caller's device); returns `{ token, expires_at }` (M72) | 06 (replace-hub restore), 05a (recovery link) |
+| `encryptFile(src, dst, key, iv)` / `decryptFile(src, dst, key)` | AES-256-GCM file format (§7.9) | 06 |
+| `clock.branchNow()`, `ids.next()`, `secrets` | §6.7 determinism | everyone |
+| `ws.sendToDevices(device_ids, frame)`, `ws.sendToStaff(staff_ids, frame)` | v1.6 (H-4): after commit only; `sendToDevices` reaches every socket of the device — staff, station and alert mode (⚠️ Changed by 00 v1.13 (row H-2): never a display socket; nor do `sendToStaff`, `sendToSessions`, `sendToAlertMode`, `connectedSessions()`) | 01d |
+| `ws.connectedSessions()` | v1.6 (H-4): `Array<{ staffId, deviceId, sessionId, kind }>` of the open session sockets, from the in-memory list (`apps/hub/src/ws/server.ts`), no statement | 01d ⚠️ Changed by 03b v1.0.1 (H-9): each entry also carries `stationId: string \| null`, copied from the socket context (`SocketCtx.stationId`; null on a staff socket) — additive. |
+
+> ⚠️ Changed by 01b (B1, B2, B4, B10): `StaffDirectory` gains floor, lead, team and responsibility lookups; `applyStaffDirectory` takes directory v2. See 01b §4.3.
+> ⚠️ Changed by 01d v1.0 (H-3, H-4, H-7): `defineCommand` gains `pinCheck` / `preRead` and the handler-checked marker; `registerCatchUp.build` gets the socket context; new `ws` exports. See 01d §4.5.
+> ⚠️ Changed by 01d v1.1 (AD-21, AD-67, AD-74): the read-only transaction view blocks `exec`, `pragma` and `transaction` and requires `readonly && reader`; `engine-host/read-only-tx.ts` exports `rawDbOf(view)`, used only as a map key by 01d's `bindAlertEnv`, never handed to kind code; new export `WsHub.sendToSessions(sessionIds, frame)` (after commit; alert frames are per recipient and hiding is per session). See 01d v1.1 §4.5.
+
+**Events introduced (all `schema_version: 1`; v1.5: `StaffDirectoryApplied` is `schema_version: 2`; ⚠️ Changed by 05a (row H-7): `AdminBootstrapTokenIssued` is `schema_version: 2`):**
+
+| Event | `stream_type` / `stream_id` | Payload | Pushed to |
+|---|---|---|---|
+| `HubProvisioned` | `hub` / branch_id | `{ tenant_id, branch_id, hub_version }` (M71) | — |
+| `HubStarted` | `hub` / branch_id | `{ hub_down_at \| null, hub_up_at, events_replayed, missed_fires, boot_ms }` | — |
+| `ClockAlarm` | `hub` / branch_id | `{ wall_ms, last_recorded_at, delta_ms, source: 'boot' \| 'cloud_offset' }` | all sockets |
+| `StaffDirectoryApplied` | `hub` / branch_id | `{ directory_version, staff_count, role_count, removed_staff_ids, credentials_changed_staff_ids, skipped: Array<{ kind: 'staff' \| 'role_assignment' \| 'permission' \| 'approver' \| 'lead' \| 'responsibility', id, reason }> }` (v2, 01b B18: `lead`, `responsibility` added; v1 → v2 upcaster is the identity) | — |
+| `AdminBootstrapTokenIssued` | `hub` / branch_id | `{ bootstrap_token_id, expires_at, issued_by: 'setup' \| 'cli' \| 'restore' \| 'recovery' }` (M72). ⚠️ Changed by 05a (row H-7): **v2** adds `issued_by: 'recovery'` (05a §6.11); upcaster v1 → v2 = identity | — |
+| `DevicePairingTokenGenerated` | `hub` / pairing_token_id | `{ pairing_token_id, device_type: 'tablet' \| 'phone', owner_staff_id \| null, expires_at }`. ⚠️ Changed by 05a (row H-1): no path writes it (§6.7 removed); kept for history and its audit mapper | — |
+| `DevicePaired` | `hub` / device_id | `{ device_id, device_name, device_type, station_id \| null, owner_staff_id \| null, pairing_token_id \| null, pairing_request_id \| null }` (exactly one source id). ⚠️ Changed by 05a (row H-1): v1 unchanged; new events always carry `pairing_request_id`, with `owner_staff_id` and `pairing_token_id` null; a staff device's profile follows in 05a's `DeviceProfileSet` | — |
+| `DeviceTokenRotated` | `hub` / device_id | `{ device_id, pair_request_id }` (M60). ⚠️ Changed by 05a (row H-1): retired for devices, no path writes it (M14) | the device's sockets (close `4401`) |
+| `DeviceRevoked` | `hub` / device_id | `{ device_id, reason \| null, cause: 'manual' \| 'owner_removed' }` | the device's sockets (close `4403`) |
+| `SessionStarted` | `staff` / staff_id, or `station` / station_id (⚠️ Changed by 00 v1.13 (row H-1): or `hub` / device_id for `kind: 'display'`, M96; `kind` gains `'display'`, ~~an added enum value at v1 with no upcaster~~ **v2** with an identity upcaster v1 → v2 (Foundation v1.18 D46, ⚠️ Changed by 00 v1.13 hostile run 2 (F R2-m-4)), `SessionEnded` likewise; ⚠️ Changed by 00 v1.13 hostile run 1 (M-1): the mapping is `sessionStream()`, §3.4a, for `SessionStarted` and every `SessionEnded`) | `{ session_id, kind, staff_id \| null, station_id \| null, device_id \| null, idle_ttl_ms \| null }` | — |
+| `SessionEnded` | as `SessionStarted` (⚠️ Changed by 00 v1.13 hostile run 2 (F R2-m-4): **v2**, `kind` gains `'display'`, identity upcaster v1 → v2) | `{ session_id, kind, staff_id \| null, station_id \| null, reason, ended_by \| null }`; reason ∈ `logout, replaced, taken_over, idle_timeout, forced, device_revoked, staff_removed, credentials_changed, hub_restored` | that session's sockets (close `4401`, close reason = `reason`) |
+| `StaffPinLockedOut` | `staff` / staff_id | `{ staff_id, locked_until, failed_count }` | — |
+| `DevicePinLockedOut` | `hub` / device_id or `ip:<addr>` | `{ subject_type: 'device' \| 'ip', subject_id, locked_until, failed_count }` | — |
+| `PinLockoutCleared` | `staff` / staff_id, or `hub` / subject | `{ subject_type, subject_id }` | — |
+
+`SessionEnded` is the only signal that a session ended (D51, for kinds `staff` and `admin`).
+
+> ⚠️ Changed by 01b (B18): `StaffDirectoryApplied` moves to schema version 2 with two new skip kinds. See 01b §4.3.
+
+
+**Cloud (`apps/cloud/src`):** `TenantScopedRepository`, `TenantLevelRepository` (M16), `tenant-scope` plugin (JWT, branch API key, registration code), `owner-credentials` plugin (M55), `jwt` plugin, error handler, migrations runner, `SystemContext` (CLI only, M56), tables in §5.2, `default-roles.ts`.
+
+---
+
+## §5. Data model and migrations
+
+### 5.1 Hub (SQLite)
+
+**`0001_event_store.sql`** — foundation `events` (+ `events_branch_seq`, `events_stream`, immutability triggers) and `sync_cursor` verbatim; `hub_heartbeat` verbatim; plus:
+
+```sql
+CREATE TABLE processed_commands (           -- §4.1 + M19, M47
+  command_id    TEXT    PRIMARY KEY,
+  branch_id     TEXT    NOT NULL,
+  device_id     TEXT    NOT NULL,           -- from the token; 'hub-admin' for the bootstrap admin session
+  session_id    TEXT,                       -- admin replays match on it (M47)
+  command_type  TEXT    NOT NULL,
+  payload_hash  TEXT    NOT NULL,           -- SHA-256 hex of canonical payload JSON
+  response_json TEXT    NOT NULL,           -- { status, body }
+  recorded_at   INTEGER NOT NULL
+);
+CREATE INDEX processed_commands_branch ON processed_commands (branch_id, recorded_at);  -- 7-day prune
+
+CREATE TABLE projection_checkpoints (       -- M17, M48
+  branch_id  TEXT    NOT NULL,
+  projection TEXT    NOT NULL,
+  last_seq   INTEGER NOT NULL,
+  PRIMARY KEY (branch_id, projection)
+);
+```
+
+Index note (M48): step 3a reads `SELECT recorded_at FROM events WHERE branch_id = ? ORDER BY seq DESC LIMIT 1`, served by `events_branch_seq`.
+
+**`0002_devices_sessions.sql`:**
+
+```sql
+CREATE TABLE devices (
+  device_id      TEXT    PRIMARY KEY,
+  branch_id      TEXT    NOT NULL,
+  token_hash     TEXT    NOT NULL UNIQUE,   -- every device-authenticated request; 'rotated:<event_id>' after M40
+  device_name    TEXT    NOT NULL,
+  device_type    TEXT    NOT NULL CHECK (device_type IN ('tablet','cashier_kiosk','kds','phone')),
+  station_id     TEXT,
+  owner_staff_id TEXT,
+  paired_at      INTEGER NOT NULL,
+  paired_by      TEXT    NOT NULL,
+  last_seen_at   INTEGER,
+  revoked_at     INTEGER,
+  revoked_by     TEXT,
+  CHECK ((device_type = 'kds')   = (station_id IS NOT NULL)),
+  CHECK ((device_type = 'phone') = (owner_staff_id IS NOT NULL))
+);
+-- no index on owner_staff_id: the M38 revoke scans tens of device rows once per directory apply
+```
+
+> ⚠️ Changed by 03a v1.0 (H-5, H-6): a forward hub migration (the next free number after 03a's `0007_engine.sql`, e.g. `0008_device_point_lane.sql`) adds two nullable columns:
+
+```sql
+ALTER TABLE devices ADD COLUMN point_id   TEXT;  -- H-5: the 01a point the tablet is bound to
+ALTER TABLE devices ADD COLUMN lane_label TEXT;  -- H-6: 1–20 chars; a kds device with it is a lane
+```
+
+- **`point_id` (H-5).** It references 01a's points (v2.1 A-1). The hub holds points only in the applied config snapshot, so the reference is checked at the write against `branchConfig().points` (active points of the branch), not by a SQL constraint. A tablet bound to a point receives that point's alerts, and several tablets may be bound to one point (01d G1-12a). Archiving a point leaves its bound devices with a point that no longer routes: 01d's point target resolves no one, and 03b warns.
+- **`lane_label` (H-6).** A `kds` device with a `station_id` and a non-null `lane_label` **is a lane** of that station (01d D4). `lane_count(station)` = the count of such devices not revoked, else 1. A `lane_label` on a device of another type, or without a `station_id`, is refused at the write with `400 VALIDATION_FAILED`. 03a reads neither column: `capacityForLanes` takes `lane_count` as an input (03a §3.10).
+- ⚠️ Changed by 03b v1.0.1 (H-10): **writers** of `point_id` / `lane_label`: 03b's `device_roles` projection (`DeviceRoleSet`, written by the admin command `SetDeviceRole`, 03b §3.8, with the H-5 / H-6 checks at the write) and, when built, 01e's pairing. Nothing else writes them.
+- ⚠️ Changed by 05a (row H-5): from migration `0027` on, the **only** writer of `devices.point_id` is 05a's `DeviceProfileSet` fold (05a §5.1; 03b row K-1: the `device_roles` fold writes `lane_label` only). `point_id` may be set on any non-kds device (05a: "a non-kds device with `point_id`" is a Pass device).
+
+```sql
+-- (0002 continued)
+
+CREATE TABLE pairing_tokens (              -- tablet and phone (M44)
+  pairing_token_id    TEXT    PRIMARY KEY,
+  branch_id           TEXT    NOT NULL,
+  token_hash          TEXT    NOT NULL UNIQUE,   -- POST /devices/pair
+  device_type         TEXT    NOT NULL CHECK (device_type IN ('tablet','phone')),
+  owner_staff_id      TEXT,
+  created_by          TEXT    NOT NULL,
+  created_at          INTEGER NOT NULL,
+  expires_at          INTEGER NOT NULL,
+  consumed_at         INTEGER,
+  consumed_request_id TEXT,
+  device_id           TEXT,
+  CHECK ((device_type = 'phone') = (owner_staff_id IS NOT NULL))
+);
+
+CREATE TABLE pair_requests (               -- cashier_kiosk and kds (M44)
+  request_id       TEXT    PRIMARY KEY,     -- in the QR
+  branch_id        TEXT    NOT NULL,
+  poll_secret_hash TEXT    NOT NULL,        -- SHA-256 of the screen's poll secret
+  display_code     TEXT    NOT NULL,        -- 6 Crockford chars, shown on screen and checked on approval
+  device_name      TEXT    NOT NULL,
+  requester_ip     TEXT    NOT NULL,        -- per-IP cap (M76)
+  created_at       INTEGER NOT NULL,
+  expires_at       INTEGER NOT NULL,        -- created_at + 600 000
+  approved_at      INTEGER,
+  approved_by      TEXT,
+  device_id        TEXT,
+  delivery_token   TEXT                     -- plaintext device token until expires_at, then NULL (retention)
+);
+CREATE INDEX pair_requests_pending ON pair_requests (branch_id, expires_at)
+  WHERE approved_at IS NULL;               -- caps: 10 pending, 2 per IP (§6.30, M76; ≤ 10 rows scanned)
+
+CREATE TABLE admin_bootstrap_tokens (      -- M42
+  bootstrap_token_id TEXT    PRIMARY KEY,
+  branch_id          TEXT    NOT NULL,
+  token_hash         TEXT    NOT NULL UNIQUE,
+  created_at         INTEGER NOT NULL,
+  expires_at         INTEGER NOT NULL,     -- created_at + 1 800 000
+  consumed_at        INTEGER,
+  session_id         TEXT
+);
+
+CREATE TABLE staff_sessions (
+  session_id       TEXT    PRIMARY KEY,
+  branch_id        TEXT    NOT NULL,
+  token_hash       TEXT    NOT NULL UNIQUE,    -- M9
+  kind             TEXT    NOT NULL CHECK (kind IN ('staff','admin','station')),
+  staff_id         TEXT,
+  station_id       TEXT,
+  device_id        TEXT,                       -- NULL only for the bootstrap admin session
+  idle_ttl_ms      INTEGER,                    -- NULL only for station
+  started_at       INTEGER NOT NULL,
+  last_activity_at INTEGER NOT NULL,
+  ended_at         INTEGER,
+  end_reason       TEXT,
+  ended_by         TEXT,
+  CHECK (kind = 'admin' OR device_id IS NOT NULL),
+  CHECK ((kind = 'station') = (station_id IS NOT NULL)),
+  CHECK ((kind = 'station') = (staff_id IS NULL)),
+  CHECK ((kind = 'station') = (idle_ttl_ms IS NULL))
+);
+CREATE UNIQUE INDEX staff_sessions_active_device
+  ON staff_sessions (device_id) WHERE ended_at IS NULL AND kind IN ('staff','station');   -- M6
+CREATE INDEX staff_sessions_active ON staff_sessions (branch_id) WHERE ended_at IS NULL; -- sweeper, lists
+
+CREATE TABLE auth_lockouts (
+  branch_id         TEXT    NOT NULL,
+  subject_type      TEXT    NOT NULL CHECK (subject_type IN ('staff','device','ip')),
+  subject_id        TEXT    NOT NULL,
+  failed_count      INTEGER NOT NULL,
+  window_started_at INTEGER NOT NULL,
+  locked_until      INTEGER,
+  PRIMARY KEY (branch_id, subject_type, subject_id)
+);
+CREATE INDEX auth_lockouts_locked ON auth_lockouts (branch_id, locked_until) WHERE locked_until IS NOT NULL;
+```
+
+⚠️ Changed by 05a (row H-1): `POST /devices/pair` is removed; the `pairing_tokens` table stays (unused, purged by the sweeper). The merged `0002` text above is not edited.
+
+**`0003_staff_directory.sql`** — cache of cloud data (D40). Replaced whole by `applyStaffDirectory`; the only hub tables where DELETE is normal.
+
+```sql
+CREATE TABLE staff (staff_id TEXT PRIMARY KEY, branch_id TEXT NOT NULL,
+  display_name TEXT NOT NULL, pin_hash TEXT NOT NULL);
+CREATE TABLE roles (role_id TEXT PRIMARY KEY, branch_id TEXT NOT NULL, name TEXT NOT NULL,
+  session_idle_ttl_ms INTEGER NOT NULL CHECK (session_idle_ttl_ms > 0));
+CREATE TABLE role_permissions (
+  role_id          TEXT NOT NULL REFERENCES roles(role_id),
+  permission       TEXT NOT NULL,
+  grant_type       TEXT NOT NULL CHECK (grant_type IN ('allowed','requires_approval')),
+  approver_role_id TEXT REFERENCES roles(role_id),
+  CHECK ((grant_type = 'requires_approval') = (approver_role_id IS NOT NULL)),
+  PRIMARY KEY (role_id, permission));
+CREATE TABLE staff_roles (staff_id TEXT NOT NULL REFERENCES staff(staff_id),
+  role_id TEXT NOT NULL REFERENCES roles(role_id), PRIMARY KEY (staff_id, role_id));
+CREATE TABLE staff_permission_denials (staff_id TEXT NOT NULL REFERENCES staff(staff_id),
+  permission TEXT NOT NULL, PRIMARY KEY (staff_id, permission));
+CREATE TABLE staff_directory_meta (branch_id TEXT PRIMARY KEY,
+  directory_version INTEGER NOT NULL, applied_at INTEGER NOT NULL);
+```
+
+`not_granted` is the absence of a row. The directory is read whole at boot and after apply (6 fixed SELECTs), so no secondary indexes.
+
+**v1.5:** 01b's hub migration `0005_directory_v2.sql` (01b §5.2) rebuilds `role_permissions` with `scope` and without `approver_role_id` (the hub reads `approver_role_ids`; the cloud keeps sending `approver_role_id` for hubs not yet upgraded, 01b B18 a), adds `role_permission_approvers`, `staff.lead_staff_id`, `staff_floors` and `responsibilities`. The directory is then read in 9 fixed SELECTs.
+
+> ⚠️ Changed by 01b (B1, B2, B4, B10): hub migration `0005_directory_v2.sql`; 9 SELECTs instead of 6. See 01b §4.3.
+
+**`0017_staff_names.sql`** ⚠️ Changed by 04 (row H-1; G-1, G-2) — the hub's never-deleted list of staff names, for audit and later reports (04 §3.6; 05 / 07). Not a cache of the directory and not used for sign-in.
+
+```sql
+CREATE TABLE staff_names (
+  staff_id     TEXT    PRIMARY KEY,
+  display_name TEXT    NOT NULL,
+  updated_at   INTEGER NOT NULL          -- hub-clock ms (recorded_at timeline)
+);
+-- seed: a directory apply runs only when directory_version moves, so the migration fills it once
+INSERT OR IGNORE INTO staff_names (staff_id, display_name, updated_at)
+  SELECT staff_id, display_name, (SELECT COALESCE(MAX(recorded_at), 0) FROM events) FROM staff;
+INSERT OR IGNORE INTO staff_names (staff_id, display_name, updated_at)
+  SELECT staff_id, display_name, (SELECT COALESCE(MAX(recorded_at), 0) FROM events) FROM no_pin_staff;
+```
+
+- **Seed time (G-1):** migrations are plain SQL with no hub clock, so `updated_at` = the latest event's `recorded_at` (0 on an empty log): on the hub-clock timeline and deterministic.
+- **Apply (`applyStaffDirectory`):** in the same transaction, upsert (`ON CONFLICT(staff_id) DO UPDATE SET display_name, updated_at`) every person of the **input** `staff` list, then of the input `no_pin_staff` list, **before** any M52 skip — a staff row skipped for a bad `pin_hash` still gets its name. An id repeated in a list, or present in both, keeps the **first** occurrence (staff before no-pin), exactly as the cache keeps it (G-2). `updated_at` = the apply's `branchNow`.
+- **Never deleted:** a leaver keeps the last known name. A replaced or restored hub refills it on its first directory apply (active staff only); leavers' names then come from 06's restore (04 §4.3 To 06).
+
+
+
+**`0027_device_profiles.sql`** ⚠️ Changed by 05a (row H-5) — 05a §5.1. The file's first line is `-- migrate:foreign-keys-off` (the runner's rebuild recipe; `foreign_key_check` runs before commit). Its steps, in order:
+
+1. **Rebuild `devices`** without `CHECK ((device_type = 'phone') = (owner_staff_id IS NOT NULL))`: `CREATE TABLE devices_v2` with every column of `0002` and `0008` in order (`device_id`, `branch_id`, `token_hash`, `device_name`, `device_type` with its `IN` check, `station_id`, `owner_staff_id`, `paired_at`, `paired_by`, `last_seen_at`, `revoked_at`, `revoked_by`, `point_id`, `lane_label`) and `CHECK ((device_type = 'kds') = (station_id IS NOT NULL))`; `INSERT INTO devices_v2 SELECT … FROM devices`; `DROP TABLE devices`; `ALTER TABLE devices_v2 RENAME TO devices`. `devices` has no other index or trigger and no FK refers to it before this file, so nothing else is recreated. The merged `0002` is not edited; `owner_staff_id` stays as a column, null on new rows.
+2. **Create the projections:**
+
+```sql
+CREATE TABLE device_profiles (           -- projection of DeviceProfileSet; staff devices only
+  device_id       TEXT    PRIMARY KEY REFERENCES devices(device_id),
+  access          TEXT    NOT NULL CHECK (access IN ('everyone','listed')),
+  screens         TEXT    NOT NULL,      -- JSON array, ordered, 1–6
+  profile_version INTEGER NOT NULL,      -- SetDeviceProfile expected_version
+  needs_review    INTEGER NOT NULL CHECK (needs_review IN (0,1))   -- from DeviceProfileSet.needs_review
+);
+
+CREATE TABLE device_people (             -- projection of DeviceProfileSet.staff_ids (listed devices)
+  device_id TEXT NOT NULL REFERENCES devices(device_id),
+  staff_id  TEXT NOT NULL,
+  PRIMARY KEY (device_id, staff_id)
+);
+CREATE INDEX device_people_staff ON device_people (staff_id);   -- 05a M-5 and §6.18c device_count
+```
+
+3. **Add the hint column:**
+
+```sql
+ALTER TABLE pair_requests ADD COLUMN hardware_hint TEXT
+  CHECK (hardware_hint IN ('tablet','cashier_kiosk','kds','phone'));
+```
+
+- `device_profiles` / `device_people` are projections (`registerHubProjections`, `reset` = `DELETE` of both); with no checkpoint at first boot, `catchUp` resets them and replays from seq 0.
+- The `DeviceProfileSet` fold also writes `devices.device_name` and `devices.point_id` as a **forward-only** `UPDATE` (the `device_roles` pattern; idempotent, not part of the reset). It is the only writer of `devices.point_id`.
+- Invariants (05a §5.2): `access = 'everyone'` ⇔ no `device_people` rows; `listed` ⇒ 1–20 rows; `kds` devices have no `device_profiles` row.
+- These are the first FKs that refer to `devices`: any later rebuild of `devices` must use the FK-off recipe.
+- ⚠️ Changed by 05a (row H-1): `0002`'s `pairing_tokens` stays, unused since the token flow was removed (the retention sweep purges it); `pair_requests` now serves every device type (its `0002` comments are not edited).
+
+**v1.6 (01d H-12, H-14):** 01d's hub migration `0006_alerts.sql` also creates two 00-owned objects:
+
+```sql
+CREATE TABLE app_releases (               -- §6.36–§6.38; written only by the hub CLI; not a projection
+  version_code     INTEGER PRIMARY KEY,
+  version_name     TEXT    NOT NULL,
+  sha256           TEXT    NOT NULL,
+  staged_device_id TEXT,                    -- null = marked good, released to every tablet
+  added_at         INTEGER NOT NULL
+);
+CREATE INDEX staff_sessions_staff_activity ON staff_sessions (staff_id, last_activity_at);  -- 01d §3.4.3 (c) last-activity read
+```
+
+The index serves 01d's last-activity read and changes no 00 behaviour.
+
+> ⚠️ Changed by 01d v1.0 (H-12, H-14): `app_releases` and `staff_sessions_staff_activity`, created in 01d's `0006`. See 01d §4.5.
+
+**⚠️ Changed by 00 v1.13 (row H-8): `NNNN_display_sessions.sql`.** ⚠️ Changed by run 3 (R3-M-8) Per D6, the migration takes the next free contiguous hub number on `module-02b-tk` when its PR merges. There are no reservations. The 05a `NNNN_device_profiles_board.sql` is separate and follows the same rule. The 02b tracking-cutoff projection is owned by 02b. First line `-- migrate:foreign-keys-off` (no FK refers to `staff_sessions`; the pragma keeps the runner's rebuild recipe, `db/migrate.ts:66-79`). `0002` and `0006` are not edited; the indexes are recreated under their names.
+
+```sql
+-- migrate:foreign-keys-off
+CREATE TABLE staff_sessions_v2 (
+  session_id       TEXT    PRIMARY KEY,
+  branch_id        TEXT    NOT NULL,
+  token_hash       TEXT    NOT NULL UNIQUE,
+  kind             TEXT    NOT NULL CHECK (kind IN ('staff','admin','station','display')),
+  staff_id         TEXT,
+  station_id       TEXT,
+  device_id        TEXT,
+  idle_ttl_ms      INTEGER,
+  started_at       INTEGER NOT NULL,
+  last_activity_at INTEGER NOT NULL,
+  ended_at         INTEGER,
+  end_reason       TEXT,
+  ended_by         TEXT,
+  CHECK (kind = 'admin' OR device_id IS NOT NULL),
+  CHECK ((kind = 'station') = (station_id IS NOT NULL)),
+  CHECK ((kind IN ('station','display')) = (staff_id IS NULL)),
+  CHECK ((kind IN ('station','display')) = (idle_ttl_ms IS NULL))
+);
+INSERT INTO staff_sessions_v2 (session_id, branch_id, token_hash, kind, staff_id, station_id, device_id, idle_ttl_ms,
+                               started_at, last_activity_at, ended_at, end_reason, ended_by)
+  SELECT session_id, branch_id, token_hash, kind, staff_id, station_id, device_id, idle_ttl_ms,
+         started_at, last_activity_at, ended_at, end_reason, ended_by FROM staff_sessions;
+DROP TABLE staff_sessions;
+ALTER TABLE staff_sessions_v2 RENAME TO staff_sessions;
+CREATE UNIQUE INDEX staff_sessions_active_device
+  ON staff_sessions (device_id) WHERE ended_at IS NULL AND kind IN ('staff','station','display');
+CREATE INDEX staff_sessions_active ON staff_sessions (branch_id) WHERE ended_at IS NULL;
+CREATE INDEX staff_sessions_staff_activity ON staff_sessions (staff_id, last_activity_at);   -- 01d's, recreated
+-- 05a v1.0.7's ALTER of device_profiles is its own migration file (05a §5.4; run 1 m-4)
+```
+
+- Every existing row satisfies the new CHECKs (they are the old ones with `display` added to the null side).
+- `staff_sessions` is not a projection (rows are written by handlers), so nothing is replayed.
+
+**Retention (M66; batches of 500, one `writer.run` per batch, in the maintenance hour):** `staff_sessions` ended > 7 d; `pairing_tokens` expired > 7 d; `pair_requests` expired > 7 d, and `delivery_token = NULL` on every expired request at each sweep; `admin_bootstrap_tokens` expired > 7 d; `processed_commands` > 7 d (D32); `auth_lockouts` unlocked with window older than 1 d.
+
+### 5.2 Cloud (PostgreSQL 16)
+
+**v1.5:** 01b's cloud migration `0005_staff_roles.sql` (01b §5.1) changes these tables: `staff.pin_hash` becomes nullable and `staff` adds `pin_set_at`, `left_at` (B3); `owner_users` adds `must_change_password`, `lock_notice_at`, `password_changed_at`, `temp_password_expires_at`, `credential_version` (B5, review 2 N1) and `staff_id`, the owner's own staff row (B7); `owner_refresh_tokens` adds `credential_version` (review 2 N1); `roles` adds `default_key` (backfilled for existing default roles, B17), `archived_at` and idle (whole minutes) and name CHECKs; `role_permissions` adds `scope`, the approver list moves to `role_permission_approvers`, and `approver_role_id` stays, dual-written with the first approver, with its CHECK kept (B2, B10, B22). **The cloud rolls forward only once `0005` is applied** (01b B22, §7.4: v1.4 cannot read a NULL `pin_hash`). `0001` itself is merged and unchanged.
+
+**Cloud migrations runner (v1.5, 01b B22, review 2 N5):** `apps/cloud/src/db/migrate.ts`, before applying anything, compares the `schema_migrations` rows with the build's files; a stored `version` with no file in this build → throw `MigrationUnknownVersionError` ("database has migration NNNN (<name>) that this build does not have: this build is older than the database; deploy the current build"), apply nothing, and the process exits non-zero before it listens. The existing checksum check is unchanged. (The hub runner already refuses a `user_version` above its files.) Test: 01b #105.
+
+> ⚠️ Changed by 01b (B2, B3, B5, B7, B10, B17, B22, review 2 N1, N5): cloud `staff`, `owner_users`, `owner_refresh_tokens`, `roles`, `role_permissions` change in 01b's `0005_staff_roles.sql`; the cloud runner refuses a database ahead of the build; roll forward only. See 01b §4.3 rows 2, 3, 20.
+
+> ⚠️ Changed by 05c v0.2 (rows H-1, H-2; folded by 00 v1.13 hostile run 1), **carried when 05c is approved** (not normative before; not built before 05c is approved) (⚠️ Changed by 00 v1.13 hostile run 2 (05c R2-M-7)): new guard scope **`webhook-endpoint`** (M55 (g); index `payment_webhook_endpoints_endpoint (endpoint_id)`, an M55 (a)-style pre-tenant override; route inventory and cross-tenant tests), and `GET /v1/sync/payment-notifications` on the branch API key. Both routes and tables are 05c's and counted there.
+
+**`0001_platform.sql`.** Times are `BIGINT` Unix ms (§6.8). Tenant-level tables per M16.
+
+```sql
+CREATE TABLE schema_migrations (version INT PRIMARY KEY, name TEXT NOT NULL,
+  checksum TEXT NOT NULL, applied_at BIGINT NOT NULL);
+
+-- tenant-level (M16)
+CREATE TABLE tenants (
+  tenant_id TEXT PRIMARY KEY, name TEXT NOT NULL,
+  currency_code TEXT NOT NULL CHECK (currency_code ~ '^[A-Z]{3}$'),
+  directory_version BIGINT NOT NULL DEFAULT 1,
+  created_at BIGINT NOT NULL);
+CREATE TABLE owner_users (
+  tenant_id TEXT NOT NULL REFERENCES tenants, user_id TEXT NOT NULL,
+  email TEXT NOT NULL, display_name TEXT NOT NULL, password_hash TEXT NOT NULL,
+  allowed_branch_ids TEXT[] NOT NULL,
+  failed_login_count INT NOT NULL DEFAULT 0, login_window_started_at BIGINT,
+  login_locked_until BIGINT,                                         -- M33
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (tenant_id, user_id));
+CREATE UNIQUE INDEX owner_users_email ON owner_users (lower(email)); -- login lookup (pre-tenant)
+CREATE TABLE owner_refresh_tokens (
+  tenant_id TEXT NOT NULL, token_id TEXT NOT NULL, user_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL,
+  rotated_at BIGINT, revoked_at BIGINT,
+  PRIMARY KEY (tenant_id, token_id),
+  FOREIGN KEY (tenant_id, user_id) REFERENCES owner_users);
+CREATE UNIQUE INDEX owner_refresh_tokens_hash ON owner_refresh_tokens (token_hash);  -- refresh lookup
+CREATE INDEX owner_refresh_tokens_user ON owner_refresh_tokens (tenant_id, user_id)
+  WHERE revoked_at IS NULL;                                          -- reuse → revoke all
+CREATE TABLE staff (
+  tenant_id TEXT NOT NULL REFERENCES tenants, staff_id TEXT NOT NULL,
+  display_name TEXT NOT NULL, pin_hash TEXT NOT NULL, is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+  PRIMARY KEY (tenant_id, staff_id));
+CREATE TABLE roles (                                                -- no is_admin_role (M57)
+  tenant_id TEXT NOT NULL REFERENCES tenants, role_id TEXT NOT NULL, name TEXT NOT NULL,
+  session_idle_ttl_ms INTEGER NOT NULL CHECK (session_idle_ttl_ms > 0),
+  PRIMARY KEY (tenant_id, role_id));
+CREATE TABLE role_permissions (
+  tenant_id TEXT NOT NULL, role_id TEXT NOT NULL, permission TEXT NOT NULL,
+  grant_type TEXT NOT NULL CHECK (grant_type IN ('allowed','requires_approval')),
+  approver_role_id TEXT,
+  CHECK ((grant_type = 'requires_approval') = (approver_role_id IS NOT NULL)),
+  PRIMARY KEY (tenant_id, role_id, permission),
+  FOREIGN KEY (tenant_id, role_id) REFERENCES roles,
+  FOREIGN KEY (tenant_id, approver_role_id) REFERENCES roles (tenant_id, role_id));
+CREATE TABLE staff_roles (
+  tenant_id TEXT NOT NULL, staff_id TEXT NOT NULL, role_id TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, staff_id, role_id),
+  FOREIGN KEY (tenant_id, staff_id) REFERENCES staff, FOREIGN KEY (tenant_id, role_id) REFERENCES roles);
+CREATE TABLE staff_permission_denials (
+  tenant_id TEXT NOT NULL, staff_id TEXT NOT NULL, permission TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, staff_id, permission),
+  FOREIGN KEY (tenant_id, staff_id) REFERENCES staff);
+
+-- branch-level
+CREATE TABLE branches (
+  tenant_id TEXT NOT NULL REFERENCES tenants, branch_id TEXT NOT NULL, name TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending_hub','active')),
+  hub_confirmed_at BIGINT,                                          -- M41
+  CHECK ((status = 'active') = (hub_confirmed_at IS NOT NULL)),
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (tenant_id, branch_id));
+CREATE UNIQUE INDEX branches_branch_id ON branches (branch_id);
+CREATE TABLE staff_branches (
+  tenant_id TEXT NOT NULL, branch_id TEXT NOT NULL, staff_id TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, branch_id, staff_id),                     -- directory build per branch
+  FOREIGN KEY (tenant_id, branch_id) REFERENCES branches, FOREIGN KEY (tenant_id, staff_id) REFERENCES staff);
+CREATE TABLE registration_codes (
+  code_hash TEXT PRIMARY KEY,                                       -- exchange lookup (pre-tenant)
+  tenant_id TEXT NOT NULL, branch_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('new_branch','replace_hub')),
+  created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL,
+  consumed_at BIGINT, consumed_attempt_id TEXT,
+  FOREIGN KEY (tenant_id, branch_id) REFERENCES branches);
+CREATE INDEX registration_codes_branch ON registration_codes (tenant_id, branch_id)
+  WHERE consumed_at IS NULL;                                        -- M22 reissue / confirm expire old codes
+CREATE TABLE branch_api_keys (
+  tenant_id TEXT NOT NULL, branch_id TEXT NOT NULL, key_id TEXT NOT NULL,
+  key_hash TEXT NOT NULL, created_at BIGINT NOT NULL, revoked_at BIGINT,
+  PRIMARY KEY (tenant_id, key_id),
+  FOREIGN KEY (tenant_id, branch_id) REFERENCES branches);
+CREATE UNIQUE INDEX branch_api_keys_hash ON branch_api_keys (key_hash);        -- sync auth (pre-tenant)
+CREATE UNIQUE INDEX branch_api_keys_one_active
+  ON branch_api_keys (tenant_id, branch_id) WHERE revoked_at IS NULL;          -- one live key per branch
+
+-- idempotency_keys: moved to 01 (M69)
+```
+
+The four global unique indexes (`owner_users_email`, `owner_refresh_tokens_hash`, `branch_api_keys_hash`, `registration_codes.code_hash`) plus `branches_branch_id` serve credential lookups that run **before** a tenant is known. They do not lead with `tenant_id` (override recorded in M55 a). They are queried only by `db/credential-lookup.ts`, importable only by `plugins/tenant-scope.ts` and `plugins/owner-credentials.ts` (M55 b); the raw client stays unexported (D54). The CLIs reach the database only through `SystemContext` (M56).
+
+---
+
+## §6. Endpoints
+
+Error sets: **G-hub** = `403 HOST_NOT_ALLOWED`, `403 GUEST_NETWORK_FORBIDDEN`, `409 HUB_NOT_PROVISIONED`. **G-dev** = G-hub + `401 DEVICE_TOKEN_INVALID`, `403 DEVICE_REVOKED`, `426 CLIENT_UPGRADE_REQUIRED`. **G-admin** = G-dev + `401 ADMIN_SESSION_REQUIRED`, `403 PERMISSION_DENIED`. All times `branchNow`.
+
+### Batch 1 — blank hub to logged-in staff
+
+#### 6.1 `POST /commands/:name` and `POST /admin/commands/:name`
+
+| | |
+|---|---|
+| Permission | per command (§3.6), resolved inside the transaction |
+| Auth | `/commands/*`: device token + device session (after the M19 fast path). `/admin/commands/*`: device token + bound admin session (bootstrap session: no device token) |
+| Input | `PosCommandSchema`; `payload` by the command's schema |
+| Processing | §3.7 exactly |
+| Idempotency | D32 two-step; M19 device match; M47 type + payload hash; admin by `session_id` |
+| Response | `200 { data: { command_id, event_ids, result } }` |
+| Errors | G-dev / G-admin; `400 VALIDATION_FAILED`; `401 SESSION_INVALID` / `SESSION_EXPIRED`; `403 BRANCH_MISMATCH` / `PERMISSION_DENIED` / `DEVICE_REVOKED` (in-transaction, M39); `404 ROUTE_NOT_FOUND`; the command's own |
+| Query count | fast path 1; transaction: re-check 1, auth re-read 0 or 2 (M39), `MAX(seq)` 1, 1 per event, 1 `processed_commands`, projections per command |
+
+#### 6.2 `GET /queries/:resource` and `GET /admin/queries/:resource` — generic query route
+
+| | |
+|---|---|
+| Auth | `/queries/*`: device token; + device session when the query declares `session: 'required'`; station sessions only when `allowStation`. `/admin/queries/*`: device token + bound admin session (`access-hub-admin` re-resolved, M61). ⚠️ Changed by 05a (row H-6): a query declaring `sessionKind: 'both'` is served on both routes, each with its own auth (§3.7). ⚠️ Changed by 05a (row H-3): `ctx.directory` is the session view (§3.6), so a query's own permission check is masked on an `everyone` device |
+| Input | query string by `querySchema`; lists that can grow without bound use `cursor` + `limit` (default 50, max 200) |
+| Processing | resolve; validate; `handle(ctx)` on the read-only connection; no transaction, no writes; refresh in-memory session activity **only** when the query declares `countsAsActivity: true` (M59) |
+| Response | `200 { data, meta? }` (`meta.next_cursor` for paginated) |
+| Errors | G-dev or G-admin; `400 VALIDATION_FAILED`; `401 SESSION_*`; `403 DEVICE_TYPE_NOT_ALLOWED` (query `deviceTypes`); `404 ROUTE_NOT_FOUND`; query's own |
+| Query count | fixed per query, declared in its spec (CLAUDE.md no N+1) |
+
+> ⚠️ Changed by 05c v0.2 (row H-3; folded by 00 v1.13 hostile run 1), **carried when 05c is approved** (not normative before; not built before 05c is approved) (⚠️ Changed by 00 v1.13 hostile run 2 (05c R2-M-7)): query `payment-intent-device` takes the **device token only** (no staff session), answers only the intent's own device (05b native). ⚠️ Changed by 00 v1.13 (row H-1): `allowDisplay` lets a `display` session read a query (§3.4a).
+
+#### 6.3 `GET /health`
+
+| | |
+|---|---|
+| Auth | none; host guard applies; guest network gets the reduced body (M63) |
+| Response | staff networks: `200 { data: { status, boot_step, provisioned, confirmed, branch_id \| null, max_seq \| null, hub_version, clock_alarm, staff_build \| null } }` (⚠️ Changed by 05b (row H-1): `staff_build` added); guest ranges: `200 { data: { status } }` |
+
+#### 6.4 `POST /setup/provision` (hub)
+
+| | |
+|---|---|
+| Auth | registration code; route exists only while UNPROVISIONED |
+| Input | `{ registration_code (12 Crockford, dashes/spaces/case ignored), guest_network_cidrs: CIDR[] (min 1), advertised_host: IPv4 that is one of this host's own addresses (os.networkInterfaces) }` (M58) |
+
+Processing:
+1. Provisioned → `404 ROUTE_NOT_FOUND`. Flag set → `409 SETUP_IN_PROGRESS`.
+2. Validate; normalise the code.
+3. No `setup_attempt_id` → generate and write config atomically (M14).
+4. Cloud `POST /hubs/register`, `Idempotency-Key: <setup_attempt_id>`, `{ registration_code, hub_version, accepted_kinds: ['new_branch'] }`, 10 s. Network error → `503 SERVICE_UNAVAILABLE { retry_after_ms: 5000 }`; cloud error → same status and code.
+5. Zod-validate the response shape (malformed → `500 INTERNAL_ERROR`, nothing written). Individual bad rows are skipped by M52, not rejected.
+6. `writer.run`: `applyStaffDirectory`; append `HubProvisioned` unless one exists for this `branch_id`; `issueAdminBootstrap(tx, 'setup')` (M42, M72).
+7. Generate `backup_encryption_key` unless present; write config atomically (`provisioned` incl. `branch_name` (M78), `guest_network_cidrs`, `advertised_host`, key).
+8. `200 { data: { tenant_id, branch_id, branch_name, restarting: true, first_admin_url: "http://<advertised_host>:<port>/admin/bootstrap#t=<token>", first_admin_qr_svg, first_admin_expires_at } }`; exit(0) after the response is flushed (M13). The setup page shows `first_admin_url` as a link and `first_admin_qr_svg` as the QR (M77).
+
+| | |
+|---|---|
+| Errors | `400 VALIDATION_FAILED`, `401 REGISTRATION_CODE_INVALID`, `403 HOST_NOT_ALLOWED` / `GUEST_NETWORK_FORBIDDEN`, `404 ROUTE_NOT_FOUND`, `409 SETUP_IN_PROGRESS`, `422 REGISTRATION_CODE_KIND_UNSUPPORTED`, `500 INTERNAL_ERROR`, `503 SERVICE_UNAVAILABLE` |
+| Events | `StaffDirectoryApplied`, `HubProvisioned`, `AdminBootstrapTokenIssued` |
+
+Note: the bootstrap token survives the restart because it is stored hashed in SQLite before the config write; if the config write fails, the retry creates a new one and the old one expires.
+
+#### 6.5 `POST /v1/hubs/register` (cloud)
+
+| | |
+|---|---|
+| Auth | registration code via tenant-scope plugin (M15). Unknown, expired, or consumed by another attempt → `401 REGISTRATION_CODE_INVALID` (one code for all, so the response does not reveal which codes exist) |
+| Headers | `Idempotency-Key: <ULID>` required |
+| Input | `{ registration_code, hub_version: semver, accepted_kinds: ('new_branch' \| 'replace_hub')[] (min 1) }` |
+
+Processing (one transaction):
+1. `SELECT … FROM registration_codes WHERE code_hash = $1 FOR UPDATE`. Valid when `expires_at > now` and (`consumed_at IS NULL` or (`consumed_attempt_id = Idempotency-Key` and `now − consumed_at < 3 600 000`)).
+2. `kind ∉ accepted_kinds` → `422 REGISTRATION_CODE_KIND_UNSUPPORTED`; not consumed.
+3. New 256-bit key: revoke the branch's live key; INSERT the new hash.
+4. If unconsumed: set `consumed_at`, `consumed_attempt_id`. The branch **stays `pending_hub`** until the hub confirms (§6.28, M41).
+5. Directory in 5 fixed queries: branch + tenant; active staff ⨝ `staff_branches`; roles referenced by those staff or as approvers; their `role_permissions`; `staff_roles` + `staff_permission_denials` for those staff.
+6. COMMIT; respond.
+
+| | |
+|---|---|
+| Response | `200 { data: { tenant_id, branch_id, branch_name, currency_code, kind, branch_api_key, directory: { directory_version, staff: [{ staff_id, display_name, pin_hash, role_ids, denied_permissions }], roles: [{ role_id, name, session_idle_ttl_ms, permissions: [{ permission, grant_type, approver_role_id }] }] } } }`. **v1.5:** `directory` is shape v2 (01b §4.3.1), **additive over v1**: staff add `lead_staff_id`, `floor_ids`; grants keep `approver_role_id` (the first approver) and add `approver_role_ids[]` and `scope`; the role list includes every approver role; a top-level `responsibilities` list; staff with no PIN are not sent. A v1.4 hub parses it and applies it with v1 semantics (01b B18 a, §7.4) |
+| Idempotency | M14 rotation |
+| Concurrency | `FOR UPDATE` serialises two exchanges of one code; `branch_api_keys_one_active` guarantees one live key |
+| Errors | `400 VALIDATION_FAILED`, `401 REGISTRATION_CODE_INVALID`, `422 REGISTRATION_CODE_KIND_UNSUPPORTED`, `500 INTERNAL_ERROR` |
+| Audit | the hub's `HubProvisioned` event (reaches the cloud through 06); log line `hub_registered { tenant_id, branch_id, kind, rotated }` |
+
+
+> ⚠️ Changed by 01b (B3, B4, B10, B18): the provisioning response carries the additive directory shape v2. See 01b §4.3.
+
+#### 6.6 `POST /admin/auth` — admin session (M42)
+
+| | |
+|---|---|
+| Auth | device token, `device_type ∈ { tablet, cashier_kiosk, phone }` (kds → `403 DEVICE_TYPE_NOT_ALLOWED`); ~~phone: `staff_id` must be the owner (`403 DEVICE_NOT_OWNED`)~~ ⚠️ Changed by 05a (row H-2): the §3.5 device access checks, before step 2: a `listed` device and `staff_id` not on its list → `403 DEVICE_ACCESS_DENIED { device_id }`; an `everyone` device (or a staff device with no profile, 05a v1.0.1 R-1) → `403 PERMISSION_DENIED { permission: 'access-hub-admin', reason: 'listed_device_only' }` |
+| Input | `{ staff_id, pin: /^\d{4,6}$/ }` |
+| Processing | §3.5 with rate subject `device` and the admin semaphore; on match, in the same transaction: `access-hub-admin` must be `allowed` (else `403 PERMISSION_DENIED`, counters stay reset; ⚠️ Changed by 05a (row H-3): `access-hub-admin` and the M89 `permissions` resolve through the session view, §3.6); INSERT session `kind 'admin'`, `device_id` = caller, `idle_ttl_ms = ttlFor`; append `SessionStarted` |
+| Response | `200 { data: { admin_session_token, session_id, staff_id, display_name, idle_ttl_ms, permissions: { 'manage-devices': boolean, 'manage-staff': boolean, 'manage-fiscal-settings': boolean, 'close-business-day': boolean } } }` (`permissions`: M89, effective in the same transaction; ⚠️ Changed by 05 (row H-2, R-37): `manage-fiscal-settings` and `close-business-day` added, additive) |
+| Errors | G-dev; `400`, `401 PIN_INVALID`, `403 DEVICE_TYPE_NOT_ALLOWED` / ~~`DEVICE_NOT_OWNED`~~ / `DEVICE_ACCESS_DENIED` / `PERMISSION_DENIED` (incl. `reason: 'listed_device_only'`) (⚠️ Changed by 05a (row H-2)), `404 STAFF_NOT_FOUND`, `429 PIN_LOCKED_OUT` / `DEVICE_LOCKED_OUT`, `503 SERVICE_UNAVAILABLE` |
+| Events | `SessionStarted`; lockout events |
+
+#### 6.7 ~~`POST /admin/commands/generate-device-pairing-token` — `GenerateDevicePairingToken`~~ — Removed by 05a (row H-1)
+
+⚠️ Changed by 05a (row H-1): **removed.** The command (`commands/generate-device-pairing-token.ts`) and its registration are removed; every device type pairs by request (§6.30–§6.32, M44); the route answers `404 ROUTE_NOT_FOUND` (05a §10 test 1). `pairing_tokens` stays (unused; retention purges it), `pairing_token` stays in `SECRET_FIELDS`, and `DevicePairingTokenGenerated` with its `pairing_token_generated` audit mapper stays for history. The v1.12.2 text below is kept as history.
+
+| | |
+|---|---|
+| Permission | `manage-devices` (D38) |
+| Payload | `{ device_type: 'tablet' \| 'phone', owner_staff_id?: ULID }`; `owner_staff_id` required iff `phone`; `cashier_kiosk` and `kds` pair by request (§6.30–§6.32, M44) → `400 VALIDATION_FAILED` |
+| Handler | If `phone`: `owner_staff_id` not in the directory → `404 STAFF_NOT_FOUND`. Generate 256-bit token (base64url) + `pairing_token_id`; `expires_at = branchNow + 600 000`; INSERT `pairing_tokens` (hash); event `DevicePairingTokenGenerated` |
+| Result | `{ pairing_token, pairing_token_id, expires_at, pair_url: "http://<advertised_host>:<port>/pair?t=<pairing_token>", pair_qr_svg }`; the admin UI shows `pair_qr_svg` (M77). ⚠️ Changed by 00 v1.12.2 (owner, 2026-11-22, STAB-1): for a `tablet` token `pair_url` ends `&d=tablet` (`…/pair?t=<pairing_token>&d=tablet`), so the hub-served pair page knows the type; `phone` unchanged |
+| Idempotency | D32; the stored response holds the plaintext token, which is useless after 10 min or one pair (accepted) |
+| Errors | §6.1; `404 STAFF_NOT_FOUND` |
+
+#### 6.8 ~~`POST /devices/pair` (tablet, phone)~~ — Removed by 05a (row H-1)
+
+⚠️ Changed by 05a (row H-1): **removed.** The route (`auth/pairing.ts`) and its registration are removed; it answers `404 ROUTE_NOT_FOUND` (05a §10 test 1). Tablets and phones pair by request (§6.30–§6.32). No path writes `DeviceTokenRotated` any more (M14, M60, M74); `DevicePaired` audit mapping stays for history. The v1.12.2 text below is kept as history.
+
+| | |
+|---|---|
+| Auth | pairing token in the body; guards: host, provisioned, guest network, client version |
+| Input | `{ pairing_token, pair_request_id: ULID, device_name: string(1–40), device_type }` |
+
+Processing (`writer.run`):
+1. Look up by `sha256(pairing_token)`. Missing or `expires_at ≤ branchNow` → `401 PAIRING_TOKEN_INVALID`.
+2. `device_type ≠ token.device_type` → `403 DEVICE_TYPE_NOT_ALLOWED`.
+3. Consumed: same `pair_request_id`, `branchNow − consumed_at < 600 000`, device not revoked → **rotate** (M14): new token, `UPDATE devices SET token_hash`, append `DeviceTokenRotated { device_id, pair_request_id }` (M60; bumps `authGeneration`, M39). Otherwise (other request id, 600 000 ms or more after consumption, or a revoked device) → `401 PAIRING_TOKEN_INVALID`.
+4. Unconsumed: if the token is for a `phone` whose owner is no longer in the directory → `401 PAIRING_TOKEN_INVALID`. New `device_id`, 256-bit `device_token`; INSERT `devices` (with the token's `owner_staff_id`); mark token consumed; append `DevicePaired` (`actor_id` = token `created_by`, `device_id` = new device).
+
+| | |
+|---|---|
+| Response | `200 { data: { device_id, device_token, device_type, owner_staff_id \| null, owner_name \| null, branch_id, branch_name, hub_version } }` (`owner_name`: M92); `branch_name` from config (M78) |
+| Errors | G-hub; `400 VALIDATION_FAILED`, `401 PAIRING_TOKEN_INVALID`, `403 DEVICE_TYPE_NOT_ALLOWED`, `426 CLIENT_UPGRADE_REQUIRED` |
+| Events | `DevicePaired` (`pairing_token_id` set), `DeviceTokenRotated` |
+
+#### 6.9 `POST /auth/pin` — staff session
+
+| | |
+|---|---|
+| Auth | device token; device type `tablet`, `cashier_kiosk` or `phone` (else `403 DEVICE_TYPE_NOT_ALLOWED`) |
+| Input | `{ staff_id: ULID, pin: /^\d{4,6}$/, takeover?: boolean (default false) }` |
+| Owner check | ~~`phone` and `staff_id ≠ owner_staff_id` → `403 DEVICE_NOT_OWNED`, checked **before** §3.5 step 2 so it is not counted as a PIN failure and no PIN is verified (M38)~~ ⚠️ Changed by 05a (row H-2): **device access check** (§3.5): a `listed` device and `staff_id` not on its list → `403 DEVICE_ACCESS_DENIED { device_id }`, before §3.5 step 2, not counted, no PIN verified; an `everyone` device accepts any directory staff; a staff device with no profile keeps the v1.12.2 rule (05a v1.0.1 R-1, §3.5) |
+
+Processing: §3.5 with rate subject `device` and the PIN semaphore; on match, in the same transaction:
+0. An active session on this device that is idle-expired (`branchNow − last_activity_at > idle_ttl_ms`) is ended `'idle_timeout'` first (M46), so it never causes a `409`.
+1. Active session on this device:
+   - same `staff_id` → end it `'replaced'`.
+   - other staff, `takeover` false → ROLLBACK; `409 DEVICE_SESSION_ACTIVE { staff_id, display_name, can_take_over: true }` (holder's). Counters stay reset.
+   - other staff, `takeover` true → end it `'taken_over'`, `ended_by` = new staff (M20).
+2. INSERT session `kind 'staff'`, `idle_ttl_ms = ttlFor`; append `SessionStarted`.
+3. COMMIT. Two logins on one device are serialised by `BEGIN IMMEDIATE`; the second sees the first's session in step 1. The partial unique index stays as the backstop; a constraint error is mapped to `409 DEVICE_SESSION_ACTIVE`.
+
+| | |
+|---|---|
+| Response | `200 { data: { session_token, session_id, staff_id, role_ids, display_name, idle_ttl_ms } }` (foundation §5.7 fields + `session_id`, `idle_ttl_ms`). ⚠️ Changed by 05a (row H-2): adds `device: { screens, access, point_id }` (05a §6.5; from memory, statements unchanged) |
+| Idempotency | same-staff replace (M6) |
+| Errors | G-dev; `400 VALIDATION_FAILED`, `401 PIN_INVALID`, `403 DEVICE_TYPE_NOT_ALLOWED` / ~~`DEVICE_NOT_OWNED`~~ / `DEVICE_ACCESS_DENIED` (⚠️ Changed by 05a (row H-2)), `404 STAFF_NOT_FOUND`, `409 DEVICE_SESSION_ACTIVE`, `429 PIN_LOCKED_OUT` / `DEVICE_LOCKED_OUT`, `503 SERVICE_UNAVAILABLE` |
+| Events | `SessionStarted`; `SessionEnded` (`replaced` / `taken_over`); lockout events |
+
+#### 6.10 `POST /auth/logout`
+
+| | |
+|---|---|
+| Auth | device token + `X-Session-Token` (ended sessions accepted) |
+| Processing | `writer.run`: load session by hash (must belong to this device, else `401 SESSION_INVALID`); kind `station` → `403 STATION_LOGOUT_NOT_ALLOWED` (station sessions end only by force, replacement or revoke; M55 e); if active: end `'logout'`, append `SessionEnded` |
+| Response | `200 { data: { session_id, ended_at, already_ended } }` |
+| Errors | G-dev; `401 SESSION_INVALID`; `403 STATION_LOGOUT_NOT_ALLOWED` |
+| Events | `SessionEnded` |
+
+### Batch 2 — station sessions, admin, pairing requests
+
+#### 6.11 `POST /auth/station` — station session (M30)
+
+| | |
+|---|---|
+| Auth | device token; device type `kds` (else `403 DEVICE_TYPE_NOT_ALLOWED`) |
+| Input | `{}` |
+| Processing | `writer.run`: if an active station session exists for the device → end it `'replaced'`; INSERT session `kind 'station'`, `station_id` = device's, `idle_ttl_ms NULL`; append `SessionStarted` (stream `station`) |
+| Response | `200 { data: { session_token, session_id, station_id } }` |
+| Idempotency | replace: a retry ends the previous session and returns a new one |
+| Post-commit | the replaced session's sockets get `SessionEnded { reason: 'replaced' }`, then close `4401` with close reason `replaced`; the client stops (M53, §8.4) |
+| Errors | G-dev; `403 DEVICE_TYPE_NOT_ALLOWED` |
+| Events | `SessionStarted`, `SessionEnded` (`replaced`) |
+
+#### 6.12 `POST /admin/auth/logout`
+
+| | |
+|---|---|
+| Auth | `X-Admin-Session` (ended accepted); device token required unless the session is the bootstrap session |
+| Response | `200 { data: { session_id, ended_at, already_ended } }` |
+| Errors | G-hub; `401 ADMIN_SESSION_REQUIRED` (unknown token or other device) |
+
+#### 6.13 `GET /admin/login-roster` (M32, M42)
+
+| | |
+|---|---|
+| Auth | device token of type tablet / cashier_kiosk / phone, **or** header `X-Admin-Bootstrap: <live bootstrap token>` |
+| Response | `{ staff: [{ staff_id, display_name, role_names, locked_until \| null }] }` (`role_names`: M92) — staff with `access-hub-admin` allowed; ~~on a phone only the owner (if allowed)~~. ⚠️ Changed by 05a (row H-2): with a device token, an `everyone` device → `403 PERMISSION_DENIED { permission: 'access-hub-admin', reason: 'listed_device_only' }` (⚠️ Changed by 05a v1.0.3 (G-g (a), owner 2026-11-23): the details also carry `recovery_available`, the same boolean as below, so the sign-in page can offer **Recover admin access** after the upgrade); a `listed` device → only its people whose `access-hub-admin` is `allowed`. The response adds `recovery_available: boolean` = no unrevoked `listed` device lists a person whose `manage-devices` resolves `allowed` (05a M-8, §6.11; from memory, no statement); the hub admin home then shows the recovery link ⚠️ Changed by 05a v1.0.1 (R-1): a staff device with **no profile** answers as an `everyone` device (`403 listed_device_only`), as `/admin/auth` does there (§3.5). |
+| Query count | 1 |
+| Errors | G-hub; `401 DEVICE_TOKEN_INVALID` / `PAIRING_TOKEN_INVALID` (bootstrap token not live); `403 DEVICE_REVOKED` / `DEVICE_TYPE_NOT_ALLOWED` / `PERMISSION_DENIED` (`listed_device_only`; ⚠️ Changed by 05a (row H-2)) |
+
+#### 6.14 `POST /admin/commands/revoke-device` — `RevokeDevice`
+
+⚠️ Changed by 05a (05a §6.4, M-3): `RevokeDevice` is `sessionKind: 'both'` (registered on `/commands/revoke-device` and `/admin/commands/revoke-device`, like `ApprovePairingRequest` §6.32); its permission `manage-devices` resolves through the session view (§3.6), so it works only from a listed device or the bootstrap admin session. No other change.
+
+| | |
+|---|---|
+| Permission | `manage-devices` |
+| Payload | `{ device_id, reason?: string(≤200) }` |
+| Handler | device missing → `404 DEVICE_NOT_FOUND`; already revoked → return result with `already_revoked: true`, no events; else set `revoked_at/by`, end its active staff/station session and every admin session bound to it `'device_revoked'` (`ended_by` = actor), append `DeviceRevoked { cause: 'manual' }` (bumps `authGeneration`, M39) |
+| Result | `{ device_id, revoked_at, already_revoked }` |
+| Post-commit | sockets of the device get `DeviceRevoked` then close `4403` |
+| Errors | §6.1; `404 DEVICE_NOT_FOUND` |
+| Events | `DeviceRevoked`, `SessionEnded` |
+
+#### 6.15 `POST /admin/commands/force-logout-session` — `ForceLogoutSession`
+
+| | |
+|---|---|
+| Permission | `manage-staff` |
+| Payload | `{ session_id }` |
+| Handler | missing → `404 SESSION_NOT_FOUND`; already ended → `already_ended: true`, no events; else end `'forced'`, `ended_by` = actor; append `SessionEnded`. Any kind, including the caller's own admin session |
+| Result | `{ session_id, ended_at, already_ended }` |
+| Errors | §6.1; `404 SESSION_NOT_FOUND` |
+| Events | `SessionEnded` (E0 PIN AC5: forced logout logged) |
+
+#### 6.16 `POST /admin/commands/clear-pin-lockout` — `ClearPinLockout`
+
+| | |
+|---|---|
+| Permission | `manage-staff` |
+| Payload | `{ subject_type: 'staff' \| 'device' \| 'ip', subject_id }` |
+| Handler | row missing or not locked → `cleared: false`, no events; else reset `failed_count = 0`, `locked_until = NULL`; append `PinLockoutCleared` |
+| Result | `{ subject_type, subject_id, cleared }` |
+| Errors | §6.1 |
+| Events | `PinLockoutCleared` (D28: lockout clearable by a manager) |
+
+#### 6.17 `GET /admin/queries/devices`
+
+| | |
+|---|---|
+| Input | `?include_revoked=false` |
+| Response | `{ devices: [{ device_id, device_name, device_type, station_id, owner_staff_id, owner_name, ~~pairing_source: 'token' \| 'request',~~ paired_at, paired_by_name, last_seen_at, revoked_at, revoked_by_name, revoked_reason, active_session: { session_id, kind, staff_id, display_name } \| null }] }` (`owner_name`, `revoked_by_name`, `revoked_reason`: M87; null when not applicable) |
+| Query count | 1 (devices LEFT JOIN active sessions), plus 1 when `include_revoked=true` (`SELECT stream_id, payload FROM events WHERE stream_type = 'hub' AND stream_id IN (<revoked ids>) AND event_type = 'DeviceRevoked'`, latest per device; `events_stream`); names from `StaffDirectory`; last-seen from memory merged over the column (refreshed by every device-authenticated request and by each WebSocket pong, **including alert-mode sockets** (01d, §6.21): a tablet holding only its alert connection, with no session, counts as seen in device health; so a kitchen screen holding only its socket is seen every 15 s; Q8); ~~`pairing_source` from `device_type` (M80)~~. Bounded list (a branch has tens of devices), returned whole |
+
+> ⚠️ Changed by 01d v1.0 (H-13): last seen also refreshed by alert-mode pongs (same `armKeepalive`). See 01d §4.5.
+
+> ⚠️ Changed by 05a (rows H-4, H-6): 05a §6.8. The query is `sessionKind: 'both'` (`GET /queries/devices` from a staff session on a listed device and `GET /admin/queries/devices`), permission `manage-devices` resolved through the session view (§3.6). `pairing_source` is **dropped** from the response (M80 retired). The `owner_staff_id` reader moves to the profile: each row adds `access`, `people: [{ staff_id, display_name }]` (the profile's `staff_ids`), `screens`, `point_id`, `profile_version`, `needs_review` (from `device_profiles.needs_review`). The response adds `pending_requests: [{ request_id, device_name, hardware_hint, created_at }]` (never the display code) and `admin_warning: 0 \| 1 \| null` (05a M-8: the count of unrevoked `listed` devices listing a person whose `manage-devices` resolves `allowed`, when it is 0 or 1, else null). Query count: the v1.12.2 1–2, +1 for `device_profiles` ⋈ `device_people`, +1 for pending requests. ⚠️ Changed by 05a v1.0.2 (G-f (a), owner 2026-11-23): the response also adds `staff: [{ staff_id, display_name }]` (every directory person, sorted by name, from memory, no statement), the people picker of the approve and edit forms.
+
+#### 6.18 `GET /admin/queries/sessions`
+
+| | |
+|---|---|
+| Response | `{ sessions: [{ session_id, kind, staff_id, display_name, station_id, device_id, device_name, started_at, last_activity_at, idle_ttl_ms }] }` — active only |
+| Query count | 1 (active sessions LEFT JOIN devices, served by `staff_sessions_active`); activity from memory. Bounded by devices + admins |
+
+#### 6.18a `GET /admin/queries/lockouts` (M88)
+
+| | |
+|---|---|
+| Auth | §6.2 admin (`access-hub-admin`) |
+| Response | `{ staff: [{ staff_id, display_name, locked_until }], devices: [{ device_id, device_name, locked_until }], ips: [{ ip, locked_until }] }`, each sorted by `locked_until` descending; only rows with `locked_until > branchNow`. IP lockouts come from bootstrap sign-in only (§3.5) |
+| Query count | 1 (`auth_lockouts` LEFT JOIN `devices` for device names, served by `auth_lockouts_locked`); staff names from `StaffDirectory` (a staff row no longer in the directory is skipped) |
+| Activity | `countsAsActivity: false` |
+| Errors | G-admin |
+
+#### 6.18b `GET /admin/queries/stations` (M88)
+
+| | |
+|---|---|
+| Auth | §6.2 admin (`access-hub-admin`) |
+| Response | `{ stations: [{ station_id, name, location_label, category_names }] }` — non-archived stations in config order (01a §4.3); `category_names` = up to 3 names of categories that have an item on the station, by category `sort_order`. Empty list when no branch config is loaded yet |
+| Query count | 0 (in-memory branch config, 01a S40) |
+| Activity | `countsAsActivity: false` |
+| Errors | G-admin |
+
+#### 6.18c `GET /admin/queries/staff` (M88)
+
+| | |
+|---|---|
+| Auth | §6.2 admin (`access-hub-admin`) |
+| Response | `{ staff: [{ staff_id, display_name, role_names, ~~phone_count~~ device_count }] }` sorted by `display_name`; ~~`phone_count` = non-revoked `phone` devices owned by the staff member~~ ⚠️ Changed by 05a (row H-4): `device_count` = unrevoked `listed` devices whose list names the staff member (any hardware) |
+| Query count | 1 (~~`SELECT owner_staff_id, COUNT(*) FROM devices WHERE device_type = 'phone' AND revoked_at IS NULL GROUP BY owner_staff_id`~~ ⚠️ Changed by 05a (row H-4): `device_people` joined to unrevoked `devices`, counted per `staff_id`, index `device_people_staff`); staff and role names from `StaffDirectory` |
+| Activity | `countsAsActivity: false` |
+| Errors | G-admin |
+
+#### 6.19 `GET /queries/staff-roster`
+
+| | |
+|---|---|
+| Auth | device token, `session: 'none'`; device type `tablet` / `cashier_kiosk` / `phone` |
+| Response | `{ staff: [{ staff_id, display_name, locked_until \| null, responsibilities: string[] (v1.5, 01b B4) }], active_session: { staff_id, display_name } \| null }` sorted by `display_name`; ~~on a `phone` the list holds only the owner (M38)~~ ⚠️ Changed by 05a (row H-4): on a `listed` device the list holds only its people; on an `everyone` device the whole directory (unchanged); query count unchanged (05a §6.6) ⚠️ Changed by 05a v1.0.1 (R-1): a staff device with **no profile** keeps today's list (a `phone`: only its `owner_staff_id`; a `tablet` / `cashier_kiosk`: the whole directory), matching its sign-in rule (§3.5). |
+| Query count | 2 (lockouts; this device's active session) |
+| Activity | `countsAsActivity: false` (M59) |
+| Errors | G-dev; `403 DEVICE_TYPE_NOT_ALLOWED` |
+
+
+> ⚠️ Changed by 01b (B4): roster rows add `responsibilities` (e.g. `['count_stock']`), from memory; query count unchanged. See 01b §4.3.
+
+#### 6.20 `GET /queries/session`
+
+| | |
+|---|---|
+| Auth | device token + device session; `allowStation: true` |
+| Response | `{ session_id, kind, staff: { staff_id, display_name, role_ids } \| null, station_id \| null, idle_ttl_ms \| null, permissions: { [permission]: { grant, approver_role_ids?, scope? } } }` (v1.5, 01b B2: `scope` present for `allowed` and `requires_approval`); station sessions get `permissions: {}` |
+| Query count | 0 beyond the session guard (directory in memory) |
+| Activity | `countsAsActivity: false` (M59) |
+| Errors | G-dev; `401 SESSION_*` |
+
+
+> ⚠️ Changed by 01b (B2): `permissions[p]` adds `scope`. See 01b §4.3.
+
+> ⚠️ Changed by 05a (row H-3): 05a §6.7. The response adds `device: { device_id, screens, access, point_id }`. Each `permissions[p]` is the **session view's** resolution (§3.6), with `masked: 'listed_only' \| 'downgraded'` when masked; the client hides `listed_only` actions and shows `downgraded` ones as "Confirm on your phone". Query count 0.
+
+### Batch 3 — WebSocket and cloud access
+
+#### 6.21 `GET /ws` — hub WebSocket (M12, M24)
+
+Handshake and auth:
+1. Upgrade: host check (M45) and guest-network check (close `4403`), client-version check (close `4426`). Start a 5 s timer.
+2. **Nothing is sent before auth succeeds** — no `catch_up`, no `event`, no `error` frame. Any first frame that is not a valid `auth` message, or no message within 5 s → close `4401`.
+3. `{ type: 'auth', device_token, session_token }`: device valid and not revoked (else `4401`; revoked `4403`); session active, kind `staff` or `station`, same device (else `4401`). ⚠️ Changed in v1.11 (Q-70): after the device check passes (a revoked device still closes `4403`), when the session is found, on the same device, of kind `staff` or `station`, and ended with `end_reason = 'replaced'`, the close carries the close reason text `replaced` (M53), as the live close does; every other failure here closes `4401` with no reason (ended another way, idle-expired, unknown, other device, other kind, already removed by retention). This holds for a **staff** session ended `replaced` too; the staff client treats it as the generic §8.4 `4401` row (go to login), since the KDS row is the only one that reads the reason.
+4. Synchronously (no `await` between them, so no commit can interleave): read `as_of_seq` = last committed seq; build `catch_up.state` from 00's `hub` part (M37) and every `registerCatchUp` part whose `appliesTo(socketCtx)`; register the socket for publishing; send `{ type: 'catch_up', as_of_seq, state }`.
+
+After auth:
+- Each committed event goes to the sockets for which its audience returns true **and** `event.seq > socket.as_of_seq` (publish filter), in ascending `seq`, as `{ type: 'event', seq, event }` (§6.5). The filter prevents a duplicate when a socket registers between COMMIT and publish (Review 1 #21).
+- Client `{ type: 'ack', last_seq }` is accepted and recorded in memory for diagnostics only.
+- Keepalive: ping every 15 s; no pong for 30 s → terminate. Pongs and acks do **not** refresh session activity (M5): an app left open with nobody using it still idles out at its role TTL (E0 PIN AC4).
+- `SessionEnded` for the socket's session: send the event, close `4401` with the close reason text = `reason` (`replaced` drives M53). `DeviceTokenRotated` for the socket's device: send, close `4401`. `DeviceRevoked`: send, close `4403`. Hub shutdown: close `1012`.
+- Tokens are never accepted from the query string or headers on `/ws`.
+- **Session sockets also accept `receipt` frames** after auth (01d §6 batch 3; v1.6).
+
+**Alert mode (v1.6, 01d H-1, H-2).** `{ type: 'auth', device_token }` **without** `session_token` (device types `tablet`, `cashier_kiosk`, `kds`, `phone`; device valid, not revoked): the hub sends `alerts_open`, then only `alert` / `alert_seen` / `alert_closed` frames; it accepts only `receipt` frames (any other frame → close `4401`); no catch-up, no event frames. Closed `4403` / `4401` on `DeviceRevoked` / `DeviceTokenRotated` by an after-commit check on those two events (no frame sent first). **Alert-mode sockets are kept in a separate list**, never passed to `deliver()`, `registerEventAudience` audiences or `registerCatchUp` parts, so the socket context `{ deviceId, deviceType, sessionId, kind, staffId, stationId, asOfSeq }` is unchanged. Keepalive as above (pongs refresh last seen, §6.17). **One alert-mode socket per device:** a new alert-mode auth closes the device's existing alert-mode socket `4409`, logged `{ device_id, old_remote_address, new_remote_address }`. `packages/events/src/ws.ts`: `WsServerMessage` adds `alerts_open`, `alert`, `alert_seen`, `alert_closed`; `WsClientMessage` adds `receipt`, and the `auth` variant's `session_token` becomes optional. Staff-session sockets also get `alert` / `alert_seen` / `alert_closed`; station sockets get device-target alerts (01d §6 batch 3).
+
+> ⚠️ Changed by 01d v1.0 (H-1, H-2): alert mode, `receipt` on session sockets, new frame types. See 01d §4.5.
+> ⚠️ Changed by 01d v1.1 (AD-4, AD-30, AD-31): alert-mode sockets also receive `binding_route { until }` and `alerts_open.binding_route_until` (01d §6 batch 3); the one-per-device close `4409` is the local constant `ALERT_REPLACED` in `ws/server.ts`, not in `WS_CLOSE` (01d 9b adds `WS_CLOSE.REPLACED`); a throwing `onReceipt` listener is caught and logged `{ err, device_id, alert_id }` and the socket stays open; a throwing `alerts_open` or catch-up builder is logged `{ err, device_id }` and closes that socket `1011` (a local constant). See 01d v1.1 §4.5.
+
+**⚠️ Changed by 00 v1.13 (row H-2): Display mode (M96).** Step 3 also accepts a session of kind **`display`** on the same device (the `replaced` close reason applies to it as to a station session). Such a socket is a **display socket**:
+- It is kept in a **third list**, apart from the session list and the alert-mode list. It is never in `connectedSessions()`, never passed to `deliver()`, to a `registerEventAudience` audience or to a `registerCatchUp` part, never reached by `sendToDevices` / `sendToStaff` / `sendToSessions` / `sendToAlertMode`, and does not count as an open socket of its device for M95. So **no `event`, alert or receipt frame ever reaches it**, whatever an audience would return for its `deviceType` (02a's audience is true for any `cashier_kiosk` socket, `tables/audiences.ts:32`; 01d's `always_on` names every kiosk).
+- Step 4 builds its `catch_up.state` from 00's `hub` part (M37) and the `registerDisplayCatchUp` parts only (05a: `pickup_board`), in the same synchronous step.
+- After each commit the hub maps the batch's events through `registerDisplayHint`. When at least one event maps (an empty list counts), every display socket whose `as_of_seq` is below the batch's highest `seq` gets **one** `{ type: 'display_hint', seq, order_ids }`: `seq` = the batch's highest seq, `order_ids` = the distinct ids of the batch (at most 50; more → `[]`, "refetch everything"). 0 statements. The frame carries order ids only: no token, no name, no payload (R3).
+- Its own `SessionEnded`: close `4401` with the reason text, **no frame first**. `DeviceRevoked` for its device: close `4403`, no frame. Hub shutdown: `1012`.
+- Client frames: `ack` is accepted (diagnostics); any other frame (`receipt` included) → close `4401`.
+- Keepalive as above; a pong refreshes the device's `last_seen_at` (§6.17), nothing else.
+- `packages/events/src/ws.ts`: `WsServerMessage` adds `display_hint { seq: number, order_ids: string[] }`; `WsClientMessage` is unchanged. The socket context of a display socket has `kind: 'display'`, `staffId` and `stationId` null; since no audience sees it, `ConnectedSession` and the audience socket context keep `kind: 'staff' | 'station'`.
+- Query count of a display `catch_up` (⚠️ Changed by 00 v1.13 hostile run 1 (m-1)): 00's `hub` part (**1**, its `ClockAlarm` read, `ws/catch-up.ts:47–62`) + the display parts' declared counts (05a `pickup_board`: 2) = **3**.
+- ⚠️ Changed by 00 v1.13 hostile run 1 (M-2): **a board never holds an alert-mode socket.** An alert-mode `auth` (device token, no session) from a device whose 05a profile is the board closes ~~`4403`~~ **`4413`** (⚠️ Changed by 00 v1.13 (integration, 02b-TK): 01d v1.3.7 row C-F-37, owner decision Q-37c: `WS_CLOSE.DISPLAY_DEVICE`, not a revoke, the client keeps its keys) with reason `display_device`, no frame (01d v1.3.7 row D-5). When 05a's `SetDeviceProfile` turns a device into the board, its after-commit closes the device's open alert-mode socket the same way (`4413`), as `DeviceRevoked` closes it today (`ws/server.ts:212`).
+- ⚠️ Changed by 00 v1.13 (integration, 02b-TK) (01d v1.3.7 row C-F-37): **close code `4413` `DISPLAY_DEVICE`** (reason `display_device`) — "this device is a display (board); it gets no alert connection"; a new constant `WS_CLOSE.DISPLAY_DEVICE` beside `4401`, `4403`, `4426`, `1012` (Foundation v1.18 §6.5). Not a revoke: the client keeps `device_token` (§8.4).
+- ⚠️ Changed by 00 v1.13 hostile run 1 (m-14 (h)): when one batch both ends a display session and maps to a hint, the close wins: the socket is closed and no hint is sent first.
+
+| | |
+|---|---|
+| Query count | catch-up: sum of the registered parts' declared fixed counts |
+| Library | `@fastify/websocket` 11.3.4 (on `ws` 8.x) |
+
+#### 6.22 `POST /v1/auth/login` (cloud, allowlisted)
+
+| | |
+|---|---|
+| Input | `{ email, password: string(8–200) }` |
+| Processing | (1) Per-IP limit (M64): ≥ 30 failures from this IP in the last 900 000 ms (in memory; the cloud is one instance, D57) → `429 IP_LOCKED_OUT { retry_after_ms }`. (2) `owner-credentials` lookup by `lower(email)`; unknown email → verify against a fixed dummy hash (equal timing), count the IP failure, `401 LOGIN_INVALID`. (3) A lock that has expired resets the counter (M62). (4) **Locked** (`login_locked_until > now`): verify against the dummy hash (equal timing), **do not** verify the real hash, do not change the account counter, count the IP failure, `401 LOGIN_INVALID` (M73). (5) Not locked: verify argon2id. Mismatch → atomic `UPDATE owner_users SET failed_login_count = failed_login_count + 1 … RETURNING failed_login_count` (window 900 000 ms, threshold 10 → `login_locked_until = now + 900 000`), count the IP failure, `401 LOGIN_INVALID`. Match → reset counter; delete this user's refresh tokens expired more than 7 days (M69); issue JWT (HS256, 1 h; claims `sub, tenant_id, allowed_branch_ids`) and refresh token (256-bit, 30 d, hash stored). **v1.5 (01b §3.7, §6.13):** the step (5) `UPDATE` that sets `login_locked_until` also sets `lock_notice_at = now`; a match with `must_change_password` set and `temp_password_expires_at <= now` (an expired temporary password) takes the mismatch path (counted, `401 LOGIN_INVALID`); on a match, the success transaction first takes the owner row `WHERE password_hash = <the verified hash> FOR NO KEY UPDATE` (01b review 2 N2; none: a reset or change committed meanwhile → `ROLLBACK`, `401 LOGIN_INVALID`, nothing counted) and reads `credential_version`, then resets the counter, reads and clears `lock_notice_at`, stores `credential_version` on the new refresh-token row and signs the JWT with **claim `cv`** = that `credential_version` (01b review 2 N1; `sub, tenant_id, allowed_branch_ids, iat, exp` unchanged; no `pwc`, the JWT guard reads the row, §6.24a). Refresh (§6.23) issues its JWT with the same claims |
+| Response | `200 { data: { access_token, access_expires_at, refresh_token, refresh_expires_at, user: { user_id, display_name, tenant_id, allowed_branch_ids, must_change_password }, lockout_notice: { locked_at, failed_count } \| null } }` (v1.5: `must_change_password`, `lockout_notice`, 01b B5) |
+| Idempotency | none needed: a retry issues another refresh token; unused ones expire |
+| Errors | `400 VALIDATION_FAILED`, `401 LOGIN_INVALID`, `429 IP_LOCKED_OUT` |
+| Never logged | password, tokens |
+
+
+> ⚠️ Changed by 01b (B5, review 2 N1, N2): login returns `must_change_password` and the one-time `lockout_notice`, refuses an expired temporary password, takes the owner row `FOR NO KEY UPDATE` and re-checks the hash before issuing tokens, and adds the `cv` claim. See 01b §4.3.
+
+#### 6.23 `POST /v1/auth/refresh` (cloud, allowlisted)
+
+| | |
+|---|---|
+| Input | `{ refresh_token }` |
+| Processing | one transaction. *v1.5 (01b §6.13, M2):* look the token up by hash without a lock (missing → `401 REFRESH_TOKEN_INVALID`), then `SELECT … FROM owner_users … FOR NO KEY UPDATE` for its user (01b review 2 N2), then `FOR UPDATE` on the token row; the token row's `credential_version` ≠ `owner_users.credential_version` → `401 REFRESH_TOKEN_INVALID`, nothing revoked (01b review 2 N1). The successor row and the new JWT (claim `cv`) carry the owner's current `credential_version`. Missing, expired or revoked → `401 REFRESH_TOKEN_INVALID`. Not rotated → set `rotated_at`; successor = `HMAC-SHA256(REFRESH_TOKEN_SECRET, refresh_token)` (base64url); insert its hash (30 d); issue a JWT. Rotated within 30 000 ms → return the same successor (recomputed) and a new JWT, write nothing (M49). Rotated longer ago → revoke every live token of the user; `401 REFRESH_TOKEN_INVALID`. v1.5 (01b B5): the owner-row read returns `must_change_password` (response `user.must_change_password`); the rotating path also returns and clears `lockout_notice` (as §6.22), the grace path returns `lockout_notice: null` and writes nothing |
+| Response | as §6.22 |
+| Concurrency | two refreshes of one token: both get the same successor |
+
+
+> ⚠️ Changed by 01b (B5, review 2 N1, N2): refresh locks the owner row `FOR NO KEY UPDATE` first, refuses a token whose `credential_version` differs from the owner's, and returns the lockout notice. See 01b §4.3.
+
+#### 6.24 `POST /v1/auth/logout` (cloud, JWT)
+
+| | |
+|---|---|
+| Input | `{ refresh_token }` |
+| Processing | revoke the token if it belongs to the JWT's user (`TenantLevelRepository`); otherwise do nothing (no information leak) |
+| Response | `200 { data: { revoked: boolean } }` |
+| Errors | `400 VALIDATION_FAILED`, `401 JWT_INVALID` |
+
+#### 6.24a JWT guard (cloud, `tenantScope: 'jwt'`; v1.5, 01b B5) — a guard, not an endpoint
+
+After the signature, `alg` and `exp` checks in `plugins/tenant-scope.ts`, one statement by primary key through `db/credential-lookup.ts` (M55 b): `SELECT must_change_password, credential_version FROM owner_users WHERE tenant_id = $1 AND user_id = $2` (JWT `tenant_id`, `sub`). No row → `401 JWT_INVALID`. Claim `cv` ≠ `credential_version` → `401 JWT_INVALID` (a token issued before the last password change or support reset; a missing claim counts as 0, the column default, so tokens issued before the 01b release work until the first change; 01b review 2 N1). **The read fails** (connection, timeout, any database error) → `503 SERVICE_UNAVAILABLE`, never `401` (01b review 2 N9). The read runs outside the route's transaction; a request that passed it just before a change commits completes. `must_change_password` and the route is under `/v1/admin/*` → `403 PASSWORD_CHANGE_REQUIRED` (01b §9). Every JWT route goes through it (01a's owner routes, 01b's routes, change-password, logout). The statement belongs to the guard and is not counted in any route's statement count. Tests: 01b #65, #73, #91, #107.
+
+> ⚠️ Changed by 01b (B5, review 2 N1, N9): new JWT guard read, compared by the `cv` claim against `credential_version`; a failed read is `503`, never `401`; the forced change is read from the row. See 01b §4.3 row 18.
+
+#### 6.25 `GET /v1/health` (cloud, allowlisted)
+
+`200 { data: { status: 'ok', version, db: 'ok' } }` after `SELECT 1`; DB failure → `503 SERVICE_UNAVAILABLE`.
+
+#### 6.26 CLI `pnpm --filter cloud seed-tenant` (`apps/cloud/src/cli/seed-tenant.ts`)
+
+| | |
+|---|---|
+| Args | `--name <tenant> --currency PKR --owner-email <email> --owner-name <name>`; prompts (no echo) for owner password and owner PIN, twice each |
+| Processing | through `SystemContext` (M56), one transaction: refuse if the email exists; create tenant, default roles (below), `owner_users` (argon2id password), owner `staff` (argon2id PIN, M8 params) with the Owner role; v1.5 (01b B7): `owner_users.staff_id` is set to that staff row. Prints `tenant_id`, `user_id`, `staff_id` |
+| Use | dev, tests, and pilot setup until 01's staff admin exists (M27) |
+| Currency check | ⚠️ Changed by 05 (row H-5): `--currency` is validated with `currencyExponent` (Foundation v1.14, 05 row F-6) **before any write**: an unknown ISO 4217 code (for example `PKX`, which passes `0001_platform.sql`'s `^[A-Z]{3}$` check) is refused with a CLI error and nothing is written. Test: `PKX` refused, `PKR` seeded |
+
+**Default roles (M29 as overridden by 01b B17; v1.5 values from 01b §6.15, owner answer Q13):**
+
+| Role | Idle TTL | Grants |
+|---|---|---|
+| Owner (`owner`) | 60 min | every catalogue permission `allowed` (includes `access-hub-admin`, `manage-devices`) |
+| Manager (`manager`) | 60 min | every permission except `manage-roles`, `allowed` |
+| Cashier (`cashier`) | 15 min | `apply-discount` requires approval (Manager), `reprint-ticket` allowed; 05 appends billing permissions |
+| Order taker (`order_taker`) | 15 min (owner, 01b Q12) | none; 02 appends ordering permissions, decided separately from Waiter (01b D-12); a counter role like Cashier |
+| Waiter (`waiter`) | 5 min | none; 02 appends ordering permissions. Team-membership role (01b B17) |
+| Cook (`cook`) | 5 min | none; 03b appends kitchen permissions. Team-membership role: no PIN expected, cooks use station sessions (M30) |
+
+Each default role is inserted with its `default_key` (in brackets; v1.5, 01b B17), and `seed-tenant` finds roles by `default_key`, not by name. A module that appends a default grant to running tenants selects the role `WHERE default_key = '<key>'`. Order taker and Waiter are different jobs and separate roles; a person doing both holds both (01b B17, D-12).
+
+No role flag marks "admin" roles (M57); admin access is the `access-hub-admin` permission.
+
+Each module that adds a permission appends its default grants to `apps/cloud/src/modules/staff-roles/default-roles.ts` in its own task.
+
+> ⚠️ Changed by 01b (B6, B7, B17, D-12): default roles are Owner, Manager, Cashier (15 min), Order taker (15 min, owner Q12), Waiter, Cook, each with a `default_key`; the owner's staff row is linked in `owner_users.staff_id`. See 01b §4.3.
+
+#### 6.27 CLI `issue-registration-code`
+
+In `apps/cloud/src/cli/issue-registration-code.ts` using `SystemContext`. New branch: create `pending_hub`; assign every staff member whose roles grant `access-hub-admin` (`allowed`) to it; append the branch id to every tenant owner's `allowed_branch_ids` (M57). Reissue (`--branch-id`): branch must have `hub_confirmed_at IS NULL` (M41, M22), else exit 1; expire its unconsumed codes. Code: 12 Crockford chars, `sha256` stored, 24 h. **v1.5 (01b §4.3 row 19):** the new-branch transaction first takes `SELECT … FROM tenants WHERE tenant_id = $1 FOR NO KEY UPDATE` (01b B11); it assigns only **qualifying admins** (01b B7, D-14a): staff with `is_active` and `pin_hash IS NOT NULL` whose effective `access-hub-admin` and effective `manage-devices` are both `allowed` (01b §3.3: no denial of either, and at least one role granting each as `allowed`), one statement with the same SQL as 01b §3.4's guard; **if two or more of them share a display name** (`lower(trim(display_name))`, 01b B12) → exit 1 "duplicate names at the new branch: <name> (<staff_id>, <staff_id>); rename one in the owner app and run again", listing every duplicated name, nothing written (no branch, no code; D-14b; the CLI never renames anyone); it bumps `tenants.directory_version` by 1; a `--branch-name` equal to an existing branch name of the tenant (case-insensitive, index `branches_name`, 01b §5.1) → exit 1, nothing written. Tests: 01b #86, #93, #94.
+
+> ⚠️ Changed by 01b (B7, B11, B12, review 1 m6, m9, D-14): qualifying admins only; duplicate names refused; tenant lock and directory bump; unique branch names. See 01b §4.3 row 19.
+
+#### 6.28 `POST /v1/hubs/confirm` (cloud, branch API key) — M41
+
+| | |
+|---|---|
+| Auth | `tenantScope: 'branch-key'` |
+| Input | `{ hub_version }` |
+| Processing | `UPDATE branches SET status = 'active', hub_confirmed_at = COALESCE(hub_confirmed_at, now)` for the key's branch; expire its unconsumed registration codes |
+| Response | `200 { data: { branch_id, hub_confirmed_at } }` (same value on repeats) |
+| Errors | `401 BRANCH_API_KEY_INVALID`, `400 VALIDATION_FAILED` |
+| Hub side | confirm task: on success write `provisioned.confirmed_at` to config; on network error or 5xx retry in 60 s; on 401 log an error and retry in 60 s (the key may have been rotated by a newer setup) |
+
+#### 6.29 `POST /admin/auth/bootstrap` — first admin (M42)
+
+| | |
+|---|---|
+| Auth | none beyond host, provisioned, guest network |
+| Input | `{ bootstrap_token, staff_id, pin }` (the page reads the token from the URL fragment, never sends it in a URL) |
+| Processing | token by hash: missing, expired or consumed → `401 PAIRING_TOKEN_INVALID`; then §3.5 with rate subject `ip` and the admin semaphore; on match in the same transaction: `access-hub-admin` allowed; consume the token; INSERT admin session with `device_id NULL`; append `SessionStarted` (`device_id 'hub-admin'`) |
+| Tokens | issued by `/setup/provision` (`issued_by 'setup'`), the hub CLI (§6.34, `'cli'`) or 06's restore flow (`'restore'`); issuing one expires any live one (M72). ⚠️ Changed by 05a (row H-7): also by 05a's `POST /admin/recovery-link` (`'recovery'`, only when no `listed` device can manage devices and no bootstrap token is live; the event's `device_id` is the caller's device, 05a §6.11). It signs in here exactly like the others |
+| Response | as §6.6, including `permissions` (M89; ⚠️ Changed by 05 (row H-2, R-37): the four keys of §6.6, with `manage-fiscal-settings` and `close-business-day`) |
+| Errors | G-hub; `400`, `401 PAIRING_TOKEN_INVALID` / `PIN_INVALID`, `403 PERMISSION_DENIED`, `404 STAFF_NOT_FOUND`, `429 PIN_LOCKED_OUT` / `IP_LOCKED_OUT`, `503 SERVICE_UNAVAILABLE` |
+
+#### 6.30 `POST /pair/requests` — screen asks to be paired (M44)
+
+⚠️ Changed by 05a (rows H-1, D-3): every device type uses this route (05a §6.1).
+
+| | |
+|---|---|
+| Auth | none beyond host, provisioned, guest network, client version |
+| Input | `{ device_name: string(1–40) }`. ⚠️ Changed by 05a (row H-1): adds `hardware_hint?: 'tablet' \| 'cashier_kiosk' \| 'kds' \| 'phone'` (another value → `400`), a default for the approval form only: the pair page sends `phone` when the user agent matches `/iPhone\|Android.*Mobile/`, else nothing; the 9b app will send `tablet` |
+| Processing | `writer.run` (~~no event~~): pending = `approved_at IS NULL AND expires_at > now`; ≥ 2 pending from this `requester_ip` → `429 IP_LOCKED_OUT { retry_after_ms }` (until that IP's oldest pending expires); ≥ 10 pending in total → `503 SERVICE_UNAVAILABLE { retry_after_ms: 60000 }` (M76); generate `request_id` (ULID), `poll_secret` (256-bit), `display_code` (6 Crockford chars); INSERT with `poll_secret_hash`, `requester_ip`, `expires_at = now + 600 000`. ⚠️ Changed by 05a (rows H-1, D-3): the INSERT also stores `hardware_hint`; then, only when no `device_waiting` alert is open (1 statement), raise 01d's `device_waiting` (05a §3.10: family `info`, subject `hub`, target holders of `manage-devices` on listed devices only, no count and never the code; `actor_id` null, `device_id 'hub'`). Statements: v1.12.2's + 1 + the raise when none is open |
+| Response | `200 { data: { request_id, poll_secret, display_code, expires_at, approve_url: "http://<advertised_host>:<port>/admin/approve?r=<request_id>", approve_qr_svg } }`; the screen shows `approve_qr_svg` plus the display code (M77) |
+| Errors | G-hub; `400`, `426`, `429 IP_LOCKED_OUT`, `503` |
+| Events | ~~none (an unauthenticated request is not a staff fact; approval is)~~ ⚠️ Changed by 05a (row D-3): `AlertRaised` (`device_waiting`) when none is open |
+
+#### 6.31 `GET /pair/requests/:id` — screen polls
+
+| | |
+|---|---|
+| Auth | header `X-Poll-Secret`; unknown id, wrong secret or expired → `404 PAIRING_REQUEST_NOT_FOUND` (indistinguishable) |
+| Response | `200 { data: { status: 'pending' } }` or `{ status: 'approved', device_id, device_token, device_type, station_id \| null, station_name \| null, branch_name }` (`station_name`: M92) (repeatable until `expires_at`; `branch_name` from config, M78). ⚠️ Changed by 05a (row H-1): `approved` adds `screens` (05a §6.2); `kds` → `/kds/`, others → `/staff/` (unchanged); query count unchanged |
+| Query count | 1; no writes |
+
+#### 6.32 `ApprovePairingRequest` (`/admin/commands/approve-pairing-request`; ⚠️ Changed by 05a (row H-1): and `/commands/approve-pairing-request`)
+
+| | |
+|---|---|
+| Permission | `manage-devices` |
+| Payload | `{ request_id?, display_code, device_type: 'cashier_kiosk' \| 'kds', station_id? }` (`station_id` required iff `kds`; `request_id` optional, M79) |
+| Handler | with `request_id`: request missing, expired, already approved, or `display_code` mismatch → `404 PAIRING_REQUEST_NOT_FOUND`; without it: the pending requests (`approved_at IS NULL AND expires_at > now`, `pair_requests_pending`, ≤ 10 rows) whose `display_code` matches must be exactly one, else `404 PAIRING_REQUEST_NOT_FOUND`; kds: station validator false → `404 STATION_NOT_FOUND`; new `device_id` + 256-bit token; INSERT `devices` (name from the request, `paired_by` = actor); set `approved_at`, `approved_by`, `device_id`, `delivery_token`; append `DevicePaired { pairing_request_id }` |
+| Result | `{ device_id, device_type, station_id }` (never the token) |
+| Errors | §6.1; `404 PAIRING_REQUEST_NOT_FOUND` / `STATION_NOT_FOUND` |
+
+> ⚠️ Changed by 05a (row H-1): the table above is v1.12.2; 05a §6.3 replaces it where they differ:
+> - **Route:** `sessionKind: 'both'` (`/commands/approve-pairing-request` and `/admin/commands/…`).
+> - **Permission:** `manage-devices`, resolved through the session view (§3.6), so it works only on a `listed` device or in the bootstrap admin session; `access-hub-admin` is not needed on `/commands`.
+> - **Payload:** `{ request_id?, display_code, device_type, device_name: string(1–40), station_id?, access?, staff_ids?, screens?, point_id? }`; `device_type` is any of the four (was `'cashier_kiosk' \| 'kds'`), defaulting on the form from the request's `hardware_hint` and correctable only before approval. `kds` ⇒ `station_id` required, the rest absent. Else `access` and `screens` required; `listed` ⇒ `staff_ids` 1–20 unique; `everyone` ⇒ `staff_ids` absent.
+> - **Handler:** the request lookup and the kds station check as above; a staff device: each `staff_ids` entry in the directory (else `404 STAFF_NOT_FOUND { staff_id }`), screens offered for the hardware (else `400 VALIDATION_FAILED { field: 'screens' }`), `pass` ⇔ `point_id` (else `400 { field: 'point_id' }`), the point active (else `404 POINT_NOT_FOUND`). INSERT `devices` with no owner; the name comes from the payload (was the request); append `DevicePaired` (v1, unchanged) and, for a staff device, `DeviceProfileSet { cause: 'approved', profile_version: 1, needs_review: false }`; close `device_waiting` (`done`) when no other request is pending. Post-commit: refresh the `deviceProfile` map.
+> - **Result:** `{ device_id, device_type, station_id, screens, access }` (never the token).
+> - **Statements:** request read (1), INSERT, UPDATE, appends (2–3), pending read for the close (1) + the close.
+> - **Errors:** §6.1; `400`, `403 PERMISSION_DENIED` (incl. `listed_device_only`), `404 PAIRING_REQUEST_NOT_FOUND` / `STATION_NOT_FOUND` / `STAFF_NOT_FOUND` / `POINT_NOT_FOUND`.
+> - **Events:** `DevicePaired`, `DeviceProfileSet`, `AlertClosed`.
+
+#### 6.33 Endpoint count
+
+Hub: 6.1–6.4, 6.6–6.21, 6.29–6.32 = 24. Cloud: 6.5, 6.22–6.25, 6.28 = 6. **30 endpoints**, at the README budget (~30); plus 3 CLIs (6.26, 6.27, 6.34), which are not endpoints. Static routes are not counted: the five pages (`GET /setup`, `/pair`, `/admin/bootstrap`, `/admin/approve`, `/admin` (M86)), the hub-served client entries (`/staff/`, `/admin/stock/`; ⚠️ Changed by 00 v1.9.2 (owner ruling 2026-11-13, Q-42, Q-43): and `/kds/`, `/admin/kitchen-screens/`, `/admin/printers/`, §8.2) and the UI kit (`GET /ui/*`, 6.35, M81). Query resources on the §6.2 route are listed but not counted (M90): `devices`, `sessions`, `staff-roster`, `session` (counted before v1.3 as 6.17–6.20 and kept in the 30) and the M88 additions `lockouts`, `stations`, `staff`. `GET /setup` after provisioning is the same static route answering `404` with a page (M84). Any further endpoint splits the cloud access part (6.5, 6.22–6.28, cloud CLIs) into its own spec. **v1.5:** still 30. `POST /v1/auth/change-password` is specified and counted in 01b (01b §6.11, §6.16); its code lives in `modules/owner-auth/` by folder placement only (§7.10), so it is not an endpoint of this spec.
+
+> ⚠️ Changed by 01b (B5): change-password is 01b's route; 00 stays at 30 endpoints. See 01b §4.3.
+
+**v1.6 (01d H-11, decided at approval by the developer, 2026-11-01):** Hub: 6.1–6.4, 6.6–6.21, 6.29–6.32 = 24, plus **6.36–6.37** (tablet update, added by 01d v1.0 H-5) = **26**. Cloud: 6.5, 6.22–6.25, 6.28 = 6. **32 endpoints**; plus 4 CLIs (6.26, 6.27, 6.34, 6.38). The split rule applies to the cloud part only: any further **cloud** endpoint splits the cloud access part (6.5, 6.22–6.28, cloud CLIs) into its own spec. Hub endpoints that this spec owns stay here even when another module's spec adds them; endpoints a module spec owns are counted in that spec (as 01b's change-password). (6.37 checks the device token and type, so it is counted, unlike the static `GET /ui/*`, M81.) With README R-9.
+
+> ⚠️ Changed by 01d v1.0 (H-11): 32 endpoints, 4 CLIs; the split rule is for the cloud part. Supersedes the "30 endpoints" and "Any further endpoint splits" sentences above. See 01d §4.5.
+
+> ⚠️ Changed by 05a (row H-1): §6.7 and §6.8 are removed, so the hub part is 6.1–6.4, 6.6, 6.9–6.21, 6.29–6.32, 6.36–6.37 = **24**, and the total **30**. 05a's own route (`POST /admin/recovery-link`, 05a §6.11) and commands are counted in 05a, by the rule above.
+
+> ⚠️ Changed by 00 v1.13 (row H-10): + §6.39 `POST /auth/display`, §6.40 `GET /t/:link` (the page checks the MAC and the rate limit, so it is counted, as §6.37 is) and §6.41 `GET /t/:link/status` → hub **27**, total **33**, plus 4 CLIs (⚠️ Changed by 00 v1.13 hostile run 1 (M-4): §6.40 and §6.41 are served by the public listener, still counted here). `/board/` is a static client entry (not counted). 05a v1.0.7's `pickup-board` query is a query resource on the §6.2 route, counted in 05a.
+
+#### 6.34 Hub CLI `pnpm --filter hub issue-admin-bootstrap` (M72)
+
+| | |
+|---|---|
+| Where | `apps/hub/src/setup/issue-admin-bootstrap.ts` (entry) using `issueAdminBootstrap` |
+| Who | the hub service user on the hub machine; refuses to run as another user (`process.getuid()` ≠ owner of `data_dir` → exit 1) |
+| Preconditions | hub provisioned (else exit 1, "run setup instead") |
+| Processing | load config; `openDb`; build the writer with 00's projections and a branch clock (`createBranchClock` with the max-seq row's `recorded_at`, D48); one `writer.run(tx ⇒ issueAdminBootstrap(tx, 'cli'))` |
+| Output | `first_admin_url` (`http://<advertised_host>:<port>/admin/bootstrap#t=<token>`), its expiry, and a terminal QR (`qrcode.toString(url, { type: 'terminal', small: true })`) |
+| Effect | every earlier live bootstrap token stops working; the new one is single-use, 30 min |
+| Concurrency with a running hub | SQLite `BEGIN IMMEDIATE` + `busy_timeout` serialises with the hub's writer; `seq` stays gap-free because both read `MAX(seq)` inside their transaction. The hub's in-memory `lastSeq` lags until its next commit, which only lowers a new socket's `as_of_seq` (no event is lost; this event has no audience) |
+
+
+#### 6.35 `GET /ui/*` — UI kit (M81)
+
+| | |
+|---|---|
+| Group | `static` (host, guest network); before and after provisioning |
+| Serves | `packages/ui-kit/**/*.css` and `**/*.woff2`, listed once at registration; anything else `404 ROUTE_NOT_FOUND` |
+| Headers | `Content-Type` `text/css; charset=utf-8` / `font/woff2`; `Cache-Control: public, max-age=31536000, immutable` |
+| Query | ignored (pages add `?v=<hash>`, M81) |
+| Errors | `403 HOST_NOT_ALLOWED`, `403 GUEST_NETWORK_FORBIDDEN`, `404 ROUTE_NOT_FOUND` |
+| Writes | none |
+---
+
+#### 6.36 `GET /app/android/latest` (v1.6, 01d H-5)
+
+| | |
+|---|---|
+| Auth | device token (guards §3.9); device type `tablet` (the cashier runs Windows Chrome / Edge, foundation §1, D56), else `403 DEVICE_TYPE_NOT_ALLOWED` |
+| Response | `200 { data: { version_name, version_code, sha256, staged_device_id \| null } }` = the newest release **this device may install**: the newest release if its `staged_device_id` is null (marked good) or equals the calling device; otherwise the newest release with `staged_device_id` null. No such release → `404 ROUTE_NOT_FOUND` |
+| Query count | 1 statement on `app_releases` |
+| Client | the app installs when `version_code` > its own (01d §8.4 windows) |
+
+#### 6.37 `GET /app/android/<version_code>.apk` (v1.6, 01d H-5)
+
+| | |
+|---|---|
+| Auth | as §6.36 |
+| Response | streams the file (`application/vnd.android.package-archive`); unknown version → `404 ROUTE_NOT_FOUND` |
+
+#### 6.38 Hub CLI `pnpm --filter hub app-release` (v1.6, 01d H-5)
+
+- `app-release add <apk> --version-code N --version-name X --stage <device_id>`: copies the APK into `<data_dir>/apk/`, writes `sha256`, keeps the newest 2 good versions plus the staged one, deletes older files.
+- `app-release mark-good <version_code>`: sets `staged_device_id = null`, releasing it to every tablet.
+- State: `app_releases` (§5.1, v1.6). No event: an installation action, logged by the CLI. Nothing else in the pilot (no rollout percentage, no per-device history). (01d Q5.)
+
+> ⚠️ Changed by 01d v1.0 (H-5): new §6.36–§6.38. See 01d §4.5 and 01d §8.4.
+> ⚠️ Changed by 01d v1.1 (AD-34, AD-35): §6.36 and §6.37 use route group `admin-device-public` (§3.9); the §6.38 CLI runs as `tsx src/app-update/cli.ts` (`pnpm --filter @pos/hub app-release …`); the hub has no build step. See 01d v1.1 §4.5.
+
+### Batch 4 — display sessions and the customer status page (⚠️ Changed by 00 v1.13 (rows H-1, H-4–H-7))
+
+#### 6.39 `POST /auth/display` — display session (M96)
+
+| | |
+|---|---|
+| Auth | device token (route group `device` on the main listener: host, provisioned, guest network, client version, device) |
+| Device | type **`cashier_kiosk`**, else `403 DEVICE_TYPE_NOT_ALLOWED { device_type, allowed: ['cashier_kiosk'] }` (⚠️ Changed by 00 v1.13 hostile run 1 (M-2): pilot boards are kiosk PCs; OD-2); its 05a profile is the board (`isBoard(deviceProfile(device_id))`, memory, before the transaction), else `403 DISPLAY_NOT_ENABLED { device_id }` |
+| Input | `{}` |
+| Processing | `writer.run`: **re-read the profile** (`device_profiles`, 1) and refuse `403 DISPLAY_NOT_ENABLED` if it is no longer the board (⚠️ Changed by 00 v1.13 hostile run 1 (m-1)); read the device's active sessions (1); end an active `display` session `'replaced'`; **assertion path**: an active `staff` session found on a board (05a §6.4 should have ended it) is ended `'forced'` (`ended_by` null) and logged `warn { msg: 'staff_session_on_board', device_id, session_id }`; INSERT the session `kind 'display'`, `staff_id` / `station_id` / `idle_ttl_ms` NULL; append `SessionStarted { kind: 'display' }` (stream `hub` / device_id via `sessionStream`, `actor_id` null, `device_id` = the device) |
+| Response | `200 { data: { session_token, session_id, device_id } }` (the voice setting comes with the `pickup-board` read, 05a §6.12) |
+| Idempotency | replace: a retry ends the previous display session and returns a new one |
+| Post-commit | the replaced session's display socket closes `4401` with reason `replaced`, no frame (§6.21); the old window stops and shows "Open in another window" (§8.4, M53 pattern) |
+| Statements | 2 reads + at most 2 ended sessions (UPDATE + append each; the second only on the assertion path) + INSERT + append |
+| Errors | G-dev (`401 DEVICE_TOKEN_INVALID`, `403 DEVICE_REVOKED`, `403 GUEST_NETWORK_FORBIDDEN`, `426`), `403 DEVICE_TYPE_NOT_ALLOWED`, `403 DISPLAY_NOT_ENABLED` |
+| Events | `SessionStarted`, `SessionEnded` (`replaced`; `forced` on the assertion path) |
+| Audiences | none new: session events are not pushed (§4.2) |
+
+`POST /auth/logout` (§6.10) with a display session ends it `'logout'` (no `STATION_LOGOUT_NOT_ALLOWED` analogue: a board that logs out signs in again by itself).
+
+#### 6.40 `GET /t/:link` — customer status page (M97, M98)
+
+| | |
+|---|---|
+| Listener | the **public listener** (`public_status.port`, M97; ⚠️ Changed by 00 v1.13 hostile run 1 (M-4)) |
+| Input | path `link` = `<order_id>.<mac>` (one `.`; Fastify param `link`, split by the handler) |
+| Processing | `checkStatusLink(link)` (M98, memory) → **invalid** → charge the invalid buckets (M99; empty → `429`) → status **404**, the page in its "not valid" state, nothing about the order → **valid** → charge the valid buckets (the order's, global valid; empty → `429`) → **200**, the page. **No statement:** lifetime and order data come from §6.41, which the page calls at once |
+| Response | one **self-contained HTML document** (no `/ui/*`, no font, no image, no request but §6.41): an inline `<style>` and one inline `<script>`, both constant, so their CSP hashes (§7.13) are computed once at registration; `<html lang dir>` chosen by the page script as M83 (`?lang=`, `localStorage` `pos-lang`, `navigator.language`); strings `status.*` in `EN` and `UR` (`apps/hub/src/lib/strings.ts`); system fonts. `Content-Type: text/html; charset=utf-8`; headers §7.13 |
+| Statements | 0 |
+| Errors | ⚠️ Changed by 00 v1.13 hostile run 1 (M-6): the public listener's **error handler** renders this route's errors as the page with `data-code="<CODE>"` on `<body>`: `404 TRACKING_LINK_INVALID`, `429 RATE_LIMITED` (with `Retry-After`), and the guards' `403 HOST_NOT_ALLOWED` / `409 HUB_NOT_PROVISIONED`; the §7.13 headers are on every one (`onSend`). Its **not-found handler** answers any other path (`/t/<link>/`, `/t/<link>/status/x`, …) with the "not valid" page, status 404, the same headers, and ⚠️ Changed by run 3 (R3-M-4) no logged URL. Early HTTP outcomes follow §7.13 |
+| Events / audiences | none |
+
+#### 6.41 `GET /t/:link/status` — status read (M98)
+
+| | |
+|---|---|
+| Listener | the public listener |
+| Input | path `link` as §6.40 |
+| Processing | `checkStatusLink` → invalid → invalid buckets → `404 TRACKING_LINK_INVALID { reason: 'invalid' }` → valid → valid buckets (order, global) → **02b v1.0.25 §4.2 `takeawayProgress(db, state, { group_of: order_id })`** (⚠️ Changed by 00 v1.13 hostile run 1 (B-1): 02b's export, cited, not restated) → `[]` (unknown or not takeaway) → `404 { reason: 'invalid' }` ⚠️ Changed by run 3 (R3-M-8) → lifetime from the replayable group tracking cutoff and business date (M98) → `404 { reason: 'expired' }` → build the view |
+| Response | `200 { data: StatusView }` (below); `Cache-Control: no-store` |
+| Statements | **2** (02b's export: ⚠️ Changed by run 3 (R3-M-6) ⚠️ Changed by run 3 (R3-M-8) the group's orders, including projected `tracking_close_cutoff_ms`, and their lines with `parent_order_item_id` and 03b's `LINE_READY_AT_SQL`); 0 for the link, the limiter and the engine reads (memory) |
+| Errors | the listener's error handler answers with the JSON envelope: `404 TRACKING_LINK_INVALID { reason: 'invalid' \| 'expired' }`, `429 RATE_LIMITED { retry_after_ms, scope }`, guard errors; ⚠️ Changed by run 3 (R3-M-4) §7.13 headers on every reply. Early HTTP outcomes follow §7.13 |
+| Events / audiences | none |
+
+```ts
+StatusView = {
+  token: number; business_date: string;
+  state: 'preparing' | 'ready' | 'part' | 'collected' | 'cancelled';
+  pay: 'due' | 'paid';                 // 'due' while any non-cancelled order of the group has billed_at null (⚠️ hostile run 2 R2-M-2); never an amount
+  ready_around_ms: number | null;      // 'preparing' only: the group's latest promise_ms (02b export)
+  pickup_at_ms: number | null;         // ⚠️ Changed by run 3 (R3-M-6) the root order's stored pickup_at_ms, retained after boost (D1), else null
+  effective_pickup_at_ms: number | null; // ⚠️ Changed by run 3 verify (V-01) root order’s effective pickup from takeawayProgress, for preparing copy
+  ready_at: number | null;             // 'ready' / 'part': latest line ready_at of the ready unserved lines
+  items: Array<{ name: string; qty: number; state: 'preparing' | 'ready' | 'collected' }>;
+  hub_now_ms: number; poll_ms: 10000;
+}
+```
+
+- ⚠️ Changed by run 3 (R3-M-6) **Lines and readiness (D1).** Use the 02b §4.2 per-line rule over live work lines, including held lines. Deal headers are presentation rows and their parts count as work lines. A boost keeps `EngineOrder.pickup_at_ms` and `orders.pickup_at_ms` and sets `boosted = true`. Use `boosted ? null : pickup_at_ms` for scheduling and holds, and ⚠️ Changed by run 3 verify (V-01) the stored pickup time for history and the effective time for the preparing message. Ready is whole-order, including after boost. In the group view, no live work lines → `cancelled`, all served → `collected`, all remaining lines ready → `ready`, some ready → `part`, otherwise `preparing`. A partial group does not imply any incomplete order is Ready.
+- ⚠️ Changed by run 3 (R3-M-6) **Items.** Use the internal `parent_order_item_id` field from 02b §4.2. Index live deal parts (`live_units > 0`) by `(order_id, parent_order_item_id)` in memory. For each top-level deal header use only its own live parts. Omit a header with no live parts. All parts served → `collected`, all remaining parts ready → `ready`, otherwise `preparing`. Return one entry per eligible live top-level line with no part, option or parent IDs in the response. `qty = live_units` (1 for a weighed line). Merge entries with the same name and state in line order and keep at most 30.
+- **Pay** (⚠️ Changed by 00 v1.13 hostile run 2 (R2-M-2)): a cancelled order (`cancelled_at` set) is never billed (05), so `pay` reads only the group's non-cancelled orders.
+- **Never in the view (R3, R5):** prices, amounts, totals, customer name, phone, staff names, table, order or kitchen note, any id other than the token. The Zod response schema is `.strict()`.
+
+## §7. Cross-cutting
+
+### 7.1 Hub request pipeline order
+
+`onRequest`: assign `request_id` (ULID) → host (M45) → provisioned → guest network → client version → device token / admin session / session (per route group; each records `authGeneration`, M39). `preValidation`: Zod (fastify-type-provider-zod). Handler. `onSend`: `Idempotent-Replay` / `Retry-After` headers. Error handler: `DomainError` → catalogue status; Zod → `VALIDATION_FAILED`; anything else → `INTERNAL_ERROR` (logged with stack, never returned). Prevents: a route reaching its handler without its guards (route-inventory test). ⚠️ Changed by run 3 (R3-M-1) The public listener follows M97: transport admission before Fastify, then Host, provisioned, link validation and M99 on matched routes.
+
+### 7.2 Logging and redaction
+
+Fastify's pino logger, JSON to journald. ⚠️ Changed by run 3 (R3-M-3) Fields on standard request lines (public listener uses the summary below): `request_id`, `branch_id`, `device_id`, `session_id`, `staff_id`, `route`, `status`, `ms`. Redacted paths: `req.headers.authorization`, `req.headers["x-session-token"]`, `req.headers["x-admin-session"]`, and any body field named `pin`, `password`, `pairing_token`, `registration_code`, `refresh_token`, `device_token`, `session_token`, `admin_session_token`, `branch_api_key`, `access_token`, `bootstrap_token`, `poll_secret`, `delivery_token`, `backup_encryption_key`, v1.5 (01b B5) `current_password`, `new_password`, and headers `x-admin-bootstrap`, `x-poll-secret`. Request and response bodies are never logged. A test greps captured log output of the whole auth test suite for every secret it used. Prevents: PINs and tokens in journald or support bundles.
+
+> ⚠️ Changed by 01b (B5): cloud redaction adds `current_password` and `new_password`. See 01b §4.3.
+
+> ⚠️ Changed by 05 (row H-4): a payload field that is a secret, a government ID, a payment reference or free text is never hashed, stored or echoed (§3.7); it is not in a log line and not in `VALIDATION_FAILED.issues`. A hub test asserts that no request body is logged for `/commands/*` and `/admin/commands/*`.
+
+> ⚠️ Changed by run 3 (R3-M-3) `status_link_key` is redacted. Set `disableRequestLogging: true` on the public instance and route public request, framework and transport errors to counters only. Never send a URL, link parameter, MAC, header, request buffer or raw error data to the public logger.
+>
+> ⚠️ Changed by run 3 (R3-M-3) Classify each terminal public outcome once: `ok` (200), `invalid` (matched 404), `limited` (M99 429), `unmatched` (route miss), `guard_denied` (Host/provisioned), `malformed` (framework URL error, parser error, receive deadline or forbidden GET body), `overload` (connection, admission or pipeline cap), or `failed` (other request failure). Count a pre-request socket rejection once and do not count it again on close. Emit one `info { msg: "public_summary", ok, invalid, limited, unmatched, guard_denied, malformed, overload, failed }` per non-empty minute, snapshotting and resetting counts at the interval boundary. Keep lifecycle logs separate. (R2-m-3): the **main** listener's request serializer logs any path that starts with `/t/` as `'/t/*'` (a status link opened on `http_port` never logs its MAC).
+>
+> ⚠️ Changed by 02b v1.0.25 (row TK-6; folded by 00 v1.13 hostile run 1): the hub request-log redaction (`server.ts` `redactQueryToken`: `t`, `device_token`, `session_token`) adds **`phone`**; a test as 00's existing redaction test (test 200); `customer-orders` ships only with it.
+
+### 7.3 Timers
+
+| Timer | Interval | Work |
+|---|---|---|
+| Session sweeper | 15 s | flush activity and `last_seen_at` (⚠️ Changed by 02b v1.0 (H-1): incl. paused devices' shifted `last_activity_at`, M95); end idle sessions (skipping paused devices; ending those past the M95 cap); clear expired `delivery_token`s |
+| Heartbeat | 60 s | upsert `hub_heartbeat` (D41) |
+| Retention | in `maintenance_hour`, batches of 500 | §5.1 retention (M66) |
+| Confirm task | 60 s until confirmed | §6.28 (M41) |
+| Hub tick (v1.6) | 500 ms | registered ticks (`registerTick`, 01d §3.5), each in its own transaction, opened only when `due` |
+| Receipt flush (v1.6) | 1 000 ms or 100 receipts | 01d §3.6; skipped when the buffer is empty |
+
+⚠️ Changed by 00 v1.13 (row H-6): the public rate limiter has no timer of its own: buckets refill lazily when read, and the session sweeper (15 s) drops per-IP buckets idle for more than 10 min (memory only).
+
+The session sweeper (sweep, then retention) is wrapped in try/catch: an error is logged `{ timer: 'sweeper', error }` and the next run continues (`apps/hub/src/auth/session-sweeper.ts` `startSweeper`).
+
+> ⚠️ Changed by 01d v1.0 (H-8): two timers added; sweeper errors caught. See 01d §4.5.
+> ⚠️ Changed by 01d v1.1 (AD-28, AD-29, AD-109, AD-110, AD-111): the sweeper logs `{ timer: 'sweeper', err }` (pino serializes an Error only under `err`) and `startSweeper(deps, log)` takes a logger (one call site, `lib/boot.ts`); the hub tick logs a whole-tick error `{ tick, err }` and the other ticks still run, `startTickLoop(deps, log)` takes a logger, and each tick's `due` runs on a read-only view. See 01d v1.1 §3.5, §4.5.
+
+> ⚠️ Changed by 03c v1.0.1 (H-11; G-7, G-8): the print worker starts **after listen**, next to `startTickLoop` in `lib/boot.ts`, and its stop joins the boot handle's stop; the print queue resume runs at boot step 5 through the existing `registerBootStep('5')`, registered by `registerPrintBootSteps()` (called once from `main.ts` after `registerRestaurantBootSteps()`). Module wiring: `registerKds(app, deps)` and `registerPrint(app, deps)` right after `registerOrders` in `buildHubServer`; `registerKdsProjections` / `registerPrintProjections` after `registerOrdersProjection` in `createDeps` (and the test hub). The maintenance-hour `purge()` calls 03c's print retention once, after `purgeAlerts` (no retention registry).
+
+> ⚠️ Changed by 05 (row H-3): the **fiscal worker starts after listen**, beside the print worker (03c H-11 pattern), in `apps/hub/src/lib/boot.ts`, and its stop is joined in `beat.stop`. 05 provides `startFiscalWorker(deps)`.
+
+### 7.4 Argon2 semaphores (M23, M42)
+
+Two process-wide semaphores: PIN (`auth.argon2_concurrency`, 2) and admin (`auth.admin_argon2_concurrency`, 1). FIFO, 2 s deadline.
+
+### 7.5 CORS (M35)
+
+`@fastify/cors` is **not** added; the hub sets `Access-Control-Allow-Origin` for origins in `cors_origins` on `/commands`, `/queries`, `/auth`, ~~`/devices/pair`~~ (Removed by 05a (row H-1)), `/pair/*` and answers `OPTIONS` preflight (allowed headers: `Authorization`, `X-Session-Token`, `X-Client-Version`, `X-Poll-Secret`, `Content-Type`; ⚠️ Changed by 02b v1.0 (H-1): and `X-Queued-At`). `/admin/*` and `/setup/*` send no CORS headers (same-origin only). Prevents: tablet requests failing in the WebView; another LAN origin driving admin routes from a browser.
+
+### 7.6 Cloud rate limiting
+
+Owner login per account (M33, M64) and per IP (M64).
+
+### 7.7 Env and config
+
+Hub: config file only (§3.10), `POS_HUB_CONFIG` for tests. Cloud: `DATABASE_URL`, `JWT_SECRET` (≥ 32 bytes), `REFRESH_TOKEN_SECRET` (≥ 32 bytes, M49), `PORT`, `HUB_MIN_VERSION`.
+
+### 7.8 Performance targets (hub mini PC)
+
+| Path | Target |
+|---|---|
+| `/auth/pin` p95, no contention | ≤ 300 ms |
+| Command pipeline overhead (no-op command) p95 | ≤ 5 ms |
+| 00's boot steps (0, 1, 3a, 4 with no stale projection, 4a, 4b skipped, 7) on a **1 M-event** database | ≤ 5 s (M48; test #100) |
+
+### 7.9 Encrypted file format (M21, M67)
+
+`MAGIC 'POSENC1\n'` ‖ IV (12) ‖ ciphertext ‖ tag (16), AES-256-GCM. **Encrypt:** stream to `dst.tmp`, fsync, rename. **Decrypt:** stream to `dst.tmp`; only after `final()` verifies the tag, fsync and rename to `dst`; on failure delete `dst.tmp`. No output path ever holds unverified plaintext. Pre-migration plaintext copies live in `data_dir` until encrypted and are deleted at boot step 1 if a crash left one.
+
+### 7.10 Folder placement (§6.9)
+
+Files land in the §6.9 folders: `apps/hub/src/{config,db,commands,queries,projections,engine-host,ws,auth,setup,lib}`, `apps/hub/deploy/` (M36), `apps/cloud/src/{plugins,modules/{hub-registration,owner-auth,staff-roles,health},db,lib}` and `apps/cloud/src/cli/` (M56; the only new folder). `engine-host/` holds only the generic state holder and writer in 00; 03a adds tick and snapshots there. v1.5: `modules/owner-auth/` also holds 01b's change-password route, and `cli/` holds 01b's `reset-owner-password.ts` and `link-owner-staff.ts`.
+
+> ⚠️ Changed by 01b (B5, B7): `owner-auth/` hosts 01b's change-password; `cli/reset-owner-password.ts`, `cli/link-owner-staff.ts`. See 01b §4.3.
+
+> ⚠️ Changed by 00 v1.13 (rows H-1, H-4–H-6); ⚠️ Changed by 00 v1.13 hostile run 1 (M-4, m-5): `apps/hub/src/auth/display-session.ts` (§6.39), `apps/hub/src/lib/status-link.ts` (M98), `apps/hub/src/lib/rate-limit.ts` (M99), and a **new folder** `apps/hub/src/status/` (`listener.ts` the second Fastify instance and its handlers, `routes.ts`, `page.ts`: §6.40, §6.41; owner decision OD-6, CLAUDE.md asks before a folder change). The WS display list and `registerDisplayCatchUp` / `registerDisplayHint` live in `apps/hub/src/ws/`. `lib/client-dist.ts` `TYPES` gains `'.mp3': 'audio/mpeg'` for the 05a board's voice clips (05a v1.0.7 §8).
+
+### 7.11 Library versions (M26, M68; npm registry 2026-10-23)
+
+| Package | Version |
+|---|---|
+| `fastify` | 5.12.7 |
+| `fastify-type-provider-zod` | 7.0.0 (peer `zod >=4.1.5`; foundation says ≥ 4.2; 4.6.7 satisfies both) |
+| `zod` | 4.6.7 |
+| `better-sqlite3` | 13.0.3 |
+| `@node-rs/argon2` | 2.2.2 |
+| `@fastify/websocket` | 11.3.4 (on `ws` ^8.16) |
+| `@fastify/jwt` | 10.2.5 |
+| `pg` | 8.23.1 |
+| `ulid` | 3.0.2 |
+| `vitest` | 4.1.12 (5.x exists; MQ9) |
+| `eslint` / `typescript-eslint` | 10.13.0 / 8.72.0, flat config `eslint.config.js` |
+| `tsx` (dev, CLIs) | 4.23.15 |
+| `qrcode` (hub: CLI M72, `lib/qr.ts` M77) | 1.5.4 (npm registry 2026-10-23) |
+
+### 7.12 Public rate limiter (M99) — ⚠️ Changed by 00 v1.13 (row H-6); ⚠️ Changed by 00 v1.13 hostile run 1 (M-5, m-2)
+
+| Bucket | Charged by | Capacity | Refill | Key |
+|---|---|---|---|---|
+| invalid, per IP | a link that fails `checkStatusLink` (~~, or an unknown / non-takeaway order~~ ⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-2): a valid MAC proves the key; an unknown order is a purged one, charged as valid): `invalid_cost` = 5 tokens | `ip_burst` 20 | `ip_per_min` 4 tokens a minute | `request.ip` (no proxy header read) |
+| invalid, global | the same requests, 1 token | `invalid_burst` 20 | `invalid_per_s` 5 a second | one |
+| valid, per order | a request whose link checks: 1 token | `order_burst` 10 | `order_per_min` 30 a minute | `order_id` |
+| valid, global | the same, 1 token | `valid_burst` 500 | `valid_per_s` 50 a second | one |
+
+- ⚠️ Changed by run 3 (R3-M-5) After M97 ingress and guard admission, the link check (memory, 0 statements) selects the valid or invalid pair. Refill and inspect both buckets at one monotonic timestamp. Admit only when both can pay their full cost and debit both atomically. On denial debit neither. A valid link uses only the per-order and global-valid buckets, including behind verified NAT.
+- ⚠️ Changed by run 3 (R3-M-5) On denial, compute time to cover each deficit and use the longer wait (ties use the per-IP or per-order scope). Return `429 RATE_LIMITED { retry_after_ms, scope: "ip" | "invalid" | "order" | "valid" }` with `retry_after_ms` rounded up to whole milliseconds and `Retry-After = ceil(retry_after_ms / 1000)` seconds. Stop before any statement.
+- Budget: one order polled every 10 s by up to three phones plus page loads stays under 30 a minute; the page fetches on `visibilitychange` at most once per `poll_ms` (§8.6). A guesser gets **4 tries, then about 1 more every 75 s** per IP (cost 5 against 4 tokens a minute); a whole /24 of static addresses still meets the global invalid bucket (5 a second), which customers never use. The global valid bucket fits about 300 polling phones (0.1 / s each) under 50 / s, ⚠️ Changed by run 3 (R3-M-5) up to 100 SQLite statements/s at sustained refill, plus up to 1,000 statements funded by a full starting burst.
+- ⚠️ Changed by run 3 (R3-M-1) ⚠️ Changed by run 3 (R3-M-2) M99 bounds handler work. M97’s independent admission bucket charges one token per request, uses a monotonic clock and is keyed by the socket’s IPv4 address. It covers guard failures and unmatched paths too. Use a separate bounded 4,096-entry IP LRU with the same 10-minute idle sweep. For verified NAT the router applies the per-client budget before translation. Ignore forwarding headers. Public outcomes feed the §7.2 summary.
+- Memory: at most **4 096** IP buckets and **4 096** order buckets; at the cap the least recently used is evicted; the session sweeper drops buckets idle > 10 min. Lost on restart.
+
+### 7.13 Public responses and the guest network (runbook) — ⚠️ Changed by 00 v1.13 (rows H-7, H-11); ⚠️ Changed by 00 v1.13 hostile run 1 (M-4, M-6, m-8, m-13)
+
+**Headers on every public-listener reply** ⚠️ Changed by run 3 (R3-M-4) (one shared header set, applied in `onSend` and explicitly for replies outside normal hooks): `Content-Security-Policy: default-src 'none'; script-src 'sha256-<inline script>'; style-src 'sha256-<inline style>'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`; `X-Content-Type-Options: nosniff`; `Referrer-Policy: no-referrer` (the link never leaves in a `Referer`); `X-Frame-Options: DENY`; `Cache-Control: no-store`. No cookie is ever set; no CORS header.
+
+⚠️ Changed by run 3 (R3-M-4) **Early HTTP outcomes.** The framework error handler returns fixed plain-text 400 `Bad Request` for a malformed URL and 414 `URI Too Long` for an overlength parameter. Set the shared headers explicitly, echo no path or framework error, and do zero DB work. Configure Node `clientError` (including receive timeouts) and `dropRequest` handlers to destroy the socket without an HTTP reply. Refuse unsupported Expect exchanges without a provisional response. At shutdown stop admission and close public sockets before tearing down their dependencies. Suppress default pre-hook replies or apply the same headers if a reply is sent. Early outcomes use the §7.2 counters.
+
+**Runbook note (installation guide, with M58):**
+1. The guest SSID is on its own subnet / VLAN, listed in `guest_network_cidrs` (M58), with client isolation on. Prefer **WPA3-SAE or OWE ("Enhanced Open")** where the router supports it, so one guest cannot read another phone's traffic (M98 accepted leak).
+2. Router firewall: guest → **the hub's IP, TCP `public_status.port` only**: allow; guest → `http_port` and every other LAN address or port: **deny**. Guest → internet as the restaurant wants.
+3. ⚠️ Changed by run 3 (R3-M-2) Default to routed guest IPv4 with distinct source addresses. NAT is supported only if the router enforces per-client limits of 16 concurrent public connections and 40 burst / 20 requests per second before translation. Record the one fixed address the hub observes as `public_status.nat_router_ipv4`. If the router cannot meet this condition, leave the status page disabled (OD-5).
+4. Keep `advertised_host` fixed (a DHCP reservation): printed slips carry it until the link expires.
+5. ⚠️ Changed by run 3 (R3-M-7) In a pre-service window, while disabled and with the firewall rules installed, verify that guest Wi-Fi cannot connect to the main port or other staff LAN destinations. Keep the deny rules in place throughout.
+6. ⚠️ Changed by run 3 (R3-M-7) ⚠️ Changed by run 3 (R3-M-2) Once isolation passes, set `public_status.enabled: true` and restart the provisioned hub. Before issuing customer slips, on guest Wi-Fi use `http://<advertised_host>:<public_port>` and check `/t/x.y` and `/health` return the not-valid page, and a known valid link and its status read return 200. Confirm the main port still cannot be reached. For NAT, verify concurrently from two guest clients that the router caps one client without stopping the other client’s valid poll. On any failure disable the feature and restart before service. In the disabled state slips have no QR.
+7. **Rotate the link key** (a slip photo leaked, a suspicion): delete `status_link_key` from the config and restart; a new key is made at boot (M100) and every link printed earlier stops answering.
+8. The page is LAN-only: a customer on mobile data cannot open it. The slip says which Wi-Fi to join (03c).
+9. ⚠️ Changed by run 3 (R3-M-1) ⚠️ Changed by run 3 (R3-M-2) Use router per-client controls for the public port where offered on a routed network. For NAT the controls in step 3 are mandatory.
+
+---
+
+## §8. Client contract
+
+### 8.1 Capacitor app (tablets)
+
+> ⚠️ Changed by 05b (rows H-2, H-3): **this section is now the 05b Tablet App** (`docs/specs/05b_Staff_Tablet_App_Spec_v1.0.md`): a Capacitor shell that loads the hub's `/staff/` page (05b O-10) with a native alert service. Where a bullet below disagrees, 05b wins: **transport** = a global cleartext permit (the address is typed per site; owner O-14 accepts the LAN risk), the bundled first-run / unreachable pages never call the hub from JS (native `probeHub`); **pairing** = the 05a request flow on the hub's pair page, which sends `hardware_hint: 'tablet'` inside the app and hands `{ token, device_id, device_type }` to native (`PosNative.setDeviceToken`), the hub address typed as `host:port` (05b M-16); **token** = IndexedDB `pos-device` for the page as in a browser, plus a native copy for the alert service (05b M-2); **background service and update** = 05b M-4–M-15; **headers** = the page sends what the browser page sends, native calls send `X-Client-Version`.
+
+- **Transport:** the hub is plain HTTP/WS on the LAN (foundation §1). Capacitor 6+ serves the app from an `https://localhost` origin by default, which would make every hub call mixed content. Requirement: `server.androidScheme: 'http'` (origin `http://localhost`, matching `cors_origins`) and an Android network security config that permits cleartext **only** to private ranges (`10/8`, `172.16/12`, `192.168/16`), not a global `usesCleartextTraffic`. To verify against current Capacitor docs during the 02 client work (source checked here: community reports only, MQ7).
+- **Pairing:** ~~scan the QR (`pair_url`), extract `t`, send `POST /devices/pair` with a new `pair_request_id` kept until success; on a lost response retry with the same id (M14).~~ ⚠️ Changed by 05a (row H-1): the app pairs by request like every device: it shows the request code from `POST /pair/requests` with `hardware_hint: 'tablet'` and polls `GET /pair/requests/:id`. It must learn the hub address without a token QR (typed, or a QR of the hub address shown by setup or the admin home); 9b specifies how (05a §8).
+- **Token storage:** `device_token` in Android Keystore-backed secure storage (plugin chosen in 02); `session_token` in memory only (app restart = log in again). PINs are never persisted on the device (v1.6, H-10).
+- **Background service** holding the alert connection (01d §8.2); silent update from the hub (§6.36–§6.38) (v1.6, H-5).
+- **Headers:** `Authorization`, `X-Session-Token`, `X-Client-Version` on every request.
+- **Admin screens** in the tablet app call `/admin/*` with the tablet's device token plus `X-Admin-Session` (M42). The app approves a screen in its own admin screen (display code typed, or `r` read by an in-app scanner) and posts `ApprovePairingRequest` (⚠️ Changed by 05a (row H-1): from a `listed` device only, on `/commands` with a staff session or `/admin/commands`; the display code is always typed, `r` only fills the request); it does not open `/admin/approve`, whose browser storage is not the app's (M79).
+
+> ⚠️ Changed by 01d v1.0 (H-5, H-10): background service and hub update; PINs never persisted. See 01d §4.5.
+
+### 8.2 Hub-served browsers (cashier kiosk, KDS, staff phones, admin)
+
+- **No service worker, no secure-context-only APIs (README R15).** The hub origin is plain HTTP on the LAN, so service workers do not run (except on the kiosk, which Chrome/Edge launches with `--unsafely-treat-insecure-origin-as-secure=http://<hub-ip>:3000`). The client never depends on a service worker; the command queue is IndexedDB only. IDs use `crypto.getRandomValues` (available without a secure context); `crypto.randomUUID` and `crypto.subtle` are not used.
+- **Kiosk and KDS pairing (M44)** (⚠️ Changed by 05a (row H-1): **every device**, tablets and phones too; one flow: big code + QR, text "Ask someone with hub access to approve this screen"; the page sends `hardware_hint: 'phone'` when the user agent matches `/iPhone|Android.*Mobile/`, else no hint): the unpaired screen opens `/pair` ~~(no `t`)~~, calls `POST /pair/requests`, keeps `poll_secret` in memory, shows the QR (`approve_url`) and the display code, and polls `GET /pair/requests/:id` every 2 s until approved or expired (then shows ~~"Ask a manager to pair this screen"~~ the expired state and offers a new request). On approval it stores `device_token`, `device_id` and `device_type` in IndexedDB; ~~KDS then calls `POST /auth/station`~~ ⚠️ Changed by 00 v1.9.2 (owner ruling 2026-11-13, Q-42): KDS then goes to **`/kds/`** (03b's KDS entry, which calls `POST /auth/station` itself; the pair page no longer calls it), every other device type goes to `/staff/`. On a later load with a stored token the page does not create a request: KDS goes to `/kds/` (⚠️ Changed by 00 v1.9.2 (owner ruling 2026-11-13, Q-42): was "KDS calls `POST /auth/station`"), others go to `/staff/` (the staff login, 01d) (⚠️ Changed by 00 v1.9.1 (owner ruling 2026-11-12, Q-13): was "others go to login"; the phone `?t=` path: see rules 1 and 3 below (Q-29)); `401 DEVICE_TOKEN_INVALID` / `403 DEVICE_REVOKED` wipe the stored values and start a new request (§8.4).
+- **Approving (M44, M79):** ⚠️ Changed by 05a (row H-1): the approve form is in `/staff/` (`#/devices`) on a `listed` device, opened from the `device_waiting` notice or the device list; `/admin/approve` stays for the bootstrap admin session. The QR fills the request (`r`); **the display code is always typed** (the M44 proof), never prefilled (05a §8). The v1.12.2 `/admin/approve` steps: the manager scans the QR (opens `/admin/approve?r=…` in the phone browser) or opens `/admin/approve` on a hub-served admin device and types the display code. The page loads with no credentials. Its script:
+  1. Reads `token` and `device_id` from IndexedDB `pos-device` (written by the pair page on every successful pair or approval poll) and `admin_session_token`, `admin_staff_id`, `admin_bootstrap` from `sessionStorage`.
+  2. No device token and no bootstrap admin session → "Open this on a paired admin device and type the code there" (key `pairing.approve_needs_admin_device`); no request is sent.
+  3. Device token but no admin session in this tab → admin login in the page (`GET /admin/login-roster`, PIN → `POST /admin/auth`); stores `admin_session_token` and `admin_staff_id` in `sessionStorage`.
+  4. Form: display code (with `request_id` = `r` when present), type, station for KDS (⚠️ Changed by 05a (row H-1): or, for a staff device, name, `access`, people, screens and point, 05a §6.3; form defaults from the hint: `phone` → `listed`, one person to pick, screen `dine_in`; `cashier_kiosk` or no hint → `everyone`, `takeaway` + `cashier` + `manager`; `tablet` → `everyone`, `dine_in` + `manager`) → `ApprovePairingRequest` with `device_id` from IndexedDB (`'hub-admin'` and no `Authorization` for a bootstrap session).
+- **Bootstrap page (M42, M79):** after a successful `POST /admin/auth/bootstrap` it stores `admin_session_token`, `admin_staff_id` and `admin_bootstrap = '1'` in `sessionStorage`.
+- ~~**Phone theme (M91):** with `?t=` the pair page sets `data-theme="light"` before rendering; screens keep the served dark theme.~~ (Removed by 05a (row H-1): the `t` branch is gone, M91.)
+- **Language (M83):** the page script chooses `en` or `ur` on load (`?lang=`, then `localStorage` `pos-lang`, then `navigator.language`), sets `lang` and `dir` on `<html>`, and takes every text from `EN` or `UR` through `t()`. Codes, PINs, addresses, links, times and counts stay LTR.
+- **Setup addresses (M85):** `GET /setup` renders this machine's IPv4 addresses as pick tiles (Ethernet first and preselected) plus "Other address" with the typed field; the chosen value is sent as `advertised_host`.
+- **Hub admin home (M86):** `GET /admin` loads without credentials; its script signs in like `/admin/approve` step 3, keeps `permissions` (M89; ⚠️ Changed by 05 (row H-2, R-37): four keys, with `manage-fiscal-settings` and `close-business-day`) with the admin session in `sessionStorage`, hides actions the admin lacks, and treats `403 PERMISSION_DENIED` as the read-only state. Kitchen screens with `last_seen_at` older than 2 minutes show a warning (Q8). ⚠️ Changed by 00 v1.9.2 (owner ruling 2026-11-13, Q-43): the side-nav gains **Kitchen screens** (`/admin/kitchen-screens/`) and **Printers** (`/admin/printers/`) next to the stock link, each shown when the admin has `manage-devices`; the home gains two tiles with one status line each, read on open like the other lists (Kitchen screens: screen and warning counts from `GET /admin/queries/kds-config`, 03b §6.12; Printers: printer status and waiting counts from `GET /admin/queries/print-queue`, 03c §6.7; a `404` or `403` → the tile without a status line); ~~each Devices row of a `tablet` gets a **"Use as Pass tablet"** link to `/admin/kitchen-screens/#bind=<device_id>` (the Kitchen screens page opens its bind dialog for that device).~~ ⚠️ Changed by 05a (row K-2): every **non-kds** Devices row gets a link to the **device edit form** (05a §8: `#/devices` in `/staff/` and `/admin#devices`; `SetDeviceProfile` sets screens and point, so a Pass device is any non-kds device with `pass` + `point_id`); the Kitchen screens page links to the same form. ⚠️ Changed by 05a (row H-1): the Devices view lists pending requests and approves them, and the home and Devices view lose the **Add a phone** and **Add a tablet** actions (M86).
+- ⚠️ Changed by 00 v1.9.2 (owner ruling 2026-11-13, Q-42, Q-43): **Client entries served by the hub** (route group `admin-page`, built `apps/client` entries, like `/staff/` and `/admin/stock/`): **`/kds/`** (03b KDS, served with the same `indexMeta` page meta as `/staff/`: tenant and branch ids, branch name, hub clock; ⚠️ Changed by 05b (row H-1): `/staff/` alone also carries `pos-staff-build`), **`/admin/kitchen-screens/`** (03b) and **`/admin/printers/`** (03c). The pages load with no credentials, like the other static pages; their scripts send the device token and the session or admin session on their own requests. The routes are always registered (`registerClientDist`, `apps/hub/src/lib/client-dist.ts`); a missing build directory is logged and its routes answer **`404 ROUTE_NOT_FOUND`**, as the existing entries.
+- ⚠️ Changed by 05 (row H-2): **Hub admin entry `/admin/fiscal/`** (the `/admin/printers/` pattern of v1.9.2): a side-nav item and a home tile, shown when the admin has `manage-fiscal-settings` (⚠️ Changed by 05 (row H-2, R-37): read from the admin sign-in `permissions` key `manage-fiscal-settings` (M89), kept with the admin session in `sessionStorage` like the other keys; a missing or `false` key hides both, never fail-open). The page (05's client) lists the POS IDs from the branch fiscal settings with "Token: set on <date>" or "not set" and a write-only field per POS ID that sends `SetFiscalToken`; the field is never pre-filled. One field per (`pos_id`, credential `name`) for each `credentialNames` entry of the branch's adapter and of any adapter on a pending row (PRA: `token` only). No hub config field and no CLI.
+- ⚠️ Changed by 00 v1.13 (row H-3): **`/board/`**: the 05a v1.0.7 pickup board entry (route group `admin-page`, a built `apps/client` entry, served with the `/kds/` page meta: tenant and branch ids, branch name, hub clock; a guest IP gets `403`). The page calls `POST /auth/display` itself, so one page owns the display session (as `/kds/` owns the station session, M53). The **pair page** sends a device whose approved poll carries `screens: ['board']` to `/board/` instead of `/staff/`. A later load with a stored token still goes to `/staff/`, whose sign-in reads `staff-roster` and, on `403 DEVICE_ACCESS_DENIED { reason: 'display_device' }` (05a v1.0.7 §3.5), goes to `/board/` (⚠️ Changed by 00 v1.13 hostile run 1 (m-10): after first sending its IndexedDB command queue under the queued session, 05a v1.0.7 §8); `/board/` on `403 DISPLAY_NOT_ENABLED` goes to `/staff/`. A kiosk PC used as a board runs Chrome / Edge in kiosk mode and auto-starts `/board/` (installer; pilot boards are `cashier_kiosk` only, OD-2). The hub admin home (M86) shows a device row whose `active_session.kind` is `display` as "Pickup board" (key `devices.board_session`).
+- ⚠️ Changed by 00 v1.13 (rows H-4, H-5): **Customer status page** `/t/<order_id>.<mac>` on the public port (§6.40): client contract in §8.6.
+- **Global states (00-F01…F08):** every page maps §8.4 codes through one helper (`apps/hub/src/lib/global-state.ts`).
+- **Look and text (M82):** every page links `/ui/tokens.css` and `/ui/components/bundle.css`, sets `lang`, `dir` and `data-theme` (`dark` on `/pair`, `light` elsewhere) on `<html>` and `class="pos-root"` on `<body>`, and shows text from the `EN` table (`errors.<CODE>` for error codes, never `message`). PIN inputs are `type="password"`, `inputmode="numeric"`. Setup: busy button, slow-call banner after 3 s, error banner per code, failing field marked from `details.issues[].path`, success screen with the first-admin QR and link. Bootstrap: admin roster as name tiles (locked ones disabled with the time left), success screen linking `/admin/approve` in the same tab. Phone pairing: a device-name field (1–40 characters) replaces `window.prompt`.
+- **Admin session hygiene (M43):** before any same-tab navigation to `/pair` or a `pair_url`, the admin UI calls `POST /admin/auth/logout` and clears `sessionStorage`. `admin_session_token` lives in `sessionStorage` only.
+- **First admin (M42):** the setup page shows `first_admin_url` as a link and QR; `/admin/bootstrap` reads the token from `location.hash`, sends it only in the request body / `X-Admin-Bootstrap` header, then removes it from the address bar (`history.replaceState`).
+- ⚠️ Changed by 05a (row H-1): the two bullets below are **removed** (phones and tablets pair by request, as every device); kept struck as history.
+- ~~**Phones (M38):** the manager generates a `phone` token for the staff member in the admin UI on a paired admin device; the staff member scans the QR with the phone camera, which opens `pair_url` in the phone browser; the hub-served pair page asks for a device name and calls `POST /devices/pair`. The roster shows only the owner, so login is PIN only. The device token is in IndexedDB. Browsers may clear site storage of rarely used origins (Safari: script-written storage after 7 days without use); home-screen web apps are reportedly exempt (MQ10).~~
+- ~~**Tablets (⚠️ Changed by 00 v1.12.2 (owner, 2026-11-22, STAB-1)):** the manager opens **Add a tablet** (`#add-tablet`) on a paired admin device and taps Make QR (`GenerateDevicePairingToken { device_type: 'tablet' }`, no owner); the tablet scans the QR with its camera, which opens `pair_url` (`…&d=tablet`); the pair page asks for a device name and calls `POST /devices/pair` with `device_type: 'tablet'`, then opens `/staff/`. Any staff member signs in on it (no owner, M38 does not apply). To make it a Pass tablet the manager uses the Devices row link "Use as Pass tablet" (v1.9.2, 03b §6.10). The pair page reads `d`: `tablet` → `device_type: 'tablet'` and the tablet texts; absent or anything else → `phone`. The pair page rules below apply to both.~~
+- **Pair page rules (phones):** ⚠️ Changed by 05a (row H-1): the rules now apply to the request flow (05a §8: iOS keeps "Add to Home Screen" first, then the request from the home-screen app); the `t` parts are struck.
+  1. **Already paired** (a device token exists in this context's storage) → ~~ignore `t` and~~ go to the login screen (**`/staff/`**; ⚠️ Changed by 00 v1.9.1 (owner ruling 2026-11-12, Q-29): was "the login screen" with no target). This matters because the home-screen app always starts on the saved `pair_url`.
+  2. **iOS Safari, not standalone** (iOS user agent and `navigator.standalone !== true`) → **do not ~~call `POST /devices/pair`~~ create a request** (⚠️ Changed by 05a (row H-1)). Show "Add to Home Screen, then open it from there" with the Share → Add to Home Screen steps (key `pairing.ios_add_to_home`). Leave the URL untouched~~, including `?t=<pairing_token>`,~~ so the saved home-screen app opens on ~~`pair_url`~~ `/pair`.
+  3. **iOS standalone** (`navigator.standalone === true`) or **any other phone browser** → ask for a device name, then ~~call `POST /devices/pair` as usual (new `pair_request_id`, retried with the same id on a lost response, M14)~~ create the request (`POST /pair/requests`, ⚠️ Changed by 05a (row H-1)) and show its code until approved. On ~~success~~ approval the page stores the token and goes to **`/staff/`** (⚠️ Changed by 00 v1.9.1 (owner ruling 2026-11-12, Q-29): was "paired" with no next page).
+  4. ~~**`401 PAIRING_TOKEN_INVALID`** (the 10-minute token expired before the app was opened, or it was already used) → "Ask a manager for a new QR" (key `pairing.token_expired`). A new QR on iOS means adding a new home-screen icon; the old icon can be deleted.~~ (Removed by 05a (row H-1): no token; an expired request offers a new request, as above.)
+- Pairing inside the standalone context works whether or not iOS shares storage between Safari and the home-screen app: the token is stored where it is used. Safari itself never holds a device token on iOS.
+- **Fallback, all phones:** a phone whose storage was cleared has no token; ~~the app (which reopens on the old `pair_url`) hits rule 4 and shows "Pair this phone again — ask a manager for a new QR"~~ (⚠️ Changed by 05a (row H-1)) the page starts a new request (rule 3). Re-pairing creates a new device row; the old one stays until a manager revokes it or the owner leaves.
+
+### 8.3 Login flow (tablet, kiosk, phone)
+
+1. `GET /queries/staff-roster` → name grid (locked names greyed with time left).
+2. Pick name → PIN pad → `POST /auth/pin`.
+3. (tablet, kiosk) `409 DEVICE_SESSION_ACTIVE` with `can_take_over` → dialog "Bilal is logged in — log him out?" (key `auth.takeover.confirm`) → retry with `takeover: true`.
+4. Success → `GET /queries/session` for permissions; hide actions whose grant is `not_granted` / `denied`; show "needs approval" for `requires_approval`.
+5. Open `/ws`, send `auth` as the first frame.
+
+
+### 8.4 Error handling
+
+| Code | Client behaviour |
+|---|---|
+| `SESSION_EXPIRED`, `SESSION_INVALID`, WS close `4401` (any reason except below) | go to login; keep unsent drafts (BUILDING) on the device |
+| `DEVICE_TOKEN_INVALID`, `DEVICE_REVOKED`, WS `4403` (non-guest) | wipe `device_token`; show "This device must be paired again" (⚠️ Changed by 05b (row H-4): inside the tablet app the page first calls `PosNative.confirmRevoked()` and wipes only on `revoked: true`; the native alert socket follows 05b §3.5) |
+| `GUEST_NETWORK_FORBIDDEN`, WS `4403` (before auth) | "Connect to the staff WiFi" |
+| WS `4413` `DISPLAY_DEVICE` (⚠️ Changed by 00 v1.13 (integration, 02b-TK); 01d v1.3.7 C-F-37) | keep `device_token`; no reconnect of the alert-mode socket; the page goes to `/board/` (01d v1.3.7 §8.1) |
+| `CLIENT_UPGRADE_REQUIRED`, WS `4426` | blocking "Update the app" screen |
+| `PIN_INVALID` | shake PIN pad; show `attempts_remaining` when ≤ 2 |
+| `PIN_LOCKED_OUT`, `DEVICE_LOCKED_OUT`, `IP_LOCKED_OUT` | show time left from `retry_after_ms` |
+| `SERVICE_UNAVAILABLE` | retry once after `retry_after_ms`, then show "Hub busy, try again" |
+| `HUB_NOT_PROVISIONED` | "Hub is being set up" |
+| WS `1012` or drop | reconnect with backoff (max 5 s, §5.4); re-send `auth` |
+| WS `4401` with reason `replaced` on a KDS | stop; show "This screen is open in another window" (key `kds.replaced`); do **not** call `/auth/station` (M53). A "Use this window" button calls it once on purpose. ⚠️ Changed in v1.11 (Q-70): the same whether the close comes on a live socket or at `auth` on a reconnect (§6.21 step 3) |
+| WS `4401` after `DeviceTokenRotated` | the device has a newer token elsewhere: show "Pair this device again" |
+| `HOST_NOT_ALLOWED` | "Open the hub by its address" (installer error) |
+| `STATION_LOGOUT_NOT_ALLOWED` | hide the logout button on KDS |
+| `PAIRING_REQUEST_NOT_FOUND` (poll) | request expired: offer a new request |
+| ⚠️ Changed by 00 v1.13 (row H-3): `DISPLAY_NOT_ENABLED` on `/board/` | the device is not (or no longer) a board: go to `/staff/` |
+| WS `4401` with reason `replaced` on `/board/` | stop; "This board is open in another window" (key `board.replaced`); a "Use this window" button calls `POST /auth/display` once (M53 pattern) |
+| WS `4401` (other reasons), `401 SESSION_*` on `/board/` | call `POST /auth/display` again with a backoff from **5 s** doubling to **60 s**; after **10** failed rounds in a row stop on "Board needs attention" (key `board.attention`) with a "Try again" button (⚠️ Changed by 00 v1.13 hostile run 1 (m-9)) |
+| `DEVICE_ACCESS_DENIED` with `reason: 'display_device'` on `/staff/` | go to `/board/` |
+| `TRACKING_LINK_INVALID`, `RATE_LIMITED` | status page only (§8.6) |
+
+
+All text through `errors.<code>` / `auth.*` / `kds.*` / `pairing.*` translation keys (D12).
+
+### 8.6 Customer status page (§6.40, §6.41) — ⚠️ Changed by 00 v1.13 (rows H-4, H-5)
+
+- **Polling:** the page calls §6.41 at once, then every `poll_ms` (10 s). Paused while `document.hidden`; on `visibilitychange` to visible it fetches at once **unless the last fetch was less than `poll_ms` ago** (⚠️ Changed by 00 v1.13 hostile run 1 (M-5)). `429` → waits `retry_after_ms`, then goes on. A network error or `5xx` → keeps the last view with "Updating…" (key `status.updating`, the BoardOffline pattern) and retries at `poll_ms`.
+- **404:** `reason: 'invalid'` → "This link is not valid. Please ask at the counter." (`status.invalid`); `reason: 'expired'` → "This order is finished. Thank you!" (`status.expired`) and polling stops.
+- **Views (StatusCooking, StatusReady, StatusUrdu):** token large; `preparing`: "Ready around <time>" from `ready_around_ms` (use "Pickup at <time>" only when `effective_pickup_at_ms` is set) ⚠️ Changed by run 3 verify (V-01), the item list with each item's state; `ready` / `part`: green, "Your order is ready" / "Part of your order is ready", "Show this screen at the counter"; `pay: 'due'`: "Please pay at the counter" (no amount); `collected`: "Collected. Enjoy!"; `cancelled`: "Please ask at the counter". Times are hub local time (offset from `hub_now_ms`); numbers and times stay LTR in Urdu.
+- **Beep:** on a transition into `ready` or `part`, once per transition: a short three-tone beep through Web Audio (`OscillatorNode`, no audio file) and `navigator.vibrate([200, 100, 200])` where it exists. Browsers allow sound only after a gesture, so the page shows "Tap to hear when it's ready" (`status.tap_sound`) until the first tap, which resumes an `AudioContext`.
+- **Nothing else:** no service worker, no cookie, no notification permission, no storage but `pos-lang`; no other request than §6.41.
+
+### 8.5 Command queue replay (M19)
+
+On reconnect the device resends every unacknowledged command with its original `command_id`, even when its session has ended. A `200` with `Idempotent-Replay: true` means the command had been committed: remove it from the queue. A `401 SESSION_*` means it was never processed: keep it and apply 02's policy (open item, M19). ⚠️ Changed by 02b v1.0 (H-1): the policy is 02b §3.12 — the command goes to the queue log for "Send again" after login; while the device is only disconnected its session does not idle out (M95), so a normal reconnect replays in the live session. A `400 VALIDATION_FAILED` on a resend with issue `command_id already used` is a client bug: log it, keep the command, do not retry automatically.
+
+**PIN-bearing commands are online-only (v1.6, 01d H-10).** A command whose payload carries a PIN (`AnswerRequest` with `method: 'pin'` ~~or `'in_person'`~~; ⚠️ Changed by 05a (row D-2): the in-person method is removed, 01d `preRead` refuses it with `403 PERMISSION_DENIED { reason: 'in_person_removed' }`) is never written to the device command queue (Android SQLite, cashier IndexedDB, foundation §1 / D56); the client sends it only while connected, holds the PIN in memory until the response arrives, and on a network error shows "No connection to the hub — try again" and discards the PIN.
+
+> ⚠️ Changed by 01d v1.0 (H-10). See 01d §4.5.
+
+---
+
+## §9. Error catalogue additions
+
+Appended to foundation §6.2 and `errors.ts` when this spec is approved.
+
+| Code | Status | `details` | Returned when |
+|---|---|---|---|
+| `PIN_INVALID` | 401 | `{ attempts_remaining }` | PIN mismatch (§3.5) |
+| `LOGIN_INVALID` | 401 | `{}` | cloud login failure (M64) |
+| `REFRESH_TOKEN_INVALID` | 401 | `{}` | §6.23 |
+| `DEVICE_TYPE_NOT_ALLOWED` | 403 | `{ device_type, allowed }` | session kind or pairing type does not fit the device (⚠️ Changed by 00 v1.13 (row H-9): also `POST /auth/display` on any type but `cashier_kiosk`, `allowed: ['cashier_kiosk']`; ⚠️ Changed by 00 v1.13 hostile run 1 (M-2)) |
+| `DEVICE_NOT_OWNED` | 403 | `{ device_id }` | non-owner login on a phone (M38, M42). ⚠️ Changed by 05a (row H-2): **no longer returned**: the hub returns `DEVICE_ACCESS_DENIED` (05a §9, Foundation §6.2 row F-1) instead; the code stays catalogued, never reused |
+| `HOST_NOT_ALLOWED` | 403 | `{}` | Host header not allowed (M45) |
+| `STATION_LOGOUT_NOT_ALLOWED` | 403 | `{}` | `/auth/logout` with a station session (M55 e) |
+| `STAFF_NOT_FOUND` | 404 | `{ staff_id }` | not in the hub directory |
+| `STATION_NOT_FOUND` | 404 | `{ station_id }` | station validator rejects |
+| `DEVICE_NOT_FOUND` | 404 | `{ device_id }` | `RevokeDevice` target missing |
+| `SESSION_NOT_FOUND` | 404 | `{ session_id }` | `ForceLogoutSession` target missing |
+| `PAIRING_REQUEST_NOT_FOUND` | 404 | `{}` | §6.31, §6.32 (M44) |
+| `DEVICE_SESSION_ACTIVE` | 409 | `{ staff_id, display_name, can_take_over }` | M6, M20 |
+| `HUB_NOT_PROVISIONED` | 409 | `{}` | before provisioning |
+| `SETUP_IN_PROGRESS` | 409 | `{}` | concurrent setup |
+| `REGISTRATION_CODE_KIND_UNSUPPORTED` | 422 | `{ kind, accepted_kinds }` | §6.5 |
+| `IP_LOCKED_OUT` | 429 | `{ retry_after_ms }` | bootstrap PIN path (M42); cloud per-IP login limit (M64); per-IP pairing-request cap (M76) |
+| `LOGIN_LOCKED_OUT` | 429 | `{ retry_after_ms }` | reserved; not returned by login since M73 (kept in the catalogue so the code is never reused) |
+| `DISPLAY_NOT_ENABLED` | 403 | `{ device_id }` | `POST /auth/display` from a `cashier_kiosk` whose 05a profile is not the board (M96, §6.39). ⚠️ Changed by 00 v1.13 (row H-9) |
+| `TRACKING_LINK_INVALID` | 404 | `{ reason: 'invalid' \| 'expired' }` | §6.40, §6.41 (M98): `invalid` for a malformed link, a wrong MAC, an unknown or non-takeaway order (one answer for all, nothing about which); `expired` only after a valid MAC, past the lifetime. ⚠️ Changed by 00 v1.13 (row H-9) |
+| `RATE_LIMITED` | 429 | `{ retry_after_ms, scope: 'ip' \| 'invalid' \| 'order' \| 'valid' }` + `Retry-After` (⚠️ Changed by 00 v1.13 hostile run 1 (M-5)) | a public-listener route over its bucket (M99, §7.12). ⚠️ Changed by 00 v1.13 (row H-9) |
+
+**Extended `details` (additive):** `PERMISSION_DENIED { permission, grant?, session_kind? }`; `PIN_LOCKED_OUT` / `DEVICE_LOCKED_OUT { retry_after_ms }`; `SERVICE_UNAVAILABLE { retry_after_ms }`.
+
+**Status-map note:** the hub returns `503 SERVICE_UNAVAILABLE` for setup (cloud unreachable), the argon2 semaphores (M23) and a full pairing-request queue (§6.30). Foundation §6.2 calls 503 cloud-only; none of these is on the order or payment path.
+
+---
+
+## §10. Tests
+
+Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.int.test.ts` on a temp SQLite file through `inject()`; cloud in `apps/cloud/test/**/*.int.test.ts` on PostgreSQL 16. Test names cite `[00 §10 #n]`. Argon2 in tests uses the M8 minimum params (precomputed hashes keep the suite fast). Tests 1–84 keep their v0.5 numbers: §10.1 lists the unchanged ones, §10.2 the ones changed in v0.6, §10.3 the new ones (85–126 from v0.6, 127–130 from v1.0, 131 from v1.0.1, 132–134 from v1.1; #109 rewritten in v1.0; #53 corrected in v1.1).
+
+### 10.1 Unchanged tests (from v0.5)
+
+| # | Where | Case |
+|---|---|---|
+| 1 | §6.1 | no-op test command: happy path writes 1 event + 1 `processed_commands` row with `device_id` |
+| 2 | §6.1 | retransmit same `command_id`, same device, valid session → identical body, `Idempotent-Replay: true`, no new rows |
+| 3 | §6.1 | retransmit after the session ended → stored response replayed (M19) |
+| 4 | §6.1 | retransmit from another device → `400 VALIDATION_FAILED`, nothing replayed |
+| 5 | §6.1 | new `command_id` after the session ended → `401 SESSION_EXPIRED` |
+| 6 | §6.1 | `:name` ≠ `command_type` → 400; unknown name → 404 `ROUTE_NOT_FOUND` |
+| 7 | §6.1 | `branch_id` ≠ config → 403 `BRANCH_MISMATCH` |
+| 8 | §6.1 | body `actor_id` ≠ session staff → 400 |
+| 9 | §6.1 | grant `not_granted` → 403; `denied` overriding an `allowed` role → 403; `requires_approval` on a non-approvable command → 403; on an approvable one → handler sees approver roles |
+| 10 | §6.1 | station session on a non-`stationScoped` command → 403 `{ session_kind: 'station' }`; on a `stationScoped` test command → 200 with `actor_id null` |
+| 11 | §6.1 | handler throws `DomainError` → error envelope, no rows, retransmit evaluated again |
+| 12 | §6.1 | forced COMMIT failure → state unchanged, nothing published (D45) |
+| 14 | §6.3 | `/health` in setup, booting and ready states; no guest-network guard |
+| 16 | §6.4 | after provisioning → 404 |
+| 17 | §6.4 | concurrent second call → 409 `SETUP_IN_PROGRESS` |
+| 18 | §6.4 | cloud unreachable → 503; cloud 401 / 422 passed through |
+| 20 | §6.4 | crash after commit before config write; retry → same `setup_attempt_id` sent, no second `HubProvisioned` |
+| 21 | §6.4 | other routes before provisioning → 409 `HUB_NOT_PROVISIONED` |
+| 23 | §6.5 | same `Idempotency-Key` within 1 h → new key, previous revoked |
+| 24 | §6.5 | other key after consumption, expired code, unknown code → identical 401 |
+| 25 | §6.5 | `replace_hub` code with `accepted_kinds ['new_branch']` → 422 and the code stays unconsumed |
+| 29 | §6.8 | happy path; expired token → 401; used token by another request → 401; `device_type` mismatch → 403 ⚠️ Superseded by 05a (row H-1): it exercises the removed token flow; replaced by 05a §10 test 1 (the token routes answer `404 ROUTE_NOT_FOUND`). |
+| 31 | §6.9 | happy path; wrong PIN → 401 with `attempts_remaining`; 5th failure → `StaffPinLockedOut`, next correct PIN → 429 |
+| 32 | §6.9 | 10 failures from one device across staff → `DEVICE_LOCKED_OUT` |
+| 33 | §6.9 | same staff again → previous session ended `replaced` |
+| 34 | §6.9 | other staff without takeover → 409 with holder and `can_take_over: true`; nothing written |
+| 35 | §6.9 | other staff with `takeover: true` → holder `SessionEnded { reason: 'taken_over', ended_by }` |
+| 36 | §6.9 | kds device → 403 `DEVICE_TYPE_NOT_ALLOWED`; guest-network IP → 403; old client version → 426; bad Host → `403 HOST_NOT_ALLOWED` |
+| 37 | §6.9 | semaphore full for 2 s → 503 with `retry_after_ms` |
+| 39 | §6.11 | happy path; second call replaces; tablet → 403 |
+| 40 | §6.12 | admin logout; repeat idempotent |
+| 42 | §6.14 | revoke ends the staff session and bound admin sessions, publishes `DeviceRevoked`, closes socket `4403`; retransmit same `command_id` → identical response; new command on a revoked device → `already_revoked`; unknown → 404; no `manage-devices` → 403 |
+| 43 | §6.15 | force logout of staff, station and admin sessions; event has `ended_by`; retransmit → identical response; new command on an ended session → `already_ended`; unknown → 404; no `manage-staff` → 403 |
+| 44 | §6.16 | clear staff, device and ip locks; retransmit → identical response; unlocked subject → `cleared: false`, no event; no `manage-staff` → 403 |
+| 45 | §6.17–§6.18 | lists, fixed query count (statement counter = 1) with 1 and 20 devices |
+| 46 | §6.19 | roster with active session and locks; 2 statements with 1 and 30 staff |
+| 47 | §6.20 | staff permissions map equals `resolve` for every catalogue entry; station → `{}` |
+| 48 | §6.21 | no frame of any kind before auth: connect, wait 5.1 s, assert zero frames received and close `4401` |
+| 49 | §6.21 | first frame not `auth`, bad device, bad session, admin session → close `4401` with zero frames; revoked device → `4403` |
+| 50 | §6.21 | tokens in query string ignored (connection still requires the auth frame) |
+| 52 | §6.21 | `SessionEnded` delivered then close `4401`; idle socket without pong terminated at 30 s; an open socket with pongs only does not keep the session past its TTL |
+| 53 | §6.22 | login happy path; wrong password and unknown email both 401 with similar timing (within 2×); the 10th failure sets `login_locked_until` and still answers `401 LOGIN_INVALID` (M73; v1.1 corrects "→ 429") |
+| 55 | §6.24 | logout revokes own token; another user's token → `revoked: false`, still valid |
+| 56 | §6.26 | seed creates roles per table, owner can log in to cloud and (after setup) to hub admin; duplicate email refused |
+| 58 | — | Two concurrent retransmits of one new command: exactly one set of events; both get the same body (D32 re-check) |
+| 59 | — | Parallel wrong PINs crossing the threshold while a correct PIN is verifying: correct PIN gets 429 (§3.5 step 7) |
+| 61 | — | Two `/v1/hubs/register` with one code and different keys: one 200, one 401 |
+| 62 | — | `events` UPDATE and DELETE raise (D52 triggers) |
+| 63 | — | `seq` gap-free across 1 000 commands with forced rollbacks in between |
+| 64 | — | Migrations: checksum change of an applied file → boot refuses; pre-migration backup is encrypted, decrypts to a DB with the old `user_version` |
+| 65 | — | `encryptFile` / `decryptFile` round trip; a flipped byte fails the tag and writes no output |
+| 66 | — | Clock guard: `Date.now()` ≤ max `recorded_at` → `ClockAlarm`, `branchNow` starts at max + 1 |
+| 67 | — | Projection rebuild: checkpoint behind `MAX(seq)` → `reset` + replay gives the same rows as live application. ⚠️ Changed by 04 (row H-2): text unchanged; the test seeds the row with a `catchUp` before its first `applyAll`, as a booted hub has (update-only checkpoints) |
+| 68 | — | Boot reconciliation: `SessionStarted` without `SessionEnded` and empty `staff_sessions` → `SessionEnded 'hub_restored'` |
+| 69 | — | Sweeper ends idle staff and admin sessions at `ttl + ≤15 s`, never station sessions; multi-role TTL = max (M11) |
+| 71 | — | `HubStarted` carries `hub_down_at` from `hub_heartbeat`; null on first boot |
+| 72 | — | Hub route inventory: every route has its guard set; adding an unguarded test route fails the test |
+| 73 | — | Log redaction: no secret used by the auth suites appears in captured logs |
+| 74 | — | Permission catalogue: a command declaring an unknown permission fails the unit test |
+| 75 | — | `TenantScopedRepository` and `TenantLevelRepository` without a `TenantContext` throw (M25) |
+| 76 | — | Cloud route inventory covers every route, including tenant-level ones (M25) |
+| 77 | — | Cross-tenant: two seeded tenants; every scoped route with tenant A's JWT returns no tenant B row (M25) |
+| 78 | — | Unit: `resolve()` truth table over denial / allowed / requires_approval / none, with multiple roles and multiple approvers |
+| 79 | — | Smoke on target hardware: §7.8 targets |
+| 80 | — | Phone pairing: `GenerateDevicePairingToken` for `phone` without `owner_staff_id` → 400; unknown owner → 404; pair → device has `owner_staff_id` (M38) ⚠️ Superseded by 05a (row H-1): it exercises the removed token flow; replaced by 05a §10 test 1 (the token routes answer `404 ROUTE_NOT_FOUND`). |
+| 81 | — | Phone login: owner → 200; another staff member with a correct PIN → `403 DEVICE_NOT_OWNED`, no PIN verified, no counter change, no takeover offered ⚠️ Changed by 05a (row H-2): now 05a §10 test 3 (`403 DEVICE_ACCESS_DENIED` on a `listed` device, `DEVICE_NOT_OWNED` no longer returned); the v1.12.2 rule holds only for a phone with no profile (05a v1.0.1 R-1). |
+| 82 | — | Phone roster lists only the owner ⚠️ Changed by 05a (row H-4): on a `listed` device the roster lists its people (05a §10 test 3). |
+| 83 | — | `applyStaffDirectory` removing the owner revokes their phones in the same transaction (`DeviceRevoked { cause: 'owner_removed' }`, `actor_id` null), ends the phone session, closes its socket `4403`; other devices untouched ⚠️ Changed by 05a (row H-4): now 05a M-5 (05a §10 test 12): a phone left empty is revoked `owner_removed`, any other device left empty becomes `everyone` with `needs_review`. |
+| 84 | — | Pairing a phone whose owner was removed after the token was generated → `401 PAIRING_TOKEN_INVALID` ⚠️ Superseded by 05a (row H-1): it exercises the removed token flow; replaced by 05a §10 test 1 (the token routes answer `404 ROUTE_NOT_FOUND`). |
+
+### 10.2 Changed tests
+
+| # | Case |
+|---|---|
+| 13 | A query makes no writes; it refreshes activity only when it declares `countsAsActivity: true` (M59) |
+| 15 | Setup happy path against a stub cloud: directory applied, `HubProvisioned` without `setup_attempt_id` (M71), `AdminBootstrapTokenIssued`, config has key + `backup_encryption_key`, response has `first_admin_url`, exit(0) requested |
+| 19 | Cloud returns one weak `pin_hash`: that staff row is skipped and listed in `skipped`, the rest applies, setup succeeds (M52) |
+| 22 | Register happy path: code consumed, branch still `pending_hub`, `hub_confirmed_at` null, one live key, directory has this branch's staff only (M41) |
+| 26 | `/admin/auth` on a paired tablet: happy path, session bound to the tablet; staff without `access-hub-admin` → 403 and staff counter reset ⚠️ Changed by 05a (row H-2): the tablet must be `listed` with that person (an `everyone` tablet → `403 listed_device_only`, 05a §10 test 4e). |
+| 27 | Device counter on `/admin/auth`: 10 failures from one device across staff → `DEVICE_LOCKED_OUT` |
+| 28 | `GenerateDevicePairingToken`: tablet ok; `kds` or `cashier_kiosk` → 400; no `manage-devices` → 403; retransmit → same token ⚠️ Superseded by 05a (row H-1): it exercises the removed token flow; replaced by 05a §10 test 1 (the token routes answer `404 ROUTE_NOT_FOUND`). |
+| 30 | Retry with same `pair_request_id` → new token works, old token → 401, one `DevicePaired`, one `DeviceTokenRotated` (M60) ⚠️ Superseded by 05a (row H-1): it exercises the removed token flow; replaced by 05a §10 test 1 (the token routes answer `404 ROUTE_NOT_FOUND`). |
+| 38 | Logout; repeat → `already_ended: true`, one event; station session → `403 STATION_LOGOUT_NOT_ALLOWED` |
+| 41 | Login roster: with a tablet token lists only `access-hub-admin` holders with lock time; with a live bootstrap header the same; with neither → 401 ⚠️ Changed by 05a (row H-2): with a `listed` device's token, only its people holding `access-hub-admin`; an `everyone` device → `403 listed_device_only`; `recovery_available` per 05a §10 test 16. |
+| 51 | Catch-up `as_of_seq` then events strictly ascending; after a boot `ClockAlarm`, a new socket's catch-up has `hub.clock_alarm` set |
+| 54 | Refresh rotates; the same rotated token within 30 s → the same successor, nothing revoked; two concurrent refreshes → both 200 with the same successor; the rotated token after 30 s → 401 and every live token of the user revoked (M49) |
+| 57 | New branch + code: staff holding `access-hub-admin` (Owner and Manager) assigned; every owner's `allowed_branch_ids` contains the branch; reissue for an unconfirmed branch expires the old code; reissue after confirm refused (M41, M57) |
+| 60 | Two `/auth/pin` for different staff on one device at once: exactly one 200 and one `409 DEVICE_SESSION_ACTIVE`, one active session row (outcome only) |
+| 70 | Removing a staff member ends their staff and admin sessions `'staff_removed'`; a permission change applies to the next command (resolved in the transaction) |
+
+### 10.3 New tests
+
+| # | Case |
+|---|---|
+| 85 | M39: a command passes the guard; `RevokeDevice` commits before the command's transaction starts (test hook between guard and `writer.run`) → command rejected `403 DEVICE_REVOKED`, no events |
+| 86 | M39: same with `ForceLogoutSession` → `401 SESSION_EXPIRED`; same with a directory apply removing the permission → `403 PERMISSION_DENIED` |
+| 87 | M40 restore: copy the DB (backup) → revoke a device, force-logout a session, pair a tablet with a token issued before the copy → take the copy, append the tail events, boot → revoked token `403 DEVICE_REVOKED`, ended session `401 SESSION_EXPIRED`, the pairing token stays consumed, the tablet paired after the copy gets `401 DEVICE_TOKEN_INVALID` ⚠️ Changed by 05a (row H-1): the tablet is paired by request (no pairing token); the request stays approved instead of the token staying consumed. |
+| 88 | M40/M48: a `SessionStarted` in the tail with no row and no `SessionEnded` → `SessionEnded 'hub_restored'` after boot; cloud-only restore (empty `staff_sessions`, session events present) runs step 4b; a normal boot does not |
+| 89 | M41: register, then no confirm; after 1 h the same code → 401; reissue for the unconfirmed branch → new code → register works |
+| 90 | `/v1/hubs/confirm`: sets `active` + `hub_confirmed_at`; repeat returns the same value; bad key → 401; hub confirm task writes `confirmed_at` and stops; retries after a 503 |
+| 91 | M42: `/admin/auth` without a device token → 401; kds → 403; phone with another staff member → `403 DEVICE_NOT_OWNED`; phone owner → 200; an admin session used with another device's token → `401 ADMIN_SESSION_REQUIRED` ⚠️ Changed by 05a (row H-2): a person not on a `listed` phone's list → `403 DEVICE_ACCESS_DENIED`; a listed person → 200; an `everyone` device → `403 PERMISSION_DENIED { reason: 'listed_device_only' }` (05a §10 tests 3, 4e). |
+| 92 | M42 bootstrap: link opens one admin session without a device; second use → 401; after 30 min → 401; 10 wrong PINs from one IP → `429 IP_LOCKED_OUT` |
+| 93 | M42/M23: the PIN semaphore full does not delay `/admin/auth`, and the admin semaphore full does not delay `/auth/pin` |
+| 94 | M43: the admin UI and pair page scripts call `/admin/auth/logout` and clear `sessionStorage` before navigating to `/pair` (static check of served HTML); after that call the admin token → 401 |
+| 95 | M44 `/pair/requests`: create → poll pending → approve → poll returns the token (twice) → after `expires_at` → 404 and `delivery_token` cleared; wrong poll secret → 404; 11th pending request → 503 |
+| 96 | M44 `ApprovePairingRequest`: kds with station → device with `station_id`, `DevicePaired { pairing_request_id }`; wrong display code → 404; approved twice → 404; unknown station → 404; no `manage-devices` → 403; result never contains the token |
+| 97 | M45: Host `evil.example:3000` → 403 `HOST_NOT_ALLOWED` on `/health`, `/admin/auth`, `/devices/pair`, `/pair/requests`, and WS close `4403`; `localhost:3000` and `<advertised_host>:3000` pass; setup mode accepts the host's own address ⚠️ Changed by 05a (row H-1): `/devices/pair` leaves the list (removed). |
+| 98 | M46: at TTL + 1 s, before any sweep, a command → `401 SESSION_EXPIRED` and the row is ended `'idle_timeout'`; another staff member's login on that device → 200 (no 409) |
+| 99 | M47: same `command_id` with another `command_type` → 400; with another payload → 400; body `device_id` ≠ token → 400; admin replay from another admin session → 400; same admin session → replay |
+| 100 | M48: on a 1 M-event fixture with **every projection `registerHubProjections` registers plus `access_reconcile`** and a **forced** step 3a `ClockAlarm` (`wallNow` before the last `recorded_at`), 00's boot steps finish within §7.8; 3a uses the max-seq row; after boot every checkpoint = `MAX(seq)`; a projection that saw no events in the last 10 000 is not replayed. ⚠️ Changed by 04 (row H-2; G-4): **restated**, not added (was: "on a 1 M-event fixture, 00's boot steps finish within §7.8; 3a uses the max-seq row; a projection that saw no events in the last 10 000 is not replayed") |
+| 101 | M50: a directory with a changed `pin_hash` ends that staff member's staff and admin sessions `'credentials_changed'`; others untouched |
+| 102 | M51: version equal → no-op, no event; older → no-op; newer → applied |
+| 103 | M52: weak hash row, unknown role in an assignment, unknown permission, unknown approver → each skipped and listed; everything else applied; removal of another staff member in the same push still happens |
+| 104 | M53: second `/auth/station` → first socket gets `SessionEnded { reason: 'replaced' }` then close `4401` with reason `replaced` |
+| 105 | M58: setup with `guest_network_cidrs: []` → 400; `advertised_host` not on this host → 400; malformed code → 400 |
+| 106 | M61: remove `access-hub-admin` from a manager with an open admin session → next admin query → 403 |
+| 107 | M62: after a staff lock expires, one wrong PIN → `attempts_remaining: 4` |
+| 108 | M63: `/health` from a guest IP → `{ status }` only; from a staff IP → full body |
+| 109 | M73 (rewritten in v1.0): a locked account gives **identical** responses (status, body except `request_id`) for the right and a wrong password, both `401 LOGIN_INVALID`; the real hash is not verified (spy) and the account counter does not change; 30 failures from one IP → `429 IP_LOCKED_OUT`; 10 concurrent failures on an unlocked account → count 10 |
+| 110 | M70: command `tenant_id` ≠ config → 403 `BRANCH_MISMATCH` |
+| 111 | M67: a leftover `pre-migrate-*.sqlite` in `data_dir` is deleted at boot |
+| 112 | §6.21 publish filter: a socket registered between COMMIT and publish (test hook) receives the event once (in catch-up), not again as a push |
+| 113 | M55/M56: lint fails when a file other than the two plugins imports `credential-lookup`, or a file outside `cli/` imports `SystemContext`; a test enumerates importers and asserts the allowlists |
+| 114 | `404 STAFF_NOT_FOUND` on `/auth/pin` and `/admin/auth`; `429 PIN_LOCKED_OUT` on `/admin/auth` |
+| 115 | `401 ADMIN_SESSION_REQUIRED`: missing, unknown, ended, and staff-kind token on `/admin/queries/devices` |
+| 116 | `401 DEVICE_TOKEN_INVALID` and `403 DEVICE_REVOKED` on `/commands/*`, `/queries/*`, `/auth/pin`, `/admin/auth` |
+| 117 | `401 SESSION_INVALID` for a session of another device on `/auth/logout` and `/commands/*`; on queries, ended → `SESSION_EXPIRED`, unknown → `SESSION_INVALID` |
+| 118 | `/devices/pair`: old client → 426; guest IP → 403; rotation 10 min + 1 s after consumption → 401; rotation for a revoked device → 401 ⚠️ Superseded by 05a (row H-1): it exercises the removed token flow; replaced by 05a §10 test 1 (the token routes answer `404 ROUTE_NOT_FOUND`). |
+| 119 | `GUEST_NETWORK_FORBIDDEN` on `/admin/auth`, `/admin/queries/devices`, `/pair/requests`, and WS close `4403` before auth |
+| 120 | M35 CORS: allowed origin gets headers and preflight on device routes and `/pair/*`; other origins none; `/admin/*` and `/setup` never |
+| 121 | M66 retention: runs only in `maintenance_hour`; deletes in batches of 500 with other commands committing between batches; D32 7-day prune of `processed_commands` |
+| 122 | §3.10 atomic config write: mode `0600`, no `.tmp` left, a crash before rename leaves the old file intact |
+| 123 | M33: an expired refresh token → 401; a successful login resets the failure counter |
+| 124 | Pre-migration backup falls back to `data_dir` when `backup_dir` is missing; both unwritable → migrations do not run |
+| 125 | `/v1/health`: 200 `{ status: 'ok', db: 'ok' }`; DB down → 503 |
+| 126 | M69: login deletes that user's refresh tokens expired more than 7 days; other users' rows untouched |
+| 127 | M72: after the setup bootstrap token expires, `issue-admin-bootstrap` prints a new link; the new link opens an admin session; the old link → `401 PAIRING_TOKEN_INVALID`; a live token is expired by a second CLI run; `AdminBootstrapTokenIssued { issued_by: 'cli' }` is written; the CLI works while the hub process holds the database open |
+| 128 | M74: a live `/devices/pair` rotation leaves the new `token_hash` in place (the new token works after the commit and after `access_reconcile` ran live); the same event replayed in boot catch-up sets `'rotated:<event_id>'` ⚠️ Superseded by 05a (row H-1): it exercises the removed token flow; replaced by 05a §10 test 1 (the token routes answer `404 ROUTE_NOT_FOUND`). |
+| 129 | M75: a directory push with a malformed hash for an existing staff member keeps their old row (old PIN still logs in), ends none of their sessions, revokes none of their phones, and lists the skip; for a new staff member the row is absent |
+| 131 | M77: the §6.4, §6.7 and §6.30 responses carry an SVG (`<svg` … `</svg>`, no `<script>`) equal to `qrSvg(url)` for their URL; `qrSvg` is deterministic and builds the matrix with `QRCode.create(url, { errorCorrectionLevel: 'M' })` (same module count and dark modules as the library's own `toString(…, { type: 'svg' })` for that URL); a lint scratch import of `qrcode` outside the two allowed files fails |
+| 132 | M78: setup writes the register response's `branch_name` to `provisioned.branch_name`; `POST /devices/pair`, the approved `GET /pair/requests/:id` and the WS `catch_up.state.hub.branch_name` return it ⚠️ Changed by 05a (row H-1): `POST /devices/pair` leaves the list (removed). |
+| 133 | M79: `GET /admin/approve` and `GET /admin/bootstrap` without `Authorization` or `X-Admin-Session` → `200` HTML with no device or session token in the body; a guest IP → 403; `ApprovePairingRequest` without `request_id` approves the single pending request with that `display_code`; no match, or two pending requests with the same code → `404 PAIRING_REQUEST_NOT_FOUND`; static check: the approve page reads IndexedDB and `sessionStorage`, logs in with `/admin/auth` when no admin session is stored, and sends no request when neither a device token nor a bootstrap session exists |
+| 134 | M80: a token-paired tablet still reports `pairing_source: 'token'` after its `pairing_tokens` row is deleted by retention; an approved kds reports `'request'` ⚠️ Superseded by 05a (rows H-1, H-4): `pairing_source` is dropped from §6.17. |
+| 135 | M81: `GET /ui/tokens.css` and `/ui/components/bundle.css` → `200` `text/css; charset=utf-8`; a font → `200` `font/woff2`; all with `Cache-Control: public, max-age=31536000, immutable`; a `?v=` query is ignored; `/ui/README.md`, `/ui/tokens.json`, `/ui/../package.json`, `/ui/%2e%2e/package.json` and an unknown file → `404 ROUTE_NOT_FOUND`; served by the setup-mode server before provisioning; a guest IP → 403; a bad Host → 403; group `static` has guards host and guest |
+| 136 | M82, M83: `/setup`, `/admin/bootstrap`, `/admin/approve`, `/pair` and `/admin` (M86) link both stylesheets with the M81 `?v=` hash, are served with `lang="en" dir="ltr"`, `data-theme` `dark` on `/pair` and `light` elsewhere, `class="pos-root"`, one inline `<script>`, no `http://` or `https://` asset URL, keep ids `screen` / `setup` / `login` / `roster` and class `display-code`; every key the page scripts look up exists in `EN`, and every `UR` key exists in `EN`; every PIN input is `type="password"` with `inputmode="numeric"` |
+| 137 | M82, M85 setup page: the address tiles list the given interfaces' IPv4 addresses (internal and `169.254.*` removed, Ethernet first and selected) and "Other address" reveals the typed field; submit → the button is busy and disabled; after 3 s the `setup.slow` banner shows; `400 VALIDATION_FAILED` with an `advertised_host` issue → that field is marked and the banner shows `errors.VALIDATION_FAILED`; `503` → `errors.SERVICE_UNAVAILABLE`; the button is usable again after an error; success → the first-admin link and QR |
+| 138 | M82 bootstrap page: the roster renders one name tile per admin (a locked one is disabled and shows the time left); no `staff_id` text input and no JSON on the page; a tap selects the tile; sign-in sends the selected `staff_id`; `PIN_INVALID` shows the error and the attempts left when ≤ 2; success shows the signed-in screen with a link to `/admin/approve`; a dead link shows the expired screen |
+| 139 | M82 phone pairing (`/pair?t=`): a device-name field is shown and `window.prompt` is never called; an empty name marks the field and sends nothing; a name sends `POST /devices/pair` with it; `401` shows `pairing.token_expired` ⚠️ Superseded by 05a (row H-1): it exercises the removed token flow; replaced by 05a §10 test 1 (the token routes answer `404 ROUTE_NOT_FOUND`). |
+| 140 | M83: language choice: `?lang=ur` → `lang="ur" dir="rtl"` and Urdu text, remembered on the next load without the parameter; `navigator.language` `ur-PK` → Urdu; `en-US` → English; a key missing from `UR` shows the `EN` text |
+| 141 | M84: after provisioning `GET /setup` → `404` HTML with `setup.already_title` and no form, no `tenant_id` / `branch_id`; before provisioning → `200` form |
+| 142 | M86: `GET /admin` without credentials → `200` HTML with no token; a guest IP → 403; group guards as `/admin/approve`; static check: the script signs in through `/admin/auth` when no admin session is stored and calls only §6.7, §6.14–§6.18c (⚠️ Changed by 00 v1.9.2 (owner ruling 2026-11-13, Q-43): plus 03b's `kds-config` and 03c's `print-queue` for the two home tiles, test 165) ⚠️ Changed by 05a (row H-1): §6.7 leaves the list of calls (removed); the Devices view also calls `ApprovePairingRequest` and 05a `SetDeviceProfile` (05a §8). |
+| 143 | M87: devices query with `include_revoked=true` returns `revoked_reason` (from the latest `DeviceRevoked`), `revoked_by_name`, and `owner_name` for phones; without it the query runs once; a revoke with no reason → `revoked_reason: null` ⚠️ Changed by 05a (row H-4): `owner_name` only for phones paired before 05a |
+| 144 | M88 lockouts: a locked staff, device and IP are listed with names; an expired lock and an unlocked row are not; no `access-hub-admin` → 403 |
+| 145 | M88 stations: archived stations left out; `category_names` holds at most 3, in category order, only categories with an item on the station; no config → empty list |
+| 146 | M88 staff: every directory staff member with role names; `phone_count` counts only non-revoked phones; one query ⚠️ Changed by 05a (row H-4): `device_count` counts unrevoked `listed` devices naming the person, in one query. |
+| 147 | M89: `/admin/auth` and `/admin/auth/bootstrap` return `permissions` matching the effective permissions (a Manager has both, an admin without `manage-staff` gets `false`). ⚠️ Changed by 05 (row H-2, R-37): the object has exactly the four keys `manage-devices`, `manage-staff`, `manage-fiscal-settings`, `close-business-day`; an Owner gets all four `true`; a Manager with the 01b v1.10 defaults gets `close-business-day: true` and `manage-fiscal-settings: false`; a role without `close-business-day` gets `false`; `AdminAuthResponse` parses the answer |
+| 148 | M92: `GET /admin/login-roster` rows carry `role_names` from the directory (Owner → `['Owner']`) |
+| 149 | M92: the approved `GET /pair/requests/:id` for a kds carries `station_name` from the branch config; a cashier screen gets `null` |
+| 150 | M92: `POST /devices/pair` for a phone returns `owner_name` of the owner ⚠️ Superseded by 05a (row H-1): it exercises the removed token flow; replaced by 05a §10 test 1 (the token routes answer `404 ROUTE_NOT_FOUND`). |
+| 151 | M91: `/pair?t=` sets `data-theme="light"` in the page script; `/pair` without `t` keeps the served dark theme; the paired phone shows the owner's name and a kds shows its station name ⚠️ Changed by 05a (row H-1): the `?t=` part goes with the token flow. |
+| 152 | M95 (02b H-1): socket closes, 15 min pass with a 5 min TTL, the device reconnects → the session is still active; 2 min used before the drop → it ends 3 min after reconnect if idle |
+| 153 | M95: a command arriving over HTTP before the socket, then a second drop → `paused_at` set again, a later replay is accepted |
+| 154 | M95: hub down 60 s across the TTL → paused from `hub_down_at`, the next command is accepted; a crash mid-outage does not count the time before the crash (sweeper flush of paused devices) |
+| 155 | M95 cap: device off 5 h with the sweeper running → session ended `idle_timeout` at 4 h; HTTP-only contacts every 10 min for 5 h → still ended at 4 h (`paused_since`) |
+| 156 | M95: an open alert-mode socket keeps the device unpaused; a connected socket that only pongs still idles out (M59) |
+| 157 | `X-Queued-At` on a queueable command → `ctx.queuedAt` clamped to `[started_at − 120 000, now]`; on a non-queueable command → ignored |
+| 158 | CORS: preflight from a `cors_origins` origin requesting `X-Queued-At` → allowed |
+| 159 | ⚠️ Changed by 04 (row H-1; G-2): directory apply → `staff_names` has every input person; a later apply without a leaver keeps the leaver's row and name; a staff row with a bad `pin_hash` (skipped, M52) is still named; an id repeated, or in both lists, keeps the first (staff before no-pin), as the cache |
+| 160 | ⚠️ Changed by 04 (row H-1; G-1): right after `0017_staff_names.sql`, `staff_names` holds every `staff` and `no_pin_staff` row with `updated_at` = `MAX(events.recorded_at)` (0 on an empty log) |
+| 161 | ⚠️ Changed by 04 (row H-2): M48 registry — a live `applyAll` advances an existing checkpoint row; a missing row is **not** created; the next `catchUp` replays that projection from seq 0 (`reset` first) (replaces the "advances every checkpoint" registry test) |
+| 162 | ⚠️ Changed by 04 (row H-2): boot with a forced step 3a `ClockAlarm` after a migration deleted a projection's checkpoint row → that projection is reset and replayed from seq 0 (rows equal a fresh fold); its row = `MAX(seq)` after step 4 |
+| 163 | ⚠️ Changed by 00 v1.9.2 (owner ruling 2026-11-13, Q-42): an approved `kds` pairing request → the pair page goes to `/kds/` and **does not** call `POST /auth/station`; a later load with a stored `kds` token → `/kds/`; tablet / cashier kiosk / phone still → `/staff/` (v1.9.1); `GET /kds/` serves the built entry with the `pos-tenant-id`, `pos-branch-id` and hub-clock meta tags, on route group `admin-page` (route-inventory test); with no build directory the route stays registered and answers `404 ROUTE_NOT_FOUND` |
+| 164 | ⚠️ Changed by 00 v1.9.2 (owner ruling 2026-11-13, Q-43): `GET /admin/kitchen-screens/` and `GET /admin/printers/` serve their built entries on route group `admin-page` with no credentials in the page; a guest IP → 403 |
+| 165 | ⚠️ Changed by 00 v1.9.2 (owner ruling 2026-11-13, Q-43): the `/admin` page script renders the Kitchen screens and Printers side-nav items and home tiles only with `manage-devices`; the tiles read `kds-config` / `print-queue` once on open (a `404` / `403` reply → tile without a status line); a `tablet` Devices row links `/admin/kitchen-screens/#bind=<device_id>`, a `kds` / `phone` row does not ⚠️ Changed by 05a (row K-2): every non-kds Devices row links the device edit form (no `#bind=` link). |
+| 166 | ⚠️ Changed in v1.11 (Q-70): a station session replaced by a second `/auth/station` while its window had no socket → a later socket `auth` with the replaced session closes `4401` with reason `replaced`, zero frames; a staff session ended `replaced` → `4401` with reason `replaced`; a revoked device presenting its replaced session → `4403`; a staff or station session ended another way (logout, forced) or idle-expired → `4401` with no reason |
+| 167 | ~~⚠️ Changed by 00 v1.12.2 (owner, 2026-11-22, STAB-1): `GenerateDevicePairingToken { device_type: 'tablet' }` → `pair_url` ends `&d=tablet`, a phone token's does not; the `/admin` page `#add-tablet` Make QR sends it with no owner and shows the QR; the home tile and the Devices "Add a tablet" action show only with `manage-devices`~~ Removed by 05a (row H-1): replaced by 05a §10 test 1 |
+| 168 | ~~⚠️ Changed by 00 v1.12.2 (owner, 2026-11-22, STAB-1): `/pair?t=tok&d=tablet` shows "Pair this tablet" and the anyone-can-sign-in note, sends `POST /devices/pair` with `device_type: 'tablet'`, stores the token and opens `/staff/`; `/pair?t=tok` still sends `phone`~~ Removed by 05a (row H-1): replaced by 05a §10 test 1 |
+| 169 | ⚠️ Changed by 00 v1.13 (row H-1), M96: `POST /auth/display` on a board kiosk → 200; the row has kind `display`, `staff_id` / `station_id` / `idle_ttl_ms` null; `SessionStarted { kind: 'display' }` **v2** (⚠️ Changed by 00 v1.13 hostile run 2 (F R2-m-4)) on stream `hub` / device_id with `actor_id` null; the v1 fixtures of `SessionStarted` / `SessionEnded` upcast unchanged to v2 |
+| 170 | M96 (⚠️ Changed by 00 v1.13 hostile run 1 (M-2, m-1)): on a kiosk without the board profile → `403 DISPLAY_NOT_ENABLED { device_id }`; on a `tablet`, `kds` or `phone` → `403 DEVICE_TYPE_NOT_ALLOWED { allowed: ['cashier_kiosk'] }`; a profile switched away from the board between the memory check and the transaction (test hook) → `403 DISPLAY_NOT_ENABLED` from the in-transaction re-read; nothing written; a guest IP → `403 GUEST_NETWORK_FORBIDDEN` |
+| 171 | M96: a second `/auth/display` → the first session ended `replaced`, its display socket closes `4401` reason `replaced` with zero frames; a later socket `auth` with it → `4401` reason `replaced` |
+| 172 | M96: a display session on `POST /commands/<any>`, `GET /queries/open-orders`, `GET /queries/session` → `401 SESSION_INVALID`; on `/admin/queries/devices` → `401 ADMIN_SESSION_REQUIRED`; `GET /queries/pickup-board` → 200; `POST /auth/logout` → ended `logout` |
+| 173 | M96: 24 h with no activity and the sweeper running → still active (no M46 / M95 end); `ForceLogoutSession` → `forced`; `RevokeDevice` → `device_revoked`, socket `4403` with zero frames; restore step 4b with an open display row → ended `hub_restored`, its `SessionEnded` on `hub` / device_id (⚠️ Changed by 00 v1.13 hostile run 1 (M-1)) |
+| 174 | Migration `NNNN` (⚠️ Changed by 00 v1.13 hostile run 1 (m-14 g)): on a database holding an active station session, an active staff session, an ended admin bootstrap session and an admin session: rows copied unchanged; `PRAGMA foreign_key_check` empty; the CHECKs refuse a display row with a `staff_id`, a `station_id` or an `idle_ttl_ms`, and a staff row without `staff_id`; the unique index refuses a second active `staff` / `station` / `display` row on one device; the three indexes exist and their `sqlite_master.sql` bodies equal the expected text ⚠️ Changed by run 3 (R3-M-8) |
+| 175 | §6.21 display mode: the `catch_up` state holds `hub` and `pickup_board` only; a batch with `OrderPlaced` + `OrderContactSet` (name and phone) → the display socket gets exactly one `display_hint { seq, order_ids: [order_id] }` and no `event` frame, while a staff socket on a kiosk gets its events as before; `sendToDevices([board device])`, an `always_on` alert and `sendToStaff` reach no display socket |
+| 176 | display mode: a batch with no mapped event → no frame; a batch whose highest seq ≤ the socket's `as_of_seq` → no frame; 60 distinct ids in one batch → `order_ids: []`; the socket sends `receipt` → closed `4401`; `ack` → accepted |
+| 177 | display mode: its own `SessionEnded` → close `4401` with the reason and zero frames; `connectedSessions()` never lists it; connecting and closing it leaves the device's M95 pause state unchanged |
+| 178 | M97 route inventory (⚠️ Changed by 00 v1.13 hostile run 1 (M-4, m-7)): the public listener holds exactly `GET /t/:link` and `GET /t/:link/status` (no `HEAD`), with guards `host` (public port), `provisioned`; the main listener has no `/t/*` route and every route but `/health` has `guest`; a test-only route added to the public listener makes the inventory test fail; with `public_status.enabled: false` nothing listens on the public port |
+| 179 | ⚠️ Changed by run 3 (R3-M-7) M97: from a routed guest address, both public routes answer 200 for a valid link. With the firewall bypassed only by the test harness, the main port denies `/t/<valid>`, `/ui/tokens.css`, `/staff/`, `/board/`, `/pair/requests` and `/queries/pickup-board` with `403 GUEST_NETWORK_FORBIDDEN`. In guard injection, a wrong Host on an unprovisioned fixture gives `403 HOST_NOT_ALLOWED`, a correct Host gives `409 HUB_NOT_PROVISIONED`, and neither reaches the link check. A real setup-only boot opens no public socket and makes `statusLink` return null. |
+| 180 | M98 vectors: a fixed key, `branch_id` and `order_id` give the expected 16-character MAC (vector computed independently, `openssl dgst -sha256 -mac HMAC -macopt hexkey:…`, kept in the test); `statusLink` returns `/t/<id>.<mac>` and `http://<advertised_host>:<public_port>/t/<id>.<mac>` (ASCII, ≤ 120 characters) |
+| 181 | M98: one changed MAC character, a 15- or 17-character MAC, a character outside the alphabet, a non-ULID id, a valid MAC made with another `branch_id`, a valid MAC of a dine-in order, an unknown order → each `404 { reason: 'invalid' }` ⚠️ Changed by run 3 (R3-m-2) with identical status, contract headers, code, message and details. Check each response’s `request_id` independently and assert the envelope includes no order data. A lower-case MAC is accepted; the compare goes through `crypto.timingSafeEqual` (spy) |
+| 182 | ⚠️ Changed by run 3 (R3-M-8) ⚠️ Changed by run 3 verify (R3-M-8) M98 lifetime (fake clock, real 02b group export before and after replay, including an addition after expiry): open day → 200. Once a close sets the tracking cutoff, +1 h 59 min → 200 and exactly +2 h → `404 { reason: "expired" }`. An open or carried-over group with no applicable close follows the 36 h ceiling. Reopen a bill after the two-hour grace and before the ceiling, then replay/reload the projection: the same link stays expired. Reopen before the grace ends preserves the cutoff, and a new applicable close may advance it only while live. A close after expiry and a reopen after 3 days both leave it expired. |
+| 183 | §6.41 body (against a stubbed `takeawayProgress` and against the real 02b export): cooking → `preparing` with `ready_around_ms` = the promise; one of two lines ready → `part` with `ready_at`; all ready → `ready`; unbilled → `pay: 'due'`; all served → `collected`; all removed → `cancelled`; an addition with the same token is in the group; a deal header is one item, its parts hidden; (⚠️ Changed by 00 v1.13 hostile run 2 (R2-M-2)) root paid + a cancelled addition → `pay: 'paid'`; ⚠️ Changed by run 3 (R3-M-6) ⚠️ Changed by run 3 verify (R3-M-6) through the real export and status endpoint, two deals in one order have different states, one `ready` and one `preparing`. A removed part cannot block readiness and a header without live parts is omitted. On a boosted pickup with a still-unfinished line the group is not `ready` and retains its pickup timestamp. ⚠️ Changed by run 3 verify (V-01) With every line still cooking after Boost, assert preparing, effective pickup null and “Ready around” from the promise despite a future stored pickup; the body matches the `.strict()` schema (no price, amount, name, phone or note key even when `OrderContactSet` set them); **2** statements at 1 and 30 lines |
+| 184 | §6.40 page (⚠️ Changed by 00 v1.13 hostile run 1 (M-6)): one HTML document with no external URL (no `/ui/`); the CSP header's hashes match the inline blocks; `nosniff`, `no-referrer`, `DENY`, `no-store`; an invalid link → status 404 page with `data-code="TRACKING_LINK_INVALID"` and no order data; over the limit → status 429 **HTML** page with `data-code="RATE_LIMITED"`, `Retry-After` and the same headers; `/t/<valid>/` and `/t/<valid>/status/x` → the 404 page with the headers; `/t/<valid>/status` over the limit → JSON envelope with the headers; 0 statements on the page route |
+| 185 | M99 (⚠️ Changed by 00 v1.13 hostile run 1 (M-5)): 5 invalid links from one IP → the 5th `429 { scope: 'ip' }`, handler not run (statement counter 0); valid polls from the **same** IP still 200; a valid link polled 11 times in one second → `429 { scope: 'order' }`. ⚠️ Changed by run 3 (R3-M-5) continue denied polls on the one exhausted order and confirm a different order stays 200 and its global-valid bucket loses no tokens to denials. With both buckets short, assert the longer retry and tie rule, correct `Retry-After` and no debit on either pair’s denied admission; the global valid bucket at its limit → `{ scope: 'valid' }`; 21 invalid requests from 21 IPs in one second → the 21st `{ scope: 'invalid' }` while valid links still answer; at 4 097 IPs or orders the least recently used bucket is evicted; the sweeper drops buckets idle > 10 min |
+| 186 | M100 (⚠️ Changed by 00 v1.13 hostile run 1 (m-8)): provision writes a 32-byte `status_link_key`; re-provisioning keeps an existing key; a v1.12 config without it gets one at boot, written once (a second boot keeps it); a boot write that fails (read-only config) → `error` log, `statusLink` → `null`, public listener not started, the hub otherwise runs; the key is in no SQLite file, backup or log line; a changed key makes earlier links `invalid` |
+| 187 | ⚠️ Changed by run 3 (R3-M-3) §7.2: valid, invalid and near-miss public requests increment the corresponding summary counts. Across the captured output there are no per-request public lines, MACs or raw URLs. Preserve the main-port check: the same link requested there logs `url: "/t/*"` and no MAC. |
+| 188 | §8.2 (client): an approved request with `screens: ['board']` → the pair page opens `/board/`; `/staff/` on a board device gets `403 DEVICE_ACCESS_DENIED { reason: 'display_device' }` from `staff-roster` and opens `/board/`; `/board/` on `403 DISPLAY_NOT_ENABLED` opens `/staff/`; `replaced` → the stop screen |
+| 189 | §8.6 (client, fake timers): polls every `poll_ms`; stops while hidden and fetches on visible; `429` waits `retry_after_ms`; a failed fetch keeps the view with "Updating…"; `preparing` → `ready` beeps once after a tap, not again on the next poll; `expired` stops polling |
+| 190 | M96: `GET /admin/queries/sessions` lists a display session with kind `display`; the `/admin` device row reads "Pickup board" |
+| 191 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-1, m-14 a): a display session ended by each of `replaced`, `forced`, `logout`, `device_revoked`, `hub_restored` writes its `SessionEnded` on stream `hub` / device_id with `actor_id` null; no event lands on a `staff` / `''` stream |
+| 192 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-1): `sessionStream` / `sessionActor` give the §3.4a mapping for all four kinds; a type test fails to compile when a `switch (kind)` misses `display` |
+| 193 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-1): a lint / grep check over `apps/hub/src` finds no `kind === 'station' ?` or `kind !== 'station' ?` ternary |
+| 194 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-2, m-14 b): an alert-mode `auth` from a board kiosk → close ~~`4403`~~ `4413` (⚠️ Changed by 00 v1.13 (integration, 02b-TK)) reason `display_device`, zero frames, `device_token` still valid afterwards; `SetDeviceProfile` kiosk → board closes the kiosk's open alert-mode socket ~~`4403`~~ `4413` after commit; with 01d v1.3.7 D-5, a board kiosk is never in `alert_recipients` (an `always_on` alert raised while the board exists) |
+| 195 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-3, m-14 c): `statusLink` → `null` with `public_status.enabled: false`, without `advertised_host`, for `order_id` `'abc'` / a lower-case ULID / a UUID, ⚠️ Changed by run 3 (R3-M-7) with no key loaded, or without an active bound public listener; otherwise `{ path, url }` |
+| 196 | ⚠️ Changed by 00 v1.13 hostile run 1 (M-3): with `public_status.enabled: false` a pay-later token slip prints without a QR (03c test, cited) |
+| 197 | ⚠️ Changed by run 3 (R3-M-2) On real concurrent sockets, model 50 patrons behind the same verified router IP making valid polls for distinct orders while one peer hits the upstream per-client cap for 2 min. Each admitted patron poll answers 200. A separate direct routed source still has the 16-socket cap, and the translated peers share the M99 invalid-IP bucket. Commissioning repeats the two-client isolation check (§7.13). |
+| 198 | ⚠️ Changed by run 3 (R3-M-4) Every sent public reply (200, 404, 429, miss, guard, early framework error) has the §7.13 headers. A malformed URL carrying a link and an overlong parameter return fixed 400/414 bodies with no path or MAC and no DB work. Parser failures, deadline, unsupported Expect and excess pipelining close the socket without extra replies and count once. |
+| 199 | ⚠️ Changed by 00 v1.13 hostile run 1 (m-9): a `/board/` whose socket `auth` always fails (client test, fake timers) creates at most 10 display sessions, with backoff 5, 10, 20, 40, 60, 60 … s, then shows `board.attention` |
+| 200 | 02b v1.0.25 row TK-6: `GET /queries/customer-orders?phone=03001234567` → the captured request log has `phone=[redacted]` and no digits of the number |
+| 201 | ⚠️ Changed by run 3 (R3-M-1) ⚠️ Changed by run 3 (R3-M-2) Routed source opens 40 real sockets: only the first 16 stay open, rejected sockets receive no reply, and closing an admitted socket frees a slot. Exercise the idle and continuously active partial-header cases with production deadline options verified separately. Sustained guard failures and misses hit the independent ingress limit before dispatch while another routed source gets valid polls and a staff-side client gets main-port health replies. No wall-clock timing assertions in the normal gate. |
+| 202 | ⚠️ Changed by run 3 (R3-M-3) ⚠️ Changed by run 3 (R3-M-3) With a controlled summary clock and enough source IPs to stay within their individual ingress budgets, produce 1,000 admitted unmatched requests, 100 invalid-link requests denied by M99 but admitted by the outer ingress limit, and known counts for success, invalid, guard denial, malformed input, transport overload and other failures. Assert exactly one summary with each expected count, no logged raw errors or URLs, zero per-request lines, and no summary in an empty interval. |
+| 203 | ⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-5): an active `display` row on a non-board kiosk (fixture) → `/auth/pin` 200, the display row ended `'forced'`, `warn display_session_on_staff_device` logged; §6.39 with an active `staff` row on the board → staff ended `'forced'`, `warn staff_session_on_board` logged |
+| 204 | ⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-6): `public_status.port` already taken → the hub boots and serves the main listener, `error public_listener_failed` logged, ⚠️ Changed by run 3 (R3-M-7) `statusLink` → `null` despite otherwise valid builder inputs |
+| 130 | M76: a third pending request from one IP → `429 IP_LOCKED_OUT` with `retry_after_ms` until its oldest expires; requests from other IPs still succeed; the 11th pending overall → 503 |
+
+
+### 10.4 Acceptance table (corrected)
+
+| Story AC | Test(s) |
+|---|---|
+| E0 PIN AC2 | 31, 15 |
+| E0 PIN AC3 | 1, 8, 10 |
+| E0 PIN AC4 (idle logout) | 69, 98, 13, 52 |
+| E0 PIN AC5 | 43 |
+| E0 PIN AC6 | 31, 32, 27, 44, 59, 107, 114 |
+| E0 PIN AC7 | 15, 19, 70, 101, 103 |
+| E0 PIN edge: shared device | 33, 34, 35, 60, 98 |
+| E0 PIN edge: guest WiFi | 36, 119 |
+| E0 Hardware AC3 | 26, 28, 29, 30, 42, 80, 82, 95, 96, 133, 134 |
+| E6 roles AC3, AC4 | 9, 47, 78, 86 |
+| E6 roles AC6 | 56 |
+| E5 power loss AC2–4, 9, 10 | 14, 15, 64, 67, 71, 79, 100, 111, 124 |
+| E5 device resilience AC3 | 3, 58, 99 |
+| E0 backups (restore safety) | 87, 88 |
+| D38 setup protected, then 404 | 15, 16, 24, 89, 92 |
+| D48 clock guard | 66, 51 |
+| D51 lock release input | 35, 38, 42, 43, 68, 69, 70, 85, 86, 88, 98, 101 |
+| D54 tenant scoping | 75, 76, 77, 113 |
+| M21 encrypted backups | 64, 65, 111 |
+| README R14 phones | 80–84, 91 ⚠️ Changed by 05a (rows H-1, H-2, H-4): 80, 84 superseded; 81–83, 91 changed; with 05a §10 tests 1, 3, 12 |
+| Review 1 security fixes | 85, 86, 91, 92, 93, 94, 97, 99, 106, 108, 109 |
+| Review 2 fixes (N1, N2, A, C, D) | 127, 109, 128, 129, 130 |
+| 02b-TK R7 pickup board session ⚠️ Changed by 00 v1.13 | 169–177, 188, 190–194, 199, 203; 05a v1.0.7 §10 tests 30–52 (⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-1)) |
+| 02b-TK R5 customer status page ⚠️ Changed by 00 v1.13 | 178–187, 189, 195–198, 201, 202, 204 (⚠️ Changed by 00 v1.13 hostile run 2 (R2-M-1, R2-m-6)) |
+| M77 QR codes | 131 |
+| Build review 1 fixes (v1.1) | 132, 133, 134 |
+
+---
+
+## §11. Build order
+
+The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Build order, by section:
+
+| Plan tasks | Work | Spec |
+|---|---|---|
+| 1–5 | Monorepo, `@pos/domain` (all §9 codes are created here, once), `@pos/events` (all §4.2 events, `DirectorySchema`) | §7.11, §9, §4.2 |
+| 5b, 5c | Bring already-built tasks 1–5 to v0.6 and v1.0 | §9, §4.2, M72 |
+| 6–17 | Hub lib (clock, ids, canonical hash, semaphores, host matcher, crypto-file), config, DB, migrations + encrypted backup, event store, projections (forward catch-up, M48), writer (`authGeneration`, M39), server, schema | §3.7, §3.8, §5.1, §7 |
+| 18–26b | Directory (M50–M52), guards (host, idle, admin re-resolve), command and query routes (M47, M59, M39), boot, access reconciliation (M40), health (M63), 1 M-event boot budget | §3.4–§3.9, §6.1–§6.3 |
+| 27–33b | Cloud skeleton, repositories, tenant scope + owner-credentials (M55), `SystemContext` CLIs (M56, M57), register + confirm (M41), hub setup + bootstrap token, hub confirm task | §5.2, §6.4, §6.5, §6.26–§6.28 |
+| 34–46 | PIN + lockouts (M62), admin auth + bootstrap (M42) + recovery CLI (35c, M72), pairing token, pair (M60), pairing requests + approve (M44), staff/station sessions, sweeper + retention (M66), admin commands, queries, WS (publish filter), CORS + redaction | §6.6–§6.21, §6.29–§6.32 |
+| 47–50 | Owner login (M64), refresh (M49), health + cross-tenant, systemd + smoke | §6.22–§6.25, §7.8 |
+| 51 | Foundation §6.2 table and README only (codes already exist from task 2) — not for Cursor | §9, D64 |
+| 67–71 | v1.2: UI kit and `GET /ui/*` (M81); setup, bootstrap, approve and pair pages on the kit with the `EN` table (M82) | §6.35, §8.2, §8.4 |
+| 82 | v1.4: M91 phone theme, M92 names in three responses | §6.8, §6.13, §6.31, §8.2 |
+| 77+ | v1.3: design hand-off phases 3–6 (`docs/design/handoff/00/PLAN.md`): pages restyled with `UR` (M83–M85), §6.17 fields and §6.18a–c queries, sign-in `permissions` (M87–M89), `/admin` (M86) | §6.17–§6.18c, §6.6, §6.29, §8.2 |
+| v1.13 (⚠️ Changed by 00 v1.13; ⚠️ Changed by 00 v1.13 hostile run 1) | After 02b v1.0.25's `takeawayProgress` (and 03b v1.0.16's `LINE_READY_AT_SQL`), ⚠️ Changed by run 3 (R3-M-6) 01d v1.3.7 pilot slice D-5 (D4) and 05a v1.0.7 step 10: (1) `@pos/domain` codes and `SessionKind`, `@pos/events` `SessionStarted` / `SessionEnded` kind, ws `display_hint`; (2) migration `NNNN` (number at merge); (3) `sessionStream` / `sessionActor` and every §3.4a site; (4) `POST /auth/display`, `allowDisplay` in guards and query registry; (5) WS display list, alert-mode refusal for boards, `registerDisplayCatchUp`, `registerDisplayHint`; (6) `status_link_key` (provision + boot), `statusLink` / `checkStatusLink`; (7) rate limiter; (8) the public listener with its handlers and inventory test; (9) §6.40 page and §6.41 read; (10) `/board/` entry, pair-page routing, admin label, `.mp3` in `client-dist`; (11) `phone` query redaction (TK-6); (12) runbook text | M96–M100, §3.4a, §5.1, §6.21, §6.39–§6.41, §7.2, §7.12, §7.13, §8.2, §8.6 ⚠️ Changed by run 3 (R3-M-8) |
+
+---
+
+## §12. Definition of Done, checklist, open questions, deferred
+
+### 12.1 Definition of Done
+
+⚠️ Changed by 00 v1.13 hostile run 1 (m-16): when Foundation v1.18 is approved, the same commit adds its two stack rows (pickup board, customer status page) to the CLAUDE.md Stack table.
+
+- Every §10 test exists with its `[00 §10 #n]` name and passes; `grep` finds exactly one test per number.
+- Hub and cloud route-inventory tests and the cross-tenant test pass.
+- §7.8 targets met on the pilot hub hardware (or the gap recorded in `docs/reviews/`).
+- No secret appears in logs (test 73).
+- §9 codes exist in `errors.ts` (plan task 2/5b) and are appended to the foundation §6.2 table (plan task 51).
+- Test #100 passes on the 1 M-event fixture; restore tests #87–88 pass.
+- Review 2's blockers N1 and N2 are fixed (v1.0).
+- README status updated; spec version bumped to v1.0 at approval, v1.1 after build review 1, v1.2 for the UI kit (M81, M82).
+
+### 12.2 Endpoint checklist
+
+| § | Route / command | Auth | Permission | Idempotency | Events | Tests |
+|---|---|---|---|---|---|---|
+| 6.1 | `POST /commands/:name`, `/admin/commands/:name` | device + session / device + admin | per command (in txn) | D32 + M19 + M47 | per command | 1–12, 58, 85, 86, 99, 110 |
+| 6.2 | `GET /queries/:r`, `/admin/queries/:r` | device (+session) / device + admin | per query; admin re-resolve | n/a | — | 13, 106, 117 |
+| 6.3 | `GET /health` | none (host guard) | — | n/a | — | 14, 97, 108 |
+| 6.4 | `POST /setup/provision` | code | — | M14 | `HubProvisioned`, `StaffDirectoryApplied`, `AdminBootstrapTokenIssued` | 15–21, 105, 132 |
+| 6.5 | `POST /v1/hubs/register` | code (M15) | — | M14 | — | 22–25, 61, 89 |
+| 6.6 | `POST /admin/auth` | device | `access-hub-admin` | none needed | `SessionStarted`, lockouts | 26, 27, 91, 93, 114, 147 |
+| ~~6.7~~ | ~~`GenerateDevicePairingToken`~~ | ~~device + admin~~ | ~~`manage-devices`~~ | ~~D32~~ | ~~`DevicePairingTokenGenerated`~~ | ~~28, 80~~ Removed by 05a (row H-1) |
+| ~~6.8~~ | ~~`POST /devices/pair`~~ | ~~pairing token~~ | — | ~~M14~~ | ~~`DevicePaired`, `DeviceTokenRotated`~~ | ~~29, 30, 84, 118, 150~~ Removed by 05a (row H-1) |
+| 6.9 | `POST /auth/pin` | device | — | M6 replace | `SessionStarted`, `SessionEnded`, lockouts | 31–37, 59, 60, 81, 98 |
+| 6.10 | `POST /auth/logout` | device + session | — | natural | `SessionEnded` | 38, 117 |
+| 6.11 | `POST /auth/station` | device (kds) | — | replace | `SessionStarted`, `SessionEnded` | 39, 104 |
+| 6.12 | `POST /admin/auth/logout` | admin (+device) | — | natural | `SessionEnded` | 40, 94 |
+| 6.13 | `GET /admin/login-roster` | device or bootstrap | — (⚠️ Changed by 05a (row H-2): `everyone` device → `403 listed_device_only`) | n/a | — | 41, 148; 05a 16 |
+| 6.14 | `RevokeDevice` | device + admin | `manage-devices` | D32 | `DeviceRevoked`, `SessionEnded` | 42 |
+| 6.15 | `ForceLogoutSession` | device + admin | `manage-staff` | D32 | `SessionEnded` | 43 |
+| 6.16 | `ClearPinLockout` | device + admin | `manage-staff` | D32 | `PinLockoutCleared` | 44 |
+| 6.17–6.18 | admin device / session lists | device + admin | `access-hub-admin` | n/a | — | 45, 115, 134, 143 |
+| 6.18a–c | admin lockouts / stations / staff (M88, not counted M90) | device + admin | `access-hub-admin` | n/a | — | 144–146 |
+| 6.19–6.20 | staff roster, session | device (+session) | — | n/a | — | 46, 47, 82 |
+| 6.21 | `GET /ws` | auth frame | — | n/a | pushes | 48–52, 104, 112, 119, 166 (⚠️ Changed in v1.11 (Q-70)) |
+| 6.22 | `POST /v1/auth/login` | none (allowlist) | — | none needed | — | 53, 109, 123, 126 |
+| 6.23 | `POST /v1/auth/refresh` | none (allowlist) | — | M49 | — | 54, 123 |
+| 6.24 | `POST /v1/auth/logout` | JWT | — | natural | — | 55 |
+| 6.25 | `GET /v1/health` | none (allowlist) | — | n/a | — | 125 |
+| 6.26 | CLI `seed-tenant` | shell + `SystemContext` | — | refuses duplicate | — | 56 |
+| 6.27 | CLI `issue-registration-code` | shell + `SystemContext` | — | reissue (M22) | — | 57 |
+| 6.28 | `POST /v1/hubs/confirm` | branch key | — | natural | — | 90 |
+| 6.29 | `POST /admin/auth/bootstrap` | bootstrap token | `access-hub-admin` | single use | `SessionStarted`, lockouts | 92 |
+| 6.30 | `POST /pair/requests` | none (host, guest) | — | none needed | `AlertRaised` (`device_waiting`) when none is open (⚠️ Changed by 05a (row D-3)) | 95, 130, 131; 05a 1, 21, 25 |
+| 6.34 | Hub CLI `issue-admin-bootstrap` | shell, service user | — | expires older tokens | `AdminBootstrapTokenIssued` | 127 |
+| 6.31 | `GET /pair/requests/:id` | poll secret | — | read-only | — | 95, 149 |
+| 6.32 | `ApprovePairingRequest` | device + admin, or device + staff session (⚠️ Changed by 05a (row H-1): `sessionKind: 'both'`) | `manage-devices` (session view) | D32 | `DevicePaired`, `DeviceProfileSet`, `AlertClosed` | 96, 133; 05a 1, 2, 24 |
+| 6.35 | `GET /ui/*` (static, not counted) | none (host, guest) | — | n/a | — | 135 |
+| — | static pages `GET /setup` (M84), `/admin` (M86) | none (host, guest; `/admin` also provisioned) | — | n/a | — | 136, 141, 142 |
+| 6.36 | `GET /app/android/latest` (v1.6) | device token, type `tablet` | — | read-only | — | 01d #40, #65 |
+| 6.37 | `GET /app/android/<version_code>.apk` (v1.6) | device token, type `tablet` | — | read-only | — | 01d #40 |
+| 6.38 | Hub CLI `app-release add` / `mark-good` (v1.6) | shell, service user | — | keeps 2 good + staged | — (CLI log) | 01d #40 |
+| 6.39 | `POST /auth/display` (⚠️ Changed by 00 v1.13) | device token (kiosk with the board profile) | — | replace | `SessionStarted`, `SessionEnded` | 169–174, 191, 192 |
+| 6.40 | `GET /t/:link` (page) (⚠️ Changed by 00 v1.13; ⚠️ Changed by 00 v1.13 hostile run 1 (M-4)) | none: public listener (`public_status.enabled`; host, provisioned, rate limiter) + link MAC | — | read-only | — | 178, 179, 181, 184, 185, 197, 198 |
+| 6.41 | `GET /t/:link/status` (⚠️ Changed by 00 v1.13; ⚠️ Changed by 00 v1.13 hostile run 1) | none: public listener + link MAC | — | read-only | — | 180–183, 185, 187, 195, 197, 198 |
+
+> ⚠️ Changed by 01d v1.0 (H-5, H-11): rows 6.36–6.38; tests are 01d's. See 01d §4.5.
+
+### 12.3 Open questions
+
+| # | Question | Blocks |
+|---|---|---|
+| MQ5 | Default role TTLs: confirm with the restaurant owner. | pilot comfort |
+| MQ6 | 02 device queue policy for unprocessed commands after session end (M19). | 02 spec |
+| MQ7 | Capacitor LAN transport: verify `androidScheme: 'http'` + private-range cleartext against current docs. | 02 client build |
+| MQ8 | 06 backup key availability for USB restore on a replacement hub (M21). | 06 spec |
+| MQ9 | Vitest 5: stay on 4.x or record an upgrade. | nothing now |
+| MQ10 | iOS checks on a real iPhone (saved URL keeps `?t=` ⚠️ Changed by 05a (row H-1): no `?t=` any more; the saved URL is `/pair` and the request is made from the home-screen app, standalone flag, storage past 7 days, flow inside 10 min). | phone client work |
+| MQ11 | Owner sign-off on the LAN plaintext risk and the phone SSID requirement (M54, README R16). | installation |
+| MQ12 | **Closed in v1.0.1 by M77:** QR codes on hub-served pages use `qrcode@1.5.4`, rendered as SVG on the hub. | — |
+| MQ13 | ⚠️ Changed by run 3 (R3-M-8) Closed by OD-9. The close grace is 2 h, bounded by business-date midnight + 36 h. Expiry is irreversible for the same link (M98). | 03c slip text (OD-9) |
+| MQ14 | ⚠️ Changed by 00 v1.13: the link carries the order's ULID (placed time) and travels as clear HTTP on the guest Wi-Fi (M98, ⚠️ Changed by 00 v1.13 hostile run 1 (m-13)); a leaked link lets its holder keep that order's bucket empty (M98, ⚠️ Changed by 00 v1.13 hostile run 2 (R2-m-7)). **Rec: accept both** | OD-4 |
+| MQ15 | ⚠️ Changed by run 3 (R3-M-2) Branch commissioning verifies access to the public port only. Route guest IPv4 by default. NAT requires verified per-client limits before translation (§7.13). | OD-5, installation |
+| MQ16 | ⚠️ Changed by 00 v1.13: rate numbers (§7.12 table, ⚠️ Changed by 00 v1.13 hostile run 1 (M-5)): confirm at the first pilot rush | pilot |
+| MQ17 | ⚠️ Changed by 00 v1.13: new hub folder `apps/hub/src/status/` and the new client entry folder `apps/client/board/` (05a) — CLAUDE.md asks before a folder change | OD-6 |
+
+**Owner decisions — BLOCKER-for-approval** (⚠️ Changed by 00 v1.13 hostile run 1 (m-15)). Each has a recommended default written into the spec; approval waits for the owner's answer.
+
+| # | Decision | Recommended default (written in) | Finding |
+|---|---|---|---|
+| OD-1 | **ACCEPTED (owner 2026-11-24).** Line readiness: 02b v1.0.25 §4.2's rule counts the engine `done` as ready **even at a point that has a Pass**, ⚠️ Changed by run 3 (R3-M-6) so a complete order may show Ready before bagging at the Pass. Held lines still count toward whole-order readiness (D1). | ⚠️ Changed by run 3 (R3-M-6) Keep 02b’s line rule. Per D1, an individual line’s readiness never makes an incomplete order Ready, including on a boosted pickup. | B-1 |
+| OD-2 | **ACCEPTED (owner 2026-11-24).** Pilot boards only on a `cashier_kiosk`-class PC in Chrome / Edge kiosk mode; a tablet board (05b app, R33 lock-task) deferred | Yes (written in M96, §6.39, 05a §3.6) | M-2, m-12 |
+| OD-3 | **ACCEPTED (owner 2026-11-24).** The status page on a **separate port** `public_status.port` (default `http_port + 1`) | Yes (M97, §7.13) | M-4 |
+| OD-4 | **ACCEPTED (owner 2026-11-24).** Accept the ULID time leak and the clear-HTTP link on guest Wi-Fi (MQ14) | Accept; WPA3 / OWE recommended | M98, m-13 |
+| OD-5 | **ACCEPTED (owner 2026-11-24).** Each pilot router can open only the public port to guests (MQ15) and ⚠️ Changed by run 3 (R3-M-2) meets the transport requirements in §7.13. Else `public_status.enabled` stays false there and slips print without a QR | Yes | M-4, M-5 |
+| OD-6 | **ACCEPTED (owner 2026-11-24).** New folders `apps/hub/src/status/` and `apps/client/board/` (MQ17) | Yes | m-5, m-15 |
+| OD-7 | ⚠️ Changed by run 3 (R3-m-1) **ACCEPTED (owner short-list answer 10, 2026-11-24).** English only (OR-1), 31 composed pieces covering every token 1–9999 (05a OQ-B3). | Rendered once offline with one voice, owner checks a sample of composed tokens | m-6, R3-m-1 |
+| OD-8 | **ACCEPTED (owner 2026-11-24).** Keep `DEVICE_ACCESS_DENIED` + `reason: 'display_device'` (clients branch on `reason` first) or a new code `DISPLAY_DEVICE` (05a OQ-B8) | Keep, with the client rule and test | m-11 |
+| OD-9 | **ACCEPTED (owner 2026-11-24).** Link lifetime (MQ13) | ⚠️ Changed by run 3 (R3-M-8) `min(tracking_close_cutoff_ms, business-date midnight + 36 h)` (2 h close grace, irreversible once expired, M98) | m-3 |
+| OD-10 | **ACCEPTED (owner 2026-11-24).** 02b `SubmitOrder.order_id` must match `ULID_RE` (breaking before the pilot, R29; owed by 02b; ⚠️ Changed by 00 v1.13 (integration, 02b-TK): written in 02b v1.0.25 §3.2 step 3, test 84, TK-Q17) | Yes; until it lands `statusLink` returns `null` for such ids | M-3 |
+
+### 12.4 Deferred until needed
+
+| Item | Why deferred |
+|---|---|
+| Rate limit on `/v1/hubs/register` | 60-bit codes, 24 h TTL. Revisit with an HTTP issuing route (M2). |
+| bcrypt verification | M8. |
+| HTTP route to issue registration codes | M2. |
+| Sliding-window device lockout | Fixed window is enough with the per-staff limit. |
+| WS backpressure | LAN, tens of sockets. |
+| Security headers / CSP on hub-served pages | LAN-only, same-origin; revisit with customer pages (P2). The Host guard (M45) covers DNS rebinding. ⚠️ Changed by 00 v1.13 (row H-12): **done for the `public` group** (§7.13); staff pages stay as they are. |
+| Status link key rotation (route or CLI) | ⚠️ Changed by 00 v1.13: a link lives at most a business day + 36 h; the runbook rotation (delete the key, restart; §7.13 step 7, ⚠️ Changed by 00 v1.13 hostile run 1 (m-8)) covers it. Revisit if slip photos become a concern. |
+| Status page over the internet (cloud relay), SMS / push "ready" | ⚠️ Changed by 00 v1.13: needs the cloud path (06 / 07), TLS and a provider; P2. The page beeps on the LAN. |
+| Session takeover permission | M20 / R11; owner setting later. |
+| LAN TLS | M54; revisit at P3. |
+| Branch rename reaching the hub (M78) | The name is display-only; 06's directory push can carry it when 01 adds rename. |
+| Device-token expiry | Tokens are revocable, revoked on owner exit (M38; ⚠️ Changed by 05a (row H-4): a phone whose list empties, 05a M-5), reconciled on restore (M40); revisit with LAN TLS (P3). |
