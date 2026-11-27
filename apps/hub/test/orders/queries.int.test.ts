@@ -1056,13 +1056,17 @@ describe('[02b #66 #67 #80] open-orders takeaway until handed over (§3.3, §6.1
     expect(await rowsOf()).toEqual([]);
   });
 
-  it('[02b #66] day close: a paid, not handed-over takeaway leaves (TK-Q7); the abandoned list is unchanged', async () => {
+  // ⚠️ Changed by owner ruling DC-2 (2026-11-27, 02b §3.3; supersedes TK-Q7 "leaves at the close"): it stays open
+  it('[02b #66, DC-2] day close: a paid, not handed-over takeaway stays on open-orders with its date, not flagged abandoned', async () => {
     appendOrder(hub, { order_type: 'takeaway', order_id: 'PF', lines: [{ order_item_id: 'PF1', item_id: FX.naan }] });
     append(billedEv(['PF']));
     expect((await rowsOf()).map((o) => o.order_id)).toEqual(['PF']);
     closeDay();
-    expect(await rowsOf()).toEqual([]);
-    expect(await rowsOf('open-orders?abandoned=true', signIn(MGR))).toEqual([]);
+    expect((await rowsOf()).map((o) => o.order_id)).toEqual(['PF']);
+    // the manager's view lists it as the open takeaway it is, not flagged abandoned; its date beside the token
+    const managers = await rowsOf('open-orders?abandoned=true', signIn(MGR));
+    expect(managers.map((o) => [o.order_id, (o as { abandoned?: boolean }).abandoned])).toEqual([['PF', false]]);
+    expect((managers[0] as { from_date?: string | null }).from_date).not.toBeNull();
   });
 
   it('[02b #66] root paid, then an addition: the root reads paid, the addition due with keyBalances\' balance', async () => {
