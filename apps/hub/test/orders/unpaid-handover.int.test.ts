@@ -235,3 +235,68 @@ describe('[02b #94] audit', () => {
     expect(rows[2]).toMatchObject({ subject_type: 'order', subject_id: order_id, approver_staff_id: 'S_MGR', amount_minor: naanPrice() });
   });
 });
+
+// ---- 02b-tk L-CLOSE-4: 04 v1.0.9 §3.6, tests 62–64 (02b TK-16) through the real commands ----
+
+describe('[04 #62, #63, #64] unpaid hand-over audit rows', () => {
+  it('takeaway and parking requests; approve one, reject the other: requested / answered rows with the original requester, one approved row after its answer, no request_answered; the three action filters; rebuild after alert retention = live', async () => {
+    const { createProjectionRegistry } = await import('../../src/projections/registry');
+    const { registerHubProjections } = await import('../../src/lib/boot');
+    const { ali, managerPhone } = await start();
+    const t = takeaway();
+    const p = appendOrder(hub, { order_type: 'parking', placed_by: 'S_ALI', lines: [{ order_item_id: `P${++seq}`, item_id: FX.naan }] }).order_id;
+    const at = (await ask(ali, t)).result!.alert_id as string;
+    const ap = (await ask(ali, p)).result!.alert_id as string;
+    expect((await answer(managerPhone, at, 'approve')).status).toBe(200);
+    expect((await answer(managerPhone, ap, 'reject')).status).toBe(200);
+
+    type Row = { seq: number; action: string; subject_type: string; subject_id: string; order_id: string | null; actor_staff_id: string | null; approver_staff_id: string | null; method: string | null; outcome: string | null; amount_minor: number | null; detail_json: string };
+    const rows = () => hub.deps.db.prepare("SELECT * FROM audit_entries WHERE action LIKE 'unpaid_handover_%' OR action = 'request_answered' ORDER BY seq").all() as Row[];
+    const live = rows();
+    const of = (action: string) => live.filter((r) => r.action === action);
+    // #62: one requested row per named order, the original requester, the alert id, the requested amount
+    expect(of('unpaid_handover_requested').map((r) => [r.subject_id, r.order_id, r.actor_staff_id, r.amount_minor, (JSON.parse(r.detail_json) as { alert_id: string }).alert_id])).toEqual([
+      [t, t, 'S_ALI', naanPrice(), at],
+      [p, p, 'S_ALI', naanPrice(), ap],
+    ]);
+    // #63: one answered row each, requester as actor, the answerer, method and outcome; never request_answered
+    expect(of('unpaid_handover_answered').map((r) => [r.subject_id, r.actor_staff_id, r.approver_staff_id, r.method, r.outcome])).toEqual([
+      [t, 'S_ALI', 'S_MGR', 'pin', 'approved'],
+      [p, 'S_ALI', 'S_MGR', 'pin', 'rejected'],
+    ]);
+    expect(of('unpaid_handover_answered').map((r) => JSON.parse(r.detail_json) as Record<string, unknown>)).toEqual([
+      expect.objectContaining({ alert_id: at, kind: 'hand_over_unpaid' }),
+      expect.objectContaining({ alert_id: ap, kind: 'hand_over_unpaid' }),
+    ]);
+    expect(of('request_answered')).toEqual([]);
+    // #64: exactly one approval row (the approved order), after its answered row; the rejected order has none
+    const approved = of('unpaid_handover_approved');
+    expect(approved).toHaveLength(1);
+    expect(approved[0]).toMatchObject({ subject_type: 'order', subject_id: t, approver_staff_id: 'S_MGR', amount_minor: naanPrice() });
+    expect(JSON.parse(approved[0]!.detail_json)).toMatchObject({ alert_id: at });
+    expect(approved[0]!.seq).toBeGreaterThan(of('unpaid_handover_answered')[0]!.seq);
+    // the three action filters of GET /queries/audit-log
+    for (const [action, count] of [['unpaid_handover_requested', 2], ['unpaid_handover_answered', 2], ['unpaid_handover_approved', 1]] as const) {
+      const res = await hub.app.inject({
+        method: 'GET',
+        url: `/queries/audit-log?from=${hub.clock.branchNow() - 86_400_000}&to=${hub.clock.branchNow() + 1}&action=${action}`,
+        headers: { authorization: `Bearer ${managerPhone.token}`, 'x-session-token': managerPhone.sessionToken },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      const entries = (res.json() as { data: { entries: Array<{ action: string }> } }).data.entries;
+      expect(entries.map((e) => e.action)).toEqual(Array.from({ length: count }, () => action));
+    }
+    // alert retention deletes the source requests from the live alerts projection: a rebuild from seq 0 = live
+    const db = hub.deps.db;
+    db.pragma('foreign_keys = OFF');
+    for (const table of ['alert_receipts', 'alert_seen', 'alert_attempts', 'alerts']) {
+      if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !== undefined) db.prepare(`DELETE FROM ${table}`).run();
+    }
+    db.pragma('foreign_keys = ON');
+    db.prepare("DELETE FROM projection_checkpoints WHERE projection = 'audit'").run();
+    const registry = createProjectionRegistry();
+    registerHubProjections(registry);
+    registry.catchUp(db, 'branch-1');
+    expect(rows()).toEqual(live);
+  });
+});

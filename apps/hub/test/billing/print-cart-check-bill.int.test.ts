@@ -391,3 +391,47 @@ describe('[05 #91b] CartCheckBillPrinted wiring (R3-M-7)', () => {
     expect(audits('cart_check_bill_printed')).toHaveLength(1);
   });
 });
+
+// ---- 02b-tk L-CLOSE-4: 04 v1.0.9 §3.6 test 61 (05 V-4) through the real command ----
+
+describe('[04 #61] cart_check_bill_printed audit rows', () => {
+  it('a routed plain cart, an addition cart and a cart with no route → one row each (hub subject, actor, amount, the §3.6 detail allowlist; null ids with no route); the audit-log filter takes the action; a retransmit adds no row', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const branch = 'branch-1';
+    // no route first
+    const none = await cart(ali, { draft: { order_type: 'takeaway', lines: [{ key: 'N1', item_id: FX.naan, quantity: 1 }] } });
+    expect(none.result).toMatchObject({ printed: false });
+    printers([{ scope: 'default', ref_id: '', printer_id: P.fallback }]);
+    const plain = await cart(ali, { draft: { order_type: 'takeaway', lines: lines() } }, { commandId: 'cart-61' });
+    expect(plain.status, JSON.stringify(plain.error)).toBe(200);
+    await send(ali, 'O_ROOT61', { order_type: 'takeaway', lines: [{ key: 'R1', item_id: FX.naan, quantity: 2 }] });
+    const addition = await cart(ali, { draft: { order_type: 'takeaway', adds_to_order_id: 'O_ROOT61', lines: [{ key: 'A1', item_id: FX.piece, quantity: 1 }] } });
+    expect(addition.status, JSON.stringify(addition.error)).toBe(200);
+    // the retransmit of the plain cart: the stored result, no second event or row
+    expect((await cart(ali, { draft: { order_type: 'takeaway', lines: lines() } }, { commandId: 'cart-61' })).result).toEqual(plain.result);
+
+    const rows = db().prepare("SELECT * FROM audit_entries WHERE action = 'cart_check_bill_printed' ORDER BY seq").all() as Array<Record<string, unknown> & { detail_json: string }>;
+    const events = eventsOf('CartCheckBillPrinted').map((e) => JSON.parse(e.payload) as { job_id: string | null; printer_id: string | null; line_count: number; total_default_minor: number; device_id: string });
+    expect(events).toHaveLength(3);
+    expect(rows).toHaveLength(3);
+    rows.forEach((r, i) => {
+      const e = events[i]!;
+      expect(r).toMatchObject({ subject_type: 'hub', subject_id: branch, actor_staff_id: 'S_ALI', approver_staff_id: null, amount_minor: e.total_default_minor, order_id: null });
+      // §3.6: exactly the payload's five fields (+ the usual envelope actor); no bill / order id, no line text
+      expect(JSON.parse(r.detail_json)).toStrictEqual({ job_id: e.job_id, printer_id: e.printer_id, line_count: e.line_count, total_default_minor: e.total_default_minor, device_id: ali.deviceId, envelope_actor_id: 'S_ALI' });
+    });
+    expect(events[0]).toMatchObject({ job_id: null, printer_id: null });
+    expect(events[1]!.printer_id).toBe(P.fallback);
+    expect(events[2]!.printer_id).toBe(P.fallback);
+    // the audit-log filter
+    const mgr = signIn('S_MGR');
+    const res = await hub.app.inject({
+      method: 'GET',
+      url: `/queries/audit-log?from=${hub.clock.branchNow() - 86_400_000}&to=${hub.clock.branchNow() + 1}&action=cart_check_bill_printed`,
+      headers: { authorization: `Bearer ${mgr.token}`, 'x-session-token': mgr.sessionToken },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as { data: { entries: Array<{ action: string }> } }).data.entries.map((e) => e.action)).toEqual(['cart_check_bill_printed', 'cart_check_bill_printed', 'cart_check_bill_printed']);
+  });
+});

@@ -512,10 +512,22 @@ function fixtureDay(): { t: string; ta: string } {
 }
 
 describe('[02b #28] replay', () => {
-  it('[02b #28] live projection = replayed projection over a fixture day, orders registered before and after tables', async () => {
+  it('[02b #28] live projection = replayed projection over a fixture day (approvals and an approval clear included), orders registered before and after tables', async () => {
     await dineIn();
     const ids = fixtureDay();
+    // ⚠️ 02b v1.0.25 (R2-m-12, R3-M-8): one UnpaidHandoverApproved per approved order and a recorded approval clear
+    const approve = (order_id: string, due_minor: number) =>
+      append({ stream_type: 'order', stream_id: order_id, event_type: 'UnpaidHandoverApproved', payload: { order_id, alert_id: `AL_${order_id}`, approved_by_staff_id: 'S_MGR', due_minor } });
+    approve(ids.t, 40_000);
+    approve(ids.ta, 25_000);
+    append({ stream_type: 'order', stream_id: ids.t, event_type: 'OpenOrderBillChanged', payload: { order_ids: [ids.t, ids.ta], approval_cleared_order_ids: [ids.ta] } });
     const live = dump();
+    const approvalOf = (id: string) => {
+      const o = live.orders.find((x) => (x as { order_id: string }).order_id === id) as { unpaid_handover_approved_at: number | null; unpaid_handover_approved_due_minor: number | null };
+      return [o.unpaid_handover_approved_at !== null, o.unpaid_handover_approved_due_minor];
+    };
+    expect(approvalOf(ids.t)).toEqual([true, 40_000]);
+    expect(approvalOf(ids.ta)).toEqual([false, null]);
     expect(live.orders.length).toBe(5);
     expect(live.order_lines.length).toBe(13);
     // 05 rows Q-5, Q-6: the addition kept its target's token and bill_key; the carry kept it open and was cleared
