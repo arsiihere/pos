@@ -66,7 +66,7 @@ import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
 import { billsOf, type QueueToken } from '../takeaway/queue-model';
 import { createHandovers } from '../takeaway/handover';
 import { allLiveReady, liveLines, TokenView } from '../takeaway/TokenView';
-import { candidatesOf, checkHandover, gateOf, lineIds } from '../unpaid/candidate';
+import { candidatesOf, checkHandover, gateOf, lineIds, type Gate } from '../unpaid/candidate';
 import { unpaidRequestsOf } from '../unpaid/requests';
 import { PayPanel, type PayTarget } from '../takeaway/PayPanel';
 import { CartCheckBill, SentTokenPrint } from '../takeaway/CheckBill';
@@ -575,7 +575,10 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     // ⚠️ 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, §8 OR-7; D2): the shared check at the tap — blocked (Due,
     // unapproved, or unknown billing) → the token view, which offers Take payment and Ask a manager
     const approved = unpaidRequestsOf(shellRef.current).approvedDue;
-    const gate = (order_id: string) => gateOf(billsOf(q).find((b) => b.order_id === order_id), { approvedDue: approved(order_id) });
+    // the order-view just read is fresher than the rail's row: a billed order is free (as the token view's gate), so a
+    // payment the rail has not re-read yet never sends a paid token to the drawer
+    const billed = new Set(views.flatMap((v) => (v.ok && v.data.kind === 'order' && v.data.order.billed ? [v.data.order.order_id] : [])));
+    const gate = (order_id: string): Gate => (billed.has(order_id) ? { kind: 'free' } : gateOf(billsOf(q).find((b) => b.order_id === order_id), { approvedDue: approved(order_id) }));
     const give = lines.filter(servable);
     if (!checkHandover(candidatesOf(q.order_ids, liveLines(lines), gate), lineIds(give), reservedIds()).ok) return setOpenToken(q);
     handOver(q, give);
