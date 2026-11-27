@@ -1354,7 +1354,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     };
     // 02b-TK C1-4: an edited line's sheet offers Remove (Save changes is the sheets' primary)
     const onRemove = editing === null ? {} : { onRemove: () => (setCart((c) => removeLine(c, editing.key)), setSheet(null)) };
-    const common = { config, inputs, unitOf, sheet: sheetAsBottom, newKey, onAdd, onClose: closeSheet, ...onRemove };
+    // ⚠️ 02b-TK L-CLIENT-6b item 3: the takeaway screen's sheets as the frames draw them (ItemSheet, DealSheet)
+    const common = { config, inputs, unitOf, sheet: sheetAsBottom, newKey, onAdd, onClose: closeSheet, ...onRemove, ...(order_type === 'takeaway' ? { look: 'tk' as const } : {}) };
     // O15: what is left for this line once the cart's other lines of the item are counted
     const sheetCap = (item_id: string) => {
       const cap = capOf(item_id);
