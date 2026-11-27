@@ -60,3 +60,22 @@ Owner-approved 2026-11-25. The eight run-3 reviews (`docs/reviews/*_hostile_run3
 - Fix every BLOCKER and MAJOR of your spec's run-3 review, and the MINORs that are one-line wording fixes. Where a finding asks a change in another spec, write only your side and list the other side under "Needs in other specs" in your report.
 - Keep the version number. Add a "Hostile run 3 fixes" table like the run-2 one: finding id → what changed → §. Mark each edit "⚠️ Changed by run 3 (<finding id>)".
 - Do not edit code, plans or other specs. Do not run tests.
+
+## QA round 1 rulings (owner, 2026-11-28 02:38 PKT, "Haan")
+
+Binding. From the Chrome QA report and the design audit of 28 Nov 2026. Each lane writes its spec side with a version bump citing "owner 2026-11-28".
+
+| # | Ruling | Spec to change |
+|---|---|---|
+| Q1 | **Split rounding (BUG-1):** a split bill is rounded once; equal shares in whole rounding steps, the last split takes the remainder; Σ splits = the bill at every class. An unrounded class may show a ±0.0n rounding line on one split. | 05 v1.0.36 (done, PR #553) |
+| Q2 | **Pickup promise (BUG-5):** the kitchen targets pickup − padding, so the shown promise = the pickup time when the kitchen can make it (`T_L = max(pickup − padding, land)`, promise = `T_L + padding`). When it can't, the cart says so before sending ("Kitchen can make it by X, not Y"); the order keeps the asked pickup (PQ-1). | 03a PK-2, test 178; 02b |
+| Q3 | **Cart time refresh (BUG-6):** the cart's ready-time preview re-asks on the kitchen-load events the menu tiles use, plus every 30 s while the cart has items. | 02b §8 |
+| Q4 | **One clock in the cart (BUG-7):** part rows, line badge and "All ready by" all show the customer time (kitchen + padding). | 02b (tests 41, 57) |
+| Q5 | **KDS late (BUG-25):** a line is late only after its engine-planned ready time, zero-cook lines included. | 03b §3.3 |
+| Q6 | **Pass bag = token (BUG-8):** one Pass card per takeaway token; actions apply to all its orders. Parking stays per order. | 03b v1.0.17 (done, PR #554) |
+| Q7 | **Customer is here:** the default Cashier role gets `boost-order`. | 01b |
+| Q8 | **Idle sign-out:** any user input (tap, key) on the device counts as activity for the idle timer; passive watching does not. | HPA / 01b idle rules |
+| Q9 | **Shared bill request:** when several orders share one open bill, one unpaid-handover request covers that bill's whole due and all its orders (Approval A reads "one bill, one amount"). | 02b / 01d request |
+| Q10 | **Manager card:** the request shows "(addition)" for an addition order and, when closed, the reason. 01d §6.8 "find a manager" wording fixed for one-step requests. | 01d, 02b |
+| Q11 | **Cook:** the Takeaway tab is hidden for roles without `take-order`. | 02b §8 |
+| Q12 | **Food photos:** menu tiles use a category colour + icon placeholder for the pilot; real photos after the pilot (needs a menu photo field). | 02b §8 (client) |
