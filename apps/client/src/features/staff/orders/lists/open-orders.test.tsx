@@ -288,6 +288,19 @@ describe('[02b §8 Open orders] open orders list', () => {
     expect(s.openOrders).toHaveBeenCalledTimes(2);
   });
 
+  it('[02b-TK L-CLIENT-2 item 4; 02b v1.0.25 §6.19 (OR-7, R2-M-4)] UnpaidHandoverApproved (a manager approved one order) re-reads the list once', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    await show(s);
+    expect(s.openOrders).toHaveBeenCalledTimes(1);
+    s.live.frame({ type: 'event', seq: 2, event: { event_id: 'E2', event_type: 'UnpaidHandoverApproved', schema_version: 1, payload: { order_id: 'O1', alert_id: 'AL1', approved_by_staff_id: 'S_MGR', due_minor: 900 } } } as never);
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+    });
+    await flush();
+    expect(s.openOrders).toHaveBeenCalledTimes(2);
+  });
+
   it('[02b Q-6] offline: the list stays, "Updated {time}" shows', async () => {
     const v = await show(setup({ online: false }));
     expect(v.text()).toContain('Updated 8:15 PM');

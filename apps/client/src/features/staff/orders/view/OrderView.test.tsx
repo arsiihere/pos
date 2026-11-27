@@ -103,12 +103,12 @@ const ALL: Record<string, Resolution> = {
   'take-order': { grant: 'allowed', scope: 'branch' },
 };
 
-function setup(o: { answer?: 'order' | 'missing'; perms?: Record<string, Resolution>; device?: 'tablet' | 'cashier_kiosk'; order?: CatchUpOrder; orderView?: () => Promise<unknown> } = {}) {
+function setup(o: { answer?: 'order' | 'missing'; perms?: Record<string, Resolution>; device?: 'tablet' | 'cashier_kiosk'; order?: CatchUpOrder; orderView?: () => Promise<unknown>; rows?: unknown[] } = {}) {
   const live = createLiveBus();
   live.frame({ type: 'catch_up', as_of_seq: 3, state: { orders: { orders: [o.order ?? CAUGHT], zone_stock: [] } } } as never);
   const orders = {
     orderView: vi.fn(o.orderView ?? (async () => ({ ok: true as const, data: o.answer === 'order' ? { kind: 'order' as const, order: VIEW } : { kind: 'missing' as const } }))),
-    openOrders: vi.fn(async () => ({ ok: true as const, data: { orders: [] } })),
+    openOrders: vi.fn(async () => ({ ok: true as const, data: { orders: [...((o.rows ?? []) as never[])] } })),
     orderContact: vi.fn(async () => ({ ok: true as const, data: { customer_name: 'Usman', phone: '03000000001' } })),
     boostOrder: vi.fn(async () => ({ ok: true as const, data: {} })),
   };
@@ -387,5 +387,73 @@ describe('[04 §8] order view: Cancel order and the pending total', () => {
     const sec = [...s.m.container.querySelectorAll('.tv__sec')].at(-1)!;
     expect(sec.querySelector('b.num')?.textContent).toBe(`Rs ${((before - 10_000) / 100).toLocaleString('en-US')}`);
     expect(sec.querySelector('.xp')?.textContent).toBe('Rs 100 pending void not counted');
+  });
+});
+
+// 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, §6.4, §8 OR-7 "parking / per-line sheet"; D2; test 90 client part)
+describe('[02b-TK L-CLIENT-2 item 4; 02b §3.7a, §8 OR-7] the parking / per-line Mark served sheet', () => {
+  const PARKING: CatchUpOrder = { ...CAUGHT, order_type: 'parking', table_key: 'parking:O57', token: null, car_number: 'LEA 123', car_type: 'sedan' };
+  const row = (bill: unknown, extra: Record<string, unknown> = {}) => ({ order_id: 'O57', order_type: 'parking', bill, ...extra });
+  const openSheet = async (s: ReturnType<typeof setup>) => {
+    await flush();
+    s.m.click([...s.m.container.querySelectorAll('.tv__acts .btn')].find((b) => b.textContent === 'Mark served')!);
+    await flush();
+    return s.m.container.querySelector('.dlg')!;
+  };
+  const sendButton = (dlg: Element) => [...dlg.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Mark ') && b.textContent.endsWith('served'))! as HTMLButtonElement;
+
+  it('a Due, unapproved parking order: the last line cannot be given — Mark served greyed, Ask a manager sends RequestUnpaidHandover', async () => {
+    const s = setup({ answer: 'order', order: PARKING, rows: [row({ state: 'due', due_minor: 40_000 })] });
+    current = s.m;
+    (s.shell.api.command as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ ok: true, data: { alert_id: 'AL7', is_requester: true } }));
+    const dlg = await openSheet(s);
+    expect(sendButton(dlg).disabled).toBe(true);
+    expect(dlg.textContent).toContain('Take payment first');
+    s.m.click(dlg.querySelector('[data-ask="O57"]'));
+    await flush();
+    expect(s.shell.api.command).toHaveBeenCalledWith('RequestUnpaidHandover', { order_id: 'O57' });
+    expect(s.m.container.querySelector('.dlg')?.textContent).toContain('Waiting for a manager…');
+    expect(s.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('approved (UnpaidHandoverApproved at this due) → Mark served sends with customer_handover: true', async () => {
+    const s = setup({ answer: 'order', order: PARKING, rows: [row({ state: 'due', due_minor: 40_000 })] });
+    current = s.m;
+    await flush();
+    act(() => s.live.frame({ type: 'event', seq: 9, event: { event_id: 'E9', event_type: 'UnpaidHandoverApproved', schema_version: 1, payload: { order_id: 'O57', alert_id: 'AL7', approved_by_staff_id: 'S_MGR', due_minor: 40_000 } } } as never));
+    const dlg = await openSheet(s);
+    expect(sendButton(dlg).disabled).toBe(false);
+    s.m.click(sendButton(dlg));
+    await flush();
+    expect(s.enqueue).toHaveBeenCalledWith('MarkServed', { lines: [{ order_id: 'O57', order_item_ids: ['L3'] }], customer_handover: true }, expect.anything());
+  });
+
+  it('a billed parking order is absent from open-orders: read after its placement → free; the takeaway send also carries the flag', async () => {
+    const s = setup({ answer: 'order', order: PARKING, rows: [] });
+    current = s.m;
+    const dlg = await openSheet(s);
+    expect(sendButton(dlg).disabled).toBe(false);
+    s.m.click(sendButton(dlg));
+    await flush();
+    expect(s.enqueue).toHaveBeenCalledWith('MarkServed', { lines: [{ order_id: 'O57', order_item_ids: ['L3'] }], customer_handover: true }, expect.anything());
+  });
+
+  it('[03b v1.0.16 §3.4 Bill freshness; owner 2026-11-27] an absent row frees parking only: an absent takeaway row stays unknown, nothing is sent', async () => {
+    const s = setup({ answer: 'order', order: CAUGHT, rows: [] });
+    current = s.m;
+    const dlg = await openSheet(s);
+    expect(sendButton(dlg).disabled).toBe(true);
+    s.m.click(sendButton(dlg));
+    await flush();
+    expect(s.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('a dine-in order sends no customer_handover flag and no unpaid check', async () => {
+    const s = setup({ answer: 'order', order: { ...CAUGHT, order_type: 'dine_in', table_key: 'dine_in:SE1', token: null } });
+    current = s.m;
+    const dlg = await openSheet(s);
+    s.m.click(sendButton(dlg));
+    await flush();
+    expect(s.enqueue).toHaveBeenCalledWith('MarkServed', { lines: [{ order_id: 'O57', order_item_ids: ['L3'] }] }, expect.anything());
   });
 });

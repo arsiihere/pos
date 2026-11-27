@@ -82,3 +82,16 @@ Captured from `apps/client/e2e/02b-tk-late.spec.ts` at device scale 2: a paid ta
 - The tile turns amber (`tk-rt--late`) once hub now ≥ open-orders `ready_at` + `bag_ready_window_ms`, the pair every Pass card uses. A token with an addition waits for the later of its orders. The rail checks the clock again every 15 s while a ready tile has the pair. When the hub clears the pair (bag incomplete again, D8) or the token is collected, the next open-orders read removes the amber.
 - A paid late tile with a phone the person can see reads "{n} min · Call" (`q.waiting_min`), and the tap opens the token, where Call and Hand over all are. A late tile with no phone keeps its Hand over. A Due late tile is amber and keeps Take payment.
 - The drawer shows "Ready {n} min ago — not collected" (`v.late`) with Call when the drawer's own read finds every live line still ready. Both strings come from strings-table.md.
+## L-CLIENT-2 item 4 Unpaid hand-over: Ask a manager, waiting, approve with PIN
+
+No hand-off frame shows the OR-7 request: the hand-off was drawn before OR-7 replaced R2's client override. The nearest frames are TokenDue (the Due drawer), ReadyTiles (the Due tile) and PackerPass (the Pass card). The images are the running client only, captured from `apps/client/e2e/02b-tk-unpaid.spec.ts` at device scale 2: the kiosk token drawer (1920 × 1080) and the Manager's answer sheet on the second listed tablet.
+
+| State | Nearest frame | English | Urdu |
+| --- | --- | --- | --- |
+| Due token after "Ask a manager": waiting, Withdraw, Hand over all greyed (kiosk drawer) | TokenDue | [UnpaidWaiting](UnpaidWaiting.png) | [UnpaidWaiting-Urdu](UnpaidWaiting-Urdu.png) |
+| Manager's request "Hand over unpaid #N" with the amount, before Approve + PIN (tablet) | (01d AnswerSheet) | [UnpaidAnswer](UnpaidAnswer.png) | [UnpaidAnswer-Urdu](UnpaidAnswer-Urdu.png) |
+
+- One candidate check (`apps/client/src/features/staff/orders/unpaid/candidate.ts`) drives the ready tile, the token drawer, the parking / per-line Mark served sheet and the Pass card. A Due order without an effective approval cannot hand over its last live line. A partial serve that leaves a line is allowed. Unknown billing blocks the action.
+- "Ask a manager" sends `RequestUnpaidHandover { order_id }` for the newest blocked order. The control shows the request's state: "Waiting for a manager…" with "Waiting — find a manager" and Withdraw for the requester, "Already waiting for a manager" for someone else's request, and "Manager said no" after a reject (read from my-requests on the requester's result).
+- An approval (`UnpaidHandoverApproved`, or the open-orders `unpaid_handover_approved` flag once the hub sends it) unlocks only the named order, up to the approved amount (D2). Every customer hand-over sends `customer_handover: true`. The hub on this base drops the flag and has no refusal yet (U-5). The client's handling of `403 unpaid_handover_approval_required` is covered by unit tests only.
+- ui-kit has no styles for the request control. It uses the existing `tk-msg`, `pc__msg` and `wcard` boxes, so on the ready tile it shows as a plain button.

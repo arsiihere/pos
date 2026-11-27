@@ -11,7 +11,10 @@ import { useLiveRefetch } from '../lists/OpenOrders';
 import { MONEY_DIR, money } from '../money';
 import { WaitingRows } from '../queue/WaitingToSend';
 import type { TokenBook } from './book';
-import { buildQueue, knownOrders, matchesQuery, notCollectedMinOf, type QueueModel, type QueueToken } from './queue-model';
+import { billsOf, buildQueue, knownOrders, matchesQuery, notCollectedMinOf, type QueueModel, type QueueToken } from './queue-model';
+import { AskManager } from '../unpaid/AskManager';
+import { checkWholeToken, gatesOf, type HandoverCheck } from '../unpaid/candidate';
+import { unpaidRequestsOf } from '../unpaid/requests';
 import './styles';
 
 // 02b-TK C2-1 (02b v1.0.24 §6.16, §8; frames HomeKiosk, ReadyTiles, QueueTablet, PhoneQueue; CHANGES §1; R3): the
@@ -44,6 +47,8 @@ export function useTakeawayQueue(book: TokenBook): { model: QueueModel | null; f
     if (mine !== request.current) return;
     if (!answer.ok) return setFailed(true);
     for (const r of answer.data.orders) seen.current.set(r.order_id, r);
+    // 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §6.16 R3-M-8): the rows' approval flags feed the page's approvals
+    unpaidRequestsOf(shellRef.current).seed(answer.data.orders);
     setFailed(false);
     setRows(answer.data.orders);
     setLoadedAt(shellRef.current.clock.nowMs());
@@ -145,16 +150,20 @@ export interface QueueRailProps {
   compact?: boolean;
 }
 
-function ReadyTile({ q, selected, owed, late, onOpen, onHandOver, onPay }: { q: QueueToken; selected: boolean; owed: number | null; late: number | null; onOpen(): void; onHandOver?: (() => void) | undefined; onPay?: (() => void) | undefined }) {
+function ReadyTile({ q, selected, owed, late, whole, onOpen, onHandOver, onPay }: { q: QueueToken; selected: boolean; owed: number | null; late: number | null; whole: HandoverCheck; onOpen(): void; onHandOver?: (() => void) | undefined; onPay?: (() => void) | undefined }) {
   const shell = useShell();
+  // ⚠️ 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, §8 OR-7; D2): the shared check over every order of the token — a
+  // Due order approved at its due (or due 0) hands over too; a Due, unapproved one offers Ask a manager for the newest
+  // such order (a mixed token approves only the named order)
+  const handable = q.paid || whole.ok;
   // ⚠️ 02b-TK L-CLIENT-2 item 2 (03b v1.0.16 §3.4 R3-M-9, §3.5, D8; frames ReadyTiles, TokenLate): not collected past
-  // the R8 window → amber; a paid one with a phone this person may see reads "{n} min · Call" and opens the token
-  // (Call and Hand over all are in the drawer); a due one keeps Take payment
+  // the R8 window → amber; one that may be handed over with a phone this person may see reads "{n} min · Call" and
+  // opens the token (Call and Hand over all are in the drawer); a due one keeps Take payment
   const amber = late !== null && !q.part;
-  const call = amber && q.paid && q.phone !== null;
+  const call = amber && handable && q.phone !== null;
   const cls = ['tk-rt', q.part ? 'tk-rt--part' : q.paid ? null : 'tk-rt--due', amber ? 'tk-rt--late' : null, selected ? 'is-sel' : null].filter((c) => c !== null).join(' ');
   // R2: a paid, all-ready token hands over in one tap; a due one only offers Take payment; part given opens the view
-  const act = q.part ? undefined : call ? onOpen : q.paid ? onHandOver : onPay;
+  const act = q.part ? undefined : call ? onOpen : handable ? onHandOver : onPay;
   const [minBefore, minAfter = ''] = t('q.waiting_min').split('{n}');
   const actText = call ? (
     <>
@@ -174,7 +183,7 @@ function ReadyTile({ q, selected, owed, late, onOpen, onHandOver, onPay }: { q: 
       )}
     </>
   ) : (
-    t(q.paid ? 'q.collect' : 'q.collect_pay')
+    t(handable ? 'q.collect' : 'q.collect_pay')
   );
   return (
     <div className={cls} data-token={q.key}>
@@ -205,6 +214,9 @@ function ReadyTile({ q, selected, owed, late, onOpen, onHandOver, onPay }: { q: 
         <button type="button" className="tk-rt__act" onClick={act}>
           {actText}
         </button>
+      )}
+      {!q.part && onHandOver !== undefined && !whole.ok && whole.reason === 'due' && (
+        <AskManager order_id={whole.order_id} due_minor={whole.due_minor} ident={q.order_ids.length > 1 ? `#${q.token ?? '—'}` : undefined} variant="tile" />
       )}
     </div>
   );
@@ -245,6 +257,8 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
   const owed = useDueAmounts(model);
   // ⚠️ 03b v1.0.16 §3.4 (R3-M-9): re-check the amber clock while a ready tile has a bag-ready pair
   const nowMs = useHubNow(model?.ready.some((q) => q.late_from != null) ?? false);
+  const unpaid = unpaidRequestsOf(shell);
+  useSyncExternalStore(unpaid.subscribe, unpaid.version);
   const [query, setQuery] = useState('');
   const [all, setAll] = useState(false);
   const seeContact = variant === 'column' || shell.permissions.allowed('view-customer-contact');
@@ -279,6 +293,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
       selected={selected === q.key}
       owed={owedBy(q, owed)}
       late={notCollectedMinOf(q, nowMs)}
+      whole={checkWholeToken(gatesOf(billsOf(q), unpaid.approvedDue))}
       onOpen={() => open(q)}
       onHandOver={onHandOver === undefined ? undefined : () => { setAll(false); onHandOver(q); }}
       onPay={onPay === undefined ? undefined : () => { setAll(false); onPay(q); }}

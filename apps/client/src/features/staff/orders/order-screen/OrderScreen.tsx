@@ -61,9 +61,11 @@ import { createTokenBook } from '../takeaway/book';
 import { setCurrentTakeawayDraft } from '../takeaway/current-draft';
 import { heldOnDevice } from './held-list';
 import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
-import type { QueueToken } from '../takeaway/queue-model';
+import { billsOf, type QueueToken } from '../takeaway/queue-model';
 import { createHandovers } from '../takeaway/handover';
-import { allLiveReady, TokenView } from '../takeaway/TokenView';
+import { allLiveReady, liveLines, TokenView } from '../takeaway/TokenView';
+import { candidatesOf, checkHandover, gateOf, lineIds } from '../unpaid/candidate';
+import { unpaidRequestsOf } from '../unpaid/requests';
 import { PayPanel, type PayTarget } from '../takeaway/PayPanel';
 import { CheckBill } from '../takeaway/CheckBill';
 import { servedPayload } from '../actions/MarkServedSheet';
@@ -529,18 +531,29 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       createHandovers({
         send: (h) => {
           const s = shellRef.current;
-          void s.enqueue('MarkServed', h.payload, { label: `${t('served.title')} · ${h.ident}` }).then((r) => showEnqueued(s, r, 'order.toast.served', () => {}));
+          void s.enqueue('MarkServed', h.payload, { label: `${t('served.title')} · ${h.ident}` }).then((r) => {
+            // ⚠️ 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §6.4, §3.7a; D2): the hub refused an unpaid hand-over → Ask a manager
+            if (r.status === 'refused' && r.error.status === 403 && r.error.details['reason'] === 'unpaid_handover_approval_required') {
+              const order_id = r.error.details['order_id'];
+              if (typeof order_id === 'string') unpaidRequestsOf(s).refused(order_id);
+              return s.toasts.show({ text: t('unpaid.refused'), tone: 'warn' });
+            }
+            showEnqueued(s, r, 'order.toast.served', () => {});
+          });
         },
       }),
     [],
   );
   useEffect(() => handovers.attach(), [handovers]);
   useSyncExternalStore(handovers.subscribe, handovers.version);
+  // ⚠️ 02b v1.0.25 §6.4 (R3-M-4): a counter hand-over is a staff customer hand-over (takeaway): `customer_handover: true`
   const handOver = (q: QueueToken, lines: readonly GroupedLine[]) => {
     if (lines.length === 0) return;
-    handovers.start({ id: newUlid(), token_key: q.key, ident: q.token === null ? '—' : String(q.token), payload: servedPayload(lines) });
+    handovers.start({ id: newUlid(), token_key: q.key, ident: q.token === null ? '—' : String(q.token), payload: { ...servedPayload(lines), customer_handover: true } });
     setOpenToken(null);
   };
+  /** §8 OR-7: line ids already waiting in an Undo window (a second tap cannot take an order's last line) */
+  const reservedIds = (): ReadonlySet<string> => new Set(handovers.pending().flatMap((h) => h.payload.lines.flatMap((l) => l.order_item_ids)));
   // the ready tile's one tap: the token's lines from order-view; every live one ready (a line not yet sent to the
   // kitchen counts too, owner ruling 2026-11-24 #1) → its servable lines handed over (R2: paid only); else the view
   const handOverTile = async (q: QueueToken) => {
@@ -548,7 +561,13 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     const views = await Promise.all(q.order_ids.map((oid) => shellRef.current.orders.orderView(oid)));
     const lines = views.flatMap((v) => (v.ok && v.data.kind === 'order' ? groupParts(v.data.order.lines) : []));
     if (!allLiveReady(lines)) return setOpenToken(q);
-    handOver(q, lines.filter(servable));
+    // ⚠️ 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, §8 OR-7; D2): the shared check at the tap — blocked (Due,
+    // unapproved, or unknown billing) → the token view, which offers Take payment and Ask a manager
+    const approved = unpaidRequestsOf(shellRef.current).approvedDue;
+    const gate = (order_id: string) => gateOf(billsOf(q).find((b) => b.order_id === order_id), { approvedDue: approved(order_id) });
+    const give = lines.filter(servable);
+    if (!checkHandover(candidatesOf(q.order_ids, liveLines(lines), gate), lineIds(give), reservedIds()).ok) return setOpenToken(q);
+    handOver(q, give);
   };
   // 02b-TK C2-3 (02b §3.2 step 2; 05 #44a): Add items starts an addition to the token's root on an empty cart (a cart
   // with lines is another customer's: it is sent or held first)
@@ -603,7 +622,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     );
   const tokenView =
     openToken === null || book === null ? null : (
-      <TokenView token={openToken} book={book} onClose={() => setOpenToken(null)} onHandOver={(lines) => handOver(openToken, lines)} onAddItems={() => addTo(openToken)} onPay={() => payToken(openToken)} />
+      <TokenView token={openToken} book={book} reserved={reservedIds()} onClose={() => setOpenToken(null)} onHandOver={(lines) => handOver(openToken, lines)} onAddItems={() => addTo(openToken)} onPay={() => payToken(openToken)} />
     );
   const payView = (fixed: boolean) =>
     pay === null ? null : (

@@ -8,6 +8,7 @@ import type { Handover, Handovers } from '../../staff/orders/takeaway/handover';
 import { isServed } from '../../staff/orders/view/stage';
 import type { LiveBus, LiveMessage } from '../../staff/shell/live';
 import type { EnqueueResult } from '../../staff/tables/contracts';
+import { checkHandover, gateOf, parseBillRows, type BillRead as UnpaidBillRead, type BillRow } from '../../staff/orders/unpaid/candidate';
 import type { PointOrder } from '../contracts';
 
 // 02b-TK L-CLIENT-1 item 1 (03b v1.0.16 §3.4 "Handed to customer" (R3-B-2, OR-2, OR-7), "Bill freshness" (R3-M-4),
@@ -24,8 +25,11 @@ import type { PointOrder } from '../contracts';
 //   only then starts the 5 s Undo (staff/orders/takeaway/handover.ts) before one queued `MarkServed`. A billing change
 //   during the Undo re-checks before the send. A live `409 ITEM_WRONG_STAGE { stage: removed | voided }` re-reads and
 //   retries once with the original ids still live; an empty remainder sends nothing.
-// - The unpaid hand-over request (OR-7 `RequestUnpaidHandover`, "Ask a manager") is not built: its backend has not
-//   shipped, so a Due card stays greyed.
+// - ⚠️ 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, §6.4, §8 OR-7; D2): the eligibility is the shared candidate check
+//   (staff/orders/unpaid/candidate.ts). A Due card without an effective approval stays greyed and offers "Ask a manager"
+//   (`RequestUnpaidHandover { order_id: <card order> }`); an approval of this order at this due (UnpaidHandoverApproved,
+//   the open-orders flag) enables it. The send carries `customer_handover: true` (§6.4); the hub's
+//   `403 PERMISSION_DENIED { reason: 'unpaid_handover_approval_required' }` says "Not paid — … ask a manager".
 
 // ------------------------------------------------------------------------------------------------ the check
 
@@ -47,41 +51,20 @@ function liveUnserved(l: SeatingLine): boolean {
 
 // ------------------------------------------------------------------------------------------------ the bill
 
-export interface BillFact {
-  order_type: string;
-  /** absent: the hub does not send the field yet */
-  bill?: { state: 'due' | 'paid'; due_minor: number };
-}
+/** absent `bill`: the hub does not send the field yet (the shared row shape, unpaid/candidate.ts) */
+export type BillFact = BillRow;
+export type BillRead = UnpaidBillRead;
 
-export interface BillRead {
-  /** hub-clock ms when the read was issued */
-  at: number;
-  rows: ReadonlyMap<string, BillFact>;
-}
+/** `due.approved`: an effective approval of this order at this due (D2) */
+export type Eligibility = { state: 'unknown' } | { state: 'paid' } | { state: 'due'; due_minor: number; approved: boolean };
 
-export type Eligibility = { state: 'unknown' } | { state: 'paid' } | { state: 'due'; due_minor: number };
+export const parseBills = parseBillRows;
 
-export function parseBills(data: unknown, at: number): BillRead | null {
-  const orders = (data as { orders?: unknown } | null)?.orders;
-  if (!Array.isArray(orders)) return null;
-  const rows = new Map<string, BillFact>();
-  for (const o of orders as Array<Record<string, unknown>>) {
-    if (typeof o['order_id'] !== 'string') continue;
-    const b = o['bill'] as { state?: unknown; due_minor?: unknown } | null | undefined;
-    const state: 'due' | 'paid' | null = b?.state === 'due' ? 'due' : b?.state === 'paid' ? 'paid' : null;
-    const bill = state !== null && typeof b?.due_minor === 'number' ? { state, due_minor: b.due_minor } : undefined;
-    rows.set(o['order_id'], { order_type: typeof o['order_type'] === 'string' ? o['order_type'] : '', ...(bill === undefined ? {} : { bill }) });
-  }
-  return { at, rows };
-}
-
-export function eligibilityOf(read: BillRead | null, order: { order_id: string; order_type: 'takeaway' | 'parking' | 'dine_in'; placed_at: number }): Eligibility {
+/** The shared gate (unpaid/candidate.ts gateOf); a billed parking order read after its placement is paid. */
+export function eligibilityOf(read: BillRead | null, order: { order_id: string; order_type: 'takeaway' | 'parking' | 'dine_in'; placed_at: number }, approvedDue?: number): Eligibility {
   if (read === null) return { state: 'unknown' };
-  const row = read.rows.get(order.order_id);
-  if (row === undefined) return order.order_type === 'parking' && read.at >= order.placed_at ? { state: 'paid' } : { state: 'unknown' };
-  if (row.bill === undefined) return { state: 'unknown' };
-  if (row.bill.state === 'paid' || row.bill.due_minor <= 0) return { state: 'paid' };
-  return { state: 'due', due_minor: row.bill.due_minor };
+  const g = gateOf(read.rows.get(order.order_id), { absentFree: order.order_type === 'parking' && read.at >= order.placed_at, approvedDue });
+  return g.kind === 'free' ? { state: 'paid' } : g.kind === 'unknown' ? { state: 'unknown' } : { state: 'due', due_minor: g.due_minor, approved: g.approved };
 }
 
 /** §3.4 Bill freshness: the frames that invalidate billing eligibility (ids only; the read follows). */
@@ -96,6 +79,7 @@ const BILL_EVENTS: ReadonlySet<string> = new Set([
   'OrderCancelled',
   'OrderPlaced',
   'OrderLinesAdded',
+  'UnpaidHandoverApproved', // ⚠️ 02b v1.0.25 §6.19 (OR-7): an approval of one named order
 ]);
 const DEBOUNCE_MS = 1_000;
 
@@ -196,6 +180,10 @@ export interface CustomerHandoverDeps {
   utcOffsetMs: number;
   /** a message after the Undo window (the send's refusals) */
   toast(text: string, tone: 'ok' | 'warn'): void;
+  /** D2: the amount a manager approved for this order (unpaid/requests.ts) */
+  approvedDue?(order_id: string): number | undefined;
+  /** the hub refused the hand-over as unpaid (§6.4): the approval this page knew is gone */
+  onUnpaidRefused?(order_id: string): void;
 }
 
 interface Job {
@@ -228,14 +216,17 @@ export function createCustomerHandover(d: CustomerHandoverDeps): CustomerHandove
     if (v.data.kind !== 'order') return { ok: false, outcome: { kind: 'offline' } };
     if (v.data.order.cancelled) return { ok: false, outcome: { kind: 'gone' } };
     if (bill === null) return { ok: false, outcome: { kind: 'offline' } };
-    const e = eligibilityOf(bill, { order_id: job.order.order_id, order_type: job.order_type, placed_at: job.order.placed_at });
-    if (e.state === 'due') return { ok: false, outcome: { kind: 'refused', text: t('pass.take_payment_first') } };
-    if (e.state === 'unknown') return { ok: false, outcome: { kind: 'refused', text: t('pass.waiting_bill') } };
+    const order_id = job.order.order_id;
+    const gate = gateOf(bill.rows.get(order_id), { absentFree: job.order_type === 'parking' && bill.at >= job.order.placed_at, approvedDue: d.approvedDue?.(order_id) });
+    if (gate.kind === 'due' && !gate.approved) return { ok: false, outcome: { kind: 'refused', text: t('pass.take_payment_first') } };
+    if (gate.kind === 'unknown') return { ok: false, outcome: { kind: 'refused', text: t('pass.waiting_bill') } };
     const c = checkCustomer(v.data.order, { pickup_at_ms: job.order.pickup_at_ms ?? null, boosted: job.order.boosted ?? false }, d.now());
     if (!c.ok) {
       const text = c.reason === 'pickup' ? fill(t('pass.pickup_at'), { time: timeText(c.pickup_at_ms, d.utcOffsetMs) }) : t('pass.other_items_not_ready');
       return { ok: false, outcome: { kind: 'refused', text } };
     }
+    // §3.7a / §8: the shared candidate check over the ids this send serves
+    if (!checkHandover([{ order_id, live_ids: c.ids, gate }], c.ids).ok) return { ok: false, outcome: { kind: 'refused', text: t('pass.take_payment_first') } };
     return { ok: true, ids: c.ids };
   }
 
@@ -244,7 +235,8 @@ export function createCustomerHandover(d: CustomerHandoverDeps): CustomerHandove
     else if (outcome.kind === 'offline') d.toast(t('pass.offline_counter'), 'warn');
     else if (outcome.kind === 'gone') d.toast(t('pass.gone'), 'warn');
   };
-  const payload = (order_id: string, ids: string[]): MarkServedPayload => ({ lines: [{ order_id, order_item_ids: ids }] });
+  // ⚠️ 02b v1.0.25 §6.4 (R3-M-4): every staff customer hand-over of a takeaway / parking order says so
+  const payload = (order_id: string, ids: string[]): MarkServedPayload => ({ lines: [{ order_id, order_item_ids: ids }], customer_handover: true });
 
   async function sendOnce(job: Job, ids: string[]): Promise<EnqueueResult> {
     return d.enqueue(payload(job.order.order_id, ids), `${t('pass.handed_to_customer')} · ${job.ident}`);
@@ -279,6 +271,11 @@ export function createCustomerHandover(d: CustomerHandoverDeps): CustomerHandove
         return;
       }
       const e = r.error;
+      if (e.status === 403 && e.code === 'PERMISSION_DENIED' && e.details['reason'] === 'unpaid_handover_approval_required') {
+        // §6.4 (D2): the due rose or the approval ended before the send — the card asks a manager again
+        d.onUnpaidRefused?.(job.order.order_id);
+        return d.toast(t('unpaid.refused'), 'warn');
+      }
       if (e.status === 403 && e.code === 'PERMISSION_DENIED') return d.toast(e.details['reason'] === 'outside_scope' ? t('pass.outside_scope') : t(errorKey(e.code)), 'warn');
       if (e.status === 409 && e.code === 'ITEM_WRONG_STAGE') {
         const stage = e.details['stage'];
@@ -305,17 +302,22 @@ export interface CustomerButton {
   hint: 'pass.offline_counter' | 'pass.take_payment_first' | 'pass.waiting_bill' | null;
   /** the card shows "Due — customer pays at counter" */
   due: boolean;
+  /** ⚠️ OR-7: a Due card without an effective approval offers "Ask a manager" for its order (at its due) */
+  ask: { due_minor: number } | null;
 }
 
 /**
  * §3.4 Handed to customer: enabled while connected when every line here is done or handed over, a pickup card's
- * whole-order readiness passes, and billing eligibility is known paid. A Due card is greyed (OR-7's request is not
- * built); unknown billing greys it ("Waiting for the bill").
+ * whole-order readiness passes, and billing eligibility is known paid — or Due with an effective approval of this
+ * order at this due (OR-7, D2). A Due, unapproved card is greyed and offers Ask a manager; unknown billing greys it
+ * ("Waiting for the bill").
  */
 export function customerButton(o: { up: boolean; localDone: boolean; pickupOk: boolean; eligibility: Eligibility; pending: boolean }): CustomerButton {
-  const due = o.eligibility.state === 'due';
-  const hint = !o.up ? 'pass.offline_counter' : due ? 'pass.take_payment_first' : o.eligibility.state === 'unknown' ? 'pass.waiting_bill' : null;
-  return { enabled: o.up && o.localDone && o.pickupOk && o.eligibility.state === 'paid' && !o.pending, hint, due };
+  const e = o.eligibility;
+  const due = e.state === 'due';
+  const free = e.state === 'paid' || (e.state === 'due' && e.approved);
+  const hint = !o.up ? 'pass.offline_counter' : due && !free ? 'pass.take_payment_first' : e.state === 'unknown' ? 'pass.waiting_bill' : null;
+  return { enabled: o.up && o.localDone && o.pickupOk && free && !o.pending, hint, due, ask: o.up && e.state === 'due' && !e.approved ? { due_minor: e.due_minor } : null };
 }
 
 /** §8 `pass.handed_undo`: the token ("#48") or "PARKING" */

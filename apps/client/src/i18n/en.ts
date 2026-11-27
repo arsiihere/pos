@@ -4444,6 +4444,20 @@ export const en = {
   // ---- 02b-TK L-CLIENT-2 item 2 (03b v1.0.16 §3.4 Not collected (R3-M-9), §3.5, D8; frames ReadyTiles, TokenLate): the amber counter Ready tile and the token drawer: strings-table.md (sample 17 → {n}) ----
   'q.waiting_min': '{n} min · Call',
   'v.late': 'Ready {n} min ago — not collected',
+  // ---- 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, §8 OR-7; D2): unpaid hand-over — Ask a manager, waiting / rejected, the request card ----
+  'pass.ask_manager': 'Ask a manager',
+  'pass.waiting_manager': 'Waiting for a manager…',
+  'pass.manager_rejected': 'Manager said no',
+  'unpaid.find_manager': 'Waiting — find a manager',
+  'unpaid.already_waiting': 'Already waiting for a manager',
+  'unpaid.withdraw': 'Withdraw',
+  'unpaid.approved': 'Manager approved — hand over',
+  'unpaid.not_needed': 'Nothing is due now — hand over',
+  'unpaid.refused': 'Not paid — take payment first or ask a manager',
+  'unpaid.offline': 'Offline — ask a manager once the hub is back',
+  'alert.hand_over_unpaid.card': 'Hand over unpaid {identifier}',
+  'alert.hand_over_unpaid.lock': 'Unpaid hand-over request',
+  'alert.hand_over_unpaid.name': 'Unpaid hand-over',
 } as const;
 
 export type MessageKey = keyof typeof en;

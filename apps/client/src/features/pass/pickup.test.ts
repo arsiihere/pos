@@ -172,7 +172,7 @@ describe('[03b v1.0.16 §3.4 Bill freshness (R3-M-4; tests 118, 119)] billing el
     const of = (order_id: string, order_type: 'takeaway' | 'parking' = 'takeaway') => eligibilityOf(read, { order_id, order_type, placed_at: 5_000 });
     expect(of('A')).toEqual({ state: 'unknown' });
     expect(of('B')).toEqual({ state: 'paid' });
-    expect(of('C')).toEqual({ state: 'due', due_minor: 119_000 });
+    expect(of('C')).toEqual({ state: 'due', due_minor: 119_000, approved: false });
     expect(of('D', 'parking')).toEqual({ state: 'paid' });
     expect(eligibilityOf(null, { order_id: 'B', order_type: 'takeaway', placed_at: 0 })).toEqual({ state: 'unknown' });
   });

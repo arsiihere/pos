@@ -129,6 +129,10 @@ export interface OpenOrder {
   ready_at?: number | null;
   /** ⚠️ same: the epoch's frozen R8 window; null without an epoch (and for dine-in); absent from an older hub */
   bag_ready_window_ms?: number | null;
+  /** ⚠️ 02b v1.0.25 §6.16: takeaway / parking `{ state, due_minor }`, dine-in null; absent on a hub before B2-1 */
+  bill?: { state: 'due' | 'paid'; due_minor: number } | null;
+  /** ⚠️ 02b v1.0.25 §6.16 (R3-M-8, D2): an effective unpaid hand-over approval of this order; absent until the hub sends it */
+  unpaid_handover_approved?: boolean;
 }
 
 export interface OpenOrdersBody {
@@ -225,6 +229,8 @@ export interface EtaDraft {
 
 export interface MarkServedPayload {
   lines: Array<{ order_id: string; order_item_ids: string[] }>;
+  /** ⚠️ 02b v1.0.25 §6.4 (R3-M-4, D2): a staff customer hand-over of takeaway / parking orders (the transactional unpaid check) */
+  customer_handover?: true;
 }
 export interface RemoveItemsPayload {
   order_id: string;

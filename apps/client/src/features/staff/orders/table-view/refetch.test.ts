@@ -32,6 +32,10 @@ function fakeTimers() {
 const ev = (seq: number, event_type: string, payload: Record<string, unknown>) => ({ type: 'event' as const, seq, event: { event_id: `E${seq}`, event_type, schema_version: 1, payload } });
 
 describe('[02b Q-6] live re-read', () => {
+  it('[02b-TK L-CLIENT-2 item 4; 02b v1.0.25 §6.19 (OR-7, R3-M-8)] UnpaidHandoverApproved and OpenOrderBillChanged are order frames (an open view re-reads)', () => {
+    expect(ORDER_FRAMES.has('UnpaidHandoverApproved')).toBe(true);
+    expect(ORDER_FRAMES.has('OpenOrderBillChanged')).toBe(true);
+  });
   it('[02b Q-6] an order frame or ItemStarted / ItemDone / ItemDoneUndone / FireDispatched for an open view → one seating-orders read, debounced 250 ms; no Refresh line; "Updated {time}" only offline', async () => {
     for (const type of ['ItemStarted', 'ItemDone', 'ItemDoneUndone', 'FireDispatched', 'ItemServed', 'OrderBoosted', 'OpenOrderBillChanged']) expect(ORDER_FRAMES.has(type), type).toBe(true); // 02b v1.0.25 §6.19 (R3-M-8): + OpenOrderBillChanged
     const live = createLiveBus();

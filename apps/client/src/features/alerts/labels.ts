@@ -39,12 +39,14 @@ export function tableLabel(code: string | null | undefined): string | null {
   return /^[0-9]+$/.test(code) ? fill(t('alerts.table'), { code }) : code;
 }
 
-function params(d: AlertLock): Record<string, string | null> {
+function params(d: AlertLock | AlertCard): Record<string, string | null> {
   return {
     table: tableLabel(d.table_code),
     point: d.point_code ?? null,
     requester: d.requester_name ?? null,
     device: d.device_name ?? null,
+    // 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §6.12a, R3-m-4): "Hand over unpaid {identifier}" — card details only
+    identifier: 'details' in d ? (d.details?.identifier ?? null) : null,
   };
 }
 
