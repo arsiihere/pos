@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 const addNaan = (v: Mounted) => {
-  v.click(v.button('Sides', v.container.querySelector('.cats')!));
+  v.click(v.button('Sides', v.container.querySelector('.pills')!));
   v.click(v.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
 };
 

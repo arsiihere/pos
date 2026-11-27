@@ -38,7 +38,7 @@ const submitted = (slip: Slip) => (type: string, payload: unknown) =>
   type === 'SubmitOrder' ? { status: 'sent', result: { order_id: (payload as { order_id: string }).order_id, token: 57, groups: [{ group_id: 'g', promise_ms: at(13, 42), order_item_ids: [] }], lines: [], slip } } : undefined;
 
 const addNaan = (v: Mounted) => {
-  v.click(v.button('Sides', v.container.querySelector('.cats')!));
+  v.click(v.button('Sides', v.container.querySelector('.pills')!));
   v.click(v.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
 };
 const takeawayOf = (h: ReturnType<typeof screenHarness>) => (h.sent[0]?.payload as { takeaway?: Record<string, unknown> }).takeaway;

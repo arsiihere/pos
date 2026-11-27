@@ -402,3 +402,55 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .tk-drawer--phone .tk-drawer__b { padding: 12px; }
 .tk-drawer--phone .tk-drawer__f { padding: 10px 12px max(12px, env(safe-area-inset-bottom)); overflow-y: auto; max-height: 40dvh; }
 .tk-drawer--phone .tk-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* ---------- L-CLIENT-6a item 1: the kiosk home fits the screen (frames HomeKiosk, HomeRush, HomeTablet) ----------
+   The screen is the viewport: queue | menu | cart are three panes, each scrolling inside itself; the page never
+   scrolls and focusing an input never shifts it (overflow: clip refuses programmatic scrolling). The queue and the
+   cart have fixed widths (the hand-off's 440 / 560 at 1920; narrower on smaller kiosks), whatever a search, the
+   offline line or Urdu puts inside them. */
+.pu.staff:has(.osc--tk) { overflow: clip; }
+.order:has(> .osc--tk) { min-height: 0; overflow: clip; }
+.osc--tk { --tk-q-w: 440px; --tk-cart-w: 560px; min-height: 0; overflow: clip; }
+@media (max-width: 1700px) { .osc--tk { --tk-q-w: 380px; --tk-cart-w: 480px; } }
+@media (max-width: 1440px) { .osc--tk { --tk-q-w: 330px; --tk-cart-w: 420px; } }
+.osc--tk > .tk-q { flex: 0 0 var(--tk-q-w); width: var(--tk-q-w); min-width: 0; max-width: var(--tk-q-w); min-height: 0; display: flex; flex-direction: column; overflow: clip;
+  background: var(--surface-soft); border-inline-end: 1px solid var(--line); }
+.osc--tk > .tk-q .tk-q__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.osc--tk > .tk-q .tk-q__foot { flex: none; }
+.osc--tk > .menu, .osc--tk .tk-mid > .menu { min-height: 0; overflow: clip; }
+.osc--tk .menu > .items { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 10px 10px 12px; margin: -10px -10px 0; }
+.osc--tk > .cart { flex: 0 0 var(--tk-cart-w); width: var(--tk-cart-w); max-width: var(--tk-cart-w); min-height: 0; overflow: clip; }
+.osc--tk-tablet { --tk-cart-w: 440px; }
+.osc--tk > .cart > .lines { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.osc--tk > .cart > :not(.lines):not(.tk-paypanel) { flex: none; }
+.osc--tk .tk-qr__m, .osc--tk .tk-rt__open { min-width: 0; overflow: hidden; }
+/* the cart's parts on the takeaway kiosk (frame HomeKiosk): name / phone side by side, the pickup row, no head */
+.osc--tk > .cart > .cart__head { display: none; }
+.osc--tk > .cart .cust.duo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin: 0; padding: 14px 16px 8px; background: var(--surface-soft); }
+.osc--tk > .cart .cust .fld { min-width: 0; gap: 4px; }
+.osc--tk > .cart .cust .fld__l { font-size: 14px; color: var(--ink-muted); }
+.osc--tk > .cart .cust .inp { width: 100%; min-width: 0; box-sizing: border-box; height: 56px; min-height: 56px; border: 1.5px solid var(--control-edge); box-shadow: none; background: var(--surface-raised); font: 600 18px/1 var(--font-sans); }
+.osc--tk > .cart .cust .inp:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); outline: none; }
+.osc--tk > .cart .tk-serve[data-pickup-row] { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 10px; border-radius: 0; margin: 0; padding: 4px 16px 12px; background: var(--surface-soft); border-bottom: 1px solid var(--line); }
+.osc--tk > .cart .tk-serve[data-pickup-row] > b { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink-muted); }
+.osc--tk > .cart .tk-serve[data-pickup-row] > b .ico { width: 18px; height: 18px; }
+.osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick { flex: 1 1 0; min-width: 0; }
+.osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick button { min-width: 0; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick button.is-sel { background: var(--chrome); border-color: var(--chrome); color: var(--on-chrome); }
+.osc--tk > .cart .tk-serve[data-pickup-row] > .fld, .osc--tk > .cart .tk-serve[data-pickup-row] > .fld__e { flex-basis: 100%; }
+.osc--tk > .cart .cart__foot { padding: 12px 16px 14px; gap: 10px; }
+.osc--tk > .cart .cart__foot .duo { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; }
+.osc--tk > .cart .cart__foot .duo > * { min-width: 0; }
+.osc--tk > .cart .tk-acts > * { min-width: 0; padding: 0 12px; }
+@media (max-height: 820px) {
+  .osc--tk > .cart .cust.duo { padding-top: 10px; }
+  .osc--tk > .cart .cust .inp { height: 48px; min-height: 48px; }
+  .osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick button { min-height: 44px; }
+  .osc--tk > .cart .cart__foot .btn, .osc--tk > .cart .cart__foot .tk-btn { min-height: 48px; }
+  .osc--tk > .cart .tk-acts .tk-btn--xl, .osc--tk > .cart .tk-acts .tk-btn--lg { min-height: 56px; font-size: 18px; }
+}
+/* the shell's tabs keep one row on a smaller kiosk (1366): they shrink, never wrap */
+.top .tabs-top { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+.top .tabs-top .btn { flex: 0 1 auto; min-width: 0; white-space: nowrap; }
+@media (max-width: 1500px) { .top .tabs-top .btn { padding-inline: 12px; gap: 6px; } .top .tk-ctx small { display: none; } }
+@media (max-width: 1440px) { .osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick { flex-basis: 100%; } .osc--tk .menu > .tk-hint { font-size: 13px; line-height: 1.8; padding: 6px 10px; } }

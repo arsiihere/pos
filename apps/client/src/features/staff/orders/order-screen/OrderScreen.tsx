@@ -1289,7 +1289,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           </div>
         )}
       </div>
-      {(tabletTakeaway || shell.phone || shell.portrait) && <MenuPills categories={rail} current={current} onPick={setCategory} />}
+      {/* L-CLIENT-6a item 2 (frames HomeKiosk, HomeRush): the takeaway's sections are a chip row on every device */}
+      {(book !== null || shell.phone || shell.portrait) && <MenuPills categories={rail} current={current} onPick={setCategory} />}
       <MenuTiles
         tiles={tiles}
         onTap={onTap}
@@ -1502,7 +1503,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       <div className={['osc', book && 'osc--tk', dense && 'osc--rush', tabletTakeaway && 'osc--tk-tablet'].filter(Boolean).join(' ')}>
         {/* 02b-TK C2-1 (frames HomeKiosk, QueueTablet): kiosk queue rail | menu | cart; a tablet's ready strip over the menu */}
         {railVariant === 'column' && queueRail('column')}
-        {!tabletTakeaway && <MenuRail categories={rail} current={current} onPick={setCategory} />}
+        {book === null && <MenuRail categories={rail} current={current} onPick={setCategory} />}
         {tabletTakeaway ? (
           <div className="tk-mid">
             {queueRail('strip')}

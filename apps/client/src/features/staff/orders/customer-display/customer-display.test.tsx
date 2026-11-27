@@ -152,7 +152,7 @@ describe('counter-facing display [02b §8/O17; CustomerDisplay]', () => {
           input.dispatchEvent(new Event('input', { bubbles: true }));
         });
       }
-      order.click(order.button('Sides', order.container.querySelector('.cats')!));
+      order.click(order.button('Sides', order.container.querySelector('.pills')!));
       order.click(order.container.querySelector('.mi[aria-label="Naan"]'));
       await vi.waitFor(() => expect(messages).toContainEqual(expect.objectContaining({ kind: 'cart', lines: [{ name: 'Naan', qty: 1, line_minor: 4000 }] })));
       order.click(order.button('Send & pay'));

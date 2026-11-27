@@ -91,7 +91,7 @@ function harness(o: { answer?: (p: SubmitOrderPayload) => Promise<Answer>; previ
 }
 
 const tile = (m: ReturnType<typeof mount>, name: string) => m.container.querySelector<HTMLElement>(`.mi[aria-label="${name}"]`)!;
-const pick = (m: ReturnType<typeof mount>, category: string) => m.click(m.button(category, m.container.querySelector('.cats')!));
+const pick = (m: ReturnType<typeof mount>, category: string) => m.click(m.button(category, m.container.querySelector('.pills')!));
 const tick = async (ms = 300) => {
   await act(async () => {
     vi.advanceTimersByTime(ms);

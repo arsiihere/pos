@@ -31,7 +31,7 @@ const answer = (d: EtaDraft): { ok: true; data: EtaPreviewBody } => {
   return { ok: true, data: { as_of_seq: 1, groups: [{ promise_ms: promise, keys: d.lines.map((l) => l.key) }], lines: d.lines.map((l) => ({ key: l.key, eta_ms: promise, from_stock: false, zone_served: false })), pickup_bounds: BOUNDS } };
 };
 const naan = (m: Mounted) => {
-  m.click(m.button('Sides', m.container.querySelector('.cats')!));
+  m.click(m.button('Sides', m.container.querySelector('.pills')!));
   m.click(m.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
 };
 const pick = (m: Mounted) => m.container.querySelector<HTMLElement>('.cart [data-pickup-row]');

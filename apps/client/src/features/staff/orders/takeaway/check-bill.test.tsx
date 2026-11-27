@@ -164,7 +164,7 @@ describe('[02b-TK C3-2] Print check bill', () => {
     const v = h.render();
     m = v;
     await flush();
-    v.click(v.button('Sides', v.container.querySelector('.cats')!));
+    v.click(v.button('Sides', v.container.querySelector('.pills')!));
     v.click(v.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
     v.click(v.button('Print check bill', v.container.querySelector('.cart')!));
     await flush();

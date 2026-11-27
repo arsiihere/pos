@@ -17,7 +17,7 @@ vi.mock('../../../../app/router', async (orig) => ({ ...(await orig<object>()), 
 
 const tile = (m: Mounted, name: string) => m.container.querySelector<HTMLElement>(`.mi[aria-label="${name}"]`)!;
 const cartLines = (m: Mounted) => [...m.container.querySelectorAll('.cart .ln')];
-const sides = (m: Mounted) => m.click(m.button('Sides', m.container.querySelector('.cats')!));
+const sides = (m: Mounted) => m.click(m.button('Sides', m.container.querySelector('.pills')!));
 
 beforeEach(() => {
   forgetTakeawayDrafts();
