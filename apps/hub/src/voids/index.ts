@@ -1,4 +1,5 @@
 // 04 §3.5: the kind registers at this module's load, before boot replays the alerts projection (01d P-8).
+import { registerVoidHandoverClose } from './lanes/handover-close.js';
 import './kind.js';
 import type { FastifyInstance } from 'fastify';
 import type { HubDeps } from '../server.js';
@@ -16,4 +17,6 @@ export function registerVoids(app: FastifyInstance, deps: HubDeps): void {
   // (Q-3) and the day-close guard (A-1) are registered from lanes/V2.ts.
   registerMergeGuard(voidMergeGuard);
   for (const lane of LANES) lane.register(app, deps);
+  // ⚠️ 04 v1.0.9 §6.2 (02b run 3 R3-M-3; L-UNPAID-3): the approved void's hand-over request close, before commit
+  registerVoidHandoverClose(deps.writer);
 }
