@@ -15,6 +15,10 @@ import { createStockMirror } from '../live/stock-mirror';
 import { newUlid } from '../../../../app/ulid';
 import { heldOnDevice } from './held-list';
 import { hideName, hidePhone } from '../takeaway/mask';
+import { TakeawayHome } from '../takeaway/TakeawayHome';
+import { TkIco } from '../takeaway/icons';
+import { Ico } from '../../../alerts/ui';
+import type { Cart } from './cart';
 
 // 02-S08 Held (02b §8 Ordering screen "Hold (device draft)"; CHANGES Q11): the orders held on this screen, newest
 // first; Resume opens it again (no longer held), Discard drops it. A held draft does not keep the table locked (the
@@ -38,7 +42,46 @@ function heldAt(time: string) {
   );
 }
 
-export function Held() {
+// ⚠️ 02b-TK L-CLIENT-6b item 2 (frame HeldDrawer, MAPPING TK-S04; 02b §8 Held, G-6): opened from the takeaway
+// screen, Held is a right drawer OVER the order screen (queue, menu and cart stay behind the scrim), not a page.
+// Where the route came from decides: the hash it left (HashChangeEvent.oldURL). Any other way in keeps the page.
+let heldFrom: string | null = null;
+if (typeof window !== 'undefined')
+  window.addEventListener('hashchange', (e) => {
+    const to = new URL(e.newURL).hash;
+    if (to === '#/held') heldFrom = new URL(e.oldURL).hash.replace(/^#/, '');
+  });
+
+/** The route was left from the takeaway order screen (the Takeaway tab or a takeaway draft). */
+export function heldOverTakeaway(from: string | null): boolean {
+  return from !== null && (from === '/takeaway' || from.startsWith('/takeaway?') || from.startsWith('/order/takeaway/'));
+}
+
+export function HeldRoute() {
+  if (!heldOverTakeaway(heldFrom)) return <Held />;
+  const back = heldFrom!;
+  return (
+    <>
+      <TakeawayHome />
+      <Held drawer onClose={() => navigate(back)} />
+    </>
+  );
+}
+
+/** "Half karahi · 4 roghni naan · 2 paye": the held cart's lines as the queue row's summary (≤ 6). */
+export function heldSummary(config: BranchConfig | null, cart: Cart | null): string {
+  if (config === null || cart === null) return '';
+  return cart.lines
+    .slice(0, 6)
+    .map((l) => {
+      const name = l.item_id !== undefined ? (config.items.find((i) => i.item_id === l.item_id)?.name ?? '') : (config.deals.find((d) => d.deal_id === l.deal_id)?.name ?? '');
+      return l.quantity !== null && l.quantity > 1 && (l.deal_id !== undefined || config.items.find((i) => i.item_id === l.item_id)?.sale_unit === 'piece') ? `${l.quantity}× ${name}` : name;
+    })
+    .filter((n) => n !== '')
+    .join(' · ');
+}
+
+export function Held({ drawer = false, onClose }: { drawer?: boolean; onClose?: () => void } = {}) {
   const shell = useShell();
   const drafts = useDrafts();
   const [list, setList] = useState<Draft[] | null>(null);
@@ -117,6 +160,74 @@ export function Held() {
     for (const f of map?.floors ?? []) for (const z of f.zones) for (const tb of z.tables) if (tb.table_id === table_id) return tb.name;
     return null;
   };
+  if (drawer) {
+    const takeaway = rows.filter((d) => d.order_type !== 'dine_in');
+    return (
+      <>
+        <button type="button" className="tk-scrim--fixed" aria-label={t('common.close')} onClick={onClose} />
+        <section className="tk-drawer tk-held" role="dialog" aria-modal="true" aria-labelledby="held-t">
+          <div className="tk-drawer__h">
+            <span className="tk-empty__ic tk-held__ic">
+              <TkIco name="pause" />
+            </span>
+            <h2 id="held-t">
+              {t('h.title')} · <span className="num" dir="ltr">{takeaway.length}</span>
+            </h2>
+            <button type="button" className="tk-x" aria-label={t('common.close')} onClick={onClose}>
+              <Ico name="x" />
+            </button>
+          </div>
+          <div className="tk-drawer__b">
+            {takeaway.map((d) => {
+              const cart = config === null ? null : toCart(d.cart, newUlid);
+              const total = cart === null || config === null ? null : cartTotal(config, cart, units);
+              const name = cart?.takeaway?.customer_name === undefined ? null : seesContact ? cart.takeaway.customer_name : hideName(cart.takeaway.customer_name);
+              const who = d.order_type === 'parking' ? `${t('order.parking')} · ${cart?.parking?.car_number ?? ''}` : (name ?? t('order.takeaway'));
+              const by = heldBy(d);
+              const time = timeText(d.updated_at, shell.clock.utcOffsetMs);
+              const [before, after] = t('h.at').split('{time}');
+              return (
+                <div className="tk-il tk-held__row" key={d.draft_id} data-draft={d.draft_id}>
+                  <span className="tk-tok tk-tok--q">
+                    <TkIco name="pause" />
+                  </span>
+                  <div className="tk-il__n">
+                    <b>
+                      <bdi>{who}</bdi> · <span dir={MONEY_DIR}>{total === null ? '—' : money(total)}</span>
+                    </b>
+                    <small>{heldSummary(config, cart)}</small>
+                    <small>
+                      {before}
+                      <span dir="ltr" className="num">
+                        {time}
+                      </span>
+                      {after}
+                      {by !== null && <> · {fill(t('h.by'), { name: by })}</>}
+                    </small>
+                  </div>
+                  <button type="button" className="tk-btn tk-btn--primary" onClick={() => void resume(d)}>
+                    {t('h.resume')}
+                  </button>
+                  <button type="button" className="tk-btn tk-btn--quiet tk-held__trash" aria-label={`${t('h.discard')} · ${who}`} onClick={() => void discard(d)}>
+                    <TkIco name="trash" />
+                  </button>
+                </div>
+              );
+            })}
+            {takeaway.length === 0 && list !== null && (
+              <div className="tk-empty">
+                <b>{t('h.empty')}</b>
+              </div>
+            )}
+            <div className="tk-hint" role="note">
+              <TkIco name="info" />
+              {t('h.not_kitchen')}
+            </div>
+          </div>
+        </section>
+      </>
+    );
+  }
   return (
     <section className="lcard">
       <div className="lcard__h">

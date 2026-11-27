@@ -1841,4 +1841,12 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'v.here_done': 'کچن اب بنا رہا ہے', // not in strings-table.md; Urdu to confirm
   // ---- 02b-TK BR-1 (02b v1.0.25 §6.16): after Customer is here, the planned ready time beside the struck-through promise ----
   'q.ready_planned': 'تقریباً {t} تک تیار', // not in strings-table.md; Urdu to confirm
+  // ---- 02b-TK L-CLIENT-6b (frames Token*, Pay*, ItemSheet*, DealSheet, HeldDrawer, CustomerDisplay, PersonMenu; Urdu drafts in urdu-todo.md) ----
+  'h.title': 'اس کاؤنٹر پر ہولڈ',
+  'h.resume': 'جاری رکھیں',
+  'h.discard': 'ختم کریں',
+  'h.at': '{time} پر ہولڈ',
+  'h.not_kitchen': 'ہولڈ آرڈر کچن میں نہیں گئے۔ بھیجنے کیلئے جاری رکھیں۔',
+  'h.empty': 'اس کاؤنٹر پر کچھ ہولڈ نہیں',
+  // ---- end L-CLIENT-6b ----
 };

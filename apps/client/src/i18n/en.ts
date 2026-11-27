@@ -4492,6 +4492,14 @@ export const en = {
   'v.here_done': 'The kitchen cooks it now',
   // ---- 02b-TK BR-1 (02b v1.0.25 §6.16): after Customer is here, the planned ready time beside the struck-through promise ----
   'q.ready_planned': 'Ready ~{t}',
+  // ---- 02b-TK L-CLIENT-6b (frames Token*, Pay*, ItemSheet*, DealSheet, HeldDrawer, CustomerDisplay, PersonMenu; Urdu drafts in urdu-todo.md) ----
+  'h.title': 'Held on this counter',
+  'h.resume': 'Resume',
+  'h.discard': 'Throw away',
+  'h.at': 'Held {time}',
+  'h.not_kitchen': 'Held orders are not in the kitchen. Resume one to send it.',
+  'h.empty': 'Nothing is held on this counter',
+  // ---- end L-CLIENT-6b ----
 } as const;
 
 export type MessageKey = keyof typeof en;
