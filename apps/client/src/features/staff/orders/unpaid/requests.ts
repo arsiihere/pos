@@ -17,7 +17,11 @@ import type { BillRow } from './candidate';
 //   no"; approved / withdrawn / closed → the card goes. A reconnect or the page turning visible reads it too.
 // Only ids, states and the amount are kept (02b §7).
 
-export type AskState = { kind: 'waiting'; alert_id: string; mine: boolean } | { kind: 'rejected'; alert_id: string };
+/**
+ * `ask_in_person` (01d §6.8, To 02b R3-M-3): my-requests says nobody else can be reached (the sole holder asked, or the
+ * other holders absent) — the requester's card then reads "Waiting — find a manager" instead of "Waiting for a manager…".
+ */
+export type AskState = { kind: 'waiting'; alert_id: string; mine: boolean; ask_in_person: boolean } | { kind: 'rejected'; alert_id: string };
 
 export type AskOutcome =
   | { kind: 'waiting'; mine: boolean }
@@ -68,25 +72,38 @@ export function createUnpaidRequests(o: { live: LiveBus; api: Api }): UnpaidRequ
     if (hit) changed();
   };
 
+  // `flagsOnly`: the read right after my own ask only learns ask_in_person; it never closes a card (a result does)
+  const read = async (flagsOnly: boolean): Promise<void> => {
+    const answer = await o.api.query<{ requests?: unknown }>('/queries/my-requests');
+    if (!answer.ok) return;
+    const rows = new Map<string, { state: string; ask_in_person: boolean }>();
+    for (const r of Array.isArray(answer.data.requests) ? answer.data.requests : []) {
+      const row = MyRequestRow.safeParse(r);
+      if (row.success && row.data.kind === KIND) rows.set(row.data.alert_id, row.data);
+    }
+    for (const [order_id, s] of [...states]) {
+      if (s.kind !== 'waiting' || !s.mine) continue;
+      const row = rows.get(s.alert_id);
+      if (row?.state === 'pending') {
+        // 01d R3-M-3: the card follows my-requests' ask_in_person while the request waits
+        if (row.ask_in_person !== s.ask_in_person) states.set(order_id, { ...s, ask_in_person: row.ask_in_person });
+        continue;
+      }
+      if (flagsOnly) continue;
+      if (row?.state === 'rejected') states.set(order_id, { kind: 'rejected', alert_id: s.alert_id });
+      else states.delete(order_id);
+    }
+    changed();
+  };
+
   const sync = (): Promise<void> => {
     if (![...states.values()].some((s) => s.kind === 'waiting' && s.mine)) return Promise.resolve();
     syncing ??= (async () => {
-      const answer = await o.api.query<{ requests?: unknown }>('/queries/my-requests');
-      syncing = null;
-      if (!answer.ok) return;
-      const rows = new Map<string, { state: string }>();
-      for (const r of Array.isArray(answer.data.requests) ? answer.data.requests : []) {
-        const row = MyRequestRow.safeParse(r);
-        if (row.success && row.data.kind === KIND) rows.set(row.data.alert_id, row.data);
+      try {
+        await read(false);
+      } finally {
+        syncing = null;
       }
-      for (const [order_id, s] of [...states]) {
-        if (s.kind !== 'waiting' || !s.mine) continue;
-        const row = rows.get(s.alert_id);
-        if (row?.state === 'pending') continue;
-        if (row?.state === 'rejected') states.set(order_id, { kind: 'rejected', alert_id: s.alert_id });
-        else states.delete(order_id);
-      }
-      changed();
     })();
     return syncing;
   };
@@ -134,8 +151,10 @@ export function createUnpaidRequests(o: { live: LiveBus; api: Api }): UnpaidRequ
     }
     if (typeof r['alert_id'] === 'string') {
       const mine = r['is_requester'] === true;
-      states.set(order_id, { kind: 'waiting', alert_id: r['alert_id'], mine });
+      states.set(order_id, { kind: 'waiting', alert_id: r['alert_id'], mine, ask_in_person: false });
       changed();
+      // 01d R3-M-3: from the first own-pending response, my-requests says whether to find a manager in person
+      if (mine) void read(true);
       return { kind: 'waiting', mine };
     }
     return { kind: 'offline' };

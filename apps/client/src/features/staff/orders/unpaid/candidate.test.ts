@@ -95,3 +95,19 @@ describe('parseBillRows (open-orders `bill`, `unpaid_handover_approved`)', () =>
     expect(parseBillRows({}, 0)).toBeNull();
   });
 });
+
+// ⚠️ 02b v1.0.25 §6.16 (R3-M-8; D2): open-orders rows now carry unpaid_handover_approved (hub ca4d7db). The hub's flag
+// is authoritative whenever the row has it; this page's own approval knowledge only fills in for an older hub.
+describe('[02b §6.16 R3-M-8, D2] the hub flag decides when the row carries it', () => {
+  const due = { bill: { state: 'due' as const, due_minor: 50_000 } };
+  it('flag true → approved, even when this page knows of no approval', () => {
+    expect(gateOf({ ...due, unpaid_handover_approved: true })).toEqual({ kind: 'due', due_minor: 50_000, approved: true });
+  });
+  it('flag false → not approved, even when this page saw an approval at that due (the hub cleared it)', () => {
+    expect(gateOf({ ...due, unpaid_handover_approved: false }, { approvedDue: 50_000 })).toEqual({ kind: 'due', due_minor: 50_000, approved: false });
+  });
+  it('no flag (older hub) → this page\'s approval at or above the due counts', () => {
+    expect(gateOf(due, { approvedDue: 50_000 })).toEqual({ kind: 'due', due_minor: 50_000, approved: true });
+    expect(gateOf(due, { approvedDue: 40_000 })).toEqual({ kind: 'due', due_minor: 50_000, approved: false });
+  });
+});
