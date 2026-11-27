@@ -199,7 +199,7 @@ describe('[02b §8 Ordering screen] order screen', () => {
     document.body.innerHTML = '';
   });
 
-  it('[03a To 02 #9, 02b-tk C3-3] every tile shows "about N min" (an estimate) for its order type; amber at 20 min; Now for a ready item', async () => {
+  it('[03a To 02 #9, 02b-tk C3-3] every tile shows its wait (an estimate) for its order type — takeaway "17 min" (L-CLIENT-6a, frame HomeKiosk), dine-in "about N min"; amber at 20 min; Now for a ready item', async () => {
     const h = harness();
     const base = cfg();
     h.setConfig({ ...base, items: base.items.map((i) => (i.item_id === 'I5' ? { ...i, cook_time_ms: 10 * 60_000 } : i.item_id === 'I4' ? { ...i, is_ready_item: true } : i)) });
@@ -209,13 +209,13 @@ describe('[02b §8 Ordering screen] order screen', () => {
     const m = h.render({ order_type: 'takeaway', id: 'D1' });
     await flush();
     pick(m, 'Sides');
-    expect(chip(m, 'Naan').textContent).toBe('about 17 min');
+    expect(chip(m, 'Naan').textContent).toBe('17 min');
     expect(chip(m, 'Naan').classList.contains('c-warn')).toBe(false);
     expect(chip(m, 'Naan').getAttribute('title')).toBe('Estimate — the cart shows the promised time');
     expect(chip(m, 'Raita').textContent).toBe('Now');
     expect(chip(m, 'Raita').classList.contains('c-ok')).toBe(true);
     pick(m, 'Karahi');
-    expect(chip(m, 'Mutton Karahi').textContent).toBe('about 27 min');
+    expect(chip(m, 'Mutton Karahi').textContent).toBe('27 min');
     expect(chip(m, 'Mutton Karahi').classList.contains('c-warn')).toBe(true);
     m.unmount();
     // dine-in: no padding

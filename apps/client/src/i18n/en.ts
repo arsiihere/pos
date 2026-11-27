@@ -4492,6 +4492,13 @@ export const en = {
   'v.here_done': 'The kitchen cooks it now',
   // ---- 02b-TK BR-1 (02b v1.0.25 §6.16): after Customer is here, the planned ready time beside the struck-through promise ----
   'q.ready_planned': 'Ready ~{t}',
+  // ---- 02b-TK L-CLIENT-6a (kiosk home fidelity; strings-table.md) ----
+  'm.min': '{n} min',
+  'c.ready_by_sub': 'Tell the customer',
+  'c.counter': 'From the counter',
+  'c.kitchen': 'From the kitchen',
+  'c.times_none': 'Times show when the hub is back',
+  't.print': 'Print again',
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -31,6 +31,8 @@ export interface TileModel {
   variants?: Array<{ item_id: string; name: string; price_minor: number; availability: ItemAvailability }>;
   /** the paused station's name of a `paused` tile (frame TileStates "Tandoor paused") */
   station_name?: string | null;
+  /** L-CLIENT-6a (frame HomeKiosk): the tile's category (name, menu order) — the takeaway tile's placeholder */
+  category?: { name: string; index: number } | null;
 }
 
 const HOUR = 3_600_000;
@@ -125,6 +127,38 @@ function monogram(name: string): string {
     .join('');
 }
 
+/**
+ * L-CLIENT-6a (frames HomeKiosk, TileStates; owner: photos after the pilot, the menu has no photo field): the takeaway
+ * tile's image slot is a round placeholder in its category's colour with an icon for the kind of food — never initials.
+ * The icon is picked from the category's name (English or Urdu words); the colour from its place in the menu.
+ */
+const LOOKS: Array<[RegExp, IconName]> = [
+  [/drink|lassi|juice|tea|chai|cold|shake|water|مشروب|لسی|چائے/i, 'cup'],
+  [/deal|combo|family|ڈیل/i, 'tag'],
+  [/tandoor|naan|roti|bread|paratha|تندور|نان|روٹی/i, 'bread'],
+  [/bbq|tikka|kabab|kebab|grill|tawa|fry|بار|تکہ|کباب|توا/i, 'flame'],
+  [/side|raita|salad|chutney|سائیڈ|رائتہ|سلاد/i, 'leaf'],
+  [/karahi|handi|curry|qorma|korma|کڑاہی|ہانڈی/i, 'pot'],
+];
+export function placeholderOf(category: { name: string; index: number } | null | undefined): { icon: IconName; tone: number } {
+  const name = category?.name ?? '';
+  return { icon: LOOKS.find(([re]) => re.test(name))?.[1] ?? 'bowl', tone: (category?.index ?? 0) % 6 };
+}
+
+function Placeholder({ tile }: { tile: TileModel }) {
+  return <TilePlaceholder category={tile.category} />;
+}
+
+/** The placeholder alone (the keyboard suggestions show it too, frame KeyboardMode). */
+export function TilePlaceholder({ category }: { category: TileModel['category'] }) {
+  const look = placeholderOf(category);
+  return (
+    <span className={`tk-ph tk-ph--${look.tone}`} aria-hidden="true">
+      <Ico name={look.icon} />
+    </span>
+  );
+}
+
 /** 02b-TK A2 item 3: what a takeaway tile does besides a plain tap. */
 export interface TakeawayTileActions {
   /** a tap on an off tile (or an off variant): the toast with the reason */
@@ -140,6 +174,9 @@ type PhoneWait = 'live' | 'offline';
 
 function timeOnPhone(chip: Chip | null, state: TileState, wait: PhoneWait | undefined): Chip | null {
   if (wait === undefined) return chip;
+  // L-CLIENT-6a (frames HomeKiosk, TileStates "wait chip"): a takeaway tile's wait reads "17 min" (an estimate, 02b §8
+  // Tile wait estimate; the cart's Ready by is the promise)
+  if (wait === 'live' && state.kind === 'about') return { tone: state.long ? 'warn' : 'mute', icon: 'clock', text: fill(t('m.min'), { n: String(state.minutes) }), title: t('menu.estimate_hint') };
   if (chip === null || wait === 'offline' && (state.kind === 'about' || state.kind === 'now')) {
     return { tone: 'mute', icon: 'clock', text: '—' };
   }
@@ -152,11 +189,11 @@ function SplitTile({ tile, tk, wait }: { tile: TileModel; tk: TakeawayTileAction
   const classes = ['mi', 'mi--h', 'mi--tk', 'mi--split', off ? 'off' : null, tile.in_cart > 0 ? 'picked' : null].filter((c) => c !== null).join(' ');
   return (
     <div className={classes} role="group" aria-label={tile.name}>
-      <div className="photo photo--none" aria-hidden="true">
-        {monogram(tile.name)}
-      </div>
       <div className="mi__body">
-        <span className="mi__name">{tile.name}</span>
+        <div className="tk-tile__top">
+          <Placeholder tile={tile} />
+          <span className="mi__name">{tile.name}</span>
+        </div>
         <div className="tk-split">
           {tile.variants!.map((v) => (
             <button
@@ -202,11 +239,20 @@ export function Tile({ tile, onTap, tk, wait }: { tile: TileModel; onTap(tile: T
   };
   return (
     <button type="button" className={classes} aria-label={tile.name} aria-disabled={off} onClick={tap}>
-      <div className="photo photo--none" aria-hidden="true">
-        {monogram(tile.name)}
-      </div>
+      {tk === undefined && (
+        <div className="photo photo--none" aria-hidden="true">
+          {monogram(tile.name)}
+        </div>
+      )}
       <div className="mi__body">
-        <span className="mi__name">{tile.name}</span>
+        {tk === undefined ? (
+          <span className="mi__name">{tile.name}</span>
+        ) : (
+          <div className="tk-tile__top">
+            <Placeholder tile={tile} />
+            <span className="mi__name">{tile.name}</span>
+          </div>
+        )}
         {tile.sub !== null && <span className="mi__sub">{tile.zone?.zone_name ?? tile.sub}</span>}
         {tile.sub === null && tile.zone?.zone_name != null && <span className="mi__sub">{tile.zone.zone_name}</span>}
         <div className="mi__foot">

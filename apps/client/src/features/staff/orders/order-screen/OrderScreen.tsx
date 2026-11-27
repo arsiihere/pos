@@ -41,7 +41,7 @@ import {
 import { Cart, CartList, SendBar } from './Cart';
 import type { LineView } from './CartLine';
 import { MenuPills, MenuRail, type RailCategory } from './MenuRail';
-import { MenuTiles, itemSub, offToast, variantsSub, type TakeawayTileActions, type TileModel } from './MenuTiles';
+import { MenuTiles, TilePlaceholder, itemSub, offToast, variantsSub, type TakeawayTileActions, type TileModel } from './MenuTiles';
 import { groupsOf } from '../sheets/preselect';
 import { DealSheet } from '../sheets/DealSheet';
 import { NoteSheet, ORDER_NOTE_MAX } from '../sheets/NoteSheet';
@@ -737,6 +737,11 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   /** 02b-TK A2 item 3 (frame TileStates "Tandoor paused"): the paused station's name */
   const stationName = (a: ItemAvailability): string | null => (a.state.kind !== 'paused' ? null : (config.stations.find((st) => st.station_id === (a.state as { station_id: string }).station_id)?.name ?? null));
   const tiles: TileModel[] = [];
+  // L-CLIENT-6a (frame HomeKiosk): the takeaway tile's placeholder follows its category
+  const catOf = (category_id: string) => {
+    const index = categories.findIndex((c) => c.category_id === category_id);
+    return index < 0 ? null : { name: categories[index]!.name, index };
+  };
   const seenGroups = new Set<string>();
   for (const item of [...config.items].sort((a, b) => a.sort_order - b.sort_order)) {
     if (item.variant_group_id !== null) {
@@ -758,6 +763,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         availability: groupAvail,
         zone: null,
         in_cart: variants.reduce((n, v) => n + unitsOf(cart, v.item_id), 0),
+        category: catOf(item.category_id),
         // 02b-TK A2 item 3: Half / Full on the tile (takeaway)
         ...(order_type !== 'takeaway'
           ? {}
@@ -782,6 +788,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       zone: z === null ? null : { on_hand: z.on_hand, zone_name: zone?.name ?? null },
       in_cart: unitsOf(cart, item.item_id),
       station_name: stationName(avail(item.item_id)),
+      category: catOf(item.category_id),
     });
   }
   for (const deal of [...config.deals].sort((a, b) => a.sort_order - b.sort_order)) {
@@ -797,6 +804,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       availability: inputs === null ? { state: { kind: 'ok' }, orderable: true, cap: null } : dealAvailability(deal.deal_id, inputs),
       zone: null,
       in_cart: cart.lines.filter((l) => l.deal_id === deal.deal_id).reduce((n, l) => n + (l.quantity ?? 0), 0),
+      category: catOf(deal.category_id),
     });
   }
   const newKey = () => newUlid();
@@ -1243,7 +1251,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     <section className="menu">
       <div className="tk-ksearch">
         <label className="search" role="search">
-          <Ico name="eye" />
+          <Ico name={order_type === 'takeaway' ? 'search' : 'eye'} />
           <input
             ref={searchRef}
             type="search"
@@ -1271,6 +1279,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
                   addKey(e);
                 }}
               >
+                {/* L-CLIENT-6a (frame KeyboardMode): each suggestion with its tile's placeholder */}
+                <TilePlaceholder category={catOf(e.kind === 'deal' ? (config.deals.find((d) => d.deal_id === e.id)?.category_id ?? '') : (config.items.find((i) => i.item_id === e.id)?.category_id ?? ''))} />
                 <b>
                   <span className="num" dir="ltr">
                     {qty}×
@@ -1296,7 +1306,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         onTap={onTap}
         tk={tk}
         rush={dense}
-        wait={order_type === 'takeaway' && (shell.phone || shell.portrait) ? (shell.online ? 'live' : 'offline') : undefined}
+        wait={order_type === 'takeaway' ? (shell.online ? 'live' : 'offline') : undefined}
       />
       {order_type === 'takeaway' && kiosk && (
         <div className="tk-hint">

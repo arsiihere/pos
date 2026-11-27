@@ -394,7 +394,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
     <>
       <div className="tk-q__top">
         <label className="tk-search" role="search">
-          <Ico name="eye" />
+          <Ico name="search" />
           <input type="search" value={query} ref={variant === "strip" ? drawerSearch : undefined} placeholder={searchLabel} aria-label={searchLabel} onChange={(e) => setQuery(e.target.value)} />
         </label>
         {!shell.online && loadedAt !== null && (

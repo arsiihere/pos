@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flush, type Mounted } from '../../../../../test/dom';
-import { offChip, offToast } from '../order-screen/MenuTiles';
+import { offChip, offToast, placeholderOf } from '../order-screen/MenuTiles';
 import { forgetTakeawayDrafts } from './current-draft';
 import { screenHarness } from './screen-harness';
 
@@ -118,5 +118,29 @@ describe('[02b-TK TK-C01] takeaway menu tiles', () => {
     expect(offChip({ kind: 'not_counted' }, null)).toMatchObject({ tone: 'warn', text: 'Not counted today' });
     expect(offToast('Chicken Tikka', { kind: 'sold_out' }, null)).toBe('Chicken Tikka is sold out — ask the kitchen');
     expect(offToast('Anda Tikki', { kind: 'not_now', windows: [{ start_ms: 19 * 3_600_000, end_ms: 23 * 3_600_000 }] }, null)).toBe('Anda Tikki — From 7 PM');
+  });
+});
+
+describe('[02b-TK L-CLIENT-6a item 2] the takeaway tile (frames HomeKiosk, TileStates)', () => {
+  it('[owner: photos after the pilot] the image slot is the category placeholder — an icon in its colour, never initials', async () => {
+    const h = screenHarness();
+    const m = h.render();
+    await flush();
+    sides(m);
+    const naan = tile(m, 'Naan');
+    expect(naan.querySelector('.tk-ph .ico')).not.toBeNull();
+    expect(naan.querySelector('.photo')).toBeNull();
+    expect(naan.querySelector('.tk-ph')!.textContent).toBe('');
+    expect(placeholderOf({ name: 'Tandoor', index: 4 })).toEqual({ icon: 'bread', tone: 4 });
+    expect(placeholderOf({ name: 'Drinks', index: 7 })).toEqual({ icon: 'cup', tone: 1 });
+    expect(placeholderOf(null)).toEqual({ icon: 'bowl', tone: 0 });
+  });
+
+  it('[02b §8 Tile wait estimate] offline, every takeaway wait reads "—" on the kiosk too', async () => {
+    const h = screenHarness({ online: false });
+    const m = h.render();
+    await flush();
+    sides(m);
+    expect(tile(m, 'Naan').querySelector('.tag')!.textContent).toBe('—');
   });
 });
