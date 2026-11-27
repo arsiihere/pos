@@ -4461,6 +4461,13 @@ export const en = {
   'billing.check_amounts': 'Gross total {gross} · Remaining payable {due}',
   'billing.check_not_printed': 'Check bill not printed — {why}',
   'billing.receipt_again': 'Print receipt again',
+  // ---- 02b-TK L-CLIENT-3 item 2 (03c v1.0.16 §3.11, §6.14, §8; 02b v1.0.25 §3.2 steps 2b, 10a, 11 (R6)): the takeaway token slip — Send · pay later's slip result, Print token ----
+  'v.print': 'Print token',
+  'takeaway.slip.printing': 'Slip printing',
+  'takeaway.slip.not_printed': 'Slip not printed — Print slip',
+  'takeaway.slip.no_printer': 'No slip printer is set up — the token is on the screen',
+  'takeaway.slip.off': 'Token slips are turned off',
+  'errors.TAKEAWAY_SLIP_NOT_ALLOWED': 'No slip for this order — it is paid, cancelled or not a takeaway',
 } as const;
 
 export type MessageKey = keyof typeof en;

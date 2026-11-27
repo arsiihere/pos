@@ -15,6 +15,7 @@ import { billsOf, buildQueue, knownOrders, matchesQuery, notCollectedMinOf, type
 import { AskManager } from '../unpaid/AskManager';
 import { checkWholeToken, gatesOf, type HandoverCheck } from '../unpaid/candidate';
 import { unpaidRequestsOf } from '../unpaid/requests';
+import { slipMissesOf } from './slips';
 import './styles';
 
 // 02b-TK C2-1 (02b v1.0.24 §6.16, §8; frames HomeKiosk, ReadyTiles, QueueTablet, PhoneQueue; CHANGES §1; R3): the
@@ -224,6 +225,8 @@ function ReadyTile({ q, selected, owed, late, whole, onOpen, onHandOver, onPay }
 
 function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; onOpen(): void }) {
   const shell = useShell();
+  const slips = slipMissesOf(shell);
+  useSyncExternalStore(slips.subscribe, slips.version);
   return (
     <button type="button" className={selected ? 'tk-qr is-sel' : 'tk-qr'} aria-pressed={selected} onClick={onOpen} data-token={q.key}>
       <span className="tk-tok" dir="ltr">
@@ -232,6 +235,12 @@ function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; o
       <span className="tk-qr__m">
         <b dir="auto">{q.customer_name ?? t('order.takeaway')}</b>
         {q.summary !== '' && <small dir="auto">{q.summary}</small>}
+        {/* ⚠️ 02b-TK L-CLIENT-3 item 2 (03c v1.0.16 §8): the slip did not print at Send */}
+        {slips.missed(q.order_ids) && (
+          <small className="c-warn" data-slip="">
+            {t('takeaway.slip.not_printed')}
+          </small>
+        )}
       </span>
       <span className="tk-qr__r">
         {q.promise_ms !== null && (

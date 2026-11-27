@@ -33,14 +33,18 @@ function deepFreeze<T>(v: T): T {
 }
 
 /** #35 frozen cart: the payload Send sends, a frozen copy — a later cart change never reaches it. */
-export function freezeSubmit(cart: Cart, target: DraftTarget, order_id: string): SubmitOrderPayload {
+export function freezeSubmit(cart: Cart, target: DraftTarget, order_id: string, opts: { print_slip?: boolean } = {}): SubmitOrderPayload {
+  // ⚠️ 02b-TK L-CLIENT-3 item 2 (02b v1.0.25 §3.2 step 2b; 03c v1.0.16 §3.11, §8 Q-TK-4): Send · pay later asks for the
+  // token slip (`takeaway.print_slip: true`, beside the contact); Send & pay leaves it out
+  const contact = target.order_type === 'takeaway' ? takeawayContact(cart.takeaway) : undefined;
+  const takeaway = target.order_type !== 'takeaway' ? undefined : opts.print_slip === true ? { ...contact, print_slip: true } : contact;
   const payload: SubmitOrderPayload = {
     order_id,
     order_type: target.order_type,
     ...(target.table_id === undefined ? {} : { table_id: target.table_id }),
     ...(target.seating_id === undefined ? {} : { seating_id: target.seating_id }),
     // 02b-TK C1-2: the name trimmed, the phone as the hub's digits; nothing typed → no takeaway part
-    ...(target.order_type === 'takeaway' && takeawayContact(cart.takeaway) !== undefined ? { takeaway: takeawayContact(cart.takeaway)! } : {}),
+    ...(takeaway === undefined ? {} : { takeaway }),
     ...(target.order_type === 'parking' && cart.parking !== undefined ? { parking: { ...cart.parking } } : {}),
     ...(cart.order_note === undefined ? {} : { order_note: cart.order_note }),
     ...(cart.serve_mode === undefined ? {} : { serve_mode: cart.serve_mode }),

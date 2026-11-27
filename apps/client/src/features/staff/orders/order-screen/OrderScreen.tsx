@@ -68,6 +68,7 @@ import { candidatesOf, checkHandover, gateOf, lineIds } from '../unpaid/candidat
 import { unpaidRequestsOf } from '../unpaid/requests';
 import { PayPanel, type PayTarget } from '../takeaway/PayPanel';
 import { CartCheckBill, SentTokenPrint } from '../takeaway/CheckBill';
+import { slipMissed, slipMissesOf } from '../takeaway/slips';
 import { servedPayload } from '../actions/MarkServedSheet';
 import { showEnqueued } from '../view/LineActions';
 import { groupParts, type GroupedLine } from '../view/parts';
@@ -867,7 +868,9 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     sending.current = true;
     const frozen = cart;
     const before = body;
-    const payload = freezeSubmit(frozen, target, newUlid());
+    // ⚠️ 02b-TK L-CLIENT-3 item 2 (02b v1.0.25 §3.2 step 2b; 03c v1.0.16 §3.11, §8 Q-TK-4): every takeaway Send that is
+    // not Send & pay is pay later (an addition, a Send without take-payment, offline): it asks for the token slip
+    const payload = freezeSubmit(frozen, target, newUlid(), { print_slip: order_type === 'takeaway' && !andPay });
     const shownName = railVariant === 'column' || seeContact ? payload.takeaway?.customer_name : undefined;
     const title = order_type === 'dine_in' ? (seat?.name ?? null) : null;
     const label =
@@ -910,9 +913,15 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           setPay({ order_id: payload.order_id, ident: r?.token == null ? null : String(r.token), name: shownName ?? null, promise_ms: promises.length === 0 ? null : Math.max(...promises), display: paymentDisplay });
         }
         const moved = r === undefined ? null : timeUpdated(config, frozen, before, r);
+        // ⚠️ 02b-TK L-CLIENT-3 item 2 (03c v1.0.16 §3.11 Result, §8; frame SentToast "slip printing"): the result's
+        // slip, briefly; a miss marks the token "Slip not printed — Print slip" (setting_off / slip_held: nothing)
+        const slip = r?.slip ?? null;
+        if (slipMissed(slip)) slipMissesOf(shellRef.current).mark(payload.order_id);
+        const slipText = slip?.printed === true ? t('takeaway.slip.printing') : slipMissed(slip) ? t('takeaway.slip.not_printed') : null;
+        const sub = [moved === null ? null : fill(t('send.time_updated'), { item: moved.name, time: timeText(moved.eta_ms, shellRef.current.clock.utcOffsetMs) }), slipText].filter((x) => x !== null).join(' · ');
         shellRef.current.toasts.show({
           text: sentToastText(r, shownName, shellRef.current.clock.utcOffsetMs),
-          ...(moved === null ? {} : { sub: fill(t('send.time_updated'), { item: moved.name, time: timeText(moved.eta_ms, shellRef.current.clock.utcOffsetMs) }) }),
+          ...(sub === '' ? {} : { sub }),
           tone: 'ok',
         });
       } else {

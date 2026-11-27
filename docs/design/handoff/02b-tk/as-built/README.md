@@ -111,3 +111,18 @@ Captured from `apps/client/e2e/02b-tk-checkbill.spec.ts` at device scale 2 again
 - A line refusal (`ITEM_UNAVAILABLE` and the others, with `details.key`) opens that cart line and names the item: "Check bill not printed — Naan is not available". An addition target the hub refuses (404 / 422 `adds_to_order_id`) reads as Send's "This token can't take more items…". Every other refusal uses its existing text.
 - A paid token's drawer shows "Print receipt again" (`PrintBillDocument { doc: 'receipt', ref_id }`, the newest closed split's invoice) instead of Print check bill. It shows only to `take-payment` holders. An addition cart with no lines yet reads the token's newest bill once: Print check bill while money is due, Print receipt again once paid.
 - The cart's own total keeps no "Items" label; the build left the cart footer as it was.
+
+## L-CLIENT-3 item 2 the takeaway token slip: Send · pay later, the slip result, Print token (R6)
+
+Captured from `apps/client/e2e/02b-tk-slip.spec.ts` at device scale 2 against the e2e hub. The run routes its device's bills to the e2e fake LAN printer with `SetBillRoute`, so the slip is a real `document` job ("Token slip"). The kiosk images put the frame on the left: SentToast for the toast after Send, TokenDue for the drawer. The landscape tablet drawer is shown alone.
+
+| State | Frame (left) | English | Urdu |
+| --- | --- | --- | --- |
+| Send · pay later → "63 · sent · ready …" with "Slip printing" (kiosk) | SentToast | [SlipSent](SlipSent.png) | [SlipSent-Urdu](SlipSent-Urdu.png) |
+| Due token: Print token → "Slip printing" (kiosk) | TokenDue | [SlipReprint](SlipReprint.png) | [SlipReprint-Urdu](SlipReprint-Urdu.png) |
+| The same on the landscape tablet | none | [SlipReprint-tablet](SlipReprint-tablet.png) | [SlipReprint-tablet-Urdu](SlipReprint-tablet-Urdu.png) |
+
+- Every takeaway Send that is not Send & pay sends `takeaway.print_slip: true`: Send · pay later, an addition's "Add to token", a Send by someone without `take-payment`, and a Send queued offline. Send & pay leaves the flag out, so the receipt is the only paper. The hub applies `takeaway_slip_on_send` itself, so the client sends the flag whatever the setting.
+- The sent toast shows the result's `slip` on a second line. `printed` shows "Slip printing". `no_printer`, `failed` and `replay_late` show "Slip not printed — Print slip", and the token's queue row keeps that line in amber until a Print token prints. The hint is kept in memory, so it is gone after a reload. `setting_off`, `slip_held` and `null` show nothing. The result has no printer name, so the toast cannot say which printer it is queued on.
+- The token view of a Due token shows Print token (`v.print`, strings-table.md) to `take-order` holders. It sends `PrintTakeawaySlip { order_id: <newest>, reason: 'reprint' }`. Only one request runs at a time, the button is greyed while offline, and the command is never queued. `no_printer` says "No slip printer is set up — the token is on the screen". `TAKEAWAY_SLIP_NOT_ALLOWED` shows its `errors.*` text and re-reads the token, which then hides the action.
+- The frame's "Print again" button on the sent toast is not built. 03c §3.11 places the reprint in the token view only. There is no QR: the e2e hub is Tier 2, where `statusLink` returns null.
