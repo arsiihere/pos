@@ -158,3 +158,78 @@ describe('[02b-TK L-CLIENT-5 item 1; 02b §8 token view] the token view', () => 
     expect(m.container.querySelector('.tk-facts [data-pickup]')).toBeNull();
   });
 });
+
+// ⚠️ 02b-TK L-CLIENT-5 item 2 (02b v1.0.25 §3.8, §6.6, §8 (02b-R4-3: "Customer is here — cook now" = BoostOrder);
+// 03a v1.2.11 §3.5.8 PK-5; D1; T1 #8): the token view of a pickup token not yet boosted offers Customer is here; it
+// sends BoostOrder { order_id } for each of the token's orders still waiting for its pickup (boost-order, online only:
+// not queueable), then shows the token as boosted (no button), the pickup time still shown; whole-bag readiness stays.
+describe('[02b-TK L-CLIENT-5 item 2; 02b §6.6, §8] Customer is here', () => {
+  const token = (o: Partial<QueueToken>): QueueToken => ({ key: '2026-11-24:60', token: 60, order_ids: ['O60'], newest_order_id: 'O60', customer_name: null, phone: null, placed_at: at(13, 0), promise_ms: PICK, ready: { n: 0, m: 2 }, paid: false, part: false, summary: '', pickup_at_ms: PICK, effective_pickup_at_ms: PICK, pickup_order_ids: ['O60'], ...o });
+  const lines = [sl('O60', 'A', 'Karahi', 'done'), sl('O60', 'B', 'Lassi', 'added')];
+
+  const open = async (q: QueueToken, o: { grants?: Record<string, unknown>; online?: boolean; command?: (type: string, payload: unknown) => unknown } = {}) => {
+    const h = screenHarness({ views: { O60: view('O60', lines) }, bills: { O60: { bill_id: null, state: 'projected', splits: [], totals_default: { total_minor: 4_000 } } }, grants: { 'boost-order': { grant: 'allowed', scope: 'branch' }, ...(o.grants ?? {}) }, ...(o.online === undefined ? {} : { online: o.online }), ...(o.command === undefined ? {} : { command: o.command }) });
+    book = createTokenBook(h.shell.live);
+    v = mount();
+    v.render(
+      <ShellContext.Provider value={h.shell}>
+        <TokenView token={q} book={book} onClose={() => {}} onHandOver={() => {}} />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    return { h, m: v };
+  };
+  const here = (m: Mounted) => [...m.container.querySelectorAll<HTMLButtonElement>('.tk-drawer button')].find((b) => b.textContent?.includes('Customer is here')) ?? null;
+
+  it('[§8 02b-R4-3, §6.6] a pickup token offers it; a tap sends BoostOrder { order_id }; then no button, the Pickup fact stays (D1)', async () => {
+    const { h, m } = await open(token({}));
+    expect(here(m)?.textContent).toBe('Customer is here — cook now');
+    m.click(here(m));
+    await flush();
+    expect(h.commands.filter((c) => c.type === 'BoostOrder').map((c) => c.payload)).toEqual([{ order_id: 'O60' }]);
+    expect(h.toasts.at(-1)?.text).toBe('The kitchen cooks it now');
+    expect(here(m)).toBeNull();
+    expect(m.container.querySelector('.tk-facts [data-pickup]')?.textContent).toContain('2:00 PM');
+  });
+
+  it('[D1; 03a PK-5] whole-bag readiness stays: the Karahi done, the Lassi still to make → Hand over all is not offered as ready', async () => {
+    const { m } = await open(token({}));
+    m.click(here(m));
+    await flush();
+    const handOver = [...m.container.querySelectorAll('.tk-drawer button')].find((b) => b.textContent?.startsWith('Hand over all'));
+    expect(handOver === undefined || handOver.getAttribute('aria-disabled') === 'true').toBe(true);
+  });
+
+  it('[D1] none on a boosted token (effective pickup null), on a token without a pickup, without boost-order, or offline', async () => {
+    for (const [q, o] of [
+      [token({ effective_pickup_at_ms: null, pickup_order_ids: [] }), {}],
+      [token({ pickup_at_ms: null, effective_pickup_at_ms: null, pickup_order_ids: [] }), {}],
+      [token({}), { grants: { 'boost-order': { grant: 'not_granted', scope: 'branch' } } }],
+      [token({}), { online: false }],
+    ] as const) {
+      const { m } = await open(q, o);
+      expect(here(m)).toBeNull();
+      m.unmount();
+      v = null;
+    }
+  });
+
+  it('[§6.6 errors] ORDER_NOT_IN_ENGINE says so and keeps the button', async () => {
+    const { h, m } = await open(token({}), { command: (type) => (type === 'BoostOrder' ? { ok: false, error: { kind: 'api', status: 409, code: 'ORDER_NOT_IN_ENGINE', details: {} } } : undefined) });
+    m.click(here(m));
+    await flush();
+    expect(h.toasts.at(-1)?.tone).toBe('warn');
+    expect(here(m)).not.toBeNull();
+  });
+
+  it('[§8] Urdu', async () => {
+    setLanguage('ur');
+    const { m } = await open(token({}));
+    expect([...m.container.querySelectorAll('.tk-drawer button')].some((b) => b.textContent === 'گاہک آ گیا — ابھی بنائیں')).toBe(true);
+  });
+
+  it('[§6.16] the model names the token\'s orders still waiting for a pickup', () => {
+    const rows = [aRow({ order_id: 'O70', token: 70, pickup_at_ms: PICK, effective_pickup_at_ms: PICK }), aRow({ order_id: 'O71', token: 70, placed_at: at(13, 5), pickup_at_ms: PICK, effective_pickup_at_ms: null })];
+    expect(buildQueue(knownOrders(rows, new Map(), () => undefined), NOW).later[0]!.pickup_order_ids).toEqual(['O70']);
+  });
+});

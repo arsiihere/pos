@@ -207,7 +207,7 @@ for (const lang of LANGS) {
     }
   });
 
-  test(`[T1 #8] the customer came early: Customer is here (Boost) at the counter moves the ready time earlier; the bag is not Ready while the drink is made (${lang}) @gap`, async ({ browser, request }, info) => {
+  test(`[T1 #8] the customer came early: Customer is here (Boost) at the counter moves the ready time earlier; the bag is not Ready while the drink is made (${lang})`, async ({ browser, request }, info) => {
     t1RunsHere(info);
     const run = t1Run('bag', info, lang);
     const cash = await screen(browser, info.project.use.viewport!);
@@ -229,9 +229,28 @@ for (const lang of LANGS) {
       await counter(cash.page, lang, info);
       await (await queueEntry(cash.page, token)).click();
       // 03b §3.4 / 02b §6.6a ReleaseBoost: the counter's "Customer is here" (pass.pickup_at points the Pass to it)
-      const here = cash.page.locator('.tk-drawer').getByRole('button', { name: /customer is here|boost/i });
+      // (the button's words per language: v.here "Customer is here — cook now" / Urdu)
+      const drawer = cash.page.locator('section.tk-drawer');
+      const here = drawer.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'v.here'))}`) });
       await expect(here, 'the token view offers Customer is here for a pickup order (02b §8)').toBeVisible({ timeout: 5_000 });
+      type Row = { order_id: string; promise_ms: number | null; pickup_at_ms: number | null; effective_pickup_at_ms: number | null; ready: { n: number; m: number } };
+      const rowOf = async () => (await api.query<{ orders: Row[] }>('open-orders?order_type=takeaway')).orders.find((o) => o.order_id === order_id)!;
+      const before = await rowOf();
+      await capture(cash.page, info, `CustomerHere-${info.project.name}-${lang}`, drawer);
+      const boosted = cash.page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/commands/boost-order'));
       await here.click();
+      expect((await boosted).status()).toBe(200);
+      // boosted: no button; the pickup time stays (D1); the effective pickup is gone; the ready time is not later
+      await expect(here).toHaveCount(0);
+      await expect(drawer.locator('.tk-facts [data-pickup]')).toBeVisible();
+      const after = await rowOf();
+      expect(after.pickup_at_ms).toBe(before.pickup_at_ms);
+      expect(after.effective_pickup_at_ms).toBeNull();
+      expect(after.promise_ms!).toBeLessThanOrEqual(before.promise_ms!);
+      // whole bag (D1): nothing is ready yet — the token is not Ready while the drink is still to make
+      expect(after.ready.n).toBeLessThan(after.ready.m);
+      await expect(drawer.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'v.collected'))}`) })).toHaveAttribute('aria-disabled', 'true');
+      await capture(cash.page, info, `CustomerHereDone-${info.project.name}-${lang}`, drawer);
     } finally {
       await api.close();
       await closeAll(info, lang, cash);

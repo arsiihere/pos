@@ -187,3 +187,18 @@ Captured from `apps/client/e2e/t1-takeaway.spec.ts` (T1 #7) against the e2e hub,
 - The chips reuse the ServeChoice band (`.tk-serve .tk-pick`); no CSS changed (ui-kit is outside this lane).
 - The queue's Phone orders — later holds a not-ready token whose `effective_pickup_at_ms` is ahead of hub now; an elapsed or boosted one is in Cooking. Its row, its ready tile and the token view show "Pickup <time>" from `pickup_at_ms`, also after a boost (D1).
 - The hub's promise for a pickup order is the pickup plus the branch's takeaway promise padding (here 3 min: Ready by 11:15 PM for a pickup at 11:12 PM), so the cart's "Kitchen times it for" shows the preview promise, as 02b §6.14 says.
+
+## L-CLIENT-5 item 2 Customer is here (BoostOrder on a pickup token)
+
+Captured from `apps/client/e2e/t1-takeaway.spec.ts` (T1 #8) against the e2e hub, kiosk and landscape tablet. No frame shows the button; the nearest frame is TokenDue. 02b §8 (02b-R4-3) names it "Customer is here — cook now".
+
+| State | English | Urdu |
+| --- | --- | --- |
+| A pickup token's drawer offers Customer is here (kiosk) | [CustomerHere](CustomerHere.png) | [CustomerHere-Urdu](CustomerHere-Urdu.png) |
+| The same on the tablet | [CustomerHere-tablet](CustomerHere-tablet.png) | [CustomerHere-tablet-Urdu](CustomerHere-tablet-Urdu.png) |
+| After the boost: no button, the Pickup fact kept (D1), Hand over all still greyed (kiosk) | [CustomerHereDone](CustomerHereDone.png) | [CustomerHereDone-Urdu](CustomerHereDone-Urdu.png) |
+| The same on the tablet | [CustomerHereDone-tablet](CustomerHereDone-tablet.png) | [CustomerHereDone-tablet-Urdu](CustomerHereDone-tablet-Urdu.png) |
+
+- The button shows in the token view of a token with an order whose `effective_pickup_at_ms` is set (not boosted), to a holder of `boost-order`, while the hub is reachable (`BoostOrder` is not queueable, 02b §6.6). It sends `BoostOrder { order_id }` for each such order of the token, then toasts "The kitchen cooks it now" and hides itself. A refusal (`ORDER_NOT_IN_ENGINE`, …) toasts the order error and keeps the button. The rail and the drawer read again on `OrderBoosted`; the token leaves Phone orders — later because its effective pickup is now null.
+- The pickup time stays in the drawer and the rail (D1). Readiness stays whole-bag: the drawer offers Hand over all only when every live line is ready.
+- On the e2e hub's fixed clock the ready time did not move (11:15 PM before and after): 03a v1.2.11 PK-5 keeps the stored promise and the earlier placement shows as the kitchen fires. The e2e checks it is not later.
