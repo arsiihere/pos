@@ -122,6 +122,9 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `alert.hand_over_unpaid.card` (02b v1.0.25 §6.12a R3-m-4; L-CLIENT-2 item 4) | Hand over unpaid {identifier} | {identifier} بغیر ادائیگی حوالے کریں |
 | `alert.hand_over_unpaid.lock` (02b v1.0.25 §6.12a R3-m-4; L-CLIENT-2 item 4) | Unpaid hand-over request | بغیر ادائیگی حوالگی کی درخواست |
 | `alert.hand_over_unpaid.name` (01d §3.10 in-person title; L-CLIENT-2 item 4) | Unpaid hand-over | بغیر ادائیگی حوالگی |
+| `billing.check_amounts` (05 v1.0.35 §6.3, §6.3a R3-M-1; L-CLIENT-3 item 1) | Gross total {gross} · Remaining payable {due} | کل رقم {gross} · باقی قابلِ ادائیگی {due} |
+| `billing.check_not_printed` (05 v1.0.35 §6.3a line refusals; L-CLIENT-3 item 1) | Check bill not printed — {why} | چیک بل پرنٹ نہیں ہوا — {why} |
+| `billing.receipt_again` (05 v1.0.35 §8 OR-5; L-CLIENT-3 item 1) | Print receipt again | رسید دوبارہ پرنٹ کریں |
 
 Historical copy for Urdu review. OR-7 disabled the client override.
 

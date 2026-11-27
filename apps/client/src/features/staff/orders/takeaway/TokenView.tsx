@@ -15,7 +15,7 @@ import { groupParts, type GroupedLine } from '../view/parts';
 import { atStageOne, isServed, isWeightPending, servable } from '../view/stage';
 import { voidOffered, type LineOrder } from '../view/LineActions';
 import { RemoveSheet } from '../actions/RemoveSheet';
-import { CheckBill } from './CheckBill';
+import { CheckBill, ReceiptAgain, receiptOf } from './CheckBill';
 import { VoidSheet } from '../../../voids/VoidSheet';
 import { VoidButton } from '../../../voids/ui';
 import { MaskedAction } from '../../shell/MaskedAction';
@@ -87,14 +87,15 @@ function chipOf(l: SeatingLine): { key: MessageKey; tone: string } {
 
 export interface BillFacts {
   /** the newest order's bill */
-  current: { paid: boolean; amount_minor: number; bill_id: string | null } | null;
+  current: { paid: boolean; amount_minor: number; bill_id: string | null; invoice_id?: string | null } | null;
   /** the root's bill when it is another, closed one (05 #44e) */
   earlier: { amount_minor: number } | null;
 }
 
 /** Paid = the bill closed (its total); Due = what the open splits still owe, or the whole total of a projected bill. */
-export function billFact(b: BillView): { paid: boolean; amount_minor: number; bill_id: string | null } {
-  if (b.state === 'closed') return { paid: true, amount_minor: b.totals_default.total_minor, bill_id: b.bill_id };
+export function billFact(b: BillView): { paid: boolean; amount_minor: number; bill_id: string | null; invoice_id?: string | null } {
+  // ⚠️ 05 §8 (OR-5): a paid bill keeps the receipt to print again (its newest closed split's invoice)
+  if (b.state === 'closed') return { paid: true, amount_minor: b.totals_default.total_minor, bill_id: b.bill_id, invoice_id: receiptOf(b) };
   const open = b.splits.filter((s) => s.state === 'open');
   const owed = open.reduce((n, s) => n + Math.max(0, s.balance_minor), 0);
   return { paid: false, amount_minor: open.length === 0 ? b.totals_default.total_minor : owed, bill_id: b.bill_id };
@@ -352,6 +353,8 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
             )}
             {/* 02b-TK C3-2 (05 §6.3; R6): the check bill of the token's newest order while it is Due */}
             {due && may('take-order') && <CheckBill order_id={token.newest_order_id} />}
+            {/* ⚠️ 02b-TK L-CLIENT-3 item 1 (05 v1.0.35 §8 OR-5, §6.22; #60h): once paid, Print receipt again (take-payment only) */}
+            {bill?.current?.paid === true && may('take-payment') && <ReceiptAgain order_id={token.newest_order_id} invoice_id={bill.current.invoice_id ?? null} />}
             {phoned !== null && may('view-customer-contact') && (
               <button type="button" className="tk-btn" onClick={() => setCall(true)}>
                 {t('v.call')}

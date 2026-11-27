@@ -95,3 +95,19 @@ No hand-off frame shows the OR-7 request: the hand-off was drawn before OR-7 rep
 - "Ask a manager" sends `RequestUnpaidHandover { order_id }` for the newest blocked order. The control shows the request's state: "Waiting for a manager…" with "Waiting — find a manager" and Withdraw for the requester, "Already waiting for a manager" for someone else's request, and "Manager said no" after a reject (read from my-requests on the requester's result).
 - An approval (`UnpaidHandoverApproved`, or the open-orders `unpaid_handover_approved` flag once the hub sends it) unlocks only the named order, up to the approved amount (D2). Every customer hand-over sends `customer_handover: true`. The hub on this base drops the flag and has no refusal yet (U-5). The client's handling of `403 unpaid_handover_approval_required` is covered by unit tests only.
 - ui-kit has no styles for the request control. It uses the existing `tk-msg`, `pc__msg` and `wcard` boxes, so on the ready tile it shows as a plain button.
+
+## L-CLIENT-3 item 1 cart / Due check bill and Print receipt again (OR-5, R6, D9)
+
+Captured from `apps/client/e2e/02b-tk-checkbill.spec.ts` at device scale 2 against the e2e hub. The run routes its device's bills to the e2e fake LAN printer ("Kitchen printer") with `SetBillRoute`, so every print really reaches the hub's queue. No hand-off frame shows the check bill actions (the hand-off was drawn before OR-5), so the kiosk images put the nearest frame on the left: HomeKiosk for the cart, TokenReady for the paid token drawer. The landscape tablet capture is shown alone.
+
+| State | Nearest frame | English | Urdu |
+| --- | --- | --- | --- |
+| Unsent cart → Print check bill → "Check bill sent to … · Gross total … · Remaining payable …" (kiosk) | HomeKiosk | [CartCheckBill](CartCheckBill.png) | [CartCheckBill-Urdu](CartCheckBill-Urdu.png) |
+| The same on the landscape tablet | none | [CartCheckBill-tablet](CartCheckBill-tablet.png) | [CartCheckBill-tablet-Urdu](CartCheckBill-tablet-Urdu.png) |
+| Paid token drawer: Print receipt again → "Reprint sent to …" (kiosk) | TokenReady | [ReceiptAgain](ReceiptAgain.png) | [ReceiptAgain-Urdu](ReceiptAgain-Urdu.png) |
+
+- A takeaway or parking cart with unsent lines sends `PrintCartCheckBill { draft }`. The draft is the cart's `eta-preview` draft: no ids and no customer contact. An addition cart adds `adds_to_order_id`, the root's id, as Send does. While a cart has unsent lines it never sends `PrintCheckBill`. The action is greyed while offline and never enters the queue. On a parking cart it is greyed until the car number is set.
+- The toast shows where the paper printed ("No bill printer is set up — show the screen to the customer" without a route), followed by the paper's figures: Gross total `totals_default.total_minor` and Remaining payable `due_minor`. The Due token's `PrintCheckBill` toast shows the same two figures.
+- A line refusal (`ITEM_UNAVAILABLE` and the others, with `details.key`) opens that cart line and names the item: "Check bill not printed — Naan is not available". An addition target the hub refuses (404 / 422 `adds_to_order_id`) reads as Send's "This token can't take more items…". Every other refusal uses its existing text.
+- A paid token's drawer shows "Print receipt again" (`PrintBillDocument { doc: 'receipt', ref_id }`, the newest closed split's invoice) instead of Print check bill. It shows only to `take-payment` holders. An addition cart with no lines yet reads the token's newest bill once: Print check bill while money is due, Print receipt again once paid.
+- The cart's own total keeps no "Items" label; the build left the cart footer as it was.

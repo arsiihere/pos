@@ -4457,6 +4457,10 @@ export const en = {
   'alert.hand_over_unpaid.card': 'Hand over unpaid {identifier}',
   'alert.hand_over_unpaid.lock': 'Unpaid hand-over request',
   'alert.hand_over_unpaid.name': 'Unpaid hand-over',
+  // ---- 02b-TK L-CLIENT-3 item 1 (05 v1.0.35 §6.3, §6.3a, §8; 02b v1.0.25 §8 OR-5 / R6; D9): cart / Due check bill — gross and remaining payable, the cart's refusals, Print receipt again ----
+  'billing.check_amounts': 'Gross total {gross} · Remaining payable {due}',
+  'billing.check_not_printed': 'Check bill not printed — {why}',
+  'billing.receipt_again': 'Print receipt again',
 } as const;
 
 export type MessageKey = keyof typeof en;
