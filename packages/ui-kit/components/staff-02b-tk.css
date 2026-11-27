@@ -633,3 +633,17 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .order--tk-phone .tk-serve[data-pickup-row] > b { color: var(--ink-muted); font-size: 14px; }
 .order--tk-phone .tk-serve[data-pickup-row] .tk-pick button { padding: 0 2px; font-size: 14px; white-space: nowrap; }
 .order--tk-phone .tk-serve[data-pickup-row] .tk-pick button.is-sel { background: var(--chrome); border-color: var(--chrome); color: var(--on-chrome); }
+/* a short kiosk with the offline bar: the cart keeps room for its lines (L-CLIENT-6a item 1) */
+@media (max-height: 820px) {
+  .osc--tk > .cart > .lines { min-height: 120px; }
+  .osc--tk > .cart .tk-readyby--none .tk-readyby__t b { font-size: 16px; line-height: 1.25; }
+  .osc--tk > .cart .tk-readyby--none .tk-readyby__ic { width: 36px; height: 36px; }
+  .osc--tk > .cart .tk-hint--warn { font-size: 13px; padding: 6px 10px; }
+  .osc--tk > .cart .tk-serve b { font-size: 14px; }
+  .osc--tk > .cart .tk-serve .tk-pick button { min-height: 40px; font-size: 14px; }
+  .osc--tk > .cart .cart__foot .duo .btn, .osc--tk > .cart .cart__foot .duo .tk-btn { min-height: 44px; }
+  .osc--tk > .cart .tk-acts .tk-btn--xl, .osc--tk > .cart .tk-acts .tk-btn--lg { min-height: 52px; }
+  .osc--tk > .cart .cust.duo { padding: 8px 12px 4px; }
+  .osc--tk > .cart .cust .fld__l { font-size: 13px; }
+  .osc--tk > .cart .tk-serve[data-pickup-row] { padding: 2px 12px 8px; }
+}

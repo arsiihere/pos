@@ -128,7 +128,7 @@ interface Session {
   query<T>(path: string): Promise<T>;
 }
 
-async function session(baseURL: string, d: DemoDevice, staff_id: string, ids: { tenant_id: string; branch_id: string }): Promise<Session> {
+async function session(baseURL: string, d: DemoDevice, staff_id: string, ids: { tenant_id: string; branch_id: string }, nowMs: () => number): Promise<Session> {
   const device = { Authorization: `Bearer ${d.token}`, 'content-type': 'application/json' };
   const signIn = await fetch(`${baseURL}/auth/pin`, { method: 'POST', headers: device, body: JSON.stringify({ staff_id, pin: '1234', takeover: true }) });
   if (signIn.status !== 200) throw new Error(`auth/pin ${await signIn.text()}`);
@@ -141,7 +141,7 @@ async function session(baseURL: string, d: DemoDevice, staff_id: string, ids: { 
       const res = await fetch(`${baseURL}/commands/${kebab}`, {
         method: 'POST',
         headers: { ...device, 'X-Session-Token': token },
-        body: JSON.stringify({ command_id: `fid-${process.pid}-${seq}-${Math.random().toString(36).slice(2)}`, ...ids, command_type: type, payload, occurred_at: Date.now(), actor_id: staff_id, device_id: d.device_id }),
+        body: JSON.stringify({ command_id: `fid-${process.pid}-${staff_id}-${seq}`, ...ids, command_type: type, payload, occurred_at: nowMs(), actor_id: staff_id, device_id: d.device_id }),
       });
       const body = (await res.json()) as { data?: { result: Record<string, unknown> }; error?: unknown };
       if (res.status !== 200) throw new Error(`${type} ${res.status} ${JSON.stringify(body.error)}`);
@@ -186,12 +186,16 @@ export async function startDemoHub(orders: DemoOrder[]): Promise<{ info: DemoHub
   const tablet = pairDevice(hub, { type: 'tablet', name: 'Counter tablet', profile: listed });
   const phone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_SANA', name: 'Sana phone', profile: { access: 'listed', staff_ids: ['S_SANA'], screens: ['takeaway', 'dine_in', 'manager'] } });
   const seeder = pairDevice(hub, { type: 'tablet', name: 'Seeder', profile: { access: 'everyone', screens: [...screens] } });
+  const seeder2 = pairDevice(hub, { type: 'tablet', name: 'Seeder 2', profile: { access: 'everyone', screens: [...screens] } });
   await hub.app.listen({ host: '127.0.0.1', port });
   const baseURL = `http://127.0.0.1:${port}`;
   const ids = { tenant_id: 'tenant-a', branch_id: hub.deps.config.provisioned!.branch_id };
   const dev = (d: { token: string; deviceId: string }, device_type: DemoDevice['device_type']): DemoDevice => ({ token: d.token, device_id: d.deviceId, device_type });
-  const s = await session(baseURL, dev(seeder, 'tablet'), 'S_OWNER', ids);
+  const s = await session(baseURL, dev(seeder, 'tablet'), 'S_OWNER', ids, () => hub.clock.branchNow());
   await s.command('OpenShift', { float_minor: 0, as_drawer: false }).catch(() => undefined);
+  // Sana's own shift, so the counter shows no "No shift open" banner (05 §6.16), as in the frames
+  const sana = await session(baseURL, dev(seeder2, 'tablet'), 'S_SANA', ids, () => hub.clock.branchNow());
+  await sana.command('OpenShift', { float_minor: 0, as_drawer: false }).catch((e: unknown) => console.warn('OpenShift Sana', e));
   const tokens: Record<string, number> = {};
   for (const o of orders) {
     const order_id = hub.deps.ids.next();

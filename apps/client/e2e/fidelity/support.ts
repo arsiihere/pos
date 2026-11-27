@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page, type WebSocketRoute } from '@playwright/test';
 import type { DemoDevice, DemoHub } from './demo-hub';
 
 export const SHOTS = fileURLToPath(new URL('../../../../docs/design/handoff/02b-tk/build-shots/', import.meta.url));
@@ -17,6 +17,15 @@ export type Size = keyof typeof SIZES;
 /** Pair the page as `device` of `h`, sign Sana in, open the Takeaway tab. */
 export async function openTakeaway(page: Page, h: DemoHub, device: DemoDevice, o: { rush?: 'on' | 'off'; lang?: 'en' | 'ur' } = {}): Promise<void> {
   const lang = o.lang ?? 'en';
+  // the live socket through the page, so a capture can drop it (the hub "goes away"), as the 02b-TK e2e do
+  const sockets: WebSocketRoute[] = [];
+  const state = { down: false };
+  LINKS.set(page, { sockets, state });
+  await page.routeWebSocket(/\/ws$/, (ws) => {
+    if (state.down) return void ws.close({ code: 1006 });
+    ws.connectToServer();
+    sockets.push(ws);
+  });
   await page.addInitScript((rush) => {
     try {
       window.localStorage.setItem('pos.tk.rush', rush);
@@ -56,6 +65,19 @@ export async function openTakeaway(page: Page, h: DemoHub, device: DemoDevice, o
   await page.evaluate(() => (window.location.hash = '#/takeaway'));
   await expect(page.locator('.osc--tk, .order--tk-phone')).toBeVisible();
   await page.waitForTimeout(800);
+}
+
+const LINKS = new WeakMap<Page, { sockets: WebSocketRoute[]; state: { down: boolean } }>();
+
+/** The hub goes away: the browser is offline and the live socket drops (and cannot come back). */
+export async function hubDown(page: Page): Promise<void> {
+  const link = LINKS.get(page);
+  await page.context().setOffline(true);
+  if (link !== undefined) {
+    link.state.down = true;
+    for (const ws of link.sockets) await ws.close({ code: 1006 }).catch(() => undefined);
+  }
+  await page.waitForTimeout(1500);
 }
 
 export async function shot(page: Page, name: string): Promise<void> {
