@@ -8,6 +8,7 @@ import { BILL_LIST_FRAMES } from '../../../billing/frames';
 import { useShell } from '../../shell/hooks';
 import type { OpenOrder } from '../contracts';
 import { useLiveRefetch } from '../lists/OpenOrders';
+import { businessDayText } from '../lists/OpenOrdersRow';
 import { MONEY_DIR, money } from '../money';
 import { WaitingRows } from '../queue/WaitingToSend';
 import type { TokenBook } from './book';
@@ -94,6 +95,25 @@ export function PickupLine({ q, utcOffsetMs }: { q: Pick<QueueToken, 'pickup_at_
       <span className="time" dir="ltr">
         {timeText(q.pickup_at_ms, utcOffsetMs)}
       </span>
+    </small>
+  );
+}
+
+/**
+ * ⚠️ 02b-TK L-CLIENT-5 item 3 (02b v1.0.25 §3.3 Day close "57 · 6 Nov", §6.16 `from_date`; DC-2): a carried token's
+ * number with its business date ("57 · 27 Nov"); null for a token of the open day.
+ */
+export function carriedLabel(q: Pick<QueueToken, 'token' | 'from_date'>): string | null {
+  if (q.from_date == null) return null;
+  return `${q.token ?? '—'} · ${businessDayText(q.from_date)}`;
+}
+
+/** The carried date beside the token (the token's own element keeps the bare number). */
+export function CarriedDate({ q }: { q: Pick<QueueToken, 'token' | 'from_date'> }) {
+  const label = carriedLabel(q);
+  return label === null ? null : (
+    <small className="c-warn" data-carried="">
+      <bdi>{label}</bdi>
     </small>
   );
 }
@@ -225,6 +245,7 @@ function ReadyTile({ q, selected, owed, late, whole, onOpen, onHandOver, onPay }
           </span>
         )}
         <PickupLine q={q} utcOffsetMs={shell.clock.utcOffsetMs} />
+        <CarriedDate q={q} />
       </button>
       {act === undefined ? (
         <span className="tk-rt__act">{actText}</span>
@@ -250,6 +271,7 @@ function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; o
         {q.token ?? '—'}
       </span>
       <span className="tk-qr__m">
+        <CarriedDate q={q} />
         <b dir="auto">{q.customer_name ?? t('order.takeaway')}</b>
         {q.summary !== '' && <small dir="auto">{q.summary}</small>}
         <PickupLine q={q} utcOffsetMs={shell.clock.utcOffsetMs} />

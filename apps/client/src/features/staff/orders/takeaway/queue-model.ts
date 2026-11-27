@@ -51,6 +51,11 @@ export interface QueueToken {
   effective_pickup_at_ms?: number | null;
   /** ⚠️ 02b-TK L-CLIENT-5 item 2 (02b v1.0.25 §6.6, §8; D1): the token's orders still waiting for their pickup (not boosted) */
   pickup_order_ids?: string[];
+  /**
+   * ⚠️ 02b-TK L-CLIENT-5 item 3 (02b v1.0.25 §3.3 Day close, §6.16 `from_date`; DC-2): the token's business date when it
+   * is not the open day's (a carried token), else null. Optional: a token built elsewhere has none.
+   */
+  from_date?: string | null;
 }
 
 /** A token's billing facts per order; a token built without them reads paid only when the book says so. */
@@ -142,6 +147,7 @@ export function buildQueue(orders: readonly KnownOrder[], nowMs = -Infinity): Qu
       })),
       pickup_at_ms: latest(sorted.map((o) => o.row.pickup_at_ms)),
       effective_pickup_at_ms: latest(sorted.map((o) => o.row.effective_pickup_at_ms)),
+      from_date: sorted[0]!.row.from_date ?? null,
       pickup_order_ids: sorted.filter((o) => o.row.effective_pickup_at_ms != null).map((o) => o.row.order_id),
     });
   }
