@@ -434,6 +434,8 @@ export function billComputeBase(o: {
       ),
       discount,
       service_charge: { rate_bp: sc.rate_bp, removed: sc.removed, tax_profile_id: billing.settings.service_charge_tax_profile_id },
+      // §3.8 (owner ruling 2026-11-28, QA BUG-1): the open remainder is rounded with the closed splits' rounding
+      closed_rounding_minor: o.splits.reduce((a, s) => a + (s.state === 'closed' ? (s.inv_rounding_minor ?? 0) : 0), 0),
     },
   };
 }

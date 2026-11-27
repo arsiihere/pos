@@ -350,6 +350,8 @@ function closeSplitCommand(log: Log) {
         lines: splitLines,
         service_charge: base.service_charge,
         payments: computePayments.filter((x) => x.split_no === p.split_no),
+        // §3.8 (owner ruling 2026-11-28): the split's total as the bill allocated it
+        total_targets: mine.total_targets,
       };
       const priced = computeSplit(splitInput);
       const spread = spreadLineTaxes(splitInput);
