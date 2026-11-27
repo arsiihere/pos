@@ -3,7 +3,7 @@ import type { BranchConfig } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import type { EtaPreviewBody } from '../contracts';
-import { addTap, cartCount, cartLineMoney, cartTotal, configUnits, groupCart, lineProblems, removeLine, serveState, setUnits, toEtaDraft, toSubmitLines, zoneCovered, type Cart, type UnitOf } from './cart';
+import { addTap, cartCount, cartLineMoney, cartTotal, configUnits, groupCart, lineProblems, readyBy, removeLine, serveState, setUnits, toEtaDraft, toSubmitLines, zoneCovered, type Cart, type UnitOf } from './cart';
 
 // I1 Half Rs 1,200 (piece); I2 Mutton by weight (g, Rs 3,800 / kg); I4 Naan (linked from option OPN); plain option OPX
 // "less oil" +Rs 40; deal D1 = 1 karahi (I1 or I3 +Rs 300) + 2 naan.
@@ -85,6 +85,34 @@ describe('[02b §8 Ordering screen] cart', () => {
     expect(k.eta_ms).toBe(2_400_000);
     expect(k.parts).toEqual([{ n: 4, eta_ms: 1_200_000 }, { n: 1, eta_ms: 2_400_000 }]);
     expect(group!.lines.find((l) => l.line.key === 'S')!.parts).toBeUndefined();
+  });
+
+  // ⚠️ 02b v1.0.26 CT-3 (owner 2026-11-28, QA BUG-7): one clock — the customer time ready_ms (kitchen + padding)
+  it('[02b #98, BUG-7] naan ×16 on two loads (kitchen 1:16 / 1:19, padding 3 min) → parts "4 ~1:19 · 12 ~1:22", badge 1:22, All ready by 1:22 — they agree', () => {
+    const M = 60_000;
+    const t = (h: number, min: number) => (h * 60 + min) * M;
+    const cart: Cart = { lines: [{ key: 'N', item_id: 'I1', quantity: 16, options: [] }] };
+    const part = (i: number, eta: number) => ({ key: 'N', part: i, eta_ms: eta, ready_ms: eta + 3 * M, from_stock: false, zone_served: false });
+    const preview: EtaPreviewBody = {
+      as_of_seq: 1,
+      groups: [{ promise_ms: t(13, 22), keys: ['N'] }],
+      lines: Array.from({ length: 16 }, (_, i) => part(i + 1, i < 4 ? t(13, 16) : t(13, 19))),
+    };
+    const [group] = groupCart(cart, preview);
+    const n = group!.lines[0]!;
+    expect(n.parts).toEqual([{ n: 4, eta_ms: t(13, 19) }, { n: 12, eta_ms: t(13, 22) }]);
+    expect(n.eta_ms).toBe(t(13, 22));
+    expect(readyBy(preview)).toBe(t(13, 22));
+    expect(Math.max(...n.parts!.map((p) => p.eta_ms))).toBe(n.eta_ms);
+  });
+
+  it('[02b #97, BUG-7] a one-line cart: the badge = All ready by = its ready_ms; an older hub without ready_ms falls back to eta_ms', () => {
+    const cart: Cart = { lines: [{ key: 'A', item_id: 'I1', quantity: 1, options: [] }] };
+    const preview: EtaPreviewBody = { as_of_seq: 1, groups: [{ promise_ms: 1_180_000, keys: ['A'] }], lines: [{ key: 'A', eta_ms: 1_000_000, ready_ms: 1_180_000, from_stock: false, zone_served: false }] };
+    expect(groupCart(cart, preview)[0]!.lines[0]!.eta_ms).toBe(1_180_000);
+    expect(readyBy(preview)).toBe(1_180_000);
+    const old: EtaPreviewBody = { ...preview, lines: [{ key: 'A', eta_ms: 1_000_000, from_stock: false, zone_served: false }] };
+    expect(groupCart(cart, old)[0]!.lines[0]!.eta_ms).toBe(1_000_000);
   });
 
   it('[02b #36] cart sorted by ETA, grouped by promise ("Food together · 8:27 PM"); counter lines "From the counter · Now"', () => {
