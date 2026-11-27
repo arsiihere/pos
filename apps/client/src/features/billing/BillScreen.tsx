@@ -19,6 +19,7 @@ import { BILL_LIST_FRAMES } from './frames';
 import { amountText, billMoney, currencySymbol, MONEY_DIR, parseMinor, rateText, signedAmountText } from './money';
 import './styles';
 import { MaskedAction } from '../staff/shell/MaskedAction';
+import { REFERENCE_MAX, referenceLength, typedReference } from './reference';
 
 // 05 v1.0.14 §8 "Bill screen", §6.1, §6.9, §6.12, §3.3, §3.5 (7) (plan §3.1 task 35; brief §3.2; frames Bill,
 // BillPadCash, BillPadCard, BillMixed, BillCloseBlocked, BillReadyToClose, BillTotalChanged, BillClosed, BillRefund,
@@ -819,8 +820,10 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
                 <label className="b5-fld">
                   <span>{t('pad.reference')}</span>
                   <div className="b5-in text">
-                    <input autoComplete="off" maxLength={60} value={reference} onChange={(e) => setReference(e.currentTarget.value)} />
+                    <input autoComplete="off" maxLength={REFERENCE_MAX} value={reference} onChange={(e) => setReference(typedReference(e.currentTarget.value))} />
                   </div>
+                  {/* QA BUG-27: the limit is visible */}
+                  <span className="cntr num">{fill(t('note.count'), { n: String(referenceLength(reference)), max: String(REFERENCE_MAX) })}</span>
                 </label>
               )}
               {cashIn && (
