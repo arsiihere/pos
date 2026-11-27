@@ -29,12 +29,11 @@ import { passOpenedText } from './pass-place';
 import { PASS_FILTERS, ordersFor, orderTypeOf, typeCounts, type PassFilter } from './order-filter';
 import { createTakeawayPromises } from './takeaway-promises';
 import { createBillEligibility, createCustomerHandover, customerButton, customerIdent, eligibilityOf, type Eligibility } from './actions/customer';
-import { BagAsk } from './actions/BagAsk';
+import { AskChip, AskSheet, type AskItem } from './actions/AskSheet';
 import { bagLate, bagPending, bagPickupOk, bagState, bagsOf, type PassBag } from './bags';
 import { money } from '../staff/orders/money';
 import { createHandovers } from '../staff/orders/takeaway/handover';
 import '../staff/orders/takeaway/styles';
-import { AskManager } from '../staff/orders/unpaid/AskManager';
 import { unpaidRequestsOf } from '../staff/orders/unpaid/requests';
 
 // 03b v1.0.8 §3.4, §8 Pass screen (`/staff/` `#/pass` on a device with a point; W0.6 mounts it; P2). The page's Pass
@@ -143,6 +142,8 @@ export function PassScreen() {
   const [sheet, setSheet] = useState<string | null>(null);
   // 03b v1.0.10 §3.4: the order whose Ready pick sheet is open
   const [picking, setPicking] = useState<string | null>(null);
+  // ⚠️ 03b v1.0.17 §8: the bag whose Ask a manager sheet is open (its per-order breakdown)
+  const [asking, setAsking] = useState<string | null>(null);
   // 02b-tk C3-4: the filter chip and, while Takeaway is on, the takeaway promises
   const [filter, setFilter] = useState<PassFilter>('all');
   const apiRef = useRef(shell.api);
@@ -353,8 +354,9 @@ export function PassScreen() {
     setMsg(key, null);
     if (h.left === 0) onToast(fill(t('pass.handed'), { name: h.name }));
   };
-  const open = sheet === null ? undefined : orders.find((o) => o.order_id === sheet);
-  const openBag = open === undefined ? undefined : shown.find((b) => b.orders.some((o) => o.order_id === open.order_id));
+  // ⚠️ v1.0.17: the Hand over sheet is the whole bag's (its key)
+  const openBag = sheet === null ? undefined : shown.find((b) => b.key === sheet);
+  const askBag = asking === null ? undefined : shown.find((b) => b.key === asking);
   const pickBag = picking === null ? undefined : shown.find((b) => b.key === picking);
   const tapCustomer = async (bag: PassBag) => {
     const o = bag.card;
@@ -382,7 +384,7 @@ export function PassScreen() {
     <main className={lastCustomer !== null ? 'pass pass--undo' : 'pass'}>
       {!up && <Offline />}
       {archived ? <PointArchived /> : !allowed && <ReadOnly />}
-      {/* the station strip only where it carries something (lanes to switch, a dark station); "no screen" is on the cards */}
+      {/* the station strip only where it carries something (lanes to switch, a dark station); "no screen" is on the cards (v1.0.17 §8) */}
       {view.stations.some((st) => st.dark || st.lanes.lane_count > 1) && (
         <StationStrip stations={view.stations} api={canRun ? kds : null} up={up} wrap={shell.portrait} />
       )}
@@ -441,9 +443,12 @@ export function PassScreen() {
               const bagOk = bagPickupOk(bag, nowMs);
               const pending = bagPending(bag);
               const buttons = [];
-              // ⚠️ 03b v1.0.10 §3.4: also with an open Ready while lines not in it are left (they finished later);
-              // ⚠️ v1.0.17 (QA design audit): never on a bag already marked ready in full (nothing pending)
-              if (canRun && bagOk && pending.length > 0 && state !== 'none') {
+              // ⚠️ 03b v1.0.17 §8 (QA design review): ONE primary button per state — Bag ready / Ready to serve while
+              // something is not marked ready; then Handed to customer (counter) or Hand over (dine-in). Hand over to
+              // staff is otherwise a small secondary icon button (the receiver tiles sheet, for the whole token).
+              // ⚠️ 03b v1.0.10 §3.4: Bag ready also with an open Ready while lines not in it are left
+              const bagging = canRun && bagOk && pending.length > 0 && state !== 'none';
+              if (bagging) {
                 const b = busy.has(key);
                 buttons.push(
                   <button key="ready" type="button" className={b ? 'btn btn--ready busy' : 'btn btn--ready'} aria-busy={b} disabled={!up} onClick={() => tapReady(bag)}>
@@ -477,10 +482,10 @@ export function PassScreen() {
                       pending: bag.orders.some((x) => pendingCustomer.has(x.order_id)) || busy.has(`c:${key}`),
                     })
                   : null;
-              const asks = each.flatMap(({ order, e }) => (e.state === 'due' && !e.approved ? [{ order_id: order.order_id, due_minor: e.due_minor, ident: customerIdent(order), addition: order !== bag.orders[0] }] : []));
-              // the Pass→staff Hand over (§3.5), unchanged: the first order of the bag with done lines to hand
-              const toHand = canRun ? bag.orders.find((x) => doneToHand(x).length > 0) : undefined;
-              if (cust !== null)
+              const asks: AskItem[] = each.flatMap(({ order, e }) => (e.state === 'due' && !e.approved ? [{ order_id: order.order_id, due_minor: e.due_minor, ident: customerIdent(order), addition: order !== bag.orders[0] }] : []));
+              // the Pass→staff Hand over (§3.5), for the whole token (one Handover per order with done lines)
+              const toHand = canRun && bag.orders.some((x) => doneToHand(x).length > 0);
+              if (cust !== null && !bagging)
                 buttons.push(
                   <button key="customer" type="button" className="btn btn--customer" disabled={!cust.enabled} onClick={() => void tapCustomer(bag)}>
                     <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
@@ -488,19 +493,24 @@ export function PassScreen() {
                       <path d="M9 8V6.5a3 3 0 0 1 6 0V8" />
                       <path d="M9.5 14l2 2 3.5-3.5" />
                     </svg>
-                    {t('pass.handed_to_customer')}
+                    <span className="col">
+                      {t('pass.handed_to_customer')}
+                      {/* the reason of a greyed button, in it */}
+                      {!cust.enabled && cust.hint !== null && <small className="pc__why">{t(cust.hint)}</small>}
+                    </span>
                   </button>,
                 );
-              if (toHand !== undefined)
+              const handMain = toHand && !counter && !bagging;
+              if (toHand)
                 buttons.push(
-                  <button key="hand" type="button" className={counter ? 'btn btn--hand btn--quiet' : 'btn btn--hand'} disabled={!up} onClick={() => setSheet(toHand.order_id)}>
+                  <button key="hand" type="button" className={handMain ? 'btn btn--hand' : 'btn btn--icon btn--hand pc__ib2'} title={t('pass.hand_over')} disabled={!up} onClick={() => setSheet(key)}>
                     <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
                       <circle cx="8" cy="8" r="3.5" />
                       <path d="M2.5 20a5.5 5.5 0 0 1 11 0" />
                       <path d="M15 12h6" />
                       <path d="M18.5 9l3 3-3 3" />
                     </svg>
-                    {t('pass.hand_over')}
+                    {handMain ? t('pass.hand_over') : <span className="sr">{t('pass.hand_over')}</span>}
                   </button>,
                 );
               // 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.4 Not collected, R8): amber only once the whole bag is ready
@@ -568,19 +578,16 @@ export function PassScreen() {
                           <span>{fill(t('pass.not_collected'), { n: String(late) })}</span>
                         </div>
                       )}
-                      {cust !== null && !cust.enabled && cust.hint !== null && !(cust.due && cust.hint === 'pass.take_payment_first') && (
-                        <div className="pc__msg c-mute pc__hint">
-                          <span>{t(cust.hint)}</span>
-                        </div>
-                      )}
-                      {/* ⚠️ 02b-TK L-CLIENT-2 item 4 (03b §3.4, 02b §3.7a OR-7); v1.0.17: one request per unpaid order */}
-                      {asks.length === 1 && <AskManager order_id={asks[0]!.order_id} due_minor={asks[0]!.due_minor} variant="pass" onChanged={() => bills.schedule()} />}
-                      {asks.length > 1 && <BagAsk items={asks} onChanged={() => bills.schedule()} />}
                     </>
                   }
                   due={
                     // ⚠️ 03b v1.0.17 §3.4: ONE Due pill with the token's unpaid total
-                    cust?.due === true && merged.state === 'due' ? <span className="pc__due">{fill(t('pass.due_amount'), { amount: money(merged.due_minor) })}</span> : null
+                    cust?.due === true && merged.state === 'due' ? (
+                      <>
+                        <span className="pc__due">{fill(t('pass.due_amount'), { amount: money(merged.due_minor) })}</span>
+                        {asks.length > 0 && <AskChip items={asks} onOpen={() => setAsking(key)} />}
+                      </>
+                    ) : null
                   }
                 />
               );
@@ -613,8 +620,28 @@ export function PassScreen() {
           </button>
         </div>
       )}
-      {open !== undefined && (
-        <HandOverSheet order={open} pointId={view.point_id} api={passApi} up={up} onClose={() => setSheet(null)} onHanded={(h) => onHanded(openBag?.key ?? open.order_id, open.order_id, h)} onGone={(msg) => setMsg(openBag?.key ?? open.order_id, msg)} />
+      {openBag !== undefined && (
+        <HandOverSheet
+          order={openBag.card}
+          orders={openBag.orders}
+          pointId={view.point_id}
+          api={passApi}
+          up={up}
+          onClose={() => setSheet(null)}
+          onHanded={(h, order_id) => onHanded(openBag.key, order_id, h)}
+          onGone={(msg) => setMsg(openBag.key, msg)}
+        />
+      )}
+      {askBag !== undefined && (
+        <AskSheet
+          ident={customerIdent(askBag.card)}
+          items={askBag.orders.flatMap((x, n) => {
+            const e = eligibilityOf(billRead, { order_id: x.order_id, order_type: orderTypeOf(x), placed_at: x.placed_at }, unpaid.approvedDue(x.order_id));
+            return e.state === 'due' && !e.approved ? [{ order_id: x.order_id, due_minor: e.due_minor, ident: customerIdent(x), addition: n > 0 }] : [];
+          })}
+          onClose={() => setAsking(null)}
+          onChanged={() => bills.schedule()}
+        />
       )}
     </main>
   );

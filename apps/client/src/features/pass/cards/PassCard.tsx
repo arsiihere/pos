@@ -128,6 +128,8 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
   byStation.sort((a, b) => (rank.get(a.station_id) ?? stations.length) - (rank.get(b.station_id) ?? stations.length));
   const groups: Array<{ station_id: string; rows: PassRow[] }> = byStation.map((g) => ({ station_id: g.station_id, rows: groupLines(g.lines) }));
   const total = groups.reduce((n, g) => n + g.rows.length, 0);
+  const only = groups.length === 1 ? stations.find((s) => s.station_id === groups[0]!.station_id) : undefined;
+  const oneScreenless = only?.screenless === true ? only.name : null;
   let budget = total > FOLD_AFTER ? SHOWN : total;
   const shown = groups.flatMap((g) => {
     if (budget <= 0) return [];
@@ -176,23 +178,30 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
               </svg>
             </span>
           )}
-          {next && <b className="pc__next">{t('pass.pack_next')}</b>}
-          {!next && r.state === 'sent' && readyBy !== null && <b className="pc__next pc__next--wait">{t('pass.waiting_counter')}</b>}
-          {readyBy !== null && (
-            <span className="pc__m">
-              {byBefore}
-              <span className="num">{timeText(readyBy, utcOffsetMs)}</span>
-              {byAfter}
+          {/* ⚠️ v1.0.17 §8 (QA design review): the state title and the times on one line beside the token */}
+          <span className="pc__t">
+            {next && <b className="pc__next">{t('pass.pack_next')}</b>}
+            {!next && r.state === 'sent' && readyBy !== null && <b className="pc__next pc__next--wait">{t('pass.waiting_counter')}</b>}
+            <span className="pc__ms">
+              {readyBy !== null && (
+                <span className="pc__m">
+                  {byBefore}
+                  <span className="num">{timeText(readyBy, utcOffsetMs)}</span>
+                  {byAfter}
+                </span>
+              )}
+              {pickup !== null && (
+                <span className="pc__m pc__pickup">
+                  {puBefore}
+                  <span className="num">{timeText(pickup, utcOffsetMs)}</span>
+                  {puAfter}
+                </span>
+              )}
+              <Placed ms={order.placed_at} utcOffsetMs={utcOffsetMs} />
+              {/* ⚠️ v1.0.17 §8 (03b §3.4 "No screen" chip): a one-station card of a screenless station says it here */}
+              {oneScreenless !== null && <span className="pc__m pc__nos">{fill(t('pass.group_no_screen'), { station: oneScreenless })}</span>}
             </span>
-          )}
-          {pickup !== null && (
-            <span className="pc__m pc__pickup">
-              {puBefore}
-              <span className="num">{timeText(pickup, utcOffsetMs)}</span>
-              {puAfter}
-            </span>
-          )}
-          <Placed ms={order.placed_at} utcOffsetMs={utcOffsetMs} />
+          </span>
         </div>
         {pill !== null && (
           <span className={pill.cls}>
@@ -219,10 +228,14 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
         {shown.map((g) => {
           const st = stations.find((s) => s.station_id === g.station_id);
           const name = st?.name ?? '';
+          // ⚠️ v1.0.17 §8 (QA design review): the station line only on a card with lines of 2+ stations (a one-station
+          // card's "no screen" is the station strip's chip)
           return [
-            <div key={`g-${g.station_id}`} className="pc__g">
-              {st?.screenless === true ? fill(t('pass.group_no_screen'), { station: name }) : name}
-            </div>,
+            groups.length > 1 && (
+              <div key={`g-${g.station_id}`} className="pc__g">
+                {st?.screenless === true ? fill(t('pass.group_no_screen'), { station: name }) : name}
+              </div>
+            ),
             ...g.rows.map((r) => {
               const round = r.line.load_id == null ? undefined : rounds?.get(r.line.load_id);
               return <LineRow key={r.line.order_item_id} line={r.line} actions={lineActions?.(r.line, r.parts)} {...(round === undefined ? {} : { round })} />;

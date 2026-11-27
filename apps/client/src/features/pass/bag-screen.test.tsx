@@ -6,7 +6,7 @@ import { flush, mount, type Mounted } from '../../../test/dom';
 import type { OrderViewBody, SeatingLine } from '../staff/orders/contracts';
 import { ShellContext, type Shell } from '../staff/shell/hooks';
 import { createLiveBus } from '../staff/shell/live';
-import type { PointLine, PointOrder, PointOrderMeta, PointViewBody } from './contracts';
+import type { PointLine, PointOrder, PointViewBody } from './contracts';
 import { passLiveOf } from './live';
 import { PassScreen } from './PassScreen';
 
@@ -42,20 +42,6 @@ function detail(id: string, order_id: string, over: Partial<LineDetail> = {}): L
   };
 }
 const line = (id: string, order_id: string, stage: PointLine['stage'], over: Partial<LineDetail> = {}): PointLine => ({ ...detail(id, order_id, over), stage, handed_over: false });
-function card(order_id: string, stage: PointLine['stage'], over: Partial<PointOrder> = {}, type: 'takeaway' | 'parking' | 'dine_in' = 'takeaway'): PointOrder {
-  const identifier = type === 'takeaway' ? { kind: 'token' as const, token: Number(order_id.slice(1)), date: null } : type === 'parking' ? { kind: 'parking' as const, car_number: 'LEA 123', car_type: 'sedan' as const } : { kind: 'table' as const, label: 'T3' };
-  return { order_id, identifier, placed_at: BASE - 60_000, ready: null, lines: [line(`${order_id}-L1`, order_id, stage, { identifier, order_type: type })], ...over };
-}
-const meta = (order_id: string, over: Partial<PointOrderMeta> = {}): PointOrderMeta => ({
-  order_id,
-  pickup_at_ms: BASE + 30 * 60_000,
-  boosted: false,
-  pickup_readiness: { all_engine_lines_done: false, station_less_hold_until: null },
-  no_station_lines: [],
-  bag_ready_since: null,
-  bag_ready_window_ms: null,
-  ...over,
-});
 const view = (orders: PointOrder[]): PointViewBody => ({ point_id: 'PT', stations: [{ station_id: 'KARAHI', name: 'Karahi', lanes: { lanes_on: 1, lane_count: 1 }, dark: false }], takeovers: [], orders });
 
 function sline(id: string, order_id: string, over: Partial<SeatingLine> = {}): SeatingLine {
@@ -118,15 +104,15 @@ function show(shell: Shell) {
     </ShellContext.Provider>,
   );
 }
-const pc = (id: string) => m.container.querySelector<HTMLElement>(`.pc[data-order="${id}"]`)!;
-const customerBtn = (id: string) => pc(id).querySelector<HTMLButtonElement>('.btn--customer');
 const PASS = ['run-pass', 'mark-served'];
 
 
 /** token 14: the root O1 (placed first) and its addition O2 */
 const tok = { kind: 'token' as const, token: 14, date: null };
 function tokOrder(order_id: string, stage: PointLine['stage'], placed: number, over: Partial<PointOrder> = {}): PointOrder {
-  return { order_id, identifier: tok, placed_at: BASE - placed, ready: null, lines: [line(`${order_id}-L1`, order_id, stage, { identifier: tok })], ...over };
+  // ⚠️ v1.0.17 §8: a done order is marked ready (Bag ready), so "Handed to customer" is the card's one primary button
+  const ready = stage === 'done' ? { at: BASE - 30_000, by: null, lines: [`${order_id}-L1`] } : null;
+  return { order_id, identifier: tok, placed_at: BASE - placed, ready, lines: [line(`${order_id}-L1`, order_id, stage, { identifier: tok })], ...over };
 }
 const cards = () => [...m.container.querySelectorAll<HTMLElement>('article.pc')];
 const hubRow = (order_id: string, bill: unknown, extra: Record<string, unknown> = {}) => ({ order_id, order_type: 'takeaway', token: 14, bill, ...extra });
@@ -210,13 +196,17 @@ describe('[03b v1.0.17 §3.4; Approval ruling A] Ask a manager on a bag (BUG-9)'
     expect([...c.querySelectorAll('.pc__due')].map((e) => e.textContent)).toEqual(['Due Rs 120 — customer pays at counter']);
     const asks = [...c.querySelectorAll<HTMLButtonElement>('[data-ask]')];
     expect(asks).toHaveLength(1);
+    // the card shows no per-order breakdown; the small button opens the sheet that does (v1.0.17 §8)
+    expect(c.querySelector('[data-unpaid]')).toBeNull();
     m.click(asks[0]!);
+    await flush();
+    m.click(m.container.querySelector<HTMLButtonElement>('.pass-ask [data-ask-send]'));
     await flush();
     expect(command.mock.calls.map((call) => call.slice(0, 2))).toEqual([
       ['RequestUnpaidHandover', { order_id: 'O1' }],
       ['RequestUnpaidHandover', { order_id: 'O2' }],
     ]);
-    const rows = [...c.querySelectorAll('.pc__ask [data-unpaid]')].map((e) => e.textContent ?? '');
+    const rows = [...m.container.querySelectorAll('.pass-ask [data-unpaid]')].map((e) => e.textContent ?? '');
     expect(rows).toHaveLength(2);
     expect(rows[0]).toContain('#14 · Rs 80');
     expect(rows[1]).toContain('#14 · Rs 40 (addition)');
