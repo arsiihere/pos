@@ -51,11 +51,14 @@ const documents = () =>
 const slips = () => documents().filter((d) => d.kind_label === 'Token slip');
 
 describe('[03c #61] Send & pay prints the receipt alone', () => {
-  it('[03c #61] a takeaway with no slip request → AddPayment → CloseSplit → a receipt document, no Token slip; nothing queued on OrderPlaced', async () => {
-    const order_id = lassis();
+  it('[03c #61] SubmitOrder (takeaway, no print_slip) → AddPayment → CloseSplit → exactly one receipt document, no Token slip; nothing queued on OrderPlaced', async () => {
+    const submitted = await post(hub, cashier, 'submit-order', 'SubmitOrder', { order_id: '01JF00000000000000000000S1', order_type: 'takeaway', lines: [{ order_item_id: 'S1-L', item_id: VX.drink, quantity: 2 }] });
+    expect(submitted.status, JSON.stringify(submitted.error)).toBe(200);
+    expect((submitted.result as { slip: unknown }).slip).toBeNull();
+    const order_id = '01JF00000000000000000000S1';
     expect(documents()).toEqual([]); // no fold queues anything on OrderPlaced
     await payAndClose(order_id);
-    expect(documents().length).toBeGreaterThanOrEqual(1);
+    expect(documents()).toHaveLength(1);
     expect(slips()).toEqual([]);
     expect(documents().every((d) => d.order_id === null)).toBe(true); // 05's documents keep order_id NULL
   });

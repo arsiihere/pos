@@ -1009,8 +1009,8 @@ describe('[02b #66 #67 #80] open-orders takeaway until handed over (§3.3, §6.1
   const rowsOf = async (path = 'open-orders', who: Who = signIn(CASHIER)) => (await query<Open>(who, path)).data.orders;
   const row = (rows: Open['orders'], id: string) => rows.find((o) => o.order_id === id);
   /** The 03b D8 epoch row (pass_bag_ready, migration 0028) as its fold writes it; its own lifecycle is L-KDS's tests. */
-  const bagReady = (order_id: string, since: number, window_ms: number) =>
-    hub.deps.db.prepare("INSERT INTO pass_bag_ready (order_id, bag_ready_since, bag_ready_window_ms, alert_id, point_id) VALUES (?, ?, ?, NULL, 'P1')").run(order_id, since, window_ms);
+  const bagReady = (order_id: string, since: number, window_ms: number, point_id = 'P1') =>
+    hub.deps.db.prepare('INSERT INTO pass_bag_ready (order_id, bag_ready_since, bag_ready_window_ms, alert_id, point_id) VALUES (?, ?, ?, NULL, ?)').run(order_id, since, window_ms, point_id);
 
   it('[02b #66] pay-first takeaway listed while cooking and on the counter; partial hand-over stays; last line served → gone; unbilled served stays; billed parking, cancelled → gone', async () => {
     appendOrder(hub, { order_type: 'takeaway', order_id: 'PF', lines: [{ order_item_id: 'PF1', item_id: FX.piece }, { order_item_id: 'PF2', item_id: FX.naan }] });
@@ -1172,7 +1172,7 @@ describe('[02b #66 #67 #80] open-orders takeaway until handed over (§3.3, §6.1
       const id = `M${n}`;
       appendOrder(hub, { order_type: n % 3 === 0 ? 'parking' : 'takeaway', order_id: id, lines: [{ order_item_id: `${id}a`, item_id: FX.naan }, { order_item_id: `${id}b`, item_id: FX.piece }] });
       if (n % 2 === 0 && n % 3 !== 0) append(billedEv([id], `BL${n}`));
-      if (n % 5 === 0) bagReady(id, 1_000 * n, 60_000);
+      if (n % 5 === 0) bagReady(id, 1_000 * n, 60_000, n % 10 === 0 ? 'P2' : 'P1'); // two points (02b #80)
     }
     const rows = (await query<Open>(mgr, 'open-orders')).data.orders;
     expect(rows.length).toBeGreaterThanOrEqual(50);

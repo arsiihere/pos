@@ -1,6 +1,6 @@
 import { ErrorCatalogue } from '@pos/domain';
 import type { DirectoryInput } from '@pos/events';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { activity } from '../../src/auth/session-store';
 import { defineCommand } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
@@ -10,7 +10,7 @@ import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { append as kdsAppend } from '../kds/fixtures';
-import { FX, appendOrder, openDay } from '../orders/fixtures';
+import { FX, appendOrder, openDay, openSeating } from '../orders/fixtures';
 
 // 03c v1.0.16 §3.9, §3.10, §3.11, §6.7, §6.14 (task 31; 02b-TK R6; hostile runs 1–2): PrintTakeawaySlip; tests 59, 60,
 // 62, 63, 64 (command part), 66 (catalogue). L-ORDERS-1 S-3.
@@ -216,8 +216,8 @@ describe('[03c #60] refusals and skips (§6.14 steps 4–6)', () => {
     const { hubTime } = await import('../../src/lib/hub-time');
     const ready = takeawaySlipReadyAt(hub.deps.state.get() as never, [root, add], null);
     const texts = (JSON.parse(jobs().at(-1)!.payload) as { doc: { blocks: Array<{ text?: string }> } }).doc.blocks.map((b) => b.text);
-    if (ready === null) expect(texts.some((t) => t?.startsWith('Ready around'))).toBe(false);
-    else expect(texts).toContain(`Ready around ${clock12(ready, hubTime(hub.clock).utc_offset_ms)}`);
+    expect(ready).not.toBeNull(); // planned lines have a time (fire_ms)
+    expect(texts).toContain(`Ready around ${clock12(ready!, hubTime(hub.clock).utc_offset_ms)}`);
   });
 
   it('[03c #60] a cancelled root stays the root; an addition with the other orders billed prints; equal placed_at → the smaller order_id is the root', async () => {
@@ -299,5 +299,50 @@ describe('[03c #64] statements (§6.14)', () => {
 describe('[03c #66] catalogue', () => {
   it('[03c #66] TAKEAWAY_SLIP_NOT_ALLOWED is a 409 in the error catalogue', () => {
     expect(ErrorCatalogue).toHaveProperty('TAKEAWAY_SLIP_NOT_ALLOWED', { status: 409 });
+  });
+});
+
+// ---- 02b-tk L-CLOSE-2: 03c clause gaps (tests 57, 59, 60) ---------------------------------------------------------
+
+describe('[03c #57 #59 #60] slip logs and the dine-in refusal', () => {
+  it('[03c #59] no route → no_printer, logged print.slip.no_printer with ids (order, root, device)', async () => {
+    const info = vi.spyOn(hub.app.log, 'info');
+    const root = takeaway({ order_id: 'N1' });
+    const who = signIn(CASH);
+    expect((await slip(who, { order_id: root, reason: 'reprint' })).result).toMatchObject({ skipped: 'no_printer' });
+    const call = info.mock.calls.find((c) => c[1] === 'print.slip.no_printer');
+    expect(call?.[0]).toMatchObject({ order_id: root, root_order_id: root, device_id: who.deviceId });
+  });
+
+  it('[03c #57] an Urdu-script branch name is left out of the slip and logged print.slip.name_unprintable with ids only', async () => {
+    printer('PR_DEF');
+    route('default', '', 'PR_DEF');
+    const info = vi.spyOn(hub.app.log, 'info');
+    hub.deps.config.provisioned!.branch_name = 'لاہور برانچ';
+    const root = takeaway({ order_id: 'U1' });
+    expect((await slip(signIn(CASH), { order_id: root, reason: 'reprint' })).result).toMatchObject({ printed: true });
+    const call = info.mock.calls.find((c) => c[1] === 'print.slip.name_unprintable');
+    expect(call?.[0]).toEqual({ root_order_id: root, token: expect.any(Number) });
+    const text = jobs().at(-1)!.payload;
+    expect(text).not.toContain('?????');
+  });
+
+  it('[03c #60] a dine-in order → 409 TAKEAWAY_SLIP_NOT_ALLOWED not_takeaway', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    const di = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', lines: [{ order_item_id: 'D-1', item_id: FX.naan }] }).order_id;
+    expect(await slip(signIn(CASH), { order_id: di, reason: 'reprint' })).toMatchObject({ status: 409, error: { code: 'TAKEAWAY_SLIP_NOT_ALLOWED', details: { reason: 'not_takeaway' } } });
+  });
+});
+
+describe('[03c #58] the Ready line ignores show_part_times_to_customers', () => {
+  it('with the receipt switch off, the slip still prints its Ready line', async () => {
+    printer('PR_DEF');
+    route('default', '', 'PR_DEF');
+    const config = branchConfig()!;
+    swapBranchConfig({ config: { ...config, engine_settings: { ...config.engine_settings, show_part_times_to_customers: false } }, snapshotHash: 's'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 4, appliedAt: 0 });
+    const root = takeaway({ order_id: 'T58' });
+    expect((await slip(signIn(CASH), { order_id: root, reason: 'reprint' })).result).toMatchObject({ printed: true });
+    const texts = (JSON.parse(jobs().at(-1)!.payload) as { doc: { blocks: Array<{ text?: string }> } }).doc.blocks.map((b) => b.text);
+    expect(texts.some((t) => t?.startsWith('Ready around '))).toBe(true);
   });
 });

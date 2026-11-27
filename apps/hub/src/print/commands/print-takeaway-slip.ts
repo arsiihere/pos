@@ -14,7 +14,7 @@ import { printDocument } from '../api.js';
 import { slipPrinterRow } from '../bill-routes.js';
 import { clock12, dayText } from '../render/jobs.js';
 import { takeawaySlipReadyAt } from '../render/ready-at.js';
-import { buildTakeawaySlipDoc } from '../render/takeaway-slip.js';
+import { buildTakeawaySlipDoc, printableBranchName } from '../render/takeaway-slip.js';
 
 // 03c v1.0.16 §3.11 (Takeaway token slip, P15), §6.14 `PrintTakeawaySlip`, §3.10 (task 31; 02b-TK R6; hostile runs 1–2).
 // The token's orders, its root (first by placed_at, order_id; cancelled included), the addition rule, the duplicate
@@ -76,9 +76,14 @@ export interface SlipBuild {
   ready_at: number | null;
 }
 
-/** §3.11: the slip `Doc` (pure, memory: hub config, hub time; `statusLink` null in Tier 1). */
-export function slipDoc(config: HubConfig, clock: CommandCtx['clock'], b: SlipBuild, paper_width_mm: number): Doc {
+/**
+ * §3.11: the slip `Doc` (memory: hub config, hub time; `statusLink` null in Tier 1). A branch name that cannot print
+ * (empty, or more than half its letters PC437 '?') is left out by the builder and logged `print.slip.name_unprintable`
+ * with ids only.
+ */
+export function slipDoc(config: HubConfig, clock: CommandCtx['clock'], b: SlipBuild, paper_width_mm: number, log?: Pick<FastifyInstance['log'], 'info'>): Doc {
   const { utc_offset_ms } = hubTime(clock);
+  if (printableBranchName(config.provisioned?.branch_name ?? '') === null) log?.info({ root_order_id: b.root.order_id, token: b.token }, 'print.slip.name_unprintable');
   void statusLink(b.root.order_id); // Tier 1: always null, so the builder gets no status_url
   return buildTakeawaySlipDoc(
     {
@@ -162,7 +167,7 @@ function handle(ctx: CommandCtx, payload: z.infer<typeof Payload>, log: FastifyI
   // Step 9: build (memory) and queue (2).
   const live = orders.filter((o) => o.cancelled_at === null).map((o) => o.order_id);
   const ready_at = takeawaySlipReadyAt(ctx.state as EngineState, live, root.pickup_at_ms);
-  const doc = slipDoc(ctx.config, ctx.clock, { reprint: !pay_later, token: named.token!, root, ready_at }, printer.paper_width_mm);
+  const doc = slipDoc(ctx.config, ctx.clock, { reprint: !pay_later, token: named.token!, root, ready_at }, printer.paper_width_mm, log);
   const { job_id } = queueSlipJob(ctx.tx, printer.printer_id, doc, root.order_id);
   return { printed: true, job_id, skipped: null };
 }

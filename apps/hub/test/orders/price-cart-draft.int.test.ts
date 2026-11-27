@@ -134,3 +134,20 @@ describe('[02b #95] priceCartDraft (§4.2, R2-M-8)', () => {
     expect(caught).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'draft.order_type', message: 'takeaway_or_parking_only' }] } });
   });
 });
+
+describe('[02b #95] priceCartDraft writes nothing and checks no stock', () => {
+  it('no event, no row in any table; a sold-out item is priced (no stock check)', async () => {
+    await start();
+    const tables = (hub.deps.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").pluck().all() as string[]);
+    const counts = () => Object.fromEntries(tables.map((t) => [t, (hub.deps.db.prepare(`SELECT COUNT(*) AS n FROM "${t}"`).get() as { n: number }).n]));
+    // the karahi's stock item at 0: a submit would refuse or cook fresh; the draft price ignores stock
+    hub.deps.writer.run((tx) =>
+      tx.append([{ stream_type: 'stock', stream_id: FX.stock, event_type: 'StockSet', schema_version: 2, payload: { stock_item_id: FX.stock, on_hand: 0, unit: 'g' }, occurred_at: hub.clock.branchNow(), actor_id: null, device_id: 'hub' } as EventDraft]),
+    );
+    const before = counts();
+    const priced = price({ order_type: 'takeaway', lines: [{ key: 'K1', item_id: FX.piece, quantity: 1 }] });
+    expect(priced.refusals).toEqual([]);
+    expect(priced.lines.map((l) => l.key)).toEqual(['K1']);
+    expect(counts()).toEqual(before);
+  });
+});
