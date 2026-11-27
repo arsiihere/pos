@@ -6,7 +6,7 @@ import { migrate } from '../../src/db/migrate';
 import { fixedClock } from '../../src/lib/clock';
 import { dropScratchDatabases, scratchDatabaseAt } from '../helpers/scratch-db';
 
-// 01b v1.8.1 §6.15 (owner Q-23, Q-34): a scratch database migrated to 0018 with tenants seeded before the Cashier
+// 01b v1.8.1 §6.15 (owner Q-23, Q-34): a scratch database migrated to 0019 (the predecessor of 0020) with tenants seeded before the Cashier
 // default gained mark-served, then the real folder (with 0020_cashier_mark_served.sql).
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
@@ -46,7 +46,7 @@ async function allGrants(): Promise<unknown[]> {
 }
 
 beforeAll(async () => {
-  ({ pool } = await scratchDatabaseAt(18));
+  ({ pool } = await scratchDatabaseAt(19));
   for (const t of ['tA', 'tB', 'tC']) {
     await q(`INSERT INTO tenants (tenant_id, name, currency_code, created_at) VALUES ($1, $1, 'PKR', $2)`, [t, T]);
   }
