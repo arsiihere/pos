@@ -1,0 +1,221 @@
+import { expect, test, type Page } from '@playwright/test';
+import { escapeRe, menuTile, railEntry, rushOff, sentToken, shiftOpen, signInOn, takeawayTab } from './02b-support';
+import { apiSession, capture, closeAll, cookLine, deviceFor, hubFire, hubNow, LANGS, passCard, passTablet, printedJob, screen, t1Key, t1Run, t1RunsHere, tr } from './t1-support';
+import { t1Station } from './t1-fixture';
+
+// L-E2E-T1 group A — the owner's dry-run checklist ("Takeaway Tier 1 — Restaurant Dry Run Checklist"), the takeaway
+// journey against the e2e hub, nothing mocked. The Owner runs the counter (cashier kiosk at the kiosk viewport, the
+// landscape tablet otherwise; the fixture's order-taker has no take-payment); Pervez (the Pass role) runs the run's own
+// Pass point on its tablet (t1-fixture). Rows:
+//   #1  open day and shift → the cart shows a Ready-by time (never "Times will be set when sent")
+//   #4  takeaway, pay now (cash): 2 paye + "4n" Enter (4 naan), Send & pay, cash → receipt prints, kitchen gets it
+//       (the run's Pass card), the token is in the queue
+//   #16 the Pass card shows the token and how much of the bag is ready
+//   #17 whole bag only: paye done first → the bag is not Ready until the drink is done too
+//   #18 Handed to customer on a paid ready bag, Undo within 5 s brings it back
+//   #5  pay later with a phone number → the token slip prints; the order sits in the queue as Due
+//   #7  pickup 30 min from now with a drink → Ready by = the pickup time; the kitchen does not start the drink early
+//   #8  the customer came early (Boost) → the ready time moves earlier; the bag is not Ready while the drink is made
+
+async function counter(page: Page, lang: Parameters<typeof tr>[0], info: Parameters<typeof deviceFor>[0]): Promise<void> {
+  await rushOff(page);
+  await signInOn(page, deviceFor(info), lang, 'Owner');
+  await shiftOpen(page, lang);
+  await takeawayTab(page);
+}
+
+async function payCashExact(page: Page, lang: Parameters<typeof tr>[0]): Promise<string> {
+  await page.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.send_pay'))}`) }).click();
+  const token = await sentToken(page);
+  const panel = page.locator('.cart .tk-paypanel');
+  await expect(panel).toBeVisible();
+  await panel.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'p.exact'))}`) }).click();
+  await panel.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'p.done'))}`) }).click();
+  await expect(panel.getByText(tr(lang, 'p.next'))).toBeVisible();
+  await panel.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'p.next'))}`) }).click();
+  await expect(panel).toHaveCount(0);
+  return token;
+}
+
+for (const lang of LANGS) {
+  test(`[T1 #1 #4 #16] pay now in cash: Ready by on the cart, "4n" adds 4 Naan, receipt prints, the Pass card and the queue have the token (${lang})`, async ({ browser }, info) => {
+    t1RunsHere(info);
+    const run = t1Run('bag', info, lang);
+    const cash = await screen(browser, info.project.use.viewport!);
+    const pass = await screen(browser, { width: 1280, height: 800 });
+    try {
+      await counter(cash.page, lang, info);
+      const page = cash.page;
+      // #1: an open day → the cart's Ready-by is a time, not "Times will be set when sent"
+      await menuTile(page, run.items.main.name).click();
+      await menuTile(page, run.items.main.name).click();
+      await expect(page.locator('.cart .ln', { hasText: run.items.main.name })).toContainText('2');
+      // #4: "4n" then Enter
+      await page.locator('.cart__head').click();
+      await page.keyboard.press('/');
+      await page.keyboard.type('4n');
+      const first = page.locator('.tk-sugg [role="option"]').first();
+      await expect(first).toContainText('4×');
+      await expect(first, '"4n" picks Naan first').toContainText('Naan');
+      await page.keyboard.press('Enter');
+      await expect(page.locator('.cart .ln', { hasText: /^.*Naan/ })).toContainText('4');
+      const ready = page.locator('.cart .total__ready');
+      await expect(ready.locator('b')).toHaveText(/^\d{1,2}:\d{2}\s?(AM|PM)$/);
+      await expect(ready).not.toContainText(tr(lang, 'cart.times_later'));
+      await capture(page, info, `T1-04-cart-${info.project.name}-${lang}`, page.locator('.cart'));
+
+      const since = await hubNow();
+      const token = await payCashExact(page, lang);
+      const receipt = await printedJob(since, 'Receipt');
+      expect(receipt.text).toContain('Naan');
+      expect(receipt.text).toContain(run.items.main.name.slice(0, 12));
+      // the queue holds the paid token until it is handed over
+      await expect(railEntry(page, token).first()).toBeVisible();
+
+      // #16: the kitchen got it — the run point's Pass card: token, lines, how much of the bag is ready
+      await passTablet(pass.page, 'bag', info, lang);
+      const card = passCard(pass.page, token);
+      await expect(card).toBeVisible({ timeout: 15_000 });
+      await expect(card.locator('.pl', { hasText: run.items.main.name })).toBeVisible();
+      await expect(card.locator('.pc__g')).toBeVisible();
+      await capture(pass.page, info, `T1-16-pass-card-${info.project.name}-${lang}`, card);
+    } finally {
+      await closeAll(info, lang, pass, cash);
+    }
+  });
+
+  test(`[T1 #17 #18] whole bag only: the paye done first leaves the bag not Ready until the drink; Handed to customer, then Undo brings it back (${lang})`, async ({ browser }, info) => {
+    t1RunsHere(info);
+    const run = t1Run('bag', info, lang);
+    const cash = await screen(browser, info.project.use.viewport!);
+    const pass = await screen(browser, { width: 1280, height: 800 });
+    try {
+      await counter(cash.page, lang, info);
+      await menuTile(cash.page, run.items.main.name).click();
+      await menuTile(cash.page, run.items.drink.name).click();
+      const token = await payCashExact(cash.page, lang);
+      // their fire comes (the e2e hub's fixed clock fires nothing by itself)
+      await hubFire(t1Station(t1Key('bag', info.project.name, lang)));
+
+      await passTablet(pass.page, 'bag', info, lang);
+      const card = passCard(pass.page, token);
+      await expect(card).toBeVisible({ timeout: 15_000 });
+      // #17: the paye done, the drink not → the bag is not ready (no Bag ready, no hand-over)
+      await cookLine(card, run.items.main.name);
+      await expect(card).not.toHaveClass(/\bready\b/);
+      await expect(card.locator('.btn--customer')).toBeDisabled();
+      await capture(pass.page, info, `T1-17-half-bag-${info.project.name}-${lang}`, card);
+      await cookLine(card, run.items.drink.name);
+      await expect(card).toHaveClass(/\bready\b/);
+
+      // #18: Handed to customer on the paid, ready bag; Undo within 5 s brings it back; then for real
+      const button = card.locator('.btn--customer');
+      await expect(button).toBeEnabled();
+      await button.click();
+      const undo = pass.page.locator('.pass-undo');
+      await expect(undo).toContainText(`#${token}`);
+      await undo.getByRole('button').click();
+      await expect(undo).toHaveCount(0);
+      await expect(card).toBeVisible();
+      await expect(card.locator('.btn--customer')).toBeEnabled();
+      await capture(pass.page, info, `T1-18-undo-${info.project.name}-${lang}`, card);
+      const served = pass.page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/commands/mark-served'), { timeout: 15_000 });
+      await card.locator('.btn--customer').click();
+      expect((await served).status()).toBe(200);
+      await expect(card).toHaveCount(0, { timeout: 15_000 });
+      // the counter's queue lets it go too
+      await expect(railEntry(cash.page, token)).toHaveCount(0, { timeout: 15_000 });
+    } finally {
+      await closeAll(info, lang, pass, cash);
+    }
+  });
+}
+
+for (const lang of LANGS) {
+  test(`[T1 #5] Send · pay later with a phone number: the token slip prints; the token is Due in the queue (${lang})`, async ({ browser }, info) => {
+    t1RunsHere(info);
+    const run = t1Run('bag', info, lang);
+    const cash = await screen(browser, info.project.use.viewport!);
+    try {
+      await counter(cash.page, lang, info);
+      const page = cash.page;
+      await page.locator('.cart input[name="phone"]').fill('03001234567');
+      await menuTile(page, run.items.main.name).click();
+      const since = await hubNow();
+      await page.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.send_later'))}`) }).click();
+      const token = await sentToken(page);
+      await railEntry(page, token).first().click();
+      await expect(page.locator('.tk-drawer .tk-fact--due')).toBeVisible();
+      // 02b §3.2 step 2b / 03c §3.11: Send · pay later prints the token slip (print_slip)
+      const slip = await printedJob(since, 'Token slip');
+      expect(slip.text).toContain(token);
+    } finally {
+      await closeAll(info, lang, cash);
+    }
+  });
+
+  test(`[T1 #7] pickup 30 min from now with a drink: the cart's pickup chip, Ready by = the pickup time, the drink not started early (${lang})`, async ({ browser, request }, info) => {
+    t1RunsHere(info);
+    const run = t1Run('bag', info, lang);
+    const cash = await screen(browser, info.project.use.viewport!);
+    try {
+      await counter(cash.page, lang, info);
+      const page = cash.page;
+      await menuTile(page, run.items.main.name).click();
+      await menuTile(page, run.items.drink.name).click();
+      // 02b §8 Phone and pickup (R1, R4): pickup chips Now / +15 / +30 / +45 / Time… send pickup_at_ms
+      const plus30 = page.locator('.cart').getByRole('button', { name: /\+\s?30/ });
+      await expect(plus30, 'the cart offers the +30 pickup chip (02b §8)').toBeVisible({ timeout: 5_000 });
+      await plus30.click();
+      const sent = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/commands/submit-order'));
+      await page.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.send_later'))}`) }).click();
+      const pickup = ((await sent).postDataJSON() as { payload: { pickup_at_ms?: number } }).payload.pickup_at_ms;
+      expect(pickup).toBeGreaterThan(await hubNow());
+      const token = await sentToken(page);
+      const api = await apiSession(request, 'S_OWNER');
+      try {
+        const { orders } = await api.query<{ orders: Array<{ token: number | null; promise_ms: number | null; effective_pickup_at_ms: number | null }> }>('open-orders?order_type=takeaway');
+        const o = orders.find((x) => String(x.token) === token)!;
+        expect(o.effective_pickup_at_ms).toBe(pickup);
+        expect(o.promise_ms).toBe(pickup);
+      } finally {
+        await api.close();
+      }
+      // the kitchen holds the drink: nothing fires before its time
+      expect(await hubFire(t1Station(run.key), [])).not.toContain(run.items.drink.item_id);
+    } finally {
+      await closeAll(info, lang, cash);
+    }
+  });
+
+  test(`[T1 #8] the customer came early: Customer is here (Boost) at the counter moves the ready time earlier; the bag is not Ready while the drink is made (${lang})`, async ({ browser, request }, info) => {
+    t1RunsHere(info);
+    const run = t1Run('bag', info, lang);
+    const cash = await screen(browser, info.project.use.viewport!);
+    const api = await apiSession(request, 'S_OWNER');
+    try {
+      // a pickup order 30 min ahead, as the counter sends it (SubmitOrder pickup_at_ms, 02b §3.2 step 2b)
+      const order_id = `T1-PK-${run.key}-${Date.now().toString(36)}`.toUpperCase();
+      const placed = await api.command('SubmitOrder', {
+        order_id,
+        order_type: 'takeaway',
+        pickup_at_ms: (await hubNow()) + 30 * 60_000,
+        lines: [
+          { order_item_id: `${order_id}-M`, item_id: run.items.main.item_id, quantity: 1 },
+          { order_item_id: `${order_id}-D`, item_id: run.items.drink.item_id, quantity: 1 },
+        ],
+      });
+      expect(placed.status, JSON.stringify(placed.body.error)).toBe(200);
+      const token = String((await api.query<{ orders: Array<{ order_id: string; token: number }> }>('open-orders?order_type=takeaway')).orders.find((o) => o.order_id === order_id)!.token);
+      await counter(cash.page, lang, info);
+      await railEntry(cash.page, token).first().click();
+      // 03b §3.4 / 02b §6.6a ReleaseBoost: the counter's "Customer is here" (pass.pickup_at points the Pass to it)
+      const here = cash.page.locator('.tk-drawer').getByRole('button', { name: /customer is here|boost/i });
+      await expect(here, 'the token view offers Customer is here for a pickup order (02b §8)').toBeVisible({ timeout: 5_000 });
+      await here.click();
+    } finally {
+      await api.close();
+      await closeAll(info, lang, cash);
+    }
+  });
+}
