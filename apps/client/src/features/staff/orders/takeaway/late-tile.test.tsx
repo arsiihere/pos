@@ -152,6 +152,62 @@ describe('[03b v1.0.16 §3.4 R3-M-9, §3.5; frame ReadyTiles] the amber counter 
     expect(tile(v).querySelector('.tk-rt__act')!.textContent).toBe('Take payment');
   });
 
+  // ⚠️ L-CLIENT-2 items 2 + 4 together (03b v1.0.16 §3.4 R3-M-9; 02b v1.0.25 §3.7a, §6.16; D2): a Due tile approved at
+  // its due is handable, so past the window it behaves as a paid one; a Due, unapproved one keeps money first
+  function dueLate(row: OpenOrder, phone: string | null) {
+    const s = setup([row]);
+    s.live.frame({ type: 'catch_up', as_of_seq: 1, state: { orders: { orders: [{ ...CAUGHT[0]!, phone, billed: false, billed_at: null }], zone_stock: [] } } });
+    book = createTokenBook(s.live);
+    v = mount();
+    const onOpen = vi.fn();
+    const onHandOver = vi.fn();
+    const onPay = vi.fn();
+    v.render(
+      <ShellContext.Provider value={s.shell}>
+        <QueueRail variant="column" book={book} selected={null} onOpen={onOpen} heldCount={0} onHandOver={onHandOver} onPay={onPay} />
+      </ShellContext.Provider>,
+    );
+    return { onOpen, onHandOver, onPay };
+  }
+  const DUE = { bill: { state: 'due' as const, due_minor: 50_000 } };
+
+  it('a Due tile approved at its due, past the window: amber and handable — "{n} min · Call" opens the token; no phone → Hand over', async () => {
+    now = at(13, 20);
+    const called = dueLate(lateRow({ ...DUE, unpaid_handover_approved: true }), '03001234567');
+    await flush();
+    expect(tile(v).className).toContain('tk-rt--late');
+    const act_ = tile(v).querySelector<HTMLElement>('.tk-rt__act')!;
+    expect(act_.textContent).toBe('17 min · Call');
+    v.click(act_);
+    expect(called.onOpen.mock.calls[0]![0]).toMatchObject({ token: 46 });
+    expect(called.onPay).not.toHaveBeenCalled();
+    expect(tile(v).querySelector('[data-ask]')).toBeNull();
+    v.unmount();
+
+    const handed = dueLate(lateRow({ ...DUE, unpaid_handover_approved: true }), null);
+    await flush();
+    expect(tile(v).className).toContain('tk-rt--late');
+    const hand = tile(v).querySelector<HTMLElement>('.tk-rt__act')!;
+    expect(hand.textContent).toBe('Hand over');
+    v.click(hand);
+    expect(handed.onHandOver).toHaveBeenCalledTimes(1);
+    expect(handed.onPay).not.toHaveBeenCalled();
+  });
+
+  it('a Due, unapproved tile past the window: amber, keeps Take payment and offers Ask a manager (no Call)', async () => {
+    now = at(13, 20);
+    const called = dueLate(lateRow({ ...DUE, unpaid_handover_approved: false }), '03001234567');
+    await flush();
+    expect(tile(v).className).toContain('tk-rt--late');
+    const act_ = tile(v).querySelector<HTMLElement>('.tk-rt__act')!;
+    expect(act_.textContent).toBe('Take payment');
+    expect(tile(v).querySelector('[data-ask="O46"]')).not.toBeNull();
+    v.click(act_);
+    expect(called.onPay).toHaveBeenCalledTimes(1);
+    expect(called.onOpen).not.toHaveBeenCalled();
+    expect(called.onHandOver).not.toHaveBeenCalled();
+  });
+
   it('Urdu: "{n} منٹ · فون"', async () => {
     setLanguage('ur');
     now = at(13, 20);
