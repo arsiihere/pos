@@ -374,9 +374,11 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 
 .ph-top--takeaway { gap: 8px; padding: 10px 12px; }
 .ph-top--takeaway .tk-ctx__ic { flex: none; width: 40px; height: 40px; }
-.ph-top--takeaway .grow { min-width: 0; }
+/* 02b §3.12, §8 Queue: the title keeps its words at 360 px; .grow's 0 basis let the live line take the width first */
+.ph-top--takeaway .grow { flex: 1 1 auto; min-width: 0; }
 .ph-top--takeaway h1 { font-size: 19px; overflow-wrap: anywhere; }
-.ph-top__live { color: var(--on-chrome-muted); font-size: 13px; }
+/* the live line wraps before the title squeezes (360 px offline: bar 285 → 94 px, the menu stays reachable) */
+.ph-top__live { flex: 0 4 auto; color: var(--on-chrome-muted); font-size: 13px; }
 .ph-top--takeaway .end { gap: 4px; }
 
 .ph-top--takeaway { background: var(--chrome); color: var(--on-chrome); }
