@@ -8,7 +8,7 @@
 export interface BillRow {
   order_type?: string;
   /** §6.16: takeaway / parking `{ state, due_minor }`, dine-in null; absent on a hub before 02b B2-1 */
-  bill?: { state: 'due' | 'paid'; due_minor: number } | null;
+  bill?: { state: 'due' | 'paid'; due_minor: number; key?: string | null } | null;
   /** §6.16 (R3-M-8): absent on a hub that does not send it yet */
   unpaid_handover_approved?: boolean;
 }
@@ -107,6 +107,41 @@ export function checkWholeToken(orders: ReadonlyArray<{ order_id: string; gate: 
   );
 }
 
+/** ⚠️ 02b v1.0.26 §6.16, §8 (owner 2026-11-28 Q9): one unpaid, unapproved bill of a token and the orders on it. */
+export interface UnpaidBill {
+  /** the bill key (`bill.key`), else the order id of a row that carries none */
+  key: string;
+  /** oldest first; [0] names the bill's request */
+  order_ids: string[];
+  due_minor: number;
+  /** the bill holds only additions (not the token's first order) */
+  addition: boolean;
+}
+
+/**
+ * The token's unpaid, unapproved bills (Q9: one request, one amount per bill), in the token's order. `order_ids` =
+ * the token's orders oldest first; `row` their open-orders rows; `approvedDue` this page's approvals (requests.ts). A bill
+ * any of whose orders carries an effective approval is left out (the approval covers its bill).
+ */
+export function unpaidBills(order_ids: readonly string[], row: (order_id: string) => BillRow | undefined, approvedDue: (order_id: string) => number | undefined): UnpaidBill[] {
+  const bills = new Map<string, UnpaidBill & { approved: boolean }>();
+  order_ids.forEach((order_id, i) => {
+    const r = row(order_id);
+    const b = r?.bill;
+    if (b == null || b.state !== 'due' || b.due_minor <= 0) return;
+    const key = typeof b.key === 'string' ? b.key : order_id;
+    const approved = gateOf(r!, { approvedDue: approvedDue(order_id) }).kind !== 'due' || (gateOf(r!, { approvedDue: approvedDue(order_id) }) as { approved?: boolean }).approved === true;
+    const bill = bills.get(key);
+    if (bill === undefined) bills.set(key, { key, order_ids: [order_id], due_minor: b.due_minor, addition: i > 0, approved });
+    else {
+      bill.order_ids.push(order_id);
+      bill.addition &&= i > 0;
+      bill.approved ||= approved;
+    }
+  });
+  return [...bills.values()].filter((b) => !b.approved).map(({ approved: _, ...b }) => b);
+}
+
 /** The `open-orders` answer's billing facts; null when it is not an open-orders body. */
 export function parseBillRows(data: unknown, at: number): BillRead | null {
   const orders = (data as { orders?: unknown } | null)?.orders;
@@ -114,9 +149,11 @@ export function parseBillRows(data: unknown, at: number): BillRead | null {
   const rows = new Map<string, BillRow>();
   for (const o of orders as Array<Record<string, unknown>>) {
     if (typeof o['order_id'] !== 'string') continue;
-    const b = o['bill'] as { state?: unknown; due_minor?: unknown } | null | undefined;
+    const b = o['bill'] as { state?: unknown; due_minor?: unknown; key?: unknown } | null | undefined;
     const state: 'due' | 'paid' | null = b?.state === 'due' ? 'due' : b?.state === 'paid' ? 'paid' : null;
-    const bill = b === null ? null : state !== null && typeof b?.due_minor === 'number' ? { state, due_minor: b.due_minor } : undefined;
+    // ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): the bill key, when the hub sends it
+    const key = typeof b?.key === 'string' || b?.key === null ? { key: b.key as string | null } : {};
+    const bill = b === null ? null : state !== null && typeof b?.due_minor === 'number' ? { state, due_minor: b.due_minor, ...key } : undefined;
     const flag = o['unpaid_handover_approved'];
     rows.set(o['order_id'], {
       order_type: typeof o['order_type'] === 'string' ? o['order_type'] : '',

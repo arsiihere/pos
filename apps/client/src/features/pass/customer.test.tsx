@@ -305,15 +305,16 @@ describe('[02b-TK L-CLIENT-2 item 4; 03b §3.4 OR-7, D2] Ask a manager on a Due 
     await flush();
     expect(customerBtn('O48')!.disabled).toBe(true);
     expect(askOf('O48')!.textContent).toBe('Ask a manager');
-    // ⚠️ 03b v1.0.17 §8: the card's small button opens the sheet with the per-order breakdown; its Ask sends
+    // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28 Q9; reviewer): one unpaid bill → the card's button sends in ONE tap (no sheet)
     m.click(askOf('O48'));
     await flush();
-    expect(m.container.querySelector('.pass-ask [data-unpaid="O48"]')!.textContent).toContain('#48 · Rs 1,190');
-    m.click(m.container.querySelector<HTMLButtonElement>('[data-ask-send]'));
-    await flush();
+    expect(m.container.querySelector('.pass-ask')).toBeNull();
     expect(command).toHaveBeenCalledWith('RequestUnpaidHandover', { order_id: 'O48' });
     expect(askOf('O48')!.textContent).toContain('Waiting for a manager…');
     expect(askOf('O48')!.textContent).not.toContain('find a manager'); // 02b wording only
+    // waiting: the button opens the sheet, with Withdraw
+    m.click(askOf('O48'));
+    await flush();
     expect(m.button('Withdraw', m.container.querySelector('.pass-ask')!)).toBeTruthy();
   });
 
@@ -325,9 +326,9 @@ describe('[02b-TK L-CLIENT-2 item 4; 03b §3.4 OR-7, D2] Ask a manager on a Due 
     await flush();
     m.click(askOf('O48'));
     await flush();
-    m.click(m.container.querySelector<HTMLButtonElement>('[data-ask-send]'));
-    await flush();
     expect(askOf('O48')!.textContent).toContain('Already waiting for a manager');
+    m.click(askOf('O48'));
+    await flush();
     expect([...m.container.querySelectorAll('.pass-ask button')].some((b) => b.textContent === 'Withdraw')).toBe(false);
   });
 

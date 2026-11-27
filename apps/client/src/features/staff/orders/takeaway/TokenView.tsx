@@ -201,7 +201,17 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const fullCheck = checkHandover(cands, lineIds(candidates), reserved);
   const giveCheck = checkHandover(cands, lineIds(readyLines), reserved);
   // BUG-9 (owner ruling 2026-11-28, approval ruling A): one Ask a manager per blocked order, each with its own due
-  const asks = !fullCheck.ok && fullCheck.reason === 'due' ? blockedOrders(cands, lineIds(candidates), reserved) : !giveCheck.ok && giveCheck.reason === 'due' ? blockedOrders(cands, lineIds(readyLines), reserved) : [];
+  const blocked = !fullCheck.ok && fullCheck.reason === 'due' ? blockedOrders(cands, lineIds(candidates), reserved) : !giveCheck.ok && giveCheck.reason === 'due' ? blockedOrders(cands, lineIds(readyLines), reserved) : [];
+  // ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): one request per BILL — orders sharing a bill (`bill.key`) ask once, by the
+  // bill's oldest order; an addition-only bill is marked "(addition)"
+  const seenBills = new Set<string>();
+  const asks = blocked.filter((a) => {
+    const key = billRows.get(a.order_id)?.bill?.key ?? a.order_id;
+    if (seenBills.has(key)) return false;
+    seenBills.add(key);
+    return true;
+  });
+  const billKeyOf = (order_id: string) => billRows.get(order_id)?.bill?.key ?? order_id;
   const may = shell.permissions.allowed;
   const canServe = may('mark-served');
   const first = orders?.[0] ?? null;
@@ -388,7 +398,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
                 order_id={a.order_id}
                 due_minor={a.due_minor}
                 ident={token.order_ids.length > 1 ? `#${ident}` : undefined}
-                addition={a.order_id !== token.order_ids[0]}
+                addition={billKeyOf(a.order_id) !== billKeyOf(token.order_ids[0]!)}
                 variant="drawer"
                 onChanged={() => void load()}
               />

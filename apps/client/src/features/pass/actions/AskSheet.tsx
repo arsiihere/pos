@@ -9,10 +9,10 @@ import { unpaidRequestsOf, type AskState } from '../../staff/orders/unpaid/reque
 
 // ⚠️ 03b v1.0.17 §3.4, §8 (owner ruling 2026-11-28 "Pass bag = token"; Approval ruling A; QA BUG-9 and design review):
 // the card shows ONE Due pill and, beside it, a small "Ask a manager" button (or the requests' state in a word). The
-// per-order breakdown lives in this sheet: each unpaid, unapproved order of the token on its own row ("#14 · Rs 40
-// (addition)") with its request state (the AskManager words). "Ask a manager" sends one `RequestUnpaidHandover
-// { order_id }` per order that has no live request of its own (02b §6.4a), so each request names ONE order and its
-// own due — never the token's total. Withdraw withdraws this person's waiting requests.
+// per-bill breakdown lives in this sheet. ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): one row per unpaid, unapproved BILL of
+// the token ("#14 · Rs 120", a bill of additions only "(addition)") with its request state (the AskManager words). "Ask a
+// manager" sends one `RequestUnpaidHandover { order_id }` per bill that has no live request (02b §6.4a): one bill, one
+// amount — never the token's total. Withdraw withdraws this person's waiting requests.
 
 export interface AskItem {
   order_id: string;
@@ -35,21 +35,8 @@ export function askSummary(states: ReadonlyArray<AskState | null>): string | nul
   return other == null ? null : statusOf(other)!.text;
 }
 
-/** The card's small button: "Ask a manager", or the requests' state; opens the sheet. */
-export function AskChip({ items, onOpen }: { items: readonly AskItem[]; onOpen(): void }) {
-  const shell = useShell();
-  const store = unpaidRequestsOf(shell);
-  useSyncExternalStore(store.subscribe, store.version);
-  const summary = askSummary(items.map((it) => store.stateOf(it.order_id)));
-  return (
-    <button type="button" className={summary === null ? 'btn pc__askb' : 'btn pc__askb pc__askb--on'} data-ask={items.map((i) => i.order_id).join(' ')} disabled={summary === null && !shell.online} onClick={onOpen}>
-      <Ico name={summary === null ? 'shield' : 'clock'} />
-      {summary ?? t('pass.ask_manager')}
-    </button>
-  );
-}
-
-export function AskSheet({ ident, items, onClose, onChanged }: { ident: string; items: readonly AskItem[]; onClose(): void; onChanged?: () => void }) {
+/** One RequestUnpaidHandover per item (one per unpaid bill, 02b v1.0.26 Q9) that has no live request of its own. */
+function useAsk(items: readonly AskItem[], onChanged?: () => void) {
   const shell = useShell();
   const store = unpaidRequestsOf(shell);
   useSyncExternalStore(store.subscribe, store.version);
@@ -86,6 +73,34 @@ export function AskSheet({ ident, items, onClose, onChanged }: { ident: string; 
     setBusy(false);
     onChanged?.();
   };
+  return { shell, states, toAsk, mine, busy, ask, withdraw };
+}
+
+/**
+ * The card's small button: "Ask a manager", or the requests' state. ⚠️ 02b v1.0.26 §8 (owner 2026-11-28 Q9; reviewer
+ * 2026-11-28): with ONE unpaid bill that can be asked, the tap sends the request at once (the card then shows the
+ * waiting state); with two or more bills, or a request already waiting (Withdraw), it opens the sheet.
+ */
+export function AskChip({ items, onOpen, onChanged }: { items: readonly AskItem[]; onOpen(): void; onChanged?: () => void }) {
+  const { shell, states, toAsk, busy, ask } = useAsk(items, onChanged);
+  const summary = askSummary(states.map((s) => s.state));
+  const direct = items.length === 1 && toAsk.length === 1;
+  return (
+    <button
+      type="button"
+      className={summary === null ? 'btn pc__askb' : 'btn pc__askb pc__askb--on'}
+      data-ask={items.map((i) => i.order_id).join(' ')}
+      disabled={busy || (summary === null && !shell.online)}
+      onClick={() => (direct ? void ask() : onOpen())}
+    >
+      <Ico name={summary === null ? 'shield' : 'clock'} />
+      {summary ?? t('pass.ask_manager')}
+    </button>
+  );
+}
+
+export function AskSheet({ ident, items, onClose, onChanged }: { ident: string; items: readonly AskItem[]; onClose(): void; onChanged?: () => void }) {
+  const { shell, states, toAsk, mine, busy, ask, withdraw } = useAsk(items, onChanged);
   return (
     <div className="scrim">
       <div className="dlg dlg--w pass-ask" role="dialog" aria-modal="true" aria-labelledby="pass-ask-t">

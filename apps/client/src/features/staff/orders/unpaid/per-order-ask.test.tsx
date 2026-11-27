@@ -30,11 +30,11 @@ let seq = 10;
 const frame = (h: ReturnType<typeof screenHarness>, event_type: string, payload: Record<string, unknown>) =>
   act(() => h.live.frame({ type: 'event', seq: ++seq, event: { event_id: `E${seq}`, event_type, schema_version: 1, payload } } as never));
 
-function harness(o: { approved?: Record<string, boolean>; command?: (type: string, payload: unknown) => unknown } = {}) {
+function harness(o: { approved?: Record<string, boolean>; command?: (type: string, payload: unknown) => unknown; sharedKey?: string } = {}) {
   const views = { O48: view('O48', [sl('O48', 'A', 'Karahi', 'done')]), O49: view('O49', [sl('O49', 'B', 'Naan', 'done')]) };
   const rows = [
-    aRow({ order_id: 'O48', token: 48, placed_at: at(13, 4), ready: { n: 1, m: 1 }, promise_ms: at(13, 12), bill: { state: 'due', due_minor: ROOT }, unpaid_handover_approved: o.approved?.['O48'] ?? false }),
-    aRow({ order_id: 'O49', token: 48, placed_at: at(13, 6), ready: { n: 1, m: 1 }, promise_ms: at(13, 12), bill: { state: 'due', due_minor: ADD }, unpaid_handover_approved: o.approved?.['O49'] ?? false }),
+    aRow({ order_id: 'O48', token: 48, placed_at: at(13, 4), ready: { n: 1, m: 1 }, promise_ms: at(13, 12), bill: { state: 'due', due_minor: o.sharedKey === undefined ? ROOT : ROOT + ADD, ...(o.sharedKey === undefined ? {} : { key: o.sharedKey }) }, unpaid_handover_approved: o.approved?.['O48'] ?? false }),
+    aRow({ order_id: 'O49', token: 48, placed_at: at(13, 6), ready: { n: 1, m: 1 }, promise_ms: at(13, 12), bill: { state: 'due', due_minor: o.sharedKey === undefined ? ADD : ROOT + ADD, ...(o.sharedKey === undefined ? {} : { key: o.sharedKey }) }, unpaid_handover_approved: o.approved?.['O49'] ?? false }),
   ];
   const h = screenHarness({ rows, views, bills: { O48: openBill('B48', ROOT), O49: openBill('B49', ADD) }, ...(o.command === undefined ? {} : { command: o.command }) });
   return { h, rows };
@@ -54,6 +54,18 @@ describe('[BUG-9; 02b §3.7a, §8 OR-7; D2] the token drawer asks per order, wit
     vi.useRealTimers();
     setLanguage('en');
     document.body.innerHTML = '';
+  });
+
+  it('[02b v1.0.26 owner 2026-11-28 Q9] root and addition on ONE bill → one card for the bill ("#48 · Rs 100"), one request naming the bill\'s oldest order', async () => {
+    const sent: unknown[] = [];
+    const { h } = harness({ sharedKey: 'K48', command: (type, p) => (type === 'RequestUnpaidHandover' ? (sent.push(p), { ok: true, data: { alert_id: 'AL-K48', is_requester: true } }) : undefined) });
+    const m = await open(h);
+    expect(card(m, 'O48')).not.toBeNull();
+    expect(card(m, 'O49')).toBeNull();
+    expect(card(m, 'O48')!.textContent).toContain('Rs 100');
+    m.click(card(m, 'O48')!.querySelector('[data-ask="O48"]'));
+    await tick(0);
+    expect(sent).toEqual([{ order_id: 'O48' }]);
   });
 
   it('two unpaid orders → two cards: "#48 · Rs 40" and "#48 · Rs 60 (addition)"; each Ask sends its own order_id', async () => {
