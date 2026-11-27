@@ -190,6 +190,26 @@ Done by / date:
 
 ---
 
+## Check 11. Takeaway token slip on the pilot receipt printer, 58 and 80 mm (03c v1.0.16 §3.11, §6.14, §11 task 33; 02b v1.0.25 §3.2 step 10a; owner ruling R6)
+
+Why: the token slip prints only for a **pay-later** takeaway (Send · pay later, or a Send & pay panel closed unpaid), never for Send & pay (the receipt is the only paper there). It must be readable across the counter on both paper widths. Tier 1 prints **no QR**: `statusLink` returns null until the status page and the guest Wi-Fi router (02b-TK "Before go-live" G-2) are in place; the QR step waits for Tier 2.
+
+Setup: a bill route to the pilot receipt printer (Printers page "Bill printers": the counter kiosk's device route, else `default`); `takeaway_slip_on_send` on (the default). Run the steps once with the 80 mm printer and once with the 58 mm printer (set `paper_width_mm` on the printer to match).
+
+| ✓ | Do | Expect | Notes |
+|---|---|---|---|
+| [ ] | On the counter kiosk, a takeaway of 2 naan; **Send · pay later**. | One slip, right after the send: branch name, `TAKEAWAY`, `TOKEN`, the token number **large**, `Aap ka token: <n>`, `Ready around <time>` (when the kitchen has planned it), `PAY AT THE COUNTER` / `Paise counter par dein`, the footer `#<n>  <time>  <date>`; the paper is **cut**. No items, prices, name or phone. | paper: 80 / 58 mm |
+| [ ] | Hold the slip at arm's length across the counter, then at the customer's side. | The token number reads at a glance from the customer's side; nothing is cut off at either width (no line runs past the edge). | |
+| [ ] | A takeaway with **Send & pay**; pay and close. | Only the receipt prints. No token slip. | |
+| [ ] | On the token view of the pay-later token: **Print slip**. | A second slip with **REPRINT** on top, same token and ready time. | |
+| [ ] | Turn the bill printer off, then Send · pay later. | The order goes through; the tile says "Slip not printed — Print slip". Printer back on: Print slip prints it. | |
+| [ ] | Ready time: a takeaway with a pickup time 1 h ahead, Send · pay later. | `Ready around` shows the pickup time itself (the whole order lands for the pickup). | |
+| [ ] | **BLOCKED (Tier 2: status page + guest Wi-Fi router G-2)** The QR on the slip scans from a phone on the guest Wi-Fi and opens the order's status page; from the staff Wi-Fi nothing else on the LAN is reachable from the guest network. | QR present and scannable; status page shows the token. | |
+
+Done by / date:
+
+---
+
 ## Summary
 
 | Check | Result | Blocked by |
@@ -204,3 +224,4 @@ Done by / date:
 | 8 Restart mid-print → REPRINT | | orders |
 | 9 `pos-pg-test` DB reset | | — |
 | 10 MOVED TO STOCK slip; moved line on the KDS (pilot) | | orders (04 void screen) |
+| 11 Takeaway token slip, 58 / 80 mm (QR part) | | Tier 2 (status page, guest Wi-Fi G-2) for the QR step only |
