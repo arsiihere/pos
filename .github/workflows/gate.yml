@@ -111,7 +111,8 @@ jobs:
       - run: pnpm exec vitest run --project @pos/client --project @pos/domain --project @pos/engine --project @pos/events
 
   # Owner ruling 2026-11-24 #4: browser e2e on every gate run — the takeaway specs plus one smoke spec per screen
-  # (sign-in, dine-in map, parking, bill, Pass, kitchen screen, hub admin), on the kiosk and the landscape tablet in
+  # (sign-in, dine-in map, parking, bill, Pass, kitchen screen, hub admin) and the Tier 1 dry-run journeys (t1-*, minus
+  # the @gap rows awaiting another lane's fix), on the kiosk and the landscape tablet in
   # parallel (~6–8 min each). The full five-project suite stays a local / pre-merge run (docs/plans/e2e-baseline.md).
   e2e:
     name: e2e (${{ matrix.project }})
@@ -140,12 +141,21 @@ jobs:
           e2e/02b-tk-shell.spec.ts e2e/02b-tk-tiles.spec.ts
           e2e/smoke.spec.ts e2e/02a-map.spec.ts e2e/02b-parking.spec.ts e2e/02b-bill.spec.ts
           e2e/03b-pass.spec.ts e2e/03b-kds.spec.ts e2e/03b-admin.spec.ts
+          e2e/t1-takeaway.spec.ts e2e/t1-unpaid.spec.ts e2e/t1-bills.spec.ts e2e/t1-ops.spec.ts e2e/t1-pass.spec.ts
+          --grep-invert @gap
+      # L-E2E-T1 rows #26 / #27: the day close journey closes the business day, so it runs on a hub of its own
+      - name: Day close journey (own hub)
+        if: matrix.project == 'kiosk'
+        working-directory: apps/client
+        run: pnpm exec playwright test -c playwright.dayclose.config.ts --trace off
       - name: Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-${{ matrix.project }}
-          path: /dev/shm/pos-client-e2e-results   # playwright.config.ts outputDir = tmpdir() (TMPDIR=/dev/shm)
+          path: |
+            /dev/shm/pos-client-e2e-results
+            /dev/shm/pos-client-e2e-dayclose-results
           retention-days: 7
 
   # The required status check. `always()` + the result test: a skipped or cancelled job is never read as green.

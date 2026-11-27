@@ -4,6 +4,7 @@ import { t1OtherPoint, t1Station, t1Table } from './t1-fixture';
 import {
   apiSession,
   capture,
+  runId,
   closeAll,
   cookLine,
   deviceFor,
@@ -119,9 +120,9 @@ for (const lang of LANGS) {
 
       // a dine-in order of the same item at the T1 floor's table, sent through SubmitOrder (the hub routes it)
       const table = t1Table(info.project.name, lang);
-      const seating_id = `SEAT-${run.key}-${Date.now().toString(36)}`;
+      const seating_id = runId(`SEAT-${run.key}`);
       await t1Hub({ kind: 'seat', table_id: table, seating_id, holder: 'S_OWNER' });
-      const order_id = `T1-DI-${run.key}-${Date.now().toString(36)}`.toUpperCase();
+      const order_id = runId(`T1-DI-${run.key}`);
       const placed = await api.command('SubmitOrder', { order_id, order_type: 'dine_in', table_id: table, seating_id, lines: [{ order_item_id: `${order_id}-M`, item_id: run.items.main.item_id, quantity: 1 }] });
       expect(placed.status, JSON.stringify(placed.body.error)).toBe(200);
 

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { escapeRe, menuTile, rushOff, sentToken, shiftOpen, signInOn, takeawayTab } from './02b-support';
-import { apiSession, capture, queueEntry, closeAll, cookLine, deviceFor, hubFire, hubNow, LANGS, passCard, passTablet, printedJob, screen, t1Key, t1Run, t1RunsHere, tr } from './t1-support';
+import { apiSession, capture, queueEntry, runId, closeAll, cookLine, deviceFor, hubFire, hubNow, LANGS, passCard, passTablet, printedJob, screen, t1Key, t1Run, t1RunsHere, tr } from './t1-support';
 import { t1Station } from './t1-fixture';
 
 // L-E2E-T1 group A — the owner's dry-run checklist ("Takeaway Tier 1 — Restaurant Dry Run Checklist"), the takeaway
@@ -132,7 +132,7 @@ for (const lang of LANGS) {
 }
 
 for (const lang of LANGS) {
-  test(`[T1 #5] Send · pay later with a phone number: the token slip prints; the token is Due in the queue (${lang})`, async ({ browser }, info) => {
+  test(`[T1 #5] Send · pay later with a phone number: the token slip prints; the token is Due in the queue (${lang}) @gap`, async ({ browser }, info) => {
     t1RunsHere(info);
     const run = t1Run('bag', info, lang);
     const cash = await screen(browser, info.project.use.viewport!);
@@ -154,7 +154,7 @@ for (const lang of LANGS) {
     }
   });
 
-  test(`[T1 #7] pickup 30 min from now with a drink: the cart's pickup chip, Ready by = the pickup time, the drink not started early (${lang})`, async ({ browser, request }, info) => {
+  test(`[T1 #7] pickup 30 min from now with a drink: the cart's pickup chip, Ready by = the pickup time, the drink not started early (${lang}) @gap`, async ({ browser, request }, info) => {
     t1RunsHere(info);
     const run = t1Run('bag', info, lang);
     const cash = await screen(browser, info.project.use.viewport!);
@@ -188,14 +188,14 @@ for (const lang of LANGS) {
     }
   });
 
-  test(`[T1 #8] the customer came early: Customer is here (Boost) at the counter moves the ready time earlier; the bag is not Ready while the drink is made (${lang})`, async ({ browser, request }, info) => {
+  test(`[T1 #8] the customer came early: Customer is here (Boost) at the counter moves the ready time earlier; the bag is not Ready while the drink is made (${lang}) @gap`, async ({ browser, request }, info) => {
     t1RunsHere(info);
     const run = t1Run('bag', info, lang);
     const cash = await screen(browser, info.project.use.viewport!);
     const api = await apiSession(request, 'S_OWNER');
     try {
       // a pickup order 30 min ahead, as the counter sends it (SubmitOrder pickup_at_ms, 02b §3.2 step 2b)
-      const order_id = `T1-PK-${run.key}-${Date.now().toString(36)}`.toUpperCase();
+      const order_id = runId(`T1-PK-${run.key}`);
       const placed = await api.command('SubmitOrder', {
         order_id,
         order_type: 'takeaway',
