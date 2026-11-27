@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { t } from '../../../i18n';
+import { fill } from '../../../i18n/en';
 import { lineTags } from '../../kds/slots';
 import { priorityText } from '../../kds/station/parts';
 import type { PointLine } from '../contracts';
@@ -71,6 +72,15 @@ export function LineRow({ line, actions, round }: { line: PointLine; actions?: R
         </span>
       </span>
       {extra.length > 0 && <span className="pl__o">{extra.join(' · ')}</span>}
+      {/* ⚠️ 03b v1.0.16 §3.10, §6.15 (R3-M-1), D7: a line a Pass archive moved here, with the old point's name, on its own
+          full-width line under the item (the status row keeps its width) */}
+      {line.moved_from !== undefined && (
+        <span className="pl__o">
+          <span className="kround" data-moved>
+            {fill(t('pass.moved_from'), { point: line.moved_from })}
+          </span>
+        </span>
+      )}
       {actions}
     </div>
   );

@@ -16,6 +16,7 @@ import { passRounds } from './cards/parts';
 import { readiness } from './cards/readiness';
 import { Loading, Offline } from './states/Offline';
 import { PointArchived, watchPoint } from './states/PointArchived';
+import { PointRetired } from './states/PointRetired';
 import { ReadOnly } from './states/ReadOnly';
 import { TakeoverSection } from './takeover/TakeoverSection';
 import { StationStrip } from './cards/StationStrip';
@@ -259,7 +260,8 @@ export function PassScreen() {
   }, [wantBills, billRead, newest, bills]);
 
   const view = snap.view;
-  if (view === null) return <Loading />;
+  // ⚠️ 03b v1.0.16 §6.16 (R3-M-1), D7: point_view_refresh { view: null } — this tablet's point was retired
+  if (view === null) return snap.retired ? <PointRetired /> : <Loading />;
   const allowed = shell.permissions.allowed('run-pass');
   const canRun = allowed && !archived;
   const up = shell.online;

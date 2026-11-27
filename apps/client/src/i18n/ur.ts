@@ -1785,4 +1785,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.not_collected': '{n} منٹ سے تیار — کوئی نہیں آیا', // not in strings-table.md; Urdu to confirm
   'alert.ready_to_serve.counter': 'بیگ تیار — کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
   'alert.ready_to_serve.counter_escalated': '{n} منٹ سے کوئی نہیں آیا — مینیجر کو بتا دیا', // not in strings-table.md; Urdu to confirm
+  // ---- 02b-TK L-CLIENT-2 item 1 (03b v1.0.16 §3.10, §6.16; 01a v2.11 §6.21; D7): the Pass refresh after a point archive, "Moved from", the config status archive refusal ----
+  'pass.point_retired': 'یہ پوائنٹ ختم کر دیا گیا — مینیجر سے کہیں کہ یہ ٹیبلٹ کسی اور پوائنٹ پر لگائیں', // not in strings-table.md; Urdu to confirm
+  'pass.moved_from': '{point} سے منتقل', // not in strings-table.md; Urdu to confirm
+  'admin_stock.problem.archive_refused': 'مینو کی تبدیلی رد ہوئی: پہلے کوئی اور پاس پوائنٹ فعال کریں۔', // not in strings-table.md; Urdu to confirm
 };

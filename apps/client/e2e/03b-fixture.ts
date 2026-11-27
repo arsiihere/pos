@@ -1,4 +1,8 @@
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { BranchConfig, ConfigItem, EventDraft } from '@pos/events';
+import { branchConfig } from '../../hub/src/sync/branch-config-holder';
+import { configPoller } from '../../hub/src/sync/config-poller';
+import type { StubConfigCloud } from '../../hub/test/helpers/stub-config-cloud';
 import { appendOrder, fireLines, pairDevice, pairPassTablet } from '../../hub/test/kds/fixtures';
 import { fakeLanPrinter, type FakeLanPrinter } from '../../hub/test/print/fixtures';
 import { appendDeviceProfile, type TestHub } from '../../hub/test/helpers/test-hub';
@@ -11,7 +15,9 @@ import { appendDeviceProfile, type TestHub } from '../../hub/test/helpers/test-h
 // have another one.
 
 // 'tkpass' (02b-TK L-CLIENT-1, 03b v1.0.16 §3.4): a Pass point of its own whose takeaway order has a pickup time
-export const FLOWS_03 = ['kds', 'takeover', 'pass', 'admin', 'tkpass'] as const;
+// 'd7' (02b-TK L-CLIENT-2 item 1, 03b v1.0.16 §3.10 D7): a Pass point of its own (archived by the run) and a second,
+// receiving point (`receivingPointOf`) with its own Pass tablet (`passTo:<key>`)
+export const FLOWS_03 = ['kds', 'takeover', 'pass', 'admin', 'tkpass', 'd7'] as const;
 /** the 'tkpass' order's pickup: this long after the seed (the e2e hub's clock is fixed) */
 export const TK_PICKUP_AFTER_MS = 30 * 60_000;
 export type Flow03 = (typeof FLOWS_03)[number];
@@ -23,6 +29,8 @@ export const keyOf = (flow: Flow03, project: string, lang: string): string => `$
 export const stationOf = (flow: Flow03, project: string, lang: string): string => `S3-${keyOf(flow, project, lang)}`;
 export const pointOf = (flow: Flow03, project: string, lang: string): string => `P3-${keyOf(flow, project, lang)}`;
 export const printerId = 'PR-E2E';
+/** the 'd7' run's receiving point (the run's station moves its default here when its own point is archived) */
+export const receivingPointOf = (project: string, lang: string): string => `${pointOf('d7', project, lang)}-to`;
 
 /** the three lines of a run, as the kitchen sees them */
 export const LINES_03 = [
@@ -45,9 +53,10 @@ export function menuWith03(menu: BranchConfig): BranchConfig {
       for (const lang of LANGS_03) {
         const key = keyOf(flow, project, lang);
         // the Pass flows: the station sits at its own point, so a Pass tablet bound to it sees this run's orders only
-        const own = flow === 'pass' || flow === 'takeover' || flow === 'tkpass';
+        const own = flow === 'pass' || flow === 'takeover' || flow === 'tkpass' || flow === 'd7';
         const point = pointOf(flow, project, lang);
         if (own) points.push({ point_id: point, name: `Pass ${key}`, sort_order: 10, is_archived: false });
+        if (flow === 'd7') points.push({ point_id: receivingPointOf(project, lang), name: `Receiving ${key}`, sort_order: 10, is_archived: false });
         stations.push({ ...s1, station_id: stationOf(flow, project, lang), name: `Grill ${key}`, completion_mode: 'two_tap' as const, ...(own ? { point_id: point, carry_times: [{ point_id: point, carry_ms: 0 }] } : {}) });
         for (const l of LINES_03) items.push({ ...base, item_id: itemId(key, l.n), name: l.name, station_id: stationOf(flow, project, lang), sort_order: 100 + l.n, cook_time_ms: 6 * 60_000 });
       }
@@ -88,13 +97,19 @@ export async function seed03(hub: TestHub): Promise<{ printer: FakeLanPrinter; d
           const k = pairKds(hub, station, `Screen ${key}`);
           devices[`kds:${key}`] = { token: k.token, device_id: k.deviceId };
         }
-        if (flow === 'pass' || flow === 'takeover' || flow === 'tkpass') {
+        if (flow === 'pass' || flow === 'takeover' || flow === 'tkpass' || flow === 'd7') {
           const point_id = pointOf(flow, project, lang);
           const t = pairPassTablet(hub, { pointId: point_id, name: `Pass tablet ${key}` });
           // 05a v1.0.6 §3.6, M-6: a Pass tablet's profile is the `pass` screen with its point (`pass` ⇔ `point_id`), shared
           // by the kitchen (`everyone`); the profile's fold writes the same devices.point_id
           appendDeviceProfile(hub, t.deviceId, { access: 'everyone', screens: ['pass'], point_id });
           devices[`pass:${key}`] = { token: t.token, device_id: t.deviceId };
+        }
+        if (flow === 'd7') {
+          const point_id = receivingPointOf(project, lang);
+          const t = pairPassTablet(hub, { pointId: point_id, name: `Receiving tablet ${key}` });
+          appendDeviceProfile(hub, t.deviceId, { access: 'everyone', screens: ['pass'], point_id });
+          devices[`passTo:${key}`] = { token: t.token, device_id: t.deviceId };
         }
         const lines = LINES_03.map((l) => ({ order_item_id: lineId(key, l.n), item_id: itemId(key, l.n), quantity: l.units }));
         const pickup = flow === 'tkpass' ? { pickup_at_ms: hub.clock.branchNow() + TK_PICKUP_AFTER_MS } : {};
@@ -107,4 +122,69 @@ export async function seed03(hub: TestHub): Promise<{ printer: FakeLanPrinter; d
 /** A paired `kds` device row on `station`, as the pair page leaves it (a direct row, like the hub's own tests). */
 export function pairKds(hub: TestHub, station: string, name: string): { deviceId: string; token: string } {
   return pairDevice(hub, { type: 'kds', stationId: station, name });
+}
+
+/**
+ * 02b-TK L-CLIENT-2 item 1 (03b v1.0.16 §3.10 D7, §6.16; 01a v2.11 §6.9a, §6.21): a spec asks the global setup's hub
+ * for a real config apply through the hub's own poller and its stub cloud (the hub's archive-moves.int.test.ts way),
+ * through a request file next to POS_E2E_HUB (the specs run in another process):
+ * - `archive`: the next config archives `point` and makes `to` the default of `station` (the D7 moves go there);
+ * - `refuse`: the next config archives every point (no active destination: the apply is refused, nothing commits,
+ *   config status reports VALIDATION_FAILED);
+ * - `clear`: the cloud answers "not modified", which clears the config status problem (the next specs see none).
+ * The stub goes back to offline after each, and the hub's provisioning is confirmed only for the poll.
+ */
+export interface ConfigRequest03 {
+  id: string;
+  kind: 'archive' | 'refuse' | 'clear';
+  point?: string;
+  station?: string;
+  to?: string;
+}
+
+export function startConfigDriver(hub: TestHub, base: string): () => void {
+  const request = `${base}.config-req.json`;
+  let busy = false;
+  const run = async (req: ConfigRequest03): Promise<unknown> => {
+    const cloud = hub.deps.configClient as StubConfigCloud;
+    const provisioned = hub.deps.config.provisioned!;
+    const confirmed = provisioned.confirmed_at;
+    provisioned.confirmed_at = confirmed ?? hub.clock.branchNow();
+    try {
+      if (req.kind === 'clear') cloud.next = { kind: 'not_modified' };
+      else {
+        const cur = branchConfig()!;
+        const next: BranchConfig = {
+          ...cur,
+          config_version: cur.config_version + 1,
+          points: cur.points.map((p) => (req.kind === 'refuse' || p.point_id === req.point ? { ...p, is_archived: true } : p)),
+          stations: cur.stations.map((st) =>
+            req.kind === 'archive' && st.station_id === req.station ? { ...st, point_id: req.to!, carry_times: [...st.carry_times.filter((c) => c.point_id !== req.to), { point_id: req.to!, carry_ms: 0 }] } : st,
+          ),
+        };
+        cloud.respondWithSnapshot(next as unknown as Record<string, unknown>);
+      }
+      const poller = configPoller(hub.app);
+      const result = await poller.pollOnce();
+      return { outcome: result.outcome, problem: poller.lastProblem() };
+    } finally {
+      cloud.next = { kind: 'offline' };
+      if (confirmed === undefined) delete provisioned.confirmed_at;
+      else provisioned.confirmed_at = confirmed;
+    }
+  };
+  const timer = setInterval(() => {
+    if (busy || !existsSync(request)) return;
+    busy = true;
+    const req = JSON.parse(readFileSync(request, 'utf8')) as ConfigRequest03;
+    rmSync(request, { force: true });
+    void run(req)
+      .catch((error: unknown) => ({ error: String(error) }))
+      .then((res) => writeFileSync(`${base}.config-${req.id}.json`, JSON.stringify(res)))
+      .finally(() => (busy = false));
+  }, 200);
+  return () => {
+    clearInterval(timer);
+    rmSync(request, { force: true });
+  };
 }

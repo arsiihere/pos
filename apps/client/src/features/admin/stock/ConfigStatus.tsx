@@ -23,12 +23,24 @@ export function statusLine(status: HubConfigStatus, clock: HubClock | null): str
   return line;
 }
 
+/**
+ * ⚠️ 02b-TK L-CLIENT-2 item 1 (01a v2.11 §6.21 (run 3 R3-B-1), §6.9a; D7): the hub refused a Pass archive at apply —
+ * `apply_failed` with code VALIDATION_FAILED and details.issues holding path `archived` (hub config-poller, a6e905d).
+ */
+function archiveRefused(problem: NonNullable<HubConfigStatus['last_problem']>): boolean {
+  if (problem.reason !== 'apply_failed' || problem.code !== 'VALIDATION_FAILED') return false;
+  const details = problem.details;
+  const issues = typeof details === 'object' && details !== null ? (details as { issues?: unknown }).issues : undefined;
+  return Array.isArray(issues) && issues.some((i) => typeof i === 'object' && i !== null && (i as { path?: unknown }).path === 'archived');
+}
+
 function problemText(status: HubConfigStatus): string | null {
   const problem = status.last_problem;
   if (problem === null) return null;
   if (problem.outcome === 'unauthorized') return t('admin_stock.problem.unauthorized');
-  const head =
-    problem.reason === 'apply_failed'
+  const head = archiveRefused(problem)
+    ? t('admin_stock.problem.archive_refused')
+    : problem.reason === 'apply_failed'
       ? t('admin_stock.problem.apply_failed')
       : fill(t('admin_stock.problem.rejected'), { reason: problem.reason ?? '' });
   const tail =

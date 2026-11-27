@@ -23,7 +23,7 @@ import {
   type TestHub,
 } from "../../hub/test/helpers/test-hub";
 import { startTickLoop } from "../../hub/src/alerts/tick";
-import { menuWith03, seed03 } from "./03b-fixture";
+import { menuWith03, seed03, startConfigDriver } from "./03b-fixture";
 
 // W0.7 (Q-32): one hub for the whole run — a provisioned test hub (in-memory clock, SQLite under TMPDIR), the
 // fixture staff directory and branch config, one paired tablet; it serves the built /staff/ (run the client
@@ -445,6 +445,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const clockDriver = setInterval(() => {
     if (existsSync(clockFlag)) hub.clock.advance(1_000);
   }, 1_000);
+  // 02b-TK L-CLIENT-2 item 1 (D7): config applies a spec asks for (03b-support `hubConfig`)
+  const stopConfig = startConfigDriver(hub, join(tmpdir(), `pos-e2e-hub-${process.pid}`));
   const info: E2eHub = {
     baseURL: `http://127.0.0.1:${port}`,
     device: dev(tablet),
@@ -464,6 +466,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   return async () => {
     clearInterval(clockDriver);
     rmSync(clockFlag, { force: true });
+    stopConfig();
     stopTick();
     await hub.close();
     await printer.close();
