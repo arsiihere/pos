@@ -56,6 +56,9 @@ export function menuWithT1(menu: BranchConfig): BranchConfig {
         items.push({ ...base, item_id: it.main.item_id, name: it.main.name, station_id: t1Station(key), sort_order: 300, cook_time_ms: T1_COOK_MS.main, max_early_ms: 3_600_000 });
         items.push({ ...base, item_id: it.drink.item_id, name: it.drink.name, station_id: t1Station(key), sort_order: 301, cook_time_ms: T1_COOK_MS.drink, max_early_ms: 3_600_000 });
       }
+  // row #26 (03a PK-1, DC-1): a stock-tracked item whose line is a HELD line of a pickup order (serve mode immediate)
+  const karahi = menu.items.find((i) => i.item_id === 'I_KARAHI')!;
+  items.push({ ...karahi, item_id: T1_HELD.item_id, name: T1_HELD.name, serve_mode: 'immediate', sort_order: 310 });
   // row #6: a card mode on the counter that asks for the machine's reference (05 §6.9 reference_required)
   const pk = hubBilling({ currency_code: menu.currency_code, tax_classes: menu.tax_classes, billing: menu.billing });
   const billing = SnapshotBillingSchema.parse({
@@ -76,6 +79,8 @@ export function menuWithT1(menu: BranchConfig): BranchConfig {
 }
 
 export const T1_CARD = { mode_id: 'card', name: 'Card' } as const;
+/** row #26: the stock-tracked immediate item (K1 draws) whose pickup line the engine holds (03a PK-1) */
+export const T1_HELD = { item_id: 'IT1-HELD', name: 'Karahi to go' } as const;
 /** row #20's dine-in table of a (viewport, language) run, on the T1 floor */
 export const t1Table = (project: string, lang: string): string => `T1-${project === 'kiosk' ? 'K' : 'L'}-${lang.toUpperCase()}`;
 
@@ -108,6 +113,8 @@ export type T1Request =
   | { kind: 'jobs'; since: number }
   | { kind: 'now' }
   | { kind: 'advance'; ms: number }
+  /** the events of an order's stream and the stock events naming one of its lines (row #26 DC-1 read-back) */
+  | { kind: 'orderEvents'; order_id: string }
   /** an open seating on `table_id` held by `holder` (the 02b fixture's TableOpened), for a dine-in set-up */
   | { kind: 'seat'; table_id: string; seating_id: string; holder: string }
   /** the station's unfired live lines get a real FireDispatched (the fixed clock has no fires tick); `except` stay held */
@@ -161,6 +168,15 @@ export function startT1Driver(hub: TestHub, base: string): () => void {
       case 'advance':
         hub.clock.advance(req.ms);
         return { now: hub.clock.branchNow() };
+      case 'orderEvents': {
+        const rows = hub.deps.db
+          .prepare(
+            `SELECT seq, stream_type, event_type, payload FROM events
+              WHERE stream_id = @o OR (stream_type = 'stock' AND payload LIKE '%' || @o || '%') ORDER BY seq`,
+          )
+          .all({ o: req.order_id }) as Array<{ seq: number; stream_type: string; event_type: string; payload: string }>;
+        return { events: rows.map((r) => ({ seq: r.seq, stream_type: r.stream_type, event_type: r.event_type, payload: JSON.parse(r.payload) as unknown })) };
+      }
       case 'seat':
         openSeating(hub, { table_id: req.table_id, seating_id: req.seating_id, holder_staff_id: req.holder });
         return { ok: true };

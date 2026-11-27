@@ -80,7 +80,7 @@ export interface Devices03 {
   [name: string]: { token: string; device_id: string };
 }
 
-export async function seed03(hub: TestHub): Promise<{ printer: FakeLanPrinter; devices: Devices03 }> {
+export async function seed03(hub: TestHub, o: { orders?: boolean } = {}): Promise<{ printer: FakeLanPrinter; devices: Devices03 }> {
   const devices: Devices03 = {};
   const printer = await fakeLanPrinter();
   hubEvent(hub, 'PrinterSaved', { printer_id: printerId, name: 'Kitchen printer', connection: 'lan', address: printer.address, paper_width_mm: 80, archived: false });
@@ -111,6 +111,8 @@ export async function seed03(hub: TestHub): Promise<{ printer: FakeLanPrinter; d
           appendDeviceProfile(hub, t.deviceId, { access: 'everyone', screens: ['pass'], point_id });
           devices[`passTo:${key}`] = { token: t.token, device_id: t.deviceId };
         }
+        // L-E2E-T1 day close (playwright.dayclose.config.ts): no seeded orders, so the day can close
+        if (o.orders === false) continue;
         const lines = LINES_03.map((l) => ({ order_item_id: lineId(key, l.n), item_id: itemId(key, l.n), quantity: l.units }));
         const pickup = flow === 'tkpass' ? { pickup_at_ms: hub.clock.branchNow() + TK_PICKUP_AFTER_MS } : {};
         appendOrder(hub, { order_type: 'takeaway', order_id: `O3-${key}`, placed_by: 'S_ALI', lines, ...pickup });

@@ -410,9 +410,14 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   });
   for (const zone of ["Z-FL-G", "Z-FL-R"])
     setZoneStock(hub, zone, FX.zoneItem, 500);
-  seedOfflineTables(hub);
-  dlSeedTables(hub);
-  const { printer, devices: devices03 } = await seed03(hub);
+  // L-E2E-T1 day close (playwright.dayclose.config.ts, POS_E2E_DAYCLOSE=1): a hub of its own with no seeded orders or
+  // seatings, so a journey can close the business day without carrying the other flows' orders over
+  const dayClose = process.env["POS_E2E_DAYCLOSE"] === "1";
+  if (!dayClose) {
+    seedOfflineTables(hub);
+    dlSeedTables(hub);
+  }
+  const { printer, devices: devices03 } = await seed03(hub, { orders: !dayClose });
   // L-E2E-T1: the dry-run journeys' Pass tablets and the Manager's phone; bills, receipts and token slips print on the
   // fake LAN printer (03c §3.2 bill route `default`), so a journey reads the paper back (t1-support `printJobs`)
   const devicesT1 = seedT1(hub);

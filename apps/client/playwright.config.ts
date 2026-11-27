@@ -9,6 +9,8 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  // L-E2E-T1: the day close journey runs on a hub of its own (playwright.dayclose.config.ts)
+  testIgnore: ['**/t1-dayclose.spec.ts'],
   // traces and screenshots outside the repo (nothing to ignore or commit)
   outputDir: join(tmpdir(), 'pos-client-e2e-results'),
   globalSetup: './e2e/global-setup.ts',
