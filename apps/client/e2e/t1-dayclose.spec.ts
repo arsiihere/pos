@@ -144,48 +144,66 @@ for (const lang of LANGS) {
 }
 
 // ⚠️ 02b-TK L-CLIENT-5 item 3 (02b v1.0.25 §3.3 Day close: a carried order "is shown under the next day with its date
-// beside its token" ("57 · 6 Nov"); §6.16 `from_date`; ruling DC-2): a takeaway the manager carries over (05 §6.24
-// CarryOverOrders, unpaid) survives the close; on the next business day (the hub clock a day on, OpenBusinessDay) the
-// counter's queue row and token view show "<token> · <date>". (DC-2's paid-not-handed-over carry is a hub rule not yet
-// built: a billed order still leaves at the close, so the carried order here is an unpaid one.)
+// beside its token" ("57 · 6 Nov"); §6.16 `from_date`; ruling DC-2): a PAID pickup not yet handed over stays open across
+// the close (DC-2, hub #545); on the next business day (the hub clock a day on, OpenBusinessDay) the counter's queue row
+// and token view show "<token> · <date>". On the day-close hub of playwright.dayclose.config.ts: its clock is pinned
+// before the day's end (global-setup) and day_min_gap_hours is 0, so the day closes at once; the pickup is taken inside
+// eta-preview's pickup_bounds. One language per run (POS_E2E_DAYCLOSE_LANG).
 for (const lang of LANGS) {
   test(`[02b-TK L-CLIENT-5 item 3] a carried token shows its date beside the number on the next day (${lang})`, async ({ browser, request }, info) => {
     test.setTimeout(180_000);
-    await hubAdvance(DAY_MIN_GAP_MS + 60_000);
-    const api = await apiSession(request, 'S_OWNER');
+    const KARAHI = t1Held(t1Key('close', 'kiosk', lang));
+    let api = await apiSession(request, 'S_OWNER');
     let cash: Awaited<ReturnType<typeof screen>> | null = null;
     try {
+      // a paid pickup inside the hub's bounds, paid in full at the counter (API): DC-2 keeps it open at the close
       const order_id = runId(`L5-CARRY-${lang}`);
-      const placed = await api.command('SubmitOrder', { order_id, order_type: 'takeaway', lines: [{ order_item_id: `${order_id}-K`, item_id: KARAHI.item_id, quantity: 1 }] });
+      const lines = [{ key: 'K', item_id: KARAHI.item_id, quantity: 1 }];
+      const preview = await api.query<{ pickup_bounds: { earliest_ms: number; latest_ms: number } | null }>(`eta-preview?draft=${encodeURIComponent(JSON.stringify({ order_type: 'takeaway', lines }))}`);
+      const bounds = preview.pickup_bounds!;
+      expect(bounds.earliest_ms, 'the open day has time left for a pickup').toBeLessThanOrEqual(bounds.latest_ms);
+      const pickup_at_ms = Math.min(Math.max((await hubNow()) + PICKUP_AHEAD_MS, bounds.earliest_ms), bounds.latest_ms);
+      const placed = await api.command('SubmitOrder', { order_id, order_type: 'takeaway', pickup_at_ms, lines: [{ order_item_id: `${order_id}-K`, item_id: KARAHI.item_id, quantity: 1 }] });
       expect(placed.status, JSON.stringify(placed.body.error)).toBe(200);
+      const shiftOpened = await api.command('OpenShift', { float_minor: 0, as_drawer: false });
+      const shift_id = (shiftOpened.status === 200 ? (shiftOpened.body.data?.result as { shift_id?: string } | undefined)?.shift_id : undefined) ??
+        (await api.query<{ shift: { shift_id: string } | null } & { shift_id?: string }>('shift').then((x) => x.shift?.shift_id ?? x.shift_id));
+      const bill = await api.query<{ splits: Array<{ split_no: number; balance_minor: number }> }>(`bill?order_id=${order_id}`);
+      const due = bill.splits[0]!.balance_minor;
+      const paid = await api.command('AddPayment', { bill_ref: { order_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: due, tendered_minor: due });
+      expect(paid.status, JSON.stringify(paid.body.error)).toBe(200);
+      const closedSplit = await api.command('CloseSplit', { bill_ref: { order_id }, split_no: 1, expected_total_minor: due });
+      expect(closedSplit.status, JSON.stringify(closedSplit.body.error)).toBe(200);
       const open = (await api.query<{ orders: Array<{ order_id: string; token: number; business_date: string; bill: { state: string } | null }> }>('open-orders?order_type=takeaway')).orders;
       const row = open.find((o) => o.order_id === order_id)!;
-      // every unbilled order is carried (an earlier run's carried token too: 05's close guard refuses unbilled orders)
+      expect(row.bill).toMatchObject({ state: 'paid' });
+      // 05's close guard refuses unbilled orders: an earlier run's leftovers are carried
       const unbilled = open.filter((o) => o.bill?.state !== 'paid').map((o) => o.order_id);
-      const carried = await api.command('CarryOverOrders', { order_ids: unbilled, reason_code: 'customer_will_pay_later' });
-      expect(carried.status, JSON.stringify(carried.body.error)).toBe(200);
-      const shift = await api.query<{ shift: { shift_id: string } | null } & { shift_id?: string }>('shift').catch(() => null);
-      const shift_id = shift?.shift?.shift_id ?? shift?.shift_id;
+      if (unbilled.length > 0) expect((await api.command('CarryOverOrders', { order_ids: unbilled, reason_code: 'customer_will_pay_later' })).status).toBe(200);
       if (shift_id !== undefined) await api.command('CloseShift', { shift_id, skip_count: true, note: 'e2e: count skipped' });
       const closed = await api.command('CloseBusinessDay', {});
       expect(closed.status, JSON.stringify(closed.body.error)).toBe(200);
+      // the next calendar day: a new business date; the paid pickup is still open with its from_date (DC-2)
+      await nextDay(request);
       await api.close().catch(() => undefined);
-      // the next calendar day: a new business date
-      await hubAdvance(24 * 3_600_000);
-      expect((await adminCommand(request, 'open-business-day', 'OpenBusinessDay', {})).status).toBe(200);
-      await adminCommand(request, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'K1', on_hand: 1_000_000 }] }).catch(() => undefined);
+      api = await apiSession(request, 'S_OWNER');
+      const next = (await api.query<{ orders: Array<{ order_id: string; from_date: string | null }> }>('open-orders?order_type=takeaway')).orders;
+      expect(next.find((o) => o.order_id === order_id)).toMatchObject({ from_date: row.business_date });
 
       cash = await screen(browser, { width: 1920, height: 1080 });
       const page = cash.page;
       await rushOff(page);
       await signInOn(page, hub().kiosk, lang, 'Owner');
-      await shiftOpen(page, lang);
       await takeawayTab(page);
       const token = String(row.token);
       const [, m, d] = row.business_date.split('-').map(Number);
       const label = `${token} · ${d} ${tr(lang, 'alerts.months').split(',')[m! - 1]}`;
-      const entry = await queueEntry(page, token);
-      await expect(entry.locator('[data-carried]')).toHaveText(label);
+      // DC-2: a new day's tokens start again at 1, so two entries can read the same number; the carried one has the date
+      await expect(async () => {
+        await queueEntry(page, token);
+        await expect(page.locator('[data-carried]', { hasText: label }).first()).toBeVisible({ timeout: 2_000 });
+      }).toPass({ timeout: 20_000 });
+      const entry = page.locator('[data-token]', { has: page.locator('[data-carried]', { hasText: label }) }).first();
       await entry.scrollIntoViewIfNeeded();
       await capture(page, info, `CarriedToken-row-${lang}`, entry);
       await entry.click();
@@ -194,7 +212,6 @@ for (const lang of LANGS) {
     } finally {
       await api.close().catch(() => undefined);
       if (cash !== null) await closeAll(info, lang, cash);
-      await adminCommand(request, 'open-business-day', 'OpenBusinessDay', {}).catch(() => undefined);
     }
   });
 }
