@@ -12,7 +12,12 @@ import { fallbackScreens, tabsOf } from './shell/screens';
 
 // 02b-TK C2-1: the kiosk lands on #/takeaway, now the takeaway order screen; these tests are about the shell, so
 // it is a probe
-vi.mock('./orders/takeaway/TakeawayHome', () => ({ TakeawayHome: () => <div data-probe="takeaway-home" /> }));
+vi.mock('./orders/takeaway/TakeawayHome', async () => {
+  const { useShell } = await import('./shell/hooks');
+  // BUG-12: the probe says whether the shell's live bus still holds an `orders` catch-up part
+  const TakeawayHome = () => <div data-probe="takeaway-home" data-orders={String(useShell().live.part('orders') !== undefined)} />;
+  return { TakeawayHome };
+});
 
 // 05a §3.6, §8, C-1: the staff shell's tabs come from the device profile (`GET /queries/session` `device.screens`,
 // the `device_profile` push), the permissions after the mask decide what is hidden, and width only picks the layout.
@@ -279,6 +284,27 @@ describe('[05a §3.6, §8, C-1] shell tabs from the device screens', () => {
     expect(fallbackScreens('cashier_kiosk', false)).toEqual(['takeaway', 'parking', 'dine_in', 'cashier', 'manager']);
     expect(fallbackScreens('tablet', true)).toEqual(['pass', 'dine_in', 'takeaway', 'parking', 'cashier', 'manager']);
     expect(fallbackScreens('phone', false)).toEqual(['dine_in', 'takeaway', 'parking', 'manager']);
+  });
+});
+
+// BUG-12 (QA, kiosk): when the hub ends the session (00 HPA M46 / M95 idle; the socket closes 4401 with the end
+// reason) the page signs out at once and says so on the sign-in screen; the takeaway screen is gone, not left showing.
+describe('[BUG-12; 00 HPA §6.21, M46; 02b §8] the hub ends the session', () => {
+  it('4401 idle_timeout → the sign-in tiles with "You were signed out", no takeaway screen; the next sign-in clears it', async () => {
+    render(KIOSK, hub({ profile: () => ({ screens: ['takeaway', 'cashier'], access: 'everyone' }), permissions: () => ({ 'take-order': ALLOWED, 'take-payment': ALLOWED }) }).fetch);
+    await signIn();
+    sockets.at(-1)!.frame({ type: 'catch_up', as_of_seq: 5, state: { orders: { orders: [], zone_stock: [] } } });
+    await flush(2);
+    expect(m.container.querySelector('[data-probe="takeaway-home"]')?.getAttribute('data-orders')).toBe('true');
+    act(() => sockets.at(-1)!.onclose?.({ code: 4401, reason: 'idle_timeout' }));
+    await flush(4);
+    expect(m.container.querySelector('[data-probe="takeaway-home"]')).toBeNull();
+    expect(m.button('Imran')).toBeTruthy();
+    expect(m.container.querySelector('[data-signed-out]')?.textContent).toContain('You were signed out');
+    await signIn();
+    expect(m.container.querySelector('[data-signed-out]')).toBeNull();
+    // the last person's catch-up is gone: the screen waits for this person's own
+    expect(m.container.querySelector('[data-probe="takeaway-home"]')?.getAttribute('data-orders')).toBe('false');
   });
 });
 
