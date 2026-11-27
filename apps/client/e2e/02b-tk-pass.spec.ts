@@ -5,7 +5,8 @@ import { hub, LANGS, pairAs, runKey, signInOn, signInPass, signOut, tr } from '.
 // PackerPass, HandoverUndo): the Pass tablet of the run's own point ('tkpass', 03b-fixture.ts) holds a takeaway order
 // with a pickup time, three lines at a screenless station.
 //   item 1: the card shows the pickup time; Cook (run-pass only) has no "Handed to customer"; Pervez (the Pass role:
-//           run-pass + mark-served) sees it greyed, "Waiting for the bill" (the hub's open-orders has no `bill` yet).
+//           run-pass + mark-served) sees it greyed: the order is unpaid, so since B2-1 (open-orders `bill`) the card
+//           reads "Due — customer pays at counter" and "Take payment first".
 //   item 2: Pervez cooks the three lines and taps Bag ready → the hub's order-level counter alert reaches Ali at the
 //           kiosk as the counter card ("Bag ready — hand over at the counter", #token); past the R8 window (the page's
 //           clock fast-forwarded; the hub's ready_window_ms is 60 s) the Pass card is amber "Ready {n} min ago — not
@@ -54,7 +55,9 @@ for (const lang of LANGS) {
       await expect(button).toBeVisible();
       await expect(button).toHaveText(tr(lang, 'pass.handed_to_customer'));
       await expect(button).toBeDisabled();
-      await expect(card.locator('.pc__hint')).toHaveText(tr(lang, 'pass.waiting_bill'));
+      // 03b v1.0.16 §3.4 Bill freshness: the hub now sends the row's `bill` (B2-1); this takeaway is unpaid → Due
+      await expect(card.locator('.pc__due')).toHaveText(tr(lang, 'pass.due'));
+      await expect(card.locator('.pc__hint')).toHaveText(tr(lang, 'pass.take_payment_first'));
       await capture(page, info, `PackerPass-pickup-${info.project.name}-${lang}`, card);
     } finally {
       await signOut(page, info, lang);
@@ -88,7 +91,9 @@ for (const lang of LANGS) {
         await row.locator('.btn--done').click();
         // a Done this soon after Start asks again ("Done already? …"); the second tap confirms
         const undo = row.locator('.btn--undo');
-        await expect(undo.or(card.locator('.pc__msg:not(.pc__hint)'))).toBeVisible();
+        // the Done-confirm prompt only: since B2-1 sends `bill`, a Due takeaway also shows "Due — customer pays at counter"
+        // (.pc__msg.pc__due), and the amber line is a .pc__msg too; matching those made the locator hit two elements
+        await expect(undo.or(card.locator('.pc__msg:not(.pc__hint):not(.pc__due):not(.pc__late)'))).toBeVisible();
         if (!(await undo.isVisible())) await row.locator('.btn--done').click();
         await expect(undo).toBeVisible();
       }
