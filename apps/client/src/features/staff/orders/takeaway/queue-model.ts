@@ -49,6 +49,8 @@ export interface QueueToken {
    */
   pickup_at_ms?: number | null;
   effective_pickup_at_ms?: number | null;
+  /** ⚠️ 02b-TK L-CLIENT-5 item 2 (02b v1.0.25 §6.6, §8; D1): the token's orders still waiting for their pickup (not boosted) */
+  pickup_order_ids?: string[];
 }
 
 /** A token's billing facts per order; a token built without them reads paid only when the book says so. */
@@ -140,6 +142,7 @@ export function buildQueue(orders: readonly KnownOrder[], nowMs = -Infinity): Qu
       })),
       pickup_at_ms: latest(sorted.map((o) => o.row.pickup_at_ms)),
       effective_pickup_at_ms: latest(sorted.map((o) => o.row.effective_pickup_at_ms)),
+      pickup_order_ids: sorted.filter((o) => o.row.effective_pickup_at_ms != null).map((o) => o.row.order_id),
     });
   }
   const byPromise = (a: QueueToken, b: QueueToken) => (a.promise_ms ?? Infinity) - (b.promise_ms ?? Infinity) || a.placed_at - b.placed_at;

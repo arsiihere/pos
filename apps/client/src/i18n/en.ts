@@ -4487,6 +4487,9 @@ export const en = {
   'c.pick_err.other_day': 'That time is on another business day — pick a time today',
   'c.pick_err.no_time_left': 'No pickup time is left today — choose Now, or close the day first',
   'queue.why.PICKUP_TIME_INVALID': 'the pickup time was not possible',
+  // ---- 02b-TK L-CLIENT-5 item 2 (02b v1.0.25 §6.6, §8 02b-R4-3; 03a v1.2.11 PK-5; D1): Customer is here on a pickup token (BoostOrder) ----
+  'v.here': 'Customer is here — cook now',
+  'v.here_done': 'The kitchen cooks it now',
 } as const;
 
 export type MessageKey = keyof typeof en;
