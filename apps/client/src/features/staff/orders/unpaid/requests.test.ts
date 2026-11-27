@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { HubResult } from '../../../../api/hub-admin';
 import { createLiveBus } from '../../shell/live';
+import { statusOf } from './AskManager';
 import { createUnpaidRequests } from './requests';
 
 // 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a Ask / Approve / Reject, §6.4a RequestUnpaidHandover, §6.19
@@ -37,12 +38,12 @@ describe('RequestUnpaidHandover results (§6.4a)', () => {
     const { store } = setup(command);
     expect(await store.ask('O1', 900)).toEqual({ kind: 'waiting', mine: true });
     expect(command).toHaveBeenCalledWith('RequestUnpaidHandover', { order_id: 'O1' });
-    expect(store.stateOf('O1')).toEqual({ kind: 'waiting', alert_id: 'AL1', mine: true });
+    expect(store.stateOf('O1')).toEqual({ kind: 'waiting', alert_id: 'AL1', mine: true, ask_in_person: false });
   });
   it("another person's open request → waiting, not mine (no Withdraw)", async () => {
     const { store } = setup(async () => ok({ alert_id: 'AL1', is_requester: false }));
     expect(await store.ask('O1', 900)).toEqual({ kind: 'waiting', mine: false });
-    expect(store.stateOf('O1')).toEqual({ kind: 'waiting', alert_id: 'AL1', mine: false });
+    expect(store.stateOf('O1')).toEqual({ kind: 'waiting', alert_id: 'AL1', mine: false, ask_in_person: false });
   });
   it('{ needed: false } → nothing to ask, no card', async () => {
     const { store } = setup(async () => ok({ needed: false }));
@@ -108,6 +109,24 @@ describe('frames (§6.19) and the requester result (01d my-requests)', () => {
     expect(store.stateOf('O1')).toEqual({ kind: 'rejected', alert_id: 'AL1' });
     expect(store.stateOf('O2')).toBeNull();
   });
+  // ⚠️ 01d v1.3.7 To 02b R3-M-3 (build wording, 2026-11-27: one string per state): "Waiting for a manager…" from the first
+  // own-pending response; "Waiting — find a manager" only once my-requests says ask_in_person
+  it('[01d R3-M-3] my own pending ask reads my-requests once; ask_in_person follows the row (false → true on a later read)', async () => {
+    const rows: unknown[] = [myRow('AL1', 'pending')];
+    const { store, query, setRequests } = setup(async () => ok({ alert_id: 'AL1', is_requester: true }), rows);
+    await store.ask('O1', 900);
+    await vi.waitFor(() => expect(query).toHaveBeenCalledWith('/queries/my-requests'));
+    expect(store.stateOf('O1')).toMatchObject({ kind: 'waiting', mine: true, ask_in_person: false });
+    setRequests([{ ...myRow('AL1', 'pending'), ask_in_person: true }]);
+    await store.resultSeen();
+    expect(store.stateOf('O1')).toMatchObject({ kind: 'waiting', mine: true, ask_in_person: true });
+  });
+  it("[01d R3-M-3] another person's request reads no my-requests (not mine)", async () => {
+    const { store, query } = setup(async () => ok({ alert_id: 'AL1', is_requester: false }));
+    await store.ask('O1', 900);
+    await Promise.resolve();
+    expect(query).not.toHaveBeenCalled();
+  });
   it('still pending in my-requests → still waiting', async () => {
     const rows: unknown[] = [];
     const { store, setRequests } = setup(async () => ok({ alert_id: 'AL1', is_requester: true }), rows);
@@ -125,7 +144,7 @@ describe('frames (§6.19) and the requester result (01d my-requests)', () => {
     setRequests([myRow('AL1', 'rejected')]);
     await store.resultSeen();
     expect(await store.ask('O1', 900)).toEqual({ kind: 'waiting', mine: true });
-    expect(store.stateOf('O1')).toEqual({ kind: 'waiting', alert_id: 'AL9', mine: true });
+    expect(store.stateOf('O1')).toEqual({ kind: 'waiting', alert_id: 'AL9', mine: true, ask_in_person: false });
   });
   it('Withdraw sends 01d WithdrawRequest by its alert id and drops the card (also on REQUEST_NOT_PENDING)', async () => {
     const command = vi.fn<Cmd>(async (type) => (type === 'WithdrawRequest' ? { ok: false, error: { kind: 'api', status: 409, code: 'REQUEST_NOT_PENDING', details: {} } } : ok({ alert_id: 'AL1', is_requester: true })));
@@ -144,5 +163,15 @@ describe('frames (§6.19) and the requester result (01d my-requests)', () => {
     // a hub without the field changes nothing
     store.seed([{ order_id: 'O1', bill: { state: 'due', due_minor: 700 } }]);
     expect(store.approvedDue('O1')).toBeUndefined();
+  });
+});
+
+describe('[01d v1.3.7 To 02b R3-M-3; 02b §3.7a] the requester card: one string per state', () => {
+  it('mine → "Waiting for a manager…"; mine + ask_in_person → only "Waiting — find a manager"; another\'s → "Already waiting for a manager"; rejected → "Manager said no"', () => {
+    expect(statusOf({ kind: 'waiting', alert_id: 'A', mine: true, ask_in_person: false })).toEqual({ text: 'Waiting for a manager…', sub: null });
+    expect(statusOf({ kind: 'waiting', alert_id: 'A', mine: true, ask_in_person: true })).toEqual({ text: 'Waiting — find a manager', sub: null });
+    expect(statusOf({ kind: 'waiting', alert_id: 'A', mine: false, ask_in_person: false })).toEqual({ text: 'Already waiting for a manager', sub: null });
+    expect(statusOf({ kind: 'rejected', alert_id: 'A' })?.text).toBe('Manager said no');
+    expect(statusOf(null)).toBeNull();
   });
 });

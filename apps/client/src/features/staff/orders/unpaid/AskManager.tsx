@@ -28,11 +28,14 @@ export interface AskManagerProps {
   onChanged?: (() => void) | undefined;
 }
 
-function statusOf(s: AskState | null): { text: string; sub: string | null } | null {
+/** The card's text, one string per state (01d v1.3.7 To 02b R3-M-3; 02b §3.7a). Pure. */
+export function statusOf(s: AskState | null): { text: string; sub: string | null } | null {
   if (s === null) return null;
   if (s.kind === 'rejected') return { text: t('pass.manager_rejected'), sub: null };
-  // owner 2026-11-27: 02b §3.7a wording only — "Waiting for a manager…" (mine), "Already waiting for a manager" (another's)
-  return s.mine ? { text: t('pass.waiting_manager'), sub: null } : { text: t('unpaid.already_waiting'), sub: null };
+  // mine: "Waiting for a manager…", or only "Waiting — find a manager" once my-requests says ask_in_person (01d
+  // request.find_approver, §6.8); another person's request: "Already waiting for a manager" (02b §3.7a)
+  if (!s.mine) return { text: t('unpaid.already_waiting'), sub: null };
+  return { text: t(s.ask_in_person ? 'request.find_approver' : 'pass.waiting_manager'), sub: null };
 }
 
 export function AskManager({ order_id, due_minor, ident, variant, onChanged }: AskManagerProps) {
