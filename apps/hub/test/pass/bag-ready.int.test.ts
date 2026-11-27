@@ -577,3 +577,32 @@ describe('[03b #102 #103] counter invalidation by a return and re-arm by an exte
     expect(epoch(order_id)).toMatchObject({ alert_id: all.at(-1)!.alert_id });
   });
 });
+
+// ---- 02b-tk L-CLOSE-3: 03b v1.0.16 test 103 "Undo-rest" (§6.6 Undo after an extending press; R3-B-3) ---------------
+
+describe('[03b #103] Undo-rest after an extending press', () => {
+  it('Undo of the extending press keeps the point remainder Ready (a new alert for the rest) but closes the counter alert and clears the epoch: the added line is uncovered again', async () => {
+    const { p1 } = await start();
+    const order_id = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'A1', item_id: FX.naan }, { order_item_id: 'A2', item_id: FX.naan }] }).order_id;
+    cook(order_id, ['A1']);
+    cook(order_id, ['A2'], { done: false });
+    // the first press: A1 only (A2 still cooking) → a point Ready, no counter alert (the bag is incomplete)
+    expect((await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1', order_item_ids: ['A1'] })).status).toBe(200);
+    expect(counterAlerts(order_id)).toEqual([]);
+    // A2 done; the extending press adds it → the bag is complete: one counter alert and an epoch
+    append(hub, [on(order_id, 'ItemDone', { order_item_id: 'A2', done_at: hub.clock.branchNow(), source: 'tap' })]);
+    expect((await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' })).status).toBe(200);
+    const [counter] = counterAlerts(order_id);
+    expect(counter).toMatchObject({ state: 'open' });
+    expect(epoch(order_id)).toBeDefined();
+    // Undo-rest: the extending press is taken back; A1 stays Ready at the point (a new alert for the rest)
+    const undo = await send(p1, 'UndoReadyToServe', { order_id, point_id: 'P1' });
+    expect(undo.status, JSON.stringify(undo.error)).toBe(200);
+    const members = hub.deps.db.prepare("SELECT order_item_id FROM pass_ready_lines WHERE order_id = ? AND point_id = 'P1' AND settled_at IS NULL ORDER BY order_item_id").pluck().all(order_id);
+    expect(members).toEqual(['A1']);
+    expect(hub.deps.db.prepare("SELECT ready_alert_id IS NOT NULL AS open FROM pass_orders WHERE order_id = ? AND point_id = 'P1'").get(order_id)).toEqual({ open: 1 });
+    // A2 is done but in no Ready: the counter clock stops
+    expect(counterAlerts(order_id)[0]).toMatchObject({ state: 'closed', close_reason: 'obsolete' });
+    expect(epoch(order_id)).toBeUndefined();
+  });
+});
