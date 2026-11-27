@@ -16,6 +16,7 @@ import { registerCloseSplit } from './commands/close-split.js'; // task 17
 import { registerOpenShift } from './commands/open-shift.js';
 import { registerOpenCashDrawer } from './commands/open-cash-drawer.js'; // task 23
 import { registerPrintCartCheckBill } from './commands/print-cart-check-bill.js';
+import { registerOpenOrderBillChanged } from './lanes/open-order-bill.js';
 import { registerPrintCheckBill } from './commands/print-check-bill.js';
 import { registerPrintDocs } from './commands/print-docs.js'; // task 27
 import { registerPrintReport } from './commands/print-report.js'; // task 27b
@@ -123,6 +124,8 @@ export function registerBilling(app: FastifyInstance, deps: HubDeps): void {
   registerDayCloseGuard(billingDayCloseGuard);
   // the appender: AlertClosed for 05 + 02b comp requests, then ZReportIssued (before 03a's releases and BusinessDayClosed)
   registerDayCloseAppender(billingDayCloseAppender);
+  // ⚠️ 02b v1.0.25 §6.19 (run 3 R3-M-8; L-BILL-2): the batched OpenOrderBillChanged after a money change, before commit
+  registerOpenOrderBillChanged(deps.writer);
   // task 33 (§6.30, row T-4, R-30 / G-30): the table-tile marks reader, before listen (buildHubServer runs before it)
   registerTileMarks(billTileMarks);
   app.addHook('onClose', async () => {

@@ -587,7 +587,10 @@ describe('[05 #37i fold half] BillReopened.mode → bills.reopen_mode', () => {
     append(sale({ invoice_id: 'I1', bill_id: 'B1', split_no: 1, number: 1, payment_ids: [], discount_line_ids: ['L1'] }));
     expect(bill('B1')).toMatchObject({ state: 'closed' });
     const sql = sqlDuring(() => append(d(aBillReopened(), { bill_id: 'B1', mode: 'corrections' })));
-    expect(sql.filter((s) => /seatings|seating_tables|seating_orders|orders\b|order_lines/.test(s.replace(/bill_orders/g, '')))).toEqual([]);
+    // the fold's SQL only: 02b §6.19's before-commit hook (billing/lanes/open-order-bill.ts) does its own one
+    // affected-order read after the folds (owner 2026-11-27)
+    const fold = sql.filter((s) => !s.includes('unpaid_handover_approved_at'));
+    expect(fold.filter((s) => /seatings|seating_tables|seating_orders|orders\b|order_lines/.test(s.replace(/bill_orders/g, '')))).toEqual([]);
     expect(bill('B1')).toMatchObject({ reopen_mode: 'corrections', reopen_count: 1, state: 'open' });
     // corrections: the bill is in neither live index, so a newer open bill on the same seating inserts (#37f)
     append(opened('B2', S1));
