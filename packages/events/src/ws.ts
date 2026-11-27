@@ -86,6 +86,9 @@ export const StationPlanLine = z.object({
   // ⚠️ 03a v1.2.10 §3.5.7 PR-8 (STAB-7): on a priority line only (additive): since_ms = priority_at, minutes_late =
   // max(0, ceil((the group's estimate at now − T) / 60 000)).
   priority: LinePrioritySchema.optional(),
+  // ⚠️ 03b v1.0.17 §3.3 (owner 2026-11-28, QA BUG-25): the engine-planned ready time (the line's group target); the
+  // KDS calls a line late only after it. Additive; absent from an older hub.
+  planned_ready_ms: z.number().int().nullable().optional(),
 });
 export type StationPlanLine = z.infer<typeof StationPlanLine>;
 
@@ -213,6 +216,8 @@ export const KdsStationBody = z.object({
       // ⚠️ 03b v1.0.13 §3.3 (STAB-6, STAB-7): the stationView line's load_id and priority; additive, absent = null
       load_id: Id.nullable().optional(),
       priority: LinePrioritySchema.nullable().optional(),
+      // ⚠️ 03b v1.0.17 §3.3 (owner 2026-11-28, QA BUG-25): the stationView line's planned_ready_ms; additive
+      planned_ready_ms: z.number().int().nullable().optional(),
     }),
   ),
   details: z.array(LineDetailSchema),

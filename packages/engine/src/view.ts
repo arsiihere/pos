@@ -52,7 +52,17 @@ function unfiredAt(state: EngineState, station: StationRuntime, now: number): Ar
 export type ViewLine = Pick<
   EngineLine,
   'order_item_id' | 'order_id' | 'group_id' | 'serve_mode' | 'units' | 'stage' | 'fire_ms' | 'deadline_ms' | 'fired_at' | 'started_at' | 'mark' | 'return_of' | 'load_id'
-> & { live: Interval | null; priority?: LinePriority };
+> & {
+  live: Interval | null;
+  priority?: LinePriority;
+  /** ⚠️ 03b v1.0.17 §3.3 (owner 2026-11-28, QA BUG-25): the engine-planned ready time, the line's group T; null = none */
+  planned_ready_ms: number | null;
+};
+
+// 03b v1.0.17 §3.3 (owner 2026-11-28): a line's engine-planned ready time = its group's target (the time the cart showed).
+export function plannedReadyOf(state: EngineState, line: Pick<EngineLine, 'order_id' | 'group_id'>): number | null {
+  return state.orders[line.order_id]?.groups[line.group_id]?.target_land_ms ?? null;
+}
 
 export interface StationViewBody {
   now: ViewLine[];
@@ -78,6 +88,7 @@ function viewLine(state: EngineState, line: EngineLine, now: number, memo?: Map<
     load_id: line.load_id,
     live: liveInterval(state, line.order_item_id, now),
     ...(priority === undefined ? {} : { priority }),
+    planned_ready_ms: plannedReadyOf(state, line),
   };
 }
 
@@ -134,6 +145,7 @@ export function stationPlan(state: EngineState, station_id: string, now: number)
         frozen,
         load_id: line.load_id, // ⚠️ 03b v1.0.13 §3.3 (STAB-6, To 03b #9): the round of a batch line
         ...(priority === undefined ? {} : { priority }),
+        planned_ready_ms: plannedReadyOf(state, line), // ⚠️ 03b v1.0.17 §3.3 (owner 2026-11-28, QA BUG-25)
       };
     }),
   };

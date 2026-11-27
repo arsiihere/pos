@@ -44,6 +44,23 @@ describe('[03b #71] line timer', () => {
     expect(timerOf(cooking, D, Date.now()).kind).toBe('cooking');
   });
 
+  // ⚠️ 03b v1.0.17 §3.3 (owner 2026-11-28, QA BUG-25): late only after the engine-planned ready time (the group's T)
+  it('[03b #133, BUG-25] a ready-stock drink (cook 0) fired 12:55, planned ready 12:58: not late at 12:57:59; +1 min at 12:58:01; a cooking line too', () => {
+    const at = (h: number, m: number, s = 0) => Date.UTC(2026, 10, 28, h, m, s);
+    const zero = { cook_ms: 0, prep_ms: 0 } as LineDetail;
+    const drink = row({ fired_at: at(12, 55), detail: zero, planned_ready_ms: at(12, 58) });
+    expect(plannedDoneMs(drink, zero)).toBe(at(12, 58));
+    expect(timerOf(drink, zero, at(12, 57, 59)).kind).toBe('waiting');
+    expect(timerOf(drink, zero, at(12, 58))).toMatchObject({ kind: 'waiting' });
+    expect(timerOf(drink, zero, at(12, 58, 1))).toEqual({ kind: 'late', minutes: 1 });
+    // a cooking line: its fire + prep + cook (12:57) passed, its planned ready 12:59 not yet → still cooking
+    const cooking = row({ stage: 'cooking', fired_at: at(12, 55), started_at: at(12, 55), planned_ready_ms: at(12, 59) });
+    expect(timerOf(cooking, D, at(12, 58)).kind).toBe('cooking');
+    expect(timerOf(cooking, D, at(13, 1))).toEqual({ kind: 'late', minutes: 2 });
+    // an older hub (no planned_ready_ms): fire + prep + cook as before
+    expect(plannedDoneMs(row({ fired_at: at(12, 55) }), zero)).toBe(at(12, 55));
+  });
+
   it('[03b §3.3] cooking m:ss since started_at, waiting m:ss since fired_at, h:mm:ss from an hour, done', () => {
     expect(timerOf(row({ stage: 'cooking', started_at: 1_000, fired_at: 0 }), D, 71_000)).toMatchObject({ kind: 'cooking', elapsed: 70_000 });
     expect(timerOf(row({ fired_at: 1_000 }), D, 11_000)).toMatchObject({ kind: 'waiting', elapsed: 10_000 });
