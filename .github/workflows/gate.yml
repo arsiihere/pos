@@ -113,7 +113,7 @@ jobs:
   # Owner ruling 2026-11-24 #4: browser e2e on every gate run — the takeaway specs plus one smoke spec per screen
   # (sign-in, dine-in map, parking, bill, Pass, kitchen screen, hub admin) and the Tier 1 dry-run journeys (t1-*, minus
   # the @gap rows awaiting another lane's fix), on the kiosk and the landscape tablet in
-  # parallel (~6–8 min each). The full five-project suite stays a local / pre-merge run (docs/plans/e2e-baseline.md).
+  # parallel (~8–9 min each with T1, measured 2026-11-27: kiosk 8.4, tablet 8.1; day close 8 s). The full five-project suite stays a local / pre-merge run (docs/plans/e2e-baseline.md).
   e2e:
     name: e2e (${{ matrix.project }})
     runs-on: ubuntu-24.04
