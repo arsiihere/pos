@@ -51,6 +51,20 @@ export const hubNow = async (): Promise<number> => (await t1Hub<{ now: number }>
 export const hubAdvance = async (ms: number): Promise<number> => (await t1Hub<{ now: number }>({ kind: 'advance', ms })).now;
 
 /** Fires the station's unfired lines (FireDispatched), as the hub's fires tick would once their time comes. */
+/**
+ * ⚠️ 02b-TK L-CLIENT-5 (03a v1.2.11 §3.5.8 PK-1, PK-5): the engine's current plan of an order — its retained pickup, boost
+ * flag, stored promise and each line's planned land (booking end + carry, or fire + prep + cook + carry before a booking).
+ */
+export interface T1Plan {
+  pickup_at_ms: number | null;
+  boosted: boolean;
+  promise_ms: number;
+  lines: Array<{ order_item_id: string; stage: string; land_ms: number | null }>;
+}
+export const hubPlan = async (order_id: string): Promise<T1Plan> => t1Hub<T1Plan>({ kind: 'plan', order_id });
+/** The plan's eta: the latest planned land of the order's lines. */
+export const planEta = (p: T1Plan): number => Math.max(...p.lines.map((l) => l.land_ms ?? -Infinity));
+
 export const hubFire = async (station: string, except: string[] = []): Promise<string[]> => (await t1Hub<{ fired: string[] }>({ kind: 'fire', station, except })).fired;
 
 export interface PrintJob {
