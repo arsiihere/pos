@@ -87,16 +87,16 @@ function expectedPlanned(state: EngineState, order_id: string): number | null {
 }
 
 describe('[02b §6.16 BR-1] open-orders planned_ready_at_ms', () => {
-  it('a pickup takeaway: before the boost the planned customer time is the pickup + padding = the promise (held lines included); after BoostOrder it is earlier than the promise; the stored promise and pickup never change (PK-5)', async () => {
+  it('a pickup takeaway: before the boost the planned customer time is the pickup = the promise (⚠️ 03a v1.2.12, owner 2026-11-28: the kitchen targets pickup − padding; held lines included); after BoostOrder it is earlier than the promise; the stored promise and pickup never change (PK-5)', async () => {
     const pickup = hub.clock.branchNow() + 60 * MIN;
     appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', pickup_at_ms: pickup, lines: [{ order_item_id: 'TA1', item_id: FX.piece }, { order_item_id: 'TA2', item_id: FX.naan }] });
     const before = rowOf(await openOrders(), 'TA');
     expect(before.planned_ready_at_ms).not.toBeNull();
     expect(before.planned_ready_at_ms).toBe(expectedPlanned(engine(), 'TA'));
-    // held for the pickup: the plan lands at the pickup; plus the padding that is the stored promise (not earlier)
+    // held for the pickup: the plan lands at pickup − padding; plus the padding that is the stored promise = the pickup
     expect(before.promise_ms).not.toBeNull();
     expect(before.planned_ready_at_ms).toBe(before.promise_ms);
-    expect(before.planned_ready_at_ms!).toBeGreaterThan(pickup);
+    expect(before.planned_ready_at_ms!).toBe(pickup);
 
     boost('TA');
     const after = rowOf(await openOrders(), 'TA');

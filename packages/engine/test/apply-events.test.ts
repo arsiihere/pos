@@ -217,7 +217,9 @@ describe('[03a AD-28] applyEvents = the per-event fold', () => {
     const run = runDay(generateDay(7, { orders: 200 }));
     // ⚠️ 03a v1.2.10 §3.3 BQ-1, BQ-2 (STAB-6): the day has a batch station (degh), whose hidden loads are now a queue
     // re-placed whole (no re-form, no §3.5.6 search), so its fires and the events moved (was 18f0dd7a…).
-    expect(sha(run.events)).toBe('ee2bb7ad442e1156fd3e0f242c2cd1df6ea3cd6d5ab9a430ff527ac92bae8989');
+    // ⚠️ 03a v1.2.12 (owner 2026-11-28, QA BUG-5): the day's takeaway pickups now target pickup − padding, so their
+    // held lines fire earlier and the events and both state hashes moved (were ee2bb7ad…, 08d2a118…, c74e3b6f…).
+    expect(sha(run.events)).toBe('8ab31b6a9953eae39520257963e3f051142754fd0374cff127a614caab146e7c');
     // Task 18d: the events are the same; the state hash moved only for the two new line fields (with `expedited` and `rounds`
     // stripped it is the old 3a7ed3c2…). 03a v1.2.2 (B2-2): moved again only for `done_undone` (false on every line, the
     // run has no Undo); with it stripped it is the old ad0ddb7f…. ⚠️ 03a v1.2.10 §3.3 (STAB-6/7): v5 moved it for the new
@@ -231,8 +233,8 @@ describe('[03a AD-28] applyEvents = the per-event fold', () => {
       delete rest.from_point_name;
       return [id, rest];
     })) };
-    expect(sha(stripped)).toBe('08d2a11863863b7dc41878625872204a5ebb5679940ce22cb981880d9f476fc4');
-    expect(sha(run.liveState)).toBe('c74e3b6fc266a56b645f7393691a6ee3706096bab887cb830ce98a91f6a108d3');
+    expect(sha(stripped)).toBe('64e97e9b3debf028f2824583a5cad55dcf55d56846077631bcd11073491bfc64');
+    expect(sha(run.liveState)).toBe('079de67ec3a1e818d46a78b7b474c5223e05911d6d1cddc804347e9d1e7df6b0');
   }, 120_000);
 });
 
