@@ -7,6 +7,7 @@ import {
   HAND_OVER_UNPAID_LABELS,
   HandOverUnpaidValues,
   isLive,
+  liveOrdersOfBill,
   readUnpaidOrder,
 } from './commands/request-unpaid-handover.js';
 
@@ -35,19 +36,23 @@ export function applyHandOverUnpaid(ctx: AlertApplyCtx<HandOverUnpaidValues, Han
   if (o === undefined || o.order_type === 'dine_in' || !isLive(o)) return stale();
   const due = dueOf(ctx.tx.db, o);
   if (due <= 0 || due !== v.due_minor) return stale();
-  const payload: UnpaidHandoverApprovedPayload = { order_id: o.order_id, alert_id: ctx.alert.alert_id, approved_by_staff_id: answer.answerer_staff_id, due_minor: due };
-  return [
-    {
+  // ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): the request covers its bill — one approval per order of it still live on the
+  // bill (an older alert without order_ids covers its named order only)
+  const live = new Set(liveOrdersOfBill(ctx.tx.db, o.bill_key).map((b) => b.order_id));
+  const ids = (v.order_ids ?? [v.order_id]).filter((id) => id === o.order_id || live.has(id));
+  return ids.map((order_id): EventDraft => {
+    const payload: UnpaidHandoverApprovedPayload = { order_id, alert_id: ctx.alert.alert_id, approved_by_staff_id: answer.answerer_staff_id, due_minor: due };
+    return {
       stream_type: 'order',
-      stream_id: o.order_id,
+      stream_id: order_id,
       event_type: 'UnpaidHandoverApproved',
       schema_version: 1,
       payload,
       occurred_at: ctx.clock.branchNow(),
       actor_id: ctx.actor.staffId,
       device_id: ctx.actor.deviceId,
-    },
-  ];
+    };
+  });
 }
 type HandOverUnpaidDetails = typeof HandOverUnpaidDetails._output;
 

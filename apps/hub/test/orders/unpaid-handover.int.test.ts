@@ -93,9 +93,10 @@ describe('[02b #85, 01d #122] RequestUnpaidHandover raises one urgent v6 request
       family: 'urgent',
       subject_stream_type: 'order',
       subject_stream_id: order_id,
-      dedupe_key: `hand_over_unpaid:${order_id}`,
+      // ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): one request per bill
+      dedupe_key: expect.stringMatching(/^hand_over_unpaid:bill:/),
       requester_staff_id: 'S_ALI',
-      values: { order_id, token: 1, due_minor: naanPrice() },
+      values: { order_id, token: 1, due_minor: naanPrice(), order_ids: [order_id] },
       details: { identifier: '#1', amount: naanPrice() },
       display: { kind_label_key: 'alert.hand_over_unpaid.lock' },
       request: { right_mode: 'holders', base_permission: 'hand-over-unpaid', needs_pin: 'always' },
@@ -154,21 +155,33 @@ function openSeatingForDineIn(): void {
 }
 
 describe('[02b #87, #88, 05a #52] answer', () => {
-  it('a Manager on a listed phone approves with PIN → UnpaidHandoverApproved for that order only; the requester gets request_result; open-orders shows it', async () => {
+  it('[02b v1.0.26 owner 2026-11-28 Q9] a Manager on a listed phone approves with PIN → UnpaidHandoverApproved for every order of the bill at the bill due; the requester gets request_result; open-orders shows it with the bill key', async () => {
     const { ali, managerPhone } = await start();
     const order_id = takeaway();
     const sibling = takeaway(undefined, { adds_to_order_id: order_id });
     const alert_id = (await ask(ali, order_id)).result!.alert_id as string;
-    // The sibling's own ask amount is the key's due (both lines): approving the root covers the root only.
+    // Q9: one bill, one request, one amount — the addition names the same request
+    expect((await ask(ali, sibling)).result).toMatchObject({ alert_id, is_requester: true });
+    expect(JSON.parse(row(alert_id).values_json)).toEqual({ order_id, token: expect.any(Number), due_minor: 2 * naanPrice(), order_ids: [order_id, sibling] });
     const a = await answer(managerPhone, alert_id, 'approve');
     expect(a.status, JSON.stringify(a.error)).toBe(200);
     const approved = eventsOf('UnpaidHandoverApproved');
-    expect(approved.map((e) => e.payload)).toEqual([{ order_id, alert_id, approved_by_staff_id: 'S_MGR', due_minor: 2 * naanPrice() }]);
+    expect(approved.map((e) => e.payload)).toEqual([
+      { order_id, alert_id, approved_by_staff_id: 'S_MGR', due_minor: 2 * naanPrice() },
+      { order_id: sibling, alert_id, approved_by_staff_id: 'S_MGR', due_minor: 2 * naanPrice() },
+    ]);
     expect(approval(order_id).due).toBe(2 * naanPrice());
-    expect(approval(sibling)).toEqual({ at: null, due: null });
+    expect(approval(sibling).due).toBe(2 * naanPrice());
     expect(row(alert_id).state).toBe('closed');
     const results = eventsOf('AlertRaised').filter((e) => (e.payload as { kind: string }).kind === 'request_result');
     expect(results.map((e) => (e.payload as { target: unknown }).target)).toEqual([{ kind: 'person', staff_id: 'S_ALI' }]);
+    // §6.16: both rows carry the same bill key and the approval
+    const res = await hub.app.inject({ method: 'GET', url: '/queries/open-orders?order_type=takeaway', headers: { authorization: `Bearer ${ali.token}`, 'x-session-token': ali.sessionToken } });
+    const rows = (res.json() as { data: { orders: Array<{ order_id: string; bill: { key: string | null }; unpaid_handover_approved: boolean }> } }).data.orders.filter((r) => [order_id, sibling].includes(r.order_id));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.bill.key).not.toBeNull();
+    expect(rows[0]!.bill.key).toBe(rows[1]!.bill.key);
+    expect(rows.every((r) => r.unpaid_handover_approved)).toBe(true);
   });
 
   it('an everyone kiosk → 403 listed_device_only; reject on the listed phone writes no approval', async () => {
@@ -185,7 +198,7 @@ describe('[02b #87, #88, 05a #52] answer', () => {
 });
 
 describe('[02b #89, #92] the due moved: stale cards and additions', () => {
-  it('an addition raises the key due: its transaction closes the stale card obsolete (due_changed, §6.19), so it cannot be approved; a new ask raises a fresh one; each order asks for itself', async () => {
+  it('an addition raises the key due: its transaction closes the stale card obsolete (due_changed, §6.19), so it cannot be approved; a new ask raises a fresh one; one bill asks once (02b v1.0.26 Q9)', async () => {
     const { ali, managerPhone } = await start();
     const a = takeaway();
     const first = (await ask(ali, a)).result!.alert_id as string;
@@ -199,11 +212,12 @@ describe('[02b #89, #92] the due moved: stale cards and additions', () => {
     expect(second).not.toBe(first);
     expect(row(first)).toMatchObject({ state: 'closed', close_reason: 'obsolete' });
     expect(JSON.parse(row(second).values_json)).toMatchObject({ order_id: a, due_minor: 2 * naanPrice() });
+    // ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): A and B share the bill: B names the same request; its approval covers both
     const forB = (await ask(ali, b)).result!.alert_id as string;
-    expect(forB).not.toBe(second); // B's own request
+    expect(forB).toBe(second);
     expect((await answer(managerPhone, forB, 'approve')).status).toBe(200);
     expect(approval(b).due).toBe(2 * naanPrice());
-    expect(approval(a)).toEqual({ at: null, due: null }); // B's approval leaves A unapproved
+    expect(approval(a).due).toBe(2 * naanPrice());
     // An approval covers the due at approval time: a later rise makes it ineffective, so the order asks again.
     append(hub, [{ stream_type: 'order', stream_id: a, event_type: 'UnpaidHandoverApproved', payload: { order_id: a, alert_id: 'AL_X', approved_by_staff_id: 'S_MGR', due_minor: 2 * naanPrice() } }]);
     expect((await ask(ali, a)).result).toEqual({ approved: true });
