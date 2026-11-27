@@ -125,6 +125,11 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `billing.check_amounts` (05 v1.0.35 §6.3, §6.3a R3-M-1; L-CLIENT-3 item 1) | Gross total {gross} · Remaining payable {due} | کل رقم {gross} · باقی قابلِ ادائیگی {due} |
 | `billing.check_not_printed` (05 v1.0.35 §6.3a line refusals; L-CLIENT-3 item 1) | Check bill not printed — {why} | چیک بل پرنٹ نہیں ہوا — {why} |
 | `billing.receipt_again` (05 v1.0.35 §8 OR-5; L-CLIENT-3 item 1) | Print receipt again | رسید دوبارہ پرنٹ کریں |
+| `takeaway.slip.printing` (03c v1.0.16 §8; L-CLIENT-3 item 2) | Slip printing | پرچی پرنٹ ہو رہی ہے |
+| `takeaway.slip.not_printed` (03c v1.0.16 §8; L-CLIENT-3 item 2) | Slip not printed — Print slip | پرچی پرنٹ نہیں ہوئی — پرچی پرنٹ کریں |
+| `takeaway.slip.no_printer` (03c v1.0.16 §8; L-CLIENT-3 item 2) | No slip printer is set up — the token is on the screen | پرچی کا پرنٹر نہیں لگا — ٹوکن اسکرین پر ہے |
+| `takeaway.slip.off` (03c v1.0.16 §8; L-CLIENT-3 item 2) | Token slips are turned off | ٹوکن پرچی بند ہے |
+| `errors.TAKEAWAY_SLIP_NOT_ALLOWED` (03c v1.0.16 §8; L-CLIENT-3 item 2) | No slip for this order — it is paid, cancelled or not a takeaway | اس آرڈر کی پرچی نہیں — ادائیگی ہو چکی، منسوخ ہے یا ٹیک اوے نہیں |
 
 Historical copy for Urdu review. OR-7 disabled the client override.
 

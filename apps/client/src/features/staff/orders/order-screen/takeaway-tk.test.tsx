@@ -205,7 +205,7 @@ describe('[02b-TK C1-2] takeaway name / phone inline in the cart', () => {
     nav.to = [];
   });
 
-  it('[02b §3.1, §6.1; R1] both optional: Send with neither sends no takeaway part', async () => {
+  it('[02b §3.1, §6.1; R1; ⚠️ 02b v1.0.25 §3.2 step 2b] both optional: Send with neither sends no contact (only the pay-later slip flag)', async () => {
     const h = harness();
     const m = h.render();
     await flush();
@@ -220,7 +220,7 @@ describe('[02b-TK C1-2] takeaway name / phone inline in the cart', () => {
     m.click(m.button('Send to kitchen'));
     await flush();
     expect(h.sent).toHaveLength(1);
-    expect(h.sent[0]!.payload.takeaway).toBeUndefined();
+    expect(h.sent[0]!.payload.takeaway).toEqual({ print_slip: true });
     m.unmount();
   });
 
@@ -237,7 +237,7 @@ describe('[02b-TK C1-2] takeaway name / phone inline in the cart', () => {
     expect(h.previews.at(-1)!.takeaway).toBeUndefined();
     m.click(m.button('Send to kitchen'));
     await flush();
-    expect(h.sent[0]!.payload.takeaway).toEqual({ customer_name: 'Usman', phone: '923001234567' });
+    expect(h.sent[0]!.payload.takeaway).toEqual({ customer_name: 'Usman', phone: '923001234567', print_slip: true });
     expect(h.sent[0]!.meta.label).toBe('Takeaway · Usman');
     m.unmount();
   });
@@ -341,7 +341,7 @@ describe('[02b-TK C1-3] Send in the background', () => {
     m.click(m.button('Send to kitchen'));
     await flush();
     expect(h.sent).toHaveLength(2);
-    expect(h.sent[1]!.payload.takeaway).toBeUndefined();
+    expect(h.sent[1]!.payload.takeaway).toEqual({ print_slip: true });
     expect(h.sent[1]!.payload.order_id).not.toBe(h.sent[0]!.payload.order_id);
     m.unmount();
   });

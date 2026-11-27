@@ -42,7 +42,7 @@ export interface ScreenHarness {
   renderHome(): Mounted;
   /** the order screen of another order type (a parking cart) on the same fake shell */
   renderAs(order_type: 'takeaway' | 'parking', id: string): Mounted;
-  toasts: Array<{ text: string; tone?: string }>;
+  toasts: Array<{ text: string; tone?: string; sub?: string }>;
   /** every query path read */
   queries: string[];
 }
@@ -54,7 +54,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
   const plain = (id: string, name: string) => ({ ...base.items.find((i) => i.item_id === 'I2')!, item_id: id, name, category_id: 'C2', price_minor: 4_000 });
   const built: BranchConfig = { ...base, categories: [...base.categories, { category_id: 'C2', name: 'Sides', sort_order: 2, availability_windows: [] }], items: [...base.items, plain('I5', 'Naan')] };
   const config = o.config?.(built) ?? built;
-  const toasts: Array<{ text: string; tone?: string }> = [];
+  const toasts: Array<{ text: string; tone?: string; sub?: string }> = [];
   const sent: ScreenHarness['sent'] = [];
   const commands: ScreenHarness['commands'] = [];
   const queries: string[] = [];
@@ -95,7 +95,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
       orderContact: async () => ({ ok: false, error: { kind: 'network' } }),
     },
     tables: { tableMap: async () => ({ ok: true, data: { as_of_seq: 1, floors: [] } }) },
-    toasts: { show: (x: { text: string; tone?: string }) => toasts.push(x), current: () => null, clear: () => {}, subscribe: () => () => {} },
+    toasts: { show: (x: { text: string; tone?: string; sub?: string }) => toasts.push(x), current: () => null, clear: () => {}, subscribe: () => () => {} },
     permissions: createPermissions({ 'mark-served': { grant: 'allowed', scope: 'branch' }, 'take-order': { grant: 'allowed', scope: 'branch' }, 'take-payment': { grant: 'allowed', scope: 'branch' }, ...(o.grants ?? {}) } as never),
     enqueue,
     clock: { nowMs: () => at(13, 20), utcOffsetMs: 0 },

@@ -16,6 +16,7 @@ import { atStageOne, isServed, isWeightPending, servable } from '../view/stage';
 import { voidOffered, type LineOrder } from '../view/LineActions';
 import { RemoveSheet } from '../actions/RemoveSheet';
 import { CheckBill, ReceiptAgain, receiptOf } from './CheckBill';
+import { PrintSlip } from './PrintSlip';
 import { VoidSheet } from '../../../voids/VoidSheet';
 import { VoidButton } from '../../../voids/ui';
 import { MaskedAction } from '../../shell/MaskedAction';
@@ -353,6 +354,8 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
             )}
             {/* 02b-TK C3-2 (05 §6.3; R6): the check bill of the token's newest order while it is Due */}
             {due && may('take-order') && <CheckBill order_id={token.newest_order_id} />}
+            {/* ⚠️ 02b-TK L-CLIENT-3 item 2 (03c v1.0.16 §3.11, §6.14, §8): Print token (the slip, reprint) on a Due token */}
+            {due && may('take-order') && <PrintSlip order_id={token.newest_order_id} order_ids={token.order_ids} onRefused={() => void load()} />}
             {/* ⚠️ 02b-TK L-CLIENT-3 item 1 (05 v1.0.35 §8 OR-5, §6.22; #60h): once paid, Print receipt again (take-payment only) */}
             {bill?.current?.paid === true && may('take-payment') && <ReceiptAgain order_id={token.newest_order_id} invoice_id={bill.current.invoice_id ?? null} />}
             {phoned !== null && may('view-customer-contact') && (

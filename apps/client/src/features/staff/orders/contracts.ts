@@ -191,7 +191,8 @@ export interface SubmitOrderPayload {
   order_type: OrderType;
   table_id?: string;
   seating_id?: string;
-  takeaway?: { customer_name?: string; phone?: string };
+  /** ⚠️ 02b v1.0.25 §3.2 step 2b (03c Q-TK-1): `print_slip` = Send · pay later (the token slip, 03c §3.11) */
+  takeaway?: { customer_name?: string; phone?: string; print_slip?: boolean };
   /** 02b §6.1 (05 row Q-6): a takeaway addition to this order of the same day; it keeps that order's token */
   adds_to_order_id?: string;
   parking?: { car_number: string; car_type: CarType; phone?: string };
@@ -207,6 +208,8 @@ export interface SubmitResult {
   token: number | null;
   groups: Array<{ group_id: string; promise_ms: number; order_item_ids: string[] }>;
   lines: Array<{ order_item_id: string; eta_ms: number | null; from_stock: boolean; zone_served: boolean }>;
+  /** ⚠️ 02b v1.0.25 §3.2 step 11 (03c Q-TK-3): the token slip's outcome; null (or absent on an older hub) without the flag */
+  slip?: { printed: boolean; job_id: string | null; skipped: string | null } | null;
 }
 
 /** 02b §6.14 draft: a SubmitOrder payload without ids; each line, option and deal choice has a temp `key`. */

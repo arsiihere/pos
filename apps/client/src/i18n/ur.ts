@@ -1809,4 +1809,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.check_amounts': 'کل رقم {gross} · باقی قابلِ ادائیگی {due}', // not in strings-table.md; Urdu to confirm
   'billing.check_not_printed': 'چیک بل پرنٹ نہیں ہوا — {why}', // not in strings-table.md; Urdu to confirm
   'billing.receipt_again': 'رسید دوبارہ پرنٹ کریں', // not in strings-table.md; Urdu to confirm
+  // ---- 02b-TK L-CLIENT-3 item 2 (03c v1.0.16 §3.11, §6.14, §8; 02b v1.0.25 §3.2 steps 2b, 10a, 11 (R6)): the takeaway token slip — Send · pay later's slip result, Print token ----
+  'v.print': 'ٹوکن پرنٹ',
+  'takeaway.slip.printing': 'پرچی پرنٹ ہو رہی ہے', // not in strings-table.md; Urdu to confirm
+  'takeaway.slip.not_printed': 'پرچی پرنٹ نہیں ہوئی — پرچی پرنٹ کریں', // not in strings-table.md; Urdu to confirm
+  'takeaway.slip.no_printer': 'پرچی کا پرنٹر نہیں لگا — ٹوکن اسکرین پر ہے', // not in strings-table.md; Urdu to confirm
+  'takeaway.slip.off': 'ٹوکن پرچی بند ہے', // not in strings-table.md; Urdu to confirm
+  'errors.TAKEAWAY_SLIP_NOT_ALLOWED': 'اس آرڈر کی پرچی نہیں — ادائیگی ہو چکی، منسوخ ہے یا ٹیک اوے نہیں', // not in strings-table.md; Urdu to confirm
 };
