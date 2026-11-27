@@ -1,6 +1,6 @@
 import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Held } from '../orders/order-screen/Held';
+import { HeldRoute } from '../orders/order-screen/Held';
 import { OrderScreen } from '../orders/order-screen/OrderScreen';
 import { OpenOrders } from '../orders/lists/OpenOrders';
 import { createEnqueue } from '../orders/queue/enqueue';
@@ -60,7 +60,7 @@ describe('[02 W0.6] staff routes', () => {
     const view = slot('/orders/O1');
     expect(view.mounts).toEqual([OrderView]);
     expect(view.element.props).toEqual({ order_id: 'O1' });
-    expect(slot('/held').mounts).toEqual([Held]);
+    expect(slot('/held').mounts).toEqual([HeldRoute]);
     expect(slot('/zones').mounts).toEqual([ZoneStock]);
     expect(slot('/queue').mounts).toEqual([QueueLog]);
     expect(slot('/me').route).toEqual({ name: 'me' });

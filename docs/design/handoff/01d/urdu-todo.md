@@ -29,8 +29,6 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `alerts.amount` | Rs {amount} |  |
 | `alerts.closed.rejected` | Rejected by {name} {time} | pattern of alerts.closed.approved: {name} نے … کیا {time} |
 | `alerts.closed.closed` | Closed |  |
-| `alerts.more_new` | {n} more new |  |
-| `alerts.open_inbox` | Open inbox |  |
 | `alerts.empty` | Nothing needs you right now. |  |
 | `alerts.for_group` | For {name} · {n} · no device |  |
 | `requests.empty` | No requests waiting. |  |
@@ -38,7 +36,6 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `answer.decline` | Decline |  |
 | `answer.pin_title_approve` | {name}, enter your PIN to approve |  |
 | `answer.pin_title_reject` | {name}, enter your PIN to reject |  |
-| `answer.pin_not_kept` | Your PIN is not kept. |  |
 | `answer.done_approved` | Approved |  |
 | `answer.done_rejected` | Rejected |  |
 | `answer.waiting_for` | Waiting for {name} or a manager. |  |
@@ -57,9 +54,6 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `answer.error.locked_out` | Too many tries — wait {n} min. |  |
 | `answer.error.not_found` | This request is no longer there. |  |
 | `answer.error.staff_not_found` | That person can't approve here. |  |
-| `answer.error.busy` | Busy — try again. |  |
-| `answer.error.failed` | Something went wrong. Try again. |  |
-| `answer.error.offline` | No connection to the hub — try again. |  |
 | `errors.ALERT_NOT_FOUND` | This request is no longer there. |  |
 | `errors.REQUEST_NOT_PENDING` | This request is already closed. |  |
 | `errors.REQUEST_PIN_REQUIRED` | Enter your PIN to answer this. |  |
@@ -83,22 +77,8 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `receipts.no_route` | No route |  |
 | `receipts.hidden_seat` | Hidden (answering seat) |  |
 | `admin.stuck` | Stuck alerts: {n} — an alert stopped sending reminders. It can still be answered. |  |
-| `alerts.signin.who` | Who is signing in? | task 41 (staff entry) |
-| `alerts.signin.pick` | Tap your name, then your PIN. | task 41 (staff entry) |
-| `alerts.signin.pin_for` | {name}, enter your PIN | task 41 (staff entry) |
-| `alerts.signin.submit` | Sign in | task 41 (staff entry) |
-| `alerts.signin.active` | {name} is signed in on this device. Enter your PIN again to take over. | task 41 (staff entry) |
-| `alerts.signin.offline` | No connection to the hub — retrying… | task 41 (staff entry) |
-| `alerts.signin.retry` | Retry now | task 41 (staff entry) |
-| `alerts.signin.none` | Nobody can sign in here yet. | task 41 (staff entry) |
 | `alerts.signin.not_paired` | This device is not paired with the hub. Pair it first. | task 41 (staff entry) |
-| `alerts.live` | Live | task 41 (staff entry) |
-| `alerts.hub_offline` | Hub offline | task 41 (staff entry) |
 | `alerts.sign_out` | {name} — sign out | task 41 (staff entry) |
-| `alerts.sign_out_short` | Sign out | task 41 (staff entry) |
-| `alerts.device.tablet` | Tablet | task 41 (staff entry) |
-| `alerts.device.cashier_kiosk` | Cashier kiosk | task 41 (staff entry) |
-| `alerts.device.phone` | Phone | task 41 (staff entry) |
 | `alerts.device.kds` | Kitchen screen | task 41 (staff entry) |
 | `alerts.empty_sub` | New alerts appear here and as a banner. | task 41 (staff entry) |
 | `alerts.offline_since` | No connection to the hub — try again. The list is from {time}. | task 41 (staff entry) |
@@ -110,7 +90,6 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `alerts.use_here` | Use it here | task 41 (staff entry) |
 | `alerts.no_approver_clears` | Clears when an approver signs in | task 41 (staff entry) |
 | `requests.empty_sub` | Requests you can answer appear here, oldest first. | task 41 (staff entry) |
-| `answer.back` | Back | task 41 (staff entry) |
 | `answer.an_approver` | an approver | task 41 (staff entry) |
 | `answer.fact.when` | When | task 41 (staff entry) |
 | `answer.fact.device` | Device | task 41 (staff entry) |
@@ -164,17 +143,10 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 |---|---|---|
 | `answer.approve_on_listed` | Approve on a listed device | everyone device, money card, no button |
 | `answer.confirm_on_phone` | Confirm on your phone | downgraded request, named to its requester |
-| `request.find_approver` | Waiting — find a manager | requester's waiting card once `ask_in_person` is true |
 | `answer.error.device_not_set_up` | This device is not set up for you | `DEVICE_ACCESS_DENIED`, `DEVICE_NOT_OWNED` |
 | `answer.error.listed_device_only` | Do this on your own phone | `PERMISSION_DENIED { reason: 'listed_device_only' }` |
 | `answer.error.device_access_self` | You would lose access on this device | `DEVICE_ACCESS_SELF` |
 | `alerts.open_elsewhere` | Open this on a device with {screen} | deep link to a screen the device does not have; `{screen}` is one of the six names below |
-| `alerts.screen.dine_in` | Dine in |  |
-| `alerts.screen.takeaway` | Takeaway |  |
-| `alerts.screen.parking` | Parking |  |
-| `alerts.screen.cashier` | Cashier |  |
-| `alerts.screen.pass` | Pass |  |
-| `alerts.screen.manager` | Manager |  |
 
 ## 05a client (task 25, carry-over from the task 26 review) — `device_waiting`, no Urdu yet
 

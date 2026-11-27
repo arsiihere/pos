@@ -157,7 +157,7 @@ describe('[02b-TK L-CLIENT-3 item 2; 03c §6.14, §8] Print token (PrintTakeaway
     await flush();
     return { h, v, reads: () => reads };
   };
-  const printToken = (v: Mounted) => v.buttons().find((b) => b.textContent === 'Print token');
+  const printToken = (v: Mounted) => v.buttons().find((b) => b.textContent === 'Print slip');
 
   it('[03c §6.14] a Due token: PrintTakeawaySlip { order_id: newest, reason: "reprint" }, not queued; "Slip printing"; the mark goes', async () => {
     const { h, v } = await showView();

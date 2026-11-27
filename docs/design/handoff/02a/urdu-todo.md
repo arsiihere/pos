@@ -89,13 +89,11 @@ Needs native review as well: the 02a entries of `ur.ts` that are not on a frame 
 | `pair.again_sub` | Ask a manager. Unsent orders stay on this screen. |  |
 | `pair.show_code` | Show pairing code |  |
 | `tables.reason.note` | Note (optional) |  |
-| `tables.changed` | This table changed — refreshed |  |
 | `tables.toast.sent_to` | Sent to {name} |  |
 | `tables.toast.waiter_called` | Waiter called |  |
 | `tables.toast.already_called` | Already called |  |
 | `tables.toast.queued` | Will be sent when the hub is back |  |
 | `tables.toast.cleaned` | Clean {table} |  |
-| `tables.toast.needs_hub` | Needs the hub |  |
 | `tables.toast.moved` | Moved to {table} |  |
 | `tables.toast.orders_moved` | {n} orders moved to {table} |  |
 | `tables.toast.free` | {table} is free |  |
