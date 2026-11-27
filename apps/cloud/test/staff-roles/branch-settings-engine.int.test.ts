@@ -191,6 +191,14 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
       before: { business_day_end_local_ms: 14_400_000, day_stale_after_hours: 16 },
       after: settings,
     });
+    // ⚠️ 01a v2.11 test 218 (L-CLOSE-2): the PATCHed value reaches the hub snapshot's top-level key
+    const synced = await cloud.app.inject({
+      method: 'GET',
+      url: `/v1/sync/config?config_version=${config}&directory_version=0`,
+      headers: { authorization: `Bearer ${f.branchKey}` },
+    });
+    expect(synced.statusCode, synced.body).toBe(200);
+    expect(BranchConfigSnapshotSchemaV4.parse(synced.json().data.config.snapshot).business_day_end_local_ms).toBe(12_600_000);
     const noop = await patchSettings({ expected_version: stored.version, ...settings });
     expect(noop.statusCode).toBe(200);
     expect(counter.count).toBe(3);
@@ -208,7 +216,7 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     const before = await branchOf();
     const config = await configVersion();
     const audit = await audits();
-    for (const end of [-1, 1.5, 12_630_000, 86_340_001, 86_399_999, 86_400_000, null]) {
+    for (const end of [-1, 1.5, 12_600_001, 12_630_000, 86_340_001, 86_399_999, 86_400_000, null]) {
       const response = await patchSettings({ expected_version: before.version, business_day_end_local_ms: end });
       expect(response.statusCode, response.body).toBe(400);
       const { error } = response.json();
