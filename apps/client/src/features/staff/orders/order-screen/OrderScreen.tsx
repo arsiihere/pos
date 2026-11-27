@@ -3,10 +3,10 @@ import type { BranchConfig, ConfigItem } from '@pos/events';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { navigate } from '../../../../app/router';
 import { language, t } from '../../../../i18n';
-import { fill } from '../../../../i18n/en';
+import { errorKey, fill } from '../../../../i18n/en';
 import { Ico, Ring } from '../../../alerts/ui';
 import { timeText } from '../../../alerts/labels';
-import { useShell } from '../../shell/hooks';
+import { useShell, type Shell } from '../../shell/hooks';
 import { orderHref, tableHref } from '../../shell/routes';
 import { LockBanner } from '../../tables/lock/LockBanner';
 import { useTableLock } from '../../tables/lock/useTableLock';
@@ -181,6 +181,20 @@ function editable(target: EventTarget | null): boolean {
 }
 
 /** The variant group tile: orderable when any variant is; else the first variant's state. */
+/** L-CLIENT-6a item 9: the sent toast's Print again — `PrintTakeawaySlip { reason: 'reprint' }` (03c §3.11). */
+async function reprintSlip(shell: Shell, order_id: string): Promise<void> {
+  const answer = await shell.api.command<{ printed: boolean; skipped: string | null }>('PrintTakeawaySlip', { order_id, reason: 'reprint' });
+  if (!answer.ok) return shell.toasts.show({ text: answer.error.kind === 'api' ? t(errorKey(answer.error.code)) : t('tables.toast.needs_hub'), tone: 'warn' });
+  if (answer.data.printed) {
+    slipMissesOf(shell).clear([order_id]);
+    return shell.toasts.show({ text: t('takeaway.slip.printing'), tone: 'ok' });
+  }
+  shell.toasts.show({ text: t(answer.data.skipped === 'setting_off' ? 'takeaway.slip.off' : 'takeaway.slip.no_printer'), tone: 'warn' });
+}
+
+/** L-CLIENT-6a item 9: how long "Your unsent order is back" stays (a toast's 4 s and a little more to read it). */
+const DRAFT_BACK_MS = 6_000;
+
 function bestOf(states: ItemAvailability[]): ItemAvailability {
   return states.find((s) => s.orderable) ?? states[0]!;
 }
@@ -330,6 +344,12 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   cartRef.current = cart;
   const [restored, setRestored] = useState(false);
   const [back, setBack] = useState<number | null>(null);
+  // L-CLIENT-6a item 9: "Your unsent order is back" goes by itself, as a toast does (OK still closes it at once)
+  useEffect(() => {
+    if (back === null) return;
+    const timer = setTimeout(() => setBack(null), DRAFT_BACK_MS);
+    return () => clearTimeout(timer);
+  }, [back]);
   // one draft per (device, person, order): a dine-in seating's own, or the new order's draft id (the route's)
   const draftId = useRef<string>(id);
   const staffId = shell.me?.staff_id ?? null;
@@ -945,10 +965,16 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         if (slipMissed(slip)) slipMissesOf(shellRef.current).mark(payload.order_id);
         const slipText = slip?.printed === true ? t('takeaway.slip.printing') : slipMissed(slip) ? t('takeaway.slip.not_printed') : null;
         const sub = [moved === null ? null : fill(t('send.time_updated'), { item: moved.name, time: timeText(moved.eta_ms, shellRef.current.clock.utcOffsetMs) }), slipText].filter((x) => x !== null).join(' · ');
+        // L-CLIENT-6a item 9 (frame SentToast): the token big at the toast's start; a pay-later token whose slip went to
+        // the printer offers Print again (03c §3.11 reprint, as the token view's Print token)
+        const sentId = payload.order_id;
+        const reprint = !andPay && r?.token != null && slip !== null && (slip.printed || slipMissed(slip));
         shellRef.current.toasts.show({
           text: sentToastText(r, shownName, shellRef.current.clock.utcOffsetMs),
           ...(sub === '' ? {} : { sub }),
           tone: 'ok',
+          ...(r?.token == null ? {} : { token: String(r.token) }),
+          ...(reprint ? { action: { label: t('t.print'), run: () => void reprintSlip(shellRef.current, sentId) } } : {}),
         });
       } else {
         // queued (the hub is not answering): no payment now — the order stays Due (05 B12)

@@ -109,6 +109,16 @@ describe('[02b-TK L-CLIENT-3 item 2; 03c §3.11 Result, §8] the slip result aft
     expect(slipMissesOf(h.shell).missed([order_id])).toBe(false);
   });
 
+  it('[L-CLIENT-6a item 9; frame SentToast] the sent toast carries the token and Print again (PrintTakeawaySlip reprint)', async () => {
+    const { h, order_id } = await sendLater({ printed: true, job_id: 'J1', skipped: null });
+    const toast = h.toasts.at(-1) as { token?: string; action?: { label: string; run(): void } };
+    expect(toast.token).toBe('57');
+    expect(toast.action?.label).toBe('Print again');
+    toast.action!.run();
+    await flush();
+    expect(h.commands.at(-1)).toEqual({ type: 'PrintTakeawaySlip', payload: { order_id, reason: 'reprint' } });
+  });
+
   it('[03c §8] no_printer, failed, replay_late → "Slip not printed — Print slip", and the token is marked', async () => {
     for (const skipped of ['no_printer', 'failed', 'replay_late']) {
       const { h, order_id } = await sendLater({ printed: false, job_id: null, skipped });

@@ -573,3 +573,16 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .tk-note--set .tk-note__t { color: var(--ink); font-weight: 700; }
 .osc--tk > .cart .cart__foot .duo .btn { gap: 8px; }
 .osc--tk > .cart .cart__foot .duo .btn .ico { width: 20px; height: 20px; }
+
+/* ---------- L-CLIENT-6a item 9: toasts over the menu, never over the cart (frames SentToast, HandoverUndo) ---------- */
+.pu.staff:has(.osc--tk) > .toast, .pu.staff:has(.osc--tk) .toast { position: fixed; top: 156px; bottom: auto; inset-inline-start: 456px; inset-inline-end: auto; max-width: 888px; z-index: 40; }
+@media (max-width: 1700px) { .pu.staff:has(.osc--tk) .toast { inset-inline-start: 396px; max-width: calc(100vw - 380px - 480px - 32px); } }
+@media (max-width: 1440px) { .pu.staff:has(.osc--tk) .toast { inset-inline-start: 346px; max-width: calc(100vw - 330px - 420px - 32px); } }
+.pu.staff:has(.osc--tk-tablet) .toast { inset-inline-start: 16px; max-width: calc(100vw - 440px - 32px); }
+.toast.toast--token { gap: 16px; padding: 12px 14px 12px 18px; background: var(--ok); color: #fff; font-size: 18px; }
+.toast--token small { color: rgb(255 255 255 / .85); }
+.toast__tok { font: 800 44px/1 var(--font-display); padding-inline-end: 14px; border-inline-end: 2px solid rgb(255 255 255 / .3); }
+.toast .toast__act { min-height: 48px; margin-inline-start: 8px; background: rgb(255 255 255 / .16); border-color: transparent; color: inherit; }
+/* "Your unsent order is back" sits over the menu, not the cart */
+.order:has(> .osc--tk) > .abns { position: fixed; top: 156px; inset-inline-start: 456px; inset-inline-end: auto; bottom: auto; max-width: 720px; z-index: 39; }
+@media (max-width: 1440px) { .order:has(> .osc--tk) > .abns { inset-inline-start: 346px; max-width: calc(100vw - 330px - 420px - 32px); } }
