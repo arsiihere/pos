@@ -116,7 +116,11 @@ export function seedT1(hub: TestHub): DevicesT1 {
 }
 
 export type T1Request =
-  | { kind: 'jobs'; since: number }
+  /** the document print jobs inserted after `after` (a `jobsMark` watermark), in insertion order */
+  | { kind: 'jobs'; after: number }
+  /** the print jobs' insertion watermark (MAX(rowid)): the fixed hub clock stamps every job with the same time, so a
+   *  journey marks the queue before it prints and reads only what came after */
+  | { kind: 'jobsMark' }
   | { kind: 'now' }
   | { kind: 'advance'; ms: number }
   /** the events of an order's stream and the stock events naming one of its lines (row #26 DC-1 read-back) */
@@ -196,10 +200,12 @@ export function startT1Driver(hub: TestHub, base: string): () => void {
         if (ids.length > 0) fireLines(hub, req.station, ids);
         return { fired: ids };
       }
+      case 'jobsMark':
+        return { mark: (hub.deps.db.prepare('SELECT COALESCE(MAX(rowid), 0) FROM print_jobs').pluck().get() as number) };
       case 'jobs': {
         const rows = hub.deps.db
-          .prepare(`SELECT job_id, printer_id, order_id, payload, created_at FROM print_jobs WHERE kind = 'document' AND created_at >= ? ORDER BY created_at, job_id`)
-          .all(req.since) as JobRow[];
+          .prepare(`SELECT job_id, printer_id, order_id, payload, created_at FROM print_jobs WHERE kind = 'document' AND rowid > ? ORDER BY rowid`)
+          .all(req.after) as JobRow[];
         return {
           jobs: rows.map((r) => {
             const p = JSON.parse(r.payload) as { doc: Doc; kind_label?: string };
