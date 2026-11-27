@@ -2985,6 +2985,11 @@ export const en = {
   'kitchen_screens.sign_in': 'Sign in to set up kitchen screens',
   'kitchen_screens.no_admins': 'No one here can set up kitchen screens',
   'admin_03.nav.other_jobs': 'Other jobs',
+  // BUG-15 (05a H-2, v1.0.3): the admin sign-in on a shared (`everyone`) device
+  'admin_03.login.listed_only': 'This screen cannot open the hub admin pages',
+  'admin_03.login.listed_only_body':
+    'It is shared by everyone. Open this page on your own phone or on a device set to "Only listed people" that lists you. A manager can change this device in Devices.',
+  'admin_03.login.recover': 'Recover admin access',
   // A2 printers (frames Printers*, PrinterAdd, PrinterArchive, PrinterTest)
   'printers.section_help': 'Optional. Paper jobs never block the till or the kitchen screens.',
   'printers.none_title': 'No printers',
