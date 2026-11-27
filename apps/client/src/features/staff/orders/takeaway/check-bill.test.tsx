@@ -121,7 +121,7 @@ describe('[02b-TK C3-2] Print check bill', () => {
   it('[R6; frame TokenDue] the token view of a Due token offers Print check bill for its NEWEST order; a paid one does not', async () => {
     const tok: QueueToken = { key: 'k', token: 53, order_ids: ['O53', 'O53b'], newest_order_id: 'O53b', customer_name: null, phone: null, placed_at: at(13, 4), promise_ms: at(13, 24), ready: { n: 0, m: 1 }, paid: false, part: false, summary: '' };
     const due = { bill_id: 'B2', state: 'open', splits: [{ split_no: 1, state: 'open', balance_minor: 39_000 }], totals_default: { total_minor: 39_000 } };
-    const paid = { bill_id: 'B2', state: 'closed', splits: [{ split_no: 1, state: 'closed', balance_minor: 0 }], totals_default: { total_minor: 39_000 } };
+    const paid = { bill_id: 'B2', state: 'closed', splits: [{ split_no: 1, state: 'closed', balance_minor: 0, totals: { as_paid: { total_minor: 39_000 } } }], totals_default: { total_minor: 0 } };
     const views = { O53: view('O53', [sl('O53', 'A', 'Karahi', 'cooking')]), O53b: view('O53b', [sl('O53b', 'B', 'Naan', 'cooking')]) };
     for (const [bill, shown] of [
       [due, true],

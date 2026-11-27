@@ -96,7 +96,12 @@ export interface BillFacts {
 /** Paid = the bill closed (its total); Due = what the open splits still owe, or the whole total of a projected bill. */
 export function billFact(b: BillView): { paid: boolean; amount_minor: number; bill_id: string | null; invoice_id?: string | null } {
   // ⚠️ 05 §8 (OR-5): a paid bill keeps the receipt to print again (its newest closed split's invoice)
-  if (b.state === 'closed') return { paid: true, amount_minor: b.totals_default.total_minor, bill_id: b.bill_id, invoice_id: receiptOf(b) };
+  // a closed bill's totals_default is its OPEN remainder (05 §6.1: zero once every split is closed): what it was paid is
+  // what its closed splits invoiced — Σ their totals (a closed split's totals are its current invoice's)
+  if (b.state === 'closed') {
+    const paid = b.splits.filter((s) => s.state === 'closed').reduce((n, s) => n + s.totals.as_paid.total_minor, 0);
+    return { paid: true, amount_minor: paid, bill_id: b.bill_id, invoice_id: receiptOf(b) };
+  }
   const open = b.splits.filter((s) => s.state === 'open');
   const owed = open.reduce((n, s) => n + Math.max(0, s.balance_minor), 0);
   return { paid: false, amount_minor: open.length === 0 ? b.totals_default.total_minor : owed, bill_id: b.bill_id };
