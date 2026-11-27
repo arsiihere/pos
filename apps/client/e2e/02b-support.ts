@@ -148,7 +148,7 @@ export const KITCHEN = {
   point_id: 'P1',
 } as const;
 
-interface KitchenSession {
+export interface KitchenSession {
   command(type: string, payload: Record<string, unknown>): Promise<{ status: number; text: string }>;
   query<T>(path: string): Promise<T>;
   close(): Promise<void>;
@@ -157,7 +157,7 @@ interface KitchenSession {
 let kitchenSeq = 0;
 
 /** A staff session on the kitchen tablet (POST /auth/pin; 00 §6.3 command envelope), for set-up only. */
-async function kitchenSession(request: APIRequestContext, staff_id: string): Promise<KitchenSession> {
+export async function kitchenSession(request: APIRequestContext, staff_id: string): Promise<KitchenSession> {
   const h = hub();
   const device = { Authorization: `Bearer ${h.kitchen.token}` };
   const signIn = await request.post(`${h.baseURL}/auth/pin`, { headers: device, data: { staff_id, pin: '1234', takeover: true } });

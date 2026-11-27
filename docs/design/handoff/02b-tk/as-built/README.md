@@ -126,3 +126,16 @@ Captured from `apps/client/e2e/02b-tk-slip.spec.ts` at device scale 2 against th
 - The sent toast shows the result's `slip` on a second line. `printed` shows "Slip printing". `no_printer`, `failed` and `replay_late` show "Slip not printed — Print slip", and the token's queue row keeps that line in amber until a Print token prints. The hint is kept in memory, so it is gone after a reload. `setting_off`, `slip_held` and `null` show nothing. The result has no printer name, so the toast cannot say which printer it is queued on.
 - The token view of a Due token shows Print token (`v.print`, strings-table.md) to `take-order` holders. It sends `PrintTakeawaySlip { order_id: <newest>, reason: 'reprint' }`. Only one request runs at a time, the button is greyed while offline, and the command is never queued. `no_printer` says "No slip printer is set up — the token is on the screen". `TAKEAWAY_SLIP_NOT_ALLOWED` shows its `errors.*` text and re-reads the token, which then hides the action.
 - The frame's "Print again" button on the sent toast is not built. 03c §3.11 places the reprint in the token view only. There is no QR: the e2e hub is Tier 2, where `statusLink` returns null.
+
+## L-CLIENT-3 item 3 the hub's unpaid hand-over refusal (U-5) from the UI
+
+The images are the running client only, captured from `apps/client/e2e/02b-tk-unpaid.spec.ts` (the U-5 test, kiosk 1920 × 1080, device scale 2). They show the toast and the token drawer after the hub refused. The nearest frame is TokenDue. No frame shows OR-7.
+
+| State | English | Urdu |
+| --- | --- | --- |
+| The refusal toast "Not paid — take payment first or ask a manager" | [UnpaidRefusedToast](UnpaidRefusedToast.png) | [UnpaidRefusedToast-Urdu](UnpaidRefusedToast-Urdu.png) |
+| The token drawer after the refusal: Ask a manager again, Give ready items now greyed | [UnpaidRefused](UnpaidRefused.png) | [UnpaidRefused-Urdu](UnpaidRefused-Urdu.png) |
+
+- U-5 is merged. `MarkServed { customer_handover: true }` rechecks the key's fresh due against the order's approval in the hub's writer transaction. It refuses with `403 PERMISSION_DENIED { reason: 'unpaid_handover_approval_required', order_id }`, the shape the client already mapped. The client needed no fix.
+- The e2e reaches that refusal from the UI. Ali sends a Naan to pay later, the kitchen makes it ready, and the Manager approves the unpaid hand-over at its due, so the client's own check passes. Ali taps Hand over all. Inside the 5 s Undo window another counter adds a Kheer to the same token, through the hub's API (`SubmitOrder` with `adds_to_order_id`, as the Owner on the kitchen tablet). That raises the key's due above the approved amount. The hub refuses the send. The toast shows the refusal, and the token offers Ask a manager again for the larger due.
+- This replaces the L-CLIENT-2 note above: the client's handling of the refusal is now covered end to end, not only by unit tests.
