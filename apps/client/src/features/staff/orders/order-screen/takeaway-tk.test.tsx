@@ -448,8 +448,9 @@ describe('[02b-TK C1-4] editing a cart line', () => {
     expect(m.container.querySelectorAll('.ln')).toHaveLength(1);
     m.click(m.container.querySelector('.ln__m'));
     m.click(m.button('Edit'));
-    expect(m.container.querySelector('.acts .btn--primary')?.textContent).toBe('Save changes');
-    m.click(m.button('Remove', m.container.querySelector('.dlg .qline')!));
+    // ⚠️ L-CLIENT-6b item 3 (frame ItemSheetEdit): "Save changes · Rs X · Enter", the red trash bottom-left
+    expect(m.container.querySelector('.tk-sheet__go')?.textContent).toMatch(/^Save changes·Rs \d/);
+    m.click(m.container.querySelector<HTMLButtonElement>('.tk-sheet__f .tk-sheet__trash[aria-label="Remove"]'));
     expect(m.container.querySelector('.dlg')).toBeNull();
     expect(m.container.querySelectorAll('.ln')).toHaveLength(0);
     m.unmount();

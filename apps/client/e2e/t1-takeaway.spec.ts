@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { escapeRe, menuTile, rushOff, sentToken, shiftOpen, signInOn, takeawayTab } from './02b-support';
+import { escapeRe, menuTile, plain, rushOff, sentToken, shiftOpen, signInOn, takeawayTab } from './02b-support';
 import { apiSession, capture, hubPlan, planEta, queueEntry, runId, closeAll, cookLine, deviceFor, hubFire, hubNow, printMark, LANGS, passCard, passTablet, printedJob, screen, t1Key, t1Run, t1RunsHere, tr } from './t1-support';
 import { t1Station } from './t1-fixture';
 
@@ -299,12 +299,14 @@ for (const lang of LANGS) {
       expect(after.promise_ms).toBe(pickupAt + padding);
       expect(before.promise_ms).toBe(after.promise_ms);
       await expect(readyBy.locator('small')).toHaveText(tr(lang, 'v.ready_at'));
-      await expect(readyBy.locator('[data-planned]')).toHaveText(tr(lang, 'q.ready_planned', { t: clientTime(after.planned_ready_at_ms!, offset) }));
+      await expect(readyBy.locator('[data-planned]')).toHaveText(plain(tr(lang, 'q.ready_planned', { t: clientTime(after.planned_ready_at_ms!, offset) })));
       await expect(readyBy.locator('s')).toHaveText(clientTime(after.promise_ms!, offset));
       console.log(`[T1 #8 ${info.project.name} ${lang}] planned_ready_at_ms ${before.planned_ready_at_ms} → ${after.planned_ready_at_ms} (${clientTime(before.planned_ready_at_ms!, offset)} → ${clientTime(after.planned_ready_at_ms!, offset)}), promise ${after.promise_ms} (${clientTime(after.promise_ms!, offset)}, pickup + ${padding / 60_000} min)`);
       // whole bag (D1): nothing is ready yet — the token is not Ready while the drink is still to make
       expect(after.ready.n).toBeLessThan(after.ready.m);
-      await expect(drawer.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'v.collected'))}`) })).toHaveAttribute('aria-disabled', 'true');
+      // nothing to hand over yet: no enabled Hand over all (L-CLIENT-6b, frame TokenDue: a Due token still cooking shows
+      // Take payment as its primary; a paid one shows Hand over all greyed with the time)
+      await expect(drawer.locator('button[aria-disabled="false"]', { hasText: tr(lang, 'v.collected') })).toHaveCount(0);
       await capture(cash.page, info, `CustomerHereDone-${info.project.name}-${lang}`, drawer);
     } finally {
       await api.close();

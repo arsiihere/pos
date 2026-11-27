@@ -14,7 +14,13 @@ export interface ContextSlotValue {
   /** the customer's name (view-customer-contact only), or null */
   name: string | null;
   sub: string | null;
+  /** ⚠️ 02b-TK L-CLIENT-6b item 4 (frames TokenDue … TokenUrdu): a Back in the bar before the slot; it sends
+   *  TK_BACK_EVENT on window and the open layer (the token view) closes. Absent = no Back. */
+  back?: boolean;
 }
+
+/** The bar's Back (`back: true`): the open takeaway layer listens on window and closes. */
+export const TK_BACK_EVENT = 'pos:tk-back';
 
 export interface ContextSlotStore {
   get(): ContextSlotValue | null;
@@ -62,7 +68,7 @@ export function takeawayContext(o: TakeawayContextInput): ContextSlotValue {
   if (o.paying !== null)
     return { label: o.paying.ident === null ? t('ctx.new') : t('send.token'), token: o.paying.ident, name: named(o.seeContact, o.paying.name), sub: t('p.title') };
   if (o.token !== null)
-    return { label: t('send.token'), token: tokenText(o.token.token), name: named(o.seeContact, o.token.name), sub: t(o.token.paid ? 'q.paid' : 'q.due') };
+    return { label: t('send.token'), token: tokenText(o.token.token), name: named(o.seeContact, o.token.name), sub: t(o.token.paid ? 'q.paid' : 'q.due'), back: true };
   if (o.adding !== null) return { label: t('send.token'), token: tokenText(o.adding.token), name: named(o.seeContact, o.cartName), sub: t('ctx.adding') };
   return { label: t('ctx.new'), token: null, name: named(o.seeContact, o.cartName), sub: t('ctx.token_after') };
 }

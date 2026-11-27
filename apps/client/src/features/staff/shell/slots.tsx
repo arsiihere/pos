@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { AlertRow } from '../../alerts/store';
 import { PassScreen } from '../../pass/PassScreen';
-import { Held } from '../orders/order-screen/Held';
+import { HeldRoute } from '../orders/order-screen/Held';
 import { OrderScreen } from '../orders/order-screen/OrderScreen';
 import { OpenOrders } from '../orders/lists/OpenOrders';
 import { QueueLog } from '../orders/queue/QueueLog';
@@ -52,7 +52,7 @@ export function slotContent(route: SlotRoute, props: SlotProps = {}): ReactNode 
     case 'order_view':
       return <OrderView order_id={route.order_id} />;
     case 'held':
-      return <Held />;
+      return <HeldRoute />;
     case 'zones':
       return <ZoneStock />;
     case 'queue':

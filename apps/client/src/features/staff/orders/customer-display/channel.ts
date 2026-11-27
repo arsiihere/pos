@@ -79,6 +79,17 @@ export function readDisplayMessage(value: unknown): DisplayMessage | null {
   return { v, kind, lines, total_minor, ready_by_ms, lang, ...(change_minor === undefined ? {} : { change_minor }) };
 }
 
+/**
+ * ⚠️ 02b-TK L-CLIENT-6b item 7 (QA BUG-11, frame CustomerDisplay; G-14): a display window that opens (or reloads)
+ * after the cart was built asks for the current screen with this hello; the order screen's publisher answers with what
+ * it last showed (or has pending), so the customer sees the cart at once, not only after the next change.
+ */
+export const DISPLAY_HELLO = { v: 1, hello: true } as const;
+
+export function isDisplayHello(value: unknown): boolean {
+  return object(value) && value['v'] === 1 && value['hello'] === true && keys(value, ['v', 'hello']);
+}
+
 /** Cart and ETA updates share a trailing send. Paid and idle supersede pending cart updates. */
 export function createDisplayPublisher(initialLanguage: Language) {
   const channel = openDisplayChannel();
@@ -86,13 +97,20 @@ export function createDisplayPublisher(initialLanguage: Language) {
   let pending: DisplayMessage | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let lastSent: string | null = null;
+  let last: DisplayMessage | null = null;
 
-  function send(message: DisplayMessage) {
+  function send(message: DisplayMessage, force = false) {
     const serialized = JSON.stringify(message);
-    if (serialized === lastSent) return;
+    if (serialized === lastSent && !force) return;
     channel?.postMessage(message);
     lastSent = serialized;
+    last = message;
   }
+  channel?.addEventListener('message', (event: MessageEvent<unknown>) => {
+    if (!isDisplayHello(event.data)) return;
+    const now = pending ?? last;
+    if (now !== null) send(now, true);
+  });
 
   function cancel() {
     clearTimeout(timer);

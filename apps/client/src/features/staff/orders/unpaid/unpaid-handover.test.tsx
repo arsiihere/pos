@@ -169,4 +169,18 @@ describe('[02b-TK L-CLIENT-2 item 4; 02b §3.7a, §8 OR-7; test 90] the counter:
     expect(h.sent[0]?.payload).toEqual({ lines: [{ order_id: 'O48', order_item_ids: ['A'] }], customer_handover: true });
     m.unmount();
   });
+
+  it('[L-CLIENT-6b; e2e 02b-tk-handover ur] the bill just closed (OrdersBilled), the rail row not re-read yet (still Due): the tile hands over — the fresh order-view says billed', async () => {
+    const h = screenHarness({ rows: [dueRow('O48', 48)], views: { O48: { ...view('O48', [sl('O48', 'A', 'Karahi', 'done')]), billed: true } } });
+    const m = h.render();
+    await flush();
+    frame(h, 'OrdersBilled', { order_ids: ['O48'] });
+    await flush();
+    m.click([...tile(m).querySelectorAll('button')].find((b) => b.textContent === 'Hand over')!);
+    await flush();
+    expect(m.container.querySelector('section.tk-drawer')).toBeNull();
+    await tick(UNDO_MS);
+    expect(h.sent[0]?.payload).toEqual({ lines: [{ order_id: 'O48', order_item_ids: ['A'] }], customer_handover: true });
+    m.unmount();
+  });
 });

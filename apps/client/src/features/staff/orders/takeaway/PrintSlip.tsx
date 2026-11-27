@@ -38,7 +38,8 @@ export function PrintSlip({ order_id, order_ids, onRefused }: { order_id: string
   return (
     <button type="button" className="tk-btn" aria-disabled={busy || !shell.online} onClick={() => void print()}>
       <BIco name="printer" />
-      {t('v.print')}
+      {/* 03c v1.0.16 §8: the token view's button is "Print slip" (the frame's "Print token"); L-CLIENT-6b item 4 */}
+      {t('v.print_slip')}
     </button>
   );
 }

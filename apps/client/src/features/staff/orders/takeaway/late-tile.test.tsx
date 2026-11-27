@@ -257,7 +257,8 @@ describe('[03b v1.0.16 §3.4 R3-M-9; frame TokenLate] the token drawer of a late
     const m = await drawer([sl('L46a', 'Tawa Piece', 'done'), sl('L46b', 'Roti', 'done')], token());
     const banner = m.container.querySelector<HTMLElement>('.tk-banner--warn[data-late]')!;
     expect(banner.textContent).toContain('Ready 17 min ago — not collected');
-    expect(banner.querySelector('.tk-btn')!.textContent).toBe('Call');
+    // ⚠️ L-CLIENT-6b item 4 (frame TokenLate "Call · 0300 ••• 4567"): the masked phone on the banner's Call
+    expect(banner.querySelector('.tk-btn')!.textContent).toBe('Call · 0300 ••• 4567');
     m.unmount();
     now = at(13, 17);
     const before = await drawer([sl('L46a', 'Tawa Piece', 'done'), sl('L46b', 'Roti', 'done')], token());

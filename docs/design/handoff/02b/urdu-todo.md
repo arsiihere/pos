@@ -8,8 +8,6 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 
 | Key | English | Note |
 |---|---|---|
-| `order.takeaway` | Takeaway |  |
-| `order.parking` | Parking |  |
 | `order.dinein_hint` | Dine-in starts from a table on the map. |  |
 | `order.takeaway.sub` | Both optional. The token comes after Send. |  |
 | `order.takeaway.name` | Customer name |  |
@@ -23,39 +21,8 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `order.parking.small` | Small car |  |
 | `order.parking.sedan` | Sedan |  |
 | `order.parking.large` | Large |  |
-| `menu.not_available` | Not available |  |
-| `menu.here` | {n} here |  |
 | `menu.here_kitchen` | 0 here · kitchen |  |
-| `cart.items` | {n} items |  |
-| `cart.empty` | Tap items to add them |  |
-| `cart.times_later` | Times will be set when sent |  |
-| `cart.fix_first` | Fix {n} item first |  |
-| `cart.cant_send` | {n} item can't be sent — fix it first |  |
-| `cart.prob.only_left` | Only {n} left |  |
-| `cart.prob.station_paused` | Kitchen station paused |  |
-| `cart.prob.set_to` | Set to {n} |  |
-| `day.not_started` | The day hasn't started |  |
-| `day.ask_manager` | Ask the manager to start the day. Your order is kept. |  |
-| `day.start` | Start day |  |
-| `draft.back` | Your unsent order is back |  |
-| `draft.kept_since` | Kept on this screen since {time} |  |
-| `opt.choose` | Choose {n} |  |
-| `opt.up_to` | Up to {n} |  |
-| `opt.choose_missing` | Choose {n} in {group} |  |
-| `opt.add` | Add to order |  |
-| `opt.kitchen_note` | Kitchen note |  |
-| `weight.now` | Enter weight now |  |
-| `weight.later` | Weigh later |  |
-| `weight.later_note` | Added with “Weight pending”. The cashier or a manager enters the weight before the bill. |  |
-| `weight.after_weighing` | Price after weighing |  |
-| `send.sending` | Sending to the kitchen… |  |
-| `send.sent` | Sent |  |
-| `send.time_updated` | Time updated: {item} {time} |  |
-| `send.token` | Token |  |
-| `send.not_yet` | Not sent yet |  |
 | `send.not_yet_sub` | It will send when the hub is back. Token after sending. |  |
-| `send.done` | Done |  |
-| `send.new_takeaway` | New takeaway |  |
 | `send.new_parking` | New parking |  |
 | `send.queued_sent` | Takeaway sent |  |
 | `tv.food_at` | Food at {time} |  |
@@ -63,13 +30,11 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `tv.refresh` | Refresh |  |
 | `tv.updated` | Updated {time} |  |
 | `stage.served` | Served · {time} |  |
-| `stage.sent_back` | Sent back |  |
 | `stage.served_closed` | Served · closed |  |
 | `stage.not_tracked` | Not tracked |  |
 | `stage.counter_served` | From the counter · Served |  |
 | `stage.no_kitchen` | No kitchen — serve when ready |  |
 | `stage.badge.comped` | Comped ×{n} |  |
-| `stage.badge.removed` | Removed |  |
 | `stage.badge.sent_back` | Sent back |  |
 | `stage.badge.replacement` | Replacement |  |
 | `stage.badge.from_counter` | From the counter |  |
@@ -103,8 +68,6 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `comp.pick_reason` | Pick a reason |  |
 | `comp.other` | Other |  |
 | `comp.note` | Note |  |
-| `contact.title` | Customer contact |  |
-| `contact.logged` | this look is logged |  |
 | `boost.confirm` | Ask the kitchen to hurry order {id}? |  |
 | `orders.abandoned` | Abandoned |  |
 | `orders.ready` | Ready {n}/{m} |  |
@@ -114,10 +77,7 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `orders.stage_gap` | Kitchen stages aren't sent for takeaway yet: lines show Served / Not served. |  |
 | `orders.served` | Served |  |
 | `orders.not_served` | Not served |  |
-| `held.title` | Held on this screen |  |
 | `held.only_you` | Only {name} sees these. They don't keep the table locked. |  |
-| `held.resume` | Resume |  |
-| `held.discard` | Discard |  |
 | `zone.title` | Zone stock |  |
 | `zone.warn_at` | warn at {n} |  |
 | `zone.low` | Low |  |
@@ -132,7 +92,6 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `zone.undo` | Undo · {time} |  |
 | `zone.undo_hint` | Puts {n} back in the {zone} count |  |
 | `zone.too_late` | Too late to undo here. Fix the count on the zone screen. |  |
-| `queue.title` | Not sent |  |
 | `queue.sub` | Things this screen tried to send and the hub refused. |  |
 | `queue.signed_out` | Not sent: {name} was signed out |  |
 | `queue.changed` | Not sent: the table had changed |  |
@@ -157,7 +116,6 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `order.toast.served` | Served |  |
 | `order.toast.sent_back` | Sent back · ready at {time} |  |
 | `order.toast.comp_asked` | Comp asked — waiting for approval |  |
-| `order.toast.boosted` | Kitchen told to hurry |  |
 | `order.toast.refilled` | Refilled · {n} now |  |
 | `order.toast.all_sent` | All sent |  |
 | `order.toast.some_not_sent` | {n} not sent — see the queue log |  |
@@ -188,7 +146,6 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `queue.item` | an item |  |
 | `queue.copied` | Copied |  |
 | `queue.copy_failed` | Could not keep the copy on this screen |  |
-| `queue.in_log` | Not sent — see the queue log |  |
 | `idle.sub_none` | Your order is kept. |  |
 
 ## In `ur.ts` but not on a frame (needs native review)

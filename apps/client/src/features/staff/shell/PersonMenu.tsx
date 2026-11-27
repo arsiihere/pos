@@ -30,7 +30,11 @@ function Item({ icon, label, sub, danger, onPick }: { icon: IconName; label: str
       <Ico name={icon} />
       <span>
         {label}
-        {sub !== null && <small dir="auto">{sub}</small>}
+        {sub !== null && (
+          <small>
+            <bdi>{sub}</bdi>
+          </small>
+        )}
       </span>
     </button>
   );
@@ -70,9 +74,17 @@ export function PersonMenu(p: PersonMenuProps) {
       </button>
       {open && (
         <div className="tk-pop" role="menu" aria-label={p.name} ref={pop}>
+          {/* ⚠️ L-CLIENT-6b item 8 (frame PersonMenu): the header with the saffron avatar */}
           <div className="tk-pop__h">
-            <b>{p.name}</b>
-            <span className="muted">{p.where}</span>
+            <span className="av av--me" aria-hidden="true">
+              {initial(p.name)}
+            </span>
+            <span>
+              <b>
+                <bdi>{p.name}</bdi>
+              </b>
+              <span className="muted">{p.where}</span>
+            </span>
           </div>
           {p.onSwitch !== undefined && <Item icon="user" label={t('shell.me.switch')} sub={t('shell.me.switch_sub')} onPick={pick(p.onSwitch)} />}
           {p.onLock !== undefined && <Item icon="lock" label={t('shell.me.lock')} sub={t('shell.me.lock_sub')} onPick={pick(p.onLock)} />}
