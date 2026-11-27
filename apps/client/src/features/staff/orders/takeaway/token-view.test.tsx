@@ -45,8 +45,13 @@ function view(order_id: string, lines: SeatingLine[], o: Partial<OrderViewBody> 
 const bill = (bill_id: string | null, state: 'projected' | 'open' | 'closed', total: number, balance = total) => ({
   bill_id,
   state,
-  splits: state === 'projected' ? [] : [{ split_no: 1, state: state === 'closed' ? 'closed' : 'open', balance_minor: state === 'closed' ? 0 : balance }],
-  totals_default: { total_minor: total },
+  // the hub's shape (05 §6.1): a closed split carries its invoice's totals; totals_default is the open remainder (0 once
+  // every split is closed)
+  splits:
+    state === 'projected'
+      ? []
+      : [{ split_no: 1, state: state === 'closed' ? 'closed' : 'open', balance_minor: state === 'closed' ? 0 : balance, totals: { as_paid: { total_minor: state === 'closed' ? total : 0 } } }],
+  totals_default: { total_minor: state === 'closed' ? 0 : total },
 });
 
 const tok = (o: Partial<QueueToken> = {}): QueueToken => ({

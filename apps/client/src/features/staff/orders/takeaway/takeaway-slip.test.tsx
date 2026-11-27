@@ -140,7 +140,7 @@ describe('[02b-TK L-CLIENT-3 item 2; 03c §3.11 Result, §8] the slip result aft
 describe('[02b-TK L-CLIENT-3 item 2; 03c §6.14, §8] Print token (PrintTakeawaySlip reprint) on the token view', () => {
   const tok: QueueToken = { key: 'k', token: 53, order_ids: ['O53', 'O53b'], newest_order_id: 'O53b', customer_name: null, phone: null, placed_at: at(13, 4), promise_ms: at(13, 24), ready: { n: 0, m: 1 }, paid: false, part: false, summary: '' };
   const due = { bill_id: 'B53', state: 'open', splits: [{ split_no: 1, state: 'open', balance_minor: 39_000, invoice: null }], totals_default: { total_minor: 39_000 } };
-  const paid = { bill_id: 'B53', state: 'closed', splits: [{ split_no: 1, state: 'closed', balance_minor: 0, invoice: null }], totals_default: { total_minor: 39_000 } };
+  const paid = { bill_id: 'B53', state: 'closed', splits: [{ split_no: 1, state: 'closed', balance_minor: 0, totals: { as_paid: { total_minor: 39_000 } }, invoice: null }], totals_default: { total_minor: 0 } };
   const views = { O53: view('O53', [sl('O53', 'A', 'Karahi', 'cooking')]), O53b: view('O53b', [sl('O53b', 'B', 'Naan', 'cooking')]) };
 
   const showView = async (o: { bill?: unknown; grants?: Record<string, unknown>; online?: boolean; command?: (type: string, payload: unknown) => unknown } = {}) => {

@@ -66,7 +66,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
     },
     { pendingFor: () => 0, pendingCount: () => 0, subscribe: () => () => {} },
   );
-  const bills = o.bills ?? { O48: { bill_id: 'B48', state: 'closed', splits: [], totals_default: { total_minor: 205_000 } } };
+  const bills = o.bills ?? { O48: { bill_id: 'B48', state: 'closed', splits: [{ split_no: 1, state: 'closed', balance_minor: 0, totals: { as_paid: { total_minor: 205_000 } }, invoice: null }], totals_default: { total_minor: 0 } } };
   const shell = {
     device: { token: 'tok', id: 'DV1', type: o.device ?? 'cashier_kiosk' },
     live,

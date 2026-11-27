@@ -211,7 +211,7 @@ describe('[02b-TK L-CLIENT-3 item 1; 05 #60h] Print check bill before Send', () 
 describe('[02b-TK L-CLIENT-3 item 1; 05 #60h] Print receipt again on a paid token', () => {
   const tok: QueueToken = { key: 'k', token: 53, order_ids: ['O53'], newest_order_id: 'O53', customer_name: null, phone: null, placed_at: at(13, 4), promise_ms: at(13, 24), ready: { n: 0, m: 1 }, paid: true, part: false, summary: '' };
   const invoice = (invoice_id: string) => ({ invoice_id, invoice_ref: 'INV', fiscal_number: null, fiscal_state: null });
-  const paid = { bill_id: 'B53', state: 'closed', splits: [{ split_no: 1, state: 'closed', balance_minor: 0, invoice: invoice('INV-1') }, { split_no: 2, state: 'closed', balance_minor: 0, invoice: invoice('INV-2') }], totals_default: { total_minor: 39_000 } };
+  const paid = { bill_id: 'B53', state: 'closed', splits: [{ split_no: 1, state: 'closed', balance_minor: 0, totals: { as_paid: { total_minor: 19_000 } }, invoice: invoice('INV-1') }, { split_no: 2, state: 'closed', balance_minor: 0, totals: { as_paid: { total_minor: 20_000 } }, invoice: invoice('INV-2') }], totals_default: { total_minor: 0 } };
   const due = { bill_id: 'B53', state: 'open', splits: [{ split_no: 1, state: 'open', balance_minor: 39_000, invoice: null }], totals_default: { total_minor: 39_000 } };
 
   const showView = async (bill: unknown, grants: Record<string, unknown> = {}) => {
