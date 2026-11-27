@@ -170,7 +170,7 @@ describe('[02b-TK C1-1] day not open from eta-preview and the socket', () => {
     act(() => h.live.frame(dayFrame(2, 'BusinessDayOpened')));
     await tick();
     expect(m.text()).not.toContain('Times show after Start day');
-    expect(m.text()).toContain('All ready by');
+    expect(m.text()).toContain('Ready by · Tell the customer');
     m.unmount();
   });
 

@@ -42,7 +42,7 @@ describe('[02b-TK TK-C01] takeaway menu tiles', () => {
     expect(cartLines(m)[0]!.textContent).toContain('Chicken Karahi — Full');
     m.click(tile(m, 'Chicken Karahi').querySelectorAll('.tk-split button')[1]!);
     expect(cartLines(m)).toHaveLength(1);
-    expect(cartLines(m)[0]!.querySelector('.ln__q')!.textContent).toBe('2×');
+    expect(cartLines(m)[0]!.querySelector('.step output')!.textContent).toBe('2');
     m.unmount();
   });
 
@@ -77,7 +77,7 @@ describe('[02b-TK TK-C01] takeaway menu tiles', () => {
     const chips = [...m.container.querySelectorAll('.cart .ln .tk-qchips button')];
     expect(chips.map((b) => b.textContent)).toEqual(['×2', '×4', '×6', '×8']);
     m.click(chips[2]!);
-    expect(cartLines(m)[0]!.querySelector('.ln__q')!.textContent).toBe('6×');
+    expect(cartLines(m)[0]!.querySelector('.step output')!.textContent).toBe('6');
     m.unmount();
   });
 

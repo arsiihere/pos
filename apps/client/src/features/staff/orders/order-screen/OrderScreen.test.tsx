@@ -273,7 +273,7 @@ describe('[02b §8 Ordering screen] order screen', () => {
     m.unmount();
   });
 
-  it('[02b §8 Ordering screen] preview failed / offline → "—", "set when sent"; Send stays on (queues)', async () => {
+  it('[02b §8 Ordering screen] preview failed / offline → "—", "Times show when the hub is back"; Send stays on (queues)', async () => {
     const h = harness();
     const m = h.render({ order_type: 'takeaway', id: 'D1', online: false });
     await flush();
@@ -282,7 +282,7 @@ describe('[02b §8 Ordering screen] order screen', () => {
     await tick();
     expect(h.previews).toHaveLength(0);
     expect(m.container.querySelector('.ln .eta.none')?.textContent).toBe('—');
-    expect(m.text()).toContain('Times will be set when sent');
+    expect(m.text()).toContain('Times show when the hub is back'); // L-CLIENT-6a item 11 (frame HomeOffline): offline says why
     expect(m.button('Send to kitchen').hasAttribute('disabled')).toBe(false);
     m.unmount();
   });
@@ -389,7 +389,7 @@ describe('[02b §8 Ordering screen] order screen', () => {
     m.again();
     await flush();
     expect(m.text()).not.toContain('Your unsent order is back');
-    expect(m.container.querySelector('.ln__q')?.textContent).toBe('7×');
+    expect(m.container.querySelector('.ln .step output')?.textContent).toBe('7'); // L-CLIENT-6a: every takeaway line has its stepper
     m.unmount();
   });
 
@@ -454,11 +454,11 @@ describe('[02b §8 Ordering screen] order screen', () => {
     pick(m, 'Sides');
     m.click(tile(m, 'Naan'));
     await tick();
-    expect(m.text()).toContain('All ready by');
+    expect(m.text()).toContain('Ready by · Tell the customer');
     expect(m.container.querySelector('.ln .eta')?.textContent).toBe('8:20 PM');
     m.again({ online: false });
-    expect(m.text()).not.toContain('All ready by');
-    expect(m.text()).toContain('Times will be set when sent');
+    expect(m.text()).not.toContain('Ready by · Tell the customer');
+    expect(m.text()).toContain('Times show when the hub is back');
     expect(m.container.querySelector('.ln .eta.none')?.textContent).toBe('—');
     m.unmount();
   });
@@ -482,7 +482,7 @@ describe('[02b §8 Ordering screen] order screen', () => {
     const m = h.render({ order_type: 'takeaway', id: 'D5', store, strict: true });
     await flush();
     expect(m.text()).toContain('Your unsent order is back');
-    expect(m.container.querySelector('.ln__q')?.textContent).toBe('2×');
+    expect(m.container.querySelector('.ln .step output')?.textContent).toBe('2');
     pick(m, 'Sides');
     m.click(tile(m, 'Naan'));
     await flush();
