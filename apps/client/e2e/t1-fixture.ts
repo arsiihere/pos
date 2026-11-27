@@ -119,7 +119,9 @@ export type T1Request =
   | { kind: 'seat'; table_id: string; seating_id: string; holder: string }
   /** the station's unfired live lines get a real FireDispatched (the fixed clock has no fires tick); `except` stay held */
   | { kind: 'fire'; station: string; except?: string[] }
-  | { kind: 'orderTypes'; points: Record<string, Array<'dine_in' | 'takeaway' | 'parking'> | null> };
+  | { kind: 'orderTypes'; points: Record<string, Array<'dine_in' | 'takeaway' | 'parking'> | null> }
+  /** ⚠️ 02b-TK L-CLIENT-5 (03a PK-1, PK-5): the engine's current plan of an order (t1-support `hubPlan`) */
+  | { kind: 'plan'; order_id: string };
 
 interface JobRow {
   job_id: string;
@@ -201,6 +203,23 @@ export function startT1Driver(hub: TestHub, base: string): () => void {
       }
       case 'orderTypes':
         return applyOrderTypes(req.points);
+      case 'plan': {
+        const state = hub.deps.state.get() as EngineState;
+        const order = state.orders[req.order_id];
+        if (order === undefined) return { error: `order ${req.order_id} is not in the engine` };
+        return {
+          pickup_at_ms: order.pickup_at_ms,
+          boosted: order.boosted,
+          promise_ms: order.promise_ms,
+          lines: order.line_ids.flatMap((id) => {
+            const l = state.lines[id];
+            if (l === undefined) return [];
+            // a line's planned land: its booking's end (the station profile) + carry; before a booking fire + prep + cook + carry
+            const end = l.booked?.end ?? (l.fire_ms === null ? null : l.fire_ms + l.prep_ms + l.cook_ms);
+            return [{ order_item_id: id, stage: l.stage, land_ms: end === null ? null : end + l.carry_ms }];
+          }),
+        };
+      }
     }
   };
   const timer = setInterval(() => {

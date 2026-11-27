@@ -186,7 +186,7 @@ Captured from `apps/client/e2e/t1-takeaway.spec.ts` (T1 #7) against the e2e hub,
 - The frame's "needed for later pickup" on name and phone is not built: R1 keeps both optional. The frame's primary "Schedule for 2:00 PM" is not built; the spec names no such button and Send · pay later / Send & pay stay.
 - The chips reuse the ServeChoice band (`.tk-serve .tk-pick`); no CSS changed (ui-kit is outside this lane).
 - The queue's Phone orders — later holds a not-ready token whose `effective_pickup_at_ms` is ahead of hub now; an elapsed or boosted one is in Cooking. Its row, its ready tile and the token view show "Pickup <time>" from `pickup_at_ms`, also after a boost (D1).
-- The hub's promise for a pickup order is the pickup plus the branch's takeaway promise padding (here 3 min: Ready by 11:15 PM for a pickup at 11:12 PM), so the cart's "Kitchen times it for" shows the preview promise, as 02b §6.14 says.
+- The hub's promise for a pickup order is the pickup plus the takeaway promise padding (03a PK-1, §3.5.1 step 5: a Waada Guard station's `promise_padding_ms`, else `engine_settings.promise_padding_takeaway_ms`; 180 000 ms on the e2e hub, from the test config's `PADDING_MS`), so Ready by reads 11:15 PM for a pickup at 11:12 PM. T1 #7 asserts exactly pickup + padding, read from the hub's branch config.
 
 ## L-CLIENT-5 item 2 Customer is here (BoostOrder on a pickup token)
 
@@ -201,7 +201,7 @@ Captured from `apps/client/e2e/t1-takeaway.spec.ts` (T1 #8) against the e2e hub,
 
 - The button shows in the token view of a token with an order whose `effective_pickup_at_ms` is set (not boosted), to a holder of `boost-order`, while the hub is reachable (`BoostOrder` is not queueable, 02b §6.6). It sends `BoostOrder { order_id }` for each such order of the token, then toasts "The kitchen cooks it now" and hides itself. A refusal (`ORDER_NOT_IN_ENGINE`, …) toasts the order error and keeps the button. The rail and the drawer read again on `OrderBoosted`; the token leaves Phone orders — later because its effective pickup is now null.
 - The pickup time stays in the drawer and the rail (D1). Readiness stays whole-bag: the drawer offers Hand over all only when every live line is ready.
-- On the e2e hub's fixed clock the ready time did not move (11:15 PM before and after): 03a v1.2.11 PK-5 keeps the stored promise and the earlier placement shows as the kitchen fires. The e2e checks it is not later.
+- The stored promise does not move (03a v1.2.11 PK-5 keeps it; the drawer's Ready by reads it), but the engine's plan does: with a pickup 45 min ahead the plan's eta (the latest planned land of the order's lines, read through the e2e driver's `plan` request) is the pickup before the boost and 35 min before the pickup after it (the 10 min main placed at its earliest fit). T1 #8 asserts that the eta moves before the pickup.
 
 ## L-CLIENT-5 item 3 a carried token shows its date beside the number (DC-2)
 
