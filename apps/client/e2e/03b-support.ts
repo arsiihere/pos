@@ -1,4 +1,4 @@
-import { rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import {
   expect,
   type APIRequestContext,
@@ -6,7 +6,7 @@ import {
   type TestInfo,
 } from "@playwright/test";
 import { hub, type Lang } from "./02b-support";
-import { keyOf, lineId, stationOf, type Flow03 } from "./03b-fixture";
+import { keyOf, lineId, stationOf, type ConfigRequest03, type Flow03 } from "./03b-fixture";
 
 // 03b / 03c flows (Z1): helpers on top of 02's. A run takes its own station (see 03b-fixture.ts).
 
@@ -145,4 +145,28 @@ export async function withLiveClock<T>(body: () => Promise<T>): Promise<T> {
   } finally {
     rmSync(flag, { force: true });
   }
+}
+
+let configSeq = 0;
+/**
+ * 02b-TK L-CLIENT-2 item 1 (D7): a real config apply on the e2e hub (03b-fixture `startConfigDriver`), answered with
+ * the poll's outcome and the config status problem after it.
+ */
+export async function hubConfig(
+  req: Omit<ConfigRequest03, "id">,
+): Promise<{ outcome: string; problem: unknown }> {
+  const base = (process.env["POS_E2E_HUB"] ?? "").replace(/\.json$/, "");
+  const id = `${process.pid}-${++configSeq}`;
+  const done = `${base}.config-${id}.json`;
+  writeFileSync(`${base}.config-req.json`, JSON.stringify({ ...req, id }));
+  for (let i = 0; i < 150; i++) {
+    if (existsSync(done)) {
+      const res = JSON.parse(readFileSync(done, "utf8")) as { outcome: string; problem: unknown; error?: string };
+      rmSync(done, { force: true });
+      if (res.error !== undefined) throw new Error(res.error);
+      return res;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("the e2e hub did not answer the config request");
 }

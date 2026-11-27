@@ -54,3 +54,17 @@ Each image shows the hand-off frame on the left and the running client on the ri
 - Every Pass card of a takeaway / parking order shows "Ready {n} min ago — not collected" (amber message) once hub now ≥ `bag_ready_since` + `bag_ready_window_ms`; the pair comes from the catch-up, `point_lines.orders` and `PassBagReadyChanged`, and clears when the bag is incomplete again or collected. The e2e fast-forwards the page's clock past the hub's 60 s window. The card carries `pc--late`, which ui-kit does not style yet, so only the message is amber (the frames' amber card border needs a ui-kit rule).
 - On a counter device (profile screens include takeaway / parking) the order-level `ready_to_serve` card reads "Bag ready — hand over at the counter" with the token chip and the ready lines; from 1× the window it is amber with "Ready {n} min ago — not collected", and at the 2× escalation "Not collected for {n} min — managers told" (unit tests; the e2e hub's clock is fixed, so only step 0 is captured). Other devices keep the Pass wording.
 - The counter's ready tile amber clock (frames ReadyTiles, TokenLate) is not built: it needs `open-orders` `ready_at` (02b B2-1).
+
+## L-CLIENT-2 item 1 D7: the Pass after a point archive, "Moved from", and the refused archive on config status
+
+Captured from `apps/client/e2e/02b-tk-d7.spec.ts` (landscape tablet, device scale 2; the spec also runs at the kiosk viewport). The e2e hub applies a real config through its poller and stub cloud (`03b-fixture.ts` `startConfigDriver`): the run's own Pass point is archived and a second, receiving point becomes its station's default. The 02b-TK hand-off has no frame for these states, so the nearest frames are on the left: 03b PassArchived (03b-B15) for the retired point, PackerPass for the receiving Pass. The config status image is the capture alone.
+
+| State | Frame (left) | English | Urdu |
+| --- | --- | --- | --- |
+| Archived point's tablet after `point_view_refresh { view: null }` | 03b PassArchived | [PassRetired](PassRetired.png) | [PassRetired-Urdu](PassRetired-Urdu.png) |
+| Receiving Pass after its refreshed view | PackerPass | [PassMovedFrom](PassMovedFrom.png) | [PassMovedFrom-Urdu](PassMovedFrom-Urdu.png) |
+| Hub admin config status, archive refused (`VALIDATION_FAILED`, issue path `archived`) | none | [ConfigArchiveRefused](ConfigArchiveRefused.png) | [ConfigArchiveRefused-Urdu](ConfigArchiveRefused-Urdu.png) |
+
+- Retired: a full-screen state replaces the cards: "This point was retired — ask a manager to set this tablet to another point". It shows no station strip, filter or actions. The next catch-up brings the Pass back. 03b-B15 PassArchived (the 404 POINT_NOT_FOUND banner with the cards still on screen) stays as built for a command refused on an archived point.
+- Moved from: each moved line shows "Moved from {old point name}" as a chip on its own line under the item. The hub sends `LineDetail.moved_from` as the name string, both live and on catch-up. The KDS shows no label: §3.10 names only the receiving Pass.
+- Config status: the hub's danger banner reads "Menu update refused: activate another Pass point first." followed by the version still in use. Every other problem keeps its existing text.

@@ -76,6 +76,17 @@ export function createTakeovers(deps: { now: () => number }): Takeovers {
         changed();
         return;
       }
+      // ⚠️ 03b v1.0.16 §6.16 (R3-M-1): a D7 refresh replaces the sections from its view (none when the point was retired);
+      // the plans already held stay (the refresh carries none)
+      if (frame.type === 'point_view_refresh') {
+        if (frame.view !== null && typeof frame.view['point_id'] !== 'string') return; // malformed: the store ignores it too
+        for (const id of [...stores.keys()]) close(id);
+        const pv = frame.view;
+        const bodies = isObj(pv) && Array.isArray(pv['takeovers']) ? (pv['takeovers'] as unknown[]) : [];
+        for (const b of bodies) if (isObj(b) && typeof b['station_id'] === 'string') open(b['station_id'], b);
+        changed();
+        return;
+      }
       if (frame.type === 'station_plan') plans.set(frame.station_id, { station_id: frame.station_id, as_of_seq: frame.as_of_seq, lines: frame.lines });
       if (frame.type === 'station_takeover') {
         if (frame.active) {

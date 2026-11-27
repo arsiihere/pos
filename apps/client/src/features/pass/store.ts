@@ -24,11 +24,18 @@ import type { PassSnapshot, PassStore, PointLine, PointOrder, PointOrderMeta, Po
 //   pickup readiness, station-less lines, the R8 pair) comes with the catch-up and, when it changed, in
 //   `point_lines.orders` (possibly with no lines), applied after the frame's lines; it replaces the order's prior
 //   metadata. Metadata for an order this point does not hold yet waits for its first line (dropped on catch-up).
+// - ⚠️ 02b-TK L-CLIENT-2 item 1 (03b v1.0.16 §3.10 D7, §6.16 (run 3 R3-M-1)): `point_view_refresh { as_of_seq, view }`
+//   after a config apply that moved Pass work replaces the cards, stations and takeovers from `view` as a catch-up's
+//   point_view does and resets the held ids; an `event` with seq <= as_of_seq (the refreshed commit's own) changes
+//   nothing, newer ones apply. This tablet's own claims (Q-55) and the live Ready alert ids stay for the orders still
+//   shown. `view: null` = this point was retired: no view and `retired` until the next catch-up.
 
 /** What P2–P5 render: the contract snapshot plus the §3.10 archived notices since the last catch-up. */
 export interface PassView extends PassSnapshot {
   /** station_id → open_lines of a `station_notice { kind: 'archived' }` */
   archived: ReadonlyMap<string, number>;
+  /** ⚠️ 03b v1.0.16 §6.16 (R3-M-1): a `point_view_refresh { view: null }` retired this tablet's point (until the next catch-up) */
+  retired: boolean;
 }
 
 export interface PassStoreImpl extends PassStore {
@@ -46,7 +53,8 @@ export interface PassStoreImpl extends PassStore {
   claimHandover(handover_id: string, staff_id: string): void;
 }
 
-const EMPTY: PassView = { view: null, takeovers: new Map(), seen_at: new Map(), archived: new Map() };
+const EMPTY: PassView = { view: null, takeovers: new Map(), seen_at: new Map(), archived: new Map(), retired: false };
+const RETIRED: PassView = { ...EMPTY, retired: true };
 
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const int = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
@@ -107,18 +115,24 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
   let unitsBefore = new Map<string, number>();
   /** §6.16: metadata of an order not on a card yet (its first line comes later) */
   let metaPending = new Map<string, PointOrderMeta>();
+  /** §6.16 (R3-M-1): the last refresh's as_of_seq (events through it are superseded); a retired point (view null) */
+  let supersededThrough = Number.NEGATIVE_INFINITY;
+  let retired = false;
   let snap: PassView = EMPTY;
   const listeners = new Set<() => void>();
 
   function changed(): void {
     snap =
       point === null
-        ? EMPTY
+        ? retired
+          ? RETIRED
+          : EMPTY
         : {
             view: { point_id: point, stations: [...stations], orders: [...orders], takeovers: [...takeovers.values()] },
             takeovers: new Map(takeovers),
             seen_at: new Map(seen),
             archived: new Map(archived),
+            retired: false,
           };
     for (const fn of [...listeners]) fn();
   }
@@ -172,7 +186,9 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
 
   function catchUp(state: Record<string, unknown>): boolean {
     const v = readView(state['point_view']);
-    const had = point !== null;
+    const had = point !== null || retired;
+    retired = false;
+    supersededThrough = Number.NEGATIVE_INFINITY;
     seen = new Map();
     archived = new Map();
     readyAlert = new Map();
@@ -190,6 +206,39 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
     stations = v.stations;
     orders = v.orders;
     takeovers = new Map(v.takeovers.map((b) => [b.station_id, b]));
+    return true;
+  }
+
+  /** §6.16 (R3-M-1): the refreshed view replaces the store; null retires the point. A malformed view is ignored. */
+  function refresh(frame: Extract<WsServerMessage, { type: 'point_view_refresh' }>): boolean {
+    const v = frame.view === null ? null : readView(frame.view);
+    if (frame.view !== null && v === null) return false;
+    supersededThrough = Math.max(supersededThrough, frame.as_of_seq);
+    unitsBefore = new Map();
+    metaPending = new Map();
+    archived = new Map();
+    if (v === null) {
+      const had = point !== null || !retired;
+      point = null;
+      retired = true;
+      stations = [];
+      orders = [];
+      takeovers = new Map();
+      seen = new Map();
+      readyAlert = new Map();
+      handOrders = new Map();
+      return had;
+    }
+    retired = false;
+    point = v.point_id;
+    stations = v.stations;
+    orders = v.orders;
+    takeovers = new Map(v.takeovers.map((b) => [b.station_id, b]));
+    // the view carries the hub's placed_at and ready.at; this tablet's live Ready alert ids stay for the orders shown
+    const kept = new Set(orders.map((o) => o.order_id));
+    seen = new Map();
+    readyAlert = new Map([...readyAlert].filter(([id]) => kept.has(id)));
+    handOrders = new Map([...handOrders].filter(([, id]) => kept.has(id)));
     return true;
   }
 
@@ -341,7 +390,11 @@ export function createPassStore(deps: { now: () => number }): PassStoreImpl {
       case 'catch_up':
         return catchUp(frame.state);
       case 'event':
+        // §6.16 (R3-M-1): the refreshed commit's own events are already in the refreshed view
+        if (frame.seq <= supersededThrough) return false;
         return onEvent(frame.event.event_type, frame.event.payload);
+      case 'point_view_refresh':
+        return refresh(frame);
       case 'point_lines':
         return onPointLines(frame);
       case 'station_takeover': {

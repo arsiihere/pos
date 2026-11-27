@@ -4437,6 +4437,10 @@ export const en = {
   'pass.not_collected': 'Ready {n} min ago — not collected',
   'alert.ready_to_serve.counter': 'Bag ready — hand over at the counter',
   'alert.ready_to_serve.counter_escalated': 'Not collected for {n} min — managers told',
+  // ---- 02b-TK L-CLIENT-2 item 1 (03b v1.0.16 §3.10, §6.16; 01a v2.11 §6.21; D7): the Pass refresh after a point archive, "Moved from", the config status archive refusal ----
+  'pass.point_retired': 'This point was retired — ask a manager to set this tablet to another point',
+  'pass.moved_from': 'Moved from {point}',
+  'admin_stock.problem.archive_refused': 'Menu update refused: activate another Pass point first.',
 } as const;
 
 export type MessageKey = keyof typeof en;

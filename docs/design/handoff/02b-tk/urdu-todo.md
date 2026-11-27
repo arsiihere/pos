@@ -107,6 +107,9 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `pass.not_collected` (03b v1.0.16 §3.4 / §8, L-CLIENT-1 item 2) | Ready {n} min ago — not collected | {n} منٹ سے تیار — کوئی نہیں آیا |
 | `alert.ready_to_serve.counter` (03b v1.0.16 §3.5 R8, L-CLIENT-1 item 2) | Bag ready — hand over at the counter | بیگ تیار — کاؤنٹر پر حوالے کریں |
 | `alert.ready_to_serve.counter_escalated` (03b v1.0.16 §3.5 R8, L-CLIENT-1 item 2) | Not collected for {n} min — managers told | {n} منٹ سے کوئی نہیں آیا — مینیجر کو بتا دیا |
+| `pass.point_retired` (03b v1.0.16 §6.16 R3-M-1, D7; L-CLIENT-2 item 1) | This point was retired — ask a manager to set this tablet to another point | یہ پوائنٹ ختم کر دیا گیا — مینیجر سے کہیں کہ یہ ٹیبلٹ کسی اور پوائنٹ پر لگائیں |
+| `pass.moved_from` (03b v1.0.16 §3.10, §6.15 R3-M-1, D7; L-CLIENT-2 item 1) | Moved from {point} | {point} سے منتقل |
+| `admin_stock.problem.archive_refused` (01a v2.11 §6.21 R3-B-1, D7; L-CLIENT-2 item 1) | Menu update refused: activate another Pass point first. | مینو کی تبدیلی رد ہوئی: پہلے کوئی اور پاس پوائنٹ فعال کریں۔ |
 
 Historical copy for Urdu review. OR-7 disabled the client override.
 
