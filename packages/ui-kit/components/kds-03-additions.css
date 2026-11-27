@@ -142,3 +142,9 @@
 .pc .pc__f .btn--quiet { min-height: 44px; }
 .pc .pc__h { padding-bottom: 4px; }
 .pc .pc__duerow { padding-bottom: 4px; }
+/* v1.0.17 (QA design audit): on the Pass no toast or alert banner covers a card — a toast shows over the top bar's
+   middle, and while an alert banner is up the cards reflow into the space beside it */
+.pu:has(main.pass) .toast { bottom: auto; top: 8px; inset-inline-end: auto; inset-inline-start: 50%; transform: translateX(-50%); }
+[dir="rtl"].pu:has(main.pass) .toast { transform: translateX(50%); }
+.pu:has(main.pass):has(.abns:not(.abns--phone):not(.abns--wide) > *) main.pass { padding-inline-end: 504px; }
+.pu:has(main.pass):has(.abns:not(.abns--phone):not(.abns--wide) > *) .pcards:not(.pcards--1) { --pcols: 2; }
