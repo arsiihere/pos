@@ -50,3 +50,32 @@ describe('[03b #60] run-pass on the hub', () => {
     expect(directory.resolve('S_CASH', 'run-pass')).toEqual({ grant: 'not_granted' });
   });
 });
+
+// ⚠️ 01b v1.12 B-4 (OR-2; owner correction 2026-11-24), test 118 (hub part): the Pass default role (run-pass,
+// mark-served, reprint-ticket) reaches the hub through a directory apply; Cook still has no mark-served. L-CLOSE-1.
+describe('[01b #118 hub] the Pass default role on the hub', () => {
+  it('[01b #118] a hub directory apply resolves mark-served allowed / branch for a Pass person and not_granted for a Cook', async () => {
+    hub = await createTestHub({ provisioned: true });
+    const base = await aDirectory();
+    const roleOf = (default_key: 'cook' | 'pass', role_id: string) => {
+      const r = DEFAULT_ROLES.find((d) => d.default_key === default_key)!;
+      return {
+        role_id,
+        name: r.name,
+        session_idle_ttl_ms: r.session_idle_ttl_ms,
+        permissions: r.grants.map((g) => ({ permission: g.permission, grant_type: g.grant_type, approver_role_id: null, approver_role_ids: [], scope: g.scope ?? ('branch' as const) })),
+      };
+    };
+    const person = (staff_id: string, role_id: string) => ({ staff_id, display_name: staff_id, pin_hash: base.staff[0]!.pin_hash, role_ids: [role_id], denied_permissions: [], lead_staff_id: null, floor_ids: [] });
+    await seedDirectory(hub, {
+      ...base,
+      roles: [...base.roles, roleOf('cook', 'R_COOK'), roleOf('pass', 'R_PASS')],
+      staff: [...base.staff, person('S_COOK', 'R_COOK'), person('S_PASS', 'R_PASS')],
+    });
+    const directory = currentDirectory(hub.app);
+    expect(directory.resolve('S_PASS', 'mark-served')).toEqual({ grant: 'allowed', scope: 'branch' });
+    expect(directory.resolve('S_PASS', 'run-pass')).toEqual({ grant: 'allowed', scope: 'branch' });
+    expect(directory.resolve('S_PASS', 'reprint-ticket')).toEqual({ grant: 'allowed', scope: 'branch' });
+    expect(directory.resolve('S_COOK', 'mark-served')).toEqual({ grant: 'not_granted' });
+  });
+});
