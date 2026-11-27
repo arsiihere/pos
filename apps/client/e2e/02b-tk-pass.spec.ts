@@ -53,7 +53,8 @@ for (const lang of LANGS) {
       await signInPass(page, 'Pervez');
       const button = card.locator('.btn--customer');
       await expect(button).toBeVisible();
-      await expect(button).toHaveText(tr(lang, 'pass.handed_to_customer'));
+      // ⚠️ 03b v1.0.17 §8: the greyed button carries its reason ("Take payment first") under the words
+      await expect(button).toContainText(tr(lang, 'pass.handed_to_customer'));
       await expect(button).toBeDisabled();
       // 03b v1.0.16 §3.4 Bill freshness: the hub now sends the row's `bill` (B2-1); this takeaway is unpaid → Due
       // ⚠️ 03b v1.0.17 §8: ONE Due pill with the amount (no separate "Take payment first" line on the card)

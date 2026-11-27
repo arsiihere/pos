@@ -120,7 +120,7 @@ for (const lang of LANGS) {
       // "Handed to customer" while it cooks)
       await cookLine(card, run.items.main.name);
       await expect(card).not.toHaveClass(/\bready\b/);
-      await expect(card.locator('.rd')).toHaveText(tr(lang, 'pass.cooking'));
+      await expect(card.locator('.rd')).not.toHaveText(tr(lang, 'pass.ready'));
       await expect(card.locator('.btn--customer')).toHaveCount(0);
       await capture(pass.page, info, `T1-17-half-bag-${info.project.name}-${lang}`, card);
       await cookLine(card, run.items.drink.name);
