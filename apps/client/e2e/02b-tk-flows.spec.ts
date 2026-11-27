@@ -110,12 +110,13 @@ for (const lang of LANGS) {
     await signOut(page, info, lang);
     await signInOn(page, hub().kiosk, lang);
     try {
+      // L-CLIENT-6b item 2 (frame HeldDrawer): from the Takeaway tab, Held is the right drawer "Held on this counter"
       await page.evaluate(() => (window.location.hash = '#/held'));
-      const row = page.locator('.ql', { hasText: tr(lang, 'h.by', { name: 'Owner' }) }).first();
+      const row = page.locator('.tk-held .tk-held__row', { hasText: tr(lang, 'h.by', { name: 'Owner' }) }).first();
       await expect(row).toBeVisible();
       await expect(row).toContainText('U•••');
       await expect(row).not.toContainText('Usman');
-      await row.getByRole('button', { name: tr(lang, 'held.resume') }).click();
+      await row.getByRole('button', { name: tr(lang, 'h.resume') }).click();
       await expect(page).toHaveURL(/#\/order\/takeaway\//);
       await expect(page.locator('.cart .ln')).toHaveCount(1);
     } finally {

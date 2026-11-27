@@ -46,8 +46,8 @@ for (const lang of ['en', 'ur'] as Lang[]) {
       await card.locator('.btn--ready').click();
       await expect(card.locator('.pc__rdy')).toBeVisible();
       // the Ready is a person alert for Ali (the taker of a takeaway): the header's Inbox lists it
-      await expect(taker.getByRole('button', { name: /Inbox|ان باکس|اِن باکس/ })).toContainText(/[1-9]/, { timeout: 20_000 });
-      await taker.getByRole('button', { name: /Inbox|ان باکس|اِن باکس/ }).click();
+      await expect(taker.getByRole('button', { name: /^(Inbox|ان باکس|اِن باکس)(?!\s*کھولیں)/ })).toContainText(/[1-9]/, { timeout: 20_000 });
+      await taker.getByRole('button', { name: /^(Inbox|ان باکس|اِن باکس)(?!\s*کھولیں)/ }).click();
       await expect(taker.getByText(tr(lang, 'alert.ready_to_serve.card').split(' · ')[0]).first()).toBeVisible({ timeout: 20_000 });
 
       // Hand over → the receiver sheet → Ali
