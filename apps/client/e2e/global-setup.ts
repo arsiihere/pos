@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Permission } from "@pos/domain";
 import type { BranchConfig, DirectoryInput, EventDraft } from "@pos/events";
+import { BUSINESS_DAY_END_LOCAL_MS_DEFAULT, businessDayLatestMs } from "@pos/domain";
+import { hubTime } from "../../hub/src/lib/hub-time";
 import { cryptoSecrets } from "../../hub/src/lib/secrets";
 import { aDirectory } from "../../hub/test/helpers/fixtures";
 import {
@@ -402,6 +404,17 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   // the test hub's secrets are a counter that wraps after 8 tokens (a repeat breaks devices.token_hash UNIQUE): the 03b
   // flows pair many devices, so tokens and display codes are random here (as in production, lib/secrets.ts cryptoSecrets)
   Object.assign(hub.deps.secrets, cryptoSecrets);
+  // L-E2E-T1 day close (POS_E2E_DAYCLOSE=1): the hub's clock starts at a fixed instant, but the business day ends at a
+  // fixed LOCAL time in the OS time zone (01a BD-3, hubTime), so the time left in the day depended on the runner's zone.
+  // Pin it: the clock moves (before anything is seeded) to POS_E2E_DAYCLOSE_BEFORE_END_MIN minutes before the next
+  // business-day end (default 600: mid-morning of a 04:00 end). The day then opens there.
+  if (process.env["POS_E2E_DAYCLOSE"] === "1") {
+    const beforeEnd = Number(process.env["POS_E2E_DAYCLOSE_BEFORE_END_MIN"] ?? "600") * 60_000;
+    const { now_ms, utc_offset_ms } = hubTime(hub.clock);
+    const end = fixtureMenu().business_day_end_local_ms ?? BUSINESS_DAY_END_LOCAL_MS_DEFAULT;
+    const target = businessDayLatestMs(now_ms + beforeEnd, 0, end, utc_offset_ms) - beforeEnd;
+    hub.clock.advance(target - now_ms);
+  }
   await seedDirectory(hub, await directory());
   // task 28: the 02b fixture menu (Chicken Karahi, Naan, Cola, …) on the e2e floors, the business day open, stock counted
   openDay(hub, {
