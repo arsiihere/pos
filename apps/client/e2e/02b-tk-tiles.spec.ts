@@ -145,9 +145,10 @@ for (const lang of LANGS) {
     try {
       await takeawayTab(page);
       await menuTile(page, 'Naan').click();
-      await expect(page.locator('.cart .tk-serve')).toHaveCount(0);
+      // (02b-TK L-CLIENT-5 item 1: the pickup row shares the .tk-serve band; the serve question is the other one)
+      await expect(page.locator('.cart .tk-serve:not([data-pickup-row])')).toHaveCount(0);
       await menuTile(page, 'Water').click();
-      const q = page.locator('.cart .tk-serve');
+      const q = page.locator('.cart .tk-serve:not([data-pickup-row])');
       await expect(q.locator('b')).toHaveText(tr(lang, 'c.serve_q', { item: 'Water' }));
       await expect(page.locator('.cart .serve')).toHaveCount(0);
       const [before] = tr(lang, 'c.serve_now', { item: 'Water' }).split('{t}');
