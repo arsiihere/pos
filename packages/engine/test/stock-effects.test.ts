@@ -1,7 +1,7 @@
 // 03a §3.7 / §6.1f (task 12b): stockEffects per cause (per-cause table, Q14, move to stock, StockAdded reserve),
 // the StockReserved flip (from_stock false → true: stock cook, stock program, BF-7 re-place of that line only),
 // the re-plan of a recount / close at its own event after its releases (§3.5.3), BF-1, BF-8.
-import { parseEvent, type ConfigStockItem, type EngineConfig, type EventDraft, type PosEvent } from '@pos/events';
+import { parseEvent, type ConfigStockItem, type EngineConfig, type EventDraft, type ItemAddedPayload, type PosEvent } from '@pos/events';
 import {
   aBusinessDayClosed,
   aBusinessDayOpened,
@@ -18,7 +18,7 @@ import {
   aStockSet,
 } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
-import { applyEvent, buildEngineState, initialEngineState, isOrderInEngine, stockEffects, stockOf, type EngineState, type StockCtx } from '../src/index';
+import { applyEvent, buildEngineState, initialEngineState, isOrderInEngine, reserveStock, stockEffects, stockOf, type EngineState, type ProposedOrder, type StockCtx } from '../src/index';
 import { batchConfig, loadOf } from './batch-kit';
 
 const T = 1_761_000_000_000;
@@ -1010,5 +1010,61 @@ describe('@pos/engine stockEffects: a line the array ends never takes a moved po
     const one = stockEffects(s0, add, CTX);
     expect(reservedOf(one)).toEqual(['P2']);
     expect(stockEffects(s0, [add], CTX)).toEqual([add, ...one]);
+  });
+});
+
+// ---- 02b-tk L-CLOSE-2: 03a v1.2.11 test 179 (b), (d) (PK-8; M-5) ------------------------------------------------------
+
+describe('[03a #179 (b), (d)] stock with a pickup', () => {
+  const P = T + 3_600_000;
+  function order(order_id: string, id: string, pickup: number | null, behaviour: 'cook_fresh' | 'sold_out' = 'cook_fresh'): ProposedOrder {
+    const base = anItemAdded().payload as unknown as ItemAddedPayload;
+    return deepFreeze({
+      order_id,
+      order: { order_type: 'takeaway', table_id: null, table_key: `takeaway:${order_id}`, follow_up: false, pickup_at_ms: pickup },
+      lines: [
+        {
+          ...base,
+          order_id,
+          order_item_id: id,
+          station_id: 'S1',
+          quantity: 1,
+          stock_time_ms: STOCK_COOK,
+          stock_draws: kb(),
+          out_of_stock_behaviour: behaviour,
+          alternates: [],
+          point_id: null,
+          carry_ms: 0,
+          weight_pct: 100,
+          max_early_ms: 60_000,
+          max_late_ms: null,
+          max_carry_ms: null,
+          cook_ms_override: null,
+          return_of: null,
+        },
+      ],
+    });
+  }
+
+  it('[03a #179 (b)] reserveStock returns the same StockReserved drafts with and without the pickup; the held line\'s StockConsumed comes with its Start', () => {
+    const s0 = fold([cfg(), opened(DAY), set('KB', 3, DAY)]);
+    const withPickup = reserveStock(s0, order('O1', 'A', P), DAY, CTX.stockItems, CTX.configStockUnits);
+    const without = reserveStock(s0, order('O1', 'A', null), DAY, CTX.stockItems, CTX.configStockUnits);
+    expect(withPickup).toEqual(without);
+    expect(withPickup.from_stock).toEqual({ A: true });
+    // the reservation folded with a held pickup order; the Start consumes it
+    const s = fold(submit('O1', [{ id: 'A', draws: kb(), from_stock: true }], T, P, P), s0);
+    expect(stockOf(s, 'KB').reserved).toBe(1);
+    expect(stockEffects(s, draftOf(started('O1', 'A', P - 120_000)), CTX).map(brief)).toEqual([{ type: 'StockConsumed', id: 'KB', line: 'A', q: 1 }]);
+  });
+
+  it('[03a #179 (d), M-5] the pickup order holds the last unit; a walk-in at +5 for the same item gets its full cook (cook_fresh) or is refused (sold_out)', () => {
+    const s0 = fold([cfg(), opened(DAY), set('KB', 1, DAY), ...submit('O1', [{ id: 'A', draws: kb(), from_stock: true }], T, P, P)]);
+    expect(stockOf(s0, 'KB')).toMatchObject({ on_hand: 1, reserved: 1 });
+    const fresh = reserveStock(s0, order('W1', 'W', null, 'cook_fresh'), DAY, CTX.stockItems, CTX.configStockUnits);
+    expect(fresh).toMatchObject({ from_stock: { W: false }, refused: [], drafts: [] });
+    const refused = reserveStock(s0, order('W2', 'W', null, 'sold_out'), DAY, CTX.stockItems, CTX.configStockUnits);
+    expect(refused.refused).toEqual(['W']);
+    expect(refused.drafts).toEqual([]);
   });
 });

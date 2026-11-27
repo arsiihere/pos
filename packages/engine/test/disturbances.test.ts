@@ -1715,3 +1715,76 @@ describe('@pos/engine [03a #185] later re-plans of held lines (PK-6, PK-7)', () 
     expectRebuild(k);
   });
 });
+
+// ---- 02b-tk L-CLOSE-2: 03a v1.2.11 open clauses of tests 178 (d) and 186 -------------------------------------------
+
+describe('@pos/engine [03a #178 (d), #186] shared pickup and the early customer, open clauses', () => {
+  it('[03a #178 (d), R2-B-1] five drinks for one p on a one-unit counter, then an unrelated submit and capacity 1 → 2 → 1: after each, no drink lands after p, none fires before the re-plan\'s t; each T_L = p', () => {
+    const k = new Kitchen([SLOT(1)]);
+    const P = at(60);
+    for (let i = 0; i < 5; i += 1) k.submit(`O${i}`, [{ id: `D${i}`, cook: 2 * M, mode: 'immediate' }], at(i), { pickup: P });
+    const check = (why: string, t: number) => {
+      for (let i = 0; i < 5; i += 1) {
+        const l = k.state.lines[`D${i}`]!;
+        expect(l.booked!.end, `${why}: D${i}`).toBeLessThanOrEqual(P);
+        expect(l.fire_ms!, `${why}: D${i}`).toBeGreaterThanOrEqual(t);
+        expect(k.state.orders[`O${i}`]!.target_land_ms, `${why}: O${i}`).toBe(P);
+      }
+      expectNoOverbooking(k.state, t);
+    };
+    check('submits', at(4));
+    k.submit('OX', [{ id: 'X', cook: 3 * M }], at(5));
+    check('unrelated submit', at(5));
+    k.apply([capacity('S1', 2, at(6))]);
+    check('capacity 2', at(6));
+    k.apply([capacity('S1', 1, at(7), 'manager', 2)]);
+    check('capacity 1', at(7));
+    expectRebuild(k);
+  });
+
+  it('[03a #186] burger + fries, boost at +1: p and the promise kept, boosted, both marked boost; fries fire +1, burger lands +16; rebuild = live', () => {
+    const k = new Kitchen([SLOT(1)]);
+    k.submit('O1', [{ id: 'A', cook: 10 * M }, { id: 'I', cook: 5 * M, mode: 'immediate' }], at(0), { pickup: at(60) });
+    const promise = k.state.orders.O1!.promise_ms;
+    const s = k.apply([boost('O1', at(1))]);
+    expect(s.orders.O1).toMatchObject({ boosted: true, pickup_at_ms: at(60), promise_ms: promise });
+    expect(s.lines.A).toMatchObject({ mark: 'boost' });
+    expect(s.lines.I).toMatchObject({ mark: 'boost', fire_ms: at(1) });
+    expect(s.lines.A!.booked!.end).toBe(at(16));
+    expectRebuild(k);
+  });
+
+  it('[03a #186, R3-M-2] an idle station: a 2-min immediate drink added at +20 with the old header pickup fires +20 and lands +22 in preview and fold; a same-time capacity re-plan keeps them', () => {
+    const k = new Kitchen([SLOT(1), { station_id: 'S2', capacity: 1, freeze_ms: 120_000 }]);
+    k.submit('O1', [{ id: 'A', cook: 10 * M }], at(0), { pickup: at(60) });
+    k.apply([boost('O1', at(1))]); // the customer is here: effective pickup null from now
+    const base = proposed('O1', [{ id: 'D', station: 'S2', cook: 2 * M, mode: 'immediate' }], { pickup: at(60) });
+    const plan = planOrder(k.state, base, at(20), {});
+    expect(plan.lines.find((l) => l.order_item_id === 'D')!.eta_ms).toBe(at(22));
+    const s0 = nextSeq(1);
+    const ev = (n: number, event_type: string, payload: Record<string, unknown>): PosEvent => ({ ...anItemStarted(), event_type, stream_id: 'O1', recorded_at: at(20), occurred_at: at(20), seq: s0 + n, event_id: `01JD${String(s0 + n).padStart(22, '0')}`, payload });
+    k.apply([
+      ev(0, 'OrderLinesAdded', {
+        order_id: 'O1',
+        order_item_ids: ['D'],
+        groups: plan.groups,
+        lines: plan.lines.map((l) => ({ order_item_id: l.order_item_id, station_id: l.station_id, alternates: [], point_id: null, carry_ms: 0, from_stock: false, weight_pct: 100, max_early_ms: 60_000, max_late_ms: null, max_carry_ms: null, return_of: null, cook_ms_override: null })),
+        order_header: { order_type: 'delivery', table_key: 't:O1', table_id: null, follow_up: false, pickup_at_ms: at(60), placed_by: null },
+      }),
+      ev(1, 'ItemAdded', { ...anItemAdded().payload, order_id: 'O1', order_item_id: 'D', ...itemFields({ id: 'D', station: 'S2', cook: 2 * M, mode: 'immediate' }), stock_draws: [] }),
+    ]);
+    expect(k.state.lines.D).toMatchObject({ fire_ms: at(20), booked: { start: at(20), end: at(22) } });
+    const s = k.apply([capacity('S2', 2, at(20))]);
+    expect(s.lines.D).toMatchObject({ fire_ms: at(20), booked: { start: at(20), end: at(22) } });
+    expectRebuild(k);
+  });
+
+  it('[03a #186, R3-M-3] an idle FIFO counter: boosting a lone unfired held 2-min drink at +1 fires it +1, lands +3', () => {
+    const k = new Kitchen([{ ...SLOT(1), policy: 'fifo' }]);
+    k.submit('O1', [{ id: 'drink', cook: 2 * M, mode: 'immediate' }], at(0), { pickup: at(60) });
+    expect(k.state.lines.drink!.booked!.end).toBe(at(60));
+    const s = k.apply([boost('O1', at(1))]);
+    expect(s.lines.drink).toMatchObject({ fire_ms: at(1), booked: { start: at(1), end: at(3) } });
+    expectRebuild(k);
+  });
+});

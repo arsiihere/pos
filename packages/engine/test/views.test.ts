@@ -787,3 +787,32 @@ describe('@pos/engine lateStartShift (§3.3, §6.1l, F §4.7 D42)', () => {
     expect(maxUnits(s, 'F', at(3))).toBe(4);
   });
 });
+
+// ---- 02b-tk L-CLOSE-2: 03a v1.2.11 test 191 open clauses (To 03b #12, M-3) -----------------------------------------
+
+describe('@pos/engine [03a #191] whole-order readiness of a pickup order', () => {
+  it('a drinks-only pickup order is not READY at submit, READY only once the drink is done; its group\'s hold is false; with no pickup the immediate drink holds nothing', () => {
+    const k = new Kitchen([SLOT(2)]);
+    k.submit('O1', [{ id: 'drink', cook: M, mode: 'immediate' }], T0, { pickup: at(60) });
+    const ready = (s: EngineState, t: number) => groupReadiness(s, 'O1', t);
+    expect(ready(k.state, T0).flatMap((g) => g.waiting)).toEqual(['drink']);
+    for (const g of ready(k.state, T0)) expect(g.hold).toBe(false);
+    k.apply([fireEv('S1', ['drink'], at(58)), startEv('O1', 'drink', at(58))]);
+    expect(ready(k.state, at(58)).flatMap((g) => g.waiting)).toEqual(['drink']);
+    k.apply([doneEv('O1', 'drink', at(59))]);
+    expect(ready(k.state, at(59)).flatMap((g) => g.waiting)).toEqual([]);
+    // control: the same order without a pickup
+    const c = new Kitchen([SLOT(2)]);
+    c.submit('O1', [{ id: 'drink', cook: M, mode: 'immediate' }], T0);
+    expect(groupReadiness(c.state, 'O1', T0).flatMap((g) => g.waiting)).toEqual([]);
+  });
+
+  it('a mixed pickup order, not boosted: the food done, the held drink still waits; READY when the drink is done', () => {
+    const k = new Kitchen([SLOT(2)]);
+    k.submit('O1', [{ id: 'food', cook: M }, { id: 'drink', cook: M, mode: 'immediate' }], T0, { pickup: at(60) });
+    k.apply([fireEv('S1', ['food', 'drink'], at(58)), startEv('O1', 'food', at(58)), doneEv('O1', 'food', at(59))]);
+    expect(groupReadiness(k.state, 'O1', at(59)).flatMap((g) => g.waiting)).toEqual(['drink']);
+    k.apply([startEv('O1', 'drink', at(59)), doneEv('O1', 'drink', at(60))]);
+    expect(groupReadiness(k.state, 'O1', at(60)).flatMap((g) => g.waiting)).toEqual([]);
+  });
+});
