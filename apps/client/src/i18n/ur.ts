@@ -1820,4 +1820,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'perm.hand-over-unpaid': 'بغیر ادائیگی آرڈر حوالے کرنے کی اجازت دینا', // not in strings-table.md; Urdu to confirm
   'roles.out_of_date': 'یہ ایپ پرانی ہے — رولز بدلنے کے لیے دوبارہ لوڈ کریں', // not in strings-table.md; Urdu to confirm
   'roles.out_of_date_body': 'اس رول میں ایسی اجازت ہے جو ایپ کا یہ ورژن نہیں جانتا۔ ابھی محفوظ کرنے سے وہ ہٹ سکتی ہے۔', // not in strings-table.md; Urdu to confirm
+  // ---- 02b-TK L-CLIENT-4 item 3 (02b v1.0.25 §8; 05 v1.0.35 §6.3a, §8): the takeaway cart footer's own line sum is labelled "Items" ----
+  'cart.items_label': 'آئٹم', // not in strings-table.md; Urdu to confirm
 };

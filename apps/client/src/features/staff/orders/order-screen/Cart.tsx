@@ -56,6 +56,11 @@ export interface CartProps {
   overlay?: ReactNode;
   /** 02b-TK C3-2 (R6): Print check bill of the sent token this cart adds to (an unsent cart has none) */
   checkBill?: ReactNode;
+  /**
+   * ⚠️ 02b-TK L-CLIENT-4 item 3 (02b v1.0.25 §8; 05 v1.0.35 §6.3a, §8): a takeaway cart labels its own line sum "Items"
+   * (it is not computeBill: no tax, service charge or rounding)
+   */
+  itemsLabel?: boolean;
   /** 02b-TK A2 item 2 (frame KeyboardMode "Hold F4"): the kiosk's keyboard: Hold shows its key */
   holdKey?: boolean;
   /** 02b-TK A2 item 3 (frame HomeRush): the open line's ×2 ×4 ×6 ×8 chips (takeaway) */
@@ -161,7 +166,16 @@ export function Cart(p: CartProps) {
               </div>
             )}
           </div>
-          <strong dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</strong>
+          {p.itemsLabel === true ? (
+            <div className="total__sum">
+              <small className="muted" data-items-label="">
+                {t('cart.items_label')}
+              </small>{' '}
+              <strong dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</strong>
+            </div>
+          ) : (
+            <strong dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</strong>
+          )}
         </div>
         {p.day !== null ? (
           p.day
@@ -227,6 +241,8 @@ export function SendBar(p: Pick<CartProps, 'count' | 'total_minor' | 'ready_by' 
   return (
     <div className={p.phoneTakeaway ? "sbar ph-bar" : "sbar"}>
       <div className="sbar__t">
+        {/* ⚠️ 02b-TK L-CLIENT-4 item 3 (02b v1.0.25 §8; 05 v1.0.35 §8): the phone takeaway's line sum is "Items" */}
+        {p.phoneTakeaway === true && <span className="muted" data-items-label="">{t('cart.items_label')}</span>}
         <b dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</b>
         <small>
           {p.phoneTakeaway ? (

@@ -1478,7 +1478,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         ) : (
           menu
         )}
-        <Cart {...cartProps} customer={customer} overlay={payView(false)} />
+        <Cart {...cartProps} customer={customer} overlay={payView(false)} itemsLabel={order_type === 'takeaway'} />
       </div>
       {draftBack}
       {sheetView}

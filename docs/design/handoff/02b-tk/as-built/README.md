@@ -153,3 +153,18 @@ Captured from `apps/client/e2e/02b-tk-slip.spec.ts` (the pay-later test) at devi
 - A lost reply or a 5xx is sent again with the same `command_id`, after 1, 2, 5, 10, 20 and 30 s, while the page lives. It stops at a 2xx or a 4xx. If the last retry also fails, the token is marked "Slip not printed — Print slip" and the toast says so.
 - Results: `printed` → "Slip printing". `no_printer` → "No slip printer is set up — the token is on the screen", and the token is marked. `setting_off`, `slip_held` and `already_printed` show nothing, as at Send. A 4xx shows its `errors.*` text. The exception is `TAKEAWAY_SLIP_NOT_ALLOWED { reason: 'billed' }`, which shows nothing because the token was paid meanwhile.
 - A paid panel sends nothing: the receipt is the only paper, whether it closes with Next customer or with ✕. A pay panel opened by Take payment of a queued token also sends nothing, because that token got its slip at Send.
+
+## L-CLIENT-4 item 3 the "Items" label on the cart footer total
+
+Captured from `apps/client/e2e/02b-tk-items.spec.ts` against the e2e hub. Each image shows the cart footer with two Naan: the kiosk and landscape tablet `.cart__foot`, and the phone's sticky bar. Frames HomeKiosk, HomeTablet and PhoneCart place the figure at the same spot. The frames label it "Total" (HomeUrdu "کل"); the spec's word "Items" replaces it.
+
+| Device | English | Urdu |
+| --- | --- | --- |
+| Kiosk cart footer | [CartItems](CartItems.png) | [CartItems-Urdu](CartItems-Urdu.png) |
+| Landscape tablet cart footer | [CartItems-tablet](CartItems-tablet.png) | [CartItems-tablet-Urdu](CartItems-tablet-Urdu.png) |
+| Phone sticky bar | [CartItems-phone](CartItems-phone.png) | [CartItems-phone-Urdu](CartItems-phone-Urdu.png) |
+
+- 02b v1.0.25 §8 and 05 v1.0.35 §6.3a / §8 (R2-M-3) keep the cart's own line sum labelled "Items". The figure is the same one as before (`cartTotal`). It is not `computeBill`, so it has no tax, service charge or rounding. The printed gross total and the remaining payable stay on the check bill result.
+- `cart.items_label` ("Items" / "آئٹم") is not in strings-table.md, so it is listed in urdu-todo.md.
+- Only takeaway carts carry the label: 05 §8 and 02b §8 state the rule for the takeaway client. Dine-in and parking carts keep their plain total.
+- No CSS changed, because the stylesheets live in `packages/ui-kit`, outside this lane. On the kiosk and tablet the label is a muted `small` before the figure. On the phone it is a muted line above the figure.
