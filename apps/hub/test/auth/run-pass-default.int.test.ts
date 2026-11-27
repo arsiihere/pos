@@ -79,3 +79,31 @@ describe('[01b #118 hub] the Pass default role on the hub', () => {
     expect(directory.resolve('S_COOK', 'mark-served')).toEqual({ grant: 'not_granted' });
   });
 });
+
+// ⚠️ 01b v1.12 test 119 (R3-M-2, hub part; L-CLOSE-2): a hub that does not know a grant's permission (an older build
+// receiving a newer directory) skips that grant and applies the rest of the role.
+describe('[01b #119 R3-M-2 hub] an unknown grant is skipped, the rest applies', () => {
+  it('a role with a future permission next to take-order: the apply succeeds, take-order resolves, the unknown key resolves not_granted', async () => {
+    hub = await createTestHub({ provisioned: true });
+    const base = await aDirectory();
+    await seedDirectory(hub, {
+      ...base,
+      roles: [
+        ...base.roles,
+        {
+          role_id: 'R_NEW',
+          name: 'New',
+          session_idle_ttl_ms: 300_000,
+          permissions: [
+            { permission: 'take-order', grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'branch' },
+            { permission: 'a-permission-from-the-future' as never, grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'branch' },
+          ],
+        },
+      ],
+      staff: [...base.staff, { staff_id: 'S_NEW', display_name: 'New', pin_hash: base.staff[0]!.pin_hash, role_ids: ['R_NEW'], denied_permissions: [], lead_staff_id: null, floor_ids: [] }],
+    });
+    const directory = currentDirectory(hub.app);
+    expect(directory.resolve('S_NEW', 'take-order')).toEqual({ grant: 'allowed', scope: 'branch' });
+    expect(directory.resolve('S_NEW', 'a-permission-from-the-future' as never)).toEqual({ grant: 'not_granted' });
+  });
+});
