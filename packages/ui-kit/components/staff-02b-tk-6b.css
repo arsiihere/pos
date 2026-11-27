@@ -111,3 +111,39 @@
 .tk-dpart__opt { min-height: 44px; font-size: 15px; padding: 0 12px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 .tk-sec-h .tk-dpart__opt { margin-inline-start: auto; }
 @media (max-width: 900px) { .tk-dparts { grid-template-columns: 1fr; } }
+
+/* ---------- Add items to a token (frame TokenAddItems) ---------- */
+.tk-banner--adding { background: var(--info-tint); color: var(--info); }
+.tk-banner--adding > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; }
+.tk-banner__delta { flex-basis: 100%; font-size: 15px; font-weight: 700; color: var(--ink-muted); }
+
+/* ---------- token drawer (frames TokenDue, TokenReady, TokenPartial, TokenLate, TokenUrdu, PhoneToken) ---------- */
+.tk-back { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 56px; padding: 0 18px 0 14px; border: 0; border-radius: var(--radius-md); background: var(--chrome-raise); color: var(--on-chrome); font-weight: 700; font-size: 17px; }
+.tk-back .ico { width: 22px; height: 22px; }
+.tk-drawer .tk-chip .ico { width: 17px; height: 17px; }
+.tk-drawer .tk-il__q { color: var(--accent-ink); font: 800 19px/1 var(--font-sans); min-width: 34px; }
+.tk-fact--late { background: var(--danger-tint); }
+.tk-fact--late b { color: var(--danger); }
+.tk-fact small .tk-chip { height: 22px; padding: 0 8px; font-size: 13px; margin-inline-start: 6px; }
+.tk-late { display: flex; align-items: center; gap: 12px; }
+.tk-late > .ico { width: 22px; height: 22px; flex: none; }
+.tk-late > span { flex: 1; min-width: 0; font-weight: 700; }
+.tk-late .tk-btn { min-height: 48px; }
+.tk-drawer__f .tk-btn .ico { width: 22px; height: 22px; }
+.tk-drawer__f .tk-btn[aria-disabled="true"] { opacity: .45; box-shadow: none; }
+.tk-drawer__f .tk-grid3 .tk-btn { min-width: 0; padding: 0 10px; }
+
+/* ---------- Remove from token (frame TokenRemove) ---------- */
+.pu .dlg.tk-remove { width: min(760px, calc(100% - 32px)); padding: 28px; gap: 14px; background: var(--surface-raised); z-index: 40; }
+.scrim:has(> .tk-remove) { z-index: 45; }
+.tk-dlg__t { margin: 0; font: 800 30px/1.15 var(--font-display); }
+[dir="rtl"] .tk-dlg__t { font-family: var(--font-urdu); line-height: 1.7; font-size: 26px; }
+.tk-remove__rows { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow-y: auto; }
+.tk-remove__rows .tk-il { min-height: 64px; }
+.tk-remove__on { border-color: var(--danger) !important; box-shadow: 0 0 0 2px color-mix(in oklab, var(--danger) 25%, transparent); }
+.tk-remove__void { border: 0; cursor: pointer; }
+.tk-remove__bill { margin: 0; color: var(--ink-muted); font-size: 16px; }
+.tk-dlg__acts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tk-dlg__acts .tk-btn--danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.tk-dlg__acts .tk-btn--danger .ico { width: 22px; height: 22px; }
+@media (max-width: 760px) { .pu .dlg.tk-remove { padding: 16px; } .tk-dlg__t { font-size: 24px; } }

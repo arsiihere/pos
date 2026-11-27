@@ -189,10 +189,10 @@ describe('[02b §6.16 BR-1] the token view', () => {
     expect(readyFact(m).querySelector('small')?.textContent).toBe('Ready by');
     expect(readyFact(m).querySelector('[data-planned]')?.textContent).toBe('Ready ~1:35 PM');
     expect(readyFact(m).querySelector('s')?.textContent).toBe('2:05 PM');
-    // Hand over all (not all ready) carries the same time
-    const handOver = [...m.container.querySelectorAll('.tk-drawer button')].find((b) => b.textContent?.startsWith('Hand over all'))!;
-    expect(handOver.querySelector('[data-planned]')?.textContent).toBe('Ready ~1:35 PM');
-    expect(handOver.querySelector('s')?.textContent).toBe('2:05 PM');
+    // ⚠️ L-CLIENT-6b item 4 (frame TokenDue): a Due token still cooking has Take payment as its one primary, no greyed
+    // Hand over all (it comes back, greyed with the time, once paid or all ready)
+    expect([...m.container.querySelectorAll('.tk-drawer button')].find((b) => b.textContent?.startsWith('Hand over all'))).toBeUndefined();
+    expect([...m.container.querySelectorAll('.tk-drawer button')].some((b) => b.textContent?.startsWith('Take payment'))).toBe(true);
   });
 
   it('boosted but planned null or not earlier → the promise only; the row unread falls back to the token\'s value', async () => {

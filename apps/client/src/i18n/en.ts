@@ -4519,6 +4519,21 @@ export const en = {
   'c.note_add': 'Add note',
   'is.in_deal': 'In this deal',
   'is.part_pick': '{n}× — pick 1',
+  'c.add_delta': 'Ready by {token}:',
+  'c.counter': 'From the counter',
+  'v.late_chip': 'Late',
+  'v.hurry': 'Hurry kitchen',
+  'v.print_slip': 'Print slip',
+  'tr.title': 'Remove from token',
+  'tr.can_remove': 'can be removed',
+  'tr.void_mgr': 'Void needs a manager',
+  'tr.void_ok': 'can be voided',
+  'tr.void_chip': 'Void · approval',
+  'tr.void': 'Void',
+  'tr.bill': 'Bill goes from {from} to {to}. Not paid yet, so no refund.',
+  'tr.go': 'Remove {n} {item}',
+  'tr.go_n': 'Remove {n} items',
+  'tr.keep': 'Keep',
   // ---- end L-CLIENT-6b ----
 } as const;
 

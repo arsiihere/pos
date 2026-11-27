@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { t } from '../../../i18n';
 import { badgeText } from '../../alerts/labels';
 import { Ico, initial, type IconName } from '../../alerts/ui';
-import type { ContextSlotValue } from '../shell/context-slot';
+import { TK_BACK_EVENT, type ContextSlotValue } from '../shell/context-slot';
 import { PersonMenu, type PersonMenuActions } from '../shell/PersonMenu';
 import type { TabItem } from '../shell/screens';
 import { FloorControl, type FloorChoice } from './FloorControl';
@@ -113,6 +113,13 @@ export function TopBar(p: TopBarProps) {
   return (
     <>
       <header className="top">
+        {/* ⚠️ 02b-TK L-CLIENT-6b item 4: Back before the context slot while the token view is open */}
+        {p.context?.back === true && (
+          <button type="button" className="tk-back" onClick={() => window.dispatchEvent(new Event(TK_BACK_EVENT))}>
+            <Ico name="back" />
+            {t('shell.back')}
+          </button>
+        )}
         {p.context != null ? (
           <div className="tk-ctx">
             <span className="tk-ctx__ic">
