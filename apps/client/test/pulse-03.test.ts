@@ -61,4 +61,19 @@ describe('Pulse 03 and admin 03 layers (03b + 03c, handoff 03b PROMPT)', () => {
     expect(pass.length).toBeGreaterThan(30);
     for (const sel of ['.pcards--1 { --pcols: 1; }', '.pstrip--wrap', '.empty--pass', '.ring--96', '.pc--sk', '.sk--pid', '.sk--pl1', '.sk--pl2', '.sk--pbtn', '.empty--pass .ico--36', '.pl > .row { gap: 6px; }']) expect(pass, sel).toContain(sel);
   });
+
+  it('[03b v1.0.16 §3.4 R3-M-9, R3-B-2] kds-03-additions.css draws the amber "not collected" Pass card and the "Handed to customer" button from the Pulse tokens', () => {
+    // frames PackerPass / TokenLate / ReadyTiles: the late card is amber (warn edge on the warn tint, as .tk-rt--late),
+    // the customer button is the plain raised button of "Handed over"; tokens only, so light and dark both follow .pu
+    const css = readFileSync(kitDir + 'kds-03-additions.css', 'utf8');
+    const block = css.slice(css.indexOf('/* 03b v1.0.16 §3.4 (R3-M-9, R3-B-2)'));
+    expect(block.length).toBeGreaterThan(30);
+    const rule = (sel: string) => block.match(new RegExp('(^|\\n)' + sel.replace(/[.[\]()]/g, (c) => '\\' + c) + ' \\{([^}]*)\\}'))?.[2] ?? '';
+    expect(rule('.pc.pc--late')).toContain('var(--warn)');
+    expect(rule('.pc.pc--late')).toContain('var(--warn-bg)');
+    expect(rule('.btn--customer')).toMatch(/background:/);
+    expect(rule('.btn--customer[disabled]')).toContain('var(--muted)');
+    expect(rule('.pc--late .btn--customer:not([disabled])')).toContain('var(--warn');
+    expect(block).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
 });
