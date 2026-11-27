@@ -155,7 +155,7 @@ for (const lang of LANGS) {
     }
   });
 
-  test(`[T1 #7] pickup 30 min from now with a drink: the cart's pickup chip, Ready by = the pickup time, the drink not started early (${lang}) @gap`, async ({ browser, request }, info) => {
+  test(`[T1 #7] pickup 30 min from now with a drink: the cart's pickup chip, Ready by = the pickup time, the drink not started early (${lang})`, async ({ browser, request }, info) => {
     t1RunsHere(info);
     const run = t1Run('bag', info, lang);
     const cash = await screen(browser, info.project.use.viewport!);
@@ -165,9 +165,16 @@ for (const lang of LANGS) {
       await menuTile(page, run.items.main.name).click();
       await menuTile(page, run.items.drink.name).click();
       // 02b §8 Phone and pickup (R1, R4): pickup chips Now / +15 / +30 / +45 / Time… send pickup_at_ms
-      const plus30 = page.locator('.cart').getByRole('button', { name: /\+\s?30/ });
+      // the chip's words per language (strings-table c.pick_30: "+30 min" / "30 منٹ بعد"; the Urdu has no "+")
+      const plus30 = page.locator('.cart [data-pickup-row]').getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.pick_30'))}$`) });
       await expect(plus30, 'the cart offers the +30 pickup chip (02b §8)').toBeVisible({ timeout: 5_000 });
       await plus30.click();
+      await expect(plus30).toHaveAttribute('aria-pressed', 'true');
+      // the footer: "Kitchen times it for <the pickup>" (frame PickupLater .tk-readyby--later)
+      const later = page.locator('.cart .total__ready--later');
+      await expect(later).toContainText(tr(lang, 'c.ready_later'));
+      await expect(later.locator('b')).toHaveText(/^\d{1,2}:\d{2}\s?(AM|PM)$/);
+      await capture(page, info, `PickupCart-${info.project.name}-${lang}`, page.locator('.cart'));
       const sent = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/commands/submit-order'));
       await page.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.send_later'))}`) }).click();
       const pickup = ((await sent).postDataJSON() as { payload: { pickup_at_ms?: number } }).payload.pickup_at_ms;
@@ -178,12 +185,23 @@ for (const lang of LANGS) {
         const { orders } = await api.query<{ orders: Array<{ token: number | null; promise_ms: number | null; effective_pickup_at_ms: number | null }> }>('open-orders?order_type=takeaway');
         const o = orders.find((x) => String(x.token) === token)!;
         expect(o.effective_pickup_at_ms).toBe(pickup);
-        expect(o.promise_ms).toBe(pickup);
+        // the promise is the pickup's target plus the branch's takeaway promise padding (03a §3.5.1 step 5, PK-1
+        // T_L = max(p, land)): the e2e hub answers pickup + 3 min, never earlier than the pickup
+        expect(o.promise_ms).toBeGreaterThanOrEqual(pickup!);
+        expect(o.promise_ms! - pickup!).toBeLessThanOrEqual(10 * 60_000);
       } finally {
         await api.close();
       }
       // the kitchen holds the drink: nothing fires before its time
       expect(await hubFire(t1Station(run.key), [])).not.toContain(run.items.drink.item_id);
+      // 02b §8 (02b-R4-3): the queue's Phone orders — later row and the token view show the pickup time
+      const entry = await queueEntry(page, token);
+      await expect(entry.locator('[data-pickup]')).toContainText(tr(lang, 'c.pickup'));
+      await entry.scrollIntoViewIfNeeded();
+      await capture(page, info, `PickupQueue-${info.project.name}-${lang}`, entry);
+      await entry.click();
+      await expect(page.locator('.tk-drawer .tk-facts [data-pickup]')).toBeVisible();
+      await capture(page, info, `PickupToken-${info.project.name}-${lang}`, page.locator('section.tk-drawer'));
     } finally {
       await closeAll(info, lang, cash);
     }

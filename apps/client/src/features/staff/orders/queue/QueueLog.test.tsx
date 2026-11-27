@@ -271,6 +271,20 @@ describe('[02b §8 Queue] queue log', () => {
     expect([...view.container.querySelectorAll('.ql small')].map((e) => e.textContent)).toEqual(rows.map((r) => r[2]));
   });
 
+  it('[02b-TK L-CLIENT-5 item 1; 02b v1.0.25 §3.2 step 2b, §3.12] a queued Send refused PICKUP_TIME_INVALID says so in the log', async () => {
+    const backing: MemoryQueueBacking = new Map([['E0', logEntry({ entry_id: 'E0', payload: { ...takeaway, pickup_at_ms: AT_8_02_PM }, log_reason: 'PICKUP_TIME_INVALID', log_details: {} })]]);
+    const s = setup({ backing, me: { staff_id: 'ali', name: 'Ali' } });
+    await s.queue.ready;
+    view = mount();
+    view.render(
+      <ShellContext.Provider value={s.shell}>
+        <QueueLog drafts={s.drafts} />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    expect([...view.container.querySelectorAll('.ql small')].map((e) => e.textContent)).toEqual(['Not sent: the pickup time was not possible']);
+  });
+
   it('[02b §8 Queue] copyPayload on dine-in keeps table and seating', () => {
     let n = 0;
     const copy = copyPayload({ ...takeaway, order_type: 'dine_in', table_id: 'F4', seating_id: 'S1' }, () => `N${++n}`);

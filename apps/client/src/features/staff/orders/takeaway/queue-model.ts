@@ -7,7 +7,9 @@ import { allServed, anyServed, summaryOf, type BookOrder } from './book';
 // token) — one tile or row, its bill facts from the newest order (05 #44e). Sections:
 //   Ready — hand over: every counted line ready or served (ready n = m, §6.16 AD-39 R3), or part handed over;
 //   Cooking: the rest, by promise;
-//   Phone orders — later: empty until 02b v1.0.25 gives a pickup time (`pickup_at_ms`, R4, Part B).
+//   Phone orders — later: ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §6.16 R3-M-1, §8 02b-R4-3; D1) the tokens not
+//   ready whose effective pickup (`effective_pickup_at_ms`: null once boosted) is still ahead of hub now, by pickup;
+//   an elapsed or boosted pickup is in the now queue with its real promise.
 // Due / Paid: an order whose bill closed is billed (OrdersBilled); `open-orders` lists only unbilled orders today, so a
 // token is Paid only when every order of it is billed and kept by the book (book.ts). A paid token handed over in
 // full leaves the rail.
@@ -40,6 +42,13 @@ export interface QueueToken {
    * `bill` and `unpaid_handover_approved`; on a hub without `bill`, a billed order (book) reads paid, else unknown.
    */
   bills?: Array<{ order_id: string } & BillRow>;
+  /**
+   * ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §6.16 R3-M-1; D1): the token's pickup as placed (kept after a boost) and its
+   * effective scheduling pickup (null once boosted) — the latest of its orders'; null without one. Optional: a token
+   * built elsewhere has none.
+   */
+  pickup_at_ms?: number | null;
+  effective_pickup_at_ms?: number | null;
 }
 
 /** A token's billing facts per order; a token built without them reads paid only when the book says so. */
@@ -87,7 +96,13 @@ export function notCollectedMinOf(q: QueueToken, nowMs: number): number | null {
   return Math.floor((nowMs - since) / 60_000);
 }
 
-export function buildQueue(orders: readonly KnownOrder[]): QueueModel {
+const latest = (xs: ReadonlyArray<number | null | undefined>): number | null => {
+  const set = xs.filter((x): x is number => typeof x === 'number');
+  return set.length === 0 ? null : Math.max(...set);
+};
+
+/** `nowMs` (hub clock): a pickup ahead of it waits under Phone orders — later; without it, every effective pickup does. */
+export function buildQueue(orders: readonly KnownOrder[], nowMs = -Infinity): QueueModel {
   const groups = new Map<string, KnownOrder[]>();
   for (const o of orders) groups.set(keyOf(o.row), [...(groups.get(keyOf(o.row)) ?? []), o]);
   const tokens: QueueToken[] = [];
@@ -123,15 +138,18 @@ export function buildQueue(orders: readonly KnownOrder[]): QueueModel {
         ...(o.row.bill !== undefined ? { bill: o.row.bill } : o.book?.billed === true ? { bill: { state: 'paid' as const, due_minor: 0 } } : {}),
         ...(o.row.unpaid_handover_approved === undefined ? {} : { unpaid_handover_approved: o.row.unpaid_handover_approved }),
       })),
+      pickup_at_ms: latest(sorted.map((o) => o.row.pickup_at_ms)),
+      effective_pickup_at_ms: latest(sorted.map((o) => o.row.effective_pickup_at_ms)),
     });
   }
   const byPromise = (a: QueueToken, b: QueueToken) => (a.promise_ms ?? Infinity) - (b.promise_ms ?? Infinity) || a.placed_at - b.placed_at;
   const isReady = (q: QueueToken) => (q.ready.m > 0 && q.ready.n === q.ready.m) || q.part;
+  const isLater = (q: QueueToken) => !isReady(q) && q.effective_pickup_at_ms != null && q.effective_pickup_at_ms > nowMs;
+  const byPickup = (a: QueueToken, b: QueueToken) => a.effective_pickup_at_ms! - b.effective_pickup_at_ms! || a.placed_at - b.placed_at;
   return {
     ready: tokens.filter(isReady).sort(byPromise),
-    cooking: tokens.filter((q) => !isReady(q)).sort(byPromise),
-    // R4 (02b v1.0.25, Part B): no pickup time on the hub yet, so no order waits for a later pickup
-    later: [],
+    cooking: tokens.filter((q) => !isReady(q) && !isLater(q)).sort(byPromise),
+    later: tokens.filter(isLater).sort(byPickup),
   };
 }
 

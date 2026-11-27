@@ -133,6 +133,12 @@ export interface OpenOrder {
   bill?: { state: 'due' | 'paid'; due_minor: number } | null;
   /** ⚠️ 02b v1.0.25 §6.16 (R3-M-8, D2): an effective unpaid hand-over approval of this order; absent until the hub sends it */
   unpaid_handover_approved?: boolean;
+  /**
+   * ⚠️ 02b v1.0.25 §6.16 (R3-M-1; D1; 02b-TK L-CLIENT-5 item 1): the pickup the order was placed with (kept after a
+   * boost) and the effective scheduling pickup (`boosted ? null : pickup_at_ms`); absent from an older hub
+   */
+  pickup_at_ms?: number | null;
+  effective_pickup_at_ms?: number | null;
 }
 
 export interface OpenOrdersBody {
@@ -145,6 +151,8 @@ export interface EtaPreviewBody {
   groups: Array<{ promise_ms: number; keys: string[] }>;
   /** ⚠️ 02b v1.0.20 §6.14 (STAB-5): `part` (1…n) on each part of a line split per unit, same key */
   lines: Array<{ key: string; part?: number; eta_ms: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
+  /** ⚠️ 02b v1.0.25 §6.14 (m-8; 02b-TK L-CLIENT-5 item 1): a takeaway draft's pickup range on the hub clock; null for other types */
+  pickup_bounds?: { earliest_ms: number; latest_ms: number } | null;
 }
 
 /** 02b §6.17 (hub ZoneStockBody). */
@@ -200,6 +208,8 @@ export interface SubmitOrderPayload {
   /** 02b v1.0.21 §6.1: the order's serve choice for every line without its own */
   serve_mode?: ServeMode;
   lines: SubmitLine[];
+  /** ⚠️ 02b v1.0.25 §6.1, §3.2 step 2b (R4; 02b-TK L-CLIENT-5 item 1): a takeaway's pickup time (hub ms) */
+  pickup_at_ms?: number | null;
 }
 
 /** 02b §3.2 step 11 (hub submit-order.ts SubmitResult). */
@@ -221,6 +231,8 @@ export interface EtaDraft {
   parking?: SubmitOrderPayload['parking'];
   order_note?: string;
   serve_mode?: ServeMode;
+  /** ⚠️ 02b v1.0.25 §6.14 (R4; 02b-TK L-CLIENT-5 item 1): a takeaway draft's pickup time */
+  pickup_at_ms?: number | null;
   lines: Array<
     Omit<SubmitLine, 'order_item_id' | 'options' | 'deal_choices'> & {
       key: string;
