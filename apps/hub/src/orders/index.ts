@@ -1,4 +1,5 @@
 // 02b §6.13 (AD-5 pattern of 02a): the zone stock kinds register at module load, before boot replays the alerts projection.
+import { registerLineMoneyChanged } from './open-order-bill.js';
 import './zone-kinds.js';
 // 02b §6.12: kind `comp`, the same way (top level, before the boot replay).
 import './comp-kind.js';
@@ -76,6 +77,8 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
 
   // ⚠️ 02b v1.0.25 OR-7 (lane L-ORDERS-1 unpaid, U-2): RequestUnpaidHandover (§6.4a; not queueable)
   registerRequestUnpaidHandover(app);
+  // ⚠️ 02b v1.0.25 §6.19 (run 3 R3-M-8; L-UNPAID-3 task 1): OpenOrderBillChanged after a line money change, before commit
+  registerLineMoneyChanged(deps.writer);
 
   // wave 3 lane B (queued replays)
 

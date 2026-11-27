@@ -92,14 +92,16 @@ describe('[02b §6.19] OpenOrderBillChanged after a billing money change (R3-M-8
     await send('O1');
     await send('O2', 1, { adds_to_order_id: 'O1' });
     await pay('O1', 100);
-    expect(changed()).toEqual([{ stream_id: 'O1', order_ids: ['O1', 'O2'], approval_cleared_order_ids: [] }]);
+    // the addition appends its own (orders/open-order-bill.ts, L-UNPAID-3); the payment's is the last one
+    expect(changed()).toHaveLength(2);
+    expect(changed().at(-1)).toEqual({ stream_id: 'O1', order_ids: ['O1', 'O2'], approval_cleared_order_ids: [] });
     const types = (db().prepare(`SELECT event_type FROM events WHERE seq > (SELECT MAX(seq) FROM events WHERE event_type = 'PaymentAdded') - 1 ORDER BY seq`).pluck().all() as string[]);
     expect(types.indexOf('PaymentAdded')).toBeLessThan(types.indexOf('OpenOrderBillChanged'));
 
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
     await send('D1', 1, { seating_id: 'SEAT1' });
     await pay('D1', 100);
-    expect(changed()).toHaveLength(1);
+    expect(changed()).toHaveLength(2);
   });
 });
 

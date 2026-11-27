@@ -184,14 +184,15 @@ describe('[02b #87, #88, 05a #52] answer', () => {
 });
 
 describe('[02b #89, #92] the due moved: stale cards and additions', () => {
-  it('an addition raises the key due: the new ask closes the stale card obsolete (due_changed) and raises a fresh one; the stale card cannot be approved; each order asks for itself', async () => {
+  it('an addition raises the key due: its transaction closes the stale card obsolete (due_changed, §6.19), so it cannot be approved; a new ask raises a fresh one; each order asks for itself', async () => {
     const { ali, managerPhone } = await start();
     const a = takeaway();
     const first = (await ask(ali, a)).result!.alert_id as string;
     const b = takeaway(undefined, { adds_to_order_id: a }); // the key's due rises
     const staleApprove = await answer(managerPhone, first, 'approve');
-    expect(staleApprove.status).toBe(422);
-    expect(staleApprove.error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'alert_id', reason: 'unpaid_handover_request_stale' } });
+    // ⚠️ L-UNPAID-3 (02b §6.19 R3-M-8): the addition's own OpenOrderBillChanged transaction closed it due_changed
+    expect(staleApprove.status).toBe(409);
+    expect(staleApprove.error).toMatchObject({ code: 'REQUEST_NOT_PENDING', details: { close_reason: 'obsolete' } });
     expect(eventsOf('UnpaidHandoverApproved')).toEqual([]);
     const second = (await ask(ali, a)).result!.alert_id as string;
     expect(second).not.toBe(first);

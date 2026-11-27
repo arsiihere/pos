@@ -115,11 +115,11 @@ describe('[02b #91] the open request closes when the order is handed over or can
     expect(approval(order_id)).toEqual({ at: null, due: null });
   });
 
-  it('a RemoveItems that leaves a live line keeps the request open', async () => {
+  it('a RemoveItems that leaves a live line does not cancel: the request closes due_changed (its amount changed, §6.19), not order_cancelled', async () => {
     const { ali } = await start();
     const order_id = takeaway([{ order_item_id: 'R1', item_id: FX.naan }, { order_item_id: 'R2', item_id: FX.naan }]);
     const alert_id = (await ask(ali, order_id)).result!.alert_id as string;
     expect((await remove(ali, order_id, ['R1'])).status).toBe(200);
-    expect(alertRow(alert_id).state).toBe('open');
+    expect(closes().filter((c) => c.alert_id === alert_id)).toEqual([expect.objectContaining({ reason: 'obsolete', note: 'due_changed' })]);
   });
 });
