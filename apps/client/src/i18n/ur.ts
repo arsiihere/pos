@@ -1815,6 +1815,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.manager_rejected': 'مینیجر نے منع کر دیا', // not in strings-table.md; Urdu to confirm
   'unpaid.already_waiting': 'مینیجر سے پہلے ہی پوچھا جا چکا ہے', // not in strings-table.md; Urdu to confirm
   'unpaid.withdraw': 'واپس لیں', // not in strings-table.md; Urdu to confirm
+  'unpaid.addition': '(اضافہ)', // not in strings-table.md; Urdu to confirm
   'unpaid.approved': 'مینیجر نے اجازت دے دی — حوالے کریں', // not in strings-table.md; Urdu to confirm
   'unpaid.not_needed': 'ابھی کچھ باقی نہیں — حوالے کریں', // not in strings-table.md; Urdu to confirm
   'unpaid.refused': 'ادائیگی نہیں ہوئی — پہلے پیسے لیں یا مینیجر سے پوچھیں', // not in strings-table.md; Urdu to confirm

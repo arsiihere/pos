@@ -115,6 +115,7 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `pass.manager_rejected` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Manager said no | مینیجر نے منع کر دیا |
 | `unpaid.already_waiting` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Already waiting for a manager | مینیجر سے پہلے ہی پوچھا جا چکا ہے |
 | `unpaid.withdraw` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Withdraw | واپس لیں |
+| `unpaid.addition` (02b v1.0.25 §3.7a, §8 OR-7; BUG-9, owner ruling 2026-11-28) | (addition) | (اضافہ) |
 | `unpaid.approved` (02b v1.0.25 §6.4a; L-CLIENT-2 item 4) | Manager approved — hand over | مینیجر نے اجازت دے دی — حوالے کریں |
 | `unpaid.not_needed` (02b v1.0.25 §6.4a; L-CLIENT-2 item 4) | Nothing is due now — hand over | ابھی کچھ باقی نہیں — حوالے کریں |
 | `unpaid.refused` (02b v1.0.25 §6.4; L-CLIENT-2 item 4) | Not paid — take payment first or ask a manager | ادائیگی نہیں ہوئی — پہلے پیسے لیں یا مینیجر سے پوچھیں |

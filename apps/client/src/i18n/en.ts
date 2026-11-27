@@ -4474,6 +4474,8 @@ export const en = {
   'pass.manager_rejected': 'Manager said no',
   'unpaid.already_waiting': 'Already waiting for a manager',
   'unpaid.withdraw': 'Withdraw',
+  // BUG-9 (owner ruling 2026-11-28, approval ruling A): an addition's own request is marked so, e.g. "#14 · Rs 40 (addition)"
+  'unpaid.addition': '(addition)',
   'unpaid.approved': 'Manager approved — hand over',
   'unpaid.not_needed': 'Nothing is due now — hand over',
   'unpaid.refused': 'Not paid — take payment first or ask a manager',

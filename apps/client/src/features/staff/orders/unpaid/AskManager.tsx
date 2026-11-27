@@ -23,6 +23,11 @@ export interface AskManagerProps {
   due_minor: number | null;
   /** "#48" / "PARKING" when the token has more than one order (the named one), else omitted */
   ident?: string | undefined;
+  /**
+   * BUG-9 (owner ruling 2026-11-28, approval ruling A): the named order is an addition of the token (not its root): the
+   * line reads "#48 · Rs 40 (addition)". Optional; absent = not marked.
+   */
+  addition?: boolean | undefined;
   variant: AskVariant;
   /** the place reads its order / bill facts again */
   onChanged?: (() => void) | undefined;
@@ -38,7 +43,7 @@ export function statusOf(s: AskState | null): { text: string; sub: string | null
   return { text: t(s.ask_in_person ? 'request.find_approver' : 'pass.waiting_manager'), sub: null };
 }
 
-export function AskManager({ order_id, due_minor, ident, variant, onChanged }: AskManagerProps) {
+export function AskManager({ order_id, due_minor, ident, addition, variant, onChanged }: AskManagerProps) {
   const shell = useShell();
   const store = unpaidRequestsOf(shell);
   useSyncExternalStore(store.subscribe, store.version);
@@ -87,11 +92,12 @@ export function AskManager({ order_id, due_minor, ident, variant, onChanged }: A
       {t('unpaid.withdraw')}
     </button>
   );
-  const what = (ident !== undefined || due_minor !== null) && (
+  const what = (ident !== undefined || due_minor !== null || addition === true) && (
     <small>
       {ident !== undefined && <span dir="ltr">{ident}</span>}
       {ident !== undefined && due_minor !== null && ' · '}
       {due_minor !== null && <span dir={MONEY_DIR}>{money(due_minor)}</span>}
+      {addition === true && ` ${t('unpaid.addition')}`}
     </small>
   );
   if (variant === 'tile')

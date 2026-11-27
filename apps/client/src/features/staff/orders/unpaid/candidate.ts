@@ -69,6 +69,21 @@ export function checkHandover(orders: readonly CandidateOrder[], ids: readonly s
   return blocked ?? { ok: true };
 }
 
+/**
+ * BUG-9 (owner ruling 2026-11-28, approval ruling A; §3.7a Ask, D2): EVERY Due, unapproved order the send would empty,
+ * oldest first, each with its own due — one "Ask a manager" per order (a request names one order and its due). Empty
+ * when nothing is blocked by a due (or billing is unknown: `checkHandover` says so).
+ */
+export function blockedOrders(orders: readonly CandidateOrder[], ids: readonly string[], reserved: ReadonlySet<string> = new Set()): Array<{ order_id: string; due_minor: number }> {
+  const picked = new Set(ids);
+  const out: Array<{ order_id: string; due_minor: number }> = [];
+  for (const o of orders) {
+    if (!o.live_ids.some((id) => picked.has(id)) || o.gate.kind !== 'due' || o.gate.approved) continue;
+    if (o.live_ids.every((id) => picked.has(id) || reserved.has(id))) out.push({ order_id: o.order_id, due_minor: o.gate.due_minor });
+  }
+  return out;
+}
+
 /** The ids a list of (grouped) lines names: a grouped row names all its parts (as servedPayload). */
 export function lineIds(lines: ReadonlyArray<{ order_item_id: string; part_ids?: string[] }>): string[] {
   return lines.flatMap((l) => l.part_ids ?? [l.order_item_id]);
