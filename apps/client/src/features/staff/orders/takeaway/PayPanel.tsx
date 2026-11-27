@@ -12,6 +12,7 @@ import { billMoney, parseMinor } from '../../../billing/money';
 import { useShell } from '../../shell/hooks';
 import { MONEY_DIR, money } from '../money';
 import './styles';
+import { REFERENCE_MAX, referenceLength, typedReference } from '../../../billing/reference';
 import { TkIco } from './icons';
 
 // 02b-TK C3-1 (05 v1.0.34 §6.1, §6.9, §6.12, B12, B16; frames PayCash, PayCashShort, PayCard, PayDone, PayError,
@@ -460,7 +461,9 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
             {mode.reference_required && (
               <label className="tk-field">
                 <span>{t('p.ref')}</span>
-                <input className="tk-input" dir="ltr" autoComplete="off" maxLength={60} value={reference} onChange={(e) => setReference(e.currentTarget.value)} />
+                <input className="tk-input" dir="ltr" autoComplete="off" maxLength={REFERENCE_MAX} value={reference} onChange={(e) => setReference(typedReference(e.currentTarget.value))} />
+                {/* QA BUG-27: the limit is visible; leading spaces dropped as typed, sent trimmed */}
+                <span className="cntr num">{fill(t('note.count'), { n: String(referenceLength(reference)), max: String(REFERENCE_MAX) })}</span>
               </label>
             )}
           </div>

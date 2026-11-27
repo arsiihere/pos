@@ -293,6 +293,21 @@ describe('[05 §8 pad; §6.9] payment pad', () => {
     expect(text(v, '.b5-change b')).toBe('Rs 375.00');
   });
 
+  it('[05 §3.7, QA BUG-27] the reference drops leading spaces as typed, shows "n/60" of the trimmed text, and sends it trimmed', async () => {
+    const s = setup({ answers: [{ ok: true, data: { bill_id: 'B7', payment_id: 'P1', split_no: 1, totals: { as_paid: CARD }, balance_minor: 0, card_due_minor: 0, cash_due_minor: 0, card_refund_due_minor: 0, cash_refund_due_minor: 0, rounding_minor: 50, change_due_minor: 0 } }] });
+    const v = await show(s);
+    v.click(v.button('JazzCash'));
+    expect(text(v, '.b5-fld .cntr')).toBe('0/60');
+    typeIn(field(v, 'Reference'), '   TX-77  ');
+    await flush();
+    expect(field(v, 'Reference')?.value).toBe('TX-77  ');
+    expect(text(v, '.b5-fld .cntr')).toBe('5/60');
+    expect(field(v, 'Reference')?.maxLength).toBe(60);
+    v.click(v.button('Add payment'));
+    await flush();
+    expect(s.command.mock.calls[0]![1]).toMatchObject({ reference: 'TX-77' });
+  });
+
   it('Card: "Total by card" with the card due; a digital mode sends no tendered; a reference mode asks for it first', async () => {
     const s = setup({ answers: [{ ok: true, data: { bill_id: 'B7', payment_id: 'P1', split_no: 1, totals: { as_paid: CARD }, balance_minor: 0, card_due_minor: 0, cash_due_minor: 0, card_refund_due_minor: 0, cash_refund_due_minor: 0, rounding_minor: 50, change_due_minor: 0 } }] });
     const v = await show(s);

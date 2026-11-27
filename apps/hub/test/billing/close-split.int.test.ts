@@ -96,6 +96,8 @@ interface DocOptions {
   no_printer?: boolean;
   /** permissions denied to the Order taker (the grant-first test) */
   deny?: string[];
+  /** the rule's rounding mode (default nearest) */
+  rounding_mode?: 'nearest' | 'down' | 'up';
 }
 
 /**
@@ -140,7 +142,7 @@ function billingDoc(o: DocOptions = {}): SnapshotBilling {
       rules: pk.jurisdiction.rules.map((r) => ({
         ...r,
         rounding_step_minor: 100,
-        rounding_mode: 'nearest' as const,
+        rounding_mode: o.rounding_mode ?? ('nearest' as const),
         rounding_applies_to: 'all' as const,
         buyer_id: { threshold_minor: o.threshold ?? null, accepted_types: BUYER_TYPES },
         receipt:
@@ -548,6 +550,46 @@ describe('[05 §6.12] CloseSplit — one transaction: invoice, folds, outbox row
       { order_item_id: 'EQ2_N', units: 2, share: 3_000 },
     ]);
     expect(db().prepare('SELECT state FROM bills WHERE bill_id = ?').pluck().get(bill_id)).toBe('closed');
+  });
+
+  it('[05 §3.8 owner ruling 2026-11-28, QA BUG-1] equal in 2 under rounding down: 730 / 731, both close, Rs 1,461 collected = the bill', async () => {
+    await start({ rounding_mode: 'down' });
+    const t = dineInTwoRounds(hub, { prefix: 'RD' });
+    const ref = { seating_id: t.seating_id };
+    // whole bill: 1,260.00 + 16 % 201.60 = 1,461.60 → down 1,461.00; each half 730.80
+    expect((await view(cashier.who, ref)).totals_default.total_minor).toBe(146_100);
+    const sp = await post(hub, cashier.who, 'set-splits', 'SetSplits', { bill_ref: ref, mode: 'equal', n: 2 });
+    expect(sp.status, JSON.stringify(sp.error)).toBe(200);
+    const v = await view(cashier.who, ref);
+    expect(v.splits.map((x) => x.totals.as_paid.total_minor)).toEqual([73_000, 73_100]);
+    expect(v.splits.map((x) => x.totals.as_paid.rounding_minor)).toEqual([-80, 20]);
+    let collected = 0;
+    for (const [split_no, due] of [[1, 73_000], [2, 73_100]] as const) {
+      expect((await pay(cashier.who, ref, split_no, 'cash', due)).status).toBe(200);
+      const r = await close(cashier.who, { bill_ref: ref, split_no, expected_total_minor: due });
+      expect(r.status, JSON.stringify(r.error)).toBe(200);
+      collected += invoiceOf(r)['total_minor'] as number;
+    }
+    expect(collected).toBe(146_100);
+    expect(db().prepare('SELECT state FROM bills WHERE bill_id = ?').pluck().get(billIdOf(t.seating_id))).toBe('closed');
+  });
+
+  it('[05 §3.8 owner ruling 2026-11-28, QA BUG-1] equal in 3 under rounding down: after split 1 closes the remainder keeps the bill’s total', async () => {
+    await start({ rounding_mode: 'down' });
+    const t = dineInTwoRounds(hub, { prefix: 'R3' });
+    const ref = { seating_id: t.seating_id };
+    expect((await post(hub, cashier.who, 'set-splits', 'SetSplits', { bill_ref: ref, mode: 'equal', n: 3 })).status).toBe(200);
+    // 1,461.60 → 1,461 down; 1,461 / 3 = 487 in whole rupees
+    const before = (await view(cashier.who, ref)).splits.map((x) => x.totals.as_paid.total_minor);
+    expect(before).toEqual([48_700, 48_700, 48_700]);
+    expect((await pay(cashier.who, ref, 1, 'cash', 48_700)).status).toBe(200);
+    const r1 = await close(cashier.who, { bill_ref: ref, split_no: 1, expected_total_minor: 48_700 });
+    expect(r1.status, JSON.stringify(r1.error)).toBe(200);
+    // split 1's invoice carried R −0.20 (G 487.20); the open remainder (G 974.40) is rounded with it → 974.00
+    const after = await view(cashier.who, ref);
+    expect(after.totals_default.total_minor).toBe(97_400);
+    const open = after.splits.filter((x) => x.state === 'open');
+    expect(open.map((x) => x.totals.cash.total_minor)).toEqual([48_700, 48_700]);
   });
 
   it('[05 §6.12, #6, H6-11] a projected takeaway bill closes at its own total in one command (BillOpened first); no BillClosed for takeaway', async () => {
