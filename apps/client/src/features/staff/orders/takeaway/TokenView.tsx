@@ -8,7 +8,7 @@ import { billingApi } from '../../../billing/api';
 import type { BillView } from '../../../billing/contracts';
 import { useShell } from '../../shell/hooks';
 import { ContactSheet } from '../actions/ContactSheet';
-import type { OrderViewBody, SeatingLine } from '../contracts';
+import type { OpenOrder, OrderViewBody, SeatingLine } from '../contracts';
 import { useLiveRefetch } from '../lists/OpenOrders';
 import { MONEY_DIR, money } from '../money';
 import { groupParts, type GroupedLine } from '../view/parts';
@@ -22,8 +22,8 @@ import { VoidButton } from '../../../voids/ui';
 import { MaskedAction } from '../../shell/MaskedAction';
 import type { TokenBook } from './book';
 import { maskPhone } from './mask';
-import { notCollectedMinOf, type QueueToken } from './queue-model';
-import { CarriedDate, useHubNow } from './QueueRail';
+import { notCollectedMinOf, plannedReadyOf, type QueueToken } from './queue-model';
+import { CarriedDate, ReadyTime, useHubNow } from './QueueRail';
 import { AskManager } from '../unpaid/AskManager';
 import { candidatesOf, checkHandover, dueGate, lineIds, type Gate } from '../unpaid/candidate';
 import { unpaidRequestsOf } from '../unpaid/requests';
@@ -123,6 +123,9 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   // 02b-TK C2-4: Remove / cancel shows each line's way off the order; the sheet open for one line
   const [removing, setRemoving] = useState(false);
   const [sheet, setSheet] = useState<{ kind: 'remove' | 'void'; line: SeatingLine; order: LineOrder } | null>(null);
+  // ⚠️ 02b v1.0.25 §6.16 (owner ruling BR-1): the token's open-orders rows of this view's last read (null: not read or
+  // not every order listed → the rail's token value), for "Ready ~{planned}" after Customer is here
+  const [planRows, setPlanRows] = useState<OpenOrder[] | null>(null);
   const ids = token.order_ids.join(' ');
   const request = useRef(0);
   const load = useCallback(async () => {
@@ -131,12 +134,21 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
     const api = billingApi(shellRef.current.api);
     const newest = orderIds.at(-1)!;
     const root = orderIds[0]!;
-    const [views, current, earlier] = await Promise.all([
+    const [views, current, earlier, open] = await Promise.all([
       Promise.all(orderIds.map((id) => shellRef.current.orders.orderView(id))),
       api.bill({ order_id: newest }),
       root === newest ? Promise.resolve(null) : api.bill({ order_id: root }),
+      (async () => {
+        try {
+          return await shellRef.current.orders.openOrders({ order_type: 'takeaway' });
+        } catch {
+          return null;
+        }
+      })(),
     ]);
     if (mine !== request.current) return;
+    const listed = open?.ok === true ? open.data.orders.filter((r) => orderIds.includes(r.order_id)) : [];
+    setPlanRows(listed.length === orderIds.length ? listed : null);
     const found = views.flatMap((v) => (v.ok && v.data.kind === 'order' ? [v.data.order] : []));
     setGone(found.length === 0 && views.every((v) => !v.ok && v.error.kind === 'api' && v.error.code === 'ORDER_NOT_FOUND'));
     setOrders(found);
@@ -181,6 +193,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const first = orders?.[0] ?? null;
   const promises = (orders ?? []).flatMap((o) => (o.promise_ms === null ? [] : [o.promise_ms]));
   const promise = promises.length === 0 ? token.promise_ms : Math.max(...promises);
+  const planned = planRows === null ? (token.planned_ready_at_ms ?? null) : plannedReadyOf(planRows);
   const phoned = orders?.find((o) => o.has_phone) ?? null;
   const fullScreen = shell.phone || shell.portrait;
   const showContact = !fullScreen && shell.device.type === 'cashier_kiosk' || may('view-customer-contact');
@@ -242,9 +255,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
       {!allReady && promise !== null && (
         <>
           {' · '}
-          <span className="time" dir="ltr">
-            {timeText(promise, offset)}
-          </span>
+          <ReadyTime promise={promise} planned={planned} utcOffsetMs={offset} />
         </>
       )}
     </button>
@@ -286,7 +297,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
           <div className="tk-facts">
             <div className="tk-fact">
               <small>{t('v.ready_at')}</small>
-              <b dir="ltr">{promise === null ? '—' : timeText(promise, offset)}</b>
+              <b dir="ltr">{promise === null ? '—' : <ReadyTime promise={promise} planned={planned} utcOffsetMs={offset} stack />}</b>
             </div>
             {bill?.earlier != null && (
               <div className="tk-fact tk-fact--paid">

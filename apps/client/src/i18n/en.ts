@@ -4490,6 +4490,8 @@ export const en = {
   // ---- 02b-TK L-CLIENT-5 item 2 (02b v1.0.25 §6.6, §8 02b-R4-3; 03a v1.2.11 PK-5; D1): Customer is here on a pickup token (BoostOrder) ----
   'v.here': 'Customer is here — cook now',
   'v.here_done': 'The kitchen cooks it now',
+  // ---- 02b-TK BR-1 (02b v1.0.25 §6.16): after Customer is here, the planned ready time beside the struck-through promise ----
+  'q.ready_planned': 'Ready ~{t}',
 } as const;
 
 export type MessageKey = keyof typeof en;

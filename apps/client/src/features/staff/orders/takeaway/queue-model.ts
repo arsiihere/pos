@@ -56,6 +56,32 @@ export interface QueueToken {
    * is not the open day's (a carried token), else null. Optional: a token built elsewhere has none.
    */
   from_date?: string | null;
+  /**
+   * ⚠️ 02b v1.0.25 §6.16 (owner ruling BR-1; 03a PK-5): the planned ready time to show as "Ready ~{planned}" beside the
+   * struck promise (plannedReadyOf), else null. Optional: a token built elsewhere has none.
+   */
+  planned_ready_at_ms?: number | null;
+}
+
+type PlannedRow = Pick<OpenOrder, 'ready' | 'promise_ms' | 'pickup_at_ms' | 'effective_pickup_at_ms' | 'planned_ready_at_ms'>;
+
+/**
+ * ⚠️ 02b v1.0.25 §6.16 `planned_ready_at_ms` (owner ruling BR-1): a token's "Ready ~{planned}" time — the latest planned
+ * ready time of its orders not yet ready (ready n < m), only when every one of them is boosted (a pickup kept, the
+ * effective pickup null: Customer is here) and has a planned time, and only when it is earlier than the token's
+ * promise (the latest of its orders'). Else null: the token keeps showing the promise. The promise never changes (PK-5).
+ */
+export function plannedReadyOf(rows: readonly PlannedRow[]): number | null {
+  const open = rows.filter((r) => r.ready.n < r.ready.m);
+  if (open.length === 0) return null;
+  let planned = -Infinity;
+  for (const r of open) {
+    const boosted = r.pickup_at_ms != null && r.effective_pickup_at_ms === null;
+    if (!boosted || r.planned_ready_at_ms == null) return null;
+    planned = Math.max(planned, r.planned_ready_at_ms);
+  }
+  const promise = latest(rows.map((r) => r.promise_ms));
+  return promise !== null && planned < promise ? planned : null;
 }
 
 /** A token's billing facts per order; a token built without them reads paid only when the book says so. */
@@ -149,6 +175,7 @@ export function buildQueue(orders: readonly KnownOrder[], nowMs = -Infinity): Qu
       effective_pickup_at_ms: latest(sorted.map((o) => o.row.effective_pickup_at_ms)),
       from_date: sorted[0]!.row.from_date ?? null,
       pickup_order_ids: sorted.filter((o) => o.row.effective_pickup_at_ms != null).map((o) => o.row.order_id),
+      planned_ready_at_ms: plannedReadyOf(sorted.map((o) => o.row)),
     });
   }
   const byPromise = (a: QueueToken, b: QueueToken) => (a.promise_ms ?? Infinity) - (b.promise_ms ?? Infinity) || a.placed_at - b.placed_at;
