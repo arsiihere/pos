@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dialog, escapeRe, menuTile, rushOff, sentToken, signInOn, takeawayTab } from './02b-support';
+import { dialog, menuTile, rushOff, sendCart, sentToken, signInOn, takeawayTab } from './02b-support';
 import { t1Station } from './t1-fixture';
 import { capture, closeAll, cookLine, deviceFor, hubFire, LANGS, managerPhone, queueEntry, passCard, passTablet, screen, t1Run, t1RunsHere, tr, type Lang, type T1Run } from './t1-support';
 
@@ -19,7 +19,8 @@ async function dueAndReady(cash: Page, pass: Page, run: T1Run, lang: Lang, info:
   await signInOn(cash, deviceFor(info), lang);
   await takeawayTab(cash);
   await menuTile(cash, run.items.main.name).click();
-  await cash.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.send_later'))}`) }).click();
+  // Ali has no take-payment: his cart sends with plain Send (the token is Due)
+  await sendCart(cash, lang);
   const token = await sentToken(cash);
   await hubFire(t1Station(run.key));
   await passTablet(pass, 'unpaid', info, lang);
@@ -30,19 +31,18 @@ async function dueAndReady(cash: Page, pass: Page, run: T1Run, lang: Lang, info:
   return token;
 }
 
-/** The Manager's phone: Requests → the "Hand over unpaid #N" card → Approve or Reject (Approve asks the PIN). */
+/** The Manager's phone: Requests → the "Hand over unpaid #N" card → Approve or Reject; both ask the PIN (needs_pin always). */
 async function answer(phone: Page, lang: Lang, token: string, decision: 'approve' | 'reject'): Promise<void> {
   await phone.getByRole('button', { name: new RegExp(tr(lang, 'alerts.nav.requests')) }).or(phone.getByRole('link', { name: new RegExp(tr(lang, 'alerts.nav.requests')) })).first().click();
   const title = tr(lang, 'alert.hand_over_unpaid.card', { identifier: `#${token}` });
   await phone.getByText(title).first().click();
   const sheet = dialog(phone);
   await expect(sheet).toContainText(title);
-  await sheet.getByRole('button', { name: tr(lang, decision === 'approve' ? 'answer.approve' : 'answer.reject') }).click();
-  if (decision === 'approve') {
-    const keys = phone.locator('.pin__keys');
-    for (const d of MANAGER_PIN) await keys.locator('.btn', { hasText: new RegExp(`^${d}$`) }).click();
-    await keys.getByRole('button', { name: tr(lang, 'answer.approve') }).click();
-  }
+  const word = tr(lang, decision === 'approve' ? 'answer.approve' : 'answer.reject');
+  await sheet.getByRole('button', { name: word }).click();
+  const keys = phone.locator('.pin__keys');
+  for (const d of MANAGER_PIN) await keys.locator('.btn', { hasText: new RegExp(`^${d}$`) }).click();
+  await keys.getByRole('button', { name: word }).click();
   await expect(phone.getByText(tr(lang, decision === 'approve' ? 'answer.done_approved' : 'answer.done_rejected')).first()).toBeVisible();
 }
 
@@ -77,7 +77,9 @@ for (const lang of LANGS) {
       await button.click();
       await expect(card).toHaveCount(0, { timeout: 20_000 });
       expect(served.at(-1)?.customer_handover).toBe(true);
-      await expect(await queueEntry(cash.page, token)).toHaveCount(0, { timeout: 15_000 });
+      // the counter: still owed (a Due order stays open until paid), its line handed over
+      await (await queueEntry(cash.page, token)).click();
+      await expect(cash.page.locator('section.tk-drawer .tk-il', { hasText: run.items.main.name }).locator('.tk-chip')).toHaveText(tr(lang, 'v.given'), { timeout: 15_000 });
     } finally {
       await closeAll(info, lang, phone, pass, cash);
     }
