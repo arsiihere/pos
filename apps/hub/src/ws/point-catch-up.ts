@@ -1,6 +1,6 @@
 import type { LineDetail } from '@pos/domain';
 import { isOrderInEngine, priorityOfLine, stationView, type EngineState, type LinePriority } from '@pos/engine';
-import type { KdsStationBody, PointOrderMeta, WsPointLines, WsPointViewRefresh } from '@pos/events';
+import type { KdsStationBody, PointOrderMeta, PointStation, WsPointLines, WsPointViewRefresh } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { buildLineDetails, devicePoint, pointOfLine } from '../kds/contracts.js';
@@ -28,6 +28,10 @@ import { wsHubFor } from './server.js';
 //   ItemRemoved / ItemVoided with units, LineWeightSet). One buildLineDetails (2 statements) per commit that adds or
 //   changes lines; 0 otherwise. ⚠️ Changed by v1.0.8 (owner 2026-11-13, Q-47): the lines of a moved / merged / split
 //   seating are sent again (the table identifier), +1 statement in a commit with a table event. Registered after b18's kds_lines hook (lane order B3 → B6).
+// - ⚠️ 03b v1.0.16 §6.15, §6.16 (run 3 R3-M-3): `stations` = the point's active default stations ∪ the stations of its
+//   listed lines (routed ones too), in the catch-up (same settings read) and as `point_lines.stations` upserts for the
+//   stations a socket newly references (one shared settings read per commit, only then); a held line the engine moved
+//   to another station is sent again. `dark` stays the takeover at this point (takeover frames keep the default).
 
 const isEngineState = (s: unknown): s is EngineState =>
   typeof s === 'object' && s !== null && typeof (s as Partial<EngineState>).stations === 'object' && typeof (s as Partial<EngineState>).lines === 'object';
@@ -49,7 +53,7 @@ export type ServeFields = { group_id: string; serve_mode: 'sync' | 'immediate'; 
 export type PointLine = LineDetail & ServeFields & { stage: 'added' | 'cooking' | 'done'; handed_over: boolean; started_at: number | null };
 export interface PointViewBody {
   point_id: string;
-  stations: Array<{ station_id: string; name: string; lanes: KdsStationBody['lanes']; dark: boolean; screenless: boolean }>;
+  stations: PointStation[];
   // ⚠️ 03b v1.0.10 §6.15 (STAB-2): ready.lines = the Ready's unsettled own lines
   // ⚠️ 03b v1.0.16 §6.15 (run 3 R3-B-1, R3-M-5): + the order metadata (pickup_at_ms, boosted, pickup_readiness, no_station_lines)
   orders: Array<
@@ -192,15 +196,46 @@ const lanesOf = (s: SettingsRow): KdsStationBody['lanes'] => {
   return { lanes_on: s.has_lanes === 1 ? s.lanes_on : lane_count, lane_count };
 };
 
+const NO_SETTINGS: SettingsRow = { station_id: '', sound_volume: null, lane_count: null, lanes_on: null, has_lanes: 0, labelled: 0 };
+
+/** One settings + lanes read for `ids` (0 statements when empty). */
+function settingsOf(db: Database.Database, ids: readonly string[]): Map<string, SettingsRow> {
+  return new Map((ids.length === 0 ? [] : (db.prepare(SETTINGS_SQL).all(JSON.stringify(ids)) as SettingsRow[])).map((r) => [r.station_id, r]));
+}
+
+/**
+ * ⚠️ 03b v1.0.16 §6.15, §6.16 (run 3 R3-M-3): the stations of a point's cards — its active default stations and every
+ * station a listed line is on (a routed line's station whose default is elsewhere, an archived station with outstanding
+ * work), in config order, then any id the config no longer lists (memory).
+ */
+function cardStationIds(state: EngineState, point_id: string, lineIds: readonly string[]): string[] {
+  const config = branchConfig()?.stations ?? [];
+  const wanted = new Set(config.filter((s) => s.point_id === point_id && !s.is_archived).map((s) => s.station_id));
+  for (const id of lineIds) wanted.add(state.lines[id]!.station_id);
+  const ordered = config.map((s) => s.station_id).filter((id) => wanted.has(id));
+  const known = new Set(ordered);
+  return [...ordered, ...[...wanted].filter((id) => !known.has(id)).sort()];
+}
+
+/** A card station (§6.15 shape): `dark` = under takeover at this point (§3.6, the effective default); memory over `settings`. */
+function cardStation(station_id: string, settings: ReadonlyMap<string, SettingsRow>, takeovers: readonly string[]): PointStation {
+  return {
+    station_id,
+    name: branchConfig()?.stations.find((s) => s.station_id === station_id)?.name ?? station_id,
+    lanes: lanesOf(settings.get(station_id) ?? NO_SETTINGS),
+    dark: takeovers.includes(station_id),
+    // Q-45 (§3.1): no paired, unrevoked kds device (memory, 0 statements); refreshed with the device maps.
+    screenless: !screenStations().has(station_id),
+  };
+}
+
 /** §6.15: the `point_view` body; 4 statements (5 with a pickup order, §6.15 run 3). */
 export function pointViewBody(db: Database.Database, state: EngineState, point_id: string, now: number): PointViewBody {
-  const stations = (branchConfig()?.stations ?? []).filter((s) => s.point_id === point_id && !s.is_archived);
-  const takeovers = takeoverIdsOf(db, point_id);
-  const settingsIds = [...new Set([...stations.map((s) => s.station_id), ...takeovers])];
-  const settings = new Map(
-    (settingsIds.length === 0 ? [] : (db.prepare(SETTINGS_SQL).all(JSON.stringify(settingsIds)) as SettingsRow[])).map((r) => [r.station_id, r]),
-  );
   const lineIds = pointLineIds(state, point_id, now);
+  const stationIds = cardStationIds(state, point_id, lineIds);
+  const takeovers = takeoverIdsOf(db, point_id);
+  // one read for the card stations and the takeover stations together
+  const settings = settingsOf(db, [...new Set([...stationIds, ...takeovers])]);
   const views = new Map(takeovers.map((id) => [id, stationView(state, id, now)]));
   const takeoverLineIds = [...views.values()].flatMap((v) => [...v.now, ...v.next].map((l) => l.order_item_id));
   const details = buildLineDetails(db, state, [...new Set([...lineIds, ...takeoverLineIds])]);
@@ -243,24 +278,16 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
   orders.sort((a, b) => a.placed_at - b.placed_at || (a.order_id < b.order_id ? -1 : a.order_id > b.order_id ? 1 : 0));
 
   const dayOpen = state.business_day !== null && state.business_day.closed_at === null;
-  const noSettings: SettingsRow = { station_id: '', sound_volume: null, lane_count: null, lanes_on: null, has_lanes: 0, labelled: 0 };
   // ⚠️ Changed by 03b v1.0.6 (owner 2026-11-12, Q-20): a takeover body is a kds_station body, so it carries has_printer
   // (03c stationHasPrinter): 1 statement for every takeover station together, 0 without a takeover (§6.15 "+1").
   const printing = stationHasPrinter(db, takeovers);
   return {
     point_id,
-    stations: stations.map((s) => ({
-      station_id: s.station_id,
-      name: s.name,
-      lanes: lanesOf(settings.get(s.station_id) ?? noSettings),
-      dark: takeovers.includes(s.station_id),
-      // Q-45 (§3.1): no paired, unrevoked kds device (memory, 0 statements); refreshed with the device maps.
-      screenless: !screenStations().has(s.station_id),
-    })),
+    stations: stationIds.map((id) => cardStation(id, settings, takeovers)),
     orders,
     takeovers: takeovers.map((station_id): KdsStationBody => {
       const view = views.get(station_id)!;
-      const s = settings.get(station_id) ?? noSettings;
+      const s = settings.get(station_id) ?? NO_SETTINGS;
       return {
         station_id,
         day_open: dayOpen,
@@ -310,7 +337,7 @@ const metaKey = (m: PointOrderMeta): string => JSON.stringify(m);
 
 export function pointViewPart(
   deps: Pick<HubDeps, 'clock'>,
-  onBuilt?: (sessionId: string, ids: readonly string[], meta: ReadonlyMap<string, string>) => void,
+  onBuilt?: (sessionId: string, ids: readonly string[], meta: ReadonlyMap<string, string>, body: PointViewBody) => void,
 ): CatchUpPart {
   return {
     part: 'point_view',
@@ -333,7 +360,7 @@ export function pointViewPart(
           }),
         ]),
       );
-      onBuilt?.(socket.sessionId, bodyIds(body), meta);
+      onBuilt?.(socket.sessionId, bodyIds(body), meta, body);
       return body;
     },
   };
@@ -345,11 +372,23 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
   givenByDb.set(deps.db, given);
   // ⚠️ 03b v1.0.16 §6.16 (R3-M-5): per Pass socket, order → the metadata it holds (catch-up or an earlier frame)
   const metaGiven = new Map<string, Map<string, string>>();
+  // ⚠️ 03b v1.0.16 §6.16 (run 3 R3-M-3): per Pass socket, the card stations it holds, and the station each held line
+  // was on when its details were given (an engine station change sends the line again)
+  const stationsGiven = new Map<string, Set<string>>();
+  const lineStation = new Map<string, Map<string, string>>();
+  const holdView = (sessionId: string, view: PointViewBody | null): void => {
+    stationsGiven.set(sessionId, new Set(view === null ? [] : view.stations.map((st) => st.station_id)));
+    const at = new Map<string, string>();
+    for (const o of view?.orders ?? []) for (const l of o.lines) at.set(l.order_item_id, l.station_id);
+    for (const t of view?.takeovers ?? []) for (const l of [...t.now, ...t.details]) at.set(l.order_item_id, l.station_id);
+    lineStation.set(sessionId, at);
+  };
   // A catch-up starts a new socket (also a reconnect on the same session token): it replaces the record.
   const stopPart = registerCatchUp(
-    pointViewPart(deps, (sessionId, ids, meta) => {
+    pointViewPart(deps, (sessionId, ids, meta, body) => {
       given.set(sessionId, new Set(ids));
       metaGiven.set(sessionId, new Map(meta));
+      holdView(sessionId, body);
     }),
   );
   app.addHook('onClose', async () => stopPart());
@@ -364,6 +403,8 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
     const live = new Set(sessions.map((s) => s.sessionId));
     for (const id of given.keys()) if (!live.has(id)) given.delete(id);
     for (const id of metaGiven.keys()) if (!live.has(id)) metaGiven.delete(id);
+    for (const id of stationsGiven.keys()) if (!live.has(id)) stationsGiven.delete(id);
+    for (const id of lineStation.keys()) if (!live.has(id)) lineStation.delete(id);
     if (sessions.length === 0) return;
     const state = deps.state.get();
     if (!isEngineState(state)) return;
@@ -396,6 +437,7 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
         }
         given.set(s.sessionId, new Set(view === null ? [] : bodyIds(view)));
         metaGiven.set(s.sessionId, new Map());
+        holdView(s.sessionId, view);
         refreshed.add(s.sessionId);
         const frame: WsPointViewRefresh = { type: 'point_view_refresh', as_of_seq, view: view as unknown as Record<string, unknown> | null };
         ws.sendToSessions([s.sessionId], frame);
@@ -416,15 +458,20 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
     const named = new Set(appended.filter((e) => e.stream_type === 'order').map((e) => e.stream_id));
     const byPoint = new Map<string, Set<string>>();
     const ordersAt = new Map<string, Set<string>>();
+    const cardsAt = new Map<string, string[]>();
     const missing = new Map<string, string[]>();
     const all = new Set<string>();
     const metaWanted = new Set<string>();
+    // ⚠️ R3-M-3: the card stations each socket gains in this commit, and all of them (one settings read)
+    const stationsMissing = new Map<string, string[]>();
+    const allStations = new Set<string>();
     for (const s of sessions) {
       if (refreshed.has(s.sessionId)) continue;
       let shown = byPoint.get(s.point_id);
       if (shown === undefined) {
         const own = pointLineIds(state, s.point_id, now);
         ordersAt.set(s.point_id, new Set(own.map((id) => state.lines[id]!.order_id)));
+        cardsAt.set(s.point_id, cardStationIds(state, s.point_id, own));
         shown = new Set(own);
         for (const station_id of takeoverIdsOf(deps.db, s.point_id)) for (const id of stationShownIds(state, station_id)) shown.add(id);
         byPoint.set(s.point_id, shown);
@@ -433,15 +480,38 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
       const had = given.get(s.sessionId) ?? new Set<string>();
       for (const id of had) if (!shown.has(id)) had.delete(id);
       given.set(s.sessionId, had);
+      // ⚠️ R3-M-3: a station neither a current default nor on a listed line is dropped from the held set (the client
+      // drops it from its cards); one newly referenced is sent
+      const cards = cardsAt.get(s.point_id)!;
+      const heldStations = stationsGiven.get(s.sessionId) ?? new Set<string>();
+      for (const id of heldStations) if (!cards.includes(id)) heldStations.delete(id);
+      stationsGiven.set(s.sessionId, heldStations);
+      const newStations = cards.filter((id) => !heldStations.has(id));
+      if (newStations.length > 0) {
+        stationsMissing.set(s.sessionId, newStations);
+        for (const id of newStations) allStations.add(id);
+      }
       const gained = [...shown].filter((id) => !had.has(id));
       // Held and still shown (pruned above) with changed units → sent again.
       const resend = [...changed].filter((id) => had.has(id));
-      const send = [...new Set([...gained, ...resend, ...heldOfOrders(state, had, moved)])].sort();
+      // ⚠️ R3-M-3: held lines the engine moved to another station → sent again
+      let at = lineStation.get(s.sessionId);
+      if (at === undefined) lineStation.set(s.sessionId, (at = new Map()));
+      for (const id of at.keys()) if (!had.has(id)) at.delete(id);
+      const restation: string[] = [];
+      for (const id of had) {
+        const now_at = state.lines[id]?.station_id;
+        if (now_at === undefined) continue;
+        const was = at.get(id);
+        if (was === undefined) at.set(id, now_at); // given by a takeover start view: recorded from here
+        else if (was !== now_at) restation.push(id);
+      }
+      const send = [...new Set([...gained, ...resend, ...restation, ...heldOfOrders(state, had, moved)])].sort();
       if (send.length === 0) continue;
       missing.set(s.sessionId, send);
       for (const id of send) all.add(id);
     }
-    if (all.size === 0 && metaWanted.size === 0) return;
+    if (all.size === 0 && metaWanted.size === 0 && allStations.size === 0) return;
 
     const details = all.size === 0 ? new Map<string, LineDetail>() : buildLineDetails(deps.db, state, [...all]);
     // §6.15 metadata of the named orders shown anywhere (1 statement, only with a pickup order among them)
@@ -449,6 +519,8 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
     const counterOrders = [...metaWanted].filter((id) => ['takeaway', 'parking'].includes(state.orders[id]?.order_type ?? ''));
     const pairs = counterOrders.length === 0 ? new Map<string, { bag_ready_since: number; bag_ready_window_ms: number }>() : bagReadyAtOf(deps.db, counterOrders);
     const meta = metaWanted.size === 0 ? new Map<string, PointOrderMeta>() : orderMetaOf(deps.db, state, [...metaWanted], pairs);
+    // ⚠️ R3-M-3: one shared settings read across the stations gained in this commit (0 without one)
+    const stationSettings = settingsOf(deps.db, [...allStations]);
     const ws = wsHubFor(app);
     const memo = new Map<string, number>();
     for (const s of sessions) {
@@ -459,7 +531,16 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
         return d === undefined || state.lines[id] === undefined ? [] : [{ ...d, ...serveOf(state, id, now, memo) }];
       });
       const had = given.get(s.sessionId)!;
-      for (const id of ids) had.add(id);
+      const at = lineStation.get(s.sessionId)!;
+      for (const id of ids) {
+        had.add(id);
+        const d = details.get(id);
+        if (d !== undefined) at.set(id, d.station_id);
+      }
+      const newStations = stationsMissing.get(s.sessionId) ?? [];
+      const takeovers = newStations.length === 0 ? [] : takeoverIdsOf(deps.db, s.point_id);
+      const stations = newStations.map((id) => cardStation(id, stationSettings, takeovers));
+      for (const id of newStations) stationsGiven.get(s.sessionId)!.add(id);
       // metadata the socket does not hold yet (a newly shown order, or a change), for orders this commit named
       let heldMeta = metaGiven.get(s.sessionId);
       if (heldMeta === undefined) metaGiven.set(s.sessionId, (heldMeta = new Map()));
@@ -473,8 +554,9 @@ export function registerPointCatchUp(app: FastifyInstance, deps: HubDeps): void 
         heldMeta.set(order_id, key);
         orders.push(m);
       }
-      if (lines.length === 0 && orders.length === 0) continue;
-      const frame: WsPointLines = { type: 'point_lines', point_id: s.point_id, lines, ...(orders.length === 0 ? {} : { orders }) };
+      if (lines.length === 0 && orders.length === 0 && stations.length === 0) continue;
+      // stations first: the client applies the upserts before the lines (§6.16 R3-M-3)
+      const frame: WsPointLines = { type: 'point_lines', point_id: s.point_id, ...(stations.length === 0 ? {} : { stations }), lines, ...(orders.length === 0 ? {} : { orders }) };
       ws.sendToSessions([s.sessionId], frame);
     }
   });
