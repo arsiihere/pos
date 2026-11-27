@@ -143,11 +143,17 @@ jobs:
           e2e/03b-pass.spec.ts e2e/03b-kds.spec.ts e2e/03b-admin.spec.ts
           e2e/t1-takeaway.spec.ts e2e/t1-unpaid.spec.ts e2e/t1-bills.spec.ts e2e/t1-ops.spec.ts e2e/t1-pass.spec.ts
           --grep-invert @gap
-      # L-E2E-T1 rows #26 / #27: the day close journey closes the business day, so it runs on a hub of its own
-      - name: Day close journey (own hub)
+      # L-E2E-T1 rows #26 / #27: the day close journey closes the business day, so it runs on a hub of its own — a fresh
+      # one per language, its clock pinned 10 h and then 30 min before the business-day end (no runner clock or zone in it)
+      - name: Day close journey (own hub per language and time)
         if: matrix.project == 'kiosk'
         working-directory: apps/client
-        run: pnpm exec playwright test -c playwright.dayclose.config.ts --trace off
+        run: |
+          for at in 600 30; do
+            for lang in en ur; do
+              POS_E2E_DAYCLOSE_BEFORE_END_MIN=$at POS_E2E_DAYCLOSE_LANG=$lang pnpm exec playwright test -c playwright.dayclose.config.ts --trace off
+            done
+          done
       - name: Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4

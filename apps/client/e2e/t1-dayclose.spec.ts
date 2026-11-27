@@ -10,7 +10,8 @@ import { apiSession, capture, closeAll, hub, hubAdvance, hubNow, passCard, passT
 //       StockReleased for its lines, no re-plan, no second fire), and it stays open (02b §3.3, owner ruling DC-2): next
 //       day it is on the counter's queue and on the Pass, its date beside its token
 //   #27 the day's Z totals match the payments taken (the software half; the drawer and the card slips are people's)
-// Each run reopens the day at the end (OpenBusinessDay, hub admin), so the next language starts on an open day.
+// One language per hub (playwright.dayclose.config.ts): the hub's clock is pinned before the day's end (global-setup), and
+// the pickup is taken inside the hub's own bounds, so the run does not depend on the runner's clock or time zone.
 
 const PICKUP_AHEAD_MS = 30 * 60_000;
 // the run's karahi as an immediate line (t1-fixture t1Held, at the run's station): stock-tracked (K1), so a pickup
@@ -71,7 +72,14 @@ for (const lang of LANGS) {
 
       // a pickup order 30 min ahead (SubmitOrder pickup_at_ms, 02b §3.2 step 2b), paid in cash at the counter
       const order_id = runId(`T1-DC-${lang}`);
-      const placed = await api.command('SubmitOrder', { order_id, order_type: 'takeaway', pickup_at_ms: (await hubNow()) + PICKUP_AHEAD_MS, lines: [{ order_item_id: `${order_id}-K`, item_id: KARAHI.item_id, quantity: 1 }] });
+      // the pickup inside the hub's own bounds (eta-preview pickup_bounds, 02b §3.2 step 2b): 30 min ahead where the day
+      // allows, else the latest the day allows — never a time the hub would refuse, whatever the runner's clock or zone
+      const lines = [{ key: 'K', item_id: KARAHI.item_id, quantity: 1 }];
+      const preview = await api.query<{ pickup_bounds: { earliest_ms: number; latest_ms: number } | null }>(`eta-preview?draft=${encodeURIComponent(JSON.stringify({ order_type: 'takeaway', lines }))}`);
+      const bounds = preview.pickup_bounds!;
+      expect(bounds.earliest_ms, 'the open day has time left for a pickup').toBeLessThanOrEqual(bounds.latest_ms);
+      const pickup_at_ms = Math.min(Math.max((await hubNow()) + PICKUP_AHEAD_MS, bounds.earliest_ms), bounds.latest_ms);
+      const placed = await api.command('SubmitOrder', { order_id, order_type: 'takeaway', pickup_at_ms, lines: [{ order_item_id: `${order_id}-K`, item_id: KARAHI.item_id, quantity: 1 }] });
       expect(placed.status, JSON.stringify(placed.body.error)).toBe(200);
       const token = String((await api.query<{ orders: Array<{ order_id: string; token: number }> }>('open-orders?order_type=takeaway')).orders.find((o) => o.order_id === order_id)!.token);
       // DC-2: yesterday's paid pickup stays open, and a new day's tokens start again at 1, so two entries can read the same
