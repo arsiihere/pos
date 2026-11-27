@@ -64,7 +64,8 @@ export interface BillHead {
   /** 02a seating of a dine-in bill (read-only); null for scope `key` or an unknown seating */
   seating: { seating_id: string; state: string; holder_staff_id: string; primary_table_id: string; bill_requested_at: number | null; opened_at: number } | null;
   /** the order a `{ order_id }` ref named */
-  ref_order: { order_id: string; order_type: BillOrderType; cancelled: boolean; placed_by: string } | null;
+  /** ⚠️ 05 v1.0.35 §6.3a (run 3 R3-M-2): `business_date` for the addition guards, in the same read */
+  ref_order: { order_id: string; order_type: BillOrderType; cancelled: boolean; placed_by: string; business_date: string } | null;
   /** the open business day, else the last one opened (`billing_day`); null before any */
   business_date: string | null;
   as_of_seq: number;
@@ -77,6 +78,7 @@ interface OpenBillRow {
   o_type: BillOrderType | null;
   o_cancelled_at: number | null;
   o_placed_by: string | null;
+  o_business_date: string | null;
   bill_id: string | null;
   scope: 'seating' | 'key' | null;
   b_seating_id: string | null;
@@ -116,7 +118,7 @@ const TARGET_BILL = `((t.seating_id IS NOT NULL AND b.seating_id = t.seating_id)
 const OPEN_BILL_OF = `
 WITH
 ro AS (
-  SELECT o.order_id, o.order_type, o.cancelled_at, o.bill_key, o.placed_by, so.seating_id,
+  SELECT o.order_id, o.order_type, o.cancelled_at, o.bill_key, o.placed_by, o.business_date, so.seating_id,
          (SELECT bo.bill_id FROM bill_orders bo JOIN bills x ON x.bill_id = bo.bill_id
            WHERE bo.order_id = o.order_id AND x.absorbed_into IS NULL ORDER BY x.opened_at DESC, x.rowid DESC LIMIT 1) AS own_bill_id
   FROM orders o LEFT JOIN seating_orders so ON so.order_id = o.order_id
@@ -151,7 +153,7 @@ pick AS (
   END AS bill_id
 )
 SELECT t.seating_id AS t_seating_id, t.bill_key AS t_bill_key,
-       ro.order_id AS o_id, ro.order_type AS o_type, ro.cancelled_at AS o_cancelled_at, ro.placed_by AS o_placed_by,
+       ro.order_id AS o_id, ro.order_type AS o_type, ro.cancelled_at AS o_cancelled_at, ro.placed_by AS o_placed_by, ro.business_date AS o_business_date,
        b.bill_id, b.scope, b.seating_id AS b_seating_id, b.table_key, b.order_type, b.state, b.opened_at, b.sc_bp, b.sc_removed,
        b.discount_json, b.split_mode, b.buyer_waived, b.check_printed_at, b.reopen_count, b.reopen_mode, b.absorbed_into,
        b.prices_include_tax, b.rounding_json,
@@ -197,7 +199,7 @@ export function openBillOf(db: Database.Database, ref: BillRef, openDay: string 
   const ref_order =
     r.o_id === null
       ? null
-      : { order_id: r.o_id, order_type: r.o_type as BillOrderType, cancelled: r.o_cancelled_at !== null, placed_by: r.o_placed_by as string };
+      : { order_id: r.o_id, order_type: r.o_type as BillOrderType, cancelled: r.o_cancelled_at !== null, placed_by: r.o_placed_by as string, business_date: r.o_business_date as string };
   const common = { seating, ref_order, business_date: openDay ?? r.billing_date, as_of_seq: r.as_of_seq };
   if (r.bill_id !== null) {
     const discount = r.discount_json === null ? null : (JSON.parse(r.discount_json) as BillDiscountState);

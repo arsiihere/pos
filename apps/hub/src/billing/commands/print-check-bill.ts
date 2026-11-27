@@ -9,6 +9,7 @@ import {
   DomainError,
   spreadLineTaxes,
   type ComputeBillResult,
+  type CheckBillDocInput,
   type ComputePayment,
   type Doc,
   type DocLine,
@@ -43,6 +44,7 @@ import {
   type SplitRow,
   type Totals,
 } from '../queries/bill.js';
+import type { HubBilling } from '../defaults.js';
 import { billingAt, BillRef, ensureBill, type BillHead } from './ensure-bill.js';
 
 export const PrintCheckBillPayload = z.object({ bill_ref: BillRef, printer_id: z.string().min(1).optional() }).strict();
@@ -66,7 +68,31 @@ export interface CheckBill {
   line_count: number;
   orders: BillOrder[];
   doc: (o: { printed_at: number; width_cols: 32 | 48; utc_offset_ms: number; branch_name: string }) => Doc;
+  /** the Doc input without the time (05 §6.3a's cart paper builds its own Doc from it) and the money context */
+  doc_input: Omit<CheckBillDocInput, 'printed_at'>;
+  doc_money: { currency_exponent: number; template: HubBilling['settings']['receipt'] };
 }
+
+/** checkBillOf's reads of a bill: its orders, their lines, pending voids and splits (≤ 4 statements). */
+export interface CheckBillReads {
+  orders: BillOrder[];
+  byOrder: ReadonlyMap<string, readonly LineView[]>;
+  voids: ReturnType<typeof pendingVoids>;
+  rows: SplitRow[];
+}
+
+/** The reads of `head` (≤ 4: orders, `orderLines`, `pendingVoids`, splits; no split read for a projected or `fresh` bill). */
+export function checkBillReads(db: Database.Database, head: BillHead, fresh: boolean): CheckBillReads {
+  const orders = db.prepare(ORDERS_OF_BILL).all({ ...ordersOfBillParams(head), bill_id: fresh ? null : head.bill_id }) as BillOrder[];
+  const order_ids = orders.map((o) => o.order_id);
+  const byOrder = orderLines(db, order_ids);
+  const voids = pendingVoids(db, order_ids);
+  const rows = head.bill_id === null || fresh ? [] : (db.prepare(SPLITS_OF_BILL).all(head.bill_id) as SplitRow[]);
+  return { orders, byOrder, voids, rows };
+}
+
+/** Nothing read (a plain cart's projected key bill, 05 §6.3a): no order, line, void or split. */
+export const NO_READS: CheckBillReads = { orders: [], byOrder: new Map(), voids: new Map(), rows: [] };
 
 /**
  * The check bill of `head` (a bill row, or the projected bill), through task 12's one reading of a bill (queries/
@@ -77,18 +103,24 @@ export interface CheckBill {
  */
 export function checkBillOf(db: Database.Database, config: BranchConfig, head: BillHead, fresh: boolean): CheckBill {
   if (head.business_date === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
+  return checkBillFrom(config, head, checkBillReads(db, head, fresh), []);
+}
+
+/**
+ * The pure part of `checkBillOf` (0 statements) over `reads`, with `extra` lines appended after the bill's own (05
+ * §6.3a: a cart's priced unsent lines, as LineViews, go to the open remainder where lines added later go, §3.8).
+ */
+export function checkBillFrom(config: BranchConfig, head: BillHead, reads: CheckBillReads, extra: readonly LineView[]): CheckBill {
+  if (head.business_date === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
   const business_date = head.business_date;
-  const orders = db.prepare(ORDERS_OF_BILL).all({ ...ordersOfBillParams(head), bill_id: fresh ? null : head.bill_id }) as BillOrder[];
+  const { orders, byOrder, voids, rows } = reads;
   const order_ids = orders.map((o) => o.order_id);
-  const byOrder = orderLines(db, order_ids);
-  const voids = pendingVoids(db, order_ids);
-  const rows = head.bill_id === null || fresh ? [] : (db.prepare(SPLITS_OF_BILL).all(head.bill_id) as SplitRow[]);
   const splits = rows.length === 0 ? [ONE_OPEN_SPLIT] : rows;
   const openSplits = splits.filter((s) => s.state === 'open');
   if (openSplits.length === 0) throw new DomainError('BILL_NOT_OPEN', { bill_id: head.bill_id, state: head.state });
 
   const { billing, rules: atDay } = billingAt(config, business_date);
-  const lines = billLines(order_ids, byOrder);
+  const lines = [...billLines(order_ids, byOrder), ...extra];
   const byId = new Map<string, LineView>(lines.map((l) => [l.order_item_id, l]));
   const { input } = billComputeBase({ head, billing, rules: atDay, lines, voids, splits });
   const payments: ComputePayment[] = openSplits.flatMap((s) =>
@@ -140,37 +172,33 @@ export function checkBillOf(db: Database.Database, config: BranchConfig, head: B
       amount_minor: l.base_minor,
       part_of: byId.get(l.order_item_id)?.part_of ?? null, // 05 v1.0.33 §3.16 (STAB-5): grouped by the Doc
     }));
-  const identifier = identifierOf(head, config, orders, business_date);
+  const doc_input: Omit<CheckBillDocInput, 'printed_at'> = {
+    identifier: identifierOf(head, config, orders, business_date),
+    lines: docLines,
+    subtotal_minor: t.subtotal_minor,
+    discount_minor: t.discount_minor,
+    service_charge_minor: t.service_charge_minor,
+    taxes: t.taxes.map(docTax),
+    rounding_minor: t.rounding_minor,
+    cash_total_minor: t.total_minor,
+    paid_minor,
+    due_minor,
+    digital_total_minor: result.totals_default_digital.total_minor,
+    prices_include_tax: input.rules.prices_include_tax,
+    service_charge_taxes,
+  };
+  const doc_money = { currency_exponent: billing.jurisdiction.currency_exponent, template: billing.settings.receipt };
   return {
     totals_default: toTotals(t),
     due_minor,
     line_count: docLines.length,
     orders,
+    doc_input,
+    doc_money,
     doc: (o) =>
       buildCheckBillDoc(
-        {
-          identifier,
-          printed_at: o.printed_at,
-          lines: docLines,
-          subtotal_minor: t.subtotal_minor,
-          discount_minor: t.discount_minor,
-          service_charge_minor: t.service_charge_minor,
-          taxes: t.taxes.map(docTax),
-          rounding_minor: t.rounding_minor,
-          cash_total_minor: t.total_minor,
-          paid_minor,
-          due_minor,
-          digital_total_minor: result.totals_default_digital.total_minor,
-          prices_include_tax: input.rules.prices_include_tax,
-          service_charge_taxes,
-        },
-        {
-          width_cols: o.width_cols,
-          currency_exponent: billing.jurisdiction.currency_exponent,
-          utc_offset_ms: o.utc_offset_ms,
-          branch_name: o.branch_name,
-          template: billing.settings.receipt,
-        },
+        { ...doc_input, printed_at: o.printed_at },
+        { width_cols: o.width_cols, utc_offset_ms: o.utc_offset_ms, branch_name: o.branch_name, ...doc_money },
       ),
   };
 }
