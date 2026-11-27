@@ -48,6 +48,15 @@ export function PinKeys({
   useEffect(() => {
     keysRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus();
   }, []);
+  // BUG-19: while the pad is off (an answer awaited, a lockout) its buttons are disabled and the browser drops the
+  // focus to <body>, where the pad's key handler never hears the digits: when the pad is on again and the focus is
+  // nowhere (body, or still a disabled button), it moves back into the pad
+  useEffect(() => {
+    if (disabled) return;
+    const at = document.activeElement;
+    const lost = at === null || at === document.body || (at instanceof HTMLButtonElement && at.disabled);
+    if (lost) keysRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus();
+  }, [disabled]);
   return (
     <>
       <div className={`pin__dots${!disabled && error?.tone === 'danger' && length === 0 ? ' err' : ''}`} aria-label={`${length} digits`} role="status">
