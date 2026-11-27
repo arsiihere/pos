@@ -140,8 +140,8 @@ export interface OpenOrder {
   pickup_at_ms?: number | null;
   effective_pickup_at_ms?: number | null;
   /**
-   * ⚠️ 02b v1.0.25 §6.16 (owner ruling BR-1): the engine's current whole-order planned ready time (the latest planned land
-   * of the lines not yet ready); null when every live line is ready, the order is not in the engine, or a line has no
+   * ⚠️ 02b v1.0.25 §6.16 (owner ruling BR-1): the engine's current whole-order planned ready time (the latest customer
+   * time, land + the engine's padding as receipts, of the lines not yet ready); null when every live line is ready, the order is not in the engine, or a line has no
    * land yet; dine-in null. Absent from an older hub.
    */
   planned_ready_at_ms?: number | null;
