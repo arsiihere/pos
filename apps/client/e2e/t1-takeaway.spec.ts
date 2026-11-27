@@ -257,6 +257,16 @@ for (const lang of LANGS) {
       const planned = await hubPlan(order_id);
       expect(planned.pickup_at_ms).toBe(pickupAt);
       expect(planEta(planned)).toBeGreaterThanOrEqual(pickupAt);
+      // ⚠️ 02b v1.0.25 §6.16 (BR-1): before the boost the planned customer time is the promise, so the token view shows
+      // the promise only (no "Ready ~", nothing struck through)
+      const padding = await takeawayPadding(api, t1Station(run.key));
+      const offset = (await api.query<{ hub_time: { utc_offset_ms: number } }>('branch-config')).hub_time.utc_offset_ms;
+      const readyBy = drawer.locator('.tk-facts .tk-fact').first();
+      expect(before.planned_ready_at_ms).toBe(planEta(planned) + padding);
+      expect(before.planned_ready_at_ms).toBe(before.promise_ms);
+      await expect(readyBy.locator('b')).toHaveText(clientTime(before.promise_ms!, offset));
+      await expect(readyBy.locator('[data-planned]')).toHaveCount(0);
+      await expect(readyBy.locator('s')).toHaveCount(0);
       await capture(cash.page, info, `CustomerHere-${info.project.name}-${lang}`, drawer);
       const boosted = cash.page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/commands/boost-order'));
       await here.click();
@@ -274,17 +284,14 @@ for (const lang of LANGS) {
       expect(replanned.pickup_at_ms).toBe(pickupAt);
       console.log(`[T1 #8 ${info.project.name} ${lang}] pickup ${pickupAt}, plan eta before ${planEta(planned)} (pickup ${planEta(planned) - pickupAt >= 0 ? '+' : ''}${(planEta(planned) - pickupAt) / 60_000} min), after ${planEta(replanned)} (pickup ${(planEta(replanned) - pickupAt) / 60_000} min), promise ${before.promise_ms} → ${after.promise_ms}`);
       expect(planEta(replanned)).toBeLessThan(pickupAt);
-      // ⚠️ 02b v1.0.25 §6.16 (owner ruling BR-1; 03a PK-5): open-orders carries the engine's planned ready time — at the
-      // pickup before the boost, earlier after it; the stored promise (pickup + the takeaway padding) does not move, and
-      // the token view shows "Ready ~{planned}" with that promise struck through beside it
-      const padding = await takeawayPadding(api, t1Station(run.key));
-      expect(before.planned_ready_at_ms).toBe(planEta(planned));
-      expect(after.planned_ready_at_ms).toBe(planEta(replanned));
+      // ⚠️ 02b v1.0.25 §6.16 (owner ruling BR-1, 2026-11-27; 03a PK-5; 03c §4.2): open-orders carries the customer time
+      // (the plan's land + the engine's padding, as receipts) — the promise before the boost, earlier after it; the
+      // stored promise (pickup + the takeaway padding) does not move, and the token view shows "Ready ~{planned}" with
+      // that promise struck through beside it
+      expect(after.planned_ready_at_ms).toBe(planEta(replanned) + padding);
       expect(after.planned_ready_at_ms!).toBeLessThan(pickupAt);
       expect(after.promise_ms).toBe(pickupAt + padding);
       expect(before.promise_ms).toBe(after.promise_ms);
-      const offset = (await api.query<{ hub_time: { utc_offset_ms: number } }>('branch-config')).hub_time.utc_offset_ms;
-      const readyBy = drawer.locator('.tk-facts .tk-fact').first();
       await expect(readyBy.locator('small')).toHaveText(tr(lang, 'v.ready_at'));
       await expect(readyBy.locator('[data-planned]')).toHaveText(tr(lang, 'q.ready_planned', { t: clientTime(after.planned_ready_at_ms!, offset) }));
       await expect(readyBy.locator('s')).toHaveText(clientTime(after.promise_ms!, offset));
