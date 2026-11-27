@@ -13,7 +13,9 @@ const cssId = (s: string) => (typeof CSS !== 'undefined' && typeof CSS.escape ==
 export function passPlace(target: AlertLinkTarget, root: ParentNode = document): HTMLElement | null {
   if (target.type !== 'order') return null;
   if (matchStaffRoute(window.location.hash.replace(/^#/, ''), 'tablet').name !== 'pass') return null;
-  const card = root.querySelector<HTMLElement>(`article.pc[data-order="${cssId(target.order_id)}"]`);
+  // ⚠️ 03b v1.0.17 §3.4: an addition's order is on its token's card (`data-orders`)
+  const id = cssId(target.order_id);
+  const card = root.querySelector<HTMLElement>(`article.pc[data-order="${id}"], article.pc[data-orders~="${id}"]`);
   if (card === null || card.closest('[hidden]') !== null) return null;
   for (let el: Element | null = card; el !== null; el = el.parentElement) if (getComputedStyle(el).display === 'none') return null;
   return card;
@@ -23,7 +25,8 @@ export function passPlace(target: AlertLinkTarget, root: ParentNode = document):
  *  is the card's identifier as the screen shows it; before the card renders, `fallback` (the Pass store's identifier),
  *  else the order id: never an empty name. */
 export function passOpenedText(order_id: string, fallback = '', root: ParentNode = document): string {
-  const shown = root.querySelector(`article.pc[data-order="${cssId(order_id)}"] .pc__n`)?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+  const id = cssId(order_id);
+  const shown = root.querySelector(`article.pc[data-order="${id}"] .pc__n, article.pc[data-orders~="${id}"] .pc__n`)?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
   const name = shown !== '' ? shown : fallback.trim() !== '' ? fallback.trim() : order_id;
   return fill(t('alerts.opened.pass'), { name });
 }
