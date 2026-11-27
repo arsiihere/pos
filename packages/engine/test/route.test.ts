@@ -609,3 +609,55 @@ describe('@pos/engine routing — task 11 review (spec-literal filters)', () => 
     expect(held.state.lines.P).toMatchObject({ station_id: 'S1', fire_ms: at(50) });
   });
 });
+
+// ---- 02b-tk L-CLOSE-2: 03a v1.2.11 test 182 clauses 2 and 3 (PK-2) -------------------------------------------------
+
+describe('@pos/engine [03a #182] routing a held line, clauses 2 and 3', () => {
+  it('home busy so it lands after p, the alternate makes p → the alternate, landing at p', () => {
+    const s = busyS1(); // S1 busy to +20, S2 free
+    const r = submit(s, 'ON', [{ id: 'N', cook: 5, mode: 'immediate', alts: [{ station_id: 'S2', carry_ms: 0, home: false }] }], at(0), { pickup_at_ms: at(15) });
+    expect(line(r.plan, 'N')).toMatchObject({ station_id: 'S2', eta_ms: at(15) });
+    expect(r.state.lines.N).toMatchObject({ station_id: 'S2', booked: { start: at(10), end: at(15) } });
+  });
+
+  it('neither makes p → the minimum arrival with min_gain_ms, as test 28 (S2 lands 3 min earlier → S2; with min_gain 5 min → home)', () => {
+    for (const [gain, station] of [[M, 'S2'], [5 * M, 'S1']] as const) {
+      let s = busyS1({ min_gain_ms: gain });
+      s = submit(s, 'OY', [{ id: 'Y', st: 'S2', cook: 17, mode: 'immediate' }], at(0)).state; // S2 busy to +17
+      const r = submit(s, 'ON', [{ id: 'N', cook: 5, mode: 'immediate', alts: [{ station_id: 'S2', carry_ms: 0, home: false }] }], at(0), { pickup_at_ms: at(10) });
+      expect(line(r.plan, 'N').station_id, `min_gain ${gain / M} min`).toBe(station);
+      expect(line(r.plan, 'N').eta_ms).toBe(station === 'S2' ? at(22) : at(25));
+    }
+  });
+});
+
+describe('@pos/engine [03a #184 (c)] the FIFO option in the loop after a void re-loops its group (AD-11)', () => {
+  it('a sync line on the free FIFO alternate fires toward the pickup; a void of its sibling re-loops the group and it still lands at p on the FIFO station', () => {
+    const s = busyS1({}, [{ station_id: 'S2', capacity: 1, policy: 'fifo' }, { station_id: 'S3', capacity: 1 }]);
+    const r = submit(s, 'ON', [{ id: 'N', cook: 5, alts: [{ station_id: 'S2', carry_ms: 0, home: false }] }, { id: 'K', st: 'S3', cook: 3 }], at(0), { pickup_at_ms: at(15) });
+    expect(r.state.lines.N).toMatchObject({ station_id: 'S2', booked: { end: at(15) } });
+    const voided = fold(r.state, [orderEvent('ItemVoided', 'ON', { order_item_id: 'K', units: 1 }, at(1))]);
+    expect(voided.lines.N).toMatchObject({ station_id: 'S2', booked: { end: at(15) } });
+    expect(voided.lines.N!.fire_ms).toBe(voided.lines.N!.deadline_ms);
+    expect(voided.lines.X).toEqual(s.lines.X);
+  });
+});
+
+describe('@pos/engine [03a #184 (a)] FIFO station: a pickup order\'s immediate and sync lines land at p (PK-4, AD-14)', () => {
+  it('on a FIFO S1 an immediate and a sync line (with a Waada Guard sibling on S2) land at p, not at their earliest fit; the group T ≥ the FIFO land; deadline = fire', () => {
+    const s = kitchen([{ station_id: 'S1', capacity: 2, policy: 'fifo' }, { station_id: 'S2', capacity: 1 }]);
+    const P = at(60);
+    const r = submit(s, 'OP', [{ id: 'I', cook: 2, mode: 'immediate' }, { id: 'F', cook: 5 }, { id: 'W', st: 'S2', cook: 10 }], at(0), { pickup_at_ms: P });
+    for (const id of ['I', 'F']) {
+      const l = r.state.lines[id]!;
+      expect(l.booked!.end, id).toBe(P);
+      expect(l.fire_ms!, id).toBeGreaterThan(at(0)); // not the earliest fit
+      expect(l.deadline_ms, id).toBe(l.fire_ms); // m-4
+    }
+    expect(r.state.lines.W!.booked!.end).toBe(P);
+    for (const g of r.plan.groups) expect(g.target_land_ms).toBeGreaterThanOrEqual(r.state.lines.F!.booked!.end);
+    // no pickup: the FIFO lines take their earliest fit (v1.2.10)
+    const plain = submit(s, 'ON', [{ id: 'I', cook: 2, mode: 'immediate' }, { id: 'F', cook: 5 }, { id: 'W', st: 'S2', cook: 10 }], at(0));
+    expect(plain.state.lines.I!.fire_ms).toBe(at(0));
+  });
+});

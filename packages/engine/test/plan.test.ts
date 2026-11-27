@@ -430,3 +430,99 @@ describe('@pos/engine isEngineLine (§3.2)', () => {
     expect(isEngineLine({ station_id: 'st-1', line_kind: 'deal' })).toBe(false);
   });
 });
+
+// ---- 02b-tk L-CLOSE-2: 03a v1.2.11 §10.3h open clauses of tests 31, 178, 180, 181 ----------------------------------
+
+describe('@pos/engine §3.5.8 held lines: the §10.3h kit (tests 31, 178, 180, 181)', () => {
+  const KIT = { station_id: 'S1', capacity: 1, policy: 'waada_guard' as const, freeze_ms: 120_000, min_slack_keep_ms: 60_000 };
+  const P = T0 + 3_600_000;
+  const held = (id = 'A'): LineSpec => ({ id, item: { serve_mode: 'immediate', cook_time_ms: 300_000, prep_buffer_ms: 60_000 }, engine: { carry_ms: 30_000, max_early_ms: 60_000 } });
+  const takeaway = (pickup: number | null) => ({ order_type: 'takeaway' as const, table_id: null, table_key: 'takeaway:O1', pickup_at_ms: pickup });
+
+  it('[03a #178 (a)] one held line: target p, promise p + padding, eta p, booked [p − 5.5, p − 0.5), fire = deadline = d_p; no tick fire at p − 8; early_fill at d_p − max_early_ms; no pickup → its v1.2.10 earliest fit', () => {
+    const state = fold([config([KIT])]);
+    const order = proposed([held()], takeaway(P));
+    const plan = planOrder(state, order, T0, {});
+    const live = fold(batchFrom(order, plan, T0), state);
+    const dp = P - 6.5 * 60_000;
+    expect(plan.groups.map((g) => [g.target_land_ms, g.promise_ms])).toEqual([[P, P + PAD]]);
+    expect(eta(plan, 'A')).toBe(P);
+    expect(live.lines.A).toMatchObject({ fire_ms: dp, deadline_ms: dp, booked: { start: P - 5.5 * 60_000, end: P - 30_000 } });
+    const fires = (t: number) => getTickIntents(live, t).filter((d) => d.event_type === 'FireDispatched' && (d.payload as { order_item_ids: string[] }).order_item_ids.includes('A'));
+    expect(fires(P - 8 * 60_000)).toEqual([]);
+    const early = fires(P - 7.5 * 60_000);
+    expect(early).toHaveLength(1);
+    expect((early[0]!.payload as { reason: string }).reason).toBe('early_fill');
+    // the same order with no pickup keeps its v1.2.10 placement: fire now
+    const plain = planOrder(state, proposed([held()], takeaway(null)), T0, {});
+    const plainLive = fold(batchFrom(proposed([held()], takeaway(null)), plain, T0), state);
+    expect(plainLive.lines.A!.fire_ms).toBe(T0);
+    expect(eta(plain, 'A')).toBe(T0 + 6.5 * 60_000);
+  });
+
+  it.each([60_000, 0])('[03a #31, #178 (b), (e)] sync burger [50, 60) + immediate fries [45, 50), both at p; the sync line\'s eta = p (max_early %i ms)', (early) => {
+    const state = fold([config([{ station_id: 'S1', capacity: 1 }])]);
+    const order = proposed([
+      { id: 'burger', item: { cook_time_ms: 600_000 }, engine: { max_early_ms: early } },
+      { id: 'fries', item: { serve_mode: 'immediate', cook_time_ms: 300_000 }, engine: { max_early_ms: early } },
+    ], takeaway(P));
+    const plan = planOrder(state, order, T0, {});
+    const live = fold(batchFrom(order, plan, T0), state);
+    expect(live.lines.burger!.booked).toMatchObject({ start: P - 600_000, end: P });
+    expect(live.lines.fries!.booked).toMatchObject({ start: P - 900_000, end: P - 600_000 });
+    expect(eta(plan, 'burger')).toBe(P);
+    expect(eta(plan, 'fries')).toBe(P);
+    for (const id of ['burger', 'fries']) expect(live.lines[id]!.booked!.end, id).toBeLessThanOrEqual(P);
+    expect(plan.groups.map((g) => g.target_land_ms)).toEqual([P, P]);
+  });
+
+  it('[03a #181] S1 booked [0, p + 10 min): the held line at earliestFit after it, target its land > p, never fired before t; no slip while its estimate stays at T_L', () => {
+    const state = withBookings(fold([config([KIT])]), 'S1', [[T0, P + 600_000]]);
+    const order = proposed([held()], takeaway(P));
+    const plan = planOrder(state, order, T0, {});
+    const live = fold(batchFrom(order, plan, T0), state);
+    expect(live.lines.A!.booked!.start).toBe(P + 600_000);
+    expect(live.lines.A!.fire_ms!).toBeGreaterThanOrEqual(T0);
+    const land = live.lines.A!.booked!.end + 30_000;
+    expect(plan.groups[0]!.target_land_ms).toBe(land);
+    expect(land).toBeGreaterThan(P);
+    // an immediate line is no sync group: nothing slips while it keeps that land
+    expect(live.slip_due['takeaway:O1']).toBeUndefined();
+  });
+
+  it('[03a #180, R3-M-4] boundary: p = t + 1 ms, recorded_at = t + 2 ms; preview and fold may order the burger and the drink differently; the fold is the plain order\'s, and a full replay reproduces it', () => {
+    const state = fold([config([{ station_id: 'S1', capacity: 1 }])]);
+    const t = T0;
+    const lines: LineSpec[] = [{ id: 'burger', item: { cook_time_ms: 600_000 } }, { id: 'drink', item: { serve_mode: 'immediate', cook_time_ms: 300_000 } }];
+    const order = proposed(lines, takeaway(t + 1));
+    const preview = planOrder(state, order, t, {});
+    const events = batchFrom(order, preview, t + 2);
+    const live = fold(events, state);
+    // the fold normalises the elapsed pickup to null (PK-1): the same placement as the no-pickup order folded at t + 2
+    const plainOrder = proposed(lines, takeaway(null));
+    const plainLive = fold(batchFrom(plainOrder, planOrder(state, plainOrder, t + 2, {}), t + 2), state);
+    expect(live.orders.O1!.pickup_at_ms).toBeNull();
+    for (const id of ['burger', 'drink']) expect(live.lines[id]!.booked, id).toEqual(plainLive.lines[id]!.booked);
+    // the stored promise is the preview's (the batch's groups), kept by the fold
+    expect(live.orders.O1!.promise_ms).toBe(Math.max(...preview.groups.map((g) => g.promise_ms)));
+    // full replay = live
+    expect(fold(events, state)).toEqual(live);
+  });
+});
+
+describe('@pos/engine [03a #179 (c)] station-less ready and zone lines stay no engine lines with a pickup', () => {
+  it('isEngineLine: a station-less ready line and a zone-served (station-less) line are not engine lines; a pickup does not add them to the plan', () => {
+    const state = fold([config([{ station_id: 'S1', capacity: 1 }])]);
+    const order = proposed(
+      [
+        { id: 'burger', item: { cook_time_ms: 600_000 } },
+        { id: 'water', item: { station_id: null, is_ready_item: true, cook_time_ms: 0 } },
+        { id: 'cola', item: { station_id: null, cook_time_ms: 0 } },
+      ],
+      { order_type: 'takeaway', table_id: null, table_key: 'takeaway:O1', pickup_at_ms: T0 + 3_600_000 },
+    );
+    expect(order.lines.filter((l) => isEngineLine(l)).map((l) => l.order_item_id)).toEqual(['burger']);
+    const plan = planOrder(state, { ...order, lines: order.lines.filter((l) => isEngineLine(l)) }, T0, {});
+    expect(plan.lines.map((l) => l.order_item_id)).toEqual(['burger']);
+  });
+});
