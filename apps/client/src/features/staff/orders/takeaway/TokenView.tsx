@@ -13,7 +13,7 @@ import { useLiveRefetch } from '../lists/OpenOrders';
 import { MONEY_DIR, money } from '../money';
 import { groupParts, type GroupedLine } from '../view/parts';
 import { atStageOne, isServed, isWeightPending, servable } from '../view/stage';
-import { voidOffered, type LineOrder } from '../view/LineActions';
+import { showOrderError, voidOffered, type LineOrder } from '../view/LineActions';
 import { RemoveSheet } from '../actions/RemoveSheet';
 import { CheckBill, ReceiptAgain, receiptOf } from './CheckBill';
 import { PrintSlip } from './PrintSlip';
@@ -116,6 +116,10 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const [gone, setGone] = useState(false);
   const [bill, setBill] = useState<BillFacts | null>(null);
   const [call, setCall] = useState(false);
+  // ⚠️ 02b-TK L-CLIENT-5 item 2 (02b v1.0.25 §6.6, §8 02b-R4-3; 03a v1.2.11 PK-5; D1): Customer is here (BoostOrder) —
+  // in flight, and the orders this drawer boosted (the token passed in is the rail's last read)
+  const [boosting, setBoosting] = useState(false);
+  const [boosted, setBoosted] = useState<ReadonlySet<string>>(new Set());
   // 02b-TK C2-4: Remove / cancel shows each line's way off the order; the sheet open for one line
   const [removing, setRemoving] = useState(false);
   const [sheet, setSheet] = useState<{ kind: 'remove' | 'void'; line: SeatingLine; order: LineOrder } | null>(null);
@@ -183,6 +187,29 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const masked = showContact ? maskPhone(token.phone ?? book.get(token.order_ids[0]!)?.phone) : null;
   const ident = token.token === null ? '—' : String(token.token);
   const what = `${t('order.takeaway')} · ${ident}`;
+  // the token's orders still waiting for their pickup; BoostOrder is not queueable (§6.6): online, boost-order only
+  const waiting = (token.pickup_order_ids ?? (token.effective_pickup_at_ms != null ? [token.newest_order_id] : [])).filter((id) => !boosted.has(id));
+  const offerHere = waiting.length > 0 && may('boost-order') && shell.online;
+  const customerHere = async () => {
+    if (boosting) return;
+    setBoosting(true);
+    const done = new Set(boosted);
+    try {
+      for (const order_id of waiting) {
+        const answer = await shellRef.current.orders.boostOrder({ order_id });
+        if (!answer.ok) {
+          showOrderError(shellRef.current, answer.error, () => void load());
+          return;
+        }
+        done.add(order_id);
+      }
+      shellRef.current.toasts.show({ text: t('v.here_done'), tone: 'ok' });
+    } finally {
+      setBoosted(done);
+      setBoosting(false);
+      void load();
+    }
+  };
   const toBill = () => navigate(`/bill?order_id=${encodeURIComponent(token.newest_order_id)}`);
   // 02b §6.2 / 04 §6.1: one order's lines for the Remove and Void sheets (an addition is its own order)
   const lineOrder = (order_id: string): LineOrder | null => {
@@ -350,6 +377,11 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
           {due && may('take-payment') && shell.online && (
             <button type="button" className="tk-btn tk-btn--xl tk-btn--primary" onClick={onPay ?? toBill}>
               {t('v.pay')} · <span dir={MONEY_DIR}>{money(bill!.current!.amount_minor)}</span>
+            </button>
+          )}
+          {offerHere && (
+            <button type="button" className="tk-btn tk-btn--lg" disabled={boosting} onClick={() => void customerHere()} data-here="">
+              {t('v.here')}
             </button>
           )}
           {canServe && live.length > 0 && !giveReady && handOverAll}

@@ -97,6 +97,12 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
       openOrders: async () => ({ ok: true, data: { orders: [...(o.rows ?? [aRow({ order_id: 'O48', token: 48, ready: { n: 1, m: 1 }, promise_ms: at(13, 12) })])] } }),
       orderView: async (id: string) => ({ ok: true, data: { kind: 'order', order: (o.views ?? { O48: view('O48', [sl('O48', 'A', 'Karahi', 'done')]) })[id] } }),
       orderContact: async () => ({ ok: false, error: { kind: 'network' } }),
+      // ⚠️ 02b-TK L-CLIENT-5 item 2: BoostOrder through the same command log as api.command
+      boostOrder: async (payload: unknown) => {
+        commands.push({ type: 'BoostOrder', payload });
+        commandOpts.push(undefined);
+        return o.command?.('BoostOrder', payload) ?? { ok: true, data: {} };
+      },
     },
     tables: { tableMap: async () => ({ ok: true, data: { as_of_seq: 1, floors: [] } }) },
     toasts: { show: (x: { text: string; tone?: string; sub?: string }) => toasts.push(x), current: () => null, clear: () => {}, subscribe: () => () => {} },

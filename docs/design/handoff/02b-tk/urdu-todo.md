@@ -140,6 +140,8 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `c.pick_err.other_day` (02b v1.0.25 §3.2 step 2b; L-CLIENT-5 item 1) | That time is on another business day — pick a time today | یہ وقت کسی اور کاروباری دن کا ہے — آج کا وقت چنیں |
 | `c.pick_err.no_time_left` (02b v1.0.25 §3.2 step 2b, §8; L-CLIENT-5 item 1) | No pickup time is left today — choose Now, or close the day first | آج لینے کا کوئی وقت باقی نہیں — ابھی چنیں، یا پہلے دن بند کریں |
 | `queue.why.PICKUP_TIME_INVALID` (02b v1.0.25 §3.12; L-CLIENT-5 item 1) | the pickup time was not possible | لینے کا وقت ممکن نہیں تھا |
+| `v.here` (02b v1.0.25 §8 02b-R4-3; L-CLIENT-5 item 2) | Customer is here — cook now | گاہک آ گیا — ابھی بنائیں |
+| `v.here_done` (02b v1.0.25 §6.6; L-CLIENT-5 item 2) | The kitchen cooks it now | کچن اب بنا رہا ہے |
 
 Historical copy for Urdu review. OR-7 disabled the client override.
 
