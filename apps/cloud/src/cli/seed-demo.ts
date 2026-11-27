@@ -10,6 +10,7 @@ import { cryptoSecrets } from '../lib/secrets.js';
 import { dealBranchVersion, stockItemBranchVersion } from '../modules/menu-variants/versions.js';
 import { issueRegistrationCode } from './issue-registration-code.js';
 import { seedTenant } from './seed-tenant.js';
+import { setBranchSettings } from './set-branch-settings.js';
 import { SystemContext } from './system-context.js';
 
 // Dev only (docs/manual-test-e2e.md): a demo tenant for hand testing. The tenant, its default roles and the
@@ -177,7 +178,17 @@ const STAFF: StaffPlan[] = [
 const LAST_PIN_STAFF = STAFF.filter((s) => s.pin !== null).at(-1)!.name;
 
 // Resolves to the process exit code: 0 seeded or already seeded, 1 partially seeded.
-export async function seedDemo(base: string, tenantName: string, deps: { pool: pg.Pool; out: (text: string) => void }): Promise<0 | 1> {
+export async function seedDemo(
+  base: string,
+  tenantName: string,
+  deps: { pool: pg.Pool; out: (text: string) => void },
+  /**
+   * QA enablement (2026-11-28, docs/manual-test-e2e.md §2b): `dayMinGapHours` sets every demo branch's
+   * `day_min_gap_hours` (0…12) through `set-branch-settings`, so a QA hub can close a day it just opened. Demo only;
+   * absent = the branch default (4), as for a real branch.
+   */
+  opts: { dayMinGapHours?: number } = {},
+): Promise<0 | 1> {
   const clock = systemClock();
   const ids = ulidGen(clock);
   const sys = new SystemContext(deps.pool);
@@ -206,6 +217,10 @@ export async function seedDemo(base: string, tenantName: string, deps: { pool: p
   for (const branch of BRANCHES) {
     const issued = await issueRegistrationCode(sys, { tenantId: owner.tenant_id, branchName: branch.name }, { clock, ids, secrets: cryptoSecrets });
     codes.push({ name: branch.name, code: issued.code, branch_id: issued.branch_id });
+  }
+  if (opts.dayMinGapHours !== undefined) {
+    for (const c of codes) await setBranchSettings(sys, { branchId: c.branch_id, dayMinGapHours: opts.dayMinGapHours }, { clock, ids });
+    deps.out(`demo only: day_min_gap_hours = ${opts.dayMinGapHours} on ${codes.map((c) => c.name).join(', ')}\n`);
   }
   const keyed = await sys.query<{ default_key: string; role_id: string }>(
     `SELECT default_key, role_id FROM roles WHERE tenant_id = $1 AND default_key IS NOT NULL`,
@@ -412,10 +427,13 @@ function flag(argv: readonly string[], name: string): string | undefined {
 const entry = process.argv[1];
 if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
   const pool = createPool(loadCloudEnv(process.env).DATABASE_URL);
-  seedDemo(flag(process.argv, 'cloud') ?? 'http://127.0.0.1:4000', flag(process.argv, 'name') ?? 'Arif Chatkhara', {
-    pool,
-    out: (text) => process.stdout.write(text),
-  })
+  const gap = flag(process.argv, 'day-min-gap-hours');
+  seedDemo(
+    flag(process.argv, 'cloud') ?? 'http://127.0.0.1:4000',
+    flag(process.argv, 'name') ?? 'Arif Chatkhara',
+    { pool, out: (text) => process.stdout.write(text) },
+    gap === undefined ? {} : { dayMinGapHours: Number(gap) },
+  )
     .finally(() => pool.end())
     .then((code) => {
       process.exitCode = code;
