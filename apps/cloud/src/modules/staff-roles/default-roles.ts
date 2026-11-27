@@ -70,9 +70,12 @@ export const DEFAULT_ROLES: readonly DefaultRole[] = [
       approvedByManager('reopen-bill'),
       approvedByManager('remove-comp'),
       approvedByManager('close-without-buyer-id'),
-      // ⚠️ Changed by 01b v1.8.1 (owner ruling 2026-11-12, Q-23): the kiosk serves its counter takeaways; not boost-order.
+      // ⚠️ Changed by 01b v1.8.1 (owner ruling 2026-11-12, Q-23): the kiosk serves its counter takeaways.
       // Existing tenants get it from 0020_cashier_mark_served.sql (Q-34).
       allowed('mark-served'),
+      // ⚠️ Changed by 01b v1.13 (owner 2026-11-28 Q7): "Customer is here — cook now" at the counter (was: not boost-order).
+      // Existing tenants get it from 0024_cashier_boost_order.sql.
+      allowed('boost-order'),
     ],
   },
   {

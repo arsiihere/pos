@@ -49,9 +49,9 @@ describe('[01a v2.11 §5.2a PT-1, PT-5, #219] point order types migration', () =
     await pool.query("UPDATE points SET order_types = NULL WHERE point_id = 'p2'");
   });
 
-  it('[R3-M-1, D6] cloud migration versions are unique and contiguous from 1, ending at 0023_point_order_types.sql', () => {
+  it('[R3-M-1, D6] cloud migration versions are unique and contiguous from 1, ending at 0024_cashier_boost_order.sql (01b v1.13 Q7)', () => {
     const files = readdirSync(migrationsDir).filter((name) => name.endsWith('.sql')).sort();
     expect(files.map((name) => Number(name.slice(0, 4)))).toEqual(files.map((_, i) => i + 1));
-    expect(files.at(-1)).toBe('0023_point_order_types.sql');
+    expect(files.at(-1)).toBe('0024_cashier_boost_order.sql');
   });
 });
