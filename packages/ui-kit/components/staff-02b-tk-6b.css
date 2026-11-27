@@ -167,3 +167,30 @@
 .tk-pay__receipt .ico { width: 22px; height: 22px; }
 [dir="rtl"] .tk-pay__t, [dir="rtl"] .tk-paypanel .tk-mode bdi { font-family: var(--font-urdu); }
 @media (max-width: 760px) { .tk-notes { grid-template-columns: repeat(2, 1fr); } }
+.tk-paypanel .tk-acts { grid-template-columns: minmax(0, .8fr) minmax(0, 1.7fr); }
+.tk-paypanel .tk-acts .tk-btn--ok { font-size: 19px; gap: 8px; }
+
+/* ---------- person menu (frame PersonMenu) ---------- */
+.tk-mewrap .av--me { background: var(--action); color: var(--on-action); box-shadow: inset 0 -2px 0 var(--action-edge); font-weight: 800; }
+.tk-mewrap .me { gap: 10px; }
+.tk-pop { min-width: 320px; padding: 10px 10px 12px; }
+.tk-pop__h { display: flex; align-items: center; gap: 12px; padding: 12px 12px 14px; }
+.tk-pop__h .av { flex: none; width: 48px; height: 48px; font-size: 20px; }
+.tk-pop__h b { font-size: 20px; }
+.tk-pop__h .muted { display: block; font-size: 15px; }
+
+/* ---------- Urdu / RTL and clipping (QA item 1: HomeUrdu, HomeTabletUrdu, HomeRushUrdu, PickupLaterUrdu, PhoneCartUrdu) ---------- */
+/* Send · pay later / Send & pay (and the pay panel's Pay later / Paid) shrink inside their grid cell instead of running
+   past the cart's edge (the left edge in Urdu) */
+.cart__foot .tk-acts { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); }
+.cart__foot .tk-acts > .tk-btn { min-width: 0; padding: 0 12px; overflow: hidden; }
+[dir="rtl"] .cart__foot .tk-btn { font-size: 16px; }
+/* the pickup chips keep "+15 min" / "15 منٹ بعد" on one line */
+.tk-pick button { white-space: nowrap; }
+/* the context slot: name line, sub-line and the Customer screen button never overlap (Urdu lines are taller) */
+.top .tk-ctx { height: auto; min-height: 60px; padding-block: 4px; }
+.top .tk-ctx > div { display: grid; grid-template-columns: minmax(0, auto) auto; column-gap: 10px; align-items: center; min-width: 0; }
+.top .tk-ctx > div > b, .top .tk-ctx > div > small { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.top .tk-ctx > div > :not(b):not(small) { grid-column: 2; grid-row: 1 / span 2; }
+[dir="rtl"] .top .tk-ctx b { font-size: 17px; line-height: 1.35; }
+[dir="rtl"] .top .tk-ctx small { font-size: 13px; line-height: 1.4; }

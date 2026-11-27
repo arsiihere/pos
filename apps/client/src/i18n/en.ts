@@ -4552,7 +4552,17 @@ export function adminErrorKey(code: string): MessageKey {
   return code === 'PERMISSION_DENIED' ? 'admin_stock.errors.PERMISSION_DENIED' : errorKey(code);
 }
 
-// Fills `{name}` placeholders in a message.
+const ARABIC_SCRIPT = /\p{Script=Arabic}/u;
+const ISOLATED = /^[\u2066-\u2068][\s\S]*\u2069$/;
+
+// Fills `{name}` placeholders in a message. ⚠️ 02b-TK L-CLIENT-6b item 1 (QA "AM 7", "Usman پر AM 12:30"): in an Urdu
+// sentence a value with Latin letters and no Urdu ones (a time, a name, money) goes in as a first-strong isolate (FSI … PDI),
+// so the bidi algorithm keeps "7:02 AM" and "Rs 1,300" whole and in place instead of reordering them with the words.
 export function fill(text: string, values: Record<string, string>): string {
-  return text.replace(/\{(\w+)\}/g, (whole, name: string) => values[name] ?? whole);
+  const rtl = ARABIC_SCRIPT.test(text);
+  return text.replace(/\{(\w+)\}/g, (whole, name: string) => {
+    const v = values[name];
+    if (v === undefined) return whole;
+    return rtl && /[A-Za-z]/.test(v) && !ARABIC_SCRIPT.test(v) && !ISOLATED.test(v) ? `\u2068${v}\u2069` : v;
+  });
 }
