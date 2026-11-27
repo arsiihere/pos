@@ -45,7 +45,9 @@ function detail(id: string, order_id: string, over: Partial<LineDetail> = {}): L
 const line = (id: string, order_id: string, stage: PointLine['stage'], over: Partial<LineDetail> = {}): PointLine => ({ ...detail(id, order_id, over), stage, handed_over: false });
 function card(order_id: string, stage: PointLine['stage'], over: Partial<PointOrder> = {}, type: 'takeaway' | 'parking' | 'dine_in' = 'takeaway'): PointOrder {
   const identifier = type === 'takeaway' ? { kind: 'token' as const, token: Number(order_id.slice(1)), date: null } : type === 'parking' ? { kind: 'parking' as const, car_number: 'LEA 123', car_type: 'sedan' as const } : { kind: 'table' as const, label: 'T3' };
-  return { order_id, identifier, placed_at: BASE - 60_000, ready: null, lines: [line(`${order_id}-L1`, order_id, stage, { identifier, order_type: type })], ...over };
+  // ⚠️ 03b v1.0.17 §8: a done bag is marked ready (Bag ready) before "Handed to customer" is its one primary button
+  const ready = stage === 'done' ? { at: BASE - 30_000, by: null, lines: [`${order_id}-L1`] } : null;
+  return { order_id, identifier, placed_at: BASE - 60_000, ready, lines: [line(`${order_id}-L1`, order_id, stage, { identifier, order_type: type })], ...over };
 }
 const meta = (order_id: string, over: Partial<PointOrderMeta> = {}): PointOrderMeta => ({
   order_id,
@@ -126,7 +128,7 @@ const PASS = ['run-pass', 'mark-served'];
 describe('[03b v1.0.16 §3.4 Pickup identity, Readiness (R3-B-1, R3-M-5)] a pickup card on the Pass', () => {
   it('shows the pickup time and the station-less lines; Bag ready only once the whole order is ready (live point_lines.orders)', async () => {
     const s = shellWith({ grants: ['run-pass'] });
-    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O48', 'done', meta('O48', { no_station_lines: [{ order_item_id: 'COLA', item_name: 'Cola', units: 2 }] }))]) } });
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O48', 'done', { ...meta('O48', { no_station_lines: [{ order_item_id: 'COLA', item_name: 'Cola', units: 2 }] }), ready: null })]) } });
     show(s.shell);
     await flush();
     expect(pc('O48').textContent).toContain('Pickup 1:30 PM');
@@ -154,37 +156,39 @@ describe('[03b v1.0.16 §3.4 Handed to customer (R3-B-2, OR-2, OR-7)] the Pass-r
     expect(s.queries.filter((q) => q.includes('order_type=all'))).toEqual(['/queries/open-orders?order_type=all']);
     expect(customerBtn('O2')).toBeNull();
     expect(customerBtn('O48')!.disabled).toBe(true);
-    expect(customerBtn('O48')!.textContent).toBe('Handed to customer');
-    expect(pc('O48').querySelector('.pc__hint')!.textContent).toBe('Waiting for the bill');
+    expect(customerBtn('O48')!.textContent).toContain('Handed to customer');
+    expect(pc('O48').querySelector('.pc__why')!.textContent).toBe('Waiting for the bill');
     expect(pc('O48').textContent).not.toContain('Due');
   });
 
-  it('a Due row: greyed, "Due — customer pays at counter" and "Take payment first"; a Paid row enables it', async () => {
+  it('a Due row: greyed, ONE pill "Due Rs 1,190 — customer pays at counter" (v1.0.17: no separate hint box); a Paid row enables it', async () => {
     const s = shellWith({ grants: PASS, bills: () => openOrders([{ order_id: 'O48', order_type: 'takeaway', bill: { state: 'due', due_minor: 119_000 } }, { order_id: 'O49', order_type: 'takeaway', bill: { state: 'paid', due_minor: 0 } }]) });
     s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O48', 'done'), card('O49', 'done')]) } });
     show(s.shell);
     await flush();
     expect(customerBtn('O48')!.disabled).toBe(true);
-    expect(pc('O48').querySelector('.pc__due')!.textContent).toBe('Due — customer pays at counter');
-    expect(pc('O48').querySelector('.pc__hint')!.textContent).toBe('Take payment first');
+    expect(pc('O48').querySelector('.pc__due')!.textContent).toBe('Due Rs 1,190 — customer pays at counter');
+    // the greyed button says why, in it (v1.0.17 §8)
+    expect(pc('O48').querySelector('.pc__why')!.textContent).toBe('Take payment first');
     expect(customerBtn('O49')!.disabled).toBe(false);
-    expect(pc('O49').querySelector('.pc__hint')).toBeNull();
+    expect(pc('O49').querySelector('.pc__why')).toBeNull();
   });
 
-  it('a line here still cooking keeps it greyed; offline greys it with "Offline — hand over at the counter"', async () => {
+  it('a line here still cooking: Bag ready is the one primary, no "Handed to customer" yet (v1.0.17 §8); offline greys it with "Offline — hand over at the counter"', async () => {
     const paid = () => openOrders([{ order_id: 'O48', order_type: 'takeaway', bill: { state: 'paid', due_minor: 0 } }]);
     const s = shellWith({ grants: PASS, bills: paid });
     s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O48', 'cooking')]) } });
     show(s.shell);
     await flush();
-    expect(customerBtn('O48')!.disabled).toBe(true);
+    expect(customerBtn('O48')).toBeNull();
+    expect(pc('O48').querySelectorAll('.pc__f .btn--ready')).toHaveLength(1);
     m.unmount();
     const off = shellWith({ grants: PASS, bills: paid, online: false });
     off.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O48', 'done')]) } });
     show(off.shell);
     await flush();
     expect(customerBtn('O48')!.disabled).toBe(true);
-    expect(pc('O48').querySelector('.pc__hint')!.textContent).toBe('Offline — hand over at the counter');
+    expect(pc('O48').querySelector('.pc__why')!.textContent).toBe('Offline — hand over at the counter');
   });
 
   it('[tests 112, 115] tap: fresh reads → "#48 handed to customer · Undo" → after 5 s one MarkServed with every live line; Undo sends nothing', async () => {
@@ -301,12 +305,16 @@ describe('[02b-TK L-CLIENT-2 item 4; 03b §3.4 OR-7, D2] Ask a manager on a Due 
     await flush();
     expect(customerBtn('O48')!.disabled).toBe(true);
     expect(askOf('O48')!.textContent).toBe('Ask a manager');
+    // ⚠️ 03b v1.0.17 §8: the card's small button opens the sheet with the per-order breakdown; its Ask sends
     m.click(askOf('O48'));
     await flush();
+    expect(m.container.querySelector('.pass-ask [data-unpaid="O48"]')!.textContent).toContain('#48 · Rs 1,190');
+    m.click(m.container.querySelector<HTMLButtonElement>('[data-ask-send]'));
+    await flush();
     expect(command).toHaveBeenCalledWith('RequestUnpaidHandover', { order_id: 'O48' });
-    expect(pc('O48').querySelector('.pc__ask')!.textContent).toContain('Waiting for a manager…');
-    expect(pc('O48').querySelector('.pc__ask')!.textContent).not.toContain('find a manager'); // 02b wording only
-    expect(m.button('Withdraw', pc('O48'))).toBeTruthy();
+    expect(askOf('O48')!.textContent).toContain('Waiting for a manager…');
+    expect(askOf('O48')!.textContent).not.toContain('find a manager'); // 02b wording only
+    expect(m.button('Withdraw', m.container.querySelector('.pass-ask')!)).toBeTruthy();
   });
 
   it('another person\'s open request: "Already waiting for a manager", no Withdraw', async () => {
@@ -317,8 +325,10 @@ describe('[02b-TK L-CLIENT-2 item 4; 03b §3.4 OR-7, D2] Ask a manager on a Due 
     await flush();
     m.click(askOf('O48'));
     await flush();
-    expect(pc('O48').querySelector('.pc__ask')!.textContent).toContain('Already waiting for a manager');
-    expect([...pc('O48').querySelectorAll('button')].some((b) => b.textContent === 'Withdraw')).toBe(false);
+    m.click(m.container.querySelector<HTMLButtonElement>('[data-ask-send]'));
+    await flush();
+    expect(askOf('O48')!.textContent).toContain('Already waiting for a manager');
+    expect([...m.container.querySelectorAll('.pass-ask button')].some((b) => b.textContent === 'Withdraw')).toBe(false);
   });
 
   it('UnpaidHandoverApproved for the card\'s order (and the row flag on the next read) enables it; the send carries customer_handover', async () => {

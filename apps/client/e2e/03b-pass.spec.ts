@@ -20,8 +20,9 @@ for (const lang of ['en', 'ur'] as Lang[]) {
     await expect(card).toHaveCount(1);
     // portrait: one column of cards (IR-18 `pcards--1`); landscape: the wide grid
     await expect(page.locator('.pcards')).toHaveClass(info.project.name === 'tablet-portrait' ? /pcards--1/ : /^(?!.*pcards--1)/);
-    // the station has no screen: the group says so and every line carries Start / Done
-    await expect(card.locator('.pc__g')).toContainText(`Grill ${key}`);
+    // the station has no screen: the card says so (03b v1.0.17 §8: in the header line of a one-station card) and every
+    // line carries Start / Done
+    await expect(card.locator('.pc__nos')).toContainText(`Grill ${key}`);
     await expect(card.locator('.btn--start')).toHaveCount(3);
 
     const context = await browser.newContext({ ...info.project.use });

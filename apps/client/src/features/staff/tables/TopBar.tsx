@@ -29,6 +29,8 @@ export interface TopBarProps {
   floors: { choices: readonly FloorChoice[]; selected: string | null; onSelect: (floor_id: string) => void } | null;
   /** the Live / Hub offline pill, or null */
   live: ReactNode;
+  /** ⚠️ 03b v1.0.17 §8: the screen's own row in the bar (the Pass's type tabs), after the screen tabs */
+  extra?: ReactNode;
   clock: string;
   person: { name: string } | null;
   /** answerable requests; null = not an approver / nothing to answer: no button */
@@ -156,6 +158,7 @@ export function TopBar(p: TopBarProps) {
             ))}
           </nav>
         )}
+        {p.person !== null && p.extra != null && p.extra !== false && <div className="top-extra">{p.extra}</div>}
         {!p.portrait && floorControl}
         <div className="end">
           {p.live}

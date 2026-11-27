@@ -276,6 +276,17 @@ export function PointsView({
     await load(true);
   }
 
+  // BUG-26 (01a v2.11 §6.9a D7): the cloud refuses an archive that leaves the branch no other active point; the page
+  // knows the list, so the last active point is refused here, before the confirm (the cloud check stays the authority)
+  function askArchive(point: Point) {
+    if (!(points ?? []).some((other) => other.point_id !== point.point_id && active(other))) {
+      setError(t('owner.points.archive_refused'));
+      return;
+    }
+    setError(null);
+    setAsk({ kind: 'archive', point });
+  }
+
   const visible = (points ?? []).filter((point) => showArchived || active(point));
 
   return (
@@ -323,7 +334,7 @@ export function PointsView({
                     <button type="button" className="pos-btn" disabled={down} onClick={() => setAsk({ kind: 'edit', point })}>
                       {t('owner.points.edit')}
                     </button>
-                    <button type="button" className="pos-btn" disabled={down || stale} onClick={() => setAsk({ kind: 'archive', point })}>
+                    <button type="button" className="pos-btn" disabled={down || stale} onClick={() => askArchive(point)}>
                       {t('owner.common.archive')}
                     </button>
                   </>

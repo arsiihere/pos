@@ -1734,6 +1734,12 @@ export const en = {
   'answer.confirm_on_phone': 'Confirm on your phone',
   // 05a §8 C-1: the tab under the person was taken off this device
   'shell.tab_removed': 'This screen was taken off this device',
+  // BUG-12 (00 HPA M46; 02b §8): the hub ended the session; the sign-in screen says so
+  'shell.signed_out_hub': 'You were signed out. Sign in again.',
+  // BUG-18 (05a §3.6 O-16): a screen the person may not use on this device
+  'shell.not_allowed.title': 'Not allowed',
+  'shell.not_allowed.body': 'Your role cannot use this screen on this device. Ask a manager if you need it.',
+  'shell.not_allowed.home': 'Go to my screen',
   'shell.manager.title': 'Manager tools',
   'request.find_approver': 'Waiting — find a manager',
   // 05a §8 Errors
@@ -2405,6 +2411,9 @@ export const en = {
   'order.toast.some_not_sent': '{n} not sent — see the queue log',
   // ---- lane A (02a client) ----
   'signin.pin_needs_hub': 'Signing in needs the hub',
+  // BUG-19 (00 HPA §3.5): the lockout countdown on the sign-in PIN pad, {t} = m:ss
+  'signin.locked_for': 'Too many wrong PINs. Try again in {t}.',
+  'signin.device_locked_for': 'Too many wrong PINs on this screen. Try again in {t}.',
   'pair.wipe_failed': 'Could not reset this screen. Ask a manager.',
   'topbar.floor': 'Floor',
   'tabs.tables': 'Tables',
@@ -2950,6 +2959,9 @@ export const en = {
   'pass.handed_waiting': 'Handed to {name} · waiting for Served',
   // P4 (03b §3.6; frames PassTakeover, PassScreenBack)
   'pass.takeover_sub': 'Its Now and Next are here. Tap for the cooks until the screen is back.',
+  // QA BUG-17 (03b §3.6): a takeover tap the hub refused or did not answer
+  'pass.takeover_no_answer': 'No answer from the hub — tap again',
+  'pass.takeover_not_fired': 'Not sent to the kitchen yet — earlier rounds first',
   'pass.screen_back': '{station} screen is back',
   // P5 (03b §8; frame PassOffline)
   'pass.offline_sub': 'Buttons are off; taps are not saved',
@@ -2978,6 +2990,11 @@ export const en = {
   'kitchen_screens.sign_in': 'Sign in to set up kitchen screens',
   'kitchen_screens.no_admins': 'No one here can set up kitchen screens',
   'admin_03.nav.other_jobs': 'Other jobs',
+  // BUG-15 (05a H-2, v1.0.3): the admin sign-in on a shared (`everyone`) device
+  'admin_03.login.listed_only': 'This screen cannot open the hub admin pages',
+  'admin_03.login.listed_only_body':
+    'It is shared by everyone. Open this page on your own phone or on a device set to "Only listed people" that lists you. A manager can change this device in Devices.',
+  'admin_03.login.recover': 'Recover admin access',
   // A2 printers (frames Printers*, PrinterAdd, PrinterArchive, PrinterTest)
   'printers.section_help': 'Optional. Paper jobs never block the till or the kitchen screens.',
   'printers.none_title': 'No printers',
@@ -4429,6 +4446,13 @@ export const en = {
   'pass.offline_counter': 'Offline — hand over at the counter',
   'pass.pickup_at': 'Pickup at {time} — use \'Customer is here\' at the counter',
   'pass.due': 'Due — customer pays at counter',
+  // ⚠️ 03b v1.0.17 §3.4, §8 (owner ruling 2026-11-28 "Pass bag = token"; QA design audit): the one Due pill with the
+  // token's unpaid total; an addition's row in Ask a manager; the pick sheet of a bag; a bag marked ready
+  'pass.due_amount': 'Due {amount} — customer pays at counter',
+  'pass.addition_tag': '(addition)',
+  'pass.ready_pick_sub_bag': 'Ticked items go into the bag as ready.',
+  'pass.waiting_counter': 'Waiting at counter',
+  'pass.phone_order': 'Phone order',
   'pass.waiting_bill': 'Waiting for the bill',
   'pass.pickup_label': 'Pickup {time}',
   'pass.hand_at_counter': 'Hand over at the counter',
@@ -4450,6 +4474,8 @@ export const en = {
   'pass.manager_rejected': 'Manager said no',
   'unpaid.already_waiting': 'Already waiting for a manager',
   'unpaid.withdraw': 'Withdraw',
+  // BUG-9 (owner ruling 2026-11-28, approval ruling A): an addition's own request is marked so, e.g. "#14 · Rs 40 (addition)"
+  'unpaid.addition': '(addition)',
   'unpaid.approved': 'Manager approved — hand over',
   'unpaid.not_needed': 'Nothing is due now — hand over',
   'unpaid.refused': 'Not paid — take payment first or ask a manager',
@@ -4457,6 +4483,13 @@ export const en = {
   'alert.hand_over_unpaid.card': 'Hand over unpaid {identifier}',
   'alert.hand_over_unpaid.lock': 'Unpaid hand-over request',
   'alert.hand_over_unpaid.name': 'Unpaid hand-over',
+  // UX (02b v1.0.25 §3.7a Close (R3-M-3), §6.19 due_changed; 01d §3.13.2 rule 5): why an unpaid hand-over request closed
+  'alert.hand_over_unpaid.closed': 'No longer needed — the bill or the order changed',
+  'alert.hand_over_unpaid.why.due_changed': 'Bill went up — ask again',
+  'alert.hand_over_unpaid.why.handed_over': 'Already handed over',
+  'alert.hand_over_unpaid.why.order_cancelled': 'Order cancelled',
+  'alert.hand_over_unpaid.why.bill_closed': 'Bill paid',
+  'alert.hand_over_unpaid.why.day_closed': 'Day closed',
   // ---- 02b-TK L-CLIENT-3 item 1 (05 v1.0.35 §6.3, §6.3a, §8; 02b v1.0.25 §8 OR-5 / R6; D9): cart / Due check bill — gross and remaining payable, the cart's refusals, Print receipt again ----
   'billing.check_amounts': 'Gross total {gross} · Remaining payable {due}',
   'billing.check_not_printed': 'Check bill not printed — {why}',

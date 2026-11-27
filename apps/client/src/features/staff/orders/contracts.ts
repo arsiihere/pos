@@ -131,6 +131,12 @@ export interface OpenOrder {
   bag_ready_window_ms?: number | null;
   /** ⚠️ 02b v1.0.25 §6.16: takeaway / parking `{ state, due_minor }`, dine-in null; absent on a hub before B2-1 */
   bill?: { state: 'due' | 'paid'; due_minor: number } | null;
+  /**
+   * 02b v1.0.25 §6.16: at most 6 live root lines (merged by part_of, then by name) and how many more; absent from an
+   * older hub. The rail's sub-line when this device has no copy of the order's lines (BUG-12)
+   */
+  lines_summary?: Array<{ name: string; qty: number }>;
+  lines_more?: number;
   /** ⚠️ 02b v1.0.25 §6.16 (R3-M-8, D2): an effective unpaid hand-over approval of this order; absent until the hub sends it */
   unpaid_handover_approved?: boolean;
   /**

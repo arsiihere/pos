@@ -577,7 +577,8 @@ describe('[03b W0.6] Pass in the staff shell', () => {
   };
 
   it('[03b W0.6] with point_view in catch-up the staff shell shows Pass · Inbox · Requests and opens #/pass after sign-in; without it no Pass item', async () => {
-    render(TABLET, hub({ requests: [requestRow({ alert_id: 'R1' })] }).fetch);
+    // 05a §3.6 (BUG-18): the Pass is the screen of a `run-pass` holder
+    render(TABLET, hub({ requests: [requestRow({ alert_id: 'R1' })], permissions: { 'run-pass': { grant: 'allowed' } } }).fetch);
     await signIn();
     expect(window.location.hash).toBe('#/tables');
     sockets[0]!.frame({ type: 'catch_up', as_of_seq: 3, state: { point_view: POINT_VIEW } });

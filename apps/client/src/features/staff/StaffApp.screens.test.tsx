@@ -12,7 +12,12 @@ import { fallbackScreens, tabsOf } from './shell/screens';
 
 // 02b-TK C2-1: the kiosk lands on #/takeaway, now the takeaway order screen; these tests are about the shell, so
 // it is a probe
-vi.mock('./orders/takeaway/TakeawayHome', () => ({ TakeawayHome: () => <div data-probe="takeaway-home" /> }));
+vi.mock('./orders/takeaway/TakeawayHome', async () => {
+  const { useShell } = await import('./shell/hooks');
+  // BUG-12: the probe says whether the shell's live bus still holds an `orders` catch-up part
+  const TakeawayHome = () => <div data-probe="takeaway-home" data-orders={String(useShell().live.part('orders') !== undefined)} />;
+  return { TakeawayHome };
+});
 
 // 05a §3.6, §8, C-1: the staff shell's tabs come from the device profile (`GET /queries/session` `device.screens`,
 // the `device_profile` push), the permissions after the mask decide what is hidden, and width only picks the layout.
@@ -279,5 +284,80 @@ describe('[05a §3.6, §8, C-1] shell tabs from the device screens', () => {
     expect(fallbackScreens('cashier_kiosk', false)).toEqual(['takeaway', 'parking', 'dine_in', 'cashier', 'manager']);
     expect(fallbackScreens('tablet', true)).toEqual(['pass', 'dine_in', 'takeaway', 'parking', 'cashier', 'manager']);
     expect(fallbackScreens('phone', false)).toEqual(['dine_in', 'takeaway', 'parking', 'manager']);
+  });
+});
+
+// BUG-12 (QA, kiosk): when the hub ends the session (00 HPA M46 / M95 idle; the socket closes 4401 with the end
+// reason) the page signs out at once and says so on the sign-in screen; the takeaway screen is gone, not left showing.
+describe('[BUG-12; 00 HPA §6.21, M46; 02b §8] the hub ends the session', () => {
+  it('4401 idle_timeout → the sign-in tiles with "You were signed out", no takeaway screen; the next sign-in clears it', async () => {
+    render(KIOSK, hub({ profile: () => ({ screens: ['takeaway', 'cashier'], access: 'everyone' }), permissions: () => ({ 'take-order': ALLOWED, 'take-payment': ALLOWED }) }).fetch);
+    await signIn();
+    sockets.at(-1)!.frame({ type: 'catch_up', as_of_seq: 5, state: { orders: { orders: [], zone_stock: [] } } });
+    await flush(2);
+    expect(m.container.querySelector('[data-probe="takeaway-home"]')?.getAttribute('data-orders')).toBe('true');
+    act(() => sockets.at(-1)!.onclose?.({ code: 4401, reason: 'idle_timeout' }));
+    await flush(4);
+    expect(m.container.querySelector('[data-probe="takeaway-home"]')).toBeNull();
+    expect(m.button('Imran')).toBeTruthy();
+    expect(m.container.querySelector('[data-signed-out]')?.textContent).toContain('You were signed out');
+    await signIn();
+    expect(m.container.querySelector('[data-signed-out]')).toBeNull();
+    // the last person's catch-up is gone: the screen waits for this person's own
+    expect(m.container.querySelector('[data-probe="takeaway-home"]')?.getAttribute('data-orders')).toBe('false');
+  });
+});
+
+// BUG-18 (QA): a person signed in with the default Cook role (01b B-4: `run-pass`, `reprint-ticket` only) who opens a
+// screen they may not use (05a §3.6 O-16: hidden when they hold none of its permissions) is told so — never an empty
+// screen, a skeleton or the inbox in its place.
+describe('[BUG-18; 05a §3.6 O-16] a screen the person may not use says "Not allowed"', () => {
+  const COOK = () => ({ 'run-pass': ALLOWED, 'reprint-ticket': ALLOWED });
+  const notAllowed = () => m.container.querySelector('[data-not-allowed]');
+
+  for (const hash of ['#/bills', '#/bill?bill_id=B1', '#/manager', '#/reports', '#/day-close', '#/audit', '#/devices', '#/test-alert']) {
+    it(`[05a §3.6] Cook on a kiosk: ${hash} shows Not allowed`, async () => {
+      render(KIOSK, hub({ profile: () => ({ screens: ['takeaway', 'cashier', 'manager'], access: 'everyone' }), permissions: COOK }).fetch);
+      await signIn();
+      act(() => {
+        window.location.hash = hash;
+      });
+      await flush();
+      expect(notAllowed()?.textContent).toContain('Not allowed');
+      expect(m.container.querySelector('.inbox, [data-inbox]')).toBeNull();
+    });
+  }
+
+  it('[05a §3.6] #/pass on a device without a point (no `pass` screen) shows Not allowed, not an empty Pass', async () => {
+    render(KIOSK, hub({ profile: () => ({ screens: ['takeaway', 'cashier'], access: 'everyone' }), permissions: COOK }).fetch);
+    await signIn();
+    act(() => {
+      window.location.hash = '#/pass';
+    });
+    await flush();
+    expect(notAllowed()?.textContent).toContain('Not allowed');
+  });
+
+  it('[05a §3.6] #/pass without `run-pass` shows Not allowed even on a point tablet', async () => {
+    render(TABLET, hub({ profile: () => ({ screens: ['pass', 'dine_in'], point_id: 'PT1' }), permissions: () => ({ 'take-order': ALLOWED }) }).fetch);
+    await signIn();
+    act(() => {
+      window.location.hash = '#/pass';
+    });
+    await flush();
+    expect(notAllowed()?.textContent).toContain('Not allowed');
+    expect(wideTabs()).toEqual(['Dine in']);
+  });
+
+  it('[05a §3.6] the Not allowed panel offers the way home (the first screen the person may use)', async () => {
+    render(TABLET, hub({ profile: () => ({ screens: ['pass', 'cashier'], point_id: 'PT1' }), permissions: COOK }).fetch);
+    await signIn();
+    act(() => {
+      window.location.hash = '#/bills';
+    });
+    await flush();
+    m.click(m.button('Go to my screen', notAllowed()!));
+    await flush();
+    expect(window.location.hash).toBe('#/pass');
   });
 });

@@ -108,20 +108,28 @@ export function ScreenlessActions({ line, parts = [line], api, up, nowMs, clock,
     }
   };
 
-  const btn = (action: 'start' | 'done' | 'undo', label: string) => (
-    <button key={action} type="button" className={`btn btn--${action}`} disabled={!up} onClick={() => void run(action)}>
+  // ⚠️ 03b v1.0.17 §8 (QA design review): the actions are small icon buttons in the line's own row (44 px targets);
+  // the word stays for screen readers (and for the Undo the time stays visible)
+  const btn = (action: 'start' | 'done' | 'undo', label: string, shown?: string) => (
+    <button key={action} type="button" className={`btn btn--icon pl__ib btn--${action}`} disabled={!up} title={label} onClick={() => void run(action)}>
       <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
         <path d={ICON[action]} />
         {action === 'undo' && <path d="M4 9.5h10.5a5.5 5.5 0 0 1 0 11H11" />}
       </svg>
-      {label}
+      <span className="sr">{label}</span>
+      {shown !== undefined && (
+        <span className="num" aria-hidden="true">
+          {shown}
+        </span>
+      )}
     </button>
   );
 
   if (line.handed_over) return null;
-  if (line.stage === 'added') return <div className="pl__a">{[btn('start', t('kds.start')), btn('done', t('kds.done'))]}</div>;
-  if (line.stage === 'cooking') return <div className="pl__a pl__a--1">{btn('done', t('kds.done'))}</div>;
+  if (line.stage === 'added') return <span className="pl__ia">{[btn('start', t('kds.start')), btn('done', t('kds.done'))]}</span>;
+  if (line.stage === 'cooking') return <span className="pl__ia">{btn('done', t('kds.done'))}</span>;
   if (undoable.length === 0) return null;
   const latest = Math.max(...undoable.map((id) => doneAt.get(id) ?? 0));
-  return <div className="pl__a pl__a--1">{btn('undo', fill(t('kds.undo'), { time: clockText(UNDO_DONE_MS - (nowMs - latest)) }))}</div>;
+  const left = clockText(UNDO_DONE_MS - (nowMs - latest));
+  return <span className="pl__ia">{btn('undo', fill(t('kds.undo'), { time: left }), left)}</span>;
 }

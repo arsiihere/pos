@@ -16,17 +16,20 @@ import { passError, type CardMessage } from './ready';
 
 export interface HandOverSheetProps {
   order: PointOrder;
+  /** ⚠️ 03b v1.0.17 §3.4 ("Pass bag = token"): every order of the token's card, root first; one Handover per order
+   * with done lines, one tap. Default: the order alone. */
+  orders?: readonly PointOrder[];
   pointId: string;
   api: PassApi;
   up: boolean;
   onClose(): void;
-  /** the hand-over's result, also when the sheet was closed before the reply (Q-55 claim, toast, card line) */
-  onHanded(handed: Handed): void;
+  /** each order's hand-over result, also when the sheet was closed before the reply (Q-55 claim, toast, card line) */
+  onHanded(handed: Handed, order_id: string): void;
   /** a refusal that closes the sheet (the order left the kitchen): the card's line */
   onGone(message: CardMessage): void;
 }
 
-export function HandOverSheet({ order, pointId, api, up, onClose, onHanded, onGone }: HandOverSheetProps) {
+export function HandOverSheet({ order, orders = [order], pointId, api, up, onClose, onHanded, onGone }: HandOverSheetProps) {
   const [receivers, setReceivers] = useState<PassReceiver[] | null>(null);
   const [msg, setMsg] = useState<CardMessage | null>(null);
   const busy = useRef(false);
@@ -56,17 +59,25 @@ export function HandOverSheet({ order, pointId, api, up, onClose, onHanded, onGo
     if (busy.current) return;
     busy.current = true;
     try {
-      const out = await handOver(api, order, pointId, r);
-      // the result belongs to the page, not to this sheet: it runs even when the sheet was closed meanwhile
-      if (out.kind === 'handed') onHanded(out.handed);
-      if (out.kind === 'refused' && out.gone) onGone(out.message);
+      // ⚠️ v1.0.17: one Handover per order of the bag with done lines; the first refusal stops the rest
+      const todo = orders.filter((o) => doneToHand(o).length > 0);
+      let last: Awaited<ReturnType<typeof handOver>> | null = null;
+      for (const o of todo) {
+        const out = await handOver(api, o, pointId, r);
+        last = out;
+        // the result belongs to the page, not to this sheet: it runs even when the sheet was closed meanwhile
+        if (out.kind === 'handed') onHanded(out.handed, o.order_id);
+        else break;
+      }
+      if (last === null) return;
+      if (last.kind === 'refused' && last.gone) onGone(last.message);
       if (!alive.current) return;
-      if (out.kind === 'handed' || (out.kind === 'refused' && out.gone)) {
+      if (last.kind === 'handed' || (last.kind === 'refused' && last.gone)) {
         onClose();
-      } else if (out.kind === 'invalid') {
-        setMsg(out.message);
-        await load(out.message);
-      } else setMsg(out.message);
+      } else if (last.kind === 'invalid') {
+        setMsg(last.message);
+        await load(last.message);
+      } else setMsg(last.message);
     } finally {
       busy.current = false;
     }
@@ -92,7 +103,7 @@ export function HandOverSheet({ order, pointId, api, up, onClose, onHanded, onGo
         </div>
         <div className="hosum">
           {/* 03b v1.0.11 §3.4 (STAB-5): a split line's done parts as one entry */}
-          {groupLines(doneToHand(order)).map(({ line: l }) => (
+          {groupLines(orders.flatMap((o) => doneToHand(o))).map(({ line: l }) => (
             <span key={l.order_item_id}>
               <span className="q">{l.units} x</span>
               {l.item_name}

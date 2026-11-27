@@ -157,6 +157,33 @@ describe('[03b §3.6] Pass takeover sections', () => {
     expect(m.container.querySelector('section.tko')?.querySelectorAll('button')).toHaveLength(0);
   });
 
+  it('[QA BUG-17; 03b §3.6] Start on a takeover row never fails silently: the hub\'s refusal or no answer shows why; a single-tap station shows Done', async () => {
+    const s = setup({ answers: { StartItem: [{ ok: false, error: { kind: 'api', status: 409, code: 'ITEM_WRONG_STAGE', details: { order_item_id: 'A', stage: 'added' } } }] } });
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view({ takeovers: [body({ now: [nowLine('A'), nowLine('B')] })] }) } });
+    show(s.shell);
+    await flush();
+    const row = (id: string) => m.container.querySelector<HTMLElement>(`section.tko article[data-id="${id}"]`)!;
+    m.click(m.button('Start', row('A')));
+    await flush();
+    expect(s.sent[0]).toEqual({ type: 'StartItem', payload: { order_item_id: 'A' } });
+    expect(row('A').textContent).toContain('Not sent to the kitchen yet — earlier rounds first');
+    // no answer from the hub (the answers ran out: network)
+    m.click(m.button('Start', row('B')));
+    await flush();
+    expect(row('B').textContent).toContain('No answer from the hub — tap again');
+    m.unmount();
+
+    // a single-tap station (branch config): the row offers Done, never a Start the hub refuses
+    const one = setup();
+    (one.shell as unknown as { config: unknown }).config = { snapshot: () => ({ stations: [{ station_id: ST, completion_mode: 'single_tap' }] }), subscribe: () => () => undefined };
+    one.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view({ takeovers: [body({ now: [nowLine('A')] })] }) } });
+    show(one.shell);
+    await flush();
+    const a = m.container.querySelector<HTMLElement>('section.tko article[data-id="A"]')!;
+    expect([...a.querySelectorAll('button')].map((b) => b.textContent)).not.toContain('Start');
+    expect([...a.querySelectorAll('button')].some((b) => (b.textContent ?? '').includes('Done'))).toBe(true);
+  });
+
   it('[03b Q-50] takeover rows render lineActions with surface "takeover" and the takeover body\'s has_printer', async () => {
     const seen: LineActionCtx[] = [];
     const runs: string[] = [];

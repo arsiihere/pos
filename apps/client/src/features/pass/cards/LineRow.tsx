@@ -64,6 +64,8 @@ export function LineRow({ line, actions, round }: { line: PointLine; actions?: R
           </span>
         )}
         {line.priority != null && <span className="kmk c-warn kmk--prio">{priorityText(line.priority)}</span>}
+        {/* ⚠️ 03b v1.0.17 §8: the line's Start / Done / Undo in the same row as the item and its chip */}
+        {actions}
         <span className={`stg ${TONE[stage]}`}>
           <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
             {ICON[stage]}
@@ -81,7 +83,6 @@ export function LineRow({ line, actions, round }: { line: PointLine; actions?: R
           </span>
         </span>
       )}
-      {actions}
     </div>
   );
 }

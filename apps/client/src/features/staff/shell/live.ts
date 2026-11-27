@@ -24,6 +24,11 @@ export interface LiveBus {
   /** the last catch-up part by name (`tables`, `orders`, `stock`, …), for a subscriber that mounts later */
   part(name: string): unknown;
   lastSeq(): number;
+  /**
+   * BUG-12: the session ended — the catch-up parts and the seq kept for it are dropped, so a screen mounted for the
+   * next person never seeds from the last person's catch-up; their own catch-up fills them again
+   */
+  forget(): void;
   subscribe(listener: (message: LiveMessage) => void): () => void;
 }
 
@@ -63,6 +68,10 @@ export function createLiveBus(): LiveBus {
     },
     part: (name) => parts[name],
     lastSeq: () => lastSeq,
+    forget() {
+      parts = {};
+      lastSeq = -1;
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => void listeners.delete(listener);

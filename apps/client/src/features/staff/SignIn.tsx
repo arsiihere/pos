@@ -36,6 +36,13 @@ function errorOf(error: HubError): PinError {
   return { text: answerErrorText(error.code, error.details), tone: 'danger', icon: locked ? 'lock' : 'warn' };
 }
 
+/** BUG-19: "Too many wrong PINs. Try again in 14:59." — the time left, m:ss, counted down each second. */
+function lockedError(until: number, device: boolean): PinError {
+  const left = Math.max(0, Math.ceil((until - Date.now()) / 1_000));
+  const time = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+  return { text: fill(t(device ? 'signin.device_locked_for' : 'signin.locked_for'), { t: time }), tone: 'danger', icon: 'lock' };
+}
+
 /** 02a §8 Login (frame SignInOffline): the hub is away; the names stay and the roster is read again. */
 function OfflineLine() {
   return (
@@ -87,7 +94,11 @@ export function SignIn({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<PinError | null>(null);
   const [takeover, setTakeover] = useState(false);
-  const [locked, setLocked] = useState(false);
+  // BUG-19 (00 HPA §3.5 steps 2–3): a lockout's end on the wall clock (429 `retry_after_ms`); a device lockout holds for
+  // every name, a person's lockout only for them
+  const [lock, setLock] = useState<{ until: number; device: boolean } | null>(null);
+  const locked = lock !== null;
+  const [, setTick] = useState(0);
 
   const load = useCallback(async () => {
     const answer = await api.roster();
@@ -108,6 +119,17 @@ export function SignIn({
     void load();
   }, [load]);
   useEffect(() => {
+    if (lock === null) return;
+    const step = () => {
+      if (Date.now() < lock.until) return setTick((n) => n + 1);
+      setLock(null);
+      setError(null);
+      void load(); // the names' lock marks are read again
+    };
+    const timer = setInterval(step, 1_000);
+    return () => clearInterval(timer);
+  }, [lock, load]);
+  useEffect(() => {
     if (!offline) return;
     const timer = setInterval(() => void load(), ROSTER_RETRY_MS);
     return () => clearInterval(timer);
@@ -122,7 +144,7 @@ export function SignIn({
     setPin('');
     setError(null);
     setTakeover(false);
-    setLocked(false);
+    setLock((l) => (l?.device === true ? l : null));
   };
 
   const submit = async () => {
@@ -144,7 +166,10 @@ export function SignIn({
     const e = errorOf(answer.error);
     setError(e);
     if (answer.error.kind === 'api' && answer.error.code === 'DEVICE_SESSION_ACTIVE') setTakeover(true);
-    if (answer.error.kind === 'api' && (answer.error.code === 'PIN_LOCKED_OUT' || answer.error.code === 'DEVICE_LOCKED_OUT')) setLocked(true);
+    if (answer.error.kind === 'api' && (answer.error.code === 'PIN_LOCKED_OUT' || answer.error.code === 'DEVICE_LOCKED_OUT')) {
+      const ms = answer.error.details['retry_after_ms'];
+      setLock({ until: Date.now() + (typeof ms === 'number' && ms > 0 ? ms : 60_000), device: answer.error.code === 'DEVICE_LOCKED_OUT' });
+    }
   };
 
   // closing the PIN dialog drops what was typed (the PIN is never kept)
@@ -153,7 +178,7 @@ export function SignIn({
     setPin('');
     setError(null);
     setTakeover(false);
-    setLocked(false);
+    setLock((l) => (l?.device === true ? l : null));
   };
 
   // 02a §8 Login (frame SignInOffline): the names stay; the pad says it needs the hub and is off until the roster is back
@@ -169,7 +194,7 @@ export function SignIn({
       }}
       onBack={() => setPin((p) => p.slice(0, -1))}
       onSubmit={() => void submit()}
-      error={offline ? NEEDS_HUB : error}
+      error={offline ? NEEDS_HUB : lock !== null ? lockedError(lock.until, lock.device) : error}
       narrow={phone}
     />
   );
