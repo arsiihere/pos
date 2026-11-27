@@ -224,43 +224,47 @@ Paymob is out for now: the whole of 05c is parked ("§13 Later"); the pilot take
 4. **04 bump does not exist.** 05 V-4, 02b TK-16 and 05a AU-1 all target "04 next version" / v1.0.9, but no 04 v1.0.9 draft is in `docs/specs/` (task D-04 before AU-1).
 5. **01d (e) `when_none` placement.** 01d v1.3.7 §11 puts its build "in 03b's task 0h and 05c's plan"; its only user is 05c's `payment_unapplied`, so this plan builds (d), (e) behind STOP-0 (PS-2) to avoid dead code.
 
-## Tier 1 acceptance (L-CLOSE-1, X-1; 2026-11-27)
+## Tier 1 acceptance (L-CLOSE-1, X-1; 2026-11-27; gaps closed in L-CLOSE-2)
 
-Trace of every Tier 1 task row's spec tests to repo tests, plus the §12.2 rows they touch (02b, 03b, 03c, 03a, 05, 01d, 01b). Read-only trace on `lane-02b-tk/close-1`; the full gate was green at the head of L-ORDERS-1. **Tier 1 is not accepted yet**: the gaps below are open. The unpaid hand-over flow (U-1 … U-5, L-BILL-2) is left out on purpose (another lane is still building it).
+Trace of every Tier 1 task row's spec tests to repo tests, plus the §12.2 rows they touch (02b, 03b, 03c, 03a, 05, 01d, 01b). L-CLOSE-1 traced (`lane-02b-tk/close-1`, PR #533); L-CLOSE-2 (`lane-02b-tk/close-2`) closed the gaps below. The unpaid hand-over flow (U-1 … U-5, L-BILL-2, 04 #62–#64) and CB-2 stay with the other lane.
 
 ### Status per task
 
 | Task(s) | State |
 |---|---|
-| B1-0 | covered; the A1 test still builds its scratch DB at 18 (plan: the new predecessor) |
-| B1-1, B1-3, B1-4, B1-6, B2-2, B2-3, P-2, S-1, S-4, S-5 | covered (single clauses open, list below) |
-| B1-2, B2-1, P-1, CB-1, S-2, S-3 | covered, clause gaps (list below) |
-| **CB-2** (05 `PrintCartCheckBill`) | **not built on the hub**: only the `CartCheckBillPrinted` event schema exists; 05 #60f, #60g, #60i and 04 #61 (`cart_check_bill_printed` audit row) have no code and no test |
-| E-1 … E-10 (03a v1.2.11) | partly covered: **03a 187 has no test**; 190 (a), (b), (d), (f) / R3-M-1 not found; 185 thin; 186 R3-M-2 not found; 178 (a), (d) capacity re-plans, (e); 179 (b)–(d); 181; 182 (clauses 2, 3); 183 (d); 184 (a), (c); 191 (drinks-only, `hold`); 193 ("re-plan runs once"); the §10.3h "same order with `pickup_at_ms: null`" control mostly missing |
-| C-1, C-3 / C-4 (Tier 1 keys), R-1, R-2, PT-1, PT-2, PT-4, N-1, N-2, K-3 | covered (clause gaps below) |
-| PT-3, D7 (03b 129, 130, 132) | submit-level and archive tests present; Ready / dedupe per point (129), alternate carry and non-FIFO (130), surviving handovers and post-catch-up view (132) open |
-| K-1, K-2, D8 | covered for 99, 100, 104, 105, 110, 123, 124 in part; **03b 101 has no real-kind test** (1× / 2× counter steps); 102 / 103 return-or-remake and extending-Ready / Undo-rest cases open; 97 board socket and payload keys; 108 real-kind reconnect |
-| 03b 126, 03b 128 (hub half) | **not found** (multi-point routing integration; parking submit to Main) |
-| AU-1 | domain lists covered; 04 #61 blocked on CB-2; 04 #62–#64 parking case, hub reject, approved-row actor / detail, filters, retention parity open |
-| L-CLOSE-1 extras | 01b 118 hub part, 03b 132 checkpoint case, counter-alert close after the engine drops an order: **done** (`lane-02b-tk/close-1`) |
+| B1-0 | covered; the A1 test still builds its scratch DB at 18 (plan: the new predecessor) — open, cloud A1 lane |
+| B1-1 … B1-6, B2-1 … B2-3, P-1, P-2, CB-1, S-1 … S-5 | covered |
+| **CB-2** (05 `PrintCartCheckBill`) | **not built on the hub** (event schema only): 05 #60f, #60g, #60i and 04 #61 — other lane |
+| E-1 … E-10 (03a v1.2.11) | covered: 187 (new), 190 (a)–(f) (new), 185 full (new), 178 (a)–(e), 179 (b)–(d), 180 R3-M-4, 181, 182, 184 (a), (c), 186 (R3-M-2, R3-M-3, burger + fries), 191 (new); still open: 183 (a) the max_early cap inside the freshness window and (d) the #143 property with held lines, 193 "the re-plan runs once at the close" |
+| C-1, C-3 / C-4 (Tier 1 keys), R-1, R-2, PT-1, PT-2, PT-4, N-1, N-2, K-3 | covered (01a 218 PATCH 12 600 001 and the snapshot via the PATCH added; 01b 119 R3-M-2 hub part added) |
+| PT-3, D7 (03b 129, 130, 132) | 129 (new: Readies, dedupe keys, isolated audiences), 132 incl. the checkpoint case; open: 130's alternate carry rows, non-FIFO case and checkpoint replay (primary carry and cold replay covered) |
+| K-1, K-2, D8 | 101 (new, real `ready_to_serve` steps), 102 / 103 return invalidation, closed alert never steps, extending Ready re-arms (new); open: 103 "Undo-rest" (the Undo command takes no line list), 97 board socket (Tier 2), 108 real-kind reconnect |
+| 03b 126, 128 (hub) | covered (new: routed points through SubmitOrder and ReturnToKitchen; parking fallback to Main); open: 126's catch-ups, Ready at TA, `point_lines` metadata |
+| AU-1 | domain lists covered; 04 #61 blocked on CB-2; 04 #62–#64 with the unpaid acceptance |
+| L-CLOSE-1 extras | 01b 118 hub part, 03b 132 checkpoint case, counter-alert close after the engine drops an order: done |
 
-### Clause gaps in covered tasks (02b / 03c / 05)
+### Engine fix found by the new tests (L-CLOSE-2)
 
-02b #28 (no `UnpaidHandoverApproved` in the replay fixture), #60 (parking refusal path, "nothing appended" for `after_day_end`, 01a's own six cases), #62 (no-day 0 statements), #64 (`00923001234567` refused), #67 (D3 figures and Ready-undo on open-orders rows), #76 (dine-in counterpart), #80 (two points), #82 (hook called once, submit-level rollback), #95 (no row, no stock check); 03c #57 (unprintable-name log), #58 (`show_part_times_to_customers` off), #59 (no-route log on the command), #60 (dine-in `not_takeaway`; the Ready-line assertion is conditional), #61 (via `SubmitOrder`, exactly one receipt), #62 (Submit flag then `pay_later`), #65 (Ready line equals a reprint); 00 HPA 196; `DEVICE_TYPE_NOT_ALLOWED` widening; 01a 218 (PATCH 12 600 001; snapshot through the PATCH); 01b 119 (R3-M-2, R3-M-3); 01d 106 ("not a board"), 113 (return / remake).
+- **Batch sync parts (03a BQ-6, F §4.7 step 3):** a sync group with more one-unit parts than one load chained one-unit loads backward (D36) instead of filling the earlier load it had formed: 16 sync parts on an 8-unit fryer got a target of +27 min (8 + eight singles) instead of +6 (two loads). Fixed in `packages/engine/src/plan.ts` (`trySyncAt`: a part may join a load formed earlier in the same trial). Pickup and walk-in orders alike. It changes `applyEvent` for such orders; v6 is not installed anywhere yet, so it stays inside `ENGINE_STATE_VERSION` 6 (owner to confirm).
+
+### Clause gaps closed in L-CLOSE-2 (02b / 03c / 01a / 01b)
+
+02b #60, #62, #64, #76, #80, #82, #95; 03c #57 (and `print.slip.name_unprintable` is now logged), #58, #59, #60, #61, #62, #65; 01a #218; 01b #119 (R3-M-2 hub part). Still open: 02b #28 (unpaid fixture, other lane), #67 D3 figures and Ready-undo on open-orders rows (covered in key-balances / bag-ready tests), 00 HPA 196 and the `DEVICE_TYPE_NOT_ALLOWED` widening (Tier 2), 01b 119 R3-M-3 (client), 01d 106 "not a board" (Tier 2).
+
+### Flaky tests
+
+- Short-PIN "not to contain" checks now parse the JSON and look for the secret by structure (`test/helpers/no-secret.ts`): `pin.int.test.ts` (both), `answer-pin.int.test.ts` (three), `answer-request.int.test.ts`. The long random secrets (tokens, argon2 hashes) keep their raw checks.
 
 ### Decided, not gaps
 
-- 02b §6.16 / test 67 "2 statements with no row": the hub makes 1 (`orderLines([])` reads nothing); accepted by the owner 2026-11-26, the test asserts 1.
+- 02b §6.16 / test 67 "2 statements with no row": the hub makes 1; accepted by the owner 2026-11-26.
 - 02b test 61: the engine stores a passed queued pickup as null (owner ruling PQ-1, 2026-11-27); asserted.
-- D7 refresh: `point_view_refresh` builds one view per receiving point (≈ 5–6 statements each, 0 for an archived point); batching across points would rewrite every view read, so it stays per point (archive is a rare admin action).
-
-### Needs a decision
-
-- **D7 partial Ready:** after an archive, a Ready at the old point that keeps some lines (e.g. station-less ones) should get its stale alert details replaced (03b §5, R3-M-1). A replacement alert needs a link event; `ReadyRetargeted` requires a non-empty `table_id`, which takeaway / parking Readies do not have. Needs a contract decision (new event or a schema change).
+- D7 refresh: `point_view_refresh` builds one view per receiving point; stays per point.
+- **D7 partial Ready alert refresh — after the pilot (owner 2026-11-27):** a Ready at an archived point that keeps some lines should get its stale alert details replaced (03b §5, R3-M-1); it needs a new link event (`ReadyRetargeted` requires a non-empty `table_id`). Rare; deferred.
 
 ### Owner hand-off (`pnpm test:perf`, real disk, never in CI or the cloud)
 
-- 02b test 83 (400 paid takeaways, 10 not handed over: `open-orders` p99 < 40 ms, catch-up build < 60 ms): **no perf test file yet**.
+- 02b test 83: `apps/hub/test/orders/open-orders.perf.test.ts` (written and typechecked in L-CLOSE-2, not run).
 - 03a test 194 (pickup day): `packages/engine/test/sim/pickup.perf.test.ts`.
 - 03a §10.6 gates, DoD 2 / §7.1 on the pilot mini PC (task 28).
 - Manual: `docs/plans/03a-manual-checks.md` §1 (engine v6 install after hours), `docs/plans/03c-manual-checks.md` check 11 (token slip 58 / 80 mm; QR step Tier 2).
