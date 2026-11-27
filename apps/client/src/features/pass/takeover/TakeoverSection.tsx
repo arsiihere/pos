@@ -1,16 +1,17 @@
-import { useEffect, useReducer, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import { t } from '../../../i18n';
 import { fill } from '../../../i18n/en';
 import type { KdsApi } from '../../kds/contracts';
 import { RowActions } from '../../kds/actions/DoneEarly';
 import { GiveMeMore } from '../../kds/actions/GiveMeMore';
 import { InlineError } from '../../kds/actions/InlineError';
-import { useKdsActions, type ActionTimers } from '../../kds/actions/actions';
+import { messageFor, useKdsActions, type ActionTimers, type CompletionMode } from '../../kds/actions/actions';
+import type { HubResult } from '../../../api/hub-admin';
 import { LaneControl } from '../../kds/header/LaneControl';
 import { lineActions, onSlotsChanged, runSlotAction, type SlotAction } from '../../kds/slots';
 import { LineRow } from '../../kds/station/LineRow';
 import { NextColumn } from '../../kds/station/NextColumn';
-import { groupNow, roundsOf } from '../../kds/station/parts';
+import { groupNow, partsOf, roundsOf } from '../../kds/station/parts';
 import { nowOrder } from '../../kds/station/StationView';
 import type { KdsStoreImpl } from '../../kds/store';
 
@@ -23,6 +24,9 @@ import type { KdsStoreImpl } from '../../kds/store';
 // given `hasPrinter={false}` here and this section renders the takeover actions itself. A slot run is one at a time
 // per row (ref guard); its toast goes to the page's toast bus. Re-renders on notifySlots. 03b v1.0.11 §3.6 (STAB-5):
 // the rows group a split line's parts as the KDS (§3.3); a grouped row's tap sends one command per part.
+// QA BUG-17 (03b §3.6, §3.2): a tap never fails silently. The row's buttons follow the station's completion mode from
+// the branch config (a single-tap station shows Done, never a Start the hub refuses); a refusal the KDS row message
+// leaves blank (no answer from the hub, a line not fired yet: "earlier rounds first") gets its own line on the row.
 
 export interface TakeoverSectionProps {
   store: KdsStoreImpl;
@@ -36,14 +40,63 @@ export interface TakeoverSectionProps {
   utcOffsetMs: number;
   timers: ActionTimers;
   onToast(text: string, tone?: 'ok' | 'warn'): void;
+  /** the station's completion mode (branch config); null = not known (Start, then Done) */
+  mode?: CompletionMode;
 }
 
-export function TakeoverSection({ store, name, api, canRun, archived = false, up, nowMs, utcOffsetMs, timers, onToast }: TakeoverSectionProps) {
+type Action = 'start' | 'done' | 'undo';
+
+/** QA BUG-17: the reason of a refusal that the KDS row message (messageFor) leaves blank; null = nothing to say */
+export function silentReason(action: Action, r: HubResult<unknown>): 'pass.takeover_no_answer' | 'pass.takeover_not_fired' | null {
+  if (r.ok) return null;
+  if (r.error.kind === 'network') return 'pass.takeover_no_answer';
+  if (r.error.kind !== 'api' || messageFor(action, r.error) !== null) return null;
+  // a line the kitchen has not been sent yet (a later round, a held course) cannot start
+  if (r.error.code === 'ITEM_WRONG_STAGE' && r.error.details['stage'] === 'added' && action === 'start') return 'pass.takeover_not_fired';
+  return null;
+}
+
+export function TakeoverSection({ store, name, api, canRun, archived = false, up, nowMs, utcOffsetMs, timers, onToast, mode = null }: TakeoverSectionProps) {
   const view = useSyncExternalStore(store.subscribe, store.snapshot);
   const rounds = roundsOf(view); // ⚠️ 03b v1.0.13 §3.3 (STAB-6): the takeover station's round tags
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => onSlotsChanged(rerender), []);
-  const actions = useKdsActions(api, timers, () => undefined);
+  // QA BUG-17: the reasons messageFor leaves blank, per line id (cleared on the line's next tap, gone after 5 s)
+  const [why, setWhy] = useState<ReadonlyMap<string, string>>(new Map());
+  const whyRef = useRef({ setWhy, timers });
+  whyRef.current = { setWhy, timers };
+  const told = useMemo<KdsApi>(() => {
+    const note = (action: Action, id: string, r: HubResult<unknown>) => {
+      const key = silentReason(action, r);
+      const { setWhy: set, timers: tm } = whyRef.current;
+      set((m) => {
+        const next = new Map(m);
+        if (key === null) next.delete(id);
+        else next.set(id, t(key));
+        return next;
+      });
+      if (key !== null) tm.setTimeout(() => whyRef.current.setWhy((m) => (m.get(id) === t(key) ? new Map([...m].filter(([k]) => k !== id)) : m)), 5_000);
+    };
+    return {
+      ...api,
+      startItem: async (p) => {
+        const r = await api.startItem(p);
+        note('start', p.order_item_id, r);
+        return r;
+      },
+      doneItem: async (p) => {
+        const r = await api.doneItem(p);
+        note('done', p.order_item_id, r);
+        return r;
+      },
+      undoDone: async (p) => {
+        const r = await api.undoDone(p);
+        note('undo', p.order_item_id, r);
+        return r;
+      },
+    };
+  }, [api]);
+  const actions = useKdsActions(told, timers, () => undefined);
   const running = useRef(new Set<string>());
   const station = view.station;
   if (station === null) return null;
@@ -99,11 +152,25 @@ export function TakeoverSection({ store, name, api, canRun, archived = false, up
                 stationId={station.station_id}
                 hasPrinter={false}
                 {...(row.load_id != null && row.stage !== 'done' && rounds.has(row.load_id) ? { round: rounds.get(row.load_id)! } : {})}
-                message={<InlineError msg={state.msg} />}
+                message={
+                  <>
+                    <InlineError msg={state.msg} />
+                    {state.msg === null &&
+                      partsOf(row)
+                        .map((p) => why.get(p.order_item_id))
+                        .filter((w): w is string => w !== undefined)
+                        .slice(0, 1)
+                        .map((w) => (
+                          <div key="why" className="kl__msg c-warn" role="status">
+                            {w}
+                          </div>
+                        ))}
+                  </>
+                }
                 actions={
                   canRun || slot.length > 0 ? (
                     <>
-                      {canRun && <RowActions row={row} mode={null} nowMs={nowMs} up={up} state={state} onTap={(action, confirm) => void actions.tap(row, action, confirm)} />}
+                      {canRun && <RowActions row={row} mode={mode} nowMs={nowMs} up={up} state={state} onTap={(action, confirm) => void actions.tap(row, action, confirm)} />}
                       {slot.map((a) => (
                         <button key={a.key} type="button" className="btn" disabled={!up} onClick={() => runSlot(row.order_item_id, a)}>
                           {a.label}

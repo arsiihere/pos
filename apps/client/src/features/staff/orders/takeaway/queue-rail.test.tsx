@@ -235,6 +235,44 @@ describe('[02b-TK C2-1] the takeaway queue rail', () => {
   });
 });
 
+// BUG-12 (QA, kiosk): after the session ended the rail showed every token as "Takeaway", no items, red "Due" — paid
+// ones too: it took Paid and the items only from this device's copy (the socket's catch-up / frames), so rows read
+// without that copy looked like real, unpaid, empty orders. 02b v1.0.25 §6.16: the open-orders row itself carries
+// `bill { state }` and `lines_summary` / `lines_more`; the device copy only adds the names (R3) and Part given.
+describe('[BUG-12; 02b v1.0.25 §6.16] the rail never shows the hub rows as something else', () => {
+  it('without this device\'s copy of an order (no catch-up), Paid and the items come from the open-orders row', async () => {
+    const s = setup({
+      caught: [],
+      rows: [
+        aRow({ order_id: 'O60', token: 60, ready: { n: 2, m: 2 }, bill: { state: 'paid', due_minor: 0 }, lines_summary: [{ name: 'Paye', qty: 1 }, { name: 'Roghni Naan', qty: 4 }], lines_more: 0 }),
+        aRow({ order_id: 'O61', token: 61, ready: { n: 0, m: 1 }, bill: { state: 'due', due_minor: 50_000 }, lines_summary: [{ name: 'Karahi', qty: 1 }], lines_more: 2 }),
+      ],
+    });
+    const v = await show(s);
+    expect(tiles(v)).toHaveLength(1);
+    expect(tiles(v)[0]!.textContent).toContain('Paid');
+    expect(tiles(v)[0]!.textContent).not.toContain('Due');
+    expect(rows(v)[0]!.textContent).toContain('Karahi +2');
+    expect(rows(v)[0]!.textContent).toContain('Due');
+  });
+
+  it('a refused read (401 / 403, not a lost network) drops the rows it showed: never the last read as if current', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    const v = await show(s);
+    expect(tiles(v)).toHaveLength(2);
+    s.openOrders.mockResolvedValueOnce({ ok: false, error: { kind: 'api', status: 403, code: 'PERMISSION_DENIED', details: {} } } as never);
+    act(() => s.live.visibility('visible'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await flush();
+    expect(v.text()).toContain('Couldn’t load orders');
+    expect(tiles(v)).toHaveLength(0);
+    expect(rows(v)).toHaveLength(0);
+  });
+});
+
 describe('[02b-TK C2-1] queue model', () => {
   it('[R3] last-4 search needs exactly 4 digits; a token prefix matches', () => {
     const live = createLiveBus();

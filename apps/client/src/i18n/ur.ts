@@ -1067,6 +1067,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'alert.zone_stock_out.lock': 'زون کا ایک آئٹم ختم ہو گیا',
   // ---- lane A (02a client) ----
   'signin.pin_needs_hub': 'سائن اِن کے لیے ہب چاہیے',
+  'signin.locked_for': 'بہت زیادہ غلط PIN۔ {t} بعد دوبارہ کوشش کریں۔',
+  'signin.device_locked_for': 'اس اسکرین پر بہت زیادہ غلط PIN۔ {t} بعد دوبارہ کوشش کریں۔',
   'pair.wipe_failed': 'اس سکرین کو ری سیٹ نہیں کیا جا سکا۔ مینیجر سے پوچھیں۔',
   'topbar.floor': 'فلور',
   'tabs.tables': 'میزیں',
@@ -1380,6 +1382,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.hand_over_sub': 'ایک ٹیپ سے یہاں کی ہر تیار لائن حوالے۔',
   // P4 (from PassTakeoverUrdu; pass.screen_back is in docs/design/handoff/03b/urdu-todo.md, lane P)
   'pass.takeover_sub': 'اس کا ناؤ اور اگلا یہاں ہے۔ اسکرین واپس آنے تک یہاں ٹیپ کریں۔',
+  'pass.takeover_no_answer': 'ہب سے جواب نہیں آیا — دوبارہ ٹیپ کریں', // QA BUG-17; Urdu to confirm
+  'pass.takeover_not_fired': 'ابھی کچن کو نہیں بھیجا گیا — پہلے پچھلے راؤنڈ', // QA BUG-17; Urdu to confirm
   // ---- lane A (03b client) ----
   // A1 kitchen screens (from KitchenScreensUrdu; the rest is in docs/design/handoff/03b/urdu-todo.md, lane A)
   'kitchen_screens.stations': 'اسٹیشن',
@@ -1392,6 +1396,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'kitchen_screens.use_tablet': 'ٹیبلٹ کو پاس ٹیبلٹ بنائیں',
   'kitchen_screens.play': 'اس ڈیوائس پر چلائیں',
   'admin_03.nav.other_jobs': 'دوسرے کام',
+  'admin_03.login.listed_only': 'یہ اسکرین ہب ایڈمن کے صفحے نہیں کھول سکتی',
+  'admin_03.login.listed_only_body':
+    'یہ سب کے لیے ہے۔ یہ صفحہ اپنے فون پر یا ایسی ڈیوائس پر کھولیں جو "صرف درج لوگ" پر ہو اور اس میں آپ کا نام ہو۔ مینیجر اسے Devices میں بدل سکتا ہے۔',
+  'admin_03.login.recover': 'ایڈمن رسائی واپس لیں',
   // A5 alert cards (written without a frame text: listed under "Needs native review" in 03b/urdu-todo.md)
   'alerts.closed.moved_plain': 'منتقل',
   'alerts.closed.served': 'پیش ہو گیا',
@@ -1704,6 +1712,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'v.check_denied': 'آپ اس آرڈر کا چیک بل پرنٹ نہیں کر سکتے',
   // ---- 02b-TK client (A2 batch 1, item 1 shell: frames ShellAnatomy, PersonMenu, DayNotStarted): strings-table.md ----
   'shell.back': 'واپس',
+  'shell.signed_out_hub': 'آپ سائن آؤٹ ہو گئے۔ دوبارہ سائن اِن کریں۔',
+  'shell.not_allowed.title': 'اجازت نہیں',
+  'shell.not_allowed.body': 'آپ کا رول اس ڈیوائس پر یہ اسکرین استعمال نہیں کر سکتا۔ ضرورت ہو تو مینیجر سے پوچھیں۔',
+  'shell.not_allowed.home': 'میری اسکرین پر جائیں',
   'shell.me.switch': 'یوزر بدلیں',
   'shell.me.switch_sub': 'کاؤنٹر کسی اور کو دیں',
   'shell.me.lock': 'اسکرین لاک کریں',
@@ -1777,6 +1789,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.offline_counter': 'آف لائن — کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
   'pass.pickup_at': '{time} پر لینا ہے — کاؤنٹر پر \'گاہک آ گیا\' استعمال کریں', // not in strings-table.md; Urdu to confirm
   'pass.due': 'باقی — گاہک کاؤنٹر پر ادا کرے گا', // not in strings-table.md; Urdu to confirm
+  'pass.due_amount': 'باقی {amount} — گاہک کاؤنٹر پر ادا کرے گا', // 03b v1.0.17; Urdu to confirm
+  'pass.addition_tag': '(اضافہ)', // 03b v1.0.17; Urdu to confirm
+  'pass.ready_pick_sub_bag': 'نشان والی چیزیں تیار ہو کر بیگ میں جائیں گی۔', // 03b v1.0.17; Urdu to confirm
+  'pass.waiting_counter': 'کاؤنٹر پر انتظار', // 03b v1.0.17; Urdu to confirm
+  'pass.phone_order': 'فون آرڈر', // 03b v1.0.17; Urdu to confirm
   'pass.waiting_bill': 'بل کا انتظار', // not in strings-table.md; Urdu to confirm
   'pass.pickup_label': 'لینا ہے {time}', // not in strings-table.md; Urdu to confirm
   'pass.hand_at_counter': 'کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
@@ -1798,6 +1815,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.manager_rejected': 'مینیجر نے منع کر دیا', // not in strings-table.md; Urdu to confirm
   'unpaid.already_waiting': 'مینیجر سے پہلے ہی پوچھا جا چکا ہے', // not in strings-table.md; Urdu to confirm
   'unpaid.withdraw': 'واپس لیں', // not in strings-table.md; Urdu to confirm
+  'unpaid.addition': '(اضافہ)', // not in strings-table.md; Urdu to confirm
   'unpaid.approved': 'مینیجر نے اجازت دے دی — حوالے کریں', // not in strings-table.md; Urdu to confirm
   'unpaid.not_needed': 'ابھی کچھ باقی نہیں — حوالے کریں', // not in strings-table.md; Urdu to confirm
   'unpaid.refused': 'ادائیگی نہیں ہوئی — پہلے پیسے لیں یا مینیجر سے پوچھیں', // not in strings-table.md; Urdu to confirm
@@ -1805,6 +1823,12 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'alert.hand_over_unpaid.card': '{identifier} بغیر ادائیگی حوالے کریں', // not in strings-table.md; Urdu to confirm
   'alert.hand_over_unpaid.lock': 'بغیر ادائیگی حوالگی کی درخواست', // not in strings-table.md; Urdu to confirm
   'alert.hand_over_unpaid.name': 'بغیر ادائیگی حوالگی', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.closed': 'اب ضرورت نہیں — بل یا آرڈر بدل گیا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.due_changed': 'بل بڑھ گیا — دوبارہ پوچھیں', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.handed_over': 'پہلے ہی حوالے ہو چکا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.order_cancelled': 'آرڈر منسوخ ہو گیا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.bill_closed': 'بل ادا ہو گیا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.day_closed': 'دن بند ہو گیا', // not in strings-table.md; Urdu to confirm
   // ---- 02b-TK L-CLIENT-3 item 1 (05 v1.0.35 §6.3, §6.3a, §8; 02b v1.0.25 §8 OR-5 / R6; D9): cart / Due check bill — gross and remaining payable, the cart's refusals, Print receipt again ----
   'billing.check_amounts': 'کل رقم {gross} · باقی قابلِ ادائیگی {due}', // not in strings-table.md; Urdu to confirm
   'billing.check_not_printed': 'چیک بل پرنٹ نہیں ہوا — {why}', // not in strings-table.md; Urdu to confirm

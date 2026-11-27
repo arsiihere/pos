@@ -27,6 +27,10 @@ export interface ReadySheetProps {
   up: boolean;
   onConfirm(order_item_ids: string[]): void;
   onClose(): void;
+  /** ⚠️ 03b v1.0.17 §3.4: a token's bag — the pending lines of every order of it (default: the order's own) */
+  pending?: PointLine[];
+  /** a takeaway / parking bag: "Ticked items go into the bag as ready." (no waiter on takeaway, QA design audit) */
+  bag?: boolean;
 }
 
 /** the − / + count of a grouped row (the kit's `.step`), "n of total" in its output */
@@ -44,8 +48,8 @@ function Count({ n, total, onChange }: { n: number; total: number; onChange: (n:
   );
 }
 
-export function ReadySheet({ order, up, onConfirm, onClose }: ReadySheetProps) {
-  const rows = groupLines(pendingLines(order));
+export function ReadySheet({ order, up, onConfirm, onClose, pending, bag = false }: ReadySheetProps) {
+  const rows = groupLines(pending ?? pendingLines(order));
   const keyOf = (r: PassRow) => r.parts[0]!.order_item_id;
   /** per row (its first part's id): how many of its parts are picked */
   const [counts, setCounts] = useState<ReadonlyMap<string, number>>(() => new Map(rows.map((r) => [keyOf(r), r.line.stage === 'done' ? r.parts.length : 0])));
@@ -62,7 +66,7 @@ export function ReadySheet({ order, up, onConfirm, onClose }: ReadySheetProps) {
           <span className="tcode j">{identifierText(order.identifier)}</span>
           <div className="dlg__t">
             <h2 id="pass-rd-t">{t('pass.ready_pick_title')}</h2>
-            <div className="ac__who">{t('pass.ready_pick_sub')}</div>
+            <div className="ac__who">{t(bag ? 'pass.ready_pick_sub_bag' : 'pass.ready_pick_sub')}</div>
           </div>
           <button type="button" className="btn btn--icon dlg__x" aria-label={t('common.close')} onClick={onClose}>
             <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">

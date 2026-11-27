@@ -92,7 +92,8 @@ for (const lang of LANGS) {
       const card = passCard(pass.page, token);
       await expect(card).toBeVisible({ timeout: 15_000 });
       await expect(card.locator('.pl', { hasText: run.items.main.name })).toBeVisible();
-      await expect(card.locator('.pc__g')).toBeVisible();
+      // ⚠️ 03b v1.0.17 §8: the readiness pill (the station line shows only for 2+ stations)
+      await expect(card.locator('.rd')).toBeVisible();
       await capture(pass.page, info, `T1-16-pass-card-${info.project.name}-${lang}`, card);
     } finally {
       await closeAll(info, lang, pass, cash);
@@ -115,13 +116,18 @@ for (const lang of LANGS) {
       await passTablet(pass.page, 'bag', info, lang);
       const card = passCard(pass.page, token);
       await expect(card).toBeVisible({ timeout: 15_000 });
-      // #17: the paye done, the drink not → the bag is not ready (no Bag ready, no hand-over)
+      // #17: the paye done, the drink not → the bag is not ready and cannot be handed over (03b v1.0.17 §8: no
+      // "Handed to customer" while it cooks)
       await cookLine(card, run.items.main.name);
       await expect(card).not.toHaveClass(/\bready\b/);
-      await expect(card.locator('.btn--customer')).toBeDisabled();
+      await expect(card.locator('.rd')).not.toHaveText(tr(lang, 'pass.ready'));
+      await expect(card.locator('.btn--customer')).toHaveCount(0);
       await capture(pass.page, info, `T1-17-half-bag-${info.project.name}-${lang}`, card);
       await cookLine(card, run.items.drink.name);
       await expect(card).toHaveClass(/\bready\b/);
+      // the whole bag is ready: Bag ready, then "Handed to customer" is the card's one primary
+      await card.locator('.pc__f .btn--ready').click();
+      await expect(card.locator('.pc__f .btn--ready')).toHaveCount(0);
 
       // #18: Handed to customer on the paid, ready bag; Undo within 5 s brings it back; then for real
       const button = card.locator('.btn--customer');
@@ -306,3 +312,71 @@ for (const lang of LANGS) {
     }
   });
 }
+
+// BUG-4 (02b v1.0.25 §6.6 BoostOrder, §8 02b-R4-3 "Customer is here — cook now", §6.16 BR-1; 03a v1.2.11 PK-5; D1): QA
+// on the cashier kiosk ~20 min before the pickups — a PAID pickup (Send & pay, +15) and a DUE one (pay later, +20) —
+// both offer Customer is here to a boost-order holder (the Owner runs this counter; the default Cashier role has no
+// boost-order, 01b v1.12 §6.15, so it never sees it). After the boost the button goes, the pickup stays, and the
+// Ready-by fact shows "Ready ~{planned}" beside the struck promise once the engine plans it earlier (BR-1).
+test('[BUG-4; 02b §6.6, §8] Customer is here on a paid and a due pickup ~20 min ahead; after the boost "Ready ~" (en)', async ({ browser, request }, info) => {
+  t1RunsHere(info);
+  const lang = 'en' as const;
+  const run = t1Run('bag', info, lang);
+  const cash = await screen(browser, info.project.use.viewport!);
+  const api = await apiSession(request, 'S_OWNER');
+  try {
+    await counter(cash.page, lang, info);
+    const page = cash.page;
+    // the paid pickup through the counter: +15 min, Send & pay, cash
+    await menuTile(page, run.items.main.name).click();
+    await menuTile(page, run.items.drink.name).click();
+    const plus15 = page.locator('.cart [data-pickup-row]').getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.pick_15'))}$`) });
+    await plus15.click();
+    await expect(plus15).toHaveAttribute('aria-pressed', 'true');
+    const paid = await payCashExact(page, lang);
+    // the due pickup as a phone order 20 min ahead (SubmitOrder pickup_at_ms, pay later)
+    const order_id = runId(`BUG4-${run.key}`);
+    const placed = await api.command('SubmitOrder', {
+      order_id,
+      order_type: 'takeaway',
+      pickup_at_ms: (await hubNow()) + 20 * 60_000,
+      lines: [
+        { order_item_id: `${order_id}-M`, item_id: run.items.main.item_id, quantity: 1 },
+        { order_item_id: `${order_id}-D`, item_id: run.items.drink.item_id, quantity: 1 },
+      ],
+    });
+    expect(placed.status, JSON.stringify(placed.body.error)).toBe(200);
+    type Row = { order_id: string; token: number | null; bill?: { state: string } | null; promise_ms: number | null; effective_pickup_at_ms: number | null; planned_ready_at_ms?: number | null };
+    const rows = async () => (await api.query<{ orders: Row[] }>('open-orders?order_type=takeaway')).orders;
+    const due = String((await rows()).find((o) => o.order_id === order_id)!.token);
+    const paidRow = (await rows()).find((o) => String(o.token) === paid)!;
+    expect(paidRow.bill?.state, 'the counter token is paid').toBe('paid');
+    expect(paidRow.effective_pickup_at_ms).not.toBeNull();
+    const drawer = page.locator('section.tk-drawer');
+    const here = drawer.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'v.here'))}`) });
+    for (const token of [due, paid]) {
+      await (await queueEntry(page, token)).click();
+      await expect(here, `token ${token}: Customer is here`).toBeVisible({ timeout: 5_000 });
+    }
+    // boost the paid one (its drawer is open)
+    const boosted = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/commands/boost-order'));
+    await here.click();
+    expect((await boosted).status()).toBe(200);
+    await expect(here).toHaveCount(0);
+    await expect(drawer.locator('.tk-facts [data-pickup]')).toBeVisible();
+    const after = (await rows()).find((o) => String(o.token) === paid)!;
+    expect(after.effective_pickup_at_ms).toBeNull();
+    const readyBy = drawer.locator('.tk-facts .tk-fact').first();
+    const offset = (await api.query<{ hub_time: { utc_offset_ms: number } }>('branch-config')).hub_time.utc_offset_ms;
+    if (after.planned_ready_at_ms != null && after.promise_ms !== null && after.planned_ready_at_ms < after.promise_ms) {
+      await expect(readyBy.locator('[data-planned]')).toHaveText(tr(lang, 'q.ready_planned', { t: clientTime(after.planned_ready_at_ms, offset) }));
+      await expect(readyBy.locator('s')).toHaveText(clientTime(after.promise_ms, offset));
+    } else {
+      await expect(readyBy.locator('[data-planned]')).toHaveCount(0);
+    }
+    console.log(`[BUG-4 ${info.project.name}] paid ${paid} boosted: planned ${after.planned_ready_at_ms}, promise ${after.promise_ms}`);
+  } finally {
+    await api.close();
+    await closeAll(info, lang, cash);
+  }
+});

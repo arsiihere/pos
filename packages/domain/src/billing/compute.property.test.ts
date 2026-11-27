@@ -211,7 +211,7 @@ interface MTotals {
 }
 
 /** §3.5 (1)–(7) totals of one split at class `cls`. */
-function modelTotals(ctx: Ctx, lines: readonly MLine[], cls: Cls): MTotals {
+function modelTotals(ctx: Ctx, lines: readonly MLine[], cls: Cls, target: bigint | null = null): MTotals {
   const taxOn = ctx.rules.tax_enabled;
   const inclusive = ctx.rules.prices_include_tax;
   const groupA = new Map<string, bigint>(); // A_p, profile → Σ (base − share)
@@ -294,7 +294,7 @@ function modelTotals(ctx: Ctx, lines: readonly MLine[], cls: Cls): MTotals {
     });
   }
   const G = N + SC + sumB(taxes.map((r) => r.tax_minor));
-  const R = roundingR(ctx, G, cls);
+  const R = target === null ? roundingR(ctx, G, cls) : target - G;
   return { subtotal: S, discount: D, net: N, sc: SC, taxes, G, R, T: G + R, ti };
 }
 
@@ -334,10 +334,12 @@ function netPaid(payments: readonly ComputePayment[], cls: Cls): bigint {
 }
 
 /** §3.5 (5)–(7), §3.7: one split's class, totals, balance, the four dues and change. */
-function modelSplit(ctx: Ctx, lines: readonly MLine[], payments: readonly ComputePayment[]): MSplit {
+type Targets = { cash: number; digital: number } | null | undefined;
+
+function modelSplit(ctx: Ctx, lines: readonly MLine[], payments: readonly ComputePayment[], targets: Targets = null): MSplit {
   const cls = classOf(payments);
-  const cash = modelTotals(ctx, lines, 'cash');
-  const digital = modelTotals(ctx, lines, 'digital');
+  const cash = modelTotals(ctx, lines, 'cash', targets == null ? null : BigInt(targets.cash));
+  const digital = modelTotals(ctx, lines, 'digital', targets == null ? null : BigInt(targets.digital));
   const asPaid = cls === 'cash' ? cash : digital;
   const Pd = netPaid(payments, 'digital');
   const Pc = netPaid(payments, 'cash');
@@ -374,11 +376,36 @@ function modelSplit(ctx: Ctx, lines: readonly MLine[], payments: readonly Comput
   };
 }
 
+/**
+ * §3.8 owner ruling 2026-11-28 (QA BUG-1): the open remainder rounded once, W = rnd(G_whole − Σ R_closed) (a class
+ * the rule does not round: W = G_whole); equal → floor(W / n) in whole steps, the last the rest; items / amount →
+ * W in whole steps by largest remainder over the exact G_s (all 0 → the last takes W).
+ */
+function modelTargets(ctx: Ctx, cls: Cls, mode: ComputePlan['mode'], gWhole: bigint, closedR: bigint, gs: readonly bigint[]): { W: bigint; shares: bigint[] } {
+  const { step_minor, mode: rmode, applies_to } = ctx.rules.rounding;
+  const rounds = step_minor !== null && !(applies_to === 'cash' && cls !== 'cash');
+  const step = rounds ? BigInt(step_minor as number) : 1n;
+  const W = rounds ? max0(rnd(max0(gWhole - closedR), step, rmode)) : gWhole;
+  const n = gs.length;
+  if (n === 1) return { W, shares: [W] };
+  const gsum = sumB(gs);
+  const shares =
+    mode === 'equal' ? gs.map(() => ((W / BigInt(n)) / step) * step) : gsum === 0n ? gs.map(() => 0n) : largestRemainder(W / step, gs).map((x) => x * step);
+  let last = W - sumB(shares.slice(0, -1));
+  for (let i = n - 2; i >= 0 && last < 0n; i--) {
+    const take = minB(shares[i], -last);
+    shares[i] -= take;
+    last += take;
+  }
+  shares[n - 1] = last;
+  return { W, shares };
+}
+
 interface MBill {
   shares: bigint[]; // per bill line, the discount share
   discount: bigint;
   sharesBlock: boolean;
-  splits: Array<{ split_no: number; lines: ComputeSplitLine[] }>;
+  splits: Array<{ split_no: number; lines: ComputeSplitLine[]; targets: { cash: number; digital: number } }>;
   totalsDefault: MTotals;
 }
 
@@ -406,7 +433,9 @@ function modelBill(input: ComputeBillInput): MBill {
     }
   }
   const mlines: MLine[] = lines.map((l, i) => ({ base: bases[i], disc: shares[i], profile: l.tax_profile_id, kind: l.line_kind }));
-  const totalsDefault = modelTotals(ctx, mlines, 'cash');
+  const closedR = BigInt(input.closed_rounding_minor ?? 0);
+  const gWhole = (cls: Cls) => modelTotals(ctx, mlines, cls).G;
+  const totalsDefault = modelTotals(ctx, mlines, 'cash', modelTargets(ctx, 'cash', 'none', gWhole('cash'), closedR, [gWhole('cash')]).W);
   const splitLine = (l: ComputeLine, units: number, base: bigint, disc: bigint): ComputeSplitLine => ({
     order_item_id: l.order_item_id,
     line_kind: l.line_kind,
@@ -420,7 +449,7 @@ function modelBill(input: ComputeBillInput): MBill {
   const plan: ComputePlan =
     input.plan.mode === 'none' ? input.plan : ({ ...input.plan, splits: [...input.plan.splits].sort((a, b) => a.split_no - b.split_no) } as ComputePlan);
   let sharesBlock = false;
-  let splits: MBill['splits'] = [];
+  let splits: Array<{ split_no: number; lines: ComputeSplitLine[] }> = [];
   if (plan.mode === 'none') {
     splits = [{ split_no: plan.split_no, lines: lines.map((l, i) => splitLine(l, l.units, bases[i], shares[i])) }];
   } else if (plan.mode === 'items') {
@@ -456,7 +485,13 @@ function modelBill(input: ComputeBillInput): MBill {
       splits = out;
     }
   }
-  return { shares, discount: sumB(shares), sharesBlock, splits, totalsDefault };
+  const sorted = [...splits].sort((a, b) => a.split_no - b.split_no);
+  const tg = (cls: Cls) =>
+    modelTargets(ctx, cls, plan.mode, gWhole(cls), closedR, sorted.map((x) => modelTotals(ctx, toMLines(x.lines), cls).G)).shares;
+  const tc = tg('cash');
+  const td = tg('digital');
+  const withTargets = sorted.map((x, i) => ({ ...x, targets: { cash: Number(tc[i]), digital: Number(td[i]) } }));
+  return { shares, discount: sumB(shares), sharesBlock, splits: withTargets, totalsDefault };
 }
 
 const toMLines = (lines: readonly ComputeSplitLine[]): MLine[] =>
@@ -593,7 +628,9 @@ function compareBill(input: ComputeBillInput, res: ComputeBillResult): string | 
     d = firstDiff(byId(cs.lines), byId(ms.lines), `split ${ms.split_no}.lines`);
     if (d !== null) return d;
     const pays = input.payments.filter((p) => p.split_no === ms.split_no);
-    d = firstDiff(normSplit(cs), normSplit(modelSplit(ctx, toMLines(ms.lines), pays)), `split ${ms.split_no}`);
+    d = firstDiff(normSplit(cs), normSplit(modelSplit(ctx, toMLines(ms.lines), pays, ms.targets)), `split ${ms.split_no}`);
+    if (d !== null) return d;
+    d = firstDiff(cs.total_targets, ms.targets, `split ${ms.split_no}.total_targets`);
     if (d !== null) return d;
     d = firstDiff(cs.blocks, [], `split ${ms.split_no}.blocks`);
     if (d !== null) return d;
@@ -602,8 +639,8 @@ function compareBill(input: ComputeBillInput, res: ComputeBillResult): string | 
 }
 
 /** Model vs computeSplit on one split input. */
-function compareSplit(ctx: Ctx, lines: readonly ComputeSplitLine[], pays: readonly ComputePayment[], res: ComputeSplitResult): string | null {
-  return firstDiff(normSplit(res), normSplit(modelSplit(ctx, toMLines(lines), pays)), `split ${res.split_no}`);
+function compareSplit(ctx: Ctx, lines: readonly ComputeSplitLine[], pays: readonly ComputePayment[], res: ComputeSplitResult, targets: Targets = null): string | null {
+  return firstDiff(normSplit(res), normSplit(modelSplit(ctx, toMLines(lines), pays, targets)), `split ${res.split_no}`);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -863,6 +900,16 @@ function totalsProblem(t: ComputeTotals): string | null {
   return null;
 }
 
+/** §3.8 (owner ruling 2026-11-28): T = the allocated target, R = T − G, |R| < 2 steps (equal: n steps; null: a few units). */
+function targetProblem(rules: ComputeRules, t: ComputeTotals, target: number, nEqual = 0): string | null {
+  if (t.total_minor !== target) return `T ${t.total_minor} ≠ target ${target}`;
+  if (t.total_minor !== t.exact_total_minor + t.rounding_minor) return `T ${t.total_minor} ≠ G + R`;
+  // equal: the last split takes the remainder of n − 1 whole-step shares, so up to n steps
+  const bound = rules.rounding.step_minor === null ? 100 : Math.max(2, nEqual) * rules.rounding.step_minor + 100; // + per-split tax rounding drift
+  if (Math.abs(t.rounding_minor) >= bound) return `|R| ${t.rounding_minor} ≥ ${bound}`;
+  return null;
+}
+
 const fmt = (seed: number, what: string): string => `bill(${seed}): ${what}`;
 
 function report(failures: string[], label: string): void {
@@ -875,7 +922,7 @@ function report(failures: string[], label: string): void {
 
 describe('05 §10.1 #10 property: random bills (compute half)', () => {
   for (const master of [0x0510_0001, 0x0510_0002]) {
-    it(`[05 #10] Σ split S = Σ line bases; Σ printed tax = Σ tax rows; one rounding per split; no negative figure; = model (seed ${master})`, () => {
+    it(`[05 #10] Σ split S = Σ line bases; Σ printed tax = Σ tax rows; one rounding per split (or the bill's allocated total, §3.8 2026-11-28); no negative figure; = model (seed ${master})`, () => {
       const failures: string[] = [];
       for (let i = 0; i < 2_500; i++) {
         const seed = billSeed(master, i);
@@ -898,7 +945,9 @@ describe('05 §10.1 #10 property: random bills (compute half)', () => {
         if (printed !== rowsSum) failures.push(fmt(seed, `Σ printed tax ${printed} ≠ Σ tax rows ${rowsSum}`));
         for (const s of res.splits) {
           for (const [cls, t] of [['cash', s.totals.cash], ['digital', s.totals.digital], ['as_paid', s.totals.as_paid]] as const) {
-            const p = totalsProblem(t) ?? roundingProblem(input.rules, t, cls === 'as_paid' ? s.payment_class : cls);
+            // one rounding per split alone, or (§3.8 owner ruling 2026-11-28) R = the bill's allocated target − G
+            const k = cls === 'as_paid' ? s.payment_class : cls;
+            const p = totalsProblem(t) ?? (res.splits.length === 1 && (input.closed_rounding_minor ?? 0) === 0 ? roundingProblem(input.rules, t, k) : targetProblem(input.rules, t, s.total_targets[k], input.plan.mode === 'equal' ? res.splits.length : 0));
             if (p !== null) failures.push(fmt(seed, `split ${s.split_no} ${cls}: ${p}`));
           }
           if (s.rounding_minor !== s.totals.as_paid.rounding_minor) failures.push(fmt(seed, `split ${s.split_no}: rounding_minor ≠ as_paid R`));
@@ -919,6 +968,7 @@ describe('05 §10.1 #10 property: random bills (compute half)', () => {
             lines: s.lines,
             service_charge: input.service_charge,
             payments: input.payments.filter((p) => p.split_no === s.split_no),
+            total_targets: s.total_targets,
           });
           const d = firstDiff(normSplit(alone), normSplit(s), `computeSplit vs computeBill split ${s.split_no}`);
           if (d !== null) failures.push(fmt(seed, d));
@@ -1424,6 +1474,8 @@ interface SimStats {
 interface PadSplit {
   split_no: number;
   lines: ComputeSplitLine[];
+  /** §3.8: the split's totals as the bill allocated them (computeBill's `total_targets`). */
+  total_targets?: { cash: number; digital: number };
 }
 
 type SplitCtx = Omit<ComputeBillInput, 'lines' | 'plan' | 'payments' | 'discount'>;
@@ -1437,6 +1489,7 @@ function runSplit(base: SplitCtx, s: PadSplit, payments: readonly ComputePayment
     lines: s.lines,
     service_charge: base.service_charge,
     payments,
+    total_targets: s.total_targets ?? null,
   });
 }
 
@@ -1471,7 +1524,7 @@ function padToZero(
   const firstOutClass = r.payment_class;
   const firstOutTaxes = JSON.stringify(normRows(r.totals.as_paid.taxes));
   for (let iter = 0; iter < 120; iter++) {
-    const mdiff = compareSplit(ctx, s.lines, pays, r);
+    const mdiff = compareSplit(ctx, s.lines, pays, r, s.total_targets);
     if (mdiff !== null) failures.push(fmt(seed, `${phase}: model ≠ compute at ${mdiff}`));
     const B = r.balance_minor;
     if (B <= 0 && (r.card_due_minor !== 0 || r.cash_due_minor !== 0)) failures.push(fmt(seed, `${phase} split ${s.split_no}: B ${B} ≤ 0 but in-dues ${r.card_due_minor} / ${r.cash_due_minor} (H17-1)`));
@@ -1488,7 +1541,7 @@ function padToZero(
       const p: ComputePayment = { split_no: s.split_no, payment_class: cls, direction: 'in', amount_minor };
       if (cls === 'cash' && rng.chance(0.5)) p.tendered_minor = amount_minor + rng.int(0, 10_000);
       const hadCash = pays.some((x) => x.direction === 'in' && x.payment_class === 'cash');
-      const rawCash = Number(modelSplit(ctx, toMLines(s.lines), pays).cash_due_raw);
+      const rawCash = Number(modelSplit(ctx, toMLines(s.lines), pays, s.total_targets).cash_due_raw);
       pays.push(p);
       stats.payments++;
       r = runSplit(base, s, pays);
@@ -1612,7 +1665,7 @@ function simulateBill(seed: number, input: ComputeBillInput, failures: string[],
   const closed = new Map<number, ComputeSplitResult>();
   for (const s of rng.shuffle(sale.splits)) {
     stats.splits++;
-    const pad = { split_no: s.split_no, lines: s.lines };
+    const pad = { split_no: s.split_no, lines: s.lines, total_targets: s.total_targets };
     const out = padToZero(rng, seed, base, pad, [], failures, stats, 'sale');
     if (out.stuck !== null) {
       stuck(`sale split ${s.split_no}: ${out.stuck}`);
@@ -1622,7 +1675,7 @@ function simulateBill(seed: number, input: ComputeBillInput, failures: string[],
     if (out.payments.length === 0) stats.zeroTotalSplits++;
     closeChecks(seed, out.last, out.payments, failures);
     // tax rows identical to the same bill with R forced to 0 (step null); R never in a tax row
-    const noR = runSplit({ ...base, rules: { ...base.rules, rounding: { ...base.rules.rounding, step_minor: null } } }, pad, out.payments);
+    const noR = runSplit({ ...base, rules: { ...base.rules, rounding: { ...base.rules.rounding, step_minor: null } } }, { split_no: pad.split_no, lines: pad.lines }, out.payments);
     if (JSON.stringify(normRows(noR.totals.as_paid.taxes)) !== JSON.stringify(normRows(out.last.totals.as_paid.taxes))) {
       failures.push(fmt(seed, `sale split ${s.split_no}: tax rows differ from the R = 0 bill`));
     }
@@ -1691,7 +1744,7 @@ function simulateBill(seed: number, input: ComputeBillInput, failures: string[],
   let finalPays: ComputePayment[] = [];
   for (const s of rng.shuffle(reopened.splits)) {
     const carried = payments.filter((p) => p.split_no === s.split_no);
-    const out = padToZero(rng, seed, base, { split_no: s.split_no, lines: s.lines }, carried, failures, stats, 'refund');
+    const out = padToZero(rng, seed, base, { split_no: s.split_no, lines: s.lines, total_targets: s.total_targets }, carried, failures, stats, 'refund');
     if (out.stuck !== null) {
       stuck(`refund split ${s.split_no}: ${out.stuck}`);
       return;
