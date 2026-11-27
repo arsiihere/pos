@@ -25,7 +25,7 @@ import { maskPhone } from './mask';
 import { notCollectedMinOf, plannedReadyOf, type QueueToken } from './queue-model';
 import { CarriedDate, ReadyTime, useHubNow } from './QueueRail';
 import { AskManager } from '../unpaid/AskManager';
-import { candidatesOf, checkHandover, dueGate, lineIds, type Gate } from '../unpaid/candidate';
+import { blockedOrders, candidatesOf, checkHandover, dueGate, gateOf, lineIds, type BillRow, type Gate } from '../unpaid/candidate';
 import { unpaidRequestsOf } from '../unpaid/requests';
 import './styles';
 
@@ -126,6 +126,9 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   // ⚠️ 02b v1.0.25 §6.16 (owner ruling BR-1): the token's open-orders rows of this view's last read (null: not read or
   // not every order listed → the rail's token value), for "Ready ~{planned}" after Customer is here
   const [planRows, setPlanRows] = useState<OpenOrder[] | null>(null);
+  // BUG-9 (owner ruling 2026-11-28, approval ruling A; §6.16 `bill`, `unpaid_handover_approved`; D2): each order's own
+  // open-orders row of this view's last read, for its own due and the hub's approval flag (a frame this page missed)
+  const [billRows, setBillRows] = useState<ReadonlyMap<string, BillRow>>(new Map());
   const ids = token.order_ids.join(' ');
   const request = useRef(0);
   const load = useCallback(async () => {
@@ -149,6 +152,8 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
     if (mine !== request.current) return;
     const listed = open?.ok === true ? open.data.orders.filter((r) => orderIds.includes(r.order_id)) : [];
     setPlanRows(listed.length === orderIds.length ? listed : null);
+    setBillRows(new Map(listed.map((r) => [r.order_id, r])));
+    if (listed.length > 0) unpaidRequestsOf(shellRef.current).seed(listed);
     const found = views.flatMap((v) => (v.ok && v.data.kind === 'order' ? [v.data.order] : []));
     setGone(found.length === 0 && views.every((v) => !v.ok && v.error.kind === 'api' && v.error.code === 'ORDER_NOT_FOUND'));
     setOrders(found);
@@ -180,6 +185,14 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   useSyncExternalStore(unpaid.subscribe, unpaid.version);
   const gate = (order_id: string): Gate => {
     if (orders?.find((o) => o.order_id === order_id)?.billed === true) return { kind: 'free' };
+    // BUG-9: the order's own row (its due, the hub's flag); this page's approval of that due counts too (a frame
+    // ahead of the next read)
+    const row = billRows.get(order_id);
+    if (row?.bill !== undefined) {
+      const approvedDue = unpaid.approvedDue(order_id);
+      const g = gateOf(row, { approvedDue });
+      return g.kind === 'due' && !g.approved && approvedDue !== undefined && g.due_minor <= approvedDue ? { ...g, approved: true } : g;
+    }
     const cur = bill?.current;
     if (cur == null) return token.paid ? { kind: 'free' } : { kind: 'unknown' };
     return cur.paid ? { kind: 'free' } : dueGate(cur.amount_minor, undefined, unpaid.approvedDue(order_id));
@@ -187,7 +200,8 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const cands = candidatesOf(token.order_ids, liveLines(lines), gate);
   const fullCheck = checkHandover(cands, lineIds(candidates), reserved);
   const giveCheck = checkHandover(cands, lineIds(readyLines), reserved);
-  const ask = !fullCheck.ok && fullCheck.reason === 'due' ? fullCheck : !giveCheck.ok && giveCheck.reason === 'due' ? giveCheck : null;
+  // BUG-9 (owner ruling 2026-11-28, approval ruling A): one Ask a manager per blocked order, each with its own due
+  const asks = !fullCheck.ok && fullCheck.reason === 'due' ? blockedOrders(cands, lineIds(candidates), reserved) : !giveCheck.ok && giveCheck.reason === 'due' ? blockedOrders(cands, lineIds(readyLines), reserved) : [];
   const may = shell.permissions.allowed;
   const canServe = may('mark-served');
   const first = orders?.[0] ?? null;
@@ -367,9 +381,18 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
               {t('v.pay_first')}
             </p>
           )}
-          {canServe && ask !== null && (
-            <AskManager order_id={ask.order_id} due_minor={ask.due_minor} ident={token.order_ids.length > 1 ? `#${ident}` : undefined} variant="drawer" onChanged={() => void load()} />
-          )}
+          {canServe &&
+            asks.map((a) => (
+              <AskManager
+                key={a.order_id}
+                order_id={a.order_id}
+                due_minor={a.due_minor}
+                ident={token.order_ids.length > 1 ? `#${ident}` : undefined}
+                addition={a.order_id !== token.order_ids[0]}
+                variant="drawer"
+                onChanged={() => void load()}
+              />
+            ))}
         </div>
         <div className="tk-drawer__f">
           {canServe && giveReady && (
