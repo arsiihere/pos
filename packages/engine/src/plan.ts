@@ -1274,8 +1274,8 @@ export function checkOrderable(state: EngineState, proposed: ProposedOrder): voi
 }
 
 // §3.5.1 step 5 (D6, D3): padding = the station's promise_padding_ms ?? the branch's per order type; 0 on a FIFO
-// or EDF station. A group takes the max over its stations.
-function paddingOf(state: EngineState, station_id: string, order_type: OrderType): number {
+// or EDF station. A group takes the max over its stations. Exported (BR-1, owner 2026-11-27) for 03c customerReadyAt.
+export function paddingOf(state: EngineState, station_id: string, order_type: OrderType): number {
   const config = state.config;
   if (config === null) return 0;
   const station = config.stations.find((s) => s.station_id === station_id);
