@@ -4448,7 +4448,6 @@ export const en = {
   'pass.ask_manager': 'Ask a manager',
   'pass.waiting_manager': 'Waiting for a manager…',
   'pass.manager_rejected': 'Manager said no',
-  'unpaid.find_manager': 'Waiting — find a manager',
   'unpaid.already_waiting': 'Already waiting for a manager',
   'unpaid.withdraw': 'Withdraw',
   'unpaid.approved': 'Manager approved — hand over',

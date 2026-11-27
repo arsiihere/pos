@@ -31,7 +31,8 @@ export interface AskManagerProps {
 function statusOf(s: AskState | null): { text: string; sub: string | null } | null {
   if (s === null) return null;
   if (s.kind === 'rejected') return { text: t('pass.manager_rejected'), sub: null };
-  return s.mine ? { text: t('pass.waiting_manager'), sub: t('unpaid.find_manager') } : { text: t('unpaid.already_waiting'), sub: null };
+  // owner 2026-11-27: 02b §3.7a wording only — "Waiting for a manager…" (mine), "Already waiting for a manager" (another's)
+  return s.mine ? { text: t('pass.waiting_manager'), sub: null } : { text: t('unpaid.already_waiting'), sub: null };
 }
 
 export function AskManager({ order_id, due_minor, ident, variant, onChanged }: AskManagerProps) {
