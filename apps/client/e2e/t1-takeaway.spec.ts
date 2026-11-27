@@ -132,7 +132,7 @@ for (const lang of LANGS) {
 }
 
 for (const lang of LANGS) {
-  test(`[T1 #5] Send · pay later with a phone number: the token slip prints; the token is Due in the queue (${lang}) @gap`, async ({ browser }, info) => {
+  test(`[T1 #5] Send · pay later with a phone number: the token slip prints; the token is Due in the queue (${lang})`, async ({ browser }, info) => {
     t1RunsHere(info);
     const run = t1Run('bag', info, lang);
     const cash = await screen(browser, info.project.use.viewport!);
@@ -147,8 +147,9 @@ for (const lang of LANGS) {
       await (await queueEntry(page, token)).click();
       await expect(page.locator('.tk-drawer .tk-fact--due')).toBeVisible();
       // 02b §3.2 step 2b / 03c §3.11: Send · pay later prints the token slip (print_slip)
-      const slip = await printedJob(since, 'Token slip');
-      expect(slip.text).toContain(token);
+      // this token's own slip (the fixed hub clock stamps other runs' slips with the same time)
+      const slip = await printedJob(since, 'Token slip', new RegExp(`#${token}\\s`));
+      expect(slip.text).toContain('PAY AT THE COUNTER');
     } finally {
       await closeAll(info, lang, cash);
     }
