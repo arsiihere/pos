@@ -123,6 +123,8 @@ describe('[05 row Q-2] OrdersUnbilled (02b v1.0.16 §3.3)', () => {
   it('[05 #83b] OrdersUnbilled clears day_closed_at: a billed order that left at the close is open again', async () => {
     await start();
     const a = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'A1', item_id: FX.naan }] });
+    // ⚠️ 02b §3.3 DC-2: a paid takeaway leaves at the close only once handed over (its line served)
+    append(served(a.order_id, ['A1']));
     append(billed([a.order_id]));
     const closed = append(dayClosed());
     expect(order(a.order_id)).toMatchObject({ day_closed_at: closed });
@@ -187,5 +189,51 @@ describe('[05 row Q-6] orders.bill_key (02b v1.0.16 §3.1, §5)', () => {
     expect(park.bill_key).toBe(`${String(park.table_key)}:${String(park.business_date)}`);
     expect(String(park.table_key)).toMatch(/^parking:/);
     expect(order(d.order_id)).toMatchObject({ bill_key: null });
+  });
+});
+
+async function openOrdersQuery(order_type: 'takeaway' | 'parking'): Promise<Array<{ order_id: string; from_date: string | null; business_date: string }>> {
+  const device = pairDevice(hub, { type: 'tablet' });
+  const session = openSession(hub, { kind: 'staff', staffId: 'S_MGR', deviceId: device.deviceId });
+  const res = await hub.app.inject({ method: 'GET', url: `/queries/open-orders?order_type=${order_type}`, headers: { authorization: `Bearer ${device.token}`, 'x-session-token': session.token } });
+  expect(res.statusCode, res.body).toBe(200);
+  return (res.json() as { data: { orders: Array<{ order_id: string; from_date: string | null; business_date: string }> } }).data.orders;
+}
+
+describe('[02b §3.3 DC-2] a paid takeaway / parking order not yet handed over stays open across the day close', () => {
+  it('a paid pickup still waiting at the close stays on open-orders next day, its date beside the token; Handed to customer then removes it; the next close closes it', async () => {
+    await start();
+    const a = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'W1', item_id: FX.naan }] });
+    append(billed([a.order_id]));
+    const yesterday = order(a.order_id)['business_date'] as string;
+    append(dayClosed());
+    expect(order(a.order_id)).toMatchObject({ day_closed_at: null });
+    hub.clock.advance(86_400_000);
+    openDay(hub, { stock: { [FX.stock]: 100_000 } });
+    const next = await openOrdersQuery('takeaway');
+    expect(next.map((o) => o.order_id)).toEqual([a.order_id]);
+    expect(next[0]).toMatchObject({ business_date: yesterday, from_date: yesterday });
+    // Handed to customer: its last live line served → off the list at once
+    append(served(a.order_id, ['W1']));
+    expect(await openOrdersQuery('takeaway')).toEqual([]);
+    const second = append(dayClosed());
+    expect(order(a.order_id)).toMatchObject({ day_closed_at: second });
+  });
+
+  it('a paid parking order with a live line stays open; a paid dine-in order and a paid, handed-over takeaway leave (unchanged); a cancelled one leaves', async () => {
+    await start();
+    const parking = appendOrder(hub, { order_type: 'parking', car_number: 'LEA 1', lines: [{ order_item_id: 'K1', item_id: FX.naan }] });
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    const dineIn = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', lines: [{ order_item_id: 'D1', item_id: FX.naan }] });
+    const handed = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'H1', item_id: FX.naan }] });
+    const gone = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'X1', item_id: FX.naan }] });
+    append(served(handed.order_id, ['H1']));
+    append(billed([parking.order_id]), on(dineIn.order_id, 'OrdersBilled', { order_ids: [dineIn.order_id], bill_id: 'BL2' }), on(handed.order_id, 'OrdersBilled', { order_ids: [handed.order_id], bill_id: 'BL3' }));
+    append(on(gone.order_id, 'OrderCancelled', { order_id: gone.order_id }));
+    const closed = append(dayClosed());
+    expect(order(parking.order_id)).toMatchObject({ day_closed_at: null });
+    expect(order(dineIn.order_id)).toMatchObject({ day_closed_at: closed });
+    expect(order(handed.order_id)).toMatchObject({ day_closed_at: closed });
+    expect(order(gone.order_id)).toMatchObject({ day_closed_at: closed });
   });
 });

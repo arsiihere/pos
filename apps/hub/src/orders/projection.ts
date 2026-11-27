@@ -414,15 +414,18 @@ function applyVoided(tx: Database.Database, p: ItemVoidedPayload): void {
   ).run(n, p.refund_minor ?? 0, compedOut, compVoided, compVoided, p.order_item_id);
 }
 
-// §3.3 Day close: day_closed_at on every open order (any earlier date) that is cancelled, billed, or whose lines are
+// §3.3 Day close: day_closed_at on every open order (any earlier date) that is cancelled, billed (dine-in: DC-2), or whose lines are
 // all served, removed or voided. A deal line is never served itself (§3.4 Deal headers): only its parts count.
 // ⚠️ Changed by 05 (row Q-5): a carried order (carried_over = 1) is skipped and its flag cleared in the same fold, so it
 // keeps day_closed_at = NULL for this close only.
+// ⚠️ Changed by owner ruling DC-2 (2026-11-27, 02b §3.3): billed closes only a dine-in order; a billed (paid) takeaway or
+// parking order with a live unserved line stays open across the close (it leaves when handed over, cancelled or
+// abandoned) and is shown next day with its date beside its token.
 function applyDayClosed(tx: Database.Database, at: number): void {
   tx.prepare(
     `UPDATE orders SET day_closed_at = ?
      WHERE day_closed_at IS NULL AND carried_over = 0
-       AND (cancelled_at IS NOT NULL OR billed_at IS NOT NULL
+       AND (cancelled_at IS NOT NULL OR (billed_at IS NOT NULL AND order_type = 'dine_in')
             OR NOT EXISTS (SELECT 1 FROM order_lines l
                            WHERE l.order_id = orders.order_id AND l.line_kind <> 'deal' AND l.served_at IS NULL
                              AND l.units - l.removed_units - l.voided_units > 0))`,
