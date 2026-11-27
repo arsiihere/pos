@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { dialog, menuTile, rushOff, sendCart, sentToken, signInOn, takeawayTab } from './02b-support';
 import { t1Station } from './t1-fixture';
 import { capture, closeAll, cookLine, deviceFor, hubFire, LANGS, managerPhone, queueEntry, passCard, passTablet, screen, t1Run, t1RunsHere, tr, type Lang, type T1Run } from './t1-support';
@@ -28,7 +28,20 @@ async function dueAndReady(cash: Page, pass: Page, run: T1Run, lang: Lang, info:
   await expect(card).toBeVisible({ timeout: 15_000 });
   await cookLine(card, run.items.main.name);
   await expect(card).toHaveClass(/\bready\b/);
+  // ⚠️ 03b v1.0.17 §8: one primary per state — Bag ready first; then "Handed to customer" is the card's action
+  await card.locator('.pc__f .btn--ready').click();
+  await expect(card.locator('.btn--customer')).toBeVisible();
   return token;
+}
+
+/** ⚠️ 03b v1.0.17 §8: the card's Ask a manager opens the sheet (the per-order breakdown); its Ask sends; then it closes */
+async function askManager(pass: Page, card: Locator): Promise<void> {
+  await card.locator('[data-ask]').click();
+  const sheet = pass.locator('.pass-ask');
+  await sheet.locator('[data-ask-send]').click();
+  await expect(sheet.locator('[data-ask-send]')).toHaveCount(0);
+  await sheet.locator('.dlg__x').click();
+  await expect(sheet).toHaveCount(0);
 }
 
 /** The Manager's phone: Requests → the "Hand over unpaid #N" card → Approve or Reject; both ask the PIN (needs_pin always). */
@@ -63,13 +76,13 @@ for (const lang of LANGS) {
       // #22: Due, unapproved → greyed, "Take payment first", Ask a manager; nothing handed over
       const button = card.locator('.btn--customer');
       await expect(button).toBeDisabled();
-      await expect(card.locator('.pc__hint')).toHaveText(tr(lang, 'pass.take_payment_first'));
+      await expect(card.locator('.pc__why')).toHaveText(tr(lang, 'pass.take_payment_first'));
       await expect(card.locator('[data-ask]')).toHaveText(tr(lang, 'pass.ask_manager'));
       expect(served).toEqual([]);
       await capture(pass.page, info, `T1-22-blocked-${info.project.name}-${lang}`, card);
 
       // #23: Ask → the Manager approves with PIN on the phone → the Pass hands it over (customer_handover)
-      await card.locator('[data-ask]').click();
+      await askManager(pass.page, card);
       await expect(card).toContainText(tr(lang, 'pass.waiting_manager'));
       await managerPhone(phone.page, lang);
       await answer(phone.page, lang, token, 'approve');
@@ -94,7 +107,7 @@ for (const lang of LANGS) {
     try {
       const token = await dueAndReady(cash.page, pass.page, run, lang, info);
       const card = passCard(pass.page, token);
-      await card.locator('[data-ask]').click();
+      await askManager(pass.page, card);
       await managerPhone(phone.page, lang);
       await answer(phone.page, lang, token, 'approve');
       const button = card.locator('.btn--customer');
@@ -107,10 +120,11 @@ for (const lang of LANGS) {
       await menuTile(cash.page, run.items.drink.name).click();
       await cash.page.getByRole('button', { name: `${tr(lang, 'c.add_to')} ${token}` }).click();
       await expect(cash.page.locator('.tk-banner')).toHaveCount(0);
-      // the root order's card on the Pass: blocked again, a new approval is needed
+      // the token's card on the Pass (03b v1.0.17: the addition joins it): blocked again, a new approval is needed —
+      // the drink cooks, so Bag ready is its one primary (no hand-over), and Ask a manager is offered again
       const root = card.filter({ hasText: run.items.main.name });
-      await expect(root.locator('.btn--customer')).toBeDisabled({ timeout: 20_000 });
-      await expect(root.locator('[data-ask]')).toHaveText(tr(lang, 'pass.ask_manager'));
+      await expect(root.locator('[data-ask]')).toHaveText(tr(lang, 'pass.ask_manager'), { timeout: 20_000 });
+      await expect(root.locator('.btn--customer')).toHaveCount(0);
       await capture(pass.page, info, `T1-24-cleared-${info.project.name}-${lang}`, root);
     } finally {
       await closeAll(info, lang, phone, pass, cash);
@@ -126,7 +140,7 @@ for (const lang of LANGS) {
     try {
       const token = await dueAndReady(cash.page, pass.page, run, lang, info);
       const card = passCard(pass.page, token);
-      await card.locator('[data-ask]').click();
+      await askManager(pass.page, card);
       await managerPhone(phone.page, lang);
       await answer(phone.page, lang, token, 'reject');
       await expect(card).toContainText(tr(lang, 'pass.manager_rejected'), { timeout: 30_000 });
