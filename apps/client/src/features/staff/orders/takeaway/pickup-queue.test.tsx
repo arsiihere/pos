@@ -117,6 +117,9 @@ describe('[02b-TK L-CLIENT-5 item 1; frame PickupLater] the rail', () => {
     expect(rowOf(m, 53).querySelector('[data-pickup]')).toBeNull();
     // the token itself stays the bare number (the e2e finds it so)
     expect(rowOf(m, 60).querySelector('.tk-tok')?.textContent).toBe('60');
+    // L-CLIENT-6a item 12 (frame HomeKiosk): a phone order for later shows the phone with its token; Cooking does not
+    expect(rowOf(m, 60).querySelector('.tk-tok--phone .ico')).not.toBeNull();
+    expect(rowOf(m, 53).querySelector('.tk-tok--phone')).toBeNull();
   });
 
   it('[frame PickupLaterUrdu] Urdu', async () => {

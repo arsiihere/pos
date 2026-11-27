@@ -586,3 +586,12 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 /* "Your unsent order is back" sits over the menu, not the cart */
 .order:has(> .osc--tk) > .abns { position: fixed; top: 156px; inset-inline-start: 456px; inset-inline-end: auto; bottom: auto; max-width: 720px; z-index: 39; }
 @media (max-width: 1440px) { .order:has(> .osc--tk) > .abns { inset-inline-start: 346px; max-width: calc(100vw - 330px - 420px - 32px); } }
+
+/* ---------- L-CLIENT-6a items 11–12: the Live / Rush / Offline pill, phone orders (frames ShellAnatomy, HomeKiosk) ---------- */
+.top .live.tk-live { display: inline-flex; align-items: center; gap: 8px; }
+.top .live.tk-live:not(.tk-live--rush) .ico { display: none; }
+.top .live.tk-live:not(.tk-live--rush)::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--ok-fill); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ok-fill) 35%, transparent); }
+.top .live.tk-live--rush::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #fff; }
+.top .live.tk-live--rush .ico { display: none; }
+.tk-tok.tk-tok--phone { display: inline-flex; flex-direction: column; gap: 2px; font: 800 15px/1 var(--font-sans); }
+.tk-tok--phone .ico { width: 20px; height: 20px; }

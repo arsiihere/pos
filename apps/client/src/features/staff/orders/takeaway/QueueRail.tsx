@@ -289,13 +289,15 @@ function ReadyTile({ q, selected, owed, late, whole, onOpen, onHandOver, onPay }
   );
 }
 
-function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; onOpen(): void }) {
+function QueueRow({ q, selected, onOpen, later = false }: { q: QueueToken; selected: boolean; onOpen(): void; later?: boolean }) {
   const shell = useShell();
   const slips = slipMissesOf(shell);
   useSyncExternalStore(slips.subscribe, slips.version);
   return (
     <button type="button" className={selected ? 'tk-qr is-sel' : 'tk-qr'} aria-pressed={selected} onClick={onOpen} data-token={q.key}>
-      <span className="tk-tok" dir="ltr">
+      {/* L-CLIENT-6a item 12 (frames HomeKiosk, ReadyTiles): a phone order for later shows the phone with its token */}
+      <span className={later ? 'tk-tok tk-tok--phone' : 'tk-tok'} dir="ltr">
+        {later && <Ico name="phone" />}
         {q.token ?? '—'}
       </span>
       <span className="tk-qr__m">
@@ -445,12 +447,12 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
         {later.length > 0 && (
           <>
             <div className="tk-sec">
-              <Ico name="clock" />
+              <Ico name="phone" />
               {t('q.later')}
               <span className="tk-chip tk-chip--info num">{later.length}</span>
             </div>
             {later.map((q) => (
-              <QueueRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} />
+              <QueueRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} later />
             ))}
           </>
         )}
