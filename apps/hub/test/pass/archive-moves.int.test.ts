@@ -199,3 +199,40 @@ describe('[03b #132, 03a #195] D7: a config apply that archives a Pass moves its
     expect(withoutDiagnostics(rebuilt)).toEqual(withoutDiagnostics(engine()));
   });
 });
+
+// ⚠️ 03b v1.0.16 test 132 (R3-M-1): "Cold and checkpoint replay restore recorded moves and labels under later config",
+// the checkpoint half with a real day close (the after-commit checkpoint of 03a §3.12). L-CLOSE-1.
+describe('[03b #132 checkpoint] D7 moves restore from a day-close checkpoint plus replay', () => {
+  it('day 1 closes (checkpoint written); day 2 a TA line moves to Main on archive; a later config; checkpoint + replay = live, moved_from kept', async () => {
+    const { ORDER_EXIT_AFTER_SERVED_MS } = await import('@pos/engine');
+    const { loadEngineBase } = await import('../../src/engine-host/replay');
+    openDay(hub, { menu: menu(1, { s1Point: 'TA' }) });
+    // day 1: an order served and out of the engine, then the day closes → the D26 checkpoint
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'D1', lines: [{ order_item_id: 'D1a', item_id: FX.naan }] });
+    fireLines(hub, FX.station, ['D1a']);
+    append(hub, [{ stream_type: 'order', stream_id: 'D1', event_type: 'ItemDone', payload: { order_item_id: 'D1a', done_at: hub.clock.branchNow(), source: 'tap' } }]);
+    serveLines(hub, 'D1', ['D1a']);
+    hub.clock.advance(ORDER_EXIT_AFTER_SERVED_MS + 60_000);
+    append(hub, [{ stream_type: 'hub', stream_id: BRANCH, event_type: 'BusinessDayClosed', payload: {} }], { actor: null });
+    const checkpoint = hub.deps.db.prepare('SELECT last_seq FROM engine_checkpoints WHERE branch_id = ? ORDER BY last_seq DESC LIMIT 1').get(BRANCH) as { last_seq: number } | undefined;
+    expect(checkpoint).toBeDefined();
+
+    // day 2: a line recorded at TA, then TA archived (moves to Main), then a later routing change
+    hub.clock.advance(24 * 3_600_000);
+    openDay(hub, { menu: menu(10, { s1Point: 'TA' }) });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'O2', lines: [{ order_item_id: 'B1', item_id: FX.naan }] });
+    fireLines(hub, FX.station, ['B1']);
+    expect(engine().lines.B1).toMatchObject({ point_id: 'TA' });
+    expect((await apply(menu(11, { s1Point: 'MAIN', ta: { is_archived: true } }))).outcome).toBe('applied');
+    expect(engine().lines.B1).toMatchObject({ point_id: 'MAIN', from_point_name: 'Takeaway Pass' });
+    expect((await apply(menu(12, { s1Point: 'MAIN', ta: { order_types: 'all' } }))).outcome).toBe('applied');
+
+    const base = loadEngineBase(hub.deps.db, BRANCH, () => undefined);
+    expect(base.checkpoint_seq).toBe(checkpoint!.last_seq);
+    expect(base.snapshot_seq).toBeNull();
+    const restored = replayEngine(hub.deps.db, BRANCH, base.checkpoint_seq!, base.state!, () => undefined).state;
+    expect(restored.lines.B1).toMatchObject({ point_id: 'MAIN', from_point_id: 'TA', from_point_name: 'Takeaway Pass' });
+    expect(withoutDiagnostics(restored)).toEqual(withoutDiagnostics(engine()));
+    expect(buildLineDetails(hub.deps.db, restored, ['B1']).get('B1')).toMatchObject({ point_id: 'MAIN', moved_from: 'Takeaway Pass' });
+  });
+});
