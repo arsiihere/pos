@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { escapeRe, menuTile, railEntry, rushOff, sentToken, shiftOpen, signInOn, takeawayTab } from './02b-support';
-import { apiSession, capture, closeAll, cookLine, deviceFor, hubFire, hubNow, LANGS, passCard, passTablet, printedJob, screen, t1Key, t1Run, t1RunsHere, tr } from './t1-support';
+import { escapeRe, menuTile, rushOff, sentToken, shiftOpen, signInOn, takeawayTab } from './02b-support';
+import { apiSession, capture, queueEntry, closeAll, cookLine, deviceFor, hubFire, hubNow, LANGS, passCard, passTablet, printedJob, screen, t1Key, t1Run, t1RunsHere, tr } from './t1-support';
 import { t1Station } from './t1-fixture';
 
 // L-E2E-T1 group A — the owner's dry-run checklist ("Takeaway Tier 1 — Restaurant Dry Run Checklist"), the takeaway
@@ -70,7 +70,7 @@ for (const lang of LANGS) {
       expect(receipt.text).toContain('Naan');
       expect(receipt.text).toContain(run.items.main.name.slice(0, 12));
       // the queue holds the paid token until it is handed over
-      await expect(railEntry(page, token).first()).toBeVisible();
+      await expect(await queueEntry(page, token)).toBeVisible();
 
       // #16: the kitchen got it — the run point's Pass card: token, lines, how much of the bag is ready
       await passTablet(pass.page, 'bag', info, lang);
@@ -124,7 +124,7 @@ for (const lang of LANGS) {
       expect((await served).status()).toBe(200);
       await expect(card).toHaveCount(0, { timeout: 15_000 });
       // the counter's queue lets it go too
-      await expect(railEntry(cash.page, token)).toHaveCount(0, { timeout: 15_000 });
+      await expect(await queueEntry(cash.page, token)).toHaveCount(0, { timeout: 15_000 });
     } finally {
       await closeAll(info, lang, pass, cash);
     }
@@ -139,12 +139,12 @@ for (const lang of LANGS) {
     try {
       await counter(cash.page, lang, info);
       const page = cash.page;
-      await page.locator('.cart input[name="phone"]').fill('03001234567');
+      await page.locator('.cart input[name="phone"]').fill('03001234567', { timeout: 10_000 });
       await menuTile(page, run.items.main.name).click();
       const since = await hubNow();
       await page.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.send_later'))}`) }).click();
       const token = await sentToken(page);
-      await railEntry(page, token).first().click();
+      await (await queueEntry(page, token)).click();
       await expect(page.locator('.tk-drawer .tk-fact--due')).toBeVisible();
       // 02b §3.2 step 2b / 03c §3.11: Send · pay later prints the token slip (print_slip)
       const slip = await printedJob(since, 'Token slip');
@@ -208,7 +208,7 @@ for (const lang of LANGS) {
       expect(placed.status, JSON.stringify(placed.body.error)).toBe(200);
       const token = String((await api.query<{ orders: Array<{ order_id: string; token: number }> }>('open-orders?order_type=takeaway')).orders.find((o) => o.order_id === order_id)!.token);
       await counter(cash.page, lang, info);
-      await railEntry(cash.page, token).first().click();
+      await (await queueEntry(cash.page, token)).click();
       // 03b §3.4 / 02b §6.6a ReleaseBoost: the counter's "Customer is here" (pass.pickup_at points the Pass to it)
       const here = cash.page.locator('.tk-drawer').getByRole('button', { name: /customer is here|boost/i });
       await expect(here, 'the token view offers Customer is here for a pickup order (02b §8)').toBeVisible({ timeout: 5_000 });

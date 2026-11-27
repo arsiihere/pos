@@ -169,3 +169,14 @@ export async function apiSession(request: import('@playwright/test').APIRequestC
     },
   };
 }
+
+/**
+ * The queue entry of a token at the counter: the kiosk shows its queue column; the landscape tablet keeps it behind
+ * the rail strip's queue toggle (02b-TK C2-1), which this opens first.
+ */
+export async function queueEntry(page: Page, token: string): Promise<Locator> {
+  const { railEntry, readyTile } = await import('./02b-support');
+  const strip = page.locator('.tk-rstrip');
+  if ((await strip.count()) > 0 && (await readyTile(page, token).count()) === 0 && (await page.locator('.tk-qr').count()) === 0) await strip.locator('.tk-rstrip__q').click();
+  return railEntry(page, token).first();
+}
