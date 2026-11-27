@@ -364,6 +364,10 @@ describe('03a task 23: the engine alert kinds', () => {
       { name: 'Burger', state: 'done' }, { name: 'Drink', state: 'added' },
     ] } });
     expect(stored('SlipWarned')[0]?.payload.target_land_ms).toBe(pickup);
+    // ⚠️ 03a v1.2.11 test 190 (e) (L-CLOSE-2): the card's estimate includes the held drink (slipGroupsAt): it is no
+    // earlier than the drink's own planned land
+    const drink = engine().lines.drink!;
+    expect(stored('SlipWarned')[0]!.payload.estimated_land_ms as number).toBeGreaterThanOrEqual((drink.booked?.end ?? drink.fire_ms!) + drink.carry_ms);
   });
 
   it('[03a §3.8, AD-37 (3)] minutes_late = ceil((estimate − target) / 1 min), never below 0, whatever the promise', () => {
