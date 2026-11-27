@@ -1967,5 +1967,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'held.discard': 'ختم کریں',
   'queue.in_log': 'نہیں گیا — قطار کا لاگ دیکھیں',
   'queue.title': 'نہیں گیا',
+  'tr.pick': 'جو ہٹانا ہے وہ چنیں',
   // ---- end L-CLIENT-6b ----
 };

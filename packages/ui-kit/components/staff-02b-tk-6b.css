@@ -194,3 +194,8 @@
 .top .tk-ctx > div > :not(b):not(small) { grid-column: 2; grid-row: 1 / span 2; }
 [dir="rtl"] .top .tk-ctx b { font-size: 17px; line-height: 1.35; }
 [dir="rtl"] .top .tk-ctx small { font-size: 13px; line-height: 1.4; }
+/* phone (frame PhoneToken): the footer's buttons fit the 844 px screen */
+.tk-drawer--phone .tk-drawer__f { gap: 8px; padding: 10px 12px 12px; }
+.tk-drawer--phone .tk-drawer__f .tk-btn { min-height: 48px; font-size: 16px; padding: 0 10px; }
+.tk-drawer--phone .tk-drawer__f .tk-btn--xl { min-height: 56px; font-size: 18px; }
+.tk-drawer--phone .tk-kbd, .pu.phone .tk-sheet .tk-kbd { display: none; }

@@ -285,5 +285,6 @@ Drafts for the owner and the Lake City staff to read aloud. Source of truth stay
 | `held.discard` | Discard | ختم کریں | existing key; was listed in 02b/urdu-todo.md |
 | `queue.in_log` | Not sent — see the queue log | نہیں گیا — قطار کا لاگ دیکھیں | existing key; was listed in 02b/urdu-todo.md |
 | `queue.title` | Not sent | نہیں گیا | existing key; was listed in 02b/urdu-todo.md |
+| `tr.pick` | Choose what to remove | جو ہٹانا ہے وہ چنیں | new key (L-CLIENT-6b) |
 
 <!-- end L-CLIENT-6b -->

@@ -98,7 +98,7 @@ export function TkRemove(p: TkRemoveProps) {
   };
   const one = [...units.keys()];
   const oneName = one.length === 1 ? (rows.find((r) => r.line.order_item_id === one[0])?.line.name ?? null) : null;
-  const go = oneName !== null ? fill(t('tr.go'), { n: String(total), item: oneName }) : fill(t('tr.go_n'), { n: String(total) });
+  const go = total === 0 ? t('tr.pick') : oneName !== null ? fill(t('tr.go'), { n: String(total), item: oneName }) : fill(t('tr.go_n'), { n: String(total) });
   return (
     <Dialog sheet={shell.phone} labelledBy="tr-t" onClose={p.onClose} className="dlg--w tk-dlg tk-remove">
       <h2 id="tr-t" className="tk-dlg__t">
