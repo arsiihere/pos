@@ -161,7 +161,8 @@ export function Cart(p: CartProps) {
       <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} qchips={p.qchips === true} takeaway={p.itemsLabel === true} />
       <div className="cart__foot">
         {p.itemsLabel === true ? (
-          <ReadyPanel {...p} />
+          // an empty takeaway cart has no time to tell (L-CLIENT-6a item 11): only the line sum
+          <ReadyPanel {...p} hideTime={empty && p.day === null} />
         ) : (
         <div className="total">
           <div className={p.readyLater === true ? 'total__ready total__ready--later' : 'total__ready'}>
@@ -244,7 +245,7 @@ export function Cart(p: CartProps) {
  * times it for" with a pickup; without a time it says why (offline, day not started, not previewed yet). Under it the
  * line sum, labelled "Items" (02b v1.0.25 §8; 05 v1.0.35 §6.3a: not computeBill).
  */
-function ReadyPanel(p: CartProps) {
+function ReadyPanel(p: CartProps & { hideTime?: boolean }) {
   const later = p.readyLater === true;
   const counter = p.groups.find((g) => g.group.kind === 'counter');
   const kitchen = p.groups.some((g) => g.group.kind !== 'counter');
@@ -253,6 +254,7 @@ function ReadyPanel(p: CartProps) {
   const cls = ['tk-readyby', none ? 'tk-readyby--none' : later ? 'tk-readyby--later' : null].filter((c) => c !== null).join(' ');
   return (
     <>
+      {p.hideTime !== true && (
       <div className={cls} data-ready="">
         <span className="tk-readyby__ic">
           <Ico name={later ? 'phone' : 'clock'} />
@@ -269,6 +271,7 @@ function ReadyPanel(p: CartProps) {
           )}
         </div>
       </div>
+      )}
       <div className="tk-total">
         <span data-items-label="">{t('cart.items_label')}</span>
         <strong className="money" dir={MONEY_DIR}>

@@ -595,3 +595,41 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .top .live.tk-live--rush .ico { display: none; }
 .tk-tok.tk-tok--phone { display: inline-flex; flex-direction: column; gap: 2px; font: 800 15px/1 var(--font-sans); }
 .tk-tok--phone .ico { width: 20px; height: 20px; }
+
+/* ---------- L-CLIENT-6a: fixes from the 1366 / 1280 captures ---------- */
+.top .tabs-top { display: flex; gap: 4px; }
+@media (max-width: 1400px) {
+  .top .tabs-top .btn { padding-inline: 10px; font-size: 15px; }
+  .top .tk-ctx { padding-inline-end: 10px; }
+  .top .tk-ctx b { font-size: 17px; max-width: 190px; }
+}
+@media (max-width: 1300px) { .top .tabs-top .btn .ico { display: none; } }
+/* ready tiles in a narrow rail: the Paid / Due chip under the token, never over it */
+@media (max-width: 1440px) {
+  .osc--tk > .tk-q .tk-rt { min-height: 0; padding: 8px 10px 10px; }
+  .osc--tk > .tk-q .tk-rt .tok { font-size: 36px; }
+  .osc--tk > .tk-q .tk-rt .tk-chip { position: static; align-self: flex-start; height: 26px; font-size: 13px; padding: 0 8px; }
+  .osc--tk > .tk-q .tk-rt__act { font-size: 14px; }
+  .osc--tk > .tk-q .tk-qr--q { flex-wrap: wrap; }
+  .osc--tk > .tk-q .tk-qr--q .tk-qr__r { flex-basis: 100%; align-items: flex-start; }
+}
+/* Ask a manager on a Due ready tile (02b §3.7a: shown on the tile): one compact line */
+.tk-rt .tk-btn[data-ask] { min-height: 40px; padding: 0 10px; font-size: 14px; gap: 6px; }
+.tk-rt .tk-btn[data-ask] .ico { width: 16px; height: 16px; }
+/* the section chips scroll sideways inside the menu when they do not fit */
+.osc--tk .menu > .pills { overflow-x: auto; scrollbar-width: none; flex: none; }
+.osc--tk .menu > .pills .pill { flex: none; }
+/* a short kiosk (768 / 800 high): Ready by and the line sum share one row */
+@media (max-height: 820px) {
+  .osc--tk > .cart .cart__foot { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; row-gap: 8px; }
+  .osc--tk > .cart .cart__foot > * { grid-column: 1 / -1; }
+  .osc--tk > .cart .cart__foot > .tk-readyby { grid-column: 1; }
+  .osc--tk > .cart .cart__foot > .tk-total { grid-column: 2; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .osc--tk > .cart .tk-serve { padding: 6px 10px; gap: 4px; }
+  .osc--tk > .cart .tk-serve .tk-pick button { min-height: 44px; }
+}
+/* the phone cart's pickup row, as on the kiosk (frame PhoneCart) */
+.order--tk-phone .tk-serve[data-pickup-row] { background: transparent; padding: 0; }
+.order--tk-phone .tk-serve[data-pickup-row] > b { color: var(--ink-muted); font-size: 14px; }
+.order--tk-phone .tk-serve[data-pickup-row] .tk-pick button { padding: 0 2px; font-size: 14px; white-space: nowrap; }
+.order--tk-phone .tk-serve[data-pickup-row] .tk-pick button.is-sel { background: var(--chrome); border-color: var(--chrome); color: var(--on-chrome); }
