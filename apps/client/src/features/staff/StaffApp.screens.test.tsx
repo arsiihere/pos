@@ -281,3 +281,57 @@ describe('[05a §3.6, §8, C-1] shell tabs from the device screens', () => {
     expect(fallbackScreens('phone', false)).toEqual(['dine_in', 'takeaway', 'parking', 'manager']);
   });
 });
+
+// BUG-18 (QA): a person signed in with the default Cook role (01b B-4: `run-pass`, `reprint-ticket` only) who opens a
+// screen they may not use (05a §3.6 O-16: hidden when they hold none of its permissions) is told so — never an empty
+// screen, a skeleton or the inbox in its place.
+describe('[BUG-18; 05a §3.6 O-16] a screen the person may not use says "Not allowed"', () => {
+  const COOK = () => ({ 'run-pass': ALLOWED, 'reprint-ticket': ALLOWED });
+  const notAllowed = () => m.container.querySelector('[data-not-allowed]');
+
+  for (const hash of ['#/bills', '#/bill?bill_id=B1', '#/manager', '#/reports', '#/day-close', '#/audit', '#/devices', '#/test-alert']) {
+    it(`[05a §3.6] Cook on a kiosk: ${hash} shows Not allowed`, async () => {
+      render(KIOSK, hub({ profile: () => ({ screens: ['takeaway', 'cashier', 'manager'], access: 'everyone' }), permissions: COOK }).fetch);
+      await signIn();
+      act(() => {
+        window.location.hash = hash;
+      });
+      await flush();
+      expect(notAllowed()?.textContent).toContain('Not allowed');
+      expect(m.container.querySelector('.inbox, [data-inbox]')).toBeNull();
+    });
+  }
+
+  it('[05a §3.6] #/pass on a device without a point (no `pass` screen) shows Not allowed, not an empty Pass', async () => {
+    render(KIOSK, hub({ profile: () => ({ screens: ['takeaway', 'cashier'], access: 'everyone' }), permissions: COOK }).fetch);
+    await signIn();
+    act(() => {
+      window.location.hash = '#/pass';
+    });
+    await flush();
+    expect(notAllowed()?.textContent).toContain('Not allowed');
+  });
+
+  it('[05a §3.6] #/pass without `run-pass` shows Not allowed even on a point tablet', async () => {
+    render(TABLET, hub({ profile: () => ({ screens: ['pass', 'dine_in'], point_id: 'PT1' }), permissions: () => ({ 'take-order': ALLOWED }) }).fetch);
+    await signIn();
+    act(() => {
+      window.location.hash = '#/pass';
+    });
+    await flush();
+    expect(notAllowed()?.textContent).toContain('Not allowed');
+    expect(wideTabs()).toEqual(['Dine in']);
+  });
+
+  it('[05a §3.6] the Not allowed panel offers the way home (the first screen the person may use)', async () => {
+    render(TABLET, hub({ profile: () => ({ screens: ['pass', 'cashier'], point_id: 'PT1' }), permissions: COOK }).fetch);
+    await signIn();
+    act(() => {
+      window.location.hash = '#/bills';
+    });
+    await flush();
+    m.click(m.button('Go to my screen', notAllowed()!));
+    await flush();
+    expect(window.location.hash).toBe('#/pass');
+  });
+});
