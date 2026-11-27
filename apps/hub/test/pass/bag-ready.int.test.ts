@@ -451,3 +451,129 @@ describe('[03b §3.5 Closing] the counter alert of an order the engine drops by 
     expect(hub.deps.db.prepare('SELECT ready_alert_id FROM pass_orders WHERE order_id = ?').get(order_id)).toEqual({ ready_alert_id: null });
   });
 });
+
+// ---- 02b-tk L-CLOSE-2: 03b v1.0.16 test 101 with the real ready_to_serve kind (§3.5, §6.21; 01d v1.3.7 counter row) ---
+
+describe('[03b #101] the counter alert steps (real ready_to_serve kind)', () => {
+  const steps = (alert_id: string): Array<{ step: number; event: string; recipients: Array<{ staff_id: string | null; device_id: string | null }> }> =>
+    (hub.deps.db.prepare("SELECT event_type, payload FROM events WHERE event_type IN ('AttemptSent', 'EscalationStepped') AND json_extract(payload, '$.alert_id') = ? ORDER BY seq").all(alert_id) as Array<{ event_type: string; payload: string }>).map((r) => {
+      const p = JSON.parse(r.payload) as { step: number; recipients: Array<{ staff_id: string | null; device_id: string | null }> };
+      return { step: p.step, event: r.event_type, recipients: p.recipients };
+    });
+  const devicesOf = (rs: Array<{ device_id: string | null }>) => rs.map((r) => r.device_id).filter((d): d is string => d !== null);
+  async function tickAt(t: number): Promise<void> {
+    const { alertsTick } = await import('../../src/alerts/tick');
+    hub.clock.set(t);
+    hub.deps.writer.run((tx) => tx.append(alertsTick.intents(tx, tx.state as never, t)));
+  }
+
+  it('1× → step 1 to the placer and the counter; 2× → EscalationStepped to the point\'s devices, the managers and the counter; a kiosk bound to the point with takeaway is listed once; revoked / added devices follow each step', async () => {
+    const { p1 } = await start();
+    const k = device('Kiosk K', 'cashier_kiosk', TAKEAWAY);
+    const gone = device('Kiosk G', 'cashier_kiosk', TAKEAWAY);
+    const bound = device('Kiosk B', 'cashier_kiosk', { ...TAKEAWAY, point_id: 'P1' });
+    const late = device('Tablet L', 'tablet', { access: 'everyone', screens: ['dine_in'] });
+    const order_id = appendOrder(hub, { order_type: 'takeaway', placed_by: 'S_CASH', lines: [{ order_item_id: 'A1', item_id: FX.naan }] }).order_id;
+    cook(order_id, ['A1']);
+    expect((await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' })).status).toBe(200);
+    const [c] = counterAlerts(order_id);
+    const raisedAt = recordedAt(c!.alert_id);
+    const window = c!.values.window_ms as number;
+    expect(devicesOf(steps(c!.alert_id)[0]!.recipients)).toEqual(expect.arrayContaining([k, gone, bound]));
+    // between step 0 and step 1: one counter device revoked, a tablet given the takeaway screen
+    hub.deps.db.prepare('UPDATE devices SET revoked_at = ? WHERE device_id = ?').run(hub.clock.branchNow(), gone);
+    const { loadDeviceProfiles } = await import('../../src/auth/device-profile');
+    loadDeviceProfiles(hub.deps.db);
+    const { appendDeviceProfile } = await import('../helpers/test-hub');
+    appendDeviceProfile(hub, late, { access: 'everyone', screens: ['takeaway'] });
+    await tickAt(raisedAt + window);
+    const s1 = steps(c!.alert_id).find((s) => s.step === 1)!;
+    expect(s1.event).toBe('AttemptSent');
+    expect(s1.recipients.map((r) => r.staff_id)).toContain('S_CASH');
+    expect(devicesOf(s1.recipients)).toEqual(expect.arrayContaining([k, late, bound]));
+    expect(devicesOf(s1.recipients)).not.toContain(gone);
+    await tickAt(raisedAt + 2 * window);
+    const s2 = steps(c!.alert_id).find((s) => s.step === 2)!;
+    expect(s2.event).toBe('EscalationStepped');
+    const ds = devicesOf(s2.recipients);
+    expect(ds).toEqual(expect.arrayContaining([p1.deviceId, k, bound]));
+    expect(ds.filter((d) => d === bound)).toHaveLength(1); // a point device and a counter device: listed once
+    expect(s2.recipients.map((r) => r.staff_id)).toContain(RECEIVER); // the managers
+  });
+
+  it('the bag served (MarkServed) before 1× → pass_closures closes it done, no step 1; a per-point Ready (no counter_screen) steps as v1.0.15: no counter device', async () => {
+    const { p1 } = await start();
+    const k = device('Kiosk K', 'cashier_kiosk', TAKEAWAY);
+    const order_id = appendOrder(hub, { order_type: 'takeaway', placed_by: 'S_CASH', lines: [{ order_item_id: 'A1', item_id: FX.naan }] }).order_id;
+    cook(order_id, ['A1']);
+    expect((await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' })).status).toBe(200);
+    const [c] = counterAlerts(order_id);
+    const point = hub.deps.db.prepare("SELECT alert_id FROM alerts WHERE kind = 'ready_to_serve' AND subject_stream_id = ? AND json_extract(values_json, '$.counter_screen') IS NULL").get(order_id) as { alert_id: string };
+    // the point Ready's step 0 reaches no counter device
+    expect(devicesOf(steps(point.alert_id)[0]!.recipients)).not.toContain(k);
+    const raisedAt = recordedAt(c!.alert_id);
+    serveLines(hub, order_id, ['A1']);
+    const now = hub.clock.branchNow();
+    hub.deps.writer.run((tx) => tx.append(passClosuresTick.intents(tx, tx.state as EngineState, now)));
+    expect(counterAlerts(order_id)).toMatchObject([{ state: 'closed', close_reason: 'done' }]);
+    await tickAt(raisedAt + (c!.values.window_ms as number));
+    expect(steps(c!.alert_id).some((s) => s.step === 1)).toBe(false);
+  });
+});
+
+// ---- 02b-tk L-CLOSE-2: 03b v1.0.16 tests 102, 103 open cases (R3-B-3) ----------------------------------------------
+
+describe('[03b #102 #103] counter invalidation by a return and re-arm by an extending Ready', () => {
+  async function tickAt(t: number): Promise<void> {
+    const { alertsTick } = await import('../../src/alerts/tick');
+    hub.clock.set(t);
+    hub.deps.writer.run((tx) => tx.append(alertsTick.intents(tx, tx.state as never, t)));
+  }
+  const attempts = (alert_id: string) =>
+    hub.deps.db.prepare("SELECT json_extract(payload, '$.step') AS step FROM events WHERE event_type IN ('AttemptSent', 'EscalationStepped') AND json_extract(payload, '$.alert_id') = ? ORDER BY seq").all(alert_id) as Array<{ step: number }>;
+
+  it('#102: after Undo B the closed counter alert never steps (1×, 2×): zero repeats on the counter; the surviving point Ready steps without the counter', async () => {
+    const { p1, p2 } = await start();
+    const k = device('Kiosk K', 'cashier_kiosk', TAKEAWAY);
+    const order_id = appendOrder(hub, { order_type: 'takeaway', placed_by: 'S_CASH', lines: [{ order_item_id: 'A1', item_id: FX.naan }, { order_item_id: 'G1', item_id: 'I_GRILL' }] }).order_id;
+    cook(order_id, ['G1']);
+    cook(order_id, ['A1']);
+    await send(p2, 'MarkReadyToServe', { order_id, point_id: 'P2' });
+    await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' });
+    const [counter] = counterAlerts(order_id);
+    const window = counter!.values.window_ms as number;
+    const raisedAt = recordedAt(counter!.alert_id);
+    expect((await send(p2, 'UndoReadyToServe', { order_id, point_id: 'P2' })).status).toBe(200);
+    await tickAt(raisedAt + window);
+    await tickAt(raisedAt + 2 * window);
+    expect(attempts(counter!.alert_id).map((a) => a.step)).toEqual([0]);
+    // the point Ready at P1 survives and steps; no counter device is ever among its recipients
+    const pa = (hub.deps.db.prepare("SELECT ready_alert_id FROM pass_orders WHERE order_id = ? AND point_id = 'P1'").get(order_id) as { ready_alert_id: string }).ready_alert_id;
+    const recips = (hub.deps.db.prepare("SELECT payload FROM events WHERE event_type IN ('AttemptSent', 'EscalationStepped') AND json_extract(payload, '$.alert_id') = ?").all(pa) as Array<{ payload: string }>).flatMap(
+      (r) => (JSON.parse(r.payload) as { recipients: Array<{ device_id: string | null }> }).recipients.map((x) => x.device_id),
+    );
+    expect(recips).not.toContain(k);
+  });
+
+  it('#102 / #103: a remake on a complete bag closes the counter alert and the epoch in that commit; the remade line done and an extending Ready start one fresh epoch', async () => {
+    const { p1 } = await start();
+    const order_id = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'A1', item_id: FX.naan }, { order_item_id: 'A2', item_id: FX.naan }] }).order_id;
+    cook(order_id, ['A1', 'A2']);
+    serveLines(hub, order_id, ['A2']); // A2 handed, A1 waiting: the bag is complete
+    await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' });
+    expect(counterAlerts(order_id)).toMatchObject([{ state: 'open' }]);
+    // A2 comes back as a remake: a new unmade line
+    const { fakeReturnDrafts } = await import('../engine/fakes');
+    const a2 = hub.deps.db.prepare("SELECT payload FROM events WHERE event_type = 'ItemAdded' AND json_extract(payload, '$.order_item_id') = 'A2'").get() as { payload: string };
+    hub.deps.writer.run((tx) => tx.append(fakeReturnDrafts(tx.state as EngineState, { payload: JSON.parse(a2.payload) } as never, 'remake', tx.clock.branchNow())));
+    expect(counterAlerts(order_id)[0]).toMatchObject({ state: 'closed', close_reason: 'obsolete' });
+    expect(epoch(order_id)).toBeUndefined();
+    // the remade line cooked and done, then an extending Ready: one fresh counter alert and epoch
+    cook(order_id, ['A2R']);
+    hub.clock.advance(5_000);
+    expect((await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' })).status).toBe(200);
+    const all = counterAlerts(order_id);
+    expect(all.filter((a) => a.state === 'open')).toHaveLength(1);
+    expect(epoch(order_id)).toMatchObject({ alert_id: all.at(-1)!.alert_id });
+  });
+});
