@@ -6,7 +6,7 @@ import { allServed, anyServed, summaryOf, type BookOrder } from './book';
 // A token is every open order of one takeaway token (a root and its additions, 05 #44a: an addition keeps the root's
 // token) — one tile or row, its bill facts from the newest order (05 #44e). Sections:
 //   Ready — hand over: every counted line ready or served (ready n = m, §6.16 AD-39 R3), or part handed over;
-//   Cooking: the rest, by promise;
+//   Cooking: the rest, newest first (L-CLIENT-6a: a sent token goes to the top, CHANGES §2 Send);
 //   Phone orders — later: ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §6.16 R3-M-1, §8 02b-R4-3; D1) the tokens not
 //   ready whose effective pickup (`effective_pickup_at_ms`: null once boosted) is still ahead of hub now, by pickup;
 //   an elapsed or boosted pickup is in the now queue with its real promise.
@@ -178,13 +178,15 @@ export function buildQueue(orders: readonly KnownOrder[], nowMs = -Infinity): Qu
       planned_ready_at_ms: plannedReadyOf(sorted.map((o) => o.row)),
     });
   }
+  const newestFirst = (a: QueueToken, b: QueueToken) => b.placed_at - a.placed_at || (a.key < b.key ? 1 : -1);
   const byPromise = (a: QueueToken, b: QueueToken) => (a.promise_ms ?? Infinity) - (b.promise_ms ?? Infinity) || a.placed_at - b.placed_at;
   const isReady = (q: QueueToken) => (q.ready.m > 0 && q.ready.n === q.ready.m) || q.part;
   const isLater = (q: QueueToken) => !isReady(q) && q.effective_pickup_at_ms != null && q.effective_pickup_at_ms > nowMs;
   const byPickup = (a: QueueToken, b: QueueToken) => a.effective_pickup_at_ms! - b.effective_pickup_at_ms! || a.placed_at - b.placed_at;
   return {
     ready: tokens.filter(isReady).sort(byPromise),
-    cooking: tokens.filter((q) => !isReady(q) && !isLater(q)).sort(byPromise),
+    // L-CLIENT-6a item 4 (CHANGES §2 Send "the token goes to the top of Cooking"; frame SentToast): newest first
+    cooking: tokens.filter((q) => !isReady(q) && !isLater(q)).sort(newestFirst),
     later: tokens.filter(isLater).sort(byPickup),
   };
 }

@@ -59,12 +59,24 @@ export function anyServed(o: BookOrder): boolean {
   return [...o.lines.values()].some((l) => l.live_units > 0 && l.served && l.line_kind !== 'option_child');
 }
 
-/** "Half Chicken Karahi · 4× Roghni Naan": the top-level live lines. */
+/**
+ * "Chicken Karahi — Half · 4× Roghni Naan": the top-level live lines, one entry per name with its pieces added up
+ * (L-CLIENT-6a item 4, frame HomeKiosk: a line split per unit, 02b v1.0.20 §3.2 `part_of`, or the same item sent twice
+ * reads "4× Roghni Naan", not the name four times), in the order first sent.
+ */
 export function summaryOf(o: BookOrder): string {
-  return [...o.lines.values()]
-    .filter((l) => l.parent_order_item_id === null && l.line_kind !== 'option_child' && l.live_units > 0)
-    .map((l) => (l.pieces !== null && l.pieces > 1 ? `${l.pieces}× ${l.name}` : l.name))
-    .join(' · ');
+  return groupedSummary(
+    [...o.lines.values()]
+      .filter((l) => l.parent_order_item_id === null && l.line_kind !== 'option_child' && l.live_units > 0)
+      .map((l) => ({ name: l.name, qty: l.pieces ?? 1 })),
+  );
+}
+
+/** "3× Naan · Chicken Karahi — Half": names in first-seen order, quantities added up, "n× " above 1. */
+export function groupedSummary(parts: ReadonlyArray<{ name: string; qty: number }>): string {
+  const totals = new Map<string, number>();
+  for (const p of parts) totals.set(p.name, (totals.get(p.name) ?? 0) + p.qty);
+  return [...totals].map(([name, n]) => (n > 1 ? `${n}× ${name}` : name)).join(' · ');
 }
 
 function fromCatchUp(o: CatchUpOrder): BookOrder {

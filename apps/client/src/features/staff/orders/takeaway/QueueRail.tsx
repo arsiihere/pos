@@ -10,7 +10,7 @@ import type { OpenOrder } from '../contracts';
 import { useLiveRefetch } from '../lists/OpenOrders';
 import { businessDayText } from '../lists/OpenOrdersRow';
 import { MONEY_DIR, money } from '../money';
-import { WaitingRows } from '../queue/WaitingToSend';
+import { useWaitingTakeaways, WaitingRows } from '../queue/WaitingToSend';
 import type { TokenBook } from './book';
 import { billsOf, buildQueue, knownOrders, matchesQuery, notCollectedMinOf, type QueueModel, type QueueToken } from './queue-model';
 import { AskManager } from '../unpaid/AskManager';
@@ -328,6 +328,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
     if (open_n !== null) countRef.current?.(open_n);
   }, [open_n]);
   const owed = useDueAmounts(model);
+  const waiting = useWaitingTakeaways();
   // ⚠️ 03b v1.0.16 §3.4 (R3-M-9): re-check the amber clock while a ready tile has a bag-ready pair
   const nowMs = useHubNow(model?.ready.some((q) => q.late_from != null) ?? false);
   const unpaid = unpaidRequestsOf(shell);
@@ -427,14 +428,15 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
             <div className="tk-ready">{ready.map(tile)}</div>
           </>
         )}
-        <WaitingRows showContact={seeContact} />
-        {cooking.length > 0 && (
+        {/* L-CLIENT-6a item 4 (frames SentToast, SentQueued): the orders waiting to send head the Cooking rows */}
+        {cooking.length + waiting.length > 0 && (
           <>
             <div className="tk-sec">
               <Ico name="pulse" />
               {t('q.cooking')}
-              <span className="tk-chip num">{cooking.length}</span>
+              <span className="tk-chip num">{cooking.length + waiting.length}</span>
             </div>
+            <WaitingRows showContact={seeContact} />
             {cooking.map((q) => (
               <QueueRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} />
             ))}

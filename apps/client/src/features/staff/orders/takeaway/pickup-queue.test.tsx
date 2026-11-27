@@ -53,7 +53,7 @@ describe('[02b-TK L-CLIENT-5 item 1; 02b §6.16, §8] the queue model', () => {
   it('[§8 02b-R4-3, R3-M-1] Phone orders — later holds the tokens whose effective pickup is ahead; boosted and elapsed are in the now queue', () => {
     const m = buildQueue(knownOrders(ROWS, new Map(), () => undefined), NOW);
     expect(tokens(m.later)).toEqual([60]);
-    expect(tokens(m.cooking)).toEqual([53, 62, 61]);
+    expect(tokens(m.cooking)).toEqual([62, 61, 53]); // L-CLIENT-6a item 4: Cooking newest first
     const later = m.later[0]!;
     expect([later.pickup_at_ms, later.effective_pickup_at_ms]).toEqual([PICK, PICK]);
     const boosted = m.cooking.find((q) => q.token === 61)!;

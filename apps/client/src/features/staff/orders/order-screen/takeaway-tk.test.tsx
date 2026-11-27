@@ -428,7 +428,7 @@ describe('[02b-TK C1-3] Send in the background', () => {
     const row = m.container.querySelector('.tk-qr--q');
     expect(row?.textContent).toContain('Waiting to send');
     expect(row?.textContent).toContain('Usman');
-    expect(row?.textContent).toContain('1 items');
+    expect(row?.textContent).toContain('Naan'); // L-CLIENT-6a item 4 (frame SentQueued): what was ordered, not "1 items"
     m.unmount();
   });
 });
