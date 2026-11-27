@@ -56,9 +56,15 @@ export function menuWithT1(menu: BranchConfig): BranchConfig {
         items.push({ ...base, item_id: it.main.item_id, name: it.main.name, station_id: t1Station(key), sort_order: 300, cook_time_ms: T1_COOK_MS.main, max_early_ms: 3_600_000 });
         items.push({ ...base, item_id: it.drink.item_id, name: it.drink.name, station_id: t1Station(key), sort_order: 301, cook_time_ms: T1_COOK_MS.drink, max_early_ms: 3_600_000 });
       }
-  // row #26 (03a PK-1, DC-1): a stock-tracked item whose line is a HELD line of a pickup order (serve mode immediate)
+  // row #26 (03a PK-1, DC-1): per day-close run, a stock-tracked item whose line is a HELD line of a pickup order (serve
+  // mode immediate), at the run's station (so the run's Pass tablet shows it)
   const karahi = menu.items.find((i) => i.item_id === 'I_KARAHI')!;
-  items.push({ ...karahi, item_id: T1_HELD.item_id, name: T1_HELD.name, serve_mode: 'immediate', sort_order: 310 });
+  for (const project of T1_PROJECTS)
+    for (const lang of T1_LANGS) {
+      const key = t1Key('close', project, lang);
+      const held = t1Held(key);
+      items.push({ ...karahi, item_id: held.item_id, name: held.name, serve_mode: 'immediate', station_id: t1Station(key), sort_order: 310 });
+    }
   // row #6: a card mode on the counter that asks for the machine's reference (05 §6.9 reference_required)
   const pk = hubBilling({ currency_code: menu.currency_code, tax_classes: menu.tax_classes, billing: menu.billing });
   const billing = SnapshotBillingSchema.parse({
@@ -79,8 +85,8 @@ export function menuWithT1(menu: BranchConfig): BranchConfig {
 }
 
 export const T1_CARD = { mode_id: 'card', name: 'Card' } as const;
-/** row #26: the stock-tracked immediate item (K1 draws) whose pickup line the engine holds (03a PK-1) */
-export const T1_HELD = { item_id: 'IT1-HELD', name: 'Karahi to go' } as const;
+/** row #26: the run's stock-tracked immediate item (K1 draws) whose pickup line the engine holds (03a PK-1) */
+export const t1Held = (key: string) => ({ item_id: `IT1H-${key}`, name: `Karahi ${key}` });
 /** row #20's dine-in table of a (viewport, language) run, on the T1 floor */
 export const t1Table = (project: string, lang: string): string => `T1-${project === 'kiosk' ? 'K' : 'L'}-${lang.toUpperCase()}`;
 

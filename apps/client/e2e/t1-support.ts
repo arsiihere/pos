@@ -97,7 +97,12 @@ export async function managerPhone(page: Page, lang: Lang): Promise<void> {
 }
 
 /** The Pass card of a token. */
-export const passCard = (page: Page, token: string): Locator => page.locator('article.pc', { has: page.locator('.pc__n', { hasText: new RegExp(`^#?${token}$`) }) });
+/**
+ * The Pass card of a token. A carried order shows its date beside the token (02b §3.3): `.pc__n` holds "#1" and a
+ * `<small>20 Oct</small>`, so its text reads "#120 Oct" — the token, then a day of 1–2 digits, a space and the month.
+ */
+export const passCard = (page: Page, token: string): Locator =>
+  page.locator('article.pc', { has: page.locator('.pc__n', { hasText: new RegExp(`^#?${token}(?:(?!\\d)|\\d{1,2}\\s\\S)`) }) });
 
 /** Start then Done on a Pass line row (a Done this soon asks once more; the second tap confirms). */
 export async function cookLine(card: Locator, name: string): Promise<void> {

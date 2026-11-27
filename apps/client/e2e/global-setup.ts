@@ -405,7 +405,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   await seedDirectory(hub, await directory());
   // task 28: the 02b fixture menu (Chicken Karahi, Naan, Cola, …) on the e2e floors, the business day open, stock counted
   openDay(hub, {
-    menu: menuWithT1(menuWithTiles(menuWithKheer(menuWith03({ ...fixtureMenu(), floors: floors() })))),
+    menu: { ...menuWithT1(menuWithTiles(menuWithKheer(menuWith03({ ...fixtureMenu(), floors: floors() })))), ...(process.env["POS_E2E_DAYCLOSE"] === "1" ? { day_min_gap_hours: 0 } : {}) },
     stock: { [FX.stock]: 1_000_000, [TK_TILES.stock]: 0 },
   });
   for (const zone of ["Z-FL-G", "Z-FL-R"])
