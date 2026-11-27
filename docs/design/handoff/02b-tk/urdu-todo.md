@@ -134,6 +134,12 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `roles.out_of_date` (01b v1.12 §5.1c R3-M-3; L-CLIENT-3 test 119) | This app is out of date — reload to edit roles | یہ ایپ پرانی ہے — رولز بدلنے کے لیے دوبارہ لوڈ کریں |
 | `roles.out_of_date_body` (01b v1.12 §5.1c R3-M-3; L-CLIENT-3 test 119) | This role has a permission this version of the app does not know. Saving now could remove it. | اس رول میں ایسی اجازت ہے جو ایپ کا یہ ورژن نہیں جانتا۔ ابھی محفوظ کرنے سے وہ ہٹ سکتی ہے۔ |
 | `cart.items_label` (02b v1.0.25 §8; 05 v1.0.35 §6.3a, §8; L-CLIENT-4 item 3) | Items | آئٹم |
+| `c.pick_range` (02b v1.0.25 §6.14, §8; L-CLIENT-5 item 1) | Pickup between {from} and {to} | لینے کا وقت {from} سے {to} تک |
+| `c.pick_err.too_early` (02b v1.0.25 §3.2 step 2b; L-CLIENT-5 item 1) | Too soon — the earliest pickup is {t} | بہت جلدی — سب سے پہلے {t} پر لے سکتے ہیں |
+| `c.pick_err.after_day_end` (02b v1.0.25 §3.2 step 2b; L-CLIENT-5 item 1) | Too late — the day ends at {t} | بہت دیر — دن {t} پر ختم ہوتا ہے |
+| `c.pick_err.other_day` (02b v1.0.25 §3.2 step 2b; L-CLIENT-5 item 1) | That time is on another business day — pick a time today | یہ وقت کسی اور کاروباری دن کا ہے — آج کا وقت چنیں |
+| `c.pick_err.no_time_left` (02b v1.0.25 §3.2 step 2b, §8; L-CLIENT-5 item 1) | No pickup time is left today — choose Now, or close the day first | آج لینے کا کوئی وقت باقی نہیں — ابھی چنیں، یا پہلے دن بند کریں |
+| `queue.why.PICKUP_TIME_INVALID` (02b v1.0.25 §3.12; L-CLIENT-5 item 1) | the pickup time was not possible | لینے کا وقت ممکن نہیں تھا |
 
 Historical copy for Urdu review. OR-7 disabled the client override.
 

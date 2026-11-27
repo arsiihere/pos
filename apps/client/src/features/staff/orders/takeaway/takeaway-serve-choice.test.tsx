@@ -30,7 +30,8 @@ const answer = (d: EtaDraft): { ok: true; data: EtaPreviewBody } => ({
 });
 const tap = (m: Mounted, name: string) => m.click(m.container.querySelector(`.mi[aria-label="${name}"]`));
 const sides = (m: Mounted) => m.click(m.button('Sides', m.container.querySelector('.cats')!));
-const question = (m: Mounted) => m.container.querySelector('.cart .tk-serve');
+// ⚠️ 02b-TK L-CLIENT-5 item 1: the pickup row shares the .tk-serve band; the question is the other one
+const question = (m: Mounted) => m.container.querySelector('.cart .tk-serve:not([data-pickup-row])');
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });

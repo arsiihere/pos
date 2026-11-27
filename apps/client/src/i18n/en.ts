@@ -4473,6 +4473,20 @@ export const en = {
   'roles.out_of_date_body': 'This role has a permission this version of the app does not know. Saving now could remove it.',
   // ---- 02b-TK L-CLIENT-4 item 3 (02b v1.0.25 §8; 05 v1.0.35 §6.3a, §8): the takeaway cart footer's own line sum is labelled "Items" ----
   'cart.items_label': 'Items',
+  // ---- 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §3.2 step 2b, §6.14, §8 Phone and pickup (R4)): the takeaway cart's pickup chips, its range and refusals, Kitchen times it for ----
+  'c.pickup': 'Pickup',
+  'c.pick_now': 'Now',
+  'c.pick_15': '+15 min',
+  'c.pick_30': '+30 min',
+  'c.pick_45': '+45 min',
+  'c.pick_time': 'Time…',
+  'c.ready_later': 'Kitchen times it for',
+  'c.pick_range': 'Pickup between {from} and {to}',
+  'c.pick_err.too_early': 'Too soon — the earliest pickup is {t}',
+  'c.pick_err.after_day_end': 'Too late — the day ends at {t}',
+  'c.pick_err.other_day': 'That time is on another business day — pick a time today',
+  'c.pick_err.no_time_left': 'No pickup time is left today — choose Now, or close the day first',
+  'queue.why.PICKUP_TIME_INVALID': 'the pickup time was not possible',
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -1,6 +1,7 @@
 import type { HubResult } from '../../../../api/hub-admin';
 import type { LiveBus, LiveMessage } from '../../shell/live';
 import type { EtaDraft, EtaPreviewBody } from '../contracts';
+import { pickupError, type PickupProblem } from './pickup';
 
 // 02b §8 Ordering screen, §6.14: the live times of the cart. `eta-preview` runs 250 ms after the last change, and
 // again (same debounce) on BranchConfigApplied, a Stock* frame, BusinessDayOpened / Closed, a station frame or a catch-up carrying
@@ -27,7 +28,9 @@ export type PreviewState =
   | { kind: 'ok'; body: EtaPreviewBody; moved: ReadonlySet<string>; delta: PreviewDelta | null }
   | { kind: 'failed' }
   /** the hub answered 409 BUSINESS_DAY_NOT_OPEN: no day is open, nothing can be sent or timed */
-  | { kind: 'day_not_open' };
+  | { kind: 'day_not_open' }
+  /** ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §6.14, §3.2 step 2b): 422 PICKUP_TIME_INVALID — the draft's pickup, why and its bounds */
+  | { kind: 'pickup_invalid'; problem: PickupProblem };
 
 const REFETCH = new Set([
   'BranchConfigApplied',
@@ -103,7 +106,11 @@ export function createPreview(o: PreviewOptions): Preview {
     const sent = draft;
     const answer = await o.etaPreview(sent);
     if (disposed || gen !== generation) return;
-    if (!answer.ok) return publish(answer.error.kind === 'api' && answer.error.code === 'BUSINESS_DAY_NOT_OPEN' ? { kind: 'day_not_open' } : { kind: 'failed' });
+    if (!answer.ok) {
+      const problem = answer.error.kind === 'api' && answer.error.code === 'PICKUP_TIME_INVALID' ? pickupError(answer.error.details) : null;
+      if (problem !== null) return publish({ kind: 'pickup_invalid', problem });
+      return publish(answer.error.kind === 'api' && answer.error.code === 'BUSINESS_DAY_NOT_OPEN' ? { kind: 'day_not_open' } : { kind: 'failed' });
+    }
     const before = last === null ? null : promiseByKey(last);
     const now = promiseByKey(answer.data);
     const moved = new Set<string>();

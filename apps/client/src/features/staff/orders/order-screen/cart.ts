@@ -1,6 +1,7 @@
 import { childQuantity, optionChargeMinor, orderLineTotalMinor, type Unit } from '@pos/domain';
 import type { BranchConfig, ConfigDeal, ConfigItem, ConfigModifierOption } from '@pos/events';
 import type { CarType, EtaDraft, EtaPreviewBody, OrderType, ServeMode, SubmitLine } from '../contracts';
+import type { CartPickup } from './pickup';
 
 // 02b §8 Ordering screen (02-S05; #36 cart sorted by ETA): the cart the order screen keeps (and the device draft
 // stores, Draft.cart), its money from @pos/domain exactly as the hub's buildSubmit computes ItemAdded.line_total_minor
@@ -54,6 +55,8 @@ export interface Cart {
   serve_mode?: ServeMode;
   /** 02b-TK C2-3 (02b §3.2 step 2, 05 #44a): a takeaway addition to a sent token — its root order and token */
   adds_to?: { order_id: string; token: number | null };
+  /** ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §8 "Phone and pickup", R4): a takeaway's pickup time; unset = Now */
+  pickup?: CartPickup;
 }
 
 /**
@@ -239,6 +242,8 @@ export function toEtaDraft(cart: Cart, target: DraftTarget): EtaDraft {
     // 02b-TK C1-2: the takeaway contact is not timing; it never travels in the preview's query string
     ...(target.order_type === 'parking' && cart.parking !== undefined ? { parking: { ...cart.parking } } : {}),
     ...(cart.serve_mode === undefined ? {} : { serve_mode: cart.serve_mode }),
+    // ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §6.14, R4): the pickup (takeaway only) is timing — the preview checks it
+    ...(target.order_type === 'takeaway' && cart.pickup !== undefined ? { pickup_at_ms: cart.pickup.at_ms } : {}),
     lines: cart.lines.map((l) => ({
       key: l.key,
       ...(l.serve_mode === undefined ? {} : { serve_mode: l.serve_mode }),

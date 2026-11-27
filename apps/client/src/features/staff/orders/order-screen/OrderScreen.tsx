@@ -1,4 +1,4 @@
-import { inAvailabilityWindows, localTimeOfDayMs, type Unit } from '@pos/domain';
+import { inAvailabilityWindows, localTimeOfDayMs, PICKUP_MIN_LEAD_MS, type Unit } from '@pos/domain';
 import type { BranchConfig, ConfigItem } from '@pos/events';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { navigate } from '../../../../app/router';
@@ -51,6 +51,8 @@ import { DayNotStarted, canStartDay } from './DayNotStarted';
 import { createDayWatch } from './day-open';
 import { phoneBad } from './contact';
 import { CustomerRow } from './CustomerRow';
+import { PickupRow } from './PickupRow';
+import type { PickupBounds } from './pickup';
 import { LeaveGuard, useLeaveGuard } from './LeaveGuard';
 import { money } from '../money';
 import { cartDisplay, createDisplayPublisher, idleDisplay, type DisplayMessage } from '../customer-display/channel';
@@ -229,6 +231,11 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   useVersion(dayWatch.subscribe);
   // a reply's times stand only while the hub is reachable: offline they read "—" at once (the reconnect refetches)
   const body = pv.kind === 'ok' && shell.online ? pv.body : null;
+  // ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §6.14 pickup_bounds, §8): the last range the hub sent (Time… keeps it
+  // while a later preview is refused or pending)
+  const pickupBounds = useRef<PickupBounds | null>(null);
+  if (pv.kind === 'ok' && pv.body.pickup_bounds != null) pickupBounds.current = pv.body.pickup_bounds;
+  const pickupProblem = pv.kind === 'pickup_invalid' && shell.online ? pv.problem : null;
   // 01c V20: the day-frozen sale unit (the mirror's BusinessDay), the config's until the mirror is seeded
   const unitOf = (item_id: string) => mirror.saleUnit(item_id);
 
@@ -576,7 +583,11 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const addTo = (q: QueueToken) => {
     if (sending.current) return;
     if (cartRef.current.lines.length > 0) return shellRef.current.toasts.show({ text: t('c.add_busy'), tone: 'warn' });
-    setCart((c) => ({ ...c, adds_to: { order_id: q.order_ids[0]!, token: q.token } }));
+    // ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §3.1 m-8, §8): the addition carries its own pickup — pre-filled with the
+    // root's (effective) one only while it is ≥ hub now + PICKUP_MIN_LEAD_MS, so the pre-fill never fails too_early
+    const rootPickup = q.effective_pickup_at_ms ?? null;
+    const prefill = rootPickup !== null && rootPickup >= shellRef.current.clock.nowMs() + PICKUP_MIN_LEAD_MS ? { pickup: { chip: 'time' as const, at_ms: rootPickup } } : {};
+    setCart((c) => ({ ...c, adds_to: { order_id: q.order_ids[0]!, token: q.token }, ...prefill }));
     addingNewest.current = { root: q.order_ids[0]!, newest: q.newest_order_id };
     setOpenToken(null);
     setTab('menu');
@@ -860,7 +871,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   // dine-in: Send waits for the seating on the map, and follows the table lock; 02b-TK C1-2: a typed takeaway phone
   // the hub would refuse waits to be fixed or cleared (R1: the phone stays optional)
   const contactBad = order_type === 'takeaway' && phoneBad(cart.takeaway?.phone);
-  const canSend = (order_type !== 'dine_in' || (seat !== null && lock.canSend)) && !contactBad;
+  // ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §3.2 step 2b, §8): a pickup the hub refused waits to be changed
+  const canSend = (order_type !== 'dine_in' || (seat !== null && lock.canSend)) && !contactBad && !(order_type === 'takeaway' && pickupProblem !== null && cart.pickup !== undefined);
   const blocked = order_type === 'dine_in' && seatMissing ? t('order.seating_missing') : null;
   // 02b-TK C3-1 (frames HomeKiosk, HomeOffline): a takeaway of a take-payment holder sends and pays, or pays later; an
   // addition to a token keeps its one "Add to token 53" (it is paid from the token view)
@@ -958,7 +970,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       sending.current = false;
       setSend(null);
       restore();
-      shellRef.current.toasts.show({ text: refusalText(config, outcome), tone: 'warn' });
+      shellRef.current.toasts.show({ text: refusalText(config, outcome, shellRef.current.clock.utcOffsetMs), tone: 'warn' });
       if (outcome.kind === 'refused' && outcome.error.code === 'TABLE_SEATING_CHANGED') setSeatReload((n) => n + 1);
       // a line refusal: the preview runs again so the line shows its problem (B05 / B07)
       else if (target !== null) preview.set(toEtaDraft(frozen, target));
@@ -1076,6 +1088,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     groups,
     total_minor: total,
     ready_by: ready,
+    // ⚠️ 02b-TK L-CLIENT-5 item 1 (frame PickupLater `.tk-readyby--later`): a pickup's Ready by is "Kitchen times it for"
+    readyLater: order_type === 'takeaway' && cart.pickup !== undefined,
     problems: problems.size,
     canSend,
     blocked,
@@ -1102,19 +1116,38 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   };
   const customer =
     order_type !== 'takeaway' ? null : (
-      <CustomerRow
-        value={cart.takeaway}
-        disabled={sending.current}
-        compact={dense}
-        onChange={(next) => {
-          if (sending.current) return; // the cart is frozen while it is sent
-          setCart((c) => {
-            const { takeaway: _drop, ...rest } = c;
-            void _drop;
-            return next === undefined ? rest : { ...rest, takeaway: next };
-          });
-        }}
-      />
+      <>
+        <CustomerRow
+          value={cart.takeaway}
+          disabled={sending.current}
+          compact={dense}
+          onChange={(next) => {
+            if (sending.current) return; // the cart is frozen while it is sent
+            setCart((c) => {
+              const { takeaway: _drop, ...rest } = c;
+              void _drop;
+              return next === undefined ? rest : { ...rest, takeaway: next };
+            });
+          }}
+        />
+        {/* ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §8 Phone and pickup, R4; frame PickupLater): Now / +15 / +30 / +45 / Time… */}
+        <PickupRow
+          value={cart.pickup}
+          nowMs={() => shellRef.current.clock.nowMs()}
+          utcOffsetMs={utcOffsetMs}
+          bounds={pickupBounds.current}
+          problem={cart.pickup === undefined ? null : pickupProblem}
+          disabled={sending.current}
+          onChange={(next) => {
+            if (sending.current) return;
+            setCart((c) => {
+              const { pickup: _drop, ...rest } = c;
+              void _drop;
+              return next === undefined ? rest : { ...rest, pickup: next };
+            });
+          }}
+        />
+      </>
     );
   const keepDraft = () => navigate(seat === null ? '/tables' : tableHref(seat.ref.table_id, id));
 

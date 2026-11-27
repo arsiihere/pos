@@ -168,3 +168,22 @@ Captured from `apps/client/e2e/02b-tk-items.spec.ts` against the e2e hub. Each i
 - `cart.items_label` ("Items" / "آئٹم") is not in strings-table.md, so it is listed in urdu-todo.md.
 - Only takeaway carts carry the label: 05 §8 and 02b §8 state the rule for the takeaway client. Dine-in and parking carts keep their plain total.
 - No CSS changed, because the stylesheets live in `packages/ui-kit`, outside this lane. On the kiosk and tablet the label is a muted `small` before the figure. On the phone it is a muted line above the figure.
+
+## L-CLIENT-5 item 1 pickup time on the takeaway cart (R4)
+
+Captured from `apps/client/e2e/t1-takeaway.spec.ts` (T1 #7) against the e2e hub, kiosk 1920 × 1080 and landscape tablet 1280 × 800. The nearest frames are PickupLater and PickupLaterUrdu (the cart), PhoneQueue / PickupLater's "Phone orders — later" (the rail) and TokenDue (the drawer).
+
+| State | English | Urdu |
+| --- | --- | --- |
+| The cart with +30 min chosen: "Kitchen times it for …" (kiosk) | [PickupCart](PickupCart.png) | [PickupCart-Urdu](PickupCart-Urdu.png) |
+| The same on the landscape tablet | [PickupCart-tablet](PickupCart-tablet.png) | [PickupCart-tablet-Urdu](PickupCart-tablet-Urdu.png) |
+| The sent token's row under Phone orders — later, "Pickup …" (kiosk) | [PickupQueue](PickupQueue.png) | [PickupQueue-Urdu](PickupQueue-Urdu.png) |
+| The same on the tablet's All orders drawer | [PickupQueue-tablet](PickupQueue-tablet.png) | [PickupQueue-tablet-Urdu](PickupQueue-tablet-Urdu.png) |
+| The token view's Pickup fact (kiosk) | [PickupToken](PickupToken.png) | [PickupToken-Urdu](PickupToken-Urdu.png) |
+| The same on the tablet | [PickupToken-tablet](PickupToken-tablet.png) | [PickupToken-tablet-Urdu](PickupToken-tablet-Urdu.png) |
+
+- The chips are Now (default, no pickup), +15 / +30 / +45 min after hub now and Time… (a time input bounded by eta-preview's `pickup_bounds`, with "Pickup between … and …"). The pickup goes into the eta-preview draft and into `SubmitOrder` as `pickup_at_ms`, frozen with a queued Send. A 422 `PICKUP_TIME_INVALID` shows its reason (`too_early`, `after_day_end`, `other_day`, `no_time_left`) and the range; Send waits until the pickup changes. A refused Send toasts the reason; a refused queued Send says "the pickup time was not possible" in the queue log. A fresh cart is Now again. An addition pre-fills the root's effective pickup only while it is ≥ hub now + 10 min.
+- The frame's "needed for later pickup" on name and phone is not built: R1 keeps both optional. The frame's primary "Schedule for 2:00 PM" is not built; the spec names no such button and Send · pay later / Send & pay stay.
+- The chips reuse the ServeChoice band (`.tk-serve .tk-pick`); no CSS changed (ui-kit is outside this lane).
+- The queue's Phone orders — later holds a not-ready token whose `effective_pickup_at_ms` is ahead of hub now; an elapsed or boosted one is in Cooking. Its row, its ready tile and the token view show "Pickup <time>" from `pickup_at_ms`, also after a boost (D1).
+- The hub's promise for a pickup order is the pickup plus the branch's takeaway promise padding (here 3 min: Ready by 11:15 PM for a pickup at 11:12 PM), so the cart's "Kitchen times it for" shows the preview promise, as 02b §6.14 says.

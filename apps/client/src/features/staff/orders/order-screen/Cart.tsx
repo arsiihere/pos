@@ -25,6 +25,8 @@ export interface CartProps {
   /** null when a line's money is not known (menu data missing): "—" */
   total_minor: number | null;
   ready_by: number | null;
+  /** ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §8 R4; frame PickupLater): the cart has a pickup — "Kitchen times it for" */
+  readyLater?: boolean;
   problems: number;
   canSend: boolean;
   /** why Send is off besides problems (dine-in seating not found), or null */
@@ -152,8 +154,8 @@ export function Cart(p: CartProps) {
       <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} qchips={p.qchips === true} />
       <div className="cart__foot">
         <div className="total">
-          <div className="total__ready">
-            <Ring size={56} pct={null} tone={p.ready_by === null ? 'mute' : 'ok'}>
+          <div className={p.readyLater === true ? 'total__ready total__ready--later' : 'total__ready'}>
+            <Ring size={56} pct={null} tone={p.ready_by === null ? 'mute' : p.readyLater === true ? 'info' : 'ok'}>
               <Ico name="clock" />
             </Ring>
             {p.ready_by === null ? (
@@ -161,7 +163,7 @@ export function Cart(p: CartProps) {
               <div>{p.day !== null ? t('c.times_day') : t('cart.times_later')}</div>
             ) : (
               <div>
-                {t('cart.all_ready')}
+                {t(p.readyLater === true ? 'c.ready_later' : 'cart.all_ready')}
                 <b dir="ltr">{timeText(p.ready_by, p.utcOffsetMs)}</b>
               </div>
             )}

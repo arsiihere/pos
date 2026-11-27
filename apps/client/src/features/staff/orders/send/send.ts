@@ -8,6 +8,7 @@ import type { Enqueue } from '../../tables/contracts';
 import type { CarType, Draft, DraftStore, EtaPreviewBody, LineOption, SubmitOrderPayload, SubmitResult } from '../contracts';
 import { toSubmitLines, type Cart, type CartLine, type DraftTarget } from '../order-screen/cart';
 import { takeawayContact } from '../order-screen/contact';
+import { pickupError, pickupProblemText } from '../order-screen/pickup';
 import { preselect } from '../sheets/preselect';
 
 // 02b §8 Ordering screen (Send freezes the cart), Types, Queue; §3.1, §3.2, §3.11, §6.1; §10 #35 (no "sent" before a
@@ -50,6 +51,9 @@ export function freezeSubmit(cart: Cart, target: DraftTarget, order_id: string, 
     ...(cart.serve_mode === undefined ? {} : { serve_mode: cart.serve_mode }),
     // 02b-TK C2-3 (02b §3.2 step 2): a takeaway addition names its root; it keeps the root's token (step 9)
     ...(target.order_type === 'takeaway' && cart.adds_to !== undefined ? { adds_to_order_id: cart.adds_to.order_id } : {}),
+    // ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §6.1, §3.2 step 2b, §3.12; R4): the pickup, frozen with the payload; a
+    // queued Send keeps it as typed and the hub checks it against the accepted queued_at
+    ...(target.order_type === 'takeaway' && cart.pickup !== undefined ? { pickup_at_ms: cart.pickup.at_ms } : {}),
     lines: toSubmitLines(cart),
   };
   return deepFreeze(structuredClone(payload));
@@ -101,10 +105,13 @@ const ORDER_CODES = new Set([
  * "This table changed — refreshed" (the screen reads the map once more); the 02a table codes use 02a's texts; an
  * order code says why in the queue log's words ("Not sent — {item} sold out"); no session on this page → sign in.
  */
-export function refusalText(config: BranchConfig, outcome: Extract<SendOutcome, { kind: 'refused' } | { kind: 'needs_hub' }>): string {
+export function refusalText(config: BranchConfig, outcome: Extract<SendOutcome, { kind: 'refused' } | { kind: 'needs_hub' }>, utcOffsetMs = 0): string {
   if (outcome.kind === 'needs_hub') return t('send.needs_sign_in');
   const { code, details } = outcome.error;
   if (code === 'TABLE_SEATING_CHANGED') return t('tables.changed');
+  // ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §3.2 step 2b, §8): a refused pickup says why, with its bounds
+  const pickup = code === 'PICKUP_TIME_INVALID' ? pickupError(details) : null;
+  if (pickup !== null) return fill(t('send.refused_why'), { why: pickupProblemText(pickup, utcOffsetMs) });
   // 02b-TK C2-3 (02b §3.2 step 2): the token added to is gone (404) or not one to add to (cancelled, another day)
   if (code === 'ORDER_NOT_FOUND' || (code === 'CONFIG_REFERENCE_INVALID' && (details as { field?: unknown } | undefined)?.field === 'adds_to_order_id')) return t('c.add_gone');
   if (ORDER_CODES.has(code)) {

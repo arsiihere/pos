@@ -279,6 +279,13 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
                 )}
               </b>
             </div>
+            {/* ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §6.16, §8; D1): the pickup as placed, kept after a boost */}
+            {token.pickup_at_ms != null && (
+              <div className="tk-fact" data-pickup="">
+                <small>{t('c.pickup')}</small>
+                <b dir="ltr">{timeText(token.pickup_at_ms, offset)}</b>
+              </div>
+            )}
             <div className="tk-fact">
               <small>{t('c.phone')}</small>
               <b dir="ltr">{masked ?? '—'}</b>
