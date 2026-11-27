@@ -83,7 +83,8 @@ for (const lang of LANGS) {
 
       // #23: Ask → the Manager approves with PIN on the phone → the Pass hands it over (customer_handover)
       await askManager(pass.page, card);
-      await expect(card).toContainText(tr(lang, 'pass.waiting_manager'));
+      // the Manager's phone is not signed in yet: nobody else can answer → "Waiting — find a manager" (QA BUG-10)
+      await expect(card).toContainText(tr(lang, 'request.find_approver'));
       await managerPhone(phone.page, lang);
       await answer(phone.page, lang, token, 'approve');
       await expect(button).toBeEnabled({ timeout: 30_000 });
