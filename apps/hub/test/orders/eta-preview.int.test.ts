@@ -54,6 +54,8 @@ function signIn(staffId = 'S_ALI'): Who {
 interface PreviewLine {
   key: string;
   eta_ms: number | null;
+  /** ⚠️ 02b v1.0.26 CT-4 */
+  ready_ms: number | null;
   from_stock: boolean;
   zone_served: boolean;
   refused?: { code: string; details: Record<string, unknown> };
@@ -124,7 +126,7 @@ async function submitDraft(who: Who, order_id: string, draft: Record<string, unk
         const { key, part } = partKey(order_item_id, result);
         const station = placedLines.get(order_item_id);
         const ready_ms = rest.eta_ms === null || station === undefined ? null : rest.eta_ms + paddingOf(engine(), station, orderType);
-        return { key, ...(part === undefined ? {} : { part }), eta_ms: rest.eta_ms, ready_ms, ...rest };
+        return { key, ...(part === undefined ? {} : { part }), ...rest, ready_ms };
       }),
     },
     placed: JSON.parse(placed) as Record<string, unknown>,
@@ -446,7 +448,7 @@ describe('[02b v1.0.26 CT-3, CT-4, test 97] eta-preview lines[].ready_ms (owner 
     const ali = signIn();
     const r = await preview(ali, takeaway([line('K1', FX.naan, 3), line('K2', FX.ready)]));
     expect(r.status, JSON.stringify(r.error)).toBe(200);
-    const lines = r.data!.lines as Array<{ key: string; eta_ms: number | null; ready_ms: number | null }>;
+    const lines = r.data!.lines;
     expect(lines.length).toBeGreaterThan(0);
     for (const l of lines) {
       if (l.eta_ms === null) expect(l.ready_ms).toBeNull();
