@@ -172,3 +172,66 @@ describe('[03b #129] two dine-in-only points tie: each line to its own default; 
     expect(audienceAllows(ev(readies[1]!), ctx(atMain.device.deviceId))).toBe(false);
   });
 });
+
+describe('[03b #126] the routed point\'s Pass views and Ready', () => {
+  it('TA / Main point views show their own routed Karahi lines; a Ready at TA sets readyAtOf, reaches TA\'s Pass, and its 2× step goes to the staff at TA\'s Pass, not Main\'s; the station view stays at Main', async () => {
+    const { cookDirectory, pairPassTablet, COOK } = await import('../kds/fixtures');
+    const { pointViewBody } = await import('../../src/ws/point-catch-up');
+    const { readyAtOf } = await import('../../src/kds/exports');
+    const { alertsTick } = await import('../../src/alerts/tick');
+    const config = menu();
+    const main = config.stations[0]!.point_id;
+    hub = await createTestHub();
+    await seedDirectory(hub, await cookDirectory());
+    openDay(hub, { menu: config });
+    const device = pairDevice(hub, { type: 'tablet' });
+    const w = { device, session: openSession(hub, { kind: 'staff', staffId: 'S_MGR', deviceId: device.deviceId }) };
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_MGR' });
+    await command(w, 'submit-order', 'SubmitOrder', { order_id: 'OT', order_type: 'takeaway', lines: [karahi('LT')] });
+    await command(w, 'submit-order', 'SubmitOrder', { order_id: 'OD', order_type: 'dine_in', table_id: FX.table, seating_id: 'SEAT1', lines: [karahi('LD')] });
+    const now = () => hub.clock.branchNow();
+    const idsAt = (point: string) => pointViewBody(hub.deps.db, engine(), point, now()).orders.flatMap((o) => o.lines.map((l) => l.order_item_id));
+    expect(idsAt('TA')).toEqual(['LT']);
+    expect(idsAt(main)).toEqual(['LD']);
+    // the station's own metadata stays with its default point (Main): TA lists no station of its own
+    expect(pointViewBody(hub.deps.db, engine(), main, now()).stations.map((s) => s.station_id)).toContain(config.stations[0]!.station_id);
+    expect(pointViewBody(hub.deps.db, engine(), 'TA', now()).stations).toEqual([]);
+    // cook LT and mark it Ready at TA
+    const st = engine().lines.LT!.station_id;
+    hub.deps.writer.run((tx) =>
+      tx.append([
+        { stream_type: 'station', stream_id: st, event_type: 'FireDispatched', schema_version: 1, payload: { station_id: st, order_item_ids: ['LT'], load_id: null, due_at: now(), reason: 'pulled' }, occurred_at: now(), actor_id: null, device_id: 'hub' },
+        { stream_type: 'order', stream_id: 'OT', event_type: 'ItemStarted', schema_version: 1, payload: { order_item_id: 'LT', started_at: now(), source: 'tap' }, occurred_at: now(), actor_id: null, device_id: 'hub' },
+        { stream_type: 'order', stream_id: 'OT', event_type: 'ItemDone', schema_version: 1, payload: { order_item_id: 'LT', done_at: now(), source: 'tap' }, occurred_at: now(), actor_id: null, device_id: 'hub' },
+      ]),
+    );
+    const ta = pairPassTablet(hub, { pointId: 'TA' });
+    const mainPass = pairPassTablet(hub, { pointId: main });
+    openSession(hub, { kind: 'staff', staffId: 'S_WAIT', deviceId: mainPass.deviceId }); // someone signed in at Main's Pass
+    const taSession = openSession(hub, { kind: 'staff', staffId: COOK.staff, deviceId: ta.deviceId });
+    seq += 1;
+    const res = await hub.app.inject({
+      method: 'POST',
+      url: '/commands/mark-ready-to-serve',
+      headers: { authorization: `Bearer ${ta.token}`, 'x-session-token': taSession.token },
+      payload: { command_id: `rp-${seq}`, tenant_id: 'tenant-a', branch_id: 'branch-1', command_type: 'MarkReadyToServe', payload: { order_id: 'OT', point_id: 'TA' }, occurred_at: now(), actor_id: COOK.staff, device_id: ta.deviceId },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(readyAtOf(hub.deps.db, ['OT']).get('OT')).toEqual(expect.any(Number));
+    const ready = hub.deps.db.prepare("SELECT actor_id FROM events WHERE event_type = 'ReadyToServe' AND stream_id = 'OT'").get() as { actor_id: string };
+    expect(ready.actor_id).toBe(COOK.staff);
+    // the TA point Ready's 2× step: TA's Pass device, never Main's
+    const alert = hub.deps.db.prepare("SELECT alert_id, values_json FROM alerts WHERE kind = 'ready_to_serve' AND subject_stream_id = 'OT' AND json_extract(values_json, '$.point_id') = 'TA' AND json_extract(values_json, '$.counter_screen') IS NULL").get() as { alert_id: string; values_json: string };
+    const raisedAt = (hub.deps.db.prepare("SELECT recorded_at FROM events WHERE event_type = 'AlertRaised' AND json_extract(payload, '$.alert_id') = ?").get(alert.alert_id) as { recorded_at: number }).recorded_at;
+    const window = (JSON.parse(alert.values_json) as { window_ms: number }).window_ms;
+    for (const t of [raisedAt + window, raisedAt + 2 * window]) {
+      hub.clock.set(t);
+      hub.deps.writer.run((tx) => tx.append(alertsTick.intents(tx, tx.state as never, t)));
+    }
+    const step2 = hub.deps.db.prepare("SELECT payload FROM events WHERE event_type = 'EscalationStepped' AND json_extract(payload, '$.alert_id') = ? AND json_extract(payload, '$.step') = 2").get(alert.alert_id) as { payload: string };
+    // the point step resolves to the staff signed in on the point's devices (plus the managers)
+    const staff = (JSON.parse(step2.payload) as { recipients: Array<{ staff_id: string | null }> }).recipients.map((r) => r.staff_id);
+    expect(staff).toContain(COOK.staff);
+    expect(staff).not.toContain('S_WAIT');
+  });
+});
