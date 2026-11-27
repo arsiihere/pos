@@ -129,8 +129,19 @@ const KIND_REASONS: ReadonlyArray<{ prefix: string; codes: readonly string[]; ke
   { prefix: 'alert.remove_comp.', codes: COMP_REMOVE_REASONS, key: (c) => `billing.comp_remove.reason.${c}` as MessageKey },
 ];
 
+/**
+ * UX (02b v1.0.25 §3.7a Close (R3-M-3), §6.19 `due_changed`): the closer's note of an unpaid hand-over request in
+ * words — "Bill went up — ask again", "Bill paid", …; null for any other note.
+ */
+const HAND_OVER_UNPAID_NOTES = ['due_changed', 'handed_over', 'order_cancelled', 'bill_closed', 'day_closed'] as const;
+export function handOverUnpaidNoteText(note: string | null | undefined): string | null {
+  return note != null && (HAND_OVER_UNPAID_NOTES as readonly string[]).includes(note) ? t(`alert.hand_over_unpaid.why.${note}` as MessageKey) : null;
+}
+
 export function reasonText(reason: string | null | undefined, card: { kind_label_key: string } | null | undefined): string | null {
   if (reason === null || reason === undefined || reason === '') return null;
+  // the requester's request_result of an unpaid hand-over carries the closer's note (01d §3.13.2 rule 5)
+  if (card?.kind_label_key.startsWith('alert.hand_over_unpaid.') === true) return handOverUnpaidNoteText(reason) ?? reason;
   const at = reason.indexOf(': ');
   const code = at < 0 ? reason : reason.slice(0, at);
   const note = at < 0 ? null : reason.slice(at + 2);
@@ -240,11 +251,15 @@ export function closedText(
     kind?: string | undefined;
     problem?: string | null | undefined;
     moved_to?: string | null | undefined;
+    /** the closer's note when the place knows it (a request_result); the `alert_closed` frame carries none */
+    note?: string | null | undefined;
   },
   utcOffsetMs: number,
 ): string {
   const own = c.kind === undefined ? null : closedText03b(c.kind, c);
   if (own !== null) return own;
+  // UX (02b v1.0.25 §3.7a Close, §6.19): an unpaid hand-over request closed by its owner says why, never bare "Closed"
+  if (c.kind === 'hand_over_unpaid' && (c.close_reason === 'obsolete' || c.close_reason === 'done')) return handOverUnpaidNoteText(c.note) ?? t('alert.hand_over_unpaid.closed');
   switch (c.close_reason) {
     case 'answered': {
       const approved = c.decision === 'approve' || c.decision === 'accept';
