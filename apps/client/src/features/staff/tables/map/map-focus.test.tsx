@@ -115,6 +115,22 @@ const settle = async (ms = 30) => {
   await flush();
 };
 
+/** Waits for the arrival itself, not for a wall-clock window. tapAlert's arrival (deeplink-tap.ts glowOnArrival) runs
+ *  on real browser tasks: jsdom's hashchange task, then one requestAnimationFrame (jsdom's ~16 ms visual clock), then
+ *  the lookup and the glow; under load those take longer than any fixed wait (a 30 ms settle saw no glow yet, and the
+ *  late arrival then glowed the next test's map). So poll until `ok` holds, inside act, well inside the 4 s arrival
+ *  window (ARRIVAL_MS: past it nothing glows at all) and the 2 s the glow lasts. */
+const until = (ok: () => void) =>
+  vi.waitFor(
+    async () => {
+      await settle(5);
+      ok();
+    },
+    { timeout: 3_000, interval: 0 },
+  );
+/** The arrival has glowed exactly `want` (evaluated once the new route has rendered). */
+const glowsOn = (want: () => Element[]) => until(() => expect(glowing()).toEqual(want()));
+
 function shellFor(o: { phone?: boolean; portrait?: boolean } = {}) {
   const live = createLiveBus();
   live.frame({ type: 'catch_up', as_of_seq: 5, state: { tables: MAP } });
@@ -192,9 +208,7 @@ describe('[01d #79] map places per device', () => {
     rects.set('panel', { left: 600, top: 0, right: 1200, bottom: 800 });
     const d = deps(shell, tableMap);
     expect(await tapAlert(call('F4', 'S4'), d)).toBe('navigated');
-    await settle();
-    const tileEl = m.container.querySelector('[data-table="F4"]');
-    expect(glowing()).toEqual([tileEl]);
+    await glowsOn(() => [m.container.querySelector('[data-table="F4"]')!]);
     expect(header.classList.contains('pos-glow')).toBe(false);
     expect(tableMap).not.toHaveBeenCalled(); // the held map (cs5)
   });
@@ -208,8 +222,7 @@ describe('[01d #79] map places per device', () => {
     rects.set('F4', { left: 700, top: 100, right: 800, bottom: 200 });
     rects.set('panel', { left: 600, top: 0, right: 1200, bottom: 800 });
     await tapAlert(call('F4', 'S4'), deps(shell, tableMap));
-    await settle();
-    expect(glowing()).toEqual([header]);
+    await glowsOn(() => [header]);
   });
 
   it('[01d #79] tablet portrait: the sheet header glows, not the tile', async () => {
@@ -220,8 +233,7 @@ describe('[01d #79] map places per device', () => {
     await flush();
     const header = sheetHeader('S4', false);
     await tapAlert(call('F4', 'S4'), deps(shell, tableMap));
-    await settle();
-    expect(glowing()).toEqual([header]);
+    await glowsOn(() => [header]);
   });
 
   it('[01d #79] phone: a table target glows the sheet header; a dine-in line route marks the Dine in tab', async () => {
@@ -232,8 +244,7 @@ describe('[01d #79] map places per device', () => {
     await flush();
     const header = sheetHeader('S4', false);
     await tapAlert(call('F4', 'S4'), deps(shell, tableMap));
-    await settle();
-    expect(glowing()).toEqual([header]);
+    await glowsOn(() => [header]);
     expect(screenOfPath(routePath('/tables/F4?seating_id=S4&focus=line:L1'))).toBe('dine_in');
   });
 
@@ -245,9 +256,8 @@ describe('[01d #79] map places per device', () => {
     expect(m.container.querySelector('[data-table="OLD"]')).not.toBeNull(); // the archived group is drawn
     const header = sheetHeader('S0', true);
     expect(await tapAlert(call('OLD', 'S0'), deps(shell, tableMap))).toBe('navigated');
-    await settle();
+    await glowsOn(() => [header]);
     expect(window.location.hash).toBe('#/tables/OLD?seating_id=S0');
-    expect(glowing()).toEqual([header]);
   });
 
   it('[01d #79] a merged table: the target on a joined table opens and glows its primary tile', async () => {
@@ -257,9 +267,8 @@ describe('[01d #79] map places per device', () => {
     await flush();
     sheetHeader('S4', true);
     await tapAlert(call('F5', 'S4'), deps(shell, tableMap));
-    await settle();
+    await glowsOn(() => [m.container.querySelector('[data-table="F4"]')!]);
     expect(window.location.hash).toBe('#/tables/F4?seating_id=S4');
-    expect(glowing()).toEqual([m.container.querySelector('[data-table="F4"]')]);
   });
 
   it('[01d #79 m7] the map shows the tile\'s floor, as the floor control would; the place is judged on that floor', async () => {
@@ -272,12 +281,12 @@ describe('[01d #79] map places per device', () => {
     expect(m.container.querySelector('[data-table="F4"]')).toBeNull();
     sheetHeader('S4', false);
     await tapAlert(call('F4', 'S4'), deps(shell, tableMap));
-    await settle();
+    // the arrival is over once it has consumed `focus` (deeplink-tap.ts: glow, then consumeFocus)
+    await until(() => expect(window.location.hash).toBe('#/tables/F4?seating_id=S4'));
     expect(m.container.querySelector('[data-table="F4"]')).not.toBeNull();
     expect(m.container.querySelector('[data-table="R1"]')).toBeNull();
     // the chip of that floor is pressed, and it stays picked once focus is dropped
     expect(m.container.querySelector('.chip[aria-pressed="true"]')?.textContent).toContain('Family hall');
-    expect(window.location.hash).toBe('#/tables/F4?seating_id=S4');
   });
 
   it('[01d #79 m7] landscape on another floor: the tile is waited for on its floor, then glows (never the header first)', async () => {
@@ -288,8 +297,7 @@ describe('[01d #79] map places per device', () => {
     expect(m.container.querySelector('[data-table="F4"]')).toBeNull();
     const header = sheetHeader('S4', true);
     await tapAlert(call('F4', 'S4'), deps(shell, tableMap));
-    await settle();
-    expect(glowing()).toEqual([m.container.querySelector('[data-table="F4"]')]);
+    await glowsOn(() => [m.container.querySelector('[data-table="F4"]')!]);
     expect(header.classList.contains('pos-glow')).toBe(false);
   });
 
@@ -308,9 +316,8 @@ describe('[01d #79] map places per device', () => {
     const d = deps(shell, tableMap, { orders: { orderView, zoneStock: vi.fn() } as never });
     const lockOnly: TapRow = { ...call('F4', 'S4'), alert_id: 'V1', kind: 'void_approval', target: { type: 'order_line', order_id: 'O4', order_item_id: 'L1' } };
     expect(await tapAlert(lockOnly, d)).toBe('navigated');
-    await settle();
+    await glowsOn(() => [scrim.querySelector('[data-line="L1"]')!]);
     expect(d.openSheet).not.toHaveBeenCalled();
-    expect(glowing()).toEqual([scrim.querySelector('[data-line="L1"]')]);
   });
 
   it('[01d #79 m7] landscape: the tile is scrolled into view first, then judged: a tile the panel covers before the scroll but not after glows', async () => {
@@ -325,10 +332,10 @@ describe('[01d #79] map places per device', () => {
     rects.set('F4', { left: 700, top: 100, right: 800, bottom: 200 });
     onScroll.set('F4', () => rects.set('F4', { left: 300, top: 300, right: 400, bottom: 400 }));
     await tapAlert(call('F4', 'S4'), deps(shell, tableMap));
-    await settle();
-    const tileEl = m.container.querySelector('[data-table="F4"]');
+    const tileOf = () => m.container.querySelector('[data-table="F4"]')!;
+    await glowsOn(() => [tileOf()]);
+    const tileEl = tileOf();
     expect(scrolls[0]).toBe(tileEl);
-    expect(glowing()).toEqual([tileEl]);
     expect(header.classList.contains('pos-glow')).toBe(false);
   });
 
@@ -342,8 +349,7 @@ describe('[01d #79] map places per device', () => {
     expect(m.container.querySelector('[data-table="R1"]')).toBeNull(); // R1 is nobody's
     const header = sheetHeader('S9', true);
     await tapAlert(call('R1', 'S9'), deps(shell, tableMap));
-    await settle(60); // well inside the 4 s arrival window
-    expect(glowing()).toEqual([header]);
+    await glowsOn(() => [header]); // inside the 4 s arrival window: the fallback, not the timer (which glows nothing)
   });
 
   it('[01d #79] phone: a dine-in line target glows the line in the bottom sheet, through the real tap', async () => {
@@ -363,9 +369,8 @@ describe('[01d #79] map places per device', () => {
     const d = deps(shell, tableMap, { orders: { orderView, zoneStock: vi.fn() } as never });
     const comp: TapRow = { ...call('F4', 'S4'), alert_id: 'E1', kind: 'engine_line_dropped', target: { type: 'order_line', order_id: 'O4', order_item_id: 'L1' } };
     expect(await tapAlert(comp, d)).toBe('navigated');
-    await settle();
+    await glowsOn(() => [scrim.querySelector('[data-line="L1"]')!]);
     expect(window.location.hash).toBe('#/tables/F4?seating_id=S4');
     expect(screenOfPath(routePath('/tables/F4?seating_id=S4'))).toBe('dine_in');
-    expect(glowing()).toEqual([scrim.querySelector('[data-line="L1"]')]);
   });
 });
