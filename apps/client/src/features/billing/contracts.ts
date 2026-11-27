@@ -16,6 +16,10 @@ export interface OpenBillRow {
   paid_minor: number;
   /** ⚠️ 05 v1.0.35 §6.2 (run 3 R3-B-1, D3): Σ the open splits' balance_minor (each split's total less its own payments) */
   due_minor: number;
+  /** ⚠️ 05 v1.0.36 §6.2 (QA BUG-16): Σ the open splits' as-paid totals — the row's amount, as the bill page shows it */
+  open_total_minor: number;
+  /** ⚠️ 05 v1.0.36 §6.2 (QA BUG-16): Σ the open splits' net payments — the row's "Paid"; open_total − open_paid = due */
+  open_paid_minor: number;
   check_printed_at: number | null;
   opened_at: number;
   open_minutes: number;

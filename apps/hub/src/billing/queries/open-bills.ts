@@ -42,11 +42,14 @@ export const lineRows = (from: string): string => `(SELECT json_group_array(json
   FROM ${from} ORDER BY o.placed_at, o.order_id, l.added_at, l.rowid) z)`;
 
 /**
- * ⚠️ 05 v1.0.35 §6.2, §6.2a (run 3 R3-B-1): the columns of bill `b`'s split plan — the number of its split rows and its
+ * ⚠️ 05 v1.0.35 §6.2, §6.2a (run 3 R3-B-1): the columns of bill `b`'s split plan — the number of its split rows, its
+ * closed splits' Σ rounding (⚠️ v1.0.36 §3.8, QA BUG-1: the open remainder is rounded with it) and its
  * OPEN splits in split order, each with its plan, item-plan rows and live payments (class, direction, amount, tendered),
  * each collection aggregated in its own subquery (no join multiplies lines by payments). Read by `openPart`.
  */
 export const OPEN_SPLIT_COLUMNS = `(SELECT COUNT(*) FROM bill_splits s WHERE s.bill_id = b.bill_id) AS split_count,
+  COALESCE((SELECT SUM(i.rounding_minor) FROM bill_splits bs JOIN invoices i ON i.invoice_id = bs.invoice_id
+            WHERE bs.bill_id = b.bill_id AND bs.state = 'closed'), 0) AS closed_rounding,
   (SELECT json_group_array(json_object('split_no', s.split_no, 'plan_json', s.plan_json,
             'plan_lines_json', json((SELECT json_group_array(json_object('order_item_id', pl.order_item_id, 'units', pl.units))
                                   FROM (SELECT order_item_id, units FROM bill_split_lines
@@ -167,6 +170,7 @@ interface BillRow {
   discount_line_ids: string;
   split_mode: 'items' | 'amount' | 'equal' | null;
   split_count: number;
+  closed_rounding: number;
   open_splits: string;
   own_sums: string | null;
   own_root: string | null;
@@ -184,6 +188,10 @@ export interface OpenBillRow {
   paid_minor: number;
   /** ⚠️ 05 v1.0.35 §6.2 (run 3 R3-B-1, D3): Σ the open splits' balance_minor; closed splits add 0 */
   due_minor: number;
+  /** ⚠️ 05 v1.0.36 §6.2 (QA BUG-16): Σ the open splits' as-paid totals, as the bill page shows them */
+  open_total_minor: number;
+  /** ⚠️ 05 v1.0.36 §6.2 (QA BUG-16): Σ the open splits' net live payments; open_total − open_paid = due */
+  open_paid_minor: number;
   check_printed_at: number | null;
   opened_at: number;
   open_minutes: number;
@@ -193,7 +201,7 @@ export interface OpenBillRow {
 }
 
 interface Candidate {
-  row: Omit<OpenBillRow, 'identifier' | 'total_default_minor' | 'due_minor' | 'open_minutes' | 'flagged'>;
+  row: Omit<OpenBillRow, 'identifier' | 'total_default_minor' | 'due_minor' | 'open_total_minor' | 'open_paid_minor' | 'open_minutes' | 'flagged'>;
   sums: Sum[];
   closed: Array<{ id: string; units: number; share: number }>;
   /** dine-in: the seating for scope and the identifier; key: who placed its orders, its root */
@@ -321,9 +329,9 @@ export function openBills(c: OpenBillsCtx): { bills: OpenBillRow[]; as_of_seq: n
   const at = business_date === null ? null : billingAt(config, business_date);
   const rows: OpenBillRow[] = visible.map((x) => {
     const { billing, rules } = at!;
-    const { total_default_minor, due_minor } = openPart(billing, rules, business_date!, { order_type: x.row.order_type, sums: x.sums, closed: x.closed, bill: x.bill });
+    const { total_default_minor, due_minor, open_total_minor, open_paid_minor } = openPart(billing, rules, business_date!, { order_type: x.row.order_type, sums: x.sums, closed: x.closed, bill: x.bill });
     const open_minutes = Math.max(0, Math.floor((c.now - x.row.opened_at) / 60_000));
-    return { ...x.row, identifier: identifierOf(x, nameOf, c.openDay), total_default_minor, due_minor, open_minutes, flagged: open_minutes > billing.settings.open_bill_flag_minutes };
+    return { ...x.row, identifier: identifierOf(x, nameOf, c.openDay), total_default_minor, due_minor, open_total_minor, open_paid_minor, open_minutes, flagged: open_minutes > billing.settings.open_bill_flag_minutes };
   });
   rows.sort((a, b) => {
     if (a.check_printed_at !== b.check_printed_at) {
@@ -353,6 +361,7 @@ export interface OpenPartBill {
   discount_line_ids: string;
   split_mode: 'items' | 'amount' | 'equal' | null;
   split_count: number;
+  closed_rounding: number;
   open_splits: string;
 }
 
@@ -376,7 +385,7 @@ export function openPart(
   atDay: ComputeRules,
   business_date: string,
   x: { order_type: BillOrderType; sums: readonly Sum[]; closed: ReadonlyArray<{ id: string; units: number; share: number }>; bill: OpenPartBill | null },
-): { total_default_minor: number; due_minor: number } {
+): { total_default_minor: number; due_minor: number; open_total_minor: number; open_paid_minor: number } {
   const b = x.bill;
   const rules = b === null ? atDay : { ...atDay, prices_include_tax: b.prices_include_tax === 1, rounding: { ...(JSON.parse(b.rounding_json) as BillRounding) } };
   const closed = new Map(x.closed.map((c) => [c.id, { units: c.units, share: c.share }]));
@@ -395,7 +404,7 @@ export function openPart(
         };
   const sc = b === null ? { rate_bp: billing.settings.service_charge_bp[x.order_type], removed: false } : { rate_bp: b.sc_bp, removed: b.sc_removed === 1 };
   const open: OpenSplit[] = b === null || b.split_count === 0 ? [{ split_no: 1, plan_json: null, plan_lines_json: [], payments: [] }] : (JSON.parse(b.open_splits) as OpenSplit[]);
-  if (open.length === 0) return { total_default_minor: 0, due_minor: 0 };
+  if (open.length === 0) return { total_default_minor: 0, due_minor: 0, open_total_minor: 0, open_paid_minor: 0 };
   const payments: ComputePayment[] = open.flatMap((s) => s.payments.map((p) => ({ split_no: s.split_no, payment_class: p.c, direction: p.d, amount_minor: p.a, tendered_minor: p.t })));
   const result = computeBill({
     business_date,
@@ -409,8 +418,16 @@ export function openPart(
       open.map((s) => ({ split_no: s.split_no, plan_json: s.plan_json, plan_lines_json: JSON.stringify(s.plan_lines_json) })),
     ),
     payments,
+    closed_rounding_minor: b === null ? 0 : b.closed_rounding,
   });
-  return { total_default_minor: result.totals_default.total_minor, due_minor: result.splits.reduce((a, s) => a + s.balance_minor, 0) };
+  const sum = (f: (s: (typeof result.splits)[number]) => number) => result.splits.reduce((a, s) => a + f(s), 0);
+  return {
+    total_default_minor: result.totals_default.total_minor,
+    due_minor: sum((s) => s.balance_minor),
+    // QA BUG-16: the bill page's own numbers, from the same result (open_total − open_paid = due)
+    open_total_minor: sum((s) => s.totals.as_paid.total_minor),
+    open_paid_minor: sum((s) => s.paid_cash_minor + s.paid_digital_minor),
+  };
 }
 
 function identifierOf(x: Candidate, nameOf: ReadonlyMap<string, string>, today: string | null): string {
