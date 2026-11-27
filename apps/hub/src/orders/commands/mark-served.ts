@@ -11,6 +11,7 @@ import type { CurrentTableOf } from '../../engine-host/slip-readers.js';
 import { defineCommand } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
+import { keyBalances } from '../../billing/queries/key-balances.js';
 import { currentTableOf } from '../../tables/reads.js';
 import type { LineView, OrderType } from '../contracts.js';
 import { orderLines } from '../exports.js';
@@ -29,20 +30,43 @@ export interface ScopedOrder {
 }
 
 /**
- * The named orders of `orders` with the holder of their open seating (02a `seating_orders` ⋈ `seatings`, read-only,
- * P-1c). 1 statement. An unknown id has no entry.
+ * ⚠️ 02b v1.0.25 §6.4 (run 3 R3-M-3, R3-M-4): the hand-over facts the same orders read carries (bill key, liveness and
+ * the D2 approval columns), so `customer_handover` adds no order read (`servingOrders`).
  */
-export function scopedOrders(db: Database.Database, order_ids: readonly string[]): Map<string, ScopedOrder> {
+export interface HandoverFacts {
+  bill_key: string;
+  cancelled_at: number | null;
+  billed_at: number | null;
+  day_closed_at: number | null;
+  unpaid_handover_approved_at: number | null;
+  unpaid_handover_approved_due_minor: number | null;
+}
+
+/**
+ * MarkServed's orders read (§6.4 base read 1): the named orders with the holder of their open seating (02a
+ * `seating_orders` ⋈ `seatings`, read-only, P-1c) and their hand-over facts. 1 statement. An unknown id has no entry.
+ */
+export function servingOrders(db: Database.Database, order_ids: readonly string[]): Map<string, ScopedOrder & HandoverFacts> {
   const rows = db
     .prepare(
-      `SELECT o.order_id AS order_id, o.order_type AS order_type, o.placed_by AS placed_by, s.holder_staff_id AS holder_staff_id
+      `SELECT o.order_id AS order_id, o.order_type AS order_type, o.placed_by AS placed_by, s.holder_staff_id AS holder_staff_id,
+              o.bill_key AS bill_key, o.cancelled_at AS cancelled_at, o.billed_at AS billed_at, o.day_closed_at AS day_closed_at,
+              o.unpaid_handover_approved_at AS unpaid_handover_approved_at,
+              o.unpaid_handover_approved_due_minor AS unpaid_handover_approved_due_minor
          FROM (SELECT DISTINCT value FROM json_each(?)) j
          JOIN orders o ON o.order_id = j.value
          LEFT JOIN seating_orders so ON so.order_id = o.order_id
          LEFT JOIN seatings s ON s.seating_id = so.seating_id AND s.state <> 'CLOSED'`,
     )
-    .all(JSON.stringify(order_ids)) as ScopedOrder[];
+    .all(JSON.stringify(order_ids)) as Array<ScopedOrder & HandoverFacts>;
   return new Map(rows.map((r) => [r.order_id, r]));
+}
+
+/** The §3.14 scope fields of the named orders (`servingOrders` narrowed). 1 statement. An unknown id has no entry. */
+export function scopedOrders(db: Database.Database, order_ids: readonly string[]): Map<string, ScopedOrder> {
+  const out = new Map<string, ScopedOrder>();
+  for (const [id, o] of servingOrders(db, order_ids)) out.set(id, { order_id: o.order_id, order_type: o.order_type, placed_by: o.placed_by, holder_staff_id: o.holder_staff_id });
+  return out;
 }
 
 /**
@@ -117,6 +141,8 @@ export const MarkServedPayload = z.object({
         });
       });
     }),
+  // ⚠️ 02b v1.0.25 §6.4 (run 3 R3-M-4): staff takeaway / parking customer actions (§8); omitted → ordinary §3.7 serving.
+  customer_handover: z.literal(true).optional(),
 });
 type Payload = z.infer<typeof MarkServedPayload>;
 
@@ -128,19 +154,24 @@ type Payload = z.infer<typeof MarkServedPayload>;
  * unfired (`added`, no fire) → ITEM_WRONG_STAGE { stage: 'added' }. An order that has left the engine (O16) serves
  * any live line, with no stockEffects. Scope last (C8). Batch: per order ItemServed { source: 'tap' } →
  * OrderFoodServed (when it serves a food line, §3.3) → its stockEffects (array form across the command, AD-29 Q7).
- * Queued (§3.12): `served_at` = `ctx.queuedAt` on each ItemServed.
+ * Queued (§3.12): `served_at` = `ctx.queuedAt` on each ItemServed. ⚠️ 02b v1.0.25 §6.4 (run 3 R3-M-4):
+ * `customer_handover: true` takes takeaway / parking only (dine-in → 400 at `lines.i.order_id`) and runs
+ * `checkHandover` after scope (+ at most 1 `keyBalances` read).
  */
 function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; result: { served: number; skipped: string[] } } {
   const db = ctx.tx.db;
   const now = ctx.clock.branchNow();
   const orderIds = payload.lines.map((l) => l.order_id);
-  const orders = scopedOrders(db, orderIds);
+  const orders = servingOrders(db, orderIds);
   const lines = orderLines(db, orderIds);
 
   const skipped: string[] = [];
   const serves: ServeEntry[] = [];
   payload.lines.forEach((entry, i) => {
     if (!orders.has(entry.order_id)) throw new DomainError('ORDER_NOT_FOUND', { order_id: entry.order_id });
+    if (payload.customer_handover === true && orders.get(entry.order_id)!.order_type === 'dine_in') {
+      throw new DomainError('VALIDATION_FAILED', { issues: [{ path: `lines.${i}.order_id`, message: 'takeaway_or_parking_only' }] });
+    }
     const byId = new Map(lines.get(entry.order_id)!.map((l) => [l.order_item_id, l]));
     const inEngine = isOrderInEngine(ctx.state, entry.order_id, now);
     const ids: string[] = [];
@@ -168,6 +199,7 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
   });
 
   checkOrderScope(ctx, orderIds.map((id) => orders.get(id)!));
+  if (payload.customer_handover === true) checkHandover(db, orders, lines, serves);
 
   const envelope: ServedEnvelope = {
     occurred_at: now,
@@ -178,6 +210,37 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
   };
   const events = servedDrafts(ctx.state, lines, serves, envelope, 'tap');
   return { events, result: { served: serves.reduce((n, s) => n + s.ids.length, 0), skipped } };
+}
+
+/** §6.4: the live unserved non-deal lines of an order (deal parts and option children included; headers never). */
+export const unservedLive = (lines: readonly LineView[]): LineView[] => lines.filter((l) => l.line_kind !== 'deal' && l.live_units > 0 && l.served_at === null);
+
+/**
+ * ⚠️ 02b v1.0.25 §6.4 (run 3 R3-M-4; §3.7a, D2, D3): the explicit customer hand-over check, in the serving writer
+ * transaction (a queued send is rechecked here as a live one). An order whose last live unserved non-deal line this send
+ * would serve, still live (not cancelled, billed or day-closed), with a positive fresh due of its key needs its own
+ * effective approval (approved and due ≤ the approved amount). One batched `keyBalances` read for those keys, none
+ * when no order serves its last line. Refuses the whole send, before anything is appended, with
+ * 403 PERMISSION_DENIED { reason: 'unpaid_handover_approval_required', order_id } (the first such order in payload order).
+ */
+function checkHandover(
+  db: Database.Database,
+  orders: ReadonlyMap<string, ScopedOrder & HandoverFacts>,
+  lines: ReadonlyMap<string, readonly LineView[]>,
+  serves: readonly ServeEntry[],
+): void {
+  const last = serves
+    .filter((s) => unservedLive(lines.get(s.order_id) ?? []).every((l) => s.ids.includes(l.order_item_id)))
+    .map((s) => orders.get(s.order_id)!)
+    .filter((o) => o.cancelled_at === null && o.billed_at === null && o.day_closed_at === null);
+  if (last.length === 0) return;
+  const dues = keyBalances(db, [...new Set(last.map((o) => o.bill_key))]);
+  for (const o of last) {
+    const due = dues.get(o.bill_key)?.due_minor ?? 0;
+    if (due <= 0) continue;
+    const approved = o.unpaid_handover_approved_at !== null && o.unpaid_handover_approved_due_minor !== null && due <= o.unpaid_handover_approved_due_minor;
+    if (!approved) throw new DomainError('PERMISSION_DENIED', { reason: 'unpaid_handover_approval_required', order_id: o.order_id });
+  }
 }
 
 /** One order's lines to serve (validated by the caller); `inEngine` = `isOrderInEngine` at the envelope time (O16). */
