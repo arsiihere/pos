@@ -32,6 +32,8 @@ import { createBillEligibility, createCustomerHandover, customerButton, customer
 import { isPickup, notCollectedMin, pickupReady } from './cards/readiness';
 import { createHandovers } from '../staff/orders/takeaway/handover';
 import '../staff/orders/takeaway/styles';
+import { AskManager } from '../staff/orders/unpaid/AskManager';
+import { unpaidRequestsOf } from '../staff/orders/unpaid/requests';
 
 // 03b v1.0.8 §3.4, §8 Pass screen (`/staff/` `#/pass` on a device with a point; W0.6 mounts it; P2). The page's Pass
 // live (P1, `passLiveOf`) holds the point's view; the screen draws the station strip and the cards oldest first
@@ -151,6 +153,12 @@ export function PassScreen() {
     [shell.live],
   );
   const billRead = useSyncExternalStore(bills.subscribe, bills.current);
+  // ⚠️ 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, OR-7; D2): the page's unpaid hand-over requests and approvals
+  const unpaid = unpaidRequestsOf(shell);
+  useSyncExternalStore(unpaid.subscribe, unpaid.version);
+  useEffect(() => {
+    if (billRead !== null) unpaid.seed([...billRead.rows].map(([order_id, r]) => ({ order_id, ...r })));
+  }, [billRead, unpaid]);
   const sendRef = useRef<(h: Parameters<Parameters<typeof createHandovers>[0]['send']>[0]) => void>(() => undefined);
   const handovers = useMemo(() => createHandovers({ send: (h) => sendRef.current(h) }), []);
   useEffect(() => handovers.attach(), [handovers]);
@@ -165,8 +173,10 @@ export function PassScreen() {
         now: () => shellRef.current.clock.nowMs(),
         utcOffsetMs: shell.clock.utcOffsetMs,
         toast: (text, tone) => shellRef.current.toasts.show({ text, tone }),
+        approvedDue: (order_id) => unpaid.approvedDue(order_id),
+        onUnpaidRefused: (order_id) => unpaid.refused(order_id),
       }),
-    [bills, handovers, shell.clock.utcOffsetMs],
+    [bills, handovers, shell.clock.utcOffsetMs, unpaid],
   );
   sendRef.current = (h) => void customer.send(h);
   const toastRef = useRef((text: string) => shell.toasts.show({ text, tone: 'ok' }));
@@ -422,7 +432,7 @@ export function PassScreen() {
                       up,
                       localDone: o.lines.every((l) => l.handed_over || l.stage === 'done'),
                       pickupOk: bagOk,
-                      eligibility: eligibilityOf(billRead, { order_id: o.order_id, order_type: type, placed_at: o.placed_at }),
+                      eligibility: eligibilityOf(billRead, { order_id: o.order_id, order_type: type, placed_at: o.placed_at }, unpaid.approvedDue(o.order_id)),
                       pending: pendingCustomer.has(o.order_id) || busy.has(`c:${o.order_id}`),
                     })
                   : null;
@@ -505,6 +515,8 @@ export function PassScreen() {
                           <span>{t(cust.hint)}</span>
                         </div>
                       )}
+                      {/* ⚠️ 02b-TK L-CLIENT-2 item 4 (03b v1.0.16 §3.4, 02b §3.7a OR-7): the card's own order */}
+                      {cust?.ask != null && <AskManager order_id={o.order_id} due_minor={cust.ask.due_minor} variant="pass" onChanged={() => bills.schedule()} />}
                     </>
                   }
                 />

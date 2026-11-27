@@ -45,7 +45,8 @@ describe('[02b-TK C2-2] token view on the takeaway screen', () => {
     await tick(UNDO_MS - 1);
     expect(h.sent).toEqual([]);
     await tick(1);
-    expect(h.sent).toEqual([{ type: 'MarkServed', payload: { lines: [{ order_id: 'O48', order_item_ids: ['A'] }] }, meta: { label: 'Mark served · 48' } }]);
+    // ⚠️ 02b v1.0.25 §6.4 (R3-M-4; L-CLIENT-2 item 4): the counter hand-over is a customer hand-over
+    expect(h.sent).toEqual([{ type: 'MarkServed', payload: { lines: [{ order_id: 'O48', order_item_ids: ['A'] }], customer_handover: true }, meta: { label: 'Mark served · 48' } }]);
     expect(m.container.querySelector('.tk-toast')).toBeNull();
     m.unmount();
   });

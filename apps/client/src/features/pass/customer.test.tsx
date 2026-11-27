@@ -205,7 +205,7 @@ describe('[03b v1.0.16 §3.4 Handed to customer (R3-B-2, OR-2, OR-7)] the Pass-r
       expect(s.enqueued).toEqual([]);
       await vi.advanceTimersByTimeAsync(5_000);
       await flush();
-      expect(s.enqueued).toEqual([{ type: 'MarkServed', payload: { lines: [{ order_id: 'O48', order_item_ids: ['O48-L1', 'RAITA', 'COLA'] }] } }]);
+      expect(s.enqueued).toEqual([{ type: 'MarkServed', payload: { lines: [{ order_id: 'O48', order_item_ids: ['O48-L1', 'RAITA', 'COLA'] }], customer_handover: true } }]); // ⚠️ 02b v1.0.25 §6.4 (L-CLIENT-2 item 4): the customer hand-over flag
       expect(s.toasts).toEqual([]);
       expect(m.container.querySelector('.pass-undo')).toBeNull();
 
@@ -273,3 +273,100 @@ describe('[03b v1.0.16 §3.4 Handed to customer (R3-B-2, OR-2, OR-7)] the Pass-r
     }
   });
 });
+
+// 02b-TK L-CLIENT-2 item 4 (03b v1.0.16 §3.4 Handed to customer (R3-B-2, OR-7); 02b v1.0.25 §3.7a, §6.4, §6.16; D2;
+// tests 112, 113, 119 client parts): the Pass's Ask a manager and the open-orders row as today's hub sends it.
+describe('[02b-TK L-CLIENT-2 item 4; 03b §3.4 OR-7, D2] Ask a manager on a Due Pass card', () => {
+  /** an open-orders row as the hub on this base sends it (02b B2-1: bill, ready_at, handed, … ) */
+  const hubRow = (order_id: string, bill: unknown, extra: Record<string, unknown> = {}) => ({
+    order_id, order_type: 'takeaway', token: Number(order_id.slice(1)), bill, ready_at: null, bag_ready_window_ms: null, handed: { n: 0, m: 1 }, lines_summary: [], lines_more: 0, pickup_at_ms: null, effective_pickup_at_ms: null, ...extra,
+  });
+  const askOf = (id: string) => pc(id).querySelector<HTMLButtonElement>('[data-ask]');
+
+  it('the hub\'s Paid row enables "Handed to customer" (L-CLIENT-1 greyed-until-known picks the bill field up); no Ask', async () => {
+    const s = shellWith({ grants: PASS, bills: () => openOrders([hubRow('O48', { state: 'paid', due_minor: 0 }, { unpaid_handover_approved: false })]) });
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O48', 'done')]) } });
+    show(s.shell);
+    await flush();
+    expect(customerBtn('O48')!.disabled).toBe(false);
+    expect(askOf('O48')).toBeNull();
+  });
+
+  it('a Due, unapproved card is greyed and offers Ask a manager → RequestUnpaidHandover { order_id: <card order> } → "Waiting for a manager…"', async () => {
+    const s = shellWith({ grants: PASS, bills: () => openOrders([hubRow('O48', { state: 'due', due_minor: 119_000 })]) });
+    const command = vi.fn(async () => ({ ok: true, data: { alert_id: 'AL1', is_requester: true } }));
+    (s.shell.api as unknown as { command: typeof command }).command = command;
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O48', 'done')]) } });
+    show(s.shell);
+    await flush();
+    expect(customerBtn('O48')!.disabled).toBe(true);
+    expect(askOf('O48')!.textContent).toBe('Ask a manager');
+    m.click(askOf('O48'));
+    await flush();
+    expect(command).toHaveBeenCalledWith('RequestUnpaidHandover', { order_id: 'O48' });
+    expect(pc('O48').querySelector('.pc__ask')!.textContent).toContain('Waiting for a manager…');
+    expect(m.button('Withdraw', pc('O48'))).toBeTruthy();
+  });
+
+  it('another person\'s open request: "Already waiting for a manager", no Withdraw', async () => {
+    const s = shellWith({ grants: PASS, bills: () => openOrders([hubRow('O48', { state: 'due', due_minor: 119_000 })]) });
+    (s.shell.api as unknown as { command: () => Promise<unknown> }).command = async () => ({ ok: true, data: { alert_id: 'AL1', is_requester: false } });
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O48', 'done')]) } });
+    show(s.shell);
+    await flush();
+    m.click(askOf('O48'));
+    await flush();
+    expect(pc('O48').querySelector('.pc__ask')!.textContent).toContain('Already waiting for a manager');
+    expect([...pc('O48').querySelectorAll('button')].some((b) => b.textContent === 'Withdraw')).toBe(false);
+  });
+
+  it('UnpaidHandoverApproved for the card\'s order (and the row flag on the next read) enables it; the send carries customer_handover', async () => {
+    vi.useFakeTimers();
+    try {
+      let approved = false;
+      const views = { O48: ov('O48', [sline('O48-L1', 'O48')]) };
+      const s = shellWith({ grants: PASS, views, bills: () => openOrders([hubRow('O48', { state: 'due', due_minor: 119_000 }, { unpaid_handover_approved: approved })]) });
+      s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O48', 'done')]) } });
+      show(s.shell);
+      await vi.advanceTimersByTimeAsync(0);
+      await flush();
+      expect(customerBtn('O48')!.disabled).toBe(true);
+      approved = true;
+      s.raw({ type: 'event', seq: 2, event: { event_id: 'E2', event_type: 'UnpaidHandoverApproved', schema_version: 1, payload: { order_id: 'O48', alert_id: 'AL1', approved_by_staff_id: 'S_MGR', due_minor: 119_000 } } } as WsServerMessage);
+      await vi.advanceTimersByTimeAsync(1_100);
+      await flush();
+      expect(customerBtn('O48')!.disabled).toBe(false);
+      expect(askOf('O48')).toBeNull();
+      m.click(customerBtn('O48'));
+      await vi.advanceTimersByTimeAsync(0);
+      await flush();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await flush();
+      expect(s.enqueued).toEqual([{ type: 'MarkServed', payload: { lines: [{ order_id: 'O48', order_item_ids: ['O48-L1'] }], customer_handover: true } }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the hub refuses the send as unpaid (403 unpaid_handover_approval_required) → "Not paid — take payment first or ask a manager"', async () => {
+    vi.useFakeTimers();
+    try {
+      const views = { O48: ov('O48', [sline('O48-L1', 'O48')]) };
+      const refused = { status: 'refused', error: { kind: 'api', status: 403, code: 'PERMISSION_DENIED', details: { reason: 'unpaid_handover_approval_required', order_id: 'O48' } } };
+      const s = shellWith({ grants: PASS, views, enqueue: () => refused, bills: () => openOrders([hubRow('O48', { state: 'due', due_minor: 119_000 }, { unpaid_handover_approved: true })]) });
+      s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O48', 'done')]) } });
+      show(s.shell);
+      await vi.advanceTimersByTimeAsync(0);
+      await flush();
+      m.click(customerBtn('O48'));
+      await vi.advanceTimersByTimeAsync(0);
+      await flush();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await flush();
+      expect(s.toasts).toContain('Not paid — take payment first or ask a manager');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+

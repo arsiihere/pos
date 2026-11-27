@@ -23,6 +23,10 @@ import { enqueueMeta, LineActions, servedCandidatesOf, showOrderError, type Line
 import { LineRow } from './LineRow';
 import { isServed, readyCount } from './stage';
 import { MaskedAction } from '../../shell/MaskedAction';
+import { liveLines } from '../takeaway/TokenView';
+import { candidatesOf, gateOf, type Gate } from '../unpaid/candidate';
+import { useBillRead } from '../unpaid/useBillRead';
+import { unpaidRequestsOf } from '../unpaid/requests';
 
 // 02b v1.0.11 §8 Table view, Open orders; §6.18a (frame 02b-S11 OrderView, Boost): one takeaway / parking order at
 // #/orders/<order_id> — the token (or plate) big, Ready n/m, the promise, who placed it; Call / Boost / Mark served
@@ -225,6 +229,19 @@ export function OrderView({ order_id }: OrderViewProps) {
   const showCall = head !== null && head.order_type !== 'dine_in' && head.has_phone && may('view-customer-contact');
   const showBoost = may('boost-order') && !billed && view.kind !== 'gone';
   const showServed = may('mark-served') && candidates.length > 0;
+  // ⚠️ 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, §6.4, §8 OR-7 parking / per-line sheet; D2): a takeaway / parking
+  // order's Mark served goes through the shared candidate check, its billing from one open-orders read
+  const customer = head !== null && head.order_type !== 'dine_in';
+  const bills = useBillRead(customer && may('mark-served'));
+  const orderGate = (): Gate => {
+    if (billed) return { kind: 'free' };
+    const read = bills.read;
+    if (read === null || placedAt === null) return { kind: 'unknown' };
+    // 03b §3.4 Bill freshness (owner 2026-11-27): an absent row means paid for parking only (a billed parking order
+    // leaves open-orders); an absent takeaway row stays unknown, as on the Pass
+    return gateOf(read.rows.get(order_id), { absentFree: head?.order_type === 'parking' && read.at >= placedAt, approvedDue: unpaidRequestsOf(shell).approvedDue(order_id) });
+  };
+  const unpaid = customer && order !== null ? { orders: candidatesOf([order_id], liveLines(order.lines), orderGate) } : undefined;
   const lineOrder: LineOrder | null =
     order === null || head === null
       ? null
@@ -348,7 +365,7 @@ export function OrderView({ order_id }: OrderViewProps) {
                   }
                 >
                   {lineOrder !== null && seatingLine(line) !== null && (
-                    <LineActions line={seatingLine(line)!} order={lineOrder} onChanged={() => void load()} />
+                    <LineActions line={seatingLine(line)!} order={lineOrder} onChanged={() => void load()} unpaid={unpaid} />
                   )}
                 </LineRow>
               ))}
@@ -390,7 +407,11 @@ export function OrderView({ order_id }: OrderViewProps) {
             setOpen(null);
             void load();
           }}
-          onChanged={() => void load()}
+          onChanged={() => {
+            void load();
+            bills.reload();
+          }}
+          unpaid={unpaid}
         />
       )}
     </div>

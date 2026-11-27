@@ -1792,4 +1792,18 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // ---- 02b-TK L-CLIENT-2 item 2 (03b v1.0.16 §3.4 Not collected (R3-M-9), §3.5, D8; frames ReadyTiles, TokenLate): the amber counter Ready tile and the token drawer: strings-table.md (sample 17 → {n}) ----
   'q.waiting_min': '{n} منٹ · فون',
   'v.late': '{n} منٹ سے تیار — کوئی نہیں آیا',
+  // ---- 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, §8 OR-7; D2): unpaid hand-over — Ask a manager, waiting / rejected, the request card ----
+  'pass.ask_manager': 'مینیجر سے پوچھیں', // not in strings-table.md; Urdu to confirm
+  'pass.waiting_manager': 'مینیجر کا انتظار…', // not in strings-table.md; Urdu to confirm
+  'pass.manager_rejected': 'مینیجر نے منع کر دیا', // not in strings-table.md; Urdu to confirm
+  'unpaid.find_manager': 'انتظار — مینیجر کو ڈھونڈیں', // not in strings-table.md; Urdu to confirm
+  'unpaid.already_waiting': 'مینیجر سے پہلے ہی پوچھا جا چکا ہے', // not in strings-table.md; Urdu to confirm
+  'unpaid.withdraw': 'واپس لیں', // not in strings-table.md; Urdu to confirm
+  'unpaid.approved': 'مینیجر نے اجازت دے دی — حوالے کریں', // not in strings-table.md; Urdu to confirm
+  'unpaid.not_needed': 'ابھی کچھ باقی نہیں — حوالے کریں', // not in strings-table.md; Urdu to confirm
+  'unpaid.refused': 'ادائیگی نہیں ہوئی — پہلے پیسے لیں یا مینیجر سے پوچھیں', // not in strings-table.md; Urdu to confirm
+  'unpaid.offline': 'آف لائن — ہب واپس آنے پر مینیجر سے پوچھیں', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.card': '{identifier} بغیر ادائیگی حوالے کریں', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.lock': 'بغیر ادائیگی حوالگی کی درخواست', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.name': 'بغیر ادائیگی حوالگی', // not in strings-table.md; Urdu to confirm
 };

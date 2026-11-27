@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { navigate } from '../../../../app/router';
 import { t, type MessageKey } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
@@ -23,6 +23,9 @@ import type { TokenBook } from './book';
 import { maskPhone } from './mask';
 import { notCollectedMinOf, type QueueToken } from './queue-model';
 import { useHubNow } from './QueueRail';
+import { AskManager } from '../unpaid/AskManager';
+import { candidatesOf, checkHandover, dueGate, lineIds, type Gate } from '../unpaid/candidate';
+import { unpaidRequestsOf } from '../unpaid/requests';
 import './styles';
 
 // 02b-TK C2-2 (02b v1.0.24 §3.7, §6.4, §6.18, §6.18a; 05 v1.0.34 §6.1, B16; frames TokenDue, TokenReady,
@@ -35,6 +38,11 @@ import './styles';
 // R2 (no hub guard, 05 B16 as approved): on a Due bill Hand over all is greyed with "Take payment first" until it is
 // paid — for everyone: the pilot has NO client manager override (owner ruling 2026-11-24 #2). Hand-overs go through
 // the 5 s Undo (handover.ts).
+// ⚠️ 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, §8 OR-7; D2, D3): the shared candidate check (unpaid/candidate.ts)
+// per order of the token — billed / paid / due 0 → free; Due → free only with an effective approval of THAT order at
+// its fresh due (requests.ts). Hand over all and Give ready items now never take the last live line of a Due,
+// unapproved order (lines waiting in an Undo window count as taken); the blocked newest such order gets "Ask a
+// manager" (RequestUnpaidHandover) under "Take payment first". Unknown billing blocks.
 
 export interface TokenViewProps {
   token: QueueToken;
@@ -46,6 +54,8 @@ export interface TokenViewProps {
   onAddItems?: (() => void) | undefined;
   /** C3-1: Take payment opens the pay panel (else the bill screen) */
   onPay?: (() => void) | undefined;
+  /** line ids already waiting in an Undo window (§8 OR-7) */
+  reserved?: ReadonlySet<string> | undefined;
 }
 
 /** A line the counter can hand over now: the kitchen has it done, or it never went to a station. */
@@ -90,7 +100,7 @@ export function billFact(b: BillView): { paid: boolean; amount_minor: number; bi
   return { paid: false, amount_minor: open.length === 0 ? b.totals_default.total_minor : owed, bill_id: b.bill_id };
 }
 
-export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay }: TokenViewProps) {
+export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay, reserved }: TokenViewProps) {
   const shell = useShell();
   const shellRef = useRef(shell);
   shellRef.current = shell;
@@ -142,6 +152,19 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
   const giveReady = readyLines.length > 0 && !allReady;
   const paid = bill?.current?.paid ?? token.paid;
   const due = bill?.current !== null && bill?.current !== undefined && !bill.current.paid;
+  // ⚠️ OR-7 (D2): each order's gate from this view's reads (order-view `billed`, the newest order's bill)
+  const unpaid = unpaidRequestsOf(shell);
+  useSyncExternalStore(unpaid.subscribe, unpaid.version);
+  const gate = (order_id: string): Gate => {
+    if (orders?.find((o) => o.order_id === order_id)?.billed === true) return { kind: 'free' };
+    const cur = bill?.current;
+    if (cur == null) return token.paid ? { kind: 'free' } : { kind: 'unknown' };
+    return cur.paid ? { kind: 'free' } : dueGate(cur.amount_minor, undefined, unpaid.approvedDue(order_id));
+  };
+  const cands = candidatesOf(token.order_ids, liveLines(lines), gate);
+  const fullCheck = checkHandover(cands, lineIds(candidates), reserved);
+  const giveCheck = checkHandover(cands, lineIds(readyLines), reserved);
+  const ask = !fullCheck.ok && fullCheck.reason === 'due' ? fullCheck : !giveCheck.ok && giveCheck.reason === 'due' ? giveCheck : null;
   const may = shell.permissions.allowed;
   const canServe = may('mark-served');
   const first = orders?.[0] ?? null;
@@ -174,10 +197,10 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
   const handOverAll = (
     <button
       type="button"
-      className={`tk-btn tk-btn--xl ${allReady && paid ? 'tk-btn--ok' : ''}`}
-      aria-disabled={!allReady || !paid}
+      className={`tk-btn tk-btn--xl ${allReady && fullCheck.ok ? 'tk-btn--ok' : ''}`}
+      aria-disabled={!allReady || !fullCheck.ok}
       onClick={() => {
-        if (!allReady || !paid) return;
+        if (!allReady || !fullCheck.ok) return;
         onHandOver(candidates);
       }}
     >
@@ -290,10 +313,21 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay 
               {t('v.pay_first')}
             </p>
           )}
+          {canServe && ask !== null && (
+            <AskManager order_id={ask.order_id} due_minor={ask.due_minor} ident={token.order_ids.length > 1 ? `#${ident}` : undefined} variant="drawer" onChanged={() => void load()} />
+          )}
         </div>
         <div className="tk-drawer__f">
           {canServe && giveReady && (
-            <button type="button" className="tk-btn tk-btn--lg" onClick={() => onHandOver(readyLines)}>
+            <button
+              type="button"
+              className="tk-btn tk-btn--lg"
+              aria-disabled={!giveCheck.ok}
+              onClick={() => {
+                // §3.7a (R2-M-7, TK-Q19): never the last live line of a Due, unapproved order
+                if (giveCheck.ok) onHandOver(readyLines);
+              }}
+            >
               {t('v.give_ready')}
               {giveText}
             </button>

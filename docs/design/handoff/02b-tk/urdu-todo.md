@@ -110,6 +110,19 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `pass.point_retired` (03b v1.0.16 §6.16 R3-M-1, D7; L-CLIENT-2 item 1) | This point was retired — ask a manager to set this tablet to another point | یہ پوائنٹ ختم کر دیا گیا — مینیجر سے کہیں کہ یہ ٹیبلٹ کسی اور پوائنٹ پر لگائیں |
 | `pass.moved_from` (03b v1.0.16 §3.10, §6.15 R3-M-1, D7; L-CLIENT-2 item 1) | Moved from {point} | {point} سے منتقل |
 | `admin_stock.problem.archive_refused` (01a v2.11 §6.21 R3-B-1, D7; L-CLIENT-2 item 1) | Menu update refused: activate another Pass point first. | مینو کی تبدیلی رد ہوئی: پہلے کوئی اور پاس پوائنٹ فعال کریں۔ |
+| `pass.ask_manager` (02b v1.0.25 §3.7a, §8 OR-7; 03b v1.0.16 §3.4; L-CLIENT-2 item 4) | Ask a manager | مینیجر سے پوچھیں |
+| `pass.waiting_manager` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Waiting for a manager… | مینیجر کا انتظار… |
+| `pass.manager_rejected` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Manager said no | مینیجر نے منع کر دیا |
+| `unpaid.find_manager` (02b v1.0.25 §3.7a; 01d v1.3.7 To 02b R3-M-3; L-CLIENT-2 item 4) | Waiting — find a manager | انتظار — مینیجر کو ڈھونڈیں |
+| `unpaid.already_waiting` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Already waiting for a manager | مینیجر سے پہلے ہی پوچھا جا چکا ہے |
+| `unpaid.withdraw` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Withdraw | واپس لیں |
+| `unpaid.approved` (02b v1.0.25 §6.4a; L-CLIENT-2 item 4) | Manager approved — hand over | مینیجر نے اجازت دے دی — حوالے کریں |
+| `unpaid.not_needed` (02b v1.0.25 §6.4a; L-CLIENT-2 item 4) | Nothing is due now — hand over | ابھی کچھ باقی نہیں — حوالے کریں |
+| `unpaid.refused` (02b v1.0.25 §6.4; L-CLIENT-2 item 4) | Not paid — take payment first or ask a manager | ادائیگی نہیں ہوئی — پہلے پیسے لیں یا مینیجر سے پوچھیں |
+| `unpaid.offline` (02b v1.0.25 §6.4a; L-CLIENT-2 item 4) | Offline — ask a manager once the hub is back | آف لائن — ہب واپس آنے پر مینیجر سے پوچھیں |
+| `alert.hand_over_unpaid.card` (02b v1.0.25 §6.12a R3-m-4; L-CLIENT-2 item 4) | Hand over unpaid {identifier} | {identifier} بغیر ادائیگی حوالے کریں |
+| `alert.hand_over_unpaid.lock` (02b v1.0.25 §6.12a R3-m-4; L-CLIENT-2 item 4) | Unpaid hand-over request | بغیر ادائیگی حوالگی کی درخواست |
+| `alert.hand_over_unpaid.name` (01d §3.10 in-person title; L-CLIENT-2 item 4) | Unpaid hand-over | بغیر ادائیگی حوالگی |
 
 Historical copy for Urdu review. OR-7 disabled the client override.
 

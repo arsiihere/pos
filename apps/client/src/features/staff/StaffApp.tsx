@@ -31,6 +31,7 @@ import { createOrdersApi } from './orders/api';
 import { CustomerDisplay } from './orders/customer-display/CustomerDisplay';
 import { DISPLAY_CHANNEL, DISPLAY_ROUTE } from './orders/customer-display/channel';
 import { pendingCompsOf } from './orders/actions/pending-comps';
+import { unpaidRequestsOf } from './orders/unpaid/requests';
 import { LateAlertsContext, type LateAlertRow } from './orders/late/late-groups';
 import { IdleLock } from './orders/lock/IdleLock';
 import { letLeavePass } from './orders/order-screen/leave-pass';
@@ -509,7 +510,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     if (fresh.length === 0) return;
     for (const id of fresh) resultsTold.current.add(id);
     void pendingCompsOf({ orders: ordersApi, live: liveBus }).resultSeen();
-  }, [resultIds, ordersApi, liveBus]);
+    // ⚠️ 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, 01d To 02b): the requester's unpaid hand-over result
+    void unpaidRequestsOf({ live: liveBus, api }).resultSeen();
+  }, [resultIds, ordersApi, liveBus, api]);
 
   // ------------------------------------------------------------------------------------------ session
   /** The session read's permissions (with `masked`) and device profile, for the person `staffId` (a stale reply is dropped). */

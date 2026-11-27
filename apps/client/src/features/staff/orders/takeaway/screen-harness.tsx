@@ -88,7 +88,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
     orders: {
       etaPreview: async (d: EtaDraft) => o.preview?.(d) ?? { ok: false, error: { kind: 'network' } },
       seatingOrders: async () => ({ ok: true, data: { orders: [], total_minor: 0 } }),
-      openOrders: async () => ({ ok: true, data: { orders: o.rows ?? [aRow({ order_id: 'O48', token: 48, ready: { n: 1, m: 1 }, promise_ms: at(13, 12) })] } }),
+      openOrders: async () => ({ ok: true, data: { orders: [...(o.rows ?? [aRow({ order_id: 'O48', token: 48, ready: { n: 1, m: 1 }, promise_ms: at(13, 12) })])] } }),
       orderView: async (id: string) => ({ ok: true, data: { kind: 'order', order: (o.views ?? { O48: view('O48', [sl('O48', 'A', 'Karahi', 'done')]) })[id] } }),
       orderContact: async () => ({ ok: false, error: { kind: 'network' } }),
     },

@@ -300,3 +300,31 @@ describe('[04 §8, §9] answer errors of a void request', () => {
     expect(answerErrorText('VOID_NOT_ALLOWED', { reason: 'day_closed' })).toBe('Business day closed');
   });
 });
+
+// 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §6.12a (R3-m-4), §3.7a; 01d v1.3.7 To 02b): the manager's request card
+describe('[02b-TK L-CLIENT-2 item 4; 02b §6.12a] hand_over_unpaid labels', () => {
+  const row = (card: boolean) =>
+    view({
+      alert_id: 'AL1',
+      kind: 'hand_over_unpaid',
+      answers: ['approve', 'reject'],
+      lock: { kind_label_key: 'alert.hand_over_unpaid.lock', table_code: null, point_code: null, requester_name: 'Ali' },
+      ...(card ? { card: { kind_label_key: 'alert.hand_over_unpaid.card', table_code: null, point_code: null, requester_name: 'Ali', details: { identifier: '#48', amount: 119_000 } } } : {}),
+    });
+  it('signed-in card "Hand over unpaid {identifier}" with the amount; the lock is label-only; EN and UR', () => {
+    expect(alertText(row(true))).toBe('Hand over unpaid #48');
+    expect(titleText(row(true))).toBe('Hand over unpaid #48');
+    expect(detailsText(row(true).card!.details)).toBe('Rs 1,190');
+    expect(lockText(row(true))).toBe('Unpaid hand-over request');
+    expect(alertText(row(false))).toBe('Unpaid hand-over request');
+    expect(inPersonTitle(row(false))).toContain('Unpaid hand-over');
+    setLanguage('ur');
+    expect(alertText(row(true))).toBe('#48 بغیر ادائیگی حوالے کریں');
+    expect(lockText(row(true))).toBe('بغیر ادائیگی حوالگی کی درخواست');
+  });
+  it('the identifier is PARKING for a parking order', () => {
+    const r = row(true);
+    expect(alertText({ ...r, card: { ...r.card!, details: { identifier: 'PARKING', amount: 40_000 } } })).toBe('Hand over unpaid PARKING');
+  });
+});
+

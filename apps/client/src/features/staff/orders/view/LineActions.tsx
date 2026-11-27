@@ -6,7 +6,7 @@ import { useShell, type Shell } from '../../shell/hooks';
 import type { EnqueueMeta, EnqueueResult } from '../../tables/contracts';
 import { tableErrorKey } from '../../tables/errors';
 import { CompSheet } from '../actions/CompSheet';
-import { MarkServedSheet, type ServedCandidate } from '../actions/MarkServedSheet';
+import { MarkServedSheet, type MarkServedSheetProps, type ServedCandidate } from '../actions/MarkServedSheet';
 import { pendingCompsOf } from '../actions/pending-comps';
 import { RemoveSheet } from '../actions/RemoveSheet';
 import { SendBackSheet } from '../actions/SendBackSheet';
@@ -48,6 +48,8 @@ export interface LineActionsProps {
   onChanged(): void;
   /** E-7 "Send it as a new item" (dine-in; 27a3 binds 26d's startCompItCart); absent → not offered */
   onSendAsNew?: (line: SeatingLine) => void;
+  /** ⚠️ 02b-TK L-CLIENT-2 item 4 (02b §8 OR-7): a takeaway / parking order's candidate orders for Mark served */
+  unpaid?: MarkServedSheetProps['unpaid'];
 }
 
 // ------------------------------------------------------------------------------------------- shared helpers
@@ -186,7 +188,7 @@ export function compOffered(shell: Shell, line: SeatingLine, order: Pick<LineOrd
   );
 }
 
-export function LineActions({ line, order, servedCandidates, canTakeOrder, onChanged, onSendAsNew }: LineActionsProps) {
+export function LineActions({ line, order, servedCandidates, canTakeOrder, onChanged, onSendAsNew, unpaid }: LineActionsProps) {
   const shell = useShell();
   const comps = pendingCompsOf(shell);
   // an open request closing (answered, withdrawn) brings Comp back
@@ -288,6 +290,7 @@ export function LineActions({ line, order, servedCandidates, canTakeOrder, onCha
           onClose={close}
           onDone={done}
           onChanged={onChanged}
+          unpaid={unpaid}
         />
       )}
       {open === 'remove' && (

@@ -1,4 +1,5 @@
 import type { OpenOrder } from '../contracts';
+import type { BillRow } from '../unpaid/candidate';
 import { allServed, anyServed, summaryOf, type BookOrder } from './book';
 
 // 02b-TK C2-1 (02b v1.0.24 §6.16, §8; CHANGES §1 queue rail; R3): the takeaway queue rail's model. Pure.
@@ -34,6 +35,16 @@ export interface QueueToken {
    */
   ready_since?: number | null;
   late_from?: number | null;
+  /**
+   * ⚠️ 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §6.16, §8 OR-7): each order's billing facts, oldest first — the row's
+   * `bill` and `unpaid_handover_approved`; on a hub without `bill`, a billed order (book) reads paid, else unknown.
+   */
+  bills?: Array<{ order_id: string } & BillRow>;
+}
+
+/** A token's billing facts per order; a token built without them reads paid only when the book says so. */
+export function billsOf(q: Pick<QueueToken, 'bills' | 'order_ids' | 'paid'>): Array<{ order_id: string } & BillRow> {
+  return q.bills ?? q.order_ids.map((order_id) => ({ order_id, ...(q.paid ? { bill: { state: 'paid' as const, due_minor: 0 } } : {}) }));
 }
 
 export interface QueueModel {
@@ -107,6 +118,11 @@ export function buildQueue(orders: readonly KnownOrder[]): QueueModel {
         .join(' · '),
       ready_since: complete ? Math.max(...pairs.map((p) => p!.since)) : null,
       late_from: complete ? Math.max(...pairs.map((p) => p!.until)) : null,
+      bills: sorted.map((o) => ({
+        order_id: o.row.order_id,
+        ...(o.row.bill !== undefined ? { bill: o.row.bill } : o.book?.billed === true ? { bill: { state: 'paid' as const, due_minor: 0 } } : {}),
+        ...(o.row.unpaid_handover_approved === undefined ? {} : { unpaid_handover_approved: o.row.unpaid_handover_approved }),
+      })),
     });
   }
   const byPromise = (a: QueueToken, b: QueueToken) => (a.promise_ms ?? Infinity) - (b.promise_ms ?? Infinity) || a.placed_at - b.placed_at;

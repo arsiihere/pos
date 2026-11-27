@@ -195,7 +195,8 @@ describe('[02b-TK C2-2] token view', () => {
     const onHandOver = vi.fn();
     const v = await show(s, tok({ order_ids: ['O50'], newest_order_id: 'O50' }), onHandOver);
     expect(v.text()).not.toContain('Hand over unpaid');
-    expect(v.text()).not.toContain('manager');
+    // ⚠️ OR-7 (02b v1.0.25 §3.7a; L-CLIENT-2 item 4): no override — the only way is the request, "Ask a manager"
+    expect(v.container.querySelectorAll('[data-ask]')).toHaveLength(1);
     const all = v.button('Hand over all');
     expect(all.getAttribute('aria-disabled')).toBe('true');
     v.click(all);
