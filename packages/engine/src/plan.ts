@@ -12,7 +12,7 @@ import { priorityCmp, priorityRank, type PriorityRank } from './priority.js';
 import { priorityTerms } from './slip.js';
 import { isHiddenUnfired } from './stock.js';
 import { chooseImmediate, rerouted, routeCtx, routeOptions, type RouteOption } from './route.js';
-import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, heldBatchFit, immediateJoin, joinAdvance, joinLine, nameLoads, placedUnderOldType, replaced, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
+import { asLoad, compatible, currentProgram, earliestJoinEnd, formed, freshnessOf, heldBatchFit, immediateJoin, joinAdvance, joinLine, nameLoads, placedUnderOldType, replaced, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import type { Diagnostic, EngineLine, EngineState, Load, Profile, StationRuntime } from './state.js';
 import type { Pass1Result } from './replan.js';
 
@@ -187,6 +187,8 @@ function trySyncAt(
   const curLoads: Loads = { ...loads };
   const chainStart = new Map<string, number>();
   const placements = new Map<string, Routed>();
+  // The first member of each load formed in this trial (a formed load starts with its own line; joins append).
+  const trialFormed = new Set<string>();
   for (const plan of order) {
     let advance = Number.POSITIVE_INFINITY;
     let nonPositive: number | null = null;
@@ -200,7 +202,14 @@ function trySyncAt(
       if (batch !== undefined && !fifo.has(sid)) {
         const jl = joinLine(plan);
         const list = curLoads[sid] ?? [];
-        const b = syncJoin(list, jl, cap, T - o.carry_ms, batch, t);
+        // A load this trial formed for an earlier line of the group is joinable whatever its distance from T: the
+        // same-program sibling it would otherwise chain (D36, "end where they start") lands no later than that load,
+        // so joining is never less fresh, and the group needs no extra round (BQ-6: the rest form the next load(s)).
+        const b =
+          syncJoin(list, jl, cap, T - o.carry_ms, batch, t) ??
+          [...list]
+            .filter((x) => trialFormed.has(x.members[0]!) && compatible(x, jl, cap, t) && x.booked.end <= T - o.carry_ms)
+            .sort((x, y) => y.booked.end - x.booked.end)[0];
         if (b !== undefined) {
           const j = withMember(b, jl);
           curLoads[sid] = replaced(list, b, j);
@@ -242,7 +251,10 @@ function trySyncAt(
         const booked = bookingAt(line, cap, fire);
         cur[sid] = addInterval(here, booked, booked.units);
         if (!fifo.has(sid)) chainStart.set(sid, Math.min(cs ?? Number.POSITIVE_INFINITY, booked.start));
-        if (batch !== undefined) curLoads[sid] = [...(curLoads[sid] ?? []), formed(joinLine(plan), fire, booked)];
+        if (batch !== undefined) {
+          curLoads[sid] = [...(curLoads[sid] ?? []), formed(joinLine(plan), fire, booked)];
+          trialFormed.add(plan.order_item_id);
+        }
         placements.set(plan.order_item_id, { fire, booked, station_id: sid, carry_ms: o.carry_ms, ...(o.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) });
         placed = true;
         break;
