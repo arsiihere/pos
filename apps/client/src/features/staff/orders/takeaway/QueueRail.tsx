@@ -59,7 +59,10 @@ export function useTakeawayQueue(book: TokenBook): { model: QueueModel | null; f
   }, [load]);
   useLiveRefetch(shell.live, () => void load());
   const version = useSyncExternalStore(book.subscribe, book.version);
-  const model = useMemo(() => (rows === null ? null : buildQueue(knownOrders(rows, seen.current, book.get))), [rows, book, version]);
+  // ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §6.16, §8): a later pickup moves to the now queue once hub now passes it
+  const nowMs = useHubNow(rows?.some((r) => r.effective_pickup_at_ms != null) ?? false);
+  const tick = Math.floor(nowMs / LATE_TICK_MS);
+  const model = useMemo(() => (rows === null ? null : buildQueue(knownOrders(rows, seen.current, book.get), shellRef.current.clock.nowMs())), [rows, book, version, tick]);
   return { model, failed, loadedAt, retry: () => void load() };
 }
 
@@ -80,6 +83,19 @@ export function useHubNow(on: boolean): number {
     return () => clearInterval(timer);
   }, [on]);
   return clock.current.nowMs();
+}
+
+/** ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §6.16; D1): "Pickup 2:00 PM" of a pickup token (kept after a boost). */
+export function PickupLine({ q, utcOffsetMs }: { q: Pick<QueueToken, 'pickup_at_ms'>; utcOffsetMs: number }) {
+  if (q.pickup_at_ms == null) return null;
+  return (
+    <small className="c-info" data-pickup="">
+      {t('c.pickup')}{' '}
+      <span className="time" dir="ltr">
+        {timeText(q.pickup_at_ms, utcOffsetMs)}
+      </span>
+    </small>
+  );
 }
 
 /** A ready tile that owes money: all ready (not part given) and not paid. */
@@ -208,6 +224,7 @@ function ReadyTile({ q, selected, owed, late, whole, onOpen, onHandOver, onPay }
             {q.customer_name ?? t('order.takeaway')}
           </span>
         )}
+        <PickupLine q={q} utcOffsetMs={shell.clock.utcOffsetMs} />
       </button>
       {act === undefined ? (
         <span className="tk-rt__act">{actText}</span>
@@ -235,6 +252,7 @@ function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; o
       <span className="tk-qr__m">
         <b dir="auto">{q.customer_name ?? t('order.takeaway')}</b>
         {q.summary !== '' && <small dir="auto">{q.summary}</small>}
+        <PickupLine q={q} utcOffsetMs={shell.clock.utcOffsetMs} />
         {/* ⚠️ 02b-TK L-CLIENT-3 item 2 (03c v1.0.16 §8): the slip did not print at Send */}
         {slips.missed(q.order_ids) && (
           <small className="c-warn" data-slip="">

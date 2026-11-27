@@ -45,6 +45,8 @@ const WHY: Partial<Record<string, MessageKey>> = {
   TABLE_HAS_OPEN_ORDERS: 'queue.why.TABLE_HAS_OPEN_ORDERS',
   PERMISSION_DENIED: 'queue.why.PERMISSION_DENIED',
   VALIDATION_FAILED: 'queue.why.VALIDATION_FAILED',
+  // ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §3.2 step 2b, §3.12): a queued pickup the hub re-checked and refused
+  PICKUP_TIME_INVALID: 'queue.why.PICKUP_TIME_INVALID',
 };
 
 /** Review #165: a dine-in order refused for its seating is not copied onto that seating (02a: NEEDS_CLEANING is

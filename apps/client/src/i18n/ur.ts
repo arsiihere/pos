@@ -1822,4 +1822,18 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'roles.out_of_date_body': 'اس رول میں ایسی اجازت ہے جو ایپ کا یہ ورژن نہیں جانتا۔ ابھی محفوظ کرنے سے وہ ہٹ سکتی ہے۔', // not in strings-table.md; Urdu to confirm
   // ---- 02b-TK L-CLIENT-4 item 3 (02b v1.0.25 §8; 05 v1.0.35 §6.3a, §8): the takeaway cart footer's own line sum is labelled "Items" ----
   'cart.items_label': 'آئٹم', // not in strings-table.md; Urdu to confirm
+  // ---- 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §3.2 step 2b, §6.14, §8 Phone and pickup (R4)): the takeaway cart's pickup chips, its range and refusals, Kitchen times it for ----
+  'c.pickup': 'کب لیں گے',
+  'c.pick_now': 'ابھی',
+  'c.pick_15': '15 منٹ بعد',
+  'c.pick_30': '30 منٹ بعد',
+  'c.pick_45': '45 منٹ بعد',
+  'c.pick_time': 'وقت…',
+  'c.ready_later': 'کچن اس وقت کیلئے بنائے گا',
+  'c.pick_range': 'لینے کا وقت {from} سے {to} تک', // not in strings-table.md; Urdu to confirm
+  'c.pick_err.too_early': 'بہت جلدی — سب سے پہلے {t} پر لے سکتے ہیں', // not in strings-table.md; Urdu to confirm
+  'c.pick_err.after_day_end': 'بہت دیر — دن {t} پر ختم ہوتا ہے', // not in strings-table.md; Urdu to confirm
+  'c.pick_err.other_day': 'یہ وقت کسی اور کاروباری دن کا ہے — آج کا وقت چنیں', // not in strings-table.md; Urdu to confirm
+  'c.pick_err.no_time_left': 'آج لینے کا کوئی وقت باقی نہیں — ابھی چنیں، یا پہلے دن بند کریں', // not in strings-table.md; Urdu to confirm
+  'queue.why.PICKUP_TIME_INVALID': 'لینے کا وقت ممکن نہیں تھا', // not in strings-table.md; Urdu to confirm
 };
