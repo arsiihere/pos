@@ -192,6 +192,8 @@ describe('[03b §3.5] Hand over on the Pass card', () => {
     expect(m.container.querySelector('[role="dialog"]')).toBeNull();
     expect(m.container.querySelectorAll('article.pc')).toHaveLength(1);
     expect(m.container.querySelector('.pc__msg.c-info')?.textContent).toBe('40 handed to Ali · 5 left — tap Hand over again');
+    // the action prompt has its own class, apart from the Due / Ask a manager / amber / hint lines (e2e targets it)
+    expect(m.container.querySelector('.pc__act')?.textContent).toBe('40 handed to Ali · 5 left — tap Hand over again');
     expect(m.button('Hand over')).toBeTruthy();
     expect(s.toasts).toEqual([]);
   });

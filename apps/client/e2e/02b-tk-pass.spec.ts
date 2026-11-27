@@ -91,9 +91,9 @@ for (const lang of LANGS) {
         await row.locator('.btn--done').click();
         // a Done this soon after Start asks again ("Done already? …"); the second tap confirms
         const undo = row.locator('.btn--undo');
-        // the Done-confirm prompt only: since B2-1 sends `bill`, a Due takeaway also shows "Due — customer pays at counter"
-        // (.pc__msg.pc__due), and the amber line is a .pc__msg too; matching those made the locator hit two elements
-        await expect(undo.or(card.locator('.pc__msg:not(.pc__hint):not(.pc__due):not(.pc__late)'))).toBeVisible();
+        // the Done-confirm prompt only (.pc__act): a Due takeaway also shows the Due, Ask a manager and amber lines, which
+        // are .pc__msg too; matching every .pc__msg hit two elements (Playwright strict mode)
+        await expect(undo.or(card.locator('.pc__act'))).toBeVisible();
         if (!(await undo.isVisible())) await row.locator('.btn--done').click();
         await expect(undo).toBeVisible();
       }
