@@ -221,4 +221,61 @@ for (const lang of LANGS) {
       await context.close();
     }
   });
+
+  // ⚠️ 02b-TK L-CLIENT-4 item 4 (02b v1.0.25 §6.16 (R3-M-8); D2; test 87): open-orders rows carry the hub's
+  // `unpaid_handover_approved`, and the client treats it as authoritative (orders/unpaid/candidate.ts gateOf / dueGate,
+  // requests.ts seed). After the approval the page is RELOADED, so the approval the UnpaidHandoverApproved frame left in
+  // memory is gone: the row alone must show the order approved (Hand over all live, no Ask a manager), and the
+  // hand-over goes through (MarkServed with customer_handover: true answers 200; the line reads Given).
+  test(`[02b v1.0.25 §6.16 (R3-M-8); D2; test 87] an unpaid hand-over approval survives a reload through open-orders unpaid_handover_approved (${lang})`, async ({ browser, request }, info) => {
+    runsHere(info);
+    const context = await browser.newContext({ ...info.project.use, deviceScaleFactor: 2 });
+    const page = await context.newPage();
+    const managerContext = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
+    const manager = await managerContext.newPage();
+    await signInOn(page, deviceFor(info), lang);
+    try {
+      await takeawayTab(page);
+      await menuTile(page, NAAN.name).click();
+      await sendCart(page, lang);
+      const token = await sentToken(page);
+      await kitchenReady(request, token, [NAAN.item_id]);
+      await expect(readyTile(page, token)).toBeVisible({ timeout: 15_000 });
+      const order_id = await askAndApprove(page, manager, info, lang, token);
+      await expect(drawer(page).getByRole('button', { name: tr(lang, 'v.collected') })).toHaveAttribute('aria-disabled', 'false', { timeout: 30_000 });
+
+      // reload: the in-memory approval (and the memory-only session) is gone; Ali signs in again and open-orders is read
+      await page.reload();
+      const rows = page.waitForResponse((r) => r.request().method() === 'GET' && r.url().includes('/queries/open-orders') && r.status() === 200);
+      await signInOn(page, deviceFor(info), lang);
+      await takeawayTab(page);
+      const row = ((await (await rows).json()) as { data: { orders: Array<{ order_id: string; unpaid_handover_approved?: boolean }> } }).data.orders.find((o) => o.order_id === order_id);
+      expect(row?.unpaid_handover_approved).toBe(true);
+      const tile = readyTile(page, token);
+      await expect(tile).toBeVisible({ timeout: 15_000 });
+      await expect(tile).toContainText(tr(lang, 'q.due'));
+      await expect(tile.locator('[data-ask]')).toHaveCount(0);
+      await openToken(page, token);
+      const handOver = drawer(page).getByRole('button', { name: tr(lang, 'v.collected') });
+      await expect(handOver).toHaveAttribute('aria-disabled', 'false');
+      await expect(drawer(page).locator('[data-ask]')).toHaveCount(0);
+      await capture(page, info, `UnpaidApprovedReload-${info.project.name}-${lang}`, drawer(page));
+
+      const sent = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/commands/mark-served'), { timeout: UNDO_MS + 10_000 });
+      await handOver.click();
+      await expect(page.locator('.tk-toast', { hasText: tr(lang, 't.collected') })).toBeVisible();
+      const served = await sent;
+      expect(served.status()).toBe(200);
+      const payload = (served.request().postDataJSON() as { payload: { customer_handover?: boolean; lines: Array<{ order_id: string }> } }).payload;
+      expect(payload.customer_handover).toBe(true);
+      expect(payload.lines.map((l) => l.order_id)).toEqual([order_id]);
+      await openToken(page, token);
+      await expect(drawer(page).locator('.tk-il', { hasText: NAAN.name }).locator('.tk-chip')).toHaveText(tr(lang, 'v.given'));
+    } finally {
+      await signOut(manager, info, lang).catch(() => undefined);
+      await managerContext.close();
+      await signOut(page, info, lang).catch(() => undefined);
+      await context.close();
+    }
+  });
 }
