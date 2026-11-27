@@ -1796,7 +1796,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.ask_manager': 'مینیجر سے پوچھیں', // not in strings-table.md; Urdu to confirm
   'pass.waiting_manager': 'مینیجر کا انتظار…', // not in strings-table.md; Urdu to confirm
   'pass.manager_rejected': 'مینیجر نے منع کر دیا', // not in strings-table.md; Urdu to confirm
-  'unpaid.find_manager': 'انتظار — مینیجر کو ڈھونڈیں', // not in strings-table.md; Urdu to confirm
   'unpaid.already_waiting': 'مینیجر سے پہلے ہی پوچھا جا چکا ہے', // not in strings-table.md; Urdu to confirm
   'unpaid.withdraw': 'واپس لیں', // not in strings-table.md; Urdu to confirm
   'unpaid.approved': 'مینیجر نے اجازت دے دی — حوالے کریں', // not in strings-table.md; Urdu to confirm

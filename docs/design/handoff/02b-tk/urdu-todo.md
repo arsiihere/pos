@@ -113,7 +113,6 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `pass.ask_manager` (02b v1.0.25 §3.7a, §8 OR-7; 03b v1.0.16 §3.4; L-CLIENT-2 item 4) | Ask a manager | مینیجر سے پوچھیں |
 | `pass.waiting_manager` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Waiting for a manager… | مینیجر کا انتظار… |
 | `pass.manager_rejected` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Manager said no | مینیجر نے منع کر دیا |
-| `unpaid.find_manager` (02b v1.0.25 §3.7a; 01d v1.3.7 To 02b R3-M-3; L-CLIENT-2 item 4) | Waiting — find a manager | انتظار — مینیجر کو ڈھونڈیں |
 | `unpaid.already_waiting` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Already waiting for a manager | مینیجر سے پہلے ہی پوچھا جا چکا ہے |
 | `unpaid.withdraw` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Withdraw | واپس لیں |
 | `unpaid.approved` (02b v1.0.25 §6.4a; L-CLIENT-2 item 4) | Manager approved — hand over | مینیجر نے اجازت دے دی — حوالے کریں |

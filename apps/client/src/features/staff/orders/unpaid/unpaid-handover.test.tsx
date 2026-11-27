@@ -50,6 +50,8 @@ describe('[02b-TK L-CLIENT-2 item 4; 02b §3.7a, §8 OR-7; test 90] the counter:
     await flush();
     expect(asks(h)).toEqual([{ type: 'RequestUnpaidHandover', payload: { order_id: 'O48' } }]);
     expect(tile(m).textContent).toContain('Waiting for a manager…');
+    // owner 2026-11-27: 02b's wording only — no 01d "Waiting — find a manager" line under it
+    expect(tile(m).textContent).not.toContain('find a manager');
     m.unmount();
   });
 

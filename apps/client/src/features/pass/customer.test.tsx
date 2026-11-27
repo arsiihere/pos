@@ -305,6 +305,7 @@ describe('[02b-TK L-CLIENT-2 item 4; 03b §3.4 OR-7, D2] Ask a manager on a Due 
     await flush();
     expect(command).toHaveBeenCalledWith('RequestUnpaidHandover', { order_id: 'O48' });
     expect(pc('O48').querySelector('.pc__ask')!.textContent).toContain('Waiting for a manager…');
+    expect(pc('O48').querySelector('.pc__ask')!.textContent).not.toContain('find a manager'); // 02b wording only
     expect(m.button('Withdraw', pc('O48'))).toBeTruthy();
   });
 
