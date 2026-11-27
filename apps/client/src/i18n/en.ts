@@ -2405,6 +2405,9 @@ export const en = {
   'order.toast.some_not_sent': '{n} not sent — see the queue log',
   // ---- lane A (02a client) ----
   'signin.pin_needs_hub': 'Signing in needs the hub',
+  // BUG-19 (00 HPA §3.5): the lockout countdown on the sign-in PIN pad, {t} = m:ss
+  'signin.locked_for': 'Too many wrong PINs. Try again in {t}.',
+  'signin.device_locked_for': 'Too many wrong PINs on this screen. Try again in {t}.',
   'pair.wipe_failed': 'Could not reset this screen. Ask a manager.',
   'topbar.floor': 'Floor',
   'tabs.tables': 'Tables',

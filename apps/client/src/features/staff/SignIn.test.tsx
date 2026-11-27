@@ -295,3 +295,95 @@ describe('[02a §8 Login] StaffApp pairing loss', () => {
     expect(m.text()).not.toContain('paired again');
   });
 });
+
+// BUG-19 (QA): after a wrong PIN the keyboard kept working only while focus stayed in the pad; the pad's buttons are
+// disabled while the answer is awaited, so the browser drops focus to <body> (focus fixup) and the pad's key handler
+// never heard the next digits. A lockout (00 HPA §3.5 steps 2–3: 429 PIN_LOCKED_OUT / DEVICE_LOCKED_OUT
+// { retry_after_ms }) shows a live countdown and the pad comes back when it ends.
+describe('[BUG-19; 00 HPA §3.5] SignIn keyboard and lockout', () => {
+  const dots = () => m.container.querySelectorAll('.pin__dots i.f').length;
+  const typeOnFocus = (key: string) => m.key(document.activeElement ?? document.body, key);
+
+  it('keyboard digits still reach the pad after a wrong PIN (focus is back in the pad)', async () => {
+    let answer: (v: unknown) => void = () => {};
+    const api = {
+      roster: vi.fn(rosterOk()),
+      signIn: vi.fn(() => new Promise((resolve) => (answer = resolve))),
+    };
+    m = mount();
+    m.render(<SignIn api={api as never} phone={false} lockPanel={null} onSignedIn={() => {}} />);
+    await flush();
+    m.click(m.button('Imran'));
+    for (const d of '1239') typeOnFocus(d);
+    expect(dots()).toBe(4);
+    typeOnFocus('Enter');
+    await flush();
+    expect(api.signIn).toHaveBeenCalledTimes(1);
+    // a real browser moves focus off a button that becomes disabled (the pad is busy)
+    // (jsdom keeps focus on a disabled button: park it on <body> as Chrome / Edge do)
+    const parked = document.body.appendChild(document.createElement('input'));
+    parked.focus();
+    parked.remove();
+    expect(document.activeElement).toBe(document.body);
+    await act(async () => answer({ ok: false, error: { kind: 'api', status: 401, code: 'PIN_INVALID', details: { attempts_remaining: 4 } } }));
+    await flush();
+    expect(m.container.querySelector('.pin__err')).not.toBeNull();
+    expect(m.container.querySelector('.pin__keys')!.contains(document.activeElement)).toBe(true);
+    for (const d of '1234') typeOnFocus(d);
+    expect(dots()).toBe(4);
+  });
+
+  it('PIN_LOCKED_OUT shows a countdown from retry_after_ms; the pad is off until it ends, then works again', async () => {
+    vi.useFakeTimers();
+    try {
+      const api = {
+        roster: vi.fn(rosterOk()),
+        signIn: vi.fn(async () => ({ ok: false as const, error: { kind: 'api' as const, status: 429, code: 'PIN_LOCKED_OUT', details: { retry_after_ms: 125_000 } } })),
+      };
+      m = mount();
+      m.render(<SignIn api={api} phone={false} lockPanel={null} onSignedIn={() => {}} />);
+      await flush();
+      m.click(m.button('Imran'));
+      for (const d of '1234') typeOnFocus(d);
+      typeOnFocus('Enter');
+      await flush(6);
+      const err = () => m.container.querySelector('.pin__err')?.textContent ?? '';
+      const key1 = () => [...m.container.querySelectorAll<HTMLButtonElement>('.pin__keys button')].find((b) => b.textContent === '1')!;
+      expect(err()).toContain('2:05');
+      expect(key1().disabled).toBe(true);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(65_000);
+      });
+      expect(err()).toContain('1:00');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(61_000);
+      });
+      expect(key1().disabled).toBe(false);
+      expect(m.container.querySelector('.pin__err')).toBeNull();
+      typeOnFocus('5');
+      expect(dots()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('DEVICE_LOCKED_OUT counts down the same way', async () => {
+    vi.useFakeTimers();
+    try {
+      const api = {
+        roster: vi.fn(rosterOk()),
+        signIn: vi.fn(async () => ({ ok: false as const, error: { kind: 'api' as const, status: 429, code: 'DEVICE_LOCKED_OUT', details: { retry_after_ms: 900_000 } } })),
+      };
+      m = mount();
+      m.render(<SignIn api={api} phone={false} lockPanel={null} onSignedIn={() => {}} />);
+      await flush();
+      m.click(m.button('Sana'));
+      for (const d of '1234') typeOnFocus(d);
+      typeOnFocus('Enter');
+      await flush(6);
+      expect(m.container.querySelector('.pin__err')?.textContent).toContain('15:00');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

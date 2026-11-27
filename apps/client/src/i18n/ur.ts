@@ -1067,6 +1067,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'alert.zone_stock_out.lock': 'زون کا ایک آئٹم ختم ہو گیا',
   // ---- lane A (02a client) ----
   'signin.pin_needs_hub': 'سائن اِن کے لیے ہب چاہیے',
+  'signin.locked_for': 'بہت زیادہ غلط PIN۔ {t} بعد دوبارہ کوشش کریں۔',
+  'signin.device_locked_for': 'اس اسکرین پر بہت زیادہ غلط PIN۔ {t} بعد دوبارہ کوشش کریں۔',
   'pair.wipe_failed': 'اس سکرین کو ری سیٹ نہیں کیا جا سکا۔ مینیجر سے پوچھیں۔',
   'topbar.floor': 'فلور',
   'tabs.tables': 'میزیں',
