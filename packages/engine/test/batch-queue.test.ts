@@ -293,3 +293,20 @@ describe('[03a v1.2.10 §3.3 BQ-1, §10.3g #143 property] arrival order on rando
   }, 120_000);
 });
 
+
+// ---- 02b-tk L-CLOSE-2 engine fix: a sync group's per-unit parts join the loads its own trial formed (BQ-6) ----------
+
+describe('[03a BQ-6, F §4.7 step 3] a sync group of more parts than one load fills whole loads', () => {
+  it('16 sync parts on an 8-unit fryer: two loads of 8, the group lands at +6 (was: 8 + eight one-unit loads, +27); plan = fold', () => {
+    const { plan, state } = submitB(queueFryer(), 'OS', unitParts('S', 16, { mode: 'sync' }), at(0));
+    const loads = Object.values(state.stations.F!.loads);
+    expect(loads.map((l) => l.order_item_ids.length).sort()).toEqual([8, 8]);
+    expect(plan.groups.map((g) => g.target_land_ms)).toEqual([at(6)]);
+    expect(state.orders.OS!.target_land_ms).toBe(at(6));
+    for (const id of Array.from({ length: 16 }, (_, k) => `S${k + 1}`)) expect(loadOf(state, id)!.booked.end, id).toBeLessThanOrEqual(at(6));
+    // 9 parts: the ninth forms the earlier load, unchanged
+    const nine = submitB(queueFryer(), 'O9', unitParts('N', 9, { mode: 'sync' }), at(0));
+    expect(Object.values(nine.state.stations.F!.loads).map((l) => l.order_item_ids.length).sort()).toEqual([1, 8]);
+    expect(nine.plan.groups.map((g) => g.target_land_ms)).toEqual([at(6)]);
+  });
+});
