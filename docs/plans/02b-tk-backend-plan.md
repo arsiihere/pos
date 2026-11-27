@@ -224,11 +224,12 @@ Paymob is out for now: the whole of 05c is parked ("§13 Later"); the pilot take
 4. **04 bump does not exist.** 05 V-4, 02b TK-16 and 05a AU-1 all target "04 next version" / v1.0.9, but no 04 v1.0.9 draft is in `docs/specs/` (task D-04 before AU-1).
 5. **01d (e) `when_none` placement.** 01d v1.3.7 §11 puts its build "in 03b's task 0h and 05c's plan"; its only user is 05c's `payment_unapplied`, so this plan builds (d), (e) behind STOP-0 (PS-2) to avoid dead code.
 
-## Tier 1 acceptance (L-CLOSE-1, X-1; 2026-11-27; gaps closed in L-CLOSE-2 and L-CLOSE-3)
+## Tier 1 acceptance (L-CLOSE-1, X-1; 2026-11-27; gaps closed in L-CLOSE-2, L-CLOSE-3 and L-CLOSE-4) — **Tier 1 backend ACCEPTED**
 
 Trace of every Tier 1 task row's spec tests to repo tests, plus the §12.2 rows they touch (02b, 03b, 03c, 03a, 05, 01d, 01b). L-CLOSE-1 traced (`lane-02b-tk/close-1`, PR #533); L-CLOSE-2 (`lane-02b-tk/close-2`, PR #536) and L-CLOSE-3 (`lane-02b-tk/close-3`) closed the gaps below.
 
-**Verdict (L-CLOSE-3): Tier 1 backend accepted except one open item — 03b R3-M-3 live station metadata on `point_lines` (below), which needs an owner decision on an additive `@pos/events` contract change.** Out of this lane, as agreed: CB-2 and the unpaid hand-over flow (other lane), the Tier 2 board items, 01b 119 R3-M-3 (client). The unpaid hand-over flow (U-1 … U-5, L-BILL-2, 04 #62–#64) and CB-2 stay with the other lane.
+**Verdict (L-CLOSE-4, 2026-11-27): Tier 1 backend ACCEPTED.** Nothing blocking is left: L-CLOSE-4 (`lane-02b-tk/close-4`) built the R3-M-3 station metadata (owner approval 2026-11-27) and closed the 04 #61–#64 and 02b #28 clauses after the unpaid hand-over flow and CB-2 merged (PRs #534, #537). What stays open is outside the backend's Tier 1: the Tier 2 board items, client work (01b 119 R3-M-3, 05 #60h's offline greying), the owner's `pnpm test:perf` and pilot-hardware checks (below), and the D7 partial-Ready refresh deferred past the pilot.
+(L-CLOSE-3 verdict, superseded: accepted except the R3-M-3 station metadata, which needed an owner decision on an additive `@pos/events` change.)
 
 ### Status per task
 
@@ -236,13 +237,14 @@ Trace of every Tier 1 task row's spec tests to repo tests, plus the §12.2 rows 
 |---|---|
 | B1-0 | covered; the A1 test now builds its scratch DB at 19, the predecessor of 0020 (L-CLOSE-3) |
 | B1-1 … B1-6, B2-1 … B2-3, P-1, P-2, CB-1, S-1 … S-5 | covered |
-| **CB-2** (05 `PrintCartCheckBill`) | **not built on the hub** (event schema only): 05 #60f, #60g, #60i and 04 #61 — other lane |
+| CB-2 (05 `PrintCartCheckBill`) | built by the other lane (PR #537): 05 #60f, #60g, #60i covered (`test/billing/print-cart-check-bill.int.test.ts`); #60h is the client's offline greying; 04 #61 added in L-CLOSE-4 |
 | E-1 … E-10 (03a v1.2.11) | covered: 187 (new), 190 (a)–(f) (new), 185 full (new), 178 (a)–(e), 179 (b)–(d), 180 R3-M-4, 181, 182, 184 (a), (c), 186 (R3-M-2, R3-M-3, burger + fries), 191 (new); L-CLOSE-3: 183 (a) the max_early cap inside the freshness window, 183 (d) the #143 property with held lines, 193 "the re-plan runs once at the close" (after its releases) |
 | C-1, C-3 / C-4 (Tier 1 keys), R-1, R-2, PT-1, PT-2, PT-4, N-1, N-2, K-3 | covered (01a 218 PATCH 12 600 001 and the snapshot via the PATCH added; 01b 119 R3-M-2 hub part added) |
 | PT-3, D7 (03b 129, 130, 132) | 129 (new: Readies, dedupe keys, isolated audiences), 132 incl. the checkpoint case; 130 full (L-CLOSE-3: primary and alternate TA carry rows on a hidden non-FIFO line, the move to its alternate keeps TA, its return inherits TA, checkpoint + replay and cold replay = live) |
 | K-1, K-2, D8 | 101 (new, real `ready_to_serve` steps), 102 / 103 return invalidation, closed alert never steps, extending Ready re-arms (new); L-CLOSE-3: 103 "Undo-rest" (an Undo after an extending press, §6.6: the rest stays a Ready, the counter alert closes and its clock stops), 108 reconnect with the real counter alert (staff `alerts` row with card, alert-mode `alerts_open` without, kiosk `orders`); Tier 2: 97 board socket |
-| 03b 126, 128 (hub) | covered (new: routed points through SubmitOrder and ReturnToKitchen; parking fallback to Main); L-CLOSE-3: 126's point catch-ups (TA lists its routed line, Main its own), Ready at TA (readyAtOf, the 2× step to TA's Pass staff, not Main's). **Open: 126 / R3-M-3 station metadata** — see below |
-| AU-1 | domain lists covered; 04 #61 blocked on CB-2; 04 #62–#64 with the unpaid acceptance |
+| 03b 126, 128 (hub) | covered (new: routed points through SubmitOrder and ReturnToKitchen; parking fallback to Main); L-CLOSE-3: 126's point catch-ups (TA lists its routed line, Main its own), Ready at TA (readyAtOf, the 2× step to TA's Pass staff, not Main's). L-CLOSE-4: R3-M-3 station metadata built — see below |
+| AU-1 | domain lists covered; L-CLOSE-4 through the real commands: 04 #61 (plain, addition and no-route carts; detail allowlist; audit-log filter; retransmit adds no row), 04 #62–#64 (takeaway and parking requests; approve and reject; one approved row after its answer; the three filters; rebuild = live after alert retention) |
+| U-1 … U-4 (unpaid hand-over, PR #534) | 02b #85–#94 covered by the other lane's tests; 02b #28's fixture day now holds approvals and an approval clear (L-CLOSE-4) |
 | L-CLOSE-1 extras | 01b 118 hub part, 03b 132 checkpoint case, counter-alert close after the engine drops an order: done |
 
 ### Engine fix found by the new tests (L-CLOSE-2)
@@ -251,11 +253,11 @@ Trace of every Tier 1 task row's spec tests to repo tests, plus the §12.2 rows 
 
 ### Clause gaps closed in L-CLOSE-2 (02b / 03c / 01a / 01b)
 
-02b #60, #62, #64, #76, #80, #82, #95; 03c #57 (and `print.slip.name_unprintable` is now logged), #58, #59, #60, #61, #62, #65; 01a #218; 01b #119 (R3-M-2 hub part). Still open: 02b #28 (unpaid fixture, other lane), #67 D3 figures and Ready-undo on open-orders rows (covered in key-balances / bag-ready tests), 00 HPA 196 and the `DEVICE_TYPE_NOT_ALLOWED` widening (Tier 2), 01b 119 R3-M-3 (client), 01d 106 "not a board" (Tier 2).
+02b #60, #62, #64, #76, #80, #82, #95; 03c #57 (and `print.slip.name_unprintable` is now logged), #58, #59, #60, #61, #62, #65; 01a #218; 01b #119 (R3-M-2 hub part). Closed later: 02b #28 (L-CLOSE-4). Still open: #67 D3 figures and Ready-undo on open-orders rows (covered in key-balances / bag-ready tests), 00 HPA 196 and the `DEVICE_TYPE_NOT_ALLOWED` widening (Tier 2), 01b 119 R3-M-3 (client), 01d 106 "not a board" (Tier 2).
 
-### Open: 03b R3-M-3 station metadata on a routed point (L-CLOSE-3)
+### Closed in L-CLOSE-4: 03b R3-M-3 station metadata on a routed point
 
-03b v1.0.16 R3-M-3 (§5 `point_lines`): "`point_lines` gains optional `stations` upserts in the catch-up shape", so a point Pass that shows routed lines of a station whose default point is elsewhere gets that station's lanes and screenless metadata. Not built: `WsPointLines` (`packages/events/src/ws.ts`) has no `stations`, and `pointViewBody` (`apps/hub/src/ws/point-catch-up.ts`) lists only the stations whose default point is the point. Effect: TA's Pass with routed Karahi lines gets no Karahi lane / screenless facts at catch-up or live (test 126 asserts today's `stations: []`). Proposed fix (needs the owner: an additive change to the shared contract): optional `stations` on `WsPointLines`; catch-up and live frames include every station referenced by the point's lines, from one settings read (no N+1).
+Found open in L-CLOSE-3 (`WsPointLines` had no `stations`; `pointViewBody` listed only the point's default stations), approved by the owner 2026-11-27 and built: optional `stations` on `WsPointLines` (`PointStationSchema`, the `point_view` station shape; additive in `packages/events/src/ws.ts`); `point_view.stations` = the point's active default stations ∪ the stations of its listed lines (routed ones too), from the same settings read; live `point_lines` carries, before `lines`, each station a socket newly references, from one shared settings read per commit (0 without one), and sends a held line again when the engine moves it to another station; held stations no longer referenced are dropped. `dark` stays the takeover at this point (takeover frames keep the effective default). Tests: 03b #126 (TA's catch-up lists Karahi; the live case in `test/pass/archive-moves.int.test.ts`: an empty connected TA Pass gets Karahi before its first line, the alternate move brings the alternate station and the line again, one settings read), `ws.test.ts` contract case.
 
 ### Flaky tests
 
