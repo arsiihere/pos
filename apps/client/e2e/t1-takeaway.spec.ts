@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { escapeRe, menuTile, rushOff, sentToken, shiftOpen, signInOn, takeawayTab } from './02b-support';
-import { apiSession, capture, hubPlan, planEta, queueEntry, runId, closeAll, cookLine, deviceFor, hubFire, hubNow, LANGS, passCard, passTablet, printedJob, screen, t1Key, t1Run, t1RunsHere, tr } from './t1-support';
+import { apiSession, capture, hubPlan, planEta, queueEntry, runId, closeAll, cookLine, deviceFor, hubFire, hubNow, printMark, LANGS, passCard, passTablet, printedJob, screen, t1Key, t1Run, t1RunsHere, tr } from './t1-support';
 import { t1Station } from './t1-fixture';
 
 // L-E2E-T1 group A — the owner's dry-run checklist ("Takeaway Tier 1 — Restaurant Dry Run Checklist"), the takeaway
@@ -72,9 +72,9 @@ for (const lang of LANGS) {
       await expect(ready).not.toContainText(tr(lang, 'cart.times_later'));
       await capture(page, info, `T1-04-cart-${info.project.name}-${lang}`, page.locator('.cart'));
 
-      const since = await hubNow();
+      const mark = await printMark();
       const token = await payCashExact(page, lang);
-      const receipt = await printedJob(since, 'Receipt');
+      const receipt = await printedJob(mark, 'Receipt');
       expect(receipt.text).toContain('Naan');
       expect(receipt.text).toContain(run.items.main.name.slice(0, 12));
       // the queue holds the paid token until it is handed over
@@ -149,14 +149,14 @@ for (const lang of LANGS) {
       const page = cash.page;
       await page.locator('.cart input[name="phone"]').fill('03001234567', { timeout: 10_000 });
       await menuTile(page, run.items.main.name).click();
-      const since = await hubNow();
+      const mark = await printMark();
       await page.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.send_later'))}`) }).click();
       const token = await sentToken(page);
       await (await queueEntry(page, token)).click();
       await expect(page.locator('.tk-drawer .tk-fact--due')).toBeVisible();
       // 02b §3.2 step 2b / 03c §3.11: Send · pay later prints the token slip (print_slip)
       // this token's own slip (the fixed hub clock stamps other runs' slips with the same time)
-      const slip = await printedJob(since, 'Token slip', new RegExp(`#${token}\\s`));
+      const slip = await printedJob(mark, 'Token slip', new RegExp(`#${token}\\s`));
       expect(slip.text).toContain('PAY AT THE COUNTER');
     } finally {
       await closeAll(info, lang, cash);

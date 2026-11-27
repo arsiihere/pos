@@ -1,7 +1,7 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { escapeRe, menuTile, rushOff, sentToken, shiftOpen, signInOn, takeawayTab } from './02b-support';
 import { T1_CARD } from './t1-fixture';
-import { apiSession, capture, closeAll, deviceFor, hubNow, LANGS, printedJob, queueEntry, screen, t1Run, t1RunsHere, tr, type ApiSession, type Lang } from './t1-support';
+import { apiSession, capture, closeAll, deviceFor, LANGS, printedJob, printMark, queueEntry, screen, t1Run, t1RunsHere, tr, type ApiSession, type Lang } from './t1-support';
 
 // L-E2E-T1 group C — the owner's dry-run checklist, bills at the takeaway counter against the e2e hub (05 v1.0.35
 // §6.3, §6.3a, §6.5, §6.9, §6.12). The Owner runs the counter (take-payment, an open shift). Rows:
@@ -55,12 +55,12 @@ for (const lang of LANGS) {
       const panel = page.locator('.cart .tk-paypanel');
       await panel.locator('.tk-mode', { hasText: T1_CARD.name }).click();
       await panel.locator('input.tk-input').fill('REF-88213');
-      const since = await hubNow();
+      const mark = await printMark();
       await panel.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'p.done'))}`) }).click();
       await expect(panel.getByText(tr(lang, 'p.next'))).toBeVisible();
       await capture(page, info, `T1-06-card-${info.project.name}-${lang}`, panel);
       await panel.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'p.next'))}`) }).click();
-      await printedJob(since, 'Receipt');
+      await printedJob(mark, 'Receipt');
       const bill = await billOf(api, order_id);
       expect(bill.state).toBe('closed');
       expect(bill.splits[0]!.payments).toEqual([expect.objectContaining({ mode_id: T1_CARD.mode_id, has_reference: true })]);
@@ -82,12 +82,12 @@ for (const lang of LANGS) {
       await (await queueEntry(page, token)).click();
       await drawer(page).getByRole('button', { name: tr(lang, 'v.add') }).click();
       await menuTile(page, run.items.drink.name).click();
-      const since = await hubNow();
+      const mark = await printMark();
       // 05 §6.3a (R2-M-6): an addition cart's Check bill is PrintCartCheckBill { draft: { …, adds_to_order_id } }
       const asked = page.waitForRequest((r) => r.method() === 'POST' && /\/commands\/print-(cart-)?check-bill$/.test(r.url()));
       await page.locator('.cart').getByRole('button', { name: tr(lang, 'billing.check_bill') }).click();
       expect((await asked).url(), 'the addition cart sends PrintCartCheckBill (05 §6.3a)').toMatch(/print-cart-check-bill$/);
-      const paper = await printedJob(since, 'Check bill (not sent)');
+      const paper = await printedJob(mark, 'Check bill (not sent)');
       expect(paper.text.split('\n')[0]!.trim()).toBe('NOT SENT YET - CHECK BILL');
       expect(paper.text).toContain('Includes items not sent yet');
       expect(paper.text).toContain(run.items.drink.name.slice(0, 12));
@@ -112,10 +112,10 @@ for (const lang of LANGS) {
       const paid = await api.command('AddPayment', { bill_ref: { order_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: part, tendered_minor: part });
       expect(paid.status, JSON.stringify(paid.body.error)).toBe(200);
       await (await queueEntry(page, token)).click();
-      const since = await hubNow();
+      const mark = await printMark();
       await drawer(page).getByRole('button', { name: tr(lang, 'billing.check_bill') }).click();
       // the fixed hub clock stamps other runs' check bills with the same time: this token's own
-      const paper = await printedJob(since, 'Check bill', new RegExp(`^#${token}\\s`, 'm'));
+      const paper = await printedJob(mark, 'Check bill', new RegExp(`^#${token}\\s`, 'm'));
       const line = (label: string) => paper.text.split('\n').find((l) => l.startsWith(label)) ?? '';
       expect(line('Total if paid in cash')).toContain(money(total).replace('Rs ', ''));
       expect(line('Already paid')).toContain(money(part).replace('Rs ', ''));

@@ -75,13 +75,19 @@ export interface PrintJob {
   kind_label: string | null;
   text: string;
 }
-/** The hub's document print jobs since `since` (hub time), rendered as the paper reads. */
-export const printJobs = async (since: number): Promise<PrintJob[]> => (await t1Hub<{ jobs: PrintJob[] }>({ kind: 'jobs', since })).jobs;
-/** Waits for a job of `kind_label` since `since` (the receipt and slip print in the command's transaction). */
-export async function printedJob(since: number, kind_label: string, match?: RegExp): Promise<PrintJob> {
+/**
+ * The print queue's watermark, taken right before a journey prints. Jobs are read by insertion order after it, never by
+ * time: the e2e hub's clock is fixed, so every receipt of the run carries the same `created_at`, and a time filter
+ * returned an earlier spec's receipt (the T1 #4 flake: 02b-tk-flows' Naan receipt read as the run's own).
+ */
+export const printMark = async (): Promise<number> => (await t1Hub<{ mark: number }>({ kind: 'jobsMark' })).mark;
+/** The hub's document print jobs inserted after `mark`, rendered as the paper reads. */
+export const printJobs = async (mark: number): Promise<PrintJob[]> => (await t1Hub<{ jobs: PrintJob[] }>({ kind: 'jobs', after: mark })).jobs;
+/** Waits for a job of `kind_label` printed after `mark` (the receipt and slip print in the command's transaction). */
+export async function printedJob(mark: number, kind_label: string, match?: RegExp): Promise<PrintJob> {
   let found: PrintJob | undefined;
   await expect(async () => {
-    found = (await printJobs(since)).find((j) => j.kind_label === kind_label && (match === undefined || match.test(j.text)));
+    found = (await printJobs(mark)).find((j) => j.kind_label === kind_label && (match === undefined || match.test(j.text)));
     expect(found, `a "${kind_label}" print job`).toBeDefined();
   }).toPass({ timeout: 10_000 });
   return found!;
