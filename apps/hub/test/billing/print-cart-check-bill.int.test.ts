@@ -240,7 +240,7 @@ describe('[05 #60g] PrintCartCheckBill refusals', () => {
 
   it('no open day → 409 BUSINESS_DAY_NOT_OPEN, nothing written', async () => {
     await start({ open: false });
-    swapBranchConfig(menu());
+    swapBranchConfig({ config: menu(), snapshotHash: 'h'.repeat(64), configVersion: 1, snapshotSchemaVersion: 4, appliedAt: 0 });
     const ali = signIn('S_ALI');
     const before = count('SELECT COUNT(*) AS n FROM events');
     const r = await cart(ali, { draft: { order_type: 'takeaway', lines: [{ key: 'N1', item_id: FX.naan, quantity: 1 }] } });
