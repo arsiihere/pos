@@ -11,6 +11,7 @@ import type { CurrentTableOf } from '../../engine-host/slip-readers.js';
 import { defineCommand } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
+import { alerts } from '../../alerts/raise.js';
 import { keyBalances } from '../../billing/queries/key-balances.js';
 import { currentTableOf } from '../../tables/reads.js';
 import type { LineView, OrderType } from '../contracts.js';
@@ -208,7 +209,7 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
     // §3.7 / §3.12 (Q-6): a queued serve keeps the accepted (clamped) queued_at as served_at; absent on a live call.
     ...(ctx.queuedAt === null ? {} : { served_at: ctx.queuedAt }),
   };
-  const events = servedDrafts(ctx.state, lines, serves, envelope, 'tap');
+  const events = [...servedDrafts(ctx.state, lines, serves, envelope, 'tap'), ...handedOverCloses(ctx, orders, lines, serves)];
   return { events, result: { served: serves.reduce((n, s) => n + s.ids.length, 0), skipped } };
 }
 
@@ -229,8 +230,7 @@ function checkHandover(
   lines: ReadonlyMap<string, readonly LineView[]>,
   serves: readonly ServeEntry[],
 ): void {
-  const last = serves
-    .filter((s) => unservedLive(lines.get(s.order_id) ?? []).every((l) => s.ids.includes(l.order_item_id)))
+  const last = servesLast(lines, serves)
     .map((s) => orders.get(s.order_id)!)
     .filter((o) => o.cancelled_at === null && o.billed_at === null && o.day_closed_at === null);
   if (last.length === 0) return;
@@ -241,6 +241,32 @@ function checkHandover(
     const approved = o.unpaid_handover_approved_at !== null && o.unpaid_handover_approved_due_minor !== null && due <= o.unpaid_handover_approved_due_minor;
     if (!approved) throw new DomainError('PERMISSION_DENIED', { reason: 'unpaid_handover_approval_required', order_id: o.order_id });
   }
+}
+
+/** §6.12a the unpaid hand-over request kind (orders/hand-over-unpaid-kind.ts); a string here, as line-change's COMP_KIND. */
+const HAND_OVER_UNPAID = 'hand_over_unpaid';
+
+/** The orders of `serves` whose last live unserved non-deal line this send serves (payload order). */
+function servesLast(lines: ReadonlyMap<string, readonly LineView[]>, serves: readonly ServeEntry[]): ServeEntry[] {
+  return serves.filter((s) => unservedLive(lines.get(s.order_id) ?? []).every((l) => s.ids.includes(l.order_item_id)));
+}
+
+/**
+ * ⚠️ 02b v1.0.25 §3.7a Close (a), §6.4 (run 3 R3-M-3): a takeaway / parking order this send leaves with no live
+ * unserved non-deal line closes its open `hand_over_unpaid` request `obsolete`, note `handed_over` (01d sends the
+ * requester `request_result`). Only then 1 batched `alerts.listOpen` (kind) for all such orders, plus one closeMany for
+ * the hits; a dine-in serve or a partial one adds no read.
+ */
+function handedOverCloses(
+  ctx: CommandCtx,
+  orders: ReadonlyMap<string, ScopedOrder>,
+  lines: ReadonlyMap<string, readonly LineView[]>,
+  serves: readonly ServeEntry[],
+): EventDraft[] {
+  const handed = new Set(servesLast(lines, serves).filter((s) => orders.get(s.order_id)!.order_type !== 'dine_in').map((s) => `${HAND_OVER_UNPAID}:${s.order_id}`));
+  if (handed.size === 0) return [];
+  const hits = alerts.listOpen(ctx.tx.db, { kind: HAND_OVER_UNPAID }).filter((a) => handed.has(a.dedupe_key));
+  return hits.length === 0 ? [] : alerts.closeMany(ctx, hits.map((a) => ({ alert_id: a.alert_id, reason: 'obsolete' as const, note: 'handed_over' })));
 }
 
 /** One order's lines to serve (validated by the caller); `inEngine` = `isOrderInEngine` at the envelope time (O16). */

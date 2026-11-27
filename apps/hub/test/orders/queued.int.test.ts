@@ -340,7 +340,7 @@ describe('[02b #22 queued] a queued MarkServed keeps served_at = queued_at (§3.
     lastStatements = -1;
   }
 
-  it('[02b #22 queued] ItemServed.served_at = the accepted queued_at; order_lines.served_at the same; OrderFoodServed and stockEffects still follow; 2 statements', async () => {
+  it('[02b #22 queued] ItemServed.served_at = the accepted queued_at; order_lines.served_at the same; OrderFoodServed and stockEffects still follow; 3 statements (the takeaway is handed over, R3-M-3)', async () => {
     await setUpServe();
     const ali = signIn('S_ALI');
     const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: 'S_ALI', lines: [{ order_item_id: 'K1', item_id: FX.piece }] });
@@ -353,7 +353,8 @@ describe('[02b #22 queued] a queued MarkServed keeps served_at = queued_at (§3.
     expect(types(r)).toEqual(['ItemServed', 'OrderFoodServed', 'StockConsumed']);
     expect(r.events[0]!.payload).toEqual({ order_item_ids: ['K1'], source: 'tap', served_at: queuedAt });
     expect(servedAt('K1')).toBe(queuedAt);
-    expect(lastStatements).toBe(2);
+    // ⚠️ 02b v1.0.25 §6.4 (run 3 R3-M-3): 2 + the batched hand_over_unpaid listOpen (the order has no live unserved line left)
+    expect(lastStatements).toBe(3);
   });
 
   it('[02b #22 queued] served_at is the clamped queued_at: below started_at − 2 min → started_at − 120 000; ahead of now → now', async () => {
@@ -376,7 +377,7 @@ describe('[02b #22 queued] a queued MarkServed keeps served_at = queued_at (§3.
     expect(servedAt('N2')).toBe(now);
   });
 
-  it('[02b #22 queued] a live MarkServed has no served_at key; order_lines.served_at = recorded_at; same 2 statements', async () => {
+  it('[02b #22 queued] a live MarkServed has no served_at key; order_lines.served_at = recorded_at; same 3 statements', async () => {
     await setUpServe();
     const ali = signIn('S_ALI');
     const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: 'S_ALI', lines: [{ order_item_id: 'N1', item_id: FX.naan }] });
@@ -389,6 +390,6 @@ describe('[02b #22 queued] a queued MarkServed keeps served_at = queued_at (§3.
     expect(r.events[0]!.payload).toEqual({ order_item_ids: ['N1'], source: 'tap' });
     expect('served_at' in r.events[0]!.payload).toBe(false);
     expect(servedAt('N1')).toBe(now);
-    expect(lastStatements).toBe(2);
+    expect(lastStatements).toBe(3); // + the R3-M-3 hand_over_unpaid listOpen, as the queued call
   });
 });

@@ -477,7 +477,7 @@ describe('MarkServed (02b §6.4, §3.7)', () => {
     expect(noLines.status).toBe(400);
   });
 
-  it('[02b §6.4] statements: 2 (orders, lines) at branch scope; 3 with currentTableOf for a my_floors dine-in', async () => {
+  it('[02b §6.4] statements: 2 (orders, lines) at branch scope (+1 open-request read when a takeaway is handed over, R3-M-3); 3 with currentTableOf for a my_floors dine-in (dine-in adds no read)', async () => {
     openDay(hub);
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
     const o1 = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', lines: [{ order_item_id: 'N1', item_id: FX.naan }] }).order_id;
@@ -487,7 +487,8 @@ describe('MarkServed (02b §6.4, §3.7)', () => {
 
     const branch = await serve(signIn('S_WAITER'), [{ order_id: o1, order_item_ids: ['N1'] }, { order_id: o2, order_item_ids: ['N2'] }], { type: 'TestMarkServedCounted' });
     expect(branch.status).toBe(200);
-    expect(lastStatements).toBe(2);
+    // ⚠️ 02b v1.0.25 §6.4 (run 3 R3-M-3): o2 is left with no live unserved line → 1 batched hand_over_unpaid listOpen
+    expect(lastStatements).toBe(3);
 
     const floor = await serve(signIn('S_FLOOR'), [{ order_id: o3, order_item_ids: ['N3'] }], { type: 'TestMarkServedCounted' });
     expect(floor.status).toBe(200);
