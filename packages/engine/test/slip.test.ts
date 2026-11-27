@@ -673,3 +673,98 @@ describe('03a §3.8 property (50 seeds)', () => {
     expect(withDue).toBeGreaterThan(10);
   }, 60_000);
 });
+
+// ---- 02b-tk L-CLOSE-2: 03a v1.2.11 test 190 (PK-6, M-4, m-14; R2-M-1; R3-M-1) ---------------------------------------
+
+describe('03a §3.5.8 held groups slip (test 190)', () => {
+  const P = at(30);
+  const KEY = 'takeaway:O1';
+  /** A takeaway with `pickup`, planned at `now` and folded (the §4.2 batch). */
+  function submitPickup(state: EngineState, order_id: string, items: Item[], now: number, pickup: number | null): EngineState {
+    const base = proposed(order_id, items);
+    const order = { ...base.order, order_type: 'takeaway' as const, table_id: null, table_key: `takeaway:${order_id}`, pickup_at_ms: pickup };
+    const plan = planOrder(state, deepFreeze({ ...base, order }), now, {});
+    const first = nextSeq(items.length + 1);
+    const events = anOrderBatch({
+      order_id,
+      recorded_at: now,
+      seq: first,
+      lines: items.map((i) => ({ order_item_id: i.id, item: itemFields(i), line: { station_id: 'S1', carry_ms: 0, max_early_ms: i.early ?? 60_000 } })),
+      order: { groups: plan.groups, order_type: 'takeaway', table_id: null, table_key: `takeaway:${order_id}`, pickup_at_ms: pickup },
+    }).map((e, k) => ({ ...e, event_id: `01S${String(first + k).padStart(23, '0')}` }));
+    return fold(state, events);
+  }
+  const capacityEv = (n: number, t: number): PosEvent =>
+    stamp({ ...anItemStarted(), stream_type: 'station', event_type: 'StationCapacitySet', stream_id: 'S1', payload: { station_id: 'S1', capacity_override: n, previous: null, reason: 'manager' } }, t);
+  const boostEv = (order_id: string, t: number): PosEvent => stamp({ ...anItemStarted(), event_type: 'OrderBoosted', stream_id: order_id, payload: { order_id } }, t);
+
+  /** S1 capacity 2; a 60-min dine-in line X cooking on one unit; O1 (pickup at +30) on the other; then capacity 1 at +5. */
+  function pushedLate(items: Item[]): EngineState {
+    let s = kitchen([{ station_id: 'S1', capacity: 2 }]);
+    ({ state: s } = submit(s, 'OX', [{ id: 'X', cook: 60 * M }], at(0)));
+    s = fold(s, [fireEv('S1', ['X'], at(0)), startEv('OX', 'X', at(0))]);
+    s = submitPickup(s, 'O1', items, at(0), P);
+    for (const i of items) expect(s.lines[i.id]!.booked!.end, `${i.id} on time first`).toBeLessThanOrEqual(P);
+    return fold(s, [capacityEv(1, at(5))]);
+  }
+  const slipOf = (s: EngineState, t: number) => getAlertIntents(s, t).slips.filter((x) => x.table_key === KEY);
+
+  it('[03a #190 (a)] a capacity drop pushes the held drink past T_L + threshold → the next pass has one slip for takeaway:<order_id>, with the order\'s sync group (one card)', () => {
+    const s = pushedLate([{ id: 'B', cook: 10 * M }, { id: 'D', cook: 2 * M, mode: 'immediate' }]);
+    expect(s.lines.D!.booked!.end).toBeGreaterThan(P + TH);
+    const due = s.slip_due[KEY]!;
+    expect(due).toBeDefined();
+    expect(slipOf(s, due - 1)).toEqual([]);
+    const items = slipOf(s, due);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ table_key: KEY, order_ids: ['O1'], target: P });
+  });
+
+  it('[03a #190 (c) control] the same order with no pickup: its immediate line never slips; only the sync group can', () => {
+    let s = kitchen([{ station_id: 'S1', capacity: 2 }]);
+    ({ state: s } = submit(s, 'OX', [{ id: 'X', cook: 60 * M }], at(0)));
+    s = fold(s, [fireEv('S1', ['X'], at(0)), startEv('OX', 'X', at(0))]);
+    s = submitPickup(s, 'O1', [{ id: 'D', cook: 2 * M, mode: 'immediate' }], at(0), null);
+    s = fold(s, [capacityEv(1, at(5))]);
+    expect(s.slip_due[KEY]).toBeUndefined();
+    expect(slipOf(s, at(120))).toEqual([]);
+  });
+
+  it('[03a #190 (d)] a drinks-only pickup order pushed late: the slip is raised and not resolved until the drink is done', () => {
+    let s = pushedLate([{ id: 'D', cook: 2 * M, mode: 'immediate' }]);
+    const due = s.slip_due[KEY]!;
+    const [item] = slipOf(s, due);
+    expect(item).toBeDefined();
+    s = fold(s, [slipWarnedEv(item!, 'AL1', due)]);
+    expect(s.slips[KEY]).toMatchObject({ alert_id: 'AL1', resolved_at: null });
+    const fire = s.lines.D!.fire_ms!;
+    s = fold(s, [fireEv('S1', ['D'], fire), startEv('O1', 'D', fire)]);
+    expect(s.slips[KEY]!.resolved_at).toBeNull(); // started is not done
+    expect(getAlertIntents(s, fire + M).resolved).toEqual([]);
+    s = fold(s, [doneEv('O1', 'D', fire + 2 * M)]);
+    expect(s.slips[KEY]!.resolved_at).toBe(fire + 2 * M);
+    expect(getAlertIntents(s, fire + 2 * M).resolved).toEqual([{ table_key: KEY, alert_id: 'AL1' }]);
+  });
+
+  it('[03a #190 (f), R3-M-1] a boost of the drinks-only order with its slip open resolves the key at the OrderBoosted fold; the next pass closes it; no new held-drink warning is due', () => {
+    let s = pushedLate([{ id: 'D', cook: 2 * M, mode: 'immediate' }]);
+    const due = s.slip_due[KEY]!;
+    s = fold(s, [slipWarnedEv(slipOf(s, due)[0]!, 'AL1', due)]);
+    s = fold(s, [boostEv('O1', due + M)]);
+    expect(s.slips[KEY]!.resolved_at).toBe(due + M);
+    const after = getAlertIntents(s, due + M);
+    expect(after.resolved).toEqual([{ table_key: KEY, alert_id: 'AL1' }]);
+    expect(after.slips.filter((x) => x.table_key === KEY)).toEqual([]);
+  });
+
+  it('[03a #190 (f), R3-M-1] the same boost with an unresolved sync group: the slip stays open; no new held-drink warning is due', () => {
+    let s = pushedLate([{ id: 'B', cook: 10 * M }, { id: 'D', cook: 2 * M, mode: 'immediate' }]);
+    const due = s.slip_due[KEY]!;
+    s = fold(s, [slipWarnedEv(slipOf(s, due)[0]!, 'AL1', due)]);
+    s = fold(s, [boostEv('O1', due + M)]);
+    expect(s.slips[KEY]!.resolved_at).toBeNull();
+    const after = getAlertIntents(s, due + M);
+    expect(after.resolved).toEqual([]);
+    expect(after.slips.filter((x) => x.table_key === KEY)).toEqual([]);
+  });
+});
