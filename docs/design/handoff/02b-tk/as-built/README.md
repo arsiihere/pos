@@ -214,3 +214,17 @@ Captured from `apps/client/e2e/t1-dayclose.spec.ts` (its own hub, `playwright.da
 
 - 02b v1.0.25 §3.3 Day close: a carried order is shown under the next day "with its date beside its token" ("57 · 6 Nov"). The client reads open-orders `from_date` (the order's business date when it is not the open day's) and shows "<token> · <d Mon>" on the queue row, the ready tile and the token view header, with the month names of `alerts.months` (Urdu: نومبر …), as the open-orders list's "from 6 Nov" does. The token's own badge keeps the bare number. A token of the open day shows nothing new. 03b defines no carried date on the Pass card, so the Pass is unchanged.
 - The e2e (day-close hub, `playwright.dayclose.config.ts`, one language per run) places a PAID pickup inside eta-preview's `pickup_bounds`, pays it, closes the day, moves the hub clock a day on and opens the next day: DC-2 (hub #545) keeps it open, open-orders gives its `from_date`, and the counter's row and token view show "<token> · <date>".
+
+## BR-1 "Ready ~{planned}" after Customer is here (02b v1.0.25 §6.16)
+
+Captured from `apps/client/e2e/t1-takeaway.spec.ts` (T1 #8) against the e2e hub, kiosk and landscape tablet, after the boost. The CustomerHereDone images above are these captures (refreshed: they now show the planned time). No frame shows it; owner ruling BR-1 (2026-11-27) names the wording.
+
+| State | English | Urdu |
+| --- | --- | --- |
+| After the boost: Ready by "Ready ~10:52 PM" with the promise 11:30 PM struck through; Hand over all the same (kiosk) | [CustomerHereDone](CustomerHereDone.png) | [CustomerHereDone-Urdu](CustomerHereDone-Urdu.png) |
+| The same on the tablet | [CustomerHereDone-tablet](CustomerHereDone-tablet.png) | [CustomerHereDone-tablet-Urdu](CustomerHereDone-tablet-Urdu.png) |
+
+- The hub's open-orders rows (and the catch-up part `orders`) carry `planned_ready_at_ms`: the latest planned land (03c `customerReadyAt(...).land_at`) of the order's engine lines not yet ready, held lines included; null when every live line is ready, the order is not in the engine, a line has no land yet, or for dine-in.
+- The token view, the queue row and the part-given ready tile show "Ready ~{planned}" (Urdu "تقریباً {t} تک تیار", to confirm) with the stored promise struck through beside it (`<s class="muted">`) when every not-ready order of the token is boosted (a pickup kept, the effective pickup null) with a planned time, and the latest such planned time is earlier than the token's promise. Otherwise the promise exactly as before. The promise never changes (03a PK-5).
+- The planned time is a land (no takeaway padding); the promise is the pickup plus the padding. In T1 #8: pickup 11:27 PM, promise 11:30 PM (pickup + 3 min), planned 10:52 PM after the boost (35 min before the pickup).
+- The drawer reads open-orders with its order-view and bill reads (again on the same frames and after Customer is here), so the time updates in the open drawer; if open-orders does not list every order of the token, it keeps the rail's value. In the drawer's fact the struck promise sits on its own line, so a wrapped Urdu line never runs into it.
