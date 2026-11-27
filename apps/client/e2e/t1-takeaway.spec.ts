@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { escapeRe, menuTile, rushOff, sentToken, shiftOpen, signInOn, takeawayTab } from './02b-support';
-import { apiSession, capture, queueEntry, runId, closeAll, cookLine, deviceFor, hubFire, hubNow, LANGS, passCard, passTablet, printedJob, screen, t1Key, t1Run, t1RunsHere, tr } from './t1-support';
+import { apiSession, capture, hubPlan, planEta, queueEntry, runId, closeAll, cookLine, deviceFor, hubFire, hubNow, LANGS, passCard, passTablet, printedJob, screen, t1Key, t1Run, t1RunsHere, tr } from './t1-support';
 import { t1Station } from './t1-fixture';
 
 // L-E2E-T1 group A — the owner's dry-run checklist ("Takeaway Tier 1 — Restaurant Dry Run Checklist"), the takeaway
@@ -22,6 +22,14 @@ async function counter(page: Page, lang: Parameters<typeof tr>[0], info: Paramet
   await signInOn(page, deviceFor(info), lang, 'Owner');
   await shiftOpen(page, lang);
   await takeawayTab(page);
+}
+
+/** 03a §3.5.1 step 5 (engine paddingOf): the takeaway promise padding of a station, from the hub's branch config. */
+async function takeawayPadding(api: Awaited<ReturnType<typeof apiSession>>, station_id: string): Promise<number> {
+  const { snapshot } = await api.query<{ snapshot: { stations: Array<{ station_id: string; policy: string; promise_padding_ms: number | null }>; engine_settings: { promise_padding_takeaway_ms: number } } }>('branch-config');
+  const station = snapshot.stations.find((s) => s.station_id === station_id)!;
+  if (station.policy !== 'waada_guard') return 0;
+  return station.promise_padding_ms ?? snapshot.engine_settings.promise_padding_takeaway_ms;
 }
 
 async function payCashExact(page: Page, lang: Parameters<typeof tr>[0]): Promise<string> {
@@ -185,10 +193,11 @@ for (const lang of LANGS) {
         const { orders } = await api.query<{ orders: Array<{ token: number | null; promise_ms: number | null; effective_pickup_at_ms: number | null }> }>('open-orders?order_type=takeaway');
         const o = orders.find((x) => String(x.token) === token)!;
         expect(o.effective_pickup_at_ms).toBe(pickup);
-        // the promise is the pickup's target plus the branch's takeaway promise padding (03a §3.5.1 step 5, PK-1
-        // T_L = max(p, land)): the e2e hub answers pickup + 3 min, never earlier than the pickup
-        expect(o.promise_ms).toBeGreaterThanOrEqual(pickup!);
-        expect(o.promise_ms! - pickup!).toBeLessThanOrEqual(10 * 60_000);
+        // the promise is the pickup's target plus the takeaway promise padding (03a PK-1 T_L = max(p, land) = p here;
+        // §3.5.1 step 5 / engine paddingOf: a Waada Guard station's promise_padding_ms, else the branch's
+        // engine_settings.promise_padding_takeaway_ms; 0 on a FIFO / EDF station), read from the hub's branch config
+        const padding = await takeawayPadding(api, t1Station(run.key));
+        expect(o.promise_ms).toBe(pickup! + padding);
       } finally {
         await api.close();
       }
@@ -213,12 +222,13 @@ for (const lang of LANGS) {
     const cash = await screen(browser, info.project.use.viewport!);
     const api = await apiSession(request, 'S_OWNER');
     try {
-      // a pickup order 30 min ahead, as the counter sends it (SubmitOrder pickup_at_ms, 02b §3.2 step 2b)
+      // a pickup order 45 min ahead, as the counter sends it (SubmitOrder pickup_at_ms, 02b §3.2 step 2b)
       const order_id = runId(`T1-PK-${run.key}`);
+      const pickupAt = (await hubNow()) + 45 * 60_000;
       const placed = await api.command('SubmitOrder', {
         order_id,
         order_type: 'takeaway',
-        pickup_at_ms: (await hubNow()) + 30 * 60_000,
+        pickup_at_ms: pickupAt,
         lines: [
           { order_item_id: `${order_id}-M`, item_id: run.items.main.item_id, quantity: 1 },
           { order_item_id: `${order_id}-D`, item_id: run.items.drink.item_id, quantity: 1 },
@@ -236,6 +246,10 @@ for (const lang of LANGS) {
       type Row = { order_id: string; promise_ms: number | null; pickup_at_ms: number | null; effective_pickup_at_ms: number | null; ready: { n: number; m: number } };
       const rowOf = async () => (await api.query<{ orders: Row[] }>('open-orders?order_type=takeaway')).orders.find((o) => o.order_id === order_id)!;
       const before = await rowOf();
+      // the engine's plan lands the whole bag for the pickup (03a PK-1): not before it
+      const planned = await hubPlan(order_id);
+      expect(planned.pickup_at_ms).toBe(pickupAt);
+      expect(planEta(planned)).toBeGreaterThanOrEqual(pickupAt);
       await capture(cash.page, info, `CustomerHere-${info.project.name}-${lang}`, drawer);
       const boosted = cash.page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/commands/boost-order'));
       await here.click();
@@ -246,7 +260,13 @@ for (const lang of LANGS) {
       const after = await rowOf();
       expect(after.pickup_at_ms).toBe(before.pickup_at_ms);
       expect(after.effective_pickup_at_ms).toBeNull();
-      expect(after.promise_ms!).toBeLessThanOrEqual(before.promise_ms!);
+      // 03a PK-5: the boost re-places the order's lines at their earliest fit — the plan's eta moves before the pickup
+      // (the stored promise may stay, so promise_ms is not checked)
+      const replanned = await hubPlan(order_id);
+      expect(replanned.boosted).toBe(true);
+      expect(replanned.pickup_at_ms).toBe(pickupAt);
+      console.log(`[T1 #8 ${info.project.name} ${lang}] pickup ${pickupAt}, plan eta before ${planEta(planned)} (pickup ${planEta(planned) - pickupAt >= 0 ? '+' : ''}${(planEta(planned) - pickupAt) / 60_000} min), after ${planEta(replanned)} (pickup ${(planEta(replanned) - pickupAt) / 60_000} min), promise ${before.promise_ms} → ${after.promise_ms}`);
+      expect(planEta(replanned)).toBeLessThan(pickupAt);
       // whole bag (D1): nothing is ready yet — the token is not Ready while the drink is still to make
       expect(after.ready.n).toBeLessThan(after.ready.m);
       await expect(drawer.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'v.collected'))}`) })).toHaveAttribute('aria-disabled', 'true');
