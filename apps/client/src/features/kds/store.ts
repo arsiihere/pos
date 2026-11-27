@@ -42,7 +42,7 @@ export interface KdsRow {
    */
   priority?: RowPriority | null;
   /**
-   * ⚠️ 03b v1.0.17 §3.3 (owner 2026-11-28, QA BUG-25): the engine-planned ready time (the line's group T) from the
+   * ⚠️ 03b v1.0.18 §3.3 (owner 2026-11-28, QA BUG-25): the engine-planned ready time (the line's group T) from the
    * catch-up's Now row or the plan line that fired; the timer is late only after it. Absent / null = an older hub.
    */
   planned_ready_ms?: number | null;

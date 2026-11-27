@@ -5,7 +5,7 @@ import type { KdsRow } from '../store';
 
 // 03b v1.0.8 §3.3, #71 (K2; frame 03b-C03): the Now row's timer. Started → "cooking m:ss" since started_at; not
 // started → "waiting m:ss" since fired_at; late (red, "late +N min", never colour alone) when now > planned_done_ms.
-// ⚠️ 03b v1.0.17 §3.3 (owner 2026-11-28, QA BUG-25): planned_done_ms = the engine-planned ready time
+// ⚠️ 03b v1.0.18 §3.3 (owner 2026-11-28, QA BUG-25): planned_done_ms = the engine-planned ready time
 // (`planned_ready_ms`, the line's group T — the time the cart showed), zero-cook ready-stock lines too; an older hub
 // without it: started_at + cook_ms, else fired_at + prep_ms + cook_ms. `now` is always the hub clock (`hub_time`, S47), never
 // the device's. An hour or more reads h:mm:ss.

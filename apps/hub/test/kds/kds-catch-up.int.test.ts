@@ -111,7 +111,7 @@ describe('[03b §6.14] kds_station catch-up part (b18)', () => {
       has_printer: false,
       lanes: { lanes_on: 1, lane_count: 1 },
       // ⚠️ 03b v1.0.13 §3.3 (STAB-6, STAB-7): + load_id (null on a slot line) and priority (null when not priority)
-      now: [{ ...details.get('A1')!, stage: 'added', fired_at: engine().lines.A1!.fired_at, started_at: null, mark: engine().lines.A1!.mark, done_undone: false, load_id: null, priority: null, planned_ready_ms: engine().orders[order_id]!.groups[engine().lines.A1!.group_id]!.target_land_ms }], // ⚠️ 03b v1.0.17 (owner 2026-11-28, BUG-25): + planned_ready_ms = the group's T
+      now: [{ ...details.get('A1')!, stage: 'added', fired_at: engine().lines.A1!.fired_at, started_at: null, mark: engine().lines.A1!.mark, done_undone: false, load_id: null, priority: null, planned_ready_ms: engine().orders[order_id]!.groups[engine().lines.A1!.group_id]!.target_land_ms }], // ⚠️ 03b v1.0.18 (owner 2026-11-28, BUG-25): + planned_ready_ms = the group's T
       details: view.next.map((l) => details.get(l.order_item_id)!),
     });
     expect(body.now[0]!.order_id).toBe(order_id);

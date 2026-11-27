@@ -75,7 +75,7 @@ function setup(start = 5_000) {
 }
 
 describe('[03b §3.3] KDS store', () => {
-  // ⚠️ 03b v1.0.17 §3.3 (owner 2026-11-28, QA BUG-25): the engine-planned ready time rides on the row
+  // ⚠️ 03b v1.0.18 §3.3 (owner 2026-11-28, QA BUG-25): the engine-planned ready time rides on the row
   it('[03b #133, BUG-25] planned_ready_ms from the catch-up Now row and from the plan line that fires; absent from an older hub → null', () => {
     const { store } = setup();
     const p = plan([{ id: 'N1' }, { id: 'N2' }]);

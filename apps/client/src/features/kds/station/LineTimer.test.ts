@@ -44,7 +44,7 @@ describe('[03b #71] line timer', () => {
     expect(timerOf(cooking, D, Date.now()).kind).toBe('cooking');
   });
 
-  // ⚠️ 03b v1.0.17 §3.3 (owner 2026-11-28, QA BUG-25): late only after the engine-planned ready time (the group's T)
+  // ⚠️ 03b v1.0.18 §3.3 (owner 2026-11-28, QA BUG-25): late only after the engine-planned ready time (the group's T)
   it('[03b #133, BUG-25] a ready-stock drink (cook 0) fired 12:55, planned ready 12:58: not late at 12:57:59; +1 min at 12:58:01; a cooking line too', () => {
     const at = (h: number, m: number, s = 0) => Date.UTC(2026, 10, 28, h, m, s);
     const zero = { cook_ms: 0, prep_ms: 0 } as LineDetail;

@@ -55,11 +55,11 @@ export type ViewLine = Pick<
 > & {
   live: Interval | null;
   priority?: LinePriority;
-  /** ⚠️ 03b v1.0.17 §3.3 (owner 2026-11-28, QA BUG-25): the engine-planned ready time, the line's group T; null = none */
+  /** ⚠️ 03b v1.0.18 §3.3 (owner 2026-11-28, QA BUG-25): the engine-planned ready time, the line's group T; null = none */
   planned_ready_ms: number | null;
 };
 
-// 03b v1.0.17 §3.3 (owner 2026-11-28): a line's engine-planned ready time = its group's target (the time the cart showed).
+// 03b v1.0.18 §3.3 (owner 2026-11-28): a line's engine-planned ready time = its group's target (the time the cart showed).
 export function plannedReadyOf(state: EngineState, line: Pick<EngineLine, 'order_id' | 'group_id'>): number | null {
   return state.orders[line.order_id]?.groups[line.group_id]?.target_land_ms ?? null;
 }
@@ -145,7 +145,7 @@ export function stationPlan(state: EngineState, station_id: string, now: number)
         frozen,
         load_id: line.load_id, // ⚠️ 03b v1.0.13 §3.3 (STAB-6, To 03b #9): the round of a batch line
         ...(priority === undefined ? {} : { priority }),
-        planned_ready_ms: plannedReadyOf(state, line), // ⚠️ 03b v1.0.17 §3.3 (owner 2026-11-28, QA BUG-25)
+        planned_ready_ms: plannedReadyOf(state, line), // ⚠️ 03b v1.0.18 §3.3 (owner 2026-11-28, QA BUG-25)
       };
     }),
   };
