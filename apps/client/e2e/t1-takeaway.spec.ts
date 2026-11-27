@@ -92,7 +92,8 @@ for (const lang of LANGS) {
       const card = passCard(pass.page, token);
       await expect(card).toBeVisible({ timeout: 15_000 });
       await expect(card.locator('.pl', { hasText: run.items.main.name })).toBeVisible();
-      await expect(card.locator('.pc__g')).toBeVisible();
+      // ⚠️ 03b v1.0.17 §8: the readiness pill (the station line shows only for 2+ stations)
+      await expect(card.locator('.rd')).toBeVisible();
       await capture(pass.page, info, `T1-16-pass-card-${info.project.name}-${lang}`, card);
     } finally {
       await closeAll(info, lang, pass, cash);
@@ -115,13 +116,18 @@ for (const lang of LANGS) {
       await passTablet(pass.page, 'bag', info, lang);
       const card = passCard(pass.page, token);
       await expect(card).toBeVisible({ timeout: 15_000 });
-      // #17: the paye done, the drink not → the bag is not ready (no Bag ready, no hand-over)
+      // #17: the paye done, the drink not → the bag is not ready and cannot be handed over (03b v1.0.17 §8: no
+      // "Handed to customer" while it cooks)
       await cookLine(card, run.items.main.name);
       await expect(card).not.toHaveClass(/\bready\b/);
-      await expect(card.locator('.btn--customer')).toBeDisabled();
+      await expect(card.locator('.rd')).toHaveText(tr(lang, 'pass.cooking'));
+      await expect(card.locator('.btn--customer')).toHaveCount(0);
       await capture(pass.page, info, `T1-17-half-bag-${info.project.name}-${lang}`, card);
       await cookLine(card, run.items.drink.name);
       await expect(card).toHaveClass(/\bready\b/);
+      // the whole bag is ready: Bag ready, then "Handed to customer" is the card's one primary
+      await card.locator('.pc__f .btn--ready').click();
+      await expect(card.locator('.pc__f .btn--ready')).toHaveCount(0);
 
       // #18: Handed to customer on the paid, ready bag; Undo within 5 s brings it back; then for real
       const button = card.locator('.btn--customer');
