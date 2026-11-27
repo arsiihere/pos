@@ -157,8 +157,8 @@ export interface OpenOrder {
 /**
  * ⚠️ 02b v1.0.25 §6.16 `planned_ready_at_ms` (owner ruling BR-1, 2026-11-27), also on the catch-up part `orders`
  * (§6.18): the engine's current whole-order planned ready time of an open takeaway / parking order, from the in-memory
- * engine state (0 statements). The latest planned land (03c `customerReadyAt(...).land_at`: the engine's land rule) of
- * the order's engine lines not yet ready (stage `added` / `cooking`; held lines included). null for a dine-in order,
+ * engine state (0 statements). The latest customer time (03c §4.2 `customerReadyAt(...).ready_at`: the planned land plus
+ * the engine's padding, as receipts and slips; owner 2026-11-27, BR-1) of the order's engine lines not yet ready (stage `added` / `cooking`; held lines included). null for a dine-in order,
  * when the order is not in the engine, when every live line is ready (no such line left), or when such a line has no
  * land yet (unknown: the client keeps the promise). The stored promise never changes (03a PK-5).
  */
@@ -168,9 +168,9 @@ export function plannedReadyAt(state: Readonly<EngineState>, order_id: string, o
   for (const id of state.orders[order_id]!.line_ids) {
     const line = state.lines[id];
     if (line === undefined || (line.stage !== 'added' && line.stage !== 'cooking')) continue;
-    const land = customerReadyAt(state, line)?.land_at ?? null;
-    if (land === null) return null;
-    latest = latest === null ? land : Math.max(latest, land);
+    const at = customerReadyAt(state, line)?.ready_at ?? null;
+    if (at === null) return null;
+    latest = latest === null ? at : Math.max(latest, at);
   }
   return latest;
 }

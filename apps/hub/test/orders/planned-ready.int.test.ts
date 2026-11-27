@@ -14,8 +14,8 @@ import { appendOrder, FX, openDay, openSeating } from './fixtures';
 
 // ⚠️ 02b v1.0.25 §6.16 row `planned_ready_at_ms` (owner ruling BR-1, 2026-11-27) and §6.18 (catch-up part `orders`);
 // 03a v1.2.11 PK-5 (the stored promise never changes). The engine's whole-order planned ready time of an open takeaway /
-// parking order: the latest planned land (customerReadyAt(...).land_at, the engine's land rule) of its lines not yet
-// ready (stage added / cooking, held lines included), from the in-memory engine state (0 extra statements); null when
+// parking order: the latest customer time (customerReadyAt(...).ready_at: the planned land plus the engine's padding,
+// owner 2026-11-27, as receipts and slips) of its lines not yet ready (stage added / cooking, held lines included), from the in-memory engine state (0 extra statements); null when
 // every live line is ready, when the order is not in the engine, or when a not-ready line has no land yet. Dine-in rows
 // carry null (the ruling names takeaway / parking). Orders are seeded with real events through the hub writer.
 
@@ -76,27 +76,27 @@ type Caught = { orders: Array<{ order_id: string; planned_ready_at_ms: number | 
 const catchUp = (state: EngineState = engine()): Caught => ordersCatchUpPart(hub.clock).build(hub.deps.db, state, socketCtx()) as Caught;
 const caughtOf = (c: Caught, id: string) => c.orders.find((o) => o.order_id === id)!;
 
-/** The ruling's value computed apart from the code under test: max land of the order's added / cooking engine lines. */
+/** The ruling's value computed apart from the code under test: max customer time of the order's added / cooking engine lines. */
 function expectedPlanned(state: EngineState, order_id: string): number | null {
   const lands = state.orders[order_id]!.line_ids
     .map((id) => state.lines[id])
     .filter((l) => l !== undefined && (l.stage === 'added' || l.stage === 'cooking'))
-    .map((l) => customerReadyAt(state, l!)?.land_at ?? null);
+    .map((l) => customerReadyAt(state, l!)?.ready_at ?? null);
   if (lands.length === 0 || lands.includes(null)) return null;
   return Math.max(...(lands as number[]));
 }
 
 describe('[02b §6.16 BR-1] open-orders planned_ready_at_ms', () => {
-  it('a pickup takeaway: before the boost the planned land is at the pickup (held lines included); after BoostOrder it is earlier; the stored promise and pickup never change (PK-5)', async () => {
+  it('a pickup takeaway: before the boost the planned customer time is the pickup + padding = the promise (held lines included); after BoostOrder it is earlier than the promise; the stored promise and pickup never change (PK-5)', async () => {
     const pickup = hub.clock.branchNow() + 60 * MIN;
     appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', pickup_at_ms: pickup, lines: [{ order_item_id: 'TA1', item_id: FX.piece }, { order_item_id: 'TA2', item_id: FX.naan }] });
     const before = rowOf(await openOrders(), 'TA');
     expect(before.planned_ready_at_ms).not.toBeNull();
     expect(before.planned_ready_at_ms).toBe(expectedPlanned(engine(), 'TA'));
-    // held for the pickup: the plan lands near the pickup, not now + cook
-    expect(before.planned_ready_at_ms!).toBeLessThanOrEqual(pickup);
-    expect(before.planned_ready_at_ms!).toBeGreaterThan(pickup - 15 * MIN);
+    // held for the pickup: the plan lands at the pickup; plus the padding that is the stored promise (not earlier)
     expect(before.promise_ms).not.toBeNull();
+    expect(before.planned_ready_at_ms).toBe(before.promise_ms);
+    expect(before.planned_ready_at_ms!).toBeGreaterThan(pickup);
 
     boost('TA');
     const after = rowOf(await openOrders(), 'TA');
@@ -115,10 +115,10 @@ describe('[02b §6.16 BR-1] open-orders planned_ready_at_ms', () => {
     start('PK', 'PK2');
     let pk = rowOf(await openOrders(), 'PK');
     expect(pk.planned_ready_at_ms).toBe(expectedPlanned(engine(), 'PK'));
-    const land2 = customerReadyAt(engine(), engine().lines.PK2!)!.land_at;
+    const time2 = customerReadyAt(engine(), engine().lines.PK2!)!.ready_at;
     done('PK', 'PK1');
     pk = rowOf(await openOrders(), 'PK');
-    expect(pk.planned_ready_at_ms).toBe(land2); // only the cooking naan is left
+    expect(pk.planned_ready_at_ms).toBe(time2); // only the cooking naan is left
     done('PK', 'PK2');
     pk = rowOf(await openOrders(), 'PK');
     expect(pk.ready).toEqual({ n: 2, m: 2 });
