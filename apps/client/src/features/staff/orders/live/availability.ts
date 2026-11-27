@@ -218,7 +218,7 @@ export interface AvailabilityOptions {
 }
 
 /** 03a v1.2.7 §4.3 To 02 #9: the events that change a station's load (staff sockets get them, 02b §6.19, 03a §6.4). */
-const STATION_LOAD_EVENTS: ReadonlySet<string> = new Set([
+export const STATION_LOAD_EVENTS: ReadonlySet<string> = new Set([
   'OrderPlaced',
   'ItemAdded',
   'OrderLinesAdded',
