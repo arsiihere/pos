@@ -43,6 +43,7 @@ import { createShellConfig, type BranchConfigReply } from './shell/config';
 import { createContextSlot } from './shell/context-slot';
 import { createRushSlot } from './shell/rush-slot';
 import { createBarSlot } from './shell/bar-slot';
+import { createInputActivity } from './shell/input-activity';
 import { readOwnShift, shiftEvent, type OwnShift } from './shell/own-shift';
 import { ShellBanners } from './shell/ShellBanners';
 import { createDayWatch } from './orders/order-screen/day-open';
@@ -692,6 +693,12 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   const sessionRef = useRef(sessionMsg);
   sessionRef.current = sessionMsg;
   const meKey = me?.staffId ?? null;
+  // ⚠️ 00 v1.14 M101 (owner 2026-11-28 Q8; QA BUG-12): while someone is signed in, their taps and keys tell the hub they
+  // are active (GET /queries/activity, at most once per 60 s); watching the screen does not
+  useEffect(() => {
+    if (meKey === null) return;
+    return createInputActivity({ send: () => void api.query('/queries/activity'), now: () => clockRef.current.nowMs(), target: document }).attach();
+  }, [meKey, api]);
   useEffect(() => {
     if (native !== null) void native.setSession(sessionRef.current);
   }, [native, meKey]);
