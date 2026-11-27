@@ -3,7 +3,7 @@ import type { BranchConfig, ConfigItem, EventDraft } from '@pos/events';
 import { branchConfig } from '../../hub/src/sync/branch-config-holder';
 import { configPoller } from '../../hub/src/sync/config-poller';
 import type { StubConfigCloud } from '../../hub/test/helpers/stub-config-cloud';
-import { appendOrder, fireLines, pairDevice, pairPassTablet } from '../../hub/test/kds/fixtures';
+import { append, appendOrder, fireLines, pairDevice, pairPassTablet } from '../../hub/test/kds/fixtures';
 import { fakeLanPrinter, type FakeLanPrinter } from '../../hub/test/print/fixtures';
 import { appendDeviceProfile, type TestHub } from '../../hub/test/helpers/test-hub';
 
@@ -17,7 +17,9 @@ import { appendDeviceProfile, type TestHub } from '../../hub/test/helpers/test-h
 // 'tkpass' (02b-TK L-CLIENT-1, 03b v1.0.16 §3.4): a Pass point of its own whose takeaway order has a pickup time
 // 'd7' (02b-TK L-CLIENT-2 item 1, 03b v1.0.16 §3.10 D7): a Pass point of its own (archived by the run) and a second,
 // receiving point (`receivingPointOf`) with its own Pass tablet (`passTo:<key>`)
-export const FLOWS_03 = ['kds', 'takeover', 'pass', 'admin', 'tkpass', 'd7'] as const;
+// 'tkbags' (03b v1.0.17 §3.4 "Pass bag = token"; QA BUG-8 and the Pass design audit): a Pass point of its own with six
+// bags — a token whose addition cooks after its root was done, ready / cooking / waiting bags and a pickup (phone) order
+export const FLOWS_03 = ['kds', 'takeover', 'pass', 'admin', 'tkpass', 'd7', 'tkbags'] as const;
 /** the 'tkpass' order's pickup: this long after the seed (the e2e hub's clock is fixed) */
 export const TK_PICKUP_AFTER_MS = 30 * 60_000;
 export type Flow03 = (typeof FLOWS_03)[number];
@@ -53,7 +55,7 @@ export function menuWith03(menu: BranchConfig): BranchConfig {
       for (const lang of LANGS_03) {
         const key = keyOf(flow, project, lang);
         // the Pass flows: the station sits at its own point, so a Pass tablet bound to it sees this run's orders only
-        const own = flow === 'pass' || flow === 'takeover' || flow === 'tkpass' || flow === 'd7';
+        const own = flow === 'pass' || flow === 'takeover' || flow === 'tkpass' || flow === 'd7' || flow === 'tkbags';
         const point = pointOf(flow, project, lang);
         if (own) points.push({ point_id: point, name: `Pass ${key}`, sort_order: 10, is_archived: false });
         if (flow === 'd7') points.push({ point_id: receivingPointOf(project, lang), name: `Receiving ${key}`, sort_order: 10, is_archived: false });
@@ -97,7 +99,7 @@ export async function seed03(hub: TestHub, o: { orders?: boolean } = {}): Promis
           const k = pairKds(hub, station, `Screen ${key}`);
           devices[`kds:${key}`] = { token: k.token, device_id: k.deviceId };
         }
-        if (flow === 'pass' || flow === 'takeover' || flow === 'tkpass' || flow === 'd7') {
+        if (flow === 'pass' || flow === 'takeover' || flow === 'tkpass' || flow === 'd7' || flow === 'tkbags') {
           const point_id = pointOf(flow, project, lang);
           const t = pairPassTablet(hub, { pointId: point_id, name: `Pass tablet ${key}` });
           // 05a v1.0.6 §3.6, M-6: a Pass tablet's profile is the `pass` screen with its point (`pass` ⇔ `point_id`), shared
@@ -113,12 +115,55 @@ export async function seed03(hub: TestHub, o: { orders?: boolean } = {}): Promis
         }
         // L-E2E-T1 day close (playwright.dayclose.config.ts): no seeded orders, so the day can close
         if (o.orders === false) continue;
+        if (flow === 'tkbags') {
+          seedBags(hub, key, station);
+          continue;
+        }
         const lines = LINES_03.map((l) => ({ order_item_id: lineId(key, l.n), item_id: itemId(key, l.n), quantity: l.units }));
         const pickup = flow === 'tkpass' ? { pickup_at_ms: hub.clock.branchNow() + TK_PICKUP_AFTER_MS } : {};
         appendOrder(hub, { order_type: 'takeaway', order_id: `O3-${key}`, placed_by: 'S_ALI', lines, ...pickup });
         fireLines(hub, station, lines.map((l) => l.order_item_id));
       }
   return { printer, devices };
+}
+
+/** the 'tkbags' order ids: `B3-<key>-<tag>`; the root of the token with an addition is `root`, its addition `add` */
+export const bagOrderId = (key: string, tag: string): string => `B3-${key}-${tag}`;
+
+/**
+ * 03b v1.0.17 §3.4 (owner ruling 2026-11-28 "Pass bag = token"): six takeaway bags on the run's own point.
+ * root + add: one token; the root's two lines done, then the addition (its own order, the root's token) fired and
+ * cooking — ONE card, Cooking (BUG-8). ready: every line done (Bag ready). cooking: one started. waiting: fired, not
+ * started. split: one done, one cooking. pickup: a phone order for later (its pickup 40 min ahead).
+ */
+function seedBags(hub: TestHub, key: string, station: string): void {
+  const line = (tag: string, n: number, units = 1) => ({ order_item_id: `L3-${key}-${tag}-${n}`, item_id: itemId(key, n), quantity: units });
+  const start = (ids: string[]) => append(hub, ids.map((id) => ({ stream_type: 'order', stream_id: orderOf.get(id)!, event_type: 'ItemStarted', payload: { order_item_id: id, started_at: hub.clock.branchNow(), source: 'tap' } })));
+  const done = (ids: string[]) => append(hub, ids.map((id) => ({ stream_type: 'order', stream_id: orderOf.get(id)!, event_type: 'ItemDone', payload: { order_item_id: id, done_at: hub.clock.branchNow() + 1_000, source: 'tap' } })));
+  const orderOf = new Map<string, string>();
+  const place = (tag: string, lines: ReturnType<typeof line>[], extra: { adds_to_order_id?: string; pickup_at_ms?: number } = {}) => {
+    const order_id = bagOrderId(key, tag);
+    appendOrder(hub, { order_type: 'takeaway', order_id, placed_by: 'S_ALI', lines, ...extra });
+    for (const l of lines) orderOf.set(l.order_item_id, order_id);
+    if (extra.pickup_at_ms === undefined) fireLines(hub, station, lines.map((l) => l.order_item_id));
+    return lines.map((l) => l.order_item_id);
+  };
+  const root = place('root', [line('root', 1, 2), line('root', 3, 4)]);
+  start(root);
+  done(root);
+  const ready = place('ready', [line('ready', 2), line('ready', 3, 2)]);
+  start(ready);
+  done(ready);
+  const cooking = place('cooking', [line('cooking', 1, 2), line('cooking', 3, 6)]);
+  start(cooking.slice(0, 1));
+  place('waiting', [line('waiting', 2), line('waiting', 3, 3)]);
+  const split = place('split', [line('split', 1, 3), line('split', 2)]);
+  start(split);
+  done(split.slice(1));
+  place('pickup', [line('pickup', 2), line('pickup', 3, 8)], { pickup_at_ms: hub.clock.branchNow() + 40 * 60_000 });
+  // the addition to the root's token, after the root was done: it cooks
+  const add = place('add', [line('add', 2)], { adds_to_order_id: bagOrderId(key, 'root') });
+  start(add);
 }
 
 /** A paired `kds` device row on `station`, as the pair page leaves it (a direct row, like the hub's own tests). */
