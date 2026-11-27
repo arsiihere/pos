@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { renderText, type Doc } from '@pos/domain';
-import type { BranchConfig, ConfigItem } from '@pos/events';
+import { SnapshotBillingSchema, type BranchConfig, type ConfigItem } from '@pos/events';
+import { hubBilling } from '../../hub/src/billing/defaults';
 import { branchConfig } from '../../hub/src/sync/branch-config-holder';
 import { configPoller } from '../../hub/src/sync/config-poller';
 import type { StubConfigCloud } from '../../hub/test/helpers/stub-config-cloud';
@@ -54,8 +55,18 @@ export function menuWithT1(menu: BranchConfig): BranchConfig {
         items.push({ ...base, item_id: it.main.item_id, name: it.main.name, station_id: t1Station(key), sort_order: 300, cook_time_ms: T1_COOK_MS.main, max_early_ms: 3_600_000 });
         items.push({ ...base, item_id: it.drink.item_id, name: it.drink.name, station_id: t1Station(key), sort_order: 301, cook_time_ms: T1_COOK_MS.drink, max_early_ms: 3_600_000 });
       }
-  return { ...menu, points: [...menu.points, ...points], stations: [...menu.stations, ...stations], items: [...menu.items, ...items] };
+  // row #6: a card mode on the counter that asks for the machine's reference (05 §6.9 reference_required)
+  const pk = hubBilling({ currency_code: menu.currency_code, tax_classes: menu.tax_classes, billing: menu.billing });
+  const billing = SnapshotBillingSchema.parse({
+    ...pk.settings,
+    jurisdiction: pk.jurisdiction,
+    tax_profiles: pk.tax_profiles.map((p) => ({ tax_class_id: p.tax_profile_id, taxes: p.taxes })),
+    payment_modes: [...pk.settings.payment_modes.filter((m) => m.mode_id !== T1_CARD.mode_id), { mode_id: T1_CARD.mode_id, name: T1_CARD.name, kind: 'card', payment_class: 'digital', reference_required: true, is_active: true, sort_order: 1, authority_codes: [] }],
+  });
+  return { ...menu, billing, points: [...menu.points, ...points], stations: [...menu.stations, ...stations], items: [...menu.items, ...items] };
 }
+
+export const T1_CARD = { mode_id: 'card', name: 'Card' } as const;
 
 export interface DevicesT1 {
   /** `pass:<key>` the run point's Pass tablet; `passB:<key>` the route run's second point; `managerPhone` */

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dialog, escapeRe, menuTile, railEntry, rushOff, sentToken, signInOn, takeawayTab } from './02b-support';
+import { dialog, escapeRe, menuTile, rushOff, sentToken, signInOn, takeawayTab } from './02b-support';
 import { t1Station } from './t1-fixture';
-import { capture, closeAll, cookLine, deviceFor, hubFire, LANGS, managerPhone, passCard, passTablet, screen, t1Run, t1RunsHere, tr, type Lang, type T1Run } from './t1-support';
+import { capture, closeAll, cookLine, deviceFor, hubFire, LANGS, managerPhone, queueEntry, passCard, passTablet, screen, t1Run, t1RunsHere, tr, type Lang, type T1Run } from './t1-support';
 
 // L-E2E-T1 group B — the owner's dry-run checklist, the unpaid hand-over (02b v1.0.25 §3.7a, §6.4, §6.4a, §8 OR-7; D2)
 // as one journey on three devices against the e2e hub: Ali at the counter (order-taker: no take-payment) sends a token
@@ -77,7 +77,7 @@ for (const lang of LANGS) {
       await button.click();
       await expect(card).toHaveCount(0, { timeout: 20_000 });
       expect(served.at(-1)?.customer_handover).toBe(true);
-      await expect(railEntry(cash.page, token)).toHaveCount(0, { timeout: 15_000 });
+      await expect(await queueEntry(cash.page, token)).toHaveCount(0, { timeout: 15_000 });
     } finally {
       await closeAll(info, lang, phone, pass, cash);
     }
@@ -100,7 +100,7 @@ for (const lang of LANGS) {
 
       // Ali adds the drink to the token: the key's due rises above the approved amount (D2) → the approval is cleared
       await takeawayTab(cash.page);
-      await railEntry(cash.page, token).first().click();
+      await (await queueEntry(cash.page, token)).click();
       await cash.page.locator('.tk-drawer').getByRole('button', { name: tr(lang, 'v.add') }).click();
       await menuTile(cash.page, run.items.drink.name).click();
       await cash.page.getByRole('button', { name: `${tr(lang, 'c.add_to')} ${token}` }).click();
