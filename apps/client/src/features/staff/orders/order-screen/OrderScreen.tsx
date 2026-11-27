@@ -1090,6 +1090,9 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     ready_by: ready,
     // ⚠️ 02b-TK L-CLIENT-5 item 1 (frame PickupLater `.tk-readyby--later`): a pickup's Ready by is "Kitchen times it for"
     readyLater: order_type === 'takeaway' && cart.pickup !== undefined,
+    // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28, QA BUG-5; 03a v1.2.12 PK-2): the kitchen cannot make the asked pickup — say
+    // so before Send; the order keeps the asked pickup (PQ-1)
+    pickupLate: order_type === 'takeaway' && cart.pickup !== undefined && ready !== null && ready > cart.pickup.at_ms ? { can_ms: ready, asked_ms: cart.pickup.at_ms } : null,
     problems: problems.size,
     canSend,
     blocked,
