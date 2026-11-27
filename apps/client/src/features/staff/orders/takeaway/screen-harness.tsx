@@ -40,6 +40,8 @@ export interface ScreenHarness {
   render(id?: string): Mounted;
   /** the Takeaway tab (`#/takeaway`): the order screen on this device's current takeaway draft */
   renderHome(): Mounted;
+  /** the order screen of another order type (a parking cart) on the same fake shell */
+  renderAs(order_type: 'takeaway' | 'parking', id: string): Mounted;
   toasts: Array<{ text: string; tone?: string }>;
   /** every query path read */
   queries: string[];
@@ -114,6 +116,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
   };
   const render = (id = 'D1') => show(<OrderScreen order_type="takeaway" id={id} />);
   const renderHome = () => show(<TakeawayHome />);
-  return { shell, sent, commands, drafts, live, render, renderHome, toasts, queries };
+  const renderAs = (order_type: 'takeaway' | 'parking', id: string) => show(<OrderScreen order_type={order_type} id={id} />);
+  return { shell, sent, commands, drafts, live, render, renderHome, renderAs, toasts, queries };
 }
 

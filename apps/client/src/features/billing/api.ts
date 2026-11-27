@@ -1,5 +1,6 @@
 import type { HubResult } from '../../api/hub-admin';
 import { newUlid } from '../../app/ulid';
+import type { EtaDraft } from '../staff/orders/contracts';
 import type {
   AddPaymentResult,
   BillPrint,
@@ -16,6 +17,7 @@ import type {
   ReopenResult,
   RecordPettyCashResult,
   SettlePettyAdvanceResult,
+  PrintCartCheckBillResult,
   PrintCheckBillResult,
   SetSplitsPayload,
   SetSplitsResult,
@@ -46,6 +48,11 @@ export interface BillingApi {
   openBills(floor_id?: string): Promise<HubResult<OpenBillsBody>>;
   /** §6.3: the check bill on the bill printer of the zone / floor (or `printer_id`). */
   printCheckBill(payload: { bill_ref: BillRef; printer_id?: string }): Promise<HubResult<PrintCheckBillResult>>;
+  /**
+   * ⚠️ 05 v1.0.35 §6.3a (OR-5; D9): the paper check bill of an unsent takeaway / parking cart, or of an addition cart
+   * (`draft.adds_to_order_id`). Not queueable: sent on the staff transport only, never through the QueueStore.
+   */
+  printCartCheckBill(payload: { draft: EtaDraft & { adds_to_order_id?: string }; printer_id?: string }): Promise<HubResult<PrintCartCheckBillResult>>;
   /** §6.5: re-plan the open splits. A retry after a lost reply resends the same command_id (00 M47, handbook §10). */
   setSplits(payload: SetSplitsPayload): Promise<HubResult<SetSplitsResult>>;
   /** §6.1: the bill view (totals from the hub only). */
@@ -136,6 +143,7 @@ export function billingApi(staff: BillingTransport, newCommandId: () => string =
   }
   return {
     printCheckBill: (payload) => command<PrintCheckBillResult>('PrintCheckBill', payload),
+    printCartCheckBill: (payload) => command<PrintCartCheckBillResult>('PrintCartCheckBill', payload),
     setSplits: (payload) => command<SetSplitsResult>('SetSplits', payload),
     bill: (ref) => staff.query<BillView>(`/queries/bill?${billQuery(ref)}`),
     addPayment: (payload) => command<AddPaymentResult>('AddPayment', payload),

@@ -141,6 +141,18 @@ export interface PrintCheckBillResult {
   printed: boolean;
   job_id: string | null;
   printer_name: string | null;
+  /** ⚠️ 05 v1.0.35 §6.3 (R3-M-1): the paper's figures — gross `total_minor` and the remaining payable */
+  totals_default?: Totals;
+  due_minor?: number;
+}
+
+/** ⚠️ 05 v1.0.35 §6.3a (OR-5; R2-m-1, R3-M-1) `PrintCartCheckBill` result: the paper's gross and remaining payable. */
+export interface PrintCartCheckBillResult {
+  printed: boolean;
+  job_id: string | null;
+  printer_name: string | null;
+  totals_default: Totals;
+  due_minor: number;
 }
 
 /** §6.5 `SetSplits` payload (bill_ref + one of the four modes). */

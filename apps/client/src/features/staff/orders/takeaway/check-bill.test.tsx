@@ -159,17 +159,19 @@ describe('[02b-TK C3-2] Print check bill', () => {
       command: (type) => (type === 'PrintCheckBill' ? PRINTED : undefined),
     });
 
-  it('[R6] a new, unsent cart has no Print check bill (its total is on the screen)', async () => {
+  it('[R6; ⚠️ OR-5, 05 §6.3a] a new, unsent cart prints through PrintCartCheckBill (cart-check-bill.test.tsx), never PrintCheckBill', async () => {
     const h = harness();
     const v = h.render();
     m = v;
     await flush();
     v.click(v.button('Sides', v.container.querySelector('.cats')!));
     v.click(v.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
-    expect(v.container.querySelector('.cart')?.textContent).not.toContain('Print check bill');
+    v.click(v.button('Print check bill', v.container.querySelector('.cart')!));
+    await flush();
+    expect(h.commands.map((c) => c.type)).toEqual(['PrintCartCheckBill']);
   });
 
-  it('[R6; frame TokenAddItems] the cart of an addition to a sent token prints the token\'s check bill (its newest order)', async () => {
+  it('[R6; frame TokenAddItems; 05 §6.3 R2-m-4] the cart of an addition to a sent token, before any unsent line, prints the token\'s check bill (its newest order)', async () => {
     const h = harness();
     const v = h.render();
     m = v;
@@ -177,6 +179,7 @@ describe('[02b-TK C3-2] Print check bill', () => {
     v.click(v.container.querySelector('.tk-qr'));
     await flush();
     v.click(v.button('Add items'));
+    await flush();
     v.click(v.button('Print check bill', v.container.querySelector('.cart')!));
     await flush();
     expect(h.commands).toEqual([{ type: 'PrintCheckBill', payload: { bill_ref: { order_id: 'O48b' } } }]);

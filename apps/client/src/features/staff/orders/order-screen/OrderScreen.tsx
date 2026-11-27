@@ -67,7 +67,7 @@ import { allLiveReady, liveLines, TokenView } from '../takeaway/TokenView';
 import { candidatesOf, checkHandover, gateOf, lineIds } from '../unpaid/candidate';
 import { unpaidRequestsOf } from '../unpaid/requests';
 import { PayPanel, type PayTarget } from '../takeaway/PayPanel';
-import { CheckBill } from '../takeaway/CheckBill';
+import { CartCheckBill, SentTokenPrint } from '../takeaway/CheckBill';
 import { servedPayload } from '../actions/MarkServedSheet';
 import { showEnqueued } from '../view/LineActions';
 import { groupParts, type GroupedLine } from '../view/parts';
@@ -1021,7 +1021,23 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const primary = addingTo === null ? undefined : `${t('c.add_to')} ${addingToken}`;
   // 02b-TK C3-2 (05 §6.3; R6): the cart of an addition prints the sent token's check bill (a restored draft: its root's)
   const checkOrder = addingTo === null ? null : addingNewest.current?.root === addingTo.order_id ? addingNewest.current.newest : addingTo.order_id;
-  const checkBill = checkOrder !== null && shell.permissions.allowed('take-order') ? <CheckBill order_id={checkOrder} /> : undefined;
+  // ⚠️ 02b-TK L-CLIENT-3 item 1 (05 v1.0.35 §6.3a, §8; 02b v1.0.25 §8 OR-5 / R6; D9; 05 #60h): a takeaway / parking cart
+  // with unsent lines → PrintCartCheckBill { draft } (an addition: `adds_to_order_id`, the root as Send names it); greyed
+  // on a parking cart without its car number (R2-m-7). An addition cart before any line keeps the sent token's action:
+  // Print check bill while money is due, Print receipt again once paid (SentTokenPrint).
+  const checkBill =
+    order_type !== 'dine_in' && cart.lines.length > 0 && target !== null ? (
+      shell.permissions.allowed('take-order') ? (
+        <CartCheckBill
+          draft={{ ...toEtaDraft(cart, target), ...(addingTo === null ? {} : { adds_to_order_id: addingTo.order_id }) }}
+          names={{ items: config.items, deals: config.deals, lines: cart.lines }}
+          off={order_type === 'parking' && (cart.parking?.car_number ?? '') === ''}
+          onLine={(key) => setOpenKey(key)}
+        />
+      ) : undefined
+    ) : checkOrder !== null && cart.lines.length === 0 ? (
+      <SentTokenPrint key={checkOrder} order_id={checkOrder} />
+    ) : undefined;
   const setServe = (mode: ServeMode) => (sending.current ? undefined : setCart((c) => ({ ...c, serve_mode: mode })));
   // 02b-TK A2 item 5b: the lines ready now — a ready item, or a stock item served at once (stock_time_ms 0, in stock:
   // the tile's "Now", 02b-tk C3-3) — named in cart order; null unless the order also has a kitchen line
