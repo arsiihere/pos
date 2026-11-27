@@ -4471,6 +4471,8 @@ export const en = {
   // ---- 02b-TK L-CLIENT-3 01b test 119 R3-M-3 (01b v1.12 B-5, §5.1c): the role editor's out-of-date banner (a grant this app does not know) ----
   'roles.out_of_date': 'This app is out of date — reload to edit roles',
   'roles.out_of_date_body': 'This role has a permission this version of the app does not know. Saving now could remove it.',
+  // ---- 02b-TK L-CLIENT-4 item 3 (02b v1.0.25 §8; 05 v1.0.35 §6.3a, §8): the takeaway cart footer's own line sum is labelled "Items" ----
+  'cart.items_label': 'Items',
 } as const;
 
 export type MessageKey = keyof typeof en;
