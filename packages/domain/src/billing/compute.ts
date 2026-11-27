@@ -121,6 +121,12 @@ export interface ComputeBillInput {
   service_charge: ComputeServiceCharge | null;
   plan: ComputePlan;
   payments: readonly ComputePayment[];
+  /**
+   * §3.8 (owner ruling 2026-11-28, QA BUG-1): Σ the closed splits' rounding adjustments `R` (their invoices'
+   * `rounding_minor`). The open remainder is rounded as `rnd(G_open − Σ R_closed)`, so the closed and open splits
+   * together are the bill rounded once. Absent = 0 (no closed split).
+   */
+  closed_rounding_minor?: number;
 }
 
 /**
@@ -146,6 +152,11 @@ export interface ComputeSplitInput {
   service_charge: ComputeServiceCharge | null;
   /** This split's live payments. */
   payments: readonly ComputePayment[];
+  /**
+   * §3.8 (owner ruling 2026-11-28): the split's rounded total per class as the bill allocated it (`computeBill`'s
+   * `total_targets`); `R = target − G`. Absent = the split rounded alone, `R = rnd(G) − G` (§3.5 (7)).
+   */
+  total_targets?: { cash: number; digital: number } | null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -200,6 +211,8 @@ export interface ComputeSplitResult {
   rounding_minor: number;
   change_minor: number;
   blocks: ComputeBlock[];
+  /** §3.8: the split's rounded total per class as allocated by the bill (pass back to `computeSplit` at close). */
+  total_targets: { cash: number; digital: number };
 }
 
 export interface ComputeBillResult {
@@ -563,9 +576,10 @@ function totalsAt(
   sc: ComputeServiceCharge | null,
   rules: ComputeRules,
   res: Resolution,
+  target: bigint | null,
 ): { totals: ComputeTotals; total: bigint } {
   const e = exactAt(k, lines, sc, rules, res);
-  const r = roundingFor(e.exact, k, rules);
+  const r = target === null ? roundingFor(e.exact, k, rules) : target - e.exact;
   const total = e.exact + r;
   return {
     total,
@@ -604,6 +618,11 @@ function checkSplitLines(lines: readonly ComputeSplitLine[]): void {
 function splitResult(input: ComputeSplitInput, res: Resolution): ComputeSplitResult {
   const { lines, service_charge: sc, rules, payments } = input;
   checkSplitLines(lines);
+  const tt = input.total_targets ?? null;
+  if (tt !== null) {
+    nonNeg('total_targets.cash', tt.cash);
+    nonNeg('total_targets.digital', tt.digital);
+  }
   let hasCash = false;
   let hasDigital = false;
   let paidCash = 0n;
@@ -625,8 +644,8 @@ function splitResult(input: ComputeSplitInput, res: Resolution): ComputeSplitRes
     }
   }
   const cls = classOf(hasCash, hasDigital);
-  const cash = totalsAt('cash', lines, sc, rules, res);
-  const digital = totalsAt('digital', lines, sc, rules, res);
+  const cash = totalsAt('cash', lines, sc, rules, res, tt === null ? null : BigInt(tt.cash));
+  const digital = totalsAt('digital', lines, sc, rules, res, tt === null ? null : BigInt(tt.digital));
   const asPaid = cls === 'cash' ? cash : digital;
   const paid = paidCash + paidDigital;
   const balance = asPaid.total - paid;
@@ -667,6 +686,7 @@ function splitResult(input: ComputeSplitInput, res: Resolution): ComputeSplitRes
     rounding_minor: asPaid.totals.rounding_minor,
     change_minor: toSafe('change', change),
     blocks,
+    total_targets: { cash: cash.totals.total_minor, digital: digital.totals.total_minor },
   };
 }
 
@@ -894,6 +914,44 @@ function checkLines(lines: readonly ComputeLine[]): void {
   }
 }
 
+function roundsAt(k: PaymentClass, rules: ComputeRules): boolean {
+  return rules.rounding.step_minor !== null && !(rules.rounding.applies_to === 'cash' && k !== 'cash');
+}
+
+/**
+ * §3.8 (owner ruling 2026-11-28, QA BUG-1): the open remainder's rounded total at class `k` and each open split's
+ * share of it. The remainder is rounded once, `W = rnd(G_whole − Σ R_closed)` (a class the rule does not round: `W =
+ * G_whole`). Equal: the first n − 1 splits take `floor(W / n)` in whole steps, the last the rest. Item / amount: `W`
+ * in whole steps by largest remainder over the splits' exact totals `G_s` (`apportionMinor`; all `G_s` 0 → the last
+ * takes `W`). Σ shares = `W` always; a share is never negative.
+ */
+function allocateTargets(k: PaymentClass, rules: ComputeRules, mode: ComputePlan['mode'], whole: bigint, closedR: bigint, exacts: readonly bigint[]): { whole: bigint; shares: bigint[] } {
+  const rounds = roundsAt(k, rules);
+  const unit = rounds ? BigInt(rules.rounding.step_minor as number) : 1n;
+  let w = whole;
+  if (rounds) {
+    const g = whole - closedR;
+    w = g <= 0n ? 0n : rnd(g, rules);
+  }
+  const n = exacts.length;
+  if (n === 1) return { whole: w, shares: [w] };
+  const weightSum = exacts.reduce((x, y) => x + y, 0n);
+  const shares =
+    mode === 'equal'
+      ? exacts.map(() => (w / BigInt(n) / unit) * unit)
+      : weightSum === 0n
+        ? exacts.map(() => 0n)
+        : apportionBig(w / unit, exacts).map((x) => x * unit);
+  let last = w - shares.slice(0, -1).reduce((a, b) => a + b, 0n);
+  for (let i = n - 2; i >= 0 && last < 0n; i--) {
+    const take = (shares[i] as bigint) < -last ? (shares[i] as bigint) : -last;
+    shares[i] = (shares[i] as bigint) - take;
+    last += take;
+  }
+  shares[n - 1] = last;
+  return { whole: w, shares };
+}
+
 /**
  * The open part of a bill: discount spread, the open splits per plan, each split's totals and dues, the default-class
  * totals of the open remainder, and the `blocks` compute can decide (`tax_unresolved`, `shares_sum`). Pure.
@@ -931,7 +989,17 @@ export function computeBill(input: ComputeBillInput): ComputeBillResult {
 
   // The open remainder as one unpaid split; its cash totals are the default-class totals (check bill, amount plan),
   // its digital totals the check bill's "total if paid by card" (§6.3, G-25).
-  const whole = splitResult({ ...splitInput(nos[0] as number, lineRows), payments: [] }, res);
+  if (!Number.isSafeInteger(input.closed_rounding_minor ?? 0)) fail('closed_rounding_minor must be a safe integer');
+  const closedR = BigInt(input.closed_rounding_minor ?? 0);
+  const wholeExact = {
+    cash: exactAt('cash', lineRows, input.service_charge, rules, res).exact,
+    digital: exactAt('digital', lineRows, input.service_charge, rules, res).exact,
+  };
+  const wholeTarget = (k: PaymentClass) => allocateTargets(k, rules, 'none', wholeExact[k], closedR, [wholeExact[k]]).whole;
+  const whole = splitResult(
+    { ...splitInput(nos[0] as number, lineRows), payments: [], total_targets: { cash: toSafe('total', wholeTarget('cash')), digital: toSafe('total', wholeTarget('digital')) } },
+    res,
+  );
   const totalsDefault = whole.totals.cash;
   const totalsDefaultDigital = whole.totals.digital;
   const blocks: ComputeBlock[] = [...whole.blocks];
@@ -971,7 +1039,17 @@ export function computeBill(input: ComputeBillInput): ComputeBillResult {
     });
   }
 
-  const splits = nos.map((n) => splitResult(splitInput(n, perSplit.get(n) as ComputeSplitLine[]), res));
+  // §3.8 (owner ruling 2026-11-28): the open splits share the remainder's one rounded total per class
+  const targets = (['cash', 'digital'] as const).map((k) => {
+    const exacts = nos.map((n) => exactAt(k, perSplit.get(n) as ComputeSplitLine[], input.service_charge, rules, res).exact);
+    return allocateTargets(k, rules, plan.mode, wholeExact[k], closedR, exacts).shares;
+  });
+  const splits = nos.map((n, i) =>
+    splitResult(
+      { ...splitInput(n, perSplit.get(n) as ComputeSplitLine[]), total_targets: { cash: toSafe('total', targets[0]![i] as bigint), digital: toSafe('total', targets[1]![i] as bigint) } },
+      res,
+    ),
+  );
 
   return {
     splits,

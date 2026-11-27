@@ -650,10 +650,11 @@ describe('[05 §6.4, #58] BillRequested → check bill (live only)', () => {
     const view = await billView({ bill_id });
     const due = view.splits.filter((x) => x.state === 'open').reduce((a, x) => a + x.balance_minor, 0);
     const gross = view.totals_default.total_minor;
-    // D3: each split rounds on its own, so the due is the open splits' balances, never gross − bill-wide payments
-    expect(view.splits.map((x) => x.balance_minor)).toEqual([5_700 - 1_000, 5_700]);
-    expect([due, gross]).toEqual([10_400, 11_500]);
-    expect(gross - 1_000).not.toBe(due);
+    // D3: the due is the open splits' balances. ⚠️ Changed by 05 v1.0.36 (owner ruling 2026-11-28, QA BUG-1): the
+    // splits share the bill's one rounded total (57 / 58, the last takes the remainder), so the due is also gross − paid
+    expect(view.splits.map((x) => x.balance_minor)).toEqual([5_700 - 1_000, 5_800]);
+    expect([due, gross]).toEqual([10_500, 11_500]);
+    expect(gross - 1_000).toBe(due);
     const r = await print({ bill_ref: { bill_id } });
     expect(r.status, JSON.stringify(r.error)).toBe(200);
     expect(r.result).toMatchObject({ due_minor: due, totals_default: { total_minor: gross } });
