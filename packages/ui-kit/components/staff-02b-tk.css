@@ -648,3 +648,24 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
   .osc--tk > .cart .tk-serve[data-pickup-row] { padding: 2px 12px 8px; }
 }
 @media (max-width: 1440px) { .osc--tk > .cart .cart__foot .duo .btn, .osc--tk > .cart .cart__foot .duo .tk-btn { font-size: 15px; padding-inline: 8px; gap: 6px; white-space: nowrap; } }
+
+/* ---------- L-CLIENT-6a, from 6b's checks ----------
+   (1) the queue rail's width never follows its content, however many orders and long summaries it holds: its size
+   is the layout's alone (contain: inline-size), and every row's text ellipsises inside it. */
+.osc--tk > .tk-q, .tk-q.tk-q--drawer, .order--tk-phone .tk-q--tab { contain: inline-size; min-width: 0; }
+.tk-q__scroll, .tk-q__top, .tk-ready, .tk-ready > .tk-rt, .tk-qr { min-width: 0; max-width: 100%; }
+.tk-ready { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tk-qr { overflow: hidden; }
+.tk-qr__m b, .tk-qr__m small { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-rt__who, .tk-rt__open > small { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* (2) the cart lines always keep room (Urdu's taller lines at 1366 × 768): the lines take at least their basis; the
+   name / phone and pickup rows give way first and scroll inside themselves. */
+.osc--tk > .cart > .lines { flex: 1 0 128px; }
+.osc--tk > .cart > .cust:not(.lines):not(.tk-paypanel), .osc--tk > .cart > .tk-serve[data-pickup-row]:not(.lines):not(.tk-paypanel) { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.osc--tk > .cart > .cust { min-height: 64px; }
+@media (max-height: 820px) {
+  [dir="rtl"] .osc--tk > .cart .cust .fld__l { line-height: 1.5; }
+  [dir="rtl"] .osc--tk > .cart .tk-serve[data-pickup-row] > b { line-height: 1.5; }
+  [dir="rtl"] .osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick button { line-height: 1.4; }
+  [dir="rtl"] .osc--tk > .cart .tk-readyby__t small, [dir="rtl"] .osc--tk > .cart .tk-serve b { line-height: 1.5; }
+}

@@ -146,6 +146,10 @@ for (const [frame, run, o] of kioskFrames) {
       const page = await on(browser, size, h, h.kiosk, { ...(o?.rush === undefined ? {} : { rush: o.rush }), ...(o?.failQueue === true ? { failQueue: true } : {}) });
       try {
         await run(page);
+        // the rail keeps its width and the page never scrolls sideways, whatever the queue holds (6b's check)
+        const rail = await page.locator('.osc--tk > .tk-q').boundingBox();
+        if (rail !== null) expect(rail.width).toBeLessThanOrEqual(size === '1920' ? 441 : 381);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
         await shot(page, `${frame}-${size}`);
       } finally {
         await page.context().setOffline(false);
@@ -154,6 +158,27 @@ for (const [frame, run, o] of kioskFrames) {
     }
   });
 }
+
+// 6b's check (Urdu at 1366 × 768): the cart lines keep their room under the name / pickup rows
+test('kiosk HomeKiosk in Urdu', async ({ browser }) => {
+  for (const size of ['1366', '1920'] as const) {
+    const h = demo('busy');
+    const page = await browser.newPage({ viewport: SIZES[size] });
+    try {
+      await openTakeaway(page, h, h.kiosk, { lang: 'ur' });
+      await page.locator('.menu .pills .pill').first().click();
+      await tile(page, 'Paye').click();
+      await tile(page, 'Paye').click();
+      await page.locator('.cart input[name="customer_name"]').fill('عثمان');
+      await page.waitForTimeout(900);
+      const lines = await page.locator('.osc--tk > .cart > .lines').boundingBox();
+      expect(lines!.height).toBeGreaterThan(100);
+      await shot(page, `HomeKioskUrdu-${size}`);
+    } finally {
+      await page.close();
+    }
+  }
+});
 
 test('tablet HomeTablet + QueueTablet', async ({ browser }) => {
   for (const size of TABLET) {
