@@ -114,7 +114,8 @@ for (const lang of LANGS) {
       await (await queueEntry(page, token)).click();
       const since = await hubNow();
       await drawer(page).getByRole('button', { name: tr(lang, 'billing.check_bill') }).click();
-      const paper = await printedJob(since, 'Check bill');
+      // the fixed hub clock stamps other runs' check bills with the same time: this token's own
+      const paper = await printedJob(since, 'Check bill', new RegExp(`^#${token}\\s`, 'm'));
       const line = (label: string) => paper.text.split('\n').find((l) => l.startsWith(label)) ?? '';
       expect(line('Total if paid in cash')).toContain(money(total).replace('Rs ', ''));
       expect(line('Already paid')).toContain(money(part).replace('Rs ', ''));
