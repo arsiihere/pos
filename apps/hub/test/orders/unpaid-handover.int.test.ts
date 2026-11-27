@@ -10,6 +10,7 @@ import { audienceAllows } from '../../src/ws/audience';
 import type { SocketCtx } from '../../src/ws/catch-up';
 import { aDirectory, PIN } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { connectWs } from '../helpers/ws-client';
 import { append } from '../kds/fixtures';
 import { appendOrder, FX, openDay } from './fixtures';
 
@@ -298,5 +299,54 @@ describe('[04 #62, #63, #64] unpaid hand-over audit rows', () => {
     registerHubProjections(registry);
     registry.catchUp(db, 'branch-1');
     expect(rows()).toEqual(live);
+  });
+});
+
+// BUG-10 (02b v1.0.25 / 01d v1.3.7 §4.3 To 02b R3-M-3, §6.8, test 122): the one-step holders kind never reaches step 2,
+// so my-requests' `ask_in_person` is "no other holder can answer now": none of the request's answerers (the requester is
+// never one, §3.3 rule 5) has a route — a staff screen socket or a connected bound device, listed devices only for this
+// money kind (§3.4.3). Then the requester's card reads "Waiting — find a manager".
+describe('[01d §6.8, To 02b R3-M-3; 01d #122] my-requests ask_in_person for hand_over_unpaid', () => {
+  const sockets: Array<{ close(): void }> = [];
+  afterEach(() => {
+    for (const s of sockets.splice(0)) s.close();
+  });
+  const live = async (who: Who) => {
+    const ws = await connectWs(hub.app);
+    sockets.push(ws);
+    ws.send({ type: 'auth', device_token: who.token, session_token: who.sessionToken });
+    await ws.untilCount(1);
+  };
+  const mine = async (who: Who) => {
+    const res = await hub.app.inject({ method: 'GET', url: '/queries/my-requests', headers: { authorization: `Bearer ${who.token}`, 'x-session-token': who.sessionToken } });
+    expect(res.statusCode, res.body).toBe(200);
+    return (res.json() as { data: { requests: Array<{ alert_id: string; state: string; ask_in_person: boolean }> } }).data.requests;
+  };
+
+  it('no other holder signed in → true; the Manager signs in on his listed phone → false; he leaves → true again', async () => {
+    const { ali, managerPhone } = await start();
+    const alert_id = (await ask(ali, takeaway())).result!.alert_id as string;
+    expect((await mine(ali)).find((r) => r.alert_id === alert_id)).toMatchObject({ state: 'pending', ask_in_person: true });
+    await live(managerPhone);
+    expect((await mine(ali)).find((r) => r.alert_id === alert_id)!.ask_in_person).toBe(false);
+    for (const s of sockets.splice(0)) s.close();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect((await mine(ali)).find((r) => r.alert_id === alert_id)!.ask_in_person).toBe(true);
+  });
+
+  it('the requester himself does not count: the Manager asks and is the only holder signed in → true', async () => {
+    const { managerPhone } = await start();
+    await live(managerPhone);
+    const r = await ask(managerPhone, takeaway());
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect((await mine(managerPhone)).find((x) => x.alert_id === r.result!.alert_id)).toMatchObject({ state: 'pending', ask_in_person: true });
+  });
+
+  it('a holder signed in only on an everyone kiosk cannot answer a money request → true', async () => {
+    const { ali } = await start();
+    const kiosk = signIn('S_MGR', { type: 'cashier_kiosk', profile: { access: 'everyone', screens: ['takeaway'] } });
+    await live(kiosk);
+    const alert_id = (await ask(ali, takeaway())).result!.alert_id as string;
+    expect((await mine(ali)).find((r) => r.alert_id === alert_id)!.ask_in_person).toBe(true);
   });
 });
