@@ -116,6 +116,12 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `unpaid.already_waiting` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Already waiting for a manager | مینیجر سے پہلے ہی پوچھا جا چکا ہے |
 | `unpaid.withdraw` (02b v1.0.25 §3.7a; L-CLIENT-2 item 4) | Withdraw | واپس لیں |
 | `unpaid.addition` (02b v1.0.25 §3.7a, §8 OR-7; BUG-9, owner ruling 2026-11-28) | (addition) | (اضافہ) |
+| `alert.hand_over_unpaid.closed` (02b v1.0.25 §3.7a Close, §6.19; QA UX) | No longer needed — the bill or the order changed | اب ضرورت نہیں — بل یا آرڈر بدل گیا |
+| `alert.hand_over_unpaid.why.due_changed` (02b v1.0.25 §6.19 R3-M-8; QA UX) | Bill went up — ask again | بل بڑھ گیا — دوبارہ پوچھیں |
+| `alert.hand_over_unpaid.why.handed_over` (02b v1.0.25 §3.7a Close (a); QA UX) | Already handed over | پہلے ہی حوالے ہو چکا |
+| `alert.hand_over_unpaid.why.order_cancelled` (02b v1.0.25 §3.7a Close (b); QA UX) | Order cancelled | آرڈر منسوخ ہو گیا |
+| `alert.hand_over_unpaid.why.bill_closed` (02b v1.0.25 §3.7a Close (c); QA UX) | Bill paid | بل ادا ہو گیا |
+| `alert.hand_over_unpaid.why.day_closed` (02b v1.0.25 §3.7a Close (d); QA UX) | Day closed | دن بند ہو گیا |
 | `unpaid.approved` (02b v1.0.25 §6.4a; L-CLIENT-2 item 4) | Manager approved — hand over | مینیجر نے اجازت دے دی — حوالے کریں |
 | `unpaid.not_needed` (02b v1.0.25 §6.4a; L-CLIENT-2 item 4) | Nothing is due now — hand over | ابھی کچھ باقی نہیں — حوالے کریں |
 | `unpaid.refused` (02b v1.0.25 §6.4; L-CLIENT-2 item 4) | Not paid — take payment first or ask a manager | ادائیگی نہیں ہوئی — پہلے پیسے لیں یا مینیجر سے پوچھیں |

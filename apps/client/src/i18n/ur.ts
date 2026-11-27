@@ -1823,6 +1823,12 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'alert.hand_over_unpaid.card': '{identifier} بغیر ادائیگی حوالے کریں', // not in strings-table.md; Urdu to confirm
   'alert.hand_over_unpaid.lock': 'بغیر ادائیگی حوالگی کی درخواست', // not in strings-table.md; Urdu to confirm
   'alert.hand_over_unpaid.name': 'بغیر ادائیگی حوالگی', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.closed': 'اب ضرورت نہیں — بل یا آرڈر بدل گیا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.due_changed': 'بل بڑھ گیا — دوبارہ پوچھیں', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.handed_over': 'پہلے ہی حوالے ہو چکا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.order_cancelled': 'آرڈر منسوخ ہو گیا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.bill_closed': 'بل ادا ہو گیا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.day_closed': 'دن بند ہو گیا', // not in strings-table.md; Urdu to confirm
   // ---- 02b-TK L-CLIENT-3 item 1 (05 v1.0.35 §6.3, §6.3a, §8; 02b v1.0.25 §8 OR-5 / R6; D9): cart / Due check bill — gross and remaining payable, the cart's refusals, Print receipt again ----
   'billing.check_amounts': 'کل رقم {gross} · باقی قابلِ ادائیگی {due}', // not in strings-table.md; Urdu to confirm
   'billing.check_not_printed': 'چیک بل پرنٹ نہیں ہوا — {why}', // not in strings-table.md; Urdu to confirm

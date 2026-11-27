@@ -17,6 +17,7 @@ import {
   handoverDetailsText,
   inPersonTitle,
   lockText,
+  reasonText,
   stepTag,
   tableLabel,
   timeText,
@@ -174,6 +175,26 @@ describe('[01d §8.1] times, header and errors', () => {
     expect(closedText({ close_reason: 'answered', decision: 'accept', by_name: 'Sana' }, PKT)).toBe('Approved by Sana');
     expect(closedText({ close_reason: 'expired' }, PKT)).toBe('Expired');
     expect(closedText({ close_reason: 'done' }, PKT)).toBe('Closed');
+  });
+
+  it('[UX; 02b §3.7a Close, §6.19] an unpaid hand-over request closed by its owner says why (manager card, requester result), never bare "Closed"', () => {
+    // the manager's card: the alert_closed frame has no note → the kind's own line
+    expect(closedText({ close_reason: 'obsolete', kind: 'hand_over_unpaid' }, PKT)).toBe('No longer needed — the bill or the order changed');
+    // with the closer's note (where the place has it)
+    expect(closedText({ close_reason: 'obsolete', kind: 'hand_over_unpaid', note: 'due_changed' }, PKT)).toBe('Bill went up — ask again');
+    expect(closedText({ close_reason: 'obsolete', kind: 'hand_over_unpaid', note: 'bill_closed' }, PKT)).toBe('Bill paid');
+    // answered / withdrawn keep their words
+    expect(closedText({ close_reason: 'withdrawn', kind: 'hand_over_unpaid' }, PKT)).toBe('Withdrawn');
+    // the requester's request_result: its details.reason is the note
+    const card = { kind_label_key: 'alert.hand_over_unpaid.card' };
+    expect(reasonText('due_changed', card)).toBe('Bill went up — ask again');
+    expect(reasonText('handed_over', card)).toBe('Already handed over');
+    expect(reasonText('order_cancelled', card)).toBe('Order cancelled');
+    expect(reasonText('day_closed', card)).toBe('Day closed');
+    expect(reasonText('something_else', card)).toBe('something_else');
+    setLanguage('ur');
+    expect(reasonText('due_changed', card)).toBe('بل بڑھ گیا — دوبارہ پوچھیں');
+    expect(closedText({ close_reason: 'obsolete', kind: 'hand_over_unpaid' }, PKT)).toBe('اب ضرورت نہیں — بل یا آرڈر بدل گیا');
   });
 
   it('[01d §8.1] the §8.1 and brief §6 error texts', () => {
