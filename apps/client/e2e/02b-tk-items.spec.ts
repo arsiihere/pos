@@ -25,7 +25,7 @@ for (const lang of LANGS) {
       await takeawayTab(page);
       await menuTile(page, 'Naan').click();
       await menuTile(page, 'Naan').click();
-      const foot = phone ? page.locator('.ph-bar .sbar__t') : page.locator('.cart__foot .total');
+      const foot = phone ? page.locator('.ph-bar .sbar__t') : page.locator('.cart__foot .tk-total'); // L-CLIENT-6a item 5: the takeaway cart's line sum row
       await expect(foot.locator('[data-items-label]')).toHaveText(tr(lang, 'cart.items_label'));
       await expect(foot.locator(phone ? 'b' : 'strong')).toHaveText('Rs 60');
       await capture(page, info, `CartItems-${info.project.name}-${lang}`, phone ? page.locator('.ph-bar') : page.locator('.cart__foot'));
