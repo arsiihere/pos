@@ -19,7 +19,13 @@ import { appendDeviceProfile, type TestHub } from '../../hub/test/helpers/test-h
 // receiving point (`receivingPointOf`) with its own Pass tablet (`passTo:<key>`)
 // 'tkbags' (03b v1.0.17 §3.4 "Pass bag = token"; QA BUG-8 and the Pass design audit): a Pass point of its own with six
 // bags — a token whose addition cooks after its root was done, ready / cooking / waiting bags and a pickup (phone) order
-export const FLOWS_03 = ['kds', 'takeover', 'pass', 'admin', 'tkpass', 'd7', 'tkbags'] as const;
+// 'tknormal' (the same, QA design review round 2): six bags at stations that all have a kitchen screen and a printer
+// (no "no screen" chips; Reprint for the toast shot)
+export const FLOWS_03 = ['kds', 'takeover', 'pass', 'admin', 'tkpass', 'd7', 'tkbags', 'tknormal'] as const;
+const BAG_FLOWS: readonly Flow03[] = ['tkbags', 'tknormal'];
+/** the bag flows' second station (Tandoor) and its item */
+export const tandoorOf = (station: string): string => `${station}-T`;
+export const tandoorItem = (key: string): string => `I3-${key}-T`;
 /** the 'tkpass' order's pickup: this long after the seed (the e2e hub's clock is fixed) */
 export const TK_PICKUP_AFTER_MS = 30 * 60_000;
 export type Flow03 = (typeof FLOWS_03)[number];
@@ -55,12 +61,19 @@ export function menuWith03(menu: BranchConfig): BranchConfig {
       for (const lang of LANGS_03) {
         const key = keyOf(flow, project, lang);
         // the Pass flows: the station sits at its own point, so a Pass tablet bound to it sees this run's orders only
-        const own = flow === 'pass' || flow === 'takeover' || flow === 'tkpass' || flow === 'd7' || flow === 'tkbags';
+        const own = flow === 'pass' || flow === 'takeover' || flow === 'tkpass' || flow === 'd7' || BAG_FLOWS.includes(flow);
         const point = pointOf(flow, project, lang);
         if (own) points.push({ point_id: point, name: `Pass ${key}`, sort_order: 10, is_archived: false });
         if (flow === 'd7') points.push({ point_id: receivingPointOf(project, lang), name: `Receiving ${key}`, sort_order: 10, is_archived: false });
-        stations.push({ ...s1, station_id: stationOf(flow, project, lang), name: `Grill ${key}`, completion_mode: 'two_tap' as const, ...(own ? { point_id: point, carry_times: [{ point_id: point, carry_ms: 0 }] } : {}) });
+        // the bag flows show real kitchen names (QA design review): Karahi, and a second station Tandoor
+        const bags = BAG_FLOWS.includes(flow);
+        stations.push({ ...s1, station_id: stationOf(flow, project, lang), name: bags ? 'Karahi' : `Grill ${key}`, completion_mode: 'two_tap' as const, ...(own ? { point_id: point, carry_times: [{ point_id: point, carry_ms: 0 }] } : {}) });
         for (const l of LINES_03) items.push({ ...base, item_id: itemId(key, l.n), name: l.name, station_id: stationOf(flow, project, lang), sort_order: 100 + l.n, cook_time_ms: 6 * 60_000 });
+        if (bags) {
+          const tandoor = tandoorOf(stationOf(flow, project, lang));
+          stations.push({ ...s1, station_id: tandoor, name: 'Tandoor', completion_mode: 'two_tap' as const, point_id: point, carry_times: [{ point_id: point, carry_ms: 0 }] });
+          items.push({ ...base, item_id: tandoorItem(key), name: 'Roghni Naan', station_id: tandoor, sort_order: 110, cook_time_ms: 4 * 60_000 });
+        }
       }
   // a screen that stays away for 3 s is dark (03b §3.6; the default is 30 s): the takeover flow waits for it
   const engine_settings = { ...menu.engine_settings, kds_offline_ms: 3_000 };
@@ -99,7 +112,14 @@ export async function seed03(hub: TestHub, o: { orders?: boolean } = {}): Promis
           const k = pairKds(hub, station, `Screen ${key}`);
           devices[`kds:${key}`] = { token: k.token, device_id: k.deviceId };
         }
-        if (flow === 'pass' || flow === 'takeover' || flow === 'tkpass' || flow === 'd7' || flow === 'tkbags') {
+        // 'tknormal': both stations have a kitchen screen (paired, never dark on the fixed clock) and print
+        if (flow === 'tknormal') {
+          for (const st of [station, tandoorOf(station)]) {
+            pairKds(hub, st, `Screen ${st}`);
+            hubEvent(hub, 'StationOutputSet', { station_id: st, mode: 'both', printer_id: printerId, show_taker: false, show_order_id: true });
+          }
+        }
+        if (flow === 'pass' || flow === 'takeover' || flow === 'tkpass' || flow === 'd7' || BAG_FLOWS.includes(flow)) {
           const point_id = pointOf(flow, project, lang);
           const t = pairPassTablet(hub, { pointId: point_id, name: `Pass tablet ${key}` });
           // 05a v1.0.6 §3.6, M-6: a Pass tablet's profile is the `pass` screen with its point (`pass` ⇔ `point_id`), shared
@@ -115,7 +135,7 @@ export async function seed03(hub: TestHub, o: { orders?: boolean } = {}): Promis
         }
         // L-E2E-T1 day close (playwright.dayclose.config.ts): no seeded orders, so the day can close
         if (o.orders === false) continue;
-        if (flow === 'tkbags') {
+        if (BAG_FLOWS.includes(flow)) {
           seedBags(hub, key, station);
           continue;
         }
@@ -138,6 +158,8 @@ export const bagOrderId = (key: string, tag: string): string => `B3-${key}-${tag
  */
 function seedBags(hub: TestHub, key: string, station: string): void {
   const line = (tag: string, n: number, units = 1) => ({ order_item_id: `L3-${key}-${tag}-${n}`, item_id: itemId(key, n), quantity: units });
+  const naan = (tag: string, units: number) => ({ order_item_id: `L3-${key}-${tag}-T`, item_id: tandoorItem(key), quantity: units });
+  const tandoor = tandoorOf(station);
   const start = (ids: string[]) => append(hub, ids.map((id) => ({ stream_type: 'order', stream_id: orderOf.get(id)!, event_type: 'ItemStarted', payload: { order_item_id: id, started_at: hub.clock.branchNow(), source: 'tap' } })));
   const done = (ids: string[]) => append(hub, ids.map((id) => ({ stream_type: 'order', stream_id: orderOf.get(id)!, event_type: 'ItemDone', payload: { order_item_id: id, done_at: hub.clock.branchNow() + 1_000, source: 'tap' } })));
   const orderOf = new Map<string, string>();
@@ -145,7 +167,13 @@ function seedBags(hub: TestHub, key: string, station: string): void {
     const order_id = bagOrderId(key, tag);
     appendOrder(hub, { order_type: 'takeaway', order_id, placed_by: 'S_ALI', lines, ...extra });
     for (const l of lines) orderOf.set(l.order_item_id, order_id);
-    if (extra.pickup_at_ms === undefined) fireLines(hub, station, lines.map((l) => l.order_item_id));
+    if (extra.pickup_at_ms === undefined) {
+      const at = (l: { item_id: string }) => (l.item_id === tandoorItem(key) ? tandoor : station);
+      for (const st of [station, tandoor]) {
+        const ids = lines.filter((l) => at(l) === st).map((l) => l.order_item_id);
+        if (ids.length > 0) fireLines(hub, st, ids);
+      }
+    }
     return lines.map((l) => l.order_item_id);
   };
   const root = place('root', [line('root', 1, 2), line('root', 3, 4)]);
@@ -157,7 +185,7 @@ function seedBags(hub: TestHub, key: string, station: string): void {
   const cooking = place('cooking', [line('cooking', 1, 2), line('cooking', 3, 6)]);
   start(cooking.slice(0, 1));
   place('waiting', [line('waiting', 2), line('waiting', 3, 3)]);
-  const split = place('split', [line('split', 1, 3), line('split', 2)]);
+  const split = place('split', [line('split', 1, 3), naan('split', 6)]);
   start(split);
   done(split.slice(1));
   place('pickup', [line('pickup', 2), line('pickup', 3, 8)], { pickup_at_ms: hub.clock.branchNow() + 40 * 60_000 });
