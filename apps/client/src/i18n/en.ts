@@ -1734,6 +1734,10 @@ export const en = {
   'answer.confirm_on_phone': 'Confirm on your phone',
   // 05a §8 C-1: the tab under the person was taken off this device
   'shell.tab_removed': 'This screen was taken off this device',
+  // BUG-18 (05a §3.6 O-16): a screen the person may not use on this device
+  'shell.not_allowed.title': 'Not allowed',
+  'shell.not_allowed.body': 'Your role cannot use this screen on this device. Ask a manager if you need it.',
+  'shell.not_allowed.home': 'Go to my screen',
   'shell.manager.title': 'Manager tools',
   'request.find_approver': 'Waiting — find a manager',
   // 05a §8 Errors

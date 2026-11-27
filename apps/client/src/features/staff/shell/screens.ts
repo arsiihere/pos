@@ -38,6 +38,9 @@ export function screenHeld(key: ScreenKey, p: Permissions): boolean {
       return p.allowed('take-payment');
     case 'manager':
       return MANAGER_PERMISSIONS.some((x) => p.allowed(x));
+    // §3.6 table: the Pass acts with `run-pass` (BUG-18)
+    case 'pass':
+      return p.allowed('run-pass');
     default:
       return true;
   }

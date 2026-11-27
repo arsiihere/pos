@@ -57,6 +57,7 @@ import { ManagerScreen } from './shell/ManagerScreen';
 import { fallbackScreens, homeOf, landingOf, rememberTab, screenOfPath, tabsOf, visibleScreens } from './shell/screens';
 import { consumeFocus, matchStaffRoute, routePath, withoutFocus } from './shell/routes';
 import { isSlotRoute, RouteSlot } from './shell/slots';
+import { NotAllowed } from './shell/NotAllowed';
 import { createToastBus, ToastView } from './shell/toast';
 import { createTablesApi } from './tables/api';
 import { HandoverLayer } from './tables/cards/HandoverLayer';
@@ -951,6 +952,19 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   const showReports = has('manager') && allowed.has('view-reports');
   // 05 §8 Day close (task 41, R5): close-business-day, kiosk and tablet (frames at 1920 and 1280)
   const showDayClose = has('manager') && allowed.has('close-business-day');
+  // BUG-18 (05a §3.6 O-16): the routes of a permission-gated screen; once the session read answered, one the person may
+  // not use on this device shows Not allowed (never an empty Pass, a skeleton or the inbox in its place)
+  const gated: Record<string, boolean> = {
+    '/bills': showBills,
+    '/bill': showBills,
+    '/manager': has('manager'),
+    '/reports': showReports,
+    '/day-close': showDayClose,
+    '/audit': showAudit,
+    '/devices': showDevices,
+    '/test-alert': showTest,
+    '/pass': has('pass'),
+  };
   // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
   // AD-K12 / W-3: leaving the landing route ends the landing too (a late catch-up never moves a person mid-task)
   useEffect(() => {
@@ -959,8 +973,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   useEffect(() => {
     if (!hasPoint || me === null || !landOnPass.current) return;
     landOnPass.current = false;
-    if (route === '/tables') navigate('/pass'); // only from the landing, never away from a screen the person chose
-  }, [hasPoint, me, route]);
+    // only from the landing, never away from a screen the person chose; never for a person without run-pass (BUG-18)
+    if (route === '/tables' && permissions.allowed('run-pass')) navigate('/pass');
+  }, [hasPoint, me, route, permissions]);
   // 03c §6.12 (Q-66): ONE DismissPrintSkip sender per signed-in session (keyed on its token), never per render, so a
   // send with no answer keeps its command_id for the next tap and a double tap shares one send; a 404 / 409 / 403
   // re-reads the inbox (the card shows its new state).
@@ -1159,6 +1174,8 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   } else if (switching) {
     // 02b-TK TK-SH02 Switch user: the route's screen goes (its unsent takeaway is held, C1-5); the PIN takes over
     page = <SignIn api={api} phone={phone} lockPanel={null} hooks={shellHooks} onUnpaired={onUnpaired} onSignedIn={(who) => void signedIn(who)} onBack={() => setSwitching(false)} />;
+  } else if (me.permissions !== null && (gated[path] === false || (receiptsMatch !== null && !showTest))) {
+    page = <NotAllowed onHome={() => navigate(homeOf(screens))} />;
   } else if (staffRoute.name === 'me') {
     page = (
       <MeTab name={me.name} onSignOut={() => signOut(true)} {...(showShift ? { onShift: () => navigate('/shift') } : {})}>

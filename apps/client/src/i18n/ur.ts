@@ -1708,6 +1708,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'v.check_denied': 'آپ اس آرڈر کا چیک بل پرنٹ نہیں کر سکتے',
   // ---- 02b-TK client (A2 batch 1, item 1 shell: frames ShellAnatomy, PersonMenu, DayNotStarted): strings-table.md ----
   'shell.back': 'واپس',
+  'shell.not_allowed.title': 'اجازت نہیں',
+  'shell.not_allowed.body': 'آپ کا رول اس ڈیوائس پر یہ اسکرین استعمال نہیں کر سکتا۔ ضرورت ہو تو مینیجر سے پوچھیں۔',
+  'shell.not_allowed.home': 'میری اسکرین پر جائیں',
   'shell.me.switch': 'یوزر بدلیں',
   'shell.me.switch_sub': 'کاؤنٹر کسی اور کو دیں',
   'shell.me.lock': 'اسکرین لاک کریں',
