@@ -424,3 +424,30 @@ describe('[03b v1.0.16 §3.5, R8 / D8] order-level counter alert', () => {
     expect(audienceAllows(event, staff(dineKiosk))).toBe(false);
   });
 });
+
+// L-CLOSE-1 checklist (03b v1.0.16 §3.5 Closing, R3-B-3): the counter alert of an order the engine drops by time (a
+// complete, uncollected bag: no tap for order_abandon_ms) closes at the next pass_closures pass, which is due then: the
+// point Ready closes `done` ("or its order leaves the engine") and the same transaction's reconcile closes the counter
+// alert `done` and clears the R8 pair. No event names the drop itself.
+describe('[03b §3.5 Closing] the counter alert of an order the engine drops by time', () => {
+  it('a complete takeaway bag, Ready, never collected; the engine drops the order → pass_closures is due and closes the point Ready and the counter alert done, the epoch cleared', async () => {
+    const { isOrderInEngine } = await import('@pos/engine');
+    const { p1 } = await start();
+    device('Kiosk K', 'cashier_kiosk', TAKEAWAY);
+    const order_id = appendOrder(hub, { order_type: 'takeaway', placed_by: 'S_CASH', lines: [{ order_item_id: 'A1', item_id: FX.naan }] }).order_id;
+    cook(order_id, ['A1']);
+    expect((await send(p1, 'MarkReadyToServe', { order_id, point_id: 'P1' })).status).toBe(200);
+    expect(counterAlerts(order_id)).toMatchObject([{ state: 'open' }]);
+    expect(epoch(order_id)).toBeDefined();
+    const now0 = hub.clock.branchNow();
+    expect(passClosuresTick.due(readOnlyDb(hub.deps.db), engine(), now0)).toBe(false);
+    hub.clock.advance(6 * 3_600_000);
+    const now = hub.clock.branchNow();
+    expect(isOrderInEngine(engine(), order_id, now)).toBe(false);
+    expect(passClosuresTick.due(readOnlyDb(hub.deps.db), engine(), now)).toBe(true);
+    hub.deps.writer.run((tx) => tx.append(passClosuresTick.intents(tx, tx.state as EngineState, now)));
+    expect(counterAlerts(order_id)).toMatchObject([{ state: 'closed', close_reason: 'done' }]);
+    expect(epoch(order_id)).toBeUndefined();
+    expect(hub.deps.db.prepare('SELECT ready_alert_id FROM pass_orders WHERE order_id = ?').get(order_id)).toEqual({ ready_alert_id: null });
+  });
+});
