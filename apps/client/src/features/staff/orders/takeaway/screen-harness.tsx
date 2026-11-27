@@ -35,6 +35,8 @@ export interface ScreenHarness {
   shell: Shell;
   sent: Array<{ type: QueueableCommand; payload: unknown; meta: EnqueueMeta }>;
   commands: Array<{ type: string; payload: unknown }>;
+  /** each command's options (its command_id), in the order of `commands` */
+  commandOpts: Array<{ commandId?: string } | undefined>;
   drafts: DraftStore;
   live: ReturnType<typeof createLiveBus>;
   render(id?: string): Mounted;
@@ -57,6 +59,7 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
   const toasts: Array<{ text: string; tone?: string; sub?: string }> = [];
   const sent: ScreenHarness['sent'] = [];
   const commands: ScreenHarness['commands'] = [];
+  const commandOpts: ScreenHarness['commandOpts'] = [];
   const queries: string[] = [];
   const drafts = o.drafts ?? createMemoryDraftStore();
   const enqueue = Object.assign(
@@ -80,8 +83,9 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
         return found === undefined ? { ok: false, error: { kind: 'network' } } : { ok: true, data: found };
       },
       page: async () => ({ ok: false, error: { kind: 'network' } }),
-      command: async (type: string, payload: unknown) => {
+      command: async (type: string, payload: unknown, opts?: { commandId?: string }) => {
         commands.push({ type, payload });
+        commandOpts.push(opts);
         return o.command?.(type, payload) ?? { ok: true, data: {} };
       },
       roster: async () => ({ ok: true, data: { staff: [{ staff_id: 'zain', display_name: 'Zain', locked_until: null }], active_session: null } }),
@@ -117,6 +121,6 @@ export function screenHarness(o: { rows?: OpenOrder[]; views?: Record<string, Or
   const render = (id = 'D1') => show(<OrderScreen order_type="takeaway" id={id} />);
   const renderHome = () => show(<TakeawayHome />);
   const renderAs = (order_type: 'takeaway' | 'parking', id: string) => show(<OrderScreen order_type={order_type} id={id} />);
-  return { shell, sent, commands, drafts, live, render, renderHome, renderAs, toasts, queries };
+  return { shell, sent, commands, commandOpts, drafts, live, render, renderHome, renderAs, toasts, queries };
 }
 

@@ -36,8 +36,11 @@ export interface PayTarget {
 
 export interface PayPanelProps {
   target: PayTarget;
-  /** Pay later / close: the order stays Due */
-  onLater(): void;
+  /**
+   * Pay later / close: the order stays Due. ⚠️ 02b-TK L-CLIENT-4 item 2 (03c v1.0.16 §8): `unpaid` = the panel closed
+   * with the bill still open (anything but the paid "Next customer" state; a partly paid bill is still open)
+   */
+  onLater(close: { unpaid: boolean }): void;
   /** Next customer (after the bill closed) */
   onDone(): void;
   /** A completed first close of the whole bill, for the counter display. */
@@ -259,7 +262,7 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
         <b className="tk-pay__t">{t('p.title')}</b>
         {sub !== '' && <div className="muted">{sub}</div>}
       </div>
-      <button type="button" className="tk-x" aria-label={t('common.close')} onClick={onLater}>
+      <button type="button" className="tk-x" aria-label={t('common.close')} onClick={() => onLater({ unpaid: phase.kind !== 'done' })}>
         <Ico name="x" />
       </button>
     </div>
@@ -295,7 +298,7 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
     );
 
   const later = (
-    <button type="button" className="tk-btn tk-btn--lg" onClick={onLater}>
+    <button type="button" className="tk-btn tk-btn--lg" onClick={() => onLater({ unpaid: true })}>
       {t('p.later')}
     </button>
   );
