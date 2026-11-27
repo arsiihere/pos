@@ -1067,6 +1067,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'alert.zone_stock_out.lock': 'زون کا ایک آئٹم ختم ہو گیا',
   // ---- lane A (02a client) ----
   'signin.pin_needs_hub': 'سائن اِن کے لیے ہب چاہیے',
+  'signin.locked_for': 'بہت زیادہ غلط PIN۔ {t} بعد دوبارہ کوشش کریں۔',
+  'signin.device_locked_for': 'اس اسکرین پر بہت زیادہ غلط PIN۔ {t} بعد دوبارہ کوشش کریں۔',
   'pair.wipe_failed': 'اس سکرین کو ری سیٹ نہیں کیا جا سکا۔ مینیجر سے پوچھیں۔',
   'topbar.floor': 'فلور',
   'tabs.tables': 'میزیں',
@@ -1394,6 +1396,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'kitchen_screens.use_tablet': 'ٹیبلٹ کو پاس ٹیبلٹ بنائیں',
   'kitchen_screens.play': 'اس ڈیوائس پر چلائیں',
   'admin_03.nav.other_jobs': 'دوسرے کام',
+  'admin_03.login.listed_only': 'یہ اسکرین ہب ایڈمن کے صفحے نہیں کھول سکتی',
+  'admin_03.login.listed_only_body':
+    'یہ سب کے لیے ہے۔ یہ صفحہ اپنے فون پر یا ایسی ڈیوائس پر کھولیں جو "صرف درج لوگ" پر ہو اور اس میں آپ کا نام ہو۔ مینیجر اسے Devices میں بدل سکتا ہے۔',
+  'admin_03.login.recover': 'ایڈمن رسائی واپس لیں',
   // A5 alert cards (written without a frame text: listed under "Needs native review" in 03b/urdu-todo.md)
   'alerts.closed.moved_plain': 'منتقل',
   'alerts.closed.served': 'پیش ہو گیا',
@@ -1706,6 +1712,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'v.check_denied': 'آپ اس آرڈر کا چیک بل پرنٹ نہیں کر سکتے',
   // ---- 02b-TK client (A2 batch 1, item 1 shell: frames ShellAnatomy, PersonMenu, DayNotStarted): strings-table.md ----
   'shell.back': 'واپس',
+  'shell.signed_out_hub': 'آپ سائن آؤٹ ہو گئے۔ دوبارہ سائن اِن کریں۔',
+  'shell.not_allowed.title': 'اجازت نہیں',
+  'shell.not_allowed.body': 'آپ کا رول اس ڈیوائس پر یہ اسکرین استعمال نہیں کر سکتا۔ ضرورت ہو تو مینیجر سے پوچھیں۔',
+  'shell.not_allowed.home': 'میری اسکرین پر جائیں',
   'shell.me.switch': 'یوزر بدلیں',
   'shell.me.switch_sub': 'کاؤنٹر کسی اور کو دیں',
   'shell.me.lock': 'اسکرین لاک کریں',

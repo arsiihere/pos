@@ -1734,6 +1734,12 @@ export const en = {
   'answer.confirm_on_phone': 'Confirm on your phone',
   // 05a §8 C-1: the tab under the person was taken off this device
   'shell.tab_removed': 'This screen was taken off this device',
+  // BUG-12 (00 HPA M46; 02b §8): the hub ended the session; the sign-in screen says so
+  'shell.signed_out_hub': 'You were signed out. Sign in again.',
+  // BUG-18 (05a §3.6 O-16): a screen the person may not use on this device
+  'shell.not_allowed.title': 'Not allowed',
+  'shell.not_allowed.body': 'Your role cannot use this screen on this device. Ask a manager if you need it.',
+  'shell.not_allowed.home': 'Go to my screen',
   'shell.manager.title': 'Manager tools',
   'request.find_approver': 'Waiting — find a manager',
   // 05a §8 Errors
@@ -2405,6 +2411,9 @@ export const en = {
   'order.toast.some_not_sent': '{n} not sent — see the queue log',
   // ---- lane A (02a client) ----
   'signin.pin_needs_hub': 'Signing in needs the hub',
+  // BUG-19 (00 HPA §3.5): the lockout countdown on the sign-in PIN pad, {t} = m:ss
+  'signin.locked_for': 'Too many wrong PINs. Try again in {t}.',
+  'signin.device_locked_for': 'Too many wrong PINs on this screen. Try again in {t}.',
   'pair.wipe_failed': 'Could not reset this screen. Ask a manager.',
   'topbar.floor': 'Floor',
   'tabs.tables': 'Tables',
@@ -2981,6 +2990,11 @@ export const en = {
   'kitchen_screens.sign_in': 'Sign in to set up kitchen screens',
   'kitchen_screens.no_admins': 'No one here can set up kitchen screens',
   'admin_03.nav.other_jobs': 'Other jobs',
+  // BUG-15 (05a H-2, v1.0.3): the admin sign-in on a shared (`everyone`) device
+  'admin_03.login.listed_only': 'This screen cannot open the hub admin pages',
+  'admin_03.login.listed_only_body':
+    'It is shared by everyone. Open this page on your own phone or on a device set to "Only listed people" that lists you. A manager can change this device in Devices.',
+  'admin_03.login.recover': 'Recover admin access',
   // A2 printers (frames Printers*, PrinterAdd, PrinterArchive, PrinterTest)
   'printers.section_help': 'Optional. Paper jobs never block the till or the kitchen screens.',
   'printers.none_title': 'No printers',

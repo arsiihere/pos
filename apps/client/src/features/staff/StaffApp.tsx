@@ -57,6 +57,7 @@ import { ManagerScreen } from './shell/ManagerScreen';
 import { fallbackScreens, homeOf, landingOf, rememberTab, screenOfPath, tabsOf, visibleScreens } from './shell/screens';
 import { consumeFocus, matchStaffRoute, routePath, withoutFocus } from './shell/routes';
 import { isSlotRoute, RouteSlot } from './shell/slots';
+import { NotAllowed } from './shell/NotAllowed';
 import { createToastBus, ToastView } from './shell/toast';
 import { createTablesApi } from './tables/api';
 import { HandoverLayer } from './tables/cards/HandoverLayer';
@@ -299,6 +300,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   useEffect(() => () => shellConfig.dispose(), [shellConfig]);
   const store = useMemo(() => createAlertStore({ sink: sink ?? browserSink, timers: timers ?? browserTimers, alwaysOn: device.type === 'cashier_kiosk' }), [sink, timers, device.type]);
   const [replaced, setReplaced] = useState(false);
+  // BUG-12 (00 HPA M46, §6.21; 02b §8): the hub ended the session (socket 4401, or a SESSION_INVALID / SESSION_EXPIRED
+  // reply): the sign-in screen says so until the next sign-in
+  const [endedByHub, setEndedByHub] = useState(false);
   // every alert_closed frame, also for requests the store does not hold (seen only through requests-to-answer)
   const [closes, setCloses] = useState<ReadonlyMap<string, WsAlertClosed>>(new Map());
   // 04 §8 Pending tag (ruling Q1 (a) on #232): a void request raised, answered, withdrawn or closed reaches this page as
@@ -548,6 +552,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     dropHandover(); // dl cp6: a held tap read never outlives the session
     const gen = sessionGen.current;
     setReplaced(false);
+    setEndedByHub(false);
     conn.setSession(who.session_token);
     setInboxLoading(true);
     setMe({ staffId: who.staff_id, name: who.display_name, allowed: new Set(), permissions: null, idleTtlMs: who.idle_ttl_ms });
@@ -610,6 +615,8 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       }
       else api.drop();
       conn.setSession(null);
+      // BUG-12: nothing of this session's catch-up seeds the next person's screens
+      liveBus.forget();
       // 05b M-13: a newer staff build waited for this sign-out; the logout reaches the hub first (at most 3 s), so a
       // reload never leaves the session open on the hub
       if (updateReadyRef.current) {
@@ -624,9 +631,12 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         void loggedOut.then(go, go);
       }
     },
-    [api, conn, nativeTimers],
+    [api, conn, nativeTimers, liveBus],
   );
-  signOutRef.current = () => signOut(false);
+  signOutRef.current = () => {
+    if (meRef.current !== null) setEndedByHub(true);
+    signOut(false);
+  };
   // the pairing keys go (the command queue and the drafts stay), the session and the socket end, PairAgain shows
   // review #193: a ref, not the state — a queue revoke and a socket 4403 in the same tick wipe once
   const unpairedRef = useRef(false);
@@ -951,6 +961,19 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   const showReports = has('manager') && allowed.has('view-reports');
   // 05 §8 Day close (task 41, R5): close-business-day, kiosk and tablet (frames at 1920 and 1280)
   const showDayClose = has('manager') && allowed.has('close-business-day');
+  // BUG-18 (05a §3.6 O-16): the routes of a permission-gated screen; once the session read answered, one the person may
+  // not use on this device shows Not allowed (never an empty Pass, a skeleton or the inbox in its place)
+  const gated: Record<string, boolean> = {
+    '/bills': showBills,
+    '/bill': showBills,
+    '/manager': has('manager'),
+    '/reports': showReports,
+    '/day-close': showDayClose,
+    '/audit': showAudit,
+    '/devices': showDevices,
+    '/test-alert': showTest,
+    '/pass': has('pass'),
+  };
   // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
   // AD-K12 / W-3: leaving the landing route ends the landing too (a late catch-up never moves a person mid-task)
   useEffect(() => {
@@ -959,8 +982,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   useEffect(() => {
     if (!hasPoint || me === null || !landOnPass.current) return;
     landOnPass.current = false;
-    if (route === '/tables') navigate('/pass'); // only from the landing, never away from a screen the person chose
-  }, [hasPoint, me, route]);
+    // only from the landing, never away from a screen the person chose; never for a person without run-pass (BUG-18)
+    if (route === '/tables' && permissions.allowed('run-pass')) navigate('/pass');
+  }, [hasPoint, me, route, permissions]);
   // 03c §6.12 (Q-66): ONE DismissPrintSkip sender per signed-in session (keyed on its token), never per render, so a
   // send with no answer keeps its command_id for the next tap and a double tap shares one send; a 404 / 409 / 403
   // re-reads the inbox (the card shows its new state).
@@ -1150,7 +1174,19 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         key={signInKey}
         api={api}
         phone={phone}
-        lockPanel={lockRows.length === 0 ? null : <LockPanel rows={lockRows} utcOffsetMs={offset} />}
+        lockPanel={
+          endedByHub || lockRows.length > 0 ? (
+            <>
+              {endedByHub && (
+                <div className="warnbar" role="status" data-signed-out="">
+                  <Ico name="lock" />
+                  {t('shell.signed_out_hub')}
+                </div>
+              )}
+              {lockRows.length > 0 && <LockPanel rows={lockRows} utcOffsetMs={offset} />}
+            </>
+          ) : null
+        }
         hooks={shellHooks}
         onUnpaired={onUnpaired}
         onSignedIn={(who) => void signedIn(who)}
@@ -1159,6 +1195,8 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   } else if (switching) {
     // 02b-TK TK-SH02 Switch user: the route's screen goes (its unsent takeaway is held, C1-5); the PIN takes over
     page = <SignIn api={api} phone={phone} lockPanel={null} hooks={shellHooks} onUnpaired={onUnpaired} onSignedIn={(who) => void signedIn(who)} onBack={() => setSwitching(false)} />;
+  } else if (me.permissions !== null && (gated[path] === false || (receiptsMatch !== null && !showTest))) {
+    page = <NotAllowed onHome={() => navigate(homeOf(screens))} />;
   } else if (staffRoute.name === 'me') {
     page = (
       <MeTab name={me.name} onSignOut={() => signOut(true)} {...(showShift ? { onShift: () => navigate('/shift') } : {})}>

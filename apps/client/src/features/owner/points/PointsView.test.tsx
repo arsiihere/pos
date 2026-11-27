@@ -146,6 +146,16 @@ describe('owner points page (03a A-1; 01a §6.9a)', () => {
     expect(rows().map((r) => r.dataset['pointId'])).toEqual(['PT1', 'PT2']);
   });
 
+  it('[BUG-26; 01a v2.11 §6.9a D7] archiving the only active point is refused up front: no confirm, nothing sent', async () => {
+    const { api, calls } = setup(undefined, [PASS, OLD]);
+    await open(api);
+    await click(button(row('PT1'), t('owner.common.archive')));
+    expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+    expect(m.container.querySelector('.pos-banner--danger')?.textContent).toContain(t('owner.points.archive_refused'));
+    expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]);
+    expect(rows().map((r) => r.dataset['pointId'])).toEqual(['PT1']);
+  });
+
   it('[01a §6.9a] Restore PATCHes archived: false; a stale answer shows the Reload banner and sends nothing more', async () => {
     const { api, calls } = setup(() => fail(409, 'CONFIG_STALE'));
     await open(api);
