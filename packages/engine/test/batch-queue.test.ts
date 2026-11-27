@@ -310,3 +310,28 @@ describe('[03a BQ-6, F §4.7 step 3] a sync group of more parts than one load fi
     expect(nine.plan.groups.map((g) => g.target_land_ms)).toEqual([at(6)]);
   });
 });
+// ---- 02b-tk L-CLOSE-2: 03a v1.2.11 test 185 (e) (PK-3, PK-7; R2-B-1) ------------------------------------------------
+
+describe('[03a #185 (e)] two held loads for one pickup keep their fires through later re-plans', () => {
+  it('a later submit and a capacity re-plan move neither held load later than its stored fire; queue order kept; no member lands after p', () => {
+    const P = at(30);
+    let s = submitB(queueFryer(), 'OP', unitParts('P', 16, { mode: 'sync' }), at(0), { pickup_at_ms: P }).state;
+    const ids = Array.from({ length: 16 }, (_, i) => `P${i + 1}`);
+    const loadsOf = (st: EngineState) => [...new Set(ids.map((id) => loadOf(st, id)!.load_id))];
+    const held = loadsOf(s);
+    expect(held).toHaveLength(2);
+    const fires = held.map((n) => s.stations.F!.loads[n]!.booked.start);
+    for (const id of ids) expect(loadOf(s, id)!.booked.end, id).toBeLessThanOrEqual(P);
+    const check = (st: EngineState, why: string) => {
+      expect(loadsOf(st), why).toEqual(held); // the same loads, in the same queue order
+      held.forEach((n, i) => expect(st.stations.F!.loads[n]!.booked.start, `${why}: ${n}`).toBeLessThanOrEqual(fires[i]!));
+      const starts = held.map((n) => st.stations.F!.loads[n]!.booked.start);
+      expect(starts[0]!, why).toBeLessThanOrEqual(starts[1]!);
+      for (const id of ids) expect(loadOf(st, id)!.booked.end, `${why}: ${id}`).toBeLessThanOrEqual(P);
+    };
+    s = submitB(s, 'OX', unitParts('X', 3), at(1)).state;
+    check(s, 'later submit');
+    s = fold(s, [capacityB(10, at(2))]);
+    check(s, 'capacity re-plan');
+  });
+});

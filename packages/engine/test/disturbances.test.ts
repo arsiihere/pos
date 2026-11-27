@@ -1638,3 +1638,80 @@ describe('@pos/engine [03a #187] additions, returns and release on a pickup orde
     expectRebuild(k);
   });
 });
+
+// ---- 02b-tk L-CLOSE-2: 03a v1.2.11 test 185 (slot station; PK-6, PK-7; m-2; R2-B-1) --------------------------------
+
+describe('@pos/engine [03a #185] later re-plans of held lines (PK-6, PK-7)', () => {
+  // Kit (§10.3h): S1 Waada Guard, freeze 2 min, keep 1 min; held immediate line cook 5, prep 1, early 1 (carry 0 here).
+  const KIT = { station_id: 'S1', freeze_ms: 2 * M, min_slack_keep_ms: M };
+  const drink = (id: string, o: Partial<Item> = {}): Item => ({ id, cook: 5 * M, prep: M, mode: 'immediate', early: M, ...o });
+
+  it('[03a #185] a capacity drop that cannot keep the held line on time sends it to overload with lateness from d_p, capped by max_late_ms from there', () => {
+    // lateness = fire − d_p = 25 min; capped when lateness ≥ max_late_ms (overload.ts, §3.5.6)
+    for (const [late, capped] of [[25 * M, true], [25 * M + 1, false]] as const) {
+      const k = new Kitchen([{ ...KIT, capacity: 2 }]);
+      k.submit('OZ', [{ id: 'Z', cook: 80 * M, mode: 'immediate' }], at(0));
+      k.apply([fireEv('S1', 'Z', at(0)), startEv('OZ', 'Z', at(0))]);
+      k.submit('O1', [drink('A', { late })], at(0), { pickup: at(60) });
+      const dp = at(60) - 6 * M;
+      expect(k.state.lines.A!.deadline_ms).toBe(dp);
+      const s = k.apply([capacity('S1', 1, at(5))]);
+      // the one unit is Z's until +80: the earliest fit (prep before it), 26 min after d_p
+      expect(s.lines.A!.booked!.start).toBe(at(80));
+      expect(s.lines.A!.fire_ms).toBe(at(79));
+      expect(s.lines.A!.fire_ms! - dp).toBe(25 * M);
+      expect(s.lines.A!.capped, `max_late ${late / M} min`).toBe(capped);
+      expectRebuild(k);
+    }
+  });
+
+  it('[03a #185 (m-2)] priority_due = T_L + limit − prep − cook − carry + 1, after the planned fire: no LinePrioritized while the line keeps its plan', () => {
+    const k = new Kitchen([{ ...KIT, capacity: 1 }]);
+    k.submit('O1', [drink('A')], at(0), { pickup: at(60) });
+    const a = k.state.lines.A!;
+    // no max_delay_ms on the item = "No limit": the 30-min far cap (PR-1, test 153)
+    const limit = a.max_delay_ms ?? 30 * M;
+    const due = k.state.priority_due['O1:0'];
+    expect(due).toBe(at(60) + limit - M - 5 * M - 0 + 1);
+    expect(due!).toBeGreaterThan(a.fire_ms!);
+    expect(getAlertIntents(k.state, a.fire_ms!).prioritized).toEqual([]);
+    // fired and started on time: still nothing to prioritize at the crossing
+    const s = k.apply([fireEv('S1', 'A', a.fire_ms!), startEv('O1', 'A', a.fire_ms!)]);
+    expect(getAlertIntents(s, due!).prioritized).toEqual([]);
+  });
+
+  it('[03a #185 (b), (c)] the second shake booked early stays by d_p at the next submit (lower bound t); the two swap places at most, both land by p, none late', () => {
+    for (const early of [0, M]) {
+      const k = new Kitchen([{ ...KIT, capacity: 1 }]);
+      k.submit('O1', [{ id: 'first', cook: 2 * M, mode: 'immediate', early }, { id: 'second', cook: 2 * M, mode: 'immediate', early }], at(0), { pickup: at(60) });
+      const before = { first: k.state.lines.first!, second: k.state.lines.second! };
+      for (const l of Object.values(before)) expect(l.booked!.end).toBeLessThanOrEqual(at(60));
+      k.submit('O2', [{ id: 'walk', cook: 3 * M }], at(1));
+      const s = k.state;
+      for (const id of ['first', 'second'] as const) {
+        const l = s.lines[id]!;
+        expect(l.booked!.end, id).toBeLessThanOrEqual(at(60));
+        expect(l.fire_ms!, id).toBeGreaterThanOrEqual(at(1));
+        expect(l.fire_ms!, id).toBeLessThanOrEqual(l.deadline_ms!);
+        expect(l.capped, id).toBe(false);
+      }
+      expectNoOverbooking(s, at(1));
+      expectRebuild(k);
+    }
+  });
+
+  it('[03a #185 (d)] a capacity drop with a held early line: its lower bound is t, and it still lands by p when the station can make it', () => {
+    const k = new Kitchen([{ ...KIT, capacity: 2 }]);
+    k.submit('OZ', [{ id: 'Z', cook: 30 * M, mode: 'immediate' }], at(0));
+    k.apply([fireEv('S1', 'Z', at(0)), startEv('OZ', 'Z', at(0))]);
+    k.submit('O1', [drink('A'), drink('B')], at(0), { pickup: at(60) });
+    const s = k.apply([capacity('S1', 1, at(5))]);
+    for (const id of ['A', 'B']) {
+      expect(s.lines[id]!.fire_ms!, id).toBeGreaterThanOrEqual(at(30)); // behind Z, never before t
+      expect(s.lines[id]!.booked!.end, id).toBeLessThanOrEqual(at(60));
+      expect(s.lines[id]!.capped, id).toBe(false);
+    }
+    expectNoOverbooking(s, at(5));
+    expectRebuild(k);
+  });
+});
