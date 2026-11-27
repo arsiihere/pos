@@ -4432,6 +4432,13 @@ export const en = {
   'pass.offline_counter': 'Offline — hand over at the counter',
   'pass.pickup_at': 'Pickup at {time} — use \'Customer is here\' at the counter',
   'pass.due': 'Due — customer pays at counter',
+  // ⚠️ 03b v1.0.17 §3.4, §8 (owner ruling 2026-11-28 "Pass bag = token"; QA design audit): the one Due pill with the
+  // token's unpaid total; an addition's row in Ask a manager; the pick sheet of a bag; a bag marked ready
+  'pass.due_amount': 'Due {amount} — customer pays at counter',
+  'pass.addition_tag': '(addition)',
+  'pass.ready_pick_sub_bag': 'Ticked items go into the bag as ready.',
+  'pass.waiting_counter': 'Waiting at counter',
+  'pass.phone_order': 'Phone order',
   'pass.waiting_bill': 'Waiting for the bill',
   'pass.pickup_label': 'Pickup {time}',
   'pass.hand_at_counter': 'Hand over at the counter',

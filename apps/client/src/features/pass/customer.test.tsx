@@ -159,14 +159,14 @@ describe('[03b v1.0.16 §3.4 Handed to customer (R3-B-2, OR-2, OR-7)] the Pass-r
     expect(pc('O48').textContent).not.toContain('Due');
   });
 
-  it('a Due row: greyed, "Due — customer pays at counter" and "Take payment first"; a Paid row enables it', async () => {
+  it('a Due row: greyed, ONE pill "Due Rs 1,190 — customer pays at counter" (v1.0.17: no separate hint box); a Paid row enables it', async () => {
     const s = shellWith({ grants: PASS, bills: () => openOrders([{ order_id: 'O48', order_type: 'takeaway', bill: { state: 'due', due_minor: 119_000 } }, { order_id: 'O49', order_type: 'takeaway', bill: { state: 'paid', due_minor: 0 } }]) });
     s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O48', 'done'), card('O49', 'done')]) } });
     show(s.shell);
     await flush();
     expect(customerBtn('O48')!.disabled).toBe(true);
-    expect(pc('O48').querySelector('.pc__due')!.textContent).toBe('Due — customer pays at counter');
-    expect(pc('O48').querySelector('.pc__hint')!.textContent).toBe('Take payment first');
+    expect(pc('O48').querySelector('.pc__due')!.textContent).toBe('Due Rs 1,190 — customer pays at counter');
+    expect(pc('O48').querySelector('.pc__hint')).toBeNull();
     expect(customerBtn('O49')!.disabled).toBe(false);
     expect(pc('O49').querySelector('.pc__hint')).toBeNull();
   });

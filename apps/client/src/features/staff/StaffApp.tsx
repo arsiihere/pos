@@ -42,6 +42,7 @@ import { createShellHooks } from './orders/queue/shell-hooks';
 import { createShellConfig, type BranchConfigReply } from './shell/config';
 import { createContextSlot } from './shell/context-slot';
 import { createRushSlot } from './shell/rush-slot';
+import { createBarSlot } from './shell/bar-slot';
 import { readOwnShift, shiftEvent, type OwnShift } from './shell/own-shift';
 import { ShellBanners } from './shell/ShellBanners';
 import { createDayWatch } from './orders/order-screen/day-open';
@@ -282,6 +283,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   // 02b-TK A2 item 4 (frame HomeRush): the takeaway screen's rush state; the Live pill is its toggle
   const rushSlot = useMemo(() => createRushSlot(), []);
   const rushValue = useSyncExternalStore(rushSlot.subscribe, rushSlot.get);
+  // ⚠️ 03b v1.0.17 §8: the Pass's type tabs in the top bar
+  const barSlot = useMemo(() => createBarSlot(), []);
+  const barValue = useSyncExternalStore(barSlot.subscribe, barSlot.get);
   const dayWatch = useMemo(() => createDayWatch(liveBus), [liveBus]);
   useEffect(() => () => dayWatch.dispose(), [dayWatch]);
   const dayOpen = useSyncExternalStore(dayWatch.subscribe, dayWatch.state);
@@ -1348,6 +1352,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         currentTab={currentTab}
         shift={showShift}
         context={me !== null && !switching && takeawayRoute ? ctxValue : null}
+        extra={me !== null && !switching ? barValue : null}
         menu={{ onSwitch: () => setSwitching(true), onLock: () => setLockTick((n) => n + 1), shiftSub }}
         title={me === null ? meta.branchName : phoneTitle}
         phoneSub={
@@ -1498,6 +1503,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     closeRouteSheet,
     contextSlot,
     rush: rushSlot,
+    bar: barSlot,
   };
   voidShell.current = shell;
   // IR-11: the late cards read every alert row the page holds, open and closed (a slip closed without ItemsReleased)

@@ -1779,6 +1779,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.offline_counter': 'آف لائن — کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
   'pass.pickup_at': '{time} پر لینا ہے — کاؤنٹر پر \'گاہک آ گیا\' استعمال کریں', // not in strings-table.md; Urdu to confirm
   'pass.due': 'باقی — گاہک کاؤنٹر پر ادا کرے گا', // not in strings-table.md; Urdu to confirm
+  'pass.due_amount': 'باقی {amount} — گاہک کاؤنٹر پر ادا کرے گا', // 03b v1.0.17; Urdu to confirm
+  'pass.addition_tag': '(اضافہ)', // 03b v1.0.17; Urdu to confirm
+  'pass.ready_pick_sub_bag': 'نشان والی چیزیں تیار ہو کر بیگ میں جائیں گی۔', // 03b v1.0.17; Urdu to confirm
+  'pass.waiting_counter': 'کاؤنٹر پر انتظار', // 03b v1.0.17; Urdu to confirm
+  'pass.phone_order': 'فون آرڈر', // 03b v1.0.17; Urdu to confirm
   'pass.waiting_bill': 'بل کا انتظار', // not in strings-table.md; Urdu to confirm
   'pass.pickup_label': 'لینا ہے {time}', // not in strings-table.md; Urdu to confirm
   'pass.hand_at_counter': 'کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm

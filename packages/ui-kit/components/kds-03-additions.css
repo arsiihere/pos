@@ -84,3 +84,61 @@
 .btn--customer[disabled] .ico { color: var(--muted); }
 .pc--late .btn--customer:not([disabled]) { color: var(--warn-ink); box-shadow: inset 0 0 0 2px var(--warn); }
 .pc--late .btn--customer:not([disabled]) .ico { color: var(--warn); }
+
+/* ---------- 03b v1.0.17 Pass (owner ruling 2026-11-28 "Pass bag = token"; QA design audit, frame PackerPass) ----------
+   One row of type tabs in the top bar (.pfilter--bar in the bar's slot); the station strip only when it carries
+   something; a compact takeover that never pushes the bags below the fold; the bag area scrolls (BUG-2); a 3-column
+   grid of compact bag cards with ONE Due pill; the hand-over Undo toast in the screen's own last row (never over a
+   card's Reprint). */
+.top .top-extra { display: flex; align-items: center; min-width: 0; flex: none; }
+.top .pfilter--bar button { min-height: 52px; padding: 0 16px; font-weight: 700; }
+.top .pfilter--bar button .ico { width: 20px; height: 20px; }
+.top .pfilter--bar .n { background: var(--danger); color: #fff; }
+.pass { gap: 10px; padding: 10px 14px 12px; }
+.pass .pstrip .pst { min-height: 48px; padding-block: 4px; border-radius: 14px; }
+.pass .pstrip .pst b { font-size: 15px; }
+.pass .pstrip .pst .btn { min-height: 44px; }
+.pscroll { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; gap: 12px; padding: 2px 2px 6px; }
+.pscroll > .tko { flex: none; max-height: min(46%, 320px); padding: 10px 12px; gap: 8px; border-radius: 18px; }
+.pscroll > .tko .tko__h .ic { width: 40px; height: 40px; border-radius: 12px; }
+.pscroll > .tko .tko__h .ic .ico { width: 22px; height: 22px; }
+.pscroll > .tko .tko__h b { font-size: 18px; }
+.pscroll > .tko .tko__h small { font-size: 13px; }
+.pscroll > .tko .tko__h .btn { min-height: 56px; }
+.pscroll > .tko .tko__b { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.pcards { gap: 12px; }
+.pc { border-radius: 20px; }
+.pc__h { align-items: center; padding: 12px 12px 8px 12px; }
+.pc__id { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
+.pc__id .pc__m { margin-top: 0; }
+.pc__n { flex: none; min-width: 72px; padding: 8px 12px; border-radius: 14px; background: var(--action); color: var(--on-action, #2a1300); font-size: 32px; text-align: center; }
+.pc__n small { color: inherit; opacity: 0.75; font-size: 15px; }
+.pc__n:has(.plt) { background: transparent; padding: 0; min-width: 0; }
+.pc__ph { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--info-bg); color: var(--info-ink); flex: none; }
+.pc__ph .ico { width: 20px; height: 20px; }
+.pc__next { font-size: 17px; }
+.pc__next--wait { color: var(--ok-ink); }
+.pc__duerow { display: flex; justify-content: flex-end; padding: 0 12px 6px; }
+.pc__due { display: inline-flex; align-items: center; min-height: 30px; padding: 4px 12px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 14px; font-weight: 800; line-height: 1.2; text-align: center; }
+.pc__ls { padding: 0 6px 6px; }
+.pl { min-height: 40px; }
+.pc__msg { margin: 0 10px 8px; padding: 8px 10px; font-size: 13px; }
+.pc__ask--bag { align-items: flex-start; flex-wrap: wrap; }
+.pc__ask--bag .col { flex: 1 1 60%; display: flex; flex-direction: column; gap: 2px; }
+.pc__ask--bag .btn { min-height: 48px; }
+.pc__f { padding: 8px 10px 10px; gap: 8px; }
+.pc__f .btn { min-height: 60px; font-size: 17px; }
+.pc__f .btn--quiet { grid-column: 1 / -1; min-height: 48px; font-size: 15px; }
+.pc__f .rp { min-height: 48px; }
+.pass .pass-undo { position: static; transform: none; align-self: center; flex: none; margin-top: 2px; }
+/* v1.0.17 compact bag card: the per-line Start / Done (03b v1.0.10 STAB-3: on every line) as one short row */
+.pc .pc__g { padding: 4px 6px 0; font-size: 11px; }
+.pc .pl { min-height: 36px; padding: 2px 6px; }
+.pc .pl__t { font-size: 15px; }
+.pc .pl__a { padding: 2px 0 4px; gap: 6px; }
+.pc .pl__a .btn { min-height: 44px; font-size: 15px; padding: 0 10px; }
+.pc .pc__ask { padding: 6px 8px; gap: 8px; }
+.pc .pc__ask .btn { min-height: 44px; font-size: 15px; padding: 0 12px; }
+.pc .pc__f .btn--quiet { min-height: 44px; }
+.pc .pc__h { padding-bottom: 4px; }
+.pc .pc__duerow { padding-bottom: 4px; }
