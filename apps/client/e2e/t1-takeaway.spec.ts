@@ -32,6 +32,13 @@ async function takeawayPadding(api: Awaited<ReturnType<typeof apiSession>>, stat
   return station.promise_padding_ms ?? snapshot.engine_settings.promise_padding_takeaway_ms;
 }
 
+/** The client's clock text (features/alerts/labels.ts `timeText`): 12-hour hub-local time, e.g. "10:52 PM". */
+function clientTime(ms: number, utcOffsetMs: number): string {
+  const d = new Date(ms + utcOffsetMs);
+  const h = d.getUTCHours();
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(d.getUTCMinutes()).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
 async function payCashExact(page: Page, lang: Parameters<typeof tr>[0]): Promise<string> {
   await page.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.send_pay'))}`) }).click();
   const token = await sentToken(page);
@@ -216,7 +223,7 @@ for (const lang of LANGS) {
     }
   });
 
-  test(`[T1 #8] the customer came early: Customer is here (Boost) at the counter moves the ready time earlier; the bag is not Ready while the drink is made (${lang})`, async ({ browser, request }, info) => {
+  test(`[T1 #8] the customer came early: Customer is here (Boost) at the counter moves the ready time earlier ("Ready ~" beside the struck promise); the bag is not Ready while the drink is made (${lang})`, async ({ browser, request }, info) => {
     t1RunsHere(info);
     const run = t1Run('bag', info, lang);
     const cash = await screen(browser, info.project.use.viewport!);
@@ -243,7 +250,7 @@ for (const lang of LANGS) {
       const drawer = cash.page.locator('section.tk-drawer');
       const here = drawer.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'v.here'))}`) });
       await expect(here, 'the token view offers Customer is here for a pickup order (02b §8)').toBeVisible({ timeout: 5_000 });
-      type Row = { order_id: string; promise_ms: number | null; pickup_at_ms: number | null; effective_pickup_at_ms: number | null; ready: { n: number; m: number } };
+      type Row = { order_id: string; promise_ms: number | null; pickup_at_ms: number | null; effective_pickup_at_ms: number | null; planned_ready_at_ms?: number | null; ready: { n: number; m: number } };
       const rowOf = async () => (await api.query<{ orders: Row[] }>('open-orders?order_type=takeaway')).orders.find((o) => o.order_id === order_id)!;
       const before = await rowOf();
       // the engine's plan lands the whole bag for the pickup (03a PK-1): not before it
@@ -267,6 +274,21 @@ for (const lang of LANGS) {
       expect(replanned.pickup_at_ms).toBe(pickupAt);
       console.log(`[T1 #8 ${info.project.name} ${lang}] pickup ${pickupAt}, plan eta before ${planEta(planned)} (pickup ${planEta(planned) - pickupAt >= 0 ? '+' : ''}${(planEta(planned) - pickupAt) / 60_000} min), after ${planEta(replanned)} (pickup ${(planEta(replanned) - pickupAt) / 60_000} min), promise ${before.promise_ms} → ${after.promise_ms}`);
       expect(planEta(replanned)).toBeLessThan(pickupAt);
+      // ⚠️ 02b v1.0.25 §6.16 (owner ruling BR-1; 03a PK-5): open-orders carries the engine's planned ready time — at the
+      // pickup before the boost, earlier after it; the stored promise (pickup + the takeaway padding) does not move, and
+      // the token view shows "Ready ~{planned}" with that promise struck through beside it
+      const padding = await takeawayPadding(api, t1Station(run.key));
+      expect(before.planned_ready_at_ms).toBe(planEta(planned));
+      expect(after.planned_ready_at_ms).toBe(planEta(replanned));
+      expect(after.planned_ready_at_ms!).toBeLessThan(pickupAt);
+      expect(after.promise_ms).toBe(pickupAt + padding);
+      expect(before.promise_ms).toBe(after.promise_ms);
+      const offset = (await api.query<{ hub_time: { utc_offset_ms: number } }>('branch-config')).hub_time.utc_offset_ms;
+      const readyBy = drawer.locator('.tk-facts .tk-fact').first();
+      await expect(readyBy.locator('small')).toHaveText(tr(lang, 'v.ready_at'));
+      await expect(readyBy.locator('[data-planned]')).toHaveText(tr(lang, 'q.ready_planned', { t: clientTime(after.planned_ready_at_ms!, offset) }));
+      await expect(readyBy.locator('s')).toHaveText(clientTime(after.promise_ms!, offset));
+      console.log(`[T1 #8 ${info.project.name} ${lang}] planned_ready_at_ms ${before.planned_ready_at_ms} → ${after.planned_ready_at_ms} (${clientTime(before.planned_ready_at_ms!, offset)} → ${clientTime(after.planned_ready_at_ms!, offset)}), promise ${after.promise_ms} (${clientTime(after.promise_ms!, offset)}, pickup + ${padding / 60_000} min)`);
       // whole bag (D1): nothing is ready yet — the token is not Ready while the drink is still to make
       expect(after.ready.n).toBeLessThan(after.ready.m);
       await expect(drawer.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'v.collected'))}`) })).toHaveAttribute('aria-disabled', 'true');
