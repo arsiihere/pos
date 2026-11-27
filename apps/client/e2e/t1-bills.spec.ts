@@ -70,7 +70,7 @@ for (const lang of LANGS) {
     }
   });
 
-  test(`[T1 #9] add items to a token, Check bill before sending: NOT SENT YET - CHECK BILL with the new total (${lang}) @gap`, async ({ browser }, info) => {
+  test(`[T1 #9] add items to a token, Check bill before sending: NOT SENT YET - CHECK BILL with the new total (${lang})`, async ({ browser }, info) => {
     t1RunsHere(info);
     const run = t1Run('bag', info, lang);
     const cash = await screen(browser, info.project.use.viewport!);
