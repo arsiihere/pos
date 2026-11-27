@@ -335,3 +335,36 @@ describe('[03a #185 (e)] two held loads for one pickup keep their fires through 
     check(s, 'capacity re-plan');
   });
 });
+
+// ---- 02b-tk L-CLOSE-3: 03a v1.2.11 test 183 (a), (d) (PK-3) -------------------------------------------------------
+
+describe('[03a #183 (a), (d)] held parts on the fryer', () => {
+  it('(a) a held part joins a queued load landing inside its freshness window toward p − carry, capped by max_early_ms; else it forms a load ending at p', () => {
+    // freshness window 10 min; a load held for +24 (6 min before p = +30), leaving room for a fresh round [27, 30)
+    const fryer = () => queueFryer({ freshness: 10 * M });
+    const base = submitB(fryer(), 'OA', unitParts('A', 1), at(0), { pickup_at_ms: at(24) }).state;
+    const a = loadOf(base, 'A1')!;
+    expect(a.booked.end).toBe(at(24));
+    // early allowance 60 min: the +24 load is inside min(window, max_early) toward p → joins
+    const joined = submitB(base, 'OB', unitParts('B', 1), at(0), { pickup_at_ms: at(30) }).state;
+    expect(loadOf(joined, 'B1')!.load_id).toBe(a.load_id);
+    // early allowance 1 min: the window is capped to 1 min → its own load ending at +30
+    const capped = submitB(base, 'OC', unitParts('C', 1, { early: M }), at(0), { pickup_at_ms: at(30) }).state;
+    expect(loadOf(capped, 'C1')!.load_id).not.toBe(a.load_id);
+    expect(loadOf(capped, 'C1')!.booked.end).toBe(at(30));
+    // the default 2-min window: the same +24 load is outside it → its own load ending at +30
+    const far = submitB(submitB(queueFryer(), 'OD', unitParts('D', 1), at(0), { pickup_at_ms: at(24) }).state, 'OE', unitParts('E', 1), at(0), { pickup_at_ms: at(30) }).state;
+    expect(loadOf(far, 'E1')!.load_id).not.toBe(loadOf(far, 'D1')!.load_id);
+    expect(loadOf(far, 'E1')!.booked.end).toBe(at(30));
+  });
+
+  it('(d) the test 143 arrival-order property holds for the walk-in rounds when a held order is queued (its held load is left out)', () => {
+    const held = submitB(queueFryer(), 'OQ', unitParts('Q', 3), at(0), { pickup_at_ms: at(90) }).state; // ORDERS_143 already has H
+    const run = runRounds(held, ORDERS_143, { until: 40, startAfter: 2 * M });
+    const heldIds = new Set(['Q1', 'Q2', 'Q3']);
+    const walkIns = run.fires.map((f) => ({ ...f, ids: f.ids.filter((id) => !heldIds.has(id)) })).filter((f) => f.ids.length > 0);
+    expectArrivalOrder(walkIns);
+    // the held parts never fire in the walk-in rounds before their window
+    for (const f of run.fires) for (const id of f.ids) if (heldIds.has(id)) expect(f.at).toBeGreaterThanOrEqual(at(90) - COOK - 60 * M);
+  });
+});
