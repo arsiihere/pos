@@ -105,3 +105,70 @@ describe('[03b #128 hub] fallback: every point dine-in only', () => {
     expect(engine().lines.LP).toMatchObject({ point_id: main });
   });
 });
+
+describe('[03b #129] two dine-in-only points tie: each line to its own default; Readies and their keys per point', () => {
+  it('Karahi → Main, naan (S2) → G; a Ready at each point with dedupe keys <order>:<point>:<table>; each Pass sees only its own point\'s Ready events', async () => {
+    const { cookDirectory, pairPassTablet, COOK } = await import('../kds/fixtures');
+    const { audienceAllows } = await import('../../src/ws/audience');
+    const base = fixtureMenu();
+    const main = base.stations[0]!.point_id;
+    const config: BranchConfig = {
+      ...base,
+      points: [
+        { ...base.points.find((p) => p.point_id === main)!, order_types: ['dine_in'] },
+        { point_id: 'G', name: 'Grill', sort_order: 5, is_archived: false, order_types: ['dine_in'] },
+      ],
+      stations: base.stations.map((s) => (s.station_id === FX.zoneStation ? { ...s, point_id: 'G' } : s)),
+      items: base.items.map((i) => (i.item_id === FX.naan ? { ...i, station_id: FX.zoneStation } : i)),
+    };
+    hub = await createTestHub();
+    await seedDirectory(hub, await cookDirectory());
+    openDay(hub, { menu: config });
+    const device = pairDevice(hub, { type: 'tablet' });
+    const w = { device, session: openSession(hub, { kind: 'staff', staffId: 'S_MGR', deviceId: device.deviceId }) };
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_MGR' });
+    await command(w, 'submit-order', 'SubmitOrder', { order_id: 'OD', order_type: 'dine_in', table_id: FX.table, seating_id: 'SEAT1', lines: [karahi('K1'), { order_item_id: 'N1', item_id: FX.naan, quantity: 1 }] });
+    expect(engine().lines.K1).toMatchObject({ point_id: main });
+    expect(engine().lines.N1).toMatchObject({ point_id: 'G' });
+    // cook both
+    const now = () => hub.clock.branchNow();
+    for (const id of ['K1', 'N1']) {
+      const st = engine().lines[id]!.station_id;
+      hub.deps.writer.run((tx) =>
+        tx.append([
+          { stream_type: 'station', stream_id: st, event_type: 'FireDispatched', schema_version: 1, payload: { station_id: st, order_item_ids: [id], load_id: null, due_at: now(), reason: 'pulled' }, occurred_at: now(), actor_id: null, device_id: 'hub' },
+          { stream_type: 'order', stream_id: 'OD', event_type: 'ItemStarted', schema_version: 1, payload: { order_item_id: id, started_at: now(), source: 'tap' }, occurred_at: now(), actor_id: null, device_id: 'hub' },
+          { stream_type: 'order', stream_id: 'OD', event_type: 'ItemDone', schema_version: 1, payload: { order_item_id: id, done_at: now(), source: 'tap' }, occurred_at: now(), actor_id: null, device_id: 'hub' },
+        ]),
+      );
+    }
+    const passOf = (point: string) => {
+      const d = pairPassTablet(hub, { pointId: point });
+      return { device: d, session: openSession(hub, { kind: 'staff', staffId: COOK.staff, deviceId: d.deviceId }) };
+    };
+    const atMain = passOf(main);
+    const atG = passOf('G');
+    const mark = async (p: ReturnType<typeof passOf>, point_id: string) => {
+      seq += 1;
+      const res = await hub.app.inject({
+        method: 'POST',
+        url: '/commands/mark-ready-to-serve',
+        headers: { authorization: `Bearer ${p.device.token}`, 'x-session-token': p.session.token },
+        payload: { command_id: `rp-${seq}`, tenant_id: 'tenant-a', branch_id: 'branch-1', command_type: 'MarkReadyToServe', payload: { order_id: 'OD', point_id }, occurred_at: now(), actor_id: COOK.staff, device_id: p.device.deviceId },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+    };
+    await mark(atMain, main);
+    await mark(atG, 'G');
+    const keys = (hub.deps.db.prepare("SELECT dedupe_key FROM alerts WHERE kind = 'ready_to_serve' AND subject_stream_id = 'OD' ORDER BY raised_seq").all() as Array<{ dedupe_key: string }>).map((r) => r.dedupe_key);
+    expect(keys).toEqual([`OD:${main}:${FX.table}`, `OD:G:${FX.table}`]);
+    // the point Ready events are each point's own: the G Pass is not in Main's audience and vice versa
+    const readies = hub.deps.db.prepare("SELECT * FROM events WHERE event_type = 'ReadyToServe' AND stream_id = 'OD' ORDER BY seq").all() as Array<Record<string, unknown>>;
+    const ev = (row: Record<string, unknown>) => ({ ...row, payload: JSON.parse(row.payload as string) }) as unknown as PosEvent;
+    const ctx = (deviceId: string) => ({ deviceId, deviceType: 'tablet' as const, sessionId: 'x', kind: 'staff' as const, staffId: COOK.staff, stationId: null, asOfSeq: 0 });
+    expect(audienceAllows(ev(readies[0]!), ctx(atMain.device.deviceId))).toBe(true);
+    expect(audienceAllows(ev(readies[0]!), ctx(atG.device.deviceId))).toBe(false);
+    expect(audienceAllows(ev(readies[1]!), ctx(atG.device.deviceId))).toBe(true);
+    expect(audienceAllows(ev(readies[1]!), ctx(atMain.device.deviceId))).toBe(false);
+  });
+});
