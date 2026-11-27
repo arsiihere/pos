@@ -1839,4 +1839,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   // ---- 02b-TK L-CLIENT-5 item 2 (02b v1.0.25 §6.6, §8 02b-R4-3; 03a v1.2.11 PK-5; D1): Customer is here on a pickup token (BoostOrder) ----
   'v.here': 'گاہک آ گیا — ابھی بنائیں', // not in strings-table.md; Urdu to confirm
   'v.here_done': 'کچن اب بنا رہا ہے', // not in strings-table.md; Urdu to confirm
+  // ---- 02b-TK BR-1 (02b v1.0.25 §6.16): after Customer is here, the planned ready time beside the struck-through promise ----
+  'q.ready_planned': 'تقریباً {t} تک تیار', // not in strings-table.md; Urdu to confirm
 };

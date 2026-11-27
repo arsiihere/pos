@@ -100,6 +100,39 @@ export function PickupLine({ q, utcOffsetMs }: { q: Pick<QueueToken, 'pickup_at_
 }
 
 /**
+ * ⚠️ 02b v1.0.25 §6.16 `planned_ready_at_ms` (owner ruling BR-1; 03a PK-5): the token's time — "Ready ~1:35 PM" with
+ * the stored promise struck through beside it when `planned` (plannedReadyOf) is earlier than the promise; otherwise the
+ * promise as before. Nothing without a promise. `stack`: the struck promise on its own line (the token view's fact, so
+ * a wrapped Urdu line never runs into it).
+ */
+export function ReadyTime({ promise, planned, utcOffsetMs, stack = false }: { promise: number | null; planned: number | null | undefined; utcOffsetMs: number; stack?: boolean }) {
+  if (promise === null) return null;
+  if (planned == null || planned >= promise) {
+    return (
+      <span className="time" dir="ltr">
+        {timeText(promise, utcOffsetMs)}
+      </span>
+    );
+  }
+  const [before, after = ''] = t('q.ready_planned').split('{t}');
+  return (
+    <>
+      <span data-planned="" dir="auto">
+        {before}
+        <span className="time" dir="ltr">
+          {timeText(planned, utcOffsetMs)}
+        </span>
+        {after}
+      </span>
+      {stack ? <br /> : ' '}
+      <s className="muted" dir="ltr" data-promise="">
+        {timeText(promise, utcOffsetMs)}
+      </s>
+    </>
+  );
+}
+
+/**
  * ⚠️ 02b-TK L-CLIENT-5 item 3 (02b v1.0.25 §3.3 Day close "57 · 6 Nov", §6.16 `from_date`; DC-2): a carried token's
  * number with its business date ("57 · 27 Nov"); null for a token of the open day.
  */
@@ -212,12 +245,7 @@ function ReadyTile({ q, selected, owed, late, whole, onOpen, onHandOver, onPay }
     </>
   ) : q.part ? (
     <>
-      {t('q.part')}{' '}
-      {q.promise_ms !== null && (
-        <span className="time" dir="ltr">
-          {timeText(q.promise_ms, shell.clock.utcOffsetMs)}
-        </span>
-      )}
+      {t('q.part')} <ReadyTime promise={q.promise_ms} planned={q.planned_ready_at_ms} utcOffsetMs={shell.clock.utcOffsetMs} />
     </>
   ) : (
     t(handable ? 'q.collect' : 'q.collect_pay')
@@ -283,11 +311,7 @@ function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; o
         )}
       </span>
       <span className="tk-qr__r">
-        {q.promise_ms !== null && (
-          <span className="time" dir="ltr">
-            {timeText(q.promise_ms, shell.clock.utcOffsetMs)}
-          </span>
-        )}
+        <ReadyTime promise={q.promise_ms} planned={q.planned_ready_at_ms} utcOffsetMs={shell.clock.utcOffsetMs} />
         <span className={`tk-chip ${q.paid ? 'tk-chip--ok' : 'tk-chip--danger'}`}>{t(q.paid ? 'q.paid' : 'q.due')}</span>
       </span>
     </button>
