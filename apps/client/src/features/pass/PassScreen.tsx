@@ -495,7 +495,8 @@ export function PassScreen() {
                         </div>
                       )}
                       {msg !== null && (
-                        <div className={`pc__msg c-${msg.tone}`}>
+                        // the card's action prompt (Done confirm, hand-over result …), apart from the Due / Ask / amber / hint lines
+                        <div className={`pc__msg pc__act c-${msg.tone}`}>
                           <span>{msg.text}</span>
                         </div>
                       )}
