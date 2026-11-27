@@ -153,9 +153,23 @@ export const PointOrderMetaSchema = z.object({
 });
 export type PointOrderMeta = z.infer<typeof PointOrderMetaSchema>;
 
+// ⚠️ 03b v1.0.16 §6.15, §6.16 (run 3 R3-M-3): a Pass card station in the `point_view` shape: the point's active default
+// stations and every station a listed line is on (routed ones too).
+export const PointStationSchema = z.object({
+  station_id: Id,
+  name: z.string(),
+  lanes: z.object({ lanes_on: z.number().int().min(1).nullable(), lane_count: z.number().int().min(1) }),
+  dark: z.boolean(),
+  screenless: z.boolean(),
+});
+export type PointStation = z.infer<typeof PointStationSchema>;
+
 export const WsPointLines = z.object({
   type: z.literal('point_lines'),
   point_id: Id,
+  // ⚠️ 03b v1.0.16 §6.16 (run 3 R3-M-3): additive; station upserts the client applies before `lines` (cards only; the
+  // takeover frames keep the effective default); absent from an older hub
+  stations: z.array(PointStationSchema).optional(),
   lines: z.array(
     LineDetailSchema.extend({
       group_id: Id,

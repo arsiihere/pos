@@ -229,6 +229,20 @@ describe('ws', () => {
     expect(WsServerMessage.safeParse({ type: 'kds_lines', station_id: 'S1', lines: [detail] }).success).toBe(true);
   });
 
+  it('[03b #126 R3-M-3] point_lines may carry station upserts in the point_view shape; absent from an older hub', () => {
+    const line = { ...detail, group_id: 'O1:0', serve_mode: 'sync' };
+    const station = { station_id: 'S_K', name: 'Karahi', lanes: { lanes_on: 2, lane_count: 2 }, dark: false, screenless: true };
+    const frame = { type: 'point_lines', point_id: 'TA', stations: [station], lines: [line] };
+    expect(WsServerMessage.parse(frame)).toEqual(frame);
+    expect(WsServerMessage.parse({ type: 'point_lines', point_id: 'TA', lines: [line] })).not.toHaveProperty('stations');
+    expect(WsServerMessage.safeParse({ ...frame, stations: [{ ...station, lanes: { lanes_on: null, lane_count: 0 } }] }).success).toBe(false);
+    for (const key of Object.keys(station)) {
+      const rest: Record<string, unknown> = { ...station };
+      delete rest[key];
+      expect(WsServerMessage.safeParse({ ...frame, stations: [rest] }).success, key).toBe(false);
+    }
+  });
+
   it('[03b §3.6, §6.14, §6.16] station_takeover: active with the kds_station body as view, inactive without', () => {
     const view = {
       station_id: 'S1',

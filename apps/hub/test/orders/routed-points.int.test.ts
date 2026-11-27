@@ -174,7 +174,7 @@ describe('[03b #129] two dine-in-only points tie: each line to its own default; 
 });
 
 describe('[03b #126] the routed point\'s Pass views and Ready', () => {
-  it('TA / Main point views show their own routed Karahi lines; a Ready at TA sets readyAtOf, reaches TA\'s Pass, and its 2× step goes to the staff at TA\'s Pass, not Main\'s; the station view stays at Main', async () => {
+  it('TA / Main point views show their own routed Karahi lines and TA lists Karahi\'s station metadata; a Ready at TA sets readyAtOf, reaches TA\'s Pass, and its 2× step goes to the staff at TA\'s Pass, not Main\'s; the station view stays at Main', async () => {
     const { cookDirectory, pairPassTablet, COOK } = await import('../kds/fixtures');
     const { pointViewBody } = await import('../../src/ws/point-catch-up');
     const { readyAtOf } = await import('../../src/kds/exports');
@@ -193,9 +193,13 @@ describe('[03b #126] the routed point\'s Pass views and Ready', () => {
     const idsAt = (point: string) => pointViewBody(hub.deps.db, engine(), point, now()).orders.flatMap((o) => o.lines.map((l) => l.order_item_id));
     expect(idsAt('TA')).toEqual(['LT']);
     expect(idsAt(main)).toEqual(['LD']);
-    // the station's own metadata stays with its default point (Main): TA lists no station of its own
+    // R3-M-3: Main lists its default station; TA lists the station its routed line is on (Karahi, default Main), with
+    // its name, lanes and screenless state, not dark (takeovers stay with the default point)
+    const karahiStation = engine().lines.LT!.station_id;
     expect(pointViewBody(hub.deps.db, engine(), main, now()).stations.map((s) => s.station_id)).toContain(config.stations[0]!.station_id);
-    expect(pointViewBody(hub.deps.db, engine(), 'TA', now()).stations).toEqual([]);
+    expect(pointViewBody(hub.deps.db, engine(), 'TA', now()).stations).toEqual([
+      { station_id: karahiStation, name: config.stations.find((s) => s.station_id === karahiStation)!.name, lanes: { lanes_on: 1, lane_count: 1 }, dark: false, screenless: true },
+    ]);
     // cook LT and mark it Ready at TA
     const st = engine().lines.LT!.station_id;
     hub.deps.writer.run((tx) =>

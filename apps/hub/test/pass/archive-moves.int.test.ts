@@ -329,3 +329,81 @@ describe('[03b #130] routing and carry edits on a hidden TA line with an alterna
     expect(withoutDiagnostics(restored)).toEqual(withoutDiagnostics(engine()));
   });
 });
+
+// ---- 02b-tk L-CLOSE-4: 03b v1.0.16 §6.15, §6.16 R3-M-3, test 126 (live part) ----
+
+describe('[03b #126 R3-M-3] live station metadata on a routed point', () => {
+  it('a connected, empty TA Pass: the first point_lines of a routed takeaway brings Karahi\'s station before its line; an engine move to the alternate brings the alternate station and the line again; one settings read per commit', async () => {
+    const { pairDevice } = await import('../kds/fixtures');
+    const { openSession } = await import('../helpers/test-hub');
+    /** S1 (default Main, non-FIFO) with S2 as its takeaway alternate; TA takes takeaway; `move` makes S2 the home and reserves all of S1. */
+    const cfg = (version: number, move = false): BranchConfig => {
+      const m = menu(version, { s1Point: 'MAIN' });
+      return {
+        ...m,
+        stations: m.stations.map((st) => ({
+          ...st,
+          policy: 'waada_guard' as const,
+          ...(st.station_id === FX.station
+            ? { ...(move ? { capacity: 1, reserve_units: 1 } : {}), alternates: [{ station_id: FX.zoneStation, order_types: ['takeaway' as const], home_for_order_types: move ? ['takeaway' as const] : [] }] }
+            : {}),
+        })),
+      };
+    };
+    const pass = await signInCook(hub, { pointId: 'TA' });
+    openDay(hub, { menu: cfg(1) });
+    const ws = await connectWs(hub.app);
+    sockets.push(ws);
+    ws.send({ type: 'auth', device_token: pass.token, session_token: pass.sessionToken });
+    await ws.untilCount(1);
+    expect(((ws.messages[0] as { state: { point_view: { stations: unknown[]; orders: unknown[] } } }).state.point_view)).toMatchObject({ stations: [], orders: [] });
+    const frames = () => ws.messages.filter((m) => (m as { type?: string }).type === 'point_lines') as Array<{ stations?: Array<{ station_id: string; name: string; dark: boolean; screenless: boolean }>; lines: Array<{ order_item_id: string; station_id: string }> }>;
+    const nameOf = (id: string) => branchConfig()!.stations.find((s) => s.station_id === id)!.name;
+
+    const device = pairDevice(hub, { type: 'tablet' });
+    const session = openSession(hub, { kind: 'staff', staffId: 'S_MGR', deviceId: device.deviceId });
+    // a spy on the KDS settings read (SETTINGS_SQL), counted per run
+    const settingsRuns: string[] = [];
+    const prepare = hub.deps.db.prepare.bind(hub.deps.db);
+    hub.deps.db.prepare = ((sql: string) => {
+      const st = prepare(sql);
+      if (sql.includes('kds_station_settings')) {
+        const all = st.all.bind(st);
+        st.all = ((...args: unknown[]) => {
+          settingsRuns.push(sql);
+          return all(...(args as []));
+        }) as typeof st.all;
+      }
+      return st;
+    }) as typeof hub.deps.db.prepare;
+    const submit = await hub.app.inject({
+      method: 'POST',
+      url: '/commands/submit-order',
+      headers: { authorization: `Bearer ${device.token}`, 'x-session-token': session.token },
+      payload: { command_id: 'c126', tenant_id: 'tenant-a', branch_id: BRANCH, command_type: 'SubmitOrder', payload: { order_id: 'O126', order_type: 'takeaway', pickup_at_ms: hub.clock.branchNow() + 7_200_000, lines: [{ order_item_id: 'K1', item_id: FX.naan, quantity: 1 }] }, occurred_at: hub.clock.branchNow(), actor_id: 'S_MGR', device_id: device.deviceId },
+    });
+    expect(submit.statusCode, submit.body).toBe(200);
+    await ws.untilCount(2);
+    hub.deps.db.prepare = prepare as typeof hub.deps.db.prepare;
+    expect(settingsRuns, 'one shared settings read in the commit').toHaveLength(1);
+    expect(engine().lines.K1).toMatchObject({ station_id: FX.station, point_id: 'TA' });
+    const first = frames()[0]!;
+    expect(Object.keys(first).indexOf('stations')).toBeLessThan(Object.keys(first).indexOf('lines'));
+    expect(first.stations).toEqual([{ station_id: FX.station, name: nameOf(FX.station), lanes: { lanes_on: 1, lane_count: 1 }, dark: false, screenless: true }]);
+    expect(first.lines.map((l) => [l.order_item_id, l.station_id])).toEqual([['K1', FX.station]]);
+
+    // the engine moves K1 to its alternate (a capacity re-plan): the alternate's station and K1's details again
+    const before = frames().length;
+    expect((await apply(cfg(2, true))).outcome).toBe('applied');
+    expect(engine().lines.K1).toMatchObject({ station_id: FX.zoneStation, point_id: 'TA' });
+    await new Promise((r) => setTimeout(r, 30));
+    const later = frames().slice(before);
+    expect(later).toHaveLength(1);
+    expect(later[0]!.stations).toEqual([{ station_id: FX.zoneStation, name: nameOf(FX.zoneStation), lanes: { lanes_on: 1, lane_count: 1 }, dark: false, screenless: true }]);
+    expect(later[0]!.lines.map((l) => [l.order_item_id, l.station_id])).toEqual([['K1', FX.zoneStation]]);
+    // a commit that references nothing new sends no station again
+    hub.deps.writer.run((tx) => tx.append([{ stream_type: 'order', stream_id: 'O126', event_type: 'OrderBoosted', schema_version: 1, payload: { order_id: 'O126' }, occurred_at: hub.clock.branchNow(), actor_id: null, device_id: 'hub' }]));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(frames().slice(before + 1).every((f) => f.stations === undefined)).toBe(true);
+  });
+});
