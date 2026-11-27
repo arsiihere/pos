@@ -1390,3 +1390,84 @@ describe('[02b #82] [03c #65] SubmitOrder takeaway.print_slip (§3.2 step 10a)',
     expect((await submit(cashier, takeaway('Q3', [item('Q3a', FX.naan)], { takeaway: payLater }))).result!.slip).toMatchObject({ printed: false, skipped: 'setting_off' });
   });
 });
+
+// ---- 02b-tk L-CLOSE-2: 02b / 03c clause gaps (tests 02b 60, 64, 82; 03c 62, 65) ------------------------------------
+
+describe('[02b #60 #64 #82] [03c #62 #65] SubmitOrder clause gaps', () => {
+  function routeDefault(): void {
+    const at = hub.clock.branchNow();
+    hub.deps.writer.run((tx) =>
+      tx.append([
+        { stream_type: 'hub', stream_id: 'branch-1', event_type: 'PrinterSaved', schema_version: 1, payload: { printer_id: 'PR_DEF', name: 'Counter', connection: 'lan', address: '192.168.1.60:9100', paper_width_mm: 80, archived: false }, occurred_at: at, actor_id: null, device_id: 'hub' },
+        { stream_type: 'hub', stream_id: 'branch-1', event_type: 'BillRouteSet', schema_version: 1, payload: { scope: 'default', ref_id: '', printer_id: 'PR_DEF' }, occurred_at: at, actor_id: null, device_id: 'hub' },
+      ] as EventDraft[]),
+    );
+  }
+  const slipJobs = () => hub.deps.db.prepare("SELECT order_id, payload FROM print_jobs WHERE kind = 'document' AND json_extract(payload, '$.kind_label') = 'Token slip' ORDER BY rowid").all() as Array<{ order_id: string; payload: string }>;
+  const readyLine = (payload: string) => (JSON.parse(payload) as { doc: { blocks: Array<{ text?: string }> } }).doc.blocks.map((b) => b.text).find((t) => t?.startsWith('Ready around')) ?? null;
+
+  it('[02b #60] pickup_at_ms on parking → 400 at path pickup_at_ms (takeaway_only); after_day_end appends nothing', async () => {
+    await setUp();
+    const cashier = signIn('S_CASHIER');
+    const at = hub.clock.branchNow();
+    const park = await submit(cashier, { order_id: 'K1', order_type: 'parking', parking: { car_number: 'LEB-1', car_type: 'sedan' }, pickup_at_ms: at + 3_600_000, lines: [item('LK', FX.naan)] });
+    expect(park.error).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'pickup_at_ms', message: 'takeaway_only' }] } });
+    const before = eventCount();
+    const late = await submit(cashier, takeaway('L1', [item('LL', FX.naan)], { pickup_at_ms: at + 72 * 3_600_000 }));
+    expect(late.error).toMatchObject({ code: 'PICKUP_TIME_INVALID', details: { reason: 'after_day_end' } });
+    expect(eventCount()).toBe(before);
+  });
+
+  it('[02b #64] a 14-digit phone (00923001234567) is refused at validation', async () => {
+    await setUp();
+    const r = await submit(signIn('S_CASHIER'), takeaway('P1', [item('LP', FX.naan)], { takeaway: { phone: '00923001234567' } }));
+    expect(r.status).toBe(400);
+    expect(r.error?.code).toBe('VALIDATION_FAILED');
+    expect(JSON.stringify(r.error!.details)).toContain('takeaway.phone');
+  });
+
+  it('[02b #82] the hook runs once per submit (one slip job); a refused submit after the slip check rolls the job back with the order', async () => {
+    await setUp();
+    routeDefault();
+    const cashier = signIn('S_CASHIER');
+    const r = await submit(cashier, takeaway('H1', [item('H1a', FX.naan)], { takeaway: { print_slip: true } }));
+    expect(r.result!.slip).toMatchObject({ printed: true });
+    expect(slipJobs()).toHaveLength(1);
+    // the same order id again: refused (ids in use) — nothing new, the slip job count unchanged
+    const again = await submit(cashier, takeaway('H1', [item('H1b', FX.naan)], { takeaway: { print_slip: true } }));
+    expect(again.status).toBe(409);
+    expect(slipJobs()).toHaveLength(1);
+  });
+
+  it('[03c #62] SubmitOrder with the flag, then PrintTakeawaySlip pay_later → already_printed', async () => {
+    await setUp();
+    routeDefault();
+    const cashier = signIn('S_CASHIER');
+    expect((await submit(cashier, takeaway('D1', [item('D1a', FX.naan)], { takeaway: { print_slip: true } }))).result!.slip).toMatchObject({ printed: true });
+    const res = await hub.app.inject({
+      method: 'POST',
+      url: '/commands/print-takeaway-slip',
+      headers: { authorization: `Bearer ${cashier.token}`, 'x-session-token': cashier.sessionToken },
+      payload: { command_id: 'slip-dup', tenant_id: 'tenant-a', branch_id: 'branch-1', command_type: 'PrintTakeawaySlip', payload: { order_id: 'D1', reason: 'pay_later' }, occurred_at: hub.clock.branchNow(), actor_id: cashier.staffId, device_id: cashier.deviceId },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as { data: { result: unknown } }).data.result).toEqual({ printed: false, job_id: null, skipped: 'already_printed' });
+  });
+
+  it('[03c #65] the submit slip\'s Ready line equals a reprint right after commit (same minute)', async () => {
+    await setUp();
+    routeDefault();
+    const cashier = signIn('S_CASHIER');
+    expect((await submit(cashier, takeaway('R1', [item('R1a', FX.naan)], { takeaway: { print_slip: true } }))).result!.slip).toMatchObject({ printed: true });
+    const res = await hub.app.inject({
+      method: 'POST',
+      url: '/commands/print-takeaway-slip',
+      headers: { authorization: `Bearer ${cashier.token}`, 'x-session-token': cashier.sessionToken },
+      payload: { command_id: 'slip-re', tenant_id: 'tenant-a', branch_id: 'branch-1', command_type: 'PrintTakeawaySlip', payload: { order_id: 'R1', reason: 'reprint' }, occurred_at: hub.clock.branchNow(), actor_id: cashier.staffId, device_id: cashier.deviceId },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const [onSubmit, reprint] = slipJobs();
+    expect(readyLine(onSubmit!.payload)).not.toBeNull();
+    expect(readyLine(reprint!.payload)).toBe(readyLine(onSubmit!.payload));
+  });
+});

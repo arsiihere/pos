@@ -13,7 +13,7 @@ interface TakeawaySlipInput {
   date_text: string;
 }
 
-function printableBranchName(name: string): string | null {
+export function printableBranchName(name: string): string | null {
   const trimmed = name.trim().normalize('NFC');
   if (trimmed === '') return null;
   const letters = trimmed.match(/\p{L}/gu) ?? [];

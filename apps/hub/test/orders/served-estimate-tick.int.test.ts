@@ -262,24 +262,31 @@ describe('[02b #76 #77] [03b #124] served_estimate skips takeaway; parking keeps
     const who = await seed();
     const t = appendOrder(hub, { order_type: 'takeaway', lines: naans(['T1']) }).order_id;
     const p = parking(naans(['P1']));
+    // the dine-in counterpart of the same fixture (02b test 76): estimate-served as before
+    const { openSeating } = await import('../kds/fixtures');
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT76' });
+    const d = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT76', lines: naans(['D1']) }).order_id;
     append(hub, [on(t, 'OrdersBilled', { order_ids: [t], bill_id: 'BL1' }), on(p, 'OrdersBilled', { order_ids: [p], bill_id: 'BL2' })]);
     cook(t, ['T1']);
     cook(p, ['P1']);
+    cook(d, ['D1']);
     await handover(who, t);
     await handover(who, p);
+    await handover(who, d);
     hub.clock.advance(ESTIMATE);
 
     const run = pass();
     expect(run).toMatchObject({ due: true, dueStatements: 2, intentStatements: 3 });
-    expect(run.events.filter((e) => e.event_type === 'ItemServed').map((e) => e.stream_id)).toEqual([p]);
+    expect(run.events.filter((e) => e.event_type === 'ItemServed').map((e) => e.stream_id).sort()).toEqual([p, d].sort());
+    expect(servedRow('D1').served_source).toBe('estimated');
     expect(servedRow('P1').served_source).toBe('estimated');
     expect(servedRow('T1').served_at).toBeNull();
     // only the takeaway's hand-over is left: not due (it never fills the tick's slots)
     hub.clock.advance(3_600_000);
     expect(pass()).toMatchObject({ due: false, dueStatements: 1 });
-    expect(openOrderRows(hub.deps.db, 'all').map((r) => r.order_id)).toEqual([t]);
+    expect(openOrderRows(hub.deps.db, ['takeaway', 'parking']).map((r) => r.order_id)).toEqual([t]);
     const part = ordersCatchUpPart().build(hub.deps.db, engine(), { deviceId: 'D1', deviceType: 'tablet', sessionId: 'X', kind: 'staff', staffId: COOK.staff, stationId: null, asOfSeq: 0 }) as { orders: Array<{ order_id: string }> };
-    expect(part.orders.map((o) => o.order_id)).toEqual([t]);
+    expect(part.orders.map((o) => o.order_id).filter((id) => id !== d)).toEqual([t]);
   });
 
   it('[02b #77] a paid takeaway handed Pass → counter keeps a non-null ready_at and stays listed; the counter\'s MarkServed of every line → gone', async () => {

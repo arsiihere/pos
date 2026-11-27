@@ -488,3 +488,17 @@ describe('[02b #62 #78] eta-preview pickup_at_ms and pickup_bounds (§6.14 v1.0.
     expect(r).toMatchObject({ status: 422, error: { code: 'PICKUP_TIME_INVALID', details: { reason: 'no_time_left' } } });
   });
 });
+
+describe('[02b #62] eta-preview with no open day (§6.14 step 1)', () => {
+  it('409 BUSINESS_DAY_NOT_OPEN, 0 statements, nothing appended', async () => {
+    await setUp();
+    const who = signIn();
+    append({ stream_type: 'hub', stream_id: 'branch-1', event_type: 'BusinessDayClosed', payload: {} });
+    const before = eventCount();
+    const counter = statementCounter(hub.deps.readDb); // the query's connection (as the #33 preview count)
+    const r = await preview(who, takeaway([line('K1', FX.naan)]));
+    expect([r.status, r.error!.code]).toEqual([409, 'BUSINESS_DAY_NOT_OPEN']);
+    expect(counter.count).toBe(0);
+    expect(eventCount()).toBe(before);
+  });
+});

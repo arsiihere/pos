@@ -97,7 +97,7 @@ export function queueTakeawaySlipOnSubmit(tx: WriterTx, input: SubmitSlipInput, 
       }
       slipHookTestHooks.beforeBuild?.();
       const ready_at = readyAtSubmit(tx.state as EngineState, earlier, input.groups, root.pickup_at_ms);
-      const doc = slipDoc(deps.config, tx.clock, { reprint: false, token: input.token, root, ready_at }, printer.paper_width_mm);
+      const doc = slipDoc(deps.config, tx.clock, { reprint: false, token: input.token, root, ready_at }, printer.paper_width_mm, deps.log);
       const { job_id } = queueSlipJob(tx, printer.printer_id, doc, root.order_id);
       return { printed: true, job_id, skipped: null };
     })();
