@@ -1725,6 +1725,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'lock.title': 'الرٹس',
   'lock.sign_in': 'تفصیل دیکھنے کے لیے سائن اِن کریں', // QA-R2 BUG-16; Urdu to confirm
   'c.pick_late': 'باورچی خانہ {can} تک بنا سکتا ہے، {asked} تک نہیں', // QA-R2 BUG-16; Urdu to confirm
+  'shell.signin.late': '{n} دیر سے', // QA-R2 BUG-26; Urdu to confirm
+  'shell.signin.new': '{n} نئے', // QA-R2 BUG-26; Urdu to confirm
   'shell.me.signout': 'سائن آؤٹ',
   'shell.me.signout_sub': 'نہ بھیجے آرڈر پہلے ہولڈ ہوں گے',
   'shell.day.closed': 'دن شروع نہیں ہوا — آرڈر نہیں جا سکتے، وقت نہیں دکھ سکتا',

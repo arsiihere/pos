@@ -4379,6 +4379,8 @@ export const en = {
   'shell.me.lock_sub': 'Your orders stay as they are',
   'shell.me.shift': 'My shift',
   'shell.me.language': 'Language',
+  'shell.signin.late': '{n} running late',
+  'shell.signin.new': '{n} new',
   'shell.me.signout': 'Sign out',
   'shell.me.signout_sub': 'Unsent orders are held first',
   'shell.day.closed': 'Day not started — orders can’t be sent and times can’t show',

@@ -51,6 +51,7 @@ import { canStartDay } from './orders/order-screen/DayNotStarted';
 import { money } from './orders/money';
 import { ShellContext, type Shell } from './shell/hooks';
 import { createLiveBus } from './shell/live';
+import { signInSummary } from './shell/signin-summary';
 import { createPermissions } from './shell/permissions';
 import { pendingVoidsOf } from '../voids/pending';
 import { PHONE_QUERY, PORTRAIT_QUERY } from './shell/layout';
@@ -267,6 +268,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   // 01d v1.3.2 §3.13.3 (#253 review): every alert id seen closed by an alert_closed frame in this session, read
   // synchronously by a tap's state re-read (a request known only from requests-to-answer leaves that list on close)
   const closedSeen = useRef(new Set<string>());
+  // ⚠️ 02b v1.0.28 QK-8 (BUG-26): this sign-in's hub time and whether its summary toast was shown
+  const caughtUp = useRef<ReadonlySet<string> | null>(null);
+  const summaryShown = useRef(false);
 
   const api = useMemo(() => createStaffApi({ device, meta, fetch: hubFetch, onSignedOut: () => signOutRef.current() }), [device, meta, hubFetch]);
   // 02 shell services (W0.6)
@@ -318,6 +322,11 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       onAlert(view) {
         store.onAlert(view);
         if (view.kind === 'void_approval' || view.kind === 'request_result') reloadVoids();
+      },
+      onCatchUp(rows) {
+        store.onCatchUp(rows);
+        // ⚠️ 02b v1.0.28 QK-8 (BUG-26): the first catch-up after a sign-in is what was waiting; its rows fold into the summary
+        if (caughtUp.current === null) caughtUp.current = new Set(rows.map((r) => r.alert_id));
       },
       onClosed(frame) {
         closedSeen.current.add(frame.alert_id);
@@ -557,6 +566,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     conn.setSession(who.session_token);
     setInboxLoading(true);
     setMe({ staffId: who.staff_id, name: who.display_name, allowed: new Set(), permissions: null, idleTtlMs: who.idle_ttl_ms });
+    // ⚠️ 02b v1.0.28 QK-8 (BUG-26): what was raised before this sign-in folds into one summary toast
+    caughtUp.current = null;
+    summaryShown.current = false;
     // §3.7: a sign-in refreshes the header; the hub's own deadline (session end + 2 h) replaces this one when it sends it
     setBoundName(who.display_name);
     setBindingUntil(clock.nowMs() + ALERT_CONSTANTS.binding_route_idle_ms);
@@ -1305,6 +1317,14 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         {t('alerts.hub_offline')}
       </span>
     );
+  // ⚠️ 02b v1.0.28 QK-8 (BUG-26): the banners raised before this sign-in → one summary toast (tap → Inbox), not a stack
+  const summary = signInSummary(me === null ? [] : snap.banners, me === null ? null : caughtUp.current);
+  const freshBanners = summary.folded.size === 0 ? snap.banners : snap.banners.filter((b) => !summary.folded.has(b.alert_id));
+  useEffect(() => {
+    if (summary.text === null || summaryShown.current) return;
+    summaryShown.current = true;
+    toasts.show({ text: summary.text, tone: 'warn', action: { label: t('alerts.nav.inbox'), run: () => navigate('/inbox') } });
+  }, [summary.text, toasts]);
   const lang = language();
   // ⚠️ 02b v1.0.28 QK-3: a language picked in the person menu re-renders the page (its root is keyed by the language)
   const [, setLangTick] = useState(0);
@@ -1515,7 +1535,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       {page}
       {phone && me !== null && <PhoneTabs tabs={tabs} current={currentTab} />}
       {me !== null && opened === null && (
-        <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} counterScreens={profileScreens} onOpen={(r) => tap(r, 'banner')} onOpenInbox={() => navigate('/inbox')} />
+        <Banners banners={freshBanners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} counterScreens={profileScreens} onOpen={(r) => tap(r, 'banner')} onOpenInbox={() => navigate('/inbox')} />
       )}
       {me !== null && sheetRow !== null &&
         (isRequest(sheetRow) ? (
