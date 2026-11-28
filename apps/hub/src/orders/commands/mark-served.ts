@@ -263,9 +263,18 @@ function handedOverCloses(
   lines: ReadonlyMap<string, readonly LineView[]>,
   serves: readonly ServeEntry[],
 ): EventDraft[] {
-  const handed = new Set(servesLast(lines, serves).filter((s) => orders.get(s.order_id)!.order_type !== 'dine_in').map((s) => `${HAND_OVER_UNPAID}:${s.order_id}`));
+  const handedIds = servesLast(lines, serves).filter((s) => orders.get(s.order_id)!.order_type !== 'dine_in').map((s) => s.order_id);
+  const handed = new Set(handedIds.map((id) => `${HAND_OVER_UNPAID}:${id}`));
   if (handed.size === 0) return [];
-  const hits = alerts.listOpen(ctx.tx.db, { kind: HAND_OVER_UNPAID }).filter((a) => handed.has(a.dedupe_key));
+  // ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9): a bill's request (values.order_ids) closes when this send hands over any order it
+  // covers (the rest of that bill asks again, as a new request)
+  const ids = new Set(handedIds);
+  const covers = (v: unknown): boolean => {
+    const o = (v ?? {}) as { order_id?: unknown; order_ids?: unknown };
+    const list = Array.isArray(o.order_ids) ? o.order_ids : [o.order_id];
+    return list.some((id) => typeof id === 'string' && ids.has(id));
+  };
+  const hits = alerts.listOpen(ctx.tx.db, { kind: HAND_OVER_UNPAID }).filter((a) => handed.has(a.dedupe_key) || (a.dedupe_key?.startsWith(`${HAND_OVER_UNPAID}:bill:`) === true && covers(a.values)));
   return hits.length === 0 ? [] : alerts.closeMany(ctx, hits.map((a) => ({ alert_id: a.alert_id, reason: 'obsolete' as const, note: 'handed_over' })));
 }
 

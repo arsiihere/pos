@@ -3,10 +3,10 @@ import type { BranchConfig, ConfigItem } from '@pos/events';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { navigate } from '../../../../app/router';
 import { language, t } from '../../../../i18n';
-import { fill } from '../../../../i18n/en';
+import { errorKey, fill } from '../../../../i18n/en';
 import { Ico, Ring } from '../../../alerts/ui';
 import { timeText } from '../../../alerts/labels';
-import { useShell } from '../../shell/hooks';
+import { useShell, type Shell } from '../../shell/hooks';
 import { orderHref, tableHref } from '../../shell/routes';
 import { LockBanner } from '../../tables/lock/LockBanner';
 import { useTableLock } from '../../tables/lock/useTableLock';
@@ -41,7 +41,7 @@ import {
 import { Cart, CartList, SendBar } from './Cart';
 import type { LineView } from './CartLine';
 import { MenuPills, MenuRail, type RailCategory } from './MenuRail';
-import { MenuTiles, itemSub, offToast, variantsSub, type TakeawayTileActions, type TileModel } from './MenuTiles';
+import { MenuTiles, TilePlaceholder, itemSub, offToast, variantsSub, type TakeawayTileActions, type TileModel } from './MenuTiles';
 import { groupsOf } from '../sheets/preselect';
 import { DealSheet } from '../sheets/DealSheet';
 import { NoteSheet, ORDER_NOTE_MAX } from '../sheets/NoteSheet';
@@ -181,6 +181,20 @@ function editable(target: EventTarget | null): boolean {
 }
 
 /** The variant group tile: orderable when any variant is; else the first variant's state. */
+/** L-CLIENT-6a item 9: the sent toast's Print again — `PrintTakeawaySlip { reason: 'reprint' }` (03c §3.11). */
+async function reprintSlip(shell: Shell, order_id: string): Promise<void> {
+  const answer = await shell.api.command<{ printed: boolean; skipped: string | null }>('PrintTakeawaySlip', { order_id, reason: 'reprint' });
+  if (!answer.ok) return shell.toasts.show({ text: answer.error.kind === 'api' ? t(errorKey(answer.error.code)) : t('tables.toast.needs_hub'), tone: 'warn' });
+  if (answer.data.printed) {
+    slipMissesOf(shell).clear([order_id]);
+    return shell.toasts.show({ text: t('takeaway.slip.printing'), tone: 'ok' });
+  }
+  shell.toasts.show({ text: t(answer.data.skipped === 'setting_off' ? 'takeaway.slip.off' : 'takeaway.slip.no_printer'), tone: 'warn' });
+}
+
+/** L-CLIENT-6a item 9: how long "Your unsent order is back" stays (a toast's 4 s and a little more to read it). */
+const DRAFT_BACK_MS = 6_000;
+
 function bestOf(states: ItemAvailability[]): ItemAvailability {
   return states.find((s) => s.orderable) ?? states[0]!;
 }
@@ -330,6 +344,12 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   cartRef.current = cart;
   const [restored, setRestored] = useState(false);
   const [back, setBack] = useState<number | null>(null);
+  // L-CLIENT-6a item 9: "Your unsent order is back" goes by itself, as a toast does (OK still closes it at once)
+  useEffect(() => {
+    if (back === null) return;
+    const timer = setTimeout(() => setBack(null), DRAFT_BACK_MS);
+    return () => clearTimeout(timer);
+  }, [back]);
   // one draft per (device, person, order): a dine-in seating's own, or the new order's draft id (the route's)
   const draftId = useRef<string>(id);
   const staffId = shell.me?.staff_id ?? null;
@@ -743,6 +763,11 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   /** 02b-TK A2 item 3 (frame TileStates "Tandoor paused"): the paused station's name */
   const stationName = (a: ItemAvailability): string | null => (a.state.kind !== 'paused' ? null : (config.stations.find((st) => st.station_id === (a.state as { station_id: string }).station_id)?.name ?? null));
   const tiles: TileModel[] = [];
+  // L-CLIENT-6a (frame HomeKiosk): the takeaway tile's placeholder follows its category
+  const catOf = (category_id: string) => {
+    const index = categories.findIndex((c) => c.category_id === category_id);
+    return index < 0 ? null : { name: categories[index]!.name, index };
+  };
   const seenGroups = new Set<string>();
   for (const item of [...config.items].sort((a, b) => a.sort_order - b.sort_order)) {
     if (item.variant_group_id !== null) {
@@ -764,6 +789,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         availability: groupAvail,
         zone: null,
         in_cart: variants.reduce((n, v) => n + unitsOf(cart, v.item_id), 0),
+        category: catOf(item.category_id),
         // 02b-TK A2 item 3: Half / Full on the tile (takeaway)
         ...(order_type !== 'takeaway'
           ? {}
@@ -788,6 +814,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       zone: z === null ? null : { on_hand: z.on_hand, zone_name: zone?.name ?? null },
       in_cart: unitsOf(cart, item.item_id),
       station_name: stationName(avail(item.item_id)),
+      category: catOf(item.category_id),
     });
   }
   for (const deal of [...config.deals].sort((a, b) => a.sort_order - b.sort_order)) {
@@ -803,6 +830,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       availability: inputs === null ? { state: { kind: 'ok' }, orderable: true, cap: null } : dealAvailability(deal.deal_id, inputs),
       zone: null,
       in_cart: cart.lines.filter((l) => l.deal_id === deal.deal_id).reduce((n, l) => n + (l.quantity ?? 0), 0),
+      category: catOf(deal.category_id),
     });
   }
   const newKey = () => newUlid();
@@ -943,10 +971,16 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         if (slipMissed(slip)) slipMissesOf(shellRef.current).mark(payload.order_id);
         const slipText = slip?.printed === true ? t('takeaway.slip.printing') : slipMissed(slip) ? t('takeaway.slip.not_printed') : null;
         const sub = [moved === null ? null : fill(t('send.time_updated'), { item: moved.name, time: timeText(moved.eta_ms, shellRef.current.clock.utcOffsetMs) }), slipText].filter((x) => x !== null).join(' · ');
+        // L-CLIENT-6a item 9 (frame SentToast): the token big at the toast's start; a pay-later token whose slip went to
+        // the printer offers Print again (03c §3.11 reprint, as the token view's Print token)
+        const sentId = payload.order_id;
+        const reprint = !andPay && r?.token != null && slip !== null && (slip.printed || slipMissed(slip));
         shellRef.current.toasts.show({
           text: sentToastText(r, shownName, shellRef.current.clock.utcOffsetMs),
           ...(sub === '' ? {} : { sub }),
           tone: 'ok',
+          ...(r?.token == null ? {} : { token: String(r.token) }),
+          ...(reprint ? { action: { label: t('t.print'), run: () => void reprintSlip(shellRef.current, sentId) } } : {}),
         });
       } else {
         // queued (the hub is not answering): no payment now — the order stays Due (05 B12)
@@ -1098,6 +1132,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     ready_by: ready,
     // ⚠️ 02b-TK L-CLIENT-5 item 1 (frame PickupLater `.tk-readyby--later`): a pickup's Ready by is "Kitchen times it for"
     readyLater: order_type === 'takeaway' && cart.pickup !== undefined,
+    offline: !shell.online,
+    note: cart.order_note,
     // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28, QA BUG-5; 03a v1.2.12 PK-2): the kitchen cannot make the asked pickup — say
     // so before Send; the order keeps the asked pickup (PQ-1)
     pickupLate: order_type === 'takeaway' && cart.pickup !== undefined && ready !== null && ready > cart.pickup.at_ms ? { can_ms: ready, asked_ms: cart.pickup.at_ms } : null,
@@ -1255,7 +1291,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     <section className="menu">
       <div className="tk-ksearch">
         <label className="search" role="search">
-          <Ico name="eye" />
+          <Ico name={order_type === 'takeaway' ? 'search' : 'eye'} />
           <input
             ref={searchRef}
             type="search"
@@ -1283,6 +1319,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
                   addKey(e);
                 }}
               >
+                {/* L-CLIENT-6a (frame KeyboardMode): each suggestion with its tile's placeholder */}
+                <TilePlaceholder category={catOf(e.kind === 'deal' ? (config.deals.find((d) => d.deal_id === e.id)?.category_id ?? '') : (config.items.find((i) => i.item_id === e.id)?.category_id ?? ''))} />
                 <b>
                   <span className="num" dir="ltr">
                     {qty}×
@@ -1301,13 +1339,14 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           </div>
         )}
       </div>
-      {(tabletTakeaway || shell.phone || shell.portrait) && <MenuPills categories={rail} current={current} onPick={setCategory} />}
+      {/* L-CLIENT-6a item 2 (frames HomeKiosk, HomeRush): the takeaway's sections are a chip row on every device */}
+      {(book !== null || shell.phone || shell.portrait) && <MenuPills categories={rail} current={current} onPick={setCategory} />}
       <MenuTiles
         tiles={tiles}
         onTap={onTap}
         tk={tk}
         rush={dense}
-        wait={order_type === 'takeaway' && (shell.phone || shell.portrait) ? (shell.online ? 'live' : 'offline') : undefined}
+        wait={order_type === 'takeaway' ? (shell.online ? 'live' : 'offline') : undefined}
       />
       {order_type === 'takeaway' && kiosk && (
         <div className="tk-hint">
@@ -1533,7 +1572,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       <div className={['osc', book && 'osc--tk', dense && 'osc--rush', tabletTakeaway && 'osc--tk-tablet'].filter(Boolean).join(' ')}>
         {/* 02b-TK C2-1 (frames HomeKiosk, QueueTablet): kiosk queue rail | menu | cart; a tablet's ready strip over the menu */}
         {railVariant === 'column' && queueRail('column')}
-        {!tabletTakeaway && <MenuRail categories={rail} current={current} onPick={setCategory} />}
+        {book === null && <MenuRail categories={rail} current={current} onPick={setCategory} />}
         {tabletTakeaway ? (
           <div className="tk-mid">
             {queueRail('strip')}

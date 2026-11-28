@@ -232,12 +232,23 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   // §3.7a (L-CLIENT-6b item 4): "Ask a manager" for a BLOCKED action only — Hand over all once every live line is ready,
   // or Give ready items now with ready lines; a token still cooking has no hand-over to block.
   // BUG-9 (owner ruling 2026-11-28, approval ruling A): one Ask a manager per blocked order, each with its own due
-  const asks =
+  // qa-bill-2: an Ask only where the hand-over itself is offered (the whole token, or its ready items)
+  const blocked =
     allReady && !fullCheck.ok && fullCheck.reason === 'due'
       ? blockedOrders(cands, lineIds(candidates), reserved)
       : giveReady && !giveCheck.ok && giveCheck.reason === 'due'
         ? blockedOrders(cands, lineIds(readyLines), reserved)
         : [];
+  // ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9): one request per BILL — orders sharing a bill (`bill.key`) ask once, by the
+  // bill's oldest order; an addition-only bill is marked "(addition)"
+  const seenBills = new Set<string>();
+  const asks = blocked.filter((a) => {
+    const key = billRows.get(a.order_id)?.bill?.key ?? a.order_id;
+    if (seenBills.has(key)) return false;
+    seenBills.add(key);
+    return true;
+  });
+  const billKeyOf = (order_id: string) => billRows.get(order_id)?.bill?.key ?? order_id;
   const ask = asks.length > 0 ? asks : null;
   const may = shell.permissions.allowed;
   const canServe = may('mark-served');
@@ -498,7 +509,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
                 order_id={a.order_id}
                 due_minor={a.due_minor}
                 ident={token.order_ids.length > 1 ? `#${ident}` : undefined}
-                addition={a.order_id !== token.order_ids[0]}
+                addition={billKeyOf(a.order_id) !== billKeyOf(token.order_ids[0]!)}
                 variant="drawer"
                 onChanged={() => void load()}
               />

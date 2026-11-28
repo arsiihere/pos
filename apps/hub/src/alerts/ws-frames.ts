@@ -95,7 +95,7 @@ export interface AlertFrames {
   /** The writer's after-commit hook: step, close and seen frames for one committed transaction. */
   afterCommit(appended: PosEvent[]): void;
   sendStepFrames(appended: PosEvent[]): void;
-  sendCloseFrames(alertIds: string[]): void;
+  sendCloseFrames(alertIds: string[], notes?: ReadonlyMap<string, string>): void;
   sendSeenFrames(staffId: string, alertId: string): void;
 }
 
@@ -197,7 +197,7 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
     }
   }
 
-  function sendCloseFrames(alertIds: string[]): void {
+  function sendCloseFrames(alertIds: string[], notes: ReadonlyMap<string, string> = new Map()): void {
     const ids = [...new Set(alertIds)];
     if (ids.length === 0) return;
     // §6 batch 3: the cumulative recipients of every alert closed in the transaction, one statement
@@ -228,6 +228,8 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
           reason: row.close_reason,
           decision: answered ? row.decision : null,
           by_name: byName,
+          // ⚠️ 01d v1.3.8 (owner 2026-11-28 Q10): why it closed, when the close says (the manager's card shows it)
+          ...(notes.has(row.alert_id) ? { note: notes.get(row.alert_id)! } : {}),
         });
         const devices = new Set(JSON.parse(row.devices_json) as string[]);
         const people = new Set(JSON.parse(row.people_json) as string[]);
@@ -281,7 +283,12 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
       if (appended.length === 0) return;
       guarded('step', () => sendStepFrames(appended));
       const closed = appended.filter((e) => CLOSE_EVENTS.has(e.event_type)).map((e) => String(e.payload.alert_id));
-      guarded('close', () => sendCloseFrames(closed));
+      const notes = new Map<string, string>();
+      for (const e of appended) {
+        const note = (e.payload as { note?: unknown }).note;
+        if (e.event_type === 'AlertClosed' && typeof note === 'string' && note !== '') notes.set(String(e.payload.alert_id), note.slice(0, 60));
+      }
+      guarded('close', () => sendCloseFrames(closed, notes));
       const seen = appended
         .filter((e) => e.event_type === 'RequestSeen')
         .map((e) => e.payload as RequestSeenPayload)

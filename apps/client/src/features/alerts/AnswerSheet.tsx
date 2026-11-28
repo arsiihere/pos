@@ -28,6 +28,10 @@ export interface Toast {
   sub?: string;
   /** status is icon + word + colour: ok (check), info (i), warn (triangle); default ok */
   tone?: 'ok' | 'info' | 'warn';
+  /** 02b-TK L-CLIENT-6a item 9 (frame SentToast): the token shown big at the toast's start */
+  token?: string;
+  /** 02b-TK L-CLIENT-6a item 9 (frame SentToast "Print again"): one button on the toast */
+  action?: { label: string; run(): void };
 }
 
 /** How long the "Approved" / "Rejected" confirmation shows before the sheet closes. */
@@ -325,7 +329,7 @@ export function AnswerSheet({
           {closed && (
             <div className="ro ro--result" role="status">
               <Ico name={row.close_reason === 'withdrawn' ? 'undo' : row.decision === 'reject' || row.decision === 'decline' ? 'x' : 'check'} />
-              <span>{closedText({ close_reason: row.close_reason ?? null, decision: row.decision ?? undefined, by_name: row.by_name, kind: row.kind, problem: row.card?.details?.problem }, utcOffsetMs)}</span>
+              <span>{closedText({ close_reason: row.close_reason ?? null, decision: row.decision ?? undefined, by_name: row.by_name, kind: row.kind, problem: row.card?.details?.problem, note: row.close_note }, utcOffsetMs)}</span>
             </div>
           )}
           {sharedMoney && open && (

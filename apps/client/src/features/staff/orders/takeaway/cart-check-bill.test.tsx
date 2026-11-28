@@ -41,7 +41,7 @@ const CART_NO_PRINTER = { ok: true, data: { printed: false, job_id: null, printe
 const cart = (v: Mounted) => v.container.querySelector('.cart')!;
 const checkButton = (v: Mounted) => [...cart(v).querySelectorAll<HTMLElement>('button')].find((b) => b.textContent === 'Print check bill');
 const addNaan = (v: Mounted) => {
-  v.click(v.button('Sides', v.container.querySelector('.cats')!));
+  v.click(v.button('Sides', (v.container.querySelector('.pills') ?? v.container.querySelector('.cats'))!));
   v.click(v.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
 };
 

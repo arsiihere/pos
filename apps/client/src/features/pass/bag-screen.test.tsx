@@ -184,8 +184,26 @@ describe('[03b v1.0.17 §3.4] Pass bag = token (BUG-8)', () => {
   });
 });
 
-describe('[03b v1.0.17 §3.4; Approval ruling A] Ask a manager on a bag (BUG-9)', () => {
-  it('two unpaid orders: one pill with the total; Ask a manager sends one RequestUnpaidHandover per order, each named with its own amount', async () => {
+describe('[02b v1.0.27 owner 2026-11-28 Q9] one bill, one request, one amount', () => {
+  it('root and addition on ONE bill: the pill shows the bill due once; Ask a manager is one tap and sends one request', async () => {
+    const s = shellWith({ grants: PASS, bills: () => openOrders([hubRow('O1', { state: 'due', due_minor: 12_000, key: 'K1' }), hubRow('O2', { state: 'due', due_minor: 12_000, key: 'K1' })]) });
+    const command = vi.fn(async (_type: string, p: { order_id: string }) => ({ ok: true, data: { alert_id: `AL-${p.order_id}`, is_requester: true } }));
+    (s.shell.api as unknown as { command: typeof command }).command = command;
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([tokOrder('O1', 'done', 600_000), tokOrder('O2', 'done', 60_000)]) } });
+    show(s.shell);
+    await flush();
+    const c = cards()[0]!;
+    expect([...c.querySelectorAll('.pc__due')].map((e) => e.textContent)).toEqual(['Due Rs 120 — customer pays at counter']);
+    m.click(c.querySelector<HTMLButtonElement>('[data-ask]'));
+    await flush();
+    expect(m.container.querySelector('.pass-ask')).toBeNull();
+    expect(command.mock.calls.map((call) => call.slice(0, 2))).toEqual([['RequestUnpaidHandover', { order_id: 'O1' }]]);
+    expect(c.querySelector('[data-ask]')!.textContent).toContain('Waiting for a manager…');
+  });
+});
+
+describe('[03b v1.0.17 §3.4; 02b v1.0.27 Q9] Ask a manager on a bag with two bills (BUG-9)', () => {
+  it('two unpaid bills (no shared key): one pill with the total; the sheet sends one RequestUnpaidHandover per bill, each with its own amount', async () => {
     const s = shellWith({ grants: PASS, bills: () => openOrders([hubRow('O1', { state: 'due', due_minor: 8_000 }), hubRow('O2', { state: 'due', due_minor: 4_000 })]) });
     const command = vi.fn(async (_type: string, p: { order_id: string }) => ({ ok: true, data: { alert_id: `AL-${p.order_id}`, is_requester: true } }));
     (s.shell.api as unknown as { command: typeof command }).command = command;
@@ -229,5 +247,42 @@ describe('[03b v1.0.17 §3.4; Approval ruling A] Ask a manager on a bag (BUG-9)'
     await new Promise((r) => setTimeout(r, 1_100));
     await flush();
     expect(cards()[0]!.querySelector<HTMLButtonElement>('.btn--customer')!.disabled).toBe(false);
+  });
+});
+
+// ⚠️ 03b v1.0.19 §3.4, §8 (QA design review 2026-11-28): one primary per state, and the pill says which state.
+// All lines done, not marked → pill "All done", primary Bag ready. Marked ready (sent) → pill "Ready", never Bag ready
+// (even with a later line not in the Ready): "Handed to customer" (or its greyed reason) is the primary.
+describe('[03b v1.0.19 §8] Ready means bagged', () => {
+  it('done, not marked → "All done" + Bag ready; marked → "Ready" + Handed to customer, no Bag ready', async () => {
+    const paid = { state: 'paid', due_minor: 0 };
+    const s = shellWith({ grants: PASS, bills: () => openOrders([hubRow('O1', paid)]) });
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([tokOrder('O1', 'done', 600_000, { ready: null })]) } });
+    show(s.shell);
+    await flush();
+    let c = cards()[0]!;
+    expect(c.querySelector('.rd')!.textContent).toBe('All done');
+    expect(c.querySelectorAll('.pc__f .btn--ready')).toHaveLength(1);
+    expect(c.querySelector('.btn--customer')).toBeNull();
+    // marked ready; a remade line finished later, not in the Ready
+    const sent = tokOrder('O1', 'done', 600_000, { ready: { at: BASE - 10_000, by: null, lines: ['O1-L1'] } });
+    sent.lines.push(line('O1-L2', 'O1', 'done', { identifier: tok }));
+    s.raw({ type: 'catch_up', as_of_seq: 2, state: { point_view: view([sent]) } });
+    await new Promise((r) => setTimeout(r, 1_100)); // the catch-up invalidated the bill read (≥ 1 s debounce)
+    await flush();
+    c = cards()[0]!;
+    expect(c.querySelector('.rd')!.textContent).toBe('Ready');
+    expect(c.querySelector('.pc__f .btn--ready')).toBeNull();
+    expect(c.querySelector<HTMLButtonElement>('.btn--customer')!.disabled).toBe(false);
+  });
+
+  it('a pickup bag still waiting for its whole order shows no Handed to customer (and no greyed one as its primary)', async () => {
+    const s = shellWith({ grants: PASS, bills: () => openOrders([hubRow('O1', { state: 'paid', due_minor: 0 })]) });
+    const pickup = tokOrder('O1', 'done', 600_000, { ready: null, pickup_at_ms: BASE + 30 * 60_000, boosted: false, pickup_readiness: { all_engine_lines_done: false, station_less_hold_until: null } });
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([pickup]) } });
+    show(s.shell);
+    await new Promise((r) => setTimeout(r, 1_100));
+    await flush();
+    expect(cards()[0]!.querySelector('.btn--customer')).toBeNull();
   });
 });

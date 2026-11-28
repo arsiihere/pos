@@ -131,7 +131,7 @@ export interface OpenOrder {
   promise_ms: number | null;
   abandoned: boolean;
   /** §6.16 v1.0.25: takeaway / parking only (dine-in null); `paid` once billed, else 05 `keyBalances` due */
-  bill: { state: 'due' | 'paid'; due_minor: number } | null;
+  bill: { state: 'due' | 'paid'; due_minor: number; key?: string | null } | null;
   /**
    * ⚠️ 02b v1.0.25 §6.16 (run 3 R3-M-8; D2): true only on an open, unbilled takeaway / parking row with an effective
    * approval (approved time and amount set) and a positive current due no higher than the approved amount; dine-in and
@@ -273,7 +273,8 @@ export function openOrdersBody(
     o.bill =
       r.billed_at !== null
         ? { state: 'paid', due_minor: 0 }
-        : { state: 'due', due_minor: r.bill_key === null ? 0 : (balances.get(r.bill_key)?.due_minor ?? 0) };
+        : // ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9): `key` groups a token's orders by bill (one request, one due per bill)
+          { state: 'due', due_minor: r.bill_key === null ? 0 : (balances.get(r.bill_key)?.due_minor ?? 0), key: r.bill_key };
     const approvedDue = r.unpaid_handover_approved_at === null ? null : r.unpaid_handover_approved_due_minor;
     o.unpaid_handover_approved = r.billed_at === null && approvedDue !== null && o.bill.due_minor > 0 && o.bill.due_minor <= approvedDue;
   }

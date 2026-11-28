@@ -101,12 +101,14 @@ describe('[01b v1.12 §5.1c] cloud migration 0022_takeaway_role_grants.sql', () 
     const was = new Map(grantsBefore.map((g) => [key(g), g]));
     for (const g of grantsBefore) expect(after.find((a) => key(a) === key(g)), key(g)).toEqual(g);
     const added = after.filter((g) => !was.has(key(g)));
-    for (const g of added) expect(passIds.has(String(g.role_id)) || g.permission === 'hand-over-unpaid', key(g)).toBe(true);
-    expect(added).toHaveLength(3 * 3 + 3);
+    // ⚠️ 01b v1.13 (owner 2026-11-28 Q7): the same run also has 0024's boost-order on tA's active default cashier
+    for (const g of added) expect(passIds.has(String(g.role_id)) || g.permission === 'hand-over-unpaid' || (g.role_id === 'rA-cash' && g.permission === 'boost-order'), key(g)).toBe(true);
+    expect(added).toHaveLength(3 * 3 + 3 + 1);
     // Cook keeps exactly run-pass + reprint-ticket.
     expect(after.filter((g) => g.role_id === 'rA-cook').map((g) => g.permission)).toEqual(['reprint-ticket', 'run-pass']);
     // +1 for the whole file, also where the same run adds Owner's and Manager's rows (tA); a migration writes no audit.
-    expect(await versions(q)).toEqual({ tA: before.tA! + 1, tB: before.tB! + 1, tC: before.tC! + 1 });
+    // ⚠️ 01b v1.13 Q7: tA + 1 more by 0024 (its cashier gained boost-order)
+    expect(await versions(q)).toEqual({ tA: before.tA! + 2, tB: before.tB! + 1, tC: before.tC! + 1 });
     expect((await q(`SELECT count(*)::int AS n FROM config_audit`)).rows[0]).toEqual({ n: 0 });
   });
 

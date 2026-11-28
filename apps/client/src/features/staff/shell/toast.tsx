@@ -41,12 +41,30 @@ export function ToastView({ bus }: { bus: ToastBus }) {
   }, [toast, bus]);
   if (toast === null) return null;
   return (
-    <div className={`toast toast--${toast.tone ?? 'ok'}`} role="status">
-      <Ico name={toast.tone === 'warn' ? 'warn' : toast.tone === 'info' ? 'info' : 'checkc'} />
+    <div className={`toast toast--${toast.tone ?? 'ok'}${toast.token !== undefined ? ' toast--token' : ''}`} role="status">
+      {toast.token !== undefined ? (
+        <b className="toast__tok" dir="ltr">
+          {toast.token}
+        </b>
+      ) : (
+        <Ico name={toast.tone === 'warn' ? 'warn' : toast.tone === 'info' ? 'info' : 'checkc'} />
+      )}
       <div>
-        {toast.text}
+        {toast.token !== undefined && toast.text.startsWith(`${toast.token} · `) ? toast.text.slice(toast.token.length + 3) : toast.text}
         {toast.sub !== undefined && <small>{toast.sub}</small>}
       </div>
+      {toast.action !== undefined && (
+        <button
+          type="button"
+          className="tk-btn toast__act"
+          onClick={() => {
+            toast.action!.run();
+            bus.clear();
+          }}
+        >
+          {toast.action.label}
+        </button>
+      )}
     </div>
   );
 }

@@ -97,6 +97,7 @@ describe('seed-tenant', () => {
     expect((byRole.get('Cashier') ?? []).slice().sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
       { permission: 'apply-comp', grant_type: 'requires_approval', approver: 'Manager' },
       { permission: 'apply-discount', grant_type: 'requires_approval', approver: 'Manager' },
+      { permission: 'boost-order', grant_type: 'allowed', approver: null }, // 01b v1.13 (owner 2026-11-28 Q7)
       { permission: 'clean-table', grant_type: 'allowed', approver: null },
       { permission: 'close-without-buyer-id', grant_type: 'requires_approval', approver: 'Manager' }, // 05 B-2 (01b v1.10)
       { permission: 'manage-own-shift', grant_type: 'allowed', approver: null },
@@ -235,6 +236,7 @@ describe('seed-tenant', () => {
     expect(of('cashier').map(({ permission, grant_type, approver_role_id }) => ({ permission, grant_type, approver_role_id })).sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
       { permission: 'apply-comp', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
       { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
+      { permission: 'boost-order', grant_type: 'allowed', approver_role_id: null }, // 01b v1.13 (owner 2026-11-28 Q7)
       { permission: 'clean-table', grant_type: 'allowed', approver_role_id: null },
       { permission: 'close-without-buyer-id', grant_type: 'requires_approval', approver_role_id: roleId('manager') }, // 05 B-2 (01b v1.10)
       { permission: 'manage-own-shift', grant_type: 'allowed', approver_role_id: null },

@@ -1,9 +1,34 @@
 import { useSyncExternalStore } from 'react';
 
 // S35 b: views inside an entry use hash routes (`/owner/#/menu`); no router dependency.
+// 02b-TK L-CLIENT-6a item 10: one `hashchange` listener for every route reader, which first runs the guards
+// (onHashChangeFirst). A browser may call window listeners in the order they were added, capture or not, and a
+// route reader re-renders in a microtask between two listeners — a screen's own listener could run after the screen
+// was already gone. Through here a guard always sees the change before any route reader.
+const readers = new Set<() => void>();
+const guards = new Set<() => void>();
+let installed: Window | null = null;
+function dispatch(): void {
+  for (const g of [...guards]) g();
+  for (const r of [...readers]) r();
+}
+function install(): void {
+  if (installed === window) return;
+  installed = window;
+  window.addEventListener('hashchange', dispatch);
+}
+
 function subscribe(onChange: () => void): () => void {
-  window.addEventListener('hashchange', onChange);
-  return () => window.removeEventListener('hashchange', onChange);
+  install();
+  readers.add(onChange);
+  return () => void readers.delete(onChange);
+}
+
+/** A hash change seen before any route reads it (the leave guard may put the route back with replaceState). */
+export function onHashChangeFirst(guard: () => void): () => void {
+  install();
+  guards.add(guard);
+  return () => void guards.delete(guard);
 }
 
 function currentRoute(): string {

@@ -77,10 +77,11 @@ describe('[01b v1.8.1 §6.15] cloud migration 0020_cashier_mark_served.sql', () 
       { tenant_id: 'tA', role_id: 'rA-cash', grant_type: 'allowed', approver_role_id: null, scope: 'branch' },
       { tenant_id: 'tA', role_id: 'rA-ot', grant_type: 'allowed', approver_role_id: null, scope: 'branch' },
     ]);
-    // +1 by 0020; ⚠️ 01b v1.12 §5.1c: + 1 by 0022 (the same run adds every tenant's Pass role).
-    expect((await versions()).tA).toBe(before.tA! + 2);
-    // only mark-served: no boost-order, no other role touched
-    expect((await q(`SELECT count(*)::int AS n FROM role_permissions WHERE permission = 'boost-order'`)).rows[0]).toEqual({ n: 0 });
+    // +1 by 0020; ⚠️ 01b v1.12 §5.1c: + 1 by 0022 (the same run adds every tenant's Pass role); ⚠️ 01b v1.13 (Q7): + 1 by
+    // 0024 (its own test: cashier-boost-order-migration.int.test.ts).
+    expect((await versions()).tA).toBe(before.tA! + 3);
+    // 0020 adds only mark-served; boost-order is 0024's, on the active default cashiers only
+    expect((await q(`SELECT role_id FROM role_permissions WHERE permission = 'boost-order' ORDER BY role_id`)).rows).toEqual([{ role_id: 'rA-cash' }, { role_id: 'rB-cash' }]);
     // ⚠️ 01b v1.12 §5.1c: 0022's hand-over-unpaid row on the manager is left out.
     expect((await q(`SELECT count(*)::int AS n FROM role_permissions WHERE role_id = 'rA-man' AND permission <> 'hand-over-unpaid'`)).rows[0]).toEqual({ n: 0 });
     // a migration is not an owner write
@@ -93,8 +94,8 @@ describe('[01b v1.8.1 §6.15] cloud migration 0020_cashier_mark_served.sql', () 
       { tenant_id: 'tB', role_id: 'rB-cash', grant_type: 'requires_approval', approver_role_id: 'rB-man', scope: 'own_tables' },
     ]);
     const after = await versions();
-    // ⚠️ 01b v1.12 §5.1c: + 1 by 0022 only (its Pass role); 0020 bumps neither.
-    expect(after.tB).toBe(before.tB! + 1);
+    // ⚠️ 01b v1.12 §5.1c: + 1 by 0022 (its Pass role), ⚠️ 01b v1.13 Q7: + 1 by 0024 (tB's cashier); 0020 bumps neither.
+    expect(after.tB).toBe(before.tB! + 2);
     expect(after.tC).toBe(before.tC! + 1); // archived default cashier and the key-less "Cashier" both skipped by 0020
 
     const grantsBefore = await allGrants();

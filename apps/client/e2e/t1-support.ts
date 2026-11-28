@@ -128,6 +128,9 @@ export const passCard = (page: Page, token: string): Locator =>
 export async function cookLine(card: Locator, name: string): Promise<void> {
   const row = card.locator('.pl', { hasText: name });
   await row.locator('.btn--start').click();
+  // the Start lands first (its row then offers Done only): a Done tapped while the Start is in flight is dropped by the
+  // row's one-tap-at-a-time guard (03b §3.2)
+  await expect(row.locator('.btn--start')).toHaveCount(0, { timeout: 10_000 });
   await row.locator('.btn--done').click();
   const undo = row.locator('.btn--undo');
   await expect(undo.or(card.locator('.pc__act'))).toBeVisible();

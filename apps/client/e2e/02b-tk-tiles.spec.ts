@@ -63,7 +63,7 @@ for (const lang of LANGS) {
       const chips = cartLines(page).first().locator('.tk-qchips button');
       await expect(chips).toHaveText(['×2', '×4', '×6', '×8']);
       await chips.nth(2).click();
-      await expect(cartLines(page).first().locator('.ln__q')).toHaveText('6×');
+      await expect(cartLines(page).first().locator('.step output')).toHaveText('6'); // L-CLIENT-6a item 5: the line's stepper
       await expect(chips.nth(2)).toHaveAttribute('aria-pressed', 'true');
     } finally {
       await signOut(page, info, lang);

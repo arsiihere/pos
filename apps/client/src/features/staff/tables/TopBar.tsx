@@ -147,7 +147,9 @@ export function TopBar(p: TopBarProps) {
             </div>
           </div>
         )}
-        {p.person !== null && p.tabs !== undefined && p.tabs.length > 0 && (
+        {/* ⚠️ 03b v1.0.19 §8: a single screen tab says nothing when the screen has its own row here (the Pass's type tabs):
+            it goes, so the brand line ("Alerts: … — pauses at …") is never clipped */}
+        {p.person !== null && p.tabs !== undefined && p.tabs.length > 0 && !(p.tabs.length === 1 && p.extra != null && p.extra !== false) && (
           <nav className="tabs-top" aria-label={t('tabs.tables')}>
             {p.tabs.map((tab) => (
               <a key={tab.key} className={p.currentTab === tab.key ? 'btn is-sel' : 'btn'} href={`#${tab.path}`} {...(p.currentTab === tab.key ? { 'aria-current': 'page' as const } : {})}>
