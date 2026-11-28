@@ -96,21 +96,33 @@
       "comp.takeaway_card": "Comp · Takeaway order"
     },
     "ur": {
+      "alert.answered_on_requester_device.lock": "آپ نے {device} پر درخواست کا جواب دیا",
+      "alert.approval_receipt.lock": "آپ نے درخواست کا جواب دیا · {table}",
       "alert.call_waiter.lock": "{table} · ویٹر بلایا",
       "alert.comp.lock": "{table} · مفت · {requester}",
+      "alert.device_waiting.lock": "ڈیوائس منتظر ہے",
       "alert.discount.lock": "{table} · رعایت · {requester}",
       "alert.hand_over_unpaid.lock": "بغیر ادائیگی حوالگی کی درخواست",
       "alert.kds_offline.lock": "کچن اسکرین بند",
       "alert.no_approver.lock": "کوئی منظور نہیں کر سکتا",
+      "alert.pin_use_failed.lock": "آپ کا PIN {device} پر استعمال ہوا",
       "alert.printer_problem.lock": "پرنٹر مسئلہ",
       "alert.ready_to_serve.lock": "پیش کرنے کو تیار · {table} · {point}",
+      "alert.request_result.approved": "درخواست منظور · {table}",
+      "alert.request_result.lock": "درخواست کا جواب آ گیا · {table}",
+      "alert.request_result.obsolete": "درخواست بند · {table}",
+      "alert.request_result.overridden": "درخواست کا فیصلہ بدل دیا گیا · {table}",
+      "alert.request_result.rejected": "درخواست رد · {table}",
+      "alert.request_result.withdrawn": "آپ نے درخواست واپس لے لی · {table}",
       "alert.served_card.lock": "کھانا حوالے ہو گیا · {table}",
       "alert.slip_warning.lock": "{table} · دیر ہو رہی ہے",
       "alert.table_handover.lock": "{table} · میز حوالگی · {requester}",
       "alert.test_alert.lock": "ٹیسٹ الرٹ · از {requester}",
       "alert.void_approval.lock": "{table} · ووئڈ · {requester}",
       "alert.zone_stock_low.lock": "زون کا ایک آئٹم کم ہو رہا ہے",
-      "alert.zone_stock_out.lock": "زون کا ایک آئٹم ختم ہو گیا"
+      "alert.zone_stock_out.lock": "زون کا ایک آئٹم ختم ہو گیا",
+      "alerts.unknown.alert": "{table} · الرٹ · {requester}",
+      "alerts.unknown.request": "{table} · درخواست · {requester}"
     }
   }
 }
