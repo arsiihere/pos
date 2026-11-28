@@ -1,8 +1,8 @@
 import { AlertDetailsBase } from '@pos/events';
 import { z } from 'zod';
 import { defineAlertKind, type StepTo } from '../alerts/kinds.js';
-import { showsScreen } from '../alerts/targets.js';
-import { counterScreenOfOrder } from './order-screens.js';
+import type { StaffDirectory } from '../auth/staff-directory.js';
+import { counterScreenOfOrder, placerOfOrder } from './order-screens.js';
 
 // 03b v1.0.1 §6.21: the kinds 03b registers, at the top level of this module (kds/index.ts imports it statically, so
 // the kinds exist before boot replays the `alerts` projection, 01d P-8). Manager steps are written
@@ -35,10 +35,23 @@ const COUNTER: StepTo = { target: { kind: 'screen_devices', screen_from_value: '
  * counter screen gets Ready only from the order-level alert (`counter_screen` set); a per-point Ready never reaches it,
  * on any step or route (the placer signed in there included). Dine-in and delivery keep their delivery. Memory.
  */
-export function readyExcludesDevice(values: ReadyToServeValues, device_id: string): boolean {
-  if (values.counter_screen !== undefined) return false;
-  const screen = counterScreenOfOrder(values.order_id);
-  return screen !== null && showsScreen(device_id, screen);
+export function readyExcludesDevice(values: ReadyToServeValues): boolean {
+  // ⚠️ 03b v1.0.20 §6.21 (owner 2026-11-28 QA-R2, BUG-4): a pickup order's per-point Ready reaches no device at all
+  // (was: only the devices showing the order's counter screen)
+  return values.counter_screen === undefined && counterScreenOfOrder(values.order_id) !== null;
+}
+
+/**
+ * ⚠️ 03b v1.0.20 §3.5, §6.21 (owner 2026-11-28 QA-R2, BUG-4, BUG-14; 01d v1.3.9 excludesStaff): a pickup order's
+ * per-point Ready reaches nobody; the order-level counter alert reaches only people who take orders (the placer, or
+ * `take-order` allowed) and managers (branch-scope `force-release-table-lock`) — never a Cook. Dine-in unchanged. Memory.
+ */
+export function readyExcludesStaff(values: ReadyToServeValues, staff_id: string, directory: StaffDirectory): boolean {
+  if (values.counter_screen === undefined) return counterScreenOfOrder(values.order_id) !== null;
+  if (placerOfOrder(values.order_id) === staff_id) return false;
+  if (directory.resolve(staff_id, 'take-order').grant === 'allowed') return false;
+  const m = directory.resolve(staff_id, 'force-release-table-lock');
+  return !(m.grant === 'allowed' && m.scope === 'branch');
 }
 
 export const READY_TO_SERVE = defineAlertKind<ReadyToServeValues, ReadyToServeDetails>({
@@ -62,6 +75,7 @@ export const READY_TO_SERVE = defineAlertKind<ReadyToServeValues, ReadyToServeDe
   // ⚠️ 03b v1.0.16 §6.21 (run 1 B-1): a signed-in counter socket gets the card (01d v1.3.7 counter row)
   counter_card: true,
   excludesDevice: readyExcludesDevice,
+  excludesStaff: readyExcludesStaff,
   closes_on: 'owner',
   values_schema: ReadyToServeValues,
   details_schema: ReadyToServeDetails,

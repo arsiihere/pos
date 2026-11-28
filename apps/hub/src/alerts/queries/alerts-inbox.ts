@@ -6,7 +6,7 @@ import type { StaffDirectory } from '../../auth/staff-directory.js';
 import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registry.js';
 import { placeOf, seenByMe } from '../catch-up.js';
 import { kindOf, PERSONAL_NOTICE_KINDS } from '../kinds.js';
-import { deviceAllowed, mayAnswer, valuesOf, type AlertRequestPart } from '../targets.js';
+import { deviceAllowed, mayAnswer, staffAllowed, valuesOf, type AlertRequestPart } from '../targets.js';
 import { cardRule, counterRow, lockOnlyView, safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
 
 // 01d §6.7 `GET /queries/alerts-inbox` (AD-13 containers `data.alerts`, `meta.next_cursor`; AD-22 state and
@@ -149,6 +149,8 @@ function buildInbox(ctx: QueryCtx): z.infer<typeof AlertsInboxResponse> {
     if (v === undefined || kind === undefined) continue; // P-8: an unknown kind has no labels
     // ⚠️ 03b v1.0.16 §6.21 (run 3 verify): an alert its kind excludes from this device is not listed from here
     if (!deviceAllowed(kind, valuesOf(v.values_json), ctx.device.device_id)) continue;
+    // ⚠️ 01d v1.3.9 §3.4 (QA-R2): nor one its kind excludes from this person (excludesStaff)
+    if (!staffAllowed(kind, valuesOf(v.values_json), staffId, directory)) continue;
     const step = Math.max(0, v.step);
     // a late answerer's inbox row (RequestSeen, N3) has no recipient row: answerer if they may answer now
     const request = v.request_json === null ? null : (JSON.parse(v.request_json) as AlertRequestPart);

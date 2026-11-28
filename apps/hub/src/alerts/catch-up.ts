@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { CatchUpPart, SocketCtx } from '../ws/catch-up.js';
 import { kindOf, type AlertKind } from './kinds.js';
-import { deviceAllowed, isListedDevice, mayAnswer, valuesOf, type AlertRequestPart } from './targets.js';
+import { deviceAllowed, isListedDevice, mayAnswer, staffAllowed, valuesOf, type AlertRequestPart } from './targets.js';
 import { cardRule, counterRow, lockOnlyView, safeBuild, signedInView, StrictCardView, StrictLockView, type ViewRow } from './ws-frames.js';
 
 // 01d §6 batch 3 "A missed frame is covered by … the `alerts` catch-up part" (H-7: built with the socket
@@ -217,7 +217,11 @@ export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
       listed.add(row.alert_id);
     };
     // ⚠️ 03b v1.0.16 §6.21 (run 3 verify): an alert its kind excludes from this device is not listed here
-    const shownHere = (row: CatchUpRow, kind: AlertKind): boolean => deviceAllowed(kind, valuesOf(row.values_json), socket.deviceId);
+    // ⚠️ 01d v1.3.9 §3.4 (QA-R2): nor one its kind excludes from the signed-in person (excludesStaff)
+    const shownHere = (row: CatchUpRow, kind: AlertKind): boolean => {
+      const values = valuesOf(row.values_json);
+      return deviceAllowed(kind, values, socket.deviceId) && (staffId === null || staffAllowed(kind, values, staffId, dir()));
+    };
     for (const row of rows) {
       const kind = kindOf(row.kind);
       if (kind === undefined) continue; // P-8: an unknown kind has no labels
