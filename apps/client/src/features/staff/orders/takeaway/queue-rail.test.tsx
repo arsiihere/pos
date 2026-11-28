@@ -287,3 +287,31 @@ describe('[02b-TK C2-1] queue model', () => {
     b.dispose();
   });
 });
+
+// qa1-fix (QA T1 #12; 02b §6.16, §8): the token whose view is open leaves the queue (the whole order cancelled, or
+// handed over in full) → the rail tells the screen, which closes the view (never a drawer for a token that is gone).
+describe('[02b §8; T1 #12] the open token leaves the queue', () => {
+  it('a read without the selected token calls onGone(key) once; a token still listed does not', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const s = setup();
+    const gone = vi.fn();
+    book = createTokenBook(s.live);
+    const key = `${ROWS[0]!.business_date}:${ROWS[0]!.token}`;
+    view = mount();
+    view.render(
+      <ShellContext.Provider value={s.shell}>
+        <QueueRail variant="column" book={book} selected={key} onOpen={vi.fn()} heldCount={0} onGone={gone} />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    expect(gone).not.toHaveBeenCalled();
+    act(() => s.live.frame(ev(2, 'OrderCancelled', { order_id: ROWS[0]!.order_id })));
+    s.setRows(ROWS.filter((r) => r.order_id !== ROWS[0]!.order_id));
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    await flush();
+    expect(gone).toHaveBeenCalledWith(key);
+    expect(gone).toHaveBeenCalledTimes(1);
+  });
+});

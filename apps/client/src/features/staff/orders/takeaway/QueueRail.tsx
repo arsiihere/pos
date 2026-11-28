@@ -226,6 +226,8 @@ export interface QueueRailProps {
   onCount?: ((n: number) => void) | undefined;
   /** 02b-TK A2 item 4 (frame HomeRush): the compact queue */
   compact?: boolean;
+  /** qa1-fix (T1 #12): a successful read no longer lists the selected token (cancelled, or handed over in full) */
+  onGone?: ((key: string) => void) | undefined;
 }
 
 function ReadyTile({ q, selected, owed, late, whole, onOpen, onHandOver, onPay }: { q: QueueToken; selected: boolean; owed: number | null; late: number | null; whole: HandoverCheck; onOpen(): void; onHandOver?: (() => void) | undefined; onPay?: (() => void) | undefined }) {
@@ -328,9 +330,17 @@ function QueueRow({ q, selected, onOpen, later = false }: { q: QueueToken; selec
   );
 }
 
-export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOver, onPay, hidden, onCount, compact = false }: QueueRailProps) {
+export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOver, onPay, hidden, onCount, compact = false, onGone }: QueueRailProps) {
   const shell = useShell();
   const { model, failed, loadedAt, retry } = useTakeawayQueue(book);
+  // qa1-fix (T1 #12; 02b §8): the open token's view closes once a read no longer lists it (its order cancelled, or the
+  // token handed over in full) — never a drawer for a token that is gone
+  const goneRef = useRef(onGone);
+  goneRef.current = onGone;
+  const listed = model === null || selected === null ? true : [...model.ready, ...model.cooking, ...model.later].some((q) => q.key === selected);
+  useEffect(() => {
+    if (!listed && selected !== null) goneRef.current?.(selected);
+  }, [listed, selected]);
   const open_n = model === null ? null : model.ready.length + model.cooking.length + model.later.length;
   const countRef = useRef(onCount);
   countRef.current = onCount;
