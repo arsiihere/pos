@@ -3817,8 +3817,9 @@ export const en = {
   'errors.PETTY_SETTLE_MISMATCH': 'Spent and returned must add up to {amount}',
   'errors.DAY_CLOSE_BLOCKED.shift_open': '{count} shifts are still open — close them first',
   'errors.DAY_CLOSE_BLOCKED.shift_open_one': '1 shift is still open — close it first',
-  'errors.DAY_CLOSE_BLOCKED.unbilled_orders': '{count} orders are not billed — bill them or carry them over',
-  'errors.DAY_CLOSE_BLOCKED.unbilled_orders_one': '1 order is not billed — bill it or carry it over',
+  // ⚠️ 05 v1.0.37 §3.13 (QA-R2 BUG-11): the list is one row per bill
+  'errors.DAY_CLOSE_BLOCKED.unbilled_orders': '{count} bills are not paid — take payment or carry them over',
+  'errors.DAY_CLOSE_BLOCKED.unbilled_orders_one': '1 bill is not paid — take payment or carry it over',
   // 05 G-77 (R-76): the day close refused while a variance sign-off is pending
   'errors.DAY_CLOSE_BLOCKED.variance_pending': '{count} variance sign-offs are still pending — answer them first',
   'errors.DAY_CLOSE_BLOCKED.variance_pending_one': '1 variance sign-off is still pending — answer it first',
