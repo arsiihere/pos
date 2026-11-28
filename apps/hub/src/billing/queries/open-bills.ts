@@ -245,6 +245,9 @@ export function openBills(c: OpenBillsCtx): { bills: OpenBillRow[]; as_of_seq: n
     let s: Sum[] = [];
     let root: Root | null = null;
     let placed_by: string[] = [];
+    // ⚠️ 05 v1.0.37 §6.2 QB-1 (BUG-23): a bill row is open since the earliest of its own opened_at and what its projected
+    // row showed (the seating's opened_at, the key's root placed_at) — a check bill that makes the row keeps the clock
+    let since = b.opened_at;
     if (corrections) {
       s = JSON.parse(b.own_sums ?? '[]') as Sum[];
       root = ownRoot;
@@ -254,6 +257,7 @@ export function openBills(c: OpenBillsCtx): { bills: OpenBillRow[]; as_of_seq: n
       if (row !== undefined) {
         s = JSON.parse(row.sums) as Sum[];
         usedSeatings.add(b.seating_id);
+        since = Math.min(since, row.opened_at);
       }
     } else if (b.table_key !== null) {
       const row = keys.get(b.table_key);
@@ -262,6 +266,7 @@ export function openBills(c: OpenBillsCtx): { bills: OpenBillRow[]; as_of_seq: n
         root = JSON.parse(row.root) as Root;
         placed_by = JSON.parse(row.placed_by) as string[];
         usedKeys.add(b.table_key);
+        if (root !== null) since = Math.min(since, root.placed_at);
       }
     }
     out.push({
@@ -273,7 +278,7 @@ export function openBills(c: OpenBillsCtx): { bills: OpenBillRow[]; as_of_seq: n
         state: b.state,
         paid_minor: b.paid_minor,
         check_printed_at: maxOrNull(b.check_printed_at, b.bill_requested_at),
-        opened_at: b.opened_at,
+        opened_at: since,
         partly_paid: b.state === 'partly_paid',
         has_open_request: b.has_open_request === 1,
       },
