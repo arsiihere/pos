@@ -48,6 +48,7 @@ for (const lang of LANGS) {
       await other.locator('main').getByText('Naan').first().click();
       await dialog(other).getByRole('button', { name: tr(lang, 'answer.approve') }).click();
       const keys = other.locator('.pin__keys');
+      await other.waitForTimeout(450); // ⚠️ 01d v1.3.9 §8.1 (QA-R2, BUG-13): the answer pad ignores taps for 400 ms after it opens
       for (const d of '0123') await keys.locator('.btn', { hasText: new RegExp(`^${d}$`) }).click();
       await keys.getByRole('button', { name: tr(lang, 'answer.approve') }).click();
       await expect(other.getByText(tr(lang, 'answer.done_approved')).first()).toBeVisible();

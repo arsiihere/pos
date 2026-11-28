@@ -55,6 +55,7 @@ async function answer(phone: Page, lang: Lang, token: string, decision: 'approve
   const word = tr(lang, decision === 'approve' ? 'answer.approve' : 'answer.reject');
   await sheet.getByRole('button', { name: word }).click();
   const keys = phone.locator('.pin__keys');
+  await phone.waitForTimeout(450); // ⚠️ 01d v1.3.9 §8.1 (QA-R2, BUG-13): the answer pad ignores taps for 400 ms after it opens
   for (const d of MANAGER_PIN) await keys.locator('.btn', { hasText: new RegExp(`^${d}$`) }).click();
   await keys.getByRole('button', { name: word }).click();
   await expect(phone.getByText(tr(lang, decision === 'approve' ? 'answer.done_approved' : 'answer.done_rejected')).first()).toBeVisible();
