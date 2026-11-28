@@ -681,3 +681,9 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 /* with 6b's pay panel (at least 544 px, staff-02b-tk-6b.css) the cart lets it overhang the menu and sits above it, so
    a narrow cart (tablet 440, kiosk 420 / 480) never clips the panel or hands its taps to the menu below */
 .osc--tk > .cart:has(> .tk-paypanel) { overflow: visible; z-index: 3; }
+/* L-CLIENT-6a item 9: alert cards (01d "Hand over unpaid #207", requests) on the takeaway screen sit over the menu, like
+   the toasts, never over the cart's pickup chips, lines or Send */
+.pu.staff:has(.osc--tk) .abns { top: 156px; inset-inline-end: auto; inset-inline-start: 456px; width: min(470px, calc(100vw - 456px - 560px - 16px)); }
+@media (max-width: 1700px) { .pu.staff:has(.osc--tk) .abns { inset-inline-start: 396px; width: min(470px, calc(100vw - 396px - 480px - 16px)); } }
+@media (max-width: 1440px) { .pu.staff:has(.osc--tk) .abns { inset-inline-start: 346px; width: min(470px, calc(100vw - 346px - 420px - 16px)); } }
+.pu.staff:has(.osc--tk-tablet) .abns { inset-inline-start: 16px; width: min(470px, calc(100vw - 440px - 32px)); }
