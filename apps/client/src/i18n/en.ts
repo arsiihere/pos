@@ -4379,6 +4379,7 @@ export const en = {
   'shell.me.lock_sub': 'Your orders stay as they are',
   'shell.me.shift': 'My shift',
   'shell.me.language': 'Language',
+  'shell.signin.summary': 'Waiting: {parts}',
   'shell.signin.late': '{n} running late',
   'shell.signin.new': '{n} new',
   'shell.me.signout': 'Sign out',
