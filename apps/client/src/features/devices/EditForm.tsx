@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { BusyButton } from '../../components/BusyButton';
 import { t } from '../../i18n';
 import type { DeviceRow, DevicesApi, PickPerson, SetProfilePayload } from './api';
-import { FormShell, needsPoint, ProfileFields, profileReady, usePlaces, errorText, type Profile } from './ApproveForm';
+import { FormShell, needsPoint, SaveButton, ProfileFields, profileReady, usePlaces, errorText, type Profile } from './ApproveForm';
 
 // 05a §6.4 (task 32): edit a device's profile. `expected_version` is the row's `profile_version`; a 409 CONFIG_STALE
 // G-e (v1.0.2): the hub derives the clear, so no point_id without Pass and no staff_ids on everyone are sent.
@@ -49,13 +48,13 @@ export function EditForm({ api, device, people: directory, onDone, onCancel, onR
         <input type="text" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <ProfileFields hardware={device.device_type} value={profile} onChange={setProfile} people={people} points={points} />
-      <div className="pos-row">
-        <button type="button" className="pos-btn" onClick={onCancel}>
+      <div className="row dv__acts">
+        <button type="button" className="btn" onClick={onCancel}>
           {t('common.cancel')}
         </button>
-        <BusyButton primary busy={busy} disabled={stale || name.trim() === '' || !profileReady(profile)} onClick={() => void submit()}>
+        <SaveButton busy={busy} disabled={stale || name.trim() === '' || !profileReady(profile)} onClick={() => void submit()}>
           {t('devices.save')}
-        </BusyButton>
+        </SaveButton>
       </div>
     </FormShell>
   );

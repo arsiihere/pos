@@ -93,9 +93,9 @@ describe('[05a §6.3] the display code is always typed', () => {
     m.render(<ApproveForm api={api} people={STAFF} request={req('tablet')} onDone={() => {}} onCancel={() => {}} />);
     await flush();
     expect((field('code') as HTMLInputElement).value).toBe('');
-    expect(m.button('Approve', m.container.querySelector('.pos-row') ?? undefined).hasAttribute('disabled')).toBe(true);
+    expect(m.button('Approve', m.container.querySelector(".dv__acts") ?? undefined).hasAttribute('disabled')).toBe(true);
     type(field('code'), '4821');
-    m.click(m.button('Approve', m.container.querySelector('.pos-row') ?? undefined));
+    m.click(m.button('Approve', m.container.querySelector(".dv__acts") ?? undefined));
     await flush();
     expect(sent).toHaveLength(1);
     expect(sent[0]?.url).toBe('/commands/approve-pairing-request');
@@ -120,7 +120,7 @@ describe('[05a §6.3 step 3] pass ⇔ point', () => {
     m.click(pass);
     expect(m.container.querySelector('[data-field="point"]')).not.toBeNull();
     type(field('code'), '1');
-    const approve = () => m.button('Approve', m.container.querySelector('.pos-row') ?? undefined);
+    const approve = () => m.button('Approve', m.container.querySelector(".dv__acts") ?? undefined);
     expect(approve().hasAttribute('disabled')).toBe(true);
     const sel = field('point') as HTMLSelectElement;
     act(() => {
@@ -140,7 +140,7 @@ describe('[05a §6.3 step 3] pass ⇔ point', () => {
     m.click(pass);
     m.click(pass);
     type(field('code'), '1');
-    m.click(m.button('Approve', m.container.querySelector('.pos-row') ?? undefined));
+    m.click(m.button('Approve', m.container.querySelector(".dv__acts") ?? undefined));
     await flush();
     expect(sent[0]?.payload).not.toHaveProperty('point_id');
   });
@@ -158,7 +158,7 @@ describe('[05a §6.3] kds', () => {
       sel.value = 'K1';
       sel.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    m.click(m.button('Approve', m.container.querySelector('.pos-row') ?? undefined));
+    m.click(m.button('Approve', m.container.querySelector(".dv__acts") ?? undefined));
     await flush();
     expect(sent[0]?.payload).toEqual({ request_id: 'R1', display_code: '77', device_type: 'kds', device_name: 'Counter 2', station_id: 'K1' });
   });

@@ -154,3 +154,38 @@ describe('[05a §3.10 D-3, §8] the device_waiting link { type: "devices" }', ()
     expect(sheet).toBe(0);
   });
 });
+
+// ⚠️ 05a v1.0.8 §6.8 (owner 2026-11-28 QA-R3, BUG-4): the page is a staff screen like the other Manager tools — the
+// Pulse layout (`main.body` › `section.lcard`, its body scrolls), staff buttons, sized staff icons, staff banners; no
+// kit (`pos-*`) class, which the staff entry does not load (unstyled buttons, unsized icons)
+describe('[05a v1.0.8 §6.8 QA-R3 BUG-4] styled like the other manager screens', () => {
+  it('[05a §6.8] Pulse layout, .btn buttons, .ico icons, .msg warning, .st chip; no pos-* class', async () => {
+    setup({
+      admin_warning: 0,
+      pending_requests: [{ request_id: 'R1', device_name: 'Counter 3', hardware_hint: 'cashier_kiosk', created_at: 1 }],
+      devices: [row({ device_id: 'x', device_name: 'Flagged', needs_review: true }), row({ device_id: 'kd', device_type: 'kds', access: null, screens: [] })],
+    });
+    await flush();
+    const main = m.container.querySelector('main.body.dv');
+    expect(main).not.toBeNull();
+    expect(main!.querySelector('section.lcard > .lcard__h h1')?.textContent).toBe('Devices');
+    expect(main!.querySelector('section.lcard > .lcard__b .dv__group')).not.toBeNull();
+    expect(m.container.querySelector('[class*="pos-"]')).toBeNull();
+    const buttons = [...m.container.querySelectorAll('button')];
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const b of buttons) expect(b.classList.contains('btn')).toBe(true);
+    for (const hw of m.container.querySelectorAll('[data-hardware]')) expect(hw.querySelector('svg.ico')).not.toBeNull();
+    expect(m.container.querySelector('.msg.c-danger')?.textContent).toContain(en['devices.warn.none']);
+    expect(m.container.querySelector('[data-device="x"] .st.c-warn')?.textContent).toContain('needs review');
+  });
+
+  it('[05a §6.8] the approve form keeps the staff look', async () => {
+    setup({ pending_requests: [{ request_id: 'R1', device_name: 'Counter 3', hardware_hint: 'cashier_kiosk', created_at: 1 }] });
+    await flush();
+    m.click(m.button('Approve'));
+    await flush();
+    expect(m.container.querySelector('.dv__form')).not.toBeNull();
+    expect(m.container.querySelector('[class*="pos-"]')).toBeNull();
+    for (const b of m.container.querySelectorAll('button')) expect(b.classList.contains('btn')).toBe(true);
+  });
+});

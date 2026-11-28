@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { DeviceType, ScreenKey } from '@pos/domain';
-import { Banner } from '../../components/Banner';
-import { Chip } from '../../components/Chip';
-import { Icon, type IconName } from '../../components/Icon';
-import { Skeleton } from '../../components/Skeleton';
 import { t } from '../../i18n';
+import { Ico, type IconName } from '../alerts/ui';
 import type { MessageKey } from '../../i18n/en';
 import type { DeviceRow, DevicesApi, DevicesData, PendingRequest } from './api';
 import { ApproveForm } from './ApproveForm';
@@ -13,6 +10,9 @@ import { EditForm } from './EditForm';
 // 05a §6.8 (page groups), §3.2 M-8 (warnings), §8 (task 31): the staff `#/devices` page, `manage-devices` holders on a
 // listed device. Existing page pattern (PL-1): a title, banners, grouped lists of rows, a Reload on a failed read.
 // One read on open and on Reload, nothing on a timer.
+// ⚠️ 05a v1.0.8 §6.8 (owner 2026-11-28 QA-R3, BUG-4): a staff screen like the other Manager tools — the Pulse layout
+// (`main.body` › `section.lcard`, the card's body scrolls), `.btn`, `.ico`, `.msg`, `.st`; no kit `pos-*` class (the
+// staff entry does not load the kit: unstyled buttons, unsized icons, a page that did not scroll).
 
 export const GROUPS = ['waiting', 'kitchen', 'personal', 'counter', 'floor', 'pass', 'back_office'] as const;
 export type GroupKey = (typeof GROUPS)[number];
@@ -37,14 +37,14 @@ export function groupOf(d: DeviceRow): Exclude<GroupKey, 'waiting'> {
   return first === undefined ? 'back_office' : BY_FIRST_SCREEN[first];
 }
 
-const HARDWARE_ICON: Record<DeviceType, IconName> = { tablet: 'grid', cashier_kiosk: 'screen', kds: 'flame', phone: 'user' };
+const HARDWARE_ICON: Record<DeviceType, IconName> = { tablet: 'tablet', cashier_kiosk: 'cash', kds: 'flame', phone: 'phone' };
 
 /** Hardware is an icon only, never a heading (§6.8); the label is for screen readers. */
 export function HardwareIcon({ hardware }: { hardware: DeviceType | null }) {
   const label = t(hardware === null ? 'devices.hw.unknown' : (`devices.hw.${hardware}` as MessageKey));
   return (
     <span className="dv__hw" data-hardware={hardware ?? 'unknown'} role="img" aria-label={label}>
-      <Icon name={hardware === null ? 'screen' : HARDWARE_ICON[hardware]} />
+      <Ico name={hardware === null ? 'tablet' : HARDWARE_ICON[hardware]} />
     </span>
   );
 }
@@ -63,9 +63,9 @@ function DeviceItem({ d, onEdit }: { d: DeviceRow; onEdit: (d: DeviceRow) => voi
           {d.device_type === 'kds' ? '' : `${who} · ${d.screens.map(screenText).join(', ')}`}
         </small>
       </div>
-      {d.needs_review && <Chip tone="warn">{t('devices.needs_review')}</Chip>}
+      {d.needs_review && <span className="st c-warn">{t('devices.needs_review')}</span>}
       {d.device_type !== 'kds' && (
-        <button type="button" className="pos-btn" onClick={() => onEdit(d)}>
+        <button type="button" className="btn" onClick={() => onEdit(d)}>
           {t('devices.edit')}
         </button>
       )}
@@ -80,7 +80,7 @@ function WaitingItem({ r, onApprove }: { r: PendingRequest; onApprove: (r: Pendi
       <div className="dv__main">
         <strong>{r.device_name}</strong>
       </div>
-      <button type="button" className="pos-btn" onClick={() => onApprove(r)}>
+      <button type="button" className="btn" onClick={() => onApprove(r)}>
         {t('devices.approve')}
       </button>
     </li>
@@ -103,19 +103,26 @@ export function DeviceList({ api, openRequestId = null, openEditId = null }: { a
   }, [load]);
 
   return (
-    <section className="dv">
-      <h1 className="title">{t('devices.title')}</h1>
-      {state.status === 'loading' && <Skeleton lines={4} />}
-      {state.status === 'error' && (
-        <Banner tone="danger" text={t('devices.load_failed')} />
-      )}
-      {state.status === 'error' && (
-        <button type="button" className="pos-btn" onClick={() => void load()}>
-          {t('devices.reload')}
-        </button>
-      )}
-      {state.status === 'ready' && <Ready api={api} data={state.data} reload={() => void load()} openRequestId={openRequestId} openEditId={openEditId} />}
-    </section>
+    <main className="body dv">
+      <section className="lcard">
+        <div className="lcard__h">
+          <h1>{t('devices.title')}</h1>
+        </div>
+        <div className="lcard__b">
+          {state.status === 'loading' && <p className="muted" aria-busy="true">{t('common.loading')}</p>}
+          {state.status === 'error' && (
+            <div className="msg c-danger" role="alert">
+              <Ico name="warn" />
+              <span>{t('devices.load_failed')}</span>
+              <button type="button" className="btn" onClick={() => void load()}>
+                {t('devices.reload')}
+              </button>
+            </div>
+          )}
+          {state.status === 'ready' && <Ready api={api} data={state.data} reload={() => void load()} openRequestId={openRequestId} openEditId={openEditId} />}
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -139,11 +146,15 @@ function Ready({ api, data, reload, openRequestId, openEditId }: { api: DevicesA
   const shown = GROUPS.filter((g) => (g === 'waiting' ? data.pending_requests.length > 0 : rows(g).length > 0));
   return (
     <>
-      {data.admin_warning === 0 && <Banner tone="danger" text={t('devices.warn.none')} />}
-      {data.admin_warning === 1 && <Banner tone="warn" text={t('devices.warn.one')} />}
+      {data.admin_warning !== null && data.admin_warning <= 1 && (
+        <div className={`msg ${data.admin_warning === 0 ? 'c-danger' : 'c-warn'}`} role={data.admin_warning === 0 ? 'alert' : 'status'}>
+          <Ico name="warn" />
+          <span>{t(data.admin_warning === 0 ? 'devices.warn.none' : 'devices.warn.one')}</span>
+        </div>
+      )}
       {open?.kind === 'approve' && <ApproveForm key={open.request.request_id} api={api} people={data.staff} request={open.request} onDone={done} onCancel={() => setOpen(null)} />}
       {open?.kind === 'edit' && <EditForm key={open.device.device_id} api={api} people={data.staff} device={open.device} onDone={done} onCancel={() => setOpen(null)} onReload={done} />}
-      {shown.length === 0 && <p>{t('devices.empty')}</p>}
+      {shown.length === 0 && <p className="muted">{t('devices.empty')}</p>}
       {shown.map((g) => (
         <div key={g} className="dv__group" data-group={g}>
           <h2>{groupTitle(g)}</h2>

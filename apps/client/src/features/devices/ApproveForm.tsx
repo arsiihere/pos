@@ -1,10 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { screensOffered, type DeviceType, type ScreenKey } from '@pos/domain';
 import type { HubError } from '../../api/hub-admin';
-import { Banner } from '../../components/Banner';
-import { BusyButton } from '../../components/BusyButton';
-import { StaleBanner } from '../../components/StaleBanner';
+import { SLOW_AFTER_MS } from '../../components/BusyButton';
 import { t } from '../../i18n';
+import { Ico } from '../alerts/ui';
 import type { MessageKey } from '../../i18n/en';
 import type { ApprovePayload, DevicesApi, DeviceRow, PendingRequest, PickPerson, PickPoint, PickStation, SetProfilePayload } from './api';
 
@@ -152,13 +151,59 @@ export function profileReady(p: Profile): boolean {
   return true;
 }
 
+/**
+ * ⚠️ 05a v1.0.8 §6.8 (owner 2026-11-28 QA-R3, BUG-4): the forms use the staff (Pulse) look like the other Manager tools —
+ * `.msg` banners, `.btn` buttons, `.ico` icons — never the kit's `pos-*` classes, which the staff entry does not load.
+ */
 export function FormShell({ children, error, stale, onReload }: { children: ReactNode; error: string | null; stale: boolean; onReload: () => void }) {
   return (
-    <div className="dv__form">
-      {stale && <StaleBanner onReload={onReload} />}
-      {error !== null && <Banner tone="danger" text={error} />}
+    <div className="dv__form card">
+      {stale && (
+        <div className="msg c-warn" role="status" data-stale="">
+          <Ico name="sync" />
+          <span>
+            {t('stale.title')}
+            <small>{t('stale.body')}</small>
+          </span>
+          <button type="button" className="btn" onClick={onReload}>
+            <Ico name="sync" />
+            {t('stale.reload')}
+          </button>
+        </div>
+      )}
+      {error !== null && (
+        <div className="msg c-danger" role="alert">
+          <Ico name="warn" />
+          <span>{error}</span>
+        </div>
+      )}
       {children}
     </div>
+  );
+}
+
+/** The forms' primary button: disabled while busy; after 3 s busy, a "taking longer" note (the kit BusyButton's rule). */
+export function SaveButton({ busy, disabled, onClick, children }: { busy: boolean; disabled: boolean; onClick: () => void; children: ReactNode }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!busy) {
+      setSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlow(true), SLOW_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [busy]);
+  return (
+    <>
+      <button type="button" className="btn btn--primary" disabled={busy || disabled} aria-busy={busy ? true : undefined} onClick={onClick}>
+        {children}
+      </button>
+      {busy && slow && (
+        <div className="msg c-warn" role="status">
+          <span>{t('common.slow')}</span>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -264,13 +309,13 @@ export function ApproveForm({
           points={points}
         />
       )}
-      <div className="pos-row">
-        <button type="button" className="pos-btn" onClick={onCancel}>
+      <div className="row dv__acts">
+        <button type="button" className="btn" onClick={onCancel}>
           {t('common.cancel')}
         </button>
-        <BusyButton primary busy={busy} disabled={!ready} onClick={() => void submit()}>
+        <SaveButton busy={busy} disabled={!ready} onClick={() => void submit()}>
           {t('devices.approve')}
-        </BusyButton>
+        </SaveButton>
       </div>
     </FormShell>
   );
