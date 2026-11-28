@@ -32,7 +32,8 @@ describe('[05 §8 Errors; §9] 05-2 error and kind strings (task 43b)', () => {
     expect(EN['errors.PETTY_ADVANCE_SETTLED']).toBe('Already settled');
     expect(EN['errors.DAY_CLOSE_BLOCKED.shift_open_one']).toBe('1 shift is still open — close it first');
     expect(EN['errors.DAY_CLOSE_BLOCKED.shift_open']).toBe('{count} shifts are still open — close them first');
-    expect(EN['errors.DAY_CLOSE_BLOCKED.unbilled_orders']).toBe('{count} orders are not billed — bill them or carry them over');
+    // ⚠️ 05 v1.0.37 §3.13 (QA-R2 BUG-11): the list is one row per bill
+    expect(EN['errors.DAY_CLOSE_BLOCKED.unbilled_orders']).toBe('{count} bills are not paid — take payment or carry them over');
     expect(EN['errors.DAY_CLOSE_BLOCKED.variance_pending']).toBe('{count} variance sign-offs are still pending — answer them first');
     expect(EN['errors.DAY_CLOSE_BLOCKED.variance_pending_one']).toBe('1 variance sign-off is still pending — answer it first');
     expect(EN['errors.PERMISSION_DENIED.skip_not_granted']).toBe("You can't skip the count");
