@@ -216,6 +216,10 @@ export function openOrdersBody(
   // the closed day (closed_at set), and with no open day every order gets from_date = its business_date.
   const day = state.business_day;
   const today = day !== null && day.closed_at === null ? day.business_date : null;
+  // ⚠️ 02b v1.0.28 QR2-3 (owner 2026-11-28 QA-R2, BUG-10; DC-2): an order placed before the open day began was carried
+  // over a close — also when the day reopened on the same date (§3.11) — and keeps its date until handed over
+  const openedAt = today === null ? null : day!.opened_at;
+  const fromDate = (r: { business_date: string; placed_at: number }) => (r.business_date === today && r.placed_at >= openedAt! ? null : r.business_date);
   const out: OpenOrder[] = [];
   const billOf = new Map<string, OpenOrderRow>(); // takeaway / parking rows listed
   for (const r of rows) {
@@ -240,7 +244,7 @@ export function openOrdersBody(
       placed_by: { staff_id: r.placed_by, name: directory.get(r.placed_by)?.display_name ?? null },
       table_id: null,
       business_date: r.business_date,
-      from_date: r.business_date === today ? null : r.business_date,
+      from_date: fromDate(r),
       ready: { n: ready, m: live.length },
       promise_ms: inEngine ? state.orders[r.order_id]!.promise_ms : null,
       abandoned,

@@ -1611,6 +1611,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   't.sent': 'بھیج دیا · تیار',
   't.queued': 'ابھی نہیں گیا — ہب واپس آنے پر ٹوکن ملے گا',
   'q.waiting_send': 'بھیجنے کا انتظار',
+  'q.waiting_day': 'انتظار — دن شروع نہیں ہوا',
   // 02b-TK C1-4 (frames ItemSheetEdit, ItemSheet): not in strings-table.md; Urdu to confirm
   'opt.save': 'تبدیلیاں محفوظ کریں',
   'opt.more': 'ایک اور {option}',
@@ -1947,6 +1948,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.closed_empty': 'بند · کچھ بل نہیں · پیسے واپس',
   'billing.no_printer': 'بل کا پرنٹر نہیں لگا — گاہک کو اسکرین دکھائیں',
   'billing.total_changed': 'کل رقم {amount} ہو گئی — دیکھ کر دوبارہ بند کریں',
+  // 05 v1.0.37 §9 / §8 (QA-R2): Urdu to confirm
+  'errors.BILL_DUE_CHANGED': 'بل بدل گیا — اب {amount}۔ کچھ نہیں لیا گیا؛ رقم دیکھ کر دوبارہ لیں',
+  'p.bill_changed': 'بل بدل گیا — اب {amount}',
+  'p.split_of': 'حصہ {k} از {n}',
+  'p.split_more': 'اس بل پر {amount} اور',
   'pad.maybe_in': 'یہ ادائیگی شاید پہلے ہی ہو چکی ہے — دوبارہ لینے سے پہلے ادائیگیاں دیکھیں',
   'tables.toast.needs_hub': 'ہب چاہیے',
   'billing.check_sent': 'چیک بل {printer} پر بھیج دیا',
@@ -2002,6 +2008,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'cart.prob.set_to': '{n} کر دیں',
   'day.not_started': 'دن شروع نہیں ہوا',
   'day.start': 'دن شروع کریں',
+  'day.started': 'دن شروع ہو گیا',
+  'day.start_failed': 'دن شروع نہیں ہوا — دوبارہ کوشش کریں',
   'day.ask_manager': 'مینیجر سے دن شروع کروائیں۔ آپ کا آرڈر محفوظ ہے۔',
   'menu.here': '{n} یہاں',
   'draft.back': 'آپ کا نہ بھیجا آرڈر واپس آ گیا',

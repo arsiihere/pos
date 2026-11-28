@@ -219,9 +219,10 @@ export async function startDemoHub(orders: DemoOrder[]): Promise<{ info: DemoHub
       toStage(hub, order_id, all.slice(0, 1), 'served');
     }
     if (o.paid === true) {
-      const bill = await s.query<{ splits: Array<{ split_no: number; balance_minor: number; totals: { cash: { total_minor: number } } }> }>(`bill?order_id=${encodeURIComponent(order_id)}`);
+      const bill = await s.query<{ splits: Array<{ split_no: number; balance_minor: number; dues?: { cash_due_minor: number }; totals: { cash: { total_minor: number } } }> }>(`bill?order_id=${encodeURIComponent(order_id)}`);
       const one = bill.splits[0]!;
-      await s.command('AddPayment', { bill_ref: { order_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: one.balance_minor, tendered_minor: one.balance_minor });
+      // 05 v1.0.37 §6.9 (R2-1): the due the bill showed
+      await s.command('AddPayment', { bill_ref: { order_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: one.balance_minor, expected_due_minor: one.dues?.cash_due_minor ?? one.balance_minor, tendered_minor: one.balance_minor });
       await s.command('CloseSplit', { bill_ref: { order_id }, split_no: 1, expected_total_minor: one.totals.cash.total_minor });
     }
     hub.clock.advance((o.after ?? 1) * MIN);

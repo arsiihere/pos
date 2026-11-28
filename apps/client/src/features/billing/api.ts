@@ -58,7 +58,8 @@ export interface BillingApi {
   /** §6.1: the bill view (totals from the hub only). */
   bill(ref: BillRef): Promise<HubResult<BillView>>;
   /** §6.9: one payment on a split (dues, rounding and change come back). */
-  addPayment(payload: { bill_ref: BillRef; split_no: number; mode_id: string; direction: 'in' | 'out'; amount_minor: number; tendered_minor?: number; reference?: string }): Promise<HubResult<AddPaymentResult>>;
+  /** §6.9; ⚠️ v1.0.37 (R2-1): `expected_due_minor` = the due field the amount is held to, as the screen shows it */
+  addPayment(payload: { bill_ref: BillRef; split_no: number; mode_id: string; direction: 'in' | 'out'; amount_minor: number; expected_due_minor: number; tendered_minor?: number; reference?: string }): Promise<HubResult<AddPaymentResult>>;
   /** §6.12: close a split; `expected_total_minor` = the total the screen showed (rule 7). */
   closeSplit(payload: { bill_ref: BillRef; split_no: number; expected_total_minor: number; buyer?: { name: string; tax_id: { type: string; value: string } } }): Promise<HubResult<CloseSplitResult>>;
   /** §6.13 (`reopen-bill`, approvable): reopen a CLOSED / PARTLY_PAID bill — a credit per closed split's sale invoice. */

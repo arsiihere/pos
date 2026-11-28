@@ -33,6 +33,8 @@ interface BillSplit {
   split_no: number;
   state: string;
   balance_minor: number;
+  // 05 v1.0.37 §6.1: the hub's dues of the split
+  dues?: { cash_due_minor: number };
   totals: { cash: { total_minor: number } };
   payments: Array<{ has_reference: boolean; mode_id: string }>;
 }
@@ -107,9 +109,11 @@ for (const lang of LANGS) {
       await menuTile(page, run.items.main.name).click();
       await menuTile(page, run.items.main.name).click();
       const { token, order_id } = await sendLater(page, lang);
-      const total = (await billOf(api, order_id)).splits[0]!.totals.cash.total_minor;
+      const first = (await billOf(api, order_id)).splits[0]!;
+      const total = first.totals.cash.total_minor;
       const part = Math.round((total * 0.6) / 100) * 100;
-      const paid = await api.command('AddPayment', { bill_ref: { order_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: part, tendered_minor: part });
+      // 05 v1.0.37 §6.9 (R2-1): the due the bill showed
+      const paid = await api.command('AddPayment', { bill_ref: { order_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: part, expected_due_minor: first.dues?.cash_due_minor ?? total, tendered_minor: part });
       expect(paid.status, JSON.stringify(paid.body.error)).toBe(200);
       await (await queueEntry(page, token)).click();
       const mark = await printMark();
@@ -140,7 +144,7 @@ for (const lang of LANGS) {
       const split = await api.command('SetSplits', { bill_ref: { order_id }, mode: 'equal', n: 2 });
       expect(split.status, JSON.stringify(split.body.error)).toBe(200);
       const one = (await billOf(api, order_id)).splits.find((s) => s.split_no === 1)!;
-      const pay = await api.command('AddPayment', { bill_ref: { order_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: one.balance_minor, tendered_minor: one.balance_minor });
+      const pay = await api.command('AddPayment', { bill_ref: { order_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: one.balance_minor, expected_due_minor: one.dues?.cash_due_minor ?? one.balance_minor, tendered_minor: one.balance_minor });
       expect(pay.status, JSON.stringify(pay.body.error)).toBe(200);
       const close = await api.command('CloseSplit', { bill_ref: { order_id }, split_no: 1, expected_total_minor: one.totals.cash.total_minor });
       expect(close.status, JSON.stringify(close.body.error)).toBe(200);
@@ -157,6 +161,62 @@ for (const lang of LANGS) {
       await capture(page, info, `T1-11-split-${info.project.name}-${lang}`);
     } finally {
       await api.close();
+      await closeAll(info, lang, cash);
+    }
+  });
+  // ⚠️ 05 v1.0.37 §6.9, §8 (owner 2026-11-28 QA-R2, R2-1; QA BUG-1 BLOCKER), test #21f e2e: two devices — the counter's
+  // pay panel is open on a token while another device adds to it; the panel shows the new amount at once, clears
+  // Customer gave, and the payment taken is the new due, once (never "Paid Rs 80 · Give change Rs 120").
+  test(`[QA-R2 BUG-1] a pay panel open while another device adds to the token: "Bill changed — now …", Customer gave cleared, one payment of the new due (${lang})`, async ({ browser, request }, info) => {
+    t1RunsHere(info);
+    const run = t1Run('bag', info, lang);
+    const cash = await screen(browser, info.project.use.viewport!);
+    const other = await apiSession(request, 'S_OWNER');
+    try {
+      await counter(cash.page, lang, info);
+      const page = cash.page;
+      await menuTile(page, run.items.main.name).click();
+      const { token, order_id } = await sendLater(page, lang);
+      const first = (await billOf(other, order_id)).splits[0]!;
+      const was = first.dues?.cash_due_minor ?? first.balance_minor;
+      await (await queueEntry(page, token)).click();
+      await drawer(page).getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'v.pay'))}`) }).click();
+      const panel = page.locator('.cart .tk-paypanel');
+      await expect(panel.locator('.tk-pay__due .money')).toHaveText(money(was));
+      const given = panel.locator('.tk-tendered input');
+      await given.fill(String(Math.ceil(was / 100) + 100));
+      await expect(panel.locator('.tk-change')).toBeVisible();
+
+      // device B: "Add to token"
+      const added = await other.command('SubmitOrder', { order_id: `${order_id}-R2`, order_type: 'takeaway', adds_to_order_id: order_id, lines: [{ order_item_id: `${order_id}-R2-L`, item_id: run.items.main.item_id, quantity: 1 }] });
+      expect(added.status, JSON.stringify(added.body.error)).toBe(200);
+      const now = (await billOf(other, order_id)).splits[0]!;
+      const due = now.dues?.cash_due_minor ?? now.balance_minor;
+      expect(due).toBeGreaterThan(was);
+
+      await expect(panel.locator('.tk-pay__due .money')).toHaveText(money(due));
+      await expect(panel.locator('.tk-pay__b [role="status"]')).toContainText(money(due).replace('Rs ', ''));
+      await expect(given).toHaveValue('');
+      await expect(panel.locator('.tk-change')).toHaveCount(0);
+      const paid = panel.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'p.done'))}`) });
+      await expect(paid).toHaveAttribute('aria-disabled', 'true');
+      await capture(page, info, `QA-R2-BUG1-changed-${info.project.name}-${lang}`, panel);
+
+      // the cashier takes the new amount: one payment, the bill closed, no change owed
+      const sent: Array<{ amount_minor: number; expected_due_minor: number }> = [];
+      page.on('request', (r) => {
+        if (r.method() === 'POST' && r.url().endsWith('/commands/add-payment')) sent.push((r.postDataJSON() as { payload: { amount_minor: number; expected_due_minor: number } }).payload);
+      });
+      await panel.locator('.tk-notes button').first().click();
+      await paid.click();
+      await expect(panel.getByText(tr(lang, 'p.next'))).toBeVisible();
+      await expect(panel.locator('.tk-change')).toHaveCount(0);
+      expect(sent).toEqual([expect.objectContaining({ amount_minor: due, expected_due_minor: due })]);
+      const bill = await billOf(other, order_id);
+      expect(bill.state).toBe('closed');
+      expect(bill.splits[0]!.payments).toHaveLength(1);
+    } finally {
+      await other.close();
       await closeAll(info, lang, cash);
     }
   });

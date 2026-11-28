@@ -171,6 +171,89 @@ describe('[02b §3.12] queue core', () => {
     expect([...r.backing.values()]).toEqual([expect.objectContaining({ entry_id: '01ENTRY0001', state: 'log' })]);
   });
 
+  // ⚠️ 02b v1.0.28 QR2-1 (owner ruling R2-2 of 2026-11-28 QA-R2, BUG-2): a queued order is never dropped for a closed day
+  const dayOpened = (live: LiveBus, seq: number) =>
+    live.frame({ type: 'event', seq, event: { event_id: `E${seq}`, event_type: 'BusinessDayOpened', schema_version: 2, payload: {} } } as never);
+
+  it('[02b #100 QR2-1] a replay refused BUSINESS_DAY_NOT_OPEN stays queued (waiting for the day), the entries after it still go; BusinessDayOpened sends it with the same id', async () => {
+    const r = rig();
+    await r.api.signIn('ali', '1234', false);
+    await r.queue.enqueue('SubmitOrder', order('O1'), meta1); // offline: queued
+    r.now.ms += 1_000;
+    await r.queue.enqueue('MarkServed', { lines: [{ order_id: 'O0', order_item_ids: ['X'] }] }, { label: 'Served' });
+    r.h.script.push(err(409, 'BUSINESS_DAY_NOT_OPEN'), ok({ served: 1, skipped: [] }));
+    reconnect(r.live);
+    await r.queue.drain();
+    expect(r.queue.queued().map((e) => e.entry_id)).toEqual(['01ENTRY0001']);
+    expect(r.queue.waitingDay('01ENTRY0001')).toBe(true);
+    expect(r.queue.log()).toEqual([]);
+    expect([...r.backing.values()]).toEqual([expect.objectContaining({ entry_id: '01ENTRY0001', state: 'queued' })]);
+    // still no day: another drain tries it once and keeps it
+    r.h.script.push(err(409, 'BUSINESS_DAY_NOT_OPEN'));
+    const before = r.h.commands().length;
+    await r.queue.drain();
+    expect(r.h.commands().length - before).toBe(1);
+    expect(r.queue.pendingCount()).toBe(1);
+    // the day opens: sent at once, the same command_id, as a replay
+    r.h.script.push(ok({ order_id: 'O1', token: 1, groups: [], lines: [] }));
+    const sent: Array<{ id: string; later: boolean }> = [];
+    r.queue.onSent((n) => sent.push({ id: n.entry.entry_id, later: n.later }));
+    dayOpened(r.live, 10);
+    await vi.waitFor(() => expect(r.queue.pendingCount()).toBe(0));
+    const last = r.h.commands().at(-1)!;
+    expect([last.path, last.body?.command_id, last.headers['X-Queued-At'], last.body?.actor_id]).toEqual(['/commands/submit-order', '01ENTRY0001', '1000000', 'ali']);
+    expect(sent).toEqual([{ id: '01ENTRY0001', later: true }]);
+    expect(r.queue.waitingDay('01ENTRY0001')).toBe(false);
+    expect(r.backing.size).toBe(0);
+  });
+
+  it('[02b #100 QR2-1] a plain Send refused BUSINESS_DAY_NOT_OPEN is still refused to its caller (Day not started, the cart kept)', async () => {
+    const r = rig();
+    await r.api.signIn('ali', '1234', false);
+    r.h.script.push(err(409, 'BUSINESS_DAY_NOT_OPEN'));
+    const answer = await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    expect(answer).toMatchObject({ status: 'refused', error: { code: 'BUSINESS_DAY_NOT_OPEN' } });
+    expect(r.queue.pendingCount()).toBe(0);
+  });
+
+  it('[02b #100 QR2-1] waiting for the day is never logged as too old (a day can stay closed overnight)', async () => {
+    const r = rig({ maxAgeMs: () => 60_000 });
+    await r.api.signIn('ali', '1234', false);
+    await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    r.h.script.push(err(409, 'BUSINESS_DAY_NOT_OPEN'));
+    await r.queue.drain();
+    expect(r.queue.waitingDay('01ENTRY0001')).toBe(true);
+    r.now.ms += 10 * 3_600_000;
+    r.h.script.push(ok({ order_id: 'O1', token: 1, groups: [], lines: [] }));
+    dayOpened(r.live, 11);
+    await vi.waitFor(() => expect(r.queue.pendingCount()).toBe(0));
+    expect(r.queue.log()).toEqual([]);
+  });
+
+  it('[02b #100 QR2-1] its session ended meanwhile: kept, then sent as the person signed in now; nobody signed in → it waits for the sign-in', async () => {
+    const r = rig();
+    await r.api.signIn('ali', '1234', false);
+    await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    r.h.script.push(err(409, 'BUSINESS_DAY_NOT_OPEN'));
+    await r.queue.drain();
+    // Ali's own session ends on the hub (the page signs out): the waiting order stays queued, not logged
+    r.h.script.push(err(401, 'SESSION_EXPIRED'));
+    dayOpened(r.live, 12);
+    await vi.waitFor(() => expect(r.signedOut).toBe(1));
+    await r.queue.drain();
+    expect(r.queue.log()).toEqual([]);
+    expect(r.queue.queued().map((e) => e.entry_id)).toEqual(['01ENTRY0001']);
+    const count = r.h.commands().length;
+    await r.queue.drain(); // nobody signed in: nothing sent
+    expect(r.h.commands().length).toBe(count);
+    await r.api.signIn('sara', '1234', false);
+    r.h.script.push(ok({ order_id: 'O1', token: 1, groups: [], lines: [] }));
+    await r.queue.drain();
+    const last = r.h.commands().at(-1)!;
+    expect([last.body?.command_id, last.headers['X-Session-Token'], last.body?.actor_id, last.headers['X-Queued-At']]).toEqual(['01ENTRY0001', 'TOK-sara', 'sara', '1000000']);
+    expect(r.queue.pendingCount()).toBe(0);
+  });
+
   it('[02b §3.12 review #165] the log keeps only the refused item / deal id of the details — never a name', async () => {
     const backing: MemoryQueueBacking = new Map();
     const r = rig({ backing });

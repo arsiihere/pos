@@ -47,7 +47,7 @@ import { DealSheet } from '../sheets/DealSheet';
 import { NoteSheet, ORDER_NOTE_MAX } from '../sheets/NoteSheet';
 import { OptionsSheet } from '../sheets/OptionsSheet';
 import { createPreview, type PreviewState } from './preview';
-import { DayNotStarted, canStartDay } from './DayNotStarted';
+import { DayNotStarted, startDayMode } from './DayNotStarted';
 import { createDayWatch } from './day-open';
 import { phoneBad } from './contact';
 import { CustomerRow } from './CustomerRow';
@@ -1155,7 +1155,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     holdKey: order_type === 'takeaway' && shell.device.type === 'cashier_kiosk' && !shell.phone && !shell.portrait,
     // 02b-TK A2 item 3 (frame HomeRush): ×2 ×4 ×6 ×8 on the open line
     qchips: order_type === 'takeaway',
-    day: dayNotOpen ? <DayNotStarted canStart={canStartDay(shell.permissions)} /> : null,
+    day: dayNotOpen ? <DayNotStarted mode={startDayMode(shell.permissions)} /> : null,
     info: cart.lines.find((l) => l.comp_it === true) === undefined ? null : compItInfo(),
     // 02b v1.0.21 §8 (STAB-5, owner option C): the order switch; a line override in its edit sheet wins. 02b-TK A2
     // item 5b (frame ServeChoice): a takeaway asks the plain question instead, and only when something is ready now

@@ -385,6 +385,21 @@ describe('open-orders (§6.16)', () => {
     expect(after.find((o) => o.order_id === 'TA')).toMatchObject({ business_date: day.business_date, from_date: day.business_date });
   });
 
+  // ⚠️ 02b v1.0.28 QR2-3 (owner 2026-11-28 QA-R2, BUG-10; DC-2): a day closed and reopened on the SAME date keeps the
+  // carried order's date beside its token; an order placed after the reopen has none
+  it('[02b #103 QR2-3] a carried takeaway keeps from_date after the day reopens on the same date; a new order has none', async () => {
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'CA', lines: [{ order_item_id: 'CA1', item_id: FX.naan }] });
+    closeDay();
+    hub.clock.advance(60_000);
+    const again = openDay(hub);
+    expect(again.business_date).toBe(day.business_date);
+    hub.clock.advance(60_000);
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'CB', lines: [{ order_item_id: 'CB1', item_id: FX.naan }] });
+    const rows = (await query<Open>(signIn(CASHIER), 'open-orders')).data.orders;
+    expect(rows.find((o) => o.order_id === 'CA')).toMatchObject({ business_date: day.business_date, from_date: day.business_date });
+    expect(rows.find((o) => o.order_id === 'CB')).toMatchObject({ business_date: day.business_date, from_date: null });
+  });
+
   it('[02b §6.16 R2] an order with no engine lines (only no-station / ready / zone-served lines) is never in the abandoned list', async () => {
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
     openSeating(hub, { table_id: FX.zoneTable, seating_id: 'SEAT2' });

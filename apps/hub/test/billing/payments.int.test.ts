@@ -896,15 +896,15 @@ describe('[05 §3.7, §3.5 (7), H10-2] an out on a negative open balance under c
 });
 
 describe('[05 §6.9, §6.10] races: two tills on one split', () => {
-  it('[05 §6.9] two full cash payments sent at once on a bill not yet opened: one bill, one payment; the other is refused with balance 0', async () => {
+  it('[05 §6.9] two full cash payments sent at once on a bill not yet opened: one bill, one payment; the other is refused — ⚠️ 05 v1.0.37 (R2-1): the due it saw is gone, BILL_DUE_CHANGED with due 0', async () => {
     await start();
     const a = await drawer(STAFF.cashier, 'Kiosk A');
     const b = await drawer(STAFF.manager, 'Kiosk B');
     const t = fourKarahi();
-    const pay = (who: Who) => addPayment(who, { bill_ref: { seating_id: t.seating_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: 556_800 });
+    const pay = (who: Who) => addPayment(who, { bill_ref: { seating_id: t.seating_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: 556_800, expected_due_minor: 556_800 });
     const rs = await Promise.all([pay(a.who), pay(b.who)]);
-    expect(rs.map((r) => r.status).sort()).toEqual([200, 422]);
-    expect(rs.find((r) => r.status === 422)!.error).toEqual({ code: 'PAYMENT_EXCEEDS_BALANCE', details: { balance_minor: 0 } });
+    expect(rs.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(rs.find((r) => r.status === 409)!.error).toEqual({ code: 'BILL_DUE_CHANGED', details: { split_no: 1, expected_minor: 556_800, due_minor: 0 } });
     expect(db().prepare('SELECT COUNT(*) FROM bills WHERE seating_id = ?').pluck().get(t.seating_id)).toBe(1);
     expect(db().prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'BillOpened'`).pluck().get()).toBe(1);
     expect(db().prepare('SELECT COUNT(*) FROM bill_payments').pluck().get()).toBe(1);

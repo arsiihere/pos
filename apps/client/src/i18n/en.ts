@@ -2262,6 +2262,9 @@ export const en = {
   'day.not_started': "The day hasn't started",
   'day.ask_manager': 'Ask the manager to start the day. Your order is kept.',
   'day.start': 'Start day',
+  // ⚠️ 02b v1.0.28 QR2-2 (BUG-9): Start day sent from the staff app
+  'day.started': 'Day started',
+  'day.start_failed': 'The day did not start — try again',
   'draft.back': 'Your unsent order is back',
   'draft.kept_since': 'Kept on this screen since {time}',
   'opt.choose': 'Choose {n}',
@@ -3552,6 +3555,8 @@ export const en = {
   'errors.SERVICE_CHARGE_NOT_APPLIED': 'The service charge was already removed',
   'errors.BUYER_ID_REQUIRED': 'Buyer details are needed above {threshold}',
   'errors.BILL_TOTAL_CHANGED': 'The total changed to {amount} — check it and close again',
+  // 05 v1.0.37 §9 (QA-R2, R2-1)
+  'errors.BILL_DUE_CHANGED': 'Bill changed — now {amount}. Nothing was taken; check the amount and take it again',
   'errors.BILL_BALANCE_DUE': '{amount} still to take on split {n}',
   'errors.BILL_PARTLY_PAID': 'A split is already paid — no discount now',
   'errors.LINE_IN_CLOSED_SPLIT': 'Reopen the bill to change a paid split',
@@ -3815,8 +3820,9 @@ export const en = {
   'errors.PETTY_SETTLE_MISMATCH': 'Spent and returned must add up to {amount}',
   'errors.DAY_CLOSE_BLOCKED.shift_open': '{count} shifts are still open — close them first',
   'errors.DAY_CLOSE_BLOCKED.shift_open_one': '1 shift is still open — close it first',
-  'errors.DAY_CLOSE_BLOCKED.unbilled_orders': '{count} orders are not billed — bill them or carry them over',
-  'errors.DAY_CLOSE_BLOCKED.unbilled_orders_one': '1 order is not billed — bill it or carry it over',
+  // ⚠️ 05 v1.0.37 §3.13 (QA-R2 BUG-11): the list is one row per bill
+  'errors.DAY_CLOSE_BLOCKED.unbilled_orders': '{count} bills are not paid — take payment or carry them over',
+  'errors.DAY_CLOSE_BLOCKED.unbilled_orders_one': '1 bill is not paid — take payment or carry it over',
   // 05 G-77 (R-76): the day close refused while a variance sign-off is pending
   'errors.DAY_CLOSE_BLOCKED.variance_pending': '{count} variance sign-offs are still pending — answer them first',
   'errors.DAY_CLOSE_BLOCKED.variance_pending_one': '1 variance sign-off is still pending — answer it first',
@@ -3988,6 +3994,11 @@ export const en = {
   'billing.report.average': 'Average bill',
   'billing.report.bills_one': '1 bill',
   'billing.report.bills': '{count} bills',
+  // ⚠️ 05 v1.0.37 §6.26 (6) (QA-R2 BUG-20): a bill is the customer's bill; an invoice is one per closed split
+  'billing.report.bills_k': 'Bills',
+  'billing.report.invoices_n': '{count} invoices',
+  'billing.report.invoices_one': '1 invoice',
+  'billing.report.per_bill': 'sales ÷ bills (a split bill counts once)',
   'billing.report.fiscal': 'Fiscal',
   'billing.report.kpi_rejected': '{count} not accepted',
   'billing.report.kpi_waiting': '{count} waiting',
@@ -4272,6 +4283,8 @@ export const en = {
   't.sent': 'sent · ready',
   't.queued': 'Not sent yet — token comes when the hub is back',
   'q.waiting_send': 'Waiting to send',
+  // ⚠️ 02b v1.0.28 QR2-1 (owner ruling R2-2, BUG-2): a queued order the hub refused for a closed day; it sends itself at Start day
+  'q.waiting_day': 'Waiting — the day hasn’t started',
   // 02b-TK C1-4 (frames ItemSheetEdit, ItemSheet): not in strings-table.md; Urdu to confirm
   'opt.save': 'Save changes',
   'opt.more': 'One more {option}',
@@ -4347,6 +4360,10 @@ export const en = {
   'c.queued_pay': 'Payment needs the hub. Send now; take payment when Live.',
   'p.title': 'Take payment',
   'p.due': 'To pay',
+  // ⚠️ 05 v1.0.37 §8 (QA-R2, R2-1, BUG-6): the pay panel follows the bill; a split bill pays one split at a time
+  'p.bill_changed': 'Bill changed — now {amount}',
+  'p.split_of': 'Split {k} of {n}',
+  'p.split_more': '{amount} more on this bill',
   'p.given': 'Customer gave',
   'p.exact': 'Exact',
   'p.change': 'Give change',

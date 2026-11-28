@@ -313,6 +313,10 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.report.tab_x` | Today (X) |
 | `billing.report.tab_z` | Z reports |
 | `billing.report.retry_done` | {count} waiting — sending now |
+| `billing.report.bills_k` | Bills |
+| `billing.report.invoices_n` | {count} invoices |
+| `billing.report.invoices_one` | 1 invoice |
+| `billing.report.per_bill` | sales ÷ bills (a split bill counts once) |
 | `billing.report.x_line` | X · {date} · issued {time} · {currency} |
 | `billing.report.z_line` | {z} · {date} · issued {time} · {currency} |
 | `billing.report.z_no` | Z {no} |

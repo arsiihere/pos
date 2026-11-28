@@ -117,6 +117,8 @@ export const ErrorCatalogue = {
   DISCOUNT_PENDING: { status: 409 },
   BUYER_ID_REQUIRED: { status: 409 },
   BILL_TOTAL_CHANGED: { status: 409 },
+  // 05 v1.0.37 §9 (owner 2026-11-28 QA-R2, R2-1)
+  BILL_DUE_CHANGED: { status: 409 },
   BILL_BALANCE_DUE: { status: 409 },
   BILL_PARTLY_PAID: { status: 409 },
   LINE_IN_CLOSED_SPLIT: { status: 409 },

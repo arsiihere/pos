@@ -6,6 +6,8 @@ import { fill } from '../../../../i18n/en';
 import { timeText } from '../../../alerts/labels';
 import { Ico } from '../../../alerts/ui';
 import { billingApi } from '../../../billing/api';
+import { BILL_LIST_FRAMES } from '../../../billing/frames';
+import { useLiveRefetch } from '../lists/OpenOrders';
 import { activeModes, duesOf, refusalText, type Mode } from '../../../billing/BillScreen';
 import type { BillView, BillViewSplit } from '../../../billing/contracts';
 import { billMoney, parseMinor } from '../../../billing/money';
@@ -24,6 +26,11 @@ import { TkIco } from './icons';
 // total the payment answered (rule 7); the receipt prints as today (§3.16). Money commands are never queued (B12):
 // offline the panel says so and offers no Paid; the order stays Due. A lost reply resends the same command_id
 // (billing api, handbook §10), so Try again never takes the money twice.
+// ⚠️ 05 v1.0.37 §6.9, §8 (owner 2026-11-28 QA-R2, R2-1; QA BUG-1 BLOCKER): every AddPayment carries the due the panel
+// shows (`expected_due_minor`); the hub refuses a changed bill (BILL_DUE_CHANGED). While open the panel reads the bill
+// again on every bill / order / table frame (the cash desk's frames) and on reconnect; when the due it shows changes it
+// says "Bill changed — now Rs X" and clears Cash given and the reference, so a stale amount is never paid and no change
+// is owed for it. BUG-6: a split bill is paid one open split at a time, "Split 1 of 2 · Rs 33 · Rs 34 more on this bill".
 // SHIFT_NOT_OPEN is the AddPayment answer, not a pre-check: the money shift may be the DEVICE's drawer shift of
 // another person (B11), which `GET /queries/shift` (the caller's own) does not show.
 
@@ -93,7 +100,8 @@ function openSplit(b: BillView): BillViewSplit | undefined {
 
 /** §3.5 (7) the due at a mode's class: the hub's dues where the view gives them, else the split's balance. */
 function dueAt(split: BillViewSplit, mode: Mode): number {
-  const dues = duesOf(split, null);
+  // ⚠️ 05 v1.0.37 §6.1: the view's own dues (the hub's numbers, the ones AddPayment checks)
+  const dues = split.dues ?? duesOf(split, null);
   if (dues === null) return Math.max(0, split.balance_minor);
   return mode.payment_class === 'cash' ? dues.cash_due_minor : dues.card_due_minor;
 }
@@ -129,10 +137,30 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
     void load();
   }, [load]);
 
+  useLiveRefetch(shell.live, () => void load(), BILL_LIST_FRAMES);
+
   const mode = modes.find((m) => m.mode_id === modeId) ?? modes[0] ?? null;
   const split = bill === null ? undefined : openSplit(bill);
   const exponent = bill?.currency.exponent ?? 2;
   const due = split === undefined || mode === null ? null : dueAt(split, mode);
+  // R2-1: the due the cashier is looking at, per split and mode; a change that is not this panel's own payment says so
+  const seen = useRef<{ key: string; due: number } | null>(null);
+  const ownChange = useRef(false);
+  useEffect(() => {
+    if (split === undefined || mode === null || due === null) return;
+    const key = `${split.split_no} ${mode.mode_id}`;
+    const was = seen.current;
+    seen.current = { key, due };
+    if (ownChange.current) {
+      ownChange.current = false;
+      return;
+    }
+    if (was === null || was.key !== key || was.due === due) return;
+    setBanner(fill(t('p.bill_changed'), { amount: money(due) }));
+    setTendered('');
+    setReference('');
+  }, [split, mode, due]);
+  const others = bill === null || split === undefined ? 0 : bill.splits.filter((s) => s.state === 'open' && s.split_no !== split.split_no).reduce((n, s) => n + Math.max(0, s.balance_minor), 0);
   const cash = mode?.payment_class === 'cash';
   const tenderedMinor = tendered.trim() === '' ? null : parseMinor(tendered, exponent);
   const short = cash && due !== null && tenderedMinor !== null && tenderedMinor < due ? due - tenderedMinor : null;
@@ -163,12 +191,17 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
             ? fill(t('billing.total_changed'), { amount: typeof e.details['total_minor'] === 'number' ? billText(e.details['total_minor'], b) : '' })
             : textOf(e, b, s),
         );
+        // the close's own banner says what changed (never replaced by "Bill changed")
+        ownChange.current = true;
         await load();
         setPhase({ kind: 'form' });
         return;
       }
       setPhase({ kind: 'not_closed', text: e.kind === 'network' ? t('p.offline') : textOf(e, b, s), expected });
-      if (e.kind === 'api') void load();
+      if (e.kind === 'api') {
+        ownChange.current = true;
+        void load();
+      }
       return;
     }
     const r = answer.data;
@@ -179,6 +212,8 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
     }
     if (r.bill_state !== 'closed') {
       // another split of this bill is still open (a split bill): the panel goes on with it
+      ownChange.current = true;
+      setTendered('');
       await load();
       setPhase({ kind: 'form' });
       return;
@@ -201,6 +236,7 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
           mode_id: mode.mode_id,
           direction: 'in',
           amount_minor: due,
+          expected_due_minor: due,
           ...(cash ? { tendered_minor: tenderedMinor! } : {}),
           ...(!cash && reference.trim() !== '' ? { reference: reference.trim() } : {}),
         });
@@ -214,15 +250,31 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
             setPhase({ kind: 'form' });
             return;
           }
+          if (e.kind === 'api' && e.code === 'BILL_DUE_CHANGED') {
+            // R2-1: nothing was taken; the new amount is shown and the tendered amount cleared — never paid by itself
+            const now = e.details['due_minor'];
+            ownChange.current = true;
+            setTendered('');
+            setReference('');
+            setBanner(fill(t('p.bill_changed'), { amount: typeof now === 'number' ? money(now) : '' }));
+            await load();
+            setPhase({ kind: 'form' });
+            return;
+          }
           const shift = e.kind === 'api' && e.code === 'SHIFT_NOT_OPEN' && e.details['reason'] === 'no_shift' && shell.permissions.allowed('manage-own-shift');
           setPhase({ kind: 'not_paid', text: e.kind === 'network' ? t('p.offline') : textOf(e, bill, split), offline: e.kind === 'network', shift });
           // a refusal means the screen was stale (a due, the split's state): read the bill again
-          if (e.kind === 'api') void load();
+          if (e.kind === 'api') {
+            ownChange.current = true;
+            void load();
+          }
           return;
         }
         // B30: the reference is not kept once sent
         setReference('');
         if (answer.data.balance_minor > 0) {
+          ownChange.current = true;
+          setTendered('');
           await load();
           setPhase({ kind: 'form' });
           return;
@@ -393,6 +445,16 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
             {money(due)}
           </span>
         </div>
+        {bill !== null && bill.splits.length > 1 && (
+          // BUG-6 (05 v1.0.37 §8): which split this is and what else the bill still asks
+          <div className="tk-hint tk-pay__pad tk-pay__split">
+            {[
+              fill(t('p.split_of'), { k: String(split.split_no), n: String(bill.splits.length) }),
+              money(due),
+              ...(others > 0 ? [fill(t('p.split_more'), { amount: money(others) })] : []),
+            ].join(' · ')}
+          </div>
+        )}
         {banner !== null && (
           <div className="tk-msg tk-pay__pad" role="status">
             <Ico name="info" />

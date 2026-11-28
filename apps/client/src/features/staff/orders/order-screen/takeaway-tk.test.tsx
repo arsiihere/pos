@@ -431,6 +431,59 @@ describe('[02b-TK C1-3] Send in the background', () => {
     expect(row?.textContent).toContain('Naan'); // L-CLIENT-6a item 4 (frame SentQueued): what was ordered, not "1 items"
     m.unmount();
   });
+
+  // ⚠️ 02b v1.0.28 QR2-1 (owner ruling R2-2 of 2026-11-28 QA-R2, BUG-2): never dropped — it waits, visible, for the day
+  it('[02b #100 QR2-1] the hub refuses the queued takeaway for a closed day: the row stays, "Waiting — the day hasn’t started"; Start day → sent, the row goes', async () => {
+    const answers: Array<'network' | { status: number; body: unknown }> = [
+      'network',
+      { status: 409, body: { error: { code: 'BUSINESS_DAY_NOT_OPEN', message: 'x', details: {} } } },
+      { status: 200, body: { data: { command_id: 'x', event_ids: [], result: { order_id: 'O', token: 4, groups: [], lines: [] } } } },
+    ];
+    const fetch = async (input: string) => {
+      if (input === '/auth/pin') return new Response(JSON.stringify({ data: { session_token: 'TOK', session_id: 'S', staff_id: 'ST1', display_name: 'Sana', role_ids: [], idle_ttl_ms: 1 } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      const a = answers.shift();
+      if (a === undefined || a === 'network') throw new TypeError('Failed to fetch');
+      return new Response(JSON.stringify(a.body), { status: a.status, headers: { 'Content-Type': 'application/json' } });
+    };
+    const device = { token: 'DEV', id: 'DV1', type: 'cashier_kiosk' } as const;
+    const api = createStaffApi({ device, meta: { tenantId: 'ten', branchId: 'br', branchName: 'Lake City', hubNowMs: 0, utcOffsetMs: 0 }, fetch, onSignedOut: () => {} });
+    await api.signIn('ST1', '1', false);
+    const h = harness({
+      enqueue: (live) =>
+        createEnqueue({
+          api,
+          device,
+          clock: () => ({ nowMs: () => T, utcOffsetMs: 5 * HOUR }),
+          live,
+          store: createMemoryQueueStore(),
+          onDeviceRevoked: () => {},
+          presence: () => ({ ownedElsewhere: async () => new Set<string>(), announceRemoved: () => {}, onRemoved: () => () => {}, dispose: () => {} }),
+        }),
+    });
+    const m = h.render();
+    await flush();
+    pick(m, 'Sides');
+    m.click(tile(m, 'Naan'));
+    m.click(m.button('Send to kitchen'));
+    await flush(8);
+    expect(m.container.querySelector('.tk-qr--q')?.textContent).toContain('Waiting to send');
+    // the hub is back, the day is closed: refused, kept, shown
+    await act(async () => {
+      h.live.connection(true);
+      h.live.connection(false);
+      h.live.connection(true);
+    });
+    await flush(8);
+    const row = m.container.querySelector('.tk-qr--q');
+    expect(row?.textContent).toContain('Waiting — the day hasn’t started');
+    expect(row?.textContent).not.toContain('Waiting to send');
+    // Start day (elsewhere): the frame sends it, the row goes
+    await act(async () => h.live.frame({ type: 'event', seq: 99, event: { event_id: 'E99', event_type: 'BusinessDayOpened', schema_version: 2, payload: {} } } as never));
+    await flush(8);
+    expect(m.container.querySelector('.tk-qr--q')).toBeNull();
+    expect(answers).toEqual([]);
+    m.unmount();
+  });
 });
 
 describe('[02b-TK C1-4] editing a cart line', () => {

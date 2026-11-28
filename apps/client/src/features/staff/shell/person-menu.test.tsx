@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mount, type Mounted } from '../../../../test/dom';
 import { setLanguage } from '../../../i18n';
 import { TopBar, type TopBarProps } from '../tables/TopBar';
+import { ShellContext, type Shell } from './hooks';
+import { ManagerScreen } from './ManagerScreen';
+import type { Permissions } from './permissions';
 import { ShellBanners } from './ShellBanners';
 
 // 02b-TK A2 item 1 (frames ShellAnatomy, PersonMenu, DayNotStarted; MAPPING TK-SH01, TK-SH02, TK-SH03; 05a v1.0.6 §8
@@ -129,37 +132,69 @@ describe('[02b-TK TK-SH02] the person chip menu', () => {
 });
 
 describe('[02b-TK TK-SH01, TK-SH03] the day / shift banners under the bar', () => {
-  it('[frame DayNotStarted] no open day: the warn banner; Start day for a branch manage-stock holder, else "Ask the manager"', () => {
+  it('[frame DayNotStarted] [02b #102 QR2-2] no open day: the warn banner; Start day (sends OpenBusinessDay) for close-business-day, the /admin/stock/ link for manage-stock only, else "Ask the manager"', async () => {
+    const command = vi.fn(async () => ({ ok: true, data: { changed: true } }));
+    const shell = { api: { command }, toasts: { show: vi.fn() } } as unknown as Shell;
     m = mount();
-    m.render(<ShellBanners day="closed" canStartDay place="Lake City · 7:04 AM" shift={null} onOpenShift={null} />);
+    m.render(
+      <ShellContext.Provider value={shell}>
+        <ShellBanners day="closed" startDay="staff" place="Lake City · 7:04 AM" shift={null} onOpenShift={null} />
+      </ShellContext.Provider>,
+    );
     const b = m.container.querySelector('.tk-banner.tk-banner--warn')!;
     expect(b.textContent).toContain('Day not started — orders can’t be sent and times can’t show');
     expect(b.textContent).toContain('Lake City · 7:04 AM');
-    expect(b.querySelector('a')?.getAttribute('href')).toBe('/admin/stock/');
-    expect(b.querySelector('a')?.textContent).toBe('Start day');
-    m.render(<ShellBanners day="closed" canStartDay={false} place={null} shift={null} onOpenShift={null} />);
+    expect(b.querySelector('a')).toBeNull();
+    await act(async () => m.click(m.button('Start day', b as HTMLElement)));
+    expect(command).toHaveBeenCalledWith('OpenBusinessDay', {});
+    expect(shell.toasts.show).toHaveBeenCalledWith({ text: 'Day started', tone: 'ok' });
+    m.render(<ShellBanners day="closed" startDay="admin" place={null} shift={null} onOpenShift={null} />);
+    expect(m.container.querySelector('.tk-banner a')?.getAttribute('href')).toBe('/admin/stock/');
+    expect(m.container.querySelector('.tk-banner a')?.textContent).toBe('Start day');
+    m.render(<ShellBanners day="closed" startDay={null} place={null} shift={null} onOpenShift={null} />);
     expect(m.container.querySelector('.tk-banner a')).toBeNull();
     expect(m.text()).toContain('Ask the manager to start the day');
-    m.render(<ShellBanners day="open" canStartDay place={null} shift={null} onOpenShift={null} />);
+    m.render(<ShellBanners day="open" startDay="staff" place={null} shift={null} onOpenShift={null} />);
     expect(m.container.querySelector('.tk-banner')).toBeNull();
-    m.render(<ShellBanners day="unknown" canStartDay place={null} shift={null} onOpenShift={null} />);
+    m.render(<ShellBanners day="unknown" startDay="staff" place={null} shift={null} onOpenShift={null} />);
     expect(m.container.querySelector('.tk-banner')).toBeNull();
+  });
+
+  // ⚠️ 02b v1.0.28 QR2-2 (owner 2026-11-28 QA-R2, BUG-9): the manager phone's Manager tools offer Start day
+  it('[02b #102 QR2-2] Manager tools: Start day while no day is open, only for close-business-day; it sends OpenBusinessDay', async () => {
+    const command = vi.fn(async () => ({ ok: true, data: { changed: true } }));
+    const shell = { api: { command }, toasts: { show: () => {} } } as unknown as Shell;
+    const perms = (keys: string[]) => ({ allowed: (p: string) => keys.includes(p), scope: () => 'branch' }) as unknown as Permissions;
+    const screen = (day: 'open' | 'closed' | 'unknown', keys: string[]) => (
+      <ShellContext.Provider value={shell}>
+        <ManagerScreen permissions={perms(keys)} day={day} onNavigate={() => {}} />
+      </ShellContext.Provider>
+    );
+    m = mount();
+    m.render(screen('closed', ['close-business-day']));
+    expect(m.text()).toContain('Close day');
+    await act(async () => m.click(m.button('Start day')));
+    expect(command).toHaveBeenCalledWith('OpenBusinessDay', {});
+    m.render(screen('open', ['close-business-day']));
+    expect(m.text()).not.toContain('Start day');
+    m.render(screen('closed', ['view-reports']));
+    expect(m.text()).not.toContain('Start day');
   });
 
   it('[frame ShellAnatomy; 05 §6.16] no open shift: "No shift open — cash can’t be taken" + Open my shift; an open or unknown shift: none', () => {
     const open = vi.fn();
     m = mount();
-    m.render(<ShellBanners day="open" canStartDay={false} place={null} shift={{ kind: 'none' }} onOpenShift={open} />);
+    m.render(<ShellBanners day="open" startDay={null} place={null} shift={{ kind: 'none' }} onOpenShift={open} />);
     const b = m.container.querySelector('.tk-banner.tk-banner--warn')!;
     expect(b.textContent).toContain('No shift open — cash can’t be taken');
     m.click(m.button('Open my shift', b));
     expect(open).toHaveBeenCalledTimes(1);
-    m.render(<ShellBanners day="open" canStartDay={false} place={null} shift={{ kind: 'open', opened_at: 1, float_minor: 0 }} onOpenShift={open} />);
+    m.render(<ShellBanners day="open" startDay={null} place={null} shift={{ kind: 'open', opened_at: 1, float_minor: 0 }} onOpenShift={open} />);
     expect(m.container.querySelector('.tk-banner')).toBeNull();
-    m.render(<ShellBanners day="open" canStartDay={false} place={null} shift={{ kind: 'unknown' }} onOpenShift={open} />);
+    m.render(<ShellBanners day="open" startDay={null} place={null} shift={{ kind: 'unknown' }} onOpenShift={open} />);
     expect(m.container.querySelector('.tk-banner')).toBeNull();
     // the day comes first: both banners when both are missing
-    m.render(<ShellBanners day="closed" canStartDay={false} place={null} shift={{ kind: 'none' }} onOpenShift={open} />);
+    m.render(<ShellBanners day="closed" startDay={null} place={null} shift={{ kind: 'none' }} onOpenShift={open} />);
     expect(m.container.querySelectorAll('.tk-banner')).toHaveLength(2);
     expect(m.container.querySelector('.tk-banner')?.textContent).toContain('Day not started');
   });

@@ -58,6 +58,8 @@ describe('[05 §8 Errors; §9] 05-1 error and kind strings (task 43a)', () => {
       'errors.BILL_CLOSE_BLOCKED': '{reasons}',
       'errors.BUYER_ID_REQUIRED': '{threshold}',
       'errors.BILL_TOTAL_CHANGED': '{amount}',
+      // 05 v1.0.37 §9 (QA-R2, R2-1)
+      'errors.BILL_DUE_CHANGED': '{amount}',
       'errors.BILL_BALANCE_DUE': '{amount},{n}',
       'errors.BILL_HAS_PAYMENTS': '{n}',
       'errors.DRAWER_IN_USE': '{name}',

@@ -157,7 +157,7 @@ describe('[02b-TK C3-1] pay panel — cash (frames PayCash, PayCashShort, PayDon
     m.click(paidBtn(m));
     await flush();
     expect(calls(s)).toEqual([
-      ['AddPayment', { bill_ref: { order_id: 'O57' }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: 365_000, tendered_minor: 500_000 }],
+      ['AddPayment', { bill_ref: { order_id: 'O57' }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: 365_000, expected_due_minor: 365_000, tendered_minor: 500_000 }],
       ['CloseSplit', { bill_ref: { order_id: 'O57' }, split_no: 1, expected_total_minor: 365_000 }],
     ]);
     expect(m.text()).toContain('Paid · Rs 3,650');
@@ -218,7 +218,7 @@ describe('[02b-TK C3-1] pay panel — card (frame PayCard)', () => {
     m.click(paidBtn(m));
     await flush();
     expect(calls(s)).toEqual([
-      ['AddPayment', { bill_ref: { order_id: 'O57' }, split_no: 1, mode_id: 'card', direction: 'in', amount_minor: 370_000, reference: '4417' }],
+      ['AddPayment', { bill_ref: { order_id: 'O57' }, split_no: 1, mode_id: 'card', direction: 'in', amount_minor: 370_000, expected_due_minor: 370_000, reference: '4417' }],
       ['CloseSplit', { bill_ref: { order_id: 'O57' }, split_no: 1, expected_total_minor: 370_000 }],
     ]);
     expect(m.text()).toContain('Paid · Rs 3,700');
