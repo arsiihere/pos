@@ -393,7 +393,13 @@ export function openPart(
 ): { total_default_minor: number; due_minor: number; open_total_minor: number; open_paid_minor: number } {
   const b = x.bill;
   const rules = b === null ? atDay : { ...atDay, prices_include_tax: b.prices_include_tax === 1, rounding: { ...(JSON.parse(b.rounding_json) as BillRounding) } };
-  const closed = new Map(x.closed.map((c) => [c.id, { units: c.units, share: c.share }]));
+  // ⚠️ 05 v1.0.39 §6.2a (owner 2026-11-28 QA-R3, BUG-2): Σ per line over every closed split, as the bill page's
+  // closedUnitsOf — one row per (split, line), so a line two closed splits shared (an equal / amount split) counts both
+  const closed = new Map<string, { units: number; share: number }>();
+  for (const c of x.closed) {
+    const cur = closed.get(c.id) ?? { units: 0, share: 0 };
+    closed.set(c.id, { units: cur.units + c.units, share: cur.share + c.share });
+  }
   const lines = openComputeLines(
     x.sums.map((l) => ({ order_item_id: l.id, line_kind: l.k, live_units: l.u, base_minor: l.b, tax_profile_id: l.p, unit_price_minor: l.up })),
     closed,
