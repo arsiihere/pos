@@ -672,3 +672,9 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 /* the landscape tablet keeps its 3 columns (frame HomeTablet): above the kiosk's 4 / 3 */
 .osc--tk.osc--tk-tablet .items { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .osc--tk.osc--tk-tablet .items.items--rush { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+/* 1366 / 1280 after the 6b merge: Ask a manager stays inside its tile, Print check bill inside its button */
+.tk-rt .tk-btn[data-ask] { max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1440px) {
+  .osc--tk > .cart .cart__foot .duo .btn .ico, .osc--tk > .cart .cart__foot .duo .tk-btn .ico, .osc--tk > .cart .cart__foot .duo svg { display: none; }
+  .osc--tk > .cart .cart__foot .duo > * { overflow: hidden; text-overflow: ellipsis; }
+}
