@@ -117,6 +117,14 @@ export async function shiftOpen(page: Page, lang: Lang): Promise<void> {
   if (await title.isVisible()) {
     await page.locator('.b5-card input').first().fill('0');
     await open.click();
+    // 05 §6.15 (DRAWER_IN_USE): this device's cash drawer is in another person's open shift (an earlier spec's Owner on
+    // the same kiosk): the screen says "open without the drawer" — switch the drawer off and open again, as a cashier would
+    const inUse = page.getByText(tr(lang, 'errors.DRAWER_IN_USE').split('{name}')[0]!.trim());
+    await expect.poll(async () => (await title.count()) === 0 || (await inUse.count()) > 0, { timeout: 15_000 }).toBe(true);
+    if ((await inUse.count()) > 0) {
+      await page.locator('.b5-switch[aria-pressed="true"]').click();
+      await open.click();
+    }
     await expect(title).toHaveCount(0);
   }
 }
