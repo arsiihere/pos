@@ -32,6 +32,8 @@ export function StaffList({ api, branchIds }: { api: CloudAdmin; branchIds: read
   const [lists, setLists] = useState<{ active: Staff[]; left: Staff[]; roles: Role[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>('active');
+  // 01b v1.14 QR-1 (BUG-19): a search name no browser has keyed a saved value on
+  const [searchName] = useState(() => `find-${Math.random().toString(36).slice(2, 10)}`);
   const [query, setQuery] = useState('');
   const [branch, setBranch] = useState('');
   const [pinFor, setPinFor] = useState<Staff | null>(null);
@@ -99,6 +101,9 @@ export function StaffList({ api, branchIds }: { api: CloudAdmin; branchIds: read
           <input
             className="pos-input"
             type="search"
+            // 01b v1.14 QR-1 (BUG-19): browsers key saved values on the name; a fresh one per mount gets none
+            name={searchName}
+            autoComplete="off"
             value={query}
             placeholder={t('staff.find')}
             aria-label={t('staff.find')}
