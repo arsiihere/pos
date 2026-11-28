@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { t, type MessageKey } from '../../../../i18n';
 import { timeText } from '../../../alerts/labels';
 import { Ico } from '../../../alerts/ui';
-import { chipPickup, PICKUP_CHIPS, pickupProblemText, pickupRangeText, timeInputOf, timePickup, type CartPickup, type PickupBounds, type PickupProblem } from './pickup';
+import { chipPickup, PICKUP_CHIPS, pickupPassed, pickupProblemText, pickupRangeText, timeInputOf, timePickup, type CartPickup, type PickupBounds, type PickupProblem } from './pickup';
 
 // ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §8 "Phone and pickup" (R1, R4), §6.14; frames PickupLater, PickupLaterUrdu;
 // MAPPING TK-D02 `.tk-pick`): the takeaway cart's pickup row under the customer — Now (no pickup, the default) / +15 /
@@ -30,6 +30,8 @@ export function PickupRow({ value, nowMs, utcOffsetMs, bounds, problem, disabled
   const [typing, setTyping] = useState(false);
   const timeOpen = typing || value?.chip === 'time';
   const range = problem ?? bounds;
+  // ⚠️ 02b v1.0.30 QK-4 (BUG-17): a pickup at or before hub now says so, whatever the hub's reason
+  const passed = pickupPassed(value, nowMs());
   const press = (on: boolean) => ({ 'aria-pressed': on, className: on ? 'is-sel' : undefined });
   return (
     <div className="tk-serve" role="group" aria-label={t('c.pickup')} data-pickup-row="">
@@ -84,18 +86,19 @@ export function PickupRow({ value, nowMs, utcOffsetMs, bounds, problem, disabled
             {...(range === null ? {} : { min: timeInputOf(range.earliest_ms, utcOffsetMs), max: timeInputOf(range.latest_ms, utcOffsetMs) })}
             value={value?.chip === 'time' ? timeInputOf(value.at_ms, utcOffsetMs) : ''}
             onChange={(e) => {
-              const next = timePickup(e.target.value, nowMs(), utcOffsetMs);
+              const next = timePickup(e.target.value, nowMs(), utcOffsetMs, range?.latest_ms ?? null);
               if (next !== null) onChange(next);
             }}
           />
-          {range !== null && problem === null && <small className="muted">{pickupRangeText(range, utcOffsetMs)}</small>}
+          {range !== null && problem === null && !passed && <small className="muted">{pickupRangeText(range, utcOffsetMs)}</small>}
         </label>
       )}
-      {problem !== null && (
+      {(problem !== null || passed) && (
         <span className="fld__e" role="alert" data-pickup-problem="">
           <Ico name="warn" />
           <span>
-            {pickupProblemText(problem, utcOffsetMs)} · {pickupRangeText(problem, utcOffsetMs)}
+            {passed ? t('c.pick_err.passed') : pickupProblemText(problem!, utcOffsetMs)}
+            {range !== null && <> · {pickupRangeText(range, utcOffsetMs)}</>}
           </span>
         </span>
       )}

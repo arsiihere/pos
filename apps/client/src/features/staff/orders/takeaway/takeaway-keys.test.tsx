@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flush, type Mounted } from '../../../../../test/dom';
 import { forgetTakeawayDrafts } from './current-draft';
 import { screenHarness } from './screen-harness';
+import { aRow } from './test-fixtures';
 
 // 02b-TK A2 item 2 (frame KeyboardMode; MAPPING TK-S02; CHANGES §3 Menu): the keyboard speed mode of the takeaway
 // screen — "/" focuses the item search; a number prefix adds that many ("4n" Enter = 4 naan); initials find a
@@ -58,6 +59,37 @@ describe('[02b-TK TK-S02] keyboard speed mode on the takeaway screen', () => {
     name.focus();
     expect(press(name, '/').defaultPrevented).toBe(false);
     expect(document.activeElement).toBe(name);
+    m.unmount();
+  });
+
+  it('[BUG-21; 02b v1.0.30 QK-5] "/" focuses the search with focus on a top-bar tab (outside the screen)', async () => {
+    const h = screenHarness({ rows: [aRow({ order_id: 'O48', token: 48 })] });
+    const m = h.render();
+    await flush();
+    const tab = document.createElement('button');
+    tab.textContent = 'Takeaway';
+    document.body.appendChild(tab);
+    tab.focus();
+    expect(press(tab, '/').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(search(m));
+    search(m).blur();
+    // letters typed on a control outside the screen are not taken
+    tab.focus();
+    expect(press(tab, 'n').defaultPrevented).toBe(false);
+    m.unmount();
+  });
+
+  it('[BUG-24; 02b v1.0.30 QK-7] "999n" adds at most 99 and the search says "Max 99"', async () => {
+    const h = screenHarness();
+    const m = h.render();
+    await flush();
+    type(search(m), '999n');
+    await flush();
+    expect(m.container.querySelector('.tk-ksearch')?.textContent).toContain('Max 99');
+    expect(sugg(m)[0]?.textContent).toContain('99×');
+    type(search(m), '4n');
+    await flush();
+    expect(m.container.querySelector('.tk-ksearch')?.textContent).not.toContain('Max 99');
     m.unmount();
   });
 

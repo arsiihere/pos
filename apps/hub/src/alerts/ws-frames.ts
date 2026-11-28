@@ -24,7 +24,7 @@ import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { ConnectedSession, WsHub } from '../ws/server.js';
 import { counterScreenKey, kindOf, REQUEST_RESULT, safeLink, type AlertKind } from './kinds.js';
 import { registeredRoutes } from './routes.js';
-import { deviceAllowed, isListedDevice, listedDevicesOnly, mayAnswer, showsScreen, valuesOf, type AlertRequestPart } from './targets.js';
+import { deviceAllowed, isListedDevice, listedDevicesOnly, mayAnswer, showsScreen, staffAllowed, valuesOf, type AlertRequestPart } from './targets.js';
 import { cachedPrepare } from './statements.js';
 
 // 01d §6 batch 3 / §3.6 / §3.12: the alert frames (`alert`, `alert_closed`, `alert_seen`), sent from the
@@ -173,7 +173,9 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
         // ⚠️ 03b v1.0.16 §6.21 (run 3 verify): the kind's excludesDevice, before any card, lock or repeat
         const values = valuesOf(row.values_json);
         const allowed = (deviceId: string): boolean => deviceAllowed(kind, values, deviceId);
-        send(ws, planStep(row, payload.recipients, payload.routes, views, sessions, alertDevices, request !== null, canAnswer, listedDevicesOnly(kind), counter, allowed));
+        // ⚠️ 01d v1.3.9 §3.4 (QA-R2): the kind's excludesStaff, also on a device row's signed-in staff sockets
+        const person = (staffId: string): boolean => staffAllowed(kind, values, staffId, dir());
+        send(ws, planStep(row, payload.recipients, payload.routes, views, sessions, alertDevices, request !== null, canAnswer, listedDevicesOnly(kind), counter, allowed, person));
         sendRoutes(row, kind, payload, views);
       }, { alert_id: row.alert_id, kind: row.kind, step: payload.step });
     }
@@ -517,6 +519,7 @@ function planStep(
   listedOnly: boolean,
   counter: (deviceId: string) => boolean = () => false,
   allowed: (deviceId: string) => boolean = () => true,
+  person: (staffId: string) => boolean = () => true,
 ): Batch[] {
   const hidden = hiddenOf(row);
   const deviceTarget = new Set<string>();
@@ -545,6 +548,8 @@ function planStep(
     const counterCard = (): WsServerMessage => views.card(r.set, null);
     for (const s of sessions) {
       if (s.deviceId !== deviceId || hidden.session(s)) continue;
+      // ⚠️ 01d v1.3.9 §3.4 (QA-R2): a signed-in person the kind excludes gets nothing from the device row
+      if (s.kind === 'staff' && s.staffId !== null && !person(s.staffId)) continue;
       deviceTarget.add(`s:${s.sessionId}`);
       const card = s.kind === 'staff' && s.staffId !== null && (isCounter ??= counter(deviceId));
       claim(`s:${s.sessionId}`, null, card ? counterCard : frame, { session: s.sessionId });

@@ -200,7 +200,9 @@ describe('[01d task 41] staff entry', () => {
     expect(h.calls.find((c) => c.path === '/commands/mark-alerts-seen')!.body).toMatchObject({ payload: { alert_ids: ['R1'] } });
   });
 
-  it('a signed-out kiosk shows the lock text of the alert-mode rows, never details', async () => {
+  // ⚠️ 01d v1.3.9 §8.1 (owner 2026-11-28 QA-R2, UX), test 127: the signed-out sign-in screen shows NO alerts (was: F01's
+  // lock panel with up to 3 lock lines, urgent first)
+  it('[01d #127] a signed-out kiosk shows no alert on the sign-in screen: no lock panel, no lock text, no details', async () => {
     render(KIOSK, hub().fetch);
     await flush();
     expect(sockets.length).toBe(1);
@@ -208,37 +210,18 @@ describe('[01d task 41] staff entry', () => {
       type: 'alert',
       alert: { alert_id: 'A1', kind: 'void_approval', family: 'urgent', step: 0, escalation: false, set: 'recipient', for_staff_id: null, lock: { kind_label_key: 'alert.void_approval.lock', table_code: '12', requester_name: 'Hamza' }, card: VOID_CARD, raised_at: NOW - 120_000 },
     });
-    await flush();
-    const panel = m.container.querySelector('.lockp')!;
-    expect(panel.textContent).toContain('Sign in to see details');
-    expect(panel.textContent).toContain('T12 · Void · Hamza');
-    expect(m.text()).not.toMatch(/2,200|Karahi/);
-  });
-
-  it('[01d F01; frames LockKiosk, LockPhone] the lock panel lists urgent lines first, then newest, at most 3', async () => {
-    render(KIOSK, hub().fetch);
-    await flush();
     const lock = (table: string, key: string, requester: string | null) => ({ kind_label_key: key, table_code: table, requester_name: requester });
-    const view = (id: string, family: 'urgent' | 'info', minutesAgo: number, l: ReturnType<typeof lock>) => ({
-      alert_id: id, kind: family === 'urgent' ? 'void_approval' : 'test_alert', family, step: 0, raised_at: NOW - minutesAgo * 60_000, lock: l,
-    });
     sockets[0]!.frame({
       type: 'alerts_open',
       binding_route_until: null,
       alerts: [
-        view('I1', 'info', 0, lock('', 'alert.test_alert.lock', 'Imran')), // newest, not urgent
-        view('I2', 'info', 1, lock('', 'alert.test_alert.lock', 'Sana')),
-        view('U1', 'urgent', 2, lock('12', 'alert.void_approval.lock', 'Hamza')),
-        view('U2', 'urgent', 5, lock('4', 'alert.void_approval.lock', 'Ali')),
+        { alert_id: 'U1', kind: 'void_approval', family: 'urgent', step: 0, raised_at: NOW - 60_000, lock: lock('4', 'alert.void_approval.lock', 'Ali') },
+        { alert_id: 'R1', kind: 'ready_to_serve', family: 'action', step: 0, raised_at: NOW, lock: lock('#14', 'alert.ready_to_serve.lock', null) },
       ],
     });
     await flush();
-    const lines = [...m.container.querySelectorAll('.lockp .lockp__r')].map((r) => r.textContent ?? '');
-    expect(lines.length).toBe(3);
-    expect(lines[0]).toContain('T12 · Void · Hamza');
-    expect(lines[1]).toContain('T4 · Void · Ali');
-    expect(lines[2]).toContain('Test alert · from Imran');
-    expect(m.container.querySelector('.lockp')!.textContent).not.toContain('Sana');
+    expect(m.container.querySelector('.lockp')).toBeNull();
+    expect(m.text()).not.toMatch(/Void|Hamza|Ali|Bag ready|Sign in to see details|2,200|Karahi/);
   });
 
   it('sign out ends the session and returns to the tiles', async () => {

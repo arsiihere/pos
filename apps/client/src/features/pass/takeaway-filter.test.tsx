@@ -140,6 +140,22 @@ describe('[02b-tk C3-4] Pass takeaway filter', () => {
     }
   });
 
+  // ⚠️ 03b v1.0.20 / 02b v1.0.29 §8 (owner 2026-11-28 QA-R2, BUG-12), test 137: one counter clock — a boosted card reads
+  // "Ready ~{planned}" like the counter, also once ready; a not-boosted one keeps "Ready by {promise}"
+  it('[03b #137] a boosted takeaway card reads "Ready ~1:02 PM", not the promise; a plain one "Ready by"', async () => {
+    const row = (order_id: string, o: Record<string, unknown>) => ({ order_id, order_type: 'takeaway', promise_ms: BASE + 11 * 60_000, ready: { n: 1, m: 1 }, ...o });
+    const s = shellWith([{ ok: true, data: { orders: [row('O53', { pickup_at_ms: BASE + 60 * 60_000, effective_pickup_at_ms: null, planned_ready_at_ms: BASE + 2 * 60_000 }), row('O54', { promise_ms: BASE + 4 * 60_000 })] } }]);
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O53', 10, 'takeaway'), card('O54', 20, 'takeaway')]) } });
+    show(s.shell);
+    await flush();
+    m.click(chip('takeaway'));
+    await flush();
+    const boosted = m.container.querySelector('.pc[data-order="O53"]')!.textContent ?? '';
+    expect(boosted).toContain('Ready ~1:02 PM');
+    expect(boosted).not.toContain('Ready by 1:11 PM');
+    expect(m.container.querySelector('.pc[data-order="O54"]')!.textContent).toContain('Ready by 1:04 PM');
+  });
+
   it('[frame PackerPass] chips All / Dine-in / Takeaway / Parking; Takeaway: by promise, "Pack next", "Ready by", Bag ready = MarkReadyToServe', async () => {
     const s = shellWith([promises([['O53', BASE + 11 * 60_000], ['O54', BASE + 4 * 60_000]])]);
     s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O2', 0, 'dine_in'), card('O53', 10, 'takeaway'), card('O54', 20, 'takeaway', 'cooking'), card('O1', 30, 'parking')]) } });

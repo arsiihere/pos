@@ -15,6 +15,7 @@ import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, issueMessages, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { BranchSelect, Page } from '../Shell';
+import { pointWarnings, type PointWarning } from './warnings';
 
 // §8.1 #/points (03a D1, A-1; 01a §6.9a): the branch's points (where food is handed over), with add, edit (name,
 // position, Receives), reorder (a sort number, no drag) and archive/restore. 01a v2.11 PT-4 (run 3 R3-m-1): Receives
@@ -40,6 +41,14 @@ const TYPE_LABEL: Record<OrderType, MessageKey> = {
 // The cloud stores an explicit set sorted (01a v2.11 PT-2); sending it the same way keeps the compare exact.
 const canonical = (types: readonly OrderType[]): OrderType[] => [...types].sort();
 const sameReceives = (a: Receives, b: Receives) => (a === 'all' || b === 'all' ? a === b : canonical(a).join() === canonical(b).join());
+
+// ⚠️ 01a v2.12 QS-1 (BUG-8): a warning above the list in plain words
+function warningText(w: PointWarning): string {
+  const names = (list: string[]) => list.join(', ');
+  if (w.kind === 'same_position') return fill(t('owner.points.warn.same_position'), { names: names(w.names), n: String(w.sort_order) });
+  if (w.kind === 'tie') return fill(t('owner.points.warn.tie'), { type: t(TYPE_LABEL[w.order_type]), count: String(w.names.length), names: names(w.names) });
+  return fill(t('owner.points.warn.gap'), { type: t(TYPE_LABEL[w.order_type]) });
+}
 
 function receivesText(receives: Receives): string {
   if (receives === 'all') return t('owner.points.receives_all');
@@ -317,6 +326,12 @@ export function PointsView({
       {stale && <StaleBanner onReload={() => void load()} />}
       {points === null && <Skeleton lines={3} />}
       {points !== null && <p className="pos-dialog__body">{t('owner.points.intro')}</p>}
+      {points !== null &&
+        pointWarnings(points).map((w) => (
+          <div key={`${w.kind}:${'order_type' in w ? w.order_type : w.sort_order}`} data-point-warning={w.kind}>
+            <Banner tone="warn" text={warningText(w)} />
+          </div>
+        ))}
       {points !== null && visible.length === 0 && <EmptyState title={t('owner.points.empty')} body={t('owner.points.empty_body')} />}
       {points !== null && visible.length > 0 && (
         <ul className="pos-list pos-list--points">

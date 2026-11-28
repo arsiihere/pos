@@ -39,6 +39,8 @@ export function statusOf(s: AskState | null): { text: string; sub: string | null
   if (s.kind === 'rejected') return { text: t('pass.manager_rejected'), sub: null };
   // mine: "Waiting for a manager…", or only "Waiting — find a manager" once my-requests says ask_in_person (01d
   // request.find_approver, §6.8); another person's request: "Already waiting for a manager" (02b §3.7a)
+  // ⚠️ 02b v1.0.29 (QA-R2, BUG-27): a request this page learnt from the hub (another counter's): the same words as mine
+  if (s.from_hub === true) return { text: t('pass.waiting_manager'), sub: null };
   if (!s.mine) return { text: t('unpaid.already_waiting'), sub: null };
   return { text: t(s.ask_in_person ? 'request.find_approver' : 'pass.waiting_manager'), sub: null };
 }
@@ -78,7 +80,8 @@ export function AskManager({ order_id, due_minor, ident, addition, variant, onCh
     setBusy(false);
     changed();
   };
-  const mineWaiting = state?.kind === 'waiting' && state.mine;
+  // ⚠️ 02b v1.0.29 (QA-R2, BUG-27): nothing to tap while the hub says a request waits (another counter's)
+  const mineWaiting = state?.kind === 'waiting' && (state.mine || state.from_hub === true);
   const btn = variant === 'pass' || variant === 'sheet' ? 'btn' : 'tk-btn';
   const askButton = !mineWaiting && (
     <button type="button" className={btn} data-ask={order_id} disabled={busy || !shell.online} onClick={() => void ask()}>
@@ -86,7 +89,7 @@ export function AskManager({ order_id, due_minor, ident, addition, variant, onCh
       {t('pass.ask_manager')}
     </button>
   );
-  const withdrawButton = mineWaiting && (
+  const withdrawButton = state?.kind === 'waiting' && state.mine && (
     <button type="button" className={btn} disabled={busy} onClick={() => void withdraw()}>
       <Ico name="undo" />
       {t('unpaid.withdraw')}

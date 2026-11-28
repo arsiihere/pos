@@ -4300,6 +4300,9 @@ export const en = {
   'q.ready': 'Ready — hand over',
   'q.cooking': 'Cooking',
   'q.later': 'Phone orders — later',
+  // ⚠️ 02b v1.0.29 §8 (owner 2026-11-28 QA-R2, BUG-7): a token handed over in full that still owes
+  'q.owes': 'Handed — owes',
+  'q.owes_row': 'Handed — owes {amount}',
   'q.collect': 'Hand over',
   'q.collect_pay': 'Take payment',
   'q.part': 'Part given · rest',
@@ -4395,6 +4398,10 @@ export const en = {
   'shell.me.lock': 'Lock screen',
   'shell.me.lock_sub': 'Your orders stay as they are',
   'shell.me.shift': 'My shift',
+  'shell.me.language': 'Language',
+  'shell.signin.summary': 'Waiting: {parts}',
+  'shell.signin.late': '{n} running late',
+  'shell.signin.new': '{n} new',
   'shell.me.signout': 'Sign out',
   'shell.me.signout_sub': 'Unsent orders are held first',
   'shell.day.closed': 'Day not started — orders can’t be sent and times can’t show',
@@ -4411,6 +4418,7 @@ export const en = {
   'm.search': 'Type item — e.g. 4 naan',
   'm.keys': 'Keys',
   // 02b-TK A2 item 2 (frame KeyboardMode hint "4n = 4 × naan · hk = half karahi · Enter add · Esc clear"): not in strings-table.md; Urdu to confirm
+  'm.max_qty': 'Max {n}',
   'm.hint_qty': '4 × naan',
   'm.hint_initials': 'half karahi',
   'm.hint_add': 'add',
@@ -4444,6 +4452,9 @@ export const en = {
   'owner.points.receives_help': 'Each line goes to the Pass that takes its order type; with none, to the station\'s Pass.',
   'owner.points.receives_n': 'Receives: {types}',
   'owner.points.type.dine_in': 'Dine-in',
+  'owner.points.warn.same_position': 'Points {names} have the same position ({n}) — give each its own',
+  'owner.points.warn.tie': '{type} orders match {count} Passes: {names} — they go to the station’s default Pass',
+  'owner.points.warn.gap': '{type} orders have no Pass — they go to the station’s default Pass',
   'owner.points.type.takeaway': 'Takeaway',
   'owner.points.type.parking': 'Parking',
   'owner.points.type.delivery': 'Delivery',
@@ -4474,6 +4485,8 @@ export const en = {
   'pass.waiting_bill': 'Waiting for the bill',
   'pass.pickup_label': 'Pickup {time}',
   'pass.hand_at_counter': 'Hand over at the counter',
+  // ⚠️ 02b v1.0.29 §8 (owner 2026-11-28 QA-R2, BUG-14): a pickup order outside the person's scope (never the floors text)
+  'orders.err.outside_scope': 'This order is not one of yours',
   'pass.outside_scope': 'This order is not one of yours — hand over at the counter',
   // ---- 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.4 Not collected, §3.5 R8 order-level counter alert, §8): amber Pass card and the counter Ready ----
   'pass.not_collected': 'Ready {n} min ago — not collected',
@@ -4534,6 +4547,7 @@ export const en = {
   'c.ready_later': 'Kitchen times it for',
   'c.pick_late': 'Kitchen can make it by {can}, not {asked}', // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28, QA BUG-5)
   'c.pick_range': 'Pickup between {from} and {to}',
+  'c.pick_err.passed': 'That time has passed',
   'c.pick_err.too_early': 'Too soon — the earliest pickup is {t}',
   'c.pick_err.after_day_end': 'Too late — the day ends at {t}',
   'c.pick_err.other_day': 'That time is on another business day — pick a time today',

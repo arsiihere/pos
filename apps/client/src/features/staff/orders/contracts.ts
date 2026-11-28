@@ -130,7 +130,11 @@ export interface OpenOrder {
   /** ⚠️ same: the epoch's frozen R8 window; null without an epoch (and for dine-in); absent from an older hub */
   bag_ready_window_ms?: number | null;
   /** ⚠️ 02b v1.0.25 §6.16: takeaway / parking `{ state, due_minor }`, dine-in null; absent on a hub before B2-1 */
-  bill?: { state: 'due' | 'paid'; due_minor: number } | null;
+  bill?: { state: 'due' | 'paid'; due_minor: number; key?: string | null } | null;
+  /** 02b v1.0.25 §6.16: m = live lines, n = those handed over; absent from an older hub */
+  handed?: { n: number; m: number };
+  /** ⚠️ 02b v1.0.29 §6.16 (owner 2026-11-28 QA-R2, BUG-27): an open unpaid hand-over request holds this row's bill */
+  unpaid_handover_pending?: boolean;
   /**
    * 02b v1.0.25 §6.16: at most 6 live root lines (merged by part_of, then by name) and how many more; absent from an
    * older hub. The rail's sub-line when this device has no copy of the order's lines (BUG-12)

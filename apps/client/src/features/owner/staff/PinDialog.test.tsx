@@ -70,4 +70,16 @@ describe('[01b §8] PIN dialog', () => {
     expect(m.container.textContent).toContain(t('staff.pin.mismatch'));
     expect(calls).toEqual([]);
   });
+
+  it('[01b v1.14 QR-1; BUG-19] New PIN and Again are new-password with names no browser has a saved value for', async () => {
+    const { api } = fakeApi(async () => ok({}));
+    await m.render(<PinDialog api={api} staff={bilal} branchNames={['Gulberg']} onSaved={() => {}} onClose={() => {}} />);
+    const [pin, again] = fields();
+    expect(pin!.autocomplete).toBe('new-password');
+    expect(again!.autocomplete).toBe('new-password');
+    expect(pin!.name).not.toBe('pin');
+    expect(pin!.name).not.toBe(again!.name);
+    expect(pin!.name).toMatch(/^pin-[a-z0-9]+$/);
+  });
 });
+

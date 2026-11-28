@@ -11,7 +11,7 @@ import { useLiveRefetch } from '../lists/OpenOrders';
 import { businessDayText } from '../lists/OpenOrdersRow';
 import { MONEY_DIR, money } from '../money';
 import { useWaitingTakeaways, WaitingRows } from '../queue/WaitingToSend';
-import type { TokenBook } from './book';
+import { contactGaps, type TokenBook } from './book';
 import { billsOf, buildQueue, knownOrders, matchesQuery, notCollectedMinOf, type QueueModel, type QueueToken } from './queue-model';
 import { AskManager } from '../unpaid/AskManager';
 import { checkWholeToken, gatesOf, type HandoverCheck } from '../unpaid/candidate';
@@ -72,7 +72,52 @@ export function useTakeawayQueue(book: TokenBook): { model: QueueModel | null; f
   const nowMs = useHubNow(rows?.some((r) => r.effective_pickup_at_ms != null) ?? false);
   const tick = Math.floor(nowMs / LATE_TICK_MS);
   const model = useMemo(() => (rows === null ? null : buildQueue(knownOrders(rows, seen.current, book.get), shellRef.current.clock.nowMs())), [rows, book, version, tick]);
+  useContactResync(rows, book);
   return { model, failed, loadedAt, retry: () => void load() };
+}
+
+/**
+ * ⚠️ 02b v1.0.30 QK-6 (BUG-23): the strip's "All orders · n" and "n Cooking" count what the queue lists — the takeaways
+ * waiting to send in the device queue are Cooking rows (as the rail's Cooking section counts them).
+ */
+export function stripCounts(model: Pick<QueueModel, 'ready' | 'cooking' | 'later'> | null, waiting: number): { all: number; cooking: number } {
+  const cooking = (model?.cooking.length ?? 0) + waiting;
+  return { all: (model?.ready.length ?? 0) + cooking + (model?.later.length ?? 0), cooking };
+}
+
+/** BUG-5: how long a contact gap may last (a frame on its way) before the live state is read again */
+export const CONTACT_GAP_MS = 2_000;
+
+/**
+ * BUG-5 (QA round 2; 02b v1.0.30 §8 "Contact on this device"): never show a person masked data they may see. A row
+ * whose name / phone the hub sends this device (`contactGaps`) but the book lacks after CONTACT_GAP_MS → one re-read
+ * (`shell.resync`, a fresh catch-up); the same orders are never asked twice (a hub that does not send them is not
+ * asked in a loop).
+ */
+function useContactResync(rows: OpenOrder[] | null, book: TokenBook): void {
+  const shell = useShell();
+  const shellRef = useRef(shell);
+  shellRef.current = shell;
+  const asked = useRef(new Set<string>());
+  useSyncExternalStore(book.subscribe, book.version);
+  const gapsNow = (): string[] => {
+    const sh = shellRef.current;
+    if (rows === null || sh.resync === undefined) return [];
+    return contactGaps(rows, book, { kiosk: sh.device.type === 'cashier_kiosk', staffId: sh.me?.staff_id ?? null }).filter((id) => !asked.current.has(id));
+  };
+  const check = useRef(gapsNow);
+  check.current = gapsNow;
+  const key = gapsNow().join(',');
+  useEffect(() => {
+    if (key === '') return;
+    const timer = setTimeout(() => {
+      const still = check.current();
+      if (still.length === 0) return;
+      for (const id of still) asked.current.add(id);
+      shellRef.current.resync?.();
+    }, CONTACT_GAP_MS);
+    return () => clearTimeout(timer);
+  }, [key]);
 }
 
 const NO_FRAMES: ReadonlySet<string> = new Set();
@@ -330,6 +375,35 @@ function QueueRow({ q, selected, onOpen, later = false }: { q: QueueToken; selec
   );
 }
 
+/**
+ * ⚠️ 02b v1.0.29 §3.7a, §8 (owner 2026-11-28 QA-R2, BUG-7): a token handed over in full that still owes — out of READY —
+ * HAND OVER, no Hand over; "Handed — owes Rs X"; a tap opens the token (Take payment / Bill → the cash desk).
+ */
+function OwesRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; onOpen(): void }) {
+  const [before, after = ''] = t('q.owes_row').split('{amount}');
+  return (
+    <button type="button" className={selected ? 'tk-qr is-sel' : 'tk-qr'} aria-pressed={selected} onClick={onOpen} data-token={q.key}>
+      <span className="tk-tok" dir="ltr">
+        {q.token ?? '—'}
+      </span>
+      <span className="tk-qr__m">
+        <CarriedDate q={q} />
+        <b dir="auto">{q.customer_name ?? t('order.takeaway')}</b>
+        {q.summary !== '' && <small dir="auto">{q.summary}</small>}
+      </span>
+      <span className="tk-qr__r">
+        <span className="tk-chip tk-chip--danger">
+          {before}
+          <span className="money" dir={MONEY_DIR}>
+            {money(q.owed_minor ?? 0)}
+          </span>
+          {after}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOver, onPay, hidden, onCount, compact = false, onGone }: QueueRailProps) {
   const shell = useShell();
   const { model, failed, loadedAt, retry } = useTakeawayQueue(book);
@@ -337,7 +411,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
   // token handed over in full) — never a drawer for a token that is gone
   const goneRef = useRef(onGone);
   goneRef.current = onGone;
-  const listed = model === null || selected === null ? true : [...model.ready, ...model.cooking, ...model.later].some((q) => q.key === selected);
+  const listed = model === null || selected === null ? true : [...model.ready, ...model.cooking, ...model.later, ...model.owes].some((q) => q.key === selected);
   useEffect(() => {
     if (!listed && selected !== null) goneRef.current?.(selected);
   }, [listed, selected]);
@@ -376,6 +450,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
   const ready = pick(model?.ready ?? []);
   const cooking = pick(model?.cooking ?? []);
   const later = pick(model?.later ?? []);
+  const owes = pick(model?.owes ?? []);
   const open = (q: QueueToken) => {
     setAll(false);
     onOpen(q);
@@ -399,10 +474,10 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
         {pick(model?.ready ?? [], false).map(tile)}
         <button type="button" className="tk-rstrip__q" onClick={() => setAll(true)}>
           <span>
-            {t('q.all')} · <span className="num">{(model?.ready.length ?? 0) + (model?.cooking.length ?? 0) + (model?.later.length ?? 0)}</span>
+            {t('q.all')} · <span className="num">{stripCounts(model, waiting.length).all}</span>
           </span>
           <small>
-            <span className="num">{model?.cooking.length ?? 0}</span> {t('q.cooking')}
+            <span className="num">{stripCounts(model, waiting.length).cooking}</span> {t('q.cooking')}
           </small>
         </button>
       </div>
@@ -410,7 +485,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
 
   if (variant === 'strip' && !all) return strip;
 
-  const empty = model !== null && model.ready.length + model.cooking.length + model.later.length === 0;
+  const empty = model !== null && model.ready.length + model.cooking.length + model.later.length + model.owes.length === 0;
   const body = (
     <>
       <div className="tk-q__top">
@@ -473,6 +548,18 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
               <QueueRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} later />
             ))}
           </>
+        )}
+        {owes.length > 0 && (
+          <div data-owes="">
+            <div className="tk-sec">
+              <Ico name="warn" />
+              {t('q.owes')}
+              <span className="tk-chip tk-chip--danger num">{owes.length}</span>
+            </div>
+            {owes.map((q) => (
+              <OwesRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} />
+            ))}
+          </div>
         )}
         {empty && (
           <div className="tk-empty">

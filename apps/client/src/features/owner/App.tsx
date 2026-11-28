@@ -106,7 +106,7 @@ function Routes({
 
   function signOut() {
     void api.logout().then(() => {
-      storeBranch(null);
+      // 01a v2.12 QS-2: the remembered branch outlives the sign-out (the next sign-in checks it is still allowed)
       setBranchId(null);
       setUser(null);
       navigate('/login');

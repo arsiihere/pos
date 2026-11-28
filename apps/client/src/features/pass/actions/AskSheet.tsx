@@ -24,7 +24,7 @@ export interface AskItem {
 }
 
 /** asked (again): no request, a "no", or another person's waiting request (answered by the same id, 02b §3.7a) */
-const askable = (s: AskState | null) => s === null || s.kind === 'rejected' || (s.kind === 'waiting' && !s.mine);
+const askable = (s: AskState | null) => s === null || s.kind === 'rejected' || (s.kind === 'waiting' && !s.mine && s.from_hub !== true);
 
 /** The card's one word for the bag's requests: the most pressing state of its orders, or null (none asked yet). */
 export function askSummary(states: ReadonlyArray<AskState | null>): string | null {

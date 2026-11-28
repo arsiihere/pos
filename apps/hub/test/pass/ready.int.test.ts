@@ -314,8 +314,11 @@ describe('MarkReadyToServe (03b §3.5, §6.6)', () => {
     // ⚠️ 03b v1.0.16 §3.5 step 5 (02b-tk R8): the lock names the takeaway by its token
     expect(JSON.parse(row.display_json)).toMatchObject({ table_code: '#1', point_code: 'Pass' });
     expect(reply.events.find((e) => e.event_type === 'ReadyToServe')!.payload).toMatchObject({ table_id: null, alert_id });
-    const card = await cardFrame(ws, alert_id);
-    expect((card.card as { details: unknown }).details).toEqual({ identifier: '#1', lines: [naan()] });
+    // ⚠️ 03b v1.0.20 (owner 2026-11-28 QA-R2, BUG-4): a pickup order's per-point Ready is a Pass record only — no step
+    // reaches anyone, the placer's device without the takeaway screen included (was: the placer's card there)
+    void ws;
+    const step = hub.deps.db.prepare("SELECT payload FROM events WHERE event_type = 'AttemptSent' AND json_extract(payload, '$.alert_id') = ?").get(alert_id) as { payload: string } | undefined;
+    expect(step === undefined ? [] : (JSON.parse(step.payload) as { recipients: unknown[] }).recipients).toEqual([]);
   });
 
   it('[03b §3.5 step 2] ready lines leave out served and handed-over lines; none left → ITEM_WRONG_STAGE { stage: served }', async () => {
@@ -573,7 +576,7 @@ describe('[03b v1.0.16 §3.5, §6.21] per-point Ready, counter (K-2)', () => {
     expect(JSON.parse(alertRow(pr.result!.alert_id as string).display_json)).toMatchObject({ table_code: 'PARKING' });
   });
 
-  it('§6.21 (run 3 verify): the placer signed in on a takeaway counter gets nothing of the per-point Ready; on a phone without the screen, the card', async () => {
+  it('§6.21 (run 3 verify; ⚠️ 03b v1.0.20 QA-R2 BUG-4): the placer gets nothing of the per-point Ready, on a takeaway counter or on a phone without the screen', async () => {
     openDay(hub);
     const onCounter = staffOn('S_CASH', { access: 'everyone', screens: ['takeaway', 'cashier'] });
     const onPhone = staffOn('S_CASH', { access: 'everyone', screens: ['dine_in'] });
@@ -584,7 +587,13 @@ describe('[03b v1.0.16 §3.5, §6.21] per-point Ready, counter (K-2)', () => {
     cook(order_id, ['L1']);
     const reply = await ready(cookWho, order_id);
     const alert_id = reply.result!.alert_id as string;
-    expect((await cardFrame(phoneWs, alert_id)).card).toBeDefined();
+    // ⚠️ 03b v1.0.20 (QA-R2, BUG-4): was the card on the phone; a dine-in Ready still reaches the same phone (fence)
+    const onPhoneRows = () => (phoneWs.messages as Array<{ type: string; alert?: { alert_id: string } }>).filter((m) => m.type === 'alert' && m.alert?.alert_id === alert_id);
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT_QA' });
+    const dine = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT_QA', lines: [{ order_item_id: 'D9', item_id: FX.naan }] }).order_id;
+    cook(dine, ['D9']);
+    await ready(cookWho, dine);
+    expect(onPhoneRows()).toEqual([]);
     const onK = (counterWs.messages as Array<{ type: string; alert?: { alert_id: string } }>).filter((m) => m.type === 'alert' && m.alert?.alert_id === alert_id);
     expect(onK).toEqual([]);
     const step = hub.deps.db.prepare("SELECT payload FROM events WHERE event_type = 'AttemptSent' AND json_extract(payload, '$.alert_id') = ?").get(alert_id) as { payload: string };

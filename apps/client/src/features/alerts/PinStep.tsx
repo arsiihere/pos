@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useSyncExternalStore, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { t } from '../../i18n';
 import { PIN_MIN, type HubLink, type PinPad } from './answer';
 import { CloseX, Ico, Msg, type IconName } from './ui';
@@ -24,6 +24,7 @@ export function PinKeys({
   onSubmit,
   error,
   narrow = false,
+  guardMs = 0,
 }: {
   length: number;
   disabled: boolean;
@@ -33,7 +34,14 @@ export function PinKeys({
   onSubmit: () => void;
   error: PinError | null;
   narrow?: boolean;
+  /**
+   * ⚠️ 01d v1.3.9 §8.1 (owner 2026-11-28 QA-R2, BUG-13): pointer taps (`detail > 0`) this soon after the pad opened
+   * are ignored — the second tap of a double-tap on Approve lands on a key. Keyboard digits always count.
+   */
+  guardMs?: number;
 }) {
+  const openedAt = useRef(performance.now());
+  const ghost = (e: MouseEvent<HTMLButtonElement>): boolean => guardMs > 0 && e.detail > 0 && performance.now() - openedAt.current < guardMs;
   const onKey = (e: KeyboardEvent) => {
     if (disabled) return;
     if (/^\d$/.test(e.key)) onDigit(e.key);
@@ -72,14 +80,14 @@ export function PinKeys({
       )}
       <div ref={keysRef} className={`pin__keys${disabled ? ' off' : ''}${narrow ? ' pin__keys--96' : ''}`} onKeyDown={onKey}>
         {DIGITS.map((d) => (
-          <button key={d} type="button" className="btn" disabled={disabled} onClick={() => onDigit(d)}>
+          <button key={d} type="button" className="btn" disabled={disabled} onClick={(e) => !ghost(e) && onDigit(d)}>
             {d}
           </button>
         ))}
-        <button type="button" className="btn btn--fn" disabled={disabled} onClick={onBack}>
+        <button type="button" className="btn btn--fn" disabled={disabled} onClick={(e) => !ghost(e) && onBack()}>
           {t('pin.delete')}
         </button>
-        <button type="button" className="btn" disabled={disabled} onClick={() => onDigit('0')}>
+        <button type="button" className="btn" disabled={disabled} onClick={(e) => !ghost(e) && onDigit('0')}>
           0
         </button>
         <button type="button" className="btn btn--primary" disabled={disabled || length < PIN_MIN} onClick={onSubmit}>
@@ -146,6 +154,7 @@ export function PinStep({
           onBack={() => pad.back()}
           onSubmit={onSubmit}
           error={offline ? null : error}
+          guardMs={400}
         />
         {help !== null && <p className="pin__help">{help}</p>}
       </div>

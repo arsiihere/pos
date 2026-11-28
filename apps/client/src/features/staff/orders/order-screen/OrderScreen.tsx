@@ -12,7 +12,7 @@ import { LockBanner } from '../../tables/lock/LockBanner';
 import { useTableLock } from '../../tables/lock/useTableLock';
 import { OfflineBar } from '../../tables/offline/OfflineBar';
 import type { SeatingRef } from '../../tables/contracts';
-import type { Draft, DraftStore, EtaDraft, OrderType, OrdersCatchUp, ServeMode, ZoneStockBody } from '../contracts';
+import type { Draft, DraftStore, EtaDraft, EtaPreviewBody, OrderType, OrdersCatchUp, ServeMode, ZoneStockBody } from '../contracts';
 import { createAvailability, dealAvailability, itemAvailability, type ItemAvailability } from '../live/availability';
 import { createStockMirror } from '../live/stock-mirror';
 import { createIdbDraftStore } from '../drafts/idb-drafts';
@@ -52,14 +52,14 @@ import { createDayWatch } from './day-open';
 import { phoneBad } from './contact';
 import { CustomerRow } from './CustomerRow';
 import { PickupRow } from './PickupRow';
-import type { PickupBounds } from './pickup';
+import { pickupPassed, type PickupBounds } from './pickup';
 import { LeaveGuard, useLeaveGuard } from './LeaveGuard';
 import { money } from '../money';
 import { cartDisplay, createDisplayPublisher, idleDisplay, type DisplayMessage } from '../customer-display/channel';
 import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
 import { announceCompIt, freezeSubmit, refusalText, sendOrder, sentToastText, timeUpdated, toCart, zoneEmpty } from '../send/send';
-import { createTokenBook } from '../takeaway/book';
+import { tokenBookOf } from '../takeaway/book';
 import { setCurrentTakeawayDraft } from '../takeaway/current-draft';
 import { heldOnDevice } from './held-list';
 import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
@@ -76,7 +76,7 @@ import { showEnqueued } from '../view/LineActions';
 import { groupParts, type GroupedLine } from '../view/parts';
 import { servable } from '../view/stage';
 import { takeawayContext } from '../../shell/context-slot';
-import { keyEntries, keyMatches, parseKeyQuery, type KeyEntry } from './keyboard';
+import { keyEntries, keyMatches, MAX_KEY_QTY, parseKeyQuery, type KeyEntry } from './keyboard';
 import { readRushOverride, rushOn, toggledOverride, writeRushOverride } from '../takeaway/rush';
 import { deltaText } from './delta';
 import { ServeChoice } from './ServeChoice';
@@ -244,7 +244,11 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   useEffect(() => () => dayWatch.dispose(), [dayWatch]);
   useVersion(dayWatch.subscribe);
   // a reply's times stand only while the hub is reachable: offline they read "—" at once (the reconnect refetches)
-  const body = pv.kind === 'ok' && shell.online ? pv.body : null;
+  // ⚠️ 02b v1.0.30 QK-4 (BUG-17): while only the pickup is refused, the cart keeps its last ready times (never "—")
+  const lastOkBody = useRef<EtaPreviewBody | null>(null);
+  if (pv.kind === 'ok') lastOkBody.current = pv.body;
+  else if (pv.kind !== 'pickup_invalid') lastOkBody.current = null;
+  const body = !shell.online ? null : pv.kind === 'ok' ? pv.body : pv.kind === 'pickup_invalid' ? lastOkBody.current : null;
   // ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §6.14 pickup_bounds, §8): the last range the hub sent (Time… keeps it
   // while a later preview is refused or pending)
   const pickupBounds = useRef<PickupBounds | null>(null);
@@ -479,9 +483,9 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const keysRef = useRef<((e: KeyboardEvent) => void) | null>(null);
   const [tab, setTab] = useState<'menu' | 'cart' | 'queue'>('menu');
-  // 02b-TK C2-1: the takeaway queue rail (its book of tokens, names and phones from this device's frames, R3)
-  const book = useMemo(() => (order_type === 'takeaway' ? createTokenBook(shell.live) : null), [shell.live, order_type]);
-  useEffect(() => () => book?.dispose(), [book]);
+  // 02b-TK C2-1: the takeaway queue rail (its book of tokens, names and phones from this device's frames, R3).
+  // BUG-5 (02b v1.0.30 §8): the page's book (one per live bus, emptied at sign-out), never one per mount
+  const book = useMemo(() => (order_type === 'takeaway' ? tokenBookOf(shell.live) : null), [shell.live, order_type]);
   const [heldCount, setHeldCount] = useState(0);
   // a Hold that stays on the screen (the Takeaway tab) counts again
   const [heldTick, setHeldTick] = useState(0);
@@ -907,7 +911,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   // the hub would refuse waits to be fixed or cleared (R1: the phone stays optional)
   const contactBad = order_type === 'takeaway' && phoneBad(cart.takeaway?.phone);
   // ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §3.2 step 2b, §8): a pickup the hub refused waits to be changed
-  const canSend = (order_type !== 'dine_in' || (seat !== null && lock.canSend)) && !contactBad && !(order_type === 'takeaway' && pickupProblem !== null && cart.pickup !== undefined);
+  const canSend = (order_type !== 'dine_in' || (seat !== null && lock.canSend)) && !contactBad && !(order_type === 'takeaway' && cart.pickup !== undefined && (pickupProblem !== null || pickupPassed(cart.pickup, shell.clock.nowMs())));
   const blocked = order_type === 'dine_in' && seatMissing ? t('order.seating_missing') : null;
   // 02b-TK C3-1 (frames HomeKiosk, HomeOffline): a takeaway of a take-payment holder sends and pays, or pays later; an
   // addition to a token keeps its one "Add to token 53" (it is paid from the token view)
@@ -1242,6 +1246,12 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     const target = e.target instanceof Element ? e.target : null;
     // another layer (a dialog, a menu, the lock) or another part of the page owns this key
     if (target?.closest('[role="dialog"]:not(.tk-drawer), [role="menu"], [role="alertdialog"], .idle') != null) return;
+    // ⚠️ 02b v1.0.30 QK-5 (BUG-21): "/" focuses the search from anywhere on the page that is not a field (a top-bar
+    // tab just clicked, a rail row), the token drawer open or not; other keys only on the screen itself
+    if (e.key === '/' && !editable(target) && !overlay && searchRef.current !== null) {
+      e.preventDefault();
+      return searchRef.current.focus();
+    }
     if (target !== null && target !== document.body && !(rootRef.current?.contains(target) ?? false)) return;
     if (e.key === 'Escape') {
       if (target === searchRef.current || openToken === null || overlay) return;
@@ -1334,6 +1344,12 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
                 {kbd(i === chosen ? 'Enter' : '↓')}
               </div>
             ))}
+            {/* ⚠️ 02b v1.0.30 QK-7 (BUG-24): "999n" adds 99 and says so */}
+            {keyQuery.over === true && (
+              <div className="tk-hint c-warn" role="status" data-max-qty="">
+                {fill(t('m.max_qty'), { n: String(MAX_KEY_QTY) })}
+              </div>
+            )}
             <div className="tk-hint">
               {kbd('4n')} = {t('m.hint_qty')} · {kbd('hk')} = {t('m.hint_initials')} · {kbd('Enter')} {t('m.hint_add')} · {kbd('Esc')} {t('m.hint_clear')}
             </div>
