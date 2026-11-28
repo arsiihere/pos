@@ -33,7 +33,7 @@ import {
   type BillViewSplit,
   type PaymentRow,
   type SplitRow,
-} from '../queries/bill.js';
+ splitDues } from '../queries/bill.js';
 import { billingAt, BillRef, ensureBill } from './ensure-bill.js';
 
 // ------------------------------------------------------------------------------------------------ payload
@@ -204,6 +204,7 @@ export const SetSplits = defineCommand({
         payments: (paymentsOf.get(s.split_no) ?? []).map((x) => paymentView(x, pv)),
         totals: { cash: toTotals(r.totals.cash), digital: toTotals(r.totals.digital), as_paid: toTotals(r.totals.as_paid) },
         balance_minor: r.balance_minor,
+        dues: splitDues(r),
         invoice: null,
       };
     });

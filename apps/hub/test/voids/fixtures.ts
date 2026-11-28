@@ -10,6 +10,7 @@ import type { CommandCtx } from '../../src/commands/registry';
 import type { LineView } from '../../src/orders/contracts';
 import { orderLines } from '../../src/orders/exports';
 import { planVoid } from '../../src/orders/ledger';
+import { hubBilling } from '../../src/billing/defaults';
 import { branchConfig } from '../../src/sync/branch-config-holder';
 import { currentTableOf } from '../../src/tables/reads';
 import { VOID_KIND } from '../../src/voids/contracts';
@@ -509,8 +510,38 @@ export interface Reply {
 
 let commandSeq = 0;
 
+/** AddPayment command_id → the `expected_due_minor` the fixture filled for it (a resend sends the same payload). */
+const seenDues = new Map<string, number>();
+
+/**
+ * ⚠️ 05 v1.0.37 §6.9 (QA-R2, R2-1): an `AddPayment` sent without `expected_due_minor` is sent as a client sends it — the
+ * bill read first (`GET /queries/bill`, as `who`) and the due its amount is held to (the split's `dues` at the mode's
+ * class and direction) carried. A view the caller may not read, or a split it does not list, sends 0 (the command's own
+ * earlier refusal answers). Tests of the field itself set it explicitly.
+ */
+export async function seenDue(hub: TestHub, who: Who, payload: Record<string, unknown>): Promise<number> {
+  const ref = (payload['bill_ref'] ?? {}) as Record<string, string>;
+  const qs = new URLSearchParams(Object.entries(ref).filter(([, v]) => typeof v === 'string')).toString();
+  const res = await hub.app.inject({ method: 'GET', url: `/queries/bill?${qs}`, headers: { authorization: `Bearer ${who.token}`, 'x-session-token': who.sessionToken } });
+  if (res.statusCode !== 200) return 0;
+  const view = (res.json() as { data: { splits: Array<{ split_no: number; dues?: Record<string, number> }> } }).data;
+  const dues = view.splits.find((s) => s.split_no === payload['split_no'])?.dues;
+  if (dues === undefined) return 0;
+  const cfg = branchConfig();
+  const modes = cfg === null ? [] : hubBilling(cfg).settings.payment_modes;
+  const cls = modes.find((m) => m.mode_id === payload['mode_id'])?.payment_class ?? (payload['mode_id'] === 'cash' ? 'cash' : 'digital');
+  const out = payload['direction'] === 'out';
+  return (cls === 'cash' ? (out ? dues['cash_refund_due_minor'] : dues['cash_due_minor']) : out ? dues['card_refund_due_minor'] : dues['card_due_minor']) ?? 0;
+}
+
 /** POST /commands/<path> as `who`; the reply's events read back from the store in seq order. */
 export async function post(hub: TestHub, who: Who, path: string, command_type: string, payload: Record<string, unknown>, commandId?: string): Promise<Reply> {
+  if (command_type === 'AddPayment' && !('expected_due_minor' in payload)) {
+    const kept = commandId === undefined ? undefined : seenDues.get(commandId);
+    const expected_due_minor = kept ?? (await seenDue(hub, who, payload));
+    if (commandId !== undefined) seenDues.set(commandId, expected_due_minor);
+    payload = { ...payload, expected_due_minor };
+  }
   commandSeq += 1;
   const res = await hub.app.inject({
     method: 'POST',

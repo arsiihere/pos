@@ -1935,6 +1935,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'billing.closed_empty': 'بند · کچھ بل نہیں · پیسے واپس',
   'billing.no_printer': 'بل کا پرنٹر نہیں لگا — گاہک کو اسکرین دکھائیں',
   'billing.total_changed': 'کل رقم {amount} ہو گئی — دیکھ کر دوبارہ بند کریں',
+  // 05 v1.0.37 §9 / §8 (QA-R2): Urdu to confirm
+  'errors.BILL_DUE_CHANGED': 'بل بدل گیا — اب {amount}۔ کچھ نہیں لیا گیا؛ رقم دیکھ کر دوبارہ لیں',
+  'p.bill_changed': 'بل بدل گیا — اب {amount}',
+  'p.split_of': 'حصہ {k} از {n}',
+  'p.split_more': 'اس بل پر {amount} اور',
   'pad.maybe_in': 'یہ ادائیگی شاید پہلے ہی ہو چکی ہے — دوبارہ لینے سے پہلے ادائیگیاں دیکھیں',
   'tables.toast.needs_hub': 'ہب چاہیے',
   'billing.check_sent': 'چیک بل {printer} پر بھیج دیا',

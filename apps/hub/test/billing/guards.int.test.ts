@@ -144,6 +144,7 @@ function pay(
   seating_id: string,
   split_no: number,
   amount_minor: number,
+  expected_due_minor?: number,
 ): Promise<Reply> {
   return post(hub, cashier, "add-payment", "AddPayment", {
     bill_ref: { seating_id },
@@ -151,6 +152,8 @@ function pay(
     mode_id: "cash",
     direction: "in",
     amount_minor,
+    // 05 v1.0.37 §6.9 (R2-1): a race reads the due before it starts (the fixture would read it inside the race)
+    ...(expected_due_minor === undefined ? {} : { expected_due_minor }),
   });
 }
 
@@ -1005,7 +1008,7 @@ describe("[05 HIGH: races] guards inside the single writer: each pair serialises
       const payFirst = i % 2 === 0;
       const [p, m] = await race(
         payFirst ? "a" : "b",
-        () => pay(b.seating_id, 1, 1_000),
+        () => pay(b.seating_id, 1, 1_000, 3_000),
         () => mergeT5IntoT4(a.seating_id, b.seating_id),
       );
       expect([p.status, m.status].filter((x) => x === 200).length, JSON.stringify([p.error, m.error])).toBe(1);

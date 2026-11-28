@@ -5,6 +5,7 @@ import type { DirectoryInput, EventDraft } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
+import { seenDue } from '../voids/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { COMP_REMOVE_REASONS } from '@pos/domain';
 import { FX, openDay, openSeating } from '../orders/fixtures';
@@ -42,6 +43,8 @@ async function start(): Promise<void> {
 
 let seq = 0;
 async function post(path: string, command_type: string, payload: Record<string, unknown>) {
+  // ⚠️ 05 v1.0.37 §6.9 (R2-1): a payment carries the due the bill shows, as a client sends it
+  if (command_type === 'AddPayment' && !('expected_due_minor' in payload)) payload = { ...payload, expected_due_minor: await seenDue(hub, ali as Parameters<typeof seenDue>[1], payload) };
   seq += 1;
   const res = await hub.app.inject({
     method: 'POST',
