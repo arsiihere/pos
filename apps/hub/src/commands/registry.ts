@@ -59,6 +59,11 @@ export interface CommandDef<P extends z.ZodType = z.ZodType> {
   sessionKind: 'device' | 'admin' | 'both';
   /** `'checked-in-handler'` only for HANDLER_CHECKED_COMMANDS (00 v1.6 §3.7 H-3); `ctx.permission` is then null. */
   permission: Permission | null | 'checked-in-handler';
+  /**
+   * ⚠️ 02b v1.0.28 QR2-2 (owner 2026-11-28 QA-R2, BUG-9): a `'both'` command's permission on the staff route
+   * (`/commands/<name>`) when it differs from `permission` (which the admin route keeps). Absent → `permission`.
+   */
+  devicePermission?: Permission;
   approvable?: boolean;
   stationScoped?: boolean;
   /** 00 v1.8 H-1 (c): only a queueable command reads `X-Queued-At` as `ctx.queuedAt` (default false). */

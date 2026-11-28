@@ -146,7 +146,9 @@ async function runCommand(
     // 05a §3.3a: resolved at execution time through the session view, so a queued command replayed after its
     // device became `everyone` is masked (fail-closed).
     const directory = currentDirectory(app).forSession(session, deviceProfile);
-    const ctx = commandCtx(tx, authorize(commandDef, session, directory), directory);
+    // ⚠️ 02b v1.0.28 QR2-2: a 'both' command may ask another permission on the staff route (devicePermission)
+    const asked = routeKind === 'device' && commandDef.devicePermission !== undefined ? { ...commandDef, permission: commandDef.devicePermission } : commandDef;
+    const ctx = commandCtx(tx, authorize(asked, session, directory), directory);
     // Read before `handle`: a handler on today's path may append in `handle` itself.
     const beforeSeq = (
       tx.db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM events WHERE branch_id = ?').get(tx.branchId) as {
