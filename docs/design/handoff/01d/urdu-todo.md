@@ -8,29 +8,8 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 
 | Key | English | Note |
 |---|---|---|
-| `alert.request_result.card` | Request answered · {table} |  |
-| `alert.request_result.lock` | Request answered · {table} |  |
-| `alert.request_result.approved` | Request approved · {table} | frame: ووئڈ منظور ("Void approved"); the view carries no request kind |
-| `alert.request_result.rejected` | Request rejected · {table} |  |
-| `alert.request_result.withdrawn` | You withdrew the request · {table} |  |
-| `alert.request_result.obsolete` | Request closed · {table} |  |
-| `alert.request_result.overridden` | Request overridden · {table} |  |
-| `alert.pin_use_failed.card` | Your PIN was entered on {device} and the answer failed |  |
-| `alert.pin_use_failed.lock` | Your PIN was used on {device} |  |
-| `alert.approval_receipt.card` | You answered a request · {table} · {requester} | frame: آپ نے منظور کیا ("You approved"); the view carries no decision, so the English is neutral |
-| `alert.approval_receipt.lock` | You answered a request · {table} | as above |
-| `alert.answered_on_requester_device.card` | You answered the request on {table} at {device} |  |
-| `alert.answered_on_requester_device.lock` | You answered a request at {device} |  |
-| `alert.no_approver.card` | No one can approve requests right now | frame: کوئی ووئڈ منظور نہیں کر سکتا names the permission; the view carries none |
-| `alerts.unknown.request` | {table} · Request · {requester} |  |
-| `alerts.unknown.alert` | {table} · Alert · {requester} |  |
-| `alerts.kind_fallback` | request | review fix round 1: the `{kind}` word in `notice.in_person_title` when the kind has no name label |
 | `alerts.table` | T{code} |  |
 | `alerts.amount` | Rs {amount} |  |
-| `alerts.closed.rejected` | Rejected by {name} {time} | pattern of alerts.closed.approved: {name} نے … کیا {time} |
-| `alerts.closed.closed` | Closed |  |
-| `alerts.empty` | Nothing needs you right now. |  |
-| `alerts.for_group` | For {name} · {n} · no device |  |
 | `requests.empty` | No requests waiting. |  |
 | `answer.accept` | Accept |  |
 | `answer.decline` | Decline |  |
@@ -62,11 +41,6 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `notice.not_you` | Not you? Change your PIN and tell the owner. |  |
 | `lock.title` | Alerts |  |
 | `lock.sign_in` | Sign in to see details |  |
-| `test.send_to` | Send to |  |
-| `test.point_off` | Point: available after points are set up. |  |
-| `test.summary` | Sends a test alert to |  |
-| `test.send` | Send test |  |
-| `test.after` | You see when it arrives and is seen, on which device. |  |
 | `receipts.person` | Person |  |
 | `receipts.route` | Device / route |  |
 | `receipts.delivered` | Delivered |  |
@@ -77,35 +51,11 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `receipts.no_route` | No route |  |
 | `receipts.hidden_seat` | Hidden (answering seat) |  |
 | `admin.stuck` | Stuck alerts: {n} — an alert stopped sending reminders. It can still be answered. |  |
-| `alerts.signin.not_paired` | This device is not paired with the hub. Pair it first. | task 41 (staff entry) |
-| `alerts.sign_out` | {name} — sign out | task 41 (staff entry) |
-| `alerts.device.kds` | Kitchen screen | task 41 (staff entry) |
-| `alerts.empty_sub` | New alerts appear here and as a banner. | task 41 (staff entry) |
-| `alerts.offline_since` | No connection to the hub — try again. The list is from {time}. | task 41 (staff entry) |
-| `alerts.load_more` | Load more | task 41 (staff entry) |
-| `alerts.new` | new | task 41 (staff entry) |
-| `alerts.min` | min | task 41 (staff entry) |
-| `alerts.days` | {n}d | task 41 (staff entry) |
-| `alerts.replaced` | This page is open on another tab or screen. | task 41 (staff entry) |
-| `alerts.use_here` | Use it here | task 41 (staff entry) |
-| `alerts.no_approver_clears` | Clears when an approver signs in | task 41 (staff entry) |
 | `requests.empty_sub` | Requests you can answer appear here, oldest first. | task 41 (staff entry) |
 | `answer.an_approver` | an approver | task 41 (staff entry) |
 | `answer.fact.when` | When | task 41 (staff entry) |
 | `answer.fact.device` | Device | task 41 (staff entry) |
 | `answer.fact.request` | Request | task 41 (staff entry) |
-| `test.title` | Send a test alert | task 41 (staff entry) |
-| `test.person` | Person | task 41 (staff entry) |
-| `test.team` | Team | task 41 (staff entry) |
-| `test.device` | Device | task 41 (staff entry) |
-| `test.point` | Point | task 41 (staff entry) |
-| `test.direct` | Direct reports | task 41 (staff entry) |
-| `test.whole` | Whole team | task 41 (staff entry) |
-| `test.team_of` | {name}’s team | task 41 (staff entry) |
-| `test.this_device` | This device | task 41 (staff entry) |
-| `test.person_sub` | Their devices, or their lead’s tablet if they have none | task 41 (staff entry) |
-| `test.not_found` | Not found — reload the list. | task 41 (staff entry) |
-| `test.denied` | You can’t send test alerts. | task 41 (staff entry) |
 | `receipts.sent_by` | Sent {time} by {name} · to {target} | task 41 (staff entry) |
 | `receipts.step.sent` | Sent | task 41 (staff entry) |
 | `receipts.step.reminder` | Reminder | task 41 (staff entry) |
@@ -117,7 +67,6 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `receipts.route.other` | {route} · {ref} | task 41 (staff entry) |
 | `receipts.not_found` | This alert is no longer there. | task 41 (staff entry) |
 | `receipts.for` | for {name} | task 41 (staff entry) |
-| `bind.someone` | Someone | task 42 (tablet header; name unknown after a reload) |
 
 ## v1.3 deep links — Urdu drafted, to check
 
@@ -146,7 +95,6 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `answer.error.device_not_set_up` | This device is not set up for you | `DEVICE_ACCESS_DENIED`, `DEVICE_NOT_OWNED` |
 | `answer.error.listed_device_only` | Do this on your own phone | `PERMISSION_DENIED { reason: 'listed_device_only' }` |
 | `answer.error.device_access_self` | You would lose access on this device | `DEVICE_ACCESS_SELF` |
-| `alerts.open_elsewhere` | Open this on a device with {screen} | deep link to a screen the device does not have; `{screen}` is one of the six names below |
 
 ## 05a client (task 25, carry-over from the task 26 review) — `device_waiting`, no Urdu yet
 
@@ -154,5 +102,3 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 
 | Key | English | Note |
 |---|---|---|
-| `alert.device_waiting.card` | A device is waiting for approval | never the code, the device name or a count (05a A-5) |
-| `alert.device_waiting.lock` | Device waiting | lock line, same rule |

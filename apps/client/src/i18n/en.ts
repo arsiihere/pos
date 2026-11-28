@@ -291,6 +291,8 @@ export const en = {
   'common.slow': 'Still working. This can take a few seconds.',
   'pin.label': 'PIN',
   'pin.delete': 'Delete',
+  // ⚠️ 02b v1.0.33 QR3-3 (QA-R3, BUG-8): the PIN dots' spoken count (was English in Urdu)
+  'pin.digits': '{n} digits',
   'pin.submit': 'Enter',
   'quantity.pieces': 'pieces',
   'quantity.pcs': 'pcs',
@@ -1720,6 +1722,8 @@ export const en = {
   'alerts.answer': 'Answer',
   'alerts.open': 'Open',
   'alerts.more_new': '{n} more new',
+  // ⚠️ 02b v1.0.33 QR3-5 (QA-R3): how late a Running late banner is
+  'alerts.slip_late': 'about {n} min late',
   'alerts.open_inbox': 'Open inbox',
   // 05a §8 (M-11): a deep link to a screen this device does not have
   'alerts.open_elsewhere': 'Open this on a device with {screen}',
@@ -4539,6 +4543,7 @@ export const en = {
   'cart.items_label': 'Items',
   // ---- 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §3.2 step 2b, §6.14, §8 Phone and pickup (R4)): the takeaway cart's pickup chips, its range and refusals, Kitchen times it for ----
   'c.pickup': 'Pickup',
+  'c.times_pickup_bad': 'Fix the pickup time to see the ready time',
   'c.pick_now': 'Now',
   'c.pick_15': '+15 min',
   'c.pick_30': '+30 min',

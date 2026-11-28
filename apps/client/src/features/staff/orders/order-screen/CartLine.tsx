@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { BranchConfig } from '@pos/events';
 import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
@@ -5,6 +6,7 @@ import { Ico } from '../../../alerts/ui';
 import { timeText } from '../../../alerts/labels';
 import { MONEY_DIR, money } from '../money';
 import { cartLineMoney, type CartLine as Line, type LineProblem, type UnitOf } from './cart';
+import { MAX_KEY_QTY } from './keyboard';
 
 // 02-S05 cart line (handoff CartLines.dc.html, Order, OrderProblem, OrderOffline): qty, name, options, kitchen note,
 // price, clock time. The open line shows the stepper, Edit and Remove; a line problem marks it (`.prob`) with the
@@ -79,6 +81,54 @@ function whyText(p: LineProblem): string {
   }
 }
 
+/**
+ * ⚠️ 02b v1.0.33 QR3-5 (owner 2026-11-28 QA-R3, UX): the stepper's quantity takes typed digits — 1 to 99 (the
+ * keyboard's MAX_KEY_QTY), within the line's cap; letters are dropped; leaving the field shows the line's quantity.
+ * Each valid number sets the line at once.
+ */
+function QtyBox({ quantity, cap, onSet }: { quantity: number; cap: number | null; onSet: (n: number) => void }) {
+  // the number reads as before; a tap (or Enter / Space on it) opens a digits field in its place
+  const [typed, setTyped] = useState<string | null>(null);
+  if (typed === null)
+    return (
+      <output
+        className="num step__n"
+        role="button"
+        tabIndex={0}
+        aria-label={t('cart.quantity')}
+        onClick={() => setTyped('')}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          setTyped('');
+        }}
+      >
+        {quantity}
+      </output>
+    );
+  return (
+    <input
+      className="num step__n"
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      autoFocus
+      aria-label={t('cart.quantity')}
+      maxLength={2}
+      placeholder={String(quantity)}
+      value={typed}
+      onChange={(e) => {
+        const digits = e.target.value.replace(/\D/g, '').slice(0, 2);
+        setTyped(digits);
+        const n = Number(digits);
+        if (digits !== '' && n >= 1) onSet(Math.min(n, MAX_KEY_QTY, cap ?? MAX_KEY_QTY));
+      }}
+      onBlur={() => setTyped(null)}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape' ? e.currentTarget.blur() : undefined)}
+    />
+  );
+}
+
 /** 02b-TK A2 item 3 (frame HomeRush; CHANGES §4 #6 "four quantity chips"): the open line's ×2 ×4 ×6 ×8. */
 export const QTY_CHIPS = [2, 4, 6, 8] as const;
 
@@ -95,7 +145,7 @@ export function CartLineRow({ view, config, unitOf, utcOffsetMs, actions, qchips
       <button type="button" aria-label={t('cart.less')} disabled={(line.quantity ?? 1) <= 1} onClick={() => actions.setUnits(line.key, (line.quantity ?? 1) - 1)}>
         <Glyph d={MINUS} />
       </button>
-      <output className="num">{line.quantity}</output>
+      <QtyBox quantity={line.quantity ?? 1} cap={view.cap} onSet={(n) => actions.setUnits(line.key, n)} />
       <button
         type="button"
         aria-label={t('cart.more')}

@@ -249,3 +249,53 @@ describe('[01d §8.1 B01, 02a Q-14] one stack for 01d banners and handover cards
     expect(ids()).toEqual(['B', 'F2']);
   });
 });
+
+// ⚠️ 02b v1.0.33 QR3-5 (owner 2026-11-28 QA-R3, UX): a "Running late" banner says which order, what and how late — the
+// token (a takeaway has no table: its token from this device's book, by the alert's order target), "about N min late"
+// and the late items — never a bare "Running late"
+describe('[02b v1.0.33 QR3-5] Running late banner', () => {
+  const slip = (over: Partial<AlertRow> = {}) =>
+    row({
+      alert_id: 'S1',
+      kind: 'slip_warning',
+      family: 'action',
+      lock: { kind_label_key: 'alert.slip_warning.lock', table_code: null, point_code: null, requester_name: null },
+      card: {
+        kind_label_key: 'alert.slip_warning.card',
+        table_code: null,
+        point_code: null,
+        requester_name: null,
+        device_name: null,
+        details: { minutes_late: 7, lines: [{ name: 'Naan', quantity: 2, state: 'cooking' }, { name: 'Chicken Karahi', quantity: 1, state: 'added' }] },
+      },
+      target: { type: 'order', order_id: 'O57' },
+      ...over,
+    });
+
+  it('a takeaway: token #57, "about 7 min late", "Naan ×2 · Chicken Karahi ×1"', async () => {
+    const live = createLiveBus();
+    const order = { order_id: 'O57', order_type: 'takeaway', table_key: 'tk:57', business_date: '2025-10-20', token: 57, placed_by: 'S1', placed_at: NOW, cancelled: false, billed: false, lines: [] };
+    live.frame({ type: 'catch_up', as_of_seq: 1, state: { orders: { orders: [order], zone_stock: [] } } } as never);
+    const shell = { live } as unknown as Shell;
+    m = mount();
+    m.render(
+      <ShellContext.Provider value={shell}>
+        <Banners banners={[slip()]} nowMs={NOW} lockOnly={false} onOpen={() => {}} onOpenInbox={() => {}} />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    const abn = m.container.querySelector('.abn[data-alert="S1"]')!;
+    expect(abn.querySelector('.ac__title .tcode')?.textContent).toBe('#57');
+    expect(abn.querySelector('.ac__title')?.textContent).toContain('Running late');
+    expect(abn.querySelector('.ac__det')?.textContent).toBe('about 7 min late · Naan ×2 · Chicken Karahi ×1');
+  });
+
+  it('a dine-in slip keeps its table and adds how late and the items', () => {
+    m = mount();
+    const s = slip({ lock: { kind_label_key: 'alert.slip_warning.lock', table_code: '12', point_code: null, requester_name: null } });
+    m.render(<Banners banners={[{ ...s, card: { ...s.card!, table_code: '12' } }]} nowMs={NOW} lockOnly={false} onOpen={() => {}} onOpenInbox={() => {}} />);
+    const abn = m.container.querySelector('.abn[data-alert="S1"]')!;
+    expect(abn.querySelector('.ac__title .tcode')?.textContent).toBe('T12');
+    expect(abn.querySelector('.ac__det')?.textContent).toBe('about 7 min late · Naan ×2 · Chicken Karahi ×1');
+  });
+});

@@ -5,6 +5,7 @@ import { CALL_KIND, CallCard } from '../staff/tables/cards/CallCard';
 import { HANDOVER_KIND, pendingHandovers } from '../staff/tables/cards/pending-handovers';
 import { forceMoveNotice, handoverCards } from '../staff/tables/cards/ResultBanner';
 import { ShellContext } from '../staff/shell/hooks';
+import { tokenBookOf, type TokenBook } from '../staff/orders/takeaway/book';
 import type { AlertRow } from './store';
 import { FromLine, Ico, Tags, WaitRing, detailLine, tableOf, toneOf } from './ui';
 import { handoverDetailsText, titleText } from './labels';
@@ -22,6 +23,25 @@ import { counterReady03b, escalatedWho03b } from './labels-03b';
 // They follow the stack's phone / wide variant and never show on lock text (signed in, staff shell only).
 
 export const MAX_BANNERS = 2;
+
+const SLIP_KIND = 'slip_warning';
+const NO_BOOK = { subscribe: () => () => {}, version: () => 0 };
+
+/**
+ * ⚠️ 02b v1.0.33 QR3-5 (owner 2026-11-28 QA-R3, UX): a "Running late" banner names the order, how late and what — its
+ * table, or for a takeaway (no table) its token from this device's book by the alert's order target ("#57"); then
+ * "about N min late" and the late items ("Naan ×2 · Chicken Karahi ×1") from the card's `details`. Null for other kinds.
+ */
+export function slipFacts(row: AlertRow, book: Pick<TokenBook, 'get'> | null): { label: string | null; det: string | null } | null {
+  if (row.kind !== SLIP_KIND) return null;
+  const order_id = row.target?.type === 'order' ? row.target.order_id : null;
+  const token = order_id === null || book === null ? null : (book.get(order_id)?.token ?? null);
+  const d = row.card?.details ?? null;
+  const parts: string[] = [];
+  if (d?.minutes_late != null && d.minutes_late > 0) parts.push(fill(t('alerts.slip_late'), { n: String(d.minutes_late) }));
+  if (d?.lines != null && d.lines.length > 0) parts.push(d.lines.map((l) => `${l.name} ×${l.quantity}`).join(' · '));
+  return { label: token === null ? null : `#${token}`, det: parts.length === 0 ? null : parts.join(' · ') };
+}
 
 export function Banners({
   banners,
@@ -44,7 +64,11 @@ export function Banners({
 }) {
   useSyncExternalStore(pendingHandovers.subscribe, pendingHandovers.version);
   useSyncExternalStore(forceMoveNotice.subscribe, forceMoveNotice.get);
-  const staffShell = useContext(ShellContext) !== null;
+  const shell = useContext(ShellContext);
+  const staffShell = shell !== null;
+  // ⚠️ 02b v1.0.33 QR3-5: the token of a takeaway "Running late" banner (the page's one book per live bus)
+  const book = shell?.live != null ? tokenBookOf(shell.live) : null;
+  useSyncExternalStore((book ?? NO_BOOK).subscribe, (book ?? NO_BOOK).version);
   const results = banners
     .filter((b) => b.kind === 'request_result')
     .map((b) => `${b.alert_id}\u0000${(b.card ?? b.lock).table_code ?? ''}\u0000${b.raised_at}`)
@@ -95,8 +119,9 @@ export function Banners({
     const row = lockOnly ? { ...b, card: undefined } : b;
     if (row.kind === CALL_KIND) return <CallCard key={b.alert_id} row={row} onOpen={() => onOpen(b)} />;
     const tone = toneOf(row);
-    const table = tableOf(row);
-    const det = row.kind === HANDOVER_KIND ? handoverDetailsText(row.card?.details) : detailLine(row.card, true);
+    const slip = lockOnly ? null : slipFacts(row, book);
+    const table = tableOf(row) ?? slip?.label ?? null;
+    const det = row.kind === HANDOVER_KIND ? handoverDetailsText(row.card?.details) : slip !== null ? (slip.det === null ? null : <bdi>{slip.det}</bdi>) : detailLine(row.card, true);
     // 01d v1.3 §3.13.7: the zone banner's special navigate('/zones') is replaced by the general tap rule (onOpen),
     // which lands on its row (#/zones?focus=item:…)
     const open = () => onOpen(b);

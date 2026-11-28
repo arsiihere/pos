@@ -186,7 +186,7 @@ for (const lang of LANGS) {
       await menuTile(page, run.items.main.name).click();
       await menuTile(page, run.items.drink.name).click();
       // 02b §8 Phone and pickup (R1, R4): pickup chips Now / +15 / +30 / +45 / Time… send pickup_at_ms
-      // the chip's words per language (strings-table c.pick_30: "+30 min" / "30 منٹ بعد"; the Urdu has no "+")
+      // the chip's words per language (strings-table c.pick_30: "+30 min" / "+30 منٹ" (02b v1.0.33 QR3-3: the Urdu keeps its "+"))
       const plus30 = page.locator('.cart [data-pickup-row]').getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.pick_30'))}$`) });
       await expect(plus30, 'the cart offers the +30 pickup chip (02b §8)').toBeVisible({ timeout: 5_000 });
       await plus30.click();

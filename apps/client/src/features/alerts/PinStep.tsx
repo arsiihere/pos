@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { t } from '../../i18n';
+import { fill } from '../../i18n/en';
 import { PIN_MIN, type HubLink, type PinPad } from './answer';
 import { CloseX, Ico, Msg, type IconName } from './ui';
 
@@ -67,7 +68,7 @@ export function PinKeys({
   }, [disabled]);
   return (
     <>
-      <div className={`pin__dots${!disabled && error?.tone === 'danger' && length === 0 ? ' err' : ''}`} aria-label={`${length} digits`} role="status">
+      <div className={`pin__dots${!disabled && error?.tone === 'danger' && length === 0 ? ' err' : ''}`} aria-label={fill(t('pin.digits'), { n: String(length) })} role="status">
         {Array.from({ length: dots }, (_, i) => (
           <i key={i} className={i < length ? 'f' : ''} />
         ))}

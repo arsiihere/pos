@@ -173,6 +173,11 @@ function sheetTargetPresent(sheet: SheetRequest, config: BranchConfig, cart: Car
 }
 
 /** 02b-TK A2 item 2: a key typed here is text for that field (name, phone, a note…), never a shortcut or the search. */
+/** ⚠️ 02b v1.0.33 QR3-4 (QA-R3, BUG-21): a field that takes only digits (the phone, a quantity box) — it has no "/" */
+function digitsOnly(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement && (target.type === 'tel' || target.inputMode === 'tel' || target.inputMode === 'numeric');
+}
+
 function editable(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
@@ -1141,6 +1146,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     note: cart.order_note,
     // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28, QA BUG-5; 03a v1.2.12 PK-2): the kitchen cannot make the asked pickup — say
     // so before Send; the order keeps the asked pickup (PQ-1)
+    // ⚠️ 02b v1.0.33 QR3-5 (QA-R3): an invalid pickup (Send waits) never reads "Times will be set when sent"
+    pickupBad: order_type === 'takeaway' && cart.pickup !== undefined && (pickupProblem !== null || pickupPassed(cart.pickup, shell.clock.nowMs())),
     pickupLate: order_type === 'takeaway' && cart.pickup !== undefined && ready !== null && ready > cart.pickup.at_ms ? { can_ms: ready, asked_ms: cart.pickup.at_ms } : null,
     problems: problems.size,
     canSend,
@@ -1248,7 +1255,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     if (target?.closest('[role="dialog"]:not(.tk-drawer), [role="menu"], [role="alertdialog"], .idle') != null) return;
     // ⚠️ 02b v1.0.30 QK-5 (BUG-21): "/" focuses the search from anywhere on the page that is not a field (a top-bar
     // tab just clicked, a rail row), the token drawer open or not; other keys only on the screen itself
-    if (e.key === '/' && !editable(target) && !overlay && searchRef.current !== null) {
+    // ⚠️ 02b v1.0.33 QR3-4 (BUG-21): also from the phone field (or another digits-only field): it types no "/"
+    if (e.key === '/' && (!editable(target) || digitsOnly(target)) && !overlay && searchRef.current !== null) {
       e.preventDefault();
       return searchRef.current.focus();
     }
@@ -1317,6 +1325,13 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
           />
           {order_type === 'takeaway' && kiosk && kbd('/')}
         </label>
+        {/* ⚠️ 02b v1.0.30 QK-7, v1.0.33 QR3-4 (BUG-24): "999n" adds 99 and says so — for any quantity over 99 ("999" with
+            no suggestion yet too), outside the suggestion list */}
+        {keyQuery.over === true && (
+          <div className="tk-hint c-warn tk-maxq" role="status" data-max-qty="">
+            {fill(t('m.max_qty'), { n: String(MAX_KEY_QTY) })}
+          </div>
+        )}
         {suggestions.length > 0 && (
           <div className="tk-sugg" role="listbox" aria-label={t('m.search')}>
             {suggestions.map((e, i) => (
@@ -1344,12 +1359,6 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
                 {kbd(i === chosen ? 'Enter' : '↓')}
               </div>
             ))}
-            {/* ⚠️ 02b v1.0.30 QK-7 (BUG-24): "999n" adds 99 and says so */}
-            {keyQuery.over === true && (
-              <div className="tk-hint c-warn" role="status" data-max-qty="">
-                {fill(t('m.max_qty'), { n: String(MAX_KEY_QTY) })}
-              </div>
-            )}
             <div className="tk-hint">
               {kbd('4n')} = {t('m.hint_qty')} · {kbd('hk')} = {t('m.hint_initials')} · {kbd('Enter')} {t('m.hint_add')} · {kbd('Esc')} {t('m.hint_clear')}
             </div>

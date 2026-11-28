@@ -190,6 +190,27 @@ describe('[02b-TK L-CLIENT-5 item 1; 02b §8 Phone and pickup (R4)] the takeaway
     m.unmount();
   });
 
+  // ⚠️ 02b v1.0.33 QR3-5 (owner 2026-11-28 QA-R3, UX): with an invalid pickup and no ready time yet, the cart says to fix
+  // the pickup — never "Times will be set when sent" (Send waits, so that would be untrue)
+  it('[QA-R3; 02b v1.0.33 QR3-5] an invalid pickup with no ready time yet says "Fix the pickup time", not "Times will be set when sent"', async () => {
+    const h = harness({
+      preview: (d) => {
+        drafts.push(d);
+        return d.pickup_at_ms == null ? answer(d) : { ok: false, error: { kind: 'api', status: 422, code: 'PICKUP_TIME_INVALID', details: { reason: 'after_day_end', pickup_at_ms: d.pickup_at_ms, ...BOUNDS } } };
+      },
+    });
+    const m = h.render();
+    await flush();
+    m.click(chip(m, '+45 min'));
+    await tick();
+    naan(m);
+    await tick();
+    const panel = m.container.querySelector('.cart [data-ready]')?.textContent ?? '';
+    expect(panel).not.toContain('Times will be set when sent');
+    expect(panel).toContain('Fix the pickup time to see the ready time');
+    m.unmount();
+  });
+
   it('[BUG-17; 02b v1.0.30 QK-4] a typed time already past today says "That time has passed" (not "Too late — the day ends"), Send waits, and the cart keeps its ready time', async () => {
     const h = harness({
       preview: (d) => {
@@ -260,9 +281,9 @@ describe('[02b-TK L-CLIENT-5 item 1; 02b §8 Phone and pickup (R4)] the takeaway
     const m = h.render();
     await flush();
     expect(pick(m)?.textContent).toContain('کب لیں گے');
-    expect(['ابھی', '15 منٹ بعد', '30 منٹ بعد', '45 منٹ بعد', 'وقت…'].map((l) => chip(m, l) !== undefined)).toEqual([true, true, true, true, true]);
+    expect(['ابھی', '\u2066+15\u2069 منٹ', '\u2066+30\u2069 منٹ', '\u2066+45\u2069 منٹ', 'وقت…'].map((l) => chip(m, l) !== undefined)).toEqual([true, true, true, true, true]);
     naan(m);
-    m.click(chip(m, '30 منٹ بعد'));
+    m.click(chip(m, '\u2066+30\u2069 منٹ'));
     await tick();
     expect(ready(m)).toContain('کچن اس وقت کیلئے بنائے گا');
     m.unmount();

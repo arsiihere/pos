@@ -136,6 +136,66 @@ describe('[02b-TK TK-S02] keyboard speed mode on the takeaway screen', () => {
     m.unmount();
   });
 
+  // ⚠️ 02b v1.0.33 QR3-4 (owner 2026-11-28 QA-R3, BUG-21 leftover): a phone has no "/": in the phone field (or any
+  // digits-only field) "/" focuses the item search and types nothing; the name field keeps its "/"
+  it('[BUG-21; 02b v1.0.33 QR3-4] "/" in the phone field focuses the item search and types no "/"', async () => {
+    const h = screenHarness();
+    const m = h.render();
+    await flush();
+    const phone = m.container.querySelector<HTMLInputElement>('.cust input[name="phone"]')!;
+    phone.focus();
+    type(phone, '0300');
+    expect(press(phone, '/').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(search(m));
+    expect(phone.value).toBe('0300');
+    expect(search(m).value).toBe('');
+    m.unmount();
+  });
+
+  // ⚠️ 02b v1.0.33 QR3-4 (QA-R3, BUG-24 leftover): "Max 99" shows for any quantity over 99 — "999" before a name too,
+  // with no suggestion yet — outside the suggestion list (never scrolled away with it)
+  it('[BUG-24; 02b v1.0.33 QR3-4] "999" and "999n" show "Max 99" outside the suggestion list', async () => {
+    const h = screenHarness();
+    const m = h.render();
+    await flush();
+    type(search(m), '999');
+    await flush();
+    const hint = () => m.container.querySelector('.tk-ksearch [data-max-qty]');
+    expect(hint()?.textContent).toContain('Max 99');
+    type(search(m), '999n');
+    await flush();
+    expect(hint()?.textContent).toContain('Max 99');
+    expect(hint()?.closest('[role="listbox"]')).toBeNull();
+    m.unmount();
+  });
+
+  // ⚠️ 02b v1.0.33 QR3-5 (owner 2026-11-28 QA-R3, UX): the cart line's quantity box takes typed digits (1–99, within the
+  // line's cap); letters are dropped; an emptied box goes back to the line's quantity when left
+  it('[QA-R3; 02b v1.0.33 QR3-5] the cart quantity box takes typed digits', async () => {
+    const h = screenHarness();
+    const m = h.render();
+    await flush();
+    naan(m);
+    await flush();
+    const n = () => m.container.querySelector<HTMLElement>('.cart .ln .step .step__n')!;
+    expect(n().textContent).toBe('1');
+    m.click(n());
+    await flush();
+    const box = () => m.container.querySelector<HTMLInputElement>('.cart .ln .step input')!;
+    expect(box().getAttribute('inputmode')).toBe('numeric');
+    expect(document.activeElement).toBe(box());
+    type(box(), '12');
+    await flush();
+    expect(m.container.querySelector('.cart .ln')?.textContent).toContain('480'); // 12 × Rs 40
+    type(box(), '12a');
+    await flush();
+    expect(box().value).toBe('12');
+    act(() => box().blur());
+    await flush();
+    expect(n().textContent).toBe('12');
+    m.unmount();
+  });
+
   it('typing on the bare screen goes to the search; typing in the phone field goes to the phone, never to the search', async () => {
     const h = screenHarness();
     const m = h.render();

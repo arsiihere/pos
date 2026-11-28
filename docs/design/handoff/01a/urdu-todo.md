@@ -134,9 +134,6 @@ Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show i
 | `archive.archived` | Archived |
 | `staff.locked_for` | Locked · {n} min |
 | `common.slow` | Still working. This can take a few seconds. |
-| `pin.label` | PIN |
-| `pin.delete` | Delete |
-| `pin.submit` | Enter |
 | `quantity.l` | L |
 | `quantity.invalid` | Check the number: whole pieces, or kg and L with up to 3 decimals. |
 | `owner.nav.floors_short` | Floors |

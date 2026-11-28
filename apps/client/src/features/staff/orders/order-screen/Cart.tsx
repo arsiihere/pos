@@ -29,6 +29,8 @@ export interface CartProps {
   readyLater?: boolean;
   /** ⚠️ 02b v1.0.26 §8 (owner 2026-11-28, QA BUG-5): the preview's Ready by is after the asked pickup */
   pickupLate?: { can_ms: number; asked_ms: number } | null;
+  /** ⚠️ 02b v1.0.33 QR3-5 (QA-R3): the cart's pickup is invalid (Send waits): no time reads "Fix the pickup time…" */
+  pickupBad?: boolean;
   problems: number;
   canSend: boolean;
   /** why Send is off besides problems (dine-in seating not found), or null */
@@ -179,7 +181,7 @@ export function Cart(p: CartProps) {
             </Ring>
             {p.ready_by === null ? (
               // 02b-TK C1-1: no day open → "Times show after Start day", not "set when sent"
-              <div>{p.day !== null ? t('c.times_day') : t('cart.times_later')}</div>
+              <div>{p.day !== null ? t('c.times_day') : p.pickupBad === true ? t('c.times_pickup_bad') : t('cart.times_later')}</div>
             ) : (
               <div>
                 {t(p.readyLater === true ? 'c.ready_later' : 'cart.all_ready')}
@@ -269,7 +271,7 @@ function ReadyPanel(p: CartProps & { hideTime?: boolean }) {
         </span>
         <div className="tk-readyby__t">
           {none ? (
-            <b>{p.offline === true ? t('c.times_none') : p.day !== null ? t('c.times_day') : t('cart.times_later')}</b>
+            <b>{p.offline === true ? t('c.times_none') : p.day !== null ? t('c.times_day') : p.pickupBad === true ? t('c.times_pickup_bad') : t('cart.times_later')}</b>
           ) : (
             <>
               <small>{later ? t('c.ready_later') : `${t('c.ready_by')} · ${t('c.ready_by_sub')}`}</small>

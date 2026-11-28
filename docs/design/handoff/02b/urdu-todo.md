@@ -8,23 +8,7 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 
 | Key | English | Note |
 |---|---|---|
-| `order.dinein_hint` | Dine-in starts from a table on the map. |  |
-| `order.takeaway.sub` | Both optional. The token comes after Send. |  |
-| `order.takeaway.name` | Customer name |  |
-| `order.takeaway.phone` | Phone |  |
-| `order.takeaway.phone_err` | Enter 10 to 13 digits |  |
-| `order.takeaway.skip` | Skip |  |
-| `order.takeaway.next` | Next |  |
-| `order.parking.plate` | Car plate |  |
-| `order.parking.plate_hint` | required · English letters |  |
-| `order.parking.type` | Car type |  |
-| `order.parking.small` | Small car |  |
-| `order.parking.sedan` | Sedan |  |
-| `order.parking.large` | Large |  |
 | `menu.here_kitchen` | 0 here · kitchen |  |
-| `send.not_yet_sub` | It will send when the hub is back. Token after sending. |  |
-| `send.new_parking` | New parking |  |
-| `send.queued_sent` | Takeaway sent |  |
 | `tv.food_at` | Food at {time} |  |
 | `tv.progress` | Kitchen progress updated {time} |  |
 | `tv.refresh` | Refresh |  |
@@ -69,14 +53,6 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `comp.other` | Other |  |
 | `comp.note` | Note |  |
 | `boost.confirm` | Ask the kitchen to hurry order {id}? |  |
-| `orders.abandoned` | Abandoned |  |
-| `orders.ready` | Ready {n}/{m} |  |
-| `orders.promise` | promise |  |
-| `orders.from_date` | from {date} |  |
-| `orders.no_tap` | No kitchen tap for {n} h |  |
-| `orders.stage_gap` | Kitchen stages aren't sent for takeaway yet: lines show Served / Not served. |  |
-| `orders.served` | Served |  |
-| `orders.not_served` | Not served |  |
 | `held.only_you` | Only {name} sees these. They don't keep the table locked. |  |
 | `zone.title` | Zone stock |  |
 | `zone.warn_at` | warn at {n} |  |
@@ -92,13 +68,6 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `zone.undo` | Undo · {time} |  |
 | `zone.undo_hint` | Puts {n} back in the {zone} count |  |
 | `zone.too_late` | Too late to undo here. Fix the count on the zone screen. |  |
-| `queue.sub` | Things this screen tried to send and the hub refused. |  |
-| `queue.signed_out` | Not sent: {name} was signed out |  |
-| `queue.changed` | Not sent: the table had changed |  |
-| `queue.send_again_as` | Send again as {name} |  |
-| `queue.copy` | Copy to a new order |  |
-| `queue.discard` | Discard |  |
-| `queue.waiting` | {n} waiting to send |  |
 | `idle.title` | Signed out after {n} min idle |  |
 | `idle.sub` | Your order is kept. {n} waiting item was sent first. |  |
 | `compit.title` | Comp the new {item}? |  |
@@ -110,42 +79,6 @@ Needs native review as well: the 02b entries of `ur.ts` that are not on a frame 
 | `compit.kept_sub` | You can still comp it from the line. |  |
 | `compit.cart_info` | {item} is in a new round for {table}. After Send you’ll be asked to comp it. |  |
 | `compit.badge` | Sent again · asks to comp |  |
-| `order.toast.sent` | Sent |  |
-| `order.toast.queued` | Not sent yet — will send when the hub is back |  |
-| `order.toast.time_updated` | Time updated |  |
-| `order.toast.served` | Served |  |
-| `order.toast.sent_back` | Sent back · ready at {time} |  |
-| `order.toast.comp_asked` | Comp asked — waiting for approval |  |
-| `order.toast.refilled` | Refilled · {n} now |  |
-| `order.toast.all_sent` | All sent |  |
-| `order.toast.some_not_sent` | {n} not sent — see the queue log |  |
-| `queue.reloaded` | Not sent: this screen was restarted |  |
-| `queue.too_old` | Not sent: it waited too long |  |
-| `queue.refused` | Not sent: {reason} |  |
-| `queue.sent_card_sub` | Queued at {time} · call the token |  |
-| `queue.ok` | OK |  |
-| `queue.why.ITEM_SOLD_OUT` | {item} sold out |  |
-| `queue.why.ITEM_UNAVAILABLE` | {item} is not available |  |
-| `queue.why.ITEM_OUT_OF_HOURS` | {item} is not served now |  |
-| `queue.why.STATION_PAUSED` | a kitchen station is paused |  |
-| `queue.why.BUSINESS_DAY_NOT_OPEN` | the day hasn’t started |  |
-| `queue.why.MENU_ITEM_NOT_FOUND` | an item is no longer on the menu |  |
-| `queue.why.DEAL_NOT_FOUND` | a deal is no longer on the menu |  |
-| `queue.why.OPTION_CHOICE_INVALID` | the choices of an item changed |  |
-| `queue.why.ORDER_ITEM_ID_IN_USE` | it clashed with another order |  |
-| `queue.why.ORDER_NOT_FOUND` | the order is no longer open |  |
-| `queue.why.ORDER_BILLED` | the bill is already closed |  |
-| `queue.why.ITEM_WRONG_STAGE` | the item was not ready to serve |  |
-| `queue.why.TABLE_NEEDS_CLEANING` | the table needs cleaning |  |
-| `queue.why.TABLE_ALREADY_LOCKED` | someone else is ordering at the table |  |
-| `queue.why.TABLE_NO_ORDERS` | the table has no orders |  |
-| `queue.why.TABLE_HAS_OPEN_ORDERS` | the bill must be paid first |  |
-| `queue.why.PERMISSION_DENIED` | not allowed for that person |  |
-| `queue.why.VALIDATION_FAILED` | the order was not complete |  |
-| `queue.why.other` | the hub refused it |  |
-| `queue.item` | an item |  |
-| `queue.copied` | Copied |  |
-| `queue.copy_failed` | Could not keep the copy on this screen |  |
 | `idle.sub_none` | Your order is kept. |  |
 
 ## In `ur.ts` but not on a frame (needs native review)

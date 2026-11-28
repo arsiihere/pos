@@ -308,7 +308,6 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.petty.limit_over` | Over the {limit} limit — a manager approves it |
 | `billing.petty.waiting_screen` | Petty cash waiting for a manager · {line} |
 | `billing.petty.not_pending` | That request was already answered or closed — see your inbox |
-| `billing.report.nav` | Reports |
 | `billing.report.title` | Reports |
 | `billing.report.tab_x` | Today (X) |
 | `billing.report.tab_z` | Z reports |
