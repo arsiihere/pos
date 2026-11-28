@@ -1793,6 +1793,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.addition_tag': '(اضافہ)', // 03b v1.0.17; Urdu to confirm
   'pass.ready_pick_sub_bag': 'نشان والی چیزیں تیار ہو کر بیگ میں جائیں گی۔', // 03b v1.0.17; Urdu to confirm
   'pass.waiting_counter': 'کاؤنٹر پر انتظار', // 03b v1.0.17; Urdu to confirm
+  'pass.all_done': 'سب تیار', // 03b v1.0.18; Urdu to confirm
   'pass.phone_order': 'فون آرڈر', // 03b v1.0.17; Urdu to confirm
   'pass.waiting_bill': 'بل کا انتظار', // not in strings-table.md; Urdu to confirm
   'pass.pickup_label': 'لینا ہے {time}', // not in strings-table.md; Urdu to confirm

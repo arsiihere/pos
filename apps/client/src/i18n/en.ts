@@ -4452,6 +4452,7 @@ export const en = {
   'pass.addition_tag': '(addition)',
   'pass.ready_pick_sub_bag': 'Ticked items go into the bag as ready.',
   'pass.waiting_counter': 'Waiting at counter',
+  'pass.all_done': 'All done', // ⚠️ 03b v1.0.18 §8: every line done, the bag not marked ready yet
   'pass.phone_order': 'Phone order',
   'pass.waiting_bill': 'Waiting for the bill',
   'pass.pickup_label': 'Pickup {time}',

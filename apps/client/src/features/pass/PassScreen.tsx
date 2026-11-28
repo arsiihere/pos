@@ -448,7 +448,9 @@ export function PassScreen() {
               // something is not marked ready; then Handed to customer (counter) or Hand over (dine-in). Hand over to
               // staff is otherwise a small secondary icon button (the receiver tiles sheet, for the whole token).
               // ⚠️ 03b v1.0.10 §3.4: Bag ready also with an open Ready while lines not in it are left
-              const bagging = canRun && bagOk && pending.length > 0 && state !== 'none';
+              // ⚠️ 03b v1.0.18 §8: never on a takeaway / parking bag already marked ready (`sent`): its primary is Handed to
+              // customer, which serves every live line; a dine-in card keeps Ready to serve for lines finished later (v1.0.10)
+              const bagging = canRun && bagOk && pending.length > 0 && state !== 'none' && !(counter && state === 'sent');
               if (bagging) {
                 const b = busy.has(key);
                 buttons.push(
@@ -490,7 +492,9 @@ export function PassScreen() {
               const asks: AskItem[] = askBills.map((b) => ({ order_id: b.order_ids[0]!, due_minor: b.due_minor, ident: customerIdent(bag.card), addition: b.addition }));
               // the Pass→staff Hand over (§3.5), for the whole token (one Handover per order with done lines)
               const toHand = canRun && bag.orders.some((x) => doneToHand(x).length > 0);
-              if (cust !== null && !bagging)
+              // ⚠️ 03b v1.0.18 §8: Handed to customer only on a bag marked ready (or all done where nobody here can bag it);
+              // a bag still cooking — a pickup waiting for its whole order included — never shows it as its primary
+              if (cust !== null && !bagging && (state === 'sent' || state === 'ready'))
                 buttons.push(
                   <button key="customer" type="button" className="btn btn--customer" disabled={!cust.enabled} onClick={() => void tapCustomer(bag)}>
                     <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
