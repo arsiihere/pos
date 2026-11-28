@@ -372,15 +372,20 @@ export function ReportBody({ report: r, names, offset, retry }: { report: Report
           <b>{billMoney(r.net_after_credits_minor, code)}</b>
           <small>{r.kind === 'x' ? t('billing.report.so_far') : zNo(r.z_no ?? 0)}</small>
         </div>
+        {/* ⚠️ 05 v1.0.37 §6.26 (6) (QA-R2 BUG-20): one meaning — Bills = customer bills (a split bill once), the
+            average is per bill; the invoices (one per closed split) are named as invoices, under it */}
         <div className="b5-kpi">
-          <span>{t('billing.report.invoices')}</span>
-          <b>{r.sales.invoice_count}</b>
-          <small>{fill(t(r.credits.count === 1 ? 'billing.report.credit_notes_one' : 'billing.report.credit_notes'), { count: String(r.credits.count) })}</small>
+          <span>{t('billing.report.bills_k')}</span>
+          <b>{r.bills.count}</b>
+          <small>
+            {fill(t(r.sales.invoice_count === 1 ? 'billing.report.invoices_one' : 'billing.report.invoices_n'), { count: String(r.sales.invoice_count) })} ·{' '}
+            {fill(t(r.credits.count === 1 ? 'billing.report.credit_notes_one' : 'billing.report.credit_notes'), { count: String(r.credits.count) })}
+          </small>
         </div>
         <div className="b5-kpi">
           <span>{t('billing.report.average')}</span>
           <b>{billMoney(r.bills.average_minor, code)}</b>
-          <small>{fill(t(r.bills.count === 1 ? 'billing.report.bills_one' : 'billing.report.bills'), { count: String(r.bills.count) })}</small>
+          <small>{t('billing.report.per_bill')}</small>
         </div>
         <div className="b5-kpi">
           <span>{t('billing.report.fiscal')}</span>

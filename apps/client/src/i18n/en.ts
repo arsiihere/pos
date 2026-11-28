@@ -3991,6 +3991,11 @@ export const en = {
   'billing.report.average': 'Average bill',
   'billing.report.bills_one': '1 bill',
   'billing.report.bills': '{count} bills',
+  // ⚠️ 05 v1.0.37 §6.26 (6) (QA-R2 BUG-20): a bill is the customer's bill; an invoice is one per closed split
+  'billing.report.bills_k': 'Bills',
+  'billing.report.invoices_n': '{count} invoices',
+  'billing.report.invoices_one': '1 invoice',
+  'billing.report.per_bill': 'sales ÷ bills (a split bill counts once)',
   'billing.report.fiscal': 'Fiscal',
   'billing.report.kpi_rejected': '{count} not accepted',
   'billing.report.kpi_waiting': '{count} waiting',

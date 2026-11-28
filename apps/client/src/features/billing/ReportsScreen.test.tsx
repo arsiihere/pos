@@ -152,7 +152,7 @@ const rowText = (v: Mounted, card: string) => [...rows(v, card)].map((r) => r.te
 const seg = (v: Mounted, text: string) => [...v.container.querySelectorAll<HTMLButtonElement>('.b5-seg button')].find((b) => b.textContent?.trim() === text)!;
 
 describe('[05 §8 Reports, §6.26] Today (X) (frame XReport)', () => {
-  it('reads the X; the head line; four KPIs (net after credits, invoices, average, fiscal)', async () => {
+  it('reads the X; the head line; four KPIs (net after credits, bills, average, fiscal)', async () => {
     const s = setup();
     const v = await show(s);
     expect(s.query.mock.calls[0]![0]).toBe('/queries/x-report');
@@ -161,10 +161,20 @@ describe('[05 §8 Reports, §6.26] Today (X) (frame XReport)', () => {
     const kpis = [...v.container.querySelectorAll('.b5-kpi')].map((k) => [k.querySelector('span')?.textContent, k.querySelector('b')?.textContent, k.querySelector('small')?.textContent]);
     expect(kpis).toEqual([
       ['Net after credits', 'Rs 451,366.00', 'so far today'],
-      ['Invoices', '86', '1 credit note'],
-      ['Average bill', 'Rs 5,248.44', '86 bills'],
+      // ⚠️ 05 v1.0.37 §6.26 (6) (BUG-20): Bills (customer bills) with the invoices named under it
+      ['Bills', '86', '86 invoices · 1 credit note'],
+      ['Average bill', 'Rs 5,248.44', 'sales ÷ bills (a split bill counts once)'],
       ['Fiscal', '3 waiting', '83 accepted · 0 not accepted'],
     ]);
+  });
+
+  it('[05 v1.0.37 #88c; QA-R2 BUG-20] a split bill (two invoices) and four other bills: Bills 5 · "6 invoices", the average over 5 — never "Invoices 6" beside "5 bills"', async () => {
+    const base = report();
+    const v = await show(setup({ x: { ok: true, data: { report: { ...base, sales: { ...base.sales, invoice_count: 6 }, bills: { count: 5, average_minor: 100_000 } }, staff_names: NAMES } } }));
+    const kpis = [...v.container.querySelectorAll('.b5-kpi')].map((k) => [k.querySelector('span')?.textContent, k.querySelector('b')?.textContent, k.querySelector('small')?.textContent]);
+    expect(kpis[1]).toEqual(['Bills', '5', '6 invoices · 1 credit note']);
+    expect(kpis[2]).toEqual(['Average bill', 'Rs 1,000.00', 'sales ÷ bills (a split bill counts once)']);
+    expect(v.container.querySelector('.b5-kpis')?.textContent).not.toContain('Invoices');
   });
 
   it('[R-83] Sales: gross, discounts by reason, service charge, net, one row per tax (key, rate, label), rounding apart, total, credits, net after credits', async () => {
