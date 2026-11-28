@@ -2262,6 +2262,9 @@ export const en = {
   'day.not_started': "The day hasn't started",
   'day.ask_manager': 'Ask the manager to start the day. Your order is kept.',
   'day.start': 'Start day',
+  // ⚠️ 02b v1.0.28 QR2-2 (BUG-9): Start day sent from the staff app
+  'day.started': 'Day started',
+  'day.start_failed': 'The day did not start — try again',
   'draft.back': 'Your unsent order is back',
   'draft.kept_since': 'Kept on this screen since {time}',
   'opt.choose': 'Choose {n}',
@@ -4280,6 +4283,8 @@ export const en = {
   't.sent': 'sent · ready',
   't.queued': 'Not sent yet — token comes when the hub is back',
   'q.waiting_send': 'Waiting to send',
+  // ⚠️ 02b v1.0.28 QR2-1 (owner ruling R2-2, BUG-2): a queued order the hub refused for a closed day; it sends itself at Start day
+  'q.waiting_day': 'Waiting — the day hasn’t started',
   // 02b-TK C1-4 (frames ItemSheetEdit, ItemSheet): not in strings-table.md; Urdu to confirm
   'opt.save': 'Save changes',
   'opt.more': 'One more {option}',

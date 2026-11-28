@@ -24,7 +24,7 @@ function cfg(): BranchConfig {
   return { ...base, items: [...base.items, { ...base.items.find((i) => i.item_id === 'I2')!, item_id: 'I5', name: 'Naan', price_minor: 4_000 }] };
 }
 
-function shellWith(o: { answer?: EnqueueResult; grants?: Partial<Record<Permission, Scope>>; me?: string; phone?: boolean; live?: ReturnType<typeof createLiveBus>; rounds?: number }) {
+function shellWith(o: { answer?: EnqueueResult; grants?: Partial<Record<Permission, Scope>>; me?: string; phone?: boolean; live?: ReturnType<typeof createLiveBus>; rounds?: number; command?: (...a: unknown[]) => Promise<unknown> }) {
   const config = cfg();
   const grants = o.grants ?? {};
   const enqueue = Object.assign(async () => o.answer ?? { status: 'queued', entry_id: 'Q' }, { pendingFor: () => 0, pendingCount: () => 0, subscribe: () => () => {} });
@@ -35,6 +35,7 @@ function shellWith(o: { answer?: EnqueueResult; grants?: Partial<Record<Permissi
     orders: { etaPreview: async () => ({ ok: false, error: { kind: 'network' } }), seatingOrders: async () => ({ ok: true, data: { orders: Array.from({ length: o.rounds ?? 0 }, () => ({})), total_minor: 0 } }) },
     tables: { tableMap: async () => ({ ok: true, data: { as_of_seq: 1, floors: [] } }) },
     toasts: { show: () => {} },
+    api: { command: o.command ?? (async () => ({ ok: true, data: { changed: true } })) },
     permissions: {
       allowed: (p: Permission) => grants[p] !== undefined,
       requiresApproval: () => false,
@@ -115,17 +116,21 @@ describe('[02b §8 Ordering screen] Hold, Held, day not started', () => {
     again.unmount();
   });
 
-  it('[02b #36 Q-20] BUSINESS_DAY_NOT_OPEN → "Start day" opens /admin/stock/ only with manage-stock at branch; others "Ask the manager"', async () => {
+  // ⚠️ 02b v1.0.28 QR2-2 (owner 2026-11-28 QA-R2, BUG-9): a close-business-day holder starts the day from here
+  it('[02b #36 Q-20] [02b #102 QR2-2] BUSINESS_DAY_NOT_OPEN → Start day sends OpenBusinessDay for close-business-day; the /admin/stock/ link for manage-stock at branch only; others "Ask the manager"', async () => {
     const refusal: EnqueueResult = { status: 'refused', error: { kind: 'api', status: 409, code: 'BUSINESS_DAY_NOT_OPEN', details: {} } };
-    for (const [grants, canStart] of [
-      [{ 'manage-stock': 'branch' }, true],
-      [{ 'manage-stock': 'my_stations' }, false],
-      [{}, false],
+    for (const [grants, mode] of [
+      [{ 'close-business-day': 'branch' }, 'staff'],
+      [{ 'close-business-day': 'branch', 'manage-stock': 'branch' }, 'staff'],
+      [{ 'manage-stock': 'branch' }, 'admin'],
+      [{ 'manage-stock': 'my_stations' }, null],
+      [{}, null],
     ] as const) {
       const drafts = createMemoryDraftStore();
+      const command = vi.fn(async () => ({ ok: true, data: { changed: true } }));
       const m = mount();
       m.render(
-        <ShellContext.Provider value={shellWith({ answer: refusal, grants })}>
+        <ShellContext.Provider value={shellWith({ answer: refusal, grants, command })}>
           <DraftStoreContext.Provider value={drafts}>
             <OrderScreen order_type="takeaway" id="D8" />
           </DraftStoreContext.Provider>
@@ -137,7 +142,12 @@ describe('[02b §8 Ordering screen] Hold, Held, day not started', () => {
       await flush();
       expect(m.text()).toContain("The day hasn't started");
       const link = m.container.querySelector<HTMLAnchorElement>('.day a');
-      if (canStart) {
+      if (mode === 'staff') {
+        expect(link).toBeNull();
+        m.click(m.button('Start day', m.container.querySelector<HTMLElement>('.day')!));
+        await flush();
+        expect(command).toHaveBeenCalledWith('OpenBusinessDay', {});
+      } else if (mode === 'admin') {
         expect(link?.getAttribute('href')).toBe('/admin/stock/');
         expect(link?.textContent).toBe('Start day');
       } else {
