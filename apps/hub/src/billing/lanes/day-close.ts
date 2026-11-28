@@ -91,7 +91,10 @@ const UNBILLED = `WITH u AS (
     FROM orders o
     LEFT JOIN seating_orders so ON so.order_id = o.order_id
    WHERE o.billed_at IS NULL AND o.cancelled_at IS NULL
-     AND NOT EXISTS (SELECT 1 FROM carried_orders c WHERE c.order_id = o.order_id AND c.business_date = @day)),
+     -- ⚠️ 05 v1.0.39 (owner 2026-11-28 QA-R3, BUG-9): carried for THIS close — 02b's carried_over flag, set by the carry
+     -- and cleared by every BusinessDayClosed — never "a carried_orders row of the open date": a day closed and started
+     -- again on the same date (01a restart) keeps that row, and the order would leave unlisted and be day-closed unpaid
+     AND o.carried_over = 0),
 grp AS (
   SELECT g, COUNT(*) OVER () AS count,
          (SELECT x.order_id FROM u x WHERE x.g = u.g ORDER BY x.placed_at, x.order_id LIMIT 1) AS first_id,
@@ -189,8 +192,7 @@ export const billingDayCloseGuard: DayCloseGuard = (db: Database.Database, state
       },
     };
   }
-  const day = state.business_day?.business_date ?? null;
-  const unbilled = db.prepare(UNBILLED).all({ day }) as UnbilledRow[]; // 3
+  const unbilled = db.prepare(UNBILLED).all() as UnbilledRow[]; // 3
   if (unbilled.length === 0) return null;
   // ⚠️ v1.0.37 (BUG-11): each bill's due — Σ its open splits' balances (§6.2a), before pending voids (4, 5)
   const keyed = unbilled.filter((r) => r.order_type !== 'dine_in' && r.bill_key !== null);
