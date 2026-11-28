@@ -57,7 +57,7 @@ async function closeAndStart(advance_ms = 86_400_000): Promise<string[]> {
   const blocked = await post(hub, manager, 'close-business-day', 'CloseBusinessDay', {});
   const listed: string[] = [];
   if (blocked.status === 409) {
-    const details = (blocked.error as { details: { reason: string; orders?: Array<{ order_ids: string[] }> } }).details;
+    const details = (blocked.error as unknown as { details: { reason: string; orders?: Array<{ order_ids: string[] }> } }).details;
     expect(details.reason).toBe('unbilled_orders');
     for (const o of details.orders ?? []) listed.push(...o.order_ids);
     ok(await post(hub, manager, 'carry-over-orders', 'CarryOverOrders', { order_ids: listed, reason_code: 'customer_will_pay_later' }));
