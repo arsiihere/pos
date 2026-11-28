@@ -17,15 +17,19 @@ async function owner(page: Page, lang: Lang, info: TestInfo): Promise<void> {
   await takeawayTab(page);
 }
 
-/** Remove one line from the token view: the line's Remove, then the sheet's confirm. */
+/**
+ * Remove one line from the token view (L-CLIENT-6b item 5, frame TokenRemove): Remove / cancel opens "Remove from token",
+ * one unit of the line is picked on its stepper, and the red "Remove 1 {item}" sends RemoveItems.
+ */
 async function removeLine(page: Page, lang: Lang, name: string): Promise<void> {
-  const row = drawer(page).locator('.tk-il', { hasText: name });
-  const remove = row.getByRole('button', { name: tr(lang, 'line.remove') });
-  if (!(await remove.isVisible())) await drawer(page).getByRole('button', { name: tr(lang, 'v.remove') }).click();
+  await drawer(page).getByRole('button', { name: tr(lang, 'v.remove') }).click();
+  const dialog = page.locator('.tk-remove');
+  await expect(dialog).toBeVisible();
+  const row = dialog.locator('.tk-il', { hasText: name });
+  await row.locator('.tk-step button').nth(1).click();
+  await expect(row.locator('.tk-step output')).toHaveText('1');
   const removed = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/commands/remove-items'), { timeout: 15_000 });
-  await remove.click();
-  // the Remove sheet (actions/RemoveSheet.tsx): the line is picked; its "Remove {n}" sends RemoveItems
-  await page.locator('[role="dialog"] .btn.btn--tone.c-danger').last().click();
+  await dialog.locator('.tk-btn--danger').click();
   expect((await removed).status()).toBe(200);
 }
 

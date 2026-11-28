@@ -53,11 +53,14 @@ for (const lang of LANGS) {
       await signInPass(page, 'Pervez');
       const button = card.locator('.btn--customer');
       await expect(button).toBeVisible();
-      await expect(button).toHaveText(tr(lang, 'pass.handed_to_customer'));
+      // ⚠️ 03b v1.0.17 §8: the greyed button carries its reason ("Take payment first") under the words
+      await expect(button).toContainText(tr(lang, 'pass.handed_to_customer'));
       await expect(button).toBeDisabled();
       // 03b v1.0.16 §3.4 Bill freshness: the hub now sends the row's `bill` (B2-1); this takeaway is unpaid → Due
-      await expect(card.locator('.pc__due')).toHaveText(tr(lang, 'pass.due'));
-      await expect(card.locator('.pc__hint')).toHaveText(tr(lang, 'pass.take_payment_first'));
+      // ⚠️ 03b v1.0.17 §8: ONE Due pill with the amount (no separate "Take payment first" line on the card)
+      await expect(card.locator('.pc__due')).toContainText(tr(lang, 'pass.due_amount').split('{amount}')[0]!.trim());
+      await expect(card.locator('.pc__due')).toContainText('Rs');
+      await expect(card.locator('.pc__hint')).toHaveCount(0);
       await capture(page, info, `PackerPass-pickup-${info.project.name}-${lang}`, card);
     } finally {
       await signOut(page, info, lang);

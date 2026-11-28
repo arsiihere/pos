@@ -132,7 +132,6 @@ Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show i
 | `common.undo` | Undo |
 | `common.cancel` | Cancel |
 | `archive.archived` | Archived |
-| `staff.locked` | Locked |
 | `staff.locked_for` | Locked · {n} min |
 | `common.slow` | Still working. This can take a few seconds. |
 | `pin.label` | PIN |

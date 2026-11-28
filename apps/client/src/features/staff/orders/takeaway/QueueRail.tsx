@@ -47,7 +47,15 @@ export function useTakeawayQueue(book: TokenBook): { model: QueueModel | null; f
       answer = { ok: false, error: { kind: 'network' } };
     }
     if (mine !== request.current) return;
-    if (!answer.ok) return setFailed(true);
+    if (!answer.ok) {
+      // BUG-12: a refused read (signed out, forbidden, a bad reply) drops what the rail showed — the last rows are
+      // never shown as current. A lost network keeps them, marked "as of" (02b §8 offline)
+      if (answer.error.kind !== 'network') {
+        seen.current.clear();
+        setRows(null);
+      }
+      return setFailed(true);
+    }
     for (const r of answer.data.orders) seen.current.set(r.order_id, r);
     // 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §6.16 R3-M-8): the rows' approval flags feed the page's approvals
     unpaidRequestsOf(shellRef.current).seed(answer.data.orders);

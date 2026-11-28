@@ -66,7 +66,7 @@ import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
 import { billsOf, type QueueToken } from '../takeaway/queue-model';
 import { createHandovers } from '../takeaway/handover';
 import { allLiveReady, liveLines, TokenView } from '../takeaway/TokenView';
-import { candidatesOf, checkHandover, gateOf, lineIds } from '../unpaid/candidate';
+import { candidatesOf, checkHandover, gateOf, lineIds, type Gate } from '../unpaid/candidate';
 import { unpaidRequestsOf } from '../unpaid/requests';
 import { PayPanel, type PayTarget } from '../takeaway/PayPanel';
 import { CartCheckBill, SentTokenPrint } from '../takeaway/CheckBill';
@@ -544,6 +544,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const sendKeys = useRef<((pay: boolean) => void) | null>(null);
   // 02b-TK C3-2: the newest order of the token an addition is for (its bill is the one to print; 05 #44e)
   const addingNewest = useRef<{ root: string; newest: string } | null>(null);
+  // ⚠️ 02b-TK L-CLIENT-6b item 4 (frame TokenAddItems): who the token is, its bill state and its Ready by when Add items began
+  const addingInfo = useRef<{ root: string; name: string | null; paid: boolean; promise_ms: number | null } | null>(null);
   useEffect(() => {
     if (order_type !== 'takeaway') return;
     const onKey = (e: KeyboardEvent) => {
@@ -593,7 +595,10 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     // ⚠️ 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §3.7a, §8 OR-7; D2): the shared check at the tap — blocked (Due,
     // unapproved, or unknown billing) → the token view, which offers Take payment and Ask a manager
     const approved = unpaidRequestsOf(shellRef.current).approvedDue;
-    const gate = (order_id: string) => gateOf(billsOf(q).find((b) => b.order_id === order_id), { approvedDue: approved(order_id) });
+    // the order-view just read is fresher than the rail's row: a billed order is free (as the token view's gate), so a
+    // payment the rail has not re-read yet never sends a paid token to the drawer
+    const billed = new Set(views.flatMap((v) => (v.ok && v.data.kind === 'order' && v.data.order.billed ? [v.data.order.order_id] : [])));
+    const gate = (order_id: string): Gate => (billed.has(order_id) ? { kind: 'free' } : gateOf(billsOf(q).find((b) => b.order_id === order_id), { approvedDue: approved(order_id) }));
     const give = lines.filter(servable);
     if (!checkHandover(candidatesOf(q.order_ids, liveLines(lines), gate), lineIds(give), reservedIds()).ok) return setOpenToken(q);
     handOver(q, give);
@@ -609,6 +614,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     const prefill = rootPickup !== null && rootPickup >= shellRef.current.clock.nowMs() + PICKUP_MIN_LEAD_MS ? { pickup: { chip: 'time' as const, at_ms: rootPickup } } : {};
     setCart((c) => ({ ...c, adds_to: { order_id: q.order_ids[0]!, token: q.token }, ...prefill }));
     addingNewest.current = { root: q.order_ids[0]!, newest: q.newest_order_id };
+    addingInfo.current = { root: q.order_ids[0]!, name: q.customer_name, paid: q.paid, promise_ms: q.promise_ms };
     setOpenToken(null);
     setTab('menu');
   };
@@ -1079,7 +1085,9 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   // 02b-TK C2-3 (frame TokenAddItems): adding to a sent token says so and its primary is "Add to token 53"
   const addingTo = order_type === 'takeaway' ? (cart.adds_to ?? null) : null;
   const addingToken = addingTo === null ? '' : addingTo.token === null ? '—' : String(addingTo.token);
-  const primary = addingTo === null ? undefined : `${t('c.add_to')} ${addingToken}`;
+  // ⚠️ L-CLIENT-6b item 4 (frame TokenAddItems "Add to token 53 · Rs 390"): the amount on the primary
+  const primary = addingTo === null ? undefined : `${t('c.add_to')} ${addingToken}${total !== null && cart.lines.length > 0 ? ` · ${money(total)}` : ''}`;
+  const adding = addingTo !== null && addingInfo.current?.root === addingTo.order_id ? addingInfo.current : null;
   // 02b-TK C3-2 (05 §6.3; R6): the cart of an addition prints the sent token's check bill (a restored draft: its root's)
   const checkOrder = addingTo === null ? null : addingNewest.current?.root === addingTo.order_id ? addingNewest.current.newest : addingTo.order_id;
   // ⚠️ 02b-TK L-CLIENT-3 item 1 (05 v1.0.35 §6.3a, §8; 02b v1.0.25 §8 OR-5 / R6; D9; 05 #60h): a takeaway / parking cart
@@ -1153,7 +1161,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const customer =
     order_type !== 'takeaway' ? null : (
       <>
-        <CustomerRow
+        {/* ⚠️ L-CLIENT-6b item 4 (frame TokenAddItems): an addition goes on the token's customer — no empty name / phone */}
+        {addingTo === null && <CustomerRow
           value={cart.takeaway}
           disabled={sending.current}
           compact={dense}
@@ -1165,7 +1174,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
               return next === undefined ? rest : { ...rest, takeaway: next };
             });
           }}
-        />
+        />}
         {/* ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §8 Phone and pickup, R4; frame PickupLater): Now / +15 / +30 / +45 / Time… */}
         <PickupRow
           value={cart.pickup}
@@ -1354,10 +1363,28 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
       {!shell.online && <OfflineBar variant="order" />}
       {order_type === 'dine_in' && <LockBanner state={lock.banner} onKeepDraft={keepDraft} />}
       {addingTo !== null && (
-        <div className="tk-banner" role="status">
+        <div className="tk-banner tk-banner--adding" role="status">
           <Ico name="repeat" />
           <span>
             {t('ctx.adding')} <b dir="ltr">{addingToken}</b>
+            {adding?.name != null && seeContact && (
+              <>
+                {' · '}
+                <b>
+                  <bdi>{adding.name}</bdi>
+                </b>
+              </>
+            )}
+            {adding !== null && <> · {t(adding.paid ? 'q.paid' : 'q.due')}</>}
+            {/* frame TokenAddItems "Ready by #53: 1:31 PM → 1:33 PM": the token's time before and with these items */}
+            {adding?.promise_ms != null && ready !== null && ready > adding.promise_ms && (
+              <small className="tk-banner__delta">
+                {fill(t('c.add_delta'), { token: `#${addingToken}` })}{' '}
+                <span dir="ltr" className="num">
+                  {timeText(adding.promise_ms, utcOffsetMs)} → {timeText(ready, utcOffsetMs)}
+                </span>
+              </small>
+            )}
           </span>
           <button
             type="button"
@@ -1393,7 +1420,8 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     };
     // 02b-TK C1-4: an edited line's sheet offers Remove (Save changes is the sheets' primary)
     const onRemove = editing === null ? {} : { onRemove: () => (setCart((c) => removeLine(c, editing.key)), setSheet(null)) };
-    const common = { config, inputs, unitOf, sheet: sheetAsBottom, newKey, onAdd, onClose: closeSheet, ...onRemove };
+    // ⚠️ 02b-TK L-CLIENT-6b item 3: the takeaway screen's sheets as the frames draw them (ItemSheet, DealSheet)
+    const common = { config, inputs, unitOf, sheet: sheetAsBottom, newKey, onAdd, onClose: closeSheet, ...onRemove, ...(order_type === 'takeaway' ? { look: 'tk' as const } : {}) };
     // O15: what is left for this line once the cart's other lines of the item are counted
     const sheetCap = (item_id: string) => {
       const cap = capOf(item_id);

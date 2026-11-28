@@ -137,6 +137,32 @@ pg -c "select name, default_key from roles order by name"
 **You should see:** cloud migrations `0001`–`0006` (`0006_menu_variants`; the hub's own migrations stop at `0005`, 01c adds none); three branches, all `pending_hub`; six roles (Cashier, Cook, Manager, Order taker, Owner, Waiter).
 **If not:** a second run on a fully seeded database prints `already seeded …` and exits 0, writing nothing (the registration codes are shown only once, so keep `$M/seed.txt`); a run that died part-way leaves the owner behind, so the next run prints `partially seeded: tenant_id …`, writes nothing and exits 1: wipe and reseed (step 8). `login failed … is the cloud running` → start T1 first.
 
+### 2c. QA hub only: close a day right after opening it (demo only)
+
+A real branch refuses to close a business day opened less than **`day_min_gap_hours`** ago (default **4 h**; 01b §6.7, S33): Close day answers "opened too recently". For a QA run that opens and closes days within minutes, set the gap to **0** on the demo branches. **Demo / QA only — never on a real branch**; the default stays 4.
+
+Fresh seed (every demo branch at once):
+
+```sh
+cloud pnpm -s seed-demo --day-min-gap-hours 0 | tee $M/seed.txt
+```
+
+**You should see:** the usual seed output plus `demo only: day_min_gap_hours = 0 on Gulberg, Johar Town, DHA`.
+
+Already seeded (one branch; the same `set-branch-settings` CLI the flag uses — audited as actor `cli`, config version bumped):
+
+```sh
+cloud pnpm -s set-branch-settings --branch <branch_id> --day-min-gap-hours 0
+```
+
+(or in the owner app: **Branches → Gulberg → Settings → “Ignore a second “Start day” within” = 0**). The hub gets it within about a minute (config sync, `BranchConfigApplied`); then **Close day** works at once.
+
+```sh
+pg -c "select name, day_min_gap_hours from branches order by name"
+```
+
+**You should see:** `0` on the QA branches. To undo: the same command with `--day-min-gap-hours 4`.
+
 ---
 
 ## 3. Client builds

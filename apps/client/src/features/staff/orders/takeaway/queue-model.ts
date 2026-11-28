@@ -119,6 +119,18 @@ export function knownOrders(rows: readonly OpenOrder[], seen: ReadonlyMap<string
 const keyOf = (r: OpenOrder) => (r.token === null ? r.order_id : `${r.business_date}:${r.token}`);
 
 /**
+ * BUG-12: an order's sub-line — the device copy's lines (frames keep it current between reads), else the open-orders
+ * row's `lines_summary` (02b v1.0.25 §6.16: "2× Roghni Naan", then "+n" for `lines_more`); '' when neither has a line.
+ */
+function summaryOfKnown(o: KnownOrder): string {
+  const own = o.book === undefined ? '' : summaryOf(o.book);
+  if (own !== '' || o.row.lines_summary === undefined) return own;
+  const text = o.row.lines_summary.map((l) => (l.qty > 1 ? `${l.qty}× ${l.name}` : l.name)).join(' · ');
+  const more = o.row.lines_more ?? 0;
+  return more > 0 && text !== '' ? `${text} +${more}` : text;
+}
+
+/**
  * ⚠️ 03b v1.0.16 §3.4 "Not collected" (R3-M-9), §3.5, D8: whole minutes since the token's bag was ready, once hub now ≥
  * ready_at + window (the same rule as the Pass card, `notCollectedMin`); null before it or without the pair.
  */
@@ -158,10 +170,12 @@ export function buildQueue(orders: readonly KnownOrder[], nowMs = -Infinity): Qu
       placed_at: sorted[0]!.row.placed_at,
       promise_ms: promises.length === 0 ? null : Math.max(...promises),
       ready,
-      paid: sorted.every((o) => o.book?.billed === true),
+      // BUG-12 (02b v1.0.25 §6.16): paid by the row's own `bill`, or by an OrdersBilled this device heard since (a kept
+      // row the hub no longer lists, or a frame newer than the read); never Due only because the device has no copy
+      paid: sorted.every((o) => o.row.bill?.state === 'paid' || o.book?.billed === true),
       part: !allReady && sorted.some((o) => o.book !== undefined && anyServed(o.book)),
       summary: sorted
-        .map((o) => (o.book === undefined ? '' : summaryOf(o.book)))
+        .map((o) => summaryOfKnown(o))
         .filter((s) => s !== '')
         .join(' · '),
       ready_since: complete ? Math.max(...pairs.map((p) => p!.since)) : null,

@@ -27,7 +27,7 @@ function detail(id: string, over: Partial<LineDetail> = {}): LineDetail {
   };
 }
 const line = (id: string, over: Partial<PointLine> = {}): PointLine => ({ ...detail(id), stage: 'added', handed_over: false, ...over });
-const order = (order_id: string, lines: PointLine[], over: Partial<PointOrder> = {}): PointOrder => ({ order_id, identifier: { kind: 'token', token: 46, date: null }, placed_at: 1_000, lines, ready: null, ...over });
+const order = (order_id: string, lines: PointLine[], over: Partial<PointOrder> = {}): PointOrder => ({ order_id, identifier: { kind: 'token', token: Number(order_id.replace(/\D/g, '')) || 46, date: null }, placed_at: 1_000, lines, ready: null, ...over });
 const takeoverBody = (station_id: string): KdsStationBody => ({ station_id, day_open: true, sound_volume: 70, has_printer: false, lanes: { lanes_on: 1, lane_count: 1 }, now: [], details: [] });
 const view = (over: Partial<PointViewBody> = {}): PointViewBody => ({ point_id: PT, stations: [{ station_id: 'ST-T', name: 'Tandoor', lanes: { lanes_on: 1, lane_count: 1 }, dark: false }], orders: [], takeovers: [], ...over });
 const catchUp = (v: PointViewBody): WsServerMessage => ({ type: 'catch_up', as_of_seq: 1, state: { point_view: v } });

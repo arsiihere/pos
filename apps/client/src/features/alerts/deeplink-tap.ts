@@ -128,7 +128,8 @@ function findPlace(href: string, focus: StaffFocus, root: ParentNode): HTMLEleme
       return tablePlace(route.table_id, route.seating_id, root); // dl cp5: the tile or the sheet header, per device (§3.13.5)
     }
     case 'order':
-      return q(`[data-order="${cssId(focus.order_id)}"]`);
+      // ⚠️ 03b v1.0.17 §3.4: an addition is on its token's Pass card (`data-orders`)
+      return q(`[data-order="${cssId(focus.order_id)}"], article.pc[data-orders~="${cssId(focus.order_id)}"]`);
     case 'line':
       return q(`[data-line="${cssId(focus.order_item_id)}"]`);
     case 'late':
@@ -207,7 +208,7 @@ export function glowOnArrival(href: string, focus: StaffFocus, label: string, op
           childList: true,
           subtree: true,
           attributes: true,
-          attributeFilter: ['data-table', 'data-seating', 'data-order', 'data-line', 'data-alerts', 'data-zone-item', 'data-alert', 'aria-expanded'],
+          attributeFilter: ['data-table', 'data-seating', 'data-order', 'data-orders', 'data-line', 'data-alerts', 'data-zone-item', 'data-alert', 'aria-expanded'],
         });
       });
     const onHash = () => {

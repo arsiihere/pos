@@ -12,20 +12,22 @@ import type { OpenOrder, OrderViewBody, SeatingLine } from '../contracts';
 import { useLiveRefetch } from '../lists/OpenOrders';
 import { MONEY_DIR, money } from '../money';
 import { groupParts, type GroupedLine } from '../view/parts';
-import { atStageOne, isServed, isWeightPending, servable } from '../view/stage';
-import { showOrderError, voidOffered, type LineOrder } from '../view/LineActions';
+import { isServed, isWeightPending, servable } from '../view/stage';
+import { showOrderError, type LineOrder } from '../view/LineActions';
 import { RemoveSheet } from '../actions/RemoveSheet';
 import { CheckBill, ReceiptAgain, receiptOf } from './CheckBill';
 import { PrintSlip } from './PrintSlip';
 import { VoidSheet } from '../../../voids/VoidSheet';
-import { VoidButton } from '../../../voids/ui';
-import { MaskedAction } from '../../shell/MaskedAction';
 import type { TokenBook } from './book';
 import { maskPhone } from './mask';
+import { TkRemove } from './TkRemove';
+import { TK_BACK_EVENT } from '../../shell/context-slot';
+import { TkIco, type TkIconName } from './icons';
+import { ltr } from '../sheets/TkSheetParts';
 import { notCollectedMinOf, plannedReadyOf, type QueueToken } from './queue-model';
 import { CarriedDate, ReadyTime, useHubNow } from './QueueRail';
 import { AskManager } from '../unpaid/AskManager';
-import { candidatesOf, checkHandover, dueGate, lineIds, type Gate } from '../unpaid/candidate';
+import { blockedOrders, candidatesOf, checkHandover, dueGate, gateOf, lineIds, type BillRow, type Gate } from '../unpaid/candidate';
 import { unpaidRequestsOf } from '../unpaid/requests';
 import './styles';
 
@@ -77,13 +79,26 @@ export function allLiveReady(lines: readonly SeatingLine[]): boolean {
   return live.length > 0 && live.every((l) => servable(l) && readyNow(l));
 }
 
-function chipOf(l: SeatingLine): { key: MessageKey; tone: string } {
-  if (isWeightPending(l)) return { key: 'stage.weight_pending', tone: 'tk-chip--warn' };
-  if (l.stage === 'returned' || l.returned_units > 0) return { key: 'stage.sent_back', tone: 'tk-chip--danger' };
-  if (isServed(l)) return { key: 'v.given', tone: '' };
-  if (readyNow(l)) return { key: 'v.ready', tone: 'tk-chip--ok' };
-  if (l.stage === 'cooking') return { key: 'v.cooking', tone: 'tk-chip--warn' };
-  return { key: 'v.waiting', tone: '' };
+function chipOf(l: SeatingLine): { key: MessageKey; tone: string; icon: TkIconName | null } {
+  if (isWeightPending(l)) return { key: 'stage.weight_pending', tone: 'tk-chip--warn', icon: null };
+  if (l.stage === 'returned' || l.returned_units > 0) return { key: 'stage.sent_back', tone: 'tk-chip--danger', icon: null };
+  if (isServed(l)) return { key: 'v.given', tone: '', icon: 'hand' };
+  if (readyNow(l)) return { key: 'v.ready', tone: 'tk-chip--ok', icon: 'check' };
+  if (l.stage === 'cooking') return { key: 'v.cooking', tone: 'tk-chip--warn', icon: 'pot' };
+  return { key: 'v.waiting', tone: '', icon: 'clock' };
+}
+
+/**
+ * ⚠️ 02b-TK L-CLIENT-6b item 4 (frames TokenLate, TokenUrdu; "it showed once, then not"): the token's "not collected"
+ * pair from this drawer's own `open-orders` read (rows carry `ready_at` + `bag_ready_window_ms`, §6.16 R3-M-9). The
+ * rail's token can come from the live catch-up part, which has neither (§6.18), and then lost the amber banner after the
+ * first live refresh. Null unless every order of the token has both.
+ */
+export function latePairOf(rows: readonly OpenOrder[] | null): { ready_since: number; late_from: number } | null {
+  if (rows === null || rows.length === 0) return null;
+  const pairs = rows.map((r) => (r.ready_at == null || r.bag_ready_window_ms == null ? null : { since: r.ready_at, until: r.ready_at + r.bag_ready_window_ms }));
+  if (pairs.some((x) => x === null)) return null;
+  return { ready_since: Math.max(...pairs.map((x) => x!.since)), late_from: Math.max(...pairs.map((x) => x!.until)) };
 }
 
 export interface BillFacts {
@@ -107,6 +122,11 @@ export function billFact(b: BillView): { paid: boolean; amount_minor: number; bi
   return { paid: false, amount_minor: open.length === 0 ? b.totals_default.total_minor : owed, bill_id: b.bill_id };
 }
 
+function promiseAt(orders: OrderViewBody[] | null, token: QueueToken): number | null {
+  const promises = (orders ?? []).flatMap((o) => (o.promise_ms === null ? [] : [o.promise_ms]));
+  return promises.length === 0 ? token.promise_ms : Math.max(...promises);
+}
+
 export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay, reserved }: TokenViewProps) {
   const shell = useShell();
   const shellRef = useRef(shell);
@@ -126,6 +146,9 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   // ⚠️ 02b v1.0.25 §6.16 (owner ruling BR-1): the token's open-orders rows of this view's last read (null: not read or
   // not every order listed → the rail's token value), for "Ready ~{planned}" after Customer is here
   const [planRows, setPlanRows] = useState<OpenOrder[] | null>(null);
+  // BUG-9 (owner ruling 2026-11-28, approval ruling A; §6.16 `bill`, `unpaid_handover_approved`; D2): each order's own
+  // open-orders row of this view's last read, for its own due and the hub's approval flag (a frame this page missed)
+  const [billRows, setBillRows] = useState<ReadonlyMap<string, BillRow>>(new Map());
   const ids = token.order_ids.join(' ');
   const request = useRef(0);
   const load = useCallback(async () => {
@@ -149,6 +172,8 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
     if (mine !== request.current) return;
     const listed = open?.ok === true ? open.data.orders.filter((r) => orderIds.includes(r.order_id)) : [];
     setPlanRows(listed.length === orderIds.length ? listed : null);
+    setBillRows(new Map(listed.map((r) => [r.order_id, r])));
+    if (listed.length > 0) unpaidRequestsOf(shellRef.current).seed(listed);
     const found = views.flatMap((v) => (v.ok && v.data.kind === 'order' ? [v.data.order] : []));
     setGone(found.length === 0 && views.every((v) => !v.ok && v.error.kind === 'api' && v.error.code === 'ORDER_NOT_FOUND'));
     setOrders(found);
@@ -160,6 +185,14 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
     void load();
   }, [load]);
   useLiveRefetch(shell.live, () => void load());
+  // the top bar's Back (frames TokenDue … TokenUrdu) closes this drawer
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const back = () => closeRef.current();
+    window.addEventListener(TK_BACK_EVENT, back);
+    return () => window.removeEventListener(TK_BACK_EVENT, back);
+  }, []);
 
   const lines = useMemo(() => (orders ?? []).flatMap((o) => groupParts(o.lines)), [orders]);
   const shown = lines.filter((l) => l.line_kind !== 'deal' && l.line_kind !== 'option_child' && l.live_units > 0);
@@ -169,17 +202,26 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const allReady = allLiveReady(lines);
   // ⚠️ 02b-TK L-CLIENT-2 item 2 (03b v1.0.16 §3.4 R3-M-9, D8; frame TokenLate): past the R8 window and every live line
   // still ready (this drawer's own read: a line back to the kitchen ends it, D8) → "Ready {n} min ago — not collected"
-  const nowMs = useHubNow(token.late_from != null);
-  const lateMin = allReady ? notCollectedMinOf(token, nowMs) : null;
+  const pair = latePairOf(planRows);
+  const lateToken = pair === null ? token : { ...token, ...pair };
+  const nowMs = useHubNow(lateToken.late_from != null || promiseAt(orders, token) !== null);
+  const lateMin = allReady ? notCollectedMinOf(lateToken, nowMs) : null;
   // some ready, not all: Give ready items now in place of Hand over all (owner ruling 2026-11-24 #1)
   const giveReady = readyLines.length > 0 && !allReady;
-  const paid = bill?.current?.paid ?? token.paid;
   const due = bill?.current !== null && bill?.current !== undefined && !bill.current.paid;
   // ⚠️ OR-7 (D2): each order's gate from this view's reads (order-view `billed`, the newest order's bill)
   const unpaid = unpaidRequestsOf(shell);
   useSyncExternalStore(unpaid.subscribe, unpaid.version);
   const gate = (order_id: string): Gate => {
     if (orders?.find((o) => o.order_id === order_id)?.billed === true) return { kind: 'free' };
+    // BUG-9: the order's own row (its due, the hub's flag); this page's approval of that due counts too (a frame
+    // ahead of the next read)
+    const row = billRows.get(order_id);
+    if (row?.bill !== undefined) {
+      const approvedDue = unpaid.approvedDue(order_id);
+      const g = gateOf(row, { approvedDue });
+      return g.kind === 'due' && !g.approved && approvedDue !== undefined && g.due_minor <= approvedDue ? { ...g, approved: true } : g;
+    }
     const cur = bill?.current;
     if (cur == null) return token.paid ? { kind: 'free' } : { kind: 'unknown' };
     return cur.paid ? { kind: 'free' } : dueGate(cur.amount_minor, undefined, unpaid.approvedDue(order_id));
@@ -187,7 +229,16 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const cands = candidatesOf(token.order_ids, liveLines(lines), gate);
   const fullCheck = checkHandover(cands, lineIds(candidates), reserved);
   const giveCheck = checkHandover(cands, lineIds(readyLines), reserved);
-  const ask = !fullCheck.ok && fullCheck.reason === 'due' ? fullCheck : !giveCheck.ok && giveCheck.reason === 'due' ? giveCheck : null;
+  // §3.7a (L-CLIENT-6b item 4): "Ask a manager" for a BLOCKED action only — Hand over all once every live line is ready,
+  // or Give ready items now with ready lines; a token still cooking has no hand-over to block.
+  // BUG-9 (owner ruling 2026-11-28, approval ruling A): one Ask a manager per blocked order, each with its own due
+  const asks =
+    allReady && !fullCheck.ok && fullCheck.reason === 'due'
+      ? blockedOrders(cands, lineIds(candidates), reserved)
+      : giveReady && !giveCheck.ok && giveCheck.reason === 'due'
+        ? blockedOrders(cands, lineIds(readyLines), reserved)
+        : [];
+  const ask = asks.length > 0 ? asks : null;
   const may = shell.permissions.allowed;
   const canServe = may('mark-served');
   const first = orders?.[0] ?? null;
@@ -233,7 +284,6 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const canRemove = may('take-order') || voidGrant === 'allowed' || voidGrant === 'requires_approval';
   // 05 §3.10 / §6.9: a paid (closed) bill takes nothing off here — the bill is reopened (ReopenBill, approvable), then
   // the item removed or voided, and the bill shows the refund to give (AddPayment out) before it closes again
-  const refundFirst = removing && (paid || (orders ?? []).some((o) => o.billed));
   const done = () => {
     setSheet(null);
     void load();
@@ -241,6 +291,58 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const qty = (l: SeatingLine) => (l.sale_unit === 'piece' ? `${l.live_units}×` : '');
   const giveText = readyLines.length === 1 ? ` · ${qty(readyLines[0]!)} ${readyLines[0]!.name}` : ` · ${readyLines.length}`;
 
+  const payNow = due && may('take-payment') && shell.online;
+  // frame TokenDue / TokenLate: Ready by turns red once its time passed while something is still cooking
+  const promiseNow = promiseAt(orders, token);
+  const readyLate = promiseNow !== null && !allReady && live.length > 0 && nowMs > promiseNow;
+  const cookingOrders = token.order_ids.filter((id) => liveLines((orders ?? []).filter((o) => o.order_id === id).flatMap((o) => groupParts(o.lines))).some((l) => !readyNow(l)));
+  const hurryable = !offerHere && may('boost-order') && shell.online && !allReady && cookingOrders.length > 0;
+  const hurry = async () => {
+    if (boosting) return;
+    setBoosting(true);
+    try {
+      for (const order_id of cookingOrders) {
+        const answer = await shellRef.current.orders.boostOrder({ order_id });
+        if (!answer.ok) {
+          showOrderError(shellRef.current, answer.error, () => void load());
+          return;
+        }
+      }
+      shellRef.current.toasts.show({ text: t('order.toast.boosted'), tone: 'ok' });
+    } finally {
+      setBoosting(false);
+      void load();
+    }
+  };
+  // a line's sub-line (frames TokenDue, TokenPartial): "From the counter" for a line no station makes, else its order's
+  // "Ready by {t}" while it is still to come
+  const readyItem = (item_id: string | null) => item_id !== null && ((shell.config as typeof shell.config | undefined)?.snapshot()?.items.find((i) => i.item_id === item_id)?.is_ready_item ?? false);
+  const lineSub = (l: SeatingLine): string | null => {
+    if (l.stage === null || l.stage === 'out_of_engine' || readyItem(l.item_id)) return isServed(l) || readyNow(l) ? t('c.counter') : null;
+    if (isServed(l) || readyNow(l)) return null;
+    const at = orders?.find((o) => o.order_id === l.order_id)?.promise_ms ?? null;
+    return at === null ? null : fill(t('is.ready_by'), { t: ltr(timeText(at, offset)) });
+  };
+  // F8 = Take payment, Enter = Hand over all (frames TokenDue, TokenReady), while the drawer is open
+  const keys = useRef<(e: KeyboardEvent) => void>(() => {});
+  keys.current = (e: KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const at = document.activeElement;
+    if (e.key === 'F8' && payNow) {
+      e.preventDefault();
+      e.stopPropagation();
+      (onPay ?? toBill)();
+    } else if (e.key === 'Enter' && canServe && allReady && fullCheck.ok && !giveReady && !payNow && !(at instanceof HTMLInputElement || at instanceof HTMLTextAreaElement || at instanceof HTMLButtonElement)) {
+      e.preventDefault();
+      e.stopPropagation();
+      onHandOver(candidates);
+    }
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keys.current(e);
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, []);
   const handOverAll = (
     <button
       type="button"
@@ -251,7 +353,13 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
         onHandOver(candidates);
       }}
     >
+      {allReady ? <TkIco name="hand" /> : <TkIco name="clock" />}
       {t('v.collected')}
+      {allReady && fullCheck.ok && (
+        <span className="tk-kbd" dir="ltr">
+          Enter
+        </span>
+      )}
       {!allReady && promise !== null && (
         <>
           {' · '}
@@ -285,18 +393,31 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
         </div>
         <div className="tk-drawer__b">
           {lateMin !== null && (
-            <div className="tk-banner tk-banner--warn" role="status" data-late="">
+            <div className="tk-banner tk-banner--warn tk-late" role="status" data-late="">
+              <TkIco name="phone" />
               <span>{fill(t('v.late'), { n: String(lateMin) })}</span>
               {phoned !== null && may('view-customer-contact') && (
                 <button type="button" className="tk-btn tk-btn--primary" onClick={() => setCall(true)}>
+                  <TkIco name="phone" />
                   {t('v.call')}
+                  {masked !== null && (
+                    <>
+                      {' · '}
+                      <span dir="ltr" className="num">
+                        {masked}
+                      </span>
+                    </>
+                  )}
                 </button>
               )}
             </div>
           )}
           <div className="tk-facts">
-            <div className="tk-fact">
-              <small>{t('v.ready_at')}</small>
+            <div className={readyLate ? 'tk-fact tk-fact--late' : 'tk-fact'} data-late-ready={readyLate ? '' : undefined}>
+              <small>
+                {t('v.ready_at')}
+                {readyLate && <span className="tk-chip tk-chip--danger">{t('v.late_chip')}</span>}
+              </small>
               <b dir="ltr">{promise === null ? '—' : <ReadyTime promise={promise} planned={planned} utcOffsetMs={offset} stack />}</b>
             </div>
             {bill?.earlier != null && (
@@ -340,36 +461,48 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
           <div className="col">
             {shown.map((l) => {
               const chip = chipOf(l);
+              const sub = lineSub(l);
               return (
                 <div key={l.order_item_id} className={isServed(l) ? 'tk-il tk-il--done' : 'tk-il'} data-line={l.order_item_id}>
-                  <span className="tk-il__q num">{qty(l)}</span>
+                  <span className="tk-il__q num" dir="ltr">
+                    {qty(l)}
+                  </span>
                   <div className="tk-il__n">
-                    <b dir="auto">{l.name}</b>
-                    {l.kitchen_note !== null && <small dir="auto">{l.kitchen_note}</small>}
+                    <b>
+                      <bdi>{l.name}</bdi>
+                    </b>
+                    {sub !== null && <small>{sub}</small>}
+                    {l.kitchen_note !== null && (
+                      <small>
+                        <bdi>{l.kitchen_note}</bdi>
+                      </small>
+                    )}
                   </div>
-                  <span className={`tk-chip ${chip.tone}`}>{t(chip.key)}</span>
-                  {removing && <RemoveActions line={l} order={lineOrder(l.order_id)} onPick={(kind, order) => setSheet({ kind, line: l, order })} />}
+                  <span className={`tk-chip ${chip.tone}`}>
+                    {chip.icon !== null && <TkIco name={chip.icon} />}
+                    {t(chip.key)}
+                  </span>
                 </div>
               );
             })}
           </div>
-          {refundFirst && (
-            <div className="tk-msg" role="status">
-              <Ico name="info" />
-              <span>{t('v.refund_first')}</span>
-              <button type="button" className="tk-btn" onClick={toBill}>
-                {t('v.bill')}
-              </button>
-            </div>
-          )}
-          {due && live.length > 0 && (
+          {due && ask !== null && (
             <p className="tk-hint" role="note">
               {t('v.pay_first')}
             </p>
           )}
-          {canServe && ask !== null && (
-            <AskManager order_id={ask.order_id} due_minor={ask.due_minor} ident={token.order_ids.length > 1 ? `#${ident}` : undefined} variant="drawer" onChanged={() => void load()} />
-          )}
+          {canServe &&
+            asks.map((a) => (
+              <AskManager
+                key={a.order_id}
+                order_id={a.order_id}
+                due_minor={a.due_minor}
+                ident={token.order_ids.length > 1 ? `#${ident}` : undefined}
+                addition={a.order_id !== token.order_ids[0]}
+                variant="drawer"
+                onChanged={() => void load()}
+              />
+            ))}
         </div>
         <div className="tk-drawer__f">
           {canServe && giveReady && (
@@ -382,14 +515,21 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
                 if (giveCheck.ok) onHandOver(readyLines);
               }}
             >
+              <TkIco name="hand" />
               {t('v.give_ready')}
               {giveText}
             </button>
           )}
           {/* 02b-TK C3-1 (05 B12): money needs the hub — offline Take payment is hidden and the token stays Due */}
-          {due && may('take-payment') && shell.online && (
+          {payNow && (
             <button type="button" className="tk-btn tk-btn--xl tk-btn--primary" onClick={onPay ?? toBill}>
+              <TkIco name="cash" />
               {t('v.pay')} · <span dir={MONEY_DIR}>{money(bill!.current!.amount_minor)}</span>
+              {onPay !== undefined && (
+                <span className="tk-kbd" dir="ltr">
+                  F8
+                </span>
+              )}
             </button>
           )}
           {offerHere && (
@@ -397,35 +537,69 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
               {t('v.here')}
             </button>
           )}
-          {canServe && live.length > 0 && !giveReady && handOverAll}
+          {/* frame TokenDue: while cooking a Due token's primary is Take payment; once all is ready Hand over all shows (greyed, R2) */}
+          {canServe && live.length > 0 && !giveReady && (!payNow || allReady) && handOverAll}
           <div className="tk-grid3">
             {onAddItems !== undefined && may('take-order') && (
               <button type="button" className="tk-btn" onClick={onAddItems}>
+                <TkIco name="plus" />
                 {t('v.add')}
               </button>
             )}
             {canRemove && (
               <button type="button" className="tk-btn" aria-pressed={removing} onClick={() => setRemoving((r) => !r)}>
+                <TkIco name="trash" />
                 {t('v.remove')}
               </button>
             )}
-            {/* 02b-TK C3-2 (05 §6.3; R6): the check bill of the token's newest order while it is Due */}
-            {due && may('take-order') && <CheckBill order_id={token.newest_order_id} />}
             {/* ⚠️ 02b-TK L-CLIENT-3 item 2 (03c v1.0.16 §3.11, §6.14, §8): Print token (the slip, reprint) on a Due token */}
             {due && may('take-order') && <PrintSlip order_id={token.newest_order_id} order_ids={token.order_ids} onRefused={() => void load()} />}
+            {/* 02b-TK C3-2 (05 §6.3; R6): the check bill of the token's newest order while it is Due */}
+            {due && may('take-order') && <CheckBill order_id={token.newest_order_id} />}
             {/* ⚠️ 02b-TK L-CLIENT-3 item 1 (05 v1.0.35 §8 OR-5, §6.22; #60h): once paid, Print receipt again (take-payment only) */}
             {bill?.current?.paid === true && may('take-payment') && <ReceiptAgain order_id={token.newest_order_id} invoice_id={bill.current.invoice_id ?? null} />}
-            {phoned !== null && may('view-customer-contact') && (
-              <button type="button" className="tk-btn" onClick={() => setCall(true)}>
+            {/* frame TokenDue: Call stays in its place, greyed when the token has no phone (view-customer-contact) */}
+            {may('view-customer-contact') && (
+              <button type="button" className="tk-btn" aria-disabled={phoned === null} onClick={() => phoned !== null && setCall(true)}>
+                <TkIco name="phone" />
                 {t('v.call')}
               </button>
             )}
-            <button type="button" className="tk-btn" onClick={toBill}>
-              {t('v.bill')}
-            </button>
+            {/* ⚠️ L-CLIENT-6b item 4 (CHANGES §3 Token view "Hurry kitchen"; 02b §3.8, §6.6 BoostOrder, boost-order): the
+                token's orders still cooking move up; not while a pickup waits (Customer is here does that) */}
+            {hurryable && (
+              <button type="button" className="tk-btn" disabled={boosting} onClick={() => void hurry()} data-hurry="">
+                <TkIco name="bolt" />
+                {t('v.hurry')}
+              </button>
+            )}
+            {due && may('take-payment') && shell.online ? null : (
+              <button type="button" className="tk-btn" onClick={toBill}>
+                {t('v.bill')}
+              </button>
+            )}
           </div>
         </div>
       </section>
+      {/* ⚠️ L-CLIENT-6b item 5 (frame TokenRemove): Remove / cancel is one dialog over the drawer */}
+      {removing && sheet === null && (
+        <TkRemove
+          ident={ident}
+          orders={(orders ?? []).flatMap((o) => {
+            const lo = lineOrder(o.order_id);
+            return lo === null ? [] : [lo];
+          })}
+          bill={bill?.current == null ? null : { paid: bill.current.paid, amount_minor: bill.current.amount_minor }}
+          onClose={() => setRemoving(false)}
+          onDone={() => {
+            setRemoving(false);
+            void load();
+          }}
+          onChanged={() => void load()}
+          onVoid={voidGrant === 'allowed' || voidGrant === 'requires_approval' ? (line, order) => setSheet({ kind: 'void', line, order }) : undefined}
+          onBill={toBill}
+        />
+      )}
       {call && phoned !== null && <ContactSheet order_id={phoned.order_id} what={what} onClose={() => setCall(false)} />}
       {sheet?.kind === 'remove' && (
         <RemoveSheet
@@ -448,30 +622,5 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
         />
       )}
     </>
-  );
-}
-
-/**
- * 02b §3.5 / §6.2 (RemoveItems before the kitchen starts, free) and 04 §6.1 (VoidItems after, `void-item`; with
- * `requires_approval` it raises a request and the line waits for the manager): the way off the order for one line.
- */
-function RemoveActions({ line, order, onPick }: { line: SeatingLine; order: LineOrder | null; onPick(kind: 'remove' | 'void', order: LineOrder): void }) {
-  const shell = useShell();
-  if (order === null || line.live_units === 0 || isServed(line)) return null;
-  if (atStageOne(line, order.lines))
-    return shell.permissions.allowed('take-order') && !order.billed ? (
-      <span className="tk-il__acts">
-        <button type="button" className="tk-btn" onClick={() => onPick('remove', order)}>
-          {t('line.remove')}
-        </button>
-      </span>
-    ) : null;
-  if (!voidOffered(shell, line, order)) return null;
-  return (
-    <span className="tk-il__acts">
-      <MaskedAction permissions={shell.permissions} permission="void-item">
-        <VoidButton approval={shell.permissions.resolution('void-item').grant === 'requires_approval'} onClick={() => onPick('void', order)} />
-      </MaskedAction>
-    </span>
   );
 }

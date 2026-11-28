@@ -116,8 +116,10 @@ function Row({ row, currency, stale, utcOffsetMs, onOpen }: { row: OpenBillRow; 
       <Badges row={row} utcOffsetMs={utcOffsetMs} />
       <span className="op num">{durationText(row.open_minutes)}</span>
       <span className="am">
-        <b dir={MONEY_DIR}>{money(row.total_default_minor)}</b>
-        {row.paid_minor > 0 && (
+        {/* ⚠️ 05 v1.0.36 §6.2 (QA BUG-16): amount, Paid and Left are the open splits' own numbers from one computeBill,
+            the bill page's; paid_minor (bill-wide, with closed splits) is never shown next to the open total */}
+        <b dir={MONEY_DIR}>{money(row.open_total_minor)}</b>
+        {row.open_paid_minor > 0 && (
           // ⚠️ 05 v1.0.35 §6.2 (run 3 R3-B-1, D3): what is left is the row's due_minor (Σ open split balances)
           <span className="paid">
             <Slots
@@ -125,7 +127,7 @@ function Row({ row, currency, stale, utcOffsetMs, onOpen }: { row: OpenBillRow; 
               slots={{
                 paid: (
                   <span className="num" dir={MONEY_DIR}>
-                    {money(row.paid_minor)}
+                    {money(row.open_paid_minor)}
                   </span>
                 ),
                 left: (

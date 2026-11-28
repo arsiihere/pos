@@ -103,6 +103,37 @@ async function twoSplitsFirstClosed(): Promise<{ order_id: string; key: string }
   return t;
 }
 
+describe('[05 v1.0.36 §6.2, QA BUG-16] the cash desk row shows the bill page’s numbers (one computeBill)', () => {
+  it('[05 §6.2 BUG-16] split 1 (Rs 400) closed, split 2 (Rs 600) with Rs 300 paid → row Rs 600 · Paid 300 · Left 300 = the open split on the bill page', async () => {
+    const t = lassis(4);
+    ok(await post(hub, cashier, 'set-splits', 'SetSplits', { bill_ref: { order_id: t.order_id }, mode: 'amount', splits: [{ split_no: 1, share_minor: 40_000 }, { split_no: 2, share_minor: 60_000 }] }));
+    await pay(t.order_id, 1, 40_000);
+    await close(t.order_id, 1, 40_000);
+    await pay(t.order_id, 2, 30_000);
+    const v = await view(t.order_id);
+    const open = v.splits.filter((s) => s.state === 'open');
+    const openPaid = open.reduce((a, s) => a + s.payments.reduce((b, p) => b + (p.direction === 'in' ? p.amount_minor : -p.amount_minor), 0), 0);
+    const row = (await openBills()).find((r) => r.order_id === t.order_id)!;
+    expect(row).toMatchObject({ open_total_minor: 60_000, open_paid_minor: 30_000, due_minor: 30_000, paid_minor: 70_000 });
+    expect([row.open_total_minor, row.open_paid_minor, row.due_minor]).toEqual([open.reduce((a, s) => a + s.totals.as_paid.total_minor, 0), openPaid, open.reduce((a, s) => a + s.balance_minor, 0)]);
+    expect(row.open_total_minor - row.open_paid_minor).toBe(row.due_minor);
+  });
+
+  it('[05 §6.2 BUG-16, BUG-1] Rs 1,000 equal in 3, split 1 closed at 333: the row is Rs 667 · Left 667 = the bill page (333 + 334)', async () => {
+    const t = lassis(4);
+    ok(await post(hub, cashier, 'set-splits', 'SetSplits', { bill_ref: { order_id: t.order_id }, mode: 'equal', n: 3 }));
+    expect((await view(t.order_id)).splits.map((s) => s.totals.as_paid.total_minor)).toEqual([33_300, 33_300, 33_400]);
+    await pay(t.order_id, 1, 33_300);
+    await close(t.order_id, 1, 33_300);
+    const v = await view(t.order_id);
+    expect(v.splits.filter((s) => s.state === 'open').map((s) => s.totals.as_paid.total_minor)).toEqual([33_300, 33_400]);
+    expect(v.totals_default.total_minor).toBe(66_700);
+    const row = (await openBills()).find((r) => r.order_id === t.order_id)!;
+    expect(row).toMatchObject({ total_default_minor: 66_700, open_total_minor: 66_700, open_paid_minor: 0, due_minor: 66_700 });
+    expect(balances([t.key]).map.get(t.key)).toEqual({ due_minor: 66_700, state: 'partly_paid' });
+  });
+});
+
 describe('[05 §6.2a, #60e] keyBalances = Σ open split balances (D3)', () => {
   it('[05 #60e, D3] two Rs 500 splits, the first paid and closed, the second untouched → due Rs 500, partly_paid; open-bills shows the same due', async () => {
     const t = await twoSplitsFirstClosed();

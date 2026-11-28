@@ -93,12 +93,12 @@ for (const lang of LANGS) {
       await typePin(page);
       await expect(page.locator('.pin__keys')).toHaveCount(0);
       await expect(chip(page)).toContainText('Owner');
-      // Ali's cart was held first: it waits in Held on this counter, by Ali. A held row names the order, its count and
-      // total (Held.tsx, frame HeldDrawer), not its items: "Takeaway · 1 items · Rs 30" (one Naan)
+      // Ali's cart was held first: it waits in Held on this counter, by Ali. A held row (frame HeldDrawer, L-CLIENT-6b
+      // item 2) names the order and its total, then the item summary: "Takeaway · Rs 30" / "Naan" (one Naan)
       await page.evaluate(() => (window.location.hash = '#/held'));
-      const row = page.locator('.ql', { hasText: tr(lang, 'h.by', { name: 'Ali' }) }).first();
+      const row = page.locator('.tk-held .tk-held__row', { hasText: tr(lang, 'h.by', { name: 'Ali' }) }).first();
       await expect(row).toBeVisible();
-      await expect(row).toContainText(tr(lang, 'cart.items', { n: '1' }));
+      await expect(row.locator('small').first()).toHaveText('Naan');
       await expect(row).toContainText(/Rs\s?30(?![\d,.])/);
     } finally {
       await signOut(page, info, lang);

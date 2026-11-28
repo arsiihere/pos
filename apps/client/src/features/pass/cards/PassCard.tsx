@@ -7,7 +7,7 @@ import { dayLabel } from '../../kds/station/Identifier';
 import type { PointLine, PointOrder, PointStation } from '../contracts';
 import { LineRow } from './LineRow';
 import { groupLines, type PassRow } from './parts';
-import { readiness } from './readiness';
+import { readiness, type ReadinessState } from './readiness';
 
 // 03b v1.0.8 §3.4 (#74, Q-47, Q-50; P2; frames 03b-S02 Pass / PassRush / PassUrdu, 03b-C10 / C12 PassCards): one card
 // per order. Header: the identifier (LTR; a token with its day, a parking plate with the car type), "placed {time}"
@@ -67,6 +67,12 @@ export interface PassCardProps {
   nowMs?: number;
   /** 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.4 Not collected): minutes since the whole bag was ready, past its window */
   late?: number | null;
+  /** ⚠️ 03b v1.0.17 §3.4 ("Pass bag = token"): the bag's state (bags.ts bagState); absent = this order's own readiness */
+  state?: ReadinessState;
+  /** ⚠️ v1.0.17: every order of the bag (03c Reprint for each); absent = the card's order */
+  orders?: readonly string[];
+  /** ⚠️ v1.0.17 (QA design audit): the one Due pill, under the header */
+  due?: ReactNode;
 }
 
 function Ident({ order }: { order: PointOrder }) {
@@ -102,12 +108,12 @@ function Placed({ ms, utcOffsetMs }: { ms: number; utcOffsetMs: number }) {
   );
 }
 
-export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast, rounds, next = false, readyBy = null, nowMs, late = null }: PassCardProps) {
+export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast, rounds, next = false, readyBy = null, nowMs, late = null, state, orders, due = null }: PassCardProps) {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => onSlotsChanged(rerender), []);
   const running = useRef(new Set<string>());
 
-  const r = readiness(order, nowMs);
+  const r = { state: state ?? readiness(order, nowMs).state };
   const pill = r.state === 'none' ? null : PILL[r.state];
   const note = order.lines.find((l) => l.order_note !== null)?.order_note ?? null;
 
@@ -122,6 +128,8 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
   byStation.sort((a, b) => (rank.get(a.station_id) ?? stations.length) - (rank.get(b.station_id) ?? stations.length));
   const groups: Array<{ station_id: string; rows: PassRow[] }> = byStation.map((g) => ({ station_id: g.station_id, rows: groupLines(g.lines) }));
   const total = groups.reduce((n, g) => n + g.rows.length, 0);
+  const only = groups.length === 1 ? stations.find((s) => s.station_id === groups[0]!.station_id) : undefined;
+  const oneScreenless = only?.screenless === true ? only.name : null;
   let budget = total > FOLD_AFTER ? SHOWN : total;
   const shown = groups.flatMap((g) => {
     if (budget <= 0) return [];
@@ -130,7 +138,10 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
     return [{ ...g, rows }];
   });
 
-  const slot = passCardActions({ order_id: order.order_id, point_id: pointId });
+  // ⚠️ v1.0.17: a bag's Reprint runs for every order of it (one button per action key)
+  const slotsByOrder = (orders ?? [order.order_id]).map((order_id) => passCardActions({ order_id, point_id: pointId }));
+  const slot = slotsByOrder[0] ?? [];
+  const sameKey = (key: string) => slotsByOrder.flatMap((list) => list.filter((a) => a.key === key));
   const run = (key: string, action: (typeof slot)[number]) => {
     if (running.current.has(key)) return;
     running.current.add(key);
@@ -155,26 +166,42 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
   const counter = pickup === null ? [] : (order.no_station_lines ?? []);
 
   return (
-    <article className={classes} data-order={order.order_id}>
+    <article className={classes} data-order={order.order_id} {...(orders !== undefined && orders.length > 1 ? { 'data-orders': orders.join(' ') } : {})}>
       <div className="pc__h">
         <div className="pc__id">
           <Ident order={order} />
-          {next && <b className="pc__next">{t('pass.pack_next')}</b>}
-          {readyBy !== null && (
-            <span className="pc__m">
-              {byBefore}
-              <span className="num">{timeText(readyBy, utcOffsetMs)}</span>
-              {byAfter}
+          {order.pickup_at_ms != null && (
+            // ⚠️ v1.0.17 (frame PackerPass): a phone (pickup) order shows the phone glyph by its token
+            <span className="pc__ph" title={t('pass.phone_order')} aria-label={t('pass.phone_order')}>
+              <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 3.5h3l1.5 4-2 1.5a11 11 0 0 0 6.5 6.5l1.5-2 4 1.5v3a2 2 0 0 1-2 2A15.5 15.5 0 0 1 4 5.5a2 2 0 0 1 2-2z" />
+              </svg>
             </span>
           )}
-          {pickup !== null && (
-            <span className="pc__m pc__pickup">
-              {puBefore}
-              <span className="num">{timeText(pickup, utcOffsetMs)}</span>
-              {puAfter}
+          {/* ⚠️ v1.0.17 §8 (QA design review): the state title and the times on one line beside the token */}
+          <span className="pc__t">
+            {next && <b className="pc__next">{t('pass.pack_next')}</b>}
+            {!next && r.state === 'sent' && readyBy !== null && <b className="pc__next pc__next--wait">{t('pass.waiting_counter')}</b>}
+            <span className="pc__ms">
+              {readyBy !== null && (
+                <span className="pc__m">
+                  {byBefore}
+                  <span className="num">{timeText(readyBy, utcOffsetMs)}</span>
+                  {byAfter}
+                </span>
+              )}
+              {pickup !== null && (
+                <span className="pc__m pc__pickup">
+                  {puBefore}
+                  <span className="num">{timeText(pickup, utcOffsetMs)}</span>
+                  {puAfter}
+                </span>
+              )}
+              <Placed ms={order.placed_at} utcOffsetMs={utcOffsetMs} />
+              {/* ⚠️ v1.0.17 §8 (03b §3.4 "No screen" chip): a one-station card of a screenless station says it here */}
+              {oneScreenless !== null && <span className="pc__m pc__nos">{fill(t('pass.group_no_screen'), { station: oneScreenless })}</span>}
             </span>
-          )}
-          <Placed ms={order.placed_at} utcOffsetMs={utcOffsetMs} />
+          </span>
         </div>
         {pill !== null && (
           <span className={pill.cls}>
@@ -185,6 +212,7 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
           </span>
         )}
       </div>
+      {due !== null && <div className="pc__duerow">{due}</div>}
       {note !== null && (
         <div className="pc__on">
           <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
@@ -200,10 +228,14 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
         {shown.map((g) => {
           const st = stations.find((s) => s.station_id === g.station_id);
           const name = st?.name ?? '';
+          // ⚠️ v1.0.17 §8 (QA design review): the station line only on a card with lines of 2+ stations (a one-station
+          // card's "no screen" is the station strip's chip)
           return [
-            <div key={`g-${g.station_id}`} className="pc__g">
-              {st?.screenless === true ? fill(t('pass.group_no_screen'), { station: name }) : name}
-            </div>,
+            groups.length > 1 && (
+              <div key={`g-${g.station_id}`} className="pc__g">
+                {st?.screenless === true ? fill(t('pass.group_no_screen'), { station: name }) : name}
+              </div>
+            ),
             ...g.rows.map((r) => {
               const round = r.line.load_id == null ? undefined : rounds?.get(r.line.load_id);
               return <LineRow key={r.line.order_item_id} line={r.line} actions={lineActions?.(r.line, r.parts)} {...(round === undefined ? {} : { round })} />;
@@ -230,7 +262,7 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
         <div className={buttons.length <= 1 ? 'pc__f pc__f--1' : 'pc__f'}>
           {buttons}
           {slot.map((a) => (
-            <button key={a.key} type="button" className="btn rp" disabled={!up} onClick={() => run(a.key, a)}>
+            <button key={a.key} type="button" className="btn rp" disabled={!up} onClick={() => sameKey(a.key).forEach((x, n) => run(`${a.key}:${n}`, x))}>
               <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M7 9V3.5h10V9" />
                 <rect x="3.5" y="9" width="17" height="8" rx="2" />

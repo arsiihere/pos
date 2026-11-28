@@ -61,7 +61,7 @@ describe('[02b-TK TK-C01] takeaway menu tiles', () => {
     m.click(tile(m, 'Chicken Karahi').querySelectorAll('.tk-split button')[1]!);
     const sheet = document.querySelector('[role="dialog"]');
     expect(sheet).not.toBeNull();
-    expect(sheet!.querySelector('.seg--opt button[aria-pressed="true"]')!.textContent).toContain('Full');
+    expect(sheet!.querySelector('.tk-var[aria-pressed="true"]')!.textContent).toContain('Full');
     expect(cartLines(m)).toHaveLength(0);
     m.unmount();
   });

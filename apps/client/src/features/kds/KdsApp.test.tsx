@@ -680,3 +680,36 @@ describe('[01d §3.13 Scope; story AC5] the KDS ignores target', () => {
     window.location.hash = '';
   });
 });
+
+// BUG-14 (03b v1.0.16 §3.2, §3.3, §6.4; 03a §6.1 pullEarly): Give me more pulls the next line from Next; the hub answers
+// { pulled } and sends the commit's `station_plan` (the line gone from the plan) and then its FireDispatched
+// { reason: 'pulled' } — the line enters Now live, at the end, with no reload.
+describe('[03b §3.2, §3.3, §6.4] Give me more, live', () => {
+  const plan = (ids: string[]) => ({ type: 'station_plan', station_id: ST, as_of_seq: 8, lines: ids.map((id) => ({ order_item_id: id, order_id: `O-${id}`, fire_ms: 1_200_000, deadline_ms: 1_300_000, mark: null, frozen: true, load_id: null })) });
+
+  it('[BUG-14] the pulled line leaves Next and shows in Now without a reload', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/auth/station') return SESSION();
+      if (url === '/queries/branch-config') return CONFIG();
+      expect(url).toBe('/commands/give-me-more');
+      return reply(200, { data: { command_id: 'x', event_ids: ['E8'], result: { pulled: ['B'] } } });
+    });
+    m = mount();
+    m.render(<KdsApp page={PAGE} fetch={fetch} timers={timers} sink={recordingSink(timers)} createSocket={() => { const s = new FakeSocket(); sockets.push(s); return s; }} />);
+    await settle();
+    const first = catchUp(['A']);
+    sockets[0]!.frame({ ...first, state: { ...first.state, kds_station: { ...first.state.kds_station, details: [detail('B'), detail('C')] }, station_plan: [plan(['B', 'C'])] } });
+    await settle();
+    const now = () => [...m.container.querySelectorAll<HTMLElement>('section.ksec [data-id]')].map((e) => e.getAttribute('data-id'));
+    const next = () => [...m.container.querySelectorAll<HTMLElement>('.knx [data-id]')].map((e) => e.getAttribute('data-id'));
+    expect([now(), next()]).toEqual([['A'], ['B', 'C']]);
+    m.click(m.button('Give me more'));
+    await settle();
+    // the commit's frames, in the hub's order (after-commit station_plan, then the event)
+    sockets[0]!.frame(plan(['C']));
+    sockets[0]!.frame({ type: 'event', seq: 8, event: { event_id: 'E8', event_type: 'FireDispatched', schema_version: 1, payload: { station_id: ST, order_item_ids: ['B'], load_id: null, due_at: 1_200_000, reason: 'pulled' } } });
+    await settle();
+    expect([now(), next()]).toEqual([['A', 'B'], ['C']]);
+    expect(m.text()).toContain('T-B');
+  });
+});

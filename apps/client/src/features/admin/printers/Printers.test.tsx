@@ -326,3 +326,28 @@ describe('printers page (03c-S01)', () => {
     await flush();
   });
 });
+
+// BUG-15 (QA): /admin/printers/ opened on a shared (`everyone`) device. 05a H-2 / 00 HPA §6.13: `/admin/login-roster`
+// refuses it with 403 PERMISSION_DENIED { reason: 'listed_device_only', recovery_available }; the page said only "not
+// allowed" over an empty roster. It now says why and what to do instead, with a link to the hub admin page (Recover
+// admin access) when the hub offers recovery (05a v1.0.3).
+describe('[BUG-15; 05a H-2, v1.0.3] printers sign-in on an everyone device', () => {
+  it('a 403 listed_device_only says this device cannot open the admin pages and what to do', async () => {
+    sessionStorage.clear();
+    const hub = setup({ 'GET /admin/login-roster': refused(403, 'PERMISSION_DENIED', { permission: 'access-hub-admin', reason: 'listed_device_only', recovery_available: false }) });
+    await flush();
+    const panel = m.container.querySelector('[data-admin-refused="listed_device_only"]');
+    expect(panel?.textContent).toContain('This screen cannot open the hub admin pages');
+    expect(panel?.textContent).toContain('own phone');
+    expect(panel?.querySelector('a[href="/admin"]')).toBeNull();
+    expect(hub.reads('/admin/queries/print-config')).toBe(0);
+  });
+
+  it('with recovery_available it links to the hub admin page, where Recover admin access is', async () => {
+    sessionStorage.clear();
+    setup({ 'GET /admin/login-roster': refused(403, 'PERMISSION_DENIED', { permission: 'access-hub-admin', reason: 'listed_device_only', recovery_available: true }) });
+    await flush();
+    const panel = m.container.querySelector('[data-admin-refused="listed_device_only"]');
+    expect(panel?.querySelector('a[href="/admin"]')?.textContent).toContain('Recover admin access');
+  });
+});

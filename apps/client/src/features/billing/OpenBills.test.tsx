@@ -29,6 +29,8 @@ function row(over: Partial<OpenBillRow> & { identifier: string }): OpenBillRow {
     total_default_minor: 100_000,
     paid_minor: 0,
     due_minor: 100_000,
+    open_total_minor: over.total_default_minor ?? 100_000,
+    open_paid_minor: over.paid_minor ?? 0,
     check_printed_at: null,
     opened_at: at(13, 0),
     open_minutes: 40,
@@ -42,7 +44,7 @@ function row(over: Partial<OpenBillRow> & { identifier: string }): OpenBillRow {
 // server order (check bill printed first, then opened_at): the client never re-sorts (§6.2)
 const ROWS: OpenBillRow[] = [
   row({ identifier: 'T7', bill_id: 'B7', seating_id: 'S7', check_printed_at: at(13, 32), total_default_minor: 662_400, open_minutes: 46 }),
-  row({ identifier: 'T4 + T5', bill_id: 'B45', seating_id: 'S4', state: 'partly_paid', partly_paid: true, paid_minor: 146_200, total_default_minor: 365_400, due_minor: 219_000, open_minutes: 65 }),
+  row({ identifier: 'T4 + T5', bill_id: 'B45', seating_id: 'S4', state: 'partly_paid', partly_paid: true, paid_minor: 146_200, open_paid_minor: 146_400, total_default_minor: 365_400, due_minor: 219_000, open_minutes: 65 }),
   row({ identifier: '#12', order_id: 'O12', order_type: 'takeaway', state: 'projected', total_default_minor: 171_000, open_minutes: 18 }),
   row({ identifier: 'PARKING ABC 123 SEDAN', order_id: 'O13', order_type: 'parking', state: 'projected', total_default_minor: 145_000, open_minutes: 22 }),
   row({ identifier: 'Family 2', seating_id: 'S9', state: 'projected', has_open_request: true, total_default_minor: 6_078_400, open_minutes: 72 }),
@@ -133,6 +135,14 @@ describe('[05 §8 Cashier screen; §6.2] open-bills list (task 34)', () => {
     void t2;
   });
 
+  it('[05 v1.0.36 §6.2, QA BUG-16] amount · Paid · Left are the open splits’ numbers (a closed split’s payment is not in Paid)', async () => {
+    // split 1 (Rs 400) closed; split 2 Rs 600 with Rs 300 paid → bill-wide paid 700, the row shows 600 · 300 · 300
+    const v = await show(setup({ rows: [row({ identifier: '#4', order_id: 'O4', order_type: 'takeaway', state: 'partly_paid', partly_paid: true, total_default_minor: 60_000, paid_minor: 70_000, open_paid_minor: 30_000, due_minor: 30_000 })] }));
+    const r = rowsOf(v)[0]!.querySelector('.am')!;
+    expect(r.querySelector('b')?.textContent).toBe('Rs 600.00');
+    expect(r.querySelector('.paid')?.textContent).toBe('Paid Rs 300.00 · Left Rs 300.00');
+  });
+
   it('badges: check bill printed (with its time), partly paid (+ Paid line), waiting for approval, open too long (with duration)', async () => {
     const v = await show(setup());
     const [t7, t45, t12, , fam, t2] = rowsOf(v) as HTMLElement[];
@@ -140,7 +150,7 @@ describe('[05 §8 Cashier screen; §6.2] open-bills list (task 34)', () => {
     expect(badges(t7)).toEqual(['c-ok:Check bill printed 1:32 PM']);
     expect(badges(t45)).toEqual(['c-info:Partly paid']);
     // ⚠️ 05 v1.0.35 §6.2 (R3-B-1, D3): what is left is the row's due_minor (Σ open split balances)
-    expect(t45?.querySelector('.am .paid')?.textContent).toBe('Paid Rs 1,462.00 · Left Rs 2,190.00');
+    expect(t45?.querySelector('.am .paid')?.textContent).toBe('Paid Rs 1,464.00 · Left Rs 2,190.00');
     expect(t7?.querySelector('.am .paid')).toBeNull();
     expect(badges(t12)).toEqual([]);
     expect(badges(fam)).toEqual(['c-info:Waiting for approval']);

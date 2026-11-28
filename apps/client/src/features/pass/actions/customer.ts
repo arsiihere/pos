@@ -186,28 +186,37 @@ export interface CustomerHandoverDeps {
   onUnpaidRefused?(order_id: string): void;
 }
 
-interface Job {
+/** one order of a hand-over and the line ids it serves */
+interface Part {
   order: Pick<PointOrder, 'order_id' | 'placed_at' | 'pickup_at_ms' | 'boosted'>;
+  ids: string[];
+}
+
+interface Job {
+  parts: Part[];
   order_type: 'takeaway' | 'parking';
   ident: string;
-  ids: string[];
   epoch: number;
 }
 
 export interface CustomerHandover {
-  tap(order: PointOrder, order_type: 'takeaway' | 'parking', ident: string): Promise<TapOutcome>;
-  /** the Undo window ended (or the page hid): send the checked hand-over */
+  /**
+   * ⚠️ 03b v1.0.17 §3.4 (owner ruling 2026-11-28 "Pass bag = token"): `order` is the card's order, or every order of
+   * a token's bag (root first); each is checked, and one Undo window covers them all.
+   */
+  tap(order: PointOrder | readonly PointOrder[], order_type: 'takeaway' | 'parking', ident: string): Promise<TapOutcome>;
+  /** the Undo window ended (or the page hid): send the checked hand-over, one MarkServed per order */
   send(h: Handover): Promise<void>;
 }
 
 type Checked = { ok: true; ids: string[] } | { ok: false; outcome: TapOutcome };
+type PartOrder = Part['order'];
 
 export function createCustomerHandover(d: CustomerHandoverDeps): CustomerHandover {
   const jobs = new Map<string, Job>();
 
-  /** fresh order-view + bill; every live line ready and the bill paid */
-  async function check(job: Omit<Job, 'ids' | 'epoch'>): Promise<Checked> {
-    const [v, bill] = await Promise.all([d.orderView(job.order.order_id), d.bills.fresh()]);
+  /** one order against an order-view and a bill read: every live line ready and the bill paid */
+  function judge(order: PartOrder, order_type: Job['order_type'], v: HubResult<OrderViewAnswer>, bill: BillRead | null): Checked {
     if (!v.ok) {
       if (v.error.kind === 'api' && v.error.code === 'ORDER_NOT_FOUND') return { ok: false, outcome: { kind: 'gone' } };
       if (v.error.kind === 'api' && v.error.code === 'PERMISSION_DENIED') return { ok: false, outcome: { kind: 'refused', text: t('pass.outside_scope') } };
@@ -216,11 +225,11 @@ export function createCustomerHandover(d: CustomerHandoverDeps): CustomerHandove
     if (v.data.kind !== 'order') return { ok: false, outcome: { kind: 'offline' } };
     if (v.data.order.cancelled) return { ok: false, outcome: { kind: 'gone' } };
     if (bill === null) return { ok: false, outcome: { kind: 'offline' } };
-    const order_id = job.order.order_id;
-    const gate = gateOf(bill.rows.get(order_id), { absentFree: job.order_type === 'parking' && bill.at >= job.order.placed_at, approvedDue: d.approvedDue?.(order_id) });
+    const order_id = order.order_id;
+    const gate = gateOf(bill.rows.get(order_id), { absentFree: order_type === 'parking' && bill.at >= order.placed_at, approvedDue: d.approvedDue?.(order_id) });
     if (gate.kind === 'due' && !gate.approved) return { ok: false, outcome: { kind: 'refused', text: t('pass.take_payment_first') } };
     if (gate.kind === 'unknown') return { ok: false, outcome: { kind: 'refused', text: t('pass.waiting_bill') } };
-    const c = checkCustomer(v.data.order, { pickup_at_ms: job.order.pickup_at_ms ?? null, boosted: job.order.boosted ?? false }, d.now());
+    const c = checkCustomer(v.data.order, { pickup_at_ms: order.pickup_at_ms ?? null, boosted: order.boosted ?? false }, d.now());
     if (!c.ok) {
       const text = c.reason === 'pickup' ? fill(t('pass.pickup_at'), { time: timeText(c.pickup_at_ms, d.utcOffsetMs) }) : t('pass.other_items_not_ready');
       return { ok: false, outcome: { kind: 'refused', text } };
@@ -228,6 +237,12 @@ export function createCustomerHandover(d: CustomerHandoverDeps): CustomerHandove
     // §3.7a / §8: the shared candidate check over the ids this send serves
     if (!checkHandover([{ order_id, live_ids: c.ids, gate }], c.ids).ok) return { ok: false, outcome: { kind: 'refused', text: t('pass.take_payment_first') } };
     return { ok: true, ids: c.ids };
+  }
+
+  /** fresh order-views (one per order) and one fresh bill read */
+  async function check(orders: readonly PartOrder[], order_type: Job['order_type']): Promise<Checked[]> {
+    const [views, bill] = await Promise.all([Promise.all(orders.map((o) => d.orderView(o.order_id))), d.bills.fresh()]);
+    return orders.map((o, i) => judge(o, order_type, views[i]!, bill));
   }
 
   const say = (outcome: TapOutcome) => {
@@ -238,58 +253,73 @@ export function createCustomerHandover(d: CustomerHandoverDeps): CustomerHandove
   // ⚠️ 02b v1.0.25 §6.4 (R3-M-4): every staff customer hand-over of a takeaway / parking order says so
   const payload = (order_id: string, ids: string[]): MarkServedPayload => ({ lines: [{ order_id, order_item_ids: ids }], customer_handover: true });
 
-  async function sendOnce(job: Job, ids: string[]): Promise<EnqueueResult> {
-    return d.enqueue(payload(job.order.order_id, ids), `${t('pass.handed_to_customer')} · ${job.ident}`);
+  async function sendOnce(job: Job, order_id: string, ids: string[]): Promise<EnqueueResult> {
+    return d.enqueue(payload(order_id, ids), `${t('pass.handed_to_customer')} · ${job.ident}`);
+  }
+
+  /** one order's send after the Undo window, with its refusals (as before the bag: one order at a time) */
+  async function sendPart(job: Job, part: Part): Promise<void> {
+    let ids = part.ids;
+    const order_id = part.order.order_id;
+    // §3.4: eligibility was invalidated during the Undo → read and check again before the send
+    if (d.bills.epoch() !== job.epoch) {
+      const again = (await check([part.order], job.order_type))[0]!;
+      if (!again.ok) return say(again.outcome);
+      ids = part.ids.filter((x) => again.ids.includes(x));
+      if (ids.length === 0) return;
+    }
+    const r = await sendOnce(job, order_id, ids);
+    if (r.status !== 'refused') {
+      if (r.status === 'needs_hub') d.toast(t('pass.offline_counter'), 'warn');
+      return;
+    }
+    const e = r.error;
+    if (e.status === 403 && e.code === 'PERMISSION_DENIED' && e.details['reason'] === 'unpaid_handover_approval_required') {
+      // §6.4 (D2): the due rose or the approval ended before the send — the card asks a manager again
+      d.onUnpaidRefused?.(order_id);
+      return d.toast(t('unpaid.refused'), 'warn');
+    }
+    if (e.status === 403 && e.code === 'PERMISSION_DENIED') return d.toast(e.details['reason'] === 'outside_scope' ? t('pass.outside_scope') : t(errorKey(e.code)), 'warn');
+    if (e.status === 409 && e.code === 'ITEM_WRONG_STAGE') {
+      const stage = e.details['stage'];
+      if (stage !== 'removed' && stage !== 'voided') return d.toast(t('pass.hand_at_counter'), 'warn');
+      // a line was removed / voided meanwhile: read again and retry once with the original ids still live
+      const again = (await check([part.order], job.order_type))[0]!;
+      if (!again.ok) return say(again.outcome);
+      const left = ids.filter((x) => again.ids.includes(x));
+      if (left.length === 0) return;
+      const second = await sendOnce(job, order_id, left);
+      if (second.status === 'refused') d.toast(t('pass.hand_at_counter'), 'warn');
+      return;
+    }
+    d.toast(t(errorKey(e.code)), 'warn');
   }
 
   return {
     async tap(order, order_type, ident) {
-      const base = { order, order_type, ident };
-      const c = await check(base);
-      if (!c.ok) return c.outcome;
-      if (c.ids.length === 0) return { kind: 'nothing' };
+      const orders: readonly PointOrder[] = Array.isArray(order) ? order : [order as PointOrder];
+      const checked = await check(orders, order_type);
+      // a refusal of any order refuses the bag (nothing is queued); an order gone meanwhile is left out
+      const refusal = checked.find((c): c is Extract<Checked, { ok: false }> => !c.ok && c.outcome.kind !== 'gone');
+      if (refusal !== undefined) return refusal.outcome;
+      const parts: Part[] = [];
+      orders.forEach((o, i) => {
+        const c = checked[i]!;
+        if (c.ok && c.ids.length > 0) parts.push({ order: o, ids: c.ids });
+      });
+      if (parts.length === 0) return checked.every((c) => !c.ok) ? { kind: 'gone' } : { kind: 'nothing' };
       const id = newUlid();
-      jobs.set(id, { ...base, ids: c.ids, epoch: d.bills.epoch() });
-      d.handovers.start({ id, token_key: order.order_id, ident, payload: payload(order.order_id, c.ids) });
+      jobs.set(id, { parts, order_type, ident, epoch: d.bills.epoch() });
+      const lines = parts.map((p) => ({ order_id: p.order.order_id, order_item_ids: p.ids }));
+      d.handovers.start({ id, token_key: orders[0]!.order_id, ident, payload: { lines, customer_handover: true } });
       return { kind: 'started', id };
     },
     async send(h) {
       const job = jobs.get(h.id);
       jobs.delete(h.id);
       if (job === undefined) return;
-      let ids = job.ids;
-      // §3.4: eligibility was invalidated during the Undo → read and check again before the send
-      if (d.bills.epoch() !== job.epoch) {
-        const again = await check(job);
-        if (!again.ok) return say(again.outcome);
-        ids = job.ids.filter((x) => again.ids.includes(x));
-        if (ids.length === 0) return;
-      }
-      const r = await sendOnce(job, ids);
-      if (r.status !== 'refused') {
-        if (r.status === 'needs_hub') d.toast(t('pass.offline_counter'), 'warn');
-        return;
-      }
-      const e = r.error;
-      if (e.status === 403 && e.code === 'PERMISSION_DENIED' && e.details['reason'] === 'unpaid_handover_approval_required') {
-        // §6.4 (D2): the due rose or the approval ended before the send — the card asks a manager again
-        d.onUnpaidRefused?.(job.order.order_id);
-        return d.toast(t('unpaid.refused'), 'warn');
-      }
-      if (e.status === 403 && e.code === 'PERMISSION_DENIED') return d.toast(e.details['reason'] === 'outside_scope' ? t('pass.outside_scope') : t(errorKey(e.code)), 'warn');
-      if (e.status === 409 && e.code === 'ITEM_WRONG_STAGE') {
-        const stage = e.details['stage'];
-        if (stage !== 'removed' && stage !== 'voided') return d.toast(t('pass.hand_at_counter'), 'warn');
-        // a line was removed / voided meanwhile: read again and retry once with the original ids still live
-        const again = await check(job);
-        if (!again.ok) return say(again.outcome);
-        const left = ids.filter((x) => again.ids.includes(x));
-        if (left.length === 0) return;
-        const second = await sendOnce(job, left);
-        if (second.status === 'refused') d.toast(t('pass.hand_at_counter'), 'warn');
-        return;
-      }
-      d.toast(t(errorKey(e.code)), 'warn');
+      // one MarkServed per order (the kitchen side stays per order), in the bag's order
+      for (const part of job.parts) await sendPart(job, part);
     },
   };
 }

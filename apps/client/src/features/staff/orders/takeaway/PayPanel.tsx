@@ -12,6 +12,8 @@ import { billMoney, parseMinor } from '../../../billing/money';
 import { useShell } from '../../shell/hooks';
 import { MONEY_DIR, money } from '../money';
 import './styles';
+import { REFERENCE_MAX, referenceLength, typedReference } from '../../../billing/reference';
+import { TkIco } from './icons';
 
 // 02b-TK C3-1 (05 v1.0.34 §6.1, §6.9, §6.12, B12, B16; frames PayCash, PayCashShort, PayCard, PayDone, PayError,
 // PayUrdu; MAPPING TK-D06): the takeaway pay panel over the cart (the menu and the queue stay live). The bill is the
@@ -49,8 +51,29 @@ export interface PayPanelProps {
   fixed?: boolean;
 }
 
-/** The cash notes the frames offer, in major units. */
-const NOTES = [4_000, 5_000, 10_000] as const;
+/**
+ * ⚠️ 02b-TK L-CLIENT-6b item 6 (frames PayCash "Exact / 4,000 / 5,000 / 10,000"; QA: Rs 80 offered 4,000+): the quick
+ * cash notes for an amount — the due rounded up to each note size (100, 500, 1,000, 5,000, 10,000), a size at least a
+ * tenth of the due, above the due, three at most: Rs 80 → 100 / 500 / 1,000; Rs 3,650 → 4,000 / 5,000 / 10,000.
+ * Major units.
+ */
+export function quickNotes(dueMajor: number): number[] {
+  const out = new Set<number>();
+  for (const step of [100, 500, 1_000, 5_000, 10_000]) {
+    if (step * 10 < dueMajor) continue;
+    const up = Math.ceil(dueMajor / step) * step;
+    if (up > dueMajor) out.add(up);
+  }
+  return [...out].sort((a, b) => a - b).slice(0, 3);
+}
+
+/** "5000" / "5,000.5" as typed → shown with thousands separators ("5,000"), the decimals as typed. */
+export function groupedTyped(text: string): string {
+  const clean = text.replace(/[^\d.]/g, '');
+  const [whole = '', ...rest] = clean.split('.');
+  const grouped = whole.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return rest.length === 0 ? grouped : `${grouped}.${rest.join('')}`;
+}
 
 type Phase =
   | { kind: 'loading' }
@@ -287,7 +310,10 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
               </span>
             </div>
           )}
-          <p>{phase.receipt ? t('p.receipt') : t('billing.no_printer')}</p>
+          <p className="tk-pay__receipt">
+            {phase.receipt && <TkIco name="printer" />}
+            {phase.receipt ? t('p.receipt') : t('billing.no_printer')}
+          </p>
         </div>
         <div className="tk-foot">
           <button type="button" className="tk-btn tk-btn--xl tk-btn--block tk-btn--primary" onClick={onDone}>
@@ -376,7 +402,9 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
         <div className="tk-modes">
           {modes.map((m) => (
             <button key={m.mode_id} type="button" className={m.mode_id === mode.mode_id ? 'tk-mode is-sel' : 'tk-mode'} aria-pressed={m.mode_id === mode.mode_id} onClick={() => pickMode(m)}>
-              {m.name}
+              {/* frame PayCash: an icon on each way to pay */}
+              <TkIco name={m.payment_class === 'cash' ? 'cash' : m.kind === 'wallet' || /qr|raast/i.test(m.name) ? 'qr' : 'card'} />
+              <bdi>{m.name}</bdi>
             </button>
           ))}
         </div>
@@ -394,7 +422,7 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
                   {t('p.exact')}
                   <small dir={MONEY_DIR}>{money(due)}</small>
                 </button>
-                {NOTES.map((n) => (
+                {quickNotes(Math.ceil(due / 10 ** exponent)).map((n) => (
                   <button key={n} type="button" className={tenderedMinor === noteMinor(n) && tenderedMinor !== due ? 'is-sel' : ''} onClick={() => setTendered(String(n))}>
                     <span dir={MONEY_DIR}>{money(noteMinor(n))}</span>
                   </button>
@@ -402,7 +430,10 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
               </div>
               <label className="tk-tendered">
                 <span>{t('p.given')}</span>
-                <input className="money" inputMode="decimal" dir={MONEY_DIR} autoComplete="off" value={tendered} onChange={(e) => setTendered(e.currentTarget.value)} />
+                <span className="tk-tendered__v" dir={MONEY_DIR}>
+                  <span aria-hidden="true">Rs</span>
+                  <input className="money" inputMode="decimal" dir={MONEY_DIR} autoComplete="off" value={groupedTyped(tendered)} onChange={(e) => setTendered(e.currentTarget.value.replace(/,/g, ''))} />
+                </span>
               </label>
               {short !== null && (
                 <div className="tk-change tk-change--short" role="alert">
@@ -425,10 +456,14 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
         ) : (
           <div className="tk-qrbox tk-qrbox--start">
             <b>{t('p.machine')}</b>
+            {/* frame PayCard: where the card is taken */}
+            <small className="tk-pay__hint">{t('p.card_hint')}</small>
             {mode.reference_required && (
               <label className="tk-field">
                 <span>{t('p.ref')}</span>
-                <input className="tk-input" dir="ltr" autoComplete="off" maxLength={60} value={reference} onChange={(e) => setReference(e.currentTarget.value)} />
+                <input className="tk-input" dir="ltr" autoComplete="off" maxLength={REFERENCE_MAX} value={reference} onChange={(e) => setReference(typedReference(e.currentTarget.value))} />
+                {/* QA BUG-27: the limit is visible; leading spaces dropped as typed, sent trimmed */}
+                <span className="cntr num">{fill(t('note.count'), { n: String(referenceLength(reference)), max: String(REFERENCE_MAX) })}</span>
               </label>
             )}
           </div>
@@ -438,7 +473,8 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
     if (online)
       primary = (
         <button type="button" className="tk-btn tk-btn--xl tk-btn--ok" aria-disabled={!ready} onClick={() => void pay()}>
-          {t('p.done')} <span className="tk-kbd" dir="ltr">Enter</span>
+          <TkIco name="check" />
+          <span className="tk-pay__go">{t('p.done')}</span> <span className="tk-kbd" dir="ltr">Enter</span>
         </button>
       );
   }

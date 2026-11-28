@@ -311,12 +311,17 @@ describe('[02b-TK C2-4] remove / cancel from a token', () => {
     command.mockResolvedValue({ ok: true, data: { removed: [{ order_item_id: 'B', units: 1 }], cancelled: false, comp_requests_closed: [] } });
     const v = await show(s, tok());
     v.click(v.button('Remove / cancel'));
-    const lassi = v.container.querySelector('[data-line="B"]')!;
-    const paye = v.container.querySelector('[data-line="A"]')!;
-    expect(paye.querySelector('button')).toBeNull();
-    v.click(v.button('Remove', lassi));
-    await flush();
-    v.click(v.button('Remove 1', document.body));
+    // ⚠️ L-CLIENT-6b item 5 (frame TokenRemove): one dialog "Remove from token 54" — a stepper per not-started line, the
+    // bill line, Keep / "Remove 1 Lassi"
+    const dlg = document.body.querySelector<HTMLElement>('.tk-remove')!;
+    expect(dlg.querySelector('h2')?.textContent).toBe('Remove from token 54');
+    const lassi = dlg.querySelector('[data-line="B"]')!;
+    const paye = dlg.querySelector('[data-line="A"]')!;
+    expect(paye.querySelector('.tk-step')).toBeNull();
+    v.click(v.button('One more Lassi', lassi));
+    expect(dlg.textContent).toContain('Bill goes from Rs 1,800 to');
+    expect(dlg.textContent).toContain('Not paid yet, so no refund.');
+    v.click(v.button('Remove 1 Lassi', dlg));
     await flush();
     expect(command.mock.calls[0]![0]).toBe('RemoveItems');
     expect(command.mock.calls[0]![1]).toEqual({ order_id: 'O54', lines: [{ order_item_id: 'B', units: 1 }] });
@@ -326,13 +331,16 @@ describe('[02b-TK C2-4] remove / cancel from a token', () => {
     const s = setup({ views: { O54: cookingAndNew() }, bills: { O54: bill(null, 'projected', 180_000) }, grants: { 'void-item': { grant: 'requires_approval', scope: 'branch' } } });
     const v = await show(s, tok());
     v.click(v.button('Remove / cancel'));
-    const paye = v.container.querySelector('[data-line="A"]')!;
-    expect(paye.querySelector('.btn--void')?.textContent).toContain('Void');
-    expect(paye.querySelector('.btn--void .ntag')).not.toBeNull();
+    const dlg = document.body.querySelector<HTMLElement>('.tk-remove')!;
+    const paye = dlg.querySelector('[data-line="A"]')!;
+    // frame TokenRemove: "Void · approval" and "… · Void needs a manager" on a line past stage 1
+    expect(paye.querySelector('.tk-remove__void')?.textContent).toBe('Void · approval');
+    expect(paye.textContent).toContain('Void needs a manager');
     // no take-order: the not-started line offers nothing
-    expect(v.container.querySelector('[data-line="B"] button')).toBeNull();
-    v.click(paye.querySelector('.btn--void'));
+    expect(dlg.querySelector('[data-line="B"] button')).toBeNull();
+    v.click(paye.querySelector('.tk-remove__void'));
     await flush();
+    expect(document.body.querySelector('.tk-remove')).toBeNull();
     expect(document.body.querySelector('.dlg')).not.toBeNull();
   });
 
@@ -344,9 +352,10 @@ describe('[02b-TK C2-4] remove / cancel from a token', () => {
     });
     const v = await show(s, tok({ order_ids: ['O48'], newest_order_id: 'O48', paid: true }));
     v.click(v.button('Remove / cancel'));
-    expect(v.text()).toContain('Paid: reopen the bill first');
-    expect(v.container.querySelector('[data-line="A"] button')).toBeNull();
-    v.click(v.button('Bill', v.container.querySelector('.tk-msg')!));
+    const dlg = document.body.querySelector<HTMLElement>('.tk-remove')!;
+    expect(dlg.textContent).toContain('Paid: reopen the bill first');
+    expect(dlg.querySelector('[data-line="A"] .tk-step button:not([disabled])')).toBeNull();
+    v.click(v.button('Bill', dlg.querySelector('.tk-msg')!));
     expect(nav.to).toEqual(['/bill?order_id=O48']);
   });
 

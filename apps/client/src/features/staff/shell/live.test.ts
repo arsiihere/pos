@@ -45,4 +45,18 @@ describe('[02 W0.6] live bus', () => {
     expect(bus.part('tables')).toBe(tables);
     expect(bus.part('orders')).toEqual({ orders: [], zone_stock: [] });
   });
+
+  it('[BUG-12] forget() drops the parts and the seq of the session that ended; the next catch-up fills them again', () => {
+    const bus = createLiveBus();
+    bus.frame({ type: 'catch_up', as_of_seq: 30, state: { orders: { orders: [], zone_stock: [] } } });
+    bus.forget();
+    expect(bus.part('orders')).toBeUndefined();
+    expect(bus.lastSeq()).toBe(-1);
+    const got: LiveMessage[] = [];
+    bus.subscribe((m) => got.push(m));
+    bus.frame({ type: 'catch_up', as_of_seq: 12, state: { orders: { orders: [], zone_stock: [] } } });
+    bus.frame(ev(13));
+    expect(got.map((m) => m.kind)).toEqual(['catch_up', 'event']);
+    expect(bus.part('orders')).toBeDefined();
+  });
 });

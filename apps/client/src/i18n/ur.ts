@@ -1067,6 +1067,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'alert.zone_stock_out.lock': 'زون کا ایک آئٹم ختم ہو گیا',
   // ---- lane A (02a client) ----
   'signin.pin_needs_hub': 'سائن اِن کے لیے ہب چاہیے',
+  'signin.locked_for': 'بہت زیادہ غلط PIN۔ {t} بعد دوبارہ کوشش کریں۔',
+  'signin.device_locked_for': 'اس اسکرین پر بہت زیادہ غلط PIN۔ {t} بعد دوبارہ کوشش کریں۔',
   'pair.wipe_failed': 'اس سکرین کو ری سیٹ نہیں کیا جا سکا۔ مینیجر سے پوچھیں۔',
   'topbar.floor': 'فلور',
   'tabs.tables': 'میزیں',
@@ -1380,6 +1382,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.hand_over_sub': 'ایک ٹیپ سے یہاں کی ہر تیار لائن حوالے۔',
   // P4 (from PassTakeoverUrdu; pass.screen_back is in docs/design/handoff/03b/urdu-todo.md, lane P)
   'pass.takeover_sub': 'اس کا ناؤ اور اگلا یہاں ہے۔ اسکرین واپس آنے تک یہاں ٹیپ کریں۔',
+  'pass.takeover_no_answer': 'ہب سے جواب نہیں آیا — دوبارہ ٹیپ کریں', // QA BUG-17; Urdu to confirm
+  'pass.takeover_not_fired': 'ابھی کچن کو نہیں بھیجا گیا — پہلے پچھلے راؤنڈ', // QA BUG-17; Urdu to confirm
   // ---- lane A (03b client) ----
   // A1 kitchen screens (from KitchenScreensUrdu; the rest is in docs/design/handoff/03b/urdu-todo.md, lane A)
   'kitchen_screens.stations': 'اسٹیشن',
@@ -1392,6 +1396,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'kitchen_screens.use_tablet': 'ٹیبلٹ کو پاس ٹیبلٹ بنائیں',
   'kitchen_screens.play': 'اس ڈیوائس پر چلائیں',
   'admin_03.nav.other_jobs': 'دوسرے کام',
+  'admin_03.login.listed_only': 'یہ اسکرین ہب ایڈمن کے صفحے نہیں کھول سکتی',
+  'admin_03.login.listed_only_body':
+    'یہ سب کے لیے ہے۔ یہ صفحہ اپنے فون پر یا ایسی ڈیوائس پر کھولیں جو "صرف درج لوگ" پر ہو اور اس میں آپ کا نام ہو۔ مینیجر اسے Devices میں بدل سکتا ہے۔',
+  'admin_03.login.recover': 'ایڈمن رسائی واپس لیں',
   // A5 alert cards (written without a frame text: listed under "Needs native review" in 03b/urdu-todo.md)
   'alerts.closed.moved_plain': 'منتقل',
   'alerts.closed.served': 'پیش ہو گیا',
@@ -1704,6 +1712,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'v.check_denied': 'آپ اس آرڈر کا چیک بل پرنٹ نہیں کر سکتے',
   // ---- 02b-TK client (A2 batch 1, item 1 shell: frames ShellAnatomy, PersonMenu, DayNotStarted): strings-table.md ----
   'shell.back': 'واپس',
+  'shell.signed_out_hub': 'آپ سائن آؤٹ ہو گئے۔ دوبارہ سائن اِن کریں۔',
+  'shell.not_allowed.title': 'اجازت نہیں',
+  'shell.not_allowed.body': 'آپ کا رول اس ڈیوائس پر یہ اسکرین استعمال نہیں کر سکتا۔ ضرورت ہو تو مینیجر سے پوچھیں۔',
+  'shell.not_allowed.home': 'میری اسکرین پر جائیں',
   'shell.me.switch': 'یوزر بدلیں',
   'shell.me.switch_sub': 'کاؤنٹر کسی اور کو دیں',
   'shell.me.lock': 'اسکرین لاک کریں',
@@ -1777,6 +1789,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.offline_counter': 'آف لائن — کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
   'pass.pickup_at': '{time} پر لینا ہے — کاؤنٹر پر \'گاہک آ گیا\' استعمال کریں', // not in strings-table.md; Urdu to confirm
   'pass.due': 'باقی — گاہک کاؤنٹر پر ادا کرے گا', // not in strings-table.md; Urdu to confirm
+  'pass.due_amount': 'باقی {amount} — گاہک کاؤنٹر پر ادا کرے گا', // 03b v1.0.17; Urdu to confirm
+  'pass.addition_tag': '(اضافہ)', // 03b v1.0.17; Urdu to confirm
+  'pass.ready_pick_sub_bag': 'نشان والی چیزیں تیار ہو کر بیگ میں جائیں گی۔', // 03b v1.0.17; Urdu to confirm
+  'pass.waiting_counter': 'کاؤنٹر پر انتظار', // 03b v1.0.17; Urdu to confirm
+  'pass.phone_order': 'فون آرڈر', // 03b v1.0.17; Urdu to confirm
   'pass.waiting_bill': 'بل کا انتظار', // not in strings-table.md; Urdu to confirm
   'pass.pickup_label': 'لینا ہے {time}', // not in strings-table.md; Urdu to confirm
   'pass.hand_at_counter': 'کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
@@ -1798,6 +1815,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.manager_rejected': 'مینیجر نے منع کر دیا', // not in strings-table.md; Urdu to confirm
   'unpaid.already_waiting': 'مینیجر سے پہلے ہی پوچھا جا چکا ہے', // not in strings-table.md; Urdu to confirm
   'unpaid.withdraw': 'واپس لیں', // not in strings-table.md; Urdu to confirm
+  'unpaid.addition': '(اضافہ)', // not in strings-table.md; Urdu to confirm
   'unpaid.approved': 'مینیجر نے اجازت دے دی — حوالے کریں', // not in strings-table.md; Urdu to confirm
   'unpaid.not_needed': 'ابھی کچھ باقی نہیں — حوالے کریں', // not in strings-table.md; Urdu to confirm
   'unpaid.refused': 'ادائیگی نہیں ہوئی — پہلے پیسے لیں یا مینیجر سے پوچھیں', // not in strings-table.md; Urdu to confirm
@@ -1805,6 +1823,12 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'alert.hand_over_unpaid.card': '{identifier} بغیر ادائیگی حوالے کریں', // not in strings-table.md; Urdu to confirm
   'alert.hand_over_unpaid.lock': 'بغیر ادائیگی حوالگی کی درخواست', // not in strings-table.md; Urdu to confirm
   'alert.hand_over_unpaid.name': 'بغیر ادائیگی حوالگی', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.closed': 'اب ضرورت نہیں — بل یا آرڈر بدل گیا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.due_changed': 'بل بڑھ گیا — دوبارہ پوچھیں', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.handed_over': 'پہلے ہی حوالے ہو چکا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.order_cancelled': 'آرڈر منسوخ ہو گیا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.bill_closed': 'بل ادا ہو گیا', // not in strings-table.md; Urdu to confirm
+  'alert.hand_over_unpaid.why.day_closed': 'دن بند ہو گیا', // not in strings-table.md; Urdu to confirm
   // ---- 02b-TK L-CLIENT-3 item 1 (05 v1.0.35 §6.3, §6.3a, §8; 02b v1.0.25 §8 OR-5 / R6; D9): cart / Due check bill — gross and remaining payable, the cart's refusals, Print receipt again ----
   'billing.check_amounts': 'کل رقم {gross} · باقی قابلِ ادائیگی {due}', // not in strings-table.md; Urdu to confirm
   'billing.check_not_printed': 'چیک بل پرنٹ نہیں ہوا — {why}', // not in strings-table.md; Urdu to confirm
@@ -1850,4 +1874,130 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'c.note_add': 'نوٹ لکھیں',
   'c.note_edit': 'نوٹ بدلیں',
   't.print': 'دوبارہ پرنٹ',
+  // ---- 02b-TK L-CLIENT-6b (frames Token*, Pay*, ItemSheet*, DealSheet, HeldDrawer, CustomerDisplay, PersonMenu; Urdu drafts in urdu-todo.md) ----
+  'h.title': 'اس کاؤنٹر پر ہولڈ',
+  'h.resume': 'جاری رکھیں',
+  'h.discard': 'ختم کریں',
+  'h.at': '{time} پر ہولڈ',
+  'h.not_kitchen': 'ہولڈ آرڈر کچن میں نہیں گئے۔ بھیجنے کیلئے جاری رکھیں۔',
+  'h.empty': 'اس کاؤنٹر پر کچھ ہولڈ نہیں',
+  'is.size': 'سائز',
+  'is.pick': '{n} چنیں',
+  'is.up_to': '{n} تک چنیں',
+  'is.any': 'جتنے چاہیں',
+  'is.each': 'فی عدد',
+  'is.weight': 'وزن',
+  'is.steps': '{n} گرام کے حساب سے',
+  'is.weigh_later': 'بعد میں تولیں — قیمت تولنے کے بعد',
+  'is.turned_off': 'کچن نے بند کر دیا',
+  'is.note_ph': 'کچن کیلئے نوٹ ({n})',
+  'is.qty': 'تعداد',
+  'is.save': 'تبدیلیاں محفوظ کریں',
+  'is.min': '{n} منٹ',
+  'is.ready_now': 'ابھی تیار',
+  'is.ready_by': '{t} تک تیار',
+  'is.station_busy': '{station} اسٹیشن مصروف',
+  'is.station_full': '{station} اسٹیشن بھرا ہوا',
+  'is.in_deal': 'اس ڈیل میں',
+  'is.part_pick': '{n}× — ایک چنیں',
+  'c.add_delta': '{token} کا تیار وقت:',
+  'v.late_chip': 'دیر',
+  'v.hurry': 'کچن کو جلدی',
+  'v.print_slip': 'پرچی پرنٹ کریں',
+  'tr.title': 'ٹوکن سے ہٹائیں',
+  'tr.can_remove': 'ہٹایا جا سکتا ہے',
+  'tr.void_mgr': 'void کیلئے مینیجر چاہیے',
+  'tr.void_ok': 'void ہو سکتا ہے',
+  'tr.void_chip': 'Void · منظوری',
+  'tr.void': 'Void',
+  'tr.bill': 'بل {from} سے {to} ہو جائے گا۔ ابھی ادا نہیں ہوا، اس لیے کچھ واپس نہیں۔',
+  'tr.go': '{n} {item} ہٹائیں',
+  'tr.go_n': '{n} آئٹم ہٹائیں',
+  'tr.keep': 'رہنے دیں',
+  'p.card_hint': 'کارڈ کاؤنٹر کی مشین پر لیا جاتا ہے',
+  'shell.manager.title': 'مینیجر ٹولز',
+  'opt.add': 'آرڈر میں ڈالیں',
+  'opt.kitchen_note': 'کچن کیلئے نوٹ',
+  'opt.choose': '{n} چنیں',
+  'opt.up_to': '{n} تک',
+  'opt.choose_missing': '{group} میں {n} چنیں',
+  'menu.not_available': 'دستیاب نہیں',
+  'weight.after_weighing': 'قیمت تولنے کے بعد',
+  'weight.now': 'ابھی وزن لکھیں',
+  'weight.later': 'بعد میں تولیں',
+  'weight.later_note': '“وزن باقی” کے ساتھ ڈال دیا۔ بل سے پہلے کیشیئر یا مینیجر وزن لکھے گا۔',
+  'stage.sent_back': 'واپس بھیجا',
+  'order.toast.boosted': 'کچن کو جلدی کا کہہ دیا',
+  'stage.badge.removed': 'ہٹا دیا',
+  'send.sending': 'کچن کو بھیج رہے ہیں…',
+  'billing.bill.load_failed': 'بل لوڈ نہیں ہوا۔',
+  'billing.closed_empty': 'بند · کچھ بل نہیں · پیسے واپس',
+  'billing.no_printer': 'بل کا پرنٹر نہیں لگا — گاہک کو اسکرین دکھائیں',
+  'billing.total_changed': 'کل رقم {amount} ہو گئی — دیکھ کر دوبارہ بند کریں',
+  'pad.maybe_in': 'یہ ادائیگی شاید پہلے ہی ہو چکی ہے — دوبارہ لینے سے پہلے ادائیگیاں دیکھیں',
+  'tables.toast.needs_hub': 'ہب چاہیے',
+  'billing.check_sent': 'چیک بل {printer} پر بھیج دیا',
+  'billing.print.reprint_sent': 'دوبارہ پرنٹ {printer} پر بھیج دیا',
+  'errors.INVOICE_NOT_FOUND': 'یہ انوائس نہیں ملی',
+  'contact.title': 'گاہک کا رابطہ',
+  'contact.logged': 'یہ دیکھنا درج ہوتا ہے',
+  'request.find_approver': 'انتظار — مینیجر کو ڈھونڈیں',
+  'order.takeaway': 'ٹیک اوے',
+  'order.parking': 'پارکنگ',
+  'tables.changed': 'یہ میز بدل گئی — تازہ کر دیا',
+  'alerts.screen.dine_in': 'میزیں',
+  'alerts.screen.takeaway': 'ٹیک اوے',
+  'alerts.screen.parking': 'پارکنگ',
+  'alerts.screen.cashier': 'کیش ڈیسک',
+  'alerts.screen.pass': 'پاس',
+  'alerts.screen.manager': 'مینیجر ٹولز',
+  'alerts.device.tablet': 'ٹیبلٹ',
+  'alerts.device.cashier_kiosk': 'کیشیئر کیوسک',
+  'alerts.device.phone': 'فون',
+  'alerts.live': 'لائیو',
+  'alerts.hub_offline': 'ہب بند ہے',
+  'alerts.more_new': '{n} اور نئے',
+  'alerts.open_inbox': 'اِن باکس کھولیں',
+  'alerts.signin.who': 'کون سائن اِن کر رہا ہے؟',
+  'alerts.signin.pick': 'اپنا نام دبائیں، پھر اپنا PIN۔',
+  'alerts.signin.submit': 'سائن اِن',
+  'alerts.signin.pin_for': '{name}، اپنا PIN لکھیں',
+  'alerts.signin.none': 'ابھی یہاں کوئی سائن اِن نہیں کر سکتا۔',
+  'alerts.signin.retry': 'ابھی دوبارہ کوشش کریں',
+  'alerts.signin.offline': 'ہب سے رابطہ نہیں — دوبارہ کوشش ہو رہی ہے…',
+  'alerts.signin.active': '{name} اس ڈیوائس پر سائن اِن ہے۔ لینے کیلئے اپنا PIN دوبارہ لکھیں۔',
+  'alerts.sign_out_short': 'سائن آؤٹ',
+  'answer.back': 'واپس',
+  'answer.pin_not_kept': 'آپ کا PIN محفوظ نہیں رکھا جاتا۔',
+  'answer.error.offline': 'ہب سے رابطہ نہیں — دوبارہ کوشش کریں۔',
+  'answer.error.failed': 'کچھ غلط ہو گیا۔ دوبارہ کوشش کریں۔',
+  'answer.error.busy': 'مصروف — دوبارہ کوشش کریں۔',
+  'staff.locked': 'لاک',
+  'send.token': 'ٹوکن',
+  'send.sent': 'بھیج دیا',
+  'send.done': 'ہو گیا',
+  'send.new_takeaway': 'نیا ٹیک اوے',
+  'send.not_yet': 'ابھی نہیں گیا',
+  'send.time_updated': 'وقت بدل گیا: {item} {time}',
+  'cart.empty': 'آئٹم ڈالنے کیلئے دبائیں',
+  'cart.items': '{n} آئٹم',
+  'cart.fix_first': 'پہلے {n} آئٹم ٹھیک کریں',
+  'cart.cant_send': '{n} آئٹم نہیں جا سکتا — پہلے ٹھیک کریں',
+  'cart.times_later': 'بھیجنے پر وقت طے ہوگا',
+  'cart.prob.only_left': 'صرف {n} باقی',
+  'cart.prob.station_paused': 'کچن اسٹیشن رکا ہوا ہے',
+  'cart.prob.set_to': '{n} کر دیں',
+  'day.not_started': 'دن شروع نہیں ہوا',
+  'day.start': 'دن شروع کریں',
+  'day.ask_manager': 'مینیجر سے دن شروع کروائیں۔ آپ کا آرڈر محفوظ ہے۔',
+  'menu.here': '{n} یہاں',
+  'draft.back': 'آپ کا نہ بھیجا آرڈر واپس آ گیا',
+  'draft.kept_since': '{time} سے اس اسکرین پر رکھا ہے',
+  'held.title': 'اس اسکرین پر ہولڈ',
+  'held.resume': 'جاری رکھیں',
+  'held.discard': 'ختم کریں',
+  'queue.in_log': 'نہیں گیا — قطار کا لاگ دیکھیں',
+  'queue.title': 'نہیں گیا',
+  'tr.pick': 'جو ہٹانا ہے وہ چنیں',
+  // ---- end L-CLIENT-6b ----
 };

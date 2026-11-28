@@ -20,8 +20,9 @@ for (const lang of ['en', 'ur'] as Lang[]) {
     await expect(card).toHaveCount(1);
     // portrait: one column of cards (IR-18 `pcards--1`); landscape: the wide grid
     await expect(page.locator('.pcards')).toHaveClass(info.project.name === 'tablet-portrait' ? /pcards--1/ : /^(?!.*pcards--1)/);
-    // the station has no screen: the group says so and every line carries Start / Done
-    await expect(card.locator('.pc__g')).toContainText(`Grill ${key}`);
+    // the station has no screen: the card says so (03b v1.0.17 §8: in the header line of a one-station card) and every
+    // line carries Start / Done
+    await expect(card.locator('.pc__nos')).toContainText(`Grill ${key}`);
     await expect(card.locator('.btn--start')).toHaveCount(3);
 
     const context = await browser.newContext({ ...info.project.use });
@@ -46,8 +47,8 @@ for (const lang of ['en', 'ur'] as Lang[]) {
       await card.locator('.btn--ready').click();
       await expect(card.locator('.pc__rdy')).toBeVisible();
       // the Ready is a person alert for Ali (the taker of a takeaway): the header's Inbox lists it
-      await expect(taker.getByRole('button', { name: /Inbox|ان باکس|اِن باکس/ })).toContainText(/[1-9]/, { timeout: 20_000 });
-      await taker.getByRole('button', { name: /Inbox|ان باکس|اِن باکس/ }).click();
+      await expect(taker.getByRole('button', { name: /^(Inbox|ان باکس|اِن باکس)(?!\s*کھولیں)/ })).toContainText(/[1-9]/, { timeout: 20_000 });
+      await taker.getByRole('button', { name: /^(Inbox|ان باکس|اِن باکس)(?!\s*کھولیں)/ }).click();
       await expect(taker.getByText(tr(lang, 'alert.ready_to_serve.card').split(' · ')[0]).first()).toBeVisible({ timeout: 20_000 });
 
       // Hand over → the receiver sheet → Ali

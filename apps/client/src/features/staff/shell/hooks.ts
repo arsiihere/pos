@@ -6,6 +6,7 @@ import type { Enqueue, LocalFlags, TablesApi } from '../tables/contracts';
 import type { ShellConfig } from './config';
 import type { ContextSlotStore } from './context-slot';
 import type { RushSlotStore } from './rush-slot';
+import type { BarSlotStore } from './bar-slot';
 import type { LiveBus } from './live';
 import type { Permissions } from './permissions';
 import type { ToastBus } from './toast';
@@ -53,6 +54,8 @@ export interface Shell {
   contextSlot?: ContextSlotStore;
   /** 02b-TK A2 item 4: the takeaway screen's rush state for the Live / Rush pill; absent outside StaffApp */
   rush?: RushSlotStore;
+  /** ⚠️ 03b v1.0.17 §8: a row of the screen's own controls in the top bar (the Pass's type tabs); absent outside StaffApp */
+  bar?: BarSlotStore;
 }
 
 /**

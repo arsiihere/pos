@@ -87,7 +87,7 @@ function show(s: ReturnType<typeof shellWith>) {
   );
 }
 const salad = () => m.container.querySelector('.pl[data-id="SALAD"]')!;
-const actsOf = (id: string) => [...(m.container.querySelector(`.pl[data-id="${id}"] .pl__a`)?.querySelectorAll('button') ?? [])].map((b) => b.textContent);
+const actsOf = (id: string) => [...(m.container.querySelector(`.pl[data-id="${id}"] .pl__ia`)?.querySelectorAll('button') ?? [])].map((b) => b.querySelector('.sr')?.textContent ?? b.textContent); // v1.0.17: icon buttons, their words for screen readers
 
 describe('[03b Q-45] screenless lines on the Pass', () => {
   // ⚠️ 03b v1.0.10 (STAB-3, #81): Start / Done on every station's lines, not only screenless ones
@@ -118,7 +118,8 @@ describe('[03b Q-45] screenless lines on the Pass', () => {
     s.live.frame({ type: 'event', seq: 2, event: { event_id: 'E2', event_type: 'ItemStarted', schema_version: 1, payload: { order_item_id: 'SALAD' } } });
     await flush();
     expect(actsOf('SALAD')).toEqual(['Done']);
-    expect(m.container.querySelector('.pl[data-id="SALAD"] .pl__a')?.className).toBe('pl__a pl__a--1');
+    // ⚠️ 03b v1.0.17 §8: one small icon button (Done) in the line's own row
+    expect(m.container.querySelectorAll('.pl[data-id="SALAD"] .pl__ia button')).toHaveLength(1);
     expect(m.container.querySelector('.pc__msg')).toBeNull();
 
     // Done → frame → Undo with the time left; after the window the hub refuses → "Too late to undo"

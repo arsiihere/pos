@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
-import { en } from '../src/i18n/en';
+import { en, fill } from '../src/i18n/en';
 import { ur } from '../src/i18n/ur';
 import { tablePair, type E2eDevice, type E2eHub, type Flow } from './global-setup';
 
@@ -17,10 +17,14 @@ export function hub(): E2eHub {
   return JSON.parse(readFileSync(file, 'utf8')) as E2eHub;
 }
 
+/** Text with the bidi isolates U+2066–U+2069 removed (for an assertion that reads a time, a token or a name on its own). */
+export const plain = (text: string): string => text.replace(/[\u2066-\u2069]/g, '');
+
 /** The app's own words, so a spec asserts on the language it runs in. */
 export function tr(lang: Lang, key: keyof typeof en, values: Record<string, string> = {}): string {
   const text = lang === 'ur' ? (ur[key] ?? en[key]) : en[key];
-  return text.replace(/\{(\w+)\}/g, (whole, name: string) => values[name] ?? whole);
+  // the app's own fill (L-CLIENT-6b): an Urdu sentence isolates its Latin values (FSI … PDI), so the words match exactly
+  return fill(text, values);
 }
 
 export type { Flow };

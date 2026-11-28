@@ -501,8 +501,9 @@ describe('[02b §8 Ordering screen] order screen', () => {
     expect(tile(m, 'Naan').textContent).toContain('By weight');
     expect(tile(m, 'Naan').textContent).toContain('/ kg');
     m.click(tile(m, 'Naan')); // a weighed item opens the options sheet (26c)
-    for (const k of ['0', '.', '5']) m.click([...m.container.querySelectorAll<HTMLElement>('.wpad button')].find((b) => b.textContent === k)!);
-    m.click(m.button('Add to order'));
+    // ⚠️ L-CLIENT-6b item 3 (frame ItemSheetKg): the takeaway sheet's weight pad and its primary
+    for (const k of ['0', '.', '5']) m.click([...m.container.querySelectorAll<HTMLElement>('.tk-keypad button')].find((b) => b.textContent === k)!);
+    m.click(m.container.querySelector<HTMLButtonElement>('.tk-sheet__go'));
     // lineTotalMinor(4 000, 500, 'g') = Rs 20 on the line and in the total
     expect(m.container.querySelector('.ln__q')?.textContent).toBe('500 g');
     expect(m.container.querySelector('.ln__p')?.textContent).toBe('Rs 20');
