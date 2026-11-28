@@ -4287,6 +4287,9 @@ export const en = {
   'q.ready': 'Ready — hand over',
   'q.cooking': 'Cooking',
   'q.later': 'Phone orders — later',
+  // ⚠️ 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-7): a token handed over in full that still owes
+  'q.owes': 'Handed — owes',
+  'q.owes_row': 'Handed — owes {amount}',
   'q.collect': 'Hand over',
   'q.collect_pay': 'Take payment',
   'q.part': 'Part given · rest',

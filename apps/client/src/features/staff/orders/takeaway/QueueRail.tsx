@@ -330,6 +330,35 @@ function QueueRow({ q, selected, onOpen, later = false }: { q: QueueToken; selec
   );
 }
 
+/**
+ * ⚠️ 02b v1.0.28 §3.7a, §8 (owner 2026-11-28 QA-R2, BUG-7): a token handed over in full that still owes — out of READY —
+ * HAND OVER, no Hand over; "Handed — owes Rs X"; a tap opens the token (Take payment / Bill → the cash desk).
+ */
+function OwesRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; onOpen(): void }) {
+  const [before, after = ''] = t('q.owes_row').split('{amount}');
+  return (
+    <button type="button" className={selected ? 'tk-qr is-sel' : 'tk-qr'} aria-pressed={selected} onClick={onOpen} data-token={q.key}>
+      <span className="tk-tok" dir="ltr">
+        {q.token ?? '—'}
+      </span>
+      <span className="tk-qr__m">
+        <CarriedDate q={q} />
+        <b dir="auto">{q.customer_name ?? t('order.takeaway')}</b>
+        {q.summary !== '' && <small dir="auto">{q.summary}</small>}
+      </span>
+      <span className="tk-qr__r">
+        <span className="tk-chip tk-chip--danger">
+          {before}
+          <span className="money" dir={MONEY_DIR}>
+            {money(q.owed_minor ?? 0)}
+          </span>
+          {after}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOver, onPay, hidden, onCount, compact = false, onGone }: QueueRailProps) {
   const shell = useShell();
   const { model, failed, loadedAt, retry } = useTakeawayQueue(book);
@@ -337,7 +366,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
   // token handed over in full) — never a drawer for a token that is gone
   const goneRef = useRef(onGone);
   goneRef.current = onGone;
-  const listed = model === null || selected === null ? true : [...model.ready, ...model.cooking, ...model.later].some((q) => q.key === selected);
+  const listed = model === null || selected === null ? true : [...model.ready, ...model.cooking, ...model.later, ...model.owes].some((q) => q.key === selected);
   useEffect(() => {
     if (!listed && selected !== null) goneRef.current?.(selected);
   }, [listed, selected]);
@@ -376,6 +405,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
   const ready = pick(model?.ready ?? []);
   const cooking = pick(model?.cooking ?? []);
   const later = pick(model?.later ?? []);
+  const owes = pick(model?.owes ?? []);
   const open = (q: QueueToken) => {
     setAll(false);
     onOpen(q);
@@ -410,7 +440,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
 
   if (variant === 'strip' && !all) return strip;
 
-  const empty = model !== null && model.ready.length + model.cooking.length + model.later.length === 0;
+  const empty = model !== null && model.ready.length + model.cooking.length + model.later.length + model.owes.length === 0;
   const body = (
     <>
       <div className="tk-q__top">
@@ -473,6 +503,18 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
               <QueueRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} later />
             ))}
           </>
+        )}
+        {owes.length > 0 && (
+          <div data-owes="">
+            <div className="tk-sec">
+              <Ico name="warn" />
+              {t('q.owes')}
+              <span className="tk-chip tk-chip--danger num">{owes.length}</span>
+            </div>
+            {owes.map((q) => (
+              <OwesRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} />
+            ))}
+          </div>
         )}
         {empty && (
           <div className="tk-empty">

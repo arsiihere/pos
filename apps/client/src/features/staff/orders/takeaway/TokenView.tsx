@@ -335,6 +335,11 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const lineSub = (l: SeatingLine): string | null => {
     if (l.stage === null || l.stage === 'out_of_engine' || readyItem(l.item_id)) return isServed(l) || readyNow(l) ? t('c.counter') : null;
     if (isServed(l) || readyNow(l)) return null;
+    // ⚠️ 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-12): the line's order's counter time — "Ready ~{planned}" after a
+    // boost (its open-orders row), as the header; else its promise
+    const row = planRows?.find((r) => r.order_id === l.order_id);
+    const planned = row === undefined ? null : plannedReadyOf([row]);
+    if (planned !== null) return fill(t('q.ready_planned'), { t: ltr(timeText(planned, offset)) });
     const at = orders?.find((o) => o.order_id === l.order_id)?.promise_ms ?? null;
     return at === null ? null : fill(t('is.ready_by'), { t: ltr(timeText(at, offset)) });
   };

@@ -1626,6 +1626,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'q.ready': 'تیار — حوالے کریں',
   'q.cooking': 'بن رہا ہے',
   'q.later': 'فون آرڈر — بعد میں',
+  'q.owes': 'حوالے — باقی رقم', // 02b v1.0.28 QA-R2 BUG-7; Urdu to confirm
+  'q.owes_row': 'حوالے — باقی {amount}', // Urdu to confirm
   'q.collect': 'حوالے کریں',
   'q.collect_pay': 'پیسے لیں',
   'q.part': 'کچھ دیا · باقی',

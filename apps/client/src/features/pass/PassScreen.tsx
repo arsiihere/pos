@@ -28,6 +28,7 @@ import { matchStaffRoute } from '../staff/shell/routes';
 import { passOpenedText } from './pass-place';
 import { PASS_FILTERS, ordersFor, orderTypeOf, typeCounts, type PassFilter } from './order-filter';
 import { createTakeawayPromises } from './takeaway-promises';
+import { counterTimeOf } from '../staff/orders/takeaway/queue-model';
 import { createBillEligibility, createCustomerHandover, customerButton, customerIdent, eligibilityOf, type Eligibility } from './actions/customer';
 import { AskChip, AskSheet, type AskItem } from './actions/AskSheet';
 import { bagLate, bagPending, bagPickupOk, bagState, bagsOf, type PassBag } from './bags';
@@ -156,6 +157,8 @@ export function PassScreen() {
     return () => takeaway.stop();
   }, [filter, takeaway]);
   const promises = useSyncExternalStore(takeaway.subscribe, takeaway.promises);
+  // ⚠️ 03b v1.0.20, 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-12): the counter's time rule on the card
+  const times = useSyncExternalStore(takeaway.subscribe, takeaway.times);
   // 02b-TK L-CLIENT-1 item 1: the customer hand-over (03b v1.0.16 §3.4)
   const shellRef = useRef(shell);
   shellRef.current = shell;
@@ -532,6 +535,8 @@ export function PassScreen() {
               const h = bag.orders.map((x) => ({ x, h: handed.get(x.order_id) })).find((y) => y.h !== undefined);
               const msg = msgs.get(key) ?? (h === undefined ? null : handedLine(h.h!, h.x));
               const promise = filter === 'takeaway' ? bag.orders.reduce<number | null>((n, x) => { const p = promises.get(x.order_id) ?? null; return p === null ? n : n === null ? p : Math.max(n, p); }, null) : null;
+              const timeRows = filter === 'takeaway' ? bag.orders.flatMap((x) => { const r = times.get(x.order_id); return r === undefined ? [] : [r]; }) : [];
+              const counterTime = timeRows.length === bag.orders.length ? counterTimeOf(timeRows) : null;
               return (
                 <PassCard
                   key={key}
@@ -542,7 +547,8 @@ export function PassScreen() {
                   pointId={view.point_id}
                   rounds={rounds}
                   next={filter === 'takeaway' && i === 0 && state !== 'sent'}
-                  readyBy={promise}
+                  readyBy={counterTime?.at ?? promise}
+                  readyPlanned={counterTime?.kind === 'planned'}
                   nowMs={nowMs}
                   late={late}
                   utcOffsetMs={shell.clock.utcOffsetMs}
