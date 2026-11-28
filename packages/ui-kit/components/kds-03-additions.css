@@ -212,3 +212,6 @@
 /* round 2b, Urdu: the card's Nastaliq lines at a tighter line height (the 3 × 2 grid holds in both languages) */
 .pu[lang="ur"] .pc :is(.pl__t, .pc__m, .pc__next, .pc__due, .pc__askb, .stg, .rd, .pc__g) { line-height: 1.45; }
 .pu[lang="ur"] .pc .pc__f .btn { line-height: 1.4; }
+/* 03b v1.0.19 §8: the bar fits at 1280 — tighter type tabs; the brand line keeps its width */
+.top .pfilter--bar button { padding: 0 12px; gap: 6px; }
+.top:has(.top-extra) .brand { flex: 0 1 auto; min-width: 200px; }

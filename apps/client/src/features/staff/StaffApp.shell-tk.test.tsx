@@ -87,7 +87,7 @@ function hub(o: { permissions?: Record<string, unknown>; shift?: () => Response 
         return reply(200, { data: { session_token: `SESS-${n}`, session_id: `X${n}`, staff_id: id, display_name: PEOPLE[id], role_ids: [], idle_ttl_ms: 600_000 } });
       }
       case 'GET /queries/session':
-        return reply(200, { data: { permissions: o.permissions ?? {}, device: { device_id: 'D-K1', screens: ['takeaway', 'dine_in'], access: 'everyone', point_id: null } } });
+        return reply(200, { data: { permissions: { 'take-order': { grant: 'allowed', scope: 'branch' }, ...(o.permissions ?? {}) }, device: { device_id: 'D-K1', screens: ['takeaway', 'dine_in'], access: 'everyone', point_id: null } } });
       case 'GET /queries/shift':
         return (o.shift ?? (() => reply(404, { error: { code: 'SHIFT_NOT_FOUND', details: {} } })))();
       case 'GET /queries/alerts-inbox':

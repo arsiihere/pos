@@ -60,6 +60,8 @@ export const WsAlertClosed = z.object({
   reason: AlertCloseReasonSchema,
   decision: RequestDecisionSchema.nullable(),
   by_name: z.string().nullable(),
+  // ⚠️ 01d v1.3.8 (owner 2026-11-28 Q10): the close's note (AlertClosed.note, e.g. due_changed), only when it has one
+  note: z.string().max(60).optional(),
 });
 export type WsAlertClosed = z.infer<typeof WsAlertClosed>;
 

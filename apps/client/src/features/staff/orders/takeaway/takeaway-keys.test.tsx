@@ -30,7 +30,7 @@ const search = (m: Mounted) => m.container.querySelector<HTMLInputElement>('.men
 const cartLines = (m: Mounted) => [...m.container.querySelectorAll('.cart .ln')];
 /** the harness's Naan sits in Sides, not the first category */
 const naan = (m: Mounted) => {
-  m.click(m.button('Sides', m.container.querySelector('.cats')!));
+  m.click(m.button('Sides', m.container.querySelector('.pills')!));
   m.click(m.container.querySelector('.mi[aria-label="Naan"]'));
 };
 const sugg = (m: Mounted) => [...m.container.querySelectorAll('.tk-sugg [role="option"]')];

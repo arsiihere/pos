@@ -16,7 +16,7 @@ const nav = vi.hoisted(() => ({ to: [] as string[] }));
 vi.mock('../../../../app/router', async (orig) => ({ ...(await orig<object>()), navigate: (p: string) => nav.to.push(p) }));
 
 const tile = (m: Mounted, name: string) => m.container.querySelector<HTMLElement>(`.mi[aria-label="${name}"]`)!;
-const pick = (m: Mounted, category: string) => m.click(m.button(category, m.container.querySelector('.cats')!));
+const pick = (m: Mounted, category: string) => m.click(m.button(category, m.container.querySelector('.pills')!));
 const lines = (m: Mounted) => m.container.querySelectorAll('.ln').length;
 
 beforeEach(() => {

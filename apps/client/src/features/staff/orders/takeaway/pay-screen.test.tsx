@@ -40,7 +40,7 @@ const sent = (payload: unknown) => ({ status: 'sent', result: { order_id: (paylo
 const PAID = { ok: true, data: { bill_id: 'B1', payment_id: 'P1', split_no: 1, totals: { as_paid: totals(4_000) }, balance_minor: 0, card_due_minor: 0, cash_due_minor: 0, card_refund_due_minor: 0, cash_refund_due_minor: 0, rounding_minor: 0, change_due_minor: 0 } };
 const CLOSED = { ok: true, data: { invoice_id: 'I1', invoice_ref: 'S1', total_minor: 4_000, change_minor: 0, bill_state: 'closed', receipt: { job_id: 'J1', printer_name: 'Counter' }, fiscal_state: 'not_required' } };
 const addNaan = (m: Mounted) => {
-  m.click(m.button('Sides', m.container.querySelector('.cats')!));
+  m.click(m.button('Sides', m.container.querySelector('.pills')!));
   m.click(m.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
 };
 const foot = (m: Mounted) => [...m.container.querySelectorAll('.cart__foot .tk-acts .tk-btn')].map((b) => b.textContent);

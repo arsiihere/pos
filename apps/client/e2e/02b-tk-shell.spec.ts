@@ -167,7 +167,7 @@ for (const lang of LANGS) {
       await takeawayTab(page);
       const search = page.locator('.menu input[type="search"]');
       await expect(search).toHaveAttribute('placeholder', tr(lang, 'm.search'));
-      await page.locator('.cart__head').click(); // the focus on the page, in no field
+      await page.locator('.cart .tk-total').click(); // the focus on the page, in no field (L-CLIENT-6a: the takeaway cart has no head)
       await page.keyboard.press('/');
       await expect(search).toBeFocused();
       // "4n" of the frame is the vitest suite's (the fixture menu may hold other n… items): the full word here
@@ -205,7 +205,7 @@ for (const lang of LANGS) {
       await expect(page.locator('.menu input[type="search"]')).toHaveValue('');
       await expect(page.locator('.tk-sugg')).toHaveCount(0);
       // typing on the bare screen goes to the search
-      await page.locator('.cart__head').click();
+      await page.locator('.cart .tk-total').click(); // L-CLIENT-6a: the takeaway cart has no head
       await page.keyboard.type('4');
       await expect(page.locator('.menu input[type="search"]')).toBeFocused();
       await expect(page.locator('.menu input[type="search"]')).toHaveValue('4');
@@ -229,7 +229,7 @@ for (const lang of LANGS) {
         await expect(hint).toContainText(tr(lang, 'shell.back'));
       } else await expect(hint).toHaveCount(0);
       await menuTile(page, 'Naan').click();
-      await page.locator('.cart__head').click();
+      await page.locator('.cart .tk-total').click(); // L-CLIENT-6a: the takeaway cart has no head
       await page.keyboard.press('F2');
       const guard = page.locator('.dlg[role="dialog"]', { hasText: tr(lang, 'l.title') });
       await expect(guard).toBeVisible();

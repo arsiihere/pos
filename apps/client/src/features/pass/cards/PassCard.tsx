@@ -24,7 +24,9 @@ const SHOWN = 7;
 const FOLD_AFTER = 8;
 
 const PILL = {
-  ready: { cls: 'rd c-ok solid', key: 'pass.ready', icon: <path d="M5 12.5l4.5 4.5L19 7.5" /> },
+  // ⚠️ 03b v1.0.19 §8 (QA design review): "Ready" only once the bag is marked ready (`sent`); every line done, not
+  // marked yet → "All done" (outlined), so a Ready pill never sits beside Bag ready
+  ready: { cls: 'rd c-ok', key: 'pass.all_done', icon: <path d="M5 12.5l4.5 4.5L19 7.5" /> },
   sent: { cls: 'rd c-ok solid', key: 'pass.ready', icon: <path d="M5 12.5l4.5 4.5L19 7.5" /> },
   hold: {
     cls: 'rd c-warn',

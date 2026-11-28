@@ -168,9 +168,27 @@ async function directory(): Promise<DirectoryInput> {
     permissions: [grant("run-pass"), grant("mark-served"), grant("reprint-ticket")],
   };
   const packer = { ...person("S_PASS", "Pervez"), role_ids: ["R_PASS"] };
+  // ⚠️ 01b v1.13 (owner 2026-11-28 Q7): the default Cashier role as the cloud seeds it (01b §6.15 Cashier row, the grants
+  // a counter run needs, boost-order included) and Usman, the cashier at the counter, PIN 1234
+  const cashierRole = {
+    role_id: "R_CASHIER",
+    name: "Cashier",
+    session_idle_ttl_ms: 3_600_000,
+    permissions: [
+      grant("take-order"),
+      grant("take-payment"),
+      grant("manage-own-shift"),
+      grant("open-cash-drawer"),
+      grant("mark-served"),
+      grant("view-customer-contact"),
+      grant("reprint-ticket"),
+      grant("boost-order"),
+    ],
+  };
+  const cashier = { ...person("S_USMAN", "Usman"), role_ids: ["R_CASHIER"] };
   return {
     ...base,
-    roles: [...base.roles, taker, cookRole, passRole],
+    roles: [...base.roles, taker, cookRole, passRole, cashierRole],
     staff: [
       ...base.staff,
       person("S_ALI", "Ali"),
@@ -178,6 +196,7 @@ async function directory(): Promise<DirectoryInput> {
       waiter,
       cook,
       packer,
+      cashier,
     ],
   };
 }
@@ -446,13 +465,13 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   // `listed` (rule 3: no listed-only permission and no money answer on an `everyone` device); the others are
   // `everyone`, as the upgrade leaves a shared tablet.
   // tablet: Ali's floor flows, the Owner's takeaway counter (02b-TK), the Manager's hub admin (03b admin flows)
-  const tablet = pairDevice(hub, { type: "tablet", name: "Tablet e2e", profile: listedOn(["S_ALI", "S_OWNER", "S_MGR"], TABLET_SCREENS) });
+  const tablet = pairDevice(hub, { type: "tablet", name: "Tablet e2e", profile: listedOn(["S_ALI", "S_OWNER", "S_MGR", "S_USMAN"], TABLET_SCREENS) });
   // tablet 2: the Manager who approves (02a busy, 02b comp / order, dl), Sara (02a hand-over), Bilal (02a call), Ali (03b Pass taker)
   const tablet2 = pairDevice(hub, { type: "tablet", name: "Tablet e2e 2", profile: listedOn(["S_MGR", "S_ALI", "S_SARA", "S_BILAL"], TABLET_SCREENS) });
   // tablet 3: Bilal and Sara (dl call and zone set-up), no approvals: a shared floor tablet
   const tablet3 = pairDevice(hub, { type: "tablet", name: "Tablet e2e 3", profile: everyoneOn(TABLET_SCREENS) });
   // kiosk: Ali and the Owner at the counter (02b takeaway, 02b-TK), the Manager answering a void from it (dl t1 on the kiosk)
-  const kiosk = pairDevice(hub, { type: "cashier_kiosk", name: "Kiosk e2e", profile: listedOn(["S_ALI", "S_OWNER", "S_MGR"], KIOSK_SCREENS) });
+  const kiosk = pairDevice(hub, { type: "cashier_kiosk", name: "Kiosk e2e", profile: listedOn(["S_ALI", "S_OWNER", "S_MGR", "S_USMAN"], KIOSK_SCREENS) });
   // Ali's phone: `listed` [its owner] (§5.3)
   const phone = pairDevice(hub, {
     type: "phone",

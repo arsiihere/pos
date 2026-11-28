@@ -29,7 +29,7 @@ const answer = (d: EtaDraft): { ok: true; data: EtaPreviewBody } => ({
   data: { as_of_seq: 1, groups: [{ promise_ms: at(13, 42), keys: d.lines.map((l) => l.key) }], lines: d.lines.map((l) => ({ key: l.key, eta_ms: at(13, 42), from_stock: false, zone_served: false })) },
 });
 const tap = (m: Mounted, name: string) => m.click(m.container.querySelector(`.mi[aria-label="${name}"]`));
-const sides = (m: Mounted) => m.click(m.button('Sides', m.container.querySelector('.cats')!));
+const sides = (m: Mounted) => m.click(m.button('Sides', m.container.querySelector('.pills')!));
 // ⚠️ 02b-TK L-CLIENT-5 item 1: the pickup row shares the .tk-serve band; the question is the other one
 const question = (m: Mounted) => m.container.querySelector('.cart .tk-serve:not([data-pickup-row])');
 
@@ -94,7 +94,7 @@ describe('[02b-TK TK-S02] the serve question on a mixed takeaway', () => {
     tap(m, 'Naan');
     await tick();
     expect(question(m)).toBeNull();
-    m.click(m.button('Karahi', m.container.querySelector('.cats')!));
+    m.click(m.button('Karahi', m.container.querySelector('.pills')!));
     m.click(m.button('Chicken Karahi · Half'));
     await tick();
     expect(question(m)!.querySelector('b')!.textContent).toBe('Mutton Karahi + Naan are ready now. Give them now?');

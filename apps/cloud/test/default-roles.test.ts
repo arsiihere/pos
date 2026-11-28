@@ -45,10 +45,11 @@ describe('default roles', () => {
     expect(holders('mark-served')).toEqual(['owner', 'manager', 'cashier', 'order_taker', 'waiter', 'pass']);
   });
 
-  it('[01b v1.8.1] Cashier gains mark-served (allowed, branch), not boost-order', () => {
+  it('[01b v1.8.1; v1.13 owner 2026-11-28 Q7] Cashier gains mark-served and boost-order (allowed, branch)', () => {
     const cashier = DEFAULT_ROLES.find((r) => r.default_key === 'cashier')!;
     expect(cashier.grants.find((g) => g.permission === 'mark-served')).toEqual({ permission: 'mark-served', grant_type: 'allowed' }); // scope absent = branch
-    expect(grants('cashier')).not.toContain('boost-order');
+    // ⚠️ 01b v1.13 (owner 2026-11-28 Q7): the counter's "Customer is here — cook now"
+    expect(cashier.grants.find((g) => g.permission === 'boost-order')).toEqual({ permission: 'boost-order', grant_type: 'allowed' });
   });
 
   it('[01b B-5] mark-item-returned defaults to Owner, Manager and Order taker', () => {
@@ -68,9 +69,9 @@ describe('default roles', () => {
     expect([...grants('cashier')].sort()).toEqual(
       // 04 B-1 (01b v1.9): + move-item-to-stock, void-item
       // 05 B-2 (01b v1.10): + the billing grants, see #90 below
-      // 01b v1.8.1 Q-23 (H10): + mark-served
+      // 01b v1.8.1 Q-23 (H10): + mark-served; 01b v1.13 (owner 2026-11-28 Q7): + boost-order
       [
-        'apply-comp', 'apply-discount', 'clean-table', 'close-without-buyer-id', 'manage-own-shift', 'mark-served', 'move-item-to-stock', 'open-cash-drawer',
+        'apply-comp', 'apply-discount', 'boost-order', 'clean-table', 'close-without-buyer-id', 'manage-own-shift', 'mark-served', 'move-item-to-stock', 'open-cash-drawer',
         'record-petty-cash', 'remove-comp', 'remove-service-charge', 'reopen-bill', 'reprint-ticket', 'set-line-weight', 'take-order',
         'take-payment', 'view-customer-contact', 'void-item',
       ].sort(),
@@ -106,7 +107,7 @@ describe('default roles', () => {
     expect(holders('manage-zone-stock')).toEqual(['owner', 'manager']);
     expect(holders('set-line-weight')).toEqual(['owner', 'manager', 'cashier']);
     expect(holders('view-customer-contact')).toEqual(['owner', 'manager', 'cashier', 'order_taker']);
-    expect(holders('boost-order')).toEqual(['owner', 'manager', 'order_taker']);
+    expect(holders('boost-order')).toEqual(['owner', 'manager', 'cashier', 'order_taker']); // 01b v1.13 Q7: + cashier
     for (const role of DEFAULT_ROLES) {
       expect(role.grants.find((g) => g.permission === 'mark-served')?.scope ?? 'branch').toBe('branch');
     }

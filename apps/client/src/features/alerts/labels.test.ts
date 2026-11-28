@@ -349,3 +349,19 @@ describe('[02b-TK L-CLIENT-2 item 4; 02b §6.12a] hand_over_unpaid labels', () =
   });
 });
 
+
+// ⚠️ 02b v1.0.27 §6.12a, 01d v1.3.8 (owner 2026-11-28 Q10): the manager's card names an addition-only bill "(addition)",
+// and a closed request row carries the alert_closed frame's note into the line that says why.
+describe('[01d v1.3.8 owner 2026-11-28 Q10] hand_over_unpaid manager card', () => {
+  const unpaidView = (disposition?: string) =>
+    view({
+      alert_id: 'AH1',
+      kind: 'hand_over_unpaid',
+      lock: { kind_label_key: 'alert.hand_over_unpaid.lock', table_code: null, point_code: null, requester_name: 'Ali' },
+      card: { kind_label_key: 'alert.hand_over_unpaid.card', table_code: null, point_code: null, requester_name: 'Ali', details: { identifier: '#14', amount: 4_000, ...(disposition === undefined ? {} : { disposition }) } },
+    });
+  it('"Hand over unpaid #14 (addition)" for an addition-only bill; plain "#14" otherwise', () => {
+    expect(titleText(unpaidView('alert.hand_over_unpaid.addition'))).toBe('Hand over unpaid #14 (addition)');
+    expect(titleText(unpaidView())).toBe('Hand over unpaid #14');
+  });
+});

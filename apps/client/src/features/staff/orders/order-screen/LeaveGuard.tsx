@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { onHashChangeFirst } from '../../../../app/router';
 import { t } from '../../../../i18n';
 import { fill } from '../../../../i18n/en';
 import { Dialog, Ico } from '../../../alerts/ui';
@@ -27,10 +28,9 @@ export function useLeaveGuard(here: string, armed: () => boolean): { pending: st
       window.history.replaceState(window.history.state, '', `#${here}`);
       setPending(to);
     };
-    // capture: at the window a capturing listener runs before the router's (app/router.ts), so the route it reads is
-    // already this screen's again
-    window.addEventListener('hashchange', onHash, true);
-    return () => window.removeEventListener('hashchange', onHash, true);
+    // L-CLIENT-6a item 10: through the router's own listener, before any route reader (app/router.ts), so the route
+    // it reads is already this screen's again (a capturing window listener ran after the router's in Chrome)
+    return onHashChangeFirst(onHash);
   }, [here]);
   return { pending, clear: () => setPending(null), ask: (to: string) => setPending(to) };
 }

@@ -91,7 +91,7 @@ function harness(o: { answer?: (p: SubmitOrderPayload) => Promise<Answer>; previ
 }
 
 const tile = (m: ReturnType<typeof mount>, name: string) => m.container.querySelector<HTMLElement>(`.mi[aria-label="${name}"]`)!;
-const pick = (m: ReturnType<typeof mount>, category: string) => m.click(m.button(category, m.container.querySelector('.cats')!));
+const pick = (m: ReturnType<typeof mount>, category: string) => m.click(m.button(category, m.container.querySelector('.pills')!));
 const tick = async (ms = 300) => {
   await act(async () => {
     vi.advanceTimersByTime(ms);
@@ -170,7 +170,7 @@ describe('[02b-TK C1-1] day not open from eta-preview and the socket', () => {
     act(() => h.live.frame(dayFrame(2, 'BusinessDayOpened')));
     await tick();
     expect(m.text()).not.toContain('Times show after Start day');
-    expect(m.text()).toContain('All ready by');
+    expect(m.text()).toContain('Ready by · Tell the customer');
     m.unmount();
   });
 
@@ -428,7 +428,7 @@ describe('[02b-TK C1-3] Send in the background', () => {
     const row = m.container.querySelector('.tk-qr--q');
     expect(row?.textContent).toContain('Waiting to send');
     expect(row?.textContent).toContain('Usman');
-    expect(row?.textContent).toContain('1 items');
+    expect(row?.textContent).toContain('Naan'); // L-CLIENT-6a item 4 (frame SentQueued): what was ordered, not "1 items"
     m.unmount();
   });
 });

@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 const addNaan = (v: Mounted) => {
-  v.click(v.button('Sides', v.container.querySelector('.cats')!));
+  v.click(v.button('Sides', v.container.querySelector('.pills')!));
   v.click(v.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
 };
 
@@ -32,7 +32,7 @@ describe('[02b-TK L-CLIENT-4 item 3; 02b v1.0.25 §8; 05 v1.0.35 §6.3a, §8] th
     await flush();
     addNaan(v);
     addNaan(v);
-    const total = v.container.querySelector('.cart__foot .total')!;
+    const total = v.container.querySelector('.cart__foot .tk-total')!;
     expect(total.querySelector('[data-items-label]')?.textContent).toBe('Items');
     expect(total.querySelector('strong')?.textContent).toBe('Rs 80');
   });
@@ -40,7 +40,7 @@ describe('[02b-TK L-CLIENT-4 item 3; 02b v1.0.25 §8; 05 v1.0.35 §6.3a, §8] th
   it('[frame HomeTablet] landscape tablet: the same label on its cart', async () => {
     const v = (m = screenHarness({ rows: [], device: 'tablet' }).render());
     await flush();
-    const total = v.container.querySelector('.cart__foot .total')!;
+    const total = v.container.querySelector('.cart__foot .tk-total')!;
     expect(total.querySelector('[data-items-label]')?.textContent).toBe('Items');
     expect(total.querySelector('strong')?.textContent).toBe('Rs 0');
   });
@@ -49,7 +49,7 @@ describe('[02b-TK L-CLIENT-4 item 3; 02b v1.0.25 §8; 05 v1.0.35 §6.3a, §8] th
     const v = (m = screenHarness({ rows: [] }).renderAs('parking', 'P1'));
     await flush();
     expect(v.container.querySelector('.cart__foot .total strong')).not.toBeNull();
-    expect(v.container.querySelector('.cart__foot .total [data-items-label]')).toBeNull();
+    expect(v.container.querySelector('.cart__foot .tk-total [data-items-label]')).toBeNull();
   });
 
   it('[frame PhoneCart] phone: the sticky bar labels its total "Items"', async () => {
@@ -64,7 +64,7 @@ describe('[02b-TK L-CLIENT-4 item 3; 02b v1.0.25 §8; 05 v1.0.35 §6.3a, §8] th
     setLanguage('ur');
     const v = (m = screenHarness({ rows: [] }).render());
     await flush();
-    expect(v.container.querySelector('.cart__foot .total [data-items-label]')?.textContent).toBe('آئٹم');
+    expect(v.container.querySelector('.cart__foot .tk-total [data-items-label]')?.textContent).toBe('آئٹم');
     v.unmount();
     const p = (m = screenHarness({ rows: [], phone: true }).render());
     await flush();

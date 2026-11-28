@@ -1079,7 +1079,7 @@ describe('[02b #66 #67 #80] open-orders takeaway until handed over (§3.3, §6.1
     const key = (hub.deps.db.prepare('SELECT bill_key FROM orders WHERE order_id = ?').get('AD') as { bill_key: string }).bill_key;
     const due = keyBalances(hub.deps.db, [key]).get(key)!.due_minor;
     expect(due).toBeGreaterThan(0);
-    expect(row(rows, 'AD')!.bill).toEqual({ state: 'due', due_minor: due });
+    expect(row(rows, 'AD')!.bill).toEqual({ state: 'due', due_minor: due, key }); // ⚠️ 02b v1.0.27 Q9: + the bill key
   });
 
   it('[02b #67] fields: bill null for dine-in; ready_at = the D8 epoch with its frozen window (null without); pickup_at_ms kept, effective null once boosted', async () => {

@@ -60,6 +60,7 @@ import { registerConfigStatusQuery } from './queries/config-status.js';
 import { registerDevicesQuery } from './queries/devices.js';
 import { registerQueryRoutes } from './queries/registry.js';
 import { registerSessionQuery } from './queries/session.js';
+import { registerActivityQuery } from './queries/activity.js';
 import { registerSessionsQuery } from './queries/sessions.js';
 import { registerStationsQuery } from './queries/stations.js';
 import { registerStationsLiveQuery } from './queries/stations-live.js';
@@ -216,6 +217,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   const stopEngineCatchUp = registerEngineCatchUp(deps.clock);
   app.addHook('onClose', async () => stopEngineCatchUp());
   registerSessionQuery(app);
+  registerActivityQuery(app); // ⚠️ 00 v1.14 M101 (owner 2026-11-28 Q8)
   const semaphores = {
     pin: new Semaphore(deps.config.auth.argon2_concurrency),
     admin: new Semaphore(deps.config.auth.admin_argon2_concurrency),

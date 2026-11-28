@@ -31,13 +31,13 @@ const answer = (d: EtaDraft): { ok: true; data: EtaPreviewBody } => {
   return { ok: true, data: { as_of_seq: 1, groups: [{ promise_ms: promise, keys: d.lines.map((l) => l.key) }], lines: d.lines.map((l) => ({ key: l.key, eta_ms: promise, from_stock: false, zone_served: false })), pickup_bounds: BOUNDS } };
 };
 const naan = (m: Mounted) => {
-  m.click(m.button('Sides', m.container.querySelector('.cats')!));
+  m.click(m.button('Sides', m.container.querySelector('.pills')!));
   m.click(m.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
 };
 const pick = (m: Mounted) => m.container.querySelector<HTMLElement>('.cart [data-pickup-row]');
 const chip = (m: Mounted, label: string) => [...(pick(m)?.querySelectorAll('button') ?? [])].find((b) => (b.textContent ?? '').trim() === label) as HTMLButtonElement | undefined;
 const selected = (m: Mounted) => [...(pick(m)?.querySelectorAll('button[aria-pressed="true"]') ?? [])].map((b) => (b.textContent ?? '').trim());
-const ready = (m: Mounted) => m.container.querySelector('.cart .total__ready')?.textContent ?? '';
+const ready = (m: Mounted) => m.container.querySelector('.cart [data-ready]')?.textContent ?? '';
 
 let drafts: EtaDraft[] = [];
 beforeEach(() => {
@@ -92,7 +92,7 @@ describe('[02b-TK L-CLIENT-5 item 1; 02b §8 Phone and pickup (R4)] the takeaway
     expect(drafts.at(-1)?.pickup_at_ms).toBe(NOW + 30 * 60_000);
     expect(ready(m)).toContain('Kitchen times it for');
     expect(ready(m)).toContain('1:50 PM');
-    expect(m.container.querySelector('.cart .total__ready--later')).not.toBeNull();
+    expect(m.container.querySelector('.cart .tk-readyby--later')).not.toBeNull();
     m.click(m.button('Send · pay later', m.container.querySelector('.cart')!));
     await flush();
     expect((h.sent[0]!.payload as { pickup_at_ms?: number }).pickup_at_ms).toBe(NOW + 30 * 60_000);

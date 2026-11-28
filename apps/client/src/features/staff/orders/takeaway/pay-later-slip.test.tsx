@@ -45,7 +45,7 @@ const refused = (status: number, code: string, details: Record<string, unknown> 
 const NETWORK = { ok: false, error: { kind: 'network' } };
 
 const addNaan = (m: Mounted) => {
-  m.click(m.button('Sides', m.container.querySelector('.cats')!));
+  m.click(m.button('Sides', m.container.querySelector('.pills')!));
   m.click(m.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
 };
 const slips = (h: ReturnType<typeof screenHarness>) => h.commands.filter((c) => c.type === 'PrintTakeawaySlip');

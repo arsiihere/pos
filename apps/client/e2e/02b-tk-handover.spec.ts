@@ -109,6 +109,9 @@ for (const lang of LANGS) {
       await payCash(page, lang, token);
       const tile = readyTile(page, token);
       await expect(tile.locator('.tk-chip--ok')).toBeVisible();
+      // the rail's bill row follows the payment (OpenOrderBillChanged → one open-orders read): until then the tile still
+      // offers Ask a manager and a tap opens the token view (§8 OR-7: stale billing facts block a hand-over)
+      await expect(tile.locator('[data-ask]')).toHaveCount(0);
       const handOver = tile.getByRole('button', { name: tr(lang, 'q.collect') });
 
       // 1. Hand over → the toast with Undo, the tile gone; Undo inside the window → the tile is back

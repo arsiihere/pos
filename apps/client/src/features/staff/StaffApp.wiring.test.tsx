@@ -74,7 +74,7 @@ function hub(o: HubOpts = {}) {
         await o.pinGate;
         return reply(200, { data: { session_token: 'SESS-1', session_id: 'X1', staff_id: 'S-IMRAN', display_name: 'Imran', role_ids: [], idle_ttl_ms: o.idleTtlMs ?? 600_000 } });
       case 'GET /queries/session':
-        return reply(200, { data: { permissions: o.permissions ?? {} } });
+        return reply(200, { data: { permissions: { 'take-order': { grant: 'allowed', scope: 'branch' }, ...(o.permissions ?? {}) } } }); // 02b v1.0.27 Q11: the order screens need take-order
       case 'GET /queries/alerts-inbox':
         return reply(200, { data: { alerts: [] }, meta: { next_cursor: null } });
       case 'GET /queries/branch-config':

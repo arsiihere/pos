@@ -43,6 +43,7 @@ import { createShellConfig, type BranchConfigReply } from './shell/config';
 import { createContextSlot } from './shell/context-slot';
 import { createRushSlot } from './shell/rush-slot';
 import { createBarSlot } from './shell/bar-slot';
+import { createInputActivity } from './shell/input-activity';
 import { readOwnShift, shiftEvent, type OwnShift } from './shell/own-shift';
 import { ShellBanners } from './shell/ShellBanners';
 import { createDayWatch } from './orders/order-screen/day-open';
@@ -692,6 +693,12 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   const sessionRef = useRef(sessionMsg);
   sessionRef.current = sessionMsg;
   const meKey = me?.staffId ?? null;
+  // ⚠️ 00 v1.14 M101 (owner 2026-11-28 Q8; QA BUG-12): while someone is signed in, their taps and keys tell the hub they
+  // are active (GET /queries/activity, at most once per 60 s); watching the screen does not
+  useEffect(() => {
+    if (meKey === null) return;
+    return createInputActivity({ send: () => void api.query('/queries/activity'), now: () => clockRef.current.nowMs(), target: document }).attach();
+  }, [meKey, api]);
   useEffect(() => {
     if (native !== null) void native.setSession(sessionRef.current);
   }, [native, meKey]);
@@ -973,6 +980,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     '/devices': showDevices,
     '/test-alert': showTest,
     '/pass': has('pass'),
+    // ⚠️ 02b v1.0.27 §8 (owner 2026-11-28 Q11): taking orders needs take-order
+    '/takeaway': allowed.has('take-order'),
+    '/orders': allowed.has('take-order'),
   };
   // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
   // AD-K12 / W-3: leaving the landing route ends the landing too (a late catch-up never moves a person mid-task)
@@ -1149,7 +1159,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       live ??
       (last === null
         ? null
-        : { ...last, state: 'closed' as const, close_reason: c?.reason ?? last.close_reason, decision: c?.decision ?? last.decision, by_name: c?.by_name ?? last.by_name });
+        : { ...last, state: 'closed' as const, close_reason: c?.reason ?? last.close_reason, decision: c?.decision ?? last.decision, by_name: c?.by_name ?? last.by_name, close_note: c?.note ?? null });
     if (live !== undefined) lastOpened.current = live;
   }
 

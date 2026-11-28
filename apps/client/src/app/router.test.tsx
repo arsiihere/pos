@@ -1,7 +1,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { matchOwnerRoute, useHashRoute } from './router';
+import { matchOwnerRoute, onHashChangeFirst, useHashRoute } from './router';
+import { flush, mount } from '../../test/dom';
 
 function Show() {
   return <p>{useHashRoute()}</p>;
@@ -69,5 +70,30 @@ describe('router', () => {
     expect(matchOwnerRoute('/deals/D1')).toEqual({ name: 'deal_edit', id: 'D1' });
     expect(matchOwnerRoute('/deals/D1/branches')).toBeNull();
     expect(matchOwnerRoute('/stock-items/SI1/branches')).toBeNull();
+  });
+});
+
+// 02b-TK L-CLIENT-6a item 10: a guard sees a hash change before any route reader, whatever order they were added in
+// (in Chrome a reader's listener ran first and the leave guard's screen was gone before it could ask).
+describe('[02b-TK L-CLIENT-6a item 10] onHashChangeFirst', () => {
+  it('runs before a route reader added earlier, so the route it puts back is what the reader reads', async () => {
+    window.history.replaceState(null, '', '#/takeaway');
+    const seen: string[] = [];
+    const Reader = () => {
+      const route = useHashRoute();
+      seen.push(route);
+      return null;
+    };
+    const m = mount();
+    m.render(<Reader />);
+    const stop = onHashChangeFirst(() => window.history.replaceState(null, '', '#/takeaway'));
+    window.location.hash = '#/tables';
+    await new Promise((r) => setTimeout(r, 0));
+    await flush();
+    expect(seen.at(-1)).toBe('/takeaway');
+    expect(seen).not.toContain('/tables');
+    stop();
+    m.unmount();
+    window.history.replaceState(null, '', '#');
   });
 });

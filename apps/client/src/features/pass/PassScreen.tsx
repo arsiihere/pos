@@ -35,6 +35,7 @@ import { money } from '../staff/orders/money';
 import { createHandovers } from '../staff/orders/takeaway/handover';
 import '../staff/orders/takeaway/styles';
 import { unpaidRequestsOf } from '../staff/orders/unpaid/requests';
+import { unpaidBills } from '../staff/orders/unpaid/candidate';
 
 // 03b v1.0.8 §3.4, §8 Pass screen (`/staff/` `#/pass` on a device with a point; W0.6 mounts it; P2). The page's Pass
 // live (P1, `passLiveOf`) holds the point's view; the screen draws the station strip and the cards oldest first
@@ -447,7 +448,9 @@ export function PassScreen() {
               // something is not marked ready; then Handed to customer (counter) or Hand over (dine-in). Hand over to
               // staff is otherwise a small secondary icon button (the receiver tiles sheet, for the whole token).
               // ⚠️ 03b v1.0.10 §3.4: Bag ready also with an open Ready while lines not in it are left
-              const bagging = canRun && bagOk && pending.length > 0 && state !== 'none';
+              // ⚠️ 03b v1.0.19 §8: never on a takeaway / parking bag already marked ready (`sent`): its primary is Handed to
+              // customer, which serves every live line; a dine-in card keeps Ready to serve for lines finished later (v1.0.10)
+              const bagging = canRun && bagOk && pending.length > 0 && state !== 'none' && !(counter && state === 'sent');
               if (bagging) {
                 const b = busy.has(key);
                 buttons.push(
@@ -463,15 +466,19 @@ export function PassScreen() {
                   </button>,
                 );
               }
-              // ⚠️ 03b v1.0.17 §3.4: the bag's billing — every order paid or approved; the one Due pill totals the
-              // token's unpaid orders; Ask a manager names each unpaid order with its own due (Approval ruling A)
+              // ⚠️ 03b v1.0.17 §3.4: the bag's billing — every order paid or approved. ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9):
+              // one Due and one request per BILL — the pill totals the token's distinct unpaid bills (an order on a shared
+              // bill reports the bill's due, so it is never added twice); Ask a manager asks once per unapproved bill
               const each = counter && canCustomer ? bag.orders.map((x) => ({ order: x, e: eligibilityOf(billRead, { order_id: x.order_id, order_type: type, placed_at: x.placed_at }, unpaid.approvedDue(x.order_id)) })) : [];
+              const billDue = new Map<string, number>();
+              for (const { order, e } of each) if (e.state === 'due') billDue.set(billRead?.rows.get(order.order_id)?.bill?.key ?? order.order_id, e.due_minor);
+              const askBills = each.length === 0 ? [] : unpaidBills(bag.orders.map((x) => x.order_id), (id) => billRead?.rows.get(id), (id) => unpaid.approvedDue(id));
               const merged: Eligibility =
                 each.length === 0 || each.some((x) => x.e.state === 'unknown')
                   ? { state: 'unknown' }
                   : each.every((x) => x.e.state === 'paid')
                     ? { state: 'paid' }
-                    : { state: 'due', due_minor: each.reduce((n, x) => n + (x.e.state === 'due' ? x.e.due_minor : 0), 0), approved: each.every((x) => x.e.state === 'paid' || (x.e.state === 'due' && x.e.approved)) };
+                    : { state: 'due', due_minor: [...billDue.values()].reduce((n, d) => n + d, 0), approved: askBills.length === 0 };
               const cust =
                 canCustomer && counter
                   ? customerButton({
@@ -482,10 +489,12 @@ export function PassScreen() {
                       pending: bag.orders.some((x) => pendingCustomer.has(x.order_id)) || busy.has(`c:${key}`),
                     })
                   : null;
-              const asks: AskItem[] = each.flatMap(({ order, e }) => (e.state === 'due' && !e.approved ? [{ order_id: order.order_id, due_minor: e.due_minor, ident: customerIdent(order), addition: order !== bag.orders[0] }] : []));
+              const asks: AskItem[] = askBills.map((b) => ({ order_id: b.order_ids[0]!, due_minor: b.due_minor, ident: customerIdent(bag.card), addition: b.addition }));
               // the Pass→staff Hand over (§3.5), for the whole token (one Handover per order with done lines)
               const toHand = canRun && bag.orders.some((x) => doneToHand(x).length > 0);
-              if (cust !== null && !bagging)
+              // ⚠️ 03b v1.0.19 §8: Handed to customer only on a bag marked ready (or all done where nobody here can bag it);
+              // a bag still cooking — a pickup waiting for its whole order included — never shows it as its primary
+              if (cust !== null && !bagging && (state === 'sent' || state === 'ready'))
                 buttons.push(
                   <button key="customer" type="button" className="btn btn--customer" disabled={!cust.enabled} onClick={() => void tapCustomer(bag)}>
                     <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
@@ -585,7 +594,7 @@ export function PassScreen() {
                     cust?.due === true && merged.state === 'due' ? (
                       <>
                         <span className="pc__due">{fill(t('pass.due_amount'), { amount: money(merged.due_minor) })}</span>
-                        {asks.length > 0 && <AskChip items={asks} onOpen={() => setAsking(key)} />}
+                        {asks.length > 0 && <AskChip items={asks} onOpen={() => setAsking(key)} onChanged={() => bills.schedule()} />}
                       </>
                     ) : null
                   }
@@ -635,10 +644,7 @@ export function PassScreen() {
       {askBag !== undefined && (
         <AskSheet
           ident={customerIdent(askBag.card)}
-          items={askBag.orders.flatMap((x, n) => {
-            const e = eligibilityOf(billRead, { order_id: x.order_id, order_type: orderTypeOf(x), placed_at: x.placed_at }, unpaid.approvedDue(x.order_id));
-            return e.state === 'due' && !e.approved ? [{ order_id: x.order_id, due_minor: e.due_minor, ident: customerIdent(x), addition: n > 0 }] : [];
-          })}
+          items={unpaidBills(askBag.orders.map((x) => x.order_id), (id) => billRead?.rows.get(id), (id) => unpaid.approvedDue(id)).map((b) => ({ order_id: b.order_ids[0]!, due_minor: b.due_minor, ident: customerIdent(askBag.card), addition: b.addition }))}
           onClose={() => setAsking(null)}
           onChanged={() => bills.schedule()}
         />

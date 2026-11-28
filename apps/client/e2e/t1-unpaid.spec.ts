@@ -34,14 +34,15 @@ async function dueAndReady(cash: Page, pass: Page, run: T1Run, lang: Lang, info:
   return token;
 }
 
-/** ⚠️ 03b v1.0.17 §8: the card's Ask a manager opens the sheet (the per-order breakdown); its Ask sends; then it closes */
+/**
+ * ⚠️ 02b v1.0.27 §8 (owner 2026-11-28 Q9; reviewer): a bag with ONE unpaid bill asks in one tap on the card's button —
+ * no sheet; the card then shows the waiting state. (The per-bill sheet opens only with 2+ unpaid bills.)
+ */
 async function askManager(pass: Page, card: Locator): Promise<void> {
+  const asked = pass.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/commands/request-unpaid-handover'));
   await card.locator('[data-ask]').click();
-  const sheet = pass.locator('.pass-ask');
-  await sheet.locator('[data-ask-send]').click();
-  await expect(sheet.locator('[data-ask-send]')).toHaveCount(0);
-  await sheet.locator('.dlg__x').click();
-  await expect(sheet).toHaveCount(0);
+  expect((await asked).status()).toBe(200);
+  await expect(pass.locator('.pass-ask')).toHaveCount(0);
 }
 
 /** The Manager's phone: Requests → the "Hand over unpaid #N" card → Approve or Reject; both ask the PIN (needs_pin always). */

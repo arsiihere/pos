@@ -242,7 +242,9 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
     // whole migrations dir, so the rows of 0013 (04 B-1) and 0015 (05 B-2, 01b v1.10; own test:
     // billing-defaults-backfill.int.test.ts) both appear, and 0019 (01b v1.8.1 Q-23; own test:
     // cashier-mark-served-migration.int.test.ts). The fixture's owner / manager roles already hold the new rows.
+    // ⚠️ 01b v1.13 (owner 2026-11-28 Q7): + 0024's cashier boost-order (own test: cashier-boost-order-migration.int.test.ts)
     expect(added.rows.map((row) => row.line)).toEqual([
+      'cashier:boost-order:allowed',
       'cashier:close-without-buyer-id:requires_approval',
       'cashier:manage-own-shift:allowed',
       'cashier:mark-served:allowed',

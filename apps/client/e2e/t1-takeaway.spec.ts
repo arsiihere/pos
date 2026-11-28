@@ -17,9 +17,9 @@ import { t1Station } from './t1-fixture';
 //   #7  pickup 30 min from now with a drink → Ready by = the pickup time; the kitchen does not start the drink early
 //   #8  the customer came early (Boost) → the ready time moves earlier; the bag is not Ready while the drink is made
 
-async function counter(page: Page, lang: Parameters<typeof tr>[0], info: Parameters<typeof deviceFor>[0]): Promise<void> {
+async function counter(page: Page, lang: Parameters<typeof tr>[0], info: Parameters<typeof deviceFor>[0], name = 'Owner'): Promise<void> {
   await rushOff(page);
-  await signInOn(page, deviceFor(info), lang, 'Owner');
+  await signInOn(page, deviceFor(info), lang, name);
   await shiftOpen(page, lang);
   await takeawayTab(page);
 }
@@ -66,7 +66,7 @@ for (const lang of LANGS) {
       await menuTile(page, run.items.main.name).click();
       await expect(page.locator('.cart .ln', { hasText: run.items.main.name })).toContainText('2');
       // #4: "4n" then Enter
-      await page.locator('.cart__head').click();
+      await page.locator('.cart .tk-total').click(); // L-CLIENT-6a: the takeaway cart has no head
       await page.keyboard.press('/');
       await page.keyboard.type('4n');
       const first = page.locator('.tk-sugg [role="option"]').first();
@@ -74,7 +74,7 @@ for (const lang of LANGS) {
       await expect(first, '"4n" picks Naan first').toContainText('Naan');
       await page.keyboard.press('Enter');
       await expect(page.locator('.cart .ln', { hasText: /^.*Naan/ })).toContainText('4');
-      const ready = page.locator('.cart .total__ready');
+      const ready = page.locator('.cart [data-ready]'); // L-CLIENT-6a item 5: the Ready by panel
       await expect(ready.locator('b')).toHaveText(/^\d{1,2}:\d{2}\s?(AM|PM)$/);
       await expect(ready).not.toContainText(tr(lang, 'cart.times_later'));
       await capture(page, info, `T1-04-cart-${info.project.name}-${lang}`, page.locator('.cart'));
@@ -192,7 +192,7 @@ for (const lang of LANGS) {
       await plus30.click();
       await expect(plus30).toHaveAttribute('aria-pressed', 'true');
       // the footer: "Kitchen times it for <the pickup>" (frame PickupLater .tk-readyby--later)
-      const later = page.locator('.cart .total__ready--later');
+      const later = page.locator('.cart .tk-readyby--later'); // L-CLIENT-6a item 5
       await expect(later).toContainText(tr(lang, 'c.ready_later'));
       await expect(later.locator('b')).toHaveText(/^\d{1,2}:\d{2}\s?(AM|PM)$/);
       await capture(page, info, `PickupCart-${info.project.name}-${lang}`, page.locator('.cart'));
@@ -318,17 +318,17 @@ for (const lang of LANGS) {
 
 // BUG-4 (02b v1.0.25 §6.6 BoostOrder, §8 02b-R4-3 "Customer is here — cook now", §6.16 BR-1; 03a v1.2.11 PK-5; D1): QA
 // on the cashier kiosk ~20 min before the pickups — a PAID pickup (Send & pay, +15) and a DUE one (pay later, +20) —
-// both offer Customer is here to a boost-order holder (the Owner runs this counter; the default Cashier role has no
-// boost-order, 01b v1.12 §6.15, so it never sees it). After the boost the button goes, the pickup stays, and the
+// both offer Customer is here to the CASHIER (⚠️ 01b v1.13, owner 2026-11-28 Q7: the default Cashier role holds
+// boost-order; Usman runs this counter). After the boost the button goes, the pickup stays, and the
 // Ready-by fact shows "Ready ~{planned}" beside the struck promise once the engine plans it earlier (BR-1).
-test('[BUG-4; 02b §6.6, §8] Customer is here on a paid and a due pickup ~20 min ahead; after the boost "Ready ~" (en)', async ({ browser, request }, info) => {
+test('[BUG-4; 01b v1.13 Q7; 02b §6.6, §8] the cashier gets Customer is here on a paid and a due pickup ~20 min ahead; after the boost "Ready ~" (en)', async ({ browser, request }, info) => {
   t1RunsHere(info);
   const lang = 'en' as const;
   const run = t1Run('bag', info, lang);
   const cash = await screen(browser, info.project.use.viewport!);
   const api = await apiSession(request, 'S_OWNER');
   try {
-    await counter(cash.page, lang, info);
+    await counter(cash.page, lang, info, 'Usman');
     const page = cash.page;
     // the paid pickup through the counter: +15 min, Send & pay, cash
     await menuTile(page, run.items.main.name).click();
