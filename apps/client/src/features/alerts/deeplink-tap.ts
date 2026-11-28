@@ -96,7 +96,11 @@ export const ARRIVAL_MS = 4_000;
 
 /** Rule 2, "cannot check": the existing text of that error ("No connection to the hub", 02b's outside-scope text, …). */
 export function checkErrorText(error: HubError): string {
-  return error.kind === 'network' ? t('answer.error.offline') : t(orderErrorKey(error));
+  if (error.kind === 'network') return t('answer.error.offline');
+  // ⚠️ 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-14): order-view refuses `outside_scope` only for a takeaway / parking
+  // order (placed by someone else): the order's words, never the table map's "outside your floors"
+  if (error.kind === 'api' && error.code === 'PERMISSION_DENIED' && error.details['reason'] === 'outside_scope') return t('orders.err.outside_scope');
+  return t(orderErrorKey(error));
 }
 
 const OPENED: Record<StaffFocus['kind'], MessageKey> = {

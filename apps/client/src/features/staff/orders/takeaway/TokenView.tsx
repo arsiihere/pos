@@ -257,6 +257,10 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const promise = promises.length === 0 ? token.promise_ms : Math.max(...promises);
   const planned = planRows === null ? (token.planned_ready_at_ms ?? null) : plannedReadyOf(planRows);
   const phoned = orders?.find((o) => o.has_phone) ?? null;
+  // ⚠️ 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-14): Call only when view-customer-contact covers the token —
+  // branch, or own_tables / my_floors on a token this person placed (O10); otherwise it stays, disabled (masked)
+  const contactScope = shell.permissions.scope('view-customer-contact');
+  const callable = phoned !== null && may('view-customer-contact') && (contactScope === 'branch' || phoned.placed_by.staff_id === shell.me?.staff_id);
   const fullScreen = shell.phone || shell.portrait;
   const showContact = !fullScreen && shell.device.type === 'cashier_kiosk' || may('view-customer-contact');
   const masked = showContact ? maskPhone(token.phone ?? book.get(token.order_ids[0]!)?.phone) : null;
@@ -408,7 +412,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
               <TkIco name="phone" />
               <span>{fill(t('v.late'), { n: String(lateMin) })}</span>
               {phoned !== null && may('view-customer-contact') && (
-                <button type="button" className="tk-btn tk-btn--primary" onClick={() => setCall(true)}>
+                <button type="button" className="tk-btn tk-btn--primary" aria-disabled={!callable} onClick={() => callable && setCall(true)}>
                   <TkIco name="phone" />
                   {t('v.call')}
                   {masked !== null && (
@@ -571,7 +575,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
             {bill?.current?.paid === true && may('take-payment') && <ReceiptAgain order_id={token.newest_order_id} invoice_id={bill.current.invoice_id ?? null} />}
             {/* frame TokenDue: Call stays in its place, greyed when the token has no phone (view-customer-contact) */}
             {may('view-customer-contact') && (
-              <button type="button" className="tk-btn" aria-disabled={phoned === null} onClick={() => phoned !== null && setCall(true)}>
+              <button type="button" className="tk-btn" aria-disabled={!callable} onClick={() => callable && setCall(true)}>
                 <TkIco name="phone" />
                 {t('v.call')}
               </button>
@@ -611,7 +615,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
           onBill={toBill}
         />
       )}
-      {call && phoned !== null && <ContactSheet order_id={phoned.order_id} what={what} onClose={() => setCall(false)} />}
+      {call && callable && <ContactSheet order_id={phoned.order_id} what={what} onClose={() => setCall(false)} />}
       {sheet?.kind === 'remove' && (
         <RemoveSheet
           order={sheet.order}

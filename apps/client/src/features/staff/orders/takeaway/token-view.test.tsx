@@ -249,6 +249,28 @@ describe('[02b-TK C2-2] token view', () => {
     expect(s.orderContact).toHaveBeenCalledWith('O54');
     expect(document.body.textContent).toContain('03001234567');
   });
+
+  // ⚠️ 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-14), test 103: Call only when view-customer-contact covers the token
+  it('[02b #103] an Order taker (own_tables) on a token someone else placed: Call disabled (masked), no order-contact read; on their own token: enabled', async () => {
+    const own = { 'view-customer-contact': { grant: 'allowed', scope: 'own_tables' } };
+    const theirs = { O54: view('O54', [sl('O54', 'A', 'Paye', 'cooking')], { has_phone: true, placed_by: { staff_id: 'zain', name: 'Zain' } }) };
+    const s = setup({ views: theirs, bills: {}, grants: own });
+    const v = await show(s, tok());
+    const call = v.button('Call');
+    expect(call.getAttribute('aria-disabled')).toBe('true');
+    v.click(call);
+    await flush();
+    expect(s.orderContact).not.toHaveBeenCalled();
+    v.unmount();
+    m = null;
+    const mine = { O54: view('O54', [sl('O54', 'A', 'Paye', 'cooking')], { has_phone: true }) };
+    const s2 = setup({ views: mine, bills: {}, grants: own });
+    const v2 = await show(s2, tok());
+    expect(v2.button('Call').getAttribute('aria-disabled')).toBe('false');
+    v2.click(v2.button('Call'));
+    await flush();
+    expect(s2.orderContact).toHaveBeenCalledWith('O54');
+  });
 });
 
 describe('[02b-TK C2-2] hand-over Undo', () => {

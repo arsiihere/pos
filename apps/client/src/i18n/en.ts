@@ -4457,6 +4457,8 @@ export const en = {
   'pass.waiting_bill': 'Waiting for the bill',
   'pass.pickup_label': 'Pickup {time}',
   'pass.hand_at_counter': 'Hand over at the counter',
+  // ⚠️ 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-14): a pickup order outside the person's scope (never the floors text)
+  'orders.err.outside_scope': 'This order is not one of yours',
   'pass.outside_scope': 'This order is not one of yours — hand over at the counter',
   // ---- 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.4 Not collected, §3.5 R8 order-level counter alert, §8): amber Pass card and the counter Ready ----
   'pass.not_collected': 'Ready {n} min ago — not collected',
