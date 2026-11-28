@@ -35,6 +35,12 @@ import { createMemoryQueueStore } from './memory-store';
 // - The store rejects (blocked site data, quota): the queue goes on in memory for this page's life (review #156).
 // - The queue drains on enqueue, on a socket reconnect / catch-up (it subscribes to the live bus first, and its first
 //   send leaves synchronously, so it goes before any other screen's refetch) and on `drain()` (sign-in, 25c).
+// - ⚠️ 02b v1.0.28 QR2-1 (owner ruling R2-2 of 2026-11-28 QA-R2, BUG-2): a queued order is never dropped for a closed
+//   day. A replay refused `BUSINESS_DAY_NOT_OPEN` stays queued, *waiting for the day* (`waitingDay`, memory only; the
+//   rail shows it): the drain passes it for that run and goes on; every later drain — a BusinessDayOpened frame too —
+//   sends it again with the same command_id. The age window does not apply to it. Its session ending meanwhile does
+//   not log it: it is sent as the person signed in on the page (none → it waits for the sign-in's drain). The send a
+//   waiting caller reads is still `refused` (Day not started, the cart kept).
 
 export const QUEUEABLE: ReadonlySet<string> = new Set<QueueableCommand>(['SubmitOrder', 'MarkServed', 'RequestBill', 'CleanTable']);
 
@@ -102,6 +108,8 @@ export interface CommandQueue {
   pendingCount(): number;
   /** queued entries, in send order */
   queued(): QueueEntry[];
+  /** QR2-1: the hub refused this queued entry for a closed day; it waits for a day to open */
+  waitingDay(entry_id: string): boolean;
   /** the queue log, in queued_at order */
   log(): QueueEntry[];
   /** send everything queued now; resolves when the drain stopped or ran dry */
@@ -119,7 +127,8 @@ export interface CommandQueue {
 
 type Outcome = { kind: 'sent'; result: unknown } | { kind: 'refused'; error: Extract<HubError, { kind: 'api' }> } | { kind: 'log'; reason: string };
 
-type Step = 'next' | 'stop';
+/** 'skip': this entry waits (a closed day, no person to send as); the run goes on with the next */
+type Step = 'next' | 'stop' | 'skip';
 
 export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
   const newId = d.newId ?? (() => newUlid());
@@ -147,6 +156,8 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
   const againInFlight = new Map<string, Promise<SendAgainResult>>();
   /** ids another page removed (sent, discarded): never written back here */
   const removedElsewhere = new Set<string>();
+  /** QR2-1: queued entries the hub refused BUSINESS_DAY_NOT_OPEN, waiting for a day to open */
+  const waitingDay = new Set<string>();
 
   const changed = () => {
     for (const l of [...listeners]) l();
@@ -165,6 +176,7 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
     sessions.delete(id);
     attempted.delete(id);
     manual.delete(id);
+    waitingDay.delete(id);
     changed();
     try {
       await store.remove(id);
@@ -182,6 +194,7 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
     entries = entries.map((x) => (x.entry_id === e.entry_id ? logged : x));
     sessions.delete(e.entry_id);
     manual.delete(e.entry_id);
+    waitingDay.delete(e.entry_id);
     outcomes.set(e.entry_id, { kind: 'log', reason });
     changed();
     await write(logged);
@@ -235,11 +248,27 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
   /** one entry; 'stop' ends the drain (no answer, a session ended, the device revoked) */
   async function sendOne(e: QueueEntry): Promise<Step> {
     // the window is for the automatic send only; a "Send again" tap always sends (Q-2: same command_id)
-    if (!manual.has(e.entry_id) && d.clock().nowMs() - e.queued_at > maxAge()) {
+    // QR2-1: an entry waiting for the day was answered by the hub; a day may stay closed overnight
+    if (!manual.has(e.entry_id) && !waitingDay.has(e.entry_id) && d.clock().nowMs() - e.queued_at > maxAge()) {
       await toLog(e, LOG_REASON.tooOld);
       return 'next';
     }
-    const session = sessions.get(e.entry_id);
+    let session = sessions.get(e.entry_id);
+    if (session === undefined && waitingDay.has(e.entry_id)) {
+      // QR2-1: its own session ended while it waited — sent as the person signed in now (as "Send again"), else it waits
+      const token = d.api.sessionToken();
+      const staff_id = d.api.staffId();
+      if (token === null || staff_id === null) return 'skip';
+      session = { token, staff_id };
+      sessions.set(e.entry_id, session);
+      if (e.staff_id !== staff_id) {
+        const as: QueueEntry = { ...e, staff_id };
+        entries = entries.map((x) => (x.entry_id === e.entry_id ? as : x));
+        e = as;
+        changed();
+        await write(as);
+      }
+    }
     if (session === undefined) {
       await toLog(e, LOG_REASON.noSession);
       return 'next';
@@ -258,8 +287,13 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
     // the page's own session ended (api signed it out), or another person's session is gone (Q-2)
     if (error.kind === 'signed_out' || (error.kind === 'api' && error.status === 401 && SESSION_CODES.has(error.code))) {
       const reason = error.kind === 'api' ? error.code : 'SESSION_EXPIRED';
-      for (const other of entries.filter((x) => x.state === 'queued' && sessions.get(x.entry_id)?.token === session.token)) await toLog(other, reason);
-      return 'stop';
+      for (const other of entries.filter((x) => x.state === 'queued' && sessions.get(x.entry_id)?.token === session.token)) {
+        // QR2-1: an entry waiting for the day is kept; it is sent as the next person signed in
+        if (waitingDay.has(other.entry_id)) sessions.delete(other.entry_id);
+        else await toLog(other, reason);
+      }
+      // another person's session ended: the run goes on (a waiting entry is now sent as the person signed in)
+      return error.kind !== 'signed_out' && waitingDay.has(e.entry_id) ? 'next' : 'stop';
     }
     if (error.kind === 'api' && error.status === 403 && error.code === 'DEVICE_REVOKED') {
       revoked = true;
@@ -272,6 +306,14 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
         await sent(e, undefined);
         return 'next';
       }
+    }
+    // QR2-1 (R2-2): a replay refused for a closed day is never dropped — it stays queued, waiting for the day
+    if (replay && error.kind === 'api' && error.code === 'BUSINESS_DAY_NOT_OPEN') {
+      if (!waitingDay.has(e.entry_id)) {
+        waitingDay.add(e.entry_id);
+        changed();
+      }
+      return 'skip';
     }
     // a local refusal (a token without its person, status 0) is as definitive as a 4xx: never retried
     const refusal = definitiveRefusal(error) ?? (error.kind === 'api' && error.code === 'CLIENT_SESSION_WITHOUT_ACTOR' ? error : null);
@@ -287,11 +329,15 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
   }
 
   async function loop(): Promise<void> {
+    // QR2-1: entries that wait (a closed day, no person) are passed for this run; the next drain tries them again
+    const skipped = new Set<string>();
     for (;;) {
       if (revoked) return;
-      const next = entries.find((e) => e.state === 'queued');
+      const next = entries.find((e) => e.state === 'queued' && !skipped.has(e.entry_id));
       if (next === undefined) return;
-      if ((await sendOne(next)) === 'stop') return;
+      const step = await sendOne(next);
+      if (step === 'stop') return;
+      if (step === 'skip') skipped.add(next.entry_id);
     }
   }
 
@@ -317,6 +363,8 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
 
   const off = d.live.subscribe((m) => {
     if (m.kind === 'reconnect' || m.kind === 'catch_up') void drain();
+    // QR2-1: a day opened — the orders waiting for it go now
+    else if (m.kind === 'event' && m.event.event_type === 'BusinessDayOpened' && waitingDay.size > 0) void drain();
   });
   // another page sent or discarded these: gone here too (a copy written back by a race is removed again)
   const offRemoved =
@@ -417,6 +465,7 @@ export function createCommandQueue(d: CommandQueueDeps): CommandQueue {
     pendingFor: (table_id) => entries.filter((e) => e.state === 'queued' && e.table_id === table_id).length,
     pendingCount: () => entries.filter((e) => e.state === 'queued').length,
     queued: () => entries.filter((e) => e.state === 'queued').map(entryRecord),
+    waitingDay: (entry_id) => waitingDay.has(entry_id) && entries.some((e) => e.entry_id === entry_id && e.state === 'queued'),
     log: () => entries.filter((e) => e.state === 'log').map(entryRecord),
     drain,
     sendAgain,

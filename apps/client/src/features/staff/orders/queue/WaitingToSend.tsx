@@ -13,8 +13,14 @@ import { queueOf } from './enqueue';
 // sends it (its token then comes in the QueuedSentCard) or moves it to the queue log. 02b-TK C2-1: the rows sit in the
 // takeaway queue rail, at the top of its Cooking rows (L-CLIENT-6a item 4, frame SentQueued). Reads the queue only;
 // logs nothing.
+// ⚠️ 02b v1.0.28 QR2-1 (owner ruling R2-2 of 2026-11-28 QA-R2, BUG-2): a row the hub refused for a closed day stays and
+// reads "Waiting — the day hasn't started" (`waiting_day`); the queue sends it when a day opens.
 
-export function waitingTakeaways(entries: QueueEntry[], config: BranchConfig | null = null): Array<{ entry_id: string; name: string | null; lines: number; summary: string }> {
+export function waitingTakeaways(
+  entries: QueueEntry[],
+  config: BranchConfig | null = null,
+  waitingDay: (entry_id: string) => boolean = () => false,
+): Array<{ entry_id: string; name: string | null; lines: number; summary: string; waiting_day: boolean }> {
   // L-CLIENT-6a item 4 (frame SentQueued): the row names what was ordered ("2× Naan · Raita"), from this device's menu
   const nameOf = (l: SubmitLine) => (l.item_id !== undefined ? config?.items.find((i) => i.item_id === l.item_id)?.name : config?.deals.find((d) => d.deal_id === l.deal_id)?.name) ?? null;
   return entries.flatMap((e) => {
@@ -25,7 +31,7 @@ export function waitingTakeaways(entries: QueueEntry[], config: BranchConfig | n
       const name = nameOf(l);
       return name === null ? [] : [{ name, qty: l.quantity ?? 1 }];
     });
-    return [{ entry_id: e.entry_id, name: p.takeaway?.customer_name ?? null, lines: lines.length, summary: named.length === lines.length ? groupedSummary(named) : '' }];
+    return [{ entry_id: e.entry_id, name: p.takeaway?.customer_name ?? null, lines: lines.length, summary: named.length === lines.length ? groupedSummary(named) : '', waiting_day: waitingDay(e.entry_id) }];
   });
 }
 
@@ -36,7 +42,7 @@ export function useWaitingTakeaways(): ReturnType<typeof waitingTakeaways> {
   const [, setVersion] = useState(0);
   // a shell without the real queue (a test stub) has nothing waiting
   useEffect(() => queue?.subscribe(() => setVersion((v) => v + 1)), [queue]);
-  return queue === null ? [] : waitingTakeaways(queue.queued(), shell.config.snapshot());
+  return queue === null ? [] : waitingTakeaways(queue.queued(), shell.config.snapshot(), (id) => queue.waitingDay(id));
 }
 
 export function WaitingRows({ showContact }: { showContact: boolean }) {
@@ -54,9 +60,9 @@ export function WaitingRows({ showContact }: { showContact: boolean }) {
             <small dir="auto">{r.summary !== '' ? r.summary : fill(t('cart.items'), { n: String(r.lines) })}</small>
           </span>
           <span className="tk-qr__r">
-            <span className="tk-chip tk-chip--warn">
-              <Ico name="wifioff" />
-              {t('q.waiting_send')}
+            <span className="tk-chip tk-chip--warn" {...(r.waiting_day ? { 'data-waiting-day': '' } : {})}>
+              <Ico name={r.waiting_day ? 'warn' : 'wifioff'} />
+              {t(r.waiting_day ? 'q.waiting_day' : 'q.waiting_send')}
             </span>
           </span>
         </div>
