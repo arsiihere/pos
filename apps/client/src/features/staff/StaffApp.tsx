@@ -47,7 +47,7 @@ import { createInputActivity } from './shell/input-activity';
 import { readOwnShift, shiftEvent, type OwnShift } from './shell/own-shift';
 import { ShellBanners } from './shell/ShellBanners';
 import { createDayWatch } from './orders/order-screen/day-open';
-import { canStartDay } from './orders/order-screen/DayNotStarted';
+import { startDayMode } from './orders/order-screen/DayNotStarted';
 import { money } from './orders/money';
 import { ShellContext, type Shell } from './shell/hooks';
 import { createLiveBus } from './shell/live';
@@ -1216,7 +1216,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   } else if (isSlotRoute(staffRoute)) {
     page = <RouteSlot route={staffRoute} alertRows={snap.rows} onNewOrder={() => setNewOrder(true)} />;
   } else if (path === '/manager' && has('manager')) {
-    page = <ManagerScreen permissions={permissions} onNavigate={navigate} />;
+    page = <ManagerScreen permissions={permissions} day={dayOpen} onNavigate={navigate} />;
   } else if (path === '/audit' && showAudit) {
     page = <AuditLog />;
   } else if (path === '/devices' && showDevices) {
@@ -1420,7 +1420,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       {me !== null && !switching && takeawayRoute && (
         <ShellBanners
           day={dayOpen}
-          canStartDay={canStartDay(permissions)}
+          startDay={startDayMode(permissions)}
           place={`${meta.branchName} · ${timeText(nowMs, offset)}`}
           shift={allowed.has('take-payment') ? ownShift : null}
           onOpenShift={showShift ? () => navigate('/shift') : null}
