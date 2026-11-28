@@ -672,6 +672,53 @@ describe('business day commands (§6.18a, §6.18b)', () => {
       expect(eventsOf(hub, 'BusinessDayClosed')).toHaveLength(2);
     });
 
+    // ⚠️ 02b v1.0.28 QR2-2 (owner 2026-11-28 QA-R2, BUG-9): Start day on the staff app, under the permission of Close day
+    it('[02b #102 QR2-2] OpenBusinessDay on the staff route needs close-business-day (not manage-stock); the admin route still needs manage-stock', async () => {
+      const hub = await createTestHub();
+      cleanups.push(() => hub.close());
+      hub.clock.set(at(0));
+      const directory = await aDirectory();
+      for (const role of directory.roles) role.session_idle_ttl_ms = 7 * 86_400_000;
+      const grant = (permission: string) => ({ permission, grant_type: 'allowed' as const, approver_role_id: null, approver_role_ids: [], scope: 'branch' as const });
+      directory.roles.push(
+        { role_id: 'R_STK', name: 'Stock', session_idle_ttl_ms: 7 * 86_400_000, permissions: [grant('access-hub-admin'), grant('manage-stock')] as never },
+        { role_id: 'R_CLOSE', name: 'Closer', session_idle_ttl_ms: 7 * 86_400_000, permissions: [grant('access-hub-admin'), grant('close-business-day')] as never },
+      );
+      const cashier = directory.staff.find((staff) => staff.staff_id === 'S_CASH')!;
+      directory.staff.push({ ...cashier, staff_id: 'S_STK', display_name: 'Stock', role_ids: ['R_STK'] }, { ...cashier, staff_id: 'S_CLOSE', display_name: 'Closer', role_ids: ['R_CLOSE'] });
+      await seedDirectory(hub, directory);
+      withConfig(aBranchConfigItemStock());
+      const onDevice = (staffId: string, command_id: string) => {
+        const device = pairDevice(hub, { type: 'tablet' });
+        const staff = openSession(hub, { kind: 'staff', staffId, deviceId: device.deviceId });
+        return hub.app.inject({
+          method: 'POST',
+          url: '/commands/open-business-day',
+          headers: { authorization: `Bearer ${device.token}`, 'x-session-token': staff.token },
+          payload: { command_id, tenant_id: 'tenant-a', branch_id: 'branch-1', command_type: 'OpenBusinessDay', payload: {}, occurred_at: hub.clock.branchNow(), actor_id: staffId, device_id: device.deviceId },
+        });
+      };
+
+      const stockOnly = await onDevice('S_STK', 'cmd-open-dev-stk');
+      expect(stockOnly.statusCode, stockOnly.body).toBe(403);
+      expect(stockOnly.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'close-business-day' } });
+      expect(engine(hub).business_day).toBeNull();
+
+      const opened = await onDevice('S_CLOSE', 'cmd-open-dev-close');
+      expect(opened.statusCode, opened.body).toBe(200);
+      expect(opened.json().data.result).toMatchObject({ changed: true, reason: 'opened' });
+      expect(eventsOf(hub, 'BusinessDayOpened')).toHaveLength(1);
+      const again = await onDevice('S_MGR', 'cmd-open-dev-mgr');
+      expect(again.json().data.result).toMatchObject({ changed: false, reason: 'already_open' });
+
+      // the admin route is unchanged: manage-stock, not close-business-day
+      const adminClose = await post(hub, adminOn(hub, 'S_CLOSE'), 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-adm-close', 'S_CLOSE');
+      expect(adminClose.statusCode).toBe(403);
+      expect(adminClose.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'manage-stock' } });
+      const adminStock = await post(hub, adminOn(hub, 'S_STK'), 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-adm-stk', 'S_STK');
+      expect(adminStock.statusCode, adminStock.body).toBe(200);
+    });
+
     it('[05 row A-5] [01b B20] a close-business-day grant with scope my_stations → 403 outside_scope, required_scope branch; no event, no processed_commands row', async () => {
       // The cloud grants close-business-day with scope `branch` only (PERMISSION_SCOPES); the hub check is defence in
       // depth, so the directory here is seeded past that rule.
