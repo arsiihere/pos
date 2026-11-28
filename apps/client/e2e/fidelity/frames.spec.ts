@@ -180,6 +180,42 @@ test('kiosk HomeKiosk in Urdu', async ({ browser }) => {
   }
 });
 
+// qa-bill-2 in the 6a cart (02b v1.0.26 CT-1 – CT-4): the amber "Kitchen can make it by …" over the lines when the asked
+// pickup is too soon, the one clock (Ready by = the latest line time), and the 30 s preview refresh
+test('kiosk PickupLate + one clock + 30 s refresh', async ({ browser }) => {
+  test.setTimeout(240_000);
+  for (const size of ['1920', '1366'] as const) {
+    const h = demo('busy');
+    const page = await on(browser, size, h, h.kiosk);
+    try {
+      await section(page, 'Karahi');
+      await page.getByRole('button', { name: 'Mutton Karahi · Full' }).click();
+      await page.locator('.cart [data-pickup-row] button', { hasText: '+15 min' }).click();
+      await expect(page.locator('.cart [data-pickup-late]')).toBeVisible();
+      const lines = await page.locator('.osc--tk > .cart > .lines').boundingBox();
+      expect(lines!.height).toBeGreaterThan(100);
+      await shot(page, `PickupLate-${size}`);
+      await page.locator('.cart [data-pickup-row] button', { hasText: 'Now' }).click();
+      await page.waitForTimeout(900);
+      // one clock: Ready by = the latest line badge
+      const ready = await page.locator('.cart [data-ready] b').textContent();
+      const badges = await page.locator('.cart .ln .eta .num').allTextContents();
+      expect(badges.length).toBeGreaterThan(0);
+      expect(badges).toContain(ready);
+      if (size === '1920') {
+        let asked = 0;
+        page.on('request', (r) => {
+          if (r.url().includes('/queries/eta-preview')) asked += 1;
+        });
+        await page.waitForTimeout(32_000);
+        expect(asked, 'the cart re-asks its times every 30 s').toBeGreaterThanOrEqual(1);
+      }
+    } finally {
+      await page.close();
+    }
+  }
+});
+
 test('tablet HomeTablet + QueueTablet', async ({ browser }) => {
   for (const size of TABLET) {
     const h = demo('busy');
