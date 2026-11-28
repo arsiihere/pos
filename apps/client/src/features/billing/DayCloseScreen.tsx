@@ -42,7 +42,10 @@ interface ShiftRow {
 }
 interface OrderRow {
   order_id: string;
+  /** ⚠️ 05 v1.0.37 §3.13 (QA-R2 BUG-11): one row per bill — every order of it (carried together) */
+  order_ids: string[];
   identifier: string;
+  /** the bill's due (Σ its open splits' balances); an older hub's per-order total */
   total_minor: number;
   placed_at: number;
   open_minutes: number;
@@ -81,7 +84,18 @@ export function blockedOf(details: Record<string, unknown>): Blocked {
       return {
         reason: 'unbilled_orders',
         count,
-        rows: rows.map((o) => ({ order_id: str(o['order_id']), identifier: str(o['identifier']), total_minor: num(o['total_minor']) ?? 0, placed_at: num(o['placed_at']) ?? 0, open_minutes: num(o['open_minutes']) ?? 0 })),
+        rows: rows.map((o) => {
+          const order_id = str(o['order_id']);
+          const ids = Array.isArray(o['order_ids']) ? o['order_ids'].filter((x): x is string => typeof x === 'string' && x !== '') : [];
+          return {
+            order_id,
+            order_ids: ids.length > 0 ? ids : [order_id],
+            identifier: str(o['identifier']),
+            total_minor: num(o['due_minor']) ?? num(o['total_minor']) ?? 0,
+            placed_at: num(o['placed_at']) ?? 0,
+            open_minutes: num(o['open_minutes']) ?? 0,
+          };
+        }),
       };
     }
     default:
@@ -357,7 +371,11 @@ export function DayCloseScreen({ onNavigate, exits }: { onNavigate: (path: strin
             shell.toasts.show({ text: fill(t(ids.length === 1 ? 'billing.dayclose.carried_one' : 'billing.dayclose.carried'), { count: String(ids.length) }), tone: 'ok' });
             // the carried orders leave the list; Close day again asks the hub afresh
             const b = state.b;
-            if (b.reason === 'unbilled_orders') setState({ name: 'blocked', b: { ...b, rows: b.rows.filter((o) => !ids.includes(o.order_id)), count: Math.max(0, b.count - ids.length) } });
+            if (b.reason === 'unbilled_orders') {
+              // v1.0.37: a row is a bill — it leaves with its orders; `count` counts bills
+              const left = b.rows.filter((o) => !ids.includes(o.order_id));
+              setState({ name: 'blocked', b: { ...b, rows: left, count: Math.max(0, b.count - (b.rows.length - left.length)) } });
+            }
           }}
         />
       )}
@@ -478,7 +496,8 @@ function BlockedList(p: {
           return (
             <div key={o.order_id} className={on ? 'b5-br b5-br--tick sel' : 'b5-br b5-br--tick'}>
               <button type="button" className={on ? 'b5-tick on' : 'b5-tick'} aria-pressed={on} aria-label={fill(t('billing.dayclose.tick'), { identifier: o.identifier })} onClick={() => p.onTick(o.order_id)}>
-                <BIco name="check" />
+                {/* ⚠️ 05 v1.0.37 §8 (QA-R2 BUG-11): the ✓ only while ticked — never a mark on an unticked row */}
+                {on && <BIco name="check" />}
               </button>
               <span className={o.identifier.startsWith('#') ? 'tcode q' : 'tcode'}>{o.identifier}</span>
               <div>
@@ -520,7 +539,8 @@ function CarrySheet({ rows, code, offset, onClose, onDone }: { rows: OrderRow[];
     if (step !== null || reason === null || busy || !shell.online) return;
     setBusy(true);
     setMsg(null);
-    const ids = rows.map((o) => o.order_id);
+    // v1.0.37 (BUG-11): every order of each ticked bill
+    const ids = rows.flatMap((o) => o.order_ids);
     const answer = await api.carryOverOrders({ order_ids: ids, reason_code: reason, ...(note.trim() === '' ? {} : { note: note.trim() }) });
     setBusy(false);
     if (!answer.ok) {

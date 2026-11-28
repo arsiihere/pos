@@ -164,7 +164,8 @@ describe('[05 §6.25 guard] day close refused while shifts are open, a sign-off 
     const open_minutes = Math.floor((hub.clock.branchNow() - placed_at) / 60_000);
     expect(r4.error).toEqual({
       code: 'DAY_CLOSE_BLOCKED',
-      details: { reason: 'unbilled_orders', orders: [{ order_id: dine, identifier: 'T12', total_minor: NAAN, placed_at, open_minutes }], count: 1 },
+      // ⚠️ 05 v1.0.37 (QA-R2 BUG-11): one row per bill, with its order ids and its due (total_minor = the due)
+      details: { reason: 'unbilled_orders', orders: [{ order_id: dine, order_ids: [dine], identifier: 'T12', total_minor: NAAN, due_minor: NAAN, placed_at, open_minutes }], count: 1 },
     });
     expect(state().business_day?.closed_at).toBeNull();
     // a refusal writes nothing: no processed_commands row, so the same command_id may run again once unblocked
@@ -174,14 +175,15 @@ describe('[05 §6.25 guard] day close refused while shifts are open, a sign-off 
     expect(ok.result).toMatchObject({ changed: true, reason: 'closed' });
   });
 
-  it('[05 #62] 41 unbilled orders → 40 listed oldest first, count 41; billed and cancelled ones never listed; ≤ 3 statements (1 per reason asked)', async () => {
+  it('[05 #62] 41 unbilled orders (41 bills) → 40 listed oldest first, count 41; billed and cancelled ones never listed; ≤ 5 statements (05 v1.0.37: + the dues)', async () => {
     await start();
     const ids: string[] = [];
     for (let i = 0; i < 43; i += 1) ids.push(takeawayOrder(hub, { prefix: `TW${i}` }).order_id);
     billOrders([ids[0]!]);
     cancelOrder(ids[1]!);
     const g = guardNow();
-    expect(g.statements).toBe(3);
+    // ⚠️ 05 v1.0.37 (BUG-11): + keyBalances for the listed keys (1); no seating listed (0)
+    expect(g.statements).toBe(4);
     const d = g.value!.details as { reason: string; orders: Array<{ order_id: string; identifier: string; total_minor: number }>; count: number };
     expect(d.reason).toBe('unbilled_orders');
     expect(d.count).toBe(41);
@@ -688,3 +690,55 @@ function measure(path: string): () => number | undefined {
   }
   return () => last;
 }
+
+// ⚠️ 05 v1.0.37 §3.13, §6.25 (owner 2026-11-28 QA-R2, BUG-11), test #63g: the "not billed" list is one row per bill with
+// its due — never one row per sub-order with its gross ("#4 ×3", "#2 Rs 80 though 50 paid").
+describe('[05 v1.0.37 §3.13, #63g] day close: one unbilled row per bill, with its due (BUG-11)', () => {
+  type Row = { order_id: string; order_ids: string[]; identifier: string; total_minor: number; due_minor: number };
+  const listed = () => {
+    const g = guardNow();
+    const d = g.value!.details as { reason: string; orders: Row[]; count: number };
+    expect(d.reason).toBe('unbilled_orders');
+    return { d, statements: g.statements };
+  };
+
+  it('[05 #63g] a token with three orders is one row (its three order ids, the token’s due); a partly paid token shows what is left; two tables are two rows; count = bills; ≤ 5 statements', async () => {
+    const { cashier } = await start();
+    const shift_id = await openShift(cashier);
+    const root = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.cashier, lines: [{ order_item_id: 'G4_1', item_id: FX.naan }] }).order_id;
+    const add1 = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.cashier, adds_to_order_id: root, lines: [{ order_item_id: 'G4_2', item_id: FX.naan }] }).order_id;
+    const add2 = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.cashier, adds_to_order_id: root, lines: [{ order_item_id: 'G4_3', item_id: FX.naan }] }).order_id;
+    const part = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.cashier, lines: [{ order_item_id: 'G2_1', item_id: FX.naan, quantity: 2 }] }).order_id;
+    expect((await post(hub, cashier, 'add-payment', 'AddPayment', { bill_ref: { order_id: part }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: 2_000 })).status).toBe(200);
+    // the shift counted exactly (no variance), so the guard reaches the unbilled list
+    expect((await post(hub, cashier, 'count-shift', 'CountShift', { shift_id, counted_minor: FLOAT + 2_000 })).status).toBe(200);
+    openSeating(hub, { table_id: VX.tables.T12, seating_id: 'SEAT_G12' });
+    const t12a = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT_G12', lines: [{ order_item_id: 'G12_1', item_id: FX.naan }] }).order_id;
+    const t12b = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT_G12', lines: [{ order_item_id: 'G12_2', item_id: FX.naan }] }).order_id;
+    openSeating(hub, { table_id: VX.tables.T5, seating_id: 'SEAT_G5' });
+    const t5 = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT_G5', lines: [{ order_item_id: 'G5_1', item_id: FX.naan }] }).order_id;
+
+    const { d, statements } = listed();
+    expect(statements).toBe(5);
+    expect(d.count).toBe(4);
+    expect(d.orders.map((o) => [o.order_id, o.order_ids, o.due_minor, o.total_minor])).toEqual([
+      [root, [root, add1, add2], 3 * NAAN, 3 * NAAN],
+      [part, [part], 2 * NAAN - 2_000, 2 * NAAN - 2_000],
+      [t12a, [t12a, t12b], 2 * NAAN, 2 * NAAN],
+      [t5, [t5], NAAN, NAAN],
+    ]);
+    const token = hub.deps.db.prepare('SELECT token FROM orders WHERE order_id = ?').pluck().get(root) as number;
+    expect(d.orders[0]!.identifier).toBe(`#${token}`);
+  });
+
+  it('[05 #63g] carrying a row’s order ids together takes the whole bill off the list', async () => {
+    const { manager } = await start();
+    const root = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.cashier, lines: [{ order_item_id: 'C4_1', item_id: FX.naan }] }).order_id;
+    appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.cashier, adds_to_order_id: root, lines: [{ order_item_id: 'C4_2', item_id: FX.naan }] });
+    const row = listed().d.orders[0]!;
+    expect(row.order_ids).toHaveLength(2);
+    const r = await carry(manager, { order_ids: row.order_ids, reason_code: 'customer_will_pay_later' });
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(guardNow().value).toBeNull();
+  });
+});
