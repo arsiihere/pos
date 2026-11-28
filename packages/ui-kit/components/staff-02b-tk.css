@@ -678,3 +678,6 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
   .osc--tk > .cart .cart__foot .duo .btn .ico, .osc--tk > .cart .cart__foot .duo .tk-btn .ico, .osc--tk > .cart .cart__foot .duo svg { display: none; }
   .osc--tk > .cart .cart__foot .duo > * { overflow: hidden; text-overflow: ellipsis; }
 }
+/* with 6b's pay panel (at least 544 px, staff-02b-tk-6b.css) the cart lets it overhang the menu and sits above it, so
+   a narrow cart (tablet 440, kiosk 420 / 480) never clips the panel or hands its taps to the menu below */
+.osc--tk > .cart:has(> .tk-paypanel) { overflow: visible; z-index: 3; }
