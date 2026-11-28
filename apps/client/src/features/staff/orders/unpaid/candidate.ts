@@ -11,6 +11,8 @@ export interface BillRow {
   bill?: { state: 'due' | 'paid'; due_minor: number; key?: string | null } | null;
   /** §6.16 (R3-M-8): absent on a hub that does not send it yet */
   unpaid_handover_approved?: boolean;
+  /** ⚠️ 02b v1.0.28 §6.16 (QA-R2, BUG-27): an open request holds the row's bill; absent on an older hub */
+  unpaid_handover_pending?: boolean;
 }
 
 /** One successful `open-orders` read: hub-clock ms when it was issued, and its rows by order id. */
@@ -155,10 +157,12 @@ export function parseBillRows(data: unknown, at: number): BillRead | null {
     const key = typeof b?.key === 'string' || b?.key === null ? { key: b.key as string | null } : {};
     const bill = b === null ? null : state !== null && typeof b?.due_minor === 'number' ? { state, due_minor: b.due_minor, ...key } : undefined;
     const flag = o['unpaid_handover_approved'];
+    const pending = o['unpaid_handover_pending'];
     rows.set(o['order_id'], {
       order_type: typeof o['order_type'] === 'string' ? o['order_type'] : '',
       ...(bill === undefined ? {} : { bill }),
       ...(typeof flag === 'boolean' ? { unpaid_handover_approved: flag } : {}),
+      ...(typeof pending === 'boolean' ? { unpaid_handover_pending: pending } : {}),
     });
   }
   return { at, rows };

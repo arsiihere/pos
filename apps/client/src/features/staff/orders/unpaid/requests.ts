@@ -21,7 +21,13 @@ import type { BillRow } from './candidate';
  * `ask_in_person` (01d §6.8, To 02b R3-M-3): my-requests says nobody else can be reached (the sole holder asked, or the
  * other holders absent) — the requester's card then reads "Waiting — find a manager" instead of "Waiting for a manager…".
  */
-export type AskState = { kind: 'waiting'; alert_id: string; mine: boolean; ask_in_person: boolean } | { kind: 'rejected'; alert_id: string };
+export type AskState =
+  /**
+   * `from_hub` (⚠️ 02b v1.0.28 §6.16, §8; owner 2026-11-28 QA-R2, BUG-27): this page never asked; an open-orders read says
+   * a request holds the order's bill (another counter's) — "Waiting for a manager…", nothing to tap. `alert_id` ''.
+   */
+  | { kind: 'waiting'; alert_id: string; mine: boolean; ask_in_person: boolean; from_hub?: true }
+  | { kind: 'rejected'; alert_id: string };
 
 export type AskOutcome =
   | { kind: 'waiting'; mine: boolean }
@@ -58,6 +64,8 @@ const idsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is s
 export function createUnpaidRequests(o: { live: LiveBus; api: Api }): UnpaidRequests {
   const states = new Map<string, AskState>();
   const approvals = new Map<string, number>();
+  // ⚠️ 02b v1.0.28 (QA-R2, BUG-27): orders whose bill a request holds, from the last open-orders rows (another counter's)
+  const pendingHub = new Set<string>();
   const asking = new Map<string, Promise<AskOutcome>>();
   const listeners = new Set<() => void>();
   let version = 0;
@@ -119,6 +127,7 @@ export function createUnpaidRequests(o: { live: LiveBus; api: Api }): UnpaidRequ
         if (typeof order_id !== 'string' || typeof due !== 'number') return;
         approvals.set(order_id, due);
         states.delete(order_id);
+        pendingHub.delete(order_id);
         changed();
         return;
       }
@@ -161,7 +170,7 @@ export function createUnpaidRequests(o: { live: LiveBus; api: Api }): UnpaidRequ
   };
 
   return {
-    stateOf: (order_id) => states.get(order_id) ?? null,
+    stateOf: (order_id) => states.get(order_id) ?? (pendingHub.has(order_id) ? { kind: 'waiting', alert_id: '', mine: false, ask_in_person: false, from_hub: true } : null),
     approvedDue: (order_id) => approvals.get(order_id),
     ask(order_id, due_minor) {
       const running = asking.get(order_id);
@@ -187,6 +196,10 @@ export function createUnpaidRequests(o: { live: LiveBus; api: Api }): UnpaidRequ
           approvals.set(r.order_id, r.bill.due_minor);
           hit = true;
         } else if (r.unpaid_handover_approved === false) hit = approvals.delete(r.order_id) || hit;
+        if (r.unpaid_handover_pending === true && !pendingHub.has(r.order_id)) {
+          pendingHub.add(r.order_id);
+          hit = true;
+        } else if (r.unpaid_handover_pending === false) hit = pendingHub.delete(r.order_id) || hit;
       }
       if (hit) changed();
     },
