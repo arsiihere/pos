@@ -6,7 +6,7 @@ import { ShellContext, type Shell } from '../../shell/hooks';
 import { createLiveBus } from '../../shell/live';
 import { createPermissions } from '../../shell/permissions';
 import { createToastBus } from '../../shell/toast';
-import { PayPanel, type PayTarget } from './PayPanel';
+import { PayPanel, shiftBackRoute, type PayTarget } from './PayPanel';
 import { at } from './test-fixtures';
 
 // 02b-TK C3-1 (05 v1.0.34 §6.1, §6.9, §6.12, B12, B16; frames PayCash, PayCashShort, PayCard, PayDone, PayError): the
@@ -268,8 +268,17 @@ describe('[02b-TK C3-1] pay panel — refusals (frame PayError)', () => {
   it('[05 §6.9 B11] SHIFT_NOT_OPEN no_shift with manage-own-shift offers Open shift (#/shift)', async () => {
     const s = setup({ answers: [refused(409, 'SHIFT_NOT_OPEN', { reason: 'no_shift' })], grants: { 'manage-own-shift': { grant: 'allowed', scope: 'branch' } } });
     const m = await pay(s);
+    window.location.hash = '#/takeaway';
     m.click(m.button('My shift'));
-    expect(nav.to).toEqual(['/shift']);
+    // ⚠️ 02b v1.0.31 QK-9a (QA-R3): Open shift returns to the screen the panel was on
+    expect(nav.to).toEqual(['/shift?back=%2Ftakeaway']);
+  });
+
+  it('[02b v1.0.31 QK-9a] shiftBackRoute: the hash path without its query; no usable path → plain /shift', () => {
+    expect(shiftBackRoute('#/orders/new?x=1')).toBe('/shift?back=%2Forders%2Fnew');
+    expect(shiftBackRoute('#/takeaway')).toBe('/shift?back=%2Ftakeaway');
+    expect(shiftBackRoute('')).toBe('/shift');
+    expect(shiftBackRoute('#/shift?back=/takeaway')).toBe('/shift');
   });
 
   it('[handbook §10] a lost reply: "Hub offline", Try again resends the SAME command (one payment)', async () => {
