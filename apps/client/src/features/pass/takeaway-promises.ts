@@ -29,26 +29,50 @@ const PROMISE_EVENTS: ReadonlySet<string> = new Set([
 const DEBOUNCE_MS = 100;
 const EVERY_MS = 30_000;
 
+/** ⚠️ 02b v1.0.29 §8 (owner 2026-11-28 QA-R2, BUG-12): a row's counter-time facts (queue-model `counterTimeOf`). */
+export interface TimeRow {
+  ready: { n: number; m: number };
+  promise_ms: number | null;
+  pickup_at_ms?: number | null;
+  effective_pickup_at_ms?: number | null;
+  planned_ready_at_ms?: number | null;
+}
+
 export interface TakeawayPromises {
   /** order_id → promise_ms (null while the order is not in the engine) */
   promises(): ReadonlyMap<string, number | null>;
+  /** ⚠️ 02b v1.0.29 (QA-R2, BUG-12): order_id → its counter-time facts, from the same read */
+  times(): ReadonlyMap<string, TimeRow>;
   start(): void;
   stop(): void;
   subscribe(listener: () => void): () => void;
 }
 
-function parse(data: unknown): Map<string, number | null> | null {
+const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
+
+function parse(data: unknown): { promises: Map<string, number | null>; times: Map<string, TimeRow> } | null {
   const orders = (data as { orders?: unknown } | null)?.orders;
   if (!Array.isArray(orders)) return null;
   const out = new Map<string, number | null>();
-  for (const o of orders as Array<{ order_id?: unknown; promise_ms?: unknown }>) {
-    if (typeof o.order_id === 'string') out.set(o.order_id, typeof o.promise_ms === 'number' ? o.promise_ms : null);
+  const times = new Map<string, TimeRow>();
+  for (const o of orders as Array<Record<string, unknown>>) {
+    if (typeof o['order_id'] !== 'string') continue;
+    out.set(o['order_id'], num(o['promise_ms']));
+    const ready = o['ready'] as { n?: unknown; m?: unknown } | undefined;
+    times.set(o['order_id'], {
+      ready: { n: num(ready?.n) ?? 0, m: num(ready?.m) ?? 0 },
+      promise_ms: num(o['promise_ms']),
+      pickup_at_ms: num(o['pickup_at_ms']),
+      effective_pickup_at_ms: num(o['effective_pickup_at_ms']),
+      planned_ready_at_ms: num(o['planned_ready_at_ms']),
+    });
   }
-  return out;
+  return { promises: out, times };
 }
 
 export function createTakeawayPromises(o: { live: LiveBus; read: () => Promise<HubResult<unknown>> }): TakeawayPromises {
   let current: ReadonlyMap<string, number | null> = new Map();
+  let times: ReadonlyMap<string, TimeRow> = new Map();
   const listeners = new Set<() => void>();
   let running = false;
   let asked = 0;
@@ -64,7 +88,8 @@ export function createTakeawayPromises(o: { live: LiveBus; read: () => Promise<H
     if (!running || mine !== asked || !answer.ok) return;
     const next = parse(answer.data);
     if (next === null) return;
-    current = next;
+    current = next.promises;
+    times = next.times;
     for (const l of [...listeners]) l();
   };
   const schedule = () => {
@@ -78,6 +103,7 @@ export function createTakeawayPromises(o: { live: LiveBus; read: () => Promise<H
 
   return {
     promises: () => current,
+    times: () => times,
     start() {
       if (running) return;
       running = true;

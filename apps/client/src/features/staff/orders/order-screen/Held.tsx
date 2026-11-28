@@ -247,7 +247,8 @@ export function Held({ drawer = false, onClose }: { drawer?: boolean; onClose?: 
           return (
             <div className="ql" key={d.draft_id}>
               <div>
-                <b dir="auto">{what}</b>
+                {/* ⚠️ 02b v1.0.30 QK-7 (BUG-24): the customer's name is its own isolated run, never mixed into the label */}
+                <b dir="auto">{d.order_type === 'takeaway' && name !== null ? <>{t('order.takeaway')} · <bdi>{name}</bdi></> : what}</b>
                 <small>
                   {fill(t('cart.items'), { n: String(cart === null ? 0 : cartCount(cart, units)) })} · <span dir={MONEY_DIR}>{total === null ? '—' : money(total)}</span>
                   {phone !== null && (

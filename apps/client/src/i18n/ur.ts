@@ -1627,6 +1627,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'q.ready': 'تیار — حوالے کریں',
   'q.cooking': 'بن رہا ہے',
   'q.later': 'فون آرڈر — بعد میں',
+  'q.owes': 'حوالے — باقی رقم', // 02b v1.0.29 QA-R2 BUG-7; Urdu to confirm
+  'q.owes_row': 'حوالے — باقی {amount}', // Urdu to confirm
   'q.collect': 'حوالے کریں',
   'q.collect_pay': 'پیسے لیں',
   'q.part': 'کچھ دیا · باقی',
@@ -1722,6 +1724,13 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'shell.me.lock': 'اسکرین لاک کریں',
   'shell.me.lock_sub': 'آپ کے آرڈر ویسے ہی رہیں گے',
   'shell.me.shift': 'میری شفٹ',
+  'shell.me.language': 'زبان',
+  'lock.title': 'الرٹس',
+  'lock.sign_in': 'تفصیل دیکھنے کے لیے سائن اِن کریں', // QA-R2 BUG-16; Urdu to confirm
+  'c.pick_late': 'باورچی خانہ {can} تک بنا سکتا ہے، {asked} تک نہیں', // QA-R2 BUG-16; Urdu to confirm
+  'shell.signin.summary': 'منتظر: {parts}', // QA-R2 BUG-26; Urdu to confirm
+  'shell.signin.late': '{n} دیر سے', // QA-R2 BUG-26; Urdu to confirm
+  'shell.signin.new': '{n} نئے', // QA-R2 BUG-26; Urdu to confirm
   'shell.me.signout': 'سائن آؤٹ',
   'shell.me.signout_sub': 'نہ بھیجے آرڈر پہلے ہولڈ ہوں گے',
   'shell.day.closed': 'دن شروع نہیں ہوا — آرڈر نہیں جا سکتے، وقت نہیں دکھ سکتا',
@@ -1738,6 +1747,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'm.search': 'آئٹم لکھیں — مثلاً 4 نان',
   'm.keys': 'کیز',
   // 02b-TK A2 item 2 (frame KeyboardMode hint "4n = 4 × naan · hk = half karahi · Enter add · Esc clear"): not in strings-table.md; Urdu to confirm
+  'm.max_qty': 'زیادہ سے زیادہ {n}', // QA-R2 BUG-24; Urdu to confirm
   'm.hint_qty': '4 × نان',
   'm.hint_initials': 'آدھی کڑاہی',
   'm.hint_add': 'ڈالیں',
@@ -1771,6 +1781,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'owner.points.receives_help': 'ہر آئٹم اس پاس پر جاتا ہے جو اس کے آرڈر کی قسم لیتا ہے؛ کوئی نہ ہو تو اسٹیشن کے پاس پر۔', // not in strings-table.md; Urdu to confirm
   'owner.points.receives_n': 'لیتا ہے: {types}', // not in strings-table.md; Urdu to confirm
   'owner.points.type.dine_in': 'میز پر', // not in strings-table.md; Urdu to confirm
+  'owner.points.warn.same_position': 'پوائنٹس {names} کی جگہ ایک ہی ہے ({n}) — ہر ایک کو اپنی جگہ دیں', // QA-R2 BUG-8; Urdu to confirm
+  'owner.points.warn.tie': '{type} آرڈر {count} پاس سے ملتے ہیں: {names} — یہ اسٹیشن کے ڈیفالٹ پاس پر جاتے ہیں', // QA-R2 BUG-8; Urdu to confirm
+  'owner.points.warn.gap': '{type} آرڈرز کا کوئی پاس نہیں — یہ اسٹیشن کے ڈیفالٹ پاس پر جاتے ہیں', // QA-R2 BUG-8; Urdu to confirm
   'owner.points.type.takeaway': 'ٹیک اوے', // not in strings-table.md; Urdu to confirm
   'owner.points.type.parking': 'پارکنگ', // not in strings-table.md; Urdu to confirm
   'owner.points.type.delivery': 'ڈیلیوری', // not in strings-table.md; Urdu to confirm
@@ -1799,6 +1812,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'pass.waiting_bill': 'بل کا انتظار', // not in strings-table.md; Urdu to confirm
   'pass.pickup_label': 'لینا ہے {time}', // not in strings-table.md; Urdu to confirm
   'pass.hand_at_counter': 'کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
+  'orders.err.outside_scope': 'یہ آرڈر آپ کا نہیں', // 02b v1.0.29 QA-R2 BUG-14; Urdu to confirm
   'pass.outside_scope': 'یہ آرڈر آپ کا نہیں — کاؤنٹر پر حوالے کریں', // not in strings-table.md; Urdu to confirm
   // ---- 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.4 Not collected, §3.5 R8 order-level counter alert, §8): amber Pass card and the counter Ready ----
   'pass.not_collected': '{n} منٹ سے تیار — کوئی نہیں آیا', // not in strings-table.md; Urdu to confirm
@@ -1857,6 +1871,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'c.pick_time': 'وقت…',
   'c.ready_later': 'کچن اس وقت کیلئے بنائے گا',
   'c.pick_range': 'لینے کا وقت {from} سے {to} تک', // not in strings-table.md; Urdu to confirm
+  'c.pick_err.passed': 'یہ وقت گزر چکا ہے', // QA-R2 BUG-17; Urdu to confirm
   'c.pick_err.too_early': 'بہت جلدی — سب سے پہلے {t} پر لے سکتے ہیں', // not in strings-table.md; Urdu to confirm
   'c.pick_err.after_day_end': 'بہت دیر — دن {t} پر ختم ہوتا ہے', // not in strings-table.md; Urdu to confirm
   'c.pick_err.other_day': 'یہ وقت کسی اور کاروباری دن کا ہے — آج کا وقت چنیں', // not in strings-table.md; Urdu to confirm

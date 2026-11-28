@@ -224,8 +224,9 @@ describe('[03b #126] the routed point\'s Pass views and Ready', () => {
     expect(readyAtOf(hub.deps.db, ['OT']).get('OT')).toEqual(expect.any(Number));
     const ready = hub.deps.db.prepare("SELECT actor_id FROM events WHERE event_type = 'ReadyToServe' AND stream_id = 'OT'").get() as { actor_id: string };
     expect(ready.actor_id).toBe(COOK.staff);
-    // the TA point Ready's 2× step: TA's Pass device, never Main's
-    const alert = hub.deps.db.prepare("SELECT alert_id, values_json FROM alerts WHERE kind = 'ready_to_serve' AND subject_stream_id = 'OT' AND json_extract(values_json, '$.point_id') = 'TA' AND json_extract(values_json, '$.counter_screen') IS NULL").get() as { alert_id: string; values_json: string };
+    // the TA bag's 2× step: TA's Pass device, never Main's. ⚠️ 03b v1.0.20 (owner 2026-11-28 QA-R2, BUG-4): a takeaway's
+    // per-point Ready tells nobody, so the order-level counter alert (point TA) carries the step (was: the point Ready)
+    const alert = hub.deps.db.prepare("SELECT alert_id, values_json FROM alerts WHERE kind = 'ready_to_serve' AND subject_stream_id = 'OT' AND json_extract(values_json, '$.point_id') = 'TA' AND json_extract(values_json, '$.counter_screen') IS NOT NULL").get() as { alert_id: string; values_json: string };
     const raisedAt = (hub.deps.db.prepare("SELECT recorded_at FROM events WHERE event_type = 'AlertRaised' AND json_extract(payload, '$.alert_id') = ?").get(alert.alert_id) as { recorded_at: number }).recorded_at;
     const window = (JSON.parse(alert.values_json) as { window_ms: number }).window_ms;
     for (const t of [raisedAt + window, raisedAt + 2 * window]) {
@@ -233,9 +234,12 @@ describe('[03b #126] the routed point\'s Pass views and Ready', () => {
       hub.deps.writer.run((tx) => tx.append(alertsTick.intents(tx, tx.state as never, t)));
     }
     const step2 = hub.deps.db.prepare("SELECT payload FROM events WHERE event_type = 'EscalationStepped' AND json_extract(payload, '$.alert_id') = ? AND json_extract(payload, '$.step') = 2").get(alert.alert_id) as { payload: string };
-    // the point step resolves to the staff signed in on the point's devices (plus the managers)
-    const staff = (JSON.parse(step2.payload) as { recipients: Array<{ staff_id: string | null }> }).recipients.map((r) => r.staff_id);
-    expect(staff).toContain(COOK.staff);
-    expect(staff).not.toContain('S_WAIT');
+    // the point step resolves to the point's devices (plus the managers); ⚠️ 03b v1.0.20 (QA-R2, BUG-14): people who
+    // neither take orders nor manage (the Cook at TA, the fixture's Order taker at Main) are never recipients
+    const recipients = (JSON.parse(step2.payload) as { recipients: Array<{ staff_id: string | null; device_id: string | null }> }).recipients;
+    expect(recipients.map((r) => r.device_id)).toContain(ta.deviceId);
+    // (Main's Pass tablet is listed too, but as a counter device: its legacy profile shows `takeaway`, 01d v1.3.7 D-7)
+    expect(recipients.map((r) => r.staff_id)).not.toContain(COOK.staff);
+    expect(recipients.map((r) => r.staff_id)).toContain('S_MGR');
   });
 });

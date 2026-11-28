@@ -1,5 +1,5 @@
 import type { LiveBus, LiveMessage } from '../../shell/live';
-import type { CatchUpOrder, LineKind, OrdersCatchUp } from '../contracts';
+import type { CatchUpOrder, LineKind, OpenOrder, OrdersCatchUp } from '../contracts';
 
 // 02b-TK C2-1 (02b v1.0.24 §6.16, §6.19, O17; ruling R3): what this device knows of each takeaway order, folded from
 // the catch-up `orders` part and the order frames — the token, the customer's name and phone (a kiosk / the placer is
@@ -155,6 +155,11 @@ export function createTokenBook(live: LiveBus): TokenBook {
   };
   seed(live.part('orders'));
   const onMessage = (m: LiveMessage) => {
+    if (m.kind === 'forget') {
+      orders.clear();
+      lineOrder.clear();
+      return changed();
+    }
     if (m.kind === 'catch_up') {
       seed(m.state['orders']);
       return changed();
@@ -245,4 +250,37 @@ export function createTokenBook(live: LiveBus): TokenBook {
     },
     dispose: () => off(),
   };
+}
+
+/**
+ * BUG-5 (QA round 2; 02b v1.0.30 §8 "Contact on this device"): the page's one token book per live bus. A screen
+ * mounted later reads every frame heard since the catch-up (a book made per mount seeded from the bus's last
+ * catch-up and lost each OrderContactSet sent after it). It lives as long as the bus and empties on `forget` (the
+ * session ended, BUG-12), so nothing of one person's carries to the next. Screens never dispose it.
+ */
+const pageBooks = new WeakMap<LiveBus, TokenBook>();
+export function tokenBookOf(live: LiveBus): TokenBook {
+  let book = pageBooks.get(live);
+  if (book === undefined) pageBooks.set(live, (book = createTokenBook(live)));
+  return book;
+}
+
+/**
+ * BUG-5: the open-orders rows whose contact the hub sends this socket (O17: every order on a cashier kiosk, the
+ * person's own orders elsewhere) but the book has not got — a row it never heard of, or one with a phone and none
+ * known. Never shown as masked: the caller re-reads (a fresh catch-up). Nobody signed in → none.
+ */
+export function contactGaps(
+  rows: ReadonlyArray<Pick<OpenOrder, 'order_id' | 'has_phone'> & { placed_by?: { staff_id: string } | null }>,
+  book: Pick<TokenBook, 'get'>,
+  who: { kiosk: boolean; staffId: string | null },
+): string[] {
+  if (who.staffId === null) return [];
+  return rows
+    .filter((r) => who.kiosk || r.placed_by?.staff_id === who.staffId)
+    .filter((r) => {
+      const known = book.get(r.order_id);
+      return known === undefined || (r.has_phone && (known.phone ?? '') === '');
+    })
+    .map((r) => r.order_id);
 }

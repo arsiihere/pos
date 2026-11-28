@@ -56,6 +56,11 @@ export interface Shell {
   rush?: RushSlotStore;
   /** ⚠️ 03b v1.0.17 §8: a row of the screen's own controls in the top bar (the Pass's type tabs); absent outside StaffApp */
   bar?: BarSlotStore;
+  /**
+   * BUG-5 (02b v1.0.30 §8): read the live state again — the socket reopens in its mode and the hub sends a fresh
+   * catch-up (a session the hub ended closes 4401: "You were signed out"). Absent outside StaffApp.
+   */
+  resync?: () => void;
 }
 
 /**

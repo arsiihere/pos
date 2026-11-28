@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { t } from '../../../i18n';
+import { t, type Language } from '../../../i18n';
 import { Ico, initial, type IconName } from '../../alerts/ui';
 
 // 02b-TK A2 item 1 (frame PersonMenu; MAPPING TK-SH02; CHANGES §3 "Shell — proposed"): the person chip opens a menu —
@@ -12,7 +12,14 @@ export interface PersonMenuActions {
   onLock?: () => void;
   /** My shift's sub-line ("Opened 7:02 AM · float Rs 5,000" / "No shift open …"), or null */
   shiftSub?: string | null;
+  /** ⚠️ 02b v1.0.30 QK-3 (BUG-16): Language — English / اردو (kept on the device) */
+  language?: { current: Language; onPick(lang: Language): void };
 }
+
+const LANGS: ReadonlyArray<{ lang: Language; label: string }> = [
+  { lang: 'en', label: 'English' },
+  { lang: 'ur', label: 'اردو' },
+];
 
 export interface PersonMenuProps extends PersonMenuActions {
   name: string;
@@ -89,6 +96,18 @@ export function PersonMenu(p: PersonMenuProps) {
           {p.onSwitch !== undefined && <Item icon="user" label={t('shell.me.switch')} sub={t('shell.me.switch_sub')} onPick={pick(p.onSwitch)} />}
           {p.onLock !== undefined && <Item icon="lock" label={t('shell.me.lock')} sub={t('shell.me.lock_sub')} onPick={pick(p.onLock)} />}
           {p.shift && <Item icon="cash" label={t('shell.me.shift')} sub={p.shiftSub ?? null} onPick={pick(p.onShift)} />}
+          {p.language !== undefined && (
+            <div className="tk-mi tk-mi--lang" role="group" aria-label={t('shell.me.language')}>
+              <span>{t('shell.me.language')}</span>
+              <span className="tk-mi__seg">
+                {LANGS.map((l) => (
+                  <button key={l.lang} type="button" role="menuitemradio" aria-checked={p.language!.current === l.lang} lang={l.lang} dir={l.lang === 'ur' ? 'rtl' : 'ltr'} onClick={pick(() => p.language!.onPick(l.lang))}>
+                    {l.label}
+                  </button>
+                ))}
+              </span>
+            </div>
+          )}
           <Item icon="signout" label={t('shell.me.signout')} sub={t('shell.me.signout_sub')} danger onPick={pick(p.onSignOut)} />
         </div>
       )}

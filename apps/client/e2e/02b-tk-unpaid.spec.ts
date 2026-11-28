@@ -80,6 +80,7 @@ async function askAndApprove(page: Page, manager: Page, info: TestInfo, lang: (t
   const sheet = dialog(manager);
   await sheet.getByRole('button', { name: tr(lang, 'answer.approve') }).click();
   const keys = manager.locator('.pin__keys');
+  await manager.waitForTimeout(450); // ⚠️ 01d v1.3.9 §8.1 (QA-R2, BUG-13): the answer pad ignores taps for 400 ms after it opens
   for (const d of MANAGER_PIN) await keys.locator('.btn', { hasText: new RegExp(`^${d}$`) }).click();
   await keys.getByRole('button', { name: tr(lang, 'answer.approve') }).click();
   await expect(manager.getByText(tr(lang, 'answer.done_approved')).first()).toBeVisible();
@@ -197,6 +198,7 @@ for (const lang of LANGS) {
       await capture(manager, info, `UnpaidAnswer-${info.project.name}-${lang}`, sheet);
       await sheet.getByRole('button', { name: tr(lang, 'answer.approve') }).click();
       const keys = manager.locator('.pin__keys');
+      await manager.waitForTimeout(450); // ⚠️ 01d v1.3.9 §8.1 (QA-R2, BUG-13): the answer pad ignores taps for 400 ms after it opens
       for (const d of MANAGER_PIN) await keys.locator('.btn', { hasText: new RegExp(`^${d}$`) }).click();
       await keys.getByRole('button', { name: tr(lang, 'answer.approve') }).click();
       await expect(manager.getByText(tr(lang, 'answer.done_approved')).first()).toBeVisible();
@@ -269,6 +271,9 @@ for (const lang of LANGS) {
       const payload = (served.request().postDataJSON() as { payload: { customer_handover?: boolean; lines: Array<{ order_id: string }> } }).payload;
       expect(payload.customer_handover).toBe(true);
       expect(payload.lines.map((l) => l.order_id)).toEqual([order_id]);
+      // ⚠️ 02b v1.0.29 §3.7a, §8 (owner 2026-11-28 QA-R2, BUG-7): handed over in full and still owing, the token leaves
+      // READY — HAND OVER for "Handed — owes" (wait for the move before opening it)
+      await expect(readyTile(page, token)).toHaveCount(0, { timeout: 15_000 });
       await openToken(page, token);
       await expect(drawer(page).locator('.tk-il', { hasText: NAAN.name }).locator('.tk-chip')).toHaveText(tr(lang, 'v.given'));
     } finally {

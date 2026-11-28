@@ -394,6 +394,8 @@ export function resolveStep(step: StepDef, alert: AlertRow, reads: BatchReads, d
     // may be a resolver result shared by other alerts of the batch)
     const deviceIds = found.device_ids.filter((id) => deviceAllowed(kindDef, alert.values, id));
     for (const staffId of found.staff_ids) {
+      // ⚠️ 01d v1.3.9 §3.4 (QA-R2): a person the kind excludes for this alert gets no row
+      if (!staffAllowed(kindDef, alert.values, staffId, directory)) continue;
       // ⚠️ Changed by 05a (row D-2), 05a §3.9 rule 1 (a): a `named` request whose receiver is its requester (the
       // downgraded raise, "Confirm on your phone") keeps the requester as its one answerer
       if ((set === 'answerer' || skipRequester) && staffId === alert.requester_staff_id && !namedToSelf) continue;
@@ -613,6 +615,24 @@ export function deviceAllowed(kind: Pick<AlertKind, 'excludesDevice'> | undefine
   if (kind?.excludesDevice === undefined) return true;
   try {
     return !kind.excludesDevice(values, deviceId);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * ⚠️ 01d v1.3.9 §3.4 (owner 2026-11-28 QA-R2): the one guard around a kind's `excludesStaff`: may this alert reach
+ * `staffId`? Memory only; a throw counts as allowed.
+ */
+export function staffAllowed(
+  kind: Pick<AlertKind, 'excludesStaff'> | undefined,
+  values: Record<string, unknown>,
+  staffId: string,
+  directory: StaffDirectory,
+): boolean {
+  if (kind?.excludesStaff === undefined) return true;
+  try {
+    return !kind.excludesStaff(values, staffId, directory);
   } catch {
     return true;
   }

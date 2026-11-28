@@ -46,6 +46,8 @@ export interface UnpaidOrderRow {
   day_closed_at: number | null;
   unpaid_handover_approved_at: number | null;
   unpaid_handover_approved_due_minor: number | null;
+  /** ⚠️ 02b v1.0.29 §6.12a (QA-R2, UX): the customer's name for the manager's card (same statement) */
+  customer_name: string | null;
 }
 
 /** The named order (1 statement); undefined when unknown. */
@@ -53,7 +55,7 @@ export function readUnpaidOrder(db: Database.Database, order_id: string): Unpaid
   return db
     .prepare(
       `SELECT order_id, order_type, placed_by, token, bill_key, cancelled_at, billed_at, day_closed_at,
-              unpaid_handover_approved_at, unpaid_handover_approved_due_minor
+              unpaid_handover_approved_at, unpaid_handover_approved_due_minor, customer_name
          FROM orders WHERE order_id = ?`,
     )
     .get(order_id) as UnpaidOrderRow | undefined;
@@ -67,7 +69,7 @@ export function liveOrdersOfBill(db: Database.Database, bill_key: string): Unpai
   return db
     .prepare(
       `SELECT order_id, order_type, placed_by, token, bill_key, cancelled_at, billed_at, day_closed_at,
-              unpaid_handover_approved_at, unpaid_handover_approved_due_minor
+              unpaid_handover_approved_at, unpaid_handover_approved_due_minor, customer_name
          FROM orders
         WHERE bill_key = ? AND order_type IN ('takeaway', 'parking')
           AND cancelled_at IS NULL AND billed_at IS NULL AND day_closed_at IS NULL
@@ -123,14 +125,18 @@ function requestUnpaidHandover(ctx: CommandCtx, p: z.infer<typeof Payload>): { e
   // ⚠️ 02b v1.0.27 §6.12a (owner 2026-11-28 Q10): a takeaway bill whose live orders are additions only (its key names the
   // root, `takeaway:<root>`, and the root is no longer on it) → the manager's card says "(addition)"
   const additionOnly = subject.order_type === 'takeaway' && o.bill_key.startsWith('takeaway:') && o.bill_key !== `takeaway:${subject.order_id}`;
-  const details: AlertDetails = { identifier: identifierOf(subject), amount: due, ...(additionOnly ? { disposition: HAND_OVER_UNPAID_ADDITION } : {}) };
+  // ⚠️ 02b v1.0.29 §6.12a (owner 2026-11-28 QA-R2, UX): the card names the customer beside the token (≤ 40)
+  const customer = (subject.customer_name ?? '').trim();
+  const identifier = (customer === '' ? identifierOf(subject) : `${identifierOf(subject)} · ${customer}`).slice(0, 40);
+  const details: AlertDetails = { identifier, amount: due, ...(additionOnly ? { disposition: HAND_OVER_UNPAID_ADDITION } : {}) };
   const raised = alerts.raise(ctx, {
     kind: HAND_OVER_UNPAID_KIND,
     subject: { stream_type: 'order', stream_id: subject.order_id },
     target: { kind: 'answerers' },
     values,
     details,
-    display: { kind_label_key: HAND_OVER_UNPAID_LABELS.lock },
+    // ⚠️ 02b v1.0.29 §6.12a (QA-R2, UX): who asked, the card's "from {name}" line
+    display: { kind_label_key: HAND_OVER_UNPAID_LABELS.lock, requester_name: ctx.directory.get(caller)?.display_name ?? null },
     dedupe_key: billDedupeKeyOf(o.bill_key),
     requester_staff_id: caller,
   });

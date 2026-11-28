@@ -79,3 +79,21 @@ Binding. From the Chrome QA report and the design audit of 28 Nov 2026. Each lan
 | Q10 | **Manager card:** the request shows "(addition)" for an addition order and, when closed, the reason. 01d §6.8 "find a manager" wording fixed for one-step requests. | 01d, 02b |
 | Q11 | **Cook:** the Takeaway tab is hidden for roles without `take-order`. | 02b §8 |
 | Q12 | **Food photos:** menu tiles use a category colour + icon placeholder for the pilot; real photos after the pilot (needs a menu photo field). | 02b §8 (client) |
+
+## QA round 2 rulings — lane r2-kiosk (owner, 2026-11-28 "QA-R2", build bc0854f8)
+
+Recorded in 02b v1.0.30 rows QK-1 – QK-10, 05 v1.0.38 QB-1, 01a v2.12 QS-1 – QS-3, 01b v1.14 QR-1.
+
+| Bug | Ruling (short) | Spec |
+|---|---|---|
+| BUG-5 | Never show masked contact to a user who may see it; missing → re-read; session ended → "You were signed out" | 02b QK-1 |
+| BUG-15 | Kiosk layout works from 1366 px (and the 1280 tablet) | 02b QK-2 |
+| BUG-16 | Urdu chips / lock text; person-menu language switch, per device | 02b QK-3 |
+| BUG-17 | A past pickup: "That time has passed"; the cart keeps its times | 02b QK-4 |
+| BUG-21 | "/" focuses item search from anywhere on the order screen | 02b QK-5 |
+| BUG-23 | Rail header counts what it lists; Cash desk "Open" minutes not reset by a check bill | 02b QK-6, 05 QB-1 |
+| BUG-24 | Bidi isolation of names; 40-char counter; "Max 99" | 02b QK-7 |
+| BUG-26 | One sign-in summary toast | 02b QK-8 |
+| BUG-8 | Points page tie / gap / same-position warnings | 01a QS-1 |
+| BUG-19 / BUG-22 | No autofill in staff search / New PIN; hub admin PIN pad keys | 01b QR-1, 01a QS-3 |
+| UX | Open shift returns; no text selection on button double-click; owner app remembers the branch | 02b QK-9, QK-10; 01a QS-2 |

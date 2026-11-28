@@ -11,6 +11,7 @@ import {
   type PosEvent,
 } from '@pos/events';
 import { z } from 'zod';
+import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { CommandCtx } from '../commands/registry.js';
 
 // 01d §3.5 / §4.2: alert kinds, their steps and the startup checks. Kinds register at module load
@@ -134,6 +135,14 @@ export interface AlertKindDef<V = Record<string, unknown>, D = AlertDetails> {
    * Absent → every device. Called through `deviceAllowed`, so a throw counts as allowed.
    */
   excludesDevice?(values: V, device_id: string): boolean;
+  /**
+   * ⚠️ 01d v1.3.9 §3.4, §3.5 (owner 2026-11-28 QA-R2; 03b v1.0.20 BUG-4, BUG-14): this alert never reaches `staff_id`
+   * (pure, memory, from the alert's stored values and the hub directory): no recipient row at resolve on any step, no
+   * frame on a signed-in staff socket of that person (a device row's included), and no row in the person's `alerts`
+   * catch-up or `alerts-inbox`. Alert-mode and station sockets are unaffected. Absent → everyone. Called through
+   * `staffAllowed`, so a throw counts as allowed.
+   */
+  excludesStaff?(values: V, staff_id: string, directory: StaffDirectory): boolean;
 }
 
 /** 01d v1.3.7 §3.5: the only details a `counter_card` kind may carry (no amount, reason, problem or disposition). */

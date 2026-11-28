@@ -30,6 +30,11 @@ export function PinDialog({
   onSaved: (staff: Staff, changed: ChangedVersions) => void;
   onClose: () => void;
 }) {
+  // 01b v1.14 QR-1 (BUG-19): fresh field names per dialog, so the browser offers no saved value (nor the sign-in password)
+  const [names] = useState(() => {
+    const tail = Math.random().toString(36).slice(2, 10);
+    return { pin: `pin-${tail}`, again: `pin-${tail}a` };
+  });
   const phone = usePhone();
   const [pin, setPin] = useState('');
   const [again, setAgain] = useState('');
@@ -139,9 +144,9 @@ export function PinDialog({
             className="pos-input pos-input--code"
             type="password"
             inputMode="numeric"
-            autoComplete="off"
+            autoComplete="new-password"
             maxLength={6}
-            name="pin"
+            name={names.pin}
             value={pin}
             onChange={(e) => setPin(e.target.value)}
           />
@@ -157,9 +162,9 @@ export function PinDialog({
             className="pos-input pos-input--code"
             type="password"
             inputMode="numeric"
-            autoComplete="off"
+            autoComplete="new-password"
             maxLength={6}
-            name="pin_again"
+            name={names.again}
             value={again}
             onChange={(e) => setAgain(e.target.value)}
           />

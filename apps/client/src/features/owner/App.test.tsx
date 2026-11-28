@@ -10,6 +10,7 @@ let root: Root;
 
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.removeItem('owner_branch_id');
   window.location.hash = '';
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -20,6 +21,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   sessionStorage.clear();
+  localStorage.removeItem('owner_branch_id');
 });
 
 function json(status: number, body: unknown): Response {
@@ -155,10 +157,11 @@ describe('owner app shell', () => {
     act(() => root.unmount());
     root = createRoot(container);
     sessionStorage.clear();
+    localStorage.removeItem('owner_branch_id');
     window.location.hash = '';
     const two = ['01JBRANCHONE0000000000P0AB', '01JBRANCHTWO0000000000M6PQ'];
     signedIn(two);
-    sessionStorage.setItem('owner_branch_id', 'NOT_ALLOWED');
+    localStorage.setItem('owner_branch_id', 'NOT_ALLOWED');
     fetchFn = routedFetch();
     act(() => root.render(<App api={createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} })} />));
     await settle();
@@ -188,11 +191,11 @@ describe('owner app shell', () => {
     });
     await settle();
     expect(fetchFn.mock.calls.at(-1)?.[0]).toBe(`/v1/admin/branches/${two[0]}/floors`);
-    expect(sessionStorage.getItem('owner_branch_id')).toBe(two[0]);
+    expect(localStorage.getItem('owner_branch_id')).toBe(two[0]);
 
     act(() => root.unmount());
     root = createRoot(container);
-    sessionStorage.removeItem('owner_branch_id');
+    localStorage.removeItem('owner_branch_id');
     window.location.hash = '#/menu';
     act(() => root.render(<App api={createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} })} />));
     await settle();
@@ -221,7 +224,7 @@ describe('owner app shell', () => {
     act(() => root.unmount());
     root = createRoot(container);
     window.location.hash = '';
-    sessionStorage.removeItem('owner_branch_id');
+    localStorage.removeItem('owner_branch_id');
     const refused = routedFetch();
     act(() => root.render(<App api={createCloudAdmin({ fetch: refused, onLoggedOut: () => {} })} />));
     await settle();
@@ -247,7 +250,7 @@ describe('owner app shell', () => {
       await settle();
       expect(fetchFn.mock.calls.some(([u]) => u === '/v1/auth/logout')).toBe(true);
       expect(sessionStorage.getItem('owner_access_token')).toBeNull();
-      expect(sessionStorage.getItem('owner_branch_id')).toBeNull();
+      expect(localStorage.getItem('owner_branch_id')).toBeNull();
       expect(container.querySelector('input[type="email"]')).not.toBeNull();
     }
   });

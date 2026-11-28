@@ -12,7 +12,9 @@ export type LiveMessage =
   | { kind: 'catch_up'; as_of_seq: number; state: CatchUpFrame['state'] }
   | { kind: 'event'; seq: number; event: EventFrame['event'] }
   | { kind: 'reconnect' }
-  | { kind: 'visible' };
+  | { kind: 'visible' }
+  /** BUG-12 / BUG-5 (02b v1.0.30 §8): the session ended — page-lived stores (the token book) drop what they hold */
+  | { kind: 'forget' };
 
 export interface LiveBus {
   /** the socket's frames (onFrame); other frame types are ignored */
@@ -71,6 +73,7 @@ export function createLiveBus(): LiveBus {
     forget() {
       parts = {};
       lastSeq = -1;
+      publish({ kind: 'forget' });
     },
     subscribe(listener) {
       listeners.add(listener);

@@ -4,7 +4,7 @@ import { createLiveBus } from '../../shell/live';
 import type { EtaPreviewBody } from '../contracts';
 import { freezeSubmit, refusalText } from '../send/send';
 import { EMPTY_CART, toEtaDraft, type Cart } from './cart';
-import { chipPickup, pickupError, pickupProblemText, pickupRangeText, timeInputOf, timePickup } from './pickup';
+import { chipPickup, pickupError, pickupProblemText, pickupRangeText, pickupPassed, timeInputOf, timePickup } from './pickup';
 import { createPreview } from './preview';
 import { aBranchConfig } from '@pos/events/testing';
 
@@ -113,5 +113,24 @@ describe('[02b-TK L-CLIENT-5 item 1; 02b §3.2 step 2b, §9] PICKUP_TIME_INVALID
     for (let i = 0; i < 5; i += 1) await Promise.resolve();
     const s = p.state();
     expect(s.kind === 'ok' && s.body.pickup_bounds).toEqual({ earliest_ms: 1, latest_ms: 2 });
+  });
+});
+
+describe('[BUG-17; 02b v1.0.30 QK-4] a typed time already past', () => {
+  const T2 = Date.UTC(2026, 10, 27, 13, 20);
+  const DAY_END = Date.UTC(2026, 10, 28, 4, 0);
+  it('stays today when tomorrow\'s time would be past the open day\'s end', () => {
+    expect(timePickup('13:00', T2, 0, DAY_END)!.at_ms).toBe(Date.UTC(2026, 10, 27, 13, 0));
+  });
+  it('rolls to tomorrow when that is still inside the open day (after midnight)', () => {
+    expect(timePickup('00:30', T2, 0, DAY_END)!.at_ms).toBe(Date.UTC(2026, 10, 28, 0, 30));
+  });
+  it('without a known day end, as before (tomorrow)', () => {
+    expect(timePickup('13:00', T2, 0)!.at_ms).toBe(Date.UTC(2026, 10, 28, 13, 0));
+  });
+  it('pickupPassed: at or before hub now', () => {
+    expect(pickupPassed({ chip: 'time', at_ms: T2 }, T2)).toBe(true);
+    expect(pickupPassed({ chip: 30, at_ms: T2 + 1 }, T2)).toBe(false);
+    expect(pickupPassed(undefined, T2)).toBe(false);
   });
 });

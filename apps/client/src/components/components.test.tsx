@@ -64,6 +64,25 @@ describe('shared components', () => {
     expect(container.textContent).not.toContain('1239');
   });
 
+  it('[01a v2.12 QS-3; BUG-22] PinPad takes keyboard digits, Backspace and Enter; not while disabled nor from a text field', () => {
+    const onSubmit = vi.fn();
+    const press = (k: string, target: EventTarget = document.body) => act(() => void target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })));
+    act(() => root.render(<PinPad onSubmit={onSubmit} />));
+    for (const d of ['4', '3', '2', '1']) press(d);
+    expect(container.querySelectorAll('.pos-pin__dot.is-filled')).toHaveLength(4);
+    press('Backspace');
+    press('7');
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    press('5', field); // typing in a text field is that field's
+    field.remove();
+    press('Enter');
+    expect(onSubmit).toHaveBeenCalledWith('4327');
+    act(() => root.render(<PinPad onSubmit={onSubmit} disabled />));
+    press('1');
+    expect(container.querySelectorAll('.pos-pin__dot.is-filled')).toHaveLength(0);
+  });
+
   it('[01a S35 i] StaffTiles calls onPick', () => {
     const onPick = vi.fn();
     const staff = [

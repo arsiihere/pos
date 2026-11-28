@@ -319,7 +319,7 @@ describe('[01d v1.3 §3.13.2] tapAlert', () => {
   it('[01d §3.13.2 rule 2] cannot check: the existing text of the error, stay, seen; never a guess', async () => {
     const cases: Array<[HubResult<OrderViewAnswer>, string]> = [
       [{ ok: false, error: { kind: 'network' } }, 'No connection to the hub — try again.'],
-      [{ ok: false, error: { kind: 'api', status: 403, code: 'PERMISSION_DENIED', details: { reason: 'outside_scope' } } }, 'This table is outside your floors'],
+      [{ ok: false, error: { kind: 'api', status: 403, code: 'PERMISSION_DENIED', details: { reason: 'outside_scope' } } }, 'This order is not one of yours'], // ⚠️ 02b v1.0.29 (QA-R2, BUG-14): order-view refuses only a pickup order
       [{ ok: false, error: { kind: 'api', status: 500, code: 'INTERNAL', details: {} } }, 'That did not work. Try again.'],
     ];
     for (const [view, text] of cases) {

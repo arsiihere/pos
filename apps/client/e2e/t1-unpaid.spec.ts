@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { dialog, menuTile, rushOff, sendCart, sentToken, signInOn, takeawayTab } from './02b-support';
+import { dialog, menuTile, readyTile, rushOff, sendCart, sentToken, signInOn, takeawayTab } from './02b-support';
 import { t1Station } from './t1-fixture';
 import { capture, closeAll, cookLine, deviceFor, hubFire, LANGS, managerPhone, queueEntry, passCard, passTablet, screen, t1Run, t1RunsHere, tr, type Lang, type T1Run } from './t1-support';
 
@@ -55,6 +55,7 @@ async function answer(phone: Page, lang: Lang, token: string, decision: 'approve
   const word = tr(lang, decision === 'approve' ? 'answer.approve' : 'answer.reject');
   await sheet.getByRole('button', { name: word }).click();
   const keys = phone.locator('.pin__keys');
+  await phone.waitForTimeout(450); // ⚠️ 01d v1.3.9 §8.1 (QA-R2, BUG-13): the answer pad ignores taps for 400 ms after it opens
   for (const d of MANAGER_PIN) await keys.locator('.btn', { hasText: new RegExp(`^${d}$`) }).click();
   await keys.getByRole('button', { name: word }).click();
   await expect(phone.getByText(tr(lang, decision === 'approve' ? 'answer.done_approved' : 'answer.done_rejected')).first()).toBeVisible();
@@ -92,7 +93,9 @@ for (const lang of LANGS) {
       await button.click();
       await expect(card).toHaveCount(0, { timeout: 20_000 });
       expect(served.at(-1)?.customer_handover).toBe(true);
-      // the counter: still owed (a Due order stays open until paid), its line handed over
+      // the counter: still owed (a Due order stays open until paid), its line handed over. ⚠️ 02b v1.0.29 §3.7a, §8
+      // (owner 2026-11-28 QA-R2, BUG-7): handed over in full and still owing, it leaves READY — HAND OVER for "Handed — owes"
+      await expect(readyTile(cash.page, token)).toHaveCount(0, { timeout: 15_000 });
       await (await queueEntry(cash.page, token)).click();
       await expect(cash.page.locator('section.tk-drawer .tk-il', { hasText: run.items.main.name }).locator('.tk-chip')).toHaveText(tr(lang, 'v.given'), { timeout: 15_000 });
     } finally {

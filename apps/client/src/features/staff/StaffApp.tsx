@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { wipeDeviceKeys } from '../../api/hub-admin';
 import { createHubClock } from '../../app/hub-clock';
 import { navigate, useHashRoute } from '../../app/router';
-import { language, t } from '../../i18n';
+import { chooseLanguage, language, t } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { ALERT_CONSTANTS } from '@pos/domain';
 import { createAnswerSender } from '../alerts/answer';
@@ -16,7 +16,7 @@ import { ShiftScreen } from '../billing/ShiftScreen';
 import { ReportsScreen } from '../billing/ReportsScreen';
 import { DayCloseScreen } from '../billing/DayCloseScreen';
 import { Inbox } from '../alerts/Inbox';
-import { lockText, timeText } from '../alerts/labels';
+import { timeText } from '../alerts/labels';
 import { Receipts } from '../alerts/Receipts';
 import { RequestsToAnswer, requestViews, type RequestRow, type RequestView } from '../alerts/RequestsToAnswer';
 import { createAlertConnection, hubSocketUrl, REPLACED_REASON, type SocketLike } from '../alerts/socket';
@@ -24,7 +24,7 @@ import { webAudioSink, type AudioSink, type ToneContext } from '../alerts/sounds
 import { createAlertStore, type AlertRow, type AlertStore, type Timers } from '../alerts/store';
 import type { WsAlertClosed } from '@pos/events';
 import { TestAlert } from '../alerts/TestAlert';
-import { FamilyPill, Ico, isRequest } from '../alerts/ui';
+import { Ico, isRequest } from '../alerts/ui';
 import { createStaffApi, type Device, type PageMeta, type Resolution, type RosterPerson, type SessionInfo, type SignedIn } from './api';
 import { SignIn } from './SignIn';
 import { createOrdersApi } from './orders/api';
@@ -51,6 +51,7 @@ import { startDayMode } from './orders/order-screen/DayNotStarted';
 import { money } from './orders/money';
 import { ShellContext, type Shell } from './shell/hooks';
 import { createLiveBus } from './shell/live';
+import { signInSummary } from './shell/signin-summary';
 import { createPermissions } from './shell/permissions';
 import { pendingVoidsOf } from '../voids/pending';
 import { PHONE_QUERY, PORTRAIT_QUERY } from './shell/layout';
@@ -267,6 +268,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   // 01d v1.3.2 §3.13.3 (#253 review): every alert id seen closed by an alert_closed frame in this session, read
   // synchronously by a tap's state re-read (a request known only from requests-to-answer leaves that list on close)
   const closedSeen = useRef(new Set<string>());
+  // ⚠️ 02b v1.0.30 QK-8 (BUG-26): this sign-in's hub time and whether its summary toast was shown
+  const caughtUp = useRef<ReadonlySet<string> | null>(null);
+  const summaryShown = useRef(false);
 
   const api = useMemo(() => createStaffApi({ device, meta, fetch: hubFetch, onSignedOut: () => signOutRef.current() }), [device, meta, hubFetch]);
   // 02 shell services (W0.6)
@@ -318,6 +322,11 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       onAlert(view) {
         store.onAlert(view);
         if (view.kind === 'void_approval' || view.kind === 'request_result') reloadVoids();
+      },
+      onCatchUp(rows) {
+        store.onCatchUp(rows);
+        // ⚠️ 02b v1.0.30 QK-8 (BUG-26): the first catch-up after a sign-in is what was waiting; its rows fold into the summary
+        if (caughtUp.current === null) caughtUp.current = new Set(rows.map((r) => r.alert_id));
       },
       onClosed(frame) {
         closedSeen.current.add(frame.alert_id);
@@ -557,6 +566,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     conn.setSession(who.session_token);
     setInboxLoading(true);
     setMe({ staffId: who.staff_id, name: who.display_name, allowed: new Set(), permissions: null, idleTtlMs: who.idle_ttl_ms });
+    // ⚠️ 02b v1.0.30 QK-8 (BUG-26): what was raised before this sign-in folds into one summary toast
+    caughtUp.current = null;
+    summaryShown.current = false;
     // §3.7: a sign-in refreshes the header; the hub's own deadline (session end + 2 h) replaces this one when it sends it
     setBoundName(who.display_name);
     setBindingUntil(clock.nowMs() + ALERT_CONSTANTS.binding_route_idle_ms);
@@ -1173,28 +1185,19 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   if (unpaired) {
     page = <PairAgain wipe={wipe} {...(goToPair === undefined ? {} : { go: goToPair })} />;
   } else if (me === null) {
-    // F01 (frames LockKiosk, LockPhone): urgent lines first, then newest first (the store's order); up to 3
-    const openRows = snap.rows.filter((r) => r.state === 'open');
-    const lockRows =
-      device.type === 'cashier_kiosk' || device.type === 'phone'
-        ? [...openRows.filter((r) => r.family === 'urgent'), ...openRows.filter((r) => r.family !== 'urgent')].slice(0, 3)
-        : [];
+    // ⚠️ 01d v1.3.9 §8.1 (owner 2026-11-28 QA-R2, UX): the signed-out sign-in screen shows NO alerts (was F01's lock
+    // panel: up to 3 lock lines, urgent first); alert-mode frames still arrive (sounds, §8.3)
     page = (
       <SignIn
         key={signInKey}
         api={api}
         phone={phone}
         lockPanel={
-          endedByHub || lockRows.length > 0 ? (
-            <>
-              {endedByHub && (
-                <div className="warnbar" role="status" data-signed-out="">
-                  <Ico name="lock" />
-                  {t('shell.signed_out_hub')}
-                </div>
-              )}
-              {lockRows.length > 0 && <LockPanel rows={lockRows} utcOffsetMs={offset} />}
-            </>
+          endedByHub ? (
+            <div className="warnbar" role="status" data-signed-out="">
+              <Ico name="lock" />
+              {t('shell.signed_out_hub')}
+            </div>
           ) : null
         }
         hooks={shellHooks}
@@ -1225,7 +1228,10 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     page = <DeviceList key={route} api={devicesApi} openRequestId={devicesQuery.get('r')} openEditId={devicesQuery.get('edit')} />;
   } else if (path === '/shift' && (showShift || (shiftQueryId !== null && allowed.has('close-shift-for-others')))) {
     // task 41: #/shift?shift_id=… opens that shift (day close's Close this shift, close-shift-for-others)
-    page = <ShiftScreen key={route} {...(shiftQueryId === null ? {} : { shiftId: shiftQueryId })} />;
+    // ⚠️ 02b v1.0.30 QK-9: #/shift?back=/takeaway (the banner's Open your shift) returns there once the shift is open
+    const back = new URLSearchParams(route.split('?')[1] ?? '').get('back');
+    const backTo = back !== null && /^\/[a-z0-9/_-]*$/i.test(back) ? back : null;
+    page = <ShiftScreen key={route} {...(shiftQueryId === null ? {} : { shiftId: shiftQueryId })} {...(backTo === null ? {} : { back: backTo })} />;
   } else if (path === '/day-close' && showDayClose) {
     page = (
       <DayCloseScreen
@@ -1305,7 +1311,17 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         {t('alerts.hub_offline')}
       </span>
     );
+  // ⚠️ 02b v1.0.30 QK-8 (BUG-26): the banners raised before this sign-in → one summary toast (tap → Inbox), not a stack
+  const summary = signInSummary(me === null ? [] : snap.banners, me === null ? null : caughtUp.current);
+  const freshBanners = summary.folded.size === 0 ? snap.banners : snap.banners.filter((b) => !summary.folded.has(b.alert_id));
+  useEffect(() => {
+    if (summary.text === null || summaryShown.current) return;
+    summaryShown.current = true;
+    toasts.show({ text: summary.text, tone: 'warn', action: { label: t('alerts.open_inbox'), run: () => navigate('/inbox') } });
+  }, [summary.text, toasts]);
   const lang = language();
+  // ⚠️ 02b v1.0.30 QK-3: a language picked in the person menu re-renders the page (its root is keyed by the language)
+  const [, setLangTick] = useState(0);
 
   // 02a §8 Top bar (IR-3): the floor control lists the map store's floors with their table counts; the choice is the hash
   // query #/tables?floor=<id> (absent = all). Shown on the map and its sheet (phone: the map draws floor chips itself).
@@ -1375,7 +1391,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         : null;
   const phoneTitle = currentTab === 'me' ? t('tabs.me') : currentTab !== null ? t(`alerts.screen.${currentTab}`) : path === '/requests' && showRequests ? t('alerts.nav.requests') : t('alerts.nav.inbox');
   const body = (
-    <div className={`pu v-brand staff${phone ? ' phone' : ''}`} lang={lang} dir={lang === 'ur' ? 'rtl' : 'ltr'} data-theme="light">
+    <div key={lang} className={`pu v-brand staff${phone ? ' phone' : ''}`} lang={lang} dir={lang === 'ur' ? 'rtl' : 'ltr'} data-theme="light">
       <TopBar
         phone={phone}
         portrait={portrait}
@@ -1401,7 +1417,26 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         shift={showShift}
         context={me !== null && !switching && takeawayRoute ? ctxValue : null}
         extra={me !== null && !switching ? barValue : null}
-        menu={{ onSwitch: () => setSwitching(true), onLock: () => setLockTick((n) => n + 1), shiftSub }}
+        menu={{
+          onSwitch: () => setSwitching(true),
+          onLock: () => setLockTick((n) => n + 1),
+          shiftSub,
+          // ⚠️ 02b v1.0.30 QK-3 (BUG-16): EN / اردو, kept on the device; the page re-renders now (no sign-out)
+          language: {
+            current: lang,
+            onPick: (next) => {
+              if (next === lang) return;
+              let storage: Storage | null;
+              try {
+                storage = window.localStorage;
+              } catch {
+                storage = null; // blocked storage: this page still switches
+              }
+              chooseLanguage(next, storage);
+              setLangTick((n) => n + 1);
+            },
+          },
+        }}
         title={me === null ? meta.branchName : phoneTitle}
         phoneSub={
           me === null ? (
@@ -1423,7 +1458,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
           startDay={startDayMode(permissions)}
           place={`${meta.branchName} · ${timeText(nowMs, offset)}`}
           shift={allowed.has('take-payment') ? ownShift : null}
-          onOpenShift={showShift ? () => navigate('/shift') : null}
+          onOpenShift={showShift ? () => navigate(`/shift?back=${encodeURIComponent(path)}`) : null}
         />
       )}
       {/* 01d v1.3.3 §3.13.6a: the kiosk Back chip in the alert layer (top-start, above route sheets), not in the top bar */}
@@ -1494,7 +1529,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       {page}
       {phone && me !== null && <PhoneTabs tabs={tabs} current={currentTab} />}
       {me !== null && opened === null && (
-        <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} counterScreens={profileScreens} onOpen={(r) => tap(r, 'banner')} onOpenInbox={() => navigate('/inbox')} />
+        <Banners banners={freshBanners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} counterScreens={profileScreens} onOpen={(r) => tap(r, 'banner')} onOpenInbox={() => navigate('/inbox')} />
       )}
       {me !== null && sheetRow !== null &&
         (isRequest(sheetRow) ? (
@@ -1552,6 +1587,8 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     contextSlot,
     rush: rushSlot,
     bar: barSlot,
+    // BUG-5 (02b v1.0.30 §8): a fresh catch-up when contact the hub sends this device is missing
+    resync: () => conn.resync(),
   };
   voidShell.current = shell;
   // IR-11: the late cards read every alert row the page holds, open and closed (a slip closed without ItemsReleased)
@@ -1564,22 +1601,3 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   );
 }
 
-/** 01d F01 (frames LockKiosk, LockPhone): signed out on a kiosk or phone, up to 3 lock lines, never details. */
-function LockPanel({ rows, utcOffsetMs }: { rows: readonly AlertRow[]; utcOffsetMs: number }) {
-  return (
-    <section className="lockp" aria-label={t('lock.title')}>
-      <div className="lockp__h">
-        <Ico name="bellring" />
-        {t('lock.title')}
-        <small>{t('lock.sign_in')}</small>
-      </div>
-      {rows.map((r) => (
-        <div key={r.alert_id} className="lockp__r">
-          <FamilyPill row={r} />
-          <span>{lockText(r)}</span>
-          <span className="ac__time num">{timeText(r.raised_at, utcOffsetMs)}</span>
-        </div>
-      ))}
-    </section>
-  );
-}

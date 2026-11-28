@@ -54,6 +54,16 @@ describe('owner points page (03a A-1; 01a §6.9a)', () => {
     expect(row('PT3').textContent).toContain(t('owner.common.restore'));
   });
 
+  it('[01a v2.12 QS-1; BUG-8] two Takeaway-only points and two at the same position show their warnings above the list', async () => {
+    const { api } = setup(undefined, [PASS, point('PT4', 'Window 1', { sort_order: 1, order_types: ['takeaway'] }), point('PT5', 'Window 2', { sort_order: 1, order_types: ['takeaway'] })]);
+    await open(api);
+    const warn = [...m.container.querySelectorAll('[data-point-warning]')].map((e) => e.textContent ?? '');
+    expect(warn).toHaveLength(2);
+    expect(warn.join(' ')).toContain('Window 1');
+    expect(warn.join(' ')).toContain('Window 2');
+    expect(warn.some((x) => x.includes('Takeaway'))).toBe(true);
+  });
+
   it('[01a §6.9a; 03a A-1] Add point POSTs name and sort_order with an Idempotency-Key', async () => {
     const { api, calls } = setup();
     await open(api);

@@ -77,6 +77,18 @@ describe('[01b §8] staff list', () => {
     expect(calls.filter((c) => c.url.startsWith('/v1/admin/staff')).length).toBe(2);
   });
 
+  it('[01b v1.14 QR-1; BUG-19] the staff search is not autofilled: autocomplete off and a name no browser keyed a value on', async () => {
+    const { api } = fakeApi(reads());
+    await m.render(
+      <BranchNames.Provider value={NAMES}>
+        <StaffList api={api} branchIds={['B1', 'B2']} />
+      </BranchNames.Provider>,
+    );
+    const search = m.container.querySelector<HTMLInputElement>('input[type="search"]')!;
+    expect(search.autocomplete).toBe('off');
+    expect(search.name).toMatch(/^find-[a-z0-9]+$/);
+  });
+
   it('[01b §8] first run shows the empty state with the ready roles', async () => {
     const { api } = fakeApi(reads([], []));
     await m.render(<StaffList api={api} branchIds={['B1']} />);

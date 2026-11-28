@@ -260,6 +260,7 @@ test('[01d §3.13.2 rules 2, 4; dl t1] Manager taps a void request: sheet, line 
 
     await answer.getByRole('button', { name: tr(LANG, 'answer.approve') }).click();
     const keys = mgr.locator('.pin__keys');
+    await mgr.waitForTimeout(450); // ⚠️ 01d v1.3.9 §8.1 (QA-R2, BUG-13): the answer pad ignores taps for 400 ms after it opens
     for (const d of PIN_MANAGER) await keys.locator('.btn', { hasText: new RegExp(`^${d}$`) }).click();
     await keys.getByRole('button', { name: tr(LANG, 'answer.approve') }).click();
     await expect(mgr.getByText(tr(LANG, 'answer.done_approved')).first()).toBeVisible();

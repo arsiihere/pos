@@ -159,3 +159,21 @@ describe('[02b-TK C2-5] held drafts per device', () => {
     expect(heldSummary(config, { lines: [{ key: 'a', item_id: 'I5', quantity: 4, options: [] }, { key: 'b', item_id: 'I2', quantity: 1, options: [] }] })).toBe('4× Naan · Mutton Karahi');
   });
 });
+
+describe('[BUG-24; 02b v1.0.30 QK-7] a mixed Urdu / English / emoji name keeps its own order', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+  const mixed = 'علی Khan 🍔';
+  for (const drawer of [false, true]) {
+    it(`${drawer ? 'the Held drawer' : 'the Held list'}: the name is its own isolated run (bdi), apart from "Takeaway"`, async () => {
+      const drafts = createMemoryDraftStore();
+      await drafts.put(draft({ draft_id: 'MIX', cart: { lines: [{ key: 'L1', item_id: 'I5', quantity: 1, options: [] }], takeaway: { customer_name: mixed } } }));
+      const m = render(drafts, shellWith({ 'view-customer-contact': { grant: 'allowed', scope: 'branch' } }), drawer);
+      await flush();
+      const iso = [...m.container.querySelectorAll('bdi')].filter((b) => b.textContent === mixed);
+      expect(iso).toHaveLength(1);
+      m.unmount();
+    });
+  }
+});

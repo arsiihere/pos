@@ -724,6 +724,31 @@ describe('[05 §6.2] GET /queries/open-bills', () => {
     expect(rows.find((r) => r.seating_id === a.seating_id)!.open_minutes).toBeGreaterThan(240);
   });
 
+  it('[05 v1.0.38 §6.2 QB-1; BUG-23] a check bill that makes the bill row keeps the "Open" minutes of its seating / root order', async () => {
+    const t = dineInTwoRounds(hub, { prefix: 'QB' });
+    const { root } = addedTakeaway(hub);
+    hub.clock.advance(25 * 60_000);
+    cashier = signIn(hub, STAFF.cashier);
+    const before = await list();
+    const seatBefore = before.find((r) => r.seating_id === t.seating_id)!;
+    const keyBefore = before.find((r) => r.order_id === root.order_id)!;
+    expect(seatBefore.open_minutes).toBeGreaterThanOrEqual(25);
+    expect(keyBefore.open_minutes).toBeGreaterThanOrEqual(25);
+    for (const ref of [{ seating_id: t.seating_id }, { order_id: root.order_id }] as Array<Record<string, string>>) {
+      const bill_id = (await ensure(ref)).result!.bill_id as string;
+      appendBill(bill_id, [{ def: CheckBillPrinted as unknown as EventDef<z.ZodType>, payload: { ...(aCheckBillPrinted().payload as object), bill_id } }]);
+    }
+    const after = await list();
+    const seatAfter = after.find((r) => r.seating_id === t.seating_id)!;
+    const keyAfter = after.find((r) => r.order_id === root.order_id)!;
+    expect(seatAfter.bill_id).not.toBeNull();
+    expect(keyAfter.bill_id).not.toBeNull();
+    expect(seatAfter.opened_at).toBe(seatBefore.opened_at);
+    expect(keyAfter.opened_at).toBe(keyBefore.opened_at);
+    expect(seatAfter.open_minutes).toBe(seatBefore.open_minutes);
+    expect(keyAfter.open_minutes).toBe(keyBefore.open_minutes);
+  });
+
   it('[05 §6.2] floor_id keeps that floor\'s tables; take-payment own_tables sees its seatings and its own orders; not granted 403', async () => {
     const mine = dineInTwoRounds(hub, { prefix: 'MI' }); // holder S_WAIT
     openSeating(hub, { table_id: VX.tables.T6, seating_id: 'SEAT_MGR', holder_staff_id: STAFF.manager });

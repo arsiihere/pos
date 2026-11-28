@@ -190,6 +190,38 @@ describe('[02b-TK L-CLIENT-5 item 1; 02b §8 Phone and pickup (R4)] the takeaway
     m.unmount();
   });
 
+  it('[BUG-17; 02b v1.0.30 QK-4] a typed time already past today says "That time has passed" (not "Too late — the day ends"), Send waits, and the cart keeps its ready time', async () => {
+    const h = harness({
+      preview: (d) => {
+        drafts.push(d);
+        if (d.pickup_at_ms == null || d.pickup_at_ms > NOW) return answer(d);
+        return { ok: false, error: { kind: 'api', status: 422, code: 'PICKUP_TIME_INVALID', details: { reason: 'too_early', pickup_at_ms: d.pickup_at_ms, ...BOUNDS } } };
+      },
+    });
+    const m = h.render();
+    await flush();
+    naan(m);
+    await tick();
+    const before = /\d+:\d{2} [AP]M/.exec(ready(m))?.[0];
+    expect(before).toBe('1:42 PM');
+    m.click(chip(m, 'Time…'));
+    const input = pick(m)!.querySelector<HTMLInputElement>('input[type="time"]')!;
+    act(() => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      set.call(input, '13:00'); // 20 min ago; tomorrow 1:00 PM is past the day end (4:00 AM)
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await tick();
+    expect(drafts.at(-1)?.pickup_at_ms).toBe(at(13, 0));
+    const problem = m.container.querySelector('.cart [data-pickup-problem]');
+    expect(problem?.textContent).toContain('That time has passed');
+    expect(problem?.textContent).not.toContain('Too late');
+    expect((m.button('Send · pay later', m.container.querySelector('.cart')!) as HTMLButtonElement).disabled).toBe(true);
+    expect(selected(m)).toEqual(['1:00 PM']); // the cart keeps its pickup
+    expect(ready(m)).toContain(before!); // …and its last ready time
+    m.unmount();
+  });
+
   it('[§8 Send] a Send refused PICKUP_TIME_INVALID toasts the reason and keeps the cart and its pickup', async () => {
     const h = harness({
       answer: (type) => (type === 'SubmitOrder' ? { status: 'refused', error: { kind: 'api', status: 422, code: 'PICKUP_TIME_INVALID', details: { reason: 'too_early', pickup_at_ms: NOW, ...BOUNDS } } } : undefined),
