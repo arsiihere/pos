@@ -97,3 +97,12 @@ Recorded in 02b v1.0.30 rows QK-1 – QK-10, 05 v1.0.38 QB-1, 01a v2.12 QS-1 –
 | BUG-8 | Points page tie / gap / same-position warnings | 01a QS-1 |
 | BUG-19 / BUG-22 | No autofill in staff search / New PIN; hub admin PIN pad keys | 01b QR-1, 01a QS-3 |
 | UX | Open shift returns; no text selection on button double-click; owner app remembers the branch | 02b QK-9, QK-10; 01a QS-2 |
+
+## QA round 2–3 rulings (owner, 2026-11-28)
+
+| # | Ruling | Spec |
+|---|---|---|
+| R2-1 | Every payment carries the due the cashier saw; if the bill changed, the hub refuses (`BILL_DUE_CHANGED`) and the panel shows the new amount. | 05 v1.0.37 |
+| R2-2 | A queued order is never dropped; refused for a closed day → waits visibly, sends when a day opens. | 02b v1.0.28 |
+| R3-1 | …including across a page reload (auto-send after sign-in); the kiosk boots from a local cache when the hub is unreachable and says the orders are safe. | lane r3-offline |
+| QM-3 | A handed-over-unpaid order is listed and carried at every close until paid, even a second close on the same date — replaces part of R-86 (05 v1.0.25). Confirmed 2026-11-28 22:16 PKT. | 05 v1.0.39 |

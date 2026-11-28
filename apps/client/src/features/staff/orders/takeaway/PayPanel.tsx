@@ -106,6 +106,15 @@ function dueAt(split: BillViewSplit, mode: Mode): number {
   return mode.payment_class === 'cash' ? dues.cash_due_minor : dues.card_due_minor;
 }
 
+/**
+ * ⚠️ 02b v1.0.31 QK-9a (owner 2026-11-28 QA-R3): the pay panel's shift button opens My shift with `back` = the screen
+ * the panel is on (its hash path, no query), so Open shift returns there, as the shell banner's does (QK-9).
+ */
+export function shiftBackRoute(hash: string = window.location.hash): string {
+  const path = hash.replace(/^#/, '').split('?')[0] ?? '';
+  return /^\/[a-z0-9/_-]+$/i.test(path) && path !== '/shift' ? `/shift?back=${encodeURIComponent(path)}` : '/shift';
+}
+
 export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelProps) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
@@ -406,7 +415,7 @@ export function PayPanel({ target, onLater, onDone, onClosed, fixed }: PayPanelP
         <p>{paid ? t('p.close_err_sub') : phase.offline ? null : `${t('p.err_sub')} ${t('p.err_kitchen')}`}</p>
         <p className="tk-pay__why">{phase.text}</p>
         {phase.kind === 'not_paid' && phase.shift && (
-          <button type="button" className="tk-btn" onClick={() => navigate('/shift')}>
+          <button type="button" className="tk-btn" onClick={() => navigate(shiftBackRoute())}>
             {t('billing.shift.nav')}
           </button>
         )}
