@@ -34,7 +34,7 @@ async function capture(page: Page, info: TestInfo, frame: string, what?: Locator
 }
 
 for (const lang of LANGS) {
-  test(`[03b v1.0.16 §3.4 R3-B-1, R3-B-2] Pass pickup card; Handed to customer greyed for the Pass role, absent for Cook (${lang})`, async ({ browser }, info) => {
+  test(`[03b v1.0.16 §3.4 R3-B-1, R3-B-2] Pass pickup card; no Handed to customer while the pickup waits (Pass role and Cook) (${lang})`, async ({ browser }, info) => {
     runsHere(info);
     const key = runKey('tkpass', info, lang);
     const tablet = hub().devices03[`pass:${key}`]!;
@@ -51,16 +51,12 @@ for (const lang of LANGS) {
       await signOut(page, info, lang);
 
       await signInPass(page, 'Pervez');
-      const button = card.locator('.btn--customer');
-      await expect(button).toBeVisible();
-      // ⚠️ 03b v1.0.17 §8: the greyed button carries its reason ("Take payment first") under the words
-      await expect(button).toContainText(tr(lang, 'pass.handed_to_customer'));
-      await expect(button).toBeDisabled();
-      // 03b v1.0.16 §3.4 Bill freshness: the hub now sends the row's `bill` (B2-1); this takeaway is unpaid → Due
-      // ⚠️ 03b v1.0.17 §8: ONE Due pill with the amount (no separate "Take payment first" line on the card)
+      // ⚠️ 03b v1.0.18 §8 (one primary per state): the pickup's whole order is not ready yet, so no "Handed to customer"
+      // at all (never a greyed one as its primary); the one Due pill with its amount and Ask a manager show already
+      await expect(card.locator('.btn--customer')).toHaveCount(0);
       await expect(card.locator('.pc__due')).toContainText(tr(lang, 'pass.due_amount').split('{amount}')[0]!.trim());
       await expect(card.locator('.pc__due')).toContainText('Rs');
-      await expect(card.locator('.pc__hint')).toHaveCount(0);
+      await expect(card.locator('[data-ask]')).toHaveText(tr(lang, 'pass.ask_manager'));
       await capture(page, info, `PackerPass-pickup-${info.project.name}-${lang}`, card);
     } finally {
       await signOut(page, info, lang);
@@ -91,6 +87,8 @@ for (const lang of LANGS) {
       for (const n of [1, 2, 3]) {
         const row = card.locator('.pl').nth(n - 1);
         await row.locator('.btn--start').click();
+        // the Start lands first: a Done tapped while it is in flight is dropped by the row's one-tap guard (03b §3.2)
+        await expect(row.locator('.btn--start')).toHaveCount(0, { timeout: 10_000 });
         await row.locator('.btn--done').click();
         // a Done this soon after Start asks again ("Done already? …"); the second tap confirms
         const undo = row.locator('.btn--undo');

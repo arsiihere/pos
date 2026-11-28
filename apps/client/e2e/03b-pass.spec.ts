@@ -34,6 +34,8 @@ for (const lang of ['en', 'ur'] as Lang[]) {
       for (const line of [1, 2, 3]) {
         const row = card.locator('.pl').nth(line - 1);
         await row.locator('.btn--start').click();
+        // the Start lands first: a Done tapped while it is in flight is dropped by the row's one-tap guard (03b §3.2)
+        await expect(row.locator('.btn--start')).toHaveCount(0, { timeout: 10_000 });
         await row.locator('.btn--done').click();
         // a Done this soon after Start: "Done already? …" on the card, and the second tap confirms
         const undo = row.locator('.btn--undo');
