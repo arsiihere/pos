@@ -599,6 +599,11 @@ describe('[05 v1.0.24 R-85, v1.0.23 R-84] same-date Z, no branch config, missing
     noGap();
     expect(state().business_day!.business_date).toBe(day1);
     sale(2);
+    // ⚠️ 05 v1.0.39 (owner 2026-11-28 QA-R3, BUG-9): the part-paid order is still unbilled — session 2's close lists it
+    // again (a carry lasts one close, not one date) and it is carried again
+    const blocked = await closeDay(manager);
+    expect(blocked.error).toMatchObject({ code: 'DAY_CLOSE_BLOCKED', details: { reason: 'unbilled_orders', orders: [{ order_id }] } });
+    expect((await carry(manager, { order_ids: [order_id], reason_code: 'customer_will_pay_later' })).status).toBe(200);
     const again = await closeDay(manager);
     expect(again.status, JSON.stringify(again.error)).toBe(200);
 

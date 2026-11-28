@@ -1,6 +1,7 @@
 // 05 §6.24 `CarryOverOrders` (task 25; B25, §3.13, H1-9, H6-10). The listed orders survive this day's close only
-// (02b's fold skips a carried order at BusinessDayClosed, row Q-5; the day-close guard skips orders carried for the
-// open day, `carried_orders`). A carried bill may already have payments (owner R4): the X / Z show them as carried
+// (02b's fold skips a carried order at BusinessDayClosed, row Q-5; the day-close guard skips orders carried for this
+// close — 02b's `carried_over` flag, ⚠️ v1.0.39 QM-3 (BUG-9): not "a `carried_orders` row of the open date", so a second
+// close of the same date lists the order again and it is carried again; `carried_orders` keeps one row per date). A carried bill may already have payments (owner R4): the X / Z show them as carried
 // forward, the next day's as brought forward (§6.26).
 // Order (00 §3.7 pipeline, then the handler): Zod `.strict()` (400; `order_ids` 1..40, a repeated id is a 400 at its
 // index) → the grant on `close-business-day` (403, the pipeline) → state: the open day (`409 BUSINESS_DAY_NOT_OPEN`),
