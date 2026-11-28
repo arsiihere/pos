@@ -4,7 +4,7 @@ import { createStaffApi, type Device, type PageMeta, type StaffApi } from '../..
 import { createLiveBus, type LiveBus } from '../../shell/live';
 import type { QueueEntry } from '../contracts';
 import { createMemoryQueueStore, type MemoryQueueBacking } from './memory-store';
-import { createBroadcastPresence, createCommandQueue, DEFAULT_QUEUE_AUTO_SEND_MAX_MS, type CommandQueue, type Presence } from './queue';
+import { createBroadcastPresence, createCommandQueue, DEFAULT_QUEUE_AUTO_SEND_MAX_MS, keptAtLoad, type CommandQueue, type Presence, type SentNotice } from './queue';
 
 // 02b v1.0.11 §3.12, §8 Queue, §10 #35; 00 v1.9.1 §8.1, H-1; owner Q-2 (25b): the queue core against the real staff
 // api over a scripted hub (fetch fake). The hub's answers are scripted per call; every call is recorded.
@@ -92,6 +92,14 @@ function rig(o: { backing?: MemoryQueueBacking; maxAgeMs?: () => number | null; 
 
 const order = (id: string) => ({ order_id: id, order_type: 'takeaway', lines: [{ order_item_id: `${id}-L1`, item_id: 'naan' }] });
 const meta1 = { label: 'Takeaway · 1 item' };
+
+const served = { lines: [{ order_id: 'O0', order_item_ids: ['X'] }] };
+
+/** An entry the queue log holds for "Send again" since its session ended (a reload keeps an order queued, QO-1). */
+function endedSession(backing: MemoryQueueBacking, id: string): void {
+  const e = backing.get(id)!;
+  backing.set(id, { ...e, state: 'log', log_reason: 'SESSION_EXPIRED' });
+}
 
 function reconnect(live: LiveBus) {
   live.connection(true);
@@ -378,7 +386,7 @@ describe('[02b §3.12] queue core', () => {
     expect(r.queue.pendingCount()).toBe(0);
   });
 
-  it('[02b Q-2] within the page life the same person drains; after reload every entry goes to the log as "Send again as {current person}"', async () => {
+  it('[02b Q-2, #120 QO-1] within the page life the same person drains; after reload a queued order stays queued (never the log) and nothing is sent before a sign-in', async () => {
     const backing: MemoryQueueBacking = new Map();
     const r = rig({ backing });
     await r.api.signIn('ali', '1234', false);
@@ -391,18 +399,139 @@ describe('[02b §3.12] queue core', () => {
     await r.queue.drain();
     expect(r.h.commands()[before]).toMatchObject({ headers: { 'X-Session-Token': 'TOK-ali' }, body: { actor_id: 'ali', command_id: '01ENTRY0001' } });
     expect(r.queue.queued().map((e) => e.entry_id)).toEqual(['01ENTRY0002']);
-    // reload: no token survives; the queued entry is in the log, nothing is sent on reconnect
+    // reload: no token survives; the order stays queued ("Waiting to send"), stored as queued, nothing sent on reconnect
     r.api.drop();
     r.queue.dispose();
     const reloaded = r.reload();
     await reloaded.ready;
-    expect(reloaded.pendingCount()).toBe(0);
-    expect(reloaded.log()).toEqual([expect.objectContaining({ entry_id: '01ENTRY0002', state: 'log', log_reason: 'reloaded', staff_id: 'ali' })]);
-    expect([...backing.values()]).toEqual([expect.objectContaining({ entry_id: '01ENTRY0002', state: 'log', log_reason: 'reloaded' })]);
+    expect(reloaded.pendingCount()).toBe(1);
+    expect(reloaded.queued()).toEqual([expect.objectContaining({ entry_id: '01ENTRY0002', state: 'queued', staff_id: 'ali' })]);
+    expect(reloaded.log()).toEqual([]);
+    expect([...backing.values()]).toEqual([expect.objectContaining({ entry_id: '01ENTRY0002', state: 'queued' })]);
     const count = r.h.commands().length;
     reconnect(r.live);
     await reloaded.drain();
     expect(r.h.commands().length).toBe(count);
+    expect(reloaded.pendingCount()).toBe(1);
+  });
+
+  it('[02b #120 QO-1, R3-1] a reloaded order is sent automatically once someone signs in and the hub answers: same command_id, as that person, X-Queued-At, once', async () => {
+    const backing: MemoryQueueBacking = new Map();
+    const r = rig({ backing });
+    await r.api.signIn('ali', '1234', false);
+    // offline Send: queued
+    await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    expect(r.queue.pendingCount()).toBe(1);
+    r.api.drop();
+    r.queue.dispose();
+    const reloaded = r.reload();
+    const sent: SentNotice[] = [];
+    reloaded.onSent((n) => sent.push(n));
+    await reloaded.ready;
+    // the sign-in screen's drain (before POST /auth/pin) sends nothing: nobody to send as
+    const count = r.h.commands().length;
+    await reloaded.drain();
+    expect(r.h.commands().length).toBe(count);
+    await r.api.signIn('sara', '1234', false);
+    // the hub is still away: stays queued
+    r.h.script.push('network');
+    await reloaded.drain();
+    expect(reloaded.pendingCount()).toBe(1);
+    // the hub answers: sent as Sara, a replay with the same id
+    r.h.script.push(ok({ order_id: 'O1', token: 7, groups: [], lines: [] }));
+    reconnect(r.live);
+    await reloaded.drain();
+    const tries = r.h.commands().slice(count);
+    expect(tries.map((c) => c.body?.command_id)).toEqual(['01ENTRY0001', '01ENTRY0001']);
+    expect(tries[1]).toMatchObject({ headers: { 'X-Session-Token': 'TOK-sara', 'X-Queued-At': '1000000' }, body: { actor_id: 'sara', payload: order('O1') } });
+    expect(sent).toEqual([expect.objectContaining({ result: { order_id: 'O1', token: 7, groups: [], lines: [] }, later: true })]);
+    expect(reloaded.pendingCount()).toBe(0);
+    expect(backing.size).toBe(0);
+    // nothing more is sent
+    await reloaded.drain();
+    expect(r.h.commands().length).toBe(count + 2);
+  });
+
+  it('[02b #120 QO-1] the other queueable commands still go to the log at load (Q-2); the orders after them still go', async () => {
+    const backing: MemoryQueueBacking = new Map();
+    const r = rig({ backing });
+    await r.api.signIn('ali', '1234', false);
+    await r.queue.enqueue('MarkServed', served, { label: 'Served' });
+    await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    r.api.drop();
+    const reloaded = r.reload();
+    await reloaded.ready;
+    expect(reloaded.log().map((e) => [e.entry_id, e.log_reason])).toEqual([['01ENTRY0001', 'reloaded']]);
+    expect(reloaded.queued().map((e) => e.entry_id)).toEqual(['01ENTRY0002']);
+    await r.api.signIn('ali', '1234', false);
+    r.h.script.push(ok({ order_id: 'O1', token: 3, groups: [], lines: [] }));
+    await reloaded.drain();
+    expect(r.h.commands().at(-1)?.body).toMatchObject({ command_id: '01ENTRY0002', actor_id: 'ali' });
+    expect(reloaded.pendingCount()).toBe(0);
+  });
+
+  it('[02b #120 QO-1] BUG-1: an order an older build moved to the log at load (`reloaded`) is queued again and sent', async () => {
+    const backing: MemoryQueueBacking = new Map();
+    const r = rig({ backing });
+    await r.api.signIn('ali', '1234', false);
+    await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    const e = backing.get('01ENTRY0001')!;
+    backing.set(e.entry_id, { ...e, state: 'log', log_reason: 'reloaded' });
+    r.api.drop();
+    const reloaded = r.reload();
+    await reloaded.ready;
+    expect(reloaded.log()).toEqual([]);
+    expect(backing.get('01ENTRY0001')).toEqual(expect.objectContaining({ state: 'queued' }));
+    expect(backing.get('01ENTRY0001')).not.toHaveProperty('log_reason');
+    await r.api.signIn('ali', '1234', false);
+    r.h.script.push(ok({ order_id: 'O1', token: 4, groups: [], lines: [] }));
+    await reloaded.drain();
+    expect(reloaded.pendingCount()).toBe(0);
+    expect(r.h.commands().at(-1)?.body?.command_id).toBe('01ENTRY0001');
+  });
+
+  it('[02b #120 QO-1] the signed-in session ends during the send: the reloaded order stays queued for the next sign-in', async () => {
+    const backing: MemoryQueueBacking = new Map();
+    const r = rig({ backing });
+    await r.api.signIn('ali', '1234', false);
+    await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    r.api.drop();
+    const reloaded = r.reload();
+    await reloaded.ready;
+    await r.api.signIn('sara', '1234', false);
+    r.h.script.push(err(401, 'SESSION_EXPIRED'));
+    await reloaded.drain();
+    expect(reloaded.queued().map((e) => e.entry_id)).toEqual(['01ENTRY0001']);
+    expect(reloaded.log()).toEqual([]);
+    await r.api.signIn('bilal', '1234', false);
+    r.h.script.push(ok({ order_id: 'O1', token: 5, groups: [], lines: [] }));
+    await reloaded.drain();
+    expect(r.h.commands().at(-1)?.body).toMatchObject({ command_id: '01ENTRY0001', actor_id: 'bilal' });
+    expect(reloaded.pendingCount()).toBe(0);
+  });
+
+  it('[02b #120 QO-1] a reloaded order older than queue_auto_send_max_ms goes to the log ("Send again"), never sent by itself', async () => {
+    const backing: MemoryQueueBacking = new Map();
+    const r = rig({ backing });
+    await r.api.signIn('ali', '1234', false);
+    await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    r.api.drop();
+    const reloaded = r.reload();
+    await reloaded.ready;
+    await r.api.signIn('ali', '1234', false);
+    r.now.ms += DEFAULT_QUEUE_AUTO_SEND_MAX_MS + 1;
+    const count = r.h.commands().length;
+    await reloaded.drain();
+    expect(r.h.commands().length).toBe(count);
+    expect(reloaded.log().map((e) => e.log_reason)).toEqual(['too_old']);
+  });
+
+  it('[02b #120 QO-1] keptAtLoad: the orders a load keeps (the offline boot count)', () => {
+    const base = { entry_id: 'E', payload: {}, queued_at: 1, staff_id: 's', device_id: 'd', label: 'x' };
+    expect(keptAtLoad({ ...base, command_type: 'SubmitOrder', state: 'queued' })).toBe(true);
+    expect(keptAtLoad({ ...base, command_type: 'SubmitOrder', state: 'log', log_reason: 'reloaded' })).toBe(true);
+    expect(keptAtLoad({ ...base, command_type: 'SubmitOrder', state: 'log', log_reason: 'ITEM_SOLD_OUT' })).toBe(false);
+    expect(keptAtLoad({ ...base, command_type: 'MarkServed', state: 'queued' })).toBe(false);
   });
 
   it('[02b Q-2] Send again reuses the command_id (stored 2xx if already committed)', async () => {
@@ -410,6 +539,7 @@ describe('[02b §3.12] queue core', () => {
     const r = rig({ backing });
     await r.api.signIn('ali', '1234', false);
     await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    endedSession(backing, '01ENTRY0001');
     r.api.drop();
     const reloaded = r.reload();
     await reloaded.ready;
@@ -431,6 +561,7 @@ describe('[02b §3.12] queue core', () => {
     const r = rig({ backing });
     await r.api.signIn('ali', '1234', false);
     await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    endedSession(backing, '01ENTRY0001');
     const reloaded = r.reload();
     r.h.script.push(err(409, 'ITEM_SOLD_OUT'));
     expect(await reloaded.sendAgain('01ENTRY0001')).toEqual({ status: 'log', reason: 'ITEM_SOLD_OUT' });
@@ -506,7 +637,8 @@ describe('[02b §3.12] queue core', () => {
     const r = rig({ backing });
     await r.api.signIn('ali', '1234', false);
     await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
-    const stale: QueueEntry = { ...[...backing.values()][0]!, entry_id: '01OLDPAGE', queued_at: 1 };
+    // an earlier page life's MarkServed (an order would be kept queued, QO-1)
+    const stale: QueueEntry = { ...[...backing.values()][0]!, entry_id: '01OLDPAGE', queued_at: 1, command_type: 'MarkServed', payload: served };
     backing.set(stale.entry_id, stale);
     // the second tab loads while the first is open and names 01ENTRY0001 as its own
     const second = createCommandQueue({
@@ -548,6 +680,7 @@ describe('[02b §3.12] queue core', () => {
     const r = rig({ backing });
     await r.api.signIn('ali', '1234', false);
     await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    endedSession(backing, '01ENTRY0001');
     r.queue.dispose();
     const reloaded = r.reload();
     await reloaded.ready;
@@ -597,7 +730,7 @@ describe('[02b §3.12] queue core', () => {
     const backing: MemoryQueueBacking = new Map();
     const r = rig({ backing });
     await r.api.signIn('ali', '1234', false);
-    await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
+    await r.queue.enqueue('MarkServed', served, { label: 'Served' });
     let removed: ((ids: string[]) => void) | null = null;
     const second = createCommandQueue({
       api: r.api,
@@ -630,8 +763,8 @@ describe('[02b §3.12] queue core', () => {
     const backing: MemoryQueueBacking = new Map();
     const r = rig({ backing });
     await r.api.signIn('ali', '1234', false);
-    await r.queue.enqueue('SubmitOrder', order('O1'), meta1);
-    await r.queue.enqueue('SubmitOrder', order('O2'), meta1);
+    await r.queue.enqueue('MarkServed', served, { label: 'Served' });
+    await r.queue.enqueue('MarkServed', served, { label: 'Served' });
     let removed: ((ids: string[]) => void) | null = null;
     const inner = createMemoryQueueStore(backing);
     // the first write-back (E1) is where the first tab's "removed E2" arrives (it sent E2 meanwhile)
