@@ -1326,7 +1326,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   useEffect(() => {
     if (summary.text === null || summaryShown.current) return;
     summaryShown.current = true;
-    toasts.show({ text: summary.text, tone: 'warn', action: { label: t('alerts.nav.inbox'), run: () => navigate('/inbox') } });
+    toasts.show({ text: summary.text, tone: 'warn', action: { label: t('alerts.open_inbox'), run: () => navigate('/inbox') } });
   }, [summary.text, toasts]);
   const lang = language();
   // ⚠️ 02b v1.0.28 QK-3: a language picked in the person menu re-renders the page (its root is keyed by the language)
