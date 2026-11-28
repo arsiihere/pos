@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { t } from '../i18n';
 
 // S35 i: UI kit PIN pad for the admin login (and 02's staff login). Digits stay in this component
@@ -24,6 +24,29 @@ export function PinPad({
     onSubmit(pin);
     setPin('');
   };
+  // ⚠️ 01a v2.12 QS-3 (BUG-22): the keyboard too — digits (main row and keypad), Backspace, Enter — while the pad is
+  // enabled; a key typed in a text field stays that field's
+  const keys = useRef<(e: KeyboardEvent) => void>(() => {});
+  keys.current = (e) => {
+    if (disabled || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+    const target = e.target;
+    if (target instanceof HTMLElement && (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLInputElement && !['button', 'checkbox', 'radio', 'submit', 'reset'].includes(target.type)))) return;
+    if (/^[0-9]$/.test(e.key)) {
+      e.preventDefault();
+      press(e.key);
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      setPin((p) => p.slice(0, -1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+    }
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keys.current(e);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   return (
     <div className={`pos-pin${error ? ' is-error' : ''}${disabled ? ' is-locked' : ''}`}>
