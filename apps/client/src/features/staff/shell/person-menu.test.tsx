@@ -164,3 +164,29 @@ describe('[02b-TK TK-SH01, TK-SH03] the day / shift banners under the bar', () =
     expect(m.container.querySelector('.tk-banner')?.textContent).toContain('Day not started');
   });
 });
+
+describe('[BUG-16; 02b v1.0.28 QK-3] the person menu language switch', () => {
+  it('English / اردو: the current one checked; a pick calls onPick with that language and closes the menu', async () => {
+    const { chooseLanguage, t } = await import('../../../i18n');
+    const pickLang = vi.fn();
+    m = mount();
+    m.render(<TopBar {...props({ menu: { language: { current: 'en', onPick: pickLang } } })} />);
+    m.click(chip(m.container));
+    const radios = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')];
+    expect(radios.map((r) => r.textContent)).toEqual(['English', 'اردو']);
+    expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false']);
+    m.click(radios[1]!);
+    expect(pickLang).toHaveBeenCalledWith('ur');
+    expect(menu()).toBeNull();
+    // chooseLanguage: stored per device, applied now; the lock text has its Urdu
+    const store = new Map<string, string>();
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) } as unknown as Storage;
+    chooseLanguage('ur', storage);
+    expect(store.get('pos-lang')).toBe('ur');
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl');
+    expect(t('lock.sign_in')).not.toBe('Sign in to see details');
+    chooseLanguage('en', storage);
+    expect(store.get('pos-lang')).toBe('en');
+    expect(document.documentElement.getAttribute('dir')).toBe('ltr');
+  });
+});

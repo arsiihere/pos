@@ -1721,6 +1721,10 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'shell.me.lock': 'اسکرین لاک کریں',
   'shell.me.lock_sub': 'آپ کے آرڈر ویسے ہی رہیں گے',
   'shell.me.shift': 'میری شفٹ',
+  'shell.me.language': 'زبان',
+  'lock.title': 'الرٹس',
+  'lock.sign_in': 'تفصیل دیکھنے کے لیے سائن اِن کریں', // QA-R2 BUG-16; Urdu to confirm
+  'c.pick_late': 'باورچی خانہ {can} تک بنا سکتا ہے، {asked} تک نہیں', // QA-R2 BUG-16; Urdu to confirm
   'shell.me.signout': 'سائن آؤٹ',
   'shell.me.signout_sub': 'نہ بھیجے آرڈر پہلے ہولڈ ہوں گے',
   'shell.day.closed': 'دن شروع نہیں ہوا — آرڈر نہیں جا سکتے، وقت نہیں دکھ سکتا',

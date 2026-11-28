@@ -53,6 +53,22 @@ export function initLanguage(o: { search: string; storage: Storage | null; navig
   return lang;
 }
 
+/**
+ * ⚠️ 02b v1.0.28 QK-3 (BUG-16): the person menu's language switch — stored on the device (the same `pos-lang` key
+ * `?lang=` remembers) and applied now; the caller re-renders the page. A storage error only loses the memory.
+ */
+export function chooseLanguage(lang: Language, storage: Storage | null): void {
+  try {
+    storage?.setItem(STORAGE_KEY, lang);
+  } catch {
+    // not remembered; this page still switches
+  }
+  setLanguage(lang);
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ur' ? 'rtl' : 'ltr');
+  document.body?.setAttribute('lang', lang);
+}
+
 // S49: the kit's Urdu faces are separate classes (as 00's lib/page.ts maps them).
 const UR_TYPE: Record<string, string> = {
   display: 'ur-display',

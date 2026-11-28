@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { wipeDeviceKeys } from '../../api/hub-admin';
 import { createHubClock } from '../../app/hub-clock';
 import { navigate, useHashRoute } from '../../app/router';
-import { language, t } from '../../i18n';
+import { chooseLanguage, language, t } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { ALERT_CONSTANTS } from '@pos/domain';
 import { createAnswerSender } from '../alerts/answer';
@@ -1306,6 +1306,8 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       </span>
     );
   const lang = language();
+  // ⚠️ 02b v1.0.28 QK-3: a language picked in the person menu re-renders the page (its root is keyed by the language)
+  const [, setLangTick] = useState(0);
 
   // 02a §8 Top bar (IR-3): the floor control lists the map store's floors with their table counts; the choice is the hash
   // query #/tables?floor=<id> (absent = all). Shown on the map and its sheet (phone: the map draws floor chips itself).
@@ -1375,7 +1377,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         : null;
   const phoneTitle = currentTab === 'me' ? t('tabs.me') : currentTab !== null ? t(`alerts.screen.${currentTab}`) : path === '/requests' && showRequests ? t('alerts.nav.requests') : t('alerts.nav.inbox');
   const body = (
-    <div className={`pu v-brand staff${phone ? ' phone' : ''}`} lang={lang} dir={lang === 'ur' ? 'rtl' : 'ltr'} data-theme="light">
+    <div key={lang} className={`pu v-brand staff${phone ? ' phone' : ''}`} lang={lang} dir={lang === 'ur' ? 'rtl' : 'ltr'} data-theme="light">
       <TopBar
         phone={phone}
         portrait={portrait}
@@ -1401,7 +1403,26 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         shift={showShift}
         context={me !== null && !switching && takeawayRoute ? ctxValue : null}
         extra={me !== null && !switching ? barValue : null}
-        menu={{ onSwitch: () => setSwitching(true), onLock: () => setLockTick((n) => n + 1), shiftSub }}
+        menu={{
+          onSwitch: () => setSwitching(true),
+          onLock: () => setLockTick((n) => n + 1),
+          shiftSub,
+          // ⚠️ 02b v1.0.28 QK-3 (BUG-16): EN / اردو, kept on the device; the page re-renders now (no sign-out)
+          language: {
+            current: lang,
+            onPick: (next) => {
+              if (next === lang) return;
+              let storage: Storage | null = null;
+              try {
+                storage = window.localStorage;
+              } catch {
+                storage = null;
+              }
+              chooseLanguage(next, storage);
+              setLangTick((n) => n + 1);
+            },
+          },
+        }}
         title={me === null ? meta.branchName : phoneTitle}
         phoneSub={
           me === null ? (

@@ -689,3 +689,8 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .pu.staff:has(.osc--tk-tablet) .abns { inset-inline-start: 16px; width: min(470px, calc(100vw - 440px - 32px)); }
 /* ⚠️ 02b v1.0.28 QK-7 (BUG-24): the name field's n/40 counter at the end of its label */
 .cust .fld__l .fld__count { float: inline-end; font-weight: 400; color: var(--ink-muted); }
+/* ⚠️ 02b v1.0.28 QK-3 (BUG-16): the person menu's Language row — English / اردو as a two-part switch */
+.tk-pop .tk-mi--lang { justify-content: space-between; cursor: default; }
+.tk-pop .tk-mi__seg { display: inline-flex; gap: 4px; }
+.tk-pop .tk-mi__seg button { min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: transparent; font: inherit; color: inherit; cursor: pointer; }
+.tk-pop .tk-mi__seg button[aria-checked="true"] { background: var(--ink); color: var(--surface-raised); border-color: var(--ink); }
