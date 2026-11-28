@@ -694,3 +694,24 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .tk-pop .tk-mi__seg { display: inline-flex; gap: 4px; }
 .tk-pop .tk-mi__seg button { min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: transparent; font: inherit; color: inherit; cursor: pointer; }
 .tk-pop .tk-mi__seg button[aria-checked="true"] { background: var(--ink); color: var(--surface-raised); border-color: var(--ink); }
+
+/* ---------- ⚠️ 02b v1.0.28 QK-2 (owner 2026-11-28 QA-R2, BUG-15): the kiosk from 1366 px up ----------
+   Below 1700 px the menu between the queue and the cart is ~580–620 px: tiles keep ≥ 160 px (as many columns as fit,
+   rush included) so a name breaks by word, never per letter; the tile foot wraps its time chip under the price; the
+   pickup chips take their own full row and wrap their words, never "+30 m…"; the cart foot's small actions wrap their
+   words, never clip "Print check bill"; the folded Name / phone button stays inside the cart. The landscape tablet
+   (.osc--tk-tablet, 1280 px) keeps its own layout. */
+@media (max-width: 1700px) {
+  .osc--tk:not(.osc--tk-tablet) .items, .osc--tk:not(.osc--tk-tablet) .items.items--rush { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .osc--tk .mi--tk .mi__foot { flex-wrap: wrap; row-gap: 4px; }
+  .osc--tk .mi--tk .mi__name { overflow-wrap: normal; word-break: normal; hyphens: manual; }
+  .osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick { flex-basis: 100%; }
+  .osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick button { flex: 1 1 0; white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.1; padding: 2px 4px; }
+  .osc--tk > .cart .cart__foot .duo .btn, .osc--tk > .cart .cart__foot .duo .tk-btn { white-space: normal; line-height: 1.15; text-align: center; padding-inline: 6px; gap: 4px; font-size: 15px; }
+  .osc--tk > .cart .cust--compact { padding: 8px 12px; min-width: 0; }
+  .osc--tk > .cart .cust--compact .tk-btn { min-width: 0; max-width: 100%; overflow: hidden; }
+}
+@media (max-width: 1500px) {
+  .osc--tk > .cart .cart__foot .duo .btn > .ico, .osc--tk > .cart .cart__foot .duo .tk-btn > .ico { display: none; }
+  .osc--tk > .cart .tk-acts .tk-btn--lg, .osc--tk > .cart .tk-acts .tk-btn--xl { white-space: normal; line-height: 1.1; text-align: center; padding-inline: 8px; gap: 6px; font-size: 16px; }
+}
