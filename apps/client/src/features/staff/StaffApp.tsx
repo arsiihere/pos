@@ -1237,7 +1237,10 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     page = <DeviceList key={route} api={devicesApi} openRequestId={devicesQuery.get('r')} openEditId={devicesQuery.get('edit')} />;
   } else if (path === '/shift' && (showShift || (shiftQueryId !== null && allowed.has('close-shift-for-others')))) {
     // task 41: #/shift?shift_id=… opens that shift (day close's Close this shift, close-shift-for-others)
-    page = <ShiftScreen key={route} {...(shiftQueryId === null ? {} : { shiftId: shiftQueryId })} />;
+    // ⚠️ 02b v1.0.28 QK-9: #/shift?back=/takeaway (the banner's Open your shift) returns there once the shift is open
+    const back = new URLSearchParams(route.split('?')[1] ?? '').get('back');
+    const backTo = back !== null && /^\/[a-z0-9/_-]*$/i.test(back) ? back : null;
+    page = <ShiftScreen key={route} {...(shiftQueryId === null ? {} : { shiftId: shiftQueryId })} {...(backTo === null ? {} : { back: backTo })} />;
   } else if (path === '/day-close' && showDayClose) {
     page = (
       <DayCloseScreen
@@ -1464,7 +1467,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
           canStartDay={canStartDay(permissions)}
           place={`${meta.branchName} · ${timeText(nowMs, offset)}`}
           shift={allowed.has('take-payment') ? ownShift : null}
-          onOpenShift={showShift ? () => navigate('/shift') : null}
+          onOpenShift={showShift ? () => navigate(`/shift?back=${encodeURIComponent(path)}`) : null}
         />
       )}
       {/* 01d v1.3.3 §3.13.6a: the kiosk Back chip in the alert layer (top-start, above route sheets), not in the top bar */}

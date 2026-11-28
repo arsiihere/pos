@@ -11,6 +11,9 @@ import { createToastBus } from '../staff/shell/toast';
 import type { ShiftView } from './contracts';
 import { parseCount } from './money';
 import { ShiftScreen } from './ShiftScreen';
+
+const nav = vi.hoisted(() => ({ to: [] as string[] }));
+vi.mock('../../app/router', async (orig) => ({ ...(await orig<object>()), navigate: (p: string) => nav.to.push(p) }));
 import { TODO_05 } from './urdu-todo-05';
 
 // 05 v1.0.21 §8 "Shift" (open with float; close shows card / online totals and asks for the counted cash before any
@@ -151,6 +154,23 @@ describe('[05 §8 Shift, §6.15] open the shift (frames ShiftOpen, ShiftOpenErro
     expect(s.command.mock.calls[0]!.slice(0, 2)).toEqual(['OpenShift', { float_minor: 500_000, as_drawer: true }]);
     expect(s.shown).toEqual(['Shift open · drawer opened']);
     expect(txt(v, '.b5-bh h1')).toBe('My shift');
+  });
+
+  it('[02b v1.0.28 QK-9] opened from another screen\'s prompt (back = #/takeaway): after Open shift it returns there, not My shift', async () => {
+    nav.to = [];
+    const s = setup({ views: [NOT_FOUND, { ok: true, data: view() }], answers: [{ ok: true, data: { shift_id: 'SH1', opened_at: 1 } }] });
+    m = mount();
+    m.render(
+      <ShellContext.Provider value={s.shell}>
+        <ShiftScreen back="/takeaway" />
+      </ShellContext.Provider>,
+    );
+    await flush();
+    typeIn(field(m, 'Starting cash'), '5,000.00');
+    await flush();
+    m.click(m.button('Open shift'));
+    await flush();
+    expect(nav.to).toEqual(['/takeaway']);
   });
 
   it('the quick 0 and the switch off: float 0, as_drawer false, toast "Shift open"', async () => {

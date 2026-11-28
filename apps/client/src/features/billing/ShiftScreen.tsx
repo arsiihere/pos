@@ -3,6 +3,7 @@ import { defaultBillingSettings } from '@pos/events';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { HubError } from '../../api/hub-admin';
 import { t } from '../../i18n';
+import { navigate } from '../../app/router';
 import { fill, type MessageKey } from '../../i18n/en';
 import { timeText } from '../alerts/labels';
 import { Ico } from '../alerts/ui';
@@ -30,7 +31,8 @@ type Step = { name: 'count' } | { name: 'handover' } | { name: 'skip' } | { name
 
 const QUICK_MAJOR = [0, 5_000, 10_000] as const;
 
-export function ShiftScreen({ shiftId }: { shiftId?: string }) {
+/** ⚠️ 02b v1.0.28 QK-9: `back` — the screen whose prompt opened this one (e.g. `/takeaway`); after Open shift it returns there */
+export function ShiftScreen({ shiftId, back }: { shiftId?: string; back?: string }) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);
   // primitives only: the store read must be stable between renders
@@ -77,6 +79,7 @@ export function ShiftScreen({ shiftId }: { shiftId?: string }) {
         exponent={exponent}
         code={code}
         onOpened={(shift_id) => {
+          if (back !== undefined) return navigate(back);
           setStep({ name: 'count' });
           known.current = shift_id;
           setNone(false);
