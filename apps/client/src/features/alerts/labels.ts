@@ -50,7 +50,7 @@ function params(d: AlertLock | AlertCard): Record<string, string | null> {
     requester: d.requester_name ?? null,
     device: d.device_name ?? null,
     // 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §6.12a, R3-m-4): "Hand over unpaid {identifier}" — card details only
-    // ⚠️ 02b v1.0.26 §6.12a (owner 2026-11-28 Q10): a request for an addition-only bill reads "#14 (addition)"
+    // ⚠️ 02b v1.0.27 §6.12a (owner 2026-11-28 Q10): a request for an addition-only bill reads "#14 (addition)"
     identifier: 'details' in d ? withAddition(d.details?.identifier ?? null, d.details?.disposition) : null,
   };
 }

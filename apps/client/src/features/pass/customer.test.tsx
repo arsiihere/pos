@@ -305,7 +305,7 @@ describe('[02b-TK L-CLIENT-2 item 4; 03b §3.4 OR-7, D2] Ask a manager on a Due 
     await flush();
     expect(customerBtn('O48')!.disabled).toBe(true);
     expect(askOf('O48')!.textContent).toBe('Ask a manager');
-    // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28 Q9; reviewer): one unpaid bill → the card's button sends in ONE tap (no sheet)
+    // ⚠️ 02b v1.0.27 §8 (owner 2026-11-28 Q9; reviewer): one unpaid bill → the card's button sends in ONE tap (no sheet)
     m.click(askOf('O48'));
     await flush();
     expect(m.container.querySelector('.pass-ask')).toBeNull();

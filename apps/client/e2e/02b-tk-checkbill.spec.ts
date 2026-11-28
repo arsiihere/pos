@@ -84,7 +84,8 @@ for (const lang of LANGS) {
       expect(printed.due_minor).toBe(printed.totals_default.total_minor); // a plain draft: one unpaid split
       const sentTo = tr(lang, 'billing.check_sent', { printer: PRINTER });
       const [gross, due] = tr(lang, 'billing.check_amounts').split('{due}')[0]!.split('{gross}');
-      await expect(toast(page, sentTo)).toContainText(new RegExp(`${escapeRe(gross!)}Rs [\\d,.]+${escapeRe(due!)}Rs [\\d,.]+`));
+      // an Urdu sentence isolates its money (FSI … PDI, L-CLIENT-6b fill): the amounts may sit inside U+2068 … U+2069
+      await expect(toast(page, sentTo)).toContainText(new RegExp(`${escapeRe(gross!)}\u2068?Rs [\\d,.]+\u2069?${escapeRe(due!)}\u2068?Rs [\\d,.]+\u2069?`));
       await capture(page, info, `CartCheckBill-${info.project.name}-${lang}`);
 
       // 2. Send · pay later → the Due token's Print check bill = PrintCheckBill { bill_ref: { order_id: newest } }

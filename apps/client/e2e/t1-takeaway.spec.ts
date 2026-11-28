@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { escapeRe, menuTile, rushOff, sentToken, shiftOpen, signInOn, takeawayTab } from './02b-support';
+import { escapeRe, menuTile, plain, rushOff, sentToken, shiftOpen, signInOn, takeawayTab } from './02b-support';
 import { apiSession, capture, hubPlan, planEta, queueEntry, runId, closeAll, cookLine, deviceFor, hubFire, hubNow, printMark, LANGS, passCard, passTablet, printedJob, screen, t1Key, t1Run, t1RunsHere, tr } from './t1-support';
 import { t1Station } from './t1-fixture';
 
@@ -206,11 +206,11 @@ for (const lang of LANGS) {
         const { orders } = await api.query<{ orders: Array<{ token: number | null; promise_ms: number | null; effective_pickup_at_ms: number | null }> }>('open-orders?order_type=takeaway');
         const o = orders.find((x) => String(x.token) === token)!;
         expect(o.effective_pickup_at_ms).toBe(pickup);
-        // the promise is the pickup's target plus the takeaway promise padding (03a PK-1 T_L = max(p, land) = p here;
-        // §3.5.1 step 5 / engine paddingOf: a Waada Guard station's promise_padding_ms, else the branch's
-        // engine_settings.promise_padding_takeaway_ms; 0 on a FIFO / EDF station), read from the hub's branch config
-        const padding = await takeawayPadding(api, t1Station(run.key));
-        expect(o.promise_ms).toBe(pickup! + padding);
+        // ⚠️ 03a v1.2.12 PK2-1 (owner 2026-11-28, QA BUG-5): a takeaway pickup's kitchen target is
+        // T_L = max(pickup − padding, land) = pickup − padding here (the kitchen is free 30 min ahead), so the promise
+        // (T + padding; engine paddingOf: a Waada Guard station's promise_padding_ms, else the branch's
+        // engine_settings.promise_padding_takeaway_ms; 0 on a FIFO / EDF station) is the pickup itself
+        expect(o.promise_ms).toBe(pickup);
       } finally {
         await api.close();
       }
@@ -259,13 +259,14 @@ for (const lang of LANGS) {
       type Row = { order_id: string; promise_ms: number | null; pickup_at_ms: number | null; effective_pickup_at_ms: number | null; planned_ready_at_ms?: number | null; ready: { n: number; m: number } };
       const rowOf = async () => (await api.query<{ orders: Row[] }>('open-orders?order_type=takeaway')).orders.find((o) => o.order_id === order_id)!;
       const before = await rowOf();
-      // the engine's plan lands the whole bag for the pickup (03a PK-1): not before it
+      // ⚠️ 03a v1.2.12 PK2-1 (owner 2026-11-28, QA BUG-5): the engine's plan lands the whole bag for the pickup less
+      // the takeaway padding (T_L = max(pickup − padding, land)): not before it
       const planned = await hubPlan(order_id);
       expect(planned.pickup_at_ms).toBe(pickupAt);
-      expect(planEta(planned)).toBeGreaterThanOrEqual(pickupAt);
+      const padding = await takeawayPadding(api, t1Station(run.key));
+      expect(planEta(planned)).toBeGreaterThanOrEqual(pickupAt - padding);
       // ⚠️ 02b v1.0.25 §6.16 (BR-1): before the boost the planned customer time is the promise, so the token view shows
       // the promise only (no "Ready ~", nothing struck through)
-      const padding = await takeawayPadding(api, t1Station(run.key));
       const offset = (await api.query<{ hub_time: { utc_offset_ms: number } }>('branch-config')).hub_time.utc_offset_ms;
       const readyBy = drawer.locator('.tk-facts .tk-fact').first();
       expect(before.planned_ready_at_ms).toBe(planEta(planned) + padding);
@@ -292,19 +293,21 @@ for (const lang of LANGS) {
       expect(planEta(replanned)).toBeLessThan(pickupAt);
       // ⚠️ 02b v1.0.25 §6.16 (owner ruling BR-1, 2026-11-27; 03a PK-5; 03c §4.2): open-orders carries the customer time
       // (the plan's land + the engine's padding, as receipts) — the promise before the boost, earlier after it; the
-      // stored promise (pickup + the takeaway padding) does not move, and the token view shows "Ready ~{planned}" with
+      // stored promise (⚠️ 03a v1.2.12 PK2-1: the pickup itself, T = pickup − padding) does not move, and the token view shows "Ready ~{planned}" with
       // that promise struck through beside it
       expect(after.planned_ready_at_ms).toBe(planEta(replanned) + padding);
       expect(after.planned_ready_at_ms!).toBeLessThan(pickupAt);
-      expect(after.promise_ms).toBe(pickupAt + padding);
+      expect(after.promise_ms).toBe(pickupAt);
       expect(before.promise_ms).toBe(after.promise_ms);
       await expect(readyBy.locator('small')).toHaveText(tr(lang, 'v.ready_at'));
-      await expect(readyBy.locator('[data-planned]')).toHaveText(tr(lang, 'q.ready_planned', { t: clientTime(after.planned_ready_at_ms!, offset) }));
+      await expect(readyBy.locator('[data-planned]')).toHaveText(plain(tr(lang, 'q.ready_planned', { t: clientTime(after.planned_ready_at_ms!, offset) })));
       await expect(readyBy.locator('s')).toHaveText(clientTime(after.promise_ms!, offset));
-      console.log(`[T1 #8 ${info.project.name} ${lang}] planned_ready_at_ms ${before.planned_ready_at_ms} → ${after.planned_ready_at_ms} (${clientTime(before.planned_ready_at_ms!, offset)} → ${clientTime(after.planned_ready_at_ms!, offset)}), promise ${after.promise_ms} (${clientTime(after.promise_ms!, offset)}, pickup + ${padding / 60_000} min)`);
+      console.log(`[T1 #8 ${info.project.name} ${lang}] planned_ready_at_ms ${before.planned_ready_at_ms} → ${after.planned_ready_at_ms} (${clientTime(before.planned_ready_at_ms!, offset)} → ${clientTime(after.planned_ready_at_ms!, offset)}), promise ${after.promise_ms} (${clientTime(after.promise_ms!, offset)}, the pickup; padding ${padding / 60_000} min)`);
       // whole bag (D1): nothing is ready yet — the token is not Ready while the drink is still to make
       expect(after.ready.n).toBeLessThan(after.ready.m);
-      await expect(drawer.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'v.collected'))}`) })).toHaveAttribute('aria-disabled', 'true');
+      // nothing to hand over yet: no enabled Hand over all (L-CLIENT-6b, frame TokenDue: a Due token still cooking shows
+      // Take payment as its primary; a paid one shows Hand over all greyed with the time)
+      await expect(drawer.locator('button[aria-disabled="false"]', { hasText: tr(lang, 'v.collected') })).toHaveCount(0);
       await capture(cash.page, info, `CustomerHereDone-${info.project.name}-${lang}`, drawer);
     } finally {
       await api.close();

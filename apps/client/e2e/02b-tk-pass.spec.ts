@@ -51,7 +51,7 @@ for (const lang of LANGS) {
       await signOut(page, info, lang);
 
       await signInPass(page, 'Pervez');
-      // ⚠️ 03b v1.0.18 §8 (one primary per state): the pickup's whole order is not ready yet, so no "Handed to customer"
+      // ⚠️ 03b v1.0.19 §8 (one primary per state): the pickup's whole order is not ready yet, so no "Handed to customer"
       // at all (never a greyed one as its primary); the one Due pill with its amount and Ask a manager show already
       await expect(card.locator('.btn--customer')).toHaveCount(0);
       await expect(card.locator('.pc__due')).toContainText(tr(lang, 'pass.due_amount').split('{amount}')[0]!.trim());

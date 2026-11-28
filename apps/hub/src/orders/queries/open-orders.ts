@@ -273,7 +273,7 @@ export function openOrdersBody(
     o.bill =
       r.billed_at !== null
         ? { state: 'paid', due_minor: 0 }
-        : // ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): `key` groups a token's orders by bill (one request, one due per bill)
+        : // ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9): `key` groups a token's orders by bill (one request, one due per bill)
           { state: 'due', due_minor: r.bill_key === null ? 0 : (balances.get(r.bill_key)?.due_minor ?? 0), key: r.bill_key };
     const approvedDue = r.unpaid_handover_approved_at === null ? null : r.unpaid_handover_approved_due_minor;
     o.unpaid_handover_approved = r.billed_at === null && approvedDue !== null && o.bill.due_minor > 0 && o.bill.due_minor <= approvedDue;

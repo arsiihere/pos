@@ -4,6 +4,22 @@
 # environment has not (port 5433, pos/pos_test, test-only settings), start it, match pnpm to
 # package.json "packageManager" (and repair pnpm's managed copy of itself), install deps and Playwright's browsers.
 [ -n "${CLAUDE_CODE_REMOTE_SESSION_ID:-}" ] || exit 0
+# pnpm keeps a managed copy of the packageManager version in ~/.local/share/pnpm/.tools; installed with lifecycle
+# scripts blocked, its bins stay text placeholders that turbo cannot exec ("Exec format error", os error 8).
+# install.js swaps them for the native binary (details below, where the install runs).
+# The copy may first appear only during `pnpm install` (seen 2026-11-28: when the global pnpm already is the wanted
+# version, `pnpm --version` fetches nothing), so the repair runs again after the install. Idempotent: a native copy
+# (ELF) is skipped.
+repair_managed_pnpm() {
+  for wrapper in "$HOME"/.local/share/pnpm/.tools/pnpm/*/node_modules/pnpm; do
+    [ -f "$wrapper/install.js" ] && [ -f "$wrapper/pnpm" ] || continue
+    head -c 4 "$wrapper/pnpm" | grep -q 'ELF' && continue
+    (cd "$wrapper" && node install.js >/dev/null 2>&1) || echo "session-start: could not repair $wrapper (turbo may fail with Exec format error)"
+    head -c 4 "$wrapper/pnpm" | grep -q 'ELF' || echo "session-start: $wrapper/pnpm is still not native (turbo may fail with Exec format error)"
+  done
+}
+# Test seam (2026-11-28): SESSION_START_REPAIR_ONLY=1 runs only the repair.
+[ "${SESSION_START_REPAIR_ONLY:-}" = "1" ] && { repair_managed_pnpm; exit 0; }
 SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo"
 DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 if ! grep -q '^port = 5433' /etc/postgresql/16/main/postgresql.conf 2>/dev/null; then
@@ -19,12 +35,9 @@ WANT=$(node -p "require('$DIR/package.json').packageManager.split('@')[1]" 2>/de
 # "Exec format error" (os error 8). Make pnpm fetch the copy once, serially, then run its own install.js, which swaps
 # the placeholders for the native binary.
 cd "$DIR" && pnpm --version >/dev/null 2>&1
-for wrapper in "$HOME"/.local/share/pnpm/.tools/pnpm/*/node_modules/pnpm; do
-  [ -f "$wrapper/install.js" ] && [ -f "$wrapper/pnpm" ] || continue
-  head -c 4 "$wrapper/pnpm" | grep -q 'ELF' && continue
-  (cd "$wrapper" && node install.js >/dev/null 2>&1) || echo "session-start: could not repair $wrapper (turbo may fail with Exec format error)"
-done
+repair_managed_pnpm
 cd "$DIR" && pnpm install --frozen-lockfile >/dev/null 2>&1 || echo "session-start: pnpm install failed; run it by hand"
+repair_managed_pnpm
 # Playwright's browsers for `pnpm test:e2e`: the build apps/client's @playwright/test pins (the container's
 # pre-installed one may be older). Needs the environment to allow cdn.playwright.dev; a no-op when already there.
 pnpm --filter @pos/client exec playwright install chromium >/dev/null 2>&1 \

@@ -980,7 +980,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     '/devices': showDevices,
     '/test-alert': showTest,
     '/pass': has('pass'),
-    // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28 Q11): taking orders needs take-order
+    // ⚠️ 02b v1.0.27 §8 (owner 2026-11-28 Q11): taking orders needs take-order
     '/takeaway': allowed.has('take-order'),
     '/orders': allowed.has('take-order'),
   };

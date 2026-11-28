@@ -166,7 +166,10 @@ for (const lang of LANGS) {
       await openToken(page, token);
       await expect(drawerLine(page, NAAN.name).locator('.tk-chip')).toHaveText(tr(lang, 'v.given'));
       await expect(drawerLine(page, KHEER.name).locator('.tk-chip')).not.toHaveText(tr(lang, 'v.given'));
-      await expect(drawer(page).getByRole('button', { name: tr(lang, 'v.collected') })).toHaveAttribute('aria-disabled', 'true');
+      // not everything is ready: no Hand over all to press (L-CLIENT-6b, frame TokenDue: a Due token still cooking has
+      // Take payment as its one primary; greyed Hand over all comes back once paid or all ready, R2)
+      await expect(drawer(page).locator('button[aria-disabled="false"]', { hasText: tr(lang, 'v.collected') })).toHaveCount(0);
+      await expect(drawer(page).getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'v.pay'))}`) })).toBeVisible();
       await closeDrawer(page, lang);
 
       // the rest is ready: paid, then Hand over all serves the other line only, and the token leaves the queue

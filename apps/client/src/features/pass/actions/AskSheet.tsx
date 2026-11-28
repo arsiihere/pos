@@ -9,7 +9,7 @@ import { unpaidRequestsOf, type AskState } from '../../staff/orders/unpaid/reque
 
 // ⚠️ 03b v1.0.17 §3.4, §8 (owner ruling 2026-11-28 "Pass bag = token"; Approval ruling A; QA BUG-9 and design review):
 // the card shows ONE Due pill and, beside it, a small "Ask a manager" button (or the requests' state in a word). The
-// per-bill breakdown lives in this sheet. ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): one row per unpaid, unapproved BILL of
+// per-bill breakdown lives in this sheet. ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9): one row per unpaid, unapproved BILL of
 // the token ("#14 · Rs 120", a bill of additions only "(addition)") with its request state (the AskManager words). "Ask a
 // manager" sends one `RequestUnpaidHandover { order_id }` per bill that has no live request (02b §6.4a): one bill, one
 // amount — never the token's total. Withdraw withdraws this person's waiting requests.
@@ -35,7 +35,7 @@ export function askSummary(states: ReadonlyArray<AskState | null>): string | nul
   return other == null ? null : statusOf(other)!.text;
 }
 
-/** One RequestUnpaidHandover per item (one per unpaid bill, 02b v1.0.26 Q9) that has no live request of its own. */
+/** One RequestUnpaidHandover per item (one per unpaid bill, 02b v1.0.27 Q9) that has no live request of its own. */
 function useAsk(items: readonly AskItem[], onChanged?: () => void) {
   const shell = useShell();
   const store = unpaidRequestsOf(shell);
@@ -77,7 +77,7 @@ function useAsk(items: readonly AskItem[], onChanged?: () => void) {
 }
 
 /**
- * The card's small button: "Ask a manager", or the requests' state. ⚠️ 02b v1.0.26 §8 (owner 2026-11-28 Q9; reviewer
+ * The card's small button: "Ask a manager", or the requests' state. ⚠️ 02b v1.0.27 §8 (owner 2026-11-28 Q9; reviewer
  * 2026-11-28): with ONE unpaid bill that can be asked, the tap sends the request at once (the card then shows the
  * waiting state); with two or more bills, or a request already waiting (Withdraw), it opens the sheet.
  */

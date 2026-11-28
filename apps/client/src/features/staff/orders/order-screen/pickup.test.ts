@@ -109,7 +109,7 @@ describe('[02b-TK L-CLIENT-5 item 1; 02b §3.2 step 2b, §9] PICKUP_TIME_INVALID
     for (let i = 0; i < 5; i += 1) await Promise.resolve();
     expect(p.state()).toEqual({ kind: 'pickup_invalid', problem: { reason: 'after_day_end', earliest_ms: details('x').earliest_ms, latest_ms: details('x').latest_ms } });
     p.set({ order_type: 'takeaway', lines: [] });
-    timers.shift()!();
+    timers.pop()!(); // the debounce (⚠️ 02b v1.0.26 CT-2: the 30 s re-ask timer is queued before it)
     for (let i = 0; i < 5; i += 1) await Promise.resolve();
     const s = p.state();
     expect(s.kind === 'ok' && s.body.pickup_bounds).toEqual({ earliest_ms: 1, latest_ms: 2 });

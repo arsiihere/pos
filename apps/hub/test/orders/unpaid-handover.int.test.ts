@@ -93,7 +93,7 @@ describe('[02b #85, 01d #122] RequestUnpaidHandover raises one urgent v6 request
       family: 'urgent',
       subject_stream_type: 'order',
       subject_stream_id: order_id,
-      // ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): one request per bill
+      // ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9): one request per bill
       dedupe_key: expect.stringMatching(/^hand_over_unpaid:bill:/),
       requester_staff_id: 'S_ALI',
       values: { order_id, token: 1, due_minor: naanPrice(), order_ids: [order_id] },
@@ -155,7 +155,7 @@ function openSeatingForDineIn(): void {
 }
 
 describe('[02b #87, #88, 05a #52] answer', () => {
-  it('[02b v1.0.26 owner 2026-11-28 Q9] a Manager on a listed phone approves with PIN → UnpaidHandoverApproved for every order of the bill at the bill due; the requester gets request_result; open-orders shows it with the bill key', async () => {
+  it('[02b v1.0.27 owner 2026-11-28 Q9] a Manager on a listed phone approves with PIN → UnpaidHandoverApproved for every order of the bill at the bill due; the requester gets request_result; open-orders shows it with the bill key', async () => {
     const { ali, managerPhone } = await start();
     const order_id = takeaway();
     const sibling = takeaway(undefined, { adds_to_order_id: order_id });
@@ -198,7 +198,7 @@ describe('[02b #87, #88, 05a #52] answer', () => {
 });
 
 describe('[02b #89, #92] the due moved: stale cards and additions', () => {
-  it('an addition raises the key due: its transaction closes the stale card obsolete (due_changed, §6.19), so it cannot be approved; a new ask raises a fresh one; one bill asks once (02b v1.0.26 Q9)', async () => {
+  it('an addition raises the key due: its transaction closes the stale card obsolete (due_changed, §6.19), so it cannot be approved; a new ask raises a fresh one; one bill asks once (02b v1.0.27 Q9)', async () => {
     const { ali, managerPhone } = await start();
     const a = takeaway();
     const first = (await ask(ali, a)).result!.alert_id as string;
@@ -212,7 +212,7 @@ describe('[02b #89, #92] the due moved: stale cards and additions', () => {
     expect(second).not.toBe(first);
     expect(row(first)).toMatchObject({ state: 'closed', close_reason: 'obsolete' });
     expect(JSON.parse(row(second).values_json)).toMatchObject({ order_id: a, due_minor: 2 * naanPrice() });
-    // ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): A and B share the bill: B names the same request; its approval covers both
+    // ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9): A and B share the bill: B names the same request; its approval covers both
     const forB = (await ask(ali, b)).result!.alert_id as string;
     expect(forB).toBe(second);
     expect((await answer(managerPhone, forB, 'approve')).status).toBe(200);
@@ -365,10 +365,10 @@ describe('[01d §6.8, To 02b R3-M-3; 01d #122] my-requests ask_in_person for han
   });
 });
 
-// ⚠️ 02b v1.0.26 §6.12a, 01d v1.3.8 (owner 2026-11-28 Q10): the manager's card says "(addition)" for a request whose bill
+// ⚠️ 02b v1.0.27 §6.12a, 01d v1.3.8 (owner 2026-11-28 Q10): the manager's card says "(addition)" for a request whose bill
 // holds additions only (the root's bill already closed): details.disposition 'alert.hand_over_unpaid.addition'; and a
 // closed request's frame carries its close note, so the manager's card can say why ("Bill went up — ask again").
-describe('[02b v1.0.26, 01d v1.3.8 owner 2026-11-28 Q10] manager card: addition mark and close reason', () => {
+describe('[02b v1.0.27, 01d v1.3.8 owner 2026-11-28 Q10] manager card: addition mark and close reason', () => {
   const detailsOf = (alert_id: string) => JSON.parse(hub.deps.db.prepare('SELECT details_json FROM alerts WHERE alert_id = ?').pluck().get(alert_id) as string) as Record<string, unknown>;
 
   it('an addition-only bill (root paid) → disposition addition; root + addition on one bill → none', async () => {

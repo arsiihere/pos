@@ -4452,7 +4452,7 @@ export const en = {
   'pass.addition_tag': '(addition)',
   'pass.ready_pick_sub_bag': 'Ticked items go into the bag as ready.',
   'pass.waiting_counter': 'Waiting at counter',
-  'pass.all_done': 'All done', // ⚠️ 03b v1.0.18 §8: every line done, the bag not marked ready yet
+  'pass.all_done': 'All done', // ⚠️ 03b v1.0.19 §8: every line done, the bag not marked ready yet
   'pass.phone_order': 'Phone order',
   'pass.waiting_bill': 'Waiting for the bill',
   'pass.pickup_label': 'Pickup {time}',
@@ -4515,6 +4515,7 @@ export const en = {
   'c.pick_45': '+45 min',
   'c.pick_time': 'Time…',
   'c.ready_later': 'Kitchen times it for',
+  'c.pick_late': 'Kitchen can make it by {can}, not {asked}', // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28, QA BUG-5)
   'c.pick_range': 'Pickup between {from} and {to}',
   'c.pick_err.too_early': 'Too soon — the earliest pickup is {t}',
   'c.pick_err.after_day_end': 'Too late — the day ends at {t}',
@@ -4526,6 +4527,51 @@ export const en = {
   'v.here_done': 'The kitchen cooks it now',
   // ---- 02b-TK BR-1 (02b v1.0.25 §6.16): after Customer is here, the planned ready time beside the struck-through promise ----
   'q.ready_planned': 'Ready ~{t}',
+  // ---- 02b-TK L-CLIENT-6b (frames Token*, Pay*, ItemSheet*, DealSheet, HeldDrawer, CustomerDisplay, PersonMenu; Urdu drafts in urdu-todo.md) ----
+  'h.title': 'Held on this counter',
+  'h.resume': 'Resume',
+  'h.discard': 'Throw away',
+  'h.at': 'Held {time}',
+  'h.not_kitchen': 'Held orders are not in the kitchen. Resume one to send it.',
+  'h.empty': 'Nothing is held on this counter',
+  'is.size': 'Size',
+  'is.pick': 'Pick {n}',
+  'is.up_to': 'Pick up to {n}',
+  'is.any': 'Any amount',
+  'is.each': 'each',
+  'is.weight': 'Weight',
+  'is.steps': '{n} g steps',
+  'is.weigh_later': 'Weigh later — price after weighing',
+  'is.turned_off': 'Kitchen turned it off',
+  'is.note_ph': 'Kitchen note ({n})',
+  'is.qty': 'Qty',
+  'is.save': 'Save changes',
+  'is.min': '{n} min',
+  'is.ready_now': 'Ready now',
+  'is.ready_by': 'Ready by {t}',
+  'is.station_busy': '{station} station busy',
+  'is.station_full': '{station} station full',
+  'c.note_add': 'Add note',
+  'is.in_deal': 'In this deal',
+  'is.part_pick': '{n}× — pick 1',
+  'c.add_delta': 'Ready by {token}:',
+  'c.counter': 'From the counter',
+  'v.late_chip': 'Late',
+  'v.hurry': 'Hurry kitchen',
+  'v.print_slip': 'Print slip',
+  'tr.title': 'Remove from token',
+  'tr.can_remove': 'can be removed',
+  'tr.void_mgr': 'Void needs a manager',
+  'tr.void_ok': 'can be voided',
+  'tr.void_chip': 'Void · approval',
+  'tr.void': 'Void',
+  'tr.bill': 'Bill goes from {from} to {to}. Not paid yet, so no refund.',
+  'tr.go': 'Remove {n} {item}',
+  'tr.go_n': 'Remove {n} items',
+  'tr.keep': 'Keep',
+  'p.card_hint': 'The card is taken on the counter machine',
+  'tr.pick': 'Choose what to remove',
+  // ---- end L-CLIENT-6b ----
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -4542,7 +4588,17 @@ export function adminErrorKey(code: string): MessageKey {
   return code === 'PERMISSION_DENIED' ? 'admin_stock.errors.PERMISSION_DENIED' : errorKey(code);
 }
 
-// Fills `{name}` placeholders in a message.
+const ARABIC_SCRIPT = /\p{Script=Arabic}/u;
+const ISOLATED = /^[\u2066-\u2068][\s\S]*\u2069$/;
+
+// Fills `{name}` placeholders in a message. ⚠️ 02b-TK L-CLIENT-6b item 1 (QA "AM 7", "Usman پر AM 12:30"): in an Urdu
+// sentence a value with Latin letters and no Urdu ones (a time, a name, money) goes in as a first-strong isolate (FSI … PDI),
+// so the bidi algorithm keeps "7:02 AM" and "Rs 1,300" whole and in place instead of reordering them with the words.
 export function fill(text: string, values: Record<string, string>): string {
-  return text.replace(/\{(\w+)\}/g, (whole, name: string) => values[name] ?? whole);
+  const rtl = ARABIC_SCRIPT.test(text);
+  return text.replace(/\{(\w+)\}/g, (whole, name: string) => {
+    const v = values[name];
+    if (v === undefined) return whole;
+    return rtl && /[A-Za-z]/.test(v) && !ARABIC_SCRIPT.test(v) && !ISOLATED.test(v) ? `\u2068${v}\u2069` : v;
+  });
 }

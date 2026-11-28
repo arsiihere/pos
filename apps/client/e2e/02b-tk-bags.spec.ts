@@ -104,7 +104,7 @@ test('[03b v1.0.17 §8] every station has a screen: status chips only, no strip;
     await expect(page.locator('article.pc', { hasText: tr(lang, 'pass.group_no_screen').split('{station}')[1]!.trim() })).toHaveCount(0);
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
     for (let i = 0; i < 6; i++) expect(await fullyVisible(page, cards.nth(i)), `card ${i + 1}`).toBe(true);
-    // 03b v1.0.18 §8: the top bar's alerts line ("Alerts: … — pauses at …") is never clipped
+    // 03b v1.0.19 §8: the top bar's alerts line ("Alerts: … — pauses at …") is never clipped
     const clipped = await page.locator('header.top .brand .bind').evaluate((el) => el.scrollWidth > el.clientWidth + 1);
     expect(clipped, 'the brand line is clipped').toBe(false);
     mkdirSync(SHOTS, { recursive: true });

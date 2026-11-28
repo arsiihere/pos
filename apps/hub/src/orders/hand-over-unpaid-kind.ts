@@ -18,7 +18,7 @@ import {
 // is persisted as AlertRaised v6 (01d v1.3.7 §5.4).
 
 /** §6.12a details: the identifier ('#<token>' or 'PARKING') and the amount (signed-in card only). */
-export const HandOverUnpaidDetails = AlertDetailsBase.pick({ identifier: true, amount: true, disposition: true }); // ⚠️ 02b v1.0.26 Q10: + disposition (addition mark)
+export const HandOverUnpaidDetails = AlertDetailsBase.pick({ identifier: true, amount: true, disposition: true }); // ⚠️ 02b v1.0.27 Q10: + disposition (addition mark)
 
 /**
  * §6.12a apply (approve), read-only, in 01d's pre-read and again in the answer transaction: the named order (1) and,
@@ -36,7 +36,7 @@ export function applyHandOverUnpaid(ctx: AlertApplyCtx<HandOverUnpaidValues, Han
   if (o === undefined || o.order_type === 'dine_in' || !isLive(o)) return stale();
   const due = dueOf(ctx.tx.db, o);
   if (due <= 0 || due !== v.due_minor) return stale();
-  // ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): the request covers its bill — one approval per order of it still live on the
+  // ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9): the request covers its bill — one approval per order of it still live on the
   // bill (an older alert without order_ids covers its named order only)
   const live = new Set(liveOrdersOfBill(ctx.tx.db, o.bill_key).map((b) => b.order_id));
   const ids = (v.order_ids ?? [v.order_id]).filter((id) => id === o.order_id || live.has(id));

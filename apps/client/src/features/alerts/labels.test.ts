@@ -350,7 +350,7 @@ describe('[02b-TK L-CLIENT-2 item 4; 02b §6.12a] hand_over_unpaid labels', () =
 });
 
 
-// ⚠️ 02b v1.0.26 §6.12a, 01d v1.3.8 (owner 2026-11-28 Q10): the manager's card names an addition-only bill "(addition)",
+// ⚠️ 02b v1.0.27 §6.12a, 01d v1.3.8 (owner 2026-11-28 Q10): the manager's card names an addition-only bill "(addition)",
 // and a closed request row carries the alert_closed frame's note into the line that says why.
 describe('[01d v1.3.8 owner 2026-11-28 Q10] hand_over_unpaid manager card', () => {
   const unpaidView = (disposition?: string) =>

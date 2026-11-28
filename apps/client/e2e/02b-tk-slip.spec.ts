@@ -74,11 +74,11 @@ for (const lang of LANGS) {
       await expect(page.locator('.toast').first()).toContainText(tr(lang, 'takeaway.slip.printing'));
       await capture(page, info, `SlipSent-${info.project.name}-${lang}`);
 
-      // the Due token's Print token → PrintTakeawaySlip { order_id: newest, reason: 'reprint' }
+      // the Due token's Print slip (03c §8; L-CLIENT-6b) → PrintTakeawaySlip { order_id: newest, reason: 'reprint' }
       await openToken(page, token);
       await expect(drawer(page).locator('.tk-fact--due')).toBeVisible();
       const reprint = command(page, 'print-takeaway-slip');
-      await drawer(page).getByRole('button', { name: tr(lang, 'v.print') }).click();
+      await drawer(page).getByRole('button', { name: tr(lang, 'v.print_slip') }).click();
       const reprinted = await reprint;
       expect(reprinted.status()).toBe(200);
       expect((reprinted.request().postDataJSON() as Sent<unknown>).payload).toEqual({ order_id: sent.payload.order_id, reason: 'reprint' });

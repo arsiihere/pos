@@ -35,7 +35,7 @@ async function dueAndReady(cash: Page, pass: Page, run: T1Run, lang: Lang, info:
 }
 
 /**
- * ⚠️ 02b v1.0.26 §8 (owner 2026-11-28 Q9; reviewer): a bag with ONE unpaid bill asks in one tap on the card's button —
+ * ⚠️ 02b v1.0.27 §8 (owner 2026-11-28 Q9; reviewer): a bag with ONE unpaid bill asks in one tap on the card's button —
  * no sheet; the card then shows the waiting state. (The per-bill sheet opens only with 2+ unpaid bills.)
  */
 async function askManager(pass: Page, card: Locator): Promise<void> {

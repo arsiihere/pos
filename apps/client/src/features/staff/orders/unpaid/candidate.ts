@@ -107,7 +107,7 @@ export function checkWholeToken(orders: ReadonlyArray<{ order_id: string; gate: 
   );
 }
 
-/** ⚠️ 02b v1.0.26 §6.16, §8 (owner 2026-11-28 Q9): one unpaid, unapproved bill of a token and the orders on it. */
+/** ⚠️ 02b v1.0.27 §6.16, §8 (owner 2026-11-28 Q9): one unpaid, unapproved bill of a token and the orders on it. */
 export interface UnpaidBill {
   /** the bill key (`bill.key`), else the order id of a row that carries none */
   key: string;
@@ -151,7 +151,7 @@ export function parseBillRows(data: unknown, at: number): BillRead | null {
     if (typeof o['order_id'] !== 'string') continue;
     const b = o['bill'] as { state?: unknown; due_minor?: unknown; key?: unknown } | null | undefined;
     const state: 'due' | 'paid' | null = b?.state === 'due' ? 'due' : b?.state === 'paid' ? 'paid' : null;
-    // ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): the bill key, when the hub sends it
+    // ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9): the bill key, when the hub sends it
     const key = typeof b?.key === 'string' || b?.key === null ? { key: b.key as string | null } : {};
     const bill = b === null ? null : state !== null && typeof b?.due_minor === 'number' ? { state, due_minor: b.due_minor, ...key } : undefined;
     const flag = o['unpaid_handover_approved'];

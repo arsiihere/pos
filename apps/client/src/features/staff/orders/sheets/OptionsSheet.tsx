@@ -11,7 +11,9 @@ import { cartLineMoney, type CartLine, type CartOption, type UnitOf } from '../o
 import { KITCHEN_NOTE_MAX, NoteSheet } from './NoteSheet';
 import { OptionStepper, stepOption, stepsOption } from './OptionStepper';
 import { defaultOptions, groupsOf } from './preselect';
-import { WeightChoice, gramsOf, type WeightMode } from './WeightChoice';
+import { WeightChoice, gramsOf, typed, type WeightMode } from './WeightChoice';
+import { TkAddon, TkNote, TkQty, TkSecHead, TkSheetFoot, TkSheetHead, minutesOf, readyLine, TkSheet } from './TkSheetParts';
+import { TkIco } from '../takeaway/icons';
 
 // 02-D04 options sheet (handoff Options, OptionsUnmet, OptionsWeight, OptionsWeighLater; 02b §8 Ordering screen, §3.6;
 // 01c §3.4.8): variant as a segmented control with prices; groups with a rule pill (green when met, orange when
@@ -41,6 +43,8 @@ export interface OptionsSheetProps {
   /** 02b-TK C1-4: editing a cart line offers Remove (on the left); absent = no Remove */
   onRemove?(): void;
   onClose(): void;
+  /** ⚠️ 02b-TK L-CLIENT-6b item 3: the takeaway screen's sheet (frames ItemSheet, ItemSheetEdit, ItemSheetKg) */
+  look?: 'tk';
 }
 
 const REASON_KEY = { off: 'menu.not_available', unavailable: 'menu.not_available', not_now: 'opt.reason.not_now', not_counted: 'menu.not_counted', sold_out: 'opt.reason.sold_out' } as const;
@@ -154,6 +158,150 @@ export function OptionsSheet(p: OptionsSheetProps) {
     setOptions([...keep, ...defaults]);
   };
 
+  const add = () => {
+    // one tap, one line: a second tap before the sheet closes adds nothing
+    if (added.current || !canAdd) return;
+    added.current = true;
+    p.onAdd({ ...line, key: p.initial?.key ?? p.newKey() });
+  };
+  if (p.look === 'tk') {
+    const vgTitle = item.variant_group_id === null ? item.name : (p.config.variant_groups.find((v) => v.variant_group_id === item.variant_group_id)?.name ?? item.name);
+    const label = canAdd || violations.length === 0 ? t(editing ? 'is.save' : 'opt.add') : missingText(violations, groups);
+    const showPrice = canAdd && m.kind === 'ok' ? money(m.minor) : canAdd && m.kind === 'pending' ? priceText : null;
+    const unitWord = unit === 'g' ? 'kg' : 'L';
+    return (
+      <TkSheet onEnter={add} sheet={p.sheet} onClose={p.onClose}>
+        <TkSheetHead id="opt-t" name={vgTitle} sub={readyLine(p.config, p.inputs, item.item_id)} onClose={p.onClose} />
+        <div className="tk-sheet__b">
+          {items.length > 1 && (
+            <section>
+              <TkSecHead title={t('is.size')} rule={fill(t('is.pick'), { n: '1' })} tone="need" />
+              <div className="tk-vars" role="radiogroup" aria-label={t('is.size')}>
+                {items.map((v) => {
+                  const off = p.inputs !== null && !itemAvailability(v.item_id, p.inputs).orderable;
+                  const vUnit = p.unitOf(v.item_id) ?? v.sale_unit;
+                  const mins = minutesOf(p.inputs, v.item_id, v.cook_time_ms);
+                  const price = vUnit === 'piece' ? money(v.price_minor) : `${money(v.price_minor)} / ${vUnit === 'g' ? 'kg' : 'L'}`;
+                  return (
+                    <button key={v.item_id} type="button" role="radio" className="tk-var" aria-checked={v.item_id === item.item_id} aria-pressed={v.item_id === item.item_id} disabled={off} onClick={() => switchItem(v.item_id)}>
+                      <b><bdi>{v.variant_name ?? v.name}</bdi></b>
+                      <small>
+                        <span dir={MONEY_DIR}>{price}</span>
+                        {mins !== null && <> · {mins}</>}
+                      </small>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+          {weighed && (
+            <section className="tk-kg">
+              <div className="tk-kg__l">
+                <TkSecHead title={t('is.weight')} rule={fill(t('is.steps'), { n: '50' })} />
+                <div className={mode === 'now' ? 'tk-kg__box is-on' : 'tk-kg__box'} role="status" aria-label={t('weight.entered')}>
+                  <small>{t('is.weight')}</small>
+                  <b className="num" dir="ltr">
+                    {mode === 'later' ? '—' : `${text === '' ? '0' : text} ${unitWord}`}
+                  </b>
+                </div>
+                <div className="tk-kg__chips">
+                  {[500, 750, 1000, 1500, 2000].map((g) => (
+                    <button key={g} type="button" className="tk-btn" aria-pressed={mode === 'now' && gramsOf(text) === g} onClick={() => (setMode('now'), setText(String(g / 1000)))}>
+                      <span dir="ltr">
+                        {g / 1000} {unitWord}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {item.requires_weighing && (
+                  <button type="button" className="tk-btn tk-kg__later" aria-pressed={mode === 'later'} onClick={() => setMode(mode === 'later' ? 'now' : 'later')}>
+                    <TkIco name="clock" />
+                    {t('is.weigh_later')}
+                  </button>
+                )}
+                {mode === 'now' && text !== '' && gramsOf(text) === null && (
+                  <div className="tk-msg c-warn" role="alert">
+                    {fill(t('weight.range'), { unit: unitWord })}
+                  </div>
+                )}
+              </div>
+              <div className="tk-keypad" role="group" aria-label={t('is.weight')}>
+                {(['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'del'] as const).map((k) => (
+                  <button key={k} type="button" aria-label={k === 'del' ? t('weight.delete') : undefined} onClick={() => (setMode('now'), setText(typed(mode === 'later' ? '' : text, k)))}>
+                    {k === 'del' ? <TkIco name="del" /> : k}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+          {groups.map((g) => {
+            const n = options.filter((o) => g.options.some((x) => x.option_id === o.option_id)).reduce((s, o) => s + o.quantity, 0);
+            const cards = g.options.some((o) => stepsOption(g, o));
+            // "Any amount" (frame): no minimum and a cap no counter reaches (≥ 20 picks, the option max_quantity ceiling)
+            const anyAmount = g.min_choices === 0 && g.max_choices >= Math.min(20, g.options.reduce((s, o) => s + o.max_quantity, 0));
+            const rule = g.min_choices > 0 ? fill(t('is.pick'), { n: String(g.min_choices) }) : anyAmount ? t('is.any') : fill(t('is.up_to'), { n: String(g.max_choices) });
+            return (
+              <section key={g.modifier_group_id}>
+                <TkSecHead title={g.name} rule={rule} tone={g.min_choices > 0 ? (n >= g.min_choices ? 'ok' : 'need') : null} />
+                <div className={cards ? 'tk-opts' : 'tk-chcs'}>
+                  {g.options.map((o) => {
+                    const picked = options.find((x) => x.option_id === o.option_id);
+                    const state = optionState(o);
+                    const short = picked !== undefined && violations.some((v) => v.reason === 'linked_not_orderable' && v.option_id === o.option_id);
+                    const reason = state.on ? (short ? t('opt.reason.sold_out') : null) : t(REASON_KEY[state.reason]);
+                    if (cards) {
+                      const q = picked?.quantity ?? 0;
+                      const groupTotal = n;
+                      return (
+                        <TkAddon
+                          key={o.option_id}
+                          name={o.name}
+                          price_minor={o.price_minor}
+                          q={q}
+                          more={state.on && q < o.max_quantity && groupTotal < g.max_choices}
+                          off={state.on ? null : reason}
+                          warn={short ? reason : null}
+                          onStep={(d) => step(g, o, d)}
+                        />
+                      );
+                    }
+                    return (
+                      <button key={o.option_id} type="button" className="tk-chc" aria-pressed={picked !== undefined} disabled={!state.on && picked === undefined} onClick={() => tap(g, o.option_id)}>
+                        <b><bdi>{o.name}</bdi></b>
+                        {o.price_minor > 0 && (
+                          <small dir={MONEY_DIR}>+{money(o.price_minor)}</small>
+                        )}
+                        {reason !== null && <small className="c-warn">{reason}</small>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+          <TkNote value={note} max={KITCHEN_NOTE_MAX} onChange={setNote} />
+          {/* 02b v1.0.21 §8 (STAB-5, option C): the line's serve override stays (spec); the frame has no row for it */}
+          <div className="tk-serve-row" role="group" aria-label={t('serve.label')}>
+            <small>{t('serve.label')}</small>
+            {([[undefined, 'serve.menu_default'], ['sync', 'serve.together'], ['immediate', 'serve.as_ready']] as const).map(([value, key]) => (
+              <button key={key} type="button" className="tk-btn" aria-pressed={serve === value} onClick={() => setServe(value)}>
+                {t(key)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <TkSheetFoot
+          qty={weighed ? null : <TkQty value={units} max={cap} onChange={setUnits} />}
+          onRemove={editing ? p.onRemove : undefined}
+          label={label}
+          price={showPrice}
+          ok={canAdd}
+          onPrimary={add}
+        />
+      </TkSheet>
+    );
+  }
   if (noteOpen)
     return (
       <NoteSheet
@@ -305,12 +453,7 @@ export function OptionsSheet(p: OptionsSheetProps) {
           {t('opt.kitchen_note')}
         </button>
         <button type="button" className="btn btn--primary" disabled={!canAdd}
-          onClick={() => {
-            // one tap, one line: a second tap before the sheet closes adds nothing
-            if (added.current || !canAdd) return;
-            added.current = true;
-            p.onAdd({ ...line, key: p.initial?.key ?? p.newKey() });
-          }}
+          onClick={add}
         >
           {canAdd || violations.length === 0 ? t(editing ? 'opt.save' : 'opt.add') : missingText(violations, groups)}
         </button>

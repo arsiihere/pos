@@ -448,7 +448,7 @@ export function PassScreen() {
               // something is not marked ready; then Handed to customer (counter) or Hand over (dine-in). Hand over to
               // staff is otherwise a small secondary icon button (the receiver tiles sheet, for the whole token).
               // ⚠️ 03b v1.0.10 §3.4: Bag ready also with an open Ready while lines not in it are left
-              // ⚠️ 03b v1.0.18 §8: never on a takeaway / parking bag already marked ready (`sent`): its primary is Handed to
+              // ⚠️ 03b v1.0.19 §8: never on a takeaway / parking bag already marked ready (`sent`): its primary is Handed to
               // customer, which serves every live line; a dine-in card keeps Ready to serve for lines finished later (v1.0.10)
               const bagging = canRun && bagOk && pending.length > 0 && state !== 'none' && !(counter && state === 'sent');
               if (bagging) {
@@ -466,7 +466,7 @@ export function PassScreen() {
                   </button>,
                 );
               }
-              // ⚠️ 03b v1.0.17 §3.4: the bag's billing — every order paid or approved. ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9):
+              // ⚠️ 03b v1.0.17 §3.4: the bag's billing — every order paid or approved. ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9):
               // one Due and one request per BILL — the pill totals the token's distinct unpaid bills (an order on a shared
               // bill reports the bill's due, so it is never added twice); Ask a manager asks once per unapproved bill
               const each = counter && canCustomer ? bag.orders.map((x) => ({ order: x, e: eligibilityOf(billRead, { order_id: x.order_id, order_type: type, placed_at: x.placed_at }, unpaid.approvedDue(x.order_id)) })) : [];
@@ -492,7 +492,7 @@ export function PassScreen() {
               const asks: AskItem[] = askBills.map((b) => ({ order_id: b.order_ids[0]!, due_minor: b.due_minor, ident: customerIdent(bag.card), addition: b.addition }));
               // the Pass→staff Hand over (§3.5), for the whole token (one Handover per order with done lines)
               const toHand = canRun && bag.orders.some((x) => doneToHand(x).length > 0);
-              // ⚠️ 03b v1.0.18 §8: Handed to customer only on a bag marked ready (or all done where nobody here can bag it);
+              // ⚠️ 03b v1.0.19 §8: Handed to customer only on a bag marked ready (or all done where nobody here can bag it);
               // a bag still cooking — a pickup waiting for its whole order included — never shows it as its primary
               if (cust !== null && !bagging && (state === 'sent' || state === 'ready'))
                 buttons.push(

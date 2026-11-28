@@ -400,7 +400,7 @@ describe('@pos/engine stationView / stationPlan (§6.1h, §3.6.3, D16, D17)', ()
     expect(Object.keys(plan).sort()).toEqual(['lines', 'station_id']);
     expect(ids(plan.lines)).toEqual(['C', 'D', 'E', 'F']);
     expect(plan.lines.map((l) => l.frozen)).toEqual([true, true, false, false]);
-    expect(plan.lines[0]).toEqual({ order_item_id: 'C', order_id: 'O4', fire_ms: at(10), deadline_ms: k.state.lines.C!.deadline_ms, mark: null, frozen: true, load_id: null }); // ⚠️ 03b v1.0.13 §3.3 (STAB-6): + load_id (null on a slot line)
+    expect(plan.lines[0]).toEqual({ order_item_id: 'C', order_id: 'O4', fire_ms: at(10), deadline_ms: k.state.lines.C!.deadline_ms, mark: null, frozen: true, load_id: null, planned_ready_ms: k.state.orders.O4!.groups[k.state.lines.C!.group_id]!.target_land_ms }); // ⚠️ 03b v1.0.13 §3.3 (STAB-6): + load_id (null on a slot line); ⚠️ 03b v1.0.18 (owner 2026-11-28, BUG-25): + planned_ready_ms = the group's T
     expect(stationPlan(k.state, 'NOPE', T0)).toEqual({ station_id: 'NOPE', lines: [] });
     // Same reading as the view.
     const view = stationView(k.state, 'S1', at(8));

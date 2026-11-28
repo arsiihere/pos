@@ -41,7 +41,7 @@ export function screenHeld(key: ScreenKey, p: Permissions): boolean {
     // §3.6 table: the Pass acts with `run-pass` (BUG-18)
     case 'pass':
       return p.allowed('run-pass');
-    // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28 Q11): the order-taking screens need `take-order` (a Cook sees neither)
+    // ⚠️ 02b v1.0.27 §8 (owner 2026-11-28 Q11): the order-taking screens need `take-order` (a Cook sees neither)
     case 'takeaway':
     case 'parking':
       return p.allowed('take-order');

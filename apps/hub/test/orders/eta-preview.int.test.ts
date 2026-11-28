@@ -1,4 +1,4 @@
-import { availableStock, type EngineState } from '@pos/engine';
+import { availableStock, paddingOf, type EngineState } from '@pos/engine';
 import type { BranchConfig, DirectoryInput, EventDraft } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { activity } from '../../src/auth/session-store';
@@ -54,6 +54,8 @@ function signIn(staffId = 'S_ALI'): Who {
 interface PreviewLine {
   key: string;
   eta_ms: number | null;
+  /** ⚠️ 02b v1.0.26 CT-4 */
+  ready_ms: number | null;
   from_stock: boolean;
   zone_served: boolean;
   refused?: { code: string; details: Record<string, unknown> };
@@ -113,13 +115,18 @@ async function submitDraft(who: Who, order_id: string, draft: Record<string, unk
     .prepare("SELECT payload FROM events WHERE event_type = 'OrderPlaced' AND stream_id = ?")
     .pluck()
     .get(order_id) as string;
+  // ⚠️ 02b v1.0.26 CT-4: the preview's ready_ms = eta_ms + the placed station's padding for the order type
+  const placedLines = new Map(((placed === undefined ? { lines: [] } : JSON.parse(placed)) as { lines: Array<{ order_item_id: string; station_id: string }> }).lines.map((l) => [l.order_item_id, l.station_id]));
+  const orderType = draft['order_type'] as 'dine_in' | 'takeaway' | 'delivery' | 'parking';
   return {
     status: res.statusCode,
     asPreview: {
       groups: result.groups.map((g) => ({ promise_ms: g.promise_ms, keys: [...new Set(g.order_item_ids.map((id) => partKey(id, result).key))] })),
       lines: result.lines.map(({ order_item_id, ...rest }) => {
         const { key, part } = partKey(order_item_id, result);
-        return { key, ...(part === undefined ? {} : { part }), ...rest };
+        const station = placedLines.get(order_item_id);
+        const ready_ms = rest.eta_ms === null || station === undefined ? null : rest.eta_ms + paddingOf(engine(), station, orderType);
+        return { key, ...(part === undefined ? {} : { part }), ...rest, ready_ms };
       }),
     },
     placed: JSON.parse(placed) as Record<string, unknown>,
@@ -180,7 +187,7 @@ describe('02b eta-preview (§6.14)', () => {
     expect(r.data!.as_of_seq).toBe(hub.deps.writer.lastSeq());
     // ⚠️ 02b v1.0.20 §3.2 step 4a, §6.14 (STAB-5): naan ×2 on the slot station is two parts, each with `part`
     expect(r.data!.lines.map((l) => [l.key, (l as { part?: number }).part])).toEqual([['c1', undefined], ['c1o', undefined], ['c2', 1], ['c2', 2], ['c3', undefined], ['c4', undefined], ['c4a', undefined], ['c4b', undefined]]);
-    for (const l of r.data!.lines) expect(Object.keys(l).sort()).toEqual(l.key === 'c2' ? ['eta_ms', 'from_stock', 'key', 'part', 'zone_served'] : ['eta_ms', 'from_stock', 'key', 'zone_served']);
+    for (const l of r.data!.lines) expect(Object.keys(l).sort()).toEqual(l.key === 'c2' ? ['eta_ms', 'from_stock', 'key', 'part', 'ready_ms', 'zone_served'] : ['eta_ms', 'from_stock', 'key', 'ready_ms', 'zone_served']); // ⚠️ v1.0.26 CT-4: + ready_ms
     for (const g of r.data!.groups) expect(Object.keys(g).sort()).toEqual(['keys', 'promise_ms']);
     // The same preview twice reads the same state.
     expect((await preview(ali, takeaway(fullCart()))).data).toEqual(r.data);
@@ -242,7 +249,7 @@ describe('02b eta-preview (§6.14)', () => {
     const zoned = await preview(ali, dineIn([line('z', FX.zoneItem, 1, { from_zone: true }), line('n', FX.naan)], FX.zoneTable));
     expect(counter.count).toBe(3);
     expect(zoned.status).toBe(200);
-    expect(zoned.data!.lines.find((l) => l.key === 'z')).toEqual({ key: 'z', eta_ms: null, from_stock: false, zone_served: true });
+    expect(zoned.data!.lines.find((l) => l.key === 'z')).toEqual({ key: 'z', eta_ms: null, ready_ms: null, from_stock: false, zone_served: true });
     expect(zoneCount()).toBe(5); // nothing claimed
     // Dine-in without a zone candidate: availability + follow_up (no zone counts to read).
     counter.reset();
@@ -308,7 +315,7 @@ describe('02b eta-preview (§6.14)', () => {
     );
     expect(r.status).toBe(200);
     const refused = (key: string) => r.data!.lines.find((l) => l.key === key)!;
-    const none = { eta_ms: null, from_stock: false, zone_served: false };
+    const none = { eta_ms: null, ready_ms: null, from_stock: false, zone_served: false };
     expect(refused('l1_nope')).toEqual({ key: 'l1_nope', ...none, refused: { code: 'MENU_ITEM_NOT_FOUND', details: { item_id: 'I_NOPE' } } });
     expect(refused('l2_water')).toEqual({ key: 'l2_water', ...none, refused: { code: 'ITEM_UNAVAILABLE', details: { item_id: FX.ready } } });
     expect(refused('l3_roti')).toEqual({ key: 'l3_roti', ...none, refused: { code: 'STATION_PAUSED', details: { station_id: FX.zoneStation } } });
@@ -358,7 +365,7 @@ describe('02b eta-preview (§6.14)', () => {
     expect(by('a1').refused).toEqual({ code: 'ITEM_SOLD_OUT', details: { item_id: 'I_PAYE', available: 0 } });
     expect(by('a1k').refused).toEqual(by('a1').refused);
     // Without the deal the last 500 g is free: the later Paye fits from stock.
-    expect(by('a2')).toEqual({ key: 'a2', eta_ms: expect.any(Number), from_stock: true, zone_served: false });
+    expect(by('a2')).toEqual({ key: 'a2', eta_ms: expect.any(Number), ready_ms: expect.any(Number), from_stock: true, zone_served: false });
     const s = await submitDraft(ali, 'O1', takeaway([line('a2', 'I_PAYE')]));
     expect({ groups: r.data!.groups, lines: [by('a2')] }).toEqual(s.asPreview);
   });
@@ -432,6 +439,26 @@ describe('02b eta-preview and SubmitOrder on a batch station (v1.0.23, STAB-6)',
     expect(added).toEqual(Array.from({ length: 10 }, (_, i) => (i === 0 ? 'N' : `N-p${i + 1}`)));
     const loads = Object.values(engine().stations.S_TANDOOR!.loads).sort((a, b) => a.booked.start - b.booked.start);
     expect(loads.map((l) => l.order_item_ids.filter((id) => id.startsWith('N')).length)).toEqual([3, 7]);
+  });
+});
+
+describe('[02b v1.0.26 CT-3, CT-4, test 97] eta-preview lines[].ready_ms (owner 2026-11-28, QA BUG-7)', () => {
+  it('[02b #97] each line\'s ready_ms = eta_ms + its planned station\'s padding for the order type; the latest ready_ms = the latest group promise; a line with no eta has none', async () => {
+    await setUp();
+    const ali = signIn();
+    const r = await preview(ali, takeaway([line('K1', FX.naan, 3), line('K2', FX.ready)]));
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    const lines = r.data!.lines;
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) {
+      if (l.eta_ms === null) expect(l.ready_ms).toBeNull();
+      else expect(l.ready_ms! - l.eta_ms).toBeGreaterThanOrEqual(0);
+    }
+    const naanStation = branchConfig()!.items.find((i) => i.item_id === FX.naan)!.station_id!;
+    const naan = lines.find((l) => l.key === 'K1')!;
+    expect(naan.ready_ms).toBe(naan.eta_ms! + paddingOf(engine(), naanStation, 'takeaway'));
+    const timed = lines.filter((l) => l.ready_ms !== null).map((l) => l.ready_ms!);
+    expect(Math.max(...timed)).toBe(Math.max(...r.data!.groups.map((g) => g.promise_ms)));
   });
 });
 

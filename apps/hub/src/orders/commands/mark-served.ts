@@ -266,7 +266,7 @@ function handedOverCloses(
   const handedIds = servesLast(lines, serves).filter((s) => orders.get(s.order_id)!.order_type !== 'dine_in').map((s) => s.order_id);
   const handed = new Set(handedIds.map((id) => `${HAND_OVER_UNPAID}:${id}`));
   if (handed.size === 0) return [];
-  // ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): a bill's request (values.order_ids) closes when this send hands over any order it
+  // ⚠️ 02b v1.0.27 (owner 2026-11-28 Q9): a bill's request (values.order_ids) closes when this send hands over any order it
   // covers (the rest of that bill asks again, as a new request)
   const ids = new Set(handedIds);
   const covers = (v: unknown): boolean => {

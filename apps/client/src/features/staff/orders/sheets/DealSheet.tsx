@@ -10,6 +10,8 @@ import { cartLineMoney, type CartDealChoice, type CartLine, type CartOption, typ
 import { KITCHEN_NOTE_MAX, NoteSheet } from './NoteSheet';
 import { PartOptionsSheet } from './PartOptionsSheet';
 import { defaultOptions, offersOptions, partViolations } from './preselect';
+import { TkNote, TkQty, TkSecHead, TkSheet, TkSheetFoot, TkSheetHead, ltr, minutesOf } from './TkSheetParts';
+import { timeText } from '../../../alerts/labels';
 
 // 02b-D30 deal sheet (handoff Deal; 02b §8 Ordering screen, 01c §3.4.3–§3.4.4): one card per part ("1× Main",
 // "4× Bread"), its choices as chips with the extra price, a choice that cannot be ordered for the part's quantity
@@ -32,6 +34,8 @@ export interface DealSheetProps {
   onClose(): void;
   /** a toast (the screen's): the open part picker's item left the menu */
   onNotice?(text: string): void;
+  /** ⚠️ 02b-TK L-CLIENT-6b item 3: the takeaway screen's sheet (frame DealSheet) */
+  look?: 'tk';
 }
 
 /** Why a part's choice cannot go in this deal at this quantity, or null when the hub would take it. */
@@ -192,6 +196,126 @@ export function DealSheet(p: DealSheetProps) {
         onClose={() => setNoteOpen(false)}
       />
     );
+  const add = () => {
+    // one tap, one line: a second tap before the sheet closes adds nothing
+    if (added.current || missing >= 0) return;
+    added.current = true;
+    p.onAdd({ ...line, key: p.initial?.key ?? p.newKey() });
+  };
+  const missingLabel =
+    missing < 0
+      ? t(p.initial !== null ? 'is.save' : 'opt.add')
+      : missingOptions
+        ? fill(t('deal.options_missing'), { part: fill(t('deal.part_n'), { n: String(missing + 1) }) })
+        : fill(t('opt.choose_missing'), { n: '1', group: fill(t('deal.part_n'), { n: String(missing + 1) }) });
+  if (p.look === 'tk') {
+    // ⚠️ 02b-TK L-CLIENT-6b item 3 (frame DealSheet): "In this deal" lists the parts with one choice ("1× Chicken
+    // Karahi · Full · 24 min", "Now"); a part with several choices is its own section of big buttons — ONE choice per
+    // part (01c §3.4.3, the hub refuses a part chosen twice), so the frame's mixed "Drinks — pick 4" steppers are not
+    // built (reported). Ready by = the slowest part's wait as a clock time.
+    const fixed = parts.filter((part) => part.choices.length === 1);
+    const choosing = parts.filter((part) => part.choices.length > 1);
+    const itemOf = (id: string) => p.config.items.find((i) => i.item_id === id);
+    const waits = live.flatMap((c) => {
+      const it = itemOf(c.item_id);
+      if (it === undefined || p.inputs === null) return [];
+      const st = itemAvailability(c.item_id, p.inputs).state;
+      return st.kind === 'about' ? [st.minutes] : st.kind === 'now' ? [0] : [];
+    });
+    const ready = p.inputs === null || waits.length === 0 ? null : Math.max(...waits) === 0 ? t('is.ready_now') : fill(t('is.ready_by'), { t: ltr(timeText(p.inputs.nowMs + Math.max(...waits) * 60_000, p.inputs.utcOffsetMs)) });
+    const partOptions = (part: (typeof parts)[number]) => {
+      const chosen = live.find((c) => c.deal_part_id === part.deal_part_id);
+      if (chosen === undefined || !offersOptions(p.config, chosen.item_id)) return null;
+      const names = (chosen.options ?? []).flatMap((o) => {
+        const name = p.config.modifier_groups.flatMap((g) => g.options).find((x) => x.option_id === o.option_id)?.name;
+        return name === undefined ? [] : [o.quantity > 1 ? `${name} ×${o.quantity}` : name];
+      });
+      return (
+        <button type="button" className="tk-btn tk-dpart__opt" onClick={() => setPicking(part.deal_part_id)}>
+          {names.length > 0 ? names.join(', ') : t('deal.options')}
+        </button>
+      );
+    };
+    return (
+      <TkSheet onEnter={add} sheet={p.sheet} onClose={p.onClose} labelledBy="deal-t">
+        <TkSheetHead id="deal-t" name={deal.name} sub={ready} onClose={p.onClose} />
+        <div className="tk-sheet__b">
+          {fixed.length > 0 && (
+            <section>
+              <TkSecHead title={t('is.in_deal')} />
+              <div className="tk-dparts">
+                {fixed.map((part) => {
+                  const c = part.choices[0]!;
+                  const it = itemOf(c.item_id);
+                  const problem = problemOf(c.item_id, part.quantity * qty);
+                  const mins = it === undefined ? null : minutesOf(p.inputs, c.item_id, it.cook_time_ms);
+                  const now = mins === t('menu.now');
+                  return (
+                    <div key={part.deal_part_id} className={problem === null ? 'tk-dpart' : 'tk-dpart tk-opt--off'} data-part={part.deal_part_id}>
+                      <span className="tk-dpart__q num" dir="ltr">
+                        {part.quantity}×
+                      </span>
+                      <div className="tk-opt__n">
+                        <b>
+                          <bdi>{it?.name ?? ''}</bdi>
+                        </b>
+                        {problem !== null ? <small className="c-warn">{t(REASON[problem])}</small> : !now && mins !== null && <small>{mins}</small>}
+                      </div>
+                      {problem === null && now && (
+                        <span className="tk-chip tk-chip--ok">
+                          <Ico name="check" />
+                          {mins}
+                        </span>
+                      )}
+                      {partOptions(part)}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+          {choosing.map((part) => {
+            const chosen = live.find((c) => c.deal_part_id === part.deal_part_id);
+            const done = partOk(part);
+            return (
+              <section key={part.deal_part_id} data-part={part.deal_part_id}>
+                <TkSecHead
+                  title={fill(t('is.part_pick'), { n: String(part.quantity) })}
+                  rule={done ? t('deal.done') : fill(t('is.pick'), { n: '1' })}
+                  tone={done ? 'ok' : 'need'}
+                  aside={partOptions(part)}
+                />
+                <div className="tk-chcs">
+                  {[...part.choices]
+                    .sort((a, b) => a.sort_order - b.sort_order)
+                    .map((c) => {
+                      const problem = problemOf(c.item_id, part.quantity * qty);
+                      return (
+                        <button key={c.item_id} type="button" className="tk-chc" aria-pressed={chosen?.item_id === c.item_id} disabled={problem !== null} onClick={() => pick(part.deal_part_id, c.item_id, part.quantity * qty)}>
+                          <b>
+                            <bdi>{itemName(c.item_id)}</bdi>
+                          </b>
+                          {problem !== null ? <small>{t(REASON[problem])}</small> : c.extra_price_minor > 0 && <small dir={MONEY_DIR}>+{money(c.extra_price_minor)}</small>}
+                        </button>
+                      );
+                    })}
+                </div>
+              </section>
+            );
+          })}
+          <TkNote value={note} max={KITCHEN_NOTE_MAX} onChange={setNote} />
+        </div>
+        <TkSheetFoot
+          qty={<TkQty value={qty} onChange={setQty} />}
+          onRemove={p.initial !== null ? p.onRemove : undefined}
+          label={missingLabel}
+          price={total === null ? null : money(total)}
+          ok={missing < 0}
+          onPrimary={add}
+        />
+      </TkSheet>
+    );
+  }
   return (
     <Dialog sheet={p.sheet} labelledBy="deal-t" onClose={p.onClose} className="dlg--w">
       <div className="dlg__h">
@@ -280,18 +404,9 @@ export function DealSheet(p: DealSheetProps) {
           {t('opt.kitchen_note')}
         </button>
         <button type="button" className="btn btn--primary" disabled={missing >= 0}
-          onClick={() => {
-            // one tap, one line: a second tap before the sheet closes adds nothing
-            if (added.current || missing >= 0) return;
-            added.current = true;
-            p.onAdd({ ...line, key: p.initial?.key ?? p.newKey() });
-          }}
+          onClick={add}
         >
-          {missing < 0
-            ? t(p.initial !== null ? 'opt.save' : 'opt.add')
-            : missingOptions
-              ? fill(t('deal.options_missing'), { part: fill(t('deal.part_n'), { n: String(missing + 1) }) })
-              : fill(t('opt.choose_missing'), { n: '1', group: fill(t('deal.part_n'), { n: String(missing + 1) }) })}
+          {missing < 0 ? t(p.initial !== null ? 'opt.save' : 'opt.add') : missingLabel}
         </button>
       </div>
     </Dialog>

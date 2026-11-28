@@ -363,7 +363,8 @@ describe('03a task 23: the engine alert kinds', () => {
     expect(slipAlerts()[0]).toMatchObject({ state: 'open', details: { lines: [
       { name: 'Burger', state: 'done' }, { name: 'Drink', state: 'added' },
     ] } });
-    expect(stored('SlipWarned')[0]?.payload.target_land_ms).toBe(pickup);
+    // ⚠️ 03a v1.2.12 (owner 2026-11-28, QA BUG-5): the kitchen's target is pickup − padding (the promise is the pickup)
+    expect(stored('SlipWarned')[0]?.payload.target_land_ms).toBe(pickup - engine().config!.settings.promise_padding_takeaway_ms);
     // ⚠️ 03a v1.2.11 test 190 (e) (L-CLOSE-2): the card's estimate includes the held drink (slipGroupsAt): it is no
     // earlier than the drink's own planned land
     const drink = engine().lines.drink!;

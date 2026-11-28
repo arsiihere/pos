@@ -91,7 +91,7 @@ describe('[02b #91] the open request closes when the order is handed over or can
     expect(result.payload).toMatchObject({ values: { request_alert_id: alert_id, request_kind: 'hand_over_unpaid', close_reason: 'obsolete' } });
   });
 
-  it('⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): the bill\'s one request covers the sibling too — serving the sibling closes it (handed_over); the root asks again and gets a new request for what is left', async () => {
+  it('⚠️ 02b v1.0.27 (owner 2026-11-28 Q9): the bill\'s one request covers the sibling too — serving the sibling closes it (handed_over); the root asks again and gets a new request for what is left', async () => {
     const { ali } = await start();
     const order_id = takeaway([{ order_item_id: 'H1', item_id: FX.naan }]);
     const sibling = takeaway([{ order_item_id: 'S1', item_id: FX.naan }], { adds_to_order_id: order_id });

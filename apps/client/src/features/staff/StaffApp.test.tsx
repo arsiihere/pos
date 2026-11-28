@@ -79,7 +79,7 @@ function hub(
       case 'POST /auth/pin':
         return reply(200, { data: { session_token: 'SESS-1', session_id: 'X1', staff_id: 'S-IMRAN', display_name: 'Imran', role_ids: [], idle_ttl_ms: 600_000 } });
       case 'GET /queries/session':
-        return reply(200, { data: { permissions: o.permissions ?? { 'take-order': { grant: 'allowed', scope: 'branch' } } } }); // 02b v1.0.26 Q11: by default the order screens (take-order)
+        return reply(200, { data: { permissions: o.permissions ?? { 'take-order': { grant: 'allowed', scope: 'branch' } } } }); // 02b v1.0.27 Q11: by default the order screens (take-order)
       case 'GET /queries/alerts-inbox':
         return (inbox.shift() ?? EMPTY_INBOX)();
       case 'GET /queries/branch-config':

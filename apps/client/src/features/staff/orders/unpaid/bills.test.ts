@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { parseBillRows, unpaidBills } from './candidate';
 
-// ⚠️ 02b v1.0.26 §6.16, §8 (owner 2026-11-28 Q9): a token's orders grouped by `bill.key` — one Due and one request per
+// ⚠️ 02b v1.0.27 §6.16, §8 (owner 2026-11-28 Q9): a token's orders grouped by `bill.key` — one Due and one request per
 // unpaid, unapproved bill (never one bill's due added twice); an order without a key is its own bill.
 
-describe('[02b v1.0.26 Q9] unpaidBills', () => {
+describe('[02b v1.0.27 Q9] unpaidBills', () => {
   it('root + addition on one bill → one bill with its due once; another bill → its own; paid / approved bills left out', () => {
     const read = parseBillRows(
       {

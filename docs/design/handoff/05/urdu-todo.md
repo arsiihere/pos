@@ -34,14 +34,11 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.blocks.shares_sum` | Split amounts no longer add up — edit the split |
 | `billing.give_change` | Give change {amount} |
 | `billing.fiscal.pending/ `.number` / `.rejected` / `.not_required`` | Fiscal number pending / {label} {fiscal_number} / Not accepted by the authority / — |
-| `billing.total_changed` | The total changed to {amount} — check it and close again |
 | `billing.reopen_mode.full/ `.corrections`` | Full edit: add, remove or change items / Corrections only: remove, void or comp; new items go on a new bill |
 | `billing.buyer.needed/ `.added` / `.waived`` | Buyer details needed above {threshold} / Buyer added — sent with Close / Customer refused buyer details |
 | `billing.read_only` | Total if paid in cash {cash} · By card {card} |
 | `billing.reprint_receipt/ `.reprint_credit`` | Reprint receipt / Reprint credit note |
 | `billing.print.waiting/ `.printed` / `.failed` / `.none` / `.print_to`` | Printing on {printer}… / Printed on {printer} / Didn't print on {printer}: {error} / No bill printer set up / Print to |
-| `billing.check_sent` | Check bill sent to {printer} |
-| `billing.no_printer` | No bill printer is set up — show the screen to the customer |
 | `billing.print.kind.check/ `.receipt` / `.credit`` | Check bill / Receipt / Credit note |
 | `billing.print.failed_plain` | Didn’t print on {printer} |
 | `split.title/ `.items` / `.amount` / `.equal` / `.one` / `.add`` | Split the bill / Items / Amount / Equally / One bill / Add split |
@@ -145,7 +142,6 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `alerts.closed.day_closed/ `.shift_closed`` | Closed: day closed / Closed: shift closed (beside the existing `.bill_closed`) |
 | `errors.BILL_NOT_FOUND` | This bill can't be found — go back to Bills |
 | `errors.SHIFT_NOT_FOUND` | This shift can't be found |
-| `errors.INVOICE_NOT_FOUND` | This invoice can't be found |
 | `errors.PAYMENT_NOT_FOUND` | This payment was already removed |
 | `errors.PAYMENT_MODE_NOT_FOUND` | This payment type was removed — pick another |
 | `errors.PETTY_CASH_NOT_FOUND` | This advance can't be found |
@@ -182,7 +178,6 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `errors.DAY_CLOSE_BLOCKED.variance_pending/ `_one`` | {count} variance sign-offs are still pending — answer them first / 1 variance sign-off is still pending — answer it first |
 | `admin_stock.errors.DAY_CLOSE_BLOCKED_variance_pending/ `_one`` | {count} variance sign-offs are still pending — answer them first / 1 variance sign-off is still pending — answer it first |
 | `errors.PERMISSION_DENIED.not_own_payment/ `.skip_not_granted` / `.outside_scope`` | Only a manager can remove someone else's payment / You can't skip the count / This bill is not one of your tables |
-| `billing.bill.load_failed` | Couldn't load the bill. |
 | `billing.bill.offline` | Reconnecting to the hub… · Showing what we had as of {time} · every bill action needs the hub |
 | `billing.bill.split` | Split {n} |
 | `billing.bill.paid_split` | Paid · {invoice_ref} |
@@ -196,7 +191,6 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `pad.enter_tendered` | Type the cash given, or leave it empty |
 | `billing.blocks.buyer_id_required` | Buyer details needed above {threshold} |
 | `billing.closed` | Closed · Invoice {invoice_ref} · {amount} |
-| `billing.closed_empty` | Closed · nothing billed · money given back |
 | `billing.done` | Done |
 | `billing.tot.total` | Total |
 | `billing.tot.paid` | Paid |
@@ -216,7 +210,6 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.tot.paid_k` | Paid · {type} |
 | `billing.tot.paid_cash` | cash |
 | `billing.tot.paid_card` | card |
-| `pad.maybe_in` | This payment may already be in — check the payments before taking it again |
 | `errors.PERMISSION_DENIED.not_requester` | Only the person who asked can withdraw it |
 | `billing.print.title_check` | Print the check bill on… |
 | `billing.print.title_receipt` | Print the receipt on… |
@@ -228,7 +221,6 @@ Every §6 string with **no Urdu frame** in this hand-off. Strings drawn in the 7
 | `billing.print.failed_here` | didn’t print here · {error} |
 | `billing.print.failed_here_plain` | didn’t print here |
 | `billing.print.waiting_here` | waiting here |
-| `billing.print.reprint_sent` | Reprint sent to {printer} |
 | `billing.print.err.printer_gone` | This printer was removed — pick another |
 | `billing.print.err.job_gone` | This print is no longer there |
 | `billing.buyer.enter_name` | Type the name |

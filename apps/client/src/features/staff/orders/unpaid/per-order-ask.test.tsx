@@ -56,7 +56,7 @@ describe('[BUG-9; 02b §3.7a, §8 OR-7; D2] the token drawer asks per order, wit
     document.body.innerHTML = '';
   });
 
-  it('[02b v1.0.26 owner 2026-11-28 Q9] root and addition on ONE bill → one card for the bill ("#48 · Rs 100"), one request naming the bill\'s oldest order', async () => {
+  it('[02b v1.0.27 owner 2026-11-28 Q9] root and addition on ONE bill → one card for the bill ("#48 · Rs 100"), one request naming the bill\'s oldest order', async () => {
     const sent: unknown[] = [];
     const { h } = harness({ sharedKey: 'K48', command: (type, p) => (type === 'RequestUnpaidHandover' ? (sent.push(p), { ok: true, data: { alert_id: 'AL-K48', is_requester: true } }) : undefined) });
     const m = await open(h);

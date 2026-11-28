@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { t } from '../../../i18n';
 import { badgeText } from '../../alerts/labels';
 import { Ico, initial, type IconName } from '../../alerts/ui';
-import type { ContextSlotValue } from '../shell/context-slot';
+import { TK_BACK_EVENT, type ContextSlotValue } from '../shell/context-slot';
 import { PersonMenu, type PersonMenuActions } from '../shell/PersonMenu';
 import type { TabItem } from '../shell/screens';
 import { FloorControl, type FloorChoice } from './FloorControl';
@@ -115,6 +115,13 @@ export function TopBar(p: TopBarProps) {
   return (
     <>
       <header className="top">
+        {/* ⚠️ 02b-TK L-CLIENT-6b item 4: Back before the context slot while the token view is open */}
+        {p.context?.back === true && (
+          <button type="button" className="tk-back" onClick={() => window.dispatchEvent(new Event(TK_BACK_EVENT))}>
+            <Ico name="back" />
+            {t('shell.back')}
+          </button>
+        )}
         {p.context != null ? (
           <div className="tk-ctx">
             <span className="tk-ctx__ic">
@@ -140,7 +147,7 @@ export function TopBar(p: TopBarProps) {
             </div>
           </div>
         )}
-        {/* ⚠️ 03b v1.0.18 §8: a single screen tab says nothing when the screen has its own row here (the Pass's type tabs):
+        {/* ⚠️ 03b v1.0.19 §8: a single screen tab says nothing when the screen has its own row here (the Pass's type tabs):
             it goes, so the brand line ("Alerts: … — pauses at …") is never clipped */}
         {p.person !== null && p.tabs !== undefined && p.tabs.length > 0 && !(p.tabs.length === 1 && p.extra != null && p.extra !== false) && (
           <nav className="tabs-top" aria-label={t('tabs.tables')}>

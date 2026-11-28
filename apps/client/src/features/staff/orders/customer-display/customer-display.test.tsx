@@ -47,6 +47,26 @@ describe('counter-facing display [02b §8/O17; CustomerDisplay]', () => {
     channel.close();
   }
 
+  it('[L-CLIENT-6b item 7; QA BUG-11] a display opened after the cart was built shows it at once (hello → the last screen again)', async () => {
+    vi.useFakeTimers();
+    try {
+      const feed = createDisplayPublisher('en');
+      feed.publish(cart);
+      vi.advanceTimersByTime(200);
+      // the window opens now: it says hello, the order screen answers with the cart it shows (not only on the next change)
+      view.render(<CustomerDisplay utcOffsetMs={18_000_000} />);
+      expect(view.text()).toContain('Naan');
+      expect(view.text()).toContain('Rs 1,190');
+      // every change still reaches it
+      feed.publish({ ...cart, lines: [{ name: 'Raita', qty: 1, line_minor: 12_000 }], total_minor: 12_000 });
+      act(() => void vi.advanceTimersByTime(200));
+      expect(view.text()).toContain('Raita');
+      feed.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('constructs a payload with only menu facts even when the cart contains contact and notes', () => {
     const line = { key: 'L1', item_id: 'N1', quantity: 2, options: [], kitchen_note: 'Private' };
     const draft = { lines: [line], takeaway: { customer_name: 'Private Customer', phone: '03001234567' } };
@@ -82,7 +102,9 @@ describe('counter-facing display [02b §8/O17; CustomerDisplay]', () => {
     expect(view.text()).toMatch(/Your order · آپ کا آرڈر/);
     expect(view.text()).toMatch(/Total · کل/);
     expect(view.text()).toMatch(/Ready by · تیار ہوگا/);
-    expect(view.text()).toMatch(/Thank you!.*شکریہ! اپنا ٹوکن پرچی پر دیکھیں/);
+    // ⚠️ L-CLIENT-6b item 7 (frame CustomerDisplay): the thanks line is Urdu only
+    expect(view.text()).toMatch(/شکریہ! اپنا ٹوکن پرچی پر دیکھیں$/);
+    expect(view.text()).not.toContain('Thank you!');
     expect(view.text()).toContain('Raita · رائتہ');
     expect(view.container.querySelector('[lang="ur"][dir="rtl"]')?.textContent).toBeTruthy();
     const numbers = [...view.container.querySelectorAll('[dir="ltr"]')].map((node) => node.textContent);

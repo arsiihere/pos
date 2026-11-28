@@ -184,7 +184,7 @@ describe('[03b v1.0.17 §3.4] Pass bag = token (BUG-8)', () => {
   });
 });
 
-describe('[02b v1.0.26 owner 2026-11-28 Q9] one bill, one request, one amount', () => {
+describe('[02b v1.0.27 owner 2026-11-28 Q9] one bill, one request, one amount', () => {
   it('root and addition on ONE bill: the pill shows the bill due once; Ask a manager is one tap and sends one request', async () => {
     const s = shellWith({ grants: PASS, bills: () => openOrders([hubRow('O1', { state: 'due', due_minor: 12_000, key: 'K1' }), hubRow('O2', { state: 'due', due_minor: 12_000, key: 'K1' })]) });
     const command = vi.fn(async (_type: string, p: { order_id: string }) => ({ ok: true, data: { alert_id: `AL-${p.order_id}`, is_requester: true } }));
@@ -202,7 +202,7 @@ describe('[02b v1.0.26 owner 2026-11-28 Q9] one bill, one request, one amount', 
   });
 });
 
-describe('[03b v1.0.17 §3.4; 02b v1.0.26 Q9] Ask a manager on a bag with two bills (BUG-9)', () => {
+describe('[03b v1.0.17 §3.4; 02b v1.0.27 Q9] Ask a manager on a bag with two bills (BUG-9)', () => {
   it('two unpaid bills (no shared key): one pill with the total; the sheet sends one RequestUnpaidHandover per bill, each with its own amount', async () => {
     const s = shellWith({ grants: PASS, bills: () => openOrders([hubRow('O1', { state: 'due', due_minor: 8_000 }), hubRow('O2', { state: 'due', due_minor: 4_000 })]) });
     const command = vi.fn(async (_type: string, p: { order_id: string }) => ({ ok: true, data: { alert_id: `AL-${p.order_id}`, is_requester: true } }));
@@ -250,10 +250,10 @@ describe('[03b v1.0.17 §3.4; 02b v1.0.26 Q9] Ask a manager on a bag with two bi
   });
 });
 
-// ⚠️ 03b v1.0.18 §3.4, §8 (QA design review 2026-11-28): one primary per state, and the pill says which state.
+// ⚠️ 03b v1.0.19 §3.4, §8 (QA design review 2026-11-28): one primary per state, and the pill says which state.
 // All lines done, not marked → pill "All done", primary Bag ready. Marked ready (sent) → pill "Ready", never Bag ready
 // (even with a later line not in the Ready): "Handed to customer" (or its greyed reason) is the primary.
-describe('[03b v1.0.18 §8] Ready means bagged', () => {
+describe('[03b v1.0.19 §8] Ready means bagged', () => {
   it('done, not marked → "All done" + Bag ready; marked → "Ready" + Handed to customer, no Bag ready', async () => {
     const paid = { state: 'paid', due_minor: 0 };
     const s = shellWith({ grants: PASS, bills: () => openOrders([hubRow('O1', paid)]) });
