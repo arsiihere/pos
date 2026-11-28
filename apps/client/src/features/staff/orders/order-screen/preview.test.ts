@@ -70,6 +70,33 @@ describe('[02b §8 Ordering screen] eta preview', () => {
     expect(h.preview.state()).toEqual({ kind: 'none' });
   });
 
+  it('[02b v1.0.26 CT-2, test 96; owner 2026-11-28 QA BUG-6] re-asks on the tiles\' station-load frames and every 30 s while the cart has a line; nothing for an empty cart', async () => {
+    const h = harness();
+    h.preview.set(draft(1));
+    await h.advance(250);
+    expect(h.calls).toHaveLength(1);
+    for (const type of ['OrderPlaced', 'FireDispatched', 'ItemStarted', 'ItemDone', 'OrderBoosted']) {
+      h.live.frame(ev(h.calls.length + 10, type));
+      await h.advance(250);
+    }
+    expect(h.calls).toHaveLength(6);
+    // no frame for 30 s → one more ask, then every 30 s
+    await h.advance(29_999);
+    expect(h.calls).toHaveLength(6);
+    await h.advance(1);
+    await h.advance(250);
+    expect(h.calls).toHaveLength(7);
+    await h.advance(30_000);
+    await h.advance(250);
+    expect(h.calls).toHaveLength(8);
+    // an empty cart: no timer, no frame refetch
+    h.preview.set(null);
+    await h.advance(90_000);
+    h.live.frame(ev(99, 'OrderPlaced'));
+    await h.advance(250);
+    expect(h.calls).toHaveLength(8);
+  });
+
   it('[02b §8 Ordering screen] "time updated" when a promise moves ≥ 60 s', async () => {
     const promises = [1_000_000, 1_059_999, 1_120_000];
     let i = 0;

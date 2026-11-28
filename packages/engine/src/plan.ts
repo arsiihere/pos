@@ -15,6 +15,7 @@ import { chooseImmediate, rerouted, routeCtx, routeOptions, type RouteOption } f
 import { asLoad, compatible, currentProgram, earliestJoinEnd, formed, freshnessOf, heldBatchFit, immediateJoin, joinAdvance, joinLine, nameLoads, placedUnderOldType, replaced, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import type { Diagnostic, EngineLine, EngineState, Load, Profile, StationRuntime } from './state.js';
 import type { Pass1Result } from './replan.js';
+import { paddingOf, pickupGroupLand, pickupLand } from './pickup.js';
 
 export function futurePickup(pickup: number | null, at: number): number | null {
   return pickup !== null && pickup > at ? pickup : null;
@@ -310,11 +311,15 @@ function placeImmediate(
   loads: Loads,
   t: number,
   pickup: number | null = null,
+  order_type: OrderType = 'dine_in',
 ): { placement: Routed; profiles: Record<string, Profile>; loads: Loads; formed: boolean } {
+  // PK-2 (⚠️ 03a v1.2.12, owner 2026-11-28): the kitchen's target on each station is p − that station's padding
+  const kp = (sid: string): number | null => pickupLand(state, pickup, sid, order_type);
   const only = opts.length === 1 ? opts[0]! : undefined;
   if (only !== undefined && state.stations[only.station_id]!.type === 'batch') {
     const sid = only.station_id;
-    const r = placeBatchImmediate(profiles[sid]!, loads[sid] ?? [], line, only.cap, t, pickup === null ? null : pickup - only.carry_ms, freshnessOf(state, sid));
+    const k = kp(sid);
+    const r = placeBatchImmediate(profiles[sid]!, loads[sid] ?? [], line, only.cap, t, k === null ? null : k - only.carry_ms, freshnessOf(state, sid));
     return {
       placement: { fire: r.fire, booked: r.booked, station_id: sid, carry_ms: only.carry_ms, ...(only.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) },
       profiles: r.formed ? { ...profiles, [sid]: addInterval(profiles[sid]!, r.booked, r.booked.units) } : profiles,
@@ -324,13 +329,14 @@ function placeImmediate(
   }
   const tries = opts.map((x) => {
     const profile = profiles[x.station_id]!;
-    const fit = pickup === null
+    const k = kp(x.station_id);
+    const fit = k === null
       ? { fire: earliestFit(profile, t, line.prep_ms, line.cook_ms, line.units, x.cap), step: 1 }
-      : pickupFit(profile, line, x.cap, t, fireEndingAt(line, x.cap, pickup - x.carry_ms));
+      : pickupFit(profile, line, x.cap, t, fireEndingAt(line, x.cap, k - x.carry_ms));
     return { ...fit, booked: bookingAt(line, x.cap, fit.fire) };
   });
   const step = Math.min(...tries.map(x => x.step));
-  const k = chooseImmediate(ctx, opts, tries.map((x, i) => x.step === step ? x.booked.end + opts[i]!.carry_ms : Infinity), pickup);
+  const k = chooseImmediate(ctx, opts, tries.map((x, i) => x.step === step ? x.booked.end + opts[i]!.carry_ms : Infinity), opts.map((x) => kp(x.station_id)));
   const { fire, booked } = tries[k]!;
   const sid = opts[k]!.station_id;
   return {
@@ -419,6 +425,7 @@ function placeSequence(
   floor: number | null,
   o: SequenceOptions,
   event_id = '',
+  order_type: OrderType = 'dine_in',
 ): { placements: Map<string, Routed>; targets: number[]; fifo: Set<string>; moves: Map<string, Move>; loads: Loads; fallbacks: Pass1Result['fallbacks']; lands: Pass1Result['lands']; base: EngineState; frozen: FrozenStep | null; observed: PlanObserved } {
   const stations = state.stations;
   const ctx = routeCtx(state);
@@ -449,7 +456,7 @@ function placeSequence(
   const deferred = new Set(afterSync);
   function placeListed(line: PlanLine): void {
     const pickup = line.return_of == null ? floor : null;
-    const r = placeImmediate(state, ctx, line, options.get(line.order_item_id)!, profiles, loads, t, pickup);
+    const r = placeImmediate(state, ctx, line, options.get(line.order_item_id)!, profiles, loads, t, pickup, order_type);
     profiles = r.profiles;
     loads = r.loads;
     placements.set(line.order_item_id, r.placement);
@@ -458,8 +465,8 @@ function placeSequence(
   const targets: number[] = [];
   for (const group of syncGroups) {
     if (group.length === 0) continue;
-    // AD-14: each FIFO line's land floors the group's T.
-    let g = floor ?? Number.NEGATIVE_INFINITY;
+    // AD-14: each FIFO line's land floors the group's T. PK-2 (v1.2.12): the pickup floor is p − the group's padding.
+    let g = pickupGroupLand(state, floor, group.map((l) => l.station_id), order_type) ?? Number.NEGATIVE_INFINITY;
     for (const l of group) {
       const pl = placements.get(l.order_item_id);
       if (fifo.has(l.order_item_id)) g = Math.max(g, pl!.booked.end + pl!.carry_ms);
@@ -863,7 +870,7 @@ export function priorityPlan(state: EngineState, station_ids: Iterable<string>, 
     const g = order.groups[r.group_id]!;
     const lines = movable.get(r.group_id)!;
     const moving = new Set(lines.map((l) => l.order_item_id));
-    let floor = Math.max(g.priority_land_ms ?? Number.NEGATIVE_INFINITY, priorityTerms(state, order.order_id, r.group_id, t)?.fixed ?? Number.NEGATIVE_INFINITY, (order.boosted ? null : order.pickup_at_ms) ?? Number.NEGATIVE_INFINITY);
+    let floor = Math.max(g.priority_land_ms ?? Number.NEGATIVE_INFINITY, priorityTerms(state, order.order_id, r.group_id, t)?.fixed ?? Number.NEGATIVE_INFINITY, pickupGroupLand(state, order.boosted ? null : order.pickup_at_ms, g.line_ids.flatMap((id) => (state.lines[id] === undefined ? [] : [state.lines[id]!.station_id])), order.order_type) ?? Number.NEGATIVE_INFINITY);
     for (const id of g.line_ids) {
       const l = state.lines[id];
       if (l === undefined || moving.has(id) || l.stage !== 'added' || l.fired_at !== null) continue;
@@ -1002,6 +1009,7 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
     order.boosted ? null : order.pickup_at_ms,
     o,
     event_id,
+    order.order_type,
   );
   // AD-12: each new line's queued deadline, from the stored group T and the loop result that placed it.
   const loopT = new Map<string, number>();
@@ -1062,7 +1070,7 @@ export function replanEnded(state: EngineState, ended: EngineLine, t: number, ev
   let next = applyPass1(state, p1, event_id, o.strict);
   if (siblings.length === 0) return next;
 
-  let floor = (order!.boosted ? null : order!.pickup_at_ms) ?? Number.NEGATIVE_INFINITY;
+  let floor = pickupGroupLand(state, order!.boosted ? null : order!.pickup_at_ms, siblings.map((l) => l.station_id), order!.order_type) ?? Number.NEGATIVE_INFINITY;
   for (const l of siblings) {
     if (held.has(l.order_item_id)) continue;
     const iv = liveInterval(next, l.order_item_id, t);
@@ -1134,7 +1142,7 @@ export function requeueGroup(state: EngineState, order_id: string, group_id: str
   if (movable.length === 0) return state;
   const held = new Set(movable.map((l) => l.order_item_id));
   const T = group.target_land_ms;
-  let floor = Math.max(T, (order.boosted ? null : order.pickup_at_ms) ?? Number.NEGATIVE_INFINITY);
+  let floor = Math.max(T, pickupGroupLand(state, order.boosted ? null : order.pickup_at_ms, siblings.map((l) => l.station_id), order.order_type) ?? Number.NEGATIVE_INFINITY);
   for (const l of siblings) {
     if (held.has(l.order_item_id)) continue;
     const iv = liveInterval(state, l.order_item_id, t);
@@ -1273,15 +1281,8 @@ export function checkOrderable(state: EngineState, proposed: ProposedOrder): voi
   }
 }
 
-// §3.5.1 step 5 (D6, D3): padding = the station's promise_padding_ms ?? the branch's per order type; 0 on a FIFO
-// or EDF station. A group takes the max over its stations. Exported (BR-1, owner 2026-11-27) for 03c customerReadyAt.
-export function paddingOf(state: EngineState, station_id: string, order_type: OrderType): number {
-  const config = state.config;
-  if (config === null) return 0;
-  const station = config.stations.find((s) => s.station_id === station_id);
-  if (station !== undefined && station.policy !== 'waada_guard') return 0;
-  return station?.promise_padding_ms ?? config.settings[`promise_padding_${order_type}_ms`];
-}
+// §3.5.1 step 5: paddingOf lives in pickup.ts (shared with replan.ts / apply-event.ts); re-exported for the index.
+export { paddingOf } from './pickup.js';
 
 // 03a §6.1b, §3.5.1 steps 1–6, BF-2: the one sequence (pass 1 → immediate → sync, placeSequence) at now, the
 // same as the fold at awaiting = 0; in-flight lines through liveInterval at now (§3.3). Pure: returns the plan,
@@ -1365,12 +1366,15 @@ export function planOrderObserved(
     now,
     pickup,
     { prune: o.prune, strict: false },
+    '',
+    proposed.order.order_type,
   );
 
   const order_type = proposed.order.order_type;
   const placementOf = (l: PlanLine): Routed => placed.placements.get(l.order_item_id)!;
   const land = (l: PlanLine): number => placementOf(l).booked.end + placementOf(l).carry_ms;
-  const immediateTarget = (l: PlanLine): number => Math.max(land(l), l.return_of == null ? pickup ?? -Infinity : -Infinity);
+  // PK-2 (⚠️ 03a v1.2.12, owner 2026-11-28): T_L = max(land, p − padding), so the promise is p when it can be made
+  const immediateTarget = (l: PlanLine): number => Math.max(land(l), l.return_of == null ? pickupLand(state, pickup, placementOf(l).station_id, order_type) ?? -Infinity : -Infinity);
   let index = state.orders[proposed.order_id]?.next_group_index ?? 0;
   const groups: PlanResult['groups'] = [];
   if (sync.length > 0) {

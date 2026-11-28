@@ -39,6 +39,7 @@ describe('[03a #190 (b)] a priority placement pushes a waiting held line', () =>
     expect(slipDue).toBeDefined();
     const slips = getAlertIntents(placed, Math.max(slipDue!, t)).slips.filter((x) => x.table_key === KEY);
     expect(slips).toHaveLength(1);
-    expect(slips[0]).toMatchObject({ order_ids: ['O1'], target: P });
+    // ⚠️ Changed by 03a v1.2.12 (owner 2026-11-28): target = p − padding (180 s, the fixture's), promise = p
+    expect(slips[0]).toMatchObject({ order_ids: ['O1'], target: P - 180_000, promise: P });
   });
 });

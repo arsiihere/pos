@@ -1,5 +1,5 @@
 import { DomainError } from '@pos/domain';
-import { calculateETA, checkOrderable, openDayStartMs, reserveStock, type EngineState, type ProposedLine } from '@pos/engine';
+import { calculateETA, checkOrderable, openDayStartMs, paddingOf, reserveStock, type EngineState, type ProposedLine } from '@pos/engine';
 import type { BranchConfig, ItemAddedPayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
@@ -99,7 +99,8 @@ export interface EtaPreview {
   as_of_seq: number;
   groups: Array<{ promise_ms: number; keys: string[] }>;
   // ⚠️ 02b v1.0.20 §6.14 (STAB-5): `part` (1…n) on each part of a line split per unit (§3.2 step 4a), same key
-  lines: Array<{ key: string; part?: number; eta_ms: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
+  // ⚠️ 02b v1.0.26 CT-4 (owner 2026-11-28, QA BUG-7): `ready_ms` = the customer time, eta_ms + the planned station's padding
+  lines: Array<{ key: string; part?: number; eta_ms: number | null; ready_ms: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
   /** ⚠️ 02b v1.0.25 §6.14 (m-8): a takeaway draft's step 2b bounds at hub now (with or without a pickup); else null */
   pickup_bounds: { earliest_ms: number; latest_ms: number } | null;
 }
@@ -218,6 +219,7 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
   const { input, lines, keys, keyOf, lineOf, partOf, expanded, buildCtx, refused, refuse } = prepareDraft(ctx.db, state, config, draft, { now, utc_offset_ms }, primary_table_id, follow_up);
   const accepted = lines.filter((_, n) => !refused.has(n));
   const eta = new Map<string, number>();
+  const ready = new Map<string, number>();
   let groups: EtaPreview['groups'] = [];
   let itemAdded: ItemAddedPayload[] = [];
   let zoneServed = new Set<string>();
@@ -256,7 +258,11 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
     }
     fromStock = reserved.from_stock;
     const plan = calculateETA(state, { ...proposed, lines: live }, now, reserved.from_stock);
-    for (const l of plan.lines) eta.set(l.order_item_id, l.eta_ms);
+    for (const l of plan.lines) {
+      eta.set(l.order_item_id, l.eta_ms);
+      // CT-3 / CT-4: one clock on the cart — the customer time, as receipts (03c §4.2): land + the engine's padding
+      ready.set(l.order_item_id, l.eta_ms + paddingOf(state, l.station_id, draft.order_type));
+    }
     // promise_ms only, never target_land_ms (03a #9).
     groups = plan.groups.map((g) => ({ promise_ms: g.promise_ms, keys: [...new Set(g.order_item_ids.map((i) => keyOf.get(i)!))] }));
   }
@@ -267,7 +273,7 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
   draft.lines.forEach((_, n) => {
     const refusal = refused.get(n);
     if (refusal !== undefined) {
-      for (const k of keys) if (k.line === n) out.push({ key: k.key, eta_ms: null, from_stock: false, zone_served: false, refused: refusal });
+      for (const k of keys) if (k.line === n) out.push({ key: k.key, eta_ms: null, ready_ms: null, from_stock: false, zone_served: false, refused: refusal });
       return;
     }
     for (const a of itemAdded) {
@@ -277,6 +283,7 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
         key: keyOf.get(a.order_item_id)!,
         ...(part === undefined ? {} : { part }),
         eta_ms: eta.get(a.order_item_id) ?? null,
+        ready_ms: ready.get(a.order_item_id) ?? null,
         from_stock: fromStock[a.order_item_id] === true,
         zone_served: zoneServed.has(a.order_item_id),
       });

@@ -28,6 +28,7 @@ import { addInterval, earliestFit, latestFit, occupancy, removeInterval, type Un
 import { allFifo, homeOf, optionOn, rerouted, routeCtx, routeOptions, type Alternate, type RouteCtx, type RouteOption } from './route.js';
 import { asLoad, blockShape, compatible, currentProgram, formed, freshnessOf, heldBatchFit, joinLine, placedUnderOldType, replaced, slotEnd, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import { byArrival, deadlineFor, memberOrder } from './priority.js';
+import { pickupLand } from './pickup.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
 export { bookingAt, type Booking, type Placement } from './overload.js';
@@ -69,7 +70,8 @@ export function stationPolicy(state: EngineState, station_id: string): { policy:
 export function heldPickup(state: EngineState, line: EngineLine): number | null {
   const order = state.orders[line.order_id];
   if (!order || order.boosted || line.expedited || line.return_of !== null) return null;
-  return line.serve_mode === 'immediate' || isFifo(state, line.station_id) ? order.pickup_at_ms : null;
+  // PK-2 (⚠️ 03a v1.2.12, owner 2026-11-28): the held line's kitchen target, p − its station's padding
+  return line.serve_mode === 'immediate' || isFifo(state, line.station_id) ? pickupLand(state, order.pickup_at_ms, line.station_id, order.order_type) : null;
 }
 
 export function isFifo(state: EngineState, station_id: string): boolean {
@@ -690,6 +692,7 @@ function batchPass1(
     return true;
   };
   for (const L of leavers.sort(byArrival(state))) {
+    // PK-2 (⚠️ 03a v1.2.12, owner 2026-11-28): heldPickup is the kitchen target, p − the line's station padding
     const pickup = heldPickup(state, L);
     if (pickup !== null) {
       const jl = joinLine(L);
