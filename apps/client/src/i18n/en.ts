@@ -4518,6 +4518,7 @@ export const en = {
   'c.ready_later': 'Kitchen times it for',
   'c.pick_late': 'Kitchen can make it by {can}, not {asked}', // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28, QA BUG-5)
   'c.pick_range': 'Pickup between {from} and {to}',
+  'c.pick_err.passed': 'That time has passed',
   'c.pick_err.too_early': 'Too soon — the earliest pickup is {t}',
   'c.pick_err.after_day_end': 'Too late — the day ends at {t}',
   'c.pick_err.other_day': 'That time is on another business day — pick a time today',

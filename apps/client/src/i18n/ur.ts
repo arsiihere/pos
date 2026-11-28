@@ -1857,6 +1857,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'c.pick_time': 'وقت…',
   'c.ready_later': 'کچن اس وقت کیلئے بنائے گا',
   'c.pick_range': 'لینے کا وقت {from} سے {to} تک', // not in strings-table.md; Urdu to confirm
+  'c.pick_err.passed': 'یہ وقت گزر چکا ہے', // QA-R2 BUG-17; Urdu to confirm
   'c.pick_err.too_early': 'بہت جلدی — سب سے پہلے {t} پر لے سکتے ہیں', // not in strings-table.md; Urdu to confirm
   'c.pick_err.after_day_end': 'بہت دیر — دن {t} پر ختم ہوتا ہے', // not in strings-table.md; Urdu to confirm
   'c.pick_err.other_day': 'یہ وقت کسی اور کاروباری دن کا ہے — آج کا وقت چنیں', // not in strings-table.md; Urdu to confirm

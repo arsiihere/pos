@@ -31,8 +31,12 @@ export function chipPickup(nowMs: number, minutes: (typeof PICKUP_CHIPS)[number]
   return { chip: minutes, at_ms: Math.floor(nowMs) + minutes * 60_000 };
 }
 
-/** Time…: "HH:MM" on the hub's local clock — today while still ahead of hub now, else the next day (null if not a time). */
-export function timePickup(hhmm: string, nowMs: number, utcOffsetMs: number): CartPickup | null {
+/**
+ * Time…: "HH:MM" on the hub's local clock — today while still ahead of hub now, else the next day (null if not a time).
+ * ⚠️ 02b v1.0.28 QK-4 (BUG-17): with the open day's end known (`pickup_bounds.latest_ms`), a time whose next day falls
+ * after it stays today's — a time that has passed, said so (`pickupPassed`), never sent as tomorrow.
+ */
+export function timePickup(hhmm: string, nowMs: number, utcOffsetMs: number, dayEndMs?: number | null): CartPickup | null {
   const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
   if (m === null) return null;
   const h = Number(m[1]);
@@ -41,8 +45,13 @@ export function timePickup(hhmm: string, nowMs: number, utcOffsetMs: number): Ca
   const localNow = Math.floor(nowMs) + utcOffsetMs;
   const midnight = localNow - (((localNow % DAY_MS) + DAY_MS) % DAY_MS);
   let at = midnight + (h * 60 + min) * 60_000 - utcOffsetMs;
-  if (at <= nowMs) at += DAY_MS;
+  if (at <= nowMs && (dayEndMs == null || at + DAY_MS <= dayEndMs)) at += DAY_MS;
   return { chip: 'time', at_ms: at };
+}
+
+/** ⚠️ 02b v1.0.28 QK-4 (BUG-17): the cart's pickup is at or before hub now ("That time has passed"). */
+export function pickupPassed(p: CartPickup | undefined, nowMs: number): boolean {
+  return p !== undefined && p.at_ms <= nowMs;
 }
 
 /** The time input's "HH:MM" of a hub-clock instant (hub-local). */
