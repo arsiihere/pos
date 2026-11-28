@@ -55,12 +55,16 @@ export interface OpenOrderRow {
   pickup_boosted: number;
   unpaid_handover_approved_at: number | null;
   unpaid_handover_approved_due_minor: number | null;
+  unpaid_handover_pending: number;
 }
 
 const COLS = `o.order_id, o.order_type, o.table_key, o.business_date, o.token, o.car_number, o.car_type,
        o.order_note, o.placed_by, o.placed_at, o.follow_up, o.sent_after_reconnect, o.phone IS NOT NULL AS has_phone,
        o.customer_name, o.phone, o.billed_at, o.bill_key, o.pickup_at_ms, o.pickup_boosted,
-       o.unpaid_handover_approved_at, o.unpaid_handover_approved_due_minor`;
+       o.unpaid_handover_approved_at, o.unpaid_handover_approved_due_minor,
+       -- ⚠️ 02b v1.0.28 §6.16 (owner 2026-11-28 QA-R2, BUG-27): an open request holds the bill (01d alerts_open_dedupe)
+       (o.bill_key IS NOT NULL AND EXISTS (SELECT 1 FROM alerts a WHERE a.kind = 'hand_over_unpaid' AND a.state = 'open'
+                                             AND a.dedupe_key = 'hand_over_unpaid:bill:' || o.bill_key)) AS unpaid_handover_pending`;
 
 // §6.16 v1.0.25: `orders_open` (§5, unchanged) UNION ALL `orders_open_takeaway_paid` (a billed takeaway with a live
 // line not yet handed over: no deal header, live units > 0, `served_at` NULL). The types as a JSON list ('all' = 1).
@@ -138,6 +142,8 @@ export interface OpenOrder {
    * a paid row false. From the approval columns of the orders read and the batched due (no extra statement).
    */
   unpaid_handover_approved: boolean;
+  /** ⚠️ 02b v1.0.28 §6.16 (owner 2026-11-28 QA-R2, BUG-27): an open `hand_over_unpaid` request holds the row's bill */
+  unpaid_handover_pending: boolean;
   /** §6.16 (R3-M-9): takeaway / parking = the D8 whole-bag epoch, dine-in = the Pass point history; null without one */
   ready_at: number | null;
   /** §6.16 (D8): the epoch's frozen window; null without an epoch (and for dine-in) */
@@ -165,9 +171,18 @@ export interface OpenOrder {
 export function plannedReadyAt(state: Readonly<EngineState>, order_id: string, order_type: OrderType, now: number): number | null {
   if (order_type === 'dine_in' || !isOrderInEngine(state as EngineState, order_id, now)) return null;
   let latest: number | null = null;
-  for (const id of state.orders[order_id]!.line_ids) {
+  // ⚠️ 02b v1.0.28 §6.16 (owner 2026-11-28 QA-R2, BUG-12): a boosted order keeps a time once ready — a done line counts
+  // with its done_at, so the counter's "Ready ~{planned}" never reverts to the promise
+  const order = state.orders[order_id]!;
+  const boosted = order.boosted && order.pickup_at_ms !== null;
+  for (const id of order.line_ids) {
     const line = state.lines[id];
-    if (line === undefined || (line.stage !== 'added' && line.stage !== 'cooking')) continue;
+    if (line === undefined) continue;
+    if (boosted && line.stage === 'done' && line.done_at !== null) {
+      latest = latest === null ? line.done_at : Math.max(latest, line.done_at);
+      continue;
+    }
+    if (line.stage !== 'added' && line.stage !== 'cooking') continue;
     const at = customerReadyAt(state, line)?.ready_at ?? null;
     if (at === null) return null;
     latest = latest === null ? at : Math.max(latest, at);
@@ -246,6 +261,7 @@ export function openOrdersBody(
       abandoned,
       bill: null,
       unpaid_handover_approved: false,
+      unpaid_handover_pending: false,
       ready_at: null,
       bag_ready_window_ms: null,
       handed: { n: live.filter((l) => l.served_at !== null).length, m: live.length },
@@ -277,6 +293,7 @@ export function openOrdersBody(
           { state: 'due', due_minor: r.bill_key === null ? 0 : (balances.get(r.bill_key)?.due_minor ?? 0), key: r.bill_key };
     const approvedDue = r.unpaid_handover_approved_at === null ? null : r.unpaid_handover_approved_due_minor;
     o.unpaid_handover_approved = r.billed_at === null && approvedDue !== null && o.bill.due_minor > 0 && o.bill.due_minor <= approvedDue;
+    o.unpaid_handover_pending = r.billed_at === null && r.unpaid_handover_pending === 1;
   }
   // §6.16 v1.0.11 (Q-9): one batched 02a read, only when a dine-in row is listed
   const dineIn = out.filter((o) => o.order_type === 'dine_in');
