@@ -1134,6 +1134,9 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     readyLater: order_type === 'takeaway' && cart.pickup !== undefined,
     offline: !shell.online,
     note: cart.order_note,
+    // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28, QA BUG-5; 03a v1.2.12 PK-2): the kitchen cannot make the asked pickup — say
+    // so before Send; the order keeps the asked pickup (PQ-1)
+    pickupLate: order_type === 'takeaway' && cart.pickup !== undefined && ready !== null && ready > cart.pickup.at_ms ? { can_ms: ready, asked_ms: cart.pickup.at_ms } : null,
     problems: problems.size,
     canSend,
     blocked,

@@ -142,6 +142,7 @@ These keys were added to `apps/client/src/i18n/en.ts` and `ur.ts` while building
 | `roles.out_of_date_body` (01b v1.12 §5.1c R3-M-3; L-CLIENT-3 test 119) | This role has a permission this version of the app does not know. Saving now could remove it. | اس رول میں ایسی اجازت ہے جو ایپ کا یہ ورژن نہیں جانتا۔ ابھی محفوظ کرنے سے وہ ہٹ سکتی ہے۔ |
 | `cart.items_label` (02b v1.0.25 §8; 05 v1.0.35 §6.3a, §8; L-CLIENT-4 item 3) | Items | آئٹم |
 | `c.pick_range` (02b v1.0.25 §6.14, §8; L-CLIENT-5 item 1) | Pickup between {from} and {to} | لینے کا وقت {from} سے {to} تک |
+| `c.pick_late` (02b v1.0.26 §8; owner 2026-11-28 QA BUG-5) | Kitchen can make it by {can}, not {asked} | کچن {can} تک بنا سکتا ہے، {asked} تک نہیں |
 | `c.pick_err.too_early` (02b v1.0.25 §3.2 step 2b; L-CLIENT-5 item 1) | Too soon — the earliest pickup is {t} | بہت جلدی — سب سے پہلے {t} پر لے سکتے ہیں |
 | `c.pick_err.after_day_end` (02b v1.0.25 §3.2 step 2b; L-CLIENT-5 item 1) | Too late — the day ends at {t} | بہت دیر — دن {t} پر ختم ہوتا ہے |
 | `c.pick_err.other_day` (02b v1.0.25 §3.2 step 2b; L-CLIENT-5 item 1) | That time is on another business day — pick a time today | یہ وقت کسی اور کاروباری دن کا ہے — آج کا وقت چنیں |

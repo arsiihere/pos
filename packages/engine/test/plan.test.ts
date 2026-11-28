@@ -440,18 +440,20 @@ describe('@pos/engine §3.5.8 held lines: the §10.3h kit (tests 31, 178, 180, 1
   const held = (id = 'A'): LineSpec => ({ id, item: { serve_mode: 'immediate', cook_time_ms: 300_000, prep_buffer_ms: 60_000 }, engine: { carry_ms: 30_000, max_early_ms: 60_000 } });
   const takeaway = (pickup: number | null) => ({ order_type: 'takeaway' as const, table_id: null, table_key: 'takeaway:O1', pickup_at_ms: pickup });
 
-  it('[03a #178 (a)] one held line: target p, promise p + padding, eta p, booked [p − 5.5, p − 0.5), fire = deadline = d_p; no tick fire at p − 8; early_fill at d_p − max_early_ms; no pickup → its v1.2.10 earliest fit', () => {
+  // ⚠️ Changed by 03a v1.2.12 (owner 2026-11-28, QA BUG-5): the kitchen targets p − padding, so the promise is p.
+  it('[03a #178 (a)] one held line: target p − padding, promise p, eta p − padding, booked [p − pad − 5.5, p − pad − 0.5), fire = deadline = d_p; no tick fire at d_p − 1.5; early_fill at d_p − max_early_ms; no pickup → its v1.2.10 earliest fit', () => {
     const state = fold([config([KIT])]);
     const order = proposed([held()], takeaway(P));
     const plan = planOrder(state, order, T0, {});
     const live = fold(batchFrom(order, plan, T0), state);
-    const dp = P - 6.5 * 60_000;
-    expect(plan.groups.map((g) => [g.target_land_ms, g.promise_ms])).toEqual([[P, P + PAD]]);
-    expect(eta(plan, 'A')).toBe(P);
-    expect(live.lines.A).toMatchObject({ fire_ms: dp, deadline_ms: dp, booked: { start: P - 5.5 * 60_000, end: P - 30_000 } });
+    const K = P - PAD; // the kitchen's target
+    const dp = K - 6.5 * 60_000;
+    expect(plan.groups.map((g) => [g.target_land_ms, g.promise_ms])).toEqual([[K, P]]);
+    expect(eta(plan, 'A')).toBe(K);
+    expect(live.lines.A).toMatchObject({ fire_ms: dp, deadline_ms: dp, booked: { start: K - 5.5 * 60_000, end: K - 30_000 } });
     const fires = (t: number) => getTickIntents(live, t).filter((d) => d.event_type === 'FireDispatched' && (d.payload as { order_item_ids: string[] }).order_item_ids.includes('A'));
-    expect(fires(P - 8 * 60_000)).toEqual([]);
-    const early = fires(P - 7.5 * 60_000);
+    expect(fires(K - 8 * 60_000)).toEqual([]);
+    const early = fires(K - 7.5 * 60_000);
     expect(early).toHaveLength(1);
     expect((early[0]!.payload as { reason: string }).reason).toBe('early_fill');
     // the same order with no pickup keeps its v1.2.10 placement: fire now
@@ -461,7 +463,8 @@ describe('@pos/engine §3.5.8 held lines: the §10.3h kit (tests 31, 178, 180, 1
     expect(eta(plain, 'A')).toBe(T0 + 6.5 * 60_000);
   });
 
-  it.each([60_000, 0])('[03a #31, #178 (b), (e)] sync burger [50, 60) + immediate fries [45, 50), both at p; the sync line\'s eta = p (max_early %i ms)', (early) => {
+  // ⚠️ Changed by 03a v1.2.12 (owner 2026-11-28, QA BUG-5): both land at K = p − padding; both promises = p.
+  it.each([60_000, 0])('[03a #31, #178 (b), (e)] sync burger [K − 10, K) + immediate fries [K − 15, K − 10), both at K = p − padding, promise p; the sync line\'s eta = K (max_early %i ms)', (early) => {
     const state = fold([config([{ station_id: 'S1', capacity: 1 }])]);
     const order = proposed([
       { id: 'burger', item: { cook_time_ms: 600_000 }, engine: { max_early_ms: early } },
@@ -469,12 +472,22 @@ describe('@pos/engine §3.5.8 held lines: the §10.3h kit (tests 31, 178, 180, 1
     ], takeaway(P));
     const plan = planOrder(state, order, T0, {});
     const live = fold(batchFrom(order, plan, T0), state);
-    expect(live.lines.burger!.booked).toMatchObject({ start: P - 600_000, end: P });
-    expect(live.lines.fries!.booked).toMatchObject({ start: P - 900_000, end: P - 600_000 });
-    expect(eta(plan, 'burger')).toBe(P);
-    expect(eta(plan, 'fries')).toBe(P);
-    for (const id of ['burger', 'fries']) expect(live.lines[id]!.booked!.end, id).toBeLessThanOrEqual(P);
-    expect(plan.groups.map((g) => g.target_land_ms)).toEqual([P, P]);
+    const K = P - PAD;
+    expect(live.lines.burger!.booked).toMatchObject({ start: K - 600_000, end: K });
+    expect(live.lines.fries!.booked).toMatchObject({ start: K - 900_000, end: K - 600_000 });
+    expect(eta(plan, 'burger')).toBe(K);
+    expect(eta(plan, 'fries')).toBe(K);
+    for (const id of ['burger', 'fries']) expect(live.lines[id]!.booked!.end, id).toBeLessThanOrEqual(K);
+    expect(plan.groups.map((g) => [g.target_land_ms, g.promise_ms])).toEqual([[K, P], [K, P]]);
+  });
+
+  it('[03a #178 (f), v1.2.12 owner 2026-11-28] a held line on a FIFO counter (padding 0) targets p itself; a delivery\'s rider pickup (D3) stays a land floor: target p, promise p + padding', () => {
+    const fifo = fold([config([{ ...KIT, policy: 'fifo' as const }])]);
+    const onFifo = planOrder(fifo, proposed([held()], takeaway(P)), T0, {});
+    expect(onFifo.groups.map((g) => [g.target_land_ms, g.promise_ms])).toEqual([[P, P]]);
+    const state = fold([config([KIT])]);
+    const delivery = planOrder(state, proposed([held()], { ...takeaway(P), order_type: 'delivery' as const, table_key: 'delivery:O1' }), T0, {});
+    expect(delivery.groups.map((g) => [g.target_land_ms, g.promise_ms])).toEqual([[P, P + PAD]]);
   });
 
   it('[03a #181] S1 booked [0, p + 10 min): the held line at earliestFit after it, target its land > p, never fired before t; no slip while its estimate stays at T_L', () => {

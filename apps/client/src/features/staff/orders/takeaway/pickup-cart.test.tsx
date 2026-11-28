@@ -104,6 +104,42 @@ describe('[02b-TK L-CLIENT-5 item 1; 02b §8 Phone and pickup (R4)] the takeaway
     m.unmount();
   });
 
+  it('[02b v1.0.26 §8, owner 2026-11-28 QA BUG-5] the kitchen cannot make the pickup (promise after it) → amber "Kitchen can make it by 1:55 PM, not 1:50 PM" before Send; the pickup sent stays the asked one', async () => {
+    const late = at(13, 55);
+    const h = harness({
+      preview: (d) => {
+        drafts.push(d);
+        const a = answer(d);
+        return d.pickup_at_ms === undefined ? a : { ...a, data: { ...a.data, groups: [{ ...a.data.groups[0]!, promise_ms: late }] } };
+      },
+    });
+    const m = h.render();
+    await flush();
+    naan(m);
+    await tick();
+    expect(m.container.querySelector('.cart [data-pickup-late]')).toBeNull();
+    m.click(chip(m, '+30 min'));
+    await tick();
+    const warn = m.container.querySelector<HTMLElement>('.cart [data-pickup-late]');
+    expect(warn?.textContent).toBe('Kitchen can make it by 1:55 PM, not 1:50 PM');
+    expect(warn?.classList.contains('c-warn')).toBe(true);
+    m.click(m.button('Send · pay later', m.container.querySelector('.cart')!));
+    await flush();
+    expect((h.sent[0]!.payload as { pickup_at_ms?: number }).pickup_at_ms).toBe(NOW + 30 * 60_000);
+    m.unmount();
+  });
+
+  it('[02b v1.0.26 §8, BUG-5] a pickup the kitchen makes (promise = the pickup) shows no warning', async () => {
+    const m = harness().render();
+    await flush();
+    naan(m);
+    m.click(chip(m, '+30 min'));
+    await tick();
+    expect(ready(m)).toContain('1:50 PM');
+    expect(m.container.querySelector('.cart [data-pickup-late]')).toBeNull();
+    m.unmount();
+  });
+
   it('[§6.14 pickup_bounds] Time… opens a time input bounded by the preview range; a typed time goes into the draft; Now clears it', async () => {
     const h = harness();
     const m = h.render();

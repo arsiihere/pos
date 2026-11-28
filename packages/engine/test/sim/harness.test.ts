@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto';
 import { parseEvent, type PosEvent } from '@pos/events';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { buildEngineState } from '../../src/index';
+import { buildEngineState, paddingOf } from '../../src/index';
 import { demandPeakPct, DRINKS_STATION, generateDay, LINE_RATES, peakHourUnits, policyReport, runDay, SHAKE_COOK_MS, TICK_MS, twoDayLog, type PolicyReport, type SimOrder, type SimResult } from './index';
 
 const POLICIES = ['fifo', 'edf', 'waada_guard'] as const;
@@ -361,12 +361,15 @@ describe('[03a v1.2.11 §10.6 harness] the pickup day (M-6, R2-m-8; test 194 run
     const pickupOf = new Map(pickups.map((e) => [e.stream_id, (e.payload as { pickup_at_ms: number }).pickup_at_ms]));
     const cookOf = new Map(added.map((e) => [(e.payload as { order_item_id: string }).order_item_id, (e.payload as { cook_time_ms: number }).cook_time_ms]));
     const orderOf = new Map(added.map((e) => [(e.payload as { order_item_id: string }).order_item_id, e.stream_id]));
+    // ⚠️ Changed by 03a v1.2.12 (owner 2026-11-28, QA BUG-5): the kitchen targets pickup − padding, so d_p = pickup −
+    // the drinks counter's takeaway padding − cook (the promise is the pickup)
+    const pad = paddingOf(run.liveState, DRINKS_STATION, 'takeaway');
     let fired = 0;
     const leads: number[] = [];
     for (const e of run.events.filter((x) => x.event_type === 'FireDispatched' && (x.payload as { station_id: string }).station_id === DRINKS_STATION)) {
       for (const id of (e.payload as { order_item_ids: string[] }).order_item_ids) {
         fired++;
-        leads.push(pickupOf.get(orderOf.get(id)!)! - cookOf.get(id)! - e.recorded_at);
+        leads.push(pickupOf.get(orderOf.get(id)!)! - pad - cookOf.get(id)! - e.recorded_at);
       }
     }
     expect(fired).toBe(added.length);
