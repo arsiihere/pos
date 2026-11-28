@@ -168,9 +168,10 @@ for (const lang of LANGS) {
       const shiftOpened = await api.command('OpenShift', { float_minor: 0, as_drawer: false });
       const shift_id = (shiftOpened.status === 200 ? (shiftOpened.body.data?.result as { shift_id?: string } | undefined)?.shift_id : undefined) ??
         (await api.query<{ shift: { shift_id: string } | null } & { shift_id?: string }>('shift').then((x) => x.shift?.shift_id ?? x.shift_id));
-      const bill = await api.query<{ splits: Array<{ split_no: number; balance_minor: number }> }>(`bill?order_id=${order_id}`);
+      const bill = await api.query<{ splits: Array<{ split_no: number; balance_minor: number; dues?: { cash_due_minor: number } }> }>(`bill?order_id=${order_id}`);
       const due = bill.splits[0]!.balance_minor;
-      const paid = await api.command('AddPayment', { bill_ref: { order_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: due, tendered_minor: due });
+      // 05 v1.0.37 §6.9 (R2-1): the due the bill showed
+      const paid = await api.command('AddPayment', { bill_ref: { order_id }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: due, expected_due_minor: bill.splits[0]!.dues?.cash_due_minor ?? due, tendered_minor: due });
       expect(paid.status, JSON.stringify(paid.body.error)).toBe(200);
       const closedSplit = await api.command('CloseSplit', { bill_ref: { order_id }, split_no: 1, expected_total_minor: due });
       expect(closedSplit.status, JSON.stringify(closedSplit.body.error)).toBe(200);
