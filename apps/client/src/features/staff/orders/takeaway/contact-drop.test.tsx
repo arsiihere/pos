@@ -110,3 +110,12 @@ describe('[BUG-5; 02b v1.0.28 §8] the kiosk keeps names and phones heard after 
     m.unmount();
   });
 });
+
+describe('[BUG-23; 02b v1.0.28 QK-6] the strip counts what the queue lists', () => {
+  it('offline: 4 takeaways waiting to send are Cooking (not "0 Cooking")', async () => {
+    const { stripCounts } = await import('./QueueRail');
+    expect(stripCounts({ ready: [], cooking: [], later: [] }, 4)).toEqual({ all: 4, cooking: 4 });
+    expect(stripCounts(null, 4)).toEqual({ all: 4, cooking: 4 });
+    expect(stripCounts({ ready: [{} as never], cooking: [{} as never], later: [{} as never] }, 0)).toEqual({ all: 3, cooking: 1 });
+  });
+});

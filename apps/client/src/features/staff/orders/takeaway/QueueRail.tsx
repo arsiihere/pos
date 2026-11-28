@@ -76,6 +76,15 @@ export function useTakeawayQueue(book: TokenBook): { model: QueueModel | null; f
   return { model, failed, loadedAt, retry: () => void load() };
 }
 
+/**
+ * ⚠️ 02b v1.0.28 QK-6 (BUG-23): the strip's "All orders · n" and "n Cooking" count what the queue lists — the takeaways
+ * waiting to send in the device queue are Cooking rows (as the rail's Cooking section counts them).
+ */
+export function stripCounts(model: Pick<QueueModel, 'ready' | 'cooking' | 'later'> | null, waiting: number): { all: number; cooking: number } {
+  const cooking = (model?.cooking.length ?? 0) + waiting;
+  return { all: (model?.ready.length ?? 0) + cooking + (model?.later.length ?? 0), cooking };
+}
+
 /** BUG-5: how long a contact gap may last (a frame on its way) before the live state is read again */
 export const CONTACT_GAP_MS = 2_000;
 
@@ -435,10 +444,10 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
         {pick(model?.ready ?? [], false).map(tile)}
         <button type="button" className="tk-rstrip__q" onClick={() => setAll(true)}>
           <span>
-            {t('q.all')} · <span className="num">{(model?.ready.length ?? 0) + (model?.cooking.length ?? 0) + (model?.later.length ?? 0)}</span>
+            {t('q.all')} · <span className="num">{stripCounts(model, waiting.length).all}</span>
           </span>
           <small>
-            <span className="num">{model?.cooking.length ?? 0}</span> {t('q.cooking')}
+            <span className="num">{stripCounts(model, waiting.length).cooking}</span> {t('q.cooking')}
           </small>
         </button>
       </div>
