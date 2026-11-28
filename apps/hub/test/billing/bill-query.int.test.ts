@@ -734,7 +734,7 @@ describe('[05 §6.2] GET /queries/open-bills', () => {
     const keyBefore = before.find((r) => r.order_id === root.order_id)!;
     expect(seatBefore.open_minutes).toBeGreaterThanOrEqual(25);
     expect(keyBefore.open_minutes).toBeGreaterThanOrEqual(25);
-    for (const ref of [{ seating_id: t.seating_id }, { order_id: root.order_id }]) {
+    for (const ref of [{ seating_id: t.seating_id }, { order_id: root.order_id }] as Array<Record<string, string>>) {
       const bill_id = (await ensure(ref)).result!.bill_id as string;
       appendBill(bill_id, [{ def: CheckBillPrinted as unknown as EventDef<z.ZodType>, payload: { ...(aCheckBillPrinted().payload as object), bill_id } }]);
     }
