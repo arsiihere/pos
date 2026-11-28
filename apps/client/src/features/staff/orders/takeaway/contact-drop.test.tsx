@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flush } from '../../../../../test/dom';
 import { contactGaps, tokenBookOf } from './book';
 import { screenHarness } from './screen-harness';
-import { aCaught, aLine, aRow, at } from './test-fixtures';
+import { aRow, at } from './test-fixtures';
 
 // BUG-5 (QA round 2, owner 2026-11-28 QA-R2; 02b v1.0.28 §8 "Contact on this device"): the kiosk dropped the
 // customer's name and phone of tokens sent after the socket's catch-up (#8 / #7 / #5 → "Takeaway", the token view

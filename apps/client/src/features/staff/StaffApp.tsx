@@ -1435,11 +1435,11 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
             current: lang,
             onPick: (next) => {
               if (next === lang) return;
-              let storage: Storage | null = null;
+              let storage: Storage | null;
               try {
                 storage = window.localStorage;
               } catch {
-                storage = null;
+                storage = null; // blocked storage: this page still switches
               }
               chooseLanguage(next, storage);
               setLangTick((n) => n + 1);
