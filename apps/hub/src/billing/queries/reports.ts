@@ -164,8 +164,12 @@ SELECT 'bf', NULL, NULL, NULL, NULL, json_extract(prev.report_json, '$.carried_f
 UNION ALL
 SELECT 'co', c.business_date, c.order_id, NULL, NULL,
        json_object('order_type', o.order_type, 'token', o.token, 'car_number', o.car_number, 'business_date', o.business_date,
-                   'table_id', ao.table_id)
+                   'table_id', ao.table_id,
+                   -- ⚠️ 05 v1.0.39 (owner 2026-11-28 QA-R3, BUG-6): the order's bill (§6.25's grouping), one row per bill
+                   'bill', CASE WHEN o.order_type = 'dine_in' THEN COALESCE('s:' || so.seating_id, 'o:' || c.order_id)
+                                ELSE COALESCE('k:' || o.bill_key, 'o:' || c.order_id) END)
   FROM carried_orders c LEFT JOIN orders o ON o.order_id = c.order_id LEFT JOIN audit_orders ao ON ao.order_id = c.order_id
+  LEFT JOIN seating_orders so ON so.order_id = c.order_id
  WHERE c.business_date = @day OR c.business_date = (SELECT business_date FROM prev)`;
 interface ForwardRow {
   src: 'cf' | 'bf' | 'co';
@@ -381,6 +385,7 @@ export function loadReportInput(db: Database.Database, config: BranchConfig, day
   const carried_forward: Array<ReportInput['carried_forward'][number]> = [];
   const brought_forward: Array<ReportInput['brought_forward'][number]> = [];
   const carried_over: Array<ReportInput['carried_over'][number]> = [];
+  const carriedBills = new Set<string>();
   for (const r of forwardRows) {
     if (r.src === 'cf') {
       carried_forward.push({ mode_id: r.a!, mode_name: modeName.get(r.a!) ?? r.a!, shift_staff_id: r.b!, direction: r.c!, amount_minor: r.n! });
@@ -397,7 +402,11 @@ export function loadReportInput(db: Database.Database, config: BranchConfig, day
         });
       }
     } else {
-      const facts = (r.j === null ? {} : JSON.parse(r.j)) as OrderFacts;
+      const facts = (r.j === null ? {} : JSON.parse(r.j)) as OrderFacts & { bill?: string };
+      // ⚠️ 05 v1.0.39 (BUG-6): a bill of several orders (a token with additions, a seating's rounds) is listed once a day
+      const once = `${facts.bill ?? `o:${r.b!}`}|${r.a!}`;
+      if (carriedBills.has(once)) continue;
+      carriedBills.add(once);
       carried_over.push({ label: orderLabel(facts, tableName, day.business_date, r.b!), carried_in: r.a !== day.business_date });
     }
   }
