@@ -139,7 +139,7 @@ export function unpaidBills(order_ids: readonly string[], row: (order_id: string
       bill.approved ||= approved;
     }
   });
-  return [...bills.values()].filter((b) => !b.approved).map(({ approved: _, ...b }) => b);
+  return [...bills.values()].filter((b) => !b.approved).map((b) => ({ key: b.key, order_ids: b.order_ids, due_minor: b.due_minor, addition: b.addition }));
 }
 
 /** The `open-orders` answer's billing facts; null when it is not an open-orders body. */
