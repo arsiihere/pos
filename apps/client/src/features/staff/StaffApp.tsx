@@ -1552,6 +1552,8 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     contextSlot,
     rush: rushSlot,
     bar: barSlot,
+    // BUG-5 (02b v1.0.28 §8): a fresh catch-up when contact the hub sends this device is missing
+    resync: () => conn.resync(),
   };
   voidShell.current = shell;
   // IR-11: the late cards read every alert row the page holds, open and closed (a slip closed without ItemsReleased)

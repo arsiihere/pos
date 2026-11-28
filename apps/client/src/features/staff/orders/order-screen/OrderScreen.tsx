@@ -59,7 +59,7 @@ import { cartDisplay, createDisplayPublisher, idleDisplay, type DisplayMessage }
 import { NewOrderSheet } from '../new-order/NewOrderSheet';
 import { SendDialog, type SendView } from '../send/SendDialog';
 import { announceCompIt, freezeSubmit, refusalText, sendOrder, sentToastText, timeUpdated, toCart, zoneEmpty } from '../send/send';
-import { createTokenBook } from '../takeaway/book';
+import { tokenBookOf } from '../takeaway/book';
 import { setCurrentTakeawayDraft } from '../takeaway/current-draft';
 import { heldOnDevice } from './held-list';
 import { QueueRail, type RailVariant } from '../takeaway/QueueRail';
@@ -479,9 +479,9 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const keysRef = useRef<((e: KeyboardEvent) => void) | null>(null);
   const [tab, setTab] = useState<'menu' | 'cart' | 'queue'>('menu');
-  // 02b-TK C2-1: the takeaway queue rail (its book of tokens, names and phones from this device's frames, R3)
-  const book = useMemo(() => (order_type === 'takeaway' ? createTokenBook(shell.live) : null), [shell.live, order_type]);
-  useEffect(() => () => book?.dispose(), [book]);
+  // 02b-TK C2-1: the takeaway queue rail (its book of tokens, names and phones from this device's frames, R3).
+  // BUG-5 (02b v1.0.28 §8): the page's book (one per live bus, emptied at sign-out), never one per mount
+  const book = useMemo(() => (order_type === 'takeaway' ? tokenBookOf(shell.live) : null), [shell.live, order_type]);
   const [heldCount, setHeldCount] = useState(0);
   // a Hold that stays on the screen (the Takeaway tab) counts again
   const [heldTick, setHeldTick] = useState(0);

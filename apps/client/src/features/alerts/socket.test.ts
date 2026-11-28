@@ -93,6 +93,21 @@ describe('alert socket', () => {
     expect(store.snapshot().rows[0]).toMatchObject({ state: 'closed', by_name: 'Imran', decision: 'approve' });
   });
 
+  it('[BUG-5; 02b v1.0.28 §8] resync reopens the socket in its mode (a fresh catch-up); the store keeps its rows', () => {
+    const { sockets, last, store, conn } = setup('cashier_kiosk', 'sess-1');
+    last().open();
+    last().frame(catchUp([{ ...view({ alert_id: 'A0' }), seen_by_me: false, from_business_day: null }]));
+    conn.resync();
+    expect(sockets[0]!.closedWith).toBe(1000);
+    expect(sockets).toHaveLength(2);
+    last().open();
+    expect(last().sent[0]).toEqual({ type: 'auth', device_token: 'dev-tok', session_token: 'sess-1' });
+    expect(store.snapshot().rows.map((r) => r.alert_id)).toEqual(['A0']);
+    conn.dispose();
+    conn.resync();
+    expect(sockets).toHaveLength(2);
+  });
+
   it('[01d §8.1] a staff catch-up with no alerts part is not an empty open set (nothing closed)', () => {
     const { last, store, timers } = setup('tablet', 'sess-1');
     last().open();

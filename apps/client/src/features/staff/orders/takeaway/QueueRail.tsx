@@ -11,7 +11,7 @@ import { useLiveRefetch } from '../lists/OpenOrders';
 import { businessDayText } from '../lists/OpenOrdersRow';
 import { MONEY_DIR, money } from '../money';
 import { useWaitingTakeaways, WaitingRows } from '../queue/WaitingToSend';
-import type { TokenBook } from './book';
+import { contactGaps, type TokenBook } from './book';
 import { billsOf, buildQueue, knownOrders, matchesQuery, notCollectedMinOf, type QueueModel, type QueueToken } from './queue-model';
 import { AskManager } from '../unpaid/AskManager';
 import { checkWholeToken, gatesOf, type HandoverCheck } from '../unpaid/candidate';
@@ -72,7 +72,43 @@ export function useTakeawayQueue(book: TokenBook): { model: QueueModel | null; f
   const nowMs = useHubNow(rows?.some((r) => r.effective_pickup_at_ms != null) ?? false);
   const tick = Math.floor(nowMs / LATE_TICK_MS);
   const model = useMemo(() => (rows === null ? null : buildQueue(knownOrders(rows, seen.current, book.get), shellRef.current.clock.nowMs())), [rows, book, version, tick]);
+  useContactResync(rows, book);
   return { model, failed, loadedAt, retry: () => void load() };
+}
+
+/** BUG-5: how long a contact gap may last (a frame on its way) before the live state is read again */
+export const CONTACT_GAP_MS = 2_000;
+
+/**
+ * BUG-5 (QA round 2; 02b v1.0.28 §8 "Contact on this device"): never show a person masked data they may see. A row
+ * whose name / phone the hub sends this device (`contactGaps`) but the book lacks after CONTACT_GAP_MS → one re-read
+ * (`shell.resync`, a fresh catch-up); the same orders are never asked twice (a hub that does not send them is not
+ * asked in a loop).
+ */
+function useContactResync(rows: OpenOrder[] | null, book: TokenBook): void {
+  const shell = useShell();
+  const shellRef = useRef(shell);
+  shellRef.current = shell;
+  const asked = useRef(new Set<string>());
+  useSyncExternalStore(book.subscribe, book.version);
+  const gapsNow = (): string[] => {
+    const sh = shellRef.current;
+    if (rows === null || sh.resync === undefined) return [];
+    return contactGaps(rows, book, { kiosk: sh.device.type === 'cashier_kiosk', staffId: sh.me?.staff_id ?? null }).filter((id) => !asked.current.has(id));
+  };
+  const check = useRef(gapsNow);
+  check.current = gapsNow;
+  const key = gapsNow().join(',');
+  useEffect(() => {
+    if (key === '') return;
+    const timer = setTimeout(() => {
+      const still = check.current();
+      if (still.length === 0) return;
+      for (const id of still) asked.current.add(id);
+      shellRef.current.resync?.();
+    }, CONTACT_GAP_MS);
+    return () => clearTimeout(timer);
+  }, [key]);
 }
 
 const NO_FRAMES: ReadonlySet<string> = new Set();

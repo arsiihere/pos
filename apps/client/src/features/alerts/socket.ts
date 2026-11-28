@@ -77,6 +77,11 @@ export interface AlertConnection {
   subscribe(listener: () => void): () => void;
   /** 05b §3.5 (N-5): after a final close the native check kept the device: open again in the current mode */
   retry(): void;
+  /**
+   * BUG-5 (02b v1.0.28 §8): read the live state again — close the socket and open it again in the current mode, so
+   * the hub sends a fresh catch-up. The session and the store's rows stay; a session the hub ended answers 4401.
+   */
+  resync(): void;
   dispose(): void;
 }
 
@@ -252,6 +257,12 @@ export function createAlertConnection(deps: AlertConnectionDeps): AlertConnectio
     isUp: () => up,
     retry() {
       if (disposed || socket !== null || retry !== null) return;
+      attempt = 0;
+      open();
+    },
+    resync() {
+      if (disposed || modeFor(session) === 'none') return;
+      closeCurrent();
       attempt = 0;
       open();
     },
