@@ -140,7 +140,7 @@ describe('[02b §8 Queue] queue log', () => {
   });
 
   it('[02b #35] "Send again" names the person now signed in', async () => {
-    const backing: MemoryQueueBacking = new Map([['E1', logEntry({ entry_id: 'E1', log_reason: 'reloaded', staff_id: 'bilal' })]]);
+    const backing: MemoryQueueBacking = new Map([['E1', logEntry({ entry_id: 'E1', log_reason: 'SESSION_EXPIRED', staff_id: 'bilal' })]]);
     const s = setup({ backing, me: { staff_id: 'sara', name: 'Sara' } });
     await s.api.signIn('sara', '1', false);
     await s.queue.ready;

@@ -7,6 +7,8 @@ import { initLanguage, language } from '../../i18n';
 import { initial } from '../alerts/ui';
 import { nativeBridge } from '../native/bridge';
 import { readPageMeta } from './api';
+import { isOfflineBoot, OfflineBoot, registerStaffWorker } from './offline/offline-boot';
+import { createIdbQueueStore } from './orders/queue/idb-store';
 import { StaffApp } from './StaffApp';
 import { CustomerDisplay } from './orders/customer-display/CustomerDisplay';
 import { DISPLAY_ROUTE } from './orders/customer-display/channel';
@@ -37,6 +39,14 @@ async function start(): Promise<void> {
   const [token, id, type] = await Promise.all([readDeviceKey('token'), readDeviceKey('device_id'), readDeviceKey('device_type')]);
   const meta = readPageMeta();
   const root = createRoot(container);
+  // ⚠️ 02b v1.0.32 QO-2 (owner R3-1, BUG-3); 00 HPA v1.15 §8.2 SW-1: the kiosk's worker served this cached page because
+  // the hub did not answer — its own screen until the hub is back (then a reload); sign-in waits for the hub
+  if (isOfflineBoot()) {
+    root.render(<OfflineBoot branchName={meta?.branchName ?? ''} store={createIdbQueueStore()} />);
+    return;
+  }
+  // SW-1: a paired cashier kiosk keeps the /staff/ worker (the offline boot); any other device has none
+  void registerStaffWorker(token === null ? null : type);
   if (token === null || id === null || meta === null || !DEVICE_TYPES.includes(type as DeviceType)) {
     // 05b §3.5 (D-2): inside the tablet app a page with no pairing keys goes to /pair by itself (signed out)
     const native = nativeBridge();

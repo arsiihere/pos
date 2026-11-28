@@ -1978,6 +1978,12 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'alerts.device.phone': 'فون',
   'alerts.live': 'لائیو',
   'alerts.hub_offline': 'ہب بند ہے',
+  // ⚠️ 02b v1.0.32 QO-2 (owner R3-1, BUG-3): the kiosk's own screen when it boots without the hub
+  'offline_boot.title': 'ہب سے رابطہ نہیں ہو رہا',
+  'offline_boot.orders': '{n} آرڈر اس ڈیوائس پر محفوظ ہیں اور ہب واپس آنے پر بھیج دیے جائیں گے',
+  'offline_boot.orders_one': '1 آرڈر اس ڈیوائس پر محفوظ ہے اور ہب واپس آنے پر بھیج دیا جائے گا',
+  'offline_boot.none': 'اس ڈیوائس پر کچھ بھیجنے کے لیے باقی نہیں',
+  'offline_boot.signin': 'ہب کے جواب دیتے ہی سائن ان خود کھل جائے گا۔',
   'alerts.more_new': '{n} اور نئے',
   'alerts.open_inbox': 'اِن باکس کھولیں',
   'alerts.signin.who': 'کون سائن اِن کر رہا ہے؟',

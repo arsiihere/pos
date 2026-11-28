@@ -361,7 +361,7 @@ export interface QueueEntry {
   seating_id?: string;
   label: string;
   state: 'queued' | 'log';
-  /** why it is in the queue log: the hub's code, or 'reloaded' (Q-2: after a reload every entry goes to the log) */
+  /** why it is in the queue log: the hub's code, or 'reloaded' (Q-2: after a reload every entry but an order goes to the log, 02b v1.0.32 QO-1) */
   log_reason?: string;
   /** of the hub's error `details` with that code, only the refused item / deal id the row names (review #165); never
    *  a name or another person's id */

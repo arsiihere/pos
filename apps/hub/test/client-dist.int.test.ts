@@ -165,6 +165,52 @@ describe('client-dist', () => {
     expect(asset.body).toBe('console.log(1);');
   });
 
+  it('[00 HPA v1.15 §8.2 SW-1; 02b #121 QO-2] the kiosk service worker is served with its build id (the index sha256) and the build file list filled in; no-cache; never index.html, the worker itself or a .vite file', async () => {
+    const index = '<!doctype html><head></head><script type="module" src="/s/assets/a1.js"></script>';
+    const own = buildDir({
+      'index.html': index,
+      'assets/a1.js': 'console.log(1);',
+      'assets/a1.css': 'b{}',
+      'sw.js': 'const PRECACHE = /*POS_PRECACHE*/ null;\nself.x = PRECACHE;',
+      '.vite/manifest.json': '{}',
+    });
+    cleanups.push(() => rmSync(own, { recursive: true, force: true }));
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    const { indexSha256 } = registerHubClientDist(hub.app, { prefix: '/s/', dir: own, routeConfig: { group: 'static' }, serviceWorker: 'sw.js' });
+    await hub.app.ready();
+    const sw = await hub.app.inject({ method: 'GET', url: '/s/sw.js' });
+    expect(sw.statusCode).toBe(200);
+    expect(sw.headers['cache-control']).toBe('no-cache');
+    expect(sw.headers['content-type']).toBe('text/javascript; charset=utf-8');
+    const filled = /const PRECACHE = (.*);/.exec(sw.body)![1]!;
+    expect(JSON.parse(filled)).toEqual({ build: indexSha256, files: ['assets/a1.css', 'assets/a1.js'] });
+    expect(sw.body).not.toContain('/*POS_PRECACHE*/');
+    // without the option the file is served as it is (the other entries have no worker)
+    const plain = buildDir({ 'index.html': index, 'sw.js': 'const PRECACHE = /*POS_PRECACHE*/ null;' });
+    cleanups.push(() => rmSync(plain, { recursive: true, force: true }));
+    const hub2 = await createTestHub();
+    cleanups.push(() => hub2.close());
+    registerHubClientDist(hub2.app, { prefix: '/p/', dir: plain, routeConfig: { group: 'static' } });
+    await hub2.app.ready();
+    expect((await hub2.app.inject({ method: 'GET', url: '/p/sw.js' })).body).toContain('/*POS_PRECACHE*/ null');
+  });
+
+  it('[00 HPA v1.15 §8.2 SW-1] the built /staff/ entry carries the kiosk worker, filled with the build the hub loaded', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    await hub.app.ready();
+    const sw = await hub.app.inject({ method: 'GET', url: '/staff/sw.js' });
+    expect(sw.statusCode).toBe(200);
+    const filled = JSON.parse(/const PRECACHE = (.*);/.exec(sw.body)![1]!) as { build: string; files: string[] };
+    const page = await hub.app.inject({ method: 'GET', url: '/staff/' });
+    expect(page.body).toContain(`<meta name="pos-staff-build" content="${filled.build}">`);
+    const asset = /\/staff\/(assets\/[^"]+\.js)/.exec(page.body)![1]!;
+    expect(filled.files).toContain(asset);
+    expect(filled.files).not.toContain('index.html');
+    expect(filled.files).not.toContain('sw.js');
+  });
+
   it('[01d task 41] the hub serves /staff/ from the built staff entry with the same headers and guards as /admin/stock/', async () => {
     expect(STAFF_DIST_DIR.endsWith('/client/dist/staff/')).toBe(true);
     const hub = await createTestHub();

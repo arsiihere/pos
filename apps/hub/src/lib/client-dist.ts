@@ -43,7 +43,14 @@ export interface ClientDistOptions {
   // 01d task 41 (proposed AD, as /admin/approve embeds the ids, 00 M79): `<meta name content>` tags put into
   // index.html before </head> on each request. Ids and the hub clock only, never a secret.
   indexMeta?: () => Record<string, string> | null;
+  // ⚠️ 00 HPA v1.15 §8.2 (SW-1; 02b v1.0.32 QO-2, owner ruling R3-1): the build's kiosk service worker file ('sw.js').
+  // At load its placeholder `/*POS_PRECACHE*/ null` becomes `{"build":<index sha256>,"files":[…]}` — every servable
+  // file but index.html and the worker — so a new build is a new worker (the browser installs it, the old cache goes).
+  serviceWorker?: string;
 }
+
+/** The placeholder a service worker file carries for its precache list (SW-1). */
+export const PRECACHE_PLACEHOLDER = '/*POS_PRECACHE*/ null';
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const escapeAttr = (value: string): string => value.replace(/[&<>"]/g, (c) => ESCAPES[c] ?? c);
@@ -65,6 +72,14 @@ function withMeta(body: Buffer, meta: Record<string, string> | null): Buffer {
 // 05b H-1 (M-13): it returns the sha256 (hex) of the index.html it loaded, or null when the build has none.
 export function registerClientDist(app: FastifyInstance, o: ClientDistOptions): { indexSha256: string | null } {
   const files = load(app, o.dir);
+  const index = files.get('index.html');
+  const indexSha256 = index === undefined ? null : createHash('sha256').update(index.body).digest('hex');
+  const worker = o.serviceWorker === undefined ? undefined : files.get(o.serviceWorker);
+  if (worker !== undefined && o.serviceWorker !== undefined) {
+    const list = [...files.keys()].filter((name) => name !== 'index.html' && name !== o.serviceWorker).sort();
+    const filled = worker.body.toString('utf8').replace(PRECACHE_PLACEHOLDER, JSON.stringify({ build: indexSha256, files: list }));
+    files.set(o.serviceWorker, { ...worker, body: Buffer.from(filled, 'utf8') });
+  }
   const send = (reply: FastifyReply, name: string): FastifyReply => {
     const file = files.get(name);
     if (file === undefined) throw new DomainError('ROUTE_NOT_FOUND');
@@ -75,8 +90,7 @@ export function registerClientDist(app: FastifyInstance, o: ClientDistOptions): 
   app.get(`${o.prefix}*`, { config: o.routeConfig }, async (request, reply) =>
     send(reply, (request.params as { '*': string })['*']),
   );
-  const index = files.get('index.html');
-  return { indexSha256: index === undefined ? null : createHash('sha256').update(index.body).digest('hex') };
+  return { indexSha256 };
 }
 
 function load(app: FastifyInstance, dir: string): Map<string, ClientFile> {
