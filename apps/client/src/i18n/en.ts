@@ -1839,6 +1839,12 @@ export const en = {
   'alerts.signin.not_paired': 'This device is not paired with the hub. Pair it first.',
   'alerts.live': 'Live',
   'alerts.hub_offline': 'Hub offline',
+  // ⚠️ 02b v1.0.32 QO-2 (owner R3-1, BUG-3): the kiosk's own screen when it boots without the hub
+  'offline_boot.title': "Can't reach the hub",
+  'offline_boot.orders': "{n} orders are safe on this device and will send when it's back",
+  'offline_boot.orders_one': "1 order is safe on this device and will send when it's back",
+  'offline_boot.none': 'Nothing is waiting on this device',
+  'offline_boot.signin': 'Sign-in opens by itself when the hub answers.',
   'alerts.sign_out': '{name} — sign out',
   'alerts.sign_out_short': 'Sign out',
   'alerts.device.tablet': 'Tablet',
