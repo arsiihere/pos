@@ -67,6 +67,8 @@ export interface PassCardProps {
   readyBy?: number | null;
   /** ⚠️ 03b v1.0.20 / 02b v1.0.29 (QA-R2, BUG-12): `readyBy` is the boosted planned time — "Ready ~{time}" */
   readyPlanned?: boolean;
+  /** ⚠️ 03b v1.0.21 §3.4 (owner 2026-11-28 QA-R3, BUG-5; BR-1): with `readyPlanned`, the stored promise struck through */
+  struckPromise?: number | null;
   /** ⚠️ 03b v1.0.16 §3.4 (R3-M-5): hub now, for a pickup card's station-less hold (absent: the hold never passes) */
   nowMs?: number;
   /** 02b-TK L-CLIENT-1 item 2 (03b v1.0.16 §3.4 Not collected): minutes since the whole bag was ready, past its window */
@@ -112,7 +114,7 @@ function Placed({ ms, utcOffsetMs }: { ms: number; utcOffsetMs: number }) {
   );
 }
 
-export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast, rounds, next = false, readyBy = null, readyPlanned = false, nowMs, late = null, state, orders, due = null }: PassCardProps) {
+export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, buttons = [], lineActions, onToast, rounds, next = false, readyBy = null, readyPlanned = false, struckPromise = null, nowMs, late = null, state, orders, due = null }: PassCardProps) {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => onSlotsChanged(rerender), []);
   const running = useRef(new Set<string>());
@@ -188,13 +190,19 @@ export function PassCard({ order, stations, pointId, utcOffsetMs, up, band, butt
             {!next && r.state === 'sent' && readyBy !== null && <b className="pc__next pc__next--wait">{t('pass.waiting_counter')}</b>}
             <span className="pc__ms">
               {readyBy !== null && (
-                <span className="pc__m">
+                <span className="pc__m" {...(readyPlanned ? { 'data-planned': '' } : {})}>
                   {byBefore}
                   <span className="num">{timeText(readyBy, utcOffsetMs)}</span>
                   {byAfter}
                 </span>
               )}
-              {pickup !== null && (
+              {/* ⚠️ 03b v1.0.21 (QA-R3, BUG-5): the counter's struck promise beside "Ready ~"; it stands for the pickup */}
+              {readyPlanned && struckPromise !== null && (
+                <s className="pc__m muted num" dir="ltr" data-promise="">
+                  {timeText(struckPromise, utcOffsetMs)}
+                </s>
+              )}
+              {pickup !== null && !(readyPlanned && struckPromise !== null) && (
                 <span className="pc__m pc__pickup">
                   {puBefore}
                   <span className="num">{timeText(pickup, utcOffsetMs)}</span>

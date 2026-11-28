@@ -156,6 +156,49 @@ describe('[02b-tk C3-4] Pass takeaway filter', () => {
     expect(m.container.querySelector('.pc[data-order="O54"]')!.textContent).toContain('Ready by 1:04 PM');
   });
 
+  // ⚠️ 03b v1.0.21 §3.4 (owner 2026-11-28 QA-R3, BUG-5; BR-1), test 141: a boosted bag shows the counter's time on any
+  // filter — "Ready ~{planned}" with the promise struck through, not the bare "Pickup {time}"
+  it('[03b #141] All filter: a boosted pickup bag reads "Ready ~1:02 PM" with 1:11 PM struck through, no "Pickup" chip', async () => {
+    const row = { order_id: 'O53', order_type: 'takeaway', promise_ms: BASE + 11 * 60_000, ready: { n: 0, m: 1 }, pickup_at_ms: BASE + 11 * 60_000, effective_pickup_at_ms: null, planned_ready_at_ms: BASE + 2 * 60_000 };
+    const s = shellWith([{ ok: true, data: { orders: [row] } }]);
+    const boostedCard = { ...card('O53', 10, 'takeaway', 'cooking'), pickup_at_ms: BASE + 11 * 60_000, boosted: true };
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([boostedCard, card('O54', 20, 'takeaway')]) } });
+    show(s.shell);
+    await flush();
+    expect(chip('all').getAttribute('aria-pressed')).toBe('true');
+    const el = m.container.querySelector('.pc[data-order="O53"]')!;
+    expect(el.querySelector('[data-planned]')?.textContent).toBe('Ready ~1:02 PM');
+    expect(el.querySelector('s[data-promise]')?.textContent).toBe('1:11 PM');
+    expect(el.querySelector('.pc__pickup')).toBeNull();
+    // the plain card keeps its look on All (no time read for it)
+    expect(m.container.querySelector('.pc[data-order="O54"] [data-planned]')).toBeNull();
+  });
+
+  // ⚠️ 03b v1.0.21 §3.4 (owner 2026-11-28 QA-R3, UX), test 142: on a takeaway bag the staff Hand over is a small quiet
+  // icon (never the tinted primary look), disabled until the whole bag is ready (every line done)
+  it('[03b #142] a takeaway bag: Hand over is a small secondary icon, disabled while a line cooks, enabled when all are done', async () => {
+    const two = (stage: PointLine['stage']): PointOrder => {
+      const base = card('O53', 10, 'takeaway');
+      return { ...base, lines: [base.lines[0]!, { ...base.lines[0]!, order_item_id: 'O53-L2', stage }] };
+    };
+    const s = shellWith([promises([['O53', BASE + 11 * 60_000]])]);
+    s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([two('cooking')]) } });
+    show(s.shell);
+    await flush();
+    const hand = () => m.container.querySelector<HTMLButtonElement>('.pc[data-order="O53"] button[title="Hand over"]')!;
+    expect(hand()).not.toBeNull();
+    expect(hand().classList.contains('pc__ib2')).toBe(true);
+    expect(hand().classList.contains('btn--quiet')).toBe(true);
+    expect(hand().classList.contains('btn--hand')).toBe(false);
+    expect(hand().disabled).toBe(true);
+    m.unmount();
+    const t = shellWith([promises([['O53', BASE + 11 * 60_000]])]);
+    t.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([two('done')]) } });
+    show(t.shell);
+    await flush();
+    expect(hand().disabled).toBe(false);
+  });
+
   it('[frame PackerPass] chips All / Dine-in / Takeaway / Parking; Takeaway: by promise, "Pack next", "Ready by", Bag ready = MarkReadyToServe', async () => {
     const s = shellWith([promises([['O53', BASE + 11 * 60_000], ['O54', BASE + 4 * 60_000]])]);
     s.raw({ type: 'catch_up', as_of_seq: 1, state: { point_view: view([card('O2', 0, 'dine_in'), card('O53', 10, 'takeaway'), card('O54', 20, 'takeaway', 'cooking'), card('O1', 30, 'parking')]) } });

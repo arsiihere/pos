@@ -215,3 +215,7 @@
 /* 03b v1.0.19 §8: the bar fits at 1280 — tighter type tabs; the brand line keeps its width */
 .top .pfilter--bar button { padding: 0 12px; gap: 6px; }
 .top:has(.top-extra) .brand { flex: 0 1 auto; min-width: 200px; }
+/* ⚠️ 03b v1.0.21 §3.4 (owner 2026-11-28 QA-R3, UX): a takeaway bag's staff Hand over — a small quiet icon, secondary to
+   Handed to customer */
+.pc .pc__f > .btn.pc__ib2--sm { min-width: 48px; min-height: 48px; width: 48px; padding: 0; box-shadow: inset 0 0 0 1.5px var(--line); color: var(--ink-2); }
+.pc .pc__f > .btn.pc__ib2--sm .ico { width: 20px; height: 20px; }

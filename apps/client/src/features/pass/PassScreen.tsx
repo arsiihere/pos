@@ -151,11 +151,15 @@ export function PassScreen() {
   const apiRef = useRef(shell.api);
   apiRef.current = shell.api;
   const takeaway = useMemo(() => createTakeawayPromises({ live: shell.live, read: () => apiRef.current.query('/queries/open-orders?order_type=takeaway') }), [shell.live]);
+  // ⚠️ 03b v1.0.21 §3.4 (owner 2026-11-28 QA-R3, BUG-5; BR-1): a boosted bag shows the counter's "Ready ~" time on
+  // every filter, so the times are read while one is on the screen (All without a boosted bag still reads none)
+  const anyBoosted = snap.view !== null && snap.view.orders.some((o) => o.boosted === true && o.pickup_at_ms != null);
+  const readTimes = filter === 'takeaway' || anyBoosted;
   useEffect(() => {
-    if (filter !== 'takeaway') return;
+    if (!readTimes) return;
     takeaway.start();
     return () => takeaway.stop();
-  }, [filter, takeaway]);
+  }, [readTimes, takeaway]);
   const promises = useSyncExternalStore(takeaway.subscribe, takeaway.promises);
   // ⚠️ 03b v1.0.20, 02b v1.0.29 §8 (owner 2026-11-28 QA-R2, BUG-12): the counter's time rule on the card
   const times = useSyncExternalStore(takeaway.subscribe, takeaway.times);
@@ -513,9 +517,14 @@ export function PassScreen() {
                   </button>,
                 );
               const handMain = toHand && !counter && !bagging;
+              // ⚠️ 03b v1.0.21 §3.4 (owner 2026-11-28 QA-R3, UX): on a takeaway / parking bag the staff Hand over is a small
+              // quiet icon beside Handed to customer, disabled until the whole bag is ready (marked ready, or every line done)
+              const handCls = handMain ? 'btn btn--hand' : counter ? 'btn btn--icon btn--quiet pc__ib2 pc__ib2--sm' : 'btn btn--icon btn--hand pc__ib2';
+              const bagDone = bag.orders.every((x) => x.lines.every((l) => l.handed_over || l.stage === 'done'));
+              const handOff = !up || (counter && state !== 'sent' && !bagDone);
               if (toHand)
                 buttons.push(
-                  <button key="hand" type="button" className={handMain ? 'btn btn--hand' : 'btn btn--icon btn--hand pc__ib2'} title={t('pass.hand_over')} disabled={!up} onClick={() => setSheet(key)}>
+                  <button key="hand" type="button" className={handCls} title={t('pass.hand_over')} disabled={handOff} onClick={() => setSheet(key)}>
                     <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
                       <circle cx="8" cy="8" r="3.5" />
                       <path d="M2.5 20a5.5 5.5 0 0 1 11 0" />
@@ -535,8 +544,12 @@ export function PassScreen() {
               const h = bag.orders.map((x) => ({ x, h: handed.get(x.order_id) })).find((y) => y.h !== undefined);
               const msg = msgs.get(key) ?? (h === undefined ? null : handedLine(h.h!, h.x));
               const promise = filter === 'takeaway' ? bag.orders.reduce<number | null>((n, x) => { const p = promises.get(x.order_id) ?? null; return p === null ? n : n === null ? p : Math.max(n, p); }, null) : null;
-              const timeRows = filter === 'takeaway' ? bag.orders.flatMap((x) => { const r = times.get(x.order_id); return r === undefined ? [] : [r]; }) : [];
-              const counterTime = timeRows.length === bag.orders.length ? counterTimeOf(timeRows) : null;
+              const boostedBag = bag.orders.some((x) => x.boosted === true);
+              const timeRows = filter === 'takeaway' || boostedBag ? bag.orders.flatMap((x) => { const r = times.get(x.order_id); return r === undefined ? [] : [r]; }) : [];
+              const counted = timeRows.length === bag.orders.length ? counterTimeOf(timeRows) : null;
+              // ⚠️ 03b v1.0.21 (QA-R3, BUG-5): off the Takeaway filter only the boosted time shows (the card's look is kept)
+              const counterTime = filter === 'takeaway' || counted?.kind === 'planned' ? counted : null;
+              const struck = counterTime?.kind === 'planned' ? timeRows.reduce<number | null>((n, r) => (r.promise_ms === null ? n : n === null ? r.promise_ms : Math.max(n, r.promise_ms)), null) : null;
               return (
                 <PassCard
                   key={key}
@@ -549,6 +562,7 @@ export function PassScreen() {
                   next={filter === 'takeaway' && i === 0 && state !== 'sent'}
                   readyBy={counterTime?.at ?? promise}
                   readyPlanned={counterTime?.kind === 'planned'}
+                  struckPromise={struck}
                   nowMs={nowMs}
                   late={late}
                   utcOffsetMs={shell.clock.utcOffsetMs}
