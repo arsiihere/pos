@@ -399,11 +399,11 @@ describe('[02b v1.0.27, 01d v1.3.8 owner 2026-11-28 Q10] manager card: addition 
   });
 });
 
-describe('[02b v1.0.28 owner 2026-11-28 QA-R2] manager card names who asked and the customer; every counter sees a pending request', () => {
+describe('[02b v1.0.29 owner 2026-11-28 QA-R2] manager card names who asked and the customer; every counter sees a pending request', () => {
   const raisedOf = (alert_id: string) =>
     hub.deps.db.prepare('SELECT display_json, details_json FROM alerts WHERE alert_id = ?').get(alert_id) as { display_json: string; details_json: string };
 
-  it('#104 (UX): requester_name = the asker\'s name; identifier "#1 · Ali Khan" with a customer name, "#1" without', async () => {
+  it('#108 (UX): requester_name = the asker\'s name; identifier "#1 · Ali Khan" with a customer name, "#1" without', async () => {
     const { ali, sara } = await start();
     const named = takeaway();
     append(hub, [{ stream_type: 'order', stream_id: named, event_type: 'OrderContactSet', payload: { order_id: named, customer_name: 'Ali Khan', phone: null } }]);
@@ -415,7 +415,7 @@ describe('[02b v1.0.28 owner 2026-11-28 QA-R2] manager card names who asked and 
     expect(JSON.parse(raisedOf(b).details_json)).toMatchObject({ identifier: '#2' });
   });
 
-  it('#102 (BUG-27): an open request on the bill → every row of that bill has unpaid_handover_pending, for any counter; closed → false; same statement count', async () => {
+  it('#106 (BUG-27): an open request on the bill → every row of that bill has unpaid_handover_pending, for any counter; closed → false; same statement count', async () => {
     const { ali, sara } = await start();
     const root = takeaway();
     const add = takeaway(undefined, { adds_to_order_id: root });

@@ -65,7 +65,7 @@ export interface PassCardProps {
   next?: boolean;
   /** 02b-tk C3-4: the takeaway order's promise (open-orders), "Ready by {time}"; null / absent = not shown */
   readyBy?: number | null;
-  /** ⚠️ 03b v1.0.20 / 02b v1.0.28 (QA-R2, BUG-12): `readyBy` is the boosted planned time — "Ready ~{time}" */
+  /** ⚠️ 03b v1.0.20 / 02b v1.0.29 (QA-R2, BUG-12): `readyBy` is the boosted planned time — "Ready ~{time}" */
   readyPlanned?: boolean;
   /** ⚠️ 03b v1.0.16 §3.4 (R3-M-5): hub now, for a pickup card's station-less hold (absent: the hold never passes) */
   nowMs?: number;

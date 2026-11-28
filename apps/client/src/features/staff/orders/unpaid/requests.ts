@@ -23,7 +23,7 @@ import type { BillRow } from './candidate';
  */
 export type AskState =
   /**
-   * `from_hub` (⚠️ 02b v1.0.28 §6.16, §8; owner 2026-11-28 QA-R2, BUG-27): this page never asked; an open-orders read says
+   * `from_hub` (⚠️ 02b v1.0.29 §6.16, §8; owner 2026-11-28 QA-R2, BUG-27): this page never asked; an open-orders read says
    * a request holds the order's bill (another counter's) — "Waiting for a manager…", nothing to tap. `alert_id` ''.
    */
   | { kind: 'waiting'; alert_id: string; mine: boolean; ask_in_person: boolean; from_hub?: true }
@@ -64,7 +64,7 @@ const idsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is s
 export function createUnpaidRequests(o: { live: LiveBus; api: Api }): UnpaidRequests {
   const states = new Map<string, AskState>();
   const approvals = new Map<string, number>();
-  // ⚠️ 02b v1.0.28 (QA-R2, BUG-27): orders whose bill a request holds, from the last open-orders rows (another counter's)
+  // ⚠️ 02b v1.0.29 (QA-R2, BUG-27): orders whose bill a request holds, from the last open-orders rows (another counter's)
   const pendingHub = new Set<string>();
   const asking = new Map<string, Promise<AskOutcome>>();
   const listeners = new Set<() => void>();

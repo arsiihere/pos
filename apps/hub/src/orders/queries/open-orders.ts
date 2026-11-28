@@ -62,7 +62,7 @@ const COLS = `o.order_id, o.order_type, o.table_key, o.business_date, o.token, o
        o.order_note, o.placed_by, o.placed_at, o.follow_up, o.sent_after_reconnect, o.phone IS NOT NULL AS has_phone,
        o.customer_name, o.phone, o.billed_at, o.bill_key, o.pickup_at_ms, o.pickup_boosted,
        o.unpaid_handover_approved_at, o.unpaid_handover_approved_due_minor,
-       -- ⚠️ 02b v1.0.28 §6.16 (owner 2026-11-28 QA-R2, BUG-27): an open request holds the bill (01d alerts_open_dedupe)
+       -- ⚠️ 02b v1.0.29 §6.16 (owner 2026-11-28 QA-R2, BUG-27): an open request holds the bill (01d alerts_open_dedupe)
        (o.bill_key IS NOT NULL AND EXISTS (SELECT 1 FROM alerts a WHERE a.kind = 'hand_over_unpaid' AND a.state = 'open'
                                              AND a.dedupe_key = 'hand_over_unpaid:bill:' || o.bill_key)) AS unpaid_handover_pending`;
 
@@ -142,7 +142,7 @@ export interface OpenOrder {
    * a paid row false. From the approval columns of the orders read and the batched due (no extra statement).
    */
   unpaid_handover_approved: boolean;
-  /** ⚠️ 02b v1.0.28 §6.16 (owner 2026-11-28 QA-R2, BUG-27): an open `hand_over_unpaid` request holds the row's bill */
+  /** ⚠️ 02b v1.0.29 §6.16 (owner 2026-11-28 QA-R2, BUG-27): an open `hand_over_unpaid` request holds the row's bill */
   unpaid_handover_pending: boolean;
   /** §6.16 (R3-M-9): takeaway / parking = the D8 whole-bag epoch, dine-in = the Pass point history; null without one */
   ready_at: number | null;
@@ -171,7 +171,7 @@ export interface OpenOrder {
 export function plannedReadyAt(state: Readonly<EngineState>, order_id: string, order_type: OrderType, now: number): number | null {
   if (order_type === 'dine_in' || !isOrderInEngine(state as EngineState, order_id, now)) return null;
   let latest: number | null = null;
-  // ⚠️ 02b v1.0.28 §6.16 (owner 2026-11-28 QA-R2, BUG-12): a boosted order keeps a time once ready — a done line counts
+  // ⚠️ 02b v1.0.29 §6.16 (owner 2026-11-28 QA-R2, BUG-12): a boosted order keeps a time once ready — a done line counts
   // with its done_at, so the counter's "Ready ~{planned}" never reverts to the promise
   const order = state.orders[order_id]!;
   const boosted = order.boosted && order.pickup_at_ms !== null;

@@ -250,8 +250,8 @@ describe('[02b-TK C2-2] token view', () => {
     expect(document.body.textContent).toContain('03001234567');
   });
 
-  // ⚠️ 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-14), test 103: Call only when view-customer-contact covers the token
-  it('[02b #103] an Order taker (own_tables) on a token someone else placed: Call disabled (masked), no order-contact read; on their own token: enabled', async () => {
+  // ⚠️ 02b v1.0.29 §8 (owner 2026-11-28 QA-R2, BUG-14), test 107: Call only when view-customer-contact covers the token
+  it('[02b #107] an Order taker (own_tables) on a token someone else placed: Call disabled (masked), no order-contact read; on their own token: enabled', async () => {
     const own = { 'view-customer-contact': { grant: 'allowed', scope: 'own_tables' } };
     const theirs = { O54: view('O54', [sl('O54', 'A', 'Paye', 'cooking')], { has_phone: true, placed_by: { staff_id: 'zain', name: 'Zain' } }) };
     const s = setup({ views: theirs, bills: {}, grants: own });

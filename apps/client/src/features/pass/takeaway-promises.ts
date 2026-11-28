@@ -29,7 +29,7 @@ const PROMISE_EVENTS: ReadonlySet<string> = new Set([
 const DEBOUNCE_MS = 100;
 const EVERY_MS = 30_000;
 
-/** ⚠️ 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-12): a row's counter-time facts (queue-model `counterTimeOf`). */
+/** ⚠️ 02b v1.0.29 §8 (owner 2026-11-28 QA-R2, BUG-12): a row's counter-time facts (queue-model `counterTimeOf`). */
 export interface TimeRow {
   ready: { n: number; m: number };
   promise_ms: number | null;
@@ -41,7 +41,7 @@ export interface TimeRow {
 export interface TakeawayPromises {
   /** order_id → promise_ms (null while the order is not in the engine) */
   promises(): ReadonlyMap<string, number | null>;
-  /** ⚠️ 02b v1.0.28 (QA-R2, BUG-12): order_id → its counter-time facts, from the same read */
+  /** ⚠️ 02b v1.0.29 (QA-R2, BUG-12): order_id → its counter-time facts, from the same read */
   times(): ReadonlyMap<string, TimeRow>;
   start(): void;
   stop(): void;

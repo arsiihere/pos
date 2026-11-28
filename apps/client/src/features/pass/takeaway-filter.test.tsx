@@ -140,7 +140,7 @@ describe('[02b-tk C3-4] Pass takeaway filter', () => {
     }
   });
 
-  // ⚠️ 03b v1.0.20 / 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-12), test 137: one counter clock — a boosted card reads
+  // ⚠️ 03b v1.0.20 / 02b v1.0.29 §8 (owner 2026-11-28 QA-R2, BUG-12), test 137: one counter clock — a boosted card reads
   // "Ready ~{planned}" like the counter, also once ready; a not-boosted one keeps "Ready by {promise}"
   it('[03b #137] a boosted takeaway card reads "Ready ~1:02 PM", not the promise; a plain one "Ready by"', async () => {
     const row = (order_id: string, o: Record<string, unknown>) => ({ order_id, order_type: 'takeaway', promise_ms: BASE + 11 * 60_000, ready: { n: 1, m: 1 }, ...o });

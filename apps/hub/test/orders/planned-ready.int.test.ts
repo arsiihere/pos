@@ -125,7 +125,7 @@ describe('[02b §6.16 BR-1] open-orders planned_ready_at_ms', () => {
     expect(pk.planned_ready_at_ms).toBeNull();
   });
 
-  it('⚠️ 02b v1.0.28 #101 (QA-R2, BUG-12): a BOOSTED order whose every line is done keeps a time — the latest done_at — so "Ready ~" does not revert to the promise; a not-boosted ready order stays null', async () => {
+  it('⚠️ 02b v1.0.29 #105 (QA-R2, BUG-12): a BOOSTED order whose every line is done keeps a time — the latest done_at — so "Ready ~" does not revert to the promise; a not-boosted ready order stays null', async () => {
     const pickup = hub.clock.branchNow() + 60 * MIN;
     appendOrder(hub, { order_type: 'takeaway', order_id: 'BD', pickup_at_ms: pickup, lines: [{ order_item_id: 'BD1', item_id: FX.naan }, { order_item_id: 'BD2', item_id: FX.naan }] });
     boost('BD');

@@ -46,7 +46,7 @@ export interface UnpaidOrderRow {
   day_closed_at: number | null;
   unpaid_handover_approved_at: number | null;
   unpaid_handover_approved_due_minor: number | null;
-  /** ⚠️ 02b v1.0.28 §6.12a (QA-R2, UX): the customer's name for the manager's card (same statement) */
+  /** ⚠️ 02b v1.0.29 §6.12a (QA-R2, UX): the customer's name for the manager's card (same statement) */
   customer_name: string | null;
 }
 
@@ -125,7 +125,7 @@ function requestUnpaidHandover(ctx: CommandCtx, p: z.infer<typeof Payload>): { e
   // ⚠️ 02b v1.0.27 §6.12a (owner 2026-11-28 Q10): a takeaway bill whose live orders are additions only (its key names the
   // root, `takeaway:<root>`, and the root is no longer on it) → the manager's card says "(addition)"
   const additionOnly = subject.order_type === 'takeaway' && o.bill_key.startsWith('takeaway:') && o.bill_key !== `takeaway:${subject.order_id}`;
-  // ⚠️ 02b v1.0.28 §6.12a (owner 2026-11-28 QA-R2, UX): the card names the customer beside the token (≤ 40)
+  // ⚠️ 02b v1.0.29 §6.12a (owner 2026-11-28 QA-R2, UX): the card names the customer beside the token (≤ 40)
   const customer = (subject.customer_name ?? '').trim();
   const identifier = (customer === '' ? identifierOf(subject) : `${identifierOf(subject)} · ${customer}`).slice(0, 40);
   const details: AlertDetails = { identifier, amount: due, ...(additionOnly ? { disposition: HAND_OVER_UNPAID_ADDITION } : {}) };
@@ -135,7 +135,7 @@ function requestUnpaidHandover(ctx: CommandCtx, p: z.infer<typeof Payload>): { e
     target: { kind: 'answerers' },
     values,
     details,
-    // ⚠️ 02b v1.0.28 §6.12a (QA-R2, UX): who asked, the card's "from {name}" line
+    // ⚠️ 02b v1.0.29 §6.12a (QA-R2, UX): who asked, the card's "from {name}" line
     display: { kind_label_key: HAND_OVER_UNPAID_LABELS.lock, requester_name: ctx.directory.get(caller)?.display_name ?? null },
     dedupe_key: billDedupeKeyOf(o.bill_key),
     requester_staff_id: caller,

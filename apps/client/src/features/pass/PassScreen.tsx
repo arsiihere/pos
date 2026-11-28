@@ -157,7 +157,7 @@ export function PassScreen() {
     return () => takeaway.stop();
   }, [filter, takeaway]);
   const promises = useSyncExternalStore(takeaway.subscribe, takeaway.promises);
-  // ⚠️ 03b v1.0.20, 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-12): the counter's time rule on the card
+  // ⚠️ 03b v1.0.20, 02b v1.0.29 §8 (owner 2026-11-28 QA-R2, BUG-12): the counter's time rule on the card
   const times = useSyncExternalStore(takeaway.subscribe, takeaway.times);
   // 02b-TK L-CLIENT-1 item 1: the customer hand-over (03b v1.0.16 §3.4)
   const shellRef = useRef(shell);

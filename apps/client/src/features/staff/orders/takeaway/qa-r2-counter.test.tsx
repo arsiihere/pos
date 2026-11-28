@@ -12,7 +12,7 @@ import { screenHarness, sl, view } from './screen-harness';
 import { aCaught, aLine, aRow, at } from './test-fixtures';
 import { TokenView } from './TokenView';
 
-// ⚠️ 02b v1.0.28 §3.7a, §6.16, §8 (owner 2026-11-28 QA-R2), tests 100–102 (client):
+// ⚠️ 02b v1.0.29 §3.7a, §6.16, §8 (owner 2026-11-28 QA-R2), tests 104–106 (client):
 // BUG-7  a token handed over in full while its bill is still Due leaves READY — HAND OVER: "Handed — owes Rs X";
 // BUG-12 after a boost every counter time reads "Ready ~{new}", also once the bag is ready;
 // BUG-27 an open request on the bill shows "Waiting for a manager…" before any tap, on every counter.
@@ -72,7 +72,7 @@ async function rail(rows: OpenOrder[], caught: CatchUpOrder[]): Promise<Mounted>
   return v;
 }
 
-describe('[02b #100] BUG-7: handed over in full, still owing', () => {
+describe('[02b #104] BUG-7: handed over in full, still owing', () => {
   const handed = (o: Partial<OpenOrder> = {}) =>
     aRow({ order_id: 'O30', token: 30, ready: { n: 1, m: 1 }, handed: { n: 1, m: 1 }, bill: { state: 'due', due_minor: 3_000, key: 'takeaway:O30' }, unpaid_handover_approved: true, ...o });
 
@@ -96,7 +96,7 @@ describe('[02b #100] BUG-7: handed over in full, still owing', () => {
   });
 });
 
-describe('[02b #101] BUG-12: one counter clock after a boost', () => {
+describe('[02b #105] BUG-12: one counter clock after a boost', () => {
   const boosted = (o: Partial<OpenOrder> = {}) =>
     aRow({ order_id: 'O60', token: 60, promise_ms: PROMISE, pickup_at_ms: PICK, effective_pickup_at_ms: null, planned_ready_at_ms: PLANNED, ...o });
 
@@ -134,7 +134,7 @@ describe('[02b #101] BUG-12: one counter clock after a boost', () => {
   });
 });
 
-describe('[02b #102] BUG-27: a pending request shows on every counter before a tap', () => {
+describe('[02b #106] BUG-27: a pending request shows on every counter before a tap', () => {
   it('a Due ready tile whose row says unpaid_handover_pending reads "Waiting for a manager…", not "Ask a manager"', async () => {
     const row = aRow({ order_id: 'O40', token: 40, ready: { n: 1, m: 1 }, handed: { n: 0, m: 1 }, bill: { state: 'due', due_minor: 900, key: 'takeaway:O40' }, unpaid_handover_approved: false, unpaid_handover_pending: true });
     const m = await rail([row], [aCaught('O40', 40, [aLine('O40', 'A', 'Lassi')])]);

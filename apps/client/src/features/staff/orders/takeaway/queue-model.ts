@@ -62,7 +62,7 @@ export interface QueueToken {
    */
   planned_ready_at_ms?: number | null;
   /**
-   * ⚠️ 02b v1.0.28 §3.7a, §8 (owner 2026-11-28 QA-R2, BUG-7): every live line of every order handed over while a bill
+   * ⚠️ 02b v1.0.29 §3.7a, §8 (owner 2026-11-28 QA-R2, BUG-7): every live line of every order handed over while a bill
    * is still Due (an approved unpaid hand-over) — the token is "Handed — owes", out of READY — HAND OVER; what it owes
    * (one due per bill). Optional: a token built elsewhere has none.
    */
@@ -82,7 +82,7 @@ export function plannedReadyOf(rows: readonly PlannedRow[]): number | null {
   const boosted = (r: PlannedRow) => r.pickup_at_ms != null && r.effective_pickup_at_ms === null;
   const open = rows.filter((r) => r.ready.n < r.ready.m);
   for (const r of open) if (!boosted(r) || r.planned_ready_at_ms == null) return null;
-  // ⚠️ 02b v1.0.28 §6.16, §8 (owner 2026-11-28 QA-R2, BUG-12): a boosted order that is ready keeps its time (the hub
+  // ⚠️ 02b v1.0.29 §6.16, §8 (owner 2026-11-28 QA-R2, BUG-12): a boosted order that is ready keeps its time (the hub
   // sends its latest done time), so "Ready ~" never reverts to the promise once the bag is ready; a ready order that
   // was never boosted plays no part
   const counted = [...open, ...rows.filter((r) => r.ready.n >= r.ready.m && boosted(r) && r.planned_ready_at_ms != null)];
@@ -92,7 +92,7 @@ export function plannedReadyOf(rows: readonly PlannedRow[]): number | null {
   return promise !== null && planned < promise ? planned : null;
 }
 
-/** ⚠️ 02b v1.0.28 §8 (QA-R2, BUG-12): every counter time of an order or token — "Ready ~{planned}" or the promise. */
+/** ⚠️ 02b v1.0.29 §8 (QA-R2, BUG-12): every counter time of an order or token — "Ready ~{planned}" or the promise. */
 export function counterTimeOf(rows: readonly PlannedRow[]): { kind: 'planned'; at: number } | { kind: 'promise'; at: number } | null {
   const planned = plannedReadyOf(rows);
   if (planned !== null) return { kind: 'planned', at: planned };
@@ -109,7 +109,7 @@ export interface QueueModel {
   ready: QueueToken[];
   cooking: QueueToken[];
   later: QueueToken[];
-  /** ⚠️ 02b v1.0.28 (QA-R2, BUG-7): handed over in full, still owing */
+  /** ⚠️ 02b v1.0.29 (QA-R2, BUG-7): handed over in full, still owing */
   owes: QueueToken[];
 }
 
@@ -134,7 +134,7 @@ export function knownOrders(rows: readonly OpenOrder[], seen: ReadonlyMap<string
   return [...now, ...kept].map((row) => ({ row, book: book(row.order_id) }));
 }
 
-/** ⚠️ 02b v1.0.28 (QA-R2, BUG-7): what a token's Due bills owe — each bill's due once (`bill.key`, else the order). */
+/** ⚠️ 02b v1.0.29 (QA-R2, BUG-7): what a token's Due bills owe — each bill's due once (`bill.key`, else the order). */
 function owedOf(rows: readonly OpenOrder[]): number {
   const dues = new Map<string, number>();
   for (const r of rows) if (r.bill?.state === 'due') dues.set(r.bill.key ?? r.order_id, Math.max(0, r.bill.due_minor));
@@ -221,7 +221,7 @@ export function buildQueue(orders: readonly KnownOrder[], nowMs = -Infinity): Qu
   }
   const newestFirst = (a: QueueToken, b: QueueToken) => b.placed_at - a.placed_at || (a.key < b.key ? 1 : -1);
   const byPromise = (a: QueueToken, b: QueueToken) => (a.promise_ms ?? Infinity) - (b.promise_ms ?? Infinity) || a.placed_at - b.placed_at;
-  // ⚠️ 02b v1.0.28 (QA-R2, BUG-7): a token handed over in full that still owes is neither ready nor cooking
+  // ⚠️ 02b v1.0.29 (QA-R2, BUG-7): a token handed over in full that still owes is neither ready nor cooking
   const isOwes = (q: QueueToken) => q.handed_all === true && !q.paid;
   const isReady = (q: QueueToken) => !isOwes(q) && ((q.ready.m > 0 && q.ready.n === q.ready.m) || q.part);
   const isLater = (q: QueueToken) => !isOwes(q) && !isReady(q) && q.effective_pickup_at_ms != null && q.effective_pickup_at_ms > nowMs;

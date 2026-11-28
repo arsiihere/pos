@@ -257,7 +257,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const promise = promises.length === 0 ? token.promise_ms : Math.max(...promises);
   const planned = planRows === null ? (token.planned_ready_at_ms ?? null) : plannedReadyOf(planRows);
   const phoned = orders?.find((o) => o.has_phone) ?? null;
-  // ⚠️ 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-14): Call only when view-customer-contact covers the token —
+  // ⚠️ 02b v1.0.29 §8 (owner 2026-11-28 QA-R2, BUG-14): Call only when view-customer-contact covers the token —
   // branch, or own_tables / my_floors on a token this person placed (O10); otherwise it stays, disabled (masked)
   const contactScope = shell.permissions.scope('view-customer-contact');
   const callable = phoned !== null && may('view-customer-contact') && (contactScope === 'branch' || phoned.placed_by.staff_id === shell.me?.staff_id);
@@ -335,7 +335,7 @@ export function TokenView({ token, book, onClose, onHandOver, onAddItems, onPay,
   const lineSub = (l: SeatingLine): string | null => {
     if (l.stage === null || l.stage === 'out_of_engine' || readyItem(l.item_id)) return isServed(l) || readyNow(l) ? t('c.counter') : null;
     if (isServed(l) || readyNow(l)) return null;
-    // ⚠️ 02b v1.0.28 §8 (owner 2026-11-28 QA-R2, BUG-12): the line's order's counter time — "Ready ~{planned}" after a
+    // ⚠️ 02b v1.0.29 §8 (owner 2026-11-28 QA-R2, BUG-12): the line's order's counter time — "Ready ~{planned}" after a
     // boost (its open-orders row), as the header; else its promise
     const row = planRows?.find((r) => r.order_id === l.order_id);
     const planned = row === undefined ? null : plannedReadyOf([row]);

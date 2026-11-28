@@ -11,7 +11,7 @@ export interface BillRow {
   bill?: { state: 'due' | 'paid'; due_minor: number; key?: string | null } | null;
   /** §6.16 (R3-M-8): absent on a hub that does not send it yet */
   unpaid_handover_approved?: boolean;
-  /** ⚠️ 02b v1.0.28 §6.16 (QA-R2, BUG-27): an open request holds the row's bill; absent on an older hub */
+  /** ⚠️ 02b v1.0.29 §6.16 (QA-R2, BUG-27): an open request holds the row's bill; absent on an older hub */
   unpaid_handover_pending?: boolean;
 }
 

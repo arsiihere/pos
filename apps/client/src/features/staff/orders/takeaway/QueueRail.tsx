@@ -331,7 +331,7 @@ function QueueRow({ q, selected, onOpen, later = false }: { q: QueueToken; selec
 }
 
 /**
- * ⚠️ 02b v1.0.28 §3.7a, §8 (owner 2026-11-28 QA-R2, BUG-7): a token handed over in full that still owes — out of READY —
+ * ⚠️ 02b v1.0.29 §3.7a, §8 (owner 2026-11-28 QA-R2, BUG-7): a token handed over in full that still owes — out of READY —
  * HAND OVER, no Hand over; "Handed — owes Rs X"; a tap opens the token (Take payment / Bill → the cash desk).
  */
 function OwesRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; onOpen(): void }) {
