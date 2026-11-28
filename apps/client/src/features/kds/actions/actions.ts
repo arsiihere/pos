@@ -169,7 +169,16 @@ const IDLE: RowState = { busy: null, msg: null };
 export interface ActionTimers {
   setTimeout(fn: () => void, ms: number): unknown;
   clearTimeout(handle: unknown): void;
+  /** ⚠️ 03b v1.0.21 (QA-R3): the tap clock of the Done double tap (default: the device clock) */
+  now?(): number;
 }
+
+/**
+ * ⚠️ 03b v1.0.21 §3.2 (owner 2026-11-28 QA-R3, UX): a second Done tap within this long of the first counts as the
+ * "Done already?" confirm — also when it lands while the first tap's answer is still on its way (the button stays
+ * live while it is busy), so a double tap never needs a third.
+ */
+export const DONE_AGAIN_MS = 3_000;
 
 /** the result of a tap that acted on more than the tapped line (a batch load, §3.2) */
 export type LoadResult = { kind: 'started' | 'done'; ids: string[] };
@@ -179,6 +188,10 @@ export function useKdsActions(api: KdsApi, timers: ActionTimers, onLoad: (r: Loa
   const clears = useRef(new Map<string, unknown>());
   /** rows with a tap in flight: a second tap before the reply sends nothing (a ref, not render state) */
   const inFlight = useRef(new Set<string>());
+  /** ⚠️ 03b v1.0.21 (QA-R3): when each row's plain Done tap in flight was made, and the rows tapped Done again in time */
+  const doneAt = useRef(new Map<string, number>());
+  const again = useRef(new Set<string>());
+  const now = useCallback(() => timers.now?.() ?? Date.now(), [timers]);
   const loadRef = useRef(onLoad);
   loadRef.current = onLoad;
   useEffect(
@@ -242,6 +255,9 @@ export function useKdsActions(api: KdsApi, timers: ActionTimers, onLoad: (r: Loa
           if (!r.ok) msg ??= messageFor('undo', r.error);
         }
       }
+      // ⚠️ 03b v1.0.21 (QA-R3): the row was tapped Done again within DONE_AGAIN_MS while this one was on its way: that
+      // tap is the confirm — sent now, the inline question never shown
+      if (action === 'done' && !confirm && msg?.kind === 'confirm' && again.current.delete(id)) return run(id, ids, 'done', true);
       set(id, { busy: null, msg });
       if (load !== null) loadRef.current(load);
     },
@@ -252,15 +268,22 @@ export function useKdsActions(api: KdsApi, timers: ActionTimers, onLoad: (r: Loa
   const tap = useCallback(
     async (row: KdsRow, action: 'start' | 'done' | 'undo', confirm = false) => {
       const id = row.order_item_id;
-      if (inFlight.current.has(id)) return;
+      if (inFlight.current.has(id)) {
+        const first = doneAt.current.get(id);
+        if (action === 'done' && first !== undefined && now() - first <= DONE_AGAIN_MS) again.current.add(id);
+        return;
+      }
       inFlight.current.add(id);
+      if (action === 'done' && !confirm) doneAt.current.set(id, now());
       try {
         await run(id, sendOrder(row, action), action, confirm);
       } finally {
         inFlight.current.delete(id);
+        doneAt.current.delete(id);
+        again.current.delete(id);
       }
     },
-    [run],
+    [run, now],
   );
 
   return { stateOf: (id: string): RowState => rows.get(id) ?? IDLE, tap };

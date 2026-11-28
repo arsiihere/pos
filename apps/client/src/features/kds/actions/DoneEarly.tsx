@@ -68,11 +68,12 @@ export function RowActions({
       </button>
     );
   }
+  // ⚠️ 03b v1.0.21 §3.2 (QA-R3): a busy Done stays live, so a quick second tap is heard (it confirms a "Done already?")
   return (
     <button
       type="button"
       className={`btn btn--${which}${startFirst ? ' hot' : ''}${busy}`}
-      disabled={disabled}
+      disabled={which === 'done' && state.busy === 'done' ? !up : disabled}
       aria-busy={busy !== ''}
       onClick={() => onTap(which)}
     >

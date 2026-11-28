@@ -144,6 +144,46 @@ describe('[03b §3.2] KDS taps', () => {
     expect(card('B').querySelector('.btn--done')).not.toBeNull();
   });
 
+  // ⚠️ 03b v1.0.21 §3.2 (owner 2026-11-28 QA-R3, UX), test 143: a second Done tap within 3 s always counts — also while
+  // the first tap's answer is on its way: the refused "Done already?" is confirmed at once, never asked
+  it('[03b #143] a second Done tap within 3 s, while the first is in flight, is the confirm; one after 3 s is not', async () => {
+    for (const [gap, counted] of [[1_000, true], [4_000, false]] as const) {
+      const calls: Calls = [];
+      const timers = fakeTimers();
+      let answer: (v: HubResult<unknown>) => void = () => {};
+      const replies: Array<HubResult<unknown> | null> = [null, { ok: true, data: { done: ['A'] } }];
+      const api = {
+        ...fakeApi({}, calls),
+        doneItem: async (p: unknown) => {
+          calls.push(['doneItem', p]);
+          const r = replies.shift();
+          return (r ?? (await new Promise<HubResult<unknown>>((resolve) => (answer = resolve)))) as never;
+        },
+      } as KdsApi;
+      m = mount();
+      m.render(<Harness api={api} rows={[row('A', { stage: 'cooking', started_at: 0 })]} nowMs={120_000} mode="two_tap" timers={timers} />);
+      m.click(m.button('Done', card('A')));
+      await flush();
+      timers.advance(gap);
+      const done = card('A').querySelector<HTMLButtonElement>('.btn--done')!;
+      expect(done.disabled).toBe(false);
+      m.click(done);
+      await act(async () => answer(apiErr('ITEM_DONE_CONFIRM_REQUIRED', { elapsed_ms: 120_000, cook_ms: 360_000 }, 422)));
+      await flush();
+      if (counted) {
+        expect(calls).toEqual([
+          ['doneItem', { order_item_id: 'A' }],
+          ['doneItem', { order_item_id: 'A', confirm: true }],
+        ]);
+        expect(card('A').querySelector('.btn--confirm')).toBeNull();
+      } else {
+        expect(calls).toEqual([['doneItem', { order_item_id: 'A' }]]);
+        expect(card('A').querySelector('.btn--confirm')).not.toBeNull();
+      }
+      m.unmount();
+    }
+  });
+
   it('[03b §3.2] two_tap Done before Start → "Tap Start first" inline', async () => {
     const calls: Calls = [];
     const api = fakeApi({ doneItem: [apiErr('ITEM_WRONG_STAGE', { stage: 'added' })] }, calls);
