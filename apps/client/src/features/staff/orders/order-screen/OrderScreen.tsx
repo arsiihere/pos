@@ -76,7 +76,7 @@ import { showEnqueued } from '../view/LineActions';
 import { groupParts, type GroupedLine } from '../view/parts';
 import { servable } from '../view/stage';
 import { takeawayContext } from '../../shell/context-slot';
-import { keyEntries, keyMatches, parseKeyQuery, type KeyEntry } from './keyboard';
+import { keyEntries, keyMatches, MAX_KEY_QTY, parseKeyQuery, type KeyEntry } from './keyboard';
 import { readRushOverride, rushOn, toggledOverride, writeRushOverride } from '../takeaway/rush';
 import { deltaText } from './delta';
 import { ServeChoice } from './ServeChoice';
@@ -1242,6 +1242,12 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     const target = e.target instanceof Element ? e.target : null;
     // another layer (a dialog, a menu, the lock) or another part of the page owns this key
     if (target?.closest('[role="dialog"]:not(.tk-drawer), [role="menu"], [role="alertdialog"], .idle') != null) return;
+    // ⚠️ 02b v1.0.28 QK-5 (BUG-21): "/" focuses the search from anywhere on the page that is not a field (a top-bar
+    // tab just clicked, a rail row), the token drawer open or not; other keys only on the screen itself
+    if (e.key === '/' && !editable(target) && !overlay && searchRef.current !== null) {
+      e.preventDefault();
+      return searchRef.current.focus();
+    }
     if (target !== null && target !== document.body && !(rootRef.current?.contains(target) ?? false)) return;
     if (e.key === 'Escape') {
       if (target === searchRef.current || openToken === null || overlay) return;
@@ -1334,6 +1340,12 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
                 {kbd(i === chosen ? 'Enter' : '↓')}
               </div>
             ))}
+            {/* ⚠️ 02b v1.0.28 QK-7 (BUG-24): "999n" adds 99 and says so */}
+            {keyQuery.over === true && (
+              <div className="tk-hint c-warn" role="status" data-max-qty="">
+                {fill(t('m.max_qty'), { n: String(MAX_KEY_QTY) })}
+              </div>
+            )}
             <div className="tk-hint">
               {kbd('4n')} = {t('m.hint_qty')} · {kbd('hk')} = {t('m.hint_initials')} · {kbd('Enter')} {t('m.hint_add')} · {kbd('Esc')} {t('m.hint_clear')}
             </div>

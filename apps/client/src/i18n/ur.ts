@@ -1737,6 +1737,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'm.search': 'آئٹم لکھیں — مثلاً 4 نان',
   'm.keys': 'کیز',
   // 02b-TK A2 item 2 (frame KeyboardMode hint "4n = 4 × naan · hk = half karahi · Enter add · Esc clear"): not in strings-table.md; Urdu to confirm
+  'm.max_qty': 'زیادہ سے زیادہ {n}', // QA-R2 BUG-24; Urdu to confirm
   'm.hint_qty': '4 × نان',
   'm.hint_initials': 'آدھی کڑاہی',
   'm.hint_add': 'ڈالیں',

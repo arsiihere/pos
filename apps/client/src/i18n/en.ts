@@ -4394,6 +4394,7 @@ export const en = {
   'm.search': 'Type item — e.g. 4 naan',
   'm.keys': 'Keys',
   // 02b-TK A2 item 2 (frame KeyboardMode hint "4n = 4 × naan · hk = half karahi · Enter add · Esc clear"): not in strings-table.md; Urdu to confirm
+  'm.max_qty': 'Max {n}',
   'm.hint_qty': '4 × naan',
   'm.hint_initials': 'half karahi',
   'm.hint_add': 'add',

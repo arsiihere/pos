@@ -10,11 +10,14 @@ import type { BranchConfig } from '@pos/events';
 
 const MAX_QTY = 99;
 
-export function parseKeyQuery(raw: string): { qty: number | null; term: string } {
+export const MAX_KEY_QTY = MAX_QTY;
+
+/** ⚠️ 02b v1.0.28 QK-7 (BUG-24): `over` — the typed quantity was above 99 (99 is added, the search says "Max 99"). */
+export function parseKeyQuery(raw: string): { qty: number | null; term: string; over?: true } {
   const m = /^\s*(\d+)\s*(.*)$/.exec(raw);
   if (m === null) return { qty: null, term: raw.trim().toLowerCase() };
   const n = Number(m[1]);
-  return { qty: n < 1 ? null : Math.min(n, MAX_QTY), term: m[2]!.trim().toLowerCase() };
+  return { qty: n < 1 ? null : Math.min(n, MAX_QTY), term: m[2]!.trim().toLowerCase(), ...(n > MAX_QTY ? { over: true as const } : {}) };
 }
 
 export interface KeyEntry {
