@@ -3552,6 +3552,8 @@ export const en = {
   'errors.SERVICE_CHARGE_NOT_APPLIED': 'The service charge was already removed',
   'errors.BUYER_ID_REQUIRED': 'Buyer details are needed above {threshold}',
   'errors.BILL_TOTAL_CHANGED': 'The total changed to {amount} — check it and close again',
+  // 05 v1.0.37 §9 (QA-R2, R2-1)
+  'errors.BILL_DUE_CHANGED': 'Bill changed — now {amount}. Nothing was taken; check the amount and take it again',
   'errors.BILL_BALANCE_DUE': '{amount} still to take on split {n}',
   'errors.BILL_PARTLY_PAID': 'A split is already paid — no discount now',
   'errors.LINE_IN_CLOSED_SPLIT': 'Reopen the bill to change a paid split',
@@ -4347,6 +4349,10 @@ export const en = {
   'c.queued_pay': 'Payment needs the hub. Send now; take payment when Live.',
   'p.title': 'Take payment',
   'p.due': 'To pay',
+  // ⚠️ 05 v1.0.37 §8 (QA-R2, R2-1, BUG-6): the pay panel follows the bill; a split bill pays one split at a time
+  'p.bill_changed': 'Bill changed — now {amount}',
+  'p.split_of': 'Split {k} of {n}',
+  'p.split_more': '{amount} more on this bill',
   'p.given': 'Customer gave',
   'p.exact': 'Exact',
   'p.change': 'Give change',

@@ -70,6 +70,8 @@ export interface BillViewSplit {
   payments: BillViewPayment[];
   totals: { cash: Totals; digital: Totals; as_paid: Totals };
   balance_minor: number;
+  /** ⚠️ 05 v1.0.37 §6.1 (QA-R2, R2-1): the split's four dues as the hub computes them (0 on a closed split); absent on an older hub */
+  dues?: SplitDues;
   /** 05 v1.0.29 (R-90): `invoice_id` is the `ref_id` of PrintBillDocument { doc: 'receipt' } (§6.22). */
   invoice: { invoice_id: string; invoice_ref: string; fiscal_number: string | null; fiscal_state: string | null } | null;
 }
