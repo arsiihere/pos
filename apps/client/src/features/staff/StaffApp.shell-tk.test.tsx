@@ -269,7 +269,7 @@ describe('[02b-TK TK-SH01, TK-SH03] the day / shift banners under the bar', () =
     expect(m.container.querySelector('.tk-banner')).toBeNull();
   });
 
-  it('[05 §6.16] a take-payment holder with no open shift (404 SHIFT_NOT_FOUND): the shift banner; Open my shift → #/shift', async () => {
+  it('[05 §6.16] a take-payment holder with no open shift (404 SHIFT_NOT_FOUND): the shift banner; Open my shift → #/shift?back=/takeaway (02b v1.0.28 QK-9)', async () => {
     const h = hub({ permissions: { 'take-payment': ALLOWED, 'manage-own-shift': ALLOWED } });
     render(h.fetch);
     await pin('Imran');
@@ -279,7 +279,8 @@ describe('[02b-TK TK-SH01, TK-SH03] the day / shift banners under the bar', () =
     expect(b.textContent).toContain('No shift open — cash can’t be taken');
     m.click(m.button('Open my shift', b));
     await flush();
-    expect(window.location.hash).toBe('#/shift');
+    // ⚠️ 02b v1.0.28 QK-9: the shift screen returns to Takeaway once the shift is open
+    expect(window.location.hash).toBe('#/shift?back=%2Ftakeaway');
   });
 
   it('[05 §6.16] an open shift: no banner; the menu\'s My shift says when it opened and the float; ShiftClosed reads again', async () => {
