@@ -1,7 +1,7 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { escapeRe, railEntry, rushOff, shiftOpen, signInOn, takeawayTab, type Lang } from './02b-support';
+import { expect, test, type APIRequestContext, type Page, type WebSocketRoute } from '@playwright/test';
+import { escapeRe, menuTile, railEntry, rushOff, shiftOpen, signInOn, takeawayTab, type Lang } from './02b-support';
 import { adminCommand } from './03b-support';
-import { t1Held, t1Key } from './t1-fixture';
+import { t1Held, t1Items, t1Key } from './t1-fixture';
 import { apiSession, capture, closeAll, hub, hubAdvance, hubNow, passCard, passTablet, runId, LANGS, queueEntry, screen, t1Hub, tr } from './t1-support';
 
 // L-E2E-T1 rows #26 / #27 — the owner's dry-run checklist, day close, on a hub of its own (playwright.dayclose.config.ts:
@@ -216,3 +216,110 @@ for (const lang of LANGS) {
     }
   });
 }
+
+// ⚠️ 02b v1.0.28 QR2-1 – QR2-3 (owner 2026-11-28 QA-R2; BUG-2, BUG-9, BUG-10), §10 #101: a takeaway queued offline
+// across Close day is never dropped. On the day-close hub (day_min_gap_hours 0), at the cashier kiosk and on the landscape
+// tablet: Send · pay later while offline → "Waiting to send" → the day closes elsewhere (API; an unbilled order carried) →
+// back online, the hub refuses it for the closed day → the rail row stays: "Waiting — the day hasn't started" → the
+// Owner's Start day on the banner (the staff app, no admin page) → the row goes, its token comes (the sticky card), the
+// order is in the open day; the carried token keeps its date although the day reopened on the same date.
+const VIEWS = [
+  { project: 'kiosk', viewport: { width: 1920, height: 1080 } },
+  { project: 'tablet-landscape', viewport: { width: 1280, height: 800 } },
+] as const;
+for (const lang of LANGS)
+  for (const view of VIEWS) {
+    test(`[02b #101 QR2-1 QR2-2 QR2-3] a takeaway queued offline across Close day waits, visible, and is sent at Start day; the carried token keeps its date — ${view.project} (${lang})`, async ({ browser, request }, info) => {
+      test.setTimeout(180_000);
+      const run = t1Items(t1Key('close', view.project, lang));
+      let api = await apiSession(request, 'S_OWNER');
+      const cash = await screen(browser, view.viewport);
+      const { page, context } = cash;
+      try {
+        // the carried token (QR2-3): an unbilled takeaway placed now, carried over the close
+        const carried_id = runId(`R2-CARRY-${lang}`);
+        const placed = await api.command('SubmitOrder', { order_id: carried_id, order_type: 'takeaway', lines: [{ order_item_id: `${carried_id}-M`, item_id: run.main.item_id, quantity: 1 }] });
+        expect(placed.status, JSON.stringify(placed.body.error)).toBe(200);
+
+        const sockets: WebSocketRoute[] = [];
+        await page.routeWebSocket(/\/ws$/, (ws) => {
+          ws.connectToServer();
+          sockets.push(ws);
+        });
+        await rushOff(page);
+        await signInOn(page, view.project === 'kiosk' ? hub().kiosk : hub().device, lang, 'Owner');
+        await takeawayTab(page);
+
+        // offline: Send · pay later → queued, no token
+        await context.setOffline(true);
+        for (const ws of sockets) await ws.close({ code: 1006 });
+        await menuTile(page, run.main.name).click();
+        await page.getByRole('button', { name: new RegExp(`^${escapeRe(tr(lang, 'c.send_later'))}`) }).click();
+        await expect(page.getByText(tr(lang, 't.queued'))).toBeVisible();
+        const strip = page.locator('.tk-rstrip__q');
+        if ((await strip.count()) > 0 && (await page.locator('.tk-qr--q').count()) === 0) await strip.click();
+        const waiting = page.locator('.tk-qr--q');
+        await expect(waiting).toHaveCount(1);
+        await expect(waiting).toContainText(tr(lang, 'q.waiting_send'));
+
+        // the day closes elsewhere: shifts closed, every unbilled order carried (05's guard)
+        // the Owner's own shift, if one is open (none → 404 SHIFT_NOT_FOUND)
+        const shift = await api.query<{ shift: { shift_id: string } | null } & { shift_id?: string }>('shift').catch(() => null);
+        const shift_id = shift?.shift?.shift_id ?? shift?.shift_id;
+        if (shift_id !== undefined) await api.command('CloseShift', { shift_id, skip_count: true, note: 'e2e: count skipped' });
+        const open = (await api.query<{ orders: Array<{ order_id: string; token: number | null; business_date: string; bill: { state: string } | null }> }>('open-orders?order_type=all')).orders;
+        const unbilled = open.filter((o) => o.bill?.state !== 'paid').map((o) => o.order_id);
+        if (unbilled.length > 0) expect((await api.command('CarryOverOrders', { order_ids: unbilled, reason_code: 'customer_will_pay_later' })).status).toBe(200);
+        const closed = await api.command('CloseBusinessDay', {});
+        expect(closed.status, JSON.stringify(closed.body.error)).toBe(200);
+        expect(closed.body.data?.result).toMatchObject({ changed: true });
+        const carried = open.find((o) => o.order_id === carried_id)!;
+
+        // back online: the hub refuses it for the closed day; the row stays and says why (not the hidden queue log)
+        await context.setOffline(false);
+        await expect(waiting).toContainText(tr(lang, 'q.waiting_day'), { timeout: 30_000 });
+        await expect(waiting).toHaveCount(1);
+        await capture(page, info, `QR2-waiting-day-${view.project}-${lang}`);
+
+        // the landscape tablet's "All orders" drawer covers the banner: close it
+        const drawerScrim = page.locator('.tk-scrim--fixed');
+        if ((await drawerScrim.count()) > 0) await drawerScrim.first().dispatchEvent('click');
+        // the e2e hub's clock is pinned: a minute passes before the day starts again (a carried order is one placed before it)
+        await hubAdvance(60_000);
+        // QR2-2: Start day from the staff app's banner (close-business-day), no admin page
+        const banner = page.locator('.tk-banner--warn', { hasText: tr(lang, 'shell.day.closed') });
+        await expect(banner).toBeVisible({ timeout: 15_000 });
+        await banner.getByRole('button', { name: tr(lang, 'day.start') }).click();
+        // the day opened: the queue sends it — its token on the sticky card, the row gone
+        const card = page.locator('.tokc');
+        await expect(card).toBeVisible({ timeout: 30_000 });
+        await expect(card).toContainText(tr(lang, 'send.queued_sent'));
+        const token = (await card.locator('.tk').textContent())!.trim();
+        expect(Number(token)).toBeGreaterThan(0);
+        await expect(banner).toHaveCount(0);
+        const scrim = page.locator('.tk-scrim--fixed');
+        if ((await scrim.count()) > 0) await scrim.first().dispatchEvent('click');
+        await card.getByRole('button', { name: tr(lang, 'queue.ok') }).click();
+        if ((await strip.count()) > 0 && (await page.locator('.tk-qr').count()) === 0) await strip.click();
+        await expect(waiting).toHaveCount(0);
+
+        // the hub has it once, in the open day; the carried token keeps its date (the same date reopened, QR2-3)
+        await api.close().catch(() => undefined);
+        api = await apiSession(request, 'S_OWNER');
+        const after = (await api.query<{ orders: Array<{ order_id: string; token: number | null; business_date: string; from_date: string | null }> }>('open-orders?order_type=takeaway')).orders;
+        const sent = after.filter((o) => String(o.token) === token && o.from_date === null);
+        expect(sent).toHaveLength(1);
+        expect(after.find((o) => o.order_id === carried_id)).toMatchObject({ from_date: carried.business_date });
+        const [, m, d] = carried.business_date.split('-').map(Number);
+        const label = `${carried.token} · ${d} ${tr(lang, 'alerts.months').split(',')[m! - 1]}`;
+        await expect(async () => {
+          await queueEntry(page, String(carried.token));
+          await expect(page.locator('[data-carried]', { hasText: label }).first()).toBeVisible({ timeout: 2_000 });
+        }).toPass({ timeout: 20_000 });
+      } finally {
+        await context.setOffline(false).catch(() => undefined);
+        await api.close().catch(() => undefined);
+        await closeAll(info, lang, cash);
+      }
+    });
+  }
