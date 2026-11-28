@@ -20,7 +20,7 @@ import { statementCounter } from '../helpers/statement-counter';
 import type { TestHub } from '../helpers/test-hub';
 import { voidLine } from '../kds/fixtures';
 import { append as appendRaw, openVoidsDay } from '../voids/fixtures';
-import { BX, dineInTwoRounds, signIn, STAFF, startBilling, takeawayOrder, type Who } from './fixtures';
+import { addedTakeaway, appendOrder, BX, dineInTwoRounds, FX, signIn, STAFF, startBilling, takeawayOrder, type Who } from './fixtures';
 import { tableLabel } from '../../src/kds/details';
 import { hubBilling } from '../../src/billing/defaults';
 
@@ -316,6 +316,25 @@ describe('[05 §6.26] GET /queries/x-report', () => {
     expect(z.shifts.find((s) => s.staff_id === STAFF.orderTaker)).toEqual({ staff_id: STAFF.orderTaker, float_minor: 100_000, expected_minor: 100_000, counted_minor: null, variance_minor: null, skipped: true, signoff_state: null });
     expect(z.shifts.find((s) => s.staff_id === STAFF.cashier)!.expected_minor).toBe(1_138_400); // Rs 5,000 + Rs 6,384
     expect(z.open_bills).toEqual([]);
+  });
+
+  it('[05 v1.0.39 §6.26 QM-2, #63i (owner 2026-11-28 QA-R3, BUG-6)] Carried over lists a bill once, not once per order: a token with two additions and a two-round seating, carried two days', async () => {
+    await start();
+    const { root, addition } = addedTakeaway(hub, { prefix: 'CO' });
+    const more = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, adds_to_order_id: root.order_id, lines: [{ order_item_id: 'CO_ADD2', item_id: FX.naan }] }).order_id;
+    const seat = dineInTwoRounds(hub, { prefix: 'CS' });
+    const ids = [root.order_id, addition.order_id, more, ...seat.rounds.map((r) => r.order_id)];
+    carry(ids);
+    const one = await x(signIn(hub, STAFF.manager));
+    expect(one.carried_over.map((c) => c.label).sort()).toEqual([`#${root.token}`, tableLabel('T4')].sort());
+    closeDay();
+    expect(zOf(one.business_date).carried_over).toHaveLength(2);
+    nextDay();
+    carry(ids);
+    const two = await x(signIn(hub, STAFF.manager));
+    // each bill once carried in (yesterday's) and once carried over (today's)
+    expect(two.carried_over.filter((c) => c.carried_in)).toHaveLength(2);
+    expect(two.carried_over.filter((c) => !c.carried_in)).toHaveLength(2);
   });
 
   it('[05 §6.26, #91] X = 8 statements and the Z build = 6, the same with 1 and with 40 shifts, sales, open bills and carried orders', async () => {
