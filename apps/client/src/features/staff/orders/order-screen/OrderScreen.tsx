@@ -656,6 +656,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
         onPay={shell.online && shell.permissions.allowed('take-payment') ? payToken : undefined}
         hidden={pendingKeys}
         onCount={setOpenCount}
+        onGone={(key) => setOpenToken((t) => (t?.key === key ? null : t))}
         compact={dense}
       />
     );

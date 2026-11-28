@@ -59,6 +59,8 @@ for (const lang of LANGS) {
       if (!(await drawer(page).isVisible())) await (await queueEntry(page, token)).click();
       await removeLine(page, lang, run.items.main.name);
       await expect(card).toHaveCount(0, { timeout: 15_000 });
+      // qa1-fix: the cancelled token's drawer closes by itself (its token left the queue)
+      await expect(drawer(page)).toHaveCount(0, { timeout: 15_000 });
       await expect(await queueEntry(page, token)).toHaveCount(0, { timeout: 15_000 });
     } finally {
       await closeAll(info, lang, pass, cash);
