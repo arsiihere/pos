@@ -866,7 +866,7 @@ Takeaway ready reaches the counter (⚠️ Changed by v1.0.16 (02b-tk R8, 2026-1
 136. ⚠️ New in v1.0.20 (QA-R2, BUG-14): the counter alert's recipient rows hold the placer and managers but not a Cook signed in at the point; a Cook signed in on a counter-screen device gets no frame, no catch-up row and no inbox row; a Cashier signed in there gets the card.
 137. ⚠️ New in v1.0.20 (QA-R2, BUG-12, BUG-27; client): a boosted takeaway card reads "Ready ~{planned}" like the counter; a Due card with `unpaid_handover_pending` shows "Waiting for a manager…" before any tap.
 141. ⚠️ New in v1.0.21 (QA-R3, BUG-5; client): All filter, a boosted pickup bag (pickup 1:11 PM, planned 1:02 PM) → "Ready ~1:02 PM" with "1:11 PM" struck through and no "Pickup" chip; a plain takeaway card on All keeps its look (no time read for it).
-142. ⚠️ New in v1.0.21 (QA-R3, UX; client): a takeaway bag with a line still cooking → its Hand over is a small quiet icon (`pc__ib2`, `btn--quiet`, not `btn--hand`), disabled; every line done → enabled.
+142. ⚠️ New in v1.0.21 (QA-R3, UX; client): a takeaway bag with a line still cooking → its Hand over is a small quiet icon (`pc__ib2--sm`, `btn--quiet`, the `btn--hand` tint overridden), disabled; every line done → enabled.
 143. ⚠️ New in v1.0.21 (QA-R3, UX; client): Done, then Done again 1 s later while the first is in flight, the hub answers 422 ITEM_DONE_CONFIRM_REQUIRED → `DoneItem { confirm: true }` sent at once, no inline question; the same with the second tap at 4 s → one DoneItem, the question shows.
 
 ### Acceptance

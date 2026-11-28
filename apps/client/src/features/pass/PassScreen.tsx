@@ -519,7 +519,7 @@ export function PassScreen() {
               const handMain = toHand && !counter && !bagging;
               // ⚠️ 03b v1.0.21 §3.4 (owner 2026-11-28 QA-R3, UX): on a takeaway / parking bag the staff Hand over is a small
               // quiet icon beside Handed to customer, disabled until the whole bag is ready (marked ready, or every line done)
-              const handCls = handMain ? 'btn btn--hand' : counter ? 'btn btn--icon btn--quiet pc__ib2 pc__ib2--sm' : 'btn btn--icon btn--hand pc__ib2';
+              const handCls = handMain ? 'btn btn--hand' : counter ? 'btn btn--icon btn--hand btn--quiet pc__ib2 pc__ib2--sm' : 'btn btn--icon btn--hand pc__ib2';
               const bagDone = bag.orders.every((x) => x.lines.every((l) => l.handed_over || l.stage === 'done'));
               const handOff = !up || (counter && state !== 'sent' && !bagDone);
               if (toHand)

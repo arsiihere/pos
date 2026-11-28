@@ -189,7 +189,7 @@ describe('[02b-tk C3-4] Pass takeaway filter', () => {
     expect(hand()).not.toBeNull();
     expect(hand().classList.contains('pc__ib2')).toBe(true);
     expect(hand().classList.contains('btn--quiet')).toBe(true);
-    expect(hand().classList.contains('btn--hand')).toBe(false);
+    expect(hand().classList.contains('pc__ib2--sm')).toBe(true);
     expect(hand().disabled).toBe(true);
     m.unmount();
     const t = shellWith([promises([['O53', BASE + 11 * 60_000]])]);
