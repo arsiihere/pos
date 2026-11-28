@@ -16,7 +16,7 @@ import { ShiftScreen } from '../billing/ShiftScreen';
 import { ReportsScreen } from '../billing/ReportsScreen';
 import { DayCloseScreen } from '../billing/DayCloseScreen';
 import { Inbox } from '../alerts/Inbox';
-import { lockText, timeText } from '../alerts/labels';
+import { timeText } from '../alerts/labels';
 import { Receipts } from '../alerts/Receipts';
 import { RequestsToAnswer, requestViews, type RequestRow, type RequestView } from '../alerts/RequestsToAnswer';
 import { createAlertConnection, hubSocketUrl, REPLACED_REASON, type SocketLike } from '../alerts/socket';
@@ -24,7 +24,7 @@ import { webAudioSink, type AudioSink, type ToneContext } from '../alerts/sounds
 import { createAlertStore, type AlertRow, type AlertStore, type Timers } from '../alerts/store';
 import type { WsAlertClosed } from '@pos/events';
 import { TestAlert } from '../alerts/TestAlert';
-import { FamilyPill, Ico, isRequest } from '../alerts/ui';
+import { Ico, isRequest } from '../alerts/ui';
 import { createStaffApi, type Device, type PageMeta, type Resolution, type RosterPerson, type SessionInfo, type SignedIn } from './api';
 import { SignIn } from './SignIn';
 import { createOrdersApi } from './orders/api';
@@ -1173,28 +1173,19 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   if (unpaired) {
     page = <PairAgain wipe={wipe} {...(goToPair === undefined ? {} : { go: goToPair })} />;
   } else if (me === null) {
-    // F01 (frames LockKiosk, LockPhone): urgent lines first, then newest first (the store's order); up to 3
-    const openRows = snap.rows.filter((r) => r.state === 'open');
-    const lockRows =
-      device.type === 'cashier_kiosk' || device.type === 'phone'
-        ? [...openRows.filter((r) => r.family === 'urgent'), ...openRows.filter((r) => r.family !== 'urgent')].slice(0, 3)
-        : [];
+    // ⚠️ 01d v1.3.9 §8.1 (owner 2026-11-28 QA-R2, UX): the signed-out sign-in screen shows NO alerts (was F01's lock
+    // panel: up to 3 lock lines, urgent first); alert-mode frames still arrive (sounds, §8.3)
     page = (
       <SignIn
         key={signInKey}
         api={api}
         phone={phone}
         lockPanel={
-          endedByHub || lockRows.length > 0 ? (
-            <>
-              {endedByHub && (
-                <div className="warnbar" role="status" data-signed-out="">
-                  <Ico name="lock" />
-                  {t('shell.signed_out_hub')}
-                </div>
-              )}
-              {lockRows.length > 0 && <LockPanel rows={lockRows} utcOffsetMs={offset} />}
-            </>
+          endedByHub ? (
+            <div className="warnbar" role="status" data-signed-out="">
+              <Ico name="lock" />
+              {t('shell.signed_out_hub')}
+            </div>
           ) : null
         }
         hooks={shellHooks}
@@ -1564,22 +1555,3 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   );
 }
 
-/** 01d F01 (frames LockKiosk, LockPhone): signed out on a kiosk or phone, up to 3 lock lines, never details. */
-function LockPanel({ rows, utcOffsetMs }: { rows: readonly AlertRow[]; utcOffsetMs: number }) {
-  return (
-    <section className="lockp" aria-label={t('lock.title')}>
-      <div className="lockp__h">
-        <Ico name="bellring" />
-        {t('lock.title')}
-        <small>{t('lock.sign_in')}</small>
-      </div>
-      {rows.map((r) => (
-        <div key={r.alert_id} className="lockp__r">
-          <FamilyPill row={r} />
-          <span>{lockText(r)}</span>
-          <span className="ac__time num">{timeText(r.raised_at, utcOffsetMs)}</span>
-        </div>
-      ))}
-    </section>
-  );
-}
