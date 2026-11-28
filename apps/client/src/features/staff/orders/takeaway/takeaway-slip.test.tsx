@@ -38,7 +38,7 @@ const submitted = (slip: Slip) => (type: string, payload: unknown) =>
   type === 'SubmitOrder' ? { status: 'sent', result: { order_id: (payload as { order_id: string }).order_id, token: 57, groups: [{ group_id: 'g', promise_ms: at(13, 42), order_item_ids: [] }], lines: [], slip } } : undefined;
 
 const addNaan = (v: Mounted) => {
-  v.click(v.button('Sides', v.container.querySelector('.cats')!));
+  v.click(v.button('Sides', v.container.querySelector('.pills')!));
   v.click(v.container.querySelector<HTMLElement>('.mi[aria-label="Naan"]'));
 };
 const takeawayOf = (h: ReturnType<typeof screenHarness>) => (h.sent[0]?.payload as { takeaway?: Record<string, unknown> }).takeaway;
@@ -107,6 +107,16 @@ describe('[02b-TK L-CLIENT-3 item 2; 03c §3.11 Result, §8] the slip result aft
     const { h, order_id } = await sendLater({ printed: true, job_id: 'J1', skipped: null });
     expect(h.toasts.at(-1)).toMatchObject({ text: '57 · sent · ready 1:42 PM', sub: 'Slip printing', tone: 'ok' });
     expect(slipMissesOf(h.shell).missed([order_id])).toBe(false);
+  });
+
+  it('[L-CLIENT-6a item 9; frame SentToast] the sent toast carries the token and Print again (PrintTakeawaySlip reprint)', async () => {
+    const { h, order_id } = await sendLater({ printed: true, job_id: 'J1', skipped: null });
+    const toast = h.toasts.at(-1) as { token?: string; action?: { label: string; run(): void } };
+    expect(toast.token).toBe('57');
+    expect(toast.action?.label).toBe('Print again');
+    toast.action!.run();
+    await flush();
+    expect(h.commands.at(-1)).toEqual({ type: 'PrintTakeawaySlip', payload: { order_id, reason: 'reprint' } });
   });
 
   it('[03c §8] no_printer, failed, replay_late → "Slip not printed — Print slip", and the token is marked', async () => {

@@ -66,7 +66,7 @@ for (const lang of LANGS) {
       await menuTile(page, run.items.main.name).click();
       await expect(page.locator('.cart .ln', { hasText: run.items.main.name })).toContainText('2');
       // #4: "4n" then Enter
-      await page.locator('.cart__head').click();
+      await page.locator('.cart .tk-total').click(); // L-CLIENT-6a: the takeaway cart has no head
       await page.keyboard.press('/');
       await page.keyboard.type('4n');
       const first = page.locator('.tk-sugg [role="option"]').first();
@@ -74,7 +74,7 @@ for (const lang of LANGS) {
       await expect(first, '"4n" picks Naan first').toContainText('Naan');
       await page.keyboard.press('Enter');
       await expect(page.locator('.cart .ln', { hasText: /^.*Naan/ })).toContainText('4');
-      const ready = page.locator('.cart .total__ready');
+      const ready = page.locator('.cart [data-ready]'); // L-CLIENT-6a item 5: the Ready by panel
       await expect(ready.locator('b')).toHaveText(/^\d{1,2}:\d{2}\s?(AM|PM)$/);
       await expect(ready).not.toContainText(tr(lang, 'cart.times_later'));
       await capture(page, info, `T1-04-cart-${info.project.name}-${lang}`, page.locator('.cart'));
@@ -192,7 +192,7 @@ for (const lang of LANGS) {
       await plus30.click();
       await expect(plus30).toHaveAttribute('aria-pressed', 'true');
       // the footer: "Kitchen times it for <the pickup>" (frame PickupLater .tk-readyby--later)
-      const later = page.locator('.cart .total__ready--later');
+      const later = page.locator('.cart .tk-readyby--later'); // L-CLIENT-6a item 5
       await expect(later).toContainText(tr(lang, 'c.ready_later'));
       await expect(later.locator('b')).toHaveText(/^\d{1,2}:\d{2}\s?(AM|PM)$/);
       await capture(page, info, `PickupCart-${info.project.name}-${lang}`, page.locator('.cart'));

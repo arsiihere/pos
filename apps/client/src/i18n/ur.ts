@@ -1865,6 +1865,15 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'v.here_done': 'کچن اب بنا رہا ہے', // not in strings-table.md; Urdu to confirm
   // ---- 02b-TK BR-1 (02b v1.0.25 §6.16): after Customer is here, the planned ready time beside the struck-through promise ----
   'q.ready_planned': 'تقریباً {t} تک تیار', // not in strings-table.md; Urdu to confirm
+  // ---- 02b-TK L-CLIENT-6a (kiosk home fidelity; strings-table.md) ----
+  'm.min': '{n} منٹ',
+  'c.ready_by_sub': 'گاہک کو بتائیں',
+  'c.counter': 'کاؤنٹر سے',
+  'c.kitchen': 'کچن سے',
+  'c.times_none': 'ہب واپس آنے پر وقت دکھے گا',
+  'c.note_add': 'نوٹ لکھیں',
+  'c.note_edit': 'نوٹ بدلیں',
+  't.print': 'دوبارہ پرنٹ',
   // ---- 02b-TK L-CLIENT-6b (frames Token*, Pay*, ItemSheet*, DealSheet, HeldDrawer, CustomerDisplay, PersonMenu; Urdu drafts in urdu-todo.md) ----
   'h.title': 'اس کاؤنٹر پر ہولڈ',
   'h.resume': 'جاری رکھیں',
@@ -1889,11 +1898,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'is.ready_by': '{t} تک تیار',
   'is.station_busy': '{station} اسٹیشن مصروف',
   'is.station_full': '{station} اسٹیشن بھرا ہوا',
-  'c.note_add': 'نوٹ لکھیں',
   'is.in_deal': 'اس ڈیل میں',
   'is.part_pick': '{n}× — ایک چنیں',
   'c.add_delta': '{token} کا تیار وقت:',
-  'c.counter': 'کاؤنٹر سے',
   'v.late_chip': 'دیر',
   'v.hurry': 'کچن کو جلدی',
   'v.print_slip': 'پرچی پرنٹ کریں',

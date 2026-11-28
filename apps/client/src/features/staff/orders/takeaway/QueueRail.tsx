@@ -10,7 +10,7 @@ import type { OpenOrder } from '../contracts';
 import { useLiveRefetch } from '../lists/OpenOrders';
 import { businessDayText } from '../lists/OpenOrdersRow';
 import { MONEY_DIR, money } from '../money';
-import { WaitingRows } from '../queue/WaitingToSend';
+import { useWaitingTakeaways, WaitingRows } from '../queue/WaitingToSend';
 import type { TokenBook } from './book';
 import { billsOf, buildQueue, knownOrders, matchesQuery, notCollectedMinOf, type QueueModel, type QueueToken } from './queue-model';
 import { AskManager } from '../unpaid/AskManager';
@@ -297,13 +297,15 @@ function ReadyTile({ q, selected, owed, late, whole, onOpen, onHandOver, onPay }
   );
 }
 
-function QueueRow({ q, selected, onOpen }: { q: QueueToken; selected: boolean; onOpen(): void }) {
+function QueueRow({ q, selected, onOpen, later = false }: { q: QueueToken; selected: boolean; onOpen(): void; later?: boolean }) {
   const shell = useShell();
   const slips = slipMissesOf(shell);
   useSyncExternalStore(slips.subscribe, slips.version);
   return (
     <button type="button" className={selected ? 'tk-qr is-sel' : 'tk-qr'} aria-pressed={selected} onClick={onOpen} data-token={q.key}>
-      <span className="tk-tok" dir="ltr">
+      {/* L-CLIENT-6a item 12 (frames HomeKiosk, ReadyTiles): a phone order for later shows the phone with its token */}
+      <span className={later ? 'tk-tok tk-tok--phone' : 'tk-tok'} dir="ltr">
+        {later && <Ico name="phone" />}
         {q.token ?? '—'}
       </span>
       <span className="tk-qr__m">
@@ -336,6 +338,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
     if (open_n !== null) countRef.current?.(open_n);
   }, [open_n]);
   const owed = useDueAmounts(model);
+  const waiting = useWaitingTakeaways();
   // ⚠️ 03b v1.0.16 §3.4 (R3-M-9): re-check the amber clock while a ready tile has a bag-ready pair
   const nowMs = useHubNow(model?.ready.some((q) => q.late_from != null) ?? false);
   const unpaid = unpaidRequestsOf(shell);
@@ -402,7 +405,7 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
     <>
       <div className="tk-q__top">
         <label className="tk-search" role="search">
-          <Ico name="eye" />
+          <Ico name="search" />
           <input type="search" value={query} ref={variant === "strip" ? drawerSearch : undefined} placeholder={searchLabel} aria-label={searchLabel} onChange={(e) => setQuery(e.target.value)} />
         </label>
         {!shell.online && loadedAt !== null && (
@@ -435,14 +438,15 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
             <div className="tk-ready">{ready.map(tile)}</div>
           </>
         )}
-        <WaitingRows showContact={seeContact} />
-        {cooking.length > 0 && (
+        {/* L-CLIENT-6a item 4 (frames SentToast, SentQueued): the orders waiting to send head the Cooking rows */}
+        {cooking.length + waiting.length > 0 && (
           <>
             <div className="tk-sec">
               <Ico name="pulse" />
               {t('q.cooking')}
-              <span className="tk-chip num">{cooking.length}</span>
+              <span className="tk-chip num">{cooking.length + waiting.length}</span>
             </div>
+            <WaitingRows showContact={seeContact} />
             {cooking.map((q) => (
               <QueueRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} />
             ))}
@@ -451,12 +455,12 @@ export function QueueRail({ variant, book, selected, onOpen, heldCount, onHandOv
         {later.length > 0 && (
           <>
             <div className="tk-sec">
-              <Ico name="clock" />
+              <Ico name="phone" />
               {t('q.later')}
               <span className="tk-chip tk-chip--info num">{later.length}</span>
             </div>
             {later.map((q) => (
-              <QueueRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} />
+              <QueueRow key={q.key} q={q} selected={selected === q.key} onOpen={() => open(q)} later />
             ))}
           </>
         )}

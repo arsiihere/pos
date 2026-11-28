@@ -62,8 +62,9 @@ export function PickupRow({ value, nowMs, utcOffsetMs, bounds, problem, disabled
             {t(CHIP_KEY[n])}
           </button>
         ))}
+        {/* L-CLIENT-6a item 7 (frame PickupLater): with any pickup set, Time… shows the resolved time */}
         <button type="button" {...press(timeOpen)} disabled={disabled} onClick={() => setTyping(true)}>
-          {value?.chip === 'time' ? (
+          {value !== undefined ? (
             <span className="time" dir="ltr">
               {timeText(value.at_ms, utcOffsetMs)}
             </span>

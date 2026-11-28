@@ -659,7 +659,8 @@ describe('[01d v1.3.3 §3.13.7] where a return lands: a dine-in OrderScreen star
     const s = await shell({ device: KIOSK, drafts });
     for (const via of ['close', 'back'] as const) {
       await s.go('#/order/takeaway/D1');
-      expect(s.m.container.querySelector('.osc')!.textContent, via).toContain('2×');
+      // L-CLIENT-6a item 5: a takeaway line carries its stepper ("− 2 +")
+      expect(s.m.container.querySelector('.osc .ln .step output')?.textContent, via).toBe('2');
       await s.banner(CALL(`A-T${via}`));
       expect(window.location.hash, via).toMatch(/^#\/tables\/T4/);
       if (via === 'close') await s.closeSheet();
@@ -671,7 +672,8 @@ describe('[01d v1.3.3 §3.13.7] where a return lands: a dine-in OrderScreen star
       expect(window.location.hash, via).toBe('#/order/takeaway/D1');
       await flush(8);
       await wait(40);
-      expect(s.m.container.querySelector('.osc')!.textContent, via).toContain('2×');
+      // L-CLIENT-6a item 5: a takeaway line carries its stepper ("− 2 +")
+      expect(s.m.container.querySelector('.osc .ln .step output')?.textContent, via).toBe('2');
     }
   });
 });

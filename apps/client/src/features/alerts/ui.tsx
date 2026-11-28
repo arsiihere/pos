@@ -60,6 +60,21 @@ const ICONS = {
   cash: [{ r: [3, 6, 18, 12, 2] }, { c: [12, 12, 2.8] }, { d: 'M6.5 9.5v.01M17.5 14.5v.01' }],
   pin: [{ d: 'M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z' }, { c: [12, 10, 2.5] }],
   send: [{ d: 'M4 12L20 4l-6 16-2.5-6.5z' }, { d: 'M11.5 13.5L20 4' }],
+  // 02b-TK L-CLIENT-6a (frames HomeKiosk, KeyboardMode, TileStates): search, phone orders, Top now, and the menu
+  // tile's category placeholders (the menu has no photo field; owner: photos after the pilot)
+  search: [{ c: [10.5, 10.5, 6.5] }, { d: 'M15.5 15.5L20.5 20.5' }],
+  phone: [{ d: 'M5 4h3.5l1.5 4.5-2.2 1.4a11 11 0 0 0 6.3 6.3l1.4-2.2 4.5 1.5V19a1.5 1.5 0 0 1-1.6 1.5A16 16 0 0 1 3.5 5.6 1.5 1.5 0 0 1 5 4z' }],
+  star: [{ d: 'M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8L3.5 9.7l5.9-.8z' }],
+  pot: [{ d: 'M4 10h16v3a8 8 0 0 1-16 0z' }, { d: 'M2 10h2M20 10h2' }, { d: 'M9 6.5c0-1 1-1.5 1-2.5M13 6.5c0-1 1-1.5 1-2.5' }],
+  bowl: [{ d: 'M3.5 11h17a8.5 8.5 0 0 1-17 0z' }, { d: 'M9 20h6' }, { d: 'M8 7.5c.8-1 .8-2 0-3M12 7.5c.8-1 .8-2 0-3M16 7.5c.8-1 .8-2 0-3' }],
+  bread: [{ d: 'M5 18V11a7 4.5 0 0 1 14 0v7z' }, { d: 'M9 9.5l1 2M13 8.5l1 2M16 10l.8 1.6' }],
+  cup: [{ d: 'M6 4h12l-1.5 16h-9z' }, { d: 'M6.6 9h10.8' }],
+  flame: [{ d: 'M12 21a6.5 6.5 0 0 1-6.5-6.5c0-4 3-6 3.5-10 2.5 1.5 4 3.5 4.5 6 1-1 1.5-2 1.5-3.5 2 1.5 3.5 4.5 3.5 7.5A6.5 6.5 0 0 1 12 21z' }],
+  leaf: [{ d: 'M5 19c0-8 5-14 15-14 0 10-6 15-14 15' }, { d: 'M5 19l8-8' }],
+  tag: [{ d: 'M3.5 12.5V4h8.5l9 9-8.5 8.5z' }, { c: [8, 8.5, 1.5] }],
+  note: [{ d: 'M6 3h9l4 4v14H6z' }, { d: 'M14.5 3v4.5H19' }, { d: 'M9 12h7M9 16h5' }],
+  pause: [{ d: 'M9 5v14M15 5v14' }],
+  bag: [{ d: 'M5 8h14l-1 13H6z' }, { d: 'M9 8V6.5a3 3 0 0 1 6 0V8' }],
 } satisfies Record<string, Shape[]>;
 
 export type IconName = keyof typeof ICONS;

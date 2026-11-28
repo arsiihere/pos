@@ -4525,6 +4525,15 @@ export const en = {
   'v.here_done': 'The kitchen cooks it now',
   // ---- 02b-TK BR-1 (02b v1.0.25 §6.16): after Customer is here, the planned ready time beside the struck-through promise ----
   'q.ready_planned': 'Ready ~{t}',
+  // ---- 02b-TK L-CLIENT-6a (kiosk home fidelity; strings-table.md) ----
+  'm.min': '{n} min',
+  'c.ready_by_sub': 'Tell the customer',
+  'c.counter': 'From the counter',
+  'c.kitchen': 'From the kitchen',
+  'c.times_none': 'Times show when the hub is back',
+  'c.note_add': 'Add note',
+  'c.note_edit': 'Edit note',
+  't.print': 'Print again',
   // ---- 02b-TK L-CLIENT-6b (frames Token*, Pay*, ItemSheet*, DealSheet, HeldDrawer, CustomerDisplay, PersonMenu; Urdu drafts in urdu-todo.md) ----
   'h.title': 'Held on this counter',
   'h.resume': 'Resume',
@@ -4549,11 +4558,9 @@ export const en = {
   'is.ready_by': 'Ready by {t}',
   'is.station_busy': '{station} station busy',
   'is.station_full': '{station} station full',
-  'c.note_add': 'Add note',
   'is.in_deal': 'In this deal',
   'is.part_pick': '{n}× — pick 1',
   'c.add_delta': 'Ready by {token}:',
-  'c.counter': 'From the counter',
   'v.late_chip': 'Late',
   'v.hurry': 'Hurry kitchen',
   'v.print_slip': 'Print slip',

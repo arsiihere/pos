@@ -28,6 +28,10 @@ export interface Toast {
   sub?: string;
   /** status is icon + word + colour: ok (check), info (i), warn (triangle); default ok */
   tone?: 'ok' | 'info' | 'warn';
+  /** 02b-TK L-CLIENT-6a item 9 (frame SentToast): the token shown big at the toast's start */
+  token?: string;
+  /** 02b-TK L-CLIENT-6a item 9 (frame SentToast "Print again"): one button on the toast */
+  action?: { label: string; run(): void };
 }
 
 /** How long the "Approved" / "Rejected" confirmation shows before the sheet closes. */

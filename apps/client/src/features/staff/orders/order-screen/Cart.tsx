@@ -67,24 +67,29 @@ export interface CartProps {
   holdKey?: boolean;
   /** 02b-TK A2 item 3 (frame HomeRush): the open line's ×2 ×4 ×6 ×8 chips (takeaway) */
   qchips?: boolean;
+  /** L-CLIENT-6a item 5 (frame HomeOffline): the hub is away — "Times show when the hub is back" */
+  offline?: boolean;
+  /** L-CLIENT-6a item 8 (frame CartNote): the order note, shown in a takeaway cart with Edit */
+  note?: string | undefined;
 }
 
-function GroupHead({ group, utcOffsetMs }: { group: CartGroup; utcOffsetMs: number }) {
+function GroupHead({ group, utcOffsetMs, takeaway }: { group: CartGroup; utcOffsetMs: number; takeaway: boolean }) {
   if (group.kind === 'counter')
     return (
       <li className="grp">
         <Ico name="tray" />
-        {t('cart.from_counter')}
+        {t(takeaway ? 'c.counter' : 'cart.from_counter')}
         <span className="end">
           <b className="num">{t('cart.now')}</b>
         </span>
       </li>
     );
+  // L-CLIENT-6a item 5 (frame HomeKiosk): a takeaway's kitchen group reads "From the kitchen · 1:42 PM"
   if (group.kind === 'promise')
     return (
       <li className="grp">
-        <Ico name="clock" />
-        {t('cart.food_together')}
+        <Ico name={takeaway ? 'pot' : 'clock'} />
+        {t(takeaway ? 'c.kitchen' : 'cart.food_together')}
         <span className="end" dir="ltr">
           <b className="num">{timeText(group.promise_ms, utcOffsetMs)}</b>
         </span>
@@ -92,8 +97,8 @@ function GroupHead({ group, utcOffsetMs }: { group: CartGroup; utcOffsetMs: numb
     );
   return (
     <li className="grp">
-      <Ico name="clock" />
-      {t('cart.food_together')}
+      <Ico name={takeaway ? 'pot' : 'clock'} />
+      {t(takeaway ? 'c.kitchen' : 'cart.food_together')}
     </li>
   );
 }
@@ -102,7 +107,9 @@ export function sendLabel(p: { problems: number; primary?: string | undefined })
   return p.problems > 0 ? fill(t('cart.fix_first'), { n: String(p.problems) }) : (p.primary ?? t('cart.send'));
 }
 
-export function CartList(p: Pick<CartProps, 'config' | 'unitOf' | 'utcOffsetMs' | 'groups' | 'actions' | 'qchips'> & { phoneTakeaway?: boolean }) {
+export function CartList(p: Pick<CartProps, 'config' | 'unitOf' | 'utcOffsetMs' | 'groups' | 'actions' | 'qchips'> & { phoneTakeaway?: boolean; takeaway?: boolean }) {
+  // L-CLIENT-6a item 5 (frames HomeKiosk, CartTimeDelta): every takeaway line carries its − n + stepper
+  const takeaway = p.takeaway === true || p.phoneTakeaway === true;
   return (
     <ul className="lines">
       {p.groups.length === 0 && (
@@ -114,8 +121,8 @@ export function CartList(p: Pick<CartProps, 'config' | 'unitOf' | 'utcOffsetMs' 
         </li>
       )}
       {p.groups.map(({ group, lines }, i) => [
-        <GroupHead key={`g${i}`} group={group} utcOffsetMs={p.utcOffsetMs} />,
-        ...lines.map((v) => <CartLineRow key={v.line.key} view={v} config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} actions={p.actions} qchips={p.qchips === true} alwaysStepper={p.phoneTakeaway === true} />),
+        <GroupHead key={`g${i}`} group={group} utcOffsetMs={p.utcOffsetMs} takeaway={takeaway} />,
+        ...lines.map((v) => <CartLineRow key={v.line.key} view={v} config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} actions={p.actions} qchips={p.qchips === true} alwaysStepper={takeaway} />),
       ])}
     </ul>
   );
@@ -151,8 +158,12 @@ export function Cart(p: CartProps) {
           <span>{fill(t('cart.cant_send'), { n: String(p.problems) })}</span>
         </div>
       )}
-      <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} qchips={p.qchips === true} />
+      <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} qchips={p.qchips === true} takeaway={p.itemsLabel === true} />
       <div className="cart__foot">
+        {p.itemsLabel === true ? (
+          // an empty takeaway cart has no time to tell (L-CLIENT-6a item 11): only the line sum
+          <ReadyPanel {...p} hideTime={empty && p.day === null} />
+        ) : (
         <div className="total">
           <div className={p.readyLater === true ? 'total__ready total__ready--later' : 'total__ready'}>
             <Ring size={56} pct={null} tone={p.ready_by === null ? 'mute' : p.readyLater === true ? 'info' : 'ok'}>
@@ -168,26 +179,34 @@ export function Cart(p: CartProps) {
               </div>
             )}
           </div>
-          {p.itemsLabel === true ? (
-            <div className="total__sum">
-              <small className="muted" data-items-label="">
-                {t('cart.items_label')}
-              </small>{' '}
-              <strong dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</strong>
-            </div>
-          ) : (
-            <strong dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</strong>
-          )}
+          <strong dir={MONEY_DIR}>{p.total_minor === null ? '—' : money(p.total_minor)}</strong>
         </div>
+        )}
         {p.day !== null ? (
           p.day
         ) : (
           <>
             {p.serve !== undefined && !empty && <ServeSwitch state={p.serve.state} onSet={p.serve.onSet} />}
             {!empty && p.serveChoice}
+            {/* L-CLIENT-6a item 8 (frame CartNote): a saved order note shows in the takeaway cart; its button edits it */}
+            {p.itemsLabel === true && p.note !== undefined && (
+              <div className="tk-note tk-note--set" data-note="">
+                <Ico name="note" />
+                <span className="tk-note__t" dir="auto">
+                  {p.note}
+                </span>
+              </div>
+            )}
             <div className="duo">
               <button type="button" className="btn" onClick={p.onNote}>
-                {t('cart.note')}
+                {p.itemsLabel === true ? (
+                  <>
+                    <Ico name="note" />
+                    {t(p.note === undefined ? 'c.note_add' : 'c.note_edit')}
+                  </>
+                ) : (
+                  t('cart.note')
+                )}
               </button>
               <button type="button" className="btn" disabled={empty} onClick={p.onHold}>
                 {t('cart.hold')}
@@ -200,8 +219,10 @@ export function Cart(p: CartProps) {
                   </>
                 )}
               </button>
+              {/* L-CLIENT-6a item 5: Print check bill sits in the Note · Hold row, so Send keeps its room */}
+              {p.itemsLabel === true && p.checkBill}
             </div>
-            {p.checkBill}
+            {p.itemsLabel !== true && p.checkBill}
             {p.pay !== undefined && p.problems === 0 ? (
               <PayActions pay={p.pay} off={empty || !p.canSend} onSend={p.onSend} />
             ) : (
@@ -217,6 +238,52 @@ export function Cart(p: CartProps) {
     </aside>
   );
 }
+
+/**
+ * L-CLIENT-6a item 5 (frames HomeKiosk, CartTimeDelta, PickupLater, HomeOffline): the takeaway cart's Ready by — a green
+ * panel "Ready by · Tell the customer 1:42 PM" with the reason line (what comes from the counter now), blue "Kitchen
+ * times it for" with a pickup; without a time it says why (offline, day not started, not previewed yet). Under it the
+ * line sum, labelled "Items" (02b v1.0.25 §8; 05 v1.0.35 §6.3a: not computeBill).
+ */
+function ReadyPanel(p: CartProps & { hideTime?: boolean }) {
+  const later = p.readyLater === true;
+  const counter = p.groups.find((g) => g.group.kind === 'counter');
+  const kitchen = p.groups.some((g) => g.group.kind !== 'counter');
+  const reason = counter !== undefined && kitchen && p.ready_by !== null && !later ? `${counter.lines.map((v) => nameOfLine(p.config, v)).join(' + ')}: ${t('cart.now')}` : null;
+  const none = p.ready_by === null;
+  const cls = ['tk-readyby', none ? 'tk-readyby--none' : later ? 'tk-readyby--later' : null].filter((c) => c !== null).join(' ');
+  return (
+    <>
+      {p.hideTime !== true && (
+      <div className={cls} data-ready="">
+        <span className="tk-readyby__ic">
+          <Ico name={later ? 'phone' : 'clock'} />
+        </span>
+        <div className="tk-readyby__t">
+          {none ? (
+            <b>{p.offline === true ? t('c.times_none') : p.day !== null ? t('c.times_day') : t('cart.times_later')}</b>
+          ) : (
+            <>
+              <small>{later ? t('c.ready_later') : `${t('c.ready_by')} · ${t('c.ready_by_sub')}`}</small>
+              <b dir="ltr">{timeText(p.ready_by!, p.utcOffsetMs)}</b>
+              {reason !== null && <span className="sub">{reason}</span>}
+            </>
+          )}
+        </div>
+      </div>
+      )}
+      <div className="tk-total">
+        <span data-items-label="">{t('cart.items_label')}</span>
+        <strong className="money" dir={MONEY_DIR}>
+          {p.total_minor === null ? '—' : money(p.total_minor)}
+        </strong>
+      </div>
+    </>
+  );
+}
+
+const nameOfLine = (config: BranchConfig, v: LineView) =>
+  v.line.deal_id !== undefined ? (config.deals.find((d) => d.deal_id === v.line.deal_id)?.name ?? '') : (config.items.find((i) => i.item_id === v.line.item_id)?.name ?? '');
 
 /** 02b-TK C3-1 (frames HomeKiosk, HomeOffline): Send · pay later (F9) and Send & pay (F8); offline pay later only. */
 function PayActions({ pay, off, onSend }: { pay: NonNullable<CartProps['pay']>; off: boolean; onSend(): void }) {

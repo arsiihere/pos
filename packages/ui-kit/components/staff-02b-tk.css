@@ -402,3 +402,273 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 .tk-drawer--phone .tk-drawer__b { padding: 12px; }
 .tk-drawer--phone .tk-drawer__f { padding: 10px 12px max(12px, env(safe-area-inset-bottom)); overflow-y: auto; max-height: 40dvh; }
 .tk-drawer--phone .tk-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* ---------- L-CLIENT-6a item 1: the kiosk home fits the screen (frames HomeKiosk, HomeRush, HomeTablet) ----------
+   The screen is the viewport: queue | menu | cart are three panes, each scrolling inside itself; the page never
+   scrolls and focusing an input never shifts it (overflow: clip refuses programmatic scrolling). The queue and the
+   cart have fixed widths (the hand-off's 440 / 560 at 1920; narrower on smaller kiosks), whatever a search, the
+   offline line or Urdu puts inside them. */
+.pu.staff:has(.osc--tk) { overflow: clip; }
+.order:has(> .osc--tk) { min-height: 0; overflow: clip; }
+.osc--tk { --tk-q-w: 440px; --tk-cart-w: 560px; min-height: 0; overflow: clip; }
+@media (max-width: 1700px) { .osc--tk { --tk-q-w: 380px; --tk-cart-w: 480px; } }
+@media (max-width: 1440px) { .osc--tk { --tk-q-w: 330px; --tk-cart-w: 420px; } }
+.osc--tk > .tk-q { flex: 0 0 var(--tk-q-w); width: var(--tk-q-w); min-width: 0; max-width: var(--tk-q-w); min-height: 0; display: flex; flex-direction: column; overflow: clip;
+  background: var(--surface-soft); border-inline-end: 1px solid var(--line); }
+.osc--tk > .tk-q .tk-q__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.osc--tk > .tk-q .tk-q__foot { flex: none; }
+.osc--tk > .menu, .osc--tk .tk-mid > .menu { min-height: 0; overflow: clip; }
+.osc--tk .menu > .items { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 10px 10px 12px; margin: -10px -10px 0; }
+.osc--tk > .cart { flex: 0 0 var(--tk-cart-w); width: var(--tk-cart-w); max-width: var(--tk-cart-w); min-height: 0; overflow: clip; }
+.osc--tk-tablet { --tk-cart-w: 440px; }
+.osc--tk > .cart > .lines { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.osc--tk > .cart > :not(.lines):not(.tk-paypanel) { flex: none; }
+.osc--tk .tk-qr__m, .osc--tk .tk-rt__open { min-width: 0; overflow: hidden; }
+/* the cart's parts on the takeaway kiosk (frame HomeKiosk): name / phone side by side, the pickup row, no head */
+.osc--tk > .cart > .cart__head { display: none; }
+.osc--tk > .cart .cust.duo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin: 0; padding: 14px 16px 8px; background: var(--surface-soft); }
+.osc--tk > .cart .cust .fld { min-width: 0; gap: 4px; }
+.osc--tk > .cart .cust .fld__l { font-size: 14px; color: var(--ink-muted); }
+.osc--tk > .cart .cust .inp { width: 100%; min-width: 0; box-sizing: border-box; height: 56px; min-height: 56px; border: 1.5px solid var(--control-edge); box-shadow: none; background: var(--surface-raised); font: 600 18px/1 var(--font-sans); }
+.osc--tk > .cart .cust .inp:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); outline: none; }
+.osc--tk > .cart .tk-serve[data-pickup-row] { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 10px; border-radius: 0; margin: 0; padding: 4px 16px 12px; background: var(--surface-soft); border-bottom: 1px solid var(--line); }
+.osc--tk > .cart .tk-serve[data-pickup-row] > b { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink-muted); }
+.osc--tk > .cart .tk-serve[data-pickup-row] > b .ico { width: 18px; height: 18px; }
+.osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick { flex: 1 1 0; min-width: 0; }
+.osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick button { min-width: 0; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick button.is-sel { background: var(--chrome); border-color: var(--chrome); color: var(--on-chrome); }
+.osc--tk > .cart .tk-serve[data-pickup-row] > .fld, .osc--tk > .cart .tk-serve[data-pickup-row] > .fld__e { flex-basis: 100%; }
+.osc--tk > .cart .cart__foot { padding: 12px 16px 14px; gap: 10px; }
+.osc--tk > .cart .cart__foot .duo { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; }
+.osc--tk > .cart .cart__foot .duo > * { min-width: 0; }
+.osc--tk > .cart .tk-acts > * { min-width: 0; padding: 0 12px; }
+@media (max-height: 820px) {
+  .osc--tk > .cart .cust.duo { padding-top: 10px; }
+  .osc--tk > .cart .cust .inp { height: 48px; min-height: 48px; }
+  .osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick button { min-height: 44px; }
+  .osc--tk > .cart .cart__foot .btn, .osc--tk > .cart .cart__foot .tk-btn { min-height: 48px; }
+  .osc--tk > .cart .tk-acts .tk-btn--xl, .osc--tk > .cart .tk-acts .tk-btn--lg { min-height: 56px; font-size: 18px; }
+}
+/* the shell's tabs keep one row on a smaller kiosk (1366): they shrink, never wrap */
+.top .tabs-top { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+.top .tabs-top .btn { flex: 0 1 auto; min-width: 0; white-space: nowrap; }
+@media (max-width: 1500px) { .top .tabs-top .btn { padding-inline: 12px; gap: 6px; } .top .tk-ctx small { display: none; } }
+@media (max-width: 1440px) { .osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick { flex-basis: 100%; } .osc--tk .menu > .tk-hint { font-size: 13px; line-height: 1.8; padding: 6px 10px; } }
+
+/* ---------- L-CLIENT-6a item 2: the takeaway menu tile (frames HomeKiosk, HomeRush, TileStates) ---------- */
+.osc--tk .items, .order--tk-phone .items { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1440px) { .osc--tk .items { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.osc--tk .items.items--rush { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 1440px) { .osc--tk .items.items--rush { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.mi.mi--tk { flex-direction: column; overflow: visible; min-height: 140px; padding: 12px 14px; gap: 6px; border-radius: var(--radius-lg); background: var(--surface-raised);
+  border: 1.5px solid var(--line); box-shadow: var(--shadow-raise); }
+.mi.mi--tk .mi__body { flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; padding: 0; min-width: 0; }
+.mi--tk .tk-tile__top { display: flex; align-items: flex-start; gap: 12px; min-width: 0; padding-inline-end: 18px; }
+.mi--tk .mi__name { font-weight: 800; font-size: 18px; line-height: 1.2; min-width: 0; overflow-wrap: break-word; hyphens: auto; }
+[dir="rtl"] .mi--tk .mi__name { line-height: 1.6; }
+.mi--tk .mi__sub { font-size: 14px; color: var(--ink-muted); margin-top: -2px; }
+.mi--tk .mi__foot { margin-top: auto; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.mi--tk .mi__foot .price { font: 800 18px/1 var(--font-sans); white-space: nowrap; }
+.mi--tk .mi__foot .tag { margin-inline-start: auto; position: static; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: var(--radius-pill);
+  font-weight: 700; font-size: 15px; white-space: nowrap; background: var(--surface-sunken); color: var(--ink-muted); box-shadow: none; }
+.mi--tk .mi__foot .tag .ico { width: 17px; height: 17px; }
+.mi--tk .mi__foot .tag.c-ok { background: var(--ok-tint); color: var(--ok); }
+.mi--tk .mi__foot .tag.c-warn { background: var(--warn-tint); color: var(--warn); }
+.mi--tk .mi__foot .tag.c-danger { background: var(--danger-tint); color: var(--danger); }
+.mi--tk .tk-ph { flex: none; width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; color: #fff;
+  background: radial-gradient(circle at 38% 34%, var(--ph1), var(--ph2)); box-shadow: inset 0 0 0 4px rgb(42 29 24 / .85), 0 2px 6px rgb(0 0 0 / .18); }
+.mi--tk .tk-ph .ico { width: 28px; height: 28px; stroke-width: 1.8; opacity: .92; }
+.tk-ph--0 { --ph1: #E9A65A; --ph2: #8A3B17; }
+.tk-ph--1 { --ph1: #E07A3A; --ph2: #7A2410; }
+.tk-ph--2 { --ph1: #C98A4B; --ph2: #5A2E12; }
+.tk-ph--3 { --ph1: #D8694A; --ph2: #6B1E14; }
+.tk-ph--4 { --ph1: #E8C27A; --ph2: #9A6A22; }
+.tk-ph--5 { --ph1: #8FB98A; --ph2: #3D6B3A; }
+.mi--tk .qty { position: absolute; top: -8px; inset-inline-end: -8px; inset-inline-start: auto; min-width: 36px; height: 36px; padding: 0 6px; border-radius: 18px;
+  background: var(--chrome); color: var(--on-chrome); display: grid; place-items: center; font: 800 18px/1 var(--font-sans); border: 3px solid var(--surface); box-shadow: none; }
+.mi--tk.picked { border-color: var(--accent); }
+.mi--tk.off { background: var(--surface-sunken); box-shadow: none; }
+.mi--tk.off .tk-ph { filter: grayscale(1); opacity: .45; }
+.mi--tk.off .mi__name, .mi--tk.off .price { color: var(--ink-faint); }
+.mi--split .tk-split { margin-top: 2px; }
+/* rush: dense tiles, no placeholder, no sub line */
+.items--rush .mi.mi--tk { min-height: 116px; padding: 10px 12px; }
+.items--rush .mi--tk .tk-ph { display: none; }
+.osc--tk-tablet .mi--tk .tk-ph, .order--tk-phone .mi--tk .tk-ph { width: 52px; height: 52px; }
+.order--tk-phone .mi--tk .tk-ph { width: 40px; height: 40px; }
+.order--tk-phone .mi--tk .tk-ph .ico { width: 20px; height: 20px; }
+.order--tk-phone .items { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.order--tk-phone .mi.mi--tk { min-height: 118px; padding: 10px; }
+
+/* ---------- L-CLIENT-6a item 3: the item search (frame KeyboardMode) ---------- */
+.osc--tk .tk-ksearch .search, .order--tk-phone .tk-ksearch .search { display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 16px; border-radius: var(--radius-md);
+  border: 1.5px solid var(--control-edge); background: var(--surface-raised); color: var(--ink-muted); font-size: 18px; box-shadow: none; cursor: text; }
+.osc--tk .tk-ksearch .search:focus-within, .order--tk-phone .tk-ksearch .search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); color: var(--ink); }
+.osc--tk .tk-ksearch .search .ico, .tk-search .ico { width: 24px; height: 24px; flex: none; }
+.osc--tk .tk-ksearch .search input, .order--tk-phone .tk-ksearch .search input { flex: 1 1 auto; min-width: 0; height: 100%; border: 0; outline: none; background: transparent; font: 600 19px/1 var(--font-sans); color: var(--ink); padding: 0; }
+.osc--tk .tk-ksearch .search input::placeholder { color: var(--ink-muted); font-weight: 500; }
+.osc--tk .tk-ksearch .search input::-webkit-search-cancel-button { display: none; }
+.tk-sugg { top: calc(100% + 6px); max-height: min(60vh, 520px); overflow-y: auto; }
+.tk-sugg__r .tk-ph { width: 44px; height: 44px; flex: none; border-radius: 50%; display: grid; place-items: center; color: #fff;
+  background: radial-gradient(circle at 38% 34%, var(--ph1), var(--ph2)); box-shadow: inset 0 0 0 3px rgb(42 29 24 / .85); }
+.tk-sugg__r .tk-ph .ico { width: 20px; height: 20px; }
+.tk-sugg__r .muted { margin-inline-start: auto; font-weight: 700; }
+.tk-sugg__r .tk-kbd { margin-inline-start: 0; }
+.tk-search input::-webkit-search-cancel-button { display: none; }
+@media (max-width: 1440px) {
+  .osc--tk .mi--tk .tk-ph { width: 44px; height: 44px; box-shadow: inset 0 0 0 3px rgb(42 29 24 / .85); }
+  .osc--tk .mi--tk .tk-ph .ico { width: 20px; height: 20px; }
+  .osc--tk .mi--tk .tk-tile__top { gap: 8px; }
+  .osc--tk .mi--tk .mi__name { font-size: 16px; }
+  .osc--tk .mi.mi--tk { min-height: 124px; padding: 10px 12px; }
+}
+
+/* ---------- L-CLIENT-6a item 5: the takeaway cart (frames HomeKiosk, CartTimeDelta, PickupLater, HomeOffline) ---------- */
+.osc--tk > .cart > .lines { padding: 4px 0; gap: 0; }
+.osc--tk > .cart .grp { padding: 12px 16px 4px; font-size: 15px; font-weight: 700; color: var(--ink-muted); }
+.osc--tk > .cart .grp .ico { width: 18px; height: 18px; }
+.osc--tk > .cart .grp b { font: 800 16px/1 var(--font-sans); }
+.osc--tk > .cart .ln { grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 16px; border-radius: 0; border-bottom: 1px solid var(--line); box-shadow: none; }
+.osc--tk > .cart .ln + .ln { box-shadow: none; }
+.osc--tk > .cart .ln.open { background: var(--accent-tint); }
+.osc--tk > .cart .ln > .step { height: 56px; min-height: 56px; border-radius: 14px; border: 1.5px solid var(--control-edge); background: var(--surface-raised); box-shadow: none; }
+.osc--tk > .cart .ln > .step button { width: 48px; height: 100%; color: var(--accent-ink); }
+.osc--tk > .cart .ln > .step output { min-width: 32px; font: 800 20px/1 var(--font-sans); }
+.osc--tk > .cart .ln__m b { font-weight: 800; font-size: 18px; line-height: 1.25; overflow-wrap: break-word; }
+.osc--tk > .cart .ln__m span { font-size: 15px; color: var(--ink-muted); }
+.osc--tk > .cart .ln__p { font-weight: 800; font-size: 18px; }
+.osc--tk > .cart .ln .eta { display: inline-flex; align-items: center; gap: 4px; font-size: 15px; font-weight: 700; color: var(--ok); }
+.osc--tk > .cart .ln .eta.none { color: var(--ink-faint); }
+.osc--tk > .cart .ln .eta .ico { width: 16px; height: 16px; }
+.tk-readyby { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: var(--radius-md); background: var(--ok-tint); color: var(--ok); }
+.tk-readyby__ic { width: 52px; height: 52px; border-radius: 50%; background: var(--ok-fill); color: #fff; display: grid; place-items: center; flex: none; }
+.tk-readyby__ic .ico { width: 26px; height: 26px; }
+.tk-readyby__t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tk-readyby__t small { display: block; font-size: 15px; font-weight: 700; color: var(--ink-muted); }
+.tk-readyby__t b { font: 800 28px/1.1 var(--font-sans); color: var(--ok); }
+.tk-readyby__t span.sub { display: block; font-size: 15px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-readyby--none { background: var(--surface-sunken); color: var(--ink-muted); }
+.tk-readyby--none .tk-readyby__ic { background: var(--ink-faint); }
+.tk-readyby--none .tk-readyby__t b { color: var(--ink-muted); font-size: 19px; line-height: 1.3; font-family: var(--font-sans); }
+[dir="rtl"] .tk-readyby--none .tk-readyby__t b { font-family: var(--font-urdu); line-height: 1.7; }
+.tk-readyby--later { background: var(--info-tint); }
+.tk-readyby--later .tk-readyby__ic { background: var(--info-fill); }
+.tk-readyby--later .tk-readyby__t b { color: var(--info); }
+.tk-total { display: flex; align-items: baseline; gap: 12px; }
+.tk-total > span { font-size: 16px; font-weight: 700; color: var(--ink-muted); }
+.tk-total .money { margin-inline-start: auto; font: 800 36px/1 var(--font-sans); letter-spacing: -0.02em; }
+@media (max-height: 820px) {
+  .osc--tk > .cart .tk-readyby { padding: 8px 12px; }
+  .osc--tk > .cart .tk-readyby__ic { width: 44px; height: 44px; }
+  .osc--tk > .cart .tk-readyby__t b { font-size: 24px; }
+  .osc--tk > .cart .tk-total .money { font-size: 28px; }
+  .osc--tk > .cart .ln { padding: 6px 12px; }
+  .osc--tk > .cart .ln > .step { height: 48px; min-height: 48px; }
+}
+/* L-CLIENT-6a item 8 (frame CartNote): the saved order note in the cart */
+.tk-note { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 14px; border-radius: 12px; border: 1.5px solid var(--control-edge); background: var(--surface-soft); }
+.tk-note .ico { width: 20px; height: 20px; flex: none; }
+.tk-note__t { flex: 1; min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-note--set { background: var(--warn-tint); border-color: color-mix(in oklab, var(--warn-fill) 45%, transparent); color: var(--warn); }
+.tk-note--set .tk-note__t { color: var(--ink); font-weight: 700; }
+.osc--tk > .cart .cart__foot .duo .btn { gap: 8px; }
+.osc--tk > .cart .cart__foot .duo .btn .ico { width: 20px; height: 20px; }
+
+/* ---------- L-CLIENT-6a item 9: toasts over the menu, never over the cart (frames SentToast, HandoverUndo) ---------- */
+.pu.staff:has(.osc--tk) > .toast, .pu.staff:has(.osc--tk) .toast { position: fixed; top: 156px; bottom: auto; inset-inline-start: 456px; inset-inline-end: auto; max-width: 888px; z-index: 40; }
+@media (max-width: 1700px) { .pu.staff:has(.osc--tk) .toast { inset-inline-start: 396px; max-width: calc(100vw - 380px - 480px - 32px); } }
+@media (max-width: 1440px) { .pu.staff:has(.osc--tk) .toast { inset-inline-start: 346px; max-width: calc(100vw - 330px - 420px - 32px); } }
+.pu.staff:has(.osc--tk-tablet) .toast { inset-inline-start: 16px; max-width: calc(100vw - 440px - 32px); }
+.toast.toast--token { gap: 16px; padding: 12px 14px 12px 18px; background: var(--ok); color: #fff; font-size: 18px; }
+.toast--token small { color: rgb(255 255 255 / .85); }
+.toast__tok { font: 800 44px/1 var(--font-display); padding-inline-end: 14px; border-inline-end: 2px solid rgb(255 255 255 / .3); }
+.toast .toast__act { min-height: 48px; margin-inline-start: 8px; background: rgb(255 255 255 / .16); border-color: transparent; color: inherit; }
+/* "Your unsent order is back" sits over the menu, not the cart */
+.order:has(> .osc--tk) > .abns { position: fixed; top: 156px; inset-inline-start: 456px; inset-inline-end: auto; bottom: auto; max-width: 720px; z-index: 39; }
+@media (max-width: 1440px) { .order:has(> .osc--tk) > .abns { inset-inline-start: 346px; max-width: calc(100vw - 330px - 420px - 32px); } }
+
+/* ---------- L-CLIENT-6a items 11–12: the Live / Rush / Offline pill, phone orders (frames ShellAnatomy, HomeKiosk) ---------- */
+.top .live.tk-live { display: inline-flex; align-items: center; gap: 8px; }
+.top .live.tk-live:not(.tk-live--rush) .ico { display: none; }
+.top .live.tk-live:not(.tk-live--rush)::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--ok-fill); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ok-fill) 35%, transparent); }
+.top .live.tk-live--rush::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #fff; }
+.top .live.tk-live--rush .ico { display: none; }
+.tk-tok.tk-tok--phone { display: inline-flex; flex-direction: column; gap: 2px; font: 800 15px/1 var(--font-sans); }
+.tk-tok--phone .ico { width: 20px; height: 20px; }
+
+/* ---------- L-CLIENT-6a: fixes from the 1366 / 1280 captures ---------- */
+.top .tabs-top { display: flex; gap: 4px; }
+@media (max-width: 1400px) {
+  .top .tabs-top .btn { padding-inline: 10px; font-size: 15px; }
+  .top .tk-ctx { padding-inline-end: 10px; }
+  .top .tk-ctx b { font-size: 17px; max-width: 190px; }
+}
+@media (max-width: 1300px) { .top .tabs-top .btn .ico { display: none; } }
+/* ready tiles in a narrow rail: the Paid / Due chip under the token, never over it */
+@media (max-width: 1440px) {
+  .osc--tk > .tk-q .tk-rt { min-height: 0; padding: 8px 10px 10px; }
+  .osc--tk > .tk-q .tk-rt .tok { font-size: 36px; }
+  .osc--tk > .tk-q .tk-rt .tk-chip { position: static; align-self: flex-start; height: 26px; font-size: 13px; padding: 0 8px; }
+  .osc--tk > .tk-q .tk-rt__act { font-size: 14px; }
+  .osc--tk > .tk-q .tk-qr--q { flex-wrap: wrap; }
+  .osc--tk > .tk-q .tk-qr--q .tk-qr__r { flex-basis: 100%; align-items: flex-start; }
+}
+/* Ask a manager on a Due ready tile (02b §3.7a: shown on the tile): one compact line */
+.tk-rt .tk-btn[data-ask] { min-height: 40px; padding: 0 10px; font-size: 14px; gap: 6px; }
+.tk-rt .tk-btn[data-ask] .ico { width: 16px; height: 16px; }
+/* the section chips scroll sideways inside the menu when they do not fit */
+.osc--tk .menu > .pills { overflow-x: auto; scrollbar-width: none; flex: none; }
+.osc--tk .menu > .pills .pill { flex: none; }
+/* a short kiosk (768 / 800 high): Ready by and the line sum share one row */
+@media (max-height: 820px) {
+  .osc--tk > .cart .cart__foot { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; row-gap: 8px; }
+  .osc--tk > .cart .cart__foot > * { grid-column: 1 / -1; }
+  .osc--tk > .cart .cart__foot > .tk-readyby { grid-column: 1; }
+  .osc--tk > .cart .cart__foot > .tk-total { grid-column: 2; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .osc--tk > .cart .tk-serve { padding: 6px 10px; gap: 4px; }
+  .osc--tk > .cart .tk-serve .tk-pick button { min-height: 44px; }
+}
+/* the phone cart's pickup row, as on the kiosk (frame PhoneCart) */
+.order--tk-phone .tk-serve[data-pickup-row] { background: transparent; padding: 0; }
+.order--tk-phone .tk-serve[data-pickup-row] > b { color: var(--ink-muted); font-size: 14px; }
+.order--tk-phone .tk-serve[data-pickup-row] .tk-pick button { padding: 0 2px; font-size: 14px; white-space: nowrap; }
+.order--tk-phone .tk-serve[data-pickup-row] .tk-pick button.is-sel { background: var(--chrome); border-color: var(--chrome); color: var(--on-chrome); }
+/* a short kiosk with the offline bar: the cart keeps room for its lines (L-CLIENT-6a item 1) */
+@media (max-height: 820px) {
+  .osc--tk > .cart > .lines { min-height: 120px; }
+  .osc--tk > .cart .tk-readyby--none .tk-readyby__t b { font-size: 16px; line-height: 1.25; }
+  .osc--tk > .cart .tk-readyby--none .tk-readyby__ic { width: 36px; height: 36px; }
+  .osc--tk > .cart .tk-hint--warn { font-size: 13px; padding: 6px 10px; }
+  .osc--tk > .cart .tk-serve b { font-size: 14px; }
+  .osc--tk > .cart .tk-serve .tk-pick button { min-height: 40px; font-size: 14px; }
+  .osc--tk > .cart .cart__foot .duo .btn, .osc--tk > .cart .cart__foot .duo .tk-btn { min-height: 44px; }
+  .osc--tk > .cart .tk-acts .tk-btn--xl, .osc--tk > .cart .tk-acts .tk-btn--lg { min-height: 52px; }
+  .osc--tk > .cart .cust.duo { padding: 8px 12px 4px; }
+  .osc--tk > .cart .cust .fld__l { font-size: 13px; }
+  .osc--tk > .cart .tk-serve[data-pickup-row] { padding: 2px 12px 8px; }
+}
+@media (max-width: 1440px) { .osc--tk > .cart .cart__foot .duo .btn, .osc--tk > .cart .cart__foot .duo .tk-btn { font-size: 15px; padding-inline: 8px; gap: 6px; white-space: nowrap; } }
+
+/* ---------- L-CLIENT-6a, from 6b's checks ----------
+   (1) the queue rail's width never follows its content, however many orders and long summaries it holds: its size
+   is the layout's alone (contain: inline-size), and every row's text ellipsises inside it. */
+.osc--tk > .tk-q, .tk-q.tk-q--drawer, .order--tk-phone .tk-q--tab { contain: inline-size; min-width: 0; }
+.tk-q__scroll, .tk-q__top, .tk-ready, .tk-ready > .tk-rt, .tk-qr { min-width: 0; max-width: 100%; }
+.tk-ready { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tk-qr { overflow: hidden; }
+.tk-qr__m b, .tk-qr__m small { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-rt__who, .tk-rt__open > small { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* (2) the cart lines always keep room (Urdu's taller lines at 1366 × 768): the lines take at least their basis; the
+   name / phone and pickup rows give way first and scroll inside themselves. */
+.osc--tk > .cart > .lines { flex: 1 0 128px; }
+.osc--tk > .cart > .cust:not(.lines):not(.tk-paypanel), .osc--tk > .cart > .tk-serve[data-pickup-row]:not(.lines):not(.tk-paypanel) { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.osc--tk > .cart > .cust { min-height: 64px; }
+@media (max-height: 820px) {
+  [dir="rtl"] .osc--tk > .cart .cust .fld__l { line-height: 1.5; }
+  [dir="rtl"] .osc--tk > .cart .tk-serve[data-pickup-row] > b { line-height: 1.5; }
+  [dir="rtl"] .osc--tk > .cart .tk-serve[data-pickup-row] .tk-pick button { line-height: 1.4; }
+  [dir="rtl"] .osc--tk > .cart .tk-readyby__t small, [dir="rtl"] .osc--tk > .cart .tk-serve b { line-height: 1.5; }
+}
+/* the landscape tablet keeps its 3 columns (frame HomeTablet): above the kiosk's 4 / 3 */
+.osc--tk.osc--tk-tablet .items { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.osc--tk.osc--tk-tablet .items.items--rush { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
