@@ -14,6 +14,7 @@ import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { audienceAllows } from '../../src/ws/audience';
 import type { SocketCtx } from '../../src/ws/catch-up';
 import { aDirectory } from '../helpers/fixtures';
+import { seenDue } from '../voids/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { fixtureMenu, FX, openDay } from '../orders/fixtures';
@@ -113,6 +114,8 @@ function signIn(staffId: string): Who {
 
 let seq = 0;
 async function post(who: Who, path: string, command_type: string, payload: Record<string, unknown>, o: { commandId?: string; queuedAt?: number } = {}) {
+  // ⚠️ 05 v1.0.37 §6.9 (R2-1): a payment carries the due the bill shows, as a client sends it
+  if (command_type === 'AddPayment' && !('expected_due_minor' in payload)) payload = { ...payload, expected_due_minor: await seenDue(hub, who as Parameters<typeof seenDue>[1], payload) };
   seq += 1;
   const res = await hub.app.inject({
     method: 'POST',

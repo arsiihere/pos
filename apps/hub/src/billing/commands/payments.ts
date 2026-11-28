@@ -1,4 +1,4 @@
-// 05 §6.9 `AddPayment`, §6.10 `RemovePayment` (task 16), §3.5 (7), §3.7, B10, B11, B30, H1-20, H8-3 / R-46, R-44.
+// 05 §6.9 `AddPayment` (⚠️ v1.0.37 R2-1: `expected_due_minor`, `BILL_DUE_CHANGED`), §6.10 `RemovePayment` (task 16), §3.5 (7), §3.7, B10, B11, B30, H1-20, H8-3 / R-46, R-44.
 // Grant first (the pipeline's `take-payment`, 403 before any read), ensure bill inside the writer transaction, the scope
 // last (C8). The money is the bill view's own reading (queries/bill.ts exports) and compute.ts: the split before this
 // payment gives the dues an `in` / `out` is held to, the split with it gives the result (M-7). The reference text goes
@@ -49,6 +49,9 @@ export const AddPaymentPayload = z
     mode_id: z.string().min(1),
     direction: z.enum(['in', 'out']),
     amount_minor: Minor,
+    // ⚠️ 05 v1.0.37 §6.9 (owner 2026-11-28 QA-R2, R2-1; BUG-1): the due the cashier saw — the due field this payment is
+    // held to, of the split before it (an in: cash_due / card_due; an out: its refund due). Required.
+    expected_due_minor: z.number().int().min(0).max(MAX_MINOR),
     tendered_minor: Minor.optional(),
     reference: z.string().min(1).max(60).optional(),
   })
@@ -132,6 +135,18 @@ export const AddPayment = defineCommand({
       (JSON.parse(s.payments_json) as PaymentRow[]).map((x) => ({ split_no: s.split_no, payment_class: x.payment_class, direction: x.direction, amount_minor: x.amount_minor, tendered_minor: x.tendered_minor })),
     );
     const before = splitOf(computeBill({ ...base, plan, payments: existing }), p.split_no);
+
+    // ⚠️ 05 v1.0.37 §6.9 (R2-1): a stale screen (the bill changed since it was read) is refused before any amount rule;
+    // nothing written. A resend with the same command_id replays the stored reply and never reaches here (00 pipeline).
+    const seen =
+      p.direction === 'in'
+        ? payment_class === 'digital'
+          ? before.card_due_minor
+          : before.cash_due_minor
+        : payment_class === 'digital'
+          ? before.card_refund_due_minor
+          : before.cash_refund_due_minor;
+    if (p.expected_due_minor !== seen) throw new DomainError('BILL_DUE_CHANGED', { split_no: p.split_no, expected_minor: p.expected_due_minor, due_minor: seen });
 
     // §3.5 (7), H16-3, H17-1: an in only while B > 0 and ≤ its due field; an out ≤ its type's refund due
     const rounding = base.rules.rounding;

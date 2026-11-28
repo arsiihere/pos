@@ -74,6 +74,16 @@ export interface BillViewPayment {
   taken_by_staff_id: string;
 }
 
+export interface SplitDues {
+  card_due_minor: number;
+  cash_due_minor: number;
+  card_refund_due_minor: number;
+  cash_refund_due_minor: number;
+}
+const NO_DUES: SplitDues = { card_due_minor: 0, cash_due_minor: 0, card_refund_due_minor: 0, cash_refund_due_minor: 0 };
+/** An open split's four dues from its computeBill entry (§6.1 `splits[].dues`, v1.0.37). */
+export const splitDues = (r: SplitDues): SplitDues => ({ card_due_minor: r.card_due_minor, cash_due_minor: r.cash_due_minor, card_refund_due_minor: r.card_refund_due_minor, cash_refund_due_minor: r.cash_refund_due_minor });
+
 export interface BillViewSplit {
   split_no: number;
   state: 'open' | 'closed';
@@ -81,6 +91,11 @@ export interface BillViewSplit {
   payments: BillViewPayment[];
   totals: { cash: Totals; digital: Totals; as_paid: Totals };
   balance_minor: number;
+  /**
+   * ⚠️ 05 v1.0.37 §6.1 (QA-R2, R2-1): the split's four dues exactly as §3.5 (7) and `AddPayment` compute them (the
+   * same computeBill result); the screen sends the one its amount is held to as `expected_due_minor`. 0 on a closed split.
+   */
+  dues: SplitDues;
   /** ⚠️ 05 v1.0.29 (R-90): `invoice_id` is the `ref_id` of PrintBillDocument { doc: 'receipt' } (§6.22). */
   invoice: { invoice_id: string; invoice_ref: string; fiscal_number: string | null; fiscal_state: string | null } | null;
 }
@@ -477,6 +492,7 @@ export function closedSplitView(s: SplitRow, splitMode: BillHead['split_mode'], 
     payments,
     totals: { cash: t, digital: t, as_paid: t },
     balance_minor: 0,
+    dues: NO_DUES,
     // the joined invoice row matched `s.invoice_id` (SPLITS_OF_BILL), so it is set whenever `invoice_ref` is (R-90)
     invoice: s.invoice_ref === null || s.invoice_id === null ? null : { invoice_id: s.invoice_id, invoice_ref: s.invoice_ref, fiscal_number: s.fiscal_number, fiscal_state: s.fiscal_state },
   };
@@ -572,6 +588,7 @@ export function billView(c: BillViewCtx, ref: BillRef): BillView {
       payments,
       totals: { cash: toTotals(r.totals.cash), digital: toTotals(r.totals.digital), as_paid: toTotals(r.totals.as_paid) },
       balance_minor: r.balance_minor,
+      dues: splitDues(r),
       invoice: null,
     };
   });

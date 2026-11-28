@@ -82,3 +82,56 @@ export function keyBalances(db: Database.Database, bill_keys: readonly string[])
   }
   return out;
 }
+
+// ⚠️ 05 v1.0.37 §6.25 (owner 2026-11-28 QA-R2, BUG-11): the seating twin of KEY_BALANCES for the day-close list — per
+// asked seating, its unbilled, uncancelled orders' lines (open-bills' SEATINGS rows) and its live seating bill
+// (non-closed, non-absorbed, outside a corrections reopen) with the same columns. 1 statement for any number of seatings.
+const SEATING_BALANCES = `
+WITH wanted AS (SELECT DISTINCT value AS seating_id FROM json_each(@seatings)),
+so AS (
+  SELECT so.seating_id, o.order_id, o.placed_at FROM seating_orders so JOIN orders o ON o.order_id = so.order_id
+  WHERE so.seating_id IN (SELECT seating_id FROM wanted) AND o.cancelled_at IS NULL AND o.billed_at IS NULL AND ${NOT_IN_CORRECTIONS})
+SELECT w.seating_id,
+  (SELECT business_date FROM billing_day WHERE k = 1) AS billing_date,
+  (SELECT COUNT(*) FROM so x WHERE x.seating_id = w.seating_id) AS order_count,
+  ${lineRows(`so x JOIN orders o ON o.order_id = x.order_id JOIN order_lines l ON l.order_id = o.order_id WHERE x.seating_id = w.seating_id`)} AS sums,
+  b.bill_id, b.state, b.sc_bp, b.sc_removed, b.discount_json, b.prices_include_tax, b.rounding_json, b.split_mode,
+  COALESCE((SELECT SUM(i.discount_minor) FROM bill_splits bs JOIN invoices i ON i.invoice_id = bs.invoice_id
+            WHERE bs.bill_id = b.bill_id AND bs.state = 'closed'), 0) AS closed_discount,
+  (SELECT json_group_array(d.order_item_id) FROM bill_discount_lines d WHERE d.bill_id = b.bill_id) AS discount_line_ids,
+  (SELECT json_group_array(json_object('id', c.order_item_id, 'units', c.units, 'share', c.share_minor))
+     FROM closed_split_units c WHERE c.bill_id = b.bill_id) AS closed,
+  ${OPEN_SPLIT_COLUMNS}
+FROM wanted w
+LEFT JOIN bills b ON b.bill_id = (
+  SELECT x.bill_id FROM bills x
+  WHERE x.scope = 'seating' AND x.seating_id = w.seating_id AND x.state <> 'closed' AND x.absorbed_into IS NULL
+    AND x.reopen_mode IS NOT 'corrections'
+  LIMIT 1)`;
+
+type SeatingRow = Omit<Row, 'bill_key' | 'order_type'> & { seating_id: string; order_count: number };
+
+/** §6.25 (v1.0.37): `Map<seating_id, { due_minor, state }>` as keyBalances, for dine-in seatings; 1 statement, 0 for []. */
+export function seatingBalances(db: Database.Database, seating_ids: readonly string[]): Map<string, KeyBalance> {
+  const out = new Map<string, KeyBalance>();
+  if (seating_ids.length === 0) return out;
+  const rows = db.prepare(SEATING_BALANCES).all({ seatings: JSON.stringify(seating_ids) }) as SeatingRow[]; // 1
+  const config = branchConfig();
+  for (const r of rows) {
+    if (r.order_count === 0) {
+      out.set(r.seating_id, { due_minor: 0, state: 'none' });
+      continue;
+    }
+    if (config === null || r.billing_date === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
+    const { billing, rules } = billingAt(config, r.billing_date);
+    const bill: OpenPartBill | null = r.bill_id === null ? null : (r as unknown as OpenPartBill);
+    const { due_minor } = openPart(billing, rules, r.billing_date, {
+      order_type: 'dine_in',
+      sums: JSON.parse(r.sums) as Sum[],
+      closed: JSON.parse(r.closed) as Array<{ id: string; units: number; share: number }>,
+      bill,
+    });
+    out.set(r.seating_id, { due_minor, state: r.state ?? 'projected' });
+  }
+  return out;
+}

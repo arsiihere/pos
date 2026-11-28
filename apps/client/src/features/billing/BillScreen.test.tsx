@@ -288,7 +288,7 @@ describe('[05 §8 pad; §6.9] payment pad', () => {
     v.click(v.button('Add payment'));
     await flush();
     expect(s.command.mock.calls[0]![0]).toBe('AddPayment');
-    expect(s.command.mock.calls[0]![1]).toEqual({ bill_ref: { bill_id: 'B7' }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: 662_400, tendered_minor: 700_000 });
+    expect(s.command.mock.calls[0]![1]).toEqual({ bill_ref: { bill_id: 'B7' }, split_no: 1, mode_id: 'cash', direction: 'in', amount_minor: 662_400, expected_due_minor: 662_400, tendered_minor: 700_000 });
     // the hub's figure (37 500 here), never 7 000 − 6 624 computed on the screen
     expect(text(v, '.b5-change b')).toBe('Rs 375.00');
   });
@@ -319,7 +319,7 @@ describe('[05 §8 pad; §6.9] payment pad', () => {
     await flush();
     v.click(v.button('Add payment'));
     await flush();
-    expect(s.command.mock.calls[0]![1]).toEqual({ bill_ref: { bill_id: 'B7' }, split_no: 1, mode_id: 'jazz', direction: 'in', amount_minor: 599_600, reference: 'TX-77' });
+    expect(s.command.mock.calls[0]![1]).toEqual({ bill_ref: { bill_id: 'B7' }, split_no: 1, mode_id: 'jazz', direction: 'in', amount_minor: 599_600, expected_due_minor: 599_600, reference: 'TX-77' });
     // [B30] the reference is never kept on the screen after the send
     expect(field(v, 'Reference')?.value ?? '').toBe('');
   });
@@ -395,7 +395,7 @@ describe('[05 §8 pad; §6.9] payment pad', () => {
     await flush();
     v.click(v.button('Give back'));
     await flush();
-    expect(s.command.mock.calls[0]![1]).toEqual({ bill_ref: { bill_id: 'B7' }, split_no: 1, mode_id: 'cash', direction: 'out', amount_minor: 32_500 });
+    expect(s.command.mock.calls[0]![1]).toEqual({ bill_ref: { bill_id: 'B7' }, split_no: 1, mode_id: 'cash', direction: 'out', amount_minor: 32_500, expected_due_minor: 32_500 });
   });
 });
 

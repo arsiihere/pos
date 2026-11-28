@@ -1,4 +1,4 @@
-import type { Unit } from '@pos/domain';
+import { DomainError, type Unit } from '@pos/domain';
 import type { DayDraws } from '@pos/engine';
 import { isStockTracked } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
@@ -16,10 +16,16 @@ export function registerOpenBusinessDay(app: FastifyInstance): void {
     defineCommand({
       commandType: 'OpenBusinessDay',
       payloadSchema: Payload,
-      sessionKind: 'admin',
+      // ⚠️ 02b v1.0.28 QR2-2 (owner 2026-11-28 QA-R2, BUG-9; 01a §6.18a): Start day on the staff app too, under the
+      // permission of Close day (`close-business-day`, scope branch); the hub admin page keeps `manage-stock` at branch
+      sessionKind: 'both',
       permission: 'manage-stock',
+      devicePermission: 'close-business-day',
       handle(ctx) {
-        requireBranchScope(ctx);
+        if (ctx.actor.kind === 'admin') requireBranchScope(ctx);
+        else if (ctx.permission !== null && 'scope' in ctx.permission && ctx.permission.scope !== 'branch') {
+          throw new DomainError('PERMISSION_DENIED', { permission: 'close-business-day', reason: 'outside_scope', required_scope: 'branch' });
+        }
         const day = ctx.state.business_day;
         if (day !== null && day.closed_at === null) {
           return {

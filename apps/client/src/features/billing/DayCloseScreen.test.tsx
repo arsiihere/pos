@@ -270,7 +270,7 @@ describe('[05 §8, §6.24] unbilled orders and Carry over (frames DayCloseUnbill
   it('rows with a tick, the amount, placed and open time, Open bill; Carry over {n} after ticking', async () => {
     const v = await show(setup({ answers: [UNBILLED] }));
     await close(v);
-    expect(v.container.querySelector('.b5-blk__h b')?.textContent).toBe('3 orders are not billed — bill them or carry them over');
+    expect(v.container.querySelector('.b5-blk__h b')?.textContent).toBe('3 bills are not paid — take payment or carry them over');
     const rows = [...v.container.querySelectorAll('.b5-br')];
     expect(rows[0]!.textContent).toContain('T2');
     expect(rows[0]!.textContent).toContain('Rs 4,280.00');
@@ -283,6 +283,56 @@ describe('[05 §8, §6.24] unbilled orders and Carry over (frames DayCloseUnbill
     expect(v.button('Carry over 2')).toBeTruthy();
     v.click([...rows[2]!.querySelectorAll('button')].find((b) => b.textContent === 'Open bill')!);
     expect(navigate).toHaveBeenCalledWith('/bill?order_id=O3');
+  });
+
+  it('[05 v1.0.37 §8, #63g client; QA-R2 BUG-11] the tick shows ✓ only while aria-pressed is true — no mark on an unticked row', async () => {
+    const v = await show(setup({ answers: [UNBILLED] }));
+    await close(v);
+    const ticks = () => [...v.container.querySelectorAll('.b5-br .b5-tick')];
+    expect(ticks().map((b) => [b.getAttribute('aria-pressed'), b.querySelector('svg') !== null])).toEqual([
+      ['false', false],
+      ['false', false],
+      ['false', false],
+    ]);
+    v.click(ticks()[1]!);
+    await flush();
+    expect(ticks().map((b) => [b.getAttribute('aria-pressed'), b.querySelector('svg') !== null])).toEqual([
+      ['false', false],
+      ['true', true],
+      ['false', false],
+    ]);
+  });
+
+  it('[05 v1.0.37 §3.13, #63g client; BUG-11] one row per bill with its due: a token of three orders is one row; Carry over sends its three order ids', async () => {
+    const grouped = blocked({
+      reason: 'unbilled_orders',
+      count: 2,
+      orders: [
+        { order_id: 'O4', order_ids: ['O4', 'O4a', 'O4b'], identifier: '#4', total_minor: 9_000, due_minor: 9_000, placed_at: AT(20, 0), open_minutes: 60 },
+        { order_id: 'O2', order_ids: ['O2'], identifier: '#2', total_minor: 3_000, due_minor: 3_000, placed_at: AT(20, 10), open_minutes: 50 },
+      ],
+    });
+    const s = setup({ answers: [grouped, { ok: true, data: { business_date: '2026-11-19', order_ids: ['O4', 'O4a', 'O4b'] } }] });
+    const v = await show(s);
+    await close(v);
+    expect(v.container.querySelector('.b5-blk__h b')?.textContent).toBe('2 bills are not paid — take payment or carry them over');
+    const rows = [...v.container.querySelectorAll('.b5-br')];
+    expect(rows.map((r) => [r.querySelector('.tcode')?.textContent, r.querySelector('.amt')?.textContent])).toEqual([
+      ['#4', 'Rs 90.00'],
+      ['#2', 'Rs 30.00'],
+    ]);
+    v.click(rows[0]!.querySelector('.b5-tick')!);
+    await flush();
+    v.click(v.button('Carry over 1'));
+    await flush();
+    v.click([...v.container.querySelectorAll<HTMLButtonElement>('.dlg .b5-chip')].find((c) => c.textContent === 'Customer will pay later')!);
+    await flush();
+    v.click(v.container.querySelector<HTMLButtonElement>('.dlg .acts .btn--primary')!);
+    await flush();
+    const carried = s.command.mock.calls.find((c) => c[0] === 'CarryOverOrders')!;
+    expect((carried[1] as { order_ids: string[] }).order_ids).toEqual(['O4', 'O4a', 'O4b']);
+    expect([...v.container.querySelectorAll('.b5-br')].map((r) => r.querySelector('.tcode')?.textContent)).toEqual(['#2']);
+    expect(v.container.querySelector('.b5-blk__h b')?.textContent).toBe('1 bill is not paid — take payment or carry it over');
   });
 
   it('the sheet: the ticked orders, Why (CARRY_OVER_REASONS), a note needed for Other → CarryOverOrders; the rows leave the list', async () => {

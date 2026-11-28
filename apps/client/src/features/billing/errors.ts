@@ -17,6 +17,7 @@ export const BILLING_ERROR_KEYS_05_1 = [
   'errors.SERVICE_CHARGE_NOT_APPLIED',
   'errors.BUYER_ID_REQUIRED',
   'errors.BILL_TOTAL_CHANGED',
+  'errors.BILL_DUE_CHANGED',
   'errors.BILL_BALANCE_DUE',
   'errors.BILL_PARTLY_PAID',
   'errors.LINE_IN_CLOSED_SPLIT',

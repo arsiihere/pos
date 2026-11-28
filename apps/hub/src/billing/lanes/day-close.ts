@@ -4,14 +4,15 @@
 // Guard, in this order, the first hit refuses `409 DAY_CLOSE_BLOCKED` (≤ 40 listed, `count` via `COUNT(*) OVER ()`):
 //   'shift_open'        open shifts of any day (1, `shifts_open_staff`);
 //   'variance_pending'  shifts of any day with a pending sign-off (1, `shifts_signoff_pending`; R-76);
-//   'unbilled_orders'   orders with billed_at and cancelled_at NULL, not carried for the open day (1).
+//   'unbilled_orders'   orders with billed_at and cancelled_at NULL, not carried for the open day (1), one row per
+//                       bill with its due (⚠️ v1.0.37 BUG-11: + keyBalances, seatingBalances, 2).
 // Appender (row A-4), drafts in this order: `AlertClosed { reason: 'obsolete', note: 'day_closed' }` (+ 01d's
 // request_result raises) for every open 05 request but `shift_variance` (none is open here, R-76) and every open 02b
 // `comp` and `hand_over_unpaid` request (⚠️ run 3 R3-M-4); then `ZReportIssued { business_date, z_no, report }` (hub stream; `report` = buildReport's Z).
 // 01a then appends 03a's releases and BusinessDayClosed.
-// Statements (01d's closeMany / raiseMany excluded: their own bound): the guard ≤ 3 (it stops at its first hit); the
+// Statements (01d's closeMany / raiseMany excluded: their own bound): the guard ≤ 5 (⚠️ v1.0.37; it stops at its first hit); the
 // appender 8 — open requests (1, `alerts.listOpen`), Z number (1), buildReport's facts through 26b's loadReportInput
-// (6, its Z statements 1–6). Bound ≤ 11 (v1.0.18): 3 + 8 = 11.
+// (6, its Z statements 1–6). Bound ≤ 13 (v1.0.37; v1.0.18 was 11): 5 + 8 = 13.
 import { buildReport, type ReportWarning } from '@pos/domain';
 import type { EngineState } from '@pos/engine';
 import { draftOf, ZReportIssued, ZReportIssuedPayload, type EventDraft } from '@pos/events';
@@ -25,6 +26,7 @@ import type { ReadOrderHead } from '../../orders/exports.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 import { voidIdentifier } from '../../voids/identifier.js';
 import { BILL_REQUEST_KINDS, HAND_OVER_UNPAID_KIND } from '../kinds/values.js';
+import { keyBalances, seatingBalances } from '../queries/key-balances.js';
 import { loadReportInput } from '../queries/reports.js';
 
 /** §3.13: at most this many rows listed per reason; `count` is all of them. */
@@ -76,24 +78,36 @@ const BILLED = `CASE l.line_kind
     ELSE l.refundable_minor - l.comp_minor - l.comp_voided_minor - l.removed_minor - l.refund_minor
   END`;
 
-// §3.13 'unbilled_orders': `{ order_id, identifier, total_minor, placed_at, open_minutes }`, oldest first; any business
-// date (an earlier day's order carried yesterday blocks again unless carried today, #63c). `total_minor` = Σ the
-// order's lines' 02b billed_minor; the identifier's parts (the seating's current tables, 02a read-only join). 1 statement.
+// §3.13 'unbilled_orders' (⚠️ 05 v1.0.37, QA-R2 BUG-11: one row per bill): the unbilled, uncancelled, not carried
+// orders of any business date (an earlier day's order carried yesterday blocks again unless carried today, #63c),
+// grouped by their bill — dine-in by the seating of seating_orders, takeaway / parking by bill_key, else the order
+// alone; ≤ 40 bills, oldest first; `count` = the bills. Each row: the group's first order (its id, identifier parts,
+// placed_at), every order id of the group in placed order, and `gross_minor` = Σ the group's lines' 02b billed_minor
+// (only for a group with no bill to read a due from). 1 statement; the dues are keyBalances / seatingBalances (2).
 const UNBILLED = `WITH u AS (
-  SELECT o.order_id, o.order_type, o.business_date, o.token, o.car_number, o.car_type, o.placed_at, COUNT(*) OVER () AS count
+  SELECT o.order_id, o.order_type, o.business_date, o.token, o.car_number, o.car_type, o.placed_at, o.bill_key, so.seating_id,
+         CASE WHEN o.order_type = 'dine_in' THEN COALESCE('s:' || so.seating_id, 'o:' || o.order_id)
+              ELSE COALESCE('k:' || o.bill_key, 'o:' || o.order_id) END AS g
     FROM orders o
+    LEFT JOIN seating_orders so ON so.order_id = o.order_id
    WHERE o.billed_at IS NULL AND o.cancelled_at IS NULL
-     AND NOT EXISTS (SELECT 1 FROM carried_orders c WHERE c.order_id = o.order_id AND c.business_date = @day)
-   ORDER BY o.placed_at, o.order_id
+     AND NOT EXISTS (SELECT 1 FROM carried_orders c WHERE c.order_id = o.order_id AND c.business_date = @day)),
+grp AS (
+  SELECT g, COUNT(*) OVER () AS count,
+         (SELECT x.order_id FROM u x WHERE x.g = u.g ORDER BY x.placed_at, x.order_id LIMIT 1) AS first_id,
+         (SELECT json_group_array(y.order_id) FROM (SELECT order_id FROM u x WHERE x.g = u.g ORDER BY x.placed_at, x.order_id) y) AS order_ids_json
+    FROM u GROUP BY g
+   ORDER BY MIN(placed_at), MIN(order_id)
    LIMIT ${DAY_CLOSE_LISTED})
-SELECT u.*, s.primary_table_id,
+SELECT r.order_id, r.order_type, r.business_date, r.token, r.car_number, r.car_type, r.placed_at, r.bill_key, r.seating_id,
+       grp.count, grp.order_ids_json, s.primary_table_id,
        (SELECT json_group_array(st.table_id ORDER BY st.joined_at, st.table_id)
-          FROM seating_tables st WHERE st.seating_id = so.seating_id) AS table_ids_json,
-       (SELECT COALESCE(SUM(${BILLED}), 0) FROM order_lines l WHERE l.order_id = u.order_id) AS total_minor
-  FROM u
-  LEFT JOIN seating_orders so ON so.order_id = u.order_id
-  LEFT JOIN seatings s ON s.seating_id = so.seating_id
- ORDER BY u.placed_at, u.order_id`;
+          FROM seating_tables st WHERE st.seating_id = r.seating_id) AS table_ids_json,
+       (SELECT COALESCE(SUM(${BILLED}), 0) FROM order_lines l WHERE l.order_id IN (SELECT order_id FROM u x WHERE x.g = grp.g)) AS gross_minor
+  FROM grp
+  JOIN u r ON r.order_id = grp.first_id
+  LEFT JOIN seatings s ON s.seating_id = r.seating_id
+ ORDER BY r.placed_at, r.order_id`;
 
 interface ShiftRow {
   shift_id: string;
@@ -120,9 +134,12 @@ interface UnbilledRow {
   car_type: ReadOrderHead['car_type'];
   placed_at: number;
   count: number;
+  bill_key: string | null;
+  seating_id: string | null;
+  order_ids_json: string;
   primary_table_id: string | null;
   table_ids_json: string | null;
-  total_minor: number;
+  gross_minor: number;
 }
 
 /** §3.5 (04) identifier text of a listed order: the void card's, so the two day-close lists read alike. 0 statements. */
@@ -175,6 +192,13 @@ export const billingDayCloseGuard: DayCloseGuard = (db: Database.Database, state
   const day = state.business_day?.business_date ?? null;
   const unbilled = db.prepare(UNBILLED).all({ day }) as UnbilledRow[]; // 3
   if (unbilled.length === 0) return null;
+  // ⚠️ v1.0.37 (BUG-11): each bill's due — Σ its open splits' balances (§6.2a), before pending voids (4, 5)
+  const keyed = unbilled.filter((r) => r.order_type !== 'dine_in' && r.bill_key !== null);
+  const seated = unbilled.filter((r) => r.order_type === 'dine_in' && r.seating_id !== null);
+  const keyDue = keyBalances(db, [...new Set(keyed.map((r) => r.bill_key as string))]); // 4 (0 for none)
+  const seatDue = seatingBalances(db, [...new Set(seated.map((r) => r.seating_id as string))]); // 5 (0 for none)
+  const dueOf = (r: UnbilledRow): number =>
+    (r.order_type === 'dine_in' ? (r.seating_id === null ? undefined : seatDue.get(r.seating_id)?.due_minor) : r.bill_key === null ? undefined : keyDue.get(r.bill_key)?.due_minor) ?? r.gross_minor;
   const now = hubClock?.branchNow() ?? null;
   return {
     code: 'DAY_CLOSE_BLOCKED',
@@ -182,8 +206,11 @@ export const billingDayCloseGuard: DayCloseGuard = (db: Database.Database, state
       reason: 'unbilled_orders',
       orders: unbilled.map((r) => ({
         order_id: r.order_id,
+        order_ids: JSON.parse(r.order_ids_json) as string[],
         identifier: identifierOf(state, r),
-        total_minor: r.total_minor,
+        // v1.0.37: the bill's due; `total_minor` carries the same number for an older client
+        total_minor: dueOf(r),
+        due_minor: dueOf(r),
         placed_at: r.placed_at,
         open_minutes: now === null ? 0 : Math.max(0, Math.floor((now - r.placed_at) / 60_000)),
       })),

@@ -106,7 +106,7 @@ interface Reply {
 
 let commandSeq = 0;
 
-async function post(who: Who, command_type: string, path: string, payload: object, o: { queuedAt?: number } = {}): Promise<Reply> {
+async function post(who: Who, command_type: string, path: string, payload: object, o: { queuedAt?: number; commandId?: string } = {}): Promise<Reply> {
   const res = await hub.app.inject({
     method: 'POST',
     url: `/commands/${path}`,
@@ -116,7 +116,7 @@ async function post(who: Who, command_type: string, path: string, payload: objec
       ...(o.queuedAt === undefined ? {} : { 'x-queued-at': String(o.queuedAt) }),
     },
     payload: {
-      command_id: `cmd-${(commandSeq += 1)}`,
+      command_id: o.commandId ?? `cmd-${(commandSeq += 1)}`,
       tenant_id: 'tenant-a',
       branch_id: 'branch-1',
       command_type,
@@ -140,7 +140,7 @@ async function post(who: Who, command_type: string, path: string, payload: objec
 
 const item = (order_item_id: string, item_id: string, quantity = 1, o: Record<string, unknown> = {}) => ({ order_item_id, item_id, quantity, ...o });
 const dineIn = (order_id: string, lines: unknown[], table_id: string = FX.table, seating_id = 'SEAT1') => ({ order_id, order_type: 'dine_in', table_id, seating_id, lines });
-const submit = (who: Who, payload: object, o: { queuedAt?: number } = {}) => post(who, 'SubmitOrder', 'submit-order', payload, o);
+const submit = (who: Who, payload: object, o: { queuedAt?: number; commandId?: string } = {}) => post(who, 'SubmitOrder', 'submit-order', payload, o);
 const serve = (who: Who, order_id: string, order_item_ids: string[], o: { queuedAt?: number; counted?: boolean } = {}) =>
   o.counted === true
     ? post(who, 'TestMarkServedCounted', 'test-mark-served-counted', { lines: [{ order_id, order_item_ids }] }, o)
@@ -216,6 +216,37 @@ describe('[02b #31 02b] queued replays: 02b’s use of X-Queued-At (§3.12, AD-1
     expect(live.status).toBe(200);
     expect(live.events.find((e) => e.event_type === 'OrderPlaced')!.payload.sent_after_reconnect).toBe(false);
     expect(sentAfterReconnect('O2')).toBe(0);
+  });
+
+  // ⚠️ 02b v1.0.28 QR2-1 (owner ruling R2-2 of 2026-11-28 QA-R2, BUG-2): a queued order is never dropped — refused while
+  // no day is open (nothing stored), accepted once into the day open when it comes again
+  it('[02b #100 QR2-1] a queued SubmitOrder with no open day → 409 BUSINESS_DAY_NOT_OPEN, nothing stored; after OpenBusinessDay the same command_id → the order in the new day, once', async () => {
+    await setUp();
+    const ali = signIn('S_ALI');
+    const queuedAt = hub.clock.branchNow();
+    const at = queuedAt + 1_000;
+    hub.clock.set(at);
+    hub.deps.writer.run((tx) =>
+      tx.append([{ stream_type: 'hub', stream_id: tx.branchId, event_type: 'BusinessDayClosed', schema_version: 1, payload: {}, occurred_at: at, actor_id: 'S_MGR', device_id: 'D_SEED' }]),
+    );
+    const payload = { order_id: 'OQ', order_type: 'takeaway', lines: [item('OQ1', FX.naan)] };
+    const refused = await submit(ali, payload, { queuedAt, commandId: 'cmd-queued-day' });
+    expect(refused.status).toBe(409);
+    expect(refused.error?.code).toBe('BUSINESS_DAY_NOT_OPEN');
+    expect(hub.deps.db.prepare("SELECT COUNT(*) FROM processed_commands WHERE command_id = 'cmd-queued-day'").pluck().get()).toBe(0);
+    expect(hub.deps.db.prepare("SELECT COUNT(*) FROM orders WHERE order_id = 'OQ'").pluck().get()).toBe(0);
+
+    hub.clock.advance(60 * MIN); // the day starts again (an idle session survives; a day opened on the same date continues it)
+    const next = openDay(hub);
+    const accepted = await submit(ali, payload, { queuedAt, commandId: 'cmd-queued-day' });
+    expect(accepted.status).toBe(200);
+    expect(types(accepted)).toContain('OrderPlaced');
+    const placed = accepted.events.find((e) => e.event_type === 'OrderPlaced')!.payload;
+    expect(placed).toMatchObject({ business_date: next.business_date, token: 1, sent_after_reconnect: true });
+    const again = await submit(ali, payload, { queuedAt, commandId: 'cmd-queued-day' });
+    expect(again.status).toBe(200);
+    expect(again.result).toEqual(accepted.result);
+    expect(hub.deps.db.prepare("SELECT COUNT(*) FROM orders WHERE order_id = 'OQ'").pluck().get()).toBe(1);
   });
 
   it('[02b #31 02b free lock] a queued submit by the holder takes no free lock (P-1b, AD-1); the live holder call takes it', async () => {

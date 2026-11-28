@@ -100,6 +100,8 @@ export function duesOf(split: BillViewSplit, held: HeldResult | null): SplitDues
   ) {
     return { card_due_minor: held.card_due_minor, cash_due_minor: held.cash_due_minor, card_refund_due_minor: held.card_refund_due_minor, cash_refund_due_minor: held.cash_refund_due_minor };
   }
+  // ⚠️ 05 v1.0.37 §6.1 (R2-1): the hub's own dues of the view, when it sends them
+  if (split.dues !== undefined) return split.dues;
   if (split.balance_minor === 0) return none;
   if (split.payments.length === 0) return split.balance_minor > 0 ? { ...none, card_due_minor: split.totals.digital.total_minor, cash_due_minor: split.totals.cash.total_minor } : none;
   return null;
@@ -263,7 +265,7 @@ export function refusalText(e: HubError, ctx: { bill: BillView; split: BillViewS
     return fill(t('errors.BILL_CLOSE_BLOCKED'), { reasons: blockText({ reason: d['reason'], split_no: ctx.split.split_no, details: d }, ctx.bill, ctx.split, ctx.dues) });
   const mode = typeof d['mode_id'] === 'string' ? (ctx.modes.find((m) => m.mode_id === d['mode_id']) ?? ctx.mode) : ctx.mode;
   const type = mode === null ? '' : t(mode.payment_class === 'cash' ? 'billing.dues.cash_k' : 'billing.dues.card_k');
-  const amount = e.code === 'PAYMENT_CASH_STEP' ? money('step_minor') : e.code === 'BILL_TOTAL_CHANGED' ? money('total_minor') : money('balance_minor');
+  const amount = e.code === 'PAYMENT_CASH_STEP' ? money('step_minor') : e.code === 'BILL_TOTAL_CHANGED' ? money('total_minor') : e.code === 'BILL_DUE_CHANGED' ? money('due_minor') : money('balance_minor');
   return fill(t(billingErrorKey(e.code, d, { direction: ctx.direction })), {
     mode: mode?.name ?? '',
     amount,
@@ -471,6 +473,8 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
       mode_id: mode.mode_id,
       direction,
       amount_minor: amountMinor as number,
+      // ⚠️ 05 v1.0.37 §6.9 (R2-1): the due the pad shows for this mode (a stale screen is refused BILL_DUE_CHANGED)
+      expected_due_minor: dues === null ? Math.abs(split.balance_minor) : refund ? (mode.payment_class === 'cash' ? dues.cash_refund_due_minor : dues.card_refund_due_minor) : mode.payment_class === 'cash' ? dues.cash_due_minor : dues.card_due_minor,
       ...(cashIn && tenderedMinor !== null ? { tendered_minor: tenderedMinor } : {}),
       ...(mode.reference_required || reference.trim() !== '' ? { reference: reference.trim() } : {}),
     });
@@ -490,6 +494,11 @@ export function BillScreen({ billRef, onBack }: { billRef: BillRef; onBack: () =
         return;
       }
       setPadMsg(refusalText(answer.error, { bill, split, dues, mode, modes, direction }));
+      // ⚠️ 05 v1.0.37 §8 (R2-1): the bill changed since the pad read it — the amounts typed for the old due go
+      if (e.kind === 'api' && e.code === 'BILL_DUE_CHANGED') {
+        setAmount('');
+        setTendered('');
+      }
       // a refusal means the screen was stale (a total, a due, the split's state): read the bill again
       if (answer.error.kind === 'api') await load();
       return;
