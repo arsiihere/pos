@@ -1192,6 +1192,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         key={signInKey}
         api={api}
         phone={phone}
+        hubNowMs={() => clockRef.current.nowMs()}
         lockPanel={
           endedByHub ? (
             <div className="warnbar" role="status" data-signed-out="">
@@ -1207,7 +1208,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     );
   } else if (switching) {
     // 02b-TK TK-SH02 Switch user: the route's screen goes (its unsent takeaway is held, C1-5); the PIN takes over
-    page = <SignIn api={api} phone={phone} lockPanel={null} hooks={shellHooks} onUnpaired={onUnpaired} onSignedIn={(who) => void signedIn(who)} onBack={() => setSwitching(false)} />;
+    page = <SignIn api={api} phone={phone} lockPanel={null} hooks={shellHooks} hubNowMs={() => clockRef.current.nowMs()} onUnpaired={onUnpaired} onSignedIn={(who) => void signedIn(who)} onBack={() => setSwitching(false)} />;
   } else if (me.permissions !== null && (gated[path] === false || (receiptsMatch !== null && !showTest))) {
     page = <NotAllowed onHome={() => navigate(homeOf(screens))} />;
   } else if (staffRoute.name === 'me') {
@@ -1390,6 +1391,10 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         ? t('shell.shift.closed')
         : null;
   const phoneTitle = currentTab === 'me' ? t('tabs.me') : currentTab !== null ? t(`alerts.screen.${currentTab}`) : path === '/requests' && showRequests ? t('alerts.nav.requests') : t('alerts.nav.inbox');
+  const banners =
+    me !== null && opened === null ? (
+      <Banners banners={freshBanners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} counterScreens={profileScreens} onOpen={(r) => tap(r, 'banner')} onOpenInbox={() => navigate('/inbox')} />
+    ) : null;
   const body = (
     <div key={lang} className={`pu v-brand staff${phone ? ' phone' : ''}`} lang={lang} dir={lang === 'ur' ? 'rtl' : 'ltr'} data-theme="light">
       <TopBar
@@ -1526,11 +1531,13 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
           </div>
         </div>
       )}
+      {/* ⚠️ 01d v1.3.10 §8.1 B01 (owner 2026-11-28 QA-R3, UX): on a phone the banners sit in the page flow above the
+          screen — an urgent one (it stays until opened) pushes the screen down and never covers Close shift or a row's
+          actions; elsewhere they float as before */}
+      {phone && banners}
       {page}
       {phone && me !== null && <PhoneTabs tabs={tabs} current={currentTab} />}
-      {me !== null && opened === null && (
-        <Banners banners={freshBanners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} counterScreens={profileScreens} onOpen={(r) => tap(r, 'banner')} onOpenInbox={() => navigate('/inbox')} />
-      )}
+      {!phone && banners}
       {me !== null && sheetRow !== null &&
         (isRequest(sheetRow) ? (
           <AnswerSheet

@@ -80,3 +80,9 @@
 .pu.phone .dv__row { flex-wrap: wrap; }
 .pu.phone .dv__acts .btn { flex: 1; }
 
+/* ⚠️ 01d v1.3.10 §8.1 B01 (owner 2026-11-28 QA-R3, UX): on a phone the alert banners sit in the page flow under the top
+   bar (StaffApp renders them before the screen): an urgent banner pushes the screen down and never covers Close shift or
+   a row's actions. One row each — the Open button beside the text — so two banners stay short. */
+.pu.staff .abns--phone { position: relative; top: auto; inset: auto; width: auto; margin: 8px 12px 0; flex: none; z-index: auto; }
+.pu.staff .abns--phone .abn { grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; padding: 10px; }
+.pu.staff .abns--phone .abn > .btn { grid-column: auto; min-height: 48px; padding: 0 12px; }

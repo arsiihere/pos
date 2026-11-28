@@ -72,6 +72,7 @@ export function SignIn({
   onUnpaired,
   onSignedIn,
   onBack,
+  hubNowMs,
 }: {
   api: Pick<StaffApi, 'roster' | 'signIn'>;
   phone: boolean;
@@ -84,6 +85,8 @@ export function SignIn({
   onSignedIn: (who: SignedIn) => void;
   /** 02b-TK TK-SH02: Switch user — the PIN takes the session over; Back returns to the signed-in person */
   onBack?: () => void;
+  /** ⚠️ 02b v1.0.33 QR3-5: the hub's clock (S47), to turn the roster's `locked_until` into a countdown */
+  hubNowMs?: () => number;
 }) {
   const switching = onBack !== undefined;
   const queueLine = useSyncExternalStore(hooks.subscribe, hooks.queueLine);
@@ -166,6 +169,16 @@ export function SignIn({
     const e = errorOf(answer.error);
     setError(e);
     if (answer.error.kind === 'api' && answer.error.code === 'DEVICE_SESSION_ACTIVE') setTakeover(true);
+    // ⚠️ 02b v1.0.33 QR3-5 (owner 2026-11-28 QA-R3): the wrong PIN that used the last try locks the person on the hub
+    // (PIN_INVALID, attempts_remaining 0): the roster is read again and its lock end shows as the countdown at once
+    if (answer.error.kind === 'api' && answer.error.code === 'PIN_INVALID' && answer.error.details['attempts_remaining'] === 0 && hubNowMs !== undefined) {
+      const roster = await api.roster();
+      if (roster.ok) {
+        setStaff(roster.data.staff);
+        const until = roster.data.staff.find((s) => s.staff_id === who.staff_id)?.locked_until ?? null;
+        if (until !== null && until > hubNowMs()) setLock({ until: Date.now() + (until - hubNowMs()), device: false });
+      }
+    }
     if (answer.error.kind === 'api' && (answer.error.code === 'PIN_LOCKED_OUT' || answer.error.code === 'DEVICE_LOCKED_OUT')) {
       const ms = answer.error.details['retry_after_ms'];
       setLock({ until: Date.now() + (typeof ms === 'number' && ms > 0 ? ms : 60_000), device: answer.error.code === 'DEVICE_LOCKED_OUT' });

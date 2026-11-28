@@ -367,6 +367,38 @@ describe('[BUG-19; 00 HPA §3.5] SignIn keyboard and lockout', () => {
     }
   });
 
+  // ⚠️ 02b v1.0.33 QR3-5 (owner 2026-11-28 QA-R3, UX): the 5th wrong PIN locks the person on the hub, which answers it
+  // PIN_INVALID { attempts_remaining: 0 }: the pad shows the lockout and its countdown at once (the roster read again
+  // gives the lock's end in hub time), not "Wrong PIN" until a 6th try
+  it('[QA-R3] the 5th wrong PIN (attempts_remaining 0) shows the lockout and its countdown at once', async () => {
+    vi.useFakeTimers();
+    try {
+      const HUB = 5_000_000;
+      let locked = false;
+      const api = {
+        roster: vi.fn(async () => ({ ok: true as const, data: { staff: [{ staff_id: 'S1', display_name: 'Imran', locked_until: locked ? HUB + 900_000 : null }], active_session: null } })),
+        signIn: vi.fn(async () => {
+          locked = true;
+          return { ok: false as const, error: { kind: 'api' as const, status: 401, code: 'PIN_INVALID', details: { attempts_remaining: 0 } } };
+        }),
+      };
+      m = mount();
+      m.render(<SignIn api={api} phone={false} lockPanel={null} hubNowMs={() => HUB} onSignedIn={() => {}} />);
+      await flush();
+      m.click(m.button('Imran'));
+      for (const d of '1239') typeOnFocus(d);
+      typeOnFocus('Enter');
+      await flush(6);
+      const err = () => m.container.querySelector('.pin__err')?.textContent ?? '';
+      expect(err()).toContain('Too many wrong PINs');
+      expect(err()).toContain('15:00');
+      const key1 = [...m.container.querySelectorAll<HTMLButtonElement>('.pin__keys button')].find((b) => b.textContent === '1')!;
+      expect(key1.disabled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('DEVICE_LOCKED_OUT counts down the same way', async () => {
     vi.useFakeTimers();
     try {
