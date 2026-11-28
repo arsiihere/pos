@@ -25,6 +25,7 @@ import type {
 import { addInterval, occupancy, removeInterval, type Underflow } from './profile.js';
 import { applyMoves, capacityFor, flipPlacement, heldPickup, isFifo, isHidden, placeBatchPriority, placementCap, sortUnfired, stationPolicy } from './replan.js';
 import { deadlineFor } from './priority.js';
+import { pickupGroupLand } from './pickup.js';
 import { liveInterval } from './live.js';
 import {
   applyPass1,
@@ -1459,7 +1460,9 @@ function setLand(state: EngineState, order_id: string, group_id: string, land: n
 function provisionalLand(state: EngineState, order_id: string, group_id: string, batch: readonly string[], t: number, strict: boolean): number {
   const order = state.orders[order_id]!;
   const g = order.groups[group_id]!;
-  let P = Math.max(priorityTerms(state, order_id, group_id, t)?.fixed ?? Number.NEGATIVE_INFINITY, (order.boosted ? null : order.pickup_at_ms) ?? Number.NEGATIVE_INFINITY);
+  // PK-2 (⚠️ 03a v1.2.12, owner 2026-11-28): the pickup floor is p − the group's padding
+  const stationsOfGroup = g.line_ids.flatMap((id) => (state.lines[id] === undefined ? [] : [state.lines[id]!.station_id]));
+  let P = Math.max(priorityTerms(state, order_id, group_id, t)?.fixed ?? Number.NEGATIVE_INFINITY, pickupGroupLand(state, order.boosted ? null : order.pickup_at_ms, stationsOfGroup, order.order_type) ?? Number.NEGATIVE_INFINITY);
   const own = new Set(batch);
   for (const id of g.line_ids) {
     const l = state.lines[id];

@@ -162,7 +162,8 @@ export interface EtaPreviewBody {
   as_of_seq: number;
   groups: Array<{ promise_ms: number; keys: string[] }>;
   /** ⚠️ 02b v1.0.20 §6.14 (STAB-5): `part` (1…n) on each part of a line split per unit, same key */
-  lines: Array<{ key: string; part?: number; eta_ms: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
+  /** ⚠️ 02b v1.0.26 CT-4: `ready_ms` = the customer time (eta_ms + padding); absent from an older hub (then eta_ms is shown) */
+  lines: Array<{ key: string; part?: number; eta_ms: number | null; ready_ms?: number | null; from_stock: boolean; zone_served: boolean; refused?: { code: string; details: Record<string, unknown> } }>;
   /** ⚠️ 02b v1.0.25 §6.14 (m-8; 02b-TK L-CLIENT-5 item 1): a takeaway draft's pickup range on the hub clock; null for other types */
   pickup_bounds?: { earliest_ms: number; latest_ms: number } | null;
 }

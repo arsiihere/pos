@@ -63,20 +63,22 @@ describe('[03a #192] hub: submit and preview with a pickup (PK-1, PK-2; m-11)', 
     const padding = fresh.config!.settings.promise_padding_takeaway_ms;
     const order = fresh.orders.OP!;
     expect(order.pickup_at_ms).toBe(pickup);
-    // Both groups land at the pickup (the held drink's T_L = pickup, PK-2), and each stored promise = target + padding.
-    expect(Object.values(order.groups).map((g) => g.target_land_ms)).toEqual([pickup, pickup]);
+    // ⚠️ 03a v1.2.12 (owner 2026-11-28, QA BUG-5): both groups land at pickup − padding (PK-2: T_L = max(p − padding,
+    // land)), so each stored promise = target + padding = the pickup.
+    expect(Object.values(order.groups).map((g) => g.target_land_ms)).toEqual([pickup - padding, pickup - padding]);
+    expect(placed.groups.map((g) => g.promise_ms)).toEqual([pickup, pickup]);
     expect(placed.groups.map((g) => g.promise_ms)).toEqual(placed.groups.map((g) => order.groups[g.group_id]!.target_land_ms + padding));
     expect(placed.groups).toEqual(plan.groups);
     // The drink is held: unfired, booked to end by the pickup, not at its earliest fit.
     expect(fresh.lines['OP-D']).toMatchObject({ serve_mode: 'immediate', fired_at: null });
     expect(fresh.lines['OP-D']!.booked!.start).toBeGreaterThan(now + 20 * MIN);
-    expect(fresh.lines['OP-D']!.booked!.end).toBeLessThanOrEqual(pickup);
+    expect(fresh.lines['OP-D']!.booked!.end).toBeLessThanOrEqual(pickup - padding);
     expect({ ...fresh, diagnostics: [] }).toEqual({ ...hub.deps.state.get(), diagnostics: [] });
 
     // The preview of the same draft: the same promise_ms per group and eta_ms per line (a held line's eta = its T_L).
     expect(preview.groups.map((g) => g.promise_ms)).toEqual(placed.groups.map((g) => g.promise_ms));
     expect(preview.lines.map((l) => [l.order_item_id, l.eta_ms])).toEqual(plan.lines.map((l) => [l.order_item_id, l.eta_ms]));
-    expect(preview.lines.find((l) => l.order_item_id === 'OP-D')!.eta_ms).toBe(pickup);
+    expect(preview.lines.find((l) => l.order_item_id === 'OP-D')!.eta_ms).toBe(pickup - padding); // ⚠️ v1.2.12: T_L = p − padding
 
     // The same order without pickup, on an identical hub: the submit makes the same statements (the engine is pure).
     const other = await kitchen();

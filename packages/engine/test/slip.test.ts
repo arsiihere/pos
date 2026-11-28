@@ -717,7 +717,8 @@ describe('03a §3.5.8 held groups slip (test 190)', () => {
     expect(slipOf(s, due - 1)).toEqual([]);
     const items = slipOf(s, due);
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ table_key: KEY, order_ids: ['O1'], target: P });
+    // ⚠️ Changed by 03a v1.2.12 (owner 2026-11-28): the held drink's engine target is p − padding; its promise is p
+    expect(items[0]).toMatchObject({ table_key: KEY, order_ids: ['O1'], target: P - PAD, promise: P });
   });
 
   it('[03a #190 (c) control] the same order with no pickup: its immediate line never slips; only the sync group can', () => {

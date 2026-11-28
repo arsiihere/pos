@@ -2,6 +2,7 @@ import type { HubResult } from '../../../../api/hub-admin';
 import type { LiveBus, LiveMessage } from '../../shell/live';
 import type { EtaDraft, EtaPreviewBody } from '../contracts';
 import { pickupError, type PickupProblem } from './pickup';
+import { STATION_LOAD_EVENTS } from '../live/availability';
 
 // 02b §8 Ordering screen, §6.14: the live times of the cart. `eta-preview` runs 250 ms after the last change, and
 // again (same debounce) on BranchConfigApplied, a Stock* frame, BusinessDayOpened / Closed, a station frame or a catch-up carrying
@@ -15,6 +16,8 @@ import { pickupError, type PickupProblem } from './pickup';
 // later by ≥ 60 s, and by how much; any other reply (no cart change, Ready by not later) clears it.
 
 export const PREVIEW_DEBOUNCE_MS = 250;
+/** ⚠️ 02b v1.0.26 CT-2 (owner 2026-11-28, QA BUG-6): re-ask every 30 s while the cart has a line. */
+export const PREVIEW_EVERY_MS = 30_000;
 
 /** 02b-TK A2 item 5a: the line that moved Ready by later, and by how much (ms, ≥ MOVED_MS). */
 export interface PreviewDelta {
@@ -90,6 +93,8 @@ export function createPreview(o: PreviewOptions): Preview {
   /** the draft the last reply answered */
   let lastDraft: EtaDraft | null = null;
   let timer: unknown = null;
+  /** CT-2: the 30 s re-ask, re-armed at every run while the cart has a line */
+  let every: unknown = null;
   let generation = 0;
   let disposed = false;
   const listeners = new Set<() => void>();
@@ -100,6 +105,8 @@ export function createPreview(o: PreviewOptions): Preview {
 
   const run = async () => {
     timer = null;
+    if (every !== null) cancel(every);
+    every = draft === null || disposed ? null : later(() => schedule(), PREVIEW_EVERY_MS);
     const gen = ++generation;
     if (draft === null) return publish({ kind: 'none' });
     if (!o.online()) return publish({ kind: 'failed' });
@@ -137,7 +144,8 @@ export function createPreview(o: PreviewOptions): Preview {
 
   const off = o.live.subscribe((m: LiveMessage) => {
     if (draft === null) return;
-    if ((m.kind === 'event' && REFETCH.has(m.event.event_type)) || (m.kind === 'catch_up' && (m.state['stations_live'] !== undefined || m.state['stock'] !== undefined)) || m.kind === 'reconnect') schedule();
+    // ⚠️ 02b v1.0.26 CT-2: and every station-load frame the menu tiles refetch on (03a v1.2.7 §4.3 To 02 item 9)
+    if ((m.kind === 'event' && (REFETCH.has(m.event.event_type) || STATION_LOAD_EVENTS.has(m.event.event_type))) || (m.kind === 'catch_up' && (m.state['stations_live'] !== undefined || m.state['stock'] !== undefined)) || m.kind === 'reconnect') schedule();
   });
 
   return {
@@ -148,6 +156,8 @@ export function createPreview(o: PreviewOptions): Preview {
         lastDraft = null;
         if (timer !== null) cancel(timer);
         timer = null;
+        if (every !== null) cancel(every);
+        every = null;
         generation += 1;
         publish({ kind: 'none' });
         return;
@@ -163,6 +173,7 @@ export function createPreview(o: PreviewOptions): Preview {
       disposed = true;
       off();
       if (timer !== null) cancel(timer);
+      if (every !== null) cancel(every);
     },
   };
 }

@@ -41,6 +41,11 @@ export interface KdsRow {
    * plan line that fired), null after a LinePrioritized frame alone ("Priority"). Start ends it. Absent / null = none.
    */
   priority?: RowPriority | null;
+  /**
+   * ⚠️ 03b v1.0.18 §3.3 (owner 2026-11-28, QA BUG-25): the engine-planned ready time (the line's group T) from the
+   * catch-up's Now row or the plan line that fired; the timer is late only after it. Absent / null = an older hub.
+   */
+  planned_ready_ms?: number | null;
 }
 
 export type RowPriority = { minutes_late: number | null };
@@ -179,6 +184,7 @@ export function createKdsStore(deps: { stationId: string; now: () => number }): 
         detail: details.get(id) ?? null,
         load_id: p?.load_id ?? null,
         priority: rowPriority(p?.priority) ?? (flagged.has(id) ? { minutes_late: null } : null),
+        planned_ready_ms: p?.planned_ready_ms ?? null,
         ...row,
       },
     ];
@@ -193,7 +199,7 @@ export function createKdsStore(deps: { stationId: string; now: () => number }): 
     meta = rest;
     details = new Map();
     for (const d of next) details.set(d.order_item_id, d);
-    rows = now.map(({ stage, fired_at, started_at, mark, done_undone, load_id, priority, ...d }) => {
+    rows = now.map(({ stage, fired_at, started_at, mark, done_undone, load_id, priority, planned_ready_ms, ...d }) => {
       details.set(d.order_item_id, d);
       return {
         order_item_id: d.order_item_id,
@@ -207,6 +213,7 @@ export function createKdsStore(deps: { stationId: string; now: () => number }): 
         detail: d,
         load_id: load_id ?? null,
         priority: rowPriority(priority),
+        planned_ready_ms: planned_ready_ms ?? null,
       };
     });
     const plans = Array.isArray(state['station_plan']) ? (state['station_plan'] as unknown[]) : [];

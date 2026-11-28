@@ -27,6 +27,8 @@ export interface CartProps {
   ready_by: number | null;
   /** ⚠️ 02b-TK L-CLIENT-5 item 1 (02b v1.0.25 §8 R4; frame PickupLater): the cart has a pickup — "Kitchen times it for" */
   readyLater?: boolean;
+  /** ⚠️ 02b v1.0.26 §8 (owner 2026-11-28, QA BUG-5): the preview's Ready by is after the asked pickup */
+  pickupLate?: { can_ms: number; asked_ms: number } | null;
   problems: number;
   canSend: boolean;
   /** why Send is off besides problems (dine-in seating not found), or null */
@@ -149,6 +151,12 @@ export function Cart(p: CartProps) {
         <div className="msg cart__msg c-danger" role="alert">
           <Ico name="warn" />
           <span>{fill(t('cart.cant_send'), { n: String(p.problems) })}</span>
+        </div>
+      )}
+      {p.pickupLate != null && (
+        <div className="msg cart__msg c-warn" role="status" data-pickup-late="">
+          <Ico name="clock" />
+          <span>{fill(t('c.pick_late'), { can: timeText(p.pickupLate.can_ms, p.utcOffsetMs), asked: timeText(p.pickupLate.asked_ms, p.utcOffsetMs) })}</span>
         </div>
       )}
       <CartList config={p.config} unitOf={p.unitOf} utcOffsetMs={p.utcOffsetMs} groups={p.groups} actions={p.actions} qchips={p.qchips === true} />

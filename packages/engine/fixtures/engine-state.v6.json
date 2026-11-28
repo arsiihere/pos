@@ -198,8 +198,8 @@
       "paused": false,
       "profile": {
         "t": [
-          1761003360000,
-          1761003600000
+          1761003180000,
+          1761003420000
         ],
         "u": [
           2,
@@ -216,10 +216,10 @@
           "order_item_ids": [
             "K3"
           ],
-          "fire_ms": 1761003360000,
+          "fire_ms": 1761003180000,
           "booked": {
-            "start": 1761003360000,
-            "end": 1761003600000,
+            "start": 1761003180000,
+            "end": 1761003420000,
             "units": 2
           }
         }
@@ -526,7 +526,7 @@
       "max_late_ms": null,
       "max_carry_ms": null,
       "stage": "added",
-      "fire_ms": 1761003360000,
+      "fire_ms": 1761003180000,
       "deadline_ms": 1761003360000,
       "fired_at": null,
       "started_at": null,

@@ -75,6 +75,17 @@ function setup(start = 5_000) {
 }
 
 describe('[03b §3.3] KDS store', () => {
+  // ⚠️ 03b v1.0.18 §3.3 (owner 2026-11-28, QA BUG-25): the engine-planned ready time rides on the row
+  it('[03b #133, BUG-25] planned_ready_ms from the catch-up Now row and from the plan line that fires; absent from an older hub → null', () => {
+    const { store } = setup();
+    const p = plan([{ id: 'N1' }, { id: 'N2' }]);
+    p.lines[0] = { ...p.lines[0]!, planned_ready_ms: 180_000 };
+    store.apply(catchUp(body({ now: [nowLine('A', { planned_ready_ms: 120_000 }), nowLine('B')], details: [detail('N1'), detail('N2')] }), p));
+    expect(store.snapshot().rows.map((r) => [r.order_item_id, r.planned_ready_ms])).toEqual([['A', 120_000], ['B', null]]);
+    store.apply(ev('FireDispatched', { station_id: ST, order_item_ids: ['N1', 'N2'], load_id: null, due_at: 6_000, reason: 'scheduled' }));
+    expect(store.snapshot().rows.map((r) => [r.order_item_id, r.planned_ready_ms])).toEqual([['A', 120_000], ['B', null], ['N1', 180_000], ['N2', null]]);
+  });
+
   it('[03b §3.3] catch-up kds_station replaces the store; kds_lines fill details; an id without details shows a placeholder', () => {
     const { store } = setup();
     expect(store.snapshot().station).toBeNull();
