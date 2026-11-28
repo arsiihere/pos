@@ -97,3 +97,17 @@ Recorded in 02b v1.0.30 rows QK-1 – QK-10, 05 v1.0.38 QB-1, 01a v2.12 QS-1 –
 | BUG-8 | Points page tie / gap / same-position warnings | 01a QS-1 |
 | BUG-19 / BUG-22 | No autofill in staff search / New PIN; hub admin PIN pad keys | 01b QR-1, 01a QS-3 |
 | UX | Open shift returns; no text selection on button double-click; owner app remembers the branch | 02b QK-9, QK-10; 01a QS-2 |
+
+## QA round 3 rulings — lane r3-ui (owner, 2026-11-28 "QA-R3", build 97d5e267)
+
+Recorded in 02b v1.0.33 rows QR3-1 – QR3-7, 03b v1.0.21 P3-1 – P3-3, 01d v1.3.10, 05a v1.0.8.
+
+| Bug | Ruling (short) | Spec |
+|---|---|---|
+| BUG-5 | The Pass shows a boosted bag's "Ready ~{new}" with the promise struck, on every filter (BR-1) | 03b P3-1, 02b QR3-1 |
+| BUG-4 | Manager tools → Devices in the staff look; sized icons; the list scrolls | 05a v1.0.8 |
+| BUG-7 / BUG-8 | Nothing clipped on the takeaway screen at 1280–1920; pickup chips whole ("+" kept in Urdu); leftover English → Urdu | 02b QR3-3 |
+| BUG-21 / BUG-24 | "/" in the phone field focuses item search; "Max 99" for any quantity over 99 | 02b QR3-4 |
+| UX | Running late banner: token, items, how late, never over search / categories; invalid pickup text; 5th wrong PIN locks at once; typed cart quantity | 02b QR3-5 |
+| UX | Takeaway bag Hand over: small icon, off until the bag is ready; KDS Done double tap within 3 s counts | 03b P3-2, P3-3 |
+| UX | Manager phone: banners in the page flow, never over Close shift / row actions | 01d v1.3.10 |
