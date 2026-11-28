@@ -31,7 +31,7 @@ type Step = { name: 'count' } | { name: 'handover' } | { name: 'skip' } | { name
 
 const QUICK_MAJOR = [0, 5_000, 10_000] as const;
 
-/** ⚠️ 02b v1.0.28 QK-9: `back` — the screen whose prompt opened this one (e.g. `/takeaway`); after Open shift it returns there */
+/** ⚠️ 02b v1.0.30 QK-9: `back` — the screen whose prompt opened this one (e.g. `/takeaway`); after Open shift it returns there */
 export function ShiftScreen({ shiftId, back }: { shiftId?: string; back?: string }) {
   const shell = useShell();
   const api = useMemo(() => billingApi(shell.api), [shell.api]);

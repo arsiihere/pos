@@ -30,7 +30,7 @@ export function PickupRow({ value, nowMs, utcOffsetMs, bounds, problem, disabled
   const [typing, setTyping] = useState(false);
   const timeOpen = typing || value?.chip === 'time';
   const range = problem ?? bounds;
-  // ⚠️ 02b v1.0.28 QK-4 (BUG-17): a pickup at or before hub now says so, whatever the hub's reason
+  // ⚠️ 02b v1.0.30 QK-4 (BUG-17): a pickup at or before hub now says so, whatever the hub's reason
   const passed = pickupPassed(value, nowMs());
   const press = (on: boolean) => ({ 'aria-pressed': on, className: on ? 'is-sel' : undefined });
   return (

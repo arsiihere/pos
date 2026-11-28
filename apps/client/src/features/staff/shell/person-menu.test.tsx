@@ -200,7 +200,7 @@ describe('[02b-TK TK-SH01, TK-SH03] the day / shift banners under the bar', () =
   });
 });
 
-describe('[BUG-16; 02b v1.0.28 QK-3] the person menu language switch', () => {
+describe('[BUG-16; 02b v1.0.30 QK-3] the person menu language switch', () => {
   it('English / اردو: the current one checked; a pick calls onPick with that language and closes the menu', async () => {
     const { chooseLanguage, t } = await import('../../../i18n');
     const pickLang = vi.fn();

@@ -245,7 +245,7 @@ export function openBills(c: OpenBillsCtx): { bills: OpenBillRow[]; as_of_seq: n
     let s: Sum[] = [];
     let root: Root | null = null;
     let placed_by: string[] = [];
-    // ⚠️ 05 v1.0.37 §6.2 QB-1 (BUG-23): a bill row is open since the earliest of its own opened_at and what its projected
+    // ⚠️ 05 v1.0.38 §6.2 QB-1 (BUG-23): a bill row is open since the earliest of its own opened_at and what its projected
     // row showed (the seating's opened_at, the key's root placed_at) — a check bill that makes the row keeps the clock
     let since = b.opened_at;
     if (corrections) {

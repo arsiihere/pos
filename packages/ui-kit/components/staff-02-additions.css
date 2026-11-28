@@ -48,6 +48,6 @@
 :where(.pu) .tabbar--n7 { grid-template-columns: repeat(7, 1fr); }
 :where(.pu) .manager__list { padding: 18px; gap: 14px; align-items: center; }
 
-/* ⚠️ 02b v1.0.28 QK-10 (QA round 2 UX): a double-click on a panel button, chip, tile or rail row never selects its
+/* ⚠️ 02b v1.0.30 QK-10 (QA round 2 UX): a double-click on a panel button, chip, tile or rail row never selects its
    text; text fields and readable text stay selectable */
 .pu.staff button, .pu.staff [role="button"], .pu.staff [role="option"], .pu.staff [role="tab"], .pu.staff .pill, .pu.staff .mi, .pu.staff .tk-qr, .pu.staff .tk-tile { -webkit-user-select: none; user-select: none; }

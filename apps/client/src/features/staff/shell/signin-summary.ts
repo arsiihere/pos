@@ -1,7 +1,7 @@
 import { t } from '../../../i18n';
 import { fill } from '../../../i18n/en';
 
-// ⚠️ 02b v1.0.28 QK-8 (BUG-26): after a sign-in the alert banners that were waiting (the rows of the sign-in's first
+// ⚠️ 02b v1.0.30 QK-8 (BUG-26): after a sign-in the alert banners that were waiting (the rows of the sign-in's first
 // catch-up) are not stacked over the screen —
 // one summary toast "Waiting: {n} running late · {m} new" says what is waiting (tap → Inbox); alerts that come after it show
 // as banners as before (01d §8.1 B01). "Running late" = the 03a `slip_warning` rows (the late cards, "≈ N min late"). Pure.

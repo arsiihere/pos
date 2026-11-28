@@ -13,7 +13,7 @@ export type LiveMessage =
   | { kind: 'event'; seq: number; event: EventFrame['event'] }
   | { kind: 'reconnect' }
   | { kind: 'visible' }
-  /** BUG-12 / BUG-5 (02b v1.0.28 §8): the session ended — page-lived stores (the token book) drop what they hold */
+  /** BUG-12 / BUG-5 (02b v1.0.30 §8): the session ended — page-lived stores (the token book) drop what they hold */
   | { kind: 'forget' };
 
 export interface LiveBus {

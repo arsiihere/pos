@@ -93,7 +93,7 @@ describe('alert socket', () => {
     expect(store.snapshot().rows[0]).toMatchObject({ state: 'closed', by_name: 'Imran', decision: 'approve' });
   });
 
-  it('[BUG-5; 02b v1.0.28 §8] resync reopens the socket in its mode (a fresh catch-up); the store keeps its rows', () => {
+  it('[BUG-5; 02b v1.0.30 §8] resync reopens the socket in its mode (a fresh catch-up); the store keeps its rows', () => {
     const { sockets, last, store, conn } = setup('cashier_kiosk', 'sess-1');
     last().open();
     last().frame(catchUp([{ ...view({ alert_id: 'A0' }), seen_by_me: false, from_business_day: null }]));

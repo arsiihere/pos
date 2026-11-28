@@ -54,7 +54,7 @@ export function CustomerRow({ value, disabled, onChange, compact = false }: { va
       <label className="fld">
         <span className="fld__l">
           {t('c.name')} · <small>{t('c.optional')}</small>
-          {/* ⚠️ 02b v1.0.28 QK-7 (BUG-24): the hub's limit, counted as typed */}
+          {/* ⚠️ 02b v1.0.30 QK-7 (BUG-24): the hub's limit, counted as typed */}
           <small className="fld__count num" dir="ltr" data-count="">
             {name.length}/{NAME_MAX}
           </small>

@@ -1,7 +1,7 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { deviceFor, hub, menuTile, signInOn, signOut, takeawayTab, type Lang } from './02b-support';
 
-// QA round 2 (owner 2026-11-28 QA-R2; 02b v1.0.28 §8 QK-2, QK-3, test QR2-3; BUG-15, BUG-16): the cashier kiosk at 1366
+// QA round 2 (owner 2026-11-28 QA-R2; 02b v1.0.30 §8 QK-2, QK-3, test QK-T3; BUG-15, BUG-16): the cashier kiosk at 1366
 // and 1456 px wide, in English and Urdu, and the 1280 landscape tablet: menu tiles keep a readable width (≥ 140 px)
 // with names broken by word, and the pickup chips, the cart's buttons and the quantity steps are never clipped.
 

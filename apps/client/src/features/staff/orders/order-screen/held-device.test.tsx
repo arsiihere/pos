@@ -160,7 +160,7 @@ describe('[02b-TK C2-5] held drafts per device', () => {
   });
 });
 
-describe('[BUG-24; 02b v1.0.28 QK-7] a mixed Urdu / English / emoji name keeps its own order', () => {
+describe('[BUG-24; 02b v1.0.30 QK-7] a mixed Urdu / English / emoji name keeps its own order', () => {
   afterEach(() => {
     document.body.innerHTML = '';
   });

@@ -62,7 +62,7 @@ describe('[02b-TK TK-S02] keyboard speed mode on the takeaway screen', () => {
     m.unmount();
   });
 
-  it('[BUG-21; 02b v1.0.28 QK-5] "/" focuses the search with focus on a top-bar tab (outside the screen)', async () => {
+  it('[BUG-21; 02b v1.0.30 QK-5] "/" focuses the search with focus on a top-bar tab (outside the screen)', async () => {
     const h = screenHarness({ rows: [aRow({ order_id: 'O48', token: 48 })] });
     const m = h.render();
     await flush();
@@ -79,7 +79,7 @@ describe('[02b-TK TK-S02] keyboard speed mode on the takeaway screen', () => {
     m.unmount();
   });
 
-  it('[BUG-24; 02b v1.0.28 QK-7] "999n" adds at most 99 and the search says "Max 99"', async () => {
+  it('[BUG-24; 02b v1.0.30 QK-7] "999n" adds at most 99 and the search says "Max 99"', async () => {
     const h = screenHarness();
     const m = h.render();
     await flush();

@@ -12,7 +12,7 @@ export interface PersonMenuActions {
   onLock?: () => void;
   /** My shift's sub-line ("Opened 7:02 AM · float Rs 5,000" / "No shift open …"), or null */
   shiftSub?: string | null;
-  /** ⚠️ 02b v1.0.28 QK-3 (BUG-16): Language — English / اردو (kept on the device) */
+  /** ⚠️ 02b v1.0.30 QK-3 (BUG-16): Language — English / اردو (kept on the device) */
   language?: { current: Language; onPick(lang: Language): void };
 }
 

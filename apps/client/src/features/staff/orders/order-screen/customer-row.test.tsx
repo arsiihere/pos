@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mount } from '../../../../../test/dom';
 import { CustomerRow } from './CustomerRow';
 
-// BUG-24 (02b v1.0.28 §8 QK-7): the takeaway name field shows the hub's 40-character limit as typed ("n/40") and takes
+// BUG-24 (02b v1.0.30 §8 QK-7): the takeaway name field shows the hub's 40-character limit as typed ("n/40") and takes
 // no more.
 
-describe('[BUG-24; 02b v1.0.28 QK-7] the name counter', () => {
+describe('[BUG-24; 02b v1.0.30 QK-7] the name counter', () => {
   afterEach(() => {
     document.body.innerHTML = '';
   });

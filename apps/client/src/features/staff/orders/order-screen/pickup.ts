@@ -33,7 +33,7 @@ export function chipPickup(nowMs: number, minutes: (typeof PICKUP_CHIPS)[number]
 
 /**
  * Time…: "HH:MM" on the hub's local clock — today while still ahead of hub now, else the next day (null if not a time).
- * ⚠️ 02b v1.0.28 QK-4 (BUG-17): with the open day's end known (`pickup_bounds.latest_ms`), a time whose next day falls
+ * ⚠️ 02b v1.0.30 QK-4 (BUG-17): with the open day's end known (`pickup_bounds.latest_ms`), a time whose next day falls
  * after it stays today's — a time that has passed, said so (`pickupPassed`), never sent as tomorrow.
  */
 export function timePickup(hhmm: string, nowMs: number, utcOffsetMs: number, dayEndMs?: number | null): CartPickup | null {
@@ -49,7 +49,7 @@ export function timePickup(hhmm: string, nowMs: number, utcOffsetMs: number, day
   return { chip: 'time', at_ms: at };
 }
 
-/** ⚠️ 02b v1.0.28 QK-4 (BUG-17): the cart's pickup is at or before hub now ("That time has passed"). */
+/** ⚠️ 02b v1.0.30 QK-4 (BUG-17): the cart's pickup is at or before hub now ("That time has passed"). */
 export function pickupPassed(p: CartPickup | undefined, nowMs: number): boolean {
   return p !== undefined && p.at_ms <= nowMs;
 }

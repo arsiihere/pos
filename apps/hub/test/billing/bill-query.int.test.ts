@@ -724,7 +724,7 @@ describe('[05 §6.2] GET /queries/open-bills', () => {
     expect(rows.find((r) => r.seating_id === a.seating_id)!.open_minutes).toBeGreaterThan(240);
   });
 
-  it('[05 v1.0.37 §6.2 QB-1; BUG-23] a check bill that makes the bill row keeps the "Open" minutes of its seating / root order', async () => {
+  it('[05 v1.0.38 §6.2 QB-1; BUG-23] a check bill that makes the bill row keeps the "Open" minutes of its seating / root order', async () => {
     const t = dineInTwoRounds(hub, { prefix: 'QB' });
     const { root } = addedTakeaway(hub);
     hub.clock.advance(25 * 60_000);

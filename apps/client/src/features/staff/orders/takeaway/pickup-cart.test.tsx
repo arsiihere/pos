@@ -190,7 +190,7 @@ describe('[02b-TK L-CLIENT-5 item 1; 02b §8 Phone and pickup (R4)] the takeaway
     m.unmount();
   });
 
-  it('[BUG-17; 02b v1.0.28 QK-4] a typed time already past today says "That time has passed" (not "Too late — the day ends"), Send waits, and the cart keeps its ready time', async () => {
+  it('[BUG-17; 02b v1.0.30 QK-4] a typed time already past today says "That time has passed" (not "Too late — the day ends"), Send waits, and the cart keeps its ready time', async () => {
     const h = harness({
       preview: (d) => {
         drafts.push(d);

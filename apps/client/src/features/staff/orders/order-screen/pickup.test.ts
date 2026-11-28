@@ -116,7 +116,7 @@ describe('[02b-TK L-CLIENT-5 item 1; 02b §3.2 step 2b, §9] PICKUP_TIME_INVALID
   });
 });
 
-describe('[BUG-17; 02b v1.0.28 QK-4] a typed time already past', () => {
+describe('[BUG-17; 02b v1.0.30 QK-4] a typed time already past', () => {
   const T2 = Date.UTC(2026, 10, 27, 13, 20);
   const DAY_END = Date.UTC(2026, 10, 28, 4, 0);
   it('stays today when tomorrow\'s time would be past the open day\'s end', () => {

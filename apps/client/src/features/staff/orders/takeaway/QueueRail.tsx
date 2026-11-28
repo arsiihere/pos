@@ -77,7 +77,7 @@ export function useTakeawayQueue(book: TokenBook): { model: QueueModel | null; f
 }
 
 /**
- * ⚠️ 02b v1.0.28 QK-6 (BUG-23): the strip's "All orders · n" and "n Cooking" count what the queue lists — the takeaways
+ * ⚠️ 02b v1.0.30 QK-6 (BUG-23): the strip's "All orders · n" and "n Cooking" count what the queue lists — the takeaways
  * waiting to send in the device queue are Cooking rows (as the rail's Cooking section counts them).
  */
 export function stripCounts(model: Pick<QueueModel, 'ready' | 'cooking' | 'later'> | null, waiting: number): { all: number; cooking: number } {
@@ -89,7 +89,7 @@ export function stripCounts(model: Pick<QueueModel, 'ready' | 'cooking' | 'later
 export const CONTACT_GAP_MS = 2_000;
 
 /**
- * BUG-5 (QA round 2; 02b v1.0.28 §8 "Contact on this device"): never show a person masked data they may see. A row
+ * BUG-5 (QA round 2; 02b v1.0.30 §8 "Contact on this device"): never show a person masked data they may see. A row
  * whose name / phone the hub sends this device (`contactGaps`) but the book lacks after CONTACT_GAP_MS → one re-read
  * (`shell.resync`, a fresh catch-up); the same orders are never asked twice (a hub that does not send them is not
  * asked in a loop).

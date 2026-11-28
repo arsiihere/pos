@@ -5,7 +5,7 @@ import { contactGaps, tokenBookOf } from './book';
 import { screenHarness } from './screen-harness';
 import { aRow, at } from './test-fixtures';
 
-// BUG-5 (QA round 2, owner 2026-11-28 QA-R2; 02b v1.0.28 §8 "Contact on this device"): the kiosk dropped the
+// BUG-5 (QA round 2, owner 2026-11-28 QA-R2; 02b v1.0.30 §8 "Contact on this device"): the kiosk dropped the
 // customer's name and phone of tokens sent after the socket's catch-up (#8 / #7 / #5 → "Takeaway", the token view
 // Phone "—") while another device still showed them; a reload + sign-in brought them back. Cause: each mount of the
 // takeaway screen made a new token book seeded from the live bus's LAST CATCH-UP (taken when the socket connected),
@@ -36,7 +36,7 @@ const contact = (seq: number, order_id: string, customer_name: string, phone: st
   event: { event_id: `E${seq}`, event_type: 'OrderContactSet', schema_version: 1, payload: { order_id, customer_name, phone } },
 });
 
-describe('[BUG-5; 02b v1.0.28 §8] the kiosk keeps names and phones heard after the catch-up', () => {
+describe('[BUG-5; 02b v1.0.30 §8] the kiosk keeps names and phones heard after the catch-up', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] }));
   afterEach(() => {
     vi.useRealTimers();
@@ -111,7 +111,7 @@ describe('[BUG-5; 02b v1.0.28 §8] the kiosk keeps names and phones heard after 
   });
 });
 
-describe('[BUG-23; 02b v1.0.28 QK-6] the strip counts what the queue lists', () => {
+describe('[BUG-23; 02b v1.0.30 QK-6] the strip counts what the queue lists', () => {
   it('offline: 4 takeaways waiting to send are Cooking (not "0 Cooking")', async () => {
     const { stripCounts } = await import('./QueueRail');
     expect(stripCounts({ ready: [], cooking: [], later: [] }, 4)).toEqual({ all: 4, cooking: 4 });

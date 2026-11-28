@@ -82,7 +82,7 @@ Binding. From the Chrome QA report and the design audit of 28 Nov 2026. Each lan
 
 ## QA round 2 rulings — lane r2-kiosk (owner, 2026-11-28 "QA-R2", build bc0854f8)
 
-Recorded in 02b v1.0.28 rows QK-1 – QK-10, 05 v1.0.37 QB-1, 01a v2.12 QS-1 – QS-3, 01b v1.14 QR-1.
+Recorded in 02b v1.0.30 rows QK-1 – QK-10, 05 v1.0.38 QB-1, 01a v2.12 QS-1 – QS-3, 01b v1.14 QR-1.
 
 | Bug | Ruling (short) | Spec |
 |---|---|---|

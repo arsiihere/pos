@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { signInSummary } from './signin-summary';
 
-// BUG-26 (02b v1.0.28 §8 QK-8): one summary toast after sign-in, never a stack of the banners that were waiting (the
+// BUG-26 (02b v1.0.30 §8 QK-8): one summary toast after sign-in, never a stack of the banners that were waiting (the
 // rows of the sign-in's first catch-up).
 
 const row = (alert_id: string, kind: string) => ({ alert_id, kind });
 
-describe('[BUG-26; 02b v1.0.28 QK-8] the sign-in summary', () => {
+describe('[BUG-26; 02b v1.0.30 QK-8] the sign-in summary', () => {
   it('folds every banner of the sign-in catch-up into "Waiting: 3 running late · 6 new"; later ones stay banners', () => {
     const waiting = ['L1', 'L2', 'L3', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6'];
     const banners = [...['L1', 'L2', 'L3'].map((id) => row(id, 'slip_warning')), ...['N1', 'N2', 'N3', 'N4', 'N5', 'N6'].map((id) => row(id, 'zone_stock_low')), row('AFTER', 'slip_warning')];

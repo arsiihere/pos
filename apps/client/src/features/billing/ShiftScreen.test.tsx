@@ -156,7 +156,7 @@ describe('[05 §8 Shift, §6.15] open the shift (frames ShiftOpen, ShiftOpenErro
     expect(txt(v, '.b5-bh h1')).toBe('My shift');
   });
 
-  it('[02b v1.0.28 QK-9] opened from another screen\'s prompt (back = #/takeaway): after Open shift it returns there, not My shift', async () => {
+  it('[02b v1.0.30 QK-9] opened from another screen\'s prompt (back = #/takeaway): after Open shift it returns there, not My shift', async () => {
     nav.to = [];
     const s = setup({ views: [NOT_FOUND, { ok: true, data: view() }], answers: [{ ok: true, data: { shift_id: 'SH1', opened_at: 1 } }] });
     m = mount();

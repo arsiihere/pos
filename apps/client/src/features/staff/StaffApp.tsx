@@ -268,7 +268,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
   // 01d v1.3.2 §3.13.3 (#253 review): every alert id seen closed by an alert_closed frame in this session, read
   // synchronously by a tap's state re-read (a request known only from requests-to-answer leaves that list on close)
   const closedSeen = useRef(new Set<string>());
-  // ⚠️ 02b v1.0.28 QK-8 (BUG-26): this sign-in's hub time and whether its summary toast was shown
+  // ⚠️ 02b v1.0.30 QK-8 (BUG-26): this sign-in's hub time and whether its summary toast was shown
   const caughtUp = useRef<ReadonlySet<string> | null>(null);
   const summaryShown = useRef(false);
 
@@ -325,7 +325,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       },
       onCatchUp(rows) {
         store.onCatchUp(rows);
-        // ⚠️ 02b v1.0.28 QK-8 (BUG-26): the first catch-up after a sign-in is what was waiting; its rows fold into the summary
+        // ⚠️ 02b v1.0.30 QK-8 (BUG-26): the first catch-up after a sign-in is what was waiting; its rows fold into the summary
         if (caughtUp.current === null) caughtUp.current = new Set(rows.map((r) => r.alert_id));
       },
       onClosed(frame) {
@@ -566,7 +566,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     conn.setSession(who.session_token);
     setInboxLoading(true);
     setMe({ staffId: who.staff_id, name: who.display_name, allowed: new Set(), permissions: null, idleTtlMs: who.idle_ttl_ms });
-    // ⚠️ 02b v1.0.28 QK-8 (BUG-26): what was raised before this sign-in folds into one summary toast
+    // ⚠️ 02b v1.0.30 QK-8 (BUG-26): what was raised before this sign-in folds into one summary toast
     caughtUp.current = null;
     summaryShown.current = false;
     // §3.7: a sign-in refreshes the header; the hub's own deadline (session end + 2 h) replaces this one when it sends it
@@ -1237,7 +1237,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     page = <DeviceList key={route} api={devicesApi} openRequestId={devicesQuery.get('r')} openEditId={devicesQuery.get('edit')} />;
   } else if (path === '/shift' && (showShift || (shiftQueryId !== null && allowed.has('close-shift-for-others')))) {
     // task 41: #/shift?shift_id=… opens that shift (day close's Close this shift, close-shift-for-others)
-    // ⚠️ 02b v1.0.28 QK-9: #/shift?back=/takeaway (the banner's Open your shift) returns there once the shift is open
+    // ⚠️ 02b v1.0.30 QK-9: #/shift?back=/takeaway (the banner's Open your shift) returns there once the shift is open
     const back = new URLSearchParams(route.split('?')[1] ?? '').get('back');
     const backTo = back !== null && /^\/[a-z0-9/_-]*$/i.test(back) ? back : null;
     page = <ShiftScreen key={route} {...(shiftQueryId === null ? {} : { shiftId: shiftQueryId })} {...(backTo === null ? {} : { back: backTo })} />;
@@ -1320,7 +1320,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
         {t('alerts.hub_offline')}
       </span>
     );
-  // ⚠️ 02b v1.0.28 QK-8 (BUG-26): the banners raised before this sign-in → one summary toast (tap → Inbox), not a stack
+  // ⚠️ 02b v1.0.30 QK-8 (BUG-26): the banners raised before this sign-in → one summary toast (tap → Inbox), not a stack
   const summary = signInSummary(me === null ? [] : snap.banners, me === null ? null : caughtUp.current);
   const freshBanners = summary.folded.size === 0 ? snap.banners : snap.banners.filter((b) => !summary.folded.has(b.alert_id));
   useEffect(() => {
@@ -1329,7 +1329,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     toasts.show({ text: summary.text, tone: 'warn', action: { label: t('alerts.open_inbox'), run: () => navigate('/inbox') } });
   }, [summary.text, toasts]);
   const lang = language();
-  // ⚠️ 02b v1.0.28 QK-3: a language picked in the person menu re-renders the page (its root is keyed by the language)
+  // ⚠️ 02b v1.0.30 QK-3: a language picked in the person menu re-renders the page (its root is keyed by the language)
   const [, setLangTick] = useState(0);
 
   // 02a §8 Top bar (IR-3): the floor control lists the map store's floors with their table counts; the choice is the hash
@@ -1430,7 +1430,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
           onSwitch: () => setSwitching(true),
           onLock: () => setLockTick((n) => n + 1),
           shiftSub,
-          // ⚠️ 02b v1.0.28 QK-3 (BUG-16): EN / اردو, kept on the device; the page re-renders now (no sign-out)
+          // ⚠️ 02b v1.0.30 QK-3 (BUG-16): EN / اردو, kept on the device; the page re-renders now (no sign-out)
           language: {
             current: lang,
             onPick: (next) => {
@@ -1596,7 +1596,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     contextSlot,
     rush: rushSlot,
     bar: barSlot,
-    // BUG-5 (02b v1.0.28 §8): a fresh catch-up when contact the hub sends this device is missing
+    // BUG-5 (02b v1.0.30 §8): a fresh catch-up when contact the hub sends this device is missing
     resync: () => conn.resync(),
   };
   voidShell.current = shell;

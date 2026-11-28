@@ -54,7 +54,7 @@ export function initLanguage(o: { search: string; storage: Storage | null; navig
 }
 
 /**
- * ⚠️ 02b v1.0.28 QK-3 (BUG-16): the person menu's language switch — stored on the device (the same `pos-lang` key
+ * ⚠️ 02b v1.0.30 QK-3 (BUG-16): the person menu's language switch — stored on the device (the same `pos-lang` key
  * `?lang=` remembers) and applied now; the caller re-renders the page. A storage error only loses the memory.
  */
 export function chooseLanguage(lang: Language, storage: Storage | null): void {

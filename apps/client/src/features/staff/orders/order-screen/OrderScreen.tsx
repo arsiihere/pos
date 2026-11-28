@@ -244,7 +244,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   useEffect(() => () => dayWatch.dispose(), [dayWatch]);
   useVersion(dayWatch.subscribe);
   // a reply's times stand only while the hub is reachable: offline they read "—" at once (the reconnect refetches)
-  // ⚠️ 02b v1.0.28 QK-4 (BUG-17): while only the pickup is refused, the cart keeps its last ready times (never "—")
+  // ⚠️ 02b v1.0.30 QK-4 (BUG-17): while only the pickup is refused, the cart keeps its last ready times (never "—")
   const lastOkBody = useRef<EtaPreviewBody | null>(null);
   if (pv.kind === 'ok') lastOkBody.current = pv.body;
   else if (pv.kind !== 'pickup_invalid') lastOkBody.current = null;
@@ -484,7 +484,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
   const keysRef = useRef<((e: KeyboardEvent) => void) | null>(null);
   const [tab, setTab] = useState<'menu' | 'cart' | 'queue'>('menu');
   // 02b-TK C2-1: the takeaway queue rail (its book of tokens, names and phones from this device's frames, R3).
-  // BUG-5 (02b v1.0.28 §8): the page's book (one per live bus, emptied at sign-out), never one per mount
+  // BUG-5 (02b v1.0.30 §8): the page's book (one per live bus, emptied at sign-out), never one per mount
   const book = useMemo(() => (order_type === 'takeaway' ? tokenBookOf(shell.live) : null), [shell.live, order_type]);
   const [heldCount, setHeldCount] = useState(0);
   // a Hold that stays on the screen (the Takeaway tab) counts again
@@ -1246,7 +1246,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
     const target = e.target instanceof Element ? e.target : null;
     // another layer (a dialog, a menu, the lock) or another part of the page owns this key
     if (target?.closest('[role="dialog"]:not(.tk-drawer), [role="menu"], [role="alertdialog"], .idle') != null) return;
-    // ⚠️ 02b v1.0.28 QK-5 (BUG-21): "/" focuses the search from anywhere on the page that is not a field (a top-bar
+    // ⚠️ 02b v1.0.30 QK-5 (BUG-21): "/" focuses the search from anywhere on the page that is not a field (a top-bar
     // tab just clicked, a rail row), the token drawer open or not; other keys only on the screen itself
     if (e.key === '/' && !editable(target) && !overlay && searchRef.current !== null) {
       e.preventDefault();
@@ -1344,7 +1344,7 @@ export function OrderScreen({ order_type, id, home = false }: OrderScreenProps) 
                 {kbd(i === chosen ? 'Enter' : '↓')}
               </div>
             ))}
-            {/* ⚠️ 02b v1.0.28 QK-7 (BUG-24): "999n" adds 99 and says so */}
+            {/* ⚠️ 02b v1.0.30 QK-7 (BUG-24): "999n" adds 99 and says so */}
             {keyQuery.over === true && (
               <div className="tk-hint c-warn" role="status" data-max-qty="">
                 {fill(t('m.max_qty'), { n: String(MAX_KEY_QTY) })}

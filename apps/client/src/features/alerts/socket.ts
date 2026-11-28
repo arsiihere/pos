@@ -78,7 +78,7 @@ export interface AlertConnection {
   /** 05b §3.5 (N-5): after a final close the native check kept the device: open again in the current mode */
   retry(): void;
   /**
-   * BUG-5 (02b v1.0.28 §8): read the live state again — close the socket and open it again in the current mode, so
+   * BUG-5 (02b v1.0.30 §8): read the live state again — close the socket and open it again in the current mode, so
    * the hub sends a fresh catch-up. The session and the store's rows stay; a session the hub ended answers 4401.
    */
   resync(): void;

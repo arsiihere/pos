@@ -253,7 +253,7 @@ export function createTokenBook(live: LiveBus): TokenBook {
 }
 
 /**
- * BUG-5 (QA round 2; 02b v1.0.28 §8 "Contact on this device"): the page's one token book per live bus. A screen
+ * BUG-5 (QA round 2; 02b v1.0.30 §8 "Contact on this device"): the page's one token book per live bus. A screen
  * mounted later reads every frame heard since the catch-up (a book made per mount seeded from the bus's last
  * catch-up and lost each OrderContactSet sent after it). It lives as long as the bus and empties on `forget` (the
  * session ended, BUG-12), so nothing of one person's carries to the next. Screens never dispose it.
