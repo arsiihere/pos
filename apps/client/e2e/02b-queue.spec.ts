@@ -6,8 +6,8 @@ import { deviceFor, LANGS, menuTile, newOrder, sendCart, signInOn, signOut, tr, 
 // 1. offline Send → the toast "Not sent yet — token comes when the hub is back" and a dashed "Waiting to send" row in
 //    the queue rail (never a token) → the hub is back → the queue sends it as the same person → the sticky token card
 //    "Takeaway sent · Queued at …" (IR-7: mounted at the shell root) until OK, the row gone;
-// 2. a queued Send whose page reloads goes to the queue log ("this screen was restarted") → "Send again as Ali" →
-//    sent, the log is empty.
+// 2. ⚠️ 02b v1.0.32 QO-1 (owner R3-1): a queued Send whose page reloads stays queued and is sent by itself after the
+//    sign-in (the sticky card); the queue log stays empty (was: the log, "Send again as Ali", Q-2).
 
 async function takeawayWithNaan(page: Page, lang: Lang, info: TestInfo): Promise<void> {
   await newOrder(page, lang, info, 'takeaway');
@@ -62,24 +62,28 @@ for (const lang of LANGS) {
     }
   });
 
-  test(`[02b §3.12 Q-2, §8 Queue; 02b-TK C1-3] queue log: a reloaded entry → Send again as Ali (${lang})`, async ({ page }, info) => {
+  test(`[02b §3.12 QO-1 (R3-1), §8 Queue; 02b-TK C1-3] a queued order survives a reload: sent by itself after the sign-in, never the log (${lang})`, async ({ page }, info) => {
     await signInOn(page, deviceFor(info), lang);
     try {
       // the submit never gets an answer (the network drops it): queued
       await page.route('**/commands/submit-order', (route) => route.abort('connectionreset'));
       await takeawayWithNaan(page, lang, info);
       await expect(page.getByText(tr(lang, 't.queued'))).toBeVisible();
-      // the page restarts: the session token was memory only, so the entry is in the log (Q-2)
+      // ⚠️ 02b v1.0.32 QO-1: the page restarts — the order stays queued (was: the queue log, Q-2) and goes after the sign-in
       await page.reload();
       await page.unroute('**/commands/submit-order');
       await signInOn(page, deviceFor(info), lang);
+      const card = page.locator('.tokc');
+      await expect(card).toBeVisible({ timeout: 30_000 });
+      await expect(card).toContainText(tr(lang, 'send.queued_sent'));
+      const scrim = page.locator('.tk-scrim--fixed');
+      if ((await scrim.count()) > 0) await scrim.first().dispatchEvent('click');
+      await card.getByRole('button', { name: tr(lang, 'queue.ok') }).click();
       await page.evaluate(() => {
         window.location.hash = '#/queue';
       });
       const log = page.locator('[aria-labelledby="queue-log-title"]');
-      await expect(log).toContainText(tr(lang, 'queue.reloaded'));
-      await log.getByRole('button', { name: tr(lang, 'queue.send_again_as', { name: 'Ali' }) }).click();
-      await expect(page.getByText(tr(lang, 'order.toast.all_sent'))).toBeVisible();
+      await expect(log).toBeVisible();
       await expect(log.locator('.ql')).toHaveCount(0);
     } finally {
       await signOut(page, info, lang);
